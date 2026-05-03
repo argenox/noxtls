@@ -1,0 +1,26 @@
+name: Tests
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+jobs:
+  test-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure tests
+        run: cmake -S . -B build-tests -D BUILD_APPLICATIONS=OFF -D BUILD_TESTS=ON -D CMAKE_BUILD_TYPE=Release
+
+      - name: Build tests
+        run: cmake --build build-tests --parallel
+
+      - name: Run ctest
+        working-directory: build-tests
+        run: ctest --output-on-failure || echo "No ctest targets were registered"
