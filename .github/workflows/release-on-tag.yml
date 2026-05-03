@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to release (e.g., v0.1.22)"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -11,13 +17,17 @@ permissions:
 jobs:
   validate-tag:
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
     outputs:
       noxtls_version: ${{ steps.verify.outputs.noxtls_version }}
+      release_tag: ${{ steps.verify.outputs.release_tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: refs/tags/${{ env.RELEASE_TAG }}
 
       - name: Verify tag version and branch ancestry
         id: verify
@@ -40,7 +50,15 @@ jobs:
           PY
           )"
 
-          TAG_NAME="${GITHUB_REF_NAME}"
+          TAG_NAME="${RELEASE_TAG}"
+          if [[ -z "${TAG_NAME}" ]]; then
+            echo "No release tag was provided."
+            exit 1
+          fi
+          if [[ "${TAG_NAME}" != v* ]]; then
+            echo "Tag ${TAG_NAME} must start with 'v'."
+            exit 1
+          fi
           TAG_VERSION="${TAG_NAME#v}"
 
           if [[ "${TAG_VERSION}" != "${HEADER_VERSION}" ]]; then
@@ -48,12 +66,14 @@ jobs:
             exit 1
           fi
 
-          if ! git branch -r --contains "${GITHUB_SHA}" | grep -Eq 'origin/(master|main)$'; then
+          TAG_SHA="$(git rev-list -n 1 "${TAG_NAME}")"
+          if ! git branch -r --contains "${TAG_SHA}" | grep -Eq 'origin/(master|main)$'; then
             echo "Tagged commit is not on origin/master or origin/main."
             exit 1
           fi
 
           echo "noxtls_version=${HEADER_VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "release_tag=${TAG_NAME}" >> "${GITHUB_OUTPUT}"
 
   build-release-assets:
     needs: validate-tag
@@ -79,6 +99,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ needs.validate-tag.outputs.release_tag }}
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -202,8 +224,8 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: NoxTLS ${{ github.ref_name }}
+          tag_name: ${{ needs.validate-tag.outputs.release_tag }}
+          name: NoxTLS ${{ needs.validate-tag.outputs.release_tag }}
           generate_release_notes: true
           files: release-assets/*
           fail_on_unmatched_files: true
