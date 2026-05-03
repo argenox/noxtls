@@ -645,8 +645,7 @@ static void extract_cn_from_subj(const char *subj, char *cn_out, size_t cn_size)
 }
 
 /* OIDs for ECC self-signed cert (id-ecPublicKey, ecdsa-with-SHA256) */
-#ifdef NOXTLS_HAVE_CERT_WRITE
-static const uint8_t oid_id_ec_public_key[] = { 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x02, 0x01 };
+#if NOXTLS_HAVE_CERT_WRITE
 static const uint8_t oid_ecdsa_sha256[]     = { 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x02 };
 #define CERTGEN_CERT_DER_MAX 4096
 #define CERTGEN_PEM_MAX      8192
@@ -698,7 +697,7 @@ static int cmd_req(int argc, char **argv, const char *prog)
         return 1;
     }
 
-#ifdef NOXTLS_HAVE_CERT_WRITE
+#if NOXTLS_HAVE_CERT_WRITE
     if (priv.key_type == X509_PRIVATE_KEY_ECC) {
         ecc_key_t ecc_key;
         noxtls_return_t rc = noxtls_x509_private_key_to_ecc_key(&priv, &ecc_key);
