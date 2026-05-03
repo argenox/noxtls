@@ -1,0 +1,210 @@
+name: Release on tag
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  validate-tag:
+    runs-on: ubuntu-latest
+    outputs:
+      noxtls_version: ${{ steps.verify.outputs.noxtls_version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify tag version and branch ancestry
+        id: verify
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git fetch origin "+refs/heads/*:refs/remotes/origin/*"
+
+          HEADER_VERSION="$(python - <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          header = pathlib.Path("noxtls_version.h").read_text(encoding="utf-8")
+          m = re.search(r'NOXTLS_VERSION_STRING\s+"([^"]+)"', header)
+          if not m:
+              sys.exit("Could not find NOXTLS_VERSION_STRING")
+          print(m.group(1))
+          PY
+          )"
+
+          TAG_NAME="${GITHUB_REF_NAME}"
+          TAG_VERSION="${TAG_NAME#v}"
+
+          if [[ "${TAG_VERSION}" != "${HEADER_VERSION}" ]]; then
+            echo "Tag ${TAG_NAME} does not match NOXTLS_VERSION_STRING ${HEADER_VERSION}"
+            exit 1
+          fi
+
+          if ! git branch -r --contains "${GITHUB_SHA}" | grep -Eq 'origin/(master|main)$'; then
+            echo "Tagged commit is not on origin/master or origin/main."
+            exit 1
+          fi
+
+          echo "noxtls_version=${HEADER_VERSION}" >> "${GITHUB_OUTPUT}"
+
+  build-release-assets:
+    needs: validate-tag
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_suffix: linux-x64
+            use_msys2: false
+            archive_ext: tar.gz
+          - os: macos-latest
+            artifact_suffix: macos-x64
+            use_msys2: false
+            archive_ext: tar.gz
+          - os: windows-latest
+            artifact_suffix: windows-x64
+            use_msys2: true
+            archive_ext: zip
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Setup MSYS2 (Windows MinGW)
+        if: ${{ matrix.use_msys2 }}
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+
+      - name: Configure and build (Linux/macOS)
+        if: ${{ !matrix.use_msys2 }}
+        shell: bash
+        run: |
+          cmake -S . -B build -G Ninja -D BUILD_SHARED_LIBS=OFF -D BUILD_TESTS=OFF -D BUILD_APPLICATIONS=ON -D CMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel
+
+      - name: Configure and build (Windows MinGW)
+        if: ${{ matrix.use_msys2 }}
+        shell: msys2 {0}
+        run: |
+          cmake -S . -B build -G Ninja -D BUILD_SHARED_LIBS=OFF -D BUILD_TESTS=OFF -D BUILD_APPLICATIONS=ON -D CMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel
+
+      - name: Package static libraries and headers
+        shell: python
+        run: |
+          import pathlib
+          import shutil
+          import sys
+
+          package_root = pathlib.Path("artifacts/static-sdk")
+          lib_out = package_root / "lib"
+          include_out = package_root / "include"
+          lib_out.mkdir(parents=True, exist_ok=True)
+          include_out.mkdir(parents=True, exist_ok=True)
+
+          static_libs = []
+          for lib in pathlib.Path("build").rglob("*"):
+              if not lib.is_file():
+                  continue
+              if lib.suffix not in {".a", ".lib"}:
+                  continue
+              if "noxtls" not in lib.name:
+                  continue
+              static_libs.append(lib)
+
+          if not static_libs:
+              print("No static NoxTLS libraries found.")
+              sys.exit(1)
+
+          for lib in static_libs:
+              shutil.copy2(lib, lib_out / lib.name)
+
+          header_patterns = [
+              "noxtls*.h",
+              "noxtls-lib/**/*.h",
+              "utility/**/*.h",
+          ]
+          headers = set()
+          for pattern in header_patterns:
+              headers.update(pathlib.Path(".").glob(pattern))
+
+          if not headers:
+              print("No headers found.")
+              sys.exit(1)
+
+          for header in sorted(headers):
+              if not header.is_file():
+                  continue
+              destination = include_out / header
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(header, destination)
+
+      - name: Create release archives (Linux/macOS)
+        if: ${{ !matrix.use_msys2 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.validate-tag.outputs.noxtls_version }}"
+          mkdir -p release-assets
+          tar -C binary -czf "release-assets/noxtls-applications-${{ matrix.artifact_suffix }}-v${VERSION}.tar.gz" .
+          tar -C artifacts/static-sdk -czf "release-assets/noxtls-static-library-${{ matrix.artifact_suffix }}-v${VERSION}.tar.gz" .
+
+      - name: Create release archives (Windows)
+        if: ${{ matrix.use_msys2 }}
+        shell: powershell
+        run: |
+          $version = "${{ needs.validate-tag.outputs.noxtls_version }}"
+          New-Item -ItemType Directory -Force -Path "release-assets" | Out-Null
+          Compress-Archive -Path "binary\*" -DestinationPath "release-assets\noxtls-applications-${{ matrix.artifact_suffix }}-v$version.zip" -Force
+          Compress-Archive -Path "artifacts\static-sdk\*" -DestinationPath "release-assets\noxtls-static-library-${{ matrix.artifact_suffix }}-v$version.zip" -Force
+
+      - name: Upload release assets artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets-${{ matrix.artifact_suffix }}
+          path: release-assets/*
+          if-no-files-found: error
+
+  publish-release:
+    needs: [validate-tag, build-release-assets]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all release assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-assets-*
+          merge-multiple: true
+          path: release-assets
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: NoxTLS ${{ github.ref_name }}
+          generate_release_notes: true
+          files: release-assets/*
+          fail_on_unmatched_files: true
+          overwrite_files: true
