@@ -1,0 +1,202 @@
+name: Build applications (all platforms)
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+jobs:
+  build-applications:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_suffix: linux-x64
+            use_msys2: false
+          - os: macos-latest
+            artifact_suffix: macos-x64
+            use_msys2: false
+          - os: windows-latest
+            artifact_suffix: windows-x64
+            use_msys2: true
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Setup MSYS2 (Windows MinGW)
+        if: ${{ matrix.use_msys2 }}
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+
+      - name: Extract NoxTLS version from header
+        id: version
+        shell: python
+        run: |
+          import pathlib
+          import re
+          import sys
+          import os
+
+          header = pathlib.Path("noxtls_version.h").read_text(encoding="utf-8")
+          version_match = re.search(r'NOXTLS_VERSION_STRING\s+"([^"]+)"', header)
+          if not version_match:
+              print("Could not find NOXTLS_VERSION_STRING in noxtls_version.h")
+              sys.exit(1)
+          version = version_match.group(1)
+
+          cmake = pathlib.Path("CMakeLists.txt").read_text(encoding="utf-8")
+          cmake_match = re.search(r'project\(NoxTLS VERSION ([0-9]+\.[0-9]+\.[0-9]+) LANGUAGES C\)', cmake)
+          if not cmake_match:
+              print("Could not find project version in CMakeLists.txt")
+              sys.exit(1)
+
+          cmake_version = cmake_match.group(1)
+          if cmake_version != version:
+              print(f"Version mismatch: CMakeLists.txt={cmake_version}, noxtls_version.h={version}")
+              sys.exit(1)
+
+          print(f"Detected NoxTLS version: {version}")
+          github_output = os.environ.get("GITHUB_OUTPUT")
+          if not github_output:
+              print("GITHUB_OUTPUT environment variable is missing")
+              sys.exit(1)
+          with open(github_output, "a", encoding="utf-8") as out:
+              out.write(f"noxtls_version={version}\n")
+
+      - name: Configure and build applications (Linux/macOS)
+        if: ${{ !matrix.use_msys2 }}
+        shell: bash
+        run: |
+          cmake -S . -B build -G Ninja -D BUILD_SHARED_LIBS=OFF -D BUILD_TESTS=OFF -D BUILD_APPLICATIONS=ON -D CMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel
+
+      - name: Configure and build applications (Windows MinGW)
+        if: ${{ matrix.use_msys2 }}
+        shell: msys2 {0}
+        run: |
+          cmake -S . -B build -G Ninja -D BUILD_SHARED_LIBS=OFF -D BUILD_TESTS=OFF -D BUILD_APPLICATIONS=ON -D CMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel
+
+      - name: Verify all application binaries were produced
+        shell: python
+        run: |
+          import os
+          import pathlib
+          import sys
+
+          binary_dir = pathlib.Path("binary")
+          if not binary_dir.exists():
+              print("Missing binary directory.")
+              sys.exit(1)
+
+          expected = [
+              "aes",
+              "base64",
+              "cert",
+              "certificate",
+              "certgen",
+              "dtls_psk_demo",
+              "dtls_psk_test",
+              "https_client",
+              "https_server",
+              "noxtls",
+              "pkc",
+              "prime",
+              "sha",
+              "tls_test",
+          ]
+
+          ext = ".exe" if os.name == "nt" else ""
+          missing = []
+          for name in expected:
+              candidate = binary_dir / f"{name}{ext}"
+              if not candidate.exists():
+                  missing.append(str(candidate))
+
+          if missing:
+              print("Missing expected application binaries:")
+              for item in missing:
+                  print(f" - {item}")
+              sys.exit(1)
+
+      - name: Package static libraries and headers
+        shell: python
+        run: |
+          import pathlib
+          import shutil
+          import sys
+
+          root = pathlib.Path(".")
+          package_root = root / "artifacts" / "static-sdk"
+          lib_out = package_root / "lib"
+          include_out = package_root / "include"
+          lib_out.mkdir(parents=True, exist_ok=True)
+          include_out.mkdir(parents=True, exist_ok=True)
+
+          static_libs = []
+          for lib in pathlib.Path("build").rglob("*"):
+              if not lib.is_file():
+                  continue
+              if lib.suffix not in {".a", ".lib"}:
+                  continue
+              if "noxtls" not in lib.name:
+                  continue
+              static_libs.append(lib)
+
+          if not static_libs:
+              print("No static NoxTLS libraries were found in build output.")
+              sys.exit(1)
+
+          for lib in static_libs:
+              shutil.copy2(lib, lib_out / lib.name)
+
+          header_patterns = [
+              "noxtls*.h",
+              "noxtls-lib/**/*.h",
+              "utility/**/*.h",
+          ]
+          headers = set()
+          for pattern in header_patterns:
+              headers.update(pathlib.Path(".").glob(pattern))
+
+          if not headers:
+              print("No headers found to package.")
+              sys.exit(1)
+
+          for header in sorted(headers):
+              if not header.is_file():
+                  continue
+              destination = include_out / header
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(header, destination)
+
+      - name: Upload static library SDK
+        uses: actions/upload-artifact@v4
+        with:
+          name: noxtls-static-library-${{ matrix.artifact_suffix }}-v${{ steps.version.outputs.noxtls_version }}
+          path: artifacts/static-sdk/
+          if-no-files-found: error
+
+      - name: Upload application binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: noxtls-applications-${{ matrix.artifact_suffix }}-v${{ steps.version.outputs.noxtls_version }}
+          path: binary/
+          if-no-files-found: error
