@@ -1,0 +1,97 @@
+# Encryption library (when NOXTLS_OMIT_UT_SOURCES=ON, exclude unit-test sources for embedded build)
+set(ENC_SOURCES
+)
+if(NOXTLS_CFG_FEATURE_AES)
+  list(APPEND ENC_SOURCES aes/noxtls_aes.c aes/noxtls_aes_debug.c)
+  if(NOXTLS_CFG_FEATURE_AES_ECB)
+    list(APPEND ENC_SOURCES aes/noxtls_aes_ecb.c)
+  endif()
+  if(NOXTLS_CFG_FEATURE_AES_CBC)
+    list(APPEND ENC_SOURCES aes/noxtls_aes_cbc.c)
+  endif()
+  if(NOXTLS_CFG_FEATURE_AES_CTR)
+    list(APPEND ENC_SOURCES aes/noxtls_aes_ctr.c)
+  endif()
+  if(NOXTLS_CFG_FEATURE_AES_CFB)
+    list(APPEND ENC_SOURCES aes/noxtls_aes_cfb.c)
+  endif()
+  if(NOXTLS_CFG_FEATURE_AES_OFB)
+    list(APPEND ENC_SOURCES aes/noxtls_aes_ofb.c)
+  endif()
+  if(NOXTLS_CFG_FEATURE_AES_XTS)
+    list(APPEND ENC_SOURCES aes/noxtls_aes_xts.c)
+  endif()
+  if(NOXTLS_CFG_FEATURE_AES_GCM)
+    list(APPEND ENC_SOURCES aes/noxtls_aes_gcm.c)
+  endif()
+  if(NOXTLS_CFG_FEATURE_AES_CCM)
+    list(APPEND ENC_SOURCES aes/noxtls_aes_ccm.c)
+  endif()
+  if(NOXTLS_CFG_FEATURE_AES_CMAC)
+    list(APPEND ENC_SOURCES aes/noxtls_aes_cmac.c)
+  endif()
+endif()
+if(NOXTLS_CFG_FEATURE_CAMELLIA)
+  list(APPEND ENC_SOURCES
+      camellia/noxtls_camellia.c
+      camellia/noxtls_camellia_ecb.c
+      camellia/noxtls_camellia_cbc.c
+      camellia/noxtls_camellia_ctr.c
+      camellia/noxtls_camellia_cfb.c
+      camellia/noxtls_camellia_ofb.c
+  )
+endif()
+if(NOXTLS_CFG_FEATURE_ARIA)
+  list(APPEND ENC_SOURCES
+      aria/noxtls_aria.c
+      aria/noxtls_aria_ecb.c
+      aria/noxtls_aria_cbc.c
+      aria/noxtls_aria_ctr.c
+      aria/noxtls_aria_cfb.c
+      aria/noxtls_aria_ofb.c
+  )
+endif()
+if(NOXTLS_CFG_FEATURE_CHACHA20_POLY1305)
+  list(APPEND ENC_SOURCES
+      chacha20/noxtls_chacha20.c
+      chacha20/noxtls_chacha20_poly1305.c
+  )
+endif()
+if(NOXTLS_CFG_FEATURE_DES)
+  list(APPEND ENC_SOURCES
+      des/noxtls_des.c
+      des/noxtls_des_cbc.c
+  )
+endif()
+if(NOXTLS_CFG_FEATURE_RC4)
+  list(APPEND ENC_SOURCES rc4/noxtls_rc4.c)
+endif()
+
+if(NOT ENC_SOURCES)
+  message(FATAL_ERROR "At least one NOXTLS_FEATURE_* cipher must be enabled.")
+endif()
+# _ut sources moved to ut/encryption; not built into library
+add_library(noxtls_encryption STATIC
+    ${ENC_SOURCES}
+)
+
+if(MSVC)
+    # Disable Spectre mitigation warning C5045 for embedded targets.
+    target_compile_options(noxtls_encryption PRIVATE /wd5045)
+endif()
+
+target_include_directories(noxtls_encryption PUBLIC
+    ${NOXTLS_LIB_ROOT}
+    ${NOXTLS_LIB_ROOT}/common
+    ${NOXTLS_LIB_ROOT}/encryption
+    ${NOXTLS_LIB_ROOT}/encryption/aes
+    ${NOXTLS_LIB_ROOT}/encryption/camellia
+    ${NOXTLS_LIB_ROOT}/encryption/aria
+    ${NOXTLS_LIB_ROOT}/encryption/chacha20
+    ${NOXTLS_LIB_ROOT}/encryption/des
+    ${NOXTLS_LIB_ROOT}/encryption/rc4
+)
+
+target_link_libraries(noxtls_encryption
+    noxtls_hash
+)

@@ -1,0 +1,80 @@
+{
+  "releases": [
+    {
+      "version": "0.1.22",
+      "date": "TBD",
+      "changes": [
+        "RFC 6066 Maximum Fragment Length: full TLS 1.2/DTLS 1.2 support; tls12_set_max_fragment_length(); application data sent in chunks.",
+        "RFC 8449 Record Size Limit: full TLS 1.3 support; tls13_set_record_size_limit(); Client Hello and Encrypted Extensions; application data sent in chunks.",
+        "RC4 stream cipher (legacy); NOXTLS_FEATURE_RC4; noxtls_rc4.h.",
+        "Raw Public Keys (RFC 7250): TLS 1.2/DTLS 1.2 server/client certificate type extensions; tls12_set_server_use_rpk, tls12_set_client_accept_server_rpk, tls12_set_client_offer_client_rpk.",
+        "Unit tests: test_rc4.c; tls12_rpk_setters_client, tls12_rpk_setters_server.",
+        "Documentation: versioned docs 0.1.22; FEATURE_CHECKLIST and API docs updated."
+      ],
+      "fixed": [
+        "Removed invalid noxtls_aes_cbc.h include from noxtls_x509.c.",
+        "Removed duplicate oid_equal() in noxtls_x509.c (MSVC C2084)."
+      ],
+      "known_issues": []
+    },
+    {
+      "version": "0.1.21",
+      "date": "TBD",
+      "changes": [
+        "Documentation: added Docusaurus versioned docs for 0.1.21.",
+        "Memory / security: handshake buffers (TLS 1.2, 1.3, key exchange) now use a per-connection handshake_workspace or allocated buffers; before free or reuse, buffers that may hold keys or other sensitive data are cleared with NOXTLS_SECURE_FREE or memset to reduce leakage risk."
+      ],
+      "fixed": [],
+      "known_issues": []
+    },
+    {
+      "version": "0.1.19",
+      "date": "TBD",
+      "changes": [],
+      "fixed": [],
+      "known_issues": []
+    },
+    {
+      "version": "0.1.18",
+      "date": "TBD",
+      "changes": [],
+      "fixed": [],
+      "known_issues": []
+    },
+    {
+      "version": "0.1.17",
+      "date": "TBD",
+      "changes": [],
+      "fixed": [],
+      "known_issues": []
+    },
+    {
+      "version": "0.1.15",
+      "date": "TBD",
+      "changes": [],
+      "fixed": [],
+      "known_issues": []
+    },
+    {
+      "version": "0.1.14",
+      "date": "TBD",
+      "changes": [],
+      "fixed": [],
+      "known_issues": []
+    },
+    {
+      "version": "0.1.7",
+      "date": "TBD",
+      "changes": [],
+      "fixed": [],
+      "known_issues": []
+    },
+    {
+      "version": "0.1.6",
+      "date": "TBD",
+      "changes": [],
+      "fixed": [],
+      "known_issues": []
+    }
+  ]
+}

@@ -1,0 +1,69 @@
+/**
+ * NoxTLS documentation - Argenox blue (#00AAFF) theme
+ */
+
+:root {
+  --ifm-color-primary: #00aaff;
+  --ifm-color-primary-dark: #0099e6;
+  --ifm-color-primary-darker: #0088cc;
+  --ifm-color-primary-darkest: #0077b3;
+  --ifm-color-primary-light: #33bbff;
+  --ifm-color-primary-lighter: #66ccff;
+  --ifm-color-primary-lightest: #99ddff;
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #33bbff;
+  --ifm-color-primary-dark: #00aaff;
+  --ifm-color-primary-darker: #0099e6;
+  --ifm-color-primary-darkest: #0088cc;
+  --ifm-color-primary-light: #66ccff;
+  --ifm-color-primary-lighter: #99ddff;
+  --ifm-color-primary-lightest: #cceeff;
+}
+
+/* Homepage section cards */
+.home-section {
+  padding: 3rem 0;
+}
+
+.home-section-title {
+  font-size: 1.5rem;
+  margin-bottom: 1.5rem;
+  color: var(--ifm-heading-color);
+}
+
+.home-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1.25rem;
+}
+
+.home-card {
+  display: block;
+  padding: 1.25rem;
+  border-radius: 8px;
+  border: 1px solid var(--ifm-toc-border-color);
+  background: var(--ifm-background-surface-color);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.home-card:hover {
+  border-color: var(--ifm-color-primary);
+  box-shadow: 0 4px 12px rgba(0, 170, 255, 0.15);
+  text-decoration: none;
+  color: inherit;
+}
+
+.home-card-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+  color: var(--ifm-link-color);
+}
+
+.home-card-desc {
+  font-size: 0.9rem;
+  color: var(--ifm-font-color-secondary);
+  margin: 0;
+}

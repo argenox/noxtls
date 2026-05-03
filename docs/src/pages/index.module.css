@@ -1,0 +1,82 @@
+.hero {
+  padding: 4rem 0;
+  text-align: center;
+}
+
+.heroLogo {
+  display: block;
+  margin: 0 auto 1.5rem;
+  max-width: 200px;
+  height: auto;
+}
+
+.heroTitle {
+  font-size: 3rem;
+  margin-bottom: 0.5rem;
+}
+
+.heroTagline {
+  font-size: 1.35rem;
+  color: var(--ifm-font-color-secondary);
+  margin-bottom: 0.5rem;
+}
+
+.heroSubtext {
+  font-size: 1rem;
+  color: var(--ifm-font-color-secondary);
+  max-width: 560px;
+  margin: 0 auto;
+  line-height: 1.5;
+}
+
+.sections {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 1rem 4rem;
+}
+
+.section {
+  padding: 2.5rem 0;
+}
+
+.sectionTitle {
+  font-size: 1.5rem;
+  margin-bottom: 1.25rem;
+  color: var(--ifm-heading-color);
+}
+
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 1rem;
+}
+
+.card {
+  display: block;
+  padding: 1.15rem;
+  border-radius: 8px;
+  border: 1px solid var(--ifm-toc-border-color);
+  background: var(--ifm-background-surface-color);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.card:hover {
+  border-color: var(--ifm-color-primary);
+  box-shadow: 0 4px 12px rgba(0, 170, 255, 0.15);
+  text-decoration: none;
+  color: inherit;
+}
+
+.cardTitle {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+  color: var(--ifm-link-color);
+}
+
+.cardDesc {
+  font-size: 0.875rem;
+  color: var(--ifm-font-color-secondary);
+  margin: 0;
+  line-height: 1.4;
+}

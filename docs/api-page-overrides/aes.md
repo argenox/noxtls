@@ -1,0 +1,1 @@
+Shared AES types and generic entry points. For mode-specific APIs and guidance, use the pages for each mode: [AES - ECB](/docs/api/aes_ecb), [AES CBC](/docs/api/aes_cbc), [AES CTR](/docs/api/aes_ctr), [AES GCM](/docs/api/aes_gcm), [AES CCM](/docs/api/aes_ccm), [AES XTS](/docs/api/aes_xts), etc.

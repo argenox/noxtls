@@ -1,0 +1,508 @@
+/*
+* SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
+ *
+ * Simple HTTPS client using NOXTLS TLS library.
+ */
+/**
+ * @file main.c
+ * @brief Simple HTTPS client using the NoxTLS TLS library.
+ * @defgroup noxtls_app_https_client HTTPS client
+ * @details
+ * Parameters: URL (e.g. https://example.com/), optional port, optional tls12|tls13|auto,
+ * optional keylog or tlsdump path. Port overrides URL port; tls12/tls13/auto selects TLS version.
+ * @example
+ * https_client https://example.com/
+ * https_client https://example.com/ 443
+ * https_client https://example.com/ 443 tls13
+ * https_client https://example.com/ tls12
+ * https_client https://example.com/ 443 tls13 keylog=/tmp/keylog.txt
+ */
+
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#ifdef _WIN32
+#define _WINSOCK_DEPRECATED_NO_WARNINGS
+#include <winsock2.h>
+#include <ws2tcpip.h>
+typedef SOCKET socket_t;
+#define CLOSESOCK closesocket
+#else
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netdb.h>
+typedef int socket_t;
+#define INVALID_SOCKET (-1)
+#define CLOSESOCK close
+#endif
+
+#include "noxtls_common.h"
+#include "noxtls-lib/tls/noxtls_tls_common.h"
+#include "noxtls-lib/tls/noxtls_tls12.h"
+#include "noxtls-lib/tls/noxtls_tls13.h"
+
+typedef struct {
+    socket_t sock;
+} https_conn_t;
+
+static void print_usage(const char *prog)
+{
+    printf("Usage: %s <https://host[:port]/path> [port] [tls12|tls13|auto] [keylog=<path>|--keylog <path>] [tlsdump=<path>|--tlsdump <path>]\n", prog);
+    printf("Example: %s https://example.com/\n", prog);
+    printf("Example: %s https://example.com/ 443\n", prog);
+    printf("Example: %s https://example.com/ 443 tls13\n", prog);
+    printf("Example: %s https://example.com/ tls12\n", prog);
+    printf("Example: %s https://example.com/ 443 tls13 keylog=c:/temp/tls_keylog.txt\n", prog);
+    printf("Example: %s https://example.com/ 443 tls13 tlsdump=c:/temp/tls_records.txt\n", prog);
+}
+
+static int is_number(const char *s)
+{
+    if(s == NULL || *s == '\0') {
+        return 0;
+    }
+    while(*s) {
+        if(*s < '0' || *s > '9') {
+            return 0;
+        }
+        s++;
+    }
+    return 1;
+}
+
+typedef enum {
+    TLS_MODE_1_2 = 0,
+    TLS_MODE_1_3,
+    TLS_MODE_AUTO
+} tls_mode_t;
+
+static int parse_url(const char *url, char *host, size_t host_len,
+                     char *path, size_t path_len, uint16_t *port)
+{
+    const char *p = url;
+    const char *host_start;
+    const char *host_end;
+    const char *path_start;
+
+    if(url == NULL || host == NULL || path == NULL || port == NULL) {
+        return -1;
+    }
+
+    if(strncmp(p, "https://", 8) == 0) {
+        p += 8;
+    } else if(strncmp(p, "http://", 7) == 0) {
+        /* Force HTTPS even if http:// is provided */
+        p += 7;
+    }
+
+    host_start = p;
+    while(*p && *p != '/' && *p != ':') {
+        p++;
+    }
+    host_end = p;
+
+    if(host_end == host_start) {
+        return -1;
+    }
+
+    if((size_t)(host_end - host_start) >= host_len) {
+        return -1;
+    }
+    memcpy(host, host_start, (size_t)(host_end - host_start));
+    host[host_end - host_start] = '\0';
+
+    *port = 443;
+    if(*p == ':') {
+        const char *colon;
+        p++;
+        colon = p;
+        while(*p && *p != '/') {
+            if(*p < '0' || *p > '9') {
+                return -1;
+            }
+            p++;
+        }
+        if(p == colon) {
+            return -1;
+        }
+        *port = (uint16_t)atoi(colon);
+    }
+
+    if(*p == '/') {
+        path_start = p;
+    } else {
+        path_start = "/";
+    }
+
+    {
+        size_t path_start_len = strlen(path_start);
+        if(path_start_len >= path_len) {
+            return -1;
+        }
+        memcpy(path, path_start, path_start_len);
+        path[path_start_len] = '\0';
+    }
+
+    return 0;
+}
+
+static int connect_tcp(const char *host, uint16_t port, socket_t *out_sock)
+{
+    char port_str[8];
+    struct addrinfo hints;
+    struct addrinfo *res = NULL;
+    struct addrinfo *it;
+    socket_t sock = INVALID_SOCKET;
+
+    if(host == NULL || out_sock == NULL) {
+        return -1;
+    }
+
+    snprintf(port_str, sizeof(port_str), "%u", port);
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+
+    if(getaddrinfo(host, port_str, &hints, &res) != 0) {
+        return -1;
+    }
+
+    for(it = res; it != NULL; it = it->ai_next) {
+        sock = (socket_t)socket(it->ai_family, it->ai_socktype, it->ai_protocol);
+        if(sock == INVALID_SOCKET) {
+            continue;
+        }
+        if(connect(sock, it->ai_addr, (int)it->ai_addrlen) == 0) {
+            break;
+        }
+        CLOSESOCK(sock);
+        sock = INVALID_SOCKET;
+    }
+
+    freeaddrinfo(res);
+
+    if(sock == INVALID_SOCKET) {
+        return -1;
+    }
+
+    *out_sock = sock;
+    return 0;
+}
+
+static int32_t https_send_cb(void *user_data, const uint8_t *data, uint32_t len)
+{
+    https_conn_t *conn = (https_conn_t*)user_data;
+    uint32_t sent_total = 0;
+
+    if(conn == NULL || data == NULL) {
+        return -1;
+    }
+
+    while(sent_total < len) {
+        int chunk = (int)(len - sent_total);
+        int sent = (int)send(conn->sock, (const char*)data + sent_total, chunk, 0);
+        if(sent <= 0) {
+            return -1;
+        }
+        sent_total += (uint32_t)sent;
+    }
+
+    return (int32_t)sent_total;
+}
+
+static int32_t https_recv_cb(void *user_data, uint8_t *data, uint32_t len)
+{
+    https_conn_t *conn = (https_conn_t*)user_data;
+    uint32_t recv_total = 0;
+
+    if(conn == NULL || data == NULL) {
+        return -1;
+    }
+
+    while(recv_total < len) {
+        int chunk = (int)(len - recv_total);
+        int received = (int)recv(conn->sock, (char*)data + recv_total, chunk, 0);
+        if(received <= 0) {
+            return -1;
+        }
+        recv_total += (uint32_t)received;
+    }
+
+    return (int32_t)recv_total;
+}
+
+int main(int argc, char **argv)
+{
+    char host[256];
+    char path[512];
+    uint16_t port = 443;
+    socket_t sock = INVALID_SOCKET;
+    https_conn_t conn;
+    tls12_context_t tls12_ctx;
+    tls13_context_t tls13_ctx;
+    tls_mode_t tls_mode = TLS_MODE_1_2;
+    tls_mode_t active_mode = TLS_MODE_1_2;
+    noxtls_return_t rc;
+
+#ifdef _WIN32
+    WSADATA wsa;
+    if(WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
+        printf("ERROR: WSAStartup failed\n");
+        return 1;
+    }
+#endif
+
+    if(argc < 2) {
+        print_usage(argv[0]);
+#ifdef _WIN32
+        WSACleanup();
+#endif
+        return 1;
+    }
+
+    if(parse_url(argv[1], host, sizeof(host), path, sizeof(path), &port) != 0) {
+        printf("ERROR: Invalid URL\n");
+        print_usage(argv[0]);
+#ifdef _WIN32
+        WSACleanup();
+#endif
+        return 1;
+    }
+    if(argc >= 3) {
+        if(is_number(argv[2])) {
+            uint16_t override_port = (uint16_t)atoi(argv[2]);
+            if(override_port == 0) {
+                printf("ERROR: Invalid port override\n");
+#ifdef _WIN32
+                WSACleanup();
+#endif
+                return 1;
+            }
+            port = override_port;
+            if(argc >= 4) {
+                if(strcmp(argv[3], "tls13") == 0) {
+                    tls_mode = TLS_MODE_1_3;
+                } else if(strcmp(argv[3], "auto") == 0) {
+                    tls_mode = TLS_MODE_AUTO;
+                } else if(strcmp(argv[3], "tls12") == 0) {
+                    tls_mode = TLS_MODE_1_2;
+                } else {
+                    printf("ERROR: Invalid TLS mode (use tls12|tls13|auto)\n");
+#ifdef _WIN32
+                    WSACleanup();
+#endif
+                    return 1;
+                }
+            }
+        } else {
+            if(strcmp(argv[2], "tls13") == 0) {
+                tls_mode = TLS_MODE_1_3;
+            } else if(strcmp(argv[2], "auto") == 0) {
+                tls_mode = TLS_MODE_AUTO;
+            } else if(strcmp(argv[2], "tls12") == 0) {
+                tls_mode = TLS_MODE_1_2;
+            } else {
+                printf("ERROR: Invalid TLS mode (use tls12|tls13|auto)\n");
+#ifdef _WIN32
+                WSACleanup();
+#endif
+                return 1;
+            }
+        }
+    }
+
+    for(int i = 2; i < argc; i++) {
+        if(strncmp(argv[i], "keylog=", 7) == 0) {
+            tls13_set_keylog_file(argv[i] + 7);
+        } else if(strcmp(argv[i], "--keylog") == 0 && i + 1 < argc) {
+            tls13_set_keylog_file(argv[i + 1]);
+            i++;
+        } else if(strncmp(argv[i], "tlsdump=", 8) == 0) {
+            noxtls_tls_set_record_dump_file(argv[i] + 8);
+        } else if(strcmp(argv[i], "--tlsdump") == 0 && i + 1 < argc) {
+            noxtls_tls_set_record_dump_file(argv[i + 1]);
+            i++;
+        }
+    }
+
+    printf("Connecting to %s:%u%s\n", host, port, path);
+    if(connect_tcp(host, port, &sock) != 0) {
+        printf("ERROR: Failed to connect to host\n");
+#ifdef _WIN32
+        WSACleanup();
+#endif
+        return 1;
+    }
+
+    conn.sock = sock;
+
+    printf("Starting TLS handshake (mode=%s)...\n",
+           (tls_mode == TLS_MODE_1_3) ? "tls13" :
+           (tls_mode == TLS_MODE_AUTO) ? "auto" : "tls12");
+    if(tls_mode == TLS_MODE_1_3 || tls_mode == TLS_MODE_AUTO) {
+        printf("Attempting TLS 1.3...\n");
+        rc = tls13_context_init(&tls13_ctx, TLS_ROLE_CLIENT);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            printf("ERROR: tls13_context_init failed: %d\n", rc);
+            CLOSESOCK(sock);
+#ifdef _WIN32
+            WSACleanup();
+#endif
+            return 1;
+        }
+
+        tls13_ctx.server_name = host;
+        tls13_ctx.server_name_len = (uint16_t)strlen(host);
+
+        rc = noxtls_tls_set_io_callbacks(&tls13_ctx.base.base, https_send_cb, https_recv_cb, &conn);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            printf("ERROR: noxtls_tls_set_io_callbacks failed (tls13): %d\n", rc);
+            tls13_context_free(&tls13_ctx);
+            CLOSESOCK(sock);
+#ifdef _WIN32
+            WSACleanup();
+#endif
+            return 1;
+        }
+
+        rc = tls13_connect(&tls13_ctx);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            printf("WARNING: TLS 1.3 handshake failed: %d\n", rc);
+            tls13_context_free(&tls13_ctx);
+            if(tls_mode == TLS_MODE_1_3) {
+                CLOSESOCK(sock);
+#ifdef _WIN32
+                WSACleanup();
+#endif
+                return 1;
+            }
+            /* Auto fallback to TLS 1.2 */
+            printf("Falling back to TLS 1.2...\n");
+            active_mode = TLS_MODE_1_2;
+        } else {
+            active_mode = TLS_MODE_1_3;
+        }
+    }
+
+    if(active_mode == TLS_MODE_1_2) {
+        printf("Attempting TLS 1.2...\n");
+        rc = tls12_context_init(&tls12_ctx, TLS_ROLE_CLIENT);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            printf("ERROR: tls12_context_init failed: %d\n", rc);
+            CLOSESOCK(sock);
+#ifdef _WIN32
+            WSACleanup();
+#endif
+            return 1;
+        }
+
+        tls12_ctx.server_name = host;
+        tls12_ctx.server_name_len = (uint16_t)strlen(host);
+
+        rc = noxtls_tls_set_io_callbacks(&tls12_ctx.base.base, https_send_cb, https_recv_cb, &conn);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            printf("ERROR: noxtls_tls_set_io_callbacks failed (tls12): %d\n", rc);
+            tls12_context_free(&tls12_ctx);
+            CLOSESOCK(sock);
+#ifdef _WIN32
+            WSACleanup();
+#endif
+            return 1;
+        }
+
+        rc = tls12_connect(&tls12_ctx);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            printf("ERROR: TLS 1.2 handshake failed: %d\n", rc);
+            tls12_context_free(&tls12_ctx);
+            CLOSESOCK(sock);
+#ifdef _WIN32
+            WSACleanup();
+#endif
+            return 1;
+        }
+    }
+    printf("TLS handshake complete\n");
+
+    /* Send HTTP GET */
+    char request[1024];
+    if(port != 443) {
+        snprintf(request, sizeof(request),
+                 "GET %s HTTP/1.1\r\n"
+                 "Host: %s:%u\r\n"
+                 "User-Agent: NOXTLS-https_client/0.1\r\n"
+                 "Accept: */*\r\n"
+                 "Accept-Encoding: identity\r\n"
+                 "Connection: close\r\n"
+                 "\r\n",
+                 path, host, port);
+    } else {
+        snprintf(request, sizeof(request),
+                 "GET %s HTTP/1.1\r\n"
+                 "Host: %s\r\n"
+                 "User-Agent: NOXTLS-https_client/0.1\r\n"
+                 "Accept: */*\r\n"
+                 "Accept-Encoding: identity\r\n"
+                 "Connection: close\r\n"
+                 "\r\n",
+                 path, host);
+    }
+
+    if(active_mode == TLS_MODE_1_3) {
+        rc = tls13_send(&tls13_ctx, (const uint8_t*)request, (uint32_t)strlen(request));
+    } else {
+        rc = tls12_send(&tls12_ctx, (const uint8_t*)request, (uint32_t)strlen(request));
+    }
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        printf("ERROR: Failed to send HTTP request: %d\n", rc);
+        if(active_mode == TLS_MODE_1_3) {
+            tls13_context_free(&tls13_ctx);
+        } else {
+            tls12_context_free(&tls12_ctx);
+        }
+        CLOSESOCK(sock);
+#ifdef _WIN32
+        WSACleanup();
+#endif
+        return 1;
+    }
+
+    printf("---- Response ----\n");
+    while(1) {
+        uint8_t buf[4096];
+        uint32_t len = sizeof(buf) - 1;
+        if(active_mode == TLS_MODE_1_3) {
+            rc = tls13_recv(&tls13_ctx, buf, &len);
+        } else {
+            rc = tls12_recv(&tls12_ctx, buf, &len);
+        }
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            printf("TLS connection closed by peer (EOF).\n");
+            break;
+        }
+        if(len == 0) {
+            break;
+        }
+        buf[len] = '\0';
+        fwrite(buf, 1, len, stdout);
+    }
+    printf("\n---- End Response ----\n");
+
+    if(active_mode == TLS_MODE_1_3) {
+        tls13_close(&tls13_ctx);
+        tls13_context_free(&tls13_ctx);
+    } else {
+        tls12_close(&tls12_ctx);
+        tls12_context_free(&tls12_ctx);
+    }
+    CLOSESOCK(sock);
+
+#ifdef _WIN32
+    WSACleanup();
+#endif
+
+    return 0;
+}
