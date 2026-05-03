@@ -137,6 +137,13 @@ noxtls_return_t aes_decrypt_cbc(const uint8_t* key,
                     uint8_t* output,
                     aes_type_t type);
 
+noxtls_return_t aes_encrypt_ctr(const uint8_t* key,
+                    const uint8_t* data,
+                    uint32_t data_len,
+                    const uint8_t * iv,
+                    uint8_t* output,
+                    aes_type_t type);
+
 noxtls_return_t aes_init(aes_context_t *ctx,
              const uint8_t *key,
              const uint8_t *iv,
