@@ -64,7 +64,7 @@ Use the unified API when you want one handle per connection and automatic versio
 
 ### DTLS
 
-Use [dtls12_context_init](/docs/api/dtls#dtls12_context_init) or [dtls13_context_init](/docs/api/tls13#dtls13_context_init). Set MTU and retransmission with [dtls_set_mtu](/docs/api/dtls#dtls_set_mtu) and [dtls_set_retransmit](/docs/api/dtls#dtls_set_retransmit). Then use the same connect/accept and send/recv pattern as TLS; the library handles fragmentation and retransmission.
+Use [dtls12_context_init](/docs/api/tls12#dtls12_context_init) or [dtls13_context_init](/docs/api/tls13#dtls13_context_init). Set MTU and retransmission with [dtls_set_mtu](/docs/api/dtls#dtls_set_mtu) and [dtls_set_retransmit](/docs/api/dtls#dtls_set_retransmit). Then use the same connect/accept and send/recv pattern as TLS; the library handles fragmentation and retransmission.
 
 ## Configuration
 
