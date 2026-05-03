@@ -8,7 +8,6 @@
 Built for deterministic performance, clean APIs, and modern cryptography.
 
 
-<!-- Update 'argenox/noxtls' to your org/repo when the repo is public. Badges show "repo not found" if the repo is private or does not exist at that path. -->
 [![Build](https://github.com/argenox/noxtls/actions/workflows/build-applications.yml/badge.svg)](https://github.com/argenox/noxtls/actions/workflows/build-applications.yml)
 [![Tests](https://github.com/argenox/noxtls/actions/workflows/tests.yml/badge.svg)](https://github.com/argenox/noxtls/actions/workflows/tests.yml)
 [![CodeQL](https://github.com/argenox/noxtls/actions/workflows/codeql.yml/badge.svg)](https://github.com/argenox/noxtls/actions/workflows/codeql.yml)
