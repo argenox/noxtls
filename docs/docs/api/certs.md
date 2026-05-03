@@ -7,6 +7,20 @@ title: "Certificates"
 
 X.509 and certificate handling.
 
+## Types
+
+### `x509_certificate_t`
+
+Parsed X.509 certificate object.
+
+### `x509_certificate_chain_t`
+
+Certificate chain container.
+
+### `x509_private_key_t`
+
+Parsed private key container.
+
 ## API
 
 ### `noxtls_parse_der`
@@ -241,7 +255,7 @@ Check certificate validity (not expired). `cert` is [x509_certificate_t](#x509_c
 noxtls_return_t noxtls_x509_certificate_get_public_key(const x509_certificate_t *cert, void **key, uint32_t *key_type);
 ```
 
-Get public key from certificate (noxtls_ namespace). `cert` is [x509_certificate_t](#x509_certificate_t). For ECC: key is set to an allocated [ecc_key_t](/docs/api/pkc#ecc_key_t) (caller must noxtls_ecc_key_free then free). key_type: 1 = RSA, 2 = ECC.
+Get public key from certificate (noxtls_ namespace). `cert` is [x509_certificate_t](#x509_certificate_t). For ECC: key is set to an allocated [ecc_key_t](/docs/api/ecc#ecc_key_t) (caller must noxtls_ecc_key_free then free). key_type: 1 = RSA, 2 = ECC.
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success.
 
@@ -396,7 +410,7 @@ Convert X.509 private key to RSA key structure
 noxtls_return_t noxtls_x509_private_key_to_ecc_key(const x509_private_key_t *key, ecc_key_t *ecc_key);
 ```
 
-Convert X.509 private key to [ecc_key_t](/docs/api/pkc#ecc_key_t) (noxtls_ namespace). `key` is [x509_private_key_t](#x509_private_key_t). Caller provides ecc_key; it is filled and must be freed with noxtls_ecc_key_free.
+Convert X.509 private key to [ecc_key_t](/docs/api/ecc#ecc_key_t) (noxtls_ namespace). `key` is [x509_private_key_t](#x509_private_key_t). Caller provides ecc_key; it is filled and must be freed with noxtls_ecc_key_free.
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success.
 

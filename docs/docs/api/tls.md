@@ -71,7 +71,7 @@ Optional monotonic time in milliseconds (e.g. for DTLS timeouts and TLS 1.3 tick
 - **tls_signature_algorithms_extension_t** — Signature algorithms: `algorithms`, `count`.
 - **tls_alpn_extension_t** — ALPN: `protocols`, `count`.
 - **tls_supported_versions_extension_t** — Supported versions: `versions`, `count`.
-- **tls_extensions_t** — Parsed extensions container: `extensions`, `count`, plus optional parsed pointers (sni, supported_groups, key_share, signature_algorithms, alpn, supported_versions). Freed with [noxtls_tls_extensions_free](#noxtls_tls_extensions_free).
+- **tls_extensions_t** — Parsed extensions container: `extensions`, `count`, plus optional parsed pointers (sni, supported_groups, key_share, signature_algorithms, alpn, supported_versions). Freed with [noxtls_tls_extensions_free](#extension-parsing).
 
 ## Constants (summary)
 

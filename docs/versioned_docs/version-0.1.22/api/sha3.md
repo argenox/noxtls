@@ -5,6 +5,12 @@ title: "SHA-3"
 
 # SHA-3
 
+## Types
+
+### `noxtls_sha3_ctx_t`
+
+SHA-3 context state used by the init, update, and finish APIs.
+
 ## API
 
 ### `noxtls_sha3_224_init`
@@ -107,7 +113,7 @@ Verify data against expected SHA-3 hash
 - `data` — Data to verify
 - `len` — Length of data to verify
 - `expected` — Expected hash
-- `algo` — [noxtls_hash_algos_t](#noxtls_hash_algos_t) (NOXTLS_SHA3_224, SHA3_256, SHA3_384, or SHA3_512)
+- `algo` — [noxtls_hash_algos_t](/docs/api/hash#noxtls_hash_algos_t) (NOXTLS_SHA3_224, SHA3_256, SHA3_384, or SHA3_512)
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success, [NOXTLS_RETURN_FAILED](/docs/api/return_codes) if verification fails
 
