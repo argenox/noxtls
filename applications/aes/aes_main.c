@@ -52,6 +52,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <errno.h>
 #ifdef _WIN32
 #define strcasecmp _stricmp
 #define strncasecmp _strnicmp
@@ -81,6 +82,20 @@ int aes_192_handler(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t 
 
 
 void print_usage(const char * name);
+static int parse_offset_value(const char * value, size_t * offset);
+static int read_binary_file(const char * path, uint8_t ** buffer, size_t * length);
+static int write_binary_file(const char * path, const uint8_t * buffer, size_t length);
+static int aes_encrypt_buffer(
+    const uint8_t * data,
+    uint32_t len,
+    const uint8_t * key,
+    uint32_t key_len,
+    aes_mode_t mode,
+    uint8_t * iv,
+    uint8_t ** output,
+    uint32_t * output_len,
+    uint8_t tag[AES_GCM_TAG_LENGTH],
+    int * has_tag);
 
 uint8_t debug_lvl = 0;
 
@@ -120,6 +135,9 @@ void print_usage(const char * name)
     printf("-i <hex_iv>\t\tInitialization Vector/Tweak in hexadecimal format (required for cbc, ctr, cfb, ofb, xts, gcm)\n");
     printf("-d \t\t\tEnable debug mode\n");
     printf("-h \t\t\tInterpret input data as hexadecimal string\n");
+    printf("-f <file>\t\tRead plaintext/ciphertext input from file\n");
+    printf("-s <offset>\t\tStart encryption at byte offset when using -f\n");
+    printf("-o <file>\t\tWrite encrypted output to file when using -f\n");
     printf("-v \t\t\tVersion Information\n");
 
     printf("\nKey Sizes:\n");
@@ -139,6 +157,187 @@ void print_usage(const char * name)
     printf("\n\n");
 }
 
+static int parse_offset_value(const char * value, size_t * offset)
+{
+    char * endptr = NULL;
+    unsigned long long parsed = 0;
+
+    if(value == NULL || offset == NULL || value[0] == '\0') {
+        return -1;
+    }
+
+    errno = 0;
+    parsed = strtoull(value, &endptr, 0);
+    if(errno != 0 || endptr == value || *endptr != '\0') {
+        return -1;
+    }
+
+    *offset = (size_t)parsed;
+    return 0;
+}
+
+static int read_binary_file(const char * path, uint8_t ** buffer, size_t * length)
+{
+    FILE * file = NULL;
+    long file_size = 0;
+    uint8_t * file_buffer = NULL;
+
+    if(path == NULL || buffer == NULL || length == NULL) {
+        return -1;
+    }
+
+    file = fopen(path, "rb");
+    if(file == NULL) {
+        return -1;
+    }
+
+    if(fseek(file, 0, SEEK_END) != 0) {
+        fclose(file);
+        return -1;
+    }
+
+    file_size = ftell(file);
+    if(file_size < 0) {
+        fclose(file);
+        return -1;
+    }
+
+    if(fseek(file, 0, SEEK_SET) != 0) {
+        fclose(file);
+        return -1;
+    }
+
+    file_buffer = malloc((size_t)file_size);
+    if(file_size > 0 && file_buffer == NULL) {
+        fclose(file);
+        return -1;
+    }
+
+    if(file_size > 0) {
+        size_t read_count = fread(file_buffer, 1, (size_t)file_size, file);
+        if(read_count != (size_t)file_size) {
+            free(file_buffer);
+            fclose(file);
+            return -1;
+        }
+    }
+
+    fclose(file);
+    *buffer = file_buffer;
+    *length = (size_t)file_size;
+    return 0;
+}
+
+static int write_binary_file(const char * path, const uint8_t * buffer, size_t length)
+{
+    FILE * file = NULL;
+
+    if(path == NULL || (buffer == NULL && length > 0)) {
+        return -1;
+    }
+
+    file = fopen(path, "wb");
+    if(file == NULL) {
+        return -1;
+    }
+
+    if(length > 0) {
+        size_t write_count = fwrite(buffer, 1, length, file);
+        if(write_count != length) {
+            fclose(file);
+            return -1;
+        }
+    }
+
+    fclose(file);
+    return 0;
+}
+
+static int aes_encrypt_buffer(
+    const uint8_t * data,
+    uint32_t len,
+    const uint8_t * key,
+    uint32_t key_len,
+    aes_mode_t mode,
+    uint8_t * iv,
+    uint8_t ** output,
+    uint32_t * output_len,
+    uint8_t tag[AES_GCM_TAG_LENGTH],
+    int * has_tag)
+{
+    uint16_t key_bits = 0;
+    uint32_t encrypt_len = 0;
+    uint8_t * padded_data = NULL;
+    uint8_t * encrypted = NULL;
+    noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
+
+    if(data == NULL || key == NULL || output == NULL || output_len == NULL || has_tag == NULL) {
+        return -1;
+    }
+
+    if(key_len == 16) {
+        key_bits = AES_128_BIT;
+    } else if(key_len == 24) {
+        key_bits = AES_192_BIT;
+    } else if(key_len == 32) {
+        key_bits = AES_256_BIT;
+    } else {
+        return -1;
+    }
+
+    *output = NULL;
+    *output_len = 0;
+    *has_tag = 0;
+
+    if(mode == AES_GCM) {
+        encrypted = malloc(len);
+        if(encrypted == NULL && len > 0) {
+            return -1;
+        }
+
+        rc = aes_gcm_encrypt((uint8_t *)key, key_bits, iv, NULL, 0, data, len, encrypted, tag);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            free(encrypted);
+            return -1;
+        }
+
+        *output = encrypted;
+        *output_len = len;
+        *has_tag = 1;
+        return 0;
+    }
+
+    if(mode == AES_CTR || mode == AES_CFB || mode == AES_OFB || mode == AES_XTS) {
+        encrypt_len = len;
+    } else {
+        encrypt_len = ((len + AES_BLOCK_LENGTH - 1) / AES_BLOCK_LENGTH) * AES_BLOCK_LENGTH;
+    }
+
+    padded_data = malloc(encrypt_len);
+    encrypted = malloc(encrypt_len);
+    if((padded_data == NULL || encrypted == NULL) && encrypt_len > 0) {
+        free(padded_data);
+        free(encrypted);
+        return -1;
+    }
+
+    if(encrypt_len > 0) {
+        memset(padded_data, 0, encrypt_len);
+        memcpy(padded_data, data, len);
+    }
+
+    rc = aes_encrypt_data((uint8_t *)key, padded_data, encrypt_len, iv, encrypted, key_bits, mode);
+    free(padded_data);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        free(encrypted);
+        return -1;
+    }
+
+    *output = encrypted;
+    *output_len = encrypt_len;
+    return 0;
+}
+
 void print_version(void)
 {
     printf("NOXTLS AES v%u.%u.%u\n", (unsigned int)APP_VERSION_MAJOR, (unsigned int)APP_VERSION_MINOR, (unsigned int)APP_VERSION_BUILD);
@@ -152,6 +351,9 @@ int main(int argc, char ** argv)
     uint32_t data_length = 0;
     uint8_t * data_buffer = NULL;
     int argc_skip = 0;
+    const char * input_file_path = NULL;
+    const char * output_file_path = NULL;
+    size_t file_offset = 0;
 
 
     input_data_type_t type = INPUT_DATA_TYPE_STRING;
@@ -309,6 +511,42 @@ int main(int argc, char ** argv)
                 }
                 arg_idx++;
             }
+            else if (strcmp(argv[arg_idx], "-f") == 0)
+            {
+                if (arg_idx + 1 >= argc)
+                {
+                    printf("Error: -f option requires an input file path\n");
+                    return -1;
+                }
+                input_file_path = argv[arg_idx + 1];
+                argc_skip += 2;
+                arg_idx += 2;
+            }
+            else if (strcmp(argv[arg_idx], "-o") == 0)
+            {
+                if (arg_idx + 1 >= argc)
+                {
+                    printf("Error: -o option requires an output file path\n");
+                    return -1;
+                }
+                output_file_path = argv[arg_idx + 1];
+                argc_skip += 2;
+                arg_idx += 2;
+            }
+            else if (strcmp(argv[arg_idx], "-s") == 0)
+            {
+                if (arg_idx + 1 >= argc)
+                {
+                    printf("Error: -s option requires an offset value\n");
+                    return -1;
+                }
+                if(parse_offset_value(argv[arg_idx + 1], &file_offset) != 0) {
+                    printf("Error: invalid offset '%s'\n", argv[arg_idx + 1]);
+                    return -1;
+                }
+                argc_skip += 2;
+                arg_idx += 2;
+            }
             else
             {
                 /* Unknown option, skip it */
@@ -324,7 +562,7 @@ int main(int argc, char ** argv)
     }
     (void)arg_idx;
 
-    if(type == INPUT_DATA_TYPE_STRING)
+    if(input_file_path == NULL && type == INPUT_DATA_TYPE_STRING)
     {
         int j = 0;
         size_t total_str_len = 0;
@@ -365,8 +603,12 @@ int main(int argc, char ** argv)
             printf("total_str_len: %zu \n", total_str_len);
         }
     }
-    else if(type == INPUT_DATA_TYPE_HEX)
+    else if(input_file_path == NULL && type == INPUT_DATA_TYPE_HEX)
     {
+        if(argc_skip >= argc) {
+            printf("Error: missing hex input\n");
+            return -1;
+        }
         size_t hex_len = strlen(argv[argc_skip]);
         
         if(debug_lvl > 0) {
@@ -440,7 +682,115 @@ int main(int argc, char ** argv)
         }
     }
 
-    if(function_handler != NULL) {
+    if(input_file_path != NULL) {
+        uint8_t * file_buffer = NULL;
+        size_t file_length = 0;
+        size_t output_length = 0;
+        uint8_t * encrypted_buffer = NULL;
+        uint8_t * output_buffer = NULL;
+        uint8_t tag[AES_GCM_TAG_LENGTH] = {0};
+        int has_tag = 0;
+        uint32_t encrypted_length = 0;
+
+        if(output_file_path == NULL) {
+            printf("Error: -o <file> is required when using -f <file>\n");
+            if(key_buffer) free(key_buffer);
+            if(iv_buffer) free(iv_buffer);
+            if(data_buffer) free(data_buffer);
+            return -1;
+        }
+
+        if(read_binary_file(input_file_path, &file_buffer, &file_length) != 0) {
+            printf("Error: failed to read input file '%s'\n", input_file_path);
+            if(key_buffer) free(key_buffer);
+            if(iv_buffer) free(iv_buffer);
+            if(data_buffer) free(data_buffer);
+            return -1;
+        }
+
+        if(file_offset > file_length) {
+            printf("Error: offset %zu is beyond end of file (%zu bytes)\n", file_offset, file_length);
+            free(file_buffer);
+            if(key_buffer) free(key_buffer);
+            if(iv_buffer) free(iv_buffer);
+            if(data_buffer) free(data_buffer);
+            return -1;
+        }
+
+        if((file_length - file_offset) > UINT32_MAX) {
+            printf("Error: input region too large\n");
+            free(file_buffer);
+            if(key_buffer) free(key_buffer);
+            if(iv_buffer) free(iv_buffer);
+            if(data_buffer) free(data_buffer);
+            return -1;
+        }
+
+        if((file_length - file_offset) > 0) {
+            if(aes_encrypt_buffer(
+                   &file_buffer[file_offset],
+                   (uint32_t)(file_length - file_offset),
+                   key_buffer,
+                   key_length,
+                   cipher_mode,
+                   iv_buffer,
+                   &encrypted_buffer,
+                   &encrypted_length,
+                   tag,
+                   &has_tag) != 0) {
+                printf("Error: AES encryption failed\n");
+                free(file_buffer);
+                if(key_buffer) free(key_buffer);
+                if(iv_buffer) free(iv_buffer);
+                if(data_buffer) free(data_buffer);
+                return -1;
+            }
+        }
+
+        output_length = file_offset + encrypted_length + (has_tag ? AES_GCM_TAG_LENGTH : 0U);
+        output_buffer = malloc(output_length);
+        if(output_buffer == NULL && output_length > 0) {
+            printf("Error: Memory allocation failed\n");
+            free(encrypted_buffer);
+            free(file_buffer);
+            if(key_buffer) free(key_buffer);
+            if(iv_buffer) free(iv_buffer);
+            if(data_buffer) free(data_buffer);
+            return -1;
+        }
+
+        if(file_offset > 0) {
+            memcpy(output_buffer, file_buffer, file_offset);
+        }
+        if(encrypted_length > 0) {
+            memcpy(output_buffer + file_offset, encrypted_buffer, encrypted_length);
+        }
+        if(has_tag) {
+            memcpy(output_buffer + file_offset + encrypted_length, tag, AES_GCM_TAG_LENGTH);
+        }
+
+        if(write_binary_file(output_file_path, output_buffer, output_length) != 0) {
+            printf("Error: failed to write output file '%s'\n", output_file_path);
+            free(output_buffer);
+            free(encrypted_buffer);
+            free(file_buffer);
+            if(key_buffer) free(key_buffer);
+            if(iv_buffer) free(iv_buffer);
+            if(data_buffer) free(data_buffer);
+            return -1;
+        }
+
+        printf("Encrypted %u bytes from offset %zu into %s\n", (unsigned int)(file_length - file_offset), file_offset, output_file_path);
+        if(has_tag) {
+            printf("Appended GCM tag:\n");
+            print_hash(tag, AES_GCM_TAG_LENGTH);
+        }
+
+        free(output_buffer);
+        free(encrypted_buffer);
+        free(file_buffer);
+    }
+    else if(function_handler != NULL) {
         function_handler(data_buffer, data_length, key_buffer, key_length, cipher_mode, iv_buffer);
     }
 
@@ -455,6 +805,11 @@ int main(int argc, char ** argv)
 
 int aes_128_handler(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t key_len, aes_mode_t mode, uint8_t * iv)
 {
+    uint8_t * output = NULL;
+    uint32_t output_len = 0;
+    uint8_t tag[AES_GCM_TAG_LENGTH] = {0};
+    int has_tag = 0;
+
     if(debug_lvl > 0)
         printf("%s - %u bytes data, %u bytes key, mode=%d\n", __func__, (unsigned int)len, (unsigned int)key_len, mode);
 
@@ -463,88 +818,33 @@ int aes_128_handler(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t 
         return -1;
     }
 
-    if(mode == AES_GCM) {
-        uint8_t tag[AES_GCM_TAG_LENGTH];
-        uint8_t *output = (uint8_t*)malloc(len);
-        if(output == NULL) {
-            printf("Error: Memory allocation failed\n");
-            return -1;
-        }
-        noxtls_return_t rc = aes_gcm_encrypt(key, AES_128_BIT, iv, NULL, 0, data, len, output, tag);
-        if(rc == NOXTLS_RETURN_SUCCESS) {
-            printf("Encrypted data:\n");
-            if(len > UINT16_MAX) {
-                printf("Error: output too large to display\n");
-            } else {
-                print_hash(output, (uint16_t)len);
-            }
-            printf("Tag:\n");
-            print_hash(tag, AES_GCM_TAG_LENGTH);
-        } else {
-            printf("Error: AES-GCM encryption failed\n");
-        }
-        free(output);
-        return (rc == NOXTLS_RETURN_SUCCESS) ? 0 : -1;
+    if(aes_encrypt_buffer(data, len, key, key_len, mode, iv, &output, &output_len, tag, &has_tag) != 0) {
+        printf("Error: AES encryption failed\n");
+        return -1;
     }
 
-    /* For CTR, CFB, OFB modes, data doesn't need to be block-aligned */
-    /* For ECB and CBC, pad to block boundaries */
-    uint32_t output_len;
-    uint8_t * padded_data = NULL;
-    uint8_t * output = NULL;
-    
-    if(mode == AES_CTR || mode == AES_CFB || mode == AES_OFB || mode == AES_XTS) {
-        /* Stream modes: output length equals input length */
-        output_len = len;
-        padded_data = malloc(len);
-        output = malloc(len);
-        if(padded_data == NULL || output == NULL) {
-            printf("Error: Memory allocation failed\n");
-            if(padded_data) free(padded_data);
-            if(output) free(output);
-            return -1;
-        }
-        memcpy(padded_data, data, len);
+    printf("Encrypted data:\n");
+    if(output_len > UINT16_MAX) {
+        printf("Error: output too large to display\n");
+    } else {
+        print_hash(output, (uint16_t)output_len);
     }
-    else {
-        /* Block modes: pad to block boundaries */
-        output_len = ((len + AES_BLOCK_LENGTH - 1) / AES_BLOCK_LENGTH) * AES_BLOCK_LENGTH;
-        padded_data = malloc(output_len);
-        output = malloc(output_len);
-        if(padded_data == NULL || output == NULL) {
-            printf("Error: Memory allocation failed\n");
-            if(padded_data) free(padded_data);
-            if(output) free(output);
-            return -1;
-        }
-        memset(padded_data, 0, output_len);
-        memcpy(padded_data, data, len);
+    if(has_tag) {
+        printf("Tag:\n");
+        print_hash(tag, AES_GCM_TAG_LENGTH);
     }
-    
-    /* Perform AES encryption */
-    int rc = aes_encrypt_data(key, padded_data, output_len, iv, output, AES_128_BIT, mode);
-    
-    if(rc == 0) {
-        /* Print encrypted output as hex */
-        printf("Encrypted data:\n");
-        if(output_len > UINT16_MAX) {
-            printf("Error: output too large to display\n");
-        } else {
-            print_hash(output, (uint16_t)output_len);
-        }
-    }
-    else {
-        printf("Error: AES encryption failed\n");
-    }
-    
-    free(padded_data);
+
     free(output);
-    
-    return (rc == NOXTLS_RETURN_SUCCESS) ? 0 : -1;
+    return 0;
 }
 
 int aes_192_handler(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t key_len, aes_mode_t mode, uint8_t * iv)
 {
+    uint8_t * output = NULL;
+    uint32_t output_len = 0;
+    uint8_t tag[AES_GCM_TAG_LENGTH] = {0};
+    int has_tag = 0;
+
     if(debug_lvl > 0)
         printf("%s - %u bytes data, %u bytes key, mode=%d\n", __func__, (unsigned int)len, (unsigned int)key_len, mode);
 
@@ -553,88 +853,33 @@ int aes_192_handler(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t 
         return -1;
     }
 
-    if(mode == AES_GCM) {
-        uint8_t tag[AES_GCM_TAG_LENGTH];
-        uint8_t *output = (uint8_t*)malloc(len);
-        if(output == NULL) {
-            printf("Error: Memory allocation failed\n");
-            return -1;
-        }
-        noxtls_return_t rc = aes_gcm_encrypt(key, AES_192_BIT, iv, NULL, 0, data, len, output, tag);
-        if(rc == NOXTLS_RETURN_SUCCESS) {
-            printf("Encrypted data:\n");
-            if(len > UINT16_MAX) {
-                printf("Error: output too large to display\n");
-            } else {
-                print_hash(output, (uint16_t)len);
-            }
-            printf("Tag:\n");
-            print_hash(tag, AES_GCM_TAG_LENGTH);
-        } else {
-            printf("Error: AES-GCM encryption failed\n");
-        }
-        free(output);
-        return (rc == NOXTLS_RETURN_SUCCESS) ? 0 : -1;
+    if(aes_encrypt_buffer(data, len, key, key_len, mode, iv, &output, &output_len, tag, &has_tag) != 0) {
+        printf("Error: AES encryption failed\n");
+        return -1;
     }
 
-    /* For CTR, CFB, OFB modes, data doesn't need to be block-aligned */
-    /* For ECB and CBC, pad to block boundaries */
-    uint32_t output_len;
-    uint8_t * padded_data = NULL;
-    uint8_t * output = NULL;
-    
-    if(mode == AES_CTR || mode == AES_CFB || mode == AES_OFB || mode == AES_XTS) {
-        /* Stream modes: output length equals input length */
-        output_len = len;
-        padded_data = malloc(len);
-        output = malloc(len);
-        if(padded_data == NULL || output == NULL) {
-            printf("Error: Memory allocation failed\n");
-            if(padded_data) free(padded_data);
-            if(output) free(output);
-            return -1;
-        }
-        memcpy(padded_data, data, len);
+    printf("Encrypted data:\n");
+    if(output_len > UINT16_MAX) {
+        printf("Error: output too large to display\n");
+    } else {
+        print_hash(output, (uint16_t)output_len);
     }
-    else {
-        /* Block modes: pad to block boundaries */
-        output_len = ((len + AES_BLOCK_LENGTH - 1) / AES_BLOCK_LENGTH) * AES_BLOCK_LENGTH;
-        padded_data = malloc(output_len);
-        output = malloc(output_len);
-        if(padded_data == NULL || output == NULL) {
-            printf("Error: Memory allocation failed\n");
-            if(padded_data) free(padded_data);
-            if(output) free(output);
-            return -1;
-        }
-        memset(padded_data, 0, output_len);
-        memcpy(padded_data, data, len);
+    if(has_tag) {
+        printf("Tag:\n");
+        print_hash(tag, AES_GCM_TAG_LENGTH);
     }
-    
-    /* Perform AES encryption */
-    noxtls_return_t rc = aes_encrypt_data(key, padded_data, output_len, iv, output, AES_192_BIT, mode);
-    
-    if(rc == NOXTLS_RETURN_SUCCESS) {
-        /* Print encrypted output as hex */
-        printf("Encrypted data:\n");
-        if(output_len > UINT16_MAX) {
-            printf("Error: output too large to display\n");
-        } else {
-            print_hash(output, (uint16_t)output_len);
-        }
-    }
-    else {
-        printf("Error: AES encryption failed\n");
-    }
-    
-    free(padded_data);
+
     free(output);
-    
-    return (rc == NOXTLS_RETURN_SUCCESS) ? 0 : -1;
+    return 0;
 }
 
 int aes_256_handler(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t key_len, aes_mode_t mode, uint8_t * iv)
 {
+    uint8_t * output = NULL;
+    uint32_t output_len = 0;
+    uint8_t tag[AES_GCM_TAG_LENGTH] = {0};
+    int has_tag = 0;
+
     if(debug_lvl > 0)
         printf("%s - %u bytes data, %u bytes key, mode=%d\n", __func__, (unsigned int)len, (unsigned int)key_len, mode);
 
@@ -643,82 +888,22 @@ int aes_256_handler(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t 
         return -1;
     }
 
-    if(mode == AES_GCM) {
-        uint8_t tag[AES_GCM_TAG_LENGTH];
-        uint8_t *output = (uint8_t*)malloc(len);
-        if(output == NULL) {
-            printf("Error: Memory allocation failed\n");
-            return -1;
-        }
-        noxtls_return_t rc = aes_gcm_encrypt(key, AES_256_BIT, iv, NULL, 0, data, len, output, tag);
-        if(rc == NOXTLS_RETURN_SUCCESS) {
-            printf("Encrypted data:\n");
-            if(len > UINT16_MAX) {
-                printf("Error: output too large to display\n");
-            } else {
-                print_hash(output, (uint16_t)len);
-            }
-            printf("Tag:\n");
-            print_hash(tag, AES_GCM_TAG_LENGTH);
-        } else {
-            printf("Error: AES-GCM encryption failed\n");
-        }
-        free(output);
-        return (rc == NOXTLS_RETURN_SUCCESS) ? 0 : -1;
+    if(aes_encrypt_buffer(data, len, key, key_len, mode, iv, &output, &output_len, tag, &has_tag) != 0) {
+        printf("Error: AES encryption failed\n");
+        return -1;
     }
 
-    /* For CTR, CFB, OFB modes, data doesn't need to be block-aligned */
-    /* For ECB and CBC, pad to block boundaries */
-    uint32_t output_len;
-    uint8_t * padded_data = NULL;
-    uint8_t * output = NULL;
-    
-    if(mode == AES_CTR || mode == AES_CFB || mode == AES_OFB || mode == AES_XTS) {
-        /* Stream modes: output length equals input length */
-        output_len = len;
-        padded_data = malloc(len);
-        output = malloc(len);
-        if(padded_data == NULL || output == NULL) {
-            printf("Error: Memory allocation failed\n");
-            if(padded_data) free(padded_data);
-            if(output) free(output);
-            return -1;
-        }
-        memcpy(padded_data, data, len);
+    printf("Encrypted data:\n");
+    if(output_len > UINT16_MAX) {
+        printf("Error: output too large to display\n");
+    } else {
+        print_hash(output, (uint16_t)output_len);
     }
-    else {
-        /* Block modes: pad to block boundaries */
-        output_len = ((len + AES_BLOCK_LENGTH - 1) / AES_BLOCK_LENGTH) * AES_BLOCK_LENGTH;
-        padded_data = malloc(output_len);
-        output = malloc(output_len);
-        if(padded_data == NULL || output == NULL) {
-            printf("Error: Memory allocation failed\n");
-            if(padded_data) free(padded_data);
-            if(output) free(output);
-            return -1;
-        }
-        memset(padded_data, 0, output_len);
-        memcpy(padded_data, data, len);
+    if(has_tag) {
+        printf("Tag:\n");
+        print_hash(tag, AES_GCM_TAG_LENGTH);
     }
-    
-    /* Perform AES encryption */
-    noxtls_return_t rc = aes_encrypt_data(key, padded_data, output_len, iv, output, AES_256_BIT, mode);
-    
-    if(rc == NOXTLS_RETURN_SUCCESS) {
-        /* Print encrypted output as hex */
-        printf("Encrypted data:\n");
-        if(output_len > UINT16_MAX) {
-            printf("Error: output too large to display\n");
-        } else {
-            print_hash(output, (uint16_t)output_len);
-        }
-    }
-    else {
-        printf("Error: AES encryption failed\n");
-    }
-    
-    free(padded_data);
+
     free(output);
-    
-    return (rc == NOXTLS_RETURN_SUCCESS) ? 0 : -1;
+    return 0;
 }
