@@ -8,7 +8,10 @@ title: Crypto API
 The NoxTLS C API is organized by module. Each page is generated from Doxygen documentation in the source.
 
 - **[Common](/docs/api/common)** – Memory, debug, and shared utilities
+- **[Version macros](/docs/api/version)** – Compile-time version constants
+- **[Build configuration checks](/docs/api/build_config)** – Compile-time feature dependency checks
 - **[Encryption](/docs/api/encryption)** – AES, ARIA, Camellia, ChaCha20
+- **[DRBG](/docs/api/drbg)** – AES-CTR deterministic random bit generation
 - **[Message digest](/docs/api/mdigest)** – SHA, MD5, SHA-3, BLAKE2, etc.
 - **[Public key crypto](/docs/api/pkc)** – RSA, ECC, ECDSA, ECDH
 - **[Certificates](/docs/api/certs)** – X.509 and certificate handling

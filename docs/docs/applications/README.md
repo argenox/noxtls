@@ -17,6 +17,7 @@ Command-line utilities and demos built on the NoxTLS library. Each application i
 - **[HTTPS client](app_https_client)** – Example HTTPS client
 - **[HTTPS server](app_https_server)** – Example HTTPS server
 - **[NoxTLS CLI](app_noxtls)** – Multi-command CLI (e.g. message digest)
+- **[Noxcrypt utility](app_noxcrypt)** – Command-style digest utility
 - **[PKC utility](app_pkc)** – Public key crypto (RSA)
 - **[Prime utility](app_prime)** – Prime number utilities
 - **[SHA utility](app_sha)** – Message digest (SHA, MD5, etc.)

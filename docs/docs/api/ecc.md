@@ -75,6 +75,54 @@ Initialize ECC point
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success, [NOXTLS_RETURN_NULL](/docs/api/return_codes) if point is NULL
 
+### `noxtls_ecc_point_add`
+
+```c
+noxtls_return_t noxtls_ecc_point_add(ecc_point_t *result, const ecc_point_t *p1, const ecc_point_t *p2, const ecc_curve_params_t *curve);
+```
+
+Add two points on the selected curve.
+
+### `noxtls_ecc_point_double`
+
+```c
+noxtls_return_t noxtls_ecc_point_double(ecc_point_t *result, ecc_point_t *p, ecc_curve_params_t *curve);
+```
+
+Double a point on the selected curve.
+
+### `noxtls_ecc_point_multiply`
+
+```c
+noxtls_return_t noxtls_ecc_point_multiply(ecc_point_t *result, const uint8_t *scalar, const ecc_point_t *point, const ecc_curve_params_t *curve);
+```
+
+Scalar multiplication (`result = scalar * point`).
+
+### `noxtls_ecc_point_is_on_curve`
+
+```c
+noxtls_return_t noxtls_ecc_point_is_on_curve(const ecc_point_t *point, const ecc_curve_params_t *curve);
+```
+
+Validate that a point lies on the selected curve.
+
+### `noxtls_ecc_point_multiply_uses_ref`
+
+```c
+int noxtls_ecc_point_multiply_uses_ref(void);
+```
+
+Return whether point multiplication currently uses a reference implementation path.
+
+### `noxtls_ecc_point_mul_window_size`
+
+```c
+int noxtls_ecc_point_mul_window_size(void);
+```
+
+Return configured point-multiplication window size (`0` means ladder-only).
+
 ### `noxtls_ecc_key_init`
 
 ```c
