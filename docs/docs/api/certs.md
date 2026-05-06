@@ -312,6 +312,14 @@ noxtls_return_t noxtls_x509_parse_time(const uint8_t *time_data, uint32_t time_l
 
 Parse ASN.1 time
 
+### `noxtls_x509_set_unknown_extension_callback`
+
+```c
+void noxtls_x509_set_unknown_extension_callback(noxtls_x509_unknown_ext_cb_t cb, void *user_ctx);
+```
+
+Set a global callback for unknown/custom certificate extension OIDs encountered during parse. Pass `NULL` as callback to clear.
+
 ### `noxtls_x509_certificate_chain_init`
 
 ```c
@@ -385,6 +393,43 @@ noxtls_return_t noxtls_x509_private_key_parse_pem(x509_private_key_t *key, const
 ```
 
 Parse X.509 private key from PEM format
+
+### Encrypted private keys (PBES2/PBKDF2)
+
+For PKCS#8 `EncryptedPrivateKeyInfo`, noxtls supports decryption through:
+
+- `noxtls_x509_private_key_parse_der_with_password(...)`
+- `noxtls_x509_private_key_parse_pem_with_password(...)`
+
+Current support in the built-in parser is:
+
+- PBES2 container
+- PBKDF2 key derivation using HMAC-SHA1
+- AES-CBC encryption schemes: AES-128-CBC and AES-256-CBC
+
+Behavior notes:
+
+- If an encrypted key is parsed without a password, parsing fails and `key->encrypted` is set.
+- If a password is provided but decryption fails (wrong password or unsupported scheme), parsing fails.
+- Iteration count must be greater than 0 (internally bounded to avoid unreasonable values).
+
+This PBKDF2 path is used for encrypted private key import and is not a general-purpose KDF API.
+
+### `noxtls_x509_private_key_parse_der_with_password`
+
+```c
+noxtls_return_t noxtls_x509_private_key_parse_der_with_password(x509_private_key_t *key, const uint8_t *data, uint32_t len, const char *password, uint32_t password_len);
+```
+
+Parse DER private key. If the input is PKCS#8 `EncryptedPrivateKeyInfo`, decrypt using password then parse.
+
+### `noxtls_x509_private_key_parse_pem_with_password`
+
+```c
+noxtls_return_t noxtls_x509_private_key_parse_pem_with_password(x509_private_key_t *key, const uint8_t *data, uint32_t len, const char *password, uint32_t password_len);
+```
+
+Parse PEM private key. If the input is encrypted PKCS#8, decrypt using password then parse.
 
 ### `noxtls_x509_private_key_load_file`
 

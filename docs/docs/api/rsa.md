@@ -94,3 +94,23 @@ noxtls_return_t noxtls_rsa_verify(const rsa_key_t *key, const uint8_t *message, 
 RSA Signature Verification. `key` is [rsa_key_t](#rsa_key_t); `hash_algo` is [noxtls_hash_algos_t](/docs/api/hash#noxtls_hash_algos_t).
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success.
+
+### `noxtls_rsa_sign_pss`
+
+```c
+noxtls_return_t noxtls_rsa_sign_pss(const rsa_key_t *key, const uint8_t *message, uint32_t message_len, uint8_t *signature, uint32_t *signature_len, noxtls_hash_algos_t hash_algo);
+```
+
+Generate RSA-PSS signature (RFC 8017). Used by TLS 1.3 CertificateVerify and other modern RSA signing workflows.
+
+**Returns:** [noxtls_return_t](/docs/api/return_codes).
+
+### `noxtls_rsa_verify_pss`
+
+```c
+noxtls_return_t noxtls_rsa_verify_pss(const rsa_key_t *key, const uint8_t *message, uint32_t message_len, const uint8_t *signature, uint32_t signature_len, noxtls_hash_algos_t hash_algo);
+```
+
+Verify RSA-PSS signature (RFC 8017).
+
+**Returns:** [noxtls_return_t](/docs/api/return_codes).

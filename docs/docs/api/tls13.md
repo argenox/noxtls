@@ -227,6 +227,16 @@ Get channel binding data after handshake. `binding_type`: `NOXTLS_TLS_CHANNEL_BI
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes).
 
+### Record size limit (RFC 8449)
+
+### `tls13_set_record_size_limit`
+
+```c
+void tls13_set_record_size_limit(tls13_context_t *ctx, uint16_t limit);
+```
+
+Set the record size limit advertised to peer (maximum plaintext record size this side accepts). Call before handshake. Set `0` to use default limit.
+
 ### Client handshake steps (optional)
 
 - **tls13_send_client_hello**, **tls13_recv_server_hello**, **tls13_recv_encrypted_extensions**, **tls13_recv_certificate_request**, **tls13_recv_certificate**, **tls13_recv_certificate_verify**, **tls13_recv_finished**
