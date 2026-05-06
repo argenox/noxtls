@@ -7,6 +7,16 @@ title: "TLS 1.1"
 
 TLS 1.1 API wrappers over the shared TLS 1.2-style context. Header: `noxtls_tls11.h`.
 
+:::danger Deprecated and insecure
+TLS 1.1 is deprecated and should not be used for new deployments. It is widely disabled by modern platforms and does not meet current best-practice security requirements.
+:::
+
+## Usage guidance
+
+- Use TLS 1.1 only for temporary compatibility with legacy peers that cannot yet move forward.
+- Minimize scope and lifetime of any TLS 1.1 exception in production.
+- Plan migration to TLS 1.2 or TLS 1.3 as soon as possible.
+
 ## Types
 
 ### `tls11_context_t`

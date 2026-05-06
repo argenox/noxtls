@@ -7,6 +7,30 @@ title: "DSA"
 
 Digital Signature Algorithm (DSA) per FIPS 186-4: key management, signing, and verification.
 
+## Algorithm overview
+
+DSA is a discrete-logarithm signature scheme over finite fields. It signs messages by combining a per-signature nonce with the private key and verifies signatures with the corresponding public key and domain parameters.
+
+## Pros and cons
+
+**Pros**
+
+- Historically standardized and supported in older compliance-oriented stacks.
+- Signature-only model can be straightforward in narrowly scoped systems.
+- Mature and well-analyzed in its intended parameter ranges.
+
+**Cons**
+
+- Legacy compared with newer signature schemes (Ed25519/ECDSA in many modern deployments).
+- Strongly sensitive to nonce quality/reuse; nonce failures can leak private keys.
+- Generally less attractive for new systems due to ecosystem and performance trade-offs.
+
+## When to use
+
+- Use mainly for interoperability with systems that explicitly require DSA.
+- Ensure robust randomness for nonces and strict parameter validation.
+- For new deployments, prefer Ed25519 or ECDSA unless policy dictates DSA.
+
 ## Types
 
 ### dsa_key_t

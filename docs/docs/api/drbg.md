@@ -7,6 +7,30 @@ title: "DRBG"
 
 Deterministic Random Bit Generator (AES-CTR-DRBG) per NIST SP 800-90A. Header: `noxtls_drbg.h`.
 
+## Algorithm overview
+
+This module implements AES-CTR-DRBG from NIST SP 800-90A. A DRBG expands entropy input into a stream of pseudorandom output with controlled reseeding. Security depends on correct entropy, proper instantiation, and reseed policy.
+
+## Pros and cons
+
+**Pros**
+
+- Standardized design with clear security model and operational guidance.
+- Deterministic generation is efficient and suitable for repeated key material requests.
+- Supports selectable entropy source and custom entropy callback integration.
+
+**Cons**
+
+- Not a replacement for true entropy; weak entropy input undermines security.
+- Requires operational discipline (reseed intervals, source health, failure handling).
+- More complexity than using OS CSPRNG directly when no portability policy requires DRBG control.
+
+## When to use
+
+- Use when you need a portable internal CSPRNG with explicit lifecycle control.
+- Good fit for embedded/controlled environments where entropy plumbing is managed.
+- If platform CSPRNG is trusted and available, direct OS random APIs may be simpler.
+
 ## Types
 
 ### `drbg_aes_type_t`
