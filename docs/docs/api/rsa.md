@@ -7,6 +7,30 @@ title: "RSA"
 
 RSA key generation, encryption, decryption, and signatures.
 
+## Algorithm overview
+
+RSA is an integer-factorization-based public-key scheme that supports encryption/decryption and digital signatures. Security relies on sufficiently large key sizes and modern padding/signature schemes (for example OAEP/PSS in broader usage contexts).
+
+## Pros and cons
+
+**Pros**
+
+- Very mature ecosystem and broad interoperability across legacy and modern systems.
+- Flexible primitive used for both encryption and signatures.
+- Well understood operationally with extensive tooling support.
+
+**Cons**
+
+- Larger keys and slower private-key operations compared with modern ECC/EdDSA options.
+- Incorrect padding/mode choices can cause serious vulnerabilities.
+- Not ideal for constrained devices or high-throughput signature workloads.
+
+## When to use
+
+- Use when compatibility with existing PKI or legacy systems is required.
+- Prefer modern signature mode (RSA-PSS) for new signature workflows.
+- For new designs prioritizing speed and compact keys, Ed25519/ECC is often preferred.
+
 ## Types
 
 ### rsa_key_t

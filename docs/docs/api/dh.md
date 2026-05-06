@@ -7,6 +7,30 @@ title: "Diffie-Hellman (FFDHE)"
 
 Finite-field Diffie-Hellman helpers, including TLS FFDHE group parameter lookup. Header: `pkc/dh/noxtls_dh.h`.
 
+## Algorithm overview
+
+FFDHE (finite-field Diffie-Hellman ephemeral) performs key agreement in multiplicative groups modulo a large prime. In TLS usage, peers use standardized groups (for example ffdhe2048/3072/4096) and derive a shared secret that is then passed to key derivation.
+
+## Pros and cons
+
+**Pros**
+
+- Well-studied and standardized, especially in older and regulated environments.
+- Standardized RFC 7919 groups simplify interoperability and avoid unsafe custom parameters.
+- Ephemeral mode provides forward secrecy.
+
+**Cons**
+
+- Slower and heavier than modern elliptic-curve key agreement at similar practical security.
+- Larger key material and handshake payloads.
+- Parameter validation mistakes can be dangerous if non-standard groups are used.
+
+## When to use
+
+- Use when interoperability/policy requires finite-field DH groups.
+- Prefer RFC 7919 named FFDHE groups over custom parameters.
+- For performance-first modern deployments, X25519 is usually the default alternative.
+
 ## API
 
 ### `noxtls_dh_ffdhe_params`

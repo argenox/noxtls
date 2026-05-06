@@ -7,6 +7,30 @@ title: "ECC (Elliptic curve crypto)"
 
 Elliptic curve cryptography: curves, points, keys, ECDH, ECDSA, and supporting bignum API.
 
+## Algorithm overview
+
+ECC uses arithmetic on elliptic curves over finite fields to provide public-key operations with smaller keys than classic finite-field or RSA systems. This module covers curve/key primitives and underpins ECDH key agreement and ECDSA signatures.
+
+## Pros and cons
+
+**Pros**
+
+- Strong security-per-bit with compact keys/signatures.
+- Typically faster than RSA/FFDHE at comparable security levels.
+- Widely used in TLS and modern authentication stacks.
+
+**Cons**
+
+- Implementation complexity is higher than many symmetric primitives.
+- Curve and parameter choices matter; weak/custom choices can create risk.
+- Side-channel hardening and constant-time behavior are critical.
+
+## When to use
+
+- Use for modern public-key cryptography where performance and size matter.
+- Good default for key exchange and signatures in network protocols.
+- Prefer well-known curves and vetted parameter sets.
+
 ## Types
 
 ### ecc_curve_params_t
