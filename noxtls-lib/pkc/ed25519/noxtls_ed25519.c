@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include "common/noxtls_memory.h"
 #include "common/noxtls_memory_compat.h"
+#include "common/noxtls_ct.h"
 #include "noxtls_ed25519.h"
 #include "noxtls_common.h"
 #include "drbg/noxtls_drbg.h"
@@ -543,7 +544,7 @@ static noxtls_return_t ed25519_verify_internal(const uint8_t public_key[32],
         uint8_t enc1[32], enc2[32];
         if (ge25519_encode(enc1, &R_plus_kA) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
         if (ge25519_encode(enc2, &sB) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-        if (memcmp(enc1, enc2, 32) != 0) {
+        if (noxtls_secret_memcmp(enc1, enc2, 32) != 0) {
             uint8_t cofactor_le[32] = {0};
             ge25519_pt_t lhs8, rhs8;
             uint8_t enc_lhs8[32], enc_rhs8[32];
@@ -552,7 +553,7 @@ static noxtls_return_t ed25519_verify_internal(const uint8_t public_key[32],
                 ge25519_scalar_mult(&rhs8, cofactor_le, &R_plus_kA) == NOXTLS_RETURN_SUCCESS &&
                 ge25519_encode(enc_lhs8, &lhs8) == NOXTLS_RETURN_SUCCESS &&
                 ge25519_encode(enc_rhs8, &rhs8) == NOXTLS_RETURN_SUCCESS &&
-                memcmp(enc_lhs8, enc_rhs8, 32) == 0) {
+                noxtls_secret_memcmp(enc_lhs8, enc_rhs8, 32) == 0) {
                 return NOXTLS_RETURN_SUCCESS;
             }
             return NOXTLS_RETURN_FAILED;

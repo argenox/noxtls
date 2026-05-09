@@ -43,6 +43,7 @@
 #include "common/noxtls_memory.h"
 #include "common/noxtls_memory_compat.h"
 #include "common/noxtls_debug_printf.h"
+#include "common/noxtls_ct.h"
 #include "noxtls_tls12.h"
 #include "noxtls_tls_kdf.h"
 #include "noxtls_tls_common.h"
@@ -740,15 +741,19 @@ static noxtls_return_t tls12_append_handshake_message(tls12_context_t *ctx, cons
         return NOXTLS_RETURN_NULL;
     }
     
+    if(len > UINT32_MAX - ctx->handshake_messages_len) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    uint32_t new_len = ctx->handshake_messages_len + len;
     /* Reallocate buffer to accommodate new message */
-    uint8_t *new_buffer = (uint8_t*)realloc(ctx->handshake_messages, ctx->handshake_messages_len + len);
+    uint8_t *new_buffer = (uint8_t*)realloc(ctx->handshake_messages, new_len);
     if(new_buffer == NULL && len > 0) {
         return NOXTLS_RETURN_FAILED;
     }
     
     ctx->handshake_messages = new_buffer;
     memcpy(ctx->handshake_messages + ctx->handshake_messages_len, data, len);
-    ctx->handshake_messages_len += len;
+    ctx->handshake_messages_len = new_len;
     
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -2142,7 +2147,7 @@ noxtls_return_t tls12_recv_finished(tls12_context_t *ctx)
     /* Save server verify_data for RFC 5746 renegotiation_info */
     memcpy(ctx->previous_server_verify_data, finished_msg + 4, 12);
     /* Compare verify_data (starts at offset 4 in Finished message) */
-    if(memcmp(finished_msg + 4, computed_verify_data, 12) != 0) {
+    if(noxtls_secret_memcmp(finished_msg + 4, computed_verify_data, 12) != 0) {
         noxtls_debug_printf("ERROR: Finished message verification failed!\n");
         noxtls_debug_printf("  received: ");
         for(uint32_t i = 0; i < 12; i++) noxtls_debug_printf("%02X ", finished_msg[4 + i]);
@@ -3364,7 +3369,7 @@ noxtls_return_t tls12_recv_finished_client(tls12_context_t *ctx)
     /* Save client verify_data for RFC 5746 renegotiation_info */
     memcpy(ctx->previous_client_verify_data, finished_msg + 4, 12);
     /* Compare verify_data (starts at offset 4 in Finished message) */
-    if(memcmp(finished_msg + 4, computed_verify_data, 12) != 0) {
+    if(noxtls_secret_memcmp(finished_msg + 4, computed_verify_data, 12) != 0) {
         noxtls_debug_printf("ERROR: Client Finished message verification failed!\n");
         noxtls_debug_printf("  received: ");
         for(uint32_t i = 0; i < 12; i++) noxtls_debug_printf("%02X ", finished_msg[4 + i]);

@@ -2,6 +2,7 @@
 set(COMMON_SOURCES
     string_common.c
     noxtls_memory.c
+    noxtls_ct.c
     noxtls_debug_printf.c
 )
 if(WIN32)

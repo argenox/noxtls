@@ -288,6 +288,7 @@ int message_digest(int argc, char ** argv)
     else
     {
         size_t hex_len = strlen(argv[data_start_idx]);
+        int parsed_len;
 
         data_buffer = malloc(hex_len * sizeof(uint8_t));
 
@@ -298,7 +299,13 @@ int message_digest(int argc, char ** argv)
 
         memset(data_buffer, 0, hex_len * sizeof(uint8_t));
 
-        data_length = (uint32_t)noxtls_process_string_to_bytes(argv[data_start_idx], data_buffer);
+        parsed_len = noxtls_hex_string_to_bytes(argv[data_start_idx], data_buffer, hex_len);
+        if(parsed_len < 0) {
+            free(data_buffer);
+            printf("Error: invalid hex input\n");
+            return -1;
+        }
+        data_length = (uint32_t)parsed_len;
     }
 
     if(function_handler != NULL && data_buffer != NULL) {

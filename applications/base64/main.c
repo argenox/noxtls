@@ -235,10 +235,10 @@ int main(int argc, char ** argv)
             break;
         case BASE64_ENCODE_BINARY_HEX:
 
-            conv_length = input_len / 2;
-            if(conv_length > UINT16_MAX) {
+            if((input_len % 2u) != 0u) {
                 return -1;
             }
+            conv_length = input_len / 2;
 
             conv_data = (uint8_t *) malloc(sizeof(uint8_t) * conv_length);
             if(conv_data == NULL) {
@@ -246,7 +246,11 @@ int main(int argc, char ** argv)
             }
             memset(conv_data, 0, sizeof(uint8_t) * conv_length);
 
-            noxtls_hex_string_to_bytes((char *)input_data, conv_data, (uint16_t)conv_length);
+            length = noxtls_hex_string_to_bytes((char *)input_data, conv_data, conv_length);
+            if(length < 0 || (uint32_t)length != conv_length) {
+                free(conv_data);
+                return -1;
+            }
 
             print_array_hex(conv_data, conv_length);
 

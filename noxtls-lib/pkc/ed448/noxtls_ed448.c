@@ -13,6 +13,7 @@
 
 #include "common/noxtls_memory.h"
 #include "common/noxtls_memory_compat.h"
+#include "common/noxtls_ct.h"
 #include "noxtls_common.h"
 #include "noxtls_ed448.h"
 #include "pkc/rsa/noxtls_bignum.h"
@@ -518,7 +519,7 @@ static noxtls_return_t ed448_verify_internal(const uint8_t public_key[57],
         if (ge448_scalar_mult(&rhs, four, &R_plus_kA) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
         if (ge448_encode(enc_l, &lhs) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
         if (ge448_encode(enc_r, &rhs) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-        if (memcmp(enc_l, enc_r, 57) != 0) return NOXTLS_RETURN_FAILED;
+        if (noxtls_secret_memcmp(enc_l, enc_r, 57) != 0) return NOXTLS_RETURN_FAILED;
     }
     return NOXTLS_RETURN_SUCCESS;
 }

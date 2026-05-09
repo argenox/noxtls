@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "0.1.24",
+      "date": "TBD",
+      "changes": [
+        "Memory-safety hardening across TLS, DTLS, allocator, ASN.1, and helper paths: added overflow/underflow guards, parser boundary checks, and safer resize/copy patterns.",
+        "Hex conversion APIs and callsites hardened: checked conversion paths enforced in applications, `noxtls_hex_string_to_bytes` widened to size_t capacity, and legacy unbounded conversion API removed from public surface.",
+        "Documentation and tests updated: versioned docs 0.1.24 snapshot, release-notes generation refresh, and new `string_common_test` coverage for success/error and large-input conversion paths."
+      ],
+      "fixed": [],
+      "known_issues": []
+    },
+    {
       "version": "0.1.23",
       "date": "TBD",
       "changes": [

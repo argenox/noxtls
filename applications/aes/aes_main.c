@@ -427,13 +427,20 @@ int main(int argc, char ** argv)
                 
                 /* Parse hex key */
                 size_t key_hex_len = strlen(argv[arg_idx]);
+                int parsed_len;
                 key_buffer = malloc(key_hex_len * sizeof(uint8_t));
                 if(key_buffer == NULL) {
                     printf("Error: Memory allocation failed\n");
                     return -1;
                 }
                 memset(key_buffer, 0, key_hex_len * sizeof(uint8_t));
-                key_length = noxtls_process_string_to_bytes(argv[arg_idx], key_buffer);
+                parsed_len = noxtls_hex_string_to_bytes(argv[arg_idx], key_buffer, key_hex_len);
+                if(parsed_len < 0) {
+                    printf("Error: invalid hex key\n");
+                    free(key_buffer);
+                    return -1;
+                }
+                key_length = (uint32_t)parsed_len;
                 key_specified = 1;
                 
                 if(debug_lvl > 0) {
@@ -497,13 +504,21 @@ int main(int argc, char ** argv)
                 
                 /* Parse hex IV */
                 size_t iv_hex_len = strlen(argv[arg_idx]);
+                int parsed_len;
                 iv_buffer = malloc(iv_hex_len * sizeof(uint8_t));
                 if(iv_buffer == NULL) {
                     printf("Error: Memory allocation failed\n");
                     return -1;
                 }
                 memset(iv_buffer, 0, iv_hex_len * sizeof(uint8_t));
-                iv_length = noxtls_process_string_to_bytes(argv[arg_idx], iv_buffer);
+                parsed_len = noxtls_hex_string_to_bytes(argv[arg_idx], iv_buffer, iv_hex_len);
+                if(parsed_len < 0) {
+                    printf("Error: invalid hex IV\n");
+                    free(iv_buffer);
+                    if(key_buffer) free(key_buffer);
+                    return -1;
+                }
+                iv_length = (uint32_t)parsed_len;
                 iv_specified = 1;
                 
                 if(debug_lvl > 0) {
@@ -610,6 +625,7 @@ int main(int argc, char ** argv)
             return -1;
         }
         size_t hex_len = strlen(argv[argc_skip]);
+        int parsed_len;
         
         if(debug_lvl > 0) {
             printf("Hex\n");
@@ -626,7 +642,15 @@ int main(int argc, char ** argv)
 
         memset(data_buffer, 0, hex_len * sizeof(uint8_t));
 
-        data_length = noxtls_process_string_to_bytes(argv[argc_skip], data_buffer);
+        parsed_len = noxtls_hex_string_to_bytes(argv[argc_skip], data_buffer, hex_len);
+        if(parsed_len < 0) {
+            printf("Error: invalid hex input\n");
+            if(key_buffer) free(key_buffer);
+            if(iv_buffer) free(iv_buffer);
+            free(data_buffer);
+            return -1;
+        }
+        data_length = (uint32_t)parsed_len;
 
     }    
 

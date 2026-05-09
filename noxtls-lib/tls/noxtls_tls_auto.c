@@ -105,7 +105,7 @@ noxtls_return_t tls_accept_auto(tls_context_t *base_ctx,
 #if NOXTLS_FEATURE_TLS10
         /* TLS 1.0 */
         if(tls10_ctx == NULL) {
-            if(client_hello_data) free(client_hello_data);
+            if(client_hello_data) noxtls_free(client_hello_data);
             return NOXTLS_RETURN_FAILED;  /* TLS 1.0 context not provided */
         }
         tls10_context_t *tls10 = (tls10_context_t*)tls10_ctx;
@@ -120,19 +120,19 @@ noxtls_return_t tls_accept_auto(tls_context_t *base_ctx,
             *negotiated_version = TLS_VERSION_1_0;
         }
         if(tls10->base.base.pending_client_hello) {
-            free(tls10->base.base.pending_client_hello);
+            noxtls_free(tls10->base.base.pending_client_hello);
             tls10->base.base.pending_client_hello = NULL;
             tls10->base.base.pending_client_hello_len = 0;
         }
 #else
-        if(client_hello_data) free(client_hello_data);
+        if(client_hello_data) noxtls_free(client_hello_data);
         return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
     } else if(detected_version == TLS_VERSION_1_1) {
 #if NOXTLS_FEATURE_TLS11
         /* TLS 1.1 */
         if(tls11_ctx == NULL) {
-            if(client_hello_data) free(client_hello_data);
+            if(client_hello_data) noxtls_free(client_hello_data);
             return NOXTLS_RETURN_FAILED;  /* TLS 1.1 context not provided */
         }
         tls11_context_t *tls11 = (tls11_context_t*)tls11_ctx;
@@ -147,12 +147,12 @@ noxtls_return_t tls_accept_auto(tls_context_t *base_ctx,
             *negotiated_version = TLS_VERSION_1_1;
         }
         if(tls11->base.base.pending_client_hello) {
-            free(tls11->base.base.pending_client_hello);
+            noxtls_free(tls11->base.base.pending_client_hello);
             tls11->base.base.pending_client_hello = NULL;
             tls11->base.base.pending_client_hello_len = 0;
         }
 #else
-        if(client_hello_data) free(client_hello_data);
+        if(client_hello_data) noxtls_free(client_hello_data);
         return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
     } else if(detected_version == TLS_VERSION_1_3) {
@@ -174,7 +174,7 @@ noxtls_return_t tls_accept_auto(tls_context_t *base_ctx,
         
         /* Clean up stored Client Hello */
         if(tls13_ctx->base.base.pending_client_hello) {
-            free(tls13_ctx->base.base.pending_client_hello);
+            noxtls_free(tls13_ctx->base.base.pending_client_hello);
             tls13_ctx->base.base.pending_client_hello = NULL;
             tls13_ctx->base.base.pending_client_hello_len = 0;
         }
@@ -197,7 +197,7 @@ noxtls_return_t tls_accept_auto(tls_context_t *base_ctx,
         
         /* Clean up stored Client Hello */
         if(tls12_ctx->base.base.pending_client_hello) {
-            free(tls12_ctx->base.base.pending_client_hello);
+            noxtls_free(tls12_ctx->base.base.pending_client_hello);
             tls12_ctx->base.base.pending_client_hello = NULL;
             tls12_ctx->base.base.pending_client_hello_len = 0;
         }

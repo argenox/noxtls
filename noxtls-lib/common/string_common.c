@@ -29,6 +29,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 #include "string_common.h"
 #include "noxtls_debug_printf.h"
 
@@ -53,10 +54,11 @@ extern "C"
  * @return On success, the number of bytes written. On error: -1 if string or
  *         out_buf is NULL, -2 if out_buf is too small.
  */
-int noxtls_hex_string_to_bytes(const char * string, uint8_t * out_buf, uint16_t out_length)
+int noxtls_hex_string_to_bytes(const char * string, uint8_t * out_buf, size_t out_length)
 {
-    unsigned int i = 0;
-    unsigned int j = 0;
+    size_t i = 0;
+    size_t j = 0;
+    size_t str_len;
     char val[HEX_PAIR_BUFFER_LEN];
 
     if (string == NULL)
@@ -65,14 +67,19 @@ int noxtls_hex_string_to_bytes(const char * string, uint8_t * out_buf, uint16_t 
     if (out_buf == NULL)
         return -1;
 
+    str_len = strlen(string);
+    if((str_len & 1u) != 0u) {
+        return -3;
+    }
+
     /* Require buffer large enough for (string length / 2) bytes */
-    if (out_length < (strlen(string) >> HEX_OUTLEN_SHIFT))
+    if (out_length < (str_len >> 1u))
     {
         return -2;
     }
 
     /* Parse two hex chars at a time into one byte */
-    for (i = 0; i < strlen(string); i += HEX_STRING_STRIDE)
+    for (i = 0; i < str_len; i += HEX_STRING_STRIDE)
     {
         val[0] = string[i];
         val[1] = string[i + 1];
@@ -80,39 +87,10 @@ int noxtls_hex_string_to_bytes(const char * string, uint8_t * out_buf, uint16_t 
         out_buf[j++] = (uint8_t)strtoul(val, NULL, HEX_RADIX);
     }
 
-    return j;
-}
-
-/**
- * @brief Converts a hex string to bytes with no output length limit.
- *
- * Same format as noxtls_hex_string_to_bytes: pairs of hex digits, no
- * separators. Caller must ensure bytes points to a buffer large enough
- * for strlen(string)/2 bytes. No bounds check is performed on bytes.
- *
- * @param[in]  string  Null-terminated hex string.
- * @param[out] bytes   Buffer to receive the converted bytes (must be pre-allocated).
- *
- * @return On success, the number of bytes written. -1 if string or bytes is NULL.
- */
-int noxtls_process_string_to_bytes(const char* string, uint8_t* bytes)
-{
-    unsigned int i = 0;
-    int j = 0;
-    char val[HEX_PAIR_BUFFER_LEN] = { 0 };
-
-    if (string == NULL || bytes == NULL)
-        return -1;
-
-    for (i = 0; i < strlen(string); i += HEX_STRING_STRIDE)
-    {
-        val[0] = string[i];
-        val[1] = string[i + 1];
-        bytes[j] = (uint8_t)strtoul(val, NULL, HEX_RADIX);
-        j++;
+    if(j > (size_t)INT_MAX) {
+        return -4;
     }
-
-    return j;
+    return (int)j;
 }
 
 /**

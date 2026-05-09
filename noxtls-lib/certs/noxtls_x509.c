@@ -2409,8 +2409,14 @@ noxtls_return_t noxtls_x509_certificate_chain_add(x509_certificate_chain_t *chai
 
     if(chain->count >= chain->capacity) {
         /* Expand capacity */
+        if(chain->capacity == 0 || chain->capacity > (UINT32_MAX / 2u)) {
+            return NOXTLS_RETURN_FAILED;
+        }
         uint32_t new_capacity = chain->capacity * 2;
-        x509_certificate_t *new_certs = (x509_certificate_t*)realloc(chain->certs, new_capacity * sizeof(x509_certificate_t));
+        if(new_capacity > (UINT32_MAX / (uint32_t)sizeof(x509_certificate_t))) {
+            return NOXTLS_RETURN_FAILED;
+        }
+        x509_certificate_t *new_certs = (x509_certificate_t*)realloc(chain->certs, (size_t)new_capacity * sizeof(x509_certificate_t));
         if(new_certs == NULL) {
             return NOXTLS_RETURN_FAILED;
         }

@@ -118,19 +118,19 @@ static void dtls_ack_range_add(dtls_context_t *ctx, uint16_t epoch, uint64_t seq
                         new_capacity = limit;
                     }
                     {
-                        uint64_t *new_min = (uint64_t*)noxtls_realloc(ctx->ack_ranges_min,
-                                                                     sizeof(uint64_t) * new_capacity);
-                        uint64_t *new_max = (uint64_t*)noxtls_realloc(ctx->ack_ranges_max,
-                                                                     sizeof(uint64_t) * new_capacity);
+                        size_t new_bytes = sizeof(uint64_t) * new_capacity;
+                        size_t copy_bytes = sizeof(uint64_t) * ctx->ack_range_count;
+                        uint64_t *new_min = (uint64_t*)noxtls_malloc(new_bytes);
+                        uint64_t *new_max = (uint64_t*)noxtls_malloc(new_bytes);
                         if(new_min == NULL || new_max == NULL) {
-                            if(new_min != NULL) {
-                                noxtls_free(new_min);
-                            }
-                            if(new_max != NULL) {
-                                noxtls_free(new_max);
-                            }
+                            if(new_min != NULL) noxtls_free(new_min);
+                            if(new_max != NULL) noxtls_free(new_max);
                             return;
                         }
+                        memcpy(new_min, ctx->ack_ranges_min, copy_bytes);
+                        memcpy(new_max, ctx->ack_ranges_max, copy_bytes);
+                        noxtls_free(ctx->ack_ranges_min);
+                        noxtls_free(ctx->ack_ranges_max);
                         ctx->ack_ranges_min = new_min;
                         ctx->ack_ranges_max = new_max;
                         ctx->ack_range_capacity = new_capacity;
@@ -196,11 +196,18 @@ static noxtls_return_t dtls_flight_append(dtls_context_t *ctx, const uint8_t *re
         return NOXTLS_RETURN_NULL;
     }
 
-    needed = ctx->flight_buffer_len + 2 + record_len;
+    if(record_len > UINT32_MAX - ctx->flight_buffer_len - 2u) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    needed = ctx->flight_buffer_len + 2u + record_len;
     if(needed > ctx->flight_buffer_capacity) {
         uint32_t new_capacity = ctx->flight_buffer_capacity == 0 ? 1024 : ctx->flight_buffer_capacity << 1;
         while(new_capacity < needed) {
-            new_capacity *= 2;
+            if(new_capacity > UINT32_MAX / 2u) {
+                new_capacity = needed;
+                break;
+            }
+            new_capacity *= 2u;
         }
         new_buf = (uint8_t*)noxtls_realloc(ctx->flight_buffer, new_capacity);
         if(new_buf == NULL) {
@@ -470,18 +477,26 @@ noxtls_return_t dtls_set_ack_range_limit(dtls_context_t *ctx, uint8_t max_ranges
     ctx->ack_range_limit = max_ranges;
     if(ctx->ack_range_capacity > max_ranges) {
         if(ctx->ack_ranges_min != NULL && ctx->ack_ranges_max != NULL) {
-            uint64_t *new_min = (uint64_t*)noxtls_realloc(ctx->ack_ranges_min,
-                                                         sizeof(uint64_t) * max_ranges);
-            uint64_t *new_max = (uint64_t*)noxtls_realloc(ctx->ack_ranges_max,
-                                                         sizeof(uint64_t) * max_ranges);
+            size_t new_bytes = sizeof(uint64_t) * max_ranges;
+            uint8_t keep_count = ctx->ack_range_count > max_ranges ? max_ranges : ctx->ack_range_count;
+            size_t copy_bytes = sizeof(uint64_t) * keep_count;
+            uint64_t *new_min = (uint64_t*)noxtls_malloc(new_bytes);
+            uint64_t *new_max = (uint64_t*)noxtls_malloc(new_bytes);
             if(new_min != NULL && new_max != NULL) {
+                memcpy(new_min, ctx->ack_ranges_min, copy_bytes);
+                memcpy(new_max, ctx->ack_ranges_max, copy_bytes);
+                noxtls_free(ctx->ack_ranges_min);
+                noxtls_free(ctx->ack_ranges_max);
                 ctx->ack_ranges_min = new_min;
                 ctx->ack_ranges_max = new_max;
+                ctx->ack_range_capacity = max_ranges;
+                if(ctx->ack_range_count > max_ranges) {
+                    ctx->ack_range_count = max_ranges;
+                }
+            } else {
+                if(new_min != NULL) noxtls_free(new_min);
+                if(new_max != NULL) noxtls_free(new_max);
             }
-        }
-        ctx->ack_range_capacity = max_ranges;
-        if(ctx->ack_range_count > max_ranges) {
-            ctx->ack_range_count = max_ranges;
         }
     }
     return NOXTLS_RETURN_SUCCESS;

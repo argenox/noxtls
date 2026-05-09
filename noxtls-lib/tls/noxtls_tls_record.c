@@ -40,6 +40,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "common/noxtls_memory.h"
+#include "common/noxtls_ct.h"
 #include "common/noxtls_debug_printf.h"
 #include "common/noxtls_memory_compat.h"
 #include "noxtls_tls_common.h"
@@ -891,7 +892,7 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
         return rc;
     }
     
-    if(computed_mac_len != mac_len || memcmp(mac, computed_mac, mac_len) != 0) {
+    if(computed_mac_len != mac_len || noxtls_secret_memcmp(mac, computed_mac, mac_len) != 0) {
         noxtls_free(decrypted_data);
         return NOXTLS_RETURN_BAD_DATA;  /* MAC verification failed */
     }
