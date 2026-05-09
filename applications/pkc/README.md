@@ -1,6 +1,10 @@
 # PKC (Public Key Cryptography) Utility
 
-This utility provides command-line access to public key cryptography operations, currently supporting RSA.
+This utility supports **RSA** (encrypt/decrypt/sign with ephemeral keys) and **EdDSA** (`ed25519`, `ed25519ctx`, `ed25519ph`, `ed448`, `ed448ctx`, `ed448ph`) for **genkey**, **sign** (with `-K` PKCS#8 PEM/DER), and **verify** (with `-P` raw public key hex).
+
+When building as part of the main NoxTLS tree, `pkc` links against the X.509 layer so PEM PKCS#8 keys from **certgen** (`gened25519`, `gened448`) can be used with `-K`. PEM-only **standalone** `pkc` builds do not include that stack; use the full project build for EdDSA file signing.
+
+For PKCS#8 key generation, **certgen** remains the recommended tool (`gened25519`, `gened448` when `NOXTLS_CFG_FEATURE_ED448` and SHA-3 are enabled).
 
 ## Building
 
@@ -31,20 +35,25 @@ pkc [operation] [algorithm] [options] [data...]
 - `decrypt` - Decrypt data using private key
 - `sign` - Sign data using private key
 - `verify` - Verify signature using public key
-- `genkey` - Generate RSA key pair
+- `genkey` - Generate key pair (RSA or Ed25519 / Ed448)
 
 ### Algorithms
 
-- `rsa` - RSA (Rivest-Shamir-Adleman) public key cryptography
+- `rsa` - RSA
+- `ed25519`, `ed25519ctx`, `ed25519ph` - Ed25519 variants (library feature flags)
+- `ed448`, `ed448ctx`, `ed448ph` - Ed448 variants (requires Ed448 + SHA-3 in the build)
 
 ### Options
 
-- `-k <size>` - Key size in bits (1024, 2048, 3072, 4096). Default: 2048
-- `-h <algo>` - Hash algorithm for signatures (md5, sha1, sha256). Default: sha256
+- `-k <size>` - RSA key size in bits (1024, 2048, 3072, 4096). Default: 2048
+- `-K <file>` - Private key PEM/DER (PKCS#8) for EdDSA **sign**
+- `-P <hex>` - Raw public key hex (32 bytes Ed25519, 57 bytes Ed448) for EdDSA **verify**
+- `-C <hex>` - Context bytes as hex for **ed25519ctx** / **ed448ctx** (sign and verify)
+- `-h <algo>` - Hash algorithm for **RSA** signatures (md5, sha1, sha256). Default: sha256
 - `-d` - Enable debug mode
-- `-x` - Interpret input data as hexadecimal string
+- `-x` - Interpret message input as hexadecimal string
 - `-v` - Version information
-- `--help` or `-h` - Show help message
+- `--help` - Show help message (do not use `-h` for help; `-h` selects RSA hash)
 
 ## Examples
 
@@ -90,7 +99,17 @@ pkc decrypt rsa <hex_ciphertext>
 pkc verify rsa "Message" <hex_signature>
 ```
 
-**Note:** Verification with external keys is not yet fully implemented. The current implementation requires the public key to be provided separately.
+RSA verify with external keys is still a placeholder.
+
+### Ed25519 sign / verify (full project build)
+
+```bash
+certgen gened25519 -out mykey
+pkc sign ed25519 -K mykey.key "hello"
+pkc verify ed25519 -P <64-char-hex-pub> "hello" <128-char-hex-sig>
+```
+
+Use `pkc genkey ed25519` to print seed and public key hex for testing. For `ed25519ctx`, pass the same `-C` hex to sign and verify.
 
 ## Key Sizes
 

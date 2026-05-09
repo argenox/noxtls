@@ -149,6 +149,8 @@ typedef struct tls13_context_s
     void *client_private_ecdsa;     /* Client: ECC key (ecc_key_t*) for ECDSA CertificateVerify */
     uint8_t client_private_ed25519[32]; /* Client: Ed25519 private key (32-byte seed) for CertificateVerify */
     uint8_t client_cert_use_ed25519;    /* 1 if client_private_ed25519 was set (so use Ed25519 for CertificateVerify) */
+    uint8_t client_private_ed448[57];   /* Client: Ed448 private key (57-byte seed) for CertificateVerify */
+    uint8_t client_cert_use_ed448;      /* 1 if client_private_ed448 was set (so use Ed448 for CertificateVerify) */
     /** Provider's handle for client private key (RSA/ECDSA/Ed25519). Used when crypto_provider is set for client CertificateVerify. */
     noxtls_crypto_key_handle_t client_private_key_handle;
 
@@ -250,6 +252,8 @@ noxtls_return_t tls13_set_client_cert(tls13_context_t *ctx, const uint8_t *cert_
 noxtls_return_t tls13_set_client_cert_ecdsa(tls13_context_t *ctx, const uint8_t *cert_der, uint32_t cert_len, void *ecc_key);
 /** Client: set client certificate and Ed25519 private key (32-byte seed) for CertificateVerify. */
 noxtls_return_t tls13_set_client_cert_ed25519(tls13_context_t *ctx, const uint8_t *cert_der, uint32_t cert_len, const uint8_t *private_key_32);
+/** Client: set client certificate and Ed448 private key (57-byte seed) for CertificateVerify. Requires NOXTLS_FEATURE_ED448 and SHA3. */
+noxtls_return_t tls13_set_client_cert_ed448(tls13_context_t *ctx, const uint8_t *cert_der, uint32_t cert_len, const uint8_t *private_key_57);
 
 /** Configure external PSK identity/key for TLS 1.3 PSK or ECDHE-PSK handshakes. */
 noxtls_return_t tls13_set_external_psk(tls13_context_t *ctx,
