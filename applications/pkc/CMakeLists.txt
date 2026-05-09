@@ -32,6 +32,7 @@ endif()
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${LIB_ROOT}
+    ${LIB_ROOT}/utility
 )
 
 # If building standalone, build libraries inline
@@ -84,5 +85,15 @@ target_link_libraries(pkc
     noxtls_hash
     noxtls_pkc
 )
+
+if(NOT BUILDING_STANDALONE)
+    target_link_libraries(pkc
+        noxtls_cert
+        noxtls_certificates
+        noxtls_utility
+        noxtls_encryption
+        noxtls_drbg
+    )
+endif()
 
 

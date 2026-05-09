@@ -60,6 +60,7 @@ target_include_directories(noxtls_tls PUBLIC
     ${NOXTLS_LIB_ROOT}/pkc/ecc
     ${NOXTLS_LIB_ROOT}/pkc/ecdsa
     ${NOXTLS_LIB_ROOT}/pkc/ed25519
+    ${NOXTLS_LIB_ROOT}/pkc/ed448
     ${NOXTLS_LIB_ROOT}/encryption
     ${NOXTLS_LIB_ROOT}/encryption/aes
     ${NOXTLS_LIB_ROOT}/mdigest

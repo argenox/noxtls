@@ -110,6 +110,7 @@ extern "C" {
 #define TLS_SIGSCHEME_ECDSA_SECP256R1_SHA256 0x0403
 #define TLS_SIGSCHEME_ECDSA_SECP384R1_SHA384 0x0503
 #define TLS_SIGSCHEME_ED25519                0x0807
+#define TLS_SIGSCHEME_ED448                  0x0808
 
 /* TLS Named Groups (for key exchange) */
 #define TLS_NAMED_GROUP_SECP256R1    23  /* secp256r1 (NIST P-256) */

@@ -35,6 +35,10 @@
 #include "utility/base64.h"
 #include "noxtls-lib/pkc/rsa/noxtls_rsa.h"
 #include "noxtls-lib/pkc/ecc/noxtls_ecc.h"
+#include "noxtls-lib/pkc/ed25519/noxtls_ed25519.h"
+#if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+#include "noxtls-lib/pkc/ed448/noxtls_ed448.h"
+#endif
 #include "noxtls-lib/mdigest/noxtls_hash.h"
 
 #define CERTGEN_VERSION "0.1.0"
@@ -47,6 +51,11 @@
 static const uint8_t oid_rsa_encryption[] = { 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01 };
 /* id-ecPublicKey OID (1.2.840.10045.2.1) - raw DER bytes */
 static const uint8_t oid_id_ec_public_key[] = { 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x02, 0x01 };
+/* id-Ed25519 (1.3.101.112), id-Ed448 (1.3.101.113) — RFC 8410 */
+static const uint8_t oid_ed25519[] = { 0x2B, 0x65, 0x70 };
+#if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+static const uint8_t oid_ed448[] = { 0x2B, 0x65, 0x71 };
+#endif
 
 /* Curve OIDs (DER) for SEC1 ECPrivateKey parameters - same as noxtls_x509.c */
 static const uint8_t oid_secp192r1[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x01};
@@ -78,9 +87,13 @@ static void print_usage(const char *prog)
 {
     printf("Usage: %s <command> [options]\n\n", prog);
     printf("Commands (OpenSSL-like):\n");
-    printf("  genrsa    Generate RSA private key\n");
-    printf("  genec     Generate EC private key (NIST, Brainpool, secp-k1)\n");
-    printf("  req       Certificate request / self-signed certificate\n\n");
+    printf("  genrsa      Generate RSA private key\n");
+    printf("  genec       Generate EC private key (NIST, Brainpool, secp-k1)\n");
+    printf("  gened25519  Generate Ed25519 key pair (PKCS#8 seed + RFC 8410 SPKI .pub)\n");
+#if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+    printf("  gened448    Generate Ed448 key pair (PKCS#8 seed + RFC 8410 SPKI .pub)\n");
+#endif
+    printf("  req         Certificate request / self-signed certificate\n\n");
     printf("genrsa options:\n");
     printf("  -out <name>      Base name for output files: <name>.key (private), <name>.pub (public). Default: stdout (private only)\n");
     printf("  -outform DER|PEM Output format for .key (default: PEM). .pub is always PEM.\n");
@@ -93,7 +106,7 @@ static void print_usage(const char *prog)
     printf("                    secp192k1|secp224k1|secp256k1 (default: prime256v1)\n\n");
     printf("req options (for -new -x509 self-signed cert):\n");
     printf("  -new -x509      Create self-signed certificate\n");
-    printf("  -key <file>     Private key file (required, ECC key when cert write enabled)\n");
+    printf("  -key <file>     Private key file (required; ECC or Ed25519/Ed448 PKCS#8 when cert write enabled)\n");
     printf("  -out <file>     Output certificate file (required)\n");
     printf("  -outform DER|PEM Output format (default: PEM)\n");
     printf("  -days <n>       Validity in days (default: 365)\n");
@@ -101,6 +114,10 @@ static void print_usage(const char *prog)
     printf("Examples:\n");
     printf("  %s genrsa -out server -bits 2048     # writes server.key and server.pub\n", prog);
     printf("  %s genec -out client -curve prime256v1   # writes client.key and client.pub\n", prog);
+    printf("  %s gened25519 -out ed25519key\n", prog);
+#if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+    printf("  %s gened448 -out ed448key\n", prog);
+#endif
     printf("  %s req -new -x509 -key client.key -out cert.pem -days 365 -subj /CN=localhost\n", prog);
 }
 
@@ -274,6 +291,54 @@ static uint32_t encode_ec_public_spki_der(const ecc_key_t *key, const uint8_t *c
     if (bs_len == 0) return 0;
 
     uint8_t spki_content[512];
+    if (alg_seq_len + bs_len > sizeof(spki_content)) return 0;
+    memcpy(spki_content, alg_seq, alg_seq_len);
+    memcpy(spki_content + alg_seq_len, bs_buf, bs_len);
+    return noxtls_asn1_put_sequence(out, out_max, spki_content, alg_seq_len + bs_len);
+}
+
+/* PKCS#8 PrivateKeyInfo for Ed25519 / Ed448 raw seed (RFC 8410). */
+static uint32_t encode_pkcs8_eddsa_seed_der(const uint8_t *alg_oid, uint32_t alg_oid_len,
+    const uint8_t *seed, uint32_t seed_len, uint8_t *out, uint32_t out_max)
+{
+    uint8_t ver[] = { 0x02, 0x01, 0x00 };
+    uint8_t oid_enc[16];
+    uint32_t oid_enc_len = noxtls_asn1_put_oid_raw(oid_enc, sizeof(oid_enc), alg_oid, alg_oid_len);
+    if (oid_enc_len == 0) return 0;
+    uint8_t alg_seq[32];
+    uint32_t alg_seq_len = noxtls_asn1_put_sequence(alg_seq, sizeof(alg_seq), oid_enc, oid_enc_len);
+    if (alg_seq_len == 0) return 0;
+    uint8_t sk_oct[80];
+    uint32_t sk_oct_len = noxtls_asn1_put_octet_string(sk_oct, sizeof(sk_oct), seed, seed_len);
+    if (sk_oct_len == 0) return 0;
+    uint8_t inner[128];
+    uint32_t il = 0;
+    if (il + sizeof(ver) > sizeof(inner)) return 0;
+    memcpy(inner + il, ver, sizeof(ver));
+    il += (uint32_t)sizeof(ver);
+    if (il + alg_seq_len > sizeof(inner)) return 0;
+    memcpy(inner + il, alg_seq, alg_seq_len);
+    il += alg_seq_len;
+    if (il + sk_oct_len > sizeof(inner)) return 0;
+    memcpy(inner + il, sk_oct, sk_oct_len);
+    il += sk_oct_len;
+    return noxtls_asn1_put_sequence(out, out_max, inner, il);
+}
+
+/* SubjectPublicKeyInfo: AlgorithmIdentifier(OID only) + BIT STRING(raw public key). */
+static uint32_t encode_eddsa_spki_der(const uint8_t *alg_oid, uint32_t alg_oid_len,
+    const uint8_t *raw_pk, uint32_t raw_pk_len, uint8_t *out, uint32_t out_max)
+{
+    uint8_t oid_enc[16];
+    uint32_t oid_enc_len = noxtls_asn1_put_oid_raw(oid_enc, sizeof(oid_enc), alg_oid, alg_oid_len);
+    if (oid_enc_len == 0) return 0;
+    uint8_t alg_seq[32];
+    uint32_t alg_seq_len = noxtls_asn1_put_sequence(alg_seq, sizeof(alg_seq), oid_enc, oid_enc_len);
+    if (alg_seq_len == 0) return 0;
+    uint8_t bs_buf[80];
+    uint32_t bs_len = noxtls_asn1_put_bit_string(bs_buf, sizeof(bs_buf), raw_pk, raw_pk_len);
+    if (bs_len == 0) return 0;
+    uint8_t spki_content[128];
     if (alg_seq_len + bs_len > sizeof(spki_content)) return 0;
     memcpy(spki_content, alg_seq, alg_seq_len);
     memcpy(spki_content + alg_seq_len, bs_buf, bs_len);
@@ -518,6 +583,152 @@ static int cmd_genec(int argc, char **argv, const char *prog)
     return 0;
 }
 
+static int cmd_gened25519(int argc, char **argv, const char *prog)
+{
+    (void)prog;
+    const char *out_file = NULL;
+    const char *outform = "PEM";
+    int i;
+    for (i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-out") == 0 && i + 1 < argc) {
+            out_file = argv[++i];
+        } else if (strcmp(argv[i], "-outform") == 0 && i + 1 < argc) {
+            outform = argv[++i];
+        }
+    }
+    uint8_t sk[32], pk[32];
+    if (noxtls_ed25519_generate_key(sk, pk) != NOXTLS_RETURN_SUCCESS) {
+        fprintf(stderr, "Error: Ed25519 key generation failed\n");
+        return 1;
+    }
+    uint8_t pkcs8[128];
+    uint32_t pkcs8_len = encode_pkcs8_eddsa_seed_der(oid_ed25519, sizeof(oid_ed25519), sk, 32, pkcs8, sizeof(pkcs8));
+    uint8_t spki[128];
+    uint32_t spki_len = encode_eddsa_spki_der(oid_ed25519, sizeof(oid_ed25519), pk, 32, spki, sizeof(spki));
+    if (pkcs8_len == 0 || spki_len == 0) {
+        fprintf(stderr, "Error: DER encode failed\n");
+        return 1;
+    }
+    printf("Generating Ed25519 key pair\n");
+    if (out_file == NULL) {
+        FILE *fp = stdout;
+        if (strcmp(outform, "DER") == 0 || strcmp(outform, "der") == 0) {
+            fwrite(pkcs8, 1, pkcs8_len, fp);
+        } else if (write_der_as_pem(fp, pkcs8, pkcs8_len, "-----BEGIN PRIVATE KEY-----\n", "-----END PRIVATE KEY-----\n") != 0) {
+            return 1;
+        }
+        printf("Wrote Ed25519 private key to stdout\n");
+        return 0;
+    }
+    char key_path[CERTGEN_PATH_MAX], pub_path[CERTGEN_PATH_MAX];
+    build_key_pub_paths(out_file, key_path, pub_path, sizeof(key_path));
+    FILE *fp_key = noxtls_fopen(key_path, "wb");
+    if (fp_key == NULL) {
+        fprintf(stderr, "Error: Cannot open %s for writing\n", key_path);
+        return 1;
+    }
+    if (strcmp(outform, "DER") == 0 || strcmp(outform, "der") == 0) {
+        if (fwrite(pkcs8, 1, pkcs8_len, fp_key) != pkcs8_len) {
+            fclose(fp_key);
+            return 1;
+        }
+        printf("Wrote %s (%u bytes)\n", key_path, (unsigned)pkcs8_len);
+    } else {
+        if (write_der_as_pem(fp_key, pkcs8, pkcs8_len, "-----BEGIN PRIVATE KEY-----\n", "-----END PRIVATE KEY-----\n") != 0) {
+            fclose(fp_key);
+            return 1;
+        }
+        printf("Wrote %s (PEM PKCS#8)\n", key_path);
+    }
+    fclose(fp_key);
+    FILE *fp_pub = noxtls_fopen(pub_path, "wb");
+    if (fp_pub == NULL) {
+        fprintf(stderr, "Error: Cannot open %s for writing\n", pub_path);
+        return 1;
+    }
+    if (write_der_as_pem(fp_pub, spki, spki_len, CERT_PUB_KEY_STR "\n", CERT_PUB_KEY_END "\n") != 0) {
+        fclose(fp_pub);
+        return 1;
+    }
+    fclose(fp_pub);
+    printf("Wrote %s (PEM SPKI)\n", pub_path);
+    return 0;
+}
+
+#if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+static int cmd_gened448(int argc, char **argv, const char *prog)
+{
+    (void)prog;
+    const char *out_file = NULL;
+    const char *outform = "PEM";
+    int i;
+    for (i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-out") == 0 && i + 1 < argc) {
+            out_file = argv[++i];
+        } else if (strcmp(argv[i], "-outform") == 0 && i + 1 < argc) {
+            outform = argv[++i];
+        }
+    }
+    uint8_t sk[57], pk[57];
+    if (noxtls_ed448_generate_key(sk, pk) != NOXTLS_RETURN_SUCCESS) {
+        fprintf(stderr, "Error: Ed448 key generation failed\n");
+        return 1;
+    }
+    uint8_t pkcs8[160];
+    uint32_t pkcs8_len = encode_pkcs8_eddsa_seed_der(oid_ed448, sizeof(oid_ed448), sk, 57, pkcs8, sizeof(pkcs8));
+    uint8_t spki[200];
+    uint32_t spki_len = encode_eddsa_spki_der(oid_ed448, sizeof(oid_ed448), pk, 57, spki, sizeof(spki));
+    if (pkcs8_len == 0 || spki_len == 0) {
+        fprintf(stderr, "Error: DER encode failed\n");
+        return 1;
+    }
+    printf("Generating Ed448 key pair\n");
+    if (out_file == NULL) {
+        FILE *fp = stdout;
+        if (strcmp(outform, "DER") == 0 || strcmp(outform, "der") == 0) {
+            fwrite(pkcs8, 1, pkcs8_len, fp);
+        } else if (write_der_as_pem(fp, pkcs8, pkcs8_len, "-----BEGIN PRIVATE KEY-----\n", "-----END PRIVATE KEY-----\n") != 0) {
+            return 1;
+        }
+        printf("Wrote Ed448 private key to stdout\n");
+        return 0;
+    }
+    char key_path[CERTGEN_PATH_MAX], pub_path[CERTGEN_PATH_MAX];
+    build_key_pub_paths(out_file, key_path, pub_path, sizeof(key_path));
+    FILE *fp_key = noxtls_fopen(key_path, "wb");
+    if (fp_key == NULL) {
+        fprintf(stderr, "Error: Cannot open %s for writing\n", key_path);
+        return 1;
+    }
+    if (strcmp(outform, "DER") == 0 || strcmp(outform, "der") == 0) {
+        if (fwrite(pkcs8, 1, pkcs8_len, fp_key) != pkcs8_len) {
+            fclose(fp_key);
+            return 1;
+        }
+        printf("Wrote %s (%u bytes)\n", key_path, (unsigned)pkcs8_len);
+    } else {
+        if (write_der_as_pem(fp_key, pkcs8, pkcs8_len, "-----BEGIN PRIVATE KEY-----\n", "-----END PRIVATE KEY-----\n") != 0) {
+            fclose(fp_key);
+            return 1;
+        }
+        printf("Wrote %s (PEM PKCS#8)\n", key_path);
+    }
+    fclose(fp_key);
+    FILE *fp_pub = noxtls_fopen(pub_path, "wb");
+    if (fp_pub == NULL) {
+        fprintf(stderr, "Error: Cannot open %s for writing\n", pub_path);
+        return 1;
+    }
+    if (write_der_as_pem(fp_pub, spki, spki_len, CERT_PUB_KEY_STR "\n", CERT_PUB_KEY_END "\n") != 0) {
+        fclose(fp_pub);
+        return 1;
+    }
+    fclose(fp_pub);
+    printf("Wrote %s (PEM SPKI)\n", pub_path);
+    return 0;
+}
+#endif
+
 static int cmd_genrsa(int argc, char **argv, const char *prog)
 {
     (void)prog;
@@ -649,6 +860,125 @@ static void extract_cn_from_subj(const char *subj, char *cn_out, size_t cn_size)
 static const uint8_t oid_ecdsa_sha256[]     = { 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x02 };
 #define CERTGEN_CERT_DER_MAX 4096
 #define CERTGEN_PEM_MAX      8192
+
+static int certgen_self_signed_x509_common(
+    const char *cn_buf,
+    int days,
+    const uint8_t *subject_pk_oid, uint32_t subject_pk_oid_len,
+    const uint8_t *subject_pk, uint32_t subject_pk_len,
+    const uint8_t *sig_oid, uint32_t sig_oid_len,
+    const uint8_t *sign_key_der, uint32_t sign_key_der_len,
+    noxtls_hash_algos_t hash_algo,
+    const char *out_file,
+    const char *outform)
+{
+    uint8_t issuer_der[256], subject_der[256];
+    uint32_t issuer_len = 0, subject_len = 0;
+    noxtls_return_t rc = noxtls_x509_dn_from_cn(cn_buf, issuer_der, sizeof(issuer_der), &issuer_len);
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        fprintf(stderr, "Error: Failed to build issuer DN\n");
+        return 1;
+    }
+    rc = noxtls_x509_dn_from_cn(cn_buf, subject_der, sizeof(subject_der), &subject_len);
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        fprintf(stderr, "Error: Failed to build subject DN\n");
+        return 1;
+    }
+
+    char not_before[16], not_after[16];
+    time_t now = time(NULL);
+    if (now == (time_t)-1) {
+        fprintf(stderr, "Error: time() failed\n");
+        return 1;
+    }
+#ifdef _MSC_VER
+    struct tm tm_before, tm_after;
+    if (gmtime_s(&tm_before, &now) != 0) {
+        fprintf(stderr, "Error: gmtime failed\n");
+        return 1;
+    }
+    time_t end = now + (time_t)days * 24 * 3600;
+    if (gmtime_s(&tm_after, &end) != 0) {
+        fprintf(stderr, "Error: gmtime failed\n");
+        return 1;
+    }
+    snprintf(not_before, sizeof(not_before), "%02d%02d%02d%02d%02d%02dZ",
+        tm_before.tm_year % 100, tm_before.tm_mon + 1, tm_before.tm_mday,
+        tm_before.tm_hour, tm_before.tm_min, tm_before.tm_sec);
+    snprintf(not_after, sizeof(not_after), "%02d%02d%02d%02d%02d%02dZ",
+        tm_after.tm_year % 100, tm_after.tm_mon + 1, tm_after.tm_mday,
+        tm_after.tm_hour, tm_after.tm_min, tm_after.tm_sec);
+#else
+    struct tm *tm_before = gmtime(&now);
+    if (tm_before == NULL) {
+        fprintf(stderr, "Error: gmtime failed\n");
+        return 1;
+    }
+    time_t end = now + (time_t)days * 24 * 3600;
+    struct tm *tm_after = gmtime(&end);
+    if (tm_after == NULL) {
+        fprintf(stderr, "Error: gmtime failed\n");
+        return 1;
+    }
+    snprintf(not_before, sizeof(not_before), "%02d%02d%02d%02d%02d%02dZ",
+        tm_before->tm_year % 100, tm_before->tm_mon + 1, tm_before->tm_mday,
+        tm_before->tm_hour, tm_before->tm_min, tm_before->tm_sec);
+    snprintf(not_after, sizeof(not_after), "%02d%02d%02d%02d%02d%02dZ",
+        tm_after->tm_year % 100, tm_after->tm_mon + 1, tm_after->tm_mday,
+        tm_after->tm_hour, tm_after->tm_min, tm_after->tm_sec);
+#endif
+
+    uint8_t serial[20] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 };
+    uint8_t cert_der[CERTGEN_CERT_DER_MAX];
+    uint32_t cert_der_len = 0;
+
+    rc = noxtls_x509_certificate_generate_self_signed(
+        serial, (uint32_t)sizeof(serial),
+        issuer_der, issuer_len, subject_der, subject_len,
+        not_before, not_after,
+        subject_pk_oid, subject_pk_oid_len,
+        subject_pk, subject_pk_len,
+        sig_oid, sig_oid_len,
+        sign_key_der, sign_key_der_len,
+        hash_algo,
+        cert_der, sizeof(cert_der), &cert_der_len);
+
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        fprintf(stderr, "Error: Certificate generation failed (%d)\n", (int)rc);
+        return 1;
+    }
+
+    FILE *fp = noxtls_fopen(out_file, "wb");
+    if (fp == NULL) {
+        fprintf(stderr, "Error: Cannot open %s for writing\n", out_file);
+        return 1;
+    }
+    if (strcmp(outform, "DER") == 0 || strcmp(outform, "der") == 0) {
+        if (fwrite(cert_der, 1, cert_der_len, fp) != (size_t)cert_der_len) {
+            fprintf(stderr, "Error: Write failed\n");
+            fclose(fp);
+            return 1;
+        }
+        printf("Wrote %s (%u bytes DER)\n", out_file, (unsigned)cert_der_len);
+    } else {
+        uint8_t pem_buf[CERTGEN_PEM_MAX];
+        uint32_t pem_len = 0;
+        rc = noxtls_certificate_der_to_pem(cert_der, cert_der_len, pem_buf, &pem_len);
+        if (rc != NOXTLS_RETURN_SUCCESS || pem_len == 0) {
+            fprintf(stderr, "Error: DER to PEM failed\n");
+            fclose(fp);
+            return 1;
+        }
+        if (fwrite(pem_buf, 1, pem_len, fp) != (size_t)pem_len) {
+            fprintf(stderr, "Error: Write failed\n");
+            fclose(fp);
+            return 1;
+        }
+        printf("Wrote %s (PEM)\n", out_file);
+    }
+    fclose(fp);
+    return 0;
+}
 #endif
 
 static int cmd_req(int argc, char **argv, const char *prog)
@@ -698,28 +1028,7 @@ static int cmd_req(int argc, char **argv, const char *prog)
     }
 
 #if NOXTLS_HAVE_CERT_WRITE
-    if (priv.key_type == X509_PRIVATE_KEY_ECC) {
-        ecc_key_t ecc_key;
-        noxtls_return_t rc = noxtls_x509_private_key_to_ecc_key(&priv, &ecc_key);
-        if (rc != NOXTLS_RETURN_SUCCESS) {
-            fprintf(stderr, "Error: Failed to convert key to ECC\n");
-            noxtls_x509_private_key_free(&priv);
-            return 1;
-        }
-
-        uint32_t curve_size = ecc_key.curve != NULL ? ecc_key.curve->size : 32;
-        uint8_t pub_key_buf[133]; /* 1 + 2*66 for P-521 */
-        if (curve_size > 66 || 1 + 2 * curve_size > sizeof(pub_key_buf)) {
-            fprintf(stderr, "Error: Unsupported curve size\n");
-            noxtls_ecc_key_free(&ecc_key);
-            noxtls_x509_private_key_free(&priv);
-            return 1;
-        }
-        pub_key_buf[0] = 0x04;
-        memcpy(pub_key_buf + 1, ecc_key.Q.x, curve_size);
-        memcpy(pub_key_buf + 1 + curve_size, ecc_key.Q.y, curve_size);
-        uint32_t pub_key_len = 1 + 2 * curve_size;
-
+    {
         char cn_buf[256];
         extract_cn_from_subj(subj, cn_buf, sizeof(cn_buf));
         if (cn_buf[0] == '\0') {
@@ -727,145 +1036,105 @@ static int cmd_req(int argc, char **argv, const char *prog)
             cn_buf[sizeof(cn_buf) - 1] = '\0';
         }
 
-        uint8_t issuer_der[256], subject_der[256];
-        uint32_t issuer_len = 0, subject_len = 0;
-        rc = noxtls_x509_dn_from_cn(cn_buf, issuer_der, sizeof(issuer_der), &issuer_len);
-        if (rc != NOXTLS_RETURN_SUCCESS) {
-            fprintf(stderr, "Error: Failed to build issuer DN\n");
-            noxtls_ecc_key_free(&ecc_key);
-            noxtls_x509_private_key_free(&priv);
-            return 1;
-        }
-        rc = noxtls_x509_dn_from_cn(cn_buf, subject_der, sizeof(subject_der), &subject_len);
-        if (rc != NOXTLS_RETURN_SUCCESS) {
-            fprintf(stderr, "Error: Failed to build subject DN\n");
-            noxtls_ecc_key_free(&ecc_key);
-            noxtls_x509_private_key_free(&priv);
-            return 1;
-        }
-
-        /* Validity: not_before = now, not_after = now + days (UTCTime YYMMDDHHMMSSZ) */
-        char not_before[16], not_after[16];
-        time_t now = time(NULL);
-        if (now == (time_t)-1) {
-            fprintf(stderr, "Error: time() failed\n");
-            noxtls_ecc_key_free(&ecc_key);
-            noxtls_x509_private_key_free(&priv);
-            return 1;
-        }
-#ifdef _MSC_VER
-        struct tm tm_before, tm_after;
-        if (gmtime_s(&tm_before, &now) != 0) {
-            fprintf(stderr, "Error: gmtime failed\n");
-            noxtls_ecc_key_free(&ecc_key);
-            noxtls_x509_private_key_free(&priv);
-            return 1;
-        }
-        time_t end = now + (time_t)days * 24 * 3600;
-        if (gmtime_s(&tm_after, &end) != 0) {
-            fprintf(stderr, "Error: gmtime failed\n");
-            noxtls_ecc_key_free(&ecc_key);
-            noxtls_x509_private_key_free(&priv);
-            return 1;
-        }
-        snprintf(not_before, sizeof(not_before), "%02d%02d%02d%02d%02d%02dZ",
-            tm_before.tm_year % 100, tm_before.tm_mon + 1, tm_before.tm_mday,
-            tm_before.tm_hour, tm_before.tm_min, tm_before.tm_sec);
-        snprintf(not_after, sizeof(not_after), "%02d%02d%02d%02d%02d%02dZ",
-            tm_after.tm_year % 100, tm_after.tm_mon + 1, tm_after.tm_mday,
-            tm_after.tm_hour, tm_after.tm_min, tm_after.tm_sec);
-#else
-        struct tm *tm_before = gmtime(&now);
-        if (tm_before == NULL) {
-            fprintf(stderr, "Error: gmtime failed\n");
-            noxtls_ecc_key_free(&ecc_key);
-            noxtls_x509_private_key_free(&priv);
-            return 1;
-        }
-        time_t end = now + (time_t)days * 24 * 3600;
-        struct tm *tm_after = gmtime(&end);
-        if (tm_after == NULL) {
-            fprintf(stderr, "Error: gmtime failed\n");
-            noxtls_ecc_key_free(&ecc_key);
-            noxtls_x509_private_key_free(&priv);
-            return 1;
-        }
-        snprintf(not_before, sizeof(not_before), "%02d%02d%02d%02d%02d%02dZ",
-            tm_before->tm_year % 100, tm_before->tm_mon + 1, tm_before->tm_mday,
-            tm_before->tm_hour, tm_before->tm_min, tm_before->tm_sec);
-        snprintf(not_after, sizeof(not_after), "%02d%02d%02d%02d%02d%02dZ",
-            tm_after->tm_year % 100, tm_after->tm_mon + 1, tm_after->tm_mday,
-            tm_after->tm_hour, tm_after->tm_min, tm_after->tm_sec);
-#endif
-        uint8_t serial[20] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 };
-        uint8_t cert_der[CERTGEN_CERT_DER_MAX];
-        uint32_t cert_der_len = 0;
-
-        /* Signing key: use raw private key from file (we still have priv) */
         uint32_t key_raw_len = priv.raw_data_len;
         const uint8_t *key_raw = priv.raw_data;
         if (key_raw == NULL || key_raw_len == 0) {
             fprintf(stderr, "Error: No raw key data for signing\n");
-            noxtls_ecc_key_free(&ecc_key);
             noxtls_x509_private_key_free(&priv);
             return 1;
         }
 
-        rc = noxtls_x509_certificate_generate_self_signed(
-            serial, (uint32_t)sizeof(serial),
-            issuer_der, issuer_len, subject_der, subject_len,
-            not_before, not_after,
-            oid_id_ec_public_key, (uint32_t)sizeof(oid_id_ec_public_key),
-            pub_key_buf, pub_key_len,
-            oid_ecdsa_sha256, (uint32_t)sizeof(oid_ecdsa_sha256),
-            key_raw, key_raw_len,
-            NOXTLS_HASH_SHA_256,
-            cert_der, sizeof(cert_der), &cert_der_len);
+        if (priv.key_type == X509_PRIVATE_KEY_ECC) {
+            ecc_key_t ecc_key;
+            noxtls_return_t rc = noxtls_x509_private_key_to_ecc_key(&priv, &ecc_key);
+            if (rc != NOXTLS_RETURN_SUCCESS) {
+                fprintf(stderr, "Error: Failed to convert key to ECC\n");
+                noxtls_x509_private_key_free(&priv);
+                return 1;
+            }
 
-        noxtls_ecc_key_free(&ecc_key);
+            uint32_t curve_size = ecc_key.curve != NULL ? ecc_key.curve->size : 32;
+            uint8_t pub_key_buf[133]; /* 1 + 2*66 for P-521 */
+            if (curve_size > 66 || 1 + 2 * curve_size > sizeof(pub_key_buf)) {
+                fprintf(stderr, "Error: Unsupported curve size\n");
+                noxtls_ecc_key_free(&ecc_key);
+                noxtls_x509_private_key_free(&priv);
+                return 1;
+            }
+            pub_key_buf[0] = 0x04;
+            memcpy(pub_key_buf + 1, ecc_key.Q.x, curve_size);
+            memcpy(pub_key_buf + 1 + curve_size, ecc_key.Q.y, curve_size);
+            uint32_t pub_key_len = 1 + 2 * curve_size;
+            noxtls_ecc_key_free(&ecc_key);
+
+            int out = certgen_self_signed_x509_common(
+                cn_buf, days,
+                oid_id_ec_public_key, (uint32_t)sizeof(oid_id_ec_public_key),
+                pub_key_buf, pub_key_len,
+                oid_ecdsa_sha256, (uint32_t)sizeof(oid_ecdsa_sha256),
+                key_raw, key_raw_len,
+                NOXTLS_HASH_SHA_256,
+                out_file, outform);
+            noxtls_x509_private_key_free(&priv);
+            return out;
+        }
+#if NOXTLS_FEATURE_ED25519
+        if (priv.key_type == X509_PRIVATE_KEY_ED25519) {
+            uint32_t slen = 0;
+            const uint8_t *seed = noxtls_x509_private_key_get_eddsa_seed(&priv, &slen);
+            if (seed == NULL || slen != 32) {
+                fprintf(stderr, "Error: Invalid Ed25519 private key material\n");
+                noxtls_x509_private_key_free(&priv);
+                return 1;
+            }
+            uint8_t pub_raw[32];
+            if (noxtls_ed25519_public_key(seed, pub_raw) != NOXTLS_RETURN_SUCCESS) {
+                noxtls_x509_private_key_free(&priv);
+                return 1;
+            }
+            int out = certgen_self_signed_x509_common(
+                cn_buf, days,
+                oid_ed25519, (uint32_t)sizeof(oid_ed25519),
+                pub_raw, 32,
+                oid_ed25519, (uint32_t)sizeof(oid_ed25519),
+                key_raw, key_raw_len,
+                NOXTLS_HASH_SHA_256,
+                out_file, outform);
+            noxtls_x509_private_key_free(&priv);
+            return out;
+        }
+#endif
+#if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+        if (priv.key_type == X509_PRIVATE_KEY_ED448) {
+            uint32_t slen = 0;
+            const uint8_t *seed = noxtls_x509_private_key_get_eddsa_seed(&priv, &slen);
+            if (seed == NULL || slen != 57) {
+                fprintf(stderr, "Error: Invalid Ed448 private key material\n");
+                noxtls_x509_private_key_free(&priv);
+                return 1;
+            }
+            uint8_t pub_raw[57];
+            if (noxtls_ed448_public_key(seed, pub_raw) != NOXTLS_RETURN_SUCCESS) {
+                noxtls_x509_private_key_free(&priv);
+                return 1;
+            }
+            int out = certgen_self_signed_x509_common(
+                cn_buf, days,
+                oid_ed448, (uint32_t)sizeof(oid_ed448),
+                pub_raw, 57,
+                oid_ed448, (uint32_t)sizeof(oid_ed448),
+                key_raw, key_raw_len,
+                NOXTLS_HASH_SHA_256,
+                out_file, outform);
+            noxtls_x509_private_key_free(&priv);
+            return out;
+        }
+#endif
         noxtls_x509_private_key_free(&priv);
-
-        if (rc != NOXTLS_RETURN_SUCCESS) {
-            fprintf(stderr, "Error: Certificate generation failed (%d)\n", (int)rc);
-            return 1;
-        }
-
-        FILE *fp = noxtls_fopen(out_file, "wb");
-        if (fp == NULL) {
-            fprintf(stderr, "Error: Cannot open %s for writing\n", out_file);
-            return 1;
-        }
-        if (strcmp(outform, "DER") == 0 || strcmp(outform, "der") == 0) {
-            if (fwrite(cert_der, 1, cert_der_len, fp) != (size_t)cert_der_len) {
-                fprintf(stderr, "Error: Write failed\n");
-                fclose(fp);
-                return 1;
-            }
-            printf("Wrote %s (%u bytes DER)\n", out_file, (unsigned)cert_der_len);
-        } else {
-            uint8_t pem_buf[CERTGEN_PEM_MAX];
-            uint32_t pem_len = 0;
-            rc = noxtls_certificate_der_to_pem(cert_der, cert_der_len, pem_buf, &pem_len);
-            if (rc != NOXTLS_RETURN_SUCCESS || pem_len == 0) {
-                fprintf(stderr, "Error: DER to PEM failed\n");
-                fclose(fp);
-                return 1;
-            }
-            if (fwrite(pem_buf, 1, pem_len, fp) != (size_t)pem_len) {
-                fprintf(stderr, "Error: Write failed\n");
-                fclose(fp);
-                return 1;
-            }
-            printf("Wrote %s (PEM)\n", out_file);
-        }
-        fclose(fp);
-        return 0;
+        fprintf(stderr, "Error: Self-signed certificate generation supports ECC, Ed25519, and Ed448 keys.\n");
+        fprintf(stderr, "Use %s genec / gened25519 / gened448, then req -new -x509 -key ...\n", prog);
+        return 1;
     }
-    /* RSA key: not supported by library generate API */
-    noxtls_x509_private_key_free(&priv);
-    fprintf(stderr, "Error: Self-signed certificate generation supports ECC keys only.\n");
-    fprintf(stderr, "Generate an ECC key with: %s genec -out key.pem -curve prime256v1\n", prog);
-    return 1;
 #else
     if (priv.key_type != X509_PRIVATE_KEY_RSA) {
         fprintf(stderr, "Error: This build supports only RSA for certificate generation (not implemented).\n");
@@ -901,6 +1170,14 @@ int main(int argc, char **argv)
     if (strcmp(argv[1], "genec") == 0) {
         return cmd_genec(argc - 1, argv + 1, prog);
     }
+    if (strcmp(argv[1], "gened25519") == 0) {
+        return cmd_gened25519(argc - 1, argv + 1, prog);
+    }
+#if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+    if (strcmp(argv[1], "gened448") == 0) {
+        return cmd_gened448(argc - 1, argv + 1, prog);
+    }
+#endif
     if (strcmp(argv[1], "req") == 0) {
         return cmd_req(argc - 1, argv + 1, prog);
     }

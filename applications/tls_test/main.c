@@ -46,6 +46,9 @@
  * In-process test: creates TLS server and client, connects via callbacks,
  * performs handshake and verifies encryption/decryption. No command-line
  * parameters required; run from project or build directory.
+ * Mutual TLS with Ed25519 uses tls13_set_client_cert_ed25519; with Ed448 (when
+ * NOXTLS_CFG_FEATURE_ED448 and SHA-3 are enabled) use tls13_set_client_cert_ed448
+ * and an id-Ed448 client certificate.
  * @example
  * tls_test
  */

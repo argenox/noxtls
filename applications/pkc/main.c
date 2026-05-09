@@ -57,6 +57,15 @@
 #include "string_common.h"
 #include "noxtls-lib/pkc/rsa/noxtls_rsa.h"
 #include "noxtls-lib/mdigest/noxtls_hash.h"
+#if NOXTLS_FEATURE_ED25519
+#include "noxtls-lib/pkc/ed25519/noxtls_ed25519.h"
+#endif
+#if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+#include "noxtls-lib/pkc/ed448/noxtls_ed448.h"
+#endif
+#if NOXTLS_FEATURE_ED25519 || (NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3)
+#include "noxtls-lib/certs/noxtls_x509.h"
+#endif
 
 #define APP_VERSION_MAJOR 0
 #define APP_VERSION_MINOR 1
@@ -75,35 +84,59 @@ typedef enum {
     INPUT_DATA_TYPE_HEX,
 } input_data_type_t;
 
+typedef enum {
+    PKC_ALG_RSA = 0,
+    PKC_ALG_ED25519,
+    PKC_ALG_ED25519CTX,
+    PKC_ALG_ED25519PH,
+    PKC_ALG_ED448,
+    PKC_ALG_ED448CTX,
+    PKC_ALG_ED448PH,
+} pkc_alg_t;
+
 uint8_t debug_lvl = 0;
 
 void print_usage(const char *name)
 {
     printf("usage: %s [operation] [algorithm] <parameters>\n", name);
     printf("\nSupported Operations:\n\n");
-    printf("  encrypt    - Encrypt data using public key\n");
-    printf("  decrypt    - Decrypt data using private key\n");
+    printf("  encrypt    - Encrypt data using public key (RSA only)\n");
+    printf("  decrypt    - Decrypt data using private key (RSA only)\n");
     printf("  sign       - Sign data using private key\n");
     printf("  verify     - Verify signature using public key\n");
-    printf("  genkey     - Generate RSA key pair\n");
-    
+    printf("  genkey     - Generate key pair\n");
+
     printf("\nSupported Algorithms:\n\n");
-    printf("  rsa        - RSA (Rivest-Shamir-Adleman)\n");
-    
+    printf("  rsa        - RSA\n");
+#if NOXTLS_FEATURE_ED25519
+    printf("  ed25519    - Ed25519 (PureEdDSA)\n");
+    printf("  ed25519ctx - Ed25519ctx (requires -C <hex> context, 1..255 bytes)\n");
+    printf("  ed25519ph  - Ed25519ph (pre-hash)\n");
+#endif
+#if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+    printf("  ed448      - Ed448 (PureEdDSA)\n");
+    printf("  ed448ctx   - Ed448ctx (requires -C <hex> context)\n");
+    printf("  ed448ph    - Ed448ph (pre-hash)\n");
+#endif
+
     printf("\nCommandline Switches:\n\n");
-    printf("  -k <size>      Key size in bits (1024, 2048, 3072, 4096) - default: 2048\n");
-    printf("  -h <algo>      Hash algorithm for signatures (md5, sha1, sha256) - default: sha256\n");
+    printf("  -k <size>      RSA key size (1024, 2048, 3072, 4096) - default: 2048\n");
+    printf("  -K <file>      Private key PEM/DER (PKCS#8) for EdDSA sign\n");
+    printf("  -P <hex>       Raw public key hex (32 bytes Ed25519, 57 bytes Ed448) for EdDSA verify\n");
+    printf("  -C <hex>       Context hex for *ctx algorithms (sign and verify)\n");
+    printf("  -h <algo>      Hash for RSA signatures (md5, sha1, sha256) - default: sha256\n");
     printf("  -d             Enable debug mode\n");
-    printf("  -x             Interpret input data as hexadecimal string\n");
-    printf("  -v             Version Information\n");
-    
+    printf("  -x             Interpret message input as hexadecimal\n");
+    printf("  -v             Version information\n");
+
     printf("\nExamples:\n\n");
     printf("  %s encrypt rsa \"Hello World\"\n", name);
-    printf("  %s decrypt rsa <hex_ciphertext>\n", name);
     printf("  %s sign rsa \"Message to sign\"\n", name);
-    printf("  %s verify rsa \"Message\" <hex_signature>\n", name);
-    printf("  %s genkey rsa -k 2048\n", name);
-    
+#if NOXTLS_FEATURE_ED25519
+    printf("  %s genkey ed25519\n", name);
+    printf("  %s sign ed25519 -K key.pem \"message\"\n", name);
+    printf("  %s verify ed25519 -P <64-char hex> \"message\" <128-char hex sig>\n", name);
+#endif
     printf("\n");
 }
 
@@ -120,6 +153,280 @@ void print_hex(const uint8_t *data, uint32_t len)
     }
     printf("\n");
 }
+
+static int pkc_alg_is_eddsa(pkc_alg_t a)
+{
+#if NOXTLS_FEATURE_ED25519 || (NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3)
+    return (int)a >= (int)PKC_ALG_ED25519 && (int)a <= (int)PKC_ALG_ED448PH;
+#else
+    (void)a;
+    return 0;
+#endif
+}
+
+#if NOXTLS_FEATURE_ED25519 || (NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3)
+static int pkc_read_file_alloc(const char *path, uint8_t **out, uint32_t *out_len)
+{
+    FILE *fp;
+#ifdef _MSC_VER
+    if(fopen_s(&fp, path, "rb") != 0 || fp == NULL) {
+        return -1;
+    }
+#else
+    fp = fopen(path, "rb");
+    if(fp == NULL) {
+        return -1;
+    }
+#endif
+    if(fseek(fp, 0, SEEK_END) != 0) {
+        fclose(fp);
+        return -1;
+    }
+    long sz = ftell(fp);
+    if(sz <= 0 || sz > (1 << 20)) {
+        fclose(fp);
+        return -1;
+    }
+    rewind(fp);
+    uint8_t *buf = (uint8_t *)malloc((size_t)sz + 1u);
+    if(buf == NULL) {
+        fclose(fp);
+        return -1;
+    }
+    if(fread(buf, 1, (size_t)sz, fp) != (size_t)sz) {
+        free(buf);
+        fclose(fp);
+        return -1;
+    }
+    fclose(fp);
+    buf[(size_t)sz] = '\0';
+    *out = buf;
+    *out_len = (uint32_t)sz;
+    return 0;
+}
+
+static int pkc_load_x509_private_key_file(const char *path, x509_private_key_t *key)
+{
+    uint8_t *buf = NULL;
+    uint32_t blen = 0;
+    if(pkc_read_file_alloc(path, &buf, &blen) != 0) {
+        return -1;
+    }
+    noxtls_x509_private_key_init(key);
+    noxtls_return_t rc = noxtls_x509_private_key_parse_pem(key, buf, blen);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_x509_private_key_parse_der(key, buf, blen);
+    }
+    free(buf);
+    return rc == NOXTLS_RETURN_SUCCESS ? 0 : -1;
+}
+
+static int pkc_hex_to_bytes(const char *hex, uint8_t *out, uint32_t out_max, uint32_t *out_len)
+{
+    size_t hl = strlen(hex);
+    if(hl % 2u != 0 || hl / 2u > (size_t)out_max) {
+        return -1;
+    }
+    *out_len = (uint32_t)noxtls_process_string_to_bytes(hex, out);
+    if(*out_len != hl / 2u) {
+        return -1;
+    }
+    return 0;
+}
+
+static int pkc_eddsa_sign(pkc_alg_t alg, const char *key_path, const char *ctx_hex,
+    const uint8_t *msg, uint32_t msg_len)
+{
+    x509_private_key_t pk;
+    if(pkc_load_x509_private_key_file(key_path, &pk) != 0) {
+        printf("Error: Cannot load private key from %s\n", key_path);
+        return -1;
+    }
+
+    uint8_t ctx_buf[255];
+    uint32_t ctx_len = 0;
+    if(ctx_hex != NULL && ctx_hex[0] != '\0') {
+        if(pkc_hex_to_bytes(ctx_hex, ctx_buf, (uint32_t)sizeof(ctx_buf), &ctx_len) != 0) {
+            printf("Error: Bad context hex\n");
+            noxtls_x509_private_key_free(&pk);
+            return -1;
+        }
+    }
+
+    uint32_t sl;
+    const uint8_t *seed = noxtls_x509_private_key_get_eddsa_seed(&pk, &sl);
+    int ret = -1;
+
+#if NOXTLS_FEATURE_ED25519
+    if(alg >= PKC_ALG_ED25519 && alg <= PKC_ALG_ED25519PH) {
+        if(seed == NULL || sl != 32) {
+            printf("Error: Key is not Ed25519 PKCS#8\n");
+            noxtls_x509_private_key_free(&pk);
+            return -1;
+        }
+        uint8_t sig[64];
+        noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+        if(alg == PKC_ALG_ED25519) {
+            rc = noxtls_ed25519_sign(seed, msg, msg_len, sig);
+        } else if(alg == PKC_ALG_ED25519CTX) {
+            if(ctx_len < 1 || ctx_len > NOXTLS_ED25519_CONTEXT_MAX) {
+                printf("Error: ed25519ctx requires -C with 1..255 byte context\n");
+                noxtls_x509_private_key_free(&pk);
+                return -1;
+            }
+            rc = noxtls_ed25519ctx_sign(seed, ctx_buf, ctx_len, msg, msg_len, sig);
+        } else if(alg == PKC_ALG_ED25519PH) {
+            rc = noxtls_ed25519ph_sign(seed, msg, msg_len, sig);
+        }
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            printf("Signature: ");
+            print_hex(sig, 64);
+            ret = 0;
+        } else {
+            printf("Error: Ed25519 sign failed\n");
+        }
+        noxtls_x509_private_key_free(&pk);
+        return ret;
+    }
+#endif
+#if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+    if(alg >= PKC_ALG_ED448 && alg <= PKC_ALG_ED448PH) {
+        if(seed == NULL || sl != 57) {
+            printf("Error: Key is not Ed448 PKCS#8\n");
+            noxtls_x509_private_key_free(&pk);
+            return -1;
+        }
+        uint8_t sig[114];
+        noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+        if(alg == PKC_ALG_ED448) {
+            rc = noxtls_ed448_sign(seed, msg, msg_len, sig);
+        } else if(alg == PKC_ALG_ED448CTX) {
+            if(ctx_len < 1 || ctx_len > NOXTLS_ED448_CONTEXT_MAX) {
+                printf("Error: ed448ctx requires -C with 1..255 byte context\n");
+                noxtls_x509_private_key_free(&pk);
+                return -1;
+            }
+            rc = noxtls_ed448ctx_sign(seed, ctx_buf, ctx_len, msg, msg_len, sig);
+        } else if(alg == PKC_ALG_ED448PH) {
+            rc = noxtls_ed448ph_sign(seed, msg, msg_len, sig);
+        }
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            printf("Signature: ");
+            print_hex(sig, 114);
+            ret = 0;
+        } else {
+            printf("Error: Ed448 sign failed\n");
+        }
+        noxtls_x509_private_key_free(&pk);
+        return ret;
+    }
+#endif
+    (void)msg;
+    (void)msg_len;
+    printf("Error: Unsupported EdDSA algorithm for sign\n");
+    noxtls_x509_private_key_free(&pk);
+    return -1;
+}
+
+static int pkc_eddsa_verify(pkc_alg_t alg, const char *pub_hex, const char *ctx_hex,
+    const uint8_t *msg, uint32_t msg_len, const uint8_t *sig, uint32_t sig_len)
+{
+    uint8_t pub[57];
+    uint32_t pub_len = 0;
+    if(pkc_hex_to_bytes(pub_hex, pub, (uint32_t)sizeof(pub), &pub_len) != 0) {
+        printf("Error: Bad public key hex\n");
+        return -1;
+    }
+
+    uint8_t ctx_buf[255];
+    uint32_t ctx_len = 0;
+    if(ctx_hex != NULL && ctx_hex[0] != '\0') {
+        if(pkc_hex_to_bytes(ctx_hex, ctx_buf, (uint32_t)sizeof(ctx_buf), &ctx_len) != 0) {
+            printf("Error: Bad context hex\n");
+            return -1;
+        }
+    }
+
+#if NOXTLS_FEATURE_ED25519
+    if(alg >= PKC_ALG_ED25519 && alg <= PKC_ALG_ED25519PH) {
+        if(pub_len != 32 || sig_len != 64) {
+            printf("Error: Ed25519 expects 32-byte public key and 64-byte signature\n");
+            return -1;
+        }
+        noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+        if(alg == PKC_ALG_ED25519) {
+            rc = noxtls_ed25519_verify(pub, msg, msg_len, sig);
+        } else if(alg == PKC_ALG_ED25519CTX) {
+            rc = noxtls_ed25519ctx_verify(pub, ctx_buf, ctx_len, msg, msg_len, sig);
+        } else {
+            rc = noxtls_ed25519ph_verify(pub, msg, msg_len, sig);
+        }
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            printf("Signature verification: SUCCESS\n");
+        } else {
+            printf("Signature verification: FAILED\n");
+        }
+        return rc == NOXTLS_RETURN_SUCCESS ? 0 : -1;
+    }
+#endif
+#if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+    if(alg >= PKC_ALG_ED448 && alg <= PKC_ALG_ED448PH) {
+        if(pub_len != 57 || sig_len != 114) {
+            printf("Error: Ed448 expects 57-byte public key and 114-byte signature\n");
+            return -1;
+        }
+        noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+        if(alg == PKC_ALG_ED448) {
+            rc = noxtls_ed448_verify(pub, msg, msg_len, sig);
+        } else if(alg == PKC_ALG_ED448CTX) {
+            rc = noxtls_ed448ctx_verify(pub, ctx_buf, ctx_len, msg, msg_len, sig);
+        } else {
+            rc = noxtls_ed448ph_verify(pub, msg, msg_len, sig);
+        }
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            printf("Signature verification: SUCCESS\n");
+        } else {
+            printf("Signature verification: FAILED\n");
+        }
+        return rc == NOXTLS_RETURN_SUCCESS ? 0 : -1;
+    }
+#endif
+    printf("Error: Unsupported EdDSA algorithm for verify\n");
+    return -1;
+}
+
+static int pkc_eddsa_genkey(pkc_alg_t alg)
+{
+#if NOXTLS_FEATURE_ED25519
+    if(alg == PKC_ALG_ED25519) {
+        uint8_t sk[32], pk[32];
+        if(noxtls_ed25519_generate_key(sk, pk) != NOXTLS_RETURN_SUCCESS) {
+            return -1;
+        }
+        printf("private seed (hex): ");
+        print_hex(sk, 32);
+        printf("\npublic key (hex): ");
+        print_hex(pk, 32);
+        return 0;
+    }
+#endif
+#if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+    if(alg == PKC_ALG_ED448) {
+        uint8_t sk[57], pk[57];
+        if(noxtls_ed448_generate_key(sk, pk) != NOXTLS_RETURN_SUCCESS) {
+            return -1;
+        }
+        printf("private seed (hex): ");
+        print_hex(sk, 57);
+        printf("\npublic key (hex): ");
+        print_hex(pk, 57);
+        return 0;
+    }
+#endif
+    printf("Error: genkey for this EdDSA algorithm is not supported (use ed25519 or ed448)\n");
+    return -1;
+}
+#endif /* NOXTLS_FEATURE_ED25519 || ED448 */
 
 int rsa_encrypt_handler(const uint8_t *data, uint32_t data_len, rsa_key_size_t key_size)
 {
@@ -442,19 +749,22 @@ int main(int argc, char **argv)
 {
     pkc_operation_t operation = PKC_OP_ENCRYPT;
     int algorithm_specified = 0;
+    pkc_alg_t alg = PKC_ALG_RSA;
     rsa_key_size_t key_size = RSA_2048_BIT;
     noxtls_hash_algos_t hash_algo = NOXTLS_HASH_SHA_256;
     input_data_type_t input_type = INPUT_DATA_TYPE_STRING;
-    int argc_skip = 1;  /* Skip program name */
+    int argc_skip = 1;
     uint8_t *data_buffer = NULL;
     uint32_t data_length = 0;
-    
+    const char *opt_key_file = NULL;
+    const char *opt_pub_hex = NULL;
+    const char *opt_ctx_hex = NULL;
+
     if(argc < 2) {
         print_usage(argv[0]);
         return -1;
     }
-    
-    /* Parse operation */
+
     if(strcmp(argv[argc_skip], "encrypt") == 0) {
         operation = PKC_OP_ENCRYPT;
         argc_skip++;
@@ -481,30 +791,57 @@ int main(int argc, char **argv)
         print_usage(argv[0]);
         return -1;
     }
-    
+
     if(argc_skip >= argc) {
         printf("Error: Algorithm not specified\n");
         print_usage(argv[0]);
         return -1;
     }
-    
-    /* Parse algorithm */
+
     if(strcmp(argv[argc_skip], "rsa") == 0) {
         algorithm_specified = 1;
+        alg = PKC_ALG_RSA;
         argc_skip++;
+#if NOXTLS_FEATURE_ED25519
+    } else if(strcasecmp(argv[argc_skip], "ed25519") == 0) {
+        algorithm_specified = 1;
+        alg = PKC_ALG_ED25519;
+        argc_skip++;
+    } else if(strcasecmp(argv[argc_skip], "ed25519ctx") == 0) {
+        algorithm_specified = 1;
+        alg = PKC_ALG_ED25519CTX;
+        argc_skip++;
+    } else if(strcasecmp(argv[argc_skip], "ed25519ph") == 0) {
+        algorithm_specified = 1;
+        alg = PKC_ALG_ED25519PH;
+        argc_skip++;
+#endif
+#if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+    } else if(strcasecmp(argv[argc_skip], "ed448") == 0) {
+        algorithm_specified = 1;
+        alg = PKC_ALG_ED448;
+        argc_skip++;
+    } else if(strcasecmp(argv[argc_skip], "ed448ctx") == 0) {
+        algorithm_specified = 1;
+        alg = PKC_ALG_ED448CTX;
+        argc_skip++;
+    } else if(strcasecmp(argv[argc_skip], "ed448ph") == 0) {
+        algorithm_specified = 1;
+        alg = PKC_ALG_ED448PH;
+        argc_skip++;
+#endif
     } else {
         printf("Error: Unknown algorithm '%s'\n", argv[argc_skip]);
         print_usage(argv[0]);
         return -1;
     }
-    
+
     if(!algorithm_specified) {
         printf("Error: Algorithm not specified\n");
         print_usage(argv[0]);
         return -1;
     }
-    
-    /* Parse options */
+
     int arg_idx = argc_skip;
     while(arg_idx < argc && argv[arg_idx][0] == '-') {
         if(strcmp(argv[arg_idx], "-k") == 0) {
@@ -527,6 +864,29 @@ int main(int argc, char **argv)
                 return -1;
             }
             arg_idx++;
+        } else if(strcmp(argv[arg_idx], "-K") == 0) {
+            if(arg_idx + 1 >= argc) {
+                printf("Error: -K requires a private key file path\n");
+                return -1;
+            }
+            opt_key_file = argv[++arg_idx];
+            arg_idx++;
+#if NOXTLS_FEATURE_ED25519 || (NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3)
+        } else if(strcmp(argv[arg_idx], "-P") == 0) {
+            if(arg_idx + 1 >= argc) {
+                printf("Error: -P requires hex public key\n");
+                return -1;
+            }
+            opt_pub_hex = argv[++arg_idx];
+            arg_idx++;
+        } else if(strcmp(argv[arg_idx], "-C") == 0) {
+            if(arg_idx + 1 >= argc) {
+                printf("Error: -C requires hex context\n");
+                return -1;
+            }
+            opt_ctx_hex = argv[++arg_idx];
+            arg_idx++;
+#endif
         } else if(strcmp(argv[arg_idx], "-h") == 0) {
             if(arg_idx + 1 >= argc) {
                 printf("Error: -h option requires a hash algorithm\n");
@@ -554,70 +914,96 @@ int main(int argc, char **argv)
             arg_idx++;
         }
     }
-    
-    /* Handle genkey operation */
+
     if(operation == PKC_OP_GENKEY) {
-        return rsa_genkey_handler(key_size);
+        if(alg == PKC_ALG_RSA) {
+            return rsa_genkey_handler(key_size);
+        }
+#if NOXTLS_FEATURE_ED25519 || (NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3)
+        if(pkc_alg_is_eddsa(alg)) {
+            return pkc_eddsa_genkey(alg);
+        }
+#endif
+        printf("Error: genkey not supported for this algorithm\n");
+        return -1;
     }
-    
-    /* Collect data arguments */
+
+    if(alg != PKC_ALG_RSA && (operation == PKC_OP_ENCRYPT || operation == PKC_OP_DECRYPT)) {
+        printf("Error: encrypt/decrypt are only supported with rsa\n");
+        return -1;
+    }
+
     if(arg_idx >= argc) {
         printf("Error: No data provided\n");
         return -1;
     }
-    
+
     if(operation == PKC_OP_VERIFY) {
-        /* Verify needs message and signature */
         if(arg_idx + 1 >= argc) {
             printf("Error: Verify operation requires message and signature\n");
             return -1;
         }
-        
-        /* Process message */
+
         size_t msg_len = strlen(argv[arg_idx]);
         if(msg_len > UINT32_MAX) {
             printf("Error: Input too large\n");
             return -1;
         }
-        data_buffer = (uint8_t*)malloc(msg_len);
+        data_buffer = (uint8_t *)malloc(msg_len + 1u);
         if(!data_buffer) {
             printf("Error: Memory allocation failed\n");
             return -1;
         }
-        
+        uint32_t msg_bin_len;
         if(input_type == INPUT_DATA_TYPE_HEX) {
-            (void)noxtls_process_string_to_bytes(argv[arg_idx], data_buffer);
+            msg_bin_len = (uint32_t)noxtls_process_string_to_bytes(argv[arg_idx], data_buffer);
         } else {
             memcpy(data_buffer, argv[arg_idx], msg_len);
+            msg_bin_len = (uint32_t)msg_len;
         }
-        
-        /* Process signature (hex) */
+
         arg_idx++;
-        size_t sig_len = strlen(argv[arg_idx]);
-        if(sig_len > UINT32_MAX) {
+        size_t sig_hex_len = strlen(argv[arg_idx]);
+        if(sig_hex_len > UINT32_MAX) {
             free(data_buffer);
             printf("Error: Signature too large\n");
             return -1;
         }
-        uint8_t *sig_buffer = (uint8_t*)malloc(sig_len);
+        uint8_t *sig_buffer = (uint8_t *)malloc(sig_hex_len + 1u);
         if(!sig_buffer) {
             free(data_buffer);
             printf("Error: Memory allocation failed\n");
             return -1;
         }
-        uint32_t signature_length = noxtls_process_string_to_bytes(argv[arg_idx], sig_buffer);
-        
-        /* For now, verify with generated key (in real usage, keys would be loaded) */
-        printf("Note: Verification requires public key. Using placeholder.\n");
-        printf("Signature verification not fully implemented for external keys yet.\n");
-        printf("Signature length: %u bytes\n", signature_length);
-        
+        uint32_t signature_length = (uint32_t)noxtls_process_string_to_bytes(argv[arg_idx], sig_buffer);
+
+#if NOXTLS_FEATURE_ED25519 || (NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3)
+        if(pkc_alg_is_eddsa(alg)) {
+            if(opt_pub_hex == NULL) {
+                printf("Error: EdDSA verify requires -P <hex public key>\n");
+                free(data_buffer);
+                free(sig_buffer);
+                return -1;
+            }
+            int vr = pkc_eddsa_verify(alg, opt_pub_hex, opt_ctx_hex, data_buffer, msg_bin_len, sig_buffer, signature_length);
+            free(data_buffer);
+            free(sig_buffer);
+            return vr;
+        }
+#endif
+        if(alg == PKC_ALG_RSA) {
+            printf("Note: RSA verify with external keys is not implemented; use openssl or a PEM-aware tool.\n");
+            printf("Signature length: %u bytes\n", signature_length);
+            free(data_buffer);
+            free(sig_buffer);
+            return 0;
+        }
         free(data_buffer);
         free(sig_buffer);
-        return 0;
+        printf("Error: Verify not supported for this algorithm\n");
+        return -1;
     }
-    
-    /* Process input data */
+
     size_t total_len = 0;
     int i;
     for(i = arg_idx; i < argc; i++) {
@@ -626,19 +1012,19 @@ int main(int argc, char **argv)
             printf("Error: Input too large\n");
             return -1;
         }
-        total_len += arg_len + 1;  /* +1 for space */
+        total_len += arg_len + 1;
     }
-    
+
     if(total_len > UINT32_MAX) {
         printf("Error: Input too large\n");
         return -1;
     }
-    data_buffer = (uint8_t*)malloc(total_len);
+    data_buffer = (uint8_t *)malloc(total_len);
     if(!data_buffer) {
         printf("Error: Memory allocation failed\n");
         return -1;
     }
-    
+
     data_length = 0;
     for(i = arg_idx; i < argc; i++) {
         if(input_type == INPUT_DATA_TYPE_HEX) {
@@ -665,19 +1051,32 @@ int main(int argc, char **argv)
             }
         }
     }
-    
-    /* Execute operation */
+
     if(operation == PKC_OP_ENCRYPT) {
         return rsa_encrypt_handler(data_buffer, data_length, key_size);
-    } else if(operation == PKC_OP_SIGN) {
+    }
+    if(operation == PKC_OP_SIGN) {
+#if NOXTLS_FEATURE_ED25519 || (NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3)
+        if(pkc_alg_is_eddsa(alg)) {
+            if(opt_key_file == NULL) {
+                printf("Error: EdDSA sign requires -K <private key PEM/DER>\n");
+                free(data_buffer);
+                return -1;
+            }
+            int sr = pkc_eddsa_sign(alg, opt_key_file, opt_ctx_hex, data_buffer, data_length);
+            free(data_buffer);
+            return sr;
+        }
+#endif
         return rsa_sign_handler(data_buffer, data_length, key_size, hash_algo);
-    } else if(operation == PKC_OP_DECRYPT) {
+    }
+    if(operation == PKC_OP_DECRYPT) {
         printf("Note: Decryption requires private key. Using placeholder.\n");
         printf("Decryption not fully implemented for external keys yet.\n");
         free(data_buffer);
         return 0;
     }
-    
+
     free(data_buffer);
     return 0;
 }

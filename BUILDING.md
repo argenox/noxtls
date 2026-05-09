@@ -96,6 +96,17 @@ cmake -S . -B build -D NOXTLS_PROFILE=crypto_only -D BUILD_APPLICATIONS=OFF
 cmake --build build --config Release
 ```
 
+## Ed448 / EdDSA (optional)
+
+Ed448 requires SHA-3 (SHAKE256). Enable both when configuring:
+
+```bash
+cmake -S . -B build -D NOXTLS_CFG_FEATURE_SHA3=ON -D NOXTLS_CFG_FEATURE_ED448=ON
+cmake --build build --config Release
+```
+
+`NOXTLS_CFG_FEATURE_ED448` defaults to `OFF` in the top-level `CMakeLists.txt`. With Ed448 enabled, TLS 1.3 advertises signature scheme **0x0808** (Ed448), X.509 parses **id-Ed448** (1.3.101.113) subject public keys, and the **certgen** tool provides `gened448`. Unit tests under `ut/pkc/` exercise Ed448 and Ed25519ctx/Ed25519ph when these flags are on.
+
 ## Common Build Flags
 
 - `-D BUILD_APPLICATIONS=OFF`: Build library only

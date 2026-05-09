@@ -383,6 +383,184 @@ static void sc25519_add_le_32_to_64(uint8_t out_le[64], const uint8_t a_le[32], 
     out_le[32] = (uint8_t)carry;
 }
 
+/* RFC 8032 dom2(phflag, ctx) for Ed25519ctx / Ed25519ph (pure Ed25519 uses empty dom2). */
+static const char ed25519_dom2_literal[32] = "SigEd25519 no Ed25519 collisions";
+
+static noxtls_return_t ed25519_sign_internal(const uint8_t private_key[32],
+                                             const uint8_t *message,
+                                             uint32_t message_len,
+                                             uint8_t signature[64],
+                                             uint8_t phflag,
+                                             const uint8_t *ctx_str,
+                                             uint32_t ctx_len)
+{
+    uint8_t h[64], prefix[32], s_le[32];
+    uint8_t r_in[64], r_le[32], k_in[64], k_le[32];
+    ge25519_pt_t B, R;
+    noxtls_sha512_ctx_t ctx;
+    uint8_t public_key[32];
+    uint8_t dom_buf[32 + 1 + 1 + 255];
+    uint32_t dom_len = 0;
+    uint8_t ph_digest[64];
+    const uint8_t *m_body = message;
+    uint32_t m_len = message_len;
+
+    if (private_key == NULL || signature == NULL) return NOXTLS_RETURN_NULL;
+    if (message == NULL && message_len != 0) return NOXTLS_RETURN_NULL;
+    if (phflag > 1) return NOXTLS_RETURN_INVALID_PARAM;
+    if (phflag != 0 && ctx_len != 0) return NOXTLS_RETURN_INVALID_PARAM;
+    if (ctx_len > NOXTLS_ED25519_CONTEXT_MAX) return NOXTLS_RETURN_INVALID_PARAM;
+    if (ctx_len > 0 && ctx_str == NULL) return NOXTLS_RETURN_NULL;
+
+    if (phflag != 0 || ctx_len > 0) {
+        memcpy(dom_buf, ed25519_dom2_literal, 32);
+        dom_buf[32] = phflag;
+        dom_buf[33] = (uint8_t)ctx_len;
+        if (ctx_len > 0) {
+            memcpy(dom_buf + 34, ctx_str, ctx_len);
+        }
+        dom_len = 34u + ctx_len;
+    }
+
+    if (phflag != 0) {
+        if (noxtls_sha512_init(&ctx, NOXTLS_HASH_SHA_512) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+        if (message_len != 0u && noxtls_sha512_update(&ctx, message, message_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+        if (noxtls_sha512_finish(&ctx, ph_digest) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+        m_body = ph_digest;
+        m_len = 64u;
+    }
+
+    if (noxtls_ed25519_public_key(private_key, public_key) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_NOT_INITIALIZED;
+    }
+    if (noxtls_sha512_init(&ctx, NOXTLS_HASH_SHA_512) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_INVALID_ALGORITHM;
+    if (noxtls_sha512_update(&ctx, private_key, 32) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_INVALID_ALGORITHM;
+    if (noxtls_sha512_finish(&ctx, h) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_INVALID_ALGORITHM;
+    h[0] &= 0xF8;
+    h[31] &= 0x7F;
+    h[31] |= 0x40;
+    memcpy(prefix, h + 32, 32);
+    memcpy(s_le, h, 32);
+
+    if (noxtls_sha512_init(&ctx, NOXTLS_HASH_SHA_512) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_BAD_DATA;
+    if (dom_len != 0u && noxtls_sha512_update(&ctx, dom_buf, dom_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_BAD_DATA;
+    if (noxtls_sha512_update(&ctx, prefix, 32) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_BAD_DATA;
+    if (m_len != 0u && noxtls_sha512_update(&ctx, m_body, m_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_BAD_DATA;
+    if (noxtls_sha512_finish(&ctx, r_in) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_BAD_DATA;
+    if (sc25519_reduce_mod_l(r_le, r_in) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_TIMEOUT;
+    if (ge25519_set_basepoint(&B) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_NOT_SUPPORTED;
+    if (ge25519_scalar_mult(&R, r_le, &B) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_NOT_SUPPORTED;
+    if (ge25519_encode(signature, &R) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_NOT_SUPPORTED;
+
+    if (noxtls_sha512_init(&ctx, NOXTLS_HASH_SHA_512) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
+    if (dom_len != 0u && noxtls_sha512_update(&ctx, dom_buf, dom_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
+    if (noxtls_sha512_update(&ctx, signature, 32) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
+    if (noxtls_sha512_update(&ctx, public_key, 32) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
+    if (m_len != 0u && noxtls_sha512_update(&ctx, m_body, m_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
+    if (noxtls_sha512_finish(&ctx, k_in) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
+    if (sc25519_reduce_mod_l(k_le, k_in) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+
+    {
+        uint8_t ks_le64[64], ks_le32[32], sum_le64[64], S_le[32];
+        sc25519_mul_le(ks_le64, k_le, s_le);
+        if (sc25519_reduce_mod_l(ks_le32, ks_le64) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+        sc25519_add_le_32_to_64(sum_le64, r_le, ks_le32);
+        if (sc25519_reduce_mod_l(S_le, sum_le64) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_NOT_ENOUGH_ENTROPY;
+        memcpy(signature + 32, S_le, 32);
+    }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+static noxtls_return_t ed25519_verify_internal(const uint8_t public_key[32],
+                                                const uint8_t *message,
+                                                uint32_t message_len,
+                                                const uint8_t signature[64],
+                                                uint8_t phflag,
+                                                const uint8_t *ctx_str,
+                                                uint32_t ctx_len)
+{
+    uint8_t k_in[64], k_le[32];
+    ge25519_pt_t A, R, R_plus_kA, kA, sB;
+    noxtls_sha512_ctx_t ctx;
+    uint8_t dom_buf[32 + 1 + 1 + 255];
+    uint32_t dom_len = 0;
+    uint8_t ph_digest[64];
+    const uint8_t *m_body = message;
+    uint32_t m_len = message_len;
+
+    if (public_key == NULL || signature == NULL) return NOXTLS_RETURN_NULL;
+    if (message == NULL && message_len != 0) return NOXTLS_RETURN_NULL;
+    if (phflag > 1) return NOXTLS_RETURN_INVALID_PARAM;
+    if (phflag != 0 && ctx_len != 0) return NOXTLS_RETURN_INVALID_PARAM;
+    if (ctx_len > NOXTLS_ED25519_CONTEXT_MAX) return NOXTLS_RETURN_INVALID_PARAM;
+    if (ctx_len > 0 && ctx_str == NULL) return NOXTLS_RETURN_NULL;
+
+    if (phflag != 0 || ctx_len > 0) {
+        memcpy(dom_buf, ed25519_dom2_literal, 32);
+        dom_buf[32] = phflag;
+        dom_buf[33] = (uint8_t)ctx_len;
+        if (ctx_len > 0) {
+            memcpy(dom_buf + 34, ctx_str, ctx_len);
+        }
+        dom_len = 34u + ctx_len;
+    }
+
+    if (phflag != 0) {
+        if (noxtls_sha512_init(&ctx, NOXTLS_HASH_SHA_512) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+        if (message_len != 0u && noxtls_sha512_update(&ctx, message, message_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+        if (noxtls_sha512_finish(&ctx, ph_digest) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+        m_body = ph_digest;
+        m_len = 64u;
+    }
+
+    if (ge25519_decode(&A, public_key) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if (ge25519_decode(&R, signature) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+
+    {
+        uint8_t S_be[32], S_le[32];
+        memcpy(S_le, signature + 32, 32);
+        le32_to_be32(S_be, S_le);
+        if (noxtls_bn_cmp(S_be, ed25519_L, 32) >= 0) return NOXTLS_RETURN_FAILED;
+    }
+
+    if (noxtls_sha512_init(&ctx, NOXTLS_HASH_SHA_512) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if (dom_len != 0u && noxtls_sha512_update(&ctx, dom_buf, dom_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if (noxtls_sha512_update(&ctx, signature, 32) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if (noxtls_sha512_update(&ctx, public_key, 32) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if (m_len != 0u && noxtls_sha512_update(&ctx, m_body, m_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if (noxtls_sha512_finish(&ctx, k_in) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if (sc25519_reduce_mod_l(k_le, k_in) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+
+    if (ge25519_scalar_mult(&kA, k_le, &A) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if (ge25519_add(&R_plus_kA, &R, &kA) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if (ge25519_set_basepoint(&R) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    {
+        uint8_t S_le[32];
+        memcpy(S_le, signature + 32, 32);
+        if (ge25519_scalar_mult(&sB, S_le, &R) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    }
+    {
+        uint8_t enc1[32], enc2[32];
+        if (ge25519_encode(enc1, &R_plus_kA) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+        if (ge25519_encode(enc2, &sB) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+        if (memcmp(enc1, enc2, 32) != 0) {
+            uint8_t cofactor_le[32] = {0};
+            ge25519_pt_t lhs8, rhs8;
+            uint8_t enc_lhs8[32], enc_rhs8[32];
+            cofactor_le[0] = 8;
+            if (ge25519_scalar_mult(&lhs8, cofactor_le, &sB) == NOXTLS_RETURN_SUCCESS &&
+                ge25519_scalar_mult(&rhs8, cofactor_le, &R_plus_kA) == NOXTLS_RETURN_SUCCESS &&
+                ge25519_encode(enc_lhs8, &lhs8) == NOXTLS_RETURN_SUCCESS &&
+                ge25519_encode(enc_rhs8, &rhs8) == NOXTLS_RETURN_SUCCESS &&
+                memcmp(enc_lhs8, enc_rhs8, 32) == 0) {
+                return NOXTLS_RETURN_SUCCESS;
+            }
+            return NOXTLS_RETURN_FAILED;
+        }
+    }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
 noxtls_return_t noxtls_ed25519_public_key(const uint8_t private_key[32], uint8_t public_key[32])
 {
     uint8_t h[64], s_le[32];
@@ -407,63 +585,7 @@ noxtls_return_t noxtls_ed25519_sign(const uint8_t private_key[32],
                                      uint32_t message_len,
                                      uint8_t signature[64])
 {
-    uint8_t h[64], prefix[32], s_le[32];
-    uint8_t r_in[64], r_le[32], k_in[64], k_le[32];
-    ge25519_pt_t B, R;
-    noxtls_sha512_ctx_t ctx;
-    uint8_t public_key[32];
-
-    if (private_key == NULL || signature == NULL) return NOXTLS_RETURN_NULL;
-    if (message == NULL && message_len != 0) return NOXTLS_RETURN_NULL;
-    if (noxtls_ed25519_public_key(private_key, public_key) != NOXTLS_RETURN_SUCCESS) {
-        fprintf(stderr, "[ed25519 sign debug] fail: public_key\n");
-        return NOXTLS_RETURN_NOT_INITIALIZED;
-    }
-    if (noxtls_sha512_init(&ctx, NOXTLS_HASH_SHA_512) != NOXTLS_RETURN_SUCCESS) {
-        fprintf(stderr, "[ed25519 sign debug] fail: sha512_init(sk)\n");
-        return NOXTLS_RETURN_INVALID_ALGORITHM;
-    }
-    if (noxtls_sha512_update(&ctx, private_key, 32) != NOXTLS_RETURN_SUCCESS) {
-        fprintf(stderr, "[ed25519 sign debug] fail: sha512_update(sk)\n");
-        return NOXTLS_RETURN_INVALID_ALGORITHM;
-    }
-    if (noxtls_sha512_finish(&ctx, h) != NOXTLS_RETURN_SUCCESS) {
-        fprintf(stderr, "[ed25519 sign debug] fail: sha512_finish(sk)\n");
-        return NOXTLS_RETURN_INVALID_ALGORITHM;
-    }
-    h[0] &= 0xF8;
-    h[31] &= 0x7F;
-    h[31] |= 0x40;
-    memcpy(prefix, h + 32, 32);
-    memcpy(s_le, h, 32);
-    if (noxtls_sha512_init(&ctx, NOXTLS_HASH_SHA_512) != NOXTLS_RETURN_SUCCESS) { fprintf(stderr, "[ed25519 sign debug] fail: sha512_init(prefix||m)\n"); return NOXTLS_RETURN_BAD_DATA; }
-    if (noxtls_sha512_update(&ctx, prefix, 32) != NOXTLS_RETURN_SUCCESS) { fprintf(stderr, "[ed25519 sign debug] fail: sha512_update(prefix)\n"); return NOXTLS_RETURN_BAD_DATA; }
-    if (message_len && noxtls_sha512_update(&ctx, message, message_len) != NOXTLS_RETURN_SUCCESS) { fprintf(stderr, "[ed25519 sign debug] fail: sha512_update(m)\n"); return NOXTLS_RETURN_BAD_DATA; }
-    if (noxtls_sha512_finish(&ctx, r_in) != NOXTLS_RETURN_SUCCESS) { fprintf(stderr, "[ed25519 sign debug] fail: sha512_finish(r)\n"); return NOXTLS_RETURN_BAD_DATA; }
-    if (sc25519_reduce_mod_l(r_le, r_in) != NOXTLS_RETURN_SUCCESS) { fprintf(stderr, "[ed25519 sign debug] fail: reduce(r)\n"); return NOXTLS_RETURN_TIMEOUT; }
-    if (ge25519_set_basepoint(&B) != NOXTLS_RETURN_SUCCESS) { fprintf(stderr, "[ed25519 sign debug] fail: basepoint\n"); return NOXTLS_RETURN_NOT_SUPPORTED; }
-    if (ge25519_scalar_mult(&R, r_le, &B) != NOXTLS_RETURN_SUCCESS) { fprintf(stderr, "[ed25519 sign debug] fail: scalar_mult(R)\n"); return NOXTLS_RETURN_NOT_SUPPORTED; }
-    if (ge25519_encode(signature, &R) != NOXTLS_RETURN_SUCCESS) { fprintf(stderr, "[ed25519 sign debug] fail: encode(R)\n"); return NOXTLS_RETURN_NOT_SUPPORTED; }
-    if (noxtls_sha512_init(&ctx, NOXTLS_HASH_SHA_512) != NOXTLS_RETURN_SUCCESS) { fprintf(stderr, "[ed25519 sign debug] fail: sha512_init(R||A||m)\n"); return NOXTLS_RETURN_INVALID_BLOCK_SIZE; }
-    if (noxtls_sha512_update(&ctx, signature, 32) != NOXTLS_RETURN_SUCCESS) { fprintf(stderr, "[ed25519 sign debug] fail: sha512_update(R)\n"); return NOXTLS_RETURN_INVALID_BLOCK_SIZE; }
-    if (noxtls_sha512_update(&ctx, public_key, 32) != NOXTLS_RETURN_SUCCESS) { fprintf(stderr, "[ed25519 sign debug] fail: sha512_update(A)\n"); return NOXTLS_RETURN_INVALID_BLOCK_SIZE; }
-    if (message_len && noxtls_sha512_update(&ctx, message, message_len) != NOXTLS_RETURN_SUCCESS) { fprintf(stderr, "[ed25519 sign debug] fail: sha512_update(m2)\n"); return NOXTLS_RETURN_INVALID_BLOCK_SIZE; }
-    if (noxtls_sha512_finish(&ctx, k_in) != NOXTLS_RETURN_SUCCESS) { fprintf(stderr, "[ed25519 sign debug] fail: sha512_finish(k)\n"); return NOXTLS_RETURN_INVALID_BLOCK_SIZE; }
-    if (sc25519_reduce_mod_l(k_le, k_in) != NOXTLS_RETURN_SUCCESS) { fprintf(stderr, "[ed25519 sign debug] fail: reduce(k)\n"); return NOXTLS_RETURN_NOT_ENOUGH_MEMORY; }
-    /* S = (r + k*a) mod L in LE scalar domain */
-    uint8_t ks_le64[64], ks_le32[32], sum_le64[64], S_le[32];
-    sc25519_mul_le(ks_le64, k_le, s_le);
-    if (sc25519_reduce_mod_l(ks_le32, ks_le64) != NOXTLS_RETURN_SUCCESS) {
-        fprintf(stderr, "[ed25519 sign debug] fail: reduce(k*a)\n");
-        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
-    }
-    sc25519_add_le_32_to_64(sum_le64, r_le, ks_le32);
-    if (sc25519_reduce_mod_l(S_le, sum_le64) != NOXTLS_RETURN_SUCCESS) {
-        fprintf(stderr, "[ed25519 sign debug] fail: reduce(S)\n");
-        return NOXTLS_RETURN_NOT_ENOUGH_ENTROPY;
-    }
-    memcpy(signature + 32, S_le, 32);
-    return NOXTLS_RETURN_SUCCESS;
+    return ed25519_sign_internal(private_key, message, message_len, signature, 0, NULL, 0);
 }
 
 noxtls_return_t noxtls_ed25519_verify(const uint8_t public_key[32],
@@ -471,153 +593,47 @@ noxtls_return_t noxtls_ed25519_verify(const uint8_t public_key[32],
                                       uint32_t message_len,
                                       const uint8_t signature[64])
 {
-    uint8_t k_in[64], k_le[32];
-    ge25519_pt_t A, R, R_plus_kA, kA, sB;
-    noxtls_sha512_ctx_t ctx;
+    return ed25519_verify_internal(public_key, message, message_len, signature, 0, NULL, 0);
+}
 
-    if (public_key == NULL || signature == NULL) {
-        fprintf(stderr, "[ed25519 verify debug] fail: null public_key/signature\n");
-        return NOXTLS_RETURN_NULL;
-    }
-    if (message == NULL && message_len != 0) {
-        fprintf(stderr, "[ed25519 verify debug] fail: null message with non-zero len\n");
-        return NOXTLS_RETURN_NULL;
-    }
-    if (ge25519_decode(&A, public_key) != NOXTLS_RETURN_SUCCESS) {
-        fprintf(stderr, "[ed25519 verify debug] fail: decode(A)\n");
-        return NOXTLS_RETURN_FAILED;
-    }
-    if (ge25519_decode(&R, signature) != NOXTLS_RETURN_SUCCESS) {
-        fprintf(stderr, "[ed25519 verify debug] fail: decode(R)\n");
-        return NOXTLS_RETURN_FAILED;
-    }
-    {
-        uint8_t A_reenc[32], R_reenc[32];
-        if (ge25519_encode(A_reenc, &A) == NOXTLS_RETURN_SUCCESS &&
-            ge25519_encode(R_reenc, &R) == NOXTLS_RETURN_SUCCESS) {
-            if (memcmp(A_reenc, public_key, 32) != 0) {
-                fprintf(stderr, "[ed25519 verify debug] decode/encode mismatch: A\n");
-                ed25519_dbg_hex32("A.in", public_key);
-                ed25519_dbg_hex32("A.out", A_reenc);
-            }
-            if (memcmp(R_reenc, signature, 32) != 0) {
-                fprintf(stderr, "[ed25519 verify debug] decode/encode mismatch: R\n");
-                ed25519_dbg_hex32("R.in", signature);
-                ed25519_dbg_hex32("R.out", R_reenc);
-            }
-        }
-    }
-    uint8_t S_be[32], S_le[32];
-    memcpy(S_le, signature + 32, 32);
-    le32_to_be32(S_be, S_le);
-    if (noxtls_bn_cmp(S_be, ed25519_L, 32) >= 0) {
-        fprintf(stderr, "[ed25519 verify debug] fail: S >= L\n");
-        return NOXTLS_RETURN_FAILED;
-    }
-    if (noxtls_sha512_init(&ctx, NOXTLS_HASH_SHA_512) != NOXTLS_RETURN_SUCCESS) {
-        fprintf(stderr, "[ed25519 verify debug] fail: sha512_init(R||A||m)\n");
-        return NOXTLS_RETURN_FAILED;
-    }
-    if (noxtls_sha512_update(&ctx, signature, 32) != NOXTLS_RETURN_SUCCESS) {
-        fprintf(stderr, "[ed25519 verify debug] fail: sha512_update(R)\n");
-        return NOXTLS_RETURN_FAILED;
-    }
-    if (noxtls_sha512_update(&ctx, public_key, 32) != NOXTLS_RETURN_SUCCESS) {
-        fprintf(stderr, "[ed25519 verify debug] fail: sha512_update(A)\n");
-        return NOXTLS_RETURN_FAILED;
-    }
-    if (message_len && noxtls_sha512_update(&ctx, message, message_len) != NOXTLS_RETURN_SUCCESS) {
-        fprintf(stderr, "[ed25519 verify debug] fail: sha512_update(m)\n");
-        return NOXTLS_RETURN_FAILED;
-    }
-    if (noxtls_sha512_finish(&ctx, k_in) != NOXTLS_RETURN_SUCCESS) {
-        fprintf(stderr, "[ed25519 verify debug] fail: sha512_finish(k)\n");
-        return NOXTLS_RETURN_FAILED;
-    }
-    if (sc25519_reduce_mod_l(k_le, k_in) != NOXTLS_RETURN_SUCCESS) {
-        fprintf(stderr, "[ed25519 verify debug] fail: reduce(k)\n");
-        return NOXTLS_RETURN_FAILED;
-    }
-    if (ge25519_scalar_mult(&kA, k_le, &A) != NOXTLS_RETURN_SUCCESS) {
-        fprintf(stderr, "[ed25519 verify debug] fail: scalar_mult(kA)\n");
-        return NOXTLS_RETURN_FAILED;
-    }
-    if (ge25519_add(&R_plus_kA, &R, &kA) != NOXTLS_RETURN_SUCCESS) {
-        fprintf(stderr, "[ed25519 verify debug] fail: add(R + kA)\n");
-        return NOXTLS_RETURN_FAILED;
-    }
-    if (ge25519_set_basepoint(&R) != NOXTLS_RETURN_SUCCESS) {
-        fprintf(stderr, "[ed25519 verify debug] fail: basepoint\n");
-        return NOXTLS_RETURN_FAILED;
-    }
-    if (ge25519_scalar_mult(&sB, S_le, &R) != NOXTLS_RETURN_SUCCESS) {
-        fprintf(stderr, "[ed25519 verify debug] fail: scalar_mult(SB)\n");
-        return NOXTLS_RETURN_FAILED;
-    }
-    uint8_t enc1[32], enc2[32];
-    if (ge25519_encode(enc1, &R_plus_kA) != NOXTLS_RETURN_SUCCESS) {
-        fprintf(stderr, "[ed25519 verify debug] fail: encode(R_plus_kA)\n");
-        return NOXTLS_RETURN_FAILED;
-    }
-    if (ge25519_encode(enc2, &sB) != NOXTLS_RETURN_SUCCESS) {
-        fprintf(stderr, "[ed25519 verify debug] fail: encode(SB)\n");
-        return NOXTLS_RETURN_FAILED;
-    }
-    if (memcmp(enc1, enc2, 32) != 0) {
-        uint8_t L_le[32];
-        ge25519_pt_t LA;
-        uint8_t enc_LA[32];
-        noxtls_return_t rc_la_mul;
-        noxtls_return_t rc_la_enc;
-        be32_to_le32(L_le, ed25519_L);
-        rc_la_mul = ge25519_scalar_mult(&LA, L_le, &A);
-        rc_la_enc = (rc_la_mul == NOXTLS_RETURN_SUCCESS) ? ge25519_encode(enc_LA, &LA) : NOXTLS_RETURN_FAILED;
-        fprintf(stderr, "[ed25519 verify debug] L*A rc_mul=%d rc_enc=%d\n", rc_la_mul, rc_la_enc);
-        if (rc_la_mul == NOXTLS_RETURN_SUCCESS && rc_la_enc == NOXTLS_RETURN_SUCCESS) {
-            ed25519_dbg_hex32("L*A", enc_LA);
-        }
-        uint8_t cofactor_le[32] = {0};
-        ge25519_pt_t lhs8, rhs8;
-        uint8_t enc_lhs8[32], enc_rhs8[32];
-        cofactor_le[0] = 8;
-        if (ge25519_scalar_mult(&lhs8, cofactor_le, &sB) == NOXTLS_RETURN_SUCCESS &&
-            ge25519_scalar_mult(&rhs8, cofactor_le, &R_plus_kA) == NOXTLS_RETURN_SUCCESS &&
-            ge25519_encode(enc_lhs8, &lhs8) == NOXTLS_RETURN_SUCCESS &&
-            ge25519_encode(enc_rhs8, &rhs8) == NOXTLS_RETURN_SUCCESS &&
-            memcmp(enc_lhs8, enc_rhs8, 32) == 0) {
-            fprintf(stderr, "[ed25519 verify debug] cofactored equation matched ([8]SB == [8](R+kA))\n");
-            return NOXTLS_RETURN_SUCCESS;
-        }
-        uint8_t x1z2[32], x2z1[32], y1z2[32], y2z1[32];
-        int affine_match = 0;
-        if (fe25519_mul(x1z2, R_plus_kA.X, sB.Z) == NOXTLS_RETURN_SUCCESS &&
-            fe25519_mul(x2z1, sB.X, R_plus_kA.Z) == NOXTLS_RETURN_SUCCESS &&
-            fe25519_mul(y1z2, R_plus_kA.Y, sB.Z) == NOXTLS_RETURN_SUCCESS &&
-            fe25519_mul(y2z1, sB.Y, R_plus_kA.Z) == NOXTLS_RETURN_SUCCESS) {
-            affine_match = (memcmp(x1z2, x2z1, 32) == 0) && (memcmp(y1z2, y2z1, 32) == 0);
-        }
-        if (affine_match) {
-            fprintf(stderr, "[ed25519 verify debug] projective points equal but encoding differs\n");
-        }
-        ge25519_pt_t neg_kA, R_minus_kA;
-        uint8_t enc_alt[32];
-        if (ge25519_neg(&neg_kA, &kA) == NOXTLS_RETURN_SUCCESS &&
-            ge25519_add(&R_minus_kA, &R, &neg_kA) == NOXTLS_RETURN_SUCCESS &&
-            ge25519_encode(enc_alt, &R_minus_kA) == NOXTLS_RETURN_SUCCESS &&
-            memcmp(enc_alt, enc2, 32) == 0) {
-            fprintf(stderr, "[ed25519 verify debug] alt match: SB == R - kA\n");
-        }
-        fprintf(stderr, "[ed25519 verify debug] equation mismatch\n");
-        ed25519_dbg_hex32("A(pk)", public_key);
-        ed25519_dbg_hex32("R(sig)", signature);
-        ed25519_dbg_hex32("S(sig)", signature + 32);
-        ed25519_dbg_hex32("k", k_le);
-        ed25519_dbg_hex32("R_plus_kA", enc1);
-        ed25519_dbg_hex32("S_B", enc2);
-        fflush(stderr);
-        return NOXTLS_RETURN_FAILED;
-    }
-    return NOXTLS_RETURN_SUCCESS;
+noxtls_return_t noxtls_ed25519ctx_sign(const uint8_t private_key[32],
+                                       const uint8_t *context,
+                                       uint32_t context_len,
+                                       const uint8_t *message,
+                                       uint32_t message_len,
+                                       uint8_t signature[64])
+{
+    if (context == NULL && context_len != 0) return NOXTLS_RETURN_NULL;
+    if (context_len < 1u || context_len > NOXTLS_ED25519_CONTEXT_MAX) return NOXTLS_RETURN_INVALID_PARAM;
+    return ed25519_sign_internal(private_key, message, message_len, signature, 0, context, context_len);
+}
+
+noxtls_return_t noxtls_ed25519ctx_verify(const uint8_t public_key[32],
+                                         const uint8_t *context,
+                                         uint32_t context_len,
+                                         const uint8_t *message,
+                                         uint32_t message_len,
+                                         const uint8_t signature[64])
+{
+    if (context == NULL && context_len != 0) return NOXTLS_RETURN_NULL;
+    if (context_len < 1u || context_len > NOXTLS_ED25519_CONTEXT_MAX) return NOXTLS_RETURN_INVALID_PARAM;
+    return ed25519_verify_internal(public_key, message, message_len, signature, 0, context, context_len);
+}
+
+noxtls_return_t noxtls_ed25519ph_sign(const uint8_t private_key[32],
+                                      const uint8_t *message,
+                                      uint32_t message_len,
+                                      uint8_t signature[64])
+{
+    return ed25519_sign_internal(private_key, message, message_len, signature, 1, NULL, 0);
+}
+
+noxtls_return_t noxtls_ed25519ph_verify(const uint8_t public_key[32],
+                                        const uint8_t *message,
+                                        uint32_t message_len,
+                                        const uint8_t signature[64])
+{
+    return ed25519_verify_internal(public_key, message, message_len, signature, 1, NULL, 0);
 }
 
 noxtls_return_t noxtls_ed25519_generate_key(uint8_t private_key[32], uint8_t public_key[32])

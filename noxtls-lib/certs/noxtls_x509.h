@@ -146,6 +146,10 @@ typedef struct
     uint8_t ed25519_public_key[32];
     uint8_t has_ed25519;  /* 1 if subject public key is Ed25519 */
 
+    /* Ed448 Public Key (if Ed448, OID 1.3.101.113 id-Ed448) */
+    uint8_t ed448_public_key[57];
+    uint8_t has_ed448;
+
     /* Extensions (v3) */
     uint8_t *extensions;
     uint32_t extensions_len;
@@ -253,8 +257,10 @@ noxtls_return_t noxtls_x509_certificate_chain_verify(x509_certificate_chain_t *c
 /* Private Key Types */
 typedef enum
 {
-    X509_PRIVATE_KEY_RSA,      /* RSA private key */
-    X509_PRIVATE_KEY_ECC       /* ECC private key */
+    X509_PRIVATE_KEY_RSA,       /* RSA private key */
+    X509_PRIVATE_KEY_ECC,       /* ECC private key */
+    X509_PRIVATE_KEY_ED25519,   /* RFC 8410 id-Ed25519, 32-byte seed */
+    X509_PRIVATE_KEY_ED448      /* RFC 8410 id-Ed448, 57-byte seed */
 } x509_private_key_type_t;
 
 /* Private Key Format */
@@ -299,6 +305,10 @@ typedef struct
     uint8_t *ecc_public_key;                /* Public key point (optional) */
     uint32_t ecc_public_key_len;
 
+    /* Ed25519 / Ed448 RFC 8410 PKCS#8 seed (not used for RSA/ECC) */
+    uint8_t *eddsa_seed;
+    uint32_t eddsa_seed_len;
+
     /* Encryption info (if encrypted) */
     int encrypted;                           /* Whether key is encrypted */
     uint8_t encryption_algorithm_oid[32];   /* Encryption algorithm OID */
@@ -326,10 +336,14 @@ noxtls_return_t noxtls_x509_private_key_load_file(x509_private_key_t *key, const
 noxtls_return_t noxtls_x509_private_key_to_rsa_key(const x509_private_key_t *key, void *rsa_key);  /* Convert to rsa_key_t */
 noxtls_return_t noxtls_x509_private_key_to_ecc_key(const x509_private_key_t *key, ecc_key_t *ecc_key);   /* Convert to ecc_key_t */
 
+/** When key_type is Ed25519 or Ed448, returns the raw PKCS#8 seed (32 or 57 bytes); otherwise NULL and *out_len is set to 0. */
+const uint8_t *noxtls_x509_private_key_get_eddsa_seed(const x509_private_key_t *key, uint32_t *out_len);
+
 /**
  * High-level sign data with X.509 private key.
- * Key may be DER or PEM. Only ECC keys are supported.
- * Output is ECDSA signature in DER form (SEQUENCE of two INTEGERs r, s).
+ * Key may be DER or PEM. Supports ECC (ECDSA DER) and Ed25519/Ed448 (raw 64- or 114-byte signature).
+ * For Ed keys, hash_algo is ignored; the message is signed with PureEdDSA (RFC 8032 / RFC 8410 certificates).
+ * Output is ECDSA signature in DER form (SEQUENCE of two INTEGERs r, s) for ECC, or raw R||S for Ed.
  *
  * @param key       Private key bytes (DER or PEM)
  * @param key_len   Length of key buffer
