@@ -24,6 +24,7 @@ extern "C" {
 #define NOXTLS_ED448_PRIVATE_KEY_SIZE  57
 #define NOXTLS_ED448_PUBLIC_KEY_SIZE   57
 #define NOXTLS_ED448_SIGNATURE_SIZE    114
+#define NOXTLS_ED448_CONTEXT_MAX       255
 
 /**
  * Generate an Ed448 key pair.
@@ -53,6 +54,32 @@ noxtls_return_t noxtls_ed448_verify(const uint8_t public_key[57],
                                    const uint8_t *message,
                                    uint32_t message_len,
                                    const uint8_t signature[114]);
+
+/** Ed448ctx (RFC 8032): context length 1..NOXTLS_ED448_CONTEXT_MAX. */
+noxtls_return_t noxtls_ed448ctx_sign(const uint8_t private_key[57],
+                                     const uint8_t *context,
+                                     uint32_t context_len,
+                                     const uint8_t *message,
+                                     uint32_t message_len,
+                                     uint8_t signature[114]);
+
+noxtls_return_t noxtls_ed448ctx_verify(const uint8_t public_key[57],
+                                        const uint8_t *context,
+                                        uint32_t context_len,
+                                        const uint8_t *message,
+                                        uint32_t message_len,
+                                        const uint8_t signature[114]);
+
+/** Ed448ph: PH(M) = first 64 bytes of SHAKE256(M). */
+noxtls_return_t noxtls_ed448ph_sign(const uint8_t private_key[57],
+                                    const uint8_t *message,
+                                    uint32_t message_len,
+                                    uint8_t signature[114]);
+
+noxtls_return_t noxtls_ed448ph_verify(const uint8_t public_key[57],
+                                      const uint8_t *message,
+                                      uint32_t message_len,
+                                      const uint8_t signature[114]);
 
 #ifdef __cplusplus
 }
