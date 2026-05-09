@@ -16,12 +16,19 @@ jobs:
           - os: ubuntu-latest
             artifact_suffix: linux-x64
             use_msys2: false
+            sidechannel_profile: balanced
           - os: macos-latest
             artifact_suffix: macos-x64
             use_msys2: false
+            sidechannel_profile: balanced
           - os: windows-latest
             artifact_suffix: windows-x64
             use_msys2: true
+            sidechannel_profile: balanced
+          - os: ubuntu-latest
+            artifact_suffix: linux-x64-strict
+            use_msys2: false
+            sidechannel_profile: constant_time_strict
 
     runs-on: ${{ matrix.os }}
 
@@ -84,14 +91,14 @@ jobs:
         if: ${{ !matrix.use_msys2 }}
         shell: bash
         run: |
-          cmake -S . -B build -G Ninja -D BUILD_SHARED_LIBS=OFF -D BUILD_TESTS=OFF -D BUILD_APPLICATIONS=ON -D CMAKE_BUILD_TYPE=Release
+          cmake -S . -B build -G Ninja -D BUILD_SHARED_LIBS=OFF -D BUILD_TESTS=OFF -D BUILD_APPLICATIONS=ON -D CMAKE_BUILD_TYPE=Release -D NOXTLS_SIDECHANNEL_PROFILE=${{ matrix.sidechannel_profile }}
           cmake --build build --parallel
 
       - name: Configure and build applications (Windows MinGW)
         if: ${{ matrix.use_msys2 }}
         shell: msys2 {0}
         run: |
-          cmake -S . -B build -G Ninja -D BUILD_SHARED_LIBS=OFF -D BUILD_TESTS=OFF -D BUILD_APPLICATIONS=ON -D CMAKE_BUILD_TYPE=Release
+          cmake -S . -B build -G Ninja -D BUILD_SHARED_LIBS=OFF -D BUILD_TESTS=OFF -D BUILD_APPLICATIONS=ON -D CMAKE_BUILD_TYPE=Release -D NOXTLS_SIDECHANNEL_PROFILE=${{ matrix.sidechannel_profile }}
           cmake --build build --parallel
 
       - name: Verify all application binaries were produced

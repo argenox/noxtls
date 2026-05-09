@@ -423,13 +423,18 @@ const void *tls13_psk_ticket_store_lookup(const uint8_t *ticket_id, uint32_t id_
 
 noxtls_return_t tls13_psk_ticket_store_entry_psk(const void *entry,
                                                   uint8_t *psk_out,
+                                                  uint8_t psk_out_size,
                                                   uint8_t *psk_len,
                                                   uint8_t *nonce_out,
+                                                  uint8_t nonce_out_size,
                                                   uint8_t *nonce_len)
 {
     const psk_ticket_entry_t *e = (const psk_ticket_entry_t *)entry;
     if (e == NULL || psk_out == NULL || psk_len == NULL || nonce_out == NULL || nonce_len == NULL) {
         return NOXTLS_RETURN_NULL;
+    }
+    if(psk_out_size < e->resumption_psk_len || nonce_out_size < e->ticket_nonce_len) {
+        return NOXTLS_RETURN_INVALID_PARAM;
     }
     *psk_len = e->resumption_psk_len;
     memcpy(psk_out, e->resumption_psk, e->resumption_psk_len);

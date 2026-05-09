@@ -96,6 +96,19 @@ cmake -S . -B build -D NOXTLS_PROFILE=crypto_only -D BUILD_APPLICATIONS=OFF
 cmake --build build --config Release
 ```
 
+Set `NOXTLS_SIDECHANNEL_PROFILE` to tune timing-side-channel behavior:
+
+- `performance`: keeps legacy comparison behavior (opt-in).
+- `balanced` (default): enables constant-time secret comparisons for protocol verification/tag checks.
+- `constant_time_strict`: keeps balanced behavior and enables strict hardening gates intended for higher assurance builds.
+
+Example:
+
+```bash
+cmake -S . -B build -D NOXTLS_SIDECHANNEL_PROFILE=constant_time_strict -D BUILD_APPLICATIONS=OFF
+cmake --build build --config Release
+```
+
 ## Ed448 / EdDSA (optional)
 
 Ed448 requires SHA-3 (SHAKE256). Enable both when configuring:
@@ -111,6 +124,7 @@ cmake --build build --config Release
 
 - `-D BUILD_APPLICATIONS=OFF`: Build library only
 - `-D BUILD_TESTS=OFF`: Disable test apps in normal builds
+- `-D NOXTLS_SIDECHANNEL_PROFILE=balanced`: Choose timing-hardening profile (`performance|balanced|constant_time_strict`)
 - `-D WARNINGS_AS_ERRORS=ON`: Treat warnings as errors (non-MSVC)
 - `-D BUILD_SHARED_LIBS=ON`: Build shared libs
 

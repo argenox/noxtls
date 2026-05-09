@@ -52,6 +52,36 @@
 #error "Only one NOXTLS_PROFILE_* may be defined at a time."
 #endif
 
+/* Side-channel profile selection
+ *
+ * Select one side-channel profile by defining one of:
+ *   NOXTLS_SIDECHANNEL_PROFILE_PERFORMANCE
+ *   NOXTLS_SIDECHANNEL_PROFILE_BALANCED
+ *   NOXTLS_SIDECHANNEL_PROFILE_CONSTANT_TIME_STRICT
+ *
+ * If none is defined, BALANCED is selected by default.
+ */
+#if (defined(NOXTLS_SIDECHANNEL_PROFILE_PERFORMANCE) + \
+     defined(NOXTLS_SIDECHANNEL_PROFILE_BALANCED) + \
+     defined(NOXTLS_SIDECHANNEL_PROFILE_CONSTANT_TIME_STRICT)) > 1
+#error "Only one NOXTLS_SIDECHANNEL_PROFILE_* may be defined at a time."
+#endif
+
+#if !defined(NOXTLS_SIDECHANNEL_PROFILE_PERFORMANCE) && \
+    !defined(NOXTLS_SIDECHANNEL_PROFILE_BALANCED) && \
+    !defined(NOXTLS_SIDECHANNEL_PROFILE_CONSTANT_TIME_STRICT)
+#define NOXTLS_SIDECHANNEL_PROFILE_BALANCED 1
+#endif
+
+/* Enable constant-time secret compare in balanced/strict profiles. */
+#ifndef NOXTLS_CT_COMPARE
+#if defined(NOXTLS_SIDECHANNEL_PROFILE_PERFORMANCE)
+#define NOXTLS_CT_COMPARE 0
+#else
+#define NOXTLS_CT_COMPARE 1
+#endif
+#endif
+
 /* ============================================================================
  * Feature Configuration (defaults)
  * ============================================================================

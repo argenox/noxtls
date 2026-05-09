@@ -44,6 +44,7 @@
 #include <string.h>
 
 #include "noxtls_common.h"
+#include "common/noxtls_memory.h"
 #include "noxtls_tls_common.h"
 #include "noxtls_tls_unified.h"
 #include "noxtls_tls12.h"
@@ -180,7 +181,7 @@ noxtls_return_t noxtls_tls_connection_accept(noxtls_tls_connection_t *conn)
 
         rc = tls13_context_init(&conn->u.tls13, TLS_ROLE_SERVER);
         if (rc != NOXTLS_RETURN_SUCCESS) {
-            if (client_hello_data) free(client_hello_data);
+            if (client_hello_data) noxtls_free(client_hello_data);
             return rc;
         }
 
@@ -198,7 +199,7 @@ noxtls_return_t noxtls_tls_connection_accept(noxtls_tls_connection_t *conn)
         rc = tls13_accept(&conn->u.tls13);
 
         if (conn->u.tls13.base.base.pending_client_hello) {
-            free(conn->u.tls13.base.base.pending_client_hello);
+            noxtls_free(conn->u.tls13.base.base.pending_client_hello);
             conn->u.tls13.base.base.pending_client_hello = NULL;
             conn->u.tls13.base.base.pending_client_hello_len = 0;
         }
@@ -210,7 +211,7 @@ noxtls_return_t noxtls_tls_connection_accept(noxtls_tls_connection_t *conn)
         }
         return rc;
 #else
-        if (client_hello_data) free(client_hello_data);
+        if (client_hello_data) noxtls_free(client_hello_data);
         return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
     }
@@ -222,7 +223,7 @@ noxtls_return_t noxtls_tls_connection_accept(noxtls_tls_connection_t *conn)
 
     rc = tls12_context_init(&conn->u.tls12, TLS_ROLE_SERVER);
     if (rc != NOXTLS_RETURN_SUCCESS) {
-        if (client_hello_data) free(client_hello_data);
+        if (client_hello_data) noxtls_free(client_hello_data);
         return rc;
     }
 
@@ -240,7 +241,7 @@ noxtls_return_t noxtls_tls_connection_accept(noxtls_tls_connection_t *conn)
     rc = tls12_accept(&conn->u.tls12);
 
     if (conn->u.tls12.base.base.pending_client_hello) {
-        free(conn->u.tls12.base.base.pending_client_hello);
+        noxtls_free(conn->u.tls12.base.base.pending_client_hello);
         conn->u.tls12.base.base.pending_client_hello = NULL;
         conn->u.tls12.base.base.pending_client_hello_len = 0;
     }
@@ -251,7 +252,7 @@ noxtls_return_t noxtls_tls_connection_accept(noxtls_tls_connection_t *conn)
     }
     return rc;
 #else
-    if (client_hello_data) free(client_hello_data);
+    if (client_hello_data) noxtls_free(client_hello_data);
     return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
 }

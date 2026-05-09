@@ -24,3 +24,20 @@ jobs:
       - name: Run ctest
         working-directory: build-tests
         run: ctest --output-on-failure || echo "No ctest targets were registered"
+
+  test-linux-strict-sidechannel:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure tests (strict side-channel)
+        run: cmake -S . -B build-tests-strict -D BUILD_APPLICATIONS=OFF -D BUILD_TESTS=ON -D CMAKE_BUILD_TYPE=Release -D NOXTLS_SIDECHANNEL_PROFILE=constant_time_strict
+
+      - name: Build tests (strict side-channel)
+        run: cmake --build build-tests-strict --parallel
+
+      - name: Run ctest (strict side-channel)
+        working-directory: build-tests-strict
+        run: ctest --output-on-failure || echo "No ctest targets were registered"

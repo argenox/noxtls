@@ -139,7 +139,7 @@ Get memory usage statistics
 ### `noxtls_hex_string_to_bytes`
 
 ```c
-int noxtls_hex_string_to_bytes(const char * string, uint8_t * out_buf, uint16_t out_length);
+int noxtls_hex_string_to_bytes(const char * string, uint8_t * out_buf, size_t out_length);
 ```
 
 Converts a hex string to binary bytes.  Parses a null-terminated string of hex digit pairs (e.g. "0A1B2C") and writes the corresponding byte values into out_buf. No spaces or separators; string length must be even.
@@ -150,22 +150,7 @@ Converts a hex string to binary bytes.  Parses a null-terminated string of hex d
 - `out_buf` — Buffer to receive the converted bytes.
 - `out_length` — Maximum number of bytes that out_buf can hold.
 
-**Returns:** On success, the number of bytes written. On error: -1 if string or out_buf is NULL, -2 if out_buf is too small.
-
-### `noxtls_process_string_to_bytes`
-
-```c
-int noxtls_process_string_to_bytes(const char* string, uint8_t* bytes);
-```
-
-Converts a hex string to bytes with no output length limit.  Same format as noxtls_hex_string_to_bytes: pairs of hex digits, no separators. Caller must ensure bytes points to a buffer large enough for strlen(string)/2 bytes. No bounds check is performed on bytes.
-
-**Parameters:**
-
-- `string` — Null-terminated hex string.
-- `bytes` — Buffer to receive the converted bytes (must be pre-allocated).
-
-**Returns:** On success, the number of bytes written. -1 if string or bytes is NULL.
+**Returns:** On success, the number of bytes written. On error: `-1` if string or out_buf is NULL, `-2` if out_buf is too small, `-3` for odd-length input.
 
 ### `noxtls_print_data`
 

@@ -110,8 +110,10 @@ const void *tls13_psk_ticket_store_lookup(const uint8_t *ticket_id, uint32_t id_
  */
 noxtls_return_t tls13_psk_ticket_store_entry_psk(const void *entry,
                                                   uint8_t *psk_out,
+                                                  uint8_t psk_out_size,
                                                   uint8_t *psk_len,
                                                   uint8_t *nonce_out,
+                                                  uint8_t nonce_out_size,
                                                   uint8_t *nonce_len);
 
 /** Return cipher_suite for a ticket entry (for server resumption). */

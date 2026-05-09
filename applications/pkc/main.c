@@ -224,10 +224,15 @@ static int pkc_load_x509_private_key_file(const char *path, x509_private_key_t *
 static int pkc_hex_to_bytes(const char *hex, uint8_t *out, uint32_t out_max, uint32_t *out_len)
 {
     size_t hl = strlen(hex);
+    int parsed_len;
     if(hl % 2u != 0 || hl / 2u > (size_t)out_max) {
         return -1;
     }
-    *out_len = (uint32_t)noxtls_process_string_to_bytes(hex, out);
+    parsed_len = noxtls_hex_string_to_bytes(hex, out, hl / 2u);
+    if(parsed_len < 0) {
+        return -1;
+    }
+    *out_len = (uint32_t)parsed_len;
     if(*out_len != hl / 2u) {
         return -1;
     }
@@ -956,7 +961,11 @@ int main(int argc, char **argv)
         }
         uint32_t msg_bin_len;
         if(input_type == INPUT_DATA_TYPE_HEX) {
-            msg_bin_len = (uint32_t)noxtls_process_string_to_bytes(argv[arg_idx], data_buffer);
+            if(pkc_hex_to_bytes(argv[arg_idx], data_buffer, (uint32_t)(msg_len + 1u), &msg_bin_len) != 0) {
+                free(data_buffer);
+                printf("Error: Invalid message hex\n");
+                return -1;
+            }
         } else {
             memcpy(data_buffer, argv[arg_idx], msg_len);
             msg_bin_len = (uint32_t)msg_len;
@@ -975,7 +984,13 @@ int main(int argc, char **argv)
             printf("Error: Memory allocation failed\n");
             return -1;
         }
-        uint32_t signature_length = (uint32_t)noxtls_process_string_to_bytes(argv[arg_idx], sig_buffer);
+        uint32_t signature_length = 0;
+        if(pkc_hex_to_bytes(argv[arg_idx], sig_buffer, (uint32_t)(sig_hex_len + 1u), &signature_length) != 0) {
+            free(data_buffer);
+            free(sig_buffer);
+            printf("Error: Invalid signature hex\n");
+            return -1;
+        }
 
 #if NOXTLS_FEATURE_ED25519 || (NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3)
         if(pkc_alg_is_eddsa(alg)) {
@@ -1028,15 +1043,14 @@ int main(int argc, char **argv)
     data_length = 0;
     for(i = arg_idx; i < argc; i++) {
         if(input_type == INPUT_DATA_TYPE_HEX) {
-            int len = noxtls_process_string_to_bytes(argv[i], data_buffer + data_length);
-            if(len > 0) {
-                if((uint32_t)len > UINT32_MAX - data_length) {
-                    free(data_buffer);
-                    printf("Error: Input too large\n");
-                    return -1;
-                }
-                data_length += (uint32_t)len;
+            uint32_t len = 0;
+            uint32_t remaining = (uint32_t)(total_len - (size_t)data_length);
+            if(pkc_hex_to_bytes(argv[i], data_buffer + data_length, remaining, &len) != 0) {
+                free(data_buffer);
+                printf("Error: Invalid hex input\n");
+                return -1;
             }
+            data_length += len;
         } else {
             size_t len = strlen(argv[i]);
             if(len > UINT32_MAX - data_length) {

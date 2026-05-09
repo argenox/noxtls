@@ -42,6 +42,7 @@
 #define _STRING_COMMON_H_
 
 #include <stdint.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -53,8 +54,7 @@ extern "C" {
 #define HEX_RADIX (16u)
 #define HEX_OUTLEN_SHIFT (2u)
 
-extern int noxtls_hex_string_to_bytes(const char * string, uint8_t * out_buf, uint16_t out_length);
-int noxtls_process_string_to_bytes(const char* string, uint8_t* bytes);
+extern int noxtls_hex_string_to_bytes(const char * string, uint8_t * out_buf, size_t out_length);
 void noxtls_print_data(const uint8_t * data, size_t len);
 
 #ifdef __cplusplus

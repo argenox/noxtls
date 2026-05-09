@@ -406,6 +406,12 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
     *client_hello_len = record.length;
     
     offset = 4;  /* Skip handshake header */
+    if(offset + 2 > record.length) {
+        noxtls_free(*client_hello_data);
+        *client_hello_data = NULL;
+        *client_hello_len = 0;
+        return NOXTLS_RETURN_FAILED;
+    }
     
     /* Legacy version */
     version = (record.data[offset] << 8) | record.data[offset + 1];
@@ -421,44 +427,105 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
     }
     
     /* Client Random (32 bytes) */
+    if(offset + 32 > record.length) {
+        noxtls_free(*client_hello_data);
+        *client_hello_data = NULL;
+        *client_hello_len = 0;
+        return NOXTLS_RETURN_FAILED;
+    }
     offset += 32;
     
     /* Session ID length */
+    if(offset + 1 > record.length) {
+        noxtls_free(*client_hello_data);
+        *client_hello_data = NULL;
+        *client_hello_len = 0;
+        return NOXTLS_RETURN_FAILED;
+    }
     session_id_len = record.data[offset++];
+    if(offset + session_id_len > record.length) {
+        noxtls_free(*client_hello_data);
+        *client_hello_data = NULL;
+        *client_hello_len = 0;
+        return NOXTLS_RETURN_FAILED;
+    }
     offset += session_id_len;
     
     /* Cipher suites length */
+    if(offset + 2 > record.length) {
+        noxtls_free(*client_hello_data);
+        *client_hello_data = NULL;
+        *client_hello_len = 0;
+        return NOXTLS_RETURN_FAILED;
+    }
     cipher_suites_len = (record.data[offset] << 8) | record.data[offset + 1];
     offset += 2;
+    if(offset + cipher_suites_len > record.length) {
+        noxtls_free(*client_hello_data);
+        *client_hello_data = NULL;
+        *client_hello_len = 0;
+        return NOXTLS_RETURN_FAILED;
+    }
     offset += cipher_suites_len;
     
     /* Compression methods length */
+    if(offset + 1 > record.length) {
+        noxtls_free(*client_hello_data);
+        *client_hello_data = NULL;
+        *client_hello_len = 0;
+        return NOXTLS_RETURN_FAILED;
+    }
     compression_methods_len = record.data[offset++];
+    if(offset + compression_methods_len > record.length) {
+        noxtls_free(*client_hello_data);
+        *client_hello_data = NULL;
+        *client_hello_len = 0;
+        return NOXTLS_RETURN_FAILED;
+    }
     offset += compression_methods_len;
     
     /* Check if extensions are present */
     if(offset < record.length) {
+        uint32_t extensions_end;
+        uint32_t ext_data_end;
+        if(offset + 2 > record.length) {
+            noxtls_free(*client_hello_data);
+            *client_hello_data = NULL;
+            *client_hello_len = 0;
+            return NOXTLS_RETURN_FAILED;
+        }
         uint16_t extensions_len = (record.data[offset] << 8) | record.data[offset + 1];
         offset += 2;
         uint32_t extensions_start = offset;
+        if(extensions_len > record.length - offset) {
+            noxtls_free(*client_hello_data);
+            *client_hello_data = NULL;
+            *client_hello_len = 0;
+            return NOXTLS_RETURN_FAILED;
+        }
+        extensions_end = extensions_start + extensions_len;
         
         /* Parse extensions to find Supported Versions (type 43) */
-        while(offset < extensions_start + extensions_len && offset + 4 <= record.length) {
+        while(offset < extensions_end && offset + 4 <= extensions_end && offset + 4 <= record.length) {
             uint16_t ext_type = (record.data[offset] << 8) | record.data[offset + 1];
             offset += 2;
             uint16_t ext_len = (record.data[offset] << 8) | record.data[offset + 1];
             offset += 2;
+            if(ext_len > extensions_end - offset) {
+                break;
+            }
+            ext_data_end = offset + ext_len;
             
             if(ext_type == TLS_EXTENSION_SUPPORTED_VERSIONS) {
                 /* Supported Versions extension found - check if TLS 1.3 is supported */
                 /* Format: length (1 byte) + list of versions (2 bytes each) */
-                if(ext_len >= 3 && offset + ext_len <= record.length) {
+                if(ext_len >= 3 && offset < ext_data_end) {
                     uint8_t versions_len = record.data[offset++];
-                    if(versions_len >= 2 && versions_len <= ext_len - 1 && 
-                       offset + versions_len <= record.length) {
+                    if(versions_len >= 2 && versions_len <= ext_len - 1 &&
+                       versions_len <= ext_data_end - offset) {
                         /* Check each version in the list */
                         uint8_t i;
-                        for(i = 0; i < versions_len && offset + 1 < record.length; i += 2) {
+                        for(i = 0; i + 1 < versions_len && offset + 1 < ext_data_end; i += 2) {
                             uint16_t supported_version = (record.data[offset] << 8) | record.data[offset + 1];
                             if(supported_version == TLS_VERSION_1_3) {
                                 has_tls13 = 1;
@@ -471,9 +538,6 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
                 break;  /* Found the extension, no need to continue */
             } else {
                 /* Skip this extension */
-                if(offset + ext_len > record.length) {
-                    break;  /* Invalid extension length */
-                }
                 offset += ext_len;
             }
         }

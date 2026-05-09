@@ -152,7 +152,8 @@ noxtls_return_t noxtls_md5_update(noxtls_sha_ctx_t * ctx, uint8_t * input, uint3
                 break;
             }
 
-    		rc = noxtls_md5_round(ctx, &input[ctx->length]);
+    		/* Use per-call input offset; ctx->length tracks global bytes across calls. */
+    		rc = noxtls_md5_round(ctx, &input[len - total]);
     		if(rc != NOXTLS_RETURN_SUCCESS) {
     			break;
     		}

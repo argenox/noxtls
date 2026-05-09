@@ -118,6 +118,9 @@ uint32_t noxtls_parse_tag(uint8_t ** data, uint8_t * end)
     print_tag_type(tag_num);
 
     ptr++;
+    if(ptr >= end) {
+        return 1;
+    }
     //printf("0x%02x\n", *ptr);
 
     uint32_t data_length = 0;
@@ -126,6 +129,9 @@ uint32_t noxtls_parse_tag(uint8_t ** data, uint8_t * end)
         /* Definite */
         uint8_t length = GET_LENGTH(*ptr++);
         int i;
+        if(length == 0 || length > 4 || ptr + length > end) {
+            return 1;
+        }
         //printf("\tDefinite Length: %d\n", length);
         for(i = length - 1; i >= 0; i--)
         {
@@ -254,8 +260,11 @@ void asn1_decode_obj_ident(uint8_t ** data, uint32_t len)
 
             for(j = 2; j >= 0; j--) {
                 if(ptr[i] - (40 * j) > 0) {
-                    obj_ident_vals[obj_ident_cnt++] = j;
-                    obj_ident_vals[obj_ident_cnt++] = ptr[i] - (40*j);
+                    if(obj_ident_cnt + 2 > (uint8_t)(sizeof(obj_ident_vals) / sizeof(obj_ident_vals[0]))) {
+                        return;
+                    }
+                    obj_ident_vals[obj_ident_cnt++] = (uint32_t)j;
+                    obj_ident_vals[obj_ident_cnt++] = (uint32_t)(ptr[i] - (40*j));
                     break;
                 }
             }
@@ -269,6 +278,9 @@ void asn1_decode_obj_ident(uint8_t ** data, uint32_t len)
 
                 for(j = 1; j < 4; j++)
                 {
+                    if(i + (uint32_t)j >= len) {
+                        return;
+                    }
                     val *= 128;
                     val |= (ptr[i + j] & 0x7F);
 
@@ -278,11 +290,17 @@ void asn1_decode_obj_ident(uint8_t ** data, uint32_t len)
                     }
                 }
 
+                if(obj_ident_cnt + 1 > (uint8_t)(sizeof(obj_ident_vals) / sizeof(obj_ident_vals[0]))) {
+                    return;
+                }
                 obj_ident_vals[obj_ident_cnt++] = val;
                 i += j;
             }
             else
             {
+                if(obj_ident_cnt + 1 > (uint8_t)(sizeof(obj_ident_vals) / sizeof(obj_ident_vals[0]))) {
+                    return;
+                }
                 obj_ident_vals[obj_ident_cnt++] = ptr[i];
             }
         }
@@ -290,10 +308,14 @@ void asn1_decode_obj_ident(uint8_t ** data, uint32_t len)
 
     i = 0;
 
-    snprintf(&oid_str[strlen(oid_str)], sizeof(oid_str), "%lu", (unsigned long)obj_ident_vals[i]);
+    {
+        size_t off = strlen(oid_str);
+        snprintf(&oid_str[off], sizeof(oid_str) - off, "%lu", (unsigned long)obj_ident_vals[i]);
+    }
     for(i = 1; i < obj_ident_cnt; i++)
     {
-        snprintf(&oid_str[strlen(oid_str)], sizeof(oid_str), ".%lu", (unsigned long)obj_ident_vals[i]);
+        size_t off = strlen(oid_str);
+        snprintf(&oid_str[off], sizeof(oid_str) - off, ".%lu", (unsigned long)obj_ident_vals[i]);
     }
 
     printf("OID_STR: %s\n", oid_str);

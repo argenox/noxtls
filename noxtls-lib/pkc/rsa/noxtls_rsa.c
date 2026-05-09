@@ -32,6 +32,7 @@
 #include "common/noxtls_memory.h"
 #include "common/noxtls_memory_compat.h"
 #include "common/noxtls_debug_printf.h"
+#include "common/noxtls_ct.h"
 #include "noxtls_config.h"
 #include "drbg/noxtls_drbg.h"
 #include "noxtls_rsa.h"
@@ -1496,7 +1497,7 @@ noxtls_return_t noxtls_rsa_verify(const rsa_key_t *key, const uint8_t *message, 
                     }
                     hash_offset += oid_len;
                     
-                    if(memcmp(decrypted + hash_offset, hash, hash_len) == 0) {
+                    if(noxtls_secret_memcmp(decrypted + hash_offset, hash, hash_len) == 0) {
                         noxtls_free(decrypted);
                         return NOXTLS_RETURN_SUCCESS;
                     }
@@ -1708,7 +1709,7 @@ static noxtls_return_t emsa_pss_verify(const uint8_t *m_hash, uint32_t h_len,
 #if NOXTLS_DEBUG_PSS_VERIFY
     (void)fprintf(stderr, "[PSS_VERIFY] step: comparing H, H' (h_len=%u)\n", (unsigned)h_len);
 #endif
-    if(memcmp(H, H_prime, h_len) != 0) {
+    if(noxtls_secret_memcmp(H, H_prime, h_len) != 0) {
 #if NOXTLS_DEBUG_PSS_VERIFY
         (void)fprintf(stderr, "[PSS_VERIFY] fail: H != H' (hash mismatch)\n");
 #endif

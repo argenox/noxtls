@@ -118,11 +118,6 @@ int aes_handler(int argc, char ** argv)
 
             type = INPUT_DATA_TYPE_HEX;
             argc_skip++;
-            #if 0
-            data_length = noxtls_process_string_to_bytes(argv[argc-1], data_buffer);
-            processed = 1;
-            
-            #endif
             break;
           case 'd':
             
@@ -178,7 +173,8 @@ int aes_handler(int argc, char ** argv)
     }
     else if(type == INPUT_DATA_TYPE_HEX)
     {
-        int hex_len = strlen(argv[argc_skip]);
+        size_t hex_len = strlen(argv[argc_skip]);
+        int parsed_len;
         
         printf("Hex\n");
         printf("Expected hex string: %s\n",argv[argc_skip]);
@@ -193,7 +189,13 @@ int aes_handler(int argc, char ** argv)
 
         memset(data_buffer, 0, hex_len * sizeof(uint8_t));
 
-        data_length = noxtls_process_string_to_bytes(argv[argc_skip], data_buffer);
+        parsed_len = noxtls_hex_string_to_bytes(argv[argc_skip], data_buffer, hex_len);
+        if(parsed_len < 0) {
+            free(data_buffer);
+            printf("Error: invalid hex input\n");
+            return -1;
+        }
+        data_length = (uint32_t)parsed_len;
 
     }    
 

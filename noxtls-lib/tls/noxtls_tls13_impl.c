@@ -41,6 +41,7 @@
 #include <string.h>
 #include "common/NOXTLS_memory.h"
 #include "common/NOXTLS_memory_compat.h"
+#include "common/noxtls_ct.h"
 #include "NOXTLS_tls13.h"
 #include "drbg/NOXTLS_drbg.h"
 #include "certs/noxtls_x509.h"
@@ -103,14 +104,18 @@ static noxtls_return_t tls13_append_handshake_message(tls13_context_t *ctx, cons
         noxtls_debug_printf("[TLS13_DEBUG] append_handshake: len=%u\n", len);
     }
 
-    uint8_t *new_buffer = (uint8_t*)realloc(ctx->handshake_messages, ctx->handshake_messages_len + len);
+    if(len > UINT32_MAX - ctx->handshake_messages_len) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    uint32_t new_len = ctx->handshake_messages_len + len;
+    uint8_t *new_buffer = (uint8_t*)realloc(ctx->handshake_messages, new_len);
     if(new_buffer == NULL && len > 0) {
         return NOXTLS_RETURN_FAILED;
     }
 
     ctx->handshake_messages = new_buffer;
     memcpy(ctx->handshake_messages + ctx->handshake_messages_len, data, len);
-    ctx->handshake_messages_len += len;
+    ctx->handshake_messages_len = new_len;
     noxtls_debug_printf("[TLS13_DEBUG] handshake_messages_len=%u\n", ctx->handshake_messages_len);
     if(ctx->handshake_messages_len >= 16) {
         uint8_t *buf = ctx->handshake_messages;
@@ -560,8 +565,15 @@ static noxtls_return_t tls13_handshake_buffer_append(tls13_context_t *ctx, const
     if(len == 0) {
         return NOXTLS_RETURN_SUCCESS;
     }
+    if(ctx->handshake_buffer_len < ctx->handshake_buffer_pos) {
+        return NOXTLS_RETURN_FAILED;
+    }
     uint32_t remaining = ctx->handshake_buffer_len - ctx->handshake_buffer_pos;
-    uint8_t *new_buffer = (uint8_t*)realloc(ctx->handshake_buffer, remaining + len);
+    if(len > UINT32_MAX - remaining) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    uint32_t new_len = remaining + len;
+    uint8_t *new_buffer = (uint8_t*)realloc(ctx->handshake_buffer, new_len);
     if(new_buffer == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -571,7 +583,7 @@ static noxtls_return_t tls13_handshake_buffer_append(tls13_context_t *ctx, const
     }
     memcpy(new_buffer + remaining, data, len);
     ctx->handshake_buffer = new_buffer;
-    ctx->handshake_buffer_len = remaining + len;
+    ctx->handshake_buffer_len = new_len;
     ctx->handshake_buffer_pos = 0;
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -1662,7 +1674,7 @@ noxtls_return_t tls13_recv_finished(tls13_context_t *ctx)
         return rc;
     }
 
-    if(msg_len < 4 + verify_len || memcmp(msg + 4, verify_data, verify_len) != 0) {
+    if(msg_len < 4 + verify_len || noxtls_secret_memcmp(msg + 4, verify_data, verify_len) != 0) {
         free(msg);
         return NOXTLS_RETURN_FAILED;
     }
@@ -2447,7 +2459,7 @@ noxtls_return_t tls13_recv_finished_client(tls13_context_t *ctx)
         if(record.data) free(record.data);
         return rc;
     }
-    if(record.length < 4u + verify_len || memcmp(record.data + 4, verify_data, verify_len) != 0) {
+    if(record.length < 4u + verify_len || noxtls_secret_memcmp(record.data + 4, verify_data, verify_len) != 0) {
         if(record.data) free(record.data);
         return NOXTLS_RETURN_FAILED;
     }

@@ -89,6 +89,9 @@ noxtls_return_t noxtls_mem_init(uint8_t *buffer, size_t buffer_size)
     if(buffer_size == 0) {
         buffer_size = NOXTLS_STATIC_BUFFER_SIZE;
     }
+    if(buffer_size <= sizeof(mem_block_header_t)) {
+        return NOXTLS_RETURN_FAILED;
+    }
     
     if(buffer == NULL) {
         /* Allocate internal buffer using system malloc */
@@ -159,8 +162,13 @@ void *noxtls_malloc(size_t size)
     if(size == 0) {
         return NULL;
     }
-    
+    if(size > SIZE_MAX - (NOXTLS_MEM_ALIGNMENT - 1)) {
+        return NULL;
+    }
     aligned_size = ALIGN_SIZE(size);
+    if(aligned_size > SIZE_MAX - sizeof(mem_block_header_t)) {
+        return NULL;
+    }
     block_size = aligned_size + sizeof(mem_block_header_t);
     
     /* Find a free block large enough */
@@ -255,7 +263,10 @@ void *noxtls_calloc(size_t nmemb, size_t size)
 {
     void *ptr;
     size_t total_size;
-    
+
+    if(nmemb != 0 && size > SIZE_MAX / nmemb) {
+        return NULL;
+    }
     total_size = nmemb * size;
     ptr = noxtls_malloc(total_size);
     
@@ -284,7 +295,17 @@ void *noxtls_realloc(void *ptr, size_t size)
         return NULL;
     }
     
+    if(!g_mem_initialized || g_mem_pool.buffer == NULL) {
+        return NULL;
+    }
     header = (const mem_block_header_t*)((const uint8_t*)ptr - sizeof(mem_block_header_t));
+    if((const uint8_t*)header < g_mem_pool.buffer ||
+       (const uint8_t*)header >= g_mem_pool.buffer + g_mem_pool.buffer_size) {
+        return NULL;
+    }
+    if(!header->allocated || header->size > g_mem_pool.buffer_size) {
+        return NULL;
+    }
     old_size = header->size;
     
     /* If new size fits in existing block, just return same pointer */

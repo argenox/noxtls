@@ -40,6 +40,7 @@
 #include "noxtls_aes_gcm.h"
 #include "noxtls_aes_internal.h"
 #include "noxtls_common.h"
+#include "common/noxtls_ct.h"
 
 #if NOXTLS_FEATURE_AES_GCM
 
@@ -312,7 +313,7 @@ noxtls_return_t aes_gcm_decrypt(const uint8_t *key, aes_type_t type,
     aes_block(key, type, j0, s);
     gcm_xor(expected_tag, x, s);
 
-    if(memcmp(expected_tag, tag, 16) != 0) {
+    if(noxtls_secret_memcmp(expected_tag, tag, 16) != 0) {
         return NOXTLS_RETURN_BAD_DATA;
     }
 

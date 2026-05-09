@@ -53,13 +53,14 @@
 #include <string.h>
 #include "noxtls_common.h"
 #include "noxtls_config.h"
+#include "noxtls_ct.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /** Zero buffer then free; use for buffers that may hold keys or other sensitive data to avoid leakage. (ptr may be NULL.) */
-#define NOXTLS_SECURE_FREE(ptr, size) do { if((ptr) != NULL) { memset((void*)(ptr), 0, (size)); noxtls_free(ptr); } } while(0)
+#define NOXTLS_SECURE_FREE(ptr, size) do { if((ptr) != NULL) { noxtls_secure_zero((void*)(ptr), (size)); noxtls_free(ptr); } } while(0)
 
 /* Memory alignment for allocator blocks */
 #define NOXTLS_MEM_ALIGNMENT (8u)
