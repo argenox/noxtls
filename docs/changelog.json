@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "0.1.23",
+      "date": "TBD",
+      "changes": [
+        "Ed25519 / Ed448: RFC 8032 pure, ctx, and ph APIs; X.509 RFC 8410 PKCS#8 parse and raw certificate signing via noxtls_x509_private_key_sign_data; certgen req -new -x509 for Ed25519/Ed448 keys.",
+        "PKC CLI: EdDSA algorithms (ed25519, ed25519ctx, ed25519ph, ed448, ed448ctx, ed448ph) with -K / -P / -C; in-tree build links X.509 for PEM key load.",
+        "Documentation: docs/eddsa page, PKC and certgen README updates; versioned docs 0.1.23."
+      ],
+      "fixed": [],
+      "known_issues": []
+    },
+    {
       "version": "0.1.22",
       "date": "TBD",
       "changes": [
@@ -9,7 +20,7 @@
         "RC4 stream cipher (legacy); NOXTLS_FEATURE_RC4; noxtls_rc4.h.",
         "Raw Public Keys (RFC 7250): TLS 1.2/DTLS 1.2 server/client certificate type extensions; tls12_set_server_use_rpk, tls12_set_client_accept_server_rpk, tls12_set_client_offer_client_rpk.",
         "Unit tests: test_rc4.c; tls12_rpk_setters_client, tls12_rpk_setters_server.",
-        "Documentation: versioned docs 0.1.22; FEATURE_CHECKLIST and API docs updated."
+        "Documentation: versioned docs for 0.1.22; FEATURE_CHECKLIST and API docs updated."
       ],
       "fixed": [
         "Removed invalid noxtls_aes_cbc.h include from noxtls_x509.c.",

@@ -10,6 +10,7 @@ const sidebars = {
     'configuration-guide',
     'memory-usage',
     'release-notes',
+    'eddsa',
     'tls',
     {
       type: 'category',

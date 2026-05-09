@@ -1,3 +1,8 @@
+---
+sidebar_position: 9
+title: EdDSA
+---
+
 # EdDSA in NoxTLS
 
 This library implements **Ed25519** and **Ed448** (RFC 8032) with **PureEdDSA**, **Ed25519ctx / Ed448ctx**, and **Ed25519ph / Ed448ph** variants where applicable. Ed448 requires SHA-3 (SHAKE256) support (`NOXTLS_FEATURE_SHA3`).
@@ -21,4 +26,4 @@ This library implements **Ed25519** and **Ed448** (RFC 8032) with **PureEdDSA**,
 
 ## TLS 1.3
 
-Client certificate verify paths support Ed25519 and Ed448 signature schemes when the corresponding features are enabled; see `noxtls_tls13.h` and `tls_test` documentation.
+Client certificate verify paths support Ed25519 and Ed448 signature schemes when the corresponding features are enabled; see `noxtls_tls13.h` and the **tls_test** application documentation.
