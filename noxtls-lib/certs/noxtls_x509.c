@@ -57,6 +57,12 @@
 #include "mdigest/sha256/noxtls_sha256.h"
 #include "mdigest/sha512/noxtls_sha512.h"
 #include "mdigest/noxtls_hash.h"
+#if NOXTLS_FEATURE_ED25519
+#include "pkc/ed25519/noxtls_ed25519.h"
+#endif
+#if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+#include "pkc/ed448/noxtls_ed448.h"
+#endif
 #if NOXTLS_FEATURE_AES_CBC
 #include "mdigest/sha1/noxtls_sha1.h"
 #include "encryption/aes/noxtls_aes.h"
@@ -1131,6 +1137,11 @@ noxtls_return_t noxtls_x509_certificate_parse_der(x509_certificate_t *cert, cons
                 /* Ed25519 public key (OID 1.3.101.112 id-Ed25519): 32-byte raw key */
                 cert->has_ed25519 = 1;
                 memcpy(cert->ed25519_public_key, spki_ptr, 32);
+            } else if(public_key_len == 57 && cert->public_key_algorithm_oid_len == 3 &&
+                      memcmp(cert->public_key_algorithm_oid, (const uint8_t*)"\x2B\x65\x71", 3) == 0) {
+                /* Ed448 public key (OID 1.3.101.113 id-Ed448): 57-byte raw key (RFC 8410) */
+                cert->has_ed448 = 1;
+                memcpy(cert->ed448_public_key, spki_ptr, 57);
             }
         }
     }
@@ -2536,6 +2547,10 @@ noxtls_return_t noxtls_x509_private_key_free(x509_private_key_t *key)
         free(key->ecc_public_key);
         key->ecc_public_key = NULL;
     }
+    if(key->eddsa_seed) {
+        free(key->eddsa_seed);
+        key->eddsa_seed = NULL;
+    }
     if(key->raw_data) {
         free(key->raw_data);
         key->raw_data = NULL;
@@ -2695,6 +2710,49 @@ static noxtls_return_t noxtls_x509_parse_pkcs1_rsa_private_key(x509_private_key_
 /* Forward declaration (defined below). */
 static noxtls_return_t noxtls_x509_parse_sec1_ecc_private_key(x509_private_key_t *key, const uint8_t *data, uint32_t len);
 
+#if NOXTLS_FEATURE_ED25519 || (NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3)
+/** PKCS#8 PrivateKey OCTET STRING: raw seed or OCTET STRING-wrapped seed (RFC 8410). */
+static noxtls_return_t x509_pkcs8_ed_seed_from_octet(const uint8_t *content, uint32_t content_len,
+    uint32_t want_len, const uint8_t **seed_out, uint32_t *seed_len_out)
+{
+    const uint8_t *p = content;
+    const uint8_t *end = content + content_len;
+
+    if(seed_out == NULL || seed_len_out == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(content_len == want_len) {
+        *seed_out = content;
+        *seed_len_out = want_len;
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    if(asn1_get_tag(&p, end, 0x04) == NOXTLS_RETURN_SUCCESS) {
+        uint32_t inner = asn1_get_length(&p, end);
+        if(inner == want_len && p + inner <= end) {
+            *seed_out = p;
+            *seed_len_out = inner;
+            return NOXTLS_RETURN_SUCCESS;
+        }
+    }
+    return NOXTLS_RETURN_FAILED;
+}
+#endif
+
+#if NOXTLS_FEATURE_ED25519
+static int x509_oid_is_ed25519(const uint8_t *o, uint32_t l)
+{
+    static const uint8_t id_ed25519[] = { 0x2B, 0x65, 0x70 };
+    return l == sizeof(id_ed25519) && memcmp(o, id_ed25519, sizeof(id_ed25519)) == 0;
+}
+#endif
+#if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+static int x509_oid_is_ed448(const uint8_t *o, uint32_t l)
+{
+    static const uint8_t id_ed448[] = { 0x2B, 0x65, 0x71 };
+    return l == sizeof(id_ed448) && memcmp(o, id_ed448, sizeof(id_ed448)) == 0;
+}
+#endif
+
 /**
  * @brief Parse PKCS#8 Private Key (DER format)
  */
@@ -2705,6 +2763,8 @@ static noxtls_return_t noxtls_x509_parse_pkcs8_private_key(x509_private_key_t *k
     const uint8_t *seq_data = NULL;
     uint32_t seq_len = 0;
     uint8_t version;
+    uint8_t pkcs8_algorithm_oid[32];
+    uint32_t pkcs8_algorithm_oid_len = 0;
 
     /* Parse PrivateKeyInfo SEQUENCE */
     if(asn1_get_sequence(&ptr, end, &seq_data, &seq_len) != NOXTLS_RETURN_SUCCESS) {
@@ -2754,9 +2814,7 @@ static noxtls_return_t noxtls_x509_parse_pkcs8_private_key(x509_private_key_t *k
         }
         alg_end = seq_data + seq_len;
         alg_ptr = seq_data;
-        uint8_t algorithm_oid[32];
-        uint32_t algorithm_oid_len;
-        if(asn1_get_oid(&alg_ptr, alg_end, algorithm_oid, &algorithm_oid_len) != NOXTLS_RETURN_SUCCESS) {
+        if(asn1_get_oid(&alg_ptr, alg_end, pkcs8_algorithm_oid, &pkcs8_algorithm_oid_len) != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_FAILED;
         }
         if(asn1_get_tag(&info_ptr, info_end, 0x04) != NOXTLS_RETURN_SUCCESS) {
@@ -2779,6 +2837,59 @@ static noxtls_return_t noxtls_x509_parse_pkcs8_private_key(x509_private_key_t *k
         CERT_DEBUG_PRINT("x509_parse_pkcs8: parsed as PKCS#1 RSA\n");
         return NOXTLS_RETURN_SUCCESS;
     }
+
+#if NOXTLS_FEATURE_ED25519
+    if(pkcs8_algorithm_oid_len > 0 && x509_oid_is_ed25519(pkcs8_algorithm_oid, pkcs8_algorithm_oid_len)) {
+        const uint8_t *seed_ptr = NULL;
+        uint32_t seed_len = 0;
+        if(x509_pkcs8_ed_seed_from_octet(info_ptr, private_key_len, 32, &seed_ptr, &seed_len) == NOXTLS_RETURN_SUCCESS) {
+            noxtls_x509_private_key_free(key);
+            key->raw_data = (uint8_t*)malloc(len);
+            if(key->raw_data == NULL) {
+                return NOXTLS_RETURN_FAILED;
+            }
+            memcpy(key->raw_data, data, len);
+            key->raw_data_len = len;
+            key->key_type = X509_PRIVATE_KEY_ED25519;
+            key->format = X509_PRIVATE_KEY_FORMAT_PKCS8;
+            key->eddsa_seed = (uint8_t*)malloc(32);
+            if(key->eddsa_seed == NULL) {
+                noxtls_x509_private_key_free(key);
+                return NOXTLS_RETURN_FAILED;
+            }
+            memcpy(key->eddsa_seed, seed_ptr, 32);
+            key->eddsa_seed_len = 32;
+            CERT_DEBUG_PRINT("x509_parse_pkcs8: parsed as Ed25519 PKCS#8\n");
+            return NOXTLS_RETURN_SUCCESS;
+        }
+    }
+#endif
+#if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+    if(pkcs8_algorithm_oid_len > 0 && x509_oid_is_ed448(pkcs8_algorithm_oid, pkcs8_algorithm_oid_len)) {
+        const uint8_t *seed_ptr = NULL;
+        uint32_t seed_len = 0;
+        if(x509_pkcs8_ed_seed_from_octet(info_ptr, private_key_len, 57, &seed_ptr, &seed_len) == NOXTLS_RETURN_SUCCESS) {
+            noxtls_x509_private_key_free(key);
+            key->raw_data = (uint8_t*)malloc(len);
+            if(key->raw_data == NULL) {
+                return NOXTLS_RETURN_FAILED;
+            }
+            memcpy(key->raw_data, data, len);
+            key->raw_data_len = len;
+            key->key_type = X509_PRIVATE_KEY_ED448;
+            key->format = X509_PRIVATE_KEY_FORMAT_PKCS8;
+            key->eddsa_seed = (uint8_t*)malloc(57);
+            if(key->eddsa_seed == NULL) {
+                noxtls_x509_private_key_free(key);
+                return NOXTLS_RETURN_FAILED;
+            }
+            memcpy(key->eddsa_seed, seed_ptr, 57);
+            key->eddsa_seed_len = 57;
+            CERT_DEBUG_PRINT("x509_parse_pkcs8: parsed as Ed448 PKCS#8\n");
+            return NOXTLS_RETURN_SUCCESS;
+        }
+    }
+#endif
 
     /* Try SEC1 ECC (OCTET STRING content is DER ECPrivateKey, starts with 0x30) */
     if(info_ptr[0] == 0x30) {
@@ -3516,7 +3627,7 @@ noxtls_return_t noxtls_x509_private_key_sign_data(const uint8_t *key, uint32_t k
         return NOXTLS_RETURN_NULL;
     }
     if (out_max < 8) {
-        return NOXTLS_RETURN_FAILED;
+        return NOXTLS_RETURN_FAILED; /* minimum for tiny DER; Ed/ECDSA paths check larger out_max */
     }
 
     noxtls_x509_private_key_init(&pk);
@@ -3530,51 +3641,112 @@ noxtls_return_t noxtls_x509_private_key_sign_data(const uint8_t *key, uint32_t k
         return rc;
     }
 
-    if (pk.key_type != X509_PRIVATE_KEY_ECC) {
-        CERT_DEBUG_PRINT("x509_private_key_sign_data: key_type=%d (need ECC)\n", pk.key_type);
+    if (pk.key_type == X509_PRIVATE_KEY_ECC) {
+        rc = noxtls_x509_private_key_to_ecc_key(&pk, &ecc_key);
         noxtls_x509_private_key_free(&pk);
-        return NOXTLS_RETURN_FAILED; /* Only ECC supported */
-    }
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            CERT_DEBUG_PRINT("x509_private_key_sign_data: to_ecc_key failed rc=%d\n", rc);
+            return rc;
+        }
 
-    rc = noxtls_x509_private_key_to_ecc_key(&pk, &ecc_key);
-    noxtls_x509_private_key_free(&pk);
-    if (rc != NOXTLS_RETURN_SUCCESS) {
-        CERT_DEBUG_PRINT("x509_private_key_sign_data: to_ecc_key failed rc=%d\n", rc);
-        return rc;
-    }
+        memset(&sig, 0, sizeof(sig));
+        sig.size = ecc_key.curve->size;
+        rc = noxtls_ecdsa_sign(&ecc_key, data, data_len, &sig, hash_algo);
+        noxtls_ecc_key_free(&ecc_key);
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
 
-    memset(&sig, 0, sizeof(sig));
-    sig.size = ecc_key.curve->size;
-    rc = noxtls_ecdsa_sign(&ecc_key, data, data_len, &sig, hash_algo);
-    noxtls_ecc_key_free(&ecc_key);
-    if (rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
-    }
+        r_enc_len = noxtls_asn1_put_integer(r_enc, sizeof(r_enc), sig.r, sig.size);
+        s_enc_len = noxtls_asn1_put_integer(s_enc, sizeof(s_enc), sig.s, sig.size);
+        if (r_enc_len == 0 || s_enc_len == 0) {
+            return NOXTLS_RETURN_FAILED;
+        }
+        seq_len = r_enc_len + s_enc_len;
 
-    r_enc_len = noxtls_asn1_put_integer(r_enc, sizeof(r_enc), sig.r, sig.size);
-    s_enc_len = noxtls_asn1_put_integer(s_enc, sizeof(s_enc), sig.s, sig.size);
-    if (r_enc_len == 0 || s_enc_len == 0) {
-        return NOXTLS_RETURN_FAILED;
-    }
-    seq_len = r_enc_len + s_enc_len;
-
-    der_buf = (uint8_t *)noxtls_malloc(der_buf_size);
-    if (der_buf == NULL) {
-        return NOXTLS_RETURN_FAILED;
-    }
-    if (seq_len > der_buf_size - 8) {
+        der_buf = (uint8_t *)noxtls_malloc(der_buf_size);
+        if (der_buf == NULL) {
+            return NOXTLS_RETURN_FAILED;
+        }
+        if (seq_len > der_buf_size - 8) {
+            noxtls_free(der_buf);
+            return NOXTLS_RETURN_FAILED;
+        }
+        memcpy(der_buf, r_enc, r_enc_len);
+        memcpy(der_buf + r_enc_len, s_enc, s_enc_len);
+        total = noxtls_asn1_put_sequence(out_der, out_max, der_buf, seq_len);
         noxtls_free(der_buf);
-        return NOXTLS_RETURN_FAILED;
+        if (total == 0) {
+            return NOXTLS_RETURN_FAILED;
+        }
+        *out_len = total;
+        return NOXTLS_RETURN_SUCCESS;
     }
-    memcpy(der_buf, r_enc, r_enc_len);
-    memcpy(der_buf + r_enc_len, s_enc, s_enc_len);
-    total = noxtls_asn1_put_sequence(out_der, out_max, der_buf, seq_len);
-    noxtls_free(der_buf);
-    if (total == 0) {
-        return NOXTLS_RETURN_FAILED;
+#if NOXTLS_FEATURE_ED25519
+    if (pk.key_type == X509_PRIVATE_KEY_ED25519) {
+        uint8_t seed_buf[32];
+        uint32_t slen = 0;
+        const uint8_t *seed = noxtls_x509_private_key_get_eddsa_seed(&pk, &slen);
+        (void)hash_algo;
+        if (seed == NULL || slen != sizeof(seed_buf) || out_max < NOXTLS_ED25519_SIGNATURE_SIZE) {
+            noxtls_x509_private_key_free(&pk);
+            return NOXTLS_RETURN_FAILED;
+        }
+        memcpy(seed_buf, seed, sizeof(seed_buf));
+        noxtls_x509_private_key_free(&pk);
+        rc = noxtls_ed25519_sign(seed_buf, data, data_len, out_der);
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
+        *out_len = NOXTLS_ED25519_SIGNATURE_SIZE;
+        return NOXTLS_RETURN_SUCCESS;
     }
-    *out_len = total;
-    return NOXTLS_RETURN_SUCCESS;
+#endif
+#if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+    if (pk.key_type == X509_PRIVATE_KEY_ED448) {
+        uint8_t seed_buf[57];
+        uint32_t slen = 0;
+        const uint8_t *seed = noxtls_x509_private_key_get_eddsa_seed(&pk, &slen);
+        (void)hash_algo;
+        if (seed == NULL || slen != sizeof(seed_buf) || out_max < NOXTLS_ED448_SIGNATURE_SIZE) {
+            noxtls_x509_private_key_free(&pk);
+            return NOXTLS_RETURN_FAILED;
+        }
+        memcpy(seed_buf, seed, sizeof(seed_buf));
+        noxtls_x509_private_key_free(&pk);
+        rc = noxtls_ed448_sign(seed_buf, data, data_len, out_der);
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
+        *out_len = NOXTLS_ED448_SIGNATURE_SIZE;
+        return NOXTLS_RETURN_SUCCESS;
+    }
+#endif
+
+    CERT_DEBUG_PRINT("x509_private_key_sign_data: key_type=%d (unsupported)\n", pk.key_type);
+    noxtls_x509_private_key_free(&pk);
+    return NOXTLS_RETURN_FAILED;
+}
+
+const uint8_t *noxtls_x509_private_key_get_eddsa_seed(const x509_private_key_t *key, uint32_t *out_len)
+{
+    if(key == NULL || out_len == NULL) {
+        return NULL;
+    }
+    *out_len = 0;
+#if NOXTLS_FEATURE_ED25519
+    if(key->key_type == X509_PRIVATE_KEY_ED25519 && key->eddsa_seed != NULL && key->eddsa_seed_len == 32) {
+        *out_len = 32;
+        return key->eddsa_seed;
+    }
+#endif
+#if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+    if(key->key_type == X509_PRIVATE_KEY_ED448 && key->eddsa_seed != NULL && key->eddsa_seed_len == 57) {
+        *out_len = 57;
+        return key->eddsa_seed;
+    }
+#endif
+    return NULL;
 }
 
 /**
@@ -3816,6 +3988,10 @@ noxtls_return_t noxtls_x509_private_key_debug_print(x509_private_key_t *key, uin
         noxtls_debug_printf("Key Type: RSA\n");
     } else if(key->key_type == X509_PRIVATE_KEY_ECC) {
         noxtls_debug_printf("Key Type: ECC\n");
+    } else if(key->key_type == X509_PRIVATE_KEY_ED25519) {
+        noxtls_debug_printf("Key Type: Ed25519\n");
+    } else if(key->key_type == X509_PRIVATE_KEY_ED448) {
+        noxtls_debug_printf("Key Type: Ed448\n");
     } else {
         noxtls_debug_printf("Key Type: Unknown\n");
     }
@@ -3883,6 +4059,11 @@ noxtls_return_t noxtls_x509_private_key_debug_print(x509_private_key_t *key, uin
 
         if(key->ecc_public_key) {
             noxtls_x509_debug_print_hex("Public Key (optional)", key->ecc_public_key, key->ecc_public_key_len, verbose);
+        }
+    } else if(key->key_type == X509_PRIVATE_KEY_ED25519 || key->key_type == X509_PRIVATE_KEY_ED448) {
+        noxtls_debug_printf("--- EdDSA private key (RFC 8410 seed) ---\n");
+        if(key->eddsa_seed) {
+            noxtls_x509_debug_print_hex("Seed", key->eddsa_seed, key->eddsa_seed_len, verbose);
         }
     }
 

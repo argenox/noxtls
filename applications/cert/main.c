@@ -271,6 +271,14 @@ void print_certificate_info(const x509_certificate_t *cert)
         printf("ECC Public Key Length: %u bytes\n", cert->ecc_public_key_len);
         printf("ECC Public Key: ");
         print_hex(cert->ecc_public_key, cert->ecc_public_key_len);
+    } else if(cert->has_ed25519) {
+        printf("Public Key Algorithm: Ed25519 (id-Ed25519)\n");
+        printf("Ed25519 Public Key (32 bytes): ");
+        print_hex(cert->ed25519_public_key, 32);
+    } else if(cert->has_ed448) {
+        printf("Public Key Algorithm: Ed448 (id-Ed448)\n");
+        printf("Ed448 Public Key (57 bytes): ");
+        print_hex(cert->ed448_public_key, 57);
     }
     
     printf("Signature Length: %u bytes\n", cert->signature_len);

@@ -55,6 +55,9 @@
 #include "pkc/ecdsa/noxtls_ecdsa.h"
 #include "pkc/ecc/noxtls_ecc.h"
 #include "pkc/ed25519/noxtls_ed25519.h"
+#if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+#include "pkc/ed448/noxtls_ed448.h"
+#endif
 #include "mdigest/noxtls_hash.h"
 #include "mdigest/sha256/noxtls_sha256.h"
 #include "mdigest/sha512/noxtls_sha512.h"
@@ -1750,6 +1753,8 @@ noxtls_return_t tls13_context_init(tls13_context_t *ctx, tls_role_t role)
     ctx->client_private_ecdsa = NULL;
     memset(ctx->client_private_ed25519, 0, sizeof(ctx->client_private_ed25519));
     ctx->client_cert_use_ed25519 = 0;
+    memset(ctx->client_private_ed448, 0, sizeof(ctx->client_private_ed448));
+    ctx->client_cert_use_ed448 = 0;
     ctx->client_private_key_handle = NULL;
     ctx->prefer_chacha20 = 0;
     memset(ctx->psk_identity, 0, sizeof(ctx->psk_identity));
@@ -1860,6 +1865,9 @@ noxtls_return_t tls13_set_client_cert(tls13_context_t *ctx, const uint8_t *cert_
     ctx->client_private_rsa = rsa_key;
     ctx->client_private_ecdsa = NULL;
     ctx->client_cert_use_ed25519 = 0;
+    memset(ctx->client_private_ed25519, 0, sizeof(ctx->client_private_ed25519));
+    memset(ctx->client_private_ed448, 0, sizeof(ctx->client_private_ed448));
+    ctx->client_cert_use_ed448 = 0;
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -1885,6 +1893,8 @@ noxtls_return_t tls13_set_client_cert_ecdsa(tls13_context_t *ctx, const uint8_t 
     ctx->client_private_ecdsa = ecc_key;
     ctx->client_cert_use_ed25519 = 0;
     memset(ctx->client_private_ed25519, 0, sizeof(ctx->client_private_ed25519));
+    memset(ctx->client_private_ed448, 0, sizeof(ctx->client_private_ed448));
+    ctx->client_cert_use_ed448 = 0;
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -1910,8 +1920,48 @@ noxtls_return_t tls13_set_client_cert_ed25519(tls13_context_t *ctx, const uint8_
     ctx->client_private_ecdsa = NULL;
     memcpy(ctx->client_private_ed25519, private_key_32, 32);
     ctx->client_cert_use_ed25519 = 1;
+    memset(ctx->client_private_ed448, 0, sizeof(ctx->client_private_ed448));
+    ctx->client_cert_use_ed448 = 0;
     return NOXTLS_RETURN_SUCCESS;
 }
+
+#if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+noxtls_return_t tls13_set_client_cert_ed448(tls13_context_t *ctx, const uint8_t *cert_der, uint32_t cert_len, const uint8_t *private_key_57)
+{
+    if(ctx == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(cert_der == NULL || cert_len == 0 || private_key_57 == NULL) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    if(ctx->client_cert) {
+        free(ctx->client_cert);
+        ctx->client_cert = NULL;
+    }
+    ctx->client_cert = (uint8_t*)malloc(cert_len);
+    if(ctx->client_cert == NULL) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    memcpy(ctx->client_cert, cert_der, cert_len);
+    ctx->client_cert_len = cert_len;
+    ctx->client_private_rsa = NULL;
+    ctx->client_private_ecdsa = NULL;
+    ctx->client_cert_use_ed25519 = 0;
+    memset(ctx->client_private_ed25519, 0, sizeof(ctx->client_private_ed25519));
+    memcpy(ctx->client_private_ed448, private_key_57, 57);
+    ctx->client_cert_use_ed448 = 1;
+    return NOXTLS_RETURN_SUCCESS;
+}
+#else
+noxtls_return_t tls13_set_client_cert_ed448(tls13_context_t *ctx, const uint8_t *cert_der, uint32_t cert_len, const uint8_t *private_key_57)
+{
+    (void)ctx;
+    (void)cert_der;
+    (void)cert_len;
+    (void)private_key_57;
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+}
+#endif
 
 noxtls_return_t tls13_set_external_psk(tls13_context_t *ctx,
                                        const uint8_t *identity, uint16_t identity_len,
@@ -1972,6 +2022,8 @@ noxtls_return_t tls13_context_free(tls13_context_t *ctx)
     ctx->client_private_ecdsa = NULL;
     memset(ctx->client_private_ed25519, 0, sizeof(ctx->client_private_ed25519));
     ctx->client_cert_use_ed25519 = 0;
+    memset(ctx->client_private_ed448, 0, sizeof(ctx->client_private_ed448));
+    ctx->client_cert_use_ed448 = 0;
     if(ctx->client_cert_parsed) {
         noxtls_x509_certificate_free((x509_certificate_t*)ctx->client_cert_parsed);
         free(ctx->client_cert_parsed);
@@ -2088,6 +2140,9 @@ noxtls_return_t tls13_send_client_hello(tls13_context_t *ctx)
         TLS_SIGSCHEME_ECDSA_SECP256R1_SHA256,
         TLS_SIGSCHEME_RSA_PSS_RSAE_SHA256,
         TLS_SIGSCHEME_ED25519,
+#if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+        TLS_SIGSCHEME_ED448,
+#endif
         0x0401, /* rsa_pkcs1_sha256 */
         TLS_SIGSCHEME_ECDSA_SECP384R1_SHA384,
         0x0805  /* rsa_pss_rsae_sha384 */
@@ -3403,7 +3458,7 @@ static uint32_t tls13_ecdsa_signature_to_der(const ecdsa_signature_t *sig, uint8
 
 /**
  * @brief TLS 1.3 Client: Send Certificate Verify (signature over handshake transcript)
- * Supports RSA-PSS (0x0804), ECDSA P-256/SHA256 (0x0403), ECDSA P-384/SHA384 (0x0503), Ed25519 (0x0807).
+ * Supports RSA-PSS (0x0804), ECDSA P-256/SHA256 (0x0403), ECDSA P-384/SHA384 (0x0503), Ed25519 (0x0807), Ed448 (0x0808).
  */
 noxtls_return_t tls13_send_client_certificate_verify(tls13_context_t *ctx)
 {
@@ -3427,7 +3482,11 @@ noxtls_return_t tls13_send_client_certificate_verify(tls13_context_t *ctx)
     if(ctx->base.base.role != TLS_ROLE_CLIENT) {
         return NOXTLS_RETURN_FAILED;
     }
-    if(ctx->client_private_rsa == NULL && ctx->client_private_ecdsa == NULL && !ctx->client_cert_use_ed25519) {
+    if(ctx->client_private_rsa == NULL && ctx->client_private_ecdsa == NULL && !ctx->client_cert_use_ed25519
+#if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+        && !ctx->client_cert_use_ed448
+#endif
+        ) {
         return NOXTLS_RETURN_FAILED;
     }
     rc = tls13_get_cipher_params(ctx->cipher_suite, &hash_algo, &hash_len, &key_len);
@@ -3500,13 +3559,24 @@ noxtls_return_t tls13_send_client_certificate_verify(tls13_context_t *ctx)
             }
             signature_len = der_len;
         }
-    } else {
+    } else if(ctx->client_cert_use_ed25519) {
         sig_scheme = TLS_SIGSCHEME_ED25519;
         rc = noxtls_ed25519_sign(ctx->client_private_ed25519, to_sign, to_sign_len, certificate_verify + 8);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
         signature_len = 64;
+#if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+    } else if(ctx->client_cert_use_ed448) {
+        sig_scheme = TLS_SIGSCHEME_ED448;
+        rc = noxtls_ed448_sign(ctx->client_private_ed448, to_sign, to_sign_len, certificate_verify + 8);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
+        signature_len = 114;
+#endif
+    } else {
+        return NOXTLS_RETURN_FAILED;
     }
 
     certificate_verify[4] = (uint8_t)(sig_scheme >> 8);
@@ -3769,7 +3839,11 @@ noxtls_return_t tls13_connect(tls13_context_t *ctx)
     /* If server requested client auth: send Certificate (with or without cert), then optionally CertificateVerify */
     if(ctx->client_auth_requested) {
         if(ctx->client_cert != NULL && ctx->client_cert_len > 0 &&
-           (ctx->client_private_rsa != NULL || ctx->client_private_ecdsa != NULL || ctx->client_cert_use_ed25519)) {
+           (ctx->client_private_rsa != NULL || ctx->client_private_ecdsa != NULL || ctx->client_cert_use_ed25519
+#if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+            || ctx->client_cert_use_ed448
+#endif
+            )) {
             noxtls_debug_printf("[TLS13_DEBUG] tls13_connect: send_client_certificate...\n");
             rc = tls13_send_client_certificate(ctx);
             if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -4942,6 +5016,18 @@ noxtls_return_t tls13_recv_client_certificate_verify(tls13_context_t *ctx)
                 free(msg);
                 return NOXTLS_RETURN_FAILED;
             }
+#if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+        } else if(sig_scheme == TLS_SIGSCHEME_ED448) {
+            if(!cert->has_ed448 || sig_len != 114) {
+                free(msg);
+                return NOXTLS_RETURN_FAILED;
+            }
+            rc = noxtls_ed448_verify(cert->ed448_public_key, to_verify, to_verify_len, msg + 8);
+            if(rc != NOXTLS_RETURN_SUCCESS) {
+                free(msg);
+                return NOXTLS_RETURN_FAILED;
+            }
+#endif
         } else {
             free(msg);
             return NOXTLS_RETURN_FAILED;

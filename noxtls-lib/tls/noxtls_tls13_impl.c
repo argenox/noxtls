@@ -887,6 +887,9 @@ noxtls_return_t tls13_send_client_hello(tls13_context_t *ctx)
         0x0403, /* ecdsa_secp256r1_sha256 */
         0x0804, /* rsa_pss_rsae_sha256 */
         0x0807, /* ed25519 */
+#if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+        0x0808, /* ed448 */
+#endif
         0x0401, /* rsa_pkcs1_sha256 */
         0x0503, /* ecdsa_secp384r1_sha384 */
         0x0805  /* rsa_pss_rsae_sha384 */

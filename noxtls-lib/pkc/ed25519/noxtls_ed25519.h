@@ -26,6 +26,8 @@ extern "C" {
 #define NOXTLS_ED25519_PRIVATE_KEY_SIZE  32
 #define NOXTLS_ED25519_PUBLIC_KEY_SIZE   32
 #define NOXTLS_ED25519_SIGNATURE_SIZE    64
+/** Max context string length for Ed25519ctx (RFC 8032). */
+#define NOXTLS_ED25519_CONTEXT_MAX       255
 
 /**
  * Generate an Ed25519 key pair.
@@ -56,6 +58,37 @@ noxtls_return_t noxtls_ed25519_verify(const uint8_t public_key[32],
                                       const uint8_t *message,
                                       uint32_t message_len,
                                       const uint8_t signature[64]);
+
+/**
+ * Ed25519ctx (RFC 8032): context must be 1..NOXTLS_ED25519_CONTEXT_MAX bytes.
+ * dom2(0, context) is prepended to SHA-512 inputs for r and k.
+ */
+noxtls_return_t noxtls_ed25519ctx_sign(const uint8_t private_key[32],
+                                       const uint8_t *context,
+                                       uint32_t context_len,
+                                       const uint8_t *message,
+                                       uint32_t message_len,
+                                       uint8_t signature[64]);
+
+noxtls_return_t noxtls_ed25519ctx_verify(const uint8_t public_key[32],
+                                         const uint8_t *context,
+                                         uint32_t context_len,
+                                         const uint8_t *message,
+                                         uint32_t message_len,
+                                         const uint8_t signature[64]);
+
+/**
+ * Ed25519ph (RFC 8032): PH(M) = SHA-512(M); dom2(1, "") prepended to hash inputs.
+ */
+noxtls_return_t noxtls_ed25519ph_sign(const uint8_t private_key[32],
+                                      const uint8_t *message,
+                                      uint32_t message_len,
+                                      uint8_t signature[64]);
+
+noxtls_return_t noxtls_ed25519ph_verify(const uint8_t public_key[32],
+                                        const uint8_t *message,
+                                        uint32_t message_len,
+                                        const uint8_t signature[64]);
 
 #ifdef __cplusplus
 }
