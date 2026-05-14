@@ -9,10 +9,10 @@ Camellia in CTR (Counter) mode: a counter block is encrypted to produce a keystr
 
 ## API
 
-### `camellia_encrypt_ctr`
+### `noxtls_camellia_encrypt_ctr`
 
 ```c
-noxtls_return_t camellia_encrypt_ctr(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t* iv, uint8_t* output, camellia_type_t type);
+noxtls_return_t noxtls_camellia_encrypt_ctr(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t* iv, uint8_t* output, noxtls_camellia_type_t type);
 ```
 
 Encrypts data in Camellia CTR mode. IV is the initial counter (16 bytes); must be unique per encryption.
@@ -21,10 +21,10 @@ Encrypts data in Camellia CTR mode. IV is the initial counter (16 bytes); must b
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success; otherwise a specific [return code](/docs/api/return_codes).
 
-### `camellia_decrypt_ctr`
+### `noxtls_camellia_decrypt_ctr`
 
 ```c
-noxtls_return_t camellia_decrypt_ctr(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t* iv, uint8_t* output, camellia_type_t type);
+noxtls_return_t noxtls_camellia_decrypt_ctr(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t* iv, uint8_t* output, noxtls_camellia_type_t type);
 ```
 
 Decrypts data in Camellia CTR mode (same keystream as encrypt). Use the same IV that was used for encryption.

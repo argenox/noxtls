@@ -47,38 +47,38 @@
  * @param type is the Camellia variant, 128, 192, 256
  * @return NOXTLS_RETURN_SUCCESS on success
  */
-noxtls_return_t camellia_encrypt_ctr(const uint8_t* key, 
+noxtls_return_t noxtls_camellia_encrypt_ctr(const uint8_t* key, 
                          const uint8_t* data, 
                          uint32_t data_len,
                          const uint8_t * iv,
                          uint8_t* output, 
-                         camellia_type_t type)
+                         noxtls_camellia_type_t type)
 {
     uint32_t cur_block = 0;
     uint32_t i;
-    uint8_t counter[CAMELLIA_BLOCK_LENGTH];
-    uint8_t keystream[CAMELLIA_BLOCK_LENGTH];
-    uint8_t zero_iv[CAMELLIA_BLOCK_LENGTH];
+    uint8_t counter[NOXTLS_CAMELLIA_BLOCK_LENGTH];
+    uint8_t keystream[NOXTLS_CAMELLIA_BLOCK_LENGTH];
+    uint8_t zero_iv[NOXTLS_CAMELLIA_BLOCK_LENGTH];
     const uint8_t * iv_src = NULL;
     
     /* Initialize counter from IV */
     if(iv == NULL) {
-        memset(zero_iv, 0, CAMELLIA_BLOCK_LENGTH);
+        memset(zero_iv, 0, NOXTLS_CAMELLIA_BLOCK_LENGTH);
         iv_src = zero_iv;
     }
     else {
         iv_src = iv;
     }
     
-    memcpy(counter, iv_src, CAMELLIA_BLOCK_LENGTH);
+    memcpy(counter, iv_src, NOXTLS_CAMELLIA_BLOCK_LENGTH);
     
-    for (cur_block = 0; cur_block < data_len; cur_block += CAMELLIA_BLOCK_LENGTH)
+    for(cur_block = 0; cur_block < data_len; cur_block += NOXTLS_CAMELLIA_BLOCK_LENGTH)
     {
-        uint32_t block_len = (data_len - cur_block < CAMELLIA_BLOCK_LENGTH) ? 
-                             (data_len - cur_block) : CAMELLIA_BLOCK_LENGTH;
+        uint32_t block_len = (data_len - cur_block < NOXTLS_CAMELLIA_BLOCK_LENGTH) ? 
+                             (data_len - cur_block) : NOXTLS_CAMELLIA_BLOCK_LENGTH;
         
         /* Encrypt counter to generate keystream */
-        camellia_encrypt_block_internal(key, counter, keystream, type);
+        noxtls_camellia_encrypt_block_internal(key, counter, keystream, type);
         
         /* XOR keystream with plaintext */
         for(i = 0; i < block_len; i++) {
@@ -111,18 +111,18 @@ noxtls_return_t camellia_encrypt_ctr(const uint8_t* key,
  * @param data_len is the length of the ciphertext in bytes
  * @param iv is not used (can be NULL)
  * @param output is the output buffer where the decrypted ciphertext will be placed
- * @param type is the Camellia variant, 128, 192, 256  @see camellia_type_t
+ * @param type is the Camellia variant, 128, 192, 256  @see noxtls_camellia_type_t
  *
  * @return NOXTLS_RETURN_SUCCESS on success
  */
-noxtls_return_t camellia_decrypt_ctr(const uint8_t* key,
+noxtls_return_t noxtls_camellia_decrypt_ctr(const uint8_t* key,
                          const uint8_t* data,
                          uint32_t data_len,
                          const uint8_t * iv,
                          uint8_t* output,
-                         camellia_type_t type)
+                         noxtls_camellia_type_t type)
 {
-    return camellia_encrypt_ctr(key, data, data_len, iv, output, type);
+    return noxtls_camellia_encrypt_ctr(key, data, data_len, iv, output, type);
 }
 
 #endif /* NOXTLS_FEATURE_CAMELLIA */

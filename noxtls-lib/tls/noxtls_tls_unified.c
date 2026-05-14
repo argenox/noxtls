@@ -52,7 +52,7 @@
 
 static void unified_copy_io_to_version_context(noxtls_tls_connection_t *conn, tls_context_t *version_base)
 {
-    if (version_base == NULL) return;
+    if(version_base == NULL) return;
     version_base->send_callback = conn->base.send_callback;
     version_base->recv_callback = conn->base.recv_callback;
     version_base->user_data = conn->base.user_data;
@@ -62,12 +62,12 @@ static void unified_copy_io_to_version_context(noxtls_tls_connection_t *conn, tl
 
 noxtls_return_t noxtls_tls_connection_init(noxtls_tls_connection_t *conn, tls_role_t role)
 {
-    if (conn == NULL) return NOXTLS_RETURN_NULL;
+    if(conn == NULL) return NOXTLS_RETURN_NULL;
 
     memset(conn, 0, sizeof(noxtls_tls_connection_t));
     conn->fixed_version = 0;
 
-    if (noxtls_tls_context_init(&conn->base, role, TLS_VERSION_1_2) != NOXTLS_RETURN_SUCCESS)
+    if(noxtls_tls_context_init(&conn->base, role, TLS_VERSION_1_2) != NOXTLS_RETURN_SUCCESS)
         return NOXTLS_RETURN_FAILED;
 
     return NOXTLS_RETURN_SUCCESS;
@@ -75,10 +75,10 @@ noxtls_return_t noxtls_tls_connection_init(noxtls_tls_connection_t *conn, tls_ro
 
 noxtls_return_t noxtls_tls_connection_init_version(noxtls_tls_connection_t *conn, tls_role_t role, uint16_t version)
 {
-    if (conn == NULL) return NOXTLS_RETURN_NULL;
-    if (version != TLS_VERSION_1_2 && version != TLS_VERSION_1_3) return NOXTLS_RETURN_INVALID_PARAM;
+    if(conn == NULL) return NOXTLS_RETURN_NULL;
+    if(version != TLS_VERSION_1_2 && version != TLS_VERSION_1_3) return NOXTLS_RETURN_INVALID_PARAM;
 
-    if (version == TLS_VERSION_1_2) {
+    if(version == TLS_VERSION_1_2) {
 #if !NOXTLS_FEATURE_TLS12
         return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
@@ -93,7 +93,7 @@ noxtls_return_t noxtls_tls_connection_init_version(noxtls_tls_connection_t *conn
     conn->negotiated_version = version;
     conn->is_tls13 = (version == TLS_VERSION_1_3) ? 1 : 0;
 
-    if (noxtls_tls_context_init(&conn->base, role, version) != NOXTLS_RETURN_SUCCESS)
+    if(noxtls_tls_context_init(&conn->base, role, version) != NOXTLS_RETURN_SUCCESS)
         return NOXTLS_RETURN_FAILED;
 
     return NOXTLS_RETURN_SUCCESS;
@@ -101,16 +101,16 @@ noxtls_return_t noxtls_tls_connection_init_version(noxtls_tls_connection_t *conn
 
 noxtls_return_t noxtls_tls_connection_free(noxtls_tls_connection_t *conn)
 {
-    if (conn == NULL) return NOXTLS_RETURN_NULL;
+    if(conn == NULL) return NOXTLS_RETURN_NULL;
 
-    if (conn->negotiated_version != 0) {
-        if (conn->is_tls13) {
+    if(conn->negotiated_version != 0) {
+        if(conn->is_tls13) {
 #if NOXTLS_FEATURE_TLS13
-            tls13_context_free(&conn->u.tls13);
+            noxtls_tls13_context_free(&conn->u.tls13);
 #endif
         } else {
 #if NOXTLS_FEATURE_TLS12
-            tls12_context_free(&conn->u.tls12);
+            noxtls_tls12_context_free(&conn->u.tls12);
 #endif
         }
     }
@@ -125,19 +125,19 @@ noxtls_return_t noxtls_tls_connection_set_io_callbacks(noxtls_tls_connection_t *
                                                       tls_recv_callback_t recv_cb,
                                                       void *user_data)
 {
-    if (conn == NULL) return NOXTLS_RETURN_NULL;
+    if(conn == NULL) return NOXTLS_RETURN_NULL;
     return noxtls_tls_set_io_callbacks(&conn->base, send_cb, recv_cb, user_data);
 }
 
 noxtls_return_t noxtls_tls_connection_set_time_callback(noxtls_tls_connection_t *conn, tls_time_callback_t time_cb)
 {
-    if (conn == NULL) return NOXTLS_RETURN_NULL;
+    if(conn == NULL) return NOXTLS_RETURN_NULL;
     return noxtls_tls_set_time_callback(&conn->base, time_cb);
 }
 
 noxtls_return_t noxtls_tls_connection_set_server_cert(noxtls_tls_connection_t *conn, const uint8_t *cert, uint32_t cert_len)
 {
-    if (conn == NULL) return NOXTLS_RETURN_NULL;
+    if(conn == NULL) return NOXTLS_RETURN_NULL;
     conn->server_cert = cert;
     conn->server_cert_len = cert_len;
     return NOXTLS_RETURN_SUCCESS;
@@ -145,14 +145,24 @@ noxtls_return_t noxtls_tls_connection_set_server_cert(noxtls_tls_connection_t *c
 
 noxtls_return_t noxtls_tls_connection_set_server_private_key(noxtls_tls_connection_t *conn, void *rsa_key)
 {
-    if (conn == NULL) return NOXTLS_RETURN_NULL;
+    if(conn == NULL) return NOXTLS_RETURN_NULL;
     conn->server_private_rsa = rsa_key;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_tls_connection_set_server_cipher_suites(noxtls_tls_connection_t *conn,
+                                                               const uint16_t *suites,
+                                                               uint32_t count)
+{
+    if(conn == NULL) return NOXTLS_RETURN_NULL;
+    conn->server_cipher_suites = suites;
+    conn->server_cipher_suites_count = count;
     return NOXTLS_RETURN_SUCCESS;
 }
 
 noxtls_return_t noxtls_tls_connection_set_sni(noxtls_tls_connection_t *conn, const char *name, uint16_t name_len)
 {
-    if (conn == NULL) return NOXTLS_RETURN_NULL;
+    if(conn == NULL) return NOXTLS_RETURN_NULL;
     conn->server_name = name;
     conn->server_name_len = name_len;
     return NOXTLS_RETURN_SUCCESS;
@@ -165,23 +175,36 @@ noxtls_return_t noxtls_tls_connection_accept(noxtls_tls_connection_t *conn)
     uint8_t *client_hello_data = NULL;
     uint32_t client_hello_len = 0;
 
-    if (conn == NULL) return NOXTLS_RETURN_NULL;
-    if (conn->base.role != TLS_ROLE_SERVER) return NOXTLS_RETURN_FAILED;
-    if (conn->base.recv_callback == NULL) return NOXTLS_RETURN_FAILED;
+    if(conn == NULL) return NOXTLS_RETURN_NULL;
+    if(conn->base.role != TLS_ROLE_SERVER) return NOXTLS_RETURN_FAILED;
+    if(conn->base.recv_callback == NULL) return NOXTLS_RETURN_FAILED;
 
     rc = noxtls_tls_detect_version(&conn->base, &detected_version, &client_hello_data, &client_hello_len);
-    if (rc != NOXTLS_RETURN_SUCCESS) {
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        if(rc == NOXTLS_RETURN_NOT_SUPPORTED && conn->base.send_callback != NULL) {
+            (void)noxtls_tls_send_alert(&conn->base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_PROTOCOL_VERSION);
+        }
         return rc;
     }
 
-    if (detected_version == TLS_VERSION_1_3) {
+    if(detected_version == TLS_VERSION_1_0 || detected_version == TLS_VERSION_1_1) {
+        if(conn->base.send_callback != NULL) {
+            (void)noxtls_tls_send_alert(&conn->base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_PROTOCOL_VERSION);
+        }
+        if(client_hello_data) {
+            noxtls_free(client_hello_data);
+        }
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+    }
+
+    if(detected_version == TLS_VERSION_1_3) {
 #if NOXTLS_FEATURE_TLS13
         conn->negotiated_version = TLS_VERSION_1_3;
         conn->is_tls13 = 1;
 
-        rc = tls13_context_init(&conn->u.tls13, TLS_ROLE_SERVER);
-        if (rc != NOXTLS_RETURN_SUCCESS) {
-            if (client_hello_data) noxtls_free(client_hello_data);
+        rc = noxtls_tls13_context_init(&conn->u.tls13, TLS_ROLE_SERVER);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            if(client_hello_data) noxtls_free(client_hello_data);
             return rc;
         }
 
@@ -189,41 +212,48 @@ noxtls_return_t noxtls_tls_connection_accept(noxtls_tls_connection_t *conn)
         conn->u.tls13.base.base.pending_client_hello_len = client_hello_len;
         unified_copy_io_to_version_context(conn, &conn->u.tls13.base.base);
 
-        if (conn->server_cert != NULL) {
+        if(conn->server_cert != NULL) {
             conn->u.tls13.server_cert = (uint8_t *)conn->server_cert;
             conn->u.tls13.server_cert_len = conn->server_cert_len;
         }
-        if (conn->server_private_rsa != NULL)
-            tls13_set_server_private_rsa(&conn->u.tls13, conn->server_private_rsa);
+        if(conn->server_private_rsa != NULL)
+            noxtls_tls13_set_server_private_rsa(&conn->u.tls13, conn->server_private_rsa);
+        if(conn->server_cipher_suites != NULL && conn->server_cipher_suites_count > 0) {
+            noxtls_tls13_set_server_cipher_suites(&conn->u.tls13, conn->server_cipher_suites,
+                                                  conn->server_cipher_suites_count);
+        }
 
-        rc = tls13_accept(&conn->u.tls13);
+        rc = noxtls_tls13_accept(&conn->u.tls13);
 
-        if (conn->u.tls13.base.base.pending_client_hello) {
+        if(conn->u.tls13.base.base.pending_client_hello) {
             noxtls_free(conn->u.tls13.base.base.pending_client_hello);
             conn->u.tls13.base.base.pending_client_hello = NULL;
             conn->u.tls13.base.base.pending_client_hello_len = 0;
         }
 
-        if (rc != NOXTLS_RETURN_SUCCESS) {
-            tls13_context_free(&conn->u.tls13);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_tls13_context_free(&conn->u.tls13);
             conn->negotiated_version = 0;
             conn->is_tls13 = 0;
         }
         return rc;
 #else
-        if (client_hello_data) noxtls_free(client_hello_data);
+        if(conn->base.send_callback != NULL) {
+            (void)noxtls_tls_send_alert(&conn->base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_PROTOCOL_VERSION);
+        }
+        if(client_hello_data) noxtls_free(client_hello_data);
         return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
     }
 
-    /* TLS 1.2 (and treat 1.0/1.1 as 1.2 for unified API) */
+    /* TLS 1.2 */
 #if NOXTLS_FEATURE_TLS12
     conn->negotiated_version = TLS_VERSION_1_2;
     conn->is_tls13 = 0;
 
-    rc = tls12_context_init(&conn->u.tls12, TLS_ROLE_SERVER);
-    if (rc != NOXTLS_RETURN_SUCCESS) {
-        if (client_hello_data) noxtls_free(client_hello_data);
+    rc = noxtls_tls12_context_init(&conn->u.tls12, TLS_ROLE_SERVER);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        if(client_hello_data) noxtls_free(client_hello_data);
         return rc;
     }
 
@@ -231,28 +261,35 @@ noxtls_return_t noxtls_tls_connection_accept(noxtls_tls_connection_t *conn)
     conn->u.tls12.base.base.pending_client_hello_len = client_hello_len;
     unified_copy_io_to_version_context(conn, &conn->u.tls12.base.base);
 
-    if (conn->server_cert != NULL) {
+    if(conn->server_cert != NULL) {
         conn->u.tls12.server_cert = (uint8_t *)conn->server_cert;
         conn->u.tls12.server_cert_len = conn->server_cert_len;
     }
-    if (conn->server_private_rsa != NULL)
-        tls12_set_server_private_rsa(&conn->u.tls12, conn->server_private_rsa);
+    if(conn->server_private_rsa != NULL)
+        noxtls_tls12_set_server_private_rsa(&conn->u.tls12, conn->server_private_rsa);
+    if(conn->server_cipher_suites != NULL && conn->server_cipher_suites_count > 0) {
+        noxtls_tls12_set_server_cipher_suites(&conn->u.tls12, conn->server_cipher_suites,
+                                              conn->server_cipher_suites_count);
+    }
 
-    rc = tls12_accept(&conn->u.tls12);
+    rc = noxtls_tls12_accept(&conn->u.tls12);
 
-    if (conn->u.tls12.base.base.pending_client_hello) {
+    if(conn->u.tls12.base.base.pending_client_hello) {
         noxtls_free(conn->u.tls12.base.base.pending_client_hello);
         conn->u.tls12.base.base.pending_client_hello = NULL;
         conn->u.tls12.base.base.pending_client_hello_len = 0;
     }
 
-    if (rc != NOXTLS_RETURN_SUCCESS) {
-        tls12_context_free(&conn->u.tls12);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_tls12_context_free(&conn->u.tls12);
         conn->negotiated_version = 0;
     }
     return rc;
 #else
-    if (client_hello_data) noxtls_free(client_hello_data);
+    if(conn->base.send_callback != NULL) {
+        (void)noxtls_tls_send_alert(&conn->base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_PROTOCOL_VERSION);
+    }
+    if(client_hello_data) noxtls_free(client_hello_data);
     return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
 }
@@ -261,70 +298,70 @@ noxtls_return_t noxtls_tls_connection_connect(noxtls_tls_connection_t *conn)
 {
     noxtls_return_t rc;
 
-    if (conn == NULL) return NOXTLS_RETURN_NULL;
-    if (conn->base.role != TLS_ROLE_CLIENT) return NOXTLS_RETURN_FAILED;
-    if (conn->base.recv_callback == NULL || conn->base.send_callback == NULL) return NOXTLS_RETURN_FAILED;
+    if(conn == NULL) return NOXTLS_RETURN_NULL;
+    if(conn->base.role != TLS_ROLE_CLIENT) return NOXTLS_RETURN_FAILED;
+    if(conn->base.recv_callback == NULL || conn->base.send_callback == NULL) return NOXTLS_RETURN_FAILED;
 
-    if (conn->fixed_version) {
-        if (conn->is_tls13) {
+    if(conn->fixed_version) {
+        if(conn->is_tls13) {
 #if NOXTLS_FEATURE_TLS13
-            rc = tls13_context_init(&conn->u.tls13, TLS_ROLE_CLIENT);
-            if (rc != NOXTLS_RETURN_SUCCESS) return rc;
+            rc = noxtls_tls13_context_init(&conn->u.tls13, TLS_ROLE_CLIENT);
+            if(rc != NOXTLS_RETURN_SUCCESS) return rc;
             unified_copy_io_to_version_context(conn, &conn->u.tls13.base.base);
-            if (conn->server_name != NULL) {
+            if(conn->server_name != NULL) {
                 conn->u.tls13.server_name = conn->server_name;
                 conn->u.tls13.server_name_len = conn->server_name_len;
             }
-            return tls13_connect(&conn->u.tls13);
+            return noxtls_tls13_connect(&conn->u.tls13);
 #endif
         } else {
 #if NOXTLS_FEATURE_TLS12
-            rc = tls12_context_init(&conn->u.tls12, TLS_ROLE_CLIENT);
-            if (rc != NOXTLS_RETURN_SUCCESS) return rc;
+            rc = noxtls_tls12_context_init(&conn->u.tls12, TLS_ROLE_CLIENT);
+            if(rc != NOXTLS_RETURN_SUCCESS) return rc;
             unified_copy_io_to_version_context(conn, &conn->u.tls12.base.base);
-            if (conn->server_name != NULL) {
+            if(conn->server_name != NULL) {
                 conn->u.tls12.server_name = conn->server_name;
                 conn->u.tls12.server_name_len = conn->server_name_len;
             }
-            return tls12_connect(&conn->u.tls12);
+            return noxtls_tls12_connect(&conn->u.tls12);
 #endif
         }
     }
 
     /* Auto: try TLS 1.3 first, then TLS 1.2 */
 #if NOXTLS_FEATURE_TLS13
-    rc = tls13_context_init(&conn->u.tls13, TLS_ROLE_CLIENT);
-    if (rc == NOXTLS_RETURN_SUCCESS) {
+    rc = noxtls_tls13_context_init(&conn->u.tls13, TLS_ROLE_CLIENT);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
         unified_copy_io_to_version_context(conn, &conn->u.tls13.base.base);
-        if (conn->server_name != NULL) {
+        if(conn->server_name != NULL) {
             conn->u.tls13.server_name = conn->server_name;
             conn->u.tls13.server_name_len = conn->server_name_len;
         }
-        rc = tls13_connect(&conn->u.tls13);
-        if (rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_tls13_connect(&conn->u.tls13);
+        if(rc == NOXTLS_RETURN_SUCCESS) {
             conn->negotiated_version = TLS_VERSION_1_3;
             conn->is_tls13 = 1;
             return NOXTLS_RETURN_SUCCESS;
         }
-        tls13_context_free(&conn->u.tls13);
+        noxtls_tls13_context_free(&conn->u.tls13);
     }
 #endif
 
 #if NOXTLS_FEATURE_TLS12
-    rc = tls12_context_init(&conn->u.tls12, TLS_ROLE_CLIENT);
-    if (rc != NOXTLS_RETURN_SUCCESS) return rc;
+    rc = noxtls_tls12_context_init(&conn->u.tls12, TLS_ROLE_CLIENT);
+    if(rc != NOXTLS_RETURN_SUCCESS) return rc;
     unified_copy_io_to_version_context(conn, &conn->u.tls12.base.base);
-    if (conn->server_name != NULL) {
+    if(conn->server_name != NULL) {
         conn->u.tls12.server_name = conn->server_name;
         conn->u.tls12.server_name_len = conn->server_name_len;
     }
-    rc = tls12_connect(&conn->u.tls12);
-    if (rc == NOXTLS_RETURN_SUCCESS) {
+    rc = noxtls_tls12_connect(&conn->u.tls12);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
         conn->negotiated_version = TLS_VERSION_1_2;
         conn->is_tls13 = 0;
         return NOXTLS_RETURN_SUCCESS;
     }
-    tls12_context_free(&conn->u.tls12);
+    noxtls_tls12_context_free(&conn->u.tls12);
     return rc;
 #else
     return NOXTLS_RETURN_FAILED;
@@ -333,18 +370,18 @@ noxtls_return_t noxtls_tls_connection_connect(noxtls_tls_connection_t *conn)
 
 noxtls_return_t noxtls_tls_connection_send(noxtls_tls_connection_t *conn, const uint8_t *data, uint32_t len)
 {
-    if (conn == NULL || data == NULL) return NOXTLS_RETURN_NULL;
-    if (conn->negotiated_version == 0) return NOXTLS_RETURN_FAILED;
+    if(conn == NULL || data == NULL) return NOXTLS_RETURN_NULL;
+    if(conn->negotiated_version == 0) return NOXTLS_RETURN_FAILED;
 
-    if (conn->is_tls13) {
+    if(conn->is_tls13) {
 #if NOXTLS_FEATURE_TLS13
-        return tls13_send(&conn->u.tls13, data, len);
+        return noxtls_tls13_send(&conn->u.tls13, data, len);
 #else
         return NOXTLS_RETURN_FAILED;
 #endif
     } else {
 #if NOXTLS_FEATURE_TLS12
-        return tls12_send(&conn->u.tls12, data, len);
+        return noxtls_tls12_send(&conn->u.tls12, data, len);
 #else
         return NOXTLS_RETURN_FAILED;
 #endif
@@ -353,18 +390,18 @@ noxtls_return_t noxtls_tls_connection_send(noxtls_tls_connection_t *conn, const 
 
 noxtls_return_t noxtls_tls_connection_recv(noxtls_tls_connection_t *conn, uint8_t *buf, uint32_t *len)
 {
-    if (conn == NULL || buf == NULL || len == NULL) return NOXTLS_RETURN_NULL;
-    if (conn->negotiated_version == 0) return NOXTLS_RETURN_FAILED;
+    if(conn == NULL || buf == NULL || len == NULL) return NOXTLS_RETURN_NULL;
+    if(conn->negotiated_version == 0) return NOXTLS_RETURN_FAILED;
 
-    if (conn->is_tls13) {
+    if(conn->is_tls13) {
 #if NOXTLS_FEATURE_TLS13
-        return tls13_recv(&conn->u.tls13, buf, len);
+        return noxtls_tls13_recv(&conn->u.tls13, buf, len);
 #else
         return NOXTLS_RETURN_FAILED;
 #endif
     } else {
 #if NOXTLS_FEATURE_TLS12
-        return tls12_recv(&conn->u.tls12, buf, len);
+        return noxtls_tls12_recv(&conn->u.tls12, buf, len);
 #else
         return NOXTLS_RETURN_FAILED;
 #endif
@@ -373,18 +410,18 @@ noxtls_return_t noxtls_tls_connection_recv(noxtls_tls_connection_t *conn, uint8_
 
 noxtls_return_t noxtls_tls_connection_close(noxtls_tls_connection_t *conn)
 {
-    if (conn == NULL) return NOXTLS_RETURN_NULL;
-    if (conn->negotiated_version == 0) return NOXTLS_RETURN_FAILED;
+    if(conn == NULL) return NOXTLS_RETURN_NULL;
+    if(conn->negotiated_version == 0) return NOXTLS_RETURN_FAILED;
 
-    if (conn->is_tls13) {
+    if(conn->is_tls13) {
 #if NOXTLS_FEATURE_TLS13
-        return tls13_close(&conn->u.tls13);
+        return noxtls_tls13_close(&conn->u.tls13);
 #else
         return NOXTLS_RETURN_FAILED;
 #endif
     } else {
 #if NOXTLS_FEATURE_TLS12
-        return tls12_close(&conn->u.tls12);
+        return noxtls_tls12_close(&conn->u.tls12);
 #else
         return NOXTLS_RETURN_FAILED;
 #endif
@@ -393,6 +430,6 @@ noxtls_return_t noxtls_tls_connection_close(noxtls_tls_connection_t *conn)
 
 uint16_t noxtls_tls_connection_get_version(const noxtls_tls_connection_t *conn)
 {
-    if (conn == NULL) return 0;
+    if(conn == NULL) return 0;
     return conn->negotiated_version;
 }

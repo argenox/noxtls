@@ -41,50 +41,50 @@ ChaCha20 provides **confidentiality only**; it does not detect tampering. **Nonc
 
 ## Types
 
-### chacha20_context_t
+### noxtls_chacha20_context_t
 
-Opaque context for incremental ChaCha20 encryption/decryption. Used by [chacha20_init](#chacha20_init) and [chacha20_process](#chacha20_process). Allocate and pass to [chacha20_init](#chacha20_init); do not access fields directly.
+Opaque context for incremental ChaCha20 encryption/decryption. Used by [noxtls_chacha20_init](#noxtls_chacha20_init) and [noxtls_chacha20_process](#noxtls_chacha20_process). Allocate and pass to [noxtls_chacha20_init](#noxtls_chacha20_init); do not access fields directly.
 
 ## API
 
-### `chacha20_init`
+### `noxtls_chacha20_init`
 
 ```c
-noxtls_return_t chacha20_init(chacha20_context_t *ctx, const uint8_t *key, const uint8_t *nonce, uint64_t counter);
+noxtls_return_t noxtls_chacha20_init(noxtls_chacha20_context_t *ctx, const uint8_t *key, const uint8_t *nonce, uint64_t counter);
 ```
 
 Initialize ChaCha20 context
 
 **Parameters:**
 
-- `ctx` — [chacha20_context_t](#chacha20_context_t) to initialize
+- `ctx` — [noxtls_chacha20_context_t](#noxtls_chacha20_context_t) to initialize
 - `key` — Encryption key (32 bytes)
 - `nonce` — Nonce (12 bytes)
 - `counter` — Initial counter value (default: 0)
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success, [NOXTLS_RETURN_NULL](/docs/api/return_codes) on failure
 
-### `chacha20_process`
+### `noxtls_chacha20_process`
 
 ```c
-noxtls_return_t chacha20_process(chacha20_context_t *ctx, const uint8_t *input, uint8_t *output, uint32_t input_len);
+noxtls_return_t noxtls_chacha20_process(noxtls_chacha20_context_t *ctx, const uint8_t *input, uint8_t *output, uint32_t input_len);
 ```
 
 Encrypt/Decrypt data using ChaCha20  ChaCha20 is a stream cipher, so encryption and decryption are identical operations (XOR with keystream).
 
 **Parameters:**
 
-- `ctx` — [chacha20_context_t](#chacha20_context_t) (from [chacha20_init](#chacha20_init))
+- `ctx` — [noxtls_chacha20_context_t](#noxtls_chacha20_context_t) (from [noxtls_chacha20_init](#noxtls_chacha20_init))
 - `input` — Input data (plaintext for encryption, ciphertext for decryption)
 - `output` — Output buffer (must be at least input_len bytes)
 - `input_len` — Length of input data in bytes
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success
 
-### `chacha20_encrypt`
+### `noxtls_chacha20_encrypt`
 
 ```c
-noxtls_return_t chacha20_encrypt(const uint8_t *key, const uint8_t *nonce, uint64_t counter, const uint8_t *input, uint32_t input_len, uint8_t *output);
+noxtls_return_t noxtls_chacha20_encrypt(const uint8_t *key, const uint8_t *nonce, uint64_t counter, const uint8_t *input, uint32_t input_len, uint8_t *output);
 ```
 
 Encrypt data using ChaCha20 (convenience function)
@@ -100,10 +100,10 @@ Encrypt data using ChaCha20 (convenience function)
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success; otherwise a specific [return code](/docs/api/return_codes).
 
-### `chacha20_decrypt`
+### `noxtls_chacha20_decrypt`
 
 ```c
-noxtls_return_t chacha20_decrypt(const uint8_t *key, const uint8_t *nonce, uint64_t counter, const uint8_t *input, uint32_t input_len, uint8_t *output);
+noxtls_return_t noxtls_chacha20_decrypt(const uint8_t *key, const uint8_t *nonce, uint64_t counter, const uint8_t *input, uint32_t input_len, uint8_t *output);
 ```
 
 Decrypt data using ChaCha20 (convenience function)
@@ -119,10 +119,10 @@ Decrypt data using ChaCha20 (convenience function)
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success
 
-### `chacha20_self_test`
+### `noxtls_chacha20_self_test`
 
 ```c
-noxtls_return_t chacha20_self_test(void);
+noxtls_return_t noxtls_chacha20_self_test(void);
 ```
 
 Self-test function

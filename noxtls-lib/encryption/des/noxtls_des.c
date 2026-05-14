@@ -19,6 +19,17 @@
 
 #if NOXTLS_FEATURE_DES
 
+/* NIST SP 800-20 known-answer: Single block DES encrypt */
+static const uint8_t des_kat_key[NOXTLS_DES_BLOCK_LENGTH] = {
+    0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01
+};
+static const uint8_t des_kat_plain[NOXTLS_DES_BLOCK_LENGTH] = {
+    0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+};
+static const uint8_t des_kat_cipher[NOXTLS_DES_BLOCK_LENGTH] = {
+    0x95, 0xF8, 0xA5, 0xE5, 0xDD, 0x31, 0xD9, 0x00
+};
+
 /* When encrypting the KAT vector (key=plain=0123456789ABCDEF), trace to stdout to debug. */
 static int s_des_trace_this_block;
 #define DES_TRACE() (s_des_trace_this_block)
@@ -133,7 +144,7 @@ static void set_bit(uint8_t *buf, int bit_index, int value)
 {
     int byte_idx = bit_index >> 3;
     int bit_idx  = 7 - (bit_index & 7);
-    if (value)
+    if(value)
         buf[byte_idx] |= (uint8_t)(1u << bit_idx);
     else
         buf[byte_idx] &= (uint8_t)(~(1u << bit_idx));
@@ -142,13 +153,14 @@ static void set_bit(uint8_t *buf, int bit_index, int value)
 static void permute(const uint8_t *in, uint8_t *out, const uint8_t *table, int n)
 {
     int i;
-    for (i = 0; i < n; i++)
+    for(i = 0; i < n; i++)
         set_bit(out, i, get_bit(in, table[i]));
 }
 
 static void rotate_left_28(uint32_t *c, uint32_t *d, int count)
 {
-    uint32_t c0 = *c, d0 = *d;
+    uint32_t c0 = *c;
+    uint32_t d0 = *d;
     *c = ((c0 << count) | (c0 >> (28 - count))) & 0x0FFFFFFFu;
     *d = ((d0 << count) | (d0 >> (28 - count))) & 0x0FFFFFFFu;
 }
@@ -156,8 +168,11 @@ static void rotate_left_28(uint32_t *c, uint32_t *d, int count)
 static void des_key_schedule(const uint8_t *key, uint8_t round_keys[16][6])
 {
     uint8_t pc1_out[7];
-    uint32_t c, d;
-    int r, i, j;
+    uint32_t c;
+    uint32_t d;
+    int r;
+    int i;
+    int j;
 
     permute(key, pc1_out, des_pc1, 56);
     /* C0 = first 28 bits of PC1 output (bit 0 = MSB of C); D0 = next 28 bits. */
@@ -166,7 +181,7 @@ static void des_key_schedule(const uint8_t *key, uint8_t round_keys[16][6])
     d = ((uint32_t)(pc1_out[3] & 0xFu) << 24) | ((uint32_t)pc1_out[4] << 16) | ((uint32_t)pc1_out[5] << 8)
       | (uint32_t)pc1_out[6];
 
-    if (DES_TRACE()) {
+    if(DES_TRACE()) {
         fprintf(stdout, "[DES KS] key:    %02X %02X %02X %02X %02X %02X %02X %02X\n",
                 key[0], key[1], key[2], key[3], key[4], key[5], key[6], key[7]);
         fprintf(stdout, "[DES KS] pc1_out: %02X %02X %02X %02X %02X %02X %02X\n",
@@ -174,23 +189,23 @@ static void des_key_schedule(const uint8_t *key, uint8_t round_keys[16][6])
         fprintf(stdout, "[DES KS] C0=%07X D0=%07X\n", (unsigned int)(c & 0x0FFFFFFFu), (unsigned int)(d & 0x0FFFFFFFu));
     }
 
-    for (r = 0; r < 16; r++) {
+    for(r = 0; r < 16; r++) {
         rotate_left_28(&c, &d, (unsigned int)des_rot[r]);
         /* Pack C||D into 7 bytes (56 bits): cd bit i = C bit i for i<28, cd bit (28+i) = D bit i. C/D bit 0 is MSB (at c/d bit 27). */
         uint8_t cd[7];
-        for (i = 0; i < 28; i++)
+        for(i = 0; i < 28; i++)
             set_bit(cd, i, (c >> (27 - i)) & 1);
-        for (i = 0; i < 28; i++)
+        for(i = 0; i < 28; i++)
             set_bit(cd, 28 + i, (d >> (27 - i)) & 1);
         uint8_t pk[6];
-        for (i = 0; i < 48; i++)
+        for(i = 0; i < 48; i++)
             set_bit(pk, i, get_bit(cd, des_pc2[i]));
-        for (j = 0; j < 6; j++)
+        for(j = 0; j < 6; j++)
             round_keys[r][j] = pk[j];
-        if (DES_TRACE() && r == 0) {
+        if(DES_TRACE() && r == 0) {
             fprintf(stdout, "[DES KS] after rot C1=%07X D1=%07X\n", (unsigned int)(c & 0x0FFFFFFFu), (unsigned int)(d & 0x0FFFFFFFu));
         }
-        if (DES_TRACE()) {
+        if(DES_TRACE()) {
             fprintf(stdout, "[DES KS] K%2d:   %02X %02X %02X %02X %02X %02X\n", r + 1,
                     round_keys[r][0], round_keys[r][1], round_keys[r][2],
                     round_keys[r][3], round_keys[r][4], round_keys[r][5]);
@@ -202,12 +217,12 @@ static void des_key_schedule(const uint8_t *key, uint8_t round_keys[16][6])
 static void des_expand_e(uint32_t r32, uint8_t er[6])
 {
     int i;
-    for (i = 0; i < 6; i++)
+    for(i = 0; i < 6; i++)
         er[i] = 0;
-    for (i = 0; i < 48; i++) {
+    for(i = 0; i < 48; i++) {
         int src = des_e[i]; /* 0-based R bit index (0=MSB) */
         int bit = (int)((r32 >> (31 - src)) & 1u);
-        if (bit)
+        if(bit)
             er[i >> 3] |= (uint8_t)(1u << (7 - (i & 7)));
     }
 }
@@ -218,23 +233,23 @@ static void des_round_feistel(uint32_t *r, const uint8_t round_key[6], int round
     int i;
     uint32_t r32 = *r;
     des_expand_e(r32, er);
-    if (DES_TRACE() && round_index == 0) {
+    if(DES_TRACE() && round_index == 0) {
         fprintf(stdout, "[DES R1] R0 input:  %08X\n", (unsigned int)r32);
         fprintf(stdout, "[DES R1] E(R0):    %02X %02X %02X %02X %02X %02X\n", er[0], er[1], er[2], er[3], er[4], er[5]);
         fprintf(stdout, "[DES R1] K1:       %02X %02X %02X %02X %02X %02X\n",
                 round_key[0], round_key[1], round_key[2], round_key[3], round_key[4], round_key[5]);
     }
-    if (DES_TRACE() && round_index == 1) {
+    if(DES_TRACE() && round_index == 1) {
         fprintf(stdout, "[DES R2] R1 input:  %08X  K2: %02X %02X %02X %02X %02X %02X\n", (unsigned int)r32,
                 round_key[0], round_key[1], round_key[2], round_key[3], round_key[4], round_key[5]);
     }
-    for (i = 0; i < 6; i++)
+    for(i = 0; i < 6; i++)
         er[i] ^= round_key[i];
-    if (DES_TRACE() && round_index == 0)
+    if(DES_TRACE() && round_index == 0)
         fprintf(stdout, "[DES R1] E(R0)^K1: %02X %02X %02X %02X %02X %02X\n", er[0], er[1], er[2], er[3], er[4], er[5]);
     uint32_t out32 = 0;
     /* S-box: row = bits 1 and 6 (outer) = 2*b0+b5; column = bits 2-5 (middle); index = row*16+col */
-    for (i = 0; i < 8; i++) {
+    for(i = 0; i < 8; i++) {
         int b0 = get_bit(er, i*6), b5 = get_bit(er, i*6+5);
         int b1 = get_bit(er, i*6+1), b2 = get_bit(er, i*6+2), b3 = get_bit(er, i*6+3), b4 = get_bit(er, i*6+4);
         int row = (b0 << 1) | b5;
@@ -243,14 +258,15 @@ static void des_round_feistel(uint32_t *r, const uint8_t round_key[6], int round
         uint8_t s = des_s[i][idx];
         out32 = (out32 << 4) | s;
     }
-    uint8_t p_in[4], p_out[4];
+    uint8_t p_in[4];
+    uint8_t p_out[4];
     p_in[0] = (uint8_t)(out32 >> 24);
     p_in[1] = (uint8_t)(out32 >> 16);
     p_in[2] = (uint8_t)(out32 >> 8);
     p_in[3] = (uint8_t)out32;
     permute(p_in, p_out, des_p, 32);
     *r = ((uint32_t)p_out[0] << 24) | ((uint32_t)p_out[1] << 16) | ((uint32_t)p_out[2] << 8) | p_out[3];
-    if (DES_TRACE() && round_index == 0)
+    if(DES_TRACE() && round_index == 0)
         fprintf(stdout, "[DES R1] S-box out: %08X  P(S): %08X  f(R0,K1)= %08X\n",
                 (unsigned int)out32, (unsigned int)((uint32_t)p_out[0]<<24|(uint32_t)p_out[1]<<16|(uint32_t)p_out[2]<<8|p_out[3]), (unsigned int)*r);
 }
@@ -264,12 +280,14 @@ static const uint8_t s_kat_vec1_expected_cipher[8] = { 0x85, 0xE8, 0x13, 0x54, 0
 static void des_cipher_core(const uint8_t *key, const uint8_t *data, uint8_t *output, int encrypt)
 {
     uint8_t round_keys[16][6];
-    uint8_t ip_out[8], lr[8];
-    uint32_t L, R;
+    uint8_t ip_out[8];
+    uint8_t lr[8];
+    uint32_t L;
+    uint32_t R;
     int r;
 
     s_des_trace_this_block = 0;
-    if (encrypt && key && data && memcmp(key, s_kat_vec1_key, 8) == 0 && memcmp(data, s_kat_vec1_plain, 8) == 0)
+    if(encrypt && key && data && memcmp(key, s_kat_vec1_key, 8) == 0 && memcmp(data, s_kat_vec1_plain, 8) == 0)
         s_des_trace_this_block = 1;
 
     des_key_schedule(key, round_keys);
@@ -277,18 +295,18 @@ static void des_cipher_core(const uint8_t *key, const uint8_t *data, uint8_t *ou
     L = ((uint32_t)ip_out[0] << 24) | ((uint32_t)ip_out[1] << 16) | ((uint32_t)ip_out[2] << 8) | ip_out[3];
     R = ((uint32_t)ip_out[4] << 24) | ((uint32_t)ip_out[5] << 16) | ((uint32_t)ip_out[6] << 8) | ip_out[7];
 
-    if (DES_TRACE()) {
+    if(DES_TRACE()) {
         fprintf(stdout, "[DES] enc block in: %02X %02X %02X %02X %02X %02X %02X %02X\n",
                 data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]);
         fprintf(stdout, "[DES] after IP   L=%08X R=%08X\n", (unsigned int)L, (unsigned int)R);
     }
 
-    for (r = 0; r < 16; r++) {
+    for(r = 0; r < 16; r++) {
         uint32_t new_L = R;
         des_round_feistel(&R, round_keys[encrypt ? r : (15 - r)], r);
         R ^= L;
         L = new_L;
-        if (DES_TRACE())
+        if(DES_TRACE())
             fprintf(stdout, "[DES] after r%2d  L=%08X R=%08X\n", r + 1, (unsigned int)L, (unsigned int)R);
     }
     lr[0] = (uint8_t)(R >> 24);
@@ -299,7 +317,7 @@ static void des_cipher_core(const uint8_t *key, const uint8_t *data, uint8_t *ou
     lr[5] = (uint8_t)(L >> 16);
     lr[6] = (uint8_t)(L >> 8);
     lr[7] = (uint8_t)L;
-    if (DES_TRACE()) {
+    if(DES_TRACE()) {
         uint8_t expected_pre_fp[8];
         permute(s_kat_vec1_expected_cipher, expected_pre_fp, des_ip, 64);
         fprintf(stdout, "[DES] pre-FP   R16||L16: %02X %02X %02X %02X %02X %02X %02X %02X\n",
@@ -310,88 +328,81 @@ static void des_cipher_core(const uint8_t *key, const uint8_t *data, uint8_t *ou
     }
     permute(lr, output, des_fp, 64);
 
-    if (DES_TRACE()) {
+    if(DES_TRACE()) {
         fprintf(stdout, "[DES] block out: %02X %02X %02X %02X %02X %02X %02X %02X\n",
                 output[0], output[1], output[2], output[3], output[4], output[5], output[6], output[7]);
         fprintf(stdout, "[DES] expected:  85 E8 13 54 0F 0A B4 05  (KAT vector 1)\n");
     }
 }
 
-noxtls_return_t des_encrypt_block(const uint8_t *key, const uint8_t *data, uint8_t *output)
+noxtls_return_t noxtls_des_encrypt_block(const uint8_t *key, const uint8_t *data, uint8_t *output)
 {
-    if (!key || !data || !output)
+    if(!key || !data || !output)
         return NOXTLS_RETURN_NULL;
     des_cipher_core(key, data, output, 1);
     return NOXTLS_RETURN_SUCCESS;
 }
 
-noxtls_return_t des_decrypt_block(const uint8_t *key, const uint8_t *data, uint8_t *output)
+noxtls_return_t noxtls_des_decrypt_block(const uint8_t *key, const uint8_t *data, uint8_t *output)
 {
-    if (!key || !data || !output)
+    if(!key || !data || !output)
         return NOXTLS_RETURN_NULL;
     des_cipher_core(key, data, output, 0);
     return NOXTLS_RETURN_SUCCESS;
 }
 
-noxtls_return_t des_encrypt_block_internal(const uint8_t *key, const uint8_t *data, uint8_t *output)
+noxtls_return_t noxtls_des_encrypt_block_internal(const uint8_t *key, const uint8_t *data, uint8_t *output)
 {
-    return des_encrypt_block(key, data, output);
+    return noxtls_des_encrypt_block(key, data, output);
 }
 
-noxtls_return_t des_decrypt_block_internal(const uint8_t *key, const uint8_t *data, uint8_t *output)
+noxtls_return_t noxtls_des_decrypt_block_internal(const uint8_t *key, const uint8_t *data, uint8_t *output)
 {
-    return des_decrypt_block(key, data, output);
+    return noxtls_des_decrypt_block(key, data, output);
 }
 
-noxtls_return_t des3_encrypt_block(const uint8_t *key, uint32_t key_len, const uint8_t *data, uint8_t *output)
+noxtls_return_t noxtls_des3_encrypt_block(const uint8_t *key, uint32_t key_len, const uint8_t *data, uint8_t *output)
 {
-    uint8_t tmp[DES_BLOCK_LENGTH];
-    const uint8_t *k1, *k2, *k3;
-    if (!key || !data || !output || (key_len != 16 && key_len != 24))
+    uint8_t tmp[NOXTLS_DES_BLOCK_LENGTH];
+    const uint8_t *k1;
+    const uint8_t *k2;
+    const uint8_t *k3;
+    if(!key || !data || !output || (key_len != 16 && key_len != 24))
         return NOXTLS_RETURN_INVALID_PARAM;
     k1 = key;
     k2 = key + 8;
     k3 = (key_len == 24) ? (key + 16) : key;
-    des_encrypt_block(k1, data, tmp);
-    des_decrypt_block(k2, tmp, tmp);
-    des_encrypt_block(k3, tmp, output);
+    noxtls_des_encrypt_block(k1, data, tmp);
+    noxtls_des_decrypt_block(k2, tmp, tmp);
+    noxtls_des_encrypt_block(k3, tmp, output);
     return NOXTLS_RETURN_SUCCESS;
 }
 
-noxtls_return_t des3_decrypt_block(const uint8_t *key, uint32_t key_len, const uint8_t *data, uint8_t *output)
+noxtls_return_t noxtls_des3_decrypt_block(const uint8_t *key, uint32_t key_len, const uint8_t *data, uint8_t *output)
 {
-    uint8_t tmp[DES_BLOCK_LENGTH];
-    const uint8_t *k1, *k2, *k3;
-    if (!key || !data || !output || (key_len != 16 && key_len != 24))
+    uint8_t tmp[NOXTLS_DES_BLOCK_LENGTH];
+    const uint8_t *k1;
+    const uint8_t *k2;
+    const uint8_t *k3;
+    if(!key || !data || !output || (key_len != 16 && key_len != 24))
         return NOXTLS_RETURN_INVALID_PARAM;
     k1 = key;
     k2 = key + 8;
     k3 = (key_len == 24) ? (key + 16) : key;
-    des_decrypt_block(k3, data, tmp);
-    des_encrypt_block(k2, tmp, tmp);
-    des_decrypt_block(k1, tmp, output);
+    noxtls_des_decrypt_block(k3, data, tmp);
+    noxtls_des_encrypt_block(k2, tmp, tmp);
+    noxtls_des_decrypt_block(k1, tmp, output);
     return NOXTLS_RETURN_SUCCESS;
 }
 
-/* NIST SP 800-20 known-answer: Single block DES encrypt */
-static const uint8_t des_kat_key[8] = {
-    0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01
-};
-static const uint8_t des_kat_plain[8] = {
-    0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-};
-static const uint8_t des_kat_cipher[8] = {
-    0x95, 0xF8, 0xA5, 0xE5, 0xDD, 0x31, 0xD9, 0x00
-};
-
-noxtls_return_t des_self_test(void)
+noxtls_return_t noxtls_des_self_test(void)
 {
-    uint8_t out[DES_BLOCK_LENGTH];
-    des_encrypt_block(des_kat_key, des_kat_plain, out);
-    if (memcmp(out, des_kat_cipher, DES_BLOCK_LENGTH) != 0)
+    uint8_t out[NOXTLS_DES_BLOCK_LENGTH];
+    noxtls_des_encrypt_block(des_kat_key, des_kat_plain, out);
+    if(memcmp(out, des_kat_cipher, NOXTLS_DES_BLOCK_LENGTH) != 0)
         return NOXTLS_RETURN_FAILED;
-    des_decrypt_block(des_kat_key, des_kat_cipher, out);
-    if (memcmp(out, des_kat_plain, DES_BLOCK_LENGTH) != 0)
+    noxtls_des_decrypt_block(des_kat_key, des_kat_cipher, out);
+    if(memcmp(out, des_kat_plain, NOXTLS_DES_BLOCK_LENGTH) != 0)
         return NOXTLS_RETURN_FAILED;
     /* 3DES KAT: use NIST 800-67 / common test: 3-key 3DES */
     {
@@ -399,10 +410,10 @@ noxtls_return_t des_self_test(void)
         uint8_t pt[8]  = { 0 };
         uint8_t ct[8];
         int i;
-        for (i = 0; i < 24; i++) k3[i] = (uint8_t)(i + 1);
-        des3_encrypt_block(k3, 24, pt, ct);
-        des3_decrypt_block(k3, 24, ct, out);
-        if (memcmp(out, pt, 8) != 0)
+        for(i = 0; i < 24; i++) k3[i] = (uint8_t)(i + 1);
+        noxtls_des3_encrypt_block(k3, 24, pt, ct);
+        noxtls_des3_decrypt_block(k3, 24, ct, out);
+        if(memcmp(out, pt, 8) != 0)
             return NOXTLS_RETURN_FAILED;
     }
     return NOXTLS_RETURN_SUCCESS;

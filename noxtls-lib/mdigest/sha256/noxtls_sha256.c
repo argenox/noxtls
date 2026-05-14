@@ -51,8 +51,8 @@ static uint8_t debug_lvl = 0;
 noxtls_return_t noxtls_sha256_round(noxtls_sha_ctx_t * ctx, const uint8_t * input);
 noxtls_return_t noxtls_sha256_pad(uint8_t * data, uint32_t zero_pad, uint32_t len);
 
-/* SHA Constants fr SHA-224 and SHA-256 */
-uint32_t sha224_256_k[64] =
+/* SHA-224 / SHA-256 round constants K[0..63] (FIPS 180-4); count matches SHA256_ROUND_COUNT. */
+uint32_t sha224_256_k[SHA256_ROUND_COUNT] =
 {
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
     0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
@@ -191,7 +191,14 @@ noxtls_return_t noxtls_sha256_round(noxtls_sha_ctx_t * ctx, const uint8_t * inpu
 	uint32_t t = 0;
 	uint32_t w[SHA256_ROUND_COUNT] = {0};
 
-    uint32_t a,b,c,d,e,f,g,h = 0;
+    uint32_t a;
+    uint32_t b;
+    uint32_t c;
+    uint32_t d;
+    uint32_t e;
+    uint32_t f;
+    uint32_t g;
+    uint32_t h = 0;
     
 	if(ctx == NULL) {
 		return NOXTLS_RETURN_NULL;
@@ -199,7 +206,7 @@ noxtls_return_t noxtls_sha256_round(noxtls_sha_ctx_t * ctx, const uint8_t * inpu
 
     
     
-    /* Copy the message to the first 16 words */    
+    /* Copy the noxtls_message to the first 16 words */    
     for(t = 0; t < SHA256_WORDS_PER_BLOCK; t++) {
         w[t] = input[(t * SHA256_WORD_BYTES)] << 24 | input[(t * SHA256_WORD_BYTES)+ 1] << 16 | input[(t * SHA256_WORD_BYTES) + 2] << 8 | input[(t * SHA256_WORD_BYTES)+ 3];
     }
@@ -304,7 +311,7 @@ noxtls_return_t noxtls_sha256_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
     }
     
     if(space_left >= (int)(SHA256_LENGTH_FIELD_BYTES + 1)) {
-        add_padding_length(temp, block_size, total_length, length_size);
+        noxtls_add_padding_length(temp, block_size, total_length, length_size);
     }
 
     if(debug_lvl > 0){
@@ -327,7 +334,7 @@ noxtls_return_t noxtls_sha256_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
             data[0] = SHA256_PAD_BYTE;
         }
         
-        add_padding_length(temp, block_size, total_length, length_size);
+        noxtls_add_padding_length(temp, block_size, total_length, length_size);
             
         if(debug_lvl > 0) {
             for(i = 0; i < block_size; i++) {

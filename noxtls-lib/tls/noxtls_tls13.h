@@ -44,10 +44,15 @@
 #include "noxtls_tls_common.h"
 #include "noxtls_dtls_common.h"
 #include "noxtls_crypto_provider.h"
+#include "pkc/mlkem/noxtls_mlkem.h"
+#include "pkc/mldsa/noxtls_mldsa.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* Forward declaration to avoid including full X.509 header here. */
+typedef struct noxtls_x509_crl noxtls_x509_crl_t;
 
 /* TLS 1.3 Key Share Entry */
 NOXTLS_MSVC_WARNING_PUSH
@@ -70,6 +75,8 @@ typedef struct tls13_context_s
     /* Handshake state */
     uint8_t client_random[32];      /* Client random */
     uint8_t server_random[32];      /* Server random */
+    uint8_t client_legacy_session_id[TLS_SESSION_ID_MAX_LEN]; /* ClientHello legacy_session_id to echo in ServerHello */
+    uint8_t client_legacy_session_id_len;
     uint16_t cipher_suite;          /* Selected cipher suite */
     
     /* Key derivation */
@@ -104,13 +111,14 @@ typedef struct tls13_context_s
     /* Handshake messages */
     uint8_t *handshake_messages;     /* Accumulated handshake messages */
     uint32_t handshake_messages_len; /* Length of handshake messages */
+    uint32_t app_secret_transcript_len; /* Transcript length to hash for application traffic secret derivation */
 
     /* Pending handshake data from decrypted records */
     uint8_t *handshake_buffer;       /* Decrypted handshake bytes */
     uint32_t handshake_buffer_len;   /* Total bytes in buffer */
     uint32_t handshake_buffer_pos;   /* Read offset in buffer */
     uint8_t handshake_encrypted;     /* Handshake encryption active */
-    /** RFC 8446 §5.1: next message extracted from buffer starts at a record boundary (must be true for ClientHello, ServerHello, EndOfEarlyData, Finished, KeyUpdate). */
+    /** RFC 8446 §5.1: next noxtls_message extracted from buffer starts at a record boundary (must be true for ClientHello, ServerHello, EndOfEarlyData, Finished, KeyUpdate). */
     uint8_t handshake_next_at_record_boundary;
     
     /* Key shares */
@@ -118,6 +126,19 @@ typedef struct tls13_context_s
     uint32_t client_key_shares_count;             /* Number of client key shares */
     tls13_key_share_entry_t *server_key_share;   /* Server key share */
     void *ecdhe_ctx;                               /* ECDHE context (tls_ecdhe_context_t*) */
+    uint16_t selected_kex_group;                  /* Negotiated key exchange group (classical/PQ/hybrid) */
+    uint8_t selected_kex_is_hybrid;
+    noxtls_mlkem_param_t selected_mlkem_param;
+    uint8_t mlkem_client_public_key[NOXTLS_MLKEM_MAX_PUBLIC_KEY_LEN];
+    uint32_t mlkem_client_public_key_len;
+    uint8_t mlkem_client_secret_key[NOXTLS_MLKEM_MAX_SECRET_KEY_LEN];
+    uint32_t mlkem_client_secret_key_len;
+    uint8_t mlkem_server_public_key[NOXTLS_MLKEM_MAX_PUBLIC_KEY_LEN];
+    uint32_t mlkem_server_public_key_len;
+    uint8_t mlkem_server_secret_key[NOXTLS_MLKEM_MAX_SECRET_KEY_LEN];
+    uint32_t mlkem_server_secret_key_len;
+    uint8_t hybrid_shared_secret[NOXTLS_MLKEM_SHARED_SECRET_LEN + 64];
+    uint32_t hybrid_shared_secret_len;
     
     /* Extensions */
     tls_extensions_t client_extensions;  /* Client Hello extensions */
@@ -126,12 +147,31 @@ typedef struct tls13_context_s
     /* Client configuration */
     const char *server_name;             /* SNI hostname (optional) */
     uint16_t server_name_len;            /* SNI hostname length */
+    const noxtls_x509_crl_t *verify_crl; /* Optional CRL list for server cert verification (non-owning). */
 
     /* Runtime cipher preference: 0 = prefer AES-GCM (default), 1 = prefer ChaCha20-Poly1305 */
     uint8_t prefer_chacha20;
+    /* Optional server cipher-suite allowlist (wire IDs). If set, server selects only from this list. */
+    const uint16_t *server_cipher_suites;
+    uint32_t server_cipher_suites_count;
 
     /** Optional server RSA private key (rsa_key_t*) for CertificateVerify. If set, CertificateVerify is signed with RSA-PSS. */
     void *server_private_rsa;
+    /** Optional server ECDSA private key (ecc_key_t*) for CertificateVerify. */
+    void *server_private_ecdsa;
+    /** Optional server Ed25519 private key seed (32 bytes) for CertificateVerify. */
+    uint8_t server_private_ed25519[32];
+    /** 1 when server_private_ed25519 is configured. */
+    uint8_t server_cert_use_ed25519;
+    /** Optional server Ed448 private key seed (57 bytes) for CertificateVerify. */
+    uint8_t server_private_ed448[57];
+    /** 1 when server_private_ed448 is configured. */
+    uint8_t server_cert_use_ed448;
+    /** Optional server ML-DSA private key for CertificateVerify. */
+    uint8_t server_private_mldsa[NOXTLS_MLDSA_MAX_SECRET_KEY_LEN];
+    uint32_t server_private_mldsa_len;
+    noxtls_mldsa_param_t server_private_mldsa_param;
+    uint8_t server_cert_use_mldsa;
     /** Optional: crypto provider (PKCS#11/TPM/hardware). When set with server_private_key_handle, server sign uses provider instead of server_private_rsa. */
     const noxtls_crypto_provider_t *crypto_provider;
     /** Provider's handle for server RSA private key. Used when crypto_provider is set for server CertificateVerify. */
@@ -140,7 +180,7 @@ typedef struct tls13_context_s
     /* Client certificate authentication (mutual TLS / mTLS) */
     uint8_t request_client_auth;     /* Server: if set, send CertificateRequest and verify client cert */
     uint8_t client_auth_requested;   /* Client: set when server sent CertificateRequest */
-    uint8_t cert_request_context[32];/* Client: context from CertificateRequest (for client Certificate message) */
+    uint8_t cert_request_context[32];/* Client: context from CertificateRequest (for client Certificate noxtls_message) */
     uint8_t cert_request_context_len;
     uint8_t *client_cert;            /* Client: cert to send (DER). Server: received client cert (owned). */
     uint32_t client_cert_len;
@@ -151,6 +191,10 @@ typedef struct tls13_context_s
     uint8_t client_cert_use_ed25519;    /* 1 if client_private_ed25519 was set (so use Ed25519 for CertificateVerify) */
     uint8_t client_private_ed448[57];   /* Client: Ed448 private key (57-byte seed) for CertificateVerify */
     uint8_t client_cert_use_ed448;      /* 1 if client_private_ed448 was set (so use Ed448 for CertificateVerify) */
+    uint8_t client_private_mldsa[NOXTLS_MLDSA_MAX_SECRET_KEY_LEN];
+    uint32_t client_private_mldsa_len;
+    noxtls_mldsa_param_t client_private_mldsa_param;
+    uint8_t client_cert_use_mldsa;
     /** Provider's handle for client private key (RSA/ECDSA/Ed25519). Used when crypto_provider is set for client CertificateVerify. */
     noxtls_crypto_key_handle_t client_private_key_handle;
 
@@ -180,7 +224,7 @@ typedef struct tls13_context_s
     uint8_t *pending_app_data;
     uint32_t pending_app_data_len;
 
-    /* Client: handshake message pushed back after recv_certificate_request (e.g. server Certificate) */
+    /* Client: handshake noxtls_message pushed back after recv_certificate_request (e.g. server Certificate) */
     uint8_t *pending_handshake_msg;
     uint32_t pending_handshake_len;
 
@@ -193,7 +237,7 @@ typedef struct tls13_context_s
     uint64_t early_seq_num;
     uint32_t max_early_data_size;       /* Default 0xFFFFFFFF */
     uint8_t sent_end_of_early_data;
-    uint8_t early_data_sent;            /* 1 if tls13_send_early_data was used (so we must send EndOfEarlyData) */
+    uint8_t early_data_sent;            /* 1 if noxtls_tls13_send_early_data was used (so we must send EndOfEarlyData) */
     uint8_t client_offered_early_data;  /* Server: 1 if ClientHello contained early_data extension */
     uint8_t end_of_early_data_seen;     /* Server: 1 after receiving EndOfEarlyData from client */
 
@@ -205,10 +249,12 @@ typedef struct tls13_context_s
 
     /* Reusable record workspace: inner plaintext + encrypted (send) or decrypted (recv). One buffer, two regions. */
     uint8_t *record_workspace;
+    uint8_t record_workspace_owned;    /* 1 if allocated by context init, 0 if supplied by caller */
     /* Reusable handshake workspace: build/parse client_hello, certificate, certificate_verify, etc. (one at a time). Size TLS_HANDSHAKE_WORKSPACE_SIZE. */
     uint8_t *handshake_workspace;
+    uint8_t handshake_workspace_owned; /* 1 if allocated by context init, 0 if supplied by caller */
 
-    /* RFC 5929 channel binding: first TLS Finished message (verify_data). In TLS 1.3 the first Finished is the server's. */
+    /* RFC 5929 channel binding: first TLS Finished noxtls_message (verify_data). In TLS 1.3 the first Finished is the server's. */
     uint8_t channel_binding_first_finished[64];
     uint32_t channel_binding_first_finished_len;
 
@@ -222,38 +268,62 @@ NOXTLS_MSVC_WARNING_POP
 #define TLS13_PSK_KE_MODE_PSK_DHE_KE 1
 
 /* TLS 1.3 Functions */
-noxtls_return_t tls13_context_init(tls13_context_t *ctx, tls_role_t role);
-noxtls_return_t dtls13_context_init(tls13_context_t *ctx, tls_role_t role);
-noxtls_return_t tls13_context_free(tls13_context_t *ctx);
-noxtls_return_t tls13_connect(tls13_context_t *ctx);
-noxtls_return_t tls13_accept(tls13_context_t *ctx);
-noxtls_return_t tls13_send(tls13_context_t *ctx, const uint8_t *data, uint32_t len);
-noxtls_return_t tls13_recv(tls13_context_t *ctx, uint8_t *data, uint32_t *len);
-noxtls_return_t tls13_close(tls13_context_t *ctx);
+noxtls_return_t noxtls_tls13_context_init(tls13_context_t *ctx, tls_role_t role);
+noxtls_return_t noxtls_dtls13_context_init(tls13_context_t *ctx, tls_role_t role);
+noxtls_return_t noxtls_tls13_context_free(tls13_context_t *ctx);
+/**
+ * Replace internally allocated TLS 1.3 workspaces with caller-provided buffers.
+ * Call after context_init and before connect/accept.
+ */
+noxtls_return_t tls13_set_workspaces(tls13_context_t *ctx,
+                                     uint8_t *record_workspace,
+                                     uint32_t record_workspace_len,
+                                     uint8_t *handshake_workspace,
+                                     uint32_t handshake_workspace_len);
+noxtls_return_t noxtls_tls13_connect(tls13_context_t *ctx);
+noxtls_return_t noxtls_tls13_accept(tls13_context_t *ctx);
+noxtls_return_t noxtls_tls13_send(tls13_context_t *ctx, const uint8_t *data, uint32_t len);
+noxtls_return_t noxtls_tls13_recv(tls13_context_t *ctx, uint8_t *data, uint32_t *len);
+noxtls_return_t noxtls_tls13_close(tls13_context_t *ctx);
 
 /** Client: send 0-RTT early data (only when resuming and before handshake completes). */
-noxtls_return_t tls13_send_early_data(tls13_context_t *ctx, const uint8_t *data, uint32_t len);
-void tls13_set_keylog_file(const char *path);
+noxtls_return_t noxtls_tls13_send_early_data(tls13_context_t *ctx, const uint8_t *data, uint32_t len);
+void noxtls_tls13_set_keylog_file(const char *path);
 
 /** Set runtime cipher preference: prefer_chacha20 0 = prefer AES-GCM, 1 = prefer ChaCha20-Poly1305. Call before handshake. */
-void tls13_set_prefer_chacha20(tls13_context_t *ctx, int prefer_chacha20);
+void noxtls_tls13_set_prefer_chacha20(tls13_context_t *ctx, int prefer_chacha20);
+/** Set server cipher-suite allowlist (wire IDs). Call before handshake. */
+void noxtls_tls13_set_server_cipher_suites(tls13_context_t *ctx, const uint16_t *suites, uint32_t count);
 
 /** Set server RSA private key (rsa_key_t*) for CertificateVerify. Call before handshake if using server auth with RSA. */
-void tls13_set_server_private_rsa(tls13_context_t *ctx, void *rsa_key);
+void noxtls_tls13_set_server_private_rsa(tls13_context_t *ctx, void *rsa_key);
+/** Set server ECDSA private key (ecc_key_t*) for CertificateVerify. Call before handshake for ECDSA certs. */
+void noxtls_tls13_set_server_private_ecdsa(tls13_context_t *ctx, void *ecc_key);
+/** Set server Ed25519 private key seed (32 bytes) for CertificateVerify. Call before handshake for Ed25519 certs. */
+noxtls_return_t noxtls_tls13_set_server_private_ed25519(tls13_context_t *ctx, const uint8_t *private_key_32);
+/** Set server Ed448 private key seed (57 bytes) for CertificateVerify. Call before handshake for Ed448 certs. */
+noxtls_return_t noxtls_tls13_set_server_private_ed448(tls13_context_t *ctx, const uint8_t *private_key_57);
+/** Set server ML-DSA private key for CertificateVerify. */
+noxtls_return_t noxtls_tls13_set_server_private_mldsa(tls13_context_t *ctx, noxtls_mldsa_param_t param, const uint8_t *private_key);
 /** Set optional crypto provider and server key handle for server sign (CertificateVerify). Use instead of server_private_rsa when key is in HSM/TPM. */
-void tls13_set_crypto_provider_server(tls13_context_t *ctx, const noxtls_crypto_provider_t *provider, noxtls_crypto_key_handle_t server_key_handle);
+void noxtls_tls13_set_crypto_provider_server(tls13_context_t *ctx, const noxtls_crypto_provider_t *provider, noxtls_crypto_key_handle_t server_key_handle);
+/** Set optional CRL chain for certificate revocation checks during peer cert verification. */
+void noxtls_tls13_set_verify_crl(tls13_context_t *ctx, const noxtls_x509_crl_t *crl);
 
-/** Server: request client certificate (mutual TLS). Call before tls13_accept. */
-void tls13_request_client_auth(tls13_context_t *ctx, int request);
+/** Server: request client certificate (mutual TLS). Call before noxtls_tls13_accept. */
+void noxtls_tls13_request_client_auth(tls13_context_t *ctx, int request);
 
-/** Client: set client certificate and RSA private key for mutual TLS. Call before tls13_connect. cert in DER; rsa_key is rsa_key_t*. */
-noxtls_return_t tls13_set_client_cert(tls13_context_t *ctx, const uint8_t *cert_der, uint32_t cert_len, void *rsa_key);
+/** Client: set client certificate and RSA private key for mutual TLS. Call before noxtls_tls13_connect. cert in DER; rsa_key is rsa_key_t*. */
+noxtls_return_t noxtls_tls13_set_client_cert(tls13_context_t *ctx, const uint8_t *cert_der, uint32_t cert_len, void *rsa_key);
 /** Client: set client certificate and ECDSA private key (ecc_key_t*) for CertificateVerify. Use for ECDSA P-256/P-384 certs. */
-noxtls_return_t tls13_set_client_cert_ecdsa(tls13_context_t *ctx, const uint8_t *cert_der, uint32_t cert_len, void *ecc_key);
+noxtls_return_t noxtls_tls13_set_client_cert_ecdsa(tls13_context_t *ctx, const uint8_t *cert_der, uint32_t cert_len, void *ecc_key);
 /** Client: set client certificate and Ed25519 private key (32-byte seed) for CertificateVerify. */
-noxtls_return_t tls13_set_client_cert_ed25519(tls13_context_t *ctx, const uint8_t *cert_der, uint32_t cert_len, const uint8_t *private_key_32);
+noxtls_return_t noxtls_tls13_set_client_cert_ed25519(tls13_context_t *ctx, const uint8_t *cert_der, uint32_t cert_len, const uint8_t *private_key_32);
 /** Client: set client certificate and Ed448 private key (57-byte seed) for CertificateVerify. Requires NOXTLS_FEATURE_ED448 and SHA3. */
-noxtls_return_t tls13_set_client_cert_ed448(tls13_context_t *ctx, const uint8_t *cert_der, uint32_t cert_len, const uint8_t *private_key_57);
+noxtls_return_t noxtls_tls13_set_client_cert_ed448(tls13_context_t *ctx, const uint8_t *cert_der, uint32_t cert_len, const uint8_t *private_key_57);
+/** Client: set client certificate and ML-DSA private key for CertificateVerify. */
+noxtls_return_t tls13_set_client_cert_mldsa(tls13_context_t *ctx, const uint8_t *cert_der, uint32_t cert_len,
+                                            noxtls_mldsa_param_t param, const uint8_t *private_key);
 
 /** Configure external PSK identity/key for TLS 1.3 PSK or ECDHE-PSK handshakes. */
 noxtls_return_t tls13_set_external_psk(tls13_context_t *ctx,
@@ -276,29 +346,29 @@ noxtls_return_t tls13_set_external_psk(tls13_context_t *ctx,
 noxtls_return_t noxtls_tls13_get_channel_binding(tls13_context_t *ctx, uint32_t binding_type, uint8_t *out, uint32_t *out_len);
 
 /** RFC 8449: Set record size limit we advertise (max plaintext we are willing to receive). 0 = use default (16384). Call before handshake. */
-void tls13_set_record_size_limit(tls13_context_t *ctx, uint16_t limit);
+void noxtls_tls13_set_record_size_limit(tls13_context_t *ctx, uint16_t limit);
 
 /* TLS 1.3 Client Handshake Functions */
-noxtls_return_t tls13_send_client_hello(tls13_context_t *ctx);
-noxtls_return_t tls13_recv_server_hello(tls13_context_t *ctx);
-noxtls_return_t tls13_recv_encrypted_extensions(tls13_context_t *ctx);
-noxtls_return_t tls13_recv_certificate_request(tls13_context_t *ctx);
-noxtls_return_t tls13_recv_certificate(tls13_context_t *ctx);
-noxtls_return_t tls13_recv_certificate_verify(tls13_context_t *ctx);
-noxtls_return_t tls13_recv_finished(tls13_context_t *ctx);
-noxtls_return_t tls13_send_client_certificate(tls13_context_t *ctx);
-noxtls_return_t tls13_send_client_certificate_verify(tls13_context_t *ctx);
-noxtls_return_t tls13_send_finished(tls13_context_t *ctx);
+noxtls_return_t noxtls_tls13_send_client_hello(tls13_context_t *ctx);
+noxtls_return_t noxtls_tls13_recv_server_hello(tls13_context_t *ctx);
+noxtls_return_t noxtls_tls13_recv_encrypted_extensions(tls13_context_t *ctx);
+noxtls_return_t noxtls_tls13_recv_certificate_request(tls13_context_t *ctx);
+noxtls_return_t noxtls_tls13_recv_certificate(tls13_context_t *ctx);
+noxtls_return_t noxtls_tls13_recv_certificate_verify(tls13_context_t *ctx);
+noxtls_return_t noxtls_tls13_recv_finished(tls13_context_t *ctx);
+noxtls_return_t noxtls_tls13_send_client_certificate(tls13_context_t *ctx);
+noxtls_return_t noxtls_tls13_send_client_certificate_verify(tls13_context_t *ctx);
+noxtls_return_t noxtls_tls13_send_finished(tls13_context_t *ctx);
 
 /* TLS 1.3 Server Handshake Functions */
-noxtls_return_t tls13_send_certificate_request(tls13_context_t *ctx);
-noxtls_return_t tls13_recv_client_hello(tls13_context_t *ctx);
-noxtls_return_t tls13_send_server_hello(tls13_context_t *ctx);
-noxtls_return_t tls13_send_encrypted_extensions(tls13_context_t *ctx);
-noxtls_return_t tls13_send_certificate(tls13_context_t *ctx);
-noxtls_return_t tls13_send_certificate_verify(tls13_context_t *ctx);
-noxtls_return_t tls13_send_finished_server(tls13_context_t *ctx);
-noxtls_return_t tls13_recv_finished_client(tls13_context_t *ctx);
+noxtls_return_t noxtls_tls13_send_certificate_request(tls13_context_t *ctx);
+noxtls_return_t noxtls_tls13_recv_client_hello(tls13_context_t *ctx);
+noxtls_return_t noxtls_tls13_send_server_hello(tls13_context_t *ctx);
+noxtls_return_t noxtls_tls13_send_encrypted_extensions(tls13_context_t *ctx);
+noxtls_return_t noxtls_tls13_send_certificate(tls13_context_t *ctx);
+noxtls_return_t noxtls_tls13_send_certificate_verify(tls13_context_t *ctx);
+noxtls_return_t noxtls_tls13_send_finished_server(tls13_context_t *ctx);
+noxtls_return_t noxtls_tls13_recv_finished_client(tls13_context_t *ctx);
 
 #ifdef __cplusplus
 }

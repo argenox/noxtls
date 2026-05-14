@@ -1,7 +1,7 @@
 /*
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
  *
- * Minimal getopt for Windows (MSVC). Provides getopt(), optarg, optind.
+ * Minimal noxtls_getopt for Windows (MSVC). Provides noxtls_getopt(), optarg, optind.
  * Use this instead of <unistd.h> when building on _WIN32.
  */
 
@@ -13,6 +13,8 @@
 
 #ifdef _WIN32
 
+#include "noxtls_config.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -22,7 +24,7 @@ extern int optind;
 extern int opterr;
 extern int optopt;
 
-int getopt(int argc, char * const argv[], const char *optstring);
+int noxtls_getopt(int argc, char * const argv[], const char *optstring);
 
 #ifdef __cplusplus
 }

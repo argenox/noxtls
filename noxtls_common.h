@@ -106,7 +106,12 @@ typedef enum
 	NOXTLS_RETURN_CERT_VERIFY_HOSTNAME_MISMATCH,/**< Hostname does not match certificate SAN or subject CN. */
 	NOXTLS_RETURN_CERT_EXPIRED,              /**< Certificate has expired (current time > notAfter). */
 	NOXTLS_RETURN_CERT_NOT_YET_VALID,        /**< Certificate not yet valid (current time < notBefore). */
-	NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED   /**< Certificate chain verification failed (signature or validity of a link). */
+	NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED,  /**< Certificate chain verification failed (signature or validity of a link). */
+	NOXTLS_RETURN_CERT_REVOKED,              /**< Certificate serial appears on the provided CRL (revoked). */
+	NOXTLS_RETURN_CRL_PARSE_FAILED,         /**< CRL DER/PEM parsing failed (malformed structure). */
+	NOXTLS_RETURN_CRL_VERIFY_FAILED,        /**< CRL signature verification failed against issuer. */
+	NOXTLS_RETURN_CRL_EXPIRED,              /**< CRL nextUpdate (or validity window) is not acceptable (e.g. stale CRL). */
+	NOXTLS_RETURN_TLS_WEAK_DHE_PARAMS       /**< TLS DHE ServerKeyExchange parameters are weak/unsupported (e.g. very small finite-field DH). */
 } noxtls_return_t;
 
 /** @} */

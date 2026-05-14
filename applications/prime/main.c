@@ -41,12 +41,8 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <string.h>
-#ifdef _WIN32
-#include "noxtls-lib/common/getopt_win.h"
-#else
-#include <unistd.h>
-#endif
 
+#include "noxtls-lib/common/getopt_compat.h"
 #include "noxtls-lib/common/noxtls_memory.h"
 #include "noxtls-lib/common/noxtls_memory_compat.h"
 #include "utility.h"
@@ -125,7 +121,7 @@ int main(int argc, char ** argv)
 
     do {
         int c;
-        while ((c = getopt (argc, argv, "vhs:x:d:D:t")) != -1)
+        while ((c = noxtls_getopt (argc, argv, "vhs:x:d:D:t")) != -1)
         {
             switch (c)
             {

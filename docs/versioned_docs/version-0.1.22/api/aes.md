@@ -22,4 +22,4 @@ title: "AES"
 
 ## Shared API (streaming and types)
 
-For incremental processing and shared types (context, key type, mode enum), see **[AES (shared)](/docs/api/aes_shared)** — `aes_init()`, `aes_update()`, `aes_final()` and common definitions.
+For incremental processing and shared types (context, key type, mode enum), see **[AES (shared)](/docs/api/aes_shared)** — `noxtls_aes_init()`, `noxtls_aes_update()`, `noxtls_aes_final()` and common definitions.

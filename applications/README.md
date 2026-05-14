@@ -30,8 +30,9 @@ cmake --build build
 | [dtls_psk_demo](dtls_psk_demo/README.md) | DTLS 1.2/1.3 PSK handshake demo |
 | [dtls_psk_test](dtls_psk_test/README.md) | DTLS PSK test |
 | [https_client](https_client/README.md) | HTTPS client example |
+| [tlscurl](tlscurl/README.md) | HTTPS test client (curl-like options, TLS diagnostics) |
 | [https_server](https_server/README.md) | HTTPS server example |
-| [noxtls](noxtls/README.md) | Multi-command NoxTLS CLI (e.g. message digest) |
+| [noxtls](noxtls/README.md) | Multi-command NoxTLS CLI (e.g. noxtls_message digest) |
 | [pkc](pkc/README.md) | Public key crypto (RSA encrypt/decrypt, sign/verify) |
 | [prime](prime/README.md) | Prime number utilities |
 | [sha](sha/README.md) | Message digest (SHA, MD5, etc.) |

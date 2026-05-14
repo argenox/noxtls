@@ -54,8 +54,8 @@ static uint8_t debug_lvl = 0;
 noxtls_return_t noxtls_sha512_round(noxtls_sha512_ctx_t * ctx, const uint8_t * input);
 noxtls_return_t noxtls_sha512_pad(uint8_t * data, uint32_t zero_pad, uint32_t len);
 
-/* SHA Constants for SHA-384, SHA-512, SHA-512/224 and SHA-512/256 */
-uint64_t sha512_k[80] =
+/* SHA-384 / SHA-512 / SHA-512/224 / SHA-512/256 round constants K[0..79] (FIPS 180-4); count matches SHA512_ROUND_COUNT. */
+uint64_t sha512_k[SHA512_ROUND_COUNT] =
 {
     0x428a2f98d728ae22, 0x7137449123ef65cd, 0xb5c0fbcfec4d3b2f, 0xe9b5dba58189dbbc, 
     0x3956c25bf348b538, 0x59f111f1b605d019, 0x923f82a4af194f9b, 0xab1c5ed5da6d8118, 
@@ -207,13 +207,20 @@ noxtls_return_t noxtls_sha512_round(noxtls_sha512_ctx_t * ctx, const uint8_t * i
 	uint32_t t = 0;
 	uint64_t w[SHA512_ROUND_COUNT] = {0};
 
-    uint64_t a,b,c,d,e,f,g,h = 0;
+    uint64_t a;
+    uint64_t b;
+    uint64_t c;
+    uint64_t d;
+    uint64_t e;
+    uint64_t f;
+    uint64_t g;
+    uint64_t h = 0;
     
 	if(ctx == NULL) {
 		return NOXTLS_RETURN_NULL;
 	}    
     
-    /* Copy the message to the first 16 words */    
+    /* Copy the noxtls_message to the first 16 words */    
     for(t = 0; t < SHA512_WORDS_PER_BLOCK; t++) {
         w[t] =  ((uint64_t)input[(t * SHA512_WORD_BYTES)] << 56)     |
                 ((uint64_t)input[(t * SHA512_WORD_BYTES) + 1] << 48) |
@@ -323,7 +330,7 @@ noxtls_return_t noxtls_sha512_finish(noxtls_sha512_ctx_t * ctx, uint8_t * hash)
     }
     
     if(space_left >= length_size + 1) {
-        add_padding_length(temp, block_size, total_length, length_size);
+        noxtls_add_padding_length(temp, block_size, total_length, length_size);
     }
 
     if(debug_lvl > 0){
@@ -346,7 +353,7 @@ noxtls_return_t noxtls_sha512_finish(noxtls_sha512_ctx_t * ctx, uint8_t * hash)
             data[0] = SHA512_PAD_BYTE;
         }
         
-        add_padding_length(temp, block_size, total_length, length_size);
+        noxtls_add_padding_length(temp, block_size, total_length, length_size);
             
         if(debug_lvl > 0) {
             for(i = 0; i < block_size; i++) {

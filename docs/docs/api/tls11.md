@@ -27,39 +27,39 @@ Alias of `tls12_context_t` specialized for TLS 1.1 operation.
 
 ### Core lifecycle and I/O
 
-- `tls11_context_init`
-- `tls11_context_free`
-- `tls11_connect`
-- `tls11_accept`
-- `tls11_send`
-- `tls11_recv`
-- `tls11_close`
+- `noxtls_tls11_context_init`
+- `noxtls_tls11_context_free`
+- `noxtls_tls11_connect`
+- `noxtls_tls11_accept`
+- `noxtls_tls11_send`
+- `noxtls_tls11_recv`
+- `noxtls_tls11_close`
 
 ### Client handshake steps
 
-- `tls11_send_client_hello`
-- `tls11_recv_server_hello`
-- `tls11_recv_certificate`
-- `tls11_recv_server_key_exchange`
-- `tls11_recv_server_hello_done`
-- `tls11_send_client_key_exchange`
-- `tls11_send_change_cipher_spec`
-- `tls11_send_finished`
-- `tls11_recv_change_cipher_spec`
-- `tls11_recv_finished`
+- `noxtls_tls11_send_client_hello`
+- `noxtls_tls11_recv_server_hello`
+- `noxtls_tls11_recv_certificate`
+- `noxtls_tls11_recv_server_key_exchange`
+- `noxtls_tls11_recv_server_hello_done`
+- `noxtls_tls11_send_client_key_exchange`
+- `noxtls_tls11_send_change_cipher_spec`
+- `noxtls_tls11_send_finished`
+- `noxtls_tls11_recv_change_cipher_spec`
+- `noxtls_tls11_recv_finished`
 
 ### Server handshake steps
 
-- `tls11_recv_client_hello`
-- `tls11_send_server_hello`
-- `tls11_send_certificate`
-- `tls11_send_server_key_exchange`
-- `tls11_send_server_hello_done`
-- `tls11_recv_client_key_exchange`
-- `tls11_recv_change_cipher_spec_client`
-- `tls11_recv_finished_client`
-- `tls11_send_change_cipher_spec_server`
-- `tls11_send_finished_server`
+- `noxtls_tls11_recv_client_hello`
+- `noxtls_tls11_send_server_hello`
+- `noxtls_tls11_send_certificate`
+- `noxtls_tls11_send_server_key_exchange`
+- `noxtls_tls11_send_server_hello_done`
+- `noxtls_tls11_recv_client_key_exchange`
+- `noxtls_tls11_recv_change_cipher_spec_client`
+- `noxtls_tls11_recv_finished_client`
+- `noxtls_tls11_send_change_cipher_spec_server`
+- `noxtls_tls11_send_finished_server`
 
 For shared structures and record constants, see [TLS (common)](/docs/api/tls).
 

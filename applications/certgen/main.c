@@ -543,7 +543,8 @@ static int cmd_genec(int argc, char **argv, const char *prog)
         return 0;
     }
 
-    char key_path[CERTGEN_PATH_MAX], pub_path[CERTGEN_PATH_MAX];
+    char key_path[CERTGEN_PATH_MAX];
+    char pub_path[CERTGEN_PATH_MAX];
     build_key_pub_paths(out_file, key_path, pub_path, sizeof(key_path));
 
     FILE *fp_key = noxtls_fopen(key_path, "wb");
@@ -596,7 +597,8 @@ static int cmd_gened25519(int argc, char **argv, const char *prog)
             outform = argv[++i];
         }
     }
-    uint8_t sk[32], pk[32];
+    uint8_t sk[32];
+    uint8_t pk[32];
     if (noxtls_ed25519_generate_key(sk, pk) != NOXTLS_RETURN_SUCCESS) {
         fprintf(stderr, "Error: Ed25519 key generation failed\n");
         return 1;
@@ -620,7 +622,8 @@ static int cmd_gened25519(int argc, char **argv, const char *prog)
         printf("Wrote Ed25519 private key to stdout\n");
         return 0;
     }
-    char key_path[CERTGEN_PATH_MAX], pub_path[CERTGEN_PATH_MAX];
+    char key_path[CERTGEN_PATH_MAX];
+    char pub_path[CERTGEN_PATH_MAX];
     build_key_pub_paths(out_file, key_path, pub_path, sizeof(key_path));
     FILE *fp_key = noxtls_fopen(key_path, "wb");
     if (fp_key == NULL) {
@@ -669,7 +672,8 @@ static int cmd_gened448(int argc, char **argv, const char *prog)
             outform = argv[++i];
         }
     }
-    uint8_t sk[57], pk[57];
+    uint8_t sk[57];
+    uint8_t pk[57];
     if (noxtls_ed448_generate_key(sk, pk) != NOXTLS_RETURN_SUCCESS) {
         fprintf(stderr, "Error: Ed448 key generation failed\n");
         return 1;
@@ -693,7 +697,8 @@ static int cmd_gened448(int argc, char **argv, const char *prog)
         printf("Wrote Ed448 private key to stdout\n");
         return 0;
     }
-    char key_path[CERTGEN_PATH_MAX], pub_path[CERTGEN_PATH_MAX];
+    char key_path[CERTGEN_PATH_MAX];
+    char pub_path[CERTGEN_PATH_MAX];
     build_key_pub_paths(out_file, key_path, pub_path, sizeof(key_path));
     FILE *fp_key = noxtls_fopen(key_path, "wb");
     if (fp_key == NULL) {
@@ -793,7 +798,8 @@ static int cmd_genrsa(int argc, char **argv, const char *prog)
         return 0;
     }
 
-    char key_path[CERTGEN_PATH_MAX], pub_path[CERTGEN_PATH_MAX];
+    char key_path[CERTGEN_PATH_MAX];
+    char pub_path[CERTGEN_PATH_MAX];
     build_key_pub_paths(out_file, key_path, pub_path, sizeof(key_path));
 
     FILE *fp_key = noxtls_fopen(key_path, "wb");
@@ -872,8 +878,10 @@ static int certgen_self_signed_x509_common(
     const char *out_file,
     const char *outform)
 {
-    uint8_t issuer_der[256], subject_der[256];
-    uint32_t issuer_len = 0, subject_len = 0;
+    uint8_t issuer_der[256];
+    uint8_t subject_der[256];
+    uint32_t issuer_len = 0;
+    uint32_t subject_len = 0;
     noxtls_return_t rc = noxtls_x509_dn_from_cn(cn_buf, issuer_der, sizeof(issuer_der), &issuer_len);
     if (rc != NOXTLS_RETURN_SUCCESS) {
         fprintf(stderr, "Error: Failed to build issuer DN\n");
@@ -885,14 +893,16 @@ static int certgen_self_signed_x509_common(
         return 1;
     }
 
-    char not_before[16], not_after[16];
+    char not_before[16];
+    char not_after[16];
     time_t now = time(NULL);
     if (now == (time_t)-1) {
         fprintf(stderr, "Error: time() failed\n");
         return 1;
     }
 #ifdef _MSC_VER
-    struct tm tm_before, tm_after;
+    struct tm tm_before;
+    struct tm tm_after;
     if (gmtime_s(&tm_before, &now) != 0) {
         fprintf(stderr, "Error: gmtime failed\n");
         return 1;

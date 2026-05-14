@@ -46,8 +46,8 @@ typedef struct
 } ecdsa_signature_t;
 
 /* ECDSA Signature Operations */
-noxtls_return_t noxtls_ecdsa_sign(ecc_key_t *key, const uint8_t *message, uint32_t message_len, ecdsa_signature_t *signature, noxtls_hash_algos_t hash_algo);
-noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *message, uint32_t message_len, const ecdsa_signature_t *signature, noxtls_hash_algos_t hash_algo);
+noxtls_return_t noxtls_ecdsa_sign(ecc_key_t *key, const uint8_t *noxtls_message, uint32_t message_len, ecdsa_signature_t *signature, noxtls_hash_algos_t hash_algo);
+noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_message, uint32_t message_len, const ecdsa_signature_t *signature, noxtls_hash_algos_t hash_algo);
 
 /* ECDSA Signature Format */
 noxtls_return_t noxtls_ecdsa_signature_init(ecdsa_signature_t *sig, uint32_t size);

@@ -34,10 +34,10 @@
 #include "noxtls_common.h"
 
 /* Key schedule: kw[4], ke[6], k[24] (64-bit subkeys) */
-noxtls_return_t camellia_key_schedule(const uint8_t* key, uint64_t* kw, uint64_t* ke, uint64_t* k, camellia_type_t type);
+noxtls_return_t noxtls_camellia_key_schedule(const uint8_t* key, uint64_t* kw, uint64_t* ke, uint64_t* k, noxtls_camellia_type_t type);
 
 /* Block encrypt/decrypt (16-byte block) */
-noxtls_return_t camellia_encrypt_block_internal(const uint8_t* key, const uint8_t* data, uint8_t* output, camellia_type_t type);
-noxtls_return_t camellia_decrypt_block_internal(const uint8_t* key, const uint8_t* data, uint8_t* output, camellia_type_t type);
+noxtls_return_t noxtls_camellia_encrypt_block_internal(const uint8_t* key, const uint8_t* data, uint8_t* output, noxtls_camellia_type_t type);
+noxtls_return_t noxtls_camellia_decrypt_block_internal(const uint8_t* key, const uint8_t* data, uint8_t* output, noxtls_camellia_type_t type);
 
 #endif /* _NOXTLS_CAMELLIA_INTERNAL_H_ */

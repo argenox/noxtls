@@ -29,7 +29,7 @@
  * @param mac_state is the MAC state to use
  *
  */
-static void ccm_compute_mac(const uint8_t *key, aes_type_t type,
+static void ccm_compute_mac(const uint8_t *key, noxtls_aes_type_t type,
                             const uint8_t *B0,
                             const uint8_t *aad, uint32_t aad_len,
                             const uint8_t *payload, uint32_t payload_len,
@@ -66,9 +66,9 @@ static void ccm_inc_counter(uint8_t *block, uint32_t L)
 {
     uint32_t i = 15;
     uint32_t stop = 16 - L;
-    for (; i >= stop && i <= 15; i--) {
+    for(; i >= stop && i <= 15; i--) {
         block[i]++;
-        if (block[i] != 0) break;
+        if(block[i] != 0) break;
     }
 }
 
@@ -81,12 +81,12 @@ static void ccm_inc_counter(uint8_t *block, uint32_t L)
  * @param block is the block to use
  * @param state is the state to use
  */
-static void ccm_cbc_mac_block(const uint8_t *key, aes_type_t type,
+static void ccm_cbc_mac_block(const uint8_t *key, noxtls_aes_type_t type,
                              const uint8_t *block, uint8_t *state)
 {
-    for (uint32_t i = 0; i < AES_BLOCK; i++)
+    for(uint32_t i = 0; i < NOXTLS_AES_BLOCK; i++)
         state[i] ^= block[i];
-    aes_encrypt_block_internal(key, state, state, type);
+    noxtls_aes_encrypt_block_internal(key, state, state, type);
 }
 
 /**
@@ -106,7 +106,7 @@ static void ccm_cbc_mac_block(const uint8_t *key, aes_type_t type,
  *
  * @return 0 on success, -1 on failure
  */
-noxtls_return_t aes_ccm_encrypt(const uint8_t *key, aes_type_t type,
+noxtls_return_t noxtls_aes_ccm_encrypt(const uint8_t *key, noxtls_aes_type_t type,
                     const uint8_t *nonce, uint32_t nonce_len,
                     const uint8_t *aad, uint32_t aad_len,
                     const uint8_t *plaintext, uint32_t plaintext_len,
@@ -114,44 +114,44 @@ noxtls_return_t aes_ccm_encrypt(const uint8_t *key, aes_type_t type,
                     uint8_t *tag, uint32_t tag_len)
 {
     uint32_t L = 15 - nonce_len;
-    uint8_t B0[AES_BLOCK];
-    uint8_t mac_state[AES_BLOCK];
-    uint8_t ctr_block[AES_BLOCK];
-    uint8_t keystream[AES_BLOCK];
+    uint8_t B0[NOXTLS_AES_BLOCK];
+    uint8_t mac_state[NOXTLS_AES_BLOCK];
+    uint8_t ctr_block[NOXTLS_AES_BLOCK];
+    uint8_t keystream[NOXTLS_AES_BLOCK];
     uint32_t i;
 
-    if (!key || !nonce || !plaintext || !ciphertext || !tag)
+    if(!key || !nonce || !plaintext || !ciphertext || !tag)
         return NOXTLS_RETURN_NULL;
-    if (!nonce_len_valid(nonce_len) || !tag_len_valid(tag_len))
+    if(!nonce_len_valid(nonce_len) || !tag_len_valid(tag_len))
         return NOXTLS_RETURN_INVALID_PARAM;
-    if (plaintext_len > (1UL << (L * 8)) - 1UL)
+    if(plaintext_len > (1UL << (L * 8)) - 1UL)
         return NOXTLS_RETURN_INVALID_PARAM;
 
     /* B0: Flags | Nonce | Q */
     B0[0] = (uint8_t)((aad_len > 0 ? 0x40 : 0) | (((tag_len - 2) >> 1) << 3) | (L - 1));
     memcpy(B0 + 1, nonce, nonce_len);
-    for (i = 0; i < L; i++)
+    for(i = 0; i < L; i++)
         B0[16 - L + i] = (uint8_t)((plaintext_len >> (8 * (L - 1 - i))) & 0xff);
 
     ccm_compute_mac(key, type, B0, aad, aad_len, plaintext, plaintext_len, mac_state);
 
     /* CTR: counter block = [L-1] [nonce] [counter]; start at 0 for tag */
-    memset(ctr_block, 0, AES_BLOCK);
+    memset(ctr_block, 0, NOXTLS_AES_BLOCK);
     ctr_block[0] = (uint8_t)(L - 1);
     memcpy(ctr_block + 1, nonce, nonce_len);
     /* counter at ctr_block + 1 + nonce_len = 16 - L bytes at end */
 
-    aes_encrypt_block_internal(key, ctr_block, keystream, type);
-    for (i = 0; i < tag_len; i++)
+    noxtls_aes_encrypt_block_internal(key, ctr_block, keystream, type);
+    for(i = 0; i < tag_len; i++)
         tag[i] = mac_state[i] ^ keystream[i];
 
     /* CTR encrypt payload: counter 1, 2, ... */
     ccm_inc_counter(ctr_block, L);
-    for (i = 0; i < plaintext_len; i += AES_BLOCK) {
-        aes_encrypt_block_internal(key, ctr_block, keystream, type);
+    for(i = 0; i < plaintext_len; i += NOXTLS_AES_BLOCK) {
+        noxtls_aes_encrypt_block_internal(key, ctr_block, keystream, type);
         uint32_t take = plaintext_len - i;
-        if (take > AES_BLOCK) take = AES_BLOCK;
-        for (uint32_t j = 0; j < take; j++)
+        if(take > NOXTLS_AES_BLOCK) take = NOXTLS_AES_BLOCK;
+        for(uint32_t j = 0; j < take; j++)
             ciphertext[i + j] = plaintext[i + j] ^ keystream[j];
         ccm_inc_counter(ctr_block, L);
     }
@@ -173,21 +173,23 @@ noxtls_return_t aes_ccm_encrypt(const uint8_t *key, aes_type_t type,
  * @param mac_state is the MAC state to use
  *
  */
-static void ccm_compute_mac(const uint8_t *key, aes_type_t type,
+static void ccm_compute_mac(const uint8_t *key, noxtls_aes_type_t type,
                             const uint8_t *B0,
                             const uint8_t *aad, uint32_t aad_len,
                             const uint8_t *payload, uint32_t payload_len,
                             uint8_t *mac_state)
 {
-    uint32_t i, n_blocks, aad_enc_len;
+    uint32_t i;
+    uint32_t n_blocks;
+    uint32_t aad_enc_len;
     const uint8_t *aad_enc;
     uint8_t aad_buf[18];
 
-    memset(mac_state, 0, AES_BLOCK);
+    memset(mac_state, 0, NOXTLS_AES_BLOCK);
     ccm_cbc_mac_block(key, type, B0, mac_state);
 
-    if (aad_len > 0) {
-        if (aad_len < 0xFF00U) {
+    if(aad_len > 0) {
+        if(aad_len < 0xFF00U) {
             aad_buf[0] = (uint8_t)(aad_len >> 8);
             aad_buf[1] = (uint8_t)(aad_len & 0xff);
             aad_enc = aad_buf;
@@ -202,26 +204,26 @@ static void ccm_compute_mac(const uint8_t *key, aes_type_t type,
             aad_enc = aad_buf;
             aad_enc_len = 6;
         }
-        n_blocks = (aad_enc_len + aad_len + (AES_BLOCK - 1)) / AES_BLOCK;
-        for (i = 0; i < n_blocks; i++) {
-            uint8_t block[AES_BLOCK];
-            memset(block, 0, AES_BLOCK);
-            uint32_t off = i * AES_BLOCK;
-            uint32_t copy = AES_BLOCK;
-            if (off < aad_enc_len) {
+        n_blocks = (aad_enc_len + aad_len + (NOXTLS_AES_BLOCK - 1)) / NOXTLS_AES_BLOCK;
+        for(i = 0; i < n_blocks; i++) {
+            uint8_t block[NOXTLS_AES_BLOCK];
+            memset(block, 0, NOXTLS_AES_BLOCK);
+            uint32_t off = i * NOXTLS_AES_BLOCK;
+            uint32_t copy = NOXTLS_AES_BLOCK;
+            if(off < aad_enc_len) {
                 uint32_t from_enc = aad_enc_len - off;
-                if (from_enc < copy) copy = from_enc;
+                if(from_enc < copy) copy = from_enc;
                 memcpy(block, aad_enc + off, copy);
-                if (copy < AES_BLOCK) {
-                    uint32_t from_aad = AES_BLOCK - copy;
-                    if (from_aad > aad_len) from_aad = aad_len;
+                if(copy < NOXTLS_AES_BLOCK) {
+                    uint32_t from_aad = NOXTLS_AES_BLOCK - copy;
+                    if(from_aad > aad_len) from_aad = aad_len;
                     memcpy(block + copy, aad, from_aad);
                 }
             } else {
                 uint32_t aad_off = off - aad_enc_len;
-                if (aad_off < aad_len) {
+                if(aad_off < aad_len) {
                     uint32_t from_aad = aad_len - aad_off;
-                    if (from_aad > AES_BLOCK) from_aad = AES_BLOCK;
+                    if(from_aad > NOXTLS_AES_BLOCK) from_aad = NOXTLS_AES_BLOCK;
                     memcpy(block, aad + aad_off, from_aad);
                 }
             }
@@ -229,13 +231,13 @@ static void ccm_compute_mac(const uint8_t *key, aes_type_t type,
         }
     }
 
-    n_blocks = (payload_len + (AES_BLOCK - 1)) / AES_BLOCK;
-    for (i = 0; i < n_blocks; i++) {
-        uint8_t block[AES_BLOCK];
-        memset(block, 0, AES_BLOCK);
-        uint32_t off = i * AES_BLOCK;
+    n_blocks = (payload_len + (NOXTLS_AES_BLOCK - 1)) / NOXTLS_AES_BLOCK;
+    for(i = 0; i < n_blocks; i++) {
+        uint8_t block[NOXTLS_AES_BLOCK];
+        memset(block, 0, NOXTLS_AES_BLOCK);
+        uint32_t off = i * NOXTLS_AES_BLOCK;
         uint32_t copy = payload_len - off;
-        if (copy > AES_BLOCK) copy = AES_BLOCK;
+        if(copy > NOXTLS_AES_BLOCK) copy = NOXTLS_AES_BLOCK;
         memcpy(block, payload + off, copy);
         ccm_cbc_mac_block(key, type, block, mac_state);
     }
@@ -258,7 +260,7 @@ static void ccm_compute_mac(const uint8_t *key, aes_type_t type,
  *
  * @return 0 on success, -1 on failure
  */
-noxtls_return_t aes_ccm_decrypt(const uint8_t *key, aes_type_t type,
+noxtls_return_t noxtls_aes_ccm_decrypt(const uint8_t *key, noxtls_aes_type_t type,
                     const uint8_t *nonce, uint32_t nonce_len,
                     const uint8_t *aad, uint32_t aad_len,
                     const uint8_t *ciphertext, uint32_t ciphertext_len,
@@ -266,33 +268,33 @@ noxtls_return_t aes_ccm_decrypt(const uint8_t *key, aes_type_t type,
                     uint8_t *plaintext)
 {
     uint32_t L = 15 - nonce_len;
-    uint8_t B0[AES_BLOCK];
-    uint8_t mac_state[AES_BLOCK];
-    uint8_t ctr_block[AES_BLOCK];
-    uint8_t keystream[AES_BLOCK];
+    uint8_t B0[NOXTLS_AES_BLOCK];
+    uint8_t mac_state[NOXTLS_AES_BLOCK];
+    uint8_t ctr_block[NOXTLS_AES_BLOCK];
+    uint8_t keystream[NOXTLS_AES_BLOCK];
     uint32_t i;
     uint8_t diff;
 
-    if (!key || !nonce || !ciphertext || !tag || !plaintext)
+    if(!key || !nonce || !ciphertext || !tag || !plaintext)
         return NOXTLS_RETURN_NULL;
-    if (!nonce_len_valid(nonce_len) || !tag_len_valid(tag_len))
+    if(!nonce_len_valid(nonce_len) || !tag_len_valid(tag_len))
         return NOXTLS_RETURN_INVALID_PARAM;
-    if (ciphertext_len > (1UL << (L * 8)) - 1UL)
+    if(ciphertext_len > (1UL << (L * 8)) - 1UL)
         return NOXTLS_RETURN_INVALID_PARAM;
 
     /* 1) CTR decrypt to get plaintext (counter 0 = tag mask, 1,2,... = payload) */
-    memset(ctr_block, 0, AES_BLOCK);
+    memset(ctr_block, 0, NOXTLS_AES_BLOCK);
     ctr_block[0] = (uint8_t)(L - 1);
     memcpy(ctr_block + 1, nonce, nonce_len);
 
-    aes_encrypt_block_internal(key, ctr_block, keystream, type);
+    noxtls_aes_encrypt_block_internal(key, ctr_block, keystream, type);
     ccm_inc_counter(ctr_block, L);
 
-    for (i = 0; i < ciphertext_len; i += AES_BLOCK) {
-        aes_encrypt_block_internal(key, ctr_block, keystream, type);
+    for(i = 0; i < ciphertext_len; i += NOXTLS_AES_BLOCK) {
+        noxtls_aes_encrypt_block_internal(key, ctr_block, keystream, type);
         uint32_t take = ciphertext_len - i;
-        if (take > AES_BLOCK) take = AES_BLOCK;
-        for (uint32_t j = 0; j < take; j++)
+        if(take > NOXTLS_AES_BLOCK) take = NOXTLS_AES_BLOCK;
+        for(uint32_t j = 0; j < take; j++)
             plaintext[i + j] = ciphertext[i + j] ^ keystream[j];
         ccm_inc_counter(ctr_block, L);
     }
@@ -300,21 +302,21 @@ noxtls_return_t aes_ccm_decrypt(const uint8_t *key, aes_type_t type,
     /* 2) B0 and compute MAC over B0, AAD, plaintext */
     B0[0] = (uint8_t)((aad_len > 0 ? 0x40 : 0) | (((tag_len - 2) >> 1) << 3) | (L - 1));
     memcpy(B0 + 1, nonce, nonce_len);
-    for (i = 0; i < L; i++)
+    for(i = 0; i < L; i++)
         B0[16 - L + i] = (uint8_t)((ciphertext_len >> (8 * (L - 1 - i))) & 0xff);
 
     ccm_compute_mac(key, type, B0, aad, aad_len, plaintext, ciphertext_len, mac_state);
 
     /* 3) Tag = MAC XOR E(CTR_0). We have E(CTR_0) in keystream from first block - but we overwrote it. Recompute counter 0 keystream. */
-    memset(ctr_block, 0, AES_BLOCK);
+    memset(ctr_block, 0, NOXTLS_AES_BLOCK);
     ctr_block[0] = (uint8_t)(L - 1);
     memcpy(ctr_block + 1, nonce, nonce_len);
-    aes_encrypt_block_internal(key, ctr_block, keystream, type);
+    noxtls_aes_encrypt_block_internal(key, ctr_block, keystream, type);
 
     diff = 0;
-    for (i = 0; i < tag_len; i++)
+    for(i = 0; i < tag_len; i++)
         diff |= (tag[i] ^ (mac_state[i] ^ keystream[i]));
-    if (diff != 0)
+    if(diff != 0)
         return NOXTLS_RETURN_BAD_DATA;
     return NOXTLS_RETURN_SUCCESS;
 }

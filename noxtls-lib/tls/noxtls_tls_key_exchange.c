@@ -41,6 +41,7 @@
 #include <string.h>
 #include "common/noxtls_memory.h"
 #include "common/noxtls_memory_compat.h"
+#include "common/noxtls_ct.h"
 #include "common/noxtls_debug_printf.h"
 #include "noxtls_tls_key_exchange.h"
 #include "noxtls_tls_common.h"
@@ -59,7 +60,7 @@
 /**
  * @brief Map TLS named group to ECC curve type
  */
-noxtls_return_t tls_named_group_to_ecc_curve(uint16_t named_group, ecc_curve_t *curve_type)
+noxtls_return_t noxtls_tls_named_group_to_ecc_curve(uint16_t named_group, ecc_curve_t *curve_type)
 {
     if(curve_type == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -93,7 +94,7 @@ noxtls_return_t tls_named_group_to_ecc_curve(uint16_t named_group, ecc_curve_t *
 /**
  * @brief Map ECC curve type to TLS named group
  */
-noxtls_return_t tls_ecc_curve_to_named_group(ecc_curve_t curve_type, uint16_t *named_group)
+noxtls_return_t noxtls_tls_ecc_curve_to_named_group(ecc_curve_t curve_type, uint16_t *named_group)
 {
     if(named_group == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -127,7 +128,7 @@ noxtls_return_t tls_ecc_curve_to_named_group(ecc_curve_t curve_type, uint16_t *n
  * @param output_len Input: buffer size, Output: encoded length
  * @return NOXTLS_RETURN_SUCCESS on success
  */
-noxtls_return_t tls_encode_ecc_point_uncompressed(const ecc_point_t *point, uint8_t *output, uint32_t *output_len)
+noxtls_return_t noxtls_tls_encode_ecc_point_uncompressed(const ecc_point_t *point, uint8_t *output, uint32_t *output_len)
 {
     if(point == NULL || output == NULL || output_len == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -169,7 +170,7 @@ noxtls_return_t tls_encode_ecc_point_uncompressed(const ecc_point_t *point, uint
  * @param curve_type Curve type to use
  * @return NOXTLS_RETURN_SUCCESS on success
  */
-noxtls_return_t tls_decode_ecc_point_uncompressed(const uint8_t *encoded, uint32_t encoded_len, ecc_point_t *point, ecc_curve_t curve_type)
+noxtls_return_t noxtls_tls_decode_ecc_point_uncompressed(const uint8_t *encoded, uint32_t encoded_len, ecc_point_t *point, ecc_curve_t curve_type)
 {
     uint32_t expected_size;
     
@@ -219,7 +220,7 @@ noxtls_return_t tls_decode_ecc_point_uncompressed(const uint8_t *encoded, uint32
 /**
  * @brief Initialize ECDHE context
  */
-noxtls_return_t tls_ecdhe_context_init(tls_ecdhe_context_t *ctx, uint16_t named_group)
+noxtls_return_t noxtls_tls_ecdhe_context_init(tls_ecdhe_context_t *ctx, uint16_t named_group)
 {
     noxtls_return_t rc;
     
@@ -236,7 +237,7 @@ noxtls_return_t tls_ecdhe_context_init(tls_ecdhe_context_t *ctx, uint16_t named_
     }
     
     /* Map named group to curve type */
-    rc = tls_named_group_to_ecc_curve(named_group, &ctx->curve_type);
+    rc = noxtls_tls_named_group_to_ecc_curve(named_group, &ctx->curve_type);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -253,7 +254,7 @@ noxtls_return_t tls_ecdhe_context_init(tls_ecdhe_context_t *ctx, uint16_t named_
 /**
  * @brief Free ECDHE context
  */
-noxtls_return_t tls_ecdhe_context_free(tls_ecdhe_context_t *ctx)
+noxtls_return_t noxtls_tls_ecdhe_context_free(tls_ecdhe_context_t *ctx)
 {
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -290,7 +291,7 @@ noxtls_return_t tls_ecdhe_context_free(tls_ecdhe_context_t *ctx)
 /**
  * @brief Generate ephemeral key pair for ECDHE
  */
-noxtls_return_t tls_ecdhe_generate_ephemeral_key(tls_ecdhe_context_t *ctx)
+noxtls_return_t noxtls_tls_ecdhe_generate_ephemeral_key(tls_ecdhe_context_t *ctx)
 {
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -311,7 +312,7 @@ noxtls_return_t tls_ecdhe_generate_ephemeral_key(tls_ecdhe_context_t *ctx)
 /**
  * @brief Compute shared secret from peer's public key
  */
-noxtls_return_t tls_ecdhe_compute_shared_secret(tls_ecdhe_context_t *ctx, const ecc_point_t *peer_public_key)
+noxtls_return_t noxtls_tls_ecdhe_compute_shared_secret(tls_ecdhe_context_t *ctx, const ecc_point_t *peer_public_key)
 {
     noxtls_return_t rc;
     uint8_t *secret_buffer = NULL;
@@ -361,7 +362,7 @@ noxtls_return_t tls_ecdhe_compute_shared_secret(tls_ecdhe_context_t *ctx, const 
 /**
  * @brief Get encoded public key for transmission
  */
-noxtls_return_t tls_ecdhe_get_public_key_encoded(tls_ecdhe_context_t *ctx, uint8_t *output, uint32_t *output_len)
+noxtls_return_t noxtls_tls_ecdhe_get_public_key_encoded(tls_ecdhe_context_t *ctx, uint8_t *output, uint32_t *output_len)
 {
     if(ctx == NULL || output == NULL || output_len == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -381,14 +382,15 @@ noxtls_return_t tls_ecdhe_get_public_key_encoded(tls_ecdhe_context_t *ctx, uint8
         return NOXTLS_RETURN_FAILED;
     }
     
-    return tls_encode_ecc_point_uncompressed(&ctx->ephemeral_key.Q, output, output_len);
+    return noxtls_tls_encode_ecc_point_uncompressed(&ctx->ephemeral_key.Q, output, output_len);
 }
 
 /**
  * @brief Compute shared secret from peer's X25519 public key (32 bytes)
  */
-noxtls_return_t tls_ecdhe_compute_shared_secret_x25519(tls_ecdhe_context_t *ctx, const uint8_t peer_public_key[32])
+noxtls_return_t noxtls_tls_ecdhe_compute_shared_secret_x25519(tls_ecdhe_context_t *ctx, const uint8_t peer_public_key[32])
 {
+    static const uint8_t x25519_zero_secret[NOXTLS_X25519_KEY_SIZE] = { 0 };
     uint8_t *secret_buffer;
     noxtls_return_t rc;
     
@@ -409,6 +411,10 @@ noxtls_return_t tls_ecdhe_compute_shared_secret_x25519(tls_ecdhe_context_t *ctx,
     if(rc != NOXTLS_RETURN_SUCCESS) {
         free(secret_buffer);
         return rc;
+    }
+    if(noxtls_secret_memcmp(secret_buffer, x25519_zero_secret, NOXTLS_X25519_KEY_SIZE) == 0) {
+        NOXTLS_SECURE_FREE(secret_buffer, NOXTLS_X25519_KEY_SIZE);
+        return NOXTLS_RETURN_FAILED;
     }
     
     if(ctx->shared_secret) {
@@ -434,7 +440,7 @@ noxtls_return_t tls_ecdhe_compute_shared_secret_x25519(tls_ecdhe_context_t *ctx,
  * - Signature length (2 bytes)
  * - Signature (when server_private_rsa is set)
  */
-noxtls_return_t tls12_ecdhe_send_server_key_exchange(tls12_context_t *ctx, tls_ecdhe_context_t *ecdhe_ctx)
+noxtls_return_t noxtls_tls12_ecdhe_send_server_key_exchange(tls12_context_t *ctx, tls_ecdhe_context_t *ecdhe_ctx)
 {
     if(ctx == NULL || ecdhe_ctx == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -463,7 +469,7 @@ noxtls_return_t tls12_ecdhe_send_server_key_exchange(tls12_context_t *ctx, tls_e
     uint32_t to_sign_len;
     uint32_t sig_len;
 
-    /* Build Server Key Exchange message */
+    /* Build Server Key Exchange noxtls_message */
     server_key_exchange[offset++] = TLS_HANDSHAKE_SERVER_KEY_EXCHANGE;
     server_key_exchange[offset++] = 0x00;  /* Length (3 bytes) - placeholder */
     server_key_exchange[offset++] = 0x00;
@@ -475,7 +481,7 @@ noxtls_return_t tls12_ecdhe_send_server_key_exchange(tls12_context_t *ctx, tls_e
     server_key_exchange[offset++] = (ecdhe_ctx->named_group >> 8) & 0xFF;
     server_key_exchange[offset++] = ecdhe_ctx->named_group & 0xFF;
     memset(public_key_encoded, 0, sizeof(public_key_encoded));
-    rc = tls_ecdhe_get_public_key_encoded(ecdhe_ctx, public_key_encoded, &public_key_len);
+    rc = noxtls_tls_ecdhe_get_public_key_encoded(ecdhe_ctx, public_key_encoded, &public_key_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         if(server_key_exchange != ctx->handshake_workspace) NOXTLS_SECURE_FREE(server_key_exchange, 1024 + 320 + 512); else if(ctx->handshake_workspace != NULL) memset(ctx->handshake_workspace, 0, TLS_HANDSHAKE_WORKSPACE_SIZE);
         return rc;
@@ -558,7 +564,7 @@ noxtls_return_t tls12_ecdhe_send_server_key_exchange(tls12_context_t *ctx, tls_e
 /**
  * @brief TLS 1.2: Receive Server Key Exchange (ECDHE)
  */
-noxtls_return_t tls12_ecdhe_recv_server_key_exchange(tls12_context_t *ctx, tls_ecdhe_context_t *ecdhe_ctx)
+noxtls_return_t noxtls_tls12_ecdhe_recv_server_key_exchange(tls12_context_t *ctx, tls_ecdhe_context_t *ecdhe_ctx)
 {
     tls_record_t record;
     noxtls_return_t rc;
@@ -640,13 +646,13 @@ noxtls_return_t tls12_ecdhe_recv_server_key_exchange(tls12_context_t *ctx, tls_e
             free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
-        rc = tls_ecdhe_compute_shared_secret_x25519(ecdhe_ctx, record.data + offset);
+        rc = noxtls_tls_ecdhe_compute_shared_secret_x25519(ecdhe_ctx, record.data + offset);
         free(record.data);
         return rc;
     }
     
     /* Decode peer's public key */
-    rc = tls_decode_ecc_point_uncompressed(record.data + offset, public_key_len, &peer_public_key, ecdhe_ctx->curve_type);
+    rc = noxtls_tls_decode_ecc_point_uncompressed(record.data + offset, public_key_len, &peer_public_key, ecdhe_ctx->curve_type);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         free(record.data);
         return rc;
@@ -721,7 +727,7 @@ noxtls_return_t tls12_ecdhe_recv_server_key_exchange(tls12_context_t *ctx, tls_e
     }
 
     /* Compute shared secret */
-    rc = tls_ecdhe_compute_shared_secret(ecdhe_ctx, &peer_public_key);
+    rc = noxtls_tls_ecdhe_compute_shared_secret(ecdhe_ctx, &peer_public_key);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         free(record.data);
         return rc;
@@ -739,7 +745,7 @@ noxtls_return_t tls12_ecdhe_recv_server_key_exchange(tls12_context_t *ctx, tls_e
  * - Public key length (1 byte)
  * - Public key (uncompressed format)
  */
-noxtls_return_t tls12_ecdhe_send_client_key_exchange(tls12_context_t *ctx, tls_ecdhe_context_t *ecdhe_ctx)
+noxtls_return_t noxtls_tls12_ecdhe_send_client_key_exchange(tls12_context_t *ctx, tls_ecdhe_context_t *ecdhe_ctx)
 {
     if(ctx == NULL || ecdhe_ctx == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -759,16 +765,16 @@ noxtls_return_t tls12_ecdhe_send_client_key_exchange(tls12_context_t *ctx, tls_e
     uint32_t public_key_len = sizeof(public_key_encoded);
     noxtls_return_t rc;
     
-    /* Build Client Key Exchange message */
+    /* Build Client Key Exchange noxtls_message */
     client_key_exchange[offset++] = TLS_HANDSHAKE_CLIENT_KEY_EXCHANGE;
     client_key_exchange[offset++] = 0x00;  /* Length (3 bytes) - placeholder */
     client_key_exchange[offset++] = 0x00;
     client_key_exchange[offset++] = 0x00;
     
     /* Get encoded public key */
-    rc = tls_ecdhe_get_public_key_encoded(ecdhe_ctx, public_key_encoded, &public_key_len);
+    rc = noxtls_tls_ecdhe_get_public_key_encoded(ecdhe_ctx, public_key_encoded, &public_key_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        if(client_key_exchange != ctx->handshake_workspace) NOXTLS_SECURE_FREE(client_key_exchange, 1024); else if(ctx->handshake_workspace != NULL) memset(ctx->handshake_workspace, 0, TLS_HANDSHAKE_WORKSPACE_SIZE);
+        if(client_key_exchange != ctx->handshake_workspace) NOXTLS_SECURE_FREE(client_key_exchange, 512); else if(ctx->handshake_workspace != NULL) memset(ctx->handshake_workspace, 0, TLS_HANDSHAKE_WORKSPACE_SIZE);
         return rc;
     }
     
@@ -779,7 +785,7 @@ noxtls_return_t tls12_ecdhe_send_client_key_exchange(tls12_context_t *ctx, tls_e
     memcpy(client_key_exchange + offset, public_key_encoded, public_key_len);
     offset += public_key_len;
     
-    /* Update handshake message length */
+    /* Update handshake noxtls_message length */
     uint32_t handshake_len = offset - 4;
     client_key_exchange[1] = (handshake_len >> 16) & 0xFF;
     client_key_exchange[2] = (handshake_len >> 8) & 0xFF;
@@ -787,14 +793,14 @@ noxtls_return_t tls12_ecdhe_send_client_key_exchange(tls12_context_t *ctx, tls_e
     
     /* Send via record layer */
     rc = noxtls_tls_send_record(&ctx->base.base, TLS_RECORD_HANDSHAKE, client_key_exchange, offset);
-    if(client_key_exchange != ctx->handshake_workspace) NOXTLS_SECURE_FREE(client_key_exchange, 1024); else if(ctx->handshake_workspace != NULL) memset(ctx->handshake_workspace, 0, TLS_HANDSHAKE_WORKSPACE_SIZE);
+    if(client_key_exchange != ctx->handshake_workspace) NOXTLS_SECURE_FREE(client_key_exchange, 512); else if(ctx->handshake_workspace != NULL) memset(ctx->handshake_workspace, 0, TLS_HANDSHAKE_WORKSPACE_SIZE);
     return rc;
 }
 
 /**
  * @brief TLS 1.2: Receive Client Key Exchange (ECDHE)
  */
-noxtls_return_t tls12_ecdhe_recv_client_key_exchange(tls12_context_t *ctx, tls_ecdhe_context_t *ecdhe_ctx)
+noxtls_return_t noxtls_tls12_ecdhe_recv_client_key_exchange(tls12_context_t *ctx, tls_ecdhe_context_t *ecdhe_ctx)
 {
     tls_record_t record;
     noxtls_return_t rc;
@@ -848,20 +854,20 @@ noxtls_return_t tls12_ecdhe_recv_client_key_exchange(tls12_context_t *ctx, tls_e
             free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
-        rc = tls_ecdhe_compute_shared_secret_x25519(ecdhe_ctx, record.data + offset);
+        rc = noxtls_tls_ecdhe_compute_shared_secret_x25519(ecdhe_ctx, record.data + offset);
         free(record.data);
         return rc;
     }
     
     /* Decode peer's public key */
-    rc = tls_decode_ecc_point_uncompressed(record.data + offset, public_key_len, &peer_public_key, ecdhe_ctx->curve_type);
+    rc = noxtls_tls_decode_ecc_point_uncompressed(record.data + offset, public_key_len, &peer_public_key, ecdhe_ctx->curve_type);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         free(record.data);
         return rc;
     }
     
     /* Compute shared secret */
-    rc = tls_ecdhe_compute_shared_secret(ecdhe_ctx, &peer_public_key);
+    rc = noxtls_tls_ecdhe_compute_shared_secret(ecdhe_ctx, &peer_public_key);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         free(record.data);
         return rc;
@@ -874,7 +880,7 @@ noxtls_return_t tls12_ecdhe_recv_client_key_exchange(tls12_context_t *ctx, tls_e
 
 /* ========== TLS 1.2 DHE (FFDHE) ========== */
 
-noxtls_return_t tls_dhe_context_init(tls_dhe_context_t *ctx, uint16_t named_group)
+noxtls_return_t noxtls_tls_dhe_context_init(tls_dhe_context_t *ctx, uint16_t named_group)
 {
     const uint8_t *p = NULL;
     const uint8_t *g = NULL;
@@ -905,7 +911,7 @@ noxtls_return_t tls_dhe_context_init(tls_dhe_context_t *ctx, uint16_t named_grou
     return NOXTLS_RETURN_SUCCESS;
 }
 
-noxtls_return_t tls_dhe_context_free(tls_dhe_context_t *ctx)
+noxtls_return_t noxtls_tls_dhe_context_free(tls_dhe_context_t *ctx)
 {
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -919,7 +925,7 @@ noxtls_return_t tls_dhe_context_free(tls_dhe_context_t *ctx)
     return NOXTLS_RETURN_SUCCESS;
 }
 
-noxtls_return_t tls12_dhe_send_server_key_exchange(tls12_context_t *ctx, tls_dhe_context_t *dhe_ctx, uint8_t *msg_out, uint32_t msg_out_size, uint32_t *msg_out_len)
+noxtls_return_t noxtls_tls12_dhe_send_server_key_exchange(tls12_context_t *ctx, tls_dhe_context_t *dhe_ctx, uint8_t *msg_out, uint32_t msg_out_size, uint32_t *msg_out_len)
 {
     const uint8_t *p = NULL;
     const uint8_t *g = NULL;
@@ -1051,13 +1057,15 @@ noxtls_return_t tls12_dhe_send_server_key_exchange(tls12_context_t *ctx, tls_dhe
     return rc;
 }
 
-noxtls_return_t tls12_dhe_recv_server_key_exchange(tls12_context_t *ctx, tls_dhe_context_t *dhe_ctx, const uint8_t *record_data, uint32_t record_len)
+noxtls_return_t noxtls_tls12_dhe_recv_server_key_exchange(tls12_context_t *ctx, tls_dhe_context_t *dhe_ctx, const uint8_t *record_data, uint32_t record_len)
 {
     const uint8_t *p = NULL;
     const uint8_t *g = NULL;
     uint32_t p_len = 0;
     uint32_t off;
-    uint16_t len_p, len_g, len_Ys;
+    uint16_t len_p;
+    uint16_t len_g;
+    uint16_t len_Ys;
     noxtls_return_t rc;
 
     if(ctx == NULL || dhe_ctx == NULL || record_data == NULL) {
@@ -1093,7 +1101,7 @@ noxtls_return_t tls12_dhe_recv_server_key_exchange(tls12_context_t *ctx, tls_dhe
     }
     if(noxtls_dh_ffdhe_params(dhe_ctx->named_group, &p, &g, &p_len) != NOXTLS_RETURN_SUCCESS ||
        len_p != p_len || len_g != p_len || len_Ys != p_len || p_len > dhe_ctx->p_len) {
-        return NOXTLS_RETURN_FAILED;
+        return NOXTLS_RETURN_TLS_WEAK_DHE_PARAMS;
     }
     memcpy(dhe_ctx->server_public, record_data + off, p_len);
     off += p_len;
@@ -1147,7 +1155,7 @@ noxtls_return_t tls12_dhe_recv_server_key_exchange(tls12_context_t *ctx, tls_dhe
     return NOXTLS_RETURN_SUCCESS;
 }
 
-noxtls_return_t tls12_dhe_send_client_key_exchange(tls12_context_t *ctx, tls_dhe_context_t *dhe_ctx)
+noxtls_return_t noxtls_tls12_dhe_send_client_key_exchange(tls12_context_t *ctx, tls_dhe_context_t *dhe_ctx)
 {
     if(ctx == NULL || dhe_ctx == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -1166,7 +1174,7 @@ noxtls_return_t tls12_dhe_send_client_key_exchange(tls12_context_t *ctx, tls_dhe
     uint32_t p_len = dhe_ctx->p_len;
 
     if(p_len + 6 > 1024) {
-        if(client_key_exchange != ctx->handshake_workspace) NOXTLS_SECURE_FREE(client_key_exchange, 512); else if(ctx->handshake_workspace != NULL) memset(ctx->handshake_workspace, 0, TLS_HANDSHAKE_WORKSPACE_SIZE);
+        if(client_key_exchange != ctx->handshake_workspace) NOXTLS_SECURE_FREE(client_key_exchange, 1024); else if(ctx->handshake_workspace != NULL) memset(ctx->handshake_workspace, 0, TLS_HANDSHAKE_WORKSPACE_SIZE);
         return NOXTLS_RETURN_FAILED;
     }
     client_key_exchange[offset++] = TLS_HANDSHAKE_CLIENT_KEY_EXCHANGE;
@@ -1182,11 +1190,11 @@ noxtls_return_t tls12_dhe_send_client_key_exchange(tls12_context_t *ctx, tls_dhe
     client_key_exchange[2] = (handshake_len >> 8) & 0xFF;
     client_key_exchange[3] = handshake_len & 0xFF;
     noxtls_return_t rc = noxtls_tls_send_record(&ctx->base.base, TLS_RECORD_HANDSHAKE, client_key_exchange, offset);
-    if(client_key_exchange != ctx->handshake_workspace) NOXTLS_SECURE_FREE(client_key_exchange, 512); else if(ctx->handshake_workspace != NULL) memset(ctx->handshake_workspace, 0, TLS_HANDSHAKE_WORKSPACE_SIZE);
+    if(client_key_exchange != ctx->handshake_workspace) NOXTLS_SECURE_FREE(client_key_exchange, 1024); else if(ctx->handshake_workspace != NULL) memset(ctx->handshake_workspace, 0, TLS_HANDSHAKE_WORKSPACE_SIZE);
     return rc;
 }
 
-noxtls_return_t tls12_dhe_recv_client_key_exchange(tls12_context_t *ctx, tls_dhe_context_t *dhe_ctx, const uint8_t *record_data, uint32_t record_len)
+noxtls_return_t noxtls_tls12_dhe_recv_client_key_exchange(tls12_context_t *ctx, tls_dhe_context_t *dhe_ctx, const uint8_t *record_data, uint32_t record_len)
 {
     const uint8_t *p = NULL;
     const uint8_t *g = NULL;
@@ -1232,7 +1240,7 @@ noxtls_return_t tls12_dhe_recv_client_key_exchange(tls12_context_t *ctx, tls_dhe
  * - Key exchange length (2 bytes)
  * - Key exchange (uncompressed ECC point)
  */
-noxtls_return_t tls13_key_share_encode(const tls_ecdhe_context_t *ecdhe_ctx, uint8_t *output, uint32_t *output_len)
+noxtls_return_t noxtls_tls13_key_share_encode(const tls_ecdhe_context_t *ecdhe_ctx, uint8_t *output, uint32_t *output_len)
 {
     uint8_t public_key_encoded[133];  /* Max: 1 + 2*66 for P-521 */
     uint32_t public_key_len = sizeof(public_key_encoded);
@@ -1245,7 +1253,7 @@ noxtls_return_t tls13_key_share_encode(const tls_ecdhe_context_t *ecdhe_ctx, uin
     }
     
     /* Get encoded public key */
-    rc = tls_ecdhe_get_public_key_encoded((tls_ecdhe_context_t*)ecdhe_ctx, public_key_encoded, &public_key_len);
+    rc = noxtls_tls_ecdhe_get_public_key_encoded((tls_ecdhe_context_t*)ecdhe_ctx, public_key_encoded, &public_key_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -1277,7 +1285,7 @@ noxtls_return_t tls13_key_share_encode(const tls_ecdhe_context_t *ecdhe_ctx, uin
 /**
  * @brief TLS 1.3: Decode Key Share entry
  */
-noxtls_return_t tls13_key_share_decode(const uint8_t *encoded, uint32_t encoded_len, uint16_t named_group, ecc_point_t *public_key)
+noxtls_return_t noxtls_tls13_key_share_decode(const uint8_t *encoded, uint32_t encoded_len, uint16_t named_group, ecc_point_t *public_key)
 {
     uint16_t group;
     uint16_t key_exchange_len;
@@ -1315,18 +1323,18 @@ noxtls_return_t tls13_key_share_decode(const uint8_t *encoded, uint32_t encoded_
         if(key_exchange_len != TLS_RANDOM_SIZE) {
             return NOXTLS_RETURN_FAILED;
         }
-        /* Caller should use key_exchange bytes directly with tls_ecdhe_compute_shared_secret_x25519 */
+        /* Caller should use key_exchange bytes directly with noxtls_tls_ecdhe_compute_shared_secret_x25519 */
         return NOXTLS_RETURN_FAILED;  /* Decode to ecc_point_t not supported for X25519 */
     }
     
     /* Map named group to curve type */
-    rc = tls_named_group_to_ecc_curve(named_group, &curve_type);
+    rc = noxtls_tls_named_group_to_ecc_curve(named_group, &curve_type);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
     
     /* Decode public key */
-    return tls_decode_ecc_point_uncompressed(encoded + 4, key_exchange_len, public_key, curve_type);
+    return noxtls_tls_decode_ecc_point_uncompressed(encoded + 4, key_exchange_len, public_key, curve_type);
 }
 
 /**
@@ -1335,7 +1343,7 @@ noxtls_return_t tls13_key_share_decode(const uint8_t *encoded, uint32_t encoded_
  * This function extracts the client's key share from the Client Hello
  * and computes the shared secret.
  */
-noxtls_return_t tls13_process_client_key_share(tls13_context_t *ctx, tls_ecdhe_context_t *ecdhe_ctx)
+noxtls_return_t noxtls_tls13_process_client_key_share(tls13_context_t *ctx, tls_ecdhe_context_t *ecdhe_ctx)
 {
     ecc_point_t peer_public_key;
     noxtls_return_t rc;
@@ -1370,16 +1378,16 @@ noxtls_return_t tls13_process_client_key_share(tls13_context_t *ctx, tls_ecdhe_c
         if(client_key_share->key_exchange_len != NOXTLS_X25519_KEY_SIZE) {
             return NOXTLS_RETURN_FAILED;
         }
-        return tls_ecdhe_compute_shared_secret_x25519(ecdhe_ctx, client_key_share->key_exchange);
+        return noxtls_tls_ecdhe_compute_shared_secret_x25519(ecdhe_ctx, client_key_share->key_exchange);
     }
     
     /* Decode client's public key (raw key_exchange bytes) */
     ecc_curve_t curve_type;
-    rc = tls_named_group_to_ecc_curve(ecdhe_ctx->named_group, &curve_type);
+    rc = noxtls_tls_named_group_to_ecc_curve(ecdhe_ctx->named_group, &curve_type);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    rc = tls_decode_ecc_point_uncompressed(client_key_share->key_exchange,
+    rc = noxtls_tls_decode_ecc_point_uncompressed(client_key_share->key_exchange,
                                            client_key_share->key_exchange_len,
                                            &peer_public_key,
                                            curve_type);
@@ -1388,7 +1396,7 @@ noxtls_return_t tls13_process_client_key_share(tls13_context_t *ctx, tls_ecdhe_c
     }
     
     /* Compute shared secret */
-    return tls_ecdhe_compute_shared_secret(ecdhe_ctx, &peer_public_key);
+    return noxtls_tls_ecdhe_compute_shared_secret(ecdhe_ctx, &peer_public_key);
 }
 
 /**
@@ -1397,7 +1405,7 @@ noxtls_return_t tls13_process_client_key_share(tls13_context_t *ctx, tls_ecdhe_c
  * This function extracts the server's key share from the Server Hello
  * and computes the shared secret.
  */
-noxtls_return_t tls13_process_server_key_share(const tls13_context_t *ctx, tls_ecdhe_context_t *ecdhe_ctx)
+noxtls_return_t noxtls_tls13_process_server_key_share(const tls13_context_t *ctx, tls_ecdhe_context_t *ecdhe_ctx)
 {
     ecc_point_t peer_public_key;
     noxtls_return_t rc;
@@ -1423,16 +1431,16 @@ noxtls_return_t tls13_process_server_key_share(const tls13_context_t *ctx, tls_e
         if(ctx->server_key_share->key_exchange_len != NOXTLS_X25519_KEY_SIZE) {
             return NOXTLS_RETURN_FAILED;
         }
-        return tls_ecdhe_compute_shared_secret_x25519(ecdhe_ctx, ctx->server_key_share->key_exchange);
+        return noxtls_tls_ecdhe_compute_shared_secret_x25519(ecdhe_ctx, ctx->server_key_share->key_exchange);
     }
     
     /* Decode server's public key (raw key_exchange bytes) */
     ecc_curve_t curve_type;
-    rc = tls_named_group_to_ecc_curve(ecdhe_ctx->named_group, &curve_type);
+    rc = noxtls_tls_named_group_to_ecc_curve(ecdhe_ctx->named_group, &curve_type);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    rc = tls_decode_ecc_point_uncompressed(ctx->server_key_share->key_exchange,
+    rc = noxtls_tls_decode_ecc_point_uncompressed(ctx->server_key_share->key_exchange,
                                            ctx->server_key_share->key_exchange_len,
                                            &peer_public_key,
                                            curve_type);
@@ -1460,6 +1468,6 @@ noxtls_return_t tls13_process_server_key_share(const tls13_context_t *ctx, tls_e
     }
     
     /* Compute shared secret */
-    return tls_ecdhe_compute_shared_secret(ecdhe_ctx, &peer_public_key);
+    return noxtls_tls_ecdhe_compute_shared_secret(ecdhe_ctx, &peer_public_key);
 }
 

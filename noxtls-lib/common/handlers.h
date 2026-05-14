@@ -32,6 +32,7 @@
 /* Standard Includes */
 #include <stdint.h>
 #include <stdio.h>
+#include "noxtls_config.h"
 
 typedef struct {
     char algo[32];

@@ -71,6 +71,8 @@ typedef struct noxtls_tls_connection_s
     const uint8_t *server_cert;
     uint32_t server_cert_len;
     void *server_private_rsa;
+    const uint16_t *server_cipher_suites;
+    uint32_t server_cipher_suites_count;
     const char *server_name;
     uint16_t server_name_len;
     union {
@@ -103,6 +105,10 @@ noxtls_return_t noxtls_tls_connection_set_server_cert(noxtls_tls_connection_t *c
 
 /** Server: set RSA private key for Server Key Exchange / CertificateVerify. */
 noxtls_return_t noxtls_tls_connection_set_server_private_key(noxtls_tls_connection_t *conn, void *rsa_key);
+/** Server: set cipher-suite allowlist (wire IDs). */
+noxtls_return_t noxtls_tls_connection_set_server_cipher_suites(noxtls_tls_connection_t *conn,
+                                                               const uint16_t *suites,
+                                                               uint32_t count);
 
 /** Client: set SNI hostname. Applied at connect. */
 noxtls_return_t noxtls_tls_connection_set_sni(noxtls_tls_connection_t *conn, const char *name, uint16_t name_len);

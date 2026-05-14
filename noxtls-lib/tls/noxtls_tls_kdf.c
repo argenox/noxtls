@@ -114,7 +114,7 @@ static uint32_t get_hash_output_size(noxtls_hash_algos_t hash_algo)
 /**
  * @brief Initialize HMAC context
  */
-noxtls_return_t hmac_init(hmac_context_t *ctx, noxtls_hash_algos_t hash_algo, const uint8_t *key, uint32_t key_len)
+noxtls_return_t noxtls_hmac_init(hmac_context_t *ctx, noxtls_hash_algos_t hash_algo, const uint8_t *key, uint32_t key_len)
 {
     uint32_t block_size;
     uint32_t i;
@@ -233,7 +233,7 @@ noxtls_return_t hmac_init(hmac_context_t *ctx, noxtls_hash_algos_t hash_algo, co
 /**
  * @brief Update HMAC with data
  */
-noxtls_return_t hmac_update(hmac_context_t *ctx, const uint8_t *data, uint32_t data_len)
+noxtls_return_t noxtls_hmac_update(hmac_context_t *ctx, const uint8_t *data, uint32_t data_len)
 {
     if(ctx == NULL || data == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -257,7 +257,7 @@ noxtls_return_t hmac_update(hmac_context_t *ctx, const uint8_t *data, uint32_t d
 /**
  * @brief Finalize HMAC and compute MAC
  */
-noxtls_return_t hmac_final(hmac_context_t *ctx, uint8_t *mac, uint32_t *mac_len)
+noxtls_return_t noxtls_hmac_final(hmac_context_t *ctx, uint8_t *mac, uint32_t *mac_len)
 {
     uint32_t hash_size;
     uint8_t inner_hash[64];  /* Max hash size */
@@ -339,7 +339,7 @@ noxtls_return_t hmac_final(hmac_context_t *ctx, uint8_t *mac, uint32_t *mac_len)
 /**
  * @brief Free HMAC context
  */
-noxtls_return_t hmac_free(hmac_context_t *ctx)
+noxtls_return_t noxtls_hmac_free(hmac_context_t *ctx)
 {
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -370,25 +370,25 @@ noxtls_return_t hmac_compute(noxtls_hash_algos_t hash_algo, const uint8_t *key, 
     hmac_context_t ctx;
     noxtls_return_t rc;
     
-    rc = hmac_init(&ctx, hash_algo, key, key_len);
+    rc = noxtls_hmac_init(&ctx, hash_algo, key, key_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        printf("[TLS12_DEBUG] hmac_compute: hmac_init rc=%d algo=%u key_len=%lu\n", rc, (unsigned)hash_algo, (unsigned long)key_len);
+        printf("[TLS12_DEBUG] hmac_compute: noxtls_hmac_init rc=%d algo=%u key_len=%lu\n", rc, (unsigned)hash_algo, (unsigned long)key_len);
         fflush(stdout);
         return rc;
     }
     
     if(data != NULL && data_len > 0) {
-        rc = hmac_update(&ctx, data, data_len);
+        rc = noxtls_hmac_update(&ctx, data, data_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            printf("[TLS12_DEBUG] hmac_compute: hmac_update rc=%d algo=%u data_len=%lu\n", rc, (unsigned)hash_algo, (unsigned long)data_len);
+            printf("[TLS12_DEBUG] hmac_compute: noxtls_hmac_update rc=%d algo=%u data_len=%lu\n", rc, (unsigned)hash_algo, (unsigned long)data_len);
             fflush(stdout);
             return rc;
         }
     }
     
-    rc = hmac_final(&ctx, mac, mac_len);
+    rc = noxtls_hmac_final(&ctx, mac, mac_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        printf("[TLS12_DEBUG] hmac_compute: hmac_final rc=%d algo=%u\n", rc, (unsigned)hash_algo);
+        printf("[TLS12_DEBUG] hmac_compute: noxtls_hmac_final rc=%d algo=%u\n", rc, (unsigned)hash_algo);
         fflush(stdout);
     }
     return rc;
@@ -429,6 +429,9 @@ noxtls_return_t tls12_prf(const uint8_t *secret, uint32_t secret_len,
     }
     
     /* Concatenate label and seed */
+    if(label_len > UINT32_MAX - seed_len) {
+        return NOXTLS_RETURN_FAILED;
+    }
     label_seed_len = label_len + seed_len;
     label_seed = (uint8_t*)malloc(label_seed_len);
     if(label_seed == NULL) {
@@ -457,6 +460,10 @@ noxtls_return_t tls12_prf(const uint8_t *secret, uint32_t secret_len,
         A_len = temp_len;
         
         /* HMAC_hash(secret, A(i) || label || seed) */
+        if(A_len > UINT32_MAX - label_seed_len) {
+            free(label_seed);
+            return NOXTLS_RETURN_FAILED;
+        }
         uint8_t *A_label_seed = (uint8_t*)malloc(A_len + label_seed_len);
         if(A_label_seed == NULL) {
             free(label_seed);
@@ -599,7 +606,8 @@ noxtls_return_t tls10_prf(const uint8_t *secret, uint32_t secret_len,
     uint32_t label_seed_len;
     uint8_t A_md5[64];
     uint8_t A_sha1[64];
-    uint32_t A_md5_len, A_sha1_len;
+    uint32_t A_md5_len;
+    uint32_t A_sha1_len;
     uint32_t offset = 0;
     uint8_t temp_md5[16];
     uint8_t temp_sha1[20];
@@ -610,6 +618,9 @@ noxtls_return_t tls10_prf(const uint8_t *secret, uint32_t secret_len,
     }
     
     /* Concatenate label and seed */
+    if(label_len > UINT32_MAX - seed_len) {
+        return NOXTLS_RETURN_FAILED;
+    }
     label_seed_len = label_len + seed_len;
     label_seed = (uint8_t*)malloc(label_seed_len);
     if(label_seed == NULL) {
@@ -636,6 +647,10 @@ noxtls_return_t tls10_prf(const uint8_t *secret, uint32_t secret_len,
         A_md5_len = 16;
         
         /* HMAC_MD5(secret, A(i) || label || seed) */
+        if(A_md5_len > UINT32_MAX - label_seed_len) {
+            free(label_seed);
+            return NOXTLS_RETURN_FAILED;
+        }
         uint8_t *A_label_seed_md5 = (uint8_t*)malloc(A_md5_len + label_seed_len);
         if(A_label_seed_md5 == NULL) {
             free(label_seed);
@@ -660,6 +675,10 @@ noxtls_return_t tls10_prf(const uint8_t *secret, uint32_t secret_len,
         A_sha1_len = 20;
         
         /* HMAC_SHA1(secret, A(i) || label || seed) */
+        if(A_sha1_len > UINT32_MAX - label_seed_len) {
+            free(label_seed);
+            return NOXTLS_RETURN_FAILED;
+        }
         uint8_t *A_label_seed_sha1 = (uint8_t*)malloc(A_sha1_len + label_seed_len);
         if(A_label_seed_sha1 == NULL) {
             free(label_seed);
@@ -808,22 +827,35 @@ noxtls_return_t tls13_hkdf_expand_label(noxtls_hash_algos_t hash_algo,
                                           const uint8_t *context, uint32_t context_len,
                                           uint8_t *output, uint32_t output_len)
 {
-    uint8_t *hkdf_label;  /* Max size for HkdfLabel: 256 */
+    uint8_t *hkdf_label;
+    uint32_t hkdf_label_len;
     uint32_t offset = 0;
     const char *tls13_prefix = "tls13 ";
     uint32_t tls13_prefix_len = 6;
+    uint32_t full_label_len;
     noxtls_return_t rc;
 
     if(secret == NULL || label == NULL || output == NULL) {
         return NOXTLS_RETURN_NULL;
     }
 
-    if(label_len > 255 || context_len > 255) {
+    if(label_len > 255u || context_len > 255u) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
+    if(context == NULL && context_len > 0u) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(label_len > (255u - tls13_prefix_len)) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    full_label_len = tls13_prefix_len + label_len;
 
-    hkdf_label = (uint8_t *)noxtls_malloc(256);
-    if (hkdf_label == NULL) {
+    if(full_label_len > UINT32_MAX - context_len - 4u) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    hkdf_label_len = 2u + 1u + full_label_len + 1u + context_len;
+    hkdf_label = (uint8_t *)noxtls_malloc(hkdf_label_len);
+    if(hkdf_label == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
 
@@ -833,7 +865,6 @@ noxtls_return_t tls13_hkdf_expand_label(noxtls_hash_algos_t hash_algo,
     hkdf_label[offset++] = output_len & 0xFF;
 
     /* Label length (1 byte) */
-    uint32_t full_label_len = tls13_prefix_len + label_len;
     hkdf_label[offset++] = full_label_len & 0xFF;
 
     /* Label = "tls13 " || label */

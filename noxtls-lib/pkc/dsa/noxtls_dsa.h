@@ -77,8 +77,8 @@ noxtls_return_t noxtls_dsa_key_generate(dsa_key_t *key);
 noxtls_return_t noxtls_dsa_key_free(dsa_key_t *key);
 
 /* DSA signature operations */
-noxtls_return_t noxtls_dsa_sign(const dsa_key_t *key, const uint8_t *message, uint32_t message_len, dsa_signature_t *signature, noxtls_hash_algos_t hash_algo);
-noxtls_return_t noxtls_dsa_verify(const dsa_key_t *key, const uint8_t *message, uint32_t message_len, const dsa_signature_t *signature, noxtls_hash_algos_t hash_algo);
+noxtls_return_t noxtls_dsa_sign(const dsa_key_t *key, const uint8_t *noxtls_message, uint32_t message_len, dsa_signature_t *signature, noxtls_hash_algos_t hash_algo);
+noxtls_return_t noxtls_dsa_verify(const dsa_key_t *key, const uint8_t *noxtls_message, uint32_t message_len, const dsa_signature_t *signature, noxtls_hash_algos_t hash_algo);
 
 /* DSA signature helpers */
 noxtls_return_t noxtls_dsa_signature_init(dsa_signature_t *sig, uint32_t q_len);

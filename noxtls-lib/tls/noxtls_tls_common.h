@@ -85,15 +85,16 @@ extern "C" {
 #define TLS_KEY_BLOCK_MAX_LEN                256  /* Max key_block length (TLS 1.2) */
 #define TLS_FINISHED_VERIFY_DATA_LEN_12      12   /* TLS 1.0/1.1 Finished verify_data length */
 #define TLS_HANDSHAKE_HEADER_LEN             4    /* Handshake type (1) + length (3) */
-#define TLS_CLIENT_HELLO_BASE_SIZE           1024 /* Base size for ClientHello before extensions */
-#define TLS_CLIENT_HELLO_EXTENSIONS_TAIL     256  /* Tail buffer for building extensions */
+#define TLS_CLIENT_HELLO_BASE_SIZE           2048 /* Base size for ClientHello before extensions */
+#define TLS_CLIENT_HELLO_EXTENSIONS_TAIL     2048 /* Tail buffer for building extensions */
 #define TLS_CLIENT_HELLO_DEFAULT_SIZE       (TLS_CLIENT_HELLO_BASE_SIZE + TLS_CLIENT_HELLO_EXTENSIONS_TAIL)
-#define TLS_SERVER_HELLO_DEFAULT_SIZE        512
-#define TLS_CLIENT_KEY_EXCHANGE_MAX_LEN      512  /* Max ClientKeyExchange message buffer */
+#define TLS_SERVER_HELLO_DEFAULT_SIZE        2048
+#define TLS_CLIENT_KEY_EXCHANGE_MAX_LEN      512  /* Max ClientKeyExchange noxtls_message buffer */
 #define TLS_HELLO_RETRY_REQUEST_MAX_SIZE     256
 #define TLS_SERVER_KEY_EXCHANGE_WORKSPACE   (1024 + 320 + 512)  /* DHE/ECDHE params + sig buffer */
 #define TLS_RECORD_WORKSPACE_OVERHEAD        256  /* Extra bytes for record_workspace (IV/tag/etc.) */
-#define TLS_KEY_SHARE_ENTRY_MAX_LEN          256  /* Encoded key share entry buffer */
+#define TLS13_RECORD_WORKSPACE_SIZE         ((TLS_MAX_RECORD_SIZE + 32) * 2) /* TLS 1.3 record workspace size */
+#define TLS_KEY_SHARE_ENTRY_MAX_LEN          2048 /* Encoded key share entry buffer */
 #define TLS_SESSION_ID_MAX_LEN               32
 #define TLS_CERT_REQUEST_CONTEXT_MAX_LEN    32
 #define TLS_NEW_SESSION_TICKET_NONCE_LEN     16
@@ -111,6 +112,13 @@ extern "C" {
 #define TLS_SIGSCHEME_ECDSA_SECP384R1_SHA384 0x0503
 #define TLS_SIGSCHEME_ED25519                0x0807
 #define TLS_SIGSCHEME_ED448                  0x0808
+/* Private-use IDs for PQ/hybrid prototyping; switch to final IANA IDs when standardized. */
+#define TLS_SIGSCHEME_MLDSA44                0xFEA0
+#define TLS_SIGSCHEME_MLDSA65                0xFEA1
+#define TLS_SIGSCHEME_MLDSA87                0xFEA2
+#define TLS_SIGSCHEME_RSA_PSS_SHA256_MLDSA44 0xFEB0
+#define TLS_SIGSCHEME_RSA_PSS_SHA256_MLDSA65 0xFEB1
+#define TLS_SIGSCHEME_RSA_PSS_SHA384_MLDSA87 0xFEB2
 
 /* TLS Named Groups (for key exchange) */
 #define TLS_NAMED_GROUP_SECP256R1    23  /* secp256r1 (NIST P-256) */
@@ -118,6 +126,14 @@ extern "C" {
 #define TLS_NAMED_GROUP_SECP521R1    25  /* secp521r1 (NIST P-521) */
 #define TLS_NAMED_GROUP_X25519       29  /* x25519 (Curve25519) */
 #define TLS_NAMED_GROUP_X448         30  /* x448 (Curve448) */
+/* Private-use IDs for PQ/hybrid prototyping plus current IANA assignment where available. */
+#define TLS_NAMED_GROUP_MLKEM512     0xFE30
+#define TLS_NAMED_GROUP_MLKEM768     0xFE31
+#define TLS_NAMED_GROUP_MLKEM1024    0xFE32
+#define TLS_NAMED_GROUP_X25519_MLKEM512 0xFE40
+#define TLS_NAMED_GROUP_X25519_MLKEM768 0x11EC
+#define TLS_NAMED_GROUP_X25519_MLKEM768_LEGACY 0xFE41
+#define TLS_NAMED_GROUP_X25519_MLKEM1024 0xFE42
 /* RFC 7919 FFDHE (finite-field DH) */
 #define TLS_NAMED_GROUP_FFDHE2048   256
 #define TLS_NAMED_GROUP_FFDHE3072   257
@@ -266,13 +282,13 @@ extern "C" {
 /* Maximum TLS record and handshake sizes.
  * Configure in noxtls_config.h: NOXTLS_TLS_MAX_RECORD_SIZE and
  * NOXTLS_TLS_MAX_HANDSHAKE_SIZE. Record size must fit the largest
- * handshake message (typically the Certificate message = chain size);
+ * handshake noxtls_message (typically the Certificate noxtls_message = chain size);
  * see noxtls_config.h for adjustment and certificate-size guidance. */
 #define TLS_MAX_RECORD_SIZE       NOXTLS_TLS_MAX_RECORD_SIZE
 #define TLS_MAX_HANDSHAKE_SIZE    NOXTLS_TLS_MAX_HANDSHAKE_SIZE
 
 /** Size of per-connection handshake workspace for building/parsing handshake messages (client_hello, certificate, etc.). Reused to reduce peak stack and heap. */
-#define TLS_HANDSHAKE_WORKSPACE_SIZE  4096
+#define TLS_HANDSHAKE_WORKSPACE_SIZE  8192
 
 /* Network I/O Callback Types */
 typedef enum
@@ -380,7 +396,7 @@ typedef struct
     /* For version negotiation: stored Client Hello */
     uint8_t *pending_client_hello;       /* Pre-received Client Hello data */
     uint32_t pending_client_hello_len;   /* Length of pre-received Client Hello */
-    /* Optional record send workspace (allocated by dtls_context_init when using TLS/DTLS 1.2/1.3) */
+    /* Optional record send workspace (allocated by noxtls_dtls_context_init when using TLS/DTLS 1.2/1.3) */
     uint8_t *record_send_buf;
 } tls_context_t;
 NOXTLS_MSVC_WARNING_POP

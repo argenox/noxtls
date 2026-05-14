@@ -131,6 +131,82 @@ int noxtls_base64_encode(uint8_t * input, uint32_t len, char * output)
 
 
 /**
+ * @brief Map one Base64 character to a 6-bit value, or sentinel for skip/pad/invalid.
+ * @param c Input byte.
+ * @return 0..63 data, -1 padding '=', -2 ignorable whitespace, -3 invalid.
+ */
+static int noxtls_base64_decode_sextet(unsigned char c)
+{
+    if(c == '\r' || c == '\n' || c == '\t' || c == ' ') {
+        return -2;
+    }
+    if(c == (unsigned char)BASE64_PAD_CHAR) {
+        return -1;
+    }
+    if(c >= 'A' && c <= 'Z') {
+        return (int)(c - 'A');
+    }
+    if(c >= 'a' && c <= 'z') {
+        return (int)(c - 'a' + 26);
+    }
+    if(c >= '0' && c <= '9') {
+        return (int)(c - '0' + 52);
+    }
+    if(c == '+') {
+        return 62;
+    }
+    if(c == '/') {
+        return 63;
+    }
+    return -3;
+}
+
+/**
+ * @brief Emit up to three bytes from one Base64 quantum (handles '=' padding).
+ * @param s Four sextet values, or -1 for padding positions.
+ * @param out_ptr In/out write cursor into the decoded output buffer.
+ * @return 0 on success, -1 on invalid quantum.
+ */
+static int noxtls_base64_emit_quantum(const int s[4], uint8_t **out_ptr)
+{
+    int a;
+    int b;
+    int c;
+    int d;
+    uint32_t val;
+
+    a = s[0];
+    b = s[1];
+    c = s[2];
+    d = s[3];
+    if(a < 0 || b < 0) {
+        return -1;
+    }
+    if(d == -1) {
+        if(c == -1) {
+            val = ((uint32_t)a << 18) | ((uint32_t)b << 12);
+            *(*out_ptr)++ = (uint8_t)(val >> 16);
+        } else {
+            if(c < 0) {
+                return -1;
+            }
+            val = ((uint32_t)a << 18) | ((uint32_t)b << 12) | ((uint32_t)c << 6);
+            *(*out_ptr)++ = (uint8_t)(val >> 16);
+            *(*out_ptr)++ = (uint8_t)(val >> 8);
+        }
+    } else {
+        if(c < 0 || d < 0) {
+            return -1;
+        }
+        val = ((uint32_t)a << 18) | ((uint32_t)b << 12) | ((uint32_t)c << 6) | (uint32_t)d;
+        *(*out_ptr)++ = (uint8_t)(val >> 16);
+        *(*out_ptr)++ = (uint8_t)(val >> 8);
+        *(*out_ptr)++ = (uint8_t)val;
+    }
+    return 0;
+}
+
+/**
  * @brief Decodes Base64 data
  *
  * @param input is the Base64 data
@@ -142,53 +218,89 @@ int noxtls_base64_encode(uint8_t * input, uint32_t len, char * output)
  */
 int noxtls_base64_decode(char * input, uint32_t len, uint8_t * output)
 {
-    uint32_t val;
-    char * ptr = input;
-    uint8_t * out_ptr = output;
-    int out_len = -1;
+    uint8_t *out_ptr;
+    uint32_t i;
+    int s[4];
+    int ns;
+    int v;
+    int t;
+    int expected_tail_pad;
+    int seen_tail_pad;
+    ptrdiff_t written;
 
-    do
-    {
-        if(input == NULL) {
-            break;
+    if(input == NULL || output == NULL) {
+        return -1;
+    }
+    if(len == 0u) {
+        return 0;
+    }
+
+    out_ptr = output;
+    i = 0u;
+    ns = 0;
+
+    while(i < len) {
+        v = noxtls_base64_decode_sextet((unsigned char)input[i]);
+        i++;
+        if(v == -2) {
+            continue;
         }
-
-        if(output == NULL) {
-            break;
+        if(v == -3) {
+            return -1;
         }
-
-        if(len == 0) {
-            out_len = 0;
-            break;
-        }
-
-        while(len >= BASE64_ENCODE_OUTPUT_BYTES)
-        {            
-            val = (noxtls_base64_decode_char(ptr[0]) << BASE64_SEXTET_SHIFT_0) |
-                  (noxtls_base64_decode_char(ptr[1]) << BASE64_SEXTET_SHIFT_1) |
-                  (noxtls_base64_decode_char(ptr[2]) << BASE64_SEXTET_SHIFT_2) |
-                  (noxtls_base64_decode_char(ptr[3]));
-
-            *out_ptr++ = (uint8_t)((val & 0x00FF0000) >> 16);
-            *out_ptr++ = (uint8_t)((val & 0x0000FF00) >> 8);
-            *out_ptr++ = (uint8_t)(val & 0x000000FF);        
-
-            ptr += BASE64_ENCODE_OUTPUT_BYTES;
-            len -= BASE64_ENCODE_OUTPUT_BYTES;
-        }
-
-        {
-            ptrdiff_t written = out_ptr - output;
-            if(written > INT_MAX) {
-                out_len = -1;
-            } else {
-                out_len = (int)written;
+        if(v == -1) {
+            if(ns == 0) {
+                return -1;
             }
+            expected_tail_pad = (ns == 2) ? 1 : 0;
+            seen_tail_pad = 0;
+            while(ns < 4) {
+                s[ns] = -1;
+                ns++;
+            }
+            if(noxtls_base64_emit_quantum(s, &out_ptr) != 0) {
+                return -1;
+            }
+            ns = 0;
+            while(i < len) {
+                t = noxtls_base64_decode_sextet((unsigned char)input[i]);
+                i++;
+                if(t == -2) {
+                    continue;
+                }
+                if(t == -1) {
+                    if(seen_tail_pad >= expected_tail_pad) {
+                        return -1;
+                    }
+                    seen_tail_pad++;
+                    continue;
+                }
+                return -1;
+            }
+            if(seen_tail_pad != expected_tail_pad) {
+                return -1;
+            }
+            break;
         }
+        s[ns] = v;
+        ns++;
+        if(ns == 4) {
+            if(noxtls_base64_emit_quantum(s, &out_ptr) != 0) {
+                return -1;
+            }
+            ns = 0;
+        }
+    }
 
-    } while(0);
+    if(ns != 0) {
+        return -1;
+    }
 
-    return out_len;
+    written = out_ptr - output;
+    if(written > INT_MAX) {
+        return -1;
+    }
+    return (int)written;
 }
 
 /**

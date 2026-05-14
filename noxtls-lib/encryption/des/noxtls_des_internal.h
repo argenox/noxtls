@@ -16,7 +16,7 @@
 #include "noxtls_common.h"
 
 /* Single-block encrypt/decrypt for use by CBC etc. */
-noxtls_return_t des_encrypt_block_internal(const uint8_t *key, const uint8_t *data, uint8_t *output);
-noxtls_return_t des_decrypt_block_internal(const uint8_t *key, const uint8_t *data, uint8_t *output);
+noxtls_return_t noxtls_des_encrypt_block_internal(const uint8_t *key, const uint8_t *data, uint8_t *output);
+noxtls_return_t noxtls_des_decrypt_block_internal(const uint8_t *key, const uint8_t *data, uint8_t *output);
 
 #endif /* _NOXTLS_DES_INTERNAL_H_ */

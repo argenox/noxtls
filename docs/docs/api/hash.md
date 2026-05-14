@@ -17,10 +17,10 @@ Enumeration of supported hash algorithms (e.g. SHA-224, SHA-256, SHA-384, SHA-51
 
 ## API
 
-### `add_padding_length`
+### `noxtls_add_padding_length`
 
 ```c
-void add_padding_length(uint8_t * data, uint32_t block_size, uint64_t length, uint8_t length_size);
+void noxtls_add_padding_length(uint8_t * data, uint32_t block_size, uint64_t length, uint8_t length_size);
 ```
 
 Adds padding length to the data
@@ -32,10 +32,10 @@ Adds padding length to the data
 - `length` — is the length of the data in bytes
 - `length_size` — is the size of length in bytes
 
-### `add_padding_length_little`
+### `noxtls_add_padding_length_little`
 
 ```c
-void add_padding_length_little(uint8_t * data, uint32_t block_size, uint64_t length, uint8_t length_size);
+void noxtls_add_padding_length_little(uint8_t * data, uint32_t block_size, uint64_t length, uint8_t length_size);
 ```
 
 Adds padding length to the data

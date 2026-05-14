@@ -28,7 +28,7 @@
 * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 *
 * CONTACT: info@argenox.com
-* 
+*
 *
 * File:    noxtls_aria.c
 * Summary: ARIA Block Cipher Algorithm Implementation
@@ -102,7 +102,7 @@ static const uint8_t aria_s2[256] = {
 static void aria_diffusion_layer(uint8_t state[16])
 {
     uint8_t temp[16];
-    
+
     /* DL transformation */
     temp[0] = state[3] ^ state[4] ^ state[6] ^ state[8] ^ state[9] ^ state[13] ^ state[14];
     temp[1] = state[2] ^ state[5] ^ state[7] ^ state[8] ^ state[9] ^ state[12] ^ state[15];
@@ -120,7 +120,7 @@ static void aria_diffusion_layer(uint8_t state[16])
     temp[13] = state[0] ^ state[3] ^ state[6] ^ state[7] ^ state[8] ^ state[10] ^ state[13];
     temp[14] = state[0] ^ state[3] ^ state[4] ^ state[5] ^ state[9] ^ state[11] ^ state[14];
     temp[15] = state[1] ^ state[2] ^ state[4] ^ state[5] ^ state[8] ^ state[10] ^ state[15];
-    
+
     memcpy(state, temp, 16);
 }
 
@@ -257,7 +257,7 @@ static void aria_fe(uint8_t out[16], const uint8_t in[16], const uint8_t rk[16])
 }
 
 /* Key schedule generation */
-static void aria_key_schedule(const uint8_t *user_key, aria_type_t key_type, aria_key_t *key)
+static void aria_key_schedule(const uint8_t *user_key, noxtls_aria_type_t key_type, noxtls_aria_key_t *key)
 {
     const uint8_t c1[16] = {0x51, 0x7c, 0xc1, 0xb7, 0x27, 0x22, 0x0a, 0x94, 0xfe, 0x13, 0xab, 0xe8, 0xfa, 0x9a, 0x6e, 0xe0};
     const uint8_t c2[16] = {0x6d, 0xb1, 0x4a, 0xcc, 0x9e, 0x21, 0xc8, 0x20, 0xff, 0x28, 0xb1, 0xd5, 0xef, 0x5d, 0xe2, 0xb0};
@@ -265,23 +265,27 @@ static void aria_key_schedule(const uint8_t *user_key, aria_type_t key_type, ari
     const uint8_t *ck1 = NULL;
     const uint8_t *ck2 = NULL;
     const uint8_t *ck3 = NULL;
-    uint8_t kl[16], kr[16];
-    uint8_t w0[16], w1[16], w2[16], w3[16];
+    uint8_t kl[16];
+    uint8_t kr[16];
+    uint8_t w0[16];
+    uint8_t w1[16];
+    uint8_t w2[16];
+    uint8_t w3[16];
     uint8_t rot[16];
     uint8_t ek[17][16];
     int i;
 
     switch(key_type) {
-        case ARIA_128_BIT:
-            key->rounds = ARIA_128_ROUNDS;
+        case NOXTLS_ARIA_128_BIT:
+            key->rounds = NOXTLS_ARIA_128_ROUNDS;
             ck1 = c1; ck2 = c2; ck3 = c3;
             break;
-        case ARIA_192_BIT:
-            key->rounds = ARIA_192_ROUNDS;
+        case NOXTLS_ARIA_192_BIT:
+            key->rounds = NOXTLS_ARIA_192_ROUNDS;
             ck1 = c2; ck2 = c3; ck3 = c1;
             break;
-        case ARIA_256_BIT:
-            key->rounds = ARIA_256_ROUNDS;
+        case NOXTLS_ARIA_256_BIT:
+            key->rounds = NOXTLS_ARIA_256_ROUNDS;
             ck1 = c3; ck2 = c1; ck3 = c2;
             break;
         default:
@@ -289,9 +293,9 @@ static void aria_key_schedule(const uint8_t *user_key, aria_type_t key_type, ari
     }
 
     memcpy(kl, user_key, 16);
-    if(key_type == ARIA_128_BIT) {
+    if(key_type == NOXTLS_ARIA_128_BIT) {
         memset(kr, 0, 16);
-    } else if(key_type == ARIA_192_BIT) {
+    } else if(key_type == NOXTLS_ARIA_192_BIT) {
         memcpy(kr, user_key + 16, 8);
         memset(kr + 8, 0, 8);
     } else {
@@ -336,22 +340,22 @@ static void aria_key_schedule(const uint8_t *user_key, aria_type_t key_type, ari
 /**
  * @brief Set ARIA encryption key
  */
-noxtls_return_t aria_set_encrypt_key(const uint8_t *user_key, aria_type_t key_type, aria_key_t *key)
+noxtls_return_t noxtls_aria_set_encrypt_key(const uint8_t *user_key, noxtls_aria_type_t key_type, noxtls_aria_key_t *key)
 {
     if(user_key == NULL || key == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    
+
     key->key_type = key_type;
     aria_key_schedule(user_key, key_type, key);
-    
+
     return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
  * @brief Set ARIA decryption key
  */
-noxtls_return_t aria_set_decrypt_key(const uint8_t *user_key, aria_type_t key_type, aria_key_t *key)
+noxtls_return_t noxtls_aria_set_decrypt_key(const uint8_t *user_key, noxtls_aria_type_t key_type, noxtls_aria_key_t *key)
 {
     int i;
     uint8_t temp_keys[17][16] = {{0}};
@@ -359,7 +363,7 @@ noxtls_return_t aria_set_decrypt_key(const uint8_t *user_key, aria_type_t key_ty
     if(user_key == NULL || key == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    
+
     key->key_type = key_type;
     aria_key_schedule(user_key, key_type, key);
 
@@ -373,25 +377,25 @@ noxtls_return_t aria_set_decrypt_key(const uint8_t *user_key, aria_type_t key_ty
         aria_diffusion_layer(key->round_key[i]);
     }
     memcpy(key->round_key[key->rounds], temp_keys[0], 16);
-    
+
     return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
  * @brief ARIA block encryption
  */
-void aria_encrypt_block(const aria_key_t *key, const uint8_t in[16], uint8_t out[16])
+void noxtls_aria_encrypt_block(const noxtls_aria_key_t *key, const uint8_t in[16], uint8_t out[16])
 {
     uint8_t state[16];
     int round;
-    
+
     if(key == NULL || in == NULL || out == NULL) {
         return;
     }
-    
+
     /* Copy input to state */
     memcpy(state, in, 16);
-    
+
     for(round = 1; round < key->rounds; round++) {
         if((round & 1) != 0) {
             aria_fo(state, state, key->round_key[round - 1]);
@@ -403,7 +407,7 @@ void aria_encrypt_block(const aria_key_t *key, const uint8_t in[16], uint8_t out
     aria_xor_block(state, state, key->round_key[key->rounds - 1]);
     aria_sl2(state);
     aria_xor_block(state, state, key->round_key[key->rounds]);
-    
+
     /* Copy state to output */
     memcpy(out, state, 16);
 }
@@ -411,18 +415,18 @@ void aria_encrypt_block(const aria_key_t *key, const uint8_t in[16], uint8_t out
 /**
  * @brief ARIA block decryption
  */
-void aria_decrypt_block(const aria_key_t *key, const uint8_t in[16], uint8_t out[16])
+void noxtls_aria_decrypt_block(const noxtls_aria_key_t *key, const uint8_t in[16], uint8_t out[16])
 {
     uint8_t state[16];
     int round;
-    
+
     if(key == NULL || in == NULL || out == NULL) {
         return;
     }
-    
+
     /* Copy input to state */
     memcpy(state, in, 16);
-    
+
     for(round = 1; round < key->rounds; round++) {
         if((round & 1) != 0) {
             aria_fo(state, state, key->round_key[round - 1]);
@@ -434,46 +438,46 @@ void aria_decrypt_block(const aria_key_t *key, const uint8_t in[16], uint8_t out
     aria_xor_block(state, state, key->round_key[key->rounds - 1]);
     aria_sl2(state);
     aria_xor_block(state, state, key->round_key[key->rounds]);
-    
+
     /* Copy state to output */
     memcpy(out, state, 16);
 }
 
 /* Forward declarations for mode-specific functions */
-extern noxtls_return_t aria_encrypt_ecb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, aria_type_t type);
-extern noxtls_return_t aria_encrypt_cbc(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, aria_type_t type);
-extern noxtls_return_t aria_encrypt_ctr(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, aria_type_t type);
-extern noxtls_return_t aria_encrypt_cfb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, aria_type_t type);
-extern noxtls_return_t aria_encrypt_ofb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, aria_type_t type);
+extern noxtls_return_t noxtls_aria_encrypt_ecb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aria_type_t type);
+extern noxtls_return_t noxtls_aria_encrypt_cbc(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aria_type_t type);
+extern noxtls_return_t noxtls_aria_encrypt_ctr(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aria_type_t type);
+extern noxtls_return_t noxtls_aria_encrypt_cfb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aria_type_t type);
+extern noxtls_return_t noxtls_aria_encrypt_ofb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aria_type_t type);
 
-extern noxtls_return_t aria_decrypt_ecb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, aria_type_t type);
-extern noxtls_return_t aria_decrypt_cbc(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, aria_type_t type);
-extern noxtls_return_t aria_decrypt_ctr(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, aria_type_t type);
-extern noxtls_return_t aria_decrypt_cfb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, aria_type_t type);
-extern noxtls_return_t aria_decrypt_ofb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, aria_type_t type);
+extern noxtls_return_t noxtls_aria_decrypt_ecb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aria_type_t type);
+extern noxtls_return_t noxtls_aria_decrypt_cbc(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aria_type_t type);
+extern noxtls_return_t noxtls_aria_decrypt_ctr(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aria_type_t type);
+extern noxtls_return_t noxtls_aria_decrypt_cfb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aria_type_t type);
+extern noxtls_return_t noxtls_aria_decrypt_ofb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aria_type_t type);
 
 /**
  * @brief ARIA Encrypt Data
  */
-noxtls_return_t aria_encrypt_data(const uint8_t* key,
+noxtls_return_t noxtls_aria_encrypt_data(const uint8_t* key,
                       const uint8_t* data,
                       uint32_t data_len,
                       const uint8_t * iv,
                       uint8_t* output,
-                      aria_type_t type,
-                      aria_mode_t mode)
+                      noxtls_aria_type_t type,
+                      noxtls_aria_mode_t mode)
 {
     switch(mode) {
-        case ARIA_ECB:
-            return aria_encrypt_ecb(key, data, data_len, iv, output, type);
-        case ARIA_CBC:
-            return aria_encrypt_cbc(key, data, data_len, iv, output, type);
-        case ARIA_CTR:
-            return aria_encrypt_ctr(key, data, data_len, iv, output, type);
-        case ARIA_CFB:
-            return aria_encrypt_cfb(key, data, data_len, iv, output, type);
-        case ARIA_OFB:
-            return aria_encrypt_ofb(key, data, data_len, iv, output, type);
+        case NOXTLS_ARIA_ECB:
+            return noxtls_aria_encrypt_ecb(key, data, data_len, iv, output, type);
+        case NOXTLS_ARIA_CBC:
+            return noxtls_aria_encrypt_cbc(key, data, data_len, iv, output, type);
+        case NOXTLS_ARIA_CTR:
+            return noxtls_aria_encrypt_ctr(key, data, data_len, iv, output, type);
+        case NOXTLS_ARIA_CFB:
+            return noxtls_aria_encrypt_cfb(key, data, data_len, iv, output, type);
+        case NOXTLS_ARIA_OFB:
+            return noxtls_aria_encrypt_ofb(key, data, data_len, iv, output, type);
         default:
             return NOXTLS_RETURN_INVALID_MODE;
     }
@@ -482,48 +486,48 @@ noxtls_return_t aria_encrypt_data(const uint8_t* key,
 /**
  * @brief ARIA Decrypt Data
  */
-noxtls_return_t aria_decrypt_data(const uint8_t* key,
+noxtls_return_t noxtls_aria_decrypt_data(const uint8_t* key,
                       const uint8_t* data,
                       uint32_t data_len,
                       const uint8_t * iv,
                       uint8_t* output,
-                      aria_type_t type,
-                      aria_mode_t mode)
+                      noxtls_aria_type_t type,
+                      noxtls_aria_mode_t mode)
 {
     switch(mode) {
-        case ARIA_ECB:
-            return aria_decrypt_ecb(key, data, data_len, iv, output, type);
-        case ARIA_CBC:
-            return aria_decrypt_cbc(key, data, data_len, iv, output, type);
-        case ARIA_CTR:
-            return aria_decrypt_ctr(key, data, data_len, iv, output, type);
-        case ARIA_CFB:
-            return aria_decrypt_cfb(key, data, data_len, iv, output, type);
-        case ARIA_OFB:
-            return aria_decrypt_ofb(key, data, data_len, iv, output, type);
+        case NOXTLS_ARIA_ECB:
+            return noxtls_aria_decrypt_ecb(key, data, data_len, iv, output, type);
+        case NOXTLS_ARIA_CBC:
+            return noxtls_aria_decrypt_cbc(key, data, data_len, iv, output, type);
+        case NOXTLS_ARIA_CTR:
+            return noxtls_aria_decrypt_ctr(key, data, data_len, iv, output, type);
+        case NOXTLS_ARIA_CFB:
+            return noxtls_aria_decrypt_cfb(key, data, data_len, iv, output, type);
+        case NOXTLS_ARIA_OFB:
+            return noxtls_aria_decrypt_ofb(key, data, data_len, iv, output, type);
         default:
             return NOXTLS_RETURN_INVALID_MODE;
     }
 }
 
-static uint8_t aria_key_size_bytes(aria_type_t type)
+static uint8_t aria_key_size_bytes(noxtls_aria_type_t type)
 {
     switch(type) {
-        case ARIA_128_BIT:
+        case NOXTLS_ARIA_128_BIT:
             return 16;
-        case ARIA_192_BIT:
+        case NOXTLS_ARIA_192_BIT:
             return 24;
-        case ARIA_256_BIT:
+        case NOXTLS_ARIA_256_BIT:
             return 32;
         default:
             return 0;
     }
 }
 
-static void aria_counter_inc(uint8_t counter[ARIA_BLOCK_LENGTH])
+static void aria_counter_inc(uint8_t counter[NOXTLS_ARIA_BLOCK_LENGTH])
 {
     int i;
-    for(i = ARIA_BLOCK_LENGTH - 1; i >= 0; i--) {
+    for(i = NOXTLS_ARIA_BLOCK_LENGTH - 1; i >= 0; i--) {
         counter[i]++;
         if(counter[i] != 0) {
             break;
@@ -531,12 +535,12 @@ static void aria_counter_inc(uint8_t counter[ARIA_BLOCK_LENGTH])
     }
 }
 
-noxtls_return_t aria_init(aria_context_t *ctx,
+noxtls_return_t noxtls_aria_init(noxtls_aria_context_t *ctx,
               const uint8_t *key,
               const uint8_t *iv,
-              aria_type_t type,
-              aria_mode_t mode,
-              aria_operation_t op)
+              noxtls_aria_type_t type,
+              noxtls_aria_mode_t mode,
+              noxtls_aria_operation_t op)
 {
     if(ctx == NULL || key == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -547,34 +551,44 @@ noxtls_return_t aria_init(aria_context_t *ctx,
     ctx->mode = mode;
     ctx->op = op;
     ctx->key_len = aria_key_size_bytes(type);
+
     if(ctx->key_len == 0) {
         return NOXTLS_RETURN_INVALID_KEY_SIZE;
     }
+
     memcpy(ctx->key, key, ctx->key_len);
 
-    { noxtls_return_t r = aria_set_encrypt_key(ctx->key, type, &ctx->enc_key);
-    if(r != NOXTLS_RETURN_SUCCESS) return r; }
-    { noxtls_return_t r = aria_set_decrypt_key(ctx->key, type, &ctx->dec_key);
-    if(r != NOXTLS_RETURN_SUCCESS) return r; }
+    {
+        noxtls_return_t r = noxtls_aria_set_encrypt_key(ctx->key, type, &ctx->enc_key);
+        if(r != NOXTLS_RETURN_SUCCESS) {
+            return r;
+        }
+    }
+    {
+        noxtls_return_t r = noxtls_aria_set_decrypt_key(ctx->key, type, &ctx->dec_key);
+        if(r != NOXTLS_RETURN_SUCCESS) {
+            return r;
+        }
+    }
 
     switch(mode) {
-        case ARIA_ECB:
+        case NOXTLS_ARIA_ECB:
             break;
-        case ARIA_CBC:
+        case NOXTLS_ARIA_CBC:
             if(iv != NULL) {
-                memcpy(ctx->feedback, iv, ARIA_BLOCK_LENGTH);
+                memcpy(ctx->feedback, iv, NOXTLS_ARIA_BLOCK_LENGTH);
             } else {
-                memset(ctx->feedback, 0, ARIA_BLOCK_LENGTH);
+                memset(ctx->feedback, 0, NOXTLS_ARIA_BLOCK_LENGTH);
             }
             break;
-        case ARIA_CTR:
-        case ARIA_CFB:
-        case ARIA_OFB:
+        case NOXTLS_ARIA_CTR:
+        case NOXTLS_ARIA_CFB:
+        case NOXTLS_ARIA_OFB:
             if(iv == NULL) {
                 return NOXTLS_RETURN_INVALID_PARAM;
             }
-            memcpy(ctx->feedback, iv, ARIA_BLOCK_LENGTH);
-            ctx->partial_len = ARIA_BLOCK_LENGTH;
+            memcpy(ctx->feedback, iv, NOXTLS_ARIA_BLOCK_LENGTH);
+            ctx->partial_len = NOXTLS_ARIA_BLOCK_LENGTH;
             break;
         default:
             return NOXTLS_RETURN_INVALID_MODE;
@@ -584,7 +598,7 @@ noxtls_return_t aria_init(aria_context_t *ctx,
     return NOXTLS_RETURN_SUCCESS;
 }
 
-noxtls_return_t aria_update(aria_context_t *ctx,
+noxtls_return_t noxtls_aria_update(noxtls_aria_context_t *ctx,
                 const uint8_t *input,
                 uint32_t input_len,
                 uint8_t *output,
@@ -609,72 +623,72 @@ noxtls_return_t aria_update(aria_context_t *ctx,
     }
 
     switch(ctx->mode) {
-        case ARIA_ECB:
-        case ARIA_CBC:
+        case NOXTLS_ARIA_ECB:
+        case NOXTLS_ARIA_CBC:
             while(input_len > 0) {
-                uint32_t need = (uint32_t)ARIA_BLOCK_LENGTH - ctx->partial_len;
+                uint32_t need = (uint32_t)NOXTLS_ARIA_BLOCK_LENGTH - ctx->partial_len;
                 uint32_t take = (input_len < need) ? input_len : need;
                 memcpy(ctx->partial + ctx->partial_len, input, take);
                 ctx->partial_len = (uint8_t)(ctx->partial_len + take);
                 input += take;
                 input_len -= take;
 
-                if(ctx->partial_len == ARIA_BLOCK_LENGTH) {
-                    if(ctx->mode == ARIA_ECB) {
-                        if(ctx->op == ARIA_OP_ENCRYPT) {
-                            aria_encrypt_block(&ctx->enc_key, ctx->partial, output + produced);
+                if(ctx->partial_len == NOXTLS_ARIA_BLOCK_LENGTH) {
+                    if(ctx->mode == NOXTLS_ARIA_ECB) {
+                        if(ctx->op == NOXTLS_ARIA_OP_ENCRYPT) {
+                            noxtls_aria_encrypt_block(&ctx->enc_key, ctx->partial, output + produced);
                         } else {
-                            aria_decrypt_block(&ctx->dec_key, ctx->partial, output + produced);
+                            noxtls_aria_decrypt_block(&ctx->dec_key, ctx->partial, output + produced);
                         }
                     } else {
-                        if(ctx->op == ARIA_OP_ENCRYPT) {
-                            uint8_t block[ARIA_BLOCK_LENGTH];
-                            for(i = 0; i < ARIA_BLOCK_LENGTH; i++) {
+                        if(ctx->op == NOXTLS_ARIA_OP_ENCRYPT) {
+                            uint8_t block[NOXTLS_ARIA_BLOCK_LENGTH];
+                            for(i = 0; i < NOXTLS_ARIA_BLOCK_LENGTH; i++) {
                                 block[i] = (uint8_t)(ctx->partial[i] ^ ctx->feedback[i]);
                             }
-                            aria_encrypt_block(&ctx->enc_key, block, output + produced);
-                            memcpy(ctx->feedback, output + produced, ARIA_BLOCK_LENGTH);
+                            noxtls_aria_encrypt_block(&ctx->enc_key, block, output + produced);
+                            memcpy(ctx->feedback, output + produced, NOXTLS_ARIA_BLOCK_LENGTH);
                         } else {
-                            uint8_t block[ARIA_BLOCK_LENGTH];
-                            aria_decrypt_block(&ctx->dec_key, ctx->partial, block);
-                            for(i = 0; i < ARIA_BLOCK_LENGTH; i++) {
+                            uint8_t block[NOXTLS_ARIA_BLOCK_LENGTH];
+                            noxtls_aria_decrypt_block(&ctx->dec_key, ctx->partial, block);
+                            for(i = 0; i < NOXTLS_ARIA_BLOCK_LENGTH; i++) {
                                 output[produced + i] = (uint8_t)(block[i] ^ ctx->feedback[i]);
                             }
-                            memcpy(ctx->feedback, ctx->partial, ARIA_BLOCK_LENGTH);
+                            memcpy(ctx->feedback, ctx->partial, NOXTLS_ARIA_BLOCK_LENGTH);
                         }
                     }
-                    produced += ARIA_BLOCK_LENGTH;
+                    produced += NOXTLS_ARIA_BLOCK_LENGTH;
                     ctx->partial_len = 0;
                 }
             }
             break;
 
-        case ARIA_CTR:
-        case ARIA_CFB:
-        case ARIA_OFB:
+        case NOXTLS_ARIA_CTR:
+        case NOXTLS_ARIA_CFB:
+        case NOXTLS_ARIA_OFB:
             while(input_len > 0) {
-                if(ctx->partial_len == ARIA_BLOCK_LENGTH) {
-                    if(ctx->mode == ARIA_CTR) {
-                        aria_encrypt_block(&ctx->enc_key, ctx->feedback, ctx->partial);
+                if(ctx->partial_len == NOXTLS_ARIA_BLOCK_LENGTH) {
+                    if(ctx->mode == NOXTLS_ARIA_CTR) {
+                        noxtls_aria_encrypt_block(&ctx->enc_key, ctx->feedback, ctx->partial);
                         aria_counter_inc(ctx->feedback);
-                    } else if(ctx->mode == ARIA_CFB) {
-                        aria_encrypt_block(&ctx->enc_key, ctx->feedback, ctx->partial);
+                    } else if(ctx->mode == NOXTLS_ARIA_CFB) {
+                        noxtls_aria_encrypt_block(&ctx->enc_key, ctx->feedback, ctx->partial);
                     } else {
-                        aria_encrypt_block(&ctx->enc_key, ctx->feedback, ctx->partial);
-                        memcpy(ctx->feedback, ctx->partial, ARIA_BLOCK_LENGTH);
+                        noxtls_aria_encrypt_block(&ctx->enc_key, ctx->feedback, ctx->partial);
+                        memcpy(ctx->feedback, ctx->partial, NOXTLS_ARIA_BLOCK_LENGTH);
                     }
                     ctx->partial_len = 0;
                 }
 
                 {
-                    uint32_t available = (uint32_t)ARIA_BLOCK_LENGTH - ctx->partial_len;
+                    uint32_t available = (uint32_t)NOXTLS_ARIA_BLOCK_LENGTH - ctx->partial_len;
                     uint32_t take = (input_len < available) ? input_len : available;
                     for(i = 0; i < take; i++) {
                         uint8_t out_byte = (uint8_t)(input[i] ^ ctx->partial[ctx->partial_len + i]);
                         output[produced + i] = out_byte;
-                        if(ctx->mode == ARIA_CFB) {
-                            memmove(ctx->feedback, ctx->feedback + 1, ARIA_BLOCK_LENGTH - 1);
-                            ctx->feedback[ARIA_BLOCK_LENGTH - 1] = (ctx->op == ARIA_OP_ENCRYPT) ? out_byte : input[i];
+                        if(ctx->mode == NOXTLS_ARIA_CFB) {
+                            memmove(ctx->feedback, ctx->feedback + 1, NOXTLS_ARIA_BLOCK_LENGTH - 1);
+                            ctx->feedback[NOXTLS_ARIA_BLOCK_LENGTH - 1] = (ctx->op == NOXTLS_ARIA_OP_ENCRYPT) ? out_byte : input[i];
                         }
                     }
                     input += take;
@@ -693,7 +707,7 @@ noxtls_return_t aria_update(aria_context_t *ctx,
     return NOXTLS_RETURN_SUCCESS;
 }
 
-noxtls_return_t aria_final(aria_context_t *ctx,
+noxtls_return_t noxtls_aria_final(noxtls_aria_context_t *ctx,
                uint8_t *output,
                uint32_t *output_len)
 {
@@ -706,12 +720,12 @@ noxtls_return_t aria_final(aria_context_t *ctx,
         return NOXTLS_RETURN_NOT_INITIALIZED;
     }
 
-    if(ctx->mode == ARIA_CTR || ctx->mode == ARIA_CFB || ctx->mode == ARIA_OFB) {
+    if(ctx->mode == NOXTLS_ARIA_CTR || ctx->mode == NOXTLS_ARIA_CFB || ctx->mode == NOXTLS_ARIA_OFB) {
         ctx->initialized = 0;
         return NOXTLS_RETURN_SUCCESS;
     }
 
-    if(ctx->op == ARIA_OP_DECRYPT) {
+    if(ctx->op == NOXTLS_ARIA_OP_DECRYPT) {
         if(ctx->partial_len != 0) {
             return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
         }
@@ -720,8 +734,8 @@ noxtls_return_t aria_final(aria_context_t *ctx,
     }
 
     if(ctx->partial_len > 0) {
-        uint8_t block[ARIA_BLOCK_LENGTH];
-        uint8_t pad_value = (uint8_t)(ARIA_BLOCK_LENGTH - ctx->partial_len);
+        uint8_t block[NOXTLS_ARIA_BLOCK_LENGTH];
+        uint8_t pad_value = (uint8_t)(NOXTLS_ARIA_BLOCK_LENGTH - ctx->partial_len);
         uint32_t i;
 
         if(output == NULL) {
@@ -729,21 +743,21 @@ noxtls_return_t aria_final(aria_context_t *ctx,
         }
 
         memcpy(block, ctx->partial, ctx->partial_len);
-        for(i = ctx->partial_len; i < ARIA_BLOCK_LENGTH; i++) {
+        for(i = ctx->partial_len; i < NOXTLS_ARIA_BLOCK_LENGTH; i++) {
             block[i] = pad_value;
         }
 
-        if(ctx->mode == ARIA_ECB) {
-            aria_encrypt_block(&ctx->enc_key, block, output);
-        } else if(ctx->mode == ARIA_CBC) {
-            for(i = 0; i < ARIA_BLOCK_LENGTH; i++) {
+        if(ctx->mode == NOXTLS_ARIA_ECB) {
+            noxtls_aria_encrypt_block(&ctx->enc_key, block, output);
+        } else if(ctx->mode == NOXTLS_ARIA_CBC) {
+            for(i = 0; i < NOXTLS_ARIA_BLOCK_LENGTH; i++) {
                 block[i] ^= ctx->feedback[i];
             }
-            aria_encrypt_block(&ctx->enc_key, block, output);
+            noxtls_aria_encrypt_block(&ctx->enc_key, block, output);
         } else {
             return NOXTLS_RETURN_INVALID_MODE;
         }
-        *output_len = ARIA_BLOCK_LENGTH;
+        *output_len = NOXTLS_ARIA_BLOCK_LENGTH;
     }
 
     ctx->initialized = 0;
@@ -753,7 +767,7 @@ noxtls_return_t aria_final(aria_context_t *ctx,
 /**
  * @brief ARIA Self Test
  */
-noxtls_return_t aria_self_test(void)
+noxtls_return_t noxtls_aria_self_test(void)
 {
     /* RFC 5794 A.1 test vector */
     const uint8_t key128[16] = {
@@ -770,29 +784,30 @@ noxtls_return_t aria_self_test(void)
     };
     uint8_t ciphertext[16];
     uint8_t decrypted[16];
-    aria_key_t enc_key, dec_key;
-    
+    noxtls_aria_key_t enc_key;
+    noxtls_aria_key_t dec_key;
+
     /* Test encryption */
-    if(aria_set_encrypt_key(key128, ARIA_128_BIT, &enc_key) != NOXTLS_RETURN_SUCCESS) {
+    if(noxtls_aria_set_encrypt_key(key128, NOXTLS_ARIA_128_BIT, &enc_key) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
 
-    aria_encrypt_block(&enc_key, plaintext, ciphertext);
+    noxtls_aria_encrypt_block(&enc_key, plaintext, ciphertext);
     if(memcmp(ciphertext, expected, 16) != 0) {
         return NOXTLS_RETURN_FAILED;
     }
-    
+
     /* Test decryption */
-    if(aria_set_decrypt_key(key128, ARIA_128_BIT, &dec_key) != NOXTLS_RETURN_SUCCESS) {
+    if(noxtls_aria_set_decrypt_key(key128, NOXTLS_ARIA_128_BIT, &dec_key) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
-    
-    aria_decrypt_block(&dec_key, ciphertext, decrypted);
-    
+
+    noxtls_aria_decrypt_block(&dec_key, ciphertext, decrypted);
+
     if(memcmp(plaintext, decrypted, 16) != 0) {
         return NOXTLS_RETURN_FAILED;
     }
-    
+
     return NOXTLS_RETURN_SUCCESS;
 }
 

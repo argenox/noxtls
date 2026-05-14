@@ -7,6 +7,24 @@ title: "Certificates"
 
 X.509 and certificate handling.
 
+## Purpose
+
+Certificate APIs cover:
+
+- DER/PEM parse and conversion
+- certificate/private-key load and transform helpers
+- signature verification and chain verification
+- hostname verification and failure introspection
+- TLS-oriented certificate handling utilities
+
+## Enablement
+
+- Base support: `NOXTLS_CFG_FEATURE_CERT=ON`
+- PKC dependency: `NOXTLS_CFG_FEATURE_PKC=ON`
+- Post-quantum certificate signatures: `NOXTLS_CFG_FEATURE_ML_DSA=ON`
+
+Dependency rules are validated in [Build Configuration Checks](/docs/api/build_config).
+
 ## Types
 
 ### `x509_certificate_t`
@@ -53,10 +71,10 @@ Parse ASN.1 Tag
 - `output` — is a pointer to a buffer to place the DER data
 - `out_len` — is the length of data placed in output
 
-### `asn1_decode_integer`
+### `noxtls_asn1_decode_integer`
 
 ```c
-void asn1_decode_integer(uint8_t ** data, uint32_t len);
+void noxtls_asn1_decode_integer(uint8_t ** data, uint32_t len);
 ```
 
 Decodes object identifier
@@ -68,10 +86,10 @@ Decodes object identifier
 - `output` — is a pointer to a buffer to place the DER data
 - `out_len` — is the length of data placed in output
 
-### `asn1_decode_bitstring`
+### `noxtls_asn1_decode_bitstring`
 
 ```c
-void asn1_decode_bitstring(uint8_t ** data, uint32_t len);
+void noxtls_asn1_decode_bitstring(uint8_t ** data, uint32_t len);
 ```
 
 Decodes ASN.1 Bit String
@@ -81,10 +99,10 @@ Decodes ASN.1 Bit String
 - `data` — is a pointer to  a pointer of the data to convert
 - `len` — is the length of the data
 
-### `asn1_decode_obj_ident`
+### `noxtls_asn1_decode_obj_ident`
 
 ```c
-void asn1_decode_obj_ident(uint8_t ** data, uint32_t len);
+void noxtls_asn1_decode_obj_ident(uint8_t ** data, uint32_t len);
 ```
 
 Decodes object identifier
@@ -96,10 +114,10 @@ Decodes object identifier
 - `output` — is a pointer to a buffer to place the DER data
 - `out_len` — is the length of data placed in output
 
-### `asn1_find_oid`
+### `noxtls_asn1_find_oid`
 
 ```c
-void asn1_find_oid(char * oid);
+void noxtls_asn1_find_oid(char * oid);
 ```
 
 Finds the OID description for an identifier
@@ -108,10 +126,10 @@ Finds the OID description for an identifier
 
 - `oid` — is the OID string
 
-### `asn1_decode_print_string`
+### `noxtls_asn1_decode_print_string`
 
 ```c
-void asn1_decode_print_string(uint8_t ** data, uint32_t len);
+void noxtls_asn1_decode_print_string(uint8_t ** data, uint32_t len);
 ```
 
 Decodes object identifier
@@ -239,6 +257,48 @@ Verify certificate signature
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success.
 
+### ML-DSA certificate signatures
+
+When `NOXTLS_FEATURE_ML_DSA` is enabled, parser/verification paths include ML-DSA public keys and signature OIDs (ML-DSA-44/65/87). Certificate verification dispatches to ML-DSA verification where applicable.
+
+Related APIs:
+
+- [ML-DSA](/docs/next/api/mldsa)
+- [TLS 1.3 PQC](/docs/next/api/tls13_pqc)
+
+## CRL (Certificate Revocation List)
+
+NoxTLS supports **offline** CRL loading and optional checks during X.509 trust verification (mbedTLS-style: separate CRL object, optional `_ex` verify APIs, and verification flags).
+
+- CRL checks run **only when** you pass a non-NULL `noxtls_x509_crl_t *` (or a chain via `crl->next`) to `noxtls_x509_verify_server_cert_trust_ex` / `noxtls_x509_verify_client_cert_trust_ex`. If no CRL is supplied, behavior matches the non-`_ex` functions.
+- For each non-anchor certificate in the chain, if a CRL’s **issuer** DN matches the **subject** DN of the certificate that signed that entity, the CRL **signature** is verified with that issuer’s public key, **thisUpdate** / **nextUpdate** are checked when `NOXTLS_HAVE_TIME` is enabled, and the entity’s **serial** is compared to revoked entries.
+- When **nextUpdate** is present and the current time is past **nextUpdate**, verification fails with [NOXTLS_RETURN_CRL_EXPIRED](/docs/api/return_codes) and flag `NOXTLS_X509_VERIFY_FLAG_CRL_EXPIRED`.
+
+### Verification flags (`noxtls_x509_verify_flags_t`)
+
+When `flags_out` is non-NULL, `_ex` APIs clear it then OR in bits:
+
+| Flag | Meaning |
+|------|---------|
+| `NOXTLS_X509_VERIFY_FLAG_CERT_REVOKED` | Serial matched a revoked entry on an applicable CRL. |
+| `NOXTLS_X509_VERIFY_FLAG_CRL_EXPIRED` | CRL outside allowed time window (includes stale **nextUpdate**). |
+| `NOXTLS_X509_VERIFY_FLAG_CRL_BAD_SIGNATURE` | CRL signature did not verify against the issuer. |
+| `NOXTLS_X509_VERIFY_FLAG_CRL_NO_MATCH` | CRL(s) were supplied but none matched any issuer in the validated chain (informational on success). |
+| `NOXTLS_X509_VERIFY_FLAG_CRL_USED` | At least one supplied CRL matched an issuer and was evaluated. |
+
+### CRL object and loaders
+
+- `noxtls_x509_crl_init` / `noxtls_x509_crl_free` — `noxtls_x509_crl_free` also frees CRLs linked through `next`.
+- `noxtls_x509_crl_parse_der`, `noxtls_x509_crl_parse_pem` (`-----BEGIN X509 CRL-----`), `noxtls_x509_crl_load_file`.
+
+### `noxtls_x509_verify_server_cert_trust_ex` / `noxtls_x509_verify_client_cert_trust_ex`
+
+Optional `crl` and `flags_out` parameters; same trust path as `noxtls_x509_verify_server_cert_trust` / `noxtls_x509_verify_client_cert_trust` when `crl` is NULL.
+
+### `noxtls_x509_crl_serial_is_revoked`
+
+Returns 1 if a parsed CRL lists the certificate serial as revoked.
+
 ### `noxtls_x509_certificate_check_validity`
 
 ```c
@@ -259,25 +319,15 @@ Get public key from certificate (noxtls_ namespace). `cert` is [x509_certificate
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success.
 
-### `x509_certificate_get_public_key`
-
-```c
-noxtls_return_t x509_certificate_get_public_key(const x509_certificate_t *cert, void **key, uint32_t *key_type);
-```
-
-Get public key from certificate (legacy wrapper)
-
-**Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success.
-
 ### Raw Public Keys (RFC 7250)
 
-TLS 1.2 and DTLS 1.2 support **Raw Public Keys (RPK)** via the `client_certificate_type` and `server_certificate_type` extensions. The server can send a **SubjectPublicKeyInfo** (DER) in the Certificate message instead of an X.509 chain; the client receives it in `server_cert` and sets `server_cert_is_rpk` to 1. Verification is **out-of-band** (e.g. compare to a pinned key or use DANE). Use **tls12** APIs: `tls12_set_server_use_rpk()` (server), `tls12_set_client_accept_server_rpk()` / `tls12_set_client_offer_client_rpk()` (client). Prefer ECDHE cipher suites with RPK.
+TLS 1.2 and DTLS 1.2 support **Raw Public Keys (RPK)** via the `client_certificate_type` and `server_certificate_type` extensions. The server can send a **SubjectPublicKeyInfo** (DER) in the Certificate message instead of an X.509 chain; the client receives it in `server_cert` and sets `server_cert_is_rpk` to 1. Verification is **out-of-band** (e.g. compare to a pinned key or use DANE). Use **tls12** APIs: `noxtls_tls12_set_server_use_rpk()` (server), `noxtls_tls12_set_client_accept_server_rpk()` / `noxtls_tls12_set_client_offer_client_rpk()` (client). Prefer ECDHE cipher suites with RPK.
 
 ### Detailed certificate failure information
 
 When certificate parsing or verification fails, the library stores detailed failure information that you can retrieve to log or display the exact reason (time window, common name, expected hostname, chain index).
 
-**Return codes:** Certificate APIs may return [NOXTLS_RETURN_CERT_PARSE_FAILED](/docs/api/return_codes), [NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED](/docs/api/return_codes), [NOXTLS_RETURN_CERT_VERIFY_HOSTNAME_MISMATCH](/docs/api/return_codes), [NOXTLS_RETURN_CERT_EXPIRED](/docs/api/return_codes), [NOXTLS_RETURN_CERT_NOT_YET_VALID](/docs/api/return_codes), or [NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED](/docs/api/return_codes). After any such failure, call `noxtls_cert_verify_failure_get()` to get a **noxtls_cert_verify_failure_info_t** with:
+**Return codes:** Certificate APIs may return [NOXTLS_RETURN_CERT_PARSE_FAILED](/docs/api/return_codes), [NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED](/docs/api/return_codes), [NOXTLS_RETURN_CERT_VERIFY_HOSTNAME_MISMATCH](/docs/api/return_codes), [NOXTLS_RETURN_CERT_EXPIRED](/docs/api/return_codes), [NOXTLS_RETURN_CERT_NOT_YET_VALID](/docs/api/return_codes), [NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED](/docs/api/return_codes), [NOXTLS_RETURN_CERT_REVOKED](/docs/api/return_codes), [NOXTLS_RETURN_CRL_PARSE_FAILED](/docs/api/return_codes), [NOXTLS_RETURN_CRL_VERIFY_FAILED](/docs/api/return_codes), or [NOXTLS_RETURN_CRL_EXPIRED](/docs/api/return_codes). After any such failure, call `noxtls_cert_verify_failure_get()` to get a **noxtls_cert_verify_failure_info_t** with:
 
 - **return_code** — The same code that was returned.
 - **not_before** / **not_after** — Certificate validity times (e.g. for expired / not yet valid).
@@ -466,16 +516,6 @@ noxtls_return_t noxtls_x509_private_key_sign_data(const uint8_t *key, uint32_t k
 ```
 
 High-level sign data with X.509 private key; output DER signature.
-
-**Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success.
-
-### `x509_private_key_to_ecc_key`
-
-```c
-noxtls_return_t x509_private_key_to_ecc_key(const x509_private_key_t *key, void *ecc_key);
-```
-
-Convert X.509 private key to ECC key structure (legacy wrapper)
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success.
 

@@ -68,7 +68,7 @@ typedef struct {
 
 
 command_list_t commands[]  = {
-    /* {"dgst", &message_digest, "Generates the message digest"} */
+    /* {"dgst", &message_digest, "Generates the noxtls_message digest"} */
 };
 #define NUM_COMMANDS 0
 

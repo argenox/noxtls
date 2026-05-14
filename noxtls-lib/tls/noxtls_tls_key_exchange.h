@@ -88,43 +88,43 @@ typedef struct
 NOXTLS_MSVC_WARNING_POP
 
 /* Named Group to ECC Curve Mapping */
-noxtls_return_t tls_named_group_to_ecc_curve(uint16_t named_group, ecc_curve_t *curve_type);
-noxtls_return_t tls_ecc_curve_to_named_group(ecc_curve_t curve_type, uint16_t *named_group);
+noxtls_return_t noxtls_tls_named_group_to_ecc_curve(uint16_t named_group, ecc_curve_t *curve_type);
+noxtls_return_t noxtls_tls_ecc_curve_to_named_group(ecc_curve_t curve_type, uint16_t *named_group);
 
 /* ECC Point Encoding/Decoding for TLS */
-noxtls_return_t tls_encode_ecc_point_uncompressed(const ecc_point_t *point, uint8_t *output, uint32_t *output_len);
-noxtls_return_t tls_decode_ecc_point_uncompressed(const uint8_t *encoded, uint32_t encoded_len, ecc_point_t *point, ecc_curve_t curve_type);
+noxtls_return_t noxtls_tls_encode_ecc_point_uncompressed(const ecc_point_t *point, uint8_t *output, uint32_t *output_len);
+noxtls_return_t noxtls_tls_decode_ecc_point_uncompressed(const uint8_t *encoded, uint32_t encoded_len, ecc_point_t *point, ecc_curve_t curve_type);
 
 /* ECDHE Key Exchange */
-noxtls_return_t tls_ecdhe_context_init(tls_ecdhe_context_t *ctx, uint16_t named_group);
-noxtls_return_t tls_ecdhe_context_free(tls_ecdhe_context_t *ctx);
-noxtls_return_t tls_ecdhe_generate_ephemeral_key(tls_ecdhe_context_t *ctx);
-noxtls_return_t tls_ecdhe_compute_shared_secret(tls_ecdhe_context_t *ctx, const ecc_point_t *peer_public_key);
-noxtls_return_t tls_ecdhe_compute_shared_secret_x25519(tls_ecdhe_context_t *ctx, const uint8_t peer_public_key[32]);
-noxtls_return_t tls_ecdhe_get_public_key_encoded(tls_ecdhe_context_t *ctx, uint8_t *output, uint32_t *output_len);
+noxtls_return_t noxtls_tls_ecdhe_context_init(tls_ecdhe_context_t *ctx, uint16_t named_group);
+noxtls_return_t noxtls_tls_ecdhe_context_free(tls_ecdhe_context_t *ctx);
+noxtls_return_t noxtls_tls_ecdhe_generate_ephemeral_key(tls_ecdhe_context_t *ctx);
+noxtls_return_t noxtls_tls_ecdhe_compute_shared_secret(tls_ecdhe_context_t *ctx, const ecc_point_t *peer_public_key);
+noxtls_return_t noxtls_tls_ecdhe_compute_shared_secret_x25519(tls_ecdhe_context_t *ctx, const uint8_t peer_public_key[32]);
+noxtls_return_t noxtls_tls_ecdhe_get_public_key_encoded(tls_ecdhe_context_t *ctx, uint8_t *output, uint32_t *output_len);
 
 /* TLS 1.2 ECDHE Functions */
-noxtls_return_t tls12_ecdhe_send_server_key_exchange(tls12_context_t *ctx, tls_ecdhe_context_t *ecdhe_ctx);
-noxtls_return_t tls12_ecdhe_recv_server_key_exchange(tls12_context_t *ctx, tls_ecdhe_context_t *ecdhe_ctx);
-noxtls_return_t tls12_ecdhe_send_client_key_exchange(tls12_context_t *ctx, tls_ecdhe_context_t *ecdhe_ctx);
-noxtls_return_t tls12_ecdhe_recv_client_key_exchange(tls12_context_t *ctx, tls_ecdhe_context_t *ecdhe_ctx);
+noxtls_return_t noxtls_tls12_ecdhe_send_server_key_exchange(tls12_context_t *ctx, tls_ecdhe_context_t *ecdhe_ctx);
+noxtls_return_t noxtls_tls12_ecdhe_recv_server_key_exchange(tls12_context_t *ctx, tls_ecdhe_context_t *ecdhe_ctx);
+noxtls_return_t noxtls_tls12_ecdhe_send_client_key_exchange(tls12_context_t *ctx, tls_ecdhe_context_t *ecdhe_ctx);
+noxtls_return_t noxtls_tls12_ecdhe_recv_client_key_exchange(tls12_context_t *ctx, tls_ecdhe_context_t *ecdhe_ctx);
 
 /* TLS 1.2 DHE (FFDHE) Functions */
-noxtls_return_t tls_dhe_context_init(tls_dhe_context_t *ctx, uint16_t named_group);
-noxtls_return_t tls_dhe_context_free(tls_dhe_context_t *ctx);
-/** If msg_out and msg_out_len are non-NULL, the built handshake message is copied for handshake hash. */
-noxtls_return_t tls12_dhe_send_server_key_exchange(tls12_context_t *ctx, tls_dhe_context_t *dhe_ctx, uint8_t *msg_out, uint32_t msg_out_size, uint32_t *msg_out_len);
+noxtls_return_t noxtls_tls_dhe_context_init(tls_dhe_context_t *ctx, uint16_t named_group);
+noxtls_return_t noxtls_tls_dhe_context_free(tls_dhe_context_t *ctx);
+/** If msg_out and msg_out_len are non-NULL, the built handshake noxtls_message is copied for handshake hash. */
+noxtls_return_t noxtls_tls12_dhe_send_server_key_exchange(tls12_context_t *ctx, tls_dhe_context_t *dhe_ctx, uint8_t *msg_out, uint32_t msg_out_size, uint32_t *msg_out_len);
 /** Parse Server Key Exchange (record already received by caller). Caller must append record to handshake messages. */
-noxtls_return_t tls12_dhe_recv_server_key_exchange(tls12_context_t *ctx, tls_dhe_context_t *dhe_ctx, const uint8_t *record_data, uint32_t record_len);
-noxtls_return_t tls12_dhe_send_client_key_exchange(tls12_context_t *ctx, tls_dhe_context_t *dhe_ctx);
+noxtls_return_t noxtls_tls12_dhe_recv_server_key_exchange(tls12_context_t *ctx, tls_dhe_context_t *dhe_ctx, const uint8_t *record_data, uint32_t record_len);
+noxtls_return_t noxtls_tls12_dhe_send_client_key_exchange(tls12_context_t *ctx, tls_dhe_context_t *dhe_ctx);
 /** Parse Client Key Exchange (record already received by caller). Caller must append record to handshake messages. */
-noxtls_return_t tls12_dhe_recv_client_key_exchange(tls12_context_t *ctx, tls_dhe_context_t *dhe_ctx, const uint8_t *record_data, uint32_t record_len);
+noxtls_return_t noxtls_tls12_dhe_recv_client_key_exchange(tls12_context_t *ctx, tls_dhe_context_t *dhe_ctx, const uint8_t *record_data, uint32_t record_len);
 
 /* TLS 1.3 Key Share Functions */
-noxtls_return_t tls13_key_share_encode(const tls_ecdhe_context_t *ecdhe_ctx, uint8_t *output, uint32_t *output_len);
-noxtls_return_t tls13_key_share_decode(const uint8_t *encoded, uint32_t encoded_len, uint16_t named_group, ecc_point_t *public_key);
-noxtls_return_t tls13_process_client_key_share(tls13_context_t *ctx, tls_ecdhe_context_t *ecdhe_ctx);
-noxtls_return_t tls13_process_server_key_share(const tls13_context_t *ctx, tls_ecdhe_context_t *ecdhe_ctx);
+noxtls_return_t noxtls_tls13_key_share_encode(const tls_ecdhe_context_t *ecdhe_ctx, uint8_t *output, uint32_t *output_len);
+noxtls_return_t noxtls_tls13_key_share_decode(const uint8_t *encoded, uint32_t encoded_len, uint16_t named_group, ecc_point_t *public_key);
+noxtls_return_t noxtls_tls13_process_client_key_share(tls13_context_t *ctx, tls_ecdhe_context_t *ecdhe_ctx);
+noxtls_return_t noxtls_tls13_process_server_key_share(const tls13_context_t *ctx, tls_ecdhe_context_t *ecdhe_ctx);
 
 #ifdef __cplusplus
 }

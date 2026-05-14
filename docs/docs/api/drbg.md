@@ -65,42 +65,42 @@ DRBG runtime state (`V`, `Key`, reseed counter, AES variant, lengths, instantiat
 
 ## API
 
-### `drbg_get_entropy`
+### `noxtls_drbg_get_entropy`
 
 ```c
-noxtls_return_t drbg_get_entropy(uint8_t *entropy_buffer, uint32_t entropy_len);
+noxtls_return_t noxtls_drbg_get_entropy(uint8_t *entropy_buffer, uint32_t entropy_len);
 ```
 
 Fill buffer with entropy from the configured source.
 
-### `drbg_set_entropy_source`
+### `noxtls_drbg_set_entropy_source`
 
 ```c
-void drbg_set_entropy_source(noxtls_entropy_source_t source);
+void noxtls_drbg_set_entropy_source(noxtls_entropy_source_t source);
 ```
 
 Select entropy source backend.
 
-### `drbg_get_entropy_source`
+### `noxtls_drbg_get_entropy_source`
 
 ```c
-noxtls_entropy_source_t drbg_get_entropy_source(void);
+noxtls_entropy_source_t noxtls_drbg_get_entropy_source(void);
 ```
 
 Get current entropy source backend.
 
-### `drbg_set_entropy_callback`
+### `noxtls_drbg_set_entropy_callback`
 
 ```c
-void drbg_set_entropy_callback(noxtls_entropy_cb_t cb);
+void noxtls_drbg_set_entropy_callback(noxtls_entropy_cb_t cb);
 ```
 
 Set custom entropy callback.
 
-### `drbg_get_entropy_callback`
+### `noxtls_drbg_get_entropy_callback`
 
 ```c
-noxtls_entropy_cb_t drbg_get_entropy_callback(void);
+noxtls_entropy_cb_t noxtls_drbg_get_entropy_callback(void);
 ```
 
 Get custom entropy callback.
@@ -154,10 +154,10 @@ noxtls_return_t drbg_update(drbg_state_t *state,
 
 Update DRBG internal state with provided data.
 
-### `drbg_uninstantiate`
+### `noxtls_drbg_uninstantiate`
 
 ```c
-noxtls_return_t drbg_uninstantiate(drbg_state_t *state);
+noxtls_return_t noxtls_drbg_uninstantiate(drbg_state_t *state);
 ```
 
 Clear DRBG state and mark uninstantiated.

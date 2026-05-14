@@ -17,7 +17,7 @@
 * CONTACT: info@argenox.com
 *
 * File:    noxtls_aes_cmac.h
-* Summary: AES-CMAC (RFC 4493 / NIST SP 800-38B) for message authentication.
+* Summary: AES-CMAC (RFC 4493 / NIST SP 800-38B) for noxtls_message authentication.
 */
 
 /** @addtogroup noxtls_encryption */
@@ -36,7 +36,7 @@ extern "C" {
 #if NOXTLS_FEATURE_AES_CMAC
 
 /**
- * @brief Compute AES-CMAC over a message (RFC 4493).
+ * @brief Compute AES-CMAC over a noxtls_message (RFC 4493).
  *
  * Uses AES-128 only (key_len 16). Output is 16 bytes (full MAC).
  * For BLE Signed Write the caller may use only the first 12 bytes.
@@ -45,14 +45,14 @@ extern "C" {
  * @param msg       Message to authenticate
  * @param msg_len   Message length in bytes
  * @param mac       Output buffer for 16-byte MAC
- * @param type      AES key type (AES_128_BIT recommended)
+ * @param type      AES key type (NOXTLS_AES_128_BIT recommended)
  * @return NOXTLS_RETURN_SUCCESS on success
  */
-noxtls_return_t aes_cmac(const uint8_t *key,
+noxtls_return_t noxtls_aes_cmac(const uint8_t *key,
                          const uint8_t *msg,
                          uint32_t msg_len,
                          uint8_t *mac,
-                         aes_type_t type);
+                         noxtls_aes_type_t type);
 
 #endif /* NOXTLS_FEATURE_AES_CMAC */
 

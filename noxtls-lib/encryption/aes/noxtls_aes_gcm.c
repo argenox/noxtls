@@ -185,11 +185,11 @@ static void ghash_finalize(uint8_t x[16], const uint8_t h[16], uint64_t aad_bits
  * @param out is the output to encrypt
  *
  */
-static void aes_block(const uint8_t *key, aes_type_t type, const uint8_t in[16], uint8_t out[16])
+static void aes_block(const uint8_t *key, noxtls_aes_type_t type, const uint8_t in[16], uint8_t out[16])
 {
     uint8_t tmp_in[16];
     memcpy(tmp_in, in, 16);
-    aes_encrypt_block_internal((uint8_t*)key, tmp_in, out, type);
+    noxtls_aes_encrypt_block_internal((uint8_t*)key, tmp_in, out, type);
 }
 
 /**
@@ -207,7 +207,7 @@ static void aes_block(const uint8_t *key, aes_type_t type, const uint8_t in[16],
  *
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_* on failure
  */
-noxtls_return_t aes_gcm_encrypt(const uint8_t *key, aes_type_t type,
+noxtls_return_t noxtls_aes_gcm_encrypt(const uint8_t *key, noxtls_aes_type_t type,
                     const uint8_t nonce[12],
                     const uint8_t *aad, uint32_t aad_len,
                     const uint8_t *plaintext, uint32_t plaintext_len,
@@ -275,7 +275,7 @@ noxtls_return_t aes_gcm_encrypt(const uint8_t *key, aes_type_t type,
  *
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_BAD_DATA on auth failure
  */
-noxtls_return_t aes_gcm_decrypt(const uint8_t *key, aes_type_t type,
+noxtls_return_t noxtls_aes_gcm_decrypt(const uint8_t *key, noxtls_aes_type_t type,
                     const uint8_t nonce[12],
                     const uint8_t *aad, uint32_t aad_len,
                     const uint8_t *ciphertext, uint32_t ciphertext_len,

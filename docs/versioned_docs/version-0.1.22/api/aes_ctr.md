@@ -41,10 +41,10 @@ CTR provides confidentiality and hides patterns, but **nonce/IV must never repea
 
 ## API
 
-### `aes_encrypt_ctr`
+### `noxtls_aes_encrypt_ctr`
 
 ```c
-noxtls_return_t aes_encrypt_ctr(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, aes_type_t type);
+noxtls_return_t noxtls_aes_encrypt_ctr(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aes_type_t type);
 ```
 
 AES Encrypt in CTR Mode  Counter Mode: A counter is encrypted to produce a keystream, which is XORed with the plaintext. Supports arbitrary-length data.

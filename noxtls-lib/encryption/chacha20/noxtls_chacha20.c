@@ -36,13 +36,13 @@
 #if NOXTLS_FEATURE_CHACHA20_POLY1305
 
 #if NOXTLS_CHACHA20_DEBUG
-#define CHACHA20_DEBUG_PRINT(fmt, ...) noxtls_debug_printf("[CHACHA20_DEBUG] " fmt, ##__VA_ARGS__)
+#define NOXTLS_CHACHA20_DEBUG_PRINT(fmt, ...) noxtls_debug_printf("[CHACHA20_DEBUG] " fmt, ##__VA_ARGS__)
 #else
-#define CHACHA20_DEBUG_PRINT(fmt, ...) ((void)0)
+#define NOXTLS_CHACHA20_DEBUG_PRINT(fmt, ...) ((void)0)
 #endif
 
 /* ChaCha20 Constants */
-static const uint32_t CHACHA20_CONSTANTS[4] = {
+static const uint32_t NOXTLS_CHACHA20_CONSTANTS[4] = {
     0x61707865,  /* "expa" */
     0x3320646e,  /* "nd 3" */
     0x79622d32,  /* "2-by" */
@@ -79,21 +79,22 @@ static void chacha20_quarter_round(uint32_t *a, uint32_t *b, uint32_t *c, uint32
 /**
  * @brief Generate one ChaCha20 block (64 bytes)
  *
- * @param state Input state (16 x 32-bit words)
- * @param output Output keystream block (64 bytes)
+ * @param state Input state (`NOXTLS_CHACHA20_STATE_WORDS` x 32-bit words)
+ * @param output Output keystream block (`NOXTLS_CHACHA20_BLOCK_SIZE` bytes)
  */
-static void chacha20_block(const uint32_t state[16], uint8_t output[64])
+static void chacha20_block(const uint32_t state[NOXTLS_CHACHA20_STATE_WORDS], uint8_t output[NOXTLS_CHACHA20_BLOCK_SIZE])
 {
-    uint32_t working_state[16];
-    uint32_t i, j;
+    uint32_t working_state[NOXTLS_CHACHA20_STATE_WORDS];
+    uint32_t i;
+    uint32_t j;
     
     /* Copy state to working state */
-    for(i = 0; i < 16; i++) {
+    for(i = 0; i < NOXTLS_CHACHA20_STATE_WORDS; i++) {
         working_state[i] = state[i];
     }
     
-    /* Perform 20 rounds (10 double rounds) */
-    for(i = 0; i < 10; i++) {
+    /* Perform NOXTLS_CHACHA20_ROUNDS rounds (NOXTLS_CHACHA20_DOUBLE_ROUNDS double rounds) */
+    for(i = 0; i < NOXTLS_CHACHA20_DOUBLE_ROUNDS; i++) {
         /* Column rounds */
         chacha20_quarter_round(&working_state[0], &working_state[4], &working_state[8],  &working_state[12]);
         chacha20_quarter_round(&working_state[1], &working_state[5], &working_state[9],  &working_state[13]);
@@ -108,12 +109,12 @@ static void chacha20_block(const uint32_t state[16], uint8_t output[64])
     }
     
     /* Add original state to working state */
-    for(i = 0; i < 16; i++) {
+    for(i = 0; i < NOXTLS_CHACHA20_STATE_WORDS; i++) {
         working_state[i] += state[i];
     }
     
     /* Convert to little-endian bytes */
-    for(i = 0; i < 16; i++) {
+    for(i = 0; i < NOXTLS_CHACHA20_STATE_WORDS; i++) {
         for(j = 0; j < 4; j++) {
             output[i * 4 + j] = (uint8_t)(working_state[i] >> (j * 8));
         }
@@ -123,7 +124,7 @@ static void chacha20_block(const uint32_t state[16], uint8_t output[64])
 /**
  * @brief Initialize ChaCha20 context
  */
-noxtls_return_t chacha20_init(chacha20_context_t *ctx, 
+noxtls_return_t noxtls_chacha20_init(noxtls_chacha20_context_t *ctx, 
                   const uint8_t *key, 
                   const uint8_t *nonce, 
                   uint64_t counter)
@@ -133,13 +134,13 @@ noxtls_return_t chacha20_init(chacha20_context_t *ctx,
     }
     
     /* Initialize state according to RFC 7539 */
-    /* State layout: constants(4) + key(8) + block_counter(1) + nonce(3) = 16 words */
+    /* State layout: constants(4) + key(8) + block_counter(1) + nonce(3) = NOXTLS_CHACHA20_STATE_WORDS words */
     
     /* Constants (4 words) */
-    ctx->state[0] = CHACHA20_CONSTANTS[0];
-    ctx->state[1] = CHACHA20_CONSTANTS[1];
-    ctx->state[2] = CHACHA20_CONSTANTS[2];
-    ctx->state[3] = CHACHA20_CONSTANTS[3];
+    ctx->state[0] = NOXTLS_CHACHA20_CONSTANTS[0];
+    ctx->state[1] = NOXTLS_CHACHA20_CONSTANTS[1];
+    ctx->state[2] = NOXTLS_CHACHA20_CONSTANTS[2];
+    ctx->state[3] = NOXTLS_CHACHA20_CONSTANTS[3];
     
     /* Key (8 words = 32 bytes, little-endian) */
     ctx->state[4] = ((uint32_t)key[0]) | ((uint32_t)key[1] << 8) | ((uint32_t)key[2] << 16) | ((uint32_t)key[3] << 24);
@@ -160,10 +161,10 @@ noxtls_return_t chacha20_init(chacha20_context_t *ctx,
     ctx->state[15] = ((uint32_t)nonce[8]) | ((uint32_t)nonce[9] << 8) | ((uint32_t)nonce[10] << 16) | ((uint32_t)nonce[11] << 24);
     
     /* Store key and nonce for potential reuse */
-    memcpy(ctx->key, key, CHACHA20_KEY_SIZE);
-    memcpy(ctx->nonce, nonce, CHACHA20_NONCE_SIZE);
+    memcpy(ctx->key, key, NOXTLS_CHACHA20_KEY_SIZE);
+    memcpy(ctx->nonce, nonce, NOXTLS_CHACHA20_NONCE_SIZE);
     ctx->counter = counter;
-    ctx->keystream_pos = CHACHA20_BLOCK_SIZE; /* Force generation of first block */
+    ctx->keystream_pos = NOXTLS_CHACHA20_BLOCK_SIZE; /* Force generation of first block */
     
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -171,7 +172,7 @@ noxtls_return_t chacha20_init(chacha20_context_t *ctx,
 /**
  * @brief Generate next keystream block
  */
-static void chacha20_generate_keystream(chacha20_context_t *ctx)
+static void chacha20_generate_keystream(noxtls_chacha20_context_t *ctx)
 {
     chacha20_block(ctx->state, ctx->keystream);
     ctx->keystream_pos = 0;
@@ -188,7 +189,7 @@ static void chacha20_generate_keystream(chacha20_context_t *ctx)
 /**
  * @brief Encrypt/Decrypt data using ChaCha20
  */
-noxtls_return_t chacha20_process(chacha20_context_t *ctx,
+noxtls_return_t noxtls_chacha20_process(noxtls_chacha20_context_t *ctx,
                      const uint8_t *input,
                      uint8_t *output,
                      uint32_t input_len)
@@ -201,7 +202,7 @@ noxtls_return_t chacha20_process(chacha20_context_t *ctx,
     
     for(i = 0; i < input_len; i++) {
         /* Generate new keystream block if needed */
-        if(ctx->keystream_pos >= CHACHA20_BLOCK_SIZE) {
+        if(ctx->keystream_pos >= NOXTLS_CHACHA20_BLOCK_SIZE) {
             chacha20_generate_keystream(ctx);
         }
         
@@ -216,29 +217,29 @@ noxtls_return_t chacha20_process(chacha20_context_t *ctx,
 /**
  * @brief Encrypt data using ChaCha20 (convenience function)
  */
-noxtls_return_t chacha20_encrypt(const uint8_t *key,
+noxtls_return_t noxtls_chacha20_encrypt(const uint8_t *key,
                      const uint8_t *nonce,
                      uint64_t counter,
                      const uint8_t *input,
                      uint32_t input_len,
                      uint8_t *output)
 {
-    chacha20_context_t ctx;
+    noxtls_chacha20_context_t ctx;
     
     if(key == NULL || nonce == NULL || input == NULL || output == NULL) {
         return NOXTLS_RETURN_NULL;
     }
     
-    { noxtls_return_t r = chacha20_init(&ctx, key, nonce, counter);
+    { noxtls_return_t r = noxtls_chacha20_init(&ctx, key, nonce, counter);
     if(r != NOXTLS_RETURN_SUCCESS) return r; }
     
-    return chacha20_process(&ctx, input, output, input_len);
+    return noxtls_chacha20_process(&ctx, input, output, input_len);
 }
 
 /**
  * @brief Decrypt data using ChaCha20 (convenience function)
  */
-noxtls_return_t chacha20_decrypt(const uint8_t *key,
+noxtls_return_t noxtls_chacha20_decrypt(const uint8_t *key,
                      const uint8_t *nonce,
                      uint64_t counter,
                      const uint8_t *input,
@@ -246,7 +247,7 @@ noxtls_return_t chacha20_decrypt(const uint8_t *key,
                      uint8_t *output)
 {
     /* ChaCha20 encryption and decryption are identical */
-    return chacha20_encrypt(key, nonce, counter, input, input_len, output);
+    return noxtls_chacha20_encrypt(key, nonce, counter, input, input_len, output);
 }
 
 /**
@@ -254,7 +255,7 @@ noxtls_return_t chacha20_decrypt(const uint8_t *key,
  * 
  * Tests against known test vectors from RFC 7539
  */
-noxtls_return_t chacha20_self_test(void)
+noxtls_return_t noxtls_chacha20_self_test(void)
 {
     /* Test Vector from RFC 7539 Section 2.3.2 */
     const uint8_t test_key[32] = {
@@ -272,7 +273,7 @@ noxtls_return_t chacha20_self_test(void)
     
     const uint64_t test_counter = 1;
     
-    const uint8_t expected_keystream[64] = {
+    const uint8_t expected_keystream[NOXTLS_CHACHA20_BLOCK_SIZE] = {
         0x10, 0xf1, 0xe7, 0xe4, 0xd1, 0x3b, 0x59, 0x15,
         0x50, 0x0f, 0xdd, 0x1f, 0xa3, 0x20, 0x71, 0xc4,
         0xc7, 0xd1, 0xf4, 0xc7, 0x33, 0xc0, 0x68, 0x03,
@@ -283,24 +284,24 @@ noxtls_return_t chacha20_self_test(void)
         0xcb, 0xd0, 0x83, 0xe8, 0xa2, 0x50, 0x3c, 0x4e
     };
     
-    uint8_t keystream[64];
-    chacha20_context_t ctx;
+    uint8_t keystream[NOXTLS_CHACHA20_BLOCK_SIZE];
+    noxtls_chacha20_context_t ctx;
     uint32_t i;
     
-    CHACHA20_DEBUG_PRINT("Running ChaCha20 self-test...\n");
+    NOXTLS_CHACHA20_DEBUG_PRINT("Running ChaCha20 self-test...\n");
     
     /* Initialize context */
-    if(chacha20_init(&ctx, test_key, test_nonce, test_counter) != NOXTLS_RETURN_SUCCESS) {
+    if(noxtls_chacha20_init(&ctx, test_key, test_nonce, test_counter) != NOXTLS_RETURN_SUCCESS) {
         noxtls_debug_printf("ChaCha20 self-test FAILED: Initialization failed\n");
         return NOXTLS_RETURN_FAILED;
     }
     
     /* Generate first keystream block */
     chacha20_generate_keystream(&ctx);
-    memcpy(keystream, ctx.keystream, 64);
+    memcpy(keystream, ctx.keystream, NOXTLS_CHACHA20_BLOCK_SIZE);
     
     /* Compare with expected output */
-    for(i = 0; i < 64; i++) {
+    for(i = 0; i < NOXTLS_CHACHA20_BLOCK_SIZE; i++) {
         if(keystream[i] != expected_keystream[i]) {
             noxtls_debug_printf("ChaCha20 self-test FAILED: Mismatch at byte %u\n", i);
             noxtls_debug_printf("  Expected: 0x%02x, Got: 0x%02x\n", expected_keystream[i], keystream[i]);
@@ -308,7 +309,7 @@ noxtls_return_t chacha20_self_test(void)
         }
     }
     
-    CHACHA20_DEBUG_PRINT("ChaCha20 self-test PASSED\n");
+    NOXTLS_CHACHA20_DEBUG_PRINT("ChaCha20 self-test PASSED\n");
     return NOXTLS_RETURN_SUCCESS;
 }
 

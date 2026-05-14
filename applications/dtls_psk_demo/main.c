@@ -404,13 +404,13 @@ static noxtls_return_t dtls_roundtrip_record(dtls_context_t *sender,
     noxtls_return_t rc;
 
     printf("[DTLS] Sending %s (%u bytes)\n", label, payload_len);
-    rc = dtls_send_record(sender, type, payload, payload_len);
+    rc = noxtls_dtls_send_record(sender, type, payload, payload_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         printf("ERROR: Failed to send %s record (%d)\n", label, rc);
         return rc;
     }
 
-    rc = dtls_recv_record(receiver, &record);
+    rc = noxtls_dtls_recv_record(receiver, &record);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         printf("ERROR: Failed to receive %s record (%d)\n", label, rc);
         return rc;
@@ -454,13 +454,13 @@ static noxtls_return_t dtls_handshake_exchange(dtls_context_t *client,
         return rc;
     }
 
-    rc = dtls_recv_handshake_fragment(server, &fragment);
+    rc = noxtls_dtls_recv_handshake_fragment(server, &fragment);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         printf("ERROR: Failed to receive %s handshake (%d)\n", label, rc);
         return rc;
     }
 
-    rc = dtls_reassemble_handshake(server, &fragment, &complete_msg, &complete_len);
+    rc = noxtls_dtls_reassemble_handshake(server, &fragment, &complete_msg, &complete_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         printf("ERROR: Failed to reassemble %s handshake (%d)\n", label, rc);
         if(fragment.data) {
@@ -504,7 +504,7 @@ static void *dtls12_client_thread_fn(void *arg)
     uint32_t recv_len;
     noxtls_return_t rc;
 
-    args->rc = dtls12_context_init(&ctx, TLS_ROLE_CLIENT);
+    args->rc = noxtls_dtls12_context_init(&ctx, TLS_ROLE_CLIENT);
     if(args->rc != NOXTLS_RETURN_SUCCESS)
 #if defined(_WIN32) || defined(_WIN64)
         return 0;
@@ -513,7 +513,7 @@ static void *dtls12_client_thread_fn(void *arg)
 #endif
     rc = noxtls_tls_set_io_callbacks(&ctx.base.base, client_send_ts_callback, client_recv_ts_callback, &client_io);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        tls12_context_free(&ctx);
+        noxtls_tls12_context_free(&ctx);
         args->rc = rc;
 #if defined(_WIN32) || defined(_WIN64)
         return 0;
@@ -521,9 +521,9 @@ static void *dtls12_client_thread_fn(void *arg)
         return NULL;
 #endif
     }
-    rc = tls12_connect(&ctx);
+    rc = noxtls_tls12_connect(&ctx);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        tls12_context_free(&ctx);
+        noxtls_tls12_context_free(&ctx);
         args->rc = rc;
 #if defined(_WIN32) || defined(_WIN64)
         return 0;
@@ -532,9 +532,9 @@ static void *dtls12_client_thread_fn(void *arg)
 #endif
     }
     printf("[Client] DTLS 1.2 handshake complete (ClientHello -> ... -> Finished).\n");
-    rc = tls12_send(&ctx, (const uint8_t*)msg, (uint32_t)strlen(msg));
+    rc = noxtls_tls12_send(&ctx, (const uint8_t*)msg, (uint32_t)strlen(msg));
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        tls12_context_free(&ctx);
+        noxtls_tls12_context_free(&ctx);
         args->rc = rc;
 #if defined(_WIN32) || defined(_WIN64)
         return 0;
@@ -543,8 +543,8 @@ static void *dtls12_client_thread_fn(void *arg)
 #endif
     }
     recv_len = sizeof(recv_buf);
-    rc = tls12_recv(&ctx, recv_buf, &recv_len);
-    tls12_context_free(&ctx);
+    rc = noxtls_tls12_recv(&ctx, recv_buf, &recv_len);
+    noxtls_tls12_context_free(&ctx);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         args->rc = rc;
 #if defined(_WIN32) || defined(_WIN64)
@@ -577,7 +577,7 @@ static void *dtls12_server_thread_fn(void *arg)
     const char *reply = "Hello from DTLS 1.2 server";
     noxtls_return_t rc;
 
-    args->rc = dtls12_context_init(&ctx, TLS_ROLE_SERVER);
+    args->rc = noxtls_dtls12_context_init(&ctx, TLS_ROLE_SERVER);
     if(args->rc != NOXTLS_RETURN_SUCCESS)
 #if defined(_WIN32) || defined(_WIN64)
         return 0;
@@ -588,7 +588,7 @@ static void *dtls12_server_thread_fn(void *arg)
     ctx.server_cert_len = ______certs_server__server_der_len;
     rc = noxtls_tls_set_io_callbacks(&ctx.base.base, server_send_ts_callback, server_recv_ts_callback, &server_io);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        tls12_context_free(&ctx);
+        noxtls_tls12_context_free(&ctx);
         args->rc = rc;
 #if defined(_WIN32) || defined(_WIN64)
         return 0;
@@ -596,9 +596,9 @@ static void *dtls12_server_thread_fn(void *arg)
         return NULL;
 #endif
     }
-    rc = tls12_accept(&ctx);
+    rc = noxtls_tls12_accept(&ctx);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        tls12_context_free(&ctx);
+        noxtls_tls12_context_free(&ctx);
         args->rc = rc;
 #if defined(_WIN32) || defined(_WIN64)
         return 0;
@@ -608,9 +608,9 @@ static void *dtls12_server_thread_fn(void *arg)
     }
     printf("[Server] DTLS 1.2 handshake complete (ClientHello, HelloVerifyRequest?, ServerHello, Certificate, ServerKeyExchange, ServerHelloDone, ClientKeyExchange, CCS, Finished, CCS, Finished).\n");
     recv_len = sizeof(recv_buf);
-    rc = tls12_recv(&ctx, recv_buf, &recv_len);
+    rc = noxtls_tls12_recv(&ctx, recv_buf, &recv_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        tls12_context_free(&ctx);
+        noxtls_tls12_context_free(&ctx);
         args->rc = rc;
 #if defined(_WIN32) || defined(_WIN64)
         return 0;
@@ -619,8 +619,8 @@ static void *dtls12_server_thread_fn(void *arg)
 #endif
     }
     printf("[Server] Received encrypted app data: %.*s\n", (int)recv_len, (char*)recv_buf);
-    rc = tls12_send(&ctx, (const uint8_t*)reply, (uint32_t)strlen(reply));
-    tls12_context_free(&ctx);
+    rc = noxtls_tls12_send(&ctx, (const uint8_t*)reply, (uint32_t)strlen(reply));
+    noxtls_tls12_context_free(&ctx);
     args->rc = rc;
 #if defined(_WIN32) || defined(_WIN64)
     return 0;
@@ -645,12 +645,14 @@ static noxtls_return_t dtls12_psk_handshake_demo(udp_connection_t *network)
         dtls12_thread_args_t server_args = { &ts, NOXTLS_RETURN_FAILED };
         noxtls_return_t rc;
 #if defined(_WIN32) || defined(_WIN64)
-        HANDLE th_client, th_server;
+        HANDLE th_client;
+        HANDLE th_server;
         InitializeCriticalSection(&ts.cs);
         InitializeConditionVariable(&ts.cv_client_to_server);
         InitializeConditionVariable(&ts.cv_server_to_client);
 #else
-        pthread_t th_client, th_server;
+        pthread_t th_client;
+        pthread_t th_server;
         pthread_mutex_init(&ts.mutex, NULL);
         pthread_cond_init(&ts.cond_client_to_server, NULL);
         pthread_cond_init(&ts.cond_server_to_client, NULL);
@@ -723,13 +725,13 @@ static noxtls_return_t dtls12_psk_handshake_demo(udp_connection_t *network)
     uint32_t cookie_len = sizeof(cookie);
     noxtls_return_t rc;
 
-    dtls_context_init(&client_ctx, TLS_ROLE_CLIENT, DTLS_VERSION_1_2);
-    dtls_context_init(&server_ctx, TLS_ROLE_SERVER, DTLS_VERSION_1_2);
+    noxtls_dtls_context_init(&client_ctx, TLS_ROLE_CLIENT, DTLS_VERSION_1_2);
+    noxtls_dtls_context_init(&server_ctx, TLS_ROLE_SERVER, DTLS_VERSION_1_2);
     noxtls_tls_set_io_callbacks(&client_ctx.base, client_send_callback, client_recv_callback, network);
     noxtls_tls_set_io_callbacks(&server_ctx.base, server_send_callback, server_recv_callback, network);
 
     printf("[Server] Generating HelloVerifyRequest cookie...\n");
-    rc = dtls_generate_cookie(&server_ctx, client_hello, (uint32_t)sizeof(client_hello) - 1,
+    rc = noxtls_dtls_generate_cookie(&server_ctx, client_hello, (uint32_t)sizeof(client_hello) - 1,
                               cookie, &cookie_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         printf("ERROR: Failed to generate cookie (%d)\n", rc);
@@ -738,7 +740,7 @@ static noxtls_return_t dtls12_psk_handshake_demo(udp_connection_t *network)
     printf("  Cookie: ");
     print_hex(cookie, cookie_len);
 
-    rc = dtls_verify_cookie(&server_ctx, cookie, cookie_len);
+    rc = noxtls_dtls_verify_cookie(&server_ctx, cookie, cookie_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         printf("ERROR: Failed to verify cookie (%d)\n", rc);
         return rc;
@@ -769,13 +771,13 @@ static noxtls_return_t dtls12_psk_handshake_demo(udp_connection_t *network)
     }
     
     printf("\nDTLS 1.2 simplified demo (no cert linked). For full handshake, build with cert data.\n\n");
-    dtls_context_free(&client_ctx);
-    dtls_context_free(&server_ctx);
+    noxtls_dtls_context_free(&client_ctx);
+    noxtls_dtls_context_free(&server_ctx);
     return NOXTLS_RETURN_SUCCESS;
 #endif
 }
 
-/* DTLS 1.3 PSK Handshake Demo. prefer_chacha20: 0 = prefer AES-GCM, 1 = prefer ChaCha20-Poly1305 (for full handshake use tls13_set_prefer_chacha20). */
+/* DTLS 1.3 PSK Handshake Demo. prefer_chacha20: 0 = prefer AES-GCM, 1 = prefer ChaCha20-Poly1305 (for full handshake use noxtls_tls13_set_prefer_chacha20). */
 static noxtls_return_t dtls13_psk_handshake_demo(udp_connection_t *network, int prefer_chacha20)
 {
     printf("========================================\n");
@@ -788,7 +790,7 @@ static noxtls_return_t dtls13_psk_handshake_demo(udp_connection_t *network, int 
     printf("  - PSK can be used for 0-RTT data\n");
     printf("  - Simplified handshake with fewer messages\n");
     printf("  - Always uses AEAD encryption (ChaCha20-Poly1305 or AES-GCM)\n");
-    printf("  - No Change Cipher Spec message\n");
+    printf("  - No Change Cipher Spec noxtls_message\n");
     printf("  - Handshake messages encrypted after Server Hello\n\n");
     
     printf("PSK Configuration:\n");
@@ -803,13 +805,13 @@ static noxtls_return_t dtls13_psk_handshake_demo(udp_connection_t *network, int 
     uint8_t app_data[] = "DTLS13_APP_DATA";
     noxtls_return_t rc;
 
-    dtls_context_init(&client_ctx, TLS_ROLE_CLIENT, DTLS_VERSION_1_3);
-    dtls_context_init(&server_ctx, TLS_ROLE_SERVER, DTLS_VERSION_1_3);
+    noxtls_dtls_context_init(&client_ctx, TLS_ROLE_CLIENT, DTLS_VERSION_1_3);
+    noxtls_dtls_context_init(&server_ctx, TLS_ROLE_SERVER, DTLS_VERSION_1_3);
     noxtls_tls_set_io_callbacks(&client_ctx.base, client_send_callback, client_recv_callback, network);
     noxtls_tls_set_io_callbacks(&server_ctx.base, server_send_callback, server_recv_callback, network);
 
     printf("[Client] Sending Client Hello (DTLS 1.3)...\n");
-    printf("  Handshake message would include:\n");
+    printf("  Handshake noxtls_message would include:\n");
     printf("    - Supported Versions extension (DTLS 1.3)\n");
     printf("    - PSK Key Exchange Modes extension\n");
     printf("    - Pre-Shared Key extension (PSK identity)\n");
@@ -841,12 +843,12 @@ static noxtls_return_t dtls13_psk_handshake_demo(udp_connection_t *network, int 
     printf("\nDTLS 1.3 Handshake completed (simplified demo)\n");
     printf("In a full DTLS 1.3 implementation, this would continue with:\n");
     printf("  - Encrypted Extensions (encrypted after Server Hello)\n");
-    printf("  - Finished message (encrypted, includes handshake hash)\n");
+    printf("  - Finished noxtls_message (encrypted, includes handshake hash)\n");
     printf("  - Application Data (can use 0-RTT if PSK is available)\n");
     printf("  - All messages after Server Hello are encrypted with AEAD\n\n");
     
-    dtls_context_free(&client_ctx);
-    dtls_context_free(&server_ctx);
+    noxtls_dtls_context_free(&client_ctx);
+    noxtls_dtls_context_free(&server_ctx);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -875,7 +877,7 @@ int main(int argc, char **argv)
             demo_version = 2;
         } else {
             printf("Usage: %s [--chacha|--aes] [1.2|1.3]\n", argv[0]);
-            printf("  --chacha     Prefer ChaCha20-Poly1305 for TLS/DTLS 1.3 (call tls13_set_prefer_chacha20(ctx,1) before handshake)\n");
+            printf("  --chacha     Prefer ChaCha20-Poly1305 for TLS/DTLS 1.3 (call noxtls_tls13_set_prefer_chacha20(ctx,1) before handshake)\n");
             printf("  --aes       Prefer AES-GCM for TLS/DTLS 1.3 (default)\n");
             printf("  No argument: Run both DTLS 1.2 and DTLS 1.3 demos\n");
             printf("  1.2 or 12:   Run DTLS 1.2 demo only\n");

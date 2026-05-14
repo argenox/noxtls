@@ -41,10 +41,10 @@ CCM provides confidentiality and authenticity. **Nonce uniqueness is critical:**
 
 ## API
 
-### `aes_ccm_encrypt`
+### `noxtls_aes_ccm_encrypt`
 
 ```c
-noxtls_return_t aes_ccm_encrypt(const uint8_t *key, aes_type_t type, const uint8_t *nonce, uint32_t nonce_len, const uint8_t *aad, uint32_t aad_len, const uint8_t *plaintext, uint32_t plaintext_len, uint8_t *ciphertext, uint8_t *tag, uint32_t tag_len);
+noxtls_return_t noxtls_aes_ccm_encrypt(const uint8_t *key, noxtls_aes_type_t type, const uint8_t *nonce, uint32_t nonce_len, const uint8_t *aad, uint32_t aad_len, const uint8_t *plaintext, uint32_t plaintext_len, uint8_t *ciphertext, uint8_t *tag, uint32_t tag_len);
 ```
 
 AES-CCM encrypt (authenticated encryption).
@@ -52,7 +52,7 @@ AES-CCM encrypt (authenticated encryption).
 **Parameters:**
 
 - `key` — AES key
-- `type` — AES key size (AES_128_BIT, AES_192_BIT, AES_256_BIT)
+- `type` — AES key size (NOXTLS_AES_128_BIT, NOXTLS_AES_192_BIT, NOXTLS_AES_256_BIT)
 - `nonce` — Nonce (7..13 bytes; length must match L = 15 - nonce_len, L in 2..8)
 - `nonce_len` — Nonce length in bytes (7, 8, 9, 10, 11, 12, or 13)
 - `aad` — Optional associated data (may be NULL if aad_len == 0)
@@ -65,10 +65,10 @@ AES-CCM encrypt (authenticated encryption).
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success; otherwise a specific [return code](/docs/api/return_codes).
 
-### `aes_ccm_decrypt`
+### `noxtls_aes_ccm_decrypt`
 
 ```c
-noxtls_return_t aes_ccm_decrypt(const uint8_t *key, aes_type_t type, const uint8_t *nonce, uint32_t nonce_len, const uint8_t *aad, uint32_t aad_len, const uint8_t *ciphertext, uint32_t ciphertext_len, const uint8_t *tag, uint32_t tag_len, uint8_t *plaintext);
+noxtls_return_t noxtls_aes_ccm_decrypt(const uint8_t *key, noxtls_aes_type_t type, const uint8_t *nonce, uint32_t nonce_len, const uint8_t *aad, uint32_t aad_len, const uint8_t *ciphertext, uint32_t ciphertext_len, const uint8_t *tag, uint32_t tag_len, uint8_t *plaintext);
 ```
 
 AES-CCM decrypt (verify tag and decrypt).

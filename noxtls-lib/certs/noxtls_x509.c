@@ -63,6 +63,9 @@
 #if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
 #include "pkc/ed448/noxtls_ed448.h"
 #endif
+#if NOXTLS_FEATURE_ML_DSA
+#include "pkc/mldsa/noxtls_mldsa.h"
+#endif
 #if NOXTLS_FEATURE_AES_CBC
 #include "mdigest/sha1/noxtls_sha1.h"
 #include "encryption/aes/noxtls_aes.h"
@@ -71,6 +74,62 @@
 #if NOXTLS_HAVE_TIME
 #include <time.h>
 #endif
+
+/* RFC 5280 id-ce extension OIDs (DER) */
+/* id-ce-subjectAltName = 2.5.29.17 */
+static const uint8_t oid_subject_alt_name[] = { 0x55, 0x1D, 0x11 };
+/* id-ce-keyUsage = 2.5.29.15 */
+static const uint8_t oid_key_usage[] = { 0x55, 0x1D, 0x0F };
+/* id-ce-basicConstraints = 2.5.29.19 */
+static const uint8_t oid_basic_constraints[] = { 0x55, 0x1D, 0x13 };
+/* id-ce-extKeyUsage = 2.5.29.37 */
+static const uint8_t oid_ext_key_usage[] = { 0x55, 0x1D, 0x25 };
+/* id-ce-authorityKeyIdentifier = 2.5.29.35 */
+static const uint8_t oid_authority_key_id[] = { 0x55, 0x1D, 0x23 };
+/* id-ce-subjectKeyIdentifier = 2.5.29.14 */
+static const uint8_t oid_subject_key_id[] = { 0x55, 0x1D, 0x0E };
+/* id-ce-certificatePolicies = 2.5.29.32 */
+static const uint8_t oid_certificate_policies[] = { 0x55, 0x1D, 0x20 };
+/* id-ce-cRLDistributionPoints = 2.5.29.31 */
+static const uint8_t oid_crl_distribution_points[] = { 0x55, 0x1D, 0x1F };
+/* id-ce-nameConstraints = 2.5.29.30 */
+static const uint8_t oid_name_constraints[] = { 0x55, 0x1D, 0x1E };
+/* id-ce-policyConstraints = 2.5.29.36 */
+static const uint8_t oid_policy_constraints[] = { 0x55, 0x1D, 0x24 };
+/* id-ce-inhibitAnyPolicy = 2.5.29.54 */
+static const uint8_t oid_inhibit_any_policy[] = { 0x55, 0x1D, 0x36 };
+/* id-kp OIDs (Extended Key Usage): 1.3.6.1.5.5.7.3.x */
+static const uint8_t oid_kp_server_auth[] = { 0x2B, 0x06, 0x01, 0x05, 0x05, 0x07, 0x03, 0x01 };
+static const uint8_t oid_kp_client_auth[] = { 0x2B, 0x06, 0x01, 0x05, 0x05, 0x07, 0x03, 0x02 };
+static const uint8_t oid_kp_code_signing[] = { 0x2B, 0x06, 0x01, 0x05, 0x05, 0x07, 0x03, 0x03 };
+static const uint8_t oid_kp_email_protection[] = { 0x2B, 0x06, 0x01, 0x05, 0x05, 0x07, 0x03, 0x04 };
+static const uint8_t oid_kp_time_stamping[] = { 0x2B, 0x06, 0x01, 0x05, 0x05, 0x07, 0x03, 0x08 };
+static const uint8_t oid_kp_ocsp_signing[] = { 0x2B, 0x06, 0x01, 0x05, 0x05, 0x07, 0x03, 0x09 };
+/* anyExtendedKeyUsage 2.5.29.37.0 */
+static const uint8_t oid_any_eku[] = { 0x55, 0x1D, 0x25, 0x00 };
+
+/* ECC curve OIDs (DER) for noxtls_x509 helpers */
+static const uint8_t noxtls_x509_oid_secp192r1[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x01};
+static const uint8_t noxtls_x509_oid_secp224r1[] = {0x2B, 0x81, 0x04, 0x00, 0x21};
+static const uint8_t noxtls_x509_oid_secp256r1[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x07};
+static const uint8_t noxtls_x509_oid_secp384r1[] = {0x2B, 0x81, 0x04, 0x00, 0x22};
+static const uint8_t noxtls_x509_oid_secp521r1[] = {0x2B, 0x81, 0x04, 0x00, 0x23};
+static const uint8_t noxtls_x509_oid_bp256r1[] = {0x2B, 0x24, 0x03, 0x03, 0x02, 0x08, 0x01, 0x01, 0x07};
+static const uint8_t noxtls_x509_oid_bp384r1[] = {0x2B, 0x24, 0x03, 0x03, 0x02, 0x08, 0x01, 0x01, 0x0B};
+static const uint8_t noxtls_x509_oid_bp512r1[] = {0x2B, 0x24, 0x03, 0x03, 0x02, 0x08, 0x01, 0x01, 0x0D};
+static const uint8_t noxtls_x509_oid_secp192k1[] = {0x2B, 0x81, 0x04, 0x00, 0x1F};
+static const uint8_t noxtls_x509_oid_secp224k1[] = {0x2B, 0x81, 0x04, 0x00, 0x20};
+static const uint8_t noxtls_x509_oid_secp256k1[] = {0x2B, 0x81, 0x04, 0x00, 0x0A};
+
+static noxtls_x509_unknown_ext_cb_t noxtls_x509_unknown_ext_cb;
+static void *noxtls_x509_unknown_ext_user_ctx;
+static int s_x509_hostname_wildcard_matching =
+#if NOXTLS_X509_HOSTNAME_ALLOW_WILDCARD
+    1
+#else
+    0
+#endif
+;
 
 static FILE *noxtls_fopen(const char *filename, const char *mode)
 {
@@ -85,19 +144,14 @@ static FILE *noxtls_fopen(const char *filename, const char *mode)
 #endif
 }
 
-/* Debug flag - can be enabled by defining CERT_DEBUG=1 or via compiler flag */
-#ifndef CERT_DEBUG
-#define CERT_DEBUG 1  /* Enable by default for debugging */
-#endif
-
-#if CERT_DEBUG
-#define CERT_DEBUG_PRINT(fmt, ...) noxtls_debug_printf("[CERT_DEBUG] " fmt, ##__VA_ARGS__)
-#else
-#define CERT_DEBUG_PRINT(fmt, ...) ((void)0)
-#endif
+/* Certificate debug logging disabled (was CERT_DEBUG / CERT_DEBUG_PRINT). */
+#define CERT_DEBUG_PRINT(...) ((void)0)
 
 /* Last certificate verification failure detail (single global; not thread-safe). */
 static noxtls_cert_verify_failure_info_t s_cert_fail_info;
+/* Global trust anchors for TLS certificate verification (single global; not thread-safe). */
+static x509_certificate_chain_t s_x509_trust_anchors;
+static int s_x509_trust_anchors_initialized;
 
 static void cert_fail_set(noxtls_return_t return_code, const x509_certificate_t *cert, const char *expected_hostname, uint32_t expected_hostname_len, uint32_t cert_index)
 {
@@ -105,6 +159,7 @@ static void cert_fail_set(noxtls_return_t return_code, const x509_certificate_t 
     s_cert_fail_info.return_code = return_code;
     s_cert_fail_info.cert_index = cert_index;
     s_cert_fail_info.populated = 1;
+
     if(cert != NULL) {
         if(cert->not_before[0] != 0) {
             uint32_t n = 0;
@@ -131,6 +186,7 @@ static void cert_fail_set(noxtls_return_t return_code, const x509_certificate_t 
             s_cert_fail_info.subject_dn[n] = '\0';
         }
     }
+
     if(expected_hostname != NULL) {
         uint32_t n = 0;
         if(expected_hostname_len == 0) {
@@ -175,7 +231,7 @@ static uint32_t asn1_get_length(const uint8_t **data, const uint8_t *end)
         uint8_t len_bytes = *ptr & 0x7F;
         ptr++;
 
-        if(len_bytes == 0 || len_bytes > 4 || ptr + len_bytes > end) {
+        if(len_bytes == 0 || len_bytes > 4 || (size_t)(end - ptr) < (size_t)len_bytes) {
             return 0;
         }
 
@@ -218,7 +274,7 @@ static noxtls_return_t asn1_get_oid(const uint8_t **data, const uint8_t *end, ui
     }
 
     len = asn1_get_length(data, end);
-    if(len == 0 || *data + len > end || len > 32) {
+    if(len == 0 || len > 32 || (size_t)(end - *data) < (size_t)len) {
         return NOXTLS_RETURN_FAILED;
     }
 
@@ -241,7 +297,7 @@ static noxtls_return_t asn1_get_integer(const uint8_t **data, const uint8_t *end
 
     len = asn1_get_length(data, end);
 
-    if(len == 0 || *data + len > end) {
+    if(len == 0 || (size_t)(end - *data) < (size_t)len) {
         return NOXTLS_RETURN_FAILED;
     }
 
@@ -271,7 +327,7 @@ static noxtls_return_t asn1_get_sequence(const uint8_t **data, const uint8_t *en
 
     *seq_len = asn1_get_length(data, end);
 
-    if(*seq_len == 0 || *data + *seq_len > end) {
+    if(*seq_len == 0 || (size_t)(end - *data) < (size_t)(*seq_len)) {
         return NOXTLS_RETURN_FAILED;
     }
 
@@ -287,10 +343,12 @@ static noxtls_return_t asn1_get_octet_string(const uint8_t **data, const uint8_t
     if(asn1_get_tag(data, end, 0x04) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
+
     *out_len = asn1_get_length(data, end);
-    if(*data + *out_len > end) {
+    if((size_t)(end - *data) < (size_t)(*out_len)) {
         return NOXTLS_RETURN_FAILED;
     }
+
     *out_data = *data;
     *data += *out_len;
     return NOXTLS_RETURN_SUCCESS;
@@ -302,10 +360,12 @@ static noxtls_return_t asn1_get_boolean(const uint8_t **data, const uint8_t *end
     if(asn1_get_tag(data, end, 0x01) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
+
     len = asn1_get_length(data, end);
-    if(len != 1 || *data + 1 > end) {
+    if(len != 1 || (size_t)(end - *data) < 1u) {
         return NOXTLS_RETURN_FAILED;
     }
+
     *out_value = (**data != 0) ? 1 : 0;
     *data += 1;
     return NOXTLS_RETURN_SUCCESS;
@@ -323,7 +383,7 @@ static const uint8_t oid_aes128_cbc[] = { 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x
 static const uint8_t oid_aes256_cbc[] = { 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x01, 0x2A };
 
 #define SHA1_OUT_LEN 20
-#define AES_BLOCK_LEN 16
+#define NOXTLS_AES_BLOCK_LEN 16
 
 static int oid_equal(const uint8_t *a, uint32_t a_len, const uint8_t *b, uint32_t b_len)
 {
@@ -336,7 +396,8 @@ static noxtls_return_t hmac_sha1(const uint8_t *key, uint32_t key_len,
                                   uint8_t *mac)
 {
     noxtls_sha_ctx_t ctx;
-    uint8_t ipad[64], opad[64];
+    uint8_t ipad[64];
+    uint8_t opad[64];
     uint8_t tmp[SHA1_OUT_LEN];
     uint32_t i;
 
@@ -345,6 +406,7 @@ static noxtls_return_t hmac_sha1(const uint8_t *key, uint32_t key_len,
     }
     memset(ipad, 0x36, 64);
     memset(opad, 0x5C, 64);
+
     if(key_len > 64) {
         if(noxtls_sha1_init(&ctx, NOXTLS_HASH_SHA1) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
         if(noxtls_sha1_update(&ctx, (const uint8_t*)key, key_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
@@ -352,10 +414,12 @@ static noxtls_return_t hmac_sha1(const uint8_t *key, uint32_t key_len,
         key = tmp;
         key_len = SHA1_OUT_LEN;
     }
+
     for(i = 0; i < key_len; i++) {
         ipad[i] ^= key[i];
         opad[i] ^= key[i];
     }
+
     if(noxtls_sha1_init(&ctx, NOXTLS_HASH_SHA1) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
     if(noxtls_sha1_update(&ctx, ipad, 64) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
     if(noxtls_sha1_update(&ctx, (const uint8_t*)msg, msg_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
@@ -375,27 +439,35 @@ static noxtls_return_t pbkdf2_hmac_sha1(const uint8_t *password, uint32_t passwo
     uint8_t u[SHA1_OUT_LEN];
     uint8_t t[SHA1_OUT_LEN];
     uint8_t *block_input = NULL;
-    uint32_t j, k, blocks;
+    uint32_t j;
+    uint32_t k;
+    uint32_t blocks;
     uint32_t block_index;
 
     if(password == NULL || salt == NULL || out == NULL || iterations == 0) {
         return NOXTLS_RETURN_NULL;
     }
+
     if(salt_len > 0xFFFF - 4) return NOXTLS_RETURN_FAILED;
     block_input = (uint8_t*)malloc(salt_len + 4);
     if(block_input == NULL) return NOXTLS_RETURN_FAILED;
     memcpy(block_input, salt, salt_len);
     blocks = (key_len + SHA1_OUT_LEN - 1) / SHA1_OUT_LEN;
+
     for(block_index = 1; block_index <= blocks; block_index++) {
         block_input[salt_len + 0] = (uint8_t)(block_index >> 24);
         block_input[salt_len + 1] = (uint8_t)(block_index >> 16);
         block_input[salt_len + 2] = (uint8_t)(block_index >> 8);
         block_input[salt_len + 3] = (uint8_t)(block_index);
+
         if(hmac_sha1(password, password_len, block_input, salt_len + 4, u) != NOXTLS_RETURN_SUCCESS) {
             free(block_input);
             return NOXTLS_RETURN_FAILED;
         }
-        for(k = 0; k < SHA1_OUT_LEN; k++) t[k] = u[k];
+
+        for(k = 0; k < SHA1_OUT_LEN; k++)
+            t[k] = u[k];
+
         for(j = 1; j < iterations; j++) {
             if(hmac_sha1(password, password_len, u, SHA1_OUT_LEN, u) != NOXTLS_RETURN_SUCCESS) {
                 free(block_input);
@@ -403,6 +475,7 @@ static noxtls_return_t pbkdf2_hmac_sha1(const uint8_t *password, uint32_t passwo
             }
             for(k = 0; k < SHA1_OUT_LEN; k++) t[k] ^= u[k];
         }
+
         {
             uint32_t copy_len = (block_index * SHA1_OUT_LEN <= key_len) ? SHA1_OUT_LEN : (key_len - (block_index - 1) * SHA1_OUT_LEN);
             memcpy(out + (block_index - 1) * SHA1_OUT_LEN, t, copy_len);
@@ -413,45 +486,28 @@ static noxtls_return_t pbkdf2_hmac_sha1(const uint8_t *password, uint32_t passwo
 }
 #endif
 
-/* RFC 5280 id-ce extension OIDs (DER) */
-/* id-ce-subjectAltName = 2.5.29.17 */
-static const uint8_t oid_subject_alt_name[] = { 0x55, 0x1D, 0x11 };
-/* id-ce-keyUsage = 2.5.29.15 */
-static const uint8_t oid_key_usage[] = { 0x55, 0x1D, 0x0F };
-/* id-ce-basicConstraints = 2.5.29.19 */
-static const uint8_t oid_basic_constraints[] = { 0x55, 0x1D, 0x13 };
-/* id-ce-extKeyUsage = 2.5.29.37 */
-static const uint8_t oid_ext_key_usage[] = { 0x55, 0x1D, 0x25 };
-/* id-ce-authorityKeyIdentifier = 2.5.29.35 */
-static const uint8_t oid_authority_key_id[] = { 0x55, 0x1D, 0x23 };
-/* id-ce-subjectKeyIdentifier = 2.5.29.14 */
-static const uint8_t oid_subject_key_id[] = { 0x55, 0x1D, 0x0E };
-/* id-ce-certificatePolicies = 2.5.29.32 */
-static const uint8_t oid_certificate_policies[] = { 0x55, 0x1D, 0x20 };
-/* id-ce-cRLDistributionPoints = 2.5.29.31 */
-static const uint8_t oid_crl_distribution_points[] = { 0x55, 0x1D, 0x1F };
-/* id-ce-nameConstraints = 2.5.29.30 */
-static const uint8_t oid_name_constraints[] = { 0x55, 0x1D, 0x1E };
-/* id-ce-policyConstraints = 2.5.29.36 */
-static const uint8_t oid_policy_constraints[] = { 0x55, 0x1D, 0x24 };
-/* id-ce-inhibitAnyPolicy = 2.5.29.54 */
-static const uint8_t oid_inhibit_any_policy[] = { 0x55, 0x1D, 0x36 };
-/* id-kp OIDs (Extended Key Usage): 1.3.6.1.5.5.7.3.x */
-static const uint8_t oid_kp_server_auth[] = { 0x2B, 0x06, 0x01, 0x05, 0x05, 0x07, 0x03, 0x01 };
-static const uint8_t oid_kp_client_auth[] = { 0x2B, 0x06, 0x01, 0x05, 0x05, 0x07, 0x03, 0x02 };
-static const uint8_t oid_kp_code_signing[] = { 0x2B, 0x06, 0x01, 0x05, 0x05, 0x07, 0x03, 0x03 };
-static const uint8_t oid_kp_email_protection[] = { 0x2B, 0x06, 0x01, 0x05, 0x05, 0x07, 0x03, 0x04 };
-static const uint8_t oid_kp_time_stamping[] = { 0x2B, 0x06, 0x01, 0x05, 0x05, 0x07, 0x03, 0x08 };
-static const uint8_t oid_kp_ocsp_signing[] = { 0x2B, 0x06, 0x01, 0x05, 0x05, 0x07, 0x03, 0x09 };
-/* anyExtendedKeyUsage 2.5.29.37.0 */
-static const uint8_t oid_any_eku[] = { 0x55, 0x1D, 0x25, 0x00 };
-
-static noxtls_x509_unknown_ext_cb_t noxtls_x509_unknown_ext_cb;
-static void *noxtls_x509_unknown_ext_user_ctx;
 void noxtls_x509_set_unknown_extension_callback(noxtls_x509_unknown_ext_cb_t cb, void *user_ctx)
 {
     noxtls_x509_unknown_ext_cb = cb;
     noxtls_x509_unknown_ext_user_ctx = user_ctx;
+}
+
+/**
+ * @brief Enable or disable wildcard hostname matching at runtime.
+ * @param enabled 1 to allow wildcard DNS matching, 0 to require exact DNS match.
+ */
+void noxtls_x509_set_hostname_wildcard_matching(int enabled)
+{
+    s_x509_hostname_wildcard_matching = (enabled != 0) ? 1 : 0;
+}
+
+/**
+ * @brief Get current wildcard hostname matching runtime state.
+ * @return 1 when wildcard DNS matching is enabled, 0 otherwise.
+ */
+int noxtls_x509_get_hostname_wildcard_matching(void)
+{
+    return s_x509_hostname_wildcard_matching;
 }
 
 /**
@@ -484,6 +540,7 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
     if(asn1_get_sequence(&ext_ptr, ext_end, &seq_data, &seq_len) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_SUCCESS;
     }
+
     {
         const uint8_t *list_ptr = seq_data;
         const uint8_t *list_end = seq_data + seq_len;
@@ -584,19 +641,29 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
                     }
                 }
             } else if(oid_equal(oid_buf, oid_len, oid_key_usage, sizeof(oid_key_usage))) {
-                if(val_len >= 2) {
-                    uint32_t unused = val_data[0];
-                    uint32_t num_bits = (val_len - 1) * 8 - (unused & 0x7);
-                    uint16_t bits = 0;
-                    uint32_t i;
-                    for(i = 0; i < num_bits && i < 9; i++) {
-                        uint32_t byte_off = 1 + (i >> 3);
-                        uint32_t bit_off = 7 - (i & 7);
-                        if(byte_off < val_len && (val_data[byte_off] & (1u << bit_off))) {
-                            bits |= (1u << i);
+                const uint8_t *ku_ptr = val_data;
+                const uint8_t *ku_end = val_data + val_len;
+                if(asn1_get_tag(&ku_ptr, ku_end, 0x03) == NOXTLS_RETURN_SUCCESS) {
+                    uint32_t bs_len = asn1_get_length(&ku_ptr, ku_end);
+                    if(bs_len >= 1 && ku_ptr + bs_len <= ku_end) {
+                        uint32_t unused = ku_ptr[0] & 0x7u;
+                        const uint8_t *bits_data = ku_ptr + 1;
+                        uint32_t bits_bytes = bs_len - 1u;
+                        uint32_t num_bits = bits_bytes * 8u;
+                        uint16_t bits = 0;
+                        uint32_t i;
+                        if(unused <= 7u && num_bits >= unused) {
+                            num_bits -= unused;
                         }
+                        for(i = 0; i < num_bits && i < 9u; i++) {
+                            uint32_t byte_off = i >> 3;
+                            uint32_t bit_off = 7u - (i & 7u);
+                            if(byte_off < bits_bytes && (bits_data[byte_off] & (1u << bit_off)) != 0u) {
+                                bits |= (uint16_t)(1u << i);
+                            }
+                        }
+                        cert->key_usage_bits = bits;
                     }
-                    cert->key_usage_bits = bits;
                 }
             } else if(oid_equal(oid_buf, oid_len, oid_basic_constraints, sizeof(oid_basic_constraints))) {
                 const uint8_t *bc_ptr = val_data;
@@ -617,7 +684,8 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
                             uint8_t path_buf[4];
                             uint32_t path_buf_len = sizeof(path_buf);
                             if(asn1_get_integer(&p, pe, path_buf, &path_buf_len) == NOXTLS_RETURN_SUCCESS && path_buf_len > 0 && path_buf_len <= 4) {
-                                uint32_t path_len = 0, j;
+                                uint32_t path_len = 0;
+                                uint32_t j;
                                 for(j = 0; j < path_buf_len; j++) { path_len = (path_len << 8) | path_buf[j]; }
                                 cert->basic_constraints_path_len = (int)path_len;
                             }
@@ -710,9 +778,69 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
 static int noxtls_x509_dns_name_equal(const char *hostname, uint32_t hostname_len, const char *dns_name)
 {
     uint32_t i = 0;
+    uint32_t dns_name_len = 0;
+    uint32_t first_dot_index = 0;
+    uint32_t suffix_len = 0;
+    int has_first_dot = 0;
+    int has_second_wildcard = 0;
     if(dns_name == NULL) {
         return 0;
     }
+
+    while(dns_name[dns_name_len] != '\0') {
+        dns_name_len++;
+    }
+
+    if(s_x509_hostname_wildcard_matching != 0 &&
+       dns_name_len > X509_HOSTNAME_WILDCARD_PREFIX_LEN &&
+       dns_name[0] == X509_HOSTNAME_WILDCARD_PREFIX[0] &&
+       dns_name[1] == X509_HOSTNAME_WILDCARD_PREFIX[1]) {
+        uint32_t j = X509_HOSTNAME_WILDCARD_PREFIX_LEN;
+        while(j < dns_name_len) {
+            if(dns_name[j] == '*') {
+                has_second_wildcard = 1;
+                break;
+            }
+            j++;
+        }
+        if(has_second_wildcard != 0) {
+            return 0;
+        }
+
+        while(first_dot_index < hostname_len) {
+            if(hostname[first_dot_index] == '.') {
+                has_first_dot = 1;
+                break;
+            }
+            if(hostname[first_dot_index] == '\0') {
+                break;
+            }
+            first_dot_index++;
+        }
+
+        if(has_first_dot == 0 || first_dot_index == 0) {
+            return 0;
+        }
+
+        suffix_len = hostname_len - first_dot_index;
+        if(suffix_len != (dns_name_len - 1U)) {
+            return 0;
+        }
+
+        i = 0;
+        while(i < suffix_len) {
+            unsigned char a = (unsigned char)hostname[first_dot_index + i];
+            unsigned char b = (unsigned char)dns_name[1U + i];
+            if(a >= 'A' && a <= 'Z') a += 32;
+            if(b >= 'A' && b <= 'Z') b += 32;
+            if(a != b) {
+                return 0;
+            }
+            i++;
+        }
+        return 1;
+    }
+
     while(i < hostname_len && hostname[i] != '\0' && dns_name[i] != '\0') {
         unsigned char a = (unsigned char)hostname[i];
         unsigned char b = (unsigned char)dns_name[i];
@@ -721,6 +849,7 @@ static int noxtls_x509_dns_name_equal(const char *hostname, uint32_t hostname_le
         if(a != b) return 0;
         i++;
     }
+
     if(i != hostname_len) {
         return 0;
     }
@@ -736,16 +865,19 @@ static void noxtls_x509_get_cn_from_subject_dn(const char *subject_dn, char *cn_
         if(cn_out && cn_out_size > 0) cn_out[0] = '\0';
         return;
     }
+
     cn_out[0] = '\0';
     p = strstr(subject_dn, "CN=");
     if(p == NULL) {
         return;
     }
+
     p += 3;
     while(*p == ' ') p++;
     while(*p != '\0' && *p != ',' && i < cn_out_size - 1) {
         cn_out[i++] = *p++;
     }
+
     cn_out[i] = '\0';
     /* Trim trailing spaces */
     while(i > 0 && cn_out[i - 1] == ' ') {
@@ -770,9 +902,11 @@ noxtls_return_t noxtls_x509_certificate_matches_hostname(const x509_certificate_
     if(cert == NULL || hostname == NULL) {
         return NOXTLS_RETURN_NULL;
     }
+
     if(hostname_len == 0) {
         while(hostname[hostname_len] != '\0' && hostname_len < 256) hostname_len++;
     }
+
     if(hostname_len == 0) {
         cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_HOSTNAME_MISMATCH, cert, hostname, 0, 0);
         return NOXTLS_RETURN_CERT_VERIFY_HOSTNAME_MISMATCH;
@@ -791,14 +925,16 @@ noxtls_return_t noxtls_x509_certificate_matches_hostname(const x509_certificate_
 
     /* Fallback: subject CN */
     cn_buf = (char *)noxtls_malloc(cn_buf_size);
-    if (cn_buf == NULL) {
+    if(cn_buf == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
+
     noxtls_x509_get_cn_from_subject_dn(cert->subject_dn, cn_buf, cn_buf_size);
     if(cn_buf[0] != '\0' && noxtls_x509_dns_name_equal(hostname, hostname_len, cn_buf)) {
         noxtls_free(cn_buf);
         return NOXTLS_RETURN_SUCCESS;
     }
+
     noxtls_free(cn_buf);
     cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_HOSTNAME_MISMATCH, cert, hostname, hostname_len, 0);
     return NOXTLS_RETURN_CERT_VERIFY_HOSTNAME_MISMATCH;
@@ -828,54 +964,42 @@ noxtls_return_t noxtls_x509_certificate_free(x509_certificate_t *cert)
         return NOXTLS_RETURN_NULL;
     }
 
-    CERT_DEBUG_PRINT("x509_certificate_free: Starting...\n");
-
     if(cert->rsa_modulus) {
-        CERT_DEBUG_PRINT("x509_certificate_free: Freeing rsa_modulus...\n");
         noxtls_free(cert->rsa_modulus);
         cert->rsa_modulus = NULL;
     }
 
     if(cert->rsa_exponent) {
-        CERT_DEBUG_PRINT("x509_certificate_free: Freeing rsa_exponent...\n");
         noxtls_free(cert->rsa_exponent);
         cert->rsa_exponent = NULL;
     }
 
     if(cert->ecc_public_key) {
-        CERT_DEBUG_PRINT("x509_certificate_free: Freeing ecc_public_key...\n");
         noxtls_free(cert->ecc_public_key);
         cert->ecc_public_key = NULL;
     }
 
     if(cert->extensions) {
-        CERT_DEBUG_PRINT("x509_certificate_free: Freeing extensions...\n");
         noxtls_free(cert->extensions);
         cert->extensions = NULL;
     }
 
     if(cert->signature) {
-        CERT_DEBUG_PRINT("x509_certificate_free: Freeing signature...\n");
         noxtls_free(cert->signature);
         cert->signature = NULL;
     }
 
     if(cert->raw_data) {
-        CERT_DEBUG_PRINT("x509_certificate_free: Freeing raw_data...\n");
         noxtls_free(cert->raw_data);
         cert->raw_data = NULL;
     }
 
     if(cert->tbs_certificate) {
-        CERT_DEBUG_PRINT("x509_certificate_free: Freeing tbs_certificate...\n");
         noxtls_free(cert->tbs_certificate);
         cert->tbs_certificate = NULL;
     }
 
-    CERT_DEBUG_PRINT("x509_certificate_free: Clearing structure...\n");
     memset(cert, 0, sizeof(x509_certificate_t));
-
-    CERT_DEBUG_PRINT("x509_certificate_free: Completed successfully\n");
 
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -1143,6 +1267,24 @@ noxtls_return_t noxtls_x509_certificate_parse_der(x509_certificate_t *cert, cons
                 cert->has_ed448 = 1;
                 memcpy(cert->ed448_public_key, spki_ptr, 57);
             }
+#if NOXTLS_FEATURE_ML_DSA
+            else if((public_key_len == noxtls_mldsa_public_key_len(NOXTLS_MLDSA_44) ||
+                       public_key_len == noxtls_mldsa_public_key_len(NOXTLS_MLDSA_65) ||
+                       public_key_len == noxtls_mldsa_public_key_len(NOXTLS_MLDSA_87)) &&
+                      cert->public_key_algorithm_oid_len >= 7 &&
+                      cert->public_key_algorithm_oid[0] == 0x60 &&
+                      cert->public_key_algorithm_oid[1] == 0x86 &&
+                      cert->public_key_algorithm_oid[2] == 0x48 &&
+                      cert->public_key_algorithm_oid[3] == 0x01 &&
+                      cert->public_key_algorithm_oid[4] == 0x65) {
+                cert->has_mldsa = 1;
+                cert->mldsa_public_key_len = public_key_len;
+                cert->mldsa_param = (public_key_len == noxtls_mldsa_public_key_len(NOXTLS_MLDSA_44)) ? NOXTLS_MLDSA_44 :
+                                    (public_key_len == noxtls_mldsa_public_key_len(NOXTLS_MLDSA_65)) ? NOXTLS_MLDSA_65 :
+                                    NOXTLS_MLDSA_87;
+                memcpy(cert->mldsa_public_key, spki_ptr, public_key_len);
+            }
+#endif
         }
     }
 
@@ -1189,6 +1331,7 @@ noxtls_return_t noxtls_x509_certificate_parse_der(x509_certificate_t *cert, cons
         }
 
         cert->parsed = 1;
+
     } while(0);
 
     if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -1298,7 +1441,7 @@ noxtls_return_t noxtls_x509_certificate_load_file(x509_certificate_t *cert, cons
  * @param oid Signature algorithm OID
  * @param oid_len OID length
  * @param hash_algo Output hash algorithm
- * @param is_rsa Output: 1 if RSA, 0 if ECDSA
+ * @param is_rsa Output: 1 if RSA, 0 if ECDSA, 2 if ML-DSA
  * @return NOXTLS_RETURN_SUCCESS on success
  */
 static noxtls_return_t noxtls_x509_map_signature_algorithm(const uint8_t *oid, uint32_t oid_len,
@@ -1307,16 +1450,26 @@ static noxtls_return_t noxtls_x509_map_signature_algorithm(const uint8_t *oid, u
     /* Common signature algorithm OIDs */
     /* sha256WithRSAEncryption: 1.2.840.113549.1.1.11 */
     const uint8_t oid_sha256_rsa[] = {0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0B};
+
     /* sha384WithRSAEncryption: 1.2.840.113549.1.1.12 */
     const uint8_t oid_sha384_rsa[] = {0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0C};
+
     /* sha512WithRSAEncryption: 1.2.840.113549.1.1.13 */
     const uint8_t oid_sha512_rsa[] = {0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0D};
+
     /* ecdsa-with-SHA256: 1.2.840.10045.4.3.2 */
     const uint8_t oid_ecdsa_sha256[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x02};
+
     /* ecdsa-with-SHA384: 1.2.840.10045.4.3.3 */
     const uint8_t oid_ecdsa_sha384[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x03};
+
     /* ecdsa-with-SHA512: 1.2.840.10045.4.3.4 */
     const uint8_t oid_ecdsa_sha512[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x04};
+
+    /* ml-dsa-44 / 65 / 87 (private-use parser mapping for PQ cert experiments) */
+    const uint8_t oid_mldsa44[] = {0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x11};
+    const uint8_t oid_mldsa65[] = {0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x12};
+    const uint8_t oid_mldsa87[] = {0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x13};
 
     if(oid == NULL || hash_algo == NULL || is_rsa == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -1353,6 +1506,14 @@ static noxtls_return_t noxtls_x509_map_signature_algorithm(const uint8_t *oid, u
         return NOXTLS_RETURN_SUCCESS;
     }
 
+    if((oid_len == sizeof(oid_mldsa44) && memcmp(oid, oid_mldsa44, oid_len) == 0) ||
+       (oid_len == sizeof(oid_mldsa65) && memcmp(oid, oid_mldsa65, oid_len) == 0) ||
+       (oid_len == sizeof(oid_mldsa87) && memcmp(oid, oid_mldsa87, oid_len) == 0)) {
+        *hash_algo = NOXTLS_HASH_SHA_512;
+        *is_rsa = 2;
+        return NOXTLS_RETURN_SUCCESS;
+    }
+
     return NOXTLS_RETURN_INVALID_ALGORITHM;
 }
 
@@ -1371,8 +1532,10 @@ noxtls_return_t noxtls_x509_get_channel_binding_hash_algo(const x509_certificate
     /* RFC 5929 §4.1: if signature uses MD5 or SHA-1, use SHA-256 */
     /* md5WithRSAEncryption 1.2.840.113549.1.1.4 */
     static const uint8_t oid_md5_rsa[] = {0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x04};
+
     /* sha1WithRSAEncryption 1.2.840.113549.1.1.5 */
     static const uint8_t oid_sha1_rsa[] = {0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x05};
+
     /* ecdsa-with-SHA1 1.2.840.10045.4.1 */
     static const uint8_t oid_ecdsa_sha1[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x01};
 
@@ -1398,19 +1561,6 @@ noxtls_return_t noxtls_x509_get_channel_binding_hash_algo(const x509_certificate
     *hash_algo = NOXTLS_HASH_SHA_256;
     return NOXTLS_RETURN_SUCCESS;
 }
-
-/* ECC curve OIDs (DER) for noxtls_x509 helpers */
-static const uint8_t noxtls_x509_oid_secp192r1[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x01};
-static const uint8_t noxtls_x509_oid_secp224r1[] = {0x2B, 0x81, 0x04, 0x00, 0x21};
-static const uint8_t noxtls_x509_oid_secp256r1[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x07};
-static const uint8_t noxtls_x509_oid_secp384r1[] = {0x2B, 0x81, 0x04, 0x00, 0x22};
-static const uint8_t noxtls_x509_oid_secp521r1[] = {0x2B, 0x81, 0x04, 0x00, 0x23};
-static const uint8_t noxtls_x509_oid_bp256r1[] = {0x2B, 0x24, 0x03, 0x03, 0x02, 0x08, 0x01, 0x01, 0x07};
-static const uint8_t noxtls_x509_oid_bp384r1[] = {0x2B, 0x24, 0x03, 0x03, 0x02, 0x08, 0x01, 0x01, 0x0B};
-static const uint8_t noxtls_x509_oid_bp512r1[] = {0x2B, 0x24, 0x03, 0x03, 0x02, 0x08, 0x01, 0x01, 0x0D};
-static const uint8_t noxtls_x509_oid_secp192k1[] = {0x2B, 0x81, 0x04, 0x00, 0x1F};
-static const uint8_t noxtls_x509_oid_secp224k1[] = {0x2B, 0x81, 0x04, 0x00, 0x20};
-static const uint8_t noxtls_x509_oid_secp256k1[] = {0x2B, 0x81, 0x04, 0x00, 0x0A};
 
 /**
  * @brief Map curve OID to ecc_curve_t (for noxtls_x509 API)
@@ -1588,7 +1738,7 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(x509_certificate_t *cer
     }
 
     /* Verify signature using issuer's public key */
-    if(is_rsa) {
+    if(is_rsa == 1) {
         /* RSA signature verification */
         if(issuer->rsa_modulus == NULL || issuer->rsa_exponent == NULL) {
             CERT_DEBUG_PRINT("x509_certificate_verify_signature: issuer RSA public key not available\n");
@@ -1596,16 +1746,29 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(x509_certificate_t *cer
             return NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED;
         }
 
-        /* Determine RSA key size from modulus length */
-        uint32_t key_bytes = issuer->rsa_modulus_len;
+        /* Determine RSA key size from normalized modulus length (skip ASN.1 INTEGER sign-padding 0x00). */
+        const uint8_t *mod_ptr = issuer->rsa_modulus;
+        uint32_t mod_len = issuer->rsa_modulus_len;
+        const uint8_t *exp_ptr = issuer->rsa_exponent;
+        uint32_t exp_len = issuer->rsa_exponent_len;
+        uint32_t key_bytes;
         rsa_key_size_t key_size;
-        if(key_bytes == 128) {
+        while(mod_len > 0u && mod_ptr[0] == 0u) {
+            mod_ptr++;
+            mod_len--;
+        }
+        while(exp_len > 0u && exp_ptr[0] == 0u) {
+            exp_ptr++;
+            exp_len--;
+        }
+        key_bytes = mod_len;
+        if(key_bytes == X509_RSA_MODULUS_BYTES_1024) {
             key_size = RSA_1024_BIT;
-        } else if(key_bytes == 256) {
+        } else if(key_bytes == X509_RSA_MODULUS_BYTES_2048) {
             key_size = RSA_2048_BIT;
-        } else if(key_bytes == 384) {
+        } else if(key_bytes == X509_RSA_MODULUS_BYTES_3072) {
             key_size = RSA_3072_BIT;
-        } else if(key_bytes == 512) {
+        } else if(key_bytes == X509_RSA_MODULUS_BYTES_4096) {
             key_size = RSA_4096_BIT;
         } else {
             CERT_DEBUG_PRINT("x509_certificate_verify_signature: unsupported RSA key size\n");
@@ -1618,10 +1781,20 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(x509_certificate_t *cer
             return rc;
         }
 
-        memcpy(rsa_key.n, issuer->rsa_modulus, issuer->rsa_modulus_len);
-        memcpy(rsa_key.e, issuer->rsa_exponent, issuer->rsa_exponent_len);
+        if(mod_len == 0u || exp_len == 0u || mod_len > rsa_key.key_bytes || exp_len > rsa_key.key_bytes) {
+            noxtls_rsa_key_free(&rsa_key);
+            return NOXTLS_RETURN_INVALID_PARAM;
+        }
+        memcpy(rsa_key.n + (rsa_key.key_bytes - mod_len), mod_ptr, mod_len);
+        memcpy(rsa_key.e + (rsa_key.key_bytes - exp_len), exp_ptr, exp_len);
 
-        rc = noxtls_rsa_verify(&rsa_key, hash, hash_len, cert->signature, cert->signature_len, hash_algo);
+        /* noxtls_rsa_verify hashes the message internally (PKCS#1 v1.5 DigestInfo check). */
+        rc = noxtls_rsa_verify(&rsa_key,
+                               cert->tbs_certificate,
+                               cert->tbs_certificate_len,
+                               cert->signature,
+                               cert->signature_len,
+                               hash_algo);
         noxtls_rsa_key_free(&rsa_key);
 
         if(rc == NOXTLS_RETURN_SUCCESS) {
@@ -1635,6 +1808,24 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(x509_certificate_t *cer
             return (rc == NOXTLS_RETURN_FAILED ? NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED : rc);
         }
         return NOXTLS_RETURN_SUCCESS;
+    } else if(is_rsa == 2) {
+#if NOXTLS_FEATURE_ML_DSA
+        if(!issuer->has_mldsa || issuer->mldsa_public_key_len == 0 || issuer->mldsa_param == 0) {
+            cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED, cert, NULL, 0, 0);
+            return NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED;
+        }
+        rc = noxtls_mldsa_verify(issuer->mldsa_param,
+                                 issuer->mldsa_public_key,
+                                 hash, hash_len,
+                                 cert->signature, cert->signature_len);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED, cert, NULL, 0, 0);
+            return NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED;
+        }
+        return NOXTLS_RETURN_SUCCESS;
+#else
+        return NOXTLS_RETURN_INVALID_ALGORITHM;
+#endif
     } else {
         /* ECDSA signature verification */
         if(issuer->ecc_public_key == NULL || issuer->ecc_public_key_len == 0) {
@@ -1697,7 +1888,7 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(x509_certificate_t *cer
         }
 
         seq_len = asn1_get_length(&sig_ptr, sig_end);
-        if(seq_len == 0 || sig_ptr + seq_len > sig_end) {
+        if(seq_len == 0 || (size_t)(sig_end - sig_ptr) < (size_t)seq_len) {
             CERT_DEBUG_PRINT("x509_certificate_verify_signature: invalid ECDSA signature length\n");
             noxtls_ecc_key_free(&ecc_key);
             return NOXTLS_RETURN_BAD_DATA;
@@ -1813,7 +2004,12 @@ static noxtls_return_t noxtls_x509_asn1_time_to_timet(const uint8_t *time_data, 
         }
     }
 
-    int year, month, day, hour, minute, second;
+    int year;
+    int month;
+    int day;
+    int hour;
+    int minute;
+    int second;
 
     /* Parse UTCTime format: YYMMDDHHMMSSZ (13 bytes) */
     if(time_len == 13 && time_data[12] == 'Z') {
@@ -1829,6 +2025,7 @@ static noxtls_return_t noxtls_x509_asn1_time_to_timet(const uint8_t *time_data, 
         minute = (time_data[8] - '0') * 10 + (time_data[9] - '0');
         second = (time_data[10] - '0') * 10 + (time_data[11] - '0');
     }
+
     /* Parse GeneralizedTime format: YYYYMMDDHHMMSSZ (15 bytes) */
     else if(time_len == 15 && time_data[14] == 'Z') {
         year = (time_data[0] - '0') * 1000 + (time_data[1] - '0') * 100 +
@@ -1839,6 +2036,7 @@ static noxtls_return_t noxtls_x509_asn1_time_to_timet(const uint8_t *time_data, 
         minute = (time_data[10] - '0') * 10 + (time_data[11] - '0');
         second = (time_data[12] - '0') * 10 + (time_data[13] - '0');
     }
+
     /* Parse GeneralizedTime without trailing Z: YYYYMMDDHHMMSS (14 digits, e.g. after null-terminating at [14]) */
     else if(time_len == 14) {
         year = (time_data[0] - '0') * 1000 + (time_data[1] - '0') * 100 +
@@ -1849,6 +2047,7 @@ static noxtls_return_t noxtls_x509_asn1_time_to_timet(const uint8_t *time_data, 
         minute = (time_data[10] - '0') * 10 + (time_data[11] - '0');
         second = (time_data[12] - '0') * 10 + (time_data[13] - '0');
     }
+
     /* Parse GeneralizedTime with fractional seconds: YYYYMMDDHHMMSS.0Z (15 bytes copied, 14th is '.') */
     else if(time_len == 15 && (time_data[14] == '.' || time_data[14] == ',')) {
         year = (time_data[0] - '0') * 1000 + (time_data[1] - '0') * 100 +
@@ -1859,6 +2058,7 @@ static noxtls_return_t noxtls_x509_asn1_time_to_timet(const uint8_t *time_data, 
         minute = (time_data[10] - '0') * 10 + (time_data[11] - '0');
         second = (time_data[12] - '0') * 10 + (time_data[13] - '0');
     }
+
     /* Parse UTCTime with timezone offset: YYMMDDHHMMSS+/-HHMM (17 bytes) */
     else if(time_len == 17 && (time_data[12] == '+' || time_data[12] == '-')) {
         year = (time_data[0] - '0') * 10 + (time_data[1] - '0');
@@ -2081,6 +2281,7 @@ noxtls_return_t noxtls_x509_certificate_get_public_key(const x509_certificate_t 
     } else {
         rc = noxtls_x509_ecc_curve_from_pubkey_len(cert->ecc_public_key_len, &curve_type);
     }
+
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -2131,26 +2332,32 @@ static const char* noxtls_x509_get_attr_name_from_oid(const uint8_t *oid, uint32
     if(oid_len == 3 && oid[0] == 0x55 && oid[1] == 0x04 && oid[2] == 0x03) {
         return "CN";
     }
+
     /* O = 2.5.4.10 */
     if(oid_len == 3 && oid[0] == 0x55 && oid[1] == 0x04 && oid[2] == 0x0A) {
         return "O";
     }
+
     /* OU = 2.5.4.11 */
     if(oid_len == 3 && oid[0] == 0x55 && oid[1] == 0x04 && oid[2] == 0x0B) {
         return "OU";
     }
+
     /* C = 2.5.4.6 */
     if(oid_len == 3 && oid[0] == 0x55 && oid[1] == 0x04 && oid[2] == 0x06) {
         return "C";
     }
+
     /* ST = 2.5.4.8 */
     if(oid_len == 3 && oid[0] == 0x55 && oid[1] == 0x04 && oid[2] == 0x08) {
         return "ST";
     }
+
     /* L = 2.5.4.7 */
     if(oid_len == 3 && oid[0] == 0x55 && oid[1] == 0x04 && oid[2] == 0x07) {
         return "L";
     }
+
     /* E = 1.2.840.113549.1.9.1 (emailAddress) */
     if(oid_len == 9 && oid[0] == 0x2A && oid[1] == 0x86 && oid[2] == 0x48 &&
        oid[3] == 0x86 && oid[4] == 0xF7 && oid[5] == 0x0D && oid[6] == 0x01 &&
@@ -2206,10 +2413,10 @@ noxtls_return_t noxtls_x509_parse_distinguished_name(const uint8_t *dn_data, uin
         const uint8_t *rdn_ptr = rdn_data;
 
         /* If RDN is a SET (e.g. Name = SEQUENCE(SET(SEQUENCE(...)))), unwrap to get the AttributeTypeAndValue SEQUENCE */
-        if (rdn_len >= 1 && *rdn_data == 0x31) {
+        if(rdn_len >= 1 && *rdn_data == 0x31) {
             const uint8_t *set_ptr = rdn_data + 1;
             uint32_t set_content_len = asn1_get_length(&set_ptr, rdn_end);
-            if (set_content_len == 0 || set_ptr + set_content_len > rdn_end) {
+            if(set_content_len == 0 || set_ptr + set_content_len > rdn_end) {
                 continue;
             }
             rdn_ptr = set_ptr;
@@ -2486,6 +2693,1156 @@ noxtls_return_t noxtls_x509_certificate_chain_verify(x509_certificate_chain_t *c
     }
 
     return NOXTLS_RETURN_SUCCESS;
+}
+
+static int x509_dn_equal(const uint8_t *lhs, uint32_t lhs_len, const uint8_t *rhs, uint32_t rhs_len)
+{
+    if(lhs == NULL || rhs == NULL) {
+        return 0;
+    }
+    if(lhs_len != rhs_len) {
+        return 0;
+    }
+    if(lhs_len == 0) {
+        return 1;
+    }
+    return (memcmp(lhs, rhs, lhs_len) == 0) ? 1 : 0;
+}
+
+static int x509_is_same_cert(const x509_certificate_t *lhs, const x509_certificate_t *rhs)
+{
+    if(lhs == NULL || rhs == NULL) {
+        return 0;
+    }
+    if(lhs->raw_data != NULL && rhs->raw_data != NULL &&
+       lhs->raw_data_len == rhs->raw_data_len &&
+       lhs->raw_data_len > 0 &&
+       memcmp(lhs->raw_data, rhs->raw_data, lhs->raw_data_len) == 0) {
+        return 1;
+    }
+    if(lhs->subject_len == rhs->subject_len && lhs->serial_number_len == rhs->serial_number_len &&
+       lhs->subject_len > 0 && lhs->serial_number_len > 0 &&
+       memcmp(lhs->subject, rhs->subject, lhs->subject_len) == 0 &&
+       memcmp(lhs->serial_number, rhs->serial_number, lhs->serial_number_len) == 0) {
+        return 1;
+    }
+    if(lhs->subject_len == rhs->subject_len &&
+       lhs->subject_len > 0 &&
+       memcmp(lhs->subject, rhs->subject, lhs->subject_len) == 0 &&
+       lhs->public_key_algorithm_oid_len == rhs->public_key_algorithm_oid_len &&
+       lhs->public_key_algorithm_oid_len > 0 &&
+       memcmp(lhs->public_key_algorithm_oid, rhs->public_key_algorithm_oid, lhs->public_key_algorithm_oid_len) == 0 &&
+       lhs->public_key_len == rhs->public_key_len &&
+       lhs->public_key_len > 0 &&
+       memcmp(lhs->public_key, rhs->public_key, lhs->public_key_len) == 0) {
+        return 1;
+    }
+    return 0;
+}
+
+static noxtls_return_t x509_issuer_policy_check(const x509_certificate_t *issuer, uint32_t path_depth_below)
+{
+    if(issuer == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(issuer->basic_constraints_ca != 1) {
+        cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, issuer, NULL, 0, path_depth_below + 1u);
+        return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+    }
+    if(issuer->key_usage_bits != 0 &&
+       (issuer->key_usage_bits & X509_KEY_USAGE_KEY_CERT_SIGN) == 0) {
+        cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, issuer, NULL, 0, path_depth_below + 1u);
+        return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+    }
+    if(issuer->basic_constraints_path_len != X509_BC_PATH_LEN_ABSENT &&
+       path_depth_below > (uint32_t)issuer->basic_constraints_path_len) {
+        cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, issuer, NULL, 0, path_depth_below + 1u);
+        return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+    }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+static noxtls_return_t x509_leaf_policy_check(const x509_certificate_t *leaf, uint32_t required_eku)
+{
+    if(leaf == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(leaf->ext_key_usage_bits != 0 &&
+       (leaf->ext_key_usage_bits & (required_eku | X509_EKU_ANY)) == 0) {
+        cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, leaf, NULL, 0, 0);
+        return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+    }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+static const x509_certificate_t *x509_find_issuer_in_chain(const x509_certificate_t *subject_cert,
+                                                            const x509_certificate_chain_t *chain)
+{
+    uint32_t i;
+    const x509_certificate_t *fallback = NULL;
+    const x509_certificate_t *fallback_sig = NULL;
+    int have_aki;
+    int saw_dn_candidate;
+    int saw_aki_candidate_with_ski;
+    if(subject_cert == NULL || chain == NULL || chain->certs == NULL) {
+        return NULL;
+    }
+    have_aki = (subject_cert->authority_key_id_len > 0) ? 1 : 0;
+    saw_dn_candidate = 0;
+    saw_aki_candidate_with_ski = 0;
+    for(i = 0; i < chain->count; i++) {
+        int dn_match;
+
+        dn_match = x509_dn_equal(subject_cert->issuer, subject_cert->issuer_len,
+                                 chain->certs[i].subject, chain->certs[i].subject_len);
+        if(!dn_match &&
+           subject_cert->issuer_dn[0] != '\0' &&
+           chain->certs[i].subject_dn[0] != '\0' &&
+           strcmp(subject_cert->issuer_dn, chain->certs[i].subject_dn) == 0) {
+            dn_match = 1;
+        }
+        if(dn_match) {
+            saw_dn_candidate = 1;
+            if(fallback == NULL) {
+                fallback = &chain->certs[i];
+            }
+            if(!x509_is_same_cert(subject_cert, &chain->certs[i])) {
+                noxtls_return_t sig_rc_any = noxtls_x509_certificate_verify_signature((x509_certificate_t*)subject_cert,
+                                                                                       &chain->certs[i]);
+                if(sig_rc_any == NOXTLS_RETURN_SUCCESS && fallback_sig == NULL) {
+                    fallback_sig = &chain->certs[i];
+                }
+            }
+            if(have_aki) {
+                if(chain->certs[i].subject_key_id_len > 0) {
+                    saw_aki_candidate_with_ski = 1;
+                    if(chain->certs[i].subject_key_id_len != subject_cert->authority_key_id_len ||
+                       memcmp(chain->certs[i].subject_key_id,
+                              subject_cert->authority_key_id,
+                              subject_cert->authority_key_id_len) != 0) {
+                        continue;
+                    }
+                }
+            }
+            if(fallback_sig == &chain->certs[i]) {
+                return &chain->certs[i];
+            }
+        }
+    }
+    if(fallback_sig != NULL) {
+        return fallback_sig;
+    }
+    if(have_aki && saw_dn_candidate && saw_aki_candidate_with_ski) {
+        return NULL;
+    }
+    return fallback;
+}
+
+static int x509_chain_contains_cert(const x509_certificate_chain_t *chain, const x509_certificate_t *cert)
+{
+    uint32_t i;
+    if(chain == NULL || cert == NULL || chain->certs == NULL) {
+        return 0;
+    }
+    for(i = 0; i < chain->count; i++) {
+        if(x509_is_same_cert(&chain->certs[i], cert)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* -------------------------------------------------------------------------- */
+/* X.509 CRL (CertificateList) parsing and optional trust verification        */
+/* -------------------------------------------------------------------------- */
+
+static int x509_serial_equal_normalized(const uint8_t *a, uint32_t alen, const uint8_t *b, uint32_t blen)
+{
+    uint32_t i;
+    uint32_t j;
+    if(a == NULL || b == NULL) {
+        return 0;
+    }
+    i = 0;
+    while(i < alen && a[i] == 0) {
+        i++;
+    }
+    j = 0;
+    while(j < blen && b[j] == 0) {
+        j++;
+    }
+    if((alen - i) != (blen - j)) {
+        return 0;
+    }
+    if(alen - i == 0) {
+        return 1;
+    }
+    return (memcmp(a + i, b + j, alen - i) == 0) ? 1 : 0;
+}
+
+static noxtls_return_t noxtls_x509_crl_pem_to_der(const uint8_t *data, uint32_t length, uint8_t *output, uint32_t *out_len)
+{
+    static const char begin_str[] = "-----BEGIN X509 CRL-----";
+    static const char end_str[] = "-----END X509 CRL-----";
+    uint32_t bi;
+    uint32_t ei;
+    uint32_t b_len;
+    uint32_t e_len;
+
+    if(data == NULL || length == 0 || output == NULL || out_len == NULL) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+
+    b_len = (uint32_t)strlen(begin_str);
+    e_len = (uint32_t)strlen(end_str);
+    bi = 0;
+    while(bi + b_len <= length) {
+        if(memcmp(data + bi, begin_str, b_len) == 0) {
+            break;
+        }
+        bi++;
+    }
+    if(bi + b_len > length) {
+        return NOXTLS_RETURN_BAD_DATA;
+    }
+
+    ei = bi + b_len;
+    while(ei + e_len <= length) {
+        if(memcmp(data + ei, end_str, e_len) == 0) {
+            break;
+        }
+        ei++;
+    }
+    if(ei + e_len > length) {
+        return NOXTLS_RETURN_BAD_DATA;
+    }
+
+    {
+        uint32_t b64_len = ei - (bi + b_len);
+        int dec = (int)noxtls_base64_decode((char *)(data + bi + b_len), b64_len, output);
+        if(dec < 0) {
+            return NOXTLS_RETURN_BAD_DATA;
+        }
+        *out_len = (uint32_t)dec;
+    }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_x509_crl_init(noxtls_x509_crl_t *crl)
+{
+    if(crl == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    memset(crl, 0, sizeof(noxtls_x509_crl_t));
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+void noxtls_x509_crl_free(noxtls_x509_crl_t *crl)
+{
+    if(crl == NULL) {
+        return;
+    }
+    if(crl->next != NULL) {
+        noxtls_x509_crl_free(crl->next);
+        crl->next = NULL;
+    }
+    if(crl->signature != NULL) {
+        free(crl->signature);
+        crl->signature = NULL;
+    }
+    if(crl->tbs_crl != NULL) {
+        free(crl->tbs_crl);
+        crl->tbs_crl = NULL;
+    }
+    if(crl->raw_data != NULL) {
+        free(crl->raw_data);
+        crl->raw_data = NULL;
+    }
+    if(crl->revoked_serials != NULL) {
+        free(crl->revoked_serials);
+        crl->revoked_serials = NULL;
+    }
+    if(crl->revoked_serial_lens != NULL) {
+        free(crl->revoked_serial_lens);
+        crl->revoked_serial_lens = NULL;
+    }
+    memset(crl, 0, sizeof(noxtls_x509_crl_t));
+}
+
+noxtls_return_t noxtls_x509_crl_parse_der(noxtls_x509_crl_t *crl, const uint8_t *data, uint32_t len)
+{
+    const uint8_t *ptr;
+    const uint8_t *end;
+    const uint8_t *seq_data = NULL;
+    uint32_t seq_len = 0;
+    noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
+
+    if(crl == NULL || data == NULL || len == 0) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    noxtls_x509_crl_free(crl);
+
+    crl->raw_data = (uint8_t*)malloc(len);
+    if(crl->raw_data == NULL) {
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+    }
+    memcpy(crl->raw_data, data, len);
+    crl->raw_data_len = len;
+
+    ptr = crl->raw_data;
+    end = crl->raw_data + len;
+
+    do {
+        const uint8_t *cert_list_end;
+        const uint8_t *tbs_outer_start;
+        const uint8_t *tbs_content;
+        uint32_t tbs_content_len;
+        const uint8_t *tbs_ptr;
+        const uint8_t *tbs_end;
+
+        if(asn1_get_sequence(&ptr, end, &seq_data, &seq_len) != NOXTLS_RETURN_SUCCESS) {
+            rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
+            break;
+        }
+        cert_list_end = seq_data + seq_len;
+        ptr = seq_data;
+
+        tbs_outer_start = ptr;
+        if(asn1_get_sequence(&ptr, cert_list_end, &tbs_content, &tbs_content_len) != NOXTLS_RETURN_SUCCESS) {
+            rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
+            break;
+        }
+
+        crl->tbs_crl_len = (uint32_t)(ptr - tbs_outer_start);
+        crl->tbs_crl = (uint8_t*)malloc(crl->tbs_crl_len);
+        if(crl->tbs_crl == NULL) {
+            rc = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+            break;
+        }
+        memcpy(crl->tbs_crl, tbs_outer_start, crl->tbs_crl_len);
+
+        tbs_ptr = tbs_content;
+        tbs_end = tbs_content + tbs_content_len;
+
+        /* Optional version (INTEGER, usually v2 = 1). */
+        if(tbs_ptr < tbs_end && *tbs_ptr == (uint8_t)0x02) {
+            uint8_t version_raw[4];
+            uint32_t version_raw_len = sizeof(version_raw);
+            if(asn1_get_integer(&tbs_ptr, tbs_end, version_raw, &version_raw_len) != NOXTLS_RETURN_SUCCESS) {
+                rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
+                break;
+            }
+        } else if(tbs_ptr < tbs_end && *tbs_ptr == (uint8_t)0xA0) {
+            /* Backward compatibility for older parser behavior. */
+            tbs_ptr++;
+            {
+                uint32_t wrap_len = asn1_get_length(&tbs_ptr, tbs_end);
+                if(wrap_len > (uint32_t)(tbs_end - tbs_ptr)) {
+                    rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
+                    break;
+                }
+                tbs_ptr += wrap_len;
+            }
+        }
+
+        /* signature AlgorithmIdentifier inside TBSCertList */
+        if(asn1_get_sequence(&tbs_ptr, tbs_end, &seq_data, &seq_len) != NOXTLS_RETURN_SUCCESS) {
+            rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
+            break;
+        }
+        {
+            const uint8_t *alg_end = seq_data + seq_len;
+            const uint8_t *alg_ptr = seq_data;
+            if(asn1_get_oid(&alg_ptr, alg_end, crl->signature_algorithm_oid, &crl->signature_algorithm_oid_len) != NOXTLS_RETURN_SUCCESS) {
+                rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
+                break;
+            }
+        }
+
+        /* issuer */
+        if(asn1_get_sequence(&tbs_ptr, tbs_end, &seq_data, &seq_len) != NOXTLS_RETURN_SUCCESS) {
+            rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
+            break;
+        }
+        if(seq_len > X509_MAX_ISSUER_SIZE) {
+            rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
+            break;
+        }
+        memcpy(crl->issuer, seq_data, seq_len);
+        crl->issuer_len = seq_len;
+        noxtls_x509_parse_distinguished_name(seq_data, seq_len, crl->issuer_dn, sizeof(crl->issuer_dn));
+
+        /* thisUpdate */
+        if(tbs_ptr >= tbs_end || (*tbs_ptr != 0x17 && *tbs_ptr != 0x18)) {
+            rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
+            break;
+        }
+        {
+            tbs_ptr++;
+            {
+                uint32_t time_len = asn1_get_length(&tbs_ptr, tbs_end);
+                if(time_len == 0 || (size_t)(tbs_end - tbs_ptr) < (size_t)time_len) {
+                    rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
+                    break;
+                }
+                memset(crl->this_update, 0, sizeof(crl->this_update));
+                {
+                    uint32_t copy_len = (time_len > 15u) ? 15u : time_len;
+                    memcpy(crl->this_update, tbs_ptr, copy_len);
+                    crl->this_update[14] = '\0';
+                }
+                tbs_ptr += time_len;
+            }
+        }
+
+        /* optional nextUpdate */
+        crl->has_next_update = 0;
+        memset(crl->next_update, 0, sizeof(crl->next_update));
+        if(tbs_ptr < tbs_end && (*tbs_ptr == 0x17 || *tbs_ptr == 0x18)) {
+            tbs_ptr++;
+            {
+                uint32_t time_len = asn1_get_length(&tbs_ptr, tbs_end);
+                if(time_len == 0 || (size_t)(tbs_end - tbs_ptr) < (size_t)time_len) {
+                    rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
+                    break;
+                }
+                {
+                    uint32_t copy_len = (time_len > 15u) ? 15u : time_len;
+                    memcpy(crl->next_update, tbs_ptr, copy_len);
+                    crl->next_update[14] = '\0';
+                }
+                crl->has_next_update = 1;
+                tbs_ptr += time_len;
+            }
+        }
+
+        /* revokedCertificates or crlExtensions */
+        if(tbs_ptr < tbs_end && *tbs_ptr == 0x30) {
+            const uint8_t *save = tbs_ptr;
+            const uint8_t *list_body = NULL;
+            uint32_t list_len = 0;
+            const uint8_t *list_end;
+            if(asn1_get_sequence(&tbs_ptr, tbs_end, &list_body, &list_len) != NOXTLS_RETURN_SUCCESS) {
+                rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
+                break;
+            }
+            list_end = list_body + list_len;
+            if(list_len == 0) {
+                /* Empty revokedCertificates SEQUENCE */
+            } else if(list_body[0] == 0x30) {
+                const uint8_t *probe = list_body;
+                const uint8_t *e0 = NULL;
+                uint32_t e0_len = 0;
+                if(asn1_get_sequence(&probe, list_end, &e0, &e0_len) == NOXTLS_RETURN_SUCCESS && e0_len > 0 && *e0 == 0x02) {
+                    const uint8_t *walk = list_body;
+                    uint32_t cap = NOXTLS_X509_CRL_MAX_REVOKED;
+                    crl->revoked_serials = (uint8_t*)malloc((size_t)cap * (size_t)X509_MAX_SERIAL_SIZE);
+                    crl->revoked_serial_lens = (uint32_t*)malloc((size_t)cap * sizeof(uint32_t));
+                    if(crl->revoked_serials == NULL || crl->revoked_serial_lens == NULL) {
+                        rc = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+                        break;
+                    }
+                    while(walk < list_end) {
+                        const uint8_t *entry = NULL;
+                        uint32_t entry_len = 0;
+                        const uint8_t *entry_end;
+                        const uint8_t *ep;
+                        uint8_t serial[X509_MAX_SERIAL_SIZE];
+                        uint32_t slen = X509_MAX_SERIAL_SIZE;
+                        if(asn1_get_sequence(&walk, list_end, &entry, &entry_len) != NOXTLS_RETURN_SUCCESS) {
+                            rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
+                            break;
+                        }
+                        entry_end = entry + entry_len;
+                        ep = entry;
+                        slen = X509_MAX_SERIAL_SIZE;
+                        if(asn1_get_integer(&ep, entry_end, serial, &slen) != NOXTLS_RETURN_SUCCESS) {
+                            rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
+                            break;
+                        }
+                        if(crl->revoked_count >= cap) {
+                            rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
+                            break;
+                        }
+                        memcpy(crl->revoked_serials + (size_t)crl->revoked_count * (size_t)X509_MAX_SERIAL_SIZE, serial, slen);
+                        if(slen < X509_MAX_SERIAL_SIZE) {
+                            memset(crl->revoked_serials + (size_t)crl->revoked_count * (size_t)X509_MAX_SERIAL_SIZE + slen, 0,
+                                (size_t)X509_MAX_SERIAL_SIZE - (size_t)slen);
+                        }
+                        crl->revoked_serial_lens[crl->revoked_count] = slen;
+                        crl->revoked_count++;
+                    }
+                    if(rc != NOXTLS_RETURN_SUCCESS) {
+                        break;
+                    }
+                } else {
+                    tbs_ptr = save;
+                }
+            } else {
+                tbs_ptr = save;
+            }
+        }
+
+        if(tbs_ptr < tbs_end && *tbs_ptr == (uint8_t)0xA0) {
+            /* crlExtensions [0] */
+            tbs_ptr++;
+            {
+                uint32_t ext_len = asn1_get_length(&tbs_ptr, tbs_end);
+                if(ext_len > (uint32_t)(tbs_end - tbs_ptr)) {
+                    rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
+                    break;
+                }
+                tbs_ptr += ext_len;
+            }
+        }
+
+        if(tbs_ptr != tbs_end) {
+            rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
+            break;
+        }
+
+        /* Outer signatureAlgorithm + signature */
+        {
+            const uint8_t *sig_alg_data = NULL;
+            uint32_t sig_alg_len = 0;
+            if(asn1_get_sequence(&ptr, cert_list_end, &sig_alg_data, &sig_alg_len) != NOXTLS_RETURN_SUCCESS) {
+                rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
+                break;
+            }
+        }
+
+        if(asn1_get_tag(&ptr, cert_list_end, 0x03) != NOXTLS_RETURN_SUCCESS) {
+            rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
+            break;
+        }
+        {
+            uint32_t sig_len = asn1_get_length(&ptr, cert_list_end);
+            if(sig_len == 0 || (size_t)(cert_list_end - ptr) < (size_t)sig_len) {
+                rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
+                break;
+            }
+            ptr++;
+            sig_len--;
+            crl->signature = (uint8_t*)malloc(sig_len);
+            if(crl->signature == NULL) {
+                rc = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+                break;
+            }
+            memcpy(crl->signature, ptr, sig_len);
+            crl->signature_len = sig_len;
+            ptr += sig_len;
+        }
+
+        if(ptr != cert_list_end) {
+            rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
+            break;
+        }
+
+        crl->parsed = 1;
+    } while(0);
+
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_x509_crl_free(crl);
+    }
+
+    return rc;
+}
+
+noxtls_return_t noxtls_x509_crl_parse_pem(noxtls_x509_crl_t *crl, const uint8_t *data, uint32_t len)
+{
+    uint8_t *der = NULL;
+    uint32_t der_len = 0;
+    noxtls_return_t rc;
+
+    if(crl == NULL || data == NULL || len == 0) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    der = (uint8_t*)malloc(len);
+    if(der == NULL) {
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+    }
+
+    rc = noxtls_x509_crl_pem_to_der(data, len, der, &der_len);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        free(der);
+        return rc;
+    }
+
+    rc = noxtls_x509_crl_parse_der(crl, der, der_len);
+    free(der);
+    return rc;
+}
+
+noxtls_return_t noxtls_x509_crl_load_file(noxtls_x509_crl_t *crl, const char *filename)
+{
+    FILE *fp;
+    uint8_t *data = NULL;
+    uint32_t file_len = 0;
+    noxtls_return_t rc;
+
+    if(crl == NULL || filename == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    fp = noxtls_fopen(filename, "rb");
+    if(fp == NULL) {
+        return NOXTLS_RETURN_FAILED;
+    }
+
+    fseek(fp, 0, SEEK_END);
+    file_len = (uint32_t)ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    if(file_len == 0 || file_len > X509_MAX_CRL_SIZE) {
+        fclose(fp);
+        return NOXTLS_RETURN_FAILED;
+    }
+
+    data = (uint8_t*)malloc(file_len);
+    if(data == NULL) {
+        fclose(fp);
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+    }
+
+    if(fread(data, 1, file_len, fp) != file_len) {
+        free(data);
+        fclose(fp);
+        return NOXTLS_RETURN_FAILED;
+    }
+    fclose(fp);
+
+    rc = noxtls_x509_crl_parse_der(crl, data, file_len);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_x509_crl_parse_pem(crl, data, file_len);
+    }
+    free(data);
+    return rc;
+}
+
+int noxtls_x509_crl_serial_is_revoked(const noxtls_x509_crl_t *crl, const x509_certificate_t *cert)
+{
+    uint32_t i;
+    if(crl == NULL || cert == NULL || !crl->parsed || crl->revoked_serials == NULL || crl->revoked_serial_lens == NULL) {
+        return 0;
+    }
+    for(i = 0; i < crl->revoked_count; i++) {
+        const uint8_t *s = crl->revoked_serials + (size_t)i * (size_t)X509_MAX_SERIAL_SIZE;
+        uint32_t slen = crl->revoked_serial_lens[i];
+        if(x509_serial_equal_normalized(s, slen, cert->serial_number, cert->serial_number_len)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+#if NOXTLS_HAVE_TIME
+static noxtls_return_t noxtls_x509_crl_check_times(const noxtls_x509_crl_t *crl, noxtls_x509_verify_flags_t *flags_out)
+{
+    time_t now;
+    time_t tu = 0;
+    time_t nu = 0;
+    uint32_t this_len;
+    uint32_t next_len;
+    noxtls_return_t rc;
+
+    if(crl == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    time(&now);
+
+    this_len = 0;
+    while(this_len < 15 && crl->this_update[this_len] != 0) {
+        this_len++;
+    }
+    rc = noxtls_x509_asn1_time_to_timet(crl->this_update, this_len, &tu);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_CRL_PARSE_FAILED;
+    }
+    if(now < tu) {
+        if(flags_out != NULL) {
+            *flags_out |= NOXTLS_X509_VERIFY_FLAG_CRL_EXPIRED;
+        }
+        return NOXTLS_RETURN_CRL_EXPIRED;
+    }
+
+    if(crl->has_next_update) {
+        next_len = 0;
+        while(next_len < 15 && crl->next_update[next_len] != 0) {
+            next_len++;
+        }
+        rc = noxtls_x509_asn1_time_to_timet(crl->next_update, next_len, &nu);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_CRL_PARSE_FAILED;
+        }
+        if(now > nu) {
+            if(flags_out != NULL) {
+                *flags_out |= NOXTLS_X509_VERIFY_FLAG_CRL_EXPIRED;
+            }
+            return NOXTLS_RETURN_CRL_EXPIRED;
+        }
+    }
+
+    return NOXTLS_RETURN_SUCCESS;
+}
+#else
+static noxtls_return_t noxtls_x509_crl_check_times(const noxtls_x509_crl_t *crl, noxtls_x509_verify_flags_t *flags_out)
+{
+    (void)crl;
+    (void)flags_out;
+    return NOXTLS_RETURN_SUCCESS;
+}
+#endif
+
+static noxtls_return_t noxtls_x509_crl_verify_signature(const noxtls_x509_crl_t *crl, const x509_certificate_t *issuer,
+                                                        noxtls_x509_verify_flags_t *flags_out)
+{
+    noxtls_return_t rc;
+    noxtls_hash_algos_t hash_algo;
+    int is_rsa;
+    uint8_t hash[64];
+    uint32_t hash_len = 0;
+
+    if(crl == NULL || issuer == NULL || !crl->parsed || !issuer->parsed) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(crl->tbs_crl == NULL || crl->tbs_crl_len == 0 || crl->signature == NULL || crl->signature_len == 0) {
+        return NOXTLS_RETURN_CRL_VERIFY_FAILED;
+    }
+
+    rc = noxtls_x509_map_signature_algorithm(crl->signature_algorithm_oid, crl->signature_algorithm_oid_len, &hash_algo, &is_rsa);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_INVALID_ALGORITHM;
+    }
+
+    if(hash_algo == NOXTLS_HASH_SHA_256) {
+        noxtls_sha_ctx_t sha_ctx;
+        noxtls_sha256_init(&sha_ctx, hash_algo);
+        noxtls_sha256_update(&sha_ctx, crl->tbs_crl, crl->tbs_crl_len);
+        hash_len = 32;
+        rc = noxtls_sha256_finish(&sha_ctx, hash);
+    } else if(hash_algo == NOXTLS_HASH_SHA_384) {
+        noxtls_sha512_ctx_t sha_ctx;
+        noxtls_sha512_init(&sha_ctx, hash_algo);
+        noxtls_sha512_update(&sha_ctx, crl->tbs_crl, crl->tbs_crl_len);
+        hash_len = 48;
+        rc = noxtls_sha512_finish(&sha_ctx, hash);
+    } else if(hash_algo == NOXTLS_HASH_SHA_512) {
+        noxtls_sha512_ctx_t sha_ctx;
+        noxtls_sha512_init(&sha_ctx, hash_algo);
+        noxtls_sha512_update(&sha_ctx, crl->tbs_crl, crl->tbs_crl_len);
+        hash_len = 64;
+        rc = noxtls_sha512_finish(&sha_ctx, hash);
+    } else {
+        return NOXTLS_RETURN_INVALID_ALGORITHM;
+    }
+
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+
+    if(is_rsa == 1) {
+        if(issuer->rsa_modulus == NULL || issuer->rsa_exponent == NULL) {
+            if(flags_out != NULL) {
+                *flags_out |= NOXTLS_X509_VERIFY_FLAG_CRL_BAD_SIGNATURE;
+            }
+            return NOXTLS_RETURN_CRL_VERIFY_FAILED;
+        }
+        {
+            const uint8_t *mod_ptr = issuer->rsa_modulus;
+            uint32_t mod_len = issuer->rsa_modulus_len;
+            const uint8_t *exp_ptr = issuer->rsa_exponent;
+            uint32_t exp_len = issuer->rsa_exponent_len;
+            uint32_t key_bytes;
+            rsa_key_size_t key_size;
+            rsa_key_t rsa_key;
+            while(mod_len > 0u && mod_ptr[0] == 0u) {
+                mod_ptr++;
+                mod_len--;
+            }
+            while(exp_len > 0u && exp_ptr[0] == 0u) {
+                exp_ptr++;
+                exp_len--;
+            }
+            key_bytes = mod_len;
+            if(key_bytes == X509_RSA_MODULUS_BYTES_1024) {
+                key_size = RSA_1024_BIT;
+            } else if(key_bytes == X509_RSA_MODULUS_BYTES_2048) {
+                key_size = RSA_2048_BIT;
+            } else if(key_bytes == X509_RSA_MODULUS_BYTES_3072) {
+                key_size = RSA_3072_BIT;
+            } else if(key_bytes == X509_RSA_MODULUS_BYTES_4096) {
+                key_size = RSA_4096_BIT;
+            } else {
+                return NOXTLS_RETURN_INVALID_PARAM;
+            }
+            rc = noxtls_rsa_key_init(&rsa_key, key_size);
+            if(rc != NOXTLS_RETURN_SUCCESS) {
+                return rc;
+            }
+            if(mod_len == 0u || exp_len == 0u || mod_len > rsa_key.key_bytes || exp_len > rsa_key.key_bytes) {
+                noxtls_rsa_key_free(&rsa_key);
+                return NOXTLS_RETURN_INVALID_PARAM;
+            }
+            memcpy(rsa_key.n + (rsa_key.key_bytes - mod_len), mod_ptr, mod_len);
+            memcpy(rsa_key.e + (rsa_key.key_bytes - exp_len), exp_ptr, exp_len);
+            rc = noxtls_rsa_verify(&rsa_key, hash, hash_len, crl->signature, crl->signature_len, hash_algo);
+            noxtls_rsa_key_free(&rsa_key);
+        }
+    } else if(is_rsa == 2) {
+#if NOXTLS_FEATURE_ML_DSA
+        if(!issuer->has_mldsa || issuer->mldsa_public_key_len == 0 || issuer->mldsa_param == 0) {
+            if(flags_out != NULL) {
+                *flags_out |= NOXTLS_X509_VERIFY_FLAG_CRL_BAD_SIGNATURE;
+            }
+            return NOXTLS_RETURN_CRL_VERIFY_FAILED;
+        }
+        rc = noxtls_mldsa_verify(issuer->mldsa_param, issuer->mldsa_public_key, hash, hash_len, crl->signature, crl->signature_len);
+#else
+        return NOXTLS_RETURN_INVALID_ALGORITHM;
+#endif
+    } else {
+        ecc_curve_t curve_type;
+        ecc_key_t ecc_key;
+        const uint8_t *sig_ptr = crl->signature;
+        const uint8_t *sig_end = crl->signature + crl->signature_len;
+        const uint8_t *seq_data = NULL;
+        uint32_t seq_len = 0;
+        uint8_t r[ECC_MAX_KEY_SIZE];
+        uint8_t s[ECC_MAX_KEY_SIZE];
+        uint32_t r_len = ECC_MAX_KEY_SIZE;
+        uint32_t s_len = ECC_MAX_KEY_SIZE;
+        ecdsa_signature_t ecdsa_sig;
+
+        if(issuer->ecc_public_key == NULL || issuer->ecc_public_key_len == 0) {
+            if(flags_out != NULL) {
+                *flags_out |= NOXTLS_X509_VERIFY_FLAG_CRL_BAD_SIGNATURE;
+            }
+            return NOXTLS_RETURN_CRL_VERIFY_FAILED;
+        }
+        if(issuer->ecc_curve_oid_len > 0) {
+            if(noxtls_x509_ecc_curve_from_oid(issuer->ecc_curve_oid, issuer->ecc_curve_oid_len, &curve_type) != NOXTLS_RETURN_SUCCESS) {
+                return NOXTLS_RETURN_INVALID_ALGORITHM;
+            }
+        } else {
+            if(noxtls_x509_ecc_curve_from_pubkey_len(issuer->ecc_public_key_len, &curve_type) != NOXTLS_RETURN_SUCCESS) {
+                return NOXTLS_RETURN_INVALID_ALGORITHM;
+            }
+        }
+        rc = noxtls_ecc_key_init(&ecc_key, curve_type);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
+        if(issuer->ecc_public_key[0] != 0x04) {
+            noxtls_ecc_key_free(&ecc_key);
+            return NOXTLS_RETURN_INVALID_PARAM;
+        }
+        {
+            uint32_t coord_size = ecc_key.curve->size;
+            if(issuer->ecc_public_key_len != 1 + 2 * coord_size) {
+                noxtls_ecc_key_free(&ecc_key);
+                return NOXTLS_RETURN_INVALID_PARAM;
+            }
+            memcpy(ecc_key.Q.x, issuer->ecc_public_key + 1, coord_size);
+            memcpy(ecc_key.Q.y, issuer->ecc_public_key + 1 + coord_size, coord_size);
+            ecc_key.Q.size = coord_size;
+        }
+
+        if(asn1_get_tag(&sig_ptr, sig_end, 0x30) != NOXTLS_RETURN_SUCCESS) {
+            noxtls_ecc_key_free(&ecc_key);
+            return NOXTLS_RETURN_BAD_DATA;
+        }
+        seq_len = asn1_get_length(&sig_ptr, sig_end);
+        if(seq_len == 0 || (size_t)(sig_end - sig_ptr) < (size_t)seq_len) {
+            noxtls_ecc_key_free(&ecc_key);
+            return NOXTLS_RETURN_BAD_DATA;
+        }
+        seq_data = sig_ptr;
+        {
+            const uint8_t *seq_end = seq_data + seq_len;
+            if(asn1_get_integer(&sig_ptr, seq_end, r, &r_len) != NOXTLS_RETURN_SUCCESS) {
+                noxtls_ecc_key_free(&ecc_key);
+                return NOXTLS_RETURN_BAD_DATA;
+            }
+            if(asn1_get_integer(&sig_ptr, seq_end, s, &s_len) != NOXTLS_RETURN_SUCCESS) {
+                noxtls_ecc_key_free(&ecc_key);
+                return NOXTLS_RETURN_BAD_DATA;
+            }
+        }
+
+        ecdsa_sig.size = ecc_key.curve->size;
+        memset(ecdsa_sig.r, 0, ECC_MAX_KEY_SIZE);
+        memset(ecdsa_sig.s, 0, ECC_MAX_KEY_SIZE);
+        {
+            uint32_t coord_size = ecc_key.curve->size;
+            if(r_len <= coord_size) {
+                memcpy(ecdsa_sig.r + coord_size - r_len, r, r_len);
+            } else {
+                uint32_t skip = r_len - coord_size;
+                uint32_t i;
+                for(i = 0; i < skip; i++) {
+                    if(r[i] != 0) {
+                        noxtls_ecc_key_free(&ecc_key);
+                        return NOXTLS_RETURN_BAD_DATA;
+                    }
+                }
+                memcpy(ecdsa_sig.r, r + skip, coord_size);
+            }
+            if(s_len <= coord_size) {
+                memcpy(ecdsa_sig.s + coord_size - s_len, s, s_len);
+            } else {
+                uint32_t skip = s_len - coord_size;
+                uint32_t i;
+                for(i = 0; i < skip; i++) {
+                    if(s[i] != 0) {
+                        noxtls_ecc_key_free(&ecc_key);
+                        return NOXTLS_RETURN_BAD_DATA;
+                    }
+                }
+                memcpy(ecdsa_sig.s, s + skip, coord_size);
+            }
+        }
+
+        rc = noxtls_ecdsa_verify(&ecc_key, crl->tbs_crl, crl->tbs_crl_len, &ecdsa_sig, hash_algo);
+        noxtls_ecc_key_free(&ecc_key);
+    }
+
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        if(flags_out != NULL) {
+            *flags_out |= NOXTLS_X509_VERIFY_FLAG_CRL_BAD_SIGNATURE;
+        }
+        return NOXTLS_RETURN_CRL_VERIFY_FAILED;
+    }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+static noxtls_return_t x509_apply_crl_for_cert(const x509_certificate_t *cert, const x509_certificate_t *issuer,
+                                               const noxtls_x509_crl_t *crl_chain, noxtls_x509_verify_flags_t *flags_out)
+{
+    const noxtls_x509_crl_t *c;
+    noxtls_return_t rc;
+
+    if(cert == NULL || issuer == NULL || crl_chain == NULL) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
+
+    for(c = crl_chain; c != NULL; c = c->next) {
+        if(!c->parsed) {
+            continue;
+        }
+        if(!x509_dn_equal(c->issuer, c->issuer_len, issuer->subject, issuer->subject_len)) {
+            continue;
+        }
+
+        if(flags_out != NULL) {
+            *flags_out |= NOXTLS_X509_VERIFY_FLAG_CRL_USED;
+        }
+
+        rc = noxtls_x509_crl_verify_signature(c, issuer, flags_out);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            cert_fail_set(NOXTLS_RETURN_CRL_VERIFY_FAILED, cert, NULL, 0, 0);
+            return NOXTLS_RETURN_CRL_VERIFY_FAILED;
+        }
+
+        rc = noxtls_x509_crl_check_times(c, flags_out);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            cert_fail_set(NOXTLS_RETURN_CRL_EXPIRED, cert, NULL, 0, 0);
+            return NOXTLS_RETURN_CRL_EXPIRED;
+        }
+
+        if(noxtls_x509_crl_serial_is_revoked(c, cert)) {
+            if(flags_out != NULL) {
+                *flags_out |= NOXTLS_X509_VERIFY_FLAG_CERT_REVOKED;
+            }
+            cert_fail_set(NOXTLS_RETURN_CERT_REVOKED, cert, NULL, 0, 0);
+            return NOXTLS_RETURN_CERT_REVOKED;
+        }
+
+        return NOXTLS_RETURN_SUCCESS;
+    }
+
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+void noxtls_x509_trust_store_clear(void)
+{
+    if(s_x509_trust_anchors_initialized) {
+        noxtls_x509_certificate_chain_free(&s_x509_trust_anchors);
+    }
+    memset(&s_x509_trust_anchors, 0, sizeof(s_x509_trust_anchors));
+    s_x509_trust_anchors_initialized = 0;
+}
+
+noxtls_return_t noxtls_x509_trust_store_set(const x509_certificate_chain_t *trust_anchors)
+{
+    uint32_t i;
+    noxtls_return_t rc;
+
+    noxtls_x509_trust_store_clear();
+
+    if(trust_anchors == NULL || trust_anchors->count == 0) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
+
+    rc = noxtls_x509_certificate_chain_init(&s_x509_trust_anchors);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+    s_x509_trust_anchors_initialized = 1;
+
+    for(i = 0; i < trust_anchors->count; i++) {
+        rc = noxtls_x509_certificate_chain_add(&s_x509_trust_anchors, &trust_anchors->certs[i]);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_x509_trust_store_clear();
+            return rc;
+        }
+    }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+static void x509_verify_crl_note_no_match_if_needed(const noxtls_x509_crl_t *crl, noxtls_x509_verify_flags_t *flags_out)
+{
+    if(crl != NULL && flags_out != NULL && (*flags_out & NOXTLS_X509_VERIFY_FLAG_CRL_USED) == 0) {
+        *flags_out |= NOXTLS_X509_VERIFY_FLAG_CRL_NO_MATCH;
+    }
+}
+
+static noxtls_return_t x509_verify_cert_trust_internal(const x509_certificate_t *leaf,
+                                                       const x509_certificate_chain_t *presented_chain,
+                                                       uint32_t required_eku,
+                                                       const noxtls_x509_crl_t *crl,
+                                                       noxtls_x509_verify_flags_t *flags_out)
+{
+    const x509_certificate_t *current;
+    uint32_t depth = 0;
+    const uint32_t max_depth = NOXTLS_MAX_CERT_CHAIN_DEPTH;
+
+    if(flags_out != NULL) {
+        *flags_out = 0;
+    }
+
+    if(leaf == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(max_depth == 0u) {
+        cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, leaf, NULL, 0, 0);
+        return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+    }
+
+    if(!s_x509_trust_anchors_initialized || s_x509_trust_anchors.count == 0) {
+        cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, leaf, NULL, 0, 0);
+        return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+    }
+
+    {
+        noxtls_return_t rc = noxtls_x509_certificate_check_validity(leaf);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
+    }
+    if(x509_leaf_policy_check(leaf, required_eku) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+    }
+
+    current = leaf;
+
+    while(depth < max_depth) {
+        const x509_certificate_t *issuer = NULL;
+        noxtls_return_t rc;
+
+        if(x509_chain_contains_cert(&s_x509_trust_anchors, current)) {
+            x509_verify_crl_note_no_match_if_needed(crl, flags_out);
+            return NOXTLS_RETURN_SUCCESS;
+        }
+
+        if(presented_chain != NULL) {
+            issuer = x509_find_issuer_in_chain(current, presented_chain);
+        }
+        if(issuer == NULL) {
+            issuer = x509_find_issuer_in_chain(current, &s_x509_trust_anchors);
+        }
+        if(issuer == NULL || x509_is_same_cert(issuer, current)) {
+            cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, current, NULL, 0, depth);
+            return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+        }
+
+        rc = noxtls_x509_certificate_verify_signature((x509_certificate_t*)current, issuer);
+        if(rc != NOXTLS_RETURN_SUCCESS && presented_chain != NULL) {
+            const x509_certificate_t *trust_issuer = x509_find_issuer_in_chain(current, &s_x509_trust_anchors);
+            if(trust_issuer != NULL && !x509_is_same_cert(trust_issuer, current)) {
+                noxtls_return_t trust_rc = noxtls_x509_certificate_verify_signature((x509_certificate_t*)current, trust_issuer);
+                if(trust_rc == NOXTLS_RETURN_SUCCESS) {
+                    issuer = trust_issuer;
+                    rc = NOXTLS_RETURN_SUCCESS;
+                }
+            }
+        }
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, current, NULL, 0, depth);
+            return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+        }
+
+        if(crl != NULL) {
+            rc = x509_apply_crl_for_cert(current, issuer, crl, flags_out);
+            if(rc != NOXTLS_RETURN_SUCCESS) {
+                return rc;
+            }
+        }
+
+        rc = noxtls_x509_certificate_check_validity(issuer);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            s_cert_fail_info.cert_index = depth + 1u;
+            return rc;
+        }
+
+        if(!x509_chain_contains_cert(&s_x509_trust_anchors, issuer)) {
+            rc = x509_issuer_policy_check(issuer, depth);
+            if(rc != NOXTLS_RETURN_SUCCESS) {
+                return rc;
+            }
+        }
+
+        if(x509_chain_contains_cert(&s_x509_trust_anchors, issuer)) {
+            x509_verify_crl_note_no_match_if_needed(crl, flags_out);
+            return NOXTLS_RETURN_SUCCESS;
+        }
+
+        current = issuer;
+        depth++;
+    }
+
+    cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, leaf, NULL, 0, depth);
+    return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+}
+
+noxtls_return_t noxtls_x509_verify_server_cert_trust(const x509_certificate_t *leaf,
+                                                     const x509_certificate_chain_t *presented_chain)
+{
+    return x509_verify_cert_trust_internal(leaf, presented_chain, X509_EKU_SERVER_AUTH, NULL, NULL);
+}
+
+noxtls_return_t noxtls_x509_verify_server_cert_trust_ex(const x509_certificate_t *leaf,
+                                                        const x509_certificate_chain_t *presented_chain,
+                                                        const noxtls_x509_crl_t *crl,
+                                                        noxtls_x509_verify_flags_t *flags_out)
+{
+    return x509_verify_cert_trust_internal(leaf, presented_chain, X509_EKU_SERVER_AUTH, crl, flags_out);
+}
+
+noxtls_return_t noxtls_x509_verify_client_cert_trust(const x509_certificate_t *leaf,
+                                                     const x509_certificate_chain_t *presented_chain)
+{
+    return x509_verify_cert_trust_internal(leaf, presented_chain, X509_EKU_CLIENT_AUTH, NULL, NULL);
+}
+
+noxtls_return_t noxtls_x509_verify_client_cert_trust_ex(const x509_certificate_t *leaf,
+                                                         const x509_certificate_chain_t *presented_chain,
+                                                         const noxtls_x509_crl_t *crl,
+                                                         noxtls_x509_verify_flags_t *flags_out)
+{
+    return x509_verify_cert_trust_internal(leaf, presented_chain, X509_EKU_CLIENT_AUTH, crl, flags_out);
 }
 
 /**
@@ -2799,6 +4156,7 @@ static noxtls_return_t noxtls_x509_parse_pkcs8_private_key(x509_private_key_t *k
     if(info_ptr >= info_end) {
         return NOXTLS_RETURN_FAILED;
     }
+
     if(*info_ptr == 0x04) {
         /* Alternate order: privateKey (OCTET STRING) comes first, then [0] curve OID, then [1] public (optional) */
         CERT_DEBUG_PRINT("x509_parse_pkcs8: alternate order (privateKey before algorithm)\n");
@@ -3061,7 +4419,7 @@ static noxtls_return_t noxtls_x509_parse_encrypted_pkcs8(x509_private_key_t *key
     const uint8_t *enc_data = NULL;
     uint32_t enc_data_len = 0;
     uint32_t key_bits = 0;
-    aes_type_t aes_type = AES_128_BIT;
+    noxtls_aes_type_t aes_type = NOXTLS_AES_128_BIT;
     uint8_t derived_key[32];
     uint8_t *decrypted = NULL;
     noxtls_return_t rc;
@@ -3120,10 +4478,10 @@ static noxtls_return_t noxtls_x509_parse_encrypted_pkcs8(x509_private_key_t *key
     }
     if(oid_equal(oid_buf, oid_len, oid_aes128_cbc, sizeof(oid_aes128_cbc))) {
         key_bits = 16;
-        aes_type = AES_128_BIT;
+        aes_type = NOXTLS_AES_128_BIT;
     } else if(oid_equal(oid_buf, oid_len, oid_aes256_cbc, sizeof(oid_aes256_cbc))) {
         key_bits = 32;
-        aes_type = AES_256_BIT;
+        aes_type = NOXTLS_AES_256_BIT;
     } else {
         return NOXTLS_RETURN_FAILED;  /* only AES-128-CBC and AES-256-CBC */
     }
@@ -3131,20 +4489,20 @@ static noxtls_return_t noxtls_x509_parse_encrypted_pkcs8(x509_private_key_t *key
     if(asn1_get_octet_string(&ptr, seq_end, &enc_data, &enc_data_len) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
-    if(enc_data_len < AES_BLOCK_LEN || (enc_data_len - AES_BLOCK_LEN) % AES_BLOCK_LEN != 0) {
+    if(enc_data_len < NOXTLS_AES_BLOCK_LEN || (enc_data_len - NOXTLS_AES_BLOCK_LEN) % NOXTLS_AES_BLOCK_LEN != 0) {
         return NOXTLS_RETURN_FAILED;
     }
     if(pbkdf2_hmac_sha1((const uint8_t*)password, password_len, salt, salt_len, iterations, key_bits, derived_key) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
-    decrypted = (uint8_t*)malloc(enc_data_len - AES_BLOCK_LEN);
+    decrypted = (uint8_t*)malloc(enc_data_len - NOXTLS_AES_BLOCK_LEN);
     if(decrypted == NULL) return NOXTLS_RETURN_FAILED;
-    if(aes_decrypt_cbc(derived_key, enc_data + AES_BLOCK_LEN, enc_data_len - AES_BLOCK_LEN, enc_data, decrypted, aes_type) != NOXTLS_RETURN_SUCCESS) {
+    if(noxtls_aes_decrypt_cbc(derived_key, enc_data + NOXTLS_AES_BLOCK_LEN, enc_data_len - NOXTLS_AES_BLOCK_LEN, enc_data, decrypted, aes_type) != NOXTLS_RETURN_SUCCESS) {
         free(decrypted);
         return NOXTLS_RETURN_FAILED;
     }
     noxtls_x509_private_key_free(key);
-    rc = noxtls_x509_private_key_parse_der(key, decrypted, enc_data_len - AES_BLOCK_LEN);
+    rc = noxtls_x509_private_key_parse_der(key, decrypted, enc_data_len - NOXTLS_AES_BLOCK_LEN);
     memset(derived_key, 0, sizeof(derived_key));
     free(decrypted);
     return rc;
@@ -3238,23 +4596,27 @@ noxtls_return_t noxtls_x509_private_key_parse_der(x509_private_key_t *key, const
     CERT_DEBUG_PRINT("x509_private_key_parse_der: len=%u first_bytes=0x%02x 0x%02x 0x%02x\n",
         len, len > 0 ? data[0] : 0, len > 1 ? data[1] : 0, len > 2 ? data[2] : 0);
     rc = noxtls_x509_parse_pkcs1_rsa_private_key(key, data, len);
+
     if(rc == NOXTLS_RETURN_SUCCESS) {
         key->parsed = 1;
         CERT_DEBUG_PRINT("x509_private_key_parse_der: parsed as PKCS#1 RSA\n");
         return NOXTLS_RETURN_SUCCESS;
     }
+
     rc = noxtls_x509_parse_pkcs8_private_key(key, data, len);
     if(rc == NOXTLS_RETURN_SUCCESS) {
         key->parsed = 1;
         CERT_DEBUG_PRINT("x509_private_key_parse_der: parsed as PKCS#8 key_type=%d\n", key->key_type);
         return NOXTLS_RETURN_SUCCESS;
     }
+
     rc = noxtls_x509_parse_sec1_ecc_private_key(key, data, len);
     if(rc == NOXTLS_RETURN_SUCCESS) {
         key->parsed = 1;
         CERT_DEBUG_PRINT("x509_private_key_parse_der: parsed as SEC1 ECC\n");
         return NOXTLS_RETURN_SUCCESS;
     }
+
     CERT_DEBUG_PRINT("x509_private_key_parse_der: all formats failed\n");
     noxtls_x509_private_key_free(key);
     return NOXTLS_RETURN_FAILED;
@@ -3300,6 +4662,7 @@ noxtls_return_t noxtls_x509_private_key_parse_pem(x509_private_key_t *key, const
     if(pem_start == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
+
     pem_start += strlen(begin_marker);
 
     /* Skip whitespace */
@@ -3389,19 +4752,23 @@ noxtls_return_t noxtls_x509_private_key_parse_pem_with_password(x509_private_key
     pem_start = (const uint8_t*)strstr((const char*)data, begin_marker);
     if(pem_start == NULL) return NOXTLS_RETURN_FAILED;
     pem_start += strlen(begin_marker);
+
     while(pem_start < data + len && (*pem_start == '\n' || *pem_start == '\r' || *pem_start == ' ')) {
         pem_start++;
     }
+
     pem_end = (const uint8_t*)strstr((const char*)pem_start, end_marker);
     if(pem_end == NULL) return NOXTLS_RETURN_FAILED;
     while(pem_end > pem_start && (*(pem_end - 1) == '\n' || *(pem_end - 1) == '\r' || *(pem_end - 1) == ' ')) {
         pem_end--;
     }
+
     {
         ptrdiff_t pem_len = pem_end - pem_start;
         if(pem_len < 0 || (unsigned long)pem_len > UINT32_MAX) return NOXTLS_RETURN_FAILED;
         pem_data_len = (uint32_t)pem_len;
     }
+
     der_data = (uint8_t*)malloc(pem_data_len);
     if(der_data == NULL) return NOXTLS_RETURN_FAILED;
     der_len = noxtls_base64_decode((char*)pem_start, pem_data_len, der_data);
@@ -3409,11 +4776,13 @@ noxtls_return_t noxtls_x509_private_key_parse_pem_with_password(x509_private_key
         free(der_data);
         return NOXTLS_RETURN_FAILED;
     }
+
     if(is_encrypted) {
         rc = noxtls_x509_private_key_parse_der_with_password(key, der_data, der_len, password, password_len);
     } else {
         rc = noxtls_x509_private_key_parse_der_with_password(key, der_data, der_len, NULL, 0);
     }
+
     free(der_data);
     return rc;
 }
@@ -3519,17 +4888,21 @@ noxtls_return_t noxtls_x509_private_key_to_rsa_key(const x509_private_key_t *key
     }
 
     /* Modulus length may include leading zero (DER); use canonical key size */
-    if(key->rsa_modulus_len == 128 || key->rsa_modulus_len == 129) {
-        key_bytes = 128;
+    if(key->rsa_modulus_len == X509_RSA_MODULUS_BYTES_1024 ||
+       key->rsa_modulus_len == (X509_RSA_MODULUS_BYTES_1024 + 1U)) {
+        key_bytes = X509_RSA_MODULUS_BYTES_1024;
         key_size = RSA_1024_BIT;
-    } else if(key->rsa_modulus_len == 256 || key->rsa_modulus_len == 257) {
-        key_bytes = 256;
+    } else if(key->rsa_modulus_len == X509_RSA_MODULUS_BYTES_2048 ||
+              key->rsa_modulus_len == (X509_RSA_MODULUS_BYTES_2048 + 1U)) {
+        key_bytes = X509_RSA_MODULUS_BYTES_2048;
         key_size = RSA_2048_BIT;
-    } else if(key->rsa_modulus_len == 384 || key->rsa_modulus_len == 385) {
-        key_bytes = 384;
+    } else if(key->rsa_modulus_len == X509_RSA_MODULUS_BYTES_3072 ||
+              key->rsa_modulus_len == (X509_RSA_MODULUS_BYTES_3072 + 1U)) {
+        key_bytes = X509_RSA_MODULUS_BYTES_3072;
         key_size = RSA_3072_BIT;
-    } else if(key->rsa_modulus_len == 512 || key->rsa_modulus_len == 513) {
-        key_bytes = 512;
+    } else if(key->rsa_modulus_len == X509_RSA_MODULUS_BYTES_4096 ||
+              key->rsa_modulus_len == (X509_RSA_MODULUS_BYTES_4096 + 1U)) {
+        key_bytes = X509_RSA_MODULUS_BYTES_4096;
         key_size = RSA_4096_BIT;
     } else {
         return NOXTLS_RETURN_FAILED;
@@ -3587,6 +4960,7 @@ noxtls_return_t noxtls_x509_private_key_to_ecc_key(const x509_private_key_t *key
     } else {
         rc = noxtls_x509_ecc_curve_from_pubkey_len(key->ecc_public_key_len > 0 ? key->ecc_public_key_len : 65, &curve_type);
     }
+
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -3626,31 +5000,38 @@ noxtls_return_t noxtls_x509_private_key_sign_data(const uint8_t *key, uint32_t k
     ecdsa_signature_t sig;
     uint8_t *der_buf;
     const uint32_t der_buf_size = 256;
-    uint8_t r_enc[ECC_MAX_KEY_SIZE + 2], s_enc[ECC_MAX_KEY_SIZE + 2];
-    uint32_t r_enc_len, s_enc_len, seq_len, total;
+    uint8_t r_enc[ECC_MAX_KEY_SIZE + 2];
+    uint8_t s_enc[ECC_MAX_KEY_SIZE + 2];
+    uint32_t r_enc_len;
+    uint32_t s_enc_len;
+    uint32_t seq_len;
+    uint32_t total;
 
-    if (key == NULL || data == NULL || out_der == NULL || out_len == NULL) {
+    if(key == NULL || data == NULL || out_der == NULL || out_len == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if (out_max < 8) {
+
+    if(out_max < 8) {
         return NOXTLS_RETURN_FAILED; /* minimum for tiny DER; Ed/ECDSA paths check larger out_max */
     }
 
     noxtls_x509_private_key_init(&pk);
     rc = noxtls_x509_private_key_parse_der(&pk, key, key_len);
-    if (rc != NOXTLS_RETURN_SUCCESS) {
+
+    if(rc != NOXTLS_RETURN_SUCCESS) {
         rc = noxtls_x509_private_key_parse_pem(&pk, key, key_len);
     }
-    if (rc != NOXTLS_RETURN_SUCCESS) {
+
+    if(rc != NOXTLS_RETURN_SUCCESS) {
         CERT_DEBUG_PRINT("x509_private_key_sign_data: parse failed rc=%d\n", rc);
         noxtls_x509_private_key_free(&pk);
         return rc;
     }
 
-    if (pk.key_type == X509_PRIVATE_KEY_ECC) {
+    if(pk.key_type == X509_PRIVATE_KEY_ECC) {
         rc = noxtls_x509_private_key_to_ecc_key(&pk, &ecc_key);
         noxtls_x509_private_key_free(&pk);
-        if (rc != NOXTLS_RETURN_SUCCESS) {
+        if(rc != NOXTLS_RETURN_SUCCESS) {
             CERT_DEBUG_PRINT("x509_private_key_sign_data: to_ecc_key failed rc=%d\n", rc);
             return rc;
         }
@@ -3659,22 +5040,22 @@ noxtls_return_t noxtls_x509_private_key_sign_data(const uint8_t *key, uint32_t k
         sig.size = ecc_key.curve->size;
         rc = noxtls_ecdsa_sign(&ecc_key, data, data_len, &sig, hash_algo);
         noxtls_ecc_key_free(&ecc_key);
-        if (rc != NOXTLS_RETURN_SUCCESS) {
+        if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
 
         r_enc_len = noxtls_asn1_put_integer(r_enc, sizeof(r_enc), sig.r, sig.size);
         s_enc_len = noxtls_asn1_put_integer(s_enc, sizeof(s_enc), sig.s, sig.size);
-        if (r_enc_len == 0 || s_enc_len == 0) {
+        if(r_enc_len == 0 || s_enc_len == 0) {
             return NOXTLS_RETURN_FAILED;
         }
         seq_len = r_enc_len + s_enc_len;
 
         der_buf = (uint8_t *)noxtls_malloc(der_buf_size);
-        if (der_buf == NULL) {
+        if(der_buf == NULL) {
             return NOXTLS_RETURN_FAILED;
         }
-        if (seq_len > der_buf_size - 8) {
+        if(seq_len > der_buf_size - 8) {
             noxtls_free(der_buf);
             return NOXTLS_RETURN_FAILED;
         }
@@ -3682,46 +5063,48 @@ noxtls_return_t noxtls_x509_private_key_sign_data(const uint8_t *key, uint32_t k
         memcpy(der_buf + r_enc_len, s_enc, s_enc_len);
         total = noxtls_asn1_put_sequence(out_der, out_max, der_buf, seq_len);
         noxtls_free(der_buf);
-        if (total == 0) {
+        if(total == 0) {
             return NOXTLS_RETURN_FAILED;
         }
         *out_len = total;
         return NOXTLS_RETURN_SUCCESS;
     }
+
 #if NOXTLS_FEATURE_ED25519
-    if (pk.key_type == X509_PRIVATE_KEY_ED25519) {
+    if(pk.key_type == X509_PRIVATE_KEY_ED25519) {
         uint8_t seed_buf[32];
         uint32_t slen = 0;
         const uint8_t *seed = noxtls_x509_private_key_get_eddsa_seed(&pk, &slen);
         (void)hash_algo;
-        if (seed == NULL || slen != sizeof(seed_buf) || out_max < NOXTLS_ED25519_SIGNATURE_SIZE) {
+        if(seed == NULL || slen != sizeof(seed_buf) || out_max < NOXTLS_ED25519_SIGNATURE_SIZE) {
             noxtls_x509_private_key_free(&pk);
             return NOXTLS_RETURN_FAILED;
         }
         memcpy(seed_buf, seed, sizeof(seed_buf));
         noxtls_x509_private_key_free(&pk);
         rc = noxtls_ed25519_sign(seed_buf, data, data_len, out_der);
-        if (rc != NOXTLS_RETURN_SUCCESS) {
+        if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
         *out_len = NOXTLS_ED25519_SIGNATURE_SIZE;
         return NOXTLS_RETURN_SUCCESS;
     }
 #endif
+
 #if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
-    if (pk.key_type == X509_PRIVATE_KEY_ED448) {
+    if(pk.key_type == X509_PRIVATE_KEY_ED448) {
         uint8_t seed_buf[57];
         uint32_t slen = 0;
         const uint8_t *seed = noxtls_x509_private_key_get_eddsa_seed(&pk, &slen);
         (void)hash_algo;
-        if (seed == NULL || slen != sizeof(seed_buf) || out_max < NOXTLS_ED448_SIGNATURE_SIZE) {
+        if(seed == NULL || slen != sizeof(seed_buf) || out_max < NOXTLS_ED448_SIGNATURE_SIZE) {
             noxtls_x509_private_key_free(&pk);
             return NOXTLS_RETURN_FAILED;
         }
         memcpy(seed_buf, seed, sizeof(seed_buf));
         noxtls_x509_private_key_free(&pk);
         rc = noxtls_ed448_sign(seed_buf, data, data_len, out_der);
-        if (rc != NOXTLS_RETURN_SUCCESS) {
+        if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
         *out_len = NOXTLS_ED448_SIGNATURE_SIZE;

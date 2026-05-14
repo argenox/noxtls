@@ -49,6 +49,9 @@
 extern "C" {
 #endif
 
+/* Forward declaration to avoid including full X.509 header here. */
+typedef struct noxtls_x509_crl noxtls_x509_crl_t;
+
 /* TLS 1.2 Context */
 NOXTLS_MSVC_WARNING_PUSH
 NOXTLS_MSVC_DISABLE_PADDING
@@ -80,6 +83,10 @@ typedef struct tls12_context_s
 
     /** Optional server RSA private key (rsa_key_t*) for Server Key Exchange signature. If set, SKX is signed. */
     void *server_private_rsa;
+    /** Optional server cipher-suite allowlist (wire IDs). If set, server selects only from this list. */
+    const uint16_t *server_cipher_suites;
+    /** Number of entries in server_cipher_suites. */
+    uint32_t server_cipher_suites_count;
     /** Optional: crypto provider (PKCS#11/TPM/hardware). When set with server_private_key_handle, server sign uses provider instead of server_private_rsa. */
     const noxtls_crypto_provider_t *crypto_provider;
     /** Provider's handle for server RSA private key. Used when crypto_provider is set for Server Key Exchange / Certificate Verify. */
@@ -103,6 +110,7 @@ typedef struct tls12_context_s
     /* Client configuration */
     const char *server_name;             /* SNI hostname (optional) */
     uint16_t server_name_len;            /* SNI hostname length */
+    const noxtls_x509_crl_t *verify_crl; /* Optional CRL list for server cert verification (non-owning). */
 
     /* Renegotiation (RFC 5746): verify_data from previous handshake for renegotiation_info extension */
     uint8_t previous_client_verify_data[48];
@@ -116,8 +124,10 @@ typedef struct tls12_context_s
 
     /* Reusable record workspace: encrypted/decrypted/handshake buffer (one at a time). Size TLS_MAX_RECORD_SIZE+256. */
     uint8_t *record_workspace;
+    uint8_t record_workspace_owned;    /* 1 if allocated by context init, 0 if supplied by caller */
     /* Reusable handshake workspace: build/parse client_hello, certificate, server_key_exchange, etc. (one at a time). Size TLS_HANDSHAKE_WORKSPACE_SIZE. */
     uint8_t *handshake_workspace;
+    uint8_t handshake_workspace_owned; /* 1 if allocated by context init, 0 if supplied by caller */
 
     /* RFC 7250 Raw Public Keys (RPK): certificate type negotiation and result */
     uint8_t server_use_rpk;              /* Server: 1 = send SubjectPublicKeyInfo in Certificate (server_cert holds SPKI DER) */
@@ -134,59 +144,72 @@ typedef struct tls12_context_s
 NOXTLS_MSVC_WARNING_POP
 
 /* TLS 1.2 Functions */
-noxtls_return_t tls12_context_init(tls12_context_t *ctx, tls_role_t role);
+noxtls_return_t noxtls_tls12_context_init(tls12_context_t *ctx, tls_role_t role);
 /** Initialize context for a specific TLS version (e.g. TLS_VERSION_1_0, TLS_VERSION_1_1, TLS_VERSION_1_2). */
-noxtls_return_t tls12_context_init_with_version(tls12_context_t *ctx, tls_role_t role, uint16_t version);
-noxtls_return_t dtls12_context_init(tls12_context_t *ctx, tls_role_t role);
-noxtls_return_t tls12_context_free(tls12_context_t *ctx);
-noxtls_return_t tls12_connect(tls12_context_t *ctx);
-noxtls_return_t tls12_accept(tls12_context_t *ctx);
+noxtls_return_t noxtls_tls12_context_init_with_version(tls12_context_t *ctx, tls_role_t role, uint16_t version);
+noxtls_return_t noxtls_dtls12_context_init(tls12_context_t *ctx, tls_role_t role);
+noxtls_return_t noxtls_tls12_context_free(tls12_context_t *ctx);
+/**
+ * Replace internally allocated TLS 1.2 workspaces with caller-provided buffers.
+ * Call after context_init and before connect/accept.
+ */
+noxtls_return_t tls12_set_workspaces(tls12_context_t *ctx,
+                                     uint8_t *record_workspace,
+                                     uint32_t record_workspace_len,
+                                     uint8_t *handshake_workspace,
+                                     uint32_t handshake_workspace_len);
+noxtls_return_t noxtls_tls12_connect(tls12_context_t *ctx);
+noxtls_return_t noxtls_tls12_accept(tls12_context_t *ctx);
 noxtls_return_t tls12_compute_master_secret(tls12_context_t *ctx, const uint8_t *premaster_secret, uint32_t premaster_secret_len);  /* Compute master secret from premaster secret */
 noxtls_return_t tls12_derive_keys(tls12_context_t *ctx);  /* Derive keys from master secret */
-noxtls_return_t tls12_send(tls12_context_t *ctx, const uint8_t *data, uint32_t len);
-noxtls_return_t tls12_recv(tls12_context_t *ctx, uint8_t *data, uint32_t *len);
-noxtls_return_t tls12_close(tls12_context_t *ctx);
+noxtls_return_t noxtls_tls12_send(tls12_context_t *ctx, const uint8_t *data, uint32_t len);
+noxtls_return_t noxtls_tls12_recv(tls12_context_t *ctx, uint8_t *data, uint32_t *len);
+noxtls_return_t noxtls_tls12_close(tls12_context_t *ctx);
 
 /** Server: send HelloRequest to ask client to renegotiate (RFC 5746). */
-noxtls_return_t tls12_send_hello_request(tls12_context_t *ctx);
+noxtls_return_t noxtls_tls12_send_hello_request(tls12_context_t *ctx);
 
 /* TLS 1.2 Client Handshake Functions */
-noxtls_return_t tls12_send_client_hello(tls12_context_t *ctx);
-noxtls_return_t tls12_recv_server_hello(tls12_context_t *ctx);
-noxtls_return_t tls12_recv_certificate(tls12_context_t *ctx);
-noxtls_return_t tls12_recv_server_key_exchange(tls12_context_t *ctx);
-noxtls_return_t tls12_recv_server_hello_done(tls12_context_t *ctx);
-noxtls_return_t tls12_send_client_key_exchange(tls12_context_t *ctx);
-noxtls_return_t tls12_send_change_cipher_spec(tls12_context_t *ctx);
-noxtls_return_t tls12_send_finished(tls12_context_t *ctx);
-noxtls_return_t tls12_recv_change_cipher_spec(tls12_context_t *ctx);
-noxtls_return_t tls12_recv_finished(tls12_context_t *ctx);
+noxtls_return_t noxtls_tls12_send_client_hello(tls12_context_t *ctx);
+noxtls_return_t noxtls_tls12_recv_server_hello(tls12_context_t *ctx);
+noxtls_return_t noxtls_tls12_recv_certificate(tls12_context_t *ctx);
+noxtls_return_t noxtls_tls12_recv_server_key_exchange(tls12_context_t *ctx);
+noxtls_return_t noxtls_tls12_recv_server_hello_done(tls12_context_t *ctx);
+noxtls_return_t noxtls_tls12_send_client_key_exchange(tls12_context_t *ctx);
+noxtls_return_t noxtls_tls12_send_change_cipher_spec(tls12_context_t *ctx);
+noxtls_return_t noxtls_tls12_send_finished(tls12_context_t *ctx);
+noxtls_return_t noxtls_tls12_recv_change_cipher_spec(tls12_context_t *ctx);
+noxtls_return_t noxtls_tls12_recv_finished(tls12_context_t *ctx);
 
 /* TLS 1.2 Server Handshake Functions */
-noxtls_return_t tls12_recv_client_hello(tls12_context_t *ctx);
-noxtls_return_t tls12_send_server_hello(tls12_context_t *ctx);
-noxtls_return_t tls12_send_certificate(tls12_context_t *ctx);
-noxtls_return_t tls12_send_server_key_exchange(tls12_context_t *ctx);
-noxtls_return_t tls12_send_server_hello_done(tls12_context_t *ctx);
-noxtls_return_t tls12_recv_client_key_exchange(tls12_context_t *ctx);
-noxtls_return_t tls12_recv_change_cipher_spec_client(tls12_context_t *ctx);
-noxtls_return_t tls12_recv_finished_client(tls12_context_t *ctx);
-noxtls_return_t tls12_send_change_cipher_spec_server(tls12_context_t *ctx);
-noxtls_return_t tls12_send_finished_server(tls12_context_t *ctx);
+noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx);
+noxtls_return_t noxtls_tls12_send_server_hello(tls12_context_t *ctx);
+noxtls_return_t noxtls_tls12_send_certificate(tls12_context_t *ctx);
+noxtls_return_t noxtls_tls12_send_server_key_exchange(tls12_context_t *ctx);
+noxtls_return_t noxtls_tls12_send_server_hello_done(tls12_context_t *ctx);
+noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx);
+noxtls_return_t noxtls_tls12_recv_change_cipher_spec_client(tls12_context_t *ctx);
+noxtls_return_t noxtls_tls12_recv_finished_client(tls12_context_t *ctx);
+noxtls_return_t noxtls_tls12_send_change_cipher_spec_server(tls12_context_t *ctx);
+noxtls_return_t noxtls_tls12_send_finished_server(tls12_context_t *ctx);
 
 /** Set server RSA private key (rsa_key_t*) for Server Key Exchange signature. Call before handshake if using ECDHE_RSA. */
-void tls12_set_server_private_rsa(tls12_context_t *ctx, void *rsa_key);
+void noxtls_tls12_set_server_private_rsa(tls12_context_t *ctx, void *rsa_key);
+/** Set server cipher-suite allowlist (wire IDs). Call before handshake. */
+void noxtls_tls12_set_server_cipher_suites(tls12_context_t *ctx, const uint16_t *suites, uint32_t count);
 /** Set optional crypto provider and server key handle for server sign (SKX) and decrypt (Client Key Exchange). Use instead of server_private_rsa when key is in HSM/TPM. */
-void tls12_set_crypto_provider_server(tls12_context_t *ctx, const noxtls_crypto_provider_t *provider, noxtls_crypto_key_handle_t server_key_handle);
+void noxtls_tls12_set_crypto_provider_server(tls12_context_t *ctx, const noxtls_crypto_provider_t *provider, noxtls_crypto_key_handle_t server_key_handle);
+/** Set optional CRL chain for certificate revocation checks during peer cert verification. */
+void noxtls_tls12_set_verify_crl(tls12_context_t *ctx, const noxtls_x509_crl_t *crl);
 /** RFC 7250: Server uses Raw Public Key. Set server_cert/server_cert_len to SubjectPublicKeyInfo (DER). Call before handshake. */
-void tls12_set_server_use_rpk(tls12_context_t *ctx, int use_rpk);
+void noxtls_tls12_set_server_use_rpk(tls12_context_t *ctx, int use_rpk);
 /** RFC 7250: Client accepts server RPK (sends server_certificate_type extension). Call before connect. */
-void tls12_set_client_accept_server_rpk(tls12_context_t *ctx, int accept);
+void noxtls_tls12_set_client_accept_server_rpk(tls12_context_t *ctx, int accept);
 /** RFC 7250: Client can send RPK for client auth (sends client_certificate_type extension). Call before connect. */
-void tls12_set_client_offer_client_rpk(tls12_context_t *ctx, int offer);
+void noxtls_tls12_set_client_offer_client_rpk(tls12_context_t *ctx, int offer);
 
 /** RFC 6066: Set max fragment length (client or server). code: 0 = disabled, 1=512, 2=1024, 3=2048, 4=4096 bytes. Call before handshake. */
-void tls12_set_max_fragment_length(tls12_context_t *ctx, uint8_t code);
+void noxtls_tls12_set_max_fragment_length(tls12_context_t *ctx, uint8_t code);
 
 #ifdef __cplusplus
 }

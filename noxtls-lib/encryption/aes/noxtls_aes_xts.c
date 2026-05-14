@@ -40,14 +40,14 @@
  * 
  * @param block 16-byte block to multiply
  */
-static void gf128_multiply_alpha(uint8_t block[AES_BLOCK_LENGTH])
+static void gf128_multiply_alpha(uint8_t block[NOXTLS_AES_BLOCK_LENGTH])
 {
     int i;
     uint8_t carry = 0;
     uint8_t msb = block[15] & 0x80;
     
     /* Left shift the block */
-    for(i = AES_BLOCK_LENGTH - 1; i >= 0; i--) {
+    for(i = NOXTLS_AES_BLOCK_LENGTH - 1; i >= 0; i--) {
         uint8_t next_carry = (block[i] & 0x80) ? 1 : 0;
         block[i] = (block[i] << 1) | carry;
         carry = next_carry;
@@ -74,40 +74,40 @@ static void gf128_multiply_alpha(uint8_t block[AES_BLOCK_LENGTH])
  * @param type is the AES variant, 128, 192, 256
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_* on failure
  */
-noxtls_return_t aes_encrypt_xts(const uint8_t* key,
+noxtls_return_t noxtls_aes_encrypt_xts(const uint8_t* key,
                     const uint8_t* data,
                     uint32_t data_len,
                     const uint8_t * iv,
                     uint8_t* output,
-                    aes_type_t type)
+                    noxtls_aes_type_t type)
 {
     uint32_t cur_block = 0;
     uint32_t i = 0;
-    uint8_t tweak[AES_BLOCK_LENGTH];
+    uint8_t tweak[NOXTLS_AES_BLOCK_LENGTH];
     uint8_t tweak_key[32];
     uint8_t data_key[32];   /* Max key size for data encryption */
-    uint8_t temp_block[AES_BLOCK_LENGTH];
+    uint8_t temp_block[NOXTLS_AES_BLOCK_LENGTH];
     uint32_t key_len = 0;
     uint32_t num_blocks = 0;
     uint32_t last_block_len = 0;
     
     /* Determine key length */
     switch(type) {
-        case AES_128_BIT:
+        case NOXTLS_AES_128_BIT:
 #if NOXTLS_FEATURE_AES_128
             key_len = 16;
             break;
 #else
             return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
-        case AES_192_BIT:
+        case NOXTLS_AES_192_BIT:
 #if NOXTLS_FEATURE_AES_192
             key_len = 24;
             break;
 #else
             return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
-        case AES_256_BIT:
+        case NOXTLS_AES_256_BIT:
 #if NOXTLS_FEATURE_AES_256
             key_len = 32;
             break;
@@ -147,27 +147,27 @@ noxtls_return_t aes_encrypt_xts(const uint8_t* key,
     }
     
     /* Encrypt tweak (IV) with the same AES key size selected for data path. */
-    aes_encrypt_block_internal(tweak_key, iv, tweak, type);
+    noxtls_aes_encrypt_block_internal(tweak_key, iv, tweak, type);
     
     /* Calculate number of blocks */
-    num_blocks = data_len / AES_BLOCK_LENGTH;
-    last_block_len = data_len % AES_BLOCK_LENGTH;
+    num_blocks = data_len / NOXTLS_AES_BLOCK_LENGTH;
+    last_block_len = data_len % NOXTLS_AES_BLOCK_LENGTH;
     
     /* Process full blocks */
     for(cur_block = 0; cur_block < num_blocks; cur_block++) {
         /* XTS: C = E(K1, P XOR T) XOR T, where T is the tweak */
         
         /* XOR plaintext with tweak */
-        for(i = 0; i < AES_BLOCK_LENGTH; i++) {
-            temp_block[i] = data[cur_block * AES_BLOCK_LENGTH + i] ^ tweak[i];
+        for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
+            temp_block[i] = data[cur_block * NOXTLS_AES_BLOCK_LENGTH + i] ^ tweak[i];
         }
         
         /* Encrypt */
-        aes_encrypt_block_internal(data_key, temp_block, temp_block, type);
+        noxtls_aes_encrypt_block_internal(data_key, temp_block, temp_block, type);
         
         /* XOR result with tweak */
-        for(i = 0; i < AES_BLOCK_LENGTH; i++) {
-            output[cur_block * AES_BLOCK_LENGTH + i] = temp_block[i] ^ tweak[i];
+        for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
+            output[cur_block * NOXTLS_AES_BLOCK_LENGTH + i] = temp_block[i] ^ tweak[i];
         }
         
         /* Multiply tweak by alpha for next block (except for last full block if we have partial) */
@@ -178,34 +178,34 @@ noxtls_return_t aes_encrypt_xts(const uint8_t* key,
     
     /* Handle partial last block with ciphertext stealing */
     if(last_block_len > 0) {
-        uint8_t last_tweak[AES_BLOCK_LENGTH];
-        uint8_t second_last_block[AES_BLOCK_LENGTH];
+        uint8_t last_tweak[NOXTLS_AES_BLOCK_LENGTH];
+        uint8_t second_last_block[NOXTLS_AES_BLOCK_LENGTH];
         
         /* Save second-to-last ciphertext block */
         if(num_blocks > 0) {
-            memcpy(second_last_block, output + (num_blocks - 1) * AES_BLOCK_LENGTH, AES_BLOCK_LENGTH);
+            memcpy(second_last_block, output + (num_blocks - 1) * NOXTLS_AES_BLOCK_LENGTH, NOXTLS_AES_BLOCK_LENGTH);
         }
         
         /* Multiply tweak by alpha one more time */
-        memcpy(last_tweak, tweak, AES_BLOCK_LENGTH);
+        memcpy(last_tweak, tweak, NOXTLS_AES_BLOCK_LENGTH);
         gf128_multiply_alpha(last_tweak);
         
         /* Encrypt second-to-last plaintext block with new tweak */
         if(num_blocks > 0) {
-            for(i = 0; i < AES_BLOCK_LENGTH; i++) {
-                temp_block[i] = data[(num_blocks - 1) * AES_BLOCK_LENGTH + i] ^ last_tweak[i];
+            for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
+                temp_block[i] = data[(num_blocks - 1) * NOXTLS_AES_BLOCK_LENGTH + i] ^ last_tweak[i];
             }
-            aes_encrypt_block_internal(data_key, temp_block, temp_block, type);
-            for(i = 0; i < AES_BLOCK_LENGTH; i++) {
-                output[(num_blocks - 1) * AES_BLOCK_LENGTH + i] = temp_block[i] ^ last_tweak[i];
+            noxtls_aes_encrypt_block_internal(data_key, temp_block, temp_block, type);
+            for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
+                output[(num_blocks - 1) * NOXTLS_AES_BLOCK_LENGTH + i] = temp_block[i] ^ last_tweak[i];
             }
         }
         
         /* Handle last partial block: pad with ciphertext from second-to-last */
         for(i = 0; i < last_block_len; i++) {
-            temp_block[i] = data[num_blocks * AES_BLOCK_LENGTH + i];
+            temp_block[i] = data[num_blocks * NOXTLS_AES_BLOCK_LENGTH + i];
         }
-        for(i = last_block_len; i < AES_BLOCK_LENGTH; i++) {
+        for(i = last_block_len; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
             if(num_blocks > 0) {
                 temp_block[i] = second_last_block[i];
             } else {
@@ -214,20 +214,20 @@ noxtls_return_t aes_encrypt_xts(const uint8_t* key,
         }
         
         /* Encrypt padded block */
-        for(i = 0; i < AES_BLOCK_LENGTH; i++) {
+        for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
             temp_block[i] ^= last_tweak[i];
         }
-        aes_encrypt_block_internal(data_key, temp_block, temp_block, type);
-        for(i = 0; i < AES_BLOCK_LENGTH; i++) {
+        noxtls_aes_encrypt_block_internal(data_key, temp_block, temp_block, type);
+        for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
             temp_block[i] ^= last_tweak[i];
         }
         
         /* Output: first part goes to last block position, rest overwrites second-to-last */
-        memcpy(output + num_blocks * AES_BLOCK_LENGTH, temp_block, last_block_len);
+        memcpy(output + num_blocks * NOXTLS_AES_BLOCK_LENGTH, temp_block, last_block_len);
         if(num_blocks > 0) {
-            memcpy(output + (num_blocks - 1) * AES_BLOCK_LENGTH + last_block_len, 
+            memcpy(output + (num_blocks - 1) * NOXTLS_AES_BLOCK_LENGTH + last_block_len, 
                    temp_block + last_block_len, 
-                   AES_BLOCK_LENGTH - last_block_len);
+                   NOXTLS_AES_BLOCK_LENGTH - last_block_len);
         }
     }
     

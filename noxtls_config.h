@@ -117,6 +117,15 @@
  */
 #define NOXTLS_FEATURE_CERT 1
 
+/* Hostname verification policy for certificate matching.
+ * When 1, SAN/CN entries with left-most wildcard ("*.example.com") are accepted.
+ * When 0, only exact SAN/CN DNS matches are accepted.
+ * Runtime may override this default through noxtls_x509_set_hostname_wildcard_matching().
+ */
+#ifndef NOXTLS_X509_HOSTNAME_ALLOW_WILDCARD
+#define NOXTLS_X509_HOSTNAME_ALLOW_WILDCARD 1
+#endif
+
 /* Enables TLS protocol implementation.
  * Prereq: NOXTLS_FEATURE_HASH=1, NOXTLS_FEATURE_ENCRYPTION=1,
  *         NOXTLS_FEATURE_DRBG=1, NOXTLS_FEATURE_PKC=1, NOXTLS_FEATURE_CERT=1.
@@ -252,6 +261,20 @@
  */
 #define NOXTLS_FEATURE_AES_CMAC 1
 
+/* Enables AES-NI accelerated AES block path on x86/x64 builds that compile with AES intrinsics.
+ * Build knob: NOXTLS_CFG_FEATURE_AES_ACCEL_NI.
+ */
+#ifndef NOXTLS_FEATURE_AES_ACCEL_NI
+#define NOXTLS_FEATURE_AES_ACCEL_NI 0
+#endif
+
+/* Enables Apple Silicon ARMv8 AES accelerated block path on arm64 Apple builds.
+ * Build knob: NOXTLS_CFG_FEATURE_AES_ACCEL_APPLE.
+ */
+#ifndef NOXTLS_FEATURE_AES_ACCEL_APPLE
+#define NOXTLS_FEATURE_AES_ACCEL_APPLE 0
+#endif
+
 /* Enables ARIA cipher family.
  * Prereq: NOXTLS_FEATURE_ENCRYPTION=1.
  */
@@ -331,6 +354,12 @@
  * Prereq: NOXTLS_FEATURE_PKC=1 (and bignum via RSA or DSA).
  */
 #define NOXTLS_FEATURE_DSA 1
+/* Enables ML-KEM (FIPS 203) KEM APIs and TLS PQ keyshare support. */
+#ifndef NOXTLS_FEATURE_ML_KEM
+#define NOXTLS_FEATURE_ML_KEM 0
+#endif
+/* Enables ML-DSA (FIPS 204) signature APIs and TLS PQ signature support. */
+#define NOXTLS_FEATURE_ML_DSA 0
 
 /* TLS/cert granularity */
 /* Enables TLS 1.0 protocol implementation.
@@ -359,6 +388,14 @@
  * Prereq: NOXTLS_FEATURE_TLS=1.
  */
 #define NOXTLS_FEATURE_DTLS 1
+
+/* Enables legacy TLS 1.2 cipher suites (CBC-mode and RSA key exchange suites).
+ * Security note: keep disabled for oracle/timing hardening unless strict
+ * backwards compatibility is required.
+ */
+#ifndef NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES
+#define NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES 0
+#endif
 
 /* Enables X.509 certificate writing/generation helpers.
  * Prereq: NOXTLS_FEATURE_CERT=1 and NOXTLS_FEATURE_PKC=1.
@@ -464,6 +501,10 @@
 #define NOXTLS_FEATURE_ED25519 0
 #undef NOXTLS_FEATURE_DSA
 #define NOXTLS_FEATURE_DSA 0
+#undef NOXTLS_FEATURE_ML_KEM
+#define NOXTLS_FEATURE_ML_KEM 0
+#undef NOXTLS_FEATURE_ML_DSA
+#define NOXTLS_FEATURE_ML_DSA 0
 
 #undef NOXTLS_FEATURE_TLS12
 #define NOXTLS_FEATURE_TLS12 1
@@ -565,6 +606,10 @@
 #define NOXTLS_FEATURE_ED448 0
 #undef NOXTLS_FEATURE_DSA
 #define NOXTLS_FEATURE_DSA 1
+#undef NOXTLS_FEATURE_ML_KEM
+#define NOXTLS_FEATURE_ML_KEM 0
+#undef NOXTLS_FEATURE_ML_DSA
+#define NOXTLS_FEATURE_ML_DSA 0
 
 #undef NOXTLS_FEATURE_TLS12
 #define NOXTLS_FEATURE_TLS12 1
@@ -692,6 +737,10 @@
 #define NOXTLS_FEATURE_ED25519 0
 #undef NOXTLS_FEATURE_DSA
 #define NOXTLS_FEATURE_DSA 1
+#undef NOXTLS_FEATURE_ML_KEM
+#define NOXTLS_FEATURE_ML_KEM 0
+#undef NOXTLS_FEATURE_ML_DSA
+#define NOXTLS_FEATURE_ML_DSA 0
 
 #undef NOXTLS_FEATURE_TLS12
 #define NOXTLS_FEATURE_TLS12 1
@@ -795,6 +844,10 @@
 #define NOXTLS_FEATURE_ED448 0
 #undef NOXTLS_FEATURE_DSA
 #define NOXTLS_FEATURE_DSA 1
+#undef NOXTLS_FEATURE_ML_KEM
+#define NOXTLS_FEATURE_ML_KEM 0
+#undef NOXTLS_FEATURE_ML_DSA
+#define NOXTLS_FEATURE_ML_DSA 0
 
 #undef NOXTLS_FEATURE_TLS10
 #define NOXTLS_FEATURE_TLS10 1
@@ -849,10 +902,16 @@
  * 
  * Default: 0 (disabled) - uses system malloc/free
  * 
- * Note: When using static buffers, you must call noxtls_mem_init() with
- *       a pre-allocated buffer before using any library functions that allocate memory.
+ * Recommended: Call noxtls_mem_init() early with a caller-supplied buffer
+ *              for deterministic RAM usage.
+ *
+ * Behavior without explicit init: The allocator lazily initializes on first
+ * allocation by calling noxtls_mem_init(NULL, 0), which uses
+ * NOXTLS_STATIC_BUFFER_SIZE for the pool size.
  */
+#ifndef NOXTLS_USE_STATIC_BUFFERS
 #define NOXTLS_USE_STATIC_BUFFERS 0
+#endif
 
 /* NOXTLS_STATIC_BUFFER_SIZE
  * 
@@ -861,7 +920,9 @@
  * 
  * Default: 64KB (65536 bytes)
  */
+#ifndef NOXTLS_STATIC_BUFFER_SIZE
 #define NOXTLS_STATIC_BUFFER_SIZE (64 * 1024)
+#endif
 
 /* ============================================================================
  * TLS size limits (stack / buffer sizing)
@@ -904,6 +965,22 @@
  *  or your max cert chain size to avoid accepting oversized messages. */
 #ifndef NOXTLS_TLS_MAX_HANDSHAKE_SIZE
 #define NOXTLS_TLS_MAX_HANDSHAKE_SIZE 65536
+#endif
+
+/** Maximum single certificate size in bytes accepted by X.509 parse APIs.
+ *  Default: 16384.
+ */
+#ifndef NOXTLS_MAX_CERT_SIZE
+#define NOXTLS_MAX_CERT_SIZE 16384
+#endif
+
+/** Maximum certificate-chain traversal depth for trust verification.
+ *  Used by X.509 trust-chain walking to cap issuer hops and prevent
+ *  unbounded loops in malformed or adversarial chains.
+ *  Default: 16.
+ */
+#ifndef NOXTLS_MAX_CERT_CHAIN_DEPTH
+#define NOXTLS_MAX_CERT_CHAIN_DEPTH 16
 #endif
 
 /* ============================================================================

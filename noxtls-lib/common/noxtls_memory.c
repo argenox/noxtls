@@ -40,6 +40,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
+
 #include "noxtls_memory.h"
 
 #if NOXTLS_USE_STATIC_BUFFERS
@@ -76,7 +77,10 @@ static int g_mem_initialized = 0;
 #define ALIGN_SIZE(s) (((s) + (NOXTLS_MEM_ALIGNMENT - 1)) & ~(NOXTLS_MEM_ALIGNMENT - 1))
 
 /**
- * @brief Initialize static buffer memory allocator
+ * @brief Initialize the static-buffer memory pool.
+ * @param[in] buffer Caller-supplied pool storage, or NULL to allocate an internal buffer with `malloc`.
+ * @param[in] buffer_size Size of @p buffer in bytes; if 0, uses `NOXTLS_STATIC_BUFFER_SIZE`.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_FAILED` if already initialized, size too small, or allocation failed.
  */
 noxtls_return_t noxtls_mem_init(uint8_t *buffer, size_t buffer_size)
 {
@@ -124,7 +128,8 @@ noxtls_return_t noxtls_mem_init(uint8_t *buffer, size_t buffer_size)
 }
 
 /**
- * @brief Cleanup static buffer memory allocator
+ * @brief Releases the static-buffer pool and resets allocator state.
+ * @return `NOXTLS_RETURN_SUCCESS` after shutdown; `NOXTLS_RETURN_FAILED` if the pool was not initialized.
  */
 noxtls_return_t noxtls_mem_cleanup(void)
 {
@@ -144,11 +149,15 @@ noxtls_return_t noxtls_mem_cleanup(void)
 }
 
 /**
- * @brief Allocate memory from static buffer
+ * @brief Allocate @p size bytes from the static-buffer pool (lazy `noxtls_mem_init` on first use).
+ * @param[in] size Requested payload size in bytes (must be non-zero for a non-NULL result).
+ * @return Pointer to usable memory, or NULL if uninitialized, zero size, overflow, or no block fits.
  */
 void *noxtls_malloc(size_t size)
 {
-    mem_block_header_t *current, *prev, *new_block;
+    mem_block_header_t *current;
+    mem_block_header_t *prev;
+    mem_block_header_t *new_block;
     size_t aligned_size;
     size_t block_size;
     
@@ -222,7 +231,9 @@ void *noxtls_malloc(size_t size)
 }
 
 /**
- * @brief Free allocated memory
+ * @brief Returns a static-pool allocation to the free list.
+ * @param[in,out] ptr Pointer from @ref noxtls_malloc, @ref noxtls_calloc, or @ref noxtls_realloc; no-op if NULL or invalid.
+ * @return None.
  */
 void noxtls_free(void *ptr)
 {
@@ -257,7 +268,10 @@ void noxtls_free(void *ptr)
 }
 
 /**
- * @brief Allocate and zero-initialize memory
+ * @brief Allocates `nmemb * size` bytes from the static pool and zero-fills the payload.
+ * @param[in] nmemb Number of elements.
+ * @param[in] size Size of each element in bytes.
+ * @return Pointer to zeroed memory, or NULL on overflow or allocation failure.
  */
 void *noxtls_calloc(size_t nmemb, size_t size)
 {
@@ -278,7 +292,10 @@ void *noxtls_calloc(size_t nmemb, size_t size)
 }
 
 /**
- * @brief Reallocate memory
+ * @brief Resizes a static-pool block; copies to a new block if @p size exceeds the current payload.
+ * @param[in,out] ptr Existing allocation, or NULL to behave as @ref noxtls_malloc.
+ * @param[in]     size New requested payload size; zero frees @p ptr and returns NULL.
+ * @return Pointer to usable memory (may equal @p ptr when shrinking or in-place), or NULL on failure.
  */
 void *noxtls_realloc(void *ptr, size_t size)
 {
@@ -329,7 +346,11 @@ void *noxtls_realloc(void *ptr, size_t size)
 }
 
 /**
- * @brief Get memory usage statistics
+ * @brief Copies cumulative static-pool statistics (pass NULL for any output not needed).
+ * @param[out] total_allocated Lifetime sum of bytes returned from successful allocations, or NULL to skip.
+ * @param[out] total_used Bytes currently allocated and not freed, or NULL to skip.
+ * @param[out] max_used High-water mark of in-use bytes, or NULL to skip.
+ * @return `NOXTLS_RETURN_SUCCESS` if the pool is initialized; `NOXTLS_RETURN_FAILED` otherwise.
  */
 noxtls_return_t noxtls_mem_get_stats(size_t *total_allocated, size_t *total_used, size_t *max_used)
 {
@@ -357,7 +378,9 @@ noxtls_return_t noxtls_mem_get_stats(size_t *total_allocated, size_t *total_used
 #include <stdlib.h>
 
 /**
- * @brief Allocate memory (system malloc)
+ * @brief Allocates @p size bytes using the host C library `malloc`.
+ * @param[in] size Number of bytes; zero yields NULL.
+ * @return Pointer from `malloc`, or NULL on failure or zero size.
  */
 void *noxtls_malloc(size_t size)
 {
@@ -368,7 +391,9 @@ void *noxtls_malloc(size_t size)
 }
 
 /**
- * @brief Free allocated memory (system free)
+ * @brief Frees memory with the host `free`.
+ * @param[in,out] ptr Pointer from @ref noxtls_malloc or compatible; NULL is ignored.
+ * @return None.
  */
 void noxtls_free(void *ptr)
 {
@@ -376,7 +401,10 @@ void noxtls_free(void *ptr)
 }
 
 /**
- * @brief Allocate and zero-initialize memory (system calloc)
+ * @brief Allocates `nmemb * size` bytes with `calloc` (zeroed).
+ * @param[in] nmemb Number of elements.
+ * @param[in] size Element size in bytes.
+ * @return Pointer from `calloc`, or NULL on failure or zero total size.
  */
 void *noxtls_calloc(size_t nmemb, size_t size)
 {
@@ -384,7 +412,10 @@ void *noxtls_calloc(size_t nmemb, size_t size)
 }
 
 /**
- * @brief Reallocate memory (system realloc)
+ * @brief Resizes or frees using the host `realloc` / `free`.
+ * @param[in,out] ptr Existing block or NULL for a fresh allocation.
+ * @param[in]     size New size; zero frees @p ptr and returns NULL.
+ * @return Pointer from `realloc`, or NULL per C library rules.
  */
 void *noxtls_realloc(void *ptr, size_t size)
 {
@@ -396,7 +427,10 @@ void *noxtls_realloc(void *ptr, size_t size)
 }
 
 /**
- * @brief Initialize static buffer memory allocator (no-op when using system malloc)
+ * @brief Compatibility hook when static buffers are disabled; arguments are ignored.
+ * @param[in] buffer Unused.
+ * @param[in] buffer_size Unused.
+ * @return Always `NOXTLS_RETURN_SUCCESS`.
  */
 noxtls_return_t noxtls_mem_init(uint8_t *buffer, size_t buffer_size)
 {
@@ -406,7 +440,8 @@ noxtls_return_t noxtls_mem_init(uint8_t *buffer, size_t buffer_size)
 }
 
 /**
- * @brief Cleanup static buffer memory allocator (no-op when using system malloc)
+ * @brief Compatibility hook when static buffers are disabled; no pool state is held.
+ * @return Always `NOXTLS_RETURN_SUCCESS`.
  */
 noxtls_return_t noxtls_mem_cleanup(void)
 {
@@ -414,7 +449,11 @@ noxtls_return_t noxtls_mem_cleanup(void)
 }
 
 /**
- * @brief Get memory usage statistics (not available when using system malloc)
+ * @brief Statistics are not tracked when the build uses system malloc.
+ * @param[out] total_allocated Unused.
+ * @param[out] total_used Unused.
+ * @param[out] max_used Unused.
+ * @return Always `NOXTLS_RETURN_FAILED`.
  */
 noxtls_return_t noxtls_mem_get_stats(size_t *total_allocated, size_t *total_used, size_t *max_used)
 {

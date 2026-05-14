@@ -19,7 +19,7 @@
 * 
 *
 * File:    message_digest.c
-* Summary: Handles all message digest commands
+* Summary: Handles all noxtls_message digest commands
 *
 */
 
@@ -38,11 +38,9 @@ extern "C"
 #include <stdlib.h>
 #ifdef _WIN32
 #define strncasecmp _strnicmp
-#include "noxtls-lib/common/getopt_win.h"
-#else
-#include <unistd.h>
 #endif
 
+#include "noxtls-lib/common/getopt_compat.h"
 #ifdef _MSC_VER
 #pragma warning(disable: 4710)  /* printf/stdio not inlined - CRT, harmless */
 #endif
@@ -127,7 +125,7 @@ int message_digest(int argc, char ** argv)
         argc_skip++;
     }
 
-    while ((c = getopt (argc, argv, "dh:")) != -1)
+    while ((c = noxtls_getopt (argc, argv, "dh:")) != -1)
     {
         switch (c)
         {
@@ -247,7 +245,7 @@ int hash_md5_handler(uint8_t * data, uint32_t len)
     
     if(rc != NOXTLS_RETURN_SUCCESS)
         return -1;
-    print_hash(hash, HASH_MD5_OUT_LEN);
+    noxtls_print_hash(hash, HASH_MD5_OUT_LEN);
 
     return 0;
 }
@@ -276,7 +274,7 @@ int hash_sha1_handler(uint8_t * data, uint32_t len)
     
     if(rc != NOXTLS_RETURN_SUCCESS)
         return -1;
-    print_hash(hash, HASH_SHA1_OUT_LEN);
+    noxtls_print_hash(hash, HASH_SHA1_OUT_LEN);
 
     return 0;
 }
@@ -314,7 +312,7 @@ int hash_sha_256_handler(uint8_t * data, uint32_t len)
     
     if(rc != NOXTLS_RETURN_SUCCESS)
         return -1;
-    print_hash(hash, HASH_SHA256_OUT_LEN);
+    noxtls_print_hash(hash, HASH_SHA256_OUT_LEN);
 
     return 0;
 }
@@ -352,7 +350,7 @@ int hash_sha_512_handler(uint8_t * data, uint32_t len)
     
     if(rc != NOXTLS_RETURN_SUCCESS)
         return -1;
-    print_hash(hash, HASH_SHA512_OUT_LEN);
+    noxtls_print_hash(hash, HASH_SHA512_OUT_LEN);
 
     return 0;
 }

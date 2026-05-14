@@ -41,7 +41,7 @@ int main(void)
     noxtls_sha3_finish(&ctx, hash);
     
     printf("Hash: ");
-    print_hash(hash, HASH_SHA3_256_OUT_LEN);
+    noxtls_print_hash(hash, HASH_SHA3_256_OUT_LEN);
     printf("\n");
     
     printf("Expected: 3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532\n");

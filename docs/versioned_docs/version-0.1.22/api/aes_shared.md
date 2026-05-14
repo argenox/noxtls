@@ -13,68 +13,68 @@ For mode-specific APIs and guidance, use the pages for each mode: [AES - ECB](/d
 
 AES now supports incremental processing with a context object for scenarios where plaintext/ciphertext arrives in chunks.
 
-- Use `aes_init()` once with key/IV/mode/direction.
-- Call `aes_update()` any number of times as data arrives.
-- Call `aes_final()` once at the end to flush any buffered data.
+- Use `noxtls_aes_init()` once with key/IV/mode/direction.
+- Call `noxtls_aes_update()` any number of times as data arrives.
+- Call `noxtls_aes_final()` once at the end to flush any buffered data.
 
 Supported streaming modes:
 
-- `AES_ECB`, `AES_CBC`, `AES_CTR`, `AES_CFB`, `AES_OFB`
+- `NOXTLS_AES_ECB`, `NOXTLS_AES_CBC`, `NOXTLS_AES_CTR`, `NOXTLS_AES_CFB`, `NOXTLS_AES_OFB`
 
 Notes:
 
-- `AES_CTR`, `AES_CFB`, and `AES_OFB` behave as stream modes: `aes_final()` emits no extra bytes.
-- `AES_ECB` and `AES_CBC` buffer partial blocks; on encrypt, `aes_final()` emits one final block if needed.
-- `AES_GCM` and `AES_XTS` are currently one-shot APIs in this library (use their dedicated functions).
+- `NOXTLS_AES_CTR`, `NOXTLS_AES_CFB`, and `NOXTLS_AES_OFB` behave as stream modes: `noxtls_aes_final()` emits no extra bytes.
+- `NOXTLS_AES_ECB` and `NOXTLS_AES_CBC` buffer partial blocks; on encrypt, `noxtls_aes_final()` emits one final block if needed.
+- `NOXTLS_AES_GCM` and `NOXTLS_AES_XTS` are currently one-shot APIs in this library (use their dedicated functions).
 
 ## Types
 
-### aes_context_t
+### noxtls_aes_context_t
 
-Opaque context for incremental AES encryption/decryption. Used by [aes_init](#aes_init), [aes_update](#aes_update), [aes_final](#aes_final). Allocate and pass to [aes_init](#aes_init); do not access fields directly.
+Opaque context for incremental AES encryption/decryption. Used by [noxtls_aes_init](#noxtls_aes_init), [noxtls_aes_update](#noxtls_aes_update), [noxtls_aes_final](#noxtls_aes_final). Allocate and pass to [noxtls_aes_init](#noxtls_aes_init); do not access fields directly.
 
-### aes_type_t
+### noxtls_aes_type_t
 
-AES key size: `AES_128_BIT`, `AES_192_BIT`, or `AES_256_BIT`. Determines key length (16, 24, or 32 bytes).
+AES key size: `NOXTLS_AES_128_BIT`, `NOXTLS_AES_192_BIT`, or `NOXTLS_AES_256_BIT`. Determines key length (16, 24, or 32 bytes).
 
-### aes_mode_t
+### noxtls_aes_mode_t
 
-AES mode of operation: `AES_ECB`, `AES_CBC`, `AES_CTR`, `AES_CFB`, or `AES_OFB` for streaming; `AES_GCM` and `AES_XTS` are one-shot only.
+AES mode of operation: `NOXTLS_AES_ECB`, `NOXTLS_AES_CBC`, `NOXTLS_AES_CTR`, `NOXTLS_AES_CFB`, or `NOXTLS_AES_OFB` for streaming; `NOXTLS_AES_GCM` and `NOXTLS_AES_XTS` are one-shot only.
 
-### aes_operation_t
+### noxtls_aes_operation_t
 
-Direction: `AES_OP_ENCRYPT` or `AES_OP_DECRYPT`.
+Direction: `NOXTLS_AES_OP_ENCRYPT` or `NOXTLS_AES_OP_DECRYPT`.
 
 ## API
 
-### `aes_init`
+### `noxtls_aes_init`
 
 ```c
-noxtls_return_t aes_init(aes_context_t *ctx,
+noxtls_return_t noxtls_aes_init(noxtls_aes_context_t *ctx,
              const uint8_t *key,
              const uint8_t *iv,
-             aes_type_t type,
-             aes_mode_t mode,
-             aes_operation_t op);
+             noxtls_aes_type_t type,
+             noxtls_aes_mode_t mode,
+             noxtls_aes_operation_t op);
 ```
 
 Initialize AES streaming context.
 
 **Parameters:**
 
-- `ctx` — [aes_context_t](#aes_context_t) to initialize
+- `ctx` — [noxtls_aes_context_t](#noxtls_aes_context_t) to initialize
 - `key` — AES key (size depends on `type`)
 - `iv` — IV/nonce (required for CTR/CFB/OFB, optional for CBC, unused for ECB)
-- `type` — [aes_type_t](#aes_type_t): key size (AES_128_BIT, AES_192_BIT, AES_256_BIT)
-- `mode` — [aes_mode_t](#aes_mode_t): AES_ECB, AES_CBC, AES_CTR, AES_CFB, or AES_OFB
-- `op` — [aes_operation_t](#aes_operation_t): AES_OP_ENCRYPT or AES_OP_DECRYPT
+- `type` — [noxtls_aes_type_t](#noxtls_aes_type_t): key size (NOXTLS_AES_128_BIT, NOXTLS_AES_192_BIT, NOXTLS_AES_256_BIT)
+- `mode` — [noxtls_aes_mode_t](#noxtls_aes_mode_t): NOXTLS_AES_ECB, NOXTLS_AES_CBC, NOXTLS_AES_CTR, NOXTLS_AES_CFB, or NOXTLS_AES_OFB
+- `op` — [noxtls_aes_operation_t](#noxtls_aes_operation_t): NOXTLS_AES_OP_ENCRYPT or NOXTLS_AES_OP_DECRYPT
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success; [NOXTLS_RETURN_NULL](/docs/api/return_codes) if ctx or key is NULL; [NOXTLS_RETURN_INVALID_KEY_SIZE](/docs/api/return_codes), [NOXTLS_RETURN_INVALID_PARAM](/docs/api/return_codes), [NOXTLS_RETURN_NOT_SUPPORTED](/docs/api/return_codes), or [NOXTLS_RETURN_INVALID_MODE](/docs/api/return_codes) on error.
 
-### `aes_update`
+### `noxtls_aes_update`
 
 ```c
-noxtls_return_t aes_update(aes_context_t *ctx,
+noxtls_return_t noxtls_aes_update(noxtls_aes_context_t *ctx,
                const uint8_t *input,
                uint32_t input_len,
                uint8_t *output,
@@ -85,7 +85,7 @@ Process the next chunk.
 
 **Parameters:**
 
-- `ctx` — [aes_context_t](#aes_context_t) (from [aes_init](#aes_init))
+- `ctx` — [noxtls_aes_context_t](#noxtls_aes_context_t) (from [noxtls_aes_init](#noxtls_aes_init))
 - `input` — input chunk
 - `input_len` — input length
 - `output` — output buffer
@@ -93,10 +93,10 @@ Process the next chunk.
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success.
 
-### `aes_final`
+### `noxtls_aes_final`
 
 ```c
-noxtls_return_t aes_final(aes_context_t *ctx,
+noxtls_return_t noxtls_aes_final(noxtls_aes_context_t *ctx,
               uint8_t *output,
               uint32_t *output_len);
 ```
@@ -105,7 +105,7 @@ Finalize streaming operation and flush buffered data.
 
 **Parameters:**
 
-- `ctx` — [aes_context_t](#aes_context_t) (from [aes_init](#aes_init))
+- `ctx` — [noxtls_aes_context_t](#noxtls_aes_context_t) (from [noxtls_aes_init](#noxtls_aes_init))
 - `output` — output buffer for any final bytes
 - `output_len` — bytes produced in finalization
 

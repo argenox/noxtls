@@ -7,16 +7,26 @@ title: "Encryption"
 
 Block and stream ciphers by mode: AES (ECB, CBC, CTR, CFB, OFB, GCM, CCM, XTS), ARIA, Camellia, DES/3DES, ChaCha20, ChaCha20-Poly1305, RC4 (legacy; not recommended).
 
+## AES hardware acceleration
+
+NoxTLS supports build-targeted AES block acceleration while keeping API compatibility:
+
+- `NOXTLS_CFG_FEATURE_AES_ACCEL_NI=ON` enables AES-NI backend for x86/x64 targets.
+- `NOXTLS_CFG_FEATURE_AES_ACCEL_APPLE=ON` enables ARMv8 AES backend for Apple Silicon targets.
+- Unsupported targets or disabled flags automatically use the software AES backend.
+
+Acceleration is wired at AES block level and is reused by existing AES modes and TLS AES call paths.
+
 ## Streaming / incremental processing
 
 If your application receives data in chunks, use context-based APIs:
 
-- AES: `aes_init()` / `aes_update()` / `aes_final()`
-- ARIA: `aria_init()` / `aria_update()` / `aria_final()`
-- Camellia: `camellia_init()` / `camellia_update()` / `camellia_final()`
-- ChaCha20 already supports streaming with `chacha20_init()` / `chacha20_process()`
-- RC4 supports streaming with `rc4_init()` / `rc4_process()` (legacy only; RC4 is weak and should not be used for new designs)
-- Poly1305 already supports incremental MAC with `poly1305_init()` / `poly1305_update()` / `poly1305_final()`
+- AES: `noxtls_aes_init()` / `noxtls_aes_update()` / `noxtls_aes_final()`
+- ARIA: `noxtls_aria_init()` / `noxtls_aria_update()` / `noxtls_aria_final()`
+- Camellia: `noxtls_camellia_init()` / `noxtls_camellia_update()` / `noxtls_camellia_final()`
+- ChaCha20 already supports streaming with `noxtls_chacha20_init()` / `noxtls_chacha20_process()`
+- RC4 supports streaming with `noxtls_rc4_init()` / `noxtls_rc4_process()` (legacy only; RC4 is weak and should not be used for new designs)
+- Poly1305 already supports incremental MAC with `noxtls_poly1305_init()` / `noxtls_poly1305_update()` / `noxtls_poly1305_final()`
 
 ## Pages
 

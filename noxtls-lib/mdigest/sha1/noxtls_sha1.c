@@ -27,7 +27,6 @@
 /** @addtogroup noxtls_mdigest */
 
 #include <stdint.h>
-#include <stdio.h>
 #include <string.h>
 
 #include "noxtls_common.h"
@@ -45,13 +44,9 @@ static uint8_t debug_lvl = 0;
 #define SHA_PARITY(X,Y,Z)   (X ^ Y ^ Z)
 #define SHA_MAJ(X,Y, Z)     ((X & Y) ^ (X & Z) ^ (Y & Z))
 
-
-#define SHA_ROTR(X, N)      ((X >> N) | (X << (32 - N)))
 #define SHA_ROTL(X, N)      ((X << N) | (X >> (32 - N)))
 
-
 noxtls_return_t noxtls_sha1_round(noxtls_sha_ctx_t * ctx, const uint8_t * input);
-noxtls_return_t noxtls_sha1_pad(uint8_t * data, uint32_t zero_pad, uint32_t len);
 
 void noxtls_sha1_set_debug(uint8_t lvl)
 {
@@ -90,7 +85,7 @@ noxtls_return_t noxtls_sha1_init(noxtls_sha_ctx_t * ctx, noxtls_hash_algos_t alg
 noxtls_return_t noxtls_sha1_update(noxtls_sha_ctx_t * ctx, const uint8_t * input, uint32_t len)
 {
 	noxtls_return_t rc;
-    uint32_t total = 0;
+    uint32_t total;
     uint32_t offset = 0;
 
 	if(ctx == NULL) {
@@ -103,7 +98,6 @@ noxtls_return_t noxtls_sha1_update(noxtls_sha_ctx_t * ctx, const uint8_t * input
     }
 
     total = len;
-    offset = 0;
 
     if(ctx->data_len > 0) {
         uint32_t space = SHA1_BLOCK_SIZE_BYTES - ctx->data_len;
@@ -149,7 +143,11 @@ noxtls_return_t noxtls_sha1_round(noxtls_sha_ctx_t * ctx, const uint8_t * input)
 	uint32_t t = 0;
 	uint32_t w[SHA1_ROUND_COUNT] = {0};
 
-    uint32_t a,b,c,d,e = 0;
+    uint32_t a;
+    uint32_t b;
+    uint32_t c;
+    uint32_t d;
+    uint32_t e = 0;
     
 	if(ctx == NULL) {
 		return NOXTLS_RETURN_NULL;
@@ -158,7 +156,7 @@ noxtls_return_t noxtls_sha1_round(noxtls_sha_ctx_t * ctx, const uint8_t * input)
         return NOXTLS_RETURN_NULL;
     }
     
-    /* Copy the message to the first 16 words */    
+    /* Copy the noxtls_message to the first 16 words */    
     for(t = 0; t < 16; t++) {
         w[t] = (input[(t*4)] << 24) | (input[(t*4)+ 1] << 16) | (input[(t*4) + 2] << 8) | (input[(t*4)+ 3]);
     }
@@ -255,16 +253,12 @@ noxtls_return_t noxtls_sha1_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
     }
     else
     {
-        //len = 64;
         memset(ctx->data, 0, SHA1_BLOCK_SIZE_BYTES);
         total_length = ctx->length;
     }
 
-    //noxtls_debug_printf("\nByte Len: %d\n", len);
     uint32_t space_for_padding = SHA1_BLOCK_SIZE_BITS - ((len << 3) % SHA1_BLOCK_SIZE_BITS);
-    //noxtls_debug_printf("Bits needing padding: %d\n", space_for_padding);
-    
-    
+
     if(space_for_padding < (SHA1_LENGTH_FIELD_BYTES + 1u) || space_for_padding == SHA1_BLOCK_SIZE_BITS)
     {
         /* Can't fit padding + length in one block; use two blocks */
@@ -273,9 +267,6 @@ noxtls_return_t noxtls_sha1_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
             
             zero_padding_first = space_for_padding - 1;
 
-            // First padding
-            //rc = noxtls_sha1_pad(ctx->data, zero_padding_first, len);
-            
             ctx->data[len] = SHA1_PAD_BYTE;
             
             rc = noxtls_sha1_round(ctx, ctx->data);
@@ -292,9 +283,6 @@ noxtls_return_t noxtls_sha1_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
                 return rc;
             }
         }
-        
-        //noxtls_debug_printf("Zero Padding 1st %d\n", zero_padding_first);
-
 
         /* Second block: 0x80 at start (if needed), zeros, then 8-byte length at end (bytes 56-63) */
         memset(ctx->data, 0, SHA1_BLOCK_SIZE_BYTES);
@@ -321,7 +309,7 @@ noxtls_return_t noxtls_sha1_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
             uint32_t pad_byte_idx = SHA1_BLOCK_SIZE_BYTES - (zero_padding_first >> 3);
             uint32_t zero_count = length_index - (pad_byte_idx + 1u);
             ctx->data[pad_byte_idx] = SHA1_PAD_BYTE;
-            if (zero_count > 0u) {
+            if(zero_count > 0u) {
                 memset(ctx->data + pad_byte_idx + 1u, 0, zero_count);
             }
         }
@@ -352,7 +340,6 @@ noxtls_return_t noxtls_sha1_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
         hash[(i * 4) + 2] = (uint8_t)((ctx->h[i] & 0x0000FF00) >> 8);
         hash[(i * 4) + 3] = (uint8_t)(ctx->h[i] & 0x000000FF);
     }
-
 
 	return rc;
 }

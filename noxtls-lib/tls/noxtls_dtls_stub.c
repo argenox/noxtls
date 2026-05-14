@@ -10,21 +10,21 @@
 #include <string.h>
 #include "noxtls_dtls_common.h"
 
-noxtls_return_t dtls_context_init(dtls_context_t *ctx, tls_role_t role, uint16_t version)
+noxtls_return_t noxtls_dtls_context_init(dtls_context_t *ctx, tls_role_t role, uint16_t version)
 {
-    if (ctx == NULL) {
+    if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
     memset(ctx, 0, sizeof(dtls_context_t));
-    if (noxtls_tls_context_init(&ctx->base, role, version) != NOXTLS_RETURN_SUCCESS) {
+    if(noxtls_tls_context_init(&ctx->base, role, version) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
     return NOXTLS_RETURN_SUCCESS;
 }
 
-noxtls_return_t dtls_context_free(dtls_context_t *ctx)
+noxtls_return_t noxtls_dtls_context_free(dtls_context_t *ctx)
 {
-    if (ctx == NULL) {
+    if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
     noxtls_tls_context_free(&ctx->base);

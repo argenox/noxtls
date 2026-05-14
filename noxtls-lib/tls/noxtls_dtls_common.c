@@ -327,7 +327,7 @@ static uint64_t dtls_read_uint48(const uint8_t *buf)
            (uint64_t)buf[5];
 }
 
-noxtls_return_t dtls_context_init(dtls_context_t *ctx, tls_role_t role, uint16_t version)
+noxtls_return_t noxtls_dtls_context_init(dtls_context_t *ctx, tls_role_t role, uint16_t version)
 {
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -395,7 +395,7 @@ noxtls_return_t dtls_context_init(dtls_context_t *ctx, tls_role_t role, uint16_t
     return NOXTLS_RETURN_SUCCESS;
 }
 
-noxtls_return_t dtls_context_free(dtls_context_t *ctx)
+noxtls_return_t noxtls_dtls_context_free(dtls_context_t *ctx)
 {
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -432,7 +432,7 @@ noxtls_return_t dtls_context_free(dtls_context_t *ctx)
     return NOXTLS_RETURN_SUCCESS;
 }
 
-noxtls_return_t dtls_set_mtu(dtls_context_t *ctx, uint16_t mtu)
+noxtls_return_t noxtls_dtls_set_mtu(dtls_context_t *ctx, uint16_t mtu)
 {
     if(ctx == NULL || mtu == 0) {
         return NOXTLS_RETURN_NULL;
@@ -457,7 +457,7 @@ noxtls_return_t dtls_set_retransmit(dtls_context_t *ctx, uint32_t timeout_ms,
     return NOXTLS_RETURN_SUCCESS;
 }
 
-noxtls_return_t dtls_set_anti_amplification_limit(dtls_context_t *ctx, uint8_t factor)
+noxtls_return_t noxtls_dtls_set_anti_amplification_limit(dtls_context_t *ctx, uint8_t factor)
 {
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -466,7 +466,7 @@ noxtls_return_t dtls_set_anti_amplification_limit(dtls_context_t *ctx, uint8_t f
     return NOXTLS_RETURN_SUCCESS;
 }
 
-noxtls_return_t dtls_set_ack_range_limit(dtls_context_t *ctx, uint8_t max_ranges)
+noxtls_return_t noxtls_dtls_set_ack_range_limit(dtls_context_t *ctx, uint8_t max_ranges)
 {
     if(ctx == NULL || max_ranges == 0) {
         return NOXTLS_RETURN_NULL;
@@ -502,7 +502,7 @@ noxtls_return_t dtls_set_ack_range_limit(dtls_context_t *ctx, uint8_t max_ranges
     return NOXTLS_RETURN_SUCCESS;
 }
 
-noxtls_return_t dtls_send_record(dtls_context_t *ctx, uint8_t type, const uint8_t *data, uint32_t len)
+noxtls_return_t noxtls_dtls_send_record(dtls_context_t *ctx, uint8_t type, const uint8_t *data, uint32_t len)
 {
     uint8_t *record = NULL;
     uint32_t record_len;
@@ -587,7 +587,7 @@ noxtls_return_t dtls_send_record(dtls_context_t *ctx, uint8_t type, const uint8_
     return NOXTLS_RETURN_SUCCESS;
 }
 
-noxtls_return_t dtls_recv_record(dtls_context_t *ctx, dtls_record_t *record)
+noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *record)
 {
     uint8_t *packet = NULL;
     int32_t received;
@@ -704,7 +704,7 @@ noxtls_return_t dtls_recv_record(dtls_context_t *ctx, dtls_record_t *record)
         }
     }
 
-    rc = dtls_check_replay(ctx, record->sequence_number);
+    rc = noxtls_dtls_check_replay(ctx, record->sequence_number);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         noxtls_free(packet);
         return rc;
@@ -720,7 +720,7 @@ noxtls_return_t dtls_recv_record(dtls_context_t *ctx, dtls_record_t *record)
         memcpy(record->data, packet + payload_offset, length);
     }
 
-    dtls_update_replay_window(ctx, record->sequence_number);
+    noxtls_dtls_update_replay_window(ctx, record->sequence_number);
     if(record->type == TLS_RECORD_HANDSHAKE) {
         dtls_flight_clear(ctx);
         ctx->flight_has_range = 0;
@@ -783,7 +783,7 @@ noxtls_return_t dtls_send_handshake_fragment(dtls_context_t *ctx,
             memcpy(buffer + DTLS_HANDSHAKE_BODY_OFFSET, data + offset, fragment_len);
         }
 
-        rc = dtls_send_record(ctx, TLS_RECORD_HANDSHAKE, buffer,
+        rc = noxtls_dtls_send_record(ctx, TLS_RECORD_HANDSHAKE, buffer,
                               DTLS_HANDSHAKE_HEADER_SIZE + fragment_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             noxtls_free(buffer);
@@ -797,7 +797,7 @@ noxtls_return_t dtls_send_handshake_fragment(dtls_context_t *ctx,
     return NOXTLS_RETURN_SUCCESS;
 }
 
-noxtls_return_t dtls_recv_handshake_fragment(dtls_context_t *ctx, dtls_handshake_fragment_t *fragment)
+noxtls_return_t noxtls_dtls_recv_handshake_fragment(dtls_context_t *ctx, dtls_handshake_fragment_t *fragment)
 {
     dtls_record_t record;
     noxtls_return_t rc;
@@ -809,7 +809,7 @@ noxtls_return_t dtls_recv_handshake_fragment(dtls_context_t *ctx, dtls_handshake
 
     memset(fragment, 0, sizeof(dtls_handshake_fragment_t));
 
-    rc = dtls_recv_record(ctx, &record);
+    rc = noxtls_dtls_recv_record(ctx, &record);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -852,7 +852,7 @@ noxtls_return_t dtls_recv_handshake_fragment(dtls_context_t *ctx, dtls_handshake
     return NOXTLS_RETURN_SUCCESS;
 }
 
-noxtls_return_t dtls_reassemble_handshake(dtls_context_t *ctx,
+noxtls_return_t noxtls_dtls_reassemble_handshake(dtls_context_t *ctx,
                                           dtls_handshake_fragment_t *fragment,
                                           uint8_t **complete_msg,
                                           uint32_t *complete_len)
@@ -936,7 +936,7 @@ noxtls_return_t dtls_reassemble_handshake(dtls_context_t *ctx,
     return NOXTLS_RETURN_SUCCESS;
 }
 
-noxtls_return_t dtls_check_replay(dtls_context_t *ctx, uint64_t sequence_number)
+noxtls_return_t noxtls_dtls_check_replay(dtls_context_t *ctx, uint64_t sequence_number)
 {
     uint64_t last_seq;
     uint64_t diff;
@@ -962,7 +962,7 @@ noxtls_return_t dtls_check_replay(dtls_context_t *ctx, uint64_t sequence_number)
     return NOXTLS_RETURN_SUCCESS;
 }
 
-noxtls_return_t dtls_update_replay_window(dtls_context_t *ctx, uint64_t sequence_number)
+noxtls_return_t noxtls_dtls_update_replay_window(dtls_context_t *ctx, uint64_t sequence_number)
 {
     uint64_t last_seq;
     uint64_t diff;
@@ -992,7 +992,7 @@ noxtls_return_t dtls_update_replay_window(dtls_context_t *ctx, uint64_t sequence
     return NOXTLS_RETURN_SUCCESS;
 }
 
-noxtls_return_t dtls_generate_cookie(dtls_context_t *ctx,
+noxtls_return_t noxtls_dtls_generate_cookie(dtls_context_t *ctx,
                                      const uint8_t *client_hello,
                                      uint32_t client_hello_len,
                                      uint8_t *cookie,
@@ -1025,7 +1025,7 @@ noxtls_return_t dtls_generate_cookie(dtls_context_t *ctx,
     return NOXTLS_RETURN_SUCCESS;
 }
 
-noxtls_return_t dtls_verify_cookie(const dtls_context_t *ctx,
+noxtls_return_t noxtls_dtls_verify_cookie(const dtls_context_t *ctx,
                                    const uint8_t *cookie,
                                    uint32_t cookie_len)
 {
@@ -1044,7 +1044,7 @@ noxtls_return_t dtls_verify_cookie(const dtls_context_t *ctx,
     return NOXTLS_RETURN_SUCCESS;
 }
 
-void dtls_mark_validated(dtls_context_t *ctx)
+void noxtls_dtls_mark_validated(dtls_context_t *ctx)
 {
     if(ctx == NULL) {
         return;

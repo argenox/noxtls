@@ -11,12 +11,13 @@ The NoxTLS TLS component implements **Transport Layer Security (TLS)** and **Dat
 
 | Protocol   | Versions   | Key exchange              | Ciphers                          |
 |-----------|------------|---------------------------|----------------------------------|
-| TLS       | 1.0–1.3    | RSA, ECDHE, DHE, PSK, ECDHE-PSK | AES-GCM/CCM, ChaCha20-Poly1305, AES-CBC, ARIA |
-| DTLS      | 1.2, 1.3   | Same as TLS               | Same as TLS                      |
+| TLS       | 1.0-1.3    | RSA, ECDHE, DHE, PSK, ECDHE-PSK, ML-KEM, X25519+ML-KEM (feature-gated) | AES-GCM/CCM, ChaCha20-Poly1305, AES-CBC, ARIA |
+| DTLS      | 1.2, 1.3   | Same as TLS (feature/profile dependent) | Same as TLS |
 
 - **TLS 1.3:** Full handshake, session resumption (tickets), 0-RTT early data, PSK and ECDHE-PSK, client authentication (mTLS), ALPN, SNI.
 - **TLS 1.2:** ECDHE-RSA, DHE-RSA, ECDHE-ECDSA cipher suites; renegotiation (RFC 5746); Encrypt-then-MAC, Extended Master Secret.
 - **DTLS:** Fragmentation, retransmission, cookie exchange (Hello Verify Request), replay protection; DTLS 1.3 uses the unified header and connection ID (RFC 9147).
+- **Post-quantum (experimental):** ML-KEM groups and X25519+ML-KEM hybrid groups for TLS 1.3 key exchange; ML-DSA signature schemes for TLS 1.3 CertificateVerify.
 
 ## Architecture
 
@@ -28,20 +29,20 @@ The NoxTLS TLS component implements **Transport Layer Security (TLS)** and **Dat
 
 ### TLS client (TLS 1.2 or 1.3)
 
-1. Create a version-specific context: [tls12_context_init](/docs/api/tls12#tls12_context_init) or [tls13_context_init](/docs/api/tls13#tls13_context_init).
+1. Create a version-specific context: [noxtls_tls12_context_init](/docs/api/tls12#noxtls_tls12_context_init) or [noxtls_tls13_context_init](/docs/api/tls13#noxtls_tls13_context_init).
 2. Set I/O callbacks with [noxtls_tls_set_io_callbacks](/docs/api/tls#noxtls_tls_set_io_callbacks) (and optional time callback).
 3. **(Optional)** Set SNI: `ctx->base.server_name` / `server_name_len` (TLS 1.2) or same for TLS 1.3.
-4. **(Optional)** For mutual TLS (TLS 1.3): [tls13_set_client_cert](/docs/api/tls13#tls13_set_client_cert) (or ECDSA/Ed25519 variants).
-5. Call [tls12_connect](/docs/api/tls12#tls12_connect) or [tls13_connect](/docs/api/tls13#tls13_connect) to run the handshake.
-6. Use [tls12_send](/docs/api/tls12#tls12_send) / [tls12_recv](/docs/api/tls12#tls12_recv) or [tls13_send](/docs/api/tls13#tls13_send) / [tls13_recv](/docs/api/tls13#tls13_recv) for application data.
-7. Shut down with [tls12_close](/docs/api/tls12#tls12_close) or [tls13_close](/docs/api/tls13#tls13_close), then [tls12_context_free](/docs/api/tls12#tls12_context_free) or [tls13_context_free](/docs/api/tls13#tls13_context_free).
+4. **(Optional)** For mutual TLS (TLS 1.3): [noxtls_tls13_set_client_cert](/docs/api/tls13#noxtls_tls13_set_client_cert) (or ECDSA/Ed25519/Ed448/ML-DSA variants).
+5. Call [noxtls_tls12_connect](/docs/api/tls12#noxtls_tls12_connect) or [noxtls_tls13_connect](/docs/api/tls13#noxtls_tls13_connect) to run the handshake.
+6. Use [noxtls_tls12_send](/docs/api/tls12#noxtls_tls12_send) / [noxtls_tls12_recv](/docs/api/tls12#noxtls_tls12_recv) or [noxtls_tls13_send](/docs/api/tls13#noxtls_tls13_send) / [noxtls_tls13_recv](/docs/api/tls13#noxtls_tls13_recv) for application data.
+7. Shut down with [noxtls_tls12_close](/docs/api/tls12#noxtls_tls12_close) or [noxtls_tls13_close](/docs/api/tls13#noxtls_tls13_close), then [noxtls_tls12_context_free](/docs/api/tls12#noxtls_tls12_context_free) or [noxtls_tls13_context_free](/docs/api/tls13#noxtls_tls13_context_free).
 
 ### TLS server (TLS 1.2 or 1.3)
 
-1. Create a context with [tls12_context_init](/docs/api/tls12#tls12_context_init) or [tls13_context_init](/docs/api/tls13#tls13_context_init).
+1. Create a context with [noxtls_tls12_context_init](/docs/api/tls12#noxtls_tls12_context_init) or [noxtls_tls13_context_init](/docs/api/tls13#noxtls_tls13_context_init).
 2. Set I/O callbacks (and optional time callback).
-3. Set server certificate: assign `server_cert` / `server_cert_len` (DER), and for TLS 1.2 with ECDHE-RSA/DHE-RSA set the server private key with [tls12_set_server_private_rsa](/docs/api/tls12#tls12_set_server_private_rsa); for TLS 1.3 use [tls13_set_server_private_rsa](/docs/api/tls13#tls13_set_server_private_rsa).
-4. Call [tls12_accept](/docs/api/tls12#tls12_accept) or [tls13_accept](/docs/api/tls13#tls13_accept) to run the handshake.
+3. Set server certificate: assign `server_cert` / `server_cert_len` (DER), and for TLS 1.2 with ECDHE-RSA/DHE-RSA set the server private key with [noxtls_tls12_set_server_private_rsa](/docs/api/tls12#noxtls_tls12_set_server_private_rsa); for TLS 1.3 use [noxtls_tls13_set_server_private_rsa](/docs/api/tls13#noxtls_tls13_set_server_private_rsa) or [noxtls_tls13_set_server_private_mldsa](/docs/api/tls13#noxtls_tls13_set_server_private_mldsa).
+4. Call [noxtls_tls12_accept](/docs/api/tls12#noxtls_tls12_accept) or [noxtls_tls13_accept](/docs/api/tls13#noxtls_tls13_accept) to run the handshake.
 5. Use send/recv for application data; close and free when done.
 
 ### Server with automatic version negotiation
@@ -64,15 +65,16 @@ Use the unified API when you want one handle per connection and automatic versio
 
 ### DTLS
 
-Use [dtls12_context_init](/docs/api/tls12#dtls12_context_init) or [dtls13_context_init](/docs/api/tls13#dtls13_context_init). Set MTU and retransmission with [dtls_set_mtu](/docs/api/dtls#dtls_set_mtu) and [dtls_set_retransmit](/docs/api/dtls#dtls_set_retransmit). Then use the same connect/accept and send/recv pattern as TLS; the library handles fragmentation and retransmission.
+Use [noxtls_dtls12_context_init](/docs/api/tls12#noxtls_dtls12_context_init) or [noxtls_dtls13_context_init](/docs/api/tls13#noxtls_dtls13_context_init). Set MTU and retransmission with [noxtls_dtls_set_mtu](/docs/api/dtls#noxtls_dtls_set_mtu) and [dtls_set_retransmit](/docs/api/dtls#dtls_set_retransmit). Then use the same connect/accept and send/recv pattern as TLS; the library handles fragmentation and retransmission.
 
 ## Configuration
 
 - **Certificates:** Supply server (and optionally client) certificate as DER in the context. Chain verification uses the library’s X.509 and PKC support; ensure [NOXTLS_FEATURE_CERT](/docs/configuration-guide) and required algorithms are enabled.
-- **Cipher preference:** TLS 1.3 supports [tls13_set_prefer_chacha20](/docs/api/tls13#tls13_set_prefer_chacha20) to prefer ChaCha20-Poly1305 over AES-GCM.
-- **Fragment length:** TLS 1.2 supports [tls12_set_max_fragment_length](/docs/api/tls12#tls12_set_max_fragment_length) (RFC 6066).
+- **Cipher preference:** TLS 1.3 supports [noxtls_tls13_set_prefer_chacha20](/docs/api/tls13#noxtls_tls13_set_prefer_chacha20) to prefer ChaCha20-Poly1305 over AES-GCM.
+- **Fragment length:** TLS 1.2 supports [noxtls_tls12_set_max_fragment_length](/docs/api/tls12#noxtls_tls12_set_max_fragment_length) (RFC 6066).
 - **PSK (TLS 1.3):** [tls13_set_external_psk](/docs/api/tls13#tls13_set_external_psk) configures identity and key for PSK or ECDHE-PSK.
 - **Record size limits:** Configure [NOXTLS_TLS_MAX_RECORD_SIZE](/docs/configuration-guide) and [NOXTLS_TLS_MAX_HANDSHAKE_SIZE](/docs/configuration-guide) in `noxtls_config.h` so the largest message (e.g. certificate chain) fits.
+- **PQC flags:** Enable `NOXTLS_CFG_FEATURE_ML_KEM` and `NOXTLS_CFG_FEATURE_ML_DSA` to activate PQ APIs and TLS 1.3 PQ/hybrid negotiation paths.
 
 ## API reference
 
@@ -80,6 +82,7 @@ Use [dtls12_context_init](/docs/api/tls12#dtls12_context_init) or [dtls13_contex
 - **[TLS API (unified)](/docs/api/tls_unified)** — Single connection type for TLS 1.2/1.3 with automatic version negotiation.
 - **[TLS 1.2 API](/docs/api/tls12)** — TLS 1.2 context, connect/accept, send/recv, handshake steps, and server key/certificate setup.
 - **[TLS 1.3 API](/docs/api/tls13)** — TLS 1.3 context, connect/accept, early data, PSK, client auth, and session resumption.
+- **[TLS 1.3 PQC](/docs/next/api/tls13_pqc)** — PQ named groups/signatures and ML-KEM/ML-DSA integration.
 - **[DTLS API](/docs/api/dtls)** — DTLS context, MTU, retransmission, fragmentation, and cookie handling.
 
 ## Sample applications

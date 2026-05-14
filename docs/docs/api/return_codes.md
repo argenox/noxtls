@@ -39,13 +39,17 @@ The type and constants are defined in `noxtls_common.h`.
 | **NOXTLS_RETURN_CERT_EXPIRED** | 19 | Certificate has expired (current time > notAfter). |
 | **NOXTLS_RETURN_CERT_NOT_YET_VALID** | 20 | Certificate not yet valid (current time < notBefore). |
 | **NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED** | 21 | Certificate chain verification failed (signature or validity of a link). |
+| **NOXTLS_RETURN_CERT_REVOKED** | 22 | Certificate serial appears on a supplied CRL (revoked). |
+| **NOXTLS_RETURN_CRL_PARSE_FAILED** | 23 | CRL parsing failed (malformed DER/PEM or unsupported structure). |
+| **NOXTLS_RETURN_CRL_VERIFY_FAILED** | 24 | CRL signature verification failed against the issuer certificate. |
+| **NOXTLS_RETURN_CRL_EXPIRED** | 25 | CRL is outside its validity window (e.g. current time past nextUpdate when nextUpdate is present). |
 
 ## Usage
 
 - For **success**, check for `ret == NOXTLS_RETURN_SUCCESS` (or `!ret` when 0 is the only success value).
 - For **verification-style** functions (e.g. hash verify), `NOXTLS_RETURN_SUCCESS` means the check passed; `NOXTLS_RETURN_FAILED` means it did not.
 - Use specific codes (e.g. `NOXTLS_RETURN_NULL`, `NOXTLS_RETURN_BAD_DATA`) to narrow down errors in logs or handling.
-- For **TLS** and **X.509** APIs, use the specific certificate return codes above to distinguish parse, signature, hostname, time, and chain failures. Use `NOXTLS_RETURN_TLS_ERROR` for protocol-level TLS/handshake errors.
+- For **TLS** and **X.509** APIs, use the specific certificate return codes above to distinguish parse, signature, hostname, time, chain, revocation, and CRL failures. Use `NOXTLS_RETURN_TLS_ERROR` for protocol-level TLS/handshake errors.
 - For **detailed certificate failure info** (notBefore, notAfter, subject DN, expected hostname, chain index), call [noxtls_cert_verify_failure_get](/docs/api/certs#detailed-certificate-failure-information) after any X.509 or TLS API that returns a `CERT_*` code.
 
 ## See also

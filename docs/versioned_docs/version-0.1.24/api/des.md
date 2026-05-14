@@ -54,20 +54,20 @@ Decrypt a single 8-byte block with 3DES (DED). `key_len` is 16 (2-key) or 24 (3-
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success; otherwise a specific [return code](/docs/api/return_codes).
 
-### `des_encrypt_cbc`
+### `noxtls_des_encrypt_cbc`
 
 ```c
-noxtls_return_t des_encrypt_cbc(const uint8_t *key, const uint8_t *data, uint32_t data_len, const uint8_t *iv, uint8_t *output);
+noxtls_return_t noxtls_des_encrypt_cbc(const uint8_t *key, const uint8_t *data, uint32_t data_len, const uint8_t *iv, uint8_t *output);
 ```
 
 DES CBC encryption. `data_len` must be a multiple of 8. `iv` is 8 bytes.
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success; otherwise a specific [return code](/docs/api/return_codes).
 
-### `des_decrypt_cbc`
+### `noxtls_des_decrypt_cbc`
 
 ```c
-noxtls_return_t des_decrypt_cbc(const uint8_t *key, const uint8_t *data, uint32_t data_len, const uint8_t *iv, uint8_t *output);
+noxtls_return_t noxtls_des_decrypt_cbc(const uint8_t *key, const uint8_t *data, uint32_t data_len, const uint8_t *iv, uint8_t *output);
 ```
 
 DES CBC decryption. `data_len` must be a multiple of 8. `iv` is 8 bytes.

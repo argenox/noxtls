@@ -172,14 +172,14 @@ function getEncryptionSubgroupByName(functionName, subgroups) {
   if (!subgroups || !functionName) return null;
   const name = functionName;
   const aesModeSlugs = {
-    aes_encrypt_ecb: 'aes_ecb', aes_decrypt_ecb: 'aes_ecb',
-    aes_encrypt_cbc: 'aes_cbc', aes_decrypt_cbc: 'aes_cbc',
-    aes_encrypt_ctr: 'aes_ctr', aes_decrypt_ctr: 'aes_ctr',
-    aes_encrypt_cfb: 'aes_cfb', aes_decrypt_cfb: 'aes_cfb',
-    aes_encrypt_ofb: 'aes_ofb', aes_decrypt_ofb: 'aes_ofb',
-    aes_gcm_encrypt: 'aes_gcm', aes_gcm_decrypt: 'aes_gcm',
-    aes_ccm_encrypt: 'aes_ccm', aes_ccm_decrypt: 'aes_ccm',
-    aes_encrypt_xts: 'aes_xts', aes_decrypt_xts: 'aes_xts',
+    noxtls_aes_encrypt_ecb: 'aes_ecb', noxtls_aes_decrypt_ecb: 'aes_ecb',
+    noxtls_aes_encrypt_cbc: 'aes_cbc', noxtls_aes_decrypt_cbc: 'aes_cbc',
+    noxtls_aes_encrypt_ctr: 'aes_ctr', noxtls_aes_decrypt_ctr: 'aes_ctr',
+    noxtls_aes_encrypt_cfb: 'aes_cfb', noxtls_aes_decrypt_cfb: 'aes_cfb',
+    noxtls_aes_encrypt_ofb: 'aes_ofb', noxtls_aes_decrypt_ofb: 'aes_ofb',
+    noxtls_aes_gcm_encrypt: 'aes_gcm', noxtls_aes_gcm_decrypt: 'aes_gcm',
+    noxtls_aes_ccm_encrypt: 'aes_ccm', noxtls_aes_ccm_decrypt: 'aes_ccm',
+    noxtls_aes_encrypt_xts: 'aes_xts',
   };
   const slug = aesModeSlugs[name];
   if (slug) {

@@ -159,8 +159,8 @@ NOXTLS_MSVC_WARNING_PUSH
 NOXTLS_MSVC_DISABLE_PADDING
 typedef struct
 {
-    uint8_t msg_type;           /* Handshake message type */
-    uint32_t length;            /* Total message length */
+    uint8_t msg_type;           /* Handshake noxtls_message type */
+    uint32_t length;            /* Total noxtls_message length */
     uint16_t message_seq;       /* Message sequence number */
     uint32_t fragment_offset;   /* Fragment offset */
     uint32_t fragment_length;   /* Fragment length */
@@ -190,7 +190,7 @@ typedef struct
     uint16_t epoch;             /* Current epoch */
     uint64_t read_seq_num;      /* Read sequence number */
     uint64_t write_seq_num;     /* Write sequence number */
-    uint16_t send_message_seq;  /* DTLS handshake message sequence */
+    uint16_t send_message_seq;  /* DTLS handshake noxtls_message sequence */
     uint16_t mtu;               /* MTU for fragmentation */
     uint32_t max_fragment;      /* Max fragment size */
     uint8_t anti_amp_factor;    /* Anti-amplification factor */
@@ -202,7 +202,7 @@ typedef struct
     uint8_t *handshake_buffer;  /* Buffer for reassembling fragmented handshake */
     uint32_t handshake_buffer_len;  /* Length of handshake buffer */
     uint32_t handshake_buffer_capacity;  /* Capacity of handshake buffer */
-    uint16_t expected_message_seq;  /* Expected message sequence number */
+    uint16_t expected_message_seq;  /* Expected noxtls_message sequence number */
     uint32_t expected_fragment_offset;  /* Expected fragment offset */
     uint8_t *handshake_received;        /* Byte map of received fragments */
     uint32_t handshake_received_len;    /* Length of received map */
@@ -246,17 +246,17 @@ typedef struct
 NOXTLS_MSVC_WARNING_POP
 
 /* DTLS Functions */
-noxtls_return_t dtls_context_init(dtls_context_t *ctx, tls_role_t role, uint16_t version);
-noxtls_return_t dtls_context_free(dtls_context_t *ctx);
-noxtls_return_t dtls_set_mtu(dtls_context_t *ctx, uint16_t mtu);
+noxtls_return_t noxtls_dtls_context_init(dtls_context_t *ctx, tls_role_t role, uint16_t version);
+noxtls_return_t noxtls_dtls_context_free(dtls_context_t *ctx);
+noxtls_return_t noxtls_dtls_set_mtu(dtls_context_t *ctx, uint16_t mtu);
 noxtls_return_t dtls_set_retransmit(dtls_context_t *ctx, uint32_t timeout_ms,
                                     uint32_t backoff_ms, uint32_t max_attempts);
-noxtls_return_t dtls_set_anti_amplification_limit(dtls_context_t *ctx, uint8_t factor);
-noxtls_return_t dtls_set_ack_range_limit(dtls_context_t *ctx, uint8_t max_ranges);
+noxtls_return_t noxtls_dtls_set_anti_amplification_limit(dtls_context_t *ctx, uint8_t factor);
+noxtls_return_t noxtls_dtls_set_ack_range_limit(dtls_context_t *ctx, uint8_t max_ranges);
 
 /* DTLS Record Layer */
-noxtls_return_t dtls_send_record(dtls_context_t *ctx, uint8_t type, const uint8_t *data, uint32_t len);
-noxtls_return_t dtls_recv_record(dtls_context_t *ctx, dtls_record_t *record);
+noxtls_return_t noxtls_dtls_send_record(dtls_context_t *ctx, uint8_t type, const uint8_t *data, uint32_t len);
+noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *record);
 
 /* DTLS Handshake Fragmentation */
 noxtls_return_t dtls_send_handshake_fragment(dtls_context_t *ctx, 
@@ -264,17 +264,17 @@ noxtls_return_t dtls_send_handshake_fragment(dtls_context_t *ctx,
                                                const uint8_t *data,
                                                uint32_t len,
                                                uint16_t message_seq);
-noxtls_return_t dtls_recv_handshake_fragment(dtls_context_t *ctx, dtls_handshake_fragment_t *fragment);
-noxtls_return_t dtls_reassemble_handshake(dtls_context_t *ctx, dtls_handshake_fragment_t *fragment, uint8_t **complete_msg, uint32_t *complete_len);
+noxtls_return_t noxtls_dtls_recv_handshake_fragment(dtls_context_t *ctx, dtls_handshake_fragment_t *fragment);
+noxtls_return_t noxtls_dtls_reassemble_handshake(dtls_context_t *ctx, dtls_handshake_fragment_t *fragment, uint8_t **complete_msg, uint32_t *complete_len);
 
 /* DTLS Replay Protection */
-noxtls_return_t dtls_check_replay(dtls_context_t *ctx, uint64_t sequence_number);
-noxtls_return_t dtls_update_replay_window(dtls_context_t *ctx, uint64_t sequence_number);
+noxtls_return_t noxtls_dtls_check_replay(dtls_context_t *ctx, uint64_t sequence_number);
+noxtls_return_t noxtls_dtls_update_replay_window(dtls_context_t *ctx, uint64_t sequence_number);
 
 /* DTLS Cookie Functions */
-noxtls_return_t dtls_generate_cookie(dtls_context_t *ctx, const uint8_t *client_hello, uint32_t client_hello_len, uint8_t *cookie, uint32_t *cookie_len);
-noxtls_return_t dtls_verify_cookie(const dtls_context_t *ctx, const uint8_t *cookie, uint32_t cookie_len);
-void dtls_mark_validated(dtls_context_t *ctx);
+noxtls_return_t noxtls_dtls_generate_cookie(dtls_context_t *ctx, const uint8_t *client_hello, uint32_t client_hello_len, uint8_t *cookie, uint32_t *cookie_len);
+noxtls_return_t noxtls_dtls_verify_cookie(const dtls_context_t *ctx, const uint8_t *cookie, uint32_t cookie_len);
+void noxtls_dtls_mark_validated(dtls_context_t *ctx);
 
 #ifdef __cplusplus
 }

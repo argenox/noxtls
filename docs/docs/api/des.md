@@ -14,60 +14,60 @@ Use these only for interoperability with existing protocols or systems. Prefer A
 
 ## API
 
-### `des_encrypt_block`
+### `noxtls_des_encrypt_block`
 
 ```c
-noxtls_return_t des_encrypt_block(const uint8_t *key, const uint8_t *data, uint8_t *output);
+noxtls_return_t noxtls_des_encrypt_block(const uint8_t *key, const uint8_t *data, uint8_t *output);
 ```
 
 Encrypt a single 8-byte block with DES.
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success; otherwise a specific [return code](/docs/api/return_codes).
 
-### `des_decrypt_block`
+### `noxtls_des_decrypt_block`
 
 ```c
-noxtls_return_t des_decrypt_block(const uint8_t *key, const uint8_t *data, uint8_t *output);
+noxtls_return_t noxtls_des_decrypt_block(const uint8_t *key, const uint8_t *data, uint8_t *output);
 ```
 
 Decrypt a single 8-byte block with DES.
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success; otherwise a specific [return code](/docs/api/return_codes).
 
-### `des3_encrypt_block`
+### `noxtls_des3_encrypt_block`
 
 ```c
-noxtls_return_t des3_encrypt_block(const uint8_t *key, uint32_t key_len, const uint8_t *data, uint8_t *output);
+noxtls_return_t noxtls_des3_encrypt_block(const uint8_t *key, uint32_t key_len, const uint8_t *data, uint8_t *output);
 ```
 
 Encrypt a single 8-byte block with 3DES (EDE). `key_len` is 16 (2-key) or 24 (3-key).
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success; otherwise a specific [return code](/docs/api/return_codes).
 
-### `des3_decrypt_block`
+### `noxtls_des3_decrypt_block`
 
 ```c
-noxtls_return_t des3_decrypt_block(const uint8_t *key, uint32_t key_len, const uint8_t *data, uint8_t *output);
+noxtls_return_t noxtls_des3_decrypt_block(const uint8_t *key, uint32_t key_len, const uint8_t *data, uint8_t *output);
 ```
 
 Decrypt a single 8-byte block with 3DES (DED). `key_len` is 16 (2-key) or 24 (3-key).
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success; otherwise a specific [return code](/docs/api/return_codes).
 
-### `des_encrypt_cbc`
+### `noxtls_des_encrypt_cbc`
 
 ```c
-noxtls_return_t des_encrypt_cbc(const uint8_t *key, const uint8_t *data, uint32_t data_len, const uint8_t *iv, uint8_t *output);
+noxtls_return_t noxtls_des_encrypt_cbc(const uint8_t *key, const uint8_t *data, uint32_t data_len, const uint8_t *iv, uint8_t *output);
 ```
 
 DES CBC encryption. `data_len` must be a multiple of 8. `iv` is 8 bytes.
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success; otherwise a specific [return code](/docs/api/return_codes).
 
-### `des_decrypt_cbc`
+### `noxtls_des_decrypt_cbc`
 
 ```c
-noxtls_return_t des_decrypt_cbc(const uint8_t *key, const uint8_t *data, uint32_t data_len, const uint8_t *iv, uint8_t *output);
+noxtls_return_t noxtls_des_decrypt_cbc(const uint8_t *key, const uint8_t *data, uint32_t data_len, const uint8_t *iv, uint8_t *output);
 ```
 
 DES CBC decryption. `data_len` must be a multiple of 8. `iv` is 8 bytes.
@@ -94,10 +94,10 @@ noxtls_return_t des3_decrypt_cbc(const uint8_t *key, uint32_t key_len, const uin
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success; otherwise a specific [return code](/docs/api/return_codes).
 
-### `des_self_test`
+### `noxtls_des_self_test`
 
 ```c
-noxtls_return_t des_self_test(void);
+noxtls_return_t noxtls_des_self_test(void);
 ```
 
 Run DES/3DES known-answer self-tests.

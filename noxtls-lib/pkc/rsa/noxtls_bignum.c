@@ -88,7 +88,8 @@ static void bn_debug_limbs(const char *label, const uint32_t *limbs, uint32_t li
 /* Debug: print bytes (BE) to stderr, optional max. */
 static void bn_debug_bytes(const char *label, const uint8_t *buf, uint32_t len, uint32_t max_show)
 {
-    uint32_t i, n = (max_show != 0u && len > max_show) ? max_show : len;
+    uint32_t i;
+    uint32_t n = (max_show != 0u && len > max_show) ? max_show : len;
     if(buf == NULL || !g_bn_debug_mod_2n_by_n)
         return;
     fprintf(stderr, "[bn_mod_2n_by_n] %s (%u bytes):", label, (unsigned)len);
@@ -315,21 +316,32 @@ static noxtls_return_t bn_sub_inplace(uint8_t *a, const uint8_t *b, uint32_t len
  */
 noxtls_return_t noxtls_bn_mul(uint8_t *result, const uint8_t *a, uint32_t a_len, const uint8_t *b, uint32_t b_len)
 {
-    uint32_t n_limbs_a, n_limbs_b, n_limbs_r;
+    uint32_t n_limbs_a;
+    uint32_t n_limbs_b;
+    uint32_t n_limbs_r;
     uint32_t result_len;
     uint32_t *a_limbs = NULL;
     uint32_t *b_limbs = NULL;
     uint32_t *r_limbs = NULL;
-    uint32_t i, carry;
+    uint32_t i;
+    uint32_t carry;
 
     if(result == NULL || a == NULL || b == NULL)
         return NOXTLS_RETURN_NULL;
     if(a_len == 0 || b_len == 0)
         return NOXTLS_RETURN_INVALID_PARAM;
+    if(a_len > (uint32_t)(UINT32_MAX - b_len) ||
+       a_len > (uint32_t)(UINT32_MAX - 3u) ||
+       b_len > (uint32_t)(UINT32_MAX - 3u)) {
+        return NOXTLS_RETURN_FAILED;
+    }
 
     result_len = a_len + b_len;
     n_limbs_a = (a_len + 3u) / 4u;
     n_limbs_b = (b_len + 3u) / 4u;
+    if(n_limbs_a > (uint32_t)(UINT32_MAX - n_limbs_b)) {
+        return NOXTLS_RETURN_FAILED;
+    }
     n_limbs_r = n_limbs_a + n_limbs_b;
 
     a_limbs = (uint32_t*)noxtls_calloc(n_limbs_a, sizeof(uint32_t));
@@ -678,6 +690,12 @@ static noxtls_return_t bn_mod_2n_by_n_limb(uint8_t *rem_out, uint32_t mod_len,
 
     if(a_len > mod_len * 2u)
         return NOXTLS_RETURN_FAILED; /* caller should use general path */
+    if(mod_len > (uint32_t)(UINT32_MAX / 2u)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    if(n > (uint32_t)(UINT32_MAX / 2u)) {
+        return NOXTLS_RETURN_FAILED;
+    }
 
     a_padded = (uint8_t*)noxtls_calloc(mod_len * 2u, 1);
     v = (uint32_t*)noxtls_calloc(n, sizeof(uint32_t));
@@ -1557,8 +1575,14 @@ static void bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
     }
 
     /* Working buffers: X = copy of A, Y = copy of B; may grow by 1 byte after bit-shift. */
-    uint32_t x_cap = a_len + 1;
-    uint32_t y_cap = b_len + 1;
+    uint32_t x_cap;
+    uint32_t y_cap;
+    if(a_len == UINT32_MAX || b_len == UINT32_MAX) {
+        memset(rem_out, 0, mod_len);
+        return;
+    }
+    x_cap = a_len + 1u;
+    y_cap = b_len + 1u;
     uint8_t *X = (uint8_t*)noxtls_calloc(x_cap, 1);
     uint8_t *Y = (uint8_t*)noxtls_calloc(y_cap, 1);
     uint8_t *Y_shifted = (uint8_t*)noxtls_calloc(x_cap, 1);
@@ -1653,7 +1677,16 @@ static void bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
     }
     uint32_t reduce_rounds = 0;
     /* One quotient digit is 0..255, so we need at most 256 rounds when subtracting 1*Y_shifted each time */
-    uint32_t max_reduce_rounds = (x_len + 1) * 32;
+    uint32_t max_reduce_rounds;
+    if(x_len > (uint32_t)((UINT32_MAX / 32u) - 1u)) {
+        noxtls_free(X);
+        noxtls_free(Y);
+        noxtls_free(Y_shifted);
+        noxtls_free(qY);
+        memset(rem_out, 0, mod_len);
+        return;
+    }
+    max_reduce_rounds = (x_len + 1u) * 32u;
     if(max_reduce_rounds < 256) max_reduce_rounds = 256;
     while(bn_ge(X, Y_shifted, x_len) && reduce_rounds < max_reduce_rounds) {
         /* Estimate quotient digit: use top 2-3 bytes when both have same length */
@@ -1871,8 +1904,14 @@ noxtls_return_t noxtls_bn_mod(uint8_t *result, const uint8_t *a, uint32_t a_len,
     }
 
     {
-        const uint8_t *a_end = a + a_len;
-        if(result >= a && result < a_end) {
+        uintptr_t a_start = (uintptr_t)a;
+        uintptr_t a_end = a_start;
+        uintptr_t result_addr = (uintptr_t)result;
+        if(a_len > (uint32_t)(UINTPTR_MAX - a_start)) {
+            return NOXTLS_RETURN_FAILED;
+        }
+        a_end = a_start + (uintptr_t)a_len;
+        if(result_addr >= a_start && result_addr < a_end) {
             a_copy = (uint8_t*)noxtls_calloc(a_len, 1);
             if(!a_copy) {
                 noxtls_debug_printf("[noxtls_bn_mod] a_copy alloc failed (a_len=%u)\n", a_len);
@@ -1917,7 +1956,8 @@ noxtls_return_t noxtls_bn_mod(uint8_t *result, const uint8_t *a, uint32_t a_len,
     }
 
     if(a_len <= 8 && mod_len <= 4) {
-        uint64_t va = 0, vm = 0;
+        uint64_t va = 0;
+        uint64_t vm = 0;
         for(uint32_t i = 0; i < a_len; i++) va = (va << 8) | (uint64_t)a_src[i];
         for(uint32_t i = 0; i < mod_len; i++) vm = (vm << 8) | (uint64_t)mod[i];
         if(vm == 0) {
@@ -1989,9 +2029,11 @@ noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const ui
     if(result == NULL || base == NULL || exp == NULL || mod == NULL)
         return NOXTLS_RETURN_NULL;
     if(mod_len == 0 || exp_len == 0) {
-        if(result != NULL && mod_len > 0)
-            memset(result, 0, mod_len);
         return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    if(mod_len > (uint32_t)(UINT32_MAX / 2u) ||
+       exp_len > (uint32_t)(UINT32_MAX / 8u)) {
+        return NOXTLS_RETURN_FAILED;
     }
 
     if(g_bn_debug_modexp_first) g_bn_debug_modexp_first = 0;
@@ -2003,7 +2045,7 @@ noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const ui
     temp_base = (uint8_t*)noxtls_calloc(mod_len, 1);
     exp_copy = (uint8_t*)noxtls_calloc(exp_len, 1);
     /* temp needs to be mod_len * 2 because multiplication of two mod_len numbers produces mod_len * 2 bytes */
-    temp = (uint8_t*)noxtls_calloc(mod_len * 2, 1);
+    temp = (uint8_t*)noxtls_calloc(mod_len * 2u, 1);
 
     if(!temp_result || !temp_base || !temp || !exp_copy) {
         noxtls_debug_printf("ERROR: noxtls_bn_mod_exp: Memory allocation failed!\n");
@@ -2042,7 +2084,7 @@ noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const ui
     }
 
     /* Right-to-left (LSB-first) square-and-multiply (bitwise shift) */
-    total_bits = exp_len * 8;
+    total_bits = exp_len * 8u;
     if(total_bits > 256) {
         noxtls_debug_printf("      Starting modular exponentiation (%u bits)...\n", total_bits);
         fflush(stdout);

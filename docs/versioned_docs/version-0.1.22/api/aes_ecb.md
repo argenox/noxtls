@@ -43,10 +43,10 @@ ECB mode should generally be avoided except for very specific use cases. Because
 
 ## API
 
-### `aes_encrypt_ecb`
+### `noxtls_aes_encrypt_ecb`
 
 ```c
-noxtls_return_t aes_encrypt_ecb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t* iv, uint8_t* output, aes_type_t type);
+noxtls_return_t noxtls_aes_encrypt_ecb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t* iv, uint8_t* output, noxtls_aes_type_t type);
 ```
 
 Encrypts data in ECB mode. Each 16-byte block is encrypted independently. No IV is used; `iv` may be NULL.
@@ -58,14 +58,14 @@ Encrypts data in ECB mode. Each 16-byte block is encrypted independently. No IV 
 - `data_len` — length of the plaintext in bytes (must be a multiple of 16)
 - `iv` — not used in ECB; may be NULL
 - `output` — output buffer where the ciphertext will be written
-- `type` — AES variant: `AES_128_BIT`, `AES_192_BIT`, or `AES_256_BIT`
+- `type` — AES variant: `NOXTLS_AES_128_BIT`, `NOXTLS_AES_192_BIT`, or `NOXTLS_AES_256_BIT`
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success
 
-### `aes_decrypt_ecb`
+### `noxtls_aes_decrypt_ecb`
 
 ```c
-noxtls_return_t aes_decrypt_ecb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t* iv, uint8_t* output, aes_type_t type);
+noxtls_return_t noxtls_aes_decrypt_ecb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t* iv, uint8_t* output, noxtls_aes_type_t type);
 ```
 
 Decrypts data in ECB mode. Each 16-byte block is decrypted independently. No IV is used; `iv` may be NULL.
@@ -77,7 +77,7 @@ Decrypts data in ECB mode. Each 16-byte block is decrypted independently. No IV 
 - `data_len` — length of the ciphertext in bytes (must be a multiple of 16)
 - `iv` — not used in ECB; may be NULL
 - `output` — output buffer where the plaintext will be written
-- `type` — AES variant: `AES_128_BIT`, `AES_192_BIT`, or `AES_256_BIT`
+- `type` — AES variant: `NOXTLS_AES_128_BIT`, `NOXTLS_AES_192_BIT`, or `NOXTLS_AES_256_BIT`
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success; otherwise a specific [return code](/docs/api/return_codes).
 

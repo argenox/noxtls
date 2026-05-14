@@ -48,6 +48,7 @@
 #include <stdint.h>
 #include "noxtls_common.h"
 #include "pkc/ecc/noxtls_ecc.h"
+#include "pkc/mldsa/noxtls_mldsa.h"
 #include "mdigest/noxtls_hash.h"
 
 #ifdef __cplusplus
@@ -55,12 +56,19 @@ extern "C" {
 #endif
 
 /* Maximum certificate size */
-#define X509_MAX_CERT_SIZE        16384
+#define X509_MAX_CERT_SIZE        NOXTLS_MAX_CERT_SIZE
+/* CRLs can be larger than individual certificates (many revoked entries). */
+#define X509_MAX_CRL_SIZE         (X509_MAX_CERT_SIZE * 16U)
 #define X509_MAX_SUBJECT_SIZE     512
 #define X509_MAX_ISSUER_SIZE      512
 #define X509_MAX_SERIAL_SIZE      32
-#define X509_MAX_PUBLIC_KEY_SIZE  512
+#define X509_MAX_PUBLIC_KEY_SIZE  2048
 #define X509_MAX_PRIVATE_KEY_SIZE 4096
+/* RSA modulus n length in bytes for standard key sizes (1024/2048/3072/4096-bit). DER INTEGER may use this length or one more byte (leading zero). */
+#define X509_RSA_MODULUS_BYTES_1024  128U
+#define X509_RSA_MODULUS_BYTES_2048  256U
+#define X509_RSA_MODULUS_BYTES_3072  384U
+#define X509_RSA_MODULUS_BYTES_4096  512U
 /* Parsed extensions: Subject Alternative Name (SAN) */
 #define X509_SAN_DNS_MAX          8
 #define X509_SAN_DNS_LEN          256
@@ -71,6 +79,8 @@ extern "C" {
 #define X509_SAN_IP_MAX           4
 #define X509_SAN_IP_BYTES         16   /* IPv4 or IPv6 */
 #define X509_SAN_IP_IS_V6_BIT     0x80 /* flag in stored entry: high bit of first byte of length */
+#define X509_HOSTNAME_WILDCARD_PREFIX "*."
+#define X509_HOSTNAME_WILDCARD_PREFIX_LEN 2U
 /* Key Usage bits (RFC 5280): bit 0 = digitalSignature, 1 = nonRepudiation, 2 = keyEncipherment, 3 = dataEncipherment, 4 = keyAgreement, 5 = keyCertSign, 6 = cRLSign, 7 = encipherOnly, 8 = decipherOnly */
 #define X509_KEY_USAGE_DIGITAL_SIGNATURE    (1u << 0)
 #define X509_KEY_USAGE_NON_REPUDIATION     (1u << 1)
@@ -93,6 +103,26 @@ extern "C" {
 #define X509_BC_PATH_LEN_ABSENT   (-1)
 /* Authority/Subject Key Identifier max stored length */
 #define X509_KEY_ID_MAX_LEN        32
+
+/** Maximum revoked serial entries stored when parsing a CRL (larger CRLs fail parse). */
+#define NOXTLS_X509_CRL_MAX_REVOKED 2048U
+
+/**
+ * @brief Bitmask for optional X.509 verification details (mbedTLS-style flags).
+ * @details Set by noxtls_x509_verify_*_ex when \p flags_out is non-NULL. Bits are ORed on failure paths
+ *          and may be set on success (e.g. CRL matched and checked).
+ */
+typedef uint32_t noxtls_x509_verify_flags_t;
+/** Certificate serial matched a revoked entry on an applicable CRL. */
+#define NOXTLS_X509_VERIFY_FLAG_CERT_REVOKED       (1u << 0)
+/** CRL nextUpdate is present and current time is past nextUpdate (strict stale policy). */
+#define NOXTLS_X509_VERIFY_FLAG_CRL_EXPIRED        (1u << 1)
+/** CRL signature verification against the issuer failed. */
+#define NOXTLS_X509_VERIFY_FLAG_CRL_BAD_SIGNATURE  (1u << 2)
+/** A CRL was supplied but no CRL in the list matched any issuer in the validated chain (informational). */
+#define NOXTLS_X509_VERIFY_FLAG_CRL_NO_MATCH       (1u << 3)
+/** At least one supplied CRL matched an issuer DN and was evaluated (signature/time/revocation). */
+#define NOXTLS_X509_VERIFY_FLAG_CRL_USED           (1u << 4)
 
 /* X.509 Certificate Structure */
 NOXTLS_MSVC_WARNING_PUSH
@@ -150,6 +180,12 @@ typedef struct
     uint8_t ed448_public_key[57];
     uint8_t has_ed448;
 
+    /* ML-DSA public key (if present; private-use parser support for PQ cert experiments). */
+    uint8_t mldsa_public_key[NOXTLS_MLDSA_MAX_PUBLIC_KEY_LEN];
+    uint32_t mldsa_public_key_len;
+    noxtls_mldsa_param_t mldsa_param;
+    uint8_t has_mldsa;
+
     /* Extensions (v3) */
     uint8_t *extensions;
     uint32_t extensions_len;
@@ -205,6 +241,45 @@ typedef struct
 } x509_certificate_chain_t;
 NOXTLS_MSVC_WARNING_POP
 
+/**
+ * @brief Parsed X.509 CRL (CertificateList) with optional linked list via \p next (mbedTLS-style chain).
+ */
+NOXTLS_MSVC_WARNING_PUSH
+NOXTLS_MSVC_DISABLE_PADDING
+typedef struct noxtls_x509_crl
+{
+    uint8_t issuer[X509_MAX_ISSUER_SIZE];
+    uint32_t issuer_len;
+    char issuer_dn[256];
+    uint8_t this_update[16];
+    uint8_t next_update[16];
+    uint8_t has_next_update;
+    uint8_t signature_algorithm_oid[32];
+    uint32_t signature_algorithm_oid_len;
+    uint8_t *signature;
+    uint32_t signature_len;
+    uint8_t *tbs_crl;
+    uint32_t tbs_crl_len;
+    uint8_t *raw_data;
+    uint32_t raw_data_len;
+    uint8_t *revoked_serials;
+    uint32_t *revoked_serial_lens;
+    uint32_t revoked_count;
+    int parsed;
+    struct noxtls_x509_crl *next;
+} noxtls_x509_crl_t;
+NOXTLS_MSVC_WARNING_POP
+
+noxtls_return_t noxtls_x509_crl_init(noxtls_x509_crl_t *crl);
+/** Free this CRL and any linked CRLs in \p next. */
+void noxtls_x509_crl_free(noxtls_x509_crl_t *crl);
+noxtls_return_t noxtls_x509_crl_parse_der(noxtls_x509_crl_t *crl, const uint8_t *data, uint32_t len);
+noxtls_return_t noxtls_x509_crl_parse_pem(noxtls_x509_crl_t *crl, const uint8_t *data, uint32_t len);
+noxtls_return_t noxtls_x509_crl_load_file(noxtls_x509_crl_t *crl, const char *filename);
+
+/** Returns 1 if \p cert serial appears on \p crl (requires parsed CRL). */
+int noxtls_x509_crl_serial_is_revoked(const noxtls_x509_crl_t *crl, const x509_certificate_t *cert);
+
 /** Size of not_before/not_after strings in noxtls_cert_verify_failure_info_t (ASN.1 time, e.g. YYYYMMDDHHMMSSZ). */
 #define NOXTLS_CERT_FAIL_TIME_MAX 16
 /** Size of subject_dn and expected_hostname in noxtls_cert_verify_failure_info_t. */
@@ -253,6 +328,35 @@ noxtls_return_t noxtls_x509_certificate_chain_init(x509_certificate_chain_t *cha
 noxtls_return_t noxtls_x509_certificate_chain_free(x509_certificate_chain_t *chain);
 noxtls_return_t noxtls_x509_certificate_chain_add(x509_certificate_chain_t *chain, const x509_certificate_t *cert);
 noxtls_return_t noxtls_x509_certificate_chain_verify(x509_certificate_chain_t *chain);
+/** Replace global trust store with a deep copy of provided trust anchors. Pass NULL or empty chain to clear. */
+noxtls_return_t noxtls_x509_trust_store_set(const x509_certificate_chain_t *trust_anchors);
+/** Clear global trust store used by noxtls_x509_verify_server_cert_trust. */
+void noxtls_x509_trust_store_clear(void);
+/**
+ * Verify a server certificate against the configured trust store.
+ * presented_chain contains intermediate issuers sent by peer (leaf not included); may be NULL.
+ */
+noxtls_return_t noxtls_x509_verify_server_cert_trust(const x509_certificate_t *leaf,
+                                                     const x509_certificate_chain_t *presented_chain);
+/**
+ * Verify a server certificate against the configured trust store with optional CRL list.
+ * When \p crl is NULL, behavior matches noxtls_x509_verify_server_cert_trust().
+ * When \p crl is non-NULL, each CRL may be chained via \p crl->next; issuer DN must match a chain issuer
+ * for revocation and CRL signature/time checks to apply.
+ * @param flags_out optional; if non-NULL, cleared then ORed with NOXTLS_X509_VERIFY_FLAG_* bits.
+ */
+noxtls_return_t noxtls_x509_verify_server_cert_trust_ex(const x509_certificate_t *leaf,
+                                                        const x509_certificate_chain_t *presented_chain,
+                                                        const noxtls_x509_crl_t *crl,
+                                                        noxtls_x509_verify_flags_t *flags_out);
+/** Verify a client certificate (mTLS) against the configured trust store. */
+noxtls_return_t noxtls_x509_verify_client_cert_trust(const x509_certificate_t *leaf,
+                                                     const x509_certificate_chain_t *presented_chain);
+/** Client certificate trust verification with optional CRL list (see noxtls_x509_verify_server_cert_trust_ex). */
+noxtls_return_t noxtls_x509_verify_client_cert_trust_ex(const x509_certificate_t *leaf,
+                                                         const x509_certificate_chain_t *presented_chain,
+                                                         const noxtls_x509_crl_t *crl,
+                                                         noxtls_x509_verify_flags_t *flags_out);
 
 /* Private Key Types */
 typedef enum
@@ -342,12 +446,12 @@ const uint8_t *noxtls_x509_private_key_get_eddsa_seed(const x509_private_key_t *
 /**
  * High-level sign data with X.509 private key.
  * Key may be DER or PEM. Supports ECC (ECDSA DER) and Ed25519/Ed448 (raw 64- or 114-byte signature).
- * For Ed keys, hash_algo is ignored; the message is signed with PureEdDSA (RFC 8032 / RFC 8410 certificates).
+ * For Ed keys, hash_algo is ignored; the noxtls_message is signed with PureEdDSA (RFC 8032 / RFC 8410 certificates).
  * Output is ECDSA signature in DER form (SEQUENCE of two INTEGERs r, s) for ECC, or raw R||S for Ed.
  *
  * @param key       Private key bytes (DER or PEM)
  * @param key_len   Length of key buffer
- * @param data      Data to sign (e.g. hash or message)
+ * @param data      Data to sign (e.g. hash or noxtls_message)
  * @param data_len  Length of data
  * @param hash_algo Hash used for ECDSA (e.g. NOXTLS_HASH_SHA_256)
  * @param out_der   Output buffer for DER signature
@@ -370,6 +474,16 @@ noxtls_return_t noxtls_x509_parse_distinguished_name(const uint8_t *dn_data, uin
 noxtls_return_t noxtls_x509_parse_time(const uint8_t *time_data, uint32_t time_len, char *output, uint32_t output_size);
 /** Parse certificate extensions (SAN, Key Usage, EKU, Basic Constraints, AKI, SKI, etc.) from cert->extensions. */
 noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert);
+/**
+ * @brief Enable or disable wildcard hostname matching at runtime.
+ * @param enabled 1 to allow "*.example.com" matching, 0 to require exact DNS names.
+ */
+void noxtls_x509_set_hostname_wildcard_matching(int enabled);
+/**
+ * @brief Get current runtime wildcard hostname matching state.
+ * @return 1 if wildcard DNS matching is enabled, 0 otherwise.
+ */
+int noxtls_x509_get_hostname_wildcard_matching(void);
 /** Check whether certificate is valid for hostname (SAN dNSName or subject CN; case-insensitive). hostname_len may be 0 to use strlen(hostname). */
 noxtls_return_t noxtls_x509_certificate_matches_hostname(const x509_certificate_t *cert, const char *hostname, uint32_t hostname_len);
 

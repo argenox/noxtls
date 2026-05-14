@@ -47,21 +47,21 @@
  * @param type is the AES variant, 128, 192, 256
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_* on failure
  */
-noxtls_return_t aes_encrypt_ecb(const uint8_t* key,
+noxtls_return_t noxtls_aes_encrypt_ecb(const uint8_t* key,
                     const uint8_t* data,
                     uint32_t data_len,
                     const uint8_t * iv,
                     uint8_t* output,
-                    aes_type_t type)
+                    noxtls_aes_type_t type)
 {
     uint32_t cur_block = 0;
     
     (void)iv; /* IV not used in ECB mode */
     
-    for (cur_block = 0; cur_block < data_len; cur_block += AES_BLOCK_LENGTH)
+    for(cur_block = 0; cur_block < data_len; cur_block += NOXTLS_AES_BLOCK_LENGTH)
     {
         /* Electronic Codebook: Direct encryption of each block */
-        aes_encrypt_block_internal(key, &data[cur_block], &output[cur_block], type);
+        noxtls_aes_encrypt_block_internal(key, &data[cur_block], &output[cur_block], type);
     }
 
     return NOXTLS_RETURN_SUCCESS;
@@ -81,20 +81,20 @@ noxtls_return_t aes_encrypt_ecb(const uint8_t* key,
  * @param type is the AES variant, 128, 192, 256
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_* on failure
  */
-noxtls_return_t aes_decrypt_ecb(const uint8_t* key,
+noxtls_return_t noxtls_aes_decrypt_ecb(const uint8_t* key,
                     const uint8_t* data,
                     uint32_t data_len,
                     const uint8_t * iv,
                     uint8_t* output,
-                    aes_type_t type)
+                    noxtls_aes_type_t type)
 {
     uint32_t cur_block = 0;
 
     (void)iv; /* IV not used in ECB mode */
 
-    for (cur_block = 0; cur_block < data_len; cur_block += AES_BLOCK_LENGTH)
+    for(cur_block = 0; cur_block < data_len; cur_block += NOXTLS_AES_BLOCK_LENGTH)
     {
-        aes_decrypt_block_internal(key, &data[cur_block], &output[cur_block], type);
+        noxtls_aes_decrypt_block_internal(key, &data[cur_block], &output[cur_block], type);
     }
 
     return NOXTLS_RETURN_SUCCESS;

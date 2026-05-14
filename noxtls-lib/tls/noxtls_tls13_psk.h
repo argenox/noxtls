@@ -34,7 +34,7 @@ extern "C" {
  * @param len  Length of data
  * @param mode TLS13_PSK_KE_MODE_PSK_KE (0) or TLS13_PSK_KE_MODE_PSK_DHE_KE (1)
  */
-int tls13_psk_mode_offered(const uint8_t *data, uint16_t len, uint8_t mode);
+int noxtls_tls13_psk_mode_offered(const uint8_t *data, uint16_t len, uint8_t mode);
 
 /**
  * Find pre_shared_key extension and return binder offset/length for an identity index.
@@ -117,7 +117,7 @@ noxtls_return_t tls13_psk_ticket_store_entry_psk(const void *entry,
                                                   uint8_t *nonce_len);
 
 /** Return cipher_suite for a ticket entry (for server resumption). */
-uint16_t tls13_psk_ticket_store_entry_cipher_suite(const void *entry);
+uint16_t noxtls_tls13_psk_ticket_store_entry_cipher_suite(const void *entry);
 
 /**
  * Derive resumption_psk from master_secret and ticket_nonce (RFC 8446 4.6.1).

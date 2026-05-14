@@ -15,6 +15,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Verify exported API symbols use noxtls_ prefix
+        run: python scripts/check_export_prefix_headers.py
+
       - name: Configure tests
         run: cmake -S . -B build-tests -D BUILD_APPLICATIONS=OFF -D BUILD_TESTS=ON -D CMAKE_BUILD_TYPE=Release
 
@@ -41,3 +44,139 @@ jobs:
       - name: Run ctest (strict side-channel)
         working-directory: build-tests-strict
         run: ctest --output-on-failure || echo "No ctest targets were registered"
+
+  test-linux-aesni-accel:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure tests (AES-NI acceleration)
+        run: >
+          cmake -S . -B build-tests-aesni
+          -D BUILD_APPLICATIONS=OFF
+          -D BUILD_TESTS=ON
+          -D NOXTLS_CFG_FEATURE_AES_ACCEL_NI=ON
+          -D NOXTLS_CFG_FEATURE_AES_ACCEL_APPLE=OFF
+
+      - name: Build tests (AES-NI acceleration)
+        run: cmake --build build-tests-aesni --parallel
+
+      - name: Run AES backend guard test (AES-NI acceleration)
+        working-directory: build-tests-aesni
+        run: ctest --output-on-failure -R "aes_accel_backend_test"
+
+  test-macos-apple-aes-accel:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure tests (Apple Silicon AES acceleration)
+        run: >
+          cmake -S . -B build-tests-apple-aes
+          -D BUILD_APPLICATIONS=OFF
+          -D BUILD_TESTS=ON
+          -D NOXTLS_CFG_FEATURE_AES_ACCEL_NI=OFF
+          -D NOXTLS_CFG_FEATURE_AES_ACCEL_APPLE=ON
+
+      - name: Build tests (Apple Silicon AES acceleration)
+        run: cmake --build build-tests-apple-aes --parallel
+
+      - name: Run AES backend guard test (Apple Silicon AES acceleration)
+        working-directory: build-tests-apple-aes
+        run: ctest --output-on-failure -R "aes_accel_backend_test"
+
+  test-linux-pqc-experimental:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate official ACVP PQC corpus
+        run: python3 ut/pqc_official_vectors_smoke.py
+
+      - name: Configure tests (PQC feature flags)
+        run: >
+          cmake -S . -B build-tests-pqc
+          -D BUILD_APPLICATIONS=OFF
+          -D BUILD_TESTS=ON
+          -D CMAKE_BUILD_TYPE=Release
+          -D NOXTLS_CFG_FEATURE_ML_KEM=ON
+          -D NOXTLS_CFG_FEATURE_ML_DSA=ON
+
+      - name: Build tests (PQC feature flags)
+        run: cmake --build build-tests-pqc --parallel
+
+      - name: Run ctest (PQC feature flags)
+        working-directory: build-tests-pqc
+        run: >
+          ctest --output-on-failure -R "mlkem_test|mlkem_kat_test|mlkem_conformance_test|mlkem_vector_conformance_test|mldsa_test|mldsa_kat_test|mldsa_conformance_test|mldsa_vector_conformance_test|pqc_fuzz_smoke_test"
+          || echo "No ctest targets were registered"
+
+  test-linux-pqc-interop-smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate PQC interop matrix automation
+        run: python3 ../ut/pqc_interop_smoke.py --format json
+
+  test-linux-pqc-official-strict:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure tests (PQC strict official vectors)
+        run: >
+          cmake -S . -B build-tests-pqc-official
+          -D BUILD_APPLICATIONS=OFF
+          -D BUILD_TESTS=ON
+          -D CMAKE_BUILD_TYPE=Release
+          -D NOXTLS_CFG_FEATURE_ML_KEM=ON
+          -D NOXTLS_CFG_FEATURE_ML_DSA=ON
+          -D NOXTLS_CFG_PQC_STRICT_OFFICIAL_VECTORS=ON
+
+      - name: Build tests (PQC strict official vectors)
+        run: cmake --build build-tests-pqc-official --parallel
+
+      - name: "Run strict official-vector conformance tests (hard gate: ML-KEM)"
+        working-directory: build-tests-pqc-official
+        run: ctest --output-on-failure -R "mlkem_official_keygen_conformance_test"
+
+      - name: Run ML-DSA strict official-vector checks (hard gate)
+        working-directory: build-tests-pqc-official
+        run: ctest --output-on-failure -R "mldsa_official_keygen_conformance_test|mldsa_official_siggen_conformance_test|mldsa_official_sigver_conformance_test"
+
+  test-linux-pqc-sanitizers:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure tests (PQC + ASAN/UBSAN)
+        run: >
+          cmake -S . -B build-tests-pqc-sanitized
+          -D BUILD_APPLICATIONS=OFF
+          -D BUILD_TESTS=ON
+          -D CMAKE_BUILD_TYPE=Debug
+          -D CMAKE_C_COMPILER=clang
+          -D NOXTLS_CFG_FEATURE_ML_KEM=ON
+          -D NOXTLS_CFG_FEATURE_ML_DSA=ON
+          -D CMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          -D CMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+
+      - name: Build tests (PQC + ASAN/UBSAN)
+        run: cmake --build build-tests-pqc-sanitized --parallel
+
+      - name: Run ctest (PQC + ASAN/UBSAN)
+        working-directory: build-tests-pqc-sanitized
+        run: ctest --output-on-failure

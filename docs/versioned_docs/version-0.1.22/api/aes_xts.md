@@ -41,10 +41,10 @@ XTS provides **confidentiality only**; it does not provide integrity or authenti
 
 ## API
 
-### `aes_encrypt_xts`
+### `noxtls_aes_encrypt_xts`
 
 ```c
-noxtls_return_t aes_encrypt_xts(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, aes_type_t type);
+noxtls_return_t noxtls_aes_encrypt_xts(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aes_type_t type);
 ```
 
 AES Encrypt in XTS Mode  XEX-based Tweaked CodeBook mode with ciphertext Stealing (XTS-AES). Used for disk encryption. Requires two keys (or key split in half). The IV parameter is used as the tweak value (typically sector number).

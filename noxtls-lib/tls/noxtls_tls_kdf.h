@@ -60,10 +60,10 @@ typedef struct
 } hmac_context_t;
 
 /* HMAC Functions */
-noxtls_return_t hmac_init(hmac_context_t *ctx, noxtls_hash_algos_t hash_algo, const uint8_t *key, uint32_t key_len);
-noxtls_return_t hmac_update(hmac_context_t *ctx, const uint8_t *data, uint32_t data_len);
-noxtls_return_t hmac_final(hmac_context_t *ctx, uint8_t *mac, uint32_t *mac_len);
-noxtls_return_t hmac_free(hmac_context_t *ctx);
+noxtls_return_t noxtls_hmac_init(hmac_context_t *ctx, noxtls_hash_algos_t hash_algo, const uint8_t *key, uint32_t key_len);
+noxtls_return_t noxtls_hmac_update(hmac_context_t *ctx, const uint8_t *data, uint32_t data_len);
+noxtls_return_t noxtls_hmac_final(hmac_context_t *ctx, uint8_t *mac, uint32_t *mac_len);
+noxtls_return_t noxtls_hmac_free(hmac_context_t *ctx);
 noxtls_return_t hmac_compute(noxtls_hash_algos_t hash_algo, const uint8_t *key, uint32_t key_len,
                                const uint8_t *data, uint32_t data_len, uint8_t *mac, uint32_t *mac_len);
 

@@ -43,6 +43,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include "noxtls_config.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -55,6 +56,7 @@ extern "C" {
 #define HEX_OUTLEN_SHIFT (2u)
 
 extern int noxtls_hex_string_to_bytes(const char * string, uint8_t * out_buf, size_t out_length);
+extern int noxtls_process_string_to_bytes(const char *string, uint8_t *output);
 void noxtls_print_data(const uint8_t * data, size_t len);
 
 #ifdef __cplusplus

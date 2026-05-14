@@ -25,7 +25,7 @@
 
 /**
  * @defgroup noxtls_pkc Public Key Cryptography
- * @brief RSA, DSA, ECC, ECDSA, ECDH, Ed25519, X25519, X448.
+ * @brief RSA, DSA, ECC, ECDSA, ECDH, Ed25519, X25519, X448, ML-KEM, ML-DSA.
  * @addtogroup noxtls
  */
 /** @{ */
@@ -41,6 +41,8 @@
 /* #include "ecc/noxtls_ecc.h" */
 /* #include "ecdsa/noxtls_ecdsa.h" */
 /* #include "ecdh/noxtls_ecdh.h" */
+/* #include "mlkem/noxtls_mlkem.h" */
+/* #include "mldsa/noxtls_mldsa.h" */
 
 #endif /* _NOXTLS_PKC_H_ */
 

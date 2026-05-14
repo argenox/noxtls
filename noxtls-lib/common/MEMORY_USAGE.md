@@ -8,11 +8,11 @@ The NOXTLS library provides a configurable memory management system that can use
 
 ## Configuration
 
-Edit `NOXTLS_config.h` to enable static buffers:
+Edit `noxtls_config.h` to enable static buffers:
 
 ```c
 #define NOXTLS_USE_STATIC_BUFFERS 1
-#define NOXTLS_STATIC_BUFFER_SIZE (128 * 1024)  /* 128KB default */
+#define NOXTLS_STATIC_BUFFER_SIZE (64 * 1024)  /* 64KB default */
 ```
 
 ## Usage with Static Buffers
@@ -67,20 +67,25 @@ int main(void) {
 
 ## Memory Statistics
 
-You can query memory usage statistics:
+You can query memory usage statistics (static-buffer mode):
 
 ```c
-size_t total_allocated, total_used, max_used;
-noxtls_mem_get_stats(&total_allocated, &total_used, &max_used);
-printf("Total allocated: %zu bytes\n", total_allocated);
-printf("Currently used: %zu bytes\n", total_used);
-printf("Peak usage: %zu bytes\n", max_used);
+size_t total_allocated;
+size_t total_used;
+size_t max_used;
+
+if(noxtls_mem_get_stats(&total_allocated, &total_used, &max_used) == NOXTLS_RETURN_SUCCESS) {
+    printf("Total allocated: %zu bytes\n", total_allocated);
+    printf("Currently used: %zu bytes\n", total_used);
+    printf("Peak usage: %zu bytes\n", max_used);
+}
 ```
 
 ## Notes
 
 - When `NOXTLS_USE_STATIC_BUFFERS` is 0 (default), all functions use system malloc/free
 - When `NOXTLS_USE_STATIC_BUFFERS` is 1, all library malloc/free calls are routed to the static buffer allocator
+- In static-buffer mode, if `noxtls_mem_init()` is not called explicitly, allocator init occurs lazily on first allocation with `noxtls_mem_init(NULL, 0)`.
 - The compatibility header (`NOXTLS_memory_compat.h`) automatically replaces malloc/free with noxtls_malloc/noxtls_free in library code
 - Application code can still use standard malloc/free if needed
 

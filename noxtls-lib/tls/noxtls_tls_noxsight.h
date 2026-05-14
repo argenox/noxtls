@@ -113,9 +113,9 @@ static inline uint32_t noxtls_ns_conn_id(const void *ctx_ptr)
 #endif
 
 #define NOXTLS_NS_EVENT(ctx_, module_, severity_, event_, arg0_, arg1_) \
-    do { (void)(ctx_); (void)(module_); (void)(severity_); (void)(event_); (void)(arg0_); (void)(arg1_); } while (0)
+    do { (void)(ctx_); (void)(module_); (void)(severity_); (void)(event_); (void)(arg0_); (void)(arg1_); } while(0)
 #define NOXTLS_NS_EVENT_SENSITIVE(ctx_, module_, severity_, event_, arg0_, arg1_) \
-    do { (void)(ctx_); (void)(module_); (void)(severity_); (void)(event_); (void)(arg0_); (void)(arg1_); } while (0)
+    do { (void)(ctx_); (void)(module_); (void)(severity_); (void)(event_); (void)(arg0_); (void)(arg1_); } while(0)
 #define NOXTLS_STATE_ENTER(ctx_, state_) do { (void)(ctx_); (void)(state_); } while (0)
 #define NOXTLS_STATE_EXIT(ctx_, state_, result_) do { (void)(ctx_); (void)(state_); (void)(result_); } while (0)
 #endif

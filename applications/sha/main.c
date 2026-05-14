@@ -19,7 +19,7 @@
 * 
 *
 * File:    main.c
-* Summary: SHA / message digest application
+* Summary: SHA / noxtls_message digest application
 *
 */
 
@@ -28,7 +28,7 @@
  * @brief Message digest (SHA, MD5, etc.) command-line utility.
  * @defgroup noxtls_app_sha SHA utility
  * @details
- * Command-line tool to compute message digests (hashes) using NoxTLS mdigest.
+ * Command-line tool to compute noxtls_message digests (hashes) using NoxTLS mdigest.
  * Top-level command: dgst — compute a hash.
  * Parameters: after the command, specify the algorithm name, then optional
  * switches and input (string or hex).
@@ -51,12 +51,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifdef _WIN32
-#include "noxtls-lib/common/getopt_win.h"
-#else
-#include <unistd.h>
-#endif
 
+#include "noxtls-lib/common/getopt_compat.h"
 #include "message_digest.h"
 
 #define APP_VERSION_MAJOR 0
@@ -73,7 +69,7 @@ typedef struct {
 
 
 command_list_t commands[]  = {
-    {"dgst", &message_digest, "Generates the message digest"}
+    {"dgst", &message_digest, "Generates the noxtls_message digest"}
 };
 
 
@@ -132,7 +128,7 @@ int main(int argc, char ** argv)
     if(command_found == 0)
     {
         int c;
-        while ((c = getopt (argc, argv, "vh")) != -1)
+        while ((c = noxtls_getopt (argc, argv, "vh")) != -1)
         {
             switch (c)
             {

@@ -47,17 +47,17 @@
  * @param type is the AES variant, 128, 192, 256
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_* on failure
  */
-noxtls_return_t aes_encrypt_ctr(const uint8_t* key,
+noxtls_return_t noxtls_aes_encrypt_ctr(const uint8_t* key,
                      const uint8_t* data,
                      uint32_t data_len,
                      const uint8_t * iv,
                      uint8_t* output,
-                     aes_type_t type)
+                     noxtls_aes_type_t type)
 {
     int i;
     uint32_t cur_block = 0;
-    uint8_t counter_block[AES_BLOCK_LENGTH];
-    uint8_t keystream[AES_BLOCK_LENGTH];
+    uint8_t counter_block[NOXTLS_AES_BLOCK_LENGTH];
+    uint8_t keystream[NOXTLS_AES_BLOCK_LENGTH];
     
     /* Counter Mode requires IV */
     if(iv == NULL || data == NULL || output == NULL || key == NULL) {
@@ -65,15 +65,15 @@ noxtls_return_t aes_encrypt_ctr(const uint8_t* key,
     }
     
     /* Initialize counter from IV */
-    memcpy(counter_block, iv, AES_BLOCK_LENGTH);
+    memcpy(counter_block, iv, NOXTLS_AES_BLOCK_LENGTH);
     
-    for (cur_block = 0; cur_block < data_len; cur_block += AES_BLOCK_LENGTH)
+    for(cur_block = 0; cur_block < data_len; cur_block += NOXTLS_AES_BLOCK_LENGTH)
     {
-        uint32_t block_len = (data_len - cur_block < AES_BLOCK_LENGTH) ?
-                             (data_len - cur_block) : AES_BLOCK_LENGTH;
+        uint32_t block_len = (data_len - cur_block < NOXTLS_AES_BLOCK_LENGTH) ?
+                             (data_len - cur_block) : NOXTLS_AES_BLOCK_LENGTH;
         
         /* Encrypt the counter to produce keystream */
-        aes_encrypt_block_internal(key, counter_block, keystream, type);
+        noxtls_aes_encrypt_block_internal(key, counter_block, keystream, type);
         
         /* XOR keystream with plaintext */
         for(uint32_t byte_index = 0; byte_index < block_len; byte_index++) {
@@ -81,7 +81,7 @@ noxtls_return_t aes_encrypt_ctr(const uint8_t* key,
         }
         
         /* Increment counter (big-endian) */
-        for(i = AES_BLOCK_LENGTH - 1; i >= 0; i--) {
+        for(i = NOXTLS_AES_BLOCK_LENGTH - 1; i >= 0; i--) {
             counter_block[i]++;
             if(counter_block[i] != 0) break;
         }

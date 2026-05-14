@@ -32,6 +32,18 @@
 #include <stdint.h>
 #include "noxtls_common.h"
 
+#ifdef __has_include
+#  if __has_include("noxtls_config.h")
+#    include "noxtls_config.h"
+#  endif
+#endif
+#ifndef NOXTLS_ECC_POINT_MUL_WINDOW_SIZE
+#define NOXTLS_ECC_POINT_MUL_WINDOW_SIZE 4
+#endif
+#ifndef NOXTLS_ECC_FIXED_POINT_OPTIM
+#define NOXTLS_ECC_FIXED_POINT_OPTIM 1
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -88,6 +100,22 @@ typedef struct {
     uint16_t padding; /* explicit padding to avoid C4820 after Z */
 } ecc_jpoint_t;
 NOXTLS_MSVC_WARNING_POP
+
+#if (NOXTLS_ECC_POINT_MUL_WINDOW_SIZE > 0) && (NOXTLS_ECC_FIXED_POINT_OPTIM)
+/**
+ * Fixed-base point multiplication cache (windowed precompute for generator G).
+ * Used only inside noxtls_ecc.c; not part of the public API surface.
+ */
+typedef struct {
+    const ecc_curve_params_t *curve;
+    ecc_jpoint_t *table;
+    uint32_t w;
+    uint32_t size;
+    uint8_t gx[ECC_MAX_KEY_SIZE];
+    uint8_t gy[ECC_MAX_KEY_SIZE];
+    int valid;
+} ecc_fixed_base_cache_t;
+#endif
 
 /* Curve Operations */
 noxtls_return_t noxtls_ecc_curve_init(ecc_curve_params_t *curve, ecc_curve_t curve_type);
