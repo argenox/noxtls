@@ -43,11 +43,18 @@
 #include <string.h>
 
 #include "noxtls-lib/common/getopt_compat.h"
+#include "encryption_command.h"
 #include "message_digest.h"
 
 #define APP_VERSION_MAJOR 0
 #define APP_VERSION_MINOR 1
 #define APP_VERSION_BUILD 4
+
+extern int noxtls_pkc_app_main(int argc, char ** argv);
+extern int noxtls_cert_app_main(int argc, char ** argv);
+
+static int pkc_command(int argc, char ** argv);
+static int cert_command(int argc, char ** argv);
 
 
 typedef struct {
@@ -59,7 +66,13 @@ typedef struct {
 
 
 command_list_t commands[]  = {
-    {"dgst", &message_digest, "Generates the noxtls_message digest"}
+    {"dgst", &message_digest, "Generates the noxtls_message digest"},
+    {"enc", &encryption_encrypt_command, "Encrypts data"},
+    {"dec", &encryption_decrypt_command, "Decrypts data"},
+    {"pkc", &pkc_command, "Public/private key operations"},
+    {"key", &pkc_command, "Public/private key operations"},
+    {"cert", &cert_command, "X.509 certificate operations"},
+    {"x509", &cert_command, "X.509 certificate operations"}
 };
 
 
@@ -81,6 +94,10 @@ void print_usage(const char * name)
     printf("-v \t\t\tVersion Information\n");
     printf("-h \t\t\tHelp\n");    
 
+    printf("\nRun '%s dgst --help' to list available digest algorithms.\n", name);
+    printf("Run '%s enc --help' or '%s dec --help' to list available encryption algorithms.\n", name, name);
+    printf("Run '%s pkc --help' to list public/private key operations.\n", name);
+    printf("Run '%s cert --help' to list X.509 certificate operations.\n", name);
     printf("\n\n");
 }
 
@@ -107,11 +124,10 @@ int main(int argc, char ** argv)
     size_t command_count = sizeof(commands) / sizeof(commands[0]);
     for(i = 0; i < command_count; i++)
     {
-        if(strncmp(argv[1], commands[i].cmd, strlen(commands[i].cmd)) == 0)
+        if(strncmp(argv[1], commands[i].cmd, strlen(commands[i].cmd)) == 0 &&
+           strlen(argv[1]) == strlen(commands[i].cmd))
         {
-            commands[i].handler(argc - 2, &argv[2]);
-            command_found = 1;
-            break;
+            return commands[i].handler(argc - 2, &argv[2]);
         }
     }
 
@@ -134,4 +150,58 @@ int main(int argc, char ** argv)
     }
 
     return 0;    
+}
+
+static int dispatch_embedded_app(
+    int (*app_main)(int argc, char ** argv),
+    const char * app_name,
+    int argc,
+    char ** argv)
+{
+    char ** forwarded_argv = NULL;
+    int i;
+    int rc;
+
+    if(app_main == NULL || app_name == NULL) {
+        return -1;
+    }
+
+    forwarded_argv = malloc(sizeof(char *) * (size_t)(argc + 1));
+    if(forwarded_argv == NULL) {
+        printf("Error: memory allocation failed\n");
+        return -1;
+    }
+
+    forwarded_argv[0] = (char *)app_name;
+    for(i = 0; i < argc; i++) {
+        forwarded_argv[i + 1] = argv[i];
+    }
+
+    rc = app_main(argc + 1, forwarded_argv);
+    free(forwarded_argv);
+    return rc;
+}
+
+static int pkc_command(int argc, char ** argv)
+{
+    char * help_argv[] = {"-h"};
+
+    if(argc <= 0 || argv == NULL || argv[0] == NULL ||
+       strcmp(argv[0], "--help") == 0 || strcmp(argv[0], "help") == 0) {
+        return dispatch_embedded_app(noxtls_pkc_app_main, "noxtls pkc", 1, help_argv);
+    }
+
+    return dispatch_embedded_app(noxtls_pkc_app_main, "noxtls pkc", argc, argv);
+}
+
+static int cert_command(int argc, char ** argv)
+{
+    char * help_argv[] = {"-h"};
+
+    if(argc <= 0 || argv == NULL || argv[0] == NULL ||
+       strcmp(argv[0], "--help") == 0 || strcmp(argv[0], "help") == 0) {
+        return dispatch_embedded_app(noxtls_cert_app_main, "noxtls cert", 1, help_argv);
+    }
+
+    return dispatch_embedded_app(noxtls_cert_app_main, "noxtls cert", argc, argv);
 }

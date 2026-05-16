@@ -38,6 +38,8 @@ extern "C" {
 
 #define HASH_SHA512_BLOCK_SIZE  (128)
 #define HASH_SHA512_OUT_LEN     (64)
+#define HASH_SHA512_224_OUT_LEN (28)
+#define HASH_SHA512_256_OUT_LEN (32)
 #define HASH_SHA512_LENGTH_LEN  (16)
 #define SHA512_BLOCK_SIZE_BITS  (1024u)
 #define SHA512_PAD_BYTE         (0x80u)

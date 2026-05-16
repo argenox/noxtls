@@ -17,7 +17,7 @@ This matrix tracks documentation coverage for the `noxtls` surface area and pari
 
 | Area | Implemented in code | Current docs | Gap status |
 | --- | --- | --- | --- |
-| TLS 1.0/1.1/1.2/1.3 and DTLS | `noxtls-lib/tls/*` | `api/tls*.md`, `api/dtls.md`, `tls.md`, `dtls13-rfc9147.md` | Good (0.2.1: DTLS 1.3 RFC 9147 page; PQC in `tls13_pqc`) |
+| TLS 1.0/1.1/1.2/1.3 and DTLS | `noxtls-lib/tls/*` | `api/tls*.md`, `api/dtls*.md`, `tls.md`, `dtls13.md` | Good (0.2.4: DTLS 1.3 docs, DTLS API group, and PQC in `tls13_pqc`) |
 | X.509 / certificate parse + verify | `noxtls-lib/certs/noxtls_x509.*` | `api/certs.md` | Partial (ML-DSA cert/signature handling not documented) |
 | Symmetric encryption | `noxtls-lib/encryption/*` | `api/encryption.md` + algorithm pages | Covered |
 | Hash / digest / SHA-3 | `noxtls-lib/mdigest/*` | `api/mdigest.md` + algorithm pages | Covered |

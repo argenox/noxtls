@@ -5,28 +5,34 @@ Built as part of the main project when `BUILD_APPLICATIONS` is ON. Target name: 
 ## Usage
 
 ```text
-sha [command] [options] [arguments]
+sha <algorithm> [options] [text...]
+sha <algorithm> -f <file> [options]
 ```
 
-- **Top-level command:** `dgst` — compute a noxtls_message digest.
 - **Global options:** `-h` (help), `-v` (version).
 
-## Command: dgst
+## Digest Command
 
 Compute a hash using one of the supported algorithms.
 
 ```text
-sha dgst <algorithm> [options] <input>
+sha <algorithm> [options] <input>
 ```
 
 ### Algorithms
 
-MD5, SHA1, SHA224, SHA256, SHA384, SHA512, SHA512_224, SHA512_256.
+The enabled algorithms are shown by `sha -h`. Typical builds include MD5,
+SHA1, SHA224, SHA256, SHA384, SHA512, SHA512-224, SHA512-256, SHA3,
+SHA3-224, SHA3-256, SHA3-384, SHA3-512, RIPEMD160, BLAKE2S-256, and
+BLAKE2B-512. MD4 is shown only when the MD4 feature is enabled.
 
 ### Options
 
 | Option | Description |
 |--------|-------------|
+| `-f`   | Read input from a file. |
+| `-o`   | Write the hex digest to a file. |
+| `-s`   | Start hashing file input at a byte offset. |
 | `-h`   | Input is hex-encoded (decode before hashing). |
 | `-d`   | Enable debug output. |
 
@@ -35,13 +41,19 @@ MD5, SHA1, SHA224, SHA256, SHA384, SHA512, SHA512_224, SHA512_256.
 Hash a string (default is string input):
 
 ```bash
-sha dgst SHA256 hello world
+sha SHA256 hello world
 ```
 
 Hash from hex input (use `-h` and pass hex string):
 
 ```bash
-sha dgst SHA256 -h 68656c6c6f
+sha SHA256 -h 68656c6c6f
+```
+
+Hash a file:
+
+```bash
+sha SHA3-256 -f firmware.bin
 ```
 
 Show help and version:

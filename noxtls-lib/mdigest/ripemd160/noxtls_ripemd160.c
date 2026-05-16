@@ -55,7 +55,7 @@ static const uint8_t ripemd160_rl[80] = {
      7,  6,  8, 13, 11,  9,  7, 15,  7, 12, 15,  9, 11,  7, 13, 12,
     11, 13,  6,  7, 14,  9, 13, 15, 14,  8, 13,  6,  5, 12,  7,  5,
     11, 12, 14, 15, 14, 15,  9,  8,  9, 14,  5,  6,  8,  6,  5, 12,
-    11, 12, 14, 15, 14, 15,  9,  8,  9, 14,  5,  6,  8,  6,  5, 12
+     9, 15,  5, 11,  6,  8, 13, 12,  5, 12, 13, 14, 11,  8,  5,  6
 };
 
 static const uint8_t ripemd160_rr[80] = {
@@ -63,7 +63,7 @@ static const uint8_t ripemd160_rr[80] = {
      9, 13, 15,  7, 12,  8,  9, 11,  7,  7, 12,  7,  6, 15, 13, 11,
      9,  7, 15, 11,  8,  6,  6, 14, 12, 13,  5, 14, 13, 13,  7,  5,
     15,  5,  8, 11, 14, 14,  6, 14,  6,  9, 12,  9, 12,  5, 15,  8,
-    15,  5,  8, 11, 14, 14,  6, 14,  6,  9, 12,  9, 12,  5, 15,  8
+     8,  5, 12,  9, 12,  5, 14,  6,  8, 13,  6,  5, 15, 13, 11, 11
 };
 
 static const uint8_t ripemd160_xl[80] = {
@@ -261,10 +261,10 @@ noxtls_return_t noxtls_ripemd160_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
     noxtls_ripemd160_round(ctx, ctx->data);
 
     for(i = 0; i < RIPEMD160_STATE_WORDS; i++) {
-        hash[i*4 + 0] = (uint8_t)((ctx->h[i] >> 24) & 0xFFu);
-        hash[i*4 + 1] = (uint8_t)((ctx->h[i] >> 16) & 0xFFu);
-        hash[i*4 + 2] = (uint8_t)((ctx->h[i] >> 8) & 0xFFu);
-        hash[i*4 + 3] = (uint8_t)(ctx->h[i] & 0xFFu);
+        hash[i*4 + 0] = (uint8_t)(ctx->h[i] & 0xFFu);
+        hash[i*4 + 1] = (uint8_t)((ctx->h[i] >> 8) & 0xFFu);
+        hash[i*4 + 2] = (uint8_t)((ctx->h[i] >> 16) & 0xFFu);
+        hash[i*4 + 3] = (uint8_t)((ctx->h[i] >> 24) & 0xFFu);
     }
 
     return NOXTLS_RETURN_SUCCESS;

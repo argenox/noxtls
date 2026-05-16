@@ -5,7 +5,7 @@ title: "DTLS"
 
 # DTLS
 
-Datagram TLS common definitions and base context used by DTLS 1.2 and 1.3. Header: `noxtls_dtls_common.h`. TLS 1.2 and 1.3 datagram operation use [tls12_context_t](/docs/api/tls12#tls12_context_t) and [tls13_context_t](/docs/api/tls13#tls13_context_t) initialized with [noxtls_dtls12_context_init](/docs/api/tls12#noxtls_dtls12_context_init) and [noxtls_dtls13_context_init](/docs/api/tls13#noxtls_dtls13_context_init) respectively.
+Datagram TLS common definitions and base context used by DTLS 1.2 and 1.3. Header: `noxtls_dtls_common.h`. TLS 1.2 and 1.3 datagram operation use [tls12_context_t](/docs/api/tls12#tls12_context_t) and [tls13_context_t](/docs/api/tls13#tls13_context_t) initialized with [noxtls_dtls12_context_init](/docs/api/dtls12#noxtls_dtls12_context_init) and [noxtls_dtls13_context_init](/docs/api/dtls13#noxtls_dtls13_context_init) respectively.
 
 ## Constants
 
@@ -44,7 +44,7 @@ DTLS base context: contains [tls_context_t](/docs/api/tls#tls_context_t) plus ep
 noxtls_return_t noxtls_dtls_context_init(dtls_context_t *ctx, tls_role_t role, uint16_t version);
 ```
 
-Initialize DTLS base context. Usually you use [noxtls_dtls12_context_init](/docs/api/tls12#noxtls_dtls12_context_init) or [noxtls_dtls13_context_init](/docs/api/tls13#noxtls_dtls13_context_init) instead, which set up the version-specific context including this base.
+Initialize DTLS base context. Usually you use [noxtls_dtls12_context_init](/docs/api/dtls12#noxtls_dtls12_context_init) or [noxtls_dtls13_context_init](/docs/api/dtls13#noxtls_dtls13_context_init) instead, which set up the version-specific context including this base.
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes).
 
@@ -208,5 +208,5 @@ Mark peer as validated (e.g. after cookie verification). Used internally.
 
 ## Using DTLS 1.2 or 1.3
 
-- **DTLS 1.2:** Use [noxtls_dtls12_context_init](/docs/api/tls12#noxtls_dtls12_context_init), then [noxtls_dtls_set_mtu](#noxtls_dtls_set_mtu), [dtls_set_retransmit](#dtls_set_retransmit), and optionally [noxtls_dtls_set_anti_amplification_limit](#noxtls_dtls_set_anti_amplification_limit). Call [noxtls_tls12_connect](/docs/api/tls12#noxtls_tls12_connect) or [noxtls_tls12_accept](/docs/api/tls12#noxtls_tls12_accept) and then [noxtls_tls12_send](/docs/api/tls12#noxtls_tls12_send) / [noxtls_tls12_recv](/docs/api/tls12#noxtls_tls12_recv).
-- **DTLS 1.3:** Use [noxtls_dtls13_context_init](/docs/api/tls13#noxtls_dtls13_context_init), set DTLS options on the base, then [noxtls_tls13_connect](/docs/api/tls13#noxtls_tls13_connect) or [noxtls_tls13_accept](/docs/api/tls13#noxtls_tls13_accept) and [noxtls_tls13_send](/docs/api/tls13#noxtls_tls13_send) / [noxtls_tls13_recv](/docs/api/tls13#noxtls_tls13_recv). Connection ID and unified header are handled by the TLS 1.3 implementation.
+- **DTLS 1.2:** Use [noxtls_dtls12_context_init](/docs/api/dtls12#noxtls_dtls12_context_init), then [noxtls_dtls_set_mtu](#noxtls_dtls_set_mtu), [dtls_set_retransmit](#dtls_set_retransmit), and optionally [noxtls_dtls_set_anti_amplification_limit](#noxtls_dtls_set_anti_amplification_limit). Call [noxtls_tls12_connect](/docs/api/tls12#noxtls_tls12_connect) or [noxtls_tls12_accept](/docs/api/tls12#noxtls_tls12_accept) and then [noxtls_tls12_send](/docs/api/tls12#noxtls_tls12_send) / [noxtls_tls12_recv](/docs/api/tls12#noxtls_tls12_recv).
+- **DTLS 1.3:** Use [noxtls_dtls13_context_init](/docs/api/dtls13#noxtls_dtls13_context_init), set DTLS options on the base, then [noxtls_tls13_connect](/docs/api/tls13#noxtls_tls13_connect) or [noxtls_tls13_accept](/docs/api/tls13#noxtls_tls13_accept) and [noxtls_tls13_send](/docs/api/tls13#noxtls_tls13_send) / [noxtls_tls13_recv](/docs/api/tls13#noxtls_tls13_recv). Connection ID and unified header are handled by the TLS 1.3 implementation.

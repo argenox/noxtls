@@ -5,6 +5,10 @@ title: "TLS 1.2"
 
 # TLS 1.2
 
+:::warning
+TLS 1.2 is a legacy protocol version. New deployments should use TLS 1.3 where possible, and existing TLS 1.2 deployments should plan an upgrade path to TLS 1.3.
+:::
+
 TLS 1.0, 1.1, and 1.2 implementation. Header: `noxtls_tls12.h`. Context extends [dtls_context_t](/docs/api/dtls#dtls_context_t) (which contains [tls_context_t](/docs/api/tls#tls_context_t)).
 
 ## Types

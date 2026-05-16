@@ -16,8 +16,8 @@ The NoxTLS TLS component implements **Transport Layer Security (TLS)** and **Dat
 | TLS 1.2 | `0x0303` | On | [tls12](/docs/api/tls12), [unified](/docs/api/tls_unified) |
 | TLS 1.3 | `0x0304` | On | [tls13](/docs/api/tls13), [unified](/docs/api/tls_unified) |
 | TLS 1.0 / 1.1 | `0x0301` / `0x0302` | Off | [tls10](/docs/api/tls10), [tls11](/docs/api/tls11) |
-| DTLS 1.2 | `0xFEFD` | On | [dtls12](/docs/api/tls12) via `noxtls_dtls12_context_init` |
-| DTLS 1.3 | `0xFEFC` | On | [dtls13](/docs/api/tls13) via `noxtls_dtls13_context_init` |
+| DTLS 1.2 | `0xFEFD` | On | [dtls12](/docs/api/dtls12) via `noxtls_dtls12_context_init` |
+| DTLS 1.3 | `0xFEFC` | On | [dtls13](/docs/api/dtls13) via `noxtls_dtls13_context_init` |
 
 ## TLS 1.3 features
 
@@ -61,13 +61,13 @@ The NoxTLS TLS component implements **Transport Layer Security (TLS)** and **Dat
 | Loss recovery | Retransmission timer, flight buffers |
 | DoS mitigation | HelloVerifyRequest cookie (generate/verify) |
 | Replay protection | Sliding window per epoch |
-| Configuration | [noxtls_dtls_set_mtu](/docs/api/dtls#noxtls_dtls_set_mtu), [noxtls_dtls_set_retransmit](/docs/api/dtls#noxtls_dtls_set_retransmit), anti-amplification limit |
+| Configuration | [noxtls_dtls_set_mtu](/docs/api/dtls#noxtls_dtls_set_mtu), [dtls_set_retransmit](/docs/api/dtls#dtls_set_retransmit), anti-amplification limit |
 
-Initialize with [noxtls_dtls12_context_init](/docs/api/tls12#noxtls_dtls12_context_init), then use the same [noxtls_tls12_connect](/docs/api/tls12#noxtls_tls12_connect) / [noxtls_tls12_accept](/docs/api/tls12#noxtls_tls12_accept) and send/recv APIs as for TLS over TCP.
+Initialize with [noxtls_dtls12_context_init](/docs/api/dtls12#noxtls_dtls12_context_init), then use the same [noxtls_tls12_connect](/docs/api/tls12#noxtls_tls12_connect) / [noxtls_tls12_accept](/docs/api/tls12#noxtls_tls12_accept) and send/recv APIs as for TLS over TCP.
 
 ## DTLS 1.3 features (RFC 9147)
 
-DTLS 1.3 shares the TLS 1.3 handshake and cipher suites but uses a datagram record layer. NoxTLS implements the following (see also the engineering plan [DTLS 1.3 RFC 9147 conformance](/docs/dtls13-rfc9147)):
+DTLS 1.3 shares the TLS 1.3 handshake and cipher suites but uses a datagram record layer. NoxTLS implements the following (see also the [DTLS 1.3 guide](/docs/dtls13)):
 
 | Area | Support |
 |------|---------|
@@ -84,7 +84,7 @@ DTLS 1.3 shares the TLS 1.3 handshake and cipher suites but uses a datagram reco
 | Short tags | CCM_8 suites padded before AEAD when tag length &lt; 16 bytes |
 | MTU-aware fragmentation | Handshake fragment size accounts for unified header overhead |
 
-Initialize with [noxtls_dtls13_context_init](/docs/api/tls13#noxtls_dtls13_context_init). Configure the shared DTLS base via [DTLS API](/docs/api/dtls) (MTU, retransmit, ACK range limit).
+Initialize with [noxtls_dtls13_context_init](/docs/api/dtls13#noxtls_dtls13_context_init). Configure the shared DTLS base via [DTLS API](/docs/api/dtls) (MTU, retransmit, ACK range limit).
 
 :::caution Interoperability note
 DTLS 1.3 wire format and key derivation changed to align with RFC 9147. Peers built before this alignment are not interoperable with RFC 9147-conformant builds.
@@ -152,8 +152,8 @@ Use [noxtls_tls_connection_t](/docs/api/tls_unified#noxtls_tls_connection_t) for
 
 ### DTLS client or server
 
-1. [noxtls_dtls12_context_init](/docs/api/tls12#noxtls_dtls12_context_init) or [noxtls_dtls13_context_init](/docs/api/tls13#noxtls_dtls13_context_init).
-2. [noxtls_dtls_set_mtu](/docs/api/dtls#noxtls_dtls_set_mtu) and [noxtls_dtls_set_retransmit](/docs/api/dtls#noxtls_dtls_set_retransmit) on `ctx->base` (DTLS base inside the TLS context).
+1. [noxtls_dtls12_context_init](/docs/api/dtls12#noxtls_dtls12_context_init) or [noxtls_dtls13_context_init](/docs/api/dtls13#noxtls_dtls13_context_init).
+2. [noxtls_dtls_set_mtu](/docs/api/dtls#noxtls_dtls_set_mtu) and [dtls_set_retransmit](/docs/api/dtls#dtls_set_retransmit) on `ctx->base` (DTLS base inside the TLS context).
 3. [noxtls_tls13_connect](/docs/api/tls13#noxtls_tls13_connect) / [noxtls_tls13_accept](/docs/api/tls13#noxtls_tls13_accept) (or TLS 1.2 equivalents for DTLS 1.2).
 4. Application data via [noxtls_tls13_send](/docs/api/tls13#noxtls_tls13_send) / [noxtls_tls13_recv](/docs/api/tls13#noxtls_tls13_recv).
 
@@ -175,10 +175,12 @@ Use [noxtls_tls_connection_t](/docs/api/tls_unified#noxtls_tls_connection_t) for
 
 - **[TLS API (common)](/docs/api/tls)** — Base context, I/O, alerts, version detection.
 - **[TLS API (unified)](/docs/api/tls_unified)** — Single connection, auto TLS 1.2/1.3.
-- **[TLS 1.2 API](/docs/api/tls12)** — TLS and DTLS 1.2 contexts.
-- **[TLS 1.3 API](/docs/api/tls13)** — TLS and DTLS 1.3 contexts.
+- **[TLS 1.2 API](/docs/api/tls12)** — TLS 1.2 context and stream transport APIs.
+- **[TLS 1.3 API](/docs/api/tls13)** — TLS 1.3 context and stream transport APIs.
 - **[DTLS API](/docs/api/dtls)** — MTU, retransmit, cookies, replay, ACK helpers.
-- **[DTLS 1.3 RFC 9147 conformance](/docs/dtls13-rfc9147)** — Implementation status and test matrix.
+- **[DTLS 1.2 API](/docs/api/dtls12)** — DTLS 1.2 initialization and datagram usage.
+- **[DTLS 1.3 API](/docs/api/dtls13)** — DTLS 1.3 initialization and datagram usage.
+- **[DTLS 1.3 guide](/docs/dtls13)** — DTLS 1.3 features and transport model.
 
 ## Sample applications
 

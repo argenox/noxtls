@@ -17,7 +17,7 @@ const sidebars = {
     'security-reporting',
     'eddsa',
     'tls',
-    'dtls13-rfc9147',
+    'dtls13',
     {
       type: 'category',
       label: 'TLS API',
@@ -29,7 +29,16 @@ const sidebars = {
         'api/tls11',
         'api/tls12',
         'api/tls13',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'DTLS API',
+      link: { type: 'doc', id: 'api/dtls' },
+      items: [
         'api/dtls',
+        'api/dtls12',
+        'api/dtls13',
       ],
     },
     {
