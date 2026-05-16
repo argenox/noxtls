@@ -9,10 +9,10 @@ Camellia in OFB (Output Feedback) mode: the IV or previous keystream block is en
 
 ## API
 
-### `camellia_encrypt_ofb`
+### `noxtls_camellia_encrypt_ofb`
 
 ```c
-noxtls_return_t camellia_encrypt_ofb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t* iv, uint8_t* output, camellia_type_t type);
+noxtls_return_t noxtls_camellia_encrypt_ofb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t* iv, uint8_t* output, noxtls_camellia_type_t type);
 ```
 
 Encrypts data in Camellia OFB mode (output feedback; keystream from repeatedly encrypting IV/keystream).
@@ -21,10 +21,10 @@ Encrypts data in Camellia OFB mode (output feedback; keystream from repeatedly e
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success; otherwise a specific [return code](/docs/api/return_codes).
 
-### `camellia_decrypt_ofb`
+### `noxtls_camellia_decrypt_ofb`
 
 ```c
-noxtls_return_t camellia_decrypt_ofb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t* iv, uint8_t* output, camellia_type_t type);
+noxtls_return_t noxtls_camellia_decrypt_ofb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t* iv, uint8_t* output, noxtls_camellia_type_t type);
 ```
 
 Decrypts data in Camellia OFB mode (same keystream as encrypt). Use the same IV that was used for encryption.

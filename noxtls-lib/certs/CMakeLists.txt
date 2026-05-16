@@ -1,9 +1,15 @@
 # Certificates library
+option(NOXTLS_SILENCE_ASN1_PRINTF "Disable asn1.c debug printf (recommended for libFuzzer / CI noise)" OFF)
+
 add_library(noxtls_certificates STATIC
     asn1.c
     certificates.c
     oids.c
 )
+
+if(NOXTLS_SILENCE_ASN1_PRINTF)
+    target_compile_definitions(noxtls_certificates PRIVATE NOXTLS_NO_ASN1_PRINTF=1)
+endif()
 
 if(MSVC)
     # Disable Spectre mitigation warning C5045 for embedded targets.

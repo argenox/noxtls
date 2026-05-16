@@ -126,7 +126,7 @@ void print_usage(const char *name)
     printf("  -C <hex>       Context hex for *ctx algorithms (sign and verify)\n");
     printf("  -h <algo>      Hash for RSA signatures (md5, sha1, sha256) - default: sha256\n");
     printf("  -d             Enable debug mode\n");
-    printf("  -x             Interpret message input as hexadecimal\n");
+    printf("  -x             Interpret noxtls_message input as hexadecimal\n");
     printf("  -v             Version information\n");
 
     printf("\nExamples:\n\n");
@@ -134,8 +134,8 @@ void print_usage(const char *name)
     printf("  %s sign rsa \"Message to sign\"\n", name);
 #if NOXTLS_FEATURE_ED25519
     printf("  %s genkey ed25519\n", name);
-    printf("  %s sign ed25519 -K key.pem \"message\"\n", name);
-    printf("  %s verify ed25519 -P <64-char hex> \"message\" <128-char hex sig>\n", name);
+    printf("  %s sign ed25519 -K key.pem \"noxtls_message\"\n", name);
+    printf("  %s verify ed25519 -P <64-char hex> \"noxtls_message\" <128-char hex sig>\n", name);
 #endif
     printf("\n");
 }
@@ -404,7 +404,8 @@ static int pkc_eddsa_genkey(pkc_alg_t alg)
 {
 #if NOXTLS_FEATURE_ED25519
     if(alg == PKC_ALG_ED25519) {
-        uint8_t sk[32], pk[32];
+        uint8_t sk[32];
+        uint8_t pk[32];
         if(noxtls_ed25519_generate_key(sk, pk) != NOXTLS_RETURN_SUCCESS) {
             return -1;
         }
@@ -417,7 +418,8 @@ static int pkc_eddsa_genkey(pkc_alg_t alg)
 #endif
 #if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
     if(alg == PKC_ALG_ED448) {
-        uint8_t sk[57], pk[57];
+        uint8_t sk[57];
+        uint8_t pk[57];
         if(noxtls_ed448_generate_key(sk, pk) != NOXTLS_RETURN_SUCCESS) {
             return -1;
         }
@@ -945,7 +947,7 @@ int main(int argc, char **argv)
 
     if(operation == PKC_OP_VERIFY) {
         if(arg_idx + 1 >= argc) {
-            printf("Error: Verify operation requires message and signature\n");
+            printf("Error: Verify operation requires noxtls_message and signature\n");
             return -1;
         }
 
@@ -963,7 +965,7 @@ int main(int argc, char **argv)
         if(input_type == INPUT_DATA_TYPE_HEX) {
             if(pkc_hex_to_bytes(argv[arg_idx], data_buffer, (uint32_t)(msg_len + 1u), &msg_bin_len) != 0) {
                 free(data_buffer);
-                printf("Error: Invalid message hex\n");
+                printf("Error: Invalid noxtls_message hex\n");
                 return -1;
             }
         } else {

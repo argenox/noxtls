@@ -1,8 +1,8 @@
 /*
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
  *
- * Minimal getopt implementation for Windows (MSVC).
- * Compiled only when _WIN32. Provides POSIX-like getopt for command-line parsing.
+ * Minimal noxtls_getopt implementation for Windows (MSVC).
+ * Compiled only when _WIN32. Provides POSIX-like noxtls_getopt for command-line parsing.
  */
 
 /** @addtogroup noxtls_common */
@@ -20,25 +20,25 @@ int optopt = 0;
 
 static char *getopt_place = NULL;
 
-int getopt(int argc, char * const argv[], const char *optstring)
+int noxtls_getopt(int argc, char * const argv[], const char *optstring)
 {
     const char *optchr;
 
     optarg = NULL;
     optopt = 0;
 
-    if (argc < 1 || argv == NULL || optstring == NULL) {
+    if(argc < 1 || argv == NULL || optstring == NULL) {
         return -1;
     }
 
-    if (getopt_place == NULL || *getopt_place == '\0') {
-        if (optind >= argc) {
+    if(getopt_place == NULL || *getopt_place == '\0') {
+        if(optind >= argc) {
             return -1;
         }
-        if (argv[optind][0] != '-' || argv[optind][1] == '\0') {
+        if(argv[optind][0] != '-' || argv[optind][1] == '\0') {
             return -1;
         }
-        if (strcmp(argv[optind], "--") == 0) {
+        if(strcmp(argv[optind], "--") == 0) {
             optind++;
             return -1;
         }
@@ -49,21 +49,21 @@ int getopt(int argc, char * const argv[], const char *optstring)
     getopt_place++;
 
     optchr = strchr(optstring, optopt);
-    if (optchr == NULL) {
-        if (opterr && *optstring != ':') {
+    if(optchr == NULL) {
+        if(opterr && *optstring != ':') {
             (void)fprintf(stderr, "%s: unknown option -%c\n", argv[0], optopt);
         }
         return '?';
     }
 
-    if (optchr[1] == ':') {
-        if (*getopt_place != '\0') {
+    if(optchr[1] == ':') {
+        if(*getopt_place != '\0') {
             optarg = (char *)getopt_place;
             getopt_place = NULL;
             optind++;
         } else {
-            if (optind + 1 >= argc) {
-                if (opterr && *optstring != ':') {
+            if(optind + 1 >= argc) {
+                if(opterr && *optstring != ':') {
                     (void)fprintf(stderr, "%s: option -%c requires an argument\n", argv[0], optopt);
                 }
                 return (*optstring == ':') ? ':' : '?';
@@ -73,7 +73,7 @@ int getopt(int argc, char * const argv[], const char *optstring)
         }
         getopt_place = NULL;
     } else {
-        if (*getopt_place == '\0') {
+        if(*getopt_place == '\0') {
             getopt_place = NULL;
             optind++;
         }

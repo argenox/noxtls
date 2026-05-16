@@ -27,7 +27,6 @@
 
 #include <stdint.h>
 #include <string.h>
-#include <stdio.h>
 
 #include "noxtls_common.h"
 #include "common/noxtls_debug_printf.h"
@@ -46,9 +45,11 @@
  * @param[in] length_size is the size of length in bytes
  *
  */
-void add_padding_length(uint8_t * data, uint32_t block_size, uint64_t length, uint8_t length_size)
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
+void noxtls_add_padding_length(uint8_t * data, uint32_t block_size, uint64_t length, uint8_t length_size)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    uint64_t bit_len = length * 8;
+    uint64_t bit_len = length * NOXTLS_HASH_BITS_PER_BYTE;
     uint32_t i = 0;
 
     if(data == NULL || block_size == 0 || length_size == 0 || length_size > block_size) {
@@ -56,17 +57,19 @@ void add_padding_length(uint8_t * data, uint32_t block_size, uint64_t length, ui
     }
 
     /* Big-endian length. For SHA-512, length_size is 16 but bit_len is 64-bit. */
-    if(length_size > 8) {
+    if(length_size > NOXTLS_HASH_BITLEN_UINT64_BYTES) {
         /* High bytes are zero when bit length fits in 64 bits */
-        for(i = 0; i < (uint32_t)(length_size - 8); i++) {
+        for(i = 0; i < (uint32_t)(length_size - NOXTLS_HASH_BITLEN_UINT64_BYTES); i++) {
             data[block_size - length_size + i] = 0x00;
         }
-        for(i = 0; i < 8; i++) {
-            data[block_size - 1 - i] = (uint8_t)((bit_len >> (8 * i)) & 0xFF);
+        for(i = 0; i < NOXTLS_HASH_BITLEN_UINT64_BYTES; i++) {
+            data[block_size - 1u - i] =
+                (uint8_t)((bit_len >> (NOXTLS_HASH_BITS_PER_BYTE * i)) & UINT8_MAX);
         }
     } else {
         for(i = 0; i < length_size; i++) {
-            data[block_size - 1 - i] = (uint8_t)((bit_len >> (8 * i)) & 0xFF);
+            data[block_size - 1u - i] =
+                (uint8_t)((bit_len >> (NOXTLS_HASH_BITS_PER_BYTE * i)) & UINT8_MAX);
         }
     }
 }
@@ -83,38 +86,26 @@ void add_padding_length(uint8_t * data, uint32_t block_size, uint64_t length, ui
  * @param[in] length_size is the size of length in bytes
  *
  */
-void add_padding_length_little(uint8_t * data, uint32_t block_size, uint64_t length, uint8_t length_size)
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
+void noxtls_add_padding_length_little(uint8_t * data, uint32_t block_size, uint64_t length, uint8_t length_size)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    uint64_t bit_len = length * 8;
+    uint64_t bit_len = length * NOXTLS_HASH_BITS_PER_BYTE;
     uint32_t i = 0;
 
     if(data == NULL || block_size == 0 || length_size == 0 || length_size > block_size) {
         return;
     }
 
-    for (i = 0; i < length_size; i++)
+    for(i = 0; i < length_size; i++)
     {
-        data[block_size - length_size + i] = (uint8_t)((bit_len >> (8 * i)) & 0xFF);
+        data[block_size - length_size + i] =
+            (uint8_t)((bit_len >> (NOXTLS_HASH_BITS_PER_BYTE * i)) & UINT8_MAX);
     }
-
-#if 0
-    memcpy(&data[block_size- 8], (uint8_t *)&length, 4);
-    memcpy(&data[block_size- 4], ((uint8_t *)&length)+4, 4);
-    
-    
-
-    uint32_t i = 0;
-    int j = 0;
-    for(i = length_size; i >= 1; i--)
-    {
-        data[block_size- 8 + j] = ((length << 3) & (0xFF << ((i-1) * 8))) >> ((i-1) * 8);
-        j++;
-    }
-#endif
 }
 
 
-void print_hash(uint8_t * hash, uint16_t len)
+void noxtls_print_hash(uint8_t * hash, uint16_t len)
 {
     int i = 0;
     if(hash == NULL || len == 0) {

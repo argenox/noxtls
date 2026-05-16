@@ -55,6 +55,9 @@ extern "C" {
 #define SHA3_RATE_512_BYTES       (72u)
 #define SHA3_CAPACITY_512_BYTES   (128u)
 /* SHAKE256 (FIPS 202): rate 1088 bits = 136 bytes, capacity 512 bits = 64 bytes */
+#define SHA3_SHAKE128_RATE_BYTES   (168u)
+#define SHA3_SHAKE128_CAPACITY_BYTES (32u)
+#define SHA3_SHAKE128_DOMAIN_SEP   (0x1Fu)
 #define SHA3_SHAKE256_RATE_BYTES   (136u)
 #define SHA3_SHAKE256_CAPACITY_BYTES (64u)
 #define SHA3_SHAKE256_DOMAIN_SEP   (0x1Fu)
@@ -77,7 +80,7 @@ typedef struct
     uint32_t capacity;                /* Capacity in bytes (c/8) */
     uint32_t output_len;              /* Output length in bytes */
     uint8_t domain_sep;               /* Domain separation suffix (0x06 for SHA-3) */
-    uint64_t total_length;            /* Total message length in bits */
+    uint64_t total_length;            /* Total noxtls_message length in bits */
     uint8_t finalized;                /* Flag to indicate if hash is finalized */
 } noxtls_sha3_ctx_t;
 NOXTLS_MSVC_WARNING_POP
@@ -93,6 +96,11 @@ noxtls_return_t noxtls_sha3_update(noxtls_sha3_ctx_t * ctx, const uint8_t * data
 noxtls_return_t noxtls_sha3_finish(noxtls_sha3_ctx_t * ctx, uint8_t * hash);
 
 /* SHAKE256 (FIPS 202, extendable output). Used by Ed448 (RFC 8032). */
+noxtls_return_t noxtls_shake128_init(noxtls_sha3_ctx_t * ctx);
+noxtls_return_t noxtls_shake128_update(noxtls_sha3_ctx_t * ctx, const uint8_t * data, uint32_t len);
+noxtls_return_t noxtls_shake128_final(noxtls_sha3_ctx_t * ctx);
+noxtls_return_t noxtls_shake128_squeeze(noxtls_sha3_ctx_t * ctx, uint8_t * out, uint32_t out_len);
+
 noxtls_return_t noxtls_shake256_init(noxtls_sha3_ctx_t * ctx);
 noxtls_return_t noxtls_shake256_update(noxtls_sha3_ctx_t * ctx, const uint8_t * data, uint32_t len);
 noxtls_return_t noxtls_shake256_final(noxtls_sha3_ctx_t * ctx);

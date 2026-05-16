@@ -11,11 +11,11 @@ Block and stream ciphers by mode: AES (ECB, CBC, CTR, CFB, OFB, GCM, CCM, XTS), 
 
 If your application receives data in chunks, use context-based APIs:
 
-- AES: `aes_init()` / `aes_update()` / `aes_final()`
-- ARIA: `aria_init()` / `aria_update()` / `aria_final()`
-- Camellia: `camellia_init()` / `camellia_update()` / `camellia_final()`
-- ChaCha20 already supports streaming with `chacha20_init()` / `chacha20_process()`
-- RC4 supports streaming with `rc4_init()` / `rc4_process()` (legacy only; RC4 is weak and should not be used for new designs)
+- AES: `noxtls_aes_init()` / `noxtls_aes_update()` / `noxtls_aes_final()`
+- ARIA: `noxtls_aria_init()` / `noxtls_aria_update()` / `noxtls_aria_final()`
+- Camellia: `noxtls_camellia_init()` / `noxtls_camellia_update()` / `noxtls_camellia_final()`
+- ChaCha20 already supports streaming with `noxtls_chacha20_init()` / `noxtls_chacha20_process()`
+- RC4 supports streaming with `rc4_init()` / `noxtls_rc4_process()` (legacy only; RC4 is weak and should not be used for new designs)
 - Poly1305 already supports incremental MAC with `poly1305_init()` / `poly1305_update()` / `poly1305_final()`
 
 ## Pages

@@ -16,7 +16,7 @@ const config = {
   url: 'https://docs.noxtls.com',
   baseUrl: '/',
 
-  onBrokenLinks: 'warn',
+  onBrokenLinks: 'throw',
 
   i18n: {
     defaultLocale: 'en',
@@ -68,6 +68,11 @@ const config = {
             label: 'GitHub',
             position: 'right',
           },
+          {
+            to: '/docs/next/security-reporting',
+            label: 'Security',
+            position: 'right',
+          },
         ],
       },
       footer: {
@@ -80,9 +85,12 @@ const config = {
               { label: 'Getting Started', to: '/docs/getting-started' },
               { label: 'Architecture', to: '/docs/architecture' },
               { label: 'Security', to: '/docs/security' },
+              { label: 'Security Reporting', to: '/docs/next/security-reporting' },
               { label: 'Crypto API', to: '/docs/api' },
               { label: 'Applications', to: '/docs/applications' },
               { label: 'Release Notes', to: '/docs/release-notes' },
+              { label: 'Project', to: '/docs/next/project' },
+              { label: 'Contributing', to: '/docs/next/contributing' },
             ],
           },
           {

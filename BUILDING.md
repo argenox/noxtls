@@ -39,6 +39,26 @@ cmake --build build --config Release
 
 ## Linux
 
+### Ubuntu packages
+
+Install baseline build dependencies:
+
+```bash
+sudo apt update
+sudo apt install -y build-essential cmake ninja-build pkg-config
+```
+
+Useful optional packages:
+
+```bash
+sudo apt install -y clang ccache openssl git
+```
+
+Notes:
+- `build-essential` provides GCC/G++ and Make.
+- `ninja-build` is recommended for faster incremental builds (use `-G Ninja`).
+- `openssl` is useful for generating local test certificates for TLS applications.
+
 Using default generator (usually Unix Makefiles or Ninja):
 
 ```bash
@@ -109,6 +129,26 @@ cmake -S . -B build -D NOXTLS_SIDECHANNEL_PROFILE=constant_time_strict -D BUILD_
 cmake --build build --config Release
 ```
 
+## TLS 1.2 legacy cipher suites (opt-in)
+
+NoxTLS is secure by default for TLS 1.2 cipher-suite negotiation:
+
+- Legacy TLS 1.2 CBC-mode and RSA key-exchange suites are disabled by default.
+- Default TLS 1.2 client/server negotiation focuses on modern AEAD suites.
+
+To explicitly enable legacy TLS 1.2 suites (for compatibility with older peers):
+
+```bash
+cmake -S . -B build -D NOXTLS_CFG_TLS12_ENABLE_LEGACY_CIPHER_SUITES=ON
+cmake --build build --config Release
+```
+
+For non-CMake integrations, set:
+
+- `NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES=1` in `noxtls_config.h` (or compiler defines).
+
+Keep this setting `OFF` unless required for legacy interoperability.
+
 ## Ed448 / EdDSA (optional)
 
 Ed448 requires SHA-3 (SHAKE256). Enable both when configuring:
@@ -120,13 +160,75 @@ cmake --build build --config Release
 
 `NOXTLS_CFG_FEATURE_ED448` defaults to `OFF` in the top-level `CMakeLists.txt`. With Ed448 enabled, TLS 1.3 advertises signature scheme **0x0808** (Ed448), X.509 parses **id-Ed448** (1.3.101.113) subject public keys, and the **certgen** tool provides `gened448`. Unit tests under `ut/pkc/` exercise Ed448 and Ed25519ctx/Ed25519ph when these flags are on.
 
+## Post-Quantum TLS 1.3 (experimental)
+
+Enable ML-KEM and ML-DSA feature gates when configuring:
+
+```bash
+cmake -S . -B build -D NOXTLS_CFG_FEATURE_ML_KEM=ON -D NOXTLS_CFG_FEATURE_ML_DSA=ON
+cmake --build build --config Release
+```
+
+Current experimental scope:
+- ML-KEM-512/768/1024 APIs (`pkc/mlkem`)
+- ML-DSA-44/65/87 APIs (`pkc/mldsa`)
+- TLS 1.3 advertisement and keyshare processing for pure ML-KEM and X25519+ML-KEM hybrid groups
+- TLS 1.3 CertificateVerify paths for ML-DSA signature schemes
+
+See `PQC_STATUS.md` for implementation and interop status by algorithm/mode.
+Use `ctest --output-on-failure` in a PQ-enabled test build to run KAT and conformance/fuzz-smoke targets (for example `mlkem_kat_test`, `mldsa_kat_test`, `pqc_fuzz_smoke_test`).
+
+Enable strict official-output vector checks (experimental):
+
+```bash
+cmake -S . -B build-pqc-strict -D BUILD_TESTS=ON -D BUILD_APPLICATIONS=OFF -D NOXTLS_CFG_FEATURE_ML_KEM=ON -D NOXTLS_CFG_FEATURE_ML_DSA=ON -D NOXTLS_CFG_PQC_STRICT_OFFICIAL_VECTORS=ON
+cmake --build build-pqc-strict --config Release
+ctest --test-dir build-pqc-strict --output-on-failure -R "mlkem_official_keygen_conformance_test"
+```
+
+To include ML-DSA keygen strict checks in the same run:
+
+```bash
+ctest --test-dir build-pqc-strict --output-on-failure -R "mlkem_official_keygen_conformance_test|mldsa_official_keygen_conformance_test|mldsa_official_siggen_conformance_test|mldsa_official_sigver_conformance_test"
+```
+
 ## Common Build Flags
 
 - `-D BUILD_APPLICATIONS=OFF`: Build library only
 - `-D BUILD_TESTS=OFF`: Disable test apps in normal builds
 - `-D NOXTLS_SIDECHANNEL_PROFILE=balanced`: Choose timing-hardening profile (`performance|balanced|constant_time_strict`)
+- `-D NOXTLS_CFG_FEATURE_ML_KEM=ON`: Enable ML-KEM primitives and TLS PQ keyshare paths
+- `-D NOXTLS_CFG_FEATURE_ML_DSA=ON`: Enable ML-DSA primitives and TLS PQ signature paths
 - `-D WARNINGS_AS_ERRORS=ON`: Treat warnings as errors (non-MSVC)
 - `-D BUILD_SHARED_LIBS=ON`: Build shared libs
+
+## Static Analysis
+
+NoxTLS provides local and CI static-analysis coverage:
+
+- `cppcheck` (fast/portable rule-based checks)
+- `clang-tidy` (AST-aware correctness/style checks)
+- `scan-build` (Clang Static Analyzer, path-sensitive checks)
+- `Semgrep` (`p/ci` security and bug patterns)
+- `CodeQL` (already configured in `.github/workflows/codeql.yml`)
+
+### Run local analysis and capture reports
+
+From the repository root:
+
+```bash
+./scripts/run_static_analysis.sh
+```
+
+The script writes results to:
+
+- `reports/static-analysis/cppcheck.txt`
+- `reports/static-analysis/clang-tidy.txt`
+- `reports/static-analysis/summary.txt`
+
+If local analyzers are unavailable in system PATH, the script also checks user-local extractions under `.local-tools/root/`.
+
+**Cppcheck data files:** Debian/Ubuntu `cppcheck` expects `std.cfg` under `/usr/lib/x86_64-linux-gnu/cppcheck/cfg/`. A binary unpacked from a `.deb` alone often cannot run until those cfg files exist at that path (or you use a newer cppcheck that supports `--data-dir`). If preflight fails, the script writes an explanation to `reports/static-analysis/cppcheck.txt` and skips cppcheck unless you set `REQUIRE_CPPCHECK=1` (then the script exits with an error).
 
 ## Troubleshooting
 

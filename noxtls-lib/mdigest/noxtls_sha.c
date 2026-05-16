@@ -92,27 +92,27 @@ noxtls_return_t noxtls_sha_init(noxtls_sha_ctx_t * ctx, noxtls_hash_algos_t algo
             return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
         case NOXTLS_HASH_SHA_224:
-#if NOXTLS_FEATURE_SHA224
-            return noxtls_sha256_init(ctx, algo);
-#else
-            return NOXTLS_RETURN_NOT_SUPPORTED;
-#endif
         case NOXTLS_HASH_SHA_256:
-#if NOXTLS_FEATURE_SHA256
+#if NOXTLS_FEATURE_SHA224 || NOXTLS_FEATURE_SHA256
+            if((algo == NOXTLS_HASH_SHA_224 && !NOXTLS_FEATURE_SHA224) ||
+               (algo == NOXTLS_HASH_SHA_256 && !NOXTLS_FEATURE_SHA256)) {
+                return NOXTLS_RETURN_NOT_SUPPORTED;
+            }
             return noxtls_sha256_init(ctx, algo);
 #else
             return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
         case NOXTLS_HASH_SHA_384:
-#if NOXTLS_FEATURE_SHA384
-            return noxtls_sha512_init(&ctx->sha512_ctx, algo);
-#else
-            return NOXTLS_RETURN_NOT_SUPPORTED;
-#endif
         case NOXTLS_HASH_SHA_512:
         case NOXTLS_HASH_SHA_512_224:
         case NOXTLS_HASH_SHA_512_256:
-#if NOXTLS_FEATURE_SHA512
+#if NOXTLS_FEATURE_SHA384 || NOXTLS_FEATURE_SHA512
+            if((algo == NOXTLS_HASH_SHA_384 && !NOXTLS_FEATURE_SHA384) ||
+               ((algo == NOXTLS_HASH_SHA_512 ||
+                 algo == NOXTLS_HASH_SHA_512_224 ||
+                 algo == NOXTLS_HASH_SHA_512_256) && !NOXTLS_FEATURE_SHA512)) {
+                return NOXTLS_RETURN_NOT_SUPPORTED;
+            }
             return noxtls_sha512_init(&ctx->sha512_ctx, algo);
 #else
             return NOXTLS_RETURN_NOT_SUPPORTED;

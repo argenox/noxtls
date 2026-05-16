@@ -43,8 +43,8 @@ extern "C" {
 #define NOXTLS_RC4_DEBUG (0)
 
 /* RC4 key length: 1 to 256 bytes (typically 16 for 128-bit) */
-#define RC4_KEY_MIN_BYTES  1
-#define RC4_KEY_MAX_BYTES  256
+#define NOXTLS_RC4_KEY_MIN_BYTES  1
+#define NOXTLS_RC4_KEY_MAX_BYTES  256
 
 /* RC4 Context Structure */
 NOXTLS_MSVC_WARNING_PUSH
@@ -54,18 +54,18 @@ typedef struct
     uint8_t S[256];   /* State (permutation of 0..255) */
     uint8_t i;       /* Index i for PRGA */
     uint8_t j;       /* Index j for PRGA */
-} rc4_context_t;
+} noxtls_rc4_context_t;
 NOXTLS_MSVC_WARNING_POP
 
 /**
  * @brief Initialize RC4 context
  *
  * @param ctx RC4 context to initialize
- * @param key Key bytes (length between RC4_KEY_MIN_BYTES and RC4_KEY_MAX_BYTES)
+ * @param key Key bytes (length between NOXTLS_RC4_KEY_MIN_BYTES and NOXTLS_RC4_KEY_MAX_BYTES)
  * @param key_len Key length in bytes (1–256)
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL or NOXTLS_RETURN_FAILED on invalid args
  */
-noxtls_return_t rc4_init(rc4_context_t *ctx, const uint8_t *key, uint32_t key_len);
+noxtls_return_t noxtls_rc4_init(noxtls_rc4_context_t *ctx, const uint8_t *key, uint32_t key_len);
 
 /**
  * @brief Encrypt/Decrypt data using RC4
@@ -78,7 +78,7 @@ noxtls_return_t rc4_init(rc4_context_t *ctx, const uint8_t *key, uint32_t key_le
  * @param input_len Length of input in bytes
  * @return NOXTLS_RETURN_SUCCESS on success
  */
-noxtls_return_t rc4_process(rc4_context_t *ctx,
+noxtls_return_t noxtls_rc4_process(noxtls_rc4_context_t *ctx,
                             const uint8_t *input,
                             uint8_t *output,
                             uint32_t input_len);
@@ -93,7 +93,7 @@ noxtls_return_t rc4_process(rc4_context_t *ctx,
  * @param output Output buffer for ciphertext (at least input_len bytes)
  * @return NOXTLS_RETURN_SUCCESS on success
  */
-noxtls_return_t rc4_encrypt(const uint8_t *key, uint32_t key_len,
+noxtls_return_t noxtls_rc4_encrypt(const uint8_t *key, uint32_t key_len,
                             const uint8_t *input, uint32_t input_len,
                             uint8_t *output);
 
@@ -107,7 +107,7 @@ noxtls_return_t rc4_encrypt(const uint8_t *key, uint32_t key_len,
  * @param output Output buffer for plaintext (at least input_len bytes)
  * @return NOXTLS_RETURN_SUCCESS on success
  */
-noxtls_return_t rc4_decrypt(const uint8_t *key, uint32_t key_len,
+noxtls_return_t noxtls_rc4_decrypt(const uint8_t *key, uint32_t key_len,
                             const uint8_t *input, uint32_t input_len,
                             uint8_t *output);
 
@@ -116,7 +116,7 @@ noxtls_return_t rc4_decrypt(const uint8_t *key, uint32_t key_len,
  *
  * @return NOXTLS_RETURN_SUCCESS if all tests pass
  */
-noxtls_return_t rc4_self_test(void);
+noxtls_return_t noxtls_rc4_self_test(void);
 
 #ifdef __cplusplus
 }

@@ -49,12 +49,12 @@ extern "C"
  * @param prefix is prefix to use
  *
  */
-void print_state(uint32_t cur_round, const uint8_t state[4][4], const char * prefix)
+void noxtls_print_state(uint32_t cur_round, const uint8_t state[4][4], const char * prefix)
 {
     int row;
     uint32_t val[4];
     
-    for (row = 0; row < 4; row++)
+    for(row = 0; row < 4; row++)
     {
         val[row] = (state[0][row] << 24) | (state[1][row]<< 16) | (state[2][row] << 8) | state[3][row];
     }
@@ -69,12 +69,12 @@ void print_state(uint32_t cur_round, const uint8_t state[4][4], const char * pre
  * @param state is the state to print
  *
  */    
-void print_state_matrix(const uint8_t state[4][4])
+void noxtls_print_state_matrix(const uint8_t state[4][4])
 {
     int row;
     int col;
     
-    for (row = 0; row < 4; row++)
+    for(row = 0; row < 4; row++)
     {
         for(col = 0; col < 4; col++) {
             printf("%02x ", state[row][col]);

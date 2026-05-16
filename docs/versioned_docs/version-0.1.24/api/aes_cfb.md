@@ -41,10 +41,10 @@ CFB provides confidentiality and removes block-level pattern leakage when the IV
 
 ## API
 
-### `aes_encrypt_cfb`
+### `noxtls_aes_encrypt_cfb`
 
 ```c
-noxtls_return_t aes_encrypt_cfb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, aes_type_t type);
+noxtls_return_t noxtls_aes_encrypt_cfb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aes_type_t type);
 ```
 
 AES Encrypt in CFB Mode  Cipher Feedback mode: The previous ciphertext block (or IV for first block) is encrypted to produce a keystream, which is XORed with the plaintext. Supports arbitrary-length data.

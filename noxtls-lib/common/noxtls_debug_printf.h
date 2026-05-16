@@ -44,6 +44,7 @@
 
 #include <stdarg.h>
 #include <stddef.h>
+#include "noxtls_config.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -75,6 +76,36 @@ int noxtls_debug_printf(const char *format, ...);
  * @return Number of characters printed, or negative value on error
  */
 int noxtls_debug_vprintf(const char *format, va_list args);
+
+/**
+ * @brief Set runtime debug verbosity level for noxtls_debug_printf.
+ *
+ * Levels:
+ *   0 = disabled
+ *   1 = standard debug (suppresses very chatty TLS13 traces)
+ *   2 = full debug output
+ *
+ * @param[in] level Debug level.
+ */
+void noxtls_debug_set_level(unsigned char level);
+
+/**
+ * @brief Get runtime debug verbosity level.
+ *
+ * @return Current debug level.
+ */
+unsigned char noxtls_debug_get_level(void);
+
+/**
+ * @brief Configure optional debug log output file.
+ *
+ * When configured, debug output is still printed to stdout and also appended
+ * to the specified file. Pass NULL or an empty string to disable file logging.
+ *
+ * @param[in] path Log file path to open in append mode, or NULL/empty to disable.
+ * @return 0 on success, -1 on failure (e.g., file open error).
+ */
+int noxtls_debug_set_log_file(const char *path);
 
 #ifdef __cplusplus
 }

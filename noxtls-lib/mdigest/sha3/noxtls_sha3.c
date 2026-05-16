@@ -88,8 +88,10 @@ static inline sha3_lane_t sha3_rotl64(sha3_lane_t x, uint8_t n)
  */
 static void keccak_theta(noxtls_sha3_ctx_t * ctx)
 {
-    sha3_lane_t C[SHA3_MAX_X_SIZE], D[SHA3_MAX_X_SIZE];
-    int x, y;
+    sha3_lane_t C[SHA3_MAX_X_SIZE];
+    sha3_lane_t D[SHA3_MAX_X_SIZE];
+    int x;
+    int y;
     
     /* Compute parity of columns */
     for(x = 0; x < SHA3_MAX_X_SIZE; x++) {
@@ -118,7 +120,8 @@ static void keccak_theta(noxtls_sha3_ctx_t * ctx)
 static void keccak_rho(noxtls_sha3_ctx_t * ctx)
 {
     sha3_lane_t temp[SHA3_MAX_X_SIZE][SHA3_MAX_Y_SIZE];
-    int x, y;
+    int x;
+    int y;
     
     /* Copy state */
     for(x = 0; x < SHA3_MAX_X_SIZE; x++) {
@@ -143,7 +146,8 @@ static void keccak_rho(noxtls_sha3_ctx_t * ctx)
 static void keccak_pi(noxtls_sha3_ctx_t * ctx)
 {
     sha3_lane_t temp[SHA3_MAX_X_SIZE][SHA3_MAX_Y_SIZE];
-    int x, y;
+    int x;
+    int y;
     
     /* Copy state */
     for(x = 0; x < SHA3_MAX_X_SIZE; x++) {
@@ -168,7 +172,8 @@ static void keccak_pi(noxtls_sha3_ctx_t * ctx)
 static void keccak_chi(noxtls_sha3_ctx_t * ctx)
 {
     sha3_lane_t temp[SHA3_MAX_X_SIZE][SHA3_MAX_Y_SIZE];
-    int x, y;
+    int x;
+    int y;
     
     /* Copy state */
     for(x = 0; x < SHA3_MAX_X_SIZE; x++) {
@@ -203,7 +208,7 @@ static void keccak_iota(noxtls_sha3_ctx_t * ctx, int round)
  */
 static void keccak_f1600(noxtls_sha3_ctx_t * ctx)
 {
-    unsigned int round;
+    int round;
 
     for(round = 0; round < SHA3_KECCAK_ROUNDS; round++) {
         keccak_theta(ctx);
@@ -421,6 +426,62 @@ noxtls_return_t noxtls_sha3_finish(noxtls_sha3_ctx_t * ctx, uint8_t * hash)
 }
 
 /* SHAKE256 (FIPS 202): extendable-output function. Domain sep 0x1f, rate 136 bytes. */
+noxtls_return_t noxtls_shake128_init(noxtls_sha3_ctx_t * ctx)
+{
+    if(ctx == NULL) return NOXTLS_RETURN_NULL;
+    memset(ctx->state, 0, SHA3_STATE_SIZE);
+    memset(ctx->buffer, 0, sizeof(ctx->buffer));
+    ctx->rate = SHA3_SHAKE128_RATE_BYTES;
+    ctx->capacity = SHA3_SHAKE128_CAPACITY_BYTES;
+    ctx->domain_sep = SHA3_SHAKE128_DOMAIN_SEP;
+    ctx->output_len = 0;
+    ctx->buffer_len = 0;
+    ctx->total_length = 0;
+    ctx->finalized = 0;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_shake128_update(noxtls_sha3_ctx_t * ctx, const uint8_t * data, uint32_t len)
+{
+    if(ctx == NULL) return NOXTLS_RETURN_NULL;
+    if(ctx->finalized) return NOXTLS_RETURN_FAILED;
+    ctx->total_length += len;
+    return sha3_absorb(ctx, data, len);
+}
+
+noxtls_return_t noxtls_shake128_final(noxtls_sha3_ctx_t * ctx)
+{
+    if(ctx == NULL) return NOXTLS_RETURN_NULL;
+    if(ctx->finalized) return NOXTLS_RETURN_SUCCESS;
+    ctx->state[ctx->buffer_len] ^= ctx->domain_sep;
+    ctx->state[ctx->rate - 1] ^= SHA3_PAD_FINAL_BYTE;
+    keccak_f1600(ctx);
+    ctx->buffer_len = 0;
+    ctx->finalized = 1;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_shake128_squeeze(noxtls_sha3_ctx_t * ctx, uint8_t * out, uint32_t out_len)
+{
+    uint32_t copied = 0;
+    if(ctx == NULL || (out == NULL && out_len != 0)) return NOXTLS_RETURN_NULL;
+    if(!ctx->finalized) return NOXTLS_RETURN_FAILED;
+    while(copied < out_len) {
+        uint32_t from_state = ctx->rate - ctx->buffer_len;
+        uint32_t to_copy = (out_len - copied) < from_state ? (out_len - copied) : from_state;
+        if(to_copy > 0) {
+            memcpy(out + copied, ctx->state + ctx->buffer_len, to_copy);
+            copied += to_copy;
+            ctx->buffer_len += to_copy;
+        }
+        if(ctx->buffer_len >= ctx->rate) {
+            keccak_f1600(ctx);
+            ctx->buffer_len = 0;
+        }
+    }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
 noxtls_return_t noxtls_shake256_init(noxtls_sha3_ctx_t * ctx)
 {
     if(ctx == NULL) return NOXTLS_RETURN_NULL;
@@ -531,8 +592,8 @@ noxtls_return_t noxtls_sha3_verify(uint8_t * data, uint32_t len, uint8_t * expec
     
     if(debug_lvl > 0) {
         noxtls_debug_printf("Compare: \n");
-        print_hash(hash, (uint16_t)hash_len);
-        print_hash(expected, (uint16_t)hash_len);
+        noxtls_print_hash(hash, (uint16_t)hash_len);
+        noxtls_print_hash(expected, (uint16_t)hash_len);
     }
     
     if(memcmp(hash, expected, hash_len) == 0) {

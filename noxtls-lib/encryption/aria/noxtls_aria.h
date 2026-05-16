@@ -55,111 +55,111 @@ extern "C" {
 
 #define NOXTLS_ARIA_DEBUG (0)
 
-#define ARIA_128_ROUNDS 12
-#define ARIA_192_ROUNDS 14
-#define ARIA_256_ROUNDS 16
+#define NOXTLS_ARIA_128_ROUNDS 12
+#define NOXTLS_ARIA_192_ROUNDS 14
+#define NOXTLS_ARIA_256_ROUNDS 16
 
-#define ARIA_BLOCK_LENGTH 16
-
-typedef enum
-{
-	ARIA_128_BIT = 0,
-	ARIA_192_BIT = 1,
-	ARIA_256_BIT = 2,
-} aria_type_t;
+#define NOXTLS_ARIA_BLOCK_LENGTH 16
 
 typedef enum
 {
-	ARIA_ECB = 0,
-	ARIA_CBC = 1,
-	ARIA_CTR = 2,
-	ARIA_CFB = 3,
-	ARIA_OFB = 4,
-} aria_mode_t;
+	NOXTLS_ARIA_128_BIT = 0,
+	NOXTLS_ARIA_192_BIT = 1,
+	NOXTLS_ARIA_256_BIT = 2,
+} noxtls_aria_type_t;
 
 typedef enum
 {
-    ARIA_OP_ENCRYPT = 0,
-    ARIA_OP_DECRYPT = 1,
-} aria_operation_t;
+	NOXTLS_ARIA_ECB = 0,
+	NOXTLS_ARIA_CBC = 1,
+	NOXTLS_ARIA_CTR = 2,
+	NOXTLS_ARIA_CFB = 3,
+	NOXTLS_ARIA_OFB = 4,
+} noxtls_aria_mode_t;
+
+typedef enum
+{
+    NOXTLS_ARIA_OP_ENCRYPT = 0,
+    NOXTLS_ARIA_OP_DECRYPT = 1,
+} noxtls_aria_operation_t;
 
 /* ARIA Key Schedule Structure */
 typedef struct
 {
 	uint8_t round_key[17][16];  /* Round keys (max 16 rounds + 1 initial key) */
 	int rounds;                  /* Number of rounds */
-	aria_type_t key_type;        /* Key size type */
-} aria_key_t;
+	noxtls_aria_type_t key_type;        /* Key size type */
+} noxtls_aria_key_t;
 
 typedef struct
 {
     uint8_t key[32];
-    uint8_t feedback[ARIA_BLOCK_LENGTH];
-    uint8_t partial[ARIA_BLOCK_LENGTH];
+    uint8_t feedback[NOXTLS_ARIA_BLOCK_LENGTH];
+    uint8_t partial[NOXTLS_ARIA_BLOCK_LENGTH];
     uint8_t key_len;
     uint8_t partial_len;
-    aria_type_t type;
-    aria_mode_t mode;
-    aria_operation_t op;
+    noxtls_aria_type_t type;
+    noxtls_aria_mode_t mode;
+    noxtls_aria_operation_t op;
     uint8_t initialized;
-    aria_key_t enc_key;
-    aria_key_t dec_key;
-} aria_context_t;
+    noxtls_aria_key_t enc_key;
+    noxtls_aria_key_t dec_key;
+} noxtls_aria_context_t;
 
 /* Core ARIA Functions */
-noxtls_return_t aria_set_encrypt_key(const uint8_t *user_key, aria_type_t key_type, aria_key_t *key);
-noxtls_return_t aria_set_decrypt_key(const uint8_t *user_key, aria_type_t key_type, aria_key_t *key);
-void aria_encrypt_block(const aria_key_t *key, const uint8_t in[16], uint8_t out[16]);
-void aria_decrypt_block(const aria_key_t *key, const uint8_t in[16], uint8_t out[16]);
+noxtls_return_t noxtls_aria_set_encrypt_key(const uint8_t *user_key, noxtls_aria_type_t key_type, noxtls_aria_key_t *key);
+noxtls_return_t noxtls_aria_set_decrypt_key(const uint8_t *user_key, noxtls_aria_type_t key_type, noxtls_aria_key_t *key);
+void noxtls_aria_encrypt_block(const noxtls_aria_key_t *key, const uint8_t in[16], uint8_t out[16]);
+void noxtls_aria_decrypt_block(const noxtls_aria_key_t *key, const uint8_t in[16], uint8_t out[16]);
 
 /* High-level ARIA Functions */
-noxtls_return_t aria_encrypt_data(const uint8_t* key,
+noxtls_return_t noxtls_aria_encrypt_data(const uint8_t* key,
                       const uint8_t* data,
                       uint32_t data_len,
                       const uint8_t * iv,
                       uint8_t* output,
-                      aria_type_t type,
-                      aria_mode_t mode);
+                      noxtls_aria_type_t type,
+                      noxtls_aria_mode_t mode);
 
-noxtls_return_t aria_decrypt_data(const uint8_t* key,
+noxtls_return_t noxtls_aria_decrypt_data(const uint8_t* key,
                       const uint8_t* data,
                       uint32_t data_len,
                       const uint8_t * iv,
                       uint8_t* output,
-                      aria_type_t type,
-                      aria_mode_t mode);
+                      noxtls_aria_type_t type,
+                      noxtls_aria_mode_t mode);
 
-noxtls_return_t aria_self_test(void);
+noxtls_return_t noxtls_aria_self_test(void);
 
 /* ARIA Mode-Specific Functions */
-noxtls_return_t aria_encrypt_cbc(const uint8_t* key,
+noxtls_return_t noxtls_aria_encrypt_cbc(const uint8_t* key,
                      const uint8_t* data,
                      uint32_t data_len,
                      const uint8_t * iv,
                      uint8_t* output,
-                     aria_type_t type);
+                     noxtls_aria_type_t type);
 
-noxtls_return_t aria_decrypt_cbc(const uint8_t* key,
+noxtls_return_t noxtls_aria_decrypt_cbc(const uint8_t* key,
                      const uint8_t* data,
                      uint32_t data_len,
                      const uint8_t * iv,
                      uint8_t* output,
-                     aria_type_t type);
+                     noxtls_aria_type_t type);
 
-noxtls_return_t aria_init(aria_context_t *ctx,
+noxtls_return_t noxtls_aria_init(noxtls_aria_context_t *ctx,
               const uint8_t *key,
               const uint8_t *iv,
-              aria_type_t type,
-              aria_mode_t mode,
-              aria_operation_t op);
+              noxtls_aria_type_t type,
+              noxtls_aria_mode_t mode,
+              noxtls_aria_operation_t op);
 
-noxtls_return_t aria_update(aria_context_t *ctx,
+noxtls_return_t noxtls_aria_update(noxtls_aria_context_t *ctx,
                 const uint8_t *input,
                 uint32_t input_len,
                 uint8_t *output,
                 uint32_t *output_len);
 
-noxtls_return_t aria_final(aria_context_t *ctx,
+noxtls_return_t noxtls_aria_final(noxtls_aria_context_t *ctx,
                uint8_t *output,
                uint32_t *output_len);
 

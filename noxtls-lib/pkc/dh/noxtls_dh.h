@@ -35,7 +35,7 @@ extern "C" {
 
 /**
  * Get FFDHE group parameters (p, g) for a TLS named group.
- * @param named_group TLS named group (256=ffdhe2048, 257=ffdhe3072, 258=ffdhe4096)
+ * @param named_group TLS NamedGroup (e.g. TLS_NAMED_GROUP_FFDHE2048 .. TLS_NAMED_GROUP_FFDHE8192)
  * @param p output: pointer to prime modulus (p_len bytes, big-endian)
  * @param g output: pointer to generator (p_len bytes, big-endian; value 2)
  * @param p_len output: length of p in bytes
@@ -45,6 +45,23 @@ noxtls_return_t noxtls_dh_ffdhe_params(uint16_t named_group,
                                         const uint8_t **p,
                                         const uint8_t **g,
                                         uint32_t *p_len);
+
+/**
+ * RFC 7919 FFDHE ephemeral key pair using a minimum-length private exponent (Table 2)
+ * for safe-prime groups. This matches common TLS stacks and keeps large-group handshakes
+ * practical while remaining within FFDHE guidance.
+ *
+ * @param named_group TLS NamedGroup (TLS_NAMED_GROUP_FFDHE2048 .. TLS_NAMED_GROUP_FFDHE8192)
+ * @param private_out p_len bytes, big-endian (high bytes zero-padded)
+ * @param public_out p_len bytes, big-endian
+ */
+noxtls_return_t noxtls_dh_ffdhe_generate_ephemeral(uint16_t named_group,
+                                                   uint8_t *private_out,
+                                                   uint8_t *public_out);
+
+noxtls_return_t noxtls_dh_ffdhe_validate_client_key_share(uint16_t named_group,
+                                                        const uint8_t *key_exchange,
+                                                        uint32_t key_exchange_len);
 
 /**
  * Generate ephemeral DH key pair.

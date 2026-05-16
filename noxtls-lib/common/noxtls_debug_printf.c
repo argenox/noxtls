@@ -40,7 +40,11 @@
 
 #include <stdio.h>
 #include <stdarg.h>
+#include <string.h>
 #include "noxtls_debug_printf.h"
+
+static unsigned char g_noxtls_debug_level = 1u;
+static FILE *g_noxtls_debug_log_fp = NULL;
 
 #ifdef __cplusplus
 extern "C" {
@@ -81,8 +85,55 @@ int noxtls_debug_vprintf(const char *format, va_list args)
     (void)args;
     return 0;
 #else
-    return vprintf(format, args);
+    if(format == NULL) {
+        return 0;
+    }
+    if(g_noxtls_debug_level == 0u) {
+        return 0;
+    }
+    if(g_noxtls_debug_level == 1u && strstr(format, "[TLS13_DEBUG]") != NULL) {
+        return 0;
+    }
+    {
+        int stdout_result;
+        va_list args_copy;
+        va_copy(args_copy, args);
+        stdout_result = vprintf(format, args);
+        if(g_noxtls_debug_log_fp != NULL) {
+            (void)vfprintf(g_noxtls_debug_log_fp, format, args_copy);
+            fflush(g_noxtls_debug_log_fp);
+        }
+        va_end(args_copy);
+        return stdout_result;
+    }
 #endif
+}
+
+void noxtls_debug_set_level(unsigned char level)
+{
+    g_noxtls_debug_level = level;
+}
+
+unsigned char noxtls_debug_get_level(void)
+{
+    return g_noxtls_debug_level;
+}
+
+int noxtls_debug_set_log_file(const char *path)
+{
+    if(g_noxtls_debug_log_fp != NULL) {
+        fclose(g_noxtls_debug_log_fp);
+        g_noxtls_debug_log_fp = NULL;
+    }
+    if(path == NULL || path[0] == '\0') {
+        return 0;
+    }
+    g_noxtls_debug_log_fp = fopen(path, "a");
+    if(g_noxtls_debug_log_fp == NULL) {
+        return -1;
+    }
+    setvbuf(g_noxtls_debug_log_fp, NULL, _IOLBF, 0);
+    return 0;
 }
 
 #ifdef __cplusplus

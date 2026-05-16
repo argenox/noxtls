@@ -9,10 +9,10 @@ ARIA in CBC (Cipher Block Chaining) mode: each plaintext block is XORed with the
 
 ## API
 
-### `aria_encrypt_cbc`
+### `noxtls_aria_encrypt_cbc`
 
 ```c
-noxtls_return_t aria_encrypt_cbc(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t* iv, uint8_t* output, aria_type_t type);
+noxtls_return_t noxtls_aria_encrypt_cbc(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t* iv, uint8_t* output, noxtls_aria_type_t type);
 ```
 
 Encrypts data in ARIA CBC mode. IV must be 16 bytes and unique per encryption.
@@ -21,10 +21,10 @@ Encrypts data in ARIA CBC mode. IV must be 16 bytes and unique per encryption.
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success; otherwise a specific [return code](/docs/api/return_codes).
 
-### `aria_decrypt_cbc`
+### `noxtls_aria_decrypt_cbc`
 
 ```c
-noxtls_return_t aria_decrypt_cbc(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t* iv, uint8_t* output, aria_type_t type);
+noxtls_return_t noxtls_aria_decrypt_cbc(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t* iv, uint8_t* output, noxtls_aria_type_t type);
 ```
 
 Decrypts data in ARIA CBC mode. Use the same IV that was used for encryption.

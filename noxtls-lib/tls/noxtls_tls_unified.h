@@ -67,10 +67,19 @@ typedef struct noxtls_tls_connection_s
     uint16_t negotiated_version;   /* 0 before handshake; TLS_VERSION_1_2 or TLS_VERSION_1_3 after */
     uint8_t is_tls13;              /* 1 if active context is TLS 1.3 */
     uint8_t fixed_version;         /* 1 if init_version was used (only that version is used) */
+    /** 1 if TLS 1.3 may be negotiated on this connection (auto init, or init_version(TLS 1.3)). Used for RFC 8446 TLS 1.2 downgrade random. */
+    uint8_t config_offers_tls13;
     /* Config applied when version is chosen (server cert/key; client SNI) */
     const uint8_t *server_cert;
     uint32_t server_cert_len;
+    const uint8_t **server_cert_chain;
+    const uint32_t *server_cert_chain_len;
+    uint32_t server_cert_chain_count;
     void *server_private_rsa;
+    const uint16_t *server_cipher_suites;
+    uint32_t server_cipher_suites_count;
+    const char **server_alpn_protocols;
+    uint32_t server_alpn_count;
     const char *server_name;
     uint16_t server_name_len;
     union {
@@ -100,9 +109,22 @@ noxtls_return_t noxtls_tls_connection_set_time_callback(noxtls_tls_connection_t 
 
 /** Server: set certificate (DER). Applied to chosen context at accept. */
 noxtls_return_t noxtls_tls_connection_set_server_cert(noxtls_tls_connection_t *conn, const uint8_t *cert, uint32_t cert_len);
+/** Server: set optional intermediate certificate chain (DER). Applied at accept. */
+noxtls_return_t noxtls_tls_connection_set_server_cert_chain(noxtls_tls_connection_t *conn,
+                                                            const uint8_t **certs,
+                                                            const uint32_t *cert_lens,
+                                                            uint32_t cert_count);
 
 /** Server: set RSA private key for Server Key Exchange / CertificateVerify. */
 noxtls_return_t noxtls_tls_connection_set_server_private_key(noxtls_tls_connection_t *conn, void *rsa_key);
+/** Server: set cipher-suite allowlist (wire IDs). */
+noxtls_return_t noxtls_tls_connection_set_server_cipher_suites(noxtls_tls_connection_t *conn,
+                                                               const uint16_t *suites,
+                                                               uint32_t count);
+/** Server: set supported ALPN protocol names (non-owning). */
+noxtls_return_t noxtls_tls_connection_set_server_alpn_protocols(noxtls_tls_connection_t *conn,
+                                                                const char **protocols,
+                                                                uint32_t count);
 
 /** Client: set SNI hostname. Applied at connect. */
 noxtls_return_t noxtls_tls_connection_set_sni(noxtls_tls_connection_t *conn, const char *name, uint16_t name_len);

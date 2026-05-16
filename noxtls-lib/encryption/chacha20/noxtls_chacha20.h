@@ -42,23 +42,25 @@ extern "C" {
 #define NOXTLS_CHACHA20_DEBUG (0)
 
 /* ChaCha20 Constants */
-#define CHACHA20_KEY_SIZE       32  /* 256-bit key */
-#define CHACHA20_NONCE_SIZE     12  /* 96-bit nonce (RFC 7539) */
-#define CHACHA20_BLOCK_SIZE     64  /* 512-bit block */
-#define CHACHA20_ROUNDS         20  /* 20 rounds (10 double rounds) */
+#define NOXTLS_CHACHA20_KEY_SIZE       32  /* 256-bit key */
+#define NOXTLS_CHACHA20_NONCE_SIZE     12  /* 96-bit nonce (RFC 7539) */
+#define NOXTLS_CHACHA20_BLOCK_SIZE     64  /* 512-bit block */
+#define NOXTLS_CHACHA20_ROUNDS         20  /* 20 rounds (10 double rounds) */
+#define NOXTLS_CHACHA20_STATE_WORDS    16  /* 512-bit state as 32-bit words (RFC 7539) */
+#define NOXTLS_CHACHA20_DOUBLE_ROUNDS (NOXTLS_CHACHA20_ROUNDS / 2)  /* Double-round iterations (must match even NOXTLS_CHACHA20_ROUNDS) */
 
 /* ChaCha20 Context Structure */
 NOXTLS_MSVC_WARNING_PUSH
 NOXTLS_MSVC_DISABLE_PADDING
 typedef struct
 {
-    uint32_t state[16];      /* Internal state (16 x 32-bit words) */
-    uint8_t keystream[64];   /* Current keystream block */
+    uint32_t state[NOXTLS_CHACHA20_STATE_WORDS]; /* Internal state (32-bit words) */
+    uint8_t keystream[NOXTLS_CHACHA20_BLOCK_SIZE]; /* Current keystream block */
     uint32_t keystream_pos;  /* Position in current keystream block */
     uint64_t counter;        /* Block counter */
-    uint8_t key[32];         /* Encryption key */
-    uint8_t nonce[12];        /* Nonce */
-} chacha20_context_t;
+    uint8_t key[NOXTLS_CHACHA20_KEY_SIZE];   /* Encryption key */
+    uint8_t nonce[NOXTLS_CHACHA20_NONCE_SIZE]; /* Nonce */
+} noxtls_chacha20_context_t;
 NOXTLS_MSVC_WARNING_POP
 
 /**
@@ -70,7 +72,7 @@ NOXTLS_MSVC_WARNING_POP
  * @param counter Initial counter value (default: 0)
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL on failure
  */
-noxtls_return_t chacha20_init(chacha20_context_t *ctx, 
+noxtls_return_t noxtls_chacha20_init(noxtls_chacha20_context_t *ctx, 
                   const uint8_t *key, 
                   const uint8_t *nonce, 
                   uint64_t counter);
@@ -87,7 +89,7 @@ noxtls_return_t chacha20_init(chacha20_context_t *ctx,
  * @param input_len Length of input data in bytes
  * @return NOXTLS_RETURN_SUCCESS on success
  */
-noxtls_return_t chacha20_process(chacha20_context_t *ctx,
+noxtls_return_t noxtls_chacha20_process(noxtls_chacha20_context_t *ctx,
                      const uint8_t *input,
                      uint8_t *output,
                      uint32_t input_len);
@@ -103,7 +105,7 @@ noxtls_return_t chacha20_process(chacha20_context_t *ctx,
  * @param output Output buffer for ciphertext (must be at least input_len bytes)
  * @return NOXTLS_RETURN_SUCCESS on success
  */
-noxtls_return_t chacha20_encrypt(const uint8_t *key,
+noxtls_return_t noxtls_chacha20_encrypt(const uint8_t *key,
                      const uint8_t *nonce,
                      uint64_t counter,
                      const uint8_t *input,
@@ -121,7 +123,7 @@ noxtls_return_t chacha20_encrypt(const uint8_t *key,
  * @param output Output buffer for plaintext (must be at least input_len bytes)
  * @return NOXTLS_RETURN_SUCCESS on success
  */
-noxtls_return_t chacha20_decrypt(const uint8_t *key,
+noxtls_return_t noxtls_chacha20_decrypt(const uint8_t *key,
                      const uint8_t *nonce,
                      uint64_t counter,
                      const uint8_t *input,
@@ -133,7 +135,7 @@ noxtls_return_t chacha20_decrypt(const uint8_t *key,
  *
  * @return NOXTLS_RETURN_SUCCESS on success (all tests passed)
  */
-noxtls_return_t chacha20_self_test(void);
+noxtls_return_t noxtls_chacha20_self_test(void);
 
 #ifdef __cplusplus
 }

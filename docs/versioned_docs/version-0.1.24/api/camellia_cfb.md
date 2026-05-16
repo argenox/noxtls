@@ -9,10 +9,10 @@ Camellia in CFB (Cipher Feedback) mode: the IV or previous ciphertext block is e
 
 ## API
 
-### `camellia_encrypt_cfb`
+### `noxtls_camellia_encrypt_cfb`
 
 ```c
-noxtls_return_t camellia_encrypt_cfb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t* iv, uint8_t* output, camellia_type_t type);
+noxtls_return_t noxtls_camellia_encrypt_cfb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t* iv, uint8_t* output, noxtls_camellia_type_t type);
 ```
 
 Encrypts data in Camellia CFB mode (cipher feedback; keystream from encrypting IV/previous ciphertext).
@@ -21,10 +21,10 @@ Encrypts data in Camellia CFB mode (cipher feedback; keystream from encrypting I
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success; otherwise a specific [return code](/docs/api/return_codes).
 
-### `camellia_decrypt_cfb`
+### `noxtls_camellia_decrypt_cfb`
 
 ```c
-noxtls_return_t camellia_decrypt_cfb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t* iv, uint8_t* output, camellia_type_t type);
+noxtls_return_t noxtls_camellia_decrypt_cfb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t* iv, uint8_t* output, noxtls_camellia_type_t type);
 ```
 
 Decrypts data in Camellia CFB mode. Use the same IV that was used for encryption.

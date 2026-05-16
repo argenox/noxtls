@@ -41,6 +41,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+
 #include "common/noxtls_memory.h"
 #include "common/noxtls_memory_compat.h"
 #include "noxtls_drbg.h"
@@ -60,7 +61,7 @@
 #include <unistd.h>
 #include <errno.h>
 #endif
-/* On Zephyr, no unistd/fcntl - entropy via drbg_set_entropy_callback only */
+/* On Zephyr, no unistd/fcntl - entropy via noxtls_drbg_set_entropy_callback only */
 
 /* Platform-specific entropy source */
 #if defined(_WIN32) || defined(_WIN64)
@@ -90,6 +91,10 @@ static BCryptCloseAlgorithmProviderFunc g_BCryptCloseAlgorithmProvider = NULL;
 static BCRYPT_ALG_HANDLE g_bcrypt_alg_handle = NULL;
 static int g_bcrypt_initialized = 0;
 
+/**
+ * @brief Dynamically loads bcrypt.dll and opens the CNG RNG algorithm provider.
+ * @return 1 if @ref get_entropy_windows_bcrypt may use BCrypt; 0 on load or open failure.
+ */
 static int init_bcrypt(void)
 {
     if(g_bcrypt_initialized) {
@@ -136,6 +141,12 @@ static int init_bcrypt(void)
     return 1;
 }
 
+/**
+ * @brief Fills a buffer using Windows CNG `BCryptGenRandom`.
+ * @param[out] entropy_buffer Output bytes.
+ * @param[in]  entropy_len Number of bytes to produce.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_FAILED` if BCrypt is unavailable or the call fails.
+ */
 static noxtls_return_t get_entropy_windows_bcrypt(uint8_t *entropy_buffer, uint32_t entropy_len)
 {
     if(init_bcrypt() && g_bcrypt_alg_handle != NULL && g_BCryptGenRandom != NULL) {
@@ -146,6 +157,12 @@ static noxtls_return_t get_entropy_windows_bcrypt(uint8_t *entropy_buffer, uint3
     return NOXTLS_RETURN_FAILED;
 }
 
+/**
+ * @brief Fills a buffer using legacy CryptoAPI `CryptGenRandom`.
+ * @param[out] entropy_buffer Output bytes.
+ * @param[in]  entropy_len Number of bytes to produce.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_FAILED` on acquire or generation failure.
+ */
 /* Fallback: Use CryptGenRandom (legacy CryptoAPI) */
 static noxtls_return_t get_entropy_windows_cryptoapi(uint8_t *entropy_buffer, uint32_t entropy_len)
 {
@@ -167,6 +184,12 @@ static noxtls_return_t get_entropy_windows_cryptoapi(uint8_t *entropy_buffer, ui
 
 #elif !defined(__ZEPHYR__)
 /* Non-Windows, non-Zephyr: Use /dev/urandom */
+/**
+ * @brief Reads @p entropy_len bytes from `/dev/urandom`.
+ * @param[out] entropy_buffer Output bytes.
+ * @param[in]  entropy_len Number of bytes to read.
+ * @return `NOXTLS_RETURN_SUCCESS` if a full read succeeds; `NOXTLS_RETURN_FAILED` otherwise.
+ */
 static noxtls_return_t get_entropy_unix(uint8_t *entropy_buffer, uint32_t entropy_len)
 {
     int fd = open("/dev/urandom", O_RDONLY);
@@ -186,26 +209,50 @@ static uint32_t dummy_entropy_counter = 0;
 static noxtls_entropy_source_t g_entropy_source = NOXTLS_ENTROPY_SOURCE_AUTO;
 static noxtls_entropy_cb_t g_entropy_cb = NULL;
 
-void drbg_set_entropy_source(noxtls_entropy_source_t source)
+/**
+ * @brief Selects how @ref noxtls_drbg_get_entropy obtains bytes (platform RNG, custom callback, dummy, etc.).
+ * @param[in] source One of `noxtls_entropy_source_t`.
+ * @return None.
+ */
+void noxtls_drbg_set_entropy_source(noxtls_entropy_source_t source)
 {
     g_entropy_source = source;
 }
 
-noxtls_entropy_source_t drbg_get_entropy_source(void)
+/**
+ * @brief Returns the entropy source selected by @ref noxtls_drbg_set_entropy_source.
+ * @return Current `noxtls_entropy_source_t` value.
+ */
+noxtls_entropy_source_t noxtls_drbg_get_entropy_source(void)
 {
     return g_entropy_source;
 }
 
-void drbg_set_entropy_callback(noxtls_entropy_cb_t cb)
+/**
+ * @brief Installs a custom entropy callback (used for `NOXTLS_ENTROPY_SOURCE_CUSTOM` and on Zephyr in some paths).
+ * @param[in] cb Callback, or NULL to clear.
+ * @return None.
+ */
+void noxtls_drbg_set_entropy_callback(noxtls_entropy_cb_t cb)
 {
     g_entropy_cb = cb;
 }
 
-noxtls_entropy_cb_t drbg_get_entropy_callback(void)
+/**
+ * @brief Returns the callback set by @ref noxtls_drbg_set_entropy_callback.
+ * @return Current callback pointer, or NULL if unset.
+ */
+noxtls_entropy_cb_t noxtls_drbg_get_entropy_callback(void)
 {
     return g_entropy_cb;
 }
 
+/**
+ * @brief Deterministic fallback entropy (not cryptographic); used when platform entropy is unavailable.
+ * @param[out] entropy_buffer Output bytes.
+ * @param[in]  entropy_len Number of bytes to fill.
+ * @return Always `NOXTLS_RETURN_SUCCESS`.
+ */
 static noxtls_return_t drbg_entropy_dummy(uint8_t *entropy_buffer, uint32_t entropy_len)
 {
     uint64_t time_seed = (uint64_t)time(NULL);
@@ -220,12 +267,12 @@ static noxtls_return_t drbg_entropy_dummy(uint8_t *entropy_buffer, uint32_t entr
 }
 
 /**
- * @brief Get entropy input
- * 
- * Attempts to use platform-specific cryptographic random number generators.
- * Falls back to time-based entropy if platform APIs are unavailable.
+ * @brief Fills @p entropy_len bytes using the configured entropy source and fallbacks.
+ * @param[out] entropy_buffer Caller buffer; must not be NULL.
+ * @param[in]  entropy_len Number of bytes to produce.
+ * @return `NOXTLS_RETURN_SUCCESS` when bytes are written; `NOXTLS_RETURN_NULL` if @p entropy_buffer is NULL.
  */
-noxtls_return_t drbg_get_entropy(uint8_t *entropy_buffer, uint32_t entropy_len)
+noxtls_return_t noxtls_drbg_get_entropy(uint8_t *entropy_buffer, uint32_t entropy_len)
 {
     if(entropy_buffer == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -288,10 +335,11 @@ noxtls_return_t drbg_get_entropy(uint8_t *entropy_buffer, uint32_t entropy_len)
 }
 
 /**
- * @brief Update the DRBG state using AES-CTR
- * 
- * Per NIST SP 800-90A Section 10.2.1.2 (Update function)
- * This is the core algorithm that updates V and Key using AES-CTR
+ * @brief Updates DRBG internal state (Key and V) using AES-CTR mixing (NIST SP 800-90A §10.2.1.2 Update).
+ * @param[in,out] state Instantiated DRBG state; `Key` and `V` are overwritten.
+ * @param[in]     provided_data Optional seeding material; may be NULL to use zero padding in the derivation path.
+ * @param[in]     provided_data_len Length of @p provided_data in bytes (ignored if @p provided_data is NULL).
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` if @p state is NULL; `NOXTLS_RETURN_INVALID_ALGORITHM` for unknown AES variant.
  */
 noxtls_return_t drbg_update(drbg_state_t *state,
                                const uint8_t *provided_data,
@@ -299,9 +347,10 @@ noxtls_return_t drbg_update(drbg_state_t *state,
 {
     uint8_t temp[DRBG_SEEDLEN_AES256];  /* Maximum seed length */
     uint8_t block[DRBG_BLOCKLEN];
-    uint32_t i, j;
+    uint32_t i;
+    uint32_t j;
     uint32_t seedlen;
-    aes_type_t aes_type;
+    noxtls_aes_type_t aes_type;
     
     if(state == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -312,13 +361,13 @@ noxtls_return_t drbg_update(drbg_state_t *state,
     /* Convert DRBG AES type to AES type */
     switch(state->aes_type) {
         case DRBG_AES128:
-            aes_type = AES_128_BIT;
+            aes_type = NOXTLS_AES_128_BIT;
             break;
         case DRBG_AES192:
-            aes_type = AES_192_BIT;
+            aes_type = NOXTLS_AES_192_BIT;
             break;
         case DRBG_AES256:
-            aes_type = AES_256_BIT;
+            aes_type = NOXTLS_AES_256_BIT;
             break;
         default:
             return NOXTLS_RETURN_INVALID_ALGORITHM;
@@ -350,7 +399,7 @@ noxtls_return_t drbg_update(drbg_state_t *state,
                              (state->keylen - i) : DRBG_BLOCKLEN;
         uint8_t keystream[DRBG_BLOCKLEN];
         
-        aes_encrypt_block_internal(state->Key, block, keystream, aes_type);
+        noxtls_aes_encrypt_block_internal(state->Key, block, keystream, aes_type);
         
         /* XOR with temp data */
         for(j = 0; j < block_len; j++) {
@@ -367,7 +416,7 @@ noxtls_return_t drbg_update(drbg_state_t *state,
     /* Step 3: V = df(Key || V, blocklen) */
     /* Generate new V using AES-CTR */
     memcpy(block, state->V, DRBG_BLOCKLEN);
-    aes_encrypt_block_internal(state->Key, block, state->V, aes_type);
+    noxtls_aes_encrypt_block_internal(state->Key, block, state->V, aes_type);
     
     /* XOR with temp data */
     for(i = 0; i < DRBG_BLOCKLEN; i++) {
@@ -378,9 +427,16 @@ noxtls_return_t drbg_update(drbg_state_t *state,
 }
 
 /**
- * @brief Instantiate the DRBG
- * 
- * Per NIST SP 800-90A Section 10.2.1.2
+ * @brief Creates a DRBG instance from entropy and optional nonce/personalization (NIST SP 800-90A §10.2.1.2).
+ * @param[out] state Output state; zeroed then filled; must not be NULL.
+ * @param[in]  aes_type AES-128/192/256 DRBG variant.
+ * @param[in]  entropy_input Optional caller entropy; if NULL or shorter than seed length, @ref noxtls_drbg_get_entropy supplies bytes.
+ * @param[in]  entropy_len Length of @p entropy_input when provided.
+ * @param[in]  nonce Optional nonce bytes (may be NULL).
+ * @param[in]  nonce_len Length of @p nonce.
+ * @param[in]  personalization_string Optional personalization (may be NULL).
+ * @param[in]  pers_len Length of @p personalization_string.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL`, `NOXTLS_RETURN_INVALID_ALGORITHM`, or `NOXTLS_RETURN_FAILED` on error.
  */
 noxtls_return_t drbg_instantiate(drbg_state_t *state,
                                     drbg_aes_type_t aes_type,
@@ -429,7 +485,7 @@ noxtls_return_t drbg_instantiate(drbg_state_t *state,
     /* Get entropy input */
     if(entropy_input == NULL || entropy_len < seedlen) {
         /* Use dummy entropy source */
-        if(drbg_get_entropy(entropy, seedlen) != NOXTLS_RETURN_SUCCESS) {
+        if(noxtls_drbg_get_entropy(entropy, seedlen) != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_FAILED;
         }
         /* entropy_len is input-only; seedlen drives local buffer sizing */
@@ -475,9 +531,13 @@ noxtls_return_t drbg_instantiate(drbg_state_t *state,
 }
 
 /**
- * @brief Generate random bits
- * 
- * Per NIST SP 800-90A Section 10.2.1.3
+ * @brief Generates pseudorandom bits and advances internal state (NIST SP 800-90A §10.2.1.3).
+ * @param[in,out] state Instantiated DRBG; updated and reseed counter incremented.
+ * @param[out]    output_buffer Receives at least `ceil(requested_bits/8)` bytes (final byte masked if bit count not multiple of 8).
+ * @param[in]     requested_bits Number of random bits to produce (must not exceed `DRBG_MAX_BITS_PER_REQUEST`).
+ * @param[in]     additional_input Optional additional input for update step (may be NULL).
+ * @param[in]     add_input_len Length of @p additional_input.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL`, `NOXTLS_RETURN_FAILED` (not instantiated or reseed required), `NOXTLS_RETURN_INVALID_PARAM`, or `NOXTLS_RETURN_INVALID_ALGORITHM` on error.
  */
 noxtls_return_t drbg_generate(drbg_state_t *state,
                                  uint8_t *output_buffer,
@@ -487,8 +547,9 @@ noxtls_return_t drbg_generate(drbg_state_t *state,
 {
     uint8_t block[DRBG_BLOCKLEN];
     uint32_t requested_bytes;
-    uint32_t i, j;
-    aes_type_t aes_type;
+    uint32_t i;
+    uint32_t j;
+    noxtls_aes_type_t aes_type;
     
     if(state == NULL || output_buffer == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -514,13 +575,13 @@ noxtls_return_t drbg_generate(drbg_state_t *state,
     /* Convert DRBG AES type to AES type */
     switch(state->aes_type) {
         case DRBG_AES128:
-            aes_type = AES_128_BIT;
+            aes_type = NOXTLS_AES_128_BIT;
             break;
         case DRBG_AES192:
-            aes_type = AES_192_BIT;
+            aes_type = NOXTLS_AES_192_BIT;
             break;
         case DRBG_AES256:
-            aes_type = AES_256_BIT;
+            aes_type = NOXTLS_AES_256_BIT;
             break;
         default:
             return NOXTLS_RETURN_INVALID_ALGORITHM;
@@ -542,7 +603,7 @@ noxtls_return_t drbg_generate(drbg_state_t *state,
         uint8_t keystream[DRBG_BLOCKLEN];
         
         /* Encrypt counter to produce keystream */
-        aes_encrypt_block_internal(state->Key, block, keystream, aes_type);
+        noxtls_aes_encrypt_block_internal(state->Key, block, keystream, aes_type);
         
         /* Copy keystream to output */
         for(j = 0; j < block_len; j++) {
@@ -565,8 +626,8 @@ noxtls_return_t drbg_generate(drbg_state_t *state,
     state->reseed_counter++;
     
     /* Step 5: Truncate output if requested_bits is not a multiple of 8 */
-    if(requested_bits & 7 != 0) {
-        uint8_t mask = (1 << (requested_bits & 7)) - 1;
+    if((requested_bits & 7U) != 0U) {
+        uint8_t mask = (uint8_t)((1U << (requested_bits & 7U)) - 1U);
         output_buffer[requested_bytes - 1] &= mask;
     }
     
@@ -574,9 +635,13 @@ noxtls_return_t drbg_generate(drbg_state_t *state,
 }
 
 /**
- * @brief Reseed the DRBG
- * 
- * Per NIST SP 800-90A Section 10.2.1.4
+ * @brief Reseeds an instantiated DRBG with fresh entropy and optional additional input (NIST SP 800-90A §10.2.1.4).
+ * @param[in,out] state Live DRBG state; reseed counter reset to 1 on success.
+ * @param[in]     entropy_input Optional caller entropy; if NULL or shorter than seed length, @ref noxtls_drbg_get_entropy is used.
+ * @param[in]     entropy_len Length of @p entropy_input when provided.
+ * @param[in]     additional_input Optional extra seeding material (may be NULL).
+ * @param[in]     add_input_len Length of @p additional_input.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL`, `NOXTLS_RETURN_FAILED`, or errors from @ref drbg_update on failure.
  */
 noxtls_return_t drbg_reseed(drbg_state_t *state,
                               const uint8_t *entropy_input,
@@ -602,7 +667,7 @@ noxtls_return_t drbg_reseed(drbg_state_t *state,
     /* Get entropy input */
     if(entropy_input == NULL || entropy_len < seedlen) {
         /* Use dummy entropy source */
-        if(drbg_get_entropy(entropy, seedlen) != NOXTLS_RETURN_SUCCESS) {
+        if(noxtls_drbg_get_entropy(entropy, seedlen) != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_FAILED;
         }
         /* entropy_len is input-only; seedlen drives local buffer sizing */
@@ -636,9 +701,11 @@ noxtls_return_t drbg_reseed(drbg_state_t *state,
 }
 
 /**
- * @brief Uninstantiate the DRBG (clear state)
+ * @brief Zeroes and invalidates DRBG state (safe to call on an unused or active instance).
+ * @param[in,out] state State buffer to clear; must not be NULL.
+ * @return `NOXTLS_RETURN_SUCCESS` after clearing; `NOXTLS_RETURN_NULL` if @p state is NULL.
  */
-noxtls_return_t drbg_uninstantiate(drbg_state_t *state)
+noxtls_return_t noxtls_drbg_uninstantiate(drbg_state_t *state)
 {
     if(state == NULL) {
         return NOXTLS_RETURN_NULL;

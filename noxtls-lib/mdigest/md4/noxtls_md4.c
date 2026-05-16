@@ -52,8 +52,8 @@ static uint8_t debug_lvl = 0;
 
 noxtls_return_t noxtls_md4_round(noxtls_sha_ctx_t * ctx, const uint8_t * input);
 
-/* Shift amounts for MD4 (3 rounds of 16 operations each = 48 total) */
-static uint32_t md4_shift[48] =
+/* Shift amounts for MD4 (RFC 1320: MD4_COMPRESS_ROUNDS x MD4_WORDS_PER_BLOCK steps). */
+static uint32_t md4_shift[MD4_ROT_SHIFT_TABLE_LEN] =
 {
     /* Round 1 */
     3, 7, 11, 19, 3, 7, 11, 19, 3, 7, 11, 19, 3, 7, 11, 19,
@@ -183,13 +183,16 @@ noxtls_return_t noxtls_md4_round(noxtls_sha_ctx_t * ctx, const uint8_t * input)
 	uint32_t t = 0;
 	uint32_t w[MD4_WORDS_PER_BLOCK] = {0};
 
-    uint32_t A, B, C, D = 0;
+    uint32_t A;
+    uint32_t B;
+    uint32_t C;
+    uint32_t D = 0;
     
 	if(ctx == NULL) {
 		return NOXTLS_RETURN_NULL;
 	}    
     
-    /* Copy the message to the first 16 words (little-endian) */
+    /* Copy the noxtls_message to the first 16 words (little-endian) */
     for(t = 0; t < MD4_WORDS_PER_BLOCK; t++) {
         w[t] = (input[(t * MD4_WORD_BYTES) + 3] << 24) | ((input[(t * MD4_WORD_BYTES) + 2]) << 16) | (input[(t * MD4_WORD_BYTES) + 1] << 8) | input[(t * MD4_WORD_BYTES)];
         if(debug_lvl > 0) {
@@ -254,7 +257,7 @@ noxtls_return_t noxtls_md4_round(noxtls_sha_ctx_t * ctx, const uint8_t * input)
     {
         uint32_t H = MD4_H(B, C, D);
         H = H + A + w[round3_words[t]] + MD4_ROUND3_CONST;  /* MD4 round 3 constant */
-        A = MD4_ROTL(H, md4_shift[32 + t]);
+        A = MD4_ROTL(H, md4_shift[MD4_ROT_SHIFT_ROUND3_BASE + t]);
         
         /* Rotate registers */
         uint32_t temp = D;
@@ -328,7 +331,7 @@ noxtls_return_t noxtls_md4_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
     }
 
     if(space_left >= HASH_MD4_LENGTH_LEN + 1) {
-        add_padding_length_little(temp, HASH_MD4_BLOCK_SIZE, total_length, HASH_MD4_LENGTH_LEN);
+        noxtls_add_padding_length_little(temp, HASH_MD4_BLOCK_SIZE, total_length, HASH_MD4_LENGTH_LEN);
     }
 
     if(debug_lvl > 0) {
@@ -348,7 +351,7 @@ noxtls_return_t noxtls_md4_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
             data[0] = MD4_PAD_BYTE;
         }
 
-        add_padding_length_little(temp, HASH_MD4_BLOCK_SIZE, total_length, HASH_MD4_LENGTH_LEN);
+        noxtls_add_padding_length_little(temp, HASH_MD4_BLOCK_SIZE, total_length, HASH_MD4_LENGTH_LEN);
 
         if(debug_lvl > 0) {
             for(i = 0; i < HASH_MD4_BLOCK_SIZE; i++) {

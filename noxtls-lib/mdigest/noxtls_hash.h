@@ -39,6 +39,11 @@
 extern "C" {
 #endif
 
+/** Byte length to bit length for Merkle–Damgård padding (octets carry 8 bits). */
+#define NOXTLS_HASH_BITS_PER_BYTE (8u)
+/** Bytes needed to store a 64-bit noxtls_message bit counter (SHA-1, SHA-256, MD5, etc.). */
+#define NOXTLS_HASH_BITLEN_UINT64_BYTES (8u)
+
 typedef enum
 {
     NOXTLS_HASH_MD4,        /* MD4          RFC 1320 */
@@ -60,9 +65,9 @@ typedef enum
 
 } noxtls_hash_algos_t;
 
-void add_padding_length(uint8_t * data, uint32_t block_size, uint64_t length, uint8_t length_size);
-void add_padding_length_little(uint8_t * data, uint32_t block_size, uint64_t length, uint8_t length_size);
-void print_hash(uint8_t * hash, uint16_t len);
+void noxtls_add_padding_length(uint8_t * data, uint32_t block_size, uint64_t length, uint8_t length_size);
+void noxtls_add_padding_length_little(uint8_t * data, uint32_t block_size, uint64_t length, uint8_t length_size);
+void noxtls_print_hash(uint8_t * hash, uint16_t len);
 
 #ifdef __cplusplus
 }

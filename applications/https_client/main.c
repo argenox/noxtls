@@ -43,6 +43,7 @@ typedef int socket_t;
 #include "noxtls-lib/tls/noxtls_tls_common.h"
 #include "noxtls-lib/tls/noxtls_tls12.h"
 #include "noxtls-lib/tls/noxtls_tls13.h"
+#include "noxtls-lib/certs/noxtls_x509.h"
 
 typedef struct {
     socket_t sock;
@@ -50,13 +51,52 @@ typedef struct {
 
 static void print_usage(const char *prog)
 {
-    printf("Usage: %s <https://host[:port]/path> [port] [tls12|tls13|auto] [keylog=<path>|--keylog <path>] [tlsdump=<path>|--tlsdump <path>]\n", prog);
+    printf("Usage: %s <https://host[:port]/path> [port] [tls12|tls13|auto] [--ca <ca_cert.pem|der>] [keylog=<path>|--keylog <path>] [tlsdump=<path>|--tlsdump <path>]\n", prog);
     printf("Example: %s https://example.com/\n", prog);
     printf("Example: %s https://example.com/ 443\n", prog);
     printf("Example: %s https://example.com/ 443 tls13\n", prog);
     printf("Example: %s https://example.com/ tls12\n", prog);
+    printf("Example: %s https://example.com/ 443 tls13 --ca ./root_ca.pem\n", prog);
     printf("Example: %s https://example.com/ 443 tls13 keylog=c:/temp/tls_keylog.txt\n", prog);
     printf("Example: %s https://example.com/ 443 tls13 tlsdump=c:/temp/tls_records.txt\n", prog);
+}
+
+/**
+ * @brief Load one CA certificate into the global trust store.
+ * @param ca_file Path to DER/PEM certificate file.
+ * @return NOXTLS_RETURN_SUCCESS on success, failure code otherwise.
+ */
+static noxtls_return_t https_configure_trust_store(const char *ca_file)
+{
+    noxtls_return_t rc;
+    x509_certificate_t ca_cert;
+    x509_certificate_chain_t trust_chain;
+
+    if(ca_file == NULL || ca_file[0] == '\0') {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    noxtls_x509_certificate_init(&ca_cert);
+    rc = noxtls_x509_certificate_load_file(&ca_cert, ca_file);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_x509_certificate_free(&ca_cert);
+        return rc;
+    }
+
+    rc = noxtls_x509_certificate_chain_init(&trust_chain);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_x509_certificate_free(&ca_cert);
+        return rc;
+    }
+
+    rc = noxtls_x509_certificate_chain_add(&trust_chain, &ca_cert);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_x509_trust_store_set(&trust_chain);
+    }
+
+    noxtls_x509_certificate_chain_free(&trust_chain);
+    noxtls_x509_certificate_free(&ca_cert);
+    return rc;
 }
 
 static int is_number(const char *s)
@@ -246,6 +286,8 @@ int main(int argc, char **argv)
     tls13_context_t tls13_ctx;
     tls_mode_t tls_mode = TLS_MODE_1_2;
     tls_mode_t active_mode = TLS_MODE_1_2;
+    const char *ca_file = NULL;
+    int trust_store_configured = 0;
     noxtls_return_t rc;
 
 #ifdef _WIN32
@@ -316,10 +358,13 @@ int main(int argc, char **argv)
     }
 
     for(int i = 2; i < argc; i++) {
-        if(strncmp(argv[i], "keylog=", 7) == 0) {
-            tls13_set_keylog_file(argv[i] + 7);
+        if(strcmp(argv[i], "--ca") == 0 && i + 1 < argc) {
+            ca_file = argv[i + 1];
+            i++;
+        } else if(strncmp(argv[i], "keylog=", 7) == 0) {
+            noxtls_tls13_set_keylog_file(argv[i] + 7);
         } else if(strcmp(argv[i], "--keylog") == 0 && i + 1 < argc) {
-            tls13_set_keylog_file(argv[i + 1]);
+            noxtls_tls13_set_keylog_file(argv[i + 1]);
             i++;
         } else if(strncmp(argv[i], "tlsdump=", 8) == 0) {
             noxtls_tls_set_record_dump_file(argv[i] + 8);
@@ -328,6 +373,29 @@ int main(int argc, char **argv)
             i++;
         }
     }
+
+    if(ca_file == NULL) {
+        if(strcmp(host, "localhost") == 0 || strcmp(host, "127.0.0.1") == 0) {
+            ca_file = "server.crt";
+        }
+    }
+    if(ca_file == NULL) {
+        printf("ERROR: No trust anchor configured. Use --ca <ca_cert.pem|der>.\n");
+        printf("       For localhost demos, place server.crt next to the executable or pass --ca explicitly.\n");
+#ifdef _WIN32
+        WSACleanup();
+#endif
+        return 1;
+    }
+    rc = https_configure_trust_store(ca_file);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        printf("ERROR: Failed to load trust anchor from '%s': %d\n", ca_file, rc);
+#ifdef _WIN32
+        WSACleanup();
+#endif
+        return 1;
+    }
+    trust_store_configured = 1;
 
     printf("Connecting to %s:%u%s\n", host, port, path);
     if(connect_tcp(host, port, &sock) != 0) {
@@ -345,9 +413,12 @@ int main(int argc, char **argv)
            (tls_mode == TLS_MODE_AUTO) ? "auto" : "tls12");
     if(tls_mode == TLS_MODE_1_3 || tls_mode == TLS_MODE_AUTO) {
         printf("Attempting TLS 1.3...\n");
-        rc = tls13_context_init(&tls13_ctx, TLS_ROLE_CLIENT);
+        rc = noxtls_tls13_context_init(&tls13_ctx, TLS_ROLE_CLIENT);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            printf("ERROR: tls13_context_init failed: %d\n", rc);
+            printf("ERROR: noxtls_tls13_context_init failed: %d\n", rc);
+            if(trust_store_configured) {
+                noxtls_x509_trust_store_clear();
+            }
             CLOSESOCK(sock);
 #ifdef _WIN32
             WSACleanup();
@@ -361,7 +432,10 @@ int main(int argc, char **argv)
         rc = noxtls_tls_set_io_callbacks(&tls13_ctx.base.base, https_send_cb, https_recv_cb, &conn);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             printf("ERROR: noxtls_tls_set_io_callbacks failed (tls13): %d\n", rc);
-            tls13_context_free(&tls13_ctx);
+            noxtls_tls13_context_free(&tls13_ctx);
+            if(trust_store_configured) {
+                noxtls_x509_trust_store_clear();
+            }
             CLOSESOCK(sock);
 #ifdef _WIN32
             WSACleanup();
@@ -369,11 +443,14 @@ int main(int argc, char **argv)
             return 1;
         }
 
-        rc = tls13_connect(&tls13_ctx);
+        rc = noxtls_tls13_connect(&tls13_ctx);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             printf("WARNING: TLS 1.3 handshake failed: %d\n", rc);
-            tls13_context_free(&tls13_ctx);
+            noxtls_tls13_context_free(&tls13_ctx);
             if(tls_mode == TLS_MODE_1_3) {
+                if(trust_store_configured) {
+                    noxtls_x509_trust_store_clear();
+                }
                 CLOSESOCK(sock);
 #ifdef _WIN32
                 WSACleanup();
@@ -390,9 +467,12 @@ int main(int argc, char **argv)
 
     if(active_mode == TLS_MODE_1_2) {
         printf("Attempting TLS 1.2...\n");
-        rc = tls12_context_init(&tls12_ctx, TLS_ROLE_CLIENT);
+        rc = noxtls_tls12_context_init(&tls12_ctx, TLS_ROLE_CLIENT);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            printf("ERROR: tls12_context_init failed: %d\n", rc);
+            printf("ERROR: noxtls_tls12_context_init failed: %d\n", rc);
+            if(trust_store_configured) {
+                noxtls_x509_trust_store_clear();
+            }
             CLOSESOCK(sock);
 #ifdef _WIN32
             WSACleanup();
@@ -406,7 +486,10 @@ int main(int argc, char **argv)
         rc = noxtls_tls_set_io_callbacks(&tls12_ctx.base.base, https_send_cb, https_recv_cb, &conn);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             printf("ERROR: noxtls_tls_set_io_callbacks failed (tls12): %d\n", rc);
-            tls12_context_free(&tls12_ctx);
+            noxtls_tls12_context_free(&tls12_ctx);
+            if(trust_store_configured) {
+                noxtls_x509_trust_store_clear();
+            }
             CLOSESOCK(sock);
 #ifdef _WIN32
             WSACleanup();
@@ -414,10 +497,13 @@ int main(int argc, char **argv)
             return 1;
         }
 
-        rc = tls12_connect(&tls12_ctx);
+        rc = noxtls_tls12_connect(&tls12_ctx);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             printf("ERROR: TLS 1.2 handshake failed: %d\n", rc);
-            tls12_context_free(&tls12_ctx);
+            noxtls_tls12_context_free(&tls12_ctx);
+            if(trust_store_configured) {
+                noxtls_x509_trust_store_clear();
+            }
             CLOSESOCK(sock);
 #ifdef _WIN32
             WSACleanup();
@@ -452,16 +538,19 @@ int main(int argc, char **argv)
     }
 
     if(active_mode == TLS_MODE_1_3) {
-        rc = tls13_send(&tls13_ctx, (const uint8_t*)request, (uint32_t)strlen(request));
+        rc = noxtls_tls13_send(&tls13_ctx, (const uint8_t*)request, (uint32_t)strlen(request));
     } else {
-        rc = tls12_send(&tls12_ctx, (const uint8_t*)request, (uint32_t)strlen(request));
+        rc = noxtls_tls12_send(&tls12_ctx, (const uint8_t*)request, (uint32_t)strlen(request));
     }
     if(rc != NOXTLS_RETURN_SUCCESS) {
         printf("ERROR: Failed to send HTTP request: %d\n", rc);
         if(active_mode == TLS_MODE_1_3) {
-            tls13_context_free(&tls13_ctx);
+            noxtls_tls13_context_free(&tls13_ctx);
         } else {
-            tls12_context_free(&tls12_ctx);
+            noxtls_tls12_context_free(&tls12_ctx);
+        }
+        if(trust_store_configured) {
+            noxtls_x509_trust_store_clear();
         }
         CLOSESOCK(sock);
 #ifdef _WIN32
@@ -475,9 +564,9 @@ int main(int argc, char **argv)
         uint8_t buf[4096];
         uint32_t len = sizeof(buf) - 1;
         if(active_mode == TLS_MODE_1_3) {
-            rc = tls13_recv(&tls13_ctx, buf, &len);
+            rc = noxtls_tls13_recv(&tls13_ctx, buf, &len);
         } else {
-            rc = tls12_recv(&tls12_ctx, buf, &len);
+            rc = noxtls_tls12_recv(&tls12_ctx, buf, &len);
         }
         if(rc != NOXTLS_RETURN_SUCCESS) {
             printf("TLS connection closed by peer (EOF).\n");
@@ -492,13 +581,16 @@ int main(int argc, char **argv)
     printf("\n---- End Response ----\n");
 
     if(active_mode == TLS_MODE_1_3) {
-        tls13_close(&tls13_ctx);
-        tls13_context_free(&tls13_ctx);
+        noxtls_tls13_close(&tls13_ctx);
+        noxtls_tls13_context_free(&tls13_ctx);
     } else {
-        tls12_close(&tls12_ctx);
-        tls12_context_free(&tls12_ctx);
+        noxtls_tls12_close(&tls12_ctx);
+        noxtls_tls12_context_free(&tls12_ctx);
     }
     CLOSESOCK(sock);
+    if(trust_store_configured) {
+        noxtls_x509_trust_store_clear();
+    }
 
 #ifdef _WIN32
     WSACleanup();

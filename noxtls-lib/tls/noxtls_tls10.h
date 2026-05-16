@@ -48,41 +48,41 @@
 extern "C" {
 #endif
 
-/* TLS 1.0 Context: same as TLS 1.2 context (use tls12_context_init_with_version for TLS 1.0) */
+/* TLS 1.0 Context: same as TLS 1.2 context (use noxtls_tls12_context_init_with_version for TLS 1.0) */
 typedef tls12_context_t tls10_context_t;
 
 /* TLS 1.0 Functions */
-noxtls_return_t tls10_context_init(tls10_context_t *ctx, tls_role_t role);
-noxtls_return_t tls10_context_free(tls10_context_t *ctx);
-noxtls_return_t tls10_connect(tls10_context_t *ctx);
-noxtls_return_t tls10_accept(tls10_context_t *ctx);
-noxtls_return_t tls10_send(tls10_context_t *ctx, const uint8_t *data, uint32_t len);
-noxtls_return_t tls10_recv(tls10_context_t *ctx, uint8_t *data, uint32_t *len);
-noxtls_return_t tls10_close(tls10_context_t *ctx);
+noxtls_return_t noxtls_tls10_context_init(tls10_context_t *ctx, tls_role_t role);
+noxtls_return_t noxtls_tls10_context_free(tls10_context_t *ctx);
+noxtls_return_t noxtls_tls10_connect(tls10_context_t *ctx);
+noxtls_return_t noxtls_tls10_accept(tls10_context_t *ctx);
+noxtls_return_t noxtls_tls10_send(tls10_context_t *ctx, const uint8_t *data, uint32_t len);
+noxtls_return_t noxtls_tls10_recv(tls10_context_t *ctx, uint8_t *data, uint32_t *len);
+noxtls_return_t noxtls_tls10_close(tls10_context_t *ctx);
 
 /* TLS 1.0 Client Handshake Functions */
-noxtls_return_t tls10_send_client_hello(tls10_context_t *ctx);
-noxtls_return_t tls10_recv_server_hello(tls10_context_t *ctx);
-noxtls_return_t tls10_recv_certificate(tls10_context_t *ctx);
-noxtls_return_t tls10_recv_server_key_exchange(tls10_context_t *ctx);
-noxtls_return_t tls10_recv_server_hello_done(tls10_context_t *ctx);
-noxtls_return_t tls10_send_client_key_exchange(tls10_context_t *ctx);
-noxtls_return_t tls10_send_change_cipher_spec(tls10_context_t *ctx);
-noxtls_return_t tls10_send_finished(tls10_context_t *ctx);
-noxtls_return_t tls10_recv_change_cipher_spec(tls10_context_t *ctx);
-noxtls_return_t tls10_recv_finished(tls10_context_t *ctx);
+noxtls_return_t noxtls_tls10_send_client_hello(tls10_context_t *ctx);
+noxtls_return_t noxtls_tls10_recv_server_hello(tls10_context_t *ctx);
+noxtls_return_t noxtls_tls10_recv_certificate(tls10_context_t *ctx);
+noxtls_return_t noxtls_tls10_recv_server_key_exchange(tls10_context_t *ctx);
+noxtls_return_t noxtls_tls10_recv_server_hello_done(tls10_context_t *ctx);
+noxtls_return_t noxtls_tls10_send_client_key_exchange(tls10_context_t *ctx);
+noxtls_return_t noxtls_tls10_send_change_cipher_spec(tls10_context_t *ctx);
+noxtls_return_t noxtls_tls10_send_finished(tls10_context_t *ctx);
+noxtls_return_t noxtls_tls10_recv_change_cipher_spec(tls10_context_t *ctx);
+noxtls_return_t noxtls_tls10_recv_finished(tls10_context_t *ctx);
 
 /* TLS 1.0 Server Handshake Functions */
-noxtls_return_t tls10_recv_client_hello(tls10_context_t *ctx);
-noxtls_return_t tls10_send_server_hello(tls10_context_t *ctx);
-noxtls_return_t tls10_send_certificate(tls10_context_t *ctx);
-noxtls_return_t tls10_send_server_key_exchange(tls10_context_t *ctx);
-noxtls_return_t tls10_send_server_hello_done(tls10_context_t *ctx);
-noxtls_return_t tls10_recv_client_key_exchange(tls10_context_t *ctx);
-noxtls_return_t tls10_recv_change_cipher_spec_client(tls10_context_t *ctx);
-noxtls_return_t tls10_recv_finished_client(tls10_context_t *ctx);
-noxtls_return_t tls10_send_change_cipher_spec_server(tls10_context_t *ctx);
-noxtls_return_t tls10_send_finished_server(tls10_context_t *ctx);
+noxtls_return_t noxtls_tls10_recv_client_hello(tls10_context_t *ctx);
+noxtls_return_t noxtls_tls10_send_server_hello(tls10_context_t *ctx);
+noxtls_return_t noxtls_tls10_send_certificate(tls10_context_t *ctx);
+noxtls_return_t noxtls_tls10_send_server_key_exchange(tls10_context_t *ctx);
+noxtls_return_t noxtls_tls10_send_server_hello_done(tls10_context_t *ctx);
+noxtls_return_t noxtls_tls10_recv_client_key_exchange(tls10_context_t *ctx);
+noxtls_return_t noxtls_tls10_recv_change_cipher_spec_client(tls10_context_t *ctx);
+noxtls_return_t noxtls_tls10_recv_finished_client(tls10_context_t *ctx);
+noxtls_return_t noxtls_tls10_send_change_cipher_spec_server(tls10_context_t *ctx);
+noxtls_return_t noxtls_tls10_send_finished_server(tls10_context_t *ctx);
 
 #ifdef __cplusplus
 }

@@ -41,10 +41,10 @@ GCM provides confidentiality and authenticity. **Nonce uniqueness is critical:**
 
 ## API
 
-### `aes_gcm_encrypt`
+### `noxtls_aes_gcm_encrypt`
 
 ```c
-noxtls_return_t aes_gcm_encrypt(const uint8_t *key, aes_type_t type, const uint8_t nonce[12], const uint8_t *aad, uint32_t aad_len, const uint8_t *plaintext, uint32_t plaintext_len, uint8_t *ciphertext, uint8_t tag[16]);
+noxtls_return_t noxtls_aes_gcm_encrypt(const uint8_t *key, noxtls_aes_type_t type, const uint8_t nonce[12], const uint8_t *aad, uint32_t aad_len, const uint8_t *plaintext, uint32_t plaintext_len, uint8_t *ciphertext, uint8_t tag[16]);
 ```
 
 Encrypt the data
@@ -63,10 +63,10 @@ Encrypt the data
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success, [NOXTLS_RETURN_NULL](/docs/api/return_codes) if any required pointer is NULL
 
-### `aes_gcm_decrypt`
+### `noxtls_aes_gcm_decrypt`
 
 ```c
-noxtls_return_t aes_gcm_decrypt(const uint8_t *key, aes_type_t type, const uint8_t nonce[12], const uint8_t *aad, uint32_t aad_len, const uint8_t *ciphertext, uint32_t ciphertext_len, const uint8_t tag[16], uint8_t *plaintext);
+noxtls_return_t noxtls_aes_gcm_decrypt(const uint8_t *key, noxtls_aes_type_t type, const uint8_t nonce[12], const uint8_t *aad, uint32_t aad_len, const uint8_t *ciphertext, uint32_t ciphertext_len, const uint8_t tag[16], uint8_t *plaintext);
 ```
 
 Decrypt the data

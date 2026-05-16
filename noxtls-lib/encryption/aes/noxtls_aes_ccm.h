@@ -22,7 +22,7 @@
 #include "noxtls_aes.h"
 #include "noxtls_common.h"
 
-#define AES_BLOCK 16U
+#define NOXTLS_AES_BLOCK 16U
 
 #ifdef __cplusplus
 extern "C" {
@@ -32,7 +32,7 @@ extern "C" {
  * @brief AES-CCM encrypt (authenticated encryption).
  *
  * @param key         AES key
- * @param type        AES key size (AES_128_BIT, AES_192_BIT, AES_256_BIT)
+ * @param type        AES key size (NOXTLS_AES_128_BIT, NOXTLS_AES_192_BIT, NOXTLS_AES_256_BIT)
  * @param nonce       Nonce (7..13 bytes; length must match L = 15 - nonce_len, L in 2..8)
  * @param nonce_len   Nonce length in bytes (7, 8, 9, 10, 11, 12, or 13)
  * @param aad         Optional associated data (may be NULL if aad_len == 0)
@@ -44,7 +44,7 @@ extern "C" {
  * @param tag_len     Tag length in bytes
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_* on invalid parameters or failure
  */
-noxtls_return_t aes_ccm_encrypt(const uint8_t *key, aes_type_t type,
+noxtls_return_t noxtls_aes_ccm_encrypt(const uint8_t *key, noxtls_aes_type_t type,
                     const uint8_t *nonce, uint32_t nonce_len,
                     const uint8_t *aad, uint32_t aad_len,
                     const uint8_t *plaintext, uint32_t plaintext_len,
@@ -67,7 +67,7 @@ noxtls_return_t aes_ccm_encrypt(const uint8_t *key, aes_type_t type,
  * @param plaintext   Output plaintext (same length as ciphertext)
  * @return NOXTLS_RETURN_SUCCESS on success (tag verified), NOXTLS_RETURN_BAD_DATA on auth failure
  */
-noxtls_return_t aes_ccm_decrypt(const uint8_t *key, aes_type_t type,
+noxtls_return_t noxtls_aes_ccm_decrypt(const uint8_t *key, noxtls_aes_type_t type,
                     const uint8_t *nonce, uint32_t nonce_len,
                     const uint8_t *aad, uint32_t aad_len,
                     const uint8_t *ciphertext, uint32_t ciphertext_len,

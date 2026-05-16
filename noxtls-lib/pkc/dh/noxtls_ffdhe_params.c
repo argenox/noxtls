@@ -228,3 +228,5 @@ const uint8_t noxtls_ffdhe_g_4096[512] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02,
 };
 
+/* RFC 7919 ffdhe6144 + ffdhe8192 (generated from published modulus hex) */
+#include "noxtls_ffdhe_params_generated.inc"

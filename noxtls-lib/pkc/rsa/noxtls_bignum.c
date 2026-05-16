@@ -50,6 +50,9 @@ static uint32_t g_bn_debug_mod_calls = 0;
 static uint32_t g_bn_debug_modexp_byte = 0;
 static uint8_t g_bn_debug_modexp_bit = 0;
 static uint8_t g_bn_debug_modexp_stage = 0;
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((unused))
+#endif
 static int g_bn_debug_mod_mismatch_once = 1;
 static int g_bn_debug_mod_compare_all = 0;
 static int g_bn_debug_mod_first_mismatch_only = 1;
@@ -88,7 +91,8 @@ static void bn_debug_limbs(const char *label, const uint32_t *limbs, uint32_t li
 /* Debug: print bytes (BE) to stderr, optional max. */
 static void bn_debug_bytes(const char *label, const uint8_t *buf, uint32_t len, uint32_t max_show)
 {
-    uint32_t i, n = (max_show != 0u && len > max_show) ? max_show : len;
+    uint32_t i;
+    uint32_t n = (max_show != 0u && len > max_show) ? max_show : len;
     if(buf == NULL || !g_bn_debug_mod_2n_by_n)
         return;
     fprintf(stderr, "[bn_mod_2n_by_n] %s (%u bytes):", label, (unsigned)len);
@@ -259,14 +263,14 @@ noxtls_return_t noxtls_bn_add(uint8_t *result, const uint8_t *a, const uint8_t *
 noxtls_return_t noxtls_bn_sub(uint8_t *result, const uint8_t *a, const uint8_t *b, uint32_t len)
 {
     uint32_t i;
-    int16_t borrow = 0;
+    int borrow = 0;
 
     if(result == NULL || a == NULL || b == NULL)
         return NOXTLS_RETURN_NULL;
     if(len == 0)
         return NOXTLS_RETURN_INVALID_PARAM;
     for(i = len; i > 0; i--) {
-        int16_t diff = (int16_t)a[i - 1] - (int16_t)b[i - 1] - borrow;
+        int diff = (int)a[i - 1] - (int)b[i - 1] - borrow;
         if(diff < 0) {
             diff += 256;
             borrow = 1;
@@ -282,6 +286,7 @@ noxtls_return_t noxtls_bn_sub(uint8_t *result, const uint8_t *a, const uint8_t *
  * multiply-add with carry: r[0..n-1] += s[0..n-1] * d + carry_in;
  * output carry in *c. Uses 64-bit intermediate so limb * limb + limb + carry cannot overflow.
  */
+/* NOLINTNEXTLINE(bugprone-easily-swappable-parameters): legacy limb helper signature mirrors mbedTLS-style call sites. */
 static void bn_muladd_hlp(const uint32_t *s, uint32_t n, uint32_t d, uint32_t *r, uint32_t *c)
 {
     uint32_t i;
@@ -315,21 +320,32 @@ static noxtls_return_t bn_sub_inplace(uint8_t *a, const uint8_t *b, uint32_t len
  */
 noxtls_return_t noxtls_bn_mul(uint8_t *result, const uint8_t *a, uint32_t a_len, const uint8_t *b, uint32_t b_len)
 {
-    uint32_t n_limbs_a, n_limbs_b, n_limbs_r;
+    uint32_t n_limbs_a;
+    uint32_t n_limbs_b;
+    uint32_t n_limbs_r;
     uint32_t result_len;
     uint32_t *a_limbs = NULL;
     uint32_t *b_limbs = NULL;
     uint32_t *r_limbs = NULL;
-    uint32_t i, carry;
+    uint32_t i;
+    uint32_t carry;
 
     if(result == NULL || a == NULL || b == NULL)
         return NOXTLS_RETURN_NULL;
     if(a_len == 0 || b_len == 0)
         return NOXTLS_RETURN_INVALID_PARAM;
+    if(a_len > (uint32_t)(UINT32_MAX - b_len) ||
+       a_len > (uint32_t)(UINT32_MAX - 3u) ||
+       b_len > (uint32_t)(UINT32_MAX - 3u)) {
+        return NOXTLS_RETURN_FAILED;
+    }
 
     result_len = a_len + b_len;
     n_limbs_a = (a_len + 3u) / 4u;
     n_limbs_b = (b_len + 3u) / 4u;
+    if(n_limbs_a > (uint32_t)(UINT32_MAX - n_limbs_b)) {
+        return NOXTLS_RETURN_FAILED;
+    }
     n_limbs_r = n_limbs_a + n_limbs_b;
 
     a_limbs = (uint32_t*)noxtls_calloc(n_limbs_a, sizeof(uint32_t));
@@ -576,6 +592,7 @@ static void bn_limbs_shr(uint32_t *a, uint32_t len, unsigned k)
 
 /* Subtract q*mod from rem[start..start+n]. Returns 1 if borrow out, 0 otherwise.
  * Knuth D4 on base 2^32 limbs: k carries both product-high and subtraction borrow. */
+/* NOLINTNEXTLINE(bugprone-easily-swappable-parameters): subtraction kernel keeps Knuth D-layout (start,q,mod,n). */
 static int bn_limb_mul_sub(uint32_t *rem, uint32_t start, uint32_t q,
                           const uint32_t *mod, uint32_t n)
 {
@@ -678,8 +695,14 @@ static noxtls_return_t bn_mod_2n_by_n_limb(uint8_t *rem_out, uint32_t mod_len,
 
     if(a_len > mod_len * 2u)
         return NOXTLS_RETURN_FAILED; /* caller should use general path */
+    if(mod_len > (uint32_t)(UINT32_MAX / 2u)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    if(n > (uint32_t)(UINT32_MAX / 2u)) {
+        return NOXTLS_RETURN_FAILED;
+    }
 
-    a_padded = (uint8_t*)noxtls_calloc(mod_len * 2u, 1);
+    a_padded = (uint8_t*)noxtls_calloc((size_t)mod_len * 2u, 1);
     v = (uint32_t*)noxtls_calloc(n, sizeof(uint32_t));
     u = (uint32_t*)noxtls_calloc(m + 1u, sizeof(uint32_t));
     if(a_padded == NULL || v == NULL || u == NULL) {
@@ -958,6 +981,7 @@ static noxtls_return_t bn_div_remainder_limb(uint8_t *rem_out, uint32_t mod_len,
  * @param bit Bit to shift
  */
 NOXTLS_UNUSED_ATTR
+/* NOLINTNEXTLINE(bugprone-easily-swappable-parameters): bit-shift helper uses canonical (buf,len,bit) ordering. */
 static void bn_shift_l_one(uint8_t *buf, uint32_t len, uint8_t bit)
 {
     uint8_t carry = bit;
@@ -1557,8 +1581,14 @@ static void bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
     }
 
     /* Working buffers: X = copy of A, Y = copy of B; may grow by 1 byte after bit-shift. */
-    uint32_t x_cap = a_len + 1;
-    uint32_t y_cap = b_len + 1;
+    uint32_t x_cap;
+    uint32_t y_cap;
+    if(a_len == UINT32_MAX || b_len == UINT32_MAX) {
+        memset(rem_out, 0, mod_len);
+        return;
+    }
+    x_cap = a_len + 1u;
+    y_cap = b_len + 1u;
     uint8_t *X = (uint8_t*)noxtls_calloc(x_cap, 1);
     uint8_t *Y = (uint8_t*)noxtls_calloc(y_cap, 1);
     uint8_t *Y_shifted = (uint8_t*)noxtls_calloc(x_cap, 1);
@@ -1653,7 +1683,16 @@ static void bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
     }
     uint32_t reduce_rounds = 0;
     /* One quotient digit is 0..255, so we need at most 256 rounds when subtracting 1*Y_shifted each time */
-    uint32_t max_reduce_rounds = (x_len + 1) * 32;
+    uint32_t max_reduce_rounds;
+    if(x_len > (uint32_t)((UINT32_MAX / 32u) - 1u)) {
+        noxtls_free(X);
+        noxtls_free(Y);
+        noxtls_free(Y_shifted);
+        noxtls_free(qY);
+        memset(rem_out, 0, mod_len);
+        return;
+    }
+    max_reduce_rounds = (x_len + 1u) * 32u;
     if(max_reduce_rounds < 256) max_reduce_rounds = 256;
     while(bn_ge(X, Y_shifted, x_len) && reduce_rounds < max_reduce_rounds) {
         /* Estimate quotient digit: use top 2-3 bytes when both have same length */
@@ -1871,8 +1910,14 @@ noxtls_return_t noxtls_bn_mod(uint8_t *result, const uint8_t *a, uint32_t a_len,
     }
 
     {
-        const uint8_t *a_end = a + a_len;
-        if(result >= a && result < a_end) {
+        uintptr_t a_start = (uintptr_t)a;
+        uintptr_t a_end;
+        uintptr_t result_addr = (uintptr_t)result;
+        if(a_len > (uint32_t)(UINTPTR_MAX - a_start)) {
+            return NOXTLS_RETURN_FAILED;
+        }
+        a_end = a_start + (uintptr_t)a_len;
+        if(result_addr >= a_start && result_addr < a_end) {
             a_copy = (uint8_t*)noxtls_calloc(a_len, 1);
             if(!a_copy) {
                 noxtls_debug_printf("[noxtls_bn_mod] a_copy alloc failed (a_len=%u)\n", a_len);
@@ -1917,7 +1962,8 @@ noxtls_return_t noxtls_bn_mod(uint8_t *result, const uint8_t *a, uint32_t a_len,
     }
 
     if(a_len <= 8 && mod_len <= 4) {
-        uint64_t va = 0, vm = 0;
+        uint64_t va = 0;
+        uint64_t vm = 0;
         for(uint32_t i = 0; i < a_len; i++) va = (va << 8) | (uint64_t)a_src[i];
         for(uint32_t i = 0; i < mod_len; i++) vm = (vm << 8) | (uint64_t)mod[i];
         if(vm == 0) {
@@ -1934,9 +1980,10 @@ noxtls_return_t noxtls_bn_mod(uint8_t *result, const uint8_t *a, uint32_t a_len,
         return NOXTLS_RETURN_SUCCESS;
     }
 
-    /* Fast path: 2n-by-n limb reducer for ECDSA (P-256/P-384) and RSA (1024/2048/4096-bit). */
+    /* Fast path: 2n-by-n limb reducer for ECDSA (P-256/P-384), RSA, and RFC 7919 FFDHE moduli. */
     if(g_bn_enable_2n_by_n_fastpath &&
-       (mod_len == 32u || mod_len == 48u || mod_len == 64u || mod_len == 128u || mod_len == 256u) &&
+       (mod_len == 32u || mod_len == 48u || mod_len == 64u || mod_len == 66u || mod_len == 128u || mod_len == 256u ||
+        mod_len == 384u || mod_len == 512u || mod_len == 768u || mod_len == 1024u) &&
        a_len == mod_len * 2u) {
         if(bn_mod_2n_by_n_limb(result, mod_len, a_src, a_len, mod) == NOXTLS_RETURN_SUCCESS) {
             if(do_debug) bn_debug_print("[noxtls_bn_mod] result (2n/n limb path): ", result, mod_len);
@@ -1989,9 +2036,11 @@ noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const ui
     if(result == NULL || base == NULL || exp == NULL || mod == NULL)
         return NOXTLS_RETURN_NULL;
     if(mod_len == 0 || exp_len == 0) {
-        if(result != NULL && mod_len > 0)
-            memset(result, 0, mod_len);
         return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    if(mod_len > (uint32_t)(UINT32_MAX / 2u) ||
+       exp_len > (uint32_t)(UINT32_MAX / 8u)) {
+        return NOXTLS_RETURN_FAILED;
     }
 
     if(g_bn_debug_modexp_first) g_bn_debug_modexp_first = 0;
@@ -2003,7 +2052,7 @@ noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const ui
     temp_base = (uint8_t*)noxtls_calloc(mod_len, 1);
     exp_copy = (uint8_t*)noxtls_calloc(exp_len, 1);
     /* temp needs to be mod_len * 2 because multiplication of two mod_len numbers produces mod_len * 2 bytes */
-    temp = (uint8_t*)noxtls_calloc(mod_len * 2, 1);
+    temp = (uint8_t*)noxtls_calloc((size_t)mod_len * 2u, 1);
 
     if(!temp_result || !temp_base || !temp || !exp_copy) {
         noxtls_debug_printf("ERROR: noxtls_bn_mod_exp: Memory allocation failed!\n");
@@ -2042,7 +2091,7 @@ noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const ui
     }
 
     /* Right-to-left (LSB-first) square-and-multiply (bitwise shift) */
-    total_bits = exp_len * 8;
+    total_bits = exp_len * 8u;
     if(total_bits > 256) {
         noxtls_debug_printf("      Starting modular exponentiation (%u bits)...\n", total_bits);
         fflush(stdout);
@@ -2438,7 +2487,7 @@ noxtls_return_t noxtls_bn_mod_inv(uint8_t *result, const uint8_t *a, uint32_t a_
         noxtls_bn_mod(result, result_coeff, m_len, m, m_len);
         /* Verify: (a_mod_m * result) mod m == 1. If not, try Fermat fallback for odd moduli. */
         {
-            uint8_t *prod = (uint8_t*)noxtls_calloc(m_len * 2, 1);
+            uint8_t *prod = (uint8_t*)noxtls_calloc((size_t)m_len * 2u, 1);
             uint8_t *check = (uint8_t*)noxtls_calloc(m_len, 1);
             uint8_t *one = (uint8_t*)noxtls_calloc(m_len, 1);
             int ok = 0;

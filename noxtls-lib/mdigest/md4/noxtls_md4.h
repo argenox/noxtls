@@ -44,6 +44,11 @@ extern "C" {
 #define HASH_MD4_OUT_LEN    (16)
 #define MD4_WORD_BYTES (4u)
 #define MD4_WORDS_PER_BLOCK (16u)
+/* RFC 1320: three compression rounds (F, G, H), 16 left-rotate steps each. */
+#define MD4_COMPRESS_ROUNDS (3u)
+#define MD4_ROT_SHIFT_TABLE_LEN (MD4_COMPRESS_ROUNDS * MD4_WORDS_PER_BLOCK)
+#define MD4_ROT_SHIFT_ROUND2_BASE (MD4_WORDS_PER_BLOCK)
+#define MD4_ROT_SHIFT_ROUND3_BASE ((MD4_WORDS_PER_BLOCK) * 2u)
 #define MD4_PAD_BYTE (0x80u)
 #define MD4_ROUND2_CONST (0x5a827999u)
 #define MD4_ROUND3_CONST (0x6ed9eba1u)

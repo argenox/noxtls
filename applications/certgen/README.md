@@ -61,7 +61,7 @@ certgen req -new -x509 -key client.key -out cert.pem -days 365 -subj /CN=localho
 certgen req -new -x509 -key client.key -out cert.der -outform DER -days 730 -subj /CN=myserver
 ```
 
-If the build does not have `NOXTLS_HAVE_CERT_WRITE`, `req -new -x509` prints a message and exits; use OpenSSL to create the certificate in that case.
+If the build does not have `NOXTLS_HAVE_CERT_WRITE`, `req -new -x509` prints a noxtls_message and exits; use OpenSSL to create the certificate in that case.
 
 ## Build
 

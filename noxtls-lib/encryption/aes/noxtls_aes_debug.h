@@ -34,7 +34,7 @@
 #include <stdio.h>
 
 
-void print_state(uint32_t cur_round, const uint8_t state[4][4], const char * prefix);
-void print_state_matrix(uint8_t state[4][4]);
+void noxtls_print_state(uint32_t cur_round, const uint8_t state[4][4], const char * prefix);
+void noxtls_print_state_matrix(uint8_t state[4][4]);
 
 #endif /* _AES_DEBUG_H_ */

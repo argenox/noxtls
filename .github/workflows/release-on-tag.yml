@@ -122,14 +122,14 @@ jobs:
         if: ${{ !matrix.use_msys2 }}
         shell: bash
         run: |
-          cmake -S . -B build -G Ninja -D BUILD_SHARED_LIBS=OFF -D BUILD_TESTS=OFF -D BUILD_APPLICATIONS=ON -D CMAKE_BUILD_TYPE=Release
+          cmake -S . -B build -G Ninja -D BUILD_SHARED_LIBS=OFF -D BUILD_TESTS=OFF -D BUILD_APPLICATIONS=ON -D BUILD_BOGO_SHIM=OFF -D CMAKE_BUILD_TYPE=Release
           cmake --build build --parallel
 
       - name: Configure and build (Windows MinGW)
         if: ${{ matrix.use_msys2 }}
         shell: msys2 {0}
         run: |
-          cmake -S . -B build -G Ninja -D BUILD_SHARED_LIBS=OFF -D BUILD_TESTS=OFF -D BUILD_APPLICATIONS=ON -D CMAKE_BUILD_TYPE=Release
+          cmake -S . -B build -G Ninja -D BUILD_SHARED_LIBS=OFF -D BUILD_TESTS=OFF -D BUILD_APPLICATIONS=ON -D BUILD_BOGO_SHIM=OFF -D CMAKE_BUILD_TYPE=Release
           cmake --build build --parallel
 
       - name: Package static libraries and headers

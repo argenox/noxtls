@@ -1,0 +1,86 @@
+name: Static Analysis
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+jobs:
+  cppcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install cppcheck
+        run: sudo apt-get update && sudo apt-get install -y cppcheck
+
+      - name: Configure compile database
+        run: >
+          cmake -S . -B build-static-analysis
+          -D BUILD_APPLICATIONS=OFF
+          -D BUILD_TESTS=OFF
+          -D CMAKE_BUILD_TYPE=Debug
+          -D CMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Run cppcheck
+        run: >
+          cppcheck
+          --project=build-static-analysis/compile_commands.json
+          --enable=warning,style,performance,portability,information
+          --inline-suppr
+          --suppress=missingIncludeSystem
+          --suppress=unusedFunction
+          --check-level=exhaustive
+          --error-exitcode=1
+
+  clang-tidy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install clang-tidy tools
+        run: sudo apt-get update && sudo apt-get install -y clang-tidy clang-tools
+
+      - name: Configure compile database
+        run: >
+          cmake -S . -B build-static-analysis
+          -D BUILD_APPLICATIONS=OFF
+          -D BUILD_TESTS=OFF
+          -D CMAKE_BUILD_TYPE=Debug
+          -D CMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Run clang-tidy
+        run: run-clang-tidy -p build-static-analysis -quiet
+
+  scan-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Clang static analyzer
+        run: sudo apt-get update && sudo apt-get install -y clang-tools
+
+      - name: Configure and analyze build
+        run: >
+          scan-build --status-bugs
+          cmake -S . -B build-scan
+          -D BUILD_APPLICATIONS=OFF
+          -D BUILD_TESTS=OFF
+          -D CMAKE_BUILD_TYPE=Debug
+          && scan-build --status-bugs cmake --build build-scan --parallel
+
+  semgrep:
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep:latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep Community checks
+        run: semgrep --config=p/ci --error --exclude=.github --verbose
