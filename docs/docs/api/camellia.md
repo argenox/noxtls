@@ -1,6 +1,7 @@
 ---
 sidebar_position: 18
-title: "Camellia"
+title: Camellia
+description: "NoxTLS Camellia C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # Camellia

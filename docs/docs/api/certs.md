@@ -1,6 +1,12 @@
 ---
 sidebar_position: 27
-title: "Certificates"
+title: Certificates
+description: "NoxTLS X.509 certificate parsing, verification, chain validation, and TLS integration APIs."
+keywords:
+  - noxtls
+  - x509
+  - certificate verification
+  - embedded pki
 ---
 
 # Certificates

@@ -1,6 +1,7 @@
 ---
 sidebar_position: 28
-title: "Utility"
+title: Utility
+description: "NoxTLS Utility C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # Utility

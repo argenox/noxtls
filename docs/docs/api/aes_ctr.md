@@ -1,6 +1,7 @@
 ---
 sidebar_position: 5
-title: "AES CTR"
+title: AES CTR
+description: "NoxTLS AES CTR C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # AES CTR

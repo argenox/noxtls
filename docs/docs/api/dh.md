@@ -1,6 +1,7 @@
 ---
 sidebar_position: 29
-title: "Diffie-Hellman (FFDHE)"
+title: Diffie-Hellman (FFDHE)
+description: "NoxTLS Diffie-Hellman (FFDHE) C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # Diffie-Hellman (FFDHE)

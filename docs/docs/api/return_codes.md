@@ -1,6 +1,7 @@
 ---
 sidebar_position: 0
-title: "Return codes (noxtls_return_t)"
+title: Return codes (noxtls_return_t)
+description: "NoxTLS Return codes (noxtls_return_t) C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # Return codes (noxtls_return_t)

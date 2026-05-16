@@ -1,6 +1,7 @@
 ---
 sidebar_position: 24
-title: "DES / 3DES"
+title: DES / 3DES
+description: "NoxTLS DES / 3DES C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # DES / 3DES

@@ -1,6 +1,7 @@
 ---
 sidebar_position: 22
-title: "Camellia - OFB"
+title: Camellia - OFB
+description: "NoxTLS Camellia - OFB C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # Camellia - OFB

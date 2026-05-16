@@ -1,6 +1,7 @@
 ---
 sidebar_position: 11
-title: "AES (shared)"
+title: AES (shared)
+description: "NoxTLS AES (shared) C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # AES (shared)

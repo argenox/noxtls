@@ -1,6 +1,7 @@
 ---
 sidebar_position: 5
-title: "Certgen utility"
+title: Certgen utility
+description: "NoxTLS Certgen utility sample application: build, usage, and command-line options."
 ---
 
 # Certgen utility

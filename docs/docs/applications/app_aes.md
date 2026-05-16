@@ -1,6 +1,7 @@
 ---
 sidebar_position: 1
-title: "AES utility"
+title: AES utility
+description: "NoxTLS AES utility sample application: build, usage, and command-line options."
 ---
 
 # AES utility

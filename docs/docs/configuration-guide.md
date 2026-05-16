@@ -1,6 +1,7 @@
 ---
 sidebar_position: 6
-title: "Configuration Guide"
+title: Configuration Guide
+description: "NoxTLS documentation: Configuration Guide."
 ---
 
 # Configuration Guide

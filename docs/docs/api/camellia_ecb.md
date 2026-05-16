@@ -1,6 +1,7 @@
 ---
 sidebar_position: 18
-title: "Camellia - ECB"
+title: Camellia - ECB
+description: "NoxTLS Camellia - ECB C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # Camellia - ECB

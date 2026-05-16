@@ -1,6 +1,7 @@
 ---
 sidebar_position: 14
-title: "ARIA - CTR"
+title: ARIA - CTR
+description: "NoxTLS ARIA - CTR C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # ARIA - CTR

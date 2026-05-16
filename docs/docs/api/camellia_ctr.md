@@ -1,6 +1,7 @@
 ---
 sidebar_position: 20
-title: "Camellia - CTR"
+title: Camellia - CTR
+description: "NoxTLS Camellia - CTR C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # Camellia - CTR

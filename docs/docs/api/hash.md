@@ -1,6 +1,7 @@
 ---
 sidebar_position: 25
-title: "Common hash API"
+title: Common hash API
+description: "NoxTLS Common hash API C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # Common hash API

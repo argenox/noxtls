@@ -1,6 +1,7 @@
 ---
 sidebar_position: 14
-title: "ChaCha20-Poly1305"
+title: ChaCha20-Poly1305
+description: "NoxTLS ChaCha20-Poly1305 C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # ChaCha20-Poly1305

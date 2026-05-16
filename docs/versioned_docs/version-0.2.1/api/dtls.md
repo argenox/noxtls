@@ -1,11 +1,18 @@
 ---
 sidebar_position: 17
-title: "DTLS"
+title: DTLS
+description: "NoxTLS DTLS common API: MTU, retransmission, cookies, replay windows, ACK handling, and connection ID helpers."
+keywords:
+  - noxtls
+  - dtls api
+  - rfc 6347
+  - rfc 9147
+  - udp tls
 ---
 
 # DTLS
 
-Datagram TLS common definitions and base context used by DTLS 1.2 and 1.3. Header: `noxtls_dtls_common.h`. TLS 1.2 and 1.3 datagram operation use [tls12_context_t](/docs/api/tls12#tls12_context_t) and [tls13_context_t](/docs/api/tls13#tls13_context_t) initialized with [noxtls_dtls12_context_init](/docs/api/tls12#noxtls_dtls12_context_init) and [noxtls_dtls13_context_init](/docs/api/tls13#noxtls_dtls13_context_init) respectively.
+Datagram TLS common definitions and base context used by DTLS 1.2 and 1.3. Header: `noxtls_dtls_common.h`. TLS 1.2 and 1.3 datagram operation use [tls12_context_t](./tls12#tls12_context_t) and [tls13_context_t](./tls13#tls13_context_t) initialized with [noxtls_dtls12_context_init](./dtls12#noxtls_dtls12_context_init) and [noxtls_dtls13_context_init](./dtls13#noxtls_dtls13_context_init) respectively.
 
 ## Constants
 
@@ -32,7 +39,7 @@ Replay protection: `window_bitmap`, `last_seq`.
 
 ### dtls_context_t
 
-DTLS base context: contains [tls_context_t](/docs/api/tls#tls_context_t) plus epoch, read/write sequence numbers, DTLS message sequence, MTU, max fragment size, anti-amplification factor, replay window, handshake reassembly buffer, flight buffer for retransmission, ACK state, retransmit timeout/backoff, and cookie. Initialized with [noxtls_dtls_context_init](#noxtls_dtls_context_init), freed with [noxtls_dtls_context_free](#noxtls_dtls_context_free). **tls12_context_t** and **tls13_context_t** use this as their `base` (e.g. `ctx->base`).
+DTLS base context: contains [tls_context_t](./tls#tls_context_t) plus epoch, read/write sequence numbers, DTLS message sequence, MTU, max fragment size, anti-amplification factor, replay window, handshake reassembly buffer, flight buffer for retransmission, ACK state, retransmit timeout/backoff, and cookie. Initialized with [noxtls_dtls_context_init](#noxtls_dtls_context_init), freed with [noxtls_dtls_context_free](#noxtls_dtls_context_free). **tls12_context_t** and **tls13_context_t** use this as their `base` (e.g. `ctx->base`).
 
 ## API
 
@@ -44,9 +51,9 @@ DTLS base context: contains [tls_context_t](/docs/api/tls#tls_context_t) plus ep
 noxtls_return_t noxtls_dtls_context_init(dtls_context_t *ctx, tls_role_t role, uint16_t version);
 ```
 
-Initialize DTLS base context. Usually you use [noxtls_dtls12_context_init](/docs/api/tls12#noxtls_dtls12_context_init) or [noxtls_dtls13_context_init](/docs/api/tls13#noxtls_dtls13_context_init) instead, which set up the version-specific context including this base.
+Initialize DTLS base context. Usually you use [noxtls_dtls12_context_init](./dtls12#noxtls_dtls12_context_init) or [noxtls_dtls13_context_init](./dtls13#noxtls_dtls13_context_init) instead, which set up the version-specific context including this base.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### `noxtls_dtls_context_free`
 
@@ -54,9 +61,9 @@ Initialize DTLS base context. Usually you use [noxtls_dtls12_context_init](/docs
 noxtls_return_t noxtls_dtls_context_free(dtls_context_t *ctx);
 ```
 
-Free DTLS base context. Prefer [noxtls_tls12_context_free](/docs/api/tls12#noxtls_tls12_context_free) or [noxtls_tls13_context_free](/docs/api/tls13#noxtls_tls13_context_free) when using the full TLS 1.2/1.3 DTLS stack.
+Free DTLS base context. Prefer [noxtls_tls12_context_free](./tls12#noxtls_tls12_context_free) or [noxtls_tls13_context_free](./tls13#noxtls_tls13_context_free) when using the full TLS 1.2/1.3 DTLS stack.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### Configuration
 
@@ -68,7 +75,7 @@ noxtls_return_t noxtls_dtls_set_mtu(dtls_context_t *ctx, uint16_t mtu);
 
 Set MTU for fragmentation (e.g. 1500). Call before handshake.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### `dtls_set_retransmit`
 
@@ -78,7 +85,7 @@ noxtls_return_t dtls_set_retransmit(dtls_context_t *ctx, uint32_t timeout_ms, ui
 
 Set retransmission parameters: initial timeout, backoff multiplier, max attempts per receive.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### `noxtls_dtls_set_anti_amplification_limit`
 
@@ -88,7 +95,7 @@ noxtls_return_t noxtls_dtls_set_anti_amplification_limit(dtls_context_t *ctx, ui
 
 Set anti-amplification limit (RFC 6347). Call before handshake on server.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### `noxtls_dtls_set_ack_range_limit`
 
@@ -98,7 +105,7 @@ noxtls_return_t noxtls_dtls_set_ack_range_limit(dtls_context_t *ctx, uint8_t max
 
 Set maximum ACK ranges for DTLS 1.3 ACK handling.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### Record layer
 
@@ -110,7 +117,7 @@ noxtls_return_t noxtls_dtls_send_record(dtls_context_t *ctx, uint8_t type, const
 
 Send one DTLS record (type and payload). Used internally by the TLS 1.2/1.3 DTLS implementations.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### `noxtls_dtls_recv_record`
 
@@ -120,7 +127,7 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
 
 Receive one DTLS record into `record`. Used internally.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### Handshake fragmentation
 
@@ -132,7 +139,7 @@ noxtls_return_t dtls_send_handshake_fragment(dtls_context_t *ctx, uint8_t msg_ty
 
 Send a handshake fragment. Used internally.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### `noxtls_dtls_recv_handshake_fragment`
 
@@ -142,7 +149,7 @@ noxtls_return_t noxtls_dtls_recv_handshake_fragment(dtls_context_t *ctx, dtls_ha
 
 Receive a handshake fragment. Used internally.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### `noxtls_dtls_reassemble_handshake`
 
@@ -152,7 +159,7 @@ noxtls_return_t noxtls_dtls_reassemble_handshake(dtls_context_t *ctx, dtls_hands
 
 Reassemble fragments into a complete handshake message. Caller must free `*complete_msg` when done (if allocated by this function).
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### Replay protection
 
@@ -164,7 +171,7 @@ noxtls_return_t noxtls_dtls_check_replay(dtls_context_t *ctx, uint64_t sequence_
 
 Check if sequence number is within replay window (reject duplicates). Used internally.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### `noxtls_dtls_update_replay_window`
 
@@ -174,7 +181,7 @@ noxtls_return_t noxtls_dtls_update_replay_window(dtls_context_t *ctx, uint64_t s
 
 Update replay window after accepting a record. Used internally.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### Cookie (Hello Verify Request)
 
@@ -186,7 +193,7 @@ noxtls_return_t noxtls_dtls_generate_cookie(dtls_context_t *ctx, const uint8_t *
 
 Generate a cookie for Hello Verify Request. Server uses this to validate client address before committing state.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### `noxtls_dtls_verify_cookie`
 
@@ -196,7 +203,7 @@ noxtls_return_t noxtls_dtls_verify_cookie(const dtls_context_t *ctx, const uint8
 
 Verify cookie from client’s second Client Hello. Used internally.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### `noxtls_dtls_mark_validated`
 
@@ -208,5 +215,5 @@ Mark peer as validated (e.g. after cookie verification). Used internally.
 
 ## Using DTLS 1.2 or 1.3
 
-- **DTLS 1.2:** Use [noxtls_dtls12_context_init](/docs/api/tls12#noxtls_dtls12_context_init), then [noxtls_dtls_set_mtu](#noxtls_dtls_set_mtu), [dtls_set_retransmit](#dtls_set_retransmit), and optionally [noxtls_dtls_set_anti_amplification_limit](#noxtls_dtls_set_anti_amplification_limit). Call [noxtls_tls12_connect](/docs/api/tls12#noxtls_tls12_connect) or [noxtls_tls12_accept](/docs/api/tls12#noxtls_tls12_accept) and then [noxtls_tls12_send](/docs/api/tls12#noxtls_tls12_send) / [noxtls_tls12_recv](/docs/api/tls12#noxtls_tls12_recv).
-- **DTLS 1.3:** Use [noxtls_dtls13_context_init](/docs/api/tls13#noxtls_dtls13_context_init), set DTLS options on the base, then [noxtls_tls13_connect](/docs/api/tls13#noxtls_tls13_connect) or [noxtls_tls13_accept](/docs/api/tls13#noxtls_tls13_accept) and [noxtls_tls13_send](/docs/api/tls13#noxtls_tls13_send) / [noxtls_tls13_recv](/docs/api/tls13#noxtls_tls13_recv). Connection ID and unified header are handled by the TLS 1.3 implementation.
+- **DTLS 1.2:** Use [noxtls_dtls12_context_init](./dtls12#noxtls_dtls12_context_init), then [noxtls_dtls_set_mtu](#noxtls_dtls_set_mtu), [dtls_set_retransmit](#dtls_set_retransmit), and optionally [noxtls_dtls_set_anti_amplification_limit](#noxtls_dtls_set_anti_amplification_limit). Call [noxtls_tls12_connect](./tls12#noxtls_tls12_connect) or [noxtls_tls12_accept](./tls12#noxtls_tls12_accept) and then [noxtls_tls12_send](./tls12#noxtls_tls12_send) / [noxtls_tls12_recv](./tls12#noxtls_tls12_recv).
+- **DTLS 1.3:** Use [noxtls_dtls13_context_init](./dtls13#noxtls_dtls13_context_init), set DTLS options on the base, then [noxtls_tls13_connect](./tls13#noxtls_tls13_connect) or [noxtls_tls13_accept](./tls13#noxtls_tls13_accept) and [noxtls_tls13_send](./tls13#noxtls_tls13_send) / [noxtls_tls13_recv](./tls13#noxtls_tls13_recv). Connection ID and unified header are handled by the TLS 1.3 implementation.

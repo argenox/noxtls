@@ -1,6 +1,7 @@
 ---
 sidebar_position: 14
-title: "TLS test"
+title: TLS test
+description: "NoxTLS TLS test sample application: build, usage, and command-line options."
 ---
 
 # TLS test

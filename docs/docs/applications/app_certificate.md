@@ -1,6 +1,7 @@
 ---
 sidebar_position: 4
-title: "Certificate application"
+title: Certificate application
+description: "NoxTLS Certificate application sample application: build, usage, and command-line options."
 ---
 
 # Certificate application

@@ -1,6 +1,12 @@
 ---
 sidebar_position: 26
-title: "ML-KEM"
+title: ML-KEM
+description: "NoxTLS ML-KEM (FIPS 203) API for post-quantum key encapsulation and TLS 1.3 key shares."
+keywords:
+  - noxtls
+  - ml-kem
+  - post-quantum
+  - pqc
 ---
 
 # ML-KEM

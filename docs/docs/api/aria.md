@@ -1,6 +1,7 @@
 ---
 sidebar_position: 17
-title: "ARIA (shared)"
+title: ARIA (shared)
+description: "NoxTLS ARIA (shared) C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # ARIA (shared)

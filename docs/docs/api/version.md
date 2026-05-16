@@ -1,6 +1,7 @@
 ---
 sidebar_position: 2
-title: "Version Macros"
+title: Version Macros
+description: "NoxTLS Version Macros C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # Version Macros

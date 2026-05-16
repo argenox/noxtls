@@ -1,6 +1,7 @@
 ---
 sidebar_position: 13
-title: "SHA utility"
+title: SHA utility
+description: "NoxTLS SHA utility sample application: build, usage, and command-line options."
 ---
 
 # SHA utility

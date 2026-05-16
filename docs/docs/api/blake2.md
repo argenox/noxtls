@@ -1,6 +1,7 @@
 ---
 sidebar_position: 23
-title: "BLAKE2"
+title: BLAKE2
+description: "NoxTLS BLAKE2 C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # BLAKE2

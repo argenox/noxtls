@@ -1,6 +1,7 @@
 ---
 sidebar_position: 19
-title: "SHA-1"
+title: SHA-1
+description: "NoxTLS SHA-1 C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # SHA-1

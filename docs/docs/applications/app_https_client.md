@@ -1,6 +1,7 @@
 ---
 sidebar_position: 8
-title: "HTTPS client"
+title: HTTPS client
+description: "NoxTLS HTTPS client sample application: build, usage, and command-line options."
 ---
 
 # HTTPS client

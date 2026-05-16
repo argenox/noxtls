@@ -1,6 +1,11 @@
 ---
 sidebar_position: 27
-title: "ML-DSA"
+title: ML-DSA
+description: "NoxTLS ML-DSA (FIPS 204) API for post-quantum signatures and certificate verification."
+keywords:
+  - noxtls
+  - ml-dsa
+  - post-quantum signatures
 ---
 
 # ML-DSA

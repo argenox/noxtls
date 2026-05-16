@@ -1,6 +1,7 @@
 ---
 sidebar_position: 15
-title: "ChaCha20"
+title: ChaCha20
+description: "NoxTLS ChaCha20 C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # ChaCha20

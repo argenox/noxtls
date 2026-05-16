@@ -1,6 +1,7 @@
 ---
 sidebar_position: 13
-title: "ARIA - CBC"
+title: ARIA - CBC
+description: "NoxTLS ARIA - CBC C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # ARIA - CBC

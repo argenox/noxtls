@@ -1,6 +1,7 @@
 ---
 sidebar_position: 11
 title: Contributing
+description: "NoxTLS documentation: Contributing."
 ---
 
 # Contributing

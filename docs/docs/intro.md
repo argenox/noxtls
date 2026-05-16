@@ -1,5 +1,12 @@
 ---
 sidebar_position: 1
+description: Introduction to NoxTLS — embedded TLS 1.2/1.3, DTLS, cryptography, and X.509 for resource-constrained C systems.
+keywords:
+  - noxtls
+  - embedded tls
+  - dtls
+  - c cryptography
+  - introduction
 ---
 
 # Introduction
@@ -12,7 +19,7 @@ NoxTLS is a C cryptography and TLS/DTLS library for embedded and systems softwar
 - **Message digests**: SHA-1, SHA-256, SHA-512, SHA-3, MD4, MD5, RIPEMD-160, BLAKE2
 - **Public key crypto**: RSA, DSA, ECC, ECDSA, ECDH, X25519, X448, Ed25519, Ed448
 - **Post-quantum crypto**: ML-KEM and ML-DSA (feature-gated)
-- **TLS / DTLS**: TLS 1.2 and 1.3, DTLS 1.2 and 1.3 (default build); optional TLS 1.0/1.1 — see [TLS component](/docs/tls)
+- **TLS / DTLS**: TLS 1.2 and 1.3, DTLS 1.2 and 1.3 (default build); optional TLS 1.0/1.1 — see [TLS component](./tls)
 - **X.509 / certificates**: Parsing, verification, and TLS integration
 
 ## TLS and DTLS at a glance
@@ -22,9 +29,9 @@ NoxTLS is a C cryptography and TLS/DTLS library for embedded and systems softwar
 | **TLS 1.3** | 1-RTT handshake, resumption, 0-RTT, PSK, mTLS, ALPN, record size limit |
 | **TLS 1.2** | ECDHE/DHE suites, secure renegotiation, ETM, EMS, session tickets, OCSP stapling |
 | **DTLS 1.2** | Datagram records, cookies, retransmission, replay protection |
-| **DTLS 1.3** | RFC 9147 unified header, CID, ACK flights, `dtls13` key schedule — [feature guide](/docs/dtls13) |
+| **DTLS 1.3** | RFC 9147 unified header, CID, ACK flights, `dtls13` key schedule — [feature guide](./dtls13) |
 
-For protocol details, extension tables, and sample code paths, start with the [TLS component](/docs/tls) guide.
+For protocol details, extension tables, and sample code paths, start with the [TLS component](./tls) guide.
 
 ## Supported elliptic curves
 

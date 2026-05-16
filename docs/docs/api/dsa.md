@@ -1,6 +1,7 @@
 ---
 sidebar_position: 28
-title: "DSA"
+title: DSA
+description: "NoxTLS DSA C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # DSA

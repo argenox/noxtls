@@ -1,6 +1,11 @@
 ---
 sidebar_position: 17
-title: "TLS 1.3 PQC"
+title: TLS 1.3 PQC
+description: "NoxTLS TLS 1.3 post-quantum integration: ML-KEM groups, hybrids, and ML-DSA signature schemes."
+keywords:
+  - noxtls
+  - tls 1.3 pqc
+  - hybrid key exchange
 ---
 
 # TLS 1.3 PQC

@@ -1,6 +1,7 @@
 ---
 sidebar_position: 5
-title: "Porting Guide"
+title: Porting Guide
+description: "NoxTLS documentation: Porting Guide."
 ---
 
 # Porting Guide

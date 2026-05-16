@@ -1,6 +1,7 @@
 ---
 sidebar_position: 9
 title: EdDSA
+description: "NoxTLS documentation: EdDSA."
 ---
 
 # EdDSA in NoxTLS

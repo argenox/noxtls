@@ -1,6 +1,7 @@
 ---
 sidebar_position: 3
-title: "AES - ECB"
+title: AES - ECB
+description: "NoxTLS AES - ECB C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # AES - ECB

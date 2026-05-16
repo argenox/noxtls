@@ -1,6 +1,7 @@
 ---
 sidebar_position: 9
 title: Documentation Parity Matrix
+description: "NoxTLS documentation: Documentation Parity Matrix."
 ---
 
 # Documentation Parity Matrix

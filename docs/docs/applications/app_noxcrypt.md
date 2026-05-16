@@ -1,6 +1,7 @@
 ---
 sidebar_position: 15
-title: "Noxcrypt Utility"
+title: Noxcrypt Utility
+description: "NoxTLS Noxcrypt Utility sample application: build, usage, and command-line options."
 ---
 
 # Noxcrypt Utility

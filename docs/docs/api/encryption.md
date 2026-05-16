@@ -1,6 +1,7 @@
 ---
 sidebar_position: 2
-title: "Encryption"
+title: Encryption
+description: "NoxTLS Encryption C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # Encryption
