@@ -1,6 +1,7 @@
 ---
 sidebar_position: 12
 title: Security Reporting
+description: "NoxTLS documentation: Security Reporting."
 ---
 
 # Security Reporting

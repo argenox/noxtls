@@ -1,6 +1,7 @@
 ---
 sidebar_position: 11
-title: "PKC utility"
+title: PKC utility
+description: "NoxTLS PKC utility sample application: build, usage, and command-line options."
 ---
 
 # PKC utility

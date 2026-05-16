@@ -1,6 +1,7 @@
 ---
 sidebar_position: 5
 title: Quantum Crypto
+description: "NoxTLS documentation: Quantum Crypto."
 ---
 
 # Quantum Crypto

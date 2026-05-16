@@ -1,6 +1,7 @@
 ---
 sidebar_position: 12
-title: "ARIA - ECB"
+title: ARIA - ECB
+description: "NoxTLS ARIA - ECB C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # ARIA - ECB

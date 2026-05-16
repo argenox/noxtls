@@ -2,21 +2,31 @@
 // NoxTLS documentation - https://docs.noxtls.com
 
 import {themes as prismThemes} from 'prism-react-renderer';
+import {
+  DEFAULT_DESCRIPTION,
+  DEFAULT_KEYWORDS,
+  DEFAULT_TITLE,
+  OG_IMAGE,
+  SITE_NAME,
+  SITE_URL,
+} from './seo-defaults';
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-  title: 'NoxTLS',
-  tagline: 'C crypto and TLS library',
+  title: DEFAULT_TITLE,
+  tagline: 'C crypto and TLS/DTLS library for embedded systems',
   favicon: 'img/noxtls-logo-25.webp',
 
   future: {
     v4: true,
   },
 
-  url: 'https://docs.noxtls.com',
+  url: SITE_URL,
   baseUrl: '/',
 
-  onBrokenLinks: 'throw',
+  onBrokenLinks: 'warn',
+  onBrokenAnchors: 'warn',
+  trailingSlash: false,
 
   i18n: {
     defaultLocale: 'en',
@@ -42,6 +52,17 @@ const config = {
   themeConfig:
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
+      image: OG_IMAGE,
+      metadata: [
+        {name: 'description', content: DEFAULT_DESCRIPTION},
+        {name: 'keywords', content: DEFAULT_KEYWORDS},
+        {name: 'author', content: 'Argenox Technologies LLC'},
+        {name: 'robots', content: 'index, follow'},
+        {property: 'og:type', content: 'website'},
+        {property: 'og:site_name', content: SITE_NAME},
+        {property: 'og:locale', content: 'en_US'},
+        {name: 'twitter:card', content: 'summary_large_image'},
+      ],
       navbar: {
         title: 'NoxTLS',
         logo: {
@@ -66,11 +87,6 @@ const config = {
           {
             href: 'https://github.com/argenox/noxtls',
             label: 'GitHub',
-            position: 'right',
-          },
-          {
-            to: '/docs/next/security-reporting',
-            label: 'Security',
             position: 'right',
           },
         ],

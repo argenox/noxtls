@@ -1,6 +1,7 @@
 ---
 sidebar_position: 26
-title: "ECC (Elliptic curve crypto)"
+title: ECC (Elliptic curve crypto)
+description: "NoxTLS ECC (Elliptic curve crypto) C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # ECC (Elliptic curve crypto)

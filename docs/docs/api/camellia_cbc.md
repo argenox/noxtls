@@ -1,6 +1,7 @@
 ---
 sidebar_position: 19
-title: "Camellia - CBC"
+title: Camellia - CBC
+description: "NoxTLS Camellia - CBC C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # Camellia - CBC

@@ -1,6 +1,7 @@
 ---
 sidebar_position: 4
-title: "AES CBC"
+title: AES CBC
+description: "NoxTLS AES CBC C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # AES CBC

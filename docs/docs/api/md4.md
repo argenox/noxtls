@@ -1,6 +1,7 @@
 ---
 sidebar_position: 17
-title: "MD4"
+title: MD4
+description: "NoxTLS MD4 C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # MD4

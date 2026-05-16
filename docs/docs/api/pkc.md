@@ -1,6 +1,7 @@
 ---
 sidebar_position: 25
-title: "Public key crypto"
+title: Public key crypto
+description: "NoxTLS Public key crypto C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # Public key crypto

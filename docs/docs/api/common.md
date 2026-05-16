@@ -1,6 +1,7 @@
 ---
 sidebar_position: 1
-title: "Common"
+title: Common
+description: "NoxTLS Common C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # Common

@@ -1,6 +1,7 @@
 ---
 sidebar_position: 9
-title: "AES CCM"
+title: AES CCM
+description: "NoxTLS AES CCM C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # AES CCM

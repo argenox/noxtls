@@ -1,6 +1,7 @@
 ---
 sidebar_position: 12
-title: "Prime utility"
+title: Prime utility
+description: "NoxTLS Prime utility sample application: build, usage, and command-line options."
 ---
 
 # Prime utility

@@ -1,5 +1,6 @@
 ---
 sidebar_position: 2
+description: "NoxTLS documentation: getting-started."
 ---
 
 # Getting Started

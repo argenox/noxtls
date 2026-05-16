@@ -1,6 +1,7 @@
 ---
 sidebar_position: 15
-title: "TLS 1.0"
+title: TLS 1.0
+description: "NoxTLS TLS 1.0 C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # TLS 1.0

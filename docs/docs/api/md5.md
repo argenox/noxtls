@@ -1,6 +1,7 @@
 ---
 sidebar_position: 18
-title: "MD5"
+title: MD5
+description: "NoxTLS MD5 C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # MD5

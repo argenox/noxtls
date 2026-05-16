@@ -1,6 +1,7 @@
 ---
 sidebar_position: 16
-title: "Message digest"
+title: Message digest
+description: "NoxTLS Message digest C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # Message digest

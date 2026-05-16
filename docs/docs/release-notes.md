@@ -1,6 +1,7 @@
 ---
 sidebar_position: 8
 title: Release Notes
+description: "NoxTLS documentation: Release Notes."
 ---
 
 # Release Notes

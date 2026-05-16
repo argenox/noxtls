@@ -1,6 +1,7 @@
 ---
 sidebar_position: 8
-title: "AES GCM"
+title: AES GCM
+description: "NoxTLS AES GCM C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # AES GCM

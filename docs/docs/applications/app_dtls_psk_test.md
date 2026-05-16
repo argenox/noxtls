@@ -1,6 +1,7 @@
 ---
 sidebar_position: 7
-title: "DTLS PSK test"
+title: DTLS PSK test
+description: "NoxTLS DTLS PSK test sample application: build, usage, and command-line options."
 ---
 
 # DTLS PSK test

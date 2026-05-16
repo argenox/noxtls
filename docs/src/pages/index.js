@@ -1,43 +1,30 @@
-import React from 'react';
-import Link from '@docusaurus/Link';
+import Head from '@docusaurus/Head';
+import {Redirect} from '@docusaurus/router';
+import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 
-/**
- * Site root: redirect to latest docs intro so visitors land on the current release.
- * /docs (without a version path) serves the current documentation set (0.2.4).
- */
+const HOME_DESCRIPTION =
+  'Official NoxTLS documentation: TLS 1.2/1.3, DTLS, post-quantum crypto, and the full C API for embedded secure connectivity.';
+
 export default function Home() {
+  const {siteConfig} = useDocusaurusContext();
+  const canonical = `${siteConfig.url}/docs/intro`;
+
   return (
-    <main style={{ maxWidth: 900, margin: '0 auto', padding: '3rem 1rem' }}>
-      <h1>NoxTLS Documentation</h1>
-      <p>
-        NoxTLS is a C cryptography and TLS/DTLS library for embedded and systems software.
-        The docs cover classical and post-quantum cryptography, protocol APIs, configuration,
-        and deployment guidance.
-      </p>
-
-      <h2>Start here</h2>
-      <ul>
-        <li><Link to="/docs/next/getting-started">Getting Started</Link></li>
-        <li><Link to="/docs/next/configuration-guide">Configuration Guide</Link></li>
-        <li><Link to="/docs/next/tls">TLS Component</Link></li>
-        <li><Link to="/docs/next/api">Crypto API</Link></li>
-      </ul>
-
-      <h2>Post-quantum</h2>
-      <ul>
-        <li><Link to="/docs/next/quantum-crypto">Quantum crypto overview</Link></li>
-        <li><Link to="/docs/next/api/mlkem">ML-KEM API</Link></li>
-        <li><Link to="/docs/next/api/mldsa">ML-DSA API</Link></li>
-        <li><Link to="/docs/next/api/tls13_pqc">TLS 1.3 PQC integration</Link></li>
-      </ul>
-
-      <h2>Project and security</h2>
-      <ul>
-        <li><Link to="/docs/next/project">Project</Link></li>
-        <li><Link to="/docs/next/contributing">Contributing</Link></li>
-        <li><Link to="/docs/next/security-reporting">Security Reporting</Link></li>
-        <li><Link to="/docs/next/release-notes">Release Notes</Link></li>
-      </ul>
-    </main>
+    <>
+      <Head>
+        <title>{siteConfig.title} | TLS &amp; DTLS for Embedded C</title>
+        <meta name="description" content={HOME_DESCRIPTION} />
+        <meta name="robots" content="index, follow" />
+        <link rel="canonical" href={canonical} />
+        <meta property="og:title" content={`${siteConfig.title} | TLS & DTLS for Embedded C`} />
+        <meta property="og:description" content={HOME_DESCRIPTION} />
+        <meta property="og:url" content={canonical} />
+        <meta property="og:type" content="website" />
+        <meta name="twitter:card" content="summary" />
+        <meta name="twitter:title" content={`${siteConfig.title} | TLS & DTLS for Embedded C`} />
+        <meta name="twitter:description" content={HOME_DESCRIPTION} />
+      </Head>
+      <Redirect to="/docs/intro" />
+    </>
   );
 }

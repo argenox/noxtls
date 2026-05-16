@@ -1,6 +1,7 @@
 ---
 sidebar_position: 27
-title: "RSA"
+title: RSA
+description: "NoxTLS RSA C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # RSA

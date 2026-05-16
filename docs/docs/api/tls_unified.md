@@ -1,6 +1,7 @@
 ---
 sidebar_position: 14
-title: "TLS (unified)"
+title: TLS (unified)
+description: "NoxTLS TLS (unified) C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # TLS (unified)

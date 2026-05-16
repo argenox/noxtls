@@ -1,6 +1,7 @@
 ---
 sidebar_position: 7
-title: "Memory Usage"
+title: Memory Usage
+description: "NoxTLS documentation: Memory Usage."
 ---
 
 # Memory Usage

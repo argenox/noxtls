@@ -1,6 +1,14 @@
 ---
 sidebar_position: 15
-title: "TLS 1.2"
+title: TLS 1.2
+description: "NoxTLS TLS 1.2 and DTLS 1.2 API: cipher suites, handshake, session tickets, OCSP stapling, and record-layer APIs."
+keywords:
+  - noxtls
+  - tls 1.2
+  - dtls 1.2
+  - ecdhe
+  - aes-gcm
+  - embedded tls
 ---
 
 # TLS 1.2
@@ -9,7 +17,7 @@ title: "TLS 1.2"
 TLS 1.2 is a legacy protocol version. New deployments should use TLS 1.3 where possible, and existing TLS 1.2 deployments should plan an upgrade path to TLS 1.3.
 :::
 
-TLS 1.0, 1.1, and 1.2 implementation. Header: `noxtls_tls12.h`. Context extends [dtls_context_t](/docs/api/dtls#dtls_context_t) (which contains [tls_context_t](/docs/api/tls#tls_context_t)).
+TLS 1.0, 1.1, and 1.2 implementation. Header: `noxtls_tls12.h`. Context extends [dtls_context_t](./dtls#dtls_context_t) (which contains [tls_context_t](./tls#tls_context_t)).
 
 ## Types
 
@@ -29,7 +37,7 @@ noxtls_return_t noxtls_tls12_context_init(tls12_context_t *ctx, tls_role_t role)
 
 Initialize TLS 1.2 context (default TLS 1.2). Set I/O callbacks on `ctx->base.base` before connect/accept.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### `noxtls_tls12_context_init_with_version`
 
@@ -39,7 +47,7 @@ noxtls_return_t noxtls_tls12_context_init_with_version(tls12_context_t *ctx, tls
 
 Initialize for a specific version: `TLS_VERSION_1_0`, `TLS_VERSION_1_1`, or `TLS_VERSION_1_2`.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### `noxtls_dtls12_context_init`
 
@@ -47,9 +55,9 @@ Initialize for a specific version: `TLS_VERSION_1_0`, `TLS_VERSION_1_1`, or `TLS
 noxtls_return_t noxtls_dtls12_context_init(tls12_context_t *ctx, tls_role_t role);
 ```
 
-Initialize for DTLS 1.2. Use [noxtls_dtls_set_mtu](/docs/api/dtls#noxtls_dtls_set_mtu) and related DTLS options as needed.
+Initialize for DTLS 1.2. Use [noxtls_dtls_set_mtu](./dtls#noxtls_dtls_set_mtu) and related DTLS options as needed.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### `noxtls_tls12_context_free`
 
@@ -59,7 +67,7 @@ noxtls_return_t noxtls_tls12_context_free(tls12_context_t *ctx);
 
 Free TLS 1.2 context and owned resources.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### Handshake and data
 
@@ -71,7 +79,7 @@ noxtls_return_t noxtls_tls12_connect(tls12_context_t *ctx);
 
 Run full client handshake (Client Hello through Finished). Set server certificate verification expectations and optional SNI before calling.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### `noxtls_tls12_accept`
 
@@ -81,7 +89,7 @@ noxtls_return_t noxtls_tls12_accept(tls12_context_t *ctx);
 
 Run full server handshake. Set server certificate and, for ECDHE-RSA/DHE-RSA, the server private key (or crypto provider) before calling.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### `noxtls_tls12_send`
 
@@ -91,7 +99,7 @@ noxtls_return_t noxtls_tls12_send(tls12_context_t *ctx, const uint8_t *data, uin
 
 Send application data (encrypted records). Call after handshake completes.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### `noxtls_tls12_recv`
 
@@ -101,7 +109,7 @@ noxtls_return_t noxtls_tls12_recv(tls12_context_t *ctx, uint8_t *data, uint32_t 
 
 Receive application data. `len` is in/out: maximum buffer size in, actual bytes read out.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### `noxtls_tls12_close`
 
@@ -111,7 +119,7 @@ noxtls_return_t noxtls_tls12_close(tls12_context_t *ctx);
 
 Send close_notify and transition to closing/closed state.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### Server renegotiation
 
@@ -123,7 +131,7 @@ noxtls_return_t noxtls_tls12_send_hello_request(tls12_context_t *ctx);
 
 Send HelloRequest to ask the client to renegotiate (RFC 5746).
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### Server key and certificate
 
@@ -189,7 +197,7 @@ noxtls_return_t tls12_compute_master_secret(tls12_context_t *ctx, const uint8_t 
 
 Compute master secret from premaster secret. Used internally during handshake.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### `tls12_derive_keys`
 
@@ -199,7 +207,7 @@ noxtls_return_t tls12_derive_keys(tls12_context_t *ctx);
 
 Derive record protection keys from master secret. Used internally.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### Client handshake steps (optional fine-grained control)
 
@@ -213,4 +221,4 @@ Derive record protection keys from master secret. Used internally.
 - **noxtls_tls12_recv_client_key_exchange**, **noxtls_tls12_recv_change_cipher_spec_client**, **noxtls_tls12_recv_finished_client**
 - **noxtls_tls12_send_change_cipher_spec_server**, **noxtls_tls12_send_finished_server**
 
-Record encryption/decryption is available via [noxtls_tls12_encrypt_record](/docs/api/tls#record-encryptiondecryption-tls-12) and [noxtls_tls12_decrypt_record](/docs/api/tls#record-encryptiondecryption-tls-12) from the common TLS API.
+Record encryption/decryption is available via [noxtls_tls12_encrypt_record](./tls#record-encryptiondecryption-tls-12) and [noxtls_tls12_decrypt_record](./tls#record-encryptiondecryption-tls-12) from the common TLS API.

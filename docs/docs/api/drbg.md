@@ -1,6 +1,7 @@
 ---
 sidebar_position: 24
-title: "DRBG"
+title: DRBG
+description: "NoxTLS DRBG C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # DRBG

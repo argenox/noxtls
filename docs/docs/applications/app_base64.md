@@ -1,6 +1,7 @@
 ---
 sidebar_position: 2
-title: "Base64 utility"
+title: Base64 utility
+description: "NoxTLS Base64 utility sample application: build, usage, and command-line options."
 ---
 
 # Base64 utility

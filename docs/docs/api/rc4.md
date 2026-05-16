@@ -1,6 +1,7 @@
 ---
 sidebar_position: 16
-title: "RC4"
+title: RC4
+description: "NoxTLS RC4 C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # RC4

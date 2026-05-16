@@ -1,11 +1,19 @@
 ---
 sidebar_position: 16
-title: "TLS 1.3"
+title: TLS 1.3
+description: "NoxTLS TLS 1.3 and DTLS 1.3 API: 1-RTT handshake, PSK, 0-RTT, key update, ALPN, and datagram record APIs."
+keywords:
+  - noxtls
+  - tls 1.3
+  - dtls 1.3
+  - 0-rtt
+  - psk
+  - embedded tls
 ---
 
 # TLS 1.3
 
-TLS 1.3 implementation with optional 0-RTT, PSK, session resumption, and client authentication. Header: `noxtls_tls13.h`. Context extends [dtls_context_t](/docs/api/dtls#dtls_context_t).
+TLS 1.3 implementation with optional 0-RTT, PSK, session resumption, and client authentication. Header: `noxtls_tls13.h`. Context extends [dtls_context_t](./dtls#dtls_context_t).
 
 ## Enablement
 
@@ -32,7 +40,7 @@ TLS 1.3 context: base DTLS/TLS context plus handshake state, key derivation (ear
 
 ### PQ / hybrid constants
 
-PQC keyshare groups and signature scheme IDs are defined in [TLS (common)](/docs/api/tls) (`noxtls_tls_common.h`) and documented in [TLS 1.3 PQC](/docs/api/tls13_pqc).
+PQC keyshare groups and signature scheme IDs are defined in [TLS (common)](./tls) (`noxtls_tls_common.h`) and documented in [TLS 1.3 PQC](./tls13_pqc).
 
 ## API
 
@@ -46,7 +54,7 @@ noxtls_return_t noxtls_tls13_context_init(tls13_context_t *ctx, tls_role_t role)
 
 Initialize TLS 1.3 context. Set I/O callbacks on the base context before connect/accept.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### `noxtls_dtls13_context_init`
 
@@ -56,7 +64,7 @@ noxtls_return_t noxtls_dtls13_context_init(tls13_context_t *ctx, tls_role_t role
 
 Initialize for DTLS 1.3 (RFC 9147). Use DTLS options (MTU, retransmit, etc.) as needed.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### `noxtls_tls13_context_free`
 
@@ -66,7 +74,7 @@ noxtls_return_t noxtls_tls13_context_free(tls13_context_t *ctx);
 
 Free TLS 1.3 context and owned resources.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### Handshake and data
 
@@ -78,7 +86,7 @@ noxtls_return_t noxtls_tls13_connect(tls13_context_t *ctx);
 
 Run full client handshake. Optionally set SNI, client cert (for mTLS), and PSK/session ticket before calling.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### `noxtls_tls13_accept`
 
@@ -88,7 +96,7 @@ noxtls_return_t noxtls_tls13_accept(tls13_context_t *ctx);
 
 Run full server handshake. Set server certificate and private key (or crypto provider) before calling; optionally request client auth.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### `noxtls_tls13_send`
 
@@ -98,7 +106,7 @@ noxtls_return_t noxtls_tls13_send(tls13_context_t *ctx, const uint8_t *data, uin
 
 Send application data. Call after handshake (and after EndOfEarlyData if 0-RTT was used).
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### `noxtls_tls13_recv`
 
@@ -108,7 +116,7 @@ noxtls_return_t noxtls_tls13_recv(tls13_context_t *ctx, uint8_t *data, uint32_t 
 
 Receive application data. `len` is in/out: max size in, bytes read out.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### `noxtls_tls13_close`
 
@@ -118,7 +126,7 @@ noxtls_return_t noxtls_tls13_close(tls13_context_t *ctx);
 
 Send close_notify and transition to closing/closed state.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### 0-RTT early data
 
@@ -130,7 +138,7 @@ noxtls_return_t noxtls_tls13_send_early_data(tls13_context_t *ctx, const uint8_t
 
 Send 0-RTT early data (only when resuming, before handshake completes). Must send EndOfEarlyData when done with early data.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### Server key and certificate
 
@@ -150,7 +158,7 @@ noxtls_return_t noxtls_tls13_set_server_private_mldsa(tls13_context_t *ctx, noxt
 
 Set server ML-DSA private key for CertificateVerify. Call before handshake.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### `noxtls_tls13_set_crypto_provider_server`
 
@@ -178,7 +186,7 @@ noxtls_return_t noxtls_tls13_set_client_cert(tls13_context_t *ctx, const uint8_t
 
 Client: set client certificate (DER) and RSA private key (`rsa_key_t*`) for CertificateVerify. Call before connect.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### `noxtls_tls13_set_client_cert_ecdsa`
 
@@ -188,7 +196,7 @@ noxtls_return_t noxtls_tls13_set_client_cert_ecdsa(tls13_context_t *ctx, const u
 
 Client: set client certificate and ECDSA private key (`ecc_key_t*`). Call before connect.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### `noxtls_tls13_set_client_cert_ed25519`
 
@@ -198,7 +206,7 @@ noxtls_return_t noxtls_tls13_set_client_cert_ed25519(tls13_context_t *ctx, const
 
 Client: set client certificate and Ed25519 private key (32-byte seed). Call before connect.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### `noxtls_tls13_set_client_cert_ed448`
 
@@ -208,7 +216,7 @@ noxtls_return_t noxtls_tls13_set_client_cert_ed448(tls13_context_t *ctx, const u
 
 Client: set client certificate and Ed448 private key (57-byte seed). Call before connect.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### `tls13_set_client_cert_mldsa`
 
@@ -219,7 +227,7 @@ noxtls_return_t tls13_set_client_cert_mldsa(tls13_context_t *ctx, const uint8_t 
 
 Client: set client certificate and ML-DSA private key for mTLS CertificateVerify. Call before connect.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### Cipher preference
 
@@ -244,7 +252,7 @@ noxtls_return_t tls13_set_external_psk(tls13_context_t *ctx,
 
 Configure external PSK identity and key for PSK or ECDHE-PSK. `preferred_mode`: `TLS13_PSK_KE_MODE_PSK_KE` or `TLS13_PSK_KE_MODE_PSK_DHE_KE`. Call before connect (client) or accept (server) as applicable.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### Debug
 
@@ -266,7 +274,7 @@ noxtls_return_t noxtls_tls13_get_channel_binding(tls13_context_t *ctx, uint32_t 
 
 Get channel binding data after handshake. `binding_type`: `NOXTLS_TLS_CHANNEL_BINDING_TLS_UNIQUE` (first Finished verify_data) or `NOXTLS_TLS_CHANNEL_BINDING_TLS_SERVER_END_POINT` (hash of server cert). `out_len`: in = buffer size, out = bytes written.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes).
+**Returns:** [noxtls_return_t](./return_codes).
 
 ### Record size limit (RFC 8449)
 
@@ -287,10 +295,10 @@ Set the record size limit advertised to peer (maximum plaintext record size this
 
 - **noxtls_tls13_recv_client_hello**, **noxtls_tls13_send_server_hello**, **noxtls_tls13_send_encrypted_extensions**, **noxtls_tls13_send_certificate_request**, **noxtls_tls13_send_certificate**, **noxtls_tls13_send_certificate_verify**, **noxtls_tls13_send_finished_server**, **noxtls_tls13_recv_finished_client**
 
-Record encryption/decryption (including DTLS 1.3 and early data) is available via the [TLS common API](/docs/api/tls#record-encryptiondecryption-tls-13).
+Record encryption/decryption (including DTLS 1.3 and early data) is available via the [TLS common API](./tls#record-encryptiondecryption-tls-13).
 
 ## See also
 
-- [TLS 1.3 PQC](/docs/api/tls13_pqc)
-- [ML-KEM](/docs/api/mlkem)
-- [ML-DSA](/docs/api/mldsa)
+- [TLS 1.3 PQC](./tls13_pqc)
+- [ML-KEM](./mlkem)
+- [ML-DSA](./mldsa)

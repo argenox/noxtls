@@ -1,6 +1,7 @@
 ---
 sidebar_position: 10
-title: "AES XTS"
+title: AES XTS
+description: "NoxTLS AES XTS C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # AES XTS

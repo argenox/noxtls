@@ -1,6 +1,7 @@
 ---
 sidebar_position: 10
-title: "NoxTLS CLI"
+title: NoxTLS CLI
+description: "NoxTLS NoxTLS CLI sample application: build, usage, and command-line options."
 ---
 
 # NoxTLS CLI

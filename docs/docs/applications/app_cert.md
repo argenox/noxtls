@@ -1,6 +1,7 @@
 ---
 sidebar_position: 3
-title: "Cert utility"
+title: Cert utility
+description: "NoxTLS Cert utility sample application: build, usage, and command-line options."
 ---
 
 # Cert utility

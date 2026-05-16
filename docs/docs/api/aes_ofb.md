@@ -1,6 +1,7 @@
 ---
 sidebar_position: 7
-title: "AES OFB"
+title: AES OFB
+description: "NoxTLS AES OFB C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # AES OFB

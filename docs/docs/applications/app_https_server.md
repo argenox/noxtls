@@ -1,6 +1,7 @@
 ---
 sidebar_position: 9
-title: "HTTPS server"
+title: HTTPS server
+description: "NoxTLS HTTPS server sample application: build, usage, and command-line options."
 ---
 
 # HTTPS server

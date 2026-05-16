@@ -1,6 +1,7 @@
 ---
 sidebar_position: 21
-title: "Camellia - CFB"
+title: Camellia - CFB
+description: "NoxTLS Camellia - CFB C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # Camellia - CFB

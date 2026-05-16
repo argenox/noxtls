@@ -1,6 +1,7 @@
 ---
 sidebar_position: 6
-title: "AES CFB"
+title: AES CFB
+description: "NoxTLS AES CFB C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # AES CFB

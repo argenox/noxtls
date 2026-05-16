@@ -1,6 +1,7 @@
 ---
 sidebar_position: 3
-title: "Build Configuration Checks"
+title: Build Configuration Checks
+description: "NoxTLS Build Configuration Checks C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # Build Configuration Checks

@@ -1,6 +1,7 @@
 ---
 sidebar_position: 0
 title: Applications
+description: "NoxTLS Applications sample application: build, usage, and command-line options."
 ---
 
 # Applications

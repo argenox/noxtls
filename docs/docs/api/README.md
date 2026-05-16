@@ -1,6 +1,7 @@
 ---
 sidebar_position: 0
 title: Crypto API
+description: "NoxTLS Crypto API C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # Crypto API

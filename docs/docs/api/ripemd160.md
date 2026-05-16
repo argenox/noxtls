@@ -1,6 +1,7 @@
 ---
 sidebar_position: 24
-title: "RIPEMD-160"
+title: RIPEMD-160
+description: "NoxTLS RIPEMD-160 C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # RIPEMD-160

@@ -1,6 +1,7 @@
 ---
 sidebar_position: 6
-title: "DTLS PSK demo"
+title: DTLS PSK demo
+description: "NoxTLS DTLS PSK demo sample application: build, usage, and command-line options."
 ---
 
 # DTLS PSK demo

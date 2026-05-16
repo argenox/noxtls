@@ -1,6 +1,7 @@
 ---
 sidebar_position: 16
-title: "ARIA - OFB"
+title: ARIA - OFB
+description: "NoxTLS ARIA - OFB C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # ARIA - OFB

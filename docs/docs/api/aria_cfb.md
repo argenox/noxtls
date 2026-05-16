@@ -1,6 +1,7 @@
 ---
 sidebar_position: 15
-title: "ARIA - CFB"
+title: ARIA - CFB
+description: "NoxTLS ARIA - CFB C API reference for embedded TLS, DTLS, and cryptography."
 ---
 
 # ARIA - CFB
