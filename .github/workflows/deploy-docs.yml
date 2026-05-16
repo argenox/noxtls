@@ -1,0 +1,90 @@
+# Build docs (Doxygen XML → MD) and Docusaurus, then deploy to GitHub Pages (docs.noxtls.com)
+# Run from repository root (Doxyfile, docs/, scripts/ at root).
+# 1. Run Doxygen (XML only)
+# 2. Convert XML → Markdown (docs/docs/api/*.md and docs/docs/return-codes.md)
+# 3. Build Docusaurus
+# 4. Deploy
+
+name: Docs Build and Deployment
+
+on:
+  push:
+    branches: [master, main]
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Doxygen
+        run: sudo apt-get update && sudo apt-get install -y doxygen graphviz
+
+      - name: Create Doxygen output directory
+        run: mkdir -p build/doxygen
+
+      - name: Run Doxygen (XML)
+        run: doxygen Doxyfile
+
+      - name: Verify Doxygen XML output
+        run: |
+          echo "XML files in build/doxygen/xml:"
+          ls -la build/doxygen/xml | head -30
+          echo "Count: $(find build/doxygen/xml -name '*.xml' | wc -l)"
+          test -f build/doxygen/xml/index.xml || (echo "ERROR: index.xml missing"; exit 1)
+
+      - name: Convert Doxygen XML to Markdown
+        run: node scripts/doxygen-xml-to-md.js build/doxygen/xml docs/docs/api
+
+      - name: Verify API and return-codes docs were generated
+        run: |
+          if ! grep -q '## API' docs/docs/api/common.md 2>/dev/null; then
+            echo "ERROR: API content not integrated - docs/docs/api/common.md still stub or empty"
+            cat docs/docs/api/common.md || true
+            exit 1
+          fi
+          if ! test -f docs/docs/return-codes.md; then
+            echo "ERROR: docs/docs/return-codes.md was not generated from Doxygen (return_codes group)"
+            exit 1
+          fi
+          echo "API and return-codes docs generated from Doxygen successfully"
+
+      - name: Install and build Docusaurus
+        working-directory: docs
+        run: |
+          npm install
+          npm run build
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/build
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
