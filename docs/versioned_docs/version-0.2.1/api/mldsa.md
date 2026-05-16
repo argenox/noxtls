@@ -119,7 +119,7 @@ Deterministic hooks used by test and vector-conformance harnesses.
 
 ## TLS and X.509 integration
 
-- TLS 1.3 CertificateVerify support and signature scheme IDs: [TLS 1.3 PQC](/docs/next/api/tls13_pqc)
+- TLS 1.3 CertificateVerify support and signature scheme IDs: [TLS 1.3 PQC](/docs/api/tls13_pqc)
 - X.509 parse/verify handling for ML-DSA OIDs: [Certificates](/docs/api/certs)
 
 ## Security notes

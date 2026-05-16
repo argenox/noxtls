@@ -21,7 +21,7 @@ This page summarizes project-level information for `noxtls`: release model, main
 4. Generate release notes content.
 5. Create version snapshot for the release.
 
-See [Documentation Versioning](/docs/next/contributing#documentation-versioning) and [Release Notes](/docs/release-notes).
+See [Documentation Versioning](/docs/contributing#documentation-versioning) and [Release Notes](/docs/release-notes).
 
 ## Scope areas
 

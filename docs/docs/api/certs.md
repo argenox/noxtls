@@ -263,8 +263,8 @@ When `NOXTLS_FEATURE_ML_DSA` is enabled, parser/verification paths include ML-DS
 
 Related APIs:
 
-- [ML-DSA](/docs/next/api/mldsa)
-- [TLS 1.3 PQC](/docs/next/api/tls13_pqc)
+- [ML-DSA](/docs/api/mldsa)
+- [TLS 1.3 PQC](/docs/api/tls13_pqc)
 
 ## CRL (Certificate Revocation List)
 

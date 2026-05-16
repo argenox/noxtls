@@ -30,6 +30,14 @@ const config = {
       ({
         docs: {
           sidebarPath: './sidebars.js',
+          lastVersion: '0.2.1',
+          versions: {
+            current: {
+              label: '0.2.1',
+              banner: 'none',
+            },
+          },
+          onlyIncludeVersions: ['0.2.1', '0.1.25', '0.1.24', '0.1.23', '0.1.22'],
         },
         blog: false,
         theme: {
@@ -69,7 +77,7 @@ const config = {
             position: 'right',
           },
           {
-            to: '/docs/next/security-reporting',
+            to: '/docs/security-reporting',
             label: 'Security',
             position: 'right',
           },
@@ -85,12 +93,12 @@ const config = {
               { label: 'Getting Started', to: '/docs/getting-started' },
               { label: 'Architecture', to: '/docs/architecture' },
               { label: 'Security', to: '/docs/security' },
-              { label: 'Security Reporting', to: '/docs/next/security-reporting' },
+              { label: 'Security Reporting', to: '/docs/security-reporting' },
               { label: 'Crypto API', to: '/docs/api' },
               { label: 'Applications', to: '/docs/applications' },
               { label: 'Release Notes', to: '/docs/release-notes' },
-              { label: 'Project', to: '/docs/next/project' },
-              { label: 'Contributing', to: '/docs/next/contributing' },
+              { label: 'Project', to: '/docs/project' },
+              { label: 'Contributing', to: '/docs/contributing' },
             ],
           },
           {
