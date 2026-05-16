@@ -2,7 +2,7 @@
 # Run from repository root: doxygen Doxyfile
 
 PROJECT_NAME          = "NoxTLS"
-PROJECT_NUMBER        = 0.1.21
+PROJECT_NUMBER        = 0.2.25
 OUTPUT_DIRECTORY       = build/doxygen
 CREATE_SUBDIRS        = NO
 

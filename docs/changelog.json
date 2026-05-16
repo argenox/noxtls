@@ -1,10 +1,10 @@
 {
   "releases": [
     {
-      "version": "0.2.4",
+      "version": "0.2.25",
       "date": "TBD",
       "changes": [
-        "Project version updated to 0.2.4 in CMake and noxtls_version.h.",
+        "Project version updated to 0.2.25 in CMake and noxtls_version.h.",
         "noxtls CLI expanded with digest, encryption/decryption, PKC/key, and X.509 certificate operations.",
         "SHA and digest utilities now expose enabled algorithms with compact help output, including SHA-3, SHA-512/224, SHA-512/256, RIPEMD-160, BLAKE2, and feature-gated MD4.",
         "Certificate conversion now supports explicit input and output formats with -I der|pem and -O der|pem."
