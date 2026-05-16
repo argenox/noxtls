@@ -14,9 +14,9 @@ The NoxTLS C API is organized by module. Each page is generated from Doxygen doc
 - **[DRBG](/docs/api/drbg)** – AES-CTR deterministic random bit generation
 - **[Message digest](/docs/api/mdigest)** – SHA, MD5, SHA-3, BLAKE2, etc.
 - **[Public key crypto](/docs/api/pkc)** – RSA, ECC/DSA/DH, X25519/X448, EdDSA, and PQC
-- **[ML-KEM](/docs/next/api/mlkem)** – Post-quantum key encapsulation (FIPS 203)
-- **[ML-DSA](/docs/next/api/mldsa)** – Post-quantum signatures (FIPS 204)
-- **[TLS 1.3 PQC](/docs/next/api/tls13_pqc)** – PQ and hybrid key exchange/signature integration
+- **[ML-KEM](/docs/api/mlkem)** – Post-quantum key encapsulation (FIPS 203)
+- **[ML-DSA](/docs/api/mldsa)** – Post-quantum signatures (FIPS 204)
+- **[TLS 1.3 PQC](/docs/api/tls13_pqc)** – PQ and hybrid key exchange/signature integration
 - **[Certificates](/docs/api/certs)** – X.509 and certificate handling
 - **[Utility](/docs/api/utility)** – Base64, file I/O
 

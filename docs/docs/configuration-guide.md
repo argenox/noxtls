@@ -197,9 +197,9 @@ cmake -S noxtls -B noxtls/build-pqc-strict \
 
 PQC references:
 
-- [ML-KEM API](/docs/next/api/mlkem)
-- [ML-DSA API](/docs/next/api/mldsa)
-- [TLS 1.3 PQC](/docs/next/api/tls13_pqc)
+- [ML-KEM API](/docs/api/mlkem)
+- [ML-DSA API](/docs/api/mldsa)
+- [TLS 1.3 PQC](/docs/api/tls13_pqc)
 
 ## Next steps
 

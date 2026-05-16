@@ -109,7 +109,7 @@ Test-only deterministic random hook used for reproducible vectors and conformanc
 
 ## TLS integration
 
-For TLS 1.3 integration details (pure ML-KEM groups and X25519+ML-KEM hybrid groups), see [TLS 1.3 PQC](/docs/next/api/tls13_pqc).
+For TLS 1.3 integration details (pure ML-KEM groups and X25519+ML-KEM hybrid groups), see [TLS 1.3 PQC](/docs/api/tls13_pqc).
 
 ## Security notes
 

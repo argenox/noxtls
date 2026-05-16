@@ -40,4 +40,4 @@ NoxTLS can be built in two ways:
 
 See [Getting Started](/docs/getting-started) for build instructions, [TLS component](/docs/tls) for TLS/DTLS usage, and [Crypto API](/docs/api) for the C API.
 
-For post-quantum details, see [ML-KEM](/docs/next/api/mlkem), [ML-DSA](/docs/next/api/mldsa), and [TLS 1.3 PQC](/docs/next/api/tls13_pqc).
+For post-quantum details, see [ML-KEM](/docs/api/mlkem), [ML-DSA](/docs/api/mldsa), and [TLS 1.3 PQC](/docs/api/tls13_pqc).

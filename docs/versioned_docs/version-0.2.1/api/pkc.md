@@ -15,8 +15,8 @@ Public key cryptography is split into:
 - **[X448](/docs/api/x448)** — Curve448 key agreement.
 - **[Ed25519](/docs/api/ed25519)** — EdDSA signatures over Curve25519.
 - **[Ed448](/docs/api/ed448)** — EdDSA signatures over Curve448.
-- **[ML-KEM](/docs/next/api/mlkem)** — Post-quantum key encapsulation (FIPS 203).
-- **[ML-DSA](/docs/next/api/mldsa)** — Post-quantum signatures (FIPS 204).
+- **[ML-KEM](/docs/api/mlkem)** — Post-quantum key encapsulation (FIPS 203).
+- **[ML-DSA](/docs/api/mldsa)** — Post-quantum signatures (FIPS 204).
 
 ## Enablement flags
 

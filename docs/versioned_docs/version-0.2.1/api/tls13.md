@@ -32,7 +32,7 @@ TLS 1.3 context: base DTLS/TLS context plus handshake state, key derivation (ear
 
 ### PQ / hybrid constants
 
-PQC keyshare groups and signature scheme IDs are defined in [TLS (common)](/docs/api/tls) (`noxtls_tls_common.h`) and documented in [TLS 1.3 PQC](/docs/next/api/tls13_pqc).
+PQC keyshare groups and signature scheme IDs are defined in [TLS (common)](/docs/api/tls) (`noxtls_tls_common.h`) and documented in [TLS 1.3 PQC](/docs/api/tls13_pqc).
 
 ## API
 
@@ -291,6 +291,6 @@ Record encryption/decryption (including DTLS 1.3 and early data) is available vi
 
 ## See also
 
-- [TLS 1.3 PQC](/docs/next/api/tls13_pqc)
-- [ML-KEM](/docs/next/api/mlkem)
-- [ML-DSA](/docs/next/api/mldsa)
+- [TLS 1.3 PQC](/docs/api/tls13_pqc)
+- [ML-KEM](/docs/api/mlkem)
+- [ML-DSA](/docs/api/mldsa)
