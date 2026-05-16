@@ -29,8 +29,16 @@ jobs:
         with:
           languages: ${{ matrix.language }}
 
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
+      - name: Configure
+        run: >
+          cmake -S . -B build-codeql
+          -D BUILD_APPLICATIONS=ON
+          -D BUILD_BOGO_SHIM=OFF
+          -D BUILD_TESTS=OFF
+          -D CMAKE_BUILD_TYPE=Debug
+
+      - name: Build
+        run: cmake --build build-codeql --parallel
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3

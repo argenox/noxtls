@@ -36,9 +36,9 @@
 #if NOXTLS_FEATURE_CHACHA20_POLY1305
 
 #if NOXTLS_CHACHA20_POLY1305_DEBUG
-#define CHACHA20_POLY1305_DEBUG_PRINT(fmt, ...) noxtls_debug_printf("[CHACHA20_POLY1305_DEBUG] " fmt, ##__VA_ARGS__)
+#define NOXTLS_CHACHA20_POLY1305_DEBUG_PRINT(fmt, ...) noxtls_debug_printf("[CHACHA20_POLY1305_DEBUG] " fmt, ##__VA_ARGS__)
 #else
-#define CHACHA20_POLY1305_DEBUG_PRINT(fmt, ...) ((void)0)
+#define NOXTLS_CHACHA20_POLY1305_DEBUG_PRINT(fmt, ...) ((void)0)
 #endif
 
 /* Poly1305 modulus: 2^130 - 5 */
@@ -53,9 +53,12 @@ static uint32_t poly1305_load_le32(const uint8_t *p)
 }
 
 /**
- * @brief Initialize Poly1305 context
+ * @brief Initialize Poly1305 context from a 32-byte one-time key (RFC 8439: r || pad).
+ * @param[out] ctx Poly1305 state to reset and fill; must not be NULL.
+ * @param[in]  key 32-byte secret (`r` in little-endian clamped form in first 16 bytes, `s` pad in last 16).
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` if @p ctx or @p key is NULL.
  */
-noxtls_return_t poly1305_init(poly1305_context_t *ctx, const uint8_t *key)
+noxtls_return_t noxtls_poly1305_init(noxtls_poly1305_context_t *ctx, const uint8_t *key)
 {
     if(ctx == NULL || key == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -67,11 +70,11 @@ noxtls_return_t poly1305_init(poly1305_context_t *ctx, const uint8_t *key)
     ctx->r[3] = (poly1305_load_le32(key + 9) >> 6) & 0x3f03fff;
     ctx->r[4] = (poly1305_load_le32(key + 12) >> 8) & 0x00fffff;
 
-    /* Extract s (pad) from key[16..31] */
-    ctx->pad[0] = poly1305_load_le32(key + 16);
-    ctx->pad[1] = poly1305_load_le32(key + 20);
-    ctx->pad[2] = poly1305_load_le32(key + 24);
-    ctx->pad[3] = poly1305_load_le32(key + 28);
+    /* Extract s (pad) from second half of key (RFC 8439: r || s) */
+    ctx->pad[0] = poly1305_load_le32(key + POLY1305_TAG_SIZE);
+    ctx->pad[1] = poly1305_load_le32(key + POLY1305_TAG_SIZE + 4U);
+    ctx->pad[2] = poly1305_load_le32(key + POLY1305_TAG_SIZE + 8U);
+    ctx->pad[3] = poly1305_load_le32(key + POLY1305_TAG_SIZE + 12U);
 
     memset(ctx->h, 0, sizeof(ctx->h));
     ctx->buffer_len = 0;
@@ -87,14 +90,25 @@ noxtls_return_t poly1305_init(poly1305_context_t *ctx, const uint8_t *key)
  * @param block Block data (at least block_len bytes)
  * @param block_len Number of bytes in block (1-16). For full block adds 2^128; for partial adds 2^(8*block_len).
  */
-static void poly1305_blocks(poly1305_context_t *ctx, const uint8_t *block, uint32_t bytes)
+static void poly1305_blocks(noxtls_poly1305_context_t *ctx, const uint8_t *block, uint32_t bytes)
 {
     const uint32_t hibit = (ctx->finished != NOXTLS_RETURN_SUCCESS) ? 0 : (1U << 24);
-    uint32_t r0 = ctx->r[0], r1 = ctx->r[1], r2 = ctx->r[2], r3 = ctx->r[3], r4 = ctx->r[4];
-    uint32_t s1 = r1 * 5, s2 = r2 * 5, s3 = r3 * 5, s4 = r4 * 5;
-    uint32_t h0 = ctx->h[0], h1 = ctx->h[1], h2 = ctx->h[2], h3 = ctx->h[3], h4 = ctx->h[4];
+    uint32_t r0 = ctx->r[0];
+    uint32_t r1 = ctx->r[1];
+    uint32_t r2 = ctx->r[2];
+    uint32_t r3 = ctx->r[3];
+    uint32_t r4 = ctx->r[4];
+    uint32_t s1 = r1 * 5;
+    uint32_t s2 = r2 * 5;
+    uint32_t s3 = r3 * 5;
+    uint32_t s4 = r4 * 5;
+    uint32_t h0 = ctx->h[0];
+    uint32_t h1 = ctx->h[1];
+    uint32_t h2 = ctx->h[2];
+    uint32_t h3 = ctx->h[3];
+    uint32_t h4 = ctx->h[4];
 
-    while(bytes >= 16) {
+    while(bytes >= POLY1305_BLOCK_SIZE) {
         h0 += (poly1305_load_le32(block + 0)) & 0x3ffffff;
         h1 += (poly1305_load_le32(block + 3) >> 2) & 0x3ffffff;
         h2 += (poly1305_load_le32(block + 6) >> 4) & 0x3ffffff;
@@ -116,8 +130,8 @@ static void poly1305_blocks(poly1305_context_t *ctx, const uint8_t *block, uint3
         h0 += c * 5;
         c = h0 >> 26; h0 &= 0x3ffffff; h1 += c;
 
-        block += 16;
-        bytes -= 16;
+        block += POLY1305_BLOCK_SIZE;
+        bytes -= POLY1305_BLOCK_SIZE;
     }
 
     ctx->h[0] = h0;
@@ -128,9 +142,13 @@ static void poly1305_blocks(poly1305_context_t *ctx, const uint8_t *block, uint3
 }
 
 /**
- * @brief Update Poly1305 with data
+ * @brief Absorb more noxtls_message bytes into the running Poly1305 MAC (after @ref noxtls_poly1305_init).
+ * @param[in,out] ctx Initialized Poly1305 context; must not be NULL.
+ * @param[in]     data Next fragment of the noxtls_message; may be NULL only when @p data_len is 0.
+ * @param[in]     data_len Number of bytes at @p data to include in the MAC.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` if @p ctx is NULL or @p data is NULL with non-zero @p data_len.
  */
-noxtls_return_t poly1305_update(poly1305_context_t *ctx, const uint8_t *data, uint32_t data_len)
+noxtls_return_t noxtls_poly1305_update(noxtls_poly1305_context_t *ctx, const uint8_t *data, uint32_t data_len)
 {
     if(ctx == NULL || (data == NULL && data_len > 0)) {
         return NOXTLS_RETURN_NULL;
@@ -142,7 +160,7 @@ noxtls_return_t poly1305_update(poly1305_context_t *ctx, const uint8_t *data, ui
     
     /* Process any buffered data first */
     if(ctx->buffer_len > 0) {
-        uint32_t bytes_to_process = 16 - ctx->buffer_len;
+        uint32_t bytes_to_process = POLY1305_BLOCK_SIZE - ctx->buffer_len;
         if(bytes_to_process > data_len) {
             bytes_to_process = data_len;
         }
@@ -152,17 +170,17 @@ noxtls_return_t poly1305_update(poly1305_context_t *ctx, const uint8_t *data, ui
         data += bytes_to_process;
         data_len -= bytes_to_process;
 
-        if(ctx->buffer_len < 16) {
+        if(ctx->buffer_len < POLY1305_BLOCK_SIZE) {
             return NOXTLS_RETURN_SUCCESS;
         }
 
-        poly1305_blocks(ctx, ctx->buffer, 16);
+        poly1305_blocks(ctx, ctx->buffer, POLY1305_BLOCK_SIZE);
         ctx->buffer_len = 0;
     }
 
     /* Process full blocks */
-    if(data_len >= 16) {
-        uint32_t block_bytes = data_len & ~0xF;
+    if(data_len >= POLY1305_BLOCK_SIZE) {
+        uint32_t block_bytes = data_len & (uint32_t)~(POLY1305_BLOCK_SIZE - 1U);
         poly1305_blocks(ctx, data, block_bytes);
         data += block_bytes;
         data_len -= block_bytes;
@@ -178,12 +196,23 @@ noxtls_return_t poly1305_update(poly1305_context_t *ctx, const uint8_t *data, ui
 }
 
 /**
- * @brief Finalize Poly1305 and generate tag
+ * @brief Finalize Poly1305 after @ref noxtls_poly1305_update: processes any buffered bytes, reduces mod p, and writes the 128-bit tag.
+ * @param[in,out] ctx Initialized and updated context; internal buffer and state are used and modified.
+ * @param[out]    tag Output buffer for `POLY1305_TAG_SIZE` MAC bytes; must not be NULL.
+ * @return `NOXTLS_RETURN_SUCCESS` when @p tag is written; `NOXTLS_RETURN_NULL` if @p ctx or @p tag is NULL.
  */
-noxtls_return_t poly1305_final(poly1305_context_t *ctx, uint8_t *tag)
+noxtls_return_t noxtls_poly1305_final(noxtls_poly1305_context_t *ctx, uint8_t *tag)
 {
-    uint32_t h0, h1, h2, h3, h4;
-    uint32_t g0, g1, g2, g3, g4;
+    uint32_t h0;
+    uint32_t h1;
+    uint32_t h2;
+    uint32_t h3;
+    uint32_t h4;
+    uint32_t g0;
+    uint32_t g1;
+    uint32_t g2;
+    uint32_t g3;
+    uint32_t g4;
     uint32_t c;
     uint32_t i;
     
@@ -194,9 +223,9 @@ noxtls_return_t poly1305_final(poly1305_context_t *ctx, uint8_t *tag)
     /* Process final partial block if any */
     if(ctx->buffer_len > 0) {
         ctx->buffer[ctx->buffer_len] = 1;
-        memset(ctx->buffer + ctx->buffer_len + 1, 0, 16 - ctx->buffer_len - 1);
+        memset(ctx->buffer + ctx->buffer_len + 1, 0, (size_t)(POLY1305_BLOCK_SIZE - ctx->buffer_len - 1U));
         ctx->finished = 1;
-        poly1305_blocks(ctx, ctx->buffer, 16);
+        poly1305_blocks(ctx, ctx->buffer, POLY1305_BLOCK_SIZE);
     }
 
     /* Fully carry-propagate h */
@@ -257,31 +286,38 @@ noxtls_return_t poly1305_final(poly1305_context_t *ctx, uint8_t *tag)
 }
 
 /**
- * @brief Compute Poly1305 MAC (convenience function)
+ * @brief One-shot Poly1305 MAC: @ref noxtls_poly1305_init, @ref noxtls_poly1305_update, @ref noxtls_poly1305_final on a stack context.
+ * @param[in]  key 32-byte one-time Poly1305 key (`r || s`, same layout as @ref noxtls_poly1305_init).
+ * @param[in]  data Message bytes to authenticate; may be NULL only if @p data_len is 0.
+ * @param[in]  data_len Length of @p data in bytes.
+ * @param[out] tag 16-byte MAC output; must not be NULL.
+ * @return `NOXTLS_RETURN_SUCCESS` when @p tag is written; `NOXTLS_RETURN_NULL` for invalid arguments; `NOXTLS_RETURN_FAILED` if an internal step fails.
  */
-noxtls_return_t poly1305_mac(const uint8_t *key, const uint8_t *data, uint32_t data_len, uint8_t *tag)
+noxtls_return_t noxtls_poly1305_mac(const uint8_t *key, const uint8_t *data, uint32_t data_len, uint8_t *tag)
 {
-    poly1305_context_t ctx;
+    noxtls_poly1305_context_t ctx;
     
     if(key == NULL || (data == NULL && data_len > 0) || tag == NULL) {
         return NOXTLS_RETURN_NULL;
     }
     
-    if(poly1305_init(&ctx, key) != NOXTLS_RETURN_SUCCESS) {
+    if(noxtls_poly1305_init(&ctx, key) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
     
-    if(poly1305_update(&ctx, data, data_len) != NOXTLS_RETURN_SUCCESS) {
+    if(noxtls_poly1305_update(&ctx, data, data_len) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
     
-    return poly1305_final(&ctx, tag);
+    return noxtls_poly1305_final(&ctx, tag);
 }
 
 /**
- * @brief Generate Poly1305 key from ChaCha20
- * 
- * Uses ChaCha20 with key and nonce to generate a one-time Poly1305 key
+ * @brief Derives the 32-byte Poly1305 one-time key from the first ChaCha20 block (RFC 8439, counter 0).
+ * @param[in]  key 256-bit ChaCha20 key; must not be NULL.
+ * @param[in]  nonce 96-bit (12-byte) nonce as in RFC 8439; must not be NULL.
+ * @param[out] poly_key Output buffer for 32 bytes (`r || s` for @ref noxtls_poly1305_init); must not be NULL.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` if `noxtls_chacha20_init` or `noxtls_chacha20_process` fails.
  */
 static noxtls_return_t chacha20_poly1305_generate_key(const uint8_t *key, 
                                            const uint8_t *nonce, 
@@ -289,27 +325,37 @@ static noxtls_return_t chacha20_poly1305_generate_key(const uint8_t *key,
 {
     const uint8_t zero_block[64] = {0};
     uint8_t key_block[64] = {0};
-    chacha20_context_t ctx;
+    noxtls_chacha20_context_t ctx;
     
     /* Generate one block of ChaCha20 keystream with counter=0 */
-    if(chacha20_init(&ctx, key, nonce, 0) != NOXTLS_RETURN_SUCCESS) {
+    if(noxtls_chacha20_init(&ctx, key, nonce, 0) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_NULL;
     }
     
-    if(chacha20_process(&ctx, zero_block, key_block, 64) != NOXTLS_RETURN_SUCCESS) {
+    if(noxtls_chacha20_process(&ctx, zero_block, key_block, 64) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_NULL;
     }
 
     /* Per RFC 8439, use first 32 bytes as Poly1305 key */
-    memcpy(poly_key, key_block, 32);
+    memcpy(poly_key, key_block, POLY1305_KEY_SIZE);
     
     return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
- * @brief Encrypt and authenticate data using ChaCha20-Poly1305
+ * @brief RFC 8439 ChaCha20-Poly1305 AEAD: encrypts plaintext and writes a 128-bit authentication tag.
+ * @param[in]  key 256-bit (32-byte) ChaCha20 key.
+ * @param[in]  nonce 96-bit (12-byte) nonce.
+ * @param[in]  aad Optional additional authenticated data; may be NULL if @p aad_len is 0.
+ * @param[in]  aad_len Length of @p aad in bytes.
+ * @param[in]  plaintext Cleartext to encrypt; may be NULL if @p plaintext_len is 0.
+ * @param[in]  plaintext_len Length of @p plaintext in bytes.
+ * @param[out] ciphertext Encrypted output; must hold at least @p plaintext_len bytes when @p plaintext_len is non-zero.
+ * @param[out] tag Authentication tag (`POLY1305_TAG_SIZE` bytes).
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` on invalid arguments or internal failure.
  */
-noxtls_return_t chacha20_poly1305_encrypt(const uint8_t *key,
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
+noxtls_return_t noxtls_chacha20_poly1305_encrypt(const uint8_t *key,
                                const uint8_t *nonce,
                                const uint8_t *aad,
                                uint32_t aad_len,
@@ -317,10 +363,11 @@ noxtls_return_t chacha20_poly1305_encrypt(const uint8_t *key,
                                uint32_t plaintext_len,
                                uint8_t *ciphertext,
                                uint8_t *tag)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    uint8_t poly_key[32];
-    poly1305_context_t poly_ctx;
-    uint8_t length_block[16];
+    uint8_t poly_key[POLY1305_KEY_SIZE];
+    noxtls_poly1305_context_t poly_ctx;
+    uint8_t length_block[POLY1305_BLOCK_SIZE];
     
     if(key == NULL || nonce == NULL || tag == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -337,65 +384,65 @@ noxtls_return_t chacha20_poly1305_encrypt(const uint8_t *key,
     
     /* Encrypt plaintext using ChaCha20 (counter starts at 1, not 0) */
     if(plaintext_len > 0) {
-        if(chacha20_encrypt(key, nonce, 1, plaintext, plaintext_len, ciphertext) != NOXTLS_RETURN_SUCCESS) {
+        if(noxtls_chacha20_encrypt(key, nonce, 1, plaintext, plaintext_len, ciphertext) != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_NULL;
         }
     }
     
     /* Initialize Poly1305 */
-    if(poly1305_init(&poly_ctx, poly_key) != NOXTLS_RETURN_SUCCESS) {
+    if(noxtls_poly1305_init(&poly_ctx, poly_key) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_NULL;
     }
     
     /* Authenticate AAD */
     if(aad_len > 0 && aad != NULL) {
-        if(poly1305_update(&poly_ctx, aad, aad_len) != NOXTLS_RETURN_SUCCESS) {
+        if(noxtls_poly1305_update(&poly_ctx, aad, aad_len) != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_NULL;
         }
     }
     /* Pad AAD to 16-byte boundary */
-    if((aad_len & 15) != 0) {
-        const uint8_t pad[16] = {0};
-        uint32_t pad_len = 16 - (aad_len & 15);
-        if(poly1305_update(&poly_ctx, pad, pad_len) != NOXTLS_RETURN_SUCCESS) {
+    if((aad_len & (POLY1305_BLOCK_SIZE - 1U)) != 0U) {
+        const uint8_t pad[POLY1305_BLOCK_SIZE] = {0};
+        uint32_t pad_len = POLY1305_BLOCK_SIZE - (aad_len & (POLY1305_BLOCK_SIZE - 1U));
+        if(noxtls_poly1305_update(&poly_ctx, pad, pad_len) != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_NULL;
         }
     }
     
     /* Authenticate ciphertext */
     if(plaintext_len > 0) {
-        if(poly1305_update(&poly_ctx, ciphertext, plaintext_len) != NOXTLS_RETURN_SUCCESS) {
+        if(noxtls_poly1305_update(&poly_ctx, ciphertext, plaintext_len) != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_NULL;
         }
     }
     /* Pad ciphertext to 16-byte boundary */
-    if((plaintext_len & 15) != NOXTLS_RETURN_SUCCESS) {
-        const uint8_t pad[16] = {0};
-        uint32_t pad_len = 16 - (plaintext_len & 15);
-        if(poly1305_update(&poly_ctx, pad, pad_len) != NOXTLS_RETURN_SUCCESS) {
+    if((plaintext_len & (POLY1305_BLOCK_SIZE - 1U)) != 0U) {
+        const uint8_t pad[POLY1305_BLOCK_SIZE] = {0};
+        uint32_t pad_len = POLY1305_BLOCK_SIZE - (plaintext_len & (POLY1305_BLOCK_SIZE - 1U));
+        if(noxtls_poly1305_update(&poly_ctx, pad, pad_len) != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_NULL;
         }
     }
     
     /* Authenticate lengths: AAD length (64 bits) + ciphertext length (64 bits) */
-    memset(length_block, 0, 16);
+    memset(length_block, 0, POLY1305_BLOCK_SIZE);
     {
         uint64_t aad_len64 = (uint64_t)aad_len;
         uint64_t text_len64 = (uint64_t)plaintext_len;
-        for(uint32_t i = 0; i < 8; i++) {
+        for(uint32_t i = 0; i < (POLY1305_BLOCK_SIZE / 2U); i++) {
             length_block[i] = (uint8_t)(aad_len64 >> (i * 8));
         }
-        for(uint32_t i = 0; i < 8; i++) {
-            length_block[i + 8] = (uint8_t)(text_len64 >> (i * 8));
+        for(uint32_t i = 0; i < (POLY1305_BLOCK_SIZE / 2U); i++) {
+            length_block[i + (POLY1305_BLOCK_SIZE / 2U)] = (uint8_t)(text_len64 >> (i * 8));
         }
     }
     
-    if(poly1305_update(&poly_ctx, length_block, 16) != NOXTLS_RETURN_SUCCESS) {
+    if(noxtls_poly1305_update(&poly_ctx, length_block, POLY1305_BLOCK_SIZE) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_NULL;
     }
     
     /* Generate tag */
-    if(poly1305_final(&poly_ctx, tag) != NOXTLS_RETURN_SUCCESS) {
+    if(noxtls_poly1305_final(&poly_ctx, tag) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_NULL;
     }
     
@@ -403,9 +450,19 @@ noxtls_return_t chacha20_poly1305_encrypt(const uint8_t *key,
 }
 
 /**
- * @brief Decrypt and verify data using ChaCha20-Poly1305
+ * @brief RFC 8439 ChaCha20-Poly1305 AEAD: verifies the tag over AAD and ciphertext, then decrypts if valid.
+ * @param[in]  key 256-bit (32-byte) ChaCha20 key (same as used for encryption).
+ * @param[in]  nonce 96-bit (12-byte) nonce.
+ * @param[in]  aad Additional authenticated data; may be NULL if @p aad_len is 0 (must match encryption).
+ * @param[in]  aad_len Length of @p aad in bytes.
+ * @param[in]  ciphertext Encrypted payload; may be NULL if @p ciphertext_len is 0.
+ * @param[in]  ciphertext_len Length of @p ciphertext in bytes.
+ * @param[in]  tag Authentication tag to verify (`POLY1305_TAG_SIZE` bytes).
+ * @param[out] plaintext Cleartext output; must hold at least @p ciphertext_len bytes when @p ciphertext_len is non-zero.
+ * @return `NOXTLS_RETURN_SUCCESS` if the tag verifies and decryption succeeds; `NOXTLS_RETURN_BAD_DATA` if authentication fails; `NOXTLS_RETURN_NULL` on invalid arguments or internal failure.
  */
-noxtls_return_t chacha20_poly1305_decrypt(const uint8_t *key,
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
+noxtls_return_t noxtls_chacha20_poly1305_decrypt(const uint8_t *key,
                                const uint8_t *nonce,
                                const uint8_t *aad,
                                uint32_t aad_len,
@@ -413,11 +470,12 @@ noxtls_return_t chacha20_poly1305_decrypt(const uint8_t *key,
                                uint32_t ciphertext_len,
                                const uint8_t *tag,
                                uint8_t *plaintext)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    uint8_t poly_key[32];
-    poly1305_context_t poly_ctx;
-    uint8_t computed_tag[16];
-    uint8_t length_block[16];
+    uint8_t poly_key[POLY1305_KEY_SIZE];
+    noxtls_poly1305_context_t poly_ctx;
+    uint8_t computed_tag[POLY1305_TAG_SIZE];
+    uint8_t length_block[POLY1305_BLOCK_SIZE];
     int tag_match;
     
     if(key == NULL || nonce == NULL || tag == NULL) {
@@ -434,65 +492,65 @@ noxtls_return_t chacha20_poly1305_decrypt(const uint8_t *key,
     }
     
     /* Initialize Poly1305 */
-    if(poly1305_init(&poly_ctx, poly_key) != NOXTLS_RETURN_SUCCESS) {
+    if(noxtls_poly1305_init(&poly_ctx, poly_key) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_NULL;
     }
     
     /* Authenticate AAD */
     if(aad_len > 0 && aad != NULL) {
-        if(poly1305_update(&poly_ctx, aad, aad_len) != NOXTLS_RETURN_SUCCESS) {
+        if(noxtls_poly1305_update(&poly_ctx, aad, aad_len) != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_NULL;
         }
     }
     /* Pad AAD to 16-byte boundary */
-    if((aad_len & 15) != 0) {
-        const uint8_t pad[16] = {0};
-        uint32_t pad_len = 16 - (aad_len & 15);
-        if(poly1305_update(&poly_ctx, pad, pad_len) != NOXTLS_RETURN_SUCCESS) {
+    if((aad_len & (POLY1305_BLOCK_SIZE - 1U)) != 0U) {
+        const uint8_t pad[POLY1305_BLOCK_SIZE] = {0};
+        uint32_t pad_len = POLY1305_BLOCK_SIZE - (aad_len & (POLY1305_BLOCK_SIZE - 1U));
+        if(noxtls_poly1305_update(&poly_ctx, pad, pad_len) != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_NULL;
         }
     }
     
     /* Authenticate ciphertext */
     if(ciphertext_len > 0 && ciphertext != NULL) {
-        if(poly1305_update(&poly_ctx, ciphertext, ciphertext_len) != NOXTLS_RETURN_SUCCESS) {
+        if(noxtls_poly1305_update(&poly_ctx, ciphertext, ciphertext_len) != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_NULL;
         }
     }
     /* Pad ciphertext to 16-byte boundary */
-    if((ciphertext_len & 15) != 0) {
-        const uint8_t pad[16] = {0};
-        uint32_t pad_len = 16 - (ciphertext_len & 15);
-        if(poly1305_update(&poly_ctx, pad, pad_len) != NOXTLS_RETURN_SUCCESS) {
+    if((ciphertext_len & (POLY1305_BLOCK_SIZE - 1U)) != 0U) {
+        const uint8_t pad[POLY1305_BLOCK_SIZE] = {0};
+        uint32_t pad_len = POLY1305_BLOCK_SIZE - (ciphertext_len & (POLY1305_BLOCK_SIZE - 1U));
+        if(noxtls_poly1305_update(&poly_ctx, pad, pad_len) != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_NULL;
         }
     }
     
     /* Authenticate lengths */
-    memset(length_block, 0, 16);
+    memset(length_block, 0, POLY1305_BLOCK_SIZE);
     {
         uint64_t aad_len64 = (uint64_t)aad_len;
         uint64_t text_len64 = (uint64_t)ciphertext_len;
-        for(uint32_t i = 0; i < 8; i++) {
+        for(uint32_t i = 0; i < (POLY1305_BLOCK_SIZE / 2U); i++) {
             length_block[i] = (uint8_t)(aad_len64 >> (i * 8));
         }
-        for(uint32_t i = 0; i < 8; i++) {
-            length_block[i + 8] = (uint8_t)(text_len64 >> (i * 8));
+        for(uint32_t i = 0; i < (POLY1305_BLOCK_SIZE / 2U); i++) {
+            length_block[i + (POLY1305_BLOCK_SIZE / 2U)] = (uint8_t)(text_len64 >> (i * 8));
         }
     }
     
-    if(poly1305_update(&poly_ctx, length_block, 16) != NOXTLS_RETURN_SUCCESS) {
+    if(noxtls_poly1305_update(&poly_ctx, length_block, POLY1305_BLOCK_SIZE) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_NULL;
     }
     
     /* Generate tag */
-    if(poly1305_final(&poly_ctx, computed_tag) != NOXTLS_RETURN_SUCCESS) {
+    if(noxtls_poly1305_final(&poly_ctx, computed_tag) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_NULL;
     }
     
     /* Verify tag (constant-time comparison) */
     tag_match = 1;
-    for(uint32_t i = 0; i < 16; i++) {
+    for(uint32_t i = 0; i < POLY1305_TAG_SIZE; i++) {
         if(computed_tag[i] != tag[i]) {
             tag_match = 0;
         }
@@ -505,7 +563,7 @@ noxtls_return_t chacha20_poly1305_decrypt(const uint8_t *key,
     
     /* Decrypt ciphertext using ChaCha20 (counter starts at 1, not 0) */
     if(ciphertext_len > 0) {
-        if(chacha20_decrypt(key, nonce, 1, ciphertext, ciphertext_len, plaintext) != NOXTLS_RETURN_SUCCESS) {
+        if(noxtls_chacha20_decrypt(key, nonce, 1, ciphertext, ciphertext_len, plaintext) != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_NULL;
         }
     }
@@ -518,10 +576,10 @@ noxtls_return_t chacha20_poly1305_decrypt(const uint8_t *key,
  * 
  * Tests against known test vectors from RFC 8439
  */
-noxtls_return_t chacha20_poly1305_self_test(void)
+noxtls_return_t noxtls_chacha20_poly1305_self_test(void)
 {
     /* Test vectors from RFC 8439 Section 2.8.2 */
-    const uint8_t test_key[32] = {
+    const uint8_t test_key[POLY1305_KEY_SIZE] = {
         0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87,
         0x88, 0x89, 0x8a, 0x8b, 0x8c, 0x8d, 0x8e, 0x8f,
         0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97,
@@ -574,20 +632,20 @@ noxtls_return_t chacha20_poly1305_self_test(void)
         0x61, 0x16
     };
     
-    const uint8_t expected_tag[16] = {
+    const uint8_t expected_tag[POLY1305_TAG_SIZE] = {
         0x1a, 0xe1, 0x0b, 0x59, 0x4f, 0x09, 0xe2, 0x6a,
         0x7e, 0x90, 0x2e, 0xcb, 0xd0, 0x60, 0x06, 0x91
     };
     
     uint8_t ciphertext[114];
-    uint8_t tag[16];
+    uint8_t tag[POLY1305_TAG_SIZE];
     uint8_t decrypted[114];
     uint32_t i;
     
-    CHACHA20_POLY1305_DEBUG_PRINT("Running ChaCha20-Poly1305 self-test...\n");
+    NOXTLS_CHACHA20_POLY1305_DEBUG_PRINT("Running ChaCha20-Poly1305 self-test...\n");
     
     /* Test encryption */
-    if(chacha20_poly1305_encrypt(test_key, test_nonce, test_aad, 12,
+    if(noxtls_chacha20_poly1305_encrypt(test_key, test_nonce, test_aad, 12,
                                   test_plaintext, 114, ciphertext, tag) != NOXTLS_RETURN_SUCCESS) {
         noxtls_debug_printf("ChaCha20-Poly1305 self-test FAILED: Encryption failed\n");
         return NOXTLS_RETURN_NULL;
@@ -603,7 +661,7 @@ noxtls_return_t chacha20_poly1305_self_test(void)
     }
     
     /* Verify tag */
-    for(i = 0; i < 16; i++) {
+    for(i = 0; i < POLY1305_TAG_SIZE; i++) {
         if(tag[i] != expected_tag[i]) {
             noxtls_debug_printf("ChaCha20-Poly1305 self-test FAILED: Tag mismatch at byte %u\n", i);
             noxtls_debug_printf("  Expected: 0x%02x, Got: 0x%02x\n", expected_tag[i], tag[i]);
@@ -612,7 +670,7 @@ noxtls_return_t chacha20_poly1305_self_test(void)
     }
     
     /* Test decryption */
-    if(chacha20_poly1305_decrypt(test_key, test_nonce, test_aad, 12,
+    if(noxtls_chacha20_poly1305_decrypt(test_key, test_nonce, test_aad, 12,
                                   ciphertext, 114, tag, decrypted) != NOXTLS_RETURN_SUCCESS) {
         noxtls_debug_printf("ChaCha20-Poly1305 self-test FAILED: Decryption failed\n");
         return NOXTLS_RETURN_NULL;
@@ -626,7 +684,7 @@ noxtls_return_t chacha20_poly1305_self_test(void)
         }
     }
     
-    CHACHA20_POLY1305_DEBUG_PRINT("ChaCha20-Poly1305 self-test PASSED\n");
+    NOXTLS_CHACHA20_POLY1305_DEBUG_PRINT("ChaCha20-Poly1305 self-test PASSED\n");
     return NOXTLS_RETURN_SUCCESS;
 }
 

@@ -42,6 +42,18 @@ endif()
 if(NOXTLS_CFG_FEATURE_DSA)
     list(APPEND PKC_SOURCES dsa/noxtls_dsa.c)
 endif()
+if(NOXTLS_CFG_FEATURE_ML_KEM)
+    list(APPEND PKC_SOURCES mlkem/noxtls_mlkem.c)
+endif()
+if(NOXTLS_CFG_FEATURE_ML_DSA)
+    list(APPEND PKC_SOURCES
+        mldsa/noxtls_mldsa.c
+        mldsa/noxtls_zetas.c
+        mldsa/noxtls_mldsa44_ref.c
+        mldsa/noxtls_mldsa65_ref.c
+        mldsa/noxtls_mldsa87_ref.c
+    )
+endif()
 if(NOT PKC_SOURCES)
     message(FATAL_ERROR "NOXTLS_FEATURE_PKC is enabled but no PKC primitive sources are selected.")
 endif()
@@ -71,6 +83,8 @@ target_include_directories(noxtls_pkc PUBLIC
     ${NOXTLS_LIB_ROOT}/pkc/ed25519
     ${NOXTLS_LIB_ROOT}/pkc/ed448
     ${NOXTLS_LIB_ROOT}/pkc/dsa
+    ${NOXTLS_LIB_ROOT}/pkc/mlkem
+    ${NOXTLS_LIB_ROOT}/pkc/mldsa
     ${NOXTLS_LIB_ROOT}/mdigest
 )
 

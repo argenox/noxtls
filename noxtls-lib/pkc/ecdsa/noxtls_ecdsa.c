@@ -44,8 +44,8 @@ static void ecdsa_debug_hex(const char *label, const uint8_t *buf, uint32_t len)
 {
     uint32_t i;
     printf("[ecdsa_verify] %s (%u bytes): ", label, (unsigned)len);
-    if (buf) {
-        for (i = 0; i < len; i++) printf("%02X", buf[i]);
+    if(buf) {
+        for(i = 0; i < len; i++) printf("%02X", buf[i]);
     } else {
         printf("(null)");
     }
@@ -55,53 +55,55 @@ static void ecdsa_debug_hex(const char *label, const uint8_t *buf, uint32_t len)
 #endif
 
 /**
- * @brief Helper function to hash a message
+ * @brief Helper function to hash a noxtls_message
  * 
  * @param hash Output hash
  * @param hash_len Length of the hash
- * @param message Message to hash
- * @param message_len Length of the message
+ * @param noxtls_message Message to hash
+ * @param message_len Length of the noxtls_message
  * @param hash_algo Hash algorithm
  * @return noxtls_return_t NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if hash is NULL
  */
-static noxtls_return_t ecdsa_hash_message(uint8_t *hash, uint32_t *hash_len, const uint8_t *message, uint32_t message_len, noxtls_hash_algos_t hash_algo)
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
+static noxtls_return_t ecdsa_hash_message(uint8_t *hash, uint32_t *hash_len, const uint8_t *noxtls_message, uint32_t message_len, noxtls_hash_algos_t hash_algo)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     noxtls_sha_ctx_t ctx;
     noxtls_sha512_ctx_t ctx512;
     
-    if(hash == NULL || hash_len == NULL || message == NULL) {
+    if(hash == NULL || hash_len == NULL || noxtls_message == NULL) {
         return NOXTLS_RETURN_NULL;
     }
     
     switch(hash_algo) {
         case NOXTLS_HASH_MD5:
             if(noxtls_md5_init(&ctx) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-            if(noxtls_md5_update(&ctx, (uint8_t*)message, message_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+            if(noxtls_md5_update(&ctx, (uint8_t*)noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
             if(noxtls_md5_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
             *hash_len = 16;
             break;
         case NOXTLS_HASH_SHA1:
             if(noxtls_sha1_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-            if(noxtls_sha1_update(&ctx, (uint8_t*)message, message_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+            if(noxtls_sha1_update(&ctx, (uint8_t*)noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
             if(noxtls_sha1_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
             *hash_len = 20;
             break;
         case NOXTLS_HASH_SHA_224:
             if(noxtls_sha256_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-            if(noxtls_sha256_update(&ctx, (uint8_t*)message, message_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+            if(noxtls_sha256_update(&ctx, (uint8_t*)noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
             if(noxtls_sha256_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
             *hash_len = 28;
             break;
         case NOXTLS_HASH_SHA_256:
             if(noxtls_sha256_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-            if(noxtls_sha256_update(&ctx, (uint8_t*)message, message_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+            if(noxtls_sha256_update(&ctx, (uint8_t*)noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
             if(noxtls_sha256_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
             *hash_len = 32;
             break;
         case NOXTLS_HASH_SHA_384:
         case NOXTLS_HASH_SHA_512:
             if(noxtls_sha512_init(&ctx512, hash_algo) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-            if(noxtls_sha512_update(&ctx512, (uint8_t*)message, message_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+            if(noxtls_sha512_update(&ctx512, (uint8_t*)noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
             if(noxtls_sha512_finish(&ctx512, hash) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
             *hash_len = (hash_algo == NOXTLS_HASH_SHA_384) ? 48 : 64;
             break;
@@ -138,22 +140,22 @@ static noxtls_return_t ecdsa_mod_inv_prime(uint8_t *result,
         return NOXTLS_RETURN_NULL;
     }
 
-    uint8_t *mod_minus_2 = (uint8_t*)calloc(size, 1);
-    uint8_t *two = (uint8_t*)calloc(size, 1);
-    uint8_t *a_mod = (uint8_t*)calloc(size, 1);
+    uint8_t *mod_minus_2 = (uint8_t*)noxtls_calloc(size, 1);
+    uint8_t *two = (uint8_t*)noxtls_calloc(size, 1);
+    uint8_t *a_mod = (uint8_t*)noxtls_calloc(size, 1);
     if(!mod_minus_2 || !two || !a_mod) {
-        if(mod_minus_2) free(mod_minus_2);
-        if(two) free(two);
-        if(a_mod) free(a_mod);
+        if(mod_minus_2) noxtls_free(mod_minus_2);
+        if(two) noxtls_free(two);
+        if(a_mod) noxtls_free(a_mod);
         return NOXTLS_RETURN_FAILED;
     }
 
     /* a_mod = a mod p */
     noxtls_bn_mod(a_mod, a, size, mod, size);
     if(noxtls_bn_is_zero(a_mod, size)) {
-        free(mod_minus_2);
-        free(two);
-        free(a_mod);
+        noxtls_free(mod_minus_2);
+        noxtls_free(two);
+        noxtls_free(a_mod);
         return NOXTLS_RETURN_FAILED;
     }
 
@@ -164,9 +166,9 @@ static noxtls_return_t ecdsa_mod_inv_prime(uint8_t *result,
 
     noxtls_bn_mod_exp(result, a_mod, mod_minus_2, size, mod, size);
 
-    free(mod_minus_2);
-    free(two);
-    free(a_mod);
+    noxtls_free(mod_minus_2);
+    noxtls_free(two);
+    noxtls_free(a_mod);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -245,14 +247,31 @@ static int ecdsa_der_get_integer(const uint8_t **p, const uint8_t *e, uint8_t *b
 }
 
 /**
- * @brief Parse DER-encoded ECDSA signature (SEQUENCE of two INTEGERs r, s) into ecdsa_signature_t
+ * @brief Parse a DER-encoded ECDSA signature into fixed-width r and s (IEEE 1363 / X9.62 style layout).
+ *
+ * Expects ASN.1 SEQUENCE { r INTEGER, s INTEGER } as used in TLS and PKIX. Integers are normalized to
+ * @p coord_size bytes each, big-endian, in @p out->r and @p out->s; @p out->size is set to @p coord_size.
+ * Shorter INTEGER values are zero-padded on the left; longer values may be accepted only if leading
+ * padding bytes are zero (otherwise BAD_DATA).
+ *
+ * @param[in] der DER-encoded signature bytes.
+ * @param[in] der_len Length of @p der in bytes.
+ * @param[out] out Receives r and s; any prior content is cleared.
+ * @param[in] coord_size Field size in bytes for r and s (e.g. 32 for P-256, 48 for P-384); must be 1..ECC_MAX_KEY_SIZE.
+ *
+ * @return NOXTLS_RETURN_SUCCESS on success.
+ * @return NOXTLS_RETURN_NULL if @p der or @p out is NULL, or @p coord_size is zero or larger than ECC_MAX_KEY_SIZE.
+ * @return NOXTLS_RETURN_BAD_DATA if @p der is not a well-formed ECDSA signature SEQUENCE/INTEGERs or r/s do not fit @p coord_size.
  */
 noxtls_return_t noxtls_ecdsa_signature_parse_der(const uint8_t *der, uint32_t der_len, ecdsa_signature_t *out, uint32_t coord_size)
 {
     const uint8_t *ptr = der;
     const uint8_t *end = der + der_len;
-    uint32_t seq_len, r_len, s_len;
-    uint8_t r[ECC_MAX_KEY_SIZE], s[ECC_MAX_KEY_SIZE];
+    uint32_t seq_len;
+    uint32_t r_len;
+    uint32_t s_len;
+    uint8_t r[ECC_MAX_KEY_SIZE];
+    uint8_t s[ECC_MAX_KEY_SIZE];
 
     if(der == NULL || out == NULL || coord_size == 0 || coord_size > ECC_MAX_KEY_SIZE) {
         return NOXTLS_RETURN_NULL;
@@ -262,7 +281,7 @@ noxtls_return_t noxtls_ecdsa_signature_parse_der(const uint8_t *der, uint32_t de
         return NOXTLS_RETURN_BAD_DATA;
     }
     seq_len = ecdsa_der_get_length(&ptr, end);
-    if(seq_len == 0 || ptr + seq_len > end) {
+    if(seq_len == 0 || (size_t)(end - ptr) < (size_t)seq_len) {
         return NOXTLS_RETURN_BAD_DATA;
     }
 
@@ -311,7 +330,7 @@ noxtls_return_t noxtls_ecdsa_signature_parse_der(const uint8_t *der, uint32_t de
  * @brief ECDSA Signature Generation
  * 
  * Algorithm:
- * 1. Hash the message: h = HASH(message)
+ * 1. Hash the noxtls_message: h = HASH(noxtls_message)
  * 2. Generate random nonce k in [1, n-1]
  * 3. Compute (x, y) = k * G
  * 4. r = x mod n (if r == 0, go to step 2)
@@ -319,13 +338,13 @@ noxtls_return_t noxtls_ecdsa_signature_parse_der(const uint8_t *der, uint32_t de
  * 6. Signature is (r, s)
  *
  * @param key ECC key
- * @param message Message to sign
- * @param message_len Length of the message
+ * @param noxtls_message Message to sign
+ * @param message_len Length of the noxtls_message
  * @param signature ECDSA signature structure
  * @param hash_algo Hash algorithm
  * @return noxtls_return_t NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if key is NULL
  */
-noxtls_return_t noxtls_ecdsa_sign(ecc_key_t *key, const uint8_t *message, uint32_t message_len, ecdsa_signature_t *signature, noxtls_hash_algos_t hash_algo)
+noxtls_return_t noxtls_ecdsa_sign(ecc_key_t *key, const uint8_t *noxtls_message, uint32_t message_len, ecdsa_signature_t *signature, noxtls_hash_algos_t hash_algo)
 {
     uint8_t *hash = NULL;
     uint8_t *k = NULL;
@@ -344,7 +363,7 @@ noxtls_return_t noxtls_ecdsa_sign(ecc_key_t *key, const uint8_t *message, uint32
     uint32_t attempt;
     noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
     
-    if(key == NULL || message == NULL || signature == NULL) {
+    if(key == NULL || noxtls_message == NULL || signature == NULL) {
         return NOXTLS_RETURN_NULL;
     }
     
@@ -356,15 +375,15 @@ noxtls_return_t noxtls_ecdsa_sign(ecc_key_t *key, const uint8_t *message, uint32
     bits = size * 8;
     
     /* Allocate buffers */
-    hash = (uint8_t*)calloc(64, 1);  /* Max hash size (SHA-512) */
-    k = (uint8_t*)calloc(size, 1);
-    k_inv = (uint8_t*)calloc(size, 1);
-    h = (uint8_t*)calloc(size, 1);
-    r_times_d = (uint8_t*)calloc(size * 2, 1);
+    hash = (uint8_t*)noxtls_calloc(64, 1);  /* Max hash size (SHA-512) */
+    k = (uint8_t*)noxtls_calloc(size, 1);
+    k_inv = (uint8_t*)noxtls_calloc(size, 1);
+    h = (uint8_t*)noxtls_calloc(size, 1);
+    r_times_d = (uint8_t*)noxtls_calloc((size_t)size * 2u, 1);
     /* h + r*d can be up to 2n-2, so we need size+1 bytes to avoid dropping carry in add */
-    h_plus_rd = (uint8_t*)calloc(size + 1, 1);
-    s_product = (uint8_t*)calloc(size * 2, 1);
-    random_bytes = (uint8_t*)calloc(size, 1);
+    h_plus_rd = (uint8_t*)noxtls_calloc(size + 1, 1);
+    s_product = (uint8_t*)noxtls_calloc((size_t)size * 2u, 1);
+    random_bytes = (uint8_t*)noxtls_calloc(size, 1);
     
     if(!hash || !k || !k_inv || !h || !r_times_d || !h_plus_rd || !s_product || !random_bytes) {
         rc = NOXTLS_RETURN_FAILED;
@@ -374,8 +393,8 @@ noxtls_return_t noxtls_ecdsa_sign(ecc_key_t *key, const uint8_t *message, uint32
     /* Initialize signature structure */
     noxtls_ecc_point_init(&kG, size);
 
-    /* Step 1: Hash the message */
-    rc = ecdsa_hash_message(hash, &hash_len, message, message_len, hash_algo);
+    /* Step 1: Hash the noxtls_message */
+    rc = ecdsa_hash_message(hash, &hash_len, noxtls_message, message_len, hash_algo);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         goto cleanup;
     }
@@ -384,7 +403,8 @@ noxtls_return_t noxtls_ecdsa_sign(ecc_key_t *key, const uint8_t *message, uint32
     if(hash_len >= size) {
         memcpy(h, hash, size);
     } else {
-        memcpy(h, hash, hash_len);
+        /* Interpret hash as big-endian integer; pad on the left. */
+        memcpy(h + (size - hash_len), hash, hash_len);
     }
 
     /* Reduce h mod n if h >= n */
@@ -476,14 +496,14 @@ noxtls_return_t noxtls_ecdsa_sign(ecc_key_t *key, const uint8_t *message, uint32
     }
 
 cleanup:
-    if(hash) free(hash);
-    if(k) free(k);
-    if(k_inv) free(k_inv);
-    if(h) free(h);
-    if(r_times_d) free(r_times_d);
-    if(h_plus_rd) free(h_plus_rd);
-    if(s_product) free(s_product);
-    if(random_bytes) free(random_bytes);
+    if(hash) noxtls_free(hash);
+    if(k) noxtls_free(k);
+    if(k_inv) noxtls_free(k_inv);
+    if(h) noxtls_free(h);
+    if(r_times_d) noxtls_free(r_times_d);
+    if(h_plus_rd) noxtls_free(h_plus_rd);
+    if(s_product) noxtls_free(s_product);
+    if(random_bytes) noxtls_free(random_bytes);
     
     return rc;
 }
@@ -493,7 +513,7 @@ cleanup:
  * 
  * Algorithm:
  * 1. Verify r and s are in [1, n-1]
- * 2. Hash the message: h = HASH(message)
+ * 2. Hash the noxtls_message: h = HASH(noxtls_message)
  * 3. u1 = s^-1 * h mod n
  * 4. u2 = s^-1 * r mod n
  * 5. Compute (x, y) = u1 * G + u2 * Q
@@ -501,13 +521,13 @@ cleanup:
  * 7. Accept if v == r
  *
  * @param key ECC key
- * @param message Message to verify
- * @param message_len Length of the message
+ * @param noxtls_message Message to verify
+ * @param message_len Length of the noxtls_message
  * @param signature ECDSA signature structure
  * @param hash_algo Hash algorithm
  * @return noxtls_return_t NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if key is NULL
  */
-noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *message, uint32_t message_len, const ecdsa_signature_t *signature, noxtls_hash_algos_t hash_algo)
+noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_message, uint32_t message_len, const ecdsa_signature_t *signature, noxtls_hash_algos_t hash_algo)
 {
     uint8_t *hash = NULL;
     uint8_t *h = NULL;
@@ -522,7 +542,7 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *message, uint
     uint32_t hash_len;
     noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
     
-    if(key == NULL || message == NULL || signature == NULL) {
+    if(key == NULL || noxtls_message == NULL || signature == NULL) {
         return NOXTLS_RETURN_NULL;
     }
     
@@ -537,15 +557,15 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *message, uint
 #endif
 
     /* Allocate buffers (heap to reduce stack usage) */
-    hash = (uint8_t*)calloc(64, 1);  /* Max hash size (SHA-512) */
-    h = (uint8_t*)calloc(size, 1);
-    s_inv = (uint8_t*)calloc(size, 1);
+    hash = (uint8_t*)noxtls_calloc(64, 1);  /* Max hash size (SHA-512) */
+    h = (uint8_t*)noxtls_calloc(size, 1);
+    s_inv = (uint8_t*)noxtls_calloc(size, 1);
     /* u1, u2 hold mul result (2*size bytes) before bn_mod; after mod, size-byte value in first bytes */
-    u1 = (uint8_t*)calloc(size * 2, 1);
-    u2 = (uint8_t*)calloc(size * 2, 1);
-    v = (uint8_t*)calloc(size, 1);
-    u1G = (ecc_point_t*)calloc(1, sizeof(ecc_point_t));
-    u2Q = (ecc_point_t*)calloc(1, sizeof(ecc_point_t));
+    u1 = (uint8_t*)noxtls_calloc((size_t)size * 2u, 1);
+    u2 = (uint8_t*)noxtls_calloc((size_t)size * 2u, 1);
+    v = (uint8_t*)noxtls_calloc(size, 1);
+    u1G = (ecc_point_t*)noxtls_calloc(1, sizeof(ecc_point_t));
+    u2Q = (ecc_point_t*)noxtls_calloc(1, sizeof(ecc_point_t));
     
     if(!hash || !h || !s_inv || !u1 || !u2 || !v || !u1G || !u2Q) {
         rc = NOXTLS_RETURN_FAILED;
@@ -569,8 +589,8 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *message, uint
         goto cleanup_verify;
     }
 
-    /* Step 2: Hash the message */
-    rc = ecdsa_hash_message(hash, &hash_len, message, message_len, hash_algo);
+    /* Step 2: Hash the noxtls_message */
+    rc = ecdsa_hash_message(hash, &hash_len, noxtls_message, message_len, hash_algo);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         goto cleanup_verify;
     }
@@ -579,8 +599,8 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *message, uint
         if(hash_len >= size) {
             memcpy(h, hash, size);
         } else {
-            memcpy(h, hash, hash_len);
-            /* Pad with zeros on the right (hash is already left-aligned) */
+            /* Interpret hash as big-endian integer; pad on the left. */
+            memcpy(h + (size - hash_len), hash, hash_len);
         }
         
         /* Reduce h mod n if h >= n */
@@ -655,7 +675,7 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *message, uint
         rc = NOXTLS_RETURN_SUCCESS;
     } else {
         rc = NOXTLS_RETURN_FAILED;
-        /* Unconditional debug when verify fails (no define needed) */
+#if defined(NOXTLS_ECDSA_VERIFY_DEBUG)
         {
             uint32_t i;
             uint8_t u1_plus_u2_buf[ECC_MAX_KEY_SIZE + 1];
@@ -706,7 +726,6 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *message, uint
             printf("\n");
             fflush(stdout);
         }
-#if defined(NOXTLS_ECDSA_VERIFY_DEBUG)
         {
             uint32_t i;
             printf("[ecdsa_verify] FAILED: v != r\n  v = ");
@@ -720,14 +739,14 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *message, uint
     }
 
 cleanup_verify:
-    if(hash) free(hash);
-    if(h) free(h);
-    if(s_inv) free(s_inv);
-    if(u1) free(u1);
-    if(u2) free(u2);
-    if(v) free(v);
-    if(u1G) free(u1G);
-    if(u2Q) free(u2Q);
+    if(hash) noxtls_free(hash);
+    if(h) noxtls_free(h);
+    if(s_inv) noxtls_free(s_inv);
+    if(u1) noxtls_free(u1);
+    if(u2) noxtls_free(u2);
+    if(v) noxtls_free(v);
+    if(u1G) noxtls_free(u1G);
+    if(u2Q) noxtls_free(u2Q);
 
     return rc;
 }

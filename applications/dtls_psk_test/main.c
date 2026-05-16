@@ -140,13 +140,13 @@ static noxtls_return_t exchange_and_verify(dtls_context_t *sender, dtls_context_
     dtls_record_t record;
     noxtls_return_t rc;
 
-    rc = dtls_send_record(sender, TLS_RECORD_APPLICATION_DATA, payload, len);
+    rc = noxtls_dtls_send_record(sender, TLS_RECORD_APPLICATION_DATA, payload, len);
     if (rc != NOXTLS_RETURN_SUCCESS) {
         printf("[FAIL] %s send failed: %d\n", direction, rc);
         return rc;
     }
 
-    rc = dtls_recv_record(receiver, &record);
+    rc = noxtls_dtls_recv_record(receiver, &record);
     if (rc != NOXTLS_RETURN_SUCCESS) {
         printf("[FAIL] %s recv failed: %d\n", direction, rc);
         return rc;
@@ -177,13 +177,13 @@ static noxtls_return_t handshake_exchange(dtls_context_t *sender, dtls_context_t
     rc = dtls_send_handshake_fragment(sender, msg_type, payload, len, msg_seq);
     if (rc != NOXTLS_RETURN_SUCCESS) return rc;
 
-    rc = dtls_recv_handshake_fragment(receiver, &frag);
+    rc = noxtls_dtls_recv_handshake_fragment(receiver, &frag);
     if (rc != NOXTLS_RETURN_SUCCESS) {
         if (frag.data) noxtls_free(frag.data);
         return rc;
     }
 
-    rc = dtls_reassemble_handshake(receiver, &frag, &complete, &complete_len);
+    rc = noxtls_dtls_reassemble_handshake(receiver, &frag, &complete, &complete_len);
     if (frag.data) noxtls_free(frag.data);
     if (rc != NOXTLS_RETURN_SUCCESS) return rc;
     if (complete_len != len || (len && memcmp(complete, payload, len) != 0)) {
@@ -196,7 +196,8 @@ static noxtls_return_t handshake_exchange(dtls_context_t *sender, dtls_context_t
 
 static noxtls_return_t run_dtls_psk_test(udp_conn_t *conn)
 {
-    dtls_context_t client_ctx, server_ctx;
+    dtls_context_t client_ctx;
+    dtls_context_t server_ctx;
     uint8_t client_hello[] = "CLIENT_HELLO_PSK";
     uint8_t server_hello[] = "SERVER_HELLO_PSK";
     uint8_t cookie[HASH_SHA256_OUT_LEN];
@@ -210,15 +211,15 @@ static noxtls_return_t run_dtls_psk_test(udp_conn_t *conn)
     memset(&client_ctx, 0, sizeof(client_ctx));
     memset(&server_ctx, 0, sizeof(server_ctx));
 
-    rc = dtls_context_init(&client_ctx, TLS_ROLE_CLIENT, DTLS_VERSION_1_2);
+    rc = noxtls_dtls_context_init(&client_ctx, TLS_ROLE_CLIENT, DTLS_VERSION_1_2);
     if (rc != NOXTLS_RETURN_SUCCESS) {
         printf("[FAIL] client context init: %d\n", rc);
         return rc;
     }
-    rc = dtls_context_init(&server_ctx, TLS_ROLE_SERVER, DTLS_VERSION_1_2);
+    rc = noxtls_dtls_context_init(&server_ctx, TLS_ROLE_SERVER, DTLS_VERSION_1_2);
     if (rc != NOXTLS_RETURN_SUCCESS) {
         printf("[FAIL] server context init: %d\n", rc);
-        dtls_context_free(&client_ctx);
+        noxtls_dtls_context_free(&client_ctx);
         return rc;
     }
 
@@ -226,12 +227,12 @@ static noxtls_return_t run_dtls_psk_test(udp_conn_t *conn)
     noxtls_tls_set_io_callbacks(&server_ctx.base, server_send, server_recv, conn);
 
     /* Server cookie (for HelloVerifyRequest simulation) */
-    rc = dtls_generate_cookie(&server_ctx, client_hello, (uint32_t)sizeof(client_hello) - 1, cookie, &cookie_len);
+    rc = noxtls_dtls_generate_cookie(&server_ctx, client_hello, (uint32_t)sizeof(client_hello) - 1, cookie, &cookie_len);
     if (rc != NOXTLS_RETURN_SUCCESS) {
         printf("[FAIL] generate cookie: %d\n", rc);
         goto cleanup;
     }
-    rc = dtls_verify_cookie(&server_ctx, cookie, cookie_len);
+    rc = noxtls_dtls_verify_cookie(&server_ctx, cookie, cookie_len);
     if (rc != NOXTLS_RETURN_SUCCESS) {
         printf("[FAIL] verify cookie: %d\n", rc);
         goto cleanup;
@@ -261,8 +262,8 @@ static noxtls_return_t run_dtls_psk_test(udp_conn_t *conn)
     if (rc != NOXTLS_RETURN_SUCCESS) goto cleanup;
 
 cleanup:
-    dtls_context_free(&client_ctx);
-    dtls_context_free(&server_ctx);
+    noxtls_dtls_context_free(&client_ctx);
+    noxtls_dtls_context_free(&server_ctx);
     return rc;
 }
 

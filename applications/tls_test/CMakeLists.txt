@@ -65,4 +65,8 @@ target_link_libraries(tls_test
     noxtls_drbg
 )
 
+if(BUILD_TESTS)
+    add_test(NAME tls12_ocsp_stapling_regression COMMAND tls_test --ocsp-only)
+endif()
+
 

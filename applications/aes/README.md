@@ -113,10 +113,10 @@ This encrypts "Hello" using AES-128 in CTR mode. CTR mode supports arbitrary-len
 #### Example 4: Encrypt with AES-256 in CFB mode
 
 ```bash
-aes 256 -k 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f -m cfb -i 00000000000000000000000000000000 This is a test message
+aes 256 -k 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f -m cfb -i 00000000000000000000000000000000 This is a test noxtls_message
 ```
 
-This encrypts "This is a test message" using AES-256 in CFB mode with debug information enabled.
+This encrypts "This is a test noxtls_message" using AES-256 in CFB mode with debug information enabled.
 
 #### Example 5: Encrypt with AES-192 in OFB mode
 
@@ -161,7 +161,7 @@ The encrypted data is displayed as a hexadecimal string, with each byte represen
 
 - If no algorithm is specified, the utility will display: `No algorithm specified` and exit with code -1
 - If no key is specified, the utility will display: `Error: Key not specified. Use -k <hex_key> to provide the encryption key.` and exit with code -1
-- If the key length doesn't match the algorithm, the utility will display an error message indicating the expected key length and exit with code -1
+- If the key length doesn't match the algorithm, the utility will display an error noxtls_message indicating the expected key length and exit with code -1
 - If an IV/tweak is required but not provided (for CBC, CTR, CFB, OFB, XTS, GCM modes), the utility will display: `Error: IV/tweak required for mode. Use -i <hex_iv> to provide the IV.` and exit with code -1
 - If GCM nonce length is incorrect (not 12 bytes), the utility will display: `Error: GCM nonce must be 12 bytes (24 hex characters), got X bytes` and exit with code -1
 - If the IV/tweak length is incorrect (not 16 bytes), the utility will display: `Error: IV must be 16 bytes (32 hex characters), got X bytes` and exit with code -1

@@ -19,7 +19,7 @@
 * 
 *
 * File:    message_digest.c
-* Summary: Handles all message digest commands
+* Summary: Handles all noxtls_message digest commands
 *
 */
 
@@ -232,7 +232,7 @@ int message_digest(int argc, char ** argv)
             printf("Digest written to %s from offset %zu\n", output_file_path, file_offset);
             free(digest_hex);
         } else {
-            print_hash(digest, (uint16_t)digest_len);
+            noxtls_print_hash(digest, (uint16_t)digest_len);
         }
 
         free(file_buffer);
@@ -513,7 +513,7 @@ int hash_md5_handler(const uint8_t * data, uint32_t len)
     if(rc != NOXTLS_RETURN_SUCCESS)
         return -1;
 
-    print_hash(hash, HASH_MD5_OUT_LEN);
+    noxtls_print_hash(hash, HASH_MD5_OUT_LEN);
     return 0;
 }
 
@@ -537,7 +537,7 @@ int hash_sha1_handler(const uint8_t * data, uint32_t len)
     if(rc != NOXTLS_RETURN_SUCCESS)
         return -1;
 
-    print_hash(hash, HASH_SHA1_OUT_LEN);
+    noxtls_print_hash(hash, HASH_SHA1_OUT_LEN);
     return 0;
 }
 
@@ -568,7 +568,7 @@ int hash_sha_256_handler(const uint8_t * data, uint32_t len)
     if(rc != NOXTLS_RETURN_SUCCESS)
         return -1;
 
-    print_hash(hash, HASH_SHA256_OUT_LEN);
+    noxtls_print_hash(hash, HASH_SHA256_OUT_LEN);
     return 0;
 }
 
@@ -599,7 +599,7 @@ int hash_sha_512_handler(const uint8_t * data, uint32_t len)
     if(rc != NOXTLS_RETURN_SUCCESS)
         return -1;
 
-    print_hash(hash, HASH_SHA512_OUT_LEN);
+    noxtls_print_hash(hash, HASH_SHA512_OUT_LEN);
     return 0;
 }
 

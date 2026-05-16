@@ -21,4 +21,4 @@ title: "Camellia"
 
 ## Shared API (streaming and types)
 
-For incremental processing, one-shot encrypt/decrypt, shared types (context, key type, mode enum), and self-test, see **[Camellia (shared)](/docs/api/camellia_shared)** — `camellia_init()`, `camellia_update()`, `camellia_final()`, `camellia_encrypt_data()`, `camellia_decrypt_data()`, and common definitions.
+For incremental processing, one-shot encrypt/decrypt, shared types (context, key type, mode enum), and self-test, see **[Camellia (shared)](/docs/api/camellia_shared)** — `noxtls_camellia_init()`, `noxtls_camellia_update()`, `noxtls_camellia_final()`, `noxtls_camellia_encrypt_data()`, `noxtls_camellia_decrypt_data()`, and common definitions.

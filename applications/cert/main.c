@@ -58,12 +58,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
-#ifdef _WIN32
-#include "noxtls-lib/common/getopt_win.h"
-#else
-#include <unistd.h>
-#endif
 
+#include "noxtls-lib/common/getopt_compat.h"
 #include "noxtls-lib/common/noxtls_memory.h"
 #include "noxtls-lib/common/noxtls_memory_compat.h"
 #include "noxtls_common.h"
@@ -371,7 +367,7 @@ noxtls_return_t read_certificate_handler(int argc, char **argv)
     noxtls_return_t rc;
     int c;
     
-    while((c = getopt(argc, argv, "i:d")) != -1) {
+    while((c = noxtls_getopt(argc, argv, "i:d")) != -1) {
         switch(c) {
             case 'i':
                 input_file = optarg;
@@ -418,7 +414,7 @@ noxtls_return_t write_certificate_handler(int argc, char **argv)
     noxtls_return_t rc;
     int c;
     
-    while((c = getopt(argc, argv, "i:o:f:d")) != -1) {
+    while((c = noxtls_getopt(argc, argv, "i:o:f:d")) != -1) {
         switch(c) {
             case 'i':
                 input_file = optarg;
@@ -525,7 +521,7 @@ noxtls_return_t verify_certificate_handler(int argc, char **argv)
     noxtls_return_t rc;
     int c;
     
-    while((c = getopt(argc, argv, "i:d")) != -1) {
+    while((c = noxtls_getopt(argc, argv, "i:d")) != -1) {
         switch(c) {
             case 'i':
                 input_file = optarg;
@@ -577,7 +573,7 @@ noxtls_return_t keyinfo_handler(int argc, char **argv)
     noxtls_return_t rc;
     int c;
     
-    while((c = getopt(argc, argv, "i:d")) != -1) {
+    while((c = noxtls_getopt(argc, argv, "i:d")) != -1) {
         switch(c) {
             case 'i':
                 input_file = optarg;
@@ -624,7 +620,7 @@ noxtls_return_t keywrite_handler(int argc, char **argv)
     noxtls_return_t rc;
     int c;
     
-    while((c = getopt(argc, argv, "i:o:f:d")) != -1) {
+    while((c = noxtls_getopt(argc, argv, "i:o:f:d")) != -1) {
         switch(c) {
             case 'i':
                 input_file = optarg;
@@ -790,7 +786,7 @@ noxtls_return_t debug_certificate_handler(int argc, char **argv)
     uint8_t verbose = 0;
     int c;
     
-    while((c = getopt(argc, argv, "i:vd")) != -1) {
+    while((c = noxtls_getopt(argc, argv, "i:vd")) != -1) {
         switch(c) {
             case 'i':
                 input_file = optarg;
@@ -836,7 +832,7 @@ noxtls_return_t debug_key_handler(int argc, char **argv)
     uint8_t verbose = 0;
     int c;
     
-    while((c = getopt(argc, argv, "i:vd")) != -1) {
+    while((c = noxtls_getopt(argc, argv, "i:vd")) != -1) {
         switch(c) {
             case 'i':
                 input_file = optarg;
@@ -915,7 +911,7 @@ int main(int argc, char **argv)
         return -1;
     }
     
-    /* Adjust argc/argv for getopt */
+    /* Adjust argc/argv for noxtls_getopt */
     argc--;
     argv++;
     

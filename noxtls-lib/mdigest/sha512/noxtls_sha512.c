@@ -42,20 +42,20 @@
 static uint8_t debug_lvl = 0;
 
 /* SHA-256 Operations */
-#define SHA_CH(X, Y, Z)     ((X & Y) ^ (((~X) & Z)))
-#define SHA_MAJ(X,Y, Z)     ((X & Y) ^ (X & Z) ^ (Y & Z))
-#define SHA_ROTR(X, N)      ((X >> N) | (X << (64 - N)))
+#define SHA_CH(X, Y, Z)     (((X) & (Y)) ^ ((~(X)) & (Z)))
+#define SHA_MAJ(X,Y, Z)     (((X) & (Y)) ^ ((X) & (Z)) ^ ((Y) & (Z)))
+#define SHA_ROTR(X, N)      (((X) >> (N)) | ((X) << (64 - (N))))
 
-#define SHA_SUM_FROM_0(X)   (SHA_ROTR(X, 28)  ^ SHA_ROTR(X, 34) ^ SHA_ROTR(X, 39))
-#define SHA_SUM_FROM_1(X)   (SHA_ROTR(X, 14)  ^ SHA_ROTR(X, 18) ^ SHA_ROTR(X, 41))
-#define SHA_SIGMA_FROM_0(X) (SHA_ROTR(X, 1)  ^ SHA_ROTR(X, 8) ^ (X >> 7))
-#define SHA_SIGMA_FROM_1(X) (SHA_ROTR(X, 19) ^ SHA_ROTR(X, 61) ^ (X >> 6))
+#define SHA_SUM_FROM_0(X)   (SHA_ROTR((X), 28)  ^ SHA_ROTR((X), 34) ^ SHA_ROTR((X), 39))
+#define SHA_SUM_FROM_1(X)   (SHA_ROTR((X), 14)  ^ SHA_ROTR((X), 18) ^ SHA_ROTR((X), 41))
+#define SHA_SIGMA_FROM_0(X) (SHA_ROTR((X), 1)   ^ SHA_ROTR((X), 8)  ^ ((X) >> 7))
+#define SHA_SIGMA_FROM_1(X) (SHA_ROTR((X), 19)  ^ SHA_ROTR((X), 61) ^ ((X) >> 6))
 
 noxtls_return_t noxtls_sha512_round(noxtls_sha512_ctx_t * ctx, const uint8_t * input);
 noxtls_return_t noxtls_sha512_pad(uint8_t * data, uint32_t zero_pad, uint32_t len);
 
-/* SHA Constants for SHA-384, SHA-512, SHA-512/224 and SHA-512/256 */
-uint64_t sha512_k[80] =
+/* SHA-384 / SHA-512 / SHA-512/224 / SHA-512/256 round constants K[0..79] (FIPS 180-4); count matches SHA512_ROUND_COUNT. */
+uint64_t sha512_k[SHA512_ROUND_COUNT] =
 {
     0x428a2f98d728ae22, 0x7137449123ef65cd, 0xb5c0fbcfec4d3b2f, 0xe9b5dba58189dbbc, 
     0x3956c25bf348b538, 0x59f111f1b605d019, 0x923f82a4af194f9b, 0xab1c5ed5da6d8118, 
@@ -207,22 +207,30 @@ noxtls_return_t noxtls_sha512_round(noxtls_sha512_ctx_t * ctx, const uint8_t * i
 	uint32_t t = 0;
 	uint64_t w[SHA512_ROUND_COUNT] = {0};
 
-    uint64_t a,b,c,d,e,f,g,h = 0;
+    uint64_t a;
+    uint64_t b;
+    uint64_t c;
+    uint64_t d;
+    uint64_t e;
+    uint64_t f;
+    uint64_t g;
+    uint64_t h = 0;
     
 	if(ctx == NULL) {
 		return NOXTLS_RETURN_NULL;
 	}    
     
-    /* Copy the message to the first 16 words */    
+    /* Copy the noxtls_message to the first 16 words */    
     for(t = 0; t < SHA512_WORDS_PER_BLOCK; t++) {
-        w[t] =  ((uint64_t)input[(t * SHA512_WORD_BYTES)] << 56)     |
-                ((uint64_t)input[(t * SHA512_WORD_BYTES) + 1] << 48) |
-                ((uint64_t)input[(t * SHA512_WORD_BYTES) + 2] << 40) |
-                ((uint64_t)input[(t * SHA512_WORD_BYTES) + 3] << 32) |
-                ((uint64_t)input[(t * SHA512_WORD_BYTES) + 4] << 24) | 
-                ((uint64_t)input[(t * SHA512_WORD_BYTES) + 5] << 16) | 
-                ((uint64_t)input[(t * SHA512_WORD_BYTES) + 6] << 8)  | 
-                ((uint64_t)input[(t * SHA512_WORD_BYTES) + 7]);
+        size_t in_off = (size_t)t * (size_t)SHA512_WORD_BYTES;
+        w[t] =  ((uint64_t)input[in_off] << 56)     |
+                ((uint64_t)input[in_off + 1u] << 48) |
+                ((uint64_t)input[in_off + 2u] << 40) |
+                ((uint64_t)input[in_off + 3u] << 32) |
+                ((uint64_t)input[in_off + 4u] << 24) | 
+                ((uint64_t)input[in_off + 5u] << 16) | 
+                ((uint64_t)input[in_off + 6u] << 8)  | 
+                ((uint64_t)input[in_off + 7u]);
 
 
     }
@@ -306,11 +314,11 @@ noxtls_return_t noxtls_sha512_finish(noxtls_sha512_ctx_t * ctx, uint8_t * hash)
         total_length = ctx->length;
     }
     
-    int block_size = HASH_SHA512_BLOCK_SIZE;
+    uint32_t block_size = HASH_SHA512_BLOCK_SIZE;
     uint8_t length_size = HASH_SHA512_LENGTH_LEN; /* Size of length in bytes 8 bytes / 128-bit */
     
-    int space_occupied = (len % block_size);
-    int space_left = block_size - space_occupied;
+    uint32_t space_occupied = (len % block_size);
+    uint32_t space_left = block_size - space_occupied;
     
     
     if(len == 0) {
@@ -323,7 +331,7 @@ noxtls_return_t noxtls_sha512_finish(noxtls_sha512_ctx_t * ctx, uint8_t * hash)
     }
     
     if(space_left >= length_size + 1) {
-        add_padding_length(temp, block_size, total_length, length_size);
+        noxtls_add_padding_length(temp, block_size, total_length, length_size);
     }
 
     if(debug_lvl > 0){
@@ -346,7 +354,7 @@ noxtls_return_t noxtls_sha512_finish(noxtls_sha512_ctx_t * ctx, uint8_t * hash)
             data[0] = SHA512_PAD_BYTE;
         }
         
-        add_padding_length(temp, block_size, total_length, length_size);
+        noxtls_add_padding_length(temp, block_size, total_length, length_size);
             
         if(debug_lvl > 0) {
             for(i = 0; i < block_size; i++) {
@@ -396,7 +404,9 @@ noxtls_return_t noxtls_sha512_finish(noxtls_sha512_ctx_t * ctx, uint8_t * hash)
  *
  * @return NOXTLS_RETURN_SUCCESS on success, noxtls_return_t otherwise
  */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 noxtls_return_t noxtls_sha512_pad(uint8_t * data, uint32_t zero_pad, uint32_t len)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 

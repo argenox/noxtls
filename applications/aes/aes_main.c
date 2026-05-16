@@ -72,13 +72,13 @@
 #define APP_VERSION_MAJOR 0
 #define APP_VERSION_MINOR 1
 #define APP_VERSION_BUILD 4
-#define AES_GCM_IV_LENGTH 12
-#define AES_GCM_TAG_LENGTH 16
+#define NOXTLS_AES_GCM_IV_LENGTH 12
+#define NOXTLS_AES_GCM_TAG_LENGTH 16
 
 
-int aes_128_handler(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t key_len, aes_mode_t mode, uint8_t * iv);
-int aes_256_handler(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t key_len, aes_mode_t mode, uint8_t * iv);
-int aes_192_handler(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t key_len, aes_mode_t mode, uint8_t * iv);
+int aes_128_handler(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t key_len, noxtls_aes_mode_t mode, uint8_t * iv);
+int aes_256_handler(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t key_len, noxtls_aes_mode_t mode, uint8_t * iv);
+int aes_192_handler(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t key_len, noxtls_aes_mode_t mode, uint8_t * iv);
 
 
 void print_usage(const char * name);
@@ -90,17 +90,17 @@ static int aes_encrypt_buffer(
     uint32_t len,
     const uint8_t * key,
     uint32_t key_len,
-    aes_mode_t mode,
+    noxtls_aes_mode_t mode,
     uint8_t * iv,
     uint8_t ** output,
     uint32_t * output_len,
-    uint8_t tag[AES_GCM_TAG_LENGTH],
+    uint8_t tag[NOXTLS_AES_GCM_TAG_LENGTH],
     int * has_tag);
 
 uint8_t debug_lvl = 0;
 
 /* Custom handler type for AES that includes key, mode, and IV */
-typedef int (*aes_handler_func_t)(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t key_len, aes_mode_t mode, uint8_t * iv);
+typedef int (*aes_handler_func_t)(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t key_len, noxtls_aes_mode_t mode, uint8_t * iv);
 
 typedef struct {
     char algo[32];
@@ -258,11 +258,11 @@ static int aes_encrypt_buffer(
     uint32_t len,
     const uint8_t * key,
     uint32_t key_len,
-    aes_mode_t mode,
+    noxtls_aes_mode_t mode,
     uint8_t * iv,
     uint8_t ** output,
     uint32_t * output_len,
-    uint8_t tag[AES_GCM_TAG_LENGTH],
+    uint8_t tag[NOXTLS_AES_GCM_TAG_LENGTH],
     int * has_tag)
 {
     uint16_t key_bits = 0;
@@ -276,11 +276,11 @@ static int aes_encrypt_buffer(
     }
 
     if(key_len == 16) {
-        key_bits = AES_128_BIT;
+        key_bits = NOXTLS_AES_128_BIT;
     } else if(key_len == 24) {
-        key_bits = AES_192_BIT;
+        key_bits = NOXTLS_AES_192_BIT;
     } else if(key_len == 32) {
-        key_bits = AES_256_BIT;
+        key_bits = NOXTLS_AES_256_BIT;
     } else {
         return -1;
     }
@@ -289,13 +289,13 @@ static int aes_encrypt_buffer(
     *output_len = 0;
     *has_tag = 0;
 
-    if(mode == AES_GCM) {
+    if(mode == NOXTLS_AES_GCM) {
         encrypted = malloc(len);
         if(encrypted == NULL && len > 0) {
             return -1;
         }
 
-        rc = aes_gcm_encrypt((uint8_t *)key, key_bits, iv, NULL, 0, data, len, encrypted, tag);
+        rc = noxtls_aes_gcm_encrypt((uint8_t *)key, key_bits, iv, NULL, 0, data, len, encrypted, tag);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             free(encrypted);
             return -1;
@@ -307,10 +307,10 @@ static int aes_encrypt_buffer(
         return 0;
     }
 
-    if(mode == AES_CTR || mode == AES_CFB || mode == AES_OFB || mode == AES_XTS) {
+    if(mode == NOXTLS_AES_CTR || mode == NOXTLS_AES_CFB || mode == NOXTLS_AES_OFB || mode == NOXTLS_AES_XTS) {
         encrypt_len = len;
     } else {
-        encrypt_len = ((len + AES_BLOCK_LENGTH - 1) / AES_BLOCK_LENGTH) * AES_BLOCK_LENGTH;
+        encrypt_len = ((len + NOXTLS_AES_BLOCK_LENGTH - 1) / NOXTLS_AES_BLOCK_LENGTH) * NOXTLS_AES_BLOCK_LENGTH;
     }
 
     padded_data = malloc(encrypt_len);
@@ -326,7 +326,7 @@ static int aes_encrypt_buffer(
         memcpy(padded_data, data, len);
     }
 
-    rc = aes_encrypt_data((uint8_t *)key, padded_data, encrypt_len, iv, encrypted, key_bits, mode);
+    rc = noxtls_aes_encrypt_data((uint8_t *)key, padded_data, encrypt_len, iv, encrypted, key_bits, mode);
     free(padded_data);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         free(encrypted);
@@ -360,7 +360,7 @@ int main(int argc, char ** argv)
     uint8_t * key_buffer = NULL;
     uint32_t key_length = 0;
     int key_specified = 0;
-    aes_mode_t cipher_mode = AES_ECB;  /* Default to ECB */
+    noxtls_aes_mode_t cipher_mode = NOXTLS_AES_ECB;  /* Default to ECB */
     uint8_t * iv_buffer = NULL;
     uint32_t iv_length = 0;
     int iv_specified = 0;
@@ -461,25 +461,25 @@ int main(int argc, char ** argv)
                 
                 /* Parse mode */
                 if (strcasecmp(argv[arg_idx], "ecb") == 0) {
-                    cipher_mode = AES_ECB;
+                    cipher_mode = NOXTLS_AES_ECB;
                 }
                 else if (strcasecmp(argv[arg_idx], "cbc") == 0) {
-                    cipher_mode = AES_CBC;
+                    cipher_mode = NOXTLS_AES_CBC;
                 }
                 else if (strcasecmp(argv[arg_idx], "ctr") == 0) {
-                    cipher_mode = AES_CTR;
+                    cipher_mode = NOXTLS_AES_CTR;
                 }
                 else if (strcasecmp(argv[arg_idx], "cfb") == 0) {
-                    cipher_mode = AES_CFB;
+                    cipher_mode = NOXTLS_AES_CFB;
                 }
                 else if (strcasecmp(argv[arg_idx], "ofb") == 0) {
-                    cipher_mode = AES_OFB;
+                    cipher_mode = NOXTLS_AES_OFB;
                 }
                 else if (strcasecmp(argv[arg_idx], "xts") == 0) {
-                    cipher_mode = AES_XTS;
+                    cipher_mode = NOXTLS_AES_XTS;
                 }
                 else if (strcasecmp(argv[arg_idx], "gcm") == 0) {
-                    cipher_mode = AES_GCM;
+                    cipher_mode = NOXTLS_AES_GCM;
                 }
                 else {
                     printf("Error: Unknown mode '%s'. Supported modes: ecb, cbc, ctr, cfb, ofb, xts, gcm\n", argv[arg_idx]);
@@ -682,22 +682,22 @@ int main(int argc, char ** argv)
     }
     
     /* Validate IV for modes that require it */
-    if(cipher_mode != AES_ECB) {
+    if(cipher_mode != NOXTLS_AES_ECB) {
         if(!iv_specified) {
             printf("Error: IV/tweak required for mode. Use -i <hex_iv> to provide the IV.\n");
             if(key_buffer) free(key_buffer);
             if(data_buffer) free(data_buffer);
             return -1;
         }
-        if(cipher_mode == AES_GCM) {
-            if(iv_length != AES_GCM_IV_LENGTH) {
+        if(cipher_mode == NOXTLS_AES_GCM) {
+            if(iv_length != NOXTLS_AES_GCM_IV_LENGTH) {
                 printf("Error: GCM nonce must be 12 bytes (24 hex characters), got %u bytes\n", (unsigned int)iv_length);
                 if(key_buffer) free(key_buffer);
                 if(iv_buffer) free(iv_buffer);
                 if(data_buffer) free(data_buffer);
                 return -1;
             }
-        } else if(iv_length != AES_BLOCK_LENGTH) {
+        } else if(iv_length != NOXTLS_AES_BLOCK_LENGTH) {
             printf("Error: IV must be 16 bytes (32 hex characters), got %u bytes\n", (unsigned int)iv_length);
             if(key_buffer) free(key_buffer);
             if(iv_buffer) free(iv_buffer);
@@ -712,7 +712,7 @@ int main(int argc, char ** argv)
         size_t output_length = 0;
         uint8_t * encrypted_buffer = NULL;
         uint8_t * output_buffer = NULL;
-        uint8_t tag[AES_GCM_TAG_LENGTH] = {0};
+        uint8_t tag[NOXTLS_AES_GCM_TAG_LENGTH] = {0};
         int has_tag = 0;
         uint32_t encrypted_length = 0;
 
@@ -771,7 +771,7 @@ int main(int argc, char ** argv)
             }
         }
 
-        output_length = file_offset + encrypted_length + (has_tag ? AES_GCM_TAG_LENGTH : 0U);
+        output_length = file_offset + encrypted_length + (has_tag ? NOXTLS_AES_GCM_TAG_LENGTH : 0U);
         output_buffer = malloc(output_length);
         if(output_buffer == NULL && output_length > 0) {
             printf("Error: Memory allocation failed\n");
@@ -790,7 +790,7 @@ int main(int argc, char ** argv)
             memcpy(output_buffer + file_offset, encrypted_buffer, encrypted_length);
         }
         if(has_tag) {
-            memcpy(output_buffer + file_offset + encrypted_length, tag, AES_GCM_TAG_LENGTH);
+            memcpy(output_buffer + file_offset + encrypted_length, tag, NOXTLS_AES_GCM_TAG_LENGTH);
         }
 
         if(write_binary_file(output_file_path, output_buffer, output_length) != 0) {
@@ -807,7 +807,7 @@ int main(int argc, char ** argv)
         printf("Encrypted %u bytes from offset %zu into %s\n", (unsigned int)(file_length - file_offset), file_offset, output_file_path);
         if(has_tag) {
             printf("Appended GCM tag:\n");
-            print_hash(tag, AES_GCM_TAG_LENGTH);
+            noxtls_print_hash(tag, NOXTLS_AES_GCM_TAG_LENGTH);
         }
 
         free(output_buffer);
@@ -827,11 +827,11 @@ int main(int argc, char ** argv)
 }
 
 
-int aes_128_handler(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t key_len, aes_mode_t mode, uint8_t * iv)
+int aes_128_handler(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t key_len, noxtls_aes_mode_t mode, uint8_t * iv)
 {
     uint8_t * output = NULL;
     uint32_t output_len = 0;
-    uint8_t tag[AES_GCM_TAG_LENGTH] = {0};
+    uint8_t tag[NOXTLS_AES_GCM_TAG_LENGTH] = {0};
     int has_tag = 0;
 
     if(debug_lvl > 0)
@@ -851,22 +851,22 @@ int aes_128_handler(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t 
     if(output_len > UINT16_MAX) {
         printf("Error: output too large to display\n");
     } else {
-        print_hash(output, (uint16_t)output_len);
+        noxtls_print_hash(output, (uint16_t)output_len);
     }
     if(has_tag) {
         printf("Tag:\n");
-        print_hash(tag, AES_GCM_TAG_LENGTH);
+        noxtls_print_hash(tag, NOXTLS_AES_GCM_TAG_LENGTH);
     }
 
     free(output);
     return 0;
 }
 
-int aes_192_handler(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t key_len, aes_mode_t mode, uint8_t * iv)
+int aes_192_handler(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t key_len, noxtls_aes_mode_t mode, uint8_t * iv)
 {
     uint8_t * output = NULL;
     uint32_t output_len = 0;
-    uint8_t tag[AES_GCM_TAG_LENGTH] = {0};
+    uint8_t tag[NOXTLS_AES_GCM_TAG_LENGTH] = {0};
     int has_tag = 0;
 
     if(debug_lvl > 0)
@@ -886,22 +886,22 @@ int aes_192_handler(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t 
     if(output_len > UINT16_MAX) {
         printf("Error: output too large to display\n");
     } else {
-        print_hash(output, (uint16_t)output_len);
+        noxtls_print_hash(output, (uint16_t)output_len);
     }
     if(has_tag) {
         printf("Tag:\n");
-        print_hash(tag, AES_GCM_TAG_LENGTH);
+        noxtls_print_hash(tag, NOXTLS_AES_GCM_TAG_LENGTH);
     }
 
     free(output);
     return 0;
 }
 
-int aes_256_handler(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t key_len, aes_mode_t mode, uint8_t * iv)
+int aes_256_handler(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t key_len, noxtls_aes_mode_t mode, uint8_t * iv)
 {
     uint8_t * output = NULL;
     uint32_t output_len = 0;
-    uint8_t tag[AES_GCM_TAG_LENGTH] = {0};
+    uint8_t tag[NOXTLS_AES_GCM_TAG_LENGTH] = {0};
     int has_tag = 0;
 
     if(debug_lvl > 0)
@@ -921,11 +921,11 @@ int aes_256_handler(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t 
     if(output_len > UINT16_MAX) {
         printf("Error: output too large to display\n");
     } else {
-        print_hash(output, (uint16_t)output_len);
+        noxtls_print_hash(output, (uint16_t)output_len);
     }
     if(has_tag) {
         printf("Tag:\n");
-        print_hash(tag, AES_GCM_TAG_LENGTH);
+        noxtls_print_hash(tag, NOXTLS_AES_GCM_TAG_LENGTH);
     }
 
     free(output);

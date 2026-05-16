@@ -104,12 +104,12 @@ typedef struct
  * @param entropy_len Required entropy length in bytes
  * @return noxtls_return_t NOXTLS_RETURN_SUCCESS on success
  */
-noxtls_return_t drbg_get_entropy(uint8_t *entropy_buffer, uint32_t entropy_len);
+noxtls_return_t noxtls_drbg_get_entropy(uint8_t *entropy_buffer, uint32_t entropy_len);
 
-void drbg_set_entropy_source(noxtls_entropy_source_t source);
-noxtls_entropy_source_t drbg_get_entropy_source(void);
-void drbg_set_entropy_callback(noxtls_entropy_cb_t cb);
-noxtls_entropy_cb_t drbg_get_entropy_callback(void);
+void noxtls_drbg_set_entropy_source(noxtls_entropy_source_t source);
+noxtls_entropy_source_t noxtls_drbg_get_entropy_source(void);
+void noxtls_drbg_set_entropy_callback(noxtls_entropy_cb_t cb);
+noxtls_entropy_cb_t noxtls_drbg_get_entropy_callback(void);
 
 /**
  * @brief Instantiate the DRBG
@@ -191,7 +191,7 @@ noxtls_return_t drbg_update(drbg_state_t *state,
  * @param state DRBG state structure
  * @return noxtls_return_t NOXTLS_RETURN_SUCCESS on success
  */
-noxtls_return_t drbg_uninstantiate(drbg_state_t *state);
+noxtls_return_t noxtls_drbg_uninstantiate(drbg_state_t *state);
 
 #ifdef __cplusplus
 }

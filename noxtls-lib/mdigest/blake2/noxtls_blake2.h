@@ -42,6 +42,20 @@ extern "C" {
 #define BLAKE2S_BLOCK_BYTES (64u)
 #define BLAKE2B_BLOCK_BYTES (128u)
 
+/* RFC 7693 compression: noxtls_message schedule words, chaining half, full v[], sigma table */
+#define BLAKE2_MSG_WORDS        16
+#define BLAKE2_CHAINING_WORDS    8
+#define BLAKE2_V_WORDS          16
+#define BLAKE2_SIGMA_ROWS       10
+#define BLAKE2S_ROUNDS          10
+#define BLAKE2B_ROUNDS          12
+#define BLAKE2S_WORD_BYTES       4
+#define BLAKE2B_WORD_BYTES       8
+/* Indices in v[] for t (byte count low/high) and final-block flag f */
+#define BLAKE2_V_INDEX_T0       12
+#define BLAKE2_V_INDEX_T1       13
+#define BLAKE2_V_INDEX_F        14
+
 NOXTLS_MSVC_WARNING_PUSH
 NOXTLS_MSVC_DISABLE_PADDING
 typedef struct {

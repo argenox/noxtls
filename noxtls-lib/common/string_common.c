@@ -61,10 +61,10 @@ int noxtls_hex_string_to_bytes(const char * string, uint8_t * out_buf, size_t ou
     size_t str_len;
     char val[HEX_PAIR_BUFFER_LEN];
 
-    if (string == NULL)
+    if(string == NULL)
         return -1;
 
-    if (out_buf == NULL)
+    if(out_buf == NULL)
         return -1;
 
     str_len = strlen(string);
@@ -72,14 +72,14 @@ int noxtls_hex_string_to_bytes(const char * string, uint8_t * out_buf, size_t ou
         return -3;
     }
 
-    /* Require buffer large enough for (string length / 2) bytes */
-    if (out_length < (str_len >> 1u))
+    /* Require buffer large enough for(string length / 2) bytes */
+    if(out_length < (str_len >> 1u))
     {
         return -2;
     }
 
     /* Parse two hex chars at a time into one byte */
-    for (i = 0; i < str_len; i += HEX_STRING_STRIDE)
+    for(i = 0; i < str_len; i += HEX_STRING_STRIDE)
     {
         val[0] = string[i];
         val[1] = string[i + 1];
@@ -91,6 +91,26 @@ int noxtls_hex_string_to_bytes(const char * string, uint8_t * out_buf, size_t ou
         return -4;
     }
     return (int)j;
+}
+
+/**
+ * @brief Wrapper around @ref noxtls_hex_string_to_bytes with output length `strlen(string) / 2`.
+ * @param[in] string Hex string (even length, no separators).
+ * @param[out] output Buffer sized for half the string length in bytes.
+ * @return Same error codes as @ref noxtls_hex_string_to_bytes; -1 if @p string or @p output is NULL.
+ */
+int noxtls_process_string_to_bytes(const char *string, uint8_t *output)
+{
+    size_t str_len;
+    size_t out_len;
+
+    if(string == NULL || output == NULL) {
+        return -1;
+    }
+
+    str_len = strlen(string);
+    out_len = str_len >> 1u;
+    return noxtls_hex_string_to_bytes(string, output, out_len);
 }
 
 /**
@@ -106,10 +126,10 @@ void noxtls_print_data(const uint8_t * data, size_t len)
 {
     size_t i = 0;
 
-    if (data == NULL || len == 0)
+    if(data == NULL || len == 0)
         return;
 
-    for (i = 0; i < len; i++)
+    for(i = 0; i < len; i++)
     {
         noxtls_debug_printf("%X", data[i]);
     }

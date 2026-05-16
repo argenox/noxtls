@@ -43,13 +43,14 @@ extern "C" {
 #define NOXTLS_CHACHA20_POLY1305_DEBUG (0)
 
 /* ChaCha20-Poly1305 Constants */
-#define CHACHA20_POLY1305_KEY_SIZE       32  /* 256-bit key */
-#define CHACHA20_POLY1305_NONCE_SIZE     12  /* 96-bit nonce (RFC 8439) */
-#define CHACHA20_POLY1305_TAG_SIZE       16  /* 128-bit authentication tag */
+#define NOXTLS_CHACHA20_POLY1305_KEY_SIZE       32  /* 256-bit key */
+#define NOXTLS_CHACHA20_POLY1305_NONCE_SIZE     12  /* 96-bit nonce (RFC 8439) */
+#define NOXTLS_CHACHA20_POLY1305_TAG_SIZE       16  /* 128-bit authentication tag */
 
 /* Poly1305 Constants */
 #define POLY1305_KEY_SIZE                32  /* 256-bit key */
 #define POLY1305_TAG_SIZE                16  /* 128-bit tag */
+#define POLY1305_BLOCK_SIZE              16  /* 128-bit Poly1305 block (RFC 8439 padding unit, length block) */
 
 /* Poly1305 Context Structure */
 NOXTLS_MSVC_WARNING_PUSH
@@ -59,10 +60,10 @@ typedef struct
     uint32_t r[5];          /* r clamped, 26-bit limbs */
     uint32_t h[5];          /* Accumulator, 26-bit limbs */
     uint32_t pad[4];        /* s (128 bits, little-endian words) */
-    uint8_t buffer[16];     /* Partial block buffer */
+    uint8_t buffer[POLY1305_BLOCK_SIZE]; /* Partial block buffer */
     uint32_t buffer_len;    /* Bytes in buffer */
     uint8_t finished;       /* Final block processed */
-} poly1305_context_t;
+} noxtls_poly1305_context_t;
 NOXTLS_MSVC_WARNING_POP
 
 /**
@@ -72,7 +73,7 @@ NOXTLS_MSVC_WARNING_POP
  * @param key MAC key (32 bytes)
  * @return NOXTLS_RETURN_SUCCESS on success
  */
-noxtls_return_t poly1305_init(poly1305_context_t *ctx, const uint8_t *key);
+noxtls_return_t noxtls_poly1305_init(noxtls_poly1305_context_t *ctx, const uint8_t *key);
 
 /**
  * @brief Update Poly1305 with data
@@ -82,7 +83,7 @@ noxtls_return_t poly1305_init(poly1305_context_t *ctx, const uint8_t *key);
  * @param data_len Length of data in bytes
  * @return NOXTLS_RETURN_SUCCESS on success
  */
-noxtls_return_t poly1305_update(poly1305_context_t *ctx, const uint8_t *data, uint32_t data_len);
+noxtls_return_t noxtls_poly1305_update(noxtls_poly1305_context_t *ctx, const uint8_t *data, uint32_t data_len);
 
 /**
  * @brief Finalize Poly1305 and generate tag
@@ -91,7 +92,7 @@ noxtls_return_t poly1305_update(poly1305_context_t *ctx, const uint8_t *data, ui
  * @param tag Output tag (16 bytes)
  * @return NOXTLS_RETURN_SUCCESS on success
  */
-noxtls_return_t poly1305_final(poly1305_context_t *ctx, uint8_t *tag);
+noxtls_return_t noxtls_poly1305_final(noxtls_poly1305_context_t *ctx, uint8_t *tag);
 
 /**
  * @brief Compute Poly1305 MAC (convenience function)
@@ -102,7 +103,7 @@ noxtls_return_t poly1305_final(poly1305_context_t *ctx, uint8_t *tag);
  * @param tag Output tag (16 bytes)
  * @return NOXTLS_RETURN_SUCCESS on success
  */
-noxtls_return_t poly1305_mac(const uint8_t *key, const uint8_t *data, uint32_t data_len, uint8_t *tag);
+noxtls_return_t noxtls_poly1305_mac(const uint8_t *key, const uint8_t *data, uint32_t data_len, uint8_t *tag);
 
 /**
  * @brief Encrypt and authenticate data using ChaCha20-Poly1305
@@ -117,7 +118,7 @@ noxtls_return_t poly1305_mac(const uint8_t *key, const uint8_t *data, uint32_t d
  * @param tag Output buffer for authentication tag (must be at least 16 bytes)
  * @return NOXTLS_RETURN_SUCCESS on success
  */
-noxtls_return_t chacha20_poly1305_encrypt(const uint8_t *key,
+noxtls_return_t noxtls_chacha20_poly1305_encrypt(const uint8_t *key,
                                const uint8_t *nonce,
                                const uint8_t *aad,
                                uint32_t aad_len,
@@ -139,7 +140,7 @@ noxtls_return_t chacha20_poly1305_encrypt(const uint8_t *key,
  * @param plaintext Output buffer for plaintext (must be at least ciphertext_len bytes)
  * @return NOXTLS_RETURN_SUCCESS on success (authentication verified), NOXTLS_RETURN_BAD_DATA on auth failure
  */
-noxtls_return_t chacha20_poly1305_decrypt(const uint8_t *key,
+noxtls_return_t noxtls_chacha20_poly1305_decrypt(const uint8_t *key,
                                const uint8_t *nonce,
                                const uint8_t *aad,
                                uint32_t aad_len,
@@ -153,7 +154,7 @@ noxtls_return_t chacha20_poly1305_decrypt(const uint8_t *key,
  *
  * @return NOXTLS_RETURN_SUCCESS on success (all tests passed)
  */
-noxtls_return_t chacha20_poly1305_self_test(void);
+noxtls_return_t noxtls_chacha20_poly1305_self_test(void);
 
 #ifdef __cplusplus
 }

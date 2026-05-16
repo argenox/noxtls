@@ -41,6 +41,15 @@ extern "C" {
 #define RIPEMD160_BLOCK_SIZE_BYTES (64u)
 #define RIPEMD160_BLOCK_SIZE_BITS  (512u)
 #define RIPEMD160_STATE_WORDS      (5u)
+#define RIPEMD160_WORD_BYTES       (4u)
+#define RIPEMD160_WORDS_PER_BLOCK  (16u) /* one 512-bit block as uint32_t little-endian words */
+
+/* Default chaining variables H0..H4 (RIPEMD-160, ISO/IEC 10118-3). */
+#define RIPEMD160_IV0 (0x67452301u)
+#define RIPEMD160_IV1 (0xEFCDAB89u)
+#define RIPEMD160_IV2 (0x98BADCFEu)
+#define RIPEMD160_IV3 (0x10325476u)
+#define RIPEMD160_IV4 (0xC3D2E1F0u)
 
 /**
  * @brief Initialize RIPEMD-160 hashing (ISO/IEC 10118-3).

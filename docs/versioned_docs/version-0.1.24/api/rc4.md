@@ -23,49 +23,49 @@ RC4 (Rivest Cipher 4) is a **stream cipher** that accepts a key of 1–256 bytes
 
 ## Types
 
-### rc4_context_t
+### noxtls_rc4_context_t
 
-Opaque context for incremental RC4 encryption/decryption. Used by [rc4_init](#rc4_init) and [rc4_process](#rc4_process). Allocate and pass to [rc4_init](#rc4_init); do not access fields directly.
+Opaque context for incremental RC4 encryption/decryption. Used by [rc4_init](#rc4_init) and [noxtls_rc4_process](#noxtls_rc4_process). Allocate and pass to [rc4_init](#rc4_init); do not access fields directly.
 
 ## API
 
 ### `rc4_init`
 
 ```c
-noxtls_return_t rc4_init(rc4_context_t *ctx, const uint8_t *key, uint32_t key_len);
+noxtls_return_t rc4_init(noxtls_rc4_context_t *ctx, const uint8_t *key, uint32_t key_len);
 ```
 
 Initialize RC4 context with the given key.
 
 **Parameters:**
 
-- `ctx` — [rc4_context_t](#rc4_context_t) to initialize
+- `ctx` — [noxtls_rc4_context_t](#noxtls_rc4_context_t) to initialize
 - `key` — Key bytes (1–256 bytes)
 - `key_len` — Key length in bytes (1–256)
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success, [NOXTLS_RETURN_NULL](/docs/api/return_codes) or [NOXTLS_RETURN_FAILED](/docs/api/return_codes) on invalid arguments
 
-### `rc4_process`
+### `noxtls_rc4_process`
 
 ```c
-noxtls_return_t rc4_process(rc4_context_t *ctx, const uint8_t *input, uint8_t *output, uint32_t input_len);
+noxtls_return_t noxtls_rc4_process(noxtls_rc4_context_t *ctx, const uint8_t *input, uint8_t *output, uint32_t input_len);
 ```
 
 Encrypt or decrypt data using RC4. As a stream cipher, encryption and decryption are identical (XOR with keystream).
 
 **Parameters:**
 
-- `ctx` — [rc4_context_t](#rc4_context_t) (from [rc4_init](#rc4_init))
+- `ctx` — [noxtls_rc4_context_t](#noxtls_rc4_context_t) (from [rc4_init](#rc4_init))
 - `input` — Input data (plaintext or ciphertext)
 - `output` — Output buffer (must be at least input_len bytes)
 - `input_len` — Length of input in bytes
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success
 
-### `rc4_encrypt`
+### `noxtls_rc4_encrypt`
 
 ```c
-noxtls_return_t rc4_encrypt(const uint8_t *key, uint32_t key_len, const uint8_t *input, uint32_t input_len, uint8_t *output);
+noxtls_return_t noxtls_rc4_encrypt(const uint8_t *key, uint32_t key_len, const uint8_t *input, uint32_t input_len, uint8_t *output);
 ```
 
 Encrypt data using RC4 (convenience function).
@@ -80,10 +80,10 @@ Encrypt data using RC4 (convenience function).
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success
 
-### `rc4_decrypt`
+### `noxtls_rc4_decrypt`
 
 ```c
-noxtls_return_t rc4_decrypt(const uint8_t *key, uint32_t key_len, const uint8_t *input, uint32_t input_len, uint8_t *output);
+noxtls_return_t noxtls_rc4_decrypt(const uint8_t *key, uint32_t key_len, const uint8_t *input, uint32_t input_len, uint8_t *output);
 ```
 
 Decrypt data using RC4 (convenience function). Identical to encryption for this stream cipher.

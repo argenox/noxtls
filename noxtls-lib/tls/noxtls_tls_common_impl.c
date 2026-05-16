@@ -146,13 +146,13 @@ noxtls_return_t noxtls_tls_send_record(tls_context_t *ctx, uint8_t type, const u
         return NOXTLS_RETURN_FAILED;  /* No send callback set */
     }
     
-    if(len > TLS_MAX_RECORD_SIZE) {
+    if(len > TLS_MAX_PROTECTED_RECORD_FRAGMENT) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
     
     record = ctx->record_send_buf;
     if(record == NULL) {
-        record = (uint8_t*)noxtls_malloc(5 + TLS_MAX_RECORD_SIZE);
+        record = (uint8_t*)noxtls_malloc(5u + TLS_MAX_PROTECTED_RECORD_FRAGMENT);
         if(record == NULL) {
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         }
@@ -245,8 +245,8 @@ noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
     noxtls_debug_printf("[TLS_DEBUG] tls_recv_record: Header parsed - type=%u, version=0x%04x, length=%u\n", 
                           record->type, record->version, length);
     
-    if(length > TLS_MAX_RECORD_SIZE) {
-        noxtls_debug_printf("[TLS_DEBUG] tls_recv_record: Record length %u exceeds max %u\n", length, TLS_MAX_RECORD_SIZE);
+    if(length > TLS_MAX_WIRE_RECORD_LENGTH) {
+        noxtls_debug_printf("[TLS_DEBUG] tls_recv_record: Record length %u exceeds max wire %u\n", length, TLS_MAX_WIRE_RECORD_LENGTH);
         return NOXTLS_RETURN_INVALID_PARAM;
     }
     
@@ -292,6 +292,7 @@ noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
                 case 49: desc_str = "access_denied"; break;
                 case 50: desc_str = "decode_error"; break;
                 case 51: desc_str = "decrypt_error"; break;
+                case 52: desc_str = "too_many_cids_requested"; break;
                 case 70: desc_str = "protocol_version"; break;
                 case 71: desc_str = "insufficient_security"; break;
                 case 80: desc_str = "internal_error"; break;
@@ -361,13 +362,18 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
                                      uint8_t **client_hello_data, uint32_t *client_hello_len)
 {
     tls_record_t record;
+    tls_record_t next_record;
     noxtls_return_t rc;
     uint32_t offset;
+    uint32_t client_hello_total_len;
+    uint32_t assembled_len;
     uint16_t version;
     uint8_t session_id_len;
     uint16_t cipher_suites_len;
     uint8_t compression_methods_len;
+    uint8_t has_supported_versions_ext = 0;
     uint8_t has_tls13 = 0;
+    uint8_t has_tls12 = 0;
     
     if(base_ctx == NULL || detected_version == NULL || 
        client_hello_data == NULL || client_hello_len == NULL) {
@@ -388,18 +394,59 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
         return rc;
     }
     if(record.length > 0 && record.data == NULL) {
-        return NOXTLS_RETURN_FAILED;
+        return NOXTLS_RETURN_TLS_ERROR;
     }
     
-    if(record.type != TLS_RECORD_HANDSHAKE || record.length < 38) {
+    if(record.type != TLS_RECORD_HANDSHAKE || record.length < 4) {
         noxtls_free(record.data);
-        return NOXTLS_RETURN_FAILED;
+        return NOXTLS_RETURN_TLS_ERROR;
     }
     
     if(record.data[0] != TLS_HANDSHAKE_CLIENT_HELLO) {
         noxtls_free(record.data);
-        return NOXTLS_RETURN_FAILED;
+        return NOXTLS_RETURN_TLS_ERROR;
     }
+
+    client_hello_total_len = 4u + (((uint32_t)record.data[1] << 16) |
+                                   ((uint32_t)record.data[2] << 8) |
+                                   (uint32_t)record.data[3]);
+    assembled_len = (uint32_t)record.length;
+    while(assembled_len < client_hello_total_len) {
+        uint8_t *new_buf;
+        rc = noxtls_tls_recv_record(base_ctx, &next_record);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_free(record.data);
+            return rc;
+        }
+        if(next_record.length > 0 && next_record.data == NULL) {
+            noxtls_free(record.data);
+            return NOXTLS_RETURN_TLS_ERROR;
+        }
+        if(next_record.type != TLS_RECORD_HANDSHAKE) {
+            if(next_record.data) noxtls_free(next_record.data);
+            noxtls_free(record.data);
+            return NOXTLS_RETURN_TLS_ERROR;
+        }
+        new_buf = (uint8_t*)noxtls_realloc(record.data, assembled_len + (uint32_t)next_record.length);
+        if(new_buf == NULL) {
+            if(next_record.data) noxtls_free(next_record.data);
+            noxtls_free(record.data);
+            return NOXTLS_RETURN_FAILED;
+        }
+        record.data = new_buf;
+        if(next_record.length > 0 && next_record.data != NULL) {
+            memcpy(record.data + assembled_len, next_record.data, next_record.length);
+        }
+        assembled_len += (uint32_t)next_record.length;
+        if(next_record.data) noxtls_free(next_record.data);
+    }
+
+    if(assembled_len != client_hello_total_len || assembled_len > UINT16_MAX || assembled_len < 38u) {
+        noxtls_free(record.data);
+        return NOXTLS_RETURN_TLS_ERROR;
+    }
+    /* A fragmented ClientHello can legitimately exceed a single record payload. */
+    record.length = (uint16_t)assembled_len;
     
     /* Store Client Hello data for later use */
     *client_hello_data = record.data;
@@ -517,21 +564,24 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
             ext_data_end = offset + ext_len;
             
             if(ext_type == TLS_EXTENSION_SUPPORTED_VERSIONS) {
-                /* Supported Versions extension found - check if TLS 1.3 is supported */
-                /* Format: length (1 byte) + list of versions (2 bytes each) */
+                /* RFC 8446: server must select from client's supported_versions list. */
+                has_supported_versions_ext = 1;
                 if(ext_len >= 3 && offset < ext_data_end) {
-                    uint8_t versions_len = record.data[offset++];
-                    if(versions_len >= 2 && versions_len <= ext_len - 1 &&
-                       versions_len <= ext_data_end - offset) {
-                        /* Check each version in the list */
-                        uint8_t i;
-                        for(i = 0; i + 1 < versions_len && offset + 1 < ext_data_end; i += 2) {
-                            uint16_t supported_version = (record.data[offset] << 8) | record.data[offset + 1];
+                    uint8_t versions_len = record.data[offset];
+                    uint32_t ver_offset = offset + 1;
+                    uint32_t versions_end = ver_offset + versions_len;
+                    if(versions_len >= 2 &&
+                       (versions_len % 2) == 0 &&
+                       versions_len <= ext_len - 1 &&
+                       versions_end <= ext_data_end) {
+                        while(ver_offset + 1 < versions_end) {
+                            uint16_t supported_version = (record.data[ver_offset] << 8) | record.data[ver_offset + 1];
                             if(supported_version == TLS_VERSION_1_3) {
                                 has_tls13 = 1;
-                                break;
+                            } else if(supported_version == TLS_VERSION_1_2) {
+                                has_tls12 = 1;
                             }
-                            offset += 2;
+                            ver_offset += 2;
                         }
                     }
                 }
@@ -544,8 +594,18 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
     }
     
     /* Determine version */
-    if(has_tls13) {
-        *detected_version = TLS_VERSION_1_3;
+    if(has_supported_versions_ext) {
+        if(has_tls13) {
+            *detected_version = TLS_VERSION_1_3;
+        } else if(has_tls12) {
+            *detected_version = TLS_VERSION_1_2;
+        } else {
+            /* supported_versions present but no overlap with server policy. */
+            noxtls_free(*client_hello_data);
+            *client_hello_data = NULL;
+            *client_hello_len = 0;
+            return NOXTLS_RETURN_NOT_SUPPORTED;
+        }
     } else if(version >= TLS_VERSION_1_2) {
         *detected_version = TLS_VERSION_1_2;
     } else {

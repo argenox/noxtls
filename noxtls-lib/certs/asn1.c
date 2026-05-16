@@ -33,11 +33,17 @@
 #include "asn1.h"
 #include "oids.h"
 
-#define GET_TAG_CLASS(X)      ((((1 << 7) | (1 << 6)) & X) >> 6)
-#define GET_TAG_PRIM_CONST(X) ((((1 << 5)) & X) >> 5)
-#define GET_TAG_NUM(X)        (X & 0x1F)
+#if defined(NOXTLS_NO_ASN1_PRINTF)
+#define NOXTLS_ASN1_PRINTF(...) ((void)0)
+#else
+#define NOXTLS_ASN1_PRINTF(...) printf(__VA_ARGS__)
+#endif
 
-#define GET_LENGTH(X)         (X & 0x7F)
+#define GET_TAG_CLASS(X)      (((((1u << 7) | (1u << 6)) & (X))) >> 6)
+#define GET_TAG_PRIM_CONST(X) ((((1u << 5) & (X))) >> 5)
+#define GET_TAG_NUM(X)        ((X) & 0x1Fu)
+
+#define GET_LENGTH(X)         ((X) & 0x7Fu)
 
 #define ASN1_CLASS_TYPE_UNIVERSAL     0
 #define ASN1_CLASS_TYPE_APPLICATION   1
@@ -50,7 +56,7 @@
 uint32_t noxtls_parse_tag(uint8_t ** data, uint8_t * end);
 static void print_tag_type(uint8_t type);
 static void parse_tag(uint8_t type, uint8_t ** data, uint32_t len);
-void asn1_find_oid(char * oid);
+void noxtls_asn1_find_oid(char * oid);
 
 /**
  * @brief Parse ASN.1 DER Data
@@ -79,10 +85,10 @@ uint32_t noxtls_parse_der(uint8_t * data, uint32_t len)
     {
         result = noxtls_parse_tag(&ptr, end);
 
-        //printf("left: %ld\n", end - ptr);
+        //NOXTLS_ASN1_PRINTF("left: %ld\n", end - ptr);
     }
 
-    return 0;
+    return result;
 }
 
 /**
@@ -109,9 +115,9 @@ uint32_t noxtls_parse_tag(uint8_t ** data, uint8_t * end)
     uint8_t * ptr = *data;
 
 
-    //printf("0x%02x\n", *ptr);
+    //NOXTLS_ASN1_PRINTF("0x%02x\n", *ptr);
 
-//    printf("0x%02x\n", GET_TAG_NUM(*ptr));
+//    NOXTLS_ASN1_PRINTF("0x%02x\n", GET_TAG_NUM(*ptr));
 
     uint8_t tag_num = GET_TAG_NUM(*ptr);
 
@@ -121,7 +127,7 @@ uint32_t noxtls_parse_tag(uint8_t ** data, uint8_t * end)
     if(ptr >= end) {
         return 1;
     }
-    //printf("0x%02x\n", *ptr);
+    //NOXTLS_ASN1_PRINTF("0x%02x\n", *ptr);
 
     uint32_t data_length = 0;
     if(*ptr & 0x80)
@@ -129,15 +135,15 @@ uint32_t noxtls_parse_tag(uint8_t ** data, uint8_t * end)
         /* Definite */
         uint8_t length = GET_LENGTH(*ptr++);
         int i;
-        if(length == 0 || length > 4 || ptr + length > end) {
+        if(length == 0 || length > 4 || (size_t)(end - ptr) < (size_t)length) {
             return 1;
         }
-        //printf("\tDefinite Length: %d\n", length);
+        //NOXTLS_ASN1_PRINTF("\tDefinite Length: %d\n", length);
         for(i = length - 1; i >= 0; i--)
         {
             uint8_t val = (*ptr++);
-            printf("\tval[%d]: %x\n", i, val);
-            data_length |= val << (i * 8);
+            NOXTLS_ASN1_PRINTF("\tval[%d]: %x\n", i, val);
+            data_length |= ((uint32_t)val) << (i * 8);
         }
 
     }
@@ -147,29 +153,31 @@ uint32_t noxtls_parse_tag(uint8_t ** data, uint8_t * end)
 
         data_length = GET_LENGTH(*ptr++);
 
-        //printf("\tshort form: %d 0x%x\n", data_length, data_length);
+        //NOXTLS_ASN1_PRINTF("\tshort form: %d 0x%x\n", data_length, data_length);
     }
 
-    //printf("%p == %p ", ptr + data_length, end);
-    if(ptr + data_length > end) {
+    //NOXTLS_ASN1_PRINTF("%p == %p ", ptr + data_length, end);
+    if((uint32_t)(end - ptr) < data_length) {
         /* Length error */
         return 1;
     }
-    //printf("ptr[0]: %x\n", ptr[0]);
+    //NOXTLS_ASN1_PRINTF("ptr[0]: %x\n", ptr[0]);
     parse_tag(tag_num, &ptr, data_length);
 
 
     if(end - ptr > 0)
     {
-        noxtls_parse_tag(&ptr, end);
+        if(noxtls_parse_tag(&ptr, end) != 0) {
+            return 1;
+        }
     }
 
 
 
-    //printf("\tLength: %d\n", data_length);
+    //NOXTLS_ASN1_PRINTF("\tLength: %d\n", data_length);
     //ptr += data_length;
 
-    //printf("Now on: %x\n", *ptr);
+    //NOXTLS_ASN1_PRINTF("Now on: %x\n", *ptr);
     *data = ptr;
     return 0;
 }
@@ -190,7 +198,7 @@ uint32_t noxtls_parse_tag(uint8_t ** data, uint8_t * end)
  *
  * @return @see noxtls_return_t
  */
-void asn1_decode_integer(uint8_t ** data, uint32_t len)
+void noxtls_asn1_decode_integer(uint8_t ** data, uint32_t len)
 {
     if(len <= 4)
     {
@@ -198,10 +206,10 @@ void asn1_decode_integer(uint8_t ** data, uint32_t len)
         uint32_t val = 0;
         uint32_t i;
         for(i = 0; i < len; i++) {
-            val |= ptr[i] << ((len - 1 - i) * 8);
+            val |= ((uint32_t)ptr[i]) << ((len - 1 - i) * 8);
         }
 
-        printf("\tInteger: 0x%lx (%lu)\n", (unsigned long)val, (unsigned long)val);
+        NOXTLS_ASN1_PRINTF("\tInteger: 0x%lx (%lu)\n", (unsigned long)val, (unsigned long)val);
     }
 }
 
@@ -213,18 +221,18 @@ void asn1_decode_integer(uint8_t ** data, uint32_t len)
  *
  * @return @see noxtls_return_t
  */
-void asn1_decode_bitstring(uint8_t ** data, uint32_t len)
+void noxtls_asn1_decode_bitstring(uint8_t ** data, uint32_t len)
 {
     (void)data;
     //uint32_t i;
     //int j;
 
-    printf("bit len: %u\n", (unsigned int)len);
+    NOXTLS_ASN1_PRINTF("bit len: %u\n", (unsigned int)len);
     //for(i = 0; i < len; i++)
     {
       //  for(j = 7; j >= 0; j++)
         {
-            //printf("%d", ((*data[i] & (1 << j)) >> j));
+            //NOXTLS_ASN1_PRINTF("%d", ((*data[i] & (1 << j)) >> j));
         }
     }
 }
@@ -242,7 +250,7 @@ void asn1_decode_bitstring(uint8_t ** data, uint32_t len)
  *
  * @return @see noxtls_return_t
  */
-void asn1_decode_obj_ident(uint8_t ** data, uint32_t len)
+void noxtls_asn1_decode_obj_ident(uint8_t ** data, uint32_t len)
 {
     char oid_str[64] = {0};
 
@@ -318,10 +326,10 @@ void asn1_decode_obj_ident(uint8_t ** data, uint32_t len)
         snprintf(&oid_str[off], sizeof(oid_str) - off, ".%lu", (unsigned long)obj_ident_vals[i]);
     }
 
-    printf("OID_STR: %s\n", oid_str);
-    asn1_find_oid(oid_str);
+    NOXTLS_ASN1_PRINTF("OID_STR: %s\n", oid_str);
+    noxtls_asn1_find_oid(oid_str);
 
-    printf("\n");
+    NOXTLS_ASN1_PRINTF("\n");
 }
 
 /**
@@ -331,7 +339,7 @@ void asn1_decode_obj_ident(uint8_t ** data, uint32_t len)
  *
  * @return @see noxtls_return_t
  */
-void asn1_find_oid(char * oid)
+void noxtls_asn1_find_oid(char * oid)
 {
     oid_item_t * oid_ptr = (oid_item_t *)&base_oids[0];
     const char * pch;
@@ -347,34 +355,34 @@ void asn1_find_oid(char * oid)
     while(pch != NULL)
     {
         id = (uint32_t) strtoul(pch, NULL, 10);
-        //printf("ID %d\n", id);
+        //NOXTLS_ASN1_PRINTF("ID %d\n", id);
 
         while(oid_ptr != NULL)
         {
-            //printf("Cur ID %d %s == %d \n", oid_ptr->id,oid_ptr->name, id);
+            //NOXTLS_ASN1_PRINTF("Cur ID %d %s == %d \n", oid_ptr->id,oid_ptr->name, id);
             if(oid_ptr->id == 0 &&
                     oid_ptr->name == NULL &&
                     oid_ptr->items == NULL)
             {
-                //printf("STOP\n");
+                //NOXTLS_ASN1_PRINTF("STOP\n");
                 break;
             }
             else if(oid_ptr->id == id)
             {
-                //printf("ID Match \n");
+                //NOXTLS_ASN1_PRINTF("ID Match \n");
                 if(oid_ptr->name != NULL) {
-                    printf("%s ", oid_ptr->name);
+                    NOXTLS_ASN1_PRINTF("%s ", oid_ptr->name);
                 }
 
                 if(oid_ptr->items != NULL) {
-                    //printf("Setting to items\n");
+                    //NOXTLS_ASN1_PRINTF("Setting to items\n");
                     oid_ptr = (oid_item_t *)oid_ptr->items;
                 }
                 break;
             }
             else
             {
-                //printf("Increment oid\n");
+                //NOXTLS_ASN1_PRINTF("Increment oid\n");
                 oid_ptr++;
             }
         }
@@ -410,20 +418,20 @@ void asn1_find_oid(char * oid)
  *
  * @return @see noxtls_return_t
  */
-void asn1_decode_print_string(uint8_t ** data, uint32_t len)
+void noxtls_asn1_decode_print_string(uint8_t ** data, uint32_t len)
 {
     uint32_t i = 0;
 
     const uint8_t * ptr = *data;
 
 
-    printf("\tString: ");
+    NOXTLS_ASN1_PRINTF("\tString: ");
     for(i = 0; i < len; i++)
     {
-        printf("%c", ptr[i]);
+        NOXTLS_ASN1_PRINTF("%c", ptr[i]);
     }
 
-    printf("\n");
+    NOXTLS_ASN1_PRINTF("\n");
 }
 
 
@@ -436,67 +444,46 @@ static void parse_tag(uint8_t type, uint8_t ** data, uint32_t len)
         *data += len;
         break;
     case ASN1_TAG_BOOLEAN:
-        printf("Bool Val: %d", *data[0]);
+        NOXTLS_ASN1_PRINTF("Bool Val: %d", *data[0]);
         *data += len;
         break;
     case ASN1_TAG_INTEGER:
-        asn1_decode_integer(data, len);
+        noxtls_asn1_decode_integer(data, len);
         *data += len;
         break;
     case ASN1_TAG_BITSTRING:
-        asn1_decode_bitstring(data, len);
+        noxtls_asn1_decode_bitstring(data, len);
         *data += len;
         break;
     case ASN1_TAG_OCTET_STR:
-        *data += len;
-        break;
     case ASN1_TAG_NULL:
         *data += len;
         break;
     case ASN1_TAG_OBJ_IDENT:
-        asn1_decode_obj_ident(data, len);
+        noxtls_asn1_decode_obj_ident(data, len);
         *data += len;
         break;
     case ASN1_TAG_OBJECT:
-        *data += len;
-        break;
     case ASN1_TAG_EXTERNAL:
-        *data += len;
-        break;
     case ASN1_TAG_REAL_FLOAT:
-        *data += len;
-        break;
     case ASN1_TAG_ENUMERATED:
-        *data += len;
-        break;
     case ASN1_TAG_EMBEDDED:
-        *data += len;
-        break;
     case ASN1_TAG_UTF8STRING:
-        *data += len;
-        break;
     case ASN1_TAG_RELATIVE_OID:
-        *data += len;
-        break;
     case ASN1_TAG_TIME:
         *data += len;
         break;
     case ASN1_TAG_IA5STRING:
-        asn1_decode_print_string(data, len);
-        *data += len;
-        break;
     case ASN1_TAG_PRINTABLESTRING:
-        asn1_decode_print_string(data, len);
+        noxtls_asn1_decode_print_string(data, len);
         *data += len;
         break;
     case ASN1_TAG_BMPSTRING:
         *data += len;
         break;
     case ASN1_TAG_SEQUENCE:
-        //*data += len;
-        break;
     case ASN1_TAG_SET:
-
+        /* Constructed types: no pointer advance in this debug helper */
         break;
     default:
         *data += len;
@@ -507,71 +494,71 @@ static void parse_tag(uint8_t type, uint8_t ** data, uint32_t len)
 
 static void print_tag_type(uint8_t type)
 {
-    //printf("%x\n", type);
+    //NOXTLS_ASN1_PRINTF("%x\n", type);
     switch(type)
     {
     case ASN1_TAG_EOC:
-        printf("Type: ASN1_TAG_EOC\n");
+        NOXTLS_ASN1_PRINTF("Type: ASN1_TAG_EOC\n");
         break;
     case ASN1_TAG_BOOLEAN:
-        printf("Type: ASN1_TAG_BOOLEAN\n");
+        NOXTLS_ASN1_PRINTF("Type: ASN1_TAG_BOOLEAN\n");
         break;
     case ASN1_TAG_INTEGER:
-        printf("Type: ASN1_TAG_INTEGER\n");
+        NOXTLS_ASN1_PRINTF("Type: ASN1_TAG_INTEGER\n");
         break;
     case ASN1_TAG_BITSTRING:
-        printf("Type: ASN1_TAG_BITSTRING\n");
+        NOXTLS_ASN1_PRINTF("Type: ASN1_TAG_BITSTRING\n");
         break;
     case ASN1_TAG_OCTET_STR:
-        printf("Type: ASN1_TAG_OCTET_STR\n");
+        NOXTLS_ASN1_PRINTF("Type: ASN1_TAG_OCTET_STR\n");
         break;
     case ASN1_TAG_NULL:
-        printf("Type: ASN1_TAG_NULL\n");
+        NOXTLS_ASN1_PRINTF("Type: ASN1_TAG_NULL\n");
         break;
     case ASN1_TAG_OBJ_IDENT:
-        printf("Type: ASN1_TAG_OBJ_IDENT\n");
+        NOXTLS_ASN1_PRINTF("Type: ASN1_TAG_OBJ_IDENT\n");
         break;
     case ASN1_TAG_OBJECT:
-        printf("Type: ASN1_TAG_OBJECT\n");
+        NOXTLS_ASN1_PRINTF("Type: ASN1_TAG_OBJECT\n");
         break;
     case ASN1_TAG_EXTERNAL:
-        printf("Type: ASN1_TAG_EXTERNAL\n");
+        NOXTLS_ASN1_PRINTF("Type: ASN1_TAG_EXTERNAL\n");
         break;
     case ASN1_TAG_REAL_FLOAT:
-        printf("Type: ASN1_TAG_REAL_FLOAT\n");
+        NOXTLS_ASN1_PRINTF("Type: ASN1_TAG_REAL_FLOAT\n");
         break;
     case ASN1_TAG_ENUMERATED:
-        printf("Type: ASN1_TAG_ENUMERATED\n");
+        NOXTLS_ASN1_PRINTF("Type: ASN1_TAG_ENUMERATED\n");
         break;
     case ASN1_TAG_EMBEDDED:
-        printf("Type: ASN1_TAG_EMBEDDED\n");
+        NOXTLS_ASN1_PRINTF("Type: ASN1_TAG_EMBEDDED\n");
         break;
     case ASN1_TAG_UTF8STRING:
-        printf("Type: ASN1_TAG_UTF8STRING\n");
+        NOXTLS_ASN1_PRINTF("Type: ASN1_TAG_UTF8STRING\n");
         break;
     case ASN1_TAG_RELATIVE_OID:
-        printf("Type: ASN1_TAG_RELATIVE_OID\n");
+        NOXTLS_ASN1_PRINTF("Type: ASN1_TAG_RELATIVE_OID\n");
         break;
     case ASN1_TAG_TIME:
-        printf("Type: ASN1_TAG_TIME\n");
+        NOXTLS_ASN1_PRINTF("Type: ASN1_TAG_TIME\n");
         break;
     case ASN1_TAG_IA5STRING:
-        printf("Type: ASN1_TAG_IA5STRING\n");
+        NOXTLS_ASN1_PRINTF("Type: ASN1_TAG_IA5STRING\n");
         break;
     case ASN1_TAG_PRINTABLESTRING:
-        printf("Type: ASN1_TAG_PRINTABLESTRING\n");
+        NOXTLS_ASN1_PRINTF("Type: ASN1_TAG_PRINTABLESTRING\n");
         break;
     case ASN1_TAG_BMPSTRING:
-        printf("Type: ASN1_TAG_BMPSTRING\n");
+        NOXTLS_ASN1_PRINTF("Type: ASN1_TAG_BMPSTRING\n");
         break;
     case ASN1_TAG_SEQUENCE:
-        printf("Type: ASN1_TAG_SEQUENCE\n");
+        NOXTLS_ASN1_PRINTF("Type: ASN1_TAG_SEQUENCE\n");
         break;
     case ASN1_TAG_SET:
-        printf("Type: ASN1_TAG_SET\n");
+        NOXTLS_ASN1_PRINTF("Type: ASN1_TAG_SET\n");
         break;
     default:
-        printf("Type: Unknown (0x%02x)\n", type);
+        NOXTLS_ASN1_PRINTF("Type: Unknown (0x%02x)\n", type);
 
     }
 
@@ -581,25 +568,25 @@ static void print_tag_type(uint8_t type)
 
 uint32_t noxtls_asn1_put_length(uint8_t *out, uint32_t len)
 {
-    if (out == NULL) {
+    if(out == NULL) {
         return 0;
     }
-    if (len < 128) {
+    if(len < 128) {
         out[0] = (uint8_t)len;
         return 1;
     }
-    if (len <= 0xFF) {
+    if(len <= 0xFF) {
         out[0] = 0x81;
         out[1] = (uint8_t)len;
         return 2;
     }
-    if (len <= 0xFFFF) {
+    if(len <= 0xFFFF) {
         out[0] = 0x82;
         out[1] = (uint8_t)(len >> 8);
         out[2] = (uint8_t)len;
         return 3;
     }
-    if (len <= 0xFFFFFF) {
+    if(len <= 0xFFFFFF) {
         out[0] = 0x83;
         out[1] = (uint8_t)(len >> 16);
         out[2] = (uint8_t)(len >> 8);
@@ -611,13 +598,13 @@ uint32_t noxtls_asn1_put_length(uint8_t *out, uint32_t len)
 
 uint32_t noxtls_asn1_put_integer(uint8_t *out, uint32_t out_max, const uint8_t *value, uint32_t value_len)
 {
-    if (out == NULL || value == NULL || value_len == 0) {
+    if(out == NULL || value == NULL || value_len == 0) {
         return 0;
     }
 
     /* Skip leading zero bytes (keep at least one byte if value is zero) */
     const uint8_t *start = value;
-    while (value_len > 1 && *start == 0) {
+    while(value_len > 1 && *start == 0) {
         start++;
         value_len--;
     }
@@ -628,7 +615,7 @@ uint32_t noxtls_asn1_put_integer(uint8_t *out, uint32_t out_max, const uint8_t *
 
     uint8_t len_buf[5];
     uint32_t lb = noxtls_asn1_put_length(len_buf, payload_len);
-    if (lb == 0 || 1 + lb + payload_len > out_max) {
+    if(lb == 0 || 1 + lb + payload_len > out_max) {
         return 0;
     }
 
@@ -636,7 +623,7 @@ uint32_t noxtls_asn1_put_integer(uint8_t *out, uint32_t out_max, const uint8_t *
     memcpy(out + 1, len_buf, lb);
     {
         uint32_t off = 1 + lb;
-        if (need_zero) {
+        if(need_zero) {
             out[off++] = 0x00;
         }
         memcpy(out + off, start, value_len);
@@ -646,20 +633,20 @@ uint32_t noxtls_asn1_put_integer(uint8_t *out, uint32_t out_max, const uint8_t *
 
 uint32_t noxtls_asn1_put_sequence(uint8_t *out, uint32_t out_max, const uint8_t *contents, uint32_t contents_len)
 {
-    if (out == NULL || (contents == NULL && contents_len != 0)) {
+    if(out == NULL || (contents == NULL && contents_len != 0)) {
         return 0;
     }
     uint8_t len_buf[5];
     uint32_t len_bytes = noxtls_asn1_put_length(len_buf, contents_len);
-    if (len_bytes == 0) {
+    if(len_bytes == 0) {
         return 0;
     }
-    if (1 + len_bytes + contents_len > out_max) {
+    if(1 + len_bytes + contents_len > out_max) {
         return 0;
     }
     out[0] = ASN1_DER_TAG_SEQUENCE;
     memcpy(out + 1, len_buf, len_bytes);
-    if (contents != NULL && contents_len > 0) {
+    if(contents != NULL && contents_len > 0) {
         memcpy(out + 1 + len_bytes, contents, contents_len);
     }
     return 1 + len_bytes + contents_len;
@@ -667,12 +654,12 @@ uint32_t noxtls_asn1_put_sequence(uint8_t *out, uint32_t out_max, const uint8_t 
 
 uint32_t noxtls_asn1_put_oid_raw(uint8_t *out, uint32_t out_max, const uint8_t *oid, uint32_t oid_len)
 {
-    if (out == NULL || oid == NULL || oid_len == 0) {
+    if(out == NULL || oid == NULL || oid_len == 0) {
         return 0;
     }
     uint8_t len_buf[5];
     uint32_t len_bytes = noxtls_asn1_put_length(len_buf, oid_len);
-    if (len_bytes == 0 || 1 + len_bytes + oid_len > out_max) {
+    if(len_bytes == 0 || 1 + len_bytes + oid_len > out_max) {
         return 0;
     }
     out[0] = ASN1_TAG_OBJ_IDENT;
@@ -683,20 +670,20 @@ uint32_t noxtls_asn1_put_oid_raw(uint8_t *out, uint32_t out_max, const uint8_t *
 
 uint32_t noxtls_asn1_put_bit_string(uint8_t *out, uint32_t out_max, const uint8_t *data, uint32_t data_len)
 {
-    if (out == NULL || (data == NULL && data_len != 0)) {
+    if(out == NULL || (data == NULL && data_len != 0)) {
         return 0;
     }
     /* BIT STRING: 1 byte unused bits (0) + data */
     uint32_t payload_len = 1 + data_len;
     uint8_t len_buf[5];
     uint32_t len_bytes = noxtls_asn1_put_length(len_buf, payload_len);
-    if (len_bytes == 0 || 1 + len_bytes + payload_len > out_max) {
+    if(len_bytes == 0 || 1 + len_bytes + payload_len > out_max) {
         return 0;
     }
     out[0] = ASN1_TAG_BITSTRING;
     memcpy(out + 1, len_buf, len_bytes);
     out[1 + len_bytes] = 0x00; /* unused bits */
-    if (data != NULL && data_len > 0) {
+    if(data != NULL && data_len > 0) {
         memcpy(out + 1 + len_bytes + 1, data, data_len);
     }
     return 1 + len_bytes + payload_len;
@@ -704,20 +691,20 @@ uint32_t noxtls_asn1_put_bit_string(uint8_t *out, uint32_t out_max, const uint8_
 
 uint32_t noxtls_asn1_put_utc_time(uint8_t *out, uint32_t out_max, const char *time_str)
 {
-    if (out == NULL || time_str == NULL) {
+    if(out == NULL || time_str == NULL) {
         return 0;
     }
     /* UTCTime is typically 13 bytes: YYMMDDHHMMSSZ */
     uint32_t slen = 0;
-    while (slen < 32 && time_str[slen] != '\0') {
+    while(slen < 32 && time_str[slen] != '\0') {
         slen++;
     }
-    if (slen == 0 || slen > 32) {
+    if(slen == 0 || slen > 32) {
         return 0;
     }
     uint8_t len_buf[5];
     uint32_t len_bytes = noxtls_asn1_put_length(len_buf, slen);
-    if (len_bytes == 0 || 1 + len_bytes + slen > out_max) {
+    if(len_bytes == 0 || 1 + len_bytes + slen > out_max) {
         return 0;
     }
     out[0] = 0x17; /* UTCTime */
@@ -726,22 +713,24 @@ uint32_t noxtls_asn1_put_utc_time(uint8_t *out, uint32_t out_max, const char *ti
     return 1 + len_bytes + slen;
 }
 
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 uint32_t noxtls_asn1_put_explicit(uint8_t *out, uint32_t out_max, uint8_t tag_no, const uint8_t *contents, uint32_t contents_len)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    if (out == NULL || (contents == NULL && contents_len != 0)) {
+    if(out == NULL || (contents == NULL && contents_len != 0)) {
         return 0;
     }
-    if (tag_no > 31) {
+    if(tag_no > 31) {
         return 0;
     }
     uint8_t len_buf[5];
     uint32_t len_bytes = noxtls_asn1_put_length(len_buf, contents_len);
-    if (len_bytes == 0 || 1 + len_bytes + contents_len > out_max) {
+    if(len_bytes == 0 || 1 + len_bytes + contents_len > out_max) {
         return 0;
     }
     out[0] = (uint8_t)(0x80 | 0x20 | tag_no); /* context-specific, constructed */
     memcpy(out + 1, len_buf, len_bytes);
-    if (contents != NULL && contents_len > 0) {
+    if(contents != NULL && contents_len > 0) {
         memcpy(out + 1 + len_bytes, contents, contents_len);
     }
     return 1 + len_bytes + contents_len;
@@ -749,17 +738,17 @@ uint32_t noxtls_asn1_put_explicit(uint8_t *out, uint32_t out_max, uint8_t tag_no
 
 uint32_t noxtls_asn1_put_octet_string(uint8_t *out, uint32_t out_max, const uint8_t *data, uint32_t data_len)
 {
-    if (out == NULL || (data == NULL && data_len != 0)) {
+    if(out == NULL || (data == NULL && data_len != 0)) {
         return 0;
     }
     uint8_t len_buf[5];
     uint32_t len_bytes = noxtls_asn1_put_length(len_buf, data_len);
-    if (len_bytes == 0 || 1 + len_bytes + data_len > out_max) {
+    if(len_bytes == 0 || 1 + len_bytes + data_len > out_max) {
         return 0;
     }
     out[0] = ASN1_TAG_OCTET_STR;
     memcpy(out + 1, len_buf, len_bytes);
-    if (data != NULL && data_len > 0) {
+    if(data != NULL && data_len > 0) {
         memcpy(out + 1 + len_bytes, data, data_len);
     }
     return 1 + len_bytes + data_len;
@@ -767,17 +756,17 @@ uint32_t noxtls_asn1_put_octet_string(uint8_t *out, uint32_t out_max, const uint
 
 uint32_t noxtls_asn1_put_set(uint8_t *out, uint32_t out_max, const uint8_t *contents, uint32_t contents_len)
 {
-    if (out == NULL || (contents == NULL && contents_len != 0)) {
+    if(out == NULL || (contents == NULL && contents_len != 0)) {
         return 0;
     }
     uint8_t len_buf[5];
     uint32_t len_bytes = noxtls_asn1_put_length(len_buf, contents_len);
-    if (len_bytes == 0 || 1 + len_bytes + contents_len > out_max) {
+    if(len_bytes == 0 || 1 + len_bytes + contents_len > out_max) {
         return 0;
     }
     out[0] = 0x31; /* SET, constructed */
     memcpy(out + 1, len_buf, len_bytes);
-    if (contents != NULL && contents_len > 0) {
+    if(contents != NULL && contents_len > 0) {
         memcpy(out + 1 + len_bytes, contents, contents_len);
     }
     return 1 + len_bytes + contents_len;
@@ -785,16 +774,16 @@ uint32_t noxtls_asn1_put_set(uint8_t *out, uint32_t out_max, const uint8_t *cont
 
 uint32_t noxtls_asn1_put_printable_string(uint8_t *out, uint32_t out_max, const char *str)
 {
-    if (out == NULL || str == NULL) {
+    if(out == NULL || str == NULL) {
         return 0;
     }
     uint32_t slen = 0;
-    while (slen < 0xFFFF && str[slen] != '\0') {
+    while(slen < 0xFFFF && str[slen] != '\0') {
         slen++;
     }
     uint8_t len_buf[5];
     uint32_t len_bytes = noxtls_asn1_put_length(len_buf, slen);
-    if (len_bytes == 0 || 1 + len_bytes + slen > out_max) {
+    if(len_bytes == 0 || 1 + len_bytes + slen > out_max) {
         return 0;
     }
     out[0] = ASN1_TAG_PRINTABLESTRING;
@@ -805,16 +794,16 @@ uint32_t noxtls_asn1_put_printable_string(uint8_t *out, uint32_t out_max, const 
 
 uint32_t noxtls_asn1_put_ia5_string(uint8_t *out, uint32_t out_max, const char *str)
 {
-    if (out == NULL || str == NULL) {
+    if(out == NULL || str == NULL) {
         return 0;
     }
     uint32_t slen = 0;
-    while (slen < 0xFFFF && str[slen] != '\0') {
+    while(slen < 0xFFFF && str[slen] != '\0') {
         slen++;
     }
     uint8_t len_buf[5];
     uint32_t len_bytes = noxtls_asn1_put_length(len_buf, slen);
-    if (len_bytes == 0 || 1 + len_bytes + slen > out_max) {
+    if(len_bytes == 0 || 1 + len_bytes + slen > out_max) {
         return 0;
     }
     out[0] = ASN1_TAG_IA5STRING;

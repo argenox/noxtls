@@ -47,37 +47,37 @@
 /**
  * @brief ARIA Encrypt in CFB Mode
  */
-noxtls_return_t aria_encrypt_cfb(const uint8_t* key,
+noxtls_return_t noxtls_aria_encrypt_cfb(const uint8_t* key,
                      const uint8_t* data,
                      uint32_t data_len,
                      const uint8_t * iv,
                      uint8_t* output,
-                     aria_type_t type)
+                     noxtls_aria_type_t type)
 {
     uint32_t i;
     uint32_t cur_block = 0;
-    uint8_t feedback[ARIA_BLOCK_LENGTH];
-    uint8_t keystream[ARIA_BLOCK_LENGTH];
-    aria_key_t aria_key;
+    uint8_t feedback[NOXTLS_ARIA_BLOCK_LENGTH];
+    uint8_t keystream[NOXTLS_ARIA_BLOCK_LENGTH];
+    noxtls_aria_key_t aria_key;
     
     if(key == NULL || data == NULL || output == NULL || iv == NULL) {
-        return -1;
+        return NOXTLS_RETURN_INVALID_PARAM;
     }
     
-    if(aria_set_encrypt_key(key, type, &aria_key) != 0) {
-        return -1;
+    if(noxtls_aria_set_encrypt_key(key, type, &aria_key) != 0) {
+        return NOXTLS_RETURN_FAILED;
     }
     
     /* Initialize feedback register with IV */
-    memcpy(feedback, iv, ARIA_BLOCK_LENGTH);
+    memcpy(feedback, iv, NOXTLS_ARIA_BLOCK_LENGTH);
     
-    for (cur_block = 0; cur_block < data_len; cur_block += ARIA_BLOCK_LENGTH)
+    for(cur_block = 0; cur_block < data_len; cur_block += NOXTLS_ARIA_BLOCK_LENGTH)
     {
-        uint32_t block_len = (data_len - cur_block < ARIA_BLOCK_LENGTH) ?
-                             (data_len - cur_block) : ARIA_BLOCK_LENGTH;
+        uint32_t block_len = (data_len - cur_block < NOXTLS_ARIA_BLOCK_LENGTH) ?
+                             (data_len - cur_block) : NOXTLS_ARIA_BLOCK_LENGTH;
         
         /* Encrypt feedback to produce keystream */
-        aria_encrypt_block(&aria_key, feedback, keystream);
+        noxtls_aria_encrypt_block(&aria_key, feedback, keystream);
         
         /* XOR keystream with plaintext */
         for(i = 0; i < block_len; i++) {
@@ -85,12 +85,12 @@ noxtls_return_t aria_encrypt_cfb(const uint8_t* key,
         }
         
         /* Update feedback register */
-        if(block_len == ARIA_BLOCK_LENGTH) {
-            memcpy(feedback, output + cur_block, ARIA_BLOCK_LENGTH);
+        if(block_len == NOXTLS_ARIA_BLOCK_LENGTH) {
+            memcpy(feedback, output + cur_block, NOXTLS_ARIA_BLOCK_LENGTH);
         } else {
             /* Partial block: shift and append */
-            memmove(feedback, feedback + block_len, ARIA_BLOCK_LENGTH - block_len);
-            memcpy(feedback + ARIA_BLOCK_LENGTH - block_len, output + cur_block, block_len);
+            memmove(feedback, feedback + block_len, NOXTLS_ARIA_BLOCK_LENGTH - block_len);
+            memcpy(feedback + NOXTLS_ARIA_BLOCK_LENGTH - block_len, output + cur_block, block_len);
         }
     }
     
@@ -100,37 +100,37 @@ noxtls_return_t aria_encrypt_cfb(const uint8_t* key,
 /**
  * @brief ARIA Decrypt in CFB Mode
  */
-noxtls_return_t aria_decrypt_cfb(const uint8_t* key,
+noxtls_return_t noxtls_aria_decrypt_cfb(const uint8_t* key,
                      const uint8_t* data,
                      uint32_t data_len,
                      const uint8_t * iv,
                      uint8_t* output,
-                     aria_type_t type)
+                     noxtls_aria_type_t type)
 {
     uint32_t i;
     uint32_t cur_block = 0;
-    uint8_t feedback[ARIA_BLOCK_LENGTH];
-    uint8_t keystream[ARIA_BLOCK_LENGTH];
-    aria_key_t aria_key;
+    uint8_t feedback[NOXTLS_ARIA_BLOCK_LENGTH];
+    uint8_t keystream[NOXTLS_ARIA_BLOCK_LENGTH];
+    noxtls_aria_key_t aria_key;
     
     if(key == NULL || data == NULL || output == NULL || iv == NULL) {
-        return -1;
+        return NOXTLS_RETURN_INVALID_PARAM;
     }
     
-    if(aria_set_encrypt_key(key, type, &aria_key) != 0) {
-        return -1;
+    if(noxtls_aria_set_encrypt_key(key, type, &aria_key) != 0) {
+        return NOXTLS_RETURN_FAILED;
     }
     
     /* Initialize feedback register with IV */
-    memcpy(feedback, iv, ARIA_BLOCK_LENGTH);
+    memcpy(feedback, iv, NOXTLS_ARIA_BLOCK_LENGTH);
     
-    for (cur_block = 0; cur_block < data_len; cur_block += ARIA_BLOCK_LENGTH)
+    for(cur_block = 0; cur_block < data_len; cur_block += NOXTLS_ARIA_BLOCK_LENGTH)
     {
-        uint32_t block_len = (data_len - cur_block < ARIA_BLOCK_LENGTH) ?
-                             (data_len - cur_block) : ARIA_BLOCK_LENGTH;
+        uint32_t block_len = (data_len - cur_block < NOXTLS_ARIA_BLOCK_LENGTH) ?
+                             (data_len - cur_block) : NOXTLS_ARIA_BLOCK_LENGTH;
         
         /* Encrypt feedback to produce keystream */
-        aria_encrypt_block(&aria_key, feedback, keystream);
+        noxtls_aria_encrypt_block(&aria_key, feedback, keystream);
         
         /* XOR keystream with ciphertext */
         for(i = 0; i < block_len; i++) {
@@ -138,12 +138,12 @@ noxtls_return_t aria_decrypt_cfb(const uint8_t* key,
         }
         
         /* Update feedback register with ciphertext */
-        if(block_len == ARIA_BLOCK_LENGTH) {
-            memcpy(feedback, data + cur_block, ARIA_BLOCK_LENGTH);
+        if(block_len == NOXTLS_ARIA_BLOCK_LENGTH) {
+            memcpy(feedback, data + cur_block, NOXTLS_ARIA_BLOCK_LENGTH);
         } else {
             /* Partial block: shift and append */
-            memmove(feedback, feedback + block_len, ARIA_BLOCK_LENGTH - block_len);
-            memcpy(feedback + ARIA_BLOCK_LENGTH - block_len, data + cur_block, block_len);
+            memmove(feedback, feedback + block_len, NOXTLS_ARIA_BLOCK_LENGTH - block_len);
+            memcpy(feedback + NOXTLS_ARIA_BLOCK_LENGTH - block_len, data + cur_block, block_len);
         }
     }
     

@@ -27,7 +27,7 @@ DTLS 1.3 client (OpenSSL 3.x):
 Runtime cipher preference (TLS/DTLS 1.3)
 - `dtls_psk_demo --chacha [1.2|1.3]` — prefer ChaCha20-Poly1305.
 - `dtls_psk_demo --aes [1.2|1.3]` — prefer AES-GCM (default).
-When using the full handshake API (`tls13_context_t`, `tls13_connect` / `tls13_accept`), call `tls13_set_prefer_chacha20(ctx, 1)` before the handshake to prefer ChaCha, or `tls13_set_prefer_chacha20(ctx, 0)` for AES-GCM.
+When using the full handshake API (`tls13_context_t`, `noxtls_tls13_connect` / `noxtls_tls13_accept`), call `noxtls_tls13_set_prefer_chacha20(ctx, 1)` before the handshake to prefer ChaCha, or `noxtls_tls13_set_prefer_chacha20(ctx, 0)` for AES-GCM.
 
 DTLS Configuration APIs
 The DTLS context exposes tuning functions (timeouts, MTU, ACK ranges,

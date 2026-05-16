@@ -38,11 +38,9 @@ extern "C"
 #include <stdlib.h>
 #ifdef _WIN32
 #define strncasecmp _strnicmp
-#include "noxtls-lib/common/getopt_win.h"
-#else
-#include <unistd.h>
 #endif
 
+#include "noxtls-lib/common/getopt_compat.h"
 /* Includes */
 #include "noxtls-lib/common/noxtls_memory.h"
 #include "noxtls-lib/common/noxtls_memory_compat.h"
@@ -110,7 +108,7 @@ int aes_handler(int argc, char ** argv)
         argc_skip++;
     }
 
-    while ((c = getopt (argc, argv, "dh:")) != -1)
+    while ((c = noxtls_getopt (argc, argv, "dh:")) != -1)
     {
         switch (c)
         {
@@ -226,7 +224,7 @@ int aes_128_handler(uint8_t * data, uint32_t len)
     if(rc != NOXTLS_RETURN_SUCCESS)
         return -1;
 
-    print_hash(hash, HASH_MD5_OUT_LEN);
+    noxtls_print_hash(hash, HASH_MD5_OUT_LEN);
     return 0;
 }
 
@@ -250,7 +248,7 @@ int aes_192_handler(uint8_t * data, uint32_t len)
     if(rc != NOXTLS_RETURN_SUCCESS)
         return -1;
 
-    print_hash(hash, HASH_MD5_OUT_LEN);
+    noxtls_print_hash(hash, HASH_MD5_OUT_LEN);
     return 0;
 }
 
@@ -274,7 +272,7 @@ int aes_256_handler(uint8_t * data, uint32_t len)
     if(rc != NOXTLS_RETURN_SUCCESS)
         return -1;
 
-    print_hash(hash, HASH_MD5_OUT_LEN);
+    noxtls_print_hash(hash, HASH_MD5_OUT_LEN);
     return 0;
 }
 

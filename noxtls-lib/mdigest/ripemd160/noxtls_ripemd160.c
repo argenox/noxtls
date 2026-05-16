@@ -86,23 +86,37 @@ static const uint8_t ripemd160_xr[80] = {
  * @brief RIPEMD-160 round function (process one 64-byte block).
  * @internal
  * @param ctx RIPEMD-160 context (noxtls_sha_ctx_t); state is updated in place.
- * @param block Pointer to 64-byte (RIPEMD160_BLOCK_SIZE_BYTES) message block.
+ * @param block Pointer to 64-byte (RIPEMD160_BLOCK_SIZE_BYTES) noxtls_message block.
  * @return NOXTLS_RETURN_SUCCESS, or NOXTLS_RETURN_NULL if ctx or block is NULL.
  */
 static noxtls_return_t noxtls_ripemd160_round(noxtls_sha_ctx_t * ctx, const uint8_t * block)
 {
-    uint32_t al, bl, cl, dl, el, ar, br, cr, dr, er;
-    uint32_t tl, tr;
-    uint32_t w[16];
-    uint32_t h[5];
-    int j;
+    uint32_t al;
+    uint32_t bl;
+    uint32_t cl;
+    uint32_t dl;
+    uint32_t el;
+    uint32_t ar;
+    uint32_t br;
+    uint32_t cr;
+    uint32_t dr;
+    uint32_t er;
+    uint32_t tl;
+    uint32_t tr;
+    uint32_t w[RIPEMD160_WORDS_PER_BLOCK];
+    uint32_t h[RIPEMD160_STATE_WORDS];
+    uint32_t j;
 
-    if (ctx == NULL || block == NULL)
+    if(ctx == NULL || block == NULL)
         return NOXTLS_RETURN_NULL;
 
-    for (j = 0; j < 16; j++)
-        w[j] = (uint32_t)block[j*4] | ((uint32_t)block[j*4+1] << 8) |
-               ((uint32_t)block[j*4+2] << 16) | ((uint32_t)block[j*4+3] << 24);
+    for(j = 0; j < RIPEMD160_WORDS_PER_BLOCK; j++) {
+        size_t off = (size_t)j * RIPEMD160_WORD_BYTES;
+        w[j] = (uint32_t)block[off] |
+               ((uint32_t)block[off + 1u] << 8) |
+               ((uint32_t)block[off + 2u] << 16) |
+               ((uint32_t)block[off + 3u] << 24);
+    }
 
     al = h[0] = ctx->h[0];
     bl = h[1] = ctx->h[1];
@@ -111,11 +125,13 @@ static noxtls_return_t noxtls_ripemd160_round(noxtls_sha_ctx_t * ctx, const uint
     el = h[4] = ctx->h[4];
     ar = al; br = bl; cr = cl; dr = dl; er = el;
 
-    for (j = 0; j < 80; j++) {
-        uint32_t fl, fr;
-        uint32_t kl = ripemd160_kl[j >> 4], kr = ripemd160_kr[j >> 4];
+    for(j = 0; j < 80; j++) {
+        uint32_t fl;
+        uint32_t fr;
+        uint32_t kl = ripemd160_kl[j >> 4];
+        uint32_t kr = ripemd160_kr[j >> 4];
 
-        switch (j >> 4) {
+        switch(j >> 4) {
             case 0: fl = F0(bl, cl, dl); fr = F4(br, cr, dr); break;
             case 1: fl = F1(bl, cl, dl); fr = F3(br, cr, dr); break;
             case 2: fl = F2(bl, cl, dl); fr = F2(br, cr, dr); break;
@@ -147,15 +163,15 @@ static noxtls_return_t noxtls_ripemd160_round(noxtls_sha_ctx_t * ctx, const uint
  */
 noxtls_return_t noxtls_ripemd160_init(noxtls_sha_ctx_t * ctx)
 {
-    if (ctx == NULL)
+    if(ctx == NULL)
         return NOXTLS_RETURN_NULL;
 
     ctx->algo = NOXTLS_HASH_RIPEMD160;
-    ctx->h[0] = 0x67452301u;
-    ctx->h[1] = 0xEFCDAB89u;
-    ctx->h[2] = 0x98BADCFEu;
-    ctx->h[3] = 0x10325476u;
-    ctx->h[4] = 0xC3D2E1F0u;
+    ctx->h[0] = RIPEMD160_IV0;
+    ctx->h[1] = RIPEMD160_IV1;
+    ctx->h[2] = RIPEMD160_IV2;
+    ctx->h[3] = RIPEMD160_IV3;
+    ctx->h[4] = RIPEMD160_IV4;
     memset(ctx->data, 0, RIPEMD160_BLOCK_SIZE_BYTES);
     ctx->data_len = 0;
     ctx->length = 0;
@@ -173,17 +189,17 @@ noxtls_return_t noxtls_ripemd160_update(noxtls_sha_ctx_t * ctx, uint8_t * input,
 {
     uint32_t fill;
 
-    if (ctx == NULL)
+    if(ctx == NULL)
         return NOXTLS_RETURN_NULL;
-    if (input == NULL && len != 0)
+    if(input == NULL && len != 0)
         return NOXTLS_RETURN_NULL;
 
-    if (len == 0)
+    if(len == 0)
         return NOXTLS_RETURN_SUCCESS;
 
     fill = RIPEMD160_BLOCK_SIZE_BYTES - ctx->data_len;
 
-    if (ctx->data_len > 0 && len >= fill) {
+    if(ctx->data_len > 0 && len >= fill) {
         memcpy(ctx->data + ctx->data_len, input, fill);
         noxtls_ripemd160_round(ctx, ctx->data);
         ctx->length += RIPEMD160_BLOCK_SIZE_BYTES;
@@ -192,14 +208,14 @@ noxtls_return_t noxtls_ripemd160_update(noxtls_sha_ctx_t * ctx, uint8_t * input,
         len -= fill;
     }
 
-    while (len >= RIPEMD160_BLOCK_SIZE_BYTES) {
+    while(len >= RIPEMD160_BLOCK_SIZE_BYTES) {
         noxtls_ripemd160_round(ctx, input);
         ctx->length += RIPEMD160_BLOCK_SIZE_BYTES;
         input += RIPEMD160_BLOCK_SIZE_BYTES;
         len -= RIPEMD160_BLOCK_SIZE_BYTES;
     }
 
-    if (len > 0) {
+    if(len > 0) {
         memcpy(ctx->data + ctx->data_len, input, len);
         ctx->data_len += (uint8_t)len;
     }
@@ -215,10 +231,11 @@ noxtls_return_t noxtls_ripemd160_update(noxtls_sha_ctx_t * ctx, uint8_t * input,
  */
 noxtls_return_t noxtls_ripemd160_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
 {
-    uint32_t total_bits_lo, total_bits_hi;
+    uint32_t total_bits_lo;
+    uint32_t total_bits_hi;
     uint32_t i;
 
-    if (ctx == NULL || hash == NULL)
+    if(ctx == NULL || hash == NULL)
         return NOXTLS_RETURN_NULL;
 
     total_bits_lo = (ctx->length + ctx->data_len) << 3;
@@ -226,7 +243,7 @@ noxtls_return_t noxtls_ripemd160_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
 
     ctx->data[ctx->data_len++] = 0x80u;
 
-    if (ctx->data_len > RIPEMD160_BLOCK_SIZE_BYTES - 8) {
+    if(ctx->data_len > RIPEMD160_BLOCK_SIZE_BYTES - 8) {
         memset(ctx->data + ctx->data_len, 0, RIPEMD160_BLOCK_SIZE_BYTES - ctx->data_len);
         noxtls_ripemd160_round(ctx, ctx->data);
         ctx->data_len = 0;
@@ -243,7 +260,7 @@ noxtls_return_t noxtls_ripemd160_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
     ctx->data[RIPEMD160_BLOCK_SIZE_BYTES - 1] = (uint8_t)((total_bits_hi >> 24) & 0xFFu);
     noxtls_ripemd160_round(ctx, ctx->data);
 
-    for (i = 0; i < RIPEMD160_STATE_WORDS; i++) {
+    for(i = 0; i < RIPEMD160_STATE_WORDS; i++) {
         hash[i*4 + 0] = (uint8_t)((ctx->h[i] >> 24) & 0xFFu);
         hash[i*4 + 1] = (uint8_t)((ctx->h[i] >> 16) & 0xFFu);
         hash[i*4 + 2] = (uint8_t)((ctx->h[i] >> 8) & 0xFFu);
@@ -265,11 +282,11 @@ noxtls_return_t noxtls_ripemd160_verify(uint8_t * data, uint32_t len, uint8_t * 
     uint8_t out[HASH_RIPEMD160_OUT_LEN];
     noxtls_sha_ctx_t ctx;
 
-    if (noxtls_ripemd160_init(&ctx) != NOXTLS_RETURN_SUCCESS)
+    if(noxtls_ripemd160_init(&ctx) != NOXTLS_RETURN_SUCCESS)
         return NOXTLS_RETURN_FAILED;
-    if (noxtls_ripemd160_update(&ctx, data, len) != NOXTLS_RETURN_SUCCESS)
+    if(noxtls_ripemd160_update(&ctx, data, len) != NOXTLS_RETURN_SUCCESS)
         return NOXTLS_RETURN_FAILED;
-    if (noxtls_ripemd160_finish(&ctx, out) != NOXTLS_RETURN_SUCCESS)
+    if(noxtls_ripemd160_finish(&ctx, out) != NOXTLS_RETURN_SUCCESS)
         return NOXTLS_RETURN_FAILED;
     return (memcmp(out, expected, HASH_RIPEMD160_OUT_LEN) == 0) ?
            NOXTLS_RETURN_SUCCESS : NOXTLS_RETURN_FAILED;

@@ -44,14 +44,14 @@
 #include "noxtls_aes.h"
 #include "noxtls_common.h"
 
-noxtls_return_t aes_gcm_encrypt(const uint8_t *key, aes_type_t type,
+noxtls_return_t noxtls_aes_gcm_encrypt(const uint8_t *key, noxtls_aes_type_t type,
                     const uint8_t nonce[12],
                     const uint8_t *aad, uint32_t aad_len,
                     const uint8_t *plaintext, uint32_t plaintext_len,
                     uint8_t *ciphertext,
                     uint8_t tag[16]);
 
-noxtls_return_t aes_gcm_decrypt(const uint8_t *key, aes_type_t type,
+noxtls_return_t noxtls_aes_gcm_decrypt(const uint8_t *key, noxtls_aes_type_t type,
                     const uint8_t nonce[12],
                     const uint8_t *aad, uint32_t aad_len,
                     const uint8_t *ciphertext, uint32_t ciphertext_len,

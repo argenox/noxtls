@@ -66,6 +66,7 @@ xcuserdata/
 
 ## compatibility with Xcode 3 and earlier (ignoring not required starting Xcode 4)
 build/
+build-pqc/
 build_gcc/
 DerivedData/
 
@@ -110,7 +111,14 @@ Release/
 *.sublime-workspace
 *.pem
 *.der
+!applications/tls_test/testdata/tls_test_server_cert.pem
+!applications/tls_test/testdata/tls_test_server_cert.der
+!applications/tls_test/testdata/tls_test_server_key.pem
+!applications/tls_test/testdata/tls_test_server_key.der
 *.o
 .cache/
 
 .cu*
+
+build-*
+*.zip

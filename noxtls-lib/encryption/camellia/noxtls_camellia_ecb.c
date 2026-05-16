@@ -47,21 +47,21 @@
  * @param type is the Camellia variant, 128, 192, 256
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_* on failure
  */
-noxtls_return_t camellia_encrypt_ecb(const uint8_t* key, 
+noxtls_return_t noxtls_camellia_encrypt_ecb(const uint8_t* key, 
                          const uint8_t* data, 
                          uint32_t data_len,
                          const uint8_t * iv,
                          uint8_t* output, 
-                         camellia_type_t type)
+                         noxtls_camellia_type_t type)
 {
     uint32_t cur_block = 0;
     
     (void)iv; /* IV not used in ECB mode */
     
-    for (cur_block = 0; cur_block < data_len; cur_block += CAMELLIA_BLOCK_LENGTH)
+    for(cur_block = 0; cur_block < data_len; cur_block += NOXTLS_CAMELLIA_BLOCK_LENGTH)
     {
         /* Electronic Codebook: Direct encryption of each block */
-        camellia_encrypt_block_internal(key, &data[cur_block], &output[cur_block], type);
+        noxtls_camellia_encrypt_block_internal(key, &data[cur_block], &output[cur_block], type);
     }
 
     return NOXTLS_RETURN_SUCCESS;
@@ -74,22 +74,22 @@ noxtls_return_t camellia_encrypt_ecb(const uint8_t* key,
  * @param data_len is the length of the ciphertext in bytes
  * @param iv is not used (can be NULL)
  * @param output is the output buffer where the decrypted ciphertext will be placed
- * @param type is the Camellia variant, 128, 192, 256 @see camellia_type_t
+ * @param type is the Camellia variant, 128, 192, 256 @see noxtls_camellia_type_t
  *
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_* on failure
  */
-noxtls_return_t camellia_decrypt_ecb(const uint8_t* key,
+noxtls_return_t noxtls_camellia_decrypt_ecb(const uint8_t* key,
                          const uint8_t* data,
                          uint32_t data_len,
                          const uint8_t * iv,
                          uint8_t* output,
-                         camellia_type_t type)
+                         noxtls_camellia_type_t type)
 {
     uint32_t cur_block;
 
     (void)iv;
-    for (cur_block = 0; cur_block < data_len; cur_block += CAMELLIA_BLOCK_LENGTH)
-        camellia_decrypt_block_internal(key, &data[cur_block], &output[cur_block], type);
+    for(cur_block = 0; cur_block < data_len; cur_block += NOXTLS_CAMELLIA_BLOCK_LENGTH)
+        noxtls_camellia_decrypt_block_internal(key, &data[cur_block], &output[cur_block], type);
     return NOXTLS_RETURN_SUCCESS;
 }
 

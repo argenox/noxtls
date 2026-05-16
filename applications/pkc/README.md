@@ -51,9 +51,9 @@ pkc [operation] [algorithm] [options] [data...]
 - `-C <hex>` - Context bytes as hex for **ed25519ctx** / **ed448ctx** (sign and verify)
 - `-h <algo>` - Hash algorithm for **RSA** signatures (md5, sha1, sha256). Default: sha256
 - `-d` - Enable debug mode
-- `-x` - Interpret message input as hexadecimal string
+- `-x` - Interpret noxtls_message input as hexadecimal string
 - `-v` - Version information
-- `--help` - Show help message (do not use `-h` for help; `-h` selects RSA hash)
+- `--help` - Show help noxtls_message (do not use `-h` for help; `-h` selects RSA hash)
 
 ## Examples
 
@@ -71,7 +71,7 @@ This generates a 2048-bit RSA key pair and displays the public and private key c
 pkc encrypt rsa "Hello World"
 ```
 
-Encrypts the message "Hello World" using a newly generated RSA key pair. The output includes:
+Encrypts the noxtls_message "Hello World" using a newly generated RSA key pair. The output includes:
 - The ciphertext (hexadecimal)
 - The public key (modulus n and exponent e) for decryption
 
@@ -81,7 +81,7 @@ Encrypts the message "Hello World" using a newly generated RSA key pair. The out
 pkc sign rsa "Message to sign" -h sha256
 ```
 
-Signs the message using a newly generated RSA key pair with SHA-256 hashing. The output includes:
+Signs the noxtls_message using a newly generated RSA key pair with SHA-256 hashing. The output includes:
 - The signature (hexadecimal)
 - The public key (modulus n and exponent e) for verification
 

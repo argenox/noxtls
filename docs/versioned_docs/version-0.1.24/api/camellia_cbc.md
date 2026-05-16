@@ -9,10 +9,10 @@ Camellia in CBC (Cipher Block Chaining) mode: each plaintext block is XORed with
 
 ## API
 
-### `camellia_encrypt_cbc`
+### `noxtls_camellia_encrypt_cbc`
 
 ```c
-noxtls_return_t camellia_encrypt_cbc(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t* iv, uint8_t* output, camellia_type_t type);
+noxtls_return_t noxtls_camellia_encrypt_cbc(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t* iv, uint8_t* output, noxtls_camellia_type_t type);
 ```
 
 Encrypts data in Camellia CBC mode. Each block is XORed with the previous ciphertext (or IV for the first block) before encryption. IV must be 16 bytes and unique per encryption.
@@ -21,10 +21,10 @@ Encrypts data in Camellia CBC mode. Each block is XORed with the previous cipher
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success; otherwise a specific [return code](/docs/api/return_codes).
 
-### `camellia_decrypt_cbc`
+### `noxtls_camellia_decrypt_cbc`
 
 ```c
-noxtls_return_t camellia_decrypt_cbc(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t* iv, uint8_t* output, camellia_type_t type);
+noxtls_return_t noxtls_camellia_decrypt_cbc(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t* iv, uint8_t* output, noxtls_camellia_type_t type);
 ```
 
 Decrypts data in Camellia CBC mode. Use the same IV that was used for encryption.

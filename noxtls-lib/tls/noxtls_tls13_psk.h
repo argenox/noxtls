@@ -34,7 +34,7 @@ extern "C" {
  * @param len  Length of data
  * @param mode TLS13_PSK_KE_MODE_PSK_KE (0) or TLS13_PSK_KE_MODE_PSK_DHE_KE (1)
  */
-int tls13_psk_mode_offered(const uint8_t *data, uint16_t len, uint8_t mode);
+int noxtls_tls13_psk_mode_offered(const uint8_t *data, uint16_t len, uint8_t mode);
 
 /**
  * Find pre_shared_key extension and return binder offset/length for an identity index.
@@ -69,7 +69,9 @@ noxtls_return_t tls13_psk_compute_resumption_binder(noxtls_hash_algos_t hash_alg
                                                     uint32_t client_hello_len,
                                                     uint32_t binder_offset,
                                                     uint16_t binder_len,
-                                                    uint8_t *out_binder);
+                                                    uint8_t *out_binder,
+                                                    const uint8_t *transcript_prefix,
+                                                    uint32_t transcript_prefix_len);
 
 /**
  * Compute external PSK binder (label "ext binder").
@@ -81,7 +83,9 @@ noxtls_return_t tls13_psk_compute_external_binder(noxtls_hash_algos_t hash_algo,
                                                   uint32_t client_hello_len,
                                                   uint32_t binder_offset,
                                                   uint16_t binder_len,
-                                                  uint8_t *out_binder);
+                                                  uint8_t *out_binder,
+                                                  const uint8_t *transcript_prefix,
+                                                  uint32_t transcript_prefix_len);
 
 /**
  * Add a session ticket to the server-side store (for lookup when client resumes).
@@ -117,7 +121,7 @@ noxtls_return_t tls13_psk_ticket_store_entry_psk(const void *entry,
                                                   uint8_t *nonce_len);
 
 /** Return cipher_suite for a ticket entry (for server resumption). */
-uint16_t tls13_psk_ticket_store_entry_cipher_suite(const void *entry);
+uint16_t noxtls_tls13_psk_ticket_store_entry_cipher_suite(const void *entry);
 
 /**
  * Derive resumption_psk from master_secret and ticket_nonce (RFC 8446 4.6.1).
@@ -125,6 +129,8 @@ uint16_t tls13_psk_ticket_store_entry_cipher_suite(const void *entry);
 noxtls_return_t tls13_psk_derive_resumption_psk(noxtls_hash_algos_t hash_algo,
                                                 uint32_t hash_len,
                                                 const uint8_t *master_secret,
+                                                const uint8_t *handshake_transcript,
+                                                uint32_t handshake_transcript_len,
                                                 const uint8_t *ticket_nonce,
                                                 uint32_t ticket_nonce_len,
                                                 uint8_t *resumption_psk);

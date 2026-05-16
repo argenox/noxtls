@@ -8,7 +8,7 @@ Built as part of the main project when `BUILD_APPLICATIONS` is ON. Target name: 
 sha [command] [options] [arguments]
 ```
 
-- **Top-level command:** `dgst` — compute a message digest.
+- **Top-level command:** `dgst` — compute a noxtls_message digest.
 - **Global options:** `-h` (help), `-v` (version).
 
 ## Command: dgst

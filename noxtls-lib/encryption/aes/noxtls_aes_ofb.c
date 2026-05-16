@@ -48,36 +48,38 @@
  * @param type is the AES variant, 128, 192, 256
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_* on failure
  */
-noxtls_return_t aes_encrypt_ofb(const uint8_t* key,
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
+noxtls_return_t noxtls_aes_encrypt_ofb(const uint8_t* key,
                     const uint8_t* data,
                     uint32_t data_len,
                     const uint8_t * iv,
                     uint8_t* output,
-                    aes_type_t type)
+                    noxtls_aes_type_t type)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     uint32_t cur_block = 0;
-    uint8_t keystream[AES_BLOCK_LENGTH];
-    uint8_t feedback_block[AES_BLOCK_LENGTH];
+    uint8_t keystream[NOXTLS_AES_BLOCK_LENGTH];
+    uint8_t feedback_block[NOXTLS_AES_BLOCK_LENGTH];
     
     /* OFB Mode requires IV */
     if(iv == NULL) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
     
-    for (cur_block = 0; cur_block < data_len; cur_block += AES_BLOCK_LENGTH)
+    for(cur_block = 0; cur_block < data_len; cur_block += NOXTLS_AES_BLOCK_LENGTH)
     {
-        uint32_t block_len = (data_len - cur_block < AES_BLOCK_LENGTH) ?
-                             (data_len - cur_block) : AES_BLOCK_LENGTH;
+        uint32_t block_len = (data_len - cur_block < NOXTLS_AES_BLOCK_LENGTH) ?
+                             (data_len - cur_block) : NOXTLS_AES_BLOCK_LENGTH;
         
         if(cur_block == 0) {
             /* Encrypt IV for first block */
-            aes_encrypt_block_internal(key, iv, keystream, type);
-            memcpy(feedback_block, keystream, AES_BLOCK_LENGTH);
+            noxtls_aes_encrypt_block_internal(key, iv, keystream, type);
+            memcpy(feedback_block, keystream, NOXTLS_AES_BLOCK_LENGTH);
         }
         else {
             /* Encrypt previous keystream */
-            aes_encrypt_block_internal(key, feedback_block, keystream, type);
-            memcpy(feedback_block, keystream, AES_BLOCK_LENGTH);
+            noxtls_aes_encrypt_block_internal(key, feedback_block, keystream, type);
+            memcpy(feedback_block, keystream, NOXTLS_AES_BLOCK_LENGTH);
         }
         
         /* XOR keystream with plaintext */

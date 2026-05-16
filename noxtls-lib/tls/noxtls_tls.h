@@ -53,7 +53,8 @@ extern "C" {
 
 /* Unified TLS Accept Function with Automatic Version Negotiation */
 /* This function automatically detects TLS version (1.0, 1.1, 1.2, or 1.3) and routes to the appropriate handler */
-/* The caller must provide tls12_ctx and tls13_ctx; tls10_ctx and tls11_ctx are optional (can be NULL) */
+/* The caller must provide tls12_ctx; tls10_ctx and tls11_ctx are optional (can be NULL). */
+/* tls13_ctx may be NULL to disable TLS 1.3: clients that offer TLS 1.2 in supported_versions negotiate TLS 1.2. */
 noxtls_return_t tls_accept_auto(tls_context_t *base_ctx,
                                    void *tls10_ctx,
                                    void *tls11_ctx,

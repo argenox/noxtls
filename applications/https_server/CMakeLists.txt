@@ -61,3 +61,12 @@ target_link_libraries(https_server
 if(WIN32)
     target_link_libraries(https_server ws2_32)
 endif()
+
+# Application version from root project(VERSION ...) when present; standalone builds without VERSION use placeholder.
+set(_https_server_app_version "${CMAKE_PROJECT_VERSION}")
+if("${_https_server_app_version}" STREQUAL "")
+    set(_https_server_app_version "standalone-dev")
+endif()
+target_compile_definitions(https_server PRIVATE
+    "HTTPS_SERVER_APP_VERSION=\"${_https_server_app_version}\""
+)

@@ -25,10 +25,10 @@
 
 /**
  * @file main.c
- * @brief Multi-command NoxTLS CLI (e.g. message digest).
+ * @brief Multi-command NoxTLS CLI (e.g. noxtls_message digest).
  * @defgroup noxtls_app_noxtls NoxTLS CLI
  * @details
- * Unified CLI with subcommands. Command: dgst — message digest (same as sha app).
+ * Unified CLI with subcommands. Command: dgst — noxtls_message digest (same as sha app).
  * Parameters: command then algorithm/options/input. Options: -v version, -h help.
  * @example
  * noxtls dgst SHA256 hello world
@@ -41,12 +41,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifdef _WIN32
-#include "noxtls-lib/common/getopt_win.h"
-#else
-#include <unistd.h>
-#endif
 
+#include "noxtls-lib/common/getopt_compat.h"
 #include "message_digest.h"
 
 #define APP_VERSION_MAJOR 0
@@ -63,7 +59,7 @@ typedef struct {
 
 
 command_list_t commands[]  = {
-    {"dgst", &message_digest, "Generates the message digest"}
+    {"dgst", &message_digest, "Generates the noxtls_message digest"}
 };
 
 
@@ -122,7 +118,7 @@ int main(int argc, char ** argv)
     if(command_found == 0)
     {
         int c;
-        while ((c = getopt (argc, argv, "vh")) != -1)
+        while ((c = noxtls_getopt (argc, argv, "vh")) != -1)
         {
             switch (c)
             {
