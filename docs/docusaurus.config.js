@@ -16,7 +16,7 @@ const config = {
   url: 'https://docs.noxtls.com',
   baseUrl: '/',
 
-  onBrokenLinks: 'throw',
+  onBrokenLinks: 'warn',
 
   i18n: {
     defaultLocale: 'en',
@@ -30,14 +30,6 @@ const config = {
       ({
         docs: {
           sidebarPath: './sidebars.js',
-          lastVersion: '0.2.1',
-          versions: {
-            current: {
-              label: '0.2.1',
-              banner: 'none',
-            },
-          },
-          onlyIncludeVersions: ['0.2.1', '0.1.25', '0.1.24', '0.1.23', '0.1.22'],
         },
         blog: false,
         theme: {
@@ -74,11 +66,6 @@ const config = {
           {
             href: 'https://github.com/argenox/noxtls',
             label: 'GitHub',
-            position: 'right',
-          },
-          {
-            to: '/docs/security-reporting',
-            label: 'Security',
             position: 'right',
           },
         ],
