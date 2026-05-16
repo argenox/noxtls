@@ -332,6 +332,8 @@ noxtls_return_t noxtls_x509_certificate_chain_verify(x509_certificate_chain_t *c
 noxtls_return_t noxtls_x509_trust_store_set(const x509_certificate_chain_t *trust_anchors);
 /** Clear global trust store used by noxtls_x509_verify_server_cert_trust. */
 void noxtls_x509_trust_store_clear(void);
+/** Return 1 when the global trust store has at least one configured trust anchor, 0 otherwise. */
+int noxtls_x509_trust_store_has_anchors(void);
 /**
  * Verify a server certificate against the configured trust store.
  * presented_chain contains intermediate issuers sent by peer (leaf not included); may be NULL.

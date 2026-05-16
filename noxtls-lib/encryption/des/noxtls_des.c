@@ -140,7 +140,9 @@ static int get_bit(const uint8_t *buf, int bit_index)
     return (buf[byte_idx] >> bit_idx) & 1;
 }
 
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static void set_bit(uint8_t *buf, int bit_index, int value)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     int byte_idx = bit_index >> 3;
     int bit_idx  = 7 - (bit_index & 7);
@@ -153,11 +155,14 @@ static void set_bit(uint8_t *buf, int bit_index, int value)
 static void permute(const uint8_t *in, uint8_t *out, const uint8_t *table, int n)
 {
     int i;
+    memset(out, 0, (size_t)((n + 7) / 8));
     for(i = 0; i < n; i++)
         set_bit(out, i, get_bit(in, table[i]));
 }
 
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static void rotate_left_28(uint32_t *c, uint32_t *d, int count)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     uint32_t c0 = *c;
     uint32_t d0 = *d;
@@ -190,14 +195,14 @@ static void des_key_schedule(const uint8_t *key, uint8_t round_keys[16][6])
     }
 
     for(r = 0; r < 16; r++) {
-        rotate_left_28(&c, &d, (unsigned int)des_rot[r]);
+        rotate_left_28(&c, &d, des_rot[r]);
         /* Pack C||D into 7 bytes (56 bits): cd bit i = C bit i for i<28, cd bit (28+i) = D bit i. C/D bit 0 is MSB (at c/d bit 27). */
-        uint8_t cd[7];
+        uint8_t cd[7] = {0};
         for(i = 0; i < 28; i++)
-            set_bit(cd, i, (c >> (27 - i)) & 1);
+            set_bit(cd, i, (int)((c >> (27 - i)) & 1u));
         for(i = 0; i < 28; i++)
-            set_bit(cd, 28 + i, (d >> (27 - i)) & 1);
-        uint8_t pk[6];
+            set_bit(cd, 28 + i, (int)((d >> (27 - i)) & 1u));
+        uint8_t pk[6] = {0};
         for(i = 0; i < 48; i++)
             set_bit(pk, i, get_bit(cd, des_pc2[i]));
         for(j = 0; j < 6; j++)

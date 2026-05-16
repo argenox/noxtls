@@ -9,7 +9,7 @@ Built for deterministic performance, clean APIs, and modern cryptography.
 
 
 [![Build](https://github.com/argenox/noxtls/actions/workflows/build-applications.yml/badge.svg)](https://github.com/argenox/noxtls/actions/workflows/build-applications.yml)
-[![Tests](https://github.com/argenox/noxtls/actions/workflows/tests.yml/badge.svg)](https://github.com/argenox/noxtls/actions/workflows/tests.yml)
+[![Static Analysis](https://github.com/argenox/noxtls/actions/workflows/static-analysis.yml/badge.svg)](https://github.com/argenox/noxtls/actions/workflows/static-analysis.yml)
 [![CodeQL](https://github.com/argenox/noxtls/actions/workflows/codeql.yml/badge.svg)](https://github.com/argenox/noxtls/actions/workflows/codeql.yml)
 
 

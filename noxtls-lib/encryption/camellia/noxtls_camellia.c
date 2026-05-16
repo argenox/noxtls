@@ -277,7 +277,9 @@ noxtls_return_t noxtls_camellia_key_schedule(const uint8_t* key, uint64_t* kw, u
 }
 
 /* FL: 64-bit input, 64-bit key KE */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static uint64_t camellia_fl(uint64_t FL_IN, uint64_t KE)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     uint32_t x1 = (uint32_t)(FL_IN >> 32);
     uint32_t x2 = (uint32_t)(FL_IN & 0xFFFFFFFFULL);
@@ -289,7 +291,9 @@ static uint64_t camellia_fl(uint64_t FL_IN, uint64_t KE)
 }
 
 /* FLINV: inverse of FL */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static uint64_t camellia_flinv(uint64_t FLINV_IN, uint64_t KE)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     uint32_t y1 = (uint32_t)(FLINV_IN >> 32);
     uint32_t y2 = (uint32_t)(FLINV_IN & 0xFFFFFFFFULL);
@@ -345,7 +349,9 @@ static void camellia_print_block_hex(const char *label, const uint8_t *block)
 /**
  * @brief Camellia Encrypt Block (RFC 3713)
  */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 noxtls_return_t noxtls_camellia_encrypt_block_internal(const uint8_t* key, const uint8_t* data, uint8_t* output, noxtls_camellia_type_t type)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     uint64_t kw[4];
     uint64_t ke[6];
@@ -424,7 +430,9 @@ noxtls_return_t noxtls_camellia_encrypt_block_internal(const uint8_t* key, const
 /**
  * @brief Camellia Decrypt Block (RFC 3713: reverse subkey order)
  */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 noxtls_return_t noxtls_camellia_decrypt_block_internal(const uint8_t* key, const uint8_t* data, uint8_t* output, noxtls_camellia_type_t type)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     uint64_t kw[4];
     uint64_t ke[6];
@@ -432,7 +440,8 @@ noxtls_return_t noxtls_camellia_decrypt_block_internal(const uint8_t* key, const
     uint64_t D1;
     uint64_t D2;
     uint64_t kw_dec[4];
-    uint64_t ke_dec[6];
+    /* Full init so analyzers see ke_dec[4..5] defined; 128-bit Camellia only uses ke_dec[0..3]. */
+    uint64_t ke_dec[6] = { 0 };
     uint64_t k_dec[24];
     int i;
 
@@ -523,7 +532,7 @@ noxtls_return_t noxtls_camellia_decrypt_block_internal(const uint8_t* key, const
     D1 ^= kw_dec[3];
     store_block_be(output, D1, D2);
     
-    return 0;
+    return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
@@ -663,18 +672,18 @@ noxtls_return_t noxtls_camellia_update(noxtls_camellia_context_t *ctx,
     uint32_t i;
 
     if(ctx == NULL || output_len == NULL) {
-        return -1;
+        return NOXTLS_RETURN_NULL;
     }
     *output_len = 0;
 
     if(!ctx->initialized) {
-        return -1;
+        return NOXTLS_RETURN_NOT_INITIALIZED;
     }
     if(input_len > 0 && (input == NULL || output == NULL)) {
-        return -1;
+        return NOXTLS_RETURN_NULL;
     }
     if(input_len == 0) {
-        return 0;
+        return NOXTLS_RETURN_SUCCESS;
     }
 
     switch(ctx->mode) {
@@ -692,7 +701,7 @@ noxtls_return_t noxtls_camellia_update(noxtls_camellia_context_t *ctx,
                     if(ctx->mode == NOXTLS_CAMELLIA_ECB) {
                         if(ctx->op == NOXTLS_CAMELLIA_OP_ENCRYPT) {
                             if(noxtls_camellia_encrypt_block_internal(ctx->key, ctx->partial, output + produced, ctx->type) != NOXTLS_RETURN_SUCCESS) {
-                                return -1;
+                                return NOXTLS_RETURN_FAILED;
                             }
                         } else {
                             if(noxtls_camellia_decrypt_block_internal(ctx->key, ctx->partial, output + produced, ctx->type) != NOXTLS_RETURN_SUCCESS) {
@@ -712,7 +721,7 @@ noxtls_return_t noxtls_camellia_update(noxtls_camellia_context_t *ctx,
                         } else {
                             uint8_t block[NOXTLS_CAMELLIA_BLOCK_LENGTH];
                             if(noxtls_camellia_decrypt_block_internal(ctx->key, ctx->partial, block, ctx->type) != NOXTLS_RETURN_SUCCESS) {
-                                return -1;
+                                return NOXTLS_RETURN_FAILED;
                             }
                             for(i = 0; i < NOXTLS_CAMELLIA_BLOCK_LENGTH; i++) {
                                 output[produced + i] = (uint8_t)(block[i] ^ ctx->feedback[i]);
@@ -738,11 +747,11 @@ noxtls_return_t noxtls_camellia_update(noxtls_camellia_context_t *ctx,
                         camellia_counter_inc(ctx->feedback);
                     } else if(ctx->mode == NOXTLS_CAMELLIA_CFB) {
                         if(noxtls_camellia_encrypt_block_internal(ctx->key, ctx->feedback, ctx->partial, ctx->type) != NOXTLS_RETURN_SUCCESS) {
-                            return -1;
+                            return NOXTLS_RETURN_FAILED;
                         }
                     } else {
                         if(noxtls_camellia_encrypt_block_internal(ctx->key, ctx->feedback, ctx->partial, ctx->type) != NOXTLS_RETURN_SUCCESS) {
-                            return -1;
+                            return NOXTLS_RETURN_FAILED;
                         }
                         memcpy(ctx->feedback, ctx->partial, NOXTLS_CAMELLIA_BLOCK_LENGTH);
                     }
@@ -875,7 +884,7 @@ noxtls_return_t noxtls_camellia_self_test(void)
     if(memcmp(out, ct, 16) != 0) {
         camellia_print_block_hex("noxtls_camellia_self_test 192 expected: ", ct);
         camellia_print_block_hex("noxtls_camellia_self_test 192 actual  : ", out);
-        return -1;
+        return NOXTLS_RETURN_FAILED;
     }
 
     /* 256-bit key */

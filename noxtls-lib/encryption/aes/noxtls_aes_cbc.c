@@ -47,12 +47,14 @@
  * @param type is the AES variant, 128, 192, 256
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_* on failure
  */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 noxtls_return_t noxtls_aes_encrypt_cbc(const uint8_t* key,
                     const uint8_t* data,
                     uint32_t data_len,
                     const uint8_t * iv,
                     uint8_t* output,
                     noxtls_aes_type_t type)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     int i;
     uint32_t cur_block = 0;

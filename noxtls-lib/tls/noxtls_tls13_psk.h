@@ -69,7 +69,9 @@ noxtls_return_t tls13_psk_compute_resumption_binder(noxtls_hash_algos_t hash_alg
                                                     uint32_t client_hello_len,
                                                     uint32_t binder_offset,
                                                     uint16_t binder_len,
-                                                    uint8_t *out_binder);
+                                                    uint8_t *out_binder,
+                                                    const uint8_t *transcript_prefix,
+                                                    uint32_t transcript_prefix_len);
 
 /**
  * Compute external PSK binder (label "ext binder").
@@ -81,7 +83,9 @@ noxtls_return_t tls13_psk_compute_external_binder(noxtls_hash_algos_t hash_algo,
                                                   uint32_t client_hello_len,
                                                   uint32_t binder_offset,
                                                   uint16_t binder_len,
-                                                  uint8_t *out_binder);
+                                                  uint8_t *out_binder,
+                                                  const uint8_t *transcript_prefix,
+                                                  uint32_t transcript_prefix_len);
 
 /**
  * Add a session ticket to the server-side store (for lookup when client resumes).
@@ -125,6 +129,8 @@ uint16_t noxtls_tls13_psk_ticket_store_entry_cipher_suite(const void *entry);
 noxtls_return_t tls13_psk_derive_resumption_psk(noxtls_hash_algos_t hash_algo,
                                                 uint32_t hash_len,
                                                 const uint8_t *master_secret,
+                                                const uint8_t *handshake_transcript,
+                                                uint32_t handshake_transcript_len,
                                                 const uint8_t *ticket_nonce,
                                                 uint32_t ticket_nonce_len,
                                                 uint8_t *resumption_psk);

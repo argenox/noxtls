@@ -224,7 +224,7 @@ noxtls_return_t noxtls_chacha20_encrypt(const uint8_t *key,
                      uint32_t input_len,
                      uint8_t *output)
 {
-    noxtls_chacha20_context_t ctx;
+    noxtls_chacha20_context_t ctx = {0};
     
     if(key == NULL || nonce == NULL || input == NULL || output == NULL) {
         return NOXTLS_RETURN_NULL;

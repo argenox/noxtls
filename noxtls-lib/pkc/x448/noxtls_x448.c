@@ -20,10 +20,13 @@
 
 /* Curve448 prime p = 2^448 - 2^224 - 1 (big-endian). */
 static const uint8_t x448_p[NOXTLS_X448_FE_BYTES] = {
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFE, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
 };
 
 /* a24 = (A-2)/4 = (156326-2)/4 = 39081 = 0x98A9 (big-endian). */
@@ -93,9 +96,19 @@ static noxtls_return_t fe448_add_be(uint8_t result[NOXTLS_X448_FE_BYTES],
                                       const uint8_t b[NOXTLS_X448_FE_BYTES])
 {
     uint8_t sum[NOXTLS_X448_BN_SUM_BYTES];
+    uint8_t low[NOXTLS_X448_FE_BYTES];
     memset(sum, 0, sizeof(sum));
-    if(noxtls_bn_add(sum + NOXTLS_X448_FE_BYTES, a, b, NOXTLS_X448_FE_BYTES) != NOXTLS_RETURN_SUCCESS) {
+    if(noxtls_bn_add(low, a, b, NOXTLS_X448_FE_BYTES) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
+    }
+    memcpy(sum + NOXTLS_X448_FE_BYTES, low, NOXTLS_X448_FE_BYTES);
+    /*
+     * noxtls_bn_add() returns only the low limb and drops the carry-out.
+     * For 448-bit field addition we must preserve that carry into bit 448
+     * before modular reduction.
+     */
+    if(noxtls_bn_cmp(low, a, NOXTLS_X448_FE_BYTES) < 0) {
+        sum[NOXTLS_X448_FE_BYTES - 1U] = 1u;
     }
     return noxtls_bn_mod(result, sum, NOXTLS_X448_BN_PRODUCT_BYTES, x448_p, NOXTLS_X448_FE_BYTES);
 }
@@ -170,9 +183,11 @@ static noxtls_return_t fe448_inv_be(uint8_t result[NOXTLS_X448_FE_BYTES], const 
  * @param result Little-endian u-coordinate of k*P.
  * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on failure.
  */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static noxtls_return_t x448_scalar_mult(const uint8_t k[NOXTLS_X448_KEY_SIZE],
                                         const uint8_t u[NOXTLS_X448_KEY_SIZE],
                                         uint8_t result[NOXTLS_X448_KEY_SIZE])
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     uint8_t k_clamped[NOXTLS_X448_KEY_SIZE];
     uint8_t k_be[NOXTLS_X448_FE_BYTES];

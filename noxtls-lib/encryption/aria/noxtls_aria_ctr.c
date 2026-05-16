@@ -61,11 +61,11 @@ noxtls_return_t noxtls_aria_encrypt_ctr(const uint8_t* key,
     noxtls_aria_key_t aria_key;
     
     if(key == NULL || data == NULL || output == NULL || iv == NULL) {
-        return -1;
+        return NOXTLS_RETURN_INVALID_PARAM;
     }
     
     if(noxtls_aria_set_encrypt_key(key, type, &aria_key) != 0) {
-        return -1;
+        return NOXTLS_RETURN_FAILED;
     }
     
     /* Initialize counter from IV */

@@ -55,10 +55,15 @@ extern "C"
 #include "noxtls-lib/common/string_common.h"
 #include "noxtls-lib/mdigest/noxtls_hash.h"
 #include "message_digest.h"
+#include "noxtls-lib/mdigest/noxtls_sha.h"
+#include "noxtls-lib/mdigest/md4/noxtls_md4.h"
 #include "noxtls-lib/mdigest/md5/noxtls_md5.h"
 #include "noxtls-lib/mdigest/sha1/noxtls_sha1.h"
 #include "noxtls-lib/mdigest/sha256/noxtls_sha256.h"
-    #include "noxtls-lib/mdigest/sha512/noxtls_sha512.h"
+#include "noxtls-lib/mdigest/sha512/noxtls_sha512.h"
+#include "noxtls-lib/mdigest/sha3/noxtls_sha3.h"
+#include "noxtls-lib/mdigest/ripemd160/noxtls_ripemd160.h"
+#include "noxtls-lib/mdigest/blake2/noxtls_blake2.h"
 
 int hash_md5_handler(uint8_t * data, uint32_t len);
 int hash_sha1_handler(uint8_t * data, uint32_t len);
@@ -68,16 +73,24 @@ int hash_sha_384_handler(uint8_t * data, uint32_t len);
 int hash_sha_512_handler(uint8_t * data, uint32_t len);
 int hash_sha_512_224_handler(uint8_t * data, uint32_t len);
 int hash_sha_512_256_handler(uint8_t * data, uint32_t len);
+typedef struct {
+    const char *name;
+    const char *display_name;
+    noxtls_hash_algos_t algo;
+    uint32_t digest_len;
+} digest_algorithm_t;
 static int parse_offset_value(const char * value, size_t * offset);
 static int read_binary_file(const char * path, uint8_t ** buffer, size_t * length);
 static int write_text_file(const char * path, const char * text);
 static int bytes_to_hex(const uint8_t * bytes, uint32_t bytes_len, char ** hex_out);
+static int find_digest_algorithm(const char * algorithm, const digest_algorithm_t ** spec);
 static int compute_digest_for_algorithm(
     const char * algorithm,
     const uint8_t * data,
     uint32_t len,
     uint8_t * digest,
     uint32_t * digest_len);
+static int print_digest_hex(const uint8_t * digest, uint32_t digest_len, const char * label);
 
 void print_digest_usage(void);
 
@@ -90,22 +103,104 @@ message_digest_handlers_t md_handlers[] = {
     {"SHA256", hash_sha_256_handler},
     {"SHA384", hash_sha_384_handler},
     {"SHA512", hash_sha_512_handler},
-    {"SHA512_224", hash_sha_512_224_handler},
-    {"SHA512_256", hash_sha_512_256_handler},
+};
+
+static const digest_algorithm_t digest_algorithms[] = {
+#if NOXTLS_FEATURE_MD4
+    {"MD4", "md4", NOXTLS_HASH_MD4, HASH_MD4_OUT_LEN},
+#endif
+#if NOXTLS_FEATURE_MD5
+    {"MD5", "md5", NOXTLS_HASH_MD5, HASH_MD5_OUT_LEN},
+#endif
+#if NOXTLS_FEATURE_SHA1
+    {"SHA1", "sha1", NOXTLS_HASH_SHA1, HASH_SHA1_OUT_LEN},
+    {"SHA-1", NULL, NOXTLS_HASH_SHA1, HASH_SHA1_OUT_LEN},
+#endif
+#if NOXTLS_FEATURE_SHA224
+    {"SHA224", "sha224", NOXTLS_HASH_SHA_224, 28u},
+    {"SHA-224", NULL, NOXTLS_HASH_SHA_224, 28u},
+#endif
+#if NOXTLS_FEATURE_SHA256
+    {"SHA256", "sha256", NOXTLS_HASH_SHA_256, HASH_SHA256_OUT_LEN},
+    {"SHA-256", NULL, NOXTLS_HASH_SHA_256, HASH_SHA256_OUT_LEN},
+#endif
+#if NOXTLS_FEATURE_SHA384
+    {"SHA384", "sha384", NOXTLS_HASH_SHA_384, 48u},
+    {"SHA-384", NULL, NOXTLS_HASH_SHA_384, 48u},
+#endif
+#if NOXTLS_FEATURE_SHA512
+    {"SHA512", "sha512", NOXTLS_HASH_SHA_512, HASH_SHA512_OUT_LEN},
+    {"SHA-512", NULL, NOXTLS_HASH_SHA_512, HASH_SHA512_OUT_LEN},
+    {"SHA512-224", "sha512-224", NOXTLS_HASH_SHA_512_224, HASH_SHA512_224_OUT_LEN},
+    {"SHA512_224", NULL, NOXTLS_HASH_SHA_512_224, HASH_SHA512_224_OUT_LEN},
+    {"SHA-512/224", NULL, NOXTLS_HASH_SHA_512_224, HASH_SHA512_224_OUT_LEN},
+    {"SHA512-256", "sha512-256", NOXTLS_HASH_SHA_512_256, HASH_SHA512_256_OUT_LEN},
+    {"SHA512_256", NULL, NOXTLS_HASH_SHA_512_256, HASH_SHA512_256_OUT_LEN},
+    {"SHA-512/256", NULL, NOXTLS_HASH_SHA_512_256, HASH_SHA512_256_OUT_LEN},
+#endif
+#if NOXTLS_FEATURE_SHA3
+    {"SHA3", "sha3", NOXTLS_HASH_SHA3_256, HASH_SHA3_256_OUT_LEN},
+    {"SHA3-224", "sha3-224", NOXTLS_HASH_SHA3_224, HASH_SHA3_224_OUT_LEN},
+    {"SHA3_224", NULL, NOXTLS_HASH_SHA3_224, HASH_SHA3_224_OUT_LEN},
+    {"SHA3-256", "sha3-256", NOXTLS_HASH_SHA3_256, HASH_SHA3_256_OUT_LEN},
+    {"SHA3_256", NULL, NOXTLS_HASH_SHA3_256, HASH_SHA3_256_OUT_LEN},
+    {"SHA3-384", "sha3-384", NOXTLS_HASH_SHA3_384, HASH_SHA3_384_OUT_LEN},
+    {"SHA3_384", NULL, NOXTLS_HASH_SHA3_384, HASH_SHA3_384_OUT_LEN},
+    {"SHA3-512", "sha3-512", NOXTLS_HASH_SHA3_512, HASH_SHA3_512_OUT_LEN},
+    {"SHA3_512", NULL, NOXTLS_HASH_SHA3_512, HASH_SHA3_512_OUT_LEN},
+#endif
+#if NOXTLS_FEATURE_RIPEMD160
+    {"RIPEMD160", "ripemd160", NOXTLS_HASH_RIPEMD160, HASH_RIPEMD160_OUT_LEN},
+    {"RIPEMD-160", NULL, NOXTLS_HASH_RIPEMD160, HASH_RIPEMD160_OUT_LEN},
+#endif
+#if NOXTLS_FEATURE_BLAKE2
+    {"BLAKE2S-256", "blake2s-256", NOXTLS_HASH_BLAKE2S_256, HASH_BLAKE2S_256_OUT_LEN},
+    {"BLAKE2S_256", NULL, NOXTLS_HASH_BLAKE2S_256, HASH_BLAKE2S_256_OUT_LEN},
+    {"BLAKE2B-512", "blake2b-512", NOXTLS_HASH_BLAKE2B_512, HASH_BLAKE2B_512_OUT_LEN},
+    {"BLAKE2B_512", NULL, NOXTLS_HASH_BLAKE2B_512, HASH_BLAKE2B_512_OUT_LEN},
+#endif
 };
 
 
 void print_digest_usage(void)
 {
-    printf("\nSupported Digests\n\n");
+    printf("usage: sha <algorithm> [options] [text...]\n");
+    printf("       sha <algorithm> -f <file> [options]\n");
+    printf("       noxtls dgst <algorithm> [options] [text...]\n\n");
+    printf("Options:\n");
+    printf("  -f <file>       Read input from file\n");
+    printf("  -o <file>       Write hex digest to file\n");
+    printf("  -s <offset>     Start hashing file input at byte offset\n");
+    printf("  -h              Treat text input as hexadecimal bytes\n");
+    printf("  -d              Enable hash debug output\n");
+    printf("  --help          Show this help\n\n");
+    printf("Supported algorithms:\n");
 
     size_t i = 0;
-    for(i = 0; i < sizeof(md_handlers) / sizeof(md_handlers[0]); i++)
+    size_t displayed = 0;
+    for(i = 0; i < sizeof(digest_algorithms) / sizeof(digest_algorithms[0]); i++)
     {
-        printf("%s  \t\t\t\n", md_handlers[i].algo);
+        if(digest_algorithms[i].display_name == NULL) {
+            continue;
+        }
+        printf("  %-14s%s",
+               digest_algorithms[i].display_name,
+               ((displayed + 1u) % 3u == 0u) ? "\n" : "");
+        displayed++;
+    }
+    if(displayed % 3u != 0u) {
+        printf("\n");
     }
 
-    printf("\n\n");
+    printf("\nExamples:\n");
+    printf("  noxtls dgst sha256 hello world\n");
+    printf("  noxtls dgst sha3-256 -f firmware.bin\n");
+    printf("  noxtls dgst blake2b-512 -f firmware.bin -o firmware.blake2\n");
+    printf("  noxtls dgst sha256 -h 68656c6c6f\n");
+    printf("  sha sha256 hello world\n");
+    printf("  sha sha256 -f firmware.bin\n");
+    printf("  sha sha512 -f firmware.bin -o firmware.sha512\n");
+    printf("  sha sha3 hello world\n\n");
 }
 
 int message_digest(int argc, char ** argv)
@@ -117,23 +212,25 @@ int message_digest(int argc, char ** argv)
     const char * input_file_path = NULL;
     const char * output_file_path = NULL;
     size_t file_offset = 0;
+    uint8_t digest[HASH_SHA512_OUT_LEN] = {0};
+    uint32_t digest_len = 0;
+    char * digest_hex = NULL;
 
     input_data_type_t type = INPUT_DATA_TYPE_STRING;
 
-    int (* function_handler)(uint8_t * data, uint32_t len) = NULL;
+    const digest_algorithm_t *algorithm_spec = NULL;
 
-    size_t i = 0;
-    for(i = 0; i < sizeof(md_handlers) / sizeof(md_handlers[0]); i++)
-    {
-        if(strncasecmp(argv[0], md_handlers[i].algo, strlen(md_handlers[i].algo)) == 0)
-        {
-            function_handler = md_handlers[i].handler;
-            break;
-        }
+    if(argc <= 0 || argv == NULL || argv[0] == NULL ||
+       strcmp(argv[0], "-h") == 0 ||
+       strcmp(argv[0], "--help") == 0 ||
+       strcmp(argv[0], "help") == 0) {
+        print_digest_usage();
+        return 0;
     }
 
-    if(function_handler == NULL) {
-        printf("No algorithm specified\n");
+    if(find_digest_algorithm(argv[0], &algorithm_spec) != 0 || algorithm_spec == NULL) {
+        printf("Error: unknown or missing digest algorithm '%s'\n\n", argv[0]);
+        print_digest_usage();
         return -1;
     }
 
@@ -189,8 +286,6 @@ int message_digest(int argc, char ** argv)
         uint8_t * file_buffer = NULL;
         size_t file_length = 0;
         const uint8_t * hash_input = NULL;
-        uint8_t digest[HASH_SHA512_OUT_LEN] = {0};
-        uint32_t digest_len = 0;
 
         if(read_binary_file(input_file_path, &file_buffer, &file_length) != 0) {
             printf("Error: failed to read input file '%s'\n", input_file_path);
@@ -215,15 +310,13 @@ int message_digest(int argc, char ** argv)
             hash_input = (const uint8_t *)"";
         }
 
+        if(compute_digest_for_algorithm(argv[0], hash_input, (uint32_t)(file_length - file_offset), digest, &digest_len) != 0) {
+            printf("Error: failed to compute digest for %s\n", argv[0]);
+            free(file_buffer);
+            return -1;
+        }
+
         if(output_file_path != NULL) {
-            char * digest_hex = NULL;
-
-            if(compute_digest_for_algorithm(argv[0], hash_input, (uint32_t)(file_length - file_offset), digest, &digest_len) != 0) {
-                printf("Error: failed to compute digest for %s\n", argv[0]);
-                free(file_buffer);
-                return -1;
-            }
-
             if(bytes_to_hex(digest, digest_len, &digest_hex) != 0) {
                 printf("Error: failed to format digest output\n");
                 free(file_buffer);
@@ -239,8 +332,9 @@ int message_digest(int argc, char ** argv)
 
             printf("Digest written to %s from offset %zu\n", output_file_path, file_offset);
             free(digest_hex);
-        } else if(function_handler != NULL) {
-            function_handler((uint8_t *)hash_input, (uint32_t)(file_length - file_offset));
+            digest_hex = NULL;
+        } else {
+            print_digest_hex(digest, digest_len, input_file_path);
         }
 
         free(file_buffer);
@@ -257,30 +351,34 @@ int message_digest(int argc, char ** argv)
         int j = 0;
         size_t total_str_len = 0;
 
-        data_buffer = malloc(4096 * sizeof(uint8_t));
+        for(j = data_start_idx; j <= (argc - 1); j++) {
+            total_str_len += strlen(argv[j]);
+            if(j < argc - 1) {
+                total_str_len++;
+            }
+        }
+        if(total_str_len > UINT32_MAX) {
+            printf("Error: input too long\n");
+            return -1;
+        }
+
+        data_buffer = malloc(total_str_len == 0u ? 1u : total_str_len);
         if(data_buffer == NULL) {
             printf("Error");
             return -1;
         }
-        memset(data_buffer, 0, 4096 * sizeof(uint8_t));
+
+        total_str_len = 0;
 
         for(j = data_start_idx; j <= (argc - 1); j++)
         {
-            size_t str_len = strlen(argv[j]); /* Space */
+            size_t str_len = strlen(argv[j]);
 
             memcpy(&data_buffer[total_str_len], argv[j], str_len);
             total_str_len += str_len;
-            data_buffer[total_str_len++] = ' ';
-        }
-
-        if(total_str_len > 0) {
-            total_str_len -= 1;
-        }
-
-        if(total_str_len > UINT32_MAX) {
-            free(data_buffer);
-            printf("Error: input too long\n");
-            return -1;
+            if(j < argc - 1) {
+                data_buffer[total_str_len++] = ' ';
+            }
         }
 
         data_length = (uint32_t)total_str_len;
@@ -308,11 +406,222 @@ int message_digest(int argc, char ** argv)
         data_length = (uint32_t)parsed_len;
     }
 
-    if(function_handler != NULL && data_buffer != NULL) {
-        function_handler(data_buffer, data_length);
+    if(data_buffer != NULL) {
+        if(compute_digest_for_algorithm(argv[0], data_buffer, data_length, digest, &digest_len) != 0) {
+            free(data_buffer);
+            printf("Error: failed to compute digest for %s\n", argv[0]);
+            return -1;
+        }
+        print_digest_hex(digest, digest_len, NULL);
     }
 
     free(data_buffer);
+    return 0;
+}
+
+static int parse_offset_value(const char * value, size_t * offset)
+{
+    char * endptr = NULL;
+    unsigned long long parsed = 0;
+
+    if(value == NULL || offset == NULL || value[0] == '\0') {
+        return -1;
+    }
+
+    errno = 0;
+    parsed = strtoull(value, &endptr, 0);
+    if(errno != 0 || endptr == value || *endptr != '\0') {
+        return -1;
+    }
+
+    *offset = (size_t)parsed;
+    return 0;
+}
+
+static int read_binary_file(const char * path, uint8_t ** buffer, size_t * length)
+{
+    FILE * file = NULL;
+    long file_size = 0;
+    uint8_t * file_buffer = NULL;
+
+    if(path == NULL || buffer == NULL || length == NULL) {
+        return -1;
+    }
+
+    file = fopen(path, "rb");
+    if(file == NULL) {
+        return -1;
+    }
+
+    if(fseek(file, 0, SEEK_END) != 0) {
+        fclose(file);
+        return -1;
+    }
+
+    file_size = ftell(file);
+    if(file_size < 0) {
+        fclose(file);
+        return -1;
+    }
+
+    if(fseek(file, 0, SEEK_SET) != 0) {
+        fclose(file);
+        return -1;
+    }
+
+    file_buffer = malloc((size_t)file_size);
+    if(file_size > 0 && file_buffer == NULL) {
+        fclose(file);
+        return -1;
+    }
+
+    if(file_size > 0) {
+        size_t read_count = fread(file_buffer, 1, (size_t)file_size, file);
+        if(read_count != (size_t)file_size) {
+            free(file_buffer);
+            fclose(file);
+            return -1;
+        }
+    }
+
+    fclose(file);
+    *buffer = file_buffer;
+    *length = (size_t)file_size;
+    return 0;
+}
+
+static int write_text_file(const char * path, const char * text)
+{
+    FILE * file = NULL;
+
+    if(path == NULL || text == NULL) {
+        return -1;
+    }
+
+    file = fopen(path, "wb");
+    if(file == NULL) {
+        return -1;
+    }
+
+    if(fputs(text, file) == EOF || fputc('\n', file) == EOF) {
+        fclose(file);
+        return -1;
+    }
+
+    fclose(file);
+    return 0;
+}
+
+static int bytes_to_hex(const uint8_t * bytes, uint32_t bytes_len, char ** hex_out)
+{
+    static const char hex_chars[] = "0123456789abcdef";
+    size_t i = 0;
+    char * output = NULL;
+
+    if(bytes == NULL || hex_out == NULL) {
+        return -1;
+    }
+
+    output = malloc((bytes_len * 2U) + 1U);
+    if(output == NULL) {
+        return -1;
+    }
+
+    for(i = 0; i < bytes_len; i++) {
+        output[(i * 2U)] = hex_chars[(bytes[i] >> 4) & 0x0F];
+        output[(i * 2U) + 1U] = hex_chars[bytes[i] & 0x0F];
+    }
+    output[bytes_len * 2U] = '\0';
+
+    *hex_out = output;
+    return 0;
+}
+
+static int find_digest_algorithm(const char * algorithm, const digest_algorithm_t ** spec)
+{
+    size_t i;
+
+    if(algorithm == NULL || spec == NULL) {
+        return -1;
+    }
+
+    for(i = 0; i < sizeof(digest_algorithms) / sizeof(digest_algorithms[0]); i++) {
+        if(strncasecmp(algorithm, digest_algorithms[i].name, strlen(digest_algorithms[i].name)) == 0 &&
+           strlen(algorithm) == strlen(digest_algorithms[i].name)) {
+            *spec = &digest_algorithms[i];
+            return 0;
+        }
+    }
+
+    return -1;
+}
+
+static int compute_digest_for_algorithm(
+    const char * algorithm,
+    const uint8_t * data,
+    uint32_t len,
+    uint8_t * digest,
+    uint32_t * digest_len)
+{
+    noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
+    const digest_algorithm_t *spec = NULL;
+
+    if(algorithm == NULL || data == NULL || digest == NULL || digest_len == NULL) {
+        return -1;
+    }
+
+    if(find_digest_algorithm(algorithm, &spec) != 0 || spec == NULL) {
+        return -1;
+    }
+
+    {
+        noxtls_sha_ctx_t ctx;
+
+#if NOXTLS_FEATURE_MD4
+        noxtls_md4_set_debug(debug_lvl);
+#endif
+#if NOXTLS_FEATURE_MD5
+        noxtls_md5_set_debug(debug_lvl);
+#endif
+#if NOXTLS_FEATURE_SHA1
+        noxtls_sha1_set_debug(debug_lvl);
+#endif
+#if NOXTLS_FEATURE_SHA224 || NOXTLS_FEATURE_SHA256
+        noxtls_sha256_set_debug(debug_lvl);
+#endif
+#if NOXTLS_FEATURE_SHA384 || NOXTLS_FEATURE_SHA512
+        noxtls_sha512_set_debug(debug_lvl);
+#endif
+#if NOXTLS_FEATURE_SHA3
+        noxtls_sha3_set_debug(debug_lvl);
+#endif
+
+        rc = noxtls_sha_init(&ctx, spec->algo);
+        if(rc != NOXTLS_RETURN_SUCCESS) return -1;
+        rc = noxtls_sha_update(&ctx, (uint8_t *)data, len);
+        if(rc != NOXTLS_RETURN_SUCCESS) return -1;
+        rc = noxtls_sha_finish(&ctx, digest);
+        if(rc != NOXTLS_RETURN_SUCCESS) return -1;
+        *digest_len = spec->digest_len;
+        return 0;
+    }
+}
+
+static int print_digest_hex(const uint8_t * digest, uint32_t digest_len, const char * label)
+{
+    char * digest_hex = NULL;
+
+    if(bytes_to_hex(digest, digest_len, &digest_hex) != 0) {
+        return -1;
+    }
+
+    if(label != NULL) {
+        printf("%s  %s\n", digest_hex, label);
+    } else {
+        printf("%s\n", digest_hex);
+    }
+
+    free(digest_hex);
     return 0;
 }
 

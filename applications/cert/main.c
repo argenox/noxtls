@@ -42,11 +42,12 @@
  * @details
  * Operations: read, write, info, convert, verify, keyinfo, keywrite, debug, keydebug.
  * Parameters: operation name then options. Options: -i &lt;file&gt; input, -o &lt;file&gt; output,
- * -f der|pem format, -d debug, -v version/verbose, -h help.
+ * -I der|pem input format, -O der|pem output format, -f der|pem output format,
+ * -d debug, -v version/verbose, -h help.
  * @example
  * cert read -i cert.der
  * cert info -i cert.pem
- * cert convert -i cert.der -o cert.pem -f pem
+ * cert convert -i cert.der -I der -o cert.pem -O pem
  * cert verify -i cert.der
  * cert keyinfo -i key.pem
  * cert keywrite -i key.der -o key_out.pem -f pem
@@ -83,6 +84,12 @@ typedef enum {
     CERT_OP_KEY_DEBUG,
 } cert_operation_t;
 
+typedef enum {
+    CERT_FORMAT_AUTO = 0,
+    CERT_FORMAT_DER,
+    CERT_FORMAT_PEM,
+} cert_format_t;
+
 uint8_t debug_lvl = 0;
 
 static FILE *noxtls_fopen(const char *filename, const char *mode)
@@ -96,6 +103,130 @@ static FILE *noxtls_fopen(const char *filename, const char *mode)
 #else
     return fopen(filename, mode);
 #endif
+}
+
+static int parse_format(const char *format, cert_format_t *parsed)
+{
+    if(parsed == NULL) {
+        return -1;
+    }
+    if(format == NULL || strcmp(format, "auto") == 0) {
+        *parsed = CERT_FORMAT_AUTO;
+        return 0;
+    }
+    if(strcmp(format, "der") == 0 || strcmp(format, "DER") == 0) {
+        *parsed = CERT_FORMAT_DER;
+        return 0;
+    }
+    if(strcmp(format, "pem") == 0 || strcmp(format, "PEM") == 0) {
+        *parsed = CERT_FORMAT_PEM;
+        return 0;
+    }
+    return -1;
+}
+
+static noxtls_return_t read_file_alloc(const char *filename, uint8_t **data, uint32_t *len)
+{
+    FILE *fp = NULL;
+    long file_size = 0;
+    uint8_t *buffer = NULL;
+
+    if(filename == NULL || data == NULL || len == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    fp = noxtls_fopen(filename, "rb");
+    if(fp == NULL) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    if(fseek(fp, 0, SEEK_END) != 0) {
+        fclose(fp);
+        return NOXTLS_RETURN_FAILED;
+    }
+    file_size = ftell(fp);
+    if(file_size < 0 || file_size > (long)UINT32_MAX) {
+        fclose(fp);
+        return NOXTLS_RETURN_FAILED;
+    }
+    if(fseek(fp, 0, SEEK_SET) != 0) {
+        fclose(fp);
+        return NOXTLS_RETURN_FAILED;
+    }
+
+    buffer = (uint8_t *)malloc((size_t)file_size == 0u ? 1u : (size_t)file_size);
+    if(buffer == NULL) {
+        fclose(fp);
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+    }
+    if(file_size > 0) {
+        size_t read_count = fread(buffer, 1, (size_t)file_size, fp);
+        if(read_count != (size_t)file_size) {
+            free(buffer);
+            fclose(fp);
+            return NOXTLS_RETURN_FAILED;
+        }
+    }
+
+    fclose(fp);
+    *data = buffer;
+    *len = (uint32_t)file_size;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+static noxtls_return_t load_certificate_with_format(
+    x509_certificate_t *cert,
+    const char *input_file,
+    cert_format_t input_format)
+{
+    uint8_t *data = NULL;
+    uint32_t len = 0;
+    noxtls_return_t rc;
+
+    if(input_format == CERT_FORMAT_AUTO) {
+        return noxtls_x509_certificate_load_file(cert, input_file);
+    }
+
+    rc = read_file_alloc(input_file, &data, &len);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+
+    if(input_format == CERT_FORMAT_DER) {
+        rc = noxtls_x509_certificate_parse_der(cert, data, len);
+    } else {
+        rc = noxtls_x509_certificate_parse_pem(cert, data, len);
+    }
+
+    free(data);
+    return rc;
+}
+
+static noxtls_return_t load_private_key_with_format(
+    x509_private_key_t *key,
+    const char *input_file,
+    cert_format_t input_format)
+{
+    uint8_t *data = NULL;
+    uint32_t len = 0;
+    noxtls_return_t rc;
+
+    if(input_format == CERT_FORMAT_AUTO) {
+        return noxtls_x509_private_key_load_file(key, input_file);
+    }
+
+    rc = read_file_alloc(input_file, &data, &len);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+
+    if(input_format == CERT_FORMAT_DER) {
+        rc = noxtls_x509_private_key_parse_der(key, data, len);
+    } else {
+        rc = noxtls_x509_private_key_parse_pem(key, data, len);
+    }
+
+    free(data);
+    return rc;
 }
 
 static void print_return_reason(noxtls_return_t rc, const char *bad_data_label)
@@ -169,7 +300,9 @@ void print_usage(const char *name)
     printf("\nCommandline Switches:\n\n");
     printf("  -i <file>      Input file (certificate or private key)\n");
     printf("  -o <file>      Output file\n");
-    printf("  -f <format>     Format: der or pem (default: auto-detect)\n");
+    printf("  -I <format>    Input format: der, pem, or auto (default: auto)\n");
+    printf("  -O <format>    Output format: der or pem\n");
+    printf("  -f <format>    Output format alias for -O: der or pem\n");
     printf("  -d             Enable debug mode\n");
     printf("  -v             Version Information\n");
     printf("  -h             Help\n");
@@ -178,7 +311,8 @@ void print_usage(const char *name)
     printf("  %s read -i cert.der\n", name);
     printf("  %s read -i cert.pem\n", name);
     printf("  %s info -i cert.der\n", name);
-    printf("  %s convert -i cert.der -o cert.pem -f pem\n", name);
+    printf("  %s convert -i cert.der -I der -o cert.pem -O pem\n", name);
+    printf("  %s convert -i cert.pem -I pem -o cert.der -O der\n", name);
     printf("  %s verify -i cert.der\n", name);
     printf("  %s keyinfo -i key.pem\n", name);
     printf("  %s keywrite -i key.der -o key_out.pem -f pem\n", name);
@@ -186,7 +320,7 @@ void print_usage(const char *name)
     printf("  %s debug -i cert.der -v (verbose with raw data)\n", name);
     printf("  %s keydebug -i key.pem\n", name);
     printf("  %s keydebug -i key.pem -v (verbose with raw data)\n", name);
-    printf("  %s write -i cert.der -o cert_out.pem -f pem\n", name);
+    printf("  %s write -i cert.der -I der -o cert_out.pem -O pem\n", name);
     
     printf("\n");
 }
@@ -406,7 +540,8 @@ noxtls_return_t write_certificate_handler(int argc, char **argv)
 {
     const char *input_file = NULL;
     const char *output_file = NULL;
-    const char *format_str = NULL;
+    cert_format_t input_format = CERT_FORMAT_AUTO;
+    cert_format_t output_format = CERT_FORMAT_PEM;
     x509_certificate_t cert;
     FILE *fp;
     uint8_t *output_data = NULL;
@@ -414,7 +549,7 @@ noxtls_return_t write_certificate_handler(int argc, char **argv)
     noxtls_return_t rc;
     int c;
     
-    while((c = noxtls_getopt(argc, argv, "i:o:f:d")) != -1) {
+    while((c = noxtls_getopt(argc, argv, "i:o:f:I:O:d")) != -1) {
         switch(c) {
             case 'i':
                 input_file = optarg;
@@ -423,7 +558,17 @@ noxtls_return_t write_certificate_handler(int argc, char **argv)
                 output_file = optarg;
                 break;
             case 'f':
-                format_str = optarg;
+            case 'O':
+                if(parse_format(optarg, &output_format) != 0 || output_format == CERT_FORMAT_AUTO) {
+                    printf("Error: Invalid output format. Use 'der' or 'pem'\n");
+                    return NOXTLS_RETURN_INVALID_PARAM;
+                }
+                break;
+            case 'I':
+                if(parse_format(optarg, &input_format) != 0) {
+                    printf("Error: Invalid input format. Use 'der', 'pem', or 'auto'\n");
+                    return NOXTLS_RETURN_INVALID_PARAM;
+                }
                 break;
             case 'd':
                 debug_lvl = 1;
@@ -440,7 +585,7 @@ noxtls_return_t write_certificate_handler(int argc, char **argv)
     
     noxtls_x509_certificate_init(&cert);
     
-    rc = noxtls_x509_certificate_load_file(&cert, input_file);
+    rc = load_certificate_with_format(&cert, input_file, input_format);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         printf("Error: Failed to load certificate from %s\n", input_file);
         print_return_reason(rc, "Invalid certificate data");
@@ -448,7 +593,7 @@ noxtls_return_t write_certificate_handler(int argc, char **argv)
         return rc;
     }
     
-    if(format_str == NULL || strcmp(format_str, "pem") == 0) {
+    if(output_format == CERT_FORMAT_PEM) {
         /* Write as PEM */
         output_len = cert.raw_data_len * 2;  /* PEM is larger than DER */
         output_data = (uint8_t*)malloc(output_len);
@@ -463,19 +608,15 @@ noxtls_return_t write_certificate_handler(int argc, char **argv)
             noxtls_x509_certificate_free(&cert);
             return rc;
         }
-    } else if(strcmp(format_str, "der") == 0) {
+    } else if(output_format == CERT_FORMAT_DER) {
         /* Write as DER */
         output_data = cert.raw_data;
         output_len = cert.raw_data_len;
-    } else {
-        printf("Error: Invalid format. Use 'der' or 'pem'\n");
-        noxtls_x509_certificate_free(&cert);
-        return NOXTLS_RETURN_INVALID_PARAM;
     }
     
     fp = noxtls_fopen(output_file, "wb");
     if(fp == NULL) {
-        if(format_str == NULL || strcmp(format_str, "pem") == 0) {
+        if(output_format == CERT_FORMAT_PEM) {
             free(output_data);
         }
         noxtls_x509_certificate_free(&cert);
@@ -484,7 +625,7 @@ noxtls_return_t write_certificate_handler(int argc, char **argv)
     
     if(fwrite(output_data, 1, output_len, fp) != output_len) {
         fclose(fp);
-        if(format_str == NULL || strcmp(format_str, "pem") == 0) {
+        if(output_format == CERT_FORMAT_PEM) {
             free(output_data);
         }
         noxtls_x509_certificate_free(&cert);
@@ -493,7 +634,7 @@ noxtls_return_t write_certificate_handler(int argc, char **argv)
     
     fclose(fp);
     
-    if(format_str == NULL || strcmp(format_str, "pem") == 0) {
+    if(output_format == CERT_FORMAT_PEM) {
         free(output_data);
     }
     
@@ -612,7 +753,8 @@ noxtls_return_t keywrite_handler(int argc, char **argv)
 {
     const char *input_file = NULL;
     const char *output_file = NULL;
-    const char *format_str = NULL;
+    cert_format_t input_format = CERT_FORMAT_AUTO;
+    cert_format_t output_format = CERT_FORMAT_PEM;
     x509_private_key_t key;
     FILE *fp;
     uint8_t *output_data = NULL;
@@ -620,7 +762,7 @@ noxtls_return_t keywrite_handler(int argc, char **argv)
     noxtls_return_t rc;
     int c;
     
-    while((c = noxtls_getopt(argc, argv, "i:o:f:d")) != -1) {
+    while((c = noxtls_getopt(argc, argv, "i:o:f:I:O:d")) != -1) {
         switch(c) {
             case 'i':
                 input_file = optarg;
@@ -629,7 +771,17 @@ noxtls_return_t keywrite_handler(int argc, char **argv)
                 output_file = optarg;
                 break;
             case 'f':
-                format_str = optarg;
+            case 'O':
+                if(parse_format(optarg, &output_format) != 0 || output_format == CERT_FORMAT_AUTO) {
+                    printf("Error: Invalid output format. Use 'der' or 'pem'\n");
+                    return NOXTLS_RETURN_INVALID_PARAM;
+                }
+                break;
+            case 'I':
+                if(parse_format(optarg, &input_format) != 0) {
+                    printf("Error: Invalid input format. Use 'der', 'pem', or 'auto'\n");
+                    return NOXTLS_RETURN_INVALID_PARAM;
+                }
                 break;
             case 'd':
                 debug_lvl = 1;
@@ -646,7 +798,7 @@ noxtls_return_t keywrite_handler(int argc, char **argv)
     
     noxtls_x509_private_key_init(&key);
     
-    rc = noxtls_x509_private_key_load_file(&key, input_file);
+    rc = load_private_key_with_format(&key, input_file, input_format);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         printf("Error: Failed to load private key from %s\n", input_file);
         print_return_reason(rc, "Invalid private key data");
@@ -654,7 +806,7 @@ noxtls_return_t keywrite_handler(int argc, char **argv)
         return rc;
     }
     
-    if(format_str == NULL || strcmp(format_str, "pem") == 0) {
+    if(output_format == CERT_FORMAT_PEM) {
         /* Write as PEM */
         if(key.raw_data == NULL) {
             printf("Error: No raw data available for conversion\n");
@@ -732,7 +884,7 @@ noxtls_return_t keywrite_handler(int argc, char **argv)
         }
         output_len = (uint32_t)offset;
         
-    } else if(strcmp(format_str, "der") == 0) {
+    } else if(output_format == CERT_FORMAT_DER) {
         /* Write as DER */
         if(key.raw_data == NULL) {
             printf("Error: No raw data available\n");
@@ -741,15 +893,11 @@ noxtls_return_t keywrite_handler(int argc, char **argv)
         }
         output_data = key.raw_data;
         output_len = key.raw_data_len;
-    } else {
-        printf("Error: Invalid format. Use 'der' or 'pem'\n");
-        noxtls_x509_private_key_free(&key);
-        return NOXTLS_RETURN_INVALID_PARAM;
     }
     
     fp = noxtls_fopen(output_file, "wb");
     if(fp == NULL) {
-        if(format_str == NULL || strcmp(format_str, "pem") == 0) {
+        if(output_format == CERT_FORMAT_PEM) {
             free(output_data);
         }
         noxtls_x509_private_key_free(&key);
@@ -758,7 +906,7 @@ noxtls_return_t keywrite_handler(int argc, char **argv)
     
     if(fwrite(output_data, 1, output_len, fp) != output_len) {
         fclose(fp);
-        if(format_str == NULL || strcmp(format_str, "pem") == 0) {
+        if(output_format == CERT_FORMAT_PEM) {
             free(output_data);
         }
         noxtls_x509_private_key_free(&key);
@@ -767,7 +915,7 @@ noxtls_return_t keywrite_handler(int argc, char **argv)
     
     fclose(fp);
     
-    if(format_str == NULL || strcmp(format_str, "pem") == 0) {
+    if(output_format == CERT_FORMAT_PEM) {
         free(output_data);
     }
     
@@ -955,4 +1103,3 @@ int main(int argc, char **argv)
     
     return 0;
 }
-

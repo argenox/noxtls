@@ -60,10 +60,10 @@ const char base64_table[] =
  * @return number of bytes encoded, negative error otherwise
  *
  */
-int noxtls_base64_encode(uint8_t * input, uint32_t len, char * output)
+int noxtls_base64_encode(const uint8_t * input, uint32_t len, char * output)
 {
     uint32_t val;
-    uint8_t * ptr = input;
+    const uint8_t * ptr = input;
     char * out_ptr = output;
     int out_len = -1;
 

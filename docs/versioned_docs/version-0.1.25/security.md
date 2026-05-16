@@ -21,7 +21,7 @@ At a minimum, apply the following baseline controls:
 - Enable auditing for authentication, key management, and configuration changes to support incident response.
 - Document an incident process, including key compromise handling and certificate revocation procedures.
 
-For vulnerability intake and coordinated disclosure workflow, see [Security Reporting](/docs/next/security-reporting).
+For vulnerability intake and coordinated disclosure workflow, see [Security Reporting](/docs/security-reporting).
 
 ## Cryptography
 
@@ -85,5 +85,5 @@ For API details, see the [Crypto API](/docs/api).
 
 See:
 
-- [Security Reporting](/docs/next/security-reporting)
+- [Security Reporting](/docs/security-reporting)
 - [Release Notes](/docs/release-notes)

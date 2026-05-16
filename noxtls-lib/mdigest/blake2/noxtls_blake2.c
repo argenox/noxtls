@@ -101,9 +101,11 @@ static void blake2s_compress(noxtls_blake2_ctx_t * ctx, const uint8_t * block, i
     int i;
     int r;
 
-    for(i = 0; i < BLAKE2_MSG_WORDS; i++)
-        m[i] = (uint32_t)block[i * BLAKE2S_WORD_BYTES] | ((uint32_t)block[i * BLAKE2S_WORD_BYTES + 1] << 8) |
-               ((uint32_t)block[i * BLAKE2S_WORD_BYTES + 2] << 16) | ((uint32_t)block[i * BLAKE2S_WORD_BYTES + 3] << 24);
+    for(i = 0; i < BLAKE2_MSG_WORDS; i++) {
+        size_t off = (size_t)i * BLAKE2S_WORD_BYTES;
+        m[i] = (uint32_t)block[off] | ((uint32_t)block[off + 1u] << 8) |
+               ((uint32_t)block[off + 2u] << 16) | ((uint32_t)block[off + 3u] << 24);
+    }
 
     for(i = 0; i < BLAKE2_CHAINING_WORDS; i++) {
         v[i] = ctx->h.h32[i];
@@ -146,10 +148,11 @@ static void blake2b_compress(noxtls_blake2_ctx_t * ctx, const uint8_t * block, i
 
     for(i = 0; i < BLAKE2_MSG_WORDS; i++)
     {
-        m[i] = (uint64_t)block[i * BLAKE2B_WORD_BYTES] | ((uint64_t)block[i * BLAKE2B_WORD_BYTES + 1] << 8) |
-               ((uint64_t)block[i * BLAKE2B_WORD_BYTES + 2] << 16) | ((uint64_t)block[i * BLAKE2B_WORD_BYTES + 3] << 24) |
-               ((uint64_t)block[i * BLAKE2B_WORD_BYTES + 4] << 32) | ((uint64_t)block[i * BLAKE2B_WORD_BYTES + 5] << 40) |
-               ((uint64_t)block[i * BLAKE2B_WORD_BYTES + 6] << 48) | ((uint64_t)block[i * BLAKE2B_WORD_BYTES + 7] << 56);
+        size_t off = (size_t)i * BLAKE2B_WORD_BYTES;
+        m[i] = (uint64_t)block[off] | ((uint64_t)block[off + 1u] << 8) |
+               ((uint64_t)block[off + 2u] << 16) | ((uint64_t)block[off + 3u] << 24) |
+               ((uint64_t)block[off + 4u] << 32) | ((uint64_t)block[off + 5u] << 40) |
+               ((uint64_t)block[off + 6u] << 48) | ((uint64_t)block[off + 7u] << 56);
     }
 
     for(i = 0; i < BLAKE2_CHAINING_WORDS; i++) {

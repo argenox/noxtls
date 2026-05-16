@@ -153,6 +153,7 @@ static noxtls_cert_verify_failure_info_t s_cert_fail_info;
 static x509_certificate_chain_t s_x509_trust_anchors;
 static int s_x509_trust_anchors_initialized;
 
+/* NOLINTNEXTLINE(bugprone-easily-swappable-parameters): captures fixed failure payload fields (hostname length/index). */
 static void cert_fail_set(noxtls_return_t return_code, const x509_certificate_t *cert, const char *expected_hostname, uint32_t expected_hostname_len, uint32_t cert_index)
 {
     memset(&s_cert_fail_info, 0, sizeof(s_cert_fail_info));
@@ -327,7 +328,8 @@ static noxtls_return_t asn1_get_sequence(const uint8_t **data, const uint8_t *en
 
     *seq_len = asn1_get_length(data, end);
 
-    if(*seq_len == 0 || (size_t)(end - *data) < (size_t)(*seq_len)) {
+    /* Zero-length SEQUENCE is valid (e.g. empty X.509 subject DN: 30 00). */
+    if((size_t)(end - *data) < (size_t)(*seq_len)) {
         return NOXTLS_RETURN_FAILED;
     }
 
@@ -431,10 +433,15 @@ static noxtls_return_t hmac_sha1(const uint8_t *key, uint32_t key_len,
     return NOXTLS_RETURN_SUCCESS;
 }
 
-/* PBKDF2-HMAC-SHA1 (RFC 8018). Derives key_len bytes into out. */
+typedef struct pbkdf2_sha1_params_t {
+    uint32_t salt_len;
+    uint32_t iterations;
+    uint32_t key_len;
+} pbkdf2_sha1_params_t;
+
+/* PBKDF2-HMAC-SHA1 (RFC 8018). Derives params->key_len bytes into out. */
 static noxtls_return_t pbkdf2_hmac_sha1(const uint8_t *password, uint32_t password_len,
-                                         const uint8_t *salt, uint32_t salt_len,
-                                         uint32_t iterations, uint32_t key_len, uint8_t *out)
+                                         const uint8_t *salt, const pbkdf2_sha1_params_t *params, uint8_t *out)
 {
     uint8_t u[SHA1_OUT_LEN];
     uint8_t t[SHA1_OUT_LEN];
@@ -444,23 +451,23 @@ static noxtls_return_t pbkdf2_hmac_sha1(const uint8_t *password, uint32_t passwo
     uint32_t blocks;
     uint32_t block_index;
 
-    if(password == NULL || salt == NULL || out == NULL || iterations == 0) {
+    if(password == NULL || salt == NULL || params == NULL || out == NULL || params->iterations == 0) {
         return NOXTLS_RETURN_NULL;
     }
 
-    if(salt_len > 0xFFFF - 4) return NOXTLS_RETURN_FAILED;
-    block_input = (uint8_t*)malloc(salt_len + 4);
+    if(params->salt_len > 0xFFFF - 4) return NOXTLS_RETURN_FAILED;
+    block_input = (uint8_t*)malloc(params->salt_len + 4u);
     if(block_input == NULL) return NOXTLS_RETURN_FAILED;
-    memcpy(block_input, salt, salt_len);
-    blocks = (key_len + SHA1_OUT_LEN - 1) / SHA1_OUT_LEN;
+    memcpy(block_input, salt, params->salt_len);
+    blocks = (params->key_len + SHA1_OUT_LEN - 1u) / SHA1_OUT_LEN;
 
     for(block_index = 1; block_index <= blocks; block_index++) {
-        block_input[salt_len + 0] = (uint8_t)(block_index >> 24);
-        block_input[salt_len + 1] = (uint8_t)(block_index >> 16);
-        block_input[salt_len + 2] = (uint8_t)(block_index >> 8);
-        block_input[salt_len + 3] = (uint8_t)(block_index);
+        block_input[params->salt_len + 0u] = (uint8_t)(block_index >> 24);
+        block_input[params->salt_len + 1u] = (uint8_t)(block_index >> 16);
+        block_input[params->salt_len + 2u] = (uint8_t)(block_index >> 8);
+        block_input[params->salt_len + 3u] = (uint8_t)(block_index);
 
-        if(hmac_sha1(password, password_len, block_input, salt_len + 4, u) != NOXTLS_RETURN_SUCCESS) {
+        if(hmac_sha1(password, password_len, block_input, params->salt_len + 4u, u) != NOXTLS_RETURN_SUCCESS) {
             free(block_input);
             return NOXTLS_RETURN_FAILED;
         }
@@ -468,7 +475,7 @@ static noxtls_return_t pbkdf2_hmac_sha1(const uint8_t *password, uint32_t passwo
         for(k = 0; k < SHA1_OUT_LEN; k++)
             t[k] = u[k];
 
-        for(j = 1; j < iterations; j++) {
+        for(j = 1; j < params->iterations; j++) {
             if(hmac_sha1(password, password_len, u, SHA1_OUT_LEN, u) != NOXTLS_RETURN_SUCCESS) {
                 free(block_input);
                 return NOXTLS_RETURN_FAILED;
@@ -477,8 +484,10 @@ static noxtls_return_t pbkdf2_hmac_sha1(const uint8_t *password, uint32_t passwo
         }
 
         {
-            uint32_t copy_len = (block_index * SHA1_OUT_LEN <= key_len) ? SHA1_OUT_LEN : (key_len - (block_index - 1) * SHA1_OUT_LEN);
-            memcpy(out + (block_index - 1) * SHA1_OUT_LEN, t, copy_len);
+            uint32_t copy_len = (block_index * SHA1_OUT_LEN <= params->key_len)
+                                    ? SHA1_OUT_LEN
+                                    : (params->key_len - (block_index - 1u) * SHA1_OUT_LEN);
+            memcpy(out + (size_t)(block_index - 1u) * SHA1_OUT_LEN, t, copy_len);
         }
     }
     free(block_input);
@@ -1676,7 +1685,6 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(x509_certificate_t *cer
     noxtls_hash_algos_t hash_algo;
     int is_rsa;
     uint8_t hash[64];  /* Max hash size (SHA-512) */
-    uint32_t hash_len = 0;
 
     if(cert == NULL || issuer == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -1713,19 +1721,16 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(x509_certificate_t *cer
         noxtls_sha_ctx_t sha_ctx;
         noxtls_sha256_init(&sha_ctx, hash_algo);
         noxtls_sha256_update(&sha_ctx, cert->tbs_certificate, cert->tbs_certificate_len);
-        hash_len = 32;
         rc = noxtls_sha256_finish(&sha_ctx, hash);
     } else if(hash_algo == NOXTLS_HASH_SHA_384) {
         noxtls_sha512_ctx_t sha_ctx;
         noxtls_sha512_init(&sha_ctx, hash_algo);
         noxtls_sha512_update(&sha_ctx, cert->tbs_certificate, cert->tbs_certificate_len);
-        hash_len = 48;
         rc = noxtls_sha512_finish(&sha_ctx, hash);
     } else if(hash_algo == NOXTLS_HASH_SHA_512) {
         noxtls_sha512_ctx_t sha_ctx;
         noxtls_sha512_init(&sha_ctx, hash_algo);
         noxtls_sha512_update(&sha_ctx, cert->tbs_certificate, cert->tbs_certificate_len);
-        hash_len = 64;
         rc = noxtls_sha512_finish(&sha_ctx, hash);
     } else {
         CERT_DEBUG_PRINT("x509_certificate_verify_signature: unsupported hash algorithm\n");
@@ -1797,11 +1802,8 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(x509_certificate_t *cer
                                hash_algo);
         noxtls_rsa_key_free(&rsa_key);
 
-        if(rc == NOXTLS_RETURN_SUCCESS) {
-            CERT_DEBUG_PRINT("x509_certificate_verify_signature: RSA signature verification SUCCESS\n");
-        } else {
-            CERT_DEBUG_PRINT("x509_certificate_verify_signature: RSA signature verification FAILED\n");
-        }
+        CERT_DEBUG_PRINT("x509_certificate_verify_signature: RSA signature verification %s\n",
+                         (rc == NOXTLS_RETURN_SUCCESS) ? "SUCCESS" : "FAILED");
 
         if(rc != NOXTLS_RETURN_SUCCESS) {
             cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED, cert, NULL, 0, 0);
@@ -1810,9 +1812,19 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(x509_certificate_t *cer
         return NOXTLS_RETURN_SUCCESS;
     } else if(is_rsa == 2) {
 #if NOXTLS_FEATURE_ML_DSA
+        uint32_t hash_len = 0;
         if(!issuer->has_mldsa || issuer->mldsa_public_key_len == 0 || issuer->mldsa_param == 0) {
             cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED, cert, NULL, 0, 0);
             return NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED;
+        }
+        if(hash_algo == NOXTLS_HASH_SHA_256) {
+            hash_len = 32;
+        } else if(hash_algo == NOXTLS_HASH_SHA_384) {
+            hash_len = 48;
+        } else if(hash_algo == NOXTLS_HASH_SHA_512) {
+            hash_len = 64;
+        } else {
+            return NOXTLS_RETURN_INVALID_ALGORITHM;
         }
         rc = noxtls_mldsa_verify(issuer->mldsa_param,
                                  issuer->mldsa_public_key,
@@ -1956,11 +1968,8 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(x509_certificate_t *cer
         rc = noxtls_ecdsa_verify(&ecc_key, cert->tbs_certificate, cert->tbs_certificate_len, &ecdsa_sig, hash_algo);
         noxtls_ecc_key_free(&ecc_key);
 
-        if(rc == NOXTLS_RETURN_SUCCESS) {
-            CERT_DEBUG_PRINT("x509_certificate_verify_signature: ECDSA signature verification SUCCESS\n");
-        } else {
-            CERT_DEBUG_PRINT("x509_certificate_verify_signature: ECDSA signature verification FAILED\n");
-        }
+        CERT_DEBUG_PRINT("x509_certificate_verify_signature: ECDSA signature verification %s\n",
+                         (rc == NOXTLS_RETURN_SUCCESS) ? "SUCCESS" : "FAILED");
 
         if(rc != NOXTLS_RETURN_SUCCESS) {
             cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED, cert, NULL, 0, 0);
@@ -1971,6 +1980,50 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(x509_certificate_t *cer
 }
 
 #if NOXTLS_HAVE_TIME
+/**
+ * @brief Decode two-digit UTC year (YY) to full year.
+ */
+static int x509_asn1_utc_year(const uint8_t *time_data)
+{
+    int year = (time_data[0] - '0') * 10 + (time_data[1] - '0');
+    return (year < 50) ? (year + 2000) : (year + 1900);
+}
+
+/**
+ * @brief Load month..second from UTCTime digit layout (indices 2..11).
+ */
+/* NOLINTNEXTLINE(bugprone-easily-swappable-parameters): grouped out-params are positional date-time components. */
+static void x509_asn1_utc_load_mdhm(const uint8_t *time_data, int *month, int *day, int *hour, int *minute, int *second)
+{
+    *month = (time_data[2] - '0') * 10 + (time_data[3] - '0');
+    *day = (time_data[4] - '0') * 10 + (time_data[5] - '0');
+    *hour = (time_data[6] - '0') * 10 + (time_data[7] - '0');
+    *minute = (time_data[8] - '0') * 10 + (time_data[9] - '0');
+    *second = (time_data[10] - '0') * 10 + (time_data[11] - '0');
+}
+
+/**
+ * @brief Decode four-digit GeneralizedTime year (YYYY).
+ */
+static int x509_asn1_gt_year(const uint8_t *time_data)
+{
+    return (time_data[0] - '0') * 1000 + (time_data[1] - '0') * 100 +
+           (time_data[2] - '0') * 10 + (time_data[3] - '0');
+}
+
+/**
+ * @brief Load month..second from GeneralizedTime digit layout (indices 4..13).
+ */
+/* NOLINTNEXTLINE(bugprone-easily-swappable-parameters): grouped out-params are positional date-time components. */
+static void x509_asn1_gt_load_mdhm(const uint8_t *time_data, int *month, int *day, int *hour, int *minute, int *second)
+{
+    *month = (time_data[4] - '0') * 10 + (time_data[5] - '0');
+    *day = (time_data[6] - '0') * 10 + (time_data[7] - '0');
+    *hour = (time_data[8] - '0') * 10 + (time_data[9] - '0');
+    *minute = (time_data[10] - '0') * 10 + (time_data[11] - '0');
+    *second = (time_data[12] - '0') * 10 + (time_data[13] - '0');
+}
+
 /**
  * @brief Convert ASN.1 time to time_t (Unix timestamp)
  * @param time_data ASN.1 time data (UTCTime or GeneralizedTime)
@@ -2011,84 +2064,27 @@ static noxtls_return_t noxtls_x509_asn1_time_to_timet(const uint8_t *time_data, 
     int minute;
     int second;
 
-    /* Parse UTCTime format: YYMMDDHHMMSSZ (13 bytes) */
-    if(time_len == 13 && time_data[12] == 'Z') {
-        year = (time_data[0] - '0') * 10 + (time_data[1] - '0');
-        if(year < 50) {
-            year += 2000;  /* 00-49 = 2000-2049 */
-        } else {
-            year += 1900;  /* 50-99 = 1950-1999 */
-        }
-        month = (time_data[2] - '0') * 10 + (time_data[3] - '0');
-        day = (time_data[4] - '0') * 10 + (time_data[5] - '0');
-        hour = (time_data[6] - '0') * 10 + (time_data[7] - '0');
-        minute = (time_data[8] - '0') * 10 + (time_data[9] - '0');
-        second = (time_data[10] - '0') * 10 + (time_data[11] - '0');
+    /* Parse UTCTime formats: YYMMDDHHMMSSZ or YYMMDDHHMMSS+/-HHMM */
+    if((time_len == 13 && time_data[12] == 'Z') ||
+       (time_len == 17 && (time_data[12] == '+' || time_data[12] == '-'))) {
+        year = x509_asn1_utc_year(time_data);
+        x509_asn1_utc_load_mdhm(time_data, &month, &day, &hour, &minute, &second);
+        /* For timezone offset encodings, we currently ignore the +/-HHMM suffix and assume UTC. */
     }
-
-    /* Parse GeneralizedTime format: YYYYMMDDHHMMSSZ (15 bytes) */
-    else if(time_len == 15 && time_data[14] == 'Z') {
-        year = (time_data[0] - '0') * 1000 + (time_data[1] - '0') * 100 +
-               (time_data[2] - '0') * 10 + (time_data[3] - '0');
-        month = (time_data[4] - '0') * 10 + (time_data[5] - '0');
-        day = (time_data[6] - '0') * 10 + (time_data[7] - '0');
-        hour = (time_data[8] - '0') * 10 + (time_data[9] - '0');
-        minute = (time_data[10] - '0') * 10 + (time_data[11] - '0');
-        second = (time_data[12] - '0') * 10 + (time_data[13] - '0');
-    }
-
-    /* Parse GeneralizedTime without trailing Z: YYYYMMDDHHMMSS (14 digits, e.g. after null-terminating at [14]) */
-    else if(time_len == 14) {
-        year = (time_data[0] - '0') * 1000 + (time_data[1] - '0') * 100 +
-               (time_data[2] - '0') * 10 + (time_data[3] - '0');
-        month = (time_data[4] - '0') * 10 + (time_data[5] - '0');
-        day = (time_data[6] - '0') * 10 + (time_data[7] - '0');
-        hour = (time_data[8] - '0') * 10 + (time_data[9] - '0');
-        minute = (time_data[10] - '0') * 10 + (time_data[11] - '0');
-        second = (time_data[12] - '0') * 10 + (time_data[13] - '0');
-    }
-
-    /* Parse GeneralizedTime with fractional seconds: YYYYMMDDHHMMSS.0Z (15 bytes copied, 14th is '.') */
-    else if(time_len == 15 && (time_data[14] == '.' || time_data[14] == ',')) {
-        year = (time_data[0] - '0') * 1000 + (time_data[1] - '0') * 100 +
-               (time_data[2] - '0') * 10 + (time_data[3] - '0');
-        month = (time_data[4] - '0') * 10 + (time_data[5] - '0');
-        day = (time_data[6] - '0') * 10 + (time_data[7] - '0');
-        hour = (time_data[8] - '0') * 10 + (time_data[9] - '0');
-        minute = (time_data[10] - '0') * 10 + (time_data[11] - '0');
-        second = (time_data[12] - '0') * 10 + (time_data[13] - '0');
-    }
-
-    /* Parse UTCTime with timezone offset: YYMMDDHHMMSS+/-HHMM (17 bytes) */
-    else if(time_len == 17 && (time_data[12] == '+' || time_data[12] == '-')) {
-        year = (time_data[0] - '0') * 10 + (time_data[1] - '0');
-        if(year < 50) {
-            year += 2000;
-        } else {
-            year += 1900;
-        }
-        month = (time_data[2] - '0') * 10 + (time_data[3] - '0');
-        day = (time_data[4] - '0') * 10 + (time_data[5] - '0');
-        hour = (time_data[6] - '0') * 10 + (time_data[7] - '0');
-        minute = (time_data[8] - '0') * 10 + (time_data[9] - '0');
-        second = (time_data[10] - '0') * 10 + (time_data[11] - '0');
-
-        /* Note: We'll ignore timezone offset for simplicity and assume UTC */
-        /* In a production system, you'd want to handle timezone offsets properly */
-    }
-    /* Parse GeneralizedTime with timezone offset: YYYYMMDDHHMMSS+/-HHMM (19 bytes) */
-    else if(time_len == 19 && (time_data[14] == '+' || time_data[14] == '-')) {
-        year = (time_data[0] - '0') * 1000 + (time_data[1] - '0') * 100 +
-               (time_data[2] - '0') * 10 + (time_data[3] - '0');
-        month = (time_data[4] - '0') * 10 + (time_data[5] - '0');
-        day = (time_data[6] - '0') * 10 + (time_data[7] - '0');
-        hour = (time_data[8] - '0') * 10 + (time_data[9] - '0');
-        minute = (time_data[10] - '0') * 10 + (time_data[11] - '0');
-        second = (time_data[12] - '0') * 10 + (time_data[13] - '0');
-
-        /* Note: We'll ignore timezone offset for simplicity and assume UTC */
-    }
-    else {
+    /* Parse GeneralizedTime formats:
+     *  - YYYYMMDDHHMMSSZ
+     *  - YYYYMMDDHHMMSS
+     *  - YYYYMMDDHHMMSS.0Z (or comma separator)
+     *  - YYYYMMDDHHMMSS+/-HHMM
+     */
+    else if((time_len == 15 && time_data[14] == 'Z') ||
+            (time_len == 14) ||
+            (time_len == 15 && (time_data[14] == '.' || time_data[14] == ',')) ||
+            (time_len == 19 && (time_data[14] == '+' || time_data[14] == '-'))) {
+        year = x509_asn1_gt_year(time_data);
+        x509_asn1_gt_load_mdhm(time_data, &month, &day, &hour, &minute, &second);
+        /* For timezone offset encodings, we currently ignore the +/-HHMM suffix and assume UTC. */
+    } else {
         return NOXTLS_RETURN_BAD_DATA;
     }
 
@@ -2479,7 +2475,7 @@ noxtls_return_t noxtls_x509_parse_distinguished_name(const uint8_t *dn_data, uin
                 for(i = 0; i < max_value_len && output_pos < output_size - 1; i++) {
                     uint8_t c = attr_ptr[i];
                     if(c >= 32 && c < 127) {  /* Printable ASCII */
-                        output[output_pos++] = c;
+                        output[output_pos++] = (char)c;
                     } else {
                         output[output_pos++] = '?';
                     }
@@ -2518,7 +2514,7 @@ noxtls_return_t noxtls_x509_parse_time(const uint8_t *time_data, uint32_t time_l
     for(i = 0; i < time_len && i < sizeof(time_str) - 1; i++) {
         uint8_t c = time_data[i];
         if(c >= 32 && c < 127) {  /* Printable ASCII */
-            time_str[i] = c;
+            time_str[i] = (char)c;
         } else {
             time_str[i] = '?';
         }
@@ -3675,6 +3671,11 @@ void noxtls_x509_trust_store_clear(void)
     s_x509_trust_anchors_initialized = 0;
 }
 
+int noxtls_x509_trust_store_has_anchors(void)
+{
+    return (s_x509_trust_anchors_initialized && s_x509_trust_anchors.count > 0u) ? 1 : 0;
+}
+
 noxtls_return_t noxtls_x509_trust_store_set(const x509_certificate_chain_t *trust_anchors)
 {
     uint32_t i;
@@ -4492,8 +4493,11 @@ static noxtls_return_t noxtls_x509_parse_encrypted_pkcs8(x509_private_key_t *key
     if(enc_data_len < NOXTLS_AES_BLOCK_LEN || (enc_data_len - NOXTLS_AES_BLOCK_LEN) % NOXTLS_AES_BLOCK_LEN != 0) {
         return NOXTLS_RETURN_FAILED;
     }
-    if(pbkdf2_hmac_sha1((const uint8_t*)password, password_len, salt, salt_len, iterations, key_bits, derived_key) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
+    {
+        pbkdf2_sha1_params_t p = {salt_len, iterations, key_bits};
+        if(pbkdf2_hmac_sha1((const uint8_t*)password, password_len, salt, &p, derived_key) != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_FAILED;
+        }
     }
     decrypted = (uint8_t*)malloc(enc_data_len - NOXTLS_AES_BLOCK_LEN);
     if(decrypted == NULL) return NOXTLS_RETURN_FAILED;
@@ -4623,12 +4627,38 @@ noxtls_return_t noxtls_x509_private_key_parse_der(x509_private_key_t *key, const
 }
 
 /**
+ * Find first occurrence of NUL-terminated \p needle in \p buf[0..len).
+ * PEM file contents are not NUL-terminated; using strstr() on them is undefined
+ * behavior and may read past the allocation (FORTIFY/ASAN).
+ */
+static const uint8_t *x509_memfind(const uint8_t *buf, uint32_t len, const char *needle)
+{
+    size_t nlen;
+    uint32_t i;
+
+    if(buf == NULL || needle == NULL) {
+        return NULL;
+    }
+    nlen = strlen(needle);
+    if(nlen == 0u || (size_t)len < nlen) {
+        return NULL;
+    }
+    for(i = 0; (size_t)i + nlen <= (size_t)len; i++) {
+        if(memcmp(buf + i, needle, nlen) == 0) {
+            return buf + i;
+        }
+    }
+    return NULL;
+}
+
+/**
  * @brief Parse X.509 private key from PEM format
  */
 noxtls_return_t noxtls_x509_private_key_parse_pem(x509_private_key_t *key, const uint8_t *data, uint32_t len)
 {
     uint8_t *der_data = NULL;
     uint32_t der_len = 0;
+    int decoded_len = 0;
     noxtls_return_t rc;
     const char *begin_marker = NULL;
     const char *end_marker = NULL;
@@ -4641,16 +4671,16 @@ noxtls_return_t noxtls_x509_private_key_parse_pem(x509_private_key_t *key, const
     }
 
     /* Find PEM markers */
-    if(strstr((const char*)data, "-----BEGIN RSA PRIVATE KEY-----") != NULL) {
+    if(x509_memfind(data, len, "-----BEGIN RSA PRIVATE KEY-----") != NULL) {
         begin_marker = "-----BEGIN RSA PRIVATE KEY-----";
         end_marker = "-----END RSA PRIVATE KEY-----";
-    } else if(strstr((const char*)data, "-----BEGIN PRIVATE KEY-----") != NULL) {
+    } else if(x509_memfind(data, len, "-----BEGIN PRIVATE KEY-----") != NULL) {
         begin_marker = "-----BEGIN PRIVATE KEY-----";
         end_marker = "-----END PRIVATE KEY-----";
-    } else if(strstr((const char*)data, "-----BEGIN EC PRIVATE KEY-----") != NULL) {
+    } else if(x509_memfind(data, len, "-----BEGIN EC PRIVATE KEY-----") != NULL) {
         begin_marker = "-----BEGIN EC PRIVATE KEY-----";
         end_marker = "-----END EC PRIVATE KEY-----";
-    } else if(strstr((const char*)data, "-----BEGIN ENCRYPTED PRIVATE KEY-----") != NULL) {
+    } else if(x509_memfind(data, len, "-----BEGIN ENCRYPTED PRIVATE KEY-----") != NULL) {
         begin_marker = "-----BEGIN ENCRYPTED PRIVATE KEY-----";
         end_marker = "-----END ENCRYPTED PRIVATE KEY-----";
     } else {
@@ -4658,7 +4688,7 @@ noxtls_return_t noxtls_x509_private_key_parse_pem(x509_private_key_t *key, const
     }
 
     /* Find start of base64 data */
-    pem_start = (const uint8_t*)strstr((const char*)data, begin_marker);
+    pem_start = x509_memfind(data, len, begin_marker);
     if(pem_start == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -4671,7 +4701,13 @@ noxtls_return_t noxtls_x509_private_key_parse_pem(x509_private_key_t *key, const
     }
 
     /* Find end of base64 data */
-    pem_end = (const uint8_t*)strstr((const char*)pem_start, end_marker);
+    if(pem_start > data + len) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    {
+        uint32_t tail_len = (uint32_t)((size_t)((data + len) - pem_start));
+        pem_end = x509_memfind(pem_start, tail_len, end_marker);
+    }
     if(pem_end == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -4696,11 +4732,16 @@ noxtls_return_t noxtls_x509_private_key_parse_pem(x509_private_key_t *key, const
     }
 
     /* Convert PEM to DER */
-    der_len = noxtls_base64_decode((char*)pem_start, pem_data_len, der_data);
-    if(der_len == 0) {
+    decoded_len = noxtls_base64_decode((char*)pem_start, pem_data_len, der_data);
+    if(decoded_len <= 0) {
         free(der_data);
         return NOXTLS_RETURN_FAILED;
     }
+    if((unsigned long)decoded_len > UINT32_MAX) {
+        free(der_data);
+        return NOXTLS_RETURN_FAILED;
+    }
+    der_len = (uint32_t)decoded_len;
 
     /* Parse DER */
     rc = noxtls_x509_private_key_parse_der(key, der_data, der_len);
@@ -4720,6 +4761,7 @@ noxtls_return_t noxtls_x509_private_key_parse_pem_with_password(x509_private_key
 {
     uint8_t *der_data = NULL;
     uint32_t der_len = 0;
+    int decoded_len = 0;
     noxtls_return_t rc;
     const char *begin_marker = NULL;
     const char *end_marker = NULL;
@@ -4732,24 +4774,24 @@ noxtls_return_t noxtls_x509_private_key_parse_pem_with_password(x509_private_key
         return NOXTLS_RETURN_NULL;
     }
 
-    if(strstr((const char*)data, "-----BEGIN ENCRYPTED PRIVATE KEY-----") != NULL) {
+    if(x509_memfind(data, len, "-----BEGIN ENCRYPTED PRIVATE KEY-----") != NULL) {
         begin_marker = "-----BEGIN ENCRYPTED PRIVATE KEY-----";
         end_marker = "-----END ENCRYPTED PRIVATE KEY-----";
         is_encrypted = 1;
-    } else if(strstr((const char*)data, "-----BEGIN RSA PRIVATE KEY-----") != NULL) {
+    } else if(x509_memfind(data, len, "-----BEGIN RSA PRIVATE KEY-----") != NULL) {
         begin_marker = "-----BEGIN RSA PRIVATE KEY-----";
         end_marker = "-----END RSA PRIVATE KEY-----";
-    } else if(strstr((const char*)data, "-----BEGIN PRIVATE KEY-----") != NULL) {
+    } else if(x509_memfind(data, len, "-----BEGIN PRIVATE KEY-----") != NULL) {
         begin_marker = "-----BEGIN PRIVATE KEY-----";
         end_marker = "-----END PRIVATE KEY-----";
-    } else if(strstr((const char*)data, "-----BEGIN EC PRIVATE KEY-----") != NULL) {
+    } else if(x509_memfind(data, len, "-----BEGIN EC PRIVATE KEY-----") != NULL) {
         begin_marker = "-----BEGIN EC PRIVATE KEY-----";
         end_marker = "-----END EC PRIVATE KEY-----";
     } else {
         return NOXTLS_RETURN_FAILED;
     }
 
-    pem_start = (const uint8_t*)strstr((const char*)data, begin_marker);
+    pem_start = x509_memfind(data, len, begin_marker);
     if(pem_start == NULL) return NOXTLS_RETURN_FAILED;
     pem_start += strlen(begin_marker);
 
@@ -4757,7 +4799,11 @@ noxtls_return_t noxtls_x509_private_key_parse_pem_with_password(x509_private_key
         pem_start++;
     }
 
-    pem_end = (const uint8_t*)strstr((const char*)pem_start, end_marker);
+    if(pem_start > data + len) return NOXTLS_RETURN_FAILED;
+    {
+        uint32_t tail_len = (uint32_t)((size_t)((data + len) - pem_start));
+        pem_end = x509_memfind(pem_start, tail_len, end_marker);
+    }
     if(pem_end == NULL) return NOXTLS_RETURN_FAILED;
     while(pem_end > pem_start && (*(pem_end - 1) == '\n' || *(pem_end - 1) == '\r' || *(pem_end - 1) == ' ')) {
         pem_end--;
@@ -4771,11 +4817,16 @@ noxtls_return_t noxtls_x509_private_key_parse_pem_with_password(x509_private_key
 
     der_data = (uint8_t*)malloc(pem_data_len);
     if(der_data == NULL) return NOXTLS_RETURN_FAILED;
-    der_len = noxtls_base64_decode((char*)pem_start, pem_data_len, der_data);
-    if(der_len == 0) {
+    decoded_len = noxtls_base64_decode((char*)pem_start, pem_data_len, der_data);
+    if(decoded_len <= 0) {
         free(der_data);
         return NOXTLS_RETURN_FAILED;
     }
+    if((unsigned long)decoded_len > UINT32_MAX) {
+        free(der_data);
+        return NOXTLS_RETURN_FAILED;
+    }
+    der_len = (uint32_t)decoded_len;
 
     if(is_encrypted) {
         rc = noxtls_x509_private_key_parse_der_with_password(key, der_data, der_len, password, password_len);
@@ -5185,6 +5236,7 @@ void noxtls_x509_debug_print_oid(const char *label, const uint8_t *oid, uint32_t
 /**
  * @brief Print hex data with formatting
  */
+/* NOLINTNEXTLINE(bugprone-easily-swappable-parameters): debug helper preserves existing (label,data,len,verbose) convention. */
 void noxtls_x509_debug_print_hex(const char *label, const uint8_t *data, uint32_t len, uint8_t verbose)
 {
     uint32_t i;

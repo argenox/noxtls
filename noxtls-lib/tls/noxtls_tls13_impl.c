@@ -55,6 +55,37 @@
 
 static char tls13_keylog_path[512] = {0};
 
+static int tls13_is_dtls(const tls13_context_t *ctx)
+{
+    return (ctx != NULL && ctx->base.base.version == DTLS_VERSION_1_3);
+}
+
+static noxtls_return_t tls13_ctx_hkdf_expand_label(const tls13_context_t *ctx,
+                                          noxtls_hash_algos_t hash_algo,
+                                          const uint8_t *secret, uint32_t secret_len,
+                                          const uint8_t *label, uint32_t label_len,
+                                          const uint8_t *context, uint32_t context_len,
+                                          uint8_t *output, uint32_t output_len)
+{
+    if(tls13_is_dtls(ctx)) {
+        return dtls13_hkdf_expand_label(hash_algo, secret, secret_len, label, label_len, context, context_len, output, output_len);
+    }
+    return tls13_hkdf_expand_label(hash_algo, secret, secret_len, label, label_len, context, context_len, output, output_len);
+}
+
+static noxtls_return_t tls13_ctx_derive_secret(const tls13_context_t *ctx,
+                                      noxtls_hash_algos_t hash_algo,
+                                      const uint8_t *secret, uint32_t secret_len,
+                                      const uint8_t *label, uint32_t label_len,
+                                      const uint8_t *messages, uint32_t messages_len,
+                                      uint8_t *output, uint32_t output_len)
+{
+    if(tls13_is_dtls(ctx)) {
+        return dtls13_derive_secret(hash_algo, secret, secret_len, label, label_len, messages, messages_len, output, output_len);
+    }
+    return tls13_derive_secret(hash_algo, secret, secret_len, label, label_len, messages, messages_len, output, output_len);
+}
+
 void noxtls_tls13_set_keylog_file(const char *path)
 {
     if(path == NULL || *path == '\0') {
@@ -252,7 +283,7 @@ static noxtls_return_t tls13_derive_handshake_keys(tls13_context_t *ctx, const u
     noxtls_debug_printf("[TLS13_DEBUG] early_secret[0..3]=%02X%02X%02X%02X\n",
                           ctx->early_secret[0], ctx->early_secret[1], ctx->early_secret[2], ctx->early_secret[3]);
 
-    rc = tls13_derive_secret(hash_algo, ctx->early_secret, hash_len,
+    rc = tls13_ctx_derive_secret(ctx, hash_algo, ctx->early_secret, hash_len,
                              (const uint8_t*)"derived", 7, NULL, 0,
                              derived_secret, hash_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -272,7 +303,7 @@ static noxtls_return_t tls13_derive_handshake_keys(tls13_context_t *ctx, const u
     noxtls_debug_printf("[TLS13_DEBUG] handshake_secret[0..3]=%02X%02X%02X%02X\n",
                           ctx->handshake_secret[0], ctx->handshake_secret[1], ctx->handshake_secret[2], ctx->handshake_secret[3]);
 
-    rc = tls13_derive_secret(hash_algo, ctx->handshake_secret, hash_len,
+    rc = tls13_ctx_derive_secret(ctx, hash_algo, ctx->handshake_secret, hash_len,
                              (const uint8_t*)"c hs traffic", 12,
                              ctx->handshake_messages, ctx->handshake_messages_len,
                              ctx->client_handshake_traffic_secret, hash_len);
@@ -283,7 +314,7 @@ static noxtls_return_t tls13_derive_handshake_keys(tls13_context_t *ctx, const u
                           ctx->client_handshake_traffic_secret[0], ctx->client_handshake_traffic_secret[1],
                           ctx->client_handshake_traffic_secret[2], ctx->client_handshake_traffic_secret[3]);
 
-    rc = tls13_derive_secret(hash_algo, ctx->handshake_secret, hash_len,
+    rc = tls13_ctx_derive_secret(ctx, hash_algo, ctx->handshake_secret, hash_len,
                              (const uint8_t*)"s hs traffic", 12,
                              ctx->handshake_messages, ctx->handshake_messages_len,
                              ctx->server_handshake_traffic_secret, hash_len);
@@ -323,28 +354,28 @@ static noxtls_return_t tls13_derive_handshake_keys(tls13_context_t *ctx, const u
     tls13_keylog_write("SERVER_HANDSHAKE_TRAFFIC_SECRET", ctx->client_random,
                        ctx->server_handshake_traffic_secret, hash_len);
 
-    rc = tls13_hkdf_expand_label(hash_algo, ctx->client_handshake_traffic_secret, hash_len,
+    rc = tls13_ctx_hkdf_expand_label(ctx, hash_algo, ctx->client_handshake_traffic_secret, hash_len,
                                  (const uint8_t*)"key", 3, NULL, 0,
                                  ctx->client_write_key, key_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 
-    rc = tls13_hkdf_expand_label(hash_algo, ctx->client_handshake_traffic_secret, hash_len,
+    rc = tls13_ctx_hkdf_expand_label(ctx, hash_algo, ctx->client_handshake_traffic_secret, hash_len,
                                  (const uint8_t*)"iv", 2, NULL, 0,
                                  ctx->client_write_iv, 12);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 
-    rc = tls13_hkdf_expand_label(hash_algo, ctx->server_handshake_traffic_secret, hash_len,
+    rc = tls13_ctx_hkdf_expand_label(ctx, hash_algo, ctx->server_handshake_traffic_secret, hash_len,
                                  (const uint8_t*)"key", 3, NULL, 0,
                                  ctx->server_write_key, key_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 
-    rc = tls13_hkdf_expand_label(hash_algo, ctx->server_handshake_traffic_secret, hash_len,
+    rc = tls13_ctx_hkdf_expand_label(ctx, hash_algo, ctx->server_handshake_traffic_secret, hash_len,
                                  (const uint8_t*)"iv", 2, NULL, 0,
                                  ctx->server_write_iv, 12);
     if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -352,13 +383,13 @@ static noxtls_return_t tls13_derive_handshake_keys(tls13_context_t *ctx, const u
     }
 
     /* RFC 9147 §4.2.3: record number encryption keys for DTLS 1.3 handshake */
-    rc = tls13_hkdf_expand_label(hash_algo, ctx->client_handshake_traffic_secret, hash_len,
+    rc = tls13_ctx_hkdf_expand_label(ctx, hash_algo, ctx->client_handshake_traffic_secret, hash_len,
                                  (const uint8_t*)"sn", 2, NULL, 0,
                                  ctx->client_handshake_sn_key, DTLS13_RECORD_NUMBER_ENC_LEN);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    rc = tls13_hkdf_expand_label(hash_algo, ctx->server_handshake_traffic_secret, hash_len,
+    rc = tls13_ctx_hkdf_expand_label(ctx, hash_algo, ctx->server_handshake_traffic_secret, hash_len,
                                  (const uint8_t*)"sn", 2, NULL, 0,
                                  ctx->server_handshake_sn_key, DTLS13_RECORD_NUMBER_ENC_LEN);
     if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -409,7 +440,7 @@ static noxtls_return_t tls13_derive_application_secrets(tls13_context_t *ctx)
     NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_KEYSCHED, NOXSIGHT_SEVERITY_DEBUG,
                     NOXTLS_EVT_KEY_SCHEDULE_STAGE, 4u, ctx->cipher_suite);
 
-    rc = tls13_derive_secret(hash_algo, ctx->handshake_secret, hash_len,
+    rc = tls13_ctx_derive_secret(ctx, hash_algo, ctx->handshake_secret, hash_len,
                              (const uint8_t*)"derived", 7, NULL, 0,
                              derived_secret, hash_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -423,7 +454,7 @@ static noxtls_return_t tls13_derive_application_secrets(tls13_context_t *ctx)
         return rc;
     }
 
-    rc = tls13_derive_secret(hash_algo, ctx->master_secret, hash_len,
+    rc = tls13_ctx_derive_secret(ctx, hash_algo, ctx->master_secret, hash_len,
                              (const uint8_t*)"c ap traffic", 12,
                              ctx->handshake_messages, ctx->handshake_messages_len,
                              ctx->client_application_traffic_secret, hash_len);
@@ -431,7 +462,7 @@ static noxtls_return_t tls13_derive_application_secrets(tls13_context_t *ctx)
         return rc;
     }
 
-    rc = tls13_derive_secret(hash_algo, ctx->master_secret, hash_len,
+    rc = tls13_ctx_derive_secret(ctx, hash_algo, ctx->master_secret, hash_len,
                              (const uint8_t*)"s ap traffic", 12,
                              ctx->handshake_messages, ctx->handshake_messages_len,
                              ctx->server_application_traffic_secret, hash_len);
@@ -460,28 +491,28 @@ static noxtls_return_t tls13_install_application_keys(tls13_context_t *ctx)
     NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_KEYSCHED, NOXSIGHT_SEVERITY_DEBUG,
                     NOXTLS_EVT_KEY_SCHEDULE_STAGE, 5u, key_len);
 
-    rc = tls13_hkdf_expand_label(hash_algo, ctx->client_application_traffic_secret, hash_len,
+    rc = tls13_ctx_hkdf_expand_label(ctx, hash_algo, ctx->client_application_traffic_secret, hash_len,
                                  (const uint8_t*)"key", 3, NULL, 0,
                                  ctx->client_write_key, key_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 
-    rc = tls13_hkdf_expand_label(hash_algo, ctx->client_application_traffic_secret, hash_len,
+    rc = tls13_ctx_hkdf_expand_label(ctx, hash_algo, ctx->client_application_traffic_secret, hash_len,
                                  (const uint8_t*)"iv", 2, NULL, 0,
                                  ctx->client_write_iv, 12);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 
-    rc = tls13_hkdf_expand_label(hash_algo, ctx->server_application_traffic_secret, hash_len,
+    rc = tls13_ctx_hkdf_expand_label(ctx, hash_algo, ctx->server_application_traffic_secret, hash_len,
                                  (const uint8_t*)"key", 3, NULL, 0,
                                  ctx->server_write_key, key_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 
-    rc = tls13_hkdf_expand_label(hash_algo, ctx->server_application_traffic_secret, hash_len,
+    rc = tls13_ctx_hkdf_expand_label(ctx, hash_algo, ctx->server_application_traffic_secret, hash_len,
                                  (const uint8_t*)"iv", 2, NULL, 0,
                                  ctx->server_write_iv, 12);
     if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -489,13 +520,13 @@ static noxtls_return_t tls13_install_application_keys(tls13_context_t *ctx)
     }
 
     /* RFC 9147 §4.2.3: record number encryption keys for DTLS 1.3 application data */
-    rc = tls13_hkdf_expand_label(hash_algo, ctx->client_application_traffic_secret, hash_len,
+    rc = tls13_ctx_hkdf_expand_label(ctx, hash_algo, ctx->client_application_traffic_secret, hash_len,
                                  (const uint8_t*)"sn", 2, NULL, 0,
                                  ctx->client_sn_key, DTLS13_RECORD_NUMBER_ENC_LEN);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    rc = tls13_hkdf_expand_label(hash_algo, ctx->server_application_traffic_secret, hash_len,
+    rc = tls13_ctx_hkdf_expand_label(ctx, hash_algo, ctx->server_application_traffic_secret, hash_len,
                                  (const uint8_t*)"sn", 2, NULL, 0,
                                  ctx->server_sn_key, DTLS13_RECORD_NUMBER_ENC_LEN);
     if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -1662,7 +1693,7 @@ noxtls_return_t noxtls_tls13_recv_finished(tls13_context_t *ctx)
     }
 
     finished_key_len = hash_len;
-    rc = tls13_hkdf_expand_label(hash_algo, ctx->server_handshake_traffic_secret, hash_len,
+    rc = tls13_ctx_hkdf_expand_label(ctx, hash_algo, ctx->server_handshake_traffic_secret, hash_len,
                                  (const uint8_t*)"finished", 8, NULL, 0,
                                  finished_key, finished_key_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -1730,7 +1761,7 @@ noxtls_return_t noxtls_tls13_send_finished(tls13_context_t *ctx)
     }
 
     finished_key_len = hash_len;
-    rc = tls13_hkdf_expand_label(hash_algo, ctx->client_handshake_traffic_secret, hash_len,
+    rc = tls13_ctx_hkdf_expand_label(ctx, hash_algo, ctx->client_handshake_traffic_secret, hash_len,
                                  (const uint8_t*)"finished", 8, NULL, 0,
                                  finished_key, finished_key_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -2379,7 +2410,7 @@ noxtls_return_t noxtls_tls13_send_finished_server(tls13_context_t *ctx)
     rc = tls13_hash_messages(hash_algo, ctx->handshake_messages, ctx->handshake_messages_len,
                              transcript_hash, &transcript_len);
     if(rc != NOXTLS_RETURN_SUCCESS) return rc;
-    rc = tls13_hkdf_expand_label(hash_algo, ctx->server_handshake_traffic_secret, hash_len,
+    rc = tls13_ctx_hkdf_expand_label(ctx, hash_algo, ctx->server_handshake_traffic_secret, hash_len,
                                  (const uint8_t*)"finished", 8, NULL, 0,
                                  finished_key, hash_len);
     if(rc != NOXTLS_RETURN_SUCCESS) return rc;
@@ -2456,7 +2487,7 @@ noxtls_return_t noxtls_tls13_recv_finished_client(tls13_context_t *ctx)
         if(record.data) free(record.data);
         return rc;
     }
-    rc = tls13_hkdf_expand_label(hash_algo, ctx->client_handshake_traffic_secret, hash_len,
+    rc = tls13_ctx_hkdf_expand_label(ctx, hash_algo, ctx->client_handshake_traffic_secret, hash_len,
                                  (const uint8_t*)"finished", 8, NULL, 0,
                                  finished_key, hash_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {

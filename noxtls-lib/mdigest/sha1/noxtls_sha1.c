@@ -40,11 +40,11 @@
 static uint8_t debug_lvl = 0;
 
 /* SHA-1 Operations */
-#define SHA_CH(X, Y, Z)     ((X & Y) ^ (((~X) & Z)))
-#define SHA_PARITY(X,Y,Z)   (X ^ Y ^ Z)
-#define SHA_MAJ(X,Y, Z)     ((X & Y) ^ (X & Z) ^ (Y & Z))
+#define SHA_CH(X, Y, Z)     (((X) & (Y)) ^ ((~(X)) & (Z)))
+#define SHA_PARITY(X,Y,Z)   ((X) ^ (Y) ^ (Z))
+#define SHA_MAJ(X,Y, Z)     (((X) & (Y)) ^ ((X) & (Z)) ^ ((Y) & (Z)))
 
-#define SHA_ROTL(X, N)      ((X << N) | (X >> (32 - N)))
+#define SHA_ROTL(X, N)      (((X) << (N)) | ((X) >> (32 - (N))))
 
 noxtls_return_t noxtls_sha1_round(noxtls_sha_ctx_t * ctx, const uint8_t * input);
 
@@ -158,7 +158,12 @@ noxtls_return_t noxtls_sha1_round(noxtls_sha_ctx_t * ctx, const uint8_t * input)
     
     /* Copy the noxtls_message to the first 16 words */    
     for(t = 0; t < 16; t++) {
-        w[t] = (input[(t*4)] << 24) | (input[(t*4)+ 1] << 16) | (input[(t*4) + 2] << 8) | (input[(t*4)+ 3]);
+        size_t in_off = (size_t)t * 4u;
+        w[t] =
+            ((uint32_t)input[in_off] << 24) |
+            ((uint32_t)input[in_off + 1u] << 16) |
+            ((uint32_t)input[in_off + 2u] << 8) |
+            ((uint32_t)input[in_off + 3u]);
     }
 
     for(t = 16; t < SHA1_ROUND_COUNT; t++) {
@@ -233,6 +238,7 @@ noxtls_return_t noxtls_sha1_round(noxtls_sha_ctx_t * ctx, const uint8_t * input)
 noxtls_return_t noxtls_sha1_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
 {
 	noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+    uint64_t total_bits = 0;
 
     if(ctx == NULL || hash == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -258,8 +264,9 @@ noxtls_return_t noxtls_sha1_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
     }
 
     uint32_t space_for_padding = SHA1_BLOCK_SIZE_BITS - ((len << 3) % SHA1_BLOCK_SIZE_BITS);
+    total_bits = (uint64_t)total_length * 8u;
 
-    if(space_for_padding < (SHA1_LENGTH_FIELD_BYTES + 1u) || space_for_padding == SHA1_BLOCK_SIZE_BITS)
+    if(space_for_padding < ((SHA1_LENGTH_FIELD_BYTES + 1u) << 3) || space_for_padding == SHA1_BLOCK_SIZE_BITS)
     {
         /* Can't fit padding + length in one block; use two blocks */
         zero_padding_first = 0;
@@ -288,14 +295,14 @@ noxtls_return_t noxtls_sha1_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
         memset(ctx->data, 0, SHA1_BLOCK_SIZE_BYTES);
         if(zero_padding_first == 0)
             ctx->data[0] = SHA1_PAD_BYTE;
-        ctx->data[length_index + 0] = (uint8_t)(((total_length * 8) & 0xFF00000000000000) >> 56);
-        ctx->data[length_index + 1] = (uint8_t)(((total_length * 8) & 0x00FF000000000000) >> 48);
-        ctx->data[length_index + 2] = (uint8_t)(((total_length * 8) & 0x0000FF0000000000) >> 40);
-        ctx->data[length_index + 3] = (uint8_t)(((total_length * 8) & 0x000000FF00000000) >> 32);
-        ctx->data[length_index + 4] = (uint8_t)(((total_length * 8) & 0x00000000FF000000) >> 24);
-        ctx->data[length_index + 5] = (uint8_t)(((total_length * 8) & 0x0000000000FF0000) >> 16);
-        ctx->data[length_index + 6] = (uint8_t)(((total_length * 8) & 0x000000000000FF00) >> 8);
-        ctx->data[length_index + 7] = (uint8_t)((total_length * 8) & 0x00000000000000FF);
+        ctx->data[length_index + 0] = (uint8_t)((total_bits & 0xFF00000000000000ULL) >> 56);
+        ctx->data[length_index + 1] = (uint8_t)((total_bits & 0x00FF000000000000ULL) >> 48);
+        ctx->data[length_index + 2] = (uint8_t)((total_bits & 0x0000FF0000000000ULL) >> 40);
+        ctx->data[length_index + 3] = (uint8_t)((total_bits & 0x000000FF00000000ULL) >> 32);
+        ctx->data[length_index + 4] = (uint8_t)((total_bits & 0x00000000FF000000ULL) >> 24);
+        ctx->data[length_index + 5] = (uint8_t)((total_bits & 0x0000000000FF0000ULL) >> 16);
+        ctx->data[length_index + 6] = (uint8_t)((total_bits & 0x000000000000FF00ULL) >> 8);
+        ctx->data[length_index + 7] = (uint8_t)(total_bits & 0x00000000000000FFULL);
         rc = noxtls_sha1_round(ctx, ctx->data);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
@@ -313,14 +320,14 @@ noxtls_return_t noxtls_sha1_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
                 memset(ctx->data + pad_byte_idx + 1u, 0, zero_count);
             }
         }
-        ctx->data[length_index + 0] = (uint8_t)(((total_length * 8) & 0xFF00000000000000) >> 56);
-        ctx->data[length_index + 1] = (uint8_t)(((total_length * 8) & 0x00FF000000000000) >> 48);
-        ctx->data[length_index + 2] = (uint8_t)(((total_length * 8) & 0x0000FF0000000000) >> 40);
-        ctx->data[length_index + 3] = (uint8_t)(((total_length * 8) & 0x000000FF00000000) >> 32);
-        ctx->data[length_index + 4] = (uint8_t)(((total_length * 8) & 0x00000000FF000000) >> 24);
-        ctx->data[length_index + 5] = (uint8_t)(((total_length * 8) & 0x0000000000FF0000) >> 16);
-        ctx->data[length_index + 6] = (uint8_t)(((total_length * 8) & 0x000000000000FF00) >> 8);
-        ctx->data[length_index + 7] = (uint8_t)((total_length * 8) & 0x00000000000000FF);
+        ctx->data[length_index + 0] = (uint8_t)((total_bits & 0xFF00000000000000ULL) >> 56);
+        ctx->data[length_index + 1] = (uint8_t)((total_bits & 0x00FF000000000000ULL) >> 48);
+        ctx->data[length_index + 2] = (uint8_t)((total_bits & 0x0000FF0000000000ULL) >> 40);
+        ctx->data[length_index + 3] = (uint8_t)((total_bits & 0x000000FF00000000ULL) >> 32);
+        ctx->data[length_index + 4] = (uint8_t)((total_bits & 0x00000000FF000000ULL) >> 24);
+        ctx->data[length_index + 5] = (uint8_t)((total_bits & 0x0000000000FF0000ULL) >> 16);
+        ctx->data[length_index + 6] = (uint8_t)((total_bits & 0x000000000000FF00ULL) >> 8);
+        ctx->data[length_index + 7] = (uint8_t)(total_bits & 0x00000000000000FFULL);
         
         rc = noxtls_sha1_round(ctx, ctx->data);
         
@@ -335,10 +342,11 @@ noxtls_return_t noxtls_sha1_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
     }
     for(i = 0; i < alg_sz; i++)
     {
-        hash[i * 4]       = (uint8_t)((ctx->h[i] & 0xFF000000) >> 24);
-        hash[(i * 4) + 1] = (uint8_t)((ctx->h[i] & 0x00FF0000) >> 16);
-        hash[(i * 4) + 2] = (uint8_t)((ctx->h[i] & 0x0000FF00) >> 8);
-        hash[(i * 4) + 3] = (uint8_t)(ctx->h[i] & 0x000000FF);
+        size_t out_off = (size_t)i * 4u;
+        hash[out_off]       = (uint8_t)((ctx->h[i] & 0xFF000000) >> 24);
+        hash[out_off + 1u] = (uint8_t)((ctx->h[i] & 0x00FF0000) >> 16);
+        hash[out_off + 2u] = (uint8_t)((ctx->h[i] & 0x0000FF00) >> 8);
+        hash[out_off + 3u] = (uint8_t)(ctx->h[i] & 0x000000FF);
     }
 
 	return rc;

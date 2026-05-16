@@ -53,7 +53,9 @@
  * @return NOXTLS_RETURN_INVALID_ALGORITHM if @p hash_algo is not supported.
  * @return NOXTLS_RETURN_FAILED if the underlying hash init/update/finish fails.
  */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static noxtls_return_t dsa_hash_message(uint8_t *hash, uint32_t *hash_len, const uint8_t *noxtls_message, uint32_t message_len, noxtls_hash_algos_t hash_algo)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     noxtls_sha_ctx_t ctx;
     noxtls_sha512_ctx_t ctx512;
@@ -330,7 +332,7 @@ noxtls_return_t noxtls_dsa_sign(const dsa_key_t *key, const uint8_t *noxtls_mess
     k = (uint8_t *)noxtls_calloc(q_len, 1);
     k_inv = (uint8_t *)noxtls_calloc(q_len, 1);
     g_k = (uint8_t *)noxtls_calloc(p_len, 1);
-    rx = (uint8_t *)noxtls_calloc(q_len * 2, 1);
+    rx = (uint8_t *)noxtls_calloc((size_t)q_len * 2u, 1);
     z_rx = (uint8_t *)noxtls_calloc(q_len + 1, 1);
     random_bytes = (uint8_t *)noxtls_calloc(q_len, 1);
     if(!hash || !z || !k || !k_inv || !g_k || !rx || !z_rx || !random_bytes) {
@@ -465,12 +467,12 @@ noxtls_return_t noxtls_dsa_verify(const dsa_key_t *key, const uint8_t *noxtls_me
     hash = (uint8_t *)noxtls_calloc(64, 1);
     z = (uint8_t *)noxtls_calloc(q_len, 1);
     w = (uint8_t *)noxtls_calloc(q_len, 1);
-    u1 = (uint8_t *)noxtls_calloc(q_len * 2, 1);
-    u2 = (uint8_t *)noxtls_calloc(q_len * 2, 1);
+    u1 = (uint8_t *)noxtls_calloc((size_t)q_len * 2u, 1);
+    u2 = (uint8_t *)noxtls_calloc((size_t)q_len * 2u, 1);
     g_u1 = (uint8_t *)noxtls_calloc(p_len, 1);
     y_u2 = (uint8_t *)noxtls_calloc(p_len, 1);
     v = (uint8_t *)noxtls_calloc(q_len, 1);
-    product = (uint8_t *)noxtls_calloc(p_len * 2, 1);
+    product = (uint8_t *)noxtls_calloc((size_t)p_len * 2u, 1);
     if(!hash || !z || !w || !u1 || !u2 || !g_u1 || !y_u2 || !v || !product) {
         rc = NOXTLS_RETURN_FAILED;
         goto cleanup;

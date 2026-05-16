@@ -240,7 +240,9 @@ static void aria_rotate_left(const uint8_t in[16], uint8_t out[16], int bits)
     aria_rotate_right(in, out, 128 - (bits & 127));
 }
 
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static void aria_fo(uint8_t out[16], const uint8_t in[16], const uint8_t rk[16])
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     memcpy(out, in, 16);
     aria_xor_block(out, out, rk);
@@ -248,7 +250,9 @@ static void aria_fo(uint8_t out[16], const uint8_t in[16], const uint8_t rk[16])
     aria_diffusion_layer(out);
 }
 
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static void aria_fe(uint8_t out[16], const uint8_t in[16], const uint8_t rk[16])
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     memcpy(out, in, 16);
     aria_xor_block(out, out, rk);

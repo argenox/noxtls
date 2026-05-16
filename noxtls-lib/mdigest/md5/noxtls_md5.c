@@ -41,12 +41,12 @@
 static uint8_t debug_lvl = 0;
 
 /* MD5 Operations */
-#define MD5_F(X, Y, Z)     ((X & Y) | (((~X) & Z)))
-#define MD5_G(X, Y, Z)     ((X & Z) | ((Y & (~Z))))
-#define MD5_H(X, Y, Z)     (X ^ Y ^ Z)
-#define MD5_I(X, Y, Z)     (Y ^ (X | (~Z)))
+#define MD5_F(X, Y, Z)     (((X) & (Y)) | ((~(X)) & (Z)))
+#define MD5_G(X, Y, Z)     (((X) & (Z)) | ((Y) & (~(Z))))
+#define MD5_H(X, Y, Z)     ((X) ^ (Y) ^ (Z))
+#define MD5_I(X, Y, Z)     ((Y) ^ ((X) | (~(Z))))
 
-#define MD5_ROTL(X, N)      ((X << N) | (X >> (32 - N)))
+#define MD5_ROTL(X, N)      (((X) << (N)) | ((X) >> (32 - (N))))
 
 
 noxtls_return_t noxtls_md5_round(noxtls_sha_ctx_t * ctx, const uint8_t * input);
@@ -117,7 +117,7 @@ noxtls_return_t noxtls_md5_init(noxtls_sha_ctx_t * ctx)
  * @brief Feed noxtls_message bytes into the MD5 context (RFC 1321).
  *
  * @param[in,out] ctx MD5 context; must not be NULL.
- * @param[in] input Message bytes; must point to at least len bytes when len > 0.
+ * @param[in] data Message bytes; must point to at least len bytes when len > 0.
  * @param[in] len Number of bytes from input to absorb.
  *
  * @return NOXTLS_RETURN_SUCCESS on success.
@@ -126,7 +126,7 @@ noxtls_return_t noxtls_md5_init(noxtls_sha_ctx_t * ctx)
  *         supplies fewer than MD5_BLOCK_SIZE_BYTES bytes without completing a block (see implementation).
  * @return Any error code propagated from noxtls_md5_round() if compression fails.
  */
-noxtls_return_t noxtls_md5_update(noxtls_sha_ctx_t * ctx, uint8_t * input, uint32_t len)
+noxtls_return_t noxtls_md5_update(noxtls_sha_ctx_t * ctx, const uint8_t * data, uint32_t len)
 {
 	noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
 
@@ -144,7 +144,7 @@ noxtls_return_t noxtls_md5_update(noxtls_sha_ctx_t * ctx, uint8_t * input, uint3
         }
 
         /* Store for later processing */
-        memcpy(& ctx->data[ctx->data_len], input, len);
+        memcpy(& ctx->data[ctx->data_len], data, len);
         ctx->data_len = (uint8_t)len;
     }
     else
@@ -159,13 +159,13 @@ noxtls_return_t noxtls_md5_update(noxtls_sha_ctx_t * ctx, uint8_t * input, uint3
             else {
                 /* Store for later processing */
                 memset(ctx->data, 0, MD5_BLOCK_SIZE_BYTES);
-                memcpy(ctx->data, &input[len - total], total);
+                memcpy(ctx->data, &data[len - total], total);
                 ctx->data_len = (uint8_t)total;
                 break;
             }
 
     		/* Use per-call input offset; ctx->length tracks global bytes across calls. */
-    		rc = noxtls_md5_round(ctx, &input[len - total]);
+    		rc = noxtls_md5_round(ctx, &data[len - total]);
     		if(rc != NOXTLS_RETURN_SUCCESS) {
     			break;
     		}
@@ -203,7 +203,8 @@ noxtls_return_t noxtls_md5_round(noxtls_sha_ctx_t * ctx, const uint8_t * input)
     
     /* Copy the noxtls_message to the first 16 words */    
     for(t = 0; t < MD5_WORDS_PER_BLOCK; t++) {
-        w[t] = (input[(t * MD5_WORD_BYTES) + 3] << 24) | ((input[(t * MD5_WORD_BYTES) + 2]) << 16) | (input[(t * MD5_WORD_BYTES) + 1] << 8) | input[(t * MD5_WORD_BYTES)];
+        size_t in_off = (size_t)t * (size_t)MD5_WORD_BYTES;
+        w[t] = (input[in_off + 3u] << 24) | ((input[in_off + 2u]) << 16) | (input[in_off + 1u] << 8) | input[in_off];
     }
 
     A = ctx->h[0];
@@ -297,10 +298,10 @@ noxtls_return_t noxtls_md5_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
         memset(temp, 0, sizeof(temp));
     }
     
-    int block_size = MD5_BLOCK_SIZE_BYTES;
+    uint32_t block_size = MD5_BLOCK_SIZE_BYTES;
     
-    int space_occupied = (len % block_size);
-    int space_left = block_size - space_occupied;
+    uint32_t space_occupied = (len % block_size);
+    uint32_t space_left = block_size - space_occupied;
     
     
     if(len == 0) {
@@ -312,8 +313,8 @@ noxtls_return_t noxtls_md5_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
         temp[space_occupied] = MD5_PAD_BYTE;
     }
     
-    if(space_left >= (int)(MD5_LENGTH_FIELD_BYTES + 1)) {
-        int length_size = MD5_LENGTH_FIELD_BYTES; /* Size of length in bytes 8 bytes / 64-bit */
+    if(space_left >= (uint32_t)(MD5_LENGTH_FIELD_BYTES + 1u)) {
+        uint8_t length_size = MD5_LENGTH_FIELD_BYTES; /* Size of length in bytes 8 bytes / 64-bit */
         noxtls_add_padding_length_little(temp, block_size, total_length, length_size);
     }
     
@@ -327,7 +328,7 @@ noxtls_return_t noxtls_md5_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
     
     rc = noxtls_md5_round(ctx, temp);
     
-    if(space_left < (int)(MD5_LENGTH_FIELD_BYTES + 1))
+    if(space_left < (uint32_t)(MD5_LENGTH_FIELD_BYTES + 1u))
     {
         memset(temp, 0, block_size);
         if(space_left == 0) {
@@ -356,10 +357,11 @@ noxtls_return_t noxtls_md5_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
     
     for(i = 0; i < alg_sz; i++)
     {
-        hash[(i * 4) + 3] = (uint8_t)((ctx->h[i] & 0xFF000000) >> 24);
-        hash[(i * 4) + 2] = (uint8_t)((ctx->h[i] & 0x00FF0000) >> 16);
-        hash[(i * 4) + 1] = (uint8_t)((ctx->h[i] & 0x0000FF00) >> 8);
-        hash[i * 4] = (uint8_t)(ctx->h[i] & 0x000000FF);
+        size_t out_off = (size_t)i * 4u;
+        hash[out_off + 3u] = (uint8_t)((ctx->h[i] & 0xFF000000) >> 24);
+        hash[out_off + 2u] = (uint8_t)((ctx->h[i] & 0x00FF0000) >> 16);
+        hash[out_off + 1u] = (uint8_t)((ctx->h[i] & 0x0000FF00) >> 8);
+        hash[out_off] = (uint8_t)(ctx->h[i] & 0x000000FF);
     }
 
     return rc;

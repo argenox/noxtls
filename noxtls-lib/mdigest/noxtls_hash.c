@@ -45,7 +45,9 @@
  * @param[in] length_size is the size of length in bytes
  *
  */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 void noxtls_add_padding_length(uint8_t * data, uint32_t block_size, uint64_t length, uint8_t length_size)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     uint64_t bit_len = length * NOXTLS_HASH_BITS_PER_BYTE;
     uint32_t i = 0;
@@ -84,7 +86,9 @@ void noxtls_add_padding_length(uint8_t * data, uint32_t block_size, uint64_t len
  * @param[in] length_size is the size of length in bytes
  *
  */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 void noxtls_add_padding_length_little(uint8_t * data, uint32_t block_size, uint64_t length, uint8_t length_size)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     uint64_t bit_len = length * NOXTLS_HASH_BITS_PER_BYTE;
     uint32_t i = 0;

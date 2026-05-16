@@ -46,6 +46,8 @@
 #define SEC1_ECC_MAX_BYTES (512u)  /* SEC1 ECPrivateKey DER (P-521 + OID + public) */
 #define SPKI_MAX_BYTES (16384u)   /* SubjectPublicKeyInfo for RSA/EC */
 #define CERTGEN_PATH_MAX (512u)
+/* Longest basename (chars) before ".key"/".pub" when key/pub paths use CERTGEN_PATH_MAX buffers. */
+#define CERTGEN_KEYPUB_BASE_MAX ((CERTGEN_PATH_MAX) - 5u)
 
 /* rsaEncryption OID (1.2.840.113549.1.1.1) - raw DER bytes */
 static const uint8_t oid_rsa_encryption[] = { 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01 };
@@ -361,6 +363,16 @@ static void build_key_pub_paths(const char *out_file, char *key_path, char *pub_
     if (out_file == NULL || key_path == NULL || pub_path == NULL || path_max == 0) {
         return;
     }
+    /* Leave room for ".key" / ".pub" plus snprintf's terminating nul within path_max. */
+    size_t max_base = path_max > 5 ? (size_t)path_max - 5u : 0u;
+    if (max_base > CERTGEN_KEYPUB_BASE_MAX) {
+        max_base = CERTGEN_KEYPUB_BASE_MAX;
+    }
+    if (max_base == 0u) {
+        key_path[0] = '\0';
+        pub_path[0] = '\0';
+        return;
+    }
     const char *last_slash = strrchr(out_file, '/');
 #ifdef _WIN32
     const char *last_back = strrchr(out_file, '\\');
@@ -369,7 +381,7 @@ static void build_key_pub_paths(const char *out_file, char *key_path, char *pub_
     }
 #endif
     const char *last_dot = strrchr(out_file, '.');
-    char base_buf[CERTGEN_PATH_MAX];
+    char base_buf[CERTGEN_KEYPUB_BASE_MAX + 1u];
     if (last_dot != NULL && last_dot > last_slash && last_dot[1] != '\0') {
         const char *suf = last_dot + 1;
         char suf_lower[8];
@@ -382,6 +394,7 @@ static void build_key_pub_paths(const char *out_file, char *key_path, char *pub_
         if (is_known_ext(suf_lower)) {
             size_t base_len = (size_t)(last_dot - out_file);
             if (base_len >= sizeof(base_buf)) base_len = sizeof(base_buf) - 1;
+            if (base_len > max_base) base_len = max_base;
             memcpy(base_buf, out_file, base_len);
             base_buf[base_len] = '\0';
             snprintf(key_path, path_max, "%s.key", base_buf);
@@ -389,8 +402,15 @@ static void build_key_pub_paths(const char *out_file, char *key_path, char *pub_
             return;
         }
     }
-    snprintf(key_path, path_max, "%s.key", out_file);
-    snprintf(pub_path, path_max, "%s.pub", out_file);
+    {
+        size_t ol = strlen(out_file);
+        if (ol > max_base) ol = max_base;
+        if (ol >= sizeof(base_buf)) ol = sizeof(base_buf) - 1;
+        memcpy(base_buf, out_file, ol);
+        base_buf[ol] = '\0';
+        snprintf(key_path, path_max, "%s.key", base_buf);
+        snprintf(pub_path, path_max, "%s.pub", base_buf);
+    }
 }
 
 /* Write DER to file as PEM with given begin/end markers. Returns 0 on success. */
@@ -839,6 +859,8 @@ static int cmd_genrsa(int argc, char **argv, const char *prog)
     return 0;
 }
 
+/* OIDs for ECC self-signed cert (id-ecPublicKey, ecdsa-with-SHA256) */
+#if NOXTLS_HAVE_CERT_WRITE
 /* Extract CN value from OpenSSL-style -subj (e.g. /CN=localhost or CN=localhost). Puts result in cn_out, max cn_size. */
 static void extract_cn_from_subj(const char *subj, char *cn_out, size_t cn_size)
 {
@@ -861,8 +883,6 @@ static void extract_cn_from_subj(const char *subj, char *cn_out, size_t cn_size)
     cn_out[cn_size - 1] = '\0';
 }
 
-/* OIDs for ECC self-signed cert (id-ecPublicKey, ecdsa-with-SHA256) */
-#if NOXTLS_HAVE_CERT_WRITE
 static const uint8_t oid_ecdsa_sha256[]     = { 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x02 };
 #define CERTGEN_CERT_DER_MAX 4096
 #define CERTGEN_PEM_MAX      8192
@@ -996,9 +1016,11 @@ static int cmd_req(int argc, char **argv, const char *prog)
     (void)prog;
     const char *key_file = NULL;
     const char *out_file = NULL;
+#if NOXTLS_HAVE_CERT_WRITE
     const char *outform = "PEM";
     int days = 365;
     const char *subj = "/CN=localhost";
+#endif
     int new_x509 = 0;
     int i;
 
@@ -1007,12 +1029,14 @@ static int cmd_req(int argc, char **argv, const char *prog)
             key_file = argv[++i];
         } else if (strcmp(argv[i], "-out") == 0 && i + 1 < argc) {
             out_file = argv[++i];
+#if NOXTLS_HAVE_CERT_WRITE
         } else if (strcmp(argv[i], "-outform") == 0 && i + 1 < argc) {
             outform = argv[++i];
         } else if (strcmp(argv[i], "-days") == 0 && i + 1 < argc) {
             days = atoi(argv[++i]);
         } else if (strcmp(argv[i], "-subj") == 0 && i + 1 < argc) {
             subj = argv[++i];
+#endif
         } else if (strcmp(argv[i], "-new") == 0) {
             /* next should be -x509 */
         } else if (strcmp(argv[i], "-x509") == 0) {

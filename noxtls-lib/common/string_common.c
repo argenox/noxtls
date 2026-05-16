@@ -93,6 +93,12 @@ int noxtls_hex_string_to_bytes(const char * string, uint8_t * out_buf, size_t ou
     return (int)j;
 }
 
+/**
+ * @brief Wrapper around @ref noxtls_hex_string_to_bytes with output length `strlen(string) / 2`.
+ * @param[in] string Hex string (even length, no separators).
+ * @param[out] output Buffer sized for half the string length in bytes.
+ * @return Same error codes as @ref noxtls_hex_string_to_bytes; -1 if @p string or @p output is NULL.
+ */
 int noxtls_process_string_to_bytes(const char *string, uint8_t *output)
 {
     size_t str_len;

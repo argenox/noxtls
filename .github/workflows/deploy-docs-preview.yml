@@ -1,0 +1,110 @@
+# Build and deploy documentation preview for pull requests (does not update production).
+# Production deploy: deploy-docs.yml (push to main/master only).
+#
+# After the workflow runs, open the "github-pages" deployment URL on the PR checks,
+# or use the comment posted on the PR. Add /docs/intro for the docs home with sidebar.
+
+name: Docs Preview (PR)
+
+on:
+  pull_request:
+    branches: [master, main]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch or tag to preview (e.g. feat/docs-0.2.1)'
+        required: true
+        type: string
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  pull-requests: write
+
+concurrency:
+  group: docs-preview-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  deploy-preview:
+    # Fork PRs cannot deploy to this repo's GitHub Pages environment.
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.event.pull_request.head.sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Doxygen
+        run: sudo apt-get update && sudo apt-get install -y doxygen graphviz
+
+      - name: Create Doxygen output directory
+        run: mkdir -p build/doxygen
+
+      - name: Run Doxygen (XML)
+        run: doxygen Doxyfile
+
+      - name: Convert Doxygen XML to Markdown
+        run: node scripts/doxygen-xml-to-md.js build/doxygen/xml docs/docs/api
+
+      - name: Verify API docs were generated
+        run: |
+          grep -q '## API' docs/docs/api/common.md
+          test -f docs/docs/return-codes.md
+
+      - name: Install and build Docusaurus
+        working-directory: docs
+        run: |
+          npm install
+          npm run build
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload preview artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/build
+
+      - name: Deploy preview to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Post preview link on pull request
+        if: github.event_name == 'pull_request'
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-tag: docs-preview
+          edit-mode: replace
+          body: |
+            ## Documentation preview
+
+            | | |
+            |---|---|
+            | **Preview root** | ${{ steps.deployment.outputs.page_url }} |
+            | **Docs (sidebar)** | ${{ steps.deployment.outputs.page_url }}docs/intro |
+
+            Built from commit `${{ github.event.pull_request.head.sha }}` on `${{ github.head_ref }}`.
+
+            Production [docs.noxtls.com](https://docs.noxtls.com) updates only after merge to `main`/`master`.
+
+      - name: Print preview URL (workflow_dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "Preview URL: ${{ steps.deployment.outputs.page_url }}"
+          echo "Docs intro:  ${{ steps.deployment.outputs.page_url }}docs/intro"

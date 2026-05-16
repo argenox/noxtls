@@ -41,7 +41,7 @@ The NoxTLS TLS component implements **Transport Layer Security (TLS)** and **Dat
 
 1. Create a context with [tls12_context_init](/docs/api/tls12#tls12_context_init) or [tls13_context_init](/docs/api/tls13#tls13_context_init).
 2. Set I/O callbacks (and optional time callback).
-3. Set server certificate: assign `server_cert` / `server_cert_len` (DER), and for TLS 1.2 with ECDHE-RSA/DHE-RSA set the server private key with [tls12_set_server_private_rsa](/docs/api/tls12#tls12_set_server_private_rsa); for TLS 1.3 use [tls13_set_server_private_rsa](/docs/api/tls13#tls13_set_server_private_rsa) or [tls13_set_server_private_mldsa](/docs/next/api/tls13#tls13_set_server_private_mldsa).
+3. Set server certificate: assign `server_cert` / `server_cert_len` (DER), and for TLS 1.2 with ECDHE-RSA/DHE-RSA set the server private key with [tls12_set_server_private_rsa](/docs/api/tls12#tls12_set_server_private_rsa); for TLS 1.3 use [tls13_set_server_private_rsa](/docs/api/tls13#tls13_set_server_private_rsa) or [tls13_set_server_private_mldsa](/docs/api/tls13#tls13_set_server_private_mldsa).
 4. Call [tls12_accept](/docs/api/tls12#tls12_accept) or [tls13_accept](/docs/api/tls13#tls13_accept) to run the handshake.
 5. Use send/recv for application data; close and free when done.
 
@@ -82,7 +82,7 @@ Use [dtls12_context_init](/docs/api/tls12#dtls12_context_init) or [dtls13_contex
 - **[TLS API (unified)](/docs/api/tls_unified)** — Single connection type for TLS 1.2/1.3 with automatic version negotiation.
 - **[TLS 1.2 API](/docs/api/tls12)** — TLS 1.2 context, connect/accept, send/recv, handshake steps, and server key/certificate setup.
 - **[TLS 1.3 API](/docs/api/tls13)** — TLS 1.3 context, connect/accept, early data, PSK, client auth, and session resumption.
-- **[TLS 1.3 PQC](/docs/next/api/tls13_pqc)** — PQ named groups/signatures and ML-KEM/ML-DSA integration.
+- **[TLS 1.3 PQC](/docs/api/tls13_pqc)** — PQ named groups/signatures and ML-KEM/ML-DSA integration.
 - **[DTLS API](/docs/api/dtls)** — DTLS context, MTU, retransmission, fragmentation, and cookie handling.
 
 ## Sample applications

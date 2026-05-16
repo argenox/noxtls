@@ -5,7 +5,7 @@ title: Release Notes
 
 # Release Notes
 
-This page describes changes, fixes, and known issues for **NoxTLS 0.1.25**.
+This page describes changes, fixes, and known issues for **NoxTLS 0.2.4**.
 
 For source and binary artifacts, see [Releases on GitHub](https://github.com/argenox/noxtls/releases).
 
@@ -13,20 +13,22 @@ Use the **version dropdown** in the navbar to view docs (and release notes) for 
 
 ---
 
-## 0.1.25
+## 0.2.4
 
 **Release date:** TBD
 
 ### Changes
 
-- Post-quantum crypto documentation expansion: ML-KEM (FIPS 203), ML-DSA (FIPS 204), and TLS 1.3 PQ/hybrid integration pages with cross-links across PKC, TLS, certs, and configuration.
-- Documentation hub parity refresh: project/contributing/security-reporting pages, navigation updates, and landing-page capability map for classical and PQ crypto.
-- Build/config docs aligned to current feature gates and dependency checks, including ML_KEM/ML_DSA and strict conformance flag guidance.
+- Project version updated to 0.2.4 in CMake and `noxtls_version.h`.
+- `noxtls` CLI expanded with digest, encryption/decryption, PKC/key, and X.509 certificate operations.
+- SHA and digest utilities now expose enabled algorithms with compact help output, including SHA-3, SHA-512/224, SHA-512/256, RIPEMD-160, BLAKE2, and feature-gated MD4.
+- Certificate conversion now supports explicit input and output formats with `-I der|pem` and `-O der|pem`.
 
 ### Fixed / Resolved
 
-- Corrected stale documentation links and build guidance references; removed references to non-existent PQ smoke scripts.
+- RIPEMD-160 output corrected to match known vectors.
+- SHA-512/224 and SHA-512/256 initialization/output handling completed.
 
 ### Known issues / Open
 
-- (None recorded.)
+- DTLS 1.3 interop hardening continues against external test suites.

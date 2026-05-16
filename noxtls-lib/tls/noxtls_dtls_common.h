@@ -94,7 +94,6 @@ extern "C" {
  *     uint16 message_seq;        // DTLS sequence number
  *     uint24 fragment_offset;    // Fragment offset
  *     uint24 fragment_length;    // Fragment length
- *     uint16 fragment_seq;       // Fragment sequence number
  *     select (HandshakeType) {
  *         case hello_request:       HelloRequest;
  *         case client_hello:        ClientHello;
@@ -117,9 +116,8 @@ extern "C" {
 #define DTLS_HANDSHAKE_MESSAGE_SEQ_OFFSET   4
 #define DTLS_HANDSHAKE_FRAGMENT_OFFSET      6
 #define DTLS_HANDSHAKE_FRAGMENT_LEN_OFFSET  9
-#define DTLS_HANDSHAKE_FRAGMENT_SEQ_OFFSET  12
-#define DTLS_HANDSHAKE_BODY_OFFSET          14
-#define DTLS_HANDSHAKE_HEADER_SIZE          14
+#define DTLS_HANDSHAKE_BODY_OFFSET          12
+#define DTLS_HANDSHAKE_HEADER_SIZE          12
 
 /* DTLS Hello Verify Request (Cookie Exchange) */
 #define DTLS_HANDSHAKE_HELLO_VERIFY_REQUEST    3
@@ -134,11 +132,21 @@ extern "C" {
 
 /* DTLS ACK Range Limits */
 #define DTLS_MAX_ACK_RANGES             32      /* Max ACK ranges to track */
+#define DTLS_FINAL_ACK_RETENTION_MS      120000u /* RFC 9147: retain final ACK for 2 MSL */
+#define DTLS_MAX_ACK_WIRE_LEN            (4u + 2u + 2u + (12u * DTLS_MAX_ACK_RANGES) + 2u)
+#define DTLS_REASSEMBLY_QUEUE_SIZE      4       /* Future handshake messages retained for reordering */
+#define DTLS_RETRANSMIT_RECORD_BURST    10      /* RFC 9147 Section 5.8.3 send burst cap */
 
 /* DTLS Epochs */
 #define DTLS_EPOCH_UNENCRYPTED          0       /* Unencrypted handshake */
 #define DTLS_EPOCH_ENCRYPTED            1       /* Encrypted handshake */
 #define DTLS_EPOCH_APPLICATION          2       /* Application data */
+
+/* RFC 9147 DTLS 1.3 epochs: 0=initial, 1=0-RTT, 2=handshake, 3=application. */
+#define DTLS13_EPOCH_INITIAL            0u
+#define DTLS13_EPOCH_EARLY_DATA         1u
+#define DTLS13_EPOCH_HANDSHAKE          2u
+#define DTLS13_EPOCH_APPLICATION        3u
 
 /* DTLS Record Structure */
 NOXTLS_MSVC_WARNING_PUSH
@@ -164,7 +172,6 @@ typedef struct
     uint16_t message_seq;       /* Message sequence number */
     uint32_t fragment_offset;   /* Fragment offset */
     uint32_t fragment_length;   /* Fragment length */
-    uint16_t fragment_seq;      /* Fragment sequence number */
     uint8_t *data;              /* Fragment data */
 } dtls_handshake_fragment_t;
 NOXTLS_MSVC_WARNING_POP
@@ -177,6 +184,23 @@ typedef struct
     uint64_t window_bitmap;     /* Bitmap of received sequence numbers */
     uint64_t last_seq;          /* Last received sequence number */
 } dtls_replay_window_t;
+NOXTLS_MSVC_WARNING_POP
+
+/* DTLS future handshake reassembly slot */
+NOXTLS_MSVC_WARNING_PUSH
+NOXTLS_MSVC_DISABLE_PADDING
+typedef struct
+{
+    uint8_t active;
+    uint8_t msg_type;
+    uint16_t message_seq;
+    uint32_t length;
+    uint8_t *buffer;
+    uint8_t *received;
+    uint32_t capacity;
+    uint32_t received_len;
+    uint32_t received_count;
+} dtls_reassembly_slot_t;
 NOXTLS_MSVC_WARNING_POP
 
 /* DTLS Context Base Structure */
@@ -197,6 +221,11 @@ typedef struct
     
     /* Replay protection */
     dtls_replay_window_t replay_window;  /* Replay protection window */
+    dtls_replay_window_t replay_windows[4];  /* DTLS 1.3 per low-epoch replay windows */
+    uint64_t highest_recv_seq[4];       /* DTLS 1.3 full record number reconstruction */
+    uint8_t highest_recv_seq_valid[4];  /* DTLS 1.3 reconstruction state */
+    uint64_t connection_epoch;          /* Full DTLS 1.3 write epoch */
+    uint64_t read_connection_epoch;     /* Full DTLS 1.3 read epoch */
     
     /* Handshake fragmentation */
     uint8_t *handshake_buffer;  /* Buffer for reassembling fragmented handshake */
@@ -207,6 +236,7 @@ typedef struct
     uint8_t *handshake_received;        /* Byte map of received fragments */
     uint32_t handshake_received_len;    /* Length of received map */
     uint32_t handshake_received_count;  /* Bytes received so far */
+    dtls_reassembly_slot_t reassembly_queue[DTLS_REASSEMBLY_QUEUE_SIZE];
     
     /* Retransmission flight buffer (DTLS handshakes) */
     uint8_t *flight_buffer;     /* Concatenated DTLS records with 2-byte length prefix */
@@ -231,13 +261,24 @@ typedef struct
     uint64_t last_ack_seq;      /* Last ACKed sequence number received */
     uint64_t last_ack_range_min; /* Last ACKed range start */
     uint64_t last_ack_range_max; /* Last ACKed range end */
+    uint64_t *last_ack_ranges_min; /* Last ACKed ranges start */
+    uint64_t *last_ack_ranges_max; /* Last ACKed ranges end */
+    uint8_t last_ack_range_count;  /* Last ACKed range count */
     uint64_t flight_epoch;      /* Epoch for current flight */
     uint64_t flight_min_seq;    /* First seq in current flight */
     uint64_t flight_max_seq;    /* Last seq in current flight */
     uint8_t flight_has_range;   /* Flight range valid */
     uint32_t retransmit_timeout_ms; /* Retransmit timeout in ms */
-    uint32_t retransmit_backoff_ms; /* Backoff multiplier */
+    uint32_t retransmit_base_timeout_ms; /* Current base RTO before loss backoff */
+    uint32_t retransmit_backoff_ms; /* Backoff multiplier in per-mille units (2000 = 2x) */
+    uint32_t smoothed_rtt_ms;    /* RTT estimator SRTT */
+    uint32_t rttvar_ms;          /* RTT estimator variation */
+    uint8_t rtt_estimator_valid; /* RTT estimator has at least one sample */
     uint64_t last_flight_sent_ms;   /* Last flight send time (ms) */
+    uint8_t final_ack_active;        /* Final-flight ACK retained for duplicate peer retransmits */
+    uint64_t final_ack_until_ms;     /* Monotonic expiry for retained final ACK (0 if no time callback) */
+    uint32_t final_ack_len;          /* Retained ACK wire length */
+    uint8_t final_ack[DTLS_MAX_ACK_WIRE_LEN]; /* Retained ACK handshake message */
 
     /* Cookie (for Hello Verify Request) */
     uint8_t cookie[32];         /* Server cookie */
@@ -281,5 +322,3 @@ void noxtls_dtls_mark_validated(dtls_context_t *ctx);
 #endif
 
 #endif /* _NOXTLS_DTLS_COMMON_H_ */
-
-

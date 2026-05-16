@@ -596,6 +596,31 @@ static const char *tls_test_key_paths[TLS_TEST_KEY_PATH_COUNT] = {
     "../../applications/tls_test/testdata/tls_test_server_key.der",
     "../../../applications/tls_test/testdata/tls_test_server_key.der"
 };
+static const uint8_t tls_test_ocsp_response_der[] = {
+    0x30, 0x03, 0x0A, 0x01, 0x00
+};
+
+static int tls_test_cipher_suite_uses_server_key_exchange(uint16_t suite)
+{
+    switch(suite) {
+        case TLS_CIPHER_SUITE_RSA_WITH_3DES_EDE_CBC_SHA:
+        case TLS_CIPHER_SUITE_RSA_WITH_AES_128_CBC_SHA:
+        case TLS_CIPHER_SUITE_RSA_WITH_AES_256_CBC_SHA:
+        case TLS_CIPHER_SUITE_RSA_WITH_AES_128_CBC_SHA256:
+        case TLS_CIPHER_SUITE_RSA_WITH_AES_256_CBC_SHA256:
+        case TLS_CIPHER_SUITE_RSA_WITH_ARIA_128_CBC_SHA256:
+        case TLS_CIPHER_SUITE_RSA_WITH_ARIA_256_CBC_SHA384:
+        case TLS_CIPHER_SUITE_RSA_WITH_AES_128_CCM:
+        case TLS_CIPHER_SUITE_RSA_WITH_AES_256_CCM:
+        case TLS_CIPHER_SUITE_RSA_WITH_AES_128_CCM_8:
+        case TLS_CIPHER_SUITE_RSA_WITH_AES_256_CCM_8:
+        case TLS_CIPHER_SUITE_RSA_WITH_AES_128_GCM_SHA256:
+        case TLS_CIPHER_SUITE_RSA_WITH_AES_256_GCM_SHA384:
+            return 0;
+        default:
+            return 1;
+    }
+}
 
 /**
  * @brief Load deterministic test certificate DER bytes from configured path list.
@@ -675,6 +700,7 @@ static noxtls_return_t tls_test_load_server_key(rsa_key_t *server_key)
 int main(int argc, char **argv)
 {
     noxtls_return_t rc;
+    int ocsp_only = 0;
 #if NOXTLS_CFG_ENABLE_NOXSIGHT
     tls_test_cli_options_t opts;
     int noxsight_started = 0;
@@ -699,6 +725,12 @@ int main(int argc, char **argv)
     printf("========================================\n");
     printf("TLS Test Application\n");
     printf("========================================\n\n");
+
+    for(int argi = 1; argi < argc; argi++) {
+        if(argv[argi] != NULL && strcmp(argv[argi], "--ocsp-only") == 0) {
+            ocsp_only = 1;
+        }
+    }
 
 #if NOXTLS_CFG_ENABLE_NOXSIGHT
     if(!tls_test_parse_cli(argc, argv, &opts))
@@ -824,6 +856,10 @@ int main(int argc, char **argv)
                             client_send_callback, 
                             client_recv_callback, 
                             &network);
+        noxtls_tls12_set_client_request_ocsp_status(&client_ctx, 1);
+        noxtls_tls12_set_server_ocsp_response(&server_ctx,
+                                              tls_test_ocsp_response_der,
+                                              (uint32_t)sizeof(tls_test_ocsp_response_der));
         
         /* Perform TLS handshake */
         printf("[6/8] Performing TLS 1.2 handshake...\n");
@@ -890,20 +926,42 @@ int main(int argc, char **argv)
         noxtls_debug_printf("    Client: Certificate received successfully\n");
         noxtls_debug_printf("    Debug: server_to_client buffer length after recv: %u\n", network.server_to_client.len);
         fflush(stdout);
-        
-        printf("  Step 4: Server Key Exchange...\n");
-        rc = noxtls_tls12_send_server_key_exchange(&server_ctx);
-        if(rc != NOXTLS_RETURN_SUCCESS)
         {
-            printf("ERROR: Failed to send Server Key Exchange: %d\n", rc);
-            break;
+            const uint8_t *peer_ocsp = NULL;
+            uint32_t peer_ocsp_len = 0;
+            rc = noxtls_tls12_get_peer_ocsp_response(&client_ctx, &peer_ocsp, &peer_ocsp_len);
+            if(rc != NOXTLS_RETURN_SUCCESS ||
+               peer_ocsp == NULL ||
+               peer_ocsp_len != (uint32_t)sizeof(tls_test_ocsp_response_der) ||
+               memcmp(peer_ocsp, tls_test_ocsp_response_der, sizeof(tls_test_ocsp_response_der)) != 0) {
+                printf("ERROR: OCSP stapling regression check failed (rc=%d len=%u)\n", rc, peer_ocsp_len);
+                break;
+            }
+            printf("    Client: OCSP stapling response received and verified (%u bytes)\n", peer_ocsp_len);
+            if(ocsp_only) {
+                printf("    OCSP-only mode: stopping after stapling regression check.\n");
+                rc = NOXTLS_RETURN_SUCCESS;
+                break;
+            }
         }
         
-        rc = noxtls_tls12_recv_server_key_exchange(&client_ctx);
-        if(rc != NOXTLS_RETURN_SUCCESS)
-        {
-            printf("ERROR: Failed to receive Server Key Exchange: %d\n", rc);
-            break;
+        if(tls_test_cipher_suite_uses_server_key_exchange(client_ctx.cipher_suite)) {
+            printf("  Step 4: Server Key Exchange...\n");
+            rc = noxtls_tls12_send_server_key_exchange(&server_ctx);
+            if(rc != NOXTLS_RETURN_SUCCESS)
+            {
+                printf("ERROR: Failed to send Server Key Exchange: %d\n", rc);
+                break;
+            }
+            
+            rc = noxtls_tls12_recv_server_key_exchange(&client_ctx);
+            if(rc != NOXTLS_RETURN_SUCCESS)
+            {
+                printf("ERROR: Failed to receive Server Key Exchange: %d\n", rc);
+                break;
+            }
+        } else {
+            printf("  Step 4: Server Key Exchange skipped for RSA key exchange suite 0x%04X\n", client_ctx.cipher_suite);
         }
         
         printf("  Step 5: Server Hello Done...\n");

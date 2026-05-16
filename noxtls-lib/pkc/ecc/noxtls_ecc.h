@@ -89,6 +89,8 @@ typedef struct
     uint8_t *d;              /* Private key (scalar) */
     ecc_point_t Q;           /* Public key (point) */
     ecc_curve_params_t *curve; /* Curve parameters */
+    /** Populated by noxtls_ecc_key_init / noxtls_ecc_key_generate; used for TLS 1.3 signature scheme selection. */
+    ecc_curve_t curve_kind;
 } ecc_key_t;
 
 /* Jacobian point (X, Y, Z) with x = X/Z^2, y = Y/Z^3. Identity is Z=0. */

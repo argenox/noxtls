@@ -23,6 +23,7 @@ extern "C" {
 
 typedef enum
 {
+    NOXTLS_MLKEM_NONE = 0,
     NOXTLS_MLKEM_512 = 1,
     NOXTLS_MLKEM_768 = 2,
     NOXTLS_MLKEM_1024 = 3

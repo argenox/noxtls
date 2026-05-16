@@ -384,6 +384,17 @@
  */
 #define NOXTLS_FEATURE_TLS13 1
 
+/*
+ * TLS 1.3 (RFC 8446): RSA PKCS#1 v1.5 CertificateVerify schemes (e.g. rsa_pkcs1_sha256,
+ * wire 0x0401) are deprecated for TLS 1.3 handshake signatures. NoxTLS does not implement
+ * signing those for CertificateVerify; keep 0. When 0, client offers consisting only of
+ * such schemes fail algorithm selection (fatal handshake_failure). Do not set to 1 without
+ * a reviewed implementation and test plan.
+ */
+#ifndef NOXTLS_CFG_TLS13_ALLOW_RSA_PKCS1_CERTVERIFY
+#define NOXTLS_CFG_TLS13_ALLOW_RSA_PKCS1_CERTVERIFY 0
+#endif
+
 /* Enables DTLS support.
  * Prereq: NOXTLS_FEATURE_TLS=1.
  */
@@ -953,6 +964,13 @@
  *  size if below 16384. */
 #ifndef NOXTLS_TLS_MAX_RECORD_SIZE
 #define NOXTLS_TLS_MAX_RECORD_SIZE 16384
+#endif
+
+/** Maximum TLS record-layer fragment length from the 2-byte length field (encrypted payload).
+ *  RFC 5246 plaintext is at most 2^14 bytes; ciphertext is larger. Interop tests (e.g. tlsfuzzer
+ *  SetMaxRecordSize) may send fragments up to 2^16-1. Must be >= NOXTLS_TLS_MAX_RECORD_SIZE. */
+#ifndef NOXTLS_TLS_MAX_WIRE_RECORD_LENGTH
+#define NOXTLS_TLS_MAX_WIRE_RECORD_LENGTH 65535
 #endif
 
 /** Maximum handshake message size (bytes). Used only as a bounds check:

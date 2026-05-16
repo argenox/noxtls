@@ -74,12 +74,14 @@ static void gf128_multiply_alpha(uint8_t block[NOXTLS_AES_BLOCK_LENGTH])
  * @param type is the AES variant, 128, 192, 256
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_* on failure
  */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 noxtls_return_t noxtls_aes_encrypt_xts(const uint8_t* key,
                     const uint8_t* data,
                     uint32_t data_len,
                     const uint8_t * iv,
                     uint8_t* output,
                     noxtls_aes_type_t type)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     uint32_t cur_block = 0;
     uint32_t i = 0;
@@ -183,7 +185,7 @@ noxtls_return_t noxtls_aes_encrypt_xts(const uint8_t* key,
         
         /* Save second-to-last ciphertext block */
         if(num_blocks > 0) {
-            memcpy(second_last_block, output + (num_blocks - 1) * NOXTLS_AES_BLOCK_LENGTH, NOXTLS_AES_BLOCK_LENGTH);
+            memcpy(second_last_block, output + (size_t)(num_blocks - 1u) * NOXTLS_AES_BLOCK_LENGTH, NOXTLS_AES_BLOCK_LENGTH);
         }
         
         /* Multiply tweak by alpha one more time */
@@ -223,9 +225,9 @@ noxtls_return_t noxtls_aes_encrypt_xts(const uint8_t* key,
         }
         
         /* Output: first part goes to last block position, rest overwrites second-to-last */
-        memcpy(output + num_blocks * NOXTLS_AES_BLOCK_LENGTH, temp_block, last_block_len);
+        memcpy(output + (size_t)num_blocks * NOXTLS_AES_BLOCK_LENGTH, temp_block, last_block_len);
         if(num_blocks > 0) {
-            memcpy(output + (num_blocks - 1) * NOXTLS_AES_BLOCK_LENGTH + last_block_len, 
+            memcpy(output + (size_t)(num_blocks - 1u) * NOXTLS_AES_BLOCK_LENGTH + last_block_len,
                    temp_block + last_block_len, 
                    NOXTLS_AES_BLOCK_LENGTH - last_block_len);
         }

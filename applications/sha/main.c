@@ -29,19 +29,19 @@
  * @defgroup noxtls_app_sha SHA utility
  * @details
  * Command-line tool to compute noxtls_message digests (hashes) using NoxTLS mdigest.
- * Top-level command: dgst — compute a hash.
- * Parameters: after the command, specify the algorithm name, then optional
- * switches and input (string or hex).
+ * Parameters: specify the algorithm name, then optional switches and input
+ * (string or hex).
  * Options:
  *   -v          Version information
- *   -h          Help (global); or for dgst: interpret input as hex
- *   -d          Enable debug output (dgst only)
- * Algorithms: MD5, SHA1, SHA224, SHA256, SHA384, SHA512, SHA512_224, SHA512_256.
+ *   -h          Help (global); after an algorithm, interpret text input as hex
+ *   -d          Enable debug output
+ * Algorithms include enabled NoxTLS digests such as MD5, SHA1, SHA2, SHA3,
+ * RIPEMD-160, BLAKE2, and MD4 when feature-enabled.
  * @example
  * Hash a string with SHA-256:
- *   sha dgst SHA256 hello world
+ *   sha SHA256 hello world
  * Hash from hex input:
- *   sha dgst SHA256 -h 68656c6c6f
+ *   sha SHA256 -h 68656c6c6f
  * Show help and version:
  *   sha -h
  *   sha -v
@@ -60,31 +60,10 @@
 #define APP_VERSION_BUILD 4
 
 
-typedef struct {
-    char cmd[32];
-    int (*handler)(int argc, char ** argv);
-    char description[256];
-
-} command_list_t;
-
-
-command_list_t commands[]  = {
-    {"dgst", &message_digest, "Generates the noxtls_message digest"}
-};
-
-
-
 void print_usage(const char * name)
 {
-    printf( "usage: %s [command] <parameters>\n", name);
-    printf("\nSupported Commands\n\n");
-
-    size_t i = 0;
-    size_t command_count = sizeof(commands) / sizeof(commands[0]);
-    for(i = 0; i < command_count; i++)
-    {
-        printf("%s  \t\t\t%s\n", commands[i].cmd, commands[i].description);
-    }
+    printf("usage: %s <algorithm> [options] [text...]\n", name);
+    printf("       %s <algorithm> -f <file> [options]\n", name);
 
     printf("\nCommandline Switches\n\n");
 
@@ -103,45 +82,21 @@ void print_version(void)
 
 int main(int argc, char ** argv)
 {
-    int command_found = 0;
-
     /* check for command line arguments */
     if (argc < 2)
     {
-        print_usage(argv[0]);
-        return -1   ;
+        print_digest_usage();
+        return 0;
     }
 
-    /* Find top level command */
-    size_t i = 0;
-    size_t command_count = sizeof(commands) / sizeof(commands[0]);
-    for(i = 0; i < command_count; i++)
-    {
-        if(strncmp(argv[1], commands[i].cmd, strlen(commands[i].cmd)) == 0)
-        {
-            commands[i].handler(argc - 2, &argv[2]);
-            command_found = 1;
-            break;
-        }
+    if(strcmp(argv[1], "-v") == 0 || strcmp(argv[1], "--version") == 0) {
+        print_version();
+        return 0;
+    }
+    if(strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
+        print_digest_usage();
+        return 0;
     }
 
-    if(command_found == 0)
-    {
-        int c;
-        while ((c = noxtls_getopt (argc, argv, "vh")) != -1)
-        {
-            switch (c)
-            {
-                case 'v':
-                    print_version();
-                    break;
-                case 'h':
-                    print_usage(argv[0]);
-                    break;
-
-            }
-        }
-    }
-
-    return 0;    
+    return message_digest(argc - 1, &argv[1]);
 }

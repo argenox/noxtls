@@ -173,11 +173,13 @@ noxtls_return_t noxtls_aes_ccm_encrypt(const uint8_t *key, noxtls_aes_type_t typ
  * @param mac_state is the MAC state to use
  *
  */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static void ccm_compute_mac(const uint8_t *key, noxtls_aes_type_t type,
                             const uint8_t *B0,
                             const uint8_t *aad, uint32_t aad_len,
                             const uint8_t *payload, uint32_t payload_len,
                             uint8_t *mac_state)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     uint32_t i;
     uint32_t n_blocks;

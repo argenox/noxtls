@@ -95,6 +95,7 @@ noxtls_return_t noxtls_certificate_der_to_pem(uint8_t * data, uint32_t length, u
 
         memcpy(ptr, CERT_END_STR, strlen(CERT_END_STR));
         ptr += strlen(CERT_END_STR);
+        *ptr = '\0';
 
         {
             ptrdiff_t written = ptr - output;
@@ -143,6 +144,7 @@ noxtls_return_t noxtls_csr_der_to_pem(uint8_t *data, uint32_t length, uint8_t *o
         
         memcpy(ptr, CERT_REQ_END_STR, strlen(CERT_REQ_END_STR));
         ptr += strlen(CERT_REQ_END_STR);
+        *ptr = '\0';
         *out_len = (uint32_t)(ptr - output);
         rc = NOXTLS_RETURN_SUCCESS;
 
@@ -166,6 +168,8 @@ noxtls_return_t noxtls_csr_der_to_pem(uint8_t *data, uint32_t length, uint8_t *o
 noxtls_return_t noxtls_certificate_pem_to_der(uint8_t * data, uint32_t length, uint8_t * output, uint32_t * out_len)
 {
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+    size_t begin_len = strlen(CERT_BEGIN_STR);
+    size_t end_len = strlen(CERT_END_STR);
 
     do
     {
@@ -190,30 +194,33 @@ noxtls_return_t noxtls_certificate_pem_to_der(uint8_t * data, uint32_t length, u
             break;
         }
 
-        /* Ensure certificate contains start string */
-        if(memcmp(data, CERT_BEGIN_STR, strlen(CERT_BEGIN_STR)) != 0) {
+        if(begin_len > UINT32_MAX || end_len > UINT32_MAX) {
+            rc = NOXTLS_RETURN_BAD_DATA;
+            break;
+        }
+        if(length < (uint32_t)begin_len || length < (uint32_t)end_len) {
+            rc = NOXTLS_RETURN_BAD_DATA;
+            break;
+        }
+        if(length < (uint32_t)(begin_len + end_len)) {
             rc = NOXTLS_RETURN_BAD_DATA;
             break;
         }
 
-        if(memcmp((void *)(data + length - strlen(CERT_END_STR)), CERT_END_STR, strlen(CERT_END_STR)) != 0) {
+        /* Ensure certificate contains start string */
+        if(memcmp(data, CERT_BEGIN_STR, begin_len) != 0) {
+            rc = NOXTLS_RETURN_BAD_DATA;
+            break;
+        }
+
+        if(memcmp((void *)(data + length - end_len), CERT_END_STR, end_len) != 0) {
             rc = NOXTLS_RETURN_BAD_DATA;
             break;
         }
 
         {
-            size_t begin_len = strlen(CERT_BEGIN_STR);
-            size_t end_len = strlen(CERT_END_STR);
             int dec;
 
-            if(begin_len + end_len > length) {
-                rc = NOXTLS_RETURN_BAD_DATA;
-                break;
-            }
-            if(begin_len > UINT32_MAX || end_len > UINT32_MAX) {
-                rc = NOXTLS_RETURN_BAD_DATA;
-                break;
-            }
             {
                 uint32_t b64_len = length - (uint32_t)begin_len - (uint32_t)end_len;
 

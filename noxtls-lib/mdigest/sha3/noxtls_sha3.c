@@ -208,7 +208,7 @@ static void keccak_iota(noxtls_sha3_ctx_t * ctx, int round)
  */
 static void keccak_f1600(noxtls_sha3_ctx_t * ctx)
 {
-    unsigned int round;
+    int round;
 
     for(round = 0; round < SHA3_KECCAK_ROUNDS; round++) {
         keccak_theta(ctx);

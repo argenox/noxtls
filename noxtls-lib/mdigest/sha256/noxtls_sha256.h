@@ -44,7 +44,7 @@ extern "C" {
 #define SHA256_PAD_BYTE           (0x80u)
 #define SHA256_ROUND_COUNT        (64u)
 #define SHA256_STATE_WORDS        (8u)
-#define SHA224_STATE_WORDS        (6u)
+#define SHA224_STATE_WORDS        (7u)
 #define SHA256_WORD_BYTES         (4u)
 #define SHA256_WORDS_PER_BLOCK    (16u)
 

@@ -5,88 +5,185 @@ title: "TLS component"
 
 # TLS component
 
-The NoxTLS TLS component implements **Transport Layer Security (TLS)** and **Datagram TLS (DTLS)** for secure client and server connections. It supports TLS 1.0, 1.1, 1.2, and 1.3, and DTLS 1.2 and 1.3.
+The NoxTLS TLS component implements **Transport Layer Security (TLS)** and **Datagram TLS (DTLS)** for secure client and server connections over callback-based I/O (sockets, custom transports, or test harnesses).
 
-## Supported versions and features
+**Default build profile:** TLS **1.2** and **1.3**, plus DTLS **1.2** and **1.3**. TLS 1.0 and 1.1 remain available when enabled in `noxtls_config.h` (`NOXTLS_FEATURE_TLS10`, `NOXTLS_FEATURE_TLS11`).
 
-| Protocol   | Versions   | Key exchange              | Ciphers                          |
-|-----------|------------|---------------------------|----------------------------------|
-| TLS       | 1.0-1.3    | RSA, ECDHE, DHE, PSK, ECDHE-PSK, ML-KEM, X25519+ML-KEM (feature-gated) | AES-GCM/CCM, ChaCha20-Poly1305, AES-CBC, ARIA |
-| DTLS      | 1.2, 1.3   | Same as TLS (feature/profile dependent) | Same as TLS |
+## Protocol overview
 
-- **TLS 1.3:** Full handshake, session resumption (tickets), 0-RTT early data, PSK and ECDHE-PSK, client authentication (mTLS), ALPN, SNI.
-- **TLS 1.2:** ECDHE-RSA, DHE-RSA, ECDHE-ECDSA cipher suites; renegotiation (RFC 5746); Encrypt-then-MAC, Extended Master Secret.
-- **DTLS:** Fragmentation, retransmission, cookie exchange (Hello Verify Request), replay protection; DTLS 1.3 uses the unified header and connection ID (RFC 9147).
-- **Post-quantum (experimental):** ML-KEM groups and X25519+ML-KEM hybrid groups for TLS 1.3 key exchange; ML-DSA signature schemes for TLS 1.3 CertificateVerify.
+| Protocol | Wire versions | Default build | Primary APIs |
+|----------|---------------|---------------|--------------|
+| TLS 1.2 | `0x0303` | On | [tls12](/docs/api/tls12), [unified](/docs/api/tls_unified) |
+| TLS 1.3 | `0x0304` | On | [tls13](/docs/api/tls13), [unified](/docs/api/tls_unified) |
+| TLS 1.0 / 1.1 | `0x0301` / `0x0302` | Off | [tls10](/docs/api/tls10), [tls11](/docs/api/tls11) |
+| DTLS 1.2 | `0xFEFD` | On | [dtls12](/docs/api/dtls12) via `noxtls_dtls12_context_init` |
+| DTLS 1.3 | `0xFEFC` | On | [dtls13](/docs/api/dtls13) via `noxtls_dtls13_context_init` |
+
+## TLS 1.3 features
+
+| Area | Support |
+|------|---------|
+| Full handshake (1-RTT) | Client and server |
+| HelloRetryRequest | Supported |
+| KeyUpdate | Send and receive |
+| Session resumption | NewSessionTicket, PSK binder, external PSK |
+| 0-RTT early data | Client and server paths (some edge cases still under test) |
+| PSK modes | `psk_ke`, `psk_dhe_ke` (ECDHE-PSK) |
+| Client authentication (mTLS) | RSA, ECDSA, Ed25519, Ed448, ML-DSA (feature-gated) |
+| ALPN | Offer, select, and verify |
+| SNI | Client send and server validation |
+| Record Size Limit (RFC 8449) | Negotiation and send chunking |
+| Channel bindings (RFC 5929) | `tls-unique` style export API |
+| Signature algorithms | RSA-PSS, ECDSA (P-256/P-384/P-521), Ed25519 |
+| Named groups | X25519, X448, FFDHE (RFC 7919), optional ML-KEM / hybrids |
+
+## TLS 1.2 features
+
+| Area | Support |
+|------|---------|
+| Cipher suites | ECDHE-RSA, ECDHE-ECDSA, DHE-RSA, RSA key transport, AES-GCM, AES-CBC, AES-CCM, ChaCha20-Poly1305, ARIA |
+| Secure renegotiation (RFC 5746) | `renegotiation_info` and fallback SCSV handling |
+| Encrypt-then-MAC (RFC 7366) | Negotiated and applied on record layer |
+| Extended Master Secret (RFC 7627) | Offer, negotiation, session/ticket binding |
+| Session tickets (RFC 5077) | ServerHello echo, NewSessionTicket, cache hooks |
+| Maximum fragment length (RFC 6066) | `noxtls_tls12_set_max_fragment_length` |
+| SNI, ALPN | Same extension framework as TLS 1.3 stack |
+| Raw public keys (RFC 7250) | Certificate type negotiation |
+| OCSP stapling (RFC 6066) | Client `status_request`, server CertificateStatus send/receive |
+| Heartbeat (RFC 6520) | Extension and record handling (conformance still improving) |
+
+## DTLS 1.2 features (RFC 6347)
+
+| Area | Support |
+|------|---------|
+| Record layer | 13-byte header, epoch and 48-bit sequence |
+| Handshake | Fragmentation and reassembly |
+| Loss recovery | Retransmission timer, flight buffers |
+| DoS mitigation | HelloVerifyRequest cookie (generate/verify) |
+| Replay protection | Sliding window per epoch |
+| Configuration | [noxtls_dtls_set_mtu](/docs/api/dtls#noxtls_dtls_set_mtu), [dtls_set_retransmit](/docs/api/dtls#dtls_set_retransmit), anti-amplification limit |
+
+Initialize with [noxtls_dtls12_context_init](/docs/api/dtls12#noxtls_dtls12_context_init), then use the same [noxtls_tls12_connect](/docs/api/tls12#noxtls_tls12_connect) / [noxtls_tls12_accept](/docs/api/tls12#noxtls_tls12_accept) and send/recv APIs as for TLS over TCP.
+
+## DTLS 1.3 features (RFC 9147)
+
+DTLS 1.3 shares the TLS 1.3 handshake and cipher suites but uses a datagram record layer. NoxTLS implements the following (see also the [DTLS 1.3 guide](/docs/dtls13)):
+
+| Area | Support |
+|------|---------|
+| Key schedule | HKDF labels use the `dtls13` prefix (not `tls13`) |
+| ClientHello | Empty `legacy_session_id`, zero-length `legacy_cookie` in first flight |
+| Unified record header | Connection ID bit, sequence number length bit, optional length field |
+| Record number protection | Truncated on wire, reconstructed before AEAD |
+| Replay detection | Per low epoch; benign epoch mismatch discarded |
+| Handshake reassembly | Overlap checks, bounded future-message queue |
+| ACK records | Parse ACK ranges; retransmit skips acknowledged records |
+| Retransmission | RTT-based timer when ACKs available; final-flight ACK retention (2 MSL window) |
+| Connection ID | RequestConnectionId / NewConnectionId APIs, spare CID pool, rotation hooks |
+| KeyUpdate | Independent read/write epoch tracking across epoch wrap |
+| Short tags | CCM_8 suites padded before AEAD when tag length &lt; 16 bytes |
+| MTU-aware fragmentation | Handshake fragment size accounts for unified header overhead |
+
+Initialize with [noxtls_dtls13_context_init](/docs/api/dtls13#noxtls_dtls13_context_init). Configure the shared DTLS base via [DTLS API](/docs/api/dtls) (MTU, retransmit, ACK range limit).
+
+:::caution Interoperability note
+DTLS 1.3 wire format and key derivation changed to align with RFC 9147. Peers built before this alignment are not interoperable with RFC 9147-conformant builds.
+:::
+
+## Extensions and security properties (summary)
+
+| RFC | Feature | TLS 1.2 | TLS 1.3 | DTLS |
+|-----|---------|---------|---------|------|
+| 5746 | Secure renegotiation | Yes | N/A | N/A |
+| 6066 | SNI | Yes | Yes | Yes |
+| 6066 | Max fragment length | Yes | — | — |
+| 6066 | OCSP stapling | Yes | Partial / planned | — |
+| 7366 | Encrypt-then-MAC | Yes | N/A | N/A |
+| 7627 | Extended Master Secret | Yes | N/A | N/A |
+| 5077 | Session tickets | Yes | Yes | Yes (TLS 1.3 path) |
+| 7301 | ALPN | Yes | Yes | Yes |
+| 8449 | Record size limit | — | Yes | Yes |
+| 9146 / 9147 | Connection ID | — | — | DTLS 1.3 |
+| 6520 | Heartbeat | Partial | — | — |
+| 7250 | Raw public keys | Yes | — | — |
+
+Extension constants exist for SCT, certificate compression, delegated credentials, and token binding; dedicated handling is not yet complete. See the [TLS RFC feature analysis](https://github.com/argenox/noxtls/blob/main/tls-rfc-feature-implementation-analysis.md) in the repository for a full matrix.
+
+## Post-quantum TLS (experimental)
+
+When `NOXTLS_FEATURE_ML_KEM` and `NOXTLS_FEATURE_ML_DSA` are enabled:
+
+- TLS 1.3 key shares: ML-KEM-768 / ML-KEM-1024 and X25519+ML-KEM hybrids (private-use code points).
+- TLS 1.3 signatures: ML-DSA-65 / ML-DSA-87 and RSA+ML-DSA composites.
+
+See [Quantum crypto](/docs/quantum-crypto), [TLS 1.3 PQC](/docs/api/tls13_pqc), [ML-KEM](/docs/api/mlkem), and [ML-DSA](/docs/api/mldsa).
 
 ## Architecture
 
-- **Base context** ([tls_context_t](/docs/api/tls#tls_context_t)) holds role (client/server), I/O callbacks, and state. TLS 1.2 and 1.3 use version-specific contexts that extend the DTLS/TLS base.
-- **I/O is callback-based:** you provide [tls_send_callback_t](/docs/api/tls#tls_send_callback_t) and [tls_recv_callback_t](/docs/api/tls#tls_recv_callback_t) so the library sends and receives records over your transport (sockets, etc.).
-- **Server version negotiation:** use [tls_accept_auto](/docs/api/tls#tls_accept_auto) to accept a Client Hello and route to the right TLS 1.2 or 1.3 handler.
+- **Base context** ([tls_context_t](/docs/api/tls#tls_context_t)) holds role (client/server), version, I/O callbacks, and shared record state.
+- **Version-specific contexts** extend the base: [tls12_context_t](/docs/api/tls12), [tls13_context_t](/docs/api/tls13).
+- **I/O is callback-based:** implement [noxtls_tls_set_io_callbacks](/docs/api/tls#noxtls_tls_set_io_callbacks) so the stack can read/write records on your transport.
+- **Server version negotiation:** [noxtls_tls_detect_version](/docs/api/tls#noxtls_tls_detect_version) or [noxtls_tls_connection_accept](/docs/api/tls_unified#noxtls_tls_connection_accept) on the unified connection type.
 
 ## Typical usage
 
 ### TLS client (TLS 1.2 or 1.3)
 
-1. Create a version-specific context: [noxtls_tls12_context_init](/docs/api/tls12#noxtls_tls12_context_init) or [noxtls_tls13_context_init](/docs/api/tls13#noxtls_tls13_context_init).
-2. Set I/O callbacks with [noxtls_tls_set_io_callbacks](/docs/api/tls#noxtls_tls_set_io_callbacks) (and optional time callback).
-3. **(Optional)** Set SNI: `ctx->base.server_name` / `server_name_len` (TLS 1.2) or same for TLS 1.3.
-4. **(Optional)** For mutual TLS (TLS 1.3): [noxtls_tls13_set_client_cert](/docs/api/tls13#noxtls_tls13_set_client_cert) (or ECDSA/Ed25519/Ed448/ML-DSA variants).
-5. Call [noxtls_tls12_connect](/docs/api/tls12#noxtls_tls12_connect) or [noxtls_tls13_connect](/docs/api/tls13#noxtls_tls13_connect) to run the handshake.
-6. Use [noxtls_tls12_send](/docs/api/tls12#noxtls_tls12_send) / [noxtls_tls12_recv](/docs/api/tls12#noxtls_tls12_recv) or [noxtls_tls13_send](/docs/api/tls13#noxtls_tls13_send) / [noxtls_tls13_recv](/docs/api/tls13#noxtls_tls13_recv) for application data.
-7. Shut down with [noxtls_tls12_close](/docs/api/tls12#noxtls_tls12_close) or [noxtls_tls13_close](/docs/api/tls13#noxtls_tls13_close), then [noxtls_tls12_context_free](/docs/api/tls12#noxtls_tls12_context_free) or [noxtls_tls13_context_free](/docs/api/tls13#noxtls_tls13_context_free).
+1. [noxtls_tls12_context_init](/docs/api/tls12#noxtls_tls12_context_init) or [noxtls_tls13_context_init](/docs/api/tls13#noxtls_tls13_context_init).
+2. [noxtls_tls_set_io_callbacks](/docs/api/tls#noxtls_tls_set_io_callbacks).
+3. Optional SNI on `ctx->server_name` / `server_name_len`.
+4. Optional client cert: [noxtls_tls13_set_client_cert](/docs/api/tls13#noxtls_tls13_set_client_cert) (or ECDSA / Ed25519 / ML-DSA variants).
+5. [noxtls_tls12_connect](/docs/api/tls12#noxtls_tls12_connect) or [noxtls_tls13_connect](/docs/api/tls13#noxtls_tls13_connect).
+6. [noxtls_tls12_send](/docs/api/tls12#noxtls_tls12_send) / [noxtls_tls12_recv](/docs/api/tls12#noxtls_tls12_recv) or TLS 1.3 equivalents.
+7. [noxtls_tls12_close](/docs/api/tls12#noxtls_tls12_close) and context free.
 
-### TLS server (TLS 1.2 or 1.3)
+### TLS server
 
-1. Create a context with [noxtls_tls12_context_init](/docs/api/tls12#noxtls_tls12_context_init) or [noxtls_tls13_context_init](/docs/api/tls13#noxtls_tls13_context_init).
-2. Set I/O callbacks (and optional time callback).
-3. Set server certificate: assign `server_cert` / `server_cert_len` (DER), and for TLS 1.2 with ECDHE-RSA/DHE-RSA set the server private key with [noxtls_tls12_set_server_private_rsa](/docs/api/tls12#noxtls_tls12_set_server_private_rsa); for TLS 1.3 use [noxtls_tls13_set_server_private_rsa](/docs/api/tls13#noxtls_tls13_set_server_private_rsa) or [noxtls_tls13_set_server_private_mldsa](/docs/api/tls13#noxtls_tls13_set_server_private_mldsa).
-4. Call [noxtls_tls12_accept](/docs/api/tls12#noxtls_tls12_accept) or [noxtls_tls13_accept](/docs/api/tls13#noxtls_tls13_accept) to run the handshake.
-5. Use send/recv for application data; close and free when done.
+1. Initialize context, set I/O, load DER certificate and private key (RSA via [noxtls_tls12_set_server_private_rsa](/docs/api/tls12#noxtls_tls12_set_server_private_rsa) or [noxtls_tls13_set_server_private_rsa](/docs/api/tls13#noxtls_tls13_set_server_private_rsa); ECDSA via `noxtls_tls*_set_server_private_ecdsa`).
+2. [noxtls_tls12_accept](/docs/api/tls12#noxtls_tls12_accept) or [noxtls_tls13_accept](/docs/api/tls13#noxtls_tls13_accept).
 
-### Server with automatic version negotiation
+### Unified API (TLS 1.2 + 1.3 auto-negotiation)
 
-1. Allocate a [tls_context_t](/docs/api/tls#tls_context_t) plus [tls12_context_t](/docs/api/tls12#tls12_context_t) and [tls13_context_t](/docs/api/tls13#tls13_context_t).
-2. Set I/O on the base context; initialize both TLS 1.2 and TLS 1.3 contexts and configure certificates/keys for each.
-3. Read the first record (Client Hello); call [tls_accept_auto](/docs/api/tls#tls_accept_auto) with the base context and the two version-specific contexts. It detects the version and completes the handshake on the appropriate context.
-4. Use the negotiated context (TLS 1.2 or 1.3) for send/recv and close.
+Use [noxtls_tls_connection_t](/docs/api/tls_unified#noxtls_tls_connection_t) for one handle per TCP connection:
 
-### Unified API
+- Server: [noxtls_tls_connection_init](/docs/api/tls_unified#noxtls_tls_connection_init), set cert/key, [noxtls_tls_connection_accept](/docs/api/tls_unified#noxtls_tls_connection_accept).
+- Client: init, SNI, [noxtls_tls_connection_connect](/docs/api/tls_unified#noxtls_tls_connection_connect) (TLS 1.3 first, then 1.2).
+- Data: [noxtls_tls_connection_send](/docs/api/tls_unified#noxtls_tls_connection_send) / [noxtls_tls_connection_recv](/docs/api/tls_unified#noxtls_tls_connection_recv).
 
-For a single connection type that negotiates TLS 1.2 or 1.3 automatically, use the [unified API](/docs/api/tls_unified):
+### DTLS client or server
 
-- **One context per connection:** [noxtls_tls_connection_t](/docs/api/tls_unified#noxtls_tls_connection_t) holds either TLS 1.2 or 1.3 state (only one is active).
-- **Server:** Call [noxtls_tls_connection_init](/docs/api/tls_unified#noxtls_tls_connection_init)(conn, TLS_ROLE_SERVER), [noxtls_tls_connection_set_io_callbacks](/docs/api/tls_unified#noxtls_tls_connection_set_io_callbacks), [noxtls_tls_connection_set_server_cert](/docs/api/tls_unified#noxtls_tls_connection_set_server_cert), [noxtls_tls_connection_set_server_private_key](/docs/api/tls_unified#noxtls_tls_connection_set_server_private_key), then [noxtls_tls_connection_accept](/docs/api/tls_unified#noxtls_tls_connection_accept). The library receives the Client Hello, detects the version, and completes the handshake.
-- **Client:** Call [noxtls_tls_connection_init](/docs/api/tls_unified#noxtls_tls_connection_init)(conn, TLS_ROLE_CLIENT), set I/O and optional [noxtls_tls_connection_set_sni](/docs/api/tls_unified#noxtls_tls_connection_set_sni), then [noxtls_tls_connection_connect](/docs/api/tls_unified#noxtls_tls_connection_connect). The client tries TLS 1.3 first, then 1.2.
-- **Data and shutdown:** Use [noxtls_tls_connection_send](/docs/api/tls_unified#noxtls_tls_connection_send) / [noxtls_tls_connection_recv](/docs/api/tls_unified#noxtls_tls_connection_recv), then [noxtls_tls_connection_close](/docs/api/tls_unified#noxtls_tls_connection_close) and [noxtls_tls_connection_free](/docs/api/tls_unified#noxtls_tls_connection_free). Query the negotiated version with [noxtls_tls_connection_get_version](/docs/api/tls_unified#noxtls_tls_connection_get_version).
+1. [noxtls_dtls12_context_init](/docs/api/dtls12#noxtls_dtls12_context_init) or [noxtls_dtls13_context_init](/docs/api/dtls13#noxtls_dtls13_context_init).
+2. [noxtls_dtls_set_mtu](/docs/api/dtls#noxtls_dtls_set_mtu) and [dtls_set_retransmit](/docs/api/dtls#dtls_set_retransmit) on `ctx->base` (DTLS base inside the TLS context).
+3. [noxtls_tls13_connect](/docs/api/tls13#noxtls_tls13_connect) / [noxtls_tls13_accept](/docs/api/tls13#noxtls_tls13_accept) (or TLS 1.2 equivalents for DTLS 1.2).
+4. Application data via [noxtls_tls13_send](/docs/api/tls13#noxtls_tls13_send) / [noxtls_tls13_recv](/docs/api/tls13#noxtls_tls13_recv).
 
-Use the unified API when you want one handle per connection and automatic version negotiation; use the version-specific APIs ([tls12_context_t](/docs/api/tls12), [tls13_context_t](/docs/api/tls13)) when you need fine-grained control or a fixed version only.
+## Interoperability testing
 
-### DTLS
-
-Use [noxtls_dtls12_context_init](/docs/api/tls12#noxtls_dtls12_context_init) or [noxtls_dtls13_context_init](/docs/api/tls13#noxtls_dtls13_context_init). Set MTU and retransmission with [noxtls_dtls_set_mtu](/docs/api/dtls#noxtls_dtls_set_mtu) and [dtls_set_retransmit](/docs/api/dtls#dtls_set_retransmit). Then use the same connect/accept and send/recv pattern as TLS; the library handles fragmentation and retransmission.
+| Harness | Purpose |
+|---------|---------|
+| tlsfuzzer | Scripted negative and edge-case tests — see `tlsfuzzer-script-status.md` in the repo |
 
 ## Configuration
 
-- **Certificates:** Supply server (and optionally client) certificate as DER in the context. Chain verification uses the library’s X.509 and PKC support; ensure [NOXTLS_FEATURE_CERT](/docs/configuration-guide) and required algorithms are enabled.
-- **Cipher preference:** TLS 1.3 supports [noxtls_tls13_set_prefer_chacha20](/docs/api/tls13#noxtls_tls13_set_prefer_chacha20) to prefer ChaCha20-Poly1305 over AES-GCM.
-- **Fragment length:** TLS 1.2 supports [noxtls_tls12_set_max_fragment_length](/docs/api/tls12#noxtls_tls12_set_max_fragment_length) (RFC 6066).
-- **PSK (TLS 1.3):** [tls13_set_external_psk](/docs/api/tls13#tls13_set_external_psk) configures identity and key for PSK or ECDHE-PSK.
-- **Record size limits:** Configure [NOXTLS_TLS_MAX_RECORD_SIZE](/docs/configuration-guide) and [NOXTLS_TLS_MAX_HANDSHAKE_SIZE](/docs/configuration-guide) in `noxtls_config.h` so the largest message (e.g. certificate chain) fits.
-- **PQC flags:** Enable `NOXTLS_CFG_FEATURE_ML_KEM` and `NOXTLS_CFG_FEATURE_ML_DSA` to activate PQ APIs and TLS 1.3 PQ/hybrid negotiation paths.
+- **Certificates:** DER in context; chain verification via [certs API](/docs/api/certs). Enable `NOXTLS_FEATURE_CERT` and required PKC algorithms.
+- **Cipher preference:** [noxtls_tls13_set_prefer_chacha20](/docs/api/tls13#noxtls_tls13_set_prefer_chacha20).
+- **PSK (TLS 1.3):** [noxtls_tls13_set_external_psk](/docs/api/tls13#noxtls_tls13_set_external_psk).
+- **Buffer sizes:** `NOXTLS_TLS_MAX_RECORD_SIZE` and `NOXTLS_TLS_MAX_HANDSHAKE_SIZE` in [configuration guide](/docs/configuration-guide).
+- **PQC:** `NOXTLS_CFG_FEATURE_ML_KEM`, `NOXTLS_CFG_FEATURE_ML_DSA`.
 
 ## API reference
 
-- **[TLS API (common)](/docs/api/tls)** — Base context, I/O callbacks, record types, constants, version detection, and extension parsing.
-- **[TLS API (unified)](/docs/api/tls_unified)** — Single connection type for TLS 1.2/1.3 with automatic version negotiation.
-- **[TLS 1.2 API](/docs/api/tls12)** — TLS 1.2 context, connect/accept, send/recv, handshake steps, and server key/certificate setup.
-- **[TLS 1.3 API](/docs/api/tls13)** — TLS 1.3 context, connect/accept, early data, PSK, client auth, and session resumption.
-- **[TLS 1.3 PQC](/docs/next/api/tls13_pqc)** — PQ named groups/signatures and ML-KEM/ML-DSA integration.
-- **[DTLS API](/docs/api/dtls)** — DTLS context, MTU, retransmission, fragmentation, and cookie handling.
+- **[TLS API (common)](/docs/api/tls)** — Base context, I/O, alerts, version detection.
+- **[TLS API (unified)](/docs/api/tls_unified)** — Single connection, auto TLS 1.2/1.3.
+- **[TLS 1.2 API](/docs/api/tls12)** — TLS 1.2 context and stream transport APIs.
+- **[TLS 1.3 API](/docs/api/tls13)** — TLS 1.3 context and stream transport APIs.
+- **[DTLS API](/docs/api/dtls)** — MTU, retransmit, cookies, replay, ACK helpers.
+- **[DTLS 1.2 API](/docs/api/dtls12)** — DTLS 1.2 initialization and datagram usage.
+- **[DTLS 1.3 API](/docs/api/dtls13)** — DTLS 1.3 initialization and datagram usage.
+- **[DTLS 1.3 guide](/docs/dtls13)** — DTLS 1.3 features and transport model.
 
 ## Sample applications
 
 - [HTTPS client](/docs/applications/app_https_client) and [HTTPS server](/docs/applications/app_https_server) — TLS over TCP.
-- [TLS test](/docs/applications/app_tls_test) — Test and demo usage.
-- [DTLS PSK demo](/docs/applications/app_dtls_psk_demo) and [DTLS PSK test](/docs/applications/app_dtls_psk_test) — DTLS with pre-shared keys.
+- [TLS test](/docs/applications/app_tls_test) — Demos and tests.
+- [DTLS PSK demo](/docs/applications/app_dtls_psk_demo) and [DTLS PSK test](/docs/applications/app_dtls_psk_test) — DTLS with PSK-oriented examples.

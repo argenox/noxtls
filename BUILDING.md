@@ -202,6 +202,34 @@ ctest --test-dir build-pqc-strict --output-on-failure -R "mlkem_official_keygen_
 - `-D WARNINGS_AS_ERRORS=ON`: Treat warnings as errors (non-MSVC)
 - `-D BUILD_SHARED_LIBS=ON`: Build shared libs
 
+## Static Analysis
+
+NoxTLS provides local and CI static-analysis coverage:
+
+- `cppcheck` (fast/portable rule-based checks)
+- `clang-tidy` (AST-aware correctness/style checks)
+- `scan-build` (Clang Static Analyzer, path-sensitive checks)
+- `Semgrep` (`p/ci` security and bug patterns)
+- `CodeQL` (already configured in `.github/workflows/codeql.yml`)
+
+### Run local analysis and capture reports
+
+From the repository root:
+
+```bash
+./scripts/run_static_analysis.sh
+```
+
+The script writes results to:
+
+- `reports/static-analysis/cppcheck.txt`
+- `reports/static-analysis/clang-tidy.txt`
+- `reports/static-analysis/summary.txt`
+
+If local analyzers are unavailable in system PATH, the script also checks user-local extractions under `.local-tools/root/`.
+
+**Cppcheck data files:** Debian/Ubuntu `cppcheck` expects `std.cfg` under `/usr/lib/x86_64-linux-gnu/cppcheck/cfg/`. A binary unpacked from a `.deb` alone often cannot run until those cfg files exist at that path (or you use a newer cppcheck that supports `--data-dir`). If preflight fails, the script writes an explanation to `reports/static-analysis/cppcheck.txt` and skips cppcheck unless you set `REQUIRE_CPPCHECK=1` (then the script exits with an error).
+
 ## Troubleshooting
 
 - Clean and reconfigure:

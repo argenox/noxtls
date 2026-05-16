@@ -1,6 +1,10 @@
 import React from 'react';
 import Link from '@docusaurus/Link';
 
+/**
+ * Site root: redirect to latest docs intro so visitors land on the current release.
+ * /docs (without a version path) serves the current documentation set (0.2.4).
+ */
 export default function Home() {
   return (
     <main style={{ maxWidth: 900, margin: '0 auto', padding: '3rem 1rem' }}>

@@ -756,14 +756,21 @@ noxtls_return_t noxtls_ecc_curve_free(ecc_curve_params_t *curve)
     }
 
 #if (NOXTLS_ECC_POINT_MUL_WINDOW_SIZE > 0) && (NOXTLS_ECC_FIXED_POINT_OPTIM)
-    /* Invalidate cache when freeing any curve so we never hold a dangling curve pointer. */
-    if(s_fixed_base_cache.valid && s_fixed_base_cache.curve == curve && s_fixed_base_cache.table) {
-        free(s_fixed_base_cache.table);
-        s_fixed_base_cache.table = NULL;
+    /*
+     * Invalidate fixed-base precompute only for the curve that owns the cache.
+     * Clearing cache on *every* curve free left s_fixed_base_cache.table allocated
+     * while valid=0, so a later multiply could free/replace the wrong table and
+     * break unrelated curves (observed with P-521 in a multi-key ECDSA matrix).
+     */
+    if(s_fixed_base_cache.valid && s_fixed_base_cache.curve == curve) {
+        if(s_fixed_base_cache.table) {
+            free(s_fixed_base_cache.table);
+            s_fixed_base_cache.table = NULL;
+        }
+        s_fixed_base_cache.curve = NULL;
+        s_fixed_base_cache.size = 0;
+        s_fixed_base_cache.valid = 0;
     }
-    s_fixed_base_cache.curve = NULL;
-    s_fixed_base_cache.size = 0;
-    s_fixed_base_cache.valid = 0;
 #endif
 
     if(curve->p) { free(curve->p); curve->p = NULL; }
@@ -842,7 +849,9 @@ static int ecc_point_equal(const ecc_point_t *p1, const ecc_point_t *p2, uint32_
  * @param len Length of the buffers
  * @param b Condition
  */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static void ecc_cond_select(uint8_t *out, const uint8_t *src1, const uint8_t *src2, uint32_t len, uint8_t b)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     uint8_t mask = (uint8_t)(-(int)(b & 1));
     uint32_t i;
@@ -860,7 +869,9 @@ static void ecc_jpoint_cond_select(ecc_jpoint_t *out, const ecc_jpoint_t *P, con
 }
 
 /** Get bit at bit_index (0 = MSB of scalar[0]) from big-endian scalar. */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static uint8_t ecc_scalar_getbit(const uint8_t *scalar, uint32_t size_bytes, uint32_t bit_index)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     uint32_t byte_idx = bit_index >> 3;
     uint32_t bit_in_byte = 7 - (bit_index & 7);
@@ -869,7 +880,9 @@ static uint8_t ecc_scalar_getbit(const uint8_t *scalar, uint32_t size_bytes, uin
 }
 
 /** Extract w-bit digit at window index win (0 = MSB window). */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static uint32_t ecc_scalar_digit(const uint8_t *scalar, uint32_t size_bytes, uint32_t w, uint32_t win)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     uint32_t n_bits;
     uint32_t start_bit = win * w;
@@ -884,7 +897,9 @@ static uint32_t ecc_scalar_digit(const uint8_t *scalar, uint32_t size_bytes, uin
     return d;
 }
 
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static void ecc_mod_add(uint8_t *out, const uint8_t *a, const uint8_t *b, const uint8_t *p, uint32_t size);
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 
 /**
  * @brief Compute (a - b) mod p (big-endian)
@@ -919,7 +934,9 @@ static void ecc_mod_sub(uint8_t *out, const uint8_t *a, const uint8_t *b, const 
  * @param p Modulus
  * @param size Size of the operands and modulus
  */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static void ecc_mod_add(uint8_t *out, const uint8_t *a, const uint8_t *b, const uint8_t *p, uint32_t size)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     if(size == UINT32_MAX) {
         return;
@@ -977,9 +994,9 @@ static noxtls_return_t ecc_jpoint_double(ecc_jpoint_t *out, const ecc_jpoint_t *
         return NOXTLS_RETURN_SUCCESS;
     }
 
-    t1 = (uint8_t*)calloc(size * 2, 1);
-    t2 = (uint8_t*)calloc(size * 2, 1);
-    t3 = (uint8_t*)calloc(size * 2, 1);
+    t1 = (uint8_t*)calloc((size_t)size * 2u, 1);
+    t2 = (uint8_t*)calloc((size_t)size * 2u, 1);
+    t3 = (uint8_t*)calloc((size_t)size * 2u, 1);
     S  = (uint8_t*)calloc(size, 1);
     M  = (uint8_t*)calloc(size, 1);
     if(!t1 || !t2 || !t3 || !S || !M) {
@@ -1084,9 +1101,9 @@ static noxtls_return_t ecc_jpoint_add(ecc_jpoint_t *out, const ecc_jpoint_t *P, 
     S2 = (uint8_t*)calloc(size, 1);
     H  = (uint8_t*)calloc(size, 1);
     R  = (uint8_t*)calloc(size, 1);
-    t1 = (uint8_t*)calloc(size * 2, 1);
-    t2 = (uint8_t*)calloc(size * 2, 1);
-    t3 = (uint8_t*)calloc(size * 2, 1);
+    t1 = (uint8_t*)calloc((size_t)size * 2u, 1);
+    t2 = (uint8_t*)calloc((size_t)size * 2u, 1);
+    t3 = (uint8_t*)calloc((size_t)size * 2u, 1);
     do {
         if(!U1 || !U2 || !S1 || !S2 || !H || !R || !t1 || !t2 || !t3) {
             rc = NOXTLS_RETURN_FAILED;
@@ -1212,11 +1229,11 @@ noxtls_return_t noxtls_ecc_point_add(ecc_point_t *result, const ecc_point_t *p1,
     }
     
     /* Allocate temporary buffers */
-    lambda = (uint8_t*)calloc(size * 2, 1);
+    lambda = (uint8_t*)calloc((size_t)size * 2u, 1);
     x3 = (uint8_t*)calloc(size, 1);
     y3 = (uint8_t*)calloc(size, 1);
-    temp1 = (uint8_t*)calloc(size * 2, 1);
-    temp2 = (uint8_t*)calloc(size * 2, 1);
+    temp1 = (uint8_t*)calloc((size_t)size * 2u, 1);
+    temp2 = (uint8_t*)calloc((size_t)size * 2u, 1);
     temp3 = (uint8_t*)calloc(size, 1);
     
     if(!lambda || !x3 || !y3 || !temp1 || !temp2 || !temp3) {
@@ -1353,7 +1370,7 @@ static noxtls_return_t ecc_jpoint_to_affine(uint8_t *x, uint8_t *y, const ecc_jp
     inv = (uint8_t*)calloc(size, 1);
     z2  = (uint8_t*)calloc(size, 1);
     z3  = (uint8_t*)calloc(size, 1);
-    t1  = (uint8_t*)calloc(size * 2, 1);
+    t1  = (uint8_t*)calloc((size_t)size * 2u, 1);
     if(!inv || !z2 || !z3 || !t1) {
         rc = NOXTLS_RETURN_FAILED;
         goto cleanup_affine;
@@ -1511,61 +1528,68 @@ noxtls_return_t noxtls_ecc_point_multiply(ecc_point_t *result, const uint8_t *sc
     }
 
 #if NOXTLS_ECC_POINT_MUL_WINDOW_SIZE >= 2
-    {
-        const uint32_t w = (uint32_t)NOXTLS_ECC_POINT_MUL_WINDOW_SIZE;
-        uint32_t table_len = 1u << w;
-        ecc_jpoint_t *table = NULL;
-        int use_cache = 0;
-        int is_fixed_base = 0;
+    /*
+     * secp521r1 (66-byte coordinates) and brainpoolP512r1 (64-byte coordinates):
+     * windowed / fixed-base precomputation has produced incorrect points in TLS 1.3
+     * ECDSA CertificateVerify interop; use the Montgomery ladder only for these sizes.
+     */
+    if(size != 66u && size != 64u) {
+        {
+            const uint32_t w = (uint32_t)NOXTLS_ECC_POINT_MUL_WINDOW_SIZE;
+            uint32_t table_len = 1u << w;
+            ecc_jpoint_t *table = NULL;
+            int use_cache = 0;
+            int is_fixed_base = 0;
 
 #if NOXTLS_ECC_FIXED_POINT_OPTIM
-        is_fixed_base = ecc_point_equal(point, &curve->G, size);
-        if(is_fixed_base && s_fixed_base_cache.valid && s_fixed_base_cache.curve == curve &&
-            s_fixed_base_cache.w == w && s_fixed_base_cache.size == size &&
-            s_fixed_base_cache.table != NULL &&
-            memcmp(s_fixed_base_cache.gx, curve->G.x, size) == 0 &&
-            memcmp(s_fixed_base_cache.gy, curve->G.y, size) == 0) {
-            table = s_fixed_base_cache.table;
-            use_cache = 1;
-        }
-#endif
-        if(!use_cache) {
-            table = (ecc_jpoint_t*)calloc(table_len, sizeof(ecc_jpoint_t));
-            if(table) {
-                rc = ecc_build_precompute_table(table, table_len, point, curve);
-                if(rc != NOXTLS_RETURN_SUCCESS) {
-                    free(table);
-                    table = NULL;
-                }
-#if NOXTLS_ECC_FIXED_POINT_OPTIM
-                else if(is_fixed_base) {
-                    /* Evict previous cache */
-                    if(s_fixed_base_cache.table) free(s_fixed_base_cache.table);
-                    s_fixed_base_cache.curve = curve;
-                    s_fixed_base_cache.table = table;
-                    s_fixed_base_cache.w = w;
-                    s_fixed_base_cache.size = size;
-                    memcpy(s_fixed_base_cache.gx, curve->G.x, size);
-                    memcpy(s_fixed_base_cache.gy, curve->G.y, size);
-                    s_fixed_base_cache.valid = 1;
-                    use_cache = 1;  /* don't free table below */
-                }
-#endif
+            is_fixed_base = ecc_point_equal(point, &curve->G, size);
+            if(is_fixed_base && s_fixed_base_cache.valid && s_fixed_base_cache.curve == curve &&
+                s_fixed_base_cache.w == w && s_fixed_base_cache.size == size &&
+                s_fixed_base_cache.table != NULL &&
+                memcmp(s_fixed_base_cache.gx, curve->G.x, size) == 0 &&
+                memcmp(s_fixed_base_cache.gy, curve->G.y, size) == 0) {
+                table = s_fixed_base_cache.table;
+                use_cache = 1;
             }
-        }
-        if(table) {
-            rc = ecc_point_mul_windowed(result, scalar, curve, table, w);
-#if !NOXTLS_ECC_FIXED_POINT_OPTIM
-            free(table);
-#else
-            if(!use_cache) free(table);
 #endif
-            if(rc == NOXTLS_RETURN_SUCCESS) return rc;
-            /* Fall through to ladder on failure (e.g. add returned failure) */
-            noxtls_bn_zero(result->x, size);
-            noxtls_bn_zero(result->y, size);
+            if(!use_cache) {
+                table = (ecc_jpoint_t*)calloc(table_len, sizeof(ecc_jpoint_t));
+                if(table) {
+                    rc = ecc_build_precompute_table(table, table_len, point, curve);
+                    if(rc != NOXTLS_RETURN_SUCCESS) {
+                        free(table);
+                        table = NULL;
+                    }
+#if NOXTLS_ECC_FIXED_POINT_OPTIM
+                    else if(is_fixed_base) {
+                        /* Evict previous cache */
+                        if(s_fixed_base_cache.table) free(s_fixed_base_cache.table);
+                        s_fixed_base_cache.curve = curve;
+                        s_fixed_base_cache.table = table;
+                        s_fixed_base_cache.w = w;
+                        s_fixed_base_cache.size = size;
+                        memcpy(s_fixed_base_cache.gx, curve->G.x, size);
+                        memcpy(s_fixed_base_cache.gy, curve->G.y, size);
+                        s_fixed_base_cache.valid = 1;
+                        use_cache = 1;  /* don't free table below */
+                    }
+#endif
+                }
+            }
+            if(table) {
+                rc = ecc_point_mul_windowed(result, scalar, curve, table, w);
+#if !NOXTLS_ECC_FIXED_POINT_OPTIM
+                free(table);
+#else
+                if(!use_cache) free(table);
+#endif
+                if(rc == NOXTLS_RETURN_SUCCESS) return rc;
+                /* Fall through to ladder on failure (e.g. add returned failure) */
+                noxtls_bn_zero(result->x, size);
+                noxtls_bn_zero(result->y, size);
+            }
+            /* If table alloc failed or windowed path failed, fall back to ladder */
         }
-        /* If table alloc failed or windowed path failed, fall back to ladder */
     }
 #endif
 
@@ -1609,11 +1633,17 @@ noxtls_return_t noxtls_ecc_point_multiply(ecc_point_t *result, const uint8_t *sc
             for(j = 8; j > 0; j--) {
                 bit = (scalar[i] >> (j - 1)) & 1;
                 rc = ecc_jpoint_add(T_sum, R0, R1, curve);
-                if(rc != NOXTLS_RETURN_SUCCESS) break;
+                if(rc != NOXTLS_RETURN_SUCCESS) {
+                    break;
+                }
                 rc = ecc_jpoint_double(T_dbl0, R0, curve);
-                if(rc != NOXTLS_RETURN_SUCCESS) break;
+                if(rc != NOXTLS_RETURN_SUCCESS) {
+                    break;
+                }
                 rc = ecc_jpoint_double(T_dbl1, R1, curve);
-                if(rc != NOXTLS_RETURN_SUCCESS) break;
+                if(rc != NOXTLS_RETURN_SUCCESS) {
+                    break;
+                }
                 ecc_cond_select(R0->X, T_sum->X, T_dbl0->X, size, bit);
                 ecc_cond_select(R0->Y, T_sum->Y, T_dbl0->Y, size, bit);
                 ecc_cond_select(R0->Z, T_sum->Z, T_dbl0->Z, size, bit);
@@ -1673,8 +1703,8 @@ noxtls_return_t noxtls_ecc_point_is_on_curve(const ecc_point_t *point, const ecc
     /* Allocate temporary buffers */
     left = (uint8_t*)calloc(size, 1);
     right = (uint8_t*)calloc(size, 1);
-    temp1 = (uint8_t*)calloc(size * 2, 1);
-    temp2 = (uint8_t*)calloc(size * 2, 1);
+    temp1 = (uint8_t*)calloc((size_t)size * 2u, 1);
+    temp2 = (uint8_t*)calloc((size_t)size * 2u, 1);
     
     do {
         if(!left || !right || !temp1 || !temp2) {
@@ -1746,7 +1776,8 @@ noxtls_return_t noxtls_ecc_key_init(ecc_key_t *key, ecc_curve_t curve_type)
         key->curve = NULL;
         return rc;
     }
-    
+    key->curve_kind = curve_type;
+
     key->d = (uint8_t*)calloc(key->curve->size, 1);
     if(key->d == NULL) {
         noxtls_ecc_curve_free(key->curve);

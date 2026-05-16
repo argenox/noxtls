@@ -44,5 +44,6 @@ typedef enum {
 } input_data_type_t;
 
 int message_digest(int argc, char ** argv);
+void print_digest_usage(void);
 
 #endif /* _MESSAGE_DIGEST_H_ */

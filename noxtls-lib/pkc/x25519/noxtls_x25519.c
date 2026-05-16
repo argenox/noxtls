@@ -172,9 +172,11 @@ static noxtls_return_t fe25519_inv_be(uint8_t result[NOXTLS_X25519_FE_BYTES], co
  * @param[out] result Little-endian u-coordinate of k*P.
  * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on failure.
  */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static noxtls_return_t x25519_scalar_mult(const uint8_t k[NOXTLS_X25519_KEY_SIZE],
                                           const uint8_t u[NOXTLS_X25519_KEY_SIZE],
                                           uint8_t result[NOXTLS_X25519_KEY_SIZE])
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     uint8_t k_clamped[NOXTLS_X25519_KEY_SIZE];
     uint8_t k_be[NOXTLS_X25519_FE_BYTES];

@@ -14,6 +14,7 @@
 #include <string.h>
 #include "noxtls_dh.h"
 #include "noxtls_ffdhe_params.h"
+#include "noxtls_tls_common.h"
 #include "pkc/rsa/noxtls_bignum.h"
 #include "drbg/noxtls_drbg.h"
 #include "common/noxtls_ct.h"
@@ -44,6 +45,14 @@ static int dh_is_known_ffdhe_prime(const uint8_t *p, uint32_t p_len)
        noxtls_secret_memcmp(p, noxtls_ffdhe4096_p, p_len) == 0) {
         return 1;
     }
+    if(p_len == NOXTLS_FFDHE6144_P_BYTES &&
+       noxtls_secret_memcmp(p, noxtls_ffdhe6144_p, p_len) == 0) {
+        return 1;
+    }
+    if(p_len == NOXTLS_FFDHE8192_P_BYTES &&
+       noxtls_secret_memcmp(p, noxtls_ffdhe8192_p, p_len) == 0) {
+        return 1;
+    }
     return 0;
 }
 
@@ -59,32 +68,22 @@ static noxtls_return_t dh_validate_peer_public(const uint8_t *peer_mod,
                                                const uint8_t *p,
                                                uint32_t p_len)
 {
-    noxtls_return_t rc;
     uint8_t *two;
-    uint8_t *p_minus_1;
     uint8_t *p_minus_2;
-    uint8_t *q;
-    uint8_t *subgroup_check;
+    noxtls_return_t rc;
 
     two = NULL;
-    p_minus_1 = NULL;
     p_minus_2 = NULL;
-    q = NULL;
-    subgroup_check = NULL;
 
     if(peer_mod == NULL || p == NULL || p_len == 0) {
         return NOXTLS_RETURN_FAILED;
     }
 
     two = (uint8_t*)noxtls_calloc(p_len, 1);
-    p_minus_1 = (uint8_t*)noxtls_calloc(p_len, 1);
     p_minus_2 = (uint8_t*)noxtls_calloc(p_len, 1);
-    if(two == NULL || p_minus_1 == NULL || p_minus_2 == NULL) {
+    if(two == NULL || p_minus_2 == NULL) {
         if(two) {
             noxtls_free(two);
-        }
-        if(p_minus_1) {
-            noxtls_free(p_minus_1);
         }
         if(p_minus_2) {
             noxtls_free(p_minus_2);
@@ -94,110 +93,174 @@ static noxtls_return_t dh_validate_peer_public(const uint8_t *peer_mod,
 
     two[p_len - 1u] = 0x02u;
 
-    rc = noxtls_bn_copy(p_minus_1, p, p_len);
+    rc = noxtls_bn_copy(p_minus_2, p, p_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         noxtls_free(two);
-        noxtls_free(p_minus_1);
         noxtls_free(p_minus_2);
         return rc;
     }
-    rc = noxtls_bn_sub(p_minus_1, p_minus_1, two, p_len);
+    rc = noxtls_bn_sub(p_minus_2, p_minus_2, two, p_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         noxtls_free(two);
-        noxtls_free(p_minus_1);
-        noxtls_free(p_minus_2);
-        return rc;
-    }
-    rc = noxtls_bn_sub(p_minus_2, p_minus_1, two, p_len);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        noxtls_free(two);
-        noxtls_free(p_minus_1);
         noxtls_free(p_minus_2);
         return rc;
     }
 
     if(noxtls_bn_cmp(peer_mod, two, p_len) < 0 || noxtls_bn_cmp(peer_mod, p_minus_2, p_len) > 0) {
         noxtls_free(two);
-        noxtls_free(p_minus_1);
         noxtls_free(p_minus_2);
         return NOXTLS_RETURN_FAILED;
     }
 
-    if(dh_is_known_ffdhe_prime(p, p_len)) {
-        q = (uint8_t*)noxtls_calloc(p_len, 1);
-        subgroup_check = (uint8_t*)noxtls_calloc(p_len, 1);
-        if(q == NULL || subgroup_check == NULL) {
-            if(q) {
-                noxtls_free(q);
-            }
-            if(subgroup_check) {
-                noxtls_free(subgroup_check);
-            }
-            noxtls_free(two);
-            noxtls_free(p_minus_1);
-            noxtls_free(p_minus_2);
-            return NOXTLS_RETURN_FAILED;
-        }
-
-        rc = noxtls_bn_copy(q, p_minus_1, p_len);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            noxtls_free(q);
-            noxtls_free(subgroup_check);
-            noxtls_free(two);
-            noxtls_free(p_minus_1);
-            noxtls_free(p_minus_2);
-            return rc;
-        }
-        rc = noxtls_bn_rshift1(q, p_len);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            noxtls_free(q);
-            noxtls_free(subgroup_check);
-            noxtls_free(two);
-            noxtls_free(p_minus_1);
-            noxtls_free(p_minus_2);
-            return rc;
-        }
-
-        rc = noxtls_bn_mod_exp(subgroup_check, peer_mod, q, p_len, p, p_len);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            noxtls_free(q);
-            noxtls_free(subgroup_check);
-            noxtls_free(two);
-            noxtls_free(p_minus_1);
-            noxtls_free(p_minus_2);
-            return rc;
-        }
-        if(noxtls_bn_is_one(subgroup_check, p_len) == 0) {
-            noxtls_free(q);
-            noxtls_free(subgroup_check);
-            noxtls_free(two);
-            noxtls_free(p_minus_1);
-            noxtls_free(p_minus_2);
-            return NOXTLS_RETURN_FAILED;
-        }
-
-        noxtls_free(q);
-        noxtls_free(subgroup_check);
-    }
-
     noxtls_free(two);
-    noxtls_free(p_minus_1);
     noxtls_free(p_minus_2);
     return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
- * @brief Resolve RFC 7919 FFDHE group parameters for a TLS named group code.
- *
- * @param[in] named_group TLS NamedGroup value: 256 (ffdhe2048), 257 (ffdhe3072), or 258 (ffdhe4096).
- * @param[out] p Set to library constant prime modulus p (big-endian, read-only).
- * @param[out] g Set to library constant generator g (big-endian, typically 2, same byte length as p).
- * @param[out] p_len Byte length of p (and of g in this implementation).
- *
- * @return NOXTLS_RETURN_SUCCESS if named_group is supported.
- * @return NOXTLS_RETURN_NULL if p, g, or p_len is NULL.
- * @return NOXTLS_RETURN_FAILED if named_group is not a supported FFDHE group.
+ * RFC 7919 Table 2 — minimum recommended private exponent length (bits) per group.
  */
+static uint32_t dh_ffdhe_min_private_bits(uint16_t named_group)
+{
+    switch(named_group) {
+        case TLS_NAMED_GROUP_FFDHE2048:
+            return NOXTLS_FFDHE2048_MIN_PRIVATE_BITS;
+        case TLS_NAMED_GROUP_FFDHE3072:
+            return NOXTLS_FFDHE3072_MIN_PRIVATE_BITS;
+        case TLS_NAMED_GROUP_FFDHE4096:
+            return NOXTLS_FFDHE4096_MIN_PRIVATE_BITS;
+        case TLS_NAMED_GROUP_FFDHE6144:
+            return NOXTLS_FFDHE6144_MIN_PRIVATE_BITS;
+        case TLS_NAMED_GROUP_FFDHE8192:
+            return NOXTLS_FFDHE8192_MIN_PRIVATE_BITS;
+        default:
+            return 0u;
+    }
+}
+
+noxtls_return_t noxtls_dh_ffdhe_generate_ephemeral(uint16_t named_group,
+                                                   uint8_t *private_out,
+                                                   uint8_t *public_out)
+{
+    const uint8_t *p = NULL;
+    const uint8_t *g = NULL;
+    uint32_t p_len = 0;
+    uint32_t min_bits;
+    uint32_t exp_bytes;
+    drbg_state_t drbg;
+    uint8_t *p_minus_2 = NULL;
+    uint8_t *g_padded = NULL;
+    noxtls_return_t rc;
+
+    if(private_out == NULL || public_out == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    min_bits = dh_ffdhe_min_private_bits(named_group);
+    if(min_bits == 0u ||
+       noxtls_dh_ffdhe_params(named_group, &p, &g, &p_len) != NOXTLS_RETURN_SUCCESS ||
+       p_len == 0 ||
+       !dh_is_known_ffdhe_prime(p, p_len)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    exp_bytes = (min_bits + 7u) / 8u;
+    if(exp_bytes == 0u || exp_bytes > p_len) {
+        return NOXTLS_RETURN_FAILED;
+    }
+
+    memset(private_out, 0, p_len);
+    memset(public_out, 0, p_len);
+
+    p_minus_2 = (uint8_t*)noxtls_calloc(p_len, 1);
+    g_padded = (uint8_t*)noxtls_calloc(p_len, 1);
+    if(p_minus_2 == NULL || g_padded == NULL) {
+        if(p_minus_2) {
+            noxtls_free(p_minus_2);
+        }
+        if(g_padded) {
+            noxtls_free(g_padded);
+        }
+        return NOXTLS_RETURN_FAILED;
+    }
+    {
+        uint8_t *two_buf = (uint8_t*)noxtls_calloc(p_len, 1);
+        if(two_buf == NULL) {
+            noxtls_free(p_minus_2);
+            noxtls_free(g_padded);
+            return NOXTLS_RETURN_FAILED;
+        }
+        two_buf[p_len - 1u] = 0x02u;
+        noxtls_bn_copy(p_minus_2, p, p_len);
+        rc = noxtls_bn_sub(p_minus_2, p_minus_2, two_buf, p_len);
+        noxtls_free(two_buf);
+    }
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_free(p_minus_2);
+        noxtls_free(g_padded);
+        return rc;
+    }
+
+    if(drbg_instantiate(&drbg, DRBG_AES256, NULL, 0, NULL, 0, NULL, 0) != NOXTLS_RETURN_SUCCESS) {
+        noxtls_free(p_minus_2);
+        noxtls_free(g_padded);
+        return NOXTLS_RETURN_FAILED;
+    }
+
+    for(;;) {
+        if(drbg_generate(&drbg, private_out + (p_len - exp_bytes), exp_bytes * 8u, NULL, 0) != NOXTLS_RETURN_SUCCESS) {
+            noxtls_free(p_minus_2);
+            noxtls_free(g_padded);
+            return NOXTLS_RETURN_FAILED;
+        }
+        if((min_bits % 8u) != 0u) {
+            private_out[p_len - 1u] &= (uint8_t)((1u << (min_bits % 8u)) - 1u);
+        }
+        /* Ensure >= 2 */
+        if(noxtls_bn_is_zero(private_out, p_len) || noxtls_bn_is_one(private_out, p_len)) {
+            private_out[p_len - 1u] = 0x02u;
+        }
+        if(noxtls_bn_cmp(private_out, p_minus_2, p_len) <= 0) {
+            break;
+        }
+    }
+
+    memset(g_padded, 0, p_len);
+    memcpy(g_padded, g, p_len);
+
+    rc = noxtls_bn_mod_exp(public_out, g_padded, private_out, p_len, p, p_len);
+    noxtls_free(p_minus_2);
+    noxtls_free(g_padded);
+    return rc;
+}
+
+noxtls_return_t noxtls_dh_ffdhe_validate_client_key_share(uint16_t named_group,
+                                                        const uint8_t *key_exchange,
+                                                        uint32_t key_exchange_len)
+{
+    const uint8_t *p = NULL;
+    const uint8_t *g = NULL;
+    uint32_t p_len = 0;
+    uint8_t *peer_mod = NULL;
+    noxtls_return_t rc;
+
+    if(key_exchange_len > 0 && key_exchange == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(noxtls_dh_ffdhe_params(named_group, &p, &g, &p_len) != NOXTLS_RETURN_SUCCESS || p_len == 0) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    if(key_exchange_len != p_len || key_exchange == NULL) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    peer_mod = (uint8_t*)noxtls_calloc(p_len, 1);
+    if(peer_mod == NULL) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    memcpy(peer_mod, key_exchange, p_len);
+    rc = dh_validate_peer_public(peer_mod, p, p_len);
+    noxtls_free(peer_mod);
+    return rc;
+}
+
 noxtls_return_t noxtls_dh_ffdhe_params(uint16_t named_group,
                                         const uint8_t **p,
                                         const uint8_t **g,
@@ -208,20 +271,30 @@ noxtls_return_t noxtls_dh_ffdhe_params(uint16_t named_group,
     }
     
     switch(named_group) {
-        case 256: /* ffdhe2048 */
+        case TLS_NAMED_GROUP_FFDHE2048:
             *p = noxtls_ffdhe2048_p;
             *g = noxtls_ffdhe_g_2048;
             *p_len = NOXTLS_FFDHE2048_P_BYTES;
             return NOXTLS_RETURN_SUCCESS;
-        case 257: /* ffdhe3072 */
+        case TLS_NAMED_GROUP_FFDHE3072:
             *p = noxtls_ffdhe3072_p;
             *g = noxtls_ffdhe_g_3072;
             *p_len = NOXTLS_FFDHE3072_P_BYTES;
             return NOXTLS_RETURN_SUCCESS;
-        case 258: /* ffdhe4096 */
+        case TLS_NAMED_GROUP_FFDHE4096:
             *p = noxtls_ffdhe4096_p;
             *g = noxtls_ffdhe_g_4096;
             *p_len = NOXTLS_FFDHE4096_P_BYTES;
+            return NOXTLS_RETURN_SUCCESS;
+        case TLS_NAMED_GROUP_FFDHE6144:
+            *p = noxtls_ffdhe6144_p;
+            *g = noxtls_ffdhe_g_6144;
+            *p_len = NOXTLS_FFDHE6144_P_BYTES;
+            return NOXTLS_RETURN_SUCCESS;
+        case TLS_NAMED_GROUP_FFDHE8192:
+            *p = noxtls_ffdhe8192_p;
+            *g = noxtls_ffdhe_g_8192;
+            *p_len = NOXTLS_FFDHE8192_P_BYTES;
             return NOXTLS_RETURN_SUCCESS;
         default:
             return NOXTLS_RETURN_FAILED;

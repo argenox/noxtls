@@ -111,7 +111,15 @@ typedef enum
 	NOXTLS_RETURN_CRL_PARSE_FAILED,         /**< CRL DER/PEM parsing failed (malformed structure). */
 	NOXTLS_RETURN_CRL_VERIFY_FAILED,        /**< CRL signature verification failed against issuer. */
 	NOXTLS_RETURN_CRL_EXPIRED,              /**< CRL nextUpdate (or validity window) is not acceptable (e.g. stale CRL). */
-	NOXTLS_RETURN_TLS_WEAK_DHE_PARAMS       /**< TLS DHE ServerKeyExchange parameters are weak/unsupported (e.g. very small finite-field DH). */
+	NOXTLS_RETURN_TLS_WEAK_DHE_PARAMS,      /**< TLS DHE ServerKeyExchange parameters are weak/unsupported (e.g. very small finite-field DH). */
+	NOXTLS_RETURN_RECORD_OVERFLOW,          /**< TLS record plaintext exceeds negotiated or protocol maximum (send record_overflow). */
+	NOXTLS_RETURN_CERT_REQUIRED,            /**< TLS 1.3: server required a client certificate, but peer did not present one. */
+	NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR,   /**< Malformed handshake: send fatal decode_error (50). */
+	NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER, /**< Invalid handshake field: send fatal illegal_parameter (47). */
+	NOXTLS_RETURN_TLS_RECORD_AUTH_FAILED, /**< AEAD record open failed (e.g. bad tag); send fatal bad_record_mac (20). */
+	NOXTLS_RETURN_TLS_FINISHED_VERIFY_FAILED, /**< Client Finished verify_data mismatch after decrypt; send fatal decrypt_error (51). */
+	/** TLS 1.3 client received a TLS 1.2 ServerHello after a TLS 1.3 ClientHello; unified layer continues with TLS 1.2 on the same connection. */
+	NOXTLS_RETURN_NEGOTIATED_TLS12
 } noxtls_return_t;
 
 /** @} */

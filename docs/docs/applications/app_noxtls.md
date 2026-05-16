@@ -5,10 +5,10 @@ title: "NoxTLS CLI"
 
 # NoxTLS CLI
 
-Multi-command NoxTLS CLI (e.g. message digest).
+Unified command-line utility for NoxTLS operations.
 
-Unified CLI with subcommands. Command: dgst — message digest (same as sha app).
-Parameters: command then algorithm/options/input. Options: -v version, -h help.
+The `noxtls` executable combines digest, symmetric encryption/decryption,
+public/private key, and X.509 certificate workflows behind one command.
 
 Multi-command command-line utility for NoxTLS operations.
 
@@ -24,19 +24,30 @@ noxtls [command] <parameters>
 
 ### Commands
 
-- **dgst** – Message digest (hash) generation (SHA, MD5, etc.)
+- **dgst** – Message digest generation.
+- **enc** – AES encryption.
+- **dec** – AES decryption.
+- **pkc** / **key** – Public/private key operations.
+- **cert** / **x509** – X.509 certificate and private-key file operations.
 
 ### Switches
 
 - `-v` – Version
 - `-h` – Help
 
-Example: `noxtls dgst -sha256 file.bin`
+Run a subcommand without parameters or with `--help` to list its supported
+algorithms or operations.
 
 ## Examples
 
-noxtls dgst SHA256 hello world
-noxtls dgst MD5 -h 48656c6c6f
+```bash
+noxtls dgst sha256 hello world
+noxtls dgst sha3-256 -f firmware.bin
+noxtls enc 128 -k 2b7e151628aed2a6abf7158809cf4f3c hello
+noxtls dec 128 -k 2b7e151628aed2a6abf7158809cf4f3c -h <ciphertext_hex>
+noxtls cert convert -i cert.der -I der -o cert.pem -O pem
+noxtls cert convert -i cert.pem -I pem -o cert.der -O der
+noxtls pkc genkey rsa -k 2048
 noxtls -h
 noxtls -v
-
+```

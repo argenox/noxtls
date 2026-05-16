@@ -47,12 +47,14 @@
  * @param type is the Camellia variant, 128, 192, 256
  * @return NOXTLS_RETURN_SUCCESS on success
  */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 noxtls_return_t noxtls_camellia_encrypt_ctr(const uint8_t* key, 
                          const uint8_t* data, 
                          uint32_t data_len,
                          const uint8_t * iv,
                          uint8_t* output, 
                          noxtls_camellia_type_t type)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     uint32_t cur_block = 0;
     uint32_t i;

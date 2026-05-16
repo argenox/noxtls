@@ -58,6 +58,7 @@ extern "C" {
 #define TLS_RECORD_ALERT                21
 #define TLS_RECORD_HANDSHAKE            22
 #define TLS_RECORD_APPLICATION_DATA     23
+#define TLS_RECORD_HEARTBEAT            24   /* RFC 6520: Heartbeat protocol */
 #define TLS_RECORD_ACK                  26   /* RFC 9147: DTLS 1.3 ACK (plaintext) */
 
 /* TLS Handshake Types */
@@ -74,8 +75,11 @@ extern "C" {
 #define TLS_HANDSHAKE_CERTIFICATE_VERIFY     15
 #define TLS_HANDSHAKE_CLIENT_KEY_EXCHANGE    16
 #define TLS_HANDSHAKE_FINISHED               20
+#define TLS_HANDSHAKE_CERTIFICATE_STATUS     22
 #define TLS_HANDSHAKE_KEY_UPDATE             24
 #define TLS_HANDSHAKE_ACK                    25
+#define TLS_HANDSHAKE_REQUEST_CONNECTION_ID   9   /* RFC 9147 */
+#define TLS_HANDSHAKE_NEW_CONNECTION_ID      10   /* RFC 9147 */
 #define TLS_HANDSHAKE_MESSAGE_HASH           254
 
 /* TLS protocol sizes (bytes) */
@@ -110,6 +114,10 @@ extern "C" {
 #define TLS_SIGSCHEME_RSA_PSS_RSAE_SHA256    0x0804
 #define TLS_SIGSCHEME_ECDSA_SECP256R1_SHA256 0x0403
 #define TLS_SIGSCHEME_ECDSA_SECP384R1_SHA384 0x0503
+#define TLS_SIGSCHEME_ECDSA_SECP521R1_SHA512 0x0603
+#define TLS_SIGSCHEME_ECDSA_BRAINPOOLP256R1_TLS13_SHA256 0x081A
+#define TLS_SIGSCHEME_ECDSA_BRAINPOOLP384R1_TLS13_SHA384 0x081B
+#define TLS_SIGSCHEME_ECDSA_BRAINPOOLP512R1_TLS13_SHA512 0x081C
 #define TLS_SIGSCHEME_ED25519                0x0807
 #define TLS_SIGSCHEME_ED448                  0x0808
 /* Private-use IDs for PQ/hybrid prototyping; switch to final IANA IDs when standardized. */
@@ -138,29 +146,63 @@ extern "C" {
 #define TLS_NAMED_GROUP_FFDHE2048   256
 #define TLS_NAMED_GROUP_FFDHE3072   257
 #define TLS_NAMED_GROUP_FFDHE4096   258
+#define TLS_NAMED_GROUP_FFDHE6144   259
+#define TLS_NAMED_GROUP_FFDHE8192   260
 
 /* TLS Cipher Suites */
 #define TLS_CIPHER_SUITE_NULL_WITH_NULL_NULL                 0x0000
+/* RFC 5746 / RFC 7507: Signaling cipher suite value for empty renegotiation_info */
+#define TLS_CIPHER_SUITE_EMPTY_RENEGOTIATION_INFO_SCSV       0x00FF
 #define TLS_CIPHER_SUITE_RSA_WITH_3DES_EDE_CBC_SHA           0x000A
+#define TLS_CIPHER_SUITE_DHE_RSA_WITH_3DES_EDE_CBC_SHA       0x0016
 #define TLS_CIPHER_SUITE_RSA_WITH_AES_128_CBC_SHA            0x002F
 #define TLS_CIPHER_SUITE_RSA_WITH_AES_256_CBC_SHA            0x0035
 #define TLS_CIPHER_SUITE_RSA_WITH_AES_128_CBC_SHA256         0x003C
 #define TLS_CIPHER_SUITE_RSA_WITH_AES_256_CBC_SHA256         0x003D
-#define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_CBC_SHA256     0x0039
+#define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_CBC_SHA        0x0033
+#define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_256_CBC_SHA        0x0039
+#define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_CBC_SHA256     0x0067
 #define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_256_CBC_SHA256     0x006B
+#define TLS_CIPHER_SUITE_RSA_WITH_AES_128_GCM_SHA256         0x009C
+#define TLS_CIPHER_SUITE_RSA_WITH_AES_256_GCM_SHA384         0x009D
 #define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_GCM_SHA256     0x009E
 #define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_256_GCM_SHA384     0x009F
+#define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_CBC_SHA      0xC013
 #define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_CBC_SHA256   0xC027
 #define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_CBC_SHA384   0xC028
+/* TLS 1.2 ECDHE-ECDSA CBC/SHA and CBC/SHA256 (RFC 4492 / IANA) */
+#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CBC_SHA      0xC009
+#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384   0xC00A
 #define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 0xC02B
 #define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 0xC02C
 #define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_GCM_SHA256   0xC02F
 #define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_GCM_SHA384   0xC030
+
+/* TLS 1.2 ChaCha20-Poly1305 (RFC 7905) */
+#define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256    0xCCA8
+#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256  0xCCA9
+#define TLS_CIPHER_SUITE_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256      0xCCAA
+
 #define TLS_CIPHER_SUITE_AES_128_GCM_SHA256                  0x1301
 #define TLS_CIPHER_SUITE_AES_256_GCM_SHA384                  0x1302
 #define TLS_CIPHER_SUITE_CHACHA20_POLY1305_SHA256            0x1303
 #define TLS_CIPHER_SUITE_AES_128_CCM_SHA256                  0x1304
 #define TLS_CIPHER_SUITE_AES_128_CCM_8_SHA256                0x1305
+
+/* TLS 1.2 AES-CCM / AES-CCM_8 (RFC 6655) */
+#define TLS_CIPHER_SUITE_RSA_WITH_AES_128_CCM                0xC09C
+#define TLS_CIPHER_SUITE_RSA_WITH_AES_256_CCM                0xC09D
+/* RFC 6655: DHE_RSA CCM (16-byte tag) precedes RSA CCM_8 on the wire */
+#define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_CCM            0xC09E
+#define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_256_CCM            0xC09F
+#define TLS_CIPHER_SUITE_RSA_WITH_AES_128_CCM_8              0xC0A0
+#define TLS_CIPHER_SUITE_RSA_WITH_AES_256_CCM_8              0xC0A1
+#define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_CCM_8          0xC0A2
+#define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_256_CCM_8          0xC0A3
+#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CCM        0xC0AC
+#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CCM        0xC0AD
+#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CCM_8      0xC0AE
+#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CCM_8      0xC0AF
 
 /* ARIA Cipher Suites (RFC 6209) */
 #define TLS_CIPHER_SUITE_RSA_WITH_ARIA_128_CBC_SHA256        0xC03C
@@ -203,9 +245,17 @@ extern "C" {
 #define TLS_EXTENSION_MAX_FRAGMENT_LENGTH      1
 #define TLS_EXTENSION_STATUS_REQUEST          5
 #define TLS_EXTENSION_SUPPORTED_GROUPS         10
+#define TLS_EXTENSION_EC_POINT_FORMATS         11
 #define TLS_EXTENSION_SIGNATURE_ALGORITHMS     13
 #define TLS_EXTENSION_USE_SRTP                 14
 #define TLS_EXTENSION_HEARTBEAT                15
+/* TLS Heartbeat (RFC 6520) */
+#define TLS_HEARTBEAT_MESSAGE_REQUEST               1
+#define TLS_HEARTBEAT_MESSAGE_RESPONSE              2
+#define TLS_HEARTBEAT_MODE_PEER_ALLOWED_TO_SEND    1
+#define TLS_HEARTBEAT_MODE_PEER_NOT_ALLOWED_TO_SEND 2
+#define TLS_HEARTBEAT_MIN_PADDING_LEN             16
+
 #define TLS_EXTENSION_APPLICATION_LAYER_PROTOCOL_NEGOTIATION 16
 #define TLS_EXTENSION_SIGNED_CERTIFICATE_TIMESTAMP 18
 #define TLS_EXTENSION_CLIENT_CERTIFICATE_TYPE  19
@@ -262,6 +312,7 @@ extern "C" {
 #define TLS_ALERT_ACCESS_DENIED               49
 #define TLS_ALERT_DECODE_ERROR                50
 #define TLS_ALERT_DECRYPT_ERROR               51
+#define TLS_ALERT_TOO_MANY_CIDS_REQUESTED     52
 #define TLS_ALERT_EXPORT_RESTRICTION          60
 #define TLS_ALERT_PROTOCOL_VERSION            70
 #define TLS_ALERT_INSUFFICIENT_SECURITY       71
@@ -285,7 +336,23 @@ extern "C" {
  * handshake noxtls_message (typically the Certificate noxtls_message = chain size);
  * see noxtls_config.h for adjustment and certificate-size guidance. */
 #define TLS_MAX_RECORD_SIZE       NOXTLS_TLS_MAX_RECORD_SIZE
+#define TLS_MAX_WIRE_RECORD_LENGTH NOXTLS_TLS_MAX_WIRE_RECORD_LENGTH
 #define TLS_MAX_HANDSHAKE_SIZE    NOXTLS_TLS_MAX_HANDSHAKE_SIZE
+
+/**
+ * Maximum reassembled ClientHello (full handshake message: type + 3-byte length + body).
+ * tlsfuzzer test_large_hello sends ClientHellos well above 64 KiB; cap memory for DoS safety.
+ */
+#ifndef TLS_MAX_CLIENT_HELLO_BYTES
+#define TLS_MAX_CLIENT_HELLO_BYTES (262144u)
+#endif
+
+/**
+ * Maximum TLS record `fragment` length after TLS 1.2 CBC protection (explicit IV
+ * plus ciphertext; ciphertext length is bounded by TLS_MAX_RECORD_SIZE). This
+ * exceeds TLS_MAX_RECORD_SIZE and must be accepted by noxtls_tls_send_record.
+ */
+#define TLS_MAX_PROTECTED_RECORD_FRAGMENT (TLS_MAX_RECORD_SIZE + TLS_RECORD_WORKSPACE_OVERHEAD)
 
 /** Size of per-connection handshake workspace for building/parsing handshake messages (client_hello, certificate, etc.). Reused to reduce peak stack and heap. */
 #define TLS_HANDSHAKE_WORKSPACE_SIZE  8192
@@ -375,7 +442,7 @@ typedef struct
 {
     uint8_t type;           /* Record type */
     uint16_t version;       /* Protocol version */
-    uint16_t length;        /* Record length */
+    uint32_t length;        /* Payload length (single record <= 2^14; reassembled CH can be larger) */
     uint8_t *data;          /* Record data */
 } tls_record_t;
 NOXTLS_MSVC_WARNING_POP
@@ -396,6 +463,9 @@ typedef struct
     /* For version negotiation: stored Client Hello */
     uint8_t *pending_client_hello;       /* Pre-received Client Hello data */
     uint32_t pending_client_hello_len;   /* Length of pre-received Client Hello */
+    /** Client: pre-read ServerHello handshake fragment (TLS 1.2 resume after TLS 1.3 ClientHello downgrade). */
+    uint8_t *pending_server_hello;
+    uint32_t pending_server_hello_len;
     /* Optional record send workspace (allocated by noxtls_dtls_context_init when using TLS/DTLS 1.2/1.3) */
     uint8_t *record_send_buf;
 } tls_context_t;
@@ -429,6 +499,14 @@ void noxtls_tls_set_record_dump_file(const char *path);
 
 /* Version Detection */
 noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *detected_version, uint8_t **client_hello_data, uint32_t *client_hello_len);
+
+/**
+ * @brief Return 1 if ClientHello lists @p version in supported_versions (ext 43), else 0.
+ * @param client_hello Full handshake message (type byte + 3-byte length + ClientHello body).
+ */
+int noxtls_tls_client_hello_supported_versions_has(const uint8_t *client_hello,
+                                                   uint32_t client_hello_len,
+                                                   uint16_t version);
 
 /* TLS Certificate Verification Functions */
 /* Note: These functions require including NOXTLS_x509.h */
@@ -602,6 +680,43 @@ noxtls_return_t noxtls_tls_parse_extension_signature_algorithms(const uint8_t *d
 noxtls_return_t noxtls_tls_parse_extension_alpn(const uint8_t *data, uint32_t data_len, tls_alpn_extension_t *alpn);
 noxtls_return_t noxtls_tls_parse_extension_supported_versions(const uint8_t *data, uint32_t data_len, tls_supported_versions_extension_t *versions);
 noxtls_return_t noxtls_tls_find_extension(tls_extensions_t *extensions, uint16_t type, tls_extension_t **extension);
+
+/** Maximum stored negotiated ALPN protocol length (RFC 7301). */
+#define NOXTLS_TLS_ALPN_MAX_PROTOCOL_LEN 255u
+
+/** Result of server-side ALPN processing after ClientHello extension parse. */
+typedef enum {
+    NOXTLS_TLS_ALPN_STATUS_NONE = 0,        /**< Client did not offer ALPN. */
+    NOXTLS_TLS_ALPN_STATUS_NEGOTIATED = 1,  /**< Protocol selected (server preference order). */
+    NOXTLS_TLS_ALPN_STATUS_DECODE_ERROR = 2,/**< Malformed ALPN extension. */
+    NOXTLS_TLS_ALPN_STATUS_NO_OVERLAP = 3   /**< Client offered ALPN but no protocol overlap. */
+} noxtls_tls_alpn_status_t;
+
+/**
+ * @brief Select ALPN protocol from ClientHello extensions (server role).
+ * @param extensions Parsed ClientHello extensions.
+ * @param server_protocols Server-supported protocol names (non-owning).
+ * @param server_count Number of server protocols.
+ * @param selected Output buffer for selected protocol bytes.
+ * @param selected_cap Capacity of @p selected.
+ * @param selected_len Output length of selected protocol.
+ * @return ALPN processing status.
+ */
+noxtls_tls_alpn_status_t noxtls_tls_alpn_server_process(const tls_extensions_t *extensions,
+                                                        const char * const *server_protocols,
+                                                        uint32_t server_count,
+                                                        char *selected,
+                                                        uint32_t selected_cap,
+                                                        uint16_t *selected_len);
+
+/**
+ * @brief Write RFC 7301 ALPN extension (type 0x0010) for a single selected protocol.
+ * @return Bytes written, or 0 on error.
+ */
+uint32_t noxtls_tls_alpn_write_selected_extension(const char *protocol,
+                                                  uint16_t protocol_len,
+                                                  uint8_t *buf,
+                                                  uint32_t buf_cap);
 
 #ifdef __cplusplus
 }

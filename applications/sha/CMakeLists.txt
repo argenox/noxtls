@@ -32,6 +32,9 @@ endif()
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${LIB_ROOT}
+    ${NOXTLS_LIB_ROOT}
+    ${NOXTLS_LIB_ROOT}/common
+    ${NOXTLS_LIB_ROOT}/mdigest
     ${LIB_ROOT}/applications/noxtls
 )
 
@@ -40,6 +43,8 @@ if(BUILDING_STANDALONE)
     # Common library
     add_library(noxtls_common STATIC
         ${NOXTLS_LIB_ROOT}/common/string_common.c
+        ${NOXTLS_LIB_ROOT}/common/noxtls_memory.c
+        ${NOXTLS_LIB_ROOT}/common/noxtls_debug_printf.c
     )
     
     # Hash library
@@ -51,6 +56,9 @@ if(BUILDING_STANDALONE)
         ${NOXTLS_LIB_ROOT}/mdigest/sha1/noxtls_sha1.c
         ${NOXTLS_LIB_ROOT}/mdigest/sha256/noxtls_sha256.c
         ${NOXTLS_LIB_ROOT}/mdigest/sha512/noxtls_sha512.c
+        ${NOXTLS_LIB_ROOT}/mdigest/sha3/noxtls_sha3.c
+        ${NOXTLS_LIB_ROOT}/mdigest/ripemd160/noxtls_ripemd160.c
+        ${NOXTLS_LIB_ROOT}/mdigest/blake2/noxtls_blake2.c
     )
 endif()
 

@@ -354,6 +354,7 @@ static noxtls_return_t chacha20_poly1305_generate_key(const uint8_t *key,
  * @param[out] tag Authentication tag (`POLY1305_TAG_SIZE` bytes).
  * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` on invalid arguments or internal failure.
  */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 noxtls_return_t noxtls_chacha20_poly1305_encrypt(const uint8_t *key,
                                const uint8_t *nonce,
                                const uint8_t *aad,
@@ -362,6 +363,7 @@ noxtls_return_t noxtls_chacha20_poly1305_encrypt(const uint8_t *key,
                                uint32_t plaintext_len,
                                uint8_t *ciphertext,
                                uint8_t *tag)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     uint8_t poly_key[POLY1305_KEY_SIZE];
     noxtls_poly1305_context_t poly_ctx;
@@ -459,6 +461,7 @@ noxtls_return_t noxtls_chacha20_poly1305_encrypt(const uint8_t *key,
  * @param[out] plaintext Cleartext output; must hold at least @p ciphertext_len bytes when @p ciphertext_len is non-zero.
  * @return `NOXTLS_RETURN_SUCCESS` if the tag verifies and decryption succeeds; `NOXTLS_RETURN_BAD_DATA` if authentication fails; `NOXTLS_RETURN_NULL` on invalid arguments or internal failure.
  */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 noxtls_return_t noxtls_chacha20_poly1305_decrypt(const uint8_t *key,
                                const uint8_t *nonce,
                                const uint8_t *aad,
@@ -467,6 +470,7 @@ noxtls_return_t noxtls_chacha20_poly1305_decrypt(const uint8_t *key,
                                uint32_t ciphertext_len,
                                const uint8_t *tag,
                                uint8_t *plaintext)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     uint8_t poly_key[POLY1305_KEY_SIZE];
     noxtls_poly1305_context_t poly_ctx;

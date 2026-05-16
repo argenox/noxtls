@@ -81,7 +81,6 @@ static uint32_t get_hash_output_size(noxtls_hash_algos_t hash_algo)
 {
     switch(hash_algo) {
         case NOXTLS_HASH_MD4:
-            return 16;
         case NOXTLS_HASH_MD5:
             return 16;
         case NOXTLS_HASH_SHA1:
@@ -404,17 +403,21 @@ noxtls_return_t hmac_compute(noxtls_hash_algos_t hash_algo, const uint8_t *key, 
  * where A(0) = seed
  *       A(i) = HMAC_hash(secret, A(i-1))
  */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 noxtls_return_t tls12_prf(const uint8_t *secret, uint32_t secret_len,
                             const uint8_t *label, uint32_t label_len,
-                            const uint8_t *seed, uint32_t seed_len,
-                            uint8_t *output, uint32_t output_len,
+                            const uint8_t *seed, uint32_t seed_len, /* NOLINT(bugprone-easily-swappable-parameters): PRF inputs follow RFC tuple order. */
+                            uint8_t *output, uint32_t output_len, /* NOLINT(bugprone-easily-swappable-parameters): output_len/hash_algo are intentionally adjacent API controls. */
                             noxtls_hash_algos_t hash_algo)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
+    /* A(0) holds label||seed (e.g. "master secret"(13) + client_random + server_random(64) = 77 bytes). */
+    enum { tls12_prf_a_buflen = 128 };
     uint32_t hash_size = get_hash_output_size(hash_algo);
     uint8_t *label_seed;
     uint32_t label_seed_len;
-    uint8_t A[64];  /* Current A(i) value */
-    uint8_t temp[64];  /* Temporary buffer */
+    uint8_t A[tls12_prf_a_buflen];  /* Current A(i); must fit initial seed material */
+    uint8_t temp[tls12_prf_a_buflen];
     uint32_t A_len;
     uint32_t temp_len;
     uint32_t offset = 0;
@@ -441,6 +444,10 @@ noxtls_return_t tls12_prf(const uint8_t *secret, uint32_t secret_len,
     memcpy(label_seed + label_len, seed, seed_len);
     
     /* A(0) = seed (which is label || seed in this case) */
+    if(label_seed_len > (uint32_t)tls12_prf_a_buflen) {
+        free(label_seed);
+        return NOXTLS_RETURN_FAILED;
+    }
     memcpy(A, label_seed, label_seed_len);
     A_len = label_seed_len;
     
@@ -821,8 +828,9 @@ noxtls_return_t hkdf_expand(noxtls_hash_algos_t hash_algo,
  *     opaque context<0..255> = Context;
  * };
  */
-noxtls_return_t tls13_hkdf_expand_label(noxtls_hash_algos_t hash_algo,
+static noxtls_return_t hkdf_expand_label_with_prefix(noxtls_hash_algos_t hash_algo,
                                           const uint8_t *secret, uint32_t secret_len,
+                                          const uint8_t *prefix, uint32_t prefix_len,
                                           const uint8_t *label, uint32_t label_len,
                                           const uint8_t *context, uint32_t context_len,
                                           uint8_t *output, uint32_t output_len)
@@ -830,25 +838,23 @@ noxtls_return_t tls13_hkdf_expand_label(noxtls_hash_algos_t hash_algo,
     uint8_t *hkdf_label;
     uint32_t hkdf_label_len;
     uint32_t offset = 0;
-    const char *tls13_prefix = "tls13 ";
-    uint32_t tls13_prefix_len = 6;
     uint32_t full_label_len;
     noxtls_return_t rc;
 
-    if(secret == NULL || label == NULL || output == NULL) {
+    if(secret == NULL || prefix == NULL || label == NULL || output == NULL) {
         return NOXTLS_RETURN_NULL;
     }
 
-    if(label_len > 255u || context_len > 255u) {
+    if(label_len > 255u || context_len > 255u || prefix_len > 255u) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
     if(context == NULL && context_len > 0u) {
         return NOXTLS_RETURN_NULL;
     }
-    if(label_len > (255u - tls13_prefix_len)) {
+    if(label_len > (255u - prefix_len)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
-    full_label_len = tls13_prefix_len + label_len;
+    full_label_len = prefix_len + label_len;
 
     if(full_label_len > UINT32_MAX - context_len - 4u) {
         return NOXTLS_RETURN_FAILED;
@@ -859,33 +865,46 @@ noxtls_return_t tls13_hkdf_expand_label(noxtls_hash_algos_t hash_algo,
         return NOXTLS_RETURN_FAILED;
     }
 
-    /* Build HkdfLabel structure */
-    /* Length (2 bytes) */
-    hkdf_label[offset++] = (output_len >> 8) & 0xFF;
-    hkdf_label[offset++] = output_len & 0xFF;
-
-    /* Label length (1 byte) */
-    hkdf_label[offset++] = full_label_len & 0xFF;
-
-    /* Label = "tls13 " || label */
-    memcpy(hkdf_label + offset, tls13_prefix, tls13_prefix_len);
-    offset += tls13_prefix_len;
+    hkdf_label[offset++] = (uint8_t)((output_len >> 8) & 0xFF);
+    hkdf_label[offset++] = (uint8_t)(output_len & 0xFF);
+    hkdf_label[offset++] = (uint8_t)(full_label_len & 0xFF);
+    memcpy(hkdf_label + offset, prefix, prefix_len);
+    offset += prefix_len;
     memcpy(hkdf_label + offset, label, label_len);
     offset += label_len;
-
-    /* Context length (1 byte) */
-    hkdf_label[offset++] = context_len & 0xFF;
-
-    /* Context */
-    if(context != NULL && context_len > 0) {
+    hkdf_label[offset++] = (uint8_t)(context_len & 0xFF);
+    if(context != NULL && context_len > 0u) {
         memcpy(hkdf_label + offset, context, context_len);
         offset += context_len;
     }
 
-    /* HKDF-Expand(Secret, HkdfLabel, Length) */
     rc = hkdf_expand(hash_algo, secret, secret_len, hkdf_label, offset, output, output_len);
     noxtls_free(hkdf_label);
     return rc;
+}
+
+noxtls_return_t tls13_hkdf_expand_label(noxtls_hash_algos_t hash_algo,
+                                          const uint8_t *secret, uint32_t secret_len,
+                                          const uint8_t *label, uint32_t label_len,
+                                          const uint8_t *context, uint32_t context_len,
+                                          uint8_t *output, uint32_t output_len)
+{
+    static const uint8_t tls13_prefix[] = { 't', 'l', 's', '1', '3', ' ' };
+    return hkdf_expand_label_with_prefix(hash_algo, secret, secret_len,
+                                         tls13_prefix, (uint32_t)sizeof(tls13_prefix),
+                                         label, label_len, context, context_len, output, output_len);
+}
+
+noxtls_return_t dtls13_hkdf_expand_label(noxtls_hash_algos_t hash_algo,
+                                          const uint8_t *secret, uint32_t secret_len,
+                                          const uint8_t *label, uint32_t label_len,
+                                          const uint8_t *context, uint32_t context_len,
+                                          uint8_t *output, uint32_t output_len)
+{
+    static const uint8_t dtls13_prefix[] = { 'd', 't', 'l', 's', '1', '3' };
+    return hkdf_expand_label_with_prefix(hash_algo, secret, secret_len,
+                                         dtls13_prefix, (uint32_t)sizeof(dtls13_prefix),
+                                         label, label_len, context, context_len, output, output_len);
 }
 
 /**
@@ -953,5 +972,58 @@ noxtls_return_t tls13_derive_secret(noxtls_hash_algos_t hash_algo,
     
     /* HKDF-Expand-Label(Secret, Label, Hash(Messages), Hash.length) */
     return tls13_hkdf_expand_label(hash_algo, secret, secret_len, label, label_len, hash, hash_len, output, output_len);
+}
+
+noxtls_return_t dtls13_derive_secret(noxtls_hash_algos_t hash_algo,
+                                      const uint8_t *secret, uint32_t secret_len,
+                                      const uint8_t *label, uint32_t label_len,
+                                      const uint8_t *messages, uint32_t messages_len,
+                                      uint8_t *output, uint32_t output_len)
+{
+    uint8_t hash[64];
+    uint32_t hash_len;
+    noxtls_return_t rc;
+
+    if(secret == NULL || label == NULL || output == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    if(messages != NULL && messages_len > 0u) {
+        if(hash_algo == NOXTLS_HASH_SHA_256) {
+            noxtls_sha_ctx_t sha_ctx;
+            noxtls_sha256_init(&sha_ctx, hash_algo);
+            noxtls_sha256_update(&sha_ctx, (uint8_t*)messages, messages_len);
+            hash_len = 32;
+            rc = noxtls_sha256_finish(&sha_ctx, hash);
+        } else if(hash_algo == NOXTLS_HASH_SHA_384) {
+            noxtls_sha512_ctx_t sha_ctx;
+            noxtls_sha512_init(&sha_ctx, hash_algo);
+            noxtls_sha512_update(&sha_ctx, (uint8_t*)messages, messages_len);
+            hash_len = 48;
+            rc = noxtls_sha512_finish(&sha_ctx, hash);
+        } else {
+            return NOXTLS_RETURN_INVALID_ALGORITHM;
+        }
+    } else {
+        if(hash_algo == NOXTLS_HASH_SHA_256) {
+            noxtls_sha_ctx_t sha_ctx;
+            noxtls_sha256_init(&sha_ctx, hash_algo);
+            hash_len = 32;
+            rc = noxtls_sha256_finish(&sha_ctx, hash);
+        } else if(hash_algo == NOXTLS_HASH_SHA_384) {
+            noxtls_sha512_ctx_t sha_ctx;
+            noxtls_sha512_init(&sha_ctx, hash_algo);
+            hash_len = 48;
+            rc = noxtls_sha512_finish(&sha_ctx, hash);
+        } else {
+            return NOXTLS_RETURN_INVALID_ALGORITHM;
+        }
+    }
+
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+
+    return dtls13_hkdf_expand_label(hash_algo, secret, secret_len, label, label_len, hash, hash_len, output, output_len);
 }
 

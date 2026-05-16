@@ -98,8 +98,21 @@ noxtls_return_t tls13_hkdf_expand_label(noxtls_hash_algos_t hash_algo,
                                           const uint8_t *context, uint32_t context_len,
                                           uint8_t *output, uint32_t output_len);
 
+/* DTLS 1.3 HKDF-Expand-Label (RFC 9147 Section 5.9, "dtls13" prefix) */
+noxtls_return_t dtls13_hkdf_expand_label(noxtls_hash_algos_t hash_algo,
+                                          const uint8_t *secret, uint32_t secret_len,
+                                          const uint8_t *label, uint32_t label_len,
+                                          const uint8_t *context, uint32_t context_len,
+                                          uint8_t *output, uint32_t output_len);
+
 /* TLS 1.3 Derive-Secret (RFC 8446 Section 7.1) */
 noxtls_return_t tls13_derive_secret(noxtls_hash_algos_t hash_algo,
+                                      const uint8_t *secret, uint32_t secret_len,
+                                      const uint8_t *label, uint32_t label_len,
+                                      const uint8_t *messages, uint32_t messages_len,
+                                      uint8_t *output, uint32_t output_len);
+
+noxtls_return_t dtls13_derive_secret(noxtls_hash_algos_t hash_algo,
                                       const uint8_t *secret, uint32_t secret_len,
                                       const uint8_t *label, uint32_t label_len,
                                       const uint8_t *messages, uint32_t messages_len,

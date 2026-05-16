@@ -352,7 +352,9 @@ void *noxtls_realloc(void *ptr, size_t size)
  * @param[out] max_used High-water mark of in-use bytes, or NULL to skip.
  * @return `NOXTLS_RETURN_SUCCESS` if the pool is initialized; `NOXTLS_RETURN_FAILED` otherwise.
  */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 noxtls_return_t noxtls_mem_get_stats(size_t *total_allocated, size_t *total_used, size_t *max_used)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     if(!g_mem_initialized) {
         return NOXTLS_RETURN_FAILED;
@@ -455,7 +457,8 @@ noxtls_return_t noxtls_mem_cleanup(void)
  * @param[out] max_used Unused.
  * @return Always `NOXTLS_RETURN_FAILED`.
  */
-noxtls_return_t noxtls_mem_get_stats(size_t *total_allocated, size_t *total_used, size_t *max_used)
+noxtls_return_t noxtls_mem_get_stats(size_t *total_allocated, /* NOLINT(bugprone-easily-swappable-parameters): output triplet follows API contract */
+                                     size_t *total_used, size_t *max_used)
 {
     (void)total_allocated;
     (void)total_used;

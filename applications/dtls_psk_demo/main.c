@@ -248,6 +248,7 @@ static int32_t client_recv_callback(void *user_data, uint8_t *data, uint32_t len
     return udp_buffer_read(&conn->server_to_client, data, len);
 }
 
+#ifdef DTLS12_DEMO_USE_CERT_DATA
 /* User data for thread-safe full DTLS 1.2 callbacks */
 typedef struct
 {
@@ -379,6 +380,7 @@ static noxtls_return_t dtls_psk_get_key(const char *identity, uint8_t *key, uint
     
     return NOXTLS_RETURN_FAILED;
 }
+#endif /* DTLS12_DEMO_USE_CERT_DATA */
 
 /* Print hex data */
 static void print_hex(const uint8_t *data, uint32_t len)

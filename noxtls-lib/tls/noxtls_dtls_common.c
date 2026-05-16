@@ -51,7 +51,139 @@ static void dtls_flight_clear(dtls_context_t *ctx)
     ctx->flight_buffer_len = 0;
 }
 
-static void dtls_ack_range_add(dtls_context_t *ctx, uint16_t epoch, uint64_t seq)
+static void dtls_reassembly_slot_clear(dtls_reassembly_slot_t *slot)
+{
+    if(slot == NULL) {
+        return;
+    }
+    if(slot->buffer != NULL) {
+        noxtls_free(slot->buffer);
+    }
+    if(slot->received != NULL) {
+        noxtls_free(slot->received);
+    }
+    memset(slot, 0, sizeof(*slot));
+}
+
+static void dtls_reassembly_queue_clear(dtls_context_t *ctx)
+{
+    if(ctx == NULL) {
+        return;
+    }
+    for(uint32_t i = 0; i < DTLS_REASSEMBLY_QUEUE_SIZE; i++) {
+        dtls_reassembly_slot_clear(&ctx->reassembly_queue[i]);
+    }
+}
+
+static dtls_reassembly_slot_t *dtls_reassembly_slot_find(dtls_context_t *ctx, uint16_t message_seq)
+{
+    if(ctx == NULL) {
+        return NULL;
+    }
+    for(uint32_t i = 0; i < DTLS_REASSEMBLY_QUEUE_SIZE; i++) {
+        if(ctx->reassembly_queue[i].active && ctx->reassembly_queue[i].message_seq == message_seq) {
+            return &ctx->reassembly_queue[i];
+        }
+    }
+    return NULL;
+}
+
+static dtls_reassembly_slot_t *dtls_reassembly_slot_alloc(dtls_context_t *ctx)
+{
+    dtls_reassembly_slot_t *oldest = NULL;
+    if(ctx == NULL) {
+        return NULL;
+    }
+    for(uint32_t i = 0; i < DTLS_REASSEMBLY_QUEUE_SIZE; i++) {
+        if(!ctx->reassembly_queue[i].active) {
+            return &ctx->reassembly_queue[i];
+        }
+        if(oldest == NULL || ctx->reassembly_queue[i].message_seq < oldest->message_seq) {
+            oldest = &ctx->reassembly_queue[i];
+        }
+    }
+    if(oldest != NULL) {
+        dtls_reassembly_slot_clear(oldest);
+    }
+    return oldest;
+}
+
+static noxtls_return_t dtls_reassembly_slot_store(dtls_reassembly_slot_t *slot,
+                                                   const dtls_handshake_fragment_t *fragment)
+{
+    if(slot == NULL || fragment == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(fragment->length > DTLS_MAX_HANDSHAKE_SIZE ||
+       fragment->fragment_offset + fragment->fragment_length > fragment->length) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    if(fragment->fragment_length > 0u && fragment->data == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(!slot->active || slot->message_seq != fragment->message_seq || slot->length != fragment->length) {
+        dtls_reassembly_slot_clear(slot);
+        slot->buffer = (uint8_t*)noxtls_malloc(fragment->length == 0u ? 1u : fragment->length);
+        slot->received = (uint8_t*)noxtls_malloc(fragment->length == 0u ? 1u : fragment->length);
+        if(slot->buffer == NULL || slot->received == NULL) {
+            dtls_reassembly_slot_clear(slot);
+            return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+        }
+        memset(slot->buffer, 0, fragment->length == 0u ? 1u : fragment->length);
+        memset(slot->received, 0, fragment->length == 0u ? 1u : fragment->length);
+        slot->active = 1;
+        slot->msg_type = fragment->msg_type;
+        slot->message_seq = fragment->message_seq;
+        slot->length = fragment->length;
+        slot->capacity = fragment->length;
+        slot->received_len = fragment->length;
+        slot->received_count = 0;
+    }
+    if(slot->msg_type != fragment->msg_type || slot->length != fragment->length) {
+        return NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER;
+    }
+    for(uint32_t i = 0; i < fragment->fragment_length; i++) {
+        uint32_t idx = fragment->fragment_offset + i;
+        if(slot->received[idx] != 0u) {
+            if(slot->buffer[idx] != fragment->data[i]) {
+                return NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER;
+            }
+        } else {
+            slot->buffer[idx] = fragment->data[i];
+            slot->received[idx] = 1u;
+            slot->received_count++;
+        }
+    }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+static noxtls_return_t dtls_reassembly_slot_take_complete(dtls_context_t *ctx,
+                                                           uint8_t **complete_msg,
+                                                           uint32_t *complete_len)
+{
+    dtls_reassembly_slot_t *slot;
+    if(ctx == NULL || complete_msg == NULL || complete_len == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    slot = dtls_reassembly_slot_find(ctx, ctx->expected_message_seq);
+    if(slot == NULL || slot->received_count != slot->length) {
+        return NOXTLS_RETURN_TIMEOUT;
+    }
+    *complete_msg = (uint8_t*)noxtls_malloc(slot->length == 0u ? 1u : slot->length);
+    if(*complete_msg == NULL) {
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+    }
+    if(slot->length > 0u) {
+        memcpy(*complete_msg, slot->buffer, slot->length);
+    }
+    *complete_len = slot->length;
+    ctx->expected_message_seq++;
+    dtls_reassembly_slot_clear(slot);
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+static void dtls_ack_range_add(dtls_context_t *ctx, uint16_t epoch, /* NOLINT(bugprone-easily-swappable-parameters): ACK tuple is (epoch,sequence). */
+                               uint64_t seq)
 {
     if(ctx == NULL) {
         return;
@@ -187,6 +319,10 @@ static void dtls_ack_range_add(dtls_context_t *ctx, uint16_t epoch, uint64_t seq
     ctx->ack_seq = ctx->ack_range_max;
 }
 
+static int dtls_record_acked_by_last_ack(const dtls_context_t *ctx, uint16_t epoch, uint64_t seq);
+static int dtls_parse_record_epoch_seq(const uint8_t *record, uint16_t record_len,
+                                       uint16_t *epoch, uint64_t *seq);
+
 static noxtls_return_t dtls_flight_append(dtls_context_t *ctx, const uint8_t *record, uint32_t record_len)
 {
     uint32_t needed;
@@ -228,6 +364,7 @@ static noxtls_return_t dtls_flight_append(dtls_context_t *ctx, const uint8_t *re
 static noxtls_return_t dtls_flight_retransmit(dtls_context_t *ctx)
 {
     uint32_t offset = 0;
+    uint32_t sent_records = 0;
 
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -244,24 +381,30 @@ static noxtls_return_t dtls_flight_retransmit(dtls_context_t *ctx)
         return NOXTLS_RETURN_SUCCESS;
     }
 
-    while(offset + 2 <= ctx->flight_buffer_len) {
+    while(offset + 2 <= ctx->flight_buffer_len && sent_records < DTLS_RETRANSMIT_RECORD_BURST) {
         uint16_t rec_len = (uint16_t)((ctx->flight_buffer[offset] << 8) |
                                       ctx->flight_buffer[offset + 1]);
         uint32_t rec_offset = offset + 2;
+        uint16_t rec_epoch = 0;
+        uint64_t rec_seq = 0;
         if(rec_offset + rec_len > ctx->flight_buffer_len) {
             return NOXTLS_RETURN_FAILED;
         }
 
-        if(ctx->base.send_callback(ctx->base.user_data,
-                                   ctx->flight_buffer + rec_offset,
-                                   rec_len) < 0) {
-            return NOXTLS_RETURN_FAILED;
+        if(!dtls_parse_record_epoch_seq(ctx->flight_buffer + rec_offset, rec_len, &rec_epoch, &rec_seq) ||
+           !dtls_record_acked_by_last_ack(ctx, rec_epoch, rec_seq)) {
+            if(ctx->base.send_callback(ctx->base.user_data,
+                                       ctx->flight_buffer + rec_offset,
+                                       rec_len) < 0) {
+                return NOXTLS_RETURN_FAILED;
+            }
+            sent_records++;
         }
 
         offset = rec_offset + rec_len;
     }
 
-    if(ctx->base.time_callback != NULL) {
+    if(ctx->base.time_callback != NULL && sent_records > 0u) {
         ctx->last_flight_sent_ms = ctx->base.time_callback(ctx->base.user_data);
     }
 
@@ -274,13 +417,17 @@ static void dtls_write_uint16(uint8_t *buf, uint16_t value)
     buf[1] = (uint8_t)(value & 0xFF);
 }
 
-static uint32_t dtls_compute_max_fragment(uint16_t mtu)
+static uint32_t dtls_compute_max_fragment_for_version(uint16_t mtu, uint16_t version)
 {
     uint32_t usable;
-    if(mtu <= DTLS_RECORD_HEADER_SIZE + DTLS_HANDSHAKE_HEADER_SIZE) {
+    uint32_t record_overhead = DTLS_RECORD_HEADER_SIZE;
+    if(version == DTLS_VERSION_1_3) {
+        record_overhead = DTLS13_UNIFIED_HEADER_WITH_LEN + DTLS13_RECORD_NUMBER_ENC_LEN;
+    }
+    if(mtu <= record_overhead + DTLS_HANDSHAKE_HEADER_SIZE) {
         return DTLS_MIN_FRAGMENT_SIZE;
     }
-    usable = (uint32_t)mtu - DTLS_RECORD_HEADER_SIZE - DTLS_HANDSHAKE_HEADER_SIZE;
+    usable = (uint32_t)mtu - record_overhead - DTLS_HANDSHAKE_HEADER_SIZE;
     if(usable > DTLS_MAX_FRAGMENT_SIZE) {
         usable = DTLS_MAX_FRAGMENT_SIZE;
     }
@@ -289,6 +436,7 @@ static uint32_t dtls_compute_max_fragment(uint16_t mtu)
     }
     return usable;
 }
+
 
 static void dtls_write_uint24(uint8_t *buf, uint32_t value)
 {
@@ -327,6 +475,38 @@ static uint64_t dtls_read_uint48(const uint8_t *buf)
            (uint64_t)buf[5];
 }
 
+static int dtls_record_acked_by_last_ack(const dtls_context_t *ctx, uint16_t epoch, uint64_t seq)
+{
+    if(ctx == NULL || ctx->last_ack_epoch != epoch) {
+        return 0;
+    }
+    if(ctx->last_ack_ranges_min != NULL && ctx->last_ack_ranges_max != NULL && ctx->last_ack_range_count > 0u) {
+        for(uint8_t i = 0; i < ctx->last_ack_range_count; i++) {
+            if(seq >= ctx->last_ack_ranges_min[i] && seq <= ctx->last_ack_ranges_max[i]) {
+                return 1;
+            }
+        }
+        return 0;
+    }
+    return (seq >= ctx->last_ack_range_min && seq <= ctx->last_ack_range_max);
+}
+
+static int dtls_parse_record_epoch_seq(const uint8_t *record, uint16_t record_len,
+                                       uint16_t *epoch, uint64_t *seq)
+{
+    if(record == NULL || epoch == NULL || seq == NULL || record_len < DTLS_RECORD_HEADER_SIZE) {
+        return 0;
+    }
+    if((record[0] & 0xE0u) == DTLS13_UNIFIED_FIXED_BITS) {
+        *epoch = (uint16_t)(record[0] & DTLS13_UNIFIED_EPOCH_MASK);
+        *seq = 0;
+        return 1;
+    }
+    *epoch = dtls_read_uint16(record + DTLS_RECORD_EPOCH_OFFSET);
+    *seq = dtls_read_uint48(record + DTLS_RECORD_SEQUENCE_OFFSET);
+    return 1;
+}
+
 noxtls_return_t noxtls_dtls_context_init(dtls_context_t *ctx, tls_role_t role, uint16_t version)
 {
     if(ctx == NULL) {
@@ -343,10 +523,18 @@ noxtls_return_t noxtls_dtls_context_init(dtls_context_t *ctx, tls_role_t role, u
     ctx->write_seq_num = 0;
     ctx->send_message_seq = 0;
     ctx->mtu = DTLS_MAX_FRAGMENT_SIZE;
-    ctx->max_fragment = dtls_compute_max_fragment(ctx->mtu);
+    ctx->max_fragment = dtls_compute_max_fragment_for_version(ctx->mtu, version);
     ctx->anti_amp_factor = 3;
     ctx->replay_window.window_bitmap = 0;
     ctx->replay_window.last_seq = 0;
+    for(uint32_t i = 0; i < 4u; i++) {
+        ctx->replay_windows[i].window_bitmap = 0;
+        ctx->replay_windows[i].last_seq = 0;
+        ctx->highest_recv_seq[i] = 0;
+        ctx->highest_recv_seq_valid[i] = 0;
+    }
+    ctx->connection_epoch = 0;
+    ctx->read_connection_epoch = 0;
     ctx->handshake_buffer = NULL;
     ctx->handshake_buffer_len = 0;
     ctx->handshake_buffer_capacity = 0;
@@ -355,6 +543,9 @@ noxtls_return_t noxtls_dtls_context_init(dtls_context_t *ctx, tls_role_t role, u
     ctx->handshake_received = NULL;
     ctx->handshake_received_len = 0;
     ctx->handshake_received_count = 0;
+    for(uint32_t i = 0; i < DTLS_REASSEMBLY_QUEUE_SIZE; i++) {
+        memset(&ctx->reassembly_queue[i], 0, sizeof(ctx->reassembly_queue[i]));
+    }
     ctx->flight_buffer = NULL;
     ctx->flight_buffer_len = 0;
     ctx->flight_buffer_capacity = 0;
@@ -377,16 +568,26 @@ noxtls_return_t noxtls_dtls_context_init(dtls_context_t *ctx, tls_role_t role, u
     ctx->last_ack_seq = 0;
     ctx->last_ack_range_min = 0;
     ctx->last_ack_range_max = 0;
+    ctx->last_ack_ranges_min = NULL;
+    ctx->last_ack_ranges_max = NULL;
+    ctx->last_ack_range_count = 0;
     ctx->flight_epoch = 0;
     ctx->flight_min_seq = 0;
     ctx->flight_max_seq = 0;
     ctx->flight_has_range = 0;
     ctx->retransmit_timeout_ms = 1000;
+    ctx->retransmit_base_timeout_ms = 1000;
     ctx->retransmit_backoff_ms = 2000;
+    ctx->smoothed_rtt_ms = 0;
+    ctx->rttvar_ms = 0;
+    ctx->rtt_estimator_valid = 0;
     ctx->last_flight_sent_ms = 0;
+    ctx->final_ack_active = 0;
+    ctx->final_ack_until_ms = 0;
+    ctx->final_ack_len = 0;
     ctx->cookie_len = 0;
 
-    ctx->base.record_send_buf = (uint8_t*)noxtls_malloc(5 + TLS_MAX_RECORD_SIZE);
+        ctx->base.record_send_buf = (uint8_t*)noxtls_malloc(5u + TLS_MAX_PROTECTED_RECORD_FRAGMENT);
     if(ctx->base.record_send_buf == NULL) {
         noxtls_tls_context_free(&ctx->base);
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
@@ -409,6 +610,7 @@ noxtls_return_t noxtls_dtls_context_free(dtls_context_t *ctx)
         noxtls_free(ctx->handshake_received);
         ctx->handshake_received = NULL;
     }
+    dtls_reassembly_queue_clear(ctx);
     if(ctx->flight_buffer != NULL) {
         noxtls_free(ctx->flight_buffer);
         ctx->flight_buffer = NULL;
@@ -420,6 +622,14 @@ noxtls_return_t noxtls_dtls_context_free(dtls_context_t *ctx)
     if(ctx->ack_ranges_max != NULL) {
         noxtls_free(ctx->ack_ranges_max);
         ctx->ack_ranges_max = NULL;
+    }
+    if(ctx->last_ack_ranges_min != NULL) {
+        noxtls_free(ctx->last_ack_ranges_min);
+        ctx->last_ack_ranges_min = NULL;
+    }
+    if(ctx->last_ack_ranges_max != NULL) {
+        noxtls_free(ctx->last_ack_ranges_max);
+        ctx->last_ack_ranges_max = NULL;
     }
     if(ctx->base.record_send_buf != NULL) {
         noxtls_free(ctx->base.record_send_buf);
@@ -438,7 +648,7 @@ noxtls_return_t noxtls_dtls_set_mtu(dtls_context_t *ctx, uint16_t mtu)
         return NOXTLS_RETURN_NULL;
     }
     ctx->mtu = mtu;
-    ctx->max_fragment = dtls_compute_max_fragment(mtu);
+    ctx->max_fragment = dtls_compute_max_fragment_for_version(mtu, ctx->base.version);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -452,6 +662,10 @@ noxtls_return_t dtls_set_retransmit(dtls_context_t *ctx, uint32_t timeout_ms,
         return NOXTLS_RETURN_INVALID_PARAM;
     }
     ctx->retransmit_timeout_ms = timeout_ms;
+    ctx->retransmit_base_timeout_ms = timeout_ms;
+    ctx->smoothed_rtt_ms = 0;
+    ctx->rttvar_ms = 0;
+    ctx->rtt_estimator_valid = 0;
     ctx->retransmit_backoff_ms = backoff_ms;
     ctx->retransmit_max_attempts = max_attempts;
     return NOXTLS_RETURN_SUCCESS;
@@ -628,8 +842,12 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
                 }
                 dtls_flight_retransmit(ctx);
                 attempts++;
-                /* RFC 9147 5.8: timer value SHOULD be doubled for each successive retransmission */
-                ctx->retransmit_timeout_ms *= 2;
+                /* RFC 9147 5.8: timer value SHOULD be backed off after each retransmission. */
+                ctx->retransmit_timeout_ms =
+                    (uint32_t)(((uint64_t)ctx->retransmit_timeout_ms * ctx->retransmit_backoff_ms) / 1000u);
+                if(ctx->retransmit_timeout_ms == 0u) {
+                    ctx->retransmit_timeout_ms = 1u;
+                }
                 if(ctx->retransmit_timeout_ms > 60000) {
                     ctx->retransmit_timeout_ms = 60000;  /* cap at 60 seconds */
                 }
@@ -645,7 +863,7 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
         break;
     }
     if(received > 0) {
-        ctx->retransmit_timeout_ms = 1000;
+        ctx->retransmit_timeout_ms = ctx->retransmit_base_timeout_ms == 0u ? 1000u : ctx->retransmit_base_timeout_ms;
     }
 
     ctx->bytes_received += (uint64_t)received;
@@ -681,7 +899,7 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
 
     if(record->epoch != ctx->epoch) {
         noxtls_free(packet);
-        return NOXTLS_RETURN_FAILED;
+        return NOXTLS_RETURN_TIMEOUT;
     }
 
     if(length > TLS_MAX_RECORD_SIZE) {
@@ -741,7 +959,7 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
 noxtls_return_t dtls_send_handshake_fragment(dtls_context_t *ctx,
                                              uint8_t msg_type,
                                              const uint8_t *data,
-                                             uint32_t len,
+                                             uint32_t len, /* NOLINT(bugprone-easily-swappable-parameters): DTLS fragment fields keep RFC header ordering. */
                                              uint16_t message_seq)
 {
     uint32_t offset = 0;
@@ -777,7 +995,6 @@ noxtls_return_t dtls_send_handshake_fragment(dtls_context_t *ctx,
         dtls_write_uint16(buffer + DTLS_HANDSHAKE_MESSAGE_SEQ_OFFSET, message_seq);
         dtls_write_uint24(buffer + DTLS_HANDSHAKE_FRAGMENT_OFFSET, offset);
         dtls_write_uint24(buffer + DTLS_HANDSHAKE_FRAGMENT_LEN_OFFSET, fragment_len);
-        dtls_write_uint16(buffer + DTLS_HANDSHAKE_FRAGMENT_SEQ_OFFSET, 0);
 
         if(fragment_len > 0) {
             memcpy(buffer + DTLS_HANDSHAKE_BODY_OFFSET, data + offset, fragment_len);
@@ -826,7 +1043,6 @@ noxtls_return_t noxtls_dtls_recv_handshake_fragment(dtls_context_t *ctx, dtls_ha
     fragment->message_seq = dtls_read_uint16(record.data + DTLS_HANDSHAKE_MESSAGE_SEQ_OFFSET);
     fragment->fragment_offset = dtls_read_uint24(record.data + DTLS_HANDSHAKE_FRAGMENT_OFFSET);
     fragment->fragment_length = dtls_read_uint24(record.data + DTLS_HANDSHAKE_FRAGMENT_LEN_OFFSET);
-    fragment->fragment_seq = dtls_read_uint16(record.data + DTLS_HANDSHAKE_FRAGMENT_SEQ_OFFSET);
 
     if(fragment->length > DTLS_MAX_HANDSHAKE_SIZE) {
         noxtls_free(record.data);
@@ -858,6 +1074,7 @@ noxtls_return_t noxtls_dtls_reassemble_handshake(dtls_context_t *ctx,
                                           uint32_t *complete_len)
 {
     uint32_t total_len;
+    noxtls_return_t rc;
 
     if(ctx == NULL || fragment == NULL || complete_msg == NULL || complete_len == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -866,6 +1083,11 @@ noxtls_return_t noxtls_dtls_reassemble_handshake(dtls_context_t *ctx,
     *complete_msg = NULL;
     *complete_len = 0;
 
+    rc = dtls_reassembly_slot_take_complete(ctx, complete_msg, complete_len);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+
     total_len = fragment->length;
     if(total_len > DTLS_MAX_HANDSHAKE_SIZE) {
         return NOXTLS_RETURN_INVALID_PARAM;
@@ -873,61 +1095,83 @@ noxtls_return_t noxtls_dtls_reassemble_handshake(dtls_context_t *ctx,
     if(fragment->fragment_offset + fragment->fragment_length > total_len) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
+    if(fragment->fragment_length > 0u && fragment->data == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    if(fragment->message_seq < ctx->expected_message_seq) {
+        return NOXTLS_RETURN_TIMEOUT;
+    }
+
+    if(fragment->message_seq > ctx->expected_message_seq) {
+        dtls_reassembly_slot_t *slot = dtls_reassembly_slot_find(ctx, fragment->message_seq);
+        if(slot == NULL) {
+            slot = dtls_reassembly_slot_alloc(ctx);
+        }
+        return dtls_reassembly_slot_store(slot, fragment);
+    }
 
     if(fragment->fragment_offset == 0 && fragment->fragment_length == total_len) {
-        *complete_msg = (uint8_t*)noxtls_malloc(total_len);
+        *complete_msg = (uint8_t*)noxtls_malloc(total_len == 0u ? 1u : total_len);
         if(*complete_msg == NULL) {
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         }
-        memcpy(*complete_msg, fragment->data, total_len);
+        if(total_len > 0U) {
+            memcpy(*complete_msg, fragment->data, total_len);
+        }
         *complete_len = total_len;
+        ctx->expected_message_seq++;
         return NOXTLS_RETURN_SUCCESS;
     }
 
-    if(fragment->message_seq != ctx->expected_message_seq) {
-        ctx->expected_message_seq = fragment->message_seq;
+    if(ctx->handshake_buffer == NULL || ctx->handshake_buffer_len != total_len) {
+        uint32_t alloc_len = (total_len == 0u) ? 1u : total_len;
         ctx->expected_fragment_offset = 0;
         ctx->handshake_buffer_len = total_len;
-        if(ctx->handshake_buffer_capacity < total_len) {
-            uint8_t *new_buf = (uint8_t*)noxtls_realloc(ctx->handshake_buffer, total_len);
+        if(ctx->handshake_buffer == NULL || ctx->handshake_buffer_capacity < alloc_len) {
+            uint8_t *new_buf = (uint8_t*)noxtls_realloc(ctx->handshake_buffer, alloc_len);
             if(new_buf == NULL) {
                 return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
             }
             ctx->handshake_buffer = new_buf;
-            ctx->handshake_buffer_capacity = total_len;
+            ctx->handshake_buffer_capacity = alloc_len;
         }
-        if(ctx->handshake_received_len < total_len) {
-            uint8_t *new_map = (uint8_t*)noxtls_realloc(ctx->handshake_received, total_len);
+        if(ctx->handshake_received == NULL || ctx->handshake_received_len < alloc_len) {
+            uint8_t *new_map = (uint8_t*)noxtls_realloc(ctx->handshake_received, alloc_len);
             if(new_map == NULL) {
                 return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
             }
             ctx->handshake_received = new_map;
-            ctx->handshake_received_len = total_len;
+            ctx->handshake_received_len = alloc_len;
         }
-        memset(ctx->handshake_buffer, 0, total_len);
-        memset(ctx->handshake_received, 0, total_len);
+        memset(ctx->handshake_buffer, 0, alloc_len);
+        memset(ctx->handshake_received, 0, alloc_len);
         ctx->handshake_received_count = 0;
     }
 
     if(fragment->fragment_length > 0) {
-        memcpy(ctx->handshake_buffer + fragment->fragment_offset,
-               fragment->data,
-               fragment->fragment_length);
         for(uint32_t i = 0; i < fragment->fragment_length; i++) {
             uint32_t idx = fragment->fragment_offset + i;
-            if(ctx->handshake_received[idx] == 0) {
-                ctx->handshake_received[idx] = 1;
+            if(ctx->handshake_received[idx] != 0u) {
+                if(ctx->handshake_buffer[idx] != fragment->data[i]) {
+                    return NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER;
+                }
+            } else {
+                ctx->handshake_buffer[idx] = fragment->data[i];
+                ctx->handshake_received[idx] = 1u;
                 ctx->handshake_received_count++;
             }
         }
     }
 
     if(ctx->handshake_received_count == total_len) {
-        *complete_msg = (uint8_t*)noxtls_malloc(total_len);
+        *complete_msg = (uint8_t*)noxtls_malloc(total_len == 0u ? 1u : total_len);
         if(*complete_msg == NULL) {
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         }
-        memcpy(*complete_msg, ctx->handshake_buffer, total_len);
+        if(total_len > 0u) {
+            memcpy(*complete_msg, ctx->handshake_buffer, total_len);
+        }
         *complete_len = total_len;
         ctx->handshake_received_count = 0;
         ctx->expected_message_seq++;

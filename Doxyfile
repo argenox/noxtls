@@ -82,4 +82,4 @@ HAVE_DOT              = NO
 # Quiet
 QUIET                 = YES
 WARNINGS              = YES
-WARN_IF_UNDOCUMENTED  = NO
+WARN_IF_UNDOCUMENTED  = YES

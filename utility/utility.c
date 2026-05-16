@@ -63,6 +63,7 @@ static FILE *noxtls_fopen(const char *filename, const char *mode)
 int noxtls_load_file(const char * filename, uint8_t ** buffer)
 {
     int sz = 0;
+    long file_size = 0L;
 
     FILE * fp = NULL;
 
@@ -72,8 +73,16 @@ int noxtls_load_file(const char * filename, uint8_t ** buffer)
         return -1;
     }
 
-    fseek(fp, 0L, SEEK_END);
-    sz = ftell(fp) - 1;
+    if(fseek(fp, 0L, SEEK_END) != 0) {
+        fclose(fp);
+        return -1;
+    }
+    file_size = ftell(fp);
+    if(file_size <= 0L || file_size > (long)INT_MAX) {
+        fclose(fp);
+        return -1;
+    }
+    sz = (int)(file_size - 1L);
 
     printf("FIle Size: %d\n", sz);
 
@@ -84,7 +93,12 @@ int noxtls_load_file(const char * filename, uint8_t ** buffer)
         return 1;
     }
 
-    rewind(fp);
+    if(fseek(fp, 0L, SEEK_SET) != 0) {
+        fclose(fp);
+        free(*buffer);
+        *buffer = NULL;
+        return -1;
+    }
 
     if (fread(*buffer, sizeof(uint8_t), (size_t)sz, fp) != (size_t)sz) {
         fclose(fp);
@@ -113,6 +127,7 @@ int noxtls_load_file(const char * filename, uint8_t ** buffer)
 int noxtls_load_text_file(const char * filename, uint8_t ** buffer)
 {
     int sz = 0;
+    long file_size = 0L;
 
     FILE * fp = NULL;
 
@@ -122,8 +137,16 @@ int noxtls_load_text_file(const char * filename, uint8_t ** buffer)
         return -1;
     }
 
-    fseek(fp, 0L, SEEK_END);
-    sz = ftell(fp);
+    if(fseek(fp, 0L, SEEK_END) != 0) {
+        fclose(fp);
+        return -1;
+    }
+    file_size = ftell(fp);
+    if(file_size < 0L || file_size > (long)INT_MAX) {
+        fclose(fp);
+        return -1;
+    }
+    sz = (int)file_size;
 
     printf("FIle Size: %d\n", sz);
 
@@ -133,7 +156,12 @@ int noxtls_load_text_file(const char * filename, uint8_t ** buffer)
         return 1;
     }
 
-    rewind(fp);
+    if(fseek(fp, 0L, SEEK_SET) != 0) {
+        fclose(fp);
+        free(*buffer);
+        *buffer = NULL;
+        return -1;
+    }
 
     if (fread(*buffer, sizeof(uint8_t), (size_t)sz, fp) != (size_t)sz) {
         fclose(fp);

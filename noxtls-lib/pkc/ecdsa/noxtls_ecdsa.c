@@ -64,7 +64,9 @@ static void ecdsa_debug_hex(const char *label, const uint8_t *buf, uint32_t len)
  * @param hash_algo Hash algorithm
  * @return noxtls_return_t NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if hash is NULL
  */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static noxtls_return_t ecdsa_hash_message(uint8_t *hash, uint32_t *hash_len, const uint8_t *noxtls_message, uint32_t message_len, noxtls_hash_algos_t hash_algo)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     noxtls_sha_ctx_t ctx;
     noxtls_sha512_ctx_t ctx512;
@@ -377,10 +379,10 @@ noxtls_return_t noxtls_ecdsa_sign(ecc_key_t *key, const uint8_t *noxtls_message,
     k = (uint8_t*)noxtls_calloc(size, 1);
     k_inv = (uint8_t*)noxtls_calloc(size, 1);
     h = (uint8_t*)noxtls_calloc(size, 1);
-    r_times_d = (uint8_t*)noxtls_calloc(size * 2, 1);
+    r_times_d = (uint8_t*)noxtls_calloc((size_t)size * 2u, 1);
     /* h + r*d can be up to 2n-2, so we need size+1 bytes to avoid dropping carry in add */
     h_plus_rd = (uint8_t*)noxtls_calloc(size + 1, 1);
-    s_product = (uint8_t*)noxtls_calloc(size * 2, 1);
+    s_product = (uint8_t*)noxtls_calloc((size_t)size * 2u, 1);
     random_bytes = (uint8_t*)noxtls_calloc(size, 1);
     
     if(!hash || !k || !k_inv || !h || !r_times_d || !h_plus_rd || !s_product || !random_bytes) {
@@ -401,7 +403,8 @@ noxtls_return_t noxtls_ecdsa_sign(ecc_key_t *key, const uint8_t *noxtls_message,
     if(hash_len >= size) {
         memcpy(h, hash, size);
     } else {
-        memcpy(h, hash, hash_len);
+        /* Interpret hash as big-endian integer; pad on the left. */
+        memcpy(h + (size - hash_len), hash, hash_len);
     }
 
     /* Reduce h mod n if h >= n */
@@ -558,8 +561,8 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_messag
     h = (uint8_t*)noxtls_calloc(size, 1);
     s_inv = (uint8_t*)noxtls_calloc(size, 1);
     /* u1, u2 hold mul result (2*size bytes) before bn_mod; after mod, size-byte value in first bytes */
-    u1 = (uint8_t*)noxtls_calloc(size * 2, 1);
-    u2 = (uint8_t*)noxtls_calloc(size * 2, 1);
+    u1 = (uint8_t*)noxtls_calloc((size_t)size * 2u, 1);
+    u2 = (uint8_t*)noxtls_calloc((size_t)size * 2u, 1);
     v = (uint8_t*)noxtls_calloc(size, 1);
     u1G = (ecc_point_t*)noxtls_calloc(1, sizeof(ecc_point_t));
     u2Q = (ecc_point_t*)noxtls_calloc(1, sizeof(ecc_point_t));
@@ -596,8 +599,8 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_messag
         if(hash_len >= size) {
             memcpy(h, hash, size);
         } else {
-            memcpy(h, hash, hash_len);
-            /* Pad with zeros on the right (hash is already left-aligned) */
+            /* Interpret hash as big-endian integer; pad on the left. */
+            memcpy(h + (size - hash_len), hash, hash_len);
         }
         
         /* Reduce h mod n if h >= n */
@@ -672,7 +675,7 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_messag
         rc = NOXTLS_RETURN_SUCCESS;
     } else {
         rc = NOXTLS_RETURN_FAILED;
-        /* Unconditional debug when verify fails (no define needed) */
+#if defined(NOXTLS_ECDSA_VERIFY_DEBUG)
         {
             uint32_t i;
             uint8_t u1_plus_u2_buf[ECC_MAX_KEY_SIZE + 1];
@@ -723,7 +726,6 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_messag
             printf("\n");
             fflush(stdout);
         }
-#if defined(NOXTLS_ECDSA_VERIFY_DEBUG)
         {
             uint32_t i;
             printf("[ecdsa_verify] FAILED: v != r\n  v = ");

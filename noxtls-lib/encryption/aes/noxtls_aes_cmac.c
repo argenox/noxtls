@@ -55,11 +55,13 @@ static void cmac_xor_block(uint8_t dst[NOXTLS_AES_BLOCK_LENGTH],
         dst[i] = (uint8_t)(a[i] ^ b[i]);
 }
 
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 noxtls_return_t noxtls_aes_cmac(const uint8_t *key,
                          const uint8_t *msg,
                          uint32_t msg_len,
                          uint8_t *mac,
                          noxtls_aes_type_t type)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     uint8_t L[NOXTLS_AES_BLOCK_LENGTH];
     uint8_t K1[NOXTLS_AES_BLOCK_LENGTH];
@@ -106,7 +108,7 @@ noxtls_return_t noxtls_aes_cmac(const uint8_t *key,
     /* Process all full blocks except the last */
     for(i = 0; i + 1 < n_blocks; i++)
     {
-        cmac_xor_block(state, state, &msg[i * NOXTLS_AES_BLOCK_LENGTH]);
+        cmac_xor_block(state, state, &msg[(size_t)i * NOXTLS_AES_BLOCK_LENGTH]);
         r = noxtls_aes_encrypt_block_internal(key, state, state, type);
         if(r != NOXTLS_RETURN_SUCCESS)
             return r;
@@ -127,7 +129,7 @@ noxtls_return_t noxtls_aes_cmac(const uint8_t *key,
     else
     {
         /* Complete last block: XOR with K1 */
-        cmac_xor_block(state, state, &msg[(n_blocks - 1) * NOXTLS_AES_BLOCK_LENGTH]);
+        cmac_xor_block(state, state, &msg[(size_t)(n_blocks - 1u) * NOXTLS_AES_BLOCK_LENGTH]);
         cmac_xor_block(state, state, K1);
     }
 

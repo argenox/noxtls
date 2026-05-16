@@ -143,25 +143,6 @@ static void tlscurl_print_usage(const char *prog)
 }
 
 /**
- * @brief Test whether a string contains only decimal digits.
- * @param s Candidate string.
- * @return 1 if all digits (and non-empty), else 0.
- */
-static int tlscurl_is_digits(const char *s)
-{
-    if(s == NULL || *s == '\0') {
-        return 0;
-    }
-    while(*s != '\0') {
-        if(*s < '0' || *s > '9') {
-            return 0;
-        }
-        s++;
-    }
-    return 1;
-}
-
-/**
  * @brief Case-insensitive prefix check for header lines.
  * @param line Full header line.
  * @param prefix ASCII prefix (e.g. "host:").

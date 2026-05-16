@@ -86,7 +86,7 @@ Use before `tls13_connect()` for mutual TLS with ML-DSA client authentication.
 
 See also:
 
-- [ML-KEM](/docs/next/api/mlkem)
-- [ML-DSA](/docs/next/api/mldsa)
+- [ML-KEM](/docs/api/mlkem)
+- [ML-DSA](/docs/api/mldsa)
 - [TLS 1.3 API](/docs/api/tls13)
 - [Build Configuration Checks](/docs/api/build_config)
