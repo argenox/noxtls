@@ -326,7 +326,6 @@ noxtls_return_t noxtls_dh_generate_key(const uint8_t *p, uint32_t p_len,
     uint8_t *p_minus_2 = NULL;
     uint8_t *priv_buf = NULL;
     uint8_t *g_padded = NULL;
-    int cmp;
 
     if(p == NULL || g == NULL || private_out == NULL || public_out == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -393,7 +392,7 @@ noxtls_return_t noxtls_dh_generate_key(const uint8_t *p, uint32_t p_len,
         /* Ensure we're not 0 or 1: set top bits so value is large */
         priv_buf[0] |= 0x80;
         /* Compare priv_buf with p_minus_2 (both p_len). If priv_buf > p_minus_2, regenerate. */
-        cmp = noxtls_bn_cmp(priv_buf, p_minus_2, p_len);
+        int cmp = noxtls_bn_cmp(priv_buf, p_minus_2, p_len);
         if(cmp <= 0) {
             break;
         }

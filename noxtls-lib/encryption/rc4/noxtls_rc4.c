@@ -48,12 +48,12 @@ static void rc4_ksa(noxtls_rc4_context_t *ctx, const uint8_t *key, uint32_t key_
 {
     uint32_t i;
     uint8_t j = 0;
-    uint8_t t;
 
     for(i = 0; i < 256; i++) {
         ctx->S[i] = (uint8_t)i;
     }
     for(i = 0; i < 256; i++) {
+        uint8_t t;
         j = (uint8_t)(j + ctx->S[i] + key[i % key_len]);
         t = ctx->S[i];
         ctx->S[i] = ctx->S[j];

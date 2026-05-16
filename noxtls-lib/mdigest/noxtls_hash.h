@@ -67,7 +67,7 @@ typedef enum
 
 void noxtls_add_padding_length(uint8_t * data, uint32_t block_size, uint64_t length, uint8_t length_size);
 void noxtls_add_padding_length_little(uint8_t * data, uint32_t block_size, uint64_t length, uint8_t length_size);
-void noxtls_print_hash(uint8_t * hash, uint16_t len);
+void noxtls_print_hash(const uint8_t * hash, uint16_t len);
 
 #ifdef __cplusplus
 }

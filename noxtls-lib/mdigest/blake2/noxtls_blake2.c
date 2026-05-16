@@ -229,13 +229,15 @@ noxtls_return_t noxtls_blake2b_512_init(noxtls_blake2_ctx_t * ctx)
  */
 noxtls_return_t noxtls_blake2_update(noxtls_blake2_ctx_t * ctx, const uint8_t * data, uint32_t len)
 {
-    uint32_t block_bytes = ctx->is_blake2b ? BLAKE2B_BLOCK_BYTES : BLAKE2S_BLOCK_BYTES;
+    uint32_t block_bytes;
     uint32_t fill;
 
     if(ctx == NULL)
         return NOXTLS_RETURN_NULL;
     if(data == NULL && len != 0)
         return NOXTLS_RETURN_NULL;
+
+    block_bytes = ctx->is_blake2b ? BLAKE2B_BLOCK_BYTES : BLAKE2S_BLOCK_BYTES;
 
     if(len == 0)
         return NOXTLS_RETURN_SUCCESS;
@@ -278,11 +280,13 @@ noxtls_return_t noxtls_blake2_update(noxtls_blake2_ctx_t * ctx, const uint8_t * 
  */
 noxtls_return_t noxtls_blake2_finish(noxtls_blake2_ctx_t * ctx, uint8_t * hash)
 {
-    uint32_t block_bytes = ctx->is_blake2b ? BLAKE2B_BLOCK_BYTES : BLAKE2S_BLOCK_BYTES;
+    uint32_t block_bytes;
     uint32_t i;
 
     if(ctx == NULL || hash == NULL)
         return NOXTLS_RETURN_NULL;
+
+    block_bytes = ctx->is_blake2b ? BLAKE2B_BLOCK_BYTES : BLAKE2S_BLOCK_BYTES;
 
     memset(ctx->buf + ctx->buflen, 0, block_bytes - ctx->buflen);
 

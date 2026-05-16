@@ -164,7 +164,7 @@ static void cert_fail_set(noxtls_return_t return_code, const x509_certificate_t 
     if(cert != NULL) {
         if(cert->not_before[0] != 0) {
             uint32_t n = 0;
-            while(n < NOXTLS_CERT_FAIL_TIME_MAX - 1 && n < 15 && cert->not_before[n] != 0) {
+            while(n < NOXTLS_CERT_FAIL_TIME_MAX - 1 && cert->not_before[n] != 0) {
                 s_cert_fail_info.not_before[n] = (char)cert->not_before[n];
                 n++;
             }
@@ -172,7 +172,7 @@ static void cert_fail_set(noxtls_return_t return_code, const x509_certificate_t 
         }
         if(cert->not_after[0] != 0) {
             uint32_t n = 0;
-            while(n < NOXTLS_CERT_FAIL_TIME_MAX - 1 && n < 15 && cert->not_after[n] != 0) {
+            while(n < NOXTLS_CERT_FAIL_TIME_MAX - 1 && cert->not_after[n] != 0) {
                 s_cert_fail_info.not_after[n] = (char)cert->not_after[n];
                 n++;
             }
@@ -605,7 +605,6 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
                     const uint8_t *gn_ptr = san_seq;
                     const uint8_t *gn_end = san_seq + san_seq_len;
                     while(gn_ptr < gn_end) {
-                        if(gn_ptr >= gn_end) break;
                         if(*gn_ptr == 0x82) {
                             gn_ptr++;
                             { uint32_t dlen = asn1_get_length(&gn_ptr, gn_end);
@@ -751,7 +750,7 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
                     }
                 }
             } else if(oid_equal(oid_buf, oid_len, oid_subject_key_id, sizeof(oid_subject_key_id))) {
-                if(val_len > 0 && val_len <= X509_KEY_ID_MAX_LEN) {
+                if(val_len <= X509_KEY_ID_MAX_LEN) {
                     cert->subject_key_id_len = (uint8_t)val_len;
                     memcpy(cert->subject_key_id, val_data, val_len);
                 }
@@ -788,10 +787,6 @@ static int noxtls_x509_dns_name_equal(const char *hostname, uint32_t hostname_le
 {
     uint32_t i = 0;
     uint32_t dns_name_len = 0;
-    uint32_t first_dot_index = 0;
-    uint32_t suffix_len = 0;
-    int has_first_dot = 0;
-    int has_second_wildcard = 0;
     if(dns_name == NULL) {
         return 0;
     }
@@ -804,6 +799,10 @@ static int noxtls_x509_dns_name_equal(const char *hostname, uint32_t hostname_le
        dns_name_len > X509_HOSTNAME_WILDCARD_PREFIX_LEN &&
        dns_name[0] == X509_HOSTNAME_WILDCARD_PREFIX[0] &&
        dns_name[1] == X509_HOSTNAME_WILDCARD_PREFIX[1]) {
+        uint32_t first_dot_index = 0;
+        uint32_t suffix_len;
+        int has_first_dot = 0;
+        int has_second_wildcard = 0;
         uint32_t j = X509_HOSTNAME_WILDCARD_PREFIX_LEN;
         while(j < dns_name_len) {
             if(dns_name[j] == '*') {
@@ -904,7 +903,6 @@ static void noxtls_x509_get_cn_from_subject_dn(const char *subject_dn, char *cn_
  */
 noxtls_return_t noxtls_x509_certificate_matches_hostname(const x509_certificate_t *cert, const char *hostname, uint32_t hostname_len)
 {
-    uint8_t i;
     char *cn_buf;
     const uint32_t cn_buf_size = 256;
 
@@ -913,7 +911,7 @@ noxtls_return_t noxtls_x509_certificate_matches_hostname(const x509_certificate_
     }
 
     if(hostname_len == 0) {
-        while(hostname[hostname_len] != '\0' && hostname_len < 256) hostname_len++;
+        while(hostname_len < 256 && hostname[hostname_len] != '\0') hostname_len++;
     }
 
     if(hostname_len == 0) {
@@ -923,6 +921,7 @@ noxtls_return_t noxtls_x509_certificate_matches_hostname(const x509_certificate_
 
     /* Prefer SAN dNSName */
     if(cert->san_dns_count > 0) {
+        uint8_t i;
         for(i = 0; i < cert->san_dns_count; i++) {
             if(noxtls_x509_dns_name_equal(hostname, hostname_len, cert->san_dns_names[i])) {
                 return NOXTLS_RETURN_SUCCESS;
@@ -2546,11 +2545,9 @@ noxtls_return_t noxtls_x509_parse_time(const uint8_t *time_data, uint32_t time_l
     } else {
         /* Invalid or unsupported time format - just show raw */
         size_t time_str_len = strlen(time_str);
-        size_t copy_len = (output_size > 0 && time_str_len > output_size - 1) ? (size_t)(output_size - 1) : time_str_len;
-        if(output_size > 0) {
-            memcpy(output, time_str, copy_len);
-            output[copy_len] = '\0';
-        }
+        size_t copy_len = (time_str_len > output_size - 1) ? (size_t)(output_size - 1) : time_str_len;
+        memcpy(output, time_str, copy_len);
+        output[copy_len] = '\0';
     }
 
     return NOXTLS_RETURN_SUCCESS;
@@ -3340,7 +3337,6 @@ static noxtls_return_t noxtls_x509_crl_check_times(const noxtls_x509_crl_t *crl,
     time_t tu = 0;
     time_t nu = 0;
     uint32_t this_len;
-    uint32_t next_len;
     noxtls_return_t rc;
 
     if(crl == NULL) {
@@ -3365,7 +3361,7 @@ static noxtls_return_t noxtls_x509_crl_check_times(const noxtls_x509_crl_t *crl,
     }
 
     if(crl->has_next_update) {
-        next_len = 0;
+        uint32_t next_len = 0;
         while(next_len < 15 && crl->next_update[next_len] != 0) {
             next_len++;
         }
@@ -4276,13 +4272,13 @@ static noxtls_return_t noxtls_x509_parse_pkcs8_private_key(x509_private_key_t *k
         /* PKCS#8 EC with raw private key octets (no SEC1 wrapper). Curve OID in [0] params or in algorithm. */
         const uint8_t *params_ptr = alg_ptr;
         const uint8_t *params_end = alg_end != NULL ? alg_end : info_end;
-        uint8_t curve_oid[32];
-        uint32_t curve_oid_len = 0;
         if(params_ptr < params_end && (*params_ptr & 0xE0) == 0xA0) {
             params_ptr++;
             uint32_t params_len = asn1_get_length(&params_ptr, params_end);
             CERT_DEBUG_PRINT("x509_parse_pkcs8: [0] params_len=%u\n", params_len);
             if(params_len > 0 && params_ptr + params_len <= params_end) {
+                uint8_t curve_oid[32];
+                uint32_t curve_oid_len = 0;
                 const uint8_t *oid_end = params_ptr + params_len;
                 if(asn1_get_oid(&params_ptr, oid_end, curve_oid, &curve_oid_len) == NOXTLS_RETURN_SUCCESS) {
                     if(curve_oid_len <= 32) {
@@ -5530,4 +5526,3 @@ noxtls_return_t noxtls_x509_private_key_debug_print(x509_private_key_t *key, uin
 
     return NOXTLS_RETURN_SUCCESS;
 }
-

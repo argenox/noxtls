@@ -105,7 +105,7 @@ void noxtls_add_padding_length_little(uint8_t * data, uint32_t block_size, uint6
 }
 
 
-void noxtls_print_hash(uint8_t * hash, uint16_t len)
+void noxtls_print_hash(const uint8_t * hash, uint16_t len)
 {
     int i = 0;
     if(hash == NULL || len == 0) {

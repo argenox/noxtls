@@ -126,7 +126,7 @@ noxtls_return_t noxtls_ecc_curve_free(ecc_curve_params_t *curve);
 /* Point Operations */
 noxtls_return_t noxtls_ecc_point_init(ecc_point_t *point, uint32_t size);
 noxtls_return_t noxtls_ecc_point_add(ecc_point_t *result, const ecc_point_t *p1, const ecc_point_t *p2, const ecc_curve_params_t *curve);
-noxtls_return_t noxtls_ecc_point_double(ecc_point_t *result, ecc_point_t *p, ecc_curve_params_t *curve);
+noxtls_return_t noxtls_ecc_point_double(ecc_point_t *result, const ecc_point_t *p, const ecc_curve_params_t *curve);
 noxtls_return_t noxtls_ecc_point_multiply(ecc_point_t *result, const uint8_t *scalar, const ecc_point_t *point, const ecc_curve_params_t *curve);
 /* Point multiply uses in-house implementation. */
 int noxtls_ecc_point_multiply_uses_ref(void);
@@ -144,5 +144,4 @@ noxtls_return_t noxtls_ecc_key_free(ecc_key_t *key);
 #endif
 
 #endif /* _NOXTLS_ECC_H_ */
-
 

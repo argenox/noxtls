@@ -291,8 +291,12 @@ static void des_cipher_core(const uint8_t *key, const uint8_t *data, uint8_t *ou
     uint32_t R;
     int r;
 
+    if(key == NULL || data == NULL || output == NULL) {
+        return;
+    }
+
     s_des_trace_this_block = 0;
-    if(encrypt && key && data && memcmp(key, s_kat_vec1_key, 8) == 0 && memcmp(data, s_kat_vec1_plain, 8) == 0)
+    if(encrypt && memcmp(key, s_kat_vec1_key, 8) == 0 && memcmp(data, s_kat_vec1_plain, 8) == 0)
         s_des_trace_this_block = 1;
 
     des_key_schedule(key, round_keys);
@@ -412,7 +416,7 @@ noxtls_return_t noxtls_des_self_test(void)
     /* 3DES KAT: use NIST 800-67 / common test: 3-key 3DES */
     {
         uint8_t k3[24] = { 0 };
-        uint8_t pt[8]  = { 0 };
+        const uint8_t pt[8]  = { 0 };
         uint8_t ct[8];
         int i;
         for(i = 0; i < 24; i++) k3[i] = (uint8_t)(i + 1);

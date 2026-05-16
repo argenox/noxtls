@@ -326,11 +326,10 @@ noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
 
     if(tls_is_dtls_version(ctx->version)) {
         dtls_context_t *dctx = (dtls_context_t*)ctx;
-        noxtls_return_t rc;
 
         while(1) {
             dtls_record_t drec;
-            rc = noxtls_dtls_recv_record(dctx, &drec);
+            noxtls_return_t rc = noxtls_dtls_recv_record(dctx, &drec);
             if(rc != NOXTLS_RETURN_SUCCESS) {
                 return rc;
             }
@@ -743,24 +742,12 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
     *client_hello_len = assembled_len;
     
     offset = 4;  /* Skip handshake header */
-    if(offset + 2 > record.length) {
-        noxtls_free(*client_hello_data);
-        *client_hello_data = NULL;
-        *client_hello_len = 0;
-        return NOXTLS_RETURN_BAD_DATA;
-    }
     
     /* Legacy version */
     version = (record.data[offset] << 8) | record.data[offset + 1];
     offset += 2;
     
     /* Client Random (32 bytes) */
-    if(offset + 32 > record.length) {
-        noxtls_free(*client_hello_data);
-        *client_hello_data = NULL;
-        *client_hello_len = 0;
-        return NOXTLS_RETURN_BAD_DATA;
-    }
     offset += 32;
     
     /* Session ID length */
@@ -847,9 +834,8 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
     }
     
     /* Check if extensions are present */
-    if(offset < record.length) {
+    {
         uint32_t extensions_end;
-        uint32_t ext_data_end;
         if(offset + 2 > record.length) {
             noxtls_free(*client_hello_data);
             *client_hello_data = NULL;
@@ -879,7 +865,7 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
                 *client_hello_len = 0;
                 return NOXTLS_RETURN_BAD_DATA;
             }
-            ext_data_end = offset + ext_len;
+            uint32_t ext_data_end = offset + ext_len;
             
             if(ext_type == TLS_EXTENSION_SUPPORTED_VERSIONS) {
                 /* RFC 8446: server must select from client's supported_versions list. */
@@ -974,14 +960,8 @@ int noxtls_tls_client_hello_supported_versions_has(const uint8_t *client_hello,
     }
 
     offset = 4u;
-    if(offset + 2u > client_hello_len) {
-        return 0;
-    }
     offset += 2u; /* legacy version */
 
-    if(offset + 32u > client_hello_len) {
-        return 0;
-    }
     offset += 32u; /* random */
 
     if(offset + 1u > client_hello_len) {

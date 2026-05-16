@@ -50,7 +50,7 @@ extern "C" {
 noxtls_return_t noxtls_md5_init(noxtls_sha_ctx_t * ctx);
 noxtls_return_t noxtls_md5_update(noxtls_sha_ctx_t * ctx, const uint8_t * data, uint32_t len);
 noxtls_return_t noxtls_md5_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash);
-noxtls_return_t noxtls_md5_verify(uint8_t * data, uint32_t len, uint8_t * expected);
+noxtls_return_t noxtls_md5_verify(const uint8_t * data, uint32_t len, const uint8_t * expected);
 void noxtls_md5_set_debug(uint8_t lvl);
 
 #ifdef __cplusplus

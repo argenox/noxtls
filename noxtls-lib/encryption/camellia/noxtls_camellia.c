@@ -189,6 +189,15 @@ noxtls_return_t noxtls_camellia_key_schedule(const uint8_t* key, uint64_t* kw, u
     uint64_t d2;
     int key_bytes = (type == NOXTLS_CAMELLIA_128_BIT) ? 16 : 32;
 
+    if(key == NULL || kw == NULL || ke == NULL || k == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(type != NOXTLS_CAMELLIA_128_BIT &&
+       type != NOXTLS_CAMELLIA_192_BIT &&
+       type != NOXTLS_CAMELLIA_256_BIT) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+
     camellia_init_sboxes();
 
     /* Load KL (left 128 bits of key), big-endian */
@@ -353,13 +362,21 @@ static void camellia_print_block_hex(const char *label, const uint8_t *block)
 noxtls_return_t noxtls_camellia_encrypt_block_internal(const uint8_t* key, const uint8_t* data, uint8_t* output, noxtls_camellia_type_t type)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
+    noxtls_return_t rc;
     uint64_t kw[4];
     uint64_t ke[6];
     uint64_t k[24];
     uint64_t D1;
     uint64_t D2;
 
-    noxtls_camellia_key_schedule(key, kw, ke, k, type);
+    if(key == NULL || data == NULL || output == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    rc = noxtls_camellia_key_schedule(key, kw, ke, k, type);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
     load_block_be(data, &D1, &D2);
 
     D1 ^= kw[0];
@@ -434,6 +451,7 @@ noxtls_return_t noxtls_camellia_encrypt_block_internal(const uint8_t* key, const
 noxtls_return_t noxtls_camellia_decrypt_block_internal(const uint8_t* key, const uint8_t* data, uint8_t* output, noxtls_camellia_type_t type)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
+    noxtls_return_t rc;
     uint64_t kw[4];
     uint64_t ke[6];
     uint64_t k[24];
@@ -445,7 +463,14 @@ noxtls_return_t noxtls_camellia_decrypt_block_internal(const uint8_t* key, const
     uint64_t k_dec[24];
     int i;
 
-    noxtls_camellia_key_schedule(key, kw, ke, k, type);
+    if(key == NULL || data == NULL || output == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    rc = noxtls_camellia_key_schedule(key, kw, ke, k, type);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
 
     /* Decryption: swap subkeys per RFC 2.3.3 */
     kw_dec[0] = kw[2];

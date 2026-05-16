@@ -323,9 +323,7 @@ noxtls_return_t noxtls_tls_ecdhe_generate_ephemeral_key(tls_ecdhe_context_t *ctx
      * noxtls_ecc_key_generate() reinitializes the key structure.
      * Free any previously initialized key material first to avoid leaks.
      */
-    if(ctx->ephemeral_key.d != NULL || ctx->ephemeral_key.curve != NULL) {
-        (void)noxtls_ecc_key_free(&ctx->ephemeral_key);
-    }
+    (void)noxtls_ecc_key_free(&ctx->ephemeral_key);
     
     /* Generate ephemeral key pair */
     return noxtls_ecc_key_generate(&ctx->ephemeral_key, ctx->curve_type);
@@ -761,7 +759,7 @@ noxtls_return_t noxtls_tls12_ecdhe_recv_server_key_exchange(tls12_context_t *ctx
             return NOXTLS_RETURN_FAILED;
         }
         {
-            x509_certificate_t *cert = (x509_certificate_t *)ctx->server_cert_parsed;
+            const x509_certificate_t *cert = (const x509_certificate_t *)ctx->server_cert_parsed;
             if(cert->rsa_modulus == NULL || cert->rsa_exponent == NULL) {
                 free(record.data);
                 return NOXTLS_RETURN_FAILED;
@@ -806,7 +804,7 @@ noxtls_return_t noxtls_tls12_ecdhe_recv_server_key_exchange(tls12_context_t *ctx
             rc = noxtls_rsa_verify(&rsa_key, to_verify, (uint32_t)(TLS_RANDOM_SIZE + TLS_RANDOM_SIZE + params_len),
                                   record.data + offset, sig_len, NOXTLS_HASH_SHA_256);
             noxtls_rsa_key_free(&rsa_key);
-            if(to_verify != ctx->handshake_workspace) NOXTLS_SECURE_FREE(to_verify, 320); else if(ctx->handshake_workspace != NULL) memset(ctx->handshake_workspace, 0, TLS_HANDSHAKE_WORKSPACE_SIZE);
+            if(to_verify != ctx->handshake_workspace) NOXTLS_SECURE_FREE(to_verify, 320); else memset(ctx->handshake_workspace, 0, TLS_HANDSHAKE_WORKSPACE_SIZE);
             if(rc != NOXTLS_RETURN_SUCCESS) {
                 free(record.data);
                 return NOXTLS_RETURN_FAILED;
@@ -1386,7 +1384,6 @@ noxtls_return_t noxtls_tls12_dhe_send_server_key_exchange(tls12_context_t *ctx, 
     uint32_t offset = 0;
     uint32_t params_start;
     uint32_t params_len;
-    uint32_t to_sign_len;
     uint32_t sig_len;
     noxtls_return_t rc;
 
@@ -1478,7 +1475,7 @@ noxtls_return_t noxtls_tls12_dhe_send_server_key_exchange(tls12_context_t *ctx, 
         memcpy(to_sign, ctx->client_random, TLS_RANDOM_SIZE);
         memcpy(to_sign + TLS_RANDOM_SIZE, ctx->server_random, TLS_RANDOM_SIZE);
         memcpy(to_sign + ((size_t)TLS_RANDOM_SIZE * 2u), server_key_exchange + params_start, params_len);
-        to_sign_len = TLS_RANDOM_SIZE + TLS_RANDOM_SIZE + params_len;
+        uint32_t to_sign_len = TLS_RANDOM_SIZE + TLS_RANDOM_SIZE + params_len;
         sig_len = DHE_SIG_BUF_SIZE;
         rc = ctx->crypto_provider->ops->rsa_sign(ctx->crypto_provider->ctx, ctx->server_private_key_handle,
                 to_sign, to_sign_len, sig_buf, &sig_len, (noxtls_crypto_hash_algo_t)dhe_ske_sign_hash);
@@ -1506,7 +1503,7 @@ noxtls_return_t noxtls_tls12_dhe_send_server_key_exchange(tls12_context_t *ctx, 
         memcpy(to_sign, ctx->client_random, TLS_RANDOM_SIZE);
         memcpy(to_sign + TLS_RANDOM_SIZE, ctx->server_random, TLS_RANDOM_SIZE);
         memcpy(to_sign + ((size_t)TLS_RANDOM_SIZE * 2u), server_key_exchange + params_start, params_len);
-        to_sign_len = TLS_RANDOM_SIZE + TLS_RANDOM_SIZE + params_len;
+        uint32_t to_sign_len = TLS_RANDOM_SIZE + TLS_RANDOM_SIZE + params_len;
         sig_len = DHE_SIG_BUF_SIZE;
         if(ctx->tls12_rsa_skx_scheme_prepared != 0 && ctx->tls12_rsa_skx_sign_use_pss != 0) {
             rc = noxtls_rsa_sign_pss(dhe_rsa_key, to_sign, to_sign_len, sig_buf, &sig_len, dhe_ske_sign_hash);
@@ -1616,7 +1613,7 @@ noxtls_return_t noxtls_tls12_dhe_recv_server_key_exchange(tls12_context_t *ctx, 
     if(off + 4 <= record_len) {
         uint16_t sig_len = (uint16_t)((record_data[off + 2] << 8) | record_data[off + 3]);
         if(sig_len > 0 && ctx->server_cert_parsed != NULL && off + 4 + sig_len <= record_len) {
-            x509_certificate_t *cert = (x509_certificate_t *)ctx->server_cert_parsed;
+            const x509_certificate_t *cert = (const x509_certificate_t *)ctx->server_cert_parsed;
             if(cert->rsa_modulus != NULL && cert->rsa_exponent != NULL) {
                 uint32_t key_bytes = cert->rsa_modulus_len;
                 rsa_key_size_t key_size;
@@ -1642,7 +1639,7 @@ noxtls_return_t noxtls_tls12_dhe_recv_server_key_exchange(tls12_context_t *ctx, 
                         memcpy(to_verify + ((size_t)TLS_RANDOM_SIZE * 2u), record_data + 4, params_len);
                         rc = noxtls_rsa_verify(&rsa_key, to_verify, (uint32_t)(TLS_RANDOM_SIZE + TLS_RANDOM_SIZE + params_len),
                                                 record_data + off + 4, sig_len, NOXTLS_HASH_SHA_256);
-                        if(to_verify != ctx->handshake_workspace) NOXTLS_SECURE_FREE(to_verify, DHE_TO_SIGN_SIZE); else if(ctx->handshake_workspace != NULL) memset(ctx->handshake_workspace, 0, TLS_HANDSHAKE_WORKSPACE_SIZE);
+                        if(to_verify != ctx->handshake_workspace) NOXTLS_SECURE_FREE(to_verify, DHE_TO_SIGN_SIZE); else memset(ctx->handshake_workspace, 0, TLS_HANDSHAKE_WORKSPACE_SIZE);
                         noxtls_rsa_key_free(&rsa_key);
                         if(rc != NOXTLS_RETURN_SUCCESS) {
                             return NOXTLS_RETURN_FAILED;
@@ -1675,7 +1672,7 @@ noxtls_return_t noxtls_tls12_dhe_recv_server_key_exchange(tls12_context_t *ctx, 
  * @param[in] dhe_ctx Client public must be valid for the negotiated prime size.
  * @return `NOXTLS_RETURN_SUCCESS` if the record was sent; `NOXTLS_RETURN_NULL` on invalid pointers; `NOXTLS_RETURN_FAILED` on role or size errors; `NOXTLS_RETURN_NOT_ENOUGH_MEMORY` on allocation failure.
  */
-noxtls_return_t noxtls_tls12_dhe_send_client_key_exchange(tls12_context_t *ctx, tls_dhe_context_t *dhe_ctx)
+noxtls_return_t noxtls_tls12_dhe_send_client_key_exchange(tls12_context_t *ctx, const tls_dhe_context_t *dhe_ctx)
 {
     if(ctx == NULL || dhe_ctx == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -2042,4 +2039,3 @@ noxtls_return_t noxtls_tls13_process_server_key_share(const tls13_context_t *ctx
     /* Compute shared secret */
     return noxtls_tls_ecdhe_compute_shared_secret(ecdhe_ctx, &peer_public_key);
 }
-

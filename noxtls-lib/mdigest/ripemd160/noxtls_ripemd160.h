@@ -65,7 +65,7 @@ noxtls_return_t noxtls_ripemd160_init(noxtls_sha_ctx_t * ctx);
  * @param len Number of bytes to hash.
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if ctx is NULL or data is NULL with len non-zero.
  */
-noxtls_return_t noxtls_ripemd160_update(noxtls_sha_ctx_t * ctx, uint8_t * data, uint32_t len);
+noxtls_return_t noxtls_ripemd160_update(noxtls_sha_ctx_t * ctx, const uint8_t * data, uint32_t len);
 
 /**
  * @brief Finalize RIPEMD-160 and write the 20-byte digest.
@@ -82,7 +82,7 @@ noxtls_return_t noxtls_ripemd160_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash);
  * @param expected Expected 20-byte RIPEMD-160 digest for comparison.
  * @return NOXTLS_RETURN_SUCCESS if digest matches, NOXTLS_RETURN_FAILED otherwise or on error.
  */
-noxtls_return_t noxtls_ripemd160_verify(uint8_t * data, uint32_t len, uint8_t * expected);
+noxtls_return_t noxtls_ripemd160_verify(const uint8_t * data, uint32_t len, const uint8_t * expected);
 
 #ifdef __cplusplus
 }

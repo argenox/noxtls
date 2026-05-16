@@ -1333,7 +1333,7 @@ cleanup_ptadd:
  * @param curve Curve parameters
  * @return noxtls_return_t NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if result is NULL
  */
-noxtls_return_t noxtls_ecc_point_double(ecc_point_t *result, ecc_point_t *p, ecc_curve_params_t *curve)
+noxtls_return_t noxtls_ecc_point_double(ecc_point_t *result, const ecc_point_t *p, const ecc_curve_params_t *curve)
 {
     /* Point doubling is a special case of point addition (P + P) */
     return noxtls_ecc_point_add(result, p, p, curve);

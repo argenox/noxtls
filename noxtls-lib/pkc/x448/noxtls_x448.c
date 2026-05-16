@@ -74,11 +74,10 @@ static void be56_to_le56(uint8_t le[NOXTLS_X448_FE_BYTES], const uint8_t be[NOXT
  */
 static void cswap56(uint8_t swap, uint8_t a[NOXTLS_X448_FE_BYTES], uint8_t b[NOXTLS_X448_FE_BYTES])
 {
-    uint8_t dummy;
     uint32_t mask = (uint32_t)(0 - (swap & 1));
     int i;
     for(i = 0; i < (int)NOXTLS_X448_FE_BYTES; i++) {
-        dummy = (uint8_t)(mask & (a[i] ^ b[i]));
+        uint8_t dummy = (uint8_t)(mask & (a[i] ^ b[i]));
         a[i] ^= dummy;
         b[i] ^= dummy;
     }

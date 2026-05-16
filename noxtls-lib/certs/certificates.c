@@ -54,7 +54,6 @@ noxtls_return_t noxtls_certificate_der_to_pem(uint8_t * data, uint32_t length, u
 {
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
     uint8_t * ptr;
-    uint8_t * in_ptr;
     int result;
 
     do
@@ -65,7 +64,6 @@ noxtls_return_t noxtls_certificate_der_to_pem(uint8_t * data, uint32_t length, u
         }
 
         ptr = output;
-        in_ptr = data;
 
         memcpy(ptr, CERT_BEGIN_STR, strlen(CERT_BEGIN_STR));
         ptr += strlen(CERT_BEGIN_STR);
@@ -75,6 +73,7 @@ noxtls_return_t noxtls_certificate_der_to_pem(uint8_t * data, uint32_t length, u
         uint32_t write_len;
         while(length > 0)
         {
+            const uint8_t *in_ptr = data;
             if(length > PEM_MAX_LINE_LEN_B64)
                 write_len = PEM_MAX_LINE_LEN_B64;
             else
@@ -83,7 +82,7 @@ noxtls_return_t noxtls_certificate_der_to_pem(uint8_t * data, uint32_t length, u
             result = noxtls_base64_encode(in_ptr, write_len, (char *)ptr);
             ptr += result;
 
-            in_ptr += write_len;
+            data += write_len;
 
             /* Add EOL */
             *ptr = '\n';
@@ -118,8 +117,6 @@ noxtls_return_t noxtls_certificate_der_to_pem(uint8_t * data, uint32_t length, u
 noxtls_return_t noxtls_csr_der_to_pem(uint8_t *data, uint32_t length, uint8_t *output, uint32_t *out_len)
 {
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
-    uint8_t *ptr;
-    uint8_t *in_ptr = data;
     int result;
 
     do {
@@ -128,16 +125,17 @@ noxtls_return_t noxtls_csr_der_to_pem(uint8_t *data, uint32_t length, uint8_t *o
             break;
         }
 
-        ptr = output;
+        uint8_t *ptr = output;
         memcpy(ptr, CERT_REQ_BEGIN_STR, strlen(CERT_REQ_BEGIN_STR));
         ptr += strlen(CERT_REQ_BEGIN_STR);
         *ptr++ = '\n';
 
         while(length > 0) {
+            const uint8_t *ptr_data = data;
             uint32_t write_len = (length > PEM_MAX_LINE_LEN_B64) ? PEM_MAX_LINE_LEN_B64 : length;
-            result = noxtls_base64_encode(in_ptr, write_len, (char *)ptr);
+            result = noxtls_base64_encode(ptr_data, write_len, (char *)ptr);
             ptr += result;
-            in_ptr += write_len;
+            data += write_len;
             *ptr++ = '\n';
             length -= write_len;
         }

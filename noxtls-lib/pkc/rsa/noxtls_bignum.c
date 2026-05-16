@@ -60,8 +60,6 @@ static int g_bn_debug_div_trace = 0;
 /* Set to 1 to trace bn_mod_2n_by_n_limb line-by-line (e.g. for 96/48 Gy^2 mod p). */
 static int g_bn_debug_mod_2n_by_n = 0;
 /* Temporary safety switch: keep 2n/n reducer disabled in noxtls_bn_mod dispatcher. */
-static int g_bn_enable_2n_by_n_fastpath = 1;
-
 static void bn_debug_print(const char *label, const uint8_t *buf, uint32_t len)
 {
     if(buf == NULL && len > 0)
@@ -290,10 +288,9 @@ noxtls_return_t noxtls_bn_sub(uint8_t *result, const uint8_t *a, const uint8_t *
 static void bn_muladd_hlp(const uint32_t *s, uint32_t n, uint32_t d, uint32_t *r, uint32_t *c)
 {
     uint32_t i;
-    uint64_t t;
     uint64_t carry = (uint64_t)*c;
     for(i = 0; i < n; i++) {
-        t = (uint64_t)s[i] * (uint64_t)d + (uint64_t)r[i] + carry;
+        uint64_t t = (uint64_t)s[i] * (uint64_t)d + (uint64_t)r[i] + carry;
         r[i] = (uint32_t)(t & 0xFFFFFFFFu);
         carry = t >> 32;
     }
@@ -767,7 +764,6 @@ static noxtls_return_t bn_mod_2n_by_n_limb(uint8_t *rem_out, uint32_t mod_len,
         uint64_t qhat64 = num / den;
         uint64_t rhat = num - qhat64 * den;
         uint32_t qhat;
-        int borrow;
 
         if(qhat64 > 0xFFFFFFFFULL) {
             qhat = 0xFFFFFFFFu;
@@ -805,6 +801,7 @@ static noxtls_return_t bn_mod_2n_by_n_limb(uint8_t *rem_out, uint32_t mod_len,
         }
 
         if(qhat != 0u) {
+            int borrow;
             borrow = bn_limb_mul_sub(u, j, qhat, v, n);
             if(borrow) {
                 /* qhat was one too large: add divisor back (Knuth D6). */
@@ -931,9 +928,7 @@ static noxtls_return_t bn_div_remainder_limb(uint8_t *rem_out, uint32_t mod_len,
     }
     if(a_sig_len < b_sig_len || (a_sig_len == b_sig_len && noxtls_bn_cmp(a_sig, b_sig, b_sig_len) < 0)) {
         memset(rem_out, 0, mod_len);
-        if(a_sig_len > 0) {
-            memcpy(rem_out + (mod_len - a_sig_len), a_sig, a_sig_len);
-        }
+        memcpy(rem_out + (mod_len - a_sig_len), a_sig, a_sig_len);
         return NOXTLS_RETURN_SUCCESS;
     }
 
@@ -1981,8 +1976,7 @@ noxtls_return_t noxtls_bn_mod(uint8_t *result, const uint8_t *a, uint32_t a_len,
     }
 
     /* Fast path: 2n-by-n limb reducer for ECDSA (P-256/P-384), RSA, and RFC 7919 FFDHE moduli. */
-    if(g_bn_enable_2n_by_n_fastpath &&
-       (mod_len == 32u || mod_len == 48u || mod_len == 64u || mod_len == 66u || mod_len == 128u || mod_len == 256u ||
+    if((mod_len == 32u || mod_len == 48u || mod_len == 64u || mod_len == 66u || mod_len == 128u || mod_len == 256u ||
         mod_len == 384u || mod_len == 512u || mod_len == 768u || mod_len == 1024u) &&
        a_len == mod_len * 2u) {
         if(bn_mod_2n_by_n_limb(result, mod_len, a_src, a_len, mod) == NOXTLS_RETURN_SUCCESS) {
