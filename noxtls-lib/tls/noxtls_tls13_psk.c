@@ -430,7 +430,7 @@ noxtls_return_t tls13_psk_compute_resumption_binder(noxtls_hash_algos_t hash_alg
     uint8_t finished_key[64];
     uint8_t computed_binder[64];
     uint32_t hash_len = 0;
-    uint32_t verify_len = sizeof(computed_binder);
+    uint32_t verify_len;
     uint32_t prk_len = 0;
     noxtls_return_t rc;
     const uint8_t *label = (const uint8_t *)"res binder";
