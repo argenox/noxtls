@@ -28,6 +28,24 @@ extern "C" {
 #define TLS13_PSK_TICKET_STORE_MAX 64
 #define TLS13_PSK_TICKET_NONCE_MAX 32
 
+/* Ticket store (server-side session cache for resumption) */
+typedef struct
+{
+    uint8_t ticket_id[TLS13_PSK_TICKET_ID_LEN];
+    uint8_t resumption_psk[64];
+    uint8_t resumption_psk_len;
+    uint8_t ticket_nonce[TLS13_PSK_TICKET_NONCE_MAX];
+    uint8_t ticket_nonce_len;
+    uint32_t ticket_age_add;
+    uint16_t cipher_suite;
+} psk_ticket_entry_t;
+
+typedef struct
+{
+    psk_ticket_entry_t entries[TLS13_PSK_TICKET_STORE_MAX];
+    uint32_t next_index;
+} psk_ticket_store_t;
+
 /**
  * Check if a PSK key exchange mode is present in the extension data.
  * @param data PSK_KEY_EXCHANGE_MODES extension payload (length byte + list)

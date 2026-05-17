@@ -429,6 +429,12 @@ typedef struct
 } x509_private_key_t;
 NOXTLS_MSVC_WARNING_POP
 
+typedef struct pbkdf2_sha1_params_t {
+    uint32_t salt_len;
+    uint32_t iterations;
+    uint32_t key_len;
+} pbkdf2_sha1_params_t;
+
 /* Private Key Functions */
 noxtls_return_t noxtls_x509_private_key_init(x509_private_key_t *key);
 noxtls_return_t noxtls_x509_private_key_free(x509_private_key_t *key);

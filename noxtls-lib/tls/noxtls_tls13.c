@@ -1303,6 +1303,10 @@ static noxtls_return_t tls13_process_client_key_share_internal(tls13_context_t *
 
 static char tls13_keylog_path[512] = {0};
 
+/**
+ * @brief Set the NSS key log file path for Wireshark decryption (SSLKEYLOGFILE format).
+ * @param[in] path Filesystem path, or NULL/empty to clear the explicit path.
+ */
 void noxtls_tls13_set_keylog_file(const char *path)
 {
     if(path == NULL || *path == '\0') {
@@ -1818,6 +1822,12 @@ static void tls13_send_handshake_alert_for_error(tls13_context_t *ctx, noxtls_re
     tls13_send_fatal_alert(ctx, alert_desc);
 }
 
+/**
+ * @brief Initialize a DTLS 1.3 context (TLS 1.3 init plus DTLS version).
+ * @param[in,out] ctx  Context structure to initialize.
+ * @param[in] role     `TLS_ROLE_CLIENT` or `TLS_ROLE_SERVER`.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; error code from `noxtls_tls13_context_init` on failure.
+ */
 noxtls_return_t noxtls_dtls13_context_init(tls13_context_t *ctx, tls_role_t role)
 {
     noxtls_return_t rc = noxtls_tls13_context_init(ctx, role);
@@ -3676,7 +3686,11 @@ static noxtls_return_t tls13_recv_handshake_message(tls13_context_t *ctx, uint8_
 }
 
 /**
- * @brief Initialize TLS 1.3 context
+ * @brief Initialize a TLS 1.3 context for client or server role.
+ * @param[in,out] ctx  Context structure to zero and initialize.
+ * @param[in] role     `TLS_ROLE_CLIENT` or `TLS_ROLE_SERVER`.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` if @p ctx is NULL;
+ *         `NOXTLS_RETURN_FAILED` or `NOXTLS_RETURN_NOT_ENOUGH_MEMORY` on setup failure.
  */
 noxtls_return_t noxtls_tls13_context_init(tls13_context_t *ctx, tls_role_t role)
 {
@@ -3858,6 +3872,11 @@ noxtls_return_t noxtls_tls13_context_init(tls13_context_t *ctx, tls_role_t role)
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Set the maximum plaintext record size this endpoint will receive (RFC 8449).
+ * @param[in,out] ctx   TLS 1.3 context.
+ * @param[in] limit     Maximum plaintext bytes to accept; 0 uses the default (16384).
+ */
 void noxtls_tls13_set_record_size_limit(tls13_context_t *ctx, uint16_t limit)
 {
     if(ctx != NULL) {
@@ -3867,12 +3886,12 @@ void noxtls_tls13_set_record_size_limit(tls13_context_t *ctx, uint16_t limit)
 
 /**
  * @brief Replace TLS 1.3 internal workspaces with caller-provided buffers.
- * @param ctx TLS 1.3 context.
- * @param record_workspace Caller-managed record workspace.
- * @param record_workspace_len Record workspace length in bytes.
- * @param handshake_workspace Caller-managed handshake workspace.
- * @param handshake_workspace_len Handshake workspace length in bytes.
- * @return NOXTLS_RETURN_SUCCESS on success, error code otherwise.
+ * @param[in,out] ctx                      TLS 1.3 context (after `noxtls_tls13_context_init`).
+ * @param[in] record_workspace             Caller-managed record workspace.
+ * @param[in] record_workspace_len         Size of @p record_workspace (at least `TLS13_RECORD_WORKSPACE_SIZE`).
+ * @param[in] handshake_workspace          Caller-managed handshake workspace.
+ * @param[in] handshake_workspace_len      Size of @p handshake_workspace (at least `TLS_HANDSHAKE_WORKSPACE_SIZE`).
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` or `NOXTLS_RETURN_INVALID_PARAM` on error.
  */
 noxtls_return_t tls13_set_workspaces(tls13_context_t *ctx,
                                      uint8_t *record_workspace,
@@ -3905,7 +3924,9 @@ noxtls_return_t tls13_set_workspaces(tls13_context_t *ctx,
 }
 
 /**
- * @brief Set server RSA private key (rsa_key_t*) for CertificateVerify
+ * @brief Set server RSA private key (`rsa_key_t*`) for CertificateVerify.
+ * @param[in,out] ctx      Server context; call before `noxtls_tls13_accept`.
+ * @param[in] rsa_key      RSA private key, or NULL to clear.
  */
 void noxtls_tls13_set_server_private_rsa(tls13_context_t *ctx, void *rsa_key)
 {
@@ -3929,6 +3950,11 @@ void noxtls_tls13_set_server_private_rsa(tls13_context_t *ctx, void *rsa_key)
     }
 }
 
+/**
+ * @brief Set server ECDSA private key (`ecc_key_t*`) for CertificateVerify.
+ * @param[in,out] ctx     Server context; call before `noxtls_tls13_accept`.
+ * @param[in] ecc_key     ECDSA private key, or NULL to clear.
+ */
 void noxtls_tls13_set_server_private_ecdsa(tls13_context_t *ctx, void *ecc_key)
 {
     if(ctx != NULL) {
@@ -3951,6 +3977,10 @@ void noxtls_tls13_set_server_private_ecdsa(tls13_context_t *ctx, void *ecc_key)
     }
 }
 
+/**
+ * @brief Clear the server ECDSA identity matrix (does not free app-owned keys or certs).
+ * @param[in,out] ctx Server context.
+ */
 void noxtls_tls13_clear_server_ecdsa_identities(tls13_context_t *ctx)
 {
     if(ctx == NULL) {
@@ -3962,6 +3992,14 @@ void noxtls_tls13_clear_server_ecdsa_identities(tls13_context_t *ctx)
     memset(ctx->server_ecdsa_matrix_keys, 0, sizeof(ctx->server_ecdsa_matrix_keys));
 }
 
+/**
+ * @brief Add one ECDSA server identity (DER leaf + `ecc_key_t*`) for matrix selection.
+ * @param[in,out] ctx      Server context; call only before `noxtls_tls13_accept`.
+ * @param[in] cert_der     DER-encoded leaf certificate (non-owning).
+ * @param[in] cert_len     Length of @p cert_der.
+ * @param[in] ecc_key      Matching ECDSA private key.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` or `NOXTLS_RETURN_INVALID_PARAM` on error.
+ */
 noxtls_return_t noxtls_tls13_add_server_ecdsa_identity(tls13_context_t *ctx,
                                                        const uint8_t *cert_der,
                                                        uint32_t cert_len,
@@ -4003,6 +4041,12 @@ noxtls_return_t noxtls_tls13_add_server_ecdsa_identity(tls13_context_t *ctx,
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Set server Ed25519 private key seed (32 bytes) for CertificateVerify.
+ * @param[in,out] ctx             Server context.
+ * @param[in] private_key_32      32-byte private key seed.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` on invalid pointers.
+ */
 noxtls_return_t noxtls_tls13_set_server_private_ed25519(tls13_context_t *ctx, const uint8_t *private_key_32)
 {
     if(ctx == NULL || private_key_32 == NULL) {
@@ -4026,6 +4070,12 @@ noxtls_return_t noxtls_tls13_set_server_private_ed25519(tls13_context_t *ctx, co
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Set server Ed448 private key seed (57 bytes) for CertificateVerify.
+ * @param[in,out] ctx             Server context.
+ * @param[in] private_key_57      57-byte private key seed.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` or `NOXTLS_RETURN_NOT_SUPPORTED`.
+ */
 noxtls_return_t noxtls_tls13_set_server_private_ed448(tls13_context_t *ctx, const uint8_t *private_key_57)
 {
 #if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
@@ -4055,6 +4105,12 @@ noxtls_return_t noxtls_tls13_set_server_private_ed448(tls13_context_t *ctx, cons
 #endif
 }
 
+/**
+ * @brief Set server cipher-suite allowlist (wire IDs). Call before handshake.
+ * @param[in,out] ctx    Server context.
+ * @param[in] suites     Array of cipher suite identifiers (non-owning).
+ * @param[in] count      Number of entries in @p suites.
+ */
 void noxtls_tls13_set_server_cipher_suites(tls13_context_t *ctx, const uint16_t *suites, uint32_t count)
 {
     if(ctx == NULL) {
@@ -4064,6 +4120,12 @@ void noxtls_tls13_set_server_cipher_suites(tls13_context_t *ctx, const uint16_t 
     ctx->server_cipher_suites_count = count;
 }
 
+/**
+ * @brief Set supported ALPN protocol names for the server (non-owning).
+ * @param[in,out] ctx       Server context.
+ * @param[in] protocols     NULL-terminated protocol name pointers.
+ * @param[in] count         Number of protocols.
+ */
 void noxtls_tls13_set_server_alpn_protocols(tls13_context_t *ctx, const char **protocols, uint32_t count)
 {
     if(ctx == NULL) {
@@ -4073,6 +4135,12 @@ void noxtls_tls13_set_server_alpn_protocols(tls13_context_t *ctx, const char **p
     ctx->server_alpn_count = count;
 }
 
+/**
+ * @brief Require ClientHello SNI to match an expected DNS hostname (RFC 6066).
+ * @param[in,out] ctx              Server context.
+ * @param[in] ascii_hostname       Expected host name, or NULL to disable checking.
+ * @param[in] mismatch_fatal       Non-zero to send fatal alert on mismatch.
+ */
 void noxtls_tls13_set_server_expected_client_sni(tls13_context_t *ctx, const char *ascii_hostname, int mismatch_fatal)
 {
     if(ctx == NULL) {
@@ -4082,6 +4150,13 @@ void noxtls_tls13_set_server_expected_client_sni(tls13_context_t *ctx, const cha
     ctx->server_expect_sni_fatal = mismatch_fatal ? 1u : 0u;
 }
 
+/**
+ * @brief Set optional intermediate server certificate chain (DER, non-owning).
+ * @param[in,out] ctx         Server context.
+ * @param[in] certs           Array of DER certificate pointers.
+ * @param[in] cert_lens       Parallel array of certificate lengths.
+ * @param[in] cert_count      Number of intermediate certificates.
+ */
 void noxtls_tls13_set_server_certificate_chain(tls13_context_t *ctx,
                                                const uint8_t **certs,
                                                const uint32_t *cert_lens,
@@ -4096,10 +4171,9 @@ void noxtls_tls13_set_server_certificate_chain(tls13_context_t *ctx,
 }
 
 /**
- * @brief Set optional CRL list for TLS 1.3 server certificate verification.
- * @param ctx TLS 1.3 context.
- * @param crl Parsed CRL list head, or NULL to disable CRL checks.
- * @return None.
+ * @brief Set optional CRL list for TLS 1.3 peer certificate verification.
+ * @param[in,out] ctx  TLS 1.3 context.
+ * @param[in] crl      Parsed CRL list head, or NULL to disable CRL checks.
  */
 void noxtls_tls13_set_verify_crl(tls13_context_t *ctx, const noxtls_x509_crl_t *crl)
 {
@@ -4108,6 +4182,13 @@ void noxtls_tls13_set_verify_crl(tls13_context_t *ctx, const noxtls_x509_crl_t *
     }
 }
 
+/**
+ * @brief Set server ML-DSA private key for CertificateVerify.
+ * @param[in,out] ctx          Server context.
+ * @param[in] param            ML-DSA parameter set (e.g. ML-DSA-65).
+ * @param[in] private_key      Secret key bytes of length `noxtls_mldsa_secret_key_len(param)`.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL`, `NOXTLS_RETURN_INVALID_PARAM`, or `NOXTLS_RETURN_NOT_SUPPORTED`.
+ */
 noxtls_return_t noxtls_tls13_set_server_private_mldsa(tls13_context_t *ctx, noxtls_mldsa_param_t param, const uint8_t *private_key)
 {
 #if NOXTLS_FEATURE_ML_DSA
@@ -4143,6 +4224,11 @@ noxtls_return_t noxtls_tls13_set_server_private_mldsa(tls13_context_t *ctx, noxt
 #endif
 }
 
+/**
+ * @brief Server: request a client certificate (mutual TLS). Call before `noxtls_tls13_accept`.
+ * @param[in,out] ctx      Server context.
+ * @param[in] request      Non-zero to send CertificateRequest.
+ */
 void noxtls_tls13_request_client_auth(tls13_context_t *ctx, int request)
 {
     if(ctx != NULL) {
@@ -4153,6 +4239,11 @@ void noxtls_tls13_request_client_auth(tls13_context_t *ctx, int request)
     }
 }
 
+/**
+ * @brief Server: require a client certificate (implies request). Missing cert yields `certificate_required`.
+ * @param[in,out] ctx      Server context.
+ * @param[in] require      Non-zero to require client authentication.
+ */
 void noxtls_tls13_require_client_auth(tls13_context_t *ctx, int require)
 {
     if(ctx != NULL) {
@@ -4164,6 +4255,14 @@ void noxtls_tls13_require_client_auth(tls13_context_t *ctx, int require)
     }
 }
 
+/**
+ * @brief Client: set DER certificate and RSA private key for mutual TLS.
+ * @param[in,out] ctx      Client context; call before `noxtls_tls13_connect`.
+ * @param[in] cert_der     Client certificate (DER); copied into context.
+ * @param[in] cert_len     Length of @p cert_der.
+ * @param[in] rsa_key      `rsa_key_t*` private key.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` or memory error otherwise.
+ */
 noxtls_return_t noxtls_tls13_set_client_cert(tls13_context_t *ctx, const uint8_t *cert_der, uint32_t cert_len, void *rsa_key)
 {
     if(ctx == NULL) {
@@ -4195,6 +4294,14 @@ noxtls_return_t noxtls_tls13_set_client_cert(tls13_context_t *ctx, const uint8_t
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Client: set DER certificate and ECDSA private key (`ecc_key_t*`) for mutual TLS.
+ * @param[in,out] ctx      Client context.
+ * @param[in] cert_der     Client certificate (DER); copied into context.
+ * @param[in] cert_len     Length of @p cert_der.
+ * @param[in] ecc_key      ECDSA private key.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` or memory error otherwise.
+ */
 noxtls_return_t noxtls_tls13_set_client_cert_ecdsa(tls13_context_t *ctx, const uint8_t *cert_der, uint32_t cert_len, void *ecc_key)
 {
     if(ctx == NULL) {
@@ -4226,6 +4333,14 @@ noxtls_return_t noxtls_tls13_set_client_cert_ecdsa(tls13_context_t *ctx, const u
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Client: set DER certificate and Ed25519 private key seed for mutual TLS.
+ * @param[in,out] ctx              Client context.
+ * @param[in] cert_der             Client certificate (DER); copied into context.
+ * @param[in] cert_len             Length of @p cert_der.
+ * @param[in] private_key_32       32-byte Ed25519 private key seed.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` or memory error otherwise.
+ */
 noxtls_return_t noxtls_tls13_set_client_cert_ed25519(tls13_context_t *ctx, const uint8_t *cert_der, uint32_t cert_len, const uint8_t *private_key_32)
 {
     if(ctx == NULL) {
@@ -4258,6 +4373,14 @@ noxtls_return_t noxtls_tls13_set_client_cert_ed25519(tls13_context_t *ctx, const
 }
 
 #if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+/**
+ * @brief Client: set DER certificate and Ed448 private key seed for mutual TLS.
+ * @param[in,out] ctx              Client context.
+ * @param[in] cert_der             Client certificate (DER); copied into context.
+ * @param[in] cert_len             Length of @p cert_der.
+ * @param[in] private_key_57       57-byte Ed448 private key seed.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` or memory error otherwise.
+ */
 noxtls_return_t noxtls_tls13_set_client_cert_ed448(tls13_context_t *ctx, const uint8_t *cert_der, uint32_t cert_len, const uint8_t *private_key_57)
 {
     if(ctx == NULL) {
@@ -4299,6 +4422,15 @@ noxtls_return_t noxtls_tls13_set_client_cert_ed448(tls13_context_t *ctx, const u
 }
 #endif
 
+/**
+ * @brief Client: set DER certificate and ML-DSA private key for mutual TLS.
+ * @param[in,out] ctx          Client context.
+ * @param[in] cert_der         Client certificate (DER); copied into context.
+ * @param[in] cert_len         Length of @p cert_der.
+ * @param[in] param            ML-DSA parameter set.
+ * @param[in] private_key      ML-DSA secret key bytes.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL`, `NOXTLS_RETURN_INVALID_PARAM`, or `NOXTLS_RETURN_NOT_SUPPORTED`.
+ */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 noxtls_return_t tls13_set_client_cert_mldsa(tls13_context_t *ctx, const uint8_t *cert_der, uint32_t cert_len,
                                             noxtls_mldsa_param_t param, /* NOLINT(bugprone-easily-swappable-parameters): public API preserves cert+param+key tuple. */
@@ -4345,6 +4477,16 @@ noxtls_return_t tls13_set_client_cert_mldsa(tls13_context_t *ctx, const uint8_t 
 #endif
 }
 
+/**
+ * @brief Configure external PSK identity and key for TLS 1.3 PSK or ECDHE-PSK handshakes.
+ * @param[in,out] ctx              Context; call before connect/accept.
+ * @param[in] identity             PSK identity bytes.
+ * @param[in] identity_len         Length of @p identity.
+ * @param[in] psk_key              Pre-shared key bytes.
+ * @param[in] psk_key_len          Length of @p psk_key.
+ * @param[in] preferred_mode       `TLS13_PSK_KE_MODE_PSK_KE` or `TLS13_PSK_KE_MODE_PSK_DHE_KE`.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` or `NOXTLS_RETURN_INVALID_PARAM` on error.
+ */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 noxtls_return_t tls13_set_external_psk(tls13_context_t *ctx,
                                        const uint8_t *identity, uint16_t identity_len, /* NOLINT(bugprone-easily-swappable-parameters): identity/key length pairs intentionally adjacent. */
@@ -4379,7 +4521,9 @@ noxtls_return_t tls13_set_external_psk(tls13_context_t *ctx,
 }
 
 /**
- * @brief Free TLS 1.3 context
+ * @brief Release all resources owned by a TLS 1.3 context.
+ * @param[in,out] ctx Context to free; safe to call with NULL.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` if @p ctx is NULL.
  */
 noxtls_return_t noxtls_tls13_context_free(tls13_context_t *ctx)
 {
@@ -4537,7 +4681,9 @@ noxtls_return_t noxtls_tls13_context_free(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Client: Send Client Hello
+ * @brief Client: construct and send ClientHello (key shares, cipher suites, extensions).
+ * @param[in,out] ctx Client context with transport initialized.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; error codes for DRBG, encoding, send, or memory failure.
  */
 noxtls_return_t noxtls_tls13_send_client_hello(tls13_context_t *ctx)
 {
@@ -5083,7 +5229,9 @@ noxtls_return_t noxtls_tls13_send_client_hello(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Client: Receive Server Hello
+ * @brief Client: receive and process ServerHello (cipher suite, key share, transcript update).
+ * @param[in,out] ctx Client context; derives handshake keys on success.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; I/O, parse, or key-exchange error otherwise.
  */
 noxtls_return_t noxtls_tls13_recv_server_hello(tls13_context_t *ctx)
 {
@@ -5478,7 +5626,9 @@ noxtls_return_t noxtls_tls13_recv_server_hello(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Client: Receive Encrypted Extensions
+ * @brief Client: receive EncryptedExtensions handshake message.
+ * @param[in,out] ctx Client context with handshake traffic keys active.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; receive or parse error otherwise.
  */
 noxtls_return_t noxtls_tls13_recv_encrypted_extensions(tls13_context_t *ctx)
 {
@@ -5536,9 +5686,13 @@ noxtls_return_t noxtls_tls13_recv_encrypted_extensions(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Client: Receive CertificateRequest or leave next noxtls_message (server Certificate) in pending.
- * Call after EncryptedExtensions. If server sent CertificateRequest, parses it and sets client_auth_requested.
- * If next noxtls_message is server Certificate, stores it in pending for noxtls_tls13_recv_certificate.
+ * @brief Client: receive CertificateRequest or stash the next message if it is Certificate.
+ *
+ * Call after EncryptedExtensions. Parses CertificateRequest and sets `client_auth_requested`, or
+ * stores a pending server Certificate for `noxtls_tls13_recv_certificate`.
+ *
+ * @param[in,out] ctx Client context.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; handshake ordering or I/O error otherwise.
  */
 noxtls_return_t noxtls_tls13_recv_certificate_request(tls13_context_t *ctx)
 {
@@ -5609,7 +5763,9 @@ noxtls_return_t noxtls_tls13_recv_certificate_request(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Client: Receive Certificate
+ * @brief Client: receive and parse the server Certificate message.
+ * @param[in,out] ctx Client context; stores DER chain for verification.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; receive, parse, or memory error otherwise.
  */
 noxtls_return_t noxtls_tls13_recv_certificate(tls13_context_t *ctx)
 {
@@ -5820,7 +5976,9 @@ noxtls_return_t noxtls_tls13_recv_certificate(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Client: Receive Certificate Verify
+ * @brief Client: receive CertificateVerify and verify the server signature over the transcript.
+ * @param[in,out] ctx Client context with server certificate loaded.
+ * @return `NOXTLS_RETURN_SUCCESS` on valid signature; verification or I/O error otherwise.
  */
 noxtls_return_t noxtls_tls13_recv_certificate_verify(tls13_context_t *ctx)
 {
@@ -6051,7 +6209,9 @@ noxtls_return_t noxtls_tls13_recv_certificate_verify(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Client: Receive Finished
+ * @brief Client: receive server Finished and verify verify_data against the transcript.
+ * @param[in,out] ctx Client context; derives application traffic secrets after verify.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; MAC mismatch or handshake error otherwise.
  */
 noxtls_return_t noxtls_tls13_recv_finished(tls13_context_t *ctx)
 {
@@ -6136,7 +6296,9 @@ noxtls_return_t noxtls_tls13_recv_finished(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Client: Send empty Certificate (RFC 8446: MUST send Certificate when requested, may be empty)
+ * @brief Client: send an empty Certificate message when authentication was requested but no cert is configured.
+ * @param[in,out] ctx Client context with `client_auth_requested` set.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; send or encoding error otherwise.
  */
 static noxtls_return_t tls13_send_client_certificate_empty(tls13_context_t *ctx)
 {
@@ -6179,7 +6341,9 @@ static noxtls_return_t tls13_send_client_certificate_empty(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Client: Send Certificate (client identity for mutual TLS)
+ * @brief Client: send Certificate with the configured client identity (mutual TLS).
+ * @param[in,out] ctx Client context with client certificate configured.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_FAILED` if no cert when required.
  */
 noxtls_return_t noxtls_tls13_send_client_certificate(tls13_context_t *ctx)
 {
@@ -6304,8 +6468,12 @@ static uint32_t tls13_ecdsa_signature_to_der(const ecdsa_signature_t *sig, uint8
 }
 
 /**
- * @brief TLS 1.3 Client: Send Certificate Verify (signature over handshake transcript)
- * Supports RSA-PSS (0x0804), ECDSA P-256/SHA256 (0x0403), ECDSA P-384/SHA384 (0x0503), Ed25519 (0x0807), Ed448 (0x0808).
+ * @brief Client: sign the handshake transcript and send CertificateVerify.
+ *
+ * Supports RSA-PSS, ECDSA P-256/P-384, Ed25519, Ed448, and ML-DSA schemes per configured client key.
+ *
+ * @param[in,out] ctx Client context with client private key configured.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; signing or send error otherwise.
  */
 noxtls_return_t noxtls_tls13_send_client_certificate_verify(tls13_context_t *ctx)
 {
@@ -6452,7 +6620,9 @@ noxtls_return_t noxtls_tls13_send_client_certificate_verify(tls13_context_t *ctx
 }
 
 /**
- * @brief TLS 1.3 Client: Send Finished
+ * @brief Client: send Finished with verify_data for the current transcript.
+ * @param[in,out] ctx Client context after server Finished has been processed.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; error from Finished construction or encrypted send.
  */
 noxtls_return_t noxtls_tls13_send_finished(tls13_context_t *ctx)
 {
@@ -6520,6 +6690,12 @@ noxtls_return_t noxtls_tls13_send_finished(tls13_context_t *ctx)
 
 /**
  * @brief Get TLS channel binding data (RFC 5929). Call after handshake completes.
+ * @param[in] ctx            Established TLS 1.3 context.
+ * @param[in] binding_type   `NOXTLS_TLS_CHANNEL_BINDING_TLS_UNIQUE` or `NOXTLS_TLS_CHANNEL_BINDING_TLS_SERVER_END_POINT`.
+ * @param[out] out           Output buffer for binding data.
+ * @param[in,out] out_len    On input, size of @p out; on success, bytes written (32/48/64 depending on type).
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` on invalid pointers;
+ *         `NOXTLS_RETURN_FAILED` if binding is unavailable or type is invalid.
  */
 noxtls_return_t noxtls_tls13_get_channel_binding(tls13_context_t *ctx, uint32_t binding_type, uint8_t *out, uint32_t *out_len)
 {
@@ -6585,7 +6761,9 @@ noxtls_return_t noxtls_tls13_get_channel_binding(tls13_context_t *ctx, uint32_t 
 }
 
 /**
- * @brief TLS 1.3 Client: Connect
+ * @brief Client: run the full TLS 1.3 handshake through application key installation.
+ * @param[in,out] ctx Initialized client context.
+ * @return `NOXTLS_RETURN_SUCCESS` when application keys are ready; error from any handshake step.
  */
 noxtls_return_t noxtls_tls13_connect(tls13_context_t *ctx)
 {
@@ -6925,7 +7103,9 @@ static noxtls_return_t tls13_hrr_first_ch_ext_order_capture(tls13_context_t *ctx
 }
 
 /**
- * @brief TLS 1.3 Server: Receive Client Hello
+ * @brief Server: receive and parse ClientHello (cipher suites, groups, key shares, extensions).
+ * @param[in,out] ctx Server context; may send HelloRetryRequest on mismatch.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; I/O, parse, or policy error otherwise.
  */
 noxtls_return_t noxtls_tls13_recv_client_hello(tls13_context_t *ctx)
 {
@@ -7639,7 +7819,9 @@ noxtls_return_t noxtls_tls13_recv_client_hello(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Server: Send Server Hello
+ * @brief Server: send ServerHello and derive handshake traffic keys from the shared secret.
+ * @param[in,out] ctx Server context after ClientHello has been processed.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; key generation, encoding, or send error otherwise.
  */
 noxtls_return_t noxtls_tls13_send_server_hello(tls13_context_t *ctx)
 {
@@ -8003,7 +8185,9 @@ noxtls_return_t noxtls_tls13_send_server_hello(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Server: Send Encrypted Extensions
+ * @brief Server: send EncryptedExtensions (ALPN, early data limits, etc.) under handshake encryption.
+ * @param[in,out] ctx Server context with handshake write keys installed.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; message build or encrypted send error otherwise.
  */
 noxtls_return_t noxtls_tls13_send_encrypted_extensions(tls13_context_t *ctx)
 {
@@ -8100,7 +8284,9 @@ noxtls_return_t noxtls_tls13_send_encrypted_extensions(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Server: Send CertificateRequest (request client cert for mutual TLS)
+ * @brief Server: send CertificateRequest to solicit a client certificate (mutual TLS).
+ * @param[in,out] ctx Server context with `request_client_auth` or `require_client_auth` set.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; send or encoding error otherwise.
  */
 noxtls_return_t noxtls_tls13_send_certificate_request(tls13_context_t *ctx)
 {
@@ -8189,7 +8375,9 @@ noxtls_return_t noxtls_tls13_send_certificate_request(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Server: Send Certificate
+ * @brief Server: send Certificate message from the configured server chain.
+ * @param[in,out] ctx Server context with server certificate configured.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; error if no certificate or send failure.
  */
 noxtls_return_t noxtls_tls13_send_certificate(tls13_context_t *ctx)
 {
@@ -8298,7 +8486,9 @@ noxtls_return_t noxtls_tls13_send_certificate(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Server: Send Certificate Verify
+ * @brief Server: sign the handshake transcript and send CertificateVerify.
+ * @param[in,out] ctx Server context with server private key for the selected certificate.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; signing or send error otherwise.
  */
 noxtls_return_t noxtls_tls13_send_certificate_verify(tls13_context_t *ctx)
 {
@@ -8443,7 +8633,9 @@ noxtls_return_t noxtls_tls13_send_certificate_verify(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Server: Send Finished
+ * @brief Server: send Finished and derive application traffic secrets.
+ * @param[in,out] ctx Server context after CertificateVerify has been sent.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; Finished build, send, or key derivation error otherwise.
  */
 noxtls_return_t noxtls_tls13_send_finished_server(tls13_context_t *ctx)
 {
@@ -8502,7 +8694,9 @@ noxtls_return_t noxtls_tls13_send_finished_server(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Server: Receive client Certificate (called when request_client_auth was set)
+ * @brief Server: receive and parse the client Certificate message (mutual TLS).
+ * @param[in,out] ctx Server context with `request_client_auth` enabled.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_TLS_ALERT_CERTIFICATE_REQUIRED` if required but absent.
  */
 noxtls_return_t tls13_recv_client_certificate(tls13_context_t *ctx)
 {
@@ -8690,7 +8884,9 @@ noxtls_return_t tls13_recv_client_certificate(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Server: Receive and verify client CertificateVerify
+ * @brief Server: receive client CertificateVerify and verify the signature over the transcript.
+ * @param[in,out] ctx Server context with client certificate loaded (may be empty for optional auth).
+ * @return `NOXTLS_RETURN_SUCCESS` on valid signature; verification or I/O error otherwise.
  */
 noxtls_return_t tls13_recv_client_certificate_verify(tls13_context_t *ctx)
 {
@@ -8939,7 +9135,9 @@ noxtls_return_t tls13_recv_client_certificate_verify(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Server: Receive Finished from Client
+ * @brief Server: receive client Finished, verify, and install application traffic keys.
+ * @param[in,out] ctx Server context after server Finished has been sent.
+ * @return `NOXTLS_RETURN_SUCCESS` when application keys are installed; verify or I/O error otherwise.
  */
 noxtls_return_t noxtls_tls13_recv_finished_client(tls13_context_t *ctx)
 {
@@ -9077,7 +9275,9 @@ static noxtls_return_t tls13_server_maybe_alert_unrecognized_sni(tls13_context_t
 }
 
 /**
- * @brief TLS 1.3 Server: Accept connection
+ * @brief Server: run the full TLS 1.3 handshake through application key installation.
+ * @param[in,out] ctx Initialized server context with credentials configured.
+ * @return `NOXTLS_RETURN_SUCCESS` when the handshake completes; error from any server step.
  */
 noxtls_return_t noxtls_tls13_accept(tls13_context_t *ctx)
 {
@@ -9265,8 +9465,16 @@ noxtls_return_t noxtls_tls13_accept(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Client: Send 0-RTT early data (when resuming, before handshake completes).
- * Encrypts with early_write_key/iv and sends as APPLICATION_DATA. Call only after ClientHello, before EndOfEarlyData.
+ * @brief Client: send 0-RTT early data when resuming, before the handshake completes.
+ *
+ * Encrypts with early traffic keys and sends as APPLICATION_DATA. Call only after ClientHello
+ * and before EndOfEarlyData.
+ *
+ * @param[in,out] ctx  Resuming client context in early-data phase.
+ * @param[in] data     Plaintext early application bytes.
+ * @param[in] len      Length of @p data (must not exceed `TLS_MAX_RECORD_SIZE`).
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL`, `NOXTLS_RETURN_FAILED`, or
+ *         `NOXTLS_RETURN_INVALID_PARAM` on invalid state or input.
  */
 noxtls_return_t noxtls_tls13_send_early_data(tls13_context_t *ctx, const uint8_t *data, uint32_t len)
 {
@@ -9308,7 +9516,11 @@ noxtls_return_t noxtls_tls13_send_early_data(tls13_context_t *ctx, const uint8_t
 }
 
 /**
- * @brief TLS 1.3: Send application data
+ * @brief Send application data on an established TLS 1.3 or DTLS 1.3 connection.
+ * @param[in,out] ctx  Context with application write keys installed.
+ * @param[in] data     Plaintext application bytes.
+ * @param[in] len      Length of @p data.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; encrypt or transport error otherwise.
  */
 noxtls_return_t noxtls_tls13_send(tls13_context_t *ctx, const uint8_t *data, uint32_t len)
 {
@@ -9369,7 +9581,12 @@ noxtls_return_t noxtls_tls13_send(tls13_context_t *ctx, const uint8_t *data, uin
     return NOXTLS_RETURN_SUCCESS;
 }
 
-
+/**
+ * @brief DTLS 1.3: send RequestConnectionId post-handshake message (RFC 9147).
+ * @param[in,out] ctx       Connected DTLS 1.3 context with peer CID negotiated.
+ * @param[in] num_cids      Number of connection IDs requested from the peer.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL`, `NOXTLS_RETURN_FAILED`, or `NOXTLS_RETURN_TLS_ERROR`.
+ */
 noxtls_return_t noxtls_dtls13_send_request_connection_id(tls13_context_t *ctx, uint8_t num_cids)
 {
     uint8_t msg[5];
@@ -9393,6 +9610,14 @@ noxtls_return_t noxtls_dtls13_send_request_connection_id(tls13_context_t *ctx, u
     return tls13_send_encrypted_handshake(ctx, msg, sizeof(msg));
 }
 
+/**
+ * @brief DTLS 1.3: send NewConnectionId with one connection ID (RFC 9147).
+ * @param[in,out] ctx       Connected DTLS 1.3 context.
+ * @param[in] cid           New connection ID bytes (may be NULL if @p cid_len is 0).
+ * @param[in] cid_len       Length of @p cid (must match negotiated CID length when non-zero).
+ * @param[in] usage         0 = replace active CID; 1 = add spare CID.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; error codes for invalid state, parameters, or send failure.
+ */
 noxtls_return_t noxtls_dtls13_send_new_connection_id(tls13_context_t *ctx, const uint8_t *cid, uint8_t cid_len, uint8_t usage)
 {
     uint8_t msg[4u + 2u + 1u + 32u + 1u];
@@ -9447,6 +9672,13 @@ noxtls_return_t noxtls_dtls13_send_new_connection_id(tls13_context_t *ctx, const
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief DTLS 1.3: generate and send multiple NewConnectionId values (RFC 9147).
+ * @param[in,out] ctx       Connected DTLS 1.3 context.
+ * @param[in] num_cids      Number of CIDs to generate (capped by pool size).
+ * @param[in] usage         0 = replace active CID; 1 = add spare CIDs.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; error codes for invalid state or crypto/send failure.
+ */
 noxtls_return_t noxtls_dtls13_send_new_connection_ids(tls13_context_t *ctx, uint8_t num_cids, uint8_t usage)
 {
     uint8_t msg[4u + 2u + (DTLS13_MAX_CID_POOL * (1u + 32u)) + 1u];
@@ -9521,6 +9753,11 @@ noxtls_return_t noxtls_dtls13_send_new_connection_ids(tls13_context_t *ctx, uint
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief DTLS 1.3: activate the next spare peer connection ID from the pool.
+ * @param[in,out] ctx  Connected DTLS 1.3 context with spare CIDs available.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL`, `NOXTLS_RETURN_FAILED`, or `NOXTLS_RETURN_TIMEOUT`.
+ */
 noxtls_return_t noxtls_dtls13_rotate_connection_id(tls13_context_t *ctx)
 {
     uint8_t cid_len;
@@ -9548,6 +9785,12 @@ noxtls_return_t noxtls_dtls13_rotate_connection_id(tls13_context_t *ctx)
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Send KeyUpdate and roll the local write traffic secret (RFC 8446 §4.6.3).
+ * @param[in,out] ctx              Established TLS 1.3 or DTLS 1.3 context.
+ * @param[in] request_update       0 = update local keys only; 1 = request peer KeyUpdate.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL`, `NOXTLS_RETURN_FAILED`, or `NOXTLS_RETURN_INVALID_PARAM`.
+ */
 noxtls_return_t noxtls_tls13_send_key_update(tls13_context_t *ctx, uint8_t request_update)
 {
     uint8_t msg[5];
@@ -9577,7 +9820,11 @@ noxtls_return_t noxtls_tls13_send_key_update(tls13_context_t *ctx, uint8_t reque
 }
 
 /**
- * @brief TLS 1.3: Receive application data
+ * @brief Receive application data on an established TLS 1.3 or DTLS 1.3 connection.
+ * @param[in,out] ctx  Context with application read keys installed.
+ * @param[out] data    Buffer for decrypted application plaintext.
+ * @param[in,out] len  On input, size of @p data; on success, bytes written.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; I/O, decrypt, or inner-plaintext error otherwise.
  */
 noxtls_return_t noxtls_tls13_recv(tls13_context_t *ctx, uint8_t *data, uint32_t *len)
 {
@@ -9757,7 +10004,9 @@ noxtls_return_t noxtls_tls13_recv(tls13_context_t *ctx, uint8_t *data, uint32_t 
 }
 
 /**
- * @brief TLS 1.3: Close connection
+ * @brief Send close_notify and mark the connection closed (TLS 1.3 / DTLS 1.3).
+ * @param[in,out] ctx Established context.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` if @p ctx is NULL; send error otherwise.
  */
 noxtls_return_t noxtls_tls13_close(tls13_context_t *ctx)
 {

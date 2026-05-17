@@ -51,6 +51,11 @@
 
 static FILE *tls_record_dump_fp = NULL;
 
+/**
+ * @brief Return whether a wire version constant denotes DTLS (1.0, 1.2, or 1.3).
+ * @param[in] version Record-layer version from `tls_context_t.version`.
+ * @return 1 if DTLS; 0 for TLS versions.
+ */
 static int tls_is_dtls_version(uint16_t version)
 {
     return (version == DTLS_VERSION_1_0 ||
@@ -71,6 +76,10 @@ static FILE *noxtls_fopen(const char *filename, const char *mode)
 #endif
 }
 
+/**
+ * @brief Enable hex dumping of TLS records sent/received to a file (debugging).
+ * @param[in] path Append-only log file path, or NULL/empty to disable dumping.
+ */
 void noxtls_tls_set_record_dump_file(const char *path)
 {
     if(tls_record_dump_fp != NULL) {
@@ -83,6 +92,12 @@ void noxtls_tls_set_record_dump_file(const char *path)
     tls_record_dump_fp = noxtls_fopen(path, "a");
 }
 
+/**
+ * @brief Append one record dump line when record dumping is enabled.
+ * @param[in] direction Label such as "SEND" or "RECV".
+ * @param[in] data        Record bytes (header or payload).
+ * @param[in] len         Length of @p data.
+ */
 static void tls_dump_record(const char *direction, const uint8_t *data, uint32_t len)
 {
     if(tls_record_dump_fp == NULL || direction == NULL || data == NULL) {
@@ -97,7 +112,11 @@ static void tls_dump_record(const char *direction, const uint8_t *data, uint32_t
 }
 
 /**
- * @brief Initialize TLS context
+ * @brief Initialize a base TLS or DTLS transport context.
+ * @param[in,out] ctx      Context structure to zero and initialize.
+ * @param[in] role         `TLS_ROLE_CLIENT` or `TLS_ROLE_SERVER`.
+ * @param[in] version      Protocol version (`TLS_VERSION_*` or `DTLS_VERSION_*`).
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` if @p ctx is NULL.
  */
 /* NOLINTNEXTLINE(bugprone-easily-swappable-parameters): canonical (role,version) TLS context initializer contract. */
 noxtls_return_t noxtls_tls_context_init(tls_context_t *ctx, tls_role_t role, uint16_t version)
@@ -119,7 +138,9 @@ noxtls_return_t noxtls_tls_context_init(tls_context_t *ctx, tls_role_t role, uin
 }
 
 /**
- * @brief Free TLS context
+ * @brief Release pending handshake buffers and zero a TLS context.
+ * @param[in,out] ctx Context to free; safe to call with NULL.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` if @p ctx is NULL.
  */
 noxtls_return_t noxtls_tls_context_free(tls_context_t *ctx)
 {
@@ -144,7 +165,12 @@ noxtls_return_t noxtls_tls_context_free(tls_context_t *ctx)
 }
 
 /**
- * @brief Set I/O callback functions
+ * @brief Register send/receive callbacks for record-layer I/O.
+ * @param[in,out] ctx       TLS context.
+ * @param[in] send_cb       Callback to transmit bytes (must send full buffer or return error).
+ * @param[in] recv_cb       Callback to receive bytes.
+ * @param[in] user_data     Opaque pointer passed to both callbacks.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` if @p ctx is NULL.
  */
 noxtls_return_t noxtls_tls_set_io_callbacks(tls_context_t *ctx, 
                                         tls_send_callback_t send_cb, 
@@ -162,6 +188,12 @@ noxtls_return_t noxtls_tls_set_io_callbacks(tls_context_t *ctx,
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Register a millisecond time source (used by DTLS timers and timeouts).
+ * @param[in,out] ctx      TLS context.
+ * @param[in] time_cb      Callback returning current time in milliseconds, or NULL to clear.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` if @p ctx is NULL.
+ */
 noxtls_return_t noxtls_tls_set_time_callback(tls_context_t *ctx, tls_time_callback_t time_cb)
 {
     if(ctx == NULL) {
@@ -173,10 +205,17 @@ noxtls_return_t noxtls_tls_set_time_callback(tls_context_t *ctx, tls_time_callba
 }
 
 /**
- * @brief Send TLS record
- * 
- * This function uses the send_callback to transmit data over the network.
- * Applications must provide the send_callback implementation.
+ * @brief Send one TLS or DTLS record via the configured send callback.
+ *
+ * Builds a five-byte record header, copies @p data as the fragment, and invokes
+ * `send_callback`. For DTLS, handshake messages may be fragmented automatically.
+ *
+ * @param[in,out] ctx   TLS context with `send_callback` set.
+ * @param[in] type      Record content type (`TLS_RECORD_*`).
+ * @param[in] data      Record fragment bytes.
+ * @param[in] len       Length of @p data (max `TLS_MAX_PROTECTED_RECORD_FRAGMENT`).
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` if @p ctx or @p data is NULL;
+ *         `NOXTLS_RETURN_FAILED` if no callback or partial send; `NOXTLS_RETURN_INVALID_PARAM` if @p len is too large.
  */
 noxtls_return_t noxtls_tls_send_record(tls_context_t *ctx, uint8_t type, const uint8_t *data, uint32_t len)
 {
@@ -302,10 +341,17 @@ noxtls_return_t noxtls_tls_send_record(tls_context_t *ctx, uint8_t type, const u
 }
 
 /**
- * @brief Receive TLS record
- * 
- * This function uses the recv_callback to receive data from the network.
- * Applications must provide the recv_callback implementation.
+ * @brief Receive one TLS or DTLS record via the configured receive callback.
+ *
+ * For TLS, reads a five-byte header then the fragment. For DTLS, delegates to the DTLS
+ * record layer and reassembles handshake fragments when needed. The caller must `free`
+ * `record->data` when non-NULL.
+ *
+ * @param[in,out] ctx     TLS context with `recv_callback` set.
+ * @param[out] record     On success, populated record (type, version, length, allocated data).
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` on invalid pointers;
+ *         `NOXTLS_RETURN_FAILED` on I/O short read or missing callback;
+ *         `NOXTLS_RETURN_INVALID_PARAM` if wire length exceeds `TLS_MAX_WIRE_RECORD_LENGTH`.
  */
 noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
 {
@@ -562,7 +608,11 @@ noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
 }
 
 /**
- * @brief Send TLS alert
+ * @brief Send a TLS alert record (two-byte alert body).
+ * @param[in,out] ctx          TLS context.
+ * @param[in] level            `TLS_ALERT_LEVEL_WARNING` or `TLS_ALERT_LEVEL_FATAL`.
+ * @param[in] description      Alert description code (e.g. `TLS_ALERT_CLOSE_NOTIFY`).
+ * @return `NOXTLS_RETURN_SUCCESS` on success; error from `noxtls_tls_send_record` otherwise.
  */
 /* NOLINTNEXTLINE(bugprone-easily-swappable-parameters): TLS alert is an RFC-defined (level,description) tuple. */
 noxtls_return_t noxtls_tls_send_alert(tls_context_t *ctx, uint8_t level, uint8_t description)
@@ -582,18 +632,17 @@ noxtls_return_t noxtls_tls_send_alert(tls_context_t *ctx, uint8_t level, uint8_t
 }
 
 /**
- * @brief Detect TLS version from Client Hello
- * 
- * This function receives the Client Hello and determines whether the client
- * is requesting TLS 1.2 or TLS 1.3 by checking:
- * 1. The "Supported Versions" extension (type 43) - if present and contains TLS 1.3, it's TLS 1.3
- * 2. The legacy version field - if TLS 1.2 or higher, default to TLS 1.2
- * 
- * @param base_ctx Base TLS context with I/O callbacks set
- * @param detected_version Output: Detected TLS version (TLS_VERSION_1_2 or TLS_VERSION_1_3)
- * @param client_hello_data Output: Pointer to Client Hello data (caller must free)
- * @param client_hello_len Output: Length of Client Hello data
- * @return NOXTLS_RETURN_SUCCESS on success, error code on failure
+ * @brief Receive ClientHello and detect the highest supported TLS version.
+ *
+ * Reads the first handshake flight and inspects the supported_versions extension (type 43)
+ * and legacy version field to choose among TLS 1.0–1.3 (and related downgrade paths).
+ *
+ * @param[in,out] base_ctx           Base TLS context with I/O callbacks configured.
+ * @param[out] detected_version      On success, chosen `TLS_VERSION_*` constant.
+ * @param[out] client_hello_data     On success, allocated ClientHello bytes; caller must `free`.
+ * @param[out] client_hello_len      On success, length of `*client_hello_data`.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` on invalid pointers;
+ *         I/O or parse errors otherwise; `NOXTLS_RETURN_BAD_DATA` if version cannot be determined.
  */
 noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *detected_version, 
                                      uint8_t **client_hello_data, uint32_t *client_hello_len)
@@ -943,6 +992,13 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Test whether ClientHello lists a version in the supported_versions extension (RFC 8446).
+ * @param[in] client_hello      Full handshake message (type + 3-byte length + ClientHello body).
+ * @param[in] client_hello_len  Length of @p client_hello.
+ * @param[in] version           Wire version to search for (e.g. `TLS_VERSION_1_3`).
+ * @return 1 if @p version appears in extension 43; 0 if absent, malformed, or not listed.
+ */
 int noxtls_tls_client_hello_supported_versions_has(const uint8_t *client_hello,
                                                  uint32_t client_hello_len,
                                                  uint16_t version)
@@ -1042,14 +1098,14 @@ int noxtls_tls_client_hello_supported_versions_has(const uint8_t *client_hello,
 }
 
 /**
- * @brief TLS Certificate Signature Verification Wrapper
- * 
- * This is a wrapper around x509_certificate_verify_signature for use in TLS.
- * It verifies that a certificate's signature is valid using the issuer's public key.
- * 
- * @param cert Certificate to verify (x509_certificate_t*)
- * @param issuer Issuer certificate containing the public key (x509_certificate_t*)
- * @return NOXTLS_RETURN_SUCCESS if signature is valid, error code otherwise
+ * @brief Verify a certificate signature using its issuer's public key (TLS wrapper).
+ *
+ * Thin wrapper around `noxtls_x509_certificate_verify_signature` for handshake code.
+ *
+ * @param[in] cert    Certificate to verify (`x509_certificate_t*`).
+ * @param[in] issuer  Issuer certificate with the signing public key (`x509_certificate_t*`).
+ * @return `NOXTLS_RETURN_SUCCESS` if the signature is valid; `NOXTLS_RETURN_NULL` or
+ *         X.509 verification error codes otherwise.
  */
 noxtls_return_t noxtls_tls_verify_certificate_signature(void *cert, void *issuer)
 {

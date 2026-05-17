@@ -53,6 +53,12 @@ extern "C" {
 /* Forward declaration to avoid including full X.509 header here. */
 typedef struct noxtls_x509_crl noxtls_x509_crl_t;
 
+#define TLS12_SESSION_CACHE_SIZE   16u
+#define TLS12_SESSION_SNI_MAX      255u
+#define TLS12_TICKET_CACHE_SIZE    32u
+#define TLS12_TICKET_MAX_LEN       256u
+#define TLS12_TICKET_LIFETIME_HINT 86400u
+
 /* TLS 1.2 Context */
 NOXTLS_MSVC_WARNING_PUSH
 NOXTLS_MSVC_DISABLE_PADDING
@@ -218,6 +224,36 @@ typedef struct tls12_context_s
     uint8_t client_heartbeat_mode;       /* Server-side: mode offered by client in ClientHello extension. */
 } tls12_context_t;
 NOXTLS_MSVC_WARNING_POP
+
+
+
+typedef struct {
+    uint8_t id[TLS_SESSION_ID_MAX_LEN];
+    uint8_t id_len;
+    uint8_t master_secret[48];
+    uint16_t cipher_suite;
+    uint8_t alpn[NOXTLS_TLS_ALPN_MAX_PROTOCOL_LEN + 1u];
+    uint16_t alpn_len;
+    uint16_t sni_len;
+    uint8_t sni[255];
+    uint8_t extended_master_secret; /* RFC 7627: session established with EMS */
+    uint8_t in_use;
+} tls12_session_cache_entry_t;
+
+typedef struct {
+    uint8_t ticket[TLS12_TICKET_MAX_LEN];
+    uint16_t ticket_len;
+    uint8_t master_secret[48];
+    uint16_t cipher_suite;
+    uint8_t alpn[NOXTLS_TLS_ALPN_MAX_PROTOCOL_LEN + 1u];
+    uint16_t alpn_len;
+    uint16_t sni_len;
+    uint8_t sni[255];
+    uint8_t extended_master_secret;
+    uint32_t issued_at;
+    uint32_t lifetime_hint;
+    uint8_t in_use;
+} tls12_ticket_cache_entry_t;
 
 /* TLS 1.2 Functions */
 noxtls_return_t noxtls_tls12_context_init(tls12_context_t *ctx, tls_role_t role);

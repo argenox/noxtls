@@ -63,6 +63,18 @@
 #define NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES 0
 #endif
 
+
+static tls12_session_cache_entry_t g_tls12_session_cache[TLS12_SESSION_CACHE_SIZE];
+static tls12_ticket_cache_entry_t g_tls12_ticket_cache[TLS12_TICKET_CACHE_SIZE];
+
+static void tls12_dtls_on_send_ccs(tls12_context_t *ctx);
+static noxtls_return_t tls12_send_protected_alert(tls12_context_t *ctx, uint8_t level, uint8_t desc);
+static int tls12_cipher_suite_is_ecdhe_ecdsa(uint16_t cs);
+static noxtls_return_t tls12_handle_heartbeat_record(tls12_context_t *ctx, const uint8_t *record_data, uint32_t record_len);
+static noxtls_return_t tls12_send_certificate_status(tls12_context_t *ctx);
+static noxtls_return_t tls12_recv_certificate_status(tls12_context_t *ctx);
+
+
 static int tls12_suite_supports_encrypt_then_mac(uint16_t suite)
 {
     switch(suite) {
@@ -92,13 +104,6 @@ static int tls12_suite_supports_encrypt_then_mac(uint16_t suite)
             return 0;
     }
 }
-
-static void tls12_dtls_on_send_ccs(tls12_context_t *ctx);
-static noxtls_return_t tls12_send_protected_alert(tls12_context_t *ctx, uint8_t level, uint8_t desc);
-static int tls12_cipher_suite_is_ecdhe_ecdsa(uint16_t cs);
-static noxtls_return_t tls12_handle_heartbeat_record(tls12_context_t *ctx, const uint8_t *record_data, uint32_t record_len);
-static noxtls_return_t tls12_send_certificate_status(tls12_context_t *ctx);
-static noxtls_return_t tls12_recv_certificate_status(tls12_context_t *ctx);
 
 /**
  * @brief Initialize TLS 1.2 context
@@ -385,44 +390,9 @@ static void tls12_inc_recv_seq(tls12_context_t *ctx)
     }
 }
 
-#define TLS12_SESSION_CACHE_SIZE 16u
-#define TLS12_SESSION_SNI_MAX 255u
 
-typedef struct {
-    uint8_t id[TLS_SESSION_ID_MAX_LEN];
-    uint8_t id_len;
-    uint8_t master_secret[48];
-    uint16_t cipher_suite;
-    uint8_t alpn[NOXTLS_TLS_ALPN_MAX_PROTOCOL_LEN + 1u];
-    uint16_t alpn_len;
-    uint16_t sni_len;
-    uint8_t sni[255];
-    uint8_t extended_master_secret; /* RFC 7627: session established with EMS */
-    uint8_t in_use;
-} tls12_session_cache_entry_t;
 
-static tls12_session_cache_entry_t g_tls12_session_cache[TLS12_SESSION_CACHE_SIZE];
 
-#define TLS12_TICKET_CACHE_SIZE 32u
-#define TLS12_TICKET_MAX_LEN 256u
-#define TLS12_TICKET_LIFETIME_HINT 86400u
-
-typedef struct {
-    uint8_t ticket[TLS12_TICKET_MAX_LEN];
-    uint16_t ticket_len;
-    uint8_t master_secret[48];
-    uint16_t cipher_suite;
-    uint8_t alpn[NOXTLS_TLS_ALPN_MAX_PROTOCOL_LEN + 1u];
-    uint16_t alpn_len;
-    uint16_t sni_len;
-    uint8_t sni[255];
-    uint8_t extended_master_secret;
-    uint32_t issued_at;
-    uint32_t lifetime_hint;
-    uint8_t in_use;
-} tls12_ticket_cache_entry_t;
-
-static tls12_ticket_cache_entry_t g_tls12_ticket_cache[TLS12_TICKET_CACHE_SIZE];
 
 static tls12_session_cache_entry_t *tls12_session_cache_find(const uint8_t *id, uint8_t id_len)
 {

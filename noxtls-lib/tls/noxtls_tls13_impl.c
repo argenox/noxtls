@@ -55,11 +55,30 @@
 
 static char tls13_keylog_path[512] = {0};
 
+/**
+ * @brief Return whether the context is negotiating DTLS 1.3.
+ * @param[in] ctx TLS 1.3 context (may be NULL).
+ * @return 1 if @p ctx uses `DTLS_VERSION_1_3`; 0 otherwise.
+ */
 static int tls13_is_dtls(const tls13_context_t *ctx)
 {
     return (ctx != NULL && ctx->base.base.version == DTLS_VERSION_1_3);
 }
 
+/**
+ * @brief HKDF-Expand-Label dispatch for TLS 1.3 or DTLS 1.3 (RFC 8446 / RFC 9147).
+ * @param[in] ctx          Context used to select TLS vs DTLS KDF helpers.
+ * @param[in] hash_algo    Hash algorithm for the cipher suite.
+ * @param[in] secret       HKDF secret input.
+ * @param[in] secret_len   Length of @p secret.
+ * @param[in] label        ASCII label bytes (without "tls13 " prefix).
+ * @param[in] label_len    Length of @p label.
+ * @param[in] context      Optional context bytes for the label.
+ * @param[in] context_len  Length of @p context.
+ * @param[out] output      Expanded key material.
+ * @param[in] output_len   Number of bytes to expand into @p output.
+ * @return Result from `tls13_hkdf_expand_label` or `dtls13_hkdf_expand_label`.
+ */
 static noxtls_return_t tls13_ctx_hkdf_expand_label(const tls13_context_t *ctx,
                                           noxtls_hash_algos_t hash_algo,
                                           const uint8_t *secret, uint32_t secret_len,
@@ -73,6 +92,20 @@ static noxtls_return_t tls13_ctx_hkdf_expand_label(const tls13_context_t *ctx,
     return tls13_hkdf_expand_label(hash_algo, secret, secret_len, label, label_len, context, context_len, output, output_len);
 }
 
+/**
+ * @brief Derive-Secret dispatch for TLS 1.3 or DTLS 1.3.
+ * @param[in] ctx           Context used to select TLS vs DTLS KDF helpers.
+ * @param[in] hash_algo     Hash algorithm for the cipher suite.
+ * @param[in] secret        Input secret (e.g. handshake or master secret).
+ * @param[in] secret_len    Length of @p secret.
+ * @param[in] label         Derive-Secret label (e.g. "c hs traffic").
+ * @param[in] label_len     Length of @p label.
+ * @param[in] messages      Handshake transcript hashed as context (may be NULL if length 0).
+ * @param[in] messages_len  Length of @p messages.
+ * @param[out] output       Derived secret output buffer.
+ * @param[in] output_len    Length to derive.
+ * @return Result from `tls13_derive_secret` or `dtls13_derive_secret`.
+ */
 static noxtls_return_t tls13_ctx_derive_secret(const tls13_context_t *ctx,
                                       noxtls_hash_algos_t hash_algo,
                                       const uint8_t *secret, uint32_t secret_len,
@@ -86,6 +119,14 @@ static noxtls_return_t tls13_ctx_derive_secret(const tls13_context_t *ctx,
     return tls13_derive_secret(hash_algo, secret, secret_len, label, label_len, messages, messages_len, output, output_len);
 }
 
+/**
+ * @brief Set the NSS key log file path for Wireshark decryption (SSLKEYLOGFILE format).
+ *
+ * If @p path is NULL or empty, clears the configured path; `SSLKEYLOGFILE` in the
+ * environment is still consulted at write time when no path is set.
+ *
+ * @param[in] path Filesystem path, or NULL to disable the explicit path.
+ */
 void noxtls_tls13_set_keylog_file(const char *path)
 {
     if(path == NULL || *path == '\0') {
@@ -96,6 +137,13 @@ void noxtls_tls13_set_keylog_file(const char *path)
     tls13_keylog_path[sizeof(tls13_keylog_path) - 1] = '\0';
 }
 
+/**
+ * @brief Append one line to the key log file (label, client_random, secret).
+ * @param[in] label         NSS key log label (e.g. CLIENT_HANDSHAKE_TRAFFIC_SECRET).
+ * @param[in] client_random 32-byte ClientHello random.
+ * @param[in] secret        Secret bytes to log.
+ * @param[in] secret_len    Length of @p secret.
+ */
 static void tls13_keylog_write(const char *label, const uint8_t *client_random,
                                const uint8_t *secret, uint32_t secret_len)
 {
@@ -121,6 +169,14 @@ static void tls13_keylog_write(const char *label, const uint8_t *client_random,
     fclose(fp);
 }
 
+/**
+ * @brief Append a handshake message to the running transcript hash input buffer.
+ * @param[in,out] ctx  Context owning `handshake_messages`.
+ * @param[in] data     Handshake message bytes (type + 3-byte length + body).
+ * @param[in] len      Length of @p data.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` on invalid pointers;
+ *         `NOXTLS_RETURN_FAILED` on realloc overflow or failure.
+ */
 static noxtls_return_t tls13_append_handshake_message(tls13_context_t *ctx, const uint8_t *data, uint32_t len)
 {
     if(ctx == NULL || data == NULL) {
@@ -161,6 +217,15 @@ static noxtls_return_t tls13_append_handshake_message(tls13_context_t *ctx, cons
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Map a TLS 1.3 cipher suite to hash algorithm and key lengths.
+ * @param[in] cipher_suite Negotiated cipher suite identifier.
+ * @param[out] hash_algo   SHA-256 or SHA-384 for the suite.
+ * @param[out] hash_len    Hash output length (32 or 48).
+ * @param[out] key_len     AEAD key length (16 or 32).
+ * @return `NOXTLS_RETURN_SUCCESS` for supported suites; `NOXTLS_RETURN_NULL` or
+ *         `NOXTLS_RETURN_INVALID_PARAM` on error.
+ */
 static noxtls_return_t tls13_get_cipher_params(uint16_t cipher_suite,
                                                  noxtls_hash_algos_t *hash_algo,
                                                  uint32_t *hash_len,
@@ -191,6 +256,16 @@ static noxtls_return_t tls13_get_cipher_params(uint16_t cipher_suite,
     }
 }
 
+/**
+ * @brief Hash handshake transcript bytes for Finished and Derive-Secret inputs.
+ * @param[in] hash_algo     SHA-256 or SHA-384.
+ * @param[in] messages      Transcript bytes (may be NULL if @p messages_len is 0).
+ * @param[in] messages_len  Length of @p messages.
+ * @param[out] hash         Output digest buffer (at least 48 bytes).
+ * @param[out] hash_len     On success, 32 or 48.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` or
+ *         `NOXTLS_RETURN_INVALID_ALGORITHM` on error.
+ */
 static noxtls_return_t tls13_hash_messages(noxtls_hash_algos_t hash_algo,
                                              const uint8_t *messages, uint32_t messages_len,
                                              uint8_t *hash, uint32_t *hash_len)
@@ -222,6 +297,18 @@ static noxtls_return_t tls13_hash_messages(noxtls_hash_algos_t hash_algo,
     return NOXTLS_RETURN_INVALID_ALGORITHM;
 }
 
+/**
+ * @brief Derive handshake traffic secrets and install handshake AEAD keys (RFC 8446 §7.1).
+ *
+ * Computes early_secret, handshake_secret, client/server handshake traffic secrets,
+ * expands record keys and IVs, and writes NSS key log lines when configured.
+ * For DTLS 1.3 also derives record-number encryption keys ("sn" label).
+ *
+ * @param[in,out] ctx               TLS 1.3 context; transcript must be current in `handshake_messages`.
+ * @param[in] shared_secret         ECDHE (or PSK) shared secret from key exchange.
+ * @param[in] shared_secret_len     Length of @p shared_secret.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; error code from cipher lookup, HKDF, or expand steps.
+ */
 static noxtls_return_t tls13_derive_handshake_keys(tls13_context_t *ctx, const uint8_t *shared_secret, uint32_t shared_secret_len)
 {
     noxtls_hash_algos_t hash_algo;
@@ -419,6 +506,11 @@ static noxtls_return_t tls13_derive_handshake_keys(tls13_context_t *ctx, const u
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Derive master_secret and application traffic secrets after server Finished (RFC 8446 §7.1).
+ * @param[in,out] ctx Context with `handshake_secret` and full handshake transcript.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; error code from HKDF or cipher lookup.
+ */
 static noxtls_return_t tls13_derive_application_secrets(tls13_context_t *ctx)
 {
     noxtls_hash_algos_t hash_algo;
@@ -473,6 +565,11 @@ static noxtls_return_t tls13_derive_application_secrets(tls13_context_t *ctx)
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Expand application traffic secrets into AEAD keys, IVs, and DTLS SN keys.
+ * @param[in,out] ctx Context with `client_application_traffic_secret` and server counterpart set.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; error code from HKDF-Expand-Label steps.
+ */
 static noxtls_return_t tls13_install_application_keys(tls13_context_t *ctx)
 {
     noxtls_hash_algos_t hash_algo;
@@ -539,6 +636,15 @@ static noxtls_return_t tls13_install_application_keys(tls13_context_t *ctx)
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Build TLS 1.3 inner plaintext (content || content_type) for AEAD (RFC 8446 §5.2).
+ * @param[in] content       Handshake or application bytes (may be NULL if @p content_len is 0).
+ * @param[in] content_len   Length of @p content.
+ * @param[in] content_type  Real record type stored in the final byte.
+ * @param[out] output       Buffer for inner plaintext.
+ * @param[in,out] output_len On input, size of @p output; on success, bytes written; if too small, required size.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` or `NOXTLS_RETURN_FAILED` on error.
+ */
 static noxtls_return_t tls13_build_inner_plaintext(const uint8_t *content, uint32_t content_len,
                                                      uint8_t content_type,
                                                      uint8_t *output, uint32_t *output_len)
@@ -558,6 +664,13 @@ static noxtls_return_t tls13_build_inner_plaintext(const uint8_t *content, uint3
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Parse TLS 1.3 inner plaintext after AEAD decryption (strip padding, read content type).
+ * @param[in,out] plaintext     Decrypted inner plaintext; trailing zeros are padding.
+ * @param[in,out] plaintext_len On input, decrypted length; on success, content length without type byte.
+ * @param[out] content_type     Real record type from the final non-zero byte.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` or `NOXTLS_RETURN_BAD_DATA` on error.
+ */
 static noxtls_return_t tls13_extract_inner_plaintext(uint8_t *plaintext, uint32_t *plaintext_len, uint8_t *content_type)
 {
     if(plaintext == NULL || plaintext_len == NULL || content_type == NULL) {
@@ -575,6 +688,10 @@ static noxtls_return_t tls13_extract_inner_plaintext(uint8_t *plaintext, uint32_
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Free and clear the reassembly buffer for fragmented handshake records.
+ * @param[in,out] ctx Context owning `handshake_buffer`.
+ */
 static void tls13_handshake_buffer_reset(tls13_context_t *ctx)
 {
     if(ctx == NULL) {
@@ -588,6 +705,13 @@ static void tls13_handshake_buffer_reset(tls13_context_t *ctx)
     ctx->handshake_buffer_pos = 0;
 }
 
+/**
+ * @brief Append raw bytes to the handshake reassembly buffer (compacts consumed prefix).
+ * @param[in,out] ctx  Context buffer state.
+ * @param[in] data     Bytes to append (may be NULL only if @p len is 0).
+ * @param[in] len      Length of @p data.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` or `NOXTLS_RETURN_FAILED` on error.
+ */
 static noxtls_return_t tls13_handshake_buffer_append(tls13_context_t *ctx, const uint8_t *data, uint32_t len)
 {
     if(ctx == NULL || (data == NULL && len > 0)) {
@@ -619,6 +743,18 @@ static noxtls_return_t tls13_handshake_buffer_append(tls13_context_t *ctx, const
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Extract one complete handshake message from the reassembly buffer.
+ *
+ * Parses the 24-bit length field, allocates a copy of the message, and advances
+ * the buffer position. Resets the buffer when fully consumed.
+ *
+ * @param[in,out] ctx     Context buffer state.
+ * @param[out] out_msg    Allocated handshake message; caller must `free`.
+ * @param[out] out_len    Length of the returned message.
+ * @return `NOXTLS_RETURN_SUCCESS` when a full message is available; `NOXTLS_RETURN_FAILED`
+ *         if fewer than four bytes or incomplete message; `NOXTLS_RETURN_NULL` on bad pointers.
+ */
 static noxtls_return_t tls13_handshake_buffer_get(tls13_context_t *ctx, uint8_t **out_msg, uint32_t *out_len)
 {
     if(ctx == NULL || out_msg == NULL || out_len == NULL) {
@@ -653,6 +789,17 @@ static noxtls_return_t tls13_handshake_buffer_get(tls13_context_t *ctx, uint8_t 
 
 #define TLS13_IMPL_RECORD_WORKSPACE_HALF  (TLS_MAX_RECORD_SIZE + 32)
 
+/**
+ * @brief Send a handshake message inside an encrypted TLS 1.3 or DTLS 1.3 record.
+ *
+ * Wraps @p msg as inner plaintext type handshake, then encrypts as application_data
+ * (TLS) or uses the DTLS 1.3 record helper.
+ *
+ * @param[in,out] ctx     Context with handshake traffic keys installed.
+ * @param[in] msg         Handshake message bytes.
+ * @param[in] msg_len     Length of @p msg.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; error from inner plaintext build, encrypt, or send.
+ */
 static noxtls_return_t tls13_send_encrypted_handshake(tls13_context_t *ctx, const uint8_t *msg, uint32_t msg_len)
 {
     uint32_t inner_len = TLS13_IMPL_RECORD_WORKSPACE_HALF;
@@ -681,6 +828,17 @@ static noxtls_return_t tls13_send_encrypted_handshake(tls13_context_t *ctx, cons
     return noxtls_tls_send_record(&ctx->base, TLS_RECORD_APPLICATION_DATA, encrypted, encrypted_len);
 }
 
+/**
+ * @brief Receive the next handshake message (plaintext, encrypted, or from reassembly buffer).
+ *
+ * Reads records until a complete handshake message is available: handles middlebox CCS,
+ * cleartext handshake records, and handshake carried in application_data ciphertext.
+ *
+ * @param[in,out] ctx     Context with appropriate read keys.
+ * @param[out] out_msg    Allocated handshake message; caller must `free`.
+ * @param[out] out_len    Length of the returned message.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; I/O, decrypt, or parse error codes otherwise.
+ */
 static noxtls_return_t tls13_recv_handshake_message(tls13_context_t *ctx, uint8_t **out_msg, uint32_t *out_len)
 {
     tls_record_t record;
@@ -767,7 +925,11 @@ static noxtls_return_t tls13_recv_handshake_message(tls13_context_t *ctx, uint8_
 }
 
 /**
- * @brief Initialize TLS 1.3 context
+ * @brief Initialize a TLS 1.3 / DTLS 1.3 context for client or server role.
+ * @param[in,out] ctx  Context structure to zero and initialize.
+ * @param[in] role     `TLS_ROLE_CLIENT` or `TLS_ROLE_SERVER`.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` if @p ctx is NULL;
+ *         `NOXTLS_RETURN_FAILED` or `NOXTLS_RETURN_NOT_ENOUGH_MEMORY` on setup failure.
  */
 noxtls_return_t noxtls_tls13_context_init(tls13_context_t *ctx, tls_role_t role)
 {
@@ -828,7 +990,9 @@ noxtls_return_t noxtls_tls13_context_init(tls13_context_t *ctx, tls_role_t role)
 }
 
 /**
- * @brief Free TLS 1.3 context
+ * @brief Release all resources owned by a TLS 1.3 context.
+ * @param[in,out] ctx Context to free; safe to call with NULL.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` if @p ctx is NULL.
  */
 noxtls_return_t noxtls_tls13_context_free(tls13_context_t *ctx)
 {
@@ -901,7 +1065,9 @@ noxtls_return_t noxtls_tls13_context_free(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Client: Send Client Hello
+ * @brief Client: construct and send ClientHello (key shares, cipher suites, extensions).
+ * @param[in,out] ctx Client context with transport initialized via `noxtls_tls_context_init`.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; error codes for DRBG, encoding, send, or memory failure.
  */
 noxtls_return_t noxtls_tls13_send_client_hello(tls13_context_t *ctx)
 {
@@ -1171,7 +1337,9 @@ noxtls_return_t noxtls_tls13_send_client_hello(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Client: Receive Server Hello
+ * @brief Client: receive and process ServerHello (version, random, cipher suite, key share).
+ * @param[in,out] ctx Client context; updates transcript and derives handshake keys on success.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; I/O, parse, or key-exchange error codes otherwise.
  */
 noxtls_return_t noxtls_tls13_recv_server_hello(tls13_context_t *ctx)
 {
@@ -1354,7 +1522,9 @@ noxtls_return_t noxtls_tls13_recv_server_hello(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Client: Receive Encrypted Extensions
+ * @brief Client: receive EncryptedExtensions handshake message.
+ * @param[in,out] ctx Client context with handshake traffic keys active.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; error from receive or transcript update.
  */
 noxtls_return_t noxtls_tls13_recv_encrypted_extensions(tls13_context_t *ctx)
 {
@@ -1392,7 +1562,9 @@ noxtls_return_t noxtls_tls13_recv_encrypted_extensions(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Client: Receive Certificate
+ * @brief Client: receive and parse the server Certificate message.
+ * @param[in,out] ctx Client context; stores DER chain in context for verification.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; receive, parse, or memory error otherwise.
  */
 noxtls_return_t noxtls_tls13_recv_certificate(tls13_context_t *ctx)
 {
@@ -1542,7 +1714,9 @@ noxtls_return_t noxtls_tls13_recv_certificate(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Client: Receive Certificate Verify
+ * @brief Client: receive CertificateVerify and verify the server signature over the transcript.
+ * @param[in,out] ctx Client context with server certificate loaded.
+ * @return `NOXTLS_RETURN_SUCCESS` on valid signature; verification or I/O error otherwise.
  */
 noxtls_return_t noxtls_tls13_recv_certificate_verify(tls13_context_t *ctx)
 {
@@ -1648,7 +1822,9 @@ noxtls_return_t noxtls_tls13_recv_certificate_verify(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Client: Receive Finished
+ * @brief Client: receive server Finished and verify verify_data against the transcript.
+ * @param[in,out] ctx Client context; switches to application traffic secret derivation after verify.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; MAC mismatch or handshake error otherwise.
  */
 noxtls_return_t noxtls_tls13_recv_finished(tls13_context_t *ctx)
 {
@@ -1728,7 +1904,9 @@ noxtls_return_t noxtls_tls13_recv_finished(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Client: Send Finished
+ * @brief Client: send Finished with verify_data for the current transcript.
+ * @param[in,out] ctx Client context after server Finished has been processed.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; error from Finished construction or encrypted send.
  */
 noxtls_return_t noxtls_tls13_send_finished(tls13_context_t *ctx)
 {
@@ -1795,7 +1973,13 @@ noxtls_return_t noxtls_tls13_send_finished(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Client: Connect
+ * @brief Client: run the full TLS 1.3 handshake through application key installation.
+ *
+ * Sends ClientHello, receives server flight, derives application secrets, sends client Finished,
+ * and installs application traffic keys.
+ *
+ * @param[in,out] ctx Initialized client context.
+ * @return `NOXTLS_RETURN_SUCCESS` when application keys are ready; error from any handshake step.
  */
 noxtls_return_t noxtls_tls13_connect(tls13_context_t *ctx)
 {
@@ -1915,7 +2099,9 @@ noxtls_return_t noxtls_tls13_connect(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Server: Receive Client Hello
+ * @brief Server: receive and parse ClientHello (cipher suites, groups, key shares, extensions).
+ * @param[in,out] ctx Server context; selects cipher suite and stores client random and shares.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; I/O or parse error otherwise.
  */
 noxtls_return_t noxtls_tls13_recv_client_hello(tls13_context_t *ctx)
 {
@@ -2061,7 +2247,9 @@ noxtls_return_t noxtls_tls13_recv_client_hello(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Server: Send Server Hello
+ * @brief Server: send ServerHello and derive handshake traffic keys from the shared secret.
+ * @param[in,out] ctx Server context after ClientHello has been processed.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; key generation, encoding, or send error otherwise.
  */
 noxtls_return_t noxtls_tls13_send_server_hello(tls13_context_t *ctx)
 {
@@ -2184,7 +2372,9 @@ noxtls_return_t noxtls_tls13_send_server_hello(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Server: Send Encrypted Extensions
+ * @brief Server: send EncryptedExtensions (ALPN, etc.) under handshake encryption.
+ * @param[in,out] ctx Server context with handshake write keys installed.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; error from message build or encrypted send.
  */
 noxtls_return_t noxtls_tls13_send_encrypted_extensions(tls13_context_t *ctx)
 {
@@ -2230,7 +2420,9 @@ noxtls_return_t noxtls_tls13_send_encrypted_extensions(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Server: Send Certificate
+ * @brief Server: send Certificate message from the configured server chain.
+ * @param[in,out] ctx Server context with `server_cert` / chain configured.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; error if no certificate or send failure.
  */
 noxtls_return_t noxtls_tls13_send_certificate(tls13_context_t *ctx)
 {
@@ -2319,7 +2511,9 @@ noxtls_return_t noxtls_tls13_send_certificate(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Server: Send Certificate Verify
+ * @brief Server: sign the handshake transcript and send CertificateVerify.
+ * @param[in,out] ctx Server context with private key configured for the selected certificate.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; signing or send error otherwise.
  */
 noxtls_return_t noxtls_tls13_send_certificate_verify(tls13_context_t *ctx)
 {
@@ -2384,7 +2578,9 @@ noxtls_return_t noxtls_tls13_send_certificate_verify(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Server: Send Finished
+ * @brief Server: send Finished and derive application traffic secrets.
+ * @param[in,out] ctx Server context after CertificateVerify has been sent.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; error from Finished build, send, or key derivation.
  */
 noxtls_return_t noxtls_tls13_send_finished_server(tls13_context_t *ctx)
 {
@@ -2436,7 +2632,9 @@ noxtls_return_t noxtls_tls13_send_finished_server(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Server: Receive Finished from Client
+ * @brief Server: receive client Finished, verify, and install application traffic keys.
+ * @param[in,out] ctx Server context after server Finished has been sent.
+ * @return `NOXTLS_RETURN_SUCCESS` when application keys are installed; verify or I/O error otherwise.
  */
 noxtls_return_t noxtls_tls13_recv_finished_client(tls13_context_t *ctx)
 {
@@ -2510,7 +2708,9 @@ noxtls_return_t noxtls_tls13_recv_finished_client(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3 Server: Accept connection
+ * @brief Server: run the full TLS 1.3 handshake through application key installation.
+ * @param[in,out] ctx Initialized server context with credentials configured.
+ * @return `NOXTLS_RETURN_SUCCESS` when the handshake completes; error from any server step.
  */
 noxtls_return_t noxtls_tls13_accept(tls13_context_t *ctx)
 {
@@ -2597,7 +2797,11 @@ noxtls_return_t noxtls_tls13_accept(tls13_context_t *ctx)
 }
 
 /**
- * @brief TLS 1.3: Send application data
+ * @brief Send application data on an established TLS 1.3 or DTLS 1.3 connection.
+ * @param[in,out] ctx  Context with application write keys installed.
+ * @param[in] data     Plaintext application bytes.
+ * @param[in] len      Length of @p data.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; encrypt or transport error otherwise.
  */
 noxtls_return_t noxtls_tls13_send(tls13_context_t *ctx, const uint8_t *data, uint32_t len)
 {
@@ -2643,7 +2847,11 @@ noxtls_return_t noxtls_tls13_send(tls13_context_t *ctx, const uint8_t *data, uin
 }
 
 /**
- * @brief TLS 1.3: Receive application data
+ * @brief Receive application data on an established TLS 1.3 or DTLS 1.3 connection.
+ * @param[in,out] ctx  Context with application read keys installed.
+ * @param[out] data    Buffer for decrypted application plaintext.
+ * @param[in,out] len  On input, size of @p data; on success, bytes written.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; I/O, decrypt, or inner-plaintext error otherwise.
  */
 noxtls_return_t noxtls_tls13_recv(tls13_context_t *ctx, uint8_t *data, uint32_t *len)
 {
@@ -2693,7 +2901,9 @@ noxtls_return_t noxtls_tls13_recv(tls13_context_t *ctx, uint8_t *data, uint32_t 
 }
 
 /**
- * @brief TLS 1.3: Close connection
+ * @brief Send close_notify and mark the connection closed (TLS 1.3 / DTLS 1.3).
+ * @param[in,out] ctx Established context.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` if @p ctx is NULL; send error otherwise.
  */
 noxtls_return_t noxtls_tls13_close(tls13_context_t *ctx)
 {

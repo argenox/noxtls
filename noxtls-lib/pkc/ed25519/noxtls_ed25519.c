@@ -226,9 +226,6 @@ static noxtls_return_t fe25519_sqrt(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], con
     return NOXTLS_RETURN_SUCCESS;
 }
 
-/* Extended homogeneous point (X, Y, Z, T) with T = X*Y/Z. All 32-byte BE. */
-typedef struct { uint8_t X[NOXTLS_ED25519_FE25519_BYTES], Y[NOXTLS_ED25519_FE25519_BYTES], Z[NOXTLS_ED25519_FE25519_BYTES], T[NOXTLS_ED25519_FE25519_BYTES]; } ge25519_pt_t;
-
 static noxtls_return_t ge25519_decode(ge25519_pt_t *p, const uint8_t enc[NOXTLS_ED25519_FE25519_BYTES]);
 
 /**
