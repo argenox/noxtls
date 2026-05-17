@@ -54,7 +54,6 @@ noxtls_return_t noxtls_certificate_der_to_pem(uint8_t * data, uint32_t length, u
 {
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
     uint8_t * ptr;
-    uint8_t * in_ptr;
     int result;
 
     do
@@ -65,7 +64,6 @@ noxtls_return_t noxtls_certificate_der_to_pem(uint8_t * data, uint32_t length, u
         }
 
         ptr = output;
-        in_ptr = data;
 
         memcpy(ptr, CERT_BEGIN_STR, strlen(CERT_BEGIN_STR));
         ptr += strlen(CERT_BEGIN_STR);
@@ -75,6 +73,7 @@ noxtls_return_t noxtls_certificate_der_to_pem(uint8_t * data, uint32_t length, u
         uint32_t write_len;
         while(length > 0)
         {
+            const uint8_t *in_ptr = data;
             if(length > PEM_MAX_LINE_LEN_B64)
                 write_len = PEM_MAX_LINE_LEN_B64;
             else
@@ -83,7 +82,7 @@ noxtls_return_t noxtls_certificate_der_to_pem(uint8_t * data, uint32_t length, u
             result = noxtls_base64_encode(in_ptr, write_len, (char *)ptr);
             ptr += result;
 
-            in_ptr += write_len;
+            data += write_len;
 
             /* Add EOL */
             *ptr = '\n';
@@ -113,13 +112,21 @@ noxtls_return_t noxtls_certificate_der_to_pem(uint8_t * data, uint32_t length, u
 }
 
 /**
- * @brief Converts DER Certificate Signing Request (PKCS#10) to PEM.
+ * @brief Converts a DER-encoded Certificate Signing Request (PKCS#10) to PEM format.
+ *
+ * This function encodes a DER Certificate Signing Request to PEM by applying
+ * base64 encoding and wrapping with appropriate PEM delimiters.
+ *
+ * @param[in]  data      Pointer to the DER-encoded CSR data.
+ * @param[in]  length    Length in bytes of the DER-encoded data.
+ * @param[out] output    Pointer to the buffer to receive the PEM-encoded output (null-terminated).
+ * @param[out] out_len   Pointer to a uint32_t that will receive the length of the output (not including null terminator).
+ *
+ * @return NOXTLS_RETURN_SUCCESS on success, or an appropriate error code from @see noxtls_return_t.
  */
 noxtls_return_t noxtls_csr_der_to_pem(uint8_t *data, uint32_t length, uint8_t *output, uint32_t *out_len)
 {
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
-    uint8_t *ptr;
-    uint8_t *in_ptr = data;
     int result;
 
     do {
@@ -128,16 +135,17 @@ noxtls_return_t noxtls_csr_der_to_pem(uint8_t *data, uint32_t length, uint8_t *o
             break;
         }
 
-        ptr = output;
+        uint8_t *ptr = output;
         memcpy(ptr, CERT_REQ_BEGIN_STR, strlen(CERT_REQ_BEGIN_STR));
         ptr += strlen(CERT_REQ_BEGIN_STR);
         *ptr++ = '\n';
 
         while(length > 0) {
+            const uint8_t *ptr_data = data;
             uint32_t write_len = (length > PEM_MAX_LINE_LEN_B64) ? PEM_MAX_LINE_LEN_B64 : length;
-            result = noxtls_base64_encode(in_ptr, write_len, (char *)ptr);
+            result = noxtls_base64_encode(ptr_data, write_len, (char *)ptr);
             ptr += result;
-            in_ptr += write_len;
+            data += write_len;
             *ptr++ = '\n';
             length -= write_len;
         }

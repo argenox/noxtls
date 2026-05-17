@@ -53,23 +53,39 @@
 #define ASN1_TAG_TYPE_PRIMITIVE                0
 #define ASN1_TAG_TYPE_CONSTRUCTED              1
 
+/**
+ * @brief Parse one ASN.1 TLV at @p data and advance the cursor (debug helper).
+ * @param[in,out] data  Current parse position; updated to end of this TLV on success.
+ * @param[in] end       One past the last valid byte of the DER buffer.
+ * @return 0 on success; 1 on parse error or truncated input.
+ */
 uint32_t noxtls_parse_tag(uint8_t ** data, uint8_t * end);
+
+/**
+ * @brief Print a human-readable universal tag name (debug helper).
+ * @param[in] type Universal tag number (`ASN1_TAG_*`).
+ */
 static void print_tag_type(uint8_t type);
+
+/**
+ * @brief Dispatch TLV value decoding by universal tag (debug helper).
+ * @param[in] type      Universal tag number.
+ * @param[in,out] data  Value bytes; advanced by @p len on exit for primitive types.
+ * @param[in] len       Length of the TLV value field.
+ */
 static void parse_tag(uint8_t type, uint8_t ** data, uint32_t len);
+
+/**
+ * @brief Walk the OID name table and print labels for a dotted OID string (debug helper).
+ * @param[in,out] oid  Dotted decimal OID (modified in place by `strtok`).
+ */
 void noxtls_asn1_find_oid(char * oid);
 
 /**
- * @brief Parse ASN.1 DER Data
- *
- * @param[in] data is a pointer to a pointer to the data to convert
- * @param[in] length is a pointer to the length
- * @param[out] output is a pointer to a buffer to place the DER data
- * @param[out] out_len is the length of data placed in output
- *
- * @note this function requires output have sufficient length to hold the
- *       data
- *
- * @return @see noxtls_return_t
+ * @brief Parse and pretty-print ASN.1 DER from a buffer (debug helper).
+ * @param[in] data  Start of DER-encoded data.
+ * @param[in] len   Number of bytes in @p data.
+ * @return 0 if the buffer parsed without error; 1 on failure or invalid input.
  */
 uint32_t noxtls_parse_der(uint8_t * data, uint32_t len)
 {
@@ -91,19 +107,6 @@ uint32_t noxtls_parse_der(uint8_t * data, uint32_t len)
     return result;
 }
 
-/**
- * @brief Parse ASN.1 Tag
- *
- * @param[in] data is a pointer to a pointer to the data to convert
- * @param[in] length is a pointer to the length
- * @param[out] output is a pointer to a buffer to place the DER data
- * @param[out] out_len is the length of data placed in output
- *
- * @note this function requires output have sufficient length to hold the
- *       data
- *
- * @return @see noxtls_return_t
- */
 uint32_t noxtls_parse_tag(uint8_t ** data, uint8_t * end)
 {
     if(data == NULL || *data == NULL || end == NULL) {
@@ -186,17 +189,9 @@ uint32_t noxtls_parse_tag(uint8_t ** data, uint8_t * end)
 
 
 /**
- * @brief Decodes object identifier
- *
- * @param[in] data is a pointer to the data to convert
- * @param[in] length is the length of the PEM data
- * @param[out] output is a pointer to a buffer to place the DER data
- * @param[out] out_len is the length of data placed in output
- *
- * @note this function requires output have sufficient length to hold the
- *       data
- *
- * @return @see noxtls_return_t
+ * @brief Print an INTEGER value when it fits in 32 bits (debug helper).
+ * @param[in] data  Pointer to big-endian integer bytes (not advanced).
+ * @param[in] len   Length of the integer value in bytes (must be <= 4 to print).
  */
 void noxtls_asn1_decode_integer(uint8_t ** data, uint32_t len)
 {
@@ -214,12 +209,9 @@ void noxtls_asn1_decode_integer(uint8_t ** data, uint32_t len)
 }
 
 /**
- * @brief Decodes ASN.1 Bit String
- *
- * @param[in] data is a pointer to  a pointer of the data to convert
- * @param[in] len is the length of the data
- *
- * @return @see noxtls_return_t
+ * @brief Print BIT STRING length (debug helper; does not dump bits).
+ * @param[in] data  BIT STRING contents (unused).
+ * @param[in] len   Length of the BIT STRING value in bytes.
  */
 void noxtls_asn1_decode_bitstring(uint8_t ** data, uint32_t len)
 {
@@ -238,17 +230,9 @@ void noxtls_asn1_decode_bitstring(uint8_t ** data, uint32_t len)
 }
 
 /**
- * @brief Decodes object identifier
- *
- * @param[in] data is a pointer to the data to convert
- * @param[in] length is the length of the PEM data
- * @param[out] output is a pointer to a buffer to place the DER data
- * @param[out] out_len is the length of data placed in output
- *
- * @note this function requires output have sufficient length to hold the
- *       data
- *
- * @return @see noxtls_return_t
+ * @brief Decode OBJECT IDENTIFIER contents to dotted decimal and print (debug helper).
+ * @param[in] data  Pointer to DER OID body bytes (first/subsequent arc encoding).
+ * @param[in] len   Length of the OID value field in bytes.
  */
 void noxtls_asn1_decode_obj_ident(uint8_t ** data, uint32_t len)
 {
@@ -332,13 +316,6 @@ void noxtls_asn1_decode_obj_ident(uint8_t ** data, uint32_t len)
     NOXTLS_ASN1_PRINTF("\n");
 }
 
-/**
- * @brief Finds the OID description for an identifier
- *
- * @param[in] oid is the OID string
- *
- * @return @see noxtls_return_t
- */
 void noxtls_asn1_find_oid(char * oid)
 {
     oid_item_t * oid_ptr = (oid_item_t *)&base_oids[0];
@@ -406,17 +383,9 @@ void noxtls_asn1_find_oid(char * oid)
 }
 
 /**
- * @brief Decodes object identifier
- *
- * @param[in] data is a pointer to the data to convert
- * @param[in] length is the length of the PEM data
- * @param[out] output is a pointer to a buffer to place the DER data
- * @param[out] out_len is the length of data placed in output
- *
- * @note this function requires output have sufficient length to hold the
- *       data
- *
- * @return @see noxtls_return_t
+ * @brief Print PrintableString or IA5String contents (debug helper).
+ * @param[in] data  Pointer to string bytes.
+ * @param[in] len   Length of the string value in bytes.
  */
 void noxtls_asn1_decode_print_string(uint8_t ** data, uint32_t len)
 {
@@ -566,6 +535,12 @@ static void print_tag_type(uint8_t type)
 
 /* ========== ASN.1 DER encode API ========== */
 
+/**
+ * @brief Encode a DER definite length field into @p out.
+ * @param[out] out  Output buffer (at least 5 bytes for longest form).
+ * @param[in] len   Content length to encode.
+ * @return Number of length bytes written (1–4), or 0 if @p len exceeds encodable range.
+ */
 uint32_t noxtls_asn1_put_length(uint8_t *out, uint32_t len)
 {
     if(out == NULL) {
@@ -596,6 +571,14 @@ uint32_t noxtls_asn1_put_length(uint8_t *out, uint32_t len)
     return 0;
 }
 
+/**
+ * @brief Encode a DER INTEGER from a big-endian magnitude buffer.
+ * @param[out] out        Output buffer for tag, length, and value.
+ * @param[in] out_max     Size of @p out.
+ * @param[in] value       Big-endian integer bytes (leading zeros stripped).
+ * @param[in] value_len   Length of @p value.
+ * @return Total bytes written, or 0 if @p out is too small or arguments are invalid.
+ */
 uint32_t noxtls_asn1_put_integer(uint8_t *out, uint32_t out_max, const uint8_t *value, uint32_t value_len)
 {
     if(out == NULL || value == NULL || value_len == 0) {
@@ -631,6 +614,14 @@ uint32_t noxtls_asn1_put_integer(uint8_t *out, uint32_t out_max, const uint8_t *
     }
 }
 
+/**
+ * @brief Encode a constructed SEQUENCE (tag 0x30) wrapping @p contents.
+ * @param[out] out            Output buffer.
+ * @param[in] out_max         Size of @p out.
+ * @param[in] contents        Pre-encoded child TLV bytes (may be NULL if @p contents_len is 0).
+ * @param[in] contents_len    Length of @p contents.
+ * @return Total bytes written, or 0 on buffer overflow or invalid arguments.
+ */
 uint32_t noxtls_asn1_put_sequence(uint8_t *out, uint32_t out_max, const uint8_t *contents, uint32_t contents_len)
 {
     if(out == NULL || (contents == NULL && contents_len != 0)) {
@@ -652,6 +643,14 @@ uint32_t noxtls_asn1_put_sequence(uint8_t *out, uint32_t out_max, const uint8_t 
     return 1 + len_bytes + contents_len;
 }
 
+/**
+ * @brief Encode OBJECT IDENTIFIER (tag 0x06) from raw DER OID body bytes.
+ * @param[out] out      Output buffer.
+ * @param[in] out_max   Size of @p out.
+ * @param[in] oid       OID value octets (already DER-encoded arcs, without tag/length).
+ * @param[in] oid_len   Length of @p oid.
+ * @return Total bytes written, or 0 on error.
+ */
 uint32_t noxtls_asn1_put_oid_raw(uint8_t *out, uint32_t out_max, const uint8_t *oid, uint32_t oid_len)
 {
     if(out == NULL || oid == NULL || oid_len == 0) {
@@ -668,6 +667,14 @@ uint32_t noxtls_asn1_put_oid_raw(uint8_t *out, uint32_t out_max, const uint8_t *
     return 1 + len_bytes + oid_len;
 }
 
+/**
+ * @brief Encode BIT STRING (tag 0x03) with zero unused bits prefix.
+ * @param[out] out        Output buffer.
+ * @param[in] out_max     Size of @p out.
+ * @param[in] data        Bit string payload (may be NULL if @p data_len is 0).
+ * @param[in] data_len    Length of @p data in bytes.
+ * @return Total bytes written, or 0 on error.
+ */
 uint32_t noxtls_asn1_put_bit_string(uint8_t *out, uint32_t out_max, const uint8_t *data, uint32_t data_len)
 {
     if(out == NULL || (data == NULL && data_len != 0)) {
@@ -689,6 +696,13 @@ uint32_t noxtls_asn1_put_bit_string(uint8_t *out, uint32_t out_max, const uint8_
     return 1 + len_bytes + payload_len;
 }
 
+/**
+ * @brief Encode UTCTime (tag 0x17) from an ASN.1 time string.
+ * @param[out] out        Output buffer.
+ * @param[in] out_max     Size of @p out.
+ * @param[in] time_str    UTCTime text, typically 13 bytes (`YYMMDDHHMMSSZ`).
+ * @return Total bytes written, or 0 if @p time_str is empty, too long, or buffer is small.
+ */
 uint32_t noxtls_asn1_put_utc_time(uint8_t *out, uint32_t out_max, const char *time_str)
 {
     if(out == NULL || time_str == NULL) {
@@ -713,6 +727,15 @@ uint32_t noxtls_asn1_put_utc_time(uint8_t *out, uint32_t out_max, const char *ti
     return 1 + len_bytes + slen;
 }
 
+/**
+ * @brief Encode a context-specific constructed EXPLICIT wrapper `[tag_no]`.
+ * @param[out] out            Output buffer.
+ * @param[in] out_max         Size of @p out.
+ * @param[in] tag_no          Context tag number (0–31).
+ * @param[in] contents        Wrapped TLV bytes (may be NULL if @p contents_len is 0).
+ * @param[in] contents_len    Length of @p contents.
+ * @return Total bytes written, or 0 if @p tag_no > 31 or buffer is too small.
+ */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 uint32_t noxtls_asn1_put_explicit(uint8_t *out, uint32_t out_max, uint8_t tag_no, const uint8_t *contents, uint32_t contents_len)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
@@ -736,6 +759,14 @@ uint32_t noxtls_asn1_put_explicit(uint8_t *out, uint32_t out_max, uint8_t tag_no
     return 1 + len_bytes + contents_len;
 }
 
+/**
+ * @brief Encode OCTET STRING (tag 0x04).
+ * @param[out] out        Output buffer.
+ * @param[in] out_max     Size of @p out.
+ * @param[in] data        Raw octets (may be NULL if @p data_len is 0).
+ * @param[in] data_len    Length of @p data.
+ * @return Total bytes written, or 0 on error.
+ */
 uint32_t noxtls_asn1_put_octet_string(uint8_t *out, uint32_t out_max, const uint8_t *data, uint32_t data_len)
 {
     if(out == NULL || (data == NULL && data_len != 0)) {
@@ -754,6 +785,14 @@ uint32_t noxtls_asn1_put_octet_string(uint8_t *out, uint32_t out_max, const uint
     return 1 + len_bytes + data_len;
 }
 
+/**
+ * @brief Encode a constructed SET (tag 0x31) wrapping @p contents.
+ * @param[out] out            Output buffer.
+ * @param[in] out_max         Size of @p out.
+ * @param[in] contents        Pre-encoded member TLV bytes (may be NULL if @p contents_len is 0).
+ * @param[in] contents_len    Length of @p contents.
+ * @return Total bytes written, or 0 on error.
+ */
 uint32_t noxtls_asn1_put_set(uint8_t *out, uint32_t out_max, const uint8_t *contents, uint32_t contents_len)
 {
     if(out == NULL || (contents == NULL && contents_len != 0)) {
@@ -772,6 +811,13 @@ uint32_t noxtls_asn1_put_set(uint8_t *out, uint32_t out_max, const uint8_t *cont
     return 1 + len_bytes + contents_len;
 }
 
+/**
+ * @brief Encode PrintableString (tag 0x13) from a NUL-terminated C string.
+ * @param[out] out      Output buffer.
+ * @param[in] out_max   Size of @p out.
+ * @param[in] str       PrintableString characters (not NUL-terminated in DER).
+ * @return Total bytes written, or 0 on error.
+ */
 uint32_t noxtls_asn1_put_printable_string(uint8_t *out, uint32_t out_max, const char *str)
 {
     if(out == NULL || str == NULL) {
@@ -792,6 +838,13 @@ uint32_t noxtls_asn1_put_printable_string(uint8_t *out, uint32_t out_max, const 
     return 1 + len_bytes + slen;
 }
 
+/**
+ * @brief Encode IA5String (tag 0x16) from a NUL-terminated C string.
+ * @param[out] out      Output buffer.
+ * @param[in] out_max   Size of @p out.
+ * @param[in] str       IA5 characters (not NUL-terminated in DER).
+ * @return Total bytes written, or 0 on error.
+ */
 uint32_t noxtls_asn1_put_ia5_string(uint8_t *out, uint32_t out_max, const char *str)
 {
     if(out == NULL || str == NULL) {

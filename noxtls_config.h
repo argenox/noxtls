@@ -137,7 +137,9 @@
  * Prereq: NOXTLS_FEATURE_HASH=1.
  * Security note: legacy algorithm; generally disable for modern deployments.
  */
+#ifndef NOXTLS_FEATURE_MD4
 #define NOXTLS_FEATURE_MD4 0
+#endif
 
 /* Enables MD5 hashing algorithm.
  * Prereq: NOXTLS_FEATURE_HASH=1.
@@ -366,13 +368,17 @@
  * Prereq: NOXTLS_FEATURE_TLS=1.
  * Security note: legacy protocol; disabled by default.
  */
+#ifndef NOXTLS_FEATURE_TLS10
 #define NOXTLS_FEATURE_TLS10 0
+#endif
 
 /* Enables TLS 1.1 protocol implementation.
  * Prereq: NOXTLS_FEATURE_TLS=1.
  * Security note: legacy protocol; disabled by default.
  */
+#ifndef NOXTLS_FEATURE_TLS11
 #define NOXTLS_FEATURE_TLS11 0
+#endif
 
 /* Enables TLS 1.2 protocol implementation.
  * Prereq: NOXTLS_FEATURE_TLS=1.
@@ -411,7 +417,9 @@
 /* Enables X.509 certificate writing/generation helpers.
  * Prereq: NOXTLS_FEATURE_CERT=1 and NOXTLS_FEATURE_PKC=1.
  */
+#ifndef NOXTLS_HAVE_CERT_WRITE
 #define NOXTLS_HAVE_CERT_WRITE 0
+#endif
 
 /* ============================================================================
  * Profile presets (override defaults above)
@@ -436,6 +444,10 @@
 #undef NOXTLS_FEATURE_TLS
 #define NOXTLS_FEATURE_TLS 1
 
+#undef NOXTLS_FEATURE_TLS10
+#define NOXTLS_FEATURE_TLS10 0
+#undef NOXTLS_FEATURE_TLS11
+#define NOXTLS_FEATURE_TLS11 0
 #undef NOXTLS_FEATURE_MD4
 #define NOXTLS_FEATURE_MD4 0
 #undef NOXTLS_FEATURE_MD5
@@ -541,6 +553,10 @@
 #undef NOXTLS_FEATURE_TLS
 #define NOXTLS_FEATURE_TLS 1
 
+#undef NOXTLS_FEATURE_TLS10
+#define NOXTLS_FEATURE_TLS10 0
+#undef NOXTLS_FEATURE_TLS11
+#define NOXTLS_FEATURE_TLS11 0
 #undef NOXTLS_FEATURE_MD4
 #define NOXTLS_FEATURE_MD4 0
 #undef NOXTLS_FEATURE_MD5
@@ -646,6 +662,12 @@
 #undef NOXTLS_FEATURE_TLS
 #define NOXTLS_FEATURE_TLS 0
 
+#undef NOXTLS_FEATURE_TLS10
+#define NOXTLS_FEATURE_TLS10 0
+#undef NOXTLS_FEATURE_TLS11
+#define NOXTLS_FEATURE_TLS11 0
+#undef NOXTLS_FEATURE_MD4
+#define NOXTLS_FEATURE_MD4 0
 #undef NOXTLS_FEATURE_TLS12
 #define NOXTLS_FEATURE_TLS12 0
 #undef NOXTLS_FEATURE_TLS13
@@ -672,6 +694,10 @@
 #undef NOXTLS_FEATURE_TLS
 #define NOXTLS_FEATURE_TLS 1
 
+#undef NOXTLS_FEATURE_TLS10
+#define NOXTLS_FEATURE_TLS10 0
+#undef NOXTLS_FEATURE_TLS11
+#define NOXTLS_FEATURE_TLS11 0
 #undef NOXTLS_FEATURE_MD4
 #define NOXTLS_FEATURE_MD4 0
 #undef NOXTLS_FEATURE_MD5
@@ -1136,4 +1162,3 @@
 #endif
 
 #endif /* _NOXTLS_CONFIG_H_ */
-

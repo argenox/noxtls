@@ -265,8 +265,8 @@ static int ecdsa_der_get_integer(const uint8_t **p, const uint8_t *e, uint8_t *b
  */
 noxtls_return_t noxtls_ecdsa_signature_parse_der(const uint8_t *der, uint32_t der_len, ecdsa_signature_t *out, uint32_t coord_size)
 {
-    const uint8_t *ptr = der;
-    const uint8_t *end = der + der_len;
+    const uint8_t *ptr;
+    const uint8_t *end;
     uint32_t seq_len;
     uint32_t r_len;
     uint32_t s_len;
@@ -276,6 +276,9 @@ noxtls_return_t noxtls_ecdsa_signature_parse_der(const uint8_t *der, uint32_t de
     if(der == NULL || out == NULL || coord_size == 0 || coord_size > ECC_MAX_KEY_SIZE) {
         return NOXTLS_RETURN_NULL;
     }
+
+    ptr = der;
+    end = der + der_len;
 
     if(ptr >= end || ecdsa_der_get_tag(&ptr, end, 0x30) != 0) {
         return NOXTLS_RETURN_BAD_DATA;
@@ -750,4 +753,3 @@ cleanup_verify:
 
     return rc;
 }
-

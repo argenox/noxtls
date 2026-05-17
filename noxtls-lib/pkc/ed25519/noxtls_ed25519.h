@@ -73,6 +73,18 @@ extern "C" {
 /** DRBG output length for private seed in bits (32 bytes). */
 #define NOXTLS_ED25519_DRBG_SEED_BITS       256U
 
+
+/* Extended homogeneous point (X, Y, Z, T) with T = X*Y/Z. All 32-byte BE. */
+typedef struct 
+{ 
+    uint8_t X[NOXTLS_ED25519_FE25519_BYTES];
+    uint8_t Y[NOXTLS_ED25519_FE25519_BYTES];
+    uint8_t Z[NOXTLS_ED25519_FE25519_BYTES];
+    uint8_t T[NOXTLS_ED25519_FE25519_BYTES];
+     
+} ge25519_pt_t;
+
+
 /**
  * @brief Generate an Ed25519 key pair using the library DRBG.
  * @param private_key Output 32-byte seed (little-endian).

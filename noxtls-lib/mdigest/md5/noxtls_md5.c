@@ -377,7 +377,7 @@ noxtls_return_t noxtls_md5_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
  * @return NOXTLS_RETURN_SUCCESS if the computed digest equals expected.
  * @return NOXTLS_RETURN_FAILED if the digests differ or hashing did not succeed.
  */
-noxtls_return_t noxtls_md5_verify(uint8_t * data, uint32_t len, uint8_t * expected)
+noxtls_return_t noxtls_md5_verify(const uint8_t * data, uint32_t len, const uint8_t * expected)
 {
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
     

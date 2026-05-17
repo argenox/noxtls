@@ -32,8 +32,12 @@
 *
 * File:    noxtls_tls12.c
 * Summary: TLS 1.2 Implementation
-*
 */
+
+// cppcheck-suppress-file unusedFunction
+// cppcheck-suppress-file variableScope
+// cppcheck-suppress-file constVariablePointer
+// cppcheck-suppress-file constParameterPointer
 
 #include <stdint.h>
 #include <stdio.h>
@@ -62,6 +66,18 @@
 #ifndef NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES
 #define NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES 0
 #endif
+
+
+static tls12_session_cache_entry_t g_tls12_session_cache[TLS12_SESSION_CACHE_SIZE];
+static tls12_ticket_cache_entry_t g_tls12_ticket_cache[TLS12_TICKET_CACHE_SIZE];
+
+static void tls12_dtls_on_send_ccs(tls12_context_t *ctx);
+static noxtls_return_t tls12_send_protected_alert(tls12_context_t *ctx, uint8_t level, uint8_t desc);
+static int tls12_cipher_suite_is_ecdhe_ecdsa(uint16_t cs);
+static noxtls_return_t tls12_handle_heartbeat_record(tls12_context_t *ctx, const uint8_t *record_data, uint32_t record_len);
+static noxtls_return_t tls12_send_certificate_status(tls12_context_t *ctx);
+static noxtls_return_t tls12_recv_certificate_status(tls12_context_t *ctx);
+
 
 static int tls12_suite_supports_encrypt_then_mac(uint16_t suite)
 {
@@ -92,13 +108,6 @@ static int tls12_suite_supports_encrypt_then_mac(uint16_t suite)
             return 0;
     }
 }
-
-static void tls12_dtls_on_send_ccs(tls12_context_t *ctx);
-static noxtls_return_t tls12_send_protected_alert(tls12_context_t *ctx, uint8_t level, uint8_t desc);
-static int tls12_cipher_suite_is_ecdhe_ecdsa(uint16_t cs);
-static noxtls_return_t tls12_handle_heartbeat_record(tls12_context_t *ctx, const uint8_t *record_data, uint32_t record_len);
-static noxtls_return_t tls12_send_certificate_status(tls12_context_t *ctx);
-static noxtls_return_t tls12_recv_certificate_status(tls12_context_t *ctx);
 
 /**
  * @brief Initialize TLS 1.2 context
@@ -385,44 +394,9 @@ static void tls12_inc_recv_seq(tls12_context_t *ctx)
     }
 }
 
-#define TLS12_SESSION_CACHE_SIZE 16u
-#define TLS12_SESSION_SNI_MAX 255u
 
-typedef struct {
-    uint8_t id[TLS_SESSION_ID_MAX_LEN];
-    uint8_t id_len;
-    uint8_t master_secret[48];
-    uint16_t cipher_suite;
-    uint8_t alpn[NOXTLS_TLS_ALPN_MAX_PROTOCOL_LEN + 1u];
-    uint16_t alpn_len;
-    uint16_t sni_len;
-    uint8_t sni[255];
-    uint8_t extended_master_secret; /* RFC 7627: session established with EMS */
-    uint8_t in_use;
-} tls12_session_cache_entry_t;
 
-static tls12_session_cache_entry_t g_tls12_session_cache[TLS12_SESSION_CACHE_SIZE];
 
-#define TLS12_TICKET_CACHE_SIZE 32u
-#define TLS12_TICKET_MAX_LEN 256u
-#define TLS12_TICKET_LIFETIME_HINT 86400u
-
-typedef struct {
-    uint8_t ticket[TLS12_TICKET_MAX_LEN];
-    uint16_t ticket_len;
-    uint8_t master_secret[48];
-    uint16_t cipher_suite;
-    uint8_t alpn[NOXTLS_TLS_ALPN_MAX_PROTOCOL_LEN + 1u];
-    uint16_t alpn_len;
-    uint16_t sni_len;
-    uint8_t sni[255];
-    uint8_t extended_master_secret;
-    uint32_t issued_at;
-    uint32_t lifetime_hint;
-    uint8_t in_use;
-} tls12_ticket_cache_entry_t;
-
-static tls12_ticket_cache_entry_t g_tls12_ticket_cache[TLS12_TICKET_CACHE_SIZE];
 
 static tls12_session_cache_entry_t *tls12_session_cache_find(const uint8_t *id, uint8_t id_len)
 {
@@ -1813,7 +1787,7 @@ static noxtls_return_t tls12_append_handshake_message(tls12_context_t *ctx, cons
     uint32_t new_len = ctx->handshake_messages_len + len;
     /* Reallocate buffer to accommodate new noxtls_message */
     uint8_t *new_buffer = (uint8_t*)realloc(ctx->handshake_messages, new_len);
-    if(new_buffer == NULL && len > 0) {
+    if(new_buffer == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
     
@@ -1937,22 +1911,16 @@ static noxtls_return_t tls12_compute_finished_verify_data(tls12_context_t *ctx, 
  */
 noxtls_return_t noxtls_tls12_send_client_hello(tls12_context_t *ctx)
 {
-    uint8_t *client_hello = ctx->handshake_workspace;
-    if(client_hello == NULL) {
-        client_hello = (uint8_t*)noxtls_malloc(TLS_CLIENT_HELLO_DEFAULT_SIZE);
-        if(client_hello == NULL) {
-            return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
-        }
-    }
+    uint8_t *client_hello;
     uint32_t offset = 0;
     drbg_state_t drbg_state;
     /* TLS 1.0/1.1: only RSA key exchange with CBC SHA suites */
-    uint16_t cipher_suites_10_11[] = {
+    const uint16_t cipher_suites_10_11[] = {
         TLS_CIPHER_SUITE_RSA_WITH_AES_256_CBC_SHA,
         TLS_CIPHER_SUITE_RSA_WITH_AES_128_CBC_SHA,
         TLS_CIPHER_SUITE_RSA_WITH_3DES_EDE_CBC_SHA
     };
-    uint16_t cipher_suites_12[] = {
+    const uint16_t cipher_suites_12[] = {
         TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
         TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
         TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384,
@@ -1991,14 +1959,24 @@ noxtls_return_t noxtls_tls12_send_client_hello(tls12_context_t *ctx)
         TLS_CIPHER_SUITE_RSA_WITH_3DES_EDE_CBC_SHA
 #endif
     };
-    uint16_t *cipher_suites = (ctx->base.base.version <= TLS_VERSION_1_1) ? cipher_suites_10_11 : cipher_suites_12;
-    uint32_t num_cipher_suites = (ctx->base.base.version <= TLS_VERSION_1_1)
-        ? (sizeof(cipher_suites_10_11) / sizeof(cipher_suites_10_11[0]))
-        : (sizeof(cipher_suites_12) / sizeof(cipher_suites_12[0]));
+    const uint16_t *cipher_suites;
+    uint32_t num_cipher_suites;
     
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
+
+    client_hello = ctx->handshake_workspace;
+    if(client_hello == NULL) {
+        client_hello = (uint8_t*)noxtls_malloc(TLS_CLIENT_HELLO_DEFAULT_SIZE);
+        if(client_hello == NULL) {
+            return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+        }
+    }
+    cipher_suites = (ctx->base.base.version <= TLS_VERSION_1_1) ? cipher_suites_10_11 : cipher_suites_12;
+    num_cipher_suites = (ctx->base.base.version <= TLS_VERSION_1_1)
+        ? (sizeof(cipher_suites_10_11) / sizeof(cipher_suites_10_11[0]))
+        : (sizeof(cipher_suites_12) / sizeof(cipher_suites_12[0]));
     
     /* Generate client random */
     if(drbg_instantiate(&drbg_state, DRBG_AES256, NULL, 0, NULL, 0, NULL, 0) != NOXTLS_RETURN_SUCCESS) {
@@ -2537,33 +2515,30 @@ noxtls_return_t noxtls_tls12_recv_server_hello(tls12_context_t *ctx)
             return rc;
         }
     }
-    if(record.length > 0 && record.data == NULL) {
+    if(record.data == NULL || record.length < 1u) {
+        free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
     noxtls_debug_printf("[TLS12_DEBUG] noxtls_tls12_recv_server_hello: Record received - type=%u, length=%u\n",
                           record.type, record.length);
     
     if(record.type != TLS_RECORD_HANDSHAKE || record.length < 38) {
-        if(record.data) free(record.data);
+        free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
     
     if(record.data[0] == DTLS_HANDSHAKE_HELLO_VERIFY_REQUEST && tls12_is_dtls(ctx)) {
         uint32_t offset = 4;
         uint8_t cookie_len;
-        if(record.length < 7) {
-            if(record.data) free(record.data);
-            return NOXTLS_RETURN_FAILED;
-        }
         offset += 2; /* server_version */
         cookie_len = record.data[offset++];
         if(offset + cookie_len > record.length || cookie_len > sizeof(ctx->base.cookie)) {
-            if(record.data) free(record.data);
+            free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
         memcpy(ctx->base.cookie, record.data + offset, cookie_len);
         ctx->base.cookie_len = cookie_len;
-        if(record.data) free(record.data);
+        free(record.data);
 
         /* Re-send ClientHello with cookie and wait for ServerHello */
         rc = noxtls_tls12_send_client_hello(ctx);
@@ -2574,14 +2549,14 @@ noxtls_return_t noxtls_tls12_recv_server_hello(tls12_context_t *ctx)
     }
 
     if(record.data[0] != TLS_HANDSHAKE_SERVER_HELLO) {
-        if(record.data) free(record.data);
+        free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
     tls12_inc_recv_seq(ctx);
     
     /* Parse Server Hello (after 4-byte handshake header) */
     if(record.length < 4 + 2 + 32 + 1 + 2 + 1) {
-        if(record.data) free(record.data);
+        free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
     uint32_t offset = 4;
@@ -2593,13 +2568,13 @@ noxtls_return_t noxtls_tls12_recv_server_hello(tls12_context_t *ctx)
     /* Session ID */
     uint8_t session_id_len = record.data[offset++];
     if(offset + session_id_len > record.length) {
-        if(record.data) free(record.data);
+        free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
     offset += session_id_len;
     /* Cipher suite (2 bytes) */
     if(offset + 2 > record.length) {
-        if(record.data) free(record.data);
+        free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
     ctx->cipher_suite = (record.data[offset] << 8) | record.data[offset + 1];
@@ -2616,7 +2591,7 @@ noxtls_return_t noxtls_tls12_recv_server_hello(tls12_context_t *ctx)
     offset += 2;
     /* Compression method (1 byte) */
     if(offset + 1 > record.length) {
-        if(record.data) free(record.data);
+        free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
     offset += 1;
@@ -2649,11 +2624,11 @@ noxtls_return_t noxtls_tls12_recv_server_hello(tls12_context_t *ctx)
                     }
                 } else if(etype == TLS_EXTENSION_STATUS_REQUEST) {
                     if(elen != 0u) {
-                        if(record.data) free(record.data);
+                        free(record.data);
                         return NOXTLS_RETURN_BAD_DATA;
                     }
                     if(ctx->client_request_ocsp_status == 0u) {
-                        if(record.data) free(record.data);
+                        free(record.data);
                         if(ctx->base.base.send_callback != NULL) {
                             (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_UNSUPPORTED_EXTENSION);
                         }
@@ -2662,14 +2637,14 @@ noxtls_return_t noxtls_tls12_recv_server_hello(tls12_context_t *ctx)
                     ctx->status_request_negotiated = 1u;
                 } else if(etype == TLS_EXTENSION_HEARTBEAT) {
                     if(elen != 1u) {
-                        if(record.data) free(record.data);
+                        free(record.data);
                         return NOXTLS_RETURN_BAD_DATA;
                     }
                     {
                         uint8_t mode = record.data[offset];
                         if(mode != TLS_HEARTBEAT_MODE_PEER_ALLOWED_TO_SEND &&
                            mode != TLS_HEARTBEAT_MODE_PEER_NOT_ALLOWED_TO_SEND) {
-                            if(record.data) free(record.data);
+                            free(record.data);
                             return NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER;
                         }
                         server_heartbeat_seen = 1;
@@ -2683,7 +2658,7 @@ noxtls_return_t noxtls_tls12_recv_server_hello(tls12_context_t *ctx)
             ctx->use_encrypt_then_mac = 1;
         }
         if(server_heartbeat_seen && ctx->heartbeat_enabled == 0u) {
-            if(record.data) free(record.data);
+            free(record.data);
             return NOXTLS_RETURN_NOT_SUPPORTED;
         }
         if(server_heartbeat_seen && ctx->heartbeat_enabled != 0u) {
@@ -2698,7 +2673,7 @@ noxtls_return_t noxtls_tls12_recv_server_hello(tls12_context_t *ctx)
     NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_HANDSHAKE, NOXSIGHT_SEVERITY_INFO,
                     NOXTLS_EVT_SERVER_HELLO_RECV, ctx->cipher_suite, record.length);
     
-    if(record.data) free(record.data);
+    free(record.data);
     
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -2730,11 +2705,11 @@ static noxtls_return_t tls12_recv_handshake_message(tls12_context_t *ctx,
         return rc;
     }
     if(record.length < 4 || record.data == NULL || record.type != TLS_RECORD_HANDSHAKE) {
-        if(record.data) noxtls_free(record.data);
+        noxtls_free(record.data);
         return NOXTLS_RETURN_TLS_ERROR;
     }
     if(record.data[0] != expected_type) {
-        if(record.data) noxtls_free(record.data);
+        noxtls_free(record.data);
         return NOXTLS_RETURN_TLS_ERROR;
     }
 
@@ -2743,20 +2718,20 @@ static noxtls_return_t tls12_recv_handshake_message(tls12_context_t *ctx,
                   (uint32_t)record.data[3];
     hs_total_len = 4u + hs_body_len;
     if(hs_total_len > (TLS_MAX_HANDSHAKE_SIZE + 4u)) {
-        if(record.data) noxtls_free(record.data);
+        noxtls_free(record.data);
         return NOXTLS_RETURN_BAD_DATA;
     }
 
     msg = (uint8_t *)noxtls_malloc(hs_total_len);
     if(msg == NULL) {
-        if(record.data) noxtls_free(record.data);
+        noxtls_free(record.data);
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
 
     copied = (record.length < hs_total_len) ? record.length : hs_total_len;
     memcpy(msg, record.data, copied);
     tls12_inc_recv_seq(ctx);
-    if(record.data) noxtls_free(record.data);
+    noxtls_free(record.data);
     record.data = NULL;
 
     while(copied < hs_total_len) {
@@ -2769,21 +2744,21 @@ static noxtls_return_t tls12_recv_handshake_message(tls12_context_t *ctx,
             return rc;
         }
         if(record.type != TLS_RECORD_HANDSHAKE || record.length == 0 || record.data == NULL) {
-            if(record.data) noxtls_free(record.data);
+            noxtls_free(record.data);
             noxtls_free(msg);
             return NOXTLS_RETURN_TLS_ERROR;
         }
         remain = hs_total_len - copied;
-        take = (record.length < remain) ? record.length : remain;
-        memcpy(msg + copied, record.data, take);
-        copied += take;
-        tls12_inc_recv_seq(ctx);
-        if(record.length > take) {
-            if(record.data) noxtls_free(record.data);
+        if(record.length > remain) {
+            noxtls_free(record.data);
             noxtls_free(msg);
             return NOXTLS_RETURN_BAD_DATA;
         }
-        if(record.data) noxtls_free(record.data);
+        take = record.length;
+        memcpy(msg + copied, record.data, take);
+        copied += take;
+        tls12_inc_recv_seq(ctx);
+        noxtls_free(record.data);
         record.data = NULL;
     }
 
@@ -2829,7 +2804,7 @@ noxtls_return_t noxtls_tls12_recv_certificate(tls12_context_t *ctx)
         noxtls_debug_printf("[TLS12_DEBUG] noxtls_tls12_recv_certificate: Invalid record type or length\n");
         NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_X509, NOXSIGHT_SEVERITY_ERROR,
                         NOXTLS_EVT_CERT_PARSE_FAIL, TLS_RECORD_HANDSHAKE, hs_len);
-        if(hs_msg) noxtls_free(hs_msg);
+        noxtls_free(hs_msg);
         return NOXTLS_RETURN_TLS_ERROR;
     }
     
@@ -2838,7 +2813,7 @@ noxtls_return_t noxtls_tls12_recv_certificate(tls12_context_t *ctx)
                             hs_msg[0]);
         NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_X509, NOXSIGHT_SEVERITY_ERROR,
                         NOXTLS_EVT_CERT_PARSE_FAIL, hs_msg[0], hs_len);
-        if(hs_msg) noxtls_free(hs_msg);
+        noxtls_free(hs_msg);
         return NOXTLS_RETURN_TLS_ERROR;
     }
     
@@ -2852,7 +2827,7 @@ noxtls_return_t noxtls_tls12_recv_certificate(tls12_context_t *ctx)
     {
         if(cert_list_len < 3 || cert_list_len > hs_len - 7u) {
             noxtls_debug_printf("[TLS12_DEBUG] noxtls_tls12_recv_certificate: Invalid certificate list length\n");
-            if(hs_msg) noxtls_free(hs_msg);
+            noxtls_free(hs_msg);
             return NOXTLS_RETURN_FAILED;
         }
     }
@@ -2863,7 +2838,7 @@ noxtls_return_t noxtls_tls12_recv_certificate(tls12_context_t *ctx)
     
     if(cert_len > cert_list_len - 3) {
         noxtls_debug_printf("[TLS12_DEBUG] noxtls_tls12_recv_certificate: Certificate length exceeds list length\n");
-        if(hs_msg) noxtls_free(hs_msg);
+        noxtls_free(hs_msg);
         return NOXTLS_RETURN_FAILED;
     }
     
@@ -2876,7 +2851,7 @@ noxtls_return_t noxtls_tls12_recv_certificate(tls12_context_t *ctx)
     ctx->server_cert = (uint8_t*)noxtls_malloc(cert_len);
     if(ctx->server_cert == NULL) {
         noxtls_debug_printf("[TLS12_DEBUG] noxtls_tls12_recv_certificate: Memory allocation failed\n");
-        if(hs_msg) noxtls_free(hs_msg);
+        noxtls_free(hs_msg);
         return NOXTLS_RETURN_FAILED;
     }
     
@@ -2893,7 +2868,7 @@ noxtls_return_t noxtls_tls12_recv_certificate(tls12_context_t *ctx)
         uint32_t chain_pos = 10u + cert_len;
         uint32_t chain_end = 7u + cert_list_len;
         if(noxtls_x509_certificate_chain_init(&presented_chain) != NOXTLS_RETURN_SUCCESS) {
-            if(hs_msg) noxtls_free(hs_msg);
+            noxtls_free(hs_msg);
             return NOXTLS_RETURN_FAILED;
         }
         presented_chain_ready = 1;
@@ -2925,7 +2900,7 @@ noxtls_return_t noxtls_tls12_recv_certificate(tls12_context_t *ctx)
                         noxtls_free(parsed_cert);
                         ctx->server_cert_parsed = NULL;
                         noxtls_x509_certificate_chain_free(&presented_chain);
-                        if(hs_msg) noxtls_free(hs_msg);
+                        noxtls_free(hs_msg);
                         return hr;
                     }
                 }
@@ -2938,7 +2913,7 @@ noxtls_return_t noxtls_tls12_recv_certificate(tls12_context_t *ctx)
                     chain_pos += 3u;
                     if(issuer_len == 0 || chain_pos + issuer_len > chain_end) {
                         noxtls_x509_certificate_chain_free(&presented_chain);
-                        if(hs_msg) noxtls_free(hs_msg);
+                        noxtls_free(hs_msg);
                         return NOXTLS_RETURN_FAILED;
                     }
 
@@ -2947,7 +2922,7 @@ noxtls_return_t noxtls_tls12_recv_certificate(tls12_context_t *ctx)
                     if(rc != NOXTLS_RETURN_SUCCESS) {
                         noxtls_x509_certificate_free(&issuer_cert);
                         noxtls_x509_certificate_chain_free(&presented_chain);
-                        if(hs_msg) noxtls_free(hs_msg);
+                        noxtls_free(hs_msg);
                         return rc;
                     }
 
@@ -2955,7 +2930,7 @@ noxtls_return_t noxtls_tls12_recv_certificate(tls12_context_t *ctx)
                     noxtls_x509_certificate_free(&issuer_cert);
                     if(rc != NOXTLS_RETURN_SUCCESS) {
                         noxtls_x509_certificate_chain_free(&presented_chain);
-                        if(hs_msg) noxtls_free(hs_msg);
+                        noxtls_free(hs_msg);
                         return rc;
                     }
                     chain_pos += issuer_len;
@@ -2963,7 +2938,7 @@ noxtls_return_t noxtls_tls12_recv_certificate(tls12_context_t *ctx)
 
                 if(chain_pos != chain_end) {
                     noxtls_x509_certificate_chain_free(&presented_chain);
-                    if(hs_msg) noxtls_free(hs_msg);
+                    noxtls_free(hs_msg);
                     return NOXTLS_RETURN_FAILED;
                 }
 
@@ -2976,7 +2951,7 @@ noxtls_return_t noxtls_tls12_recv_certificate(tls12_context_t *ctx)
                     noxtls_x509_certificate_free(parsed_cert);
                     noxtls_free(parsed_cert);
                     ctx->server_cert_parsed = NULL;
-                    if(hs_msg) noxtls_free(hs_msg);
+                    noxtls_free(hs_msg);
                     return rc;
                 }
             } else {
@@ -2985,12 +2960,12 @@ noxtls_return_t noxtls_tls12_recv_certificate(tls12_context_t *ctx)
                 noxtls_x509_certificate_free(parsed_cert);
                 noxtls_free(parsed_cert);
                 noxtls_x509_certificate_chain_free(&presented_chain);
-                if(hs_msg) noxtls_free(hs_msg);
+                noxtls_free(hs_msg);
                 return parse_rc;
             }
         } else {
             noxtls_x509_certificate_chain_free(&presented_chain);
-            if(hs_msg) noxtls_free(hs_msg);
+            noxtls_free(hs_msg);
             return NOXTLS_RETURN_FAILED;
         }
     }
@@ -3000,7 +2975,7 @@ noxtls_return_t noxtls_tls12_recv_certificate(tls12_context_t *ctx)
     
     noxtls_debug_printf("[TLS12_DEBUG] noxtls_tls12_recv_certificate: Freeing record data...\n");
     fflush(stdout);
-    if(hs_msg) noxtls_free(hs_msg);
+    noxtls_free(hs_msg);
     if(presented_chain_ready) {
         noxtls_x509_certificate_chain_free(&presented_chain);
     }
@@ -3039,21 +3014,22 @@ noxtls_return_t noxtls_tls12_recv_server_key_exchange(tls12_context_t *ctx)
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    if(record.length > 0 && record.data == NULL) {
+    if(record.data == NULL || record.length < 1u) {
+        free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
     noxtls_debug_printf("[TLS12_DEBUG] noxtls_tls12_recv_server_key_exchange: Record received - type=%u, length=%u\n",
                           record.type, record.length);
     
     if(record.type != TLS_RECORD_HANDSHAKE) {
-        if(record.data) free(record.data);
+        free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
     noxtls_debug_printf("[TLS12_DEBUG] noxtls_tls12_recv_server_key_exchange: hs_type=0x%02X\n",
                           record.length > 0 ? record.data[0] : 0);
     
     if(record.data[0] != TLS_HANDSHAKE_SERVER_KEY_EXCHANGE) {
-        if(record.data) free(record.data);
+        free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
     tls12_inc_recv_seq(ctx);
@@ -3091,18 +3067,18 @@ noxtls_return_t noxtls_tls12_recv_server_key_exchange(tls12_context_t *ctx)
         /* DHE: Parse Server Key Exchange and compute premaster */
         uint16_t named_group;
         if(tls12_cipher_suite_to_ffdhe_group(ctx->cipher_suite, &named_group) != NOXTLS_RETURN_SUCCESS) {
-            if(record.data) free(record.data);
+            free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
         tls_dhe_context_t *dhe_ctx = (tls_dhe_context_t*)malloc(sizeof(tls_dhe_context_t));
         if(dhe_ctx == NULL) {
-            if(record.data) free(record.data);
+            free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
         rc = noxtls_tls_dhe_context_init(dhe_ctx, named_group);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             free(dhe_ctx);
-            if(record.data) free(record.data);
+            free(record.data);
             return rc;
         }
         ctx->dhe_ctx = dhe_ctx;
@@ -3111,11 +3087,11 @@ noxtls_return_t noxtls_tls12_recv_server_key_exchange(tls12_context_t *ctx)
             noxtls_tls_dhe_context_free(dhe_ctx);
             free(dhe_ctx);
             ctx->dhe_ctx = NULL;
-            if(record.data) free(record.data);
+            free(record.data);
             return rc;
         }
         tls12_append_handshake_message(ctx, record.data, record.length);
-        if(record.data) free(record.data);
+        free(record.data);
         return NOXTLS_RETURN_SUCCESS;
     }
     
@@ -3128,7 +3104,7 @@ noxtls_return_t noxtls_tls12_recv_server_key_exchange(tls12_context_t *ctx)
         ecc_point_t peer_public_key;
         
         if(msg_offset >= record.length) {
-            if(record.data) free(record.data);
+            free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
         curve_type = record.data[msg_offset++];
@@ -3136,12 +3112,12 @@ noxtls_return_t noxtls_tls12_recv_server_key_exchange(tls12_context_t *ctx)
         fflush(stdout);
         
         if(curve_type != TLS_EC_CURVE_TYPE_NAMED) {  /* Must be named_curve */
-            if(record.data) free(record.data);
+            free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
         
         if(msg_offset + 2 > record.length) {
-            if(record.data) free(record.data);
+            free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
         named_curve = (record.data[msg_offset] << 8) | record.data[msg_offset + 1];
@@ -3153,7 +3129,7 @@ noxtls_return_t noxtls_tls12_recv_server_key_exchange(tls12_context_t *ctx)
         if(named_curve != TLS_NAMED_GROUP_SECP256R1 &&
            named_curve != TLS_NAMED_GROUP_SECP384R1 &&
            named_curve != TLS_NAMED_GROUP_SECP521R1) {
-            if(record.data) free(record.data);
+            free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
         
@@ -3169,13 +3145,13 @@ noxtls_return_t noxtls_tls12_recv_server_key_exchange(tls12_context_t *ctx)
             fflush(stdout);
             ecdhe_ctx = (tls_ecdhe_context_t*)malloc(sizeof(tls_ecdhe_context_t));
             if(ecdhe_ctx == NULL) {
-                if(record.data) free(record.data);
+                free(record.data);
                 return NOXTLS_RETURN_FAILED;
             }
             rc = noxtls_tls_ecdhe_context_init(ecdhe_ctx, named_curve);
             if(rc != NOXTLS_RETURN_SUCCESS) {
                 free(ecdhe_ctx);
-                if(record.data) free(record.data);
+                free(record.data);
                 return rc;
             }
             noxtls_debug_printf("[TLS12_DEBUG] noxtls_tls12_recv_server_key_exchange: noxtls_tls_ecdhe_generate_ephemeral_key...\n");
@@ -3184,7 +3160,7 @@ noxtls_return_t noxtls_tls12_recv_server_key_exchange(tls12_context_t *ctx)
             if(rc != NOXTLS_RETURN_SUCCESS) {
                 noxtls_tls_ecdhe_context_free(ecdhe_ctx);
                 free(ecdhe_ctx);
-                if(record.data) free(record.data);
+                free(record.data);
                 return rc;
             }
             noxtls_debug_printf("[TLS12_DEBUG] noxtls_tls12_recv_server_key_exchange: local ephemeral key ready\n");
@@ -3196,7 +3172,7 @@ noxtls_return_t noxtls_tls12_recv_server_key_exchange(tls12_context_t *ctx)
         noxtls_debug_printf("[TLS12_DEBUG] noxtls_tls12_recv_server_key_exchange: reading public_key_len at offset=%u\n", msg_offset);
         fflush(stdout);
         if(msg_offset >= record.length) {
-            if(record.data) free(record.data);
+            free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
         public_key_len = record.data[msg_offset++];
@@ -3206,7 +3182,7 @@ noxtls_return_t noxtls_tls12_recv_server_key_exchange(tls12_context_t *ctx)
         
         /* Public key */
         if(msg_offset + public_key_len > record.length) {
-            if(record.data) free(record.data);
+            free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
         
@@ -3215,7 +3191,7 @@ noxtls_return_t noxtls_tls12_recv_server_key_exchange(tls12_context_t *ctx)
         fflush(stdout);
         rc = noxtls_tls_decode_ecc_point_uncompressed(record.data + msg_offset, public_key_len, &peer_public_key, ecdhe_ctx->curve_type);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            if(record.data) free(record.data);
+            free(record.data);
             return rc;
         }
         
@@ -3224,7 +3200,7 @@ noxtls_return_t noxtls_tls12_recv_server_key_exchange(tls12_context_t *ctx)
         fflush(stdout);
         rc = noxtls_tls_ecdhe_compute_shared_secret(ecdhe_ctx, &peer_public_key);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            if(record.data) free(record.data);
+            free(record.data);
             return rc;
         }
         noxtls_debug_printf("[TLS12_DEBUG] noxtls_tls12_recv_server_key_exchange: Shared secret computed\n");
@@ -3235,7 +3211,7 @@ noxtls_return_t noxtls_tls12_recv_server_key_exchange(tls12_context_t *ctx)
             uint32_t premaster_len = tls12_get_ecdh_premaster_len(ecdhe_ctx->named_group);
             if(premaster_len == 0 || ecdhe_ctx->shared_secret_len < premaster_len ||
                premaster_len > sizeof(ctx->premaster_secret)) {
-                if(record.data) free(record.data);
+                free(record.data);
                 return NOXTLS_RETURN_FAILED;
             }
             noxtls_debug_printf("[TLS12_DEBUG] ecdhe premaster_len=%u (group=0x%04X) shared_len=%u\n",
@@ -3250,7 +3226,7 @@ noxtls_return_t noxtls_tls12_recv_server_key_exchange(tls12_context_t *ctx)
             fflush(stdout);
         } else {
             noxtls_debug_printf("ERROR: ECDHE shared secret not available after Server Key Exchange\n");
-            if(record.data) free(record.data);
+            free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
     }
@@ -3259,7 +3235,7 @@ noxtls_return_t noxtls_tls12_recv_server_key_exchange(tls12_context_t *ctx)
     tls12_append_handshake_message(ctx, record.data, record.length);
     noxtls_debug_printf("[TLS12_DEBUG] noxtls_tls12_recv_server_key_exchange: Completed\n");
     
-    if(record.data) free(record.data);
+    free(record.data);
     
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -3281,19 +3257,20 @@ noxtls_return_t noxtls_tls12_recv_server_hello_done(tls12_context_t *ctx)
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    if(record.length > 0 && record.data == NULL) {
+    if(record.data == NULL || record.length < 1u) {
+        free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
     noxtls_debug_printf("[TLS12_DEBUG] noxtls_tls12_recv_server_hello_done: Record received - type=%u, length=%u, hs_type=0x%02X\n",
                           record.type, record.length, record.length > 0 ? record.data[0] : 0);
     
     if(record.type != TLS_RECORD_HANDSHAKE || record.length != 4) {
-        if(record.data) free(record.data);
+        free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
     
     if(record.data[0] != TLS_HANDSHAKE_SERVER_HELLO_DONE) {
-        if(record.data) free(record.data);
+        free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
     tls12_inc_recv_seq(ctx);
@@ -3301,7 +3278,7 @@ noxtls_return_t noxtls_tls12_recv_server_hello_done(tls12_context_t *ctx)
     /* Append to handshake messages (for Finished verify_data computation) */
     tls12_append_handshake_message(ctx, record.data, record.length);
     
-    if(record.data) free(record.data);
+    free(record.data);
     
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -3676,18 +3653,18 @@ noxtls_return_t noxtls_tls12_recv_change_cipher_spec(tls12_context_t *ctx)
             break;
         }
         if(!(ctx->renegotiation_in_progress && record.type == TLS_RECORD_APPLICATION_DATA)) {
-            if(record.data) free(record.data);
+            free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
         app_buf = (ctx->record_workspace != NULL) ? ctx->record_workspace : (uint8_t*)noxtls_malloc(TLS_MAX_RECORD_SIZE);
         if(app_buf == NULL) {
-            if(record.data) free(record.data);
+            free(record.data);
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         }
         rc = noxtls_tls12_decrypt_record(ctx, TLS_RECORD_APPLICATION_DATA,
                                          record.data, record.length,
                                          app_buf, &app_len);
-        if(record.data) free(record.data);
+        free(record.data);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             if(app_buf != ctx->record_workspace) noxtls_free(app_buf);
             return rc;
@@ -3706,7 +3683,7 @@ noxtls_return_t noxtls_tls12_recv_change_cipher_spec(tls12_context_t *ctx)
         rc = noxtls_tls12_decrypt_record(ctx, TLS_RECORD_CHANGE_CIPHER_SPEC,
                                          record.data, record.length,
                                          ccs_plain, &ccs_len);
-        if(record.data) free(record.data);
+        free(record.data);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
@@ -3715,11 +3692,11 @@ noxtls_return_t noxtls_tls12_recv_change_cipher_spec(tls12_context_t *ctx)
         }
     } else {
         if(record.length != 1 || record.data == NULL || record.data[0] != TLS_RECORD_CCS_PAYLOAD) {
-            if(record.data) free(record.data);
+            free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
         tls12_inc_recv_seq(ctx);
-        if(record.data) free(record.data);
+        free(record.data);
     }
     /* Reset sequence number for new cipher state (receive side). */
     if(ctx->base.base.role == TLS_ROLE_CLIENT) {
@@ -3751,7 +3728,7 @@ noxtls_return_t noxtls_tls12_recv_finished(tls12_context_t *ctx)
     
     noxtls_debug_printf("[TLS12_DEBUG] recv_finished: record type=%u len=%u\n", record.type, record.length);
     if(record.type != TLS_RECORD_HANDSHAKE) {
-        if(record.data) free(record.data);
+        free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
 
@@ -3762,7 +3739,7 @@ noxtls_return_t noxtls_tls12_recv_finished(tls12_context_t *ctx)
     if(decrypted == NULL) {
         decrypted = (uint8_t*)noxtls_malloc(decrypted_len);
         if(decrypted == NULL) {
-            if(record.data) free(record.data);
+            free(record.data);
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         }
     }
@@ -3804,7 +3781,7 @@ noxtls_return_t noxtls_tls12_recv_finished(tls12_context_t *ctx)
     
     uint8_t computed_verify_data[12];
     if(tls12_compute_finished_verify_data(ctx, "server finished", computed_verify_data, hash_algo) != NOXTLS_RETURN_SUCCESS) {
-        if(record.data) free(record.data);
+        free(record.data);
         if(decrypted != ctx->record_workspace) noxtls_free(decrypted);
         return NOXTLS_RETURN_FAILED;
     }
@@ -3827,7 +3804,7 @@ noxtls_return_t noxtls_tls12_recv_finished(tls12_context_t *ctx)
     /* Append peer Finished to transcript for any subsequent verify */
     tls12_append_handshake_message(ctx, finished_msg, finished_len);
 
-    if(record.data) free(record.data);
+    free(record.data);
     if(decrypted != ctx->record_workspace) noxtls_free(decrypted);
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -4312,27 +4289,21 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
             if(ctx->base.base.send_callback != NULL) {
                 (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_UNEXPECTED_MESSAGE);
             }
-            if(record.data) {
-                free(record.data);
-            }
+            free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
         if(record.length < 1u) {
             if(ctx->base.base.send_callback != NULL) {
                 (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
             }
-            if(record.data) {
-                free(record.data);
-            }
+            free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
         if(record.data[0] != TLS_HANDSHAKE_CLIENT_HELLO) {
             if(ctx->base.base.send_callback != NULL) {
                 (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_UNEXPECTED_MESSAGE);
             }
-            if(record.data) {
-                free(record.data);
-            }
+            free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
         tls12_inc_recv_seq(ctx);
@@ -4340,56 +4311,37 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
         while(assembled_len < 4u) {
             rc = noxtls_tls_recv_record(&ctx->base.base, &next_record);
             if(rc != NOXTLS_RETURN_SUCCESS) {
-                if(record.data) {
-                    free(record.data);
-                }
+                free(record.data);
                 return rc;
             }
             if(next_record.length > 0u && next_record.data == NULL) {
-                if(next_record.data) {
-                    free(next_record.data);
-                }
                 if(ctx->base.base.send_callback != NULL) {
                     (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
                 }
-                if(record.data) {
-                    free(record.data);
-                }
+                free(record.data);
                 return NOXTLS_RETURN_FAILED;
             }
             if(next_record.type != TLS_RECORD_HANDSHAKE) {
-                if(next_record.data) {
-                    free(next_record.data);
-                }
+                free(next_record.data);
                 if(ctx->base.base.send_callback != NULL) {
                     (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_UNEXPECTED_MESSAGE);
                 }
-                if(record.data) {
-                    free(record.data);
-                }
+                free(record.data);
                 return NOXTLS_RETURN_FAILED;
             }
             if(next_record.length > UINT32_MAX - assembled_len) {
-                if(next_record.data) {
-                    free(next_record.data);
-                }
+                free(next_record.data);
                 if(ctx->base.base.send_callback != NULL) {
                     (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
                 }
-                if(record.data) {
-                    free(record.data);
-                }
+                free(record.data);
                 return NOXTLS_RETURN_FAILED;
             }
             {
                 uint8_t *new_buf = (uint8_t*)realloc(record.data, assembled_len + (uint32_t)next_record.length);
                 if(new_buf == NULL) {
-                    if(next_record.data) {
-                        free(next_record.data);
-                    }
-                    if(record.data) {
-                        free(record.data);
-                    }
+                    free(next_record.data);
+                    free(record.data);
                     return NOXTLS_RETURN_FAILED;
                 }
                 record.data = new_buf;
@@ -4398,9 +4350,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
                 memcpy(record.data + assembled_len, next_record.data, next_record.length);
             }
             assembled_len += (uint32_t)next_record.length;
-            if(next_record.data) {
-                free(next_record.data);
-            }
+            free(next_record.data);
             tls12_inc_recv_seq(ctx);
         }
         client_hello_total_len = 4u + (((uint32_t)record.data[1] << 16) |
@@ -4410,64 +4360,43 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
             if(ctx->base.base.send_callback != NULL) {
                 (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
             }
-            if(record.data) {
-                free(record.data);
-            }
+            free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
         while(assembled_len < client_hello_total_len) {
             rc = noxtls_tls_recv_record(&ctx->base.base, &next_record);
             if(rc != NOXTLS_RETURN_SUCCESS) {
-                if(record.data) {
-                    free(record.data);
-                }
+                free(record.data);
                 return rc;
             }
             if(next_record.length > 0 && next_record.data == NULL) {
-                if(next_record.data) {
-                    free(next_record.data);
-                }
                 if(ctx->base.base.send_callback != NULL) {
                     (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
                 }
-                if(record.data) {
-                    free(record.data);
-                }
+                free(record.data);
                 return NOXTLS_RETURN_FAILED;
             }
             if(next_record.type != TLS_RECORD_HANDSHAKE) {
-                if(next_record.data) {
-                    free(next_record.data);
-                }
+                free(next_record.data);
                 if(ctx->base.base.send_callback != NULL) {
                     (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_UNEXPECTED_MESSAGE);
                 }
-                if(record.data) {
-                    free(record.data);
-                }
+                free(record.data);
                 return NOXTLS_RETURN_FAILED;
             }
             if(next_record.length > UINT32_MAX - assembled_len) {
-                if(next_record.data) {
-                    free(next_record.data);
-                }
+                free(next_record.data);
                 if(ctx->base.base.send_callback != NULL) {
                     (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
                 }
-                if(record.data) {
-                    free(record.data);
-                }
+                free(record.data);
                 return NOXTLS_RETURN_FAILED;
             }
             {
                 uint8_t *new_buf = (uint8_t*)realloc(record.data, assembled_len + (uint32_t)next_record.length);
                 if(new_buf == NULL) {
-                    if(next_record.data) {
-                        free(next_record.data);
-                    }
-                    if(record.data) {
-                        free(record.data);
-                    }
+                    free(next_record.data);
+                    free(record.data);
                     return NOXTLS_RETURN_FAILED;
                 }
                 record.data = new_buf;
@@ -4476,18 +4405,14 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
                 memcpy(record.data + assembled_len, next_record.data, next_record.length);
             }
             assembled_len += (uint32_t)next_record.length;
-            if(next_record.data) {
-                free(next_record.data);
-            }
+            free(next_record.data);
             tls12_inc_recv_seq(ctx);
         }
         if(assembled_len != client_hello_total_len) {
             if(ctx->base.base.send_callback != NULL) {
                 (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
             }
-            if(record.data) {
-                free(record.data);
-            }
+            free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
         record.length = client_hello_total_len;
@@ -4498,22 +4423,25 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
         ctx->base.base.pending_client_hello_len = 0;
     }
 
+    if(record.data == NULL) {
+        if(ctx->base.base.send_callback != NULL) {
+            (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
+        }
+        return NOXTLS_RETURN_FAILED;
+    }
+
     if(record.type != TLS_RECORD_HANDSHAKE) {
         if(ctx->base.base.send_callback != NULL) {
             (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_UNEXPECTED_MESSAGE);
         }
-        if(record.data) {
-            free(record.data);
-        }
+        free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
     if(record.length < 38u) {
         if(ctx->base.base.send_callback != NULL) {
             (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
         }
-        if(record.data) {
-            free(record.data);
-        }
+        free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
 
@@ -4521,9 +4449,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
         if(ctx->base.base.send_callback != NULL) {
             (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_UNEXPECTED_MESSAGE);
         }
-        if(record.data) {
-            free(record.data);
-        }
+        free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
     if(use_pending) {
@@ -4534,9 +4460,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
             if(ctx->base.base.send_callback != NULL) {
                 (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
             }
-            if(record.data) {
-                free(record.data);
-            }
+            free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
     }
@@ -4563,9 +4487,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
         if(ctx->base.base.send_callback != NULL) {
             (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
         }
-        if(record.data) {
-            free(record.data);
-        }
+        free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
     version = (record.data[offset] << 8) | record.data[offset + 1];
@@ -4577,9 +4499,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
         if(ctx->base.base.send_callback != NULL) {
             (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
         }
-        if(record.data) {
-            free(record.data);
-        }
+        free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
     memcpy(ctx->client_random, record.data + offset, 32);
@@ -4590,9 +4510,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
         if(ctx->base.base.send_callback != NULL) {
             (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
         }
-        if(record.data) {
-            free(record.data);
-        }
+        free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
     session_id_len = record.data[offset++];
@@ -4600,9 +4518,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
         if(ctx->base.base.send_callback != NULL) {
             (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
         }
-        if(record.data) {
-            free(record.data);
-        }
+        free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
     client_session_id = record.data + offset;
@@ -4624,7 +4540,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
             if(ctx->base.base.send_callback != NULL) {
                 (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
             }
-            if(record.data) free(record.data);
+            free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
         cookie_len = record.data[offset++];
@@ -4632,13 +4548,13 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
             if(ctx->base.base.send_callback != NULL) {
                 (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
             }
-            if(record.data) free(record.data);
+            free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
         if(cookie_len == 0 ||
            noxtls_dtls_verify_cookie(&ctx->base, record.data + offset, cookie_len) != NOXTLS_RETURN_SUCCESS) {
             rc = tls12_send_hello_verify_request(ctx, record.data, record.length);
-            if(record.data) free(record.data);
+            free(record.data);
             return (rc == NOXTLS_RETURN_SUCCESS) ? NOXTLS_RETURN_TIMEOUT : rc;
         }
         offset += cookie_len;
@@ -4649,7 +4565,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
         if(ctx->base.base.send_callback != NULL) {
             (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
         }
-        if(record.data) free(record.data);
+        free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
     cipher_suites_len = (record.data[offset] << 8) | record.data[offset + 1];
@@ -4660,9 +4576,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
         if(ctx->base.base.send_callback != NULL) {
             (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
         }
-        if(record.data) {
-            free(record.data);
-        }
+        free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
     cipher_suites_offset = offset;
@@ -4809,7 +4723,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
         if(ctx->base.base.send_callback != NULL) {
             (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
         }
-        if(record.data) free(record.data);
+        free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
     compression_methods_len = record.data[offset++];
@@ -4817,7 +4731,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
         if(ctx->base.base.send_callback != NULL) {
             (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
         }
-        if(record.data) free(record.data);
+        free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
     {
@@ -4833,7 +4747,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
             if(ctx->base.base.send_callback != NULL) {
                 (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_ILLEGAL_PARAMETER);
             }
-            if(record.data) free(record.data);
+            free(record.data);
             return NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER;
         }
     }
@@ -4856,9 +4770,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
                         (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
                     }
                 }
-                if(record.data) {
-                    free(record.data);
-                }
+                free(record.data);
                 return ext_rc;
             }
             {
@@ -4882,9 +4794,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
                         }
                         noxtls_tls_extensions_free(&ctx->client_extensions);
                         memset(&ctx->client_extensions, 0, sizeof(ctx->client_extensions));
-                        if(record.data) {
-                            free(record.data);
-                        }
+                        free(record.data);
                         return NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR;
                     }
                     if(ext_hb->data[0] != TLS_HEARTBEAT_MODE_PEER_ALLOWED_TO_SEND &&
@@ -4894,9 +4804,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
                         }
                         noxtls_tls_extensions_free(&ctx->client_extensions);
                         memset(&ctx->client_extensions, 0, sizeof(ctx->client_extensions));
-                        if(record.data) {
-                            free(record.data);
-                        }
+                        free(record.data);
                         return NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER;
                     }
                     ctx->client_heartbeat_mode = ext_hb->data[0];
@@ -4909,9 +4817,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
                         }
                         noxtls_tls_extensions_free(&ctx->client_extensions);
                         memset(&ctx->client_extensions, 0, sizeof(ctx->client_extensions));
-                        if(record.data) {
-                            free(record.data);
-                        }
+                        free(record.data);
                         return NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR;
                     }
                     if(ext_status->data[0] == 0x01u) { /* ocsp */
@@ -4924,9 +4830,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
                             }
                             noxtls_tls_extensions_free(&ctx->client_extensions);
                             memset(&ctx->client_extensions, 0, sizeof(ctx->client_extensions));
-                            if(record.data) {
-                                free(record.data);
-                            }
+                            free(record.data);
                             return NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR;
                         }
                         pos += responder_id_list_len;
@@ -4938,9 +4842,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
                             }
                             noxtls_tls_extensions_free(&ctx->client_extensions);
                             memset(&ctx->client_extensions, 0, sizeof(ctx->client_extensions));
-                            if(record.data) {
-                                free(record.data);
-                            }
+                            free(record.data);
                             return NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR;
                         }
                         ctx->client_offered_ocsp_status = 1u;
@@ -4962,9 +4864,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
             {
                 noxtls_return_t alpn_rc = tls12_process_alpn_negotiation(ctx);
                 if(alpn_rc != NOXTLS_RETURN_SUCCESS) {
-                    if(record.data) {
-                        free(record.data);
-                    }
+                    free(record.data);
                     return alpn_rc;
                 }
             }
@@ -4985,9 +4885,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
                         }
                         noxtls_tls_extensions_free(&ctx->client_extensions);
                         memset(&ctx->client_extensions, 0, sizeof(ctx->client_extensions));
-                        if(record.data) {
-                            free(record.data);
-                        }
+                        free(record.data);
                         return NOXTLS_RETURN_NOT_SUPPORTED;
                     }
                 }
@@ -4997,9 +4895,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
                     ctx, record.data, cipher_suites_offset, cipher_suites_count,
                     supported_suites, num_supported);
                 if(ecdhe_down_rc != NOXTLS_RETURN_SUCCESS) {
-                    if(record.data) {
-                        free(record.data);
-                    }
+                    free(record.data);
                     return ecdhe_down_rc;
                 }
             }
@@ -5041,9 +4937,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
             {
                 noxtls_return_t ems_rc = tls12_validate_client_ems_extension(ctx);
                 if(ems_rc != NOXTLS_RETURN_SUCCESS) {
-                    if(record.data) {
-                        free(record.data);
-                    }
+                    free(record.data);
                     return ems_rc;
                 }
             }
@@ -5051,9 +4945,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
             if(ctx->base.base.send_callback != NULL) {
                 (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
             }
-            if(record.data) {
-                free(record.data);
-            }
+            free(record.data);
             return NOXTLS_RETURN_BAD_DATA;
         }
     }
@@ -5062,9 +4954,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
         if(ctx->base.base.send_callback != NULL) {
             (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_HANDSHAKE_FAILURE);
         }
-        if(record.data) {
-            free(record.data);
-        }
+        free(record.data);
         return NOXTLS_RETURN_NOT_SUPPORTED;
     }
     tls12_invalidate_resume_if_sni_mismatch(ctx, client_session_id, session_id_len);
@@ -5077,9 +4967,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
     {
         noxtls_return_t ems_rc = tls12_resume_ems_policy(ctx);
         if(ems_rc != NOXTLS_RETURN_SUCCESS) {
-            if(record.data) {
-                free(record.data);
-            }
+            free(record.data);
             return ems_rc;
         }
     }
@@ -5092,9 +4980,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
             if(ctx->base.base.send_callback != NULL) {
                 (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_HANDSHAKE_FAILURE);
             }
-            if(record.data) {
-                free(record.data);
-            }
+            free(record.data);
             return NOXTLS_RETURN_NOT_SUPPORTED;
         }
     }
@@ -5105,9 +4991,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
             if(ctx->base.base.send_callback != NULL) {
                 (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_HANDSHAKE_FAILURE);
             }
-            if(record.data) {
-                free(record.data);
-            }
+            free(record.data);
             return NOXTLS_RETURN_NOT_SUPPORTED;
         }
     }
@@ -5115,7 +4999,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
     /* Append to handshake messages (for Finished verify_data computation) */
     tls12_append_handshake_message(ctx, record.data, record.length);
     
-    if(record.data) free(record.data);
+    free(record.data);
     
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -5622,16 +5506,16 @@ static noxtls_return_t tls12_recv_certificate_status(tls12_context_t *ctx)
         return rc;
     }
     if(msg == NULL || msg_len < 8u) {
-        if(msg) noxtls_free(msg);
+        noxtls_free(msg);
         return NOXTLS_RETURN_BAD_DATA;
     }
     if(msg[4] != 0x01u) { /* only ocsp supported */
-        if(msg) noxtls_free(msg);
+        noxtls_free(msg);
         return NOXTLS_RETURN_BAD_DATA;
     }
     ocsp_len = ((uint32_t)msg[5] << 16) | ((uint32_t)msg[6] << 8) | (uint32_t)msg[7];
     if(ocsp_len == 0u || (8u + ocsp_len) != msg_len) {
-        if(msg) noxtls_free(msg);
+        noxtls_free(msg);
         return NOXTLS_RETURN_BAD_DATA;
     }
 
@@ -5642,14 +5526,14 @@ static noxtls_return_t tls12_recv_certificate_status(tls12_context_t *ctx)
     }
     ctx->peer_ocsp_response = (uint8_t*)noxtls_malloc(ocsp_len);
     if(ctx->peer_ocsp_response == NULL) {
-        if(msg) noxtls_free(msg);
+        noxtls_free(msg);
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
     memcpy(ctx->peer_ocsp_response, msg + 8, ocsp_len);
     ctx->peer_ocsp_response_len = ocsp_len;
 
     tls12_append_handshake_message(ctx, msg, msg_len);
-    if(msg) noxtls_free(msg);
+    noxtls_free(msg);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -5949,7 +5833,7 @@ noxtls_return_t noxtls_tls12_send_server_key_exchange(tls12_context_t *ctx)
                 ecc_key_t *eckey = (ecc_key_t *)ctx->server_private_ecdsa;
                 uint32_t coord_size = eckey->curve != NULL ? eckey->curve->size : 32u;
                 ecdsa_signature_t esig;
-                uint32_t der_len = 0;
+                uint32_t der_len;
                 memset(&esig, 0, sizeof(esig));
                 rc = noxtls_ecdsa_signature_init(&esig, coord_size);
                 if(rc == NOXTLS_RETURN_SUCCESS) {
@@ -6212,29 +6096,32 @@ static noxtls_return_t tls12_recv_client_certificate(tls12_context_t *ctx, int *
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
+    if(msg == NULL) {
+        return NOXTLS_RETURN_FAILED;
+    }
     if(msg_len < 7u || msg[0] != TLS_HANDSHAKE_CERTIFICATE) {
-        if(msg) noxtls_free(msg);
+        noxtls_free(msg);
         return NOXTLS_RETURN_TLS_ERROR;
     }
 
     cert_list_len = ((uint32_t)msg[4] << 16) | ((uint32_t)msg[5] << 8) | (uint32_t)msg[6];
     if(cert_list_len > (msg_len - 7u)) {
-        if(msg) noxtls_free(msg);
+        noxtls_free(msg);
         return NOXTLS_RETURN_BAD_DATA;
     }
     if(cert_list_len == 0u) {
         tls12_append_handshake_message(ctx, msg, msg_len);
-        if(msg) noxtls_free(msg);
+        noxtls_free(msg);
         return NOXTLS_RETURN_SUCCESS;
     }
     if(cert_list_len < 3u || msg_len < 10u) {
-        if(msg) noxtls_free(msg);
+        noxtls_free(msg);
         return NOXTLS_RETURN_BAD_DATA;
     }
 
     cert_len = ((uint32_t)msg[7] << 16) | ((uint32_t)msg[8] << 8) | (uint32_t)msg[9];
     if(cert_len == 0u || (10u + cert_len) > msg_len || cert_len > (cert_list_len - 3u)) {
-        if(msg) noxtls_free(msg);
+        noxtls_free(msg);
         return NOXTLS_RETURN_BAD_DATA;
     }
 
@@ -6251,7 +6138,7 @@ static noxtls_return_t tls12_recv_client_certificate(tls12_context_t *ctx, int *
 
     ctx->client_cert = (uint8_t*)noxtls_malloc(cert_len);
     if(ctx->client_cert == NULL) {
-        if(msg) noxtls_free(msg);
+        noxtls_free(msg);
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
     memcpy(ctx->client_cert, msg + 10u, cert_len);
@@ -6260,7 +6147,7 @@ static noxtls_return_t tls12_recv_client_certificate(tls12_context_t *ctx, int *
     {
         x509_certificate_t *parsed = (x509_certificate_t*)noxtls_malloc(sizeof(x509_certificate_t));
         if(parsed == NULL) {
-            if(msg) noxtls_free(msg);
+            noxtls_free(msg);
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         }
         noxtls_x509_certificate_init(parsed);
@@ -6268,7 +6155,7 @@ static noxtls_return_t tls12_recv_client_certificate(tls12_context_t *ctx, int *
         if(rc != NOXTLS_RETURN_SUCCESS) {
             noxtls_x509_certificate_free(parsed);
             noxtls_free(parsed);
-            if(msg) noxtls_free(msg);
+            noxtls_free(msg);
             return rc;
         }
         ctx->client_cert_parsed = parsed;
@@ -6276,7 +6163,7 @@ static noxtls_return_t tls12_recv_client_certificate(tls12_context_t *ctx, int *
 
     tls12_append_handshake_message(ctx, msg, msg_len);
     *cert_present = 1;
-    if(msg) noxtls_free(msg);
+    noxtls_free(msg);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -6313,14 +6200,17 @@ static noxtls_return_t tls12_recv_client_certificate_verify(tls12_context_t *ctx
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
+    if(msg == NULL) {
+        return NOXTLS_RETURN_FAILED;
+    }
     if(msg_len < 8u || msg[0] != TLS_HANDSHAKE_CERTIFICATE_VERIFY) {
-        if(msg) noxtls_free(msg);
+        noxtls_free(msg);
         return NOXTLS_RETURN_BAD_DATA;
     }
     sig_scheme = (uint16_t)(((uint16_t)msg[4] << 8) | (uint16_t)msg[5]);
     sig_len = (uint16_t)(((uint16_t)msg[6] << 8) | (uint16_t)msg[7]);
     if((uint32_t)8u + (uint32_t)sig_len != msg_len) {
-        if(msg) noxtls_free(msg);
+        noxtls_free(msg);
         return NOXTLS_RETURN_BAD_DATA;
     }
 
@@ -6340,26 +6230,26 @@ static noxtls_return_t tls12_recv_client_certificate_verify(tls12_context_t *ctx
         if(rc != NOXTLS_RETURN_SUCCESS ||
            cert->rsa_modulus == NULL || cert->rsa_exponent == NULL ||
            cert->rsa_modulus_len == 0u || cert->rsa_exponent_len == 0u) {
-            if(msg) noxtls_free(msg);
+            noxtls_free(msg);
             return NOXTLS_RETURN_FAILED;
         }
         mod_ptr = cert->rsa_modulus;
         mod_len = cert->rsa_modulus_len;
         exp_ptr = cert->rsa_exponent;
         exp_len = cert->rsa_exponent_len;
-        if(mod_len > 0u && mod_ptr[0] == 0x00u) { mod_ptr++; mod_len--; }
-        if(exp_len > 0u && exp_ptr[0] == 0x00u) { exp_ptr++; exp_len--; }
+        if(mod_ptr[0] == 0x00u) { mod_ptr++; mod_len--; }
+        if(exp_ptr[0] == 0x00u) { exp_ptr++; exp_len--; }
         if(mod_len == 128u) key_size = RSA_1024_BIT;
         else if(mod_len == 256u) key_size = RSA_2048_BIT;
         else if(mod_len == 384u) key_size = RSA_3072_BIT;
         else if(mod_len == 512u) key_size = RSA_4096_BIT;
         else {
-            if(msg) noxtls_free(msg);
+            noxtls_free(msg);
             return NOXTLS_RETURN_FAILED;
         }
         rc = noxtls_rsa_key_init(&rsa_key, key_size);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            if(msg) noxtls_free(msg);
+            noxtls_free(msg);
             return rc;
         }
         memset(rsa_key.n, 0, rsa_key.key_bytes);
@@ -6370,7 +6260,7 @@ static noxtls_return_t tls12_recv_client_certificate_verify(tls12_context_t *ctx
                                msg + 8u, sig_len, hash_algo);
         noxtls_rsa_key_free(&rsa_key);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            if(msg) noxtls_free(msg);
+            noxtls_free(msg);
             return NOXTLS_RETURN_FAILED;
         }
     } else if((sig_scheme & 0x00FFu) == 0x03u) {
@@ -6383,13 +6273,13 @@ static noxtls_return_t tls12_recv_client_certificate_verify(tls12_context_t *ctx
 
         rc = tls12_sig_hash_to_noxtls((uint8_t)(sig_scheme >> 8), &hash_algo);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            if(msg) noxtls_free(msg);
+            noxtls_free(msg);
             return rc;
         }
         rc = noxtls_x509_certificate_get_public_key(cert, &pubkey, &key_type);
         if(rc != NOXTLS_RETURN_SUCCESS || pubkey == NULL || key_type != 2u) {
             if(pubkey != NULL) noxtls_free(pubkey);
-            if(msg) noxtls_free(msg);
+            noxtls_free(msg);
             return NOXTLS_RETURN_FAILED;
         }
         ecc_key = (ecc_key_t*)pubkey;
@@ -6397,14 +6287,14 @@ static noxtls_return_t tls12_recv_client_certificate_verify(tls12_context_t *ctx
         if(coord_size == 0u) {
             noxtls_ecc_key_free(ecc_key);
             noxtls_free(ecc_key);
-            if(msg) noxtls_free(msg);
+            noxtls_free(msg);
             return NOXTLS_RETURN_FAILED;
         }
         rc = noxtls_ecdsa_signature_init(&ecdsa_sig, coord_size);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             noxtls_ecc_key_free(ecc_key);
             noxtls_free(ecc_key);
-            if(msg) noxtls_free(msg);
+            noxtls_free(msg);
             return rc;
         }
         rc = noxtls_ecdsa_signature_parse_der(msg + 8u, sig_len, &ecdsa_sig, coord_size);
@@ -6416,7 +6306,7 @@ static noxtls_return_t tls12_recv_client_certificate_verify(tls12_context_t *ctx
         noxtls_ecc_key_free(ecc_key);
         noxtls_free(ecc_key);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            if(msg) noxtls_free(msg);
+            noxtls_free(msg);
             return NOXTLS_RETURN_FAILED;
         }
     } else if(sig_scheme == TLS_SIGSCHEME_RSA_PSS_RSAE_SHA256 ||
@@ -6437,26 +6327,26 @@ static noxtls_return_t tls12_recv_client_certificate_verify(tls12_context_t *ctx
         }
         if(cert->rsa_modulus == NULL || cert->rsa_exponent == NULL ||
            cert->rsa_modulus_len == 0u || cert->rsa_exponent_len == 0u) {
-            if(msg) noxtls_free(msg);
+            noxtls_free(msg);
             return NOXTLS_RETURN_FAILED;
         }
         mod_ptr = cert->rsa_modulus;
         mod_len = cert->rsa_modulus_len;
         exp_ptr = cert->rsa_exponent;
         exp_len = cert->rsa_exponent_len;
-        if(mod_len > 0u && mod_ptr[0] == 0x00u) { mod_ptr++; mod_len--; }
-        if(exp_len > 0u && exp_ptr[0] == 0x00u) { exp_ptr++; exp_len--; }
+        if(mod_ptr[0] == 0x00u) { mod_ptr++; mod_len--; }
+        if(exp_ptr[0] == 0x00u) { exp_ptr++; exp_len--; }
         if(mod_len == 128u) key_size = RSA_1024_BIT;
         else if(mod_len == 256u) key_size = RSA_2048_BIT;
         else if(mod_len == 384u) key_size = RSA_3072_BIT;
         else if(mod_len == 512u) key_size = RSA_4096_BIT;
         else {
-            if(msg) noxtls_free(msg);
+            noxtls_free(msg);
             return NOXTLS_RETURN_FAILED;
         }
         rc = noxtls_rsa_key_init(&rsa_key, key_size);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            if(msg) noxtls_free(msg);
+            noxtls_free(msg);
             return rc;
         }
         memset(rsa_key.n, 0, rsa_key.key_bytes);
@@ -6467,16 +6357,16 @@ static noxtls_return_t tls12_recv_client_certificate_verify(tls12_context_t *ctx
                                    msg + 8u, sig_len, hash_algo);
         noxtls_rsa_key_free(&rsa_key);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            if(msg) noxtls_free(msg);
+            noxtls_free(msg);
             return NOXTLS_RETURN_FAILED;
         }
     } else {
-        if(msg) noxtls_free(msg);
+        noxtls_free(msg);
         return NOXTLS_RETURN_NOT_SUPPORTED;
     }
 
     tls12_append_handshake_message(ctx, msg, msg_len);
-    if(msg) noxtls_free(msg);
+    noxtls_free(msg);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -6509,12 +6399,12 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
         }
         
         if(record.type != TLS_RECORD_HANDSHAKE || record.data == NULL || record.length < 4u) {
-            if(record.data) noxtls_free(record.data);
+            noxtls_free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
         
         if(record.data[0] != TLS_HANDSHAKE_CLIENT_KEY_EXCHANGE) {
-            if(record.data) noxtls_free(record.data);
+            noxtls_free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
         tls12_inc_recv_seq(ctx);
@@ -6522,26 +6412,26 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
         cke_len = record.length;
         want_len = 4u + ((uint32_t)cke_data[1] << 16) + ((uint32_t)cke_data[2] << 8) + (uint32_t)cke_data[3];
         if(want_len < 6u || want_len > TLS_MAX_RECORD_SIZE) {
-            if(record.data) noxtls_free(record.data);
+            noxtls_free(record.data);
             return NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR;
         }
         if(cke_len < want_len) {
             reasm = (uint8_t*)noxtls_malloc(TLS_MAX_RECORD_SIZE);
             if(reasm == NULL) {
-                if(record.data) noxtls_free(record.data);
+                noxtls_free(record.data);
                 return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
             }
             memcpy(reasm, cke_data, cke_len);
             while(cke_len < want_len) {
                 rc = noxtls_tls_recv_record(&ctx->base.base, &record);
                 if(rc != NOXTLS_RETURN_SUCCESS) {
-                    if(record.data) noxtls_free(record.data);
+                    noxtls_free(record.data);
                     noxtls_free(reasm);
                     return (rc == NOXTLS_RETURN_FAILED) ? NOXTLS_RETURN_BAD_DATA : rc;
                 }
                 if(record.type == TLS_RECORD_HANDSHAKE) {
                     if(record.data == NULL || record.length == 0u || cke_len + record.length > want_len) {
-                        if(record.data) noxtls_free(record.data);
+                        noxtls_free(record.data);
                         noxtls_free(reasm);
                         return NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR;
                     }
@@ -6551,25 +6441,19 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
                     record.data = NULL;
                     continue;
                 }
-                if(record.data) noxtls_free(record.data);
+                noxtls_free(record.data);
                 noxtls_free(reasm);
                 if(record.type == TLS_RECORD_CHANGE_CIPHER_SPEC) {
                     return NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR;
                 }
                 return NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR;
             }
-            if(record.data) {
-                noxtls_free(record.data);
+            noxtls_free(record.data);
                 record.data = NULL;
-            }
-            if(cke_data == record.data) {
-                /* no-op (defensive) */
-            } else if(cke_data != NULL) {
-                noxtls_free((void*)cke_data);
-            }
+            noxtls_free((void*)cke_data);
             cke_data = reasm;
         } else if(cke_len > want_len) {
-            if(record.data) noxtls_free(record.data);
+            noxtls_free(record.data);
             return NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR;
         }
     } else {
@@ -6593,10 +6477,8 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
             if(record.type == TLS_RECORD_HANDSHAKE) {
                 rc = noxtls_tls12_decrypt_record(ctx, TLS_RECORD_HANDSHAKE, record.data, record.length,
                                                  frag, &frag_len);
-                if(record.data) {
-                    noxtls_free(record.data);
-                    record.data = NULL;
-                }
+                noxtls_free(record.data);
+                record.data = NULL;
                 if(rc != NOXTLS_RETURN_SUCCESS || frag_len == 0u) {
                     noxtls_free(frag);
                     noxtls_free(reasm);
@@ -6630,10 +6512,8 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
             if(record.type == TLS_RECORD_APPLICATION_DATA) {
                 rc = noxtls_tls12_decrypt_record(ctx, TLS_RECORD_APPLICATION_DATA, record.data, record.length,
                                                  frag, &frag_len);
-                if(record.data) {
-                    noxtls_free(record.data);
-                    record.data = NULL;
-                }
+                noxtls_free(record.data);
+                record.data = NULL;
                 if(rc != NOXTLS_RETURN_SUCCESS) {
                     noxtls_free(frag);
                     noxtls_free(reasm);
@@ -6650,7 +6530,7 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
                 }
                 continue;
             }
-            if(record.data) noxtls_free(record.data);
+            noxtls_free(record.data);
             noxtls_free(frag);
             noxtls_free(reasm);
             return NOXTLS_RETURN_FAILED;
@@ -6680,7 +6560,7 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
     if(is_rsa_kex) {
         /* RSA Key Exchange: Extract encrypted premaster secret */
         if(msg_offset + 2 > cke_len) {
-            if(record.data) noxtls_free(record.data);
+            noxtls_free(record.data);
             if(reasm) noxtls_free(reasm);
             return NOXTLS_RETURN_FAILED;
         }
@@ -6689,7 +6569,7 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
         msg_offset += 2;
         
         if(msg_offset + encrypted_premaster_len > cke_len || encrypted_premaster_len > TLS_CLIENT_KEY_EXCHANGE_MAX_LEN) {
-            if(record.data) noxtls_free(record.data);
+            noxtls_free(record.data);
             if(reasm) noxtls_free(reasm);
             return NOXTLS_RETURN_FAILED;
         }
@@ -6697,7 +6577,7 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
         if(ctx->server_private_rsa == NULL &&
            !(ctx->crypto_provider && ctx->crypto_provider->ops && ctx->crypto_provider->ops->rsa_decrypt && ctx->server_private_key_handle)) {
             noxtls_debug_printf("ERROR: RSA key exchange requires server private key\n");
-            if(record.data) noxtls_free(record.data);
+            noxtls_free(record.data);
             if(reasm) noxtls_free(reasm);
             return NOXTLS_RETURN_FAILED;
         }
@@ -6723,14 +6603,14 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
             fallback_pms[0] = (uint8_t)(expected_pms_version >> 8);
             fallback_pms[1] = (uint8_t)(expected_pms_version & 0xFF);
             if(drbg_instantiate(&drbg_state, DRBG_AES256, NULL, 0, NULL, 0, NULL, 0) != NOXTLS_RETURN_SUCCESS) {
-                if(record.data) noxtls_free(record.data);
+                noxtls_free(record.data);
                 if(reasm) noxtls_free(reasm);
                 noxtls_secure_zero(decrypted_pms, sizeof(decrypted_pms));
                 noxtls_secure_zero(fallback_pms, sizeof(fallback_pms));
                 return NOXTLS_RETURN_FAILED;
             }
             if(drbg_generate(&drbg_state, fallback_pms + 2, 46u * 8u, NULL, 0) != NOXTLS_RETURN_SUCCESS) {
-                if(record.data) noxtls_free(record.data);
+                noxtls_free(record.data);
                 if(reasm) noxtls_free(reasm);
                 noxtls_secure_zero(decrypted_pms, sizeof(decrypted_pms));
                 noxtls_secure_zero(fallback_pms, sizeof(fallback_pms));
@@ -6769,7 +6649,7 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
         tls_dhe_context_t *dhe_ctx = (tls_dhe_context_t*)ctx->dhe_ctx;
         rc = noxtls_tls12_dhe_recv_client_key_exchange(ctx, dhe_ctx, cke_data, cke_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            if(record.data) noxtls_free(record.data);
+            noxtls_free(record.data);
             if(reasm) noxtls_free(reasm);
             return rc;
         }
@@ -6777,7 +6657,7 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
         if(ctx->extended_master_secret_negotiated) {
             ctx->ems_session_transcript_len = ctx->handshake_messages_len;
         }
-        if(record.data) noxtls_free(record.data);
+        noxtls_free(record.data);
         if(reasm) noxtls_free(reasm);
         return NOXTLS_RETURN_SUCCESS;
     } else {
@@ -6785,7 +6665,7 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
         tls_ecdhe_context_t *ecdhe_ctx = (tls_ecdhe_context_t*)ctx->ecdhe_ctx;
         
         if(ecdhe_ctx == NULL) {
-            if(record.data) noxtls_free(record.data);
+            noxtls_free(record.data);
             if(reasm) noxtls_free(reasm);
             noxtls_debug_printf("ERROR: ECDHE context not initialized\n");
             return NOXTLS_RETURN_FAILED;
@@ -6798,7 +6678,7 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
         
         /* Public key length */
         if(ecdhe_msg_offset >= cke_len) {
-            if(record.data) noxtls_free(record.data);
+            noxtls_free(record.data);
             if(reasm) noxtls_free(reasm);
             return NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR;
         }
@@ -6806,7 +6686,7 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
         
         /* Public key */
         if(ecdhe_msg_offset + public_key_len > cke_len) {
-            if(record.data) noxtls_free(record.data);
+            noxtls_free(record.data);
             if(reasm) noxtls_free(reasm);
             return NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR;
         }
@@ -6814,14 +6694,14 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
         /* Decode peer's public key / raw key share (X25519/X448 are not ECPoint) */
         if(ecdhe_ctx->named_group == TLS_NAMED_GROUP_X25519) {
             if(public_key_len != 32u) {
-                if(record.data) noxtls_free(record.data);
+                noxtls_free(record.data);
                 if(reasm) noxtls_free(reasm);
                 return NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER;
             }
             rc = noxtls_tls_ecdhe_compute_shared_secret_x25519(ecdhe_ctx, cke_data + ecdhe_msg_offset);
         } else if(ecdhe_ctx->named_group == TLS_NAMED_GROUP_X448) {
             if(public_key_len != 56u) {
-                if(record.data) noxtls_free(record.data);
+                noxtls_free(record.data);
                 if(reasm) noxtls_free(reasm);
                 return NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER;
             }
@@ -6829,20 +6709,20 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
         } else {
             rc = noxtls_tls_decode_ecc_point_uncompressed(cke_data + ecdhe_msg_offset, public_key_len, &peer_public_key, ecdhe_ctx->curve_type);
             if(rc != NOXTLS_RETURN_SUCCESS) {
-                if(record.data) noxtls_free(record.data);
+                noxtls_free(record.data);
                 if(reasm) noxtls_free(reasm);
                 return NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER;
             }
             rc = noxtls_tls_ecdhe_compute_shared_secret(ecdhe_ctx, &peer_public_key);
         }
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            if(record.data) noxtls_free(record.data);
+            noxtls_free(record.data);
             if(reasm) noxtls_free(reasm);
             return NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER;
         }
         /* Exact ClientKeyExchange body: one length byte + key/point; reject padding or length/body mismatch (tlsfuzzer). */
         if(4u + 1u + (uint32_t)public_key_len != cke_len) {
-            if(record.data) noxtls_free(record.data);
+            noxtls_free(record.data);
             if(reasm) noxtls_free(reasm);
             return NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR;
         }
@@ -6852,7 +6732,7 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
             uint32_t premaster_len = tls12_get_ecdh_premaster_len(ecdhe_ctx->named_group);
             if(premaster_len == 0 || ecdhe_ctx->shared_secret_len < premaster_len ||
                premaster_len > sizeof(ctx->premaster_secret)) {
-                if(record.data) noxtls_free(record.data);
+                noxtls_free(record.data);
                 if(reasm) noxtls_free(reasm);
                 return NOXTLS_RETURN_FAILED;
             }
@@ -6868,7 +6748,7 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
             fflush(stdout);
         } else {
             noxtls_debug_printf("ERROR: ECDHE shared secret not available after Client Key Exchange\n");
-            if(record.data) noxtls_free(record.data);
+            noxtls_free(record.data);
             if(reasm) noxtls_free(reasm);
             return NOXTLS_RETURN_FAILED;
         }
@@ -6880,7 +6760,7 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
         ctx->ems_session_transcript_len = ctx->handshake_messages_len;
     }
     
-    if(record.data) noxtls_free(record.data);
+    noxtls_free(record.data);
     if(reasm) noxtls_free(reasm);
     
     return NOXTLS_RETURN_SUCCESS;
@@ -6915,18 +6795,18 @@ noxtls_return_t noxtls_tls12_recv_change_cipher_spec_client(tls12_context_t *ctx
             break;
         }
         if(!(ctx->renegotiation_in_progress && record.type == TLS_RECORD_APPLICATION_DATA)) {
-            if(record.data) free(record.data);
+            free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
         app_buf = (ctx->record_workspace != NULL) ? ctx->record_workspace : (uint8_t*)noxtls_malloc(TLS_MAX_RECORD_SIZE);
         if(app_buf == NULL) {
-            if(record.data) free(record.data);
+            free(record.data);
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         }
         rc = noxtls_tls12_decrypt_record(ctx, TLS_RECORD_APPLICATION_DATA,
                                          record.data, record.length,
                                          app_buf, &app_len);
-        if(record.data) free(record.data);
+        free(record.data);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             if(app_buf != ctx->record_workspace) noxtls_free(app_buf);
             return rc;
@@ -6945,7 +6825,7 @@ noxtls_return_t noxtls_tls12_recv_change_cipher_spec_client(tls12_context_t *ctx
         rc = noxtls_tls12_decrypt_record(ctx, TLS_RECORD_CHANGE_CIPHER_SPEC,
                                          record.data, record.length,
                                          ccs_plain, &ccs_len);
-        if(record.data) free(record.data);
+        free(record.data);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
@@ -6954,11 +6834,11 @@ noxtls_return_t noxtls_tls12_recv_change_cipher_spec_client(tls12_context_t *ctx
         }
     } else {
         if(record.length != 1 || record.data == NULL || record.data[0] != TLS_RECORD_CCS_PAYLOAD) {
-            if(record.data) free(record.data);
+            free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
         tls12_inc_recv_seq(ctx);
-        if(record.data) free(record.data);
+        free(record.data);
     }
     if(ctx->base.base.role == TLS_ROLE_SERVER) {
         ctx->client_seq_num = 0;
@@ -6995,7 +6875,7 @@ noxtls_return_t noxtls_tls12_recv_finished_client(tls12_context_t *ctx)
     noxtls_debug_printf("[TLS12_DEBUG] recv_finished_client: record type=%u len=%u\n", record.type, record.length);
     fflush(stdout);
     if(record.type != TLS_RECORD_HANDSHAKE) {
-        if(record.data) free(record.data);
+        free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
 
@@ -7006,7 +6886,7 @@ noxtls_return_t noxtls_tls12_recv_finished_client(tls12_context_t *ctx)
     if(decrypted == NULL) {
         decrypted = (uint8_t*)noxtls_malloc(decrypted_len);
         if(decrypted == NULL) {
-            if(record.data) free(record.data);
+            free(record.data);
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         }
     }
@@ -7040,7 +6920,7 @@ noxtls_return_t noxtls_tls12_recv_finished_client(tls12_context_t *ctx)
         noxtls_debug_printf("[TLS12_DEBUG] recv_finished_client: bad decrypted header type=%u len=%u\n",
                               finished_msg[0], finished_len);
         fflush(stdout);
-        if(record.data) free(record.data);
+        free(record.data);
         if(decrypted != ctx->record_workspace) noxtls_free(decrypted);
         return NOXTLS_RETURN_FAILED;
     }
@@ -7051,7 +6931,7 @@ noxtls_return_t noxtls_tls12_recv_finished_client(tls12_context_t *ctx)
     
     uint8_t computed_verify_data[12];
     if(tls12_compute_finished_verify_data(ctx, "client finished", computed_verify_data, hash_algo) != NOXTLS_RETURN_SUCCESS) {
-        if(record.data) free(record.data);
+        free(record.data);
         if(decrypted != ctx->record_workspace) noxtls_free(decrypted);
         return NOXTLS_RETURN_FAILED;
     }
@@ -7067,7 +6947,7 @@ noxtls_return_t noxtls_tls12_recv_finished_client(tls12_context_t *ctx)
         for(uint32_t i = 0; i < 12; i++) noxtls_debug_printf("%02X ", computed_verify_data[i]);
         noxtls_debug_printf("\n");
         fflush(stdout);
-        if(record.data) free(record.data);
+        free(record.data);
         if(decrypted != ctx->record_workspace) noxtls_free(decrypted);
         return NOXTLS_RETURN_TLS_FINISHED_VERIFY_FAILED;
     }
@@ -7079,7 +6959,7 @@ noxtls_return_t noxtls_tls12_recv_finished_client(tls12_context_t *ctx)
     /* Include verified client Finished in transcript before computing server Finished. */
     tls12_append_handshake_message(ctx, finished_msg, finished_len);
 
-    if(record.data) free(record.data);
+    free(record.data);
     if(decrypted != ctx->record_workspace) noxtls_free(decrypted);
     /* Decrypt path already advances read sequence internally. */
     if(!decrypted_finished) {
@@ -7681,13 +7561,15 @@ noxtls_return_t noxtls_tls12_accept(tls12_context_t *ctx)
 noxtls_return_t noxtls_tls12_send(tls12_context_t *ctx, const uint8_t *data, uint32_t len)
 {
     uint32_t encrypted_len = TLS_MAX_RECORD_SIZE + TLS_RECORD_WORKSPACE_OVERHEAD;  /* Extra space for IV, padding, MAC */
-    uint8_t *encrypted_record = ctx->record_workspace;
-    noxtls_return_t rc;
-    uint32_t max_payload = (ctx->max_record_payload > 0) ? ctx->max_record_payload : (uint32_t)TLS_MAX_RECORD_SIZE;
+    uint8_t *encrypted_record;
+    uint32_t max_payload;
 
     if(ctx == NULL || data == NULL) {
         return NOXTLS_RETURN_NULL;
     }
+
+    encrypted_record = ctx->record_workspace;
+    max_payload = (ctx->max_record_payload > 0) ? ctx->max_record_payload : (uint32_t)TLS_MAX_RECORD_SIZE;
 
     if(ctx->base.base.state != TLS_STATE_CONNECTED) {
         return NOXTLS_RETURN_FAILED;
@@ -7719,8 +7601,8 @@ noxtls_return_t noxtls_tls12_send(tls12_context_t *ctx, const uint8_t *data, uin
             chunk = max_payload;
         }
         encrypted_len = TLS_MAX_RECORD_SIZE + TLS_RECORD_WORKSPACE_OVERHEAD;
-        rc = noxtls_tls12_encrypt_record(ctx, TLS_RECORD_APPLICATION_DATA, data + sent, chunk,
-                                  encrypted_record, &encrypted_len);
+        noxtls_return_t rc = noxtls_tls12_encrypt_record(ctx, TLS_RECORD_APPLICATION_DATA, data + sent, chunk,
+                                                         encrypted_record, &encrypted_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             if(encrypted_record != ctx->record_workspace) noxtls_free(encrypted_record);
             return rc;
@@ -7776,7 +7658,7 @@ static noxtls_return_t tls12_handle_heartbeat_record(tls12_context_t *ctx, const
         }
         return NOXTLS_RETURN_SUCCESS;
     }
-    if(record_len > 0u && record_data == NULL) {
+    if(record_data == NULL) {
         return NOXTLS_RETURN_BAD_DATA;
     }
 
@@ -7841,7 +7723,7 @@ static noxtls_return_t tls12_handle_heartbeat_record(tls12_context_t *ctx, const
         uint32_t min_len = body_len + TLS_HEARTBEAT_MIN_PADDING_LEN;
 
         /* RFC 6520: malformed messages are silently discarded. */
-        if(min_len > heartbeat_len || body_len < 3u) {
+        if(min_len > heartbeat_len) {
             if(heartbeat != ctx->record_workspace) {
                 noxtls_free(heartbeat);
             }
@@ -7954,7 +7836,7 @@ noxtls_return_t noxtls_tls12_recv(tls12_context_t *ctx, uint8_t *data, uint32_t 
             uint8_t alert[2] = {0};
             uint32_t alert_len = sizeof(alert);
             rc = noxtls_tls12_decrypt_record(ctx, TLS_RECORD_ALERT, record.data, record.length, alert, &alert_len);
-            if(record.data) free(record.data);
+            free(record.data);
             if(rc != NOXTLS_RETURN_SUCCESS) {
                 noxtls_debug_printf("[TLS12_DEBUG] noxtls_tls12_recv: alert decrypt failed rc=%d\n", rc);
                 fflush(stdout);
@@ -8011,15 +7893,15 @@ noxtls_return_t noxtls_tls12_recv(tls12_context_t *ctx, uint8_t *data, uint32_t 
             if(handshake_buf == NULL) {
                 handshake_buf = (uint8_t*)noxtls_malloc(handshake_len);
                 if(handshake_buf == NULL) {
-                    if(record.data) free(record.data);
+                    free(record.data);
                     return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
                 }
             }
             rc = noxtls_tls12_decrypt_record(ctx, TLS_RECORD_HANDSHAKE, record.data, record.length,
                                       handshake_buf, &handshake_len);
-            if(record.data) free(record.data);
+            free(record.data);
             if(rc != NOXTLS_RETURN_SUCCESS) {
-                if(handshake_buf != ctx->record_workspace) (handshake_buf != ctx->record_workspace ? noxtls_free(handshake_buf) : (void)0);
+                if(handshake_buf != ctx->record_workspace) noxtls_free(handshake_buf);
                 return rc;
             }
             /* Client: HelloRequest triggers renegotiation (RFC 5746) */
@@ -8087,7 +7969,7 @@ noxtls_return_t noxtls_tls12_recv(tls12_context_t *ctx, uint8_t *data, uint32_t 
                 {
                     uint32_t want_len = 4u + ((uint32_t)handshake_buf[1] << 16) +
                                         ((uint32_t)handshake_buf[2] << 8) + (uint32_t)handshake_buf[3];
-                    if(want_len < 4u || want_len > TLS_MAX_RECORD_SIZE) {
+                    if(want_len > TLS_MAX_RECORD_SIZE) {
                         (handshake_buf != ctx->record_workspace ? noxtls_free(handshake_buf) : (void)0);
                         return NOXTLS_RETURN_FAILED;
                     }
@@ -8109,7 +7991,7 @@ noxtls_return_t noxtls_tls12_recv(tls12_context_t *ctx, uint8_t *data, uint32_t 
                                 rc = noxtls_tls12_decrypt_record(ctx, TLS_RECORD_HANDSHAKE,
                                                                  record.data, record.length,
                                                                  frag_buf, &frag_len);
-                                if(record.data) free(record.data);
+                                free(record.data);
                                 if(rc != NOXTLS_RETURN_SUCCESS || frag_len == 0u || handshake_len + frag_len > want_len) {
                                     noxtls_free(frag_buf);
                                     (handshake_buf != ctx->record_workspace ? noxtls_free(handshake_buf) : (void)0);
@@ -8123,7 +8005,7 @@ noxtls_return_t noxtls_tls12_recv(tls12_context_t *ctx, uint8_t *data, uint32_t 
                                 rc = noxtls_tls12_decrypt_record(ctx, TLS_RECORD_APPLICATION_DATA,
                                                                  record.data, record.length,
                                                                  frag_buf, &frag_len);
-                                if(record.data) free(record.data);
+                                free(record.data);
                                 if(rc != NOXTLS_RETURN_SUCCESS) {
                                     noxtls_free(frag_buf);
                                     (handshake_buf != ctx->record_workspace ? noxtls_free(handshake_buf) : (void)0);
@@ -8140,7 +8022,7 @@ noxtls_return_t noxtls_tls12_recv(tls12_context_t *ctx, uint8_t *data, uint32_t 
                                 }
                                 continue;
                             }
-                            if(record.data) free(record.data);
+                            free(record.data);
                             noxtls_free(frag_buf);
                             (handshake_buf != ctx->record_workspace ? noxtls_free(handshake_buf) : (void)0);
                             return NOXTLS_RETURN_FAILED;
@@ -8188,7 +8070,7 @@ noxtls_return_t noxtls_tls12_recv(tls12_context_t *ctx, uint8_t *data, uint32_t 
 
         if(record.type == TLS_RECORD_HEARTBEAT) {
             rc = tls12_handle_heartbeat_record(ctx, record.data, record.length);
-            if(record.data) free(record.data);
+            free(record.data);
             if(rc != NOXTLS_RETURN_SUCCESS) {
                 uint8_t ad = (rc == NOXTLS_RETURN_NOT_SUPPORTED)
                     ? TLS_ALERT_UNEXPECTED_MESSAGE
@@ -8203,13 +8085,13 @@ noxtls_return_t noxtls_tls12_recv(tls12_context_t *ctx, uint8_t *data, uint32_t 
         }
 
         if(record.type != TLS_RECORD_APPLICATION_DATA) {
-            if(record.data) free(record.data);
+            free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
 
         /* Decrypt application data */
         rc = noxtls_tls12_decrypt_record(ctx, TLS_RECORD_APPLICATION_DATA, record.data, record.length, data, len);
-        if(record.data) free(record.data);
+        free(record.data);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             noxtls_debug_printf("[TLS12_DEBUG] noxtls_tls12_recv: app decrypt failed rc=%d\n", rc);
             fflush(stdout);

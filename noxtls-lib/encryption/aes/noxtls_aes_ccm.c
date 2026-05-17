@@ -183,14 +183,15 @@ static void ccm_compute_mac(const uint8_t *key, noxtls_aes_type_t type,
 {
     uint32_t i;
     uint32_t n_blocks;
-    uint32_t aad_enc_len;
-    const uint8_t *aad_enc;
     uint8_t aad_buf[18];
 
     memset(mac_state, 0, NOXTLS_AES_BLOCK);
     ccm_cbc_mac_block(key, type, B0, mac_state);
 
     if(aad_len > 0) {
+        uint32_t aad_enc_len;
+        const uint8_t *aad_enc;
+
         if(aad_len < 0xFF00U) {
             aad_buf[0] = (uint8_t)(aad_len >> 8);
             aad_buf[1] = (uint8_t)(aad_len & 0xff);
@@ -211,8 +212,8 @@ static void ccm_compute_mac(const uint8_t *key, noxtls_aes_type_t type,
             uint8_t block[NOXTLS_AES_BLOCK];
             memset(block, 0, NOXTLS_AES_BLOCK);
             uint32_t off = i * NOXTLS_AES_BLOCK;
-            uint32_t copy = NOXTLS_AES_BLOCK;
             if(off < aad_enc_len) {
+                uint32_t copy = NOXTLS_AES_BLOCK;
                 uint32_t from_enc = aad_enc_len - off;
                 if(from_enc < copy) copy = from_enc;
                 memcpy(block, aad_enc + off, copy);

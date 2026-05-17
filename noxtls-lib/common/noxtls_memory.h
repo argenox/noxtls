@@ -59,6 +59,28 @@
 extern "C" {
 #endif
 
+/* Static Buffer Allocator Implementation */
+
+/* Memory block header */
+typedef struct mem_block_header
+{
+    size_t size;                    /* Size of the block (excluding header) */
+    struct mem_block_header *next;   /* Next block in free list */
+    uint8_t allocated;               /* 1 if allocated, 0 if free */
+} mem_block_header_t;
+
+/* Memory pool structure */
+typedef struct
+{
+    uint8_t *buffer;                 /* The static buffer */
+    size_t buffer_size;              /* Total size of buffer */
+    uint8_t internal_buffer;         /* 1 if we allocated the buffer internally */
+    mem_block_header_t *free_list;   /* Free block list */
+    size_t total_allocated;          /* Total bytes allocated */
+    size_t total_used;               /* Total bytes currently in use */
+    size_t max_used;                 /* Maximum bytes used at peak */
+} mem_pool_t;
+
 /** Zero buffer then free; use for buffers that may hold keys or other sensitive data to avoid leakage. (ptr may be NULL.) */
 #define NOXTLS_SECURE_FREE(ptr, size) do { if((ptr) != NULL) { noxtls_secure_zero((void*)(ptr), (size)); noxtls_free(ptr); } } while(0)
 

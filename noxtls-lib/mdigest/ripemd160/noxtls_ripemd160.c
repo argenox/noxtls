@@ -102,7 +102,6 @@ static noxtls_return_t noxtls_ripemd160_round(noxtls_sha_ctx_t * ctx, const uint
     uint32_t dr;
     uint32_t er;
     uint32_t tl;
-    uint32_t tr;
     uint32_t w[RIPEMD160_WORDS_PER_BLOCK];
     uint32_t h[RIPEMD160_STATE_WORDS];
     uint32_t j;
@@ -130,6 +129,7 @@ static noxtls_return_t noxtls_ripemd160_round(noxtls_sha_ctx_t * ctx, const uint
         uint32_t fr;
         uint32_t kl = ripemd160_kl[j >> 4];
         uint32_t kr = ripemd160_kr[j >> 4];
+        uint32_t tr;
 
         switch(j >> 4) {
             case 0: fl = F0(bl, cl, dl); fr = F4(br, cr, dr); break;
@@ -185,7 +185,7 @@ noxtls_return_t noxtls_ripemd160_init(noxtls_sha_ctx_t * ctx)
  * @param len Number of bytes to hash.
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if ctx is NULL or input is NULL with len non-zero.
  */
-noxtls_return_t noxtls_ripemd160_update(noxtls_sha_ctx_t * ctx, uint8_t * input, uint32_t len)
+noxtls_return_t noxtls_ripemd160_update(noxtls_sha_ctx_t * ctx, const uint8_t * input, uint32_t len)
 {
     uint32_t fill;
 
@@ -277,7 +277,7 @@ noxtls_return_t noxtls_ripemd160_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
  * @param expected Expected 20-byte RIPEMD-160 digest for comparison.
  * @return NOXTLS_RETURN_SUCCESS if digest matches, NOXTLS_RETURN_FAILED otherwise or on error.
  */
-noxtls_return_t noxtls_ripemd160_verify(uint8_t * data, uint32_t len, uint8_t * expected)
+noxtls_return_t noxtls_ripemd160_verify(const uint8_t * data, uint32_t len, const uint8_t * expected)
 {
     uint8_t out[HASH_RIPEMD160_OUT_LEN];
     noxtls_sha_ctx_t ctx;

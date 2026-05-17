@@ -1366,20 +1366,8 @@ noxtls_return_t noxtls_rsa_decrypt(const rsa_key_t *key, const uint8_t *cipherte
         return NOXTLS_RETURN_FAILED;
     }
     
-    int decrypted_ready = 0;
-    /* CRT path disabled: use standard decryption until CRT recombination is fully verified */
-#if 0
-    if(key->p && key->q && key->dp && key->dq && key->qi) {
-        if(do_rsa_crt_decrypt(key, ciphertext, decrypted) == NOXTLS_RETURN_SUCCESS) {
-            decrypted_ready = 1;
-        }
-        /* fallback to standard if CRT failed */
-    }
-#endif
-    /* Standard decryption: m = c^d mod n (decrypted_ready is 1 only when CRT path above succeeds; CRT currently #if 0) */
-    if(!decrypted_ready) {
-        noxtls_bn_mod_exp(decrypted, ciphertext, key->d, key->key_bytes, key->n, key->key_bytes);
-    }
+    /* Standard decryption: m = c^d mod n. */
+    noxtls_bn_mod_exp(decrypted, ciphertext, key->d, key->key_bytes, key->n, key->key_bytes);
     /* Remove PKCS#1 v1.5 padding (strict RFC 8017 structure for type 2). */
     if(key->key_bytes >= 11u && decrypted[0] == 0x00u && decrypted[1] == 0x02u) {
         uint32_t j = 2u;

@@ -34,6 +34,35 @@ typedef enum
 #define NOXTLS_MLKEM_MAX_CIPHERTEXT_LEN 1568u
 #define NOXTLS_MLKEM_SHARED_SECRET_LEN 32u
 
+#define MLKEM_Q 3329
+#define MLKEM_N 256
+#define MLKEM_MAX_K 4
+#define MLKEM_POLY12_BYTES 384u
+#define MLKEM_QINV (-3327)
+
+typedef struct
+{
+    uint8_t k;
+    uint8_t eta1;
+    uint8_t eta2;
+    uint8_t du;
+    uint8_t dv;
+    uint32_t public_key_len;
+    uint32_t secret_key_len;
+    uint32_t ciphertext_len;
+} mlkem_params_t;
+
+typedef struct
+{
+    int16_t c[MLKEM_N];
+} mlkem_poly_t;
+
+typedef struct
+{
+    mlkem_poly_t v[MLKEM_MAX_K];
+} mlkem_polyvec_t;
+
+
 uint32_t noxtls_mlkem_public_key_len(noxtls_mlkem_param_t param);
 uint32_t noxtls_mlkem_secret_key_len(noxtls_mlkem_param_t param);
 uint32_t noxtls_mlkem_ciphertext_len(noxtls_mlkem_param_t param);

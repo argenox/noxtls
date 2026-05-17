@@ -20,7 +20,21 @@
 #include "mdigest/sha256/noxtls_sha256.h"
 #include "mdigest/sha512/noxtls_sha512.h"
 
-/* Hash a noxtls_message buffer (for binder transcript). Same semantics as tls13_hash_messages. */
+static psk_ticket_store_t psk_ticket_store;
+
+/**
+ * @brief Hash handshake bytes for PSK binder transcript input.
+ *
+ * Same semantics as `tls13_hash_messages`. Supports SHA-256 and SHA-384 only.
+ *
+ * @param[in] hash_algo     Hash algorithm from the negotiated cipher suite.
+ * @param[in] messages      Transcript bytes to hash (may be NULL if @p messages_len is 0).
+ * @param[in] messages_len  Length of @p messages.
+ * @param[out] hash         Output digest buffer (at least 48 bytes).
+ * @param[out] hash_len     On success, 32 for SHA-256 or 48 for SHA-384.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` if @p hash or @p hash_len is NULL;
+ *         `NOXTLS_RETURN_INVALID_ALGORITHM` for unsupported @p hash_algo.
+ */
 static noxtls_return_t psk_hash_messages(noxtls_hash_algos_t hash_algo,
                                          const uint8_t *messages, uint32_t messages_len,
                                          uint8_t *hash, uint32_t *hash_len)
@@ -49,7 +63,23 @@ static noxtls_return_t psk_hash_messages(noxtls_hash_algos_t hash_algo,
     return NOXTLS_RETURN_INVALID_ALGORITHM;
 }
 
-/* RFC 8446: second ClientHello binder uses transcript = (prefix) || CH2_prefix; prefix is message_hash+HRR. */
+/**
+ * @brief Hash the binder transcript input for a ClientHello.
+ *
+ * When @p transcript_prefix_len is 0, hashes @p client_hello_prefix only (first ClientHello).
+ * After HelloRetryRequest, @p transcript_prefix is the prior transcript (message_hash + HRR)
+ * concatenated with the partial second ClientHello (RFC 8446 §4.2.11.2).
+ *
+ * @param[in] hash_algo               Hash algorithm from the negotiated cipher suite.
+ * @param[in] transcript_prefix       Optional prior transcript prefix (may be NULL if length is 0).
+ * @param[in] transcript_prefix_len   Length of @p transcript_prefix.
+ * @param[in] client_hello_prefix     Partial ClientHello up to (but not including) binders.
+ * @param[in] client_hello_prefix_len Length of @p client_hello_prefix.
+ * @param[out] hash                   Output digest buffer.
+ * @param[out] hash_len               On success, digest length in bytes.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_INVALID_PARAM` on overflow;
+ *         `NOXTLS_RETURN_NOT_ENOUGH_MEMORY` if the combined buffer cannot be allocated.
+ */
 static noxtls_return_t psk_hash_binder_input(noxtls_hash_algos_t hash_algo,
                                             const uint8_t *transcript_prefix,
                                             uint32_t transcript_prefix_len,
@@ -79,15 +109,28 @@ static noxtls_return_t psk_hash_binder_input(noxtls_hash_algos_t hash_algo,
     }
 }
 
+/**
+ * @brief Read a big-endian 16-bit value from two bytes.
+ * @param[in] buf Pointer to at least two bytes.
+ * @return The host-order uint16 value.
+ */
 static uint16_t psk_read_uint16(const uint8_t *buf)
 {
     return (uint16_t)((buf[0] << 8) | buf[1]);
 }
 
-/*
- * RFC 8446 §4.2.11.2: binder transcript covers partial ClientHello up to and
- * including PreSharedKeyExtension.identities (binders vector not included).
- * Returns the prefix length to hash.
+/**
+ * @brief Locate the binder-hash prefix length inside a ClientHello.
+ *
+ * RFC 8446 §4.2.11.2: the binder transcript covers the partial ClientHello up to and
+ * including `PreSharedKeyExtension.identities`; the binders vector is excluded.
+ *
+ * @param[in] client_hello     ClientHello handshake message (type 0x01).
+ * @param[in] client_hello_len Length of @p client_hello.
+ * @param[out] prefix_len      On success, byte offset immediately after the identities list.
+ * @return `NOXTLS_RETURN_SUCCESS` if a pre_shared_key extension is found;
+ *         `NOXTLS_RETURN_NULL` on invalid pointers; `NOXTLS_RETURN_BAD_DATA` on malformed input;
+ *         `NOXTLS_RETURN_FAILED` if the extension is absent.
  */
 static noxtls_return_t psk_clienthello_binder_prefix_len(const uint8_t *client_hello,
                                                          uint32_t client_hello_len,
@@ -168,29 +211,21 @@ static noxtls_return_t psk_clienthello_binder_prefix_len(const uint8_t *client_h
     return NOXTLS_RETURN_FAILED;
 }
 
-/* Ticket store (server-side session cache for resumption) */
-typedef struct
-{
-    uint8_t ticket_id[TLS13_PSK_TICKET_ID_LEN];
-    uint8_t resumption_psk[64];
-    uint8_t resumption_psk_len;
-    uint8_t ticket_nonce[TLS13_PSK_TICKET_NONCE_MAX];
-    uint8_t ticket_nonce_len;
-    uint32_t ticket_age_add;
-    uint16_t cipher_suite;
-} psk_ticket_entry_t;
-
-static struct
-{
-    psk_ticket_entry_t entries[TLS13_PSK_TICKET_STORE_MAX];
-    uint32_t next_index;
-} psk_ticket_store;
-
+/**
+ * @brief Clear the module-global PSK ticket store.
+ */
 static void psk_ticket_store_init(void)
 {
     memset(&psk_ticket_store, 0, sizeof(psk_ticket_store));
 }
 
+/**
+ * @brief Check whether a PSK key exchange mode appears in the extension payload.
+ * @param[in] data PSK_KEY_EXCHANGE_MODES extension body (leading length byte + mode list).
+ * @param[in] len  Length of @p data.
+ * @param[in] mode `TLS13_PSK_KE_MODE_PSK_KE` (0) or `TLS13_PSK_KE_MODE_PSK_DHE_KE` (1).
+ * @return 1 if @p mode is listed; 0 otherwise or on invalid input.
+ */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 int noxtls_tls13_psk_mode_offered(const uint8_t *data, uint16_t len, uint8_t mode)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
@@ -209,6 +244,19 @@ int noxtls_tls13_psk_mode_offered(const uint8_t *data, uint16_t len, uint8_t mod
     return 0;
 }
 
+/**
+ * @brief Parse pre_shared_key in ClientHello and locate a binder for an identity index.
+ * @param[in] client_hello      Full ClientHello handshake message.
+ * @param[in] client_hello_len Length of @p client_hello.
+ * @param[in] identity_index    Zero-based index into the identities list.
+ * @param[out] binder_offset    Byte offset of the selected binder value in @p client_hello.
+ * @param[out] binder_len       Length of the binder (hash length for the cipher suite).
+ * @param[out] selected_identity Set to @p identity_index on success.
+ * @param[out] identity_out     Optional buffer to receive the ticket identity bytes.
+ * @param[in,out] identity_out_len Optional in/out identity length (required size if buffer too small).
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` on missing required outputs;
+ *         `NOXTLS_RETURN_BAD_DATA` on malformed ClientHello; `NOXTLS_RETURN_FAILED` if extension absent.
+ */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 noxtls_return_t tls13_psk_find_clienthello_binder(const uint8_t *client_hello,
                                                   uint32_t client_hello_len,
@@ -341,6 +389,26 @@ noxtls_return_t tls13_psk_find_clienthello_binder(const uint8_t *client_hello,
     return NOXTLS_RETURN_FAILED;
 }
 
+/**
+ * @brief Compute the resumption PSK binder for ticket-based resumption (RFC 8446 §4.2.11.2).
+ *
+ * Derives `early_secret = HKDF-Extract(0, resumption_psk)`, then `binder_key` with label
+ * "res binder", hashes the partial ClientHello transcript, and HMACs with the finished key.
+ *
+ * @param[in] hash_algo              Hash from the ticket cipher suite (SHA-256 or SHA-384).
+ * @param[in] resumption_psk         PSK from the issued ticket.
+ * @param[in] psk_len                Length of @p resumption_psk.
+ * @param[in] ticket_nonce           Ticket nonce from the NewSessionTicket (unused in binder key for resumption label path).
+ * @param[in] ticket_nonce_len       Length of @p ticket_nonce.
+ * @param[in] client_hello           ClientHello containing the binder to verify.
+ * @param[in] client_hello_len       Length of @p client_hello.
+ * @param[in] binder_offset          Offset of the binder bytes in @p client_hello.
+ * @param[in] binder_len             Expected binder length (must equal hash length).
+ * @param[out] out_binder            Buffer for computed binder (hash length bytes).
+ * @param[in] transcript_prefix      Optional HRR transcript prefix (NULL if length 0).
+ * @param[in] transcript_prefix_len  Length of @p transcript_prefix.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; error codes for null pointers, bad layout, or KDF/HMAC failure.
+ */
 noxtls_return_t tls13_psk_compute_resumption_binder(noxtls_hash_algos_t hash_algo,
                                                     const uint8_t *resumption_psk,
                                                     uint8_t psk_len,
@@ -362,7 +430,7 @@ noxtls_return_t tls13_psk_compute_resumption_binder(noxtls_hash_algos_t hash_alg
     uint8_t finished_key[64];
     uint8_t computed_binder[64];
     uint32_t hash_len = 0;
-    uint32_t verify_len = sizeof(computed_binder);
+    uint32_t verify_len;
     uint32_t prk_len = 0;
     noxtls_return_t rc;
     const uint8_t *label = (const uint8_t *)"res binder";
@@ -423,6 +491,24 @@ noxtls_return_t tls13_psk_compute_resumption_binder(noxtls_hash_algos_t hash_alg
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Compute the external PSK binder (RFC 8446 §4.2.11.2, label "ext binder").
+ *
+ * Same transcript and HKDF flow as resumption binders, but uses an externally provisioned PSK
+ * and the "ext binder" Derive-Secret label.
+ *
+ * @param[in] hash_algo              Hash from the negotiated cipher suite.
+ * @param[in] psk                    External pre-shared key bytes.
+ * @param[in] psk_len                Length of @p psk.
+ * @param[in] client_hello           ClientHello containing the binder to verify.
+ * @param[in] client_hello_len       Length of @p client_hello.
+ * @param[in] binder_offset          Offset of the binder in @p client_hello.
+ * @param[in] binder_len             Expected binder length (must equal hash length).
+ * @param[out] out_binder            Buffer for computed binder.
+ * @param[in] transcript_prefix      Optional HRR transcript prefix.
+ * @param[in] transcript_prefix_len  Length of @p transcript_prefix.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; error codes for invalid input or crypto failure.
+ */
 noxtls_return_t tls13_psk_compute_external_binder(noxtls_hash_algos_t hash_algo,
                                                   const uint8_t *psk,
                                                   uint16_t psk_len,
@@ -501,6 +587,21 @@ noxtls_return_t tls13_psk_compute_external_binder(noxtls_hash_algos_t hash_algo,
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Insert a session ticket into the server-side resumption store.
+ *
+ * Overwrites entries in round-robin order when the store is full. Initializes the store on first use.
+ *
+ * @param[in] ticket_id       Ticket identity (up to `TLS13_PSK_TICKET_ID_LEN` bytes).
+ * @param[in] id_len          Length of @p ticket_id.
+ * @param[in] resumption_psk  Resumption PSK derived at ticket issuance.
+ * @param[in] psk_len         Length of @p resumption_psk (max 64).
+ * @param[in] ticket_nonce    Nonce from NewSessionTicket.
+ * @param[in] nonce_len       Length of @p ticket_nonce (max `TLS13_PSK_TICKET_NONCE_MAX`).
+ * @param[in] ticket_age_add  Ticket age add value from NewSessionTicket.
+ * @param[in] cipher_suite    Cipher suite used for the original connection.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_INVALID_PARAM` on out-of-range lengths.
+ */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 noxtls_return_t tls13_psk_ticket_store_add(const uint8_t *ticket_id,
                                            uint8_t id_len,
@@ -533,6 +634,13 @@ noxtls_return_t tls13_psk_ticket_store_add(const uint8_t *ticket_id,
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Look up a stored session ticket by identity.
+ * @param[in] ticket_id Ticket identity from ClientHello pre_shared_key.
+ * @param[in] id_len    Must equal `TLS13_PSK_TICKET_ID_LEN`.
+ * @return Opaque pointer to an internal `psk_ticket_entry_t`, or NULL if not found or invalid input.
+ *         Do not free the returned pointer.
+ */
 const void *tls13_psk_ticket_store_lookup(const uint8_t *ticket_id, uint32_t id_len)
 {
     uint32_t i;
@@ -548,6 +656,18 @@ const void *tls13_psk_ticket_store_lookup(const uint8_t *ticket_id, uint32_t id_
     return NULL;
 }
 
+/**
+ * @brief Copy resumption PSK and ticket nonce from a store entry.
+ * @param[in] entry           Pointer from `tls13_psk_ticket_store_lookup`.
+ * @param[out] psk_out        Buffer for resumption PSK (at least 64 bytes).
+ * @param[in] psk_out_size    Size of @p psk_out.
+ * @param[out] psk_len        On success, length written to @p psk_out.
+ * @param[out] nonce_out      Buffer for ticket nonce (at least `TLS13_PSK_TICKET_NONCE_MAX` bytes).
+ * @param[in] nonce_out_size  Size of @p nonce_out.
+ * @param[out] nonce_len      On success, length written to @p nonce_out.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` on invalid pointers;
+ *         `NOXTLS_RETURN_INVALID_PARAM` if output buffers are too small.
+ */
 noxtls_return_t tls13_psk_ticket_store_entry_psk(const void *entry,
                                                   uint8_t *psk_out,
                                                   uint8_t psk_out_size,
@@ -570,12 +690,33 @@ noxtls_return_t tls13_psk_ticket_store_entry_psk(const void *entry,
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Return the cipher suite recorded for a ticket store entry.
+ * @param[in] entry Pointer from `tls13_psk_ticket_store_lookup`.
+ * @return Cipher suite value, or 0 if @p entry is NULL.
+ */
 uint16_t noxtls_tls13_psk_ticket_store_entry_cipher_suite(const void *entry)
 {
     const psk_ticket_entry_t *e = (const psk_ticket_entry_t *)entry;
     return e != NULL ? e->cipher_suite : 0;
 }
 
+/**
+ * @brief Derive the resumption PSK for a NewSessionTicket (RFC 8446 §4.6.1).
+ *
+ * Computes `resumption_master_secret = Derive-Secret(master_secret, "res master", transcript)`
+ * then `resumption_psk = HKDF-Expand-Label(resumption_master_secret, "resumption", ticket_nonce)`.
+ *
+ * @param[in] hash_algo                  Hash algorithm for the connection.
+ * @param[in] hash_len                   Hash output length in bytes (32 or 48).
+ * @param[in] master_secret              Current connection master secret.
+ * @param[in] handshake_transcript       Handshake transcript hashed for "res master".
+ * @param[in] handshake_transcript_len   Length of @p handshake_transcript.
+ * @param[in] ticket_nonce               Nonce from NewSessionTicket.
+ * @param[in] ticket_nonce_len           Length of @p ticket_nonce.
+ * @param[out] resumption_psk            Output buffer (at least @p hash_len bytes).
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` or `NOXTLS_RETURN_INVALID_PARAM` on bad input.
+ */
 noxtls_return_t tls13_psk_derive_resumption_psk(noxtls_hash_algos_t hash_algo,
                                                 uint32_t hash_len,
                                                 const uint8_t *master_secret,

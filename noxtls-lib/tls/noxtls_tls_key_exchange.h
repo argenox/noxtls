@@ -281,7 +281,7 @@ noxtls_return_t noxtls_tls12_dhe_recv_server_key_exchange(tls12_context_t *ctx, 
  * @param[in,out] dhe_ctx Client public must be populated after server message processing.
  * @return `NOXTLS_RETURN_SUCCESS` if the record was sent; `NOXTLS_RETURN_NULL` on invalid pointers; `NOXTLS_RETURN_FAILED` on role or message size errors; `NOXTLS_RETURN_NOT_ENOUGH_MEMORY` on allocation failure.
  */
-noxtls_return_t noxtls_tls12_dhe_send_client_key_exchange(tls12_context_t *ctx, tls_dhe_context_t *dhe_ctx);
+noxtls_return_t noxtls_tls12_dhe_send_client_key_exchange(tls12_context_t *ctx, const tls_dhe_context_t *dhe_ctx);
 
 /**
  * @brief TLS 1.2 server: parse DHE ClientKeyExchange and compute premaster secret.
@@ -333,4 +333,3 @@ noxtls_return_t noxtls_tls13_process_server_key_share(const tls13_context_t *ctx
 #endif
 
 #endif /* _NOXTLS_TLS_KEY_EXCHANGE_H_ */
-

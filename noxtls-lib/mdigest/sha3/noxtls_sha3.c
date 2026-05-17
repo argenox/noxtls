@@ -548,7 +548,7 @@ noxtls_return_t noxtls_shake256_squeeze(noxtls_sha3_ctx_t * ctx, uint8_t * out, 
  *
  * @return noxtls_return_t NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_FAILED if verification fails
  */
-noxtls_return_t noxtls_sha3_verify(uint8_t * data, uint32_t len, uint8_t * expected, noxtls_hash_algos_t algo)
+noxtls_return_t noxtls_sha3_verify(const uint8_t * data, uint32_t len, const uint8_t * expected, noxtls_hash_algos_t algo)
 {
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
     noxtls_sha3_ctx_t ctx;

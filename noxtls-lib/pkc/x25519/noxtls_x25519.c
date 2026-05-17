@@ -73,11 +73,10 @@ static void be32_to_le32(uint8_t le[NOXTLS_X25519_FE_BYTES], const uint8_t be[NO
  */
 static void cswap(uint8_t swap, uint8_t a[NOXTLS_X25519_FE_BYTES], uint8_t b[NOXTLS_X25519_FE_BYTES])
 {
-    uint8_t dummy;
     uint32_t mask = (uint32_t)(0 - (swap & 1));
     int i;
     for(i = 0; i < (int)NOXTLS_X25519_FE_BYTES; i++) {
-        dummy = (uint8_t)(mask & (a[i] ^ b[i]));
+        uint8_t dummy = (uint8_t)(mask & (a[i] ^ b[i]));
         a[i] ^= dummy;
         b[i] ^= dummy;
     }

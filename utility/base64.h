@@ -56,7 +56,7 @@ extern "C" {
 
 int noxtls_base64_encode(const uint8_t * input, uint32_t len, char * output);
 /** @brief Decode Base64; skips PEM/MIME line breaks (CR, LF, TAB, space) and handles '=' padding. */
-int noxtls_base64_decode(char * input, uint32_t len, uint8_t * output);
+int noxtls_base64_decode(const char * input, uint32_t len, uint8_t * output);
 uint8_t noxtls_base64_decode_char(char c);
 
 #ifdef __cplusplus

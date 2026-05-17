@@ -154,6 +154,18 @@ static x509_certificate_chain_t s_x509_trust_anchors;
 static int s_x509_trust_anchors_initialized;
 
 /* NOLINTNEXTLINE(bugprone-easily-swappable-parameters): captures fixed failure payload fields (hostname length/index). */
+/**
+ * @brief Sets the certificate verification failure information.
+ *
+ * This function sets the certificate verification failure information by clearing the
+ * s_cert_fail_info structure and setting the return code, certificate index, and populated flag.
+ *
+ * @param[in] return_code The return code of the certificate verification failure.
+ * @param[in] cert The certificate that failed verification.
+ * @param[in] expected_hostname The expected hostname of the certificate.
+ * @param[in] expected_hostname_len The length of the expected hostname.
+ * @param[in] cert_index The index of the certificate in the chain.
+ */
 static void cert_fail_set(noxtls_return_t return_code, const x509_certificate_t *cert, const char *expected_hostname, uint32_t expected_hostname_len, uint32_t cert_index)
 {
     memset(&s_cert_fail_info, 0, sizeof(s_cert_fail_info));
@@ -164,7 +176,7 @@ static void cert_fail_set(noxtls_return_t return_code, const x509_certificate_t 
     if(cert != NULL) {
         if(cert->not_before[0] != 0) {
             uint32_t n = 0;
-            while(n < NOXTLS_CERT_FAIL_TIME_MAX - 1 && n < 15 && cert->not_before[n] != 0) {
+            while(n < NOXTLS_CERT_FAIL_TIME_MAX - 1 && cert->not_before[n] != 0) {
                 s_cert_fail_info.not_before[n] = (char)cert->not_before[n];
                 n++;
             }
@@ -172,7 +184,7 @@ static void cert_fail_set(noxtls_return_t return_code, const x509_certificate_t 
         }
         if(cert->not_after[0] != 0) {
             uint32_t n = 0;
-            while(n < NOXTLS_CERT_FAIL_TIME_MAX - 1 && n < 15 && cert->not_after[n] != 0) {
+            while(n < NOXTLS_CERT_FAIL_TIME_MAX - 1 && cert->not_after[n] != 0) {
                 s_cert_fail_info.not_after[n] = (char)cert->not_after[n];
                 n++;
             }
@@ -205,11 +217,25 @@ static void cert_fail_set(noxtls_return_t return_code, const x509_certificate_t 
     }
 }
 
+/**
+ * @brief Clears the certificate verification failure information.
+ *
+ * This function clears the certificate verification failure information by setting the
+ * s_cert_fail_info structure to zero.
+ */
 void noxtls_cert_verify_failure_clear(void)
 {
     memset(&s_cert_fail_info, 0, sizeof(s_cert_fail_info));
 }
 
+/**
+ * @brief Gets the certificate verification failure information.
+ *
+ * This function gets the certificate verification failure information by copying the
+ * s_cert_fail_info structure to the output parameter.
+ *
+ * @param[out] out The output parameter to receive the certificate verification failure information.
+ */
 void noxtls_cert_verify_failure_get(noxtls_cert_verify_failure_info_t *out)
 {
     if(out != NULL) {
@@ -218,6 +244,16 @@ void noxtls_cert_verify_failure_get(noxtls_cert_verify_failure_info_t *out)
 }
 
 /* ASN.1 Helper Functions */
+
+/**
+ * @brief Gets the length of an ASN.1 encoded value.
+ *
+ * This function gets the length of an ASN.1 encoded value by parsing the length field.
+ *
+ * @param[in] data The pointer to the ASN.1 encoded value.
+ * @param[in] end The pointer to the end of the ASN.1 encoded value.
+ * @return The length of the ASN.1 encoded value.
+ */
 static uint32_t asn1_get_length(const uint8_t **data, const uint8_t *end)
 {
     const uint8_t *ptr = *data;
@@ -250,6 +286,16 @@ static uint32_t asn1_get_length(const uint8_t **data, const uint8_t *end)
     return length;
 }
 
+/**
+ * @brief Gets the tag of an ASN.1 encoded value.
+ *
+ * This function gets the tag of an ASN.1 encoded value by parsing the tag field.
+ *
+ * @param[in] data The pointer to the ASN.1 encoded value.
+ * @param[in] end The pointer to the end of the ASN.1 encoded value.
+ * @param[in] expected_tag The expected tag of the ASN.1 encoded value.
+ * @return The tag of the ASN.1 encoded value.
+ */
 static noxtls_return_t asn1_get_tag(const uint8_t **data, const uint8_t *end, uint8_t expected_tag)
 {
     if(*data >= end) {
@@ -266,6 +312,17 @@ static noxtls_return_t asn1_get_tag(const uint8_t **data, const uint8_t *end, ui
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Gets the OID of an ASN.1 encoded value.
+ *
+ * This function gets the OID of an ASN.1 encoded value by parsing the OID field.
+ *
+ * @param[in] data The pointer to the ASN.1 encoded value.
+ * @param[in] end The pointer to the end of the ASN.1 encoded value.
+ * @param[out] oid The pointer to the buffer to receive the OID.
+ * @param[out] oid_len The length of the OID.
+ * @return The return code of the function.
+ */
 static noxtls_return_t asn1_get_oid(const uint8_t **data, const uint8_t *end, uint8_t *oid, uint32_t *oid_len)
 {
     uint32_t len;
@@ -288,6 +345,17 @@ static noxtls_return_t asn1_get_oid(const uint8_t **data, const uint8_t *end, ui
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Gets the integer of an ASN.1 encoded value.
+ *
+ * This function gets the integer of an ASN.1 encoded value by parsing the integer field.
+ *
+ * @param[in] data The pointer to the ASN.1 encoded value.
+ * @param[in] end The pointer to the end of the ASN.1 encoded value.
+ * @param[out] integer The pointer to the buffer to receive the integer.
+ * @param[out] integer_len The length of the integer.
+ * @return The return code of the function.
+ */
 static noxtls_return_t asn1_get_integer(const uint8_t **data, const uint8_t *end, uint8_t *integer, uint32_t *integer_len)
 {
     uint32_t len;
@@ -320,6 +388,17 @@ static noxtls_return_t asn1_get_integer(const uint8_t **data, const uint8_t *end
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Gets the sequence of an ASN.1 encoded value.
+ *
+ * This function gets the sequence of an ASN.1 encoded value by parsing the sequence field.
+ *
+ * @param[in] data The pointer to the ASN.1 encoded value.
+ * @param[in] end The pointer to the end of the ASN.1 encoded value.
+ * @param[out] seq_data The pointer to the buffer to receive the sequence.
+ * @param[out] seq_len The length of the sequence.
+ * @return The return code of the function.
+ */
 static noxtls_return_t asn1_get_sequence(const uint8_t **data, const uint8_t *end, const uint8_t **seq_data, uint32_t *seq_len)
 {
     if(asn1_get_tag(data, end, 0x30) != NOXTLS_RETURN_SUCCESS) {
@@ -340,6 +419,19 @@ static noxtls_return_t asn1_get_sequence(const uint8_t **data, const uint8_t *en
 }
 
 /* Get OCTET STRING (tag 0x04); *out_data points into original buffer, *out_len set. */
+
+
+/**
+ * @brief Gets the octet string of an ASN.1 encoded value.
+ *
+ * This function gets the octet string of an ASN.1 encoded value by parsing the octet string field.
+ *
+ * @param[in] data The pointer to the ASN.1 encoded value.
+ * @param[in] end The pointer to the end of the ASN.1 encoded value.
+ * @param[out] out_data The pointer to the buffer to receive the octet string.
+ * @param[out] out_len The length of the octet string.
+ * @return The return code of the function.
+ */
 static noxtls_return_t asn1_get_octet_string(const uint8_t **data, const uint8_t *end, const uint8_t **out_data, uint32_t *out_len)
 {
     if(asn1_get_tag(data, end, 0x04) != NOXTLS_RETURN_SUCCESS) {
@@ -356,6 +448,16 @@ static noxtls_return_t asn1_get_octet_string(const uint8_t **data, const uint8_t
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Gets the boolean of an ASN.1 encoded value.
+ *
+ * This function gets the boolean of an ASN.1 encoded value by parsing the boolean field.
+ *
+ * @param[in] data The pointer to the ASN.1 encoded value.
+ * @param[in] end The pointer to the end of the ASN.1 encoded value.
+ * @param[out] out_value The pointer to the buffer to receive the boolean.
+ * @return The return code of the function.
+ */
 static noxtls_return_t asn1_get_boolean(const uint8_t **data, const uint8_t *end, int *out_value)
 {
     uint32_t len;
@@ -433,11 +535,7 @@ static noxtls_return_t hmac_sha1(const uint8_t *key, uint32_t key_len,
     return NOXTLS_RETURN_SUCCESS;
 }
 
-typedef struct pbkdf2_sha1_params_t {
-    uint32_t salt_len;
-    uint32_t iterations;
-    uint32_t key_len;
-} pbkdf2_sha1_params_t;
+
 
 /* PBKDF2-HMAC-SHA1 (RFC 8018). Derives params->key_len bytes into out. */
 static noxtls_return_t pbkdf2_hmac_sha1(const uint8_t *password, uint32_t password_len,
@@ -605,7 +703,6 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
                     const uint8_t *gn_ptr = san_seq;
                     const uint8_t *gn_end = san_seq + san_seq_len;
                     while(gn_ptr < gn_end) {
-                        if(gn_ptr >= gn_end) break;
                         if(*gn_ptr == 0x82) {
                             gn_ptr++;
                             { uint32_t dlen = asn1_get_length(&gn_ptr, gn_end);
@@ -751,7 +848,7 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
                     }
                 }
             } else if(oid_equal(oid_buf, oid_len, oid_subject_key_id, sizeof(oid_subject_key_id))) {
-                if(val_len > 0 && val_len <= X509_KEY_ID_MAX_LEN) {
+                if(val_len <= X509_KEY_ID_MAX_LEN) {
                     cert->subject_key_id_len = (uint8_t)val_len;
                     memcpy(cert->subject_key_id, val_data, val_len);
                 }
@@ -788,10 +885,6 @@ static int noxtls_x509_dns_name_equal(const char *hostname, uint32_t hostname_le
 {
     uint32_t i = 0;
     uint32_t dns_name_len = 0;
-    uint32_t first_dot_index = 0;
-    uint32_t suffix_len = 0;
-    int has_first_dot = 0;
-    int has_second_wildcard = 0;
     if(dns_name == NULL) {
         return 0;
     }
@@ -804,6 +897,10 @@ static int noxtls_x509_dns_name_equal(const char *hostname, uint32_t hostname_le
        dns_name_len > X509_HOSTNAME_WILDCARD_PREFIX_LEN &&
        dns_name[0] == X509_HOSTNAME_WILDCARD_PREFIX[0] &&
        dns_name[1] == X509_HOSTNAME_WILDCARD_PREFIX[1]) {
+        uint32_t first_dot_index = 0;
+        uint32_t suffix_len;
+        int has_first_dot = 0;
+        int has_second_wildcard = 0;
         uint32_t j = X509_HOSTNAME_WILDCARD_PREFIX_LEN;
         while(j < dns_name_len) {
             if(dns_name[j] == '*') {
@@ -904,7 +1001,6 @@ static void noxtls_x509_get_cn_from_subject_dn(const char *subject_dn, char *cn_
  */
 noxtls_return_t noxtls_x509_certificate_matches_hostname(const x509_certificate_t *cert, const char *hostname, uint32_t hostname_len)
 {
-    uint8_t i;
     char *cn_buf;
     const uint32_t cn_buf_size = 256;
 
@@ -913,7 +1009,7 @@ noxtls_return_t noxtls_x509_certificate_matches_hostname(const x509_certificate_
     }
 
     if(hostname_len == 0) {
-        while(hostname[hostname_len] != '\0' && hostname_len < 256) hostname_len++;
+        while(hostname_len < 256 && hostname[hostname_len] != '\0') hostname_len++;
     }
 
     if(hostname_len == 0) {
@@ -923,6 +1019,7 @@ noxtls_return_t noxtls_x509_certificate_matches_hostname(const x509_certificate_
 
     /* Prefer SAN dNSName */
     if(cert->san_dns_count > 0) {
+        uint8_t i;
         for(i = 0; i < cert->san_dns_count; i++) {
             if(noxtls_x509_dns_name_equal(hostname, hostname_len, cert->san_dns_names[i])) {
                 return NOXTLS_RETURN_SUCCESS;
@@ -2546,11 +2643,9 @@ noxtls_return_t noxtls_x509_parse_time(const uint8_t *time_data, uint32_t time_l
     } else {
         /* Invalid or unsupported time format - just show raw */
         size_t time_str_len = strlen(time_str);
-        size_t copy_len = (output_size > 0 && time_str_len > output_size - 1) ? (size_t)(output_size - 1) : time_str_len;
-        if(output_size > 0) {
-            memcpy(output, time_str, copy_len);
-            output[copy_len] = '\0';
-        }
+        size_t copy_len = (time_str_len > output_size - 1) ? (size_t)(output_size - 1) : time_str_len;
+        memcpy(output, time_str, copy_len);
+        output[copy_len] = '\0';
     }
 
     return NOXTLS_RETURN_SUCCESS;
@@ -3340,7 +3435,6 @@ static noxtls_return_t noxtls_x509_crl_check_times(const noxtls_x509_crl_t *crl,
     time_t tu = 0;
     time_t nu = 0;
     uint32_t this_len;
-    uint32_t next_len;
     noxtls_return_t rc;
 
     if(crl == NULL) {
@@ -3365,7 +3459,7 @@ static noxtls_return_t noxtls_x509_crl_check_times(const noxtls_x509_crl_t *crl,
     }
 
     if(crl->has_next_update) {
-        next_len = 0;
+        uint32_t next_len = 0;
         while(next_len < 15 && crl->next_update[next_len] != 0) {
             next_len++;
         }
@@ -4276,13 +4370,13 @@ static noxtls_return_t noxtls_x509_parse_pkcs8_private_key(x509_private_key_t *k
         /* PKCS#8 EC with raw private key octets (no SEC1 wrapper). Curve OID in [0] params or in algorithm. */
         const uint8_t *params_ptr = alg_ptr;
         const uint8_t *params_end = alg_end != NULL ? alg_end : info_end;
-        uint8_t curve_oid[32];
-        uint32_t curve_oid_len = 0;
         if(params_ptr < params_end && (*params_ptr & 0xE0) == 0xA0) {
             params_ptr++;
             uint32_t params_len = asn1_get_length(&params_ptr, params_end);
             CERT_DEBUG_PRINT("x509_parse_pkcs8: [0] params_len=%u\n", params_len);
             if(params_len > 0 && params_ptr + params_len <= params_end) {
+                uint8_t curve_oid[32];
+                uint32_t curve_oid_len = 0;
                 const uint8_t *oid_end = params_ptr + params_len;
                 if(asn1_get_oid(&params_ptr, oid_end, curve_oid, &curve_oid_len) == NOXTLS_RETURN_SUCCESS) {
                     if(curve_oid_len <= 32) {
@@ -5530,4 +5624,3 @@ noxtls_return_t noxtls_x509_private_key_debug_print(x509_private_key_t *key, uin
 
     return NOXTLS_RETURN_SUCCESS;
 }
-

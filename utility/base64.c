@@ -216,13 +216,12 @@ static int noxtls_base64_emit_quantum(const int s[4], uint8_t **out_ptr)
  * @return number of bytes decoded, negative error otherwise
  *
  */
-int noxtls_base64_decode(char * input, uint32_t len, uint8_t * output)
+int noxtls_base64_decode(const char * input, uint32_t len, uint8_t * output)
 {
     uint8_t *out_ptr;
     uint32_t i;
     int s[4];
     int ns;
-    int v;
     int t;
     int expected_tail_pad;
     int seen_tail_pad;
@@ -240,7 +239,7 @@ int noxtls_base64_decode(char * input, uint32_t len, uint8_t * output)
     ns = 0;
 
     while(i < len) {
-        v = noxtls_base64_decode_sextet((unsigned char)input[i]);
+        int v = noxtls_base64_decode_sextet((unsigned char)input[i]);
         i++;
         if(v == -2) {
             continue;

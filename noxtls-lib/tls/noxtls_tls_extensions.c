@@ -140,7 +140,7 @@ noxtls_return_t noxtls_tls_parse_extensions(const uint8_t *data, uint32_t data_l
                     noxtls_tls_extensions_free(extensions);
                     return NOXTLS_RETURN_BAD_DATA;
                 }
-                if(ext->data != NULL && ext->length > 0) {
+                if(ext->data != NULL) {
                     if(extensions->sni != NULL) {
                         if(extensions->sni->hostname != NULL) {
                             free(extensions->sni->hostname);
@@ -969,4 +969,3 @@ noxtls_return_t noxtls_tls_find_extension(tls_extensions_t *extensions, uint16_t
     
     return NOXTLS_RETURN_FAILED;
 }
-

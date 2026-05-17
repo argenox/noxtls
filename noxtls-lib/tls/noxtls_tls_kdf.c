@@ -504,9 +504,9 @@ noxtls_return_t tls12_prf(const uint8_t *secret, uint32_t secret_len,
 /**
  * @brief Helper: HMAC-MD5 computation
  */
-static noxtls_return_t hmac_md5_compute(const uint8_t *key, uint32_t key_len,
-                                          const uint8_t *data, uint32_t data_len,
-                                          uint8_t *mac)
+static void hmac_md5_compute(const uint8_t *key, uint32_t key_len,
+                             const uint8_t *data, uint32_t data_len,
+                             uint8_t *mac)
 {
     noxtls_sha_ctx_t ctx;
     uint8_t md5_key[64];
@@ -546,15 +546,14 @@ static noxtls_return_t hmac_md5_compute(const uint8_t *key, uint32_t key_len,
     noxtls_md5_update(&ctx, inner_hash, 16);
     noxtls_md5_finish(&ctx, mac);
     
-    return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
  * @brief Helper: HMAC-SHA1 computation
  */
-static noxtls_return_t hmac_sha1_compute(const uint8_t *key, uint32_t key_len,
-                                           const uint8_t *data, uint32_t data_len,
-                                           uint8_t *mac)
+static void hmac_sha1_compute(const uint8_t *key, uint32_t key_len,
+                              const uint8_t *data, uint32_t data_len,
+                              uint8_t *mac)
 {
     noxtls_sha_ctx_t ctx;
     uint8_t sha1_key[64];
@@ -594,7 +593,6 @@ static noxtls_return_t hmac_sha1_compute(const uint8_t *key, uint32_t key_len,
     noxtls_sha1_update(&ctx, inner_hash, 20);
     noxtls_sha1_finish(&ctx, mac);
     
-    return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
@@ -644,13 +642,8 @@ noxtls_return_t tls10_prf(const uint8_t *secret, uint32_t secret_len,
     
     /* Generate output in chunks */
     while(offset < output_len) {
-        noxtls_return_t rc;
         /* A(i) = HMAC_MD5(secret, A(i-1)) */
-        rc = hmac_md5_compute(secret, secret_len, A_md5, A_md5_len, A_md5);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            free(label_seed);
-            return rc;
-        }
+        hmac_md5_compute(secret, secret_len, A_md5, A_md5_len, A_md5);
         A_md5_len = 16;
         
         /* HMAC_MD5(secret, A(i) || label || seed) */
@@ -666,19 +659,11 @@ noxtls_return_t tls10_prf(const uint8_t *secret, uint32_t secret_len,
         memcpy(A_label_seed_md5, A_md5, A_md5_len);
         memcpy(A_label_seed_md5 + A_md5_len, label_seed, label_seed_len);
         
-        rc = hmac_md5_compute(secret, secret_len, A_label_seed_md5, A_md5_len + label_seed_len, temp_md5);
+        hmac_md5_compute(secret, secret_len, A_label_seed_md5, A_md5_len + label_seed_len, temp_md5);
         free(A_label_seed_md5);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            free(label_seed);
-            return rc;
-        }
         
         /* A(i) = HMAC_SHA1(secret, A(i-1)) */
-        rc = hmac_sha1_compute(secret, secret_len, A_sha1, A_sha1_len, A_sha1);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            free(label_seed);
-            return rc;
-        }
+        hmac_sha1_compute(secret, secret_len, A_sha1, A_sha1_len, A_sha1);
         A_sha1_len = 20;
         
         /* HMAC_SHA1(secret, A(i) || label || seed) */
@@ -694,12 +679,8 @@ noxtls_return_t tls10_prf(const uint8_t *secret, uint32_t secret_len,
         memcpy(A_label_seed_sha1, A_sha1, A_sha1_len);
         memcpy(A_label_seed_sha1 + A_sha1_len, label_seed, label_seed_len);
         
-        rc = hmac_sha1_compute(secret, secret_len, A_label_seed_sha1, A_sha1_len + label_seed_len, temp_sha1);
+        hmac_sha1_compute(secret, secret_len, A_label_seed_sha1, A_sha1_len + label_seed_len, temp_sha1);
         free(A_label_seed_sha1);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            free(label_seed);
-            return rc;
-        }
         
         /* XOR MD5 and SHA-1 outputs */
         uint32_t chunk_len = 16;  /* Use MD5 length (16) as base */
@@ -762,7 +743,6 @@ noxtls_return_t hkdf_expand(noxtls_hash_algos_t hash_algo,
 {
     uint32_t hash_size = get_hash_output_size(hash_algo);
     uint8_t T[64];  /* Current T(i) */
-    uint8_t *T_info_i;
     uint32_t offset = 0;
     uint32_t i = 1;
     uint32_t N;
@@ -783,7 +763,7 @@ noxtls_return_t hkdf_expand(noxtls_hash_algos_t hash_algo,
         /* T(i) = HMAC-Hash(PRK, T(i-1) || info || i) */
         /* For i=1: T(0) is empty, so input is info || 1 */
         /* For i>1: input is T(i-1) || info || i */
-        T_info_i = (uint8_t*)malloc(T_info_i_len);
+        uint8_t *T_info_i = (uint8_t*)malloc(T_info_i_len);
         if(T_info_i == NULL) {
             return NOXTLS_RETURN_FAILED;
         }
@@ -1026,4 +1006,3 @@ noxtls_return_t dtls13_derive_secret(noxtls_hash_algos_t hash_algo,
 
     return dtls13_hkdf_expand_label(hash_algo, secret, secret_len, label, label_len, hash, hash_len, output, output_len);
 }
-

@@ -14,37 +14,9 @@
 #include "drbg/noxtls_drbg.h"
 #include "mdigest/sha3/noxtls_sha3.h"
 
-#define MLKEM_Q 3329
-#define MLKEM_N 256
-#define MLKEM_MAX_K 4
-#define MLKEM_POLY12_BYTES 384u
-#define MLKEM_QINV (-3327)
-
-typedef struct
-{
-    uint8_t k;
-    uint8_t eta1;
-    uint8_t eta2;
-    uint8_t du;
-    uint8_t dv;
-    uint32_t public_key_len;
-    uint32_t secret_key_len;
-    uint32_t ciphertext_len;
-} mlkem_params_t;
-
 static const uint8_t *g_mlkem_test_random_seq = NULL;
 static uint32_t g_mlkem_test_random_seq_len = 0u;
 static uint32_t g_mlkem_test_random_seq_off = 0u;
-
-typedef struct
-{
-    int16_t c[MLKEM_N];
-} mlkem_poly_t;
-
-typedef struct
-{
-    mlkem_poly_t v[MLKEM_MAX_K];
-} mlkem_polyvec_t;
 
 static void mlkem_poly_add(mlkem_poly_t *r, const mlkem_poly_t *a, const mlkem_poly_t *b);
 static void mlkem_polyvec_add(mlkem_polyvec_t *r, const mlkem_polyvec_t *a, const mlkem_polyvec_t *b, uint8_t k);

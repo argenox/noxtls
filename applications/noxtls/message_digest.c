@@ -90,7 +90,8 @@ static int compute_digest_for_algorithm(
     uint32_t len,
     uint8_t * digest,
     uint32_t * digest_len);
-static int print_digest_hex(const uint8_t * digest, uint32_t digest_len, const char * label);
+static const char *canonical_digest_name(const digest_algorithm_t *spec);
+static int print_digest_hex(const uint8_t * digest, uint32_t digest_len, const char * algorithm);
 
 void print_digest_usage(void);
 
@@ -334,7 +335,7 @@ int message_digest(int argc, char ** argv)
             free(digest_hex);
             digest_hex = NULL;
         } else {
-            print_digest_hex(digest, digest_len, input_file_path);
+            print_digest_hex(digest, digest_len, canonical_digest_name(algorithm_spec));
         }
 
         free(file_buffer);
@@ -412,7 +413,7 @@ int message_digest(int argc, char ** argv)
             printf("Error: failed to compute digest for %s\n", argv[0]);
             return -1;
         }
-        print_digest_hex(digest, digest_len, NULL);
+        print_digest_hex(digest, digest_len, canonical_digest_name(algorithm_spec));
     }
 
     free(data_buffer);
@@ -607,7 +608,30 @@ static int compute_digest_for_algorithm(
     }
 }
 
-static int print_digest_hex(const uint8_t * digest, uint32_t digest_len, const char * label)
+static const char *canonical_digest_name(const digest_algorithm_t *spec)
+{
+    size_t i = 0;
+
+    if(spec == NULL) {
+        return "digest";
+    }
+
+    if(spec->display_name != NULL) {
+        return spec->display_name;
+    }
+
+    for(i = 0; i < sizeof(digest_algorithms) / sizeof(digest_algorithms[0]); i++) {
+        if(digest_algorithms[i].display_name != NULL &&
+           digest_algorithms[i].algo == spec->algo &&
+           digest_algorithms[i].digest_len == spec->digest_len) {
+            return digest_algorithms[i].display_name;
+        }
+    }
+
+    return spec->name;
+}
+
+static int print_digest_hex(const uint8_t * digest, uint32_t digest_len, const char * algorithm)
 {
     char * digest_hex = NULL;
 
@@ -615,11 +639,7 @@ static int print_digest_hex(const uint8_t * digest, uint32_t digest_len, const c
         return -1;
     }
 
-    if(label != NULL) {
-        printf("%s  %s\n", digest_hex, label);
-    } else {
-        printf("%s\n", digest_hex);
-    }
+    printf("%s 0x%s\n", algorithm != NULL ? algorithm : "digest", digest_hex);
 
     free(digest_hex);
     return 0;

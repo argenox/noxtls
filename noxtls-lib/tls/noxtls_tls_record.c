@@ -222,14 +222,13 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
 {
     const uint8_t *mac_key;
     uint32_t mac_key_len;
-    uint8_t *enc_key;
+    const uint8_t *enc_key;
     uint32_t enc_key_len;
     const uint8_t *write_iv;
     uint32_t iv_len;
     uint64_t seq_num;
     noxtls_hash_algos_t hash_algo;
     noxtls_aes_type_t aes_type;
-    uint8_t iv[16];
     uint8_t iv_enc[16];
     uint8_t mac[64];  /* Max MAC size (SHA-512) */
     uint32_t mac_len;
@@ -584,7 +583,7 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
     {
         uint16_t ver = ctx->base.base.version;
         if(ver == TLS_VERSION_1_0) {
-            uint8_t *last_block = (ctx->base.base.role == TLS_ROLE_CLIENT) ? ctx->client_last_cipher_block : ctx->server_last_cipher_block;
+            const uint8_t *last_block = (ctx->base.base.role == TLS_ROLE_CLIENT) ? ctx->client_last_cipher_block : ctx->server_last_cipher_block;
             if(seq_num == 0) {
                 memcpy(iv_enc, write_iv, iv_len);
             } else {
@@ -601,6 +600,7 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
                 return NOXTLS_RETURN_FAILED;
             }
         } else {
+            uint8_t iv[16];
             tls12_generate_iv(iv, write_iv, iv_len, seq_num);
             memcpy(iv_enc, iv, iv_len);
         }
@@ -721,7 +721,7 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
 {
     const uint8_t *mac_key;
     uint32_t mac_key_len;
-    uint8_t *enc_key;
+    const uint8_t *enc_key;
     uint32_t enc_key_len;
     const uint8_t *write_iv;
     uint32_t iv_len;
@@ -1038,10 +1038,10 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
     mac_len = tls12_mac_len_from_hash(hash_algo);
     int use_encrypt_then_mac = tls12_should_use_encrypt_then_mac(ctx, is_gcm, is_tls12_ccm, is_tls12_chacha);
     uint32_t encrypted_part_len = encrypted_record_len;
-    uint8_t received_outer_mac[64];
-    uint8_t computed_outer_mac[64];
 
     if(use_encrypt_then_mac) {
+        uint8_t received_outer_mac[64];
+        uint8_t computed_outer_mac[64];
         uint32_t computed_outer_mac_len = mac_len;
         if(encrypted_record_len < mac_len + block_size) {
             return NOXTLS_RETURN_BAD_DATA;
@@ -1141,7 +1141,6 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
     uint8_t bad_inner_mac = 0u;
     uint8_t bad_length = 0u;
     pad_bytes = 1u;
-    computed_mac_len = 0u;
     memset(mac, 0, sizeof(mac));
     memset(computed_mac, 0, sizeof(computed_mac));
 
@@ -1337,7 +1336,7 @@ static int tls13_dtls_cid_matches_or_promotes(tls13_context_t *ctx, const uint8_
     return 0;
 }
 
-static noxtls_return_t dtls13_replay_check_window(dtls_replay_window_t *window, uint64_t sequence_number)
+static noxtls_return_t dtls13_replay_check_window(const dtls_replay_window_t *window, uint64_t sequence_number)
 {
     uint64_t last_seq;
     uint64_t diff;
@@ -1608,7 +1607,6 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
     noxtls_aes_type_t aes_type = NOXTLS_AES_128_BIT;
     uint32_t tag_len = 16;
     int rc_aead;
-    int32_t sent;
     noxtls_chacha20_context_t chacha_ctx;
 
     if(ctx == NULL || inner_plaintext == NULL || !tls13_is_dtls_context(ctx)) {
@@ -1753,7 +1751,7 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
         memcpy(out, header, header_len);
         memcpy(out + header_len, ciphertext, record_len);
         noxtls_free(ciphertext);
-        sent = ctx->base.base.send_callback(ctx->base.base.user_data, out, total);
+        int32_t sent = ctx->base.base.send_callback(ctx->base.base.user_data, out, total);
         noxtls_free(out);
         if(sent != (int32_t)total) {
             return NOXTLS_RETURN_FAILED;
@@ -1828,7 +1826,6 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
     uint8_t seq_len;
     uint32_t seq_offset;
     uint32_t len_offset;
-    uint32_t cid_offset;
     uint64_t full_seq;
     uint8_t aad[DTLS13_MAX_HEADER_LEN];
     const uint8_t *read_key;
@@ -1867,7 +1864,7 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
     len_offset = seq_offset + seq_len;
     {
         uint32_t cid_len = (raw[0] & DTLS13_UNIFIED_CID_BIT) ? ctx->own_connection_id_len : 0;
-        cid_offset = len_offset + ((raw[0] & DTLS13_UNIFIED_L_BIT) ? 2u : 0u);
+        uint32_t cid_offset = len_offset + ((raw[0] & DTLS13_UNIFIED_L_BIT) ? 2u : 0u);
         aad_len = cid_offset + cid_len;
         if(raw_len < aad_len + 16u) {
             return NOXTLS_RETURN_BAD_DATA;
@@ -1879,14 +1876,11 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
         }
         if(raw[0] & DTLS13_UNIFIED_L_BIT) {
             ciphertext_len = (uint32_t)(((uint16_t)raw[len_offset] << 8) | raw[len_offset + 1u]);
-            if(raw_len < aad_len + ciphertext_len || ciphertext_len < 16u) {
+            if(raw_len < aad_len + ciphertext_len) {
                 return NOXTLS_RETURN_BAD_DATA;
             }
         } else {
             ciphertext_len = raw_len - aad_len;
-            if(ciphertext_len < 16u) {
-                return NOXTLS_RETURN_BAD_DATA;
-            }
         }
         ciphertext = raw + aad_len;
         if(cid_len > 0 && (cid_len > raw_len - cid_offset ||
@@ -1998,9 +1992,9 @@ noxtls_return_t noxtls_tls13_encrypt_record_early(tls13_context_t *ctx,
                                        uint32_t *encrypted_record_len)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    const uint8_t *write_key = ctx->early_write_key;
-    const uint8_t *write_iv = ctx->early_write_iv;
-    uint64_t seq_num = ctx->early_seq_num;
+    const uint8_t *write_key;
+    const uint8_t *write_iv;
+    uint64_t seq_num;
     uint8_t nonce[12];
     uint8_t aad[5];
     uint8_t tag[16];
@@ -2016,6 +2010,9 @@ noxtls_return_t noxtls_tls13_encrypt_record_early(tls13_context_t *ctx,
         return NOXTLS_RETURN_NULL;
     }
 
+    write_key = ctx->early_write_key;
+    write_iv = ctx->early_write_iv;
+    seq_num = ctx->early_seq_num;
     tls13_generate_nonce(nonce, write_iv, 12, seq_num);
 
     if(tls13_get_record_cipher_params(cipher_suite, &use_aes_gcm, &use_aes_ccm, &use_chacha, &aes_type, &tag_len) != NOXTLS_RETURN_SUCCESS) {
@@ -2074,9 +2071,9 @@ noxtls_return_t noxtls_tls13_decrypt_record_early(tls13_context_t *ctx,
                                        uint8_t *plaintext,
                                        uint32_t *plaintext_len)
 {
-    const uint8_t *write_key = ctx->early_write_key;
-    const uint8_t *write_iv = ctx->early_write_iv;
-    uint64_t seq_num = ctx->early_seq_num;
+    const uint8_t *write_key;
+    const uint8_t *write_iv;
+    uint64_t seq_num;
     uint8_t nonce[12];
     uint8_t aad[5];
     uint8_t tag[16];
@@ -2094,6 +2091,9 @@ noxtls_return_t noxtls_tls13_decrypt_record_early(tls13_context_t *ctx,
     if(encrypted_record_len < 8) {
         return NOXTLS_RETURN_BAD_DATA;
     }
+    write_key = ctx->early_write_key;
+    write_iv = ctx->early_write_iv;
+    seq_num = ctx->early_seq_num;
     tls13_generate_nonce(nonce, write_iv, 12, seq_num);
     aad[0] = TLS_RECORD_APPLICATION_DATA;
     aad[1] = (ctx->base.base.version >> 8) & 0xFF;
