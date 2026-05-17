@@ -32,8 +32,11 @@
 *
 * File:    noxtls_tls13.c
 * Summary: TLS 1.3 Implementation
-*
 */
+
+// cppcheck-suppress-file unusedFunction
+// cppcheck-suppress-file variableScope
+// cppcheck-suppress-file constParameterPointer
 
 #include <stdint.h>
 #include <stdio.h>
@@ -1869,9 +1872,9 @@ static noxtls_return_t tls13_get_cipher_params(uint16_t cipher_suite,
 
 static noxtls_return_t tls13_hash_messages(noxtls_hash_algos_t hash_algo,
                                              const uint8_t *messages, uint32_t messages_len,
-                                             uint8_t *hash, uint32_t *hash_len)
+                                             uint8_t *out_hash, uint32_t *out_hash_len)
 {
-    if(hash == NULL || hash_len == NULL) {
+    if(out_hash == NULL || out_hash_len == NULL) {
         return NOXTLS_RETURN_NULL;
     }
 
@@ -1881,8 +1884,8 @@ static noxtls_return_t tls13_hash_messages(noxtls_hash_algos_t hash_algo,
         if(messages != NULL && messages_len > 0) {
             noxtls_sha256_update(&sha_ctx, (uint8_t*)messages, messages_len);
         }
-        *hash_len = 32;
-        return noxtls_sha256_finish(&sha_ctx, hash);
+        *out_hash_len = 32;
+        return noxtls_sha256_finish(&sha_ctx, out_hash);
     }
 
     if(hash_algo == NOXTLS_HASH_SHA_384) {
@@ -1891,8 +1894,8 @@ static noxtls_return_t tls13_hash_messages(noxtls_hash_algos_t hash_algo,
         if(messages != NULL && messages_len > 0) {
             noxtls_sha512_update(&sha_ctx, (uint8_t*)messages, messages_len);
         }
-        *hash_len = 48;
-        return noxtls_sha512_finish(&sha_ctx, hash);
+        *out_hash_len = 48;
+        return noxtls_sha512_finish(&sha_ctx, out_hash);
     }
 
     return NOXTLS_RETURN_INVALID_ALGORITHM;
@@ -2802,20 +2805,20 @@ static noxtls_return_t tls13_handle_post_handshake_message(tls13_context_t *ctx,
 
 static noxtls_return_t tls13_build_inner_plaintext(const uint8_t *content, uint32_t content_len,
                                                      uint8_t content_type,
-                                                     uint8_t *output, uint32_t *output_len)
+                                                     uint8_t *out_plaintext, uint32_t *out_len)
 {
-    if(output == NULL || output_len == NULL) {
+    if(out_plaintext == NULL || out_len == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(*output_len < content_len + 1) {
-        *output_len = content_len + 1;
+    if(*out_len < content_len + 1) {
+        *out_len = content_len + 1;
         return NOXTLS_RETURN_FAILED;
     }
     if(content != NULL && content_len > 0) {
-        memcpy(output, content, content_len);
+        memcpy(out_plaintext, content, content_len);
     }
-    output[content_len] = content_type;
-    *output_len = content_len + 1;
+    out_plaintext[content_len] = content_type;
+    *out_len = content_len + 1;
     return NOXTLS_RETURN_SUCCESS;
 }
 

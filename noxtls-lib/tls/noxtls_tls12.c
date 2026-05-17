@@ -32,8 +32,12 @@
 *
 * File:    noxtls_tls12.c
 * Summary: TLS 1.2 Implementation
-*
 */
+
+// cppcheck-suppress-file unusedFunction
+// cppcheck-suppress-file variableScope
+// cppcheck-suppress-file constVariablePointer
+// cppcheck-suppress-file constParameterPointer
 
 #include <stdint.h>
 #include <stdio.h>
