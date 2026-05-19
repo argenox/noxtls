@@ -13,8 +13,10 @@ choice NOXTLS_PROFILE
 	prompt "Feature profile"
 	default NOXTLS_PROFILE_DEFAULT
 	help
-	  Predefined feature sets. Individual feature options below apply when
-	  the profile is "default".
+	  Predefined feature sets matching noxtls/CMakeLists.txt profiles.
+	  For full control over every NOXTLS_FEATURE_* option in menuconfig,
+	  select profile "default". Other profiles override many options at
+	  build time regardless of individual Kconfig toggles.
 
 config NOXTLS_PROFILE_DEFAULT
 	bool "default"
@@ -44,6 +46,9 @@ config NOXTLS_PROFILE
 choice NOXTLS_SIDECHANNEL
 	prompt "Side-channel profile"
 	default NOXTLS_SIDECHANNEL_BALANCED
+	help
+	  Maps to NOXTLS_SIDECHANNEL_PROFILE_* and NOXTLS_CT_COMPARE in
+	  noxtls_config.h (CT compare is off only for "performance").
 
 config NOXTLS_SIDECHANNEL_PERFORMANCE
 	bool "performance"
@@ -61,257 +66,6 @@ config NOXTLS_SIDECHANNEL
 	default "performance" if NOXTLS_SIDECHANNEL_PERFORMANCE
 	default "constant_time_strict" if NOXTLS_SIDECHANNEL_CONSTANT_TIME_STRICT
 	default "balanced"
-
-config NOXTLS_FEATURE_HASH
-	bool "Hash (message digests)"
-	default y
-
-config NOXTLS_FEATURE_ENCRYPTION
-	bool "Symmetric encryption"
-	default y
-
-config NOXTLS_FEATURE_DRBG
-	bool "DRBG (random number generator)"
-	default y
-
-config NOXTLS_FEATURE_PKC
-	bool "Public-key cryptography"
-	default y
-
-config NOXTLS_FEATURE_CERT
-	bool "X.509 certificates"
-	default y
-	depends on NOXTLS_FEATURE_PKC
-
-config NOXTLS_FEATURE_TLS
-	bool "TLS / DTLS stack"
-	default y
-	depends on NOXTLS_FEATURE_CERT
-
-config NOXTLS_FEATURE_TLS10
-	bool "TLS 1.0"
-	default n
-	depends on NOXTLS_FEATURE_TLS
-
-config NOXTLS_FEATURE_TLS11
-	bool "TLS 1.1"
-	default n
-	depends on NOXTLS_FEATURE_TLS
-
-config NOXTLS_FEATURE_TLS12
-	bool "TLS 1.2"
-	default y
-	depends on NOXTLS_FEATURE_TLS
-
-config NOXTLS_FEATURE_TLS13
-	bool "TLS 1.3"
-	default y
-	depends on NOXTLS_FEATURE_TLS
-
-config NOXTLS_FEATURE_DTLS
-	bool "DTLS"
-	default n
-	depends on NOXTLS_FEATURE_TLS
-
-config NOXTLS_FEATURE_MD4
-	bool "MD4"
-	default n
-	depends on NOXTLS_FEATURE_HASH
-
-config NOXTLS_FEATURE_MD5
-	bool "MD5"
-	default y
-	depends on NOXTLS_FEATURE_HASH
-
-config NOXTLS_FEATURE_SHA1
-	bool "SHA-1"
-	default y
-	depends on NOXTLS_FEATURE_HASH
-
-config NOXTLS_FEATURE_SHA224
-	bool "SHA-224"
-	default y
-	depends on NOXTLS_FEATURE_HASH
-
-config NOXTLS_FEATURE_SHA256
-	bool "SHA-256"
-	default y
-	depends on NOXTLS_FEATURE_HASH
-
-config NOXTLS_FEATURE_SHA384
-	bool "SHA-384"
-	default y
-	depends on NOXTLS_FEATURE_HASH
-
-config NOXTLS_FEATURE_SHA512
-	bool "SHA-512"
-	default y
-	depends on NOXTLS_FEATURE_HASH
-
-config NOXTLS_FEATURE_SHA3
-	bool "SHA-3"
-	default y
-	depends on NOXTLS_FEATURE_HASH
-
-config NOXTLS_FEATURE_RIPEMD160
-	bool "RIPEMD-160"
-	default y
-	depends on NOXTLS_FEATURE_HASH
-
-config NOXTLS_FEATURE_BLAKE2
-	bool "BLAKE2"
-	default y
-	depends on NOXTLS_FEATURE_HASH
-
-config NOXTLS_FEATURE_AES
-	bool "AES"
-	default y
-	depends on NOXTLS_FEATURE_ENCRYPTION
-
-config NOXTLS_FEATURE_AES_128
-	bool "AES-128"
-	default y
-	depends on NOXTLS_FEATURE_AES
-
-config NOXTLS_FEATURE_AES_192
-	bool "AES-192"
-	default y
-	depends on NOXTLS_FEATURE_AES
-
-config NOXTLS_FEATURE_AES_256
-	bool "AES-256"
-	default y
-	depends on NOXTLS_FEATURE_AES
-
-config NOXTLS_FEATURE_AES_ECB
-	bool "AES-ECB"
-	default y
-	depends on NOXTLS_FEATURE_AES
-
-config NOXTLS_FEATURE_AES_CBC
-	bool "AES-CBC"
-	default y
-	depends on NOXTLS_FEATURE_AES
-
-config NOXTLS_FEATURE_AES_CTR
-	bool "AES-CTR"
-	default y
-	depends on NOXTLS_FEATURE_AES
-
-config NOXTLS_FEATURE_AES_CFB
-	bool "AES-CFB"
-	default y
-	depends on NOXTLS_FEATURE_AES
-
-config NOXTLS_FEATURE_AES_OFB
-	bool "AES-OFB"
-	default y
-	depends on NOXTLS_FEATURE_AES
-
-config NOXTLS_FEATURE_AES_XTS
-	bool "AES-XTS"
-	default y
-	depends on NOXTLS_FEATURE_AES
-
-config NOXTLS_FEATURE_AES_GCM
-	bool "AES-GCM"
-	default y
-	depends on NOXTLS_FEATURE_AES
-
-config NOXTLS_FEATURE_AES_CCM
-	bool "AES-CCM"
-	default y
-	depends on NOXTLS_FEATURE_AES
-
-config NOXTLS_FEATURE_AES_CMAC
-	bool "AES-CMAC"
-	default y
-	depends on NOXTLS_FEATURE_AES
-
-config NOXTLS_FEATURE_ARIA
-	bool "ARIA"
-	default y
-	depends on NOXTLS_FEATURE_ENCRYPTION
-
-config NOXTLS_FEATURE_CAMELLIA
-	bool "Camellia"
-	default y
-	depends on NOXTLS_FEATURE_ENCRYPTION
-
-config NOXTLS_FEATURE_CHACHA20_POLY1305
-	bool "ChaCha20-Poly1305"
-	default y
-	depends on NOXTLS_FEATURE_ENCRYPTION
-
-config NOXTLS_FEATURE_DES
-	bool "DES"
-	default y
-	depends on NOXTLS_FEATURE_ENCRYPTION
-
-config NOXTLS_FEATURE_RC4
-	bool "RC4"
-	default y
-	depends on NOXTLS_FEATURE_ENCRYPTION
-
-config NOXTLS_FEATURE_RSA
-	bool "RSA"
-	default y
-	depends on NOXTLS_FEATURE_PKC
-
-config NOXTLS_FEATURE_ECC
-	bool "ECC (P-256, P-384, P-521)"
-	default y
-	depends on NOXTLS_FEATURE_PKC
-
-config NOXTLS_FEATURE_ECDSA
-	bool "ECDSA"
-	default y
-	depends on NOXTLS_FEATURE_ECC
-
-config NOXTLS_FEATURE_ECDH
-	bool "ECDH"
-	default y
-	depends on NOXTLS_FEATURE_ECC
-
-config NOXTLS_FEATURE_DH
-	bool "Diffie-Hellman (FFDHE)"
-	default y
-	depends on NOXTLS_FEATURE_PKC
-
-config NOXTLS_FEATURE_X25519
-	bool "X25519"
-	default y
-	depends on NOXTLS_FEATURE_PKC
-
-config NOXTLS_FEATURE_X448
-	bool "X448"
-	default y
-	depends on NOXTLS_FEATURE_PKC
-
-config NOXTLS_FEATURE_ED25519
-	bool "Ed25519"
-	default y
-	depends on NOXTLS_FEATURE_PKC
-
-config NOXTLS_FEATURE_ED448
-	bool "Ed448"
-	default n
-	depends on NOXTLS_FEATURE_PKC
-
-config NOXTLS_FEATURE_DSA
-	bool "DSA"
-	default y
-	depends on NOXTLS_FEATURE_PKC
-
-config NOXTLS_FEATURE_ML_KEM
-	bool "ML-KEM (post-quantum KEM)"
-	default n
-	depends on NOXTLS_FEATURE_PKC
-
-config NOXTLS_FEATURE_ML_DSA
-	bool "ML-DSA (post-quantum signatures)"
-	default n
-	depends on NOXTLS_FEATURE_PKC
 
 config NOXTLS_USE_ZEPHYR_ENTROPY
 	bool "Seed DRBG from Zephyr CSRNG (sys_csrand_get)"
@@ -340,5 +94,7 @@ config NOXTLS_SAMPLE_TLS_HOST
 	string "TLS client sample hostname"
 	default "example.com"
 	depends on NOXTLS_SAMPLE_TLS_CONNECT
+
+source "$(ZEPHYR_NOXTLS_MODULE_DIR)/ports/zephyr/Kconfig.noxtls.generated"
 
 endif # NOXTLS
