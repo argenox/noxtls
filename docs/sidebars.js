@@ -13,7 +13,6 @@ const sidebars = {
     'release-notes',
     'documentation-parity-matrix',
     'project',
-    'contributing',
     'security-reporting',
     'eddsa',
     'tls',

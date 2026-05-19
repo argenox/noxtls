@@ -106,7 +106,6 @@ const config = {
               { label: 'Applications', to: '/docs/applications' },
               { label: 'Release Notes', to: '/docs/release-notes' },
               { label: 'Project', to: '/docs/project' },
-              { label: 'Contributing', to: '/docs/contributing' },
             ],
           },
           {

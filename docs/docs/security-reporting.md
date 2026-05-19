@@ -10,7 +10,7 @@ Use coordinated disclosure for suspected vulnerabilities in `noxtls`.
 
 ## How to report
 
-- Email: [info@argenox.com](mailto:info@argenox.com)
+- Email: [security@argenox.com](mailto:security@argenox.com)
 - Include "Security Report: noxtls" in subject line.
 - Do not publish exploit details publicly before coordination.
 
