@@ -1,0 +1,7 @@
+name: noxtls
+build:
+  cmake: ports/zephyr
+  kconfig: ports/zephyr/Kconfig
+security:
+  external-references:
+    - pkg:github/argenox/noxtls

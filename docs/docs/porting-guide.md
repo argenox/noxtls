@@ -76,6 +76,14 @@ Porting usually means implementing the TLS transport layer (sockets or equivalen
 - Run the project’s test suite (e.g. unit tests and any integration tests) on the target.
 - If you use a simulator or emulator, run the same tests there before moving to real hardware.
 
+## Zephyr RTOS
+
+NoxTLS ships as a [Zephyr west module](https://docs.zephyrproject.org/latest/develop/modules.html). Add the repository to your manifest at `modules/crypto/noxtls`, enable `CONFIG_NOXTLS=y` in your application, and link with `target_link_libraries(app PRIVATE noxtls)`.
+
+Integration files live under `ports/zephyr/`; the required `zephyr/module.yml` at the NoxTLS repository root points the Zephyr build system at that port. Entropy is wired to Zephyr’s CSRNG via `sys_csrand_get()` when `CONFIG_NOXTLS_USE_ZEPHYR_ENTROPY` is enabled.
+
+See **ports/zephyr/README.md** in the NoxTLS repository for the west manifest snippet, sample application, and Twister tests.
+
 ## Next steps
 
 - See the **Configuration Guide** for build options, feature macros, and optional components.

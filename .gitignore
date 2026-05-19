@@ -122,3 +122,7 @@ Release/
 
 build-*
 *.zip
+
+# Zephyr port (ports/zephyr)
+ports/zephyr/**/build/
+ports/zephyr/**/build-*/
