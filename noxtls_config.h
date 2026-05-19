@@ -264,6 +264,7 @@
 #define NOXTLS_FEATURE_AES_CMAC 1
 
 /* Enables AES-NI accelerated AES block path on x86/x64 builds that compile with AES intrinsics.
+ * Prereq: NOXTLS_FEATURE_AES=1.
  * Build knob: NOXTLS_CFG_FEATURE_AES_ACCEL_NI.
  */
 #ifndef NOXTLS_FEATURE_AES_ACCEL_NI
@@ -271,6 +272,7 @@
 #endif
 
 /* Enables Apple Silicon ARMv8 AES accelerated block path on arm64 Apple builds.
+ * Prereq: NOXTLS_FEATURE_AES=1.
  * Build knob: NOXTLS_CFG_FEATURE_AES_ACCEL_APPLE.
  */
 #ifndef NOXTLS_FEATURE_AES_ACCEL_APPLE

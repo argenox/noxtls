@@ -545,13 +545,18 @@ noxtls_return_t noxtls_aes_encrypt_block_internal(const uint8_t *key, const uint
     noxtls_return_t rc = NOXTLS_RETURN_NOT_SUPPORTED;
     (void)rc;
 
-#if NOXTLS_FEATURE_AES_ACCEL_NI && (defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86))
+#if NOXTLS_FEATURE_AES_ACCEL_NI && \
+    (defined(__AES__) || defined(_MSC_VER)) && \
+    (defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86))
     rc = noxtls_aes_accel_ni_encrypt_block(key, data, output, type);
     if(rc == NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 #endif
-#if NOXTLS_FEATURE_AES_ACCEL_APPLE && defined(__APPLE__) && (defined(__aarch64__) || defined(__arm64__))
+#if NOXTLS_FEATURE_AES_ACCEL_APPLE && \
+    defined(__APPLE__) && \
+    (defined(__aarch64__) || defined(__arm64__)) && \
+    defined(__ARM_FEATURE_CRYPTO)
     rc = noxtls_aes_accel_apple_encrypt_block(key, data, output, type);
     if(rc == NOXTLS_RETURN_SUCCESS) {
         return rc;
@@ -563,9 +568,14 @@ noxtls_return_t noxtls_aes_encrypt_block_internal(const uint8_t *key, const uint
 
 noxtls_aes_accel_backend_t noxtls_aes_get_accel_backend(void)
 {
-#if NOXTLS_FEATURE_AES_ACCEL_NI && (defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86))
+#if NOXTLS_FEATURE_AES_ACCEL_NI && \
+    (defined(__AES__) || defined(_MSC_VER)) && \
+    (defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86))
     return NOXTLS_AES_ACCEL_BACKEND_NI;
-#elif NOXTLS_FEATURE_AES_ACCEL_APPLE && defined(__APPLE__) && (defined(__aarch64__) || defined(__arm64__))
+#elif NOXTLS_FEATURE_AES_ACCEL_APPLE && \
+    defined(__APPLE__) && \
+    (defined(__aarch64__) || defined(__arm64__)) && \
+    defined(__ARM_FEATURE_CRYPTO)
     return NOXTLS_AES_ACCEL_BACKEND_APPLE;
 #else
     return NOXTLS_AES_ACCEL_BACKEND_SOFTWARE;
@@ -1004,13 +1014,18 @@ noxtls_return_t noxtls_aes_decrypt_block_internal(const uint8_t *key, const uint
     noxtls_return_t rc = NOXTLS_RETURN_NOT_SUPPORTED;
     (void)rc;
 
-#if NOXTLS_FEATURE_AES_ACCEL_NI && (defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86))
+#if NOXTLS_FEATURE_AES_ACCEL_NI && \
+    (defined(__AES__) || defined(_MSC_VER)) && \
+    (defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86))
     rc = noxtls_aes_accel_ni_decrypt_block(key, data, output, type);
     if(rc == NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 #endif
-#if NOXTLS_FEATURE_AES_ACCEL_APPLE && defined(__APPLE__) && (defined(__aarch64__) || defined(__arm64__))
+#if NOXTLS_FEATURE_AES_ACCEL_APPLE && \
+    defined(__APPLE__) && \
+    (defined(__aarch64__) || defined(__arm64__)) && \
+    defined(__ARM_FEATURE_CRYPTO)
     rc = noxtls_aes_accel_apple_decrypt_block(key, data, output, type);
     if(rc == NOXTLS_RETURN_SUCCESS) {
         return rc;

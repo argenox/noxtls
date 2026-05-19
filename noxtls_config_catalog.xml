@@ -317,11 +317,21 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_AES_ACCEL_APPLE" name="Aes Accel Apple" type="boolean" default="disabled" default-value="0" legacy="false" source-line="275">
-            <description>Enables Apple Silicon ARMv8 AES accelerated block path on arm64 Apple builds. Build knob: NOXTLS_CFG_FEATURE_AES_ACCEL_APPLE.</description>
+          <setting id="NOXTLS_FEATURE_AES_ACCEL_APPLE" name="Aes Accel Apple" type="boolean" default="disabled" default-value="0" legacy="false" source-line="276">
+            <description>Enables Apple Silicon ARMv8 AES accelerated block path on arm64 Apple builds. Prereq: NOXTLS_FEATURE_AES=1. Build knob: NOXTLS_CFG_FEATURE_AES_ACCEL_APPLE.</description>
+            <dependencies>
+              <allOf>
+                <dependency ref="NOXTLS_FEATURE_AES" value="1"/>
+              </allOf>
+            </dependencies>
           </setting>
           <setting id="NOXTLS_FEATURE_AES_ACCEL_NI" name="Aes Accel Ni" type="boolean" default="disabled" default-value="0" legacy="false" source-line="268">
-            <description>Enables AES-NI accelerated AES block path on x86/x64 builds that compile with AES intrinsics. Build knob: NOXTLS_CFG_FEATURE_AES_ACCEL_NI.</description>
+            <description>Enables AES-NI accelerated AES block path on x86/x64 builds that compile with AES intrinsics. Prereq: NOXTLS_FEATURE_AES=1. Build knob: NOXTLS_CFG_FEATURE_AES_ACCEL_NI.</description>
+            <dependencies>
+              <allOf>
+                <dependency ref="NOXTLS_FEATURE_AES" value="1"/>
+              </allOf>
+            </dependencies>
           </setting>
           <setting id="NOXTLS_FEATURE_AES_CBC" name="Aes Cbc" type="boolean" default="enabled" default-value="1" legacy="false" source-line="225">
             <description>Enables AES-CBC mode. Prereq: NOXTLS_FEATURE_AES=1.</description>
