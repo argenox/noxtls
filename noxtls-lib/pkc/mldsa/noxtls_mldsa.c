@@ -6,12 +6,13 @@
 * This file is part of the NoxTLS Library.
 *
 * File:    noxtls_mldsa.c
-* Summary: In-house ML-DSA API boundary and clean-room backend skeleton.
+* Summary: In-house ML-DSA API boundary and backend skeleton.
 */
 
 #include <stdint.h>
 
 #include "noxtls_mldsa.h"
+#include "noxtls_mldsa_internal.h"
 
 /**
  * @brief Resolve fixed key/signature sizes for an ML-DSA parameter set.
@@ -23,31 +24,22 @@
  */
 static noxtls_return_t mldsa_get_sizes(noxtls_mldsa_param_t param, mldsa_sizes_t *sizes)
 {
+    noxtls_mldsa_param_spec_t spec;
+    noxtls_return_t rc;
+
     if(sizes == NULL) {
         return NOXTLS_RETURN_NULL;
     }
 
-    switch(param) {
-        case NOXTLS_MLDSA_NONE:
-            return NOXTLS_RETURN_INVALID_PARAM;
-        case NOXTLS_MLDSA_44:
-            sizes->public_key_len = 1312u;
-            sizes->secret_key_len = 2560u;
-            sizes->signature_len = 2420u;
-            return NOXTLS_RETURN_SUCCESS;
-        case NOXTLS_MLDSA_65:
-            sizes->public_key_len = 1952u;
-            sizes->secret_key_len = 4032u;
-            sizes->signature_len = 3309u;
-            return NOXTLS_RETURN_SUCCESS;
-        case NOXTLS_MLDSA_87:
-            sizes->public_key_len = 2592u;
-            sizes->secret_key_len = 4896u;
-            sizes->signature_len = 4627u;
-            return NOXTLS_RETURN_SUCCESS;
-        default:
-            return NOXTLS_RETURN_INVALID_PARAM;
+    rc = noxtls_mldsa_internal_get_param_spec(param, &spec);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
     }
+
+    sizes->public_key_len = spec.public_key_len;
+    sizes->secret_key_len = spec.secret_key_len;
+    sizes->signature_len = spec.signature_len;
+    return NOXTLS_RETURN_SUCCESS;
 }
 
 uint32_t noxtls_mldsa_public_key_len(noxtls_mldsa_param_t param)
@@ -97,7 +89,7 @@ noxtls_return_t noxtls_mldsa_keygen(noxtls_mldsa_param_t param, uint8_t *public_
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    return NOXTLS_RETURN_NOT_SUPPORTED;
+    return noxtls_mldsa_backend_keygen(param, public_key, secret_key);
 }
 
 noxtls_return_t noxtls_mldsa_sign(noxtls_mldsa_param_t param,
@@ -119,7 +111,7 @@ noxtls_return_t noxtls_mldsa_sign(noxtls_mldsa_param_t param,
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    return NOXTLS_RETURN_NOT_SUPPORTED;
+    return noxtls_mldsa_backend_sign(param, secret_key, noxtls_message, message_len, signature, signature_len);
 }
 
 noxtls_return_t noxtls_mldsa_verify(noxtls_mldsa_param_t param,
@@ -143,5 +135,5 @@ noxtls_return_t noxtls_mldsa_verify(noxtls_mldsa_param_t param,
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    return NOXTLS_RETURN_NOT_SUPPORTED;
+    return noxtls_mldsa_backend_verify(param, public_key, noxtls_message, message_len, signature, signature_len);
 }

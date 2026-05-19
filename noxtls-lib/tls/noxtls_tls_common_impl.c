@@ -68,7 +68,7 @@ static void tls_dump_record(const char *direction, const uint8_t *data, uint32_t
     if(tls_record_dump_fp == NULL || direction == NULL || data == NULL) {
         return;
     }
-    fprintf(tls_record_dump_fp, "%s %u ", direction, len);
+    fprintf(tls_record_dump_fp, "%s %lu ", direction, (unsigned long)len);
     for(uint32_t i = 0; i < len; i++) {
         fprintf(tls_record_dump_fp, "%02X", data[i]);
     }

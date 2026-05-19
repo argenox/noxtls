@@ -46,15 +46,19 @@ if(NOXTLS_CFG_FEATURE_ML_KEM)
     list(APPEND PKC_SOURCES mlkem/noxtls_mlkem.c)
 endif()
 if(NOXTLS_CFG_FEATURE_ML_DSA)
-    list(APPEND PKC_SOURCES mldsa/noxtls_mldsa.c)
-    if(NOXTLS_CFG_ML_DSA_ALLOW_EXTERNAL_BACKEND)
-        list(APPEND PKC_SOURCES
-            mldsa/noxtls_zetas.c
-            mldsa/noxtls_mldsa44_ref.c
-            mldsa/noxtls_mldsa65_ref.c
-            mldsa/noxtls_mldsa87_ref.c
-        )
-    endif()
+    list(APPEND PKC_SOURCES
+        mldsa/noxtls_mldsa.c
+        mldsa/noxtls_mldsa_internal.c
+        mldsa/noxtls_mldsa_backend.c
+        mldsa/noxtls_mldsa_sampling.c
+        mldsa/noxtls_mldsa_packing.c
+        mldsa/noxtls_mldsa_ntt.c
+        mldsa/noxtls_mldsa_polyarith.c
+        mldsa/noxtls_mldsa_polyvec.c
+        mldsa/noxtls_mldsa_challenge.c
+        mldsa/noxtls_mldsa_hint.c
+        mldsa/noxtls_mldsa_sigcodec.c
+    )
 endif()
 if(NOXTLS_CFG_FEATURE_SLH_DSA)
     list(APPEND PKC_SOURCES slhdsa/noxtls_slhdsa.c)

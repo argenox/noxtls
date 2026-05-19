@@ -1,0 +1,194 @@
+/*****************************************************************************
+* Copyright (c) [2019] - [2026], Argenox Technologies LLC
+* All rights reserved.
+* SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
+*
+* This file is part of the NoxTLS Library.
+*
+* File:    noxtls_mldsa_ntt.c
+* Summary: ML-DSA NTT helpers over Z_q with q = 8380417.
+*/
+
+#include <stdint.h>
+
+#include "noxtls_mldsa_internal.h"
+
+typedef struct
+{
+    uint8_t initialized;
+    int32_t root;
+    int32_t inv_root;
+    int32_t inv_n;
+} noxtls_mldsa_ntt_ctx_t;
+
+static noxtls_mldsa_ntt_ctx_t g_ntt_ctx = {0u, 0, 0, 0};
+
+static int32_t mod_add_q(int32_t a, int32_t b)
+{
+    int32_t r = a + b;
+    if(r >= NOXTLS_MLDSA_Q) {
+        r -= NOXTLS_MLDSA_Q;
+    }
+    return r;
+}
+
+static int32_t mod_sub_q(int32_t a, int32_t b)
+{
+    int32_t r = a - b;
+    if(r < 0) {
+        r += NOXTLS_MLDSA_Q;
+    }
+    return r;
+}
+
+static int32_t mod_mul_q(int32_t a, int32_t b)
+{
+    int64_t p = (int64_t)a * (int64_t)b;
+    return (int32_t)(p % NOXTLS_MLDSA_Q);
+}
+
+static int32_t mod_pow_q(int32_t base, int32_t exp)
+{
+    int32_t r = 1;
+    int32_t b = noxtls_mldsa_coeff_normalize(base);
+    int32_t e = exp;
+
+    while(e > 0) {
+        if((e & 1) != 0) {
+            r = mod_mul_q(r, b);
+        }
+        b = mod_mul_q(b, b);
+        e >>= 1;
+    }
+    return r;
+}
+
+static int32_t mod_inv_q(int32_t x)
+{
+    return mod_pow_q(x, NOXTLS_MLDSA_Q - 2);
+}
+
+static uint32_t bit_reverse_u8(uint32_t x)
+{
+    uint32_t r = 0u;
+    uint32_t i;
+    for(i = 0u; i < 8u; ++i) {
+        r = (r << 1u) | (x & 1u);
+        x >>= 1u;
+    }
+    return r;
+}
+
+static int ntt_init_once(void)
+{
+    int32_t cand;
+    int32_t root = 0;
+
+    if(g_ntt_ctx.initialized != 0u) {
+        return 0;
+    }
+
+    /* Find a primitive 256-th root of unity modulo q. */
+    for(cand = 2; cand < NOXTLS_MLDSA_Q; ++cand) {
+        if(mod_pow_q(cand, NOXTLS_MLDSA_N) == 1 &&
+           mod_pow_q(cand, NOXTLS_MLDSA_N / 2) != 1) {
+            root = cand;
+            break;
+        }
+    }
+    if(root == 0) {
+        return -1;
+    }
+
+    g_ntt_ctx.root = root;
+    g_ntt_ctx.inv_root = mod_inv_q(root);
+    g_ntt_ctx.inv_n = mod_inv_q(NOXTLS_MLDSA_N);
+    g_ntt_ctx.initialized = 1u;
+    return 0;
+}
+
+static void bit_reverse_permute(noxtls_mldsa_poly_t *p)
+{
+    uint32_t i;
+
+    for(i = 0u; i < NOXTLS_MLDSA_N; ++i) {
+        uint32_t j = bit_reverse_u8(i);
+        if(j > i) {
+            int32_t tmp = p->coeff[i];
+            p->coeff[i] = p->coeff[j];
+            p->coeff[j] = tmp;
+        }
+    }
+}
+
+static void ntt_core(noxtls_mldsa_poly_t *p, int32_t omega)
+{
+    uint32_t m;
+
+    bit_reverse_permute(p);
+
+    for(m = 2u; m <= NOXTLS_MLDSA_N; m <<= 1u) {
+        uint32_t half = m >> 1u;
+        int32_t wm = mod_pow_q(omega, (int32_t)(NOXTLS_MLDSA_N / m));
+        uint32_t k;
+
+        for(k = 0u; k < NOXTLS_MLDSA_N; k += m) {
+            int32_t w = 1;
+            uint32_t j;
+            for(j = 0u; j < half; ++j) {
+                int32_t t = mod_mul_q(w, p->coeff[k + j + half]);
+                int32_t u = p->coeff[k + j];
+                p->coeff[k + j] = mod_add_q(u, t);
+                p->coeff[k + j + half] = mod_sub_q(u, t);
+                w = mod_mul_q(w, wm);
+            }
+        }
+    }
+}
+
+void noxtls_mldsa_poly_ntt(noxtls_mldsa_poly_t *p)
+{
+    if(p == NULL) {
+        return;
+    }
+    if(ntt_init_once() != 0) {
+        return;
+    }
+    noxtls_mldsa_poly_reduce(p);
+    ntt_core(p, g_ntt_ctx.root);
+}
+
+void noxtls_mldsa_poly_invntt_to_mont(noxtls_mldsa_poly_t *p)
+{
+    uint32_t i;
+
+    if(p == NULL) {
+        return;
+    }
+    if(ntt_init_once() != 0) {
+        return;
+    }
+
+    noxtls_mldsa_poly_reduce(p);
+    ntt_core(p, g_ntt_ctx.inv_root);
+    for(i = 0u; i < NOXTLS_MLDSA_N; ++i) {
+        p->coeff[i] = mod_mul_q(p->coeff[i], g_ntt_ctx.inv_n);
+    }
+}
+
+void noxtls_mldsa_poly_pointwise_montgomery(noxtls_mldsa_poly_t *r,
+                                            const noxtls_mldsa_poly_t *a,
+                                            const noxtls_mldsa_poly_t *b)
+{
+    uint32_t i;
+
+    if(r == NULL || a == NULL || b == NULL) {
+        return;
+    }
+
+    for(i = 0u; i < NOXTLS_MLDSA_N; ++i) {
+        r->coeff[i] = mod_mul_q(noxtls_mldsa_coeff_normalize(a->coeff[i]),
+                                noxtls_mldsa_coeff_normalize(b->coeff[i]));
+    }
+}
+

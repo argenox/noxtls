@@ -827,7 +827,7 @@ static noxtls_return_t tls13_send_encrypted_handshake(tls13_context_t *ctx, cons
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    return noxtls_tls_send_record(&ctx->base, TLS_RECORD_APPLICATION_DATA, encrypted, encrypted_len);
+    return noxtls_tls_send_record(&ctx->base.base, TLS_RECORD_APPLICATION_DATA, encrypted, encrypted_len);
 }
 
 /**
@@ -858,7 +858,7 @@ static noxtls_return_t tls13_recv_handshake_message(tls13_context_t *ctx, uint8_
     }
 
     while(1) {
-        rc = noxtls_tls_recv_record(&ctx->base, &record);
+        rc = noxtls_tls_recv_record(&ctx->base.base, &record);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
@@ -940,7 +940,7 @@ noxtls_return_t noxtls_tls13_context_init(tls13_context_t *ctx, tls_role_t role)
     }
     
     /* TLS 1.3 uses 0x0303 in the record layer */
-    if(noxtls_tls_context_init(&ctx->base, role, TLS_VERSION_1_2) != NOXTLS_RETURN_SUCCESS) {
+    if(noxtls_dtls_context_init(&ctx->base, role, TLS_VERSION_1_2) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
     
@@ -976,14 +976,14 @@ noxtls_return_t noxtls_tls13_context_init(tls13_context_t *ctx, tls_role_t role)
         size_t ws_size = (size_t)TLS13_IMPL_RECORD_WORKSPACE_HALF * 2;
         ctx->record_workspace = (uint8_t*)noxtls_malloc(ws_size);
         if(ctx->record_workspace == NULL) {
-            noxtls_tls_context_free(&ctx->base);
+            noxtls_dtls_context_free(&ctx->base);
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         }
         ctx->handshake_workspace = (uint8_t*)noxtls_malloc(TLS_HANDSHAKE_WORKSPACE_SIZE);
         if(ctx->handshake_workspace == NULL) {
             noxtls_free(ctx->record_workspace);
             ctx->record_workspace = NULL;
-            noxtls_tls_context_free(&ctx->base);
+            noxtls_dtls_context_free(&ctx->base);
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         }
     }
@@ -1061,7 +1061,7 @@ noxtls_return_t noxtls_tls13_context_free(tls13_context_t *ctx)
     noxtls_tls_extensions_free(&ctx->client_extensions);
     noxtls_tls_extensions_free(&ctx->server_extensions);
     
-    noxtls_tls_context_free(&ctx->base);
+    noxtls_dtls_context_free(&ctx->base);
     
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -1325,7 +1325,7 @@ noxtls_return_t noxtls_tls13_send_client_hello(tls13_context_t *ctx)
 
     /* Send via record layer */
     {
-        noxtls_return_t send_rc = noxtls_tls_send_record(&ctx->base, TLS_RECORD_HANDSHAKE, client_hello, offset);
+        noxtls_return_t send_rc = noxtls_tls_send_record(&ctx->base.base, TLS_RECORD_HANDSHAKE, client_hello, offset);
         if(client_hello != ctx->handshake_workspace) NOXTLS_SECURE_FREE(client_hello, 1024 + 256); else if(ctx->handshake_workspace != NULL) memset(ctx->handshake_workspace, 0, TLS_HANDSHAKE_WORKSPACE_SIZE);
         if(send_rc == NOXTLS_RETURN_SUCCESS) {
             NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_HANDSHAKE, NOXSIGHT_SEVERITY_INFO,
@@ -1352,7 +1352,7 @@ noxtls_return_t noxtls_tls13_recv_server_hello(tls13_context_t *ctx)
         return NOXTLS_RETURN_NULL;
     }
     
-    rc = noxtls_tls_recv_record(&ctx->base, &record);
+    rc = noxtls_tls_recv_record(&ctx->base.base, &record);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_IO, NOXSIGHT_SEVERITY_ERROR,
                         NOXTLS_EVT_INTERNAL_ERROR, NOXTLS_EVT_SERVER_HELLO_RECV, rc);
@@ -1769,14 +1769,13 @@ noxtls_return_t noxtls_tls13_recv_certificate_verify(tls13_context_t *ctx)
             return rc;
         }
         /* Signed content per RFC 8446: 64*0x20 + "TLS 1.3, server CertificateVerify" + 0x00 + Hash */
-        static const char ctx_str[] = "TLS 1.3;
-        static const char server CertificateVerify";
+        static const char ctx_str[] = "TLS 1.3, server CertificateVerify";
         uint8_t to_verify[64 + sizeof(ctx_str) + 1 + 64];
         uint32_t to_verify_len = 0;
         memset(to_verify, 0x20, 64);
         to_verify_len = 64;
-        memcpy(to_verify + to_verify_len, ctx_str, sizeof(ctx_str));
-        to_verify_len += sizeof(ctx_str);
+        memcpy(to_verify + to_verify_len, ctx_str, sizeof(ctx_str) - 1u);
+        to_verify_len += (uint32_t)(sizeof(ctx_str) - 1u);
         to_verify[to_verify_len++] = 0x00;
         memcpy(to_verify + to_verify_len, transcript_hash, transcript_len);
         to_verify_len += transcript_len;
@@ -1991,11 +1990,11 @@ noxtls_return_t noxtls_tls13_connect(tls13_context_t *ctx)
         return NOXTLS_RETURN_NULL;
     }
     
-    if(ctx->base.role != TLS_ROLE_CLIENT) {
+    if(ctx->base.base.role != TLS_ROLE_CLIENT) {
         return NOXTLS_RETURN_FAILED;
     }
     
-    ctx->base.state = TLS_STATE_HANDSHAKING;
+    ctx->base.base.state = TLS_STATE_HANDSHAKING;
     NOXTLS_STATE_ENTER(ctx, NOXTLS_STATE_START);
     
     noxtls_debug_printf("[TLS13_DEBUG] noxtls_tls13_connect: send_client_hello...\n");
@@ -2094,7 +2093,7 @@ noxtls_return_t noxtls_tls13_connect(tls13_context_t *ctx)
         return rc;
     }
     
-    ctx->base.state = TLS_STATE_CONNECTED;
+    ctx->base.base.state = TLS_STATE_CONNECTED;
     NOXTLS_STATE_ENTER(ctx, NOXTLS_STATE_CONNECTED);
     
     return NOXTLS_RETURN_SUCCESS;
@@ -2118,25 +2117,25 @@ noxtls_return_t noxtls_tls13_recv_client_hello(tls13_context_t *ctx)
         return NOXTLS_RETURN_NULL;
     }
     
-    if(ctx->base.role != TLS_ROLE_SERVER) {
+    if(ctx->base.base.role != TLS_ROLE_SERVER) {
         return NOXTLS_RETURN_FAILED;
     }
     
     /* Check if we have a pending Client Hello from version negotiation */
-    if(ctx->base.pending_client_hello != NULL && ctx->base.pending_client_hello_len > 0) {
+    if(ctx->base.base.pending_client_hello != NULL && ctx->base.base.pending_client_hello_len > 0) {
         uint8_t use_pending = 1;
         (void)use_pending;
         record.type = TLS_RECORD_HANDSHAKE;
         record.version = TLS_VERSION_1_3;  /* Legacy version for TLS 1.3 */
         (void)record.version;
-        record.length = ctx->base.pending_client_hello_len;
+        record.length = ctx->base.base.pending_client_hello_len;
         record.data = (uint8_t*)malloc(record.length);
         if(record.length > 0 && record.data == NULL) {
             return NOXTLS_RETURN_FAILED;
         }
-        memcpy(record.data, ctx->base.pending_client_hello, record.length);
+        memcpy(record.data, ctx->base.base.pending_client_hello, record.length);
     } else {
-        noxtls_return_t rc = noxtls_tls_recv_record(&ctx->base, &record);
+        noxtls_return_t rc = noxtls_tls_recv_record(&ctx->base.base, &record);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
@@ -2258,7 +2257,7 @@ noxtls_return_t noxtls_tls13_send_server_hello(tls13_context_t *ctx)
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(ctx->base.role != TLS_ROLE_SERVER) {
+    if(ctx->base.base.role != TLS_ROLE_SERVER) {
         return NOXTLS_RETURN_FAILED;
     }
     uint8_t *server_hello = ctx->handshake_workspace;
@@ -2359,7 +2358,7 @@ noxtls_return_t noxtls_tls13_send_server_hello(tls13_context_t *ctx)
     server_hello[2] = (handshake_len >> 8) & 0xFF;
     server_hello[3] = handshake_len & 0xFF;
     tls13_append_handshake_message(ctx, server_hello, offset);
-    rc = noxtls_tls_send_record(&ctx->base, TLS_RECORD_HANDSHAKE, server_hello, offset);
+    rc = noxtls_tls_send_record(&ctx->base.base, TLS_RECORD_HANDSHAKE, server_hello, offset);
     if(server_hello != ctx->handshake_workspace) NOXTLS_SECURE_FREE(server_hello, 512 + 256); else if(ctx->handshake_workspace != NULL) memset(ctx->handshake_workspace, 0, TLS_HANDSHAKE_WORKSPACE_SIZE);
     if(rc != NOXTLS_RETURN_SUCCESS) return rc;
     rc = noxtls_tls13_process_client_key_share(ctx, ecdhe_ctx);
@@ -2383,7 +2382,7 @@ noxtls_return_t noxtls_tls13_send_encrypted_extensions(tls13_context_t *ctx)
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(ctx->base.role != TLS_ROLE_SERVER) {
+    if(ctx->base.base.role != TLS_ROLE_SERVER) {
         return NOXTLS_RETURN_FAILED;
     }
     uint8_t *encrypted_extensions = ctx->handshake_workspace;
@@ -2415,7 +2414,7 @@ noxtls_return_t noxtls_tls13_send_encrypted_extensions(tls13_context_t *ctx)
     if(ctx->handshake_encrypted) {
         rc = tls13_send_encrypted_handshake(ctx, encrypted_extensions, offset);
     } else {
-        rc = noxtls_tls_send_record(&ctx->base, TLS_RECORD_HANDSHAKE, encrypted_extensions, offset);
+        rc = noxtls_tls_send_record(&ctx->base.base, TLS_RECORD_HANDSHAKE, encrypted_extensions, offset);
     }
     if(encrypted_extensions != ctx->handshake_workspace) NOXTLS_SECURE_FREE(encrypted_extensions, 512); else if(ctx->handshake_workspace != NULL) memset(ctx->handshake_workspace, 0, TLS_HANDSHAKE_WORKSPACE_SIZE);
     return rc;
@@ -2431,7 +2430,7 @@ noxtls_return_t noxtls_tls13_send_certificate(tls13_context_t *ctx)
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(ctx->base.role != TLS_ROLE_SERVER) {
+    if(ctx->base.base.role != TLS_ROLE_SERVER) {
         return NOXTLS_RETURN_FAILED;
     }
     if(ctx->server_cert == NULL || ctx->server_cert_len == 0) {
@@ -2450,7 +2449,7 @@ noxtls_return_t noxtls_tls13_send_certificate(tls13_context_t *ctx)
         return NOXTLS_RETURN_NULL;
     }
     
-    if(ctx->base.role != TLS_ROLE_SERVER) {
+    if(ctx->base.base.role != TLS_ROLE_SERVER) {
         return NOXTLS_RETURN_FAILED;
     }
     
@@ -2506,7 +2505,7 @@ noxtls_return_t noxtls_tls13_send_certificate(tls13_context_t *ctx)
     if(ctx->handshake_encrypted) {
         rc = tls13_send_encrypted_handshake(ctx, certificate, offset);
     } else {
-        rc = noxtls_tls_send_record(&ctx->base, TLS_RECORD_HANDSHAKE, certificate, offset);
+        rc = noxtls_tls_send_record(&ctx->base.base, TLS_RECORD_HANDSHAKE, certificate, offset);
     }
     if(certificate != ctx->handshake_workspace) NOXTLS_SECURE_FREE(certificate, TLS_HANDSHAKE_WORKSPACE_SIZE); else if(ctx->handshake_workspace != NULL) memset(ctx->handshake_workspace, 0, TLS_HANDSHAKE_WORKSPACE_SIZE);
     return rc;
@@ -2526,8 +2525,7 @@ noxtls_return_t noxtls_tls13_send_certificate_verify(tls13_context_t *ctx)
     uint32_t key_len;
     uint8_t transcript_hash[64];
     uint32_t transcript_len = sizeof(transcript_hash);
-    static const char ctx_str[] = "TLS 1.3;
-    static const char server CertificateVerify";
+    static const char ctx_str[] = "TLS 1.3, server CertificateVerify";
     uint8_t to_sign[64 + sizeof(ctx_str) + 1 + 64];
     uint32_t to_sign_len;
     noxtls_return_t rc;
@@ -2535,7 +2533,7 @@ noxtls_return_t noxtls_tls13_send_certificate_verify(tls13_context_t *ctx)
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(ctx->base.role != TLS_ROLE_SERVER) {
+    if(ctx->base.base.role != TLS_ROLE_SERVER) {
         return NOXTLS_RETURN_FAILED;
     }
     if(ctx->server_private_rsa == NULL) {
@@ -2548,8 +2546,8 @@ noxtls_return_t noxtls_tls13_send_certificate_verify(tls13_context_t *ctx)
     if(rc != NOXTLS_RETURN_SUCCESS) return rc;
     memset(to_sign, 0x20, 64);
     to_sign_len = 64;
-    memcpy(to_sign + to_sign_len, ctx_str, sizeof(ctx_str));
-    to_sign_len += sizeof(ctx_str);
+    memcpy(to_sign + to_sign_len, ctx_str, sizeof(ctx_str) - 1u);
+    to_sign_len += (uint32_t)(sizeof(ctx_str) - 1u);
     to_sign[to_sign_len++] = 0x00;
     memcpy(to_sign + to_sign_len, transcript_hash, transcript_len);
     to_sign_len += transcript_len;
@@ -2561,7 +2559,7 @@ noxtls_return_t noxtls_tls13_send_certificate_verify(tls13_context_t *ctx)
     /* Signature algorithm: rsa_pss_rsae_sha256 (0x0804) when using RSA */
     certificate_verify[offset++] = 0x08;
     certificate_verify[offset++] = 0x04;
-    uint16_t signature_len = sizeof(certificate_verify) - 8;
+    uint32_t signature_len = (uint32_t)(sizeof(certificate_verify) - 8);
     rc = noxtls_rsa_sign_pss((const rsa_key_t*)ctx->server_private_rsa, to_sign, to_sign_len,
                              certificate_verify + 8, &signature_len, NOXTLS_HASH_SHA_256);
     if(rc != NOXTLS_RETURN_SUCCESS) return rc;
@@ -2576,7 +2574,7 @@ noxtls_return_t noxtls_tls13_send_certificate_verify(tls13_context_t *ctx)
     if(ctx->handshake_encrypted) {
         return tls13_send_encrypted_handshake(ctx, certificate_verify, offset);
     }
-    return noxtls_tls_send_record(&ctx->base, TLS_RECORD_HANDSHAKE, certificate_verify, offset);
+    return noxtls_tls_send_record(&ctx->base.base, TLS_RECORD_HANDSHAKE, certificate_verify, offset);
 }
 
 /**
@@ -2600,7 +2598,7 @@ noxtls_return_t noxtls_tls13_send_finished_server(tls13_context_t *ctx)
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(ctx->base.role != TLS_ROLE_SERVER) {
+    if(ctx->base.base.role != TLS_ROLE_SERVER) {
         return NOXTLS_RETURN_FAILED;
     }
     rc = tls13_get_cipher_params(ctx->cipher_suite, &hash_algo, &hash_len, &key_len);
@@ -2630,7 +2628,7 @@ noxtls_return_t noxtls_tls13_send_finished_server(tls13_context_t *ctx)
     if(ctx->handshake_encrypted) {
         return tls13_send_encrypted_handshake(ctx, finished, offset);
     }
-    return noxtls_tls_send_record(&ctx->base, TLS_RECORD_HANDSHAKE, finished, offset);
+    return noxtls_tls_send_record(&ctx->base.base, TLS_RECORD_HANDSHAKE, finished, offset);
 }
 
 /**
@@ -2647,11 +2645,11 @@ noxtls_return_t noxtls_tls13_recv_finished_client(tls13_context_t *ctx)
         return NOXTLS_RETURN_NULL;
     }
     
-    if(ctx->base.role != TLS_ROLE_SERVER) {
+    if(ctx->base.base.role != TLS_ROLE_SERVER) {
         return NOXTLS_RETURN_FAILED;
     }
     
-    rc = noxtls_tls_recv_record(&ctx->base, &record);
+    rc = noxtls_tls_recv_record(&ctx->base.base, &record);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -2722,11 +2720,11 @@ noxtls_return_t noxtls_tls13_accept(tls13_context_t *ctx)
         return NOXTLS_RETURN_NULL;
     }
     
-    if(ctx->base.role != TLS_ROLE_SERVER) {
+    if(ctx->base.base.role != TLS_ROLE_SERVER) {
         return NOXTLS_RETURN_FAILED;
     }
     
-    ctx->base.state = TLS_STATE_HANDSHAKING;
+    ctx->base.base.state = TLS_STATE_HANDSHAKING;
     NOXTLS_STATE_ENTER(ctx, NOXTLS_STATE_START);
     
     /* Receive Client Hello */
@@ -2792,7 +2790,7 @@ noxtls_return_t noxtls_tls13_accept(tls13_context_t *ctx)
         return rc;
     }
     
-    ctx->base.state = TLS_STATE_CONNECTED;
+    ctx->base.base.state = TLS_STATE_CONNECTED;
     NOXTLS_STATE_ENTER(ctx, NOXTLS_STATE_CONNECTED);
     
     return NOXTLS_RETURN_SUCCESS;
@@ -2817,7 +2815,7 @@ noxtls_return_t noxtls_tls13_send(tls13_context_t *ctx, const uint8_t *data, uin
         return NOXTLS_RETURN_NULL;
     }
     
-    if(ctx->base.state != TLS_STATE_CONNECTED) {
+    if(ctx->base.base.state != TLS_STATE_CONNECTED) {
         return NOXTLS_RETURN_FAILED;
     }
     
@@ -2845,7 +2843,7 @@ noxtls_return_t noxtls_tls13_send(tls13_context_t *ctx, const uint8_t *data, uin
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    return noxtls_tls_send_record(&ctx->base, TLS_RECORD_APPLICATION_DATA, encrypted_record, encrypted_len);
+    return noxtls_tls_send_record(&ctx->base.base, TLS_RECORD_APPLICATION_DATA, encrypted_record, encrypted_len);
 }
 
 /**
@@ -2865,11 +2863,11 @@ noxtls_return_t noxtls_tls13_recv(tls13_context_t *ctx, uint8_t *data, uint32_t 
         return NOXTLS_RETURN_NULL;
     }
     
-    if(ctx->base.state != TLS_STATE_CONNECTED) {
+    if(ctx->base.base.state != TLS_STATE_CONNECTED) {
         return NOXTLS_RETURN_FAILED;
     }
     
-    rc = noxtls_tls_recv_record(&ctx->base, &record);
+    rc = noxtls_tls_recv_record(&ctx->base.base, &record);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -2914,9 +2912,9 @@ noxtls_return_t noxtls_tls13_close(tls13_context_t *ctx)
     }
     
     /* Send close_notify alert */
-    tls_send_alert(&ctx->base, TLS_ALERT_LEVEL_WARNING, TLS_ALERT_CLOSE_NOTIFY);
+    noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_WARNING, TLS_ALERT_CLOSE_NOTIFY);
     
-    ctx->base.state = TLS_STATE_CLOSED;
+    ctx->base.base.state = TLS_STATE_CLOSED;
     
     return NOXTLS_RETURN_SUCCESS;
 }
