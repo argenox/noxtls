@@ -1,4 +1,6 @@
 /**
+* This file is part of the NoxTLS Library.
+*
  * @file tlscurl_app.h
  * @brief Named limits and constants for the tlscurl HTTPS test utility.
  */

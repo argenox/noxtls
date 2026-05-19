@@ -30,6 +30,8 @@
 * CONTACT: info@argenox.com
 * 
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_aria_cfb.c
 * Summary: ARIA Cipher Feedback (CFB) Mode Implementation
 *

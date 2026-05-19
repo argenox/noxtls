@@ -30,6 +30,8 @@
 * CONTACT: info@argenox.com
 * 
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_tls13.h
 * Summary: TLS 1.3 Implementation
 *
@@ -47,6 +49,7 @@
 #include "noxtls_crypto_provider.h"
 #include "pkc/mlkem/noxtls_mlkem.h"
 #include "pkc/mldsa/noxtls_mldsa.h"
+#include "pkc/slhdsa/noxtls_slhdsa.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -197,6 +200,11 @@ typedef struct tls13_context_s
     uint32_t server_private_mldsa_len;
     noxtls_mldsa_param_t server_private_mldsa_param;
     uint8_t server_cert_use_mldsa;
+    /** Optional server SLH-DSA private key for CertificateVerify. */
+    uint8_t server_private_slhdsa[NOXTLS_SLHDSA_MAX_SECRET_KEY_LEN];
+    uint32_t server_private_slhdsa_len;
+    noxtls_slhdsa_param_t server_private_slhdsa_param;
+    uint8_t server_cert_use_slhdsa;
     /**
      * Optional TLS 1.3 server ECDSA identity matrix: multiple leaf certificates + ECC keys.
      * When server_ecdsa_matrix_count > 0, after ClientHello the server picks the first identity
@@ -231,6 +239,10 @@ typedef struct tls13_context_s
     uint32_t client_private_mldsa_len;
     noxtls_mldsa_param_t client_private_mldsa_param;
     uint8_t client_cert_use_mldsa;
+    uint8_t client_private_slhdsa[NOXTLS_SLHDSA_MAX_SECRET_KEY_LEN];
+    uint32_t client_private_slhdsa_len;
+    noxtls_slhdsa_param_t client_private_slhdsa_param;
+    uint8_t client_cert_use_slhdsa;
     /** Provider's handle for client private key (RSA/ECDSA/Ed25519). Used when crypto_provider is set for client CertificateVerify. */
     noxtls_crypto_key_handle_t client_private_key_handle;
 
@@ -376,6 +388,10 @@ noxtls_return_t noxtls_tls13_set_server_private_ed25519(tls13_context_t *ctx, co
 noxtls_return_t noxtls_tls13_set_server_private_ed448(tls13_context_t *ctx, const uint8_t *private_key_57);
 /** Set server ML-DSA private key for CertificateVerify. */
 noxtls_return_t noxtls_tls13_set_server_private_mldsa(tls13_context_t *ctx, noxtls_mldsa_param_t param, const uint8_t *private_key);
+/** Set server SLH-DSA private key for CertificateVerify. */
+noxtls_return_t noxtls_tls13_set_server_private_slhdsa(tls13_context_t *ctx,
+                                                       noxtls_slhdsa_param_t param,
+                                                       const uint8_t *private_key);
 /** Set optional crypto provider and server key handle for server sign (CertificateVerify). Use instead of server_private_rsa when key is in HSM/TPM. */
 void noxtls_tls13_set_crypto_provider_server(tls13_context_t *ctx, const noxtls_crypto_provider_t *provider, noxtls_crypto_key_handle_t server_key_handle);
 /** Set optional CRL chain for certificate revocation checks during peer cert verification. */
@@ -397,6 +413,12 @@ noxtls_return_t noxtls_tls13_set_client_cert_ed448(tls13_context_t *ctx, const u
 /** Client: set client certificate and ML-DSA private key for CertificateVerify. */
 noxtls_return_t tls13_set_client_cert_mldsa(tls13_context_t *ctx, const uint8_t *cert_der, uint32_t cert_len,
                                             noxtls_mldsa_param_t param, const uint8_t *private_key);
+/** Client: set client certificate and SLH-DSA private key for CertificateVerify. */
+noxtls_return_t tls13_set_client_cert_slhdsa(tls13_context_t *ctx,
+                                             const uint8_t *cert_der,
+                                             uint32_t cert_len,
+                                             noxtls_slhdsa_param_t param,
+                                             const uint8_t *private_key);
 
 /** Configure external PSK identity/key for TLS 1.3 PSK or ECDHE-PSK handshakes. */
 noxtls_return_t tls13_set_external_psk(tls13_context_t *ctx,

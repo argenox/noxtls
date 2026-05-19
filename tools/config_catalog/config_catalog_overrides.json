@@ -161,6 +161,17 @@
         { "ref": "NOXTLS_FEATURE_SHA3", "value": "1" }
       ]
     },
+    "NOXTLS_FEATURE_SLH_DSA": {
+      "name": "SLH-DSA",
+      "description": "Enables SLH-DSA (FIPS 205) signature APIs and TLS/X.509 PQ signature support.",
+      "dependencies_all": [
+        { "ref": "NOXTLS_FEATURE_PKC", "value": "1" },
+        { "ref": "NOXTLS_FEATURE_DRBG", "value": "1" },
+        { "ref": "NOXTLS_FEATURE_SHA3", "value": "1" },
+        { "ref": "NOXTLS_FEATURE_SHA256", "value": "1" },
+        { "ref": "NOXTLS_FEATURE_SHA512", "value": "1" }
+      ]
+    },
     "NOXTLS_HAVE_CERT_WRITE": {
       "dependencies_all": [
         { "ref": "NOXTLS_FEATURE_CERT", "value": "1" },

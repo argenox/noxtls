@@ -30,6 +30,8 @@
 * CONTACT: info@argenox.com
 *
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_x509.c
 * Summary: X.509 Certificate Parsing and Validation Implementation
 *
@@ -65,6 +67,9 @@
 #endif
 #if NOXTLS_FEATURE_ML_DSA
 #include "pkc/mldsa/noxtls_mldsa.h"
+#endif
+#if NOXTLS_FEATURE_SLH_DSA
+#include "pkc/slhdsa/noxtls_slhdsa.h"
 #endif
 #if NOXTLS_FEATURE_AES_CBC
 #include "mdigest/sha1/noxtls_sha1.h"
@@ -493,6 +498,36 @@ static int oid_equal(const uint8_t *a, uint32_t a_len, const uint8_t *b, uint32_
 {
     return (a_len == b_len && memcmp(a, b, a_len) == 0);
 }
+
+#if NOXTLS_FEATURE_SLH_DSA
+/**
+ * @brief Map a FIPS 205 SLH-DSA OID to the public API parameter set.
+ * @param[in] oid DER-encoded object identifier bytes.
+ * @param[in] oid_len OID length.
+ * @param[out] param Output parameter set.
+ * @return NOXTLS_RETURN_SUCCESS on success.
+ */
+static noxtls_return_t noxtls_x509_slhdsa_param_from_oid(const uint8_t *oid,
+                                                         uint32_t oid_len,
+                                                         noxtls_slhdsa_param_t *param)
+{
+    static const uint8_t oid_prefix[] = {0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03};
+    uint8_t last;
+
+    if(oid == NULL || param == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(oid_len != sizeof(oid_prefix) + 1u || memcmp(oid, oid_prefix, sizeof(oid_prefix)) != 0) {
+        return NOXTLS_RETURN_INVALID_ALGORITHM;
+    }
+    last = oid[sizeof(oid_prefix)];
+    if(last < 0x14u || last > 0x1Fu) {
+        return NOXTLS_RETURN_INVALID_ALGORITHM;
+    }
+    *param = (noxtls_slhdsa_param_t)((uint32_t)NOXTLS_SLHDSA_SHA2_128S + (uint32_t)(last - 0x14u));
+    return NOXTLS_RETURN_SUCCESS;
+}
+#endif
 
 /* HMAC-SHA1 (RFC 2104); one-shot. key_len can be any size; block size 64. */
 static noxtls_return_t hmac_sha1(const uint8_t *key, uint32_t key_len,
@@ -1391,6 +1426,20 @@ noxtls_return_t noxtls_x509_certificate_parse_der(x509_certificate_t *cert, cons
                 memcpy(cert->mldsa_public_key, spki_ptr, public_key_len);
             }
 #endif
+#if NOXTLS_FEATURE_SLH_DSA
+            else {
+                noxtls_slhdsa_param_t slhdsa_param = NOXTLS_SLHDSA_NONE;
+                if(noxtls_x509_slhdsa_param_from_oid(cert->public_key_algorithm_oid,
+                                                     cert->public_key_algorithm_oid_len,
+                                                     &slhdsa_param) == NOXTLS_RETURN_SUCCESS &&
+                   public_key_len == noxtls_slhdsa_public_key_len(slhdsa_param)) {
+                    cert->has_slhdsa = 1;
+                    cert->slhdsa_public_key_len = public_key_len;
+                    cert->slhdsa_param = slhdsa_param;
+                    memcpy(cert->slhdsa_public_key, spki_ptr, public_key_len);
+                }
+            }
+#endif
         }
     }
 
@@ -1547,7 +1596,7 @@ noxtls_return_t noxtls_x509_certificate_load_file(x509_certificate_t *cert, cons
  * @param oid Signature algorithm OID
  * @param oid_len OID length
  * @param hash_algo Output hash algorithm
- * @param is_rsa Output: 1 if RSA, 0 if ECDSA, 2 if ML-DSA
+ * @param is_rsa Output: 1 if RSA, 0 if ECDSA, 2 if ML-DSA, 3 if SLH-DSA
  * @return NOXTLS_RETURN_SUCCESS on success
  */
 static noxtls_return_t noxtls_x509_map_signature_algorithm(const uint8_t *oid, uint32_t oid_len,
@@ -1619,6 +1668,16 @@ static noxtls_return_t noxtls_x509_map_signature_algorithm(const uint8_t *oid, u
         *is_rsa = 2;
         return NOXTLS_RETURN_SUCCESS;
     }
+#if NOXTLS_FEATURE_SLH_DSA
+    {
+        noxtls_slhdsa_param_t slhdsa_param = NOXTLS_SLHDSA_NONE;
+        if(noxtls_x509_slhdsa_param_from_oid(oid, oid_len, &slhdsa_param) == NOXTLS_RETURN_SUCCESS) {
+            *hash_algo = NOXTLS_HASH_SHA_512;
+            *is_rsa = 3;
+            return NOXTLS_RETURN_SUCCESS;
+        }
+    }
+#endif
 
     return NOXTLS_RETURN_INVALID_ALGORITHM;
 }
@@ -1927,6 +1986,33 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(x509_certificate_t *cer
                                  issuer->mldsa_public_key,
                                  hash, hash_len,
                                  cert->signature, cert->signature_len);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED, cert, NULL, 0, 0);
+            return NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED;
+        }
+        return NOXTLS_RETURN_SUCCESS;
+#else
+        return NOXTLS_RETURN_INVALID_ALGORITHM;
+#endif
+    } else if(is_rsa == 3) {
+#if NOXTLS_FEATURE_SLH_DSA
+        noxtls_slhdsa_param_t sig_param = NOXTLS_SLHDSA_NONE;
+
+        if(noxtls_x509_slhdsa_param_from_oid(cert->signature_algorithm_oid,
+                                             cert->signature_algorithm_oid_len,
+                                             &sig_param) != NOXTLS_RETURN_SUCCESS ||
+           !issuer->has_slhdsa ||
+           issuer->slhdsa_public_key_len == 0u ||
+           issuer->slhdsa_param != sig_param) {
+            cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED, cert, NULL, 0, 0);
+            return NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED;
+        }
+        rc = noxtls_slhdsa_verify(sig_param,
+                                  issuer->slhdsa_public_key,
+                                  cert->tbs_certificate,
+                                  cert->tbs_certificate_len,
+                                  cert->signature,
+                                  cert->signature_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED, cert, NULL, 0, 0);
             return NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED;

@@ -162,6 +162,7 @@ def infer_category(macro_id: str) -> str:
         "NOXTLS_FEATURE_DSA",
         "NOXTLS_FEATURE_ML_KEM",
         "NOXTLS_FEATURE_ML_DSA",
+        "NOXTLS_FEATURE_SLH_DSA",
     ):
         return "pkc"
     if macro_id.startswith("NOXTLS_FEATURE_TLS") or macro_id == "NOXTLS_FEATURE_DTLS":

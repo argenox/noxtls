@@ -1,4 +1,6 @@
 /*
+* This file is part of the NoxTLS Library.
+*
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
  *
  * Minimal noxtls_getopt implementation for Windows (MSVC).

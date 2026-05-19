@@ -30,6 +30,8 @@
 * CONTACT: info@argenox.com
 *
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_aria.c
 * Summary: ARIA Block Cipher Algorithm Implementation
 *

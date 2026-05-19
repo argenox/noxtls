@@ -30,6 +30,8 @@
 * CONTACT: info@argenox.com
 *
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_tls_unified.h
 * Summary: Unified TLS API: single connection type for TLS 1.2/1.3
 *

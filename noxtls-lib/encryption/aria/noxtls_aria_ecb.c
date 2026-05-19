@@ -30,6 +30,8 @@
 * CONTACT: info@argenox.com
 *
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_aria_ecb.c
 * Summary: ARIA Electronic Codebook (ECB) Mode Implementation
 *

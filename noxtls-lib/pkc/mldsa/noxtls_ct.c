@@ -1,3 +1,7 @@
+/*****************************************************************************
+* This file is part of the NoxTLS Library.
+*/
+
 ﻿#include "noxtls_ct.h"
 
 /* Keep this value at zero; reads act as an optimization barrier. */

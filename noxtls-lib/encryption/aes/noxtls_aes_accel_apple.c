@@ -3,6 +3,8 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_aes_accel_apple.c
 * Summary: Apple Silicon ARMv8 AES backend for AES block encrypt/decrypt
 *
@@ -21,6 +23,15 @@
 #include "noxtls_aes.h"
 #include "noxtls_aes_accel.h"
 
+/**
+ * @brief Resolve AES round count and key-word count for an AES key size.
+ * @param type AES key size selector.
+ * @param rounds Output round count for the selected AES key size.
+ * @param nk Output number of 32-bit key words for the selected AES key size.
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL for null outputs,
+ *         NOXTLS_RETURN_INVALID_KEY_SIZE for unknown key sizes, or
+ *         NOXTLS_RETURN_NOT_SUPPORTED when the selected AES size is disabled.
+ */
 static noxtls_return_t noxtls_aes_accel_apple_get_rounds_and_nk(noxtls_aes_type_t type, int *rounds, int *nk)
 {
     if(rounds == NULL || nk == NULL) {
@@ -57,6 +68,12 @@ static noxtls_return_t noxtls_aes_accel_apple_get_rounds_and_nk(noxtls_aes_type_
     }
 }
 
+/**
+ * @brief Store a 32-bit key schedule word as big-endian bytes.
+ * @param word Key schedule word to serialize.
+ * @param out Output buffer that receives four bytes in big-endian order.
+ * @return None.
+ */
 static void noxtls_aes_accel_apple_word_to_bytes_be(uint32_t word, uint8_t out[4])
 {
     out[0] = (uint8_t)((word >> 24) & 0xFFu);
@@ -65,6 +82,16 @@ static void noxtls_aes_accel_apple_word_to_bytes_be(uint32_t word, uint8_t out[4
     out[3] = (uint8_t)(word & 0xFFu);
 }
 
+/**
+ * @brief Build ARMv8 AES encryption and decryption round-key schedules.
+ * @param key AES key bytes for the selected key size.
+ * @param type AES key size selector.
+ * @param enc_rks Output ARMv8 encryption round keys.
+ * @param dec_rks Output ARMv8 decryption round keys.
+ * @param rounds_out Output round count for the generated key schedule.
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL for null inputs,
+ *         or an error from key-size resolution or AES key expansion.
+ */
 static noxtls_return_t noxtls_aes_accel_apple_build_round_keys(const uint8_t *key,
                                                                noxtls_aes_type_t type,
                                                                uint8x16_t *enc_rks,

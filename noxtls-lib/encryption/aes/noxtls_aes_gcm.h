@@ -29,6 +29,8 @@
 *
 * CONTACT: info@argenox.com
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_aes_gcm.h
 * Summary: AES-GCM mode implementation
 *

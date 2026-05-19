@@ -1,3 +1,7 @@
+/*****************************************************************************
+* This file is part of the NoxTLS Library.
+*/
+
 #ifndef _NOXTLS_TLS_NOXSIGHT_H_
 #define _NOXTLS_TLS_NOXSIGHT_H_
 

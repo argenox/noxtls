@@ -1,3 +1,7 @@
+/*****************************************************************************
+* This file is part of the NoxTLS Library.
+*/
+
 ﻿/*
  * Copyright (c) The mldsa-native project authors
  * Copyright (c) The mlkem-native project authors

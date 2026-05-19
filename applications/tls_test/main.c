@@ -30,6 +30,8 @@
 * CONTACT: info@argenox.com
 * 
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    main.c
 * Summary: TLS Test Application - Tests TLS encryption/decryption
 *

@@ -30,6 +30,8 @@
 * CONTACT: info@argenox.com
 * 
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_tls11.h
 * Summary: TLS 1.1 Implementation
 *

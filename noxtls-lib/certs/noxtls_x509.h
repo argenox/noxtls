@@ -30,6 +30,8 @@
 * CONTACT: info@argenox.com
 *
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_x509.h
 * Summary: X.509 Certificate Parsing and Validation
 *
@@ -49,6 +51,7 @@
 #include "noxtls_common.h"
 #include "pkc/ecc/noxtls_ecc.h"
 #include "pkc/mldsa/noxtls_mldsa.h"
+#include "pkc/slhdsa/noxtls_slhdsa.h"
 #include "mdigest/noxtls_hash.h"
 
 #ifdef __cplusplus
@@ -185,6 +188,12 @@ typedef struct
     uint32_t mldsa_public_key_len;
     noxtls_mldsa_param_t mldsa_param;
     uint8_t has_mldsa;
+
+    /* SLH-DSA public key (if present; private-use parser support for PQ cert experiments). */
+    uint8_t slhdsa_public_key[NOXTLS_SLHDSA_MAX_PUBLIC_KEY_LEN];
+    uint32_t slhdsa_public_key_len;
+    noxtls_slhdsa_param_t slhdsa_param;
+    uint8_t has_slhdsa;
 
     /* Extensions (v3) */
     uint8_t *extensions;

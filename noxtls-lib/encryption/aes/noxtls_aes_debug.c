@@ -6,11 +6,6 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 2 of the License, or
-* (at your option) any later version.
-*
 * Alternatively, this file may be used under the terms of a
 * commercial license from Argenox Technologies LLC.
 *
@@ -45,9 +40,11 @@ extern "C"
 /**
  * @brief Prints the State
  *
+ * @param cur_round is the current AES round number
  * @param state is the state to print
  * @param prefix is prefix to use
  *
+ * @return None.
  */
 void noxtls_print_state(uint32_t cur_round, const uint8_t state[4][4], const char * prefix)
 {
@@ -68,6 +65,7 @@ void noxtls_print_state(uint32_t cur_round, const uint8_t state[4][4], const cha
  *
  * @param state is the state to print
  *
+ * @return None.
  */    
 void noxtls_print_state_matrix(const uint8_t state[4][4])
 {

@@ -5,6 +5,8 @@
 *
 *
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_ed25519.h
 * Summary: Ed25519 digital signatures (RFC 8032)
 *

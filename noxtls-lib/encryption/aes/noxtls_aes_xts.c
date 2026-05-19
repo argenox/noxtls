@@ -6,11 +6,6 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 2 of the License, or
-* (at your option) any later version.
-*
 * Alternatively, this file may be used under the terms of a
 * commercial license from Argenox Technologies LLC.
 *
@@ -39,6 +34,7 @@
  * Multiplies a 128-bit value by x (alpha) in GF(2^128) with reduction polynomial x^128 + x^7 + x^2 + x + 1
  * 
  * @param block 16-byte block to multiply
+ * @return None.
  */
 static void gf128_multiply_alpha(uint8_t block[NOXTLS_AES_BLOCK_LENGTH])
 {

@@ -4,6 +4,8 @@
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_x509_write.c
 * Summary: X.509 certificate writing and generation (optional module).
 *          Compile with NOXTLS_HAVE_CERT_WRITE defined to enable.

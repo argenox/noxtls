@@ -6,11 +6,6 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 2 of the License, or
-* (at your option) any later version.
-*
 * Alternatively, this file may be used under the terms of a
 * commercial license from Argenox Technologies LLC.
 *
@@ -40,13 +35,30 @@ typedef enum
     NOXTLS_AES_ACCEL_BACKEND_APPLE = 2
 } noxtls_aes_accel_backend_t;
 
-/* Internal function to encrypt a single AES block */
+/**
+ * @brief Encrypt one AES block through the configured block backend.
+ * @param key AES key bytes for the selected key size.
+ * @param data Input plaintext block of NOXTLS_AES_BLOCK_LENGTH bytes.
+ * @param output Output ciphertext block of NOXTLS_AES_BLOCK_LENGTH bytes.
+ * @param type AES key size selector.
+ * @return NOXTLS_RETURN_SUCCESS on success or a noxtls_return_t error code.
+ */
 noxtls_return_t noxtls_aes_encrypt_block_internal(const uint8_t* key, const uint8_t* data, uint8_t* output, noxtls_aes_type_t type);
 
-/* Internal function to decrypt a single AES block */
+/**
+ * @brief Decrypt one AES block through the configured block backend.
+ * @param key AES key bytes for the selected key size.
+ * @param data Input ciphertext block of NOXTLS_AES_BLOCK_LENGTH bytes.
+ * @param output Output plaintext block of NOXTLS_AES_BLOCK_LENGTH bytes.
+ * @param type AES key size selector.
+ * @return NOXTLS_RETURN_SUCCESS on success or a noxtls_return_t error code.
+ */
 noxtls_return_t noxtls_aes_decrypt_block_internal(const uint8_t* key, const uint8_t* data, uint8_t* output, noxtls_aes_type_t type);
 
-/* Report which AES block backend is compiled as active for this target. */
+/**
+ * @brief Report which AES block backend is compiled as active for this target.
+ * @return The selected AES acceleration backend identifier.
+ */
 noxtls_aes_accel_backend_t noxtls_aes_get_accel_backend(void);
 
 #endif /* _AES_INTERNAL_H_ */

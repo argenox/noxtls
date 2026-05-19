@@ -5,11 +5,6 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 2 of the License, or
-* (at your option) any later version.
-*
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
 *
@@ -34,6 +29,7 @@
 /**
  * @brief Left-shift by one bit of a 16-byte block (MSB first).
  * @param block  In/out 16-byte block
+ * @return None.
  */
 static void cmac_shift_left(uint8_t block[NOXTLS_AES_BLOCK_LENGTH])
 {

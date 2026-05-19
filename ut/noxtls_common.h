@@ -1,3 +1,7 @@
+/*****************************************************************************
+* This file is part of the NoxTLS Library.
+*/
+
 #ifndef _NOXTLS_UT_COMMON_SHIM_H_
 #define _NOXTLS_UT_COMMON_SHIM_H_
 

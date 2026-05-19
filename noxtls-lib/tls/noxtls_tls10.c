@@ -3,6 +3,8 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_tls10.c
 * Summary: TLS 1.0 Implementation (delegates to TLS 1.2 with version 1.0)
 *

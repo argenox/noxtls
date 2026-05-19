@@ -3,6 +3,8 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_check_config.h
 * Summary: Compile-time configuration dependency checks
 */
@@ -134,6 +136,9 @@
 #endif
 #if !NOXTLS_CFG_BOOL_OK(NOXTLS_FEATURE_ML_DSA)
 #error "NOXTLS_FEATURE_ML_DSA must be 0 or 1."
+#endif
+#if !NOXTLS_CFG_BOOL_OK(NOXTLS_FEATURE_SLH_DSA)
+#error "NOXTLS_FEATURE_SLH_DSA must be 0 or 1."
 #endif
 #if !NOXTLS_CFG_BOOL_OK(NOXTLS_FEATURE_X25519)
 #error "NOXTLS_FEATURE_X25519 must be 0 or 1."
@@ -274,6 +279,26 @@
 
 #if NOXTLS_FEATURE_ML_DSA && !NOXTLS_FEATURE_PKC
 #error "NOXTLS_FEATURE_ML_DSA requires NOXTLS_FEATURE_PKC."
+#endif
+
+#if NOXTLS_FEATURE_SLH_DSA && !NOXTLS_FEATURE_PKC
+#error "NOXTLS_FEATURE_SLH_DSA requires NOXTLS_FEATURE_PKC."
+#endif
+
+#if NOXTLS_FEATURE_SLH_DSA && !NOXTLS_FEATURE_DRBG
+#error "NOXTLS_FEATURE_SLH_DSA requires NOXTLS_FEATURE_DRBG."
+#endif
+
+#if NOXTLS_FEATURE_SLH_DSA && !NOXTLS_FEATURE_SHA3
+#error "NOXTLS_FEATURE_SLH_DSA requires NOXTLS_FEATURE_SHA3."
+#endif
+
+#if NOXTLS_FEATURE_SLH_DSA && !NOXTLS_FEATURE_SHA256
+#error "NOXTLS_FEATURE_SLH_DSA requires NOXTLS_FEATURE_SHA256."
+#endif
+
+#if NOXTLS_FEATURE_SLH_DSA && !NOXTLS_FEATURE_SHA512
+#error "NOXTLS_FEATURE_SLH_DSA requires NOXTLS_FEATURE_SHA512."
 #endif
 
 /* Profile enforcement checks. */

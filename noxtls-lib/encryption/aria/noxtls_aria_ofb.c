@@ -30,6 +30,8 @@
 * CONTACT: info@argenox.com
 * 
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_aria_ofb.c
 * Summary: ARIA Output Feedback (OFB) Mode Implementation
 *

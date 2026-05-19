@@ -18,6 +18,7 @@ Required build flags:
 
 - `-DNOXTLS_CFG_FEATURE_ML_KEM=ON`
 - `-DNOXTLS_CFG_FEATURE_ML_DSA=ON`
+- `-DNOXTLS_CFG_FEATURE_SLH_DSA=ON` for FIPS 205 SLH-DSA size contracts and signature-scheme IDs
 
 Related dependencies:
 
@@ -47,8 +48,13 @@ Defined in `noxtls_tls_common.h`:
 - `TLS_SIGSCHEME_RSA_PSS_SHA256_MLDSA44` (`0xFEB0`)
 - `TLS_SIGSCHEME_RSA_PSS_SHA256_MLDSA65` (`0xFEB1`)
 - `TLS_SIGSCHEME_RSA_PSS_SHA384_MLDSA87` (`0xFEB2`)
+- `TLS_SIGSCHEME_SLHDSA_SHA2_128S` (`0xFEC0`) through `TLS_SIGSCHEME_SLHDSA_SHAKE_256F` (`0xFECB`)
 
 These IDs are currently private-use values for prototyping/interoperability while standards-track assignments finalize.
+
+SLH-DSA CertificateVerify dispatch is wired for the private-use signature schemes. Production use
+still needs official vector validation and interoperability coverage because the largest signatures
+stress certificate, handshake, and signature buffer paths more than existing ML-DSA paths.
 
 ## API setup
 
@@ -75,6 +81,19 @@ noxtls_return_t tls13_set_client_cert_mldsa(tls13_context_t *ctx,
 ```
 
 Use before `noxtls_tls13_connect()` for mutual TLS with ML-DSA client authentication.
+
+SLH-DSA uses parallel setup calls with `noxtls_slhdsa_param_t`:
+
+```c
+noxtls_return_t noxtls_tls13_set_server_private_slhdsa(tls13_context_t *ctx,
+                                                       noxtls_slhdsa_param_t param,
+                                                       const uint8_t *private_key);
+noxtls_return_t tls13_set_client_cert_slhdsa(tls13_context_t *ctx,
+                                             const uint8_t *cert_der,
+                                             uint32_t cert_len,
+                                             noxtls_slhdsa_param_t param,
+                                             const uint8_t *private_key);
+```
 
 ## Behavior overview
 

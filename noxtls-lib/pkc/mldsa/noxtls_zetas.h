@@ -1,3 +1,7 @@
+/*****************************************************************************
+* This file is part of the NoxTLS Library.
+*/
+
 ﻿#ifndef NOXTLS_ZETAS_H
 #define NOXTLS_ZETAS_H
 

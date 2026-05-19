@@ -6,11 +6,6 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 2 of the License, or
-* (at your option) any later version.
-*
 * Alternatively, this file may be used under the terms of a
 * commercial license from Argenox Technologies LLC.
 *
@@ -364,6 +359,10 @@
 #endif
 /* Enables ML-DSA (FIPS 204) signature APIs and TLS PQ signature support. */
 #define NOXTLS_FEATURE_ML_DSA 0
+/* Enables SLH-DSA (FIPS 205) signature APIs and TLS/X.509 PQ signature support. */
+#ifndef NOXTLS_FEATURE_SLH_DSA
+#define NOXTLS_FEATURE_SLH_DSA 0
+#endif
 
 /* TLS/cert granularity */
 /* Enables TLS 1.0 protocol implementation.
@@ -530,6 +529,8 @@
 #define NOXTLS_FEATURE_ML_KEM 0
 #undef NOXTLS_FEATURE_ML_DSA
 #define NOXTLS_FEATURE_ML_DSA 0
+#undef NOXTLS_FEATURE_SLH_DSA
+#define NOXTLS_FEATURE_SLH_DSA 0
 
 #undef NOXTLS_FEATURE_TLS12
 #define NOXTLS_FEATURE_TLS12 1
@@ -639,6 +640,8 @@
 #define NOXTLS_FEATURE_ML_KEM 0
 #undef NOXTLS_FEATURE_ML_DSA
 #define NOXTLS_FEATURE_ML_DSA 0
+#undef NOXTLS_FEATURE_SLH_DSA
+#define NOXTLS_FEATURE_SLH_DSA 0
 
 #undef NOXTLS_FEATURE_TLS12
 #define NOXTLS_FEATURE_TLS12 1
@@ -680,6 +683,12 @@
 #define NOXTLS_HAVE_CERT_WRITE 0
 #undef NOXTLS_FEATURE_AES_XTS
 #define NOXTLS_FEATURE_AES_XTS 0
+#undef NOXTLS_FEATURE_ML_KEM
+#define NOXTLS_FEATURE_ML_KEM 0
+#undef NOXTLS_FEATURE_ML_DSA
+#define NOXTLS_FEATURE_ML_DSA 0
+#undef NOXTLS_FEATURE_SLH_DSA
+#define NOXTLS_FEATURE_SLH_DSA 0
 #endif
 
 #if defined(NOXTLS_PROFILE_FIPS_LIKE)
@@ -780,6 +789,8 @@
 #define NOXTLS_FEATURE_ML_KEM 0
 #undef NOXTLS_FEATURE_ML_DSA
 #define NOXTLS_FEATURE_ML_DSA 0
+#undef NOXTLS_FEATURE_SLH_DSA
+#define NOXTLS_FEATURE_SLH_DSA 0
 
 #undef NOXTLS_FEATURE_TLS12
 #define NOXTLS_FEATURE_TLS12 1
@@ -887,6 +898,8 @@
 #define NOXTLS_FEATURE_ML_KEM 0
 #undef NOXTLS_FEATURE_ML_DSA
 #define NOXTLS_FEATURE_ML_DSA 0
+#undef NOXTLS_FEATURE_SLH_DSA
+#define NOXTLS_FEATURE_SLH_DSA 0
 
 #undef NOXTLS_FEATURE_TLS10
 #define NOXTLS_FEATURE_TLS10 1

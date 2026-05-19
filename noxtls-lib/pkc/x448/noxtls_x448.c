@@ -3,6 +3,8 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_x448.c
 * Summary: X448 key agreement (Curve448, RFC 7748)
 *

@@ -30,6 +30,8 @@
 * CONTACT: info@argenox.com
 * 
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_dtls_common.h
 * Summary: DTLS Common Definitions and Structures
 * Based on RFC 6347 (DTLS 1.2) and RFC 9147 (DTLS 1.3)

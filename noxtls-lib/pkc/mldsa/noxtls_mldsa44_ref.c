@@ -1,3 +1,7 @@
+/*****************************************************************************
+* This file is part of the NoxTLS Library.
+*/
+
 ﻿#define MLD_CONFIG_PARAMETER_SET 44
 #define MLD_CONFIG_NAMESPACE_PREFIX noxtls_mldsa44
 

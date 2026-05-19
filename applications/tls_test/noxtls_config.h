@@ -1,3 +1,7 @@
+/*****************************************************************************
+* This file is part of the NoxTLS Library.
+*/
+
 #ifndef _NOXTLS_CONFIG_H_
 /*
  * App-local NoxTLS configuration entry point.

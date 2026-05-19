@@ -1,3 +1,7 @@
+﻿/*****************************************************************************
+* This file is part of the NoxTLS Library.
+*/
+
 ﻿/*
  * Copyright (c) The mldsa-native project authors
  * SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT
@@ -23,6 +27,8 @@
  *   Bai, Ducas, Kiltz, Lepoint, Lyubashevsky, Schwabe, Seiler, StehlÃƒÂ©
  *   https://pq-crystals.org/dilithium/data/dilithium-specification-round3-20210208.pdf
  */
+
+#if defined(MLD_CONFIG_PARAMETER_SET)
 
 #include "noxtls_sign.h"
 
@@ -1440,5 +1446,7 @@ cleanup:
 #undef noxtls_mld_compute_t0_t1_tr_from_sk_components
 #undef MLD_NONCE_UB
 #undef MLD_PRE_HASH_OID_LEN
+
+#endif /* defined(MLD_CONFIG_PARAMETER_SET) */
 
 

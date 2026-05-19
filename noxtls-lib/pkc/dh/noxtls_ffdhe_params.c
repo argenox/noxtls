@@ -3,6 +3,8 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_ffdhe_params.c
 * Summary: RFC 7919 FFDHE group parameters (p, g=2)
 */

@@ -1,4 +1,6 @@
 /*****************************************************************************
+* This file is part of the NoxTLS Library.
+*
 * Copyright (c) [2019] - [2026], Argenox Technologies LLC
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial

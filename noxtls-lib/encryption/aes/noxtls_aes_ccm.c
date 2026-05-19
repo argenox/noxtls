@@ -3,6 +3,8 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_aes_ccm.c
 * Summary: AES-CCM (Counter with CBC-MAC) - NIST SP 800-38C / RFC 3610
 */
@@ -35,7 +37,11 @@ static void ccm_compute_mac(const uint8_t *key, noxtls_aes_type_t type,
                             const uint8_t *payload, uint32_t payload_len,
                             uint8_t *mac_state);
 
-/* Tag length must be one of 4, 6, 8, 10, 12, 14, 16 -> (T-2)/2 in 1..7 */
+/**
+ * @brief Validate an AES-CCM authentication tag length.
+ * @param tag_len Tag length in bytes.
+ * @return 1 when tag_len is one of 4, 6, 8, 10, 12, 14, or 16; 0 otherwise.
+ */
 static int tag_len_valid(uint32_t tag_len)
 {
     return (tag_len >= 4U && tag_len <= 16U && (tag_len & 1U) == 0);
@@ -61,6 +67,7 @@ static int nonce_len_valid(uint32_t nonce_len)
  * @param block is the block to increment
  * @param L is the length of the block
  *
+ * @return None.
  */
 static void ccm_inc_counter(uint8_t *block, uint32_t L)
 {

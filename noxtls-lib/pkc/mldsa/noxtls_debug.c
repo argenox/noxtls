@@ -1,3 +1,7 @@
+/*****************************************************************************
+* This file is part of the NoxTLS Library.
+*/
+
 ﻿#include "noxtls_mldsa_internal_common.h"
 
 #if !defined(MLD_CONFIG_MULTILEVEL_NO_SHARED) && defined(MLDSA_DEBUG)

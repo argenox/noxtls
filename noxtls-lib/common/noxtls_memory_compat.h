@@ -30,6 +30,8 @@
 * CONTACT: info@argenox.com
 * 
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_memory_compat.h
 * Summary: Memory Function Compatibility Macros
 *

@@ -3,6 +3,8 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_crypto_provider.h
 * Summary: Optional abstraction for PKCS#11, TPM, or other hardware crypto.
 *          When a provider is set on a TLS context, private-key operations

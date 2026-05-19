@@ -107,6 +107,7 @@ const sidebars = {
           items: [
             'api/mlkem',
             'api/mldsa',
+            'api/slhdsa',
             'api/tls13_pqc',
           ],
         },

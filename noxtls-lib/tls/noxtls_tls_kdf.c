@@ -30,6 +30,8 @@
 * CONTACT: info@argenox.com
 * 
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_tls_kdf.c
 * Summary: TLS Key Derivation Functions (PRF, HKDF) Implementation
 *

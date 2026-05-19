@@ -30,6 +30,8 @@
 * CONTACT: info@argenox.com
 * 
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_drbg.c
 * Summary: Deterministic Random Bit Generator (DRBG) - AES-CTR-DRBG Implementation
 *          Per NIST SP 800-90A

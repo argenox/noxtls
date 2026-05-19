@@ -1,3 +1,7 @@
+/*****************************************************************************
+* This file is part of the NoxTLS Library.
+*/
+
 ﻿#ifndef NOXTLS_MLDSA_SIGN_H
 #define NOXTLS_MLDSA_SIGN_H
 

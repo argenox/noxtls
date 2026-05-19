@@ -30,6 +30,8 @@
 * CONTACT: info@argenox.com
 * 
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_tls13.c
 * Summary: TLS 1.3 Implementation
 */
@@ -71,6 +73,9 @@
 #if NOXTLS_FEATURE_ML_DSA
 #include "pkc/mldsa/noxtls_mldsa.h"
 #endif
+#if NOXTLS_FEATURE_SLH_DSA
+#include "pkc/slhdsa/noxtls_slhdsa.h"
+#endif
 #include "mdigest/noxtls_hash.h"
 #include "mdigest/sha256/noxtls_sha256.h"
 #include "mdigest/sha512/noxtls_sha512.h"
@@ -99,6 +104,10 @@ static int tls13_server_can_sign_scheme(const tls13_context_t *ctx, uint16_t sch
 static uint16_t tls13_select_server_certificate_sig_scheme_legacy(const tls13_context_t *ctx);
 static void tls13_pick_server_ecdsa_identity_from_matrix(tls13_context_t *ctx);
 static int tls13_ecdsa_sig_scheme_to_hash(uint16_t scheme, noxtls_hash_algos_t *out_hash);
+#if NOXTLS_FEATURE_SLH_DSA
+static uint16_t tls13_slhdsa_param_to_sig_scheme(noxtls_slhdsa_param_t param);
+static noxtls_return_t tls13_slhdsa_sig_scheme_to_param(uint16_t scheme, noxtls_slhdsa_param_t *param);
+#endif
 static noxtls_return_t tls13_build_inner_plaintext(const uint8_t *content, uint32_t content_len,
                                                    uint8_t content_type, uint8_t *out_plaintext,
                                                    uint32_t *out_len);
@@ -197,6 +206,20 @@ static uint32_t tls13_build_signature_algorithms(uint16_t *algorithms, uint32_t 
     if(count < max_algorithms) algorithms[count++] = TLS_SIGSCHEME_RSA_PSS_SHA256_MLDSA44;
     if(count < max_algorithms) algorithms[count++] = TLS_SIGSCHEME_RSA_PSS_SHA256_MLDSA65;
     if(count < max_algorithms) algorithms[count++] = TLS_SIGSCHEME_RSA_PSS_SHA384_MLDSA87;
+#endif
+#if NOXTLS_FEATURE_SLH_DSA
+    if(count < max_algorithms) algorithms[count++] = TLS_SIGSCHEME_SLHDSA_SHA2_128S;
+    if(count < max_algorithms) algorithms[count++] = TLS_SIGSCHEME_SLHDSA_SHA2_128F;
+    if(count < max_algorithms) algorithms[count++] = TLS_SIGSCHEME_SLHDSA_SHA2_192S;
+    if(count < max_algorithms) algorithms[count++] = TLS_SIGSCHEME_SLHDSA_SHA2_192F;
+    if(count < max_algorithms) algorithms[count++] = TLS_SIGSCHEME_SLHDSA_SHA2_256S;
+    if(count < max_algorithms) algorithms[count++] = TLS_SIGSCHEME_SLHDSA_SHA2_256F;
+    if(count < max_algorithms) algorithms[count++] = TLS_SIGSCHEME_SLHDSA_SHAKE_128S;
+    if(count < max_algorithms) algorithms[count++] = TLS_SIGSCHEME_SLHDSA_SHAKE_128F;
+    if(count < max_algorithms) algorithms[count++] = TLS_SIGSCHEME_SLHDSA_SHAKE_192S;
+    if(count < max_algorithms) algorithms[count++] = TLS_SIGSCHEME_SLHDSA_SHAKE_192F;
+    if(count < max_algorithms) algorithms[count++] = TLS_SIGSCHEME_SLHDSA_SHAKE_256S;
+    if(count < max_algorithms) algorithms[count++] = TLS_SIGSCHEME_SLHDSA_SHAKE_256F;
 #endif
     return count;
 }
@@ -1548,6 +1571,13 @@ static int tls13_server_can_sign_scheme(const tls13_context_t *ctx, uint16_t sch
         return 0;
 #endif
     }
+    if(ctx->server_cert_use_slhdsa) {
+#if NOXTLS_FEATURE_SLH_DSA
+        return (scheme == tls13_slhdsa_param_to_sig_scheme(ctx->server_private_slhdsa_param)) ? 1 : 0;
+#else
+        return 0;
+#endif
+    }
     return 0;
 }
 
@@ -1629,6 +1659,14 @@ static uint16_t tls13_select_server_certificate_sig_scheme_legacy(const tls13_co
         return 0u;
 #endif
     }
+    if(ctx->server_cert_use_slhdsa) {
+#if NOXTLS_FEATURE_SLH_DSA
+        uint16_t sig_scheme = tls13_slhdsa_param_to_sig_scheme(ctx->server_private_slhdsa_param);
+        return tls13_client_supports_signature_scheme(ctx, sig_scheme) ? sig_scheme : 0u;
+#else
+        return 0u;
+#endif
+    }
     return 0u;
 }
 
@@ -1695,6 +1733,53 @@ static int tls13_ecdsa_sig_scheme_to_hash(uint16_t scheme, noxtls_hash_algos_t *
             return 0;
     }
 }
+
+#if NOXTLS_FEATURE_SLH_DSA
+static uint16_t tls13_slhdsa_param_to_sig_scheme(noxtls_slhdsa_param_t param)
+{
+    switch(param) {
+        case NOXTLS_SLHDSA_SHA2_128S:
+            return TLS_SIGSCHEME_SLHDSA_SHA2_128S;
+        case NOXTLS_SLHDSA_SHA2_128F:
+            return TLS_SIGSCHEME_SLHDSA_SHA2_128F;
+        case NOXTLS_SLHDSA_SHA2_192S:
+            return TLS_SIGSCHEME_SLHDSA_SHA2_192S;
+        case NOXTLS_SLHDSA_SHA2_192F:
+            return TLS_SIGSCHEME_SLHDSA_SHA2_192F;
+        case NOXTLS_SLHDSA_SHA2_256S:
+            return TLS_SIGSCHEME_SLHDSA_SHA2_256S;
+        case NOXTLS_SLHDSA_SHA2_256F:
+            return TLS_SIGSCHEME_SLHDSA_SHA2_256F;
+        case NOXTLS_SLHDSA_SHAKE_128S:
+            return TLS_SIGSCHEME_SLHDSA_SHAKE_128S;
+        case NOXTLS_SLHDSA_SHAKE_128F:
+            return TLS_SIGSCHEME_SLHDSA_SHAKE_128F;
+        case NOXTLS_SLHDSA_SHAKE_192S:
+            return TLS_SIGSCHEME_SLHDSA_SHAKE_192S;
+        case NOXTLS_SLHDSA_SHAKE_192F:
+            return TLS_SIGSCHEME_SLHDSA_SHAKE_192F;
+        case NOXTLS_SLHDSA_SHAKE_256S:
+            return TLS_SIGSCHEME_SLHDSA_SHAKE_256S;
+        case NOXTLS_SLHDSA_SHAKE_256F:
+            return TLS_SIGSCHEME_SLHDSA_SHAKE_256F;
+        default:
+            return 0u;
+    }
+}
+
+static noxtls_return_t tls13_slhdsa_sig_scheme_to_param(uint16_t scheme, noxtls_slhdsa_param_t *param)
+{
+    if(param == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(scheme < TLS_SIGSCHEME_SLHDSA_SHA2_128S || scheme > TLS_SIGSCHEME_SLHDSA_SHAKE_256F) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    *param = (noxtls_slhdsa_param_t)((uint32_t)NOXTLS_SLHDSA_SHA2_128S +
+                                     (uint32_t)(scheme - TLS_SIGSCHEME_SLHDSA_SHA2_128S));
+    return NOXTLS_RETURN_SUCCESS;
+}
+#endif
 
 static uint16_t tls13_select_server_certificate_sig_scheme(const tls13_context_t *ctx)
 {
@@ -2150,7 +2235,7 @@ static noxtls_return_t tls13_derive_handshake_keys(tls13_context_t *ctx, const u
         return rc;
     }
 
-    /* RFC 9147 §4.2.3: record number encryption keys for DTLS 1.3 handshake */
+    /* RFC 9147 ?4.2.3: record number encryption keys for DTLS 1.3 handshake */
     rc = tls13_ctx_hkdf_expand_label(ctx, hash_algo, ctx->client_handshake_traffic_secret, hash_len,
                                  (const uint8_t*)"sn", 2, NULL, 0,
                                  ctx->client_handshake_sn_key, DTLS13_RECORD_NUMBER_ENC_LEN);
@@ -2304,7 +2389,7 @@ static noxtls_return_t tls13_install_application_keys(tls13_context_t *ctx)
         return rc;
     }
 
-    /* RFC 9147 §4.2.3: record number encryption keys for DTLS 1.3 application data */
+    /* RFC 9147 ?4.2.3: record number encryption keys for DTLS 1.3 application data */
     rc = tls13_ctx_hkdf_expand_label(ctx, hash_algo, ctx->client_application_traffic_secret, hash_len,
                                  (const uint8_t*)"sn", 2, NULL, 0,
                                  ctx->client_sn_key, DTLS13_RECORD_NUMBER_ENC_LEN);
@@ -2888,7 +2973,7 @@ static noxtls_return_t tls13_handshake_buffer_append(tls13_context_t *ctx, const
     return NOXTLS_RETURN_SUCCESS;
 }
 
-/* RFC 8446 §5.1: these handshake types must not span a key change; they must be at a record boundary. */
+/* RFC 8446 ?5.1: these handshake types must not span a key change; they must be at a record boundary. */
 static int tls13_handshake_type_requires_record_boundary(uint8_t msg_type)
 {
     return (msg_type == TLS_HANDSHAKE_CLIENT_HELLO ||
@@ -2914,7 +2999,7 @@ static noxtls_return_t tls13_handshake_buffer_get(tls13_context_t *ctx, uint8_t 
     if(available < total_len) {
         return NOXTLS_RETURN_FAILED;
     }
-    /* RFC 8446 §5.1: reject messages that must be at record boundary but were received fragmented. */
+    /* RFC 8446 ?5.1: reject messages that must be at record boundary but were received fragmented. */
     if(tls13_handshake_type_requires_record_boundary(buf[0]) && !ctx->handshake_next_at_record_boundary) {
         return NOXTLS_RETURN_BAD_DATA;
     }
@@ -3119,8 +3204,8 @@ static noxtls_return_t tls13_dtls_append_inner_handshake_fragments(tls13_context
 
 static noxtls_return_t tls13_send_encrypted_handshake(tls13_context_t *ctx, const uint8_t *msg, uint32_t msg_len)
 {
-    uint32_t inner_len = TLS13_RECORD_WORKSPACE_HALF;
-    uint32_t encrypted_len = TLS13_RECORD_WORKSPACE_HALF;
+    uint32_t inner_len;
+    uint32_t encrypted_len;
     uint8_t *inner;
     uint8_t *encrypted;
     noxtls_return_t rc;
@@ -3136,6 +3221,7 @@ static noxtls_return_t tls13_send_encrypted_handshake(tls13_context_t *ctx, cons
     encrypted = ctx->record_workspace + TLS13_RECORD_WORKSPACE_HALF;
 
     if(tls13_is_dtls(ctx)) {
+        inner_len = TLS13_RECORD_WORKSPACE_HALF;
         rc = tls13_dtls_inner_plaintext_from_tls_handshake(ctx, msg, msg_len, inner, &inner_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
@@ -3147,16 +3233,34 @@ static noxtls_return_t tls13_send_encrypted_handshake(tls13_context_t *ctx, cons
         return rc;
     }
 
-    rc = tls13_build_inner_plaintext(msg, msg_len, TLS_RECORD_HANDSHAKE, inner, &inner_len);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
-    }
+    {
+        uint32_t offset = 0u;
+        uint32_t max_fragment = TLS13_RECORD_WORKSPACE_HALF - 1u;
 
-    rc = noxtls_tls13_encrypt_record(ctx, TLS_RECORD_APPLICATION_DATA, inner, inner_len, encrypted, &encrypted_len);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
+        while(offset < msg_len) {
+            uint32_t fragment_len = msg_len - offset;
+            if(fragment_len > max_fragment) {
+                fragment_len = max_fragment;
+            }
+            inner_len = TLS13_RECORD_WORKSPACE_HALF;
+            encrypted_len = TLS13_RECORD_WORKSPACE_HALF;
+            rc = tls13_build_inner_plaintext(msg + offset, fragment_len, TLS_RECORD_HANDSHAKE, inner, &inner_len);
+            if(rc != NOXTLS_RETURN_SUCCESS) {
+                return rc;
+            }
+
+            rc = noxtls_tls13_encrypt_record(ctx, TLS_RECORD_APPLICATION_DATA, inner, inner_len, encrypted, &encrypted_len);
+            if(rc != NOXTLS_RETURN_SUCCESS) {
+                return rc;
+            }
+            rc = noxtls_tls_send_record(&ctx->base.base, TLS_RECORD_APPLICATION_DATA, encrypted, encrypted_len);
+            if(rc != NOXTLS_RETURN_SUCCESS) {
+                return rc;
+            }
+            offset += fragment_len;
+        }
     }
-    return noxtls_tls_send_record(&ctx->base.base, TLS_RECORD_APPLICATION_DATA, encrypted, encrypted_len);
+    return NOXTLS_RETURN_SUCCESS;
 }
 
 /* RFC 8446 4.6.1: send standards-compliant NewSessionTicket. */
@@ -3590,7 +3694,7 @@ static noxtls_return_t tls13_recv_handshake_message(tls13_context_t *ctx, uint8_
                  * We reject the PSK but continue with ECDHE; discard those records while we have not yet
                  * accepted any decrypted handshake bytes for the current message (RFC: skip rejected 0-RTT).
                  * If a handshake fragment is already buffered (e.g. split Finished), a later decrypt failure
-                 * must not be dropped — tlsfuzzer expects fatal bad_record_mac.
+                 * must not be dropped ��� tlsfuzzer expects fatal bad_record_mac.
                  * After HelloRetryRequest, the first-flight early data is drained before the second ClientHello,
                  * so decrypt failures on the client's post-server Finished flight must not be skipped (avoids
                  * hanging when the client sends only a bogus record, e.g. tlsfuzzer "early data after 2nd CH").
@@ -3777,6 +3881,10 @@ noxtls_return_t noxtls_tls13_context_init(tls13_context_t *ctx, tls_role_t role)
     ctx->server_private_mldsa_len = 0;
     ctx->server_private_mldsa_param = NOXTLS_MLDSA_NONE;
     ctx->server_cert_use_mldsa = 0;
+    memset(ctx->server_private_slhdsa, 0, sizeof(ctx->server_private_slhdsa));
+    ctx->server_private_slhdsa_len = 0;
+    ctx->server_private_slhdsa_param = NOXTLS_SLHDSA_NONE;
+    ctx->server_cert_use_slhdsa = 0;
     ctx->crypto_provider = NULL;
     ctx->server_private_key_handle = NULL;
     ctx->request_client_auth = 0;
@@ -3796,6 +3904,10 @@ noxtls_return_t noxtls_tls13_context_init(tls13_context_t *ctx, tls_role_t role)
     ctx->client_private_mldsa_len = 0;
     ctx->client_private_mldsa_param = NOXTLS_MLDSA_NONE;
     ctx->client_cert_use_mldsa = 0;
+    memset(ctx->client_private_slhdsa, 0, sizeof(ctx->client_private_slhdsa));
+    ctx->client_private_slhdsa_len = 0;
+    ctx->client_private_slhdsa_param = NOXTLS_SLHDSA_NONE;
+    ctx->client_cert_use_slhdsa = 0;
     ctx->client_private_key_handle = NULL;
     ctx->prefer_chacha20 = 0;
     ctx->server_cipher_suites = NULL;
@@ -3955,6 +4067,10 @@ void noxtls_tls13_set_server_private_rsa(tls13_context_t *ctx, void *rsa_key)
             memset(ctx->server_private_mldsa, 0, sizeof(ctx->server_private_mldsa));
             ctx->server_private_mldsa_len = 0;
             ctx->server_private_mldsa_param = NOXTLS_MLDSA_NONE;
+            ctx->server_cert_use_slhdsa = 0;
+            memset(ctx->server_private_slhdsa, 0, sizeof(ctx->server_private_slhdsa));
+            ctx->server_private_slhdsa_len = 0;
+            ctx->server_private_slhdsa_param = NOXTLS_SLHDSA_NONE;
         }
     }
 }
@@ -3982,6 +4098,10 @@ void noxtls_tls13_set_server_private_ecdsa(tls13_context_t *ctx, void *ecc_key)
             memset(ctx->server_private_mldsa, 0, sizeof(ctx->server_private_mldsa));
             ctx->server_private_mldsa_len = 0;
             ctx->server_private_mldsa_param = NOXTLS_MLDSA_NONE;
+            ctx->server_cert_use_slhdsa = 0;
+            memset(ctx->server_private_slhdsa, 0, sizeof(ctx->server_private_slhdsa));
+            ctx->server_private_slhdsa_len = 0;
+            ctx->server_private_slhdsa_param = NOXTLS_SLHDSA_NONE;
         }
     }
 }
@@ -4224,6 +4344,59 @@ noxtls_return_t noxtls_tls13_set_server_private_mldsa(tls13_context_t *ctx, noxt
     ctx->server_cert_use_ed25519 = 0;
     memset(ctx->server_private_ed448, 0, sizeof(ctx->server_private_ed448));
     ctx->server_cert_use_ed448 = 0;
+    memset(ctx->server_private_slhdsa, 0, sizeof(ctx->server_private_slhdsa));
+    ctx->server_private_slhdsa_len = 0u;
+    ctx->server_private_slhdsa_param = NOXTLS_SLHDSA_NONE;
+    ctx->server_cert_use_slhdsa = 0u;
+    return NOXTLS_RETURN_SUCCESS;
+#else
+    (void)ctx;
+    (void)param;
+    (void)private_key;
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+}
+
+/**
+ * @brief Set server SLH-DSA private key for CertificateVerify.
+ * @param[in,out] ctx          Server context.
+ * @param[in] param            SLH-DSA parameter set.
+ * @param[in] private_key      Secret key bytes of length `noxtls_slhdsa_secret_key_len(param)`.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL`, `NOXTLS_RETURN_INVALID_PARAM`, or `NOXTLS_RETURN_NOT_SUPPORTED`.
+ */
+noxtls_return_t noxtls_tls13_set_server_private_slhdsa(tls13_context_t *ctx,
+                                                       noxtls_slhdsa_param_t param,
+                                                       const uint8_t *private_key)
+{
+#if NOXTLS_FEATURE_SLH_DSA
+    uint32_t sk_len;
+
+    if(ctx == NULL || private_key == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    sk_len = noxtls_slhdsa_secret_key_len(param);
+    if(sk_len == 0u || sk_len > sizeof(ctx->server_private_slhdsa)) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    memset(ctx->server_private_slhdsa, 0, sizeof(ctx->server_private_slhdsa));
+    memcpy(ctx->server_private_slhdsa, private_key, sk_len);
+    ctx->server_private_slhdsa_len = sk_len;
+    ctx->server_private_slhdsa_param = param;
+    ctx->server_cert_use_slhdsa = 1u;
+    ctx->server_private_rsa = NULL;
+    ctx->server_private_ecdsa = NULL;
+    ctx->server_ecdsa_matrix_count = 0u;
+    memset(ctx->server_ecdsa_matrix_certs, 0, sizeof(ctx->server_ecdsa_matrix_certs));
+    memset(ctx->server_ecdsa_matrix_cert_lens, 0, sizeof(ctx->server_ecdsa_matrix_cert_lens));
+    memset(ctx->server_ecdsa_matrix_keys, 0, sizeof(ctx->server_ecdsa_matrix_keys));
+    memset(ctx->server_private_ed25519, 0, sizeof(ctx->server_private_ed25519));
+    ctx->server_cert_use_ed25519 = 0u;
+    memset(ctx->server_private_ed448, 0, sizeof(ctx->server_private_ed448));
+    ctx->server_cert_use_ed448 = 0u;
+    memset(ctx->server_private_mldsa, 0, sizeof(ctx->server_private_mldsa));
+    ctx->server_private_mldsa_len = 0u;
+    ctx->server_private_mldsa_param = NOXTLS_MLDSA_NONE;
+    ctx->server_cert_use_mldsa = 0u;
     return NOXTLS_RETURN_SUCCESS;
 #else
     (void)ctx;
@@ -4300,6 +4473,10 @@ noxtls_return_t noxtls_tls13_set_client_cert(tls13_context_t *ctx, const uint8_t
     ctx->client_private_mldsa_len = 0;
     ctx->client_private_mldsa_param = NOXTLS_MLDSA_NONE;
     ctx->client_cert_use_mldsa = 0;
+    memset(ctx->client_private_slhdsa, 0, sizeof(ctx->client_private_slhdsa));
+    ctx->client_private_slhdsa_len = 0u;
+    ctx->client_private_slhdsa_param = NOXTLS_SLHDSA_NONE;
+    ctx->client_cert_use_slhdsa = 0u;
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -4339,6 +4516,10 @@ noxtls_return_t noxtls_tls13_set_client_cert_ecdsa(tls13_context_t *ctx, const u
     ctx->client_private_mldsa_len = 0;
     ctx->client_private_mldsa_param = NOXTLS_MLDSA_NONE;
     ctx->client_cert_use_mldsa = 0;
+    memset(ctx->client_private_slhdsa, 0, sizeof(ctx->client_private_slhdsa));
+    ctx->client_private_slhdsa_len = 0u;
+    ctx->client_private_slhdsa_param = NOXTLS_SLHDSA_NONE;
+    ctx->client_cert_use_slhdsa = 0u;
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -4378,6 +4559,10 @@ noxtls_return_t noxtls_tls13_set_client_cert_ed25519(tls13_context_t *ctx, const
     ctx->client_private_mldsa_len = 0;
     ctx->client_private_mldsa_param = NOXTLS_MLDSA_NONE;
     ctx->client_cert_use_mldsa = 0;
+    memset(ctx->client_private_slhdsa, 0, sizeof(ctx->client_private_slhdsa));
+    ctx->client_private_slhdsa_len = 0u;
+    ctx->client_private_slhdsa_param = NOXTLS_SLHDSA_NONE;
+    ctx->client_cert_use_slhdsa = 0u;
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -4418,6 +4603,10 @@ noxtls_return_t noxtls_tls13_set_client_cert_ed448(tls13_context_t *ctx, const u
     ctx->client_private_mldsa_len = 0;
     ctx->client_private_mldsa_param = NOXTLS_MLDSA_NONE;
     ctx->client_cert_use_mldsa = 0;
+    memset(ctx->client_private_slhdsa, 0, sizeof(ctx->client_private_slhdsa));
+    ctx->client_private_slhdsa_len = 0u;
+    ctx->client_private_slhdsa_param = NOXTLS_SLHDSA_NONE;
+    ctx->client_cert_use_slhdsa = 0u;
     return NOXTLS_RETURN_SUCCESS;
 }
 #else
@@ -4475,6 +4664,73 @@ noxtls_return_t tls13_set_client_cert_mldsa(tls13_context_t *ctx, const uint8_t 
     ctx->client_private_mldsa_len = sk_len;
     ctx->client_private_mldsa_param = param;
     ctx->client_cert_use_mldsa = 1;
+    memset(ctx->client_private_slhdsa, 0, sizeof(ctx->client_private_slhdsa));
+    ctx->client_private_slhdsa_len = 0u;
+    ctx->client_private_slhdsa_param = NOXTLS_SLHDSA_NONE;
+    ctx->client_cert_use_slhdsa = 0u;
+    return NOXTLS_RETURN_SUCCESS;
+#else
+    (void)ctx;
+    (void)cert_der;
+    (void)cert_len;
+    (void)param;
+    (void)private_key;
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+}
+
+/**
+ * @brief Client: set DER certificate and SLH-DSA private key for mutual TLS.
+ * @param[in,out] ctx          Client context.
+ * @param[in] cert_der         Client certificate (DER); copied into context.
+ * @param[in] cert_len         Length of @p cert_der.
+ * @param[in] param            SLH-DSA parameter set.
+ * @param[in] private_key      SLH-DSA secret key bytes.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL`, `NOXTLS_RETURN_INVALID_PARAM`, or `NOXTLS_RETURN_NOT_SUPPORTED`.
+ */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
+noxtls_return_t tls13_set_client_cert_slhdsa(tls13_context_t *ctx,
+                                             const uint8_t *cert_der,
+                                             uint32_t cert_len,
+                                             noxtls_slhdsa_param_t param,
+                                             const uint8_t *private_key)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
+{
+#if NOXTLS_FEATURE_SLH_DSA
+    uint32_t sk_len = noxtls_slhdsa_secret_key_len(param);
+
+    if(ctx == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(cert_der == NULL || cert_len == 0u || private_key == NULL ||
+       sk_len == 0u || sk_len > sizeof(ctx->client_private_slhdsa)) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    if(ctx->client_cert) {
+        free(ctx->client_cert);
+        ctx->client_cert = NULL;
+    }
+    ctx->client_cert = (uint8_t*)malloc(cert_len);
+    if(ctx->client_cert == NULL) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    memcpy(ctx->client_cert, cert_der, cert_len);
+    ctx->client_cert_len = cert_len;
+    ctx->client_private_rsa = NULL;
+    ctx->client_private_ecdsa = NULL;
+    memset(ctx->client_private_ed25519, 0, sizeof(ctx->client_private_ed25519));
+    ctx->client_cert_use_ed25519 = 0u;
+    memset(ctx->client_private_ed448, 0, sizeof(ctx->client_private_ed448));
+    ctx->client_cert_use_ed448 = 0u;
+    memset(ctx->client_private_mldsa, 0, sizeof(ctx->client_private_mldsa));
+    ctx->client_private_mldsa_len = 0u;
+    ctx->client_private_mldsa_param = NOXTLS_MLDSA_NONE;
+    ctx->client_cert_use_mldsa = 0u;
+    memset(ctx->client_private_slhdsa, 0, sizeof(ctx->client_private_slhdsa));
+    memcpy(ctx->client_private_slhdsa, private_key, sk_len);
+    ctx->client_private_slhdsa_len = sk_len;
+    ctx->client_private_slhdsa_param = param;
+    ctx->client_cert_use_slhdsa = 1u;
     return NOXTLS_RETURN_SUCCESS;
 #else
     (void)ctx;
@@ -4679,10 +4935,18 @@ noxtls_return_t noxtls_tls13_context_free(tls13_context_t *ctx)
     ctx->server_private_mldsa_len = 0;
     ctx->server_private_mldsa_param = NOXTLS_MLDSA_NONE;
     ctx->server_cert_use_mldsa = 0;
+    memset(ctx->server_private_slhdsa, 0, sizeof(ctx->server_private_slhdsa));
+    ctx->server_private_slhdsa_len = 0;
+    ctx->server_private_slhdsa_param = NOXTLS_SLHDSA_NONE;
+    ctx->server_cert_use_slhdsa = 0;
     memset(ctx->client_private_mldsa, 0, sizeof(ctx->client_private_mldsa));
     ctx->client_private_mldsa_len = 0;
     ctx->client_private_mldsa_param = NOXTLS_MLDSA_NONE;
     ctx->client_cert_use_mldsa = 0;
+    memset(ctx->client_private_slhdsa, 0, sizeof(ctx->client_private_slhdsa));
+    ctx->client_private_slhdsa_len = 0;
+    ctx->client_private_slhdsa_param = NOXTLS_SLHDSA_NONE;
+    ctx->client_cert_use_slhdsa = 0;
 
     noxtls_dtls_context_free(&ctx->base);
     
@@ -6181,6 +6445,33 @@ noxtls_return_t noxtls_tls13_recv_certificate_verify(tls13_context_t *ctx)
                 free(msg);
                 return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
+            } else if(cert->has_slhdsa &&
+                      sig_scheme >= TLS_SIGSCHEME_SLHDSA_SHA2_128S &&
+                      sig_scheme <= TLS_SIGSCHEME_SLHDSA_SHAKE_256F) {
+#if NOXTLS_FEATURE_SLH_DSA
+                noxtls_slhdsa_param_t slhdsa_param = NOXTLS_SLHDSA_NONE;
+
+                rc = tls13_slhdsa_sig_scheme_to_param(sig_scheme, &slhdsa_param);
+                if(rc != NOXTLS_RETURN_SUCCESS || cert->slhdsa_param != slhdsa_param) {
+                    free(msg);
+                    return NOXTLS_RETURN_FAILED;
+                }
+                rc = noxtls_slhdsa_verify(slhdsa_param,
+                                          cert->slhdsa_public_key,
+                                          to_verify,
+                                          to_verify_len,
+                                          msg + 8,
+                                          sig_len);
+                if(rc != NOXTLS_RETURN_SUCCESS) {
+                    free(msg);
+                    NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_X509, NOXSIGHT_SEVERITY_ERROR,
+                                    NOXTLS_EVT_VERIFY_SIG_FAIL, 6u, rc);
+                    return NOXTLS_RETURN_FAILED;
+                }
+#else
+                free(msg);
+                return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
             } else {
                 free(msg);
                 NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_X509, NOXSIGHT_SEVERITY_ERROR,
@@ -6477,7 +6768,7 @@ static uint32_t tls13_ecdsa_signature_to_der(const ecdsa_signature_t *sig, uint8
  */
 noxtls_return_t noxtls_tls13_send_client_certificate_verify(tls13_context_t *ctx)
 {
-    uint8_t certificate_verify[8 + NOXTLS_MLDSA_MAX_SIGNATURE_LEN];
+    uint8_t certificate_verify[8 + NOXTLS_SLHDSA_MAX_SIGNATURE_LEN];
     uint32_t offset = 0;
     noxtls_hash_algos_t hash_algo;
     uint32_t hash_len;
@@ -6501,7 +6792,8 @@ noxtls_return_t noxtls_tls13_send_client_certificate_verify(tls13_context_t *ctx
 #if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
         && !ctx->client_cert_use_ed448
 #endif
-        && !ctx->client_cert_use_mldsa
+        && !ctx->client_cert_use_mldsa &&
+        !ctx->client_cert_use_slhdsa
         ) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -6591,6 +6883,25 @@ noxtls_return_t noxtls_tls13_send_client_certificate_verify(tls13_context_t *ctx
         signature_len = (uint32_t)(sizeof(certificate_verify) - 8u);
         rc = noxtls_mldsa_sign(ctx->client_private_mldsa_param, ctx->client_private_mldsa,
                                to_sign, to_sign_len, certificate_verify + 8, &signature_len);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
+#else
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+    } else if(ctx->client_cert_use_slhdsa) {
+#if NOXTLS_FEATURE_SLH_DSA
+        sig_scheme = tls13_slhdsa_param_to_sig_scheme(ctx->client_private_slhdsa_param);
+        if(sig_scheme == 0u) {
+            return NOXTLS_RETURN_INVALID_PARAM;
+        }
+        signature_len = (uint32_t)(sizeof(certificate_verify) - 8u);
+        rc = noxtls_slhdsa_sign(ctx->client_private_slhdsa_param,
+                                ctx->client_private_slhdsa,
+                                to_sign,
+                                to_sign_len,
+                                certificate_verify + 8,
+                                &signature_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
@@ -7083,7 +7394,7 @@ static noxtls_return_t tls13_hrr_first_ch_ext_order_capture(tls13_context_t *ctx
         return rc;
     }
     /*
-     * RFC 8446 §4.1.2: the second ClientHello omits the "early_data" extension when
+     * RFC 8446 ?4.1.2: the second ClientHello omits the "early_data" extension when
      * HelloRetryRequest is used (early data was rejected). Compare extension order
      * against the first ClientHello with early_data types stripped.
      */
@@ -7345,7 +7656,7 @@ noxtls_return_t noxtls_tls13_recv_client_hello(tls13_context_t *ctx)
     }
     offset += cipher_suites_len;
     
-    /* Legacy compression methods (RFC 8446 §4.1.2: exactly one octet, set to zero) */
+    /* Legacy compression methods (RFC 8446 ?4.1.2: exactly one octet, set to zero) */
     if(offset >= record.length) {
         free(record.data);
         return NOXTLS_RETURN_BAD_DATA;
@@ -7362,7 +7673,7 @@ noxtls_return_t noxtls_tls13_recv_client_hello(tls13_context_t *ctx)
     offset += compression_methods_len;
 
     /*
-     * RFC 8446 §4.1.2: the client's second ClientHello must be the same as the first except for
+     * RFC 8446 ?4.1.2: the client's second ClientHello must be the same as the first except for
      * listed changes; reordering extensions is not allowed (tlsfuzzer test_tls13_shuffled_extentions).
      */
     if(ctx->sent_hrr && ctx->hrr_first_clienthello_ext_order != NULL) {
@@ -7650,7 +7961,7 @@ noxtls_return_t noxtls_tls13_recv_client_hello(tls13_context_t *ctx)
     }
 
     /*
-     * RFC 8446 §4.2.8: key_share is required in ClientHello for non-PSK-KE.
+     * RFC 8446 ?4.2.8: key_share is required in ClientHello for non-PSK-KE.
      * - Missing key_share -> missing_extension
      * - Present but empty key_share list -> decode_error
      */
@@ -7664,7 +7975,7 @@ noxtls_return_t noxtls_tls13_recv_client_hello(tls13_context_t *ctx)
     }
 
     /*
-     * RFC 8446 §4.1.4: if the client did not provide a compatible key_share entry
+     * RFC 8446 ?4.1.4: if the client did not provide a compatible key_share entry
      * (including bogus/unknown groups only), send HelloRetryRequest for the first
      * mutually supported group from supported_groups. Empty key_share list remains
      * a decode_error via key_share_empty_or_invalid above.
@@ -8458,7 +8769,7 @@ noxtls_return_t noxtls_tls13_send_certificate(tls13_context_t *ctx)
  */
 noxtls_return_t noxtls_tls13_send_certificate_verify(tls13_context_t *ctx)
 {
-    uint8_t certificate_verify[8 + NOXTLS_MLDSA_MAX_SIGNATURE_LEN];
+    uint8_t certificate_verify[8 + NOXTLS_SLHDSA_MAX_SIGNATURE_LEN];
     uint32_t offset = 0;
     noxtls_hash_algos_t hash_algo;
     uint32_t hash_len;
@@ -8480,7 +8791,8 @@ noxtls_return_t noxtls_tls13_send_certificate_verify(tls13_context_t *ctx)
        ctx->server_private_ecdsa == NULL &&
        !ctx->server_cert_use_ed25519 &&
        !ctx->server_cert_use_ed448 &&
-       !ctx->server_cert_use_mldsa) {
+       !ctx->server_cert_use_mldsa &&
+       !ctx->server_cert_use_slhdsa) {
         return NOXTLS_RETURN_FAILED;
     }
     rc = tls13_get_cipher_params(ctx->cipher_suite, &hash_algo, &hash_len, &key_len);
@@ -8510,6 +8822,22 @@ noxtls_return_t noxtls_tls13_send_certificate_verify(tls13_context_t *ctx)
                               TLS_SIGSCHEME_MLDSA87;
         rc = noxtls_mldsa_sign(ctx->server_private_mldsa_param, ctx->server_private_mldsa,
                                to_sign, to_sign_len, certificate_verify + 8, &signature_len);
+#else
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+    } else if(ctx->server_cert_use_slhdsa) {
+#if NOXTLS_FEATURE_SLH_DSA
+        selected_sig_scheme = tls13_slhdsa_param_to_sig_scheme(ctx->server_private_slhdsa_param);
+        if(selected_sig_scheme == 0u ||
+           !tls13_client_supports_signature_scheme(ctx, selected_sig_scheme)) {
+            return NOXTLS_RETURN_FAILED;
+        }
+        rc = noxtls_slhdsa_sign(ctx->server_private_slhdsa_param,
+                                ctx->server_private_slhdsa,
+                                to_sign,
+                                to_sign_len,
+                                certificate_verify + 8,
+                                &signature_len);
 #else
         return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
@@ -9090,6 +9418,25 @@ noxtls_return_t tls13_recv_client_certificate_verify(tls13_context_t *ctx)
             free(msg);
             return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
+        } else if(sig_scheme >= TLS_SIGSCHEME_SLHDSA_SHA2_128S &&
+                  sig_scheme <= TLS_SIGSCHEME_SLHDSA_SHAKE_256F) {
+#if NOXTLS_FEATURE_SLH_DSA
+            noxtls_slhdsa_param_t p = NOXTLS_SLHDSA_NONE;
+
+            rc = tls13_slhdsa_sig_scheme_to_param(sig_scheme, &p);
+            if(rc != NOXTLS_RETURN_SUCCESS || !cert->has_slhdsa || cert->slhdsa_param != p) {
+                free(msg);
+                return NOXTLS_RETURN_FAILED;
+            }
+            rc = noxtls_slhdsa_verify(p, cert->slhdsa_public_key, to_verify, to_verify_len, msg + 8, sig_len);
+            if(rc != NOXTLS_RETURN_SUCCESS) {
+                free(msg);
+                return NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED;
+            }
+#else
+            free(msg);
+            return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
         } else {
             free(msg);
             return NOXTLS_RETURN_INVALID_PARAM;
@@ -9361,7 +9708,7 @@ noxtls_return_t noxtls_tls13_accept(tls13_context_t *ctx)
     }
     NOXTLS_STATE_EXIT(ctx, NOXTLS_STATE_ACCEPT_SEND_FINISHED, rc);
     /*
-     * RFC 8446 §4.4.4: after sending server Finished, all subsequent server
+     * RFC 8446 ?4.4.4: after sending server Finished, all subsequent server
      * records (including alerts for client auth errors) must use application
      * traffic write keys.
      */
@@ -9753,7 +10100,7 @@ noxtls_return_t noxtls_dtls13_rotate_connection_id(tls13_context_t *ctx)
 }
 
 /**
- * @brief Send KeyUpdate and roll the local write traffic secret (RFC 8446 §4.6.3).
+ * @brief Send KeyUpdate and roll the local write traffic secret (RFC 8446 ?4.6.3).
  * @param[in,out] ctx              Established TLS 1.3 or DTLS 1.3 context.
  * @param[in] request_update       0 = update local keys only; 1 = request peer KeyUpdate.
  * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL`, `NOXTLS_RETURN_FAILED`, or `NOXTLS_RETURN_INVALID_PARAM`.

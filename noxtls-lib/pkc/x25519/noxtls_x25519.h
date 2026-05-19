@@ -5,6 +5,8 @@
 *
 *
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_x25519.h
 * Summary: X25519 key agreement (Curve25519, RFC 7748)
 *

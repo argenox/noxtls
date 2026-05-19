@@ -30,6 +30,8 @@
 * CONTACT: info@argenox.com
 * 
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    main.c
 * Summary: DTLS PSK Demo Application
 * Demonstrates DTLS with Pre-Shared Key (PSK) authentication

@@ -30,6 +30,8 @@
 * CONTACT: info@argenox.com
 * 
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_tls_common.h
 * Summary: TLS Common Definitions and Structures
 *
@@ -127,6 +129,18 @@ extern "C" {
 #define TLS_SIGSCHEME_RSA_PSS_SHA256_MLDSA44 0xFEB0
 #define TLS_SIGSCHEME_RSA_PSS_SHA256_MLDSA65 0xFEB1
 #define TLS_SIGSCHEME_RSA_PSS_SHA384_MLDSA87 0xFEB2
+#define TLS_SIGSCHEME_SLHDSA_SHA2_128S       0xFEC0
+#define TLS_SIGSCHEME_SLHDSA_SHA2_128F       0xFEC1
+#define TLS_SIGSCHEME_SLHDSA_SHA2_192S       0xFEC2
+#define TLS_SIGSCHEME_SLHDSA_SHA2_192F       0xFEC3
+#define TLS_SIGSCHEME_SLHDSA_SHA2_256S       0xFEC4
+#define TLS_SIGSCHEME_SLHDSA_SHA2_256F       0xFEC5
+#define TLS_SIGSCHEME_SLHDSA_SHAKE_128S      0xFEC6
+#define TLS_SIGSCHEME_SLHDSA_SHAKE_128F      0xFEC7
+#define TLS_SIGSCHEME_SLHDSA_SHAKE_192S      0xFEC8
+#define TLS_SIGSCHEME_SLHDSA_SHAKE_192F      0xFEC9
+#define TLS_SIGSCHEME_SLHDSA_SHAKE_256S      0xFECA
+#define TLS_SIGSCHEME_SLHDSA_SHAKE_256F      0xFECB
 
 /* TLS Named Groups (for key exchange) */
 #define TLS_NAMED_GROUP_SECP256R1    23  /* secp256r1 (NIST P-256) */

@@ -3,6 +3,8 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_mlkem.c
 * Summary: In-house ML-KEM implementation (runtime-parametric, schoolbook core).
 */

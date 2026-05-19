@@ -63,3 +63,9 @@ target_link_libraries(tls_version_policy_test PRIVATE
     noxtls_tls
 )
 add_test(NAME tls_version_policy_test COMMAND tls_version_policy_test)
+
+if(NOXTLS_CFG_FEATURE_SLH_DSA)
+    add_executable(slhdsa_sizes_test "${NOXTLS_ROOT_UT_DIR}/test_slhdsa_sizes.c")
+    target_link_libraries(slhdsa_sizes_test PRIVATE noxtls_common noxtls_pkc)
+    add_test(NAME slhdsa_sizes_test COMMAND slhdsa_sizes_test)
+endif()

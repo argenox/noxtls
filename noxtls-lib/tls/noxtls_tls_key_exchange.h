@@ -30,6 +30,8 @@
 * CONTACT: info@argenox.com
 * 
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_tls_key_exchange.h
 * Summary: TLS Key Exchange Implementation (ECDHE, etc.)
 *

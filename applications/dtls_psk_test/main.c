@@ -11,6 +11,8 @@
 * material is strictly forbidden unless prior written permission is obtained
 * from Argenox Technologies.
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    main.c
 * Summary: DTLS PSK test application — server and client in one process,
 *          exchange application data both ways and verify payloads.

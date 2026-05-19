@@ -29,6 +29,8 @@
 *
 * CONTACT: info@argenox.com
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_aes_gcm.c
 * Summary: AES-GCM mode implementation
 *
@@ -49,6 +51,7 @@
  *
  * @param counter is the counter to increment
  *
+ * @return None.
  */
 static void gcm_inc32(uint8_t counter[16])
 {
@@ -64,6 +67,13 @@ static void gcm_inc32(uint8_t counter[16])
 }
 
 
+/**
+ * @brief XOR two 16-byte GCM blocks.
+ * @param out Output block that receives a XOR b.
+ * @param a First input block.
+ * @param b Second input block.
+ * @return None.
+ */
 static void gcm_xor(uint8_t out[16], const uint8_t a[16], const uint8_t b[16])
 {
     for(int i = 0; i < 16; i++) {
@@ -76,6 +86,7 @@ static void gcm_xor(uint8_t out[16], const uint8_t a[16], const uint8_t b[16])
  *
  * @param v is the vector to shift
  *
+ * @return None.
  */
 static void gcm_shift_right(uint8_t v[16])
 {
@@ -93,6 +104,7 @@ static void gcm_shift_right(uint8_t v[16])
  * @param x is the vector to multiply
  * @param y is the vector to multiply
  *
+ * @return None.
  */
 static void gcm_mul(uint8_t x[16], const uint8_t y[16])
 {
@@ -123,6 +135,7 @@ static void gcm_mul(uint8_t x[16], const uint8_t y[16])
  * @param data is the data to update the hash with
  * @param len is the length of the data
  *
+ * @return None.
  */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static void ghash_update(uint8_t x[16], const uint8_t h[16], const uint8_t *data, uint32_t len)
@@ -150,6 +163,7 @@ static void ghash_update(uint8_t x[16], const uint8_t h[16], const uint8_t *data
  * @param aad_bits is the length of the AAD
  * @param data_bits is the length of the data
  *
+ * @return None.
  */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static void ghash_finalize(uint8_t x[16], const uint8_t h[16], uint64_t aad_bits, uint64_t data_bits)
@@ -188,6 +202,7 @@ static void ghash_finalize(uint8_t x[16], const uint8_t h[16], uint64_t aad_bits
  * @param in is the input to encrypt
  * @param out is the output to encrypt
  *
+ * @return None.
  */
 static void aes_block(const uint8_t *key, noxtls_aes_type_t type, const uint8_t in[16], uint8_t out[16])
 {

@@ -6,11 +6,6 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 2 of the License, or
-* (at your option) any later version.
-*
 * Alternatively, this file may be used under the terms of a
 * commercial license from Argenox Technologies LLC.
 *
@@ -105,7 +100,12 @@ noxtls_return_t noxtls_aes_encrypt_block_internal(const uint8_t* key, const uint
 noxtls_return_t noxtls_aes_decrypt_block_internal(const uint8_t * key, const uint8_t * data, uint8_t * output, noxtls_aes_type_t type);
 
     
-/* Copy state matrix (column-major) to output buffer. Internal use only. */
+/**
+ * @brief Copy an AES state matrix to a contiguous output block.
+ * @param state AES state matrix in column-major order.
+ * @param output Output buffer that receives NOXTLS_AES_BLOCK_LENGTH bytes.
+ * @return 0 on success.
+ */
 static int copy_state_to_buffer(uint8_t state[4][4], uint8_t* output)
 {
     int row;
@@ -122,17 +122,6 @@ static int copy_state_to_buffer(uint8_t state[4][4], uint8_t* output)
     return 0;
 }
 
-/**
- * @brief AES Encrypt
- *
- * @param key is a pointer to the encryption key
- * @param data is a pointer to the plaintext to be encrypted
- * @param data_len is the length of the plaintext in bytes
- * @param iv is the Initialization Vector (IV)
- * @param output is the output buffer where the encrypted plaintext will be placed
- * @param type is the AES variant, 128, 192.256
- * @param mode is the AES Operation mode @see noxtls_aes_mode_t
- */
 /* Forward declarations for mode-specific functions */
 #if NOXTLS_FEATURE_AES_ECB
 extern noxtls_return_t noxtls_aes_encrypt_ecb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aes_type_t type);
@@ -153,6 +142,18 @@ extern noxtls_return_t noxtls_aes_encrypt_ofb(const uint8_t* key, const uint8_t*
 extern noxtls_return_t noxtls_aes_encrypt_xts(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aes_type_t type);
 #endif
 
+/**
+ * @brief Encrypt data with the selected AES mode.
+ * @param key AES key bytes for the selected key size.
+ * @param data Input plaintext buffer.
+ * @param data_len Plaintext length in bytes.
+ * @param iv Initialization vector or nonce for modes that require one.
+ * @param output Output buffer for ciphertext.
+ * @param type AES key size selector.
+ * @param mode AES operation mode selector.
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_INVALID_MODE for unknown modes,
+ *         NOXTLS_RETURN_NOT_SUPPORTED for disabled modes, or a mode-specific error code.
+ */
 noxtls_return_t noxtls_aes_encrypt_data(const uint8_t* key, 
                      const uint8_t* data, 
                      uint32_t data_len,
@@ -207,6 +208,11 @@ noxtls_return_t noxtls_aes_encrypt_data(const uint8_t* key,
     }
 }
 
+/**
+ * @brief Return the key size in bytes for an AES key size selector.
+ * @param type AES key size selector.
+ * @return Key size in bytes, or 0 for an invalid selector.
+ */
 static uint8_t aes_key_size_bytes(noxtls_aes_type_t type)
 {
     switch(type) {
@@ -221,6 +227,11 @@ static uint8_t aes_key_size_bytes(noxtls_aes_type_t type)
     }
 }
 
+/**
+ * @brief Increment a 128-bit AES counter block in big-endian order.
+ * @param counter Counter block to increment in place.
+ * @return None.
+ */
 static void aes_counter_inc(uint8_t counter[NOXTLS_AES_BLOCK_LENGTH])
 {
     int i;
@@ -232,6 +243,12 @@ static void aes_counter_inc(uint8_t counter[NOXTLS_AES_BLOCK_LENGTH])
     }
 }
 
+/**
+ * @brief Initialize AES feedback state with a required IV.
+ * @param iv Initialization vector of NOXTLS_AES_BLOCK_LENGTH bytes.
+ * @param ctx AES context whose feedback state is initialized.
+ * @return NOXTLS_RETURN_SUCCESS on success or NOXTLS_RETURN_INVALID_PARAM when iv is NULL.
+ */
 static noxtls_return_t aes_init_iv_required(const uint8_t *iv, noxtls_aes_context_t *ctx)
 {
     if(iv == NULL) {
@@ -509,6 +526,7 @@ noxtls_return_t noxtls_aes_final(noxtls_aes_context_t *ctx,
  * @param state is the AES state
  * @param data is a pointer to the data to put in the state
  *
+ * @return NOXTLS_RETURN_SUCCESS on success.
  */
 noxtls_return_t noxtls_aes_init_block(uint8_t state[4][4], const uint8_t* data)
 {
@@ -539,6 +557,7 @@ noxtls_return_t noxtls_aes_init_block(uint8_t state[4][4], const uint8_t* data)
  * @param output is the output buffer where the encrypted plaintext will be placed
  * @param type is the AES variant, 128, 192.256
  *
+ * @return NOXTLS_RETURN_SUCCESS on success or a noxtls_return_t error code.
  */
 noxtls_return_t noxtls_aes_encrypt_block_internal(const uint8_t *key, const uint8_t *data, uint8_t *output, noxtls_aes_type_t type)
 {
@@ -566,6 +585,12 @@ noxtls_return_t noxtls_aes_encrypt_block_internal(const uint8_t *key, const uint
     return noxtls_aes_encrypt_block_software(key, data, output, type);
 }
 
+/**
+ * @brief Report the AES block backend selected for the current build.
+ * @return NOXTLS_AES_ACCEL_BACKEND_NI when AES-NI is compiled in,
+ *         NOXTLS_AES_ACCEL_BACKEND_APPLE when ARMv8 AES is compiled in,
+ *         or NOXTLS_AES_ACCEL_BACKEND_SOFTWARE otherwise.
+ */
 noxtls_aes_accel_backend_t noxtls_aes_get_accel_backend(void)
 {
 #if NOXTLS_FEATURE_AES_ACCEL_NI && \
@@ -582,6 +607,16 @@ noxtls_aes_accel_backend_t noxtls_aes_get_accel_backend(void)
 #endif
 }
 
+/**
+ * @brief Encrypt one AES block with the portable software implementation.
+ * @param key AES key bytes for the selected key size.
+ * @param data Input plaintext block of NOXTLS_AES_BLOCK_LENGTH bytes.
+ * @param output Output ciphertext block of NOXTLS_AES_BLOCK_LENGTH bytes.
+ * @param type AES key size selector.
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL for null inputs,
+ *         NOXTLS_RETURN_NOT_SUPPORTED for disabled key sizes, or
+ *         NOXTLS_RETURN_INVALID_KEY_SIZE for unknown key sizes.
+ */
 static noxtls_return_t noxtls_aes_encrypt_block_software(const uint8_t * key, const uint8_t * data, uint8_t * output, noxtls_aes_type_t type)
 {
     uint8_t state[4][4];
@@ -663,6 +698,7 @@ static noxtls_return_t noxtls_aes_encrypt_block_software(const uint8_t * key, co
  * @param state is the current state
  * @param w is the key for this round from the key expansion
  *
+ * @return NOXTLS_RETURN_SUCCESS on success.
  */
 noxtls_return_t noxtls_aes_add_round_key(uint8_t state[4][4], const uint32_t * w)
 {
@@ -701,6 +737,10 @@ noxtls_return_t noxtls_aes_add_round_key(uint8_t state[4][4], const uint32_t * w
  *
  * Uses AES provided key to generate the key schedules used to mix with the
  * state
+ * @param key AES key bytes.
+ * @param w Output key schedule words.
+ * @param nk Number of 32-bit words in the AES key.
+ * @param rounds Number of AES rounds for the selected key size.
  * @return NOXTLS_RETURN_SUCCESS on success, noxtls_return_t otherwise
  */
 noxtls_return_t noxtls_aes_key_expansion(const uint8_t * key, uint32_t * w, int nk, int rounds)
@@ -745,6 +785,7 @@ noxtls_return_t noxtls_aes_key_expansion(const uint8_t * key, uint32_t * w, int 
 
  * @param in is the parameter on which to calculate RCON
  *
+ * @return RCON word for the requested key-expansion round.
  */
 static uint32_t rcon(uint8_t in)
 {
@@ -769,6 +810,7 @@ static uint32_t rcon(uint8_t in)
  *
  * @param w is the word to rotate
  *
+ * @return Rotated AES key schedule word.
  */
 static uint32_t aes_rotword(uint32_t w)
 {
@@ -810,6 +852,7 @@ static uint32_t aes_subword(uint32_t w)
  *
  * @param state is the current AES state
  *
+ * @return None.
  */
 void noxtls_aes_sub_bytes(uint8_t state[4][4])
 {
@@ -836,6 +879,7 @@ void noxtls_aes_sub_bytes(uint8_t state[4][4])
  *
  * @param state is the state to print
  *
+ * @return None.
  */
 void noxtls_aes_shift_rows(uint8_t state[4][4])
 {
@@ -867,6 +911,7 @@ void noxtls_aes_shift_rows(uint8_t state[4][4])
  *
  * @param state is the state to print
  *
+ * @return None.
  */
 void noxtls_aes_mix_columns(uint8_t state[4][4])
 {
@@ -903,6 +948,7 @@ void noxtls_aes_mix_columns(uint8_t state[4][4])
  *
  * @param state is the current AES state
  *
+ * @return None.
  */
 static void aes_inv_sub_bytes(uint8_t state[4][4])
 {
@@ -927,6 +973,7 @@ static void aes_inv_sub_bytes(uint8_t state[4][4])
  *
  * @param state is the state to shift
  *
+ * @return None.
  */
 static void aes_inv_shift_rows(uint8_t state[4][4])
 {
@@ -980,6 +1027,7 @@ static uint8_t aes_gf_mul(uint8_t a, uint8_t b)
  *
  * @param state is the state to mix
  *
+ * @return None.
  */
 static void aes_inv_mix_columns(uint8_t state[4][4])
 {
@@ -1008,6 +1056,7 @@ static void aes_inv_mix_columns(uint8_t state[4][4])
  * @param output is the output buffer where the decrypted plaintext will be placed
  * @param type is the AES variant, 128, 192, 256
  *
+ * @return NOXTLS_RETURN_SUCCESS on success or a noxtls_return_t error code.
  */
 noxtls_return_t noxtls_aes_decrypt_block_internal(const uint8_t *key, const uint8_t *data, uint8_t *output, noxtls_aes_type_t type)
 {
@@ -1035,6 +1084,15 @@ noxtls_return_t noxtls_aes_decrypt_block_internal(const uint8_t *key, const uint
     return noxtls_aes_decrypt_block_software(key, data, output, type);
 }
 
+/**
+ * @brief Decrypt one AES block with the portable software implementation.
+ * @param key AES key bytes for the selected key size.
+ * @param data Input ciphertext block of NOXTLS_AES_BLOCK_LENGTH bytes.
+ * @param output Output plaintext block of NOXTLS_AES_BLOCK_LENGTH bytes.
+ * @param type AES key size selector.
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NOT_SUPPORTED for disabled key sizes,
+ *         or NOXTLS_RETURN_INVALID_KEY_SIZE for unknown key sizes.
+ */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static noxtls_return_t noxtls_aes_decrypt_block_software(const uint8_t * key, const uint8_t * data, uint8_t * output, noxtls_aes_type_t type)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */

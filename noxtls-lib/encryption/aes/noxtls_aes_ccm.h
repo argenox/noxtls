@@ -3,6 +3,8 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_aes_ccm.h
 * Summary: AES-CCM (Counter with CBC-MAC) mode - NIST SP 800-38C / RFC 3610
 *

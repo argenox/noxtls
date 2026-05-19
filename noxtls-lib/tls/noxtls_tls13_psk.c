@@ -3,6 +3,8 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_tls13_psk.c
 * Summary: TLS 1.3 PSK and ECDHE-PSK (binder, ticket store, resumption PSK)
 */

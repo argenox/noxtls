@@ -30,6 +30,8 @@
 * CONTACT: info@argenox.com
 * 
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    noxtls_debug_printf.h
 * Summary: NOXTLS debug printf abstraction layer
 * Provides platform-independent printf functionality for debugging
