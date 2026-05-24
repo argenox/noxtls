@@ -1,4 +1,4 @@
-/*****************************************************************************
+﻿/*****************************************************************************
 * Copyright (c) [2019] - [2026], Argenox Technologies LLC
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
@@ -30,6 +30,8 @@
 * CONTACT: info@argenox.com
 * 
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    main.c
 * Summary: X.509 Certificate Utility Application
 *
@@ -54,6 +56,13 @@
  * cert -h
  */
 
+/* MUST be the FIRST #include: app-local noxtls_config.h (project policy)
+ * MSVC searches the directory of the including header first for "..."
+ * style includes; if a library header pulls in "noxtls_config.h" before
+ * this app does, the top-level config wins. Hoisting our local one
+ * here ensures _NOXTLS_CONFIG_H_ is set from THIS file. */
+#include "noxtls_config.h"
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -67,6 +76,74 @@
 #include "noxtls-lib/certs/noxtls_x509.h"
 #include "noxtls-lib/certs/certificates.h"
 #include "utility/base64.h"
+
+/* ============================================================================
+ * Application-private static workspace (per project policy)
+ * ============================================================================
+ *
+ * Every application owns a large statically-allocated workspace buffer; all
+ * dynamic allocations made by this translation unit are served out of it via
+ * a simple bump arena. The buffer's size lives in this app's noxtls_config.h
+ * (NOXTLS_APP_STATIC_BUFFER_SIZE) so it can be tuned independently per app.
+ *
+ * free() is a no-op; the whole arena is released en-masse via
+ * app_workspace_reset() (e.g. between commands) which also wipes any
+ * transient secret material that may have been allocated.
+ */
+static uint8_t  g_app_workspace[NOXTLS_APP_STATIC_BUFFER_SIZE];
+static size_t   g_app_workspace_off = 0U;
+#define APP_WORKSPACE_ALIGN ((size_t)16U)
+    
+/**
+ * @brief Allocate workspace
+ *
+ * @param[in] n The size to allocate
+ * @return The pointer to the allocated workspace
+ */
+static void *app_workspace_alloc(size_t n)
+{
+    size_t off = (g_app_workspace_off + (APP_WORKSPACE_ALIGN - 1U)) &
+                 ~(APP_WORKSPACE_ALIGN - 1U);
+    if(n == 0U || off > sizeof(g_app_workspace) ||
+       n > sizeof(g_app_workspace) - off) {
+        return NULL;
+    }
+    g_app_workspace_off = off + n;
+    return &g_app_workspace[off];
+}
+
+/**
+ * @brief Free the workspace
+ *
+ * @param[in] p The pointer to the workspace to free
+ * @return void
+ */
+static void app_workspace_free(void *p) 
+{ 
+    (void)p; 
+}
+
+/**
+ * @brief Reset the workspace
+ *
+ * @return void
+ */
+static void app_workspace_reset(void)
+{
+    if(g_app_workspace_off > 0U) {
+        memset(g_app_workspace, 0, g_app_workspace_off);
+    }
+    g_app_workspace_off = 0U;
+}
+
+/* Redirect malloc()/free() in this translation unit to the static workspace.
+ * Library and standard headers have already been pulled in above; they
+ * declared malloc/free as plain functions and are unaffected. App code below
+ * uses these macros transparently. */
+#undef malloc
+#undef free
+#define malloc(n) app_workspace_alloc(n)
+#define free(p)   app_workspace_free(p)
 
 #define APP_VERSION_MAJOR 0
 #define APP_VERSION_MINOR 1
@@ -92,6 +169,13 @@ typedef enum {
 
 uint8_t debug_lvl = 0;
 
+/**
+ * @brief Open the file
+ *
+ * @param[in] filename The filename to open the file from
+ * @param[in] mode The mode to open the file from
+ * @return The file pointer
+ */
 static FILE *noxtls_fopen(const char *filename, const char *mode)
 {
 #ifdef _MSC_VER
@@ -105,6 +189,13 @@ static FILE *noxtls_fopen(const char *filename, const char *mode)
 #endif
 }
 
+/**
+ * @brief Parse the format
+ *
+ * @param[in] format The format to parse
+ * @param[out] parsed The parsed format
+ * @return The return code
+ */
 static int parse_format(const char *format, cert_format_t *parsed)
 {
     if(parsed == NULL) {
@@ -125,6 +216,14 @@ static int parse_format(const char *format, cert_format_t *parsed)
     return -1;
 }
 
+/**
+ * @brief Read the file and allocate the data
+ *
+ * @param[in] filename The filename to read the file from
+ * @param[out] data The data to read the file into
+ * @param[out] len The length of the data to read the file into
+ * @return The return code
+ */
 static noxtls_return_t read_file_alloc(const char *filename, uint8_t **data, uint32_t *len)
 {
     FILE *fp = NULL;
@@ -153,7 +252,7 @@ static noxtls_return_t read_file_alloc(const char *filename, uint8_t **data, uin
         return NOXTLS_RETURN_FAILED;
     }
 
-    buffer = (uint8_t *)malloc((size_t)file_size == 0u ? 1u : (size_t)file_size);
+    buffer = (uint8_t *)malloc((size_t)file_size == 0U ? 1U : (size_t)file_size);
     if(buffer == NULL) {
         fclose(fp);
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
@@ -173,6 +272,14 @@ static noxtls_return_t read_file_alloc(const char *filename, uint8_t **data, uin
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Load the certificate with format
+ *
+ * @param[in] cert The certificate to load
+ * @param[in] input_file The input file to load the certificate from
+ * @param[in] input_format The format of the input file
+ * @return The return code
+ */
 static noxtls_return_t load_certificate_with_format(
     x509_certificate_t *cert,
     const char *input_file,
@@ -201,6 +308,14 @@ static noxtls_return_t load_certificate_with_format(
     return rc;
 }
 
+/**
+ * @brief Load the private key with format
+ *
+ * @param[in] key The private key to load
+ * @param[in] input_file The input file to load the private key from
+ * @param[in] input_format The format of the input file
+ * @return The return code
+ */
 static noxtls_return_t load_private_key_with_format(
     x509_private_key_t *key,
     const char *input_file,
@@ -229,6 +344,13 @@ static noxtls_return_t load_private_key_with_format(
     return rc;
 }
 
+/**
+ * @brief Print the return reason
+ *
+ * @param[in] rc The return code
+ * @param[in] bad_data_label The label of the bad data
+ * @return void
+ */
 static void print_return_reason(noxtls_return_t rc, const char *bad_data_label)
 {
     switch(rc) {
@@ -274,6 +396,13 @@ static void print_return_reason(noxtls_return_t rc, const char *bad_data_label)
     }
 }
 
+/**
+ * @brief Print the hexadecimal data
+ *
+ * @param[in] data The data to print
+ * @param[in] len The length of the data to print
+ * @return void
+ */
 void print_hex(const uint8_t *data, uint32_t len)
 {
     uint32_t i;
@@ -283,6 +412,12 @@ void print_hex(const uint8_t *data, uint32_t len)
     printf("\n");
 }
 
+/**
+ * @brief Print the usage information
+ *
+ * @param[in] name The name of the application
+ * @return void
+ */
 void print_usage(const char *name)
 {
     printf("usage: %s [operation] <parameters>\n", name);
@@ -325,6 +460,11 @@ void print_usage(const char *name)
     printf("\n");
 }
 
+/**
+ * @brief Print the version information
+ *
+ * @return void
+ */
 void print_version(void)
 {
     printf("Certificate Utility v%d.%d.%d\n", APP_VERSION_MAJOR, APP_VERSION_MINOR, APP_VERSION_BUILD);
@@ -332,6 +472,12 @@ void print_version(void)
     printf("Copyright Argenox Technologies LLC. All Rights Reserved.\n");
 }
 
+/**
+ * @brief Print the certificate information
+ *
+ * @param[in] cert The certificate to print the information from
+ * @return void
+ */
 void print_certificate_info(const x509_certificate_t *cert)
 {
     
@@ -422,6 +568,12 @@ void print_certificate_info(const x509_certificate_t *cert)
     printf("\n");
 }
 
+/**
+ * @brief Print the private key information
+ *
+ * @param[in] key The private key to print the information from
+ * @return void
+ */
 void print_private_key_info(const x509_private_key_t *key)
 {
     if(key == NULL || !key->parsed) {
@@ -494,6 +646,13 @@ void print_private_key_info(const x509_private_key_t *key)
     printf("\n");
 }
 
+/**
+ * @brief Read the certificate handler
+ *
+ * @param[in] argc The number of arguments
+ * @param[in] argv The arguments
+ * @return The exit status
+ */
 noxtls_return_t read_certificate_handler(int argc, char **argv)
 {
     const char *input_file = NULL;
@@ -536,6 +695,13 @@ noxtls_return_t read_certificate_handler(int argc, char **argv)
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Write the certificate handler
+ *
+ * @param[in] argc The number of arguments
+ * @param[in] argv The arguments
+ * @return The exit status
+ */
 noxtls_return_t write_certificate_handler(int argc, char **argv)
 {
     const char *input_file = NULL;
@@ -645,16 +811,37 @@ noxtls_return_t write_certificate_handler(int argc, char **argv)
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Print the certificate information handler
+ *
+ * @param[in] argc The number of arguments
+ * @param[in] argv The arguments
+ * @return The exit status
+ */
 noxtls_return_t info_certificate_handler(int argc, char **argv)
 {
     return read_certificate_handler(argc, argv);
 }
 
+/**
+ * @brief Convert the certificate handler
+ *
+ * @param[in] argc The number of arguments
+ * @param[in] argv The arguments
+ * @return The exit status
+ */
 noxtls_return_t convert_certificate_handler(int argc, char **argv)
 {
     return write_certificate_handler(argc, argv);
 }
 
+/**
+ * @brief Verify the certificate handler
+ *
+ * @param[in] argc The number of arguments
+ * @param[in] argv The arguments
+ * @return The exit status
+ */
 noxtls_return_t verify_certificate_handler(int argc, char **argv)
 {
     const char *input_file = NULL;
@@ -707,6 +894,13 @@ noxtls_return_t verify_certificate_handler(int argc, char **argv)
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Print the private key information handler
+ *
+ * @param[in] argc The number of arguments
+ * @param[in] argv The arguments
+ * @return The exit status
+ */
 noxtls_return_t keyinfo_handler(int argc, char **argv)
 {
     const char *input_file = NULL;
@@ -749,6 +943,13 @@ noxtls_return_t keyinfo_handler(int argc, char **argv)
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Write the private key handler
+ *
+ * @param[in] argc The number of arguments
+ * @param[in] argv The arguments
+ * @return The exit status
+ */
 noxtls_return_t keywrite_handler(int argc, char **argv)
 {
     const char *input_file = NULL;
@@ -926,6 +1127,13 @@ noxtls_return_t keywrite_handler(int argc, char **argv)
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Debug the certificate handler
+ *
+ * @param[in] argc The number of arguments
+ * @param[in] argv The arguments
+ * @return The exit status
+ */
 noxtls_return_t debug_certificate_handler(int argc, char **argv)
 {
     const char *input_file = NULL;
@@ -972,6 +1180,13 @@ noxtls_return_t debug_certificate_handler(int argc, char **argv)
     return rc;
 }
 
+/**
+ * @brief Debug the key handler
+ *
+ * @param[in] argc The number of arguments
+ * @param[in] argv The arguments
+ * @return The exit status
+ */
 noxtls_return_t debug_key_handler(int argc, char **argv)
 {
     const char *input_file = NULL;
@@ -1018,6 +1233,13 @@ noxtls_return_t debug_key_handler(int argc, char **argv)
     return rc;
 }
 
+/**
+ * @brief Main function
+ *
+ * @param[in] argc The number of arguments
+ * @param[in] argv The arguments
+ * @return The exit status
+ */
 int main(int argc, char **argv)
 {
     cert_operation_t op = CERT_OP_READ;

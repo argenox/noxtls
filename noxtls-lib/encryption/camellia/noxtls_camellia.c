@@ -6,13 +6,9 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 2 of the License, or
-* (at your option) any later version.
-*
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
@@ -21,7 +17,7 @@
 * File:    noxtls_camellia.c
 * Summary: Camellia Cipher Algorithm Implementation (RFC 3713)
 *
-*/
+*****************************************************************************/
 
 /** @addtogroup noxtls_encryption */
 
@@ -87,6 +83,11 @@ static uint8_t camellia_sbox3[256];
 static uint8_t camellia_sbox4[256];
 static int camellia_sboxes_initialized;
 
+/**
+ * @brief Initialize the Camellia S-boxes.
+ *
+ * @return void
+ */
 static void camellia_init_sboxes(void)
 {
     int i;
@@ -100,6 +101,13 @@ static void camellia_init_sboxes(void)
 }
 
 /* RFC 3713 F-function: 64-bit input, 64-bit subkey, 64-bit output */
+/**
+ * @brief The F-function.
+ *
+ * @param[in] F_IN The F_IN value.
+ * @param[in] KE The KE value.
+ * @return The return value.
+ */
 static uint64_t camellia_f64(uint64_t F_IN, uint64_t KE)
 {
     uint64_t x = F_IN ^ KE;
@@ -152,6 +160,16 @@ static uint64_t camellia_f64(uint64_t F_IN, uint64_t KE)
 }
 
 /* 128-bit rotate left by r bits (0 <= r < 128); output high 64 and low 64 */
+/**
+ * @brief Rotate left by r bits.
+ *
+ * @param[in] hi The hi value.
+ * @param[in] lo The lo value.
+ * @param[in] r The r value.
+ * @param[out] out_hi The out_hi value.
+ * @param[out] out_lo The out_lo value.
+ * @return void
+ */
 static void rotl128(uint64_t hi, uint64_t lo, int r, uint64_t *out_hi, uint64_t *out_lo)
 {
     uint64_t nhi;
@@ -174,6 +192,13 @@ static void rotl128(uint64_t hi, uint64_t lo, int r, uint64_t *out_hi, uint64_t 
 /**
  * @brief Camellia Key Schedule (RFC 3713)
  * kw: 4 x 64-bit (pre/post whitening), ke: 6 x 64-bit (FL/FLINV), k: 24 x 64-bit (round keys)
+ *
+ * @param[in] key The key value.
+ * @param[out] kw The kw value.
+ * @param[out] ke The ke value.
+ * @param[out] k The k value.
+ * @param[in] type The type value.
+ * @return The return value. 
  */
 noxtls_return_t noxtls_camellia_key_schedule(const uint8_t* key, uint64_t* kw, uint64_t* ke, uint64_t* k, noxtls_camellia_type_t type)
 {
@@ -286,6 +311,13 @@ noxtls_return_t noxtls_camellia_key_schedule(const uint8_t* key, uint64_t* kw, u
 }
 
 /* FL: 64-bit input, 64-bit key KE */
+/**
+ * @brief The FL function.
+ *
+ * @param[in] FL_IN The FL_IN value.
+ * @param[in] KE The KE value.
+ * @return The return value.
+ */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static uint64_t camellia_fl(uint64_t FL_IN, uint64_t KE)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
@@ -300,6 +332,13 @@ static uint64_t camellia_fl(uint64_t FL_IN, uint64_t KE)
 }
 
 /* FLINV: inverse of FL */
+/**
+ * @brief The FLINV function.
+ *
+ * @param[in] FLINV_IN The FLINV_IN value.
+ * @param[in] KE The KE value.
+ * @return The return value.
+ */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static uint64_t camellia_flinv(uint64_t FLINV_IN, uint64_t KE)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
@@ -314,6 +353,14 @@ static uint64_t camellia_flinv(uint64_t FLINV_IN, uint64_t KE)
 }
 
 /* Load 128-bit block from big-endian bytes into D1 (high 64), D2 (low 64) */
+/**
+ * @brief Load the block from big-endian bytes.
+ *
+ * @param[in] data The data value.
+ * @param[out] D1 The D1 value.
+ * @param[out] D2 The D2 value.
+ * @return void
+ */
 static void load_block_be(const uint8_t* data, uint64_t* D1, uint64_t* D2)
 {
     *D1 = ((uint64_t)data[0] << 56) | ((uint64_t)data[1] << 48) | ((uint64_t)data[2] << 40) | ((uint64_t)data[3] << 32)
@@ -323,6 +370,14 @@ static void load_block_be(const uint8_t* data, uint64_t* D1, uint64_t* D2)
 }
 
 /* Store D2 (high 64), D1 (low 64) to big-endian bytes (C = (D2<<64)|D1) */
+/**
+ * @brief Store the block in big-endian bytes.
+ *
+ * @param[out] output The output value.
+ * @param[in] D1 The D1 value.
+ * @param[in] D2 The D2 value.
+ * @return void
+ */
 static void store_block_be(uint8_t* output, uint64_t D1, uint64_t D2)
 {
     output[0] = (uint8_t)(D2 >> 56);
@@ -343,6 +398,13 @@ static void store_block_be(uint8_t* output, uint64_t D1, uint64_t D2)
     output[15] = (uint8_t)D1;
 }
 
+/**
+ * @brief Print the block in hexadecimal.
+ *
+ * @param[in] label The label value.
+ * @param[in] block The block value.
+ * @return void
+ */
 static void camellia_print_block_hex(const char *label, const uint8_t *block)
 {
     int i;
@@ -357,7 +419,13 @@ static void camellia_print_block_hex(const char *label, const uint8_t *block)
 
 /**
  * @brief Camellia Encrypt Block (RFC 3713)
- */
+ *
+ * @param[in] key The key value.
+ * @param[in] data The data value.
+ * @param[out] output The output value.
+ * @param[in] type The type value.
+ * @return The return value.
+*/
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 noxtls_return_t noxtls_camellia_encrypt_block_internal(const uint8_t* key, const uint8_t* data, uint8_t* output, noxtls_camellia_type_t type)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
@@ -446,7 +514,13 @@ noxtls_return_t noxtls_camellia_encrypt_block_internal(const uint8_t* key, const
 
 /**
  * @brief Camellia Decrypt Block (RFC 3713: reverse subkey order)
- */
+ *
+ * @param[in] key The key value.
+ * @param[in] data The data value.
+ * @param[out] output The output value.
+ * @param[in] type The type value.
+ * @return The return value.
+*/
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 noxtls_return_t noxtls_camellia_decrypt_block_internal(const uint8_t* key, const uint8_t* data, uint8_t* output, noxtls_camellia_type_t type)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
@@ -562,7 +636,16 @@ noxtls_return_t noxtls_camellia_decrypt_block_internal(const uint8_t* key, const
 
 /**
  * @brief Camellia Encrypt Data
- */
+ *
+ * @param[in] key The key value.
+ * @param[in] data The data value.
+ * @param[in] data_len The data length value.
+ * @param[in] iv The iv value.
+ * @param[out] output The output value.
+ * @param[in] type The type value.
+ * @param[in] mode The mode value.
+ * @return The return value.
+*/
 noxtls_return_t noxtls_camellia_encrypt_data(const uint8_t* key,
                           const uint8_t* data,
                           uint32_t data_len,
@@ -589,7 +672,16 @@ noxtls_return_t noxtls_camellia_encrypt_data(const uint8_t* key,
 
 /**
  * @brief Camellia Decrypt Data
- */
+ *
+ * @param[in] key The key value.
+ * @param[in] data The data value.
+ * @param[in] data_len The data length value.
+ * @param[in] iv The iv value.
+ * @param[out] output The output value.
+ * @param[in] type The type value.
+ * @param[in] mode The mode value.
+ * @return The return value.
+*/
 noxtls_return_t noxtls_camellia_decrypt_data(const uint8_t* key,
                           const uint8_t* data,
                           uint32_t data_len,
@@ -614,6 +706,12 @@ noxtls_return_t noxtls_camellia_decrypt_data(const uint8_t* key,
     }
 }
 
+/**
+ * @brief Get the key size in bytes.
+ *
+ * @param[in] type The type value.
+ * @return The key size in bytes.
+ */
 static uint8_t camellia_key_size_bytes(noxtls_camellia_type_t type)
 {
     switch(type) {
@@ -628,6 +726,12 @@ static uint8_t camellia_key_size_bytes(noxtls_camellia_type_t type)
     }
 }
 
+/**
+ * @brief Increment the counter.
+ *
+ * @param[in] counter The counter value.
+ * @return void
+ */
 static void camellia_counter_inc(uint8_t counter[NOXTLS_CAMELLIA_BLOCK_LENGTH])
 {
     int i;
@@ -639,6 +743,17 @@ static void camellia_counter_inc(uint8_t counter[NOXTLS_CAMELLIA_BLOCK_LENGTH])
     }
 }
 
+/**
+ * @brief Initialize the Camellia context.
+ *
+ * @param[out] ctx The context value.
+ * @param[in] key The key value.
+ * @param[in] iv The iv value.
+ * @param[in] type The type value.
+ * @param[in] mode The mode value.
+ * @param[in] op The operation value.
+ * @return The return value.
+*/
 noxtls_return_t noxtls_camellia_init(noxtls_camellia_context_t *ctx,
                   const uint8_t *key,
                   const uint8_t *iv,
@@ -687,6 +802,16 @@ noxtls_return_t noxtls_camellia_init(noxtls_camellia_context_t *ctx,
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Update the Camellia context.
+ *
+ * @param[in] ctx The context value.
+ * @param[in] input The input value.
+ * @param[in] input_len The input length value.
+ * @param[out] output The output value.
+ * @param[out] output_len The output length value.
+ * @return The return value.
+*/
 noxtls_return_t noxtls_camellia_update(noxtls_camellia_context_t *ctx,
                     const uint8_t *input,
                     uint32_t input_len,
@@ -810,6 +935,14 @@ noxtls_return_t noxtls_camellia_update(noxtls_camellia_context_t *ctx,
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Finalize the Camellia context.
+ *
+ * @param[in] ctx The context value.
+ * @param[out] output The output value.
+ * @param[out] output_len The output length value.
+ * @return The return value.
+*/
 noxtls_return_t noxtls_camellia_final(noxtls_camellia_context_t *ctx,
                    uint8_t *output,
                    uint32_t *output_len)
@@ -871,7 +1004,9 @@ noxtls_return_t noxtls_camellia_final(noxtls_camellia_context_t *ctx,
 
 /**
  * @brief Camellia Self Test (RFC 3713 Appendix A vectors)
- */
+ *
+ * @return The return value.
+*/
 noxtls_return_t noxtls_camellia_self_test(void)
 {
     uint8_t key[32];

@@ -6,26 +6,23 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 2 of the License, or
-* (at your option) any later version.
-*
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
-* 
+*
 *
 * File:    noxtls_pkc.h
 * Summary: Public Key Cryptography Definitions
 *
-*/
+*
+*****************************************************************************/
 
 /**
  * @defgroup noxtls_pkc Public Key Cryptography
- * @brief RSA, DSA, ECC, ECDSA, ECDH, Ed25519, X25519, X448, ML-KEM, ML-DSA.
+ * @brief RSA, DSA, ECC, ECDSA, ECDH, Ed25519, X25519, X448, ML-KEM, ML-DSA, SLH-DSA, FALCON, LMS/HSS, XMSS/XMSS^MT.
  * @addtogroup noxtls
  */
 /** @{ */
@@ -43,6 +40,10 @@
 /* #include "ecdh/noxtls_ecdh.h" */
 /* #include "mlkem/noxtls_mlkem.h" */
 /* #include "mldsa/noxtls_mldsa.h" */
+/* #include "slhdsa/noxtls_slhdsa.h" */
+/* #include "falcon/noxtls_falcon.h" */
+/* #include "lms/noxtls_lms.h" */
+/* #include "xmss/noxtls_xmss.h" */
 
 #endif /* _NOXTLS_PKC_H_ */
 

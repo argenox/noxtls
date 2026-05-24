@@ -6,22 +6,19 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 2 of the License, or
-* (at your option) any later version.
-*
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
-* 
+*
 *
 * File:    noxtls_ecdh.c
 * Summary: Elliptic Curve Diffie-Hellman (ECDH) Key Exchange Implementation
 *
-*/
+*
+*****************************************************************************/
 
 #include <stdint.h>
 #include <stdio.h>
@@ -46,6 +43,11 @@
  */
 noxtls_return_t noxtls_ecdh_compute_shared_secret(ecc_key_t *private_key, const ecc_point_t *peer_public_key, uint8_t *shared_secret, uint32_t *shared_secret_len)
 {
+    uint32_t required_len;
+    noxtls_return_t rc;
+    uint32_t i;
+    int is_infinity = 1;
+
     if(private_key == NULL || peer_public_key == NULL || shared_secret == NULL || shared_secret_len == NULL) {
         return NOXTLS_RETURN_NULL;
     }
@@ -54,29 +56,16 @@ noxtls_return_t noxtls_ecdh_compute_shared_secret(ecc_key_t *private_key, const 
         return NOXTLS_RETURN_FAILED;
     }
     
-    uint32_t required_len = private_key->curve->size;
+    required_len = private_key->curve->size;
     
     if(*shared_secret_len < required_len) {
         return NOXTLS_RETURN_FAILED;
     }
     
-    /* Verify peer's public key is on the curve */
-    noxtls_return_t rc = noxtls_ecc_point_is_on_curve(peer_public_key, private_key->curve);
+    /* Reject infinity and off-curve peer points before secret-scalar multiply. */
+    rc = noxtls_ecc_point_validate_public(peer_public_key, private_key->curve);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
-    }
-    
-    /* Verify peer's public key is not at infinity */
-    uint32_t i;
-    int is_infinity = 1;
-    for(i = 0; i < required_len; i++) {
-        if(peer_public_key->x[i] != 0 || peer_public_key->y[i] != 0) {
-            is_infinity = 0;
-            break;
-        }
-    }
-    if(is_infinity) {
-        return NOXTLS_RETURN_FAILED;  /* Peer's public key cannot be at infinity */
     }
     
     /* Compute shared secret = d * Q_peer using scalar multiplication */

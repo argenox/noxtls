@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+﻿cmake_minimum_required(VERSION 3.10)
 
 # Detect if building standalone or as part of main project
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
@@ -39,6 +39,9 @@ add_executable(tls_test
     main.c
 )
 
+
+# App-local noxtls_config.h takes precedence over top-level (per project policy)
+target_include_directories(tls_test BEFORE PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 # If noxsight exists next to noxtls in this workspace, link it into tls_test.
 set(NOXSIGHT_ROOT "${LIB_ROOT}/../noxsight")
 if(EXISTS "${NOXSIGHT_ROOT}/noxsight.c" AND EXISTS "${NOXSIGHT_ROOT}/noxsight.h")

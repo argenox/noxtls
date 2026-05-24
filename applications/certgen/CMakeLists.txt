@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+﻿cmake_minimum_required(VERSION 3.10)
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     project(certgen C)
@@ -22,14 +22,17 @@ else()
     set(CMAKE_C_FLAGS_RELEASE "-O2 -DNDEBUG")
 endif()
 
-include_directories(
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${LIB_ROOT}
-    ${LIB_ROOT}/utility
-)
-
 add_executable(certgen
     main.c
+)
+
+# App-local noxtls_config.h takes precedence over top-level (per project policy).
+# Putting the app source dir BEFORE means `#include "noxtls_config.h"` resolves
+# to ./noxtls_config.h, not the top-level config.
+target_include_directories(certgen BEFORE PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(certgen PRIVATE
+    ${LIB_ROOT}
+    ${LIB_ROOT}/utility
 )
 if(DEFINED NOXTLS_APPLICATIONS_BINARY_DIR)
     set_target_properties(certgen PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${NOXTLS_APPLICATIONS_BINARY_DIR}")

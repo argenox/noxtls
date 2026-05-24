@@ -3,10 +3,22 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+*
+* This file is part of the NoxTLS Library.
+*
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
+*
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
+*
 * File:    noxtls_ed448.h
 * Summary: Ed448 digital signatures (RFC 8032)
 *
-*/
+*
+*****************************************************************************/
 
 /** @addtogroup noxtls_pkc */
 /** @{ */

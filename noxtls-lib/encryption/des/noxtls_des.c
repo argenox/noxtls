@@ -3,12 +3,23 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+*
 * This file is part of the NoxTLS Library.
+*
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
+*
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
 *
 * File:    noxtls_des.c
 * Summary: Data Encryption Standard (DES) and Triple-DES (3DES) - FIPS 46-3
 *
-*/
+* The DES and 3DES Algorithms are broken and should not be used for new systems.
+*
+*****************************************************************************/
 
 /** @addtogroup noxtls_encryption */
 
@@ -133,6 +144,13 @@ static const uint8_t des_s8[64] = {
 };
 static const uint8_t *const des_s[8] = { des_s1, des_s2, des_s3, des_s4, des_s5, des_s6, des_s7, des_s8 };
 
+/**
+ * @brief Get a bit from a buffer
+ * 
+ * @param buf The buffer value
+ * @param bit_index The bit index value
+ * @return The bit value
+ */
 static int get_bit(const uint8_t *buf, int bit_index)
 {
     int byte_idx = bit_index >> 3;
@@ -140,6 +158,13 @@ static int get_bit(const uint8_t *buf, int bit_index)
     return (buf[byte_idx] >> bit_idx) & 1;
 }
 
+/**
+ * @brief Set a bit in a buffer
+ * 
+ * @param buf The buffer value
+ * @param bit_index The bit index value
+ * @param value The value value
+ */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static void set_bit(uint8_t *buf, int bit_index, int value)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
@@ -147,11 +172,19 @@ static void set_bit(uint8_t *buf, int bit_index, int value)
     int byte_idx = bit_index >> 3;
     int bit_idx  = 7 - (bit_index & 7);
     if(value)
-        buf[byte_idx] |= (uint8_t)(1u << bit_idx);
+        buf[byte_idx] |= (uint8_t)(1U << bit_idx);
     else
-        buf[byte_idx] &= (uint8_t)(~(1u << bit_idx));
+        buf[byte_idx] &= (uint8_t)(~(1U << bit_idx));
 }
 
+/**
+ * @brief Permute a buffer
+ * 
+ * @param in The in value
+ * @param out The out value
+ * @param table The table value
+ * @param n The n value
+ */
 static void permute(const uint8_t *in, uint8_t *out, const uint8_t *table, int n)
 {
     int i;
@@ -160,7 +193,14 @@ static void permute(const uint8_t *in, uint8_t *out, const uint8_t *table, int n
         set_bit(out, i, get_bit(in, table[i]));
 }
 
-/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
+
+/**
+ * @brief Rotate a buffer left
+ * 
+ * @param c The c value
+ * @param d The d value
+ * @param count The count value
+ */
 static void rotate_left_28(uint32_t *c, uint32_t *d, int count)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
@@ -170,6 +210,12 @@ static void rotate_left_28(uint32_t *c, uint32_t *d, int count)
     *d = ((d0 << count) | (d0 >> (28 - count))) & 0x0FFFFFFFu;
 }
 
+/**
+ * @brief Generate the DES key schedule
+ * 
+ * @param key The key value
+ * @param round_keys The round keys value
+ */
 static void des_key_schedule(const uint8_t *key, uint8_t round_keys[16][6])
 {
     uint8_t pc1_out[7];
@@ -199,9 +245,9 @@ static void des_key_schedule(const uint8_t *key, uint8_t round_keys[16][6])
         /* Pack C||D into 7 bytes (56 bits): cd bit i = C bit i for i<28, cd bit (28+i) = D bit i. C/D bit 0 is MSB (at c/d bit 27). */
         uint8_t cd[7] = {0};
         for(i = 0; i < 28; i++)
-            set_bit(cd, i, (int)((c >> (27 - i)) & 1u));
+            set_bit(cd, i, (int)((c >> (27 - i)) & 1U));
         for(i = 0; i < 28; i++)
-            set_bit(cd, 28 + i, (int)((d >> (27 - i)) & 1u));
+            set_bit(cd, 28 + i, (int)((d >> (27 - i)) & 1U));
         uint8_t pk[6] = {0};
         for(i = 0; i < 48; i++)
             set_bit(pk, i, get_bit(cd, des_pc2[i]));
@@ -219,6 +265,12 @@ static void des_key_schedule(const uint8_t *key, uint8_t round_keys[16][6])
 }
 
 /* E expansion: R (32 bits, bit 0 = MSB) -> 48 bits. Standard rows (1-based): 32,1,2,3,4,5 | 4,5,6,7,8,9 | ... | 28,29,30,31,32,1 */
+/**
+ * @brief Expand the E value
+ * 
+ * @param r32 The r32 value
+ * @param er The er value
+ */
 static void des_expand_e(uint32_t r32, uint8_t er[6])
 {
     int i;
@@ -226,12 +278,19 @@ static void des_expand_e(uint32_t r32, uint8_t er[6])
         er[i] = 0;
     for(i = 0; i < 48; i++) {
         int src = des_e[i]; /* 0-based R bit index (0=MSB) */
-        int bit = (int)((r32 >> (31 - src)) & 1u);
+        int bit = (int)((r32 >> (31 - src)) & 1U);
         if(bit)
-            er[i >> 3] |= (uint8_t)(1u << (7 - (i & 7)));
+            er[i >> 3] |= (uint8_t)(1U << (7 - (i & 7)));
     }
 }
 
+/**
+ * @brief Perform a DES round feistel function
+ * 
+ * @param r The r value
+ * @param round_key The round key value
+ * @param round_index The round index value
+ */
 static void des_round_feistel(uint32_t *r, const uint8_t round_key[6], int round_index)
 {
     uint8_t er[6];
@@ -282,6 +341,14 @@ static const uint8_t s_kat_vec1_plain[8] = { 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB,
 /* KAT vector 1 expected cipher; IP(expected_cipher) = correct R16||L16 for comparison. */
 static const uint8_t s_kat_vec1_expected_cipher[8] = { 0x85, 0xE8, 0x13, 0x54, 0x0F, 0x0A, 0xB4, 0x05 };
 
+/**
+ * @brief Perform a DES cipher core
+ * 
+ * @param key The key value
+ * @param data The data value
+ * @param output The output value
+ * @param encrypt The encrypt value
+ */
 static void des_cipher_core(const uint8_t *key, const uint8_t *data, uint8_t *output, int encrypt)
 {
     uint8_t round_keys[16][6];
@@ -344,6 +411,14 @@ static void des_cipher_core(const uint8_t *key, const uint8_t *data, uint8_t *ou
     }
 }
 
+/**
+ * @brief Perform a DES encryption block
+ * 
+ * @param key The key value
+ * @param data The data value
+ * @param output The output value
+ * @return NOXTLS_RETURN_NULL if failed, NOXTLS_RETURN_SUCCESS if success
+ */
 noxtls_return_t noxtls_des_encrypt_block(const uint8_t *key, const uint8_t *data, uint8_t *output)
 {
     if(!key || !data || !output)
@@ -352,6 +427,14 @@ noxtls_return_t noxtls_des_encrypt_block(const uint8_t *key, const uint8_t *data
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Perform a DES decryption block
+ * 
+ * @param key The key value
+ * @param data The data value
+ * @param output The output value
+ * @return NOXTLS_RETURN_NULL if failed, NOXTLS_RETURN_SUCCESS if success
+ */
 noxtls_return_t noxtls_des_decrypt_block(const uint8_t *key, const uint8_t *data, uint8_t *output)
 {
     if(!key || !data || !output)
@@ -360,16 +443,41 @@ noxtls_return_t noxtls_des_decrypt_block(const uint8_t *key, const uint8_t *data
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Perform a DES encryption block internal
+ * 
+ * @param key The key value
+ * @param data The data value
+ * @param output The output value
+ * @return NOXTLS_RETURN_NULL if failed, NOXTLS_RETURN_SUCCESS if success
+ */
 noxtls_return_t noxtls_des_encrypt_block_internal(const uint8_t *key, const uint8_t *data, uint8_t *output)
 {
     return noxtls_des_encrypt_block(key, data, output);
 }
 
+/**
+ * @brief Perform a DES decryption block internal
+ * 
+ * @param key The key value
+ * @param data The data value
+ * @param output The output value
+ * @return NOXTLS_RETURN_NULL if failed, NOXTLS_RETURN_SUCCESS if success
+ */
 noxtls_return_t noxtls_des_decrypt_block_internal(const uint8_t *key, const uint8_t *data, uint8_t *output)
 {
     return noxtls_des_decrypt_block(key, data, output);
 }
 
+/**
+ * @brief Perform a 3DES encryption block
+ * 
+ * @param key The key value
+ * @param key_len The key length value
+ * @param data The data value
+ * @param output The output value
+ * @return NOXTLS_RETURN_NULL if failed, NOXTLS_RETURN_SUCCESS if success
+ */
 noxtls_return_t noxtls_des3_encrypt_block(const uint8_t *key, uint32_t key_len, const uint8_t *data, uint8_t *output)
 {
     uint8_t tmp[NOXTLS_DES_BLOCK_LENGTH];
@@ -387,6 +495,15 @@ noxtls_return_t noxtls_des3_encrypt_block(const uint8_t *key, uint32_t key_len, 
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Perform a 3DES decryption block
+ * 
+ * @param key The key value
+ * @param key_len The key length value
+ * @param data The data value
+ * @param output The output value
+ * @return NOXTLS_RETURN_NULL if failed, NOXTLS_RETURN_SUCCESS if success
+ */
 noxtls_return_t noxtls_des3_decrypt_block(const uint8_t *key, uint32_t key_len, const uint8_t *data, uint8_t *output)
 {
     uint8_t tmp[NOXTLS_DES_BLOCK_LENGTH];
@@ -404,6 +521,11 @@ noxtls_return_t noxtls_des3_decrypt_block(const uint8_t *key, uint32_t key_len, 
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Perform a DES self test
+ * 
+ * @return NOXTLS_RETURN_NULL if failed, NOXTLS_RETURN_SUCCESS if success
+ */
 noxtls_return_t noxtls_des_self_test(void)
 {
     uint8_t out[NOXTLS_DES_BLOCK_LENGTH];

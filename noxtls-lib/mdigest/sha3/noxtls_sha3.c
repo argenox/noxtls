@@ -6,23 +6,20 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 2 of the License, or
-* (at your option) any later version.
-*
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
-* 
+*
 *
 * File:    noxtls_sha3.c
 * Summary: SHA-3 (Keccak) Hash Implementation
 * Based on FIPS 202
 *
-*/
+*
+*****************************************************************************/
 
 /** @addtogroup noxtls_mdigest */
 
@@ -426,6 +423,12 @@ noxtls_return_t noxtls_sha3_finish(noxtls_sha3_ctx_t * ctx, uint8_t * hash)
 }
 
 /* SHAKE256 (FIPS 202): extendable-output function. Domain sep 0x1f, rate 136 bytes. */
+/**
+ * @brief Initialize SHAKE128
+ * 
+ * @param ctx The SHAKE128 context
+ * @return The return value
+ */
 noxtls_return_t noxtls_shake128_init(noxtls_sha3_ctx_t * ctx)
 {
     if(ctx == NULL) return NOXTLS_RETURN_NULL;
@@ -441,6 +444,14 @@ noxtls_return_t noxtls_shake128_init(noxtls_sha3_ctx_t * ctx)
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Update SHAKE128
+ * 
+ * @param ctx The SHAKE128 context
+ * @param data The input data
+ * @param len The length of the input data
+ * @return The return value
+ */
 noxtls_return_t noxtls_shake128_update(noxtls_sha3_ctx_t * ctx, const uint8_t * data, uint32_t len)
 {
     if(ctx == NULL) return NOXTLS_RETURN_NULL;
@@ -449,6 +460,12 @@ noxtls_return_t noxtls_shake128_update(noxtls_sha3_ctx_t * ctx, const uint8_t * 
     return sha3_absorb(ctx, data, len);
 }
 
+/**
+ * @brief Finalize SHAKE128
+ * 
+ * @param ctx The SHAKE128 context
+ * @return The return value
+ */
 noxtls_return_t noxtls_shake128_final(noxtls_sha3_ctx_t * ctx)
 {
     if(ctx == NULL) return NOXTLS_RETURN_NULL;
@@ -461,6 +478,14 @@ noxtls_return_t noxtls_shake128_final(noxtls_sha3_ctx_t * ctx)
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Squeeze SHAKE128
+ * 
+ * @param ctx The SHAKE128 context
+ * @param out The output data
+ * @param out_len The length of the output data
+ * @return The return value
+ */
 noxtls_return_t noxtls_shake128_squeeze(noxtls_sha3_ctx_t * ctx, uint8_t * out, uint32_t out_len)
 {
     uint32_t copied = 0;
@@ -482,6 +507,12 @@ noxtls_return_t noxtls_shake128_squeeze(noxtls_sha3_ctx_t * ctx, uint8_t * out, 
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Initialize SHAKE256
+ * 
+ * @param ctx The SHAKE256 context
+ * @return The return value
+ */
 noxtls_return_t noxtls_shake256_init(noxtls_sha3_ctx_t * ctx)
 {
     if(ctx == NULL) return NOXTLS_RETURN_NULL;
@@ -497,6 +528,14 @@ noxtls_return_t noxtls_shake256_init(noxtls_sha3_ctx_t * ctx)
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Update SHAKE256
+ * 
+ * @param ctx The SHAKE256 context
+ * @param data The input data
+ * @param len The length of the input data
+ * @return The return value
+ */
 noxtls_return_t noxtls_shake256_update(noxtls_sha3_ctx_t * ctx, const uint8_t * data, uint32_t len)
 {
     if(ctx == NULL) return NOXTLS_RETURN_NULL;
@@ -505,6 +544,12 @@ noxtls_return_t noxtls_shake256_update(noxtls_sha3_ctx_t * ctx, const uint8_t * 
     return sha3_absorb(ctx, data, len);
 }
 
+/**
+ * @brief Finalize SHAKE256
+ * 
+ * @param ctx The SHAKE256 context
+ * @return The return value
+ */
 noxtls_return_t noxtls_shake256_final(noxtls_sha3_ctx_t * ctx)
 {
     if(ctx == NULL) return NOXTLS_RETURN_NULL;
@@ -517,6 +562,14 @@ noxtls_return_t noxtls_shake256_final(noxtls_sha3_ctx_t * ctx)
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Squeeze SHAKE256
+ * 
+ * @param ctx The SHAKE256 context
+ * @param out The output data
+ * @param out_len The length of the output data
+ * @return The return value
+ */
 noxtls_return_t noxtls_shake256_squeeze(noxtls_sha3_ctx_t * ctx, uint8_t * out, uint32_t out_len)
 {
     uint32_t copied = 0;

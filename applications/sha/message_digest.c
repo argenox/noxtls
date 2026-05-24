@@ -6,11 +6,6 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 2 of the License, or
-* (at your option) any later version.
-*
 * Alternatively, this file may be used under the terms of a
 * commercial license from Argenox Technologies LLC.
 *
@@ -89,7 +84,11 @@ message_digest_handlers_t md_handlers[] = {
     {"SHA512_256", hash_sha_512_256_handler},
 };
 
-
+/**
+ * @brief Print the digest usage
+ * 
+ * @return void
+ */
 void print_digest_usage()
 {    
     printf("\nSupported Digests\n\n");
@@ -103,6 +102,13 @@ void print_digest_usage()
     printf("\n\n");
 }
 
+/**
+ * @brief Perform the message digest
+ * 
+ * @param[in] argc The argument count
+ * @param[in] argv The argument vector
+ * @return The return value
+ */
 int message_digest(int argc, char ** argv)
 {
     uint32_t data_length = 0;
@@ -307,6 +313,13 @@ int message_digest(int argc, char ** argv)
     return 0;
 }
 
+/**
+ * @brief Parse the offset value
+ * 
+ * @param[in] value The value to parse the offset value from
+ * @param[out] offset The offset to parse the offset value into
+ * @return The return value
+ */
 static int parse_offset_value(const char * value, size_t * offset)
 {
     char * endptr = NULL;
@@ -326,6 +339,14 @@ static int parse_offset_value(const char * value, size_t * offset)
     return 0;
 }
 
+/**
+ * @brief Read the binary file
+ * 
+ * @param[in] path The path to read the binary file from
+ * @param[out] buffer The buffer to read the binary file into
+ * @param[out] length The length of the buffer to read the binary file into
+ * @return The return value
+ */
 static int read_binary_file(const char * path, uint8_t ** buffer, size_t * length)
 {
     FILE * file = NULL;
@@ -378,6 +399,13 @@ static int read_binary_file(const char * path, uint8_t ** buffer, size_t * lengt
     return 0;
 }
 
+/**
+ * @brief Write the text file
+ * 
+ * @param[in] path The path to write the text file to
+ * @param[in] text The text to write to the text file
+ * @return The return value
+ */
 static int write_text_file(const char * path, const char * text)
 {
     FILE * file = NULL;
@@ -400,6 +428,14 @@ static int write_text_file(const char * path, const char * text)
     return 0;
 }
 
+/**
+ * @brief Convert bytes to hex
+ * 
+ * @param[in] bytes The bytes to convert to hex
+ * @param[in] bytes_len The length of the bytes to convert to hex
+ * @param[out] hex_out The hex output
+ * @return The return value
+ */
 static int bytes_to_hex(const uint8_t * bytes, uint32_t bytes_len, char ** hex_out)
 {
     static const char hex_chars[] = "0123456789abcdef";
@@ -425,6 +461,16 @@ static int bytes_to_hex(const uint8_t * bytes, uint32_t bytes_len, char ** hex_o
     return 0;
 }
 
+/**
+ * @brief Compute the digest for the algorithm
+ * 
+ * @param[in] algorithm The algorithm to compute the digest for
+ * @param[in] data The data to compute the digest for
+ * @param[in] len The length of the data to compute the digest for
+ * @param[out] digest The digest output
+ * @param[out] digest_len The length of the digest output
+ * @return The return value
+ */
 static int compute_digest_for_algorithm(
     const char * algorithm,
     const uint8_t * data,
@@ -493,6 +539,13 @@ static int compute_digest_for_algorithm(
     return -1;
 }
 
+/**
+ * @brief Compute the MD5 hash
+ * 
+ * @param[in] data The data to compute the MD5 hash for
+ * @param[in] len The length of the data to compute the MD5 hash for
+ * @return The return value
+ */
 int hash_md5_handler(const uint8_t * data, uint32_t len)
 {
     if(debug_lvl > 0)
@@ -517,6 +570,13 @@ int hash_md5_handler(const uint8_t * data, uint32_t len)
     return 0;
 }
 
+/**
+ * @brief Compute the SHA1 hash
+ * 
+ * @param[in] data The data to compute the SHA1 hash for
+ * @param[in] len The length of the data to compute the SHA1 hash for
+ * @return The return value
+ */
 int hash_sha1_handler(const uint8_t * data, uint32_t len)
 {
     if(debug_lvl > 0)
@@ -541,6 +601,13 @@ int hash_sha1_handler(const uint8_t * data, uint32_t len)
     return 0;
 }
 
+/**
+ * @brief Compute the SHA224 hash
+ * 
+ * @param[in] data The data to compute the SHA224 hash for
+ * @param[in] len The length of the data to compute the SHA224 hash for
+ * @return The return value
+ */
 int hash_sha_224_handler(const uint8_t * data, uint32_t len)
 {
     if(debug_lvl > 0)
@@ -548,6 +615,13 @@ int hash_sha_224_handler(const uint8_t * data, uint32_t len)
     return 0;
 }
 
+/**
+ * @brief Compute the SHA256 hash
+ * 
+ * @param[in] data The data to compute the SHA256 hash for
+ * @param[in] len The length of the data to compute the SHA256 hash for
+ * @return The return value
+ */
 int hash_sha_256_handler(const uint8_t * data, uint32_t len)
 {
     if(debug_lvl > 0)
@@ -572,6 +646,13 @@ int hash_sha_256_handler(const uint8_t * data, uint32_t len)
     return 0;
 }
 
+/**
+ * @brief Compute the SHA384 hash
+ * 
+ * @param[in] data The data to compute the SHA384 hash for
+ * @param[in] len The length of the data to compute the SHA384 hash for
+ * @return The return value
+ */
 int hash_sha_384_handler(const uint8_t * data, uint32_t len)
 {
     if(debug_lvl > 0)
@@ -579,6 +660,13 @@ int hash_sha_384_handler(const uint8_t * data, uint32_t len)
     return 0;
 }
 
+/**
+ * @brief Compute the SHA512 hash
+ * 
+ * @param[in] data The data to compute the SHA512 hash for
+ * @param[in] len The length of the data to compute the SHA512 hash for
+ * @return The return value
+ */
 int hash_sha_512_handler(const uint8_t * data, uint32_t len)
 {
     if(debug_lvl > 0)
@@ -603,6 +691,13 @@ int hash_sha_512_handler(const uint8_t * data, uint32_t len)
     return 0;
 }
 
+/**
+ * @brief Compute the SHA512_224 hash
+ * 
+ * @param[in] data The data to compute the SHA512_224 hash for
+ * @param[in] len The length of the data to compute the SHA512_224 hash for
+ * @return The return value
+ */
 int hash_sha_512_224_handler(const uint8_t * data, uint32_t len)
 {
     if(debug_lvl > 0)
@@ -610,6 +705,13 @@ int hash_sha_512_224_handler(const uint8_t * data, uint32_t len)
     return 0;
 }
 
+/**
+ * @brief Compute the SHA512_256 hash
+ * 
+ * @param[in] data The data to compute the SHA512_256 hash for
+ * @param[in] len The length of the data to compute the SHA512_256 hash for
+ * @return The return value
+ */
 int hash_sha_512_256_handler(const uint8_t * data, uint32_t len)
 {
     if(debug_lvl > 0)

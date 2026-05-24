@@ -6,11 +6,6 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 2 of the License, or
-* (at your option) any later version.
-*
 * Alternatively, this file may be used under the terms of a
 * commercial license from Argenox Technologies LLC.
 *
@@ -22,6 +17,11 @@
 * Summary: Handles all noxtls_message digest commands
 *
 */
+
+/**
+ * @file message_digest.c
+ * @brief Message digest handlers for the noxcrypt application.
+ */
 
 #ifdef __cplusplus
 extern "C"
@@ -80,7 +80,11 @@ message_digest_handlers_t md_handlers[] = {
     {"SHA512_256", hash_sha_512_256_handler},
 };
 
-
+/**
+ * @brief Print supported digest algorithm names.
+ *
+ * @return void
+ */
 void print_digest_usage(void)
 {
     printf("\nSupported Digests\n\n");
@@ -94,6 +98,16 @@ void print_digest_usage(void)
     printf("\n\n");
 }
 
+/**
+ * @brief Compute and print a message digest for the given algorithm and input.
+ *
+ * Dispatches to a handler from @c md_handlers based on argv[0]. Supports string
+ * or hex (-h) input via getopt.
+ *
+ * @param[in] argc Argument count (algorithm is argv[0])
+ * @param[in] argv Arguments: algorithm name, options, then input text
+ * @return 0 on success, -1 on error
+ */
 int message_digest(int argc, char ** argv)
 {
     int c;
@@ -221,6 +235,13 @@ int message_digest(int argc, char ** argv)
     return 0;
 }
 
+/**
+ * @brief MD5 digest handler for md_handlers table.
+ *
+ * @param[in] data Input bytes
+ * @param[in] len Input length in bytes
+ * @return 0 on success, -1 on hash error
+ */
 int hash_md5_handler(uint8_t * data, uint32_t len)
 {
     if(debug_lvl > 0)
@@ -250,6 +271,13 @@ int hash_md5_handler(uint8_t * data, uint32_t len)
     return 0;
 }
 
+/**
+ * @brief SHA-1 digest handler for md_handlers table.
+ *
+ * @param[in] data Input bytes
+ * @param[in] len Input length in bytes
+ * @return 0 on success, -1 on hash error
+ */
 int hash_sha1_handler(uint8_t * data, uint32_t len)
 {
     if(debug_lvl > 0)
@@ -279,6 +307,13 @@ int hash_sha1_handler(uint8_t * data, uint32_t len)
     return 0;
 }
 
+/**
+ * @brief SHA-224 digest handler stub for md_handlers table.
+ *
+ * @param[in] data Input bytes (unused)
+ * @param[in] len Input length in bytes (unused)
+ * @return 0
+ */
 int hash_sha_224_handler(uint8_t * data, uint32_t len)
 {
     (void)data;
@@ -288,6 +323,13 @@ int hash_sha_224_handler(uint8_t * data, uint32_t len)
     return 0;
 }
 
+/**
+ * @brief SHA-256 digest handler for md_handlers table.
+ *
+ * @param[in] data Input bytes
+ * @param[in] len Input length in bytes
+ * @return 0 on success, -1 on hash error
+ */
 int hash_sha_256_handler(uint8_t * data, uint32_t len)
 {
     if(debug_lvl > 0)
@@ -317,6 +359,13 @@ int hash_sha_256_handler(uint8_t * data, uint32_t len)
     return 0;
 }
 
+/**
+ * @brief SHA-384 digest handler stub for md_handlers table.
+ *
+ * @param[in] data Input bytes (unused)
+ * @param[in] len Input length in bytes (unused)
+ * @return 0
+ */
 int hash_sha_384_handler(uint8_t * data, uint32_t len)
 {
     (void)data;
@@ -326,6 +375,13 @@ int hash_sha_384_handler(uint8_t * data, uint32_t len)
     return 0;
 }
 
+/**
+ * @brief SHA-512 digest handler for md_handlers table.
+ *
+ * @param[in] data Input bytes
+ * @param[in] len Input length in bytes
+ * @return 0 on success, -1 on hash error
+ */
 int hash_sha_512_handler(uint8_t * data, uint32_t len)
 {
     if(debug_lvl > 0)
@@ -355,6 +411,13 @@ int hash_sha_512_handler(uint8_t * data, uint32_t len)
     return 0;
 }
 
+/**
+ * @brief SHA-512/224 digest handler stub for md_handlers table.
+ *
+ * @param[in] data Input bytes (unused)
+ * @param[in] len Input length in bytes (unused)
+ * @return 0
+ */
 int hash_sha_512_224_handler(uint8_t * data, uint32_t len)
 {
     (void)data;
@@ -364,6 +427,13 @@ int hash_sha_512_224_handler(uint8_t * data, uint32_t len)
     return 0;
 }
 
+/**
+ * @brief SHA-512/256 digest handler stub for md_handlers table.
+ *
+ * @param[in] data Input bytes (unused)
+ * @param[in] len Input length in bytes (unused)
+ * @return 0
+ */
 int hash_sha_512_256_handler(uint8_t * data, uint32_t len)
 {
     (void)data;

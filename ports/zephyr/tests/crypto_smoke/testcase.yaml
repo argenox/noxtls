@@ -1,0 +1,6 @@
+tests:
+  crypto.noxtls.smoke:
+    tags: crypto noxtls
+    platform_allow: native_sim qemu_x86
+    harness: ztest
+    timeout: 120

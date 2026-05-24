@@ -28,7 +28,7 @@ NoxTLS is built specifically for engineers building secure firmware and embedded
 - 🔒 **Security-first design** — constant-time primitives where required  
 - 🔐 **Secure defaults** — legacy TLS 1.2 CBC/RSA suites are opt-in  
 - 🧩 **Easy integration** — clean C APIs and configurable build  
-- 🛠️ **Portable** — Cortex-M, embedded Linux, and desktop  
+- 🛠️ **Portable** — Cortex-M, embedded Linux, desktop, [Zephyr RTOS](ports/zephyr/README.md), and [ESP-IDF](ports/esp-idf/README.md)  
 
 
 ## Features

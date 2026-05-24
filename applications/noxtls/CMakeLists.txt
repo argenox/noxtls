@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+﻿cmake_minimum_required(VERSION 3.10)
 
 # Detect if building standalone or as part of main project
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
@@ -150,6 +150,9 @@ add_executable(noxtls
     ${LIB_ROOT}/applications/pkc/main.c
     ${LIB_ROOT}/applications/cert/main.c
 )
+
+# App-local noxtls_config.h takes precedence over top-level (per project policy)
+target_include_directories(noxtls BEFORE PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 if(DEFINED NOXTLS_APPLICATIONS_BINARY_DIR)
     set_target_properties(noxtls PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${NOXTLS_APPLICATIONS_BINARY_DIR}")
 endif()

@@ -3,11 +3,22 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+*
 * This file is part of the NoxTLS Library.
+*
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
+*
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
 *
 * File:    noxtls_dh.c
 * Summary: Finite-field Diffie-Hellman (FFDHE) per RFC 7919
-*/
+*
+*
+*****************************************************************************/
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -91,7 +102,7 @@ static noxtls_return_t dh_validate_peer_public(const uint8_t *peer_mod,
         return NOXTLS_RETURN_FAILED;
     }
 
-    two[p_len - 1u] = 0x02u;
+    two[p_len - 1U] = 0x02u;
 
     rc = noxtls_bn_copy(p_minus_2, p, p_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -119,6 +130,9 @@ static noxtls_return_t dh_validate_peer_public(const uint8_t *peer_mod,
 
 /**
  * RFC 7919 Table 2 — minimum recommended private exponent length (bits) per group.
+ * 
+ * @param named_group The named group
+ * @return The minimum private bits
  */
 static uint32_t dh_ffdhe_min_private_bits(uint16_t named_group)
 {
@@ -134,10 +148,18 @@ static uint32_t dh_ffdhe_min_private_bits(uint16_t named_group)
         case TLS_NAMED_GROUP_FFDHE8192:
             return NOXTLS_FFDHE8192_MIN_PRIVATE_BITS;
         default:
-            return 0u;
+            return 0U;
     }
 }
 
+/**
+ * @brief Generate an ephemeral DH key pair
+ * 
+ * @param named_group The named group
+ * @param private_out The private output
+ * @param public_out The public output
+ * @return The return value
+ */
 noxtls_return_t noxtls_dh_ffdhe_generate_ephemeral(uint16_t named_group,
                                                    uint8_t *private_out,
                                                    uint8_t *public_out)
@@ -156,14 +178,14 @@ noxtls_return_t noxtls_dh_ffdhe_generate_ephemeral(uint16_t named_group,
         return NOXTLS_RETURN_NULL;
     }
     min_bits = dh_ffdhe_min_private_bits(named_group);
-    if(min_bits == 0u ||
+    if(min_bits == 0U ||
        noxtls_dh_ffdhe_params(named_group, &p, &g, &p_len) != NOXTLS_RETURN_SUCCESS ||
        p_len == 0 ||
        !dh_is_known_ffdhe_prime(p, p_len)) {
         return NOXTLS_RETURN_FAILED;
     }
-    exp_bytes = (min_bits + 7u) / 8u;
-    if(exp_bytes == 0u || exp_bytes > p_len) {
+    exp_bytes = (min_bits + 7U) / 8U;
+    if(exp_bytes == 0U || exp_bytes > p_len) {
         return NOXTLS_RETURN_FAILED;
     }
 
@@ -188,7 +210,7 @@ noxtls_return_t noxtls_dh_ffdhe_generate_ephemeral(uint16_t named_group,
             noxtls_free(g_padded);
             return NOXTLS_RETURN_FAILED;
         }
-        two_buf[p_len - 1u] = 0x02u;
+        two_buf[p_len - 1U] = 0x02u;
         noxtls_bn_copy(p_minus_2, p, p_len);
         rc = noxtls_bn_sub(p_minus_2, p_minus_2, two_buf, p_len);
         noxtls_free(two_buf);
@@ -206,17 +228,17 @@ noxtls_return_t noxtls_dh_ffdhe_generate_ephemeral(uint16_t named_group,
     }
 
     for(;;) {
-        if(drbg_generate(&drbg, private_out + (p_len - exp_bytes), exp_bytes * 8u, NULL, 0) != NOXTLS_RETURN_SUCCESS) {
+        if(drbg_generate(&drbg, private_out + (p_len - exp_bytes), exp_bytes * 8U, NULL, 0) != NOXTLS_RETURN_SUCCESS) {
             noxtls_free(p_minus_2);
             noxtls_free(g_padded);
             return NOXTLS_RETURN_FAILED;
         }
-        if((min_bits % 8u) != 0u) {
-            private_out[p_len - 1u] &= (uint8_t)((1u << (min_bits % 8u)) - 1u);
+        if((min_bits % 8U) != 0U) {
+            private_out[p_len - 1U] &= (uint8_t)((1U << (min_bits % 8U)) - 1U);
         }
         /* Ensure >= 2 */
         if(noxtls_bn_is_zero(private_out, p_len) || noxtls_bn_is_one(private_out, p_len)) {
-            private_out[p_len - 1u] = 0x02u;
+            private_out[p_len - 1U] = 0x02u;
         }
         if(noxtls_bn_cmp(private_out, p_minus_2, p_len) <= 0) {
             break;
@@ -232,6 +254,14 @@ noxtls_return_t noxtls_dh_ffdhe_generate_ephemeral(uint16_t named_group,
     return rc;
 }
 
+/**
+ * @brief Validate a client key share
+ * 
+ * @param named_group The named group
+ * @param key_exchange The key exchange
+ * @param key_exchange_len The length of the key exchange
+ * @return The return value
+ */
 noxtls_return_t noxtls_dh_ffdhe_validate_client_key_share(uint16_t named_group,
                                                         const uint8_t *key_exchange,
                                                         uint32_t key_exchange_len)
@@ -261,6 +291,15 @@ noxtls_return_t noxtls_dh_ffdhe_validate_client_key_share(uint16_t named_group,
     return rc;
 }
 
+/**
+ * @brief Get FFDHE group parameters
+ * 
+ * @param named_group The named group
+ * @param p The prime modulus
+ * @param g The generator
+ * @param p_len The length of the prime modulus
+ * @return The return value
+ */
 noxtls_return_t noxtls_dh_ffdhe_params(uint16_t named_group,
                                         const uint8_t **p,
                                         const uint8_t **g,
@@ -335,7 +374,7 @@ noxtls_return_t noxtls_dh_generate_key(const uint8_t *p, uint32_t p_len,
         return NOXTLS_RETURN_FAILED;
     }
 
-    if(p_len > (uint32_t)(UINT32_MAX / 8u)) {
+    if(p_len > (uint32_t)(UINT32_MAX / 8U)) {
         return NOXTLS_RETURN_FAILED;
     }
 
@@ -383,7 +422,7 @@ noxtls_return_t noxtls_dh_generate_key(const uint8_t *p, uint32_t p_len,
      * Simpler: generate random p_len bytes until 2 <= x <= p-2.
      */
     for(;;) {
-        if(drbg_generate(&drbg, priv_buf, p_len * 8u, NULL, 0) != NOXTLS_RETURN_SUCCESS) {
+        if(drbg_generate(&drbg, priv_buf, p_len * 8U, NULL, 0) != NOXTLS_RETURN_SUCCESS) {
             noxtls_free(p_minus_2);
             noxtls_free(priv_buf);
             noxtls_free(g_padded);

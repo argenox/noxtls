@@ -3,10 +3,22 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+*
+* This file is part of the NoxTLS Library.
+*
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
+*
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
+*
 * File:    noxtls_ed448.c
 * Summary: Ed448 digital signatures (RFC 8032)
 *
-*/
+*
+*****************************************************************************/
 
 #include <stdint.h>
 #include <string.h>
@@ -416,7 +428,7 @@ static uint32_t ed448_dom4_build(uint8_t out[NOXTLS_ED448_DOM4_BUFFER_BYTES], ui
     memcpy(out, sig8, NOXTLS_ED448_DOM4_LITERAL_BYTES);
     out[NOXTLS_ED448_DOM4_LITERAL_BYTES] = phflag;
     out[NOXTLS_ED448_DOM4_LITERAL_BYTES + 1U] = (uint8_t)ctx_len;
-    if(ctx_len != 0u && ctx != NULL)
+    if(ctx_len != 0U && ctx != NULL)
         memcpy(out + NOXTLS_ED448_DOM4_PREFIX_BYTES, ctx, ctx_len);
     return NOXTLS_ED448_DOM4_PREFIX_BYTES + ctx_len;
 }
@@ -436,7 +448,7 @@ static noxtls_return_t ed448_shake256_chain(uint8_t out[NOXTLS_ED448_SHAKE_WIDE_
     unsigned i;
     if(noxtls_shake256_init(&ctx) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
     for(i = 0; i < n; i++) {
-        if(lens[i] != 0u && parts[i] != NULL) {
+        if(lens[i] != 0U && parts[i] != NULL) {
             if(noxtls_shake256_update(&ctx, parts[i], lens[i]) != NOXTLS_RETURN_SUCCESS)
                 return NOXTLS_RETURN_FAILED;
         }
@@ -475,7 +487,7 @@ static noxtls_return_t ed448_ph64(const uint8_t *msg, uint32_t msg_len, uint8_t 
 {
     noxtls_sha3_ctx_t ctx;
     if(noxtls_shake256_init(&ctx) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(msg_len != 0u && msg != NULL) {
+    if(msg_len != 0U && msg != NULL) {
         if(noxtls_shake256_update(&ctx, msg, msg_len) != NOXTLS_RETURN_SUCCESS)
             return NOXTLS_RETURN_FAILED;
     }
@@ -525,12 +537,12 @@ static noxtls_return_t ed448_sign_internal(const uint8_t private_key[NOXTLS_ED44
     uint32_t i;
 
     if(private_key == NULL || signature == NULL) return NOXTLS_RETURN_NULL;
-    if(noxtls_message == NULL && message_len != 0u) return NOXTLS_RETURN_NULL;
+    if(noxtls_message == NULL && message_len != 0U) return NOXTLS_RETURN_NULL;
     if(phflag > NOXTLS_ED448_PH_FLAG_PREHASH) return NOXTLS_RETURN_FAILED;
     if(phflag == NOXTLS_ED448_PH_FLAG_PREHASH) {
-        if(ctx_len != 0u || ctx != NULL) return NOXTLS_RETURN_FAILED;
-    } else if(ctx_len != 0u) {
-        if(ctx == NULL || ctx_len < 1u || ctx_len > (uint32_t)NOXTLS_ED448_CONTEXT_MAX)
+        if(ctx_len != 0U || ctx != NULL) return NOXTLS_RETURN_FAILED;
+    } else if(ctx_len != 0U) {
+        if(ctx == NULL || ctx_len < 1U || ctx_len > (uint32_t)NOXTLS_ED448_CONTEXT_MAX)
             return NOXTLS_RETURN_FAILED;
     }
 
@@ -597,7 +609,7 @@ static noxtls_return_t ed448_sign_internal(const uint8_t private_key[NOXTLS_ED44
             rs_le64[i + j] = (uint8_t)(t & 0xFFu);
             carry = t >> 8;
         }
-        for(j = (int)NOXTLS_ED448_PUBLIC_KEY_SIZE; j < (int)NOXTLS_ED448_SHAKE_WIDE_BYTES - i && carry != 0u; j++) {
+        for(j = (int)NOXTLS_ED448_PUBLIC_KEY_SIZE; j < (int)NOXTLS_ED448_SHAKE_WIDE_BYTES - i && carry != 0U; j++) {
             uint32_t t = (uint32_t)rs_le64[i + j] + carry;
             rs_le64[i + j] = (uint8_t)(t & 0xFFu);
             carry = t >> 8;
@@ -612,7 +624,7 @@ static noxtls_return_t ed448_sign_internal(const uint8_t private_key[NOXTLS_ED44
             sum_le[i] = (uint8_t)(t & 0xFFu);
             carry = t >> 8;
         }
-        if(carry != 0u) {
+        if(carry != 0U) {
             sum_le[NOXTLS_ED448_PUBLIC_KEY_SIZE] = (uint8_t)carry;
         }
     }
@@ -659,12 +671,12 @@ static noxtls_return_t ed448_verify_internal(const uint8_t public_key[NOXTLS_ED4
     uint32_t m_len;
 
     if(public_key == NULL || signature == NULL) return NOXTLS_RETURN_NULL;
-    if(noxtls_message == NULL && message_len != 0u) return NOXTLS_RETURN_NULL;
+    if(noxtls_message == NULL && message_len != 0U) return NOXTLS_RETURN_NULL;
     if(phflag > NOXTLS_ED448_PH_FLAG_PREHASH) return NOXTLS_RETURN_FAILED;
     if(phflag == NOXTLS_ED448_PH_FLAG_PREHASH) {
-        if(ctx_len != 0u || ctx != NULL) return NOXTLS_RETURN_FAILED;
-    } else if(ctx_len != 0u) {
-        if(ctx == NULL || ctx_len < 1u || ctx_len > (uint32_t)NOXTLS_ED448_CONTEXT_MAX)
+        if(ctx_len != 0U || ctx != NULL) return NOXTLS_RETURN_FAILED;
+    } else if(ctx_len != 0U) {
+        if(ctx == NULL || ctx_len < 1U || ctx_len > (uint32_t)NOXTLS_ED448_CONTEXT_MAX)
             return NOXTLS_RETURN_FAILED;
     }
 
@@ -694,7 +706,7 @@ static noxtls_return_t ed448_verify_internal(const uint8_t public_key[NOXTLS_ED4
     if(noxtls_shake256_update(&ctx_shake, public_key, NOXTLS_ED448_PUBLIC_KEY_SIZE) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
-    if(m_len != 0u && m_body != NULL) {
+    if(m_len != 0U && m_body != NULL) {
         if(noxtls_shake256_update(&ctx_shake, m_body, m_len) != NOXTLS_RETURN_SUCCESS)
             return NOXTLS_RETURN_FAILED;
     }
@@ -794,8 +806,8 @@ noxtls_return_t noxtls_ed448ctx_sign(const uint8_t private_key[NOXTLS_ED448_PRIV
     const uint8_t *context, uint32_t context_len,
     const uint8_t *noxtls_message, uint32_t message_len, uint8_t signature[NOXTLS_ED448_SIGNATURE_SIZE])
 {
-    if(context == NULL && context_len != 0u) return NOXTLS_RETURN_NULL;
-    if(context_len < 1u || context_len > (uint32_t)NOXTLS_ED448_CONTEXT_MAX)
+    if(context == NULL && context_len != 0U) return NOXTLS_RETURN_NULL;
+    if(context_len < 1U || context_len > (uint32_t)NOXTLS_ED448_CONTEXT_MAX)
         return NOXTLS_RETURN_FAILED;
     return ed448_sign_internal(private_key, noxtls_message, message_len, signature, NOXTLS_ED448_PH_FLAG_PURE, context, context_len);
 }
@@ -816,8 +828,8 @@ noxtls_return_t noxtls_ed448ctx_verify(const uint8_t public_key[NOXTLS_ED448_PUB
     const uint8_t *context, uint32_t context_len,
     const uint8_t *noxtls_message, uint32_t message_len, const uint8_t signature[NOXTLS_ED448_SIGNATURE_SIZE])
 {
-    if(context == NULL && context_len != 0u) return NOXTLS_RETURN_NULL;
-    if(context_len < 1u || context_len > (uint32_t)NOXTLS_ED448_CONTEXT_MAX)
+    if(context == NULL && context_len != 0U) return NOXTLS_RETURN_NULL;
+    if(context_len < 1U || context_len > (uint32_t)NOXTLS_ED448_CONTEXT_MAX)
         return NOXTLS_RETURN_FAILED;
     return ed448_verify_internal(public_key, noxtls_message, message_len, signature, NOXTLS_ED448_PH_FLAG_PURE, context, context_len);
 }
@@ -873,90 +885,6 @@ noxtls_return_t noxtls_ed448_generate_key(uint8_t private_key[NOXTLS_ED448_PRIVA
     rc = drbg_generate(&drbg_state, private_key, NOXTLS_ED448_DRBG_SEED_BITS, NULL, 0);
     if(rc != NOXTLS_RETURN_SUCCESS) return rc;
     return noxtls_ed448_public_key(private_key, public_key);
-}
-
-#else /* !NOXTLS_FEATURE_ED448 || !NOXTLS_FEATURE_SHA3 */
-
-/**
- * @brief Stubs when Ed448 or SHA-3 is disabled at build time: all noxtls_ed448_* entry points return NOXTLS_RETURN_NOT_SUPPORTED.
- */
-
-noxtls_return_t noxtls_ed448_generate_key(uint8_t private_key[NOXTLS_ED448_PRIVATE_KEY_SIZE], uint8_t public_key[NOXTLS_ED448_PUBLIC_KEY_SIZE])
-{
-    (void)private_key;
-    (void)public_key;
-    return NOXTLS_RETURN_NOT_SUPPORTED;
-}
-
-noxtls_return_t noxtls_ed448_public_key(const uint8_t private_key[NOXTLS_ED448_PRIVATE_KEY_SIZE], uint8_t public_key[NOXTLS_ED448_PUBLIC_KEY_SIZE])
-{
-    (void)private_key;
-    (void)public_key;
-    return NOXTLS_RETURN_NOT_SUPPORTED;
-}
-
-noxtls_return_t noxtls_ed448_sign(const uint8_t private_key[NOXTLS_ED448_PRIVATE_KEY_SIZE], const uint8_t *noxtls_message, uint32_t message_len, uint8_t signature[NOXTLS_ED448_SIGNATURE_SIZE])
-{
-    (void)private_key;
-    (void)noxtls_message;
-    (void)message_len;
-    (void)signature;
-    return NOXTLS_RETURN_NOT_SUPPORTED;
-}
-
-noxtls_return_t noxtls_ed448_verify(const uint8_t public_key[NOXTLS_ED448_PUBLIC_KEY_SIZE], const uint8_t *noxtls_message, uint32_t message_len, const uint8_t signature[NOXTLS_ED448_SIGNATURE_SIZE])
-{
-    (void)public_key;
-    (void)noxtls_message;
-    (void)message_len;
-    (void)signature;
-    return NOXTLS_RETURN_NOT_SUPPORTED;
-}
-
-noxtls_return_t noxtls_ed448ctx_sign(const uint8_t private_key[NOXTLS_ED448_PRIVATE_KEY_SIZE],
-    const uint8_t *context, uint32_t context_len,
-    const uint8_t *noxtls_message, uint32_t message_len, uint8_t signature[NOXTLS_ED448_SIGNATURE_SIZE])
-{
-    (void)private_key;
-    (void)context;
-    (void)context_len;
-    (void)noxtls_message;
-    (void)message_len;
-    (void)signature;
-    return NOXTLS_RETURN_NOT_SUPPORTED;
-}
-
-noxtls_return_t noxtls_ed448ctx_verify(const uint8_t public_key[NOXTLS_ED448_PUBLIC_KEY_SIZE],
-    const uint8_t *context, uint32_t context_len,
-    const uint8_t *noxtls_message, uint32_t message_len, const uint8_t signature[NOXTLS_ED448_SIGNATURE_SIZE])
-{
-    (void)public_key;
-    (void)context;
-    (void)context_len;
-    (void)noxtls_message;
-    (void)message_len;
-    (void)signature;
-    return NOXTLS_RETURN_NOT_SUPPORTED;
-}
-
-noxtls_return_t noxtls_ed448ph_sign(const uint8_t private_key[NOXTLS_ED448_PRIVATE_KEY_SIZE],
-    const uint8_t *noxtls_message, uint32_t message_len, uint8_t signature[NOXTLS_ED448_SIGNATURE_SIZE])
-{
-    (void)private_key;
-    (void)noxtls_message;
-    (void)message_len;
-    (void)signature;
-    return NOXTLS_RETURN_NOT_SUPPORTED;
-}
-
-noxtls_return_t noxtls_ed448ph_verify(const uint8_t public_key[NOXTLS_ED448_PUBLIC_KEY_SIZE],
-    const uint8_t *noxtls_message, uint32_t message_len, const uint8_t signature[NOXTLS_ED448_SIGNATURE_SIZE])
-{
-    (void)public_key;
-    (void)noxtls_message;
-    (void)message_len;
-    (void)signature;
-    return NOXTLS_RETURN_NOT_SUPPORTED;
 }
 
 #endif /* NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3 */

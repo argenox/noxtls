@@ -1,0 +1,34 @@
+menu "NoxTLS benchmark example"
+
+config NOXTLS_BENCH_BUFFER_SIZE
+	int "Symmetric primitive buffer size (bytes)"
+	default 4096
+	range 256 65536
+	help
+	  Size of the plaintext / hash input buffer used for symmetric
+	  throughput benchmarks (SHA-256, AES-GCM, ChaCha20-Poly1305).
+
+config NOXTLS_BENCH_THROUGHPUT_ITERATIONS
+	int "Symmetric throughput iterations"
+	default 256
+	range 1 1000000
+	help
+	  Number of buffer-sized operations performed in each throughput
+	  measurement. Total bytes processed = buffer * iterations.
+
+config NOXTLS_BENCH_DRBG_ITERATIONS
+	int "DRBG generate iterations"
+	default 256
+	range 1 1000000
+
+config NOXTLS_BENCH_PKC_ITERATIONS
+	int "Public-key operation iterations (ECDSA sign / verify)"
+	default 16
+	range 1 1024
+
+config NOXTLS_BENCH_RUN_ECDSA
+	bool "Run ECDSA P-256 benchmark"
+	default y
+	depends on NOXTLS_FEATURE_ECDSA
+
+endmenu

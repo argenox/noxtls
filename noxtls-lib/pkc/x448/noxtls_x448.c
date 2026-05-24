@@ -3,10 +3,22 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+*
+* This file is part of the NoxTLS Library.
+*
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
+*
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
+*
 * File:    noxtls_x448.c
 * Summary: X448 key agreement (Curve448, RFC 7748)
 *
-*/
+*
+*****************************************************************************/
 
 #include <stdint.h>
 #include <string.h>
@@ -107,7 +119,7 @@ static noxtls_return_t fe448_add_be(uint8_t result[NOXTLS_X448_FE_BYTES],
      * before modular reduction.
      */
     if(noxtls_bn_cmp(low, a, NOXTLS_X448_FE_BYTES) < 0) {
-        sum[NOXTLS_X448_FE_BYTES - 1U] = 1u;
+        sum[NOXTLS_X448_FE_BYTES - 1U] = 1U;
     }
     return noxtls_bn_mod(result, sum, NOXTLS_X448_BN_PRODUCT_BYTES, x448_p, NOXTLS_X448_FE_BYTES);
 }

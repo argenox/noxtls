@@ -3,9 +3,23 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+*
+* This file is part of the NoxTLS Library.
+*
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
+*
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
+*
 * File:    noxtls_tls13_psk.c
 * Summary: TLS 1.3 PSK and ECDHE-PSK (binder, ticket store, resumption PSK)
-*/
+*
+* Note: TLS1.2 is being phased out in favor of TLS1.3
+*
+*****************************************************************************/
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -342,7 +356,7 @@ noxtls_return_t tls13_psk_find_clienthello_binder(const uint8_t *client_hello,
                     }
                     id_len = psk_read_uint16(client_hello + p);
                     p += 2;
-                    if((uint32_t)id_len + 4u > (uint32_t)(identities_end - p)) {
+                    if((uint32_t)id_len + 4U > (uint32_t)(identities_end - p)) {
                         return NOXTLS_RETURN_BAD_DATA;
                     }
                     if(idx == identity_index) {

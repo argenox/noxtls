@@ -6,22 +6,18 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 2 of the License, or
-* (at your option) any later version.
-*
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
-* 
+*
 *
 * File:    base64.h
-* Summary: NOXTLS Base64 Definitions
+* Summary: Base64 Encoding and Decoding defintions
 *
-*/
+*****************************************************************************/
 
 /** @addtogroup noxtls_utility */
 /** @{ */
@@ -35,22 +31,22 @@
 extern "C" {
 #endif
 
-#define BASE64_ENCODE_BLOCK_BYTES (3u)
-#define BASE64_ENCODE_OUTPUT_BYTES (4u)
-#define BASE64_OCTET_BITS (8u)
-#define BASE64_SEXTET_BITS (6u)
+#define BASE64_ENCODE_BLOCK_BYTES (3U)
+#define BASE64_ENCODE_OUTPUT_BYTES (4U)
+#define BASE64_OCTET_BITS (8U)
+#define BASE64_SEXTET_BITS (6U)
 #define BASE64_SEXTET_MASK (0x3Fu)
-#define BASE64_SEXTET_SHIFT_0 (18u)
-#define BASE64_SEXTET_SHIFT_1 (12u)
-#define BASE64_SEXTET_SHIFT_2 (6u)
-#define BASE64_OCTET_SHIFT_0 (16u)
-#define BASE64_OCTET_SHIFT_1 (8u)
+#define BASE64_SEXTET_SHIFT_0 (18U)
+#define BASE64_SEXTET_SHIFT_1 (12U)
+#define BASE64_SEXTET_SHIFT_2 (6U)
+#define BASE64_OCTET_SHIFT_0 (16U)
+#define BASE64_OCTET_SHIFT_1 (8U)
 #define BASE64_PAD_CHAR ('=')
 #define BASE64_UPPERCASE_START ('A')
 #define BASE64_LOWERCASE_START ('a')
 #define BASE64_DIGIT_START ('0')
-#define BASE64_LOWERCASE_OFFSET (26u)
-#define BASE64_DIGIT_OFFSET (52u)
+#define BASE64_LOWERCASE_OFFSET (26U)
+#define BASE64_DIGIT_OFFSET (52U)
 #define BASE64_PLUS_VALUE (62u)
 #define BASE64_SLASH_VALUE (63u)
 

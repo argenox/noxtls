@@ -3,10 +3,29 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+*
+* This file is part of the NoxTLS Library.
+*
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
+*
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
+*
 * File:    noxtls_aes_accel_apple.c
 * Summary: Apple Silicon ARMv8 AES backend for AES block encrypt/decrypt
 *
-*/
+*****************************************************************************/
+
+/** @addtogroup noxtls_encryption */
+/** @{ */
+
+#if NOXTLS_FEATURE_AES_ACCEL_APPLE && \
+    defined(__APPLE__) && \
+    (defined(__aarch64__) || defined(__arm64__)) && \
+    defined(__ARM_FEATURE_CRYPTO)
 
 #include <stdint.h>
 #include <string.h>
@@ -16,7 +35,17 @@
 #include "noxtls_aes.h"
 #include "noxtls_aes_accel.h"
 
-static noxtls_return_t aes_get_rounds_and_nk(noxtls_aes_type_t type, int *rounds, int *nk)
+/**
+ * @brief Resolve AES round count and key-word count for an AES key size.
+ *
+ * @param type AES key size selector.
+ * @param rounds Output round count for the selected AES key size.
+ * @param nk Output number of 32-bit key words for the selected AES key size.
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL for null outputs,
+ *         NOXTLS_RETURN_INVALID_KEY_SIZE for unknown key sizes, or
+ *         NOXTLS_RETURN_NOT_SUPPORTED when the selected AES size is disabled.
+ */
+static noxtls_return_t noxtls_aes_accel_apple_get_rounds_and_nk(noxtls_aes_type_t type, int *rounds, int *nk)
 {
     if(rounds == NULL || nk == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -52,7 +81,14 @@ static noxtls_return_t aes_get_rounds_and_nk(noxtls_aes_type_t type, int *rounds
     }
 }
 
-static void aes_word_to_bytes_be(uint32_t word, uint8_t out[4])
+/**
+ * @brief Store a 32-bit key schedule word as big-endian bytes.
+ *
+ * @param word Key schedule word to serialize.
+ * @param out Output buffer that receives four bytes in big-endian order.
+ * @return None.
+ */
+static void noxtls_aes_accel_apple_word_to_bytes_be(uint32_t word, uint8_t out[4])
 {
     out[0] = (uint8_t)((word >> 24) & 0xFFu);
     out[1] = (uint8_t)((word >> 16) & 0xFFu);
@@ -60,11 +96,23 @@ static void aes_word_to_bytes_be(uint32_t word, uint8_t out[4])
     out[3] = (uint8_t)(word & 0xFFu);
 }
 
-static noxtls_return_t aes_build_round_keys(const uint8_t *key,
-                                            noxtls_aes_type_t type,
-                                            uint8x16_t *enc_rks,
-                                            uint8x16_t *dec_rks,
-                                            int *rounds_out)
+/**
+ * @brief Build ARMv8 AES encryption and decryption round-key schedules.
+ *
+ * @param key AES key bytes for the selected key size.
+ * @param type AES key size selector.
+ * @param enc_rks Output ARMv8 encryption round keys.
+ * @param dec_rks Output ARMv8 decryption round keys.
+ * @param rounds_out Output round count for the generated key schedule.
+ *
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL for null inputs,
+ *         or an error from key-size resolution or AES key expansion.
+ */
+static noxtls_return_t noxtls_aes_accel_apple_build_round_keys(const uint8_t *key,
+                                                               noxtls_aes_type_t type,
+                                                               uint8x16_t *enc_rks,
+                                                               uint8x16_t *dec_rks,
+                                                               int *rounds_out)
 {
     uint32_t words[NOXTLS_AES_MAX_KEY_SCHEDULE_WORDS];
     uint8_t round_key_bytes[16];
@@ -77,7 +125,7 @@ static noxtls_return_t aes_build_round_keys(const uint8_t *key,
         return NOXTLS_RETURN_NULL;
     }
 
-    rc = aes_get_rounds_and_nk(type, &rounds, &nk);
+    rc = noxtls_aes_accel_apple_get_rounds_and_nk(type, &rounds, &nk);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -90,7 +138,7 @@ static noxtls_return_t aes_build_round_keys(const uint8_t *key,
     for(round = 0; round <= rounds; round++) {
         int col;
         for(col = 0; col < 4; col++) {
-            aes_word_to_bytes_be(words[(round * 4) + col], &round_key_bytes[col * 4]);
+            noxtls_aes_accel_apple_word_to_bytes_be(words[(round * 4) + col], &round_key_bytes[col * 4]);
         }
         enc_rks[round] = vld1q_u8(round_key_bytes);
     }
@@ -107,10 +155,12 @@ static noxtls_return_t aes_build_round_keys(const uint8_t *key,
 
 /**
  * @brief Encrypt one AES block with Apple Silicon ARMv8 backend.
+ *
  * @param key AES key.
  * @param data Input plaintext block (16 bytes).
  * @param output Output ciphertext block (16 bytes).
  * @param type AES key size selector.
+ *
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NOT_SUPPORTED when backend is unavailable.
  */
 noxtls_return_t noxtls_aes_accel_apple_encrypt_block(const uint8_t *key,
@@ -130,7 +180,7 @@ noxtls_return_t noxtls_aes_accel_apple_encrypt_block(const uint8_t *key,
         return NOXTLS_RETURN_NULL;
     }
 
-    rc = aes_build_round_keys(key, type, enc_rks, dec_rks, &rounds);
+    rc = noxtls_aes_accel_apple_build_round_keys(key, type, enc_rks, dec_rks, &rounds);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -156,10 +206,12 @@ noxtls_return_t noxtls_aes_accel_apple_encrypt_block(const uint8_t *key,
 
 /**
  * @brief Decrypt one AES block with Apple Silicon ARMv8 backend.
+ *
  * @param key AES key.
  * @param data Input ciphertext block (16 bytes).
  * @param output Output plaintext block (16 bytes).
  * @param type AES key size selector.
+ *
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NOT_SUPPORTED when backend is unavailable.
  */
 noxtls_return_t noxtls_aes_accel_apple_decrypt_block(const uint8_t *key,
@@ -179,7 +231,7 @@ noxtls_return_t noxtls_aes_accel_apple_decrypt_block(const uint8_t *key,
         return NOXTLS_RETURN_NULL;
     }
 
-    rc = aes_build_round_keys(key, type, enc_rks, dec_rks, &rounds);
+    rc = noxtls_aes_accel_apple_build_round_keys(key, type, enc_rks, dec_rks, &rounds);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -202,3 +254,7 @@ noxtls_return_t noxtls_aes_accel_apple_decrypt_block(const uint8_t *key,
     return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
 }
+
+#endif /* NOXTLS_FEATURE_AES_ACCEL_APPLE */
+
+/** @} */

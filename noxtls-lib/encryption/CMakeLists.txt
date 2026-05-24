@@ -3,6 +3,13 @@ set(ENC_SOURCES
 )
 if(NOXTLS_CFG_FEATURE_AES)
   list(APPEND ENC_SOURCES aes/noxtls_aes.c aes/noxtls_aes_debug.c)
+  if(ESP_PLATFORM)
+    list(APPEND ENC_SOURCES ${NOXTLS_PROJECT_ROOT}/ports/esp-idf/target/esp32/noxtls_esp32_aes_accel.c)
+    set(NOXTLS_PORT_AES_ACCEL_ENABLED ON)
+  else()
+    list(APPEND ENC_SOURCES aes/noxtls_aes_accel_esp.c)
+    set(NOXTLS_PORT_AES_ACCEL_ENABLED OFF)
+  endif()
   set(NOXTLS_AES_ACCEL_NI_SOURCE_ENABLED OFF)
   set(NOXTLS_AES_ACCEL_APPLE_SOURCE_ENABLED OFF)
   if(NOXTLS_CFG_FEATURE_AES_ACCEL_NI)
@@ -88,6 +95,12 @@ endif()
 add_library(noxtls_encryption STATIC
     ${ENC_SOURCES}
 )
+
+if(NOXTLS_PORT_AES_ACCEL_ENABLED)
+  target_compile_definitions(noxtls_encryption PRIVATE NOXTLS_PORT_AES_ACCEL=1)
+else()
+  target_compile_definitions(noxtls_encryption PRIVATE NOXTLS_PORT_AES_ACCEL=0)
+endif()
 
 if(NOXTLS_AES_ACCEL_NI_SOURCE_ENABLED)
   if(NOT MSVC)

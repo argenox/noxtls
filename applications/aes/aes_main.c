@@ -1,15 +1,10 @@
-/*****************************************************************************
+﻿/*****************************************************************************
 * Copyright (c) [2019] - [2026], Argenox Technologies LLC
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
 *
 * This file is part of the NoxTLS Library.
-*
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 2 of the License, or
-* (at your option) any later version.
 *
 * Alternatively, this file may be used under the terms of a
 * commercial license from Argenox Technologies LLC.
@@ -47,6 +42,13 @@
  *   aes
  */
 
+/* MUST be the FIRST #include: app-local noxtls_config.h (project policy)
+ * MSVC searches the directory of the including header first for "..."
+ * style includes; if a library header pulls in "noxtls_config.h" before
+ * this app does, the top-level config wins. Hoisting our local one
+ * here ensures _NOXTLS_CONFIG_H_ is set from THIS file. */
+#include "noxtls_config.h"
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -68,6 +70,73 @@
 #include "noxtls-lib/mdigest/noxtls_hash.h"
 #include "noxtls-lib/encryption/aes/noxtls_aes.h"
 #include "noxtls-lib/encryption/aes/noxtls_aes_gcm.h"
+
+/* ============================================================================
+ * Application-private static workspace (per project policy)
+ * ============================================================================
+ *
+ * Every application owns a large statically-allocated workspace buffer; all
+ * dynamic allocations made by this translation unit are served out of it via
+ * a simple bump arena. The buffer's size lives in this app's noxtls_config.h
+ * (NOXTLS_APP_STATIC_BUFFER_SIZE) so it can be tuned independently per app.
+ *
+ * free() is a no-op; the whole arena is released en-masse via
+ * app_workspace_reset() (e.g. between commands) which also wipes any
+ * transient secret material that may have been allocated.
+ */
+static uint8_t  g_app_workspace[NOXTLS_APP_STATIC_BUFFER_SIZE];
+static size_t   g_app_workspace_off = 0U;
+#define APP_WORKSPACE_ALIGN ((size_t)16U)
+
+/**
+ * @brief Allocate workspace
+ *
+ * @param[in] n The size to allocate
+ * @return The pointer to the allocated workspace
+ */
+static void *app_workspace_alloc(size_t n)
+{
+    size_t off = (g_app_workspace_off + (APP_WORKSPACE_ALIGN - 1U)) &
+                 ~(APP_WORKSPACE_ALIGN - 1U);
+    if(n == 0U || off > sizeof(g_app_workspace) ||
+       n > sizeof(g_app_workspace) - off) {
+        return NULL;
+    }
+    g_app_workspace_off = off + n;
+    return &g_app_workspace[off];
+}
+
+/**
+ * @brief Free the workspace
+ *
+ * @param[in] p The pointer to the workspace to free
+ */
+static void app_workspace_free(void *p) 
+{ 
+    (void)p; 
+}
+
+/**
+ * @brief Reset the workspace
+ *
+ * @return The pointer to the workspace to reset
+ */
+static void app_workspace_reset(void)
+{
+    if(g_app_workspace_off > 0U) {
+        memset(g_app_workspace, 0, g_app_workspace_off);
+    }
+    g_app_workspace_off = 0U;
+}
+
+/* Redirect malloc()/free() in this translation unit to the static workspace.
+ * Library and standard headers have already been pulled in above; they
+ * declared malloc/free as plain functions and are unaffected. App code below
+ * uses these macros transparently. */
+#undef malloc
+#undef free
+#define malloc(n) app_workspace_alloc(n)
+#define free(p)   app_workspace_free(p)
 
 #define APP_VERSION_MAJOR 0
 #define APP_VERSION_MINOR 1
@@ -113,6 +182,12 @@ aes_handlers_t aes_handlers[] = {
     {"256", aes_256_handler}
 };
 
+/**
+ * @brief Print the usage information
+ *
+ * @param[in] name The name of the program
+ * @return void
+ */
 void print_usage(const char * name)
 {
     printf( "usage: %s [command] <parameters>\n", name);
@@ -157,6 +232,13 @@ void print_usage(const char * name)
     printf("\n\n");
 }
 
+/**
+ * @brief Parse the offset value
+ *
+ * @param[in] value The value to parse the offset value from
+ * @param[out] offset The offset to parse the offset value into
+ * @return The return code
+ */
 static int parse_offset_value(const char * value, size_t * offset)
 {
     char * endptr = NULL;
@@ -176,6 +258,14 @@ static int parse_offset_value(const char * value, size_t * offset)
     return 0;
 }
 
+/**
+ * @brief Read the binary file
+ *
+ * @param[in] path The path to read the binary file from
+ * @param[out] buffer The buffer to read the binary file into
+ * @param[out] length The length of the buffer to read the binary file into
+ * @return The return code
+ */
 static int read_binary_file(const char * path, uint8_t ** buffer, size_t * length)
 {
     FILE * file = NULL;
@@ -228,6 +318,14 @@ static int read_binary_file(const char * path, uint8_t ** buffer, size_t * lengt
     return 0;
 }
 
+/**
+ * @brief Write the binary file
+ *
+ * @param[in] path The path to write the binary file to
+ * @param[in] buffer The buffer to write the binary file to
+ * @param[in] length The length of the buffer to write the binary file to
+ * @return The return code
+ */
 static int write_binary_file(const char * path, const uint8_t * buffer, size_t length)
 {
     FILE * file = NULL;
@@ -253,6 +351,21 @@ static int write_binary_file(const char * path, const uint8_t * buffer, size_t l
     return 0;
 }
 
+/**
+ * @brief AES encrypt buffer
+ *
+ * @param[in] data The data to encrypt
+ * @param[in] len The length of the data to encrypt
+ * @param[in] key The key to use for the encryption
+ * @param[in] key_len The length of the key to use for the encryption
+ * @param[in] mode The mode to use for the encryption
+ * @param[in] iv The IV to use for the encryption
+ * @param[out] output The output to encrypt the data into
+ * @param[out] output_len The length of the output to encrypt the data into
+ * @param[out] tag The tag to use for the encryption
+ * @param[out] has_tag Whether the encryption has a tag
+ * @return The return code
+ */
 static int aes_encrypt_buffer(
     const uint8_t * data,
     uint32_t len,
@@ -338,13 +451,25 @@ static int aes_encrypt_buffer(
     return 0;
 }
 
+/**
+ * @brief Print the version information
+ *
+ * @return void
+ */
 void print_version(void)
 {
-    printf("NOXTLS AES v%u.%u.%u\n", (unsigned int)APP_VERSION_MAJOR, (unsigned int)APP_VERSION_MINOR, (unsigned int)APP_VERSION_BUILD);
+    printf("NoxTLS AES v%u.%u.%u\n", (unsigned int)APP_VERSION_MAJOR, (unsigned int)APP_VERSION_MINOR, (unsigned int)APP_VERSION_BUILD);
     printf("Build %s %s\n", __DATE__, __TIME__);
     printf("Copyright (c) 2019-2026 Argenox Technologies LLC. All Rights Reserved.\n");
 }
 
+/**
+ * @brief Main function
+ *
+ * @param[in] argc The number of arguments
+ * @param[in] argv The arguments
+ * @return The exit status
+ */
 int main(int argc, char ** argv)
 {
     size_t i = 0;
@@ -827,6 +952,17 @@ int main(int argc, char ** argv)
 }
 
 
+/**
+ * @brief AES-128 handler
+ *
+ * @param[in] data The data to encrypt
+ * @param[in] len The length of the data to encrypt
+ * @param[in] key The key to use for the encryption
+ * @param[in] key_len The length of the key to use for the encryption
+ * @param[in] mode The mode to use for the encryption
+ * @param[in] iv The IV to use for the encryption
+ * @return The exit status
+ */
 int aes_128_handler(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t key_len, noxtls_aes_mode_t mode, uint8_t * iv)
 {
     uint8_t * output = NULL;
@@ -862,6 +998,17 @@ int aes_128_handler(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t 
     return 0;
 }
 
+/**
+ * @brief AES-192 handler
+ *
+ * @param[in] data The data to encrypt
+ * @param[in] len The length of the data to encrypt
+ * @param[in] key The key to use for the encryption
+ * @param[in] key_len The length of the key to use for the encryption
+ * @param[in] mode The mode to use for the encryption
+ * @param[in] iv The IV to use for the encryption
+ * @return The exit status
+ */
 int aes_192_handler(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t key_len, noxtls_aes_mode_t mode, uint8_t * iv)
 {
     uint8_t * output = NULL;
@@ -897,6 +1044,17 @@ int aes_192_handler(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t 
     return 0;
 }
 
+/**
+ * @brief AES-256 handler
+ *
+ * @param[in] data The data to encrypt
+ * @param[in] len The length of the data to encrypt
+ * @param[in] key The key to use for the encryption
+ * @param[in] key_len The length of the key to use for the encryption
+ * @param[in] mode The mode to use for the encryption
+ * @param[in] iv The IV to use for the encryption
+ * @return The exit status
+ */
 int aes_256_handler(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t key_len, noxtls_aes_mode_t mode, uint8_t * iv)
 {
     uint8_t * output = NULL;

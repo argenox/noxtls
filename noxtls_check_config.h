@@ -3,9 +3,22 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+*
+* This file is part of the NoxTLS Library.
+*
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
+*
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
+*
 * File:    noxtls_check_config.h
 * Summary: Compile-time configuration dependency checks
-*/
+*
+*
+*****************************************************************************/
 
 #ifndef _NOXTLS_CHECK_CONFIG_H_
 #define _NOXTLS_CHECK_CONFIG_H_
@@ -81,6 +94,12 @@
 #if !NOXTLS_CFG_BOOL_OK(NOXTLS_FEATURE_AES_CMAC)
 #error "NOXTLS_FEATURE_AES_CMAC must be 0 or 1."
 #endif
+#if !NOXTLS_CFG_BOOL_OK(NOXTLS_FEATURE_AES_ACCEL_NI)
+#error "NOXTLS_FEATURE_AES_ACCEL_NI must be 0 or 1."
+#endif
+#if !NOXTLS_CFG_BOOL_OK(NOXTLS_FEATURE_AES_ACCEL_APPLE)
+#error "NOXTLS_FEATURE_AES_ACCEL_APPLE must be 0 or 1."
+#endif
 #if !NOXTLS_CFG_BOOL_OK(NOXTLS_FEATURE_SHA224)
 #error "NOXTLS_FEATURE_SHA224 must be 0 or 1."
 #endif
@@ -129,6 +148,18 @@
 #if !NOXTLS_CFG_BOOL_OK(NOXTLS_FEATURE_ML_DSA)
 #error "NOXTLS_FEATURE_ML_DSA must be 0 or 1."
 #endif
+#if !NOXTLS_CFG_BOOL_OK(NOXTLS_FEATURE_SLH_DSA)
+#error "NOXTLS_FEATURE_SLH_DSA must be 0 or 1."
+#endif
+#if !NOXTLS_CFG_BOOL_OK(NOXTLS_FEATURE_FALCON)
+#error "NOXTLS_FEATURE_FALCON must be 0 or 1."
+#endif
+#if !NOXTLS_CFG_BOOL_OK(NOXTLS_FEATURE_LMS_HSS)
+#error "NOXTLS_FEATURE_LMS_HSS must be 0 or 1."
+#endif
+#if !NOXTLS_CFG_BOOL_OK(NOXTLS_FEATURE_XMSS)
+#error "NOXTLS_FEATURE_XMSS must be 0 or 1."
+#endif
 #if !NOXTLS_CFG_BOOL_OK(NOXTLS_FEATURE_X25519)
 #error "NOXTLS_FEATURE_X25519 must be 0 or 1."
 #endif
@@ -140,6 +171,9 @@
 #endif
 #if !NOXTLS_CFG_BOOL_OK(NOXTLS_FEATURE_ED448)
 #error "NOXTLS_FEATURE_ED448 must be 0 or 1."
+#endif
+#if !NOXTLS_CFG_BOOL_OK(NOXTLS_CFG_TLS13_PREFER_SECP256R1_OVER_X25519)
+#error "NOXTLS_CFG_TLS13_PREFER_SECP256R1_OVER_X25519 must be 0 or 1."
 #endif
 #if NOXTLS_FEATURE_ED448 && !NOXTLS_FEATURE_SHA3
 #error "NOXTLS_FEATURE_ED448 requires NOXTLS_FEATURE_SHA3 (for SHAKE256)."
@@ -171,6 +205,10 @@
 
 #if !NOXTLS_FEATURE_AES && (NOXTLS_FEATURE_AES_ECB || NOXTLS_FEATURE_AES_CBC || NOXTLS_FEATURE_AES_CTR || NOXTLS_FEATURE_AES_CFB || NOXTLS_FEATURE_AES_OFB || NOXTLS_FEATURE_AES_XTS || NOXTLS_FEATURE_AES_GCM || NOXTLS_FEATURE_AES_CCM || NOXTLS_FEATURE_AES_CMAC)
 #error "NOXTLS_FEATURE_AES_* mode toggles require NOXTLS_FEATURE_AES=1."
+#endif
+
+#if !NOXTLS_FEATURE_AES && (NOXTLS_FEATURE_AES_ACCEL_NI || NOXTLS_FEATURE_AES_ACCEL_APPLE)
+#error "NOXTLS_FEATURE_AES_ACCEL_* toggles require NOXTLS_FEATURE_AES=1."
 #endif
 
 #if NOXTLS_FEATURE_CERT && !NOXTLS_FEATURE_PKC
@@ -264,6 +302,46 @@
 
 #if NOXTLS_FEATURE_ML_DSA && !NOXTLS_FEATURE_PKC
 #error "NOXTLS_FEATURE_ML_DSA requires NOXTLS_FEATURE_PKC."
+#endif
+
+#if NOXTLS_FEATURE_SLH_DSA && !NOXTLS_FEATURE_PKC
+#error "NOXTLS_FEATURE_SLH_DSA requires NOXTLS_FEATURE_PKC."
+#endif
+
+#if NOXTLS_FEATURE_SLH_DSA && !NOXTLS_FEATURE_DRBG
+#error "NOXTLS_FEATURE_SLH_DSA requires NOXTLS_FEATURE_DRBG."
+#endif
+
+#if NOXTLS_FEATURE_SLH_DSA && !NOXTLS_FEATURE_SHA3
+#error "NOXTLS_FEATURE_SLH_DSA requires NOXTLS_FEATURE_SHA3."
+#endif
+
+#if NOXTLS_FEATURE_SLH_DSA && !NOXTLS_FEATURE_SHA256
+#error "NOXTLS_FEATURE_SLH_DSA requires NOXTLS_FEATURE_SHA256."
+#endif
+
+#if NOXTLS_FEATURE_SLH_DSA && !NOXTLS_FEATURE_SHA512
+#error "NOXTLS_FEATURE_SLH_DSA requires NOXTLS_FEATURE_SHA512."
+#endif
+
+#if NOXTLS_FEATURE_FALCON && !NOXTLS_FEATURE_PKC
+#error "NOXTLS_FEATURE_FALCON requires NOXTLS_FEATURE_PKC."
+#endif
+
+#if NOXTLS_FEATURE_LMS_HSS && !NOXTLS_FEATURE_PKC
+#error "NOXTLS_FEATURE_LMS_HSS requires NOXTLS_FEATURE_PKC."
+#endif
+
+#if NOXTLS_FEATURE_LMS_HSS && !NOXTLS_FEATURE_SHA256
+#error "NOXTLS_FEATURE_LMS_HSS requires NOXTLS_FEATURE_SHA256."
+#endif
+
+#if NOXTLS_FEATURE_XMSS && !NOXTLS_FEATURE_PKC
+#error "NOXTLS_FEATURE_XMSS requires NOXTLS_FEATURE_PKC."
+#endif
+
+#if NOXTLS_FEATURE_XMSS && !NOXTLS_FEATURE_SHA256
+#error "NOXTLS_FEATURE_XMSS requires NOXTLS_FEATURE_SHA256."
 #endif
 
 /* Profile enforcement checks. */

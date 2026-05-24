@@ -6,13 +6,9 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 2 of the License, or
-* (at your option) any later version.
-*
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
@@ -21,7 +17,7 @@
 * File:    oids.c
 * Summary: OIDs
 *
-*/
+*****************************************************************************/
 
 /** @addtogroup noxtls_certs */
 
@@ -32,6 +28,7 @@
 #include "noxtls_common.h"
 #include "oids.h"
 
+/** @brief PKCS#1 OIDs */
 const oid_item_t pkcs_1_oids[] = {
 
     {1, "rsaEncryption",             NULL},
@@ -50,6 +47,8 @@ const oid_item_t pkcs_1_oids[] = {
     {14, "sha224WithRSAEncryption",  NULL},
     {0, NULL, NULL}
 };
+
+/** @brief PKCS#9 OIDs */
 const oid_item_t pkcs_9_oids[] = {
 
     {0, "modules",                       NULL},
@@ -82,6 +81,7 @@ const oid_item_t pkcs_9_oids[] = {
     {0, NULL,                            NULL},
 };
 
+/** @brief PKCS#1 and PKCS#9 OIDs */
 const oid_item_t pkcs_id_oids[] = {
     {1, "PKCS1", pkcs_1_oids},
     {9, "PKCS9", pkcs_9_oids},
@@ -89,17 +89,20 @@ const oid_item_t pkcs_id_oids[] = {
 };
 
 
+/** @brief PKCS OIDs */
 const oid_item_t pkcs_oids[] = {
     {1, "PKCS", pkcs_id_oids},
     {0, NULL, NULL}
 };
 
+/** @brief RSA OIDs */
 const oid_item_t rsadsi_oids[] = {
     {113549, "RSA", pkcs_oids},
     {0, NULL, NULL}
 };
 
 
+/** @brief Country OIDs */
 const oid_item_t country_oids[] = {
 
     {840, "United States", rsadsi_oids},
@@ -107,12 +110,14 @@ const oid_item_t country_oids[] = {
 };
 
 
+/** @brief Member OIDs */
 const oid_item_t member_oids[] = {
 
     {2, "member-body", country_oids},
     {0, NULL, NULL}
 };
 
+/** @brief Attribute Type OIDs */
 const oid_item_t attrtype_oids[] = {
 
     {1,  "aliasedEntryName", NULL},
@@ -192,18 +197,21 @@ const oid_item_t attrtype_oids[] = {
     {0, NULL, NULL}
 };
 
+/** @brief DS OIDs */
 const oid_item_t ds_oids[] = {
 
     {4, "attribType", attrtype_oids},
     {0, NULL, NULL}
 };
 
+/** @brief Joint OIDs */
 const oid_item_t joint_oids[] = {
 
     {5, "ds", ds_oids},
     {0, NULL, NULL}
 };
 
+/** @brief Base OIDs */
 const oid_item_t base_oids[3] = {
 
     {1, "ISO", member_oids},
