@@ -14,7 +14,7 @@
 * CONTACT: info@argenox.com
 *
 *
-* File:    noxtls_ffdhe_params_generated.inc
+* File:    noxtls_ffdhe_params_generated.h
 * Summary: FFDHE Generated Parameters
 *
 *
