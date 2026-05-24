@@ -3,8 +3,6 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
-<<<<<<< HEAD
-=======
 *
 * This file is part of the NoxTLS Library.
 *
@@ -16,7 +14,6 @@
 * CONTACT: info@argenox.com
 *
 *
->>>>>>> origin/master
 * File:    noxtls_aes_internal.h
 * Summary: Internal AES functions for mode implementations
 *
@@ -34,18 +31,11 @@
 
 typedef enum
 {
-<<<<<<< HEAD
-    NOXTLS_AES_ACCEL_BACKEND_SOFTWARE = 0,
-    NOXTLS_AES_ACCEL_BACKEND_NI = 1,
-    NOXTLS_AES_ACCEL_BACKEND_APPLE = 2,
-    NOXTLS_AES_ACCEL_BACKEND_STM32 = 3
-=======
     NOXTLS_AES_ACCEL_BACKEND_SOFTWARE = 0, /**< Software AES implementation. */
     NOXTLS_AES_ACCEL_BACKEND_NI       = 1, /**< AES-NI backend. */
     NOXTLS_AES_ACCEL_BACKEND_APPLE    = 2, /**< Apple Silicon ARMv8 AES backend. */
     NOXTLS_AES_ACCEL_BACKEND_PORT     = 3, /**< Platform-specific AES backend. */
     NOXTLS_AES_ACCEL_BACKEND_STM32    = 4, /**< STM32 AES backend. */
->>>>>>> origin/master
 } noxtls_aes_accel_backend_t;
 
 /**
