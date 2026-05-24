@@ -6,8 +6,9 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
@@ -19,7 +20,7 @@
 * Implementation of RC4 (Rivest Cipher 4). Key length 1–256 bytes.
 * Security note: RC4 is deprecated and weak; use only for legacy compatibility.
 *
-*/
+*****************************************************************************/
 
 /** @addtogroup noxtls_encryption */
 /** @{ */

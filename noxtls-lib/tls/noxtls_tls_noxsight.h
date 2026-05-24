@@ -1,6 +1,24 @@
 /*****************************************************************************
+* Copyright (c) [2019] - [2026], Argenox Technologies LLC
+* All rights reserved.
+* SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
+*
+*
 * This file is part of the NoxTLS Library.
-*/
+*
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
+*
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
+*
+* File:    noxtls_tls_noxsight.h
+* Summary: TLS NoxSight Integration
+*
+*
+*****************************************************************************/
 
 #ifndef _NOXTLS_TLS_NOXSIGHT_H_
 #define _NOXTLS_TLS_NOXSIGHT_H_
@@ -14,25 +32,25 @@
 #endif
 
 /* Module masks for filtering and grouping. */
-#define NOXTLS_LOG_MOD_HANDSHAKE   (1u << 0)
-#define NOXTLS_LOG_MOD_RECORD      (1u << 1)
-#define NOXTLS_LOG_MOD_X509        (1u << 2)
-#define NOXTLS_LOG_MOD_CRYPTO      (1u << 3)
-#define NOXTLS_LOG_MOD_IO          (1u << 4)
-#define NOXTLS_LOG_MOD_SESSION     (1u << 5)
-#define NOXTLS_LOG_MOD_KEYSCHED    (1u << 6)
-#define NOXTLS_LOG_MOD_ALERT       (1u << 7)
+#define NOXTLS_LOG_MOD_HANDSHAKE   (1U << 0)
+#define NOXTLS_LOG_MOD_RECORD      (1U << 1)
+#define NOXTLS_LOG_MOD_X509        (1U << 2)
+#define NOXTLS_LOG_MOD_CRYPTO      (1U << 3)
+#define NOXTLS_LOG_MOD_IO          (1U << 4)
+#define NOXTLS_LOG_MOD_SESSION     (1U << 5)
+#define NOXTLS_LOG_MOD_KEYSCHED    (1U << 6)
+#define NOXTLS_LOG_MOD_ALERT       (1U << 7)
 
 /* Module indices mapped to NoxSight module field semantics. */
 typedef enum {
-    NOXTLS_NS_MOD_HANDSHAKE = 0u,
-    NOXTLS_NS_MOD_RECORD = 1u,
-    NOXTLS_NS_MOD_X509 = 2u,
-    NOXTLS_NS_MOD_CRYPTO = 3u,
-    NOXTLS_NS_MOD_IO = 4u,
-    NOXTLS_NS_MOD_SESSION = 5u,
-    NOXTLS_NS_MOD_KEYSCHED = 6u,
-    NOXTLS_NS_MOD_ALERT = 7u
+    NOXTLS_NS_MOD_HANDSHAKE = 0U,
+    NOXTLS_NS_MOD_RECORD = 1U,
+    NOXTLS_NS_MOD_X509 = 2U,
+    NOXTLS_NS_MOD_CRYPTO = 3U,
+    NOXTLS_NS_MOD_IO = 4U,
+    NOXTLS_NS_MOD_SESSION = 5U,
+    NOXTLS_NS_MOD_KEYSCHED = 6U,
+    NOXTLS_NS_MOD_ALERT = 7U
 } noxtls_ns_module_t;
 
 typedef enum {
@@ -76,6 +94,12 @@ typedef enum {
 #if NOXTLS_CFG_ENABLE_NOXSIGHT
 #include "../../../noxsight/noxsight.h"
 
+/**
+ * @brief Get the connection ID.
+ * 
+ * @param ctx_ptr The context pointer.
+ * @return The connection ID.
+ */
 static inline uint32_t noxtls_ns_conn_id(const void *ctx_ptr)
 {
     uintptr_t v = (uintptr_t)ctx_ptr;
@@ -92,7 +116,7 @@ static inline uint32_t noxtls_ns_conn_id(const void *ctx_ptr)
 
 #define NOXTLS_STATE_ENTER(ctx_, state_)                                                           \
     NOXTLS_NS_EVENT((ctx_), NOXTLS_NS_MOD_HANDSHAKE, NOXSIGHT_SEVERITY_DEBUG,                     \
-                    NOXTLS_EVT_STATE_ENTER, (state_), 0u)
+                    NOXTLS_EVT_STATE_ENTER, (state_), 0U)
 
 #define NOXTLS_STATE_EXIT(ctx_, state_, result_)                                                   \
     NOXTLS_NS_EVENT((ctx_), NOXTLS_NS_MOD_HANDSHAKE,                                               \
@@ -101,19 +125,19 @@ static inline uint32_t noxtls_ns_conn_id(const void *ctx_ptr)
 
 #else
 #ifndef NOXSIGHT_SEVERITY_ERROR
-#define NOXSIGHT_SEVERITY_ERROR 0u
+#define NOXSIGHT_SEVERITY_ERROR 0U
 #endif
 #ifndef NOXSIGHT_SEVERITY_WARN
-#define NOXSIGHT_SEVERITY_WARN 1u
+#define NOXSIGHT_SEVERITY_WARN 1U
 #endif
 #ifndef NOXSIGHT_SEVERITY_INFO
-#define NOXSIGHT_SEVERITY_INFO 2u
+#define NOXSIGHT_SEVERITY_INFO 2U
 #endif
 #ifndef NOXSIGHT_SEVERITY_DEBUG
-#define NOXSIGHT_SEVERITY_DEBUG 3u
+#define NOXSIGHT_SEVERITY_DEBUG 3U
 #endif
 #ifndef NOXSIGHT_SEVERITY_TRACE
-#define NOXSIGHT_SEVERITY_TRACE 4u
+#define NOXSIGHT_SEVERITY_TRACE 4U
 #endif
 
 #define NOXTLS_NS_EVENT(ctx_, module_, severity_, event_, arg0_, arg1_) \

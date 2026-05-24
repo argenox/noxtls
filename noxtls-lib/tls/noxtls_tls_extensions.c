@@ -4,38 +4,21 @@
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
 *
-*
-* NOTICE:  All information contained herein, source code, binaries and
-* derived works is, and remains
-* the property of Argenox Technologies and its suppliers,
-* if any.  The intellectual and technical concepts contained
-* herein are proprietary to Argenox Technologies
-* and its suppliers may be covered by U.S. and Foreign Patents,
-* patents in process, and are protected by trade secret or copyright law.
-* Dissemination of this information or reproduction of this material
-* is strictly forbidden unless prior written permission is obtained
-* from Argenox Technologies.
-*
-* THIS SOFTWARE IS PROVIDED BY ARGENOX "AS IS" AND
-* ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-* WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-* DISCLAIMED. IN NO EVENT SHALL ARGENOX TECHNOLOGIES LLC BE LIABLE FOR ANY
-* DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-* (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-* LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-* ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-* (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-* SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*
-* CONTACT: info@argenox.com
-* 
-*
 * This file is part of the NoxTLS Library.
+*
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
+*
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
 *
 * File:    noxtls_tls_extensions.c
 * Summary: TLS Extension Parsing Implementation
 *
-*/
+*
+*****************************************************************************/
 
 #include <stdint.h>
 #include <stdio.h>
@@ -47,6 +30,13 @@
 
 /**
  * @brief Parse TLS extensions from extension list
+ *
+ * @param[in] data The data to parse the extensions from
+ * @param[in] data_len The length of the data to parse the extensions from
+ * @param[out] extensions The extensions to parse the extensions into
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the data or extensions is NULL, NOXTLS_RETURN_BAD_DATA if the data is not a valid length for a TLS extension, NOXTLS_RETURN_BAD_DATA if the extensions is not a valid length for a TLS extension, NOXTLS_RETURN_FAILED if the extensions is not a valid extension for a TLS extension
+ * @return NOXTLS_RETURN_FAILED if the extensions is not a valid extension for a TLS extension
+ * @return NOXTLS_RETURN_RECORD_OVERFLOW if the extensions is not a valid extension for a TLS extension
  */
 noxtls_return_t noxtls_tls_parse_extensions(const uint8_t *data, uint32_t data_len, tls_extensions_t *extensions)
 {
@@ -69,7 +59,7 @@ noxtls_return_t noxtls_tls_parse_extensions(const uint8_t *data, uint32_t data_l
     offset += 2;
     
     if(extensions_len == 0) {
-        if(data_len != 2u) {
+        if(data_len != 2U) {
             return NOXTLS_RETURN_BAD_DATA;
         }
         return NOXTLS_RETURN_SUCCESS;  /* No extensions */
@@ -88,7 +78,7 @@ noxtls_return_t noxtls_tls_parse_extensions(const uint8_t *data, uint32_t data_l
     /* Parse extensions */
     while(offset < extensions_len + 2 && offset + sizeof(tls_extension_header_t) <= data_len) {
         if(extensions->count >= max_extensions) {
-            uint32_t new_max = max_extensions * 2u;
+            uint32_t new_max = max_extensions * 2U;
             tls_extension_t *new_exts;
             if(new_max > 65536u) {
                 noxtls_tls_extensions_free(extensions);
@@ -138,7 +128,7 @@ noxtls_return_t noxtls_tls_parse_extensions(const uint8_t *data, uint32_t data_l
         /* Parse known extensions */
         switch(ext->type) {
             case TLS_EXTENSION_SERVER_NAME:
-                if(ext->length == 0u) {
+                if(ext->length == 0U) {
                     noxtls_tls_extensions_free(extensions);
                     return NOXTLS_RETURN_BAD_DATA;
                 }
@@ -305,6 +295,9 @@ noxtls_return_t noxtls_tls_parse_extensions(const uint8_t *data, uint32_t data_l
 
 /**
  * @brief Free parsed extensions
+ *
+ * @param[in] extensions The extensions to free
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the extensions is NULL
  */
 noxtls_return_t noxtls_tls_extensions_free(tls_extensions_t *extensions)
 {
@@ -396,13 +389,17 @@ noxtls_return_t noxtls_tls_extensions_free(tls_extensions_t *extensions)
 
 /**
  * @brief Parse Server Name Indication (SNI) extension
+ *
+ * @param[in] nm The name to validate
+ * @param[in] name_len The length of the name to validate
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER if the name is not a valid name
  */
 static noxtls_return_t tls_sni_validate_host_name_octets(const uint8_t *nm, uint16_t name_len)
 {
     uint32_t j;
     for(j = 0; j < (uint32_t)name_len; j++) {
         uint8_t c = nm[j];
-        if(c == 0u) {
+        if(c == 0U) {
             return NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER;
         }
         /* Reject controls, DEL, and non-ASCII (tlsfuzzer invalid SNI / UTF-8 probes). */
@@ -413,6 +410,14 @@ static noxtls_return_t tls_sni_validate_host_name_octets(const uint8_t *nm, uint
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Parse Server Name Indication (SNI) extension
+ *
+ * @param[in] data The data to parse the SNI extension from
+ * @param[in] data_len The length of the data to parse the SNI extension from
+ * @param[out] sni The SNI extension to parse the SNI extension into
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the data or sni is NULL, NOXTLS_RETURN_BAD_DATA if the data is not a valid length for a SNI extension, NOXTLS_RETURN_BAD_DATA if the sni is not a valid SNI extension
+ */
 noxtls_return_t noxtls_tls_parse_extension_sni(const uint8_t *data, uint32_t data_len, tls_sni_extension_t *sni)
 {
     uint16_t server_name_list_len = 0;
@@ -428,40 +433,40 @@ noxtls_return_t noxtls_tls_parse_extension_sni(const uint8_t *data, uint32_t dat
 
     memset(sni, 0, sizeof(tls_sni_extension_t));
 
-    if(data_len < 2u) {
+    if(data_len < 2U) {
         return NOXTLS_RETURN_BAD_DATA;
     }
 
     server_name_list_len = (uint16_t)(((uint16_t)data[0] << 8) | data[1]);
-    if(server_name_list_len == 0u ||
-       (uint32_t)2u + (uint32_t)server_name_list_len != data_len) {
+    if(server_name_list_len == 0U ||
+       (uint32_t)2U + (uint32_t)server_name_list_len != data_len) {
         return NOXTLS_RETURN_BAD_DATA;
     }
 
-    list_end = 2u + (uint32_t)server_name_list_len;
-    pos = 2u;
+    list_end = 2U + (uint32_t)server_name_list_len;
+    pos = 2U;
 
     while(pos < list_end) {
         uint8_t name_type;
         uint16_t name_len;
 
-        if(pos + 3u > list_end) {
+        if(pos + 3U > list_end) {
             return NOXTLS_RETURN_BAD_DATA;
         }
         name_type = data[pos++];
         name_len = (uint16_t)(((uint16_t)data[pos] << 8) | data[pos + 1]);
-        pos += 2u;
+        pos += 2U;
         if((uint32_t)pos + (uint32_t)name_len > list_end) {
             return NOXTLS_RETURN_BAD_DATA;
         }
 
-        if(name_type == 0u) {
+        if(name_type == 0U) {
             noxtls_return_t vrc;
             if(found_host) {
                 /* RFC 6066: client MUST NOT send multiple host_name entries. */
                 return NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER;
             }
-            if(name_len == 0u) {
+            if(name_len == 0U) {
                 return NOXTLS_RETURN_BAD_DATA;
             }
             vrc = tls_sni_validate_host_name_octets(data + pos, name_len);
@@ -480,11 +485,11 @@ noxtls_return_t noxtls_tls_parse_extension_sni(const uint8_t *data, uint32_t dat
         }
     }
 
-    if(!found_host || host_ptr == NULL || host_len == 0u) {
+    if(!found_host || host_ptr == NULL || host_len == 0U) {
         return NOXTLS_RETURN_BAD_DATA;
     }
 
-    sni->hostname = (char*)malloc((size_t)host_len + 1u);
+    sni->hostname = (char*)malloc((size_t)host_len + 1U);
     if(sni->hostname == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -496,6 +501,11 @@ noxtls_return_t noxtls_tls_parse_extension_sni(const uint8_t *data, uint32_t dat
 
 /**
  * @brief Parse Supported Groups extension
+ *
+ * @param[in] data The data to parse the Supported Groups extension from
+ * @param[in] data_len The length of the data to parse the Supported Groups extension from
+ * @param[out] groups The Supported Groups extension to parse the Supported Groups extension into
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the data or groups is NULL, NOXTLS_RETURN_BAD_DATA if the data is not a valid length for a Supported Groups extension, NOXTLS_RETURN_BAD_DATA if the groups is not a valid Supported Groups extension
  */
 noxtls_return_t noxtls_tls_parse_extension_supported_groups(const uint8_t *data, uint32_t data_len, tls_supported_groups_extension_t *groups)
 {
@@ -540,6 +550,11 @@ noxtls_return_t noxtls_tls_parse_extension_supported_groups(const uint8_t *data,
 
 /**
  * @brief Parse Key Share extension (TLS 1.3)
+ *
+ * @param[in] data The data to parse the Key Share extension from
+ * @param[in] data_len The length of the data to parse the Key Share extension from
+ * @param[out] key_share The Key Share extension to parse the Key Share extension into
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the data or key_share is NULL, NOXTLS_RETURN_BAD_DATA if the data is not a valid length for a Key Share extension, NOXTLS_RETURN_BAD_DATA if the key_share is not a valid Key Share extension
  */
 noxtls_return_t noxtls_tls_parse_extension_key_share(const uint8_t *data, uint32_t data_len, tls_key_share_list_extension_t *key_share)
 {
@@ -580,7 +595,7 @@ noxtls_return_t noxtls_tls_parse_extension_key_share(const uint8_t *data, uint32
     
     /* Parse key share entries */
     {
-        uint32_t key_share_list_end = (uint32_t)key_share_list_len + 2u;
+        uint32_t key_share_list_end = (uint32_t)key_share_list_len + 2U;
         while(offset < key_share_list_end && offset + 4 <= data_len && key_share->count < max_entries) {
             tls_key_share_extension_t *entry = &key_share->entries[key_share->count];
             
@@ -645,6 +660,11 @@ noxtls_return_t noxtls_tls_parse_extension_key_share(const uint8_t *data, uint32
 
 /**
  * @brief Parse Signature Algorithms extension
+ *
+ * @param[in] data The data to parse the Signature Algorithms extension from
+ * @param[in] data_len The length of the data to parse the Signature Algorithms extension from
+ * @param[out] algorithms The Signature Algorithms extension to parse the Signature Algorithms extension into
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the data or algorithms is NULL, NOXTLS_RETURN_BAD_DATA if the data is not a valid length for a Signature Algorithms extension, NOXTLS_RETURN_BAD_DATA if the algorithms is not a valid Signature Algorithms extension
  */
 noxtls_return_t noxtls_tls_parse_extension_signature_algorithms(const uint8_t *data, uint32_t data_len, tls_signature_algorithms_extension_t *algorithms)
 {
@@ -692,6 +712,12 @@ noxtls_return_t noxtls_tls_parse_extension_signature_algorithms(const uint8_t *d
 
 /**
  * @brief Parse Application Layer Protocol Negotiation (ALPN) extension
+ *
+ * @param[in] data The data to parse the ALPN extension from
+ * @param[in] data_len The length of the data to parse the ALPN extension from
+ * @param[out] alpn The ALPN extension to parse the ALPN extension into
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the data or alpn is NULL, NOXTLS_RETURN_BAD_DATA if the data is not a valid length for a ALPN extension, NOXTLS_RETURN_BAD_DATA if the alpn is not a valid ALPN extension
+ * @return NOXTLS_RETURN_FAILED if the alpn is not a valid ALPN extension
  */
 noxtls_return_t noxtls_tls_parse_extension_alpn(const uint8_t *data, uint32_t data_len, tls_alpn_extension_t *alpn)
 {
@@ -716,11 +742,11 @@ noxtls_return_t noxtls_tls_parse_extension_alpn(const uint8_t *data, uint32_t da
     if(protocol_name_list_len == 0) {
         return NOXTLS_RETURN_BAD_DATA;
     }
-    if(2u + (uint32_t)protocol_name_list_len != data_len) {
+    if(2U + (uint32_t)protocol_name_list_len != data_len) {
         return NOXTLS_RETURN_BAD_DATA;
     }
     
-    list_end = 2u + (uint32_t)protocol_name_list_len;
+    list_end = 2U + (uint32_t)protocol_name_list_len;
     
     alpn->protocols = (char**)calloc(alloc_count, sizeof(char*));
     if(alpn->protocols == NULL) {
@@ -732,7 +758,7 @@ noxtls_return_t noxtls_tls_parse_extension_alpn(const uint8_t *data, uint32_t da
         char **new_protocols;
         
         if(alpn->count >= alloc_count) {
-            uint32_t new_count = alloc_count * 2u;
+            uint32_t new_count = alloc_count * 2U;
             new_protocols = (char**)realloc(alpn->protocols, new_count * sizeof(char*));
             if(new_protocols == NULL) {
                 goto alpn_parse_fail;
@@ -750,7 +776,7 @@ noxtls_return_t noxtls_tls_parse_extension_alpn(const uint8_t *data, uint32_t da
             goto alpn_parse_fail;
         }
         
-        alpn->protocols[alpn->count] = (char*)malloc((size_t)name_len + 1u);
+        alpn->protocols[alpn->count] = (char*)malloc((size_t)name_len + 1U);
         if(alpn->protocols[alpn->count] == NULL) {
             return NOXTLS_RETURN_FAILED;
         }
@@ -781,6 +807,14 @@ alpn_parse_fail:
     return NOXTLS_RETURN_BAD_DATA;
 }
 
+/**
+ * @brief Check if the ALPN protocols are equal
+ *
+ * @param[in] a The first ALPN protocol
+ * @param[in] a_len The length of the first ALPN protocol
+ * @param[in] b The second ALPN protocol
+ * @return 1 if the ALPN protocols are equal, 0 otherwise
+*/
 static int noxtls_tls_alpn_protocols_equal(const char *a, uint16_t a_len, const char *b)
 {
     size_t b_len;
@@ -795,6 +829,22 @@ static int noxtls_tls_alpn_protocols_equal(const char *a, uint16_t a_len, const 
     return (memcmp(a, b, a_len) == 0);
 }
 
+/**
+ * @brief Process the ALPN negotiation
+ *
+ * @param[in] extensions The extensions to process the ALPN negotiation from
+ * @param[in] server_protocols The server protocols to process the ALPN negotiation from
+ * @param[in] server_count The number of server protocols to process the ALPN negotiation from
+ * @param[out] selected The selected protocol to process the ALPN negotiation into
+ * @param[in] selected_cap The capacity of the selected protocol
+ * @param[out] selected_len The length of the selected protocol
+ * @return NOXTLS_TLS_ALPN_STATUS_NONE if the ALPN negotiation is not successful, 
+ * @return NOXTLS_TLS_ALPN_STATUS_NEGOTIATED if the ALPN negotiation is successful, 
+ * @return NOXTLS_TLS_ALPN_STATUS_DECODE_ERROR if the ALPN negotiation is not successful, 
+ * @return NOXTLS_TLS_ALPN_STATUS_NO_OVERLAP if the ALPN negotiation is not successful
+ * @return NOXTLS_TLS_ALPN_STATUS_DECODE_ERROR if the ALPN negotiation is not successful
+ * @return NOXTLS_TLS_ALPN_STATUS_NO_OVERLAP if the ALPN negotiation is not successful
+ */
 noxtls_tls_alpn_status_t noxtls_tls_alpn_server_process(const tls_extensions_t *extensions,
                                                         const char * const *server_protocols,
                                                         uint32_t server_count,
@@ -825,8 +875,9 @@ noxtls_tls_alpn_status_t noxtls_tls_alpn_server_process(const tls_extensions_t *
     if(extensions->alpn == NULL || extensions->alpn->count == 0) {
         return NOXTLS_TLS_ALPN_STATUS_DECODE_ERROR;
     }
+    /* RFC 7301: servers that do not configure ALPN may ignore the client extension. */
     if(server_protocols == NULL || server_count == 0) {
-        return NOXTLS_TLS_ALPN_STATUS_NO_OVERLAP;
+        return NOXTLS_TLS_ALPN_STATUS_NONE;
     }
     if(selected == NULL || selected_cap == 0) {
         return NOXTLS_TLS_ALPN_STATUS_DECODE_ERROR;
@@ -867,6 +918,16 @@ noxtls_tls_alpn_status_t noxtls_tls_alpn_server_process(const tls_extensions_t *
     return NOXTLS_TLS_ALPN_STATUS_NO_OVERLAP;
 }
 
+/**
+ * @brief Write the selected ALPN extension
+ *
+ * @param[in] protocol The protocol to write the selected ALPN extension from
+ * @param[in] protocol_len The length of the protocol to write the selected ALPN extension from
+ * @param[out] buf The buffer to write the selected ALPN extension into
+ * @param[in] buf_cap The capacity of the buffer to write the selected ALPN extension into
+ * @return The number of bytes written to the buffer
+ * @return 0 if the protocol is NULL, the protocol length is 0, the protocol length is greater than the maximum protocol length, the buffer is NULL, the buffer capacity is less than the body length
+ */     
 uint32_t noxtls_tls_alpn_write_selected_extension(const char *protocol,
                                                   uint16_t protocol_len,
                                                   uint8_t *buf,
@@ -880,9 +941,9 @@ uint32_t noxtls_tls_alpn_write_selected_extension(const char *protocol,
        buf == NULL) {
         return 0;
     }
-    body_len = (uint16_t)(2u + 1u + (uint32_t)protocol_len);
-    list_len = (uint16_t)(1u + (uint32_t)protocol_len);
-    if(buf_cap < 4u + (uint32_t)body_len) {
+    body_len = (uint16_t)(2U + 1U + (uint32_t)protocol_len);
+    list_len = (uint16_t)(1U + (uint32_t)protocol_len);
+    if(buf_cap < 4U + (uint32_t)body_len) {
         return 0;
     }
     
@@ -900,6 +961,11 @@ uint32_t noxtls_tls_alpn_write_selected_extension(const char *protocol,
 
 /**
  * @brief Parse Supported Versions extension (TLS 1.3)
+ *
+ * @param[in] data The data to parse the Supported Versions extension from
+ * @param[in] data_len The length of the data to parse the Supported Versions extension from
+ * @param[out] versions The Supported Versions extension to parse the Supported Versions extension into
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the data or versions is NULL, NOXTLS_RETURN_BAD_DATA if the data is not a valid length for a Supported Versions extension, NOXTLS_RETURN_BAD_DATA if the versions is not a valid Supported Versions extension
  */
 noxtls_return_t noxtls_tls_parse_extension_supported_versions(const uint8_t *data, uint32_t data_len, tls_supported_versions_extension_t *versions)
 {
@@ -947,6 +1013,13 @@ noxtls_return_t noxtls_tls_parse_extension_supported_versions(const uint8_t *dat
 
 /**
  * @brief Find extension by type
+ *
+ * @param[in] extensions The extensions to find the extension from
+ * @param[in] type The type of the extension to find
+ * @param[out] extension The extension to find the extension into
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the extensions or extension is NULL, 
+ *         NOXTLS_RETURN_FAILED if the extensions is not a valid extension for a TLS extension,
+ *         NOXTLS_RETURN_NULL if the extension is not found
  */
 noxtls_return_t noxtls_tls_find_extension(tls_extensions_t *extensions, uint16_t type, tls_extension_t **extension)
 {

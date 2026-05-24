@@ -6,8 +6,9 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
@@ -19,7 +20,7 @@
 * RC4: Key-Scheduling Algorithm (KSA) + Pseudo-Random Generation Algorithm (PRGA).
 * Key length 1–256 bytes. Security note: RC4 is deprecated; use only for legacy.
 *
-*/
+*****************************************************************************/
 
 /** @addtogroup noxtls_encryption */
 
@@ -38,6 +39,11 @@
 
 /**
  * @brief Key-Scheduling Algorithm: initialize S and scramble with key
+ *
+ * @param[in] ctx The ctx value.
+ * @param[in] key The key value.
+ * @param[in] key_len The key length value.
+ * @return void
  */
 static void rc4_ksa(noxtls_rc4_context_t *ctx, const uint8_t *key, uint32_t key_len)
 {
@@ -60,6 +66,9 @@ static void rc4_ksa(noxtls_rc4_context_t *ctx, const uint8_t *key, uint32_t key_
 
 /**
  * @brief Generate next byte of keystream (PRGA), update state
+ *
+ * @param[in] ctx The ctx value.
+ * @return The return value.
  */
 static uint8_t rc4_prga_byte(noxtls_rc4_context_t *ctx)
 {
@@ -72,6 +81,14 @@ static uint8_t rc4_prga_byte(noxtls_rc4_context_t *ctx)
     return ctx->S[(uint8_t)(ctx->S[ctx->i] + ctx->S[ctx->j])];
 }
 
+/**
+ * @brief Initialize RC4 context
+ *
+ * @param[in] ctx The ctx value.
+ * @param[in] key The key value.
+ * @param[in] key_len The key length value.
+ * @return The return value.
+ */
 noxtls_return_t noxtls_rc4_init(noxtls_rc4_context_t *ctx, const uint8_t *key, uint32_t key_len)
 {
     if(ctx == NULL || key == NULL) {
@@ -84,6 +101,15 @@ noxtls_return_t noxtls_rc4_init(noxtls_rc4_context_t *ctx, const uint8_t *key, u
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Encrypt/Decrypt data using RC4
+ *
+ * @param[in] ctx The ctx value.
+ * @param[in] input The input value.
+ * @param[out] output The output value.
+ * @param[in] input_len The input length value.
+ * @return The return value.
+ */
 noxtls_return_t noxtls_rc4_process(noxtls_rc4_context_t *ctx,
                               const uint8_t *input,
                               uint8_t *output,
@@ -100,6 +126,16 @@ noxtls_return_t noxtls_rc4_process(noxtls_rc4_context_t *ctx,
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Encrypt data using RC4
+ *
+ * @param[in] key The key value.
+ * @param[in] key_len The key length value.
+ * @param[in] input The input value.
+ * @param[in] input_len The input length value.
+ * @param[out] output The output value.
+ * @return The return value.
+ */
 noxtls_return_t noxtls_rc4_encrypt(const uint8_t *key, uint32_t key_len,
                             const uint8_t *input, uint32_t input_len,
                             uint8_t *output)
@@ -115,6 +151,16 @@ noxtls_return_t noxtls_rc4_encrypt(const uint8_t *key, uint32_t key_len,
     return noxtls_rc4_process(&ctx, input, output, input_len);
 }
 
+/**
+ * @brief Decrypt data using RC4
+ *
+ * @param[in] key The key value.
+ * @param[in] key_len The key length value.
+ * @param[in] input The input value.
+ * @param[in] input_len The input length value.
+ * @param[out] output The output value.
+ * @return The return value.
+ */
 noxtls_return_t noxtls_rc4_decrypt(const uint8_t *key, uint32_t key_len,
                             const uint8_t *input, uint32_t input_len,
                             uint8_t *output)
@@ -125,6 +171,8 @@ noxtls_return_t noxtls_rc4_decrypt(const uint8_t *key, uint32_t key_len,
 
 /**
  * @brief Self-test using RFC 6229 test vector (40-bit key 0x0102030405, offset 0)
+ *
+ * @return The return value.
  */
 noxtls_return_t noxtls_rc4_self_test(void)
 {

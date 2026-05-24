@@ -1,14 +1,14 @@
 ---
 sidebar_position: 5
-title: Quantum Crypto
-description: "NoxTLS documentation: Quantum Crypto."
+title: Post Quantum Crypto (PQC)
+description: "NoxTLS documentation: Post Quantum Crypto."
 ---
 
-# Quantum Crypto
+# Post Quantum Crypto
 
-This page summarizes post-quantum cryptography (PQC) in `noxtls`, why it matters, and how the current implementation is intended to be used.
+As the world is using public-key schemes like RSA and ECC, these can be broken using Shor's algorithm on Quantum Computers.
 
-## Why quantum crypto matters
+Quantum Computers are still not here, but for data that has to stay safe for decades, 
 
 Large-scale quantum computers are expected to weaken widely used public-key schemes such as RSA and ECC. Even before practical quantum attacks are available, there is a "harvest now, decrypt later" risk for data that must remain confidential for many years.
 

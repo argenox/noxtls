@@ -59,7 +59,11 @@ message_digest_handlers_t aes_handlers[] = {
     {"256", aes_256_handler}
 };
 
-
+/**
+ * @brief Print the usage information
+ *
+ * @return void
+ */
 void print_digest_usage()
 {    
     printf("\nSupported Digests\n\n");
@@ -73,6 +77,13 @@ void print_digest_usage()
     printf("\n\n");
 }
 
+/**
+ * @brief Handle the AES commands
+ *
+ * @param[in] argc The number of arguments
+ * @param[in] argv The arguments
+ * @return 0 on success, -1 on failure
+ */
 int aes_handler(int argc, char ** argv)
 {
     int c;   
@@ -199,6 +210,13 @@ int aes_handler(int argc, char ** argv)
     return 0;
 }
 
+/**
+ * @brief Handle the AES-128 commands
+ *
+ * @param[in] data The data to handle
+ * @param[in] len The length of the data
+ * @return 0 on success, -1 on failure
+ */
 int aes_128_handler(uint8_t * data, uint32_t len)
 {
     if(debug_lvl > 0)
@@ -223,6 +241,13 @@ int aes_128_handler(uint8_t * data, uint32_t len)
     return 0;
 }
 
+/**
+ * @brief Handle the AES-192 commands
+ *
+ * @param[in] data The data to handle
+ * @param[in] len The length of the data
+ * @return 0 on success, -1 on failure
+ */
 int aes_192_handler(uint8_t * data, uint32_t len)
 {
     if(debug_lvl > 0)
@@ -247,6 +272,13 @@ int aes_192_handler(uint8_t * data, uint32_t len)
     return 0;
 }
 
+/**
+ * @brief Handle the AES-256 commands
+ *
+ * @param[in] data The data to handle
+ * @param[in] len The length of the data
+ * @return 0 on success, -1 on failure
+ */
 int aes_256_handler(uint8_t * data, uint32_t len)
 {
     if(debug_lvl > 0)

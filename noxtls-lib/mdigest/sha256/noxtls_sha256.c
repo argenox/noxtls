@@ -6,17 +6,21 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
-* 
+*
 *
 * File:    noxtls_sha256.c
-* Summary: NOXTLS SHA256
+* Summary: SHA-256 Hash Implementation
+* Based on FIPS 180-4
 *
-*/
+*
+*****************************************************************************/
+
 
 /** @addtogroup noxtls_mdigest */
 
@@ -45,6 +49,8 @@ static uint8_t debug_lvl = 0;
 
 noxtls_return_t noxtls_sha256_round(noxtls_sha_ctx_t * ctx, const uint8_t * input);
 noxtls_return_t noxtls_sha256_pad(uint8_t * data, uint32_t zero_pad, uint32_t len);
+noxtls_return_t noxtls_sha256_round_accel_port(noxtls_sha_ctx_t *ctx, const uint8_t *input);
+noxtls_return_t noxtls_sha256_blocks_accel_port(noxtls_sha_ctx_t *ctx, const uint8_t *input, uint32_t block_count);
 
 /* SHA-224 / SHA-256 round constants K[0..63] (FIPS 180-4); count matches SHA256_ROUND_COUNT. */
 uint32_t sha224_256_k[SHA256_ROUND_COUNT] =
@@ -59,6 +65,12 @@ uint32_t sha224_256_k[SHA256_ROUND_COUNT] =
     0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
 };
 
+/**
+ * @brief Set the debug level
+ * 
+ * @param lvl The debug level
+ * @return void
+ */
 void noxtls_sha256_set_debug(uint8_t lvl)
 {
     debug_lvl = lvl;
@@ -153,14 +165,26 @@ noxtls_return_t noxtls_sha256_update(noxtls_sha_ctx_t * ctx, const uint8_t * inp
     }
 
     /* Process full blocks directly from input */
-    while(len >= SHA256_BLOCK_SIZE_BYTES) {
-        noxtls_return_t rc = noxtls_sha256_round(ctx, input + offset);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            return rc;
+    if(len >= SHA256_BLOCK_SIZE_BYTES) {
+        uint32_t full_blocks = len / SHA256_BLOCK_SIZE_BYTES;
+        uint32_t full_bytes = full_blocks * SHA256_BLOCK_SIZE_BYTES;
+        noxtls_return_t rc = noxtls_sha256_blocks_accel_port(ctx, input + offset, full_blocks);
+
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            ctx->length += full_bytes;
+            offset += full_bytes;
+            len -= full_bytes;
+        } else {
+            while(len >= SHA256_BLOCK_SIZE_BYTES) {
+                rc = noxtls_sha256_round(ctx, input + offset);
+                if(rc != NOXTLS_RETURN_SUCCESS) {
+                    return rc;
+                }
+                ctx->length += SHA256_BLOCK_SIZE_BYTES;
+                offset += SHA256_BLOCK_SIZE_BYTES;
+                len -= SHA256_BLOCK_SIZE_BYTES;
+            }
         }
-        ctx->length += SHA256_BLOCK_SIZE_BYTES;
-        offset += SHA256_BLOCK_SIZE_BYTES;
-        len -= SHA256_BLOCK_SIZE_BYTES;
     }
 
     /* Store remainder */
@@ -199,6 +223,14 @@ noxtls_return_t noxtls_sha256_round(noxtls_sha_ctx_t * ctx, const uint8_t * inpu
 		return NOXTLS_RETURN_NULL;
 	}
 
+    rc = noxtls_sha256_blocks_accel_port(ctx, input, 1U);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_sha256_round_accel_port(ctx, input);
+    }
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+
     
     
     /* Copy the noxtls_message to the first 16 words */    
@@ -206,9 +238,9 @@ noxtls_return_t noxtls_sha256_round(noxtls_sha_ctx_t * ctx, const uint8_t * inpu
         size_t in_off = (size_t)t * (size_t)SHA256_WORD_BYTES;
         w[t] =
             ((uint32_t)input[in_off] << 24) |
-            ((uint32_t)input[in_off + 1u] << 16) |
-            ((uint32_t)input[in_off + 2u] << 8) |
-            ((uint32_t)input[in_off + 3u]);
+            ((uint32_t)input[in_off + 1U] << 16) |
+            ((uint32_t)input[in_off + 2U] << 8) |
+            ((uint32_t)input[in_off + 3U]);
     }
 
     for(t = SHA256_WORDS_PER_BLOCK; t < SHA256_ROUND_COUNT; t++) {
@@ -249,8 +281,9 @@ noxtls_return_t noxtls_sha256_round(noxtls_sha_ctx_t * ctx, const uint8_t * inpu
     ctx->h[7] += h;
     
     
-    return rc;    
+	    return NOXTLS_RETURN_SUCCESS;
 }
+
 
 /**
  * @brief Finish SHA-256 operation
@@ -310,7 +343,7 @@ noxtls_return_t noxtls_sha256_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
         temp[space_occupied] = SHA256_PAD_BYTE;
     }
     
-    if(space_left >= (uint32_t)(SHA256_LENGTH_FIELD_BYTES + 1u)) {
+    if(space_left >= (uint32_t)(SHA256_LENGTH_FIELD_BYTES + 1U)) {
         noxtls_add_padding_length(temp, block_size, total_length, length_size);
     }
 
@@ -325,8 +358,11 @@ noxtls_return_t noxtls_sha256_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
     }
     
     rc = noxtls_sha256_round(ctx, temp);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        ctx->length += SHA256_BLOCK_SIZE_BYTES;
+    }
     
-    if(space_left < (uint32_t)(SHA256_LENGTH_FIELD_BYTES + 1u))
+    if(space_left < (uint32_t)(SHA256_LENGTH_FIELD_BYTES + 1U))
     {
         memset(temp, 0, block_size);
         if(space_left == 0) {
@@ -345,6 +381,9 @@ noxtls_return_t noxtls_sha256_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
         }
         
         rc = noxtls_sha256_round(ctx, temp);
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            ctx->length += SHA256_BLOCK_SIZE_BYTES;
+        }
         
     }
     
@@ -435,7 +474,7 @@ noxtls_return_t noxtls_sha224_verify(const uint8_t * data, uint32_t len, const u
     noxtls_sha256_update(&ctx, data, len);
     noxtls_sha256_finish(&ctx, hash);
     
-    if(memcmp(hash, expected, sizeof(hash)) == 0) {
+    if(memcmp(hash, expected, HASH_SHA224_OUT_LEN) == 0) {
         rc = NOXTLS_RETURN_SUCCESS;
     }
 

@@ -3,15 +3,22 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+*
 * This file is part of the NoxTLS Library.
+*
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
+*
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
 *
 * File:    noxtls_mlkem.h
 * Summary: ML-KEM (NIST FIPS 203) API surface.
 *
- * NOTE:
- * This header intentionally keeps stable API and size contracts across
- * implementation improvements.
-*/
+*
+*****************************************************************************/
 
 #ifndef _NOXTLS_MLKEM_H_
 #define _NOXTLS_MLKEM_H_
@@ -34,7 +41,7 @@ typedef enum
 #define NOXTLS_MLKEM_MAX_PUBLIC_KEY_LEN 1568u
 #define NOXTLS_MLKEM_MAX_SECRET_KEY_LEN 3168u
 #define NOXTLS_MLKEM_MAX_CIPHERTEXT_LEN 1568u
-#define NOXTLS_MLKEM_SHARED_SECRET_LEN 32u
+#define NOXTLS_MLKEM_SHARED_SECRET_LEN 32U
 
 #define MLKEM_Q 3329
 #define MLKEM_N 256

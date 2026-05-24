@@ -3,11 +3,22 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+*
 * This file is part of the NoxTLS Library.
 *
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
+*
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
+*
 * File:    noxtls_slhdsa.c
-* Summary: SLH-DSA (NIST FIPS 205) API facade and parameter contracts.
-*/
+* Summary: SLH-DSA (NIST FIPS 205) API and parameter contracts.
+*
+*
+*****************************************************************************/
 
 #include <stdint.h>
 #include <string.h>
@@ -19,29 +30,29 @@
 #include "mdigest/sha512/noxtls_sha512.h"
 #include "noxtls_slhdsa.h"
 
-#define SLHDSA_WOTS_LG_W 4u
-#define SLHDSA_WOTS_W 16u
-#define SLHDSA_WOTS_LEN2 3u
-#define SLHDSA_MAX_N 32u
+#define SLHDSA_WOTS_LG_W 4U
+#define SLHDSA_WOTS_W 16U
+#define SLHDSA_WOTS_LEN2 3U
+#define SLHDSA_MAX_N 32U
 #define SLHDSA_MAX_WOTS_LEN 67u
-#define SLHDSA_MAX_D 22u
-#define SLHDSA_MAX_HP 22u
-#define SLHDSA_MAX_A 14u
-#define SLHDSA_MAX_K 35u
-#define SLHDSA_MAX_MD_LEN 49u
-#define SLHDSA_ADRS_LEN 32u
-#define SLHDSA_SHA2_ADRS_LEN 22u
-#define SLHDSA_SHA256_BLOCK_LEN 64u
-#define SLHDSA_SHA512_BLOCK_LEN 128u
-#define SLHDSA_SHA256_LEN 32u
-#define SLHDSA_SHA512_LEN 64u
-#define SLHDSA_ADRS_TYPE_WOTS_HASH 0u
-#define SLHDSA_ADRS_TYPE_WOTS_PK 1u
-#define SLHDSA_ADRS_TYPE_TREE 2u
-#define SLHDSA_ADRS_TYPE_FORS_TREE 3u
-#define SLHDSA_ADRS_TYPE_FORS_ROOTS 4u
-#define SLHDSA_ADRS_TYPE_WOTS_PRF 5u
-#define SLHDSA_ADRS_TYPE_FORS_PRF 6u
+#define SLHDSA_MAX_D 22U
+#define SLHDSA_MAX_HP 22U
+#define SLHDSA_MAX_A 14U
+#define SLHDSA_MAX_K 35U
+#define SLHDSA_MAX_MD_LEN 49U
+#define SLHDSA_ADRS_LEN 32U
+#define SLHDSA_SHA2_ADRS_LEN 22U
+#define SLHDSA_SHA256_BLOCK_LEN 64U
+#define SLHDSA_SHA512_BLOCK_LEN 128U
+#define SLHDSA_SHA256_LEN 32U
+#define SLHDSA_SHA512_LEN 64U
+#define SLHDSA_ADRS_TYPE_WOTS_HASH 0U
+#define SLHDSA_ADRS_TYPE_WOTS_PK 1U
+#define SLHDSA_ADRS_TYPE_TREE 2U
+#define SLHDSA_ADRS_TYPE_FORS_TREE 3U
+#define SLHDSA_ADRS_TYPE_FORS_ROOTS 4U
+#define SLHDSA_ADRS_TYPE_WOTS_PRF 5U
+#define SLHDSA_ADRS_TYPE_FORS_PRF 6U
 
 typedef struct
 {
@@ -74,57 +85,57 @@ static noxtls_return_t slhdsa_get_sizes(noxtls_slhdsa_param_t param, slhdsa_size
     switch(param) {
         case NOXTLS_SLHDSA_SHA2_128S:
         case NOXTLS_SLHDSA_SHAKE_128S:
-            sizes->public_key_len = 32u;
-            sizes->secret_key_len = 64u;
+            sizes->public_key_len = 32U;
+            sizes->secret_key_len = 64U;
             sizes->signature_len = 7856u;
-            sizes->security_category = 1u;
-            sizes->small_variant = 1u;
+            sizes->security_category = 1U;
+            sizes->small_variant = 1U;
             break;
         case NOXTLS_SLHDSA_SHA2_128F:
         case NOXTLS_SLHDSA_SHAKE_128F:
-            sizes->public_key_len = 32u;
-            sizes->secret_key_len = 64u;
+            sizes->public_key_len = 32U;
+            sizes->secret_key_len = 64U;
             sizes->signature_len = 17088u;
-            sizes->security_category = 1u;
-            sizes->small_variant = 0u;
+            sizes->security_category = 1U;
+            sizes->small_variant = 0U;
             break;
         case NOXTLS_SLHDSA_SHA2_192S:
         case NOXTLS_SLHDSA_SHAKE_192S:
-            sizes->public_key_len = 48u;
+            sizes->public_key_len = 48U;
             sizes->secret_key_len = 96u;
             sizes->signature_len = 16224u;
-            sizes->security_category = 3u;
-            sizes->small_variant = 1u;
+            sizes->security_category = 3U;
+            sizes->small_variant = 1U;
             break;
         case NOXTLS_SLHDSA_SHA2_192F:
         case NOXTLS_SLHDSA_SHAKE_192F:
-            sizes->public_key_len = 48u;
+            sizes->public_key_len = 48U;
             sizes->secret_key_len = 96u;
             sizes->signature_len = 35664u;
-            sizes->security_category = 3u;
-            sizes->small_variant = 0u;
+            sizes->security_category = 3U;
+            sizes->small_variant = 0U;
             break;
         case NOXTLS_SLHDSA_SHA2_256S:
         case NOXTLS_SLHDSA_SHAKE_256S:
-            sizes->public_key_len = 64u;
-            sizes->secret_key_len = 128u;
+            sizes->public_key_len = 64U;
+            sizes->secret_key_len = 128U;
             sizes->signature_len = 29792u;
-            sizes->security_category = 5u;
-            sizes->small_variant = 1u;
+            sizes->security_category = 5U;
+            sizes->small_variant = 1U;
             break;
         case NOXTLS_SLHDSA_SHA2_256F:
         case NOXTLS_SLHDSA_SHAKE_256F:
-            sizes->public_key_len = 64u;
-            sizes->secret_key_len = 128u;
+            sizes->public_key_len = 64U;
+            sizes->secret_key_len = 128U;
             sizes->signature_len = 49856u;
-            sizes->security_category = 5u;
-            sizes->small_variant = 0u;
+            sizes->security_category = 5U;
+            sizes->small_variant = 0U;
             break;
         default:
             return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    sizes->hash_family_sha2 = (param >= NOXTLS_SLHDSA_SHA2_128S && param <= NOXTLS_SLHDSA_SHA2_256F) ? 1u : 0u;
+    sizes->hash_family_sha2 = (param >= NOXTLS_SLHDSA_SHA2_128S && param <= NOXTLS_SLHDSA_SHA2_256F) ? 1U : 0U;
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -150,69 +161,69 @@ static noxtls_return_t slhdsa_get_params(noxtls_slhdsa_param_t param, slhdsa_par
     switch(param) {
         case NOXTLS_SLHDSA_SHA2_128S:
         case NOXTLS_SLHDSA_SHAKE_128S:
-            p->n = 16u;
+            p->n = 16U;
             p->h = 63u;
-            p->d = 7u;
-            p->hp = 9u;
-            p->a = 12u;
-            p->k = 14u;
-            p->md_len = 30u;
-            p->wots_len = (2u * p->n) + SLHDSA_WOTS_LEN2;
+            p->d = 7U;
+            p->hp = 9U;
+            p->a = 12U;
+            p->k = 14U;
+            p->md_len = 30U;
+            p->wots_len = (2U * p->n) + SLHDSA_WOTS_LEN2;
             return NOXTLS_RETURN_SUCCESS;
         case NOXTLS_SLHDSA_SHA2_128F:
         case NOXTLS_SLHDSA_SHAKE_128F:
-            p->n = 16u;
+            p->n = 16U;
             p->h = 66u;
-            p->d = 22u;
-            p->hp = 3u;
-            p->a = 6u;
-            p->k = 33u;
-            p->md_len = 34u;
-            p->wots_len = (2u * p->n) + SLHDSA_WOTS_LEN2;
+            p->d = 22U;
+            p->hp = 3U;
+            p->a = 6U;
+            p->k = 33U;
+            p->md_len = 34U;
+            p->wots_len = (2U * p->n) + SLHDSA_WOTS_LEN2;
             return NOXTLS_RETURN_SUCCESS;
         case NOXTLS_SLHDSA_SHA2_192S:
         case NOXTLS_SLHDSA_SHAKE_192S:
-            p->n = 24u;
+            p->n = 24U;
             p->h = 63u;
-            p->d = 7u;
-            p->hp = 9u;
-            p->a = 14u;
-            p->k = 17u;
-            p->md_len = 39u;
-            p->wots_len = (2u * p->n) + SLHDSA_WOTS_LEN2;
+            p->d = 7U;
+            p->hp = 9U;
+            p->a = 14U;
+            p->k = 17U;
+            p->md_len = 39U;
+            p->wots_len = (2U * p->n) + SLHDSA_WOTS_LEN2;
             return NOXTLS_RETURN_SUCCESS;
         case NOXTLS_SLHDSA_SHA2_192F:
         case NOXTLS_SLHDSA_SHAKE_192F:
-            p->n = 24u;
+            p->n = 24U;
             p->h = 66u;
-            p->d = 22u;
-            p->hp = 3u;
-            p->a = 8u;
-            p->k = 33u;
-            p->md_len = 42u;
-            p->wots_len = (2u * p->n) + SLHDSA_WOTS_LEN2;
+            p->d = 22U;
+            p->hp = 3U;
+            p->a = 8U;
+            p->k = 33U;
+            p->md_len = 42U;
+            p->wots_len = (2U * p->n) + SLHDSA_WOTS_LEN2;
             return NOXTLS_RETURN_SUCCESS;
         case NOXTLS_SLHDSA_SHA2_256S:
         case NOXTLS_SLHDSA_SHAKE_256S:
-            p->n = 32u;
-            p->h = 64u;
-            p->d = 8u;
-            p->hp = 8u;
-            p->a = 14u;
-            p->k = 22u;
-            p->md_len = 47u;
-            p->wots_len = (2u * p->n) + SLHDSA_WOTS_LEN2;
+            p->n = 32U;
+            p->h = 64U;
+            p->d = 8U;
+            p->hp = 8U;
+            p->a = 14U;
+            p->k = 22U;
+            p->md_len = 47U;
+            p->wots_len = (2U * p->n) + SLHDSA_WOTS_LEN2;
             return NOXTLS_RETURN_SUCCESS;
         case NOXTLS_SLHDSA_SHA2_256F:
         case NOXTLS_SLHDSA_SHAKE_256F:
-            p->n = 32u;
+            p->n = 32U;
             p->h = 68u;
-            p->d = 17u;
-            p->hp = 4u;
-            p->a = 9u;
-            p->k = 35u;
-            p->md_len = 49u;
-            p->wots_len = (2u * p->n) + SLHDSA_WOTS_LEN2;
+            p->d = 17U;
+            p->hp = 4U;
+            p->a = 9U;
+            p->k = 35U;
+            p->md_len = 49U;
+            p->wots_len = (2U * p->n) + SLHDSA_WOTS_LEN2;
             return NOXTLS_RETURN_SUCCESS;
         default:
             return NOXTLS_RETURN_INVALID_PARAM;
@@ -243,8 +254,8 @@ static void slhdsa_store64(uint8_t out[8], uint64_t value)
 {
     uint32_t i;
 
-    for(i = 0u; i < 8u; i++) {
-        out[7u - i] = (uint8_t)(value >> (8u * i));
+    for(i = 0U; i < 8U; i++) {
+        out[7U - i] = (uint8_t)(value >> (8U * i));
     }
 }
 
@@ -256,11 +267,11 @@ static void slhdsa_store64(uint8_t out[8], uint64_t value)
  */
 static uint64_t slhdsa_load_be(const uint8_t *in, uint32_t len)
 {
-    uint64_t value = 0u;
+    uint64_t value = 0U;
     uint32_t i;
 
-    for(i = 0u; i < len; i++) {
-        value = (value << 8u) | in[i];
+    for(i = 0U; i < len; i++) {
+        value = (value << 8U) | in[i];
     }
     return value;
 }
@@ -284,7 +295,7 @@ static void slhdsa_adrs_set_layer(uint8_t adrs[SLHDSA_ADRS_LEN], uint32_t layer)
  */
 static void slhdsa_adrs_set_tree(uint8_t adrs[SLHDSA_ADRS_LEN], uint64_t tree)
 {
-    slhdsa_store64(adrs + 8u, tree);
+    slhdsa_store64(adrs + 8U, tree);
 }
 
 /**
@@ -295,8 +306,8 @@ static void slhdsa_adrs_set_tree(uint8_t adrs[SLHDSA_ADRS_LEN], uint64_t tree)
  */
 static void slhdsa_adrs_set_type(uint8_t adrs[SLHDSA_ADRS_LEN], uint32_t type)
 {
-    slhdsa_store32(adrs + 16u, type);
-    memset(adrs + 20u, 0, 12u);
+    slhdsa_store32(adrs + 16U, type);
+    memset(adrs + 20U, 0, 12U);
 }
 
 /**
@@ -307,7 +318,7 @@ static void slhdsa_adrs_set_type(uint8_t adrs[SLHDSA_ADRS_LEN], uint32_t type)
  */
 static void slhdsa_adrs_set_keypair(uint8_t adrs[SLHDSA_ADRS_LEN], uint32_t value)
 {
-    slhdsa_store32(adrs + 20u, value);
+    slhdsa_store32(adrs + 20U, value);
 }
 
 /**
@@ -318,7 +329,7 @@ static void slhdsa_adrs_set_keypair(uint8_t adrs[SLHDSA_ADRS_LEN], uint32_t valu
  */
 static void slhdsa_adrs_set_chain(uint8_t adrs[SLHDSA_ADRS_LEN], uint32_t value)
 {
-    slhdsa_store32(adrs + 24u, value);
+    slhdsa_store32(adrs + 24U, value);
 }
 
 /**
@@ -329,7 +340,7 @@ static void slhdsa_adrs_set_chain(uint8_t adrs[SLHDSA_ADRS_LEN], uint32_t value)
  */
 static void slhdsa_adrs_set_hash(uint8_t adrs[SLHDSA_ADRS_LEN], uint32_t value)
 {
-    slhdsa_store32(adrs + 28u, value);
+    slhdsa_store32(adrs + 28U, value);
 }
 
 /**
@@ -340,7 +351,7 @@ static void slhdsa_adrs_set_hash(uint8_t adrs[SLHDSA_ADRS_LEN], uint32_t value)
  */
 static void slhdsa_adrs_set_tree_height(uint8_t adrs[SLHDSA_ADRS_LEN], uint32_t value)
 {
-    slhdsa_store32(adrs + 24u, value);
+    slhdsa_store32(adrs + 24U, value);
 }
 
 /**
@@ -351,7 +362,7 @@ static void slhdsa_adrs_set_tree_height(uint8_t adrs[SLHDSA_ADRS_LEN], uint32_t 
  */
 static void slhdsa_adrs_set_tree_index(uint8_t adrs[SLHDSA_ADRS_LEN], uint32_t value)
 {
-    slhdsa_store32(adrs + 28u, value);
+    slhdsa_store32(adrs + 28U, value);
 }
 
 /**
@@ -361,7 +372,7 @@ static void slhdsa_adrs_set_tree_index(uint8_t adrs[SLHDSA_ADRS_LEN], uint32_t v
  */
 static uint32_t slhdsa_adrs_get_keypair(const uint8_t adrs[SLHDSA_ADRS_LEN])
 {
-    return (uint32_t)slhdsa_load_be(adrs + 20u, 4u);
+    return (uint32_t)slhdsa_load_be(adrs + 20U, 4U);
 }
 
 /**
@@ -394,19 +405,19 @@ static noxtls_return_t slhdsa_shake256_4(const uint8_t *a,
 
     rc = noxtls_shake256_init(&ctx);
     if(rc != NOXTLS_RETURN_SUCCESS) return rc;
-    if(a_len != 0u) {
+    if(a_len != 0U) {
         rc = noxtls_shake256_update(&ctx, a, a_len);
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
     }
-    if(b_len != 0u) {
+    if(b_len != 0U) {
         rc = noxtls_shake256_update(&ctx, b, b_len);
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
     }
-    if(c_len != 0u) {
+    if(c_len != 0U) {
         rc = noxtls_shake256_update(&ctx, c, c_len);
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
     }
-    if(d_len != 0u) {
+    if(d_len != 0U) {
         rc = noxtls_shake256_update(&ctx, d, d_len);
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
     }
@@ -424,9 +435,9 @@ static noxtls_return_t slhdsa_shake256_4(const uint8_t *a,
 static void slhdsa_compress_adrs(const uint8_t adrs[SLHDSA_ADRS_LEN], uint8_t out[SLHDSA_SHA2_ADRS_LEN])
 {
     out[0] = adrs[3];
-    memcpy(out + 1u, adrs + 8u, 8u);
+    memcpy(out + 1U, adrs + 8U, 8U);
     out[9] = adrs[19];
-    memcpy(out + 10u, adrs + 20u, 12u);
+    memcpy(out + 10U, adrs + 20U, 12U);
 }
 
 /**
@@ -457,19 +468,19 @@ static noxtls_return_t slhdsa_sha256_4(const uint8_t *a,
 
     rc = noxtls_sha256_init(&ctx, NOXTLS_HASH_SHA_256);
     if(rc != NOXTLS_RETURN_SUCCESS) return rc;
-    if(a_len != 0u) {
+    if(a_len != 0U) {
         rc = noxtls_sha256_update(&ctx, a, a_len);
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
     }
-    if(b_len != 0u) {
+    if(b_len != 0U) {
         rc = noxtls_sha256_update(&ctx, b, b_len);
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
     }
-    if(c_len != 0u) {
+    if(c_len != 0U) {
         rc = noxtls_sha256_update(&ctx, c, c_len);
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
     }
-    if(d_len != 0u) {
+    if(d_len != 0U) {
         rc = noxtls_sha256_update(&ctx, d, d_len);
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
     }
@@ -504,19 +515,19 @@ static noxtls_return_t slhdsa_sha512_4(const uint8_t *a,
 
     rc = noxtls_sha512_init(&ctx, NOXTLS_HASH_SHA_512);
     if(rc != NOXTLS_RETURN_SUCCESS) return rc;
-    if(a_len != 0u) {
+    if(a_len != 0U) {
         rc = noxtls_sha512_update(&ctx, a, a_len);
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
     }
-    if(b_len != 0u) {
+    if(b_len != 0U) {
         rc = noxtls_sha512_update(&ctx, b, b_len);
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
     }
-    if(c_len != 0u) {
+    if(c_len != 0U) {
         rc = noxtls_sha512_update(&ctx, c, c_len);
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
     }
-    if(d_len != 0u) {
+    if(d_len != 0U) {
         rc = noxtls_sha512_update(&ctx, d, d_len);
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
     }
@@ -556,26 +567,26 @@ static noxtls_return_t slhdsa_hmac(uint8_t use_sha512,
     memset(key_block, 0, sizeof(key_block));
     if(key_len > block_len) {
         if(use_sha512) {
-            rc = slhdsa_sha512_4(key, key_len, NULL, 0u, NULL, 0u, NULL, 0u, key_block);
+            rc = slhdsa_sha512_4(key, key_len, NULL, 0U, NULL, 0U, NULL, 0U, key_block);
         } else {
-            rc = slhdsa_sha256_4(key, key_len, NULL, 0u, NULL, 0u, NULL, 0u, key_block);
+            rc = slhdsa_sha256_4(key, key_len, NULL, 0U, NULL, 0U, NULL, 0U, key_block);
         }
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
     } else {
         memcpy(key_block, key, key_len);
     }
-    for(i = 0u; i < block_len; i++) {
+    for(i = 0U; i < block_len; i++) {
         ipad[i] = (uint8_t)(key_block[i] ^ 0x36u);
         opad[i] = (uint8_t)(key_block[i] ^ 0x5cu);
     }
     if(use_sha512) {
-        rc = slhdsa_sha512_4(ipad, block_len, a, a_len, b, b_len, NULL, 0u, inner);
+        rc = slhdsa_sha512_4(ipad, block_len, a, a_len, b, b_len, NULL, 0U, inner);
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
-        return slhdsa_sha512_4(opad, block_len, inner, digest_len, NULL, 0u, NULL, 0u, out);
+        return slhdsa_sha512_4(opad, block_len, inner, digest_len, NULL, 0U, NULL, 0U, out);
     }
-    rc = slhdsa_sha256_4(ipad, block_len, a, a_len, b, b_len, NULL, 0u, inner);
+    rc = slhdsa_sha256_4(ipad, block_len, a, a_len, b, b_len, NULL, 0U, inner);
     if(rc != NOXTLS_RETURN_SUCCESS) return rc;
-    return slhdsa_sha256_4(opad, block_len, inner, digest_len, NULL, 0u, NULL, 0u, out);
+    return slhdsa_sha256_4(opad, block_len, inner, digest_len, NULL, 0U, NULL, 0U, out);
 }
 
 /**
@@ -596,8 +607,8 @@ static noxtls_return_t slhdsa_mgf1(uint8_t use_sha512,
     uint8_t counter[4];
     uint8_t digest[SLHDSA_SHA512_LEN];
     uint32_t digest_len = use_sha512 ? SLHDSA_SHA512_LEN : SLHDSA_SHA256_LEN;
-    uint32_t produced = 0u;
-    uint32_t ctr = 0u;
+    uint32_t produced = 0U;
+    uint32_t ctr = 0U;
     noxtls_return_t rc;
 
     while(produced < out_len) {
@@ -605,9 +616,9 @@ static noxtls_return_t slhdsa_mgf1(uint8_t use_sha512,
 
         slhdsa_store32(counter, ctr);
         if(use_sha512) {
-            rc = slhdsa_sha512_4(seed, seed_len, counter, sizeof(counter), NULL, 0u, NULL, 0u, digest);
+            rc = slhdsa_sha512_4(seed, seed_len, counter, sizeof(counter), NULL, 0U, NULL, 0U, digest);
         } else {
-            rc = slhdsa_sha256_4(seed, seed_len, counter, sizeof(counter), NULL, 0u, NULL, 0u, digest);
+            rc = slhdsa_sha256_4(seed, seed_len, counter, sizeof(counter), NULL, 0U, NULL, 0U, digest);
         }
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
         take = out_len - produced;
@@ -636,7 +647,7 @@ static noxtls_return_t slhdsa_random(uint8_t *out, uint32_t out_len)
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    return drbg_generate(&drbg, out, out_len * 8u, NULL, 0);
+    return drbg_generate(&drbg, out, out_len * 8U, NULL, 0);
 }
 
 /**
@@ -658,7 +669,7 @@ static noxtls_return_t slhdsa_shake_prf(const slhdsa_params_t *p,
     uint8_t digest[SLHDSA_SHA256_LEN];
     noxtls_return_t rc;
 
-    if(p->sizes.hash_family_sha2 != 0u) {
+    if(p->sizes.hash_family_sha2 != 0U) {
         memcpy(sha_input, pk_seed, p->n);
         memset(sha_input + p->n, 0, SLHDSA_SHA256_BLOCK_LEN - p->n);
         slhdsa_compress_adrs(adrs, sha_input + SLHDSA_SHA256_BLOCK_LEN);
@@ -667,9 +678,9 @@ static noxtls_return_t slhdsa_shake_prf(const slhdsa_params_t *p,
                              sk_seed,
                              p->n,
                              NULL,
-                             0u,
+                             0U,
                              NULL,
-                             0u,
+                             0U,
                              digest);
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
         memcpy(out, digest, p->n);
@@ -682,7 +693,7 @@ static noxtls_return_t slhdsa_shake_prf(const slhdsa_params_t *p,
                              sk_seed,
                              p->n,
                              NULL,
-                             0u,
+                             0U,
                              out,
                              p->n);
 }
@@ -709,7 +720,7 @@ static noxtls_return_t slhdsa_shake_thash(const slhdsa_params_t *p,
     uint32_t block_len;
     noxtls_return_t rc;
 
-    if(p->sizes.hash_family_sha2 != 0u) {
+    if(p->sizes.hash_family_sha2 != 0U) {
         if(in_len == p->n) {
             block_len = SLHDSA_SHA256_BLOCK_LEN;
             memcpy(sha_input, pk_seed, p->n);
@@ -720,9 +731,9 @@ static noxtls_return_t slhdsa_shake_thash(const slhdsa_params_t *p,
                                  in,
                                  in_len,
                                  NULL,
-                                 0u,
+                                 0U,
                                  NULL,
-                                 0u,
+                                 0U,
                                  digest);
         } else {
             block_len = SLHDSA_SHA512_BLOCK_LEN;
@@ -734,9 +745,9 @@ static noxtls_return_t slhdsa_shake_thash(const slhdsa_params_t *p,
                                  in,
                                  in_len,
                                  NULL,
-                                 0u,
+                                 0U,
                                  NULL,
-                                 0u,
+                                 0U,
                                  digest);
         }
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
@@ -750,7 +761,7 @@ static noxtls_return_t slhdsa_shake_thash(const slhdsa_params_t *p,
                              in,
                              in_len,
                              NULL,
-                             0u,
+                             0U,
                              out,
                              p->n);
 }
@@ -775,8 +786,8 @@ static noxtls_return_t slhdsa_prf_msg(const slhdsa_params_t *p,
     uint8_t digest[SLHDSA_SHA512_LEN];
     noxtls_return_t rc;
 
-    if(p->sizes.hash_family_sha2 != 0u) {
-        rc = slhdsa_hmac((uint8_t)(p->n > 16u),
+    if(p->sizes.hash_family_sha2 != 0U) {
+        rc = slhdsa_hmac((uint8_t)(p->n > 16U),
                          sk_prf,
                          p->n,
                          opt_rand,
@@ -795,7 +806,7 @@ static noxtls_return_t slhdsa_prf_msg(const slhdsa_params_t *p,
                              msg,
                              msg_len,
                              NULL,
-                             0u,
+                             0U,
                              r,
                              p->n);
 }
@@ -827,48 +838,48 @@ static noxtls_return_t slhdsa_h_msg(const slhdsa_params_t *p,
 
     memcpy(pk, pk_seed, p->n);
     memcpy(pk + p->n, pk_root, p->n);
-    if(p->sizes.hash_family_sha2 != 0u) {
-        if(p->n == 16u) {
+    if(p->sizes.hash_family_sha2 != 0U) {
+        if(p->n == 16U) {
             rc = slhdsa_sha256_4(r,
                                  p->n,
                                  pk,
-                                 2u * p->n,
+                                 2U * p->n,
                                  msg,
                                  msg_len,
                                  NULL,
-                                 0u,
+                                 0U,
                                  msg_hash);
             hash_len = SLHDSA_SHA256_LEN;
         } else {
             rc = slhdsa_sha512_4(r,
                                  p->n,
                                  pk,
-                                 2u * p->n,
+                                 2U * p->n,
                                  msg,
                                  msg_len,
                                  NULL,
-                                 0u,
+                                 0U,
                                  msg_hash);
             hash_len = SLHDSA_SHA512_LEN;
         }
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
         memcpy(seed, r, p->n);
         memcpy(seed + p->n, pk_seed, p->n);
-        memcpy(seed + (2u * p->n), msg_hash, hash_len);
-        return slhdsa_mgf1((uint8_t)(p->n > 16u),
+        memcpy(seed + (2U * p->n), msg_hash, hash_len);
+        return slhdsa_mgf1((uint8_t)(p->n > 16U),
                            seed,
-                           (2u * p->n) + hash_len,
+                           (2U * p->n) + hash_len,
                            digest,
                            p->md_len);
     }
     return slhdsa_shake256_4(r,
                              p->n,
                              pk,
-                             2u * p->n,
+                             2U * p->n,
                              msg,
                              msg_len,
                              NULL,
-                             0u,
+                             0U,
                              digest,
                              p->md_len);
 }
@@ -882,21 +893,21 @@ static noxtls_return_t slhdsa_h_msg(const slhdsa_params_t *p,
  */
 static void slhdsa_chain_lengths(const slhdsa_params_t *p, const uint8_t *msg, uint8_t out[SLHDSA_MAX_WOTS_LEN])
 {
-    uint32_t len1 = 2u * p->n;
-    uint32_t csum = 0u;
+    uint32_t len1 = 2U * p->n;
+    uint32_t csum = 0U;
     uint32_t i;
 
-    for(i = 0u; i < p->n; i++) {
-        out[2u * i] = (uint8_t)(msg[i] >> 4);
-        out[(2u * i) + 1u] = (uint8_t)(msg[i] & 0x0Fu);
+    for(i = 0U; i < p->n; i++) {
+        out[2U * i] = (uint8_t)(msg[i] >> 4);
+        out[(2U * i) + 1U] = (uint8_t)(msg[i] & 0x0Fu);
     }
-    for(i = 0u; i < len1; i++) {
-        csum += (SLHDSA_WOTS_W - 1u) - out[i];
+    for(i = 0U; i < len1; i++) {
+        csum += (SLHDSA_WOTS_W - 1U) - out[i];
     }
-    csum <<= 4u;
-    out[len1] = (uint8_t)((csum >> 8u) & 0x0Fu);
-    out[len1 + 1u] = (uint8_t)((csum >> 4u) & 0x0Fu);
-    out[len1 + 2u] = (uint8_t)(csum & 0x0Fu);
+    csum <<= 4U;
+    out[len1] = (uint8_t)((csum >> 8U) & 0x0Fu);
+    out[len1 + 1U] = (uint8_t)((csum >> 4U) & 0x0Fu);
+    out[len1 + 2U] = (uint8_t)(csum & 0x0Fu);
 }
 
 /**
@@ -956,7 +967,7 @@ static noxtls_return_t slhdsa_wots_pkgen(const slhdsa_params_t *p,
     uint32_t i;
     noxtls_return_t rc;
 
-    for(i = 0u; i < p->wots_len; i++) {
+    for(i = 0U; i < p->wots_len; i++) {
         memcpy(chain_adrs, adrs, SLHDSA_ADRS_LEN);
         slhdsa_adrs_set_type(chain_adrs, SLHDSA_ADRS_TYPE_WOTS_PRF);
         slhdsa_adrs_set_keypair(chain_adrs, slhdsa_adrs_get_keypair(adrs));
@@ -966,7 +977,7 @@ static noxtls_return_t slhdsa_wots_pkgen(const slhdsa_params_t *p,
         slhdsa_adrs_set_type(chain_adrs, SLHDSA_ADRS_TYPE_WOTS_HASH);
         slhdsa_adrs_set_keypair(chain_adrs, slhdsa_adrs_get_keypair(adrs));
         slhdsa_adrs_set_chain(chain_adrs, i);
-        rc = slhdsa_chain(p, buf + (i * p->n), sk, 0u, SLHDSA_WOTS_W - 1u, pk_seed, chain_adrs);
+        rc = slhdsa_chain(p, buf + (i * p->n), sk, 0U, SLHDSA_WOTS_W - 1U, pk_seed, chain_adrs);
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
     }
 
@@ -1000,7 +1011,7 @@ static noxtls_return_t slhdsa_wots_sign(const slhdsa_params_t *p,
     noxtls_return_t rc;
 
     slhdsa_chain_lengths(p, msg, lengths);
-    for(i = 0u; i < p->wots_len; i++) {
+    for(i = 0U; i < p->wots_len; i++) {
         memcpy(chain_adrs, adrs, SLHDSA_ADRS_LEN);
         slhdsa_adrs_set_type(chain_adrs, SLHDSA_ADRS_TYPE_WOTS_PRF);
         slhdsa_adrs_set_keypair(chain_adrs, slhdsa_adrs_get_keypair(adrs));
@@ -1010,7 +1021,7 @@ static noxtls_return_t slhdsa_wots_sign(const slhdsa_params_t *p,
         slhdsa_adrs_set_type(chain_adrs, SLHDSA_ADRS_TYPE_WOTS_HASH);
         slhdsa_adrs_set_keypair(chain_adrs, slhdsa_adrs_get_keypair(adrs));
         slhdsa_adrs_set_chain(chain_adrs, i);
-        rc = slhdsa_chain(p, sig + (i * p->n), sk, 0u, lengths[i], pk_seed, chain_adrs);
+        rc = slhdsa_chain(p, sig + (i * p->n), sk, 0U, lengths[i], pk_seed, chain_adrs);
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
     }
     return NOXTLS_RETURN_SUCCESS;
@@ -1041,7 +1052,7 @@ static noxtls_return_t slhdsa_wots_pk_from_sig(const slhdsa_params_t *p,
     noxtls_return_t rc;
 
     slhdsa_chain_lengths(p, msg, lengths);
-    for(i = 0u; i < p->wots_len; i++) {
+    for(i = 0U; i < p->wots_len; i++) {
         memcpy(chain_adrs, adrs, SLHDSA_ADRS_LEN);
         slhdsa_adrs_set_type(chain_adrs, SLHDSA_ADRS_TYPE_WOTS_HASH);
         slhdsa_adrs_set_keypair(chain_adrs, slhdsa_adrs_get_keypair(adrs));
@@ -1050,7 +1061,7 @@ static noxtls_return_t slhdsa_wots_pk_from_sig(const slhdsa_params_t *p,
                           buf + (i * p->n),
                           sig + (i * p->n),
                           lengths[i],
-                          (SLHDSA_WOTS_W - 1u) - lengths[i],
+                          (SLHDSA_WOTS_W - 1U) - lengths[i],
                           pk_seed,
                           chain_adrs);
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
@@ -1109,45 +1120,45 @@ static noxtls_return_t slhdsa_xmss_treehash(const slhdsa_params_t *p,
                                             uint32_t start,
                                             uint32_t height)
 {
-    uint8_t stack[(SLHDSA_MAX_HP + 1u) * SLHDSA_MAX_N];
-    uint32_t stack_heights[SLHDSA_MAX_HP + 1u];
+    uint8_t stack[(SLHDSA_MAX_HP + 1U) * SLHDSA_MAX_N];
+    uint32_t stack_heights[SLHDSA_MAX_HP + 1U];
     uint8_t node[SLHDSA_MAX_N];
-    uint8_t parent[2u * SLHDSA_MAX_N];
+    uint8_t parent[2U * SLHDSA_MAX_N];
     uint8_t tree_adrs[SLHDSA_ADRS_LEN];
-    uint32_t stack_len = 0u;
-    uint32_t leaf_count = 1u << height;
+    uint32_t stack_len = 0U;
+    uint32_t leaf_count = 1U << height;
     uint32_t i;
     noxtls_return_t rc;
 
-    for(i = 0u; i < leaf_count; i++) {
+    for(i = 0U; i < leaf_count; i++) {
         uint32_t leaf_idx = start + i;
-        uint32_t node_height = 0u;
+        uint32_t node_height = 0U;
         uint32_t node_index = leaf_idx;
 
         rc = slhdsa_xmss_leaf(p, node, sk_seed, pk_seed, adrs, leaf_idx);
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
-        if(auth != NULL && ((leaf_idx ^ target) == 1u)) {
+        if(auth != NULL && ((leaf_idx ^ target) == 1U)) {
             memcpy(auth, node, p->n);
         }
-        while(stack_len > 0u && stack_heights[stack_len - 1u] == node_height) {
-            uint32_t sibling_index = node_index ^ 1u;
+        while(stack_len > 0U && stack_heights[stack_len - 1U] == node_height) {
+            uint32_t sibling_index = node_index ^ 1U;
 
-            if(auth != NULL && node_height < height && ((target >> node_height) ^ 1u) == sibling_index) {
-                memcpy(auth + (node_height * p->n), stack + ((stack_len - 1u) * p->n), p->n);
+            if(auth != NULL && node_height < height && ((target >> node_height) ^ 1U) == sibling_index) {
+                memcpy(auth + (node_height * p->n), stack + ((stack_len - 1U) * p->n), p->n);
             }
-            memcpy(parent, stack + ((stack_len - 1u) * p->n), p->n);
+            memcpy(parent, stack + ((stack_len - 1U) * p->n), p->n);
             memcpy(parent + p->n, node, p->n);
             stack_len--;
             memcpy(tree_adrs, adrs, SLHDSA_ADRS_LEN);
             slhdsa_adrs_set_type(tree_adrs, SLHDSA_ADRS_TYPE_TREE);
             slhdsa_adrs_set_keypair(tree_adrs, slhdsa_adrs_get_keypair(adrs));
-            slhdsa_adrs_set_tree_height(tree_adrs, node_height + 1u);
-            slhdsa_adrs_set_tree_index(tree_adrs, node_index >> 1u);
-            rc = slhdsa_shake_thash(p, pk_seed, tree_adrs, parent, 2u * p->n, node);
+            slhdsa_adrs_set_tree_height(tree_adrs, node_height + 1U);
+            slhdsa_adrs_set_tree_index(tree_adrs, node_index >> 1U);
+            rc = slhdsa_shake_thash(p, pk_seed, tree_adrs, parent, 2U * p->n, node);
             if(rc != NOXTLS_RETURN_SUCCESS) return rc;
             node_height++;
-            node_index >>= 1u;
-            if(auth != NULL && node_height < height && ((target >> node_height) ^ 1u) == node_index) {
+            node_index >>= 1U;
+            if(auth != NULL && node_height < height && ((target >> node_height) ^ 1U) == node_index) {
                 memcpy(auth + (node_height * p->n), node, p->n);
             }
         }
@@ -1156,7 +1167,7 @@ static noxtls_return_t slhdsa_xmss_treehash(const slhdsa_params_t *p,
         stack_len++;
     }
 
-    if(stack_len != 1u) {
+    if(stack_len != 1U) {
         return NOXTLS_RETURN_FAILED;
     }
     memcpy(root, stack, p->n);
@@ -1192,11 +1203,11 @@ static noxtls_return_t slhdsa_xmss_sign(const slhdsa_params_t *p,
     slhdsa_adrs_set_keypair(wots_adrs, idx_leaf);
     rc = slhdsa_wots_sign(p, sig, msg, sk_seed, pk_seed, wots_adrs);
     if(rc != NOXTLS_RETURN_SUCCESS) return rc;
-    for(j = 0u; j < p->hp; j++) {
-        uint32_t sibling = idx_leaf ^ (1u << j);
-        uint32_t start = sibling & ~((1u << j) - 1u);
+    for(j = 0U; j < p->hp; j++) {
+        uint32_t sibling = idx_leaf ^ (1U << j);
+        uint32_t start = sibling & ~((1U << j) - 1U);
 
-        rc = slhdsa_xmss_treehash(p, auth + (j * p->n), NULL, 0u, sk_seed, pk_seed, adrs, start, j);
+        rc = slhdsa_xmss_treehash(p, auth + (j * p->n), NULL, 0U, sk_seed, pk_seed, adrs, start, j);
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
     }
     return NOXTLS_RETURN_SUCCESS;
@@ -1223,7 +1234,7 @@ static noxtls_return_t slhdsa_xmss_pk_from_sig(const slhdsa_params_t *p,
 {
     uint8_t node[SLHDSA_MAX_N];
     uint8_t auth_node[SLHDSA_MAX_N];
-    uint8_t pair[2u * SLHDSA_MAX_N];
+    uint8_t pair[2U * SLHDSA_MAX_N];
     uint8_t tree_adrs[SLHDSA_ADRS_LEN];
     uint8_t wots_adrs[SLHDSA_ADRS_LEN];
     const uint8_t *auth = sig + (p->wots_len * p->n);
@@ -1237,9 +1248,9 @@ static noxtls_return_t slhdsa_xmss_pk_from_sig(const slhdsa_params_t *p,
     rc = slhdsa_wots_pk_from_sig(p, node, sig, msg, pk_seed, wots_adrs);
     if(rc != NOXTLS_RETURN_SUCCESS) return rc;
 
-    for(i = 0u; i < p->hp; i++) {
+    for(i = 0U; i < p->hp; i++) {
         memcpy(auth_node, auth + (i * p->n), p->n);
-        if((idx & 1u) == 0u) {
+        if((idx & 1U) == 0U) {
             memcpy(pair, node, p->n);
             memcpy(pair + p->n, auth_node, p->n);
         } else {
@@ -1249,11 +1260,11 @@ static noxtls_return_t slhdsa_xmss_pk_from_sig(const slhdsa_params_t *p,
         memcpy(tree_adrs, adrs, SLHDSA_ADRS_LEN);
         slhdsa_adrs_set_type(tree_adrs, SLHDSA_ADRS_TYPE_TREE);
         slhdsa_adrs_set_keypair(tree_adrs, slhdsa_adrs_get_keypair(adrs));
-        slhdsa_adrs_set_tree_height(tree_adrs, i + 1u);
-        slhdsa_adrs_set_tree_index(tree_adrs, idx >> 1u);
-        rc = slhdsa_shake_thash(p, pk_seed, tree_adrs, pair, 2u * p->n, node);
+        slhdsa_adrs_set_tree_height(tree_adrs, i + 1U);
+        slhdsa_adrs_set_tree_index(tree_adrs, idx >> 1U);
+        rc = slhdsa_shake_thash(p, pk_seed, tree_adrs, pair, 2U * p->n, node);
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
-        idx >>= 1u;
+        idx >>= 1U;
     }
     memcpy(root, node, p->n);
     return NOXTLS_RETURN_SUCCESS;
@@ -1272,12 +1283,12 @@ static void slhdsa_fors_indices(const slhdsa_params_t *p,
 {
     uint32_t i;
     uint32_t j;
-    uint32_t offset = 0u;
+    uint32_t offset = 0U;
 
-    for(i = 0u; i < p->k; i++) {
-        indices[i] = 0u;
-        for(j = 0u; j < p->a; j++) {
-            indices[i] |= (uint32_t)((msg[offset >> 3u] >> (offset & 7u)) & 1u) << j;
+    for(i = 0U; i < p->k; i++) {
+        indices[i] = 0U;
+        for(j = 0U; j < p->a; j++) {
+            indices[i] |= (uint32_t)((msg[offset >> 3U] >> (offset & 7U)) & 1U) << j;
             offset++;
         }
     }
@@ -1335,7 +1346,7 @@ static noxtls_return_t slhdsa_fors_leaf(const slhdsa_params_t *p,
     memcpy(tree_adrs, adrs, SLHDSA_ADRS_LEN);
     slhdsa_adrs_set_type(tree_adrs, SLHDSA_ADRS_TYPE_FORS_TREE);
     slhdsa_adrs_set_keypair(tree_adrs, slhdsa_adrs_get_keypair(adrs));
-    slhdsa_adrs_set_tree_height(tree_adrs, 0u);
+    slhdsa_adrs_set_tree_height(tree_adrs, 0U);
     slhdsa_adrs_set_tree_index(tree_adrs, idx);
     return slhdsa_shake_thash(p, pk_seed, tree_adrs, sk, p->n, leaf);
 }
@@ -1359,43 +1370,43 @@ static noxtls_return_t slhdsa_fors_treehash(const slhdsa_params_t *p,
                                             uint32_t start,
                                             uint32_t height)
 {
-    uint8_t stack[(SLHDSA_MAX_A + 1u) * SLHDSA_MAX_N];
-    uint32_t stack_heights[SLHDSA_MAX_A + 1u];
+    uint8_t stack[(SLHDSA_MAX_A + 1U) * SLHDSA_MAX_N];
+    uint32_t stack_heights[SLHDSA_MAX_A + 1U];
     uint8_t node[SLHDSA_MAX_N];
-    uint8_t pair[2u * SLHDSA_MAX_N];
+    uint8_t pair[2U * SLHDSA_MAX_N];
     uint8_t tree_adrs[SLHDSA_ADRS_LEN];
-    uint32_t stack_len = 0u;
-    uint32_t leaf_count = 1u << height;
+    uint32_t stack_len = 0U;
+    uint32_t leaf_count = 1U << height;
     uint32_t i;
     noxtls_return_t rc;
 
-    for(i = 0u; i < leaf_count; i++) {
+    for(i = 0U; i < leaf_count; i++) {
         uint32_t leaf_idx = start + i;
-        uint32_t node_height = 0u;
+        uint32_t node_height = 0U;
         uint32_t node_index = leaf_idx;
 
         rc = slhdsa_fors_leaf(p, node, sk_seed, pk_seed, adrs, leaf_idx);
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
-        while(stack_len > 0u && stack_heights[stack_len - 1u] == node_height) {
-            memcpy(pair, stack + ((stack_len - 1u) * p->n), p->n);
+        while(stack_len > 0U && stack_heights[stack_len - 1U] == node_height) {
+            memcpy(pair, stack + ((stack_len - 1U) * p->n), p->n);
             memcpy(pair + p->n, node, p->n);
             stack_len--;
             memcpy(tree_adrs, adrs, SLHDSA_ADRS_LEN);
             slhdsa_adrs_set_type(tree_adrs, SLHDSA_ADRS_TYPE_FORS_TREE);
             slhdsa_adrs_set_keypair(tree_adrs, slhdsa_adrs_get_keypair(adrs));
-            slhdsa_adrs_set_tree_height(tree_adrs, node_height + 1u);
-            slhdsa_adrs_set_tree_index(tree_adrs, node_index >> 1u);
-            rc = slhdsa_shake_thash(p, pk_seed, tree_adrs, pair, 2u * p->n, node);
+            slhdsa_adrs_set_tree_height(tree_adrs, node_height + 1U);
+            slhdsa_adrs_set_tree_index(tree_adrs, node_index >> 1U);
+            rc = slhdsa_shake_thash(p, pk_seed, tree_adrs, pair, 2U * p->n, node);
             if(rc != NOXTLS_RETURN_SUCCESS) return rc;
             node_height++;
-            node_index >>= 1u;
+            node_index >>= 1U;
         }
         memcpy(stack + (stack_len * p->n), node, p->n);
         stack_heights[stack_len] = node_height;
         stack_len++;
     }
 
-    if(stack_len != 1u) {
+    if(stack_len != 1U) {
         return NOXTLS_RETURN_FAILED;
     }
     memcpy(root, stack, p->n);
@@ -1424,22 +1435,22 @@ static noxtls_return_t slhdsa_fors_sign(const slhdsa_params_t *p,
     uint32_t indices[SLHDSA_MAX_K];
     uint8_t roots[SLHDSA_MAX_K * SLHDSA_MAX_N];
     uint8_t roots_adrs[SLHDSA_ADRS_LEN];
-    uint32_t tree_size = 1u << p->a;
+    uint32_t tree_size = 1U << p->a;
     uint32_t i;
     uint32_t j;
     noxtls_return_t rc;
 
     slhdsa_fors_indices(p, indices, msg);
-    for(i = 0u; i < p->k; i++) {
+    for(i = 0U; i < p->k; i++) {
         uint32_t idx = indices[i];
         uint32_t absolute_idx = (i * tree_size) + idx;
 
         rc = slhdsa_fors_skgen(p, sig, sk_seed, pk_seed, adrs, absolute_idx);
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
         sig += p->n;
-        for(j = 0u; j < p->a; j++) {
-            uint32_t sibling = idx ^ (1u << j);
-            uint32_t start = (i * tree_size) + (sibling & ~((1u << j) - 1u));
+        for(j = 0U; j < p->a; j++) {
+            uint32_t sibling = idx ^ (1U << j);
+            uint32_t start = (i * tree_size) + (sibling & ~((1U << j) - 1U));
 
             rc = slhdsa_fors_treehash(p, sig, sk_seed, pk_seed, adrs, start, j);
             if(rc != NOXTLS_RETURN_SUCCESS) return rc;
@@ -1476,45 +1487,45 @@ static noxtls_return_t slhdsa_fors_pk_from_sig(const slhdsa_params_t *p,
     uint8_t roots[SLHDSA_MAX_K * SLHDSA_MAX_N];
     uint8_t node[SLHDSA_MAX_N];
     uint8_t auth[SLHDSA_MAX_N];
-    uint8_t pair[2u * SLHDSA_MAX_N];
+    uint8_t pair[2U * SLHDSA_MAX_N];
     uint8_t tree_adrs[SLHDSA_ADRS_LEN];
     uint8_t roots_adrs[SLHDSA_ADRS_LEN];
-    uint32_t tree_size = 1u << p->a;
+    uint32_t tree_size = 1U << p->a;
     uint32_t i;
     uint32_t j;
     noxtls_return_t rc;
 
     slhdsa_fors_indices(p, indices, msg);
-    for(i = 0u; i < p->k; i++) {
+    for(i = 0U; i < p->k; i++) {
         uint32_t idx = indices[i];
         uint32_t absolute_idx = (i * tree_size) + idx;
 
         memcpy(tree_adrs, adrs, SLHDSA_ADRS_LEN);
         slhdsa_adrs_set_type(tree_adrs, SLHDSA_ADRS_TYPE_FORS_TREE);
         slhdsa_adrs_set_keypair(tree_adrs, slhdsa_adrs_get_keypair(adrs));
-        slhdsa_adrs_set_tree_height(tree_adrs, 0u);
+        slhdsa_adrs_set_tree_height(tree_adrs, 0U);
         slhdsa_adrs_set_tree_index(tree_adrs, absolute_idx);
         rc = slhdsa_shake_thash(p, pk_seed, tree_adrs, sig, p->n, node);
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
         sig += p->n;
-        for(j = 0u; j < p->a; j++) {
+        for(j = 0U; j < p->a; j++) {
             memcpy(auth, sig, p->n);
             sig += p->n;
-            if((idx & 1u) == 0u) {
+            if((idx & 1U) == 0U) {
                 memcpy(pair, node, p->n);
                 memcpy(pair + p->n, auth, p->n);
             } else {
                 memcpy(pair, auth, p->n);
                 memcpy(pair + p->n, node, p->n);
             }
-            idx >>= 1u;
-            absolute_idx >>= 1u;
+            idx >>= 1U;
+            absolute_idx >>= 1U;
             memcpy(tree_adrs, adrs, SLHDSA_ADRS_LEN);
             slhdsa_adrs_set_type(tree_adrs, SLHDSA_ADRS_TYPE_FORS_TREE);
             slhdsa_adrs_set_keypair(tree_adrs, slhdsa_adrs_get_keypair(adrs));
-            slhdsa_adrs_set_tree_height(tree_adrs, j + 1u);
+            slhdsa_adrs_set_tree_height(tree_adrs, j + 1U);
             slhdsa_adrs_set_tree_index(tree_adrs, absolute_idx);
-            rc = slhdsa_shake_thash(p, pk_seed, tree_adrs, pair, 2u * p->n, node);
+            rc = slhdsa_shake_thash(p, pk_seed, tree_adrs, pair, 2U * p->n, node);
             if(rc != NOXTLS_RETURN_SUCCESS) return rc;
         }
         memcpy(roots + (i * p->n), node, p->n);
@@ -1542,9 +1553,9 @@ static noxtls_return_t slhdsa_ht_pkgen(const slhdsa_params_t *p,
     uint8_t adrs[SLHDSA_ADRS_LEN];
 
     memset(adrs, 0, sizeof(adrs));
-    slhdsa_adrs_set_layer(adrs, p->d - 1u);
-    slhdsa_adrs_set_tree(adrs, 0u);
-    return slhdsa_xmss_treehash(p, root, NULL, 0u, sk_seed, pk_seed, adrs, 0u, p->hp);
+    slhdsa_adrs_set_layer(adrs, p->d - 1U);
+    slhdsa_adrs_set_tree(adrs, 0U);
+    return slhdsa_xmss_treehash(p, root, NULL, 0U, sk_seed, pk_seed, adrs, 0U, p->hp);
 }
 
 /**
@@ -1574,7 +1585,7 @@ static noxtls_return_t slhdsa_ht_sign(const slhdsa_params_t *p,
     noxtls_return_t rc;
 
     memcpy(current_msg, msg, p->n);
-    for(layer = 0u; layer < p->d; layer++) {
+    for(layer = 0U; layer < p->d; layer++) {
         memset(adrs, 0, sizeof(adrs));
         slhdsa_adrs_set_layer(adrs, layer);
         slhdsa_adrs_set_tree(adrs, idx_tree);
@@ -1584,7 +1595,7 @@ static noxtls_return_t slhdsa_ht_sign(const slhdsa_params_t *p,
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
         memcpy(current_msg, root, p->n);
         sig += xmss_sig_len;
-        idx_leaf = (uint32_t)(idx_tree & ((1u << p->hp) - 1u));
+        idx_leaf = (uint32_t)(idx_tree & ((1U << p->hp) - 1U));
         idx_tree >>= p->hp;
     }
     return NOXTLS_RETURN_SUCCESS;
@@ -1616,7 +1627,7 @@ static noxtls_return_t slhdsa_ht_verify(const slhdsa_params_t *p,
     noxtls_return_t rc;
 
     memcpy(current_msg, msg, p->n);
-    for(layer = 0u; layer < p->d; layer++) {
+    for(layer = 0U; layer < p->d; layer++) {
         memset(adrs, 0, sizeof(adrs));
         slhdsa_adrs_set_layer(adrs, layer);
         slhdsa_adrs_set_tree(adrs, idx_tree);
@@ -1624,7 +1635,7 @@ static noxtls_return_t slhdsa_ht_verify(const slhdsa_params_t *p,
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
         memcpy(current_msg, root, p->n);
         sig += xmss_sig_len;
-        idx_leaf = (uint32_t)(idx_tree & ((1u << p->hp) - 1u));
+        idx_leaf = (uint32_t)(idx_tree & ((1U << p->hp) - 1U));
         idx_tree >>= p->hp;
     }
     return NOXTLS_RETURN_SUCCESS;
@@ -1643,20 +1654,20 @@ static uint32_t slhdsa_digest_indices(const slhdsa_params_t *p,
                                       uint64_t *idx_tree,
                                       uint32_t *idx_leaf)
 {
-    uint32_t fors_msg_bytes = ((p->k * p->a) + 7u) / 8u;
+    uint32_t fors_msg_bytes = ((p->k * p->a) + 7U) / 8U;
     uint32_t tree_bits = p->h - p->hp;
-    uint32_t tree_bytes = (tree_bits + 7u) / 8u;
-    uint32_t leaf_bytes = (p->hp + 7u) / 8u;
+    uint32_t tree_bytes = (tree_bits + 7U) / 8U;
+    uint32_t leaf_bytes = (p->hp + 7U) / 8U;
     uint64_t tree_mask;
     uint32_t leaf_mask;
 
     *idx_tree = slhdsa_load_be(digest + fors_msg_bytes, tree_bytes);
-    if(tree_bits < 64u) {
+    if(tree_bits < 64U) {
         tree_mask = (1ULL << tree_bits) - 1ULL;
         *idx_tree &= tree_mask;
     }
     *idx_leaf = (uint32_t)slhdsa_load_be(digest + fors_msg_bytes + tree_bytes, leaf_bytes);
-    leaf_mask = (1u << p->hp) - 1u;
+    leaf_mask = (1U << p->hp) - 1U;
     *idx_leaf &= leaf_mask;
     return fors_msg_bytes;
 }
@@ -1669,7 +1680,7 @@ static uint32_t slhdsa_digest_indices(const slhdsa_params_t *p,
 uint32_t noxtls_slhdsa_public_key_len(noxtls_slhdsa_param_t param)
 {
     slhdsa_sizes_t sizes;
-    return (slhdsa_get_sizes(param, &sizes) == NOXTLS_RETURN_SUCCESS) ? sizes.public_key_len : 0u;
+    return (slhdsa_get_sizes(param, &sizes) == NOXTLS_RETURN_SUCCESS) ? sizes.public_key_len : 0U;
 }
 
 /**
@@ -1680,7 +1691,7 @@ uint32_t noxtls_slhdsa_public_key_len(noxtls_slhdsa_param_t param)
 uint32_t noxtls_slhdsa_secret_key_len(noxtls_slhdsa_param_t param)
 {
     slhdsa_sizes_t sizes;
-    return (slhdsa_get_sizes(param, &sizes) == NOXTLS_RETURN_SUCCESS) ? sizes.secret_key_len : 0u;
+    return (slhdsa_get_sizes(param, &sizes) == NOXTLS_RETURN_SUCCESS) ? sizes.secret_key_len : 0U;
 }
 
 /**
@@ -1691,7 +1702,7 @@ uint32_t noxtls_slhdsa_secret_key_len(noxtls_slhdsa_param_t param)
 uint32_t noxtls_slhdsa_signature_len(noxtls_slhdsa_param_t param)
 {
     slhdsa_sizes_t sizes;
-    return (slhdsa_get_sizes(param, &sizes) == NOXTLS_RETURN_SUCCESS) ? sizes.signature_len : 0u;
+    return (slhdsa_get_sizes(param, &sizes) == NOXTLS_RETURN_SUCCESS) ? sizes.signature_len : 0U;
 }
 
 /**
@@ -1702,7 +1713,7 @@ uint32_t noxtls_slhdsa_signature_len(noxtls_slhdsa_param_t param)
 uint32_t noxtls_slhdsa_security_category(noxtls_slhdsa_param_t param)
 {
     slhdsa_sizes_t sizes;
-    return (slhdsa_get_sizes(param, &sizes) == NOXTLS_RETURN_SUCCESS) ? sizes.security_category : 0u;
+    return (slhdsa_get_sizes(param, &sizes) == NOXTLS_RETURN_SUCCESS) ? sizes.security_category : 0U;
 }
 
 /**
@@ -1713,7 +1724,7 @@ uint32_t noxtls_slhdsa_security_category(noxtls_slhdsa_param_t param)
 uint8_t noxtls_slhdsa_is_sha2(noxtls_slhdsa_param_t param)
 {
     slhdsa_sizes_t sizes;
-    return (slhdsa_get_sizes(param, &sizes) == NOXTLS_RETURN_SUCCESS) ? sizes.hash_family_sha2 : 0u;
+    return (slhdsa_get_sizes(param, &sizes) == NOXTLS_RETURN_SUCCESS) ? sizes.hash_family_sha2 : 0U;
 }
 
 /**
@@ -1724,7 +1735,7 @@ uint8_t noxtls_slhdsa_is_sha2(noxtls_slhdsa_param_t param)
 uint8_t noxtls_slhdsa_is_small(noxtls_slhdsa_param_t param)
 {
     slhdsa_sizes_t sizes;
-    return (slhdsa_get_sizes(param, &sizes) == NOXTLS_RETURN_SUCCESS) ? sizes.small_variant : 0u;
+    return (slhdsa_get_sizes(param, &sizes) == NOXTLS_RETURN_SUCCESS) ? sizes.small_variant : 0U;
 }
 
 /**
@@ -1766,8 +1777,8 @@ noxtls_return_t noxtls_slhdsa_keygen(noxtls_slhdsa_param_t param, uint8_t *publi
     memcpy(public_key + p.n, pk_root, p.n);
     memcpy(secret_key, sk_seed, p.n);
     memcpy(secret_key + p.n, sk_prf, p.n);
-    memcpy(secret_key + (2u * p.n), pk_seed, p.n);
-    memcpy(secret_key + (3u * p.n), pk_root, p.n);
+    memcpy(secret_key + (2U * p.n), pk_seed, p.n);
+    memcpy(secret_key + (3U * p.n), pk_root, p.n);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -1808,7 +1819,7 @@ noxtls_return_t noxtls_slhdsa_sign(noxtls_slhdsa_param_t param,
     if(secret_key == NULL || signature == NULL || signature_len == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(noxtls_message == NULL && message_len != 0u) {
+    if(noxtls_message == NULL && message_len != 0U) {
         return NOXTLS_RETURN_NULL;
     }
     rc = slhdsa_get_params(param, &p);
@@ -1819,8 +1830,8 @@ noxtls_return_t noxtls_slhdsa_sign(noxtls_slhdsa_param_t param,
     expected_sig_len = p.sizes.signature_len;
     sk_seed = secret_key;
     sk_prf = secret_key + p.n;
-    pk_seed = secret_key + (2u * p.n);
-    pk_root = secret_key + (3u * p.n);
+    pk_seed = secret_key + (2U * p.n);
+    pk_root = secret_key + (3U * p.n);
     rc = slhdsa_random(opt_rand, p.n);
     if(rc != NOXTLS_RETURN_SUCCESS) return rc;
     rc = slhdsa_prf_msg(&p, sk_prf, opt_rand, noxtls_message, message_len, r);
@@ -1832,13 +1843,13 @@ noxtls_return_t noxtls_slhdsa_sign(noxtls_slhdsa_param_t param,
     memcpy(signature, r, p.n);
     signature += p.n;
     memset(adrs, 0, sizeof(adrs));
-    slhdsa_adrs_set_layer(adrs, 0u);
+    slhdsa_adrs_set_layer(adrs, 0U);
     slhdsa_adrs_set_tree(adrs, idx_tree);
     slhdsa_adrs_set_type(adrs, SLHDSA_ADRS_TYPE_FORS_TREE);
     slhdsa_adrs_set_keypair(adrs, idx_leaf);
     rc = slhdsa_fors_sign(&p, signature, fors_pk, digest, sk_seed, pk_seed, adrs);
     if(rc != NOXTLS_RETURN_SUCCESS) return rc;
-    fors_sig_len = p.k * (p.a + 1u) * p.n;
+    fors_sig_len = p.k * (p.a + 1U) * p.n;
     signature += fors_sig_len;
     rc = slhdsa_ht_sign(&p, signature, fors_pk, sk_seed, pk_seed, idx_tree, idx_leaf);
     if(rc != NOXTLS_RETURN_SUCCESS) return rc;
@@ -1882,7 +1893,7 @@ noxtls_return_t noxtls_slhdsa_verify(noxtls_slhdsa_param_t param,
     if(public_key == NULL || signature == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(noxtls_message == NULL && message_len != 0u) {
+    if(noxtls_message == NULL && message_len != 0U) {
         return NOXTLS_RETURN_NULL;
     }
     rc = slhdsa_get_params(param, &p);
@@ -1902,13 +1913,13 @@ noxtls_return_t noxtls_slhdsa_verify(noxtls_slhdsa_param_t param,
     fors_msg_bytes = slhdsa_digest_indices(&p, digest, &idx_tree, &idx_leaf);
 
     memset(adrs, 0, sizeof(adrs));
-    slhdsa_adrs_set_layer(adrs, 0u);
+    slhdsa_adrs_set_layer(adrs, 0U);
     slhdsa_adrs_set_tree(adrs, idx_tree);
     slhdsa_adrs_set_type(adrs, SLHDSA_ADRS_TYPE_FORS_TREE);
     slhdsa_adrs_set_keypair(adrs, idx_leaf);
     rc = slhdsa_fors_pk_from_sig(&p, fors_pk, signature, digest, pk_seed, adrs);
     if(rc != NOXTLS_RETURN_SUCCESS) return rc;
-    fors_sig_len = p.k * (p.a + 1u) * p.n;
+    fors_sig_len = p.k * (p.a + 1U) * p.n;
     signature += fors_sig_len;
     rc = slhdsa_ht_verify(&p, root, signature, fors_pk, pk_seed, idx_tree, idx_leaf);
     if(rc != NOXTLS_RETURN_SUCCESS) return rc;

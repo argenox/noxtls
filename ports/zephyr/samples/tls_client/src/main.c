@@ -1,9 +1,24 @@
 /*****************************************************************************
- * Copyright (c) [2019] - [2026], Argenox Technologies LLC
- * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
- *
- * Zephyr sample: NoxTLS TLS 1.3 client (init-only or optional network handshake).
- *****************************************************************************/
+* Copyright (c) [2019] - [2026], Argenox Technologies LLC
+* All rights reserved.
+* SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
+*
+*
+* This file is part of the NoxTLS Library.
+*
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
+*
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
+*
+* File:    main.c
+* Summary: Zephyr sample: NoxTLS TLS 1.3 client (init-only or optional network handshake).
+*
+*
+*****************************************************************************/
 
 #include <errno.h>
 #include <stdint.h>
@@ -175,6 +190,11 @@ static int sample_run_tls_connect(const char *host)
 	return 0;
 }
 
+/**
+ * @brief The main function.
+ *
+ * @return The return value.
+ */
 int main(void)
 {
 	noxtls_return_t rc;

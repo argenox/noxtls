@@ -18,6 +18,11 @@
 *
 */
 
+/**
+ * @file message_digest.c
+ * @brief Message digest (dgst) subcommand for the NoxTLS CLI.
+ */
+
 #ifdef __cplusplus
 extern "C"
 {
@@ -113,16 +118,16 @@ static const digest_algorithm_t digest_algorithms[] = {
     {"SHA-1", NULL, NOXTLS_HASH_SHA1, HASH_SHA1_OUT_LEN},
 #endif
 #if NOXTLS_FEATURE_SHA224
-    {"SHA224", "sha224", NOXTLS_HASH_SHA_224, 28u},
-    {"SHA-224", NULL, NOXTLS_HASH_SHA_224, 28u},
+    {"SHA224", "sha224", NOXTLS_HASH_SHA_224, 28U},
+    {"SHA-224", NULL, NOXTLS_HASH_SHA_224, 28U},
 #endif
 #if NOXTLS_FEATURE_SHA256
     {"SHA256", "sha256", NOXTLS_HASH_SHA_256, HASH_SHA256_OUT_LEN},
     {"SHA-256", NULL, NOXTLS_HASH_SHA_256, HASH_SHA256_OUT_LEN},
 #endif
 #if NOXTLS_FEATURE_SHA384
-    {"SHA384", "sha384", NOXTLS_HASH_SHA_384, 48u},
-    {"SHA-384", NULL, NOXTLS_HASH_SHA_384, 48u},
+    {"SHA384", "sha384", NOXTLS_HASH_SHA_384, 48U},
+    {"SHA-384", NULL, NOXTLS_HASH_SHA_384, 48U},
 #endif
 #if NOXTLS_FEATURE_SHA512
     {"SHA512", "sha512", NOXTLS_HASH_SHA_512, HASH_SHA512_OUT_LEN},
@@ -158,6 +163,11 @@ static const digest_algorithm_t digest_algorithms[] = {
 };
 
 
+/**
+ * @brief Print digest subcommand usage, options, and examples.
+ *
+ * @return void
+ */
 void print_digest_usage(void)
 {
     printf("usage: sha <algorithm> [options] [text...]\n");
@@ -181,10 +191,10 @@ void print_digest_usage(void)
         }
         printf("  %-14s%s",
                digest_algorithms[i].display_name,
-               ((displayed + 1u) % 3u == 0u) ? "\n" : "");
+               ((displayed + 1U) % 3U == 0U) ? "\n" : "");
         displayed++;
     }
-    if(displayed % 3u != 0u) {
+    if(displayed % 3U != 0U) {
         printf("\n");
     }
 
@@ -199,6 +209,15 @@ void print_digest_usage(void)
     printf("  sha sha3 hello world\n\n");
 }
 
+/**
+ * @brief Compute and print a message digest for the given algorithm and input.
+ *
+ * Supports string or hex input, file input with optional offset, and hex output to a file.
+ *
+ * @param[in] argc Argument count (algorithm is argv[0])
+ * @param[in] argv Arguments: algorithm name, options, then input text or file path
+ * @return 0 on success, -1 on error
+ */
 int message_digest(int argc, char ** argv)
 {
     uint32_t data_length = 0;
@@ -358,7 +377,7 @@ int message_digest(int argc, char ** argv)
             return -1;
         }
 
-        data_buffer = malloc(total_str_len == 0u ? 1u : total_str_len);
+        data_buffer = malloc(total_str_len == 0U ? 1U : total_str_len);
         if(data_buffer == NULL) {
             printf("Error");
             return -1;
@@ -415,6 +434,13 @@ int message_digest(int argc, char ** argv)
     return 0;
 }
 
+/**
+ * @brief Parse a byte offset from a decimal or hex string.
+ *
+ * @param[in] value Offset text (strtoull base 0)
+ * @param[out] offset Parsed offset
+ * @return 0 on success, -1 on parse error
+ */
 static int parse_offset_value(const char * value, size_t * offset)
 {
     char * endptr = NULL;
@@ -434,6 +460,14 @@ static int parse_offset_value(const char * value, size_t * offset)
     return 0;
 }
 
+/**
+ * @brief Read an entire binary file into a newly allocated buffer.
+ *
+ * @param[in] path Path to the file
+ * @param[out] buffer Allocated file contents (caller must free)
+ * @param[out] length Number of bytes read
+ * @return 0 on success, -1 on error
+ */
 static int read_binary_file(const char * path, uint8_t ** buffer, size_t * length)
 {
     FILE * file = NULL;
@@ -486,6 +520,13 @@ static int read_binary_file(const char * path, uint8_t ** buffer, size_t * lengt
     return 0;
 }
 
+/**
+ * @brief Write a text string to a file, appending a newline.
+ *
+ * @param[in] path Output file path
+ * @param[in] text Text to write
+ * @return 0 on success, -1 on error
+ */
 static int write_text_file(const char * path, const char * text)
 {
     FILE * file = NULL;
@@ -508,6 +549,14 @@ static int write_text_file(const char * path, const char * text)
     return 0;
 }
 
+/**
+ * @brief Encode bytes as lowercase hexadecimal (no prefix).
+ *
+ * @param[in] bytes Input bytes
+ * @param[in] bytes_len Number of input bytes
+ * @param[out] hex_out Allocated hex string (caller must free)
+ * @return 0 on success, -1 on error
+ */
 static int bytes_to_hex(const uint8_t * bytes, uint32_t bytes_len, char ** hex_out)
 {
     static const char hex_chars[] = "0123456789abcdef";
@@ -533,6 +582,13 @@ static int bytes_to_hex(const uint8_t * bytes, uint32_t bytes_len, char ** hex_o
     return 0;
 }
 
+/**
+ * @brief Look up a digest algorithm by name (case-insensitive).
+ *
+ * @param[in] algorithm Algorithm name (e.g. "SHA256", "sha3-256")
+ * @param[out] spec Matching algorithm descriptor, or NULL if not found
+ * @return 0 on success, -1 if @p algorithm is unknown
+ */
 static int find_digest_algorithm(const char * algorithm, const digest_algorithm_t ** spec)
 {
     size_t i;
@@ -552,6 +608,16 @@ static int find_digest_algorithm(const char * algorithm, const digest_algorithm_
     return -1;
 }
 
+/**
+ * @brief Compute a digest using the unified NoxTLS hash API.
+ *
+ * @param[in] algorithm Algorithm name
+ * @param[in] data Input bytes
+ * @param[in] len Input length in bytes
+ * @param[out] digest Output digest buffer
+ * @param[out] digest_len Length of the computed digest
+ * @return 0 on success, -1 on error
+ */
 static int compute_digest_for_algorithm(
     const char * algorithm,
     const uint8_t * data,
@@ -603,6 +669,12 @@ static int compute_digest_for_algorithm(
     }
 }
 
+/**
+ * @brief Return the canonical display name for a digest algorithm.
+ *
+ * @param[in] spec Algorithm descriptor
+ * @return Display name string, or "digest" if @p spec is NULL
+ */
 static const char *canonical_digest_name(const digest_algorithm_t *spec)
 {
     size_t i = 0;
@@ -626,6 +698,14 @@ static const char *canonical_digest_name(const digest_algorithm_t *spec)
     return spec->name;
 }
 
+/**
+ * @brief Print a digest as "algorithm 0x<hex>".
+ *
+ * @param[in] digest Digest bytes
+ * @param[in] digest_len Digest length in bytes
+ * @param[in] algorithm Algorithm label for output
+ * @return 0 on success, -1 on error
+ */
 static int print_digest_hex(const uint8_t * digest, uint32_t digest_len, const char * algorithm)
 {
     char * digest_hex = NULL;
@@ -640,6 +720,13 @@ static int print_digest_hex(const uint8_t * digest, uint32_t digest_len, const c
     return 0;
 }
 
+/**
+ * @brief Legacy MD5 digest handler for md_handlers table.
+ *
+ * @param[in] data Input bytes
+ * @param[in] len Input length in bytes
+ * @return 0 on success, -1 on hash error
+ */
 int hash_md5_handler(uint8_t * data, uint32_t len)
 {
     if(debug_lvl > 0)
@@ -664,6 +751,13 @@ int hash_md5_handler(uint8_t * data, uint32_t len)
     return 0;
 }
 
+/**
+ * @brief Legacy SHA-1 digest handler for md_handlers table.
+ *
+ * @param[in] data Input bytes
+ * @param[in] len Input length in bytes
+ * @return 0 on success, -1 on hash error
+ */
 int hash_sha1_handler(uint8_t * data, uint32_t len)
 {
     if(debug_lvl > 0)
@@ -688,6 +782,13 @@ int hash_sha1_handler(uint8_t * data, uint32_t len)
     return 0;
 }
 
+/**
+ * @brief Legacy SHA-224 digest handler stub for md_handlers table.
+ *
+ * @param[in] data Input bytes (unused)
+ * @param[in] len Input length in bytes (unused)
+ * @return 0
+ */
 int hash_sha_224_handler(uint8_t * data, uint32_t len)
 {
     (void)data;
@@ -697,6 +798,13 @@ int hash_sha_224_handler(uint8_t * data, uint32_t len)
     return 0;
 }
 
+/**
+ * @brief Legacy SHA-256 digest handler for md_handlers table.
+ *
+ * @param[in] data Input bytes
+ * @param[in] len Input length in bytes
+ * @return 0 on success, -1 on hash error
+ */
 int hash_sha_256_handler(uint8_t * data, uint32_t len)
 {
     if(debug_lvl > 0)
@@ -721,6 +829,13 @@ int hash_sha_256_handler(uint8_t * data, uint32_t len)
     return 0;
 }
 
+/**
+ * @brief Legacy SHA-384 digest handler stub for md_handlers table.
+ *
+ * @param[in] data Input bytes (unused)
+ * @param[in] len Input length in bytes (unused)
+ * @return 0
+ */
 int hash_sha_384_handler(uint8_t * data, uint32_t len)
 {
     (void)data;
@@ -730,6 +845,13 @@ int hash_sha_384_handler(uint8_t * data, uint32_t len)
     return 0;
 }
 
+/**
+ * @brief Legacy SHA-512 digest handler for md_handlers table.
+ *
+ * @param[in] data Input bytes
+ * @param[in] len Input length in bytes
+ * @return 0 on success, -1 on hash error
+ */
 int hash_sha_512_handler(uint8_t * data, uint32_t len)
 {
     if(debug_lvl > 0)
@@ -754,6 +876,13 @@ int hash_sha_512_handler(uint8_t * data, uint32_t len)
     return 0;
 }
 
+/**
+ * @brief Legacy SHA-512/224 digest handler stub for md_handlers table.
+ *
+ * @param[in] data Input bytes (unused)
+ * @param[in] len Input length in bytes (unused)
+ * @return 0
+ */
 int hash_sha_512_224_handler(uint8_t * data, uint32_t len)
 {
     (void)data;
@@ -763,6 +892,13 @@ int hash_sha_512_224_handler(uint8_t * data, uint32_t len)
     return 0;
 }
 
+/**
+ * @brief Legacy SHA-512/256 digest handler stub for md_handlers table.
+ *
+ * @param[in] data Input bytes (unused)
+ * @param[in] len Input length in bytes (unused)
+ * @return 0
+ */
 int hash_sha_512_256_handler(uint8_t * data, uint32_t len)
 {
     (void)data;

@@ -3,15 +3,22 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+*
 * This file is part of the NoxTLS Library.
+*
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
+*
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
 *
 * File:    noxtls_mldsa.h
 * Summary: ML-DSA (NIST FIPS 204) API surface.
 *
- * NOTE:
- * This header intentionally keeps stable API and size contracts across
- * implementation improvements.
-*/
+*
+*****************************************************************************/
 
 #ifndef _NOXTLS_MLDSA_H_
 #define _NOXTLS_MLDSA_H_
@@ -34,11 +41,11 @@ typedef enum
 #define NOXTLS_MLDSA_MAX_PUBLIC_KEY_LEN 2592u
 #define NOXTLS_MLDSA_MAX_SECRET_KEY_LEN 4896u
 #define NOXTLS_MLDSA_MAX_SIGNATURE_LEN 4627u
-#define NOXTLS_MLDSA_SEED_LEN 32u
-#define NOXTLS_MLDSA_RND_LEN 32u
+#define NOXTLS_MLDSA_SEED_LEN 32U
+#define NOXTLS_MLDSA_RND_LEN 32U
 #define NOXTLS_MLDSA_MAX_CONTEXT_LEN 255u
-#define NOXTLS_MLDSA_PURE_PRE_LEN (2u + NOXTLS_MLDSA_MAX_CONTEXT_LEN)
-#define NOXTLS_MLDSA_TEST_OVERRIDE_PRE_LEN (3u + NOXTLS_MLDSA_MAX_CONTEXT_LEN)
+#define NOXTLS_MLDSA_PURE_PRE_LEN (2U + NOXTLS_MLDSA_MAX_CONTEXT_LEN)
+#define NOXTLS_MLDSA_TEST_OVERRIDE_PRE_LEN (3U + NOXTLS_MLDSA_MAX_CONTEXT_LEN)
 
 typedef struct
 {

@@ -4,37 +4,22 @@
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
 *
-*
-* NOTICE:  All information contained herein, source code, binaries and
-* derived works is, and remains
-* the property of Argenox Technologies and its suppliers,
-* if any.  The intellectual and technical concepts contained
-* herein are proprietary to Argenox Technologies
-* and its suppliers may be covered by U.S. and Foreign Patents,
-* patents in process, and are protected by trade secret or copyright law.
-* Dissemination of this information or reproduction of this material
-* is strictly forbidden unless prior written permission is obtained
-* from Argenox Technologies.
-*
-* THIS SOFTWARE IS PROVIDED BY ARGENOX "AS IS" AND
-* ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-* WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-* DISCLAIMED. IN NO EVENT SHALL ARGENOX TECHNOLOGIES LLC BE LIABLE FOR ANY
-* DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-* (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-* LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-* ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-* (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-* SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*
-* CONTACT: info@argenox.com
-* 
-*
 * This file is part of the NoxTLS Library.
+*
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
+*
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
 *
 * File:    noxtls_tls12.c
 * Summary: TLS 1.2 Implementation
-*/
+*
+* Note: TLS1.2 is being phased out in favor of TLS1.3
+*
+*****************************************************************************/
 
 // cppcheck-suppress-file unusedFunction
 // cppcheck-suppress-file variableScope
@@ -80,7 +65,12 @@ static noxtls_return_t tls12_handle_heartbeat_record(tls12_context_t *ctx, const
 static noxtls_return_t tls12_send_certificate_status(tls12_context_t *ctx);
 static noxtls_return_t tls12_recv_certificate_status(tls12_context_t *ctx);
 
-
+/**
+ * @brief Check if a cipher suite supports encrypt then MAC
+ *
+ * @param[in] suite The cipher suite to check if it supports encrypt then MAC
+ * @return 1 if the cipher suite supports encrypt then MAC, 0 otherwise
+ */
 static int tls12_suite_supports_encrypt_then_mac(uint16_t suite)
 {
     switch(suite) {
@@ -246,11 +236,25 @@ noxtls_return_t noxtls_tls12_context_init_with_version(tls12_context_t *ctx, tls
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Initialize a TLS 1.2 context
+ *
+ * @param[in] ctx The context to initialize
+ * @param[in] role The role of the context
+ * @return NOXTLS_RETURN_SUCCESS on success, error code otherwise
+ */
 noxtls_return_t noxtls_tls12_context_init(tls12_context_t *ctx, tls_role_t role)
 {
     return noxtls_tls12_context_init_with_version(ctx, role, TLS_VERSION_1_2);
 }
 
+/**
+ * @brief Initialize a DTLS 1.2 context
+ *
+ * @param[in] ctx The context to initialize
+ * @param[in] role The role of the context
+ * @return NOXTLS_RETURN_SUCCESS on success, error code otherwise
+ */
 noxtls_return_t noxtls_dtls12_context_init(tls12_context_t *ctx, tls_role_t role)
 {
     noxtls_return_t rc = noxtls_tls12_context_init_with_version(ctx, role, TLS_VERSION_1_2);
@@ -353,6 +357,14 @@ static noxtls_return_t tls12_cipher_suite_to_named_curve(uint16_t cipher_suite, 
     }
 }
 
+/**
+ * @brief Fill the premaster secret from a shared secret
+ *
+ * @param[out] premaster The premaster secret to fill
+ * @param[in] premaster_len The length of the premaster secret to fill
+ * @param[in] shared The shared secret to fill the premaster secret from
+ * @param[in] shared_len The length of the shared secret to fill the premaster secret from
+ */
 static void tls12_fill_premaster_from_shared(uint8_t *premaster, uint32_t premaster_len,
                                              const uint8_t *shared, uint32_t shared_len)
 {
@@ -372,6 +384,11 @@ static void tls12_fill_premaster_from_shared(uint8_t *premaster, uint32_t premas
     }
 }
 
+/**
+ * @brief Increment the send sequence number for a TLS 1.2 context
+ *
+ * @param[in] ctx The context to increment the send sequence number for
+ */
 static void tls12_inc_send_seq(tls12_context_t *ctx)
 {
     if(ctx == NULL) {
@@ -384,6 +401,11 @@ static void tls12_inc_send_seq(tls12_context_t *ctx)
     }
 }
 
+/**
+ * @brief Increment the receive sequence number for a TLS 1.2 context
+ *
+ * @param[in] ctx The context to increment the receive sequence number for
+ */
 static void tls12_inc_recv_seq(tls12_context_t *ctx)
 {
     if(ctx == NULL) {
@@ -396,10 +418,13 @@ static void tls12_inc_recv_seq(tls12_context_t *ctx)
     }
 }
 
-
-
-
-
+/**
+ * @brief Find a session cache entry by ID
+ *
+ * @param[in] id The ID to find
+ * @param[in] id_len The length of the ID to find
+ * @return The session cache entry if found, NULL otherwise
+ */
 static tls12_session_cache_entry_t *tls12_session_cache_find(const uint8_t *id, uint8_t id_len)
 {
     uint32_t i;
@@ -416,6 +441,19 @@ static tls12_session_cache_entry_t *tls12_session_cache_find(const uint8_t *id, 
     return NULL;
 }
 
+/**
+ * @brief Store a session cache entry
+ *
+ * @param[in] id The ID to store
+ * @param[in] id_len The length of the ID to store
+ * @param[in] master_secret The master secret to store
+ * @param[in] cipher_suite The cipher suite to store
+ * @param[in] alpn The ALPN to store
+ * @param[in] alpn_len The length of the ALPN to store
+ * @param[in] extended_master_secret Whether to store the extended master secret
+ * @param[in] sni_host The SNI host to store
+ * @param[in] sni_len The length of the SNI host to store
+ */
 static void tls12_session_cache_store(const uint8_t *id,
                                       uint8_t id_len,
                                       const uint8_t *master_secret,
@@ -453,8 +491,8 @@ static void tls12_session_cache_store(const uint8_t *id,
         slot->alpn_len = alpn_len;
         memcpy(slot->alpn, alpn, alpn_len);
     }
-    slot->extended_master_secret = extended_master_secret ? 1u : 0u;
-    if(sni_host != NULL && sni_len > 0u) {
+    slot->extended_master_secret = extended_master_secret ? 1U : 0U;
+    if(sni_host != NULL && sni_len > 0U) {
         uint16_t copy_len = sni_len;
         if(copy_len > TLS12_SESSION_SNI_MAX) {
             copy_len = TLS12_SESSION_SNI_MAX;
@@ -466,6 +504,15 @@ static void tls12_session_cache_store(const uint8_t *id,
     }
 }
 
+/**
+ * @brief Generate a session ID
+ *
+ * @param[out] id The ID to generate
+ * @param[out] id_len The length of the ID generated
+ * @return NOXTLS_RETURN_SUCCESS on success,
+ *         NOXTLS_RETURN_NULL if the ID or id_len is NULL
+ *         NOXTLS_RETURN_FAILED if the ID generation fails
+ */
 static noxtls_return_t tls12_session_cache_generate_id(uint8_t *id, uint8_t *id_len)
 {
     drbg_state_t drbg_state;
@@ -475,13 +522,20 @@ static noxtls_return_t tls12_session_cache_generate_id(uint8_t *id, uint8_t *id_
     if(drbg_instantiate(&drbg_state, DRBG_AES256, NULL, 0, NULL, 0, NULL, 0) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
-    if(drbg_generate(&drbg_state, id, TLS_SESSION_ID_MAX_LEN * 8u, NULL, 0) != NOXTLS_RETURN_SUCCESS) {
+    if(drbg_generate(&drbg_state, id, TLS_SESSION_ID_MAX_LEN * 8U, NULL, 0) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
     *id_len = TLS_SESSION_ID_MAX_LEN;
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Find a ticket cache entry by ticket
+ *
+ * @param[in] ticket The ticket to find
+ * @param[in] ticket_len The length of the ticket to find
+ * @return The ticket cache entry if found, NULL otherwise
+ */
 static tls12_ticket_cache_entry_t *tls12_ticket_cache_find(const uint8_t *ticket, uint16_t ticket_len)
 {
     uint32_t i;
@@ -506,6 +560,19 @@ static tls12_ticket_cache_entry_t *tls12_ticket_cache_find(const uint8_t *ticket
 }
 
 /* NOLINTNEXTLINE(bugprone-easily-swappable-parameters): TLS ticket fields follow wire/order semantics. */
+/**
+ * @brief Store a ticket cache entry
+ *
+ * @param[in] ticket The ticket to store
+ * @param[in] ticket_len The length of the ticket to store
+ * @param[in] master_secret The master secret to store
+ * @param[in] cipher_suite The cipher suite to store
+ * @param[in] alpn The ALPN to store
+ * @param[in] alpn_len The length of the ALPN to store
+ * @param[in] extended_master_secret Whether to store the extended master secret
+ * @param[in] sni_host The SNI host to store
+ * @param[in] sni_len The length of the SNI host to store
+ */
 static void tls12_ticket_cache_store(const uint8_t *ticket,
                                      uint16_t ticket_len,
                                      const uint8_t *master_secret,
@@ -546,8 +613,8 @@ static void tls12_ticket_cache_store(const uint8_t *ticket,
         slot->alpn_len = alpn_len;
         memcpy(slot->alpn, alpn, alpn_len);
     }
-    slot->extended_master_secret = extended_master_secret ? 1u : 0u;
-    if(sni_host != NULL && sni_len > 0u) {
+    slot->extended_master_secret = extended_master_secret ? 1U : 0U;
+    if(sni_host != NULL && sni_len > 0U) {
         uint16_t copy_len = sni_len;
         if(copy_len > TLS12_SESSION_SNI_MAX) {
             copy_len = TLS12_SESSION_SNI_MAX;
@@ -560,6 +627,13 @@ static void tls12_ticket_cache_store(const uint8_t *ticket,
 }
 
 /* RFC 6066 §3: MUST NOT resume if ClientHello server_name does not match the cached session. */
+/**
+ * @brief Invalidate the session resume if the SNI mismatch
+ *
+ * @param[in] ctx The context to invalidate the session resume for
+ * @param[in] client_session_id The client session ID to check
+ * @param[in] session_id_len The length of the client session ID to check
+ */
 static void tls12_invalidate_resume_if_sni_mismatch(tls12_context_t *ctx,
                                                     const uint8_t *client_session_id,
                                                     uint8_t session_id_len)
@@ -591,13 +665,13 @@ static void tls12_invalidate_resume_if_sni_mismatch(tls12_context_t *ctx,
         if(cached_len > TLS12_SESSION_SNI_MAX) {
             cached_len = 0;
         }
-        cached_ptr = (cached_len > 0u) ? sess_e->sni : NULL;
+        cached_ptr = (cached_len > 0U) ? sess_e->sni : NULL;
     } else if(tick_e != NULL) {
         cached_len = tick_e->sni_len;
         if(cached_len > TLS12_SESSION_SNI_MAX) {
             cached_len = 0;
         }
-        cached_ptr = (cached_len > 0u) ? tick_e->sni : NULL;
+        cached_ptr = (cached_len > 0U) ? tick_e->sni : NULL;
     } else {
         ctx->session_resume = 0;
         ctx->session_resume_ems = 0;
@@ -613,13 +687,13 @@ static void tls12_invalidate_resume_if_sni_mismatch(tls12_context_t *ctx,
         const uint8_t *cur_ptr = NULL;
         const tls_sni_extension_t *cli = ctx->client_extensions.sni;
 
-        if(cli != NULL && cli->hostname != NULL && cli->name_len > 0u) {
+        if(cli != NULL && cli->hostname != NULL && cli->name_len > 0U) {
             cur_len = cli->name_len;
             cur_ptr = (const uint8_t *)cli->hostname;
         }
 
         if(cached_len != cur_len ||
-           (cached_len > 0u && memcmp(cached_ptr, cur_ptr, (size_t)cached_len) != 0)) {
+           (cached_len > 0U && memcmp(cached_ptr, cur_ptr, (size_t)cached_len) != 0)) {
             ctx->session_resume = 0;
             ctx->session_resume_ems = 0;
             ctx->server_session_id_len = 0;
@@ -631,6 +705,16 @@ static void tls12_invalidate_resume_if_sni_mismatch(tls12_context_t *ctx,
 }
 
 /* NOLINTNEXTLINE(bugprone-easily-swappable-parameters): offset/count pairing mirrors parsed ClientHello fields. */
+/**
+ * @brief Check if a cipher suite is offered in a record
+ *
+ * @param[in] record_data The record data to check
+ * @param[in] record_len The length of the record data to check
+ * @param[in] cipher_suites_offset The offset of the cipher suites in the record
+ * @param[in] cipher_suites_count The number of cipher suites in the record
+ * @param[in] cipher_suite The cipher suite to check
+ * @return 1 if the cipher suite is offered, 0 otherwise
+ */
 static int tls12_client_offered_cipher(const uint8_t *record_data,
                                        uint32_t record_len,
                                        uint32_t cipher_suites_offset, /* NOLINT(bugprone-easily-swappable-parameters): parsed vector offset/count/suite tuple */
@@ -642,17 +726,27 @@ static int tls12_client_offered_cipher(const uint8_t *record_data,
         return 0;
     }
     for(i = 0; i < cipher_suites_count; i++) {
-        uint32_t pos = cipher_suites_offset + (2u * i);
-        if(pos + 1u >= record_len) {
+        uint32_t pos = cipher_suites_offset + (2U * i);
+        if(pos + 1U >= record_len) {
             return 0;
         }
-        if((((uint16_t)record_data[pos]) << 8 | record_data[pos + 1u]) == cipher_suite) {
+        if((((uint16_t)record_data[pos]) << 8 | record_data[pos + 1U]) == cipher_suite) {
             return 1;
         }
     }
     return 0;
 }
 
+/**
+ * @brief Send a handshake record over a TLS 1.2 context
+ *
+ * @param[in] ctx The context to send a handshake record over
+ * @param[in] msg The message to send
+ * @param[in] msg_len The length of the message to send
+ * @return NOXTLS_RETURN_SUCCESS on success,
+ *         NOXTLS_RETURN_NULL if the context or message is NULL
+ *         NOXTLS_RETURN_FAILED if the handshake record sending fails
+ */
 static noxtls_return_t tls12_send_handshake_record(tls12_context_t *ctx, const uint8_t *msg, uint32_t msg_len)
 {
     noxtls_return_t rc;
@@ -677,6 +771,14 @@ static noxtls_return_t tls12_send_handshake_record(tls12_context_t *ctx, const u
     return rc;
 }
 
+/**
+ * @brief Send a change cipher spec record over a TLS 1.2 context
+ *
+ * @param[in] ctx The context to send a change cipher spec record over
+ * @return NOXTLS_RETURN_SUCCESS on success,
+ *         NOXTLS_RETURN_NULL if the context is NULL
+ *         NOXTLS_RETURN_FAILED if the change cipher spec record sending fails
+ */
 static noxtls_return_t tls12_send_ccs_record(tls12_context_t *ctx)
 {
     uint8_t change_cipher_spec = 0x01;
@@ -687,13 +789,13 @@ static noxtls_return_t tls12_send_ccs_record(tls12_context_t *ctx)
     if(ctx->renegotiation_in_progress) {
         uint8_t enc[64];
         uint32_t enc_len = (uint32_t)sizeof(enc);
-        rc = noxtls_tls12_encrypt_record(ctx, TLS_RECORD_CHANGE_CIPHER_SPEC, &change_cipher_spec, 1u, enc, &enc_len);
+        rc = noxtls_tls12_encrypt_record(ctx, TLS_RECORD_CHANGE_CIPHER_SPEC, &change_cipher_spec, 1U, enc, &enc_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
         rc = noxtls_tls_send_record(&ctx->base.base, TLS_RECORD_CHANGE_CIPHER_SPEC, enc, enc_len);
     } else {
-        rc = noxtls_tls_send_record(&ctx->base.base, TLS_RECORD_CHANGE_CIPHER_SPEC, &change_cipher_spec, 1u);
+        rc = noxtls_tls_send_record(&ctx->base.base, TLS_RECORD_CHANGE_CIPHER_SPEC, &change_cipher_spec, 1U);
     }
     if(rc == NOXTLS_RETURN_SUCCESS) {
         tls12_inc_send_seq(ctx);
@@ -703,11 +805,27 @@ static noxtls_return_t tls12_send_ccs_record(tls12_context_t *ctx)
     return rc;
 }
 
+/**
+ * @brief Check if a context is a DTLS context
+ *
+ * @param[in] ctx The context to check
+ * @return 1 if the context is a DTLS context, 0 otherwise
+ */
 static int tls12_is_dtls(const tls12_context_t *ctx)
 {
+#if NOXTLS_FEATURE_DTLS
     return (ctx != NULL && ctx->base.base.version == DTLS_VERSION_1_2);
+#else
+    (void)ctx;
+    return 0;
+#endif
 }
 
+/**
+ * @brief Handle the sending of a change cipher spec in a DTLS context
+ *
+ * @param[in] ctx The context to handle the sending of a change cipher spec in
+ */
 static void tls12_dtls_on_send_ccs(tls12_context_t *ctx)
 {
     if(!tls12_is_dtls(ctx)) {
@@ -717,6 +835,11 @@ static void tls12_dtls_on_send_ccs(tls12_context_t *ctx)
     ctx->base.write_seq_num = 0;
 }
 
+/**
+ * @brief Handle the receiving of a change cipher spec in a DTLS context
+ *
+ * @param[in] ctx The context to handle the receiving of a change cipher spec in
+ */
 static void tls12_dtls_on_recv_ccs(tls12_context_t *ctx)
 {
     if(!tls12_is_dtls(ctx)) {
@@ -728,6 +851,17 @@ static void tls12_dtls_on_recv_ccs(tls12_context_t *ctx)
     ctx->base.replay_window.last_seq = 0;
 }
 
+#if NOXTLS_FEATURE_DTLS
+/**
+ * @brief Send a hello verify request over a DTLS context
+ *
+ * @param[in] ctx The context to send a hello verify request over
+ * @param[in] client_hello The client hello to send
+ * @param[in] client_hello_len The length of the client hello to send
+ * @return NOXTLS_RETURN_SUCCESS on success,
+ *         NOXTLS_RETURN_NULL if the context or client hello is NULL
+ *         NOXTLS_RETURN_FAILED if the hello verify request sending fails
+ */
 static noxtls_return_t tls12_send_hello_verify_request(tls12_context_t *ctx,
                                                        const uint8_t *client_hello,
                                                        uint32_t client_hello_len)
@@ -759,6 +893,14 @@ static noxtls_return_t tls12_send_hello_verify_request(tls12_context_t *ctx,
 
     return noxtls_tls_send_record(&ctx->base.base, TLS_RECORD_HANDSHAKE, hvr, offset);
 }
+#endif /* NOXTLS_FEATURE_DTLS */
+
+/**
+ * @brief Get the hash algorithm for a cipher suite
+ *
+ * @param[in] cipher_suite The cipher suite to get the hash algorithm for
+ * @return The hash algorithm for the cipher suite
+ */
 static noxtls_hash_algos_t tls12_get_prf_hash(uint16_t cipher_suite)
 {
     switch(cipher_suite) {
@@ -802,6 +944,12 @@ static noxtls_hash_algos_t tls12_get_prf_hash(uint16_t cipher_suite)
     }
 }
 
+/**
+ * @brief Get the length of the ECDHE premaster secret
+ *
+ * @param[in] named_group The named group to get the length of the ECDHE premaster secret for
+ * @return The length of the ECDHE premaster secret
+ */
 static uint32_t tls12_get_ecdh_premaster_len(uint16_t named_group)
 {
     switch(named_group) {
@@ -820,7 +968,15 @@ static uint32_t tls12_get_ecdh_premaster_len(uint16_t named_group)
     }
 }
 
-/** Map DHE-RSA cipher suite to FFDHE named group (RFC 7919). */
+/**
+ * @brief Map a DHE-RSA cipher suite to a FFDHE named group (RFC 7919)
+ *
+ * @param[in] cipher_suite The cipher suite to map to a FFDHE named group
+ * @param[out] named_group The named group to map the cipher suite to
+ * @return NOXTLS_RETURN_SUCCESS on success,
+ *         NOXTLS_RETURN_NULL if the named group is NULL
+ *         NOXTLS_RETURN_FAILED if the cipher suite to FFDHE named group mapping fails
+ */
 static noxtls_return_t tls12_cipher_suite_to_ffdhe_group(uint16_t cipher_suite, uint16_t *named_group)
 {
     if(named_group == NULL) {
@@ -852,6 +1008,13 @@ static noxtls_return_t tls12_cipher_suite_to_ffdhe_group(uint16_t cipher_suite, 
     }
 }
 
+/**
+ * @brief Check if a client supports a named group
+ *
+ * @param[in] ctx The context to check if the client supports the named group
+ * @param[in] group The named group to check if the client supports
+ * @return 1 if the client supports the named group, 0 otherwise
+ */
 static int tls12_client_supports_group(const tls12_context_t *ctx, uint16_t group)
 {
     uint32_t i;
@@ -867,6 +1030,12 @@ static int tls12_client_supports_group(const tls12_context_t *ctx, uint16_t grou
     return 0;
 }
 
+/**
+ * @brief Check if a named group is a supported EC curve
+ *
+ * @param[in] group The named group to check if it is a supported EC curve
+ * @return 1 if the named group is a supported EC curve, 0 otherwise
+ */
 static int tls12_is_supported_ec_curve(uint16_t group)
 {
     return group == TLS_NAMED_GROUP_SECP256R1 ||
@@ -876,6 +1045,12 @@ static int tls12_is_supported_ec_curve(uint16_t group)
            group == TLS_NAMED_GROUP_X448;
 }
 
+/**
+ * @brief Check if a named group is a supported FFDHE group
+ *
+ * @param[in] group The named group to check if it is a supported FFDHE group
+ * @return 1 if the named group is a supported FFDHE group, 0 otherwise
+ */
 static int tls12_is_supported_ffdhe_group(uint16_t group)
 {
     return group == TLS_NAMED_GROUP_FFDHE2048 ||
@@ -885,6 +1060,16 @@ static int tls12_is_supported_ffdhe_group(uint16_t group)
            group == TLS_NAMED_GROUP_FFDHE8192;
 }
 
+/**
+ * @brief Select an ECDHE named group for a cipher suite
+ *
+ * @param[in] ctx The context to select an ECDHE named group for
+ * @param[in] cipher_suite The cipher suite to select an ECDHE named group for
+ * @param[out] named_group The named group to select
+ * @return NOXTLS_RETURN_SUCCESS on success,
+ *         NOXTLS_RETURN_NULL if the named group is NULL
+ *         NOXTLS_RETURN_FAILED if the ECDHE named group selection fails
+ */
 static noxtls_return_t tls12_select_ecdhe_named_group(const tls12_context_t *ctx,
                                                       uint16_t cipher_suite,
                                                       uint16_t *named_group)
@@ -927,6 +1112,14 @@ static noxtls_return_t tls12_select_ecdhe_named_group(const tls12_context_t *ctx
     return NOXTLS_RETURN_FAILED;
 }
 
+/**
+ * @brief Select an FFDHE named group for a cipher suite.
+ *
+ * @param[in] ctx The context value.
+ * @param[in] cipher_suite The cipher suite value.
+ * @param[out] named_group The named group value.
+ * @return The return value.
+ */
 static noxtls_return_t tls12_select_ffdhe_named_group(const tls12_context_t *ctx,
                                                       uint16_t cipher_suite,
                                                       uint16_t *named_group)
@@ -986,7 +1179,7 @@ static noxtls_return_t tls12_select_ffdhe_named_group(const tls12_context_t *ctx
                 break;
             }
         }
-        if(!allow_suite_default_ffdhe && ctx->client_extensions.supported_groups->count > 0u) {
+        if(!allow_suite_default_ffdhe && ctx->client_extensions.supported_groups->count > 0U) {
             return NOXTLS_RETURN_FAILED;
         }
     }
@@ -1026,6 +1219,9 @@ static void tls12_maybe_upgrade_rsa_to_dhe_for_fs(tls12_context_t *ctx,
 
 /**
  * @brief Free TLS 1.2 context
+ *
+ * @param[in] ctx The TLS 1.2 context
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the context is NULL
  */
 noxtls_return_t noxtls_tls12_context_free(tls12_context_t *ctx)
 {
@@ -1109,6 +1305,13 @@ noxtls_return_t noxtls_tls12_context_free(tls12_context_t *ctx)
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Set the server private RSA key
+ *
+ * @param[in] ctx The TLS 1.2 context
+ * @param[in] rsa_key The RSA key
+ * @return void
+ */
 void noxtls_tls12_set_server_private_rsa(tls12_context_t *ctx, void *rsa_key)
 {
     if(ctx != NULL) {
@@ -1116,6 +1319,13 @@ void noxtls_tls12_set_server_private_rsa(tls12_context_t *ctx, void *rsa_key)
     }
 }
 
+/**
+ * @brief Set the server private ECDSA key
+ *
+ * @param[in] ctx The TLS 1.2 context
+ * @param[in] ecc_key The ECDSA key
+ * @return void
+ */
 void noxtls_tls12_set_server_private_ecdsa(tls12_context_t *ctx, void *ecc_key)
 {
     if(ctx != NULL) {
@@ -1123,6 +1333,14 @@ void noxtls_tls12_set_server_private_ecdsa(tls12_context_t *ctx, void *ecc_key)
     }
 }
 
+/**
+ * @brief Set the server ECDSA leaf certificate
+ *
+ * @param[in] ctx The TLS 1.2 context
+ * @param[in] der The DER encoded certificate
+ * @param[in] der_len The length of the DER encoded certificate
+ * @return void
+ */
 void noxtls_tls12_set_server_ecdsa_leaf_certificate(tls12_context_t *ctx, const uint8_t *der, uint32_t der_len)
 {
     if(ctx != NULL) {
@@ -1131,6 +1349,16 @@ void noxtls_tls12_set_server_ecdsa_leaf_certificate(tls12_context_t *ctx, const 
     }
 }
 
+/**
+ * @brief Set the server RSA PSS leaf material
+ *
+ * @param[in] ctx The TLS 1.2 context
+ * @param[in] der The DER encoded certificate
+ * @param[in] der_len The length of the DER encoded certificate
+ * @param[in] rsa_key The RSA key
+ * @param[in] parsed_cert The parsed certificate
+ * @return void
+ */
 void noxtls_tls12_set_server_rsa_pss_leaf_material(tls12_context_t *ctx, const uint8_t *der, uint32_t der_len, void *rsa_key, void *parsed_cert)
 {
     if(ctx != NULL) {
@@ -1141,6 +1369,14 @@ void noxtls_tls12_set_server_rsa_pss_leaf_material(tls12_context_t *ctx, const u
     }
 }
 
+/**
+ * @brief Set the server cipher suites
+ *
+ * @param[in] ctx The TLS 1.2 context
+ * @param[in] suites The cipher suites
+ * @param[in] count The number of cipher suites
+ * @return void
+ */
 void noxtls_tls12_set_server_cipher_suites(tls12_context_t *ctx, const uint16_t *suites, uint32_t count)
 {
     if(ctx == NULL) {
@@ -1150,6 +1386,14 @@ void noxtls_tls12_set_server_cipher_suites(tls12_context_t *ctx, const uint16_t 
     ctx->server_cipher_suites_count = count;
 }
 
+/**
+ * @brief Set the server ALPN protocols
+ *
+ * @param[in] ctx The TLS 1.2 context
+ * @param[in] protocols The ALPN protocols
+ * @param[in] count The number of ALPN protocols
+ * @return void
+ */
 void noxtls_tls12_set_server_alpn_protocols(tls12_context_t *ctx, const char **protocols, uint32_t count)
 {
     if(ctx == NULL) {
@@ -1159,15 +1403,30 @@ void noxtls_tls12_set_server_alpn_protocols(tls12_context_t *ctx, const char **p
     ctx->server_alpn_count = count;
 }
 
+/**
+ * @brief Set optional server expected client SNI.
+ *
+ * @param[in] ctx The context value.
+ * @param[in] ascii_hostname The ascii hostname value.
+ * @param[in] mismatch_fatal The mismatch fatal value.
+ */
 void noxtls_tls12_set_server_expected_client_sni(tls12_context_t *ctx, const char *ascii_hostname, int mismatch_fatal)
 {
     if(ctx == NULL) {
         return;
     }
     ctx->server_expect_client_sni = ascii_hostname;
-    ctx->server_expect_sni_fatal = mismatch_fatal ? 1u : 0u;
+    ctx->server_expect_sni_fatal = mismatch_fatal ? 1U : 0U;
 }
 
+/**
+ * @brief Set optional server certificate chain.
+ *
+ * @param[in] ctx The context value.
+ * @param[in] certs The certs value.
+ * @param[in] cert_lens The cert lens value.
+ * @param[in] cert_count The cert count value.
+ */
 void noxtls_tls12_set_server_certificate_chain(tls12_context_t *ctx,
                                                const uint8_t **certs,
                                                const uint32_t *cert_lens,
@@ -1181,6 +1440,14 @@ void noxtls_tls12_set_server_certificate_chain(tls12_context_t *ctx,
     ctx->server_cert_chain_count = cert_count;
 }
 
+/**
+ * @brief Set the crypto provider for the server
+ *
+ * @param[in] ctx The TLS 1.2 context
+ * @param[in] provider The crypto provider
+ * @param[in] server_key_handle The server key handle
+ * @return void
+ */
 void noxtls_tls12_set_crypto_provider_server(tls12_context_t *ctx, const noxtls_crypto_provider_t *provider, noxtls_crypto_key_handle_t server_key_handle)
 {
     if(ctx != NULL) {
@@ -1202,6 +1469,13 @@ void noxtls_tls12_set_verify_crl(tls12_context_t *ctx, const noxtls_x509_crl_t *
     }
 }
 
+/**
+ * @brief Set the server use RPK
+ *
+ * @param[in] ctx The TLS 1.2 context
+ * @param[in] use_rpk The use RPK
+ * @return void
+ */
 void noxtls_tls12_set_server_use_rpk(tls12_context_t *ctx, int use_rpk)
 {
     if(ctx != NULL) {
@@ -1209,6 +1483,13 @@ void noxtls_tls12_set_server_use_rpk(tls12_context_t *ctx, int use_rpk)
     }
 }
 
+/**
+ * @brief Set the client accept server RPK
+ *
+ * @param[in] ctx The TLS 1.2 context
+ * @param[in] accept The accept
+ * @return void
+ */
 void noxtls_tls12_set_client_accept_server_rpk(tls12_context_t *ctx, int accept)
 {
     if(ctx != NULL) {
@@ -1216,6 +1497,13 @@ void noxtls_tls12_set_client_accept_server_rpk(tls12_context_t *ctx, int accept)
     }
 }
 
+/**
+ * @brief Set the client offer client RPK
+ *
+ * @param[in] ctx The TLS 1.2 context
+ * @param[in] offer The offer
+ * @return void
+ */
 void noxtls_tls12_set_client_offer_client_rpk(tls12_context_t *ctx, int offer)
 {
     if(ctx != NULL) {
@@ -1223,6 +1511,13 @@ void noxtls_tls12_set_client_offer_client_rpk(tls12_context_t *ctx, int offer)
     }
 }
 
+/**
+ * @brief Request client authentication
+ *
+ * @param[in] ctx The TLS 1.2 context
+ * @param[in] request The request
+ * @return void
+ */
 void noxtls_tls12_request_client_auth(tls12_context_t *ctx, int request)
 {
     if(ctx != NULL) {
@@ -1230,7 +1525,13 @@ void noxtls_tls12_request_client_auth(tls12_context_t *ctx, int request)
     }
 }
 
-/* RFC 6066: MFL code to payload size (bytes) */
+/* RFC 6066: MFL code to payload size (bytes) */    
+/**
+ * @brief MFL code to payload size (bytes)
+ * 
+ * @param code The code
+ * @return The payload size
+ */
 static uint16_t tls12_mfl_code_to_payload(uint8_t code)
 {
     switch(code) {
@@ -1242,6 +1543,13 @@ static uint16_t tls12_mfl_code_to_payload(uint8_t code)
     }
 }
 
+/**
+ * @brief Set the max fragment length
+ *
+ * @param[in] ctx The TLS 1.2 context
+ * @param[in] code The code
+ * @return void
+ */
 void noxtls_tls12_set_max_fragment_length(tls12_context_t *ctx, uint8_t code)
 {
     if(ctx != NULL) {
@@ -1253,42 +1561,72 @@ void noxtls_tls12_set_max_fragment_length(tls12_context_t *ctx, uint8_t code)
     }
 }
 
+/**
+ * @brief Set the heartbeat
+ *
+ * @param[in] ctx The TLS 1.2 context
+ * @param[in] enable The enable
+ * @return void
+ */
 void noxtls_tls12_set_heartbeat(tls12_context_t *ctx, int enable)
 {
     if(ctx != NULL) {
-        ctx->heartbeat_enabled = (enable != 0) ? 1u : 0u;
-        if(ctx->heartbeat_enabled == 0u) {
-            ctx->heartbeat_negotiated = 0u;
-            ctx->heartbeat_peer_mode = 0u;
-            ctx->client_heartbeat_mode = 0u;
+        ctx->heartbeat_enabled = (enable != 0) ? 1U : 0U;
+        if(ctx->heartbeat_enabled == 0U) {
+            ctx->heartbeat_negotiated = 0U;
+            ctx->heartbeat_peer_mode = 0U;
+            ctx->client_heartbeat_mode = 0U;
         }
     }
 }
 
+/**
+ * @brief Set the client request OCSP status
+ *
+ * @param[in] ctx The TLS 1.2 context
+ * @param[in] enable The enable
+ * @return void
+ */
 void noxtls_tls12_set_client_request_ocsp_status(tls12_context_t *ctx, int enable)
 {
     if(ctx != NULL) {
-        ctx->client_request_ocsp_status = (enable != 0) ? 1u : 0u;
-        if(ctx->client_request_ocsp_status == 0u) {
-            ctx->status_request_negotiated = 0u;
+        ctx->client_request_ocsp_status = (enable != 0) ? 1U : 0U;
+        if(ctx->client_request_ocsp_status == 0U) {
+            ctx->status_request_negotiated = 0U;
         }
     }
 }
 
+/**
+ * @brief Set the server OCSP response
+ *
+ * @param[in] ctx The TLS 1.2 context
+ * @param[in] ocsp_der The OCSP response
+ * @param[in] ocsp_len The length of the OCSP response
+ * @return void
+ */
 void noxtls_tls12_set_server_ocsp_response(tls12_context_t *ctx, const uint8_t *ocsp_der, uint32_t ocsp_len)
 {
     if(ctx != NULL) {
-        if(ocsp_der != NULL && ocsp_len > 0u) {
+        if(ocsp_der != NULL && ocsp_len > 0U) {
             ctx->server_ocsp_response = ocsp_der;
             ctx->server_ocsp_response_len = ocsp_len;
         } else {
             ctx->server_ocsp_response = NULL;
-            ctx->server_ocsp_response_len = 0u;
-            ctx->status_request_negotiated = 0u;
+            ctx->server_ocsp_response_len = 0U;
+            ctx->status_request_negotiated = 0U;
         }
     }
 }
 
+/**
+ * @brief Get the peer OCSP response
+ *
+ * @param[in] ctx The TLS 1.2 context
+ * @param[out] ocsp_der The OCSP response
+ * @param[out] ocsp_len The length of the OCSP response
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the context is NULL, NOXTLS_RETURN_FAILED if the OCSP response is NULL
+ */
 noxtls_return_t noxtls_tls12_get_peer_ocsp_response(const tls12_context_t *ctx,
                                                     const uint8_t **ocsp_der,
                                                     uint32_t *ocsp_len)
@@ -1298,12 +1636,18 @@ noxtls_return_t noxtls_tls12_get_peer_ocsp_response(const tls12_context_t *ctx,
     }
     *ocsp_der = ctx->peer_ocsp_response;
     *ocsp_len = ctx->peer_ocsp_response_len;
-    if(ctx->peer_ocsp_response == NULL || ctx->peer_ocsp_response_len == 0u) {
+    if(ctx->peer_ocsp_response == NULL || ctx->peer_ocsp_response_len == 0U) {
         return NOXTLS_RETURN_FAILED;
     }
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Validate the client EMS extension
+ *
+ * @param[in] ctx The TLS 1.2 context
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the context is NULL, NOXTLS_RETURN_BAD_DATA if the EMS extension is not valid
+ */
 static noxtls_return_t tls12_validate_client_ems_extension(tls12_context_t *ctx)
 {
     tls_extension_t *ex = NULL;
@@ -1326,6 +1670,12 @@ static noxtls_return_t tls12_validate_client_ems_extension(tls12_context_t *ctx)
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Resume the EMS policy
+ *
+ * @param[in] ctx The TLS 1.2 context
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the context is NULL, NOXTLS_RETURN_NOT_SUPPORTED if the EMS policy is not supported
+ */
 static noxtls_return_t tls12_resume_ems_policy(tls12_context_t *ctx)
 {
     if(ctx == NULL) {
@@ -1396,7 +1746,7 @@ noxtls_return_t tls12_compute_master_secret(tls12_context_t *ctx, const uint8_t 
                           ctx->cipher_suite == TLS_CIPHER_SUITE_DHE_RSA_WITH_ARIA_128_CBC_SHA256 ||
                           ctx->cipher_suite == TLS_CIPHER_SUITE_DHE_RSA_WITH_ARIA_256_CBC_SHA384);
         if(is_dhe_kex) {
-            while(pms_len > 1u && *pms_ptr == 0x00u) {
+            while(pms_len > 1U && *pms_ptr == 0x00u) {
                 pms_ptr++;
                 pms_len--;
             }
@@ -1408,7 +1758,7 @@ noxtls_return_t tls12_compute_master_secret(tls12_context_t *ctx, const uint8_t 
 
     if(ctx->extended_master_secret_negotiated) {
         static const char ems_label[] = "extended master secret";
-        const uint32_t ems_label_len = (uint32_t)(sizeof(ems_label) - 1u);
+        const uint32_t ems_label_len = (uint32_t)(sizeof(ems_label) - 1U);
         const uint8_t *transcript = ctx->handshake_messages;
         uint32_t tlen = ctx->ems_session_transcript_len;
         uint8_t session_hash[TLS_MAX_SECRET_LEN];
@@ -1772,6 +2122,12 @@ noxtls_return_t tls12_derive_keys(tls12_context_t *ctx)
 
 /**
  * @brief Append handshake noxtls_message to handshake messages buffer
+ *
+ * @param[in] ctx The TLS 1.2 context
+ * @param[in] data The data to append to the handshake messages buffer
+ * @param[in] len The length of the data to append to the handshake messages buffer
+* @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the context is NULL or data is NULL, NOXTLS_RETURN_FAILED if the length is 0, NOXTLS_RETURN_INVALID_PARAM if the length is greater than the maximum length of the handshake messages buffer
+ * @return NOXTLS_RETURN_INVALID_PARAM if the length is greater than the maximum length of the handshake messages buffer
  */
 static noxtls_return_t tls12_append_handshake_message(tls12_context_t *ctx, const uint8_t *data, uint32_t len)
 {
@@ -2048,7 +2404,7 @@ noxtls_return_t noxtls_tls12_send_client_hello(tls12_context_t *ctx)
             uint16_t name_len = ctx->server_name_len;
             uint16_t list_len = (uint16_t)(1 + 2 + name_len);
             uint16_t ext_data_len = (uint16_t)(2 + list_len);
-            if(ext_len + 4u + ext_data_len < 256u) {
+            if(ext_len + 4U + ext_data_len < 256u) {
                 ext_buf[ext_len++] = 0x00;
                 ext_buf[ext_len++] = TLS_EXTENSION_SERVER_NAME;
                 ext_buf[ext_len++] = (uint8_t)(ext_data_len >> 8);
@@ -2067,7 +2423,7 @@ noxtls_return_t noxtls_tls12_send_client_hello(tls12_context_t *ctx)
         {
             uint16_t group_list_len = 6;
             uint16_t ext_data_len = (uint16_t)(2 + group_list_len);
-            if(ext_len + 4u + ext_data_len < 256u) {
+            if(ext_len + 4U + ext_data_len < 256u) {
                 ext_buf[ext_len++] = (uint8_t)(TLS_EXTENSION_SUPPORTED_GROUPS >> 8);
                 ext_buf[ext_len++] = (uint8_t)(TLS_EXTENSION_SUPPORTED_GROUPS & 0xFF);
                 ext_buf[ext_len++] = (uint8_t)(ext_data_len >> 8);
@@ -2086,7 +2442,7 @@ noxtls_return_t noxtls_tls12_send_client_hello(tls12_context_t *ctx)
         /* EC Point Formats (uncompressed) */
         {
             uint16_t ext_data_len = 2;
-            if(ext_len + 4u + ext_data_len < 256u) {
+            if(ext_len + 4U + ext_data_len < 256u) {
                 ext_buf[ext_len++] = (uint8_t)(TLS_EXTENSION_EC_POINT_FORMATS >> 8);
                 ext_buf[ext_len++] = (uint8_t)(TLS_EXTENSION_EC_POINT_FORMATS & 0xFF);
                 ext_buf[ext_len++] = 0x00;
@@ -2100,7 +2456,7 @@ noxtls_return_t noxtls_tls12_send_client_hello(tls12_context_t *ctx)
         {
             uint16_t sig_list_len = 12;
             uint16_t ext_data_len = (uint16_t)(2 + sig_list_len);
-            if(ext_len + 4u + ext_data_len < 256u) {
+            if(ext_len + 4U + ext_data_len < 256u) {
                 ext_buf[ext_len++] = (uint8_t)(TLS_EXTENSION_SIGNATURE_ALGORITHMS >> 8);
                 ext_buf[ext_len++] = (uint8_t)(TLS_EXTENSION_SIGNATURE_ALGORITHMS & 0xFF);
                 ext_buf[ext_len++] = (uint8_t)(ext_data_len >> 8);
@@ -2121,7 +2477,7 @@ noxtls_return_t noxtls_tls12_send_client_hello(tls12_context_t *ctx)
         /* RFC 7250: server_certificate_type (client accepts RPK from server) */
         if(ctx->client_accept_server_rpk) {
             uint16_t ext_data_len = 3;  /* 1 byte list length + 2 types */
-            if(ext_len + 4u + ext_data_len < 256u) {
+            if(ext_len + 4U + ext_data_len < 256u) {
                 ext_buf[ext_len++] = (uint8_t)(TLS_EXTENSION_SERVER_CERTIFICATE_TYPE >> 8);
                 ext_buf[ext_len++] = (uint8_t)(TLS_EXTENSION_SERVER_CERTIFICATE_TYPE & 0xFF);
                 ext_buf[ext_len++] = (uint8_t)(ext_data_len >> 8);
@@ -2134,7 +2490,7 @@ noxtls_return_t noxtls_tls12_send_client_hello(tls12_context_t *ctx)
         /* RFC 7250: client_certificate_type (client can send RPK for client auth) */
         if(ctx->client_offer_client_rpk) {
             uint16_t ext_data_len = 3;
-            if(ext_len + 4u + ext_data_len < 256u) {
+            if(ext_len + 4U + ext_data_len < 256u) {
                 ext_buf[ext_len++] = (uint8_t)(TLS_EXTENSION_CLIENT_CERTIFICATE_TYPE >> 8);
                 ext_buf[ext_len++] = (uint8_t)(TLS_EXTENSION_CLIENT_CERTIFICATE_TYPE & 0xFF);
                 ext_buf[ext_len++] = (uint8_t)(ext_data_len >> 8);
@@ -2146,7 +2502,7 @@ noxtls_return_t noxtls_tls12_send_client_hello(tls12_context_t *ctx)
         }
         /* RFC 6066: max_fragment_length (1=512, 2=1024, 3=2048, 4=4096) */
         if(ctx->max_fragment_length_code >= 1 && ctx->max_fragment_length_code <= 4 &&
-           ext_len + 4u + 1u < 256u) {
+           ext_len + 4U + 1U < 256u) {
             ext_buf[ext_len++] = 0x00;
             ext_buf[ext_len++] = TLS_EXTENSION_MAX_FRAGMENT_LENGTH;
             ext_buf[ext_len++] = 0x00;
@@ -2154,7 +2510,7 @@ noxtls_return_t noxtls_tls12_send_client_hello(tls12_context_t *ctx)
             ext_buf[ext_len++] = ctx->max_fragment_length_code;
         }
         /* RFC 6066 status_request (OCSP stapling): status_type=ocsp, empty responder_id_list, empty request_extensions. */
-        if(ctx->client_request_ocsp_status != 0u && ext_len + 4u + 5u < 256u) {
+        if(ctx->client_request_ocsp_status != 0U && ext_len + 4U + 5U < 256u) {
             ext_buf[ext_len++] = 0x00;
             ext_buf[ext_len++] = TLS_EXTENSION_STATUS_REQUEST;
             ext_buf[ext_len++] = 0x00;
@@ -2166,7 +2522,7 @@ noxtls_return_t noxtls_tls12_send_client_hello(tls12_context_t *ctx)
             ext_buf[ext_len++] = 0x00;
         }
         /* RFC 6520: heartbeat extension */
-        if(ctx->heartbeat_enabled != 0u && ext_len + 4u + 1u < 256u) {
+        if(ctx->heartbeat_enabled != 0U && ext_len + 4U + 1U < 256u) {
             ext_buf[ext_len++] = 0x00;
             ext_buf[ext_len++] = TLS_EXTENSION_HEARTBEAT;
             ext_buf[ext_len++] = 0x00;
@@ -2176,8 +2532,8 @@ noxtls_return_t noxtls_tls12_send_client_hello(tls12_context_t *ctx)
 
         /* RFC 5746: renegotiation_info (secure renegotiation) when renegotiating */
         if(ctx->renegotiation_in_progress && ctx->previous_verify_data_len > 0 &&
-           (1u + ctx->previous_verify_data_len) <= 48u &&
-           ext_len + 4u + 1u + (uint32_t)ctx->previous_verify_data_len < 256u) {
+           (1U + ctx->previous_verify_data_len) <= 48U &&
+           ext_len + 4U + 1U + (uint32_t)ctx->previous_verify_data_len < 256u) {
             uint16_t ext_data_len = (uint16_t)(1 + ctx->previous_verify_data_len);
             ext_buf[ext_len++] = (uint8_t)(TLS_EXTENSION_RENEGOTIATION_INFO >> 8);
             ext_buf[ext_len++] = (uint8_t)(TLS_EXTENSION_RENEGOTIATION_INFO & 0xFF);
@@ -2233,6 +2589,14 @@ noxtls_return_t noxtls_tls12_send_client_hello(tls12_context_t *ctx)
 }
 
 /** Client: populate ctx from ClientHello transcript (already sent) for TLS 1.3→1.2 downgrade resume. */
+/**
+ * @brief Client: populate ctx from ClientHello transcript (already sent) for TLS 1.3→1.2 downgrade resume.
+ *
+ * @param[in] ctx The TLS 1.2 context
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the context is NULL, NOXTLS_RETURN_BAD_DATA if the data is NULL or the length is less than 4U + 2U + 32U + 1U + 2U + 1U
+ * @return NOXTLS_RETURN_BAD_DATA if the data is not a ClientHello noxtls_message
+ * @return NOXTLS_RETURN_BAD_DATA if the length is not a valid length for a ClientHello noxtls_message
+*/ 
 static noxtls_return_t tls12_client_apply_handshake_client_hello_transcript(tls12_context_t *ctx)
 {
     const uint8_t *d;
@@ -2249,29 +2613,29 @@ static noxtls_return_t tls12_client_apply_handshake_client_hello_transcript(tls1
     }
     d = ctx->handshake_messages;
     len = ctx->handshake_messages_len;
-    if(d == NULL || len < 4u + 2u + 32u + 1u + 2u + 1u) {
+    if(d == NULL || len < 4U + 2U + 32U + 1U + 2U + 1U) {
         return NOXTLS_RETURN_BAD_DATA;
     }
     if(d[0] != TLS_HANDSHAKE_CLIENT_HELLO) {
         return NOXTLS_RETURN_BAD_DATA;
     }
     hs_body = ((uint32_t)d[1] << 16) | ((uint32_t)d[2] << 8) | (uint32_t)d[3];
-    if(4u + hs_body != len || hs_body < 2u + 32u + 1u + 2u + 1u) {
+    if(4U + hs_body != len || hs_body < 2U + 32U + 1U + 2U + 1U) {
         return NOXTLS_RETURN_BAD_DATA;
     }
-    o = 4u;
+    o = 4U;
     ctx->client_hello_version = (uint16_t)(((uint16_t)d[o] << 8) | d[o + 1]);
-    o += 2u;
+    o += 2U;
     memcpy(ctx->client_random, d + o, TLS_RANDOM_SIZE);
     o += TLS_RANDOM_SIZE;
     sid_len = d[o++];
-    if(o + sid_len + 2u > len) {
+    if(o + sid_len + 2U > len) {
         return NOXTLS_RETURN_BAD_DATA;
     }
     o += sid_len;
     cipher_list_len = (uint16_t)(((uint16_t)d[o] << 8) | d[o + 1]);
-    o += 2u;
-    if((cipher_list_len & 1u) != 0u || o + cipher_list_len + 1u > len) {
+    o += 2U;
+    if((cipher_list_len & 1U) != 0U || o + cipher_list_len + 1U > len) {
         return NOXTLS_RETURN_BAD_DATA;
     }
     o += cipher_list_len;
@@ -2283,8 +2647,8 @@ static noxtls_return_t tls12_client_apply_handshake_client_hello_transcript(tls1
 
     noxtls_tls_extensions_free(&ctx->client_extensions);
     memset(&ctx->client_extensions, 0, sizeof(ctx->client_extensions));
-    ctx->client_offered_ocsp_status = 0u;
-    ctx->client_request_ocsp_status = 0u;
+    ctx->client_offered_ocsp_status = 0U;
+    ctx->client_request_ocsp_status = 0U;
     ctx->client_heartbeat_mode = 0;
     if(o < len) {
         uint32_t ext_len = len - o;
@@ -2295,15 +2659,15 @@ static noxtls_return_t tls12_client_apply_handshake_client_hello_transcript(tls1
             return ext_rc;
         }
         if(noxtls_tls_find_extension(&ctx->client_extensions, TLS_EXTENSION_STATUS_REQUEST, &ex) == NOXTLS_RETURN_SUCCESS &&
-           ex != NULL && ex->data != NULL && ex->length >= 5u && ex->data[0] == 0x01u) {
-            ctx->client_offered_ocsp_status = 1u;
+           ex != NULL && ex->data != NULL && ex->length >= 5U && ex->data[0] == 0x01u) {
+            ctx->client_offered_ocsp_status = 1U;
         }
         ctx->client_request_ocsp_status = ctx->client_offered_ocsp_status;
         if(noxtls_tls_find_extension(&ctx->client_extensions, TLS_EXTENSION_HEARTBEAT, &ex) == NOXTLS_RETURN_SUCCESS &&
-           ex != NULL && ex->length == 1u && ex->data != NULL &&
+           ex != NULL && ex->length == 1U && ex->data != NULL &&
            (ex->data[0] == TLS_HEARTBEAT_MODE_PEER_ALLOWED_TO_SEND ||
             ex->data[0] == TLS_HEARTBEAT_MODE_PEER_NOT_ALLOWED_TO_SEND)) {
-            ctx->heartbeat_enabled = 1u;
+            ctx->heartbeat_enabled = 1U;
             ctx->client_heartbeat_mode = ex->data[0];
         }
     }
@@ -2334,8 +2698,8 @@ noxtls_return_t noxtls_tls12_client_resume_from_tls13_downgrade(tls12_context_t 
         if(server_hello_handshake) free(server_hello_handshake);
         return NOXTLS_RETURN_FAILED;
     }
-    if(client_hello_transcript == NULL || client_hello_transcript_len < 4u ||
-       server_hello_handshake == NULL || server_hello_handshake_len < 4u) {
+    if(client_hello_transcript == NULL || client_hello_transcript_len < 4U ||
+       server_hello_handshake == NULL || server_hello_handshake_len < 4U) {
         if(client_hello_transcript) free(client_hello_transcript);
         if(server_hello_handshake) free(server_hello_handshake);
         return NOXTLS_RETURN_INVALID_PARAM;
@@ -2358,8 +2722,8 @@ noxtls_return_t noxtls_tls12_client_resume_from_tls13_downgrade(tls12_context_t 
     ctx->base.base.pending_server_hello_len = server_hello_handshake_len;
 
     /* One ClientHello record was already sent on the wire. */
-    ctx->client_seq_num = 1u;
-    ctx->server_seq_num = 0u;
+    ctx->client_seq_num = 1U;
+    ctx->server_seq_num = 0U;
 
     rc = tls12_client_apply_handshake_client_hello_transcript(ctx);
     if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -2436,7 +2800,7 @@ noxtls_return_t noxtls_tls12_client_resume_from_tls13_downgrade(tls12_context_t 
         return rc;
     }
     NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_KEYSCHED, NOXSIGHT_SEVERITY_DEBUG,
-                    NOXTLS_EVT_KEY_SCHEDULE_STAGE, 1u, ctx->cipher_suite);
+                    NOXTLS_EVT_KEY_SCHEDULE_STAGE, 1U, ctx->cipher_suite);
 
     printf("[TLS12_DEBUG] resume: derive_keys...\n");
     rc = tls12_derive_keys(ctx);
@@ -2446,7 +2810,7 @@ noxtls_return_t noxtls_tls12_client_resume_from_tls13_downgrade(tls12_context_t 
         return rc;
     }
     NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_KEYSCHED, NOXSIGHT_SEVERITY_DEBUG,
-                    NOXTLS_EVT_KEY_SCHEDULE_STAGE, 2u, ctx->cipher_suite);
+                    NOXTLS_EVT_KEY_SCHEDULE_STAGE, 2U, ctx->cipher_suite);
     NOXTLS_STATE_EXIT(ctx, NOXTLS_STATE_KEY_SCHEDULE, rc);
 
     printf("[TLS12_DEBUG] resume: send_change_cipher_spec...\n");
@@ -2486,7 +2850,9 @@ noxtls_return_t noxtls_tls12_client_resume_from_tls13_downgrade(tls12_context_t 
     NOXTLS_STATE_EXIT(ctx, NOXTLS_STATE_RECV_FINISHED, rc);
 
     ctx->base.base.state = TLS_STATE_CONNECTED;
+#if NOXTLS_FEATURE_DTLS
     noxtls_dtls_mark_validated(&ctx->base);
+#endif
     NOXTLS_STATE_ENTER(ctx, NOXTLS_STATE_CONNECTED);
 
     return NOXTLS_RETURN_SUCCESS;
@@ -2505,7 +2871,7 @@ noxtls_return_t noxtls_tls12_recv_server_hello(tls12_context_t *ctx)
     }
     
     noxtls_debug_printf("[TLS12_DEBUG] noxtls_tls12_recv_server_hello: Starting...\n");
-    if(ctx->base.base.pending_server_hello != NULL && ctx->base.base.pending_server_hello_len > 0u) {
+    if(ctx->base.base.pending_server_hello != NULL && ctx->base.base.pending_server_hello_len > 0U) {
         record.type = TLS_RECORD_HANDSHAKE;
         record.length = ctx->base.base.pending_server_hello_len;
         record.data = ctx->base.base.pending_server_hello;
@@ -2517,7 +2883,7 @@ noxtls_return_t noxtls_tls12_recv_server_hello(tls12_context_t *ctx)
             return rc;
         }
     }
-    if(record.data == NULL || record.length < 1u) {
+    if(record.data == NULL || record.length < 1U) {
         free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
@@ -2625,20 +2991,20 @@ noxtls_return_t noxtls_tls12_recv_server_hello(tls12_context_t *ctx)
                         ctx->max_record_payload = tls12_mfl_code_to_payload(mfl);
                     }
                 } else if(etype == TLS_EXTENSION_STATUS_REQUEST) {
-                    if(elen != 0u) {
+                    if(elen != 0U) {
                         free(record.data);
                         return NOXTLS_RETURN_BAD_DATA;
                     }
-                    if(ctx->client_request_ocsp_status == 0u) {
+                    if(ctx->client_request_ocsp_status == 0U) {
                         free(record.data);
                         if(ctx->base.base.send_callback != NULL) {
                             (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_UNSUPPORTED_EXTENSION);
                         }
                         return NOXTLS_RETURN_NOT_SUPPORTED;
                     }
-                    ctx->status_request_negotiated = 1u;
+                    ctx->status_request_negotiated = 1U;
                 } else if(etype == TLS_EXTENSION_HEARTBEAT) {
-                    if(elen != 1u) {
+                    if(elen != 1U) {
                         free(record.data);
                         return NOXTLS_RETURN_BAD_DATA;
                     }
@@ -2659,12 +3025,12 @@ noxtls_return_t noxtls_tls12_recv_server_hello(tls12_context_t *ctx)
         if(server_etm_seen && tls12_suite_supports_encrypt_then_mac(ctx->cipher_suite)) {
             ctx->use_encrypt_then_mac = 1;
         }
-        if(server_heartbeat_seen && ctx->heartbeat_enabled == 0u) {
+        if(server_heartbeat_seen && ctx->heartbeat_enabled == 0U) {
             free(record.data);
             return NOXTLS_RETURN_NOT_SUPPORTED;
         }
-        if(server_heartbeat_seen && ctx->heartbeat_enabled != 0u) {
-            ctx->heartbeat_negotiated = 1u;
+        if(server_heartbeat_seen && ctx->heartbeat_enabled != 0U) {
+            ctx->heartbeat_negotiated = 1U;
         }
     }
     (void)offset;
@@ -2718,8 +3084,8 @@ static noxtls_return_t tls12_recv_handshake_message(tls12_context_t *ctx,
     hs_body_len = ((uint32_t)record.data[1] << 16) |
                   ((uint32_t)record.data[2] << 8) |
                   (uint32_t)record.data[3];
-    hs_total_len = 4u + hs_body_len;
-    if(hs_total_len > (TLS_MAX_HANDSHAKE_SIZE + 4u)) {
+    hs_total_len = 4U + hs_body_len;
+    if(hs_total_len > (TLS_MAX_HANDSHAKE_SIZE + 4U)) {
         noxtls_free(record.data);
         return NOXTLS_RETURN_BAD_DATA;
     }
@@ -2802,7 +3168,7 @@ noxtls_return_t noxtls_tls12_recv_certificate(tls12_context_t *ctx)
     noxtls_debug_printf("[TLS12_DEBUG] noxtls_tls12_recv_certificate: hs_type=0x%02X\n",
                           hs_len > 0 ? hs_msg[0] : 0);
 
-    if(hs_len < 7u) {
+    if(hs_len < 7U) {
         noxtls_debug_printf("[TLS12_DEBUG] noxtls_tls12_recv_certificate: Invalid record type or length\n");
         NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_X509, NOXSIGHT_SEVERITY_ERROR,
                         NOXTLS_EVT_CERT_PARSE_FAIL, TLS_RECORD_HANDSHAKE, hs_len);
@@ -2827,7 +3193,7 @@ noxtls_return_t noxtls_tls12_recv_certificate(tls12_context_t *ctx)
     noxtls_debug_printf("[TLS12_DEBUG] noxtls_tls12_recv_certificate: Certificate list length: %u\n", cert_list_len);
     
     {
-        if(cert_list_len < 3 || cert_list_len > hs_len - 7u) {
+        if(cert_list_len < 3 || cert_list_len > hs_len - 7U) {
             noxtls_debug_printf("[TLS12_DEBUG] noxtls_tls12_recv_certificate: Invalid certificate list length\n");
             noxtls_free(hs_msg);
             return NOXTLS_RETURN_FAILED;
@@ -2867,8 +3233,8 @@ noxtls_return_t noxtls_tls12_recv_certificate(tls12_context_t *ctx)
         ctx->server_cert_is_rpk = 1;
         ctx->server_cert_parsed = NULL;  /* No X.509 structure; application uses server_cert (SPKI) for verification */
     } else {
-        uint32_t chain_pos = 10u + cert_len;
-        uint32_t chain_end = 7u + cert_list_len;
+        uint32_t chain_pos = 10U + cert_len;
+        uint32_t chain_end = 7U + cert_list_len;
         if(noxtls_x509_certificate_chain_init(&presented_chain) != NOXTLS_RETURN_SUCCESS) {
             noxtls_free(hs_msg);
             return NOXTLS_RETURN_FAILED;
@@ -2907,12 +3273,12 @@ noxtls_return_t noxtls_tls12_recv_certificate(tls12_context_t *ctx)
                     }
                 }
 
-                while(chain_pos + 3u <= chain_end) {
+                while(chain_pos + 3U <= chain_end) {
                     uint32_t issuer_len = ((uint32_t)hs_msg[chain_pos] << 16) |
                                           ((uint32_t)hs_msg[chain_pos + 1] << 8) |
                                           (uint32_t)hs_msg[chain_pos + 2];
                     x509_certificate_t issuer_cert;
-                    chain_pos += 3u;
+                    chain_pos += 3U;
                     if(issuer_len == 0 || chain_pos + issuer_len > chain_end) {
                         noxtls_x509_certificate_chain_free(&presented_chain);
                         noxtls_free(hs_msg);
@@ -2984,7 +3350,7 @@ noxtls_return_t noxtls_tls12_recv_certificate(tls12_context_t *ctx)
     noxtls_debug_printf("[TLS12_DEBUG] noxtls_tls12_recv_certificate: Record data freed\n");
     fflush(stdout);
     
-    if(ctx->status_request_negotiated != 0u) {
+    if(ctx->status_request_negotiated != 0U) {
         rc = tls12_recv_certificate_status(ctx);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
@@ -3016,7 +3382,7 @@ noxtls_return_t noxtls_tls12_recv_server_key_exchange(tls12_context_t *ctx)
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    if(record.data == NULL || record.length < 1u) {
+    if(record.data == NULL || record.length < 1U) {
         free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
@@ -3259,7 +3625,7 @@ noxtls_return_t noxtls_tls12_recv_server_hello_done(tls12_context_t *ctx)
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    if(record.data == NULL || record.length < 1u) {
+    if(record.data == NULL || record.length < 1U) {
         free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
@@ -3671,7 +4037,7 @@ noxtls_return_t noxtls_tls12_recv_change_cipher_spec(tls12_context_t *ctx)
             if(app_buf != ctx->record_workspace) noxtls_free(app_buf);
             return rc;
         }
-        if(app_len > 0u) {
+        if(app_len > 0U) {
             if(ctx->pending_app_data_len + app_len > sizeof(ctx->pending_app_data)) {
                 if(app_buf != ctx->record_workspace) noxtls_free(app_buf);
                 return NOXTLS_RETURN_FAILED;
@@ -3689,7 +4055,7 @@ noxtls_return_t noxtls_tls12_recv_change_cipher_spec(tls12_context_t *ctx)
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
-        if(ccs_len != 1u || ccs_plain[0] != TLS_RECORD_CCS_PAYLOAD) {
+        if(ccs_len != 1U || ccs_plain[0] != TLS_RECORD_CCS_PAYLOAD) {
             return NOXTLS_RETURN_FAILED;
         }
     } else {
@@ -3933,7 +4299,7 @@ noxtls_return_t noxtls_tls12_connect(tls12_context_t *ctx)
         return rc;
     }
     NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_KEYSCHED, NOXSIGHT_SEVERITY_DEBUG,
-                    NOXTLS_EVT_KEY_SCHEDULE_STAGE, 1u, ctx->cipher_suite);
+                    NOXTLS_EVT_KEY_SCHEDULE_STAGE, 1U, ctx->cipher_suite);
     
     /* Derive keys from master secret */
     printf("[TLS12_DEBUG] noxtls_tls12_connect: derive_keys...\n");
@@ -3944,7 +4310,7 @@ noxtls_return_t noxtls_tls12_connect(tls12_context_t *ctx)
         return rc;
     }
     NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_KEYSCHED, NOXSIGHT_SEVERITY_DEBUG,
-                    NOXTLS_EVT_KEY_SCHEDULE_STAGE, 2u, ctx->cipher_suite);
+                    NOXTLS_EVT_KEY_SCHEDULE_STAGE, 2U, ctx->cipher_suite);
     NOXTLS_STATE_EXIT(ctx, NOXTLS_STATE_KEY_SCHEDULE, rc);
     
     /* Send Change Cipher Spec */
@@ -3988,13 +4354,21 @@ noxtls_return_t noxtls_tls12_connect(tls12_context_t *ctx)
     NOXTLS_STATE_EXIT(ctx, NOXTLS_STATE_RECV_FINISHED, rc);
     
     ctx->base.base.state = TLS_STATE_CONNECTED;
+#if NOXTLS_FEATURE_DTLS
     noxtls_dtls_mark_validated(&ctx->base);
+#endif
     NOXTLS_STATE_ENTER(ctx, NOXTLS_STATE_CONNECTED);
     
     return NOXTLS_RETURN_SUCCESS;
 }
 
 /* Process ALPN after ClientHello extension parse; sends fatal alerts on failure. */
+/**
+ * @brief Process ALPN after ClientHello extension parse; sends fatal alerts on failure.
+ * 
+ * @param[in] ctx The TLS 1.2 context.
+ * @return The return value.
+ */
 static noxtls_return_t tls12_process_alpn_negotiation(tls12_context_t *ctx)
 {
     noxtls_tls_alpn_status_t alpn_status;
@@ -4011,7 +4385,7 @@ static noxtls_return_t tls12_process_alpn_negotiation(tls12_context_t *ctx)
                                                 ctx->server_alpn_protocols,
                                                 ctx->server_alpn_count,
                                                 (char *)ctx->negotiated_alpn,
-                                                sizeof(ctx->negotiated_alpn) - 1u,
+                                                sizeof(ctx->negotiated_alpn) - 1U,
                                                 &selected_len);
     if(alpn_status == NOXTLS_TLS_ALPN_STATUS_NONE) {
         return NOXTLS_RETURN_SUCCESS;
@@ -4034,6 +4408,12 @@ static noxtls_return_t tls12_process_alpn_negotiation(tls12_context_t *ctx)
 }
 
 /* RFC 7919 / tlsfuzzer: RSA vs DHE cipher helpers and RSA fallback when no FFDHE overlap (ClientHello paths). */
+/**
+ * @brief Check if the cipher suite is a pure RSA key exchange suite.
+ * 
+ * @param[in] cs The cipher suite value.
+ * @return The return value.
+ */
 static int tls12_suite_is_pure_rsa_key_exchange(uint16_t cs)
 {
     return (cs == TLS_CIPHER_SUITE_RSA_WITH_3DES_EDE_CBC_SHA ||
@@ -4051,11 +4431,23 @@ static int tls12_suite_is_pure_rsa_key_exchange(uint16_t cs)
 
 /* TLS 1.3 cipher suite IDs (RFC 8446, IANA 0x1300–0x13FF) may appear in ClientHello for
  * compatibility but must not be selected for a TLS 1.2 handshake. */
+/**
+ * @brief Check if the cipher suite is a TLS 1.3 range.
+ *
+ * @param[in] cs The cipher suite value.
+ * @return The return value.
+ */
 static int tls12_cipher_suite_wire_is_tls13_range(uint16_t cs)
 {
     return (cs >= 0x1300u && cs <= 0x13FFu) ? 1 : 0;
 }
 
+/**
+ * @brief Check if the cipher suite requires FFDHE server key exchange.
+ *
+ * @param[in] cs The cipher suite value.
+ * @return The return value.
+ */
 static int tls12_suite_requires_ffdhe_server_key_exchange(uint16_t cs)
 {
     return (cs == TLS_CIPHER_SUITE_DHE_RSA_WITH_3DES_EDE_CBC_SHA ||
@@ -4074,6 +4466,16 @@ static int tls12_suite_requires_ffdhe_server_key_exchange(uint16_t cs)
             cs == TLS_CIPHER_SUITE_DHE_RSA_WITH_ARIA_256_CBC_SHA384);
 }
 
+/**
+ * @brief Select RSA fallback from client
+ * 
+ * @param ch_buf The client hello buffer
+ * @param cipher_suites_offset The cipher suites offset
+ * @param cipher_suites_count The cipher suites count
+ * @param supported_suites The supported suites
+ * @param num_supported The number of supported suites
+ * @return The selected suite
+ */
 /* NOLINTNEXTLINE(bugprone-easily-swappable-parameters): parser inputs are intentionally grouped by ClientHello layout. */
 static uint16_t tls12_select_rsa_fallback_from_client(
     const uint8_t *ch_buf,
@@ -4092,8 +4494,8 @@ static uint16_t tls12_select_rsa_fallback_from_client(
             continue;
         }
         for(i = 0; i < cipher_suites_count; i++) {
-            uint16_t cs = (uint16_t)((ch_buf[cipher_suites_offset + i * 2u] << 8) |
-                                    ch_buf[cipher_suites_offset + i * 2u + 1u]);
+            uint16_t cs = (uint16_t)((ch_buf[cipher_suites_offset + i * 2U] << 8) |
+                                    ch_buf[cipher_suites_offset + i * 2U + 1U]);
             if(cs == srv) {
                 return srv;
             }
@@ -4102,7 +4504,18 @@ static uint16_t tls12_select_rsa_fallback_from_client(
     return 0;
 }
 
-/* Pick first client-offered DHE_RSA suite that the server policy allows (client order wins). */
+/**
+ * @brief Select the DHE_RSA fallback from the client
+ * 
+ * @details Pick first client-offered DHE_RSA suite that the server policy allows (client order wins).
+ * 
+ * @param[in] ch_buf The client hello buffer.
+ * @param[in] cipher_suites_offset The cipher suites offset.
+ * @param[in] cipher_suites_count The cipher suites count.
+ * @param[in] supported_suites The supported suites.
+ * @param[in] num_supported The number of supported suites.
+ * @return The selected suite.  
+ */
 static uint16_t tls12_select_dhe_rsa_fallback_from_client(
     const uint8_t *ch_buf,
     uint32_t cipher_suites_offset,
@@ -4112,8 +4525,8 @@ static uint16_t tls12_select_dhe_rsa_fallback_from_client(
 {
     uint32_t i, j;
     for(i = 0; i < cipher_suites_count; i++) {
-        uint16_t cs = (uint16_t)((ch_buf[cipher_suites_offset + i * 2u] << 8) |
-                                ch_buf[cipher_suites_offset + i * 2u + 1u]);
+        uint16_t cs = (uint16_t)((ch_buf[cipher_suites_offset + i * 2U] << 8) |
+                                ch_buf[cipher_suites_offset + i * 2U + 1U]);
         if(!tls12_suite_requires_ffdhe_server_key_exchange(cs)) {
             continue;
         }
@@ -4161,7 +4574,7 @@ static noxtls_return_t tls12_maybe_ecdhe_group_downgrade_cipher(
         uint16_t fb = tls12_select_dhe_rsa_fallback_from_client(ch_buf, cipher_suites_offset,
                                                                 cipher_suites_count,
                                                                 supported_suites, num_supported);
-        if(fb != 0u) {
+        if(fb != 0U) {
             if(ctx->ecdhe_ctx != NULL) {
                 noxtls_tls_ecdhe_context_free((tls_ecdhe_context_t*)ctx->ecdhe_ctx);
                 free(ctx->ecdhe_ctx);
@@ -4177,6 +4590,12 @@ static noxtls_return_t tls12_maybe_ecdhe_group_downgrade_cipher(
     return NOXTLS_RETURN_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Check if the cipher suite is a RSA key exchange suite.
+ *
+ * @param[in] cs The cipher suite value.
+ * @return The return value.
+ */
 static int tls12_cs_is_rsa_key_exchange_suite(uint16_t cs)
 {
     return (cs == TLS_CIPHER_SUITE_RSA_WITH_3DES_EDE_CBC_SHA ||
@@ -4194,6 +4613,12 @@ static int tls12_cs_is_rsa_key_exchange_suite(uint16_t cs)
             cs == TLS_CIPHER_SUITE_RSA_WITH_AES_256_GCM_SHA384);
 }
 
+/**
+ * @brief Check if the cipher suite is a DHE_RSA suite.
+ *
+ * @param[in] cs The cipher suite value.
+ * @return The return value.
+ */
 static int tls12_cs_is_dhe_rsa_suite(uint16_t cs)
 {
     return (cs == TLS_CIPHER_SUITE_DHE_RSA_WITH_3DES_EDE_CBC_SHA ||
@@ -4212,6 +4637,12 @@ static int tls12_cs_is_dhe_rsa_suite(uint16_t cs)
             cs == TLS_CIPHER_SUITE_DHE_RSA_WITH_ARIA_256_CBC_SHA384);
 }
 
+/**
+ * @brief Check if the server needs RSA SKX signature prepare.
+ *
+ * @param[in] ctx The TLS 1.2 context
+ * @return The return value.
+ */
 static int tls12_server_needs_rsa_skx_sig_prepare(const tls12_context_t *ctx)
 {
     uint16_t cs;
@@ -4234,6 +4665,9 @@ static int tls12_server_needs_rsa_skx_sig_prepare(const tls12_context_t *ctx)
 
 /**
  * @brief TLS 1.2 Server: Receive Client Hello
+ *
+ * @param[in] ctx The TLS 1.2 context
+ * @return The return value
  */
 noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
 {
@@ -4294,7 +4728,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
             free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
-        if(record.length < 1u) {
+        if(record.length < 1U) {
             if(ctx->base.base.send_callback != NULL) {
                 (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
             }
@@ -4310,13 +4744,13 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
         }
         tls12_inc_recv_seq(ctx);
         assembled_len = (uint32_t)record.length;
-        while(assembled_len < 4u) {
+        while(assembled_len < 4U) {
             rc = noxtls_tls_recv_record(&ctx->base.base, &next_record);
             if(rc != NOXTLS_RETURN_SUCCESS) {
                 free(record.data);
                 return rc;
             }
-            if(next_record.length > 0u && next_record.data == NULL) {
+            if(next_record.length > 0U && next_record.data == NULL) {
                 if(ctx->base.base.send_callback != NULL) {
                     (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
                 }
@@ -4348,17 +4782,17 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
                 }
                 record.data = new_buf;
             }
-            if(next_record.length > 0u && next_record.data != NULL) {
+            if(next_record.length > 0U && next_record.data != NULL) {
                 memcpy(record.data + assembled_len, next_record.data, next_record.length);
             }
             assembled_len += (uint32_t)next_record.length;
             free(next_record.data);
             tls12_inc_recv_seq(ctx);
         }
-        client_hello_total_len = 4u + (((uint32_t)record.data[1] << 16) |
+        client_hello_total_len = 4U + (((uint32_t)record.data[1] << 16) |
                                        ((uint32_t)record.data[2] << 8) |
                                        (uint32_t)record.data[3]);
-        if(client_hello_total_len > TLS_MAX_CLIENT_HELLO_BYTES || client_hello_total_len < 38u) {
+        if(client_hello_total_len > TLS_MAX_CLIENT_HELLO_BYTES || client_hello_total_len < 38U) {
             if(ctx->base.base.send_callback != NULL) {
                 (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
             }
@@ -4439,7 +4873,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
         free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
-    if(record.length < 38u) {
+    if(record.length < 38U) {
         if(ctx->base.base.send_callback != NULL) {
             (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
         }
@@ -4455,10 +4889,10 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
         return NOXTLS_RETURN_FAILED;
     }
     if(use_pending) {
-        uint32_t pending_tot = 4u + (((uint32_t)record.data[1] << 16) |
+        uint32_t pending_tot = 4U + (((uint32_t)record.data[1] << 16) |
                                      ((uint32_t)record.data[2] << 8) |
                                      (uint32_t)record.data[3]);
-        if(record.length != pending_tot || pending_tot < 38u || pending_tot > TLS_MAX_CLIENT_HELLO_BYTES) {
+        if(record.length != pending_tot || pending_tot < 38U || pending_tot > TLS_MAX_CLIENT_HELLO_BYTES) {
             if(ctx->base.base.send_callback != NULL) {
                 (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
             }
@@ -4485,7 +4919,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
     ctx->ems_session_transcript_len = 0;
     
     /* Version */
-    if(offset + 2u > record.length) {
+    if(offset + 2U > record.length) {
         if(ctx->base.base.send_callback != NULL) {
             (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
         }
@@ -4497,7 +4931,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
     offset += 2;
     
     /* Client Random (32 bytes) */
-    if(offset + 32u > record.length) {
+    if(offset + 32U > record.length) {
         if(ctx->base.base.send_callback != NULL) {
             (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
         }
@@ -4536,6 +4970,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
     }
     offset += session_id_len;
     
+#if NOXTLS_FEATURE_DTLS
     if(tls12_is_dtls(ctx)) {
         uint8_t cookie_len;
         if(offset >= record.length) {
@@ -4561,9 +4996,10 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
         }
         offset += cookie_len;
     }
+#endif /* NOXTLS_FEATURE_DTLS */
     
     /* Cipher suites length */
-    if(offset + 2u > record.length) {
+    if(offset + 2U > record.length) {
         if(ctx->base.base.send_callback != NULL) {
             (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
         }
@@ -4572,8 +5008,8 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
     }
     cipher_suites_len = (record.data[offset] << 8) | record.data[offset + 1];
     offset += 2;
-    if(cipher_suites_len == 0u ||
-       (cipher_suites_len & 1u) != 0u ||
+    if(cipher_suites_len == 0U ||
+       (cipher_suites_len & 1U) != 0U ||
        offset + cipher_suites_len > record.length) {
         if(ctx->base.base.send_callback != NULL) {
             (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
@@ -4704,7 +5140,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
             continue;
         }
         for(uint32_t i = 0; i < cipher_suites_count; i++) {
-            uint16_t client_suite = (record.data[offset + i * 2u] << 8) | record.data[offset + i * 2u + 1u];
+            uint16_t client_suite = (record.data[offset + i * 2U] << 8) | record.data[offset + i * 2U + 1U];
             if(client_suite == srv) {
                 selected_suite = client_suite;
                 break;
@@ -4729,7 +5165,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
         return NOXTLS_RETURN_FAILED;
     }
     compression_methods_len = record.data[offset++];
-    if(compression_methods_len == 0u || offset + compression_methods_len > record.length) {
+    if(compression_methods_len == 0U || offset + compression_methods_len > record.length) {
         if(ctx->base.base.send_callback != NULL) {
             (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
         }
@@ -4740,7 +5176,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
         uint32_t ci;
         int have_null = 0;
         for(ci = 0; ci < (uint32_t)compression_methods_len; ci++) {
-            if(record.data[offset + ci] == 0u) {
+            if(record.data[offset + ci] == 0U) {
                 have_null = 1;
                 break;
             }
@@ -4790,7 +5226,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
                 }
                 if(noxtls_tls_find_extension(&ctx->client_extensions, TLS_EXTENSION_HEARTBEAT, &ext_hb) == NOXTLS_RETURN_SUCCESS &&
                    ext_hb != NULL) {
-                    if(ext_hb->length != 1u || ext_hb->data == NULL) {
+                    if(ext_hb->length != 1U || ext_hb->data == NULL) {
                         if(ctx->base.base.send_callback != NULL) {
                             (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
                         }
@@ -4813,7 +5249,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
                 }
                 if(noxtls_tls_find_extension(&ctx->client_extensions, TLS_EXTENSION_STATUS_REQUEST, &ext_status) == NOXTLS_RETURN_SUCCESS &&
                    ext_status != NULL) {
-                    if(ext_status->data == NULL || ext_status->length < 5u) {
+                    if(ext_status->data == NULL || ext_status->length < 5U) {
                         if(ctx->base.base.send_callback != NULL) {
                             (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
                         }
@@ -4824,9 +5260,9 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
                     }
                     if(ext_status->data[0] == 0x01u) { /* ocsp */
                         uint16_t responder_id_list_len = (uint16_t)(((uint16_t)ext_status->data[1] << 8) | ext_status->data[2]);
-                        uint32_t pos = 3u;
+                        uint32_t pos = 3U;
                         uint16_t request_extensions_len;
-                        if(pos + responder_id_list_len + 2u > ext_status->length) {
+                        if(pos + responder_id_list_len + 2U > ext_status->length) {
                             if(ctx->base.base.send_callback != NULL) {
                                 (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
                             }
@@ -4836,8 +5272,8 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
                             return NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR;
                         }
                         pos += responder_id_list_len;
-                        request_extensions_len = (uint16_t)(((uint16_t)ext_status->data[pos] << 8) | ext_status->data[pos + 1u]);
-                        pos += 2u;
+                        request_extensions_len = (uint16_t)(((uint16_t)ext_status->data[pos] << 8) | ext_status->data[pos + 1U]);
+                        pos += 2U;
                         if(pos + request_extensions_len != ext_status->length) {
                             if(ctx->base.base.send_callback != NULL) {
                                 (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
@@ -4847,7 +5283,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
                             free(record.data);
                             return NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR;
                         }
-                        ctx->client_offered_ocsp_status = 1u;
+                        ctx->client_offered_ocsp_status = 1U;
                     }
                 }
             }
@@ -4870,7 +5306,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
                     return alpn_rc;
                 }
             }
-            if(selected_suite != 0u &&
+            if(selected_suite != 0U &&
                !ctx->session_resume && !ctx->renegotiation_in_progress &&
                tls12_suite_requires_ffdhe_server_key_exchange(ctx->cipher_suite)) {
                 uint16_t ng_probe = 0;
@@ -4878,7 +5314,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
                     uint16_t fb = tls12_select_rsa_fallback_from_client(record.data, cipher_suites_offset,
                                                                         cipher_suites_count,
                                                                         supported_suites, num_supported);
-                    if(fb != 0u) {
+                    if(fb != 0U) {
                         ctx->cipher_suite = fb;
                     } else {
                         if(ctx->base.base.send_callback != NULL) {
@@ -4892,7 +5328,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
                     }
                 }
             }
-            if(selected_suite != 0u && !ctx->session_resume && !ctx->renegotiation_in_progress) {
+            if(selected_suite != 0U && !ctx->session_resume && !ctx->renegotiation_in_progress) {
                 noxtls_return_t ecdhe_down_rc = tls12_maybe_ecdhe_group_downgrade_cipher(
                     ctx, record.data, cipher_suites_offset, cipher_suites_count,
                     supported_suites, num_supported);
@@ -4901,7 +5337,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
                     return ecdhe_down_rc;
                 }
             }
-            if(selected_suite != 0u && !ctx->session_resume && !ctx->renegotiation_in_progress) {
+            if(selected_suite != 0U && !ctx->session_resume && !ctx->renegotiation_in_progress) {
                 tls12_maybe_upgrade_rsa_to_dhe_for_fs(ctx, record.data, record.length,
                                                         cipher_suites_offset, cipher_suites_count);
             }
@@ -4951,7 +5387,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
             return NOXTLS_RETURN_BAD_DATA;
         }
     }
-    if(selected_suite == 0u && !ctx->session_resume) {
+    if(selected_suite == 0U && !ctx->session_resume) {
         noxtls_debug_printf("ERROR: No supported cipher suite found in client's list\n");
         if(ctx->base.base.send_callback != NULL) {
             (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_HANDSHAKE_FAILURE);
@@ -5092,11 +5528,11 @@ noxtls_return_t noxtls_tls12_send_server_hello(tls12_context_t *ctx)
                        tls12_suite_supports_encrypt_then_mac(ctx->cipher_suite);
         int have_rpk = 0;
         int have_mfl = (ctx->max_fragment_length_code >= 1 && ctx->max_fragment_length_code <= 4);
-        int have_heartbeat = (ctx->heartbeat_enabled != 0u && ctx->client_heartbeat_mode != 0u);
+        int have_heartbeat = (ctx->heartbeat_enabled != 0U && ctx->client_heartbeat_mode != 0U);
         int have_alpn = (ctx->negotiated_alpn_len > 0);
-        int have_status_request = (ctx->client_offered_ocsp_status != 0u &&
+        int have_status_request = (ctx->client_offered_ocsp_status != 0U &&
                                    ctx->server_ocsp_response != NULL &&
-                                   ctx->server_ocsp_response_len > 0u &&
+                                   ctx->server_ocsp_response_len > 0U &&
                                    !ctx->session_resume);
         int have_session_ticket = 0;
         {
@@ -5143,15 +5579,15 @@ noxtls_return_t noxtls_tls12_send_server_hello(tls12_context_t *ctx)
             }
         }
         if(have_reneg) {
-            uint8_t reneg_data_len = 0u;
+            uint8_t reneg_data_len = 0U;
             if(ctx->renegotiation_in_progress && ctx->previous_verify_data_len > 0) {
-                reneg_data_len = (uint8_t)(2u * ctx->previous_verify_data_len);
+                reneg_data_len = (uint8_t)(2U * ctx->previous_verify_data_len);
             }
-            uint16_t elen = (uint16_t)(1u + reneg_data_len);
-            ext_block_len += (uint16_t)(4u + elen);
+            uint16_t elen = (uint16_t)(1U + reneg_data_len);
+            ext_block_len += (uint16_t)(4U + elen);
         }
         if(include_ems_sh) {
-            ext_block_len += 4u;
+            ext_block_len += 4U;
         }
         if(have_etm) {
             ext_block_len += 4;
@@ -5163,35 +5599,35 @@ noxtls_return_t noxtls_tls12_send_server_hello(tls12_context_t *ctx)
             ext_block_len += 4 + 1;  /* RFC 6066: max_fragment_length type(2)+len(2)+code(1) */
         }
         if(have_heartbeat) {
-            ext_block_len += 4u + 1u; /* RFC 6520: heartbeat type(2)+len(2)+mode(1) */
+            ext_block_len += 4U + 1U; /* RFC 6520: heartbeat type(2)+len(2)+mode(1) */
         }
         if(have_alpn) {
-            ext_block_len += (uint16_t)(4u + 2u + 1u + (uint32_t)ctx->negotiated_alpn_len);
+            ext_block_len += (uint16_t)(4U + 2U + 1U + (uint32_t)ctx->negotiated_alpn_len);
         }
         if(have_status_request) {
-            ext_block_len += 4u; /* RFC 6066: status_request in ServerHello has empty extension_data. */
+            ext_block_len += 4U; /* RFC 6066: status_request in ServerHello has empty extension_data. */
         }
         if(have_session_ticket) {
-            ext_block_len += 4u; /* type(2)+len(2), empty extension_data */
+            ext_block_len += 4U; /* type(2)+len(2), empty extension_data */
         }
         if(have_ec_point_formats) {
-            ext_block_len += 6u; /* type(2)+len(2)+1 list len + format(1) */
+            ext_block_len += 6U; /* type(2)+len(2)+1 list len + format(1) */
         }
         if(ext_block_len > 0 && offset + 2 + ext_block_len <= TLS_SERVER_HELLO_DEFAULT_SIZE) {
             server_hello[offset++] = (uint8_t)(ext_block_len >> 8);
             server_hello[offset++] = (uint8_t)(ext_block_len & 0xFF);
             if(have_reneg) {
-                uint8_t reneg_data_len = 0u;
+                uint8_t reneg_data_len = 0U;
                 if(ctx->renegotiation_in_progress && ctx->previous_verify_data_len > 0) {
-                    reneg_data_len = (uint8_t)(2u * ctx->previous_verify_data_len);
+                    reneg_data_len = (uint8_t)(2U * ctx->previous_verify_data_len);
                 }
-                uint16_t elen = (uint16_t)(1u + reneg_data_len);
+                uint16_t elen = (uint16_t)(1U + reneg_data_len);
                 server_hello[offset++] = (uint8_t)(TLS_EXTENSION_RENEGOTIATION_INFO >> 8);
                 server_hello[offset++] = (uint8_t)(TLS_EXTENSION_RENEGOTIATION_INFO & 0xFF);
                 server_hello[offset++] = (uint8_t)(elen >> 8);
                 server_hello[offset++] = (uint8_t)(elen & 0xFF);
                 server_hello[offset++] = reneg_data_len;
-                if(reneg_data_len > 0u) {
+                if(reneg_data_len > 0U) {
                     memcpy(server_hello + offset, ctx->previous_client_verify_data, ctx->previous_verify_data_len);
                     offset += ctx->previous_verify_data_len;
                     memcpy(server_hello + offset, ctx->previous_server_verify_data, ctx->previous_verify_data_len);
@@ -5267,15 +5703,15 @@ noxtls_return_t noxtls_tls12_send_server_hello(tls12_context_t *ctx)
                 server_hello[offset++] = 0x01; /* ECPointFormatList length */
                 server_hello[offset++] = 0x00; /* uncompressed */
             }
-            ctx->heartbeat_negotiated = (uint8_t)(have_heartbeat ? 1u : 0u);
-            ctx->heartbeat_peer_mode = (uint8_t)(have_heartbeat ? ctx->client_heartbeat_mode : 0u);
-            ctx->status_request_negotiated = (uint8_t)(have_status_request ? 1u : 0u);
+            ctx->heartbeat_negotiated = (uint8_t)(have_heartbeat ? 1U : 0U);
+            ctx->heartbeat_peer_mode = (uint8_t)(have_heartbeat ? ctx->client_heartbeat_mode : 0U);
+            ctx->status_request_negotiated = (uint8_t)(have_status_request ? 1U : 0U);
         } else {
             server_hello[offset++] = 0x00;
             server_hello[offset++] = 0x00;
-            ctx->heartbeat_negotiated = 0u;
-            ctx->heartbeat_peer_mode = 0u;
-            ctx->status_request_negotiated = 0u;
+            ctx->heartbeat_negotiated = 0U;
+            ctx->heartbeat_peer_mode = 0U;
+            ctx->status_request_negotiated = 0U;
         }
     }
     /* Update handshake noxtls_message length */
@@ -5318,6 +5754,12 @@ static int tls12_cipher_suite_is_ecdhe_ecdsa(uint16_t cs)
     }
 }
 
+/**
+ * @brief Send the certificate
+ * 
+ * @param[in] ctx The context.
+ * @return The return value.
+ */
 noxtls_return_t noxtls_tls12_send_certificate(tls12_context_t *ctx)
 {
     uint32_t cert_list_len;
@@ -5333,15 +5775,15 @@ noxtls_return_t noxtls_tls12_send_certificate(tls12_context_t *ctx)
     leaf_der = ctx->server_cert;
     leaf_len = ctx->server_cert_len;
     if(tls12_cipher_suite_is_ecdhe_ecdsa(ctx->cipher_suite) &&
-       ctx->server_ecdsa_leaf_cert != NULL && ctx->server_ecdsa_leaf_cert_len > 0u) {
+       ctx->server_ecdsa_leaf_cert != NULL && ctx->server_ecdsa_leaf_cert_len > 0U) {
         leaf_der = ctx->server_ecdsa_leaf_cert;
         leaf_len = ctx->server_ecdsa_leaf_cert_len;
     } else if(ctx->tls12_rsa_skx_scheme_prepared != 0 && ctx->tls12_rsa_skx_use_pss_leaf_identity != 0 &&
-              ctx->server_rsa_pss_leaf_cert != NULL && ctx->server_rsa_pss_leaf_cert_len > 0u) {
+              ctx->server_rsa_pss_leaf_cert != NULL && ctx->server_rsa_pss_leaf_cert_len > 0U) {
         leaf_der = ctx->server_rsa_pss_leaf_cert;
         leaf_len = ctx->server_rsa_pss_leaf_cert_len;
     }
-    if(leaf_der == NULL || leaf_len == 0u) {
+    if(leaf_der == NULL || leaf_len == 0U) {
         if(ctx->base.base.send_callback != NULL) {
             (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_HANDSHAKE_FAILURE);
         }
@@ -5370,11 +5812,11 @@ noxtls_return_t noxtls_tls12_send_certificate(tls12_context_t *ctx)
             if(certificate != ctx->handshake_workspace) NOXTLS_SECURE_FREE(certificate, TLS_HANDSHAKE_WORKSPACE_SIZE); else if(ctx->handshake_workspace != NULL) memset(ctx->handshake_workspace, 0, TLS_HANDSHAKE_WORKSPACE_SIZE);
             return NOXTLS_RETURN_FAILED;
         }
-        if(ctx->server_cert_chain[i] == NULL || ctx->server_cert_chain_len[i] == 0u) {
+        if(ctx->server_cert_chain[i] == NULL || ctx->server_cert_chain_len[i] == 0U) {
             if(certificate != ctx->handshake_workspace) NOXTLS_SECURE_FREE(certificate, TLS_HANDSHAKE_WORKSPACE_SIZE); else if(ctx->handshake_workspace != NULL) memset(ctx->handshake_workspace, 0, TLS_HANDSHAKE_WORKSPACE_SIZE);
             return NOXTLS_RETURN_FAILED;
         }
-        cert_list_len += 3u + ctx->server_cert_chain_len[i];
+        cert_list_len += 3U + ctx->server_cert_chain_len[i];
     }
     certificate[offset++] = (cert_list_len >> 16) & 0xFF;
     certificate[offset++] = (cert_list_len >> 8) & 0xFF;
@@ -5421,13 +5863,19 @@ noxtls_return_t noxtls_tls12_send_certificate(tls12_context_t *ctx)
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    if(ctx->status_request_negotiated != 0u) {
+    if(ctx->status_request_negotiated != 0U) {
         rc = tls12_send_certificate_status(ctx);
     }
     return rc;
 }
 
 /* RFC 6066 status_request: send CertificateStatus (ocsp). Called only when status_request was negotiated. */
+/**
+ * @brief Send the certificate status
+ * 
+ * @param[in] ctx The context.
+ * @return The return value.
+ */
 static noxtls_return_t tls12_send_certificate_status(tls12_context_t *ctx)
 {
     uint8_t *msg;
@@ -5438,7 +5886,7 @@ static noxtls_return_t tls12_send_certificate_status(tls12_context_t *ctx)
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(ctx->server_ocsp_response == NULL || ctx->server_ocsp_response_len == 0u) {
+    if(ctx->server_ocsp_response == NULL || ctx->server_ocsp_response_len == 0U) {
         return NOXTLS_RETURN_NOT_SUPPORTED;
     }
     if(ctx->server_ocsp_response_len > 0xFFFFFFu) {
@@ -5460,7 +5908,7 @@ static noxtls_return_t tls12_send_certificate_status(tls12_context_t *ctx)
     msg[offset++] = 0x00;
 
     /* Body: CertificateStatus */
-    body_len = 1u + 3u + ctx->server_ocsp_response_len;
+    body_len = 1U + 3U + ctx->server_ocsp_response_len;
     if(offset + body_len > TLS_HANDSHAKE_WORKSPACE_SIZE) {
         if(msg != ctx->handshake_workspace) {
             NOXTLS_SECURE_FREE(msg, TLS_HANDSHAKE_WORKSPACE_SIZE);
@@ -5492,6 +5940,12 @@ static noxtls_return_t tls12_send_certificate_status(tls12_context_t *ctx)
 }
 
 /* RFC 6066 status_request: receive and store stapled OCSP response from CertificateStatus. */
+/**
+ * @brief Receive and store stapled OCSP response from CertificateStatus.
+ * 
+ * @param[in] ctx The TLS 1.2 context.
+ * @return The return value.
+ */
 static noxtls_return_t tls12_recv_certificate_status(tls12_context_t *ctx)
 {
     uint8_t *msg = NULL;
@@ -5507,7 +5961,7 @@ static noxtls_return_t tls12_recv_certificate_status(tls12_context_t *ctx)
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    if(msg == NULL || msg_len < 8u) {
+    if(msg == NULL || msg_len < 8U) {
         noxtls_free(msg);
         return NOXTLS_RETURN_BAD_DATA;
     }
@@ -5516,7 +5970,7 @@ static noxtls_return_t tls12_recv_certificate_status(tls12_context_t *ctx)
         return NOXTLS_RETURN_BAD_DATA;
     }
     ocsp_len = ((uint32_t)msg[5] << 16) | ((uint32_t)msg[6] << 8) | (uint32_t)msg[7];
-    if(ocsp_len == 0u || (8u + ocsp_len) != msg_len) {
+    if(ocsp_len == 0U || (8U + ocsp_len) != msg_len) {
         noxtls_free(msg);
         return NOXTLS_RETURN_BAD_DATA;
     }
@@ -5540,6 +5994,15 @@ static noxtls_return_t tls12_recv_certificate_status(tls12_context_t *ctx)
 }
 
 /* Encode ECDSA signature (r, s) to DER for TLS 1.2 ServerKeyExchange (same structure as TLS 1.3 CertificateVerify). */
+
+/**
+ * @brief Encode ECDSA signature (r, s) to DER for TLS 1.2 ServerKeyExchange (same structure as TLS 1.3 CertificateVerify).
+ * 
+ * @param[in] sig The ECDSA signature.
+ * @param[out] der The DER encoded signature.
+ * @param[in] der_max The maximum length of the DER encoded signature.
+ * @return The length of the DER encoded signature.
+ */
 static uint32_t tls12_ecdsa_signature_to_der(const ecdsa_signature_t *sig, uint8_t *der, uint32_t der_max)
 {
     uint32_t size = sig->size;
@@ -5606,6 +6069,11 @@ static uint32_t tls12_ecdsa_signature_to_der(const ecdsa_signature_t *sig, uint8
 
 /**
  * @brief TLS 1.2 Server: Send Server Key Exchange
+ * 
+ * @param[in] ctx The TLS 1.2 context.
+ * @return NOXTLS_RETURN_NULL if the context is NULL, 
+ *          NOXTLS_RETURN_FAILED if the role is not server, 
+ *          NOXTLS_RETURN_SUCCESS if the Server Key Exchange is sent.
  */
 noxtls_return_t noxtls_tls12_send_server_key_exchange(tls12_context_t *ctx)
 {
@@ -5827,13 +6295,13 @@ noxtls_return_t noxtls_tls12_send_server_key_exchange(tls12_context_t *ctx)
             if(to_sign_len <= 320) {
                 memcpy(to_sign, ctx->client_random, TLS_RANDOM_SIZE);
                 memcpy(to_sign + TLS_RANDOM_SIZE, ctx->server_random, TLS_RANDOM_SIZE);
-                memcpy(to_sign + ((size_t)TLS_RANDOM_SIZE * 2u), server_key_exchange + params_start, params_len);
+                memcpy(to_sign + ((size_t)TLS_RANDOM_SIZE * 2U), server_key_exchange + params_start, params_len);
             }
 
             if(tls12_cipher_suite_is_ecdhe_ecdsa(ctx->cipher_suite) && ctx->server_private_ecdsa != NULL &&
                to_sign_len <= 320) {
                 ecc_key_t *eckey = (ecc_key_t *)ctx->server_private_ecdsa;
-                uint32_t coord_size = eckey->curve != NULL ? eckey->curve->size : 32u;
+                uint32_t coord_size = eckey->curve != NULL ? eckey->curve->size : 32U;
                 ecdsa_signature_t esig;
                 uint32_t der_len;
                 memset(&esig, 0, sizeof(esig));
@@ -5842,7 +6310,7 @@ noxtls_return_t noxtls_tls12_send_server_key_exchange(tls12_context_t *ctx)
                     rc = noxtls_ecdsa_sign(eckey, to_sign, to_sign_len, &esig, skx_sign_hash);
                     if(rc == NOXTLS_RETURN_SUCCESS) {
                         der_len = tls12_ecdsa_signature_to_der(&esig, sig_buf, 512);
-                        if(der_len > 0u && offset + 4u + der_len <= 1024u) {
+                        if(der_len > 0U && offset + 4U + der_len <= 1024U) {
                             server_key_exchange[offset++] = ecdsa_skx_hash_wire;
                             server_key_exchange[offset++] = 0x03; /* SignatureAlgorithm.ecdsa */
                             server_key_exchange[offset++] = (uint8_t)((der_len >> 8) & 0xFF);
@@ -5925,6 +6393,12 @@ noxtls_return_t noxtls_tls12_send_server_key_exchange(tls12_context_t *ctx)
     }
 }
 
+/**
+ * @brief Check if the client supports the signature algorithm.
+ *
+ * @param[in] sigalg The signature algorithm value.
+ * @return The return value.
+ */
 static int tls12_server_supports_client_sigalg(uint16_t sigalg)
 {
     static const uint16_t supported[] = {
@@ -5941,6 +6415,14 @@ static int tls12_server_supports_client_sigalg(uint16_t sigalg)
     return 0;
 }
 
+/**
+ * @brief Build the certificate request signature algorithms.
+ *
+ * @param[in] ctx The context value.
+ * @param[out] out The output value.
+ * @param[in] out_cap The output capacity value.
+ * @return The return value.
+ */
 static uint32_t tls12_build_cert_request_sigalgs(tls12_context_t *ctx, uint8_t *out, uint32_t out_cap)
 {
     static const uint16_t defaults[] = {
@@ -5973,7 +6455,7 @@ static uint32_t tls12_build_cert_request_sigalgs(tls12_context_t *ctx, uint8_t *
         if(!tls12_server_supports_client_sigalg(defaults[i])) {
             continue;
         }
-        if(out_len + 2u > out_cap) {
+        if(out_len + 2U > out_cap) {
             return 0;
         }
         out[out_len++] = (uint8_t)(defaults[i] >> 8);
@@ -5982,6 +6464,12 @@ static uint32_t tls12_build_cert_request_sigalgs(tls12_context_t *ctx, uint8_t *
     return out_len;
 }
 
+/**
+ * @brief Send the certificate request
+ * 
+ * @param[in] ctx The context.
+ * @return The return value.
+ */
 noxtls_return_t noxtls_tls12_send_certificate_request(tls12_context_t *ctx)
 {
     uint8_t *msg = NULL;
@@ -6010,15 +6498,15 @@ noxtls_return_t noxtls_tls12_send_certificate_request(tls12_context_t *ctx)
     msg[offset++] = 0x00;
 
     /* certificate_types<1..2^8-1>: rsa_sign + ecdsa_sign */
-    msg[offset++] = 2u;
-    msg[offset++] = 1u;
-    msg[offset++] = 64u;
+    msg[offset++] = 2U;
+    msg[offset++] = 1U;
+    msg[offset++] = 64U;
 
     /* supported_signature_algorithms<2..2^16-1> */
     msg[offset++] = 0x00;
     msg[offset++] = 0x00;
     sigalgs_len = tls12_build_cert_request_sigalgs(ctx, msg + offset, TLS_HANDSHAKE_WORKSPACE_SIZE - offset);
-    if(sigalgs_len == 0 || (sigalgs_len & 1u) != 0) {
+    if(sigalgs_len == 0 || (sigalgs_len & 1U) != 0) {
         if(msg != ctx->handshake_workspace) {
             NOXTLS_SECURE_FREE(msg, TLS_HANDSHAKE_WORKSPACE_SIZE);
         } else if(ctx->handshake_workspace != NULL) {
@@ -6026,8 +6514,8 @@ noxtls_return_t noxtls_tls12_send_certificate_request(tls12_context_t *ctx)
         }
         return NOXTLS_RETURN_FAILED;
     }
-    msg[offset - 2u] = (uint8_t)(sigalgs_len >> 8);
-    msg[offset - 1u] = (uint8_t)(sigalgs_len & 0xFF);
+    msg[offset - 2U] = (uint8_t)(sigalgs_len >> 8);
+    msg[offset - 1U] = (uint8_t)(sigalgs_len & 0xFF);
     offset += sigalgs_len;
 
     /* certificate_authorities<0..2^16-1>: empty list */
@@ -6035,7 +6523,7 @@ noxtls_return_t noxtls_tls12_send_certificate_request(tls12_context_t *ctx)
     msg[offset++] = 0x00;
 
     {
-        uint32_t hs_len = offset - 4u;
+        uint32_t hs_len = offset - 4U;
         msg[1] = (uint8_t)(hs_len >> 16);
         msg[2] = (uint8_t)(hs_len >> 8);
         msg[3] = (uint8_t)(hs_len & 0xFF);
@@ -6081,6 +6569,13 @@ noxtls_return_t noxtls_tls12_send_server_hello_done(tls12_context_t *ctx)
     return rc;
 }
 
+/**
+ * @brief Receive the client certificate.
+ *
+ * @param[in] ctx The context value.
+ * @param[out] cert_present The certificate present value.
+ * @return The return value.
+ */
 static noxtls_return_t tls12_recv_client_certificate(tls12_context_t *ctx, int *cert_present)
 {
     uint8_t *msg = NULL;
@@ -6101,28 +6596,28 @@ static noxtls_return_t tls12_recv_client_certificate(tls12_context_t *ctx, int *
     if(msg == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
-    if(msg_len < 7u || msg[0] != TLS_HANDSHAKE_CERTIFICATE) {
+    if(msg_len < 7U || msg[0] != TLS_HANDSHAKE_CERTIFICATE) {
         noxtls_free(msg);
         return NOXTLS_RETURN_TLS_ERROR;
     }
 
     cert_list_len = ((uint32_t)msg[4] << 16) | ((uint32_t)msg[5] << 8) | (uint32_t)msg[6];
-    if(cert_list_len > (msg_len - 7u)) {
+    if(cert_list_len > (msg_len - 7U)) {
         noxtls_free(msg);
         return NOXTLS_RETURN_BAD_DATA;
     }
-    if(cert_list_len == 0u) {
+    if(cert_list_len == 0U) {
         tls12_append_handshake_message(ctx, msg, msg_len);
         noxtls_free(msg);
         return NOXTLS_RETURN_SUCCESS;
     }
-    if(cert_list_len < 3u || msg_len < 10u) {
+    if(cert_list_len < 3U || msg_len < 10U) {
         noxtls_free(msg);
         return NOXTLS_RETURN_BAD_DATA;
     }
 
     cert_len = ((uint32_t)msg[7] << 16) | ((uint32_t)msg[8] << 8) | (uint32_t)msg[9];
-    if(cert_len == 0u || (10u + cert_len) > msg_len || cert_len > (cert_list_len - 3u)) {
+    if(cert_len == 0U || (10U + cert_len) > msg_len || cert_len > (cert_list_len - 3U)) {
         noxtls_free(msg);
         return NOXTLS_RETURN_BAD_DATA;
     }
@@ -6143,7 +6638,7 @@ static noxtls_return_t tls12_recv_client_certificate(tls12_context_t *ctx, int *
         noxtls_free(msg);
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
-    memcpy(ctx->client_cert, msg + 10u, cert_len);
+    memcpy(ctx->client_cert, msg + 10U, cert_len);
     ctx->client_cert_len = cert_len;
 
     {
@@ -6169,6 +6664,13 @@ static noxtls_return_t tls12_recv_client_certificate(tls12_context_t *ctx, int *
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Convert the signature hash to NoxTLS hash algorithm.
+ *
+ * @param[in] hash_id The hash id value.
+ * @param[out] hash_algo The hash algorithm value.
+ * @return The return value.
+ */
 static noxtls_return_t tls12_sig_hash_to_noxtls(uint8_t hash_id, noxtls_hash_algos_t *hash_algo)
 {
     if(hash_algo == NULL) {
@@ -6185,6 +6687,12 @@ static noxtls_return_t tls12_sig_hash_to_noxtls(uint8_t hash_id, noxtls_hash_alg
     }
 }
 
+/**
+ * @brief Receive the client certificate verify.
+ *
+ * @param[in] ctx The context value.
+ * @return The return value.
+ */
 static noxtls_return_t tls12_recv_client_certificate_verify(tls12_context_t *ctx)
 {
     uint8_t *msg = NULL;
@@ -6205,13 +6713,13 @@ static noxtls_return_t tls12_recv_client_certificate_verify(tls12_context_t *ctx
     if(msg == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
-    if(msg_len < 8u || msg[0] != TLS_HANDSHAKE_CERTIFICATE_VERIFY) {
+    if(msg_len < 8U || msg[0] != TLS_HANDSHAKE_CERTIFICATE_VERIFY) {
         noxtls_free(msg);
         return NOXTLS_RETURN_BAD_DATA;
     }
     sig_scheme = (uint16_t)(((uint16_t)msg[4] << 8) | (uint16_t)msg[5]);
     sig_len = (uint16_t)(((uint16_t)msg[6] << 8) | (uint16_t)msg[7]);
-    if((uint32_t)8u + (uint32_t)sig_len != msg_len) {
+    if((uint32_t)8U + (uint32_t)sig_len != msg_len) {
         noxtls_free(msg);
         return NOXTLS_RETURN_BAD_DATA;
     }
@@ -6231,7 +6739,7 @@ static noxtls_return_t tls12_recv_client_certificate_verify(tls12_context_t *ctx
         rc = tls12_sig_hash_to_noxtls(hash_id, &hash_algo);
         if(rc != NOXTLS_RETURN_SUCCESS ||
            cert->rsa_modulus == NULL || cert->rsa_exponent == NULL ||
-           cert->rsa_modulus_len == 0u || cert->rsa_exponent_len == 0u) {
+           cert->rsa_modulus_len == 0U || cert->rsa_exponent_len == 0U) {
             noxtls_free(msg);
             return NOXTLS_RETURN_FAILED;
         }
@@ -6241,10 +6749,10 @@ static noxtls_return_t tls12_recv_client_certificate_verify(tls12_context_t *ctx
         exp_len = cert->rsa_exponent_len;
         if(mod_ptr[0] == 0x00u) { mod_ptr++; mod_len--; }
         if(exp_ptr[0] == 0x00u) { exp_ptr++; exp_len--; }
-        if(mod_len == 128u) key_size = RSA_1024_BIT;
+        if(mod_len == 128U) key_size = RSA_1024_BIT;
         else if(mod_len == 256u) key_size = RSA_2048_BIT;
         else if(mod_len == 384u) key_size = RSA_3072_BIT;
-        else if(mod_len == 512u) key_size = RSA_4096_BIT;
+        else if(mod_len == 512U) key_size = RSA_4096_BIT;
         else {
             noxtls_free(msg);
             return NOXTLS_RETURN_FAILED;
@@ -6259,7 +6767,7 @@ static noxtls_return_t tls12_recv_client_certificate_verify(tls12_context_t *ctx
         memcpy(rsa_key.n + (rsa_key.key_bytes - mod_len), mod_ptr, mod_len);
         memcpy(rsa_key.e + (rsa_key.key_bytes - exp_len), exp_ptr, exp_len);
         rc = noxtls_rsa_verify(&rsa_key, ctx->handshake_messages, ctx->handshake_messages_len,
-                               msg + 8u, sig_len, hash_algo);
+                               msg + 8U, sig_len, hash_algo);
         noxtls_rsa_key_free(&rsa_key);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             noxtls_free(msg);
@@ -6279,14 +6787,14 @@ static noxtls_return_t tls12_recv_client_certificate_verify(tls12_context_t *ctx
             return rc;
         }
         rc = noxtls_x509_certificate_get_public_key(cert, &pubkey, &key_type);
-        if(rc != NOXTLS_RETURN_SUCCESS || pubkey == NULL || key_type != 2u) {
+        if(rc != NOXTLS_RETURN_SUCCESS || pubkey == NULL || key_type != 2U) {
             if(pubkey != NULL) noxtls_free(pubkey);
             noxtls_free(msg);
             return NOXTLS_RETURN_FAILED;
         }
         ecc_key = (ecc_key_t*)pubkey;
-        coord_size = (ecc_key->curve != NULL) ? ecc_key->curve->size : 0u;
-        if(coord_size == 0u) {
+        coord_size = (ecc_key->curve != NULL) ? ecc_key->curve->size : 0U;
+        if(coord_size == 0U) {
             noxtls_ecc_key_free(ecc_key);
             noxtls_free(ecc_key);
             noxtls_free(msg);
@@ -6299,7 +6807,7 @@ static noxtls_return_t tls12_recv_client_certificate_verify(tls12_context_t *ctx
             noxtls_free(msg);
             return rc;
         }
-        rc = noxtls_ecdsa_signature_parse_der(msg + 8u, sig_len, &ecdsa_sig, coord_size);
+        rc = noxtls_ecdsa_signature_parse_der(msg + 8U, sig_len, &ecdsa_sig, coord_size);
         if(rc == NOXTLS_RETURN_SUCCESS) {
             rc = noxtls_ecdsa_verify(ecc_key, ctx->handshake_messages, ctx->handshake_messages_len,
                                      &ecdsa_sig, hash_algo);
@@ -6328,7 +6836,7 @@ static noxtls_return_t tls12_recv_client_certificate_verify(tls12_context_t *ctx
             hash_algo = NOXTLS_HASH_SHA_512;
         }
         if(cert->rsa_modulus == NULL || cert->rsa_exponent == NULL ||
-           cert->rsa_modulus_len == 0u || cert->rsa_exponent_len == 0u) {
+           cert->rsa_modulus_len == 0U || cert->rsa_exponent_len == 0U) {
             noxtls_free(msg);
             return NOXTLS_RETURN_FAILED;
         }
@@ -6338,10 +6846,10 @@ static noxtls_return_t tls12_recv_client_certificate_verify(tls12_context_t *ctx
         exp_len = cert->rsa_exponent_len;
         if(mod_ptr[0] == 0x00u) { mod_ptr++; mod_len--; }
         if(exp_ptr[0] == 0x00u) { exp_ptr++; exp_len--; }
-        if(mod_len == 128u) key_size = RSA_1024_BIT;
+        if(mod_len == 128U) key_size = RSA_1024_BIT;
         else if(mod_len == 256u) key_size = RSA_2048_BIT;
         else if(mod_len == 384u) key_size = RSA_3072_BIT;
-        else if(mod_len == 512u) key_size = RSA_4096_BIT;
+        else if(mod_len == 512U) key_size = RSA_4096_BIT;
         else {
             noxtls_free(msg);
             return NOXTLS_RETURN_FAILED;
@@ -6356,7 +6864,7 @@ static noxtls_return_t tls12_recv_client_certificate_verify(tls12_context_t *ctx
         memcpy(rsa_key.n + (rsa_key.key_bytes - mod_len), mod_ptr, mod_len);
         memcpy(rsa_key.e + (rsa_key.key_bytes - exp_len), exp_ptr, exp_len);
         rc = noxtls_rsa_verify_pss(&rsa_key, ctx->handshake_messages, ctx->handshake_messages_len,
-                                   msg + 8u, sig_len, hash_algo);
+                                   msg + 8U, sig_len, hash_algo);
         noxtls_rsa_key_free(&rsa_key);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             noxtls_free(msg);
@@ -6400,7 +6908,7 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
             return (rc == NOXTLS_RETURN_FAILED) ? NOXTLS_RETURN_BAD_DATA : rc;
         }
         
-        if(record.type != TLS_RECORD_HANDSHAKE || record.data == NULL || record.length < 4u) {
+        if(record.type != TLS_RECORD_HANDSHAKE || record.data == NULL || record.length < 4U) {
             noxtls_free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
@@ -6412,8 +6920,8 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
         tls12_inc_recv_seq(ctx);
         cke_data = record.data;
         cke_len = record.length;
-        want_len = 4u + ((uint32_t)cke_data[1] << 16) + ((uint32_t)cke_data[2] << 8) + (uint32_t)cke_data[3];
-        if(want_len < 6u || want_len > TLS_MAX_RECORD_SIZE) {
+        want_len = 4U + ((uint32_t)cke_data[1] << 16) + ((uint32_t)cke_data[2] << 8) + (uint32_t)cke_data[3];
+        if(want_len < 6U || want_len > TLS_MAX_RECORD_SIZE) {
             noxtls_free(record.data);
             return NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR;
         }
@@ -6432,7 +6940,7 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
                     return (rc == NOXTLS_RETURN_FAILED) ? NOXTLS_RETURN_BAD_DATA : rc;
                 }
                 if(record.type == TLS_RECORD_HANDSHAKE) {
-                    if(record.data == NULL || record.length == 0u || cke_len + record.length > want_len) {
+                    if(record.data == NULL || record.length == 0U || cke_len + record.length > want_len) {
                         noxtls_free(record.data);
                         noxtls_free(reasm);
                         return NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR;
@@ -6481,19 +6989,19 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
                                                  frag, &frag_len);
                 noxtls_free(record.data);
                 record.data = NULL;
-                if(rc != NOXTLS_RETURN_SUCCESS || frag_len == 0u) {
+                if(rc != NOXTLS_RETURN_SUCCESS || frag_len == 0U) {
                     noxtls_free(frag);
                     noxtls_free(reasm);
                     return (rc == NOXTLS_RETURN_SUCCESS) ? NOXTLS_RETURN_FAILED : rc;
                 }
-                if(cke_len == 0u) {
-                    if(frag_len < 4u || frag[0] != TLS_HANDSHAKE_CLIENT_KEY_EXCHANGE) {
+                if(cke_len == 0U) {
+                    if(frag_len < 4U || frag[0] != TLS_HANDSHAKE_CLIENT_KEY_EXCHANGE) {
                         noxtls_free(frag);
                         noxtls_free(reasm);
                         return NOXTLS_RETURN_FAILED;
                     }
-                    want_len = 4u + ((uint32_t)frag[1] << 16) + ((uint32_t)frag[2] << 8) + (uint32_t)frag[3];
-                    if(want_len < 6u || want_len > TLS_MAX_RECORD_SIZE) {
+                    want_len = 4U + ((uint32_t)frag[1] << 16) + ((uint32_t)frag[2] << 8) + (uint32_t)frag[3];
+                    if(want_len < 6U || want_len > TLS_MAX_RECORD_SIZE) {
                         noxtls_free(frag);
                         noxtls_free(reasm);
                         return NOXTLS_RETURN_FAILED;
@@ -6521,7 +7029,7 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
                     noxtls_free(reasm);
                     return rc;
                 }
-                if(frag_len > 0u) {
+                if(frag_len > 0U) {
                     if(ctx->pending_app_data_len + frag_len > sizeof(ctx->pending_app_data)) {
                         noxtls_free(frag);
                         noxtls_free(reasm);
@@ -6594,12 +7102,12 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
             uint8_t decrypted_pms[48];
             uint8_t fallback_pms[48];
             uint32_t decrypted_len = sizeof(decrypted_pms);
-            uint32_t use_decrypted = 0u;
+            uint32_t use_decrypted = 0U;
             uint8_t mask;
             uint16_t expected_pms_version = ctx->base.base.version;
             drbg_state_t drbg_state;
 
-            if(ctx->client_hello_version != 0u) {
+            if(ctx->client_hello_version != 0U) {
                 expected_pms_version = ctx->client_hello_version;
             }
             fallback_pms[0] = (uint8_t)(expected_pms_version >> 8);
@@ -6611,7 +7119,7 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
                 noxtls_secure_zero(fallback_pms, sizeof(fallback_pms));
                 return NOXTLS_RETURN_FAILED;
             }
-            if(drbg_generate(&drbg_state, fallback_pms + 2, 46u * 8u, NULL, 0) != NOXTLS_RETURN_SUCCESS) {
+            if(drbg_generate(&drbg_state, fallback_pms + 2, 46U * 8U, NULL, 0) != NOXTLS_RETURN_SUCCESS) {
                 noxtls_free(record.data);
                 if(reasm) noxtls_free(reasm);
                 noxtls_secure_zero(decrypted_pms, sizeof(decrypted_pms));
@@ -6632,17 +7140,17 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
             if(rc == NOXTLS_RETURN_SUCCESS && decrypted_len == sizeof(decrypted_pms) &&
                decrypted_pms[0] == (uint8_t)(expected_pms_version >> 8) &&
                decrypted_pms[1] == (uint8_t)(expected_pms_version & 0xFF)) {
-                use_decrypted = 1u;
+                use_decrypted = 1U;
             } else {
                 noxtls_debug_printf("[TLS12_DEBUG] RSA premaster validation failed, using random fallback (rc=%d len=%u)\n",
                                     rc, decrypted_len);
             }
 
-            mask = (uint8_t)(0u - (uint8_t)use_decrypted);
+            mask = (uint8_t)(0U - (uint8_t)use_decrypted);
             for(uint32_t i = 0; i < sizeof(decrypted_pms); i++) {
                 ctx->premaster_secret[i] = (uint8_t)((decrypted_pms[i] & mask) | (fallback_pms[i] & (uint8_t)~mask));
             }
-            ctx->premaster_secret_len = 48u;
+            ctx->premaster_secret_len = 48U;
             noxtls_secure_zero(decrypted_pms, sizeof(decrypted_pms));
             noxtls_secure_zero(fallback_pms, sizeof(fallback_pms));
         }
@@ -6695,7 +7203,7 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
 
         /* Decode peer's public key / raw key share (X25519/X448 are not ECPoint) */
         if(ecdhe_ctx->named_group == TLS_NAMED_GROUP_X25519) {
-            if(public_key_len != 32u) {
+            if(public_key_len != 32U) {
                 noxtls_free(record.data);
                 if(reasm) noxtls_free(reasm);
                 return NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER;
@@ -6723,7 +7231,7 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
             return NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER;
         }
         /* Exact ClientKeyExchange body: one length byte + key/point; reject padding or length/body mismatch (tlsfuzzer). */
-        if(4u + 1u + (uint32_t)public_key_len != cke_len) {
+        if(4U + 1U + (uint32_t)public_key_len != cke_len) {
             noxtls_free(record.data);
             if(reasm) noxtls_free(reasm);
             return NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR;
@@ -6813,7 +7321,7 @@ noxtls_return_t noxtls_tls12_recv_change_cipher_spec_client(tls12_context_t *ctx
             if(app_buf != ctx->record_workspace) noxtls_free(app_buf);
             return rc;
         }
-        if(app_len > 0u) {
+        if(app_len > 0U) {
             if(ctx->pending_app_data_len + app_len > sizeof(ctx->pending_app_data)) {
                 if(app_buf != ctx->record_workspace) noxtls_free(app_buf);
                 return NOXTLS_RETURN_FAILED;
@@ -6831,7 +7339,7 @@ noxtls_return_t noxtls_tls12_recv_change_cipher_spec_client(tls12_context_t *ctx
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
-        if(ccs_len != 1u || ccs_plain[0] != TLS_RECORD_CCS_PAYLOAD) {
+        if(ccs_len != 1U || ccs_plain[0] != TLS_RECORD_CCS_PAYLOAD) {
             return NOXTLS_RETURN_FAILED;
         }
     } else {
@@ -7073,12 +7581,18 @@ noxtls_return_t noxtls_tls12_send_finished_server(tls12_context_t *ctx)
     return rc;
 }
 
+/**
+ * @brief Send the new session ticket
+ * 
+ * @param[in] ctx The context.
+ * @return The return value.
+ */
 static noxtls_return_t tls12_send_new_session_ticket(tls12_context_t *ctx)
 {
     uint8_t msg[4 + 4 + 2 + 48];
     uint8_t ticket[48];
     uint16_t ticket_len = sizeof(ticket);
-    uint32_t payload_len = 4u + 2u + (uint32_t)ticket_len;
+    uint32_t payload_len = 4U + 2U + (uint32_t)ticket_len;
     uint32_t lifetime_hint = TLS12_TICKET_LIFETIME_HINT;
     drbg_state_t drbg_state;
     noxtls_return_t rc;
@@ -7093,7 +7607,7 @@ static noxtls_return_t tls12_send_new_session_ticket(tls12_context_t *ctx)
     if(drbg_instantiate(&drbg_state, DRBG_AES256, NULL, 0, NULL, 0, NULL, 0) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
-    if(drbg_generate(&drbg_state, ticket, (uint32_t)ticket_len * 8u, NULL, 0) != NOXTLS_RETURN_SUCCESS) {
+    if(drbg_generate(&drbg_state, ticket, (uint32_t)ticket_len * 8U, NULL, 0) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
 
@@ -7113,7 +7627,7 @@ static noxtls_return_t tls12_send_new_session_ticket(tls12_context_t *ctx)
         uint8_t sni_buf[255];
         uint16_t sni_sl = 0;
         if(ctx->client_extensions.sni != NULL && ctx->client_extensions.sni->hostname != NULL &&
-           ctx->client_extensions.sni->name_len > 0u &&
+           ctx->client_extensions.sni->name_len > 0U &&
            ctx->client_extensions.sni->name_len <= TLS12_SESSION_SNI_MAX) {
             sni_sl = ctx->client_extensions.sni->name_len;
             memcpy(sni_buf, ctx->client_extensions.sni->hostname, sni_sl);
@@ -7121,7 +7635,7 @@ static noxtls_return_t tls12_send_new_session_ticket(tls12_context_t *ctx)
         tls12_ticket_cache_store(ticket, ticket_len, ctx->master_secret, ctx->cipher_suite,
                                  ctx->negotiated_alpn, ctx->negotiated_alpn_len, lifetime_hint,
                                  ctx->extended_master_secret_negotiated,
-                                 (sni_sl > 0u) ? sni_buf : NULL,
+                                 (sni_sl > 0U) ? sni_buf : NULL,
                                  sni_sl);
     }
 
@@ -7130,24 +7644,38 @@ static noxtls_return_t tls12_send_new_session_ticket(tls12_context_t *ctx)
     return rc;
 }
 
+/**
+ * @brief ASCII fold lowercase.
+ *
+ * @param[in] c The c value.
+ * @return The return value.
+ */
 static uint8_t tls12_sni_ascii_fold_lc(uint8_t c)
 {
     if(c >= (uint8_t)'A' && c <= (uint8_t)'Z') {
-        return (uint8_t)(c + 32u);
+        return (uint8_t)(c + 32U);
     }
     return c;
 }
 
+/**
+ * @brief Check if the SNI is equal to the expected DNS name case-insensitively.
+ *
+ * @param[in] expect The expected value.
+ * @param[in] client The client value.
+ * @param[in] client_len The client length value.
+ * @return The return value.
+ */
 static int tls12_sni_eq_dns_case_insensitive(const char *expect, const char *client, uint16_t client_len)
 {
     size_t elen;
     uint32_t i;
 
-    if(expect == NULL || client == NULL || client_len == 0u) {
+    if(expect == NULL || client == NULL || client_len == 0U) {
         return 0;
     }
     elen = strlen(expect);
-    if(elen == 0u || elen != (size_t)client_len) {
+    if(elen == 0U || elen != (size_t)client_len) {
         return 0;
     }
     for(i = 0; i < (uint32_t)elen; i++) {
@@ -7158,6 +7686,12 @@ static int tls12_sni_eq_dns_case_insensitive(const char *expect, const char *cli
     return 1;
 }
 
+/**
+ * @brief Check if the SNI is unrecognized
+ * 
+ * @param[in] ctx The context.
+ * @return The return value.
+ */
 static noxtls_return_t tls12_server_maybe_alert_unrecognized_sni(tls12_context_t *ctx)
 {
     const char *exp;
@@ -7174,7 +7708,7 @@ static noxtls_return_t tls12_server_maybe_alert_unrecognized_sni(tls12_context_t
     }
     if(ctx->client_extensions.sni == NULL ||
        ctx->client_extensions.sni->hostname == NULL ||
-       ctx->client_extensions.sni->name_len == 0u) {
+       ctx->client_extensions.sni->name_len == 0U) {
         return NOXTLS_RETURN_SUCCESS;
     }
     if(tls12_sni_eq_dns_case_insensitive(exp,
@@ -7183,12 +7717,12 @@ static noxtls_return_t tls12_server_maybe_alert_unrecognized_sni(tls12_context_t
         return NOXTLS_RETURN_SUCCESS;
     }
     {
-        uint8_t lvl = (ctx->server_expect_sni_fatal != 0u) ? TLS_ALERT_LEVEL_FATAL : TLS_ALERT_LEVEL_WARNING;
+        uint8_t lvl = (ctx->server_expect_sni_fatal != 0U) ? TLS_ALERT_LEVEL_FATAL : TLS_ALERT_LEVEL_WARNING;
         noxtls_return_t arc = noxtls_tls_send_alert(&ctx->base.base, lvl, TLS_ALERT_UNRECOGNIZED_NAME);
         if(arc != NOXTLS_RETURN_SUCCESS) {
             return arc;
         }
-        if(ctx->server_expect_sni_fatal != 0u) {
+        if(ctx->server_expect_sni_fatal != 0U) {
             return NOXTLS_RETURN_TLS_ERROR;
         }
     }
@@ -7204,9 +7738,9 @@ static void tls12_server_arm_beast_split_if_needed(tls12_context_t *ctx)
     if(ctx->base.base.role == TLS_ROLE_SERVER &&
        ctx->client_hello_version == TLS_VERSION_1_0 &&
        ctx->base.base.version == TLS_VERSION_1_2) {
-        ctx->tls12_beast_split_first_appdata = 1u;
+        ctx->tls12_beast_split_first_appdata = 1U;
     } else {
-        ctx->tls12_beast_split_first_appdata = 0u;
+        ctx->tls12_beast_split_first_appdata = 0U;
     }
 }
 
@@ -7321,7 +7855,7 @@ noxtls_return_t noxtls_tls12_accept(tls12_context_t *ctx)
             uint8_t sni_buf[255];
             uint16_t sni_sl = 0;
             if(ctx->client_extensions.sni != NULL && ctx->client_extensions.sni->hostname != NULL &&
-               ctx->client_extensions.sni->name_len > 0u &&
+               ctx->client_extensions.sni->name_len > 0U &&
                ctx->client_extensions.sni->name_len <= TLS12_SESSION_SNI_MAX) {
                 sni_sl = ctx->client_extensions.sni->name_len;
                 memcpy(sni_buf, ctx->client_extensions.sni->hostname, sni_sl);
@@ -7333,12 +7867,14 @@ noxtls_return_t noxtls_tls12_accept(tls12_context_t *ctx)
                                       ctx->negotiated_alpn,
                                       ctx->negotiated_alpn_len,
                                       ctx->extended_master_secret_negotiated,
-                                      (sni_sl > 0u) ? sni_buf : NULL,
+                                      (sni_sl > 0U) ? sni_buf : NULL,
                                       sni_sl);
         }
         tls12_server_arm_beast_split_if_needed(ctx);
         ctx->base.base.state = TLS_STATE_CONNECTED;
+#if NOXTLS_FEATURE_DTLS
         noxtls_dtls_mark_validated(&ctx->base);
+#endif
         NOXTLS_STATE_ENTER(ctx, NOXTLS_STATE_CONNECTED);
         return NOXTLS_RETURN_SUCCESS;
     }
@@ -7419,7 +7955,7 @@ noxtls_return_t noxtls_tls12_accept(tls12_context_t *ctx)
         return rc;
     }
     NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_KEYSCHED, NOXSIGHT_SEVERITY_DEBUG,
-                    NOXTLS_EVT_KEY_SCHEDULE_STAGE, 1u, ctx->cipher_suite);
+                    NOXTLS_EVT_KEY_SCHEDULE_STAGE, 1U, ctx->cipher_suite);
     
     /* Derive keys from master secret */
     rc = tls12_derive_keys(ctx);
@@ -7447,7 +7983,7 @@ noxtls_return_t noxtls_tls12_accept(tls12_context_t *ctx)
         memcpy(ctx->client_write_mac_key, old_client_write_mac_key, sizeof(ctx->client_write_mac_key));
     }
     NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_KEYSCHED, NOXSIGHT_SEVERITY_DEBUG,
-                    NOXTLS_EVT_KEY_SCHEDULE_STAGE, 2u, ctx->cipher_suite);
+                    NOXTLS_EVT_KEY_SCHEDULE_STAGE, 2U, ctx->cipher_suite);
     NOXTLS_STATE_EXIT(ctx, NOXTLS_STATE_KEY_SCHEDULE, rc);
 
     if(ctx->request_client_auth && client_cert_present) {
@@ -7533,7 +8069,7 @@ noxtls_return_t noxtls_tls12_accept(tls12_context_t *ctx)
         uint8_t sni_buf[255];
         uint16_t sni_sl = 0;
         if(ctx->client_extensions.sni != NULL && ctx->client_extensions.sni->hostname != NULL &&
-           ctx->client_extensions.sni->name_len > 0u &&
+           ctx->client_extensions.sni->name_len > 0U &&
            ctx->client_extensions.sni->name_len <= TLS12_SESSION_SNI_MAX) {
             sni_sl = ctx->client_extensions.sni->name_len;
             memcpy(sni_buf, ctx->client_extensions.sni->hostname, sni_sl);
@@ -7545,13 +8081,15 @@ noxtls_return_t noxtls_tls12_accept(tls12_context_t *ctx)
                                   ctx->negotiated_alpn,
                                   ctx->negotiated_alpn_len,
                                   ctx->extended_master_secret_negotiated,
-                                  (sni_sl > 0u) ? sni_buf : NULL,
+                                  (sni_sl > 0U) ? sni_buf : NULL,
                                   sni_sl);
     }
 
     tls12_server_arm_beast_split_if_needed(ctx);
     ctx->base.base.state = TLS_STATE_CONNECTED;
+#if NOXTLS_FEATURE_DTLS
     noxtls_dtls_mark_validated(&ctx->base);
+#endif
     NOXTLS_STATE_ENTER(ctx, NOXTLS_STATE_CONNECTED);
     
     return NOXTLS_RETURN_SUCCESS;
@@ -7559,6 +8097,11 @@ noxtls_return_t noxtls_tls12_accept(tls12_context_t *ctx)
 
 /**
  * @brief TLS 1.2: Send application data
+ *
+ * @param[in] ctx The TLS 1.2 context
+ * @param[in] data The data to send
+ * @param[in] len The length of the data to send
+ * @return The return value
  */
 noxtls_return_t noxtls_tls12_send(tls12_context_t *ctx, const uint8_t *data, uint32_t len)
 {
@@ -7593,11 +8136,11 @@ noxtls_return_t noxtls_tls12_send(tls12_context_t *ctx, const uint8_t *data, uin
     while(sent < len) {
         uint32_t chunk = len - sent;
         if(ctx->base.base.role == TLS_ROLE_SERVER &&
-           ctx->tls12_beast_split_first_appdata != 0u &&
+           ctx->tls12_beast_split_first_appdata != 0U &&
            ctx->base.base.version == TLS_VERSION_1_2 &&
            ctx->client_hello_version == TLS_VERSION_1_0 &&
-           sent == 0u && len > 1u) {
-            chunk = 1u;
+           sent == 0U && len > 1U) {
+            chunk = 1U;
         }
         if(chunk > max_payload) {
             chunk = max_payload;
@@ -7615,9 +8158,9 @@ noxtls_return_t noxtls_tls12_send(tls12_context_t *ctx, const uint8_t *data, uin
             return rc;
         }
         sent += chunk;
-        if(ctx->tls12_beast_split_first_appdata != 0u && sent == 1u &&
+        if(ctx->tls12_beast_split_first_appdata != 0U && sent == 1U &&
            ctx->client_hello_version == TLS_VERSION_1_0) {
-            ctx->tls12_beast_split_first_appdata = 0u;
+            ctx->tls12_beast_split_first_appdata = 0U;
         }
     }
     if(encrypted_record != ctx->record_workspace) noxtls_free(encrypted_record);
@@ -7640,6 +8183,14 @@ static noxtls_return_t tls12_send_protected_alert(tls12_context_t *ctx, uint8_t 
     return noxtls_tls_send_record(&ctx->base.base, TLS_RECORD_ALERT, enc, enc_len);
 }
 
+/**
+ * @brief Handle the heartbeat record.
+ *
+ * @param[in] ctx The context value.
+ * @param[in] record_data The record data value.
+ * @param[in] record_len The record length value.
+ * @return The return value.
+ */
 static noxtls_return_t tls12_handle_heartbeat_record(tls12_context_t *ctx, const uint8_t *record_data, uint32_t record_len)
 {
     uint8_t *heartbeat = NULL;
@@ -7649,13 +8200,13 @@ static noxtls_return_t tls12_handle_heartbeat_record(tls12_context_t *ctx, const
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(record_len == 0u) {
+    if(record_len == 0U) {
         /*
          * Empty records still consume one record sequence number. Keep sequence
          * state aligned even when we ignore malformed heartbeat traffic.
          */
         tls12_inc_recv_seq(ctx);
-        if(ctx->heartbeat_enabled == 0u || ctx->heartbeat_negotiated == 0u) {
+        if(ctx->heartbeat_enabled == 0U || ctx->heartbeat_negotiated == 0U) {
             return NOXTLS_RETURN_NOT_SUPPORTED;
         }
         return NOXTLS_RETURN_SUCCESS;
@@ -7692,7 +8243,7 @@ static noxtls_return_t tls12_handle_heartbeat_record(tls12_context_t *ctx, const
         return rc;
     }
 
-    if(ctx->heartbeat_enabled == 0u || ctx->heartbeat_negotiated == 0u) {
+    if(ctx->heartbeat_enabled == 0U || ctx->heartbeat_negotiated == 0U) {
         if(heartbeat != ctx->record_workspace) {
             noxtls_free(heartbeat);
         }
@@ -7700,7 +8251,7 @@ static noxtls_return_t tls12_handle_heartbeat_record(tls12_context_t *ctx, const
     }
 
     {
-        uint32_t max_pl = (ctx->max_record_payload > 0u)
+        uint32_t max_pl = (ctx->max_record_payload > 0U)
             ? (uint32_t)ctx->max_record_payload
             : (uint32_t)TLS_MAX_RECORD_SIZE;
         if(heartbeat_len > max_pl) {
@@ -7711,7 +8262,7 @@ static noxtls_return_t tls12_handle_heartbeat_record(tls12_context_t *ctx, const
         }
     }
 
-    if(heartbeat_len < 3u) {
+    if(heartbeat_len < 3U) {
         if(heartbeat != ctx->record_workspace) {
             noxtls_free(heartbeat);
         }
@@ -7721,7 +8272,7 @@ static noxtls_return_t tls12_handle_heartbeat_record(tls12_context_t *ctx, const
     {
         uint8_t hb_type = heartbeat[0];
         uint16_t payload_len = (uint16_t)(((uint16_t)heartbeat[1] << 8) | heartbeat[2]);
-        uint32_t body_len = 3u + (uint32_t)payload_len;
+        uint32_t body_len = 3U + (uint32_t)payload_len;
         uint32_t min_len = body_len + TLS_HEARTBEAT_MIN_PADDING_LEN;
 
         /* RFC 6520: malformed messages are silently discarded. */
@@ -7762,15 +8313,15 @@ static noxtls_return_t tls12_handle_heartbeat_record(tls12_context_t *ctx, const
             response_plain[0] = TLS_HEARTBEAT_MESSAGE_RESPONSE;
             response_plain[1] = (uint8_t)(payload_len >> 8);
             response_plain[2] = (uint8_t)(payload_len & 0xFF);
-            if(payload_len > 0u) {
-                memcpy(response_plain + 3u, heartbeat + 3u, payload_len);
+            if(payload_len > 0U) {
+                memcpy(response_plain + 3U, heartbeat + 3U, payload_len);
             }
             {
                 drbg_state_t drbg_state;
-                uint32_t pad_offset = 3u + (uint32_t)payload_len;
+                uint32_t pad_offset = 3U + (uint32_t)payload_len;
                 if(drbg_instantiate(&drbg_state, DRBG_AES256, NULL, 0, NULL, 0, NULL, 0) == NOXTLS_RETURN_SUCCESS &&
                    drbg_generate(&drbg_state, response_plain + pad_offset,
-                                 TLS_HEARTBEAT_MIN_PADDING_LEN * 8u,
+                                 TLS_HEARTBEAT_MIN_PADDING_LEN * 8U,
                                  NULL, 0) == NOXTLS_RETURN_SUCCESS) {
                 } else {
                     memset(response_plain + pad_offset, 0x00, TLS_HEARTBEAT_MIN_PADDING_LEN);
@@ -7804,6 +8355,11 @@ static noxtls_return_t tls12_handle_heartbeat_record(tls12_context_t *ctx, const
 
 /**
  * @brief TLS 1.2: Receive application data
+ *
+ * @param[in] ctx The context value.
+ * @param[out] data The data value.
+ * @param[in,out] len The length value.
+ * @return The return value.
  */
 noxtls_return_t noxtls_tls12_recv(tls12_context_t *ctx, uint8_t *data, uint32_t *len)
 {
@@ -7816,13 +8372,13 @@ noxtls_return_t noxtls_tls12_recv(tls12_context_t *ctx, uint8_t *data, uint32_t 
     if(ctx->base.base.state != TLS_STATE_CONNECTED) {
         return NOXTLS_RETURN_FAILED;
     }
-    if(ctx->pending_app_data_len > 0u) {
+    if(ctx->pending_app_data_len > 0U) {
         if(*len < ctx->pending_app_data_len) {
             return NOXTLS_RETURN_FAILED;
         }
         memcpy(data, ctx->pending_app_data, ctx->pending_app_data_len);
         *len = ctx->pending_app_data_len;
-        ctx->pending_app_data_len = 0u;
+        ctx->pending_app_data_len = 0U;
         return NOXTLS_RETURN_SUCCESS;
     }
 
@@ -7953,7 +8509,7 @@ noxtls_return_t noxtls_tls12_recv(tls12_context_t *ctx, uint8_t *data, uint32_t 
             /* Server: permit only server-requested renegotiation. */
             if(ctx->base.base.role == TLS_ROLE_SERVER && handshake_len >= 1 &&
                handshake_buf[0] == TLS_HANDSHAKE_CLIENT_HELLO) {
-                if(ctx->server_renegotiation_requested == 0u) {
+                if(ctx->server_renegotiation_requested == 0U) {
                     rc = tls12_send_protected_alert(ctx, TLS_ALERT_LEVEL_WARNING,
                                                     TLS_ALERT_NO_RENEGOTIATION);
                     if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -7963,13 +8519,13 @@ noxtls_return_t noxtls_tls12_recv(tls12_context_t *ctx, uint8_t *data, uint32_t 
                     (handshake_buf != ctx->record_workspace ? noxtls_free(handshake_buf) : (void)0);
                     continue;
                 }
-                ctx->server_renegotiation_requested = 0u;
-                if(handshake_len < 4u) {
+                ctx->server_renegotiation_requested = 0U;
+                if(handshake_len < 4U) {
                     (handshake_buf != ctx->record_workspace ? noxtls_free(handshake_buf) : (void)0);
                     return NOXTLS_RETURN_FAILED;
                 }
                 {
-                    uint32_t want_len = 4u + ((uint32_t)handshake_buf[1] << 16) +
+                    uint32_t want_len = 4U + ((uint32_t)handshake_buf[1] << 16) +
                                         ((uint32_t)handshake_buf[2] << 8) + (uint32_t)handshake_buf[3];
                     if(want_len > TLS_MAX_RECORD_SIZE) {
                         (handshake_buf != ctx->record_workspace ? noxtls_free(handshake_buf) : (void)0);
@@ -7994,7 +8550,7 @@ noxtls_return_t noxtls_tls12_recv(tls12_context_t *ctx, uint8_t *data, uint32_t 
                                                                  record.data, record.length,
                                                                  frag_buf, &frag_len);
                                 free(record.data);
-                                if(rc != NOXTLS_RETURN_SUCCESS || frag_len == 0u || handshake_len + frag_len > want_len) {
+                                if(rc != NOXTLS_RETURN_SUCCESS || frag_len == 0U || handshake_len + frag_len > want_len) {
                                     noxtls_free(frag_buf);
                                     (handshake_buf != ctx->record_workspace ? noxtls_free(handshake_buf) : (void)0);
                                     return (rc == NOXTLS_RETURN_SUCCESS) ? NOXTLS_RETURN_FAILED : rc;
@@ -8013,7 +8569,7 @@ noxtls_return_t noxtls_tls12_recv(tls12_context_t *ctx, uint8_t *data, uint32_t 
                                     (handshake_buf != ctx->record_workspace ? noxtls_free(handshake_buf) : (void)0);
                                     return rc;
                                 }
-                                if(frag_len > 0u) {
+                                if(frag_len > 0U) {
                                     if(ctx->pending_app_data_len + frag_len > sizeof(ctx->pending_app_data)) {
                                         noxtls_free(frag_buf);
                                         (handshake_buf != ctx->record_workspace ? noxtls_free(handshake_buf) : (void)0);
@@ -8062,7 +8618,7 @@ noxtls_return_t noxtls_tls12_recv(tls12_context_t *ctx, uint8_t *data, uint32_t 
                     return rc;
                 }
                 (handshake_buf != ctx->record_workspace ? noxtls_free(handshake_buf) : (void)0);
-                *len = 0u;
+                *len = 0U;
                 return NOXTLS_RETURN_SUCCESS;
             }
             /* Ignore other post-handshake messages (e.g., NewSessionTicket) and read next record. */
@@ -8110,14 +8666,14 @@ noxtls_return_t noxtls_tls12_recv(tls12_context_t *ctx, uint8_t *data, uint32_t 
          * If plaintext layout matches RFC 6520 heartbeat, process it here and
          * continue reading the next record.
          */
-        if(ctx->heartbeat_enabled != 0u && ctx->heartbeat_negotiated != 0u && *len >= 3u) {
+        if(ctx->heartbeat_enabled != 0U && ctx->heartbeat_negotiated != 0U && *len >= 3U) {
             uint8_t hb_type = data[0];
             uint16_t payload_len = (uint16_t)(((uint16_t)data[1] << 8) | data[2]);
-            uint32_t body_len = 3u + (uint32_t)payload_len;
+            uint32_t body_len = 3U + (uint32_t)payload_len;
             uint32_t min_len = body_len + TLS_HEARTBEAT_MIN_PADDING_LEN;
             if((hb_type == TLS_HEARTBEAT_MESSAGE_REQUEST || hb_type == TLS_HEARTBEAT_MESSAGE_RESPONSE) &&
                min_len <= *len) {
-                uint32_t max_pl = (ctx->max_record_payload > 0u)
+                uint32_t max_pl = (ctx->max_record_payload > 0U)
                     ? (uint32_t)ctx->max_record_payload
                     : (uint32_t)TLS_MAX_RECORD_SIZE;
                 if(*len > max_pl) {
@@ -8145,15 +8701,15 @@ noxtls_return_t noxtls_tls12_recv(tls12_context_t *ctx, uint8_t *data, uint32_t 
                     response_plain[0] = TLS_HEARTBEAT_MESSAGE_RESPONSE;
                     response_plain[1] = (uint8_t)(payload_len >> 8);
                     response_plain[2] = (uint8_t)(payload_len & 0xFF);
-                    if(payload_len > 0u) {
-                        memcpy(response_plain + 3u, data + 3u, payload_len);
+                    if(payload_len > 0U) {
+                        memcpy(response_plain + 3U, data + 3U, payload_len);
                     }
                     {
                         drbg_state_t drbg_state;
-                        uint32_t pad_offset = 3u + (uint32_t)payload_len;
+                        uint32_t pad_offset = 3U + (uint32_t)payload_len;
                         if(drbg_instantiate(&drbg_state, DRBG_AES256, NULL, 0, NULL, 0, NULL, 0) != NOXTLS_RETURN_SUCCESS ||
                            drbg_generate(&drbg_state, response_plain + pad_offset,
-                                         TLS_HEARTBEAT_MIN_PADDING_LEN * 8u,
+                                         TLS_HEARTBEAT_MIN_PADDING_LEN * 8U,
                                          NULL, 0) != NOXTLS_RETURN_SUCCESS) {
                             memset(response_plain + pad_offset, 0x00, TLS_HEARTBEAT_MIN_PADDING_LEN);
                         }
@@ -8184,6 +8740,9 @@ noxtls_return_t noxtls_tls12_recv(tls12_context_t *ctx, uint8_t *data, uint32_t 
 
 /**
  * @brief TLS 1.2: Close connection
+ *
+ * @param[in] ctx The context value.
+ * @return The return value.
  */
 noxtls_return_t noxtls_tls12_close(tls12_context_t *ctx)
 {

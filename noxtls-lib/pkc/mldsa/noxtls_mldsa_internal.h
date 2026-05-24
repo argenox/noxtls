@@ -3,11 +3,22 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+*
 * This file is part of the NoxTLS Library.
 *
-* File:    noxtls_mldsa_internal.h
-* Summary: ML-DSA primitives and backend interface.
-*/
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
+*
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
+*
+* File:    noxtls_mldsa_internal.c
+* Summary: ML-DSA parameter definitions and basic arithmetic definitions
+*
+*
+*****************************************************************************/
 
 #ifndef _NOXTLS_MLDSA_INTERNAL_H_
 #define _NOXTLS_MLDSA_INTERNAL_H_
@@ -22,9 +33,9 @@ extern "C" {
 
 #define NOXTLS_MLDSA_N 256
 #define NOXTLS_MLDSA_Q 8380417
-#define NOXTLS_MLDSA_INTERNAL_SEED_BYTES 32u
-#define NOXTLS_MLDSA_K_MAX 8u
-#define NOXTLS_MLDSA_L_MAX 7u
+#define NOXTLS_MLDSA_INTERNAL_SEED_BYTES 32U
+#define NOXTLS_MLDSA_K_MAX 8U
+#define NOXTLS_MLDSA_L_MAX 7U
 
 typedef struct
 {

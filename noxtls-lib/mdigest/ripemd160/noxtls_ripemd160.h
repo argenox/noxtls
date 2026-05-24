@@ -6,17 +6,23 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
 *
 *
-* File:    noxtls_ripemd160.h
-* Summary: NOXTLS RIPEMD-160 (ISO/IEC 10118-3)
+* File:    noxtls_md5.h
+* Summary: Message Digest Algorithm 5 (MD5)
+* Defined in RFC 1321
 *
-*/
+* File:    noxtls_ripemd160.h
+* Summary: RIPEMD-160 (ISO/IEC 10118-3) Implementation
+*
+*
+*****************************************************************************/
 
 /** @addtogroup noxtls_mdigest */
 /** @{ */
@@ -33,11 +39,11 @@ extern "C" {
 #endif
 
 #define HASH_RIPEMD160_OUT_LEN    (20)
-#define RIPEMD160_BLOCK_SIZE_BYTES (64u)
-#define RIPEMD160_BLOCK_SIZE_BITS  (512u)
-#define RIPEMD160_STATE_WORDS      (5u)
-#define RIPEMD160_WORD_BYTES       (4u)
-#define RIPEMD160_WORDS_PER_BLOCK  (16u) /* one 512-bit block as uint32_t little-endian words */
+#define RIPEMD160_BLOCK_SIZE_BYTES (64U)
+#define RIPEMD160_BLOCK_SIZE_BITS  (512U)
+#define RIPEMD160_STATE_WORDS      (5U)
+#define RIPEMD160_WORD_BYTES       (4U)
+#define RIPEMD160_WORDS_PER_BLOCK  (16U) /* one 512-bit block as uint32_t little-endian words */
 
 /* Default chaining variables H0..H4 (RIPEMD-160, ISO/IEC 10118-3). */
 #define RIPEMD160_IV0 (0x67452301u)

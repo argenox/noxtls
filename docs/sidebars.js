@@ -2,6 +2,55 @@
 /** @type {import('@docusaurus/plugin-content-docs').SidebarsConfig} */
 const sidebars = {
   docsSidebar: [
+    {
+      type: 'category',
+      label: 'Start Here',
+      collapsed: false,
+      link: {
+        type: 'generated-index',
+        title: 'Start Here',
+        slug: '/start-here',
+        description:
+          'New to NoxTLS? Build, run TLS/HTTPS/DTLS, configure certificates, and port to your platform.',
+      },
+      items: [
+        'start-here/what-is-noxtls',
+        'start-here/quickstart',
+        'start-here/tls-client',
+        'start-here/https-server',
+        'start-here/dtls-embedded',
+        'start-here/configure-certificates',
+        'start-here/port-to-platform',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Demos',
+      collapsed: false,
+      link: {
+        type: 'generated-index',
+        title: 'Demos',
+        slug: '/demos',
+        description:
+          'Run NoxTLS on ESP32, STM32, and host computers with step-by-step platform guides.',
+      },
+      items: [
+        'demos/esp32',
+        {
+          type: 'category',
+          label: 'STM32',
+          collapsed: false,
+          link: {
+            type: 'generated-index',
+            title: 'STM32',
+            slug: '/demos/stm32',
+            description: 'Board-specific guides for running NoxTLS on STM32 MCUs.',
+          },
+          items: ['demos/stm32/stm32f413zh'],
+        },
+        'demos/host-computer',
+      ],
+    },
     'intro',
     'getting-started',
     'architecture',

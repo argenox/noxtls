@@ -6,17 +6,18 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
-* 
+*
 *
 * File:    noxtls_aes_xts.c
 * Summary: AES XEX-based Tweaked CodeBook mode with ciphertext Stealing (XTS) Implementation
 *
-*/
+*****************************************************************************/
 
 /** @addtogroup noxtls_encryption */
 
@@ -181,7 +182,7 @@ noxtls_return_t noxtls_aes_encrypt_xts(const uint8_t* key,
         
         /* Save second-to-last ciphertext block */
         if(num_blocks > 0) {
-            memcpy(second_last_block, output + (size_t)(num_blocks - 1u) * NOXTLS_AES_BLOCK_LENGTH, NOXTLS_AES_BLOCK_LENGTH);
+            memcpy(second_last_block, output + (size_t)(num_blocks - 1U) * NOXTLS_AES_BLOCK_LENGTH, NOXTLS_AES_BLOCK_LENGTH);
         }
         
         /* Multiply tweak by alpha one more time */
@@ -223,7 +224,7 @@ noxtls_return_t noxtls_aes_encrypt_xts(const uint8_t* key,
         /* Output: first part goes to last block position, rest overwrites second-to-last */
         memcpy(output + (size_t)num_blocks * NOXTLS_AES_BLOCK_LENGTH, temp_block, last_block_len);
         if(num_blocks > 0) {
-            memcpy(output + (size_t)(num_blocks - 1u) * NOXTLS_AES_BLOCK_LENGTH + last_block_len,
+            memcpy(output + (size_t)(num_blocks - 1U) * NOXTLS_AES_BLOCK_LENGTH + last_block_len,
                    temp_block + last_block_len, 
                    NOXTLS_AES_BLOCK_LENGTH - last_block_len);
         }

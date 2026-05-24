@@ -1,4 +1,4 @@
-/*
+﻿/*
 * This file is part of the NoxTLS Library.
 *
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
@@ -7,6 +7,13 @@
  * @file main.c
  * @brief Configurable HTTPS server with negotiated-algorithm reporting.
  */
+
+/* MUST be the FIRST #include: app-local noxtls_config.h (project policy)
+ * MSVC searches the directory of the including header first for "..."
+ * style includes; if a library header pulls in "noxtls_config.h" before
+ * this app does, the top-level config wins. Hoisting our local one
+ * here ensures _NOXTLS_CONFIG_H_ is set from THIS file. */
+#include "noxtls_config.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -50,286 +57,23 @@ typedef int socket_t;
 #include "noxtls-lib/tls/noxtls_tls_common.h"
 #if (NOXTLS_FEATURE_TLS12 || NOXTLS_FEATURE_TLS13)
 #include "noxtls-lib/tls/noxtls_tls_unified.h"
-#endif
 
-#define DEFAULT_PORT 8443
-#define DEFAULT_CERT_FILE "server.crt"
-#define DEFAULT_KEY_FILE "server.key"
-#define DEFAULT_BIND_IP "127.0.0.1"
-#define REQUEST_BUFFER_SIZE 65536u
-#define REQUEST_READ_CHUNK 65535u
-#define HTTP_HEADER_BUFFER_SIZE 512u
-#define HTTP_BODY_BUFFER_SIZE 4096u
-#define TLS_SEND_CHUNK 16384u
-#define CLIENT_IO_TIMEOUT_MS 15000u
-#define MAX_CIPHER_SUITES 64u
-
-#if !defined(HTTPS_SERVER_APP_VERSION)
-#define HTTPS_SERVER_APP_VERSION "unknown"
-#endif
-#define MAX_CERT_CHAIN_ENTRIES 8u
-#define MAX_ALPN_PROTOCOLS 8u
-#define MAX_ALPN_PROTOCOL_LEN 64u
-static const char *DEFAULT_ALPN_PROTOCOLS[] = { "http/1.1", "h2" };
-static const uint32_t DEFAULT_ALPN_PROTOCOL_COUNT =
-    (uint32_t)(sizeof(DEFAULT_ALPN_PROTOCOLS) / sizeof(DEFAULT_ALPN_PROTOCOLS[0]));
-/*
- * Default TLS 1.2 offer: forward-secret AEAD first (no static RSA key exchange, no 3DES).
- * Weak CBC/SHA1 ECDHE/DHE-RSA suites are appended last for tlsfuzzer scripts that pin only
- * TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA / TLS_DHE_RSA_WITH_AES_128_CBC_SHA (e.g. test_sig_algs.py).
+/* ============================================================================
+ * Application-private static workspace (per project policy)
+ * ============================================================================
+ *
+ * Every application owns a large statically-allocated workspace buffer; all
+ * dynamic allocations made by this translation unit are served out of it via
+ * a simple bump arena. The buffer's size lives in this app's noxtls_config.h
+ * (NOXTLS_APP_STATIC_BUFFER_SIZE) so it can be tuned independently per app.
+ *
+ * free() is a no-op; the whole arena is released en-masse via
+ * app_workspace_reset() (e.g. between commands) which also wipes any
+ * transient secret material that may have been allocated.
  */
-static const uint16_t TLS12_FALLBACK_DEFAULT_SUITES[] = {
-    TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-    TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-    TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
-    TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-    TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-    TLS_CIPHER_SUITE_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
-    TLS_CIPHER_SUITE_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
-    /* DHE_RSA AES-GCM: tlsfuzzer test_unsupported_curve_fallback (ECDHE→DHE when supported_groups has no usable EC). */
-    TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_GCM_SHA256,
-    TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_256_GCM_SHA384,
-    TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CCM,
-    TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CCM,
-    TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CCM_8,
-    TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CCM_8,
-    /*
-     * tlsfuzzer test_sig_algs.py (and similar probes) pin TLS_ECDHE/DHE_RSA_WITH_AES_128_CBC_SHA only.
-     * Keep these after AEAD so normal clients still negotiate forward-secret AEAD first.
-     */
-    TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_CBC_SHA,
-    TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_CBC_SHA
-};
-
-#ifndef _WIN32
-/**
- * Directory portion of a path (POSIX). "cert.pem" -> ".", "/a/b.pem" -> "/a".
- */
-static void https_path_dirname(const char *path, char *dir, size_t dir_len)
-{
-    const char *slash;
-
-    if(path == NULL || dir_len < 2u) {
-        if(dir_len >= 1u && dir != NULL) {
-            dir[0] = '.';
-            dir[1] = '\0';
-        }
-        return;
-    }
-    slash = strrchr(path, '/');
-    if(slash == NULL) {
-        dir[0] = '.';
-        dir[1] = '\0';
-        return;
-    }
-    if(slash == path) {
-        if(dir_len >= 2u) {
-            dir[0] = '/';
-            dir[1] = '\0';
-        }
-        return;
-    }
-    {
-        size_t n = (size_t)(slash - path);
-        if(n >= dir_len) {
-            n = dir_len - 1u;
-        }
-        memcpy(dir, path, n);
-        dir[n] = '\0';
-    }
-}
-
-static int https_join_path(char *out, size_t out_len, const char *dir, const char *base)
-{
-    int w = snprintf(out, out_len, "%s/%s", dir, base);
-    return w > 0 && (size_t)w < out_len;
-}
-
-/**
- * If tls12_rsa.crt / tls12_rsa.key exist in dir, write full paths to out_cert / out_key.
- */
-static int https_try_tls12_rsa_in_dir(const char *dir,
-                                      char *out_cert,
-                                      size_t out_cert_len,
-                                      char *out_key,
-                                      size_t out_key_len)
-{
-    if(dir == NULL || dir[0] == '\0' || out_cert == NULL || out_key == NULL ||
-       out_cert_len == 0u || out_key_len == 0u) {
-        return 0;
-    }
-    out_cert[0] = '\0';
-    out_key[0] = '\0';
-    if(!https_join_path(out_cert, out_cert_len, dir, "tls12_rsa.crt")) {
-        return 0;
-    }
-    if(!https_join_path(out_key, out_key_len, dir, "tls12_rsa.key")) {
-        return 0;
-    }
-    if(access(out_cert, R_OK) != 0 || access(out_key, R_OK) != 0) {
-        out_cert[0] = '\0';
-        out_key[0] = '\0';
-        return 0;
-    }
-    return 1;
-}
-
-/**
- * If tls12_rsa.crt / tls12_rsa.key exist next to the primary certificate, return their paths.
- * Used so ECDSA (or other non-RSA) deployments pick up the same RSA material as explicit
- * --tls12-cert/--tls12-key without extra flags (tlsfuzzer DHE_RSA scripts).
- */
-static int https_try_auto_tls12_rsa_paths(const char *cert_path,
-                                          char *out_cert,
-                                          size_t out_cert_len,
-                                          char *out_key,
-                                          size_t out_key_len)
-{
-    char dir[512];
-
-    if(cert_path == NULL) {
-        return 0;
-    }
-    https_path_dirname(cert_path, dir, sizeof(dir));
-    return https_try_tls12_rsa_in_dir(dir, out_cert, out_cert_len, out_key, out_key_len);
-}
-
-#if defined(__linux__)
-/**
- * Same as tls12 material next to cert, but using the directory of this executable so
- * tlsfuzzer-style ECDSA certs outside the build tree still pick up binary/tls12_rsa.* .
- */
-static int https_try_tls12_rsa_next_to_linux_exe(char *out_cert,
-                                                 size_t out_cert_len,
-                                                 char *out_key,
-                                                 size_t out_key_len)
-{
-    char exe_buf[512];
-    ssize_t n;
-
-    n = readlink("/proc/self/exe", exe_buf, sizeof(exe_buf) - 1);
-    if(n <= 0) {
-        return 0;
-    }
-    exe_buf[n] = '\0';
-    {
-        char dir[512];
-        https_path_dirname(exe_buf, dir, sizeof(dir));
-        return https_try_tls12_rsa_in_dir(dir, out_cert, out_cert_len, out_key, out_key_len);
-    }
-}
-#endif /* __linux__ */
-
-/**
- * Optional tls12_rsa_pss.crt / tls12_rsa_pss.key (RSASSA-PSS SPKI) beside primary cert or https_server binary.
- */
-static int https_try_tls12_rsa_pss_in_dir(const char *dir,
-                                          char *out_cert,
-                                          size_t out_cert_len,
-                                          char *out_key,
-                                          size_t out_key_len)
-{
-    if(dir == NULL || dir[0] == '\0' || out_cert == NULL || out_key == NULL ||
-       out_cert_len == 0u || out_key_len == 0u) {
-        return 0;
-    }
-    out_cert[0] = '\0';
-    out_key[0] = '\0';
-    if(!https_join_path(out_cert, out_cert_len, dir, "tls12_rsa_pss.crt")) {
-        return 0;
-    }
-    if(!https_join_path(out_key, out_key_len, dir, "tls12_rsa_pss.key")) {
-        return 0;
-    }
-    if(access(out_cert, R_OK) != 0 || access(out_key, R_OK) != 0) {
-        out_cert[0] = '\0';
-        out_key[0] = '\0';
-        return 0;
-    }
-    return 1;
-}
-
-static int https_try_auto_tls12_rsa_pss_paths(const char *cert_path,
-                                               char *out_cert,
-                                               size_t out_cert_len,
-                                               char *out_key,
-                                               size_t out_key_len)
-{
-    char dir[512];
-
-    if(cert_path == NULL) {
-        return 0;
-    }
-    https_path_dirname(cert_path, dir, sizeof(dir));
-    return https_try_tls12_rsa_pss_in_dir(dir, out_cert, out_cert_len, out_key, out_key_len);
-}
-
-#if defined(__linux__)
-static int https_try_tls12_rsa_pss_next_to_linux_exe(char *out_cert,
-                                                    size_t out_cert_len,
-                                                    char *out_key,
-                                                    size_t out_key_len)
-{
-    char exe_buf[512];
-    ssize_t n;
-
-    n = readlink("/proc/self/exe", exe_buf, sizeof(exe_buf) - 1);
-    if(n <= 0) {
-        return 0;
-    }
-    exe_buf[n] = '\0';
-    {
-        char dir[512];
-        https_path_dirname(exe_buf, dir, sizeof(dir));
-        return https_try_tls12_rsa_pss_in_dir(dir, out_cert, out_cert_len, out_key, out_key_len);
-    }
-}
-#endif /* __linux__ */
-#endif /* !_WIN32 */
-
-static const char *https_x509_private_key_type_name(x509_private_key_type_t t)
-{
-    switch(t) {
-        case X509_PRIVATE_KEY_RSA:
-            return "RSA";
-        case X509_PRIVATE_KEY_ECC:
-            return "ECDSA";
-        case X509_PRIVATE_KEY_ED25519:
-            return "Ed25519";
-        case X509_PRIVATE_KEY_ED448:
-            return "Ed448";
-        default:
-            return "unknown";
-    }
-}
-
-/**
- * Infer SPKI algorithm from parsed leaf certificate (must match --key type for TLS handshakes).
- */
-static int https_infer_leaf_cert_public_key_type(const x509_certificate_t *cert,
-                                                 x509_private_key_type_t *out)
-{
-    if(cert == NULL || out == NULL) {
-        return 0;
-    }
-    if(cert->has_ed448) {
-        *out = X509_PRIVATE_KEY_ED448;
-        return 1;
-    }
-    if(cert->has_ed25519) {
-        *out = X509_PRIVATE_KEY_ED25519;
-        return 1;
-    }
-    if(cert->rsa_modulus != NULL && cert->rsa_modulus_len > 0u) {
-        *out = X509_PRIVATE_KEY_RSA;
-        return 1;
-    }
-    if(cert->ecc_public_key != NULL && cert->ecc_public_key_len > 0u) {
-        *out = X509_PRIVATE_KEY_ECC;
-        return 1;
-    }
-    return 0;
-}
+static uint8_t  g_app_workspace[NOXTLS_APP_STATIC_BUFFER_SIZE];
+static size_t   g_app_workspace_off = 0U;
+#define APP_WORKSPACE_ALIGN ((size_t)16U)
 
 typedef enum {
     FILE_FORMAT_AUTO = 0,
@@ -354,6 +98,436 @@ typedef enum {
     SERVER_KEY_KIND_ED448 = 4
 } server_key_kind_t;
 
+/**
+ * @brief Allocate workspace
+ *
+ * @param[in] n The size to allocate
+ * @return The pointer to the allocated workspace
+ */
+static void *app_workspace_alloc(size_t n)
+{
+    size_t off = (g_app_workspace_off + (APP_WORKSPACE_ALIGN - 1U)) &
+                 ~(APP_WORKSPACE_ALIGN - 1U);
+    if(n == 0U || off > sizeof(g_app_workspace) ||
+       n > sizeof(g_app_workspace) - off) {
+        return NULL;
+    }
+    g_app_workspace_off = off + n;
+    return &g_app_workspace[off];
+}
+
+/**
+ * @brief Free the workspace
+ *
+ * @param[in] p The pointer to the workspace to free
+ * @return void
+ */
+static void app_workspace_free(void *p) 
+{ 
+    (void)p; 
+}
+
+/**
+ * @brief Reset the workspace
+ *
+ * @return void
+ */
+static void app_workspace_reset(void)
+{
+    if(g_app_workspace_off > 0U) {
+        memset(g_app_workspace, 0, g_app_workspace_off);
+    }
+    g_app_workspace_off = 0U;
+}
+
+/* Redirect malloc()/free() in this translation unit to the static workspace.
+ * Library and standard headers have already been pulled in above; they
+ * declared malloc/free as plain functions and are unaffected. App code below
+ * uses these macros transparently. */
+#undef malloc
+#undef free
+#define malloc(n) app_workspace_alloc(n)
+#define free(p)   app_workspace_free(p)
+#endif
+
+#define DEFAULT_PORT 8443
+#define DEFAULT_CERT_FILE "server.crt"
+#define DEFAULT_KEY_FILE "server.key"
+#define DEFAULT_BIND_IP "127.0.0.1"
+#define REQUEST_BUFFER_SIZE 65536u
+#define REQUEST_READ_CHUNK 65535u
+#define HTTP_HEADER_BUFFER_SIZE 512U
+#define HTTP_BODY_BUFFER_SIZE 4096u
+#define TLS_SEND_CHUNK 16384u
+#define CLIENT_IO_TIMEOUT_MS 15000u
+#define MAX_CIPHER_SUITES 64U
+
+#if !defined(HTTPS_SERVER_APP_VERSION)
+#define HTTPS_SERVER_APP_VERSION "unknown"
+#endif
+#define MAX_CERT_CHAIN_ENTRIES 8U
+#define MAX_ALPN_PROTOCOLS 8U
+#define MAX_ALPN_PROTOCOL_LEN 64U
+static const char *DEFAULT_ALPN_PROTOCOLS[] = { "http/1.1", "h2" };
+static const uint32_t DEFAULT_ALPN_PROTOCOL_COUNT =
+    (uint32_t)(sizeof(DEFAULT_ALPN_PROTOCOLS) / sizeof(DEFAULT_ALPN_PROTOCOLS[0]));
+/*
+ * Default TLS 1.2 offer: forward-secret AEAD first (no static RSA key exchange, no 3DES).
+ * Weak CBC/SHA1 ECDHE/DHE-RSA suites are appended last for tlsfuzzer scripts that pin only
+ * TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA / TLS_DHE_RSA_WITH_AES_128_CBC_SHA (e.g. test_sig_algs.py).
+ */
+static const uint16_t TLS12_FALLBACK_DEFAULT_SUITES[] = {
+    TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+    TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+    TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+    TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+    TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+    TLS_CIPHER_SUITE_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+    TLS_CIPHER_SUITE_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+    /* DHE_RSA AES-GCM: tlsfuzzer test_unsupported_curve_fallback (ECDHEâ†’DHE when supported_groups has no usable EC). */
+    TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_GCM_SHA256,
+    TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_256_GCM_SHA384,
+    TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CCM,
+    TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CCM,
+    TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CCM_8,
+    TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CCM_8,
+    /*
+     * tlsfuzzer test_sig_algs.py (and similar probes) pin TLS_ECDHE/DHE_RSA_WITH_AES_128_CBC_SHA only.
+     * Keep these after AEAD so normal clients still negotiate forward-secret AEAD first.
+     */
+    TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_CBC_SHA,
+    TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_CBC_SHA
+};
+
+typedef struct {
+    x509_certificate_t cert;
+    x509_private_key_t key_pk;
+    ecc_key_t ecc_key;
+} https_tls13_ecdsa_matrix_slot_t;
+
+static https_tls13_ecdsa_matrix_slot_t g_https_tls13_ecdsa_matrix[8];
+static uint32_t g_https_tls13_ecdsa_matrix_n;
+
+#ifndef _WIN32
+/**
+ * @brief Extract the directory portion of a POSIX path.
+ *
+ * For example, "cert.pem" yields ".", and "/a/b.pem" yields "/a".
+ *
+ * @param[in] path Input path.
+ * @param[out] dir Buffer for the directory result.
+ * @param[in] dir_len Size of @p dir in bytes.
+ * @return void
+ */
+static void https_path_dirname(const char *path, char *dir, size_t dir_len)
+{
+    const char *slash;
+
+    if(path == NULL || dir_len < 2U) {
+        if(dir_len >= 1U && dir != NULL) {
+            dir[0] = '.';
+            dir[1] = '\0';
+        }
+        return;
+    }
+    slash = strrchr(path, '/');
+    if(slash == NULL) {
+        dir[0] = '.';
+        dir[1] = '\0';
+        return;
+    }
+    if(slash == path) {
+        if(dir_len >= 2U) {
+            dir[0] = '/';
+            dir[1] = '\0';
+        }
+        return;
+    }
+    {
+        size_t n = (size_t)(slash - path);
+        if(n >= dir_len) {
+            n = dir_len - 1U;
+        }
+        memcpy(dir, path, n);
+        dir[n] = '\0';
+    }
+}
+
+/**
+ * @brief Join the path
+ *
+ * @param[in] out The output to join the path into
+ * @param[in] out_len The length of the output to join the path into
+ * @param[in] dir The directory to join the path into
+ * @param[in] base The base to join the path into
+ * @return 1 on success, 0 on failure
+ */
+static int https_join_path(char *out, size_t out_len, const char *dir, const char *base)
+{
+    int w = snprintf(out, out_len, "%s/%s", dir, base);
+    return w > 0 && (size_t)w < out_len;
+}
+
+/**
+ * @brief Look for tls12_rsa.crt and tls12_rsa.key in a directory.
+ *
+ * If both files exist and are readable, writes full paths to @p out_cert and @p out_key.
+ *
+ * @param[in] dir Directory to search.
+ * @param[out] out_cert Buffer for certificate path.
+ * @param[in] out_cert_len Size of @p out_cert.
+ * @param[out] out_key Buffer for private key path.
+ * @param[in] out_key_len Size of @p out_key.
+ * @return 1 if both files were found, 0 otherwise
+ */
+static int https_try_tls12_rsa_in_dir(const char *dir,
+                                      char *out_cert,
+                                      size_t out_cert_len,
+                                      char *out_key,
+                                      size_t out_key_len)
+{
+    if(dir == NULL || dir[0] == '\0' || out_cert == NULL || out_key == NULL ||
+       out_cert_len == 0U || out_key_len == 0U) {
+        return 0;
+    }
+    out_cert[0] = '\0';
+    out_key[0] = '\0';
+    if(!https_join_path(out_cert, out_cert_len, dir, "tls12_rsa.crt")) {
+        return 0;
+    }
+    if(!https_join_path(out_key, out_key_len, dir, "tls12_rsa.key")) {
+        return 0;
+    }
+    if(access(out_cert, R_OK) != 0 || access(out_key, R_OK) != 0) {
+        out_cert[0] = '\0';
+        out_key[0] = '\0';
+        return 0;
+    }
+    return 1;
+}
+
+/**
+ * @brief Auto-discover TLS 1.2 RSA cert/key next to the primary certificate.
+ *
+ * Used so ECDSA (or other non-RSA) deployments pick up tls12_rsa.* without
+ * explicit --tls12-cert/--tls12-key (tlsfuzzer DHE_RSA scripts).
+ *
+ * @param[in] cert_path Primary certificate path; its directory is searched.
+ * @param[out] out_cert Buffer for TLS 1.2 certificate path.
+ * @param[in] out_cert_len Size of @p out_cert.
+ * @param[out] out_key Buffer for TLS 1.2 private key path.
+ * @param[in] out_key_len Size of @p out_key.
+ * @return 1 if paths were found, 0 otherwise
+ */
+static int https_try_auto_tls12_rsa_paths(const char *cert_path,
+                                          char *out_cert,
+                                          size_t out_cert_len,
+                                          char *out_key,
+                                          size_t out_key_len)
+{
+    char dir[512];
+
+    if(cert_path == NULL) {
+        return 0;
+    }
+    https_path_dirname(cert_path, dir, sizeof(dir));
+    return https_try_tls12_rsa_in_dir(dir, out_cert, out_cert_len, out_key, out_key_len);
+}
+
+#if defined(__linux__)
+/**
+ * @brief Auto-discover TLS 1.2 RSA cert/key next to the Linux executable.
+ *
+ * Uses /proc/self/exe so ECDSA certs outside the build tree still pick up
+ * binary/tls12_rsa.* .
+ *
+ * @param[out] out_cert Buffer for certificate path.
+ * @param[in] out_cert_len Size of @p out_cert.
+ * @param[out] out_key Buffer for private key path.
+ * @param[in] out_key_len Size of @p out_key.
+ * @return 1 if paths were found, 0 otherwise
+ */
+static int https_try_tls12_rsa_next_to_linux_exe(char *out_cert,
+                                                 size_t out_cert_len,
+                                                 char *out_key,
+                                                 size_t out_key_len)
+{
+    char exe_buf[512];
+    ssize_t n;
+
+    n = readlink("/proc/self/exe", exe_buf, sizeof(exe_buf) - 1);
+    if(n <= 0) {
+        return 0;
+    }
+    exe_buf[n] = '\0';
+    {
+        char dir[512];
+        https_path_dirname(exe_buf, dir, sizeof(dir));
+        return https_try_tls12_rsa_in_dir(dir, out_cert, out_cert_len, out_key, out_key_len);
+    }
+}
+#endif /* __linux__ */
+
+/**
+ * @brief Look for tls12_rsa_pss.crt and tls12_rsa_pss.key in a directory.
+ *
+ * Optional RSASSA-PSS SPKI material beside the primary cert or https_server binary.
+ *
+ * @param[in] dir Directory to search.
+ * @param[out] out_cert Buffer for certificate path.
+ * @param[in] out_cert_len Size of @p out_cert.
+ * @param[out] out_key Buffer for private key path.
+ * @param[in] out_key_len Size of @p out_key.
+ * @return 1 if both files were found, 0 otherwise
+ */
+static int https_try_tls12_rsa_pss_in_dir(const char *dir,
+                                          char *out_cert,
+                                          size_t out_cert_len,
+                                          char *out_key,
+                                          size_t out_key_len)
+{
+    if(dir == NULL || dir[0] == '\0' || out_cert == NULL || out_key == NULL ||
+       out_cert_len == 0U || out_key_len == 0U) {
+        return 0;
+    }
+    out_cert[0] = '\0';
+    out_key[0] = '\0';
+    if(!https_join_path(out_cert, out_cert_len, dir, "tls12_rsa_pss.crt")) {
+        return 0;
+    }
+    if(!https_join_path(out_key, out_key_len, dir, "tls12_rsa_pss.key")) {
+        return 0;
+    }
+    if(access(out_cert, R_OK) != 0 || access(out_key, R_OK) != 0) {
+        out_cert[0] = '\0';
+        out_key[0] = '\0';
+        return 0;
+    }
+    return 1;
+}
+
+/**
+ * @brief Try to get the TLS 1.2 RSA PSS paths
+ *
+ * @param[in] cert_path The certificate path to try to get the TLS 1.2 RSA PSS paths from
+ * @param[out] out_cert The output to try to get the TLS 1.2 RSA PSS paths into
+ * @param[in] out_cert_len The length of the output to try to get the TLS 1.2 RSA PSS paths into
+ * @param[out] out_key The output to try to get the TLS 1.2 RSA PSS paths into
+ * @param[in] out_key_len The length of the output to try to get the TLS 1.2 RSA PSS paths into
+ * @return 1 on success, 0 on failure
+ */
+static int https_try_auto_tls12_rsa_pss_paths(const char *cert_path,
+                                               char *out_cert,
+                                               size_t out_cert_len,
+                                               char *out_key,
+                                               size_t out_key_len)
+{
+    char dir[512];
+
+    if(cert_path == NULL) {
+        return 0;
+    }
+    https_path_dirname(cert_path, dir, sizeof(dir));
+    return https_try_tls12_rsa_pss_in_dir(dir, out_cert, out_cert_len, out_key, out_key_len);
+}
+
+#if defined(__linux__)
+
+/**
+ * @brief Try to get the TLS 1.2 RSA PSS paths next to the Linux executable
+ *
+ * @param[out] out_cert The output to try to get the TLS 1.2 RSA PSS paths next to the Linux executable into
+ * @param[in] out_cert_len The length of the output to try to get the TLS 1.2 RSA PSS paths next to the Linux executable into
+ * @param[out] out_key The output to try to get the TLS 1.2 RSA PSS paths next to the Linux executable into
+ * @param[in] out_key_len The length of the output to try to get the TLS 1.2 RSA PSS paths next to the Linux executable into
+ * @return 1 on success, 0 on failure
+ */
+static int https_try_tls12_rsa_pss_next_to_linux_exe(char *out_cert,
+                                                    size_t out_cert_len,
+                                                    char *out_key,
+                                                    size_t out_key_len)
+{
+    char exe_buf[512];
+    ssize_t n;
+
+    n = readlink("/proc/self/exe", exe_buf, sizeof(exe_buf) - 1);
+    if(n <= 0) {
+        return 0;
+    }
+    exe_buf[n] = '\0';
+    {
+        char dir[512];
+        https_path_dirname(exe_buf, dir, sizeof(dir));
+        return https_try_tls12_rsa_pss_in_dir(dir, out_cert, out_cert_len, out_key, out_key_len);
+    }
+}
+#endif /* __linux__ */
+#endif /* !_WIN32 */
+
+/**
+ * @brief Get the X.509 private key type name
+ *
+ * @param[in] t The private key type to get the name from
+ * @return The private key type name
+ */
+static const char *https_x509_private_key_type_name(x509_private_key_type_t t)
+{
+    switch(t) {
+        case X509_PRIVATE_KEY_RSA:
+            return "RSA";
+        case X509_PRIVATE_KEY_ECC:
+            return "ECDSA";
+        case X509_PRIVATE_KEY_ED25519:
+            return "Ed25519";
+        case X509_PRIVATE_KEY_ED448:
+            return "Ed448";
+        default:
+            return "unknown";
+    }
+}
+
+/**
+ * @brief Infer the leaf certificate public key type
+ * Infer SPKI algorithm from parsed leaf certificate (must match --key type for TLS handshakes).
+ *
+ * @param[in] cert The certificate to infer the leaf certificate public key type from
+ * @param[out] out The output to infer the leaf certificate public key type into
+ * @return 1 on success, 0 on failure
+ * 
+ */
+static int https_infer_leaf_cert_public_key_type(const x509_certificate_t *cert,
+                                                 x509_private_key_type_t *out)
+{
+    if(cert == NULL || out == NULL) {
+        return 0;
+    }
+    if(cert->has_ed448) {
+        *out = X509_PRIVATE_KEY_ED448;
+        return 1;
+    }
+    if(cert->has_ed25519) {
+        *out = X509_PRIVATE_KEY_ED25519;
+        return 1;
+    }
+    if(cert->rsa_modulus != NULL && cert->rsa_modulus_len > 0U) {
+        *out = X509_PRIVATE_KEY_RSA;
+        return 1;
+    }
+    if(cert->ecc_public_key != NULL && cert->ecc_public_key_len > 0U) {
+        *out = X509_PRIVATE_KEY_ECC;
+        return 1;
+    }
+    return 0;
+}
+
+
+
+/**
+ * @brief Close the client socket
+ *
+ * @param[in] sock The socket to close the client socket from
+ * @return void
+ */
 static void close_client_socket(socket_t sock)
 {
     if(sock == INVALID_SOCKET_VALUE) {
@@ -438,6 +612,12 @@ static const cipher_suite_entry_t CIPHER_NAME_TABLE[] = {
     { "TLS_AES_128_CCM_8_SHA256", TLS_CIPHER_SUITE_AES_128_CCM_8_SHA256 }
 };
 
+/**
+ * @brief Get the format name
+ *
+ * @param[in] format The format to get the name from
+ * @return The format name
+ */
 static const char *format_name(file_format_t format)
 {
     if(format == FILE_FORMAT_PEM) return "pem";
@@ -445,6 +625,12 @@ static const char *format_name(file_format_t format)
     return "auto";
 }
 
+/**
+ * @brief Get the server key kind name
+ *
+ * @param[in] kind The server key kind to get the name from
+ * @return The server key kind name
+ */
 static const char *server_key_kind_name(server_key_kind_t kind)
 {
     if(kind == SERVER_KEY_KIND_RSA) return "RSA";
@@ -454,6 +640,12 @@ static const char *server_key_kind_name(server_key_kind_t kind)
     return "unknown";
 }
 
+/**
+ * @brief Get the TLS version name
+ *
+ * @param[in] version The TLS version to get the name from
+ * @return The TLS version name
+ */
 static const char *tls_version_name(uint16_t version)
 {
     if(version == TLS_VERSION_1_3) return "TLS 1.3";
@@ -463,6 +655,12 @@ static const char *tls_version_name(uint16_t version)
     return "unknown";
 }
 
+/**
+ * @brief Get the cipher suite name
+ *
+ * @param[in] suite The cipher suite to get the name from
+ * @return The cipher suite name
+ */
 static const char *tls_cipher_suite_name(uint16_t suite)
 {
     uint32_t i;
@@ -474,6 +672,12 @@ static const char *tls_cipher_suite_name(uint16_t suite)
     return "UNKNOWN_CIPHER_SUITE";
 }
 
+/**
+ * @brief Get the group name
+ *
+ * @param[in] group The group to get the name from
+ * @return The group name
+ */
 static const char *tls_group_name(uint16_t group)
 {
     switch(group) {
@@ -497,6 +701,13 @@ static const char *tls_group_name(uint16_t group)
     }
 }
 
+/**
+ * @brief Get the KEX name from the suite and TLS 1.3 group
+ *
+ * @param[in] suite The suite to get the KEX name from
+ * @param[in] tls13_group The TLS 1.3 group to get the KEX name from
+ * @return The KEX name
+ */
 static const char *tls_kex_name_from_suite(uint16_t suite, uint16_t tls13_group)
 {
     if(suite >= 0x1301u && suite <= 0x13FFu) {
@@ -551,6 +762,12 @@ static const char *tls_kex_name_from_suite(uint16_t suite, uint16_t tls13_group)
     return "unknown";
 }
 
+/**
+ * @brief Get the bulk cipher name
+ *
+ * @param[in] suite The suite to get the bulk cipher name from
+ * @return The bulk cipher name
+ */
 static const char *tls_bulk_cipher_name(uint16_t suite)
 {
     switch(suite) {
@@ -612,6 +829,12 @@ static const char *tls_bulk_cipher_name(uint16_t suite)
     }
 }
 
+/**
+ * @brief Get the hash name
+ *
+ * @param[in] suite The suite to get the hash name from
+ * @return The hash name
+ */
 static const char *tls_hash_name(uint16_t suite)
 {
     switch(suite) {
@@ -666,6 +889,13 @@ static const char *tls_hash_name(uint16_t suite)
     }
 }
 
+/**
+ * @brief Parse the format argument
+ *
+ * @param[in] text The text to parse the format argument from
+ * @param[out] format The format to parse the format argument into
+ * @return The return code
+ */
 static int parse_format_arg(const char *text, file_format_t *format)
 {
     if(text == NULL || format == NULL) {
@@ -686,6 +916,13 @@ static int parse_format_arg(const char *text, file_format_t *format)
     return 0;
 }
 
+/**
+ * @brief Parse the port argument
+ *
+ * @param[in] text The text to parse the port argument from
+ * @param[out] port The port to parse the port argument into
+ * @return The return code
+ */
 static int parse_port_arg(const char *text, uint16_t *port)
 {
     char *end = NULL;
@@ -705,6 +942,12 @@ static int parse_port_arg(const char *text, uint16_t *port)
     return 1;
 }
 
+/**
+ * @brief Trim the string in place
+ *
+ * @param[in] s The string to trim the string in place from
+ * @return The trimmed string
+ */
 static char *trim_in_place(char *s)
 {
     char *end;
@@ -719,6 +962,13 @@ static char *trim_in_place(char *s)
     return s;
 }
 
+/**
+ * @brief Parse the cipher token
+ *
+ * @param[in] token The token to parse the cipher token from
+ * @param[out] suite The suite to parse the cipher token into
+ * @return The return code
+ */
 static int parse_cipher_token(const char *token, uint16_t *suite)
 {
     uint32_t i;
@@ -745,6 +995,14 @@ static int parse_cipher_token(const char *token, uint16_t *suite)
     return 0;
 }
 
+/**
+ * @brief Parse the cipher suite list
+ *
+ * @param[in] arg The argument to parse the cipher suite list from
+ * @param[out] out_suites The suites to parse the cipher suite list into
+ * @param[out] out_count The count of the suites to parse the cipher suite list into
+ * @return The return code
+ */
 static int parse_cipher_suite_list(const char *arg, uint16_t *out_suites, uint32_t *out_count)
 {
     char *copy;
@@ -754,11 +1012,11 @@ static int parse_cipher_suite_list(const char *arg, uint16_t *out_suites, uint32
         return 0;
     }
 
-    copy = (char *)malloc(strlen(arg) + 1u);
+    copy = (char *)malloc(strlen(arg) + 1U);
     if(copy == NULL) {
         return 0;
     }
-    memcpy(copy, arg, strlen(arg) + 1u);
+    memcpy(copy, arg, strlen(arg) + 1U);
 
     cursor = copy;
     while(cursor != NULL && *cursor != '\0') {
@@ -790,11 +1048,19 @@ static int parse_cipher_suite_list(const char *arg, uint16_t *out_suites, uint32
 
     free(copy);
     *out_count = count;
-    return (count > 0u) ? 1 : 0;
+    return (count > 0U) ? 1 : 0;
 }
 
 static noxtls_return_t load_certificate_with_format(x509_certificate_t *cert, const char *path, file_format_t format);
 
+/**
+ * @brief Free the certificate chain buffers
+ *
+ * @param[in] chain_data The data to free the certificate chain buffers from
+ * @param[in] chain_lens The lengths of the certificate chain buffers to free the certificate chain buffers from
+ * @param[in] chain_count The count of the certificate chain buffers to free the certificate chain buffers from
+ * @return void
+ */
 static void free_certificate_chain_buffers(uint8_t **chain_data, uint32_t *chain_lens, uint32_t chain_count)
 {
     uint32_t i;
@@ -811,6 +1077,16 @@ static void free_certificate_chain_buffers(uint8_t **chain_data, uint32_t *chain
     }
 }
 
+/**
+ * @brief Load the certificate chain list
+ *
+ * @param[in] arg The argument to load the certificate chain list from
+ * @param[in] format The format to load the certificate chain list from
+ * @param[out] out_chain_data The data to load the certificate chain list into
+ * @param[out] out_chain_lens The lengths of the certificate chain list to load the certificate chain list into
+ * @param[out] out_chain_count The count of the certificate chain list to load the certificate chain list into
+ * @return The return code
+ */
 static int load_certificate_chain_list(const char *arg,
                                        file_format_t format,
                                        uint8_t ***out_chain_data,
@@ -831,11 +1107,11 @@ static int load_certificate_chain_list(const char *arg,
     *out_chain_lens = NULL;
     *out_chain_count = 0;
 
-    copy = (char *)malloc(strlen(arg) + 1u);
+    copy = (char *)malloc(strlen(arg) + 1U);
     if(copy == NULL) {
         return 0;
     }
-    memcpy(copy, arg, strlen(arg) + 1u);
+    memcpy(copy, arg, strlen(arg) + 1U);
 
     chain_data = (uint8_t **)calloc(MAX_CERT_CHAIN_ENTRIES, sizeof(uint8_t *));
     chain_lens = (uint32_t *)calloc(MAX_CERT_CHAIN_ENTRIES, sizeof(uint32_t));
@@ -865,7 +1141,7 @@ static int load_certificate_chain_list(const char *arg,
         memset(&chain_cert, 0, sizeof(chain_cert));
         noxtls_x509_certificate_init(&chain_cert);
         if(load_certificate_with_format(&chain_cert, token, format) != NOXTLS_RETURN_SUCCESS ||
-           chain_cert.raw_data == NULL || chain_cert.raw_data_len == 0u) {
+           chain_cert.raw_data == NULL || chain_cert.raw_data_len == 0U) {
             noxtls_x509_certificate_free(&chain_cert);
             free(copy);
             free_certificate_chain_buffers(chain_data, chain_lens, chain_count);
@@ -891,7 +1167,7 @@ static int load_certificate_chain_list(const char *arg,
     }
 
     free(copy);
-    if(chain_count == 0u) {
+    if(chain_count == 0U) {
         free(chain_data);
         free(chain_lens);
         return 0;
@@ -903,6 +1179,14 @@ static int load_certificate_chain_list(const char *arg,
     return 1;
 }
 
+/**
+ * @brief Load the file bytes
+ *
+ * @param[in] path The path to load the file bytes from
+ * @param[out] out_buf The buffer to load the file bytes into
+ * @param[out] out_len The length of the buffer to load the file bytes into
+ * @return The return code
+ */
 static noxtls_return_t load_file_bytes(const char *path, uint8_t **out_buf, uint32_t *out_len)
 {
     FILE *fp;
@@ -938,7 +1222,7 @@ static noxtls_return_t load_file_bytes(const char *path, uint8_t **out_buf, uint
         fclose(fp);
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
-    read_len = fread(buf, 1u, (size_t)size, fp);
+    read_len = fread(buf, 1U, (size_t)size, fp);
     fclose(fp);
     if(read_len != (size_t)size) {
         free(buf);
@@ -949,6 +1233,14 @@ static noxtls_return_t load_file_bytes(const char *path, uint8_t **out_buf, uint
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Load the certificate with format
+ *
+ * @param[in] cert The certificate to load the certificate with format from
+ * @param[in] path The path to load the certificate with format from
+ * @param[in] format The format to load the certificate with format from
+ * @return The return code
+ */
 static noxtls_return_t load_certificate_with_format(x509_certificate_t *cert, const char *path, file_format_t format)
 {
     noxtls_return_t rc;
@@ -975,6 +1267,14 @@ static noxtls_return_t load_certificate_with_format(x509_certificate_t *cert, co
     return rc;
 }
 
+/**
+ * @brief Load the private key with format
+ *
+ * @param[in] key The private key to load the private key with format from
+ * @param[in] path The path to load the private key with format from
+ * @param[in] format The format to load the private key with format from
+ * @return The return code
+ */
 static noxtls_return_t load_private_key_with_format(x509_private_key_t *key, const char *path, file_format_t format)
 {
     noxtls_return_t rc;
@@ -1001,6 +1301,15 @@ static noxtls_return_t load_private_key_with_format(x509_private_key_t *key, con
     return rc;
 }
 
+/**
+ * @brief Parse the hex bytes
+ *
+ * @param[in] hex The hex to parse the hex bytes from
+ * @param[out] out The output to parse the hex bytes into
+ * @param[out] out_len The length of the output to parse the hex bytes into
+ * @param[in] out_cap The capacity of the output to parse the hex bytes into
+ * @return The return code
+ */
 static int parse_hex_bytes(const char *hex, uint8_t *out, uint16_t *out_len, uint16_t out_cap)
 {
     uint16_t i;
@@ -1011,21 +1320,21 @@ static int parse_hex_bytes(const char *hex, uint8_t *out, uint16_t *out_len, uin
     if(hex[0] == '\0') {
         return 0;
     }
-    if((strlen(hex) % 2u) != 0u) {
+    if((strlen(hex) % 2U) != 0U) {
         return 0;
     }
-    nbytes = (uint16_t)(strlen(hex) / 2u);
-    if(nbytes == 0u || nbytes > out_cap) {
+    nbytes = (uint16_t)(strlen(hex) / 2U);
+    if(nbytes == 0U || nbytes > out_cap) {
         return 0;
     }
     for(i = 0; i < nbytes; i++) {
         unsigned int v;
-        char hi = hex[i * 2u];
-        char lo = hex[i * 2u + 1u];
+        char hi = hex[i * 2U];
+        char lo = hex[i * 2U + 1U];
         if(!isxdigit((unsigned char)hi) || !isxdigit((unsigned char)lo)) {
             return 0;
         }
-        if(sscanf(&hex[i * 2u], "%2x", &v) != 1) {
+        if(sscanf(&hex[i * 2U], "%2x", &v) != 1) {
             return 0;
         }
         out[i] = (uint8_t)v;
@@ -1034,6 +1343,13 @@ static int parse_hex_bytes(const char *hex, uint8_t *out, uint16_t *out_len, uin
     return 1;
 }
 
+/**
+ * @brief Parse the TLS 1.3 PSK mode
+ *
+ * @param[in] text The text to parse the TLS 1.3 PSK mode from
+ * @param[out] mode The mode to parse the TLS 1.3 PSK mode into
+ * @return The return code
+ */
 static int parse_tls13_psk_mode(const char *text, uint8_t *mode)
 {
     if(text == NULL || mode == NULL) {
@@ -1050,6 +1366,15 @@ static int parse_tls13_psk_mode(const char *text, uint8_t *mode)
     return 0;
 }
 
+/**
+ * @brief Parse the ALPN list
+ *
+ * @param[in] text The text to parse the ALPN list from
+ * @param[out] protocol_bufs The protocol buffers to parse the ALPN list into
+ * @param[out] protocol_ptrs The protocol pointers to parse the ALPN list into
+ * @param[out] count The count of the protocols to parse the ALPN list into
+ * @return The return code
+ */
 static int parse_alpn_list(const char *text,
                            char protocol_bufs[][MAX_ALPN_PROTOCOL_LEN],
                            const char **protocol_ptrs,
@@ -1084,14 +1409,14 @@ static int parse_alpn_list(const char *text,
             token++;
         }
         len = strlen(token);
-        while(len > 0u && (token[len - 1u] == ' ' || token[len - 1u] == '\t')) {
+        while(len > 0U && (token[len - 1U] == ' ' || token[len - 1U] == '\t')) {
             token[--len] = '\0';
         }
-        if(len == 0u || len >= MAX_ALPN_PROTOCOL_LEN || n >= MAX_ALPN_PROTOCOLS) {
+        if(len == 0U || len >= MAX_ALPN_PROTOCOL_LEN || n >= MAX_ALPN_PROTOCOLS) {
             free(copy);
             return 0;
         }
-        memcpy(protocol_bufs[n], token, len + 1u);
+        memcpy(protocol_bufs[n], token, len + 1U);
         protocol_ptrs[n] = protocol_bufs[n];
         n++;
 #ifdef _WIN32
@@ -1102,13 +1427,19 @@ static int parse_alpn_list(const char *text,
     }
 
     free(copy);
-    if(n == 0u) {
+    if(n == 0U) {
         return 0;
     }
     *count = n;
     return 1;
 }
 
+/**
+ * @brief Print the usage
+ *
+ * @param[in] prog The program to print the usage from
+ * @return void
+ */
 static void print_usage(const char *prog)
 {
     printf("Usage: %s [port] [options]\n", prog);
@@ -1152,6 +1483,13 @@ static void print_usage(const char *prog)
     printf("  openssl req -x509 -newkey rsa:2048 -keyout server.key -out server.crt -days 365 -nodes -subj /CN=localhost\n");
 }
 
+/**
+ * @brief Create the listen socket
+ *
+ * @param[in] port The port to create the listen socket from
+ * @param[in] bind_ip The IP address to create the listen socket from
+ * @return The listen socket
+ */
 static socket_t create_listen_socket(uint16_t port, const char *bind_ip)
 {
     socket_t listen_sock;
@@ -1200,6 +1538,12 @@ static socket_t create_listen_socket(uint16_t port, const char *bind_ip)
     return listen_sock;
 }
 
+/**
+ * @brief Configure the client socket timeouts
+ *
+ * @param[in] sock The socket to configure the client socket timeouts from
+ * @return void
+ */
 static void configure_client_socket_timeouts(socket_t sock)
 {
 #ifdef _WIN32
@@ -1215,6 +1559,14 @@ static void configure_client_socket_timeouts(socket_t sock)
 #endif
 }
 
+/**
+ * @brief Send the HTTPS data
+ *
+ * @param[in] user_data The user data to send the HTTPS data from
+ * @param[in] data The data to send the HTTPS data from
+ * @param[in] len The length of the data to send the HTTPS data from
+ * @return The return code
+ */
 static int32_t https_send_cb(void *user_data, const uint8_t *data, uint32_t len)
 {
     https_conn_t *conn = (https_conn_t *)user_data;
@@ -1237,6 +1589,14 @@ static int32_t https_send_cb(void *user_data, const uint8_t *data, uint32_t len)
     return (int32_t)sent_total;
 }
 
+/**
+ * @brief Receive the HTTPS data
+ *
+ * @param[in] user_data The user data to receive the HTTPS data from
+ * @param[out] data The data to receive the HTTPS data from
+ * @param[in] len The length of the data to receive the HTTPS data from
+ * @return The return code
+ */
 static int32_t https_recv_cb(void *user_data, uint8_t *data, uint32_t len)
 {
     https_conn_t *conn = (https_conn_t *)user_data;
@@ -1259,6 +1619,12 @@ static int32_t https_recv_cb(void *user_data, uint8_t *data, uint32_t len)
     return (int32_t)recv_total;
 }
 
+/**
+ * @brief Check if the request is likely a plain HTTP request
+ *
+ * @param[in] sock The socket to check if the request is likely a plain HTTP request from
+ * @return 1 if the request is likely a plain HTTP request, 0 otherwise
+ */
 static int is_likely_plain_http_request(socket_t sock)
 {
     uint8_t peek[8];
@@ -1285,6 +1651,12 @@ static int is_likely_plain_http_request(socket_t sock)
     return 0;
 }
 
+/**
+ * @brief Send the HTTPS required response
+ *
+ * @param[in] sock The socket to send the HTTPS required response from
+ * @return void
+ */
 static void send_https_required_response(socket_t sock)
 {
     static const char body[] =
@@ -1299,7 +1671,7 @@ static void send_https_required_response(socket_t sock)
                           "Connection: close\r\n"
                           "Content-Length: %u\r\n"
                           "\r\n",
-                          (unsigned)sizeof(body) - 1u);
+                          (unsigned)sizeof(body) - 1U);
     if(header_len <= 0 || (size_t)header_len >= sizeof(header)) {
         return;
     }
@@ -1318,8 +1690,8 @@ static void send_https_required_response(socket_t sock)
     }
 
     sent_total = 0;
-    while(sent_total < (uint32_t)(sizeof(body) - 1u)) {
-        int chunk = (int)((uint32_t)(sizeof(body) - 1u) - sent_total);
+    while(sent_total < (uint32_t)(sizeof(body) - 1U)) {
+        int chunk = (int)((uint32_t)(sizeof(body) - 1U) - sent_total);
 #ifdef _WIN32
         int sent = send(sock, body + sent_total, chunk, 0);
 #else
@@ -1332,20 +1704,26 @@ static void send_https_required_response(socket_t sock)
     }
 }
 
-/** True if buf[0..len) contains CRLFCRLF (TLS app data is not NUL-terminated; do not use strstr). */
+/**
+ * @brief Check if the HTTP headers are complete
+ *
+ * @param[in] buf The buffer to check if the HTTP headers are complete from
+ * @param[in] len The length of the buffer to check if the HTTP headers are complete from
+ * @return 1 if the HTTP headers are complete, 0 otherwise
+ */
 static int http_headers_complete(const uint8_t *buf, uint32_t len)
 {
     uint32_t i;
-    if(buf == NULL || len < 4u) {
+    if(buf == NULL || len < 4U) {
         return 0;
     }
-    for(i = 0; i + 4u <= len; i++) {
+    for(i = 0; i + 4U <= len; i++) {
         if(buf[i] == '\r' && buf[i + 1] == '\n' && buf[i + 2] == '\r' && buf[i + 3] == '\n') {
             return 1;
         }
     }
     /* Accept LF-LF terminator too; tlsfuzzer probes often use "\\n\\n". */
-    for(i = 0; i + 2u <= len; i++) {
+    for(i = 0; i + 2U <= len; i++) {
         if(buf[i] == '\n' && buf[i + 1] == '\n') {
             return 1;
         }
@@ -1354,9 +1732,15 @@ static int http_headers_complete(const uint8_t *buf, uint32_t len)
 }
 
 /**
- * tlsfuzzer test_lengths.py sends non-HTTP probes as A*(n-1)+LF (1..2^14 bytes) or,
- * with max_fragment_length=4096 and length 16384, four segments of 4095×'A'+LF.
+ * @brief Detect tlsfuzzer test_lengths.py echo probes.
+ *
+ * Sends non-HTTP probes as A*(n-1)+LF (1..2^14 bytes) or, with
+ * max_fragment_length=4096 and length 16384, four segments of 4095x'A'+LF.
  * The script expects the same payload echoed as application data.
+ *
+ * @param[in] buf Received application data.
+ * @param[in] len Length of @p buf in bytes.
+ * @return 1 if the buffer matches a lengths echo payload, 0 otherwise
  */
 static int https_buf_is_tls_lengths_echo_payload(const uint8_t *buf, uint32_t len)
 {
@@ -1364,25 +1748,25 @@ static int https_buf_is_tls_lengths_echo_payload(const uint8_t *buf, uint32_t le
     uint32_t s;
     int all_a_prefix = 1;
 
-    if(buf == NULL || len == 0u) {
+    if(buf == NULL || len == 0U) {
         return 0;
     }
-    if(len == 1u) {
+    if(len == 1U) {
         return buf[0] == (uint8_t)'\n';
     }
-    for(i = 0; i + 1u < len; i++) {
+    for(i = 0; i + 1U < len; i++) {
         if(buf[i] != (uint8_t)'A') {
             all_a_prefix = 0;
             break;
         }
     }
-    if(all_a_prefix != 0 && buf[len - 1u] == (uint8_t)'\n') {
+    if(all_a_prefix != 0 && buf[len - 1U] == (uint8_t)'\n') {
         return 1;
     }
     if(len != 16384u) {
         return 0;
     }
-    for(s = 0u; s < 4u; s++) {
+    for(s = 0U; s < 4U; s++) {
         uint32_t base = s * 4096u;
         for(i = 0; i < 4095u; i++) {
             if(buf[base + i] != (uint8_t)'A') {
@@ -1396,6 +1780,15 @@ static int https_buf_is_tls_lengths_echo_payload(const uint8_t *buf, uint32_t le
     return 1;
 }
 
+/**
+ * @brief Serve one request
+ *
+ * @param[in] tls_ctx The TLS context to serve the request from
+ * @param[in] is_tls13 Whether the request is TLS 1.3
+ * @param[in] body The body of the request
+ * @param[in] body_len The length of the body of the request
+ * @return The return code
+ */ 
 static int serve_one_request(void *tls_ctx, int is_tls13, const char *body, size_t body_len)
 {
     noxtls_return_t rc;
@@ -1407,9 +1800,9 @@ static int serve_one_request(void *tls_ctx, int is_tls13, const char *body, size
         return -1;
     }
 
-    while(req_len < REQUEST_BUFFER_SIZE - 1u) {
-        uint32_t space = (REQUEST_BUFFER_SIZE - 1u) - req_len;
-        if(space == 0u) {
+    while(req_len < REQUEST_BUFFER_SIZE - 1U) {
+        uint32_t space = (REQUEST_BUFFER_SIZE - 1U) - req_len;
+        if(space == 0U) {
             goto fail;
         }
         uint32_t to_recv = space;
@@ -1424,8 +1817,8 @@ static int serve_one_request(void *tls_ctx, int is_tls13, const char *body, size
         if(rc != NOXTLS_RETURN_SUCCESS) {
             goto fail;
         }
-        if(to_recv == 0u) {
-            if(req_len > 0u) {
+        if(to_recv == 0U) {
+            if(req_len > 0U) {
                 break;
             }
             continue;
@@ -1458,12 +1851,12 @@ static int serve_one_request(void *tls_ctx, int is_tls13, const char *body, size
         goto fail;
     }
 
-    if(is_tls13 && req_len >= 16u && memcmp(req_buf, "GET /keyupdate ", 15u) == 0) {
+    if(is_tls13 && req_len >= 16U && memcmp(req_buf, "GET /keyupdate ", 15U) == 0) {
         trigger_server_keyupdate = 1;
     }
-    if(!is_tls13 && req_len >= 18u && memcmp(req_buf, "GET /secure/test ", 17u) == 0) {
+    if(!is_tls13 && req_len >= 18U && memcmp(req_buf, "GET /secure/test ", 17U) == 0) {
         uint8_t reneg_dummy = 0;
-        uint32_t reneg_len = 1u;
+        uint32_t reneg_len = 1U;
         tls12_context_t *tls12 = (tls12_context_t *)tls_ctx;
         noxtls_tls12_request_client_auth(tls12, 1);
         rc = noxtls_tls12_send_hello_request(tls12);
@@ -1477,7 +1870,7 @@ static int serve_one_request(void *tls_ctx, int is_tls13, const char *body, size
     }
 
     if(trigger_server_keyupdate) {
-        rc = noxtls_tls13_send_key_update((tls13_context_t *)tls_ctx, 1u);
+        rc = noxtls_tls13_send_key_update((tls13_context_t *)tls_ctx, 1U);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             goto fail;
         }
@@ -1550,6 +1943,14 @@ fail:
 }
 
 #if (NOXTLS_FEATURE_TLS12 || NOXTLS_FEATURE_TLS13)
+/**
+ * @brief Serve one request unified
+ *
+ * @param[in] conn The connection to serve the request from
+ * @param[in] body The body of the request
+ * @param[in] body_len The length of the body of the request
+ * @return The return code
+ */
 static int serve_one_request_unified(noxtls_tls_connection_t *conn, const char *body, size_t body_len)
 {
     noxtls_return_t rc;
@@ -1560,9 +1961,9 @@ static int serve_one_request_unified(noxtls_tls_connection_t *conn, const char *
         return -1;
     }
 
-    while(req_len < REQUEST_BUFFER_SIZE - 1u) {
-        uint32_t space = (REQUEST_BUFFER_SIZE - 1u) - req_len;
-        if(space == 0u) {
+    while(req_len < REQUEST_BUFFER_SIZE - 1U) {
+        uint32_t space = (REQUEST_BUFFER_SIZE - 1U) - req_len;
+        if(space == 0U) {
             goto fail;
         }
         uint32_t to_recv = space;
@@ -1573,8 +1974,8 @@ static int serve_one_request_unified(noxtls_tls_connection_t *conn, const char *
         if(rc != NOXTLS_RETURN_SUCCESS) {
             goto fail;
         }
-        if(to_recv == 0u) {
-            if(req_len > 0u) {
+        if(to_recv == 0U) {
+            if(req_len > 0U) {
                 break;
             }
             continue;
@@ -1656,6 +2057,16 @@ fail:
 }
 #endif
 
+/**
+ * @brief Build the HTTP body
+ *
+ * @param[in] body_buf The buffer to build the HTTP body into
+ * @param[in] body_buf_len The length of the buffer to build the HTTP body into
+ * @param[in] tls_version The TLS version to build the HTTP body into
+ * @param[in] cipher_suite The cipher suite to build the HTTP body into
+ * @param[in] tls13_group The TLS 1.3 group to build the HTTP body into
+ * @return The return code
+ */
 static int build_http_body(char *body_buf,
                                   size_t body_buf_len,
                                   uint16_t tls_version,
@@ -1663,16 +2074,16 @@ static int build_http_body(char *body_buf,
                                   uint16_t tls13_group)
 {
     int written;
-    if(body_buf == NULL || body_buf_len == 0u) {
+    if(body_buf == NULL || body_buf_len == 0U) {
         return -1;
     }
 
     written = snprintf(body_buf, body_buf_len,
                        "<!DOCTYPE html>\n"
                        "<html>\n"
-                       "<head><title>NOXTLS HTTPS Server</title></head>\n"
+                       "<head><title>NoxTLS HTTPS Server</title></head>\n"
                        "<body>\n"
-                       "  <h1>NOXTLS HTTPS Server</h1>\n"
+                       "  <h1>NoxTLS HTTPS Server</h1>\n"
                        "  <p>NoxTLS build version: %s</p>\n"
                        "  <p>Handshake complete. Negotiated algorithm details:</p>\n"
                        "  <ul>\n"
@@ -1699,10 +2110,15 @@ static int build_http_body(char *body_buf,
 }
 
 /**
- * Replace ecc_key_t public coordinates with the SPKI EC point from the leaf
- * certificate. OpenSSL-generated keys can disagree with NoxTLS's d*G
- * reconstruction on some curves (notably secp521r1); peers verify signatures
- * against the certificate public key, not our recomputed Q.
+ * @brief Sync ECC public coordinates from the leaf certificate SPKI.
+ *
+ * OpenSSL-generated keys can disagree with NoxTLS's d*G reconstruction on some
+ * curves (notably secp521r1); peers verify signatures against the certificate
+ * public key, not our recomputed Q.
+ *
+ * @param[in,out] ecc ECC key whose Q coordinates are updated on success.
+ * @param[in] leaf Parsed leaf certificate containing the SPKI EC point.
+ * @return 1 if Q was synced, 0 if skipped or unsupported
  */
 static int https_sync_ecc_public_from_cert(ecc_key_t *ecc, const x509_certificate_t *leaf)
 {
@@ -1715,7 +2131,7 @@ static int https_sync_ecc_public_from_cert(ecc_key_t *ecc, const x509_certificat
         return 0;
     }
     if(noxtls_x509_certificate_get_public_key(leaf, &pub, &kt) != NOXTLS_RETURN_SUCCESS ||
-       pub == NULL || kt != 2u) {
+       pub == NULL || kt != 2U) {
         if(pub != NULL) {
             noxtls_ecc_key_free((ecc_key_t *)pub);
             free(pub);
@@ -1737,15 +2153,11 @@ static int https_sync_ecc_public_from_cert(ecc_key_t *ecc, const x509_certificat
     return 1;
 }
 
-typedef struct {
-    x509_certificate_t cert;
-    x509_private_key_t key_pk;
-    ecc_key_t ecc_key;
-} https_tls13_ecdsa_matrix_slot_t;
-
-static https_tls13_ecdsa_matrix_slot_t g_https_tls13_ecdsa_matrix[8];
-static uint32_t g_https_tls13_ecdsa_matrix_n;
-
+/**
+ * @brief Free all loaded TLS 1.3 ECDSA matrix identity slots.
+ *
+ * @return void
+ */
 static void https_tls13_ecdsa_matrix_free_all(void)
 {
     uint32_t i;
@@ -1756,9 +2168,17 @@ static void https_tls13_ecdsa_matrix_free_all(void)
         noxtls_x509_private_key_free(&g_https_tls13_ecdsa_matrix[i].key_pk);
         memset(&g_https_tls13_ecdsa_matrix[i], 0, sizeof(g_https_tls13_ecdsa_matrix[i]));
     }
-    g_https_tls13_ecdsa_matrix_n = 0u;
+    g_https_tls13_ecdsa_matrix_n = 0U;
 }
 
+/**
+ * @brief Load the HTTPS TLS 1.3 ECDSA matrix
+ *
+ * @param[in] dir The directory to load the HTTPS TLS 1.3 ECDSA matrix from
+ * @param[in] cert_fmt The format of the certificate to load the HTTPS TLS 1.3 ECDSA matrix from
+ * @param[in] key_fmt The format of the private key to load the HTTPS TLS 1.3 ECDSA matrix from
+ * @return The return code
+ */
 static int https_tls13_ecdsa_matrix_load(const char *dir, file_format_t cert_fmt, file_format_t key_fmt)
 {
     static const char *const bases[] = {
@@ -1836,7 +2256,7 @@ static int https_tls13_ecdsa_matrix_load(const char *dir, file_format_t cert_fmt
         g_https_tls13_ecdsa_matrix_n++;
     }
 
-    if(g_https_tls13_ecdsa_matrix_n == 0u) {
+    if(g_https_tls13_ecdsa_matrix_n == 0U) {
         printf("ERROR: No TLS 1.3 ECDSA matrix material found in '%s' "
                "(expected prime256v1|secp384r1|secp521r1|brainpoolP256r1|brainpoolP384r1|brainpoolP512r1 .crt/.key)\n",
                dir);
@@ -1847,6 +2267,13 @@ static int https_tls13_ecdsa_matrix_load(const char *dir, file_format_t cert_fmt
     return 1;
 }
 
+/**
+ * @brief Configure the ECDSA identities
+ *
+ * @param[in] ctx The context to configure the ECDSA identities from
+ * @param[in] fallback_ecdsa The fallback ECC key to configure the ECDSA identities from
+ * @return The return code
+ */
 static int https_tls13_configure_ecdsa_identities(tls13_context_t *ctx, ecc_key_t *fallback_ecdsa)
 {
     uint32_t mi;
@@ -1854,7 +2281,7 @@ static int https_tls13_configure_ecdsa_identities(tls13_context_t *ctx, ecc_key_
     if(ctx == NULL || fallback_ecdsa == NULL) {
         return 0;
     }
-    if(g_https_tls13_ecdsa_matrix_n > 0u) {
+    if(g_https_tls13_ecdsa_matrix_n > 0U) {
         for(mi = 0; mi < g_https_tls13_ecdsa_matrix_n; mi++) {
             if(noxtls_tls13_add_server_ecdsa_identity(ctx,
                                                       g_https_tls13_ecdsa_matrix[mi].cert.raw_data,
@@ -1870,11 +2297,18 @@ static int https_tls13_configure_ecdsa_identities(tls13_context_t *ctx, ecc_key_
     return 1;
 }
 
+/**
+ * @brief Main function
+ *
+ * @param[in] argc The number of arguments
+ * @param[in] argv The arguments
+ * @return The return code
+ */
 int main(int argc, char **argv)
 {
     uint16_t port = DEFAULT_PORT;
     const char *bind_ip = DEFAULT_BIND_IP;
-    unsigned char debug_level = 0u;
+    unsigned char debug_level = 0U;
     const char *cert_file = DEFAULT_CERT_FILE;
     const char *cert_chain_files = NULL;
     const char *key_file = DEFAULT_KEY_FILE;
@@ -1989,11 +2423,11 @@ int main(int argc, char **argv)
         if((strcmp(argv[i], "-if") == 0 || strcmp(argv[i], "--interface") == 0) && i + 1 < argc) {
             bind_ip = argv[++i];
         } else if(strcmp(argv[i], "-v") == 0) {
-            if(debug_level < 1u) {
-                debug_level = 1u;
+            if(debug_level < 1U) {
+                debug_level = 1U;
             }
         } else if(strcmp(argv[i], "-vv") == 0) {
-            debug_level = 2u;
+            debug_level = 2U;
         } else if(strcmp(argv[i], "--cert") == 0 && i + 1 < argc) {
             cert_file = argv[++i];
         } else if(strcmp(argv[i], "--cert-chain") == 0 && i + 1 < argc) {
@@ -2064,13 +2498,13 @@ int main(int argc, char **argv)
         } else if(strcmp(argv[i], "--expect-client-sni") == 0 && i + 1 < argc) {
             const char *v = argv[++i];
             size_t vl = strlen(v);
-            if(vl == 0u || vl >= sizeof(expect_client_sni_buf)) {
+            if(vl == 0U || vl >= sizeof(expect_client_sni_buf)) {
                 printf("ERROR: --expect-client-sni must be 1..%u characters\n",
-                       (unsigned)(sizeof(expect_client_sni_buf) - 1u));
+                       (unsigned)(sizeof(expect_client_sni_buf) - 1U));
                 print_usage(argv[0]);
                 goto cleanup;
             }
-            memcpy(expect_client_sni_buf, v, vl + 1u);
+            memcpy(expect_client_sni_buf, v, vl + 1U);
             expect_client_sni = expect_client_sni_buf;
         } else if(strcmp(argv[i], "--expect-client-sni-fatal") == 0) {
             expect_client_sni_fatal = 1;
@@ -2102,7 +2536,7 @@ int main(int argc, char **argv)
     }
     if(tls13_psk_id_text != NULL && tls13_psk_key_hex != NULL) {
         size_t id_len = strlen(tls13_psk_id_text);
-        if(id_len == 0u || id_len > sizeof(tls13_psk_id)) {
+        if(id_len == 0U || id_len > sizeof(tls13_psk_id)) {
             printf("ERROR: --tls13-psk-id length must be 1..%u bytes\n", (unsigned)sizeof(tls13_psk_id));
             goto cleanup;
         }
@@ -2150,7 +2584,7 @@ int main(int argc, char **argv)
     }
     server_cert = cert.raw_data;
     server_cert_len = cert.raw_data_len;
-    if(server_cert == NULL || server_cert_len == 0u) {
+    if(server_cert == NULL || server_cert_len == 0U) {
         printf("ERROR: Certificate has no DER raw data after parse\n");
         goto cleanup;
     }
@@ -2192,6 +2626,10 @@ int main(int argc, char **argv)
         }
         if(server_ecc_key.curve == NULL) {
             printf("ERROR: ECDSA key has no curve parameters\n");
+            goto cleanup;
+        }
+        if(!https_sync_ecc_public_from_cert(&server_ecc_key, &cert)) {
+            printf("ERROR: Failed to sync ECDSA public key from certificate SPKI\n");
             goto cleanup;
         }
         server_ecc_key_loaded = 1;
@@ -2290,7 +2728,7 @@ int main(int argc, char **argv)
         }
         tls12_server_cert = tls12_cert.raw_data;
         tls12_server_cert_len = tls12_cert.raw_data_len;
-        if(tls12_server_cert == NULL || tls12_server_cert_len == 0u) {
+        if(tls12_server_cert == NULL || tls12_server_cert_len == 0U) {
             printf("ERROR: TLS 1.2 fallback certificate has no DER raw data after parse\n");
             goto cleanup;
         }
@@ -2341,7 +2779,7 @@ int main(int argc, char **argv)
 #endif
         ) {
         if(load_certificate_with_format(&tls12_pss_cert, auto_tls12_pss_cert_buf, cert_format) == NOXTLS_RETURN_SUCCESS &&
-           tls12_pss_cert.raw_data != NULL && tls12_pss_cert.raw_data_len > 0u &&
+           tls12_pss_cert.raw_data != NULL && tls12_pss_cert.raw_data_len > 0U &&
            load_private_key_with_format(&tls12_pss_key_x509, auto_tls12_pss_key_buf, key_format) == NOXTLS_RETURN_SUCCESS &&
            tls12_pss_key_x509.key_type == X509_PRIVATE_KEY_RSA &&
            noxtls_x509_private_key_to_rsa_key(&tls12_pss_key_x509, &tls12_pss_rsa_key) == NOXTLS_RETURN_SUCCESS) {
@@ -2378,13 +2816,13 @@ int main(int argc, char **argv)
            bind_ip,
            (unsigned)port);
     printf("Certificate: %s (%s)\n", cert_file, format_name(cert_format));
-    if(server_cert_chain_count > 0u) {
+    if(server_cert_chain_count > 0U) {
         printf("Certificate chain: %u intermediate certificate(s)\n", (unsigned)server_cert_chain_count);
     }
     printf("Private key: %s (%s)\n", key_file, format_name(key_format));
-    if(debug_level == 1u) {
+    if(debug_level == 1U) {
         printf("Debug mode: -v (standard)\n");
-    } else if(debug_level >= 2u) {
+    } else if(debug_level >= 2U) {
         printf("Debug mode: -vv (full)\n");
     }
     if(debug_log_file != NULL) {
@@ -2394,7 +2832,7 @@ int main(int argc, char **argv)
     if(server_key_kind != SERVER_KEY_KIND_RSA) {
         if(tls12_fallback_enabled) {
             printf("TLS 1.2 fallback enabled with RSA cert/key: %s / %s\n", tls12_cert_file, tls12_key_file);
-            if(tls12_server_cert_chain_count > 0u) {
+            if(tls12_server_cert_chain_count > 0U) {
                 printf("TLS 1.2 fallback chain: %u intermediate certificate(s)\n", (unsigned)tls12_server_cert_chain_count);
             }
         } else {
@@ -2403,7 +2841,7 @@ int main(int argc, char **argv)
                    "or tls12_rsa.crt|.key next to --cert, or (Linux) next to the https_server binary.\n");
         }
     }
-    if(configured_cipher_suite_count > 0u) {
+    if(configured_cipher_suite_count > 0U) {
         printf("Configured ciphersuite allowlist (%u):\n", (unsigned)configured_cipher_suite_count);
         for(i = 0; i < (int)configured_cipher_suite_count; i++) {
             printf("  - %s (0x%04X)\n",
@@ -2447,7 +2885,7 @@ int main(int argc, char **argv)
             conn.sock = client_sock;
 
             if(is_likely_plain_http_request(client_sock)) {
-                if(debug_level > 0u) {
+                if(debug_level > 0U) {
                     printf("INFO: Plain HTTP request received on HTTPS port; returning 400 hint\n");
                 }
                 send_https_required_response(client_sock);
@@ -2482,7 +2920,7 @@ int main(int argc, char **argv)
                     }
                     tls12_ctx.server_cert = tls12_server_cert;
                     tls12_ctx.server_cert_len = tls12_server_cert_len;
-                    if(tls12_server_cert_chain_count > 0u) {
+                    if(tls12_server_cert_chain_count > 0U) {
                         noxtls_tls12_set_server_certificate_chain(&tls12_ctx,
                                                                   tls12_server_cert_chain_ptrs,
                                                                   tls12_server_cert_chain_lens,
@@ -2500,7 +2938,7 @@ int main(int argc, char **argv)
                         noxtls_tls12_set_server_private_ecdsa(&tls12_ctx, &server_ecc_key);
                         noxtls_tls12_set_server_ecdsa_leaf_certificate(&tls12_ctx, server_cert, server_cert_len);
                     }
-                    if(configured_cipher_suite_count > 0u) {
+                    if(configured_cipher_suite_count > 0U) {
                         noxtls_tls12_set_server_cipher_suites(&tls12_ctx,
                                                               configured_cipher_suites,
                                                               configured_cipher_suite_count);
@@ -2510,7 +2948,7 @@ int main(int argc, char **argv)
                                                               (uint32_t)(sizeof(TLS12_FALLBACK_DEFAULT_SUITES) /
                                                                          sizeof(TLS12_FALLBACK_DEFAULT_SUITES[0])));
                     }
-                    if(configured_alpn_count > 0u) {
+                    if(configured_alpn_count > 0U) {
                         noxtls_tls12_set_server_alpn_protocols(&tls12_ctx,
                                                                alpn_protocol_ptrs,
                                                                configured_alpn_count);
@@ -2532,7 +2970,7 @@ int main(int argc, char **argv)
                             }
                             tls13_ctx.server_cert = server_cert;
                             tls13_ctx.server_cert_len = server_cert_len;
-                            if(server_cert_chain_count > 0u) {
+                            if(server_cert_chain_count > 0U) {
                                 noxtls_tls13_set_server_certificate_chain(&tls13_ctx,
                                                                           server_cert_chain_ptrs,
                                                                           server_cert_chain_lens,
@@ -2575,12 +3013,12 @@ int main(int argc, char **argv)
                                 CLOSESOCK(client_sock);
                                 continue;
                             }
-                            if(configured_cipher_suite_count > 0u) {
+                            if(configured_cipher_suite_count > 0U) {
                                 noxtls_tls13_set_server_cipher_suites(&tls13_ctx,
                                                                       configured_cipher_suites,
                                                                       configured_cipher_suite_count);
                             }
-                            if(configured_alpn_count > 0u) {
+                            if(configured_alpn_count > 0U) {
                                 noxtls_tls13_set_server_alpn_protocols(&tls13_ctx,
                                                                        alpn_protocol_ptrs,
                                                                        configured_alpn_count);
@@ -2682,7 +3120,7 @@ int main(int argc, char **argv)
                     noxtls_tls_set_io_callbacks(&tls13_ctx.base.base, https_send_cb, https_recv_cb, &conn);
                     tls13_ctx.server_cert = server_cert;
                     tls13_ctx.server_cert_len = server_cert_len;
-                    if(server_cert_chain_count > 0u) {
+                    if(server_cert_chain_count > 0U) {
                         noxtls_tls13_set_server_certificate_chain(&tls13_ctx,
                                                                   server_cert_chain_ptrs,
                                                                   server_cert_chain_lens,
@@ -2719,12 +3157,12 @@ int main(int argc, char **argv)
                         continue;
                     }
 
-                    if(configured_cipher_suite_count > 0u) {
+                    if(configured_cipher_suite_count > 0U) {
                         noxtls_tls13_set_server_cipher_suites(&tls13_ctx,
                                                               configured_cipher_suites,
                                                               configured_cipher_suite_count);
                     }
-                    if(configured_alpn_count > 0u) {
+                    if(configured_alpn_count > 0U) {
                         noxtls_tls13_set_server_alpn_protocols(&tls13_ctx,
                                                                alpn_protocol_ptrs,
                                                                configured_alpn_count);
@@ -2802,14 +3240,14 @@ int main(int argc, char **argv)
                 }
                 noxtls_tls_connection_set_io_callbacks(&uconn, https_send_cb, https_recv_cb, &conn);
                 noxtls_tls_connection_set_server_cert(&uconn, server_cert, server_cert_len);
-                if(server_cert_chain_count > 0u) {
+                if(server_cert_chain_count > 0U) {
                     noxtls_tls_connection_set_server_cert_chain(&uconn,
                                                                 server_cert_chain_ptrs,
                                                                 server_cert_chain_lens,
                                                                 server_cert_chain_count);
                 }
                 noxtls_tls_connection_set_server_private_key(&uconn, &server_rsa_key);
-                if(configured_cipher_suite_count > 0u) {
+                if(configured_cipher_suite_count > 0U) {
                     noxtls_tls_connection_set_server_cipher_suites(&uconn,
                                                                    configured_cipher_suites,
                                                                    configured_cipher_suite_count);
@@ -2819,7 +3257,7 @@ int main(int argc, char **argv)
                                                                    (uint32_t)(sizeof(TLS12_FALLBACK_DEFAULT_SUITES) /
                                                                               sizeof(TLS12_FALLBACK_DEFAULT_SUITES[0])));
                 }
-                if(configured_alpn_count > 0u) {
+                if(configured_alpn_count > 0U) {
                     noxtls_tls_connection_set_server_alpn_protocols(&uconn,
                                                                     alpn_protocol_ptrs,
                                                                     configured_alpn_count);
@@ -2888,7 +3326,7 @@ int main(int argc, char **argv)
                 }
                 tls12_ctx.server_cert = server_cert;
                 tls12_ctx.server_cert_len = server_cert_len;
-                if(server_cert_chain_count > 0u) {
+                if(server_cert_chain_count > 0U) {
                     noxtls_tls12_set_server_certificate_chain(&tls12_ctx,
                                                               server_cert_chain_ptrs,
                                                               server_cert_chain_lens,
@@ -2902,7 +3340,7 @@ int main(int argc, char **argv)
                                                                   &tls12_pss_rsa_key,
                                                                   &tls12_pss_cert);
                 }
-                if(configured_cipher_suite_count > 0u) {
+                if(configured_cipher_suite_count > 0U) {
                     noxtls_tls12_set_server_cipher_suites(&tls12_ctx,
                                                           configured_cipher_suites,
                                                           configured_cipher_suite_count);
@@ -2912,7 +3350,7 @@ int main(int argc, char **argv)
                                                           (uint32_t)(sizeof(TLS12_FALLBACK_DEFAULT_SUITES) /
                                                                      sizeof(TLS12_FALLBACK_DEFAULT_SUITES[0])));
                 }
-                if(configured_alpn_count > 0u) {
+                if(configured_alpn_count > 0U) {
                     noxtls_tls12_set_server_alpn_protocols(&tls12_ctx,
                                                            alpn_protocol_ptrs,
                                                            configured_alpn_count);
@@ -2934,19 +3372,19 @@ int main(int argc, char **argv)
                         }
                         tls13_ctx.server_cert = server_cert;
                         tls13_ctx.server_cert_len = server_cert_len;
-                        if(server_cert_chain_count > 0u) {
+                        if(server_cert_chain_count > 0U) {
                             noxtls_tls13_set_server_certificate_chain(&tls13_ctx,
                                                                       server_cert_chain_ptrs,
                                                                       server_cert_chain_lens,
                                                                       server_cert_chain_count);
                         }
                         noxtls_tls13_set_server_private_rsa(&tls13_ctx, &server_rsa_key);
-                        if(configured_cipher_suite_count > 0u) {
+                        if(configured_cipher_suite_count > 0U) {
                             noxtls_tls13_set_server_cipher_suites(&tls13_ctx,
                                                                   configured_cipher_suites,
                                                                   configured_cipher_suite_count);
                         }
-                        if(configured_alpn_count > 0u) {
+                        if(configured_alpn_count > 0U) {
                             noxtls_tls13_set_server_alpn_protocols(&tls13_ctx,
                                                                    alpn_protocol_ptrs,
                                                                    configured_alpn_count);

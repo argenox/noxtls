@@ -14,7 +14,7 @@
 *
 *
 * File:    noxtls_certificates.h
-* Summary: NOXTLS Certificate Definitions
+* Summary: NoxTLS Certificate Definitions
 *
 */
 
@@ -43,8 +43,7 @@ extern "C" {
 #define CERT_REQ_BEGIN_STR "-----BEGIN CERTIFICATE REQUEST-----"
 #define CERT_REQ_END_STR   "-----END CERTIFICATE REQUEST-----"
 
-#define PEM_MAX_LINE_LEN    64
-
+#define PEM_MAX_LINE_LEN        64
 #define PEM_MAX_LINE_LEN_B64    48
 
 

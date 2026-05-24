@@ -40,13 +40,13 @@ typedef struct {
 
 static const cipher_algorithm_t cipher_algorithms[] = {
 #if NOXTLS_FEATURE_AES_128
-    {"128", NOXTLS_AES_128_BIT, 16u},
+    {"128", NOXTLS_AES_128_BIT, 16U},
 #endif
 #if NOXTLS_FEATURE_AES_192
-    {"192", NOXTLS_AES_192_BIT, 24u},
+    {"192", NOXTLS_AES_192_BIT, 24U},
 #endif
 #if NOXTLS_FEATURE_AES_256
-    {"256", NOXTLS_AES_256_BIT, 32u},
+    {"256", NOXTLS_AES_256_BIT, 32U},
 #endif
 };
 
@@ -89,6 +89,11 @@ static int run_aes(
     uint8_t ** output,
     uint32_t * output_len);
 
+/**
+ * @brief Print the encryption usage
+ * 
+ * @param command The command
+ */
 void print_encryption_usage(const char * command)
 {
     size_t i;
@@ -115,10 +120,10 @@ void print_encryption_usage(const char * command)
     for(i = 0; i < sizeof(cipher_algorithms) / sizeof(cipher_algorithms[0]); i++) {
         printf("  %-14s%s",
                cipher_algorithms[i].name,
-               ((displayed + 1u) % 3u == 0u) ? "\n" : "");
+               ((displayed + 1U) % 3U == 0U) ? "\n" : "");
         displayed++;
     }
-    if(displayed % 3u != 0u) {
+    if(displayed % 3U != 0U) {
         printf("\n");
     }
 
@@ -127,10 +132,10 @@ void print_encryption_usage(const char * command)
     for(i = 0; i < sizeof(cipher_modes) / sizeof(cipher_modes[0]); i++) {
         printf("  %-14s%s",
                cipher_modes[i].name,
-               ((displayed + 1u) % 3u == 0u) ? "\n" : "");
+               ((displayed + 1U) % 3U == 0U) ? "\n" : "");
         displayed++;
     }
-    if(displayed % 3u != 0u) {
+    if(displayed % 3U != 0U) {
         printf("\n");
     }
 
@@ -140,16 +145,38 @@ void print_encryption_usage(const char * command)
     printf("  noxtls dec 128 -k 2b7e151628aed2a6abf7158809cf4f3c -h <ciphertext_hex>\n\n");
 }
 
+/**
+ * @brief Run the encryption command
+ * 
+ * @param argc The argument count
+ * @param argv The argument vector
+ * @return The return value
+ */
 int encryption_encrypt_command(int argc, char ** argv)
 {
     return run_cipher_command(NOXTLS_AES_OP_ENCRYPT, argc, argv);
 }
 
+/**
+ * @brief Run the decryption command
+ * 
+ * @param argc The argument count
+ * @param argv The argument vector
+ * @return The return value
+ */
 int encryption_decrypt_command(int argc, char ** argv)
 {
     return run_cipher_command(NOXTLS_AES_OP_DECRYPT, argc, argv);
 }
 
+/**
+ * @brief Run the cipher command
+ * 
+ * @param operation The operation
+ * @param argc The argument count
+ * @param argv The argument vector
+ * @return The return value
+ */
 static int run_cipher_command(noxtls_aes_operation_t operation, int argc, char ** argv)
 {
     const char * command = (operation == NOXTLS_AES_OP_ENCRYPT) ? "enc" : "dec";
@@ -307,7 +334,7 @@ static int run_cipher_command(noxtls_aes_operation_t operation, int argc, char *
             goto cleanup;
         }
         input_len = (uint32_t)(file_length - file_offset);
-        input = malloc(input_len == 0u ? 1u : input_len);
+        input = malloc(input_len == 0U ? 1U : input_len);
         if(input == NULL) {
             free(file_buffer);
             goto cleanup;
@@ -363,6 +390,13 @@ cleanup:
     return rc;
 }
 
+/**
+ * @brief Find the cipher algorithm
+ * 
+ * @param name The name
+ * @param spec The specification
+ * @return The return value
+ */
 static int find_cipher_algorithm(const char * name, const cipher_algorithm_t ** spec)
 {
     size_t i;
@@ -379,6 +413,13 @@ static int find_cipher_algorithm(const char * name, const cipher_algorithm_t ** 
     return -1;
 }
 
+/**
+ * @brief Find the cipher mode
+ * 
+ * @param name The name
+ * @param spec The specification
+ * @return The return value
+ */
 static int find_cipher_mode(const char * name, const cipher_mode_t ** spec)
 {
     size_t i;
@@ -395,6 +436,13 @@ static int find_cipher_mode(const char * name, const cipher_mode_t ** spec)
     return -1;
 }
 
+/**
+ * @brief Parse the offset value
+ * 
+ * @param value The value
+ * @param offset The offset
+ * @return The return value
+ */
 static int parse_offset_value(const char * value, size_t * offset)
 {
     char * endptr = NULL;
@@ -414,6 +462,14 @@ static int parse_offset_value(const char * value, size_t * offset)
     return 0;
 }
 
+/**
+ * @brief Read a binary file
+ * 
+ * @param path The path
+ * @param buffer The buffer
+ * @param length The length
+ * @return The return value
+ */
 static int read_binary_file(const char * path, uint8_t ** buffer, size_t * length)
 {
     FILE * file = NULL;
@@ -442,7 +498,7 @@ static int read_binary_file(const char * path, uint8_t ** buffer, size_t * lengt
         return -1;
     }
 
-    file_buffer = malloc((size_t)file_size == 0u ? 1u : (size_t)file_size);
+    file_buffer = malloc((size_t)file_size == 0U ? 1U : (size_t)file_size);
     if(file_buffer == NULL) {
         fclose(file);
         return -1;
@@ -462,6 +518,14 @@ static int read_binary_file(const char * path, uint8_t ** buffer, size_t * lengt
     return 0;
 }
 
+/**
+ * @brief Write a binary file
+ * 
+ * @param path The path
+ * @param buffer The buffer
+ * @param length The length
+ * @return The return value
+ */
 static int write_binary_file(const char * path, const uint8_t * buffer, size_t length)
 {
     FILE * file = NULL;
@@ -484,6 +548,14 @@ static int write_binary_file(const char * path, const uint8_t * buffer, size_t l
     return 0;
 }
 
+/**
+ * @brief Parse a hex string and allocate memory
+ * 
+ * @param hex The hex string
+ * @param out The output
+ * @param out_len The output length
+ * @return The return value
+ */
 static int parse_hex_alloc(const char * hex, uint8_t ** out, uint32_t * out_len)
 {
     size_t hex_len;
@@ -495,14 +567,14 @@ static int parse_hex_alloc(const char * hex, uint8_t ** out, uint32_t * out_len)
     }
 
     hex_len = strlen(hex);
-    if(hex_len / 2u > UINT32_MAX) {
+    if(hex_len / 2U > UINT32_MAX) {
         return -1;
     }
-    buffer = malloc(hex_len == 0u ? 1u : hex_len);
+    buffer = malloc(hex_len == 0U ? 1U : hex_len);
     if(buffer == NULL) {
         return -1;
     }
-    memset(buffer, 0, hex_len == 0u ? 1u : hex_len);
+    memset(buffer, 0, hex_len == 0U ? 1U : hex_len);
 
     parsed_len = noxtls_hex_string_to_bytes(hex, buffer, hex_len);
     if(parsed_len < 0) {
@@ -515,6 +587,14 @@ static int parse_hex_alloc(const char * hex, uint8_t ** out, uint32_t * out_len)
     return 0;
 }
 
+/**
+ * @brief Convert bytes to a hex string
+ * 
+ * @param bytes The bytes
+ * @param bytes_len The length of the bytes
+ * @param hex_out The hex output
+ * @return The return value
+ */
 static int bytes_to_hex(const uint8_t * bytes, uint32_t bytes_len, char ** hex_out)
 {
     static const char hex_chars[] = "0123456789abcdef";
@@ -524,25 +604,32 @@ static int bytes_to_hex(const uint8_t * bytes, uint32_t bytes_len, char ** hex_o
     if(bytes == NULL || hex_out == NULL) {
         return -1;
     }
-    if(bytes_len > (UINT32_MAX - 1u) / 2u) {
+    if(bytes_len > (UINT32_MAX - 1U) / 2U) {
         return -1;
     }
 
-    output = malloc((size_t)bytes_len * 2u + 1u);
+    output = malloc((size_t)bytes_len * 2U + 1U);
     if(output == NULL) {
         return -1;
     }
 
     for(i = 0; i < bytes_len; i++) {
-        output[(size_t)i * 2u] = hex_chars[(bytes[i] >> 4) & 0x0Fu];
-        output[(size_t)i * 2u + 1u] = hex_chars[bytes[i] & 0x0Fu];
+        output[(size_t)i * 2U] = hex_chars[(bytes[i] >> 4) & 0x0Fu];
+        output[(size_t)i * 2U + 1U] = hex_chars[bytes[i] & 0x0Fu];
     }
-    output[(size_t)bytes_len * 2u] = '\0';
+    output[(size_t)bytes_len * 2U] = '\0';
 
     *hex_out = output;
     return 0;
 }
 
+/**
+ * @brief Print the hex output
+ * 
+ * @param bytes The bytes
+ * @param bytes_len The length of the bytes
+ * @return The return value
+ */
 static int print_hex_output(const uint8_t * bytes, uint32_t bytes_len)
 {
     char * hex = NULL;
@@ -555,6 +642,16 @@ static int print_hex_output(const uint8_t * bytes, uint32_t bytes_len)
     return 0;
 }
 
+/**
+ * @brief Join the text arguments
+ * 
+ * @param start_idx The start index
+ * @param argc The argument count
+ * @param argv The argument vector
+ * @param out The output
+ * @param out_len The output length
+ * @return The return value
+ */
 static int join_text_args(int start_idx, int argc, char ** argv, uint8_t ** out, uint32_t * out_len)
 {
     size_t total_len = 0;
@@ -578,7 +675,7 @@ static int join_text_args(int start_idx, int argc, char ** argv, uint8_t ** out,
         return -1;
     }
 
-    buffer = malloc(total_len == 0u ? 1u : total_len);
+    buffer = malloc(total_len == 0U ? 1U : total_len);
     if(buffer == NULL) {
         return -1;
     }
@@ -598,6 +695,20 @@ static int join_text_args(int start_idx, int argc, char ** argv, uint8_t ** out,
     return 0;
 }
 
+/**
+ * @brief Run the AES
+ * 
+ * @param operation The operation
+ * @param algorithm The algorithm
+ * @param mode The mode
+ * @param key The key
+ * @param iv The IV
+ * @param input The input
+ * @param input_len The length of the input
+ * @param output The output
+ * @param output_len The length of the output
+ * @return The return value
+ */
 static int run_aes(
     noxtls_aes_operation_t operation,
     const cipher_algorithm_t * algorithm,

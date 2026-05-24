@@ -4,38 +4,20 @@
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
 *
+* This file is part of the NoxTLS Library.
 *
-* NOTICE:  All information contained herein, source code, binaries and
-* derived works is, and remains
-* the property of Argenox Technologies and its suppliers,
-* if any.  The intellectual and technical concepts contained
-* herein are proprietary to Argenox Technologies
-* and its suppliers may be covered by U.S. and Foreign Patents,
-* patents in process, and are protected by trade secret or copyright law.
-* Dissemination of this information or reproduction of this material
-* is strictly forbidden unless prior written permission is obtained
-* from Argenox Technologies.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
-* THIS SOFTWARE IS PROVIDED BY ARGENOX "AS IS" AND
-* ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-* WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-* DISCLAIMED. IN NO EVENT SHALL ARGENOX TECHNOLOGIES LLC BE LIABLE FOR ANY
-* DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-* (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-* LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-* ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-* (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-* SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*
+* See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
 *
-*
-* This file is part of the NoxTLS Library.
 *
 * File:    noxtls_x509.h
 * Summary: X.509 Certificate Parsing and Validation
 *
-*/
+*****************************************************************************/
 
 /**
  * @defgroup noxtls_certs Certificates and X.509
@@ -52,6 +34,7 @@
 #include "pkc/ecc/noxtls_ecc.h"
 #include "pkc/mldsa/noxtls_mldsa.h"
 #include "pkc/slhdsa/noxtls_slhdsa.h"
+#include "pkc/falcon/noxtls_falcon.h"
 #include "mdigest/noxtls_hash.h"
 
 #ifdef __cplusplus
@@ -85,23 +68,23 @@ extern "C" {
 #define X509_HOSTNAME_WILDCARD_PREFIX "*."
 #define X509_HOSTNAME_WILDCARD_PREFIX_LEN 2U
 /* Key Usage bits (RFC 5280): bit 0 = digitalSignature, 1 = nonRepudiation, 2 = keyEncipherment, 3 = dataEncipherment, 4 = keyAgreement, 5 = keyCertSign, 6 = cRLSign, 7 = encipherOnly, 8 = decipherOnly */
-#define X509_KEY_USAGE_DIGITAL_SIGNATURE    (1u << 0)
-#define X509_KEY_USAGE_NON_REPUDIATION     (1u << 1)
-#define X509_KEY_USAGE_KEY_ENCIPHERMENT    (1u << 2)
-#define X509_KEY_USAGE_DATA_ENCIPHERMENT   (1u << 3)
-#define X509_KEY_USAGE_KEY_AGREEMENT       (1u << 4)
-#define X509_KEY_USAGE_KEY_CERT_SIGN       (1u << 5)
-#define X509_KEY_USAGE_CRL_SIGN            (1u << 6)
-#define X509_KEY_USAGE_ENCIPHER_ONLY       (1u << 7)
-#define X509_KEY_USAGE_DECIPHER_ONLY       (1u << 8)
+#define X509_KEY_USAGE_DIGITAL_SIGNATURE    (1U << 0)
+#define X509_KEY_USAGE_NON_REPUDIATION     (1U << 1)
+#define X509_KEY_USAGE_KEY_ENCIPHERMENT    (1U << 2)
+#define X509_KEY_USAGE_DATA_ENCIPHERMENT   (1U << 3)
+#define X509_KEY_USAGE_KEY_AGREEMENT       (1U << 4)
+#define X509_KEY_USAGE_KEY_CERT_SIGN       (1U << 5)
+#define X509_KEY_USAGE_CRL_SIGN            (1U << 6)
+#define X509_KEY_USAGE_ENCIPHER_ONLY       (1U << 7)
+#define X509_KEY_USAGE_DECIPHER_ONLY       (1U << 8)
 /* Extended Key Usage bits (RFC 5280 id-kp-*): serverAuth, clientAuth, codeSigning, emailProtection, timeStamping, OCSPSigning, anyExtendedKeyUsage */
-#define X509_EKU_SERVER_AUTH       (1u << 0)
-#define X509_EKU_CLIENT_AUTH       (1u << 1)
-#define X509_EKU_CODE_SIGNING      (1u << 2)
-#define X509_EKU_EMAIL_PROTECTION  (1u << 3)
-#define X509_EKU_TIME_STAMPING     (1u << 4)
-#define X509_EKU_OCSP_SIGNING      (1u << 5)
-#define X509_EKU_ANY               (1u << 6)
+#define X509_EKU_SERVER_AUTH       (1U << 0)
+#define X509_EKU_CLIENT_AUTH       (1U << 1)
+#define X509_EKU_CODE_SIGNING      (1U << 2)
+#define X509_EKU_EMAIL_PROTECTION  (1U << 3)
+#define X509_EKU_TIME_STAMPING     (1U << 4)
+#define X509_EKU_OCSP_SIGNING      (1U << 5)
+#define X509_EKU_ANY               (1U << 6)
 /* Basic Constraints path length: use -1 or 0xFFFF when not present */
 #define X509_BC_PATH_LEN_ABSENT   (-1)
 /* Authority/Subject Key Identifier max stored length */
@@ -117,15 +100,15 @@ extern "C" {
  */
 typedef uint32_t noxtls_x509_verify_flags_t;
 /** Certificate serial matched a revoked entry on an applicable CRL. */
-#define NOXTLS_X509_VERIFY_FLAG_CERT_REVOKED       (1u << 0)
+#define NOXTLS_X509_VERIFY_FLAG_CERT_REVOKED       (1U << 0)
 /** CRL nextUpdate is present and current time is past nextUpdate (strict stale policy). */
-#define NOXTLS_X509_VERIFY_FLAG_CRL_EXPIRED        (1u << 1)
+#define NOXTLS_X509_VERIFY_FLAG_CRL_EXPIRED        (1U << 1)
 /** CRL signature verification against the issuer failed. */
-#define NOXTLS_X509_VERIFY_FLAG_CRL_BAD_SIGNATURE  (1u << 2)
+#define NOXTLS_X509_VERIFY_FLAG_CRL_BAD_SIGNATURE  (1U << 2)
 /** A CRL was supplied but no CRL in the list matched any issuer in the validated chain (informational). */
-#define NOXTLS_X509_VERIFY_FLAG_CRL_NO_MATCH       (1u << 3)
+#define NOXTLS_X509_VERIFY_FLAG_CRL_NO_MATCH       (1U << 3)
 /** At least one supplied CRL matched an issuer DN and was evaluated (signature/time/revocation). */
-#define NOXTLS_X509_VERIFY_FLAG_CRL_USED           (1u << 4)
+#define NOXTLS_X509_VERIFY_FLAG_CRL_USED           (1U << 4)
 
 /* X.509 Certificate Structure */
 NOXTLS_MSVC_WARNING_PUSH
@@ -194,6 +177,12 @@ typedef struct
     uint32_t slhdsa_public_key_len;
     noxtls_slhdsa_param_t slhdsa_param;
     uint8_t has_slhdsa;
+
+    /* FALCON public key (if present; private-use parser support for PQ cert experiments). */
+    uint8_t falcon_public_key[NOXTLS_FALCON_MAX_PUBLIC_KEY_LEN];
+    uint32_t falcon_public_key_len;
+    noxtls_falcon_param_t falcon_param;
+    uint8_t has_falcon;
 
     /* Extensions (v3) */
     uint8_t *extensions;
@@ -375,7 +364,10 @@ typedef enum
     X509_PRIVATE_KEY_RSA,       /* RSA private key */
     X509_PRIVATE_KEY_ECC,       /* ECC private key */
     X509_PRIVATE_KEY_ED25519,   /* RFC 8410 id-Ed25519, 32-byte seed */
-    X509_PRIVATE_KEY_ED448      /* RFC 8410 id-Ed448, 57-byte seed */
+    X509_PRIVATE_KEY_ED448,     /* RFC 8410 id-Ed448, 57-byte seed */
+    X509_PRIVATE_KEY_ML_DSA,    /* NIST FIPS 204, id-ml-dsa-{44,65,87} (PQC; raw secret key in PKCS#8 OCTET STRING) */
+    X509_PRIVATE_KEY_SLH_DSA,   /* NIST FIPS 205, id-slh-dsa-* (PQC; raw secret key in PKCS#8 OCTET STRING) */
+    X509_PRIVATE_KEY_FALCON     /* FALCON-512/1024 (PQC; raw secret key in PKCS#8 OCTET STRING) */
 } x509_private_key_type_t;
 
 /* Private Key Format */
@@ -424,6 +416,12 @@ typedef struct
     uint8_t *eddsa_seed;
     uint32_t eddsa_seed_len;
 
+    /* Post-quantum (ML-DSA / SLH-DSA) raw secret key bytes (heap-allocated). */
+    uint8_t *pqc_secret_key;
+    uint32_t pqc_secret_key_len;
+    /* Parameter set value (cast to noxtls_mldsa_param_t/noxtls_slhdsa_param_t/noxtls_falcon_param_t depending on key_type). */
+    uint32_t pqc_param;
+
     /* Encryption info (if encrypted) */
     int encrypted;                           /* Whether key is encrypted */
     uint8_t encryption_algorithm_oid[32];   /* Encryption algorithm OID */
@@ -459,6 +457,13 @@ noxtls_return_t noxtls_x509_private_key_to_ecc_key(const x509_private_key_t *key
 
 /** When key_type is Ed25519 or Ed448, returns the raw PKCS#8 seed (32 or 57 bytes); otherwise NULL and *out_len is set to 0. */
 const uint8_t *noxtls_x509_private_key_get_eddsa_seed(const x509_private_key_t *key, uint32_t *out_len);
+
+/**
+ * When key_type is ML-DSA or SLH-DSA, returns the raw PKCS#8 OCTET-STRING secret key bytes
+ * (full expanded form per FIPS 204 / FIPS 205) and writes the parameter set value into @p out_param.
+ * Returns NULL and sets both output lengths to 0 for non-PQC keys.
+ */
+const uint8_t *noxtls_x509_private_key_get_pqc_secret(const x509_private_key_t *key, uint32_t *out_len, uint32_t *out_param);
 
 /**
  * High-level sign data with X.509 private key.
@@ -527,6 +532,30 @@ noxtls_return_t noxtls_x509_certificate_generate_self_signed(
     const uint8_t *subject_der, uint32_t subject_len,
     const char *not_before_utc, const char *not_after_utc,
     const uint8_t *subject_pk_oid, uint32_t subject_pk_oid_len,
+    const uint8_t *subject_pk, uint32_t subject_pk_len,
+    const uint8_t *sig_oid, uint32_t sig_oid_len,
+    const uint8_t *sign_key, uint32_t sign_key_len,
+    noxtls_hash_algos_t hash_algo,
+    uint8_t *out_der, uint32_t out_max, uint32_t *out_len);
+
+/**
+ * Extended self-signed certificate generator that accepts optional
+ * AlgorithmIdentifier parameters for the subjectPublicKeyInfo.
+ *
+ * For EC keys (id-ecPublicKey), pass the DER-encoded namedCurve OID
+ * (e.g. `06 08 2A 86 48 CE 3D 03 01 07` for prime256v1) as
+ * @p subject_pk_params. For algorithms whose AlgorithmIdentifier has no
+ * parameters (Ed25519, Ed448, ML-DSA, SLH-DSA) or where NULL is the
+ * required parameter (RSA / PKCS#1), pass `NULL, 0` and the implementation
+ * will emit the correct value.
+ */
+noxtls_return_t noxtls_x509_certificate_generate_self_signed_ex(
+    const uint8_t *serial, uint32_t serial_len,
+    const uint8_t *issuer_der, uint32_t issuer_len,
+    const uint8_t *subject_der, uint32_t subject_len,
+    const char *not_before_utc, const char *not_after_utc,
+    const uint8_t *subject_pk_oid, uint32_t subject_pk_oid_len,
+    const uint8_t *subject_pk_params, uint32_t subject_pk_params_len,
     const uint8_t *subject_pk, uint32_t subject_pk_len,
     const uint8_t *sig_oid, uint32_t sig_oid_len,
     const uint8_t *sign_key, uint32_t sign_key_len,

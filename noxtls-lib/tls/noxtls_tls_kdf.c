@@ -4,38 +4,21 @@
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
 *
-*
-* NOTICE:  All information contained herein, source code, binaries and
-* derived works is, and remains
-* the property of Argenox Technologies and its suppliers,
-* if any.  The intellectual and technical concepts contained
-* herein are proprietary to Argenox Technologies
-* and its suppliers may be covered by U.S. and Foreign Patents,
-* patents in process, and are protected by trade secret or copyright law.
-* Dissemination of this information or reproduction of this material
-* is strictly forbidden unless prior written permission is obtained
-* from Argenox Technologies.
-*
-* THIS SOFTWARE IS PROVIDED BY ARGENOX "AS IS" AND
-* ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-* WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-* DISCLAIMED. IN NO EVENT SHALL ARGENOX TECHNOLOGIES LLC BE LIABLE FOR ANY
-* DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-* (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-* LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-* ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-* (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-* SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*
-* CONTACT: info@argenox.com
-* 
-*
 * This file is part of the NoxTLS Library.
+*
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
+*
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
 *
 * File:    noxtls_tls_kdf.c
 * Summary: TLS Key Derivation Functions (PRF, HKDF) Implementation
 *
-*/
+*
+*****************************************************************************/
 
 #include <stdint.h>
 #include <stdio.h>
@@ -52,6 +35,12 @@
 #include "mdigest/noxtls_hash.h"
 
 /* Get hash block size and output size */
+/**
+ * @brief Get the hash block size and output size
+ *
+ * @param[in] hash_algo The hash algorithm
+ * @return The hash block size and output size
+ */
 static uint32_t get_hash_block_size(noxtls_hash_algos_t hash_algo)
 {
     switch(hash_algo) {
@@ -79,6 +68,12 @@ static uint32_t get_hash_block_size(noxtls_hash_algos_t hash_algo)
     }
 }
 
+/**
+ * @brief Get the hash output size
+ *
+ * @param[in] hash_algo The hash algorithm
+ * @return The hash output size
+ */
 static uint32_t get_hash_output_size(noxtls_hash_algos_t hash_algo)
 {
     switch(hash_algo) {
@@ -114,6 +109,12 @@ static uint32_t get_hash_output_size(noxtls_hash_algos_t hash_algo)
 
 /**
  * @brief Initialize HMAC context
+ *
+ * @param[in] ctx The HMAC context
+ * @param[in] hash_algo The hash algorithm
+ * @param[in] key The key
+ * @param[in] key_len The length of the key
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the context is NULL, NOXTLS_RETURN_INVALID_ALGORITHM if the hash algorithm is not supported, or NOXTLS_RETURN_FAILED if the key cannot be hashed
  */
 noxtls_return_t noxtls_hmac_init(hmac_context_t *ctx, noxtls_hash_algos_t hash_algo, const uint8_t *key, uint32_t key_len)
 {
@@ -125,7 +126,10 @@ noxtls_return_t noxtls_hmac_init(hmac_context_t *ctx, noxtls_hash_algos_t hash_a
         return NOXTLS_RETURN_NULL;
     }
     
-    if(hash_algo != NOXTLS_HASH_SHA_256 && hash_algo != NOXTLS_HASH_SHA_384 && hash_algo != NOXTLS_HASH_SHA1) {
+    if(hash_algo != NOXTLS_HASH_SHA_256 &&
+       hash_algo != NOXTLS_HASH_SHA_384 &&
+       hash_algo != NOXTLS_HASH_SHA_512 &&
+       hash_algo != NOXTLS_HASH_SHA1) {
         return NOXTLS_RETURN_INVALID_ALGORITHM;
     }
     
@@ -150,7 +154,7 @@ noxtls_return_t noxtls_hmac_init(hmac_context_t *ctx, noxtls_hash_algos_t hash_a
                 free(hashed_key);
                 return NOXTLS_RETURN_FAILED;
             }
-        } else if(hash_algo == NOXTLS_HASH_SHA_384) {
+        } else if(hash_algo == NOXTLS_HASH_SHA_384 || hash_algo == NOXTLS_HASH_SHA_512) {
             noxtls_sha512_ctx_t sha_ctx;
             noxtls_sha512_init(&sha_ctx, hash_algo);
             noxtls_sha512_update(&sha_ctx, (uint8_t*)key, key_len);
@@ -204,7 +208,7 @@ noxtls_return_t noxtls_hmac_init(hmac_context_t *ctx, noxtls_hash_algos_t hash_a
         }
         noxtls_sha256_update(sha_ctx, ctx->i_key_pad, block_size);
         ctx->hash_ctx = sha_ctx;
-    } else if(hash_algo == NOXTLS_HASH_SHA_384) {
+    } else if(hash_algo == NOXTLS_HASH_SHA_384 || hash_algo == NOXTLS_HASH_SHA_512) {
         noxtls_sha512_ctx_t *sha_ctx = (noxtls_sha512_ctx_t*)malloc(sizeof(noxtls_sha512_ctx_t));
         if(sha_ctx == NULL) {
             return NOXTLS_RETURN_FAILED;
@@ -233,6 +237,11 @@ noxtls_return_t noxtls_hmac_init(hmac_context_t *ctx, noxtls_hash_algos_t hash_a
 
 /**
  * @brief Update HMAC with data
+ *
+ * @param[in] ctx The HMAC context
+ * @param[in] data The data to update
+ * @param[in] data_len The length of the data to update
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the context is NULL, NOXTLS_RETURN_FAILED if the hash context is NULL, or NOXTLS_RETURN_INVALID_ALGORITHM if the hash algorithm is not supported
  */
 noxtls_return_t noxtls_hmac_update(hmac_context_t *ctx, const uint8_t *data, uint32_t data_len)
 {
@@ -246,7 +255,7 @@ noxtls_return_t noxtls_hmac_update(hmac_context_t *ctx, const uint8_t *data, uin
     
     if(ctx->hash_algo == NOXTLS_HASH_SHA_256) {
         return noxtls_sha256_update((noxtls_sha_ctx_t*)ctx->hash_ctx, (uint8_t*)data, data_len);
-    } else if(ctx->hash_algo == NOXTLS_HASH_SHA_384) {
+    } else if(ctx->hash_algo == NOXTLS_HASH_SHA_384 || ctx->hash_algo == NOXTLS_HASH_SHA_512) {
         return noxtls_sha512_update((noxtls_sha512_ctx_t*)ctx->hash_ctx, (uint8_t*)data, data_len);
     } else if(ctx->hash_algo == NOXTLS_HASH_SHA1) {
         return noxtls_sha1_update((noxtls_sha_ctx_t*)ctx->hash_ctx, (uint8_t*)data, data_len);
@@ -257,6 +266,11 @@ noxtls_return_t noxtls_hmac_update(hmac_context_t *ctx, const uint8_t *data, uin
 
 /**
  * @brief Finalize HMAC and compute MAC
+ *
+ * @param[in] ctx The HMAC context
+ * @param[out] mac The MAC
+ * @param[in] mac_len The length of the MAC
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the context is NULL, NOXTLS_RETURN_FAILED if the hash context is NULL, or NOXTLS_RETURN_INVALID_ALGORITHM if the hash algorithm is not supported
  */
 noxtls_return_t noxtls_hmac_final(hmac_context_t *ctx, uint8_t *mac, uint32_t *mac_len)
 {
@@ -289,7 +303,7 @@ noxtls_return_t noxtls_hmac_final(hmac_context_t *ctx, uint8_t *mac, uint32_t *m
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
-    } else if(ctx->hash_algo == NOXTLS_HASH_SHA_384) {
+    } else if(ctx->hash_algo == NOXTLS_HASH_SHA_384 || ctx->hash_algo == NOXTLS_HASH_SHA_512) {
         rc = noxtls_sha512_finish((noxtls_sha512_ctx_t*)ctx->hash_ctx, inner_hash);
         free(ctx->hash_ctx);
         ctx->hash_ctx = NULL;
@@ -314,7 +328,7 @@ noxtls_return_t noxtls_hmac_final(hmac_context_t *ctx, uint8_t *mac, uint32_t *m
         noxtls_sha256_update(&sha_ctx, ctx->o_key_pad, block_size);
         noxtls_sha256_update(&sha_ctx, inner_hash, hash_size);
         rc = noxtls_sha256_finish(&sha_ctx, mac);
-    } else if(ctx->hash_algo == NOXTLS_HASH_SHA_384) {
+    } else if(ctx->hash_algo == NOXTLS_HASH_SHA_384 || ctx->hash_algo == NOXTLS_HASH_SHA_512) {
         noxtls_sha512_ctx_t sha_ctx;
         noxtls_sha512_init(&sha_ctx, ctx->hash_algo);
         noxtls_sha512_update(&sha_ctx, ctx->o_key_pad, block_size);
@@ -339,6 +353,9 @@ noxtls_return_t noxtls_hmac_final(hmac_context_t *ctx, uint8_t *mac, uint32_t *m
 
 /**
  * @brief Free HMAC context
+ *
+ * @param[in] ctx The HMAC context
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the context is NULL
  */
 noxtls_return_t noxtls_hmac_free(hmac_context_t *ctx)
 {
@@ -364,7 +381,16 @@ noxtls_return_t noxtls_hmac_free(hmac_context_t *ctx)
 
 /**
  * @brief Compute HMAC in one shot
- */
+ *
+ * @param[in] hash_algo The hash algorithm
+ * @param[in] key The key
+ * @param[in] key_len The length of the key
+ * @param[in] data The data to compute
+ * @param[in] data_len The length of the data to compute
+ * @param[out] mac The MAC
+ * @param[in] mac_len The length of the MAC
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the context is NULL, NOXTLS_RETURN_FAILED if the hash context is NULL, or NOXTLS_RETURN_INVALID_ALGORITHM if the hash algorithm is not supported
+*/
 noxtls_return_t hmac_compute(noxtls_hash_algos_t hash_algo, const uint8_t *key, uint32_t key_len,
                                const uint8_t *data, uint32_t data_len, uint8_t *mac, uint32_t *mac_len)
 {
@@ -404,6 +430,17 @@ noxtls_return_t hmac_compute(noxtls_hash_algos_t hash_algo, const uint8_t *key, 
  *                         HMAC_hash(secret, A(3) || seed) || ...
  * where A(0) = seed
  *       A(i) = HMAC_hash(secret, A(i-1))
+ *
+ * @param[in] secret The secret
+ * @param[in] secret_len The length of the secret
+ * @param[in] label The label
+ * @param[in] label_len The length of the label
+ * @param[in] seed The seed
+ * @param[in] seed_len The length of the seed
+ * @param[out] output The output
+ * @param[in] output_len The length of the output
+ * @param[in] hash_algo The hash algorithm
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the secret is NULL, NOXTLS_RETURN_INVALID_ALGORITHM if the hash algorithm is not supported, or NOXTLS_RETURN_FAILED if the label or seed is NULL
  */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 noxtls_return_t tls12_prf(const uint8_t *secret, uint32_t secret_len,
@@ -461,7 +498,7 @@ noxtls_return_t tls12_prf(const uint8_t *secret, uint32_t secret_len,
         temp_len = hash_size;
         rc = hmac_compute(hash_algo, secret, secret_len, A, A_len, A, &temp_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            printf("[TLS12_DEBUG] tls12_prf: A(i) hmac rc=%d i=%u A_len=%u\n", rc, i, A_len);
+            printf("[TLS12_DEBUG] tls12_prf: A(i) hmac rc=%d i=%lu A_len=%lu\n", rc, i, A_len);
             fflush(stdout);
             free(label_seed);
             return rc;
@@ -505,6 +542,13 @@ noxtls_return_t tls12_prf(const uint8_t *secret, uint32_t secret_len,
 
 /**
  * @brief Helper: HMAC-MD5 computation
+ *
+ * @param[in] key The key
+ * @param[in] key_len The length of the key
+ * @param[in] data The data to compute
+ * @param[in] data_len The length of the data to compute
+ * @param[out] mac The MAC
+ * @return void
  */
 static void hmac_md5_compute(const uint8_t *key, uint32_t key_len,
                              const uint8_t *data, uint32_t data_len,
@@ -552,7 +596,14 @@ static void hmac_md5_compute(const uint8_t *key, uint32_t key_len,
 
 /**
  * @brief Helper: HMAC-SHA1 computation
- */
+ *
+ * @param[in] key The key
+ * @param[in] key_len The length of the key
+ * @param[in] data The data to compute
+ * @param[in] data_len The length of the data to compute
+ * @param[out] mac The MAC
+ * @return void
+*/
 static void hmac_sha1_compute(const uint8_t *key, uint32_t key_len,
                               const uint8_t *data, uint32_t data_len,
                               uint8_t *mac)
@@ -603,7 +654,17 @@ static void hmac_sha1_compute(const uint8_t *key, uint32_t key_len,
  * PRF(secret, label, seed) = P_MD5(secret, label || seed) XOR P_SHA1(secret, label || seed)
  * 
  * P_MD5 and P_SHA1 are computed the same way as TLS 1.2 PRF but using MD5 and SHA-1 respectively.
- */
+ *
+ * @param[in] secret The secret
+ * @param[in] secret_len The length of the secret
+ * @param[in] label The label
+ * @param[in] label_len The length of the label
+ * @param[in] seed The seed
+ * @param[in] seed_len The length of the seed
+ * @param[out] output The output
+ * @param[in] output_len The length of the output
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the secret is NULL, NOXTLS_RETURN_FAILED if the label or seed is NULL
+*/
 noxtls_return_t tls10_prf(const uint8_t *secret, uint32_t secret_len,
                             const uint8_t *label, uint32_t label_len,
                             const uint8_t *seed, uint32_t seed_len,
@@ -830,7 +891,7 @@ static noxtls_return_t hkdf_expand_label_with_prefix(noxtls_hash_algos_t hash_al
     if(label_len > 255u || context_len > 255u || prefix_len > 255u) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
-    if(context == NULL && context_len > 0u) {
+    if(context == NULL && context_len > 0U) {
         return NOXTLS_RETURN_NULL;
     }
     if(label_len > (255u - prefix_len)) {
@@ -838,10 +899,10 @@ static noxtls_return_t hkdf_expand_label_with_prefix(noxtls_hash_algos_t hash_al
     }
     full_label_len = prefix_len + label_len;
 
-    if(full_label_len > UINT32_MAX - context_len - 4u) {
+    if(full_label_len > UINT32_MAX - context_len - 4U) {
         return NOXTLS_RETURN_FAILED;
     }
-    hkdf_label_len = 2u + 1u + full_label_len + 1u + context_len;
+    hkdf_label_len = 2U + 1U + full_label_len + 1U + context_len;
     hkdf_label = (uint8_t *)noxtls_malloc(hkdf_label_len);
     if(hkdf_label == NULL) {
         return NOXTLS_RETURN_FAILED;
@@ -855,7 +916,7 @@ static noxtls_return_t hkdf_expand_label_with_prefix(noxtls_hash_algos_t hash_al
     memcpy(hkdf_label + offset, label, label_len);
     offset += label_len;
     hkdf_label[offset++] = (uint8_t)(context_len & 0xFF);
-    if(context != NULL && context_len > 0u) {
+    if(context != NULL && context_len > 0U) {
         memcpy(hkdf_label + offset, context, context_len);
         offset += context_len;
     }
@@ -864,7 +925,21 @@ static noxtls_return_t hkdf_expand_label_with_prefix(noxtls_hash_algos_t hash_al
     noxtls_free(hkdf_label);
     return rc;
 }
-
+/**
+ * @brief HKDF expand label
+ *
+ * @param[in] hash_algo The hash algorithm to use for the HKDF expand label
+ * @param[in] secret The secret to use for the HKDF expand label
+ * @param[in] secret_len The length of the secret to use for the HKDF expand label
+ * @param[in] label The label to use for the HKDF expand label
+ * @param[in] context The context to use for the HKDF expand label
+ * @param[in] context_len The length of the context to use for the HKDF expand label
+ * @param[out] output The output to use for the HKDF expand label
+ * @param[in] output_len The length of the output to use for the HKDF expand label
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the secret is NULL, 
+ * NOXTLS_RETURN_INVALID_PARAM if the label or context is NULL, NOXTLS_RETURN_FAILED if the output is NULL,
+ * NOXTLS_RETURN_INVALID_ALGORITHM if the hash algorithm is not supported
+ */
 noxtls_return_t tls13_hkdf_expand_label(noxtls_hash_algos_t hash_algo,
                                           const uint8_t *secret, uint32_t secret_len,
                                           const uint8_t *label, uint32_t label_len,
@@ -877,6 +952,21 @@ noxtls_return_t tls13_hkdf_expand_label(noxtls_hash_algos_t hash_algo,
                                          label, label_len, context, context_len, output, output_len);
 }
 
+/**
+ * @brief HKDF expand label
+ *
+ * @param[in] hash_algo The hash algorithm to use for the HKDF expand label
+ * @param[in] secret The secret to use for the HKDF expand label
+ * @param[in] secret_len The length of the secret to use for the HKDF expand label
+ * @param[in] label The label to use for the HKDF expand label
+ * @param[in] context The context to use for the HKDF expand label
+ * @param[in] context_len The length of the context to use for the HKDF expand label
+ * @param[out] output The output to use for the HKDF expand label
+ * @param[in] output_len The length of the output to use for the HKDF expand label
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the secret is NULL, 
+ * NOXTLS_RETURN_INVALID_PARAM if the label or context is NULL, NOXTLS_RETURN_FAILED if the output is NULL,
+ * NOXTLS_RETURN_INVALID_ALGORITHM if the hash algorithm is not supported
+ */
 noxtls_return_t dtls13_hkdf_expand_label(noxtls_hash_algos_t hash_algo,
                                           const uint8_t *secret, uint32_t secret_len,
                                           const uint8_t *label, uint32_t label_len,
@@ -895,6 +985,19 @@ noxtls_return_t dtls13_hkdf_expand_label(noxtls_hash_algos_t hash_algo,
  * Derive-Secret(Secret, Label, Messages) =
  *     HKDF-Expand-Label(Secret, Label,
  *                      Hash(Messages), Hash.length)
+ *
+ * @param[in] hash_algo The hash algorithm to use for the HKDF expand label
+ * @param[in] secret The secret to use for the HKDF expand label
+ * @param[in] secret_len The length of the secret to use for the HKDF expand label
+ * @param[in] label The label to use for the HKDF expand label
+ * @param[in] messages The messages to use for the HKDF expand label
+ * @param[in] messages_len The length of the messages to use for the HKDF expand label
+ *
+ * @param[out] output The output to use for the HKDF expand label
+ * @param[in] output_len The length of the output to use for the HKDF expand label
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the secret is NULL, 
+ * NOXTLS_RETURN_INVALID_PARAM if the label or context is NULL, NOXTLS_RETURN_FAILED if the output is NULL,
+ * NOXTLS_RETURN_INVALID_ALGORITHM if the hash algorithm is not supported
  */
 noxtls_return_t tls13_derive_secret(noxtls_hash_algos_t hash_algo,
                                       const uint8_t *secret, uint32_t secret_len,
@@ -956,6 +1059,25 @@ noxtls_return_t tls13_derive_secret(noxtls_hash_algos_t hash_algo,
     return tls13_hkdf_expand_label(hash_algo, secret, secret_len, label, label_len, hash, hash_len, output, output_len);
 }
 
+/**
+ * @brief DTLS 1.3 Derive-Secret (RFC 9147 Section 5.9)
+ * 
+ * Derive-Secret(Secret, Label, Messages) =
+ *     HKDF-Expand-Label(Secret, Label,
+ *                      Hash(Messages), Hash.length)
+ *
+ * @param[in] hash_algo The hash algorithm to use for the HKDF expand label
+ * @param[in] secret The secret to use for the HKDF expand label
+ * @param[in] secret_len The length of the secret to use for the HKDF expand label
+ * @param[in] label The label to use for the HKDF expand label
+ * @param[in] messages The messages to use for the HKDF expand label
+ * @param[in] messages_len The length of the messages to use for the HKDF expand label
+ * @param[out] output The output to use for the HKDF expand label
+ * @param[in] output_len The length of the output to use for the HKDF expand label
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the secret is NULL, 
+ * NOXTLS_RETURN_INVALID_PARAM if the label or context is NULL, NOXTLS_RETURN_FAILED if the output is NULL,
+ * NOXTLS_RETURN_INVALID_ALGORITHM if the hash algorithm is not supported
+ */
 noxtls_return_t dtls13_derive_secret(noxtls_hash_algos_t hash_algo,
                                       const uint8_t *secret, uint32_t secret_len,
                                       const uint8_t *label, uint32_t label_len,
@@ -970,7 +1092,7 @@ noxtls_return_t dtls13_derive_secret(noxtls_hash_algos_t hash_algo,
         return NOXTLS_RETURN_NULL;
     }
 
-    if(messages != NULL && messages_len > 0u) {
+    if(messages != NULL && messages_len > 0U) {
         if(hash_algo == NOXTLS_HASH_SHA_256) {
             noxtls_sha_ctx_t sha_ctx;
             noxtls_sha256_init(&sha_ctx, hash_algo);

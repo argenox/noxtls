@@ -2,7 +2,7 @@
 
 This directory contains the Zephyr RTOS port for [NoxTLS](https://github.com/argenox/noxtls). The module entry point required by Zephyr lives at the repository root in [`zephyr/module.yml`](../../zephyr/module.yml); build integration files are here under `ports/zephyr/`.
 
-Future ports for other RTOS or build systems will live alongside this one under `ports/` (for example `ports/freertos/`).
+Other RTOS ports live alongside this one under `ports/` (for example [`ports/esp-idf`](../esp-idf/README.md)).
 
 ## West manifest
 
@@ -144,15 +144,15 @@ After editing [`noxtls_config.h`](../../noxtls_config.h), refresh the catalog an
 
 ```sh
 python noxtls/tools/config_catalog/generate_config_catalog.py
-python noxtls/tools/zephyr_kconfig/generate_zephyr_kconfig.py
+python noxtls/tools/kconfig_gen/generate_kconfig.py
 ```
 
-Commit the updated `noxtls_config_catalog.xml`, `ports/zephyr/Kconfig.noxtls.generated`, and `ports/zephyr/noxtls_zephyr_kconfig.cmake`.
+Commit the updated `noxtls_config_catalog.xml`, `ports/zephyr/Kconfig.noxtls.generated`, `ports/zephyr/noxtls_zephyr_kconfig.cmake`, `ports/esp-idf/Kconfig.noxtls.generated`, and `ports/esp-idf/noxtls_esp_idf_kconfig.cmake`.
 
 To verify generated files are current:
 
 ```sh
-python noxtls/tools/zephyr_kconfig/generate_zephyr_kconfig.py --check
+python noxtls/tools/kconfig_gen/generate_kconfig.py --check
 ```
 
 ## Further reading

@@ -6,17 +6,18 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
-* 
 *
-* File:    aes.c
+*
+* File:    aes.h
 * Summary: Advanced Encryption Standard (AES) Algorithm
 *
-*/
+*****************************************************************************/
 
 /**
  * @defgroup noxtls_encryption Encryption
@@ -78,10 +79,14 @@ typedef enum
 typedef struct
 {
     uint8_t key[32];
+    uint32_t round_keys[NOXTLS_AES_MAX_KEY_SCHEDULE_WORDS];
     uint8_t feedback[NOXTLS_AES_BLOCK_LENGTH];
     uint8_t partial[NOXTLS_AES_BLOCK_LENGTH];
     uint8_t key_len;
     uint8_t partial_len;
+    uint8_t rounds;
+    uint8_t key_words;
+    uint8_t round_keys_ready;
     noxtls_aes_type_t type;
     noxtls_aes_mode_t mode;
     noxtls_aes_operation_t op;

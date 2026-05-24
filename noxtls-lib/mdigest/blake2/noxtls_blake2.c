@@ -6,8 +6,9 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
@@ -16,7 +17,8 @@
 * File:    noxtls_blake2.c
 * Summary: BLAKE2s and BLAKE2b (RFC 7693)
 *
-*/
+*
+*****************************************************************************/
 
 /** @addtogroup noxtls_mdigest */
 
@@ -98,8 +100,8 @@ static void blake2s_compress(noxtls_blake2_ctx_t * ctx, const uint8_t * block, i
 
     for(i = 0; i < BLAKE2_MSG_WORDS; i++) {
         size_t off = (size_t)i * BLAKE2S_WORD_BYTES;
-        m[i] = (uint32_t)block[off] | ((uint32_t)block[off + 1u] << 8) |
-               ((uint32_t)block[off + 2u] << 16) | ((uint32_t)block[off + 3u] << 24);
+        m[i] = (uint32_t)block[off] | ((uint32_t)block[off + 1U] << 8) |
+               ((uint32_t)block[off + 2U] << 16) | ((uint32_t)block[off + 3U] << 24);
     }
 
     for(i = 0; i < BLAKE2_CHAINING_WORDS; i++) {
@@ -144,10 +146,10 @@ static void blake2b_compress(noxtls_blake2_ctx_t * ctx, const uint8_t * block, i
     for(i = 0; i < BLAKE2_MSG_WORDS; i++)
     {
         size_t off = (size_t)i * BLAKE2B_WORD_BYTES;
-        m[i] = (uint64_t)block[off] | ((uint64_t)block[off + 1u] << 8) |
-               ((uint64_t)block[off + 2u] << 16) | ((uint64_t)block[off + 3u] << 24) |
-               ((uint64_t)block[off + 4u] << 32) | ((uint64_t)block[off + 5u] << 40) |
-               ((uint64_t)block[off + 6u] << 48) | ((uint64_t)block[off + 7u] << 56);
+        m[i] = (uint64_t)block[off] | ((uint64_t)block[off + 1U] << 8) |
+               ((uint64_t)block[off + 2U] << 16) | ((uint64_t)block[off + 3U] << 24) |
+               ((uint64_t)block[off + 4U] << 32) | ((uint64_t)block[off + 5U] << 40) |
+               ((uint64_t)block[off + 6U] << 48) | ((uint64_t)block[off + 7U] << 56);
     }
 
     for(i = 0; i < BLAKE2_CHAINING_WORDS; i++) {

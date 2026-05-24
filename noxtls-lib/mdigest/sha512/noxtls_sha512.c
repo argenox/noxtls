@@ -6,17 +6,19 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
-* 
 *
-* File:    noxtls_sha512.c
-* Summary: NOXTLS SHA512
 *
-*/
+* File:    noxtls_sha512.h
+* Summary: SHA-384, SHA-512, SHA-512/224 and SHA-512/256 Hash Implementation
+*
+*
+*****************************************************************************/
 
 /** @addtogroup noxtls_mdigest */
 
@@ -237,13 +239,13 @@ noxtls_return_t noxtls_sha512_round(noxtls_sha512_ctx_t * ctx, const uint8_t * i
     for(t = 0; t < SHA512_WORDS_PER_BLOCK; t++) {
         size_t in_off = (size_t)t * (size_t)SHA512_WORD_BYTES;
         w[t] =  ((uint64_t)input[in_off] << 56)     |
-                ((uint64_t)input[in_off + 1u] << 48) |
-                ((uint64_t)input[in_off + 2u] << 40) |
-                ((uint64_t)input[in_off + 3u] << 32) |
-                ((uint64_t)input[in_off + 4u] << 24) | 
-                ((uint64_t)input[in_off + 5u] << 16) | 
-                ((uint64_t)input[in_off + 6u] << 8)  | 
-                ((uint64_t)input[in_off + 7u]);
+                ((uint64_t)input[in_off + 1U] << 48) |
+                ((uint64_t)input[in_off + 2U] << 40) |
+                ((uint64_t)input[in_off + 3U] << 32) |
+                ((uint64_t)input[in_off + 4U] << 24) | 
+                ((uint64_t)input[in_off + 5U] << 16) | 
+                ((uint64_t)input[in_off + 6U] << 8)  | 
+                ((uint64_t)input[in_off + 7U]);
 
 
     }
@@ -383,7 +385,7 @@ noxtls_return_t noxtls_sha512_finish(noxtls_sha512_ctx_t * ctx, uint8_t * hash)
     
     uint8_t digest_len = HASH_SHA512_OUT_LEN;
     if(ctx->algo == NOXTLS_HASH_SHA_384) {
-        digest_len = 48u;
+        digest_len = 48U;
     } else if(ctx->algo == NOXTLS_HASH_SHA_512_224) {
         digest_len = HASH_SHA512_224_OUT_LEN;
     } else if(ctx->algo == NOXTLS_HASH_SHA_512_256) {
@@ -392,7 +394,7 @@ noxtls_return_t noxtls_sha512_finish(noxtls_sha512_ctx_t * ctx, uint8_t * hash)
     for(i = 0; i < digest_len; i++)
     {
         uint8_t word_idx = (uint8_t)i / SHA512_WORD_BYTES;
-        uint8_t byte_shift = (uint8_t)(56u - ((uint8_t)i % SHA512_WORD_BYTES) * 8u);
+        uint8_t byte_shift = (uint8_t)(56u - ((uint8_t)i % SHA512_WORD_BYTES) * 8U);
 
         if(debug_lvl > 0) {
             noxtls_debug_printf("ctx[%u] = %08llx\n", word_idx, ctx->h[word_idx]);

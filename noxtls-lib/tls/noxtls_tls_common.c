@@ -4,38 +4,21 @@
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
 *
-*
-* NOTICE:  All information contained herein, source code, binaries and
-* derived works is, and remains
-* the property of Argenox Technologies and its suppliers,
-* if any.  The intellectual and technical concepts contained
-* herein are proprietary to Argenox Technologies
-* and its suppliers may be covered by U.S. and Foreign Patents,
-* patents in process, and are protected by trade secret or copyright law.
-* Dissemination of this information or reproduction of this material
-* is strictly forbidden unless prior written permission is obtained
-* from Argenox Technologies.
-*
-* THIS SOFTWARE IS PROVIDED BY ARGENOX "AS IS" AND
-* ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-* WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-* DISCLAIMED. IN NO EVENT SHALL ARGENOX TECHNOLOGIES LLC BE LIABLE FOR ANY
-* DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-* (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-* LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-* ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-* (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-* SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*
-* CONTACT: info@argenox.com
-* 
-*
 * This file is part of the NoxTLS Library.
+*
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
+*
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
 *
 * File:    noxtls_tls_common.c
 * Summary: TLS Common Implementation
 *
-*/
+*
+*****************************************************************************/
 
 #include <stdint.h>
 #include <stdio.h>
@@ -45,7 +28,9 @@
 #include "common/noxtls_memory_compat.h"
 #include "common/noxtls_debug_printf.h"
 #include "noxtls_tls_common.h"
+#if NOXTLS_FEATURE_DTLS
 #include "noxtls_dtls_common.h"
+#endif
 #include "noxtls_tls_noxsight.h"
 #include "certs/noxtls_x509.h"
 #include "mdigest/sha256/noxtls_sha256.h"
@@ -58,13 +43,21 @@ static FILE *tls_record_dump_fp = NULL;
  * @param[in] version Record-layer version from `tls_context_t.version`.
  * @return 1 if DTLS; 0 for TLS versions.
  */
+#if NOXTLS_FEATURE_DTLS
 static int tls_is_dtls_version(uint16_t version)
 {
     return (version == DTLS_VERSION_1_0 ||
             version == DTLS_VERSION_1_2 ||
             version == DTLS_VERSION_1_3);
 }
-
+#endif
+/**
+ * @brief Open a file.
+ *
+ * @param[in] filename The filename value.
+ * @param[in] mode The mode value.
+ * @return The file pointer.
+ */
 static FILE *noxtls_fopen(const char *filename, const char *mode)
 {
 #ifdef _MSC_VER
@@ -120,8 +113,7 @@ static void tls_dump_record(const char *direction, const uint8_t *data, uint32_t
  * @param[in] version      Protocol version (`TLS_VERSION_*` or `DTLS_VERSION_*`).
  * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` if @p ctx is NULL.
  */
-/* NOLINTNEXTLINE(bugprone-easily-swappable-parameters): canonical (role,version) TLS context initializer contract. */
-noxtls_return_t noxtls_tls_context_init(tls_context_t *ctx, tls_role_t role, uint16_t version)
+noxtls_return_t noxtls_tls_context_init(tls_context_t *ctx, tls_role_t role, uint16_t version) /* NOLINT(bugprone-easily-swappable-parameters) */
 {
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -236,6 +228,7 @@ noxtls_return_t noxtls_tls_send_record(tls_context_t *ctx, uint8_t type, const u
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
+#if NOXTLS_FEATURE_DTLS
     if(tls_is_dtls_version(ctx->version)) {
         dtls_context_t *dctx = (dtls_context_t*)ctx;
         if(type == TLS_RECORD_HANDSHAKE) {
@@ -280,10 +273,11 @@ noxtls_return_t noxtls_tls_send_record(tls_context_t *ctx, uint8_t type, const u
             return rc;
         }
     }
+#endif /* NOXTLS_FEATURE_DTLS */
     
     record = ctx->record_send_buf;
     if(record == NULL) {
-        record = (uint8_t*)noxtls_malloc(5u + TLS_MAX_PROTECTED_RECORD_FRAGMENT);
+        record = (uint8_t*)noxtls_malloc(5U + TLS_MAX_PROTECTED_RECORD_FRAGMENT);
         if(record == NULL) {
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         }
@@ -372,6 +366,7 @@ noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
     
     memset(record, 0, sizeof(tls_record_t));
 
+#if NOXTLS_FEATURE_DTLS
     if(tls_is_dtls_version(ctx->version)) {
         dtls_context_t *dctx = (dtls_context_t*)ctx;
 
@@ -475,6 +470,7 @@ noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
             return NOXTLS_RETURN_SUCCESS;
         }
     }
+#endif /* NOXTLS_FEATURE_DTLS */
     
     /* Receive record header (5 bytes) */
     noxtls_debug_printf("[TLS_DEBUG] tls_recv_record: Attempting to read 5-byte header...\n");
@@ -616,8 +612,7 @@ noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
  * @param[in] description      Alert description code (e.g. `TLS_ALERT_CLOSE_NOTIFY`).
  * @return `NOXTLS_RETURN_SUCCESS` on success; error from `noxtls_tls_send_record` otherwise.
  */
-/* NOLINTNEXTLINE(bugprone-easily-swappable-parameters): TLS alert is an RFC-defined (level,description) tuple. */
-noxtls_return_t noxtls_tls_send_alert(tls_context_t *ctx, uint8_t level, uint8_t description)
+noxtls_return_t noxtls_tls_send_alert(tls_context_t *ctx, uint8_t level, uint8_t description) /* NOLINT(bugprone-easily-swappable-parameters) */
 {
     uint8_t alert[2];
     
@@ -689,7 +684,7 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
         noxtls_free(record.data);
         return NOXTLS_RETURN_TLS_ERROR;
     }
-    if(record.length < 1u) {
+    if(record.length < 1U) {
         noxtls_free(record.data);
         return NOXTLS_RETURN_BAD_DATA;
     }
@@ -701,14 +696,14 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
 
     assembled_len = (uint32_t)record.length;
     /* Handshake length needs 4 bytes; ClientHello may be split with a tiny first record (tlsfuzzer). */
-    while(assembled_len < 4u) {
+    while(assembled_len < 4U) {
         uint8_t *new_buf;
         rc = noxtls_tls_recv_record(base_ctx, &next_record);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             noxtls_free(record.data);
             return rc;
         }
-        if(next_record.length > 0u && next_record.data == NULL) {
+        if(next_record.length > 0U && next_record.data == NULL) {
             noxtls_free(record.data);
             return NOXTLS_RETURN_BAD_DATA;
         }
@@ -735,7 +730,7 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
             return NOXTLS_RETURN_FAILED;
         }
         record.data = new_buf;
-        if(next_record.length > 0u && next_record.data != NULL) {
+        if(next_record.length > 0U && next_record.data != NULL) {
             memcpy(record.data + assembled_len, next_record.data, next_record.length);
         }
         assembled_len += (uint32_t)next_record.length;
@@ -744,10 +739,10 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
         }
     }
 
-    client_hello_total_len = 4u + (((uint32_t)record.data[1] << 16) |
+    client_hello_total_len = 4U + (((uint32_t)record.data[1] << 16) |
                                    ((uint32_t)record.data[2] << 8) |
                                    (uint32_t)record.data[3]);
-    if(client_hello_total_len > TLS_MAX_CLIENT_HELLO_BYTES || client_hello_total_len < 38u) {
+    if(client_hello_total_len > TLS_MAX_CLIENT_HELLO_BYTES || client_hello_total_len < 38U) {
         noxtls_free(record.data);
         return NOXTLS_RETURN_BAD_DATA;
     }
@@ -781,7 +776,7 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
         if(next_record.data) noxtls_free(next_record.data);
     }
 
-    if(assembled_len != client_hello_total_len || assembled_len < 38u) {
+    if(assembled_len != client_hello_total_len || assembled_len < 38U) {
         noxtls_free(record.data);
         return NOXTLS_RETURN_BAD_DATA;
     }
@@ -826,8 +821,8 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
     }
     cipher_suites_len = (record.data[offset] << 8) | record.data[offset + 1];
     offset += 2;
-    if(cipher_suites_len == 0u ||
-       (cipher_suites_len & 1u) != 0u ||
+    if(cipher_suites_len == 0U ||
+       (cipher_suites_len & 1U) != 0U ||
        offset + cipher_suites_len > record.length) {
         noxtls_free(*client_hello_data);
         *client_hello_data = NULL;
@@ -844,7 +839,7 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
         return NOXTLS_RETURN_BAD_DATA;
     }
     compression_methods_len = record.data[offset++];
-    if(compression_methods_len == 0u || offset + compression_methods_len > record.length) {
+    if(compression_methods_len == 0U || offset + compression_methods_len > record.length) {
         noxtls_free(*client_hello_data);
         *client_hello_data = NULL;
         *client_hello_len = 0;
@@ -854,7 +849,7 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
         uint32_t ci;
         int have_null = 0;
         for(ci = 0; ci < (uint32_t)compression_methods_len; ci++) {
-            if(record.data[offset + ci] == 0u) {
+            if(record.data[offset + ci] == 0U) {
                 have_null = 1;
                 break;
             }
@@ -1010,19 +1005,19 @@ int noxtls_tls_client_hello_supported_versions_has(const uint8_t *client_hello,
     uint16_t cipher_suites_len;
     uint8_t compression_methods_len;
 
-    if(client_hello == NULL || client_hello_len < 38u) {
+    if(client_hello == NULL || client_hello_len < 38U) {
         return 0;
     }
     if(client_hello[0] != TLS_HANDSHAKE_CLIENT_HELLO) {
         return 0;
     }
 
-    offset = 4u;
-    offset += 2u; /* legacy version */
+    offset = 4U;
+    offset += 2U; /* legacy version */
 
-    offset += 32u; /* random */
+    offset += 32U; /* random */
 
-    if(offset + 1u > client_hello_len) {
+    if(offset + 1U > client_hello_len) {
         return 0;
     }
     session_id_len = client_hello[offset++];
@@ -1031,17 +1026,17 @@ int noxtls_tls_client_hello_supported_versions_has(const uint8_t *client_hello,
     }
     offset += (uint32_t)session_id_len;
 
-    if(offset + 2u > client_hello_len) {
+    if(offset + 2U > client_hello_len) {
         return 0;
     }
     cipher_suites_len = (uint16_t)(((uint16_t)client_hello[offset] << 8) | (uint16_t)client_hello[offset + 1]);
-    offset += 2u;
+    offset += 2U;
     if(offset + (uint32_t)cipher_suites_len > client_hello_len) {
         return 0;
     }
     offset += (uint32_t)cipher_suites_len;
 
-    if(offset + 1u > client_hello_len) {
+    if(offset + 1U > client_hello_len) {
         return 0;
     }
     compression_methods_len = client_hello[offset++];
@@ -1050,43 +1045,43 @@ int noxtls_tls_client_hello_supported_versions_has(const uint8_t *client_hello,
     }
     offset += (uint32_t)compression_methods_len;
 
-    if(offset + 2u > client_hello_len) {
+    if(offset + 2U > client_hello_len) {
         return 0;
     }
     {
         uint16_t extensions_len = (uint16_t)(((uint16_t)client_hello[offset] << 8) | (uint16_t)client_hello[offset + 1]);
         uint32_t extensions_end;
-        offset += 2u;
+        offset += 2U;
         if((uint32_t)extensions_len > client_hello_len - offset) {
             return 0;
         }
         extensions_end = offset + (uint32_t)extensions_len;
 
-        while(offset + 4u <= extensions_end && offset + 4u <= client_hello_len) {
+        while(offset + 4U <= extensions_end && offset + 4U <= client_hello_len) {
             uint16_t ext_type = (uint16_t)(((uint16_t)client_hello[offset] << 8) | (uint16_t)client_hello[offset + 1]);
-            offset += 2u;
+            offset += 2U;
             uint16_t ext_len = (uint16_t)(((uint16_t)client_hello[offset] << 8) | (uint16_t)client_hello[offset + 1]);
-            offset += 2u;
+            offset += 2U;
             if((uint32_t)ext_len > extensions_end - offset) {
                 return 0;
             }
             if(ext_type == TLS_EXTENSION_SUPPORTED_VERSIONS) {
                 uint32_t ext_data_end = offset + (uint32_t)ext_len;
-                if(ext_len >= 3u && offset < ext_data_end) {
+                if(ext_len >= 3U && offset < ext_data_end) {
                     uint8_t versions_len = client_hello[offset];
-                    uint32_t ver_offset = offset + 1u;
+                    uint32_t ver_offset = offset + 1U;
                     uint32_t versions_end = ver_offset + (uint32_t)versions_len;
-                    if(versions_len >= 2u &&
-                       (versions_len % 2u) == 0u &&
-                       versions_len <= ext_len - 1u &&
+                    if(versions_len >= 2U &&
+                       (versions_len % 2U) == 0U &&
+                       versions_len <= ext_len - 1U &&
                        versions_end <= ext_data_end) {
-                        while(ver_offset + 1u < versions_end) {
+                        while(ver_offset + 1U < versions_end) {
                             uint16_t supported_version = (uint16_t)(((uint16_t)client_hello[ver_offset] << 8) |
                                                                     (uint16_t)client_hello[ver_offset + 1]);
                             if(supported_version == version) {
                                 return 1;
                             }
-                            ver_offset += 2u;
+                            ver_offset += 2U;
                         }
                     }
                 }

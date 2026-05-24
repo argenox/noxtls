@@ -6,17 +6,18 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
-* 
+*
 *
 * File:    base64.h
 * Summary: Base64 Encoding and Decoding
 *
-*/
+*****************************************************************************/
 
 /** @addtogroup noxtls_utility */
 
@@ -225,12 +226,12 @@ int noxtls_base64_decode(const char * input, uint32_t len, uint8_t * output)
     if(input == NULL || output == NULL) {
         return -1;
     }
-    if(len == 0u) {
+    if(len == 0U) {
         return 0;
     }
 
     out_ptr = output;
-    i = 0u;
+    i = 0U;
     ns = 0;
 
     while(i < len) {

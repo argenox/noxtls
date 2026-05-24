@@ -6,17 +6,23 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
 *
 *
+* File:    noxtls_md5.h
+* Summary: Message Digest Algorithm 5 (MD5)
+* Defined in RFC 1321
+*
 * File:    noxtls_ripemd160.c
 * Summary: RIPEMD-160 (ISO/IEC 10118-3:2004)
 *
-*/
+*
+*****************************************************************************/
 
 /** @addtogroup noxtls_mdigest */
 
@@ -107,9 +113,9 @@ static noxtls_return_t noxtls_ripemd160_round(noxtls_sha_ctx_t * ctx, const uint
     for(j = 0; j < RIPEMD160_WORDS_PER_BLOCK; j++) {
         size_t off = (size_t)j * RIPEMD160_WORD_BYTES;
         w[j] = (uint32_t)block[off] |
-               ((uint32_t)block[off + 1u] << 8) |
-               ((uint32_t)block[off + 2u] << 16) |
-               ((uint32_t)block[off + 3u] << 24);
+               ((uint32_t)block[off + 1U] << 8) |
+               ((uint32_t)block[off + 2U] << 16) |
+               ((uint32_t)block[off + 3U] << 24);
     }
 
     al = h[0] = ctx->h[0];

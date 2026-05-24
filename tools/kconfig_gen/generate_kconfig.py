@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 """
-Generate Zephyr Kconfig and CMake mapping from noxtls_config_catalog.xml.
+Generate RTOS port Kconfig and CMake mapping from noxtls_config_catalog.xml.
+
+Outputs Zephyr (ports/zephyr) and ESP-IDF (ports/esp-idf) integration files.
 
 Usage:
-  python generate_zephyr_kconfig.py
-  python generate_zephyr_kconfig.py --check
+  python generate_kconfig.py
+  python generate_kconfig.py --check
 """
 
 from __future__ import annotations
@@ -21,8 +23,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 NOXTLS_ROOT = SCRIPT_DIR.parent.parent
 CATALOG_XML = NOXTLS_ROOT / "noxtls_config_catalog.xml"
-OUT_KCONFIG = NOXTLS_ROOT / "ports" / "zephyr" / "Kconfig.noxtls.generated"
-OUT_CMAKE = NOXTLS_ROOT / "ports" / "zephyr" / "noxtls_zephyr_kconfig.cmake"
+GENERATOR_REL = "noxtls/tools/kconfig_gen/generate_kconfig.py"
 
 SKIP_CATEGORY_IDS = frozenset({"profiles", "sidechannel"})
 SKIP_SETTING_IDS = frozenset(
@@ -95,8 +96,6 @@ CMAKE_BOOL_CACHE_VARS: frozenset[str] = frozenset(
 
 EXPR_RE = re.compile(r"\(\s*(\d+)\s*\*\s*(\d+)\s*\)")
 
-# Curated metadata for integer (buffer size / RAM tuning) settings.
-# Provides nicer prompts, bounds, and (optionally) overrides the menu placement.
 BUFFER_SETTING_IDS: tuple[str, ...] = (
     "NOXTLS_TLS_MAX_RECORD_SIZE",
     "NOXTLS_TLS_MAX_WIRE_RECORD_LENGTH",
@@ -168,6 +167,30 @@ INT_METADATA: dict[str, dict[str, object]] = {
         "range": (0, 8),
     },
 }
+
+
+@dataclass(frozen=True)
+class PortOutput:
+    name: str
+    flavor: str
+    kconfig_out: Path
+    cmake_out: Path
+
+
+PORTS: tuple[PortOutput, ...] = (
+    PortOutput(
+        name="zephyr",
+        flavor="zephyr",
+        kconfig_out=NOXTLS_ROOT / "ports" / "zephyr" / "Kconfig.noxtls.generated",
+        cmake_out=NOXTLS_ROOT / "ports" / "zephyr" / "noxtls_zephyr_kconfig.cmake",
+    ),
+    PortOutput(
+        name="esp-idf",
+        flavor="esp-idf",
+        kconfig_out=NOXTLS_ROOT / "ports" / "esp-idf" / "Kconfig.noxtls.generated",
+        cmake_out=NOXTLS_ROOT / "ports" / "esp-idf" / "noxtls_esp_idf_kconfig.cmake",
+    ),
+)
 
 
 @dataclass
@@ -323,12 +346,11 @@ def emit_kconfig_setting(s: Setting, indent: str) -> list[str]:
     return lines
 
 
-def generate_kconfig(catalog: ET.Element) -> str:
-    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+def generate_kconfig(catalog: ET.Element, ts: str) -> str:
     lines = [
         "# SPDX-License-Identifier: Apache-2.0",
         "# Generated from noxtls_config_catalog.xml — do not edit by hand.",
-        f"# Generator: noxtls/tools/zephyr_kconfig/generate_zephyr_kconfig.py ({ts})",
+        f"# Generator: {GENERATOR_REL} ({ts})",
         "",
         'menu "NoxTLS library options (from noxtls_config.h)"',
         "",
@@ -351,12 +373,10 @@ def generate_kconfig(catalog: ET.Element) -> str:
         by_category.append((cat_name or "Other", settings))
         all_settings.extend(settings)
 
-    # Collect every integer/buffer tunable into a single "Buffer sizes" menu.
     int_settings: list[Setting] = [s for s in all_settings if s.type == "integer"]
     int_ids = {s.id for s in int_settings}
 
     if int_settings:
-        # Order: curated buffer-size IDs first, then remaining int settings by id.
         ordered: list[Setting] = []
         seen: set[str] = set()
         by_id = {s.id: s for s in int_settings}
@@ -392,18 +412,28 @@ def generate_kconfig(catalog: ET.Element) -> str:
     return "\n".join(lines)
 
 
-def generate_cmake(settings: list[Setting]) -> str:
-    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+def generate_cmake(settings: list[Setting], flavor: str, ts: str) -> str:
+    if flavor == "zephyr":
+        map_macro = "noxtls_zephyr_map_bool"
+        compile_def = lambda sym, val: f"zephyr_compile_definitions({sym}={val})"
+    elif flavor == "esp-idf":
+        map_macro = "noxtls_esp_idf_map_bool"
+        compile_def = lambda sym, val: (
+            f"target_compile_definitions(${{COMPONENT_LIB}} PUBLIC {sym}={val})"
+        )
+    else:
+        raise ValueError(f"unknown flavor: {flavor}")
+
     lines = [
         "# SPDX-License-Identifier: Apache-2.0",
         "# Generated from noxtls_config_catalog.xml — do not edit by hand.",
-        f"# Generator: noxtls/tools/zephyr_kconfig/generate_zephyr_kconfig.py ({ts})",
+        f"# Generator: {GENERATOR_REL} ({ts})",
         "",
         "if(NOT CONFIG_NOXTLS)",
         "  return()",
         "endif()",
         "",
-        "macro(noxtls_zephyr_map_bool kconfig_sym cache_var)",
+        f"macro({map_macro} kconfig_sym cache_var)",
         "  if(DEFINED ${kconfig_sym} AND ${kconfig_sym})",
         "    set(${cache_var} ON CACHE BOOL \"\" FORCE)",
         "  else()",
@@ -431,26 +461,93 @@ def generate_cmake(settings: list[Setting]) -> str:
     for s in cache_mapped:
         cache_var = macro_to_cmake_cache(s.id)
         assert cache_var is not None
-        lines.append(
-            f"noxtls_zephyr_map_bool(CONFIG_{s.id} {cache_var})"
-        )
+        lines.append(f"{map_macro}(CONFIG_{s.id} {cache_var})")
     lines.append("")
 
     lines.append("# --- Preprocessor definitions (noxtls_config.h tunables) ---")
     for s in header_bools:
         lines.append(f"if(CONFIG_{s.id})")
-        lines.append(f"  zephyr_compile_definitions({s.id}=1)")
+        lines.append(f"  {compile_def(s.id, 1)}")
         lines.append("else()")
-        lines.append(f"  zephyr_compile_definitions({s.id}=0)")
+        lines.append(f"  {compile_def(s.id, 0)}")
         lines.append("endif()")
         lines.append("")
 
     for s in header_ints:
-        lines.append(
-            f"zephyr_compile_definitions({s.id}=${{CONFIG_{s.id}}})"
-        )
+        lines.append(compile_def(s.id, f"${{CONFIG_{s.id}}}"))
 
     lines.append("")
+    return "\n".join(lines)
+
+
+def generate_esp_config_header_cmake(settings: list[Setting], ts: str) -> str:
+    """CMake fragment: write noxtls_config_features.h from CONFIG_NOXTLS_* (sdkconfig)."""
+    lines = [
+        "# SPDX-License-Identifier: Apache-2.0",
+        "# Generated from noxtls_config_catalog.xml — do not edit by hand.",
+        f"# Generator: {GENERATOR_REL} ({ts})",
+        "",
+        "function(noxtls_esp_idf_write_config_features_header out_file)",
+        "  if(NOT out_file)",
+        '    message(FATAL_ERROR "noxtls_esp_idf_write_config_features_header: out_file required")',
+        "  endif()",
+        '  set(_noxtls_hdr "")',
+        '  string(APPEND _noxtls_hdr "/* Generated from ESP-IDF sdkconfig (menuconfig).\\n")',
+        '  string(APPEND _noxtls_hdr " * Do not edit; regenerate via tools/kconfig_gen/generate_kconfig.py. */\\n\\n")',
+        '  string(APPEND _noxtls_hdr "#ifndef _NOXTLS_CONFIG_FEATURES_H_\\n")',
+        '  string(APPEND _noxtls_hdr "#define _NOXTLS_CONFIG_FEATURES_H_\\n\\n")',
+        "",
+    ]
+
+    for s in sorted(settings, key=lambda x: x.id):
+        if s.type == "boolean":
+            cache_var = macro_to_cmake_cache(s.id)
+            if cache_var is not None:
+                lines.append(f"if({cache_var})")
+            else:
+                lines.append(f"if(CONFIG_{s.id})")
+            lines.append(f'  string(APPEND _noxtls_hdr "#define {s.id} 1\\n")')
+            lines.append("else()")
+            lines.append(f'  string(APPEND _noxtls_hdr "#define {s.id} 0\\n")')
+            lines.append("endif()")
+            lines.append("")
+        elif s.type == "integer":
+            lines.append(
+                f'string(APPEND _noxtls_hdr "#define {s.id} ${{CONFIG_{s.id}}}\\n")'
+            )
+            lines.append("")
+
+    lines.extend(
+        [
+            "if(CONFIG_NOXTLS_SIDECHANNEL_PERFORMANCE)",
+            '  string(APPEND _noxtls_hdr "#define NOXTLS_SIDECHANNEL_PROFILE_PERFORMANCE 1\\n")',
+            '  string(APPEND _noxtls_hdr "#define NOXTLS_CT_COMPARE 0\\n")',
+            "elseif(CONFIG_NOXTLS_SIDECHANNEL_CONSTANT_TIME_STRICT)",
+            '  string(APPEND _noxtls_hdr "#define NOXTLS_SIDECHANNEL_PROFILE_CONSTANT_TIME_STRICT 1\\n")',
+            '  string(APPEND _noxtls_hdr "#define NOXTLS_CT_COMPARE 1\\n")',
+            "else()",
+            '  string(APPEND _noxtls_hdr "#define NOXTLS_SIDECHANNEL_PROFILE_BALANCED 1\\n")',
+            '  string(APPEND _noxtls_hdr "#define NOXTLS_CT_COMPARE 1\\n")',
+            "endif()",
+            "if(CONFIG_NOXTLS_PROFILE_MINIMAL_TLS_CLIENT)",
+            '  string(APPEND _noxtls_hdr "#define NOXTLS_PROFILE_MINIMAL_TLS_CLIENT 1\\n")',
+            "endif()",
+            "if(CONFIG_NOXTLS_PROFILE_TLS_SERVER_PKI)",
+            '  string(APPEND _noxtls_hdr "#define NOXTLS_PROFILE_TLS_SERVER_PKI 1\\n")',
+            "endif()",
+            "if(CONFIG_NOXTLS_PROFILE_CRYPTO_ONLY)",
+            '  string(APPEND _noxtls_hdr "#define NOXTLS_PROFILE_CRYPTO_ONLY 1\\n")',
+            "endif()",
+            "if(CONFIG_NOXTLS_PROFILE_FIPS_LIKE)",
+            '  string(APPEND _noxtls_hdr "#define NOXTLS_PROFILE_FIPS_LIKE 1\\n")',
+            "endif()",
+            "",
+            '  string(APPEND _noxtls_hdr "\\n#endif /* _NOXTLS_CONFIG_FEATURES_H_ */\\n")',
+            '  file(WRITE "${out_file}" "${_noxtls_hdr}")',
+            "endfunction()",
+            "",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -481,25 +578,31 @@ def main() -> int:
 
     catalog = ET.parse(CATALOG_XML).getroot()
     settings = collect_all_settings(catalog)
-    kconfig_text = generate_kconfig(catalog)
-    cmake_text = generate_cmake(settings)
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    kconfig_text = generate_kconfig(catalog, ts)
+
+    esp_config_header_cmake = NOXTLS_ROOT / "ports" / "esp-idf" / "noxtls_esp_idf_config_header.cmake"
+
+    outputs: list[tuple[Path, str]] = []
+    for port in PORTS:
+        outputs.append((port.kconfig_out, kconfig_text))
+        outputs.append((port.cmake_out, generate_cmake(settings, port.flavor, ts)))
+    outputs.append((esp_config_header_cmake, generate_esp_config_header_cmake(settings, ts)))
 
     if args.check:
         ok = True
-        for path, expected in (
-            (OUT_KCONFIG, kconfig_text),
-            (OUT_CMAKE, cmake_text),
-        ):
+        for path, expected in outputs:
             if not path.is_file() or path.read_text(encoding="utf-8") != expected:
                 print(f"out of date: {path}", file=sys.stderr)
                 ok = False
         return 0 if ok else 1
 
-    OUT_KCONFIG.parent.mkdir(parents=True, exist_ok=True)
-    OUT_KCONFIG.write_text(kconfig_text, encoding="utf-8", newline="\n")
-    OUT_CMAKE.write_text(cmake_text, encoding="utf-8", newline="\n")
-    print(f"wrote {OUT_KCONFIG.relative_to(NOXTLS_ROOT)}")
-    print(f"wrote {OUT_CMAKE.relative_to(NOXTLS_ROOT)} ({len(settings)} settings)")
+    for path, text in outputs:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8", newline="\n")
+        print(f"wrote {path.relative_to(NOXTLS_ROOT)}")
+
+    print(f"({len(settings)} settings, {len(PORTS)} ports)")
     return 0
 
 

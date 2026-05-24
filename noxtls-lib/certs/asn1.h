@@ -6,17 +6,18 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
 *
 *
-* File:    noxtls_asn1.h
-* Summary: NOXTLS ASN1 Definitions
+* File:    asn1.h
+* Summary: ASN1 DER parser and encoder definitions
 *
-*/
+*****************************************************************************/
 
 /** @addtogroup noxtls_certs */
 /** @{ */
@@ -53,6 +54,20 @@ extern "C" {
 
 /* DER encoding: constructed SEQUENCE tag (0x30 = constructed | tag 16) */
 #define ASN1_DER_TAG_SEQUENCE      0x30
+
+#define GET_TAG_CLASS(X)      (((((1U << 7) | (1U << 6)) & (X))) >> 6)
+#define GET_TAG_PRIM_CONST(X) ((((1U << 5) & (X))) >> 5)
+#define GET_TAG_NUM(X)        ((X) & 0x1Fu)
+
+#define GET_LENGTH(X)         ((X) & 0x7Fu)
+
+#define ASN1_CLASS_TYPE_UNIVERSAL     0
+#define ASN1_CLASS_TYPE_APPLICATION   1
+#define ASN1_CLASS_TYPE_CONTEXT       2
+#define ASN1_CLASS_TYPE_PRIVATE       3
+
+#define ASN1_TAG_TYPE_PRIMITIVE       0
+#define ASN1_TAG_TYPE_CONSTRUCTED     1
 
 uint32_t noxtls_parse_der(uint8_t * data, uint32_t len);
 

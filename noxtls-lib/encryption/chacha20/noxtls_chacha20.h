@@ -6,19 +6,20 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
-* 
+*
 *
 * File:    noxtls_chacha20.h
-* Summary: ChaCha20 Stream Cipher Algorithm
+* Summary: ChaCha20 Stream Cipher Algorithm Definition
 *
 * Implementation of ChaCha20 as specified in RFC 7539
 *
-*/
+*****************************************************************************/
 
 /** @addtogroup noxtls_encryption */
 /** @{ */

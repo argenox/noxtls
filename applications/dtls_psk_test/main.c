@@ -1,4 +1,4 @@
-/*****************************************************************************
+﻿/*****************************************************************************
 * Copyright (c) [2019] - [2026], Argenox Technologies LLC
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
@@ -14,14 +14,14 @@
 * This file is part of the NoxTLS Library.
 *
 * File:    main.c
-* Summary: DTLS PSK test application — server and client in one process,
+* Summary: DTLS PSK test application â€” server and client in one process,
 *          exchange application data both ways and verify payloads.
 *
 */
 
 /**
  * @file main.c
- * @brief DTLS PSK test — server and client in one process, exchange data and verify payloads.
+ * @brief DTLS PSK test â€” server and client in one process, exchange data and verify payloads.
  * @defgroup noxtls_app_dtls_psk_test DTLS PSK test
  * @details
  * Single-process test: runs DTLS server and client, exchanges application data
@@ -29,6 +29,13 @@
  * @example
  * dtls_psk_test
  */
+
+/* MUST be the FIRST #include: app-local noxtls_config.h (project policy)
+ * MSVC searches the directory of the including header first for "..."
+ * style includes; if a library header pulls in "noxtls_config.h" before
+ * this app does, the top-level config wins. Hoisting our local one
+ * here ensures _NOXTLS_CONFIG_H_ is set from THIS file. */
+#include "noxtls_config.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -40,6 +47,71 @@
 #include "noxtls_tls_common.h"
 #include "noxtls_dtls_common.h"
 #include "mdigest/sha256/noxtls_sha256.h"
+
+/* ============================================================================
+ * Application-private static workspace (per project policy)
+ * ============================================================================
+ *
+ * Every application owns a large statically-allocated workspace buffer; all
+ * dynamic allocations made by this translation unit are served out of it via
+ * a simple bump arena. The buffer's size lives in this app's noxtls_config.h
+ * (NOXTLS_APP_STATIC_BUFFER_SIZE) so it can be tuned independently per app.
+ *
+ * free() is a no-op; the whole arena is released en-masse via
+ * app_workspace_reset() (e.g. between commands) which also wipes any
+ * transient secret material that may have been allocated.
+ */
+static uint8_t  g_app_workspace[NOXTLS_APP_STATIC_BUFFER_SIZE];
+static size_t   g_app_workspace_off = 0U;
+#define APP_WORKSPACE_ALIGN ((size_t)16U)
+
+/**
+ * @brief Allocate workspace
+ *
+ * @param[in] n The size to allocate
+ * @return The pointer to the allocated workspace
+ */
+static void *app_workspace_alloc(size_t n)
+{
+    size_t off = (g_app_workspace_off + (APP_WORKSPACE_ALIGN - 1U)) &
+                 ~(APP_WORKSPACE_ALIGN - 1U);
+    if(n == 0U || off > sizeof(g_app_workspace) ||
+       n > sizeof(g_app_workspace) - off) {
+        return NULL;
+    }
+    g_app_workspace_off = off + n;
+    return &g_app_workspace[off];
+}
+
+/**
+ * @brief Free the workspace
+ *
+ * @param[in] p The pointer to the workspace to free
+ * @return void
+ */
+static void app_workspace_free(void *p) { (void)p; }
+
+/**
+ * @brief Reset the workspace
+ *
+ * @return void
+ */
+static void app_workspace_reset(void)
+{
+    if(g_app_workspace_off > 0U) {
+        memset(g_app_workspace, 0, g_app_workspace_off);
+    }
+    g_app_workspace_off = 0U;
+}
+
+/* Redirect malloc()/free() in this translation unit to the static workspace.
+ * Library and standard headers have already been pulled in above; they
+ * declared malloc/free as plain functions and are unaffected. App code below
+ * uses these macros transparently. */
+#undef malloc
+#undef free
+#define malloc(n) app_workspace_alloc(n)
+#define free(p)   app_workspace_free(p)
 
 /* PSK (same as dtls_psk_demo for compatibility) */
 #define PSK_IDENTITY   "test-identity"
@@ -64,6 +136,12 @@ typedef struct
     udp_buf_t client_to_server;
 } udp_conn_t;
 
+/**
+ * @brief Initialize the UDP buffer
+ *
+ * @param[in] b The UDP buffer to initialize
+ * @return void
+ */
 static void udp_buf_init(udp_buf_t *b)
 {
     b->data = NULL;
@@ -71,6 +149,14 @@ static void udp_buf_init(udp_buf_t *b)
     b->capacity = 0;
 }
 
+/**
+ * @brief Append data to the UDP buffer
+ *
+ * @param[in] b The UDP buffer to append data to
+ * @param[in] data The data to append
+ * @param[in] len The length of the data to append
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_FAILED on failure
+ */
 static noxtls_return_t udp_buf_append(udp_buf_t *b, const uint8_t *data, uint32_t len)
 {
     if (!b || !data) return NOXTLS_RETURN_NULL;
@@ -87,6 +173,14 @@ static noxtls_return_t udp_buf_append(udp_buf_t *b, const uint8_t *data, uint32_
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Read data from the UDP buffer
+ *
+ * @param[in] b The UDP buffer to read data from
+ * @param[out] data The data to read
+ * @param[in] len The length of the data to read
+ * @return The length of the data read
+ */
 static int32_t udp_buf_read(udp_buf_t *b, uint8_t *data, uint32_t len)
 {
     if (!b || !data) return -1;
@@ -97,6 +191,12 @@ static int32_t udp_buf_read(udp_buf_t *b, uint8_t *data, uint32_t len)
     return (int32_t)n;
 }
 
+/**
+ * @brief Free the UDP buffer
+ *
+ * @param[in] b The UDP buffer to free
+ * @return void
+ */
 static void udp_buf_free(udp_buf_t *b)
 {
     if (b && b->data) {
@@ -106,6 +206,14 @@ static void udp_buf_free(udp_buf_t *b)
     if (b) b->len = 0, b->capacity = 0;
 }
 
+/**
+ * @brief Send data from the server
+ *
+ * @param[in] u The user data
+ * @param[in] data The data to send
+ * @param[in] len The length of the data to send
+ * @return The length of the data sent
+ */
 static int32_t server_send(void *u, const uint8_t *data, uint32_t len)
 {
     udp_conn_t *c = (udp_conn_t *)u;
@@ -113,6 +221,14 @@ static int32_t server_send(void *u, const uint8_t *data, uint32_t len)
     return udp_buf_append(&c->server_to_client, data, len) == NOXTLS_RETURN_SUCCESS ? (int32_t)len : -1;
 }
 
+/**
+ * @brief Receive data from the server
+ *
+ * @param[in] u The user data
+ * @param[out] data The data to receive
+ * @param[in] len The length of the data to receive
+ * @return The length of the data received
+ */
 static int32_t server_recv(void *u, uint8_t *data, uint32_t len)
 {
     udp_conn_t *c = (udp_conn_t *)u;
@@ -120,6 +236,14 @@ static int32_t server_recv(void *u, uint8_t *data, uint32_t len)
     return udp_buf_read(&c->client_to_server, data, len);
 }
 
+/**
+ * @brief Send data from the client
+ *
+ * @param[in] u The user data
+ * @param[in] data The data to send
+ * @param[in] len The length of the data to send
+ * @return The length of the data sent
+ */
 static int32_t client_send(void *u, const uint8_t *data, uint32_t len)
 {
     udp_conn_t *c = (udp_conn_t *)u;
@@ -127,6 +251,14 @@ static int32_t client_send(void *u, const uint8_t *data, uint32_t len)
     return udp_buf_append(&c->client_to_server, data, len) == NOXTLS_RETURN_SUCCESS ? (int32_t)len : -1;
 }
 
+/**
+ * @brief Receive data from the client
+ *
+ * @param[in] u The user data
+ * @param[out] data The data to receive
+ * @param[in] len The length of the data to receive
+ * @return The length of the data received
+ */
 static int32_t client_recv(void *u, uint8_t *data, uint32_t len)
 {
     udp_conn_t *c = (udp_conn_t *)u;
@@ -134,7 +266,16 @@ static int32_t client_recv(void *u, uint8_t *data, uint32_t len)
     return udp_buf_read(&c->server_to_client, data, len);
 }
 
-/* Send one record from sender, receive and verify on receiver */
+/**
+ * @brief Send one record from sender, receive and verify on receiver
+ *
+ * @param[in] sender The sender context
+ * @param[in] receiver The receiver context
+ * @param[in] payload The payload to send
+ * @param[in] len The length of the payload
+ * @param[in] direction The direction of the exchange
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_FAILED on failure
+ */
 static noxtls_return_t exchange_and_verify(dtls_context_t *sender, dtls_context_t *receiver,
                                            const uint8_t *payload, uint32_t len,
                                            const char *direction)
@@ -167,6 +308,17 @@ static noxtls_return_t exchange_and_verify(dtls_context_t *sender, dtls_context_
 }
 
 /* Send handshake fragment from sender, receive and reassemble on receiver */
+/**
+ * @brief Send handshake fragment from sender, receive and reassemble on receiver
+ *
+ * @param[in] sender The sender context
+ * @param[in] receiver The receiver context
+ * @param[in] msg_type The type of the message
+ * @param[in] msg_seq The sequence number of the message
+ * @param[in] payload The payload to send
+ * @param[in] len The length of the payload
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_FAILED on failure
+ */ 
 static noxtls_return_t handshake_exchange(dtls_context_t *sender, dtls_context_t *receiver,
                                            uint8_t msg_type, uint16_t msg_seq,
                                            const uint8_t *payload, uint32_t len)
@@ -196,6 +348,12 @@ static noxtls_return_t handshake_exchange(dtls_context_t *sender, dtls_context_t
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Run the DTLS PSK test
+ *
+ * @param[in] conn The connection context
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_FAILED on failure
+ */
 static noxtls_return_t run_dtls_psk_test(udp_conn_t *conn)
 {
     dtls_context_t client_ctx;
@@ -269,6 +427,13 @@ cleanup:
     return rc;
 }
 
+/**
+ * @brief Main function
+ *
+ * @param[in] argc The number of arguments
+ * @param[in] argv The arguments
+ * @return 0 on success, -1 on failure
+ */
 int main(int argc, char **argv)
 {
     udp_conn_t conn;

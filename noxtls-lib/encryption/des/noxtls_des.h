@@ -3,18 +3,23 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+*
 * This file is part of the NoxTLS Library.
 *
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
 *
+*
 * File:    noxtls_des.h
 * Summary: Data Encryption Standard (DES) and Triple-DES (3DES) Algorithm
 *
-*/
+* The DES and 3DES Algorithms are broken and should not be used for new systems.
+*
+*****************************************************************************/
 
 /** @addtogroup noxtls_encryption */
 /** @{ */

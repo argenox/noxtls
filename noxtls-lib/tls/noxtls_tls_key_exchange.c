@@ -4,38 +4,21 @@
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
 *
-*
-* NOTICE:  All information contained herein, source code, binaries and
-* derived works is, and remains
-* the property of Argenox Technologies and its suppliers,
-* if any.  The intellectual and technical concepts contained
-* herein are proprietary to Argenox Technologies
-* and its suppliers may be covered by U.S. and Foreign Patents,
-* patents in process, and are protected by trade secret or copyright law.
-* Dissemination of this information or reproduction of this material
-* is strictly forbidden unless prior written permission is obtained
-* from Argenox Technologies.
-*
-* THIS SOFTWARE IS PROVIDED BY ARGENOX "AS IS" AND
-* ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-* WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-* DISCLAIMED. IN NO EVENT SHALL ARGENOX TECHNOLOGIES LLC BE LIABLE FOR ANY
-* DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-* (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-* LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-* ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-* (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-* SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*
-* CONTACT: info@argenox.com
-* 
-*
 * This file is part of the NoxTLS Library.
+*
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
+*
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
 *
 * File:    noxtls_tls_key_exchange.c
 * Summary: TLS Key Exchange Implementation (ECDHE, etc.)
 *
-*/
+*
+*****************************************************************************/
 
 #include <stdint.h>
 #include <stdio.h>
@@ -57,8 +40,8 @@
 #include "certs/noxtls_x509.h"
 #include "mdigest/noxtls_hash.h"
 
-#define DHE_TO_SIGN_SIZE  (32u + 32u + 4096u)
-#define DHE_SIG_BUF_SIZE  512u
+#define DHE_TO_SIGN_SIZE  (32U + 32U + 4096u)
+#define DHE_SIG_BUF_SIZE  512U
 
 /**
  * @brief Map TLS named group to ECC curve type.
@@ -89,8 +72,7 @@ noxtls_return_t noxtls_tls_named_group_to_ecc_curve(uint16_t named_group, ecc_cu
             *curve_type = ECC_SECP256R1;  /* unused for X25519; callers branch on named_group */
             return NOXTLS_RETURN_SUCCESS;
         case TLS_NAMED_GROUP_X448:
-            *curve_type = ECC_SECP384R1;  /* unused for X448; callers branch on named_group */
-            return NOXTLS_RETURN_SUCCESS;
+            return NOXTLS_RETURN_FAILED;
             
         default:
             return NOXTLS_RETURN_FAILED;
@@ -577,7 +559,7 @@ noxtls_return_t noxtls_tls12_ecdhe_send_server_key_exchange(tls12_context_t *ctx
         }
         memcpy(to_sign, ctx->client_random, TLS_RANDOM_SIZE);
         memcpy(to_sign + TLS_RANDOM_SIZE, ctx->server_random, TLS_RANDOM_SIZE);
-        memcpy(to_sign + ((size_t)TLS_RANDOM_SIZE * 2u), server_key_exchange + params_start, params_len);
+        memcpy(to_sign + ((size_t)TLS_RANDOM_SIZE * 2U), server_key_exchange + params_start, params_len);
         to_sign_len = TLS_RANDOM_SIZE + TLS_RANDOM_SIZE + params_len;
         sig_len = 512;
         rc = ctx->crypto_provider->ops->rsa_sign(ctx->crypto_provider->ctx, ctx->server_private_key_handle,
@@ -604,7 +586,7 @@ noxtls_return_t noxtls_tls12_ecdhe_send_server_key_exchange(tls12_context_t *ctx
         }
         memcpy(to_sign, ctx->client_random, TLS_RANDOM_SIZE);
         memcpy(to_sign + TLS_RANDOM_SIZE, ctx->server_random, TLS_RANDOM_SIZE);
-        memcpy(to_sign + ((size_t)TLS_RANDOM_SIZE * 2u), server_key_exchange + params_start, params_len);
+        memcpy(to_sign + ((size_t)TLS_RANDOM_SIZE * 2U), server_key_exchange + params_start, params_len);
         to_sign_len = TLS_RANDOM_SIZE + TLS_RANDOM_SIZE + params_len;
         sig_len = 512;
         rc = noxtls_rsa_sign((const rsa_key_t *)ctx->server_private_rsa, to_sign, to_sign_len,
@@ -802,7 +784,7 @@ noxtls_return_t noxtls_tls12_ecdhe_recv_server_key_exchange(tls12_context_t *ctx
             }
             memcpy(to_verify, ctx->client_random, TLS_RANDOM_SIZE);
             memcpy(to_verify + TLS_RANDOM_SIZE, ctx->server_random, TLS_RANDOM_SIZE);
-            memcpy(to_verify + ((size_t)TLS_RANDOM_SIZE * 2u), record.data + 4, params_len);
+            memcpy(to_verify + ((size_t)TLS_RANDOM_SIZE * 2U), record.data + 4, params_len);
             rc = noxtls_rsa_verify(&rsa_key, to_verify, (uint32_t)(TLS_RANDOM_SIZE + TLS_RANDOM_SIZE + params_len),
                                   record.data + offset, sig_len, NOXTLS_HASH_SHA_256);
             noxtls_rsa_key_free(&rsa_key);
@@ -1047,7 +1029,7 @@ noxtls_return_t noxtls_tls12_pick_rsa_pkcs1_skx_sig_hash(const tls12_context_t *
     }
 
     sa = ctx->client_extensions.signature_algorithms;
-    if(sa != NULL && sa->algorithms != NULL && sa->count > 0u) {
+    if(sa != NULL && sa->algorithms != NULL && sa->count > 0U) {
         uint32_t i;
         for(i = 0; i < sa->count; i++) {
             uint16_t pair = sa->algorithms[i];
@@ -1058,24 +1040,24 @@ noxtls_return_t noxtls_tls12_pick_rsa_pkcs1_skx_sig_hash(const tls12_context_t *
                 continue;
             }
             switch(hb) {
-            case 2u:
-                *hash_byte_out = 2u;
+            case 2U:
+                *hash_byte_out = 2U;
                 *hash_out = NOXTLS_HASH_SHA1;
                 return NOXTLS_RETURN_SUCCESS;
-            case 3u:
-                *hash_byte_out = 3u;
+            case 3U:
+                *hash_byte_out = 3U;
                 *hash_out = NOXTLS_HASH_SHA_224;
                 return NOXTLS_RETURN_SUCCESS;
-            case 4u:
-                *hash_byte_out = 4u;
+            case 4U:
+                *hash_byte_out = 4U;
                 *hash_out = NOXTLS_HASH_SHA_256;
                 return NOXTLS_RETURN_SUCCESS;
-            case 5u:
-                *hash_byte_out = 5u;
+            case 5U:
+                *hash_byte_out = 5U;
                 *hash_out = NOXTLS_HASH_SHA_384;
                 return NOXTLS_RETURN_SUCCESS;
-            case 6u:
-                *hash_byte_out = 6u;
+            case 6U:
+                *hash_byte_out = 6U;
                 *hash_out = NOXTLS_HASH_SHA_512;
                 return NOXTLS_RETURN_SUCCESS;
             default:
@@ -1089,11 +1071,17 @@ noxtls_return_t noxtls_tls12_pick_rsa_pkcs1_skx_sig_hash(const tls12_context_t *
      * No signature_algorithms extension (RFC 5246): tlslite/tlsfuzzer default SKE verify
      * list is rsa_pkcs1_sha1 only (hash=2, sig=1).
      */
-    *hash_byte_out = 2u;
+    *hash_byte_out = 2U;
     *hash_out = NOXTLS_HASH_SHA1;
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Check if the X.509 certificate is RSASSA-PSS
+ *
+ * @param[in] cert The certificate to check
+ * @return 1 if the certificate is RSASSA-PSS, 0 otherwise
+ */
 static int tls12_x509_spki_oid_is_rsassa_pss(const x509_certificate_t *cert)
 {
     static const uint8_t oid[] = { 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0A };
@@ -1104,6 +1092,12 @@ static int tls12_x509_spki_oid_is_rsassa_pss(const x509_certificate_t *cert)
            memcmp(cert->public_key_algorithm_oid, oid, sizeof(oid)) == 0;
 }
 
+/**
+ * @brief Convert the RSA wire scheme to the hash algorithm
+ *
+ * @param[in] wire The RSA wire scheme
+ * @return The hash algorithm
+ */
 static noxtls_hash_algos_t tls12_rsa_wire_scheme_to_hash(uint16_t wire)
 {
     switch(wire) {
@@ -1128,6 +1122,12 @@ static noxtls_hash_algos_t tls12_rsa_wire_scheme_to_hash(uint16_t wire)
     }
 }
 
+/**
+ * @brief Check if the server has an RSA signing key
+ *
+ * @param[in] ctx The TLS 1.2 context
+ * @return 1 if the server has an RSA signing key, 0 otherwise
+ */
 static int tls12_server_has_rsa_signing_key(const tls12_context_t *ctx)
 {
     if(ctx->server_private_rsa != NULL) {
@@ -1140,6 +1140,12 @@ static int tls12_server_has_rsa_signing_key(const tls12_context_t *ctx)
     return 0;
 }
 
+/**
+ * @brief Prepare the RSA server key exchange scheme
+ *
+ * @param[in] ctx The TLS 1.2 context
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the context is NULL, or NOXTLS_RETURN_FAILED if the context is not a server
+ */
 noxtls_return_t noxtls_tls12_prepare_rsa_server_key_exchange_scheme(tls12_context_t *ctx)
 {
     const tls_signature_algorithms_extension_t *sa;
@@ -1161,7 +1167,7 @@ noxtls_return_t noxtls_tls12_prepare_rsa_server_key_exchange_scheme(tls12_contex
 
     leaf_parsed = (const x509_certificate_t *)ctx->server_cert_parsed;
     sa = ctx->client_extensions.signature_algorithms;
-    if(sa == NULL || sa->algorithms == NULL || sa->count == 0u) {
+    if(sa == NULL || sa->algorithms == NULL || sa->count == 0U) {
         ctx->tls12_rsa_skx_wire_scheme = 0x0201u;
         ctx->tls12_rsa_skx_sign_hash = NOXTLS_HASH_SHA1;
         ctx->tls12_rsa_skx_sign_use_pss = 0;
@@ -1198,7 +1204,7 @@ noxtls_return_t noxtls_tls12_prepare_rsa_server_key_exchange_scheme(tls12_contex
 
         /* rsa_pss_pss_sha{256,384,512} */
         if(pair == 0x0809u || pair == 0x080Au || pair == 0x080Bu) {
-            if(ctx->server_rsa_pss_leaf_cert != NULL && ctx->server_rsa_pss_leaf_cert_len > 0u &&
+            if(ctx->server_rsa_pss_leaf_cert != NULL && ctx->server_rsa_pss_leaf_cert_len > 0U &&
                ctx->server_private_rsa_pss_leaf != NULL) {
                 ctx->tls12_rsa_skx_wire_scheme = pair;
                 ctx->tls12_rsa_skx_sign_hash = tls12_rsa_wire_scheme_to_hash(pair);
@@ -1228,35 +1234,35 @@ noxtls_return_t noxtls_tls12_prepare_rsa_server_key_exchange_scheme(tls12_contex
                 continue;
             }
             switch(hb) {
-            case 2u:
+            case 2U:
                 ctx->tls12_rsa_skx_wire_scheme = 0x0201u;
                 ctx->tls12_rsa_skx_sign_hash = NOXTLS_HASH_SHA1;
                 ctx->tls12_rsa_skx_sign_use_pss = 0;
                 ctx->tls12_rsa_skx_use_pss_leaf_identity = 0;
                 ctx->tls12_rsa_skx_scheme_prepared = 1;
                 return NOXTLS_RETURN_SUCCESS;
-            case 3u:
+            case 3U:
                 ctx->tls12_rsa_skx_wire_scheme = 0x0301u;
                 ctx->tls12_rsa_skx_sign_hash = NOXTLS_HASH_SHA_224;
                 ctx->tls12_rsa_skx_sign_use_pss = 0;
                 ctx->tls12_rsa_skx_use_pss_leaf_identity = 0;
                 ctx->tls12_rsa_skx_scheme_prepared = 1;
                 return NOXTLS_RETURN_SUCCESS;
-            case 4u:
+            case 4U:
                 ctx->tls12_rsa_skx_wire_scheme = 0x0401u;
                 ctx->tls12_rsa_skx_sign_hash = NOXTLS_HASH_SHA_256;
                 ctx->tls12_rsa_skx_sign_use_pss = 0;
                 ctx->tls12_rsa_skx_use_pss_leaf_identity = 0;
                 ctx->tls12_rsa_skx_scheme_prepared = 1;
                 return NOXTLS_RETURN_SUCCESS;
-            case 5u:
+            case 5U:
                 ctx->tls12_rsa_skx_wire_scheme = 0x0501u;
                 ctx->tls12_rsa_skx_sign_hash = NOXTLS_HASH_SHA_384;
                 ctx->tls12_rsa_skx_sign_use_pss = 0;
                 ctx->tls12_rsa_skx_use_pss_leaf_identity = 0;
                 ctx->tls12_rsa_skx_scheme_prepared = 1;
                 return NOXTLS_RETURN_SUCCESS;
-            case 6u:
+            case 6U:
                 ctx->tls12_rsa_skx_wire_scheme = 0x0601u;
                 ctx->tls12_rsa_skx_sign_hash = NOXTLS_HASH_SHA_512;
                 ctx->tls12_rsa_skx_sign_use_pss = 0;
@@ -1311,7 +1317,7 @@ noxtls_return_t noxtls_tls12_pick_ecdsa_skx_sig_hash(const tls12_context_t *ctx,
     }
 
     sa = ctx->client_extensions.signature_algorithms;
-    if(sa != NULL && sa->algorithms != NULL && sa->count > 0u) {
+    if(sa != NULL && sa->algorithms != NULL && sa->count > 0U) {
         uint32_t i;
         for(i = 0; i < sa->count; i++) {
             uint16_t pair = sa->algorithms[i];
@@ -1325,24 +1331,24 @@ noxtls_return_t noxtls_tls12_pick_ecdsa_skx_sig_hash(const tls12_context_t *ctx,
                 continue;
             }
             switch(hb) {
-            case 2u:
-                *hash_byte_out = 2u;
+            case 2U:
+                *hash_byte_out = 2U;
                 *hash_out = NOXTLS_HASH_SHA1;
                 return NOXTLS_RETURN_SUCCESS;
-            case 3u:
-                *hash_byte_out = 3u;
+            case 3U:
+                *hash_byte_out = 3U;
                 *hash_out = NOXTLS_HASH_SHA_224;
                 return NOXTLS_RETURN_SUCCESS;
-            case 4u:
-                *hash_byte_out = 4u;
+            case 4U:
+                *hash_byte_out = 4U;
                 *hash_out = NOXTLS_HASH_SHA_256;
                 return NOXTLS_RETURN_SUCCESS;
-            case 5u:
-                *hash_byte_out = 5u;
+            case 5U:
+                *hash_byte_out = 5U;
                 *hash_out = NOXTLS_HASH_SHA_384;
                 return NOXTLS_RETURN_SUCCESS;
-            case 6u:
-                *hash_byte_out = 6u;
+            case 6U:
+                *hash_byte_out = 6U;
                 *hash_out = NOXTLS_HASH_SHA_512;
                 return NOXTLS_RETURN_SUCCESS;
             default:
@@ -1353,13 +1359,13 @@ noxtls_return_t noxtls_tls12_pick_ecdsa_skx_sig_hash(const tls12_context_t *ctx,
     }
 
     if(ctx->cipher_suite == TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CBC_SHA) {
-        *hash_byte_out = 2u;
+        *hash_byte_out = 2U;
         *hash_out = NOXTLS_HASH_SHA1;
     } else if(ctx->cipher_suite == TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384) {
-        *hash_byte_out = 5u;
+        *hash_byte_out = 5U;
         *hash_out = NOXTLS_HASH_SHA_384;
     } else {
-        *hash_byte_out = 4u;
+        *hash_byte_out = 4U;
         *hash_out = NOXTLS_HASH_SHA_256;
     }
     return NOXTLS_RETURN_SUCCESS;
@@ -1472,11 +1478,11 @@ noxtls_return_t noxtls_tls12_dhe_send_server_key_exchange(tls12_context_t *ctx, 
         }
 
     if(ctx->crypto_provider && ctx->crypto_provider->ops && ctx->crypto_provider->ops->rsa_sign && ctx->server_private_key_handle &&
-       params_len <= DHE_TO_SIGN_SIZE - (TLS_RANDOM_SIZE * 2u) &&
+       params_len <= DHE_TO_SIGN_SIZE - (TLS_RANDOM_SIZE * 2U) &&
        (ctx->tls12_rsa_skx_scheme_prepared == 0 || ctx->tls12_rsa_skx_sign_use_pss == 0)) {
         memcpy(to_sign, ctx->client_random, TLS_RANDOM_SIZE);
         memcpy(to_sign + TLS_RANDOM_SIZE, ctx->server_random, TLS_RANDOM_SIZE);
-        memcpy(to_sign + ((size_t)TLS_RANDOM_SIZE * 2u), server_key_exchange + params_start, params_len);
+        memcpy(to_sign + ((size_t)TLS_RANDOM_SIZE * 2U), server_key_exchange + params_start, params_len);
         uint32_t to_sign_len = TLS_RANDOM_SIZE + TLS_RANDOM_SIZE + params_len;
         sig_len = DHE_SIG_BUF_SIZE;
         rc = ctx->crypto_provider->ops->rsa_sign(ctx->crypto_provider->ctx, ctx->server_private_key_handle,
@@ -1496,7 +1502,7 @@ noxtls_return_t noxtls_tls12_dhe_send_server_key_exchange(tls12_context_t *ctx, 
         server_key_exchange[offset++] = sig_len & 0xFF;
         memcpy(server_key_exchange + offset, sig_buf, sig_len);
         offset += sig_len;
-    } else if(ctx->server_private_rsa != NULL && params_len <= DHE_TO_SIGN_SIZE - (TLS_RANDOM_SIZE * 2u)) {
+    } else if(ctx->server_private_rsa != NULL && params_len <= DHE_TO_SIGN_SIZE - (TLS_RANDOM_SIZE * 2U)) {
         const rsa_key_t *dhe_rsa_key = (const rsa_key_t *)ctx->server_private_rsa;
         if(ctx->tls12_rsa_skx_scheme_prepared != 0 && ctx->tls12_rsa_skx_use_pss_leaf_identity != 0 &&
            ctx->server_private_rsa_pss_leaf != NULL) {
@@ -1504,7 +1510,7 @@ noxtls_return_t noxtls_tls12_dhe_send_server_key_exchange(tls12_context_t *ctx, 
         }
         memcpy(to_sign, ctx->client_random, TLS_RANDOM_SIZE);
         memcpy(to_sign + TLS_RANDOM_SIZE, ctx->server_random, TLS_RANDOM_SIZE);
-        memcpy(to_sign + ((size_t)TLS_RANDOM_SIZE * 2u), server_key_exchange + params_start, params_len);
+        memcpy(to_sign + ((size_t)TLS_RANDOM_SIZE * 2U), server_key_exchange + params_start, params_len);
         uint32_t to_sign_len = TLS_RANDOM_SIZE + TLS_RANDOM_SIZE + params_len;
         sig_len = DHE_SIG_BUF_SIZE;
         if(ctx->tls12_rsa_skx_scheme_prepared != 0 && ctx->tls12_rsa_skx_sign_use_pss != 0) {
@@ -1635,10 +1641,10 @@ noxtls_return_t noxtls_tls12_dhe_recv_server_key_exchange(tls12_context_t *ctx, 
                     memcpy(rsa_key.n, cert->rsa_modulus, cert->rsa_modulus_len);
                     memcpy(rsa_key.e, cert->rsa_exponent, cert->rsa_exponent_len);
                     uint8_t *to_verify = (ctx->handshake_workspace != NULL) ? ctx->handshake_workspace : (uint8_t*)noxtls_malloc(DHE_TO_SIGN_SIZE);
-                    if(to_verify != NULL && params_len <= DHE_TO_SIGN_SIZE - (TLS_RANDOM_SIZE * 2u)) {
+                    if(to_verify != NULL && params_len <= DHE_TO_SIGN_SIZE - (TLS_RANDOM_SIZE * 2U)) {
                         memcpy(to_verify, ctx->client_random, TLS_RANDOM_SIZE);
                         memcpy(to_verify + TLS_RANDOM_SIZE, ctx->server_random, TLS_RANDOM_SIZE);
-                        memcpy(to_verify + ((size_t)TLS_RANDOM_SIZE * 2u), record_data + 4, params_len);
+                        memcpy(to_verify + ((size_t)TLS_RANDOM_SIZE * 2U), record_data + 4, params_len);
                         rc = noxtls_rsa_verify(&rsa_key, to_verify, (uint32_t)(TLS_RANDOM_SIZE + TLS_RANDOM_SIZE + params_len),
                                                 record_data + off + 4, sig_len, NOXTLS_HASH_SHA_256);
                         if(to_verify != ctx->handshake_workspace) NOXTLS_SECURE_FREE(to_verify, DHE_TO_SIGN_SIZE); else memset(ctx->handshake_workspace, 0, TLS_HANDSHAKE_WORKSPACE_SIZE);
@@ -1744,7 +1750,7 @@ noxtls_return_t noxtls_tls12_dhe_recv_client_key_exchange(tls12_context_t *ctx, 
     off = 4;
     len_Yc = (uint16_t)((record_data[off] << 8) | record_data[off + 1]);
     off += 2;
-    if(len_Yc == 0u) {
+    if(len_Yc == 0U) {
         (void)noxtls_debug_printf("[TLS12_DHE] zero-length dh_Yc (decode)\n");
         return NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR;
     }
@@ -1754,9 +1760,9 @@ noxtls_return_t noxtls_tls12_dhe_recv_client_key_exchange(tls12_context_t *ctx, 
         return NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER;
     }
     /* Body must be exactly 2 + len_Yc bytes (no trailing padding in ClientKeyExchange). */
-    if(6u + (uint32_t)len_Yc != record_len) {
+    if(6U + (uint32_t)len_Yc != record_len) {
         (void)noxtls_debug_printf("[TLS12_DHE] CKE length mismatch: len_Yc=%u record_len=%u (expected %u)\n",
-                                  (unsigned)len_Yc, (unsigned)record_len, (unsigned)(6u + (uint32_t)len_Yc));
+                                  (unsigned)len_Yc, (unsigned)record_len, (unsigned)(6U + (uint32_t)len_Yc));
         return NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR;
     }
     memset(dhe_ctx->client_public, 0, dhe_ctx->p_len);
@@ -1870,7 +1876,7 @@ noxtls_return_t noxtls_tls13_key_share_decode(const uint8_t *encoded, uint32_t e
     key_exchange_len = (encoded[2] << 8) | encoded[3];
     
     {
-        uint32_t required_len = (uint32_t)key_exchange_len + 4u;
+        uint32_t required_len = (uint32_t)key_exchange_len + 4U;
         if(encoded_len < required_len) {
             return NOXTLS_RETURN_FAILED;
         }

@@ -1,0 +1,7 @@
+menu "NoxTLS SFTP client example"
+
+config NOXTLS_SFTP_REMOTE_PATH
+    string "Remote path"
+    default "/tmp/file.bin"
+
+endmenu

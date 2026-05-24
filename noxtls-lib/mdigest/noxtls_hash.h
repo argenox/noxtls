@@ -6,17 +6,19 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
-* 
+*
 *
 * File:    noxtls_hash.h
-* Summary: NOXTLS Hash Definitions
+* Summary: NoxTLS Generic Hash Interface Definition
 *
-*/
+*
+*****************************************************************************/
 
 /**
  * @defgroup noxtls_mdigest Message Digest
@@ -35,9 +37,9 @@ extern "C" {
 #endif
 
 /** Byte length to bit length for Merkle–Damgård padding (octets carry 8 bits). */
-#define NOXTLS_HASH_BITS_PER_BYTE (8u)
+#define NOXTLS_HASH_BITS_PER_BYTE (8U)
 /** Bytes needed to store a 64-bit noxtls_message bit counter (SHA-1, SHA-256, MD5, etc.). */
-#define NOXTLS_HASH_BITLEN_UINT64_BYTES (8u)
+#define NOXTLS_HASH_BITLEN_UINT64_BYTES (8U)
 
 typedef enum
 {

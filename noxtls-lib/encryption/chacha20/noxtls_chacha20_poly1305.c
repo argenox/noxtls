@@ -6,19 +6,18 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
-* 
+*
 *
 * File:    noxtls_chacha20_poly1305.c
 * Summary: ChaCha20-Poly1305 Authenticated Encryption Implementation
 *
-* Implementation of ChaCha20-Poly1305 as specified in RFC 8439
-*
-*/
+*****************************************************************************/
 
 /** @addtogroup noxtls_encryption */
 
@@ -39,6 +38,12 @@
 /* Poly1305 modulus: 2^130 - 5 */
 #define POLY1305_P ((uint64_t)0x3FFFFFFFFFFFFFFFULL)
 
+/**
+ * @brief Load the 32-bit little-endian value
+ * 
+ * @param[in] p The pointer to the value to load.
+ * @return The loaded value.
+ */
 static uint32_t poly1305_load_le32(const uint8_t *p)
 {
     return ((uint32_t)p[0]) |

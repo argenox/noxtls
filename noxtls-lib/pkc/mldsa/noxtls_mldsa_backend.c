@@ -3,11 +3,22 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+*
 * This file is part of the NoxTLS Library.
 *
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
+*
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
+*
 * File:    noxtls_mldsa_backend.c
-* Summary: ML-DSA backend entry points (implementation in progress).
-*/
+* Summary: ML-DSA backend entry points
+*
+*
+*****************************************************************************/
 
 #include <string.h>
 
@@ -31,7 +42,7 @@ static noxtls_return_t mldsa_make_mu(const uint8_t seed[NOXTLS_MLDSA_INTERNAL_SE
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    if(noxtls_message != NULL && message_len > 0u) {
+    if(noxtls_message != NULL && message_len > 0U) {
         rc = noxtls_shake256_update(&shake, noxtls_message, message_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
@@ -44,6 +55,14 @@ static noxtls_return_t mldsa_make_mu(const uint8_t seed[NOXTLS_MLDSA_INTERNAL_SE
     return noxtls_shake256_squeeze(&shake, mu, NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
 }
 
+/**
+ * @brief Generate the key pair
+ * 
+ * @param[in] param The parameter.
+ * @param[out] public_key The public key.
+ * @param[out] secret_key The secret key.
+ * @return The return value.
+ */
 noxtls_return_t noxtls_mldsa_backend_keygen(noxtls_mldsa_param_t param,
                                             uint8_t *public_key,
                                             uint8_t *secret_key)
@@ -53,7 +72,7 @@ noxtls_return_t noxtls_mldsa_backend_keygen(noxtls_mldsa_param_t param,
     uint8_t rho[NOXTLS_MLDSA_INTERNAL_SEED_BYTES];
     uint8_t k[NOXTLS_MLDSA_INTERNAL_SEED_BYTES];
     uint8_t tr[NOXTLS_MLDSA_INTERNAL_SEED_BYTES];
-    uint8_t seed_blob[3u * NOXTLS_MLDSA_INTERNAL_SEED_BYTES];
+    uint8_t seed_blob[3U * NOXTLS_MLDSA_INTERNAL_SEED_BYTES];
     noxtls_mldsa_polyvecl_t s1;
     noxtls_mldsa_polyveck_t t;
     uint32_t pk_tail_len;
@@ -68,15 +87,15 @@ noxtls_return_t noxtls_mldsa_backend_keygen(noxtls_mldsa_param_t param,
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    rc = drbg_instantiate(&drbg, DRBG_AES256, NULL, 0u, NULL, 0u, NULL, 0u);
+    rc = drbg_instantiate(&drbg, DRBG_AES256, NULL, 0U, NULL, 0U, NULL, 0U);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
     rc = drbg_generate(&drbg,
                        master_seed,
-                       NOXTLS_MLDSA_INTERNAL_SEED_BYTES * 8u,
+                       NOXTLS_MLDSA_INTERNAL_SEED_BYTES * 8U,
                        NULL,
-                       0u);
+                       0U);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -88,7 +107,7 @@ noxtls_return_t noxtls_mldsa_backend_keygen(noxtls_mldsa_param_t param,
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    rc = noxtls_mldsa_sample_polyvecl_eta(param, k, 0u, &s1);
+    rc = noxtls_mldsa_sample_polyvecl_eta(param, k, 0U, &s1);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -102,12 +121,12 @@ noxtls_return_t noxtls_mldsa_backend_keygen(noxtls_mldsa_param_t param,
     memcpy(public_key, rho, NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
     pk_tail_len = (spec.public_key_len > NOXTLS_MLDSA_INTERNAL_SEED_BYTES)
                     ? (spec.public_key_len - NOXTLS_MLDSA_INTERNAL_SEED_BYTES)
-                    : 0u;
-    if(pk_tail_len > 0u) {
+                    : 0U;
+    if(pk_tail_len > 0U) {
         rc = noxtls_mldsa_expand_xof((const uint8_t *)&t,
                                      (uint32_t)sizeof(t),
                                      0xE1u,
-                                     0u,
+                                     0U,
                                      public_key + NOXTLS_MLDSA_INTERNAL_SEED_BYTES,
                                      pk_tail_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -118,6 +137,17 @@ noxtls_return_t noxtls_mldsa_backend_keygen(noxtls_mldsa_param_t param,
     return NOXTLS_RETURN_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Sign the message
+ * 
+ * @param[in] param The parameter.
+ * @param[in] secret_key The secret key.
+ * @param[in] noxtls_message The message to sign.
+ * @param[in] message_len The length of the message.
+ * @param[out] signature The signature.
+ * @param[out] signature_len The length of the signature.
+ * @return The return value.
+ */
 noxtls_return_t noxtls_mldsa_backend_sign(noxtls_mldsa_param_t param,
                                           const uint8_t *secret_key,
                                           const uint8_t *noxtls_message,
@@ -148,14 +178,14 @@ noxtls_return_t noxtls_mldsa_backend_sign(noxtls_mldsa_param_t param,
     }
 
     rc = noxtls_mldsa_unpack_seeds(secret_key,
-                                   3u * NOXTLS_MLDSA_INTERNAL_SEED_BYTES,
+                                   3U * NOXTLS_MLDSA_INTERNAL_SEED_BYTES,
                                    rho,
                                    k,
                                    tr);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    rc = noxtls_mldsa_sample_polyvecl_eta(param, k, 0u, &y);
+    rc = noxtls_mldsa_sample_polyvecl_eta(param, k, 0U, &y);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -177,6 +207,17 @@ noxtls_return_t noxtls_mldsa_backend_sign(noxtls_mldsa_param_t param,
     return NOXTLS_RETURN_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Verify the message
+ * 
+ * @param[in] param The parameter.
+ * @param[in] public_key The public key.
+ * @param[in] noxtls_message The message to verify.
+ * @param[in] message_len The length of the message.
+ * @param[in] signature The signature to verify.
+ * @param[in] signature_len The length of the signature.
+ * @return The return value.
+ */
 noxtls_return_t noxtls_mldsa_backend_verify(noxtls_mldsa_param_t param,
                                             const uint8_t *public_key,
                                             const uint8_t *noxtls_message,
@@ -204,7 +245,7 @@ noxtls_return_t noxtls_mldsa_backend_verify(noxtls_mldsa_param_t param,
     }
 
     memcpy(rho, public_key, NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
-    rc = noxtls_mldsa_sample_polyvecl_eta(param, rho, 0u, &y);
+    rc = noxtls_mldsa_sample_polyvecl_eta(param, rho, 0U, &y);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }

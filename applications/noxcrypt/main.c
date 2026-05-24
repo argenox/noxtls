@@ -14,7 +14,7 @@
 * 
 *
 * File:    main.c
-* Summary: NOXTLS Utility Main Application
+* Summary: NoxTLS Utility Main Application
 *
 */
 
@@ -44,7 +44,12 @@ command_list_t commands[]  = {
 };
 
 
-
+/**
+ * @brief Print the usage
+ * 
+ * @param[in] name The name of the program.
+ * @return void
+ */
 void print_usage(const char * name)
 {
     printf( "usage: %s [command] <parameters>\n", name);
@@ -64,13 +69,25 @@ void print_usage(const char * name)
     printf("\n\n");
 }
 
+/**
+ * @brief Print the version
+ * 
+ * @return void
+ */
 void print_version(void)
 {
-    printf("NOXTLS v%u.%u.%u\n", (unsigned int)APP_VERSION_MAJOR, (unsigned int)APP_VERSION_MINOR, (unsigned int)APP_VERSION_BUILD);
+    printf("NoxTLS v%u.%u.%u\n", (unsigned int)APP_VERSION_MAJOR, (unsigned int)APP_VERSION_MINOR, (unsigned int)APP_VERSION_BUILD);
     printf("Build %s %s\n", __DATE__, __TIME__);
     printf("Copyright Argenox Technologies LLC. All Rights Reserved.\n");
 }
 
+/**
+ * @brief Main entry point
+ * 
+ * @param[in] argc The argument count.
+ * @param[in] argv The argument vector.
+ * @return The return value.
+ */
 int main(int argc, char ** argv)
 {
     int command_found = 0;

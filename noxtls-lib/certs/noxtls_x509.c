@@ -4,38 +4,20 @@
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
 *
+* This file is part of the NoxTLS Library.
 *
-* NOTICE:  All information contained herein, source code, binaries and
-* derived works is, and remains
-* the property of Argenox Technologies and its suppliers,
-* if any.  The intellectual and technical concepts contained
-* herein are proprietary to Argenox Technologies
-* and its suppliers may be covered by U.S. and Foreign Patents,
-* patents in process, and are protected by trade secret or copyright law.
-* Dissemination of this information or reproduction of this material
-* is strictly forbidden unless prior written permission is obtained
-* from Argenox Technologies.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
-* THIS SOFTWARE IS PROVIDED BY ARGENOX "AS IS" AND
-* ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-* WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-* DISCLAIMED. IN NO EVENT SHALL ARGENOX TECHNOLOGIES LLC BE LIABLE FOR ANY
-* DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-* (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-* LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-* ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-* (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-* SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*
+* See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
 *
-*
-* This file is part of the NoxTLS Library.
 *
 * File:    noxtls_x509.c
 * Summary: X.509 Certificate Parsing and Validation Implementation
 *
-*/
+*****************************************************************************/
 
 /** @addtogroup noxtls_certs */
 
@@ -45,6 +27,7 @@
 #include <string.h>
 #include <limits.h>
 #include <stddef.h>
+
 #include "noxtls_config.h"
 #include "common/noxtls_memory.h"
 #include "common/noxtls_memory_compat.h"
@@ -59,6 +42,7 @@
 #include "mdigest/sha256/noxtls_sha256.h"
 #include "mdigest/sha512/noxtls_sha512.h"
 #include "mdigest/noxtls_hash.h"
+
 #if NOXTLS_FEATURE_ED25519
 #include "pkc/ed25519/noxtls_ed25519.h"
 #endif
@@ -70,6 +54,9 @@
 #endif
 #if NOXTLS_FEATURE_SLH_DSA
 #include "pkc/slhdsa/noxtls_slhdsa.h"
+#endif
+#if NOXTLS_FEATURE_FALCON
+#include "pkc/falcon/noxtls_falcon.h"
 #endif
 #if NOXTLS_FEATURE_AES_CBC
 #include "mdigest/sha1/noxtls_sha1.h"
@@ -128,6 +115,11 @@ static const uint8_t noxtls_x509_oid_secp256k1[] = {0x2B, 0x81, 0x04, 0x00, 0x0A
 
 static noxtls_x509_unknown_ext_cb_t noxtls_x509_unknown_ext_cb;
 static void *noxtls_x509_unknown_ext_user_ctx;
+
+static noxtls_return_t noxtls_x509_validate_ecc_public_key_bytes(const uint8_t *pubkey,
+                                                                 uint32_t pubkey_len,
+                                                                 const uint8_t *curve_oid,
+                                                                 uint32_t curve_oid_len);
 static int s_x509_hostname_wildcard_matching =
 #if NOXTLS_X509_HOSTNAME_ALLOW_WILDCARD
     1
@@ -136,6 +128,14 @@ static int s_x509_hostname_wildcard_matching =
 #endif
 ;
 
+/**
+ * @brief Open a file
+ *
+ * @param[in] filename The name of the file to open.
+ * @param[in] mode The mode to open the file in.
+ *
+ * @return The file pointer.
+ */
 static FILE *noxtls_fopen(const char *filename, const char *mode)
 {
 #ifdef _MSC_VER
@@ -154,9 +154,54 @@ static FILE *noxtls_fopen(const char *filename, const char *mode)
 
 /* Last certificate verification failure detail (single global; not thread-safe). */
 static noxtls_cert_verify_failure_info_t s_cert_fail_info;
-/* Global trust anchors for TLS certificate verification (single global; not thread-safe). */
-static x509_certificate_chain_t s_x509_trust_anchors;
+/*
+ * Global trust anchors for TLS certificate verification.
+ * Published snapshots are treated as immutable and are never freed in-place,
+ * so concurrent verification cannot race a trust-store clear/set into a UAF.
+ */
+static const x509_certificate_chain_t *s_x509_trust_anchors;
 static int s_x509_trust_anchors_initialized;
+
+
+/**
+ * @brief Clones a trust store.
+ *
+ * This function clones a trust store by creating a new trust store and adding the certificates from the original trust store.
+ *
+ * @param[in] trust_anchors The trust store to clone.
+ * @return The cloned trust store.
+ */
+static x509_certificate_chain_t *x509_trust_store_clone(const x509_certificate_chain_t *trust_anchors)
+{
+    uint32_t i;
+    noxtls_return_t rc;
+    x509_certificate_chain_t *snapshot;
+
+    if(trust_anchors == NULL || trust_anchors->count == 0U) {
+        return NULL;
+    }
+
+    snapshot = (x509_certificate_chain_t *)calloc(1, sizeof(x509_certificate_chain_t));
+    if(snapshot == NULL) {
+        return NULL;
+    }
+    rc = noxtls_x509_certificate_chain_init(snapshot);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        free(snapshot);
+        return NULL;
+    }
+
+    for(i = 0; i < trust_anchors->count; i++) {
+        rc = noxtls_x509_certificate_chain_add(snapshot, &trust_anchors->certs[i]);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_x509_certificate_chain_free(snapshot);
+            free(snapshot);
+            return NULL;
+        }
+    }
+
+    return snapshot;
+}
 
 /* NOLINTNEXTLINE(bugprone-easily-swappable-parameters): captures fixed failure payload fields (hostname length/index). */
 /**
@@ -471,7 +516,7 @@ static noxtls_return_t asn1_get_boolean(const uint8_t **data, const uint8_t *end
     }
 
     len = asn1_get_length(data, end);
-    if(len != 1 || (size_t)(end - *data) < 1u) {
+    if(len != 1 || (size_t)(end - *data) < 1U) {
         return NOXTLS_RETURN_FAILED;
     }
 
@@ -494,6 +539,15 @@ static const uint8_t oid_aes256_cbc[] = { 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x
 #define SHA1_OUT_LEN 20
 #define NOXTLS_AES_BLOCK_LEN 16
 
+/**
+ * @brief Check if two OIDs are equal
+ * 
+ * @param[in] a The first OID.
+ * @param[in] a_len The length of the first OID.
+ * @param[in] b The second OID.
+ * @param[in] b_len The length of the second OID.
+ * @return 1 if the OIDs are equal, 0 otherwise.
+ */
 static int oid_equal(const uint8_t *a, uint32_t a_len, const uint8_t *b, uint32_t b_len)
 {
     return (a_len == b_len && memcmp(a, b, a_len) == 0);
@@ -502,6 +556,7 @@ static int oid_equal(const uint8_t *a, uint32_t a_len, const uint8_t *b, uint32_
 #if NOXTLS_FEATURE_SLH_DSA
 /**
  * @brief Map a FIPS 205 SLH-DSA OID to the public API parameter set.
+ *
  * @param[in] oid DER-encoded object identifier bytes.
  * @param[in] oid_len OID length.
  * @param[out] param Output parameter set.
@@ -517,7 +572,7 @@ static noxtls_return_t noxtls_x509_slhdsa_param_from_oid(const uint8_t *oid,
     if(oid == NULL || param == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(oid_len != sizeof(oid_prefix) + 1u || memcmp(oid, oid_prefix, sizeof(oid_prefix)) != 0) {
+    if(oid_len != sizeof(oid_prefix) + 1U || memcmp(oid, oid_prefix, sizeof(oid_prefix)) != 0) {
         return NOXTLS_RETURN_INVALID_ALGORITHM;
     }
     last = oid[sizeof(oid_prefix)];
@@ -529,7 +584,20 @@ static noxtls_return_t noxtls_x509_slhdsa_param_from_oid(const uint8_t *oid,
 }
 #endif
 
-/* HMAC-SHA1 (RFC 2104); one-shot. key_len can be any size; block size 64. */
+/**
+ * @brief Computes the HMAC-SHA1 of a message.
+ *
+ * This function computes the HMAC-SHA1 of a message using the SHA-1 hash algorithm.
+ * key_len can be any size; block size 64.
+ *
+ * @param[in] key The key to use for the HMAC.
+ * @param[in] key_len The length of the key.
+ * @param[in] msg The message to compute the HMAC-SHA1 of.
+ * @param[in] msg_len The length of the message.
+ * @param[out] mac The buffer to receive the HMAC-SHA1.
+ *
+ * @return The return code of the function.
+ */
 static noxtls_return_t hmac_sha1(const uint8_t *key, uint32_t key_len,
                                   const uint8_t *msg, uint32_t msg_len,
                                   uint8_t *mac)
@@ -572,7 +640,21 @@ static noxtls_return_t hmac_sha1(const uint8_t *key, uint32_t key_len,
 
 
 
-/* PBKDF2-HMAC-SHA1 (RFC 8018). Derives params->key_len bytes into out. */
+/**
+ * @brief Derives the key using PBKDF2-HMAC-SHA1.
+ *
+ * This function derives the key using PBKDF2-HMAC-SHA1.
+ * This function is used to derive the key using PBKDF2-HMAC-SHA1.
+ *
+ * @param[in] password The password to use for the derivation.
+ * @param[in] password_len The length of the password.
+ * @param[in] salt The salt to use for the derivation.
+ * @param[in] salt_len The length of the salt.
+ * @param[in] params The parameters for the derivation.
+ * @param[out] out The buffer to receive the derived key.
+ *
+ * @return The return code of the function.
+ */
 static noxtls_return_t pbkdf2_hmac_sha1(const uint8_t *password, uint32_t password_len,
                                          const uint8_t *salt, const pbkdf2_sha1_params_t *params, uint8_t *out)
 {
@@ -589,18 +671,18 @@ static noxtls_return_t pbkdf2_hmac_sha1(const uint8_t *password, uint32_t passwo
     }
 
     if(params->salt_len > 0xFFFF - 4) return NOXTLS_RETURN_FAILED;
-    block_input = (uint8_t*)malloc(params->salt_len + 4u);
+    block_input = (uint8_t*)malloc(params->salt_len + 4U);
     if(block_input == NULL) return NOXTLS_RETURN_FAILED;
     memcpy(block_input, salt, params->salt_len);
-    blocks = (params->key_len + SHA1_OUT_LEN - 1u) / SHA1_OUT_LEN;
+    blocks = (params->key_len + SHA1_OUT_LEN - 1U) / SHA1_OUT_LEN;
 
     for(block_index = 1; block_index <= blocks; block_index++) {
-        block_input[params->salt_len + 0u] = (uint8_t)(block_index >> 24);
-        block_input[params->salt_len + 1u] = (uint8_t)(block_index >> 16);
-        block_input[params->salt_len + 2u] = (uint8_t)(block_index >> 8);
-        block_input[params->salt_len + 3u] = (uint8_t)(block_index);
+        block_input[params->salt_len + 0U] = (uint8_t)(block_index >> 24);
+        block_input[params->salt_len + 1U] = (uint8_t)(block_index >> 16);
+        block_input[params->salt_len + 2U] = (uint8_t)(block_index >> 8);
+        block_input[params->salt_len + 3U] = (uint8_t)(block_index);
 
-        if(hmac_sha1(password, password_len, block_input, params->salt_len + 4u, u) != NOXTLS_RETURN_SUCCESS) {
+        if(hmac_sha1(password, password_len, block_input, params->salt_len + 4U, u) != NOXTLS_RETURN_SUCCESS) {
             free(block_input);
             return NOXTLS_RETURN_FAILED;
         }
@@ -619,8 +701,8 @@ static noxtls_return_t pbkdf2_hmac_sha1(const uint8_t *password, uint32_t passwo
         {
             uint32_t copy_len = (block_index * SHA1_OUT_LEN <= params->key_len)
                                     ? SHA1_OUT_LEN
-                                    : (params->key_len - (block_index - 1u) * SHA1_OUT_LEN);
-            memcpy(out + (size_t)(block_index - 1u) * SHA1_OUT_LEN, t, copy_len);
+                                    : (params->key_len - (block_index - 1U) * SHA1_OUT_LEN);
+            memcpy(out + (size_t)(block_index - 1U) * SHA1_OUT_LEN, t, copy_len);
         }
     }
     free(block_input);
@@ -628,6 +710,14 @@ static noxtls_return_t pbkdf2_hmac_sha1(const uint8_t *password, uint32_t passwo
 }
 #endif
 
+/**
+ * @brief Sets the unknown extension callback.
+ *
+ * This function sets the unknown extension callback.
+ *
+ * @param[in] cb The callback to set.
+ * @param[in] user_ctx The user context to pass to the callback.
+ */
 void noxtls_x509_set_unknown_extension_callback(noxtls_x509_unknown_ext_cb_t cb, void *user_ctx)
 {
     noxtls_x509_unknown_ext_cb = cb;
@@ -636,6 +726,7 @@ void noxtls_x509_set_unknown_extension_callback(noxtls_x509_unknown_ext_cb_t cb,
 
 /**
  * @brief Enable or disable wildcard hostname matching at runtime.
+ *
  * @param enabled 1 to allow wildcard DNS matching, 0 to require exact DNS match.
  */
 void noxtls_x509_set_hostname_wildcard_matching(int enabled)
@@ -645,6 +736,7 @@ void noxtls_x509_set_hostname_wildcard_matching(int enabled)
 
 /**
  * @brief Get current wildcard hostname matching runtime state.
+ *
  * @return 1 when wildcard DNS matching is enabled, 0 otherwise.
  */
 int noxtls_x509_get_hostname_wildcard_matching(void)
@@ -655,6 +747,9 @@ int noxtls_x509_get_hostname_wildcard_matching(void)
 /**
  * Parse cert->extensions (SEQUENCE OF Extension) and fill SAN, Key Usage, EKU, Basic Constraints, AKI, SKI, etc.
  * Unknown critical extensions cause parse failure unless handled by noxtls_x509_set_unknown_extension_callback.
+ *
+ * @param[in] cert The certificate to parse the extensions from.
+ * @return The return code of the function.
  */
 noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
 {
@@ -789,18 +884,18 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
                     if(bs_len >= 1 && ku_ptr + bs_len <= ku_end) {
                         uint32_t unused = ku_ptr[0] & 0x7u;
                         const uint8_t *bits_data = ku_ptr + 1;
-                        uint32_t bits_bytes = bs_len - 1u;
-                        uint32_t num_bits = bits_bytes * 8u;
+                        uint32_t bits_bytes = bs_len - 1U;
+                        uint32_t num_bits = bits_bytes * 8U;
                         uint16_t bits = 0;
                         uint32_t i;
-                        if(unused <= 7u && num_bits >= unused) {
+                        if(unused <= 7U && num_bits >= unused) {
                             num_bits -= unused;
                         }
-                        for(i = 0; i < num_bits && i < 9u; i++) {
+                        for(i = 0; i < num_bits && i < 9U; i++) {
                             uint32_t byte_off = i >> 3;
-                            uint32_t bit_off = 7u - (i & 7u);
-                            if(byte_off < bits_bytes && (bits_data[byte_off] & (1u << bit_off)) != 0u) {
-                                bits |= (uint16_t)(1u << i);
+                            uint32_t bit_off = 7U - (i & 7U);
+                            if(byte_off < bits_bytes && (bits_data[byte_off] & (1U << bit_off)) != 0U) {
+                                bits |= (uint16_t)(1U << i);
                             }
                         }
                         cert->key_usage_bits = bits;
@@ -892,7 +987,13 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
                       oid_equal(oid_buf, oid_len, oid_name_constraints, sizeof(oid_name_constraints)) ||
                       oid_equal(oid_buf, oid_len, oid_policy_constraints, sizeof(oid_policy_constraints)) ||
                       oid_equal(oid_buf, oid_len, oid_inhibit_any_policy, sizeof(oid_inhibit_any_policy))) {
-                /* Recognized extension (certificate policies, CRL DP, name constraints, policy constraints, inhibit anyPolicy): skip value */
+                /*
+                 * These extensions are recognized, but their policy semantics are not
+                 * enforced here. Critical instances must fail closed.
+                 */
+                if(critical) {
+                    return NOXTLS_RETURN_BAD_DATA;
+                }
             } else {
                 /* Unknown or custom OID */
                 if(critical) {
@@ -915,7 +1016,17 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
     return NOXTLS_RETURN_SUCCESS;
 }
 
-/* Compare two strings case-insensitively for DNS (ASCII); hostname_len = length of hostname (no null required). */
+/**
+ * @brief Compares two strings case-insensitively for DNS (ASCII); hostname_len = length of hostname (no null required).
+ *
+ * This function compares two strings case-insensitively for DNS (ASCII); hostname_len = length of hostname (no null required).
+ *
+ * @param[in] hostname The hostname to compare.
+ * @param[in] hostname_len The length of the hostname.
+ * @param[in] dns_name The DNS name to compare.
+ *
+ * @return The return code of the function.
+ */
 static int noxtls_x509_dns_name_equal(const char *hostname, uint32_t hostname_len, const char *dns_name)
 {
     uint32_t i = 0;
@@ -997,7 +1108,18 @@ static int noxtls_x509_dns_name_equal(const char *hostname, uint32_t hostname_le
     return (dns_name[i] == '\0') ? 1 : 0;
 }
 
-/* Extract first CN= value from subject_dn string (e.g. "CN=host.example.com, O=Org" -> "host.example.com"). */
+
+/**
+ * @brief Extract first CN= value from subject_dn string (e.g. "CN=host.example.com, O=Org" -> "host.example.com").
+ *
+ * This function extracts the first CN= value from the subject_dn string (e.g. "CN=host.example.com, O=Org" -> "host.example.com").
+ *
+ * @param[in] subject_dn The subject DN to extract the CN from.
+ * @param[out] cn_out The buffer to receive the CN.
+ * @param[in] cn_out_size The size of the buffer to receive the CN.
+ *
+ * @return void
+ */
 static void noxtls_x509_get_cn_from_subject_dn(const char *subject_dn, char *cn_out, uint32_t cn_out_size)
 {
     const char *p;
@@ -1029,9 +1151,11 @@ static void noxtls_x509_get_cn_from_subject_dn(const char *subject_dn, char *cn_
 /**
  * @brief Check whether the certificate is valid for the given hostname (RFC 6125 style).
  * Prefer SAN dNSName; if none, fall back to subject CN. Comparison is case-insensitive for DNS.
+ *
  * @param cert Parsed certificate (must have been parsed so subject_dn and optionally san_dns_* are set).
  * @param hostname Expected hostname (need not be null-terminated).
  * @param hostname_len Length of hostname.
+ *
  * @return NOXTLS_RETURN_SUCCESS if hostname matches a SAN dNSName or subject CN; NOXTLS_RETURN_CERT_VERIFY_HOSTNAME_MISMATCH otherwise; NOXTLS_RETURN_NULL if cert or hostname is NULL.
  */
 noxtls_return_t noxtls_x509_certificate_matches_hostname(const x509_certificate_t *cert, const char *hostname, uint32_t hostname_len)
@@ -1083,6 +1207,11 @@ noxtls_return_t noxtls_x509_certificate_matches_hostname(const x509_certificate_
 
 /**
  * @brief Initialize X.509 certificate structure
+ *
+ * This function initializes the X.509 certificate structure.
+ *
+ * @param[in] cert The certificate to initialize.
+ * @return The return code of the function.
  */
 noxtls_return_t noxtls_x509_certificate_init(x509_certificate_t *cert)
 {
@@ -1098,6 +1227,11 @@ noxtls_return_t noxtls_x509_certificate_init(x509_certificate_t *cert)
 
 /**
  * @brief Free X.509 certificate structure
+ *
+ * This function frees the X.509 certificate structure.
+ *
+ * @param[in] cert The certificate to free.
+ * @return The return code of the function.
  */
 noxtls_return_t noxtls_x509_certificate_free(x509_certificate_t *cert)
 {
@@ -1145,8 +1279,20 @@ noxtls_return_t noxtls_x509_certificate_free(x509_certificate_t *cert)
     return NOXTLS_RETURN_SUCCESS;
 }
 
+static noxtls_return_t noxtls_x509_validate_ecc_public_key_bytes(const uint8_t *pubkey,
+                                                                 uint32_t pubkey_len,
+                                                                 const uint8_t *curve_oid,
+                                                                 uint32_t curve_oid_len);
+
 /**
  * @brief Parse X.509 certificate from DER format
+ *
+ * This function parses an X.509 certificate from a DER encoded buffer.
+ *
+ * @param[in] cert The certificate to parse.
+ * @param[in] data The DER encoded buffer to parse.
+ * @param[in] len The length of the DER encoded buffer.
+ * @return The return code of the function.
  */
 noxtls_return_t noxtls_x509_certificate_parse_der(x509_certificate_t *cert, const uint8_t *data, uint32_t len)
 {
@@ -1391,7 +1537,15 @@ noxtls_return_t noxtls_x509_certificate_parse_der(x509_certificate_t *cert, cons
                     }
                 }
             } else if(public_key_len > 0 && spki_ptr[0] == 0x04) {
-                /* ECC public key: uncompressed point 0x04 || x || y (curve inferred from length in get_public_key) */
+                /* ECC public key: uncompressed point 0x04 || x || y. */
+                rc = noxtls_x509_validate_ecc_public_key_bytes(spki_ptr,
+                                                               public_key_len,
+                                                               cert->ecc_curve_oid,
+                                                               cert->ecc_curve_oid_len);
+                if(rc != NOXTLS_RETURN_SUCCESS) {
+                    CERT_DEBUG_PRINT("x509_certificate_parse_der: invalid ECC public key\n");
+                    return NOXTLS_RETURN_BAD_DATA;
+                }
                 cert->ecc_public_key_len = public_key_len;
                 cert->ecc_public_key = (uint8_t*)malloc(public_key_len);
                 if(cert->ecc_public_key) {
@@ -1440,6 +1594,19 @@ noxtls_return_t noxtls_x509_certificate_parse_der(x509_certificate_t *cert, cons
                 }
             }
 #endif
+#if NOXTLS_FEATURE_FALCON
+            if(!cert->has_mldsa && !cert->has_slhdsa) {
+                int falcon_param = x509_oid_is_falcon(cert->public_key_algorithm_oid,
+                                                      cert->public_key_algorithm_oid_len);
+                if(falcon_param != 0 &&
+                   public_key_len == noxtls_falcon_public_key_len((noxtls_falcon_param_t)falcon_param)) {
+                    cert->has_falcon = 1;
+                    cert->falcon_param = (noxtls_falcon_param_t)falcon_param;
+                    cert->falcon_public_key_len = public_key_len;
+                    memcpy(cert->falcon_public_key, spki_ptr, public_key_len);
+                }
+            }
+#endif
         }
     }
 
@@ -1450,10 +1617,15 @@ noxtls_return_t noxtls_x509_certificate_parse_der(x509_certificate_t *cert, cons
             if(ext_len > 0 && tbs_ptr + ext_len <= tbs_end) {
                 cert->extensions = (uint8_t*)malloc(ext_len);
                 if(cert->extensions) {
+                    noxtls_return_t ext_rc;
                     memcpy(cert->extensions, tbs_ptr, ext_len);
                     cert->extensions_len = ext_len;
                     tbs_ptr += ext_len;
-                    noxtls_x509_parse_extensions(cert);
+                    ext_rc = noxtls_x509_parse_extensions(cert);
+                    if(ext_rc != NOXTLS_RETURN_SUCCESS) {
+                        rc = (ext_rc == NOXTLS_RETURN_FAILED) ? NOXTLS_RETURN_CERT_PARSE_FAILED : ext_rc;
+                        break;
+                    }
                 }
             }
         }
@@ -1498,6 +1670,13 @@ noxtls_return_t noxtls_x509_certificate_parse_der(x509_certificate_t *cert, cons
 
 /**
  * @brief Parse X.509 certificate from PEM format
+ *
+ * This function parses an X.509 certificate from a PEM encoded buffer.
+ *
+ * @param[in] cert The certificate to parse.
+ * @param[in] data The PEM encoded buffer to parse.
+ * @param[in] len The length of the PEM encoded buffer.
+ * @return The return code of the function.
  */
 noxtls_return_t noxtls_x509_certificate_parse_pem(x509_certificate_t *cert, const uint8_t *data, uint32_t len)
 {
@@ -1532,6 +1711,12 @@ noxtls_return_t noxtls_x509_certificate_parse_pem(x509_certificate_t *cert, cons
 
 /**
  * @brief Load X.509 certificate from file
+ *
+ * This function loads an X.509 certificate from a file.
+ *
+ * @param[in] cert The certificate to load.
+ * @param[in] filename The name of the file to load the certificate from.
+ * @return The return code of the function.
  */
 noxtls_return_t noxtls_x509_certificate_load_file(x509_certificate_t *cert, const char *filename)
 {
@@ -1593,10 +1778,12 @@ noxtls_return_t noxtls_x509_certificate_load_file(x509_certificate_t *cert, cons
 
 /**
  * @brief Map signature algorithm OID to hash algorithm and signature type
+ *
  * @param oid Signature algorithm OID
  * @param oid_len OID length
  * @param hash_algo Output hash algorithm
  * @param is_rsa Output: 1 if RSA, 0 if ECDSA, 2 if ML-DSA, 3 if SLH-DSA
+ *
  * @return NOXTLS_RETURN_SUCCESS on success
  */
 static noxtls_return_t noxtls_x509_map_signature_algorithm(const uint8_t *oid, uint32_t oid_len,
@@ -1678,13 +1865,37 @@ static noxtls_return_t noxtls_x509_map_signature_algorithm(const uint8_t *oid, u
         }
     }
 #endif
+#if NOXTLS_FEATURE_FALCON
+    const uint8_t oid_falcon512[] = {0x2B, 0xCE, 0x0F, 0x03, 0x06};
+    const uint8_t oid_falcon1024[] = {0x2B, 0xCE, 0x0F, 0x03, 0x07};
+
+    if((oid_len == sizeof(oid_falcon512) && memcmp(oid, oid_falcon512, oid_len) == 0) ||
+       (oid_len == sizeof(oid_falcon1024) && memcmp(oid, oid_falcon1024, oid_len) == 0)) {
+        *hash_algo = NOXTLS_HASH_SHA_512;
+        *is_rsa = 4;
+        return NOXTLS_RETURN_SUCCESS;
+    }
+#endif
 
     return NOXTLS_RETURN_INVALID_ALGORITHM;
 }
 
 /**
+ * @brief RFC 5929 tls-server-end-point: return hash algorithm for hashing the server certificate.
+ *
+ * This function returns the hash algorithm for hashing the server certificate.
  * RFC 5929 tls-server-end-point: return hash algorithm for hashing the server certificate.
  * If cert's signatureAlgorithm uses MD5 or SHA-1, use SHA-256; else use the cert's hash.
+ *
+ * @param[in] cert The certificate to get the channel binding hash algorithm for.
+ * @param[out] hash_algo The hash algorithm to use for the channel binding.
+ *
+ * @return The return code of the function.
+ *  
+ * @param[in] cert The certificate to get the channel binding hash algorithm for.
+ * @param[out] hash_algo The hash algorithm to use for the channel binding.
+ *
+ * @return The return code of the function.
  */
 noxtls_return_t noxtls_x509_get_channel_binding_hash_algo(const x509_certificate_t *cert, noxtls_hash_algos_t *hash_algo)
 {
@@ -1729,6 +1940,13 @@ noxtls_return_t noxtls_x509_get_channel_binding_hash_algo(const x509_certificate
 
 /**
  * @brief Map curve OID to ecc_curve_t (for noxtls_x509 API)
+ *
+ * This function maps a curve OID to an ecc_curve_t.
+ *
+ * @param[in] oid The OID to map.
+ * @param[in] oid_len The length of the OID.
+ * @param[out] curve_type The curve type to map to.
+ * @return The return code of the function.
  */
 static noxtls_return_t noxtls_x509_ecc_curve_from_oid(const uint8_t *oid, uint32_t oid_len, ecc_curve_t *curve_type)
 {
@@ -1799,6 +2017,12 @@ static noxtls_return_t noxtls_x509_ecc_curve_from_oid(const uint8_t *oid, uint32
 
 /**
  * @brief Infer ecc_curve_t from public key length (uncompressed 0x04 || X || Y)
+ *
+ * This function infers the ecc_curve_t from the public key length.
+ *
+ * @param[in] pubkey_len The length of the public key.
+ * @param[out] curve_type The curve type to infer.
+ * @return The return code of the function.
  */
 static noxtls_return_t noxtls_x509_ecc_curve_from_pubkey_len(uint32_t pubkey_len, ecc_curve_t *curve_type)
 {
@@ -1833,7 +2057,71 @@ static noxtls_return_t noxtls_x509_ecc_curve_from_pubkey_len(uint32_t pubkey_len
 }
 
 /**
+ * @brief Validate ECC public key bytes
+ *
+ * This function validates the ECC public key bytes.
+ *
+ * @param[in] pubkey The public key to validate.
+ * @param[in] pubkey_len The length of the public key.
+ * @param[in] curve_oid The OID of the curve.
+ * @param[in] curve_oid_len The length of the OID of the curve.
+ *
+ * @return The return code of the function.
+ */
+static noxtls_return_t noxtls_x509_validate_ecc_public_key_bytes(const uint8_t *pubkey,
+                                                                 uint32_t pubkey_len,
+                                                                 const uint8_t *curve_oid,
+                                                                 uint32_t curve_oid_len)
+{
+    noxtls_return_t rc;
+    ecc_curve_t curve_type;
+    ecc_curve_params_t curve;
+    ecc_point_t point;
+    uint32_t coord_size;
+
+    if(pubkey == NULL || pubkey_len == 0U) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+
+    if(curve_oid_len > 0U) {
+        rc = noxtls_x509_ecc_curve_from_oid(curve_oid, curve_oid_len, &curve_type);
+    } else {
+        rc = noxtls_x509_ecc_curve_from_pubkey_len(pubkey_len, &curve_type);
+    }
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+
+    rc = noxtls_ecc_curve_init(&curve, curve_type);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+
+    coord_size = curve.size;
+    if(pubkey[0] != 0x04 || pubkey_len != 1U + 2U * coord_size) {
+        noxtls_ecc_curve_free(&curve);
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+
+    memset(&point, 0, sizeof(point));
+    point.size = coord_size;
+    memcpy(point.x, pubkey + 1, coord_size);
+    memcpy(point.y, pubkey + 1 + coord_size, coord_size);
+
+    rc = noxtls_ecc_point_validate_public(&point, &curve);
+    noxtls_ecc_curve_free(&curve);
+
+    return (rc == NOXTLS_RETURN_SUCCESS) ? NOXTLS_RETURN_SUCCESS : NOXTLS_RETURN_INVALID_PARAM;
+}
+
+/**
  * @brief Verify certificate signature
+ *
+ * This function verifies the signature of a certificate.
+ *
+ * @param[in] cert The certificate to verify the signature of.
+ * @param[in] issuer The issuer of the certificate.
+ * @return The return code of the function.
  */
 noxtls_return_t noxtls_x509_certificate_verify_signature(x509_certificate_t *cert, const x509_certificate_t *issuer)
 {
@@ -1914,11 +2202,11 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(x509_certificate_t *cer
         uint32_t exp_len = issuer->rsa_exponent_len;
         uint32_t key_bytes;
         rsa_key_size_t key_size;
-        while(mod_len > 0u && mod_ptr[0] == 0u) {
+        while(mod_len > 0U && mod_ptr[0] == 0U) {
             mod_ptr++;
             mod_len--;
         }
-        while(exp_len > 0u && exp_ptr[0] == 0u) {
+        while(exp_len > 0U && exp_ptr[0] == 0U) {
             exp_ptr++;
             exp_len--;
         }
@@ -1942,7 +2230,7 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(x509_certificate_t *cer
             return rc;
         }
 
-        if(mod_len == 0u || exp_len == 0u || mod_len > rsa_key.key_bytes || exp_len > rsa_key.key_bytes) {
+        if(mod_len == 0U || exp_len == 0U || mod_len > rsa_key.key_bytes || exp_len > rsa_key.key_bytes) {
             noxtls_rsa_key_free(&rsa_key);
             return NOXTLS_RETURN_INVALID_PARAM;
         }
@@ -2002,13 +2290,37 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(x509_certificate_t *cer
                                              cert->signature_algorithm_oid_len,
                                              &sig_param) != NOXTLS_RETURN_SUCCESS ||
            !issuer->has_slhdsa ||
-           issuer->slhdsa_public_key_len == 0u ||
+           issuer->slhdsa_public_key_len == 0U ||
            issuer->slhdsa_param != sig_param) {
             cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED, cert, NULL, 0, 0);
             return NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED;
         }
         rc = noxtls_slhdsa_verify(sig_param,
                                   issuer->slhdsa_public_key,
+                                  cert->tbs_certificate,
+                                  cert->tbs_certificate_len,
+                                  cert->signature,
+                                  cert->signature_len);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED, cert, NULL, 0, 0);
+            return NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED;
+        }
+        return NOXTLS_RETURN_SUCCESS;
+#else
+        return NOXTLS_RETURN_INVALID_ALGORITHM;
+#endif
+    } else if(is_rsa == 4) {
+#if NOXTLS_FEATURE_FALCON
+        int falcon_param = x509_oid_is_falcon(cert->signature_algorithm_oid, cert->signature_algorithm_oid_len);
+        if(falcon_param == 0 ||
+           !issuer->has_falcon ||
+           issuer->falcon_public_key_len == 0U ||
+           issuer->falcon_param != (noxtls_falcon_param_t)falcon_param) {
+            cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED, cert, NULL, 0, 0);
+            return NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED;
+        }
+        rc = noxtls_falcon_verify((noxtls_falcon_param_t)falcon_param,
+                                  issuer->falcon_public_key,
                                   cert->tbs_certificate,
                                   cert->tbs_certificate_len,
                                   cert->signature,
@@ -2066,6 +2378,11 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(x509_certificate_t *cer
         memcpy(ecc_key.Q.x, issuer->ecc_public_key + 1, coord_size);
         memcpy(ecc_key.Q.y, issuer->ecc_public_key + 1 + coord_size, coord_size);
         ecc_key.Q.size = coord_size;
+        if(noxtls_ecc_point_validate_public(&ecc_key.Q, ecc_key.curve) != NOXTLS_RETURN_SUCCESS) {
+            CERT_DEBUG_PRINT("x509_certificate_verify_signature: invalid issuer ECC public key\n");
+            noxtls_ecc_key_free(&ecc_key);
+            return NOXTLS_RETURN_INVALID_PARAM;
+        }
 
         /* Parse ECDSA signature (DER-encoded) */
         /* ECDSA signature in X.509 is DER-encoded SEQUENCE of two INTEGERs (r, s) */
@@ -2165,6 +2482,11 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(x509_certificate_t *cer
 #if NOXTLS_HAVE_TIME
 /**
  * @brief Decode two-digit UTC year (YY) to full year.
+ *
+ * This function decodes a two-digit UTC year (YY) to a full year.
+ *
+ * @param[in] time_data The time data to decode.
+ * @return The full year.
  */
 static int x509_asn1_utc_year(const uint8_t *time_data)
 {
@@ -2174,6 +2496,16 @@ static int x509_asn1_utc_year(const uint8_t *time_data)
 
 /**
  * @brief Load month..second from UTCTime digit layout (indices 2..11).
+ *
+ * This function loads the month, day, hour, minute, and second from the UTCTime digit layout (indices 2..11).
+ *
+ * @param[in] time_data The time data to load the month, day, hour, minute, and second from.
+ * @param[out] month The month to load.
+ * @param[out] day The day to load.
+ * @param[out] hour The hour to load
+ * @param[out] minute The minute to load
+ * @param[out] second The second to load
+ * @return void
  */
 /* NOLINTNEXTLINE(bugprone-easily-swappable-parameters): grouped out-params are positional date-time components. */
 static void x509_asn1_utc_load_mdhm(const uint8_t *time_data, int *month, int *day, int *hour, int *minute, int *second)
@@ -2187,6 +2519,11 @@ static void x509_asn1_utc_load_mdhm(const uint8_t *time_data, int *month, int *d
 
 /**
  * @brief Decode four-digit GeneralizedTime year (YYYY).
+ *
+ * This function decodes a four-digit GeneralizedTime year (YYYY).
+ *
+ * @param[in] time_data The time data to decode.
+ * @return The full year.
  */
 static int x509_asn1_gt_year(const uint8_t *time_data)
 {
@@ -2196,6 +2533,16 @@ static int x509_asn1_gt_year(const uint8_t *time_data)
 
 /**
  * @brief Load month..second from GeneralizedTime digit layout (indices 4..13).
+ *
+ * This function loads the month, day, hour, minute, and second from the GeneralizedTime digit layout (indices 4..13).
+ *
+ * @param[in] time_data The time data to load the month, day, hour, minute, and second from.
+ * @param[out] month The month to load.
+ * @param[out] day The day to load.
+ * @param[out] hour The hour to load
+ * @param[out] minute The minute to load
+ * @param[out] second The second to load
+ * @return void
  */
 /* NOLINTNEXTLINE(bugprone-easily-swappable-parameters): grouped out-params are positional date-time components. */
 static void x509_asn1_gt_load_mdhm(const uint8_t *time_data, int *month, int *day, int *hour, int *minute, int *second)
@@ -2209,6 +2556,7 @@ static void x509_asn1_gt_load_mdhm(const uint8_t *time_data, int *month, int *da
 
 /**
  * @brief Convert ASN.1 time to time_t (Unix timestamp)
+ *
  * @param time_data ASN.1 time data (UTCTime or GeneralizedTime)
  * @param time_len Length of time data
  * @param time_out Output time_t value
@@ -2338,6 +2686,11 @@ static noxtls_return_t noxtls_x509_asn1_time_to_timet(const uint8_t *time_data, 
 
 /**
  * @brief Check certificate validity (not expired)
+ *
+ * This function checks the validity of a certificate.
+ *
+ * @param[in] cert The certificate to check the validity of.
+ * @return The return code of the function.
  */
 noxtls_return_t noxtls_x509_certificate_check_validity(const x509_certificate_t *cert)
 {
@@ -2428,8 +2781,15 @@ noxtls_return_t noxtls_x509_certificate_check_validity(const x509_certificate_t 
 
 /**
  * @brief Get public key from certificate (noxtls_ namespace)
+ *
  * For ECC: *key is set to an allocated ecc_key_t* (caller must noxtls_ecc_key_free then free).
  * key_type: 1 = RSA, 2 = ECC.
+ *
+ * @param[in] cert The certificate to get the public key from.
+ * @param[out] key The public key.
+ * @param[out] key_type The type of the public key.
+ *
+ * @return The return code of the function.
  */
 noxtls_return_t noxtls_x509_certificate_get_public_key(const x509_certificate_t *cert, void **key, uint32_t *key_type)
 {
@@ -2486,6 +2846,11 @@ noxtls_return_t noxtls_x509_certificate_get_public_key(const x509_certificate_t 
     memcpy(ecc_key->Q.x, cert->ecc_public_key + 1, coord_size);
     memcpy(ecc_key->Q.y, cert->ecc_public_key + 1 + coord_size, coord_size);
     ecc_key->Q.size = coord_size;
+    if(noxtls_ecc_point_validate_public(&ecc_key->Q, ecc_key->curve) != NOXTLS_RETURN_SUCCESS) {
+        noxtls_ecc_key_free(ecc_key);
+        free(ecc_key);
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
 
     *key = ecc_key;
     *key_type = 2; /* ECC */
@@ -2494,6 +2859,13 @@ noxtls_return_t noxtls_x509_certificate_get_public_key(const x509_certificate_t 
 
 /**
  * @brief Get public key from certificate (legacy wrapper)
+ *
+ * This function gets the public key from a certificate.
+ *
+ * @param[in] cert The certificate to get the public key from.
+ * @param[out] key The public key.
+ * @param[out] key_type The type of the public key.
+ * @return The return code of the function.
  */
 noxtls_return_t x509_certificate_get_public_key(const x509_certificate_t *cert, void **key, uint32_t *key_type)
 {
@@ -2502,8 +2874,16 @@ noxtls_return_t x509_certificate_get_public_key(const x509_certificate_t *cert, 
 
 /**
  * @brief Parse Distinguished Name
+ * Helper function to get attribute name from OID
+ * This function parses a Distinguished Name from a buffer.
+ *
+ * @param[in] dn_data The buffer to parse the Distinguished Name from.
+ * @param[in] dn_len The length of the buffer.
+ * @param[out] output The buffer to store the Distinguished Name.
+ * @param[in] output_size The size of the buffer to store the Distinguished Name.
+ * @return The return code of the function.
  */
-/* Helper function to get attribute name from OID */
+
 static const char* noxtls_x509_get_attr_name_from_oid(const uint8_t *oid, uint32_t oid_len)
 {
     /* Common OIDs for DN attributes */
@@ -2546,6 +2926,17 @@ static const char* noxtls_x509_get_attr_name_from_oid(const uint8_t *oid, uint32
     return NULL;
 }
 
+/**     
+ * @brief Parse Distinguished Name
+ *
+ * This function parses a Distinguished Name from a buffer.
+ *
+ * @param[in] dn_data The buffer to parse the Distinguished Name from.
+ * @param[in] dn_len The length of the buffer.
+ * @param[out] output The buffer to store the Distinguished Name.
+ * @param[in] output_size The size of the buffer to store the Distinguished Name.
+ * @return The return code of the function.
+ */
 noxtls_return_t noxtls_x509_parse_distinguished_name(const uint8_t *dn_data, uint32_t dn_len, char *output, uint32_t output_size)
 {
     uint32_t output_pos = 0;
@@ -2678,6 +3069,14 @@ noxtls_return_t noxtls_x509_parse_distinguished_name(const uint8_t *dn_data, uin
 
 /**
  * @brief Parse ASN.1 time
+ *
+ * This function parses an ASN.1 time from a buffer.
+ *
+ * @param[in] time_data The buffer to parse the ASN.1 time from.
+ * @param[in] time_len The length of the buffer.
+ * @param[out] output The buffer to store the ASN.1 time.
+ * @param[in] output_size The size of the buffer to store the ASN.1 time.
+ * @return The return code of the function.
  */
 noxtls_return_t noxtls_x509_parse_time(const uint8_t *time_data, uint32_t time_len, char *output, uint32_t output_size)
 {
@@ -2739,6 +3138,11 @@ noxtls_return_t noxtls_x509_parse_time(const uint8_t *time_data, uint32_t time_l
 
 /**
  * @brief Initialize certificate chain
+ *
+ * This function initializes a certificate chain.
+ *
+ * @param[in] chain The certificate chain to initialize.
+ * @return The return code of the function.
  */
 noxtls_return_t noxtls_x509_certificate_chain_init(x509_certificate_chain_t *chain)
 {
@@ -2758,6 +3162,11 @@ noxtls_return_t noxtls_x509_certificate_chain_init(x509_certificate_chain_t *cha
 
 /**
  * @brief Free certificate chain
+ *
+ * This function frees a certificate chain.
+ *
+ * @param[in] chain The certificate chain to free.
+ * @return The return code of the function.
  */
 noxtls_return_t noxtls_x509_certificate_chain_free(x509_certificate_chain_t *chain)
 {
@@ -2781,6 +3190,12 @@ noxtls_return_t noxtls_x509_certificate_chain_free(x509_certificate_chain_t *cha
 
 /**
  * @brief Add certificate to chain
+ *
+ * This function adds a certificate to a certificate chain.
+ *
+ * @param[in] chain The certificate chain to add the certificate to.
+ * @param[in] cert The certificate to add to the chain.
+ * @return The return code of the function.
  */
 noxtls_return_t noxtls_x509_certificate_chain_add(x509_certificate_chain_t *chain, const x509_certificate_t *cert)
 {
@@ -2793,7 +3208,7 @@ noxtls_return_t noxtls_x509_certificate_chain_add(x509_certificate_chain_t *chai
 
     if(chain->count >= chain->capacity) {
         /* Expand capacity */
-        if(chain->capacity == 0 || chain->capacity > (UINT32_MAX / 2u)) {
+        if(chain->capacity == 0 || chain->capacity > (UINT32_MAX / 2U)) {
             return NOXTLS_RETURN_FAILED;
         }
         uint32_t new_capacity = chain->capacity * 2;
@@ -2831,6 +3246,11 @@ noxtls_return_t noxtls_x509_certificate_chain_add(x509_certificate_chain_t *chai
 
 /**
  * @brief Verify certificate chain
+ *
+ * This function verifies a certificate chain.
+ *
+ * @param[in] chain The certificate chain to verify.
+ * @return The return code of the function.
  */
 noxtls_return_t noxtls_x509_certificate_chain_verify(x509_certificate_chain_t *chain)
 {
@@ -2871,7 +3291,18 @@ noxtls_return_t noxtls_x509_certificate_chain_verify(x509_certificate_chain_t *c
 
     return NOXTLS_RETURN_SUCCESS;
 }
-
+/**
+ * @brief Compare two Distinguished Names
+ *
+ * This function compares two Distinguished Names.
+ *
+ * @param[in] lhs The left-hand side Distinguished Name.
+ * @param[in] lhs_len The length of the left-hand side Distinguished Name.
+ * @param[in] rhs The right-hand side Distinguished Name.
+ * @param[in] rhs_len The length of the right-hand side Distinguished Name.
+ *
+ * @return The return code of the function.
+ */
 static int x509_dn_equal(const uint8_t *lhs, uint32_t lhs_len, const uint8_t *rhs, uint32_t rhs_len)
 {
     if(lhs == NULL || rhs == NULL) {
@@ -2886,6 +3317,16 @@ static int x509_dn_equal(const uint8_t *lhs, uint32_t lhs_len, const uint8_t *rh
     return (memcmp(lhs, rhs, lhs_len) == 0) ? 1 : 0;
 }
 
+/**
+ * @brief Compare two certificates
+ *
+ * This function compares two certificates.
+ *
+ * @param[in] lhs The left-hand side certificate.
+ * @param[in] rhs The right-hand side certificate.
+ *
+ * @return The return code of the function.
+ */
 static int x509_is_same_cert(const x509_certificate_t *lhs, const x509_certificate_t *rhs)
 {
     if(lhs == NULL || rhs == NULL) {
@@ -2917,41 +3358,90 @@ static int x509_is_same_cert(const x509_certificate_t *lhs, const x509_certifica
     return 0;
 }
 
+/**
+ * @brief Check issuer policy
+ *
+ * This function checks the policy of an issuer.
+ *
+ * @param[in] issuer The issuer to check the policy of.
+ * @param[in] path_depth_below The path depth below the issuer.
+ *
+ * @return The return code of the function.
+ */
 static noxtls_return_t x509_issuer_policy_check(const x509_certificate_t *issuer, uint32_t path_depth_below)
 {
     if(issuer == NULL) {
         return NOXTLS_RETURN_NULL;
     }
     if(issuer->basic_constraints_ca != 1) {
-        cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, issuer, NULL, 0, path_depth_below + 1u);
+        cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, issuer, NULL, 0, path_depth_below + 1U);
         return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
     }
     if(issuer->key_usage_bits != 0 &&
        (issuer->key_usage_bits & X509_KEY_USAGE_KEY_CERT_SIGN) == 0) {
-        cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, issuer, NULL, 0, path_depth_below + 1u);
+        cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, issuer, NULL, 0, path_depth_below + 1U);
         return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
     }
     if(issuer->basic_constraints_path_len != X509_BC_PATH_LEN_ABSENT &&
        path_depth_below > (uint32_t)issuer->basic_constraints_path_len) {
-        cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, issuer, NULL, 0, path_depth_below + 1u);
+        cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, issuer, NULL, 0, path_depth_below + 1U);
         return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
     }
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Check leaf policy
+ *
+ * This function checks the policy of a leaf certificate.
+ *
+ * @param[in] leaf The leaf certificate to check the policy of.
+ * @param[in] required_eku The required Extended Key Usage.
+ * @return The return code of the function.
+ *
+ */
 static noxtls_return_t x509_leaf_policy_check(const x509_certificate_t *leaf, uint32_t required_eku)
 {
+    uint32_t required_key_usage = X509_KEY_USAGE_DIGITAL_SIGNATURE;
+
     if(leaf == NULL) {
         return NOXTLS_RETURN_NULL;
+    }
+    if(leaf->basic_constraints_ca == 1) {
+        cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, leaf, NULL, 0, 0);
+        return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
     }
     if(leaf->ext_key_usage_bits != 0 &&
        (leaf->ext_key_usage_bits & (required_eku | X509_EKU_ANY)) == 0) {
         cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, leaf, NULL, 0, 0);
         return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
     }
+    if(required_eku == X509_EKU_SERVER_AUTH) {
+        required_key_usage = X509_KEY_USAGE_DIGITAL_SIGNATURE |
+                             X509_KEY_USAGE_KEY_ENCIPHERMENT |
+                             X509_KEY_USAGE_KEY_AGREEMENT;
+    } else if(required_eku == X509_EKU_CLIENT_AUTH) {
+        required_key_usage = X509_KEY_USAGE_DIGITAL_SIGNATURE |
+                             X509_KEY_USAGE_KEY_AGREEMENT;
+    }
+    if(leaf->key_usage_bits != 0 &&
+       (leaf->key_usage_bits & required_key_usage) == 0) {
+        cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, leaf, NULL, 0, 0);
+        return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+    }
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Find issuer in chain
+ *
+ * This function finds an issuer in a certificate chain.
+ *
+ * @param[in] subject_cert The subject certificate to find the issuer of.
+ * @param[in] chain The certificate chain to search in.
+ *
+ * @return The issuer certificate.
+ */
 static const x509_certificate_t *x509_find_issuer_in_chain(const x509_certificate_t *subject_cert,
                                                             const x509_certificate_chain_t *chain)
 {
@@ -3015,6 +3505,16 @@ static const x509_certificate_t *x509_find_issuer_in_chain(const x509_certificat
     return fallback;
 }
 
+/**
+ * @brief Check if a certificate chain contains a certificate
+ *
+ * This function checks if a certificate chain contains a certificate.
+ *
+ * @param[in] chain The certificate chain to check.
+ * @param[in] cert The certificate to check for.
+ *
+ * @return The return code of the function.
+ */
 static int x509_chain_contains_cert(const x509_certificate_chain_t *chain, const x509_certificate_t *cert)
 {
     uint32_t i;
@@ -3033,6 +3533,17 @@ static int x509_chain_contains_cert(const x509_certificate_chain_t *chain, const
 /* X.509 CRL (CertificateList) parsing and optional trust verification        */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * @brief Check if two serial numbers are equal
+ *
+ * This function checks if two serial numbers are equal.
+ *
+ * @param[in] a The first serial number.
+ * @param[in] alen The length of the first serial number.
+ * @param[in] b The second serial number.
+ * @param[in] blen The length of the second serial number.
+ * @return The return code of the function.
+ */
 static int x509_serial_equal_normalized(const uint8_t *a, uint32_t alen, const uint8_t *b, uint32_t blen)
 {
     uint32_t i;
@@ -3057,6 +3568,18 @@ static int x509_serial_equal_normalized(const uint8_t *a, uint32_t alen, const u
     return (memcmp(a + i, b + j, alen - i) == 0) ? 1 : 0;
 }
 
+/**
+ * @brief Convert PEM CRL to DER
+ *
+ * This function converts a PEM CRL to DER.
+ *
+ * @param[in] data The PEM CRL data.
+ * @param[in] length The length of the PEM CRL data.
+ * @param[out] output The DER CRL data.
+ * @param[out] out_len The length of the DER CRL data.
+ *
+ * @return The return code of the function.
+ */
 static noxtls_return_t noxtls_x509_crl_pem_to_der(const uint8_t *data, uint32_t length, uint8_t *output, uint32_t *out_len)
 {
     static const char begin_str[] = "-----BEGIN X509 CRL-----";
@@ -3105,6 +3628,16 @@ static noxtls_return_t noxtls_x509_crl_pem_to_der(const uint8_t *data, uint32_t 
     return NOXTLS_RETURN_SUCCESS;
 }
 
+
+/**
+ * @brief Initialize a CRL
+ *
+ * This function initializes a CRL.
+ *
+ * @param[in] crl The CRL to initialize.
+ *
+ * @return The return code of the function.
+ */
 noxtls_return_t noxtls_x509_crl_init(noxtls_x509_crl_t *crl)
 {
     if(crl == NULL) {
@@ -3114,6 +3647,14 @@ noxtls_return_t noxtls_x509_crl_init(noxtls_x509_crl_t *crl)
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Free a CRL
+ *
+ * This function frees a CRL.
+ *
+ * @param[in] crl The CRL to free.
+ * @return The return code of the function.
+ */
 void noxtls_x509_crl_free(noxtls_x509_crl_t *crl)
 {
     if(crl == NULL) {
@@ -3146,6 +3687,17 @@ void noxtls_x509_crl_free(noxtls_x509_crl_t *crl)
     memset(crl, 0, sizeof(noxtls_x509_crl_t));
 }
 
+/**
+ * @brief Parse a CRL from DER
+ *
+ * This function parses a CRL from DER.
+ *
+ * @param[in] crl The CRL to parse.
+ * @param[in] data The DER data to parse.
+ * @param[in] len The length of the DER data.
+ *
+ * @return The return code of the function.
+ */
 noxtls_return_t noxtls_x509_crl_parse_der(noxtls_x509_crl_t *crl, const uint8_t *data, uint32_t len)
 {
     const uint8_t *ptr;
@@ -3265,7 +3817,7 @@ noxtls_return_t noxtls_x509_crl_parse_der(noxtls_x509_crl_t *crl, const uint8_t 
                 }
                 memset(crl->this_update, 0, sizeof(crl->this_update));
                 {
-                    uint32_t copy_len = (time_len > 15u) ? 15u : time_len;
+                    uint32_t copy_len = (time_len > 15U) ? 15U : time_len;
                     memcpy(crl->this_update, tbs_ptr, copy_len);
                     crl->this_update[14] = '\0';
                 }
@@ -3285,7 +3837,7 @@ noxtls_return_t noxtls_x509_crl_parse_der(noxtls_x509_crl_t *crl, const uint8_t 
                     break;
                 }
                 {
-                    uint32_t copy_len = (time_len > 15u) ? 15u : time_len;
+                    uint32_t copy_len = (time_len > 15U) ? 15U : time_len;
                     memcpy(crl->next_update, tbs_ptr, copy_len);
                     crl->next_update[14] = '\0';
                 }
@@ -3426,6 +3978,17 @@ noxtls_return_t noxtls_x509_crl_parse_der(noxtls_x509_crl_t *crl, const uint8_t 
     return rc;
 }
 
+/**
+ * @brief Parse a CRL from PEM
+ *
+ * This function parses a CRL from PEM.
+ *
+ * @param[in] crl The CRL to parse.
+ * @param[in] data The PEM data to parse.
+ * @param[in] len The length of the PEM data.
+ *
+ * @return The return code of the function.
+ */
 noxtls_return_t noxtls_x509_crl_parse_pem(noxtls_x509_crl_t *crl, const uint8_t *data, uint32_t len)
 {
     uint8_t *der = NULL;
@@ -3452,6 +4015,15 @@ noxtls_return_t noxtls_x509_crl_parse_pem(noxtls_x509_crl_t *crl, const uint8_t 
     return rc;
 }
 
+/**
+ * @brief Load a CRL from a file
+ *
+ * This function loads a CRL from a file.
+ *
+ * @param[in] crl The CRL to load.
+ * @param[in] filename The name of the file to load the CRL from.
+ * @return The return code of the function.
+ */
 noxtls_return_t noxtls_x509_crl_load_file(noxtls_x509_crl_t *crl, const char *filename)
 {
     FILE *fp;
@@ -3498,6 +4070,16 @@ noxtls_return_t noxtls_x509_crl_load_file(noxtls_x509_crl_t *crl, const char *fi
     return rc;
 }
 
+/**
+ * @brief Check if a certificate is revoked
+ *
+ * This function checks if a certificate is revoked.
+ *
+ * @param[in] crl The CRL to check.
+ * @param[in] cert The certificate to check.
+ *
+ * @return The return code of the function.
+ */
 int noxtls_x509_crl_serial_is_revoked(const noxtls_x509_crl_t *crl, const x509_certificate_t *cert)
 {
     uint32_t i;
@@ -3515,6 +4097,17 @@ int noxtls_x509_crl_serial_is_revoked(const noxtls_x509_crl_t *crl, const x509_c
 }
 
 #if NOXTLS_HAVE_TIME
+
+/**
+ * @brief Check the times of a CRL
+ *
+ * This function checks the times of a CRL.
+ *
+ * @param[in] crl The CRL to check.
+ * @param[in] flags_out The flags to check.
+ *
+ * @return The return code of the function.
+ */
 static noxtls_return_t noxtls_x509_crl_check_times(const noxtls_x509_crl_t *crl, noxtls_x509_verify_flags_t *flags_out)
 {
     time_t now;
@@ -3564,6 +4157,17 @@ static noxtls_return_t noxtls_x509_crl_check_times(const noxtls_x509_crl_t *crl,
     return NOXTLS_RETURN_SUCCESS;
 }
 #else
+
+/**
+ * @brief Check the times of a CRL
+ *
+ * This function checks the times of a CRL.
+ *
+ * @param[in] crl The CRL to check.
+ * @param[in] flags_out The flags to check.
+ *
+ * @return The return code of the function.
+ */
 static noxtls_return_t noxtls_x509_crl_check_times(const noxtls_x509_crl_t *crl, noxtls_x509_verify_flags_t *flags_out)
 {
     (void)crl;
@@ -3572,6 +4176,17 @@ static noxtls_return_t noxtls_x509_crl_check_times(const noxtls_x509_crl_t *crl,
 }
 #endif
 
+/**
+ * @brief Verify the signature of a CRL
+ *
+ * This function verifies the signature of a CRL.
+ *
+ * @param[in] crl The CRL to verify.
+ * @param[in] issuer The issuer of the CRL.
+ * @param[in] flags_out The flags to verify.
+ *
+ * @return The return code of the function.
+ */
 static noxtls_return_t noxtls_x509_crl_verify_signature(const noxtls_x509_crl_t *crl, const x509_certificate_t *issuer,
                                                         noxtls_x509_verify_flags_t *flags_out)
 {
@@ -3585,6 +4200,13 @@ static noxtls_return_t noxtls_x509_crl_verify_signature(const noxtls_x509_crl_t 
         return NOXTLS_RETURN_NULL;
     }
     if(crl->tbs_crl == NULL || crl->tbs_crl_len == 0 || crl->signature == NULL || crl->signature_len == 0) {
+        return NOXTLS_RETURN_CRL_VERIFY_FAILED;
+    }
+    if(issuer->key_usage_bits != 0 &&
+       (issuer->key_usage_bits & X509_KEY_USAGE_CRL_SIGN) == 0) {
+        if(flags_out != NULL) {
+            *flags_out |= NOXTLS_X509_VERIFY_FLAG_CRL_BAD_SIGNATURE;
+        }
         return NOXTLS_RETURN_CRL_VERIFY_FAILED;
     }
 
@@ -3634,11 +4256,11 @@ static noxtls_return_t noxtls_x509_crl_verify_signature(const noxtls_x509_crl_t 
             uint32_t key_bytes;
             rsa_key_size_t key_size;
             rsa_key_t rsa_key;
-            while(mod_len > 0u && mod_ptr[0] == 0u) {
+            while(mod_len > 0U && mod_ptr[0] == 0U) {
                 mod_ptr++;
                 mod_len--;
             }
-            while(exp_len > 0u && exp_ptr[0] == 0u) {
+            while(exp_len > 0U && exp_ptr[0] == 0U) {
                 exp_ptr++;
                 exp_len--;
             }
@@ -3658,7 +4280,7 @@ static noxtls_return_t noxtls_x509_crl_verify_signature(const noxtls_x509_crl_t 
             if(rc != NOXTLS_RETURN_SUCCESS) {
                 return rc;
             }
-            if(mod_len == 0u || exp_len == 0u || mod_len > rsa_key.key_bytes || exp_len > rsa_key.key_bytes) {
+            if(mod_len == 0U || exp_len == 0U || mod_len > rsa_key.key_bytes || exp_len > rsa_key.key_bytes) {
                 noxtls_rsa_key_free(&rsa_key);
                 return NOXTLS_RETURN_INVALID_PARAM;
             }
@@ -3724,6 +4346,10 @@ static noxtls_return_t noxtls_x509_crl_verify_signature(const noxtls_x509_crl_t 
             memcpy(ecc_key.Q.x, issuer->ecc_public_key + 1, coord_size);
             memcpy(ecc_key.Q.y, issuer->ecc_public_key + 1 + coord_size, coord_size);
             ecc_key.Q.size = coord_size;
+            if(noxtls_ecc_point_validate_public(&ecc_key.Q, ecc_key.curve) != NOXTLS_RETURN_SUCCESS) {
+                noxtls_ecc_key_free(&ecc_key);
+                return NOXTLS_RETURN_INVALID_PARAM;
+            }
         }
 
         if(asn1_get_tag(&sig_ptr, sig_end, 0x30) != NOXTLS_RETURN_SUCCESS) {
@@ -3794,6 +4420,18 @@ static noxtls_return_t noxtls_x509_crl_verify_signature(const noxtls_x509_crl_t 
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Apply a CRL for a certificate
+ *
+ * This function applies a CRL for a certificate.
+ *
+ * @param[in] cert The certificate to apply the CRL to.
+ * @param[in] issuer The issuer of the CRL.
+ * @param[in] crl_chain The CRL chain to apply.
+ * @param[in] flags_out The flags to apply.
+ *
+ * @return The return code of the function.
+ */
 static noxtls_return_t x509_apply_crl_for_cert(const x509_certificate_t *cert, const x509_certificate_t *issuer,
                                                const noxtls_x509_crl_t *crl_chain, noxtls_x509_verify_flags_t *flags_out)
 {
@@ -3842,24 +4480,48 @@ static noxtls_return_t x509_apply_crl_for_cert(const x509_certificate_t *cert, c
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Clear the trust store
+ *
+ * This function clears the trust store.
+ *
+ * @return The return code of the function.
+ */
 void noxtls_x509_trust_store_clear(void)
 {
-    if(s_x509_trust_anchors_initialized) {
-        noxtls_x509_certificate_chain_free(&s_x509_trust_anchors);
-    }
-    memset(&s_x509_trust_anchors, 0, sizeof(s_x509_trust_anchors));
+    /*
+     * Do not free published snapshots in-place: concurrent verifiers may still
+     * be walking them. New verification calls will observe the cleared store.
+     */
+    s_x509_trust_anchors = NULL;
     s_x509_trust_anchors_initialized = 0;
 }
 
+/**
+ * @brief Check if the trust store has anchors
+ *
+ * This function checks if the trust store has anchors.
+ *
+ * @return The return code of the function.
+ */
 int noxtls_x509_trust_store_has_anchors(void)
 {
-    return (s_x509_trust_anchors_initialized && s_x509_trust_anchors.count > 0u) ? 1 : 0;
+    const x509_certificate_chain_t *trust_anchors = s_x509_trust_anchors;
+    return (s_x509_trust_anchors_initialized && trust_anchors != NULL && trust_anchors->count > 0U) ? 1 : 0;
 }
 
+/**
+ * @brief Set the trust store
+ *
+ * This function sets the trust store.
+ *
+ * @param[in] trust_anchors The trust store to set.
+ *
+ * @return The return code of the function.
+ */
 noxtls_return_t noxtls_x509_trust_store_set(const x509_certificate_chain_t *trust_anchors)
 {
-    uint32_t i;
-    noxtls_return_t rc;
+    x509_certificate_chain_t *snapshot;
 
     noxtls_x509_trust_store_clear();
 
@@ -3867,22 +4529,25 @@ noxtls_return_t noxtls_x509_trust_store_set(const x509_certificate_chain_t *trus
         return NOXTLS_RETURN_SUCCESS;
     }
 
-    rc = noxtls_x509_certificate_chain_init(&s_x509_trust_anchors);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
+    snapshot = x509_trust_store_clone(trust_anchors);
+    if(snapshot == NULL) {
+        return NOXTLS_RETURN_FAILED;
     }
-    s_x509_trust_anchors_initialized = 1;
 
-    for(i = 0; i < trust_anchors->count; i++) {
-        rc = noxtls_x509_certificate_chain_add(&s_x509_trust_anchors, &trust_anchors->certs[i]);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            noxtls_x509_trust_store_clear();
-            return rc;
-        }
-    }
+    s_x509_trust_anchors = snapshot;
+    s_x509_trust_anchors_initialized = 1;
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Note if a CRL does not match
+ *
+ * This function notes if a CRL does not match.
+ *
+ * @param[in] crl The CRL to note.
+ * @param[in] flags_out The flags to note.
+ * @return The return code of the function.
+ */
 static void x509_verify_crl_note_no_match_if_needed(const noxtls_x509_crl_t *crl, noxtls_x509_verify_flags_t *flags_out)
 {
     if(crl != NULL && flags_out != NULL && (*flags_out & NOXTLS_X509_VERIFY_FLAG_CRL_USED) == 0) {
@@ -3890,12 +4555,27 @@ static void x509_verify_crl_note_no_match_if_needed(const noxtls_x509_crl_t *crl
     }
 }
 
+
+/**
+ * @brief Verify the trust of a certificate
+ *
+ * This function verifies the trust of a certificate.
+ *
+ * @param[in] leaf The leaf certificate to verify.
+ * @param[in] presented_chain The presented chain to verify.
+ * @param[in] required_eku The required Extended Key Usage.
+ * @param[in] crl The CRL to verify.
+ * @param[in] flags_out The flags to verify.
+ * 
+ * @return The return code of the function.
+ */
 static noxtls_return_t x509_verify_cert_trust_internal(const x509_certificate_t *leaf,
                                                        const x509_certificate_chain_t *presented_chain,
                                                        uint32_t required_eku,
                                                        const noxtls_x509_crl_t *crl,
                                                        noxtls_x509_verify_flags_t *flags_out)
 {
+    const x509_certificate_chain_t *trust_anchors = s_x509_trust_anchors;
     const x509_certificate_t *current;
     uint32_t depth = 0;
     const uint32_t max_depth = NOXTLS_MAX_CERT_CHAIN_DEPTH;
@@ -3907,12 +4587,12 @@ static noxtls_return_t x509_verify_cert_trust_internal(const x509_certificate_t 
     if(leaf == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(max_depth == 0u) {
+    if(max_depth == 0U) {
         cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, leaf, NULL, 0, 0);
         return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
     }
 
-    if(!s_x509_trust_anchors_initialized || s_x509_trust_anchors.count == 0) {
+    if(!s_x509_trust_anchors_initialized || trust_anchors == NULL || trust_anchors->count == 0U) {
         cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, leaf, NULL, 0, 0);
         return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
     }
@@ -3933,7 +4613,7 @@ static noxtls_return_t x509_verify_cert_trust_internal(const x509_certificate_t 
         const x509_certificate_t *issuer = NULL;
         noxtls_return_t rc;
 
-        if(x509_chain_contains_cert(&s_x509_trust_anchors, current)) {
+        if(x509_chain_contains_cert(trust_anchors, current)) {
             x509_verify_crl_note_no_match_if_needed(crl, flags_out);
             return NOXTLS_RETURN_SUCCESS;
         }
@@ -3942,7 +4622,7 @@ static noxtls_return_t x509_verify_cert_trust_internal(const x509_certificate_t 
             issuer = x509_find_issuer_in_chain(current, presented_chain);
         }
         if(issuer == NULL) {
-            issuer = x509_find_issuer_in_chain(current, &s_x509_trust_anchors);
+            issuer = x509_find_issuer_in_chain(current, trust_anchors);
         }
         if(issuer == NULL || x509_is_same_cert(issuer, current)) {
             cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, current, NULL, 0, depth);
@@ -3951,7 +4631,7 @@ static noxtls_return_t x509_verify_cert_trust_internal(const x509_certificate_t 
 
         rc = noxtls_x509_certificate_verify_signature((x509_certificate_t*)current, issuer);
         if(rc != NOXTLS_RETURN_SUCCESS && presented_chain != NULL) {
-            const x509_certificate_t *trust_issuer = x509_find_issuer_in_chain(current, &s_x509_trust_anchors);
+            const x509_certificate_t *trust_issuer = x509_find_issuer_in_chain(current, trust_anchors);
             if(trust_issuer != NULL && !x509_is_same_cert(trust_issuer, current)) {
                 noxtls_return_t trust_rc = noxtls_x509_certificate_verify_signature((x509_certificate_t*)current, trust_issuer);
                 if(trust_rc == NOXTLS_RETURN_SUCCESS) {
@@ -3974,18 +4654,18 @@ static noxtls_return_t x509_verify_cert_trust_internal(const x509_certificate_t 
 
         rc = noxtls_x509_certificate_check_validity(issuer);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            s_cert_fail_info.cert_index = depth + 1u;
+            s_cert_fail_info.cert_index = depth + 1U;
             return rc;
         }
 
-        if(!x509_chain_contains_cert(&s_x509_trust_anchors, issuer)) {
+        if(!x509_chain_contains_cert(trust_anchors, issuer)) {
             rc = x509_issuer_policy_check(issuer, depth);
             if(rc != NOXTLS_RETURN_SUCCESS) {
                 return rc;
             }
         }
 
-        if(x509_chain_contains_cert(&s_x509_trust_anchors, issuer)) {
+        if(x509_chain_contains_cert(trust_anchors, issuer)) {
             x509_verify_crl_note_no_match_if_needed(crl, flags_out);
             return NOXTLS_RETURN_SUCCESS;
         }
@@ -3998,12 +4678,34 @@ static noxtls_return_t x509_verify_cert_trust_internal(const x509_certificate_t 
     return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
 }
 
+/**
+ * @brief Verify the trust of a server certificate
+ *
+ * This function verifies the trust of a server certificate.
+ *
+ * @param[in] leaf The leaf certificate to verify.
+ * @param[in] presented_chain The presented chain to verify.
+ *
+ * @return The return code of the function.
+ */
 noxtls_return_t noxtls_x509_verify_server_cert_trust(const x509_certificate_t *leaf,
                                                      const x509_certificate_chain_t *presented_chain)
 {
     return x509_verify_cert_trust_internal(leaf, presented_chain, X509_EKU_SERVER_AUTH, NULL, NULL);
 }
 
+/**
+ * @brief Verify the trust of a server certificate with a CRL
+ *
+ * This function verifies the trust of a server certificate with a CRL.
+ *
+ * @param[in] leaf The leaf certificate to verify.
+ * @param[in] presented_chain The presented chain to verify.
+ * @param[in] crl The CRL to verify.
+ * @param[in] flags_out The flags to verify.
+ *
+ * @return The return code of the function.
+ */
 noxtls_return_t noxtls_x509_verify_server_cert_trust_ex(const x509_certificate_t *leaf,
                                                         const x509_certificate_chain_t *presented_chain,
                                                         const noxtls_x509_crl_t *crl,
@@ -4012,12 +4714,34 @@ noxtls_return_t noxtls_x509_verify_server_cert_trust_ex(const x509_certificate_t
     return x509_verify_cert_trust_internal(leaf, presented_chain, X509_EKU_SERVER_AUTH, crl, flags_out);
 }
 
+/**
+ * @brief Verify the trust of a client certificate
+ *
+ * This function verifies the trust of a client certificate.
+ *
+ * @param[in] leaf The leaf certificate to verify.
+ * @param[in] presented_chain The presented chain to verify.
+ *
+ * @return The return code of the function.
+ */
 noxtls_return_t noxtls_x509_verify_client_cert_trust(const x509_certificate_t *leaf,
                                                      const x509_certificate_chain_t *presented_chain)
 {
     return x509_verify_cert_trust_internal(leaf, presented_chain, X509_EKU_CLIENT_AUTH, NULL, NULL);
 }
 
+/**
+ * @brief Verify the trust of a client certificate with a CRL
+ *
+ * This function verifies the trust of a client certificate with a CRL.
+ *
+ * @param[in] leaf The leaf certificate to verify.
+ * @param[in] presented_chain The presented chain to verify.
+ * @param[in] crl The CRL to verify.
+ * @param[in] flags_out The flags to verify.
+ *
+ * @return The return code of the function.
+ */
 noxtls_return_t noxtls_x509_verify_client_cert_trust_ex(const x509_certificate_t *leaf,
                                                          const x509_certificate_chain_t *presented_chain,
                                                          const noxtls_x509_crl_t *crl,
@@ -4028,6 +4752,11 @@ noxtls_return_t noxtls_x509_verify_client_cert_trust_ex(const x509_certificate_t
 
 /**
  * @brief Initialize X.509 private key structure
+ *
+ * This function initializes a X.509 private key structure.
+ *
+ * @param[in] key The X.509 private key structure to initialize.
+ * @return The return code of the function.
  */
 noxtls_return_t noxtls_x509_private_key_init(x509_private_key_t *key)
 {
@@ -4044,6 +4773,11 @@ noxtls_return_t noxtls_x509_private_key_init(x509_private_key_t *key)
 
 /**
  * @brief Free X.509 private key structure
+ *
+ * This function frees a X.509 private key structure.
+ *
+ * @param[in] key The X.509 private key structure to free.
+ * @return The return code of the function.
  */
 noxtls_return_t noxtls_x509_private_key_free(x509_private_key_t *key)
 {
@@ -4095,6 +4829,12 @@ noxtls_return_t noxtls_x509_private_key_free(x509_private_key_t *key)
         free(key->eddsa_seed);
         key->eddsa_seed = NULL;
     }
+    if(key->pqc_secret_key) {
+        /* Wipe before free - secret material from FIPS 204 / 205. */
+        memset(key->pqc_secret_key, 0, key->pqc_secret_key_len);
+        free(key->pqc_secret_key);
+        key->pqc_secret_key = NULL;
+    }
     if(key->raw_data) {
         free(key->raw_data);
         key->raw_data = NULL;
@@ -4107,6 +4847,13 @@ noxtls_return_t noxtls_x509_private_key_free(x509_private_key_t *key)
 
 /**
  * @brief Parse PKCS#1 RSA Private Key (DER format)
+ *
+ * This function parses a PKCS#1 RSA private key (DER format).
+ *
+ * @param[in] key The X.509 private key structure to parse.
+ * @param[in] data The DER data to parse.
+ * @param[in] len The length of the DER data.
+ * @return The return code of the function.
  */
 static noxtls_return_t noxtls_x509_parse_pkcs1_rsa_private_key(x509_private_key_t *key, const uint8_t *data, uint32_t len)
 {
@@ -4256,6 +5003,19 @@ static noxtls_return_t noxtls_x509_parse_sec1_ecc_private_key(x509_private_key_t
 
 #if NOXTLS_FEATURE_ED25519 || (NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3)
 /** PKCS#8 PrivateKey OCTET STRING: raw seed or OCTET STRING-wrapped seed (RFC 8410). */
+/**
+ * @brief Parse PKCS#8 PrivateKey OCTET STRING: raw seed or OCTET STRING-wrapped seed (RFC 8410)
+ *
+ * This function parses a PKCS#8 PrivateKey OCTET STRING: raw seed or OCTET STRING-wrapped seed (RFC 8410).
+ *
+ * @param[in] content The content to parse.
+ * @param[in] content_len The length of the content.
+ * @param[in] want_len The length of the seed to want.
+ * @param[out] seed_out The seed out.
+ * @param[out] seed_len_out The length of the seed out.
+ *
+ * @return The return code of the function.
+ */
 static noxtls_return_t x509_pkcs8_ed_seed_from_octet(const uint8_t *content, uint32_t content_len,
     uint32_t want_len, const uint8_t **seed_out, uint32_t *seed_len_out)
 {
@@ -4283,6 +5043,16 @@ static noxtls_return_t x509_pkcs8_ed_seed_from_octet(const uint8_t *content, uin
 #endif
 
 #if NOXTLS_FEATURE_ED25519
+/**
+ * @brief Check if an OID is Ed25519
+ *
+ * This function checks if an OID is Ed25519.
+ *
+ * @param[in] o The OID to check.
+ * @param[in] l The length of the OID.
+ *
+ * @return The return code of the function.
+ */
 static int x509_oid_is_ed25519(const uint8_t *o, uint32_t l)
 {
     static const uint8_t id_ed25519[] = { 0x2B, 0x65, 0x70 };
@@ -4290,6 +5060,16 @@ static int x509_oid_is_ed25519(const uint8_t *o, uint32_t l)
 }
 #endif
 #if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+/**
+ * @brief Check if an OID is Ed448
+ *
+ * This function checks if an OID is Ed448.
+ *
+ * @param[in] o The OID to check.
+ * @param[in] l The length of the OID.
+ *
+ * @return The return code of the function.
+ */
 static int x509_oid_is_ed448(const uint8_t *o, uint32_t l)
 {
     static const uint8_t id_ed448[] = { 0x2B, 0x65, 0x71 };
@@ -4297,8 +5077,103 @@ static int x509_oid_is_ed448(const uint8_t *o, uint32_t l)
 }
 #endif
 
+#if NOXTLS_FEATURE_ML_DSA
+/**
+ * @brief Check if an OID is ML-DSA
+ *
+ * This function checks if an OID is ML-DSA.
+ *
+ * @param[in] o The OID to check.
+ * @param[in] l The length of the OID.
+ *
+ * @return The return code of the function.
+ *
+ * Detect id-ml-dsa-* OIDs (NIST CSOR 2.16.840.1.101.3.4.3.{17,18,19}).
+ * Returns 0 on no match, else the noxtls_mldsa_param_t value (1, 2 or 3).
+ */
+static int x509_oid_is_mldsa(const uint8_t *o, uint32_t l)
+{
+    /* DER prefix for 2.16.840.1.101.3.4.3 (id-NIST-sigAlgs-experiments root for FIPS204). */
+    static const uint8_t prefix[] = { 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03 };
+    if(l != sizeof(prefix) + 1 || memcmp(o, prefix, sizeof(prefix)) != 0) {
+        return 0;
+    }
+    if(o[sizeof(prefix)] == 0x11) return (int)NOXTLS_MLDSA_44;
+    if(o[sizeof(prefix)] == 0x12) return (int)NOXTLS_MLDSA_65;
+    if(o[sizeof(prefix)] == 0x13) return (int)NOXTLS_MLDSA_87;
+    return 0;
+}
+#endif
+
+#if NOXTLS_FEATURE_SLH_DSA
+/**
+ * Detect id-slh-dsa-* OIDs (NIST CSOR 2.16.840.1.101.3.4.3.{20..31}).
+ * Returns 0 on no match, else the noxtls_slhdsa_param_t value (1..12).
+ *
+ * @param[in] o The OID to check.
+ * @param[in] l The length of the OID.
+ *
+ * @return The return code of the function.
+ */
+static int x509_oid_is_slhdsa(const uint8_t *o, uint32_t l)
+{
+    static const uint8_t prefix[] = { 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03 };
+    uint8_t arc;
+    if(l != sizeof(prefix) + 1 || memcmp(o, prefix, sizeof(prefix)) != 0) {
+        return 0;
+    }
+    arc = o[sizeof(prefix)];
+    if(arc < 0x14 || arc > 0x1F) {
+        return 0;
+    }
+    /* 0x14 → SHA2-128S (1), 0x15 → SHA2-128F (2), ... matches noxtls_slhdsa_param_t numbering. */
+    return (int)(arc - 0x13);
+}
+#endif
+
+#if NOXTLS_FEATURE_FALCON
+/*
+ * Detect Falcon OIDs under 1.3.9999.3.{6,7}
+ *  - 1.3.9999.3.6 -> Falcon-512
+ *  - 1.3.9999.3.7 -> Falcon-1024
+ * Returns 0 on no match, else noxtls_falcon_param_t value.
+ */
+
+/**
+ * @brief Check if an OID is Falcon
+ * 
+ * @param[in] o The OID to check.
+ * @param[in] l The length of the OID.
+ * 
+ * @return The return code of the function.
+ */
+static int x509_oid_is_falcon(const uint8_t *o, uint32_t l)
+{
+    static const uint8_t oid_falcon512[] = { 0x2B, 0xCE, 0x0F, 0x03, 0x06 };
+    static const uint8_t oid_falcon1024[] = { 0x2B, 0xCE, 0x0F, 0x03, 0x07 };
+    if(o == NULL) {
+        return 0;
+    }
+    if(l == sizeof(oid_falcon512) && memcmp(o, oid_falcon512, sizeof(oid_falcon512)) == 0) {
+        return (int)NOXTLS_FALCON_512;
+    }
+    if(l == sizeof(oid_falcon1024) && memcmp(o, oid_falcon1024, sizeof(oid_falcon1024)) == 0) {
+        return (int)NOXTLS_FALCON_1024;
+    }
+    return 0;
+}
+#endif
+
 /**
  * @brief Parse PKCS#8 Private Key (DER format)
+ *
+ * This function parses a PKCS#8 Private Key (DER format).
+ *
+ * @param[in] key The X.509 private key structure to parse.
+ * @param[in] data The DER data to parse.
+ * @param[in] len The length of the DER data.
+ *
+ * @return The return code of the function.
  */
 static noxtls_return_t noxtls_x509_parse_pkcs8_private_key(x509_private_key_t *key, const uint8_t *data, uint32_t len)
 {
@@ -4435,6 +5310,147 @@ static noxtls_return_t noxtls_x509_parse_pkcs8_private_key(x509_private_key_t *k
         }
     }
 #endif
+#if NOXTLS_FEATURE_ML_DSA
+    if(pkcs8_algorithm_oid_len > 0) {
+        int mldsa_param = x509_oid_is_mldsa(pkcs8_algorithm_oid, pkcs8_algorithm_oid_len);
+        if(mldsa_param != 0) {
+            /* PKCS#8 OCTET STRING content holds the raw secret key. Some encodings
+             * additionally wrap it in another OCTET STRING (draft-ietf-lamps-dilithium-certificates
+             * section 5 permits "wrap" + "naked" forms); accept either. */
+            const uint8_t *sk_ptr = info_ptr;
+            uint32_t sk_len = private_key_len;
+            uint32_t expected_sk = noxtls_mldsa_secret_key_len((noxtls_mldsa_param_t)mldsa_param);
+            if(expected_sk == 0) {
+                return NOXTLS_RETURN_FAILED;
+            }
+            if(sk_len != expected_sk) {
+                const uint8_t *p = info_ptr;
+                if(asn1_get_tag(&p, info_ptr + private_key_len, 0x04) == NOXTLS_RETURN_SUCCESS) {
+                    uint32_t inner = asn1_get_length(&p, info_ptr + private_key_len);
+                    if(inner == expected_sk && p + inner <= info_ptr + private_key_len) {
+                        sk_ptr = p;
+                        sk_len = inner;
+                    }
+                }
+            }
+            if(sk_len != expected_sk) {
+                CERT_DEBUG_PRINT("x509_parse_pkcs8: ML-DSA secret length mismatch (%u vs %u)\n", sk_len, expected_sk);
+                return NOXTLS_RETURN_FAILED;
+            }
+            noxtls_x509_private_key_free(key);
+            key->raw_data = (uint8_t*)malloc(len);
+            if(key->raw_data == NULL) {
+                return NOXTLS_RETURN_FAILED;
+            }
+            memcpy(key->raw_data, data, len);
+            key->raw_data_len = len;
+            key->key_type = X509_PRIVATE_KEY_ML_DSA;
+            key->format = X509_PRIVATE_KEY_FORMAT_PKCS8;
+            key->pqc_param = (uint32_t)mldsa_param;
+            key->pqc_secret_key = (uint8_t*)malloc(sk_len);
+            if(key->pqc_secret_key == NULL) {
+                noxtls_x509_private_key_free(key);
+                return NOXTLS_RETURN_FAILED;
+            }
+            memcpy(key->pqc_secret_key, sk_ptr, sk_len);
+            key->pqc_secret_key_len = sk_len;
+            CERT_DEBUG_PRINT("x509_parse_pkcs8: parsed as ML-DSA PKCS#8 param=%d sk_len=%u\n", mldsa_param, sk_len);
+            return NOXTLS_RETURN_SUCCESS;
+        }
+    }
+#endif
+#if NOXTLS_FEATURE_SLH_DSA
+    if(pkcs8_algorithm_oid_len > 0) {
+        int slhdsa_param = x509_oid_is_slhdsa(pkcs8_algorithm_oid, pkcs8_algorithm_oid_len);
+        if(slhdsa_param != 0) {
+            const uint8_t *sk_ptr = info_ptr;
+            uint32_t sk_len = private_key_len;
+            uint32_t expected_sk = noxtls_slhdsa_secret_key_len((noxtls_slhdsa_param_t)slhdsa_param);
+            if(expected_sk == 0) {
+                return NOXTLS_RETURN_FAILED;
+            }
+            if(sk_len != expected_sk) {
+                const uint8_t *p = info_ptr;
+                if(asn1_get_tag(&p, info_ptr + private_key_len, 0x04) == NOXTLS_RETURN_SUCCESS) {
+                    uint32_t inner = asn1_get_length(&p, info_ptr + private_key_len);
+                    if(inner == expected_sk && p + inner <= info_ptr + private_key_len) {
+                        sk_ptr = p;
+                        sk_len = inner;
+                    }
+                }
+            }
+            if(sk_len != expected_sk) {
+                CERT_DEBUG_PRINT("x509_parse_pkcs8: SLH-DSA secret length mismatch (%u vs %u)\n", sk_len, expected_sk);
+                return NOXTLS_RETURN_FAILED;
+            }
+            noxtls_x509_private_key_free(key);
+            key->raw_data = (uint8_t*)malloc(len);
+            if(key->raw_data == NULL) {
+                return NOXTLS_RETURN_FAILED;
+            }
+            memcpy(key->raw_data, data, len);
+            key->raw_data_len = len;
+            key->key_type = X509_PRIVATE_KEY_SLH_DSA;
+            key->format = X509_PRIVATE_KEY_FORMAT_PKCS8;
+            key->pqc_param = (uint32_t)slhdsa_param;
+            key->pqc_secret_key = (uint8_t*)malloc(sk_len);
+            if(key->pqc_secret_key == NULL) {
+                noxtls_x509_private_key_free(key);
+                return NOXTLS_RETURN_FAILED;
+            }
+            memcpy(key->pqc_secret_key, sk_ptr, sk_len);
+            key->pqc_secret_key_len = sk_len;
+            CERT_DEBUG_PRINT("x509_parse_pkcs8: parsed as SLH-DSA PKCS#8 param=%d sk_len=%u\n", slhdsa_param, sk_len);
+            return NOXTLS_RETURN_SUCCESS;
+        }
+    }
+#endif
+#if NOXTLS_FEATURE_FALCON
+    if(pkcs8_algorithm_oid_len > 0) {
+        int falcon_param = x509_oid_is_falcon(pkcs8_algorithm_oid, pkcs8_algorithm_oid_len);
+        if(falcon_param != 0) {
+            const uint8_t *sk_ptr = info_ptr;
+            uint32_t sk_len = private_key_len;
+            uint32_t expected_sk = noxtls_falcon_secret_key_len((noxtls_falcon_param_t)falcon_param);
+            if(expected_sk == 0U) {
+                return NOXTLS_RETURN_FAILED;
+            }
+            if(sk_len != expected_sk) {
+                const uint8_t *p = info_ptr;
+                if(asn1_get_tag(&p, info_ptr + private_key_len, 0x04) == NOXTLS_RETURN_SUCCESS) {
+                    uint32_t inner = asn1_get_length(&p, info_ptr + private_key_len);
+                    if(inner == expected_sk && p + inner <= info_ptr + private_key_len) {
+                        sk_ptr = p;
+                        sk_len = inner;
+                    }
+                }
+            }
+            if(sk_len != expected_sk) {
+                CERT_DEBUG_PRINT("x509_parse_pkcs8: FALCON secret length mismatch (%u vs %u)\n", sk_len, expected_sk);
+                return NOXTLS_RETURN_FAILED;
+            }
+            noxtls_x509_private_key_free(key);
+            key->raw_data = (uint8_t*)malloc(len);
+            if(key->raw_data == NULL) {
+                return NOXTLS_RETURN_FAILED;
+            }
+            memcpy(key->raw_data, data, len);
+            key->raw_data_len = len;
+            key->key_type = X509_PRIVATE_KEY_FALCON;
+            key->format = X509_PRIVATE_KEY_FORMAT_PKCS8;
+            key->pqc_param = (uint32_t)falcon_param;
+            key->pqc_secret_key = (uint8_t*)malloc(sk_len);
+            if(key->pqc_secret_key == NULL) {
+                noxtls_x509_private_key_free(key);
+                return NOXTLS_RETURN_FAILED;
+            }
+            memcpy(key->pqc_secret_key, sk_ptr, sk_len);
+            key->pqc_secret_key_len = sk_len;
+            CERT_DEBUG_PRINT("x509_parse_pkcs8: parsed as FALCON PKCS#8 param=%d sk_len=%u\n", falcon_param, sk_len);
+            return NOXTLS_RETURN_SUCCESS;
+        }
+    }
+#endif
 
     /* Try SEC1 ECC (OCTET STRING content is DER ECPrivateKey, starts with 0x30) */
     if(info_ptr[0] == 0x30) {
@@ -4495,6 +5511,13 @@ static noxtls_return_t noxtls_x509_parse_pkcs8_private_key(x509_private_key_t *k
 
 /**
  * @brief Parse SEC1 ECC Private Key (DER format)
+ *
+ * This function parses a SEC1 ECC Private Key (DER format).
+ *
+ * @param[in] key The X.509 private key structure to parse.
+ * @param[in] data The DER data to parse.
+ * @param[in] len The length of the DER data.
+ * @return The return code of the function.
  */
 static noxtls_return_t noxtls_x509_parse_sec1_ecc_private_key(x509_private_key_t *key, const uint8_t *data, uint32_t len)
 {
@@ -4572,7 +5595,16 @@ static noxtls_return_t noxtls_x509_parse_sec1_ecc_private_key(x509_private_key_t
 
 #if NOXTLS_FEATURE_AES_CBC
 /**
- * Parse EncryptedPrivateKeyInfo (RFC 5208), decrypt with password using PBES2/PBKDF2/AES-CBC, then parse inner key.
+ * @brief Parse EncryptedPrivateKeyInfo (RFC 5208), decrypt with password using PBES2/PBKDF2/AES-CBC, then parse inner key.
+ *
+ * This function parses a EncryptedPrivateKeyInfo (RFC 5208), decrypt with password using PBES2/PBKDF2/AES-CBC, then parse inner key.
+ *
+ * @param[in] key The X.509 private key structure to parse.
+ * @param[in] data The DER data to parse.
+ * @param[in] len The length of the DER data.
+ * @param[in] password The password to decrypt the key.
+ * @param[in] password_len The length of the password.
+ *
  * Returns NOXTLS_RETURN_SUCCESS and fills key on success.
  */
 static noxtls_return_t noxtls_x509_parse_encrypted_pkcs8(x509_private_key_t *key, const uint8_t *data, uint32_t len,
@@ -4697,6 +5729,14 @@ static noxtls_return_t noxtls_x509_parse_encrypted_pkcs8(x509_private_key_t *key
  * @brief Parse X.509 private key from DER format (optionally decrypt with password).
  * If \p password is non-NULL and the key is EncryptedPrivateKeyInfo (PBES2/PBKDF2/AES), decrypts then parses.
  * If \p password is NULL and the blob is encrypted, sets key->encrypted=1 and returns NOXTLS_RETURN_FAILED.
+ *
+ * @param[in] key The X.509 private key structure to parse.
+ * @param[in] data The DER data to parse.
+ * @param[in] len The length of the DER data.
+ * @param[in] password The password to decrypt the key.
+ * @param[in] password_len The length of the password.
+ *
+ * @return The return code of the function.
  */
 noxtls_return_t noxtls_x509_private_key_parse_der_with_password(x509_private_key_t *key, const uint8_t *data, uint32_t len,
                                                                  const char *password, uint32_t password_len)
@@ -4739,6 +5779,14 @@ noxtls_return_t noxtls_x509_private_key_parse_der_with_password(x509_private_key
 
 /**
  * @brief Parse X.509 private key from DER format
+ *
+ * This function parses a X.509 private key from DER format.
+ *
+ * @param[in] key The X.509 private key structure to parse.
+ * @param[in] data The DER data to parse.
+ * @param[in] len The length of the DER data.
+ *
+ * @return The return code of the function.
  */
 noxtls_return_t noxtls_x509_private_key_parse_der(x509_private_key_t *key, const uint8_t *data, uint32_t len)
 {
@@ -4810,6 +5858,12 @@ noxtls_return_t noxtls_x509_private_key_parse_der(x509_private_key_t *key, const
  * Find first occurrence of NUL-terminated \p needle in \p buf[0..len).
  * PEM file contents are not NUL-terminated; using strstr() on them is undefined
  * behavior and may read past the allocation (FORTIFY/ASAN).
+ *
+ * @param[in] buf The buffer to search.
+ * @param[in] len The length of the buffer.
+ * @param[in] needle The needle to search for.
+ *
+ * @return The pointer to the first occurrence of the needle.
  */
 static const uint8_t *x509_memfind(const uint8_t *buf, uint32_t len, const char *needle)
 {
@@ -4820,7 +5874,7 @@ static const uint8_t *x509_memfind(const uint8_t *buf, uint32_t len, const char 
         return NULL;
     }
     nlen = strlen(needle);
-    if(nlen == 0u || (size_t)len < nlen) {
+    if(nlen == 0U || (size_t)len < nlen) {
         return NULL;
     }
     for(i = 0; (size_t)i + nlen <= (size_t)len; i++) {
@@ -4833,6 +5887,14 @@ static const uint8_t *x509_memfind(const uint8_t *buf, uint32_t len, const char 
 
 /**
  * @brief Parse X.509 private key from PEM format
+ *
+ * This function parses a X.509 private key from PEM format.
+ *
+ * @param[in] key The X.509 private key structure to parse.
+ * @param[in] data The PEM data to parse.
+ * @param[in] len The length of the PEM data.
+ *
+ * @return The return code of the function.
  */
 noxtls_return_t noxtls_x509_private_key_parse_pem(x509_private_key_t *key, const uint8_t *data, uint32_t len)
 {
@@ -4935,6 +5997,14 @@ noxtls_return_t noxtls_x509_private_key_parse_pem(x509_private_key_t *key, const
  * @brief Parse X.509 private key from PEM format with optional password.
  * Use for "-----BEGIN ENCRYPTED PRIVATE KEY-----" or when a password might be needed.
  * For unencrypted PEM, \p password may be NULL.
+ *
+ * @param[in] key The X.509 private key structure to parse.
+ * @param[in] data The PEM data to parse.
+ * @param[in] len The length of the PEM data.
+ * @param[in] password The password to decrypt the key.
+ * @param[in] password_len The length of the password.
+ *
+ * @return The return code of the function.
  */
 noxtls_return_t noxtls_x509_private_key_parse_pem_with_password(x509_private_key_t *key, const uint8_t *data, uint32_t len,
                                                                  const char *password, uint32_t password_len)
@@ -5020,6 +6090,13 @@ noxtls_return_t noxtls_x509_private_key_parse_pem_with_password(x509_private_key
 
 /**
  * @brief Load X.509 private key from file
+ *
+ * This function loads a X.509 private key from a file.
+ *
+ * @param[in] key The X.509 private key structure to load.
+ * @param[in] filename The name of the file to load the private key from.
+ *
+ * @return The return code of the function.
  */
 noxtls_return_t noxtls_x509_private_key_load_file(x509_private_key_t *key, const char *filename)
 {
@@ -5082,6 +6159,12 @@ noxtls_return_t noxtls_x509_private_key_load_file(x509_private_key_t *key, const
 /**
  * @brief Copy a big-number component into rsa_key buffer (right-aligned, big-endian).
  * dest_len is the allocated size; src_len may be shorter (leading zeros omitted in DER).
+ *
+ * @param[in] dest The destination buffer.
+ * @param[in] dest_len The length of the destination buffer.
+ * @param[in] src The source buffer.
+ * @param[in] src_len The length of the source buffer.
+ *
  */
 static void rsa_copy_component(uint8_t *dest, uint32_t dest_len,
                                const uint8_t *src, uint32_t src_len)
@@ -5096,6 +6179,13 @@ static void rsa_copy_component(uint8_t *dest, uint32_t dest_len,
 
 /**
  * @brief Convert X.509 private key to RSA key structure
+ *
+ * This function converts a X.509 private key to a RSA key structure.
+ *
+ * @param[in] key The X.509 private key structure to convert.
+ * @param[in] rsa_key The RSA key structure to convert to.
+ *
+ * @return @see noxtls_return_t
  */
 noxtls_return_t noxtls_x509_private_key_to_rsa_key(const x509_private_key_t *key, void *rsa_key)
 {
@@ -5167,6 +6257,11 @@ noxtls_return_t noxtls_x509_private_key_to_rsa_key(const x509_private_key_t *key
 /**
  * @brief Convert X.509 private key to ecc_key_t (noxtls_ namespace)
  * Caller provides ecc_key; it is filled and must be freed with noxtls_ecc_key_free.
+ *
+ * @param[in] key The X.509 private key structure to convert.
+ * @param[in] ecc_key The ECC key structure to convert to.
+ *
+ * @return @see noxtls_return_t
  */
 noxtls_return_t noxtls_x509_private_key_to_ecc_key(const x509_private_key_t *key, ecc_key_t *ecc_key)
 {
@@ -5208,18 +6303,46 @@ noxtls_return_t noxtls_x509_private_key_to_ecc_key(const x509_private_key_t *key
     }
     memcpy(ecc_key->d + (size - key->ecc_private_key_len), key->ecc_private_key, key->ecc_private_key_len);
 
-    rc = noxtls_ecc_point_multiply(&ecc_key->Q, ecc_key->d, &ecc_key->curve->G, ecc_key->curve);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        noxtls_ecc_key_free(ecc_key);
-        return rc;
+    if(key->ecc_public_key != NULL && key->ecc_public_key_len > 0U) {
+        if(key->ecc_public_key[0] != 0x04u || key->ecc_public_key_len != 1U + (2U * size)) {
+            noxtls_ecc_key_free(ecc_key);
+            return NOXTLS_RETURN_BAD_DATA;
+        }
+        memcpy(ecc_key->Q.x, key->ecc_public_key + 1U, size);
+        memcpy(ecc_key->Q.y, key->ecc_public_key + 1U + size, size);
+        ecc_key->Q.size = size;
+        rc = noxtls_ecc_point_validate_public(&ecc_key->Q, ecc_key->curve);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_ecc_key_free(ecc_key);
+            return rc;
+        }
+    } else {
+        rc = noxtls_ecc_point_multiply(&ecc_key->Q, ecc_key->d, &ecc_key->curve->G, ecc_key->curve);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_ecc_key_free(ecc_key);
+            return rc;
+        }
+        ecc_key->Q.size = size;
     }
-    ecc_key->Q.size = size;
 
     return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
  * @brief High-level sign data with X.509 private key; output DER signature.
+ *
+ * This function signs data with a X.509 private key and outputs a DER signature.
+ *
+ * @param[in] key The X.509 private key structure to sign.
+ * @param[in] key_len The length of the X.509 private key.
+ * @param[in] data The data to sign.
+ * @param[in] data_len The length of the data to sign.
+ * @param[in] hash_algo The hash algorithm to use.  
+ * @param[out] out_der The output buffer for the DER signature.
+ * @param[in] out_max The maximum length of the output buffer.
+ * @param[out] out_len The length of the DER signature.
+ *
+ * @return @see noxtls_return_t
  */
 noxtls_return_t noxtls_x509_private_key_sign_data(const uint8_t *key, uint32_t key_len,
     const uint8_t *data, uint32_t data_len, noxtls_hash_algos_t hash_algo,
@@ -5301,6 +6424,38 @@ noxtls_return_t noxtls_x509_private_key_sign_data(const uint8_t *key, uint32_t k
         return NOXTLS_RETURN_SUCCESS;
     }
 
+    if(pk.key_type == X509_PRIVATE_KEY_RSA) {
+        /*
+         * RSA: PKCS#1 v1.5 signature. The signature is a single big-endian
+         * integer of exactly key_bytes; X.509 wraps that raw value in a
+         * BIT STRING via the caller (noxtls_asn1_put_bit_string).
+         */
+        rsa_key_t rsa_key;
+        uint32_t sig_len;
+
+        rc = noxtls_x509_private_key_to_rsa_key(&pk, &rsa_key);
+        noxtls_x509_private_key_free(&pk);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            CERT_DEBUG_PRINT("x509_private_key_sign_data: to_rsa_key failed rc=%d\n", rc);
+            return rc;
+        }
+
+        if(out_max < rsa_key.key_bytes) {
+            noxtls_rsa_key_free(&rsa_key);
+            return NOXTLS_RETURN_FAILED;
+        }
+
+        sig_len = out_max;
+        rc = noxtls_rsa_sign(&rsa_key, data, data_len, out_der, &sig_len, hash_algo);
+        noxtls_rsa_key_free(&rsa_key);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            CERT_DEBUG_PRINT("x509_private_key_sign_data: rsa_sign failed rc=%d\n", rc);
+            return rc;
+        }
+        *out_len = sig_len;
+        return NOXTLS_RETURN_SUCCESS;
+    }
+
 #if NOXTLS_FEATURE_ED25519
     if(pk.key_type == X509_PRIVATE_KEY_ED25519) {
         uint8_t seed_buf[32];
@@ -5343,11 +6498,83 @@ noxtls_return_t noxtls_x509_private_key_sign_data(const uint8_t *key, uint32_t k
     }
 #endif
 
+#if NOXTLS_FEATURE_ML_DSA
+    if(pk.key_type == X509_PRIVATE_KEY_ML_DSA) {
+        noxtls_mldsa_param_t param = (noxtls_mldsa_param_t)pk.pqc_param;
+        uint32_t sig_max = noxtls_mldsa_signature_len(param);
+        uint32_t sig_len = sig_max;
+        (void)hash_algo; /* ML-DSA is hash-and-sign internal; caller-supplied digest unused. */
+        if(sig_max == 0 || out_max < sig_max ||
+           pk.pqc_secret_key == NULL || pk.pqc_secret_key_len == 0) {
+            noxtls_x509_private_key_free(&pk);
+            return NOXTLS_RETURN_FAILED;
+        }
+        rc = noxtls_mldsa_sign(param, pk.pqc_secret_key, data, data_len, out_der, &sig_len);
+        noxtls_x509_private_key_free(&pk);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
+        *out_len = sig_len;
+        return NOXTLS_RETURN_SUCCESS;
+    }
+#endif
+
+#if NOXTLS_FEATURE_SLH_DSA
+    if(pk.key_type == X509_PRIVATE_KEY_SLH_DSA) {
+        noxtls_slhdsa_param_t param = (noxtls_slhdsa_param_t)pk.pqc_param;
+        uint32_t sig_max = noxtls_slhdsa_signature_len(param);
+        uint32_t sig_len = sig_max;
+        (void)hash_algo;
+        if(sig_max == 0 || out_max < sig_max ||
+           pk.pqc_secret_key == NULL || pk.pqc_secret_key_len == 0) {
+            noxtls_x509_private_key_free(&pk);
+            return NOXTLS_RETURN_FAILED;
+        }
+        rc = noxtls_slhdsa_sign(param, pk.pqc_secret_key, data, data_len, out_der, &sig_len);
+        noxtls_x509_private_key_free(&pk);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
+        *out_len = sig_len;
+        return NOXTLS_RETURN_SUCCESS;
+    }
+#endif
+#if NOXTLS_FEATURE_FALCON
+    if(pk.key_type == X509_PRIVATE_KEY_FALCON) {
+        noxtls_falcon_param_t param = (noxtls_falcon_param_t)pk.pqc_param;
+        uint32_t sig_max = noxtls_falcon_signature_len(param);
+        uint32_t sig_len = sig_max;
+        (void)hash_algo;
+        if(sig_max == 0U || out_max < sig_max ||
+           pk.pqc_secret_key == NULL || pk.pqc_secret_key_len == 0U) {
+            noxtls_x509_private_key_free(&pk);
+            return NOXTLS_RETURN_FAILED;
+        }
+        rc = noxtls_falcon_sign(param, pk.pqc_secret_key, data, data_len, out_der, &sig_len);
+        noxtls_x509_private_key_free(&pk);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
+        *out_len = sig_len;
+        return NOXTLS_RETURN_SUCCESS;
+    }
+#endif
+
     CERT_DEBUG_PRINT("x509_private_key_sign_data: key_type=%d (unsupported)\n", pk.key_type);
     noxtls_x509_private_key_free(&pk);
     return NOXTLS_RETURN_FAILED;
 }
 
+/**
+ * @brief Get the EdDSA seed from a X.509 private key
+ *
+ * This function gets the EdDSA seed from a X.509 private key.
+ *
+ * @param[in] key The X.509 private key structure to get the EdDSA seed from.
+ * @param[out] out_len The length of the EdDSA seed.
+ *
+ * @return The EdDSA seed.
+ */
 const uint8_t *noxtls_x509_private_key_get_eddsa_seed(const x509_private_key_t *key, uint32_t *out_len)
 {
     if(key == NULL || out_len == NULL) {
@@ -5370,7 +6597,49 @@ const uint8_t *noxtls_x509_private_key_get_eddsa_seed(const x509_private_key_t *
 }
 
 /**
+ * @brief Get the PQC secret from a X.509 private key
+ *
+ * This function gets the PQC secret from a X.509 private key.
+ *
+ * @param[in] key The X.509 private key structure to get the PQC secret from.
+ * @param[out] out_len The length of the PQC secret.
+ * @param[out] out_param The parameter set value of the PQC secret.
+
+ * @return The PQC secret as a pointer to the buffer.
+ */
+const uint8_t *noxtls_x509_private_key_get_pqc_secret(const x509_private_key_t *key, uint32_t *out_len, uint32_t *out_param)
+{
+    if(out_len != NULL) {
+        *out_len = 0;
+    }
+    if(out_param != NULL) {
+        *out_param = 0;
+    }
+    if(key == NULL || out_len == NULL || out_param == NULL) {
+        return NULL;
+    }
+    if(key->key_type != X509_PRIVATE_KEY_ML_DSA &&
+       key->key_type != X509_PRIVATE_KEY_SLH_DSA &&
+       key->key_type != X509_PRIVATE_KEY_FALCON) {
+        return NULL;
+    }
+    if(key->pqc_secret_key == NULL || key->pqc_secret_key_len == 0) {
+        return NULL;
+    }
+    *out_len = key->pqc_secret_key_len;
+    *out_param = key->pqc_param;
+    return key->pqc_secret_key;
+}
+
+/**
  * @brief Convert X.509 private key to ECC key structure (legacy wrapper)
+ *
+ * This function converts a X.509 private key to a ECC key structure.
+ *
+ * @param[in] key The X.509 private key structure to convert.
+ * @param[in] ecc_key The ECC key structure to convert to.
+ *
+ * @return @see noxtls_return_t
  */
 noxtls_return_t x509_private_key_to_ecc_key(const x509_private_key_t *key, void *ecc_key)
 {
@@ -5382,6 +6651,13 @@ noxtls_return_t x509_private_key_to_ecc_key(const x509_private_key_t *key, void 
 
 /**
  * @brief Print OID in readable format
+ *
+ * This function prints an OID in readable format.
+ *
+ * @param[in] label The label to print.
+ * @param[in] oid The OID to print.
+ * @param[in] oid_len The length of the OID.
+ *
  */
 void noxtls_x509_debug_print_oid(const char *label, const uint8_t *oid, uint32_t oid_len)
 {
@@ -5415,6 +6691,14 @@ void noxtls_x509_debug_print_oid(const char *label, const uint8_t *oid, uint32_t
 
 /**
  * @brief Print hex data with formatting
+ *
+ * This function prints hex data with formatting.
+ *
+ * @param[in] label The label to print.
+ * @param[in] data The data to print.
+ * @param[in] len The length of the data.
+ * @param[in] verbose The verbose level.
+ *
  */
 /* NOLINTNEXTLINE(bugprone-easily-swappable-parameters): debug helper preserves existing (label,data,len,verbose) convention. */
 void noxtls_x509_debug_print_hex(const char *label, const uint8_t *data, uint32_t len, uint8_t verbose)
@@ -5455,6 +6739,13 @@ void noxtls_x509_debug_print_hex(const char *label, const uint8_t *data, uint32_
 
 /**
  * @brief Debug print certificate information
+ *
+ * This function prints certificate information.
+ *
+ * @param[in] cert The certificate to print.
+ * @param[in] verbose The verbose level.
+ *
+ * @return @see noxtls_return_t
  */
 noxtls_return_t noxtls_x509_certificate_debug_print(x509_certificate_t *cert, uint8_t verbose)
 {
@@ -5581,6 +6872,13 @@ noxtls_return_t noxtls_x509_certificate_debug_print(x509_certificate_t *cert, ui
 
 /**
  * @brief Debug print private key information
+ *
+ * This function prints private key information.
+ *
+ * @param[in] key The private key to print.
+ * @param[in] verbose The verbose level.
+ *
+ * @return @see noxtls_return_t
  */
 noxtls_return_t noxtls_x509_private_key_debug_print(x509_private_key_t *key, uint8_t verbose)
 {

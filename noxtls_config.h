@@ -6,21 +6,23 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
-* 
+*
 *
 * File:    noxtls_config.h
-* Summary: NOXTLS Configuration Header
+* Summary: NoxTLS Configuration Header
 *
 * This header file defines configuration options that control which modules
-* and features are enabled in the NOXTLS library. These can be overridden
+* and features are enabled in the NoxTLS library. These can be overridden
 * by defining them before including this header, or via compiler defines.
 *
-*/
+*
+*****************************************************************************/
 
 #ifndef _NOXTLS_CONFIG_H_
 #define _NOXTLS_CONFIG_H_
@@ -358,10 +360,24 @@
 #define NOXTLS_FEATURE_ML_KEM 0
 #endif
 /* Enables ML-DSA (FIPS 204) signature APIs and TLS PQ signature support. */
+#ifndef NOXTLS_FEATURE_ML_DSA
 #define NOXTLS_FEATURE_ML_DSA 0
+#endif
 /* Enables SLH-DSA (FIPS 205) signature APIs and TLS/X.509 PQ signature support. */
 #ifndef NOXTLS_FEATURE_SLH_DSA
 #define NOXTLS_FEATURE_SLH_DSA 0
+#endif
+/* Enables FALCON signature APIs (NIST PQC finalist). */
+#ifndef NOXTLS_FEATURE_FALCON
+#define NOXTLS_FEATURE_FALCON 0
+#endif
+/* Enables LMS/HSS hash-based signature APIs (RFC 8554). */
+#ifndef NOXTLS_FEATURE_LMS_HSS
+#define NOXTLS_FEATURE_LMS_HSS 0
+#endif
+/* Enables XMSS/XMSS^MT hash-based signature APIs (RFC 8391). */
+#ifndef NOXTLS_FEATURE_XMSS
+#define NOXTLS_FEATURE_XMSS 0
 #endif
 
 /* TLS/cert granularity */
@@ -402,10 +418,22 @@
 #define NOXTLS_CFG_TLS13_ALLOW_RSA_PKCS1_CERTVERIFY 0
 #endif
 
+/*
+ * Prefer secp256r1 over X25519 in TLS 1.3 group ordering.
+ * Default keeps the standard X25519-first preference. Platforms where
+ * X25519 is materially slower than P-256 can set this to 1.
+ */
+#ifndef NOXTLS_CFG_TLS13_PREFER_SECP256R1_OVER_X25519
+#define NOXTLS_CFG_TLS13_PREFER_SECP256R1_OVER_X25519 0
+#endif
+
 /* Enables DTLS support.
  * Prereq: NOXTLS_FEATURE_TLS=1.
+ * When built via CMake/Kconfig, NOXTLS_FEATURE_DTLS is set on the command line; do not override here.
  */
+#ifndef NOXTLS_FEATURE_DTLS
 #define NOXTLS_FEATURE_DTLS 1
+#endif
 
 /* Enables legacy TLS 1.2 cipher suites (CBC-mode and RSA key exchange suites).
  * Security note: keep disabled for oracle/timing hardening unless strict
@@ -417,9 +445,13 @@
 
 /* Enables X.509 certificate writing/generation helpers.
  * Prereq: NOXTLS_FEATURE_CERT=1 and NOXTLS_FEATURE_PKC=1.
+ *
+ * Default: ON. Required by the certgen application (req -new -x509) and by any
+ * embedded code path that needs to mint X.509 certificates at runtime. Disable
+ * explicitly to shave a few KB of flash on parse-only deployments.
  */
 #ifndef NOXTLS_HAVE_CERT_WRITE
-#define NOXTLS_HAVE_CERT_WRITE 0
+#define NOXTLS_HAVE_CERT_WRITE 1
 #endif
 
 /* ============================================================================
@@ -1030,7 +1062,17 @@
  *  Default: 16384.
  */
 #ifndef NOXTLS_MAX_CERT_SIZE
+#if NOXTLS_FEATURE_SLH_DSA
+/* SLH-DSA signatures are large (up to ~50 KB). Allow 64 KB certs by default
+ * when SLH-DSA is enabled so the cert+TBS+signature comfortably fits. */
+#define NOXTLS_MAX_CERT_SIZE 65536
+#elif NOXTLS_FEATURE_ML_DSA
+/* ML-DSA-87 signatures are ~4.6 KB; combined with public-key (~2.6 KB) and TBS
+ * fields, 32 KB headroom is plenty. */
+#define NOXTLS_MAX_CERT_SIZE 32768
+#else
 #define NOXTLS_MAX_CERT_SIZE 16384
+#endif
 #endif
 
 /** Maximum certificate-chain traversal depth for trust verification.
@@ -1153,7 +1195,9 @@
  *
  * Default: 4 (table of 16 points)
  */
+#ifndef NOXTLS_ECC_POINT_MUL_WINDOW_SIZE
 #define NOXTLS_ECC_POINT_MUL_WINDOW_SIZE 4
+#endif
 
 /* NOXTLS_ECC_FIXED_POINT_OPTIM
  *
@@ -1162,7 +1206,21 @@
  *
  * Default: 1 (enabled)
  */
+#ifndef NOXTLS_ECC_FIXED_POINT_OPTIM
 #define NOXTLS_ECC_FIXED_POINT_OPTIM 1
+#endif
+
+/* NOXTLS_ECDSA_SIGN_SELF_VERIFY
+ *
+ * When 1, ECDSA signing immediately verifies the produced signature before
+ * returning it. This hardens signing against local fault/glitch attacks but
+ * materially reduces signing throughput.
+ *
+ * Default: 0 (disabled)
+ */
+#ifndef NOXTLS_ECDSA_SIGN_SELF_VERIFY
+#define NOXTLS_ECDSA_SIGN_SELF_VERIFY 0
+#endif
 
 /* ============================================================================
  * Observability integration

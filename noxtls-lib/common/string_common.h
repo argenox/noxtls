@@ -6,17 +6,18 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
-* 
+*
 *
 * File:    string_common.c
 * Summary: Common String helper functions
 *
-*/
+*****************************************************************************/
 
 /** @addtogroup noxtls_common */
 /** @{ */
@@ -32,11 +33,11 @@
 extern "C" {
 #endif
 
-#define HEX_PAIR_CHARS (2u)
-#define HEX_PAIR_BUFFER_LEN (3u)
-#define HEX_STRING_STRIDE (2u)
-#define HEX_RADIX (16u)
-#define HEX_OUTLEN_SHIFT (2u)
+#define HEX_PAIR_CHARS (2U)
+#define HEX_PAIR_BUFFER_LEN (3U)
+#define HEX_STRING_STRIDE (2U)
+#define HEX_RADIX (16U)
+#define HEX_OUTLEN_SHIFT (2U)
 
 /**
  * @brief Parse a null-terminated hex string into binary bytes.

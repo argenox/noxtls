@@ -3,12 +3,24 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+*
 * This file is part of the NoxTLS Library.
+*
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
+*
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
 *
 * File:    noxtls_aes_accel_apple.c
 * Summary: Apple Silicon ARMv8 AES backend for AES block encrypt/decrypt
 *
-*/
+*****************************************************************************/
+
+/** @addtogroup noxtls_encryption */
+/** @{ */
 
 #if NOXTLS_FEATURE_AES_ACCEL_APPLE && \
     defined(__APPLE__) && \
@@ -25,6 +37,7 @@
 
 /**
  * @brief Resolve AES round count and key-word count for an AES key size.
+ *
  * @param type AES key size selector.
  * @param rounds Output round count for the selected AES key size.
  * @param nk Output number of 32-bit key words for the selected AES key size.
@@ -70,6 +83,7 @@ static noxtls_return_t noxtls_aes_accel_apple_get_rounds_and_nk(noxtls_aes_type_
 
 /**
  * @brief Store a 32-bit key schedule word as big-endian bytes.
+ *
  * @param word Key schedule word to serialize.
  * @param out Output buffer that receives four bytes in big-endian order.
  * @return None.
@@ -84,11 +98,13 @@ static void noxtls_aes_accel_apple_word_to_bytes_be(uint32_t word, uint8_t out[4
 
 /**
  * @brief Build ARMv8 AES encryption and decryption round-key schedules.
+ *
  * @param key AES key bytes for the selected key size.
  * @param type AES key size selector.
  * @param enc_rks Output ARMv8 encryption round keys.
  * @param dec_rks Output ARMv8 decryption round keys.
  * @param rounds_out Output round count for the generated key schedule.
+ *
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL for null inputs,
  *         or an error from key-size resolution or AES key expansion.
  */
@@ -139,10 +155,12 @@ static noxtls_return_t noxtls_aes_accel_apple_build_round_keys(const uint8_t *ke
 
 /**
  * @brief Encrypt one AES block with Apple Silicon ARMv8 backend.
+ *
  * @param key AES key.
  * @param data Input plaintext block (16 bytes).
  * @param output Output ciphertext block (16 bytes).
  * @param type AES key size selector.
+ *
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NOT_SUPPORTED when backend is unavailable.
  */
 noxtls_return_t noxtls_aes_accel_apple_encrypt_block(const uint8_t *key,
@@ -188,10 +206,12 @@ noxtls_return_t noxtls_aes_accel_apple_encrypt_block(const uint8_t *key,
 
 /**
  * @brief Decrypt one AES block with Apple Silicon ARMv8 backend.
+ *
  * @param key AES key.
  * @param data Input ciphertext block (16 bytes).
  * @param output Output plaintext block (16 bytes).
  * @param type AES key size selector.
+ *
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NOT_SUPPORTED when backend is unavailable.
  */
 noxtls_return_t noxtls_aes_accel_apple_decrypt_block(const uint8_t *key,
@@ -236,3 +256,5 @@ noxtls_return_t noxtls_aes_accel_apple_decrypt_block(const uint8_t *key,
 }
 
 #endif /* NOXTLS_FEATURE_AES_ACCEL_APPLE */
+
+/** @} */

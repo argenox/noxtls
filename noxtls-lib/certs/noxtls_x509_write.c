@@ -6,16 +6,26 @@
 *
 * This file is part of the NoxTLS Library.
 *
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
+*
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
+*
 * File:    noxtls_x509_write.c
 * Summary: X.509 certificate writing and generation (optional module).
 *          Compile with NOXTLS_HAVE_CERT_WRITE defined to enable.
-*/
+*
+*****************************************************************************/
 
 #ifdef NOXTLS_HAVE_CERT_WRITE
 
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
+#include "noxtls_config.h"
 #include "noxtls_common.h"
 #include "common/noxtls_memory.h"
 #include "noxtls_x509.h"
@@ -23,7 +33,12 @@
 #include "asn1.h"
 
 #ifndef X509_WRITE_TBS_MAX
-#define X509_WRITE_TBS_MAX  4096u
+#  if NOXTLS_FEATURE_ML_DSA
+/* ML-DSA-87 SPKI body alone is ~2.6 KB; leave headroom for DN, validity, extensions. */
+#    define X509_WRITE_TBS_MAX  8192u
+#  else
+#    define X509_WRITE_TBS_MAX  4096u
+#  endif
 #endif
 
 /* OID id-at-commonName = 2.5.4.3 (DER: 55 04 03) */
@@ -44,8 +59,8 @@ static const uint8_t oid_kp_time_stamping[] = { 0x2B, 0x06, 0x01, 0x05, 0x05, 0x
 static const uint8_t oid_kp_ocsp_signing[] = { 0x2B, 0x06, 0x01, 0x05, 0x05, 0x07, 0x03, 0x09 };
 static const uint8_t oid_any_eku[] = { 0x55, 0x1D, 0x25, 0x00 };
 
-#define X509_EXTENSIONS_MAX  1024u
-#define X509_CSR_CRI_MAX  2048u
+#define X509_EXTENSIONS_MAX  1024U
+#define X509_CSR_CRI_MAX  2048U
 
 typedef struct {
     uint8_t val_part[260];
@@ -54,15 +69,44 @@ typedef struct {
     uint8_t set_rdn[300];
 } x509_dn_from_cn_ws_t;
 
+/* Per-feature-set sizing for the largest in-flight DER blob during cert/CSR
+ * generation. The workspace is heap-allocated, so growing these constants
+ * costs nothing on non-PQC builds and avoids stack pressure on PQC builds. */
+#ifndef X509_WRITE_SIG_MAX
+#  if NOXTLS_FEATURE_SLH_DSA
+/* SLH-DSA-SHA2-256F: 49856 bytes — round to 50 KB. */
+#    define X509_WRITE_SIG_MAX  51200u
+#  elif NOXTLS_FEATURE_ML_DSA
+/* ML-DSA-87: 4627 bytes. */
+#    define X509_WRITE_SIG_MAX  4736u
+#  else
+/* RSA-4096 raw signature is 512 bytes; ECDSA DER ≤ 144B; EdDSA ≤ 114B. */
+#    define X509_WRITE_SIG_MAX  640u
+#  endif
+#endif
+#ifndef X509_WRITE_SIG_BITSTR_MAX
+#  define X509_WRITE_SIG_BITSTR_MAX  (X509_WRITE_SIG_MAX + 16U)
+#endif
+/* SPKI body: must accommodate the largest subjectPublicKey for any enabled
+ * algorithm. Largest is ML-DSA-87 (2592B) when PQC sigs are on. RSA-4096
+ * RSAPublicKey is ~520B, EC point ≤ 133B, EdDSA ≤ 57B. */
+#ifndef X509_WRITE_SPKI_BODY_MAX
+#  if NOXTLS_FEATURE_ML_DSA
+#    define X509_WRITE_SPKI_BODY_MAX  2816u
+#  else
+#    define X509_WRITE_SPKI_BODY_MAX  720u
+#  endif
+#endif
+
 typedef struct {
     uint8_t tbs_buf[X509_WRITE_TBS_MAX];
-    uint8_t spki_buf[600];
+    uint8_t spki_buf[X509_WRITE_SPKI_BODY_MAX];
     uint8_t tbs_full[X509_WRITE_TBS_MAX + 8];
-    uint8_t sig_der[256];
+    uint8_t sig_der[X509_WRITE_SIG_MAX];
     uint8_t cert_seq_buf[X509_MAX_CERT_SIZE];
-    uint8_t bitstr[520];
-    uint8_t spki_content[600];
-    uint8_t sig_bitstr[300];
+    uint8_t bitstr[X509_WRITE_SPKI_BODY_MAX];
+    uint8_t spki_content[X509_WRITE_SPKI_BODY_MAX + 64];
+    uint8_t sig_bitstr[X509_WRITE_SIG_BITSTR_MAX];
 } x509_cert_gen_ws_t;
 
 typedef struct {
@@ -86,13 +130,94 @@ typedef struct {
 
 typedef struct {
     uint8_t cri_buf[X509_CSR_CRI_MAX];
-    uint8_t bitstr[520];
-    uint8_t spki_content[600];
+    uint8_t bitstr[X509_WRITE_SPKI_BODY_MAX];
+    uint8_t spki_content[X509_WRITE_SPKI_BODY_MAX + 64];
     uint8_t cri_seq[X509_CSR_CRI_MAX + 8];
-    uint8_t sig_der[256];
-    uint8_t sig_bitstr[300];
+    uint8_t sig_der[X509_WRITE_SIG_MAX];
+    uint8_t sig_bitstr[X509_WRITE_SIG_BITSTR_MAX];
     uint8_t cr_seq_buf[X509_CSR_CRI_MAX + 400];
 } x509_csr_ws_t;
+
+/**
+ * @brief Detect whether @p oid lies under the PKCS#1 arc (1.2.840.113549.1.1.x).
+ *
+ * The PKCS#1 family covers rsaEncryption (1.2.840.113549.1.1.1),
+ * sha256WithRSAEncryption (..11), sha384WithRSAEncryption (..12),
+ * sha512WithRSAEncryption (..13), and other RSA signature OIDs. RFC 3279 §2.3.1
+ * and RFC 8017 require that AlgorithmIdentifier instances for these OIDs carry
+ * explicit ASN.1 NULL parameters. Returning 1 means we should append `05 00`.
+ */
+static int oid_is_pkcs1_family(const uint8_t *oid, uint32_t oid_len)
+{
+    /* DER-encoded prefix for 1.2.840.113549.1.1 (rsaEncryption arc minus terminal arc). */
+    static const uint8_t pkcs1_prefix[] = {
+        0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01
+    };
+
+    if(oid == NULL || oid_len < sizeof(pkcs1_prefix)) {
+        return 0;
+    }
+    return memcmp(oid, pkcs1_prefix, sizeof(pkcs1_prefix)) == 0;
+}
+
+/**
+ * @brief Build an AlgorithmIdentifier SEQUENCE from a raw OID and optional params.
+ *
+ * Writes `SEQUENCE { OID [, params] }` to @p out.
+ * - If @p params is non-NULL it is appended verbatim (caller-supplied DER —
+ *   typically an OBJECT IDENTIFIER for EC namedCurve, or any other algorithm
+ *   parameters body).
+ * - Otherwise, when @p oid is part of the PKCS#1 family, an explicit ASN.1
+ *   NULL is appended so the resulting certificate/CSR is RFC 3279 / 8017
+ *   compliant and accepted by strict parsers (OpenSSL, mbedTLS, BoringSSL).
+ * - For other algorithm families (ECDSA-with-SHA*, id-Ed25519, id-Ed448,
+ *   id-ml-dsa-*, id-slh-dsa-*, ...), no parameters are emitted, as required
+ *   by RFC 5758, RFC 8410, NIST SP 800-208, etc.
+ *
+ * @param[out] out         Output buffer.
+ * @param[in]  out_max     Capacity of @p out.
+ * @param[in]  oid         Raw DER OID octets (without tag/length).
+ * @param[in]  oid_len     Length of @p oid.
+ * @param[in]  params      Optional DER-encoded parameters to append (or NULL).
+ * @param[in]  params_len  Length of @p params.
+ * @return Bytes written, or 0 on error.
+ */
+static uint32_t put_algorithm_identifier(uint8_t *out, uint32_t out_max,
+                                         const uint8_t *oid, uint32_t oid_len,
+                                         const uint8_t *params, uint32_t params_len)
+{
+    uint8_t oid_der[48];
+    /* Worst case: OID DER + arbitrary params (capped by params_len check). */
+    uint8_t content[256];
+    uint32_t oid_der_len;
+    uint32_t content_len;
+
+    if(out == NULL || oid == NULL || oid_len == 0) {
+        return 0;
+    }
+    oid_der_len = noxtls_asn1_put_oid_raw(oid_der, sizeof(oid_der), oid, oid_len);
+    if(oid_der_len == 0 || oid_der_len > sizeof(content)) {
+        return 0;
+    }
+    memcpy(content, oid_der, oid_der_len);
+    content_len = oid_der_len;
+
+    if(params != NULL && params_len > 0U) {
+        if(content_len + params_len > sizeof(content)) {
+            return 0;
+        }
+        memcpy(content + content_len, params, params_len);
+        content_len += params_len;
+    } else if(oid_is_pkcs1_family(oid, oid_len)) {
+        if(content_len + 2U > sizeof(content)) {
+            return 0;
+        }
+        content[content_len++] = 0x05; /* ASN.1 NULL tag */
+        content[content_len++] = 0x00; /* ASN.1 NULL length */
+    }
+
+    return noxtls_asn1_put_sequence(out, out_max, content, content_len);
+}
 
 /**
  * @brief Builds a DER Name from a common name (CN).
@@ -275,12 +400,13 @@ noxtls_return_t noxtls_x509_certificate_write_pem(const x509_certificate_t *cert
  *
  * @return NOXTLS_RETURN_SUCCESS on success, or an appropriate error code from @see noxtls_return_t.
  */
-noxtls_return_t noxtls_x509_certificate_generate_self_signed(
+noxtls_return_t noxtls_x509_certificate_generate_self_signed_ex(
     const uint8_t *serial, uint32_t serial_len,
     const uint8_t *issuer_der, uint32_t issuer_len,
     const uint8_t *subject_der, uint32_t subject_len,
     const char *not_before_utc, const char *not_after_utc,
     const uint8_t *subject_pk_oid, uint32_t subject_pk_oid_len,
+    const uint8_t *subject_pk_params, uint32_t subject_pk_params_len,
     const uint8_t *subject_pk, uint32_t subject_pk_len,
     const uint8_t *sig_oid, uint32_t sig_oid_len,
     const uint8_t *sign_key, uint32_t sign_key_len,
@@ -331,15 +457,10 @@ noxtls_return_t noxtls_x509_certificate_generate_self_signed(
         goto cleanup;
     }
 
-    /* signatureAlgorithm SEQUENCE { algorithm OID } */
-    {
-        uint8_t oid_enc[48];
-        uint32_t oid_enc_len = noxtls_asn1_put_oid_raw(oid_enc, sizeof(oid_enc), sig_oid, sig_oid_len);
-        if(oid_enc_len == 0) {
-            goto cleanup;
-        }
-        sig_alg_seq_len = noxtls_asn1_put_sequence(sig_alg_seq, sizeof(sig_alg_seq), oid_enc, oid_enc_len);
-    }
+    /* signatureAlgorithm: AlgorithmIdentifier { algorithm, [parameters] }.
+     * Signature OIDs (ecdsa-with-SHA*, id-Ed*, id-ml-dsa-*, id-slh-dsa-*) have
+     * no parameters; PKCS#1 sig OIDs get explicit NULL automatically. */
+    sig_alg_seq_len = put_algorithm_identifier(sig_alg_seq, sizeof(sig_alg_seq), sig_oid, sig_oid_len, NULL, 0);
     if(sig_alg_seq_len == 0) {
         goto cleanup;
     }
@@ -362,19 +483,18 @@ noxtls_return_t noxtls_x509_certificate_generate_self_signed(
         goto cleanup;
     }
 
-    /* subjectPublicKeyInfo SEQUENCE { algorithm SEQUENCE { OID }, subjectPublicKey BIT STRING } */
+    /* subjectPublicKeyInfo SEQUENCE { AlgorithmIdentifier, subjectPublicKey BIT STRING } */
     {
-        uint8_t alg_oid[48];
-        uint8_t alg_seq[64];
-        uint32_t alg_oid_len = noxtls_asn1_put_oid_raw(alg_oid, sizeof(alg_oid), subject_pk_oid, subject_pk_oid_len);
-        if(alg_oid_len == 0) {
-            goto cleanup;
-        }
-        uint32_t alg_seq_len = noxtls_asn1_put_sequence(alg_seq, sizeof(alg_seq), alg_oid, alg_oid_len);
+        /* alg_seq holds OID DER + optional params (largest is EC namedCurve ≤ 12 bytes). */
+        uint8_t alg_seq[96];
+        uint32_t alg_seq_len = put_algorithm_identifier(alg_seq, sizeof(alg_seq),
+                                                       subject_pk_oid, subject_pk_oid_len,
+                                                       subject_pk_params, subject_pk_params_len);
+        uint32_t bs_len;
         if(alg_seq_len == 0) {
             goto cleanup;
         }
-        uint32_t bs_len = noxtls_asn1_put_bit_string(ws->bitstr, sizeof(ws->bitstr), subject_pk, subject_pk_len);
+        bs_len = noxtls_asn1_put_bit_string(ws->bitstr, sizeof(ws->bitstr), subject_pk, subject_pk_len);
         if(bs_len == 0) {
             goto cleanup;
         }
@@ -476,6 +596,62 @@ cleanup:
     return ret;
 }
 
+/* Backward-compatible thin wrapper: callers that pre-date subject_pk_params
+ * (RSA, EdDSA, ML-DSA, SLH-DSA — all algorithms whose AlgorithmIdentifier
+ * has either NULL or absent parameters). For ECC the *_ex variant must be
+ * used with the namedCurve OID DER as @p subject_pk_params. */
+
+/**
+ * @brief Generate a self-signed certificate
+ * 
+ * @param[in] serial The serial number.
+ * @param[in] serial_len The length of the serial number.
+ * @param[in] issuer_der The issuer DER.
+ * @param[in] issuer_len The length of the issuer DER.
+ * @param[in] subject_der The subject DER.
+ * @param[in] subject_len The length of the subject DER.
+ * @param[in] not_before_utc The not before UTC.
+ * @param[in] not_after_utc The not after UTC.
+ * @param[in] subject_pk_oid The subject public key OID.
+ * @param[in] subject_pk_oid_len The length of the subject public key OID.
+ * @param[in] subject_pk The subject public key.
+ * @param[in] subject_pk_len The length of the subject public key.
+ * @param[in] sig_oid The signature OID.
+ * @param[in] sig_oid_len The length of the signature OID.
+ * @param[in] sign_key The sign key.
+ * @param[in] sign_key_len The length of the sign key.
+ * @param[in] hash_algo The hash algorithm.
+ * @param[out] out_der The output DER.
+ * @param[in] out_max The maximum length of the output DER.
+ * @param[out] out_len The length of the output DER.
+ * @return The return value.
+ */
+noxtls_return_t noxtls_x509_certificate_generate_self_signed(
+    const uint8_t *serial, uint32_t serial_len,
+    const uint8_t *issuer_der, uint32_t issuer_len,
+    const uint8_t *subject_der, uint32_t subject_len,
+    const char *not_before_utc, const char *not_after_utc,
+    const uint8_t *subject_pk_oid, uint32_t subject_pk_oid_len,
+    const uint8_t *subject_pk, uint32_t subject_pk_len,
+    const uint8_t *sig_oid, uint32_t sig_oid_len,
+    const uint8_t *sign_key, uint32_t sign_key_len,
+    noxtls_hash_algos_t hash_algo,
+    uint8_t *out_der, uint32_t out_max, uint32_t *out_len)
+{
+    return noxtls_x509_certificate_generate_self_signed_ex(
+        serial, serial_len,
+        issuer_der, issuer_len,
+        subject_der, subject_len,
+        not_before_utc, not_after_utc,
+        subject_pk_oid, subject_pk_oid_len,
+        NULL, 0,
+        subject_pk, subject_pk_len,
+        sig_oid, sig_oid_len,
+        sign_key, sign_key_len,
+        hash_algo,
+        out_der, out_max, out_len);
+}
+
 
 /* Build extension list into ext_list (eoff updated). Returns 0 on error. */
 /**
@@ -527,14 +703,14 @@ static uint32_t build_extensions(
         uint32_t i;
         uint8_t first_byte = 0;
         for(i = 0; i < 8; i++) {
-            if(key_usage_bits & (1u << i)) first_byte |= (1u << (7 - i));
+            if(key_usage_bits & (1U << i)) first_byte |= (1U << (7 - i));
         }
         ku_bitstr[0] = 0x03; /* BIT STRING */
         ku_bitstr[1] = 0x03; /* length: unused-bits + 2 data bytes */
         ku_bitstr[2] = 0x07; /* 7 unused bits in final byte (bit 8 only) */
         ku_bitstr[3] = first_byte;
-        ku_bitstr[4] = (key_usage_bits & 0x100u) ? 0x80u : 0u;
-        ku_oct_len = noxtls_asn1_put_octet_string(ku_oct, sizeof(ku_oct), ku_bitstr, 5u);
+        ku_bitstr[4] = (key_usage_bits & 0x100u) ? 0x80u : 0U;
+        ku_oct_len = noxtls_asn1_put_octet_string(ku_oct, sizeof(ku_oct), ku_bitstr, 5U);
         if(ku_oct_len == 0) X509_EXT_BUILD_FAIL();
         oid_enc_len = noxtls_asn1_put_oid_raw(oid_enc, sizeof(oid_enc), oid_key_usage, sizeof(oid_key_usage));
         memcpy(ext_seq, oid_enc, oid_enc_len);
@@ -860,10 +1036,7 @@ noxtls_return_t noxtls_x509_certificate_generate_self_signed_with_extensions_ex(
         if(version_len == 0) goto cleanup;
         serial_enc_len = noxtls_asn1_put_integer(serial_enc, sizeof(serial_enc), serial, serial_len);
         if(serial_enc_len == 0) goto cleanup;
-        { uint8_t oid_enc[48];
-          uint32_t oid_enc_len = noxtls_asn1_put_oid_raw(oid_enc, sizeof(oid_enc), sig_oid, sig_oid_len);
-          if(oid_enc_len == 0) goto cleanup;
-          sig_alg_seq_len = noxtls_asn1_put_sequence(sig_alg_seq, sizeof(sig_alg_seq), oid_enc, oid_enc_len); }
+        sig_alg_seq_len = put_algorithm_identifier(sig_alg_seq, sizeof(sig_alg_seq), sig_oid, sig_oid_len, NULL, 0);
         if(sig_alg_seq_len == 0) goto cleanup;
         { uint8_t vb[32], va[32], validity_content[64];
           uint32_t vbl = noxtls_asn1_put_utc_time(vb, sizeof(vb), not_before_utc);
@@ -873,11 +1046,12 @@ noxtls_return_t noxtls_x509_certificate_generate_self_signed_with_extensions_ex(
           memcpy(validity_content + vbl, va, val);
           validity_len = noxtls_asn1_put_sequence(validity_seq, sizeof(validity_seq), validity_content, vbl + val); }
         if(validity_len == 0) goto cleanup;
-        { uint8_t alg_oid[48], alg_seq[64];
-          uint32_t alg_oid_len = noxtls_asn1_put_oid_raw(alg_oid, sizeof(alg_oid), subject_pk_oid, subject_pk_oid_len);
-          uint32_t alg_seq_len = noxtls_asn1_put_sequence(alg_seq, sizeof(alg_seq), alg_oid, alg_oid_len);
+        { uint8_t alg_seq[96];
+          uint32_t alg_seq_len = put_algorithm_identifier(alg_seq, sizeof(alg_seq),
+                                                          subject_pk_oid, subject_pk_oid_len,
+                                                          NULL, 0);
           uint32_t bs_len = noxtls_asn1_put_bit_string(ws->bitstr, sizeof(ws->bitstr), subject_pk, subject_pk_len);
-          if(alg_oid_len == 0 || alg_seq_len == 0 || bs_len == 0) goto cleanup;
+          if(alg_seq_len == 0 || bs_len == 0) goto cleanup;
           memcpy(ws->spki_content, alg_seq, alg_seq_len);
           memcpy(ws->spki_content + alg_seq_len, ws->bitstr, bs_len);
           spki_len = noxtls_asn1_put_sequence(ws->spki_buf, sizeof(ws->spki_buf), ws->spki_content, alg_seq_len + bs_len); }
@@ -969,15 +1143,13 @@ noxtls_return_t noxtls_x509_csr_create_der(
     x509_csr_ws_t *ws;
     uint32_t cri_len = 0;
     uint8_t version_int[] = { 0x02, 0x01, 0x00 };  /* INTEGER 0 */
-    uint8_t alg_oid[48];
-    uint8_t alg_seq[64];
-    uint32_t alg_oid_len;
+    uint8_t alg_seq[80];
     uint32_t alg_seq_len;
     uint32_t bs_len;
     uint32_t spki_len;
     uint32_t cri_seq_len;
     uint32_t sig_len;
-    uint8_t sig_alg_seq[64];
+    uint8_t sig_alg_seq[80];
     uint32_t sig_alg_seq_len;
     uint32_t sig_bs_len;
     uint32_t cr_seq_len;
@@ -1012,11 +1184,7 @@ noxtls_return_t noxtls_x509_csr_create_der(
     memcpy(ws->cri_buf + off, subject_der, subject_len);
     off += subject_len;
 
-    alg_oid_len = noxtls_asn1_put_oid_raw(alg_oid, sizeof(alg_oid), subject_pk_oid, subject_pk_oid_len);
-    if(alg_oid_len == 0) {
-        goto cleanup;
-    }
-    alg_seq_len = noxtls_asn1_put_sequence(alg_seq, sizeof(alg_seq), alg_oid, alg_oid_len);
+    alg_seq_len = put_algorithm_identifier(alg_seq, sizeof(alg_seq), subject_pk_oid, subject_pk_oid_len, NULL, 0);
     if(alg_seq_len == 0) {
         goto cleanup;
     }
@@ -1044,14 +1212,7 @@ noxtls_return_t noxtls_x509_csr_create_der(
         goto cleanup;
     }
 
-    {
-        uint8_t soid[48];
-        uint32_t soid_len = noxtls_asn1_put_oid_raw(soid, sizeof(soid), sig_oid, sig_oid_len);
-        if(soid_len == 0) {
-            goto cleanup;
-        }
-        sig_alg_seq_len = noxtls_asn1_put_sequence(sig_alg_seq, sizeof(sig_alg_seq), soid, soid_len);
-    }
+    sig_alg_seq_len = put_algorithm_identifier(sig_alg_seq, sizeof(sig_alg_seq), sig_oid, sig_oid_len, NULL, 0);
     if(sig_alg_seq_len == 0) {
         goto cleanup;
     }

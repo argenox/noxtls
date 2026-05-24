@@ -6,18 +6,25 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
-* 
+*
 *
 * File:    noxtls_sha1.c
 * Summary: Secure Hashing Algorithm SHA-1
 * Defined in FIPS
 *
-*/
+* Note: SHA-1 is no longer recommended due to significant cryptographic weaknesses. 
+* It is vulnerable to practical collision and chosen-prefix attacks, allowing attackers 
+* to create different inputs with the same hash. T
+* his makes SHA-1 unsuitable for security-sensitive applications.
+*
+*
+*****************************************************************************/
 
 /** @addtogroup noxtls_mdigest */
 
@@ -43,11 +50,24 @@ static uint8_t debug_lvl = 0;
 
 noxtls_return_t noxtls_sha1_round(noxtls_sha_ctx_t * ctx, const uint8_t * input);
 
+/**
+ * @brief Set the debug level
+ * 
+ * @param[in] lvl The debug level.
+ * @return void
+ */
 void noxtls_sha1_set_debug(uint8_t lvl)
 {
     debug_lvl = lvl;
 }
 
+/**
+ * @brief Initialize the SHA1 context
+ * 
+ * @param[in] ctx The SHA1 context to initialize.
+ * @param[in] algo The algorithm to use.
+ * @return The return value.
+ */
 noxtls_return_t noxtls_sha1_init(noxtls_sha_ctx_t * ctx, noxtls_hash_algos_t algo)
 {
 	if(ctx == NULL) {
@@ -77,6 +97,15 @@ noxtls_return_t noxtls_sha1_init(noxtls_sha_ctx_t * ctx, noxtls_hash_algos_t alg
 }
 
 /* Runs on every block of 512 bits */
+
+/**
+ * @brief Update the SHA1 context
+ * 
+ * @param[in] ctx The SHA1 context to update.
+ * @param[in] input The input data to update.
+ * @param[in] len The length of the input data.
+ * @return The return value.
+ */
 noxtls_return_t noxtls_sha1_update(noxtls_sha_ctx_t * ctx, const uint8_t * input, uint32_t len)
 {
 	noxtls_return_t rc;
@@ -131,7 +160,13 @@ noxtls_return_t noxtls_sha1_update(noxtls_sha_ctx_t * ctx, const uint8_t * input
     return NOXTLS_RETURN_SUCCESS;
 }
 
-/* Accepts only 512-bit data input */
+/**
+ * @brief SHA1 round
+ * Accepts only 512-bit data input
+ * @param[in] ctx The SHA1 context.
+ * @param[in] input The input data.
+ * @return The return value.
+ */
 noxtls_return_t noxtls_sha1_round(noxtls_sha_ctx_t * ctx, const uint8_t * input)
 {
 	noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
@@ -153,12 +188,12 @@ noxtls_return_t noxtls_sha1_round(noxtls_sha_ctx_t * ctx, const uint8_t * input)
     
     /* Copy the noxtls_message to the first 16 words */    
     for(t = 0; t < 16; t++) {
-        size_t in_off = (size_t)t * 4u;
+        size_t in_off = (size_t)t * 4U;
         w[t] =
             ((uint32_t)input[in_off] << 24) |
-            ((uint32_t)input[in_off + 1u] << 16) |
-            ((uint32_t)input[in_off + 2u] << 8) |
-            ((uint32_t)input[in_off + 3u]);
+            ((uint32_t)input[in_off + 1U] << 16) |
+            ((uint32_t)input[in_off + 2U] << 8) |
+            ((uint32_t)input[in_off + 3U]);
     }
 
     for(t = 16; t < SHA1_ROUND_COUNT; t++) {
@@ -259,9 +294,9 @@ noxtls_return_t noxtls_sha1_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
     }
 
     uint32_t space_for_padding = SHA1_BLOCK_SIZE_BITS - ((len << 3) % SHA1_BLOCK_SIZE_BITS);
-    total_bits = (uint64_t)total_length * 8u;
+    total_bits = (uint64_t)total_length * 8U;
 
-    if(space_for_padding < ((SHA1_LENGTH_FIELD_BYTES + 1u) << 3) || space_for_padding == SHA1_BLOCK_SIZE_BITS)
+    if(space_for_padding < ((SHA1_LENGTH_FIELD_BYTES + 1U) << 3))
     {
         /* Can't fit padding + length in one block; use two blocks */
         zero_padding_first = 0;
@@ -270,6 +305,9 @@ noxtls_return_t noxtls_sha1_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
             zero_padding_first = space_for_padding - 1;
 
             ctx->data[len] = SHA1_PAD_BYTE;
+            if((len + 1U) < SHA1_BLOCK_SIZE_BYTES) {
+                memset(ctx->data + len + 1U, 0, SHA1_BLOCK_SIZE_BYTES - (len + 1U));
+            }
             
             rc = noxtls_sha1_round(ctx, ctx->data);
             if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -309,10 +347,10 @@ noxtls_return_t noxtls_sha1_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
         zero_padding_first = space_for_padding;
         {
             uint32_t pad_byte_idx = SHA1_BLOCK_SIZE_BYTES - (zero_padding_first >> 3);
-            uint32_t zero_count = length_index - (pad_byte_idx + 1u);
+            uint32_t zero_count = length_index - (pad_byte_idx + 1U);
             ctx->data[pad_byte_idx] = SHA1_PAD_BYTE;
-            if(zero_count > 0u) {
-                memset(ctx->data + pad_byte_idx + 1u, 0, zero_count);
+            if(zero_count > 0U) {
+                memset(ctx->data + pad_byte_idx + 1U, 0, zero_count);
             }
         }
         ctx->data[length_index + 0] = (uint8_t)((total_bits & 0xFF00000000000000ULL) >> 56);
@@ -337,11 +375,11 @@ noxtls_return_t noxtls_sha1_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
     }
     for(i = 0; i < alg_sz; i++)
     {
-        size_t out_off = (size_t)i * 4u;
+        size_t out_off = (size_t)i * 4U;
         hash[out_off]       = (uint8_t)((ctx->h[i] & 0xFF000000) >> 24);
-        hash[out_off + 1u] = (uint8_t)((ctx->h[i] & 0x00FF0000) >> 16);
-        hash[out_off + 2u] = (uint8_t)((ctx->h[i] & 0x0000FF00) >> 8);
-        hash[out_off + 3u] = (uint8_t)(ctx->h[i] & 0x000000FF);
+        hash[out_off + 1U] = (uint8_t)((ctx->h[i] & 0x00FF0000) >> 16);
+        hash[out_off + 2U] = (uint8_t)((ctx->h[i] & 0x0000FF00) >> 8);
+        hash[out_off + 3U] = (uint8_t)(ctx->h[i] & 0x000000FF);
     }
 
 	return rc;

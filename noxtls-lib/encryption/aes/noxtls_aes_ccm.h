@@ -3,7 +3,16 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+*
 * This file is part of the NoxTLS Library.
+*
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
+*
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
 *
 * File:    noxtls_aes_ccm.h
 * Summary: AES-CCM (Counter with CBC-MAC) mode - NIST SP 800-38C / RFC 3610
@@ -12,7 +21,8 @@
 *   - Nonce length 7..13 bytes (L = 15 - nonce_len; L in 2..8).
 *   - Tag length 4, 6, 8, 10, 12, 14, or 16 bytes.
 *   - Optional associated data (AAD).
-*/
+*
+*****************************************************************************/
 
 /** @addtogroup noxtls_encryption */
 /** @{ */

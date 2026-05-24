@@ -6,18 +6,22 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
-* 
+*
 *
 * File:    noxtls_md4.c
 * Summary: Message Digest Algorithm 4 (MD4)
 * Defined in RFC 1320
 *
-*/
+* MD4 is cryptographically broken and should not be used.
+*
+*
+*****************************************************************************/
 
 /** @addtogroup noxtls_mdigest */
 
@@ -104,9 +108,18 @@ noxtls_return_t noxtls_md4_init(noxtls_sha_ctx_t * ctx)
     return NOXTLS_RETURN_SUCCESS;
 }
 
-/* Runs on every block of 512 bits.
+/**
+ * @brief Update the MD4 context
+ * 
+ * @details Runs on every block of 512 bits.
  * Caller must ensure input points to at least len bytes of valid memory.
- * len is rejected if it would cause ctx->length to overflow (uint32_t). */
+ * len is rejected if it would cause ctx->length to overflow (uint32_t).
+ * 
+ * @param[in] ctx The context.
+ * @param[in] input The input.
+ * @param[in] len The length of the input.
+ * @return The return value.
+ */
 noxtls_return_t noxtls_md4_update(noxtls_sha_ctx_t * ctx, const uint8_t * input, uint32_t len)
 {
     noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;

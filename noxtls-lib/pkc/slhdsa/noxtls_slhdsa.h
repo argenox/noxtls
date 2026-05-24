@@ -3,14 +3,22 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+*
 * This file is part of the NoxTLS Library.
 *
-* File:    noxtls_slhdsa.h
-* Summary: SLH-DSA (NIST FIPS 205) API surface.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
-* NOTE:
-* This header defines the FIPS 205 parameter-set surface and size contracts.
-*/
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
+*
+* File:    noxtls_slhdsa.h
+* Summary: SLH-DSA (NIST FIPS 205) API and parameter contracts definition
+*
+*
+*****************************************************************************/
 
 #ifndef _NOXTLS_SLHDSA_H_
 #define _NOXTLS_SLHDSA_H_
@@ -40,8 +48,8 @@ typedef enum
     NOXTLS_SLHDSA_SHAKE_256F = 12
 } noxtls_slhdsa_param_t;
 
-#define NOXTLS_SLHDSA_MAX_PUBLIC_KEY_LEN 64u
-#define NOXTLS_SLHDSA_MAX_SECRET_KEY_LEN 128u
+#define NOXTLS_SLHDSA_MAX_PUBLIC_KEY_LEN 64U
+#define NOXTLS_SLHDSA_MAX_SECRET_KEY_LEN 128U
 #define NOXTLS_SLHDSA_MAX_SIGNATURE_LEN 49856u
 #define NOXTLS_SLHDSA_MAX_CONTEXT_LEN 255u
 

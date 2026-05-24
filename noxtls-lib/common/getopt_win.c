@@ -1,11 +1,25 @@
-/*
+/*****************************************************************************
+* Copyright (c) [2019] - [2026], Argenox Technologies LLC
+* All rights reserved.
+* SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
+*
+*
 * This file is part of the NoxTLS Library.
 *
-* SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
- *
- * Minimal noxtls_getopt implementation for Windows (MSVC).
- * Compiled only when _WIN32. Provides POSIX-like noxtls_getopt for command-line parsing.
- */
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
+*
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
+*
+* File:    getopt_win.c
+* Summary: Minimal noxtls_getopt implementation for Windows (MSVC).
+* 
+* Compiled only when _WIN32. Provides POSIX-like noxtls_getopt for command-line parsing.
+*
+*****************************************************************************/
 
 /** @addtogroup noxtls_common */
 
@@ -22,6 +36,15 @@ int optopt = 0;
 
 static char *getopt_place = NULL;
 
+/** 
+* @brief Get an option from the command line
+* 
+*@param[in] argc The number of arguments.
+* @param[in] argv The arguments.
+* @param[in] optstring The option string.
+*
+* @return The option.
+*/
 int noxtls_getopt(int argc, char * const argv[], const char *optstring)
 {
     const char *optchr;

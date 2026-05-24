@@ -160,6 +160,27 @@ cmake --build build --config Release
 
 `NOXTLS_CFG_FEATURE_ED448` defaults to `OFF` in the top-level `CMakeLists.txt`. With Ed448 enabled, TLS 1.3 advertises signature scheme **0x0808** (Ed448), X.509 parses **id-Ed448** (1.3.101.113) subject public keys, and the **certgen** tool provides `gened448`. Unit tests under `ut/pkc/` exercise Ed448 and Ed25519ctx/Ed25519ph when these flags are on.
 
+## Self-Signed Certificate Generation (certgen)
+
+The X.509 write/generate APIs in `noxtls-lib/certs/noxtls_x509_write.c` are gated by `NOXTLS_HAVE_CERT_WRITE`, which is now **ON by default** in the `default`, `tls_server_pki` and `fips_like_profile` profiles. They are required to use the `certgen req -new -x509` command. To explicitly toggle:
+
+```bash
+cmake -S . -B build -D NOXTLS_CFG_HAVE_CERT_WRITE=ON   # enable (default)
+cmake -S . -B build -D NOXTLS_CFG_HAVE_CERT_WRITE=OFF  # strip the writer
+```
+
+`certgen req -new -x509` can sign certificates with any key type supported by `noxtls_x509_private_key_sign_data`:
+
+| Private key      | Subject PK algorithm | Signature algorithm                            |
+|------------------|----------------------|------------------------------------------------|
+| RSA              | `rsaEncryption` (with explicit NULL params, RFC 3279/8017) | `sha256WithRSAEncryption` |
+| ECC (NIST/Brainpool/secp-K1) | `id-ecPublicKey` with namedCurve OID | `ecdsa-with-SHA256/384/512` (sized to curve) |
+| Ed25519 / Ed448  | `id-Ed25519` / `id-Ed448` (RFC 8410) | PureEdDSA, same OID |
+| ML-DSA           | `id-ml-dsa-{44,65,87}` (NIST CSOR) | same OID |
+| SLH-DSA          | `id-slh-dsa-*` (NIST CSOR) | same OID |
+
+For RSA the AlgorithmIdentifier carries an explicit ASN.1 NULL as required by strict parsers (OpenSSL, mbedTLS); for ECC the namedCurve OID is embedded as parameters; for the other algorithms the parameters field is absent. Self-signed certs produced this way verify cleanly with `openssl verify -CAfile`.
+
 ## Post-Quantum TLS 1.3 (experimental)
 
 Enable ML-KEM and ML-DSA feature gates when configuring:

@@ -6,17 +6,19 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
 *
 *
 * File:    noxtls_blake2.h
-* Summary: NOXTLS BLAKE2s and BLAKE2b (RFC 7693)
+* Summary: NoxTLS BLAKE2s and BLAKE2b (RFC 7693)
 *
-*/
+*
+*****************************************************************************/
 
 /** @addtogroup noxtls_mdigest */
 /** @{ */
@@ -34,8 +36,8 @@ extern "C" {
 
 #define HASH_BLAKE2S_256_OUT_LEN (32)
 #define HASH_BLAKE2B_512_OUT_LEN (64)
-#define BLAKE2S_BLOCK_BYTES (64u)
-#define BLAKE2B_BLOCK_BYTES (128u)
+#define BLAKE2S_BLOCK_BYTES (64U)
+#define BLAKE2B_BLOCK_BYTES (128U)
 
 /* RFC 7693 compression: noxtls_message schedule words, chaining half, full v[], sigma table */
 #define BLAKE2_MSG_WORDS        16

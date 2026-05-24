@@ -1,4 +1,4 @@
-/*****************************************************************************
+﻿/*****************************************************************************
 * Copyright (c) [2019] - [2026], Argenox Technologies LLC
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
@@ -36,6 +36,13 @@
  * pkc -h
  */
 
+/* MUST be the FIRST #include: app-local noxtls_config.h (project policy)
+ * MSVC searches the directory of the including header first for "..."
+ * style includes; if a library header pulls in "noxtls_config.h" before
+ * this app does, the top-level config wins. Hoisting our local one
+ * here ensures _NOXTLS_CONFIG_H_ is set from THIS file. */
+#include "noxtls_config.h"
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,6 +67,75 @@
 #endif
 #if NOXTLS_FEATURE_ED25519 || (NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3)
 #include "noxtls-lib/certs/noxtls_x509.h"
+
+/* ============================================================================
+ * Application-private static workspace (per project policy)
+ * ============================================================================
+ *
+ * Every application owns a large statically-allocated workspace buffer; all
+ * dynamic allocations made by this translation unit are served out of it via
+ * a simple bump arena. The buffer's size lives in this app's noxtls_config.h
+ * (NOXTLS_APP_STATIC_BUFFER_SIZE) so it can be tuned independently per app.
+ *
+ * free() is a no-op; the whole arena is released en-masse via
+ * app_workspace_reset() (e.g. between commands) which also wipes any
+ * transient secret material that may have been allocated.
+ */
+static uint8_t  g_app_workspace[NOXTLS_APP_STATIC_BUFFER_SIZE];
+static size_t   g_app_workspace_off = 0U;
+#define APP_WORKSPACE_ALIGN ((size_t)16U)
+
+/**
+ * @brief Allocate workspace
+ *
+ * @param[in] n The size to allocate
+ * @return The pointer to the allocated workspace
+ */
+static void *app_workspace_alloc(size_t n)
+{
+    size_t off = (g_app_workspace_off + (APP_WORKSPACE_ALIGN - 1U)) &
+                 ~(APP_WORKSPACE_ALIGN - 1U);
+    if(n == 0U || off > sizeof(g_app_workspace) ||
+       n > sizeof(g_app_workspace) - off) {
+        return NULL;
+    }
+    g_app_workspace_off = off + n;
+    return &g_app_workspace[off];
+}
+
+/**
+ * @brief Free the workspace
+ * 
+ * @param[in] p The pointer to the workspace to free
+ * @return void
+ */
+static void app_workspace_free(void *p) 
+{ 
+    (void)p; 
+}
+
+
+/**
+ * @brief Reset the workspace
+ * 
+ * @return void
+ */
+static void app_workspace_reset(void)
+{
+    if(g_app_workspace_off > 0U) {
+        memset(g_app_workspace, 0, g_app_workspace_off);
+    }
+    g_app_workspace_off = 0U;
+}
+
+/* Redirect malloc()/free() in this translation unit to the static workspace.
+ * Library and standard headers have already been pulled in above; they
+ * declared malloc/free as plain functions and are unaffected. App code below
+ * uses these macros transparently. */
+#undef malloc
+#undef free
+#define malloc(n) app_workspace_alloc(n)
+#define free(p)   app_workspace_free(p)
 #endif
 
 #define APP_VERSION_MAJOR 0
@@ -91,6 +167,12 @@ typedef enum {
 
 uint8_t debug_lvl = 0;
 
+/**
+ * @brief Print the usage.
+ * 
+ * @param[in] name The name value.
+ * @return void
+ */
 void print_usage(const char *name)
 {
     printf("usage: %s [operation] [algorithm] <parameters>\n", name);
@@ -135,11 +217,23 @@ void print_usage(const char *name)
     printf("\n");
 }
 
+/**
+ * @brief Print the version.
+ *
+ * @return The return value.
+ */
 void print_version(void)
 {
     printf("PKC Utility v%d.%d.%d\n", APP_VERSION_MAJOR, APP_VERSION_MINOR, APP_VERSION_BUILD);
 }
 
+/**
+ * @brief Print the hexadecimal.
+ *
+ * @param[in] data The data value.
+ * @param[in] len The len value.
+ * @return The return value.
+ */
 void print_hex(const uint8_t *data, uint32_t len)
 {
     uint32_t i;
@@ -149,6 +243,12 @@ void print_hex(const uint8_t *data, uint32_t len)
     printf("\n");
 }
 
+/**
+ * @brief Check if the algorithm is EdDSA.
+ *
+ * @param[in] a The a value.
+ * @return The return value.
+ */
 static int pkc_alg_is_eddsa(pkc_alg_t a)
 {
 #if NOXTLS_FEATURE_ED25519 || (NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3)
@@ -160,6 +260,14 @@ static int pkc_alg_is_eddsa(pkc_alg_t a)
 }
 
 #if NOXTLS_FEATURE_ED25519 || (NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3)
+/**
+ * @brief Read a file and allocate memory.
+ *
+ * @param[in] path The path value.
+ * @param[out] out The out value.
+ * @param[out] out_len The out length value.
+ * @return The return value.
+ */
 static int pkc_read_file_alloc(const char *path, uint8_t **out, uint32_t *out_len)
 {
     FILE *fp;
@@ -183,7 +291,7 @@ static int pkc_read_file_alloc(const char *path, uint8_t **out, uint32_t *out_le
         return -1;
     }
     rewind(fp);
-    uint8_t *buf = (uint8_t *)malloc((size_t)sz + 1u);
+    uint8_t *buf = (uint8_t *)malloc((size_t)sz + 1U);
     if(buf == NULL) {
         fclose(fp);
         return -1;
@@ -200,6 +308,13 @@ static int pkc_read_file_alloc(const char *path, uint8_t **out, uint32_t *out_le
     return 0;
 }
 
+/**
+ * @brief Load a private key from a file.
+ *
+ * @param[in] path The path value.
+ * @param[out] key The key value.
+ * @return The return value.
+ */
 static int pkc_load_x509_private_key_file(const char *path, x509_private_key_t *key)
 {
     uint8_t *buf = NULL;
@@ -216,24 +331,43 @@ static int pkc_load_x509_private_key_file(const char *path, x509_private_key_t *
     return rc == NOXTLS_RETURN_SUCCESS ? 0 : -1;
 }
 
+/**
+ * @brief Convert a hexadecimal string to bytes.
+ *
+ * @param[in] hex The hex value.
+ * @param[out] out The out value.
+ * @param[in] out_max The out max value.
+ * @param[out] out_len The out length value.
+ * @return The return value.
+ */
 static int pkc_hex_to_bytes(const char *hex, uint8_t *out, uint32_t out_max, uint32_t *out_len)
 {
     size_t hl = strlen(hex);
     int parsed_len;
-    if(hl % 2u != 0 || hl / 2u > (size_t)out_max) {
+    if(hl % 2U != 0 || hl / 2U > (size_t)out_max) {
         return -1;
     }
-    parsed_len = noxtls_hex_string_to_bytes(hex, out, hl / 2u);
+    parsed_len = noxtls_hex_string_to_bytes(hex, out, hl / 2U);
     if(parsed_len < 0) {
         return -1;
     }
     *out_len = (uint32_t)parsed_len;
-    if(*out_len != hl / 2u) {
+    if(*out_len != hl / 2U) {
         return -1;
     }
     return 0;
 }
 
+/**
+ * @brief Sign a message using an EdDSA algorithm.
+ *
+ * @param[in] alg The alg value.
+ * @param[in] key_path The key path value.
+ * @param[in] ctx_hex The ctx hex value.
+ * @param[in] msg The msg value.
+ * @param[in] msg_len The msg length value.
+ * @return The return value.
+ */
 static int pkc_eddsa_sign(pkc_alg_t alg, const char *key_path, const char *ctx_hex,
     const uint8_t *msg, uint32_t msg_len)
 {
@@ -328,6 +462,18 @@ static int pkc_eddsa_sign(pkc_alg_t alg, const char *key_path, const char *ctx_h
     return -1;
 }
 
+/**
+ * @brief Verify a signature using an EdDSA algorithm.
+ *
+ * @param[in] alg The alg value.
+ * @param[in] pub_hex The pub hex value.
+ * @param[in] ctx_hex The ctx hex value.
+ * @param[in] msg The msg value.
+ * @param[in] msg_len The msg length value.
+ * @param[in] sig The sig value.
+ * @param[in] sig_len The sig length value.
+ * @return The return value.
+ */
 static int pkc_eddsa_verify(pkc_alg_t alg, const char *pub_hex, const char *ctx_hex,
     const uint8_t *msg, uint32_t msg_len, const uint8_t *sig, uint32_t sig_len)
 {
@@ -395,6 +541,12 @@ static int pkc_eddsa_verify(pkc_alg_t alg, const char *pub_hex, const char *ctx_
     return -1;
 }
 
+/**
+ * @brief Generate a key pair using an EdDSA algorithm.
+ *
+ * @param[in] alg The alg value.
+ * @return The return value.
+ */
 static int pkc_eddsa_genkey(pkc_alg_t alg)
 {
 #if NOXTLS_FEATURE_ED25519
@@ -430,6 +582,14 @@ static int pkc_eddsa_genkey(pkc_alg_t alg)
 }
 #endif /* NOXTLS_FEATURE_ED25519 || ED448 */
 
+/**
+ * @brief Encrypt data using an RSA algorithm.
+ *
+ * @param[in] data The data value.
+ * @param[in] data_len The data length value.
+ * @param[in] key_size The key size value.
+ * @return The return value.
+ */
 int rsa_encrypt_handler(const uint8_t *data, uint32_t data_len, rsa_key_size_t key_size)
 {
     rsa_key_t key;
@@ -499,6 +659,18 @@ int rsa_encrypt_handler(const uint8_t *data, uint32_t data_len, rsa_key_size_t k
     return 0;
 }
 
+/**
+ * @brief Decrypt data using an RSA algorithm.
+ *
+ * @param[in] ciphertext The ciphertext value.
+ * @param[in] ciphertext_len The ciphertext length value.
+ * @param[in] key_size The key size value.
+ * @param[in] n The n value.
+ * @param[in] n_len The n length value.
+ * @param[in] d The d value.
+ * @param[in] d_len The d length value.
+ * @return The return value.
+ */
 int rsa_decrypt_handler(uint8_t *ciphertext, uint32_t ciphertext_len, rsa_key_size_t key_size, const uint8_t *n, uint32_t n_len, const uint8_t *d, uint32_t d_len)
 {
     rsa_key_t key;
@@ -567,6 +739,15 @@ int rsa_decrypt_handler(uint8_t *ciphertext, uint32_t ciphertext_len, rsa_key_si
     return 0;
 }
 
+/**
+ * @brief Sign data using an RSA algorithm.
+ *
+ * @param[in] data The data value.
+ * @param[in] data_len The data length value.
+ * @param[in] key_size The key size value.
+ * @param[in] hash_algo The hash algorithm value.
+ * @return The return value.
+ */
 int rsa_sign_handler(const uint8_t *data, uint32_t data_len, rsa_key_size_t key_size, noxtls_hash_algos_t hash_algo)
 {
     rsa_key_t key;
@@ -636,6 +817,21 @@ int rsa_sign_handler(const uint8_t *data, uint32_t data_len, rsa_key_size_t key_
     return 0;
 }
 
+/**
+ * @brief Verify a signature using an RSA algorithm.
+ *
+ * @param[in] data The data value.
+ * @param[in] data_len The data length value.
+ * @param[in] signature The signature value.
+ * @param[in] signature_len The signature length value.
+ * @param[in] key_size The key size value.
+ * @param[in] hash_algo The hash algorithm value.
+ * @param[in] n The n value.
+ * @param[in] n_len The n length value.
+ * @param[in] e The e value.
+ * @param[in] e_len The e length value.
+ * @return The return value.
+ */
 int rsa_verify_handler(const uint8_t *data, uint32_t data_len, const uint8_t *signature, uint32_t signature_len, rsa_key_size_t key_size, noxtls_hash_algos_t hash_algo, const uint8_t *n, uint32_t n_len, const uint8_t *e, uint32_t e_len)
 {
     rsa_key_t key;
@@ -685,6 +881,12 @@ int rsa_verify_handler(const uint8_t *data, uint32_t data_len, const uint8_t *si
     }
 }
 
+/**
+ * @brief Generate a key pair using an RSA algorithm.
+ *
+ * @param[in] key_size The key size value.
+ * @return The return value.
+ */
 int rsa_genkey_handler(rsa_key_size_t key_size)
 {
     rsa_key_t key;
@@ -747,6 +949,13 @@ int rsa_genkey_handler(rsa_key_size_t key_size)
     return 0;
 }
 
+/**
+ * @brief The main function.
+ *
+ * @param[in] argc The argc value.
+ * @param[in] argv The argv value.
+ * @return The return value.
+ */
 int main(int argc, char **argv)
 {
     pkc_operation_t operation = PKC_OP_ENCRYPT;
@@ -951,14 +1160,14 @@ int main(int argc, char **argv)
             printf("Error: Input too large\n");
             return -1;
         }
-        data_buffer = (uint8_t *)malloc(msg_len + 1u);
+        data_buffer = (uint8_t *)malloc(msg_len + 1U);
         if(!data_buffer) {
             printf("Error: Memory allocation failed\n");
             return -1;
         }
         uint32_t msg_bin_len;
         if(input_type == INPUT_DATA_TYPE_HEX) {
-            if(pkc_hex_to_bytes(argv[arg_idx], data_buffer, (uint32_t)(msg_len + 1u), &msg_bin_len) != 0) {
+            if(pkc_hex_to_bytes(argv[arg_idx], data_buffer, (uint32_t)(msg_len + 1U), &msg_bin_len) != 0) {
                 free(data_buffer);
                 printf("Error: Invalid noxtls_message hex\n");
                 return -1;
@@ -975,14 +1184,14 @@ int main(int argc, char **argv)
             printf("Error: Signature too large\n");
             return -1;
         }
-        uint8_t *sig_buffer = (uint8_t *)malloc(sig_hex_len + 1u);
+        uint8_t *sig_buffer = (uint8_t *)malloc(sig_hex_len + 1U);
         if(!sig_buffer) {
             free(data_buffer);
             printf("Error: Memory allocation failed\n");
             return -1;
         }
         uint32_t signature_length = 0;
-        if(pkc_hex_to_bytes(argv[arg_idx], sig_buffer, (uint32_t)(sig_hex_len + 1u), &signature_length) != 0) {
+        if(pkc_hex_to_bytes(argv[arg_idx], sig_buffer, (uint32_t)(sig_hex_len + 1U), &signature_length) != 0) {
             free(data_buffer);
             free(sig_buffer);
             printf("Error: Invalid signature hex\n");

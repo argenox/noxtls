@@ -1,0 +1,32 @@
+menu "NoxTLS SSH client example"
+
+config NOXTLS_SSH_CLIENT_WIFI_SSID
+    string "WiFi SSID"
+    default "myssid"
+
+config NOXTLS_SSH_CLIENT_WIFI_PASSWORD
+    string "WiFi password"
+    default "mypassword"
+
+config NOXTLS_SSH_CLIENT_HOST
+    string "SSH host"
+    default "192.168.1.10"
+
+config NOXTLS_SSH_CLIENT_PORT
+    int "SSH port"
+    default 22
+    range 1 65535
+
+config NOXTLS_SSH_CLIENT_USERNAME
+    string "SSH username"
+    default "user"
+
+config NOXTLS_SSH_CLIENT_PASSWORD
+    string "SSH password"
+    default "password"
+
+config NOXTLS_SSH_CLIENT_COMMAND
+    string "Remote command"
+    default "uname -a"
+
+endmenu

@@ -4,22 +4,40 @@
 #
 option(USE_REF_ECC_POINT_MUL "Use reference ECC point multiply for tests" OFF)
 option(NOXTLS_ECDSA_VERIFY_DEBUG "Enable ECDSA verify debug prints (hex dumps of h, r, s, u1, u2, v)" OFF)
+option(NOXTLS_ECDSA_SIGN_SELF_VERIFY "Re-verify signatures inside noxtls_ecdsa_sign (safety check)" OFF)
+option(NOXTLS_ECDSA_SIGN_SKIP_SELF_VERIFY_P256 "Skip sign-time self-verify for 32-byte curves (P-256 class) to improve performance" ON)
 # Force Montgomery ladder only (disable windowed scalar mult). Use to isolate windowed-path bugs.
 option(NOXTLS_ECC_LADDER_ONLY "Use Montgomery ladder only for ECC point multiply (set NOXTLS_ECC_POINT_MUL_WINDOW_SIZE=0)" OFF)
 
 set(PKC_SOURCES
 )
 if(NOXTLS_CFG_FEATURE_RSA)
-    list(APPEND PKC_SOURCES rsa/noxtls_bignum.c rsa/noxtls_rsa.c)
+    list(APPEND PKC_SOURCES rsa/noxtls_bignum.c rsa/noxtls_bn_platform.c rsa/noxtls_rsa.c)
 endif()
 if(NOXTLS_CFG_FEATURE_DSA AND NOT NOXTLS_CFG_FEATURE_RSA)
-    list(APPEND PKC_SOURCES rsa/noxtls_bignum.c)
+    list(APPEND PKC_SOURCES rsa/noxtls_bignum.c rsa/noxtls_bn_platform.c)
+endif()
+if((NOXTLS_CFG_FEATURE_ECC OR NOXTLS_CFG_FEATURE_ECDSA) AND NOT NOXTLS_CFG_FEATURE_RSA AND NOT NOXTLS_CFG_FEATURE_DSA)
+    list(APPEND PKC_SOURCES rsa/noxtls_bignum.c rsa/noxtls_bn_platform.c)
+endif()
+if(ESP_PLATFORM AND NOXTLS_CFG_FEATURE_PKC)
+    list(APPEND PKC_SOURCES ${NOXTLS_PROJECT_ROOT}/ports/esp-idf/target/esp32/noxtls_esp32_bignum_mpi.c)
 endif()
 if(NOXTLS_CFG_FEATURE_ECC)
     list(APPEND PKC_SOURCES ecc/noxtls_ecc.c)
+    if(ESP_PLATFORM)
+        list(APPEND PKC_SOURCES ${NOXTLS_PROJECT_ROOT}/ports/esp-idf/target/esp32/noxtls_esp32_ecc_accel.c)
+    else()
+        list(APPEND PKC_SOURCES ecc/noxtls_ecc_accel_port.c)
+    endif()
 endif()
 if(NOXTLS_CFG_FEATURE_ECDSA)
     list(APPEND PKC_SOURCES ecdsa/noxtls_ecdsa.c)
+    if(ESP_PLATFORM)
+        list(APPEND PKC_SOURCES ${NOXTLS_PROJECT_ROOT}/ports/esp-idf/target/esp32/noxtls_esp32_ecdsa_accel.c)
+    else()
+        list(APPEND PKC_SOURCES ecdsa/noxtls_ecdsa_accel_port.c)
+    endif()
 endif()
 if(NOXTLS_CFG_FEATURE_ECDH)
     list(APPEND PKC_SOURCES ecdh/noxtls_ecdh.c)
@@ -63,6 +81,18 @@ endif()
 if(NOXTLS_CFG_FEATURE_SLH_DSA)
     list(APPEND PKC_SOURCES slhdsa/noxtls_slhdsa.c)
 endif()
+if(NOXTLS_CFG_FEATURE_FALCON)
+    list(APPEND PKC_SOURCES
+        falcon/noxtls_falcon.c
+        falcon/noxtls_falcon_internal.c
+    )
+endif()
+if(NOXTLS_CFG_FEATURE_LMS_HSS)
+    list(APPEND PKC_SOURCES lms/noxtls_lms.c)
+endif()
+if(NOXTLS_CFG_FEATURE_XMSS)
+    list(APPEND PKC_SOURCES xmss/noxtls_xmss.c)
+endif()
 if(NOT PKC_SOURCES)
     message(FATAL_ERROR "NOXTLS_FEATURE_PKC is enabled but no PKC primitive sources are selected.")
 endif()
@@ -95,6 +125,9 @@ target_include_directories(noxtls_pkc PUBLIC
     ${NOXTLS_LIB_ROOT}/pkc/mlkem
     ${NOXTLS_LIB_ROOT}/pkc/mldsa
     ${NOXTLS_LIB_ROOT}/pkc/slhdsa
+    ${NOXTLS_LIB_ROOT}/pkc/falcon
+    ${NOXTLS_LIB_ROOT}/pkc/lms
+    ${NOXTLS_LIB_ROOT}/pkc/xmss
     ${NOXTLS_LIB_ROOT}/mdigest
 )
 
@@ -103,9 +136,22 @@ target_link_libraries(noxtls_pkc PRIVATE
     noxtls_common
     noxtls_drbg
 )
+if(NOT MSVC)
+    target_link_libraries(noxtls_pkc PRIVATE m)
+endif()
 
 if(NOXTLS_ECDSA_VERIFY_DEBUG)
     target_compile_definitions(noxtls_pkc PRIVATE NOXTLS_ECDSA_VERIFY_DEBUG)
+endif()
+if(NOXTLS_ECDSA_SIGN_SELF_VERIFY)
+    target_compile_definitions(noxtls_pkc PRIVATE NOXTLS_ECDSA_SIGN_SELF_VERIFY=1)
+else()
+    target_compile_definitions(noxtls_pkc PRIVATE NOXTLS_ECDSA_SIGN_SELF_VERIFY=0)
+endif()
+if(NOXTLS_ECDSA_SIGN_SKIP_SELF_VERIFY_P256)
+    target_compile_definitions(noxtls_pkc PRIVATE NOXTLS_ECDSA_SIGN_SKIP_SELF_VERIFY_P256=1)
+else()
+    target_compile_definitions(noxtls_pkc PRIVATE NOXTLS_ECDSA_SIGN_SKIP_SELF_VERIFY_P256=0)
 endif()
 if(NOXTLS_ECC_LADDER_ONLY)
     target_compile_definitions(noxtls_pkc PRIVATE NOXTLS_ECC_POINT_MUL_WINDOW_SIZE=0)
@@ -113,4 +159,3 @@ endif()
 
 if(USE_REF_ECC_POINT_MUL)
 endif()
-

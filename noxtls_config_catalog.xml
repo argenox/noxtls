@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<noxtls-config-catalog version="0.2.25">
+<noxtls-config-catalog version="0.2.50">
   <metadata>
-    <noxtls-version>0.2.25</noxtls-version>
+    <noxtls-version>0.2.50</noxtls-version>
     <source-header>noxtls/noxtls_config.h</source-header>
     <version-header>noxtls/noxtls_version.h</version-header>
     <generated-at>2026-05-19T05:32:08Z</generated-at>
@@ -663,6 +663,53 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="disabled" default-value="0"/>
             </profile-overrides>
           </setting>
+          <setting id="NOXTLS_FEATURE_FALCON" name="Falcon" type="boolean" default="disabled" default-value="0" legacy="false" source-line="371">
+            <description>Enables FALCON signature APIs (NIST PQC finalist). Prereq: NOXTLS_FEATURE_PKC=1.</description>
+            <dependencies>
+              <allOf>
+                <dependency ref="NOXTLS_FEATURE_PKC" value="1"/>
+              </allOf>
+            </dependencies>
+            <profile-overrides>
+              <override profile="NOXTLS_PROFILE_CRYPTO_ONLY" value="disabled" default-value="0"/>
+              <override profile="NOXTLS_PROFILE_FIPS_LIKE" value="disabled" default-value="0"/>
+              <override profile="NOXTLS_PROFILE_MINIMAL_TLS_CLIENT" value="disabled" default-value="0"/>
+              <override profile="NOXTLS_PROFILE_TLS_SERVER_PKI" value="disabled" default-value="0"/>
+              <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="disabled" default-value="0"/>
+            </profile-overrides>
+          </setting>
+          <setting id="NOXTLS_FEATURE_LMS_HSS" name="Lms Hss" type="boolean" default="disabled" default-value="0" legacy="false" source-line="375">
+            <description>Enables LMS/HSS hash-based signature APIs (RFC 8554). Prereq: NOXTLS_FEATURE_PKC=1 and NOXTLS_FEATURE_SHA256=1.</description>
+            <dependencies>
+              <allOf>
+                <dependency ref="NOXTLS_FEATURE_PKC" value="1"/>
+                <dependency ref="NOXTLS_FEATURE_SHA256" value="1"/>
+              </allOf>
+            </dependencies>
+            <profile-overrides>
+              <override profile="NOXTLS_PROFILE_CRYPTO_ONLY" value="disabled" default-value="0"/>
+              <override profile="NOXTLS_PROFILE_FIPS_LIKE" value="disabled" default-value="0"/>
+              <override profile="NOXTLS_PROFILE_MINIMAL_TLS_CLIENT" value="disabled" default-value="0"/>
+              <override profile="NOXTLS_PROFILE_TLS_SERVER_PKI" value="disabled" default-value="0"/>
+              <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="disabled" default-value="0"/>
+            </profile-overrides>
+          </setting>
+          <setting id="NOXTLS_FEATURE_XMSS" name="Xmss Xmss Mt" type="boolean" default="disabled" default-value="0" legacy="false" source-line="379">
+            <description>Enables XMSS/XMSS^MT hash-based signature APIs (RFC 8391). Prereq: NOXTLS_FEATURE_PKC=1 and NOXTLS_FEATURE_SHA256=1.</description>
+            <dependencies>
+              <allOf>
+                <dependency ref="NOXTLS_FEATURE_PKC" value="1"/>
+                <dependency ref="NOXTLS_FEATURE_SHA256" value="1"/>
+              </allOf>
+            </dependencies>
+            <profile-overrides>
+              <override profile="NOXTLS_PROFILE_CRYPTO_ONLY" value="disabled" default-value="0"/>
+              <override profile="NOXTLS_PROFILE_FIPS_LIKE" value="disabled" default-value="0"/>
+              <override profile="NOXTLS_PROFILE_MINIMAL_TLS_CLIENT" value="disabled" default-value="0"/>
+              <override profile="NOXTLS_PROFILE_TLS_SERVER_PKI" value="disabled" default-value="0"/>
+              <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="disabled" default-value="0"/>
+            </profile-overrides>
+          </setting>
           <setting id="NOXTLS_FEATURE_RSA" name="Rsa" type="boolean" default="enabled" default-value="1" legacy="false" source-line="309">
             <description>PKC primitives Enables RSA (and bignum backend used by RSA paths). Prereq: NOXTLS_FEATURE_PKC=1.</description>
             <dependencies>
@@ -946,6 +993,9 @@
     <category id="ecc-tuning" name="ECC Performance">
       <setting id="NOXTLS_ECC_FIXED_POINT_OPTIM" name="Ecc Fixed Point Optim" type="boolean" default="enabled" default-value="1" legacy="false" source-line="1165">
         <description>NOXTLS_ECC_FIXED_POINT_OPTIM When 1, cache precomputed multiples of the curve generator G and reuse for repeated k*G (ECDSA sign, key gen, ECDHE). Speeds up fixed-base multiplications. Default: 1 (enabled)</description>
+      </setting>
+      <setting id="NOXTLS_ECDSA_SIGN_SELF_VERIFY" name="Ecdsa Sign Self Verify" type="boolean" default="disabled" default-value="0" legacy="false" source-line="1196">
+        <description>NOXTLS_ECDSA_SIGN_SELF_VERIFY When 1, ECDSA signing immediately verifies the produced signature before returning it. This hardens signing against local fault or glitch attacks but materially reduces signing throughput. Default: 0 (disabled)</description>
       </setting>
       <setting id="NOXTLS_ECC_POINT_MUL_WINDOW_SIZE" name="Ecc Point Mul Window Size" type="integer" default="4" legacy="false" source-line="1156">
         <description>NOXTLS_ECC_POINT_MUL_WINDOW_SIZE Log2 of the precomputation table size for windowed scalar multiplication. Table has 2^W Jacobian points; larger W = fewer point ops, more RAM. Uses 4 for P-256 (good tradeoff). Use 0 to disable windowing (Montgomery ladder only). Default: 4 (table of 16 points)</description>

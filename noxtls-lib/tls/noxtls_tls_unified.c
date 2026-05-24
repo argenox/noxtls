@@ -4,38 +4,21 @@
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
 *
+* This file is part of the NoxTLS Library.
 *
-* NOTICE:  All information contained herein, source code, binaries and
-* derived works is, and remains
-* the property of Argenox Technologies and its suppliers,
-* if any.  The intellectual and technical concepts contained
-* herein are proprietary to Argenox Technologies
-* and its suppliers may be covered by U.S. and Foreign Patents,
-* patents in process, and are protected by trade secret or copyright law.
-* Dissemination of this information or reproduction of this material
-* is strictly forbidden unless prior written permission is obtained
-* from Argenox Technologies.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
-* THIS SOFTWARE IS PROVIDED BY ARGENOX "AS IS" AND
-* ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-* WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-* DISCLAIMED. IN NO EVENT SHALL ARGENOX TECHNOLOGIES LLC BE LIABLE FOR ANY
-* DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-* (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-* LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-* ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-* (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-* SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*
+* See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
 *
-*
-* This file is part of the NoxTLS Library.
 *
 * File:    noxtls_tls_unified.c
 * Summary: Unified TLS API: single connection type for TLS 1.2/1.3
 *
-*/
+*
+*****************************************************************************/
 
 #if !(NOXTLS_FEATURE_TLS12 || NOXTLS_FEATURE_TLS13)
 #error "noxtls_tls_unified.c requires at least NOXTLS_FEATURE_TLS12 or NOXTLS_FEATURE_TLS13"
@@ -52,6 +35,12 @@
 #include "noxtls_tls12.h"
 #include "noxtls_tls13.h"
 
+/**
+ * @brief Copy the I/O callbacks and user data to a version context
+ *
+ * @param[in] conn The connection to copy the I/O callbacks and user data from
+ * @param[out] version_base The version context to copy the I/O callbacks and user data to
+ */
 static void unified_copy_io_to_version_context(noxtls_tls_connection_t *conn, tls_context_t *version_base)
 {
     if(version_base == NULL) return;
@@ -62,6 +51,13 @@ static void unified_copy_io_to_version_context(noxtls_tls_connection_t *conn, tl
     version_base->time_callback = conn->base.time_callback;
 }
 
+/**
+ * @brief Initialize a TLS connection
+ *
+ * @param[in] conn The connection to initialize
+ * @param[in] role The role of the connection
+ * @return NOXTLS_RETURN_SUCCESS on success, error code otherwise
+ */
 noxtls_return_t noxtls_tls_connection_init(noxtls_tls_connection_t *conn, tls_role_t role)
 {
     if(conn == NULL) return NOXTLS_RETURN_NULL;
@@ -78,6 +74,14 @@ noxtls_return_t noxtls_tls_connection_init(noxtls_tls_connection_t *conn, tls_ro
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Initialize a TLS connection for a specific version
+ *
+ * @param[in] conn The connection to initialize
+ * @param[in] role The role of the connection
+ * @param[in] version The version to initialize the connection for
+ * @return NOXTLS_RETURN_SUCCESS on success, error code otherwise
+ */
 noxtls_return_t noxtls_tls_connection_init_version(noxtls_tls_connection_t *conn, tls_role_t role, uint16_t version)
 {
     if(conn == NULL) return NOXTLS_RETURN_NULL;
@@ -99,7 +103,7 @@ noxtls_return_t noxtls_tls_connection_init_version(noxtls_tls_connection_t *conn
     conn->negotiated_version = version;
     conn->is_tls13 = (version == TLS_VERSION_1_3) ? 1 : 0;
 #if NOXTLS_FEATURE_TLS13
-    conn->config_offers_tls13 = (version == TLS_VERSION_1_3) ? 1u : 0u;
+    conn->config_offers_tls13 = (version == TLS_VERSION_1_3) ? 1U : 0U;
 #endif
 
     if(noxtls_tls_context_init(&conn->base, role, version) != NOXTLS_RETURN_SUCCESS)
@@ -108,6 +112,12 @@ noxtls_return_t noxtls_tls_connection_init_version(noxtls_tls_connection_t *conn
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Free a TLS connection
+ *
+ * @param[in] conn The connection to free
+ * @return NOXTLS_RETURN_SUCCESS on success, error code otherwise
+ */
 noxtls_return_t noxtls_tls_connection_free(noxtls_tls_connection_t *conn)
 {
     if(conn == NULL) return NOXTLS_RETURN_NULL;
@@ -129,6 +139,15 @@ noxtls_return_t noxtls_tls_connection_free(noxtls_tls_connection_t *conn)
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Set the I/O callbacks for a TLS connection
+ *
+ * @param[in] conn The connection to set the I/O callbacks for
+ * @param[in] send_cb The send callback to set
+ * @param[in] recv_cb The recv callback to set
+ * @param[in] user_data The user data to set
+ * @return NOXTLS_RETURN_SUCCESS on success, error code otherwise
+ */
 noxtls_return_t noxtls_tls_connection_set_io_callbacks(noxtls_tls_connection_t *conn,
                                                       tls_send_callback_t send_cb,
                                                       tls_recv_callback_t recv_cb,
@@ -138,12 +157,27 @@ noxtls_return_t noxtls_tls_connection_set_io_callbacks(noxtls_tls_connection_t *
     return noxtls_tls_set_io_callbacks(&conn->base, send_cb, recv_cb, user_data);
 }
 
+/**
+ * @brief Set the time callback for a TLS connection
+ *
+ * @param[in] conn The connection to set the time callback for
+ * @param[in] time_cb The time callback to set
+ * @return NOXTLS_RETURN_SUCCESS on success, error code otherwise
+ */
 noxtls_return_t noxtls_tls_connection_set_time_callback(noxtls_tls_connection_t *conn, tls_time_callback_t time_cb)
 {
     if(conn == NULL) return NOXTLS_RETURN_NULL;
     return noxtls_tls_set_time_callback(&conn->base, time_cb);
 }
 
+/**
+ * @brief Set the server certificate for a TLS connection
+ *
+ * @param[in] conn The connection to set the server certificate for
+ * @param[in] cert The server certificate to set
+ * @param[in] cert_len The length of the server certificate to set
+ * @return NOXTLS_RETURN_SUCCESS on success, error code otherwise
+ */
 noxtls_return_t noxtls_tls_connection_set_server_cert(noxtls_tls_connection_t *conn, const uint8_t *cert, uint32_t cert_len)
 {
     if(conn == NULL) return NOXTLS_RETURN_NULL;
@@ -152,6 +186,15 @@ noxtls_return_t noxtls_tls_connection_set_server_cert(noxtls_tls_connection_t *c
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Set the server certificate chain for a TLS connection
+ *
+ * @param[in] conn The connection to set the server certificate chain for
+ * @param[in] certs The server certificate chain to set
+ * @param[in] cert_lens The lengths of the server certificate chain to set
+ * @param[in] cert_count The count of the server certificate chain to set
+ * @return NOXTLS_RETURN_SUCCESS on success, error code otherwise
+ */
 noxtls_return_t noxtls_tls_connection_set_server_cert_chain(noxtls_tls_connection_t *conn,
                                                             const uint8_t **certs,
                                                             const uint32_t *cert_lens,
@@ -164,6 +207,13 @@ noxtls_return_t noxtls_tls_connection_set_server_cert_chain(noxtls_tls_connectio
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Set the server private key for a TLS connection
+ *
+ * @param[in] conn The connection to set the server private key for
+ * @param[in] rsa_key The server private key to set
+ * @return NOXTLS_RETURN_SUCCESS on success, error code otherwise
+ */
 noxtls_return_t noxtls_tls_connection_set_server_private_key(noxtls_tls_connection_t *conn, void *rsa_key)
 {
     if(conn == NULL) return NOXTLS_RETURN_NULL;
@@ -171,6 +221,14 @@ noxtls_return_t noxtls_tls_connection_set_server_private_key(noxtls_tls_connecti
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Set the server cipher suites for a TLS connection
+ *
+ * @param[in] conn The connection to set the server cipher suites for
+ * @param[in] suites The server cipher suites to set
+ * @param[in] count The count of the server cipher suites to set
+ * @return NOXTLS_RETURN_SUCCESS on success, error code otherwise
+ */
 noxtls_return_t noxtls_tls_connection_set_server_cipher_suites(noxtls_tls_connection_t *conn,
                                                                const uint16_t *suites,
                                                                uint32_t count)
@@ -181,6 +239,14 @@ noxtls_return_t noxtls_tls_connection_set_server_cipher_suites(noxtls_tls_connec
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Set the server ALPN protocols for a TLS connection
+ *
+ * @param[in] conn The connection to set the server ALPN protocols for
+ * @param[in] protocols The server ALPN protocols to set
+ * @param[in] count The count of the server ALPN protocols to set
+ * @return NOXTLS_RETURN_SUCCESS on success, error code otherwise
+ */
 noxtls_return_t noxtls_tls_connection_set_server_alpn_protocols(noxtls_tls_connection_t *conn,
                                                                 const char **protocols,
                                                                 uint32_t count)
@@ -191,6 +257,14 @@ noxtls_return_t noxtls_tls_connection_set_server_alpn_protocols(noxtls_tls_conne
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Set the server name for a TLS connection
+ *
+ * @param[in] conn The connection to set the server name for
+ * @param[in] name The server name to set
+ * @param[in] name_len The length of the server name to set
+ * @return NOXTLS_RETURN_SUCCESS on success, error code otherwise
+ */
 noxtls_return_t noxtls_tls_connection_set_sni(noxtls_tls_connection_t *conn, const char *name, uint16_t name_len)
 {
     if(conn == NULL) return NOXTLS_RETURN_NULL;
@@ -199,6 +273,12 @@ noxtls_return_t noxtls_tls_connection_set_sni(noxtls_tls_connection_t *conn, con
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Accept a TLS connection
+ *
+ * @param[in] conn The connection to accept
+ * @return NOXTLS_RETURN_SUCCESS on success, error code otherwise
+ */
 noxtls_return_t noxtls_tls_connection_accept(noxtls_tls_connection_t *conn)
 {
     noxtls_return_t rc;
@@ -330,7 +410,7 @@ noxtls_return_t noxtls_tls_connection_accept(noxtls_tls_connection_t *conn)
 
 #if NOXTLS_FEATURE_TLS13
         conn->u.tls12.rfc8446_tls13_downgrade_sh_random =
-            (conn->config_offers_tls13 != 0 && tls12_wire_version == TLS_VERSION_1_2) ? 1u : 0u;
+            (conn->config_offers_tls13 != 0 && tls12_wire_version == TLS_VERSION_1_2) ? 1U : 0U;
 #endif
 
         rc = noxtls_tls12_accept(&conn->u.tls12);
@@ -356,6 +436,12 @@ noxtls_return_t noxtls_tls_connection_accept(noxtls_tls_connection_t *conn)
 #endif
 }
 
+/**
+ * @brief Connect a TLS connection
+ *
+ * @param[in] conn The connection to connect
+ * @return NOXTLS_RETURN_SUCCESS on success, error code otherwise
+ */
 noxtls_return_t noxtls_tls_connection_connect(noxtls_tls_connection_t *conn)
 {
     noxtls_return_t rc;
@@ -415,7 +501,7 @@ noxtls_return_t noxtls_tls_connection_connect(noxtls_tls_connection_t *conn)
             uint32_t ch_len = conn->u.tls13.handshake_messages_len;
             uint8_t *ch_copy = NULL;
 
-            if(stash_sh == NULL || stash_sh_len < 4u || ch_len < 4u || conn->u.tls13.handshake_messages == NULL) {
+            if(stash_sh == NULL || stash_sh_len < 4U || ch_len < 4U || conn->u.tls13.handshake_messages == NULL) {
                 if(stash_sh) {
                     free(stash_sh);
                 }
@@ -444,7 +530,7 @@ noxtls_return_t noxtls_tls_connection_connect(noxtls_tls_connection_t *conn)
                 conn->u.tls12.server_name = conn->server_name;
                 conn->u.tls12.server_name_len = conn->server_name_len;
             }
-            conn->u.tls12.rfc8446_tls13_downgrade_sh_random = (conn->config_offers_tls13 != 0u) ? 1u : 0u;
+            conn->u.tls12.rfc8446_tls13_downgrade_sh_random = (conn->config_offers_tls13 != 0U) ? 1U : 0U;
 
             rc = noxtls_tls12_client_resume_from_tls13_downgrade(&conn->u.tls12, ch_copy, ch_len, stash_sh, stash_sh_len);
             if(rc == NOXTLS_RETURN_SUCCESS) {
@@ -481,6 +567,14 @@ noxtls_return_t noxtls_tls_connection_connect(noxtls_tls_connection_t *conn)
 #endif
 }
 
+/**
+ * @brief Send data on a TLS connection
+ *
+ * @param[in] conn The connection to send data on
+ * @param[in] data The data to send
+ * @param[in] len The length of the data to send
+ * @return NOXTLS_RETURN_SUCCESS on success, error code otherwise
+ */
 noxtls_return_t noxtls_tls_connection_send(noxtls_tls_connection_t *conn, const uint8_t *data, uint32_t len)
 {
     if(conn == NULL || data == NULL) return NOXTLS_RETURN_NULL;
@@ -501,6 +595,14 @@ noxtls_return_t noxtls_tls_connection_send(noxtls_tls_connection_t *conn, const 
     }
 }
 
+/**
+ * @brief Receive data on a TLS connection
+ *
+ * @param[in] conn The connection to receive data on
+ * @param[out] buf The buffer to receive the data into
+ * @param[out] len The length of the data received
+ * @return NOXTLS_RETURN_SUCCESS on success, error code otherwise
+ */
 noxtls_return_t noxtls_tls_connection_recv(noxtls_tls_connection_t *conn, uint8_t *buf, uint32_t *len)
 {
     if(conn == NULL || buf == NULL || len == NULL) return NOXTLS_RETURN_NULL;
@@ -521,6 +623,12 @@ noxtls_return_t noxtls_tls_connection_recv(noxtls_tls_connection_t *conn, uint8_
     }
 }
 
+/**
+ * @brief Close a TLS connection
+ *
+ * @param[in] conn The connection to close
+ * @return NOXTLS_RETURN_SUCCESS on success, error code otherwise
+ */
 noxtls_return_t noxtls_tls_connection_close(noxtls_tls_connection_t *conn)
 {
     if(conn == NULL) return NOXTLS_RETURN_NULL;
@@ -541,6 +649,12 @@ noxtls_return_t noxtls_tls_connection_close(noxtls_tls_connection_t *conn)
     }
 }
 
+/**
+ * @brief Get the version of a TLS connection
+ *
+ * @param[in] conn The connection to get the version of
+ * @return The version of the connection
+ */
 uint16_t noxtls_tls_connection_get_version(const noxtls_tls_connection_t *conn)
 {
     if(conn == NULL) return 0;

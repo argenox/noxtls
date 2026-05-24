@@ -6,17 +6,22 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
-* 
 *
-* File:    noxtls_md5.c
-* Summary: NOXTLS MD5
 *
-*/
+* File:    noxtls_md5.h
+* Summary: Message Digest Algorithm 5 (MD5)
+* Defined in RFC 1321
+*
+* MD5 is cryptographically broken and should not be used.
+*
+*
+*****************************************************************************/
 
 /** @addtogroup noxtls_mdigest */
 /** @{ */
@@ -33,14 +38,14 @@ extern "C" {
 #endif
 
 #define HASH_MD5_OUT_LEN (16)
-#define MD5_BLOCK_SIZE_BYTES (64u)
-#define MD5_BLOCK_SIZE_BITS (512u)
-#define MD5_LENGTH_FIELD_BYTES (8u)
+#define MD5_BLOCK_SIZE_BYTES (64U)
+#define MD5_BLOCK_SIZE_BITS (512U)
+#define MD5_LENGTH_FIELD_BYTES (8U)
 #define MD5_PAD_BYTE (0x80u)
-#define MD5_ROUND_COUNT (64u)
-#define MD5_STATE_WORDS (4u)
-#define MD5_WORD_BYTES (4u)
-#define MD5_WORDS_PER_BLOCK (16u)
+#define MD5_ROUND_COUNT (64U)
+#define MD5_STATE_WORDS (4U)
+#define MD5_WORD_BYTES (4U)
+#define MD5_WORDS_PER_BLOCK (16U)
 
 noxtls_return_t noxtls_md5_init(noxtls_sha_ctx_t * ctx);
 noxtls_return_t noxtls_md5_update(noxtls_sha_ctx_t * ctx, const uint8_t * data, uint32_t len);

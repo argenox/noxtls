@@ -1,9 +1,9 @@
-/*
+﻿/*
 * This file is part of the NoxTLS Library.
 *
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
  *
- * Simple HTTPS client using NOXTLS TLS library.
+ * Simple HTTPS client using NoxTLS TLS library.
  */
 /**
  * @file main.c
@@ -19,6 +19,13 @@
  * https_client https://example.com/ tls12
  * https_client https://example.com/ 443 tls13 keylog=/tmp/keylog.txt
  */
+
+/* MUST be the FIRST #include: app-local noxtls_config.h (project policy)
+ * MSVC searches the directory of the including header first for "..."
+ * style includes; if a library header pulls in "noxtls_config.h" before
+ * this app does, the top-level config wins. Hoisting our local one
+ * here ensures _NOXTLS_CONFIG_H_ is set from THIS file. */
+#include "noxtls_config.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -47,10 +54,81 @@ typedef int socket_t;
 #include "noxtls-lib/tls/noxtls_tls13.h"
 #include "noxtls-lib/certs/noxtls_x509.h"
 
+/* ============================================================================
+ * Application-private static workspace (per project policy)
+ * ============================================================================
+ *
+ * Every application owns a large statically-allocated workspace buffer; all
+ * dynamic allocations made by this translation unit are served out of it via
+ * a simple bump arena. The buffer's size lives in this app's noxtls_config.h
+ * (NOXTLS_APP_STATIC_BUFFER_SIZE) so it can be tuned independently per app.
+ *
+ * free() is a no-op; the whole arena is released en-masse via
+ * app_workspace_reset() (e.g. between commands) which also wipes any
+ * transient secret material that may have been allocated.
+ */
+static uint8_t  g_app_workspace[NOXTLS_APP_STATIC_BUFFER_SIZE];
+static size_t   g_app_workspace_off = 0U;
+#define APP_WORKSPACE_ALIGN ((size_t)16U)
+
+/**
+ * @brief Allocate workspace
+ *
+ * @param[in] n The size to allocate
+ * @return The pointer to the allocated workspace
+ */
+static void *app_workspace_alloc(size_t n)
+{
+    size_t off = (g_app_workspace_off + (APP_WORKSPACE_ALIGN - 1U)) &
+                 ~(APP_WORKSPACE_ALIGN - 1U);
+    if(n == 0U || off > sizeof(g_app_workspace) ||
+       n > sizeof(g_app_workspace) - off) {
+        return NULL;
+    }
+    g_app_workspace_off = off + n;
+    return &g_app_workspace[off];
+}
+
+/**
+ * @brief Free the workspace (no-op; arena is reset in bulk).
+ *
+ * @param[in] p The pointer to the workspace to free
+ * @return void
+ */
+static void app_workspace_free(void *p) { (void)p; }
+
+/**
+ * @brief Reset the workspace and wipe allocated bytes.
+ *
+ * @return void
+ */
+static void app_workspace_reset(void)
+{
+    if(g_app_workspace_off > 0U) {
+        memset(g_app_workspace, 0, g_app_workspace_off);
+    }
+    g_app_workspace_off = 0U;
+}
+
+/* Redirect malloc()/free() in this translation unit to the static workspace.
+ * Library and standard headers have already been pulled in above; they
+ * declared malloc/free as plain functions and are unaffected. App code below
+ * uses these macros transparently. */
+#undef malloc
+#undef free
+#define malloc(n) app_workspace_alloc(n)
+#define free(p)   app_workspace_free(p)
+
 typedef struct {
     socket_t sock;
 } https_conn_t;
 
+/**
+ * @brief Print usage information and examples.
+ *
+ * @param[in] prog Program name (argv[0])
+ * @return void
+ */
 static void print_usage(const char *prog)
 {
     printf("Usage: %s <https://host[:port]/path> [port] [tls12|tls13|auto] [--ca <ca_cert.pem|der>] [keylog=<path>|--keylog <path>] [tlsdump=<path>|--tlsdump <path>]\n", prog);
@@ -101,6 +179,12 @@ static noxtls_return_t https_configure_trust_store(const char *ca_file)
     return rc;
 }
 
+/**
+ * @brief Test whether a string contains only decimal digits.
+ *
+ * @param[in] s String to test
+ * @return 1 if @p s is non-empty and all digits, 0 otherwise
+ */
 static int is_number(const char *s)
 {
     if(s == NULL || *s == '\0') {
@@ -121,6 +205,20 @@ typedef enum {
     TLS_MODE_AUTO
 } tls_mode_t;
 
+/**
+ * @brief Parse an http(s) URL into host, path, and port.
+ *
+ * Accepts https:// or http:// prefixes; http:// is treated as HTTPS.
+ * Default port is 443 when omitted.
+ *
+ * @param[in] url Input URL
+ * @param[out] host Buffer for hostname
+ * @param[in] host_len Size of @p host
+ * @param[out] path Buffer for request path
+ * @param[in] path_len Size of @p path
+ * @param[out] port Parsed or default port number
+ * @return 0 on success, -1 on parse error
+ */
 static int parse_url(const char *url, char *host, size_t host_len,
                      char *path, size_t path_len, uint16_t *port)
 {
@@ -191,6 +289,14 @@ static int parse_url(const char *url, char *host, size_t host_len,
     return 0;
 }
 
+/**
+ * @brief Open a TCP connection to @p host on @p port.
+ *
+ * @param[in] host Hostname or IP address
+ * @param[in] port TCP port number
+ * @param[out] out_sock Connected socket on success
+ * @return 0 on success, -1 on failure
+ */
 static int connect_tcp(const char *host, uint16_t port, socket_t *out_sock)
 {
     char port_str[8];
@@ -235,6 +341,14 @@ static int connect_tcp(const char *host, uint16_t port, socket_t *out_sock)
     return 0;
 }
 
+/**
+ * @brief TLS send callback; writes data to the client socket.
+ *
+ * @param[in] user_data https_conn_t pointer with connected socket
+ * @param[in] data Bytes to send
+ * @param[in] len Number of bytes to send
+ * @return Number of bytes sent, or -1 on error
+ */
 static int32_t https_send_cb(void *user_data, const uint8_t *data, uint32_t len)
 {
     https_conn_t *conn = (https_conn_t*)user_data;
@@ -256,6 +370,14 @@ static int32_t https_send_cb(void *user_data, const uint8_t *data, uint32_t len)
     return (int32_t)sent_total;
 }
 
+/**
+ * @brief TLS receive callback; reads data from the client socket.
+ *
+ * @param[in] user_data https_conn_t pointer with connected socket
+ * @param[out] data Buffer for received bytes
+ * @param[in] len Number of bytes to receive
+ * @return Number of bytes received, or -1 on error
+ */
 static int32_t https_recv_cb(void *user_data, uint8_t *data, uint32_t len)
 {
     https_conn_t *conn = (https_conn_t*)user_data;
@@ -277,6 +399,13 @@ static int32_t https_recv_cb(void *user_data, uint8_t *data, uint32_t len)
     return (int32_t)recv_total;
 }
 
+/**
+ * @brief HTTPS client entry point; connects, handshakes, and fetches a URL.
+ *
+ * @param[in] argc Argument count
+ * @param[in] argv Command-line arguments (URL, optional port, TLS mode, options)
+ * @return 0 on success, 1 on error
+ */
 int main(int argc, char **argv)
 {
     char host[256];
@@ -521,7 +650,7 @@ int main(int argc, char **argv)
         snprintf(request, sizeof(request),
                  "GET %s HTTP/1.1\r\n"
                  "Host: %s:%u\r\n"
-                 "User-Agent: NOXTLS-https_client/0.1\r\n"
+                 "User-Agent: NoxTLS-https_client/0.1\r\n"
                  "Accept: */*\r\n"
                  "Accept-Encoding: identity\r\n"
                  "Connection: close\r\n"
@@ -531,7 +660,7 @@ int main(int argc, char **argv)
         snprintf(request, sizeof(request),
                  "GET %s HTTP/1.1\r\n"
                  "Host: %s\r\n"
-                 "User-Agent: NOXTLS-https_client/0.1\r\n"
+                 "User-Agent: NoxTLS-https_client/0.1\r\n"
                  "Accept: */*\r\n"
                  "Accept-Encoding: identity\r\n"
                  "Connection: close\r\n"

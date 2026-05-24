@@ -1,0 +1,50 @@
+CONFIG_NOXTLS=y
+# Use the "default" profile here. The "tls_server_pki" profile would disable
+# SHA1/MD5/DH/AES-CCM, but the library still references those symbols from
+# runtime-selected branches in noxtls_tls_kdf.c, noxtls_tls13.c, noxtls_tls_record.c,
+# and noxtls_rsa.c, which produces undefined-reference errors at link time.
+# Switch back to CONFIG_NOXTLS_PROFILE_TLS_SERVER_PKI=y once the library's
+# call sites are gated with #if NOXTLS_FEATURE_* in addition to runtime checks.
+CONFIG_NOXTLS_PROFILE_DEFAULT=y
+CONFIG_NOXTLS_USE_ESP_ENTROPY=y
+
+# NoxTLS ESP hardware crypto (see ports/esp-idf/Kconfig and README.md).
+# ECC/ECDSA HW options require SOC_ECC_SUPPORTED=1 (e.g. esp32c6). esp32s3 has no
+# ECC peripheral — Kconfig omits those symbols; P-256 uses software ECC + HW MPI.
+CONFIG_NOXTLS_ESP_HW_MPI=y
+CONFIG_NOXTLS_ESP_HW_AES=y
+CONFIG_NOXTLS_ESP_HW_SHA=y
+
+# ESP-IDF mbedTLS: enable peripheral backends used by NoxTLS HW glue (MPI only, not TLS)
+CONFIG_MBEDTLS_HARDWARE_MPI=y
+CONFIG_MBEDTLS_HARDWARE_SHA=y
+CONFIG_MBEDTLS_HARDWARE_AES=y
+
+# TCP-only HTTPS: no DTLS/UDP (links noxtls_dtls_stub.c, skips record_send_buf at init).
+# CONFIG_NOXTLS_FEATURE_DTLS is not set
+
+# Main task stack (tls13_context_t is heap-allocated; stack still needs headroom for Wi-Fi/TCP).
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=24576
+
+# ECDSA P-256 CertificateVerify can take several seconds on CPU; default 5s WDT fires first.
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=30
+
+# Release-style build: NDEBUG silences noxtls_debug_printf in crypto hot paths.
+# Crypto hot paths benefit from -O2; size build made ECDSA ~4x slower on ESP32.
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_DISABLE=y
+
+# TLS record buffers: default 16 KiB needs ~57 KiB heap per connection on ESP32.
+CONFIG_NOXTLS_TLS_MAX_RECORD_SIZE=4096
+CONFIG_NOXTLS_TLS_MAX_WIRE_RECORD_LENGTH=4608
+CONFIG_NOXTLS_TLS_MAX_HANDSHAKE_SIZE=8192
+CONFIG_NOXTLS_MAX_CERT_SIZE=4096
+
+# Networking
+CONFIG_LWIP_MAX_SOCKETS=8
+
+# Console output
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+
+CONFIG_NOXTLS_HTTPS_SERVER_WIFI_SSID="RT-AC1200_48_5G"
+CONFIG_NOXTLS_HTTPS_SERVER_WIFI_PASSWORD="doctor_3729"

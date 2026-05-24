@@ -1,4 +1,4 @@
-/*****************************************************************************
+﻿/*****************************************************************************
 * Copyright (c) [2019] - [2026], Argenox Technologies LLC
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
@@ -53,6 +53,13 @@
  * dtls_psk_demo --aes 1.3
  */
 
+/* MUST be the FIRST #include: app-local noxtls_config.h (project policy)
+ * MSVC searches the directory of the including header first for "..."
+ * style includes; if a library header pulls in "noxtls_config.h" before
+ * this app does, the top-level config wins. Hoisting our local one
+ * here ensures _NOXTLS_CONFIG_H_ is set from THIS file. */
+#include "noxtls_config.h"
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -74,6 +81,74 @@
 #include "noxtls-lib/mdigest/sha256/noxtls_sha256.h"
 #include "noxtls-lib/mdigest/noxtls_hash.h"
 #include "noxtls-lib/drbg/noxtls_drbg.h"
+
+/* ============================================================================
+ * Application-private static workspace (per project policy)
+ * ============================================================================
+ *
+ * Every application owns a large statically-allocated workspace buffer; all
+ * dynamic allocations made by this translation unit are served out of it via
+ * a simple bump arena. The buffer's size lives in this app's noxtls_config.h
+ * (NOXTLS_APP_STATIC_BUFFER_SIZE) so it can be tuned independently per app.
+ *
+ * free() is a no-op; the whole arena is released en-masse via
+ * app_workspace_reset() (e.g. between commands) which also wipes any
+ * transient secret material that may have been allocated.
+ */
+static uint8_t  g_app_workspace[NOXTLS_APP_STATIC_BUFFER_SIZE];
+static size_t   g_app_workspace_off = 0U;
+#define APP_WORKSPACE_ALIGN ((size_t)16U)
+
+/**
+ * @brief Allocate workspace
+ *
+ * @param[in] n The size to allocate
+ * @return The pointer to the allocated workspace
+ */
+static void *app_workspace_alloc(size_t n)
+{
+    size_t off = (g_app_workspace_off + (APP_WORKSPACE_ALIGN - 1U)) &
+                 ~(APP_WORKSPACE_ALIGN - 1U);
+    if(n == 0U || off > sizeof(g_app_workspace) ||
+       n > sizeof(g_app_workspace) - off) {
+        return NULL;
+    }
+    g_app_workspace_off = off + n;
+    return &g_app_workspace[off];
+}
+
+/**
+ * @brief Free the workspace
+ *
+ * @param[in] p The pointer to the workspace to free
+ * @return void
+ */
+static void app_workspace_free(void *p) 
+{ 
+    (void)p; 
+}
+
+/**
+ * @brief Reset the workspace
+ *
+ * @return void
+ */
+static void app_workspace_reset(void)
+{
+    if(g_app_workspace_off > 0U) {
+        memset(g_app_workspace, 0, g_app_workspace_off);
+    }
+    g_app_workspace_off = 0U;
+}
+
+/* Redirect malloc()/free() in this translation unit to the static workspace.
+ * Library and standard headers have already been pulled in above; they
+ * declared malloc/free as plain functions and are unaffected. App code below
+ * uses these macros transparently. */
+#undef malloc
+#undef free
+#define malloc(n) app_workspace_alloc(n)
+#define free(p)   app_workspace_free(p)
 
 /* DTLS PSK Identity and Key (for demo purposes) */
 #define DTLS_PSK_IDENTITY     "test-identity"
@@ -119,7 +194,12 @@ typedef struct
 } thread_safe_udp_t;
 #endif
 
-/* Initialize UDP buffer */
+/**
+ * @brief Initialize the UDP buffer
+ * 
+ * @param[in] buf The UDP buffer to initialize
+ * @return void
+ */
 static void udp_buffer_init(udp_buffer_t *buf)
 {
     buf->data = NULL;
@@ -127,7 +207,15 @@ static void udp_buffer_init(udp_buffer_t *buf)
     buf->capacity = 0;
 }
 
-/* Append data to UDP buffer */
+
+/**
+ * @brief Append data to UDP buffer
+ *
+ * @param[in] buf The UDP buffer
+ * @param[in] data The data to append
+ * @param[in] len The length of the data to append
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the buffer is NULL, or NOXTLS_RETURN_FAILED if the data cannot be appended
+ */
 static noxtls_return_t udp_buffer_append(udp_buffer_t *buf, const uint8_t *data, uint32_t len)
 {
     if(buf == NULL || data == NULL)
@@ -154,7 +242,14 @@ static noxtls_return_t udp_buffer_append(udp_buffer_t *buf, const uint8_t *data,
     return NOXTLS_RETURN_SUCCESS;
 }
 
-/* Read data from UDP buffer (reads entire datagram) */
+/**
+ * @brief Read data from UDP buffer (reads entire datagram)
+ *
+ * @param[in] buf The UDP buffer
+ * @param[out] data The data to read
+ * @param[in] len The length of the data to read
+ * @return The length of the data read
+ */
 static int32_t udp_buffer_read(udp_buffer_t *buf, uint8_t *data, uint32_t len)
 {
     if(buf == NULL || data == NULL)
@@ -177,7 +272,12 @@ static int32_t udp_buffer_read(udp_buffer_t *buf, uint8_t *data, uint32_t len)
     return (int32_t)to_read;
 }
 
-/* Free UDP buffer */
+/**
+ * @brief Free UDP buffer
+ *
+ * @param[in] buf The UDP buffer to free
+ * @return void
+ */
 static void udp_buffer_free(udp_buffer_t *buf)
 {
     if(buf && buf->data)
@@ -192,7 +292,14 @@ static void udp_buffer_free(udp_buffer_t *buf)
     }
 }
 
-/* Server send callback */
+/**
+ * @brief Server send callback
+ *
+ * @param[in] user_data The user data
+ * @param[in] data The data to send
+ * @param[in] len The length of the data to send
+ * @return The length of the data sent
+ */
 static int32_t server_send_callback(void *user_data, const uint8_t *data, uint32_t len)
 {
     udp_connection_t *conn = (udp_connection_t*)user_data;
@@ -209,7 +316,14 @@ static int32_t server_send_callback(void *user_data, const uint8_t *data, uint32
     return (int32_t)len;
 }
 
-/* Server receive callback */
+/**
+ * @brief Server receive callback
+ *
+ * @param[in] user_data The user data
+ * @param[out] data The data to receive
+ * @param[in] len The length of the data to receive
+ * @return The length of the data received
+ */
 static int32_t server_recv_callback(void *user_data, uint8_t *data, uint32_t len)
 {
     udp_connection_t *conn = (udp_connection_t*)user_data;
@@ -221,7 +335,14 @@ static int32_t server_recv_callback(void *user_data, uint8_t *data, uint32_t len
     return udp_buffer_read(&conn->client_to_server, data, len);
 }
 
-/* Client send callback */
+/**
+ * @brief Client send callback
+ *
+ * @param[in] user_data The user data
+ * @param[in] data The data to send
+ * @param[in] len The length of the data to send
+ * @return The length of the data sent
+ */
 static int32_t client_send_callback(void *user_data, const uint8_t *data, uint32_t len)
 {
     udp_connection_t *conn = (udp_connection_t*)user_data;
@@ -238,7 +359,14 @@ static int32_t client_send_callback(void *user_data, const uint8_t *data, uint32
     return (int32_t)len;
 }
 
-/* Client receive callback */
+/**
+ * @brief Client receive callback
+ *
+ * @param[in] user_data The user data
+ * @param[out] data The data to receive
+ * @param[in] len The length of the data to receive
+ * @return The length of the data received
+ */
 static int32_t client_recv_callback(void *user_data, uint8_t *data, uint32_t len)
 {
     udp_connection_t *conn = (udp_connection_t*)user_data;
@@ -258,7 +386,14 @@ typedef struct
     int is_client;  /* 1 = client, 0 = server */
 } ts_io_user_data_t;
 
-/* Thread-safe client send: append to client_to_server, signal server */
+/**
+ * @brief Thread-safe client send: append to client_to_server, signal server
+ *
+ * @param[in] user_data The user data
+ * @param[in] data The data to send
+ * @param[in] len The length of the data to send
+ * @return The length of the data sent
+ */
 static int32_t client_send_ts_callback(void *user_data, const uint8_t *data, uint32_t len)
 {
     ts_io_user_data_t *ud = (ts_io_user_data_t*)user_data;
@@ -285,7 +420,14 @@ static int32_t client_send_ts_callback(void *user_data, const uint8_t *data, uin
     return (int32_t)len;
 }
 
-/* Thread-safe client recv: wait for server_to_client, then read */
+/**
+ * @brief Thread-safe client recv: wait for server_to_client, then read
+ *
+ * @param[in] user_data The user data
+ * @param[out] data The data to receive
+ * @param[in] len The length of the data to receive
+ * @return The length of the data received
+ */
 static int32_t client_recv_ts_callback(void *user_data, uint8_t *data, uint32_t len)
 {
     ts_io_user_data_t *ud = (ts_io_user_data_t*)user_data;
@@ -309,7 +451,14 @@ static int32_t client_recv_ts_callback(void *user_data, uint8_t *data, uint32_t 
     return ret;
 }
 
-/* Thread-safe server send: append to server_to_client, signal client */
+/**
+ * @brief Thread-safe server send: append to server_to_client, signal client
+ *
+ * @param[in] user_data The user data
+ * @param[in] data The data to send
+ * @param[in] len The length of the data to send
+ * @return The length of the data sent
+ */
 static int32_t server_send_ts_callback(void *user_data, const uint8_t *data, uint32_t len)
 {
     ts_io_user_data_t *ud = (ts_io_user_data_t*)user_data;
@@ -336,7 +485,14 @@ static int32_t server_send_ts_callback(void *user_data, const uint8_t *data, uin
     return (int32_t)len;
 }
 
-/* Thread-safe server recv: wait for client_to_server, then read */
+/**
+ * @brief Thread-safe server recv: wait for client_to_server, then read
+ *
+ * @param[in] user_data The user data
+ * @param[out] data The data to receive
+ * @param[in] len The length of the data to receive
+ * @return The length of the data received
+ */
 static int32_t server_recv_ts_callback(void *user_data, uint8_t *data, uint32_t len)
 {
     ts_io_user_data_t *ud = (ts_io_user_data_t*)user_data;
@@ -360,7 +516,14 @@ static int32_t server_recv_ts_callback(void *user_data, uint8_t *data, uint32_t 
     return ret;
 }
 
-/* Generate PSK key from identity (simplified - in real implementation, use proper key derivation) */
+/**
+ * @brief Generate PSK key from identity (simplified - in real implementation, use proper key derivation)
+ *
+ * @param[in] identity The identity
+ * @param[out] key The key
+ * @param[in] key_len The length of the key
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the identity is NULL, or NOXTLS_RETURN_FAILED if the key cannot be generated
+ */
 static noxtls_return_t dtls_psk_get_key(const char *identity, uint8_t *key, uint32_t *key_len)
 {
     if(identity == NULL || key == NULL || key_len == NULL)
@@ -384,7 +547,13 @@ static noxtls_return_t dtls_psk_get_key(const char *identity, uint8_t *key, uint
 }
 #endif /* DTLS12_DEMO_USE_CERT_DATA */
 
-/* Print hex data */
+/**
+ * @brief Print hex data
+ *
+ * @param[in] data The data to print
+ * @param[in] len The length of the data to print
+ * @return void
+ */
 static void print_hex(const uint8_t *data, uint32_t len)
 {
     uint32_t i;
@@ -397,6 +566,17 @@ static void print_hex(const uint8_t *data, uint32_t len)
     if((len & 15) != 0) printf("\n");
 }
 
+/**
+ * @brief DTLS roundtrip record
+ *
+ * @param[in] sender The sender context
+ * @param[in] receiver The receiver context
+ * @param[in] type The type of the record
+ * @param[in] payload The payload to send
+ * @param[in] payload_len The length of the payload
+ * @param[in] label The label of the record
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_FAILED on failure
+ */
 static noxtls_return_t dtls_roundtrip_record(dtls_context_t *sender,
                                              dtls_context_t *receiver,
                                              uint8_t type,
@@ -437,6 +617,18 @@ static noxtls_return_t dtls_roundtrip_record(dtls_context_t *sender,
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief DTLS handshake exchange
+ *
+ * @param[in] client The client context
+ * @param[in] server The server context
+ * @param[in] msg_type The type of the message
+ * @param[in] message_seq The sequence number of the message
+ * @param[in] payload The payload to send
+ * @param[in] payload_len The length of the payload
+ * @param[in] label The label of the message
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_FAILED on failure
+ */
 static noxtls_return_t dtls_handshake_exchange(dtls_context_t *client,
                                                dtls_context_t *server,
                                                uint8_t msg_type,
@@ -486,7 +678,12 @@ static noxtls_return_t dtls_handshake_exchange(dtls_context_t *client,
 }
 
 #ifdef DTLS12_DEMO_USE_CERT_DATA
-/* Full DTLS 1.2 handshake (ECDHE + server cert): client and server thread args */
+/**
+ * @brief Full DTLS 1.2 handshake (ECDHE + server cert): client and server thread args
+ *
+ * @param[in] ts The thread-safe UDP context
+ * @param[in] rc The return code
+ */
 typedef struct
 {
     thread_safe_udp_t *ts;
@@ -494,8 +691,21 @@ typedef struct
 } dtls12_thread_args_t;
 
 #if defined(_WIN32) || defined(_WIN64)
+/**
+ * @brief DTLS 1.2 client thread function
+ *
+ * @param[in] arg The argument
+ * @return 0 on success, NULL on failure
+*/ 
 static DWORD WINAPI dtls12_client_thread_fn(LPVOID arg)
 #else
+/**
+ * @brief DTLS 1.2 client thread function
+ *
+ * @param[in] arg The argument
+ * @return NULL on failure
+ * @return void
+ */
 static void *dtls12_client_thread_fn(void *arg)
 #endif
 {
@@ -567,8 +777,21 @@ static void *dtls12_client_thread_fn(void *arg)
 }
 
 #if defined(_WIN32) || defined(_WIN64)
+/**
+ * @brief DTLS 1.2 server thread function
+ *
+ * @param[in] arg The argument
+ * @return 0 on success, NULL on failure
+ */ 
 static DWORD WINAPI dtls12_server_thread_fn(LPVOID arg)
 #else
+/**
+ * @brief DTLS 1.2 server thread function
+ *
+ * @param[in] arg The argument
+ * @return NULL on failure
+ * @return void
+ */
 static void *dtls12_server_thread_fn(void *arg)
 #endif
 {
@@ -635,6 +858,12 @@ static void *dtls12_server_thread_fn(void *arg)
 #endif
 
 /* DTLS 1.2 Handshake Demo: full handshake when cert data available, else simplified */
+/**
+ * @brief DTLS 1.2 PSK handshake demo
+ *
+ * @param[in] network The network context
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_FAILED on failure
+ */
 static noxtls_return_t dtls12_psk_handshake_demo(udp_connection_t *network)
 {
     (void)network;
@@ -782,6 +1011,13 @@ static noxtls_return_t dtls12_psk_handshake_demo(udp_connection_t *network)
 }
 
 /* DTLS 1.3 PSK Handshake Demo. prefer_chacha20: 0 = prefer AES-GCM, 1 = prefer ChaCha20-Poly1305 (for full handshake use noxtls_tls13_set_prefer_chacha20). */
+/**
+ * @brief DTLS 1.3 PSK handshake demo
+ *
+ * @param[in] network The network context
+ * @param[in] prefer_chacha20 The preference for ChaCha20-Poly1305
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_FAILED on failure
+ */
 static noxtls_return_t dtls13_psk_handshake_demo(udp_connection_t *network, int prefer_chacha20)
 {
     printf("========================================\n");
@@ -857,6 +1093,13 @@ static noxtls_return_t dtls13_psk_handshake_demo(udp_connection_t *network, int 
 }
 
 /* Main function */
+/**
+ * @brief Main function
+ *
+ * @param[in] argc The number of arguments
+ * @param[in] argv The arguments
+ * @return 0 on success, -1 on failure
+ */
 int main(int argc, char **argv)
 {
     udp_connection_t network;

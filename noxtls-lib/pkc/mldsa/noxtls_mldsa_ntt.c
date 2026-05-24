@@ -3,11 +3,22 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+*
 * This file is part of the NoxTLS Library.
+*
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
+*
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
 *
 * File:    noxtls_mldsa_ntt.c
 * Summary: ML-DSA NTT helpers over Z_q with q = 8380417.
-*/
+*
+*
+*****************************************************************************/
 
 #include <stdint.h>
 
@@ -21,8 +32,15 @@ typedef struct
     int32_t inv_n;
 } noxtls_mldsa_ntt_ctx_t;
 
-static noxtls_mldsa_ntt_ctx_t g_ntt_ctx = {0u, 0, 0, 0};
+static noxtls_mldsa_ntt_ctx_t g_ntt_ctx = {0U, 0, 0, 0};
 
+/**
+ * @brief Add two integers modulo q.
+ *
+ * @param[in] a The a value.
+ * @param[in] b The b value.
+ * @return The return value.
+ */
 static int32_t mod_add_q(int32_t a, int32_t b)
 {
     int32_t r = a + b;
@@ -32,6 +50,13 @@ static int32_t mod_add_q(int32_t a, int32_t b)
     return r;
 }
 
+/**
+ * @brief Subtract two integers modulo q.
+ *
+ * @param[in] a The a value.
+ * @param[in] b The b value.
+ * @return The return value.
+ */
 static int32_t mod_sub_q(int32_t a, int32_t b)
 {
     int32_t r = a - b;
@@ -41,12 +66,26 @@ static int32_t mod_sub_q(int32_t a, int32_t b)
     return r;
 }
 
+/**
+ * @brief Multiply two integers modulo q.
+ *
+ * @param[in] a The a value.
+ * @param[in] b The b value.
+ * @return The return value.
+ */
 static int32_t mod_mul_q(int32_t a, int32_t b)
 {
     int64_t p = (int64_t)a * (int64_t)b;
     return (int32_t)(p % NOXTLS_MLDSA_Q);
 }
 
+/**
+ * @brief Raise an integer to a power modulo q.
+ *
+ * @param[in] base The base value.
+ * @param[in] exp The exp value.
+ * @return The return value.
+ */
 static int32_t mod_pow_q(int32_t base, int32_t exp)
 {
     int32_t r = 1;
@@ -63,28 +102,45 @@ static int32_t mod_pow_q(int32_t base, int32_t exp)
     return r;
 }
 
+/**
+ * @brief Inverse an integer modulo q.
+ *
+ * @param[in] x The x value.
+ * @return The return value.
+ */
 static int32_t mod_inv_q(int32_t x)
 {
     return mod_pow_q(x, NOXTLS_MLDSA_Q - 2);
 }
 
+/**
+ * @brief Reverse the bits of an 8-bit integer.
+ *
+ * @param[in] x The x value.
+ * @return The return value.
+ */
 static uint32_t bit_reverse_u8(uint32_t x)
 {
-    uint32_t r = 0u;
+    uint32_t r = 0U;
     uint32_t i;
-    for(i = 0u; i < 8u; ++i) {
-        r = (r << 1u) | (x & 1u);
-        x >>= 1u;
+    for(i = 0U; i < 8U; ++i) {
+        r = (r << 1U) | (x & 1U);
+        x >>= 1U;
     }
     return r;
 }
 
+/**
+ * @brief Initialize the NTT context.
+ *
+ * @return The return value.
+ */
 static int ntt_init_once(void)
 {
     int32_t cand;
     int32_t root = 0;
 
-    if(g_ntt_ctx.initialized != 0u) {
+    if(g_ntt_ctx.initialized != 0U) {
         return 0;
     }
 
@@ -103,15 +159,20 @@ static int ntt_init_once(void)
     g_ntt_ctx.root = root;
     g_ntt_ctx.inv_root = mod_inv_q(root);
     g_ntt_ctx.inv_n = mod_inv_q(NOXTLS_MLDSA_N);
-    g_ntt_ctx.initialized = 1u;
+    g_ntt_ctx.initialized = 1U;
     return 0;
 }
 
+/**
+ * @brief Bit-reverse permute a polynomial.
+ *
+ * @param[in] p The p value.
+ */
 static void bit_reverse_permute(noxtls_mldsa_poly_t *p)
 {
     uint32_t i;
 
-    for(i = 0u; i < NOXTLS_MLDSA_N; ++i) {
+    for(i = 0U; i < NOXTLS_MLDSA_N; ++i) {
         uint32_t j = bit_reverse_u8(i);
         if(j > i) {
             int32_t tmp = p->coeff[i];
@@ -121,21 +182,27 @@ static void bit_reverse_permute(noxtls_mldsa_poly_t *p)
     }
 }
 
+/**
+ * @brief Core NTT operation.
+ *
+ * @param[in] p The p value.
+ * @param[in] omega The omega value.
+ */
 static void ntt_core(noxtls_mldsa_poly_t *p, int32_t omega)
 {
     uint32_t m;
 
     bit_reverse_permute(p);
 
-    for(m = 2u; m <= NOXTLS_MLDSA_N; m <<= 1u) {
-        uint32_t half = m >> 1u;
+    for(m = 2U; m <= NOXTLS_MLDSA_N; m <<= 1U) {
+        uint32_t half = m >> 1U;
         int32_t wm = mod_pow_q(omega, (int32_t)(NOXTLS_MLDSA_N / m));
         uint32_t k;
 
-        for(k = 0u; k < NOXTLS_MLDSA_N; k += m) {
+        for(k = 0U; k < NOXTLS_MLDSA_N; k += m) {
             int32_t w = 1;
             uint32_t j;
-            for(j = 0u; j < half; ++j) {
+            for(j = 0U; j < half; ++j) {
                 int32_t t = mod_mul_q(w, p->coeff[k + j + half]);
                 int32_t u = p->coeff[k + j];
                 p->coeff[k + j] = mod_add_q(u, t);
@@ -146,6 +213,11 @@ static void ntt_core(noxtls_mldsa_poly_t *p, int32_t omega)
     }
 }
 
+/**
+ * @brief Perform the NTT on a polynomial.
+ *
+ * @param[in] p The p value.
+ */
 void noxtls_mldsa_poly_ntt(noxtls_mldsa_poly_t *p)
 {
     if(p == NULL) {
@@ -158,6 +230,11 @@ void noxtls_mldsa_poly_ntt(noxtls_mldsa_poly_t *p)
     ntt_core(p, g_ntt_ctx.root);
 }
 
+/**
+ * @brief Perform the inverse NTT and convert to Montgomery domain.
+ *
+ * @param[in] p The p value.
+ */
 void noxtls_mldsa_poly_invntt_to_mont(noxtls_mldsa_poly_t *p)
 {
     uint32_t i;
@@ -171,11 +248,18 @@ void noxtls_mldsa_poly_invntt_to_mont(noxtls_mldsa_poly_t *p)
 
     noxtls_mldsa_poly_reduce(p);
     ntt_core(p, g_ntt_ctx.inv_root);
-    for(i = 0u; i < NOXTLS_MLDSA_N; ++i) {
+    for(i = 0U; i < NOXTLS_MLDSA_N; ++i) {
         p->coeff[i] = mod_mul_q(p->coeff[i], g_ntt_ctx.inv_n);
     }
 }
 
+/**
+ * @brief Perform a pointwise Montgomery multiplication.
+ *
+ * @param[out] r The r value.
+ * @param[in] a The a value.
+ * @param[in] b The b value.
+ */
 void noxtls_mldsa_poly_pointwise_montgomery(noxtls_mldsa_poly_t *r,
                                             const noxtls_mldsa_poly_t *a,
                                             const noxtls_mldsa_poly_t *b)
@@ -186,7 +270,7 @@ void noxtls_mldsa_poly_pointwise_montgomery(noxtls_mldsa_poly_t *r,
         return;
     }
 
-    for(i = 0u; i < NOXTLS_MLDSA_N; ++i) {
+    for(i = 0U; i < NOXTLS_MLDSA_N; ++i) {
         r->coeff[i] = mod_mul_q(noxtls_mldsa_coeff_normalize(a->coeff[i]),
                                 noxtls_mldsa_coeff_normalize(b->coeff[i]));
     }

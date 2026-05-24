@@ -3,14 +3,24 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+*
 * This file is part of the NoxTLS Library.
 *
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
+*
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
+*
 * File:    noxtls_tls13_psk.h
-* Summary: TLS 1.3 PSK and ECDHE-PSK key exchange (separate module)
+* Summary: TLS 1.3 PSK and ECDHE-PSK key exchange
 *
 * This module provides TLS 1.3 Pre-Shared Key (PSK) and ECDHE-PSK
 * functionality: binder computation, ticket store, and resumption PSK derivation.
-*/
+*
+*****************************************************************************/
 
 #ifndef _NOXTLS_TLS13_PSK_H_
 #define _NOXTLS_TLS13_PSK_H_

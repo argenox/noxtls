@@ -6,17 +6,18 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
-* 
+*
 *
 * File:    aes.c
 * Summary: Advanced Encryption Standard (AES) Algorithm
 *
-*/
+*****************************************************************************/
 
 /** @addtogroup noxtls_encryption */
 
@@ -38,6 +39,10 @@ extern "C"
 #include "noxtls_common.h"
 
 #if NOXTLS_FEATURE_AES
+
+#ifndef NOXTLS_PORT_AES_ACCEL
+#define NOXTLS_PORT_AES_ACCEL 0
+#endif
 
 
 
@@ -83,10 +88,21 @@ static const uint8_t aes_inv_sub_box[16][16] =
     {0x17, 0x2b, 0x04, 0x7e, 0xba, 0x77, 0xd6, 0x26, 0xe1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0c, 0x7d}
 };
 
+static uint32_t aes_enc_te0[256];
+static uint32_t aes_enc_te1[256];
+static uint32_t aes_enc_te2[256];
+static uint32_t aes_enc_te3[256];
+static uint8_t aes_enc_tables_ready = 0U;
 
 static uint32_t aes_rotword(uint32_t w);;
 static uint32_t aes_subword(uint32_t w);
 static uint32_t rcon(uint8_t in);
+static uint8_t aes_xtime_byte(uint8_t x);
+static uint8_t aes_sbox_lookup(uint8_t x);
+static uint32_t aes_load_be32(const uint8_t *src);
+static void aes_store_be32(uint8_t *dst, uint32_t word);
+static void aes_software_init_encrypt_tables(void);
+
 static noxtls_return_t noxtls_aes_encrypt_block_software(const uint8_t *key,
                                                   const uint8_t *data,
                                                   uint8_t *output,
@@ -95,6 +111,14 @@ static noxtls_return_t noxtls_aes_decrypt_block_software(const uint8_t *key,
                                                   const uint8_t *data,
                                                   uint8_t *output,
                                                   noxtls_aes_type_t type);
+static noxtls_return_t noxtls_aes_encrypt_block_software_expanded(const uint32_t *round_keys,
+                                                           uint8_t rounds,
+                                                           const uint8_t *data,
+                                                           uint8_t *output);
+static noxtls_return_t noxtls_aes_decrypt_block_software_expanded(const uint32_t *round_keys,
+                                                           uint8_t rounds,
+                                                           const uint8_t *data,
+                                                           uint8_t *output);
 /* Make encrypt block accessible to mode implementations */
 noxtls_return_t noxtls_aes_encrypt_block_internal(const uint8_t* key, const uint8_t* data, uint8_t* output, noxtls_aes_type_t type);
 noxtls_return_t noxtls_aes_decrypt_block_internal(const uint8_t * key, const uint8_t * data, uint8_t * output, noxtls_aes_type_t type);
@@ -102,6 +126,7 @@ noxtls_return_t noxtls_aes_decrypt_block_internal(const uint8_t * key, const uin
     
 /**
  * @brief Copy an AES state matrix to a contiguous output block.
+ *
  * @param state AES state matrix in column-major order.
  * @param output Output buffer that receives NOXTLS_AES_BLOCK_LENGTH bytes.
  * @return 0 on success.
@@ -120,6 +145,94 @@ static int copy_state_to_buffer(uint8_t state[4][4], uint8_t* output)
     }
 
     return 0;
+}
+
+/**
+ * @brief Multiply an AES field element by x in GF(2^8).
+ *
+ * @param x Field element to multiply.
+ * @return Result of multiplying @p x by x modulo the AES polynomial.
+ */
+static uint8_t aes_xtime_byte(uint8_t x)
+{
+    uint8_t hi = (uint8_t)(x & 0x80U);
+    x = (uint8_t)(x << 1);
+    if(hi != 0U) {
+        x = (uint8_t)(x ^ 0x1BU);
+    }
+    return x;
+}
+
+/**
+ * @brief Look up one byte in the AES S-box.
+ *
+ * @param x Input byte value.
+ * @return S-box substitution for @p x.
+ */
+static uint8_t aes_sbox_lookup(uint8_t x)
+{
+    return aes_sub_box[(x >> 4) & 0x0FU][x & 0x0FU];
+}
+
+/**
+ * @brief Load a big-endian 32-bit word from a byte buffer.
+ *
+ * @param src Source buffer containing at least 4 bytes.
+ * @return 32-bit word decoded from @p src.
+ */
+static uint32_t aes_load_be32(const uint8_t *src)
+{
+    return ((uint32_t)src[0] << 24) |
+           ((uint32_t)src[1] << 16) |
+           ((uint32_t)src[2] << 8) |
+           (uint32_t)src[3];
+}
+
+/**
+ * @brief Store a 32-bit word to a byte buffer in big-endian order.
+ *
+ * @param dst Destination buffer that receives 4 bytes.
+ * @param word 32-bit word to encode.
+ * @return None.
+ */
+static void aes_store_be32(uint8_t *dst, uint32_t word)
+{
+    dst[0] = (uint8_t)(word >> 24);
+    dst[1] = (uint8_t)(word >> 16);
+    dst[2] = (uint8_t)(word >> 8);
+    dst[3] = (uint8_t)word;
+}
+
+/**
+ * @brief Initialize table-driven AES encrypt round tables on first use.
+ *
+ * @param None.
+ * @return None.
+ */
+static void aes_software_init_encrypt_tables(void)
+{
+    uint32_t x;
+
+    if(aes_enc_tables_ready != 0U) {
+        return;
+    }
+
+    for(x = 0U; x < 256U; x++) {
+        uint8_t s = aes_sbox_lookup((uint8_t)x);
+        uint8_t s2 = aes_xtime_byte(s);
+        uint8_t s3 = (uint8_t)(s2 ^ s);
+        uint32_t te0 = ((uint32_t)s2 << 24) |
+                       ((uint32_t)s << 16) |
+                       ((uint32_t)s << 8) |
+                       (uint32_t)s3;
+
+        aes_enc_te0[x] = te0;
+        aes_enc_te1[x] = (te0 >> 8) | (te0 << 24);
+        aes_enc_te2[x] = (te0 >> 16) | (te0 << 16);
+        aes_enc_te3[x] = (te0 >> 24) | (te0 << 8);
+    }
+
+    aes_enc_tables_ready = 1U;
 }
 
 /* Forward declarations for mode-specific functions */
@@ -144,6 +257,7 @@ extern noxtls_return_t noxtls_aes_encrypt_xts(const uint8_t* key, const uint8_t*
 
 /**
  * @brief Encrypt data with the selected AES mode.
+ *
  * @param key AES key bytes for the selected key size.
  * @param data Input plaintext buffer.
  * @param data_len Plaintext length in bytes.
@@ -210,6 +324,7 @@ noxtls_return_t noxtls_aes_encrypt_data(const uint8_t* key,
 
 /**
  * @brief Return the key size in bytes for an AES key size selector.
+ *
  * @param type AES key size selector.
  * @return Key size in bytes, or 0 for an invalid selector.
  */
@@ -228,7 +343,88 @@ static uint8_t aes_key_size_bytes(noxtls_aes_type_t type)
 }
 
 /**
+ * @brief Map an AES key size selector to round-count and key-layout metadata.
+ *
+ * @param type AES key size selector.
+ * @param rounds Output number of AES rounds for @p type.
+ * @param key_words Output number of 32-bit key words for @p type.
+ * @param key_len Output key length in bytes for @p type.
+ * @return NOXTLS_RETURN_SUCCESS on success or a noxtls_return_t error code.
+ */
+static noxtls_return_t aes_type_params(noxtls_aes_type_t type, uint8_t *rounds, uint8_t *key_words, uint8_t *key_len)
+{
+    if(rounds == NULL || key_words == NULL || key_len == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    switch(type)
+    {
+    case NOXTLS_AES_128_BIT:
+#if NOXTLS_FEATURE_AES_128
+        *rounds = NOXTLS_AES_128_ROUNDS;
+        *key_words = 4;
+        *key_len = 16;
+        return NOXTLS_RETURN_SUCCESS;
+#else
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+    case NOXTLS_AES_192_BIT:
+#if NOXTLS_FEATURE_AES_192
+        *rounds = NOXTLS_AES_192_ROUNDS;
+        *key_words = 6;
+        *key_len = 24;
+        return NOXTLS_RETURN_SUCCESS;
+#else
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+    case NOXTLS_AES_256_BIT:
+#if NOXTLS_FEATURE_AES_256
+        *rounds = NOXTLS_AES_256_ROUNDS;
+        *key_words = 8;
+        *key_len = 32;
+        return NOXTLS_RETURN_SUCCESS;
+#else
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+    default:
+        return NOXTLS_RETURN_INVALID_KEY_SIZE;
+    }
+}
+
+/**
+ * @brief Prepare an AES context with key metadata and expanded round keys.
+ *
+ * @param ctx AES context to populate.
+ * @param key AES key bytes for the selected key size.
+ * @param type AES key size selector.
+ * @return NOXTLS_RETURN_SUCCESS on success or a noxtls_return_t error code.
+ */
+noxtls_return_t noxtls_aes_prepare_context(noxtls_aes_context_t *ctx, const uint8_t *key, noxtls_aes_type_t type)
+{
+    noxtls_return_t rc;
+
+    if(ctx == NULL || key == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    rc = aes_type_params(type, &ctx->rounds, &ctx->key_words, &ctx->key_len);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+
+    ctx->type = type;
+    memcpy(ctx->key, key, ctx->key_len);
+    rc = noxtls_aes_key_expansion(key, ctx->round_keys, ctx->key_words, ctx->rounds);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+    ctx->round_keys_ready = 1;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
  * @brief Increment a 128-bit AES counter block in big-endian order.
+ *
  * @param counter Counter block to increment in place.
  * @return None.
  */
@@ -245,6 +441,7 @@ static void aes_counter_inc(uint8_t counter[NOXTLS_AES_BLOCK_LENGTH])
 
 /**
  * @brief Initialize AES feedback state with a required IV.
+ *
  * @param iv Initialization vector of NOXTLS_AES_BLOCK_LENGTH bytes.
  * @param ctx AES context whose feedback state is initialized.
  * @return NOXTLS_RETURN_SUCCESS on success or NOXTLS_RETURN_INVALID_PARAM when iv is NULL.
@@ -259,6 +456,17 @@ static noxtls_return_t aes_init_iv_required(const uint8_t *iv, noxtls_aes_contex
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Initialize an AES streaming context for the selected mode.
+ *
+ * @param ctx AES context to initialize.
+ * @param key AES key bytes for the selected key size.
+ * @param iv Initialization vector, nonce, or feedback block for the selected mode.
+ * @param type AES key size selector.
+ * @param mode AES operation mode selector.
+ * @param op AES encrypt/decrypt operation selector.
+ * @return NOXTLS_RETURN_SUCCESS on success or a noxtls_return_t error code.
+ */
 noxtls_return_t noxtls_aes_init(noxtls_aes_context_t *ctx,
              const uint8_t *key,
              const uint8_t *iv,
@@ -266,20 +474,19 @@ noxtls_return_t noxtls_aes_init(noxtls_aes_context_t *ctx,
              noxtls_aes_mode_t mode,
              noxtls_aes_operation_t op)
 {
+    noxtls_return_t rc;
+
     if(ctx == NULL || key == NULL) {
         return NOXTLS_RETURN_NULL;
     }
 
     memset(ctx, 0, sizeof(*ctx));
-    ctx->type = type;
     ctx->mode = mode;
     ctx->op = op;
-    ctx->key_len = aes_key_size_bytes(type);
-    if(ctx->key_len == 0) {
-        return NOXTLS_RETURN_INVALID_KEY_SIZE;
+    rc = noxtls_aes_prepare_context(ctx, key, type);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
     }
-
-    memcpy(ctx->key, key, ctx->key_len);
 
     switch(mode) {
         case NOXTLS_AES_ECB:
@@ -343,6 +550,19 @@ noxtls_return_t noxtls_aes_init(noxtls_aes_context_t *ctx,
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Update AES context with input data and produce output.
+ *
+ * @param ctx AES context.
+ * @param input Input data buffer.
+ * @param input_len Input data length in bytes.
+ * @param output Output buffer.
+ * @param output_len Output length in bytes.
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL for null inputs,
+ *         NOXTLS_RETURN_NOT_INITIALIZED for uninitialized context,
+ *         NOXTLS_RETURN_INVALID_BLOCK_SIZE for invalid block size,
+ *         or NOXTLS_RETURN_INVALID_MODE for unknown mode.
+ */
 noxtls_return_t noxtls_aes_update(noxtls_aes_context_t *ctx,
                const uint8_t *input,
                uint32_t input_len,
@@ -381,10 +601,10 @@ noxtls_return_t noxtls_aes_update(noxtls_aes_context_t *ctx,
                 if(ctx->partial_len == NOXTLS_AES_BLOCK_LENGTH) {
                     if(ctx->mode == NOXTLS_AES_ECB) {
                         if(ctx->op == NOXTLS_AES_OP_ENCRYPT) {
-                            noxtls_return_t r = noxtls_aes_encrypt_block_internal(ctx->key, ctx->partial, output + produced, ctx->type);
+                            noxtls_return_t r = noxtls_aes_encrypt_block_ctx_internal(ctx, ctx->partial, output + produced);
                             if(r != NOXTLS_RETURN_SUCCESS) return r;
                         } else {
-                            noxtls_return_t r = noxtls_aes_decrypt_block_internal(ctx->key, ctx->partial, output + produced, ctx->type);
+                            noxtls_return_t r = noxtls_aes_decrypt_block_ctx_internal(ctx, ctx->partial, output + produced);
                             if(r != NOXTLS_RETURN_SUCCESS) return r;
                         }
                     } else {
@@ -393,12 +613,12 @@ noxtls_return_t noxtls_aes_update(noxtls_aes_context_t *ctx,
                             for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
                                 block[i] = (uint8_t)(ctx->partial[i] ^ ctx->feedback[i]);
                             }
-                            { noxtls_return_t r = noxtls_aes_encrypt_block_internal(ctx->key, block, output + produced, ctx->type);
+                            { noxtls_return_t r = noxtls_aes_encrypt_block_ctx_internal(ctx, block, output + produced);
                             if(r != NOXTLS_RETURN_SUCCESS) return r; }
                             memcpy(ctx->feedback, output + produced, NOXTLS_AES_BLOCK_LENGTH);
                         } else {
                             uint8_t block[NOXTLS_AES_BLOCK_LENGTH];
-                            { noxtls_return_t r = noxtls_aes_decrypt_block_internal(ctx->key, ctx->partial, block, ctx->type);
+                            { noxtls_return_t r = noxtls_aes_decrypt_block_ctx_internal(ctx, ctx->partial, block);
                             if(r != NOXTLS_RETURN_SUCCESS) return r; }
                             for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
                                 output[produced + i] = (uint8_t)(block[i] ^ ctx->feedback[i]);
@@ -420,14 +640,14 @@ noxtls_return_t noxtls_aes_update(noxtls_aes_context_t *ctx,
                 if(ctx->partial_len == NOXTLS_AES_BLOCK_LENGTH) {
                     noxtls_return_t r;
                     if(ctx->mode == NOXTLS_AES_CTR) {
-                        r = noxtls_aes_encrypt_block_internal(ctx->key, ctx->feedback, ctx->partial, ctx->type);
+                        r = noxtls_aes_encrypt_block_ctx_internal(ctx, ctx->feedback, ctx->partial);
                         if(r != NOXTLS_RETURN_SUCCESS) return r;
                         aes_counter_inc(ctx->feedback);
                     } else if(ctx->mode == NOXTLS_AES_CFB) {
-                        r = noxtls_aes_encrypt_block_internal(ctx->key, ctx->feedback, ctx->partial, ctx->type);
+                        r = noxtls_aes_encrypt_block_ctx_internal(ctx, ctx->feedback, ctx->partial);
                         if(r != NOXTLS_RETURN_SUCCESS) return r;
                     } else {
-                        r = noxtls_aes_encrypt_block_internal(ctx->key, ctx->feedback, ctx->partial, ctx->type);
+                        r = noxtls_aes_encrypt_block_ctx_internal(ctx, ctx->feedback, ctx->partial);
                         if(r != NOXTLS_RETURN_SUCCESS) return r;
                         memcpy(ctx->feedback, ctx->partial, NOXTLS_AES_BLOCK_LENGTH);
                     }
@@ -461,6 +681,16 @@ noxtls_return_t noxtls_aes_update(noxtls_aes_context_t *ctx,
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Finalize AES streaming operation and flush buffered data.
+ *
+ * @param ctx AES context.
+ * @param output Output buffer for any final bytes.
+ * @param output_len Bytes produced in finalization.
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL for null inputs,
+ *         NOXTLS_RETURN_NOT_INITIALIZED for uninitialized context,
+ *         or NOXTLS_RETURN_INVALID_BLOCK_SIZE for invalid block size.
+ */
 noxtls_return_t noxtls_aes_final(noxtls_aes_context_t *ctx,
               uint8_t *output,
               uint32_t *output_len)
@@ -500,13 +730,13 @@ noxtls_return_t noxtls_aes_final(noxtls_aes_context_t *ctx,
         memcpy(block, ctx->partial, ctx->partial_len);
 
         if(ctx->mode == NOXTLS_AES_ECB) {
-            r = noxtls_aes_encrypt_block_internal(ctx->key, block, output, ctx->type);
+            r = noxtls_aes_encrypt_block_ctx_internal(ctx, block, output);
             if(r != NOXTLS_RETURN_SUCCESS) return r;
         } else if(ctx->mode == NOXTLS_AES_CBC) {
             for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
                 block[i] ^= ctx->feedback[i];
             }
-            r = noxtls_aes_encrypt_block_internal(ctx->key, block, output, ctx->type);
+            r = noxtls_aes_encrypt_block_ctx_internal(ctx, block, output);
             if(r != NOXTLS_RETURN_SUCCESS) return r;
         } else {
             return NOXTLS_RETURN_INVALID_MODE;
@@ -564,6 +794,10 @@ noxtls_return_t noxtls_aes_encrypt_block_internal(const uint8_t *key, const uint
     noxtls_return_t rc = NOXTLS_RETURN_NOT_SUPPORTED;
     (void)rc;
 
+    rc = noxtls_aes_accel_port_encrypt_block(key, data, output, type);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
 #if NOXTLS_FEATURE_AES_ACCEL_NI && \
     (defined(__AES__) || defined(_MSC_VER)) && \
     (defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86))
@@ -586,14 +820,63 @@ noxtls_return_t noxtls_aes_encrypt_block_internal(const uint8_t *key, const uint
 }
 
 /**
+ * @brief Encrypt one AES block using a prepared AES context.
+ *
+ * @param ctx Prepared AES context containing expanded round keys.
+ * @param data Input plaintext block of NOXTLS_AES_BLOCK_LENGTH bytes.
+ * @param output Output ciphertext block of NOXTLS_AES_BLOCK_LENGTH bytes.
+ * @return NOXTLS_RETURN_SUCCESS on success or a noxtls_return_t error code.
+ */
+noxtls_return_t noxtls_aes_encrypt_block_ctx_internal(const noxtls_aes_context_t *ctx, const uint8_t *data, uint8_t *output)
+{
+    noxtls_return_t rc = NOXTLS_RETURN_NOT_SUPPORTED;
+    (void)rc;
+
+    if(ctx == NULL || data == NULL || output == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    rc = noxtls_aes_accel_port_encrypt_block(ctx->key, data, output, ctx->type);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+#if NOXTLS_FEATURE_AES_ACCEL_NI && \
+    (defined(__AES__) || defined(_MSC_VER)) && \
+    (defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86))
+    rc = noxtls_aes_accel_ni_encrypt_block(ctx->key, data, output, ctx->type);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+#endif
+#if NOXTLS_FEATURE_AES_ACCEL_APPLE && \
+    defined(__APPLE__) && \
+    (defined(__aarch64__) || defined(__arm64__)) && \
+    defined(__ARM_FEATURE_CRYPTO)
+    rc = noxtls_aes_accel_apple_encrypt_block(ctx->key, data, output, ctx->type);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+#endif
+
+    if(!ctx->round_keys_ready) {
+        return NOXTLS_RETURN_NOT_INITIALIZED;
+    }
+    return noxtls_aes_encrypt_block_software_expanded(ctx->round_keys, ctx->rounds, data, output);
+}
+
+/**
  * @brief Report the AES block backend selected for the current build.
- * @return NOXTLS_AES_ACCEL_BACKEND_NI when AES-NI is compiled in,
+ *
+ * @return NOXTLS_AES_ACCEL_BACKEND_PORT when a platform AES backend is enabled,
+ *         NOXTLS_AES_ACCEL_BACKEND_NI when AES-NI is compiled in,
  *         NOXTLS_AES_ACCEL_BACKEND_APPLE when ARMv8 AES is compiled in,
  *         or NOXTLS_AES_ACCEL_BACKEND_SOFTWARE otherwise.
  */
 noxtls_aes_accel_backend_t noxtls_aes_get_accel_backend(void)
 {
-#if NOXTLS_FEATURE_AES_ACCEL_NI && \
+#if NOXTLS_PORT_AES_ACCEL
+    return NOXTLS_AES_ACCEL_BACKEND_PORT;
+#elif NOXTLS_FEATURE_AES_ACCEL_NI && \
     (defined(__AES__) || defined(_MSC_VER)) && \
     (defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86))
     return NOXTLS_AES_ACCEL_BACKEND_NI;
@@ -609,6 +892,7 @@ noxtls_aes_accel_backend_t noxtls_aes_get_accel_backend(void)
 
 /**
  * @brief Encrypt one AES block with the portable software implementation.
+ *
  * @param key AES key bytes for the selected key size.
  * @param data Input plaintext block of NOXTLS_AES_BLOCK_LENGTH bytes.
  * @param output Output ciphertext block of NOXTLS_AES_BLOCK_LENGTH bytes.
@@ -619,74 +903,119 @@ noxtls_aes_accel_backend_t noxtls_aes_get_accel_backend(void)
  */
 static noxtls_return_t noxtls_aes_encrypt_block_software(const uint8_t * key, const uint8_t * data, uint8_t * output, noxtls_aes_type_t type)
 {
-    uint8_t state[4][4];
     uint32_t w[NOXTLS_AES_MAX_KEY_SCHEDULE_WORDS];
     uint8_t rounds = 0;
-    uint8_t cur_round = 0;
+    uint8_t key_words = 0;
     uint8_t key_length = 0;
+    noxtls_return_t rc;
 
     if(key == NULL || data == NULL || output == NULL) {
         return NOXTLS_RETURN_NULL;
     }
 
-    switch(type)
-    {
-    case NOXTLS_AES_128_BIT:
-#if NOXTLS_FEATURE_AES_128
-        rounds = NOXTLS_AES_128_ROUNDS;
-        key_length = 4;
-        break;
-#else
-        return NOXTLS_RETURN_NOT_SUPPORTED;
-#endif
-    case NOXTLS_AES_192_BIT:
-#if NOXTLS_FEATURE_AES_192
-        rounds = NOXTLS_AES_192_ROUNDS;
-        key_length = 6;
-        break;
-#else
-        return NOXTLS_RETURN_NOT_SUPPORTED;
-#endif
-    case NOXTLS_AES_256_BIT:
-#if NOXTLS_FEATURE_AES_256
-        rounds = NOXTLS_AES_256_ROUNDS;
-        key_length = 8;
-        break;
-#else
-        return NOXTLS_RETURN_NOT_SUPPORTED;
-#endif
-    default:
-        return NOXTLS_RETURN_INVALID_KEY_SIZE;
-        break;
+    rc = aes_type_params(type, &rounds, &key_words, &key_length);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
     }
 
-    /* Copy to state */
-    
-    noxtls_aes_init_block(state, data);
-    
-    /* Perform Key Expansion */
-    noxtls_aes_key_expansion(key, w, key_length, rounds);
+    rc = noxtls_aes_key_expansion(key, w, key_words, rounds);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+    return noxtls_aes_encrypt_block_software_expanded(w, rounds, data, output);
+}
 
-    
-    /* Add initial round key */
-    noxtls_aes_add_round_key(state, &w[0]);
+/**
+ * @brief Encrypt one AES block with pre-expanded software round keys.
+ *
+ * @param round_keys Expanded AES round keys.
+ * @param rounds Number of AES rounds for the selected key size.
+ * @param data Input plaintext block of NOXTLS_AES_BLOCK_LENGTH bytes.
+ * @param output Output ciphertext block of NOXTLS_AES_BLOCK_LENGTH bytes.
+ * @return NOXTLS_RETURN_SUCCESS on success or a noxtls_return_t error code.
+ */
+static noxtls_return_t noxtls_aes_encrypt_block_software_expanded(const uint32_t *round_keys,
+                                                           uint8_t rounds,
+                                                           const uint8_t *data,
+                                                           uint8_t *output)
+{
+    uint32_t s0;
+    uint32_t s1;
+    uint32_t s2;
+    uint32_t s3;
+    uint32_t t0;
+    uint32_t t1;
+    uint32_t t2;
+    uint32_t t3;
+    uint8_t cur_round;
 
-    /* Iterate through rounds */
+    if(round_keys == NULL || data == NULL || output == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    aes_software_init_encrypt_tables();
+
+    s0 = aes_load_be32(data) ^ round_keys[0];
+    s1 = aes_load_be32(data + 4) ^ round_keys[1];
+    s2 = aes_load_be32(data + 8) ^ round_keys[2];
+    s3 = aes_load_be32(data + 12) ^ round_keys[3];
+
     for(cur_round = 1; cur_round <= rounds - 1; cur_round++)
     {
-        noxtls_aes_sub_bytes(state);
-        noxtls_aes_shift_rows(state);
-        noxtls_aes_mix_columns(state);
-        noxtls_aes_add_round_key(state, &w[(size_t)cur_round * 4u]);
+        size_t rk = (size_t)cur_round * 4U;
+
+        t0 = aes_enc_te0[(s0 >> 24) & 0xFFU] ^
+             aes_enc_te1[(s1 >> 16) & 0xFFU] ^
+             aes_enc_te2[(s2 >> 8) & 0xFFU] ^
+             aes_enc_te3[s3 & 0xFFU] ^
+             round_keys[rk + 0U];
+        t1 = aes_enc_te0[(s1 >> 24) & 0xFFU] ^
+             aes_enc_te1[(s2 >> 16) & 0xFFU] ^
+             aes_enc_te2[(s3 >> 8) & 0xFFU] ^
+             aes_enc_te3[s0 & 0xFFU] ^
+             round_keys[rk + 1U];
+        t2 = aes_enc_te0[(s2 >> 24) & 0xFFU] ^
+             aes_enc_te1[(s3 >> 16) & 0xFFU] ^
+             aes_enc_te2[(s0 >> 8) & 0xFFU] ^
+             aes_enc_te3[s1 & 0xFFU] ^
+             round_keys[rk + 2U];
+        t3 = aes_enc_te0[(s3 >> 24) & 0xFFU] ^
+             aes_enc_te1[(s0 >> 16) & 0xFFU] ^
+             aes_enc_te2[(s1 >> 8) & 0xFFU] ^
+             aes_enc_te3[s2 & 0xFFU] ^
+             round_keys[rk + 3U];
+
+        s0 = t0;
+        s1 = t1;
+        s2 = t2;
+        s3 = t3;
     }
 
-    noxtls_aes_sub_bytes(state);
-    noxtls_aes_shift_rows(state);
-    noxtls_aes_add_round_key(state, &w[(size_t)rounds * 4u]);    
-    
-    /* Copy output */
-    copy_state_to_buffer(state, output);
+    t0 = ((uint32_t)aes_sbox_lookup((uint8_t)(s0 >> 24)) << 24) ^
+         ((uint32_t)aes_sbox_lookup((uint8_t)(s1 >> 16)) << 16) ^
+         ((uint32_t)aes_sbox_lookup((uint8_t)(s2 >> 8)) << 8) ^
+         (uint32_t)aes_sbox_lookup((uint8_t)s3) ^
+         round_keys[(size_t)rounds * 4U + 0U];
+    t1 = ((uint32_t)aes_sbox_lookup((uint8_t)(s1 >> 24)) << 24) ^
+         ((uint32_t)aes_sbox_lookup((uint8_t)(s2 >> 16)) << 16) ^
+         ((uint32_t)aes_sbox_lookup((uint8_t)(s3 >> 8)) << 8) ^
+         (uint32_t)aes_sbox_lookup((uint8_t)s0) ^
+         round_keys[(size_t)rounds * 4U + 1U];
+    t2 = ((uint32_t)aes_sbox_lookup((uint8_t)(s2 >> 24)) << 24) ^
+         ((uint32_t)aes_sbox_lookup((uint8_t)(s3 >> 16)) << 16) ^
+         ((uint32_t)aes_sbox_lookup((uint8_t)(s0 >> 8)) << 8) ^
+         (uint32_t)aes_sbox_lookup((uint8_t)s1) ^
+         round_keys[(size_t)rounds * 4U + 2U];
+    t3 = ((uint32_t)aes_sbox_lookup((uint8_t)(s3 >> 24)) << 24) ^
+         ((uint32_t)aes_sbox_lookup((uint8_t)(s0 >> 16)) << 16) ^
+         ((uint32_t)aes_sbox_lookup((uint8_t)(s1 >> 8)) << 8) ^
+         (uint32_t)aes_sbox_lookup((uint8_t)s2) ^
+         round_keys[(size_t)rounds * 4U + 3U];
 
+    aes_store_be32(output, t0);
+    aes_store_be32(output + 4, t1);
+    aes_store_be32(output + 8, t2);
+    aes_store_be32(output + 12, t3);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -753,11 +1082,11 @@ noxtls_return_t noxtls_aes_key_expansion(const uint8_t * key, uint32_t * w, int 
 
     for(i = 0; i < nk; i++)
     {
-        size_t off = (size_t)i * 4u;
+        size_t off = (size_t)i * 4U;
         w[i] = ((uint32_t)key[off] << 24) |
-               ((uint32_t)key[off + 1u] << 16) |
-               ((uint32_t)key[off + 2u] << 8) |
-               (uint32_t)key[off + 3u];
+               ((uint32_t)key[off + 1U] << 16) |
+               ((uint32_t)key[off + 2U] << 8) |
+               (uint32_t)key[off + 3U];
     }
 
     for(i = nk; i < (4 * (rounds + 1)); i++)
@@ -1003,6 +1332,13 @@ static void aes_inv_shift_rows(uint8_t state[4][4])
  * @return the result of the multiplication
  */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
+/**
+ * @brief Multiply two AES field elements in GF(2^8).
+ *
+ * @param a First field element.
+ * @param b Second field element.
+ * @return Product of @p a and @p b in the AES field.
+ */
 static uint8_t aes_gf_mul(uint8_t a, uint8_t b)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
@@ -1063,6 +1399,10 @@ noxtls_return_t noxtls_aes_decrypt_block_internal(const uint8_t *key, const uint
     noxtls_return_t rc = NOXTLS_RETURN_NOT_SUPPORTED;
     (void)rc;
 
+    rc = noxtls_aes_accel_port_decrypt_block(key, data, output, type);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
 #if NOXTLS_FEATURE_AES_ACCEL_NI && \
     (defined(__AES__) || defined(_MSC_VER)) && \
     (defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86))
@@ -1085,7 +1425,53 @@ noxtls_return_t noxtls_aes_decrypt_block_internal(const uint8_t *key, const uint
 }
 
 /**
+ * @brief Decrypt one AES block using a prepared AES context.
+ *
+ * @param ctx Prepared AES context containing expanded round keys.
+ * @param data Input ciphertext block of NOXTLS_AES_BLOCK_LENGTH bytes.
+ * @param output Output plaintext block of NOXTLS_AES_BLOCK_LENGTH bytes.
+ * @return NOXTLS_RETURN_SUCCESS on success or a noxtls_return_t error code.
+ */
+noxtls_return_t noxtls_aes_decrypt_block_ctx_internal(const noxtls_aes_context_t *ctx, const uint8_t *data, uint8_t *output)
+{
+    noxtls_return_t rc = NOXTLS_RETURN_NOT_SUPPORTED;
+    (void)rc;
+
+    if(ctx == NULL || data == NULL || output == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    rc = noxtls_aes_accel_port_decrypt_block(ctx->key, data, output, ctx->type);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+#if NOXTLS_FEATURE_AES_ACCEL_NI && \
+    (defined(__AES__) || defined(_MSC_VER)) && \
+    (defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86))
+    rc = noxtls_aes_accel_ni_decrypt_block(ctx->key, data, output, ctx->type);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+#endif
+#if NOXTLS_FEATURE_AES_ACCEL_APPLE && \
+    defined(__APPLE__) && \
+    (defined(__aarch64__) || defined(__arm64__)) && \
+    defined(__ARM_FEATURE_CRYPTO)
+    rc = noxtls_aes_accel_apple_decrypt_block(ctx->key, data, output, ctx->type);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+#endif
+
+    if(!ctx->round_keys_ready) {
+        return NOXTLS_RETURN_NOT_INITIALIZED;
+    }
+    return noxtls_aes_decrypt_block_software_expanded(ctx->round_keys, ctx->rounds, data, output);
+}
+
+/**
  * @brief Decrypt one AES block with the portable software implementation.
+ *
  * @param key AES key bytes for the selected key size.
  * @param data Input ciphertext block of NOXTLS_AES_BLOCK_LENGTH bytes.
  * @param output Output plaintext block of NOXTLS_AES_BLOCK_LENGTH bytes.
@@ -1094,72 +1480,72 @@ noxtls_return_t noxtls_aes_decrypt_block_internal(const uint8_t *key, const uint
  *         or NOXTLS_RETURN_INVALID_KEY_SIZE for unknown key sizes.
  */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
+/**
+ * @brief Decrypt one AES block with the portable software implementation.
+ *
+ * @param key AES key bytes for the selected key size.
+ * @param data Input ciphertext block of NOXTLS_AES_BLOCK_LENGTH bytes.
+ * @param output Output plaintext block of NOXTLS_AES_BLOCK_LENGTH bytes.
+ * @param type AES key size selector.
+ * @return NOXTLS_RETURN_SUCCESS on success or a noxtls_return_t error code.
+ */
 static noxtls_return_t noxtls_aes_decrypt_block_software(const uint8_t * key, const uint8_t * data, uint8_t * output, noxtls_aes_type_t type)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    uint8_t state[4][4];
     uint32_t w[NOXTLS_AES_MAX_KEY_SCHEDULE_WORDS];
     uint8_t rounds = 0;
-    uint8_t cur_round = 0;
-    uint8_t key_length = 0;
+    uint8_t key_words = 0;
+    uint8_t key_len = 0;
+    noxtls_return_t rc;
 
-    switch(type)
-    {
-    case NOXTLS_AES_128_BIT:
-#if NOXTLS_FEATURE_AES_128
-        rounds = NOXTLS_AES_128_ROUNDS;
-        key_length = 4;
-        break;
-#else
-        return NOXTLS_RETURN_NOT_SUPPORTED;
-#endif
-    case NOXTLS_AES_192_BIT:
-#if NOXTLS_FEATURE_AES_192
-        rounds = NOXTLS_AES_192_ROUNDS;
-        key_length = 6;
-        break;
-#else
-        return NOXTLS_RETURN_NOT_SUPPORTED;
-#endif
-    case NOXTLS_AES_256_BIT:
-#if NOXTLS_FEATURE_AES_256
-        rounds = NOXTLS_AES_256_ROUNDS;
-        key_length = 8;
-        break;
-#else
-        return NOXTLS_RETURN_NOT_SUPPORTED;
-#endif
-    default:
-        return NOXTLS_RETURN_INVALID_KEY_SIZE;
-        break;
+    rc = aes_type_params(type, &rounds, &key_words, &key_len);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
     }
 
-    /* Copy to state */
+    rc = noxtls_aes_key_expansion(key, w, key_words, rounds);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+    return noxtls_aes_decrypt_block_software_expanded(w, rounds, data, output);
+}
+
+/**
+ * @brief Decrypt one AES block with pre-expanded software round keys.
+ *
+ * @param round_keys Expanded AES round keys.
+ * @param rounds Number of AES rounds for the selected key size.
+ * @param data Input ciphertext block of NOXTLS_AES_BLOCK_LENGTH bytes.
+ * @param output Output plaintext block of NOXTLS_AES_BLOCK_LENGTH bytes.
+ * @return NOXTLS_RETURN_SUCCESS on success or a noxtls_return_t error code.
+ */
+static noxtls_return_t noxtls_aes_decrypt_block_software_expanded(const uint32_t *round_keys,
+                                                           uint8_t rounds,
+                                                           const uint8_t *data,
+                                                           uint8_t *output)
+{
+    uint8_t state[4][4];
+    int cur_round;
+
+    if(round_keys == NULL || data == NULL || output == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+
     noxtls_aes_init_block(state, data);
-    
-    /* Perform Key Expansion */
-    noxtls_aes_key_expansion(key, w, key_length, rounds);
+    noxtls_aes_add_round_key(state, &round_keys[(size_t)rounds * 4U]);
 
-    /* Add initial round key (last round key for decryption) */
-    noxtls_aes_add_round_key(state, &w[(size_t)rounds * 4u]);
-
-    /* Iterate through inverse rounds */
-    for(cur_round = rounds - 1; cur_round >= 1; cur_round--)
+    for(cur_round = (int)rounds - 1; cur_round >= 1; cur_round--)
     {
         aes_inv_shift_rows(state);
         aes_inv_sub_bytes(state);
-        noxtls_aes_add_round_key(state, &w[(size_t)cur_round * 4u]);
+        noxtls_aes_add_round_key(state, &round_keys[(size_t)cur_round * 4U]);
         aes_inv_mix_columns(state);
     }
 
-    /* Final round (no mix columns) */
     aes_inv_shift_rows(state);
     aes_inv_sub_bytes(state);
-    noxtls_aes_add_round_key(state, &w[0]);
-    
-    /* Copy output */
+    noxtls_aes_add_round_key(state, &round_keys[0]);
     copy_state_to_buffer(state, output);
-
     return NOXTLS_RETURN_SUCCESS;
 }
 

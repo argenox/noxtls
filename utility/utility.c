@@ -6,17 +6,19 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
-* 
 *
-* File:    sha256.h
-* Summary: Bluenox Stack Configuration
 *
-*/
+* File:    utility.c
+* Summary: NoxTLS Utility functions
+*
+*
+*****************************************************************************/
 
 /** @addtogroup noxtls_utility */
 

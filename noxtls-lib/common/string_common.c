@@ -6,17 +6,18 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
-* 
+*
 *
 * File:    string_common.c
 * Summary: Common String helper functions
 *
-*/
+*****************************************************************************/
 
 /** @addtogroup noxtls_common */
 
@@ -63,12 +64,12 @@ int noxtls_hex_string_to_bytes(const char * string, uint8_t * out_buf, size_t ou
         return -1;
 
     str_len = strlen(string);
-    if((str_len & 1u) != 0u) {
+    if((str_len & 1U) != 0U) {
         return -3;
     }
 
     /* Require buffer large enough for(string length / 2) bytes */
-    if(out_length < (str_len >> 1u))
+    if(out_length < (str_len >> 1U))
     {
         return -2;
     }
@@ -104,7 +105,7 @@ int noxtls_process_string_to_bytes(const char *string, uint8_t *output)
     }
 
     str_len = strlen(string);
-    out_len = str_len >> 1u;
+    out_len = str_len >> 1U;
     return noxtls_hex_string_to_bytes(string, output, out_len);
 }
 

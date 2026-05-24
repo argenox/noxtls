@@ -3,12 +3,24 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+*
 * This file is part of the NoxTLS Library.
+*
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
+*
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
 *
 * File:    noxtls_aes_accel_ni.c
 * Summary: AES-NI backend for AES block encrypt/decrypt
 *
-*/
+*****************************************************************************/
+
+/** @addtogroup noxtls_encryption */
+/** @{ */
 
 #if NOXTLS_FEATURE_AES_ACCEL_NI && \
     (defined(__AES__) || defined(_MSC_VER)) && \
@@ -29,6 +41,7 @@
 
 /**
  * @brief Resolve AES round count and key-word count for an AES key size.
+ *
  * @param type AES key size selector.
  * @param rounds Output round count for the selected AES key size.
  * @param nk Output number of 32-bit key words for the selected AES key size.
@@ -74,6 +87,7 @@ static noxtls_return_t noxtls_aes_accel_ni_get_rounds_and_nk(noxtls_aes_type_t t
 
 /**
  * @brief Store a 32-bit key schedule word as big-endian bytes.
+ *
  * @param word Key schedule word to serialize.
  * @param out Output buffer that receives four bytes in big-endian order.
  * @return None.
@@ -88,6 +102,7 @@ static void noxtls_aes_accel_ni_word_to_bytes_be(uint32_t word, uint8_t out[4])
 
 /**
  * @brief Build AES-NI encryption and decryption round-key schedules.
+ *
  * @param key AES key bytes for the selected key size.
  * @param type AES key size selector.
  * @param enc_rks Output AES-NI encryption round keys.
@@ -143,6 +158,7 @@ static noxtls_return_t noxtls_aes_accel_ni_build_round_keys(const uint8_t *key,
 
 /**
  * @brief Encrypt one AES block with AES-NI backend.
+ *
  * @param key AES key.
  * @param data Input plaintext block (16 bytes).
  * @param output Output ciphertext block (16 bytes).
@@ -191,6 +207,7 @@ noxtls_return_t noxtls_aes_accel_ni_encrypt_block(const uint8_t *key,
 
 /**
  * @brief Decrypt one AES block with AES-NI backend.
+ *
  * @param key AES key.
  * @param data Input ciphertext block (16 bytes).
  * @param output Output plaintext block (16 bytes).
@@ -238,3 +255,5 @@ noxtls_return_t noxtls_aes_accel_ni_decrypt_block(const uint8_t *key,
 }
 
 #endif /* NOXTLS_FEATURE_AES_ACCEL_NI */
+
+/** @} */

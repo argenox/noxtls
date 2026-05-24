@@ -4,38 +4,22 @@
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
 *
-*
-* NOTICE:  All information contained herein, source code, binaries and
-* derived works is, and remains
-* the property of Argenox Technologies and its suppliers,
-* if any.  The intellectual and technical concepts contained
-* herein are proprietary to Argenox Technologies
-* and its suppliers may be covered by U.S. and Foreign Patents,
-* patents in process, and are protected by trade secret or copyright law.
-* Dissemination of this information or reproduction of this material
-* is strictly forbidden unless prior written permission is obtained
-* from Argenox Technologies.
-*
-* THIS SOFTWARE IS PROVIDED BY ARGENOX "AS IS" AND
-* ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-* WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-* DISCLAIMED. IN NO EVENT SHALL ARGENOX TECHNOLOGIES LLC BE LIABLE FOR ANY
-* DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-* (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-* LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-* ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-* (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-* SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*
-* CONTACT: info@argenox.com
-* 
-*
 * This file is part of the NoxTLS Library.
 *
-* File:    noxtls_tls12.h
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
+*
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
+*
+* File:    noxtls_tls12.c
 * Summary: TLS 1.2 Implementation
 *
-*/
+* Note: TLS1.2 is being phased out in favor of TLS1.3
+*
+*****************************************************************************/
 
 #ifndef _NOXTLS_TLS12_H_
 #define _NOXTLS_TLS12_H_
@@ -55,9 +39,9 @@ extern "C" {
 /* Forward declaration to avoid including full X.509 header here. */
 typedef struct noxtls_x509_crl noxtls_x509_crl_t;
 
-#define TLS12_SESSION_CACHE_SIZE   16u
+#define TLS12_SESSION_CACHE_SIZE   16U
 #define TLS12_SESSION_SNI_MAX      255u
-#define TLS12_TICKET_CACHE_SIZE    32u
+#define TLS12_TICKET_CACHE_SIZE    32U
 #define TLS12_TICKET_MAX_LEN       256u
 #define TLS12_TICKET_LIFETIME_HINT 86400u
 
@@ -123,7 +107,7 @@ typedef struct tls12_context_s
     /** Number of entries in server_alpn_protocols. */
     uint32_t server_alpn_count;
     /** Negotiated ALPN protocol from last handshake (owned buffer). */
-    uint8_t negotiated_alpn[NOXTLS_TLS_ALPN_MAX_PROTOCOL_LEN + 1u];
+    uint8_t negotiated_alpn[NOXTLS_TLS_ALPN_MAX_PROTOCOL_LEN + 1U];
     /** Length of negotiated_alpn; 0 when ALPN was not negotiated. */
     uint16_t negotiated_alpn_len;
     /** Server-issued session ID for TLS 1.2 resumption. */
@@ -234,7 +218,7 @@ typedef struct {
     uint8_t id_len;
     uint8_t master_secret[48];
     uint16_t cipher_suite;
-    uint8_t alpn[NOXTLS_TLS_ALPN_MAX_PROTOCOL_LEN + 1u];
+    uint8_t alpn[NOXTLS_TLS_ALPN_MAX_PROTOCOL_LEN + 1U];
     uint16_t alpn_len;
     uint16_t sni_len;
     uint8_t sni[255];
@@ -247,7 +231,7 @@ typedef struct {
     uint16_t ticket_len;
     uint8_t master_secret[48];
     uint16_t cipher_suite;
-    uint8_t alpn[NOXTLS_TLS_ALPN_MAX_PROTOCOL_LEN + 1u];
+    uint8_t alpn[NOXTLS_TLS_ALPN_MAX_PROTOCOL_LEN + 1U];
     uint16_t alpn_len;
     uint16_t sni_len;
     uint8_t sni[255];
