@@ -1,0 +1,13 @@
+version: "0.2.25"
+description: "NoxTLS — fast, lightweight TLS crypto library for embedded"
+url: https://github.com/argenox/noxtls
+license: "GPL-2.0-or-later OR NoxTLS-Commercial"
+targets:
+  - esp32
+  - esp32s2
+  - esp32s3
+  - esp32c3
+  - esp32c6
+  - esp32h2
+dependencies:
+  idf: ">=5.0"

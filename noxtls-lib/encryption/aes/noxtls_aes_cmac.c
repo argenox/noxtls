@@ -3,19 +3,21 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+*
 * This file is part of the NoxTLS Library.
 *
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 2 of the License, or
-* (at your option) any later version.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
 *
+*
 * File:    noxtls_aes_cmac.c
 * Summary: AES-CMAC (RFC 4493 / NIST SP 800-38B).
-*/
+*
+*****************************************************************************/
 
 /** @addtogroup noxtls_encryption */
 
@@ -33,7 +35,9 @@
 
 /**
  * @brief Left-shift by one bit of a 16-byte block (MSB first).
+ *
  * @param block  In/out 16-byte block
+ * @return None.
  */
 static void cmac_shift_left(uint8_t block[NOXTLS_AES_BLOCK_LENGTH])
 {
@@ -45,6 +49,12 @@ static void cmac_shift_left(uint8_t block[NOXTLS_AES_BLOCK_LENGTH])
 
 /**
  * @brief XOR subkey into the last block (for final block).
+ *
+ * @param dst  Destination buffer
+ * @param a    First source buffer
+ * @param b    Second source buffer
+ *
+ * @return None.
  */
 static void cmac_xor_block(uint8_t dst[NOXTLS_AES_BLOCK_LENGTH],
                            const uint8_t a[NOXTLS_AES_BLOCK_LENGTH],
@@ -55,6 +65,16 @@ static void cmac_xor_block(uint8_t dst[NOXTLS_AES_BLOCK_LENGTH],
         dst[i] = (uint8_t)(a[i] ^ b[i]);
 }
 
+/**
+ * @brief Compute AES-CMAC over a message (RFC 4493).
+ *
+ * @param key    AES key (16 bytes for AES-128)
+ * @param msg    Message to authenticate
+ * @param msg_len Message length in bytes
+ * @param mac    Output buffer for 16-byte MAC
+ * @param type   AES key type (NOXTLS_AES_128_BIT recommended)
+ * @return NOXTLS_RETURN_SUCCESS on success
+ */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 noxtls_return_t noxtls_aes_cmac(const uint8_t *key,
                          const uint8_t *msg,
@@ -129,7 +149,7 @@ noxtls_return_t noxtls_aes_cmac(const uint8_t *key,
     else
     {
         /* Complete last block: XOR with K1 */
-        cmac_xor_block(state, state, &msg[(size_t)(n_blocks - 1u) * NOXTLS_AES_BLOCK_LENGTH]);
+        cmac_xor_block(state, state, &msg[(size_t)(n_blocks - 1U) * NOXTLS_AES_BLOCK_LENGTH]);
         cmac_xor_block(state, state, K1);
     }
 

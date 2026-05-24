@@ -4,36 +4,20 @@
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
 *
+* This file is part of the NoxTLS Library.
 *
-* NOTICE:  All information contained herein, source code, binaries and
-* derived works is, and remains
-* the property of Argenox Technologies and its suppliers,
-* if any.  The intellectual and technical concepts contained
-* herein are proprietary to Argenox Technologies
-* and its suppliers may be covered by U.S. and Foreign Patents,
-* patents in process, and are protected by trade secret or copyright law.
-* Dissemination of this information or reproduction of this material
-* is strictly forbidden unless prior written permission is obtained
-* from Argenox Technologies.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
-* THIS SOFTWARE IS PROVIDED BY ARGENOX "AS IS" AND
-* ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-* WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-* DISCLAIMED. IN NO EVENT SHALL ARGENOX TECHNOLOGIES LLC BE LIABLE FOR ANY
-* DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-* (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-* LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-* ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-* (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-* SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*
+* See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
-* 
 *
-* File:    noxtls_tls13.h
-* Summary: TLS 1.3 Implementation
 *
-*/
+* File:    noxtls_tls13.c
+* Summary: TLS 1.3 definitions
+*
+*****************************************************************************/
 
 #ifndef _NOXTLS_TLS13_H_
 #define _NOXTLS_TLS13_H_
@@ -47,10 +31,20 @@
 #include "noxtls_crypto_provider.h"
 #include "pkc/mlkem/noxtls_mlkem.h"
 #include "pkc/mldsa/noxtls_mldsa.h"
+#include "pkc/slhdsa/noxtls_slhdsa.h"
+#include "pkc/falcon/noxtls_falcon.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+
+/* Max extension entries in one ClientHello extensions block (65535 bytes / 4 bytes min per ext). */
+#define TLS13_CLIENTHELLO_EXT_ORDER_MAX 16384u
+#define TLS13_RECORD_WORKSPACE_HALF  (TLS_MAX_RECORD_SIZE + 32)
+
+/* RFC 8446 CertificateVerify signature field capacity (scheme-specific; not always SLH-DSA max). */
+#define TLS13_CV_STACK_SIGNATURE_MAX  512U
 
 /* Forward declaration to avoid including full X.509 header here. */
 typedef struct noxtls_x509_crl noxtls_x509_crl_t;
@@ -65,6 +59,39 @@ typedef struct
     uint8_t *key_exchange;  /* Key exchange data */
 } tls13_key_share_entry_t;
 NOXTLS_MSVC_WARNING_POP
+
+typedef struct
+{
+    uint64_t recv_client_hello_us;
+    uint64_t pick_server_identity_us;
+    uint64_t select_certificate_sig_scheme_us;
+    uint64_t sni_check_us;
+    uint64_t send_server_hello_us;
+    uint64_t send_server_hello_key_share_gen_us;
+    uint64_t send_server_hello_record_send_us;
+    uint64_t send_middlebox_compat_ccs_us;
+    uint64_t process_client_key_share_us;
+    uint64_t process_client_key_share_compute_secret_us;
+    uint64_t process_client_key_share_derive_keys_us;
+    uint64_t derive_handshake_keys_us;
+    uint64_t send_encrypted_extensions_us;
+    uint64_t send_certificate_request_us;
+    uint64_t send_certificate_us;
+    uint64_t send_certificate_verify_us;
+    uint64_t send_certificate_verify_build_tosign_us;
+    uint64_t send_certificate_verify_sign_us;
+    uint64_t send_certificate_verify_der_encode_us;
+    uint64_t send_certificate_verify_record_send_us;
+    uint64_t send_finished_us;
+    uint64_t derive_application_secrets_us;
+    uint64_t install_server_application_write_keys_us;
+    uint64_t recv_client_certificate_us;
+    uint64_t recv_client_certificate_verify_us;
+    uint64_t recv_finished_us;
+    uint64_t install_client_application_read_keys_us;
+    uint64_t send_new_session_ticket_us;
+    uint64_t total_us;
+} tls13_accept_timing_t;
 
 /* TLS 1.3 Context */
 NOXTLS_MSVC_WARNING_PUSH
@@ -177,8 +204,10 @@ typedef struct tls13_context_s
     const char **server_alpn_protocols;
     uint32_t server_alpn_count;
     /** Negotiated ALPN protocol from last handshake (owned buffer). */
-    uint8_t negotiated_alpn[NOXTLS_TLS_ALPN_MAX_PROTOCOL_LEN + 1u];
+    uint8_t negotiated_alpn[NOXTLS_TLS_ALPN_MAX_PROTOCOL_LEN + 1U];
     uint16_t negotiated_alpn_len;
+    /** Last server-side TLS 1.3 accept timing breakdown, populated by noxtls_tls13_accept(). */
+    tls13_accept_timing_t last_accept_timing;
 
     /** Optional server RSA private key (rsa_key_t*) for CertificateVerify. If set, CertificateVerify is signed with RSA-PSS. */
     void *server_private_rsa;
@@ -197,12 +226,22 @@ typedef struct tls13_context_s
     uint32_t server_private_mldsa_len;
     noxtls_mldsa_param_t server_private_mldsa_param;
     uint8_t server_cert_use_mldsa;
+    /** Optional server SLH-DSA private key for CertificateVerify. */
+    uint8_t server_private_slhdsa[NOXTLS_SLHDSA_MAX_SECRET_KEY_LEN];
+    uint32_t server_private_slhdsa_len;
+    noxtls_slhdsa_param_t server_private_slhdsa_param;
+    uint8_t server_cert_use_slhdsa;
+    /** Optional server FALCON private key for CertificateVerify. */
+    uint8_t server_private_falcon[NOXTLS_FALCON_MAX_SECRET_KEY_LEN];
+    uint32_t server_private_falcon_len;
+    noxtls_falcon_param_t server_private_falcon_param;
+    uint8_t server_cert_use_falcon;
     /**
      * Optional TLS 1.3 server ECDSA identity matrix: multiple leaf certificates + ECC keys.
      * When server_ecdsa_matrix_count > 0, after ClientHello the server picks the first identity
      * that matches the client's signature_algorithms order (see noxtls_tls13_add_server_ecdsa_identity).
      */
-#define TLS13_SERVER_ECDSA_MATRIX_MAX 8u
+#define TLS13_SERVER_ECDSA_MATRIX_MAX 8U
     const uint8_t *server_ecdsa_matrix_certs[8];
     uint32_t server_ecdsa_matrix_cert_lens[8];
     void *server_ecdsa_matrix_keys[8];
@@ -231,6 +270,14 @@ typedef struct tls13_context_s
     uint32_t client_private_mldsa_len;
     noxtls_mldsa_param_t client_private_mldsa_param;
     uint8_t client_cert_use_mldsa;
+    uint8_t client_private_slhdsa[NOXTLS_SLHDSA_MAX_SECRET_KEY_LEN];
+    uint32_t client_private_slhdsa_len;
+    noxtls_slhdsa_param_t client_private_slhdsa_param;
+    uint8_t client_cert_use_slhdsa;
+    uint8_t client_private_falcon[NOXTLS_FALCON_MAX_SECRET_KEY_LEN];
+    uint32_t client_private_falcon_len;
+    noxtls_falcon_param_t client_private_falcon_param;
+    uint8_t client_cert_use_falcon;
     /** Provider's handle for client private key (RSA/ECDSA/Ed25519). Used when crypto_provider is set for client CertificateVerify. */
     noxtls_crypto_key_handle_t client_private_key_handle;
 
@@ -310,8 +357,17 @@ typedef struct tls13_context_s
 } tls13_context_t;
 NOXTLS_MSVC_WARNING_POP
 
+/** CertificateVerify handshake message buffer (stack for classical, heap for large PQ sigs). */
+typedef struct {
+    uint8_t *buf;
+    uint32_t cap;
+    uint8_t stack_storage[8U + TLS13_CV_STACK_SIGNATURE_MAX];
+} tls13_cv_msg_buf_t;
+
 #define TLS13_PSK_KE_MODE_PSK_KE 0
 #define TLS13_PSK_KE_MODE_PSK_DHE_KE 1
+
+
 
 /* TLS 1.3 Functions */
 noxtls_return_t noxtls_tls13_context_init(tls13_context_t *ctx, tls_role_t role);
@@ -328,6 +384,8 @@ noxtls_return_t tls13_set_workspaces(tls13_context_t *ctx,
                                      uint32_t handshake_workspace_len);
 noxtls_return_t noxtls_tls13_connect(tls13_context_t *ctx);
 noxtls_return_t noxtls_tls13_accept(tls13_context_t *ctx);
+/** Last accept step that failed (empty if none); for embedded logging after a failed accept. */
+const char *noxtls_tls13_last_accept_fail_step(void);
 noxtls_return_t noxtls_tls13_send(tls13_context_t *ctx, const uint8_t *data, uint32_t len);
 noxtls_return_t noxtls_tls13_recv(tls13_context_t *ctx, uint8_t *data, uint32_t *len);
 noxtls_return_t noxtls_tls13_close(tls13_context_t *ctx);
@@ -376,6 +434,14 @@ noxtls_return_t noxtls_tls13_set_server_private_ed25519(tls13_context_t *ctx, co
 noxtls_return_t noxtls_tls13_set_server_private_ed448(tls13_context_t *ctx, const uint8_t *private_key_57);
 /** Set server ML-DSA private key for CertificateVerify. */
 noxtls_return_t noxtls_tls13_set_server_private_mldsa(tls13_context_t *ctx, noxtls_mldsa_param_t param, const uint8_t *private_key);
+/** Set server SLH-DSA private key for CertificateVerify. */
+noxtls_return_t noxtls_tls13_set_server_private_slhdsa(tls13_context_t *ctx,
+                                                       noxtls_slhdsa_param_t param,
+                                                       const uint8_t *private_key);
+/** Set server FALCON private key for CertificateVerify. */
+noxtls_return_t noxtls_tls13_set_server_private_falcon(tls13_context_t *ctx,
+                                                       noxtls_falcon_param_t param,
+                                                       const uint8_t *private_key);
 /** Set optional crypto provider and server key handle for server sign (CertificateVerify). Use instead of server_private_rsa when key is in HSM/TPM. */
 void noxtls_tls13_set_crypto_provider_server(tls13_context_t *ctx, const noxtls_crypto_provider_t *provider, noxtls_crypto_key_handle_t server_key_handle);
 /** Set optional CRL chain for certificate revocation checks during peer cert verification. */
@@ -397,6 +463,18 @@ noxtls_return_t noxtls_tls13_set_client_cert_ed448(tls13_context_t *ctx, const u
 /** Client: set client certificate and ML-DSA private key for CertificateVerify. */
 noxtls_return_t tls13_set_client_cert_mldsa(tls13_context_t *ctx, const uint8_t *cert_der, uint32_t cert_len,
                                             noxtls_mldsa_param_t param, const uint8_t *private_key);
+/** Client: set client certificate and SLH-DSA private key for CertificateVerify. */
+noxtls_return_t tls13_set_client_cert_slhdsa(tls13_context_t *ctx,
+                                             const uint8_t *cert_der,
+                                             uint32_t cert_len,
+                                             noxtls_slhdsa_param_t param,
+                                             const uint8_t *private_key);
+/** Client: set client certificate and FALCON private key for CertificateVerify. */
+noxtls_return_t tls13_set_client_cert_falcon(tls13_context_t *ctx,
+                                             const uint8_t *cert_der,
+                                             uint32_t cert_len,
+                                             noxtls_falcon_param_t param,
+                                             const uint8_t *private_key);
 
 /** Configure external PSK identity/key for TLS 1.3 PSK or ECDHE-PSK handshakes. */
 noxtls_return_t tls13_set_external_psk(tls13_context_t *ctx,
@@ -442,6 +520,32 @@ noxtls_return_t noxtls_tls13_send_certificate(tls13_context_t *ctx);
 noxtls_return_t noxtls_tls13_send_certificate_verify(tls13_context_t *ctx);
 noxtls_return_t noxtls_tls13_send_finished_server(tls13_context_t *ctx);
 noxtls_return_t noxtls_tls13_recv_finished_client(tls13_context_t *ctx);
+
+/**
+ * @brief RFC 8446 CertificateVerify Transcript-Hash length for a signature scheme.
+ * @param[in] signature_scheme TLS SignatureScheme (e.g. TLS_SIGSCHEME_ECDSA_SECP256R1_SHA256).
+ * @param[out] hash_len_out Hash output size in bytes (32, 48, or 64).
+ * @return NOXTLS_RETURN_SUCCESS on success.
+ */
+noxtls_return_t noxtls_tls13_certificate_verify_transcript_hash_length(uint16_t signature_scheme,
+                                                                        uint32_t *hash_len_out);
+
+/**
+ * @brief Build the TLS 1.3 CertificateVerify signed content (64*0x20 + context + 0x00 + Transcript-Hash).
+ * @param[in] handshake_messages Handshake transcript bytes (CertificateVerify excluded).
+ * @param[in] handshake_messages_len Length of handshake_messages.
+ * @param[in] signature_scheme SignatureScheme used for CertificateVerify.
+ * @param[in] role TLS_ROLE_SERVER or TLS_ROLE_CLIENT (selects context string).
+ * @param[out] out Output buffer for signed content.
+ * @param[in,out] out_len On input: out capacity; on success: bytes written.
+ * @return NOXTLS_RETURN_SUCCESS on success.
+ */
+noxtls_return_t noxtls_tls13_certificate_verify_build_signed_content(const uint8_t *handshake_messages,
+                                                                     uint32_t handshake_messages_len,
+                                                                     uint16_t signature_scheme,
+                                                                     tls_role_t role,
+                                                                     uint8_t *out,
+                                                                     uint32_t *out_len);
 
 #ifdef __cplusplus
 }

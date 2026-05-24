@@ -1,0 +1,33 @@
+menu "NoxTLS HTTPS file client example"
+
+config NOXTLS_FILE_CLIENT_WIFI_SSID
+    string "WiFi SSID"
+    default "myssid"
+
+config NOXTLS_FILE_CLIENT_WIFI_PASSWORD
+    string "WiFi password"
+    default "mypassword"
+
+config NOXTLS_FILE_CLIENT_HOST
+    string "HTTPS host"
+    default "example.com"
+
+config NOXTLS_FILE_CLIENT_PORT
+    int "HTTPS port"
+    default 443
+    range 1 65535
+
+config NOXTLS_FILE_CLIENT_PATH
+    string "HTTP path to retrieve"
+    default "/"
+
+config NOXTLS_FILE_CLIENT_OUTPUT_PATH
+    string "Destination path in SPIFFS"
+    default "/spiffs/download.bin"
+
+config NOXTLS_FILE_CLIENT_MAX_DOWNLOAD_BYTES
+    int "Maximum body bytes to store"
+    default 262144
+    range 1024 4194304
+
+endmenu

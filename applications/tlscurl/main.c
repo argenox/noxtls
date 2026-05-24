@@ -1,4 +1,6 @@
-/*
+﻿/*
+* This file is part of the NoxTLS Library.
+*
  * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
  */
 #ifdef _MSC_VER
@@ -11,6 +13,13 @@
  * @brief HTTPS test client with curl-like request options and TLS diagnostics.
  * @defgroup noxtls_app_tlscurl tlscurl
  */
+
+/* MUST be the FIRST #include: app-local noxtls_config.h (project policy)
+ * MSVC searches the directory of the including header first for "..."
+ * style includes; if a library header pulls in "noxtls_config.h" before
+ * this app does, the top-level config wins. Hoisting our local one
+ * here ensures _NOXTLS_CONFIG_H_ is set from THIS file. */
+#include "noxtls_config.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -40,7 +49,6 @@ typedef int socket_t;
 #endif
 
 #include "noxtls_common.h"
-#include "noxtls_config.h"
 #include "noxtls-lib/certs/certificates.h"
 #include "noxtls-lib/certs/noxtls_x509.h"
 #include "noxtls-lib/mdigest/sha256/noxtls_sha256.h"
@@ -50,6 +58,75 @@ typedef int socket_t;
 #include "utility/base64.h"
 
 #include "tlscurl_app.h"
+
+/* ============================================================================
+ * Application-private static workspace (per project policy)
+ * ============================================================================
+ *
+ * Every application owns a large statically-allocated workspace buffer; all
+ * dynamic allocations made by this translation unit are served out of it via
+ * a simple bump arena. The buffer's size lives in this app's noxtls_config.h
+ * (NOXTLS_APP_STATIC_BUFFER_SIZE) so it can be tuned independently per app.
+ *
+ * free() is a no-op; the whole arena is released en-masse via
+ * app_workspace_reset() (e.g. between commands) which also wipes any
+ * transient secret material that may have been allocated.
+ */
+static uint8_t  g_app_workspace[NOXTLS_APP_STATIC_BUFFER_SIZE];
+static size_t   g_app_workspace_off = 0U;
+#define APP_WORKSPACE_ALIGN ((size_t)16U)
+
+/**
+ * @brief Allocate workspace
+ *
+ * @param[in] n The size to allocate
+ * @return The pointer to the allocated workspace
+ */
+static void *app_workspace_alloc(size_t n)
+{
+    size_t off = (g_app_workspace_off + (APP_WORKSPACE_ALIGN - 1U)) &
+                 ~(APP_WORKSPACE_ALIGN - 1U);
+    if(n == 0U || off > sizeof(g_app_workspace) ||
+       n > sizeof(g_app_workspace) - off) {
+        return NULL;
+    }
+    g_app_workspace_off = off + n;
+    return &g_app_workspace[off];
+}
+
+
+/**
+ * @brief Free the workspace
+ * 
+ * @param[in] p The pointer to the workspace to free.
+ * @return void
+ */
+static void app_workspace_free(void *p) 
+{ 
+    (void)p; 
+}
+
+/**
+ * @brief Reset the workspace
+ * 
+ * @return void
+ */
+static void app_workspace_reset(void)
+{
+    if(g_app_workspace_off > 0U) {
+        memset(g_app_workspace, 0, g_app_workspace_off);
+    }
+    g_app_workspace_off = 0U;
+}
+
+/* Redirect malloc()/free() in this translation unit to the static workspace.
+ * Library and standard headers have already been pulled in above; they
+ * declared malloc/free as plain functions and are unaffected. App code below
+ * uses these macros transparently. */
+#undef malloc
+#undef free
+#define malloc(n) app_workspace_alloc(n)
+#define free(p)   app_workspace_free(p)
 
 typedef struct {
     socket_t sock;
@@ -365,12 +442,12 @@ static noxtls_return_t tlscurl_read_ca_file_raw(const char *ca_file, uint8_t **o
         fclose(fp);
         return NOXTLS_RETURN_FAILED;
     }
-    buf = (uint8_t *)malloc((size_t)sz + 1u);
+    buf = (uint8_t *)malloc((size_t)sz + 1U);
     if(buf == NULL) {
         fclose(fp);
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
-    rd = fread(buf, 1u, (size_t)sz, fp);
+    rd = fread(buf, 1U, (size_t)sz, fp);
     fclose(fp);
     if(rd != (size_t)sz) {
         free(buf);
@@ -397,13 +474,13 @@ static void tlscurl_normalize_pem_crlf(uint8_t *data, uint32_t *len_io)
         return;
     }
     len = *len_io;
-    w = 0u;
-    r = 0u;
+    w = 0U;
+    r = 0U;
     while(r < len) {
-        if(r + 1u < len && data[r] == (uint8_t)'\r' && data[r + 1u] == (uint8_t)'\n') {
+        if(r + 1U < len && data[r] == (uint8_t)'\r' && data[r + 1U] == (uint8_t)'\n') {
             data[w] = (uint8_t)'\n';
             w++;
-            r += 2u;
+            r += 2U;
         } else {
             data[w] = data[r];
             w++;
@@ -432,7 +509,7 @@ static noxtls_return_t tlscurl_trust_store_from_pem_blocks(const uint8_t *data, 
     char *scan;
     char *end_scan;
 
-    if(data == NULL || len == 0u) {
+    if(data == NULL || len == 0U) {
         return NOXTLS_RETURN_NULL;
     }
     begin_mark = CERT_BEGIN_STR;
@@ -443,9 +520,9 @@ static noxtls_return_t tlscurl_trust_store_from_pem_blocks(const uint8_t *data, 
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    added = 0u;
+    added = 0U;
     scan = (char *)(void *)data;
-    if(len >= 3u && (uint8_t)data[0] == 0xEFu && (uint8_t)data[1] == 0xBBu && (uint8_t)data[2] == 0xBFu) {
+    if(len >= 3U && (uint8_t)data[0] == 0xEFu && (uint8_t)data[1] == 0xBBu && (uint8_t)data[2] == 0xBFu) {
         scan += 3;
     }
     end_scan = (char *)(void *)data + (size_t)len;
@@ -495,7 +572,7 @@ static noxtls_return_t tlscurl_trust_store_from_pem_blocks(const uint8_t *data, 
             scan++;
         }
     }
-    if(added == 0u) {
+    if(added == 0U) {
         noxtls_x509_certificate_chain_free(&trust_chain);
         return NOXTLS_RETURN_BAD_DATA;
     }
@@ -667,16 +744,16 @@ static noxtls_return_t tlscurl_der_read_len(const uint8_t **p, const uint8_t *en
     }
     first = **p;
     (*p)++;
-    if((first & 0x80u) == 0u) {
+    if((first & 0x80u) == 0U) {
         *out_len = (uint32_t)first;
         return NOXTLS_RETURN_SUCCESS;
     }
     nbytes = (uint32_t)(first & 0x7Fu);
-    if(nbytes == 0u || nbytes > 4u || (size_t)(end - *p) < (size_t)nbytes) {
+    if(nbytes == 0U || nbytes > 4U || (size_t)(end - *p) < (size_t)nbytes) {
         return NOXTLS_RETURN_BAD_DATA;
     }
-    len = 0u;
-    for(i = 0u; i < nbytes; i++) {
+    len = 0U;
+    for(i = 0U; i < nbytes; i++) {
         len = (len << 8) | (uint32_t)(*p)[i];
     }
     *p += nbytes;
@@ -755,7 +832,7 @@ static noxtls_return_t tlscurl_extract_leaf_spki_der(const x509_certificate_t *c
     uint32_t unused_val_len;
     noxtls_return_t rc;
 
-    if(cert == NULL || cert->raw_data == NULL || cert->raw_data_len == 0u || spki_tlv == NULL || spki_tlv_len == NULL) {
+    if(cert == NULL || cert->raw_data == NULL || cert->raw_data_len == 0U || spki_tlv == NULL || spki_tlv_len == NULL) {
         return NOXTLS_RETURN_NULL;
     }
     p = cert->raw_data;
@@ -1053,7 +1130,7 @@ static int tlscurl_headers_add(tlscurl_headers_t *hdr, const char *line)
     if(n >= TLSCURL_HEADER_LINE_MAX) {
         return -1;
     }
-    memcpy(hdr->entries[hdr->count].line, line, n + 1u);
+    memcpy(hdr->entries[hdr->count].line, line, n + 1U);
     hdr->count++;
     return 0;
 }
@@ -1122,12 +1199,12 @@ static uint8_t *tlscurl_read_file_binary(const char *path, uint32_t *out_len)
         fclose(fp);
         return NULL;
     }
-    buf = (uint8_t *)malloc((size_t)sz + 1u);
+    buf = (uint8_t *)malloc((size_t)sz + 1U);
     if(buf == NULL) {
         fclose(fp);
         return NULL;
     }
-    rd = fread(buf, 1u, (size_t)sz, fp);
+    rd = fread(buf, 1U, (size_t)sz, fp);
     fclose(fp);
     if(rd != (size_t)sz) {
         free(buf);
@@ -1346,11 +1423,11 @@ static int tlscurl_parse_cli(int argc, char **argv, tlscurl_config_t *cfg)
             continue;
         }
         if(strcmp(a, "--prefer-chacha") == 0) {
-            cfg->prefer_chacha = 1u;
+            cfg->prefer_chacha = 1U;
             continue;
         }
         if(strcmp(a, "--strict-hostname") == 0) {
-            cfg->strict_hostname = 1u;
+            cfg->strict_hostname = 1U;
             continue;
         }
         if(a[0] == '-') {
@@ -1400,7 +1477,7 @@ static noxtls_return_t tlscurl_send_http(tlscurl_active_tls_t active, tls12_cont
         return NOXTLS_RETURN_NULL;
     }
     cap = (size_t)TLSCURL_REQUEST_BUILD_MAX;
-    if(body_len > (uint32_t)(cap / 2u)) {
+    if(body_len > (uint32_t)(cap / 2U)) {
         cap = (size_t)body_len + (size_t)TLSCURL_REQUEST_BUILD_MAX;
     }
     req = (char *)malloc(cap);
@@ -1440,7 +1517,7 @@ static noxtls_return_t tlscurl_send_http(tlscurl_active_tls_t active, tls12_cont
         size_t ln;
 
         ln = strlen(hdr->entries[hi].line);
-        if(pos + ln + 2u >= cap) {
+        if(pos + ln + 2U >= cap) {
             free(req);
             return NOXTLS_RETURN_FAILED;
         }
@@ -1449,7 +1526,7 @@ static noxtls_return_t tlscurl_send_http(tlscurl_active_tls_t active, tls12_cont
         req[pos++] = '\r';
         req[pos++] = '\n';
     }
-    if(body != NULL && body_len > 0u) {
+    if(body != NULL && body_len > 0U) {
         n = snprintf(req + pos, cap - pos, "Content-Length: %u\r\n", (unsigned)body_len);
         if(n < 0 || (size_t)n >= cap - pos) {
             free(req);
@@ -1457,13 +1534,13 @@ static noxtls_return_t tlscurl_send_http(tlscurl_active_tls_t active, tls12_cont
         }
         pos += (size_t)n;
     }
-    if(pos + 2u >= cap) {
+    if(pos + 2U >= cap) {
         free(req);
         return NOXTLS_RETURN_FAILED;
     }
     req[pos++] = '\r';
     req[pos++] = '\n';
-    if(body != NULL && body_len > 0u) {
+    if(body != NULL && body_len > 0U) {
         if(pos + (size_t)body_len > cap) {
             free(req);
             return NOXTLS_RETURN_FAILED;
@@ -1558,7 +1635,7 @@ int main(int argc, char **argv)
     if(cfg.tlsdump_path != NULL && cfg.tlsdump_path[0] != '\0') {
         noxtls_tls_set_record_dump_file(cfg.tlsdump_path);
     }
-    if(cfg.strict_hostname != 0u) {
+    if(cfg.strict_hostname != 0U) {
         noxtls_x509_set_hostname_wildcard_matching(0);
     } else {
         noxtls_x509_set_hostname_wildcard_matching(1);
@@ -1594,6 +1671,8 @@ int main(int argc, char **argv)
         return 1;
     }
     trust_configured = 1;
+    /* Trust store snapshot lives in library heap; release CA bundle parse buffers. */
+    app_workspace_reset();
 
     if(cfg.data_file != NULL) {
         body_buf = tlscurl_read_file_binary(cfg.data_file, &body_len);
@@ -1621,7 +1700,7 @@ int main(int argc, char **argv)
 #endif
             return 1;
         }
-        body_buf = (uint8_t *)malloc(dl + 1u);
+        body_buf = (uint8_t *)malloc(dl + 1U);
         if(body_buf == NULL) {
             printf("[tlscurl] ERROR: out of memory for body\n");
             if(trust_configured != 0) {
@@ -1632,7 +1711,7 @@ int main(int argc, char **argv)
 #endif
             return 1;
         }
-        memcpy(body_buf, cfg.data_arg, dl + 1u);
+        memcpy(body_buf, cfg.data_arg, dl + 1U);
         body_len = (uint32_t)dl;
     }
 
@@ -1709,8 +1788,8 @@ int main(int argc, char **argv)
         tls13_ctx.server_name = host;
         tls13_ctx.server_name_len = (uint16_t)strlen(host);
         noxtls_tls13_set_verify_crl(&tls13_ctx, verify_crl_loaded ? &verify_crl : NULL);
-        if(cfg.prefer_chacha != 0u) {
-            tls13_ctx.prefer_chacha20 = 1u;
+        if(cfg.prefer_chacha != 0U) {
+            tls13_ctx.prefer_chacha20 = 1U;
         }
         rc = noxtls_tls_set_io_callbacks(&tls13_ctx.base.base, tlscurl_send_cb, tlscurl_recv_cb, &conn);
         if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -1894,7 +1973,7 @@ int main(int argc, char **argv)
         uint8_t buf[TLSCURL_TLS_RECV_CHUNK];
         uint32_t len;
 
-        len = (uint32_t)sizeof(buf) - 1u;
+        len = (uint32_t)sizeof(buf) - 1U;
         if(active == TLSCURL_ACTIVE_TLS13) {
             rc = noxtls_tls13_recv(&tls13_ctx, buf, &len);
         } else {
@@ -1906,10 +1985,10 @@ int main(int argc, char **argv)
             }
             break;
         }
-        if(len == 0u) {
+        if(len == 0U) {
             break;
         }
-        (void)fwrite(buf, 1u, (size_t)len, out_fp);
+        (void)fwrite(buf, 1U, (size_t)len, out_fp);
     }
     if(cfg.verbose >= 1) {
         printf("[tlscurl] ---- end response ----\n");

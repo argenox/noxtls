@@ -6,22 +6,18 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 2 of the License, or
-* (at your option) any later version.
-*
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
 *
 *
 * File:    asn1.c
-* Summary: ASN1
+* Summary: ASN1 DER parser and encoder
 *
-*/
+*****************************************************************************/
 
 /** @addtogroup noxtls_certs */
 
@@ -39,19 +35,6 @@
 #define NOXTLS_ASN1_PRINTF(...) printf(__VA_ARGS__)
 #endif
 
-#define GET_TAG_CLASS(X)      (((((1u << 7) | (1u << 6)) & (X))) >> 6)
-#define GET_TAG_PRIM_CONST(X) ((((1u << 5) & (X))) >> 5)
-#define GET_TAG_NUM(X)        ((X) & 0x1Fu)
-
-#define GET_LENGTH(X)         ((X) & 0x7Fu)
-
-#define ASN1_CLASS_TYPE_UNIVERSAL     0
-#define ASN1_CLASS_TYPE_APPLICATION   1
-#define ASN1_CLASS_TYPE_CONTEXT       2
-#define ASN1_CLASS_TYPE_PRIVATE       3
-
-#define ASN1_TAG_TYPE_PRIMITIVE                0
-#define ASN1_TAG_TYPE_CONSTRUCTED              1
 
 /**
  * @brief Parse one ASN.1 TLV at @p data and advance the cursor (debug helper).
@@ -107,6 +90,14 @@ uint32_t noxtls_parse_der(uint8_t * data, uint32_t len)
     return result;
 }
 
+/**
+ * @brief Parse one ASN.1 TLV at @p data and advance the cursor (debug helper).
+ *
+ * @param[in,out] data  Current parse position; updated to end of this TLV on success.
+ * @param[in] end       One past the last valid byte of the DER buffer.
+ *
+ * @return 0 on success; 1 on parse error or truncated input.
+ */
 uint32_t noxtls_parse_tag(uint8_t ** data, uint8_t * end)
 {
     if(data == NULL || *data == NULL || end == NULL) {
@@ -153,20 +144,15 @@ uint32_t noxtls_parse_tag(uint8_t ** data, uint8_t * end)
     else
     {
         /* Short form */
-
         data_length = GET_LENGTH(*ptr++);
-
-        //NOXTLS_ASN1_PRINTF("\tshort form: %d 0x%x\n", data_length, data_length);
     }
 
-    //NOXTLS_ASN1_PRINTF("%p == %p ", ptr + data_length, end);
     if((uint32_t)(end - ptr) < data_length) {
         /* Length error */
         return 1;
     }
-    //NOXTLS_ASN1_PRINTF("ptr[0]: %x\n", ptr[0]);
-    parse_tag(tag_num, &ptr, data_length);
 
+    parse_tag(tag_num, &ptr, data_length);
 
     if(end - ptr > 0)
     {
@@ -174,19 +160,9 @@ uint32_t noxtls_parse_tag(uint8_t ** data, uint8_t * end)
             return 1;
         }
     }
-
-
-
-    //NOXTLS_ASN1_PRINTF("\tLength: %d\n", data_length);
-    //ptr += data_length;
-
-    //NOXTLS_ASN1_PRINTF("Now on: %x\n", *ptr);
     *data = ptr;
     return 0;
 }
-
-
-
 
 /**
  * @brief Print an INTEGER value when it fits in 32 bits (debug helper).
@@ -231,6 +207,7 @@ void noxtls_asn1_decode_bitstring(uint8_t ** data, uint32_t len)
 
 /**
  * @brief Decode OBJECT IDENTIFIER contents to dotted decimal and print (debug helper).
+ *
  * @param[in] data  Pointer to DER OID body bytes (first/subsequent arc encoding).
  * @param[in] len   Length of the OID value field in bytes.
  */
@@ -316,6 +293,13 @@ void noxtls_asn1_decode_obj_ident(uint8_t ** data, uint32_t len)
     NOXTLS_ASN1_PRINTF("\n");
 }
 
+/**
+ * @brief Find an OID in the OID table and print the name.
+ *
+ * @param[in] oid  OID string to search for.
+ *
+ * @return void
+ */
 void noxtls_asn1_find_oid(char * oid)
 {
     oid_item_t * oid_ptr = (oid_item_t *)&base_oids[0];
@@ -376,14 +360,12 @@ void noxtls_asn1_find_oid(char * oid)
         {
             break;
         }
-
-
-
     }
 }
 
 /**
  * @brief Print PrintableString or IA5String contents (debug helper).
+ *
  * @param[in] data  Pointer to string bytes.
  * @param[in] len   Length of the string value in bytes.
  */
@@ -403,7 +385,14 @@ void noxtls_asn1_decode_print_string(uint8_t ** data, uint32_t len)
     NOXTLS_ASN1_PRINTF("\n");
 }
 
-
+/**
+ * @brief Parse a tag and dispatch to the appropriate handler.
+ *
+ * @param[in] type  Tag type.
+ * @param[in,out] data  Value bytes; advanced by @p len on exit for primitive types.
+ * @param[in] len       Length of the TLV value field.
+ * @return void
+ */
 static void parse_tag(uint8_t type, uint8_t ** data, uint32_t len)
 {
 
@@ -461,6 +450,12 @@ static void parse_tag(uint8_t type, uint8_t ** data, uint32_t len)
 
 }
 
+/** 
+ * @brief Print a human-readable universal tag name (debug helper).
+ *
+ * @param[in] type Universal tag number (`ASN1_TAG_*`).
+ * @return void
+ */
 static void print_tag_type(uint8_t type)
 {
     //NOXTLS_ASN1_PRINTF("%x\n", type);
@@ -537,6 +532,7 @@ static void print_tag_type(uint8_t type)
 
 /**
  * @brief Encode a DER definite length field into @p out.
+ *
  * @param[out] out  Output buffer (at least 5 bytes for longest form).
  * @param[in] len   Content length to encode.
  * @return Number of length bytes written (1–4), or 0 if @p len exceeds encodable range.
@@ -573,6 +569,7 @@ uint32_t noxtls_asn1_put_length(uint8_t *out, uint32_t len)
 
 /**
  * @brief Encode a DER INTEGER from a big-endian magnitude buffer.
+ *
  * @param[out] out        Output buffer for tag, length, and value.
  * @param[in] out_max     Size of @p out.
  * @param[in] value       Big-endian integer bytes (leading zeros stripped).
@@ -616,6 +613,7 @@ uint32_t noxtls_asn1_put_integer(uint8_t *out, uint32_t out_max, const uint8_t *
 
 /**
  * @brief Encode a constructed SEQUENCE (tag 0x30) wrapping @p contents.
+ *
  * @param[out] out            Output buffer.
  * @param[in] out_max         Size of @p out.
  * @param[in] contents        Pre-encoded child TLV bytes (may be NULL if @p contents_len is 0).
@@ -645,6 +643,7 @@ uint32_t noxtls_asn1_put_sequence(uint8_t *out, uint32_t out_max, const uint8_t 
 
 /**
  * @brief Encode OBJECT IDENTIFIER (tag 0x06) from raw DER OID body bytes.
+ *
  * @param[out] out      Output buffer.
  * @param[in] out_max   Size of @p out.
  * @param[in] oid       OID value octets (already DER-encoded arcs, without tag/length).
@@ -669,6 +668,7 @@ uint32_t noxtls_asn1_put_oid_raw(uint8_t *out, uint32_t out_max, const uint8_t *
 
 /**
  * @brief Encode BIT STRING (tag 0x03) with zero unused bits prefix.
+ *
  * @param[out] out        Output buffer.
  * @param[in] out_max     Size of @p out.
  * @param[in] data        Bit string payload (may be NULL if @p data_len is 0).
@@ -698,6 +698,7 @@ uint32_t noxtls_asn1_put_bit_string(uint8_t *out, uint32_t out_max, const uint8_
 
 /**
  * @brief Encode UTCTime (tag 0x17) from an ASN.1 time string.
+ *
  * @param[out] out        Output buffer.
  * @param[in] out_max     Size of @p out.
  * @param[in] time_str    UTCTime text, typically 13 bytes (`YYMMDDHHMMSSZ`).
@@ -729,6 +730,7 @@ uint32_t noxtls_asn1_put_utc_time(uint8_t *out, uint32_t out_max, const char *ti
 
 /**
  * @brief Encode a context-specific constructed EXPLICIT wrapper `[tag_no]`.
+ *
  * @param[out] out            Output buffer.
  * @param[in] out_max         Size of @p out.
  * @param[in] tag_no          Context tag number (0–31).
@@ -761,6 +763,7 @@ uint32_t noxtls_asn1_put_explicit(uint8_t *out, uint32_t out_max, uint8_t tag_no
 
 /**
  * @brief Encode OCTET STRING (tag 0x04).
+ *
  * @param[out] out        Output buffer.
  * @param[in] out_max     Size of @p out.
  * @param[in] data        Raw octets (may be NULL if @p data_len is 0).
@@ -787,6 +790,7 @@ uint32_t noxtls_asn1_put_octet_string(uint8_t *out, uint32_t out_max, const uint
 
 /**
  * @brief Encode a constructed SET (tag 0x31) wrapping @p contents.
+ *
  * @param[out] out            Output buffer.
  * @param[in] out_max         Size of @p out.
  * @param[in] contents        Pre-encoded member TLV bytes (may be NULL if @p contents_len is 0).
@@ -812,7 +816,8 @@ uint32_t noxtls_asn1_put_set(uint8_t *out, uint32_t out_max, const uint8_t *cont
 }
 
 /**
- * @brief Encode PrintableString (tag 0x13) from a NUL-terminated C string.
+ * @brief Encode PrintableString (tag 0x13) from a NUL-terminated C string
+ *.
  * @param[out] out      Output buffer.
  * @param[in] out_max   Size of @p out.
  * @param[in] str       PrintableString characters (not NUL-terminated in DER).
@@ -840,6 +845,7 @@ uint32_t noxtls_asn1_put_printable_string(uint8_t *out, uint32_t out_max, const 
 
 /**
  * @brief Encode IA5String (tag 0x16) from a NUL-terminated C string.
+ *
  * @param[out] out      Output buffer.
  * @param[in] out_max   Size of @p out.
  * @param[in] str       IA5 characters (not NUL-terminated in DER).

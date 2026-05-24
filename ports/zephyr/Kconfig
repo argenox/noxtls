@@ -1,0 +1,100 @@
+# SPDX-License-Identifier: Apache-2.0
+# Zephyr Kconfig for NoxTLS
+
+menuconfig NOXTLS
+	bool "NoxTLS cryptography and TLS library"
+	help
+	  Enable the NoxTLS library from Argenox. Add this module to your west
+	  manifest at modules/crypto/noxtls (see ports/zephyr/README.md).
+
+if NOXTLS
+
+choice NOXTLS_PROFILE
+	prompt "Feature profile"
+	default NOXTLS_PROFILE_DEFAULT
+	help
+	  Predefined feature sets matching noxtls/CMakeLists.txt profiles.
+	  For full control over every NOXTLS_FEATURE_* option in menuconfig,
+	  select profile "default". Other profiles override many options at
+	  build time regardless of individual Kconfig toggles.
+
+config NOXTLS_PROFILE_DEFAULT
+	bool "default"
+
+config NOXTLS_PROFILE_MINIMAL_TLS_CLIENT
+	bool "minimal_tls_client"
+
+config NOXTLS_PROFILE_TLS_SERVER_PKI
+	bool "tls_server_pki"
+
+config NOXTLS_PROFILE_CRYPTO_ONLY
+	bool "crypto_only"
+
+config NOXTLS_PROFILE_FIPS_LIKE
+	bool "fips_like_profile"
+
+endchoice
+
+config NOXTLS_PROFILE
+	string
+	default "minimal_tls_client" if NOXTLS_PROFILE_MINIMAL_TLS_CLIENT
+	default "tls_server_pki" if NOXTLS_PROFILE_TLS_SERVER_PKI
+	default "crypto_only" if NOXTLS_PROFILE_CRYPTO_ONLY
+	default "fips_like_profile" if NOXTLS_PROFILE_FIPS_LIKE
+	default "default"
+
+choice NOXTLS_SIDECHANNEL
+	prompt "Side-channel profile"
+	default NOXTLS_SIDECHANNEL_BALANCED
+	help
+	  Maps to NOXTLS_SIDECHANNEL_PROFILE_* and NOXTLS_CT_COMPARE in
+	  noxtls_config.h (CT compare is off only for "performance").
+
+config NOXTLS_SIDECHANNEL_PERFORMANCE
+	bool "performance"
+
+config NOXTLS_SIDECHANNEL_BALANCED
+	bool "balanced"
+
+config NOXTLS_SIDECHANNEL_CONSTANT_TIME_STRICT
+	bool "constant_time_strict"
+
+endchoice
+
+config NOXTLS_SIDECHANNEL
+	string
+	default "performance" if NOXTLS_SIDECHANNEL_PERFORMANCE
+	default "constant_time_strict" if NOXTLS_SIDECHANNEL_CONSTANT_TIME_STRICT
+	default "balanced"
+
+config NOXTLS_USE_ZEPHYR_ENTROPY
+	bool "Seed DRBG from Zephyr CSRNG (sys_csrand_get)"
+	default y
+	depends on NOXTLS_FEATURE_DRBG
+	help
+	  Registers a SYS_INIT hook that calls noxtls_drbg_set_entropy_callback()
+	  with sys_csrand_get(). Enable CONFIG_ENTROPY_GENERATOR (or
+	  CONFIG_TEST_RANDOM_GENERATOR on native_sim) in your application.
+
+config NOXTLS_USE_ZEPHYR_HEAP
+	bool "Use Zephyr libc heap for noxtls_malloc/free"
+	default y
+	help
+	  When enabled, ensure CONFIG_COMMON_LIBC_MALLOC is set in the application.
+	  NoxTLS uses the standard C heap by default.
+
+config NOXTLS_SAMPLE_TLS_CONNECT
+	bool "TLS client sample: perform network handshake"
+	default n
+	help
+	  When enabled, the tls_client sample opens a TCP connection and runs a
+	  TLS 1.3 handshake. Leave disabled for Twister/CI (init-only check).
+
+config NOXTLS_SAMPLE_TLS_HOST
+	string "TLS client sample hostname"
+	default "example.com"
+	depends on NOXTLS_SAMPLE_TLS_CONNECT
+
+source "$(ZEPHYR_NOXTLS_MODULE_DIR)/ports/zephyr/Kconfig.noxtls.generated"
+
+endif # NOXTLS

@@ -6,22 +6,18 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 2 of the License, or
-* (at your option) any later version.
-*
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
 *
 *
 * File:    certificates.c
-* Summary: Certificates
+* Summary: x.509 Certificate and Certificate Signing Request (CSR) functions
 *
-*/
+*****************************************************************************/
 
 /** @addtogroup noxtls_certs */
 
@@ -186,10 +182,10 @@ noxtls_return_t noxtls_certificate_pem_to_der(uint8_t * data, uint32_t length, u
             break;
         }
 
-        while(length > 0u) {
+        while(length > 0U) {
             unsigned char uc;
 
-            uc = data[length - 1u];
+            uc = data[length - 1U];
             if(uc == (unsigned char)'\r' || uc == (unsigned char)'\n' || uc == (unsigned char)'\t' ||
                uc == (unsigned char)' ') {
                 length--;
@@ -197,7 +193,7 @@ noxtls_return_t noxtls_certificate_pem_to_der(uint8_t * data, uint32_t length, u
             }
             break;
         }
-        if(length == 0u) {
+        if(length == 0U) {
             rc = NOXTLS_RETURN_BAD_DATA;
             break;
         }

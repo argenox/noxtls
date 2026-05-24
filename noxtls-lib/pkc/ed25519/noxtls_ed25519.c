@@ -4,11 +4,21 @@
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
 *
+* This file is part of the NoxTLS Library.
+*
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
+*
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
 *
 * File:    noxtls_ed25519.c
 * Summary: Ed25519 digital signatures (RFC 8032)
 *
-*/
+*
+*****************************************************************************/
 
 #include <stdint.h>
 #include <stdio.h>
@@ -610,7 +620,7 @@ static noxtls_return_t ed25519_sign_internal(const uint8_t private_key[NOXTLS_ED
 
     if(phflag == NOXTLS_ED25519_PH_FLAG_PREHASH) {
         if(noxtls_sha512_init(&ctx, NOXTLS_HASH_SHA_512) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-        if(message_len != 0u && noxtls_sha512_update(&ctx, noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+        if(message_len != 0U && noxtls_sha512_update(&ctx, noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
         if(noxtls_sha512_finish(&ctx, ph_digest) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
         m_body = ph_digest;
         m_len = NOXTLS_ED25519_SHA512_DIGEST_BYTES;
@@ -629,9 +639,9 @@ static noxtls_return_t ed25519_sign_internal(const uint8_t private_key[NOXTLS_ED
     memcpy(s_le, h, NOXTLS_ED25519_FE25519_BYTES);
 
     if(noxtls_sha512_init(&ctx, NOXTLS_HASH_SHA_512) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_BAD_DATA;
-    if(dom_len != 0u && noxtls_sha512_update(&ctx, dom_buf, dom_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_BAD_DATA;
+    if(dom_len != 0U && noxtls_sha512_update(&ctx, dom_buf, dom_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_BAD_DATA;
     if(noxtls_sha512_update(&ctx, prefix, NOXTLS_ED25519_FE25519_BYTES) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_BAD_DATA;
-    if(m_len != 0u && noxtls_sha512_update(&ctx, m_body, m_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_BAD_DATA;
+    if(m_len != 0U && noxtls_sha512_update(&ctx, m_body, m_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_BAD_DATA;
     if(noxtls_sha512_finish(&ctx, r_in) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_BAD_DATA;
     if(sc25519_reduce_mod_l(r_le, r_in) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_TIMEOUT;
     if(ge25519_set_basepoint(&B) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_NOT_SUPPORTED;
@@ -639,10 +649,10 @@ static noxtls_return_t ed25519_sign_internal(const uint8_t private_key[NOXTLS_ED
     if(ge25519_encode(signature, &R) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_NOT_SUPPORTED;
 
     if(noxtls_sha512_init(&ctx, NOXTLS_HASH_SHA_512) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
-    if(dom_len != 0u && noxtls_sha512_update(&ctx, dom_buf, dom_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
+    if(dom_len != 0U && noxtls_sha512_update(&ctx, dom_buf, dom_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
     if(noxtls_sha512_update(&ctx, signature, NOXTLS_ED25519_FE25519_BYTES) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
     if(noxtls_sha512_update(&ctx, public_key, NOXTLS_ED25519_FE25519_BYTES) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
-    if(m_len != 0u && noxtls_sha512_update(&ctx, m_body, m_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
+    if(m_len != 0U && noxtls_sha512_update(&ctx, m_body, m_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
     if(noxtls_sha512_finish(&ctx, k_in) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
     if(sc25519_reduce_mod_l(k_le, k_in) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
 
@@ -712,7 +722,7 @@ static noxtls_return_t ed25519_verify_internal(const uint8_t public_key[NOXTLS_E
 
     if(phflag == NOXTLS_ED25519_PH_FLAG_PREHASH) {
         if(noxtls_sha512_init(&ctx, NOXTLS_HASH_SHA_512) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-        if(message_len != 0u && noxtls_sha512_update(&ctx, noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+        if(message_len != 0U && noxtls_sha512_update(&ctx, noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
         if(noxtls_sha512_finish(&ctx, ph_digest) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
         m_body = ph_digest;
         m_len = NOXTLS_ED25519_SHA512_DIGEST_BYTES;
@@ -730,10 +740,10 @@ static noxtls_return_t ed25519_verify_internal(const uint8_t public_key[NOXTLS_E
     }
 
     if(noxtls_sha512_init(&ctx, NOXTLS_HASH_SHA_512) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(dom_len != 0u && noxtls_sha512_update(&ctx, dom_buf, dom_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(dom_len != 0U && noxtls_sha512_update(&ctx, dom_buf, dom_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
     if(noxtls_sha512_update(&ctx, signature, NOXTLS_ED25519_FE25519_BYTES) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
     if(noxtls_sha512_update(&ctx, public_key, NOXTLS_ED25519_FE25519_BYTES) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(m_len != 0u && noxtls_sha512_update(&ctx, m_body, m_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(m_len != 0U && noxtls_sha512_update(&ctx, m_body, m_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
     if(noxtls_sha512_finish(&ctx, k_in) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
     if(sc25519_reduce_mod_l(k_le, k_in) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
 
@@ -847,7 +857,7 @@ noxtls_return_t noxtls_ed25519ctx_sign(const uint8_t private_key[NOXTLS_ED25519_
                                        uint8_t signature[NOXTLS_ED25519_SIGNATURE_SIZE])
 {
     if(context == NULL && context_len != 0) return NOXTLS_RETURN_NULL;
-    if(context_len < 1u || context_len > NOXTLS_ED25519_CONTEXT_MAX) return NOXTLS_RETURN_INVALID_PARAM;
+    if(context_len < 1U || context_len > NOXTLS_ED25519_CONTEXT_MAX) return NOXTLS_RETURN_INVALID_PARAM;
     return ed25519_sign_internal(private_key, noxtls_message, message_len, signature, NOXTLS_ED25519_PH_FLAG_PURE, context, context_len);
 }
 
@@ -869,7 +879,7 @@ noxtls_return_t noxtls_ed25519ctx_verify(const uint8_t public_key[NOXTLS_ED25519
                                          const uint8_t signature[NOXTLS_ED25519_SIGNATURE_SIZE])
 {
     if(context == NULL && context_len != 0) return NOXTLS_RETURN_NULL;
-    if(context_len < 1u || context_len > NOXTLS_ED25519_CONTEXT_MAX) return NOXTLS_RETURN_INVALID_PARAM;
+    if(context_len < 1U || context_len > NOXTLS_ED25519_CONTEXT_MAX) return NOXTLS_RETURN_INVALID_PARAM;
     return ed25519_verify_internal(public_key, noxtls_message, message_len, signature, NOXTLS_ED25519_PH_FLAG_PURE, context, context_len);
 }
 

@@ -24,6 +24,9 @@ docs/.docusaurus/
 
 # Maven
 target/
+!ports/esp-idf/target/
+!ports/esp-idf/target/esp32/
+!ports/esp-idf/target/esp32/*.c
 dist/
 
 # JetBrains IDE
@@ -122,3 +125,7 @@ Release/
 
 build-*
 *.zip
+
+# Zephyr port (ports/zephyr)
+ports/zephyr/**/build/
+ports/zephyr/**/build-*/

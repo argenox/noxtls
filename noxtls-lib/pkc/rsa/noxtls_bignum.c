@@ -6,22 +6,19 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 2 of the License, or
-* (at your option) any later version.
-*
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
-* 
+*
 *
 * File:    noxtls_bignum.c
 * Summary: Big Number Arithmetic Operations Implementation
 *
-*/
+*
+*****************************************************************************/
 
 #include <stdint.h>
 #include <stdio.h>
@@ -32,6 +29,7 @@
 #include "common/noxtls_memory_compat.h"
 #include "common/noxtls_debug_printf.h"
 #include "noxtls_bignum.h"
+#include "noxtls_bn_platform.h"
 
 /* Debug helpers for bn_mod / bn_mod_exp instrumentation. */
 static int g_bn_debug_mod_first = 1;
@@ -60,6 +58,16 @@ static int g_bn_debug_div_trace = 0;
 /* Set to 1 to trace bn_mod_2n_by_n_limb line-by-line (e.g. for 96/48 Gy^2 mod p). */
 static int g_bn_debug_mod_2n_by_n = 0;
 /* Temporary safety switch: keep 2n/n reducer disabled in noxtls_bn_mod dispatcher. */
+
+/**
+ * @brief Debug helper: print a labeled byte buffer (currently disabled).
+ * @internal
+ *
+ * @param[in] label Label prefix (unused)
+ * @param[in] buf Byte buffer
+ * @param[in] len Buffer length in bytes
+ * @return void
+ */
 static void bn_debug_print(const char *label, const uint8_t *buf, uint32_t len)
 {
     if(buf == NULL && len > 0)
@@ -73,7 +81,15 @@ static void bn_debug_print(const char *label, const uint8_t *buf, uint32_t len)
     //fprintf(stderr, "\n");
 }
 
-/* Debug: print limbs (LE, limb 0 = LSW) to stderr. */
+/**
+ * @brief Debug helper: print 32-bit limbs to stderr when mod-2n debug is enabled.
+ * @internal
+ *
+ * @param[in] label Label prefix
+ * @param[in] limbs Little-endian limb array (limb 0 = LSW)
+ * @param[in] limb_len Number of limbs
+ * @return void
+ */
 static void bn_debug_limbs(const char *label, const uint32_t *limbs, uint32_t limb_len)
 {
     uint32_t i;
@@ -86,17 +102,26 @@ static void bn_debug_limbs(const char *label, const uint32_t *limbs, uint32_t li
     fflush(stderr);
 }
 
-/* Debug: print bytes (BE) to stderr, optional max. */
+/**
+ * @brief Debug helper: print big-endian bytes to stderr when mod-2n debug is enabled.
+ * @internal
+ *
+ * @param[in] label Label prefix
+ * @param[in] buf Byte buffer (big-endian)
+ * @param[in] len Total buffer length in bytes
+ * @param[in] max_show Maximum bytes to print (0 = all)
+ * @return void
+ */
 static void bn_debug_bytes(const char *label, const uint8_t *buf, uint32_t len, uint32_t max_show)
 {
     uint32_t i;
-    uint32_t n = (max_show != 0u && len > max_show) ? max_show : len;
+    uint32_t n = (max_show != 0U && len > max_show) ? max_show : len;
     if(buf == NULL || !g_bn_debug_mod_2n_by_n)
         return;
     fprintf(stderr, "[bn_mod_2n_by_n] %s (%u bytes):", label, (unsigned)len);
     for(i = 0; i < n; i++)
         fprintf(stderr, "%02X", buf[i]);
-    if(len > max_show && max_show != 0u)
+    if(len > max_show && max_show != 0U)
         fprintf(stderr, "...(%u more)", (unsigned)(len - max_show));
     fprintf(stderr, "\n");
     fflush(stderr);
@@ -280,9 +305,18 @@ noxtls_return_t noxtls_bn_sub(uint8_t *result, const uint8_t *a, const uint8_t *
     return NOXTLS_RETURN_SUCCESS;
 }
 
-/*
- * multiply-add with carry: r[0..n-1] += s[0..n-1] * d + carry_in;
- * output carry in *c. Uses 64-bit intermediate so limb * limb + limb + carry cannot overflow.
+/**
+ * @brief Multiply-add with carry: r[0..n-1] += s[0..n-1] * d + carry_in.
+ * @internal
+ *
+ * Output carry is stored in @p c. Uses 64-bit intermediates.
+ *
+ * @param[in] s Source limb array
+ * @param[in] n Number of limbs
+ * @param[in] d Multiplier limb
+ * @param[in,out] r Destination limb array
+ * @param[in,out] c Carry in/out
+ * @return void
  */
 /* NOLINTNEXTLINE(bugprone-easily-swappable-parameters): legacy limb helper signature mirrors mbedTLS-style call sites. */
 static void bn_muladd_hlp(const uint32_t *s, uint32_t n, uint32_t d, uint32_t *r, uint32_t *c)
@@ -332,18 +366,41 @@ noxtls_return_t noxtls_bn_mul(uint8_t *result, const uint8_t *a, uint32_t a_len,
     if(a_len == 0 || b_len == 0)
         return NOXTLS_RETURN_INVALID_PARAM;
     if(a_len > (uint32_t)(UINT32_MAX - b_len) ||
-       a_len > (uint32_t)(UINT32_MAX - 3u) ||
-       b_len > (uint32_t)(UINT32_MAX - 3u)) {
+       a_len > (uint32_t)(UINT32_MAX - 3U) ||
+       b_len > (uint32_t)(UINT32_MAX - 3U)) {
         return NOXTLS_RETURN_FAILED;
     }
 
     result_len = a_len + b_len;
-    n_limbs_a = (a_len + 3u) / 4u;
-    n_limbs_b = (b_len + 3u) / 4u;
+    n_limbs_a = (a_len + 3U) / 4U;
+    n_limbs_b = (b_len + 3U) / 4U;
     if(n_limbs_a > (uint32_t)(UINT32_MAX - n_limbs_b)) {
         return NOXTLS_RETURN_FAILED;
     }
     n_limbs_r = n_limbs_a + n_limbs_b;
+
+    if(a_len == 32U && b_len == 32U) {
+        uint32_t a_limbs32[8];
+        uint32_t b_limbs32[8];
+        uint32_t r_limbs32[16];
+
+        memset(a_limbs32, 0, sizeof(a_limbs32));
+        memset(b_limbs32, 0, sizeof(b_limbs32));
+        memset(r_limbs32, 0, sizeof(r_limbs32));
+
+        bn_bytes_to_limbs_le(a_limbs32, 8U, a, 32U);
+        bn_bytes_to_limbs_le(b_limbs32, 8U, b, 32U);
+
+        /* This exact width is hit heavily by X25519 and P-256 scalar arithmetic. */
+        for(i = 0; i < 8U; i++) {
+            carry = 0U;
+            bn_muladd_hlp(a_limbs32, 8U, b_limbs32[i], r_limbs32 + i, &carry);
+            r_limbs32[i + 8U] = carry;
+        }
+
+        bn_limbs_to_bytes_be(result, result_len, r_limbs32, 16U);
+        return NOXTLS_RETURN_SUCCESS;
+    }
 
     a_limbs = (uint32_t*)noxtls_calloc(n_limbs_a, sizeof(uint32_t));
     b_limbs = (uint32_t*)noxtls_calloc(n_limbs_b, sizeof(uint32_t));
@@ -448,6 +505,17 @@ static noxtls_return_t bn_copy_aligned(uint8_t *dst, uint32_t dst_len, const uin
 }
 
 /* ---- 32-bit limb helpers (little-endian limbs) ---- */
+
+/**
+ * @brief Convert big-endian bytes to little-endian 32-bit limbs.
+ * @internal
+ *
+ * @param[out] limbs Output limb array
+ * @param[in] limb_len Capacity of @p limbs in 32-bit words
+ * @param[in] bytes Input byte array (big-endian)
+ * @param[in] byte_len Input length in bytes
+ * @return void
+ */
 static void bn_bytes_to_limbs_le(uint32_t *limbs, uint32_t limb_len, const uint8_t *bytes, uint32_t byte_len)
 {
     uint32_t i;
@@ -458,13 +526,23 @@ static void bn_bytes_to_limbs_le(uint32_t *limbs, uint32_t limb_len, const uint8
         return;
     for(i = 0; i < byte_len; i++) {
         uint32_t limb_idx = i >> 2;
-        uint32_t shift = (i & 3u) << 3;
+        uint32_t shift = (i & 3U) << 3;
         if(limb_idx >= limb_len)
             break;
         limbs[limb_idx] |= (uint32_t)bytes[byte_len - 1 - i] << shift;
     }
 }
 
+/**
+ * @brief Convert little-endian 32-bit limbs to big-endian bytes.
+ * @internal
+ *
+ * @param[out] out Output byte buffer (big-endian)
+ * @param[in] out_len Output buffer length in bytes
+ * @param[in] limbs Input limb array (little-endian)
+ * @param[in] limb_len Number of input limbs
+ * @return void
+ */
 static void bn_limbs_to_bytes_be(uint8_t *out, uint32_t out_len, const uint32_t *limbs, uint32_t limb_len)
 {
     uint32_t i;
@@ -475,7 +553,7 @@ static void bn_limbs_to_bytes_be(uint8_t *out, uint32_t out_len, const uint32_t 
         return;
     for(i = 0; i < out_len; i++) {
         uint32_t limb_idx = i >> 2;
-        uint32_t shift = (i & 3u) << 3;
+        uint32_t shift = (i & 3U) << 3;
         uint8_t v = 0;
         if(limb_idx < limb_len) {
             v = (uint8_t)((limbs[limb_idx] >> shift) & 0xFFu);
@@ -484,6 +562,15 @@ static void bn_limbs_to_bytes_be(uint8_t *out, uint32_t out_len, const uint32_t 
     }
 }
 
+/**
+ * @brief Compare two limb arrays: return 1 if a >= b, else 0.
+ * @internal
+ *
+ * @param[in] a First limb array
+ * @param[in] b Second limb array
+ * @param[in] limb_len Number of limbs
+ * @return 1 if @p a >= @p b, 0 otherwise
+ */
 static int bn_ge_limbs(const uint32_t *a, const uint32_t *b, uint32_t limb_len)
 {
     int32_t i;
@@ -497,6 +584,15 @@ static int bn_ge_limbs(const uint32_t *a, const uint32_t *b, uint32_t limb_len)
     return 1;
 }
 
+/**
+ * @brief In-place limb subtraction: a -= b.
+ * @internal
+ *
+ * @param[in,out] a Minuend limb array (updated in place)
+ * @param[in] b Subtrahend limb array
+ * @param[in] limb_len Number of limbs
+ * @return void
+ */
 static void bn_sub_limbs(uint32_t *a, const uint32_t *b, uint32_t limb_len)
 {
     uint64_t borrow = 0;
@@ -516,7 +612,15 @@ static void bn_sub_limbs(uint32_t *a, const uint32_t *b, uint32_t limb_len)
     }
 }
 
-/* Subtract b from a (n limbs). Returns 1 if borrow out, 0 otherwise. */
+/**
+ * @brief Subtract @p b from @p a over @p n limbs.
+ * @internal
+ *
+ * @param[in,out] a Minuend limb array (updated in place)
+ * @param[in] b Subtrahend limb array
+ * @param[in] n Number of limbs
+ * @return 1 if borrow out, 0 otherwise
+ */
 static int bn_sub_limbs_borrow(uint32_t *a, const uint32_t *b, uint32_t n)
 {
     uint64_t borrow = 0;
@@ -537,6 +641,14 @@ static int bn_sub_limbs_borrow(uint32_t *a, const uint32_t *b, uint32_t n)
     return (int)borrow;
 }
 
+/**
+ * @brief Left-shift a limb array by one bit in place.
+ * @internal
+ *
+ * @param[in,out] a Limb array
+ * @param[in] limb_len Number of limbs
+ * @return void
+ */
 static void bn_lshift1_limbs(uint32_t *a, uint32_t limb_len)
 {
     uint32_t i;
@@ -544,13 +656,19 @@ static void bn_lshift1_limbs(uint32_t *a, uint32_t limb_len)
     if(a == NULL || limb_len == 0)
         return;
     for(i = 0; i < limb_len; i++) {
-        uint32_t new_carry = (a[i] >> 31) & 1u;
+        uint32_t new_carry = (a[i] >> 31) & 1U;
         a[i] = (a[i] << 1) | carry;
         carry = new_carry;
     }
 }
 
-/* Count leading zero bits in x; returns 32 if x == 0. */
+/**
+ * @brief Count leading zero bits in a 32-bit word.
+ * @internal
+ *
+ * @param[in] x Input value
+ * @return Number of leading zero bits (32 if @p x is zero)
+ */
 static unsigned bn_clz(uint32_t x)
 {
     unsigned c = 0;
@@ -559,7 +677,15 @@ static unsigned bn_clz(uint32_t x)
     return c;
 }
 
-/* Shift limbs left by k bits (0 <= k <= 31). */
+/**
+ * @brief Left-shift limbs by @p k bits (0 <= k <= 31).
+ * @internal
+ *
+ * @param[in,out] a Limb array
+ * @param[in] len Number of limbs
+ * @param[in] k Shift count in bits
+ * @return void
+ */
 static void bn_limbs_shl(uint32_t *a, uint32_t len, unsigned k)
 {
     uint32_t i;
@@ -569,11 +695,19 @@ static void bn_limbs_shl(uint32_t *a, uint32_t len, unsigned k)
     for(i = 0; i < len; i++) {
         uint32_t v = a[i];
         a[i] = (v << k) | carry;
-        carry = v >> (32u - k);
+        carry = v >> (32U - k);
     }
 }
 
-/* Shift limbs right by k bits (0 <= k <= 31). */
+/**
+ * @brief Right-shift limbs by @p k bits (0 <= k <= 31).
+ * @internal
+ *
+ * @param[in,out] a Limb array
+ * @param[in] len Number of limbs
+ * @param[in] k Shift count in bits
+ * @return void
+ */
 static void bn_limbs_shr(uint32_t *a, uint32_t len, unsigned k)
 {
     int32_t i;
@@ -583,12 +717,21 @@ static void bn_limbs_shr(uint32_t *a, uint32_t len, unsigned k)
     for(i = (int32_t)len - 1; i >= 0; i--) {
         uint32_t v = a[i];
         a[i] = (v >> k) | carry;
-        carry = v << (32u - k);
+        carry = v << (32U - k);
     }
 }
 
-/* Subtract q*mod from rem[start..start+n]. Returns 1 if borrow out, 0 otherwise.
- * Knuth D4 on base 2^32 limbs: k carries both product-high and subtraction borrow. */
+/**
+ * @brief Knuth division step: subtract q*mod from rem[start..start+n].
+ * @internal
+ *
+ * @param[in,out] rem Remainder limb buffer
+ * @param[in] start Starting limb index
+ * @param[in] q Quotient digit
+ * @param[in] mod Divisor limbs
+ * @param[in] n Divisor limb count
+ * @return 1 if borrow out, 0 otherwise
+ */
 /* NOLINTNEXTLINE(bugprone-easily-swappable-parameters): subtraction kernel keeps Knuth D-layout (start,q,mod,n). */
 static int bn_limb_mul_sub(uint32_t *rem, uint32_t start, uint32_t q,
                           const uint32_t *mod, uint32_t n)
@@ -619,7 +762,16 @@ static int bn_limb_mul_sub(uint32_t *rem, uint32_t start, uint32_t q,
     }
 }
 
-/* Add mod to rem[start..start+n]. Returns carry out. */
+/**
+ * @brief Add mod to rem[start..start+n]; return high carry.
+ * @internal
+ *
+ * @param[in,out] rem Remainder limb buffer
+ * @param[in] start Starting limb index
+ * @param[in] mod Addend limbs (modulus)
+ * @param[in] n Limb count
+ * @return Carry out (0 or 1)
+ */
 static uint32_t bn_limb_add_at(uint32_t *rem, uint32_t start, const uint32_t *mod, uint32_t n)
 {
     uint64_t carry = 0;
@@ -636,23 +788,37 @@ static uint32_t bn_limb_add_at(uint32_t *rem, uint32_t start, const uint32_t *mo
     }
 }
 
-/*
- * Fast mod for ECDSA case: dividend length == 2 * modulus length (64/32, 96/48, 132/66).
- * Uses limb-digit division: O(limb_len) steps instead of O(8*mod_len) bit steps.
- * Returns NOXTLS_RETURN_SUCCESS on success.
+/**
+ * @brief Fast modular reduction when dividend length is exactly 2 * modulus length.
+ * @internal
+ *
+ * Uses Knuth limb-digit division (O(n) steps). Typical ECDSA sizes: 64/32, 96/48, 132/66.
+ *
+ * @param[out] rem_out Remainder buffer (@p mod_len bytes, big-endian)
+ * @param[in] mod_len Modulus length in bytes
+ * @param[in] a Dividend (big-endian)
+ * @param[in] a_len Dividend length in bytes
+ * @param[in] mod Modulus (big-endian)
+ * @return NOXTLS_RETURN_SUCCESS on success, error code otherwise
  */
 static noxtls_return_t bn_mod_2n_by_n_limb(uint8_t *rem_out, uint32_t mod_len,
                                            const uint8_t *a, uint32_t a_len, const uint8_t *mod)
 {
-    const uint32_t n = (mod_len + 3u) >> 2;  /* modulus limbs */
-    const uint32_t m = n * 2u;               /* dividend limbs for 2n-byte input */
+#define BN_MOD_2N_STACK_MAX_MOD_LEN 132u
+#define BN_MOD_2N_STACK_MAX_LIMBS ((BN_MOD_2N_STACK_MAX_MOD_LEN + 3U) >> 2)
+    const uint32_t n = (mod_len + 3U) >> 2;  /* modulus limbs */
+    const uint32_t m = n * 2U;               /* dividend limbs for 2n-byte input */
     uint32_t *u = NULL;                      /* dividend/remainder, n*2 + 1 limbs */
     uint32_t *v = NULL;                      /* modulus limbs */
     uint8_t *a_padded = NULL;
+    uint8_t a_padded_stack[BN_MOD_2N_STACK_MAX_MOD_LEN * 2U];
+    uint32_t v_stack[BN_MOD_2N_STACK_MAX_LIMBS];
+    uint32_t u_stack[(BN_MOD_2N_STACK_MAX_LIMBS * 2U) + 1U];
+    int use_stack = 0;
     const uint8_t *a_sig = a;
     unsigned norm_shift = 0;
     uint32_t j;
-    int do_trace = g_bn_debug_mod_2n_by_n && (a_len == 96u && mod_len == 48u);
+    int do_trace = g_bn_debug_mod_2n_by_n && (a_len == 96u && mod_len == 48U);
 
     if(rem_out == NULL || a == NULL || mod == NULL || mod_len == 0)
         return NOXTLS_RETURN_NULL;
@@ -690,38 +856,48 @@ static noxtls_return_t bn_mod_2n_by_n_limb(uint8_t *rem_out, uint32_t mod_len,
         return NOXTLS_RETURN_SUCCESS;
     }
 
-    if(a_len > mod_len * 2u)
+    if(a_len > mod_len * 2U)
         return NOXTLS_RETURN_FAILED; /* caller should use general path */
-    if(mod_len > (uint32_t)(UINT32_MAX / 2u)) {
+    if(mod_len > (uint32_t)(UINT32_MAX / 2U)) {
         return NOXTLS_RETURN_FAILED;
     }
-    if(n > (uint32_t)(UINT32_MAX / 2u)) {
+    if(n > (uint32_t)(UINT32_MAX / 2U)) {
         return NOXTLS_RETURN_FAILED;
     }
 
-    a_padded = (uint8_t*)noxtls_calloc((size_t)mod_len * 2u, 1);
-    v = (uint32_t*)noxtls_calloc(n, sizeof(uint32_t));
-    u = (uint32_t*)noxtls_calloc(m + 1u, sizeof(uint32_t));
-    if(a_padded == NULL || v == NULL || u == NULL) {
-        if(a_padded) noxtls_free(a_padded);
-        if(v) noxtls_free(v);
-        if(u) noxtls_free(u);
-        memset(rem_out, 0, mod_len);
-        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+    use_stack = (mod_len <= BN_MOD_2N_STACK_MAX_MOD_LEN);
+    if(use_stack) {
+        a_padded = a_padded_stack;
+        v = v_stack;
+        u = u_stack;
+        memset(a_padded, 0, (size_t)mod_len * 2U);
+        memset(v, 0, (size_t)n * sizeof(uint32_t));
+        memset(u, 0, (size_t)(m + 1U) * sizeof(uint32_t));
+    } else {
+        a_padded = (uint8_t*)noxtls_calloc((size_t)mod_len * 2U, 1);
+        v = (uint32_t*)noxtls_calloc(n, sizeof(uint32_t));
+        u = (uint32_t*)noxtls_calloc(m + 1U, sizeof(uint32_t));
+        if(a_padded == NULL || v == NULL || u == NULL) {
+            if(a_padded) noxtls_free(a_padded);
+            if(v) noxtls_free(v);
+            if(u) noxtls_free(u);
+            memset(rem_out, 0, mod_len);
+            return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+        }
     }
 
-    memcpy(a_padded + (mod_len * 2u - a_len), a_sig, a_len);
+    memcpy(a_padded + (mod_len * 2U - a_len), a_sig, a_len);
     if(do_trace) {
         fprintf(stderr, "[bn_mod_2n_by_n] a_padded offset=%u (pad %u zero bytes)\n",
-                (unsigned)(mod_len * 2u - a_len), (unsigned)(mod_len * 2u - a_len));
+                (unsigned)(mod_len * 2U - a_len), (unsigned)(mod_len * 2U - a_len));
         fflush(stderr);
-        bn_debug_bytes("a_padded (first 12)", a_padded, mod_len * 2u, 12);
-        bn_debug_bytes("a_padded (last 12)", a_padded + (mod_len * 2u - 12), 12, 0);
+        bn_debug_bytes("a_padded (first 12)", a_padded, mod_len * 2U, 12);
+        bn_debug_bytes("a_padded (last 12)", a_padded + (mod_len * 2U - 12), 12, 0);
     }
 
     bn_bytes_to_limbs_le(v, n, mod, mod_len);
-    bn_bytes_to_limbs_le(u, m, a_padded, mod_len * 2u);
-    u[m] = 0u; /* extra high limb used by normalization/subtraction */
+    bn_bytes_to_limbs_le(u, m, a_padded, mod_len * 2U);
+    u[m] = 0U; /* extra high limb used by normalization/subtraction */
 
     if(do_trace) {
         fprintf(stderr, "[bn_mod_2n_by_n] after bytes_to_limbs_le:\n");
@@ -730,23 +906,25 @@ static noxtls_return_t bn_mod_2n_by_n_limb(uint8_t *rem_out, uint32_t mod_len,
         fprintf(stderr, "[bn_mod_2n_by_n] u[m]=u[%u]=%u\n", (unsigned)m, (unsigned)u[m]);
     }
 
-    if(v[n - 1u] == 0u) {
-        noxtls_free(a_padded);
-        noxtls_free(v);
-        noxtls_free(u);
+    if(v[n - 1U] == 0U) {
+        if(!use_stack) {
+            noxtls_free(a_padded);
+            noxtls_free(v);
+            noxtls_free(u);
+        }
         memset(rem_out, 0, mod_len);
         return NOXTLS_RETURN_FAILED;
     }
 
     /* Knuth D1 normalization: ensure top divisor limb has MSB set. */
-    norm_shift = bn_clz(v[n - 1u]);
+    norm_shift = bn_clz(v[n - 1U]);
     if(do_trace)
         fprintf(stderr, "[bn_mod_2n_by_n] norm_shift = clz(v[n-1]) = %u\n", (unsigned)norm_shift);
     if(norm_shift > 0) {
-        u[m] = (uint32_t)((uint64_t)u[m - 1u] >> (32u - norm_shift));
-        for(j = m - 1u; j > 0u; j--) {
+        u[m] = (uint32_t)((uint64_t)u[m - 1U] >> (32U - norm_shift));
+        for(j = m - 1U; j > 0U; j--) {
             u[j] = (uint32_t)(((uint64_t)u[j] << norm_shift) |
-                              ((uint64_t)u[j - 1u] >> (32u - norm_shift)));
+                              ((uint64_t)u[j - 1U] >> (32U - norm_shift)));
         }
         u[0] <<= norm_shift;
         bn_limbs_shl(v, n, norm_shift);
@@ -754,13 +932,13 @@ static noxtls_return_t bn_mod_2n_by_n_limb(uint8_t *rem_out, uint32_t mod_len,
     if(do_trace) {
         fprintf(stderr, "[bn_mod_2n_by_n] after normalization:\n");
         bn_debug_limbs("v", v, n);
-        bn_debug_limbs("u", u, m + 1u);
+        bn_debug_limbs("u", u, m + 1U);
     }
 
     /* Knuth D2..D6 for m=2n, divisor length n. */
     for(j = m - n; (int32_t)j >= 0; j--) {
-        uint64_t num = ((uint64_t)u[j + n] << 32) | (uint64_t)u[j + n - 1u];
-        uint64_t den = (uint64_t)v[n - 1u];
+        uint64_t num = ((uint64_t)u[j + n] << 32) | (uint64_t)u[j + n - 1U];
+        uint64_t den = (uint64_t)v[n - 1U];
         uint64_t qhat64 = num / den;
         uint64_t rhat = num - qhat64 * den;
         uint32_t qhat;
@@ -773,15 +951,15 @@ static noxtls_return_t bn_mod_2n_by_n_limb(uint8_t *rem_out, uint32_t mod_len,
             qhat = (uint32_t)qhat64;
         }
 
-        if(n > 1u) {
+        if(n > 1U) {
             while(1) {
-                uint64_t lhs = (uint64_t)qhat * (uint64_t)v[n - 2u];
+                uint64_t lhs = (uint64_t)qhat * (uint64_t)v[n - 2U];
                 /* rhs = (rhat << 32) + u[j+n-2] can exceed 64 bits if rhat>=2^32.
                  * Compare safely without overflowing 64-bit intermediates. */
-                if((rhat >> 32) != 0u)
+                if((rhat >> 32) != 0U)
                     break;
                 {
-                    uint64_t rhs = (rhat << 32) + (uint64_t)u[j + n - 2u];
+                    uint64_t rhs = (rhat << 32) + (uint64_t)u[j + n - 2U];
                     if(lhs <= rhs)
                         break;
                 }
@@ -800,14 +978,14 @@ static noxtls_return_t bn_mod_2n_by_n_limb(uint8_t *rem_out, uint32_t mod_len,
             fflush(stderr);
         }
 
-        if(qhat != 0u) {
+        if(qhat != 0U) {
             int borrow;
             borrow = bn_limb_mul_sub(u, j, qhat, v, n);
             if(borrow) {
                 /* qhat was one too large: add divisor back (Knuth D6). */
                 uint32_t carry_out = bn_limb_add_at(u, j, v, n);
-                if(carry_out != 0u && (j + n + 1u) <= m)
-                    u[j + n + 1u] += carry_out;
+                if(carry_out != 0U && (j + n + 1U) <= m)
+                    u[j + n + 1U] += carry_out;
                 if(do_trace) fprintf(stderr, "[bn_mod_2n_by_n]     borrow=1 -> add v back\n");
             }
             if(do_trace) {
@@ -831,9 +1009,9 @@ static noxtls_return_t bn_mod_2n_by_n_limb(uint8_t *rem_out, uint32_t mod_len,
      * Reduce to u[0..n-1] < v (normalized) so unnormalization yields remainder < mod. */
     {
         uint32_t corr = 0;
-        while(u[n] != 0u || bn_ge_limbs(u, v, n)) {
+        while(u[n] != 0U || bn_ge_limbs(u, v, n)) {
             if(bn_sub_limbs_borrow(u, v, n)) {
-                if(u[n] != 0u)
+                if(u[n] != 0U)
                     u[n]--;
                 else
                     break;
@@ -873,9 +1051,11 @@ static noxtls_return_t bn_mod_2n_by_n_limb(uint8_t *rem_out, uint32_t mod_len,
         fflush(stderr);
     }
 
-    noxtls_free(a_padded);
-    noxtls_free(v);
-    noxtls_free(u);
+    if(!use_stack) {
+        noxtls_free(a_padded);
+        noxtls_free(v);
+        noxtls_free(u);
+    }
 
     /* Final canonicalization to [0, mod). */
     if(noxtls_bn_cmp(rem_out, mod, mod_len) >= 0) {
@@ -892,13 +1072,23 @@ static noxtls_return_t bn_mod_2n_by_n_limb(uint8_t *rem_out, uint32_t mod_len,
         fflush(stderr);
     }
     return NOXTLS_RETURN_SUCCESS;
+#undef BN_MOD_2N_STACK_MAX_MOD_LEN
+#undef BN_MOD_2N_STACK_MAX_LIMBS
 }
 
-/*
- * Fast modular reduction with 32-bit limbs:
- * bitwise long division on limbs (rem = rem*2 + bit; if rem>=mod then rem-=mod).
- * This avoids byte-digit quotient estimation loops in bn_div_remainder.
- * Returns NOXTLS_RETURN_SUCCESS on success.
+/**
+ * @brief Modular reduction via bitwise long division on 32-bit limbs.
+ * @internal
+ *
+ * Computes rem = a mod b without byte-digit quotient estimation loops.
+ *
+ * @param[out] rem_out Remainder buffer (@p mod_len bytes, big-endian)
+ * @param[in] mod_len Output modulus length in bytes
+ * @param[in] a Dividend (big-endian)
+ * @param[in] a_len Dividend length in bytes
+ * @param[in] b Divisor/modulus (big-endian)
+ * @param[in] b_len Divisor length in bytes
+ * @return NOXTLS_RETURN_SUCCESS on success, error code otherwise
  */
 static noxtls_return_t bn_div_remainder_limb(uint8_t *rem_out, uint32_t mod_len,
                                              const uint8_t *a, uint32_t a_len,
@@ -932,9 +1122,9 @@ static noxtls_return_t bn_div_remainder_limb(uint8_t *rem_out, uint32_t mod_len,
         return NOXTLS_RETURN_SUCCESS;
     }
 
-    limb_len = (b_sig_len + 3u) >> 2;
+    limb_len = (b_sig_len + 3U) >> 2;
     mod_limbs = (uint32_t*)noxtls_calloc(limb_len, sizeof(uint32_t));
-    rem_limbs = (uint32_t*)noxtls_calloc(limb_len + 1u, sizeof(uint32_t));
+    rem_limbs = (uint32_t*)noxtls_calloc(limb_len + 1U, sizeof(uint32_t));
     if(mod_limbs == NULL || rem_limbs == NULL) {
         if(mod_limbs) noxtls_free(mod_limbs);
         if(rem_limbs) noxtls_free(rem_limbs);
@@ -947,14 +1137,14 @@ static noxtls_return_t bn_div_remainder_limb(uint8_t *rem_out, uint32_t mod_len,
     for(uint32_t byte_idx = 0; byte_idx < a_sig_len; byte_idx++) {
         uint8_t byte = a_sig[byte_idx];
         for(int bit = 7; bit >= 0; bit--) {
-            uint32_t in_bit = (uint32_t)((byte >> bit) & 1u);
-            bn_lshift1_limbs(rem_limbs, limb_len + 1u);
+            uint32_t in_bit = (uint32_t)((byte >> bit) & 1U);
+            bn_lshift1_limbs(rem_limbs, limb_len + 1U);
             rem_limbs[0] |= in_bit;
             if(rem_limbs[limb_len] != 0 || bn_ge_limbs(rem_limbs, mod_limbs, limb_len)) {
                 uint64_t hi = (uint64_t)rem_limbs[limb_len];
                 bn_sub_limbs(rem_limbs, mod_limbs, limb_len);
                 if(hi > 0) {
-                    rem_limbs[limb_len] = (uint32_t)(hi - 1u);
+                    rem_limbs[limb_len] = (uint32_t)(hi - 1U);
                 }
             }
         }
@@ -966,14 +1156,16 @@ static noxtls_return_t bn_div_remainder_limb(uint8_t *rem_out, uint32_t mod_len,
     return NOXTLS_RETURN_SUCCESS;
 }
 
-/*
- * Shift left by 1 bit, LSB-first (order: p[0]=LSW, process limb 0 first).
- * New LSB of the number is 'bit'. Big-endian: buf[0]=MSB, buf[len-1]=LSB,
- * so we process buf[len-1] down to buf[0].
- * 
- * @param buf Big integer
- * @param len Length of the big integer
- * @param bit Bit to shift
+/**
+ * @brief Left-shift a big-endian byte buffer by one bit; LSB becomes @p bit.
+ * @internal
+ *
+ * Processes from LSB (buf[len-1]) toward MSB (buf[0]).
+ *
+ * @param[in,out] buf Big-endian integer buffer
+ * @param[in] len Buffer length in bytes
+ * @param[in] bit New least significant bit (0 or 1)
+ * @return void
  */
 NOXTLS_UNUSED_ATTR
 /* NOLINTNEXTLINE(bugprone-easily-swappable-parameters): bit-shift helper uses canonical (buf,len,bit) ordering. */
@@ -1203,7 +1395,7 @@ static void bn_shift_r_bits(uint8_t *buf, uint32_t len, unsigned k)
             for(j = 0; j < len; j++) {
                 uint8_t byte = buf[j];
                 buf[j] = (uint8_t)((byte >> bit_shift) | carry);
-                carry = (uint8_t)((byte & ((1u << bit_shift) - 1u)) << (8 - bit_shift));
+                carry = (uint8_t)((byte & ((1U << bit_shift) - 1U)) << (8 - bit_shift));
             }
         }
         return;
@@ -1215,13 +1407,22 @@ static void bn_shift_r_bits(uint8_t *buf, uint32_t len, unsigned k)
         for(i = 0; i < len; i++) {
             uint8_t byte = buf[i];
             buf[i] = (uint8_t)((byte >> k) | carry);
-            carry = (uint8_t)((byte & ((1u << k) - 1u)) << (8 - k));
+            carry = (uint8_t)((byte & ((1U << k) - 1U)) << (8 - k));
         }
     }
 }
 
 #ifdef NOXTLS_BIGNUM_TEST_INTERNAL
-/* Test-only wrapper for bn_shift_r_bits */
+
+/**
+ * @brief Test-only wrapper for bn_shift_r_bits.
+ * @internal
+ *
+ * @param[in,out] buf Big-endian buffer
+ * @param[in] len Buffer length in bytes
+ * @param[in] k Right shift count in bits
+ * @return void
+ */
 void noxtls_bn_test_shift_r_bits(uint8_t *buf, uint32_t len, unsigned k)
 {
     if(buf == NULL)
@@ -1229,7 +1430,15 @@ void noxtls_bn_test_shift_r_bits(uint8_t *buf, uint32_t len, unsigned k)
     bn_shift_r_bits(buf, len, k);
 }
 
-/* Test-only wrapper for bn_shift_l_bits */
+/**
+ * @brief Test-only wrapper for bn_shift_l_bits.
+ * @internal
+ *
+ * @param[in,out] buf Big-endian buffer
+ * @param[in,out] len Buffer length in bytes (may grow)
+ * @param[in] k Left shift count in bits
+ * @return void
+ */
 void noxtls_bn_test_shift_l_bits(uint8_t *buf, uint32_t *len, unsigned k)
 {
     if(buf == NULL || len == NULL)
@@ -1237,57 +1446,159 @@ void noxtls_bn_test_shift_l_bits(uint8_t *buf, uint32_t *len, unsigned k)
     bn_shift_l_bits(buf, len, k);
 }
 
-/* ---- 2n-by-n limb path: test-only wrappers for Layer 0 ---- */
+/**
+ * @brief Test-only wrapper for bn_bytes_to_limbs_le.
+ * @internal
+ *
+ * @param[out] limbs Output limb array
+ * @param[in] limb_len Limb array capacity
+ * @param[in] bytes Input bytes (big-endian)
+ * @param[in] byte_len Input length in bytes
+ * @return void
+ */
 void noxtls_bn_test_bytes_to_limbs_le(uint32_t *limbs, uint32_t limb_len, const uint8_t *bytes, uint32_t byte_len)
 {
     bn_bytes_to_limbs_le(limbs, limb_len, bytes, byte_len);
 }
 
+/**
+ * @brief Test-only wrapper for bn_limbs_to_bytes_be.
+ * @internal
+ *
+ * @param[out] out Output bytes (big-endian)
+ * @param[in] out_len Output length in bytes
+ * @param[in] limbs Input limbs (little-endian)
+ * @param[in] limb_len Number of input limbs
+ * @return void
+ */
 void noxtls_bn_test_limbs_to_bytes_be(uint8_t *out, uint32_t out_len, const uint32_t *limbs, uint32_t limb_len)
 {
     bn_limbs_to_bytes_be(out, out_len, limbs, limb_len);
 }
 
+/**
+ * @brief Test-only wrapper for bn_ge_limbs.
+ * @internal
+ *
+ * @param[in] a First limb array
+ * @param[in] b Second limb array
+ * @param[in] limb_len Number of limbs
+ * @return 1 if @p a >= @p b, 0 otherwise
+ */
 int noxtls_bn_test_ge_limbs(const uint32_t *a, const uint32_t *b, uint32_t limb_len)
 {
     return bn_ge_limbs(a, b, limb_len);
 }
 
+/**
+ * @brief Test-only wrapper for bn_sub_limbs.
+ * @internal
+ *
+ * @param[in,out] a Minuend limbs
+ * @param[in] b Subtrahend limbs
+ * @param[in] limb_len Number of limbs
+ * @return void
+ */
 void noxtls_bn_test_sub_limbs(uint32_t *a, const uint32_t *b, uint32_t limb_len)
 {
     bn_sub_limbs(a, b, limb_len);
 }
 
+/**
+ * @brief Test-only wrapper for bn_sub_limbs_borrow.
+ * @internal
+ *
+ * @param[in,out] a Minuend limbs
+ * @param[in] b Subtrahend limbs
+ * @param[in] n Number of limbs
+ * @return 1 if borrow out, 0 otherwise
+ */
 int noxtls_bn_test_sub_limbs_borrow(uint32_t *a, const uint32_t *b, uint32_t n)
 {
     return bn_sub_limbs_borrow(a, b, n);
 }
 
+/**
+ * @brief Test-only wrapper for bn_limb_mul_sub.
+ * @internal
+ *
+ * @param[in,out] rem Remainder limbs
+ * @param[in] start Start index
+ * @param[in] q Quotient digit
+ * @param[in] mod Modulus limbs
+ * @param[in] n Limb count
+ * @return 1 if borrow out, 0 otherwise
+ */
 int noxtls_bn_test_limb_mul_sub(uint32_t *rem, uint32_t start, uint32_t q, const uint32_t *mod, uint32_t n)
 {
     return bn_limb_mul_sub(rem, start, q, mod, n);
 }
 
+/**
+ * @brief Test-only wrapper for bn_limb_add_at.
+ * @internal
+ *
+ * @param[in,out] rem Remainder limbs
+ * @param[in] start Start index
+ * @param[in] mod Modulus limbs
+ * @param[in] n Limb count
+ * @return Carry out (0 or 1)
+ */
 uint32_t noxtls_bn_test_limb_add_at(uint32_t *rem, uint32_t start, const uint32_t *mod, uint32_t n)
 {
     return bn_limb_add_at(rem, start, mod, n);
 }
 
+/**
+ * @brief Test-only wrapper for bn_clz.
+ * @internal
+ *
+ * @param[in] x Input value
+ * @return Number of leading zero bits (32 if zero)
+ */
 unsigned noxtls_bn_test_clz(uint32_t x)
 {
     return bn_clz(x);
 }
 
+/**
+ * @brief Test-only wrapper for bn_limbs_shl.
+ * @internal
+ *
+ * @param[in,out] a Limb array
+ * @param[in] len Number of limbs
+ * @param[in] k Left shift in bits
+ * @return void
+ */
 void noxtls_bn_test_limbs_shl(uint32_t *a, uint32_t len, unsigned k)
 {
     bn_limbs_shl(a, len, k);
 }
 
+/**
+ * @brief Test-only wrapper for bn_limbs_shr.
+ * @internal
+ *
+ * @param[in,out] a Limb array
+ * @param[in] len Number of limbs
+ * @param[in] k Right shift in bits
+ * @return void
+ */
 void noxtls_bn_test_limbs_shr(uint32_t *a, uint32_t len, unsigned k)
 {
     bn_limbs_shr(a, len, k);
 }
 
+/**
+ * @brief Run only the Knuth D2..D6 division loop on limb arrays (unit tests).
+ * @internal
+ *
+ * @param[in,out] rem_limbs Dividend/remainder limbs (updated in place)
+ * @param[in] mod_limbs Divisor/modulus limbs
+ * @param[in] n Modulus limb count
+ * @param[in] rem_limb_count Dividend limb count (0 = use 2*n)
+ * @return void
+ */
 void noxtls_bn_test_division_loop_only(uint32_t *rem_limbs, const uint32_t *mod_limbs, uint32_t n, uint32_t rem_limb_count)
 {
     uint32_t j;
@@ -1295,14 +1606,14 @@ void noxtls_bn_test_division_loop_only(uint32_t *rem_limbs, const uint32_t *mod_
     uint32_t work_count;
     uint32_t *work;
     int used_temp = 0;
-    const uint32_t two_n = n * 2u;
+    const uint32_t two_n = n * 2U;
 
-    if(rem_limbs == NULL || mod_limbs == NULL || n == 0u)
+    if(rem_limbs == NULL || mod_limbs == NULL || n == 0U)
         return;
-    if(mod_limbs[n - 1u] == 0u)
+    if(mod_limbs[n - 1U] == 0U)
         return;
 
-    in_count = (rem_limb_count != 0u) ? rem_limb_count : two_n;
+    in_count = (rem_limb_count != 0U) ? rem_limb_count : two_n;
     if(in_count <= n)
         return;
 
@@ -1311,12 +1622,12 @@ void noxtls_bn_test_division_loop_only(uint32_t *rem_limbs, const uint32_t *mod_
      * For tests that pass exactly 2n limbs, emulate that by using a temporary 2n+1 workspace.
      */
     if(in_count == two_n) {
-        work = (uint32_t*)noxtls_calloc(two_n + 1u, sizeof(uint32_t));
+        work = (uint32_t*)noxtls_calloc(two_n + 1U, sizeof(uint32_t));
         if(work == NULL)
             return;
         memcpy(work, rem_limbs, two_n * sizeof(uint32_t));
-        work[two_n] = 0u;
-        work_count = two_n + 1u;
+        work[two_n] = 0U;
+        work_count = two_n + 1U;
         used_temp = 1;
     } else {
         work = rem_limbs;
@@ -1324,10 +1635,10 @@ void noxtls_bn_test_division_loop_only(uint32_t *rem_limbs, const uint32_t *mod_
     }
 
     {
-        const uint32_t m = work_count - 1u;  /* dividend limbs before overflow; work_count is m+1 */
+        const uint32_t m = work_count - 1U;  /* dividend limbs before overflow; work_count is m+1 */
         for(j = m - n; (int32_t)j >= 0; j--) {
-            uint64_t num = ((uint64_t)work[j + n] << 32) | (uint64_t)work[j + n - 1u];
-            uint64_t den = (uint64_t)mod_limbs[n - 1u];
+            uint64_t num = ((uint64_t)work[j + n] << 32) | (uint64_t)work[j + n - 1U];
+            uint64_t den = (uint64_t)mod_limbs[n - 1U];
             uint64_t qhat64 = num / den;
             uint64_t rhat = num - qhat64 * den;
             uint32_t q_est;
@@ -1339,24 +1650,24 @@ void noxtls_bn_test_division_loop_only(uint32_t *rem_limbs, const uint32_t *mod_
                 q_est = (uint32_t)qhat64;
             }
             /* Knuth D3: correction step (n>=2) */
-            while(n >= 2u) {
-                uint64_t lhs = (uint64_t)q_est * (uint64_t)mod_limbs[n - 2u];
-                if((rhat >> 32) != 0u)
+            while(n >= 2U) {
+                uint64_t lhs = (uint64_t)q_est * (uint64_t)mod_limbs[n - 2U];
+                if((rhat >> 32) != 0U)
                     break;
                 {
-                    uint64_t rhs = (rhat << 32) + (uint64_t)work[j + n - 2u];
+                    uint64_t rhs = (rhat << 32) + (uint64_t)work[j + n - 2U];
                     if(lhs <= rhs)
                         break;
                 }
                 q_est--;
-                rhat += (uint64_t)mod_limbs[n - 1u];
+                rhat += (uint64_t)mod_limbs[n - 1U];
             }
-            if(q_est == 0u)
+            if(q_est == 0U)
                 continue;
             if(bn_limb_mul_sub(work, j, q_est, mod_limbs, n)) {
                 uint32_t carry_out = bn_limb_add_at(work, j, mod_limbs, n);
-                if(carry_out != 0u && (j + n + 1u) < work_count)
-                    work[j + n + 1u] += carry_out;
+                if(carry_out != 0U && (j + n + 1U) < work_count)
+                    work[j + n + 1U] += carry_out;
             }
         }
     }
@@ -1367,25 +1678,35 @@ void noxtls_bn_test_division_loop_only(uint32_t *rem_limbs, const uint32_t *mod_
     }
 }
 
+/**
+ * @brief Normalize a limb remainder into [0, mod) by repeated subtraction (unit tests).
+ * @internal
+ *
+ * @param[in,out] rem_limbs Remainder limbs
+ * @param[in] mod_limbs Modulus limbs
+ * @param[in] n Modulus limb count
+ * @param[in] rem_limb_count Total remainder limb count (0 = use 2*n)
+ * @return void
+ */
 void noxtls_bn_test_normalize_only(uint32_t *rem_limbs, const uint32_t *mod_limbs, uint32_t n, uint32_t rem_limb_count)
 {
     uint32_t i;
-    const uint32_t max_norm = (n * 2u) + 8u;
-    const uint32_t rem_high_end = (rem_limb_count != 0u) ? rem_limb_count : (n * 2u);
+    const uint32_t max_norm = (n * 2U) + 8U;
+    const uint32_t rem_high_end = (rem_limb_count != 0U) ? rem_limb_count : (n * 2U);
     uint32_t k;
-    if(rem_limbs == NULL || mod_limbs == NULL || n == 0u)
+    if(rem_limbs == NULL || mod_limbs == NULL || n == 0U)
         return;
-    for(k = 0u; k < max_norm; k++) {
+    for(k = 0U; k < max_norm; k++) {
         int high_nonzero = 0;
         for(i = n; i < rem_high_end; i++) {
-            if(rem_limbs[i] != 0u) { high_nonzero = 1; break; }
+            if(rem_limbs[i] != 0U) { high_nonzero = 1; break; }
         }
         if(!high_nonzero && !bn_ge_limbs(rem_limbs, mod_limbs, n))
             break;
         if(bn_sub_limbs_borrow(rem_limbs, mod_limbs, n)) {
             if(high_nonzero) {
                 for(i = n; i < rem_high_end; i++) {
-                    if(rem_limbs[i] != 0u) {
+                    if(rem_limbs[i] != 0U) {
                         rem_limbs[i]--;
                         break;
                     }
@@ -1399,12 +1720,35 @@ void noxtls_bn_test_normalize_only(uint32_t *rem_limbs, const uint32_t *mod_limb
     }
 }
 
+/**
+ * @brief Test-only wrapper for bn_mod_2n_by_n_limb.
+ * @internal
+ *
+ * @param[out] rem_out Remainder output
+ * @param[in] mod_len Modulus length in bytes
+ * @param[in] a Dividend
+ * @param[in] a_len Dividend length in bytes
+ * @param[in] mod Modulus
+ * @return NOXTLS_RETURN_SUCCESS on success, error code otherwise
+ */
 noxtls_return_t noxtls_bn_test_mod_2n_by_n_limb(uint8_t *rem_out, uint32_t mod_len,
                                                 const uint8_t *a, uint32_t a_len, const uint8_t *mod)
 {
     return bn_mod_2n_by_n_limb(rem_out, mod_len, a, a_len, mod);
 }
 
+/**
+ * @brief Test-only wrapper for bn_div_remainder_limb.
+ * @internal
+ *
+ * @param[out] rem_out Remainder output
+ * @param[in] mod_len Output modulus length in bytes
+ * @param[in] a Dividend
+ * @param[in] a_len Dividend length in bytes
+ * @param[in] b Divisor
+ * @param[in] b_len Divisor length in bytes
+ * @return NOXTLS_RETURN_SUCCESS on success, error code otherwise
+ */
 noxtls_return_t noxtls_bn_test_div_remainder_limb(uint8_t *rem_out, uint32_t mod_len,
                                                   const uint8_t *a, uint32_t a_len,
                                                   const uint8_t *b, uint32_t b_len)
@@ -1523,17 +1867,19 @@ static void bn_add_at(uint8_t *a, uint32_t n, uint32_t lsb_offset, const uint8_t
     }
 }
 
-/*
- * Division with remainder: R = A mod B.
- * Algorithm follows uses bytes as limbs (big-endian).
- * Requires a_len >= b_len.
- * 
- * @param rem_out Remainder output big integer
- * @param mod_len Length of the remainder output big integer
- * @param a First big integer
- * @param a_len Length of the first big integer
- * @param b Second big integer
- * @param b_len Length of the second big integer
+/**
+ * @brief Division with remainder: rem_out = a mod b (byte-wise long division).
+ * @internal
+ *
+ * Requires @p a_len >= @p b_len for the main algorithm path.
+ *
+ * @param[out] rem_out Remainder buffer (@p mod_len bytes, big-endian)
+ * @param[in] mod_len Output modulus length in bytes
+ * @param[in] a Dividend (big-endian)
+ * @param[in] a_len Dividend length in bytes
+ * @param[in] b Divisor (big-endian)
+ * @param[in] b_len Divisor length in bytes
+ * @return void
  */
 static void bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
                              const uint8_t *a, uint32_t a_len,
@@ -1582,8 +1928,8 @@ static void bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
         memset(rem_out, 0, mod_len);
         return;
     }
-    x_cap = a_len + 1u;
-    y_cap = b_len + 1u;
+    x_cap = a_len + 1U;
+    y_cap = b_len + 1U;
     uint8_t *X = (uint8_t*)noxtls_calloc(x_cap, 1);
     uint8_t *Y = (uint8_t*)noxtls_calloc(y_cap, 1);
     uint8_t *Y_shifted = (uint8_t*)noxtls_calloc(x_cap, 1);
@@ -1679,7 +2025,7 @@ static void bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
     uint32_t reduce_rounds = 0;
     /* One quotient digit is 0..255, so we need at most 256 rounds when subtracting 1*Y_shifted each time */
     uint32_t max_reduce_rounds;
-    if(x_len > (uint32_t)((UINT32_MAX / 32u) - 1u)) {
+    if(x_len > (uint32_t)((UINT32_MAX / 32U) - 1U)) {
         noxtls_free(X);
         noxtls_free(Y);
         noxtls_free(Y_shifted);
@@ -1687,7 +2033,7 @@ static void bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
         memset(rem_out, 0, mod_len);
         return;
     }
-    max_reduce_rounds = (x_len + 1u) * 32u;
+    max_reduce_rounds = (x_len + 1U) * 32U;
     if(max_reduce_rounds < 256) max_reduce_rounds = 256;
     while(bn_ge(X, Y_shifted, x_len) && reduce_rounds < max_reduce_rounds) {
         /* Estimate quotient digit: use top 2-3 bytes when both have same length */
@@ -1926,7 +2272,6 @@ noxtls_return_t noxtls_bn_mod(uint8_t *result, const uint8_t *a, uint32_t a_len,
     }
 
     a_src = bn_strip_leading_zeros(a_src, &a_len);
-    fflush(stdout);
     if(a_len == 0) {
         memset(result, 0, mod_len);
         if(a_copy) noxtls_free(a_copy);
@@ -1975,13 +2320,46 @@ noxtls_return_t noxtls_bn_mod(uint8_t *result, const uint8_t *a, uint32_t a_len,
         return NOXTLS_RETURN_SUCCESS;
     }
 
+    /*
+     * On platforms with a 32-byte modular accelerator (ESP P-256 MPI), try it
+     * first for the dominant ECC field/scalar products. This keeps the generic
+     * 2n/n reducer as the fallback while allowing hardware-backed builds to
+     * accelerate the exact 64-bytes mod 32-bytes shape used throughout P-256.
+     */
+    if(mod_len == 32U && a_len == 64U) {
+        noxtls_return_t hw_rc = noxtls_bn_platform_try_mod(result, a_src, a_len, mod, mod_len);
+        if(hw_rc == NOXTLS_RETURN_SUCCESS) {
+            if(a_copy) {
+                noxtls_free(a_copy);
+            }
+            if(do_debug) {
+                bn_debug_print("[noxtls_bn_mod] result (platform HW P-256): ", result, mod_len);
+            }
+            return NOXTLS_RETURN_SUCCESS;
+        }
+    }
+
     /* Fast path: 2n-by-n limb reducer for ECDSA (P-256/P-384), RSA, and RFC 7919 FFDHE moduli. */
-    if((mod_len == 32u || mod_len == 48u || mod_len == 64u || mod_len == 66u || mod_len == 128u || mod_len == 256u ||
-        mod_len == 384u || mod_len == 512u || mod_len == 768u || mod_len == 1024u) &&
-       a_len == mod_len * 2u) {
+    if((mod_len == 32U || mod_len == 48U || mod_len == 64U || mod_len == 128U || mod_len == 256u ||
+        mod_len == 384u || mod_len == 512U || mod_len == 768u || mod_len == 1024U) &&
+       a_len == mod_len * 2U) {
         if(bn_mod_2n_by_n_limb(result, mod_len, a_src, a_len, mod) == NOXTLS_RETURN_SUCCESS) {
             if(do_debug) bn_debug_print("[noxtls_bn_mod] result (2n/n limb path): ", result, mod_len);
             if(a_copy) noxtls_free(a_copy);
+            return NOXTLS_RETURN_SUCCESS;
+        }
+    }
+
+    /* HW mod after fast paths: ECDSA uses many 2n reductions; mbedtls_mpi init per call is slower than limb code. */
+    {
+        noxtls_return_t hw_rc = noxtls_bn_platform_try_mod(result, a_src, a_len, mod, mod_len);
+        if(hw_rc == NOXTLS_RETURN_SUCCESS) {
+            if(a_copy) {
+                noxtls_free(a_copy);
+            }
+            if(do_debug) {
+                bn_debug_print("[noxtls_bn_mod] result (platform HW): ", result, mod_len);
+            }
             return NOXTLS_RETURN_SUCCESS;
         }
     }
@@ -2032,9 +2410,16 @@ noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const ui
     if(mod_len == 0 || exp_len == 0) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
-    if(mod_len > (uint32_t)(UINT32_MAX / 2u) ||
-       exp_len > (uint32_t)(UINT32_MAX / 8u)) {
+    if(mod_len > (uint32_t)(UINT32_MAX / 2U) ||
+       exp_len > (uint32_t)(UINT32_MAX / 8U)) {
         return NOXTLS_RETURN_FAILED;
+    }
+
+    {
+        noxtls_return_t hw_rc = noxtls_bn_platform_try_mod_exp(result, base, exp, exp_len, mod, mod_len);
+        if(hw_rc == NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_SUCCESS;
+        }
     }
 
     if(g_bn_debug_modexp_first) g_bn_debug_modexp_first = 0;
@@ -2046,7 +2431,7 @@ noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const ui
     temp_base = (uint8_t*)noxtls_calloc(mod_len, 1);
     exp_copy = (uint8_t*)noxtls_calloc(exp_len, 1);
     /* temp needs to be mod_len * 2 because multiplication of two mod_len numbers produces mod_len * 2 bytes */
-    temp = (uint8_t*)noxtls_calloc((size_t)mod_len * 2u, 1);
+    temp = (uint8_t*)noxtls_calloc((size_t)mod_len * 2U, 1);
 
     if(!temp_result || !temp_base || !temp || !exp_copy) {
         noxtls_debug_printf("ERROR: noxtls_bn_mod_exp: Memory allocation failed!\n");
@@ -2085,7 +2470,7 @@ noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const ui
     }
 
     /* Right-to-left (LSB-first) square-and-multiply (bitwise shift) */
-    total_bits = exp_len * 8u;
+    total_bits = exp_len * 8U;
     if(total_bits > 256) {
         noxtls_debug_printf("      Starting modular exponentiation (%u bits)...\n", total_bits);
         fflush(stdout);
@@ -2208,7 +2593,7 @@ noxtls_return_t noxtls_bn_mod_inv(uint8_t *result, const uint8_t *a, uint32_t a_
     uint8_t *temp = (uint8_t*)noxtls_calloc(m_len, 1);
     uint8_t *a_mod_m = (uint8_t*)noxtls_calloc(m_len, 1);
     /* Wide buffers for shift step: u1+m can overflow m_len bytes (noxtls_bn_add drops carry) */
-    const uint32_t m_wide = m_len + 1u;
+    const uint32_t m_wide = m_len + 1U;
     uint8_t *m_padded = (uint8_t*)noxtls_calloc(m_wide, 1);
     uint8_t *u1_wide = (uint8_t*)noxtls_calloc(m_wide, 1);
     uint8_t *v1_wide = (uint8_t*)noxtls_calloc(m_wide, 1);
@@ -2453,7 +2838,7 @@ noxtls_return_t noxtls_bn_mod_inv(uint8_t *result, const uint8_t *a, uint32_t a_
     if(!inverse_exists) {
         /* For odd prime moduli, use Fermat: a^(-1) = a^(p-2) mod p.
          * The binary extended GCD can mis-terminate in some cases; this is a correct fallback. */
-        if((m[m_len - 1] & 1u) != 0) {
+        if((m[m_len - 1] & 1U) != 0) {
             uint8_t *m_minus_2 = (uint8_t*)noxtls_calloc(m_len, 1);
             uint8_t *two_buf = (uint8_t*)noxtls_calloc(m_len, 1);
             uint8_t *fermat_out = (uint8_t*)noxtls_calloc(m_len, 1);
@@ -2481,7 +2866,7 @@ noxtls_return_t noxtls_bn_mod_inv(uint8_t *result, const uint8_t *a, uint32_t a_
         noxtls_bn_mod(result, result_coeff, m_len, m, m_len);
         /* Verify: (a_mod_m * result) mod m == 1. If not, try Fermat fallback for odd moduli. */
         {
-            uint8_t *prod = (uint8_t*)noxtls_calloc((size_t)m_len * 2u, 1);
+            uint8_t *prod = (uint8_t*)noxtls_calloc((size_t)m_len * 2U, 1);
             uint8_t *check = (uint8_t*)noxtls_calloc(m_len, 1);
             uint8_t *one = (uint8_t*)noxtls_calloc(m_len, 1);
             int ok = 0;
@@ -2494,7 +2879,7 @@ noxtls_return_t noxtls_bn_mod_inv(uint8_t *result, const uint8_t *a, uint32_t a_
             if(prod) noxtls_free(prod);
             if(check) noxtls_free(check);
             if(one) noxtls_free(one);
-            if(!ok && (m[m_len - 1] & 1u) != 0) {
+            if(!ok && (m[m_len - 1] & 1U) != 0) {
                 uint8_t *m_minus_2 = (uint8_t*)noxtls_calloc(m_len, 1);
                 uint8_t *two_buf = (uint8_t*)noxtls_calloc(m_len, 1);
                 if(m_minus_2 && two_buf) {

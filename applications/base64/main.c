@@ -1,15 +1,10 @@
-/*****************************************************************************
+﻿/*****************************************************************************
 * Copyright (c) [2019] - [2026], Argenox Technologies LLC
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
 *
 * This file is part of the NoxTLS Library.
-*
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 2 of the License, or
-* (at your option) any later version.
 *
 * Alternatively, this file may be used under the terms of a
 * commercial license from Argenox Technologies LLC.
@@ -47,6 +42,13 @@
  *   base64 -h
  */
 
+/* MUST be the FIRST #include: app-local noxtls_config.h (project policy)
+ * MSVC searches the directory of the including header first for "..."
+ * style includes; if a library header pulls in "noxtls_config.h" before
+ * this app does, the top-level config wins. Hoisting our local one
+ * here ensures _NOXTLS_CONFIG_H_ is set from THIS file. */
+#include "noxtls_config.h"
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,6 +62,75 @@
 #include "asn1.h"
 #include "base64.h"
 #include "string_common.h"
+
+/* ============================================================================
+ * Application-private static workspace (per project policy)
+ * ============================================================================
+ *
+ * Every application owns a large statically-allocated workspace buffer; all
+ * dynamic allocations made by this translation unit are served out of it via
+ * a simple bump arena. The buffer's size lives in this app's noxtls_config.h
+ * (NOXTLS_APP_STATIC_BUFFER_SIZE) so it can be tuned independently per app.
+ *
+ * free() is a no-op; the whole arena is released en-masse via
+ * app_workspace_reset() (e.g. between commands) which also wipes any
+ * transient secret material that may have been allocated.
+ */
+static uint8_t  g_app_workspace[NOXTLS_APP_STATIC_BUFFER_SIZE];
+static size_t   g_app_workspace_off = 0U;
+#define APP_WORKSPACE_ALIGN ((size_t)16U)
+
+/**
+ * @brief Allocate workspace
+ *
+ * @param[in] n The size to allocate
+ * @return The pointer to the allocated workspace
+ */
+static void *app_workspace_alloc(size_t n)
+{
+    size_t off = (g_app_workspace_off + (APP_WORKSPACE_ALIGN - 1U)) &
+                 ~(APP_WORKSPACE_ALIGN - 1U);
+    if(n == 0U || off > sizeof(g_app_workspace) ||
+       n > sizeof(g_app_workspace) - off) {
+        return NULL;
+    }
+    g_app_workspace_off = off + n;
+    return &g_app_workspace[off];
+}
+
+/**
+ * @brief Free the workspace
+ * 
+ * @param[in] p The pointer to the workspace to free.
+ * @return void
+ */
+static void app_workspace_free(void *p) 
+{ 
+    (void)p; 
+}
+
+
+/**
+ * @brief Reset the workspace
+ * 
+ * @return void
+ */
+static void app_workspace_reset(void)
+{
+    if(g_app_workspace_off > 0U) {
+        memset(g_app_workspace, 0, g_app_workspace_off);
+    }
+    g_app_workspace_off = 0U;
+}
+
+/* Redirect malloc()/free() in this translation unit to the static workspace.
+ * Library and standard headers have already been pulled in above; they
+ * declared malloc/free as plain functions and are unaffected. App code below
+ * uses these macros transparently. */
+#undef malloc
+#undef free
+#define malloc(n) app_workspace_alloc(n)
+#define free(p)   app_workspace_free(p)
 
 #define APP_VERSION_MAJOR 0
 #define APP_VERSION_MINOR 1
@@ -79,6 +150,11 @@ typedef enum
 
 
 
+/**
+ * @brief Print the usage of the application
+ *
+ * @param[in] name The name of the application
+ */
 void print_usage(const char * name)
 {
     printf( "usage: %s [switch] <parameters>\n", name);
@@ -94,6 +170,9 @@ void print_usage(const char * name)
     printf("\n\n");
 }
 
+/**
+ * @brief Print the version of the application
+ */
 void print_version(void)
 {
     printf("Base64 v%u.%u.%u\n", (unsigned int)APP_VERSION_MAJOR, (unsigned int)APP_VERSION_MINOR, (unsigned int)APP_VERSION_BUILD);
@@ -102,11 +181,21 @@ void print_version(void)
 }
 
 
+/**
+ * @brief Run the tests of the application
+ */
 void run_tests(void)
 {
 
 }
 
+/**
+ * @brief Main function
+ *
+ * @param[in] argc The number of arguments
+ * @param[in] argv The arguments
+ * @return The return code
+ */
 int main(int argc, char ** argv)
 {
     int c;
@@ -231,7 +320,7 @@ int main(int argc, char ** argv)
             break;
         case BASE64_ENCODE_BINARY_HEX:
 
-            if((input_len % 2u) != 0u) {
+            if((input_len % 2U) != 0U) {
                 return -1;
             }
             conv_length = input_len / 2;
@@ -309,6 +398,12 @@ int main(int argc, char ** argv)
     return 0;    
 }
 
+/**
+ * @brief Print the array as hex
+ *
+ * @param[in] data The data to print
+ * @param[in] len The length of the data to print
+ */
 void print_array_hex(const uint8_t * data, uint32_t len)
 {
     uint32_t i;
@@ -320,6 +415,12 @@ void print_array_hex(const uint8_t * data, uint32_t len)
     printf("\n");
 }
 
+/**
+ * @brief Print the array as characters
+ *
+ * @param[in] data The data to print
+ * @param[in] len The length of the data to print
+ */
 void print_array_char(const uint8_t * data, uint32_t len)
 {
     uint32_t i;

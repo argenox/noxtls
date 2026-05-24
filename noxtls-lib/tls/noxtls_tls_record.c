@@ -4,36 +4,21 @@
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
 *
+* This file is part of the NoxTLS Library.
 *
-* NOTICE:  All information contained herein, source code, binaries and
-* derived works is, and remains
-* the property of Argenox Technologies and its suppliers,
-* if any.  The intellectual and technical concepts contained
-* herein are proprietary to Argenox Technologies
-* and its suppliers may be covered by U.S. and Foreign Patents,
-* patents in process, and are protected by trade secret or copyright law.
-* Dissemination of this information or reproduction of this material
-* is strictly forbidden unless prior written permission is obtained
-* from Argenox Technologies.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
-* THIS SOFTWARE IS PROVIDED BY ARGENOX "AS IS" AND
-* ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-* WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-* DISCLAIMED. IN NO EVENT SHALL ARGENOX TECHNOLOGIES LLC BE LIABLE FOR ANY
-* DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-* (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-* LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-* ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-* (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-* SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*
+* See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
-* 
+*
 *
 * File:    noxtls_tls_record.c
 * Summary: TLS Record Layer Encryption/Decryption Implementation
 *
-*/
+*
+*****************************************************************************/
 
 #include <stdint.h>
 #include <stdio.h>
@@ -66,6 +51,12 @@ static int tls13_is_dtls_context(const tls13_context_t *ctx);
 
 /**
  * @brief Generate TLS 1.2 record IV from sequence number and write IV
+ *
+ * @param[out] iv The IV to generate
+ * @param[in] write_iv The write IV
+ * @param[in] iv_len The length of the IV
+ * @param[in] seq_num The sequence number
+ * @return void
  */
 static void tls12_generate_iv(uint8_t *iv, const uint8_t *write_iv, uint32_t iv_len, uint64_t seq_num)
 {
@@ -81,6 +72,13 @@ static void tls12_generate_iv(uint8_t *iv, const uint8_t *write_iv, uint32_t iv_
 }
 
 /**
+ * @brief Generate TLS 1.2 ChaCha20-Poly1305 record nonce
+ *
+ * @param[out] nonce The nonce to generate
+ * @param[in] write_iv The write IV
+ * @param[in] seq_num The sequence number
+ * @return void
+ *
  * RFC 7905 TLS 1.2 ChaCha20-Poly1305 record nonce: XOR the 12-byte write IV
  * with (four zero bytes || 64-bit record sequence number, big-endian).
  */
@@ -101,6 +99,19 @@ static void tls12_chacha20_poly1305_record_nonce(uint8_t nonce[12],
 /**
  * @brief Compute TLS 1.2 MAC
  * MAC = HMAC_hash(MAC_write_secret, seq_num || type || version || length || fragment)
+ *
+ * @param[in] mac_key The MAC key
+ * @param[in] mac_key_len The length of the MAC key
+ * @param[in] hash_algo The hash algorithm
+ * @param[in] seq_num The sequence number
+ * @param[in] type The type of the record
+ * @param[in] version The version of the record
+ * @param[in] length The length of the record
+ * @param[in] fragment The fragment of the record
+ * @param[in] fragment_len The length of the fragment
+ * @param[out] mac The MAC
+ * @param[out] mac_len The length of the MAC
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_FAILED on failure
  */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static noxtls_return_t tls12_compute_mac(const uint8_t *mac_key, uint32_t mac_key_len,
@@ -185,19 +196,34 @@ static noxtls_return_t tls12_compute_mac(const uint8_t *mac_key, uint32_t mac_ke
     return rc;
 }
 
+/**
+ * @brief Get the length of the MAC from the hash algorithm
+ *
+ * @param[in] hash_algo The hash algorithm
+ * @return The length of the MAC
+ */
 static uint32_t tls12_mac_len_from_hash(noxtls_hash_algos_t hash_algo)
 {
     switch(hash_algo) {
         case NOXTLS_HASH_SHA1:
-            return 20u;
+            return 20U;
         case NOXTLS_HASH_SHA_384:
-            return 48u;
+            return 48U;
         case NOXTLS_HASH_SHA_256:
         default:
-            return 32u;
+            return 32U;
     }
 }
 
+/**
+ * @brief Check if the context should use encrypt then MAC
+ *
+ * @param[in] ctx The context
+ * @param[in] is_gcm Whether the cipher is GCM
+ * @param[in] is_tls12_ccm Whether the cipher is TLS 1.2 CCM
+ * @param[in] is_tls12_chacha Whether the cipher is TLS 1.2 ChaCha20
+ * @return 1 if the context should use encrypt then MAC, 0 otherwise
+ */
 static int tls12_should_use_encrypt_then_mac(const tls12_context_t *ctx,
                                              int is_gcm,
                                              int is_tls12_ccm,
@@ -212,7 +238,15 @@ static int tls12_should_use_encrypt_then_mac(const tls12_context_t *ctx,
 
 /**
  * @brief Encrypt TLS 1.2 application data record (AES-CBC with HMAC)
- */
+ *
+ * @param[in] ctx The context
+ * @param[in] type The type of the record
+ * @param[in] plaintext The plaintext of the record
+ * @param[in] plaintext_len The length of the plaintext
+ * @param[out] encrypted_record The encrypted record
+ * @param[out] encrypted_record_len The length of the encrypted record
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_FAILED on failure
+*/
 noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx, 
                                        uint8_t type,
                                        const uint8_t *plaintext,
@@ -549,7 +583,7 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
     /* Padding: add 1 to 256 bytes, all with value = padding_length */
     uint32_t block_size = is_3des ? NOXTLS_DES_BLOCK_LENGTH : NOXTLS_AES_BLOCK_LENGTH;
     int use_encrypt_then_mac = tls12_should_use_encrypt_then_mac(ctx, is_gcm, is_tls12_ccm, is_tls12_chacha);
-    uint32_t mac_input_len = use_encrypt_then_mac ? 0u : mac_len;
+    uint32_t mac_input_len = use_encrypt_then_mac ? 0U : mac_len;
     uint8_t padding_len = (uint8_t)(block_size - ((plaintext_len + mac_input_len) % block_size) - 1);
     
     padded_len = plaintext_len + mac_input_len + padding_len + 1;
@@ -711,6 +745,14 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
 
 /**
  * @brief Decrypt TLS 1.2 application data record (AES-CBC with HMAC)
+ *
+ * @param[in] ctx The context
+ * @param[in] type The type of the record
+ * @param[in] encrypted_record The encrypted record
+ * @param[in] encrypted_record_len The length of the encrypted record
+ * @param[out] plaintext The plaintext of the record
+ * @param[out] plaintext_len The length of the plaintext
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_FAILED on failure
  */
 noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
                                        uint8_t type,
@@ -1136,28 +1178,28 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
     uint8_t computed_mac[64];
     uint32_t computed_mac_len;
 
-    bad_record = 0u;
-    uint8_t bad_padding = 0u;
-    uint8_t bad_inner_mac = 0u;
-    uint8_t bad_length = 0u;
-    pad_bytes = 1u;
+    bad_record = 0U;
+    uint8_t bad_padding = 0U;
+    uint8_t bad_inner_mac = 0U;
+    uint8_t bad_length = 0U;
+    pad_bytes = 1U;
     memset(mac, 0, sizeof(mac));
     memset(computed_mac, 0, sizeof(computed_mac));
 
-    if(decrypted_data_len == 0u) {
-        bad_record = 1u;
-        bad_length = 1u;
-        padding_len = 0u;
+    if(decrypted_data_len == 0U) {
+        bad_record = 1U;
+        bad_length = 1U;
+        padding_len = 0U;
     } else {
-        padding_len = decrypted_data[decrypted_data_len - 1u];
-        pad_bytes = (uint32_t)padding_len + 1u;
+        padding_len = decrypted_data[decrypted_data_len - 1U];
+        pad_bytes = (uint32_t)padding_len + 1U;
     }
 
   /* TLS CBC padding may be up to 255 bytes (length byte value 0..255). */
     if(pad_bytes > decrypted_data_len) {
-        bad_record = 1u;
-        bad_length = 1u;
-        pad_bytes = 1u; /* keep bounds-safe for scan and length math */
+        bad_record = 1U;
+        bad_length = 1U;
+        pad_bytes = 1U; /* keep bounds-safe for scan and length math */
     }
 
     /* TLS requires every padding byte to match the length field. Scanning
@@ -1169,17 +1211,17 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
     }
 
     /* Scan all bytes in the claimed padding region (bounded above). */
-    for(i = 0u; i < pad_scan_len; i++) {
+    for(i = 0U; i < pad_scan_len; i++) {
         uint8_t tail;
         uint8_t mask;
         uint8_t diff;
 
-        tail = decrypted_data[decrypted_data_len - 1u - i];
+        tail = decrypted_data[decrypted_data_len - 1U - i];
         mask = (uint8_t)((i < pad_bytes) ? 0xFFu : 0x00u);
         diff = (uint8_t)((tail ^ padding_len) & mask);
-        if(diff != 0u) {
-            bad_record = 1u;
-            bad_padding = 1u;
+        if(diff != 0U) {
+            bad_record = 1U;
+            bad_padding = 1U;
         }
     }
 
@@ -1188,9 +1230,9 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
         plaintext_data_len = body_len;
     } else {
         if(body_len < mac_len) {
-            bad_record = 1u;
-            bad_length = 1u;
-            plaintext_data_len = 0u;
+            bad_record = 1U;
+            bad_length = 1U;
+            plaintext_data_len = 0U;
         } else {
             plaintext_data_len = body_len - mac_len;
         }
@@ -1206,17 +1248,17 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
                               decrypted_data, plaintext_data_len,
                               computed_mac, &computed_mac_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            bad_record = 1u;
-            bad_inner_mac = 1u;
+            bad_record = 1U;
+            bad_inner_mac = 1U;
         }
 
         if(computed_mac_len != mac_len || noxtls_secret_memcmp(mac, computed_mac, mac_len) != 0) {
-            bad_record = 1u;
-            bad_inner_mac = 1u;
+            bad_record = 1U;
+            bad_inner_mac = 1U;
         }
     }
     if(type == TLS_RECORD_APPLICATION_DATA) {
-        uint32_t max_pl = (ctx->max_record_payload > 0u)
+        uint32_t max_pl = (ctx->max_record_payload > 0U)
             ? (uint32_t)ctx->max_record_payload
             : (uint32_t)TLS_MAX_RECORD_SIZE;
         if(plaintext_data_len > max_pl) {
@@ -1224,7 +1266,7 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
             return NOXTLS_RETURN_RECORD_OVERFLOW;
         }
     }
-    if(bad_record != 0u) {
+    if(bad_record != 0U) {
         fprintf(stderr,
                 "[TLS12_REC] decrypt bad_record: suite=0x%04X type=%u seq=%llu etm=%d pad=%u inner_mac=%u len=%u dec_len=%u pad_len=%u body=%u mac_len=%u recv=%02X%02X%02X%02X calc=%02X%02X%02X%02X\n",
                 (unsigned)ctx->cipher_suite,
@@ -1240,7 +1282,7 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
                 (unsigned)mac_len,
                 mac[0], mac[1], mac[2], mac[3],
                 computed_mac[0], computed_mac[1], computed_mac[2], computed_mac[3]);
-        if(use_encrypt_then_mac == 0 && bad_inner_mac != 0u) {
+        if(use_encrypt_then_mac == 0 && bad_inner_mac != 0U) {
             uint32_t j;
             fprintf(stderr, "[TLS12_REC] inner-mac context: ver=0x%04X plain_len=%u key_len=%u\n",
                     (unsigned)ctx->base.base.version, (unsigned)plaintext_data_len, (unsigned)mac_key_len);
@@ -1285,6 +1327,12 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
 /**
  * @brief Generate TLS 1.3 nonce from sequence number
  * nonce = client_write_iv XOR (0...0 || seq_num)
+ *
+ * @param[out] nonce The nonce to generate
+ * @param[in] write_iv The write IV
+ * @param[in] iv_len The length of the IV
+ * @param[in] seq_num The sequence number
+ * @return void
  */
 static void tls13_generate_nonce(uint8_t *nonce, const uint8_t *write_iv, uint32_t iv_len, uint64_t seq_num)
 {
@@ -1299,43 +1347,70 @@ static void tls13_generate_nonce(uint8_t *nonce, const uint8_t *write_iv, uint32
     }
 }
 
+/**
+ * @brief Check if the context is a DTLS 1.2 context
+ *
+ * @param[in] ctx The context
+ * @return 1 if the context is a DTLS 1.2 context, 0 otherwise
+ */
 static int tls12_is_dtls_context(const tls12_context_t *ctx)
 {
     return (ctx != NULL && ctx->base.base.version == DTLS_VERSION_1_2);
 }
 
+/**
+ * @brief Check if the context is a DTLS 1.3 context
+ *
+ * @param[in] ctx The context
+ * @return 1 if the context is a DTLS 1.3 context, 0 otherwise
+ */
 static int tls13_is_dtls_context(const tls13_context_t *ctx)
 {
     return (ctx != NULL && ctx->base.base.version == DTLS_VERSION_1_3);
 }
 
+/**
+ * @brief Check if the connection ID matches or promotes the context
+ *
+ * @param[in] ctx The context
+ * @param[in] cid The connection ID
+ * @param[in] cid_len The length of the connection ID
+ * @return 1 if the connection ID matches or promotes the context, 0 otherwise
+ */
 static int tls13_dtls_cid_matches_or_promotes(tls13_context_t *ctx, const uint8_t *cid, uint32_t cid_len)
 {
-    if(ctx == NULL || cid == NULL || cid_len == 0u || cid_len > 32u) {
+    if(ctx == NULL || cid == NULL || cid_len == 0U || cid_len > 32U) {
         return 0;
     }
     if(ctx->own_connection_id_len == cid_len &&
        memcmp(cid, ctx->own_connection_id, cid_len) == 0) {
         return 1;
     }
-    for(uint8_t i = 0u; i < ctx->own_spare_connection_id_count; i++) {
+    for(uint8_t i = 0U; i < ctx->own_spare_connection_id_count; i++) {
         if(ctx->own_spare_connection_id_lens[i] == cid_len &&
            memcmp(cid, ctx->own_spare_connection_ids[i], cid_len) == 0) {
             memcpy(ctx->own_connection_id, ctx->own_spare_connection_ids[i], cid_len);
             ctx->own_connection_id_len = (uint8_t)cid_len;
-            for(uint8_t j = (uint8_t)(i + 1u); j < ctx->own_spare_connection_id_count; j++) {
-                memcpy(ctx->own_spare_connection_ids[j - 1u], ctx->own_spare_connection_ids[j], 32u);
-                ctx->own_spare_connection_id_lens[j - 1u] = ctx->own_spare_connection_id_lens[j];
+            for(uint8_t j = (uint8_t)(i + 1U); j < ctx->own_spare_connection_id_count; j++) {
+                memcpy(ctx->own_spare_connection_ids[j - 1U], ctx->own_spare_connection_ids[j], 32U);
+                ctx->own_spare_connection_id_lens[j - 1U] = ctx->own_spare_connection_id_lens[j];
             }
             ctx->own_spare_connection_id_count--;
-            memset(ctx->own_spare_connection_ids[ctx->own_spare_connection_id_count], 0, 32u);
-            ctx->own_spare_connection_id_lens[ctx->own_spare_connection_id_count] = 0u;
+            memset(ctx->own_spare_connection_ids[ctx->own_spare_connection_id_count], 0, 32U);
+            ctx->own_spare_connection_id_lens[ctx->own_spare_connection_id_count] = 0U;
             return 1;
         }
     }
     return 0;
 }
 
+/**
+ * @brief Check if the sequence number is in the replay window
+ *
+ * @param[in] window The replay window
+ * @param[in] sequence_number The sequence number
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_FAILED on failure
+ */
 static noxtls_return_t dtls13_replay_check_window(const dtls_replay_window_t *window, uint64_t sequence_number)
 {
     uint64_t last_seq;
@@ -1354,12 +1429,19 @@ static noxtls_return_t dtls13_replay_check_window(const dtls_replay_window_t *wi
     if(diff >= DTLS_REPLAY_WINDOW_SIZE) {
         return NOXTLS_RETURN_FAILED;
     }
-    if(((window->window_bitmap >> diff) & 0x1U) != 0u) {
+    if(((window->window_bitmap >> diff) & 0x1U) != 0U) {
         return NOXTLS_RETURN_FAILED;
     }
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Update the replay window
+ *
+ * @param[in] window The replay window
+ * @param[in] sequence_number The sequence number
+ * @return void
+ */
 static void dtls13_replay_update_window(dtls_replay_window_t *window, uint64_t sequence_number)
 {
     uint64_t last_seq;
@@ -1388,6 +1470,15 @@ static void dtls13_replay_update_window(dtls_replay_window_t *window, uint64_t s
     }
 }
 
+/**
+ * @brief Reconstruct the record number
+ *
+ * @param[in] ctx The context
+ * @param[in] epoch_low The epoch low
+ * @param[in] truncated The truncated value
+ * @param[in] truncated_bits The truncated bits
+ * @return The reconstructed record number
+ */
 static uint64_t dtls13_reconstruct_record_number(dtls_context_t *ctx, uint8_t epoch_low,
                                                  uint16_t truncated, uint8_t truncated_bits)
 {
@@ -1397,12 +1488,12 @@ static uint64_t dtls13_reconstruct_record_number(dtls_context_t *ctx, uint8_t ep
     uint64_t expected;
     uint8_t idx = (uint8_t)(epoch_low & DTLS13_UNIFIED_EPOCH_MASK);
 
-    if(ctx == NULL || ctx->highest_recv_seq_valid[idx] == 0u) {
+    if(ctx == NULL || ctx->highest_recv_seq_valid[idx] == 0U) {
         return truncated;
     }
 
-    expected = ctx->highest_recv_seq[idx] + 1u;
-    candidate = (expected & ~(window - 1u)) | (uint64_t)truncated;
+    expected = ctx->highest_recv_seq[idx] + 1U;
+    candidate = (expected & ~(window - 1U)) | (uint64_t)truncated;
     if(candidate + half_window <= expected) {
         candidate += window;
     } else if(candidate > expected + half_window && candidate >= window) {
@@ -1411,6 +1502,18 @@ static uint64_t dtls13_reconstruct_record_number(dtls_context_t *ctx, uint8_t ep
     return candidate;
 }
 
+/**
+ * @brief Get the record cipher parameters
+ *
+ * @param[in] cipher_suite The cipher suite
+ * @param[out] use_aes_gcm Whether to use AES-GCM
+ * @param[out] use_aes_ccm Whether to use AES-CCM
+ * @param[out] use_chacha Whether to use ChaCha20
+ * @param[out] aes_type The AES type
+ * @param[out] tag_len The tag length
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the output parameters are NULL, or 
+ *         NOXTLS_RETURN_INVALID_PARAM if the cipher suite is invalid
+ */
 static noxtls_return_t tls13_get_record_cipher_params(uint16_t cipher_suite,
                                                 int *use_aes_gcm,
                                                 int *use_aes_ccm,
@@ -1461,7 +1564,16 @@ static noxtls_return_t tls13_get_record_cipher_params(uint16_t cipher_suite,
 
 /**
  * @brief Encrypt TLS 1.3 application data record (AEAD)
+ *
+ * @param[in] ctx The context
+ * @param[in] type The type of the record
+ * @param[in] plaintext The plaintext of the record
+ * @param[in] plaintext_len The length of the plaintext
+ * @param[out] encrypted_record The encrypted record
+ * @param[out] encrypted_record_len The length of the encrypted record
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_FAILED on failure
  */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 noxtls_return_t noxtls_tls13_encrypt_record(tls13_context_t *ctx,
                                        uint8_t type,
                                        const uint8_t *plaintext,
@@ -1573,6 +1685,17 @@ noxtls_return_t noxtls_tls13_encrypt_record(tls13_context_t *ctx,
 #define DTLS13_MAX_HEADER_LEN  (4 + 32)  /* 4-byte base + max CID 32 */
 
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
+/**
+ * @brief Send one DTLS 1.3 encrypted record (DTLSCiphertext with unified header + record number encryption).
+ *
+ * @param[in] ctx The context
+ * @param[in] use_handshake_keys Whether to use handshake keys
+ * @param[in] content_type The content type
+ * @param[in] inner_plaintext The inner plaintext
+ * @param[in] inner_len The length of the inner plaintext
+ * @param[in] omit_length Whether to omit the length
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_FAILED on failure
+ */
 noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
                                        int use_handshake_keys,
                                        uint8_t content_type,
@@ -1651,23 +1774,23 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
     }
 
     /* Unified header: 001 C S L EE, encrypted 8- or 16-bit sequence number, optional length and CID. */
-    seq_len = ((seq_num & ~0xFFULL) != 0u) ? 2u : 1u;
-    seq_offset = 1u;
+    seq_len = ((seq_num & ~0xFFULL) != 0U) ? 2U : 1U;
+    seq_offset = 1U;
     len_offset = seq_offset + seq_len;
-    cid_offset = len_offset + (omit_length ? 0u : 2u);
+    cid_offset = len_offset + (omit_length ? 0U : 2U);
     header_len = cid_offset + (uint32_t)ctx->peer_connection_id_len;
     header[0] = (uint8_t)(DTLS13_UNIFIED_FIXED_BITS | (epoch & DTLS13_UNIFIED_EPOCH_MASK));
-    if(seq_len == 2u) {
+    if(seq_len == 2U) {
         header[0] |= DTLS13_UNIFIED_S_BIT;
         header[seq_offset] = (uint8_t)((seq_num >> 8) & 0xFF);
-        header[seq_offset + 1u] = (uint8_t)(seq_num & 0xFF);
+        header[seq_offset + 1U] = (uint8_t)(seq_num & 0xFF);
     } else {
         header[seq_offset] = (uint8_t)(seq_num & 0xFF);
     }
     if(!omit_length) {
         header[0] |= DTLS13_UNIFIED_L_BIT;
         header[len_offset] = (uint8_t)((record_len >> 8) & 0xFF);
-        header[len_offset + 1u] = (uint8_t)(record_len & 0xFF);
+        header[len_offset + 1U] = (uint8_t)(record_len & 0xFF);
     }
     if(ctx->peer_connection_id_len > 0) {
         header[0] |= DTLS13_UNIFIED_CID_BIT;
@@ -1734,9 +1857,9 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
             return NOXTLS_RETURN_FAILED;
         }
     }
-    if(seq_len == 2u) {
+    if(seq_len == 2U) {
         header[seq_offset] = (uint8_t)(((seq_num >> 8) & 0xFF) ^ mask[0]);
-        header[seq_offset + 1u] = (uint8_t)((seq_num & 0xFF) ^ mask[1]);
+        header[seq_offset + 1U] = (uint8_t)((seq_num & 0xFF) ^ mask[1]);
     } else {
         header[seq_offset] = (uint8_t)((seq_num & 0xFF) ^ mask[0]);
     }
@@ -1780,25 +1903,25 @@ uint32_t noxtls_tls13_dtls13_record_size(const uint8_t *raw, uint32_t raw_len, u
     if((raw[0] & 0xE0) != DTLS13_UNIFIED_FIXED_BITS) {
         return 0;
     }
-    if((raw[0] & DTLS13_UNIFIED_CID_BIT) && own_connection_id_len == 0u) {
+    if((raw[0] & DTLS13_UNIFIED_CID_BIT) && own_connection_id_len == 0U) {
         return 0;
     }
     cid_len = (raw[0] & DTLS13_UNIFIED_CID_BIT) ? (uint32_t)own_connection_id_len : 0;
     {
-        uint32_t seq_len = (raw[0] & DTLS13_UNIFIED_S_BIT) ? 2u : 1u;
-        uint32_t len_offset = 1u + seq_len;
+        uint32_t seq_len = (raw[0] & DTLS13_UNIFIED_S_BIT) ? 2U : 1U;
+        uint32_t len_offset = 1U + seq_len;
         if(raw[0] & DTLS13_UNIFIED_L_BIT) {
-            aad_len = len_offset + 2u + cid_len;
-            if(raw_len < aad_len + 16u || raw_len < len_offset + 2u) {
+            aad_len = len_offset + 2U + cid_len;
+            if(raw_len < aad_len + 16U || raw_len < len_offset + 2U) {
                 return 0;
             }
-            ciphertext_len = (uint32_t)(((uint16_t)raw[len_offset] << 8) | raw[len_offset + 1u]);
-            if(ciphertext_len < 16u) {
+            ciphertext_len = (uint32_t)(((uint16_t)raw[len_offset] << 8) | raw[len_offset + 1U]);
+            if(ciphertext_len < 16U) {
                 return 0;
             }
             return aad_len + ciphertext_len;
         }
-        aad_len = 1u + seq_len + cid_len;
+        aad_len = 1U + seq_len + cid_len;
     }
     if(raw_len < aad_len + 16) {
         return 0;
@@ -1810,7 +1933,16 @@ uint32_t noxtls_tls13_dtls13_record_size(const uint8_t *raw, uint32_t raw_len, u
 /**
  * @brief RFC 9147: Decrypt one DTLS 1.3 DTLSCiphertext (unified header + record number decryption + AEAD).
  * raw = full packet (unified_hdr || encrypted_record). On success: out_content_type and out_plaintext filled; out_plaintext_len set to content length.
+ *
+ * @param[in] ctx The context
+ * @param[in] raw The raw data
+ * @param[in] raw_len The length of the raw data
+ * @param[out] out_content_type The content type
+ * @param[out] out_plaintext The plaintext
+ * @param[out] out_plaintext_len The length of the plaintext
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_FAILED on failure
  */
+
 noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
                                        const uint8_t *raw, uint32_t raw_len,
                                        uint8_t *out_content_type, uint8_t *out_plaintext, uint32_t *out_plaintext_len)
@@ -1853,29 +1985,29 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
     if((raw[0] & 0xE0) != DTLS13_UNIFIED_FIXED_BITS) {
         return NOXTLS_RETURN_BAD_DATA;
     }
-    if((raw[0] & DTLS13_UNIFIED_CID_BIT) && ctx->own_connection_id_len == 0u) {
+    if((raw[0] & DTLS13_UNIFIED_CID_BIT) && ctx->own_connection_id_len == 0U) {
         return NOXTLS_RETURN_BAD_DATA;
     }
 
     epoch = raw[0] & DTLS13_UNIFIED_EPOCH_MASK;
     use_handshake = (epoch == DTLS13_EPOCH_HANDSHAKE);
-    seq_len = (raw[0] & DTLS13_UNIFIED_S_BIT) ? 2u : 1u;
-    seq_offset = 1u;
+    seq_len = (raw[0] & DTLS13_UNIFIED_S_BIT) ? 2U : 1U;
+    seq_offset = 1U;
     len_offset = seq_offset + seq_len;
     {
         uint32_t cid_len = (raw[0] & DTLS13_UNIFIED_CID_BIT) ? ctx->own_connection_id_len : 0;
-        uint32_t cid_offset = len_offset + ((raw[0] & DTLS13_UNIFIED_L_BIT) ? 2u : 0u);
+        uint32_t cid_offset = len_offset + ((raw[0] & DTLS13_UNIFIED_L_BIT) ? 2U : 0U);
         aad_len = cid_offset + cid_len;
-        if(raw_len < aad_len + 16u) {
+        if(raw_len < aad_len + 16U) {
             return NOXTLS_RETURN_BAD_DATA;
         }
-        if(seq_len == 2u) {
-            seq_enc = (uint16_t)(((uint16_t)raw[seq_offset] << 8) | raw[seq_offset + 1u]);
+        if(seq_len == 2U) {
+            seq_enc = (uint16_t)(((uint16_t)raw[seq_offset] << 8) | raw[seq_offset + 1U]);
         } else {
             seq_enc = raw[seq_offset];
         }
         if(raw[0] & DTLS13_UNIFIED_L_BIT) {
-            ciphertext_len = (uint32_t)(((uint16_t)raw[len_offset] << 8) | raw[len_offset + 1u]);
+            ciphertext_len = (uint32_t)(((uint16_t)raw[len_offset] << 8) | raw[len_offset + 1U]);
             if(raw_len < aad_len + ciphertext_len) {
                 return NOXTLS_RETURN_BAD_DATA;
             }
@@ -1920,12 +2052,12 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
             return NOXTLS_RETURN_FAILED;
         }
     }
-    if(seq_len == 2u) {
+    if(seq_len == 2U) {
         seq_truncated = (uint16_t)(seq_enc ^ (uint16_t)(((uint16_t)mask[0] << 8) | mask[1]));
     } else {
         seq_truncated = (uint16_t)(seq_enc ^ mask[0]);
     }
-    full_seq = dtls13_reconstruct_record_number(&ctx->base, epoch, seq_truncated, (seq_len == 2u) ? 16u : 8u);
+    full_seq = dtls13_reconstruct_record_number(&ctx->base, epoch, seq_truncated, (seq_len == 2U) ? 16U : 8U);
     if(dtls13_replay_check_window(&ctx->base.replay_windows[epoch & DTLS13_UNIFIED_EPOCH_MASK], full_seq) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -1936,9 +2068,9 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
     }
     tls13_generate_nonce(nonce, read_iv, 12, full_seq);
     memcpy(aad, raw, aad_len);
-    if(seq_len == 2u) {
+    if(seq_len == 2U) {
         aad[seq_offset] = (uint8_t)((seq_truncated >> 8) & 0xFF);
-        aad[seq_offset + 1u] = (uint8_t)(seq_truncated & 0xFF);
+        aad[seq_offset + 1U] = (uint8_t)(seq_truncated & 0xFF);
     } else {
         aad[seq_offset] = (uint8_t)(seq_truncated & 0xFF);
     }
@@ -1969,12 +2101,12 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
     *out_content_type = out_plaintext[i];
     *out_plaintext_len = i;
     dtls13_replay_update_window(&ctx->base.replay_windows[epoch & DTLS13_UNIFIED_EPOCH_MASK], full_seq);
-    if(ctx->base.highest_recv_seq_valid[epoch & DTLS13_UNIFIED_EPOCH_MASK] == 0u ||
+    if(ctx->base.highest_recv_seq_valid[epoch & DTLS13_UNIFIED_EPOCH_MASK] == 0U ||
        full_seq > ctx->base.highest_recv_seq[epoch & DTLS13_UNIFIED_EPOCH_MASK]) {
         ctx->base.highest_recv_seq[epoch & DTLS13_UNIFIED_EPOCH_MASK] = full_seq;
-        ctx->base.highest_recv_seq_valid[epoch & DTLS13_UNIFIED_EPOCH_MASK] = 1u;
+        ctx->base.highest_recv_seq_valid[epoch & DTLS13_UNIFIED_EPOCH_MASK] = 1U;
     }
-    ctx->base.read_seq_num = full_seq + 1u;
+    ctx->base.read_seq_num = full_seq + 1U;
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -2193,7 +2325,7 @@ noxtls_return_t noxtls_tls13_decrypt_record(tls13_context_t *ctx,
 
     /* Extract tag */
     ciphertext_len = encrypted_record_len - tag_len;
-    if(ciphertext_len > (uint32_t)(TLS_MAX_RECORD_SIZE + 1u)) {
+    if(ciphertext_len > (uint32_t)(TLS_MAX_RECORD_SIZE + 1U)) {
         return NOXTLS_RETURN_RECORD_OVERFLOW;
     }
     memcpy(tag, encrypted_record + ciphertext_len, tag_len);

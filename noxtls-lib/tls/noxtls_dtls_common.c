@@ -4,36 +4,21 @@
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
 *
+* This file is part of the NoxTLS Library.
 *
-* NOTICE:  All information contained herein, source code, binaries and
-* derived works is, and remains
-* the property of Argenox Technologies and its suppliers,
-* if any.  The intellectual and technical concepts contained
-* herein are proprietary to Argenox Technologies
-* and its suppliers may be covered by U.S. and Foreign Patents,
-* patents in process, and are protected by trade secret or copyright law.
-* Dissemination of this information or reproduction of this material
-* is strictly forbidden unless prior written permission is obtained
-* from Argenox Technologies.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
-* THIS SOFTWARE IS PROVIDED BY ARGENOX "AS IS" AND
-* ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-* WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-* DISCLAIMED. IN NO EVENT SHALL ARGENOX TECHNOLOGIES LLC BE LIABLE FOR ANY
-* DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-* (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-* LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-* ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-* (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-* SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*
+* See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
-* 
+*
 *
 * File:    noxtls_dtls_common.c
 * Summary: DTLS Common Implementation
 *
-*/
+*
+*****************************************************************************/
 
 #include <stdint.h>
 #include <string.h>
@@ -42,6 +27,11 @@
 #include "noxtls_tls_common.h"
 #include "mdigest/sha256/noxtls_sha256.h"
 
+/**
+ * @brief Clear the flight buffer.
+ *
+ * @param[in] ctx The context value.
+ */
 static void dtls_flight_clear(dtls_context_t *ctx)
 {
     if(ctx == NULL) {
@@ -51,6 +41,11 @@ static void dtls_flight_clear(dtls_context_t *ctx)
     ctx->flight_buffer_len = 0;
 }
 
+/**
+ * @brief Clear the reassembly slot.
+ *
+ * @param[in] slot The slot value.
+ */
 static void dtls_reassembly_slot_clear(dtls_reassembly_slot_t *slot)
 {
     if(slot == NULL) {
@@ -65,6 +60,11 @@ static void dtls_reassembly_slot_clear(dtls_reassembly_slot_t *slot)
     memset(slot, 0, sizeof(*slot));
 }
 
+/**
+ * @brief Clear the reassembly queue.
+ *
+ * @param[in] ctx The context value.
+ */
 static void dtls_reassembly_queue_clear(dtls_context_t *ctx)
 {
     if(ctx == NULL) {
@@ -75,6 +75,13 @@ static void dtls_reassembly_queue_clear(dtls_context_t *ctx)
     }
 }
 
+/**
+ * @brief Find the reassembly slot.
+ *
+ * @param[in] ctx The context value.
+ * @param[in] message_seq The message sequence value.
+ * @return The reassembly slot value.
+ */
 static dtls_reassembly_slot_t *dtls_reassembly_slot_find(dtls_context_t *ctx, uint16_t message_seq)
 {
     if(ctx == NULL) {
@@ -88,6 +95,12 @@ static dtls_reassembly_slot_t *dtls_reassembly_slot_find(dtls_context_t *ctx, ui
     return NULL;
 }
 
+/**
+ * @brief Allocate the reassembly slot.
+ *
+ * @param[in] ctx The context value.
+ * @return The reassembly slot value.
+ */
 static dtls_reassembly_slot_t *dtls_reassembly_slot_alloc(dtls_context_t *ctx)
 {
     dtls_reassembly_slot_t *oldest = NULL;
@@ -108,6 +121,13 @@ static dtls_reassembly_slot_t *dtls_reassembly_slot_alloc(dtls_context_t *ctx)
     return oldest;
 }
 
+/**
+ * @brief Store the reassembly slot.
+ *
+ * @param[in] slot The slot value.
+ * @param[in] fragment The fragment value.
+ * @return The return value.
+ */
 static noxtls_return_t dtls_reassembly_slot_store(dtls_reassembly_slot_t *slot,
                                                    const dtls_handshake_fragment_t *fragment)
 {
@@ -118,19 +138,19 @@ static noxtls_return_t dtls_reassembly_slot_store(dtls_reassembly_slot_t *slot,
        fragment->fragment_offset + fragment->fragment_length > fragment->length) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
-    if(fragment->fragment_length > 0u && fragment->data == NULL) {
+    if(fragment->fragment_length > 0U && fragment->data == NULL) {
         return NOXTLS_RETURN_NULL;
     }
     if(!slot->active || slot->message_seq != fragment->message_seq || slot->length != fragment->length) {
         dtls_reassembly_slot_clear(slot);
-        slot->buffer = (uint8_t*)noxtls_malloc(fragment->length == 0u ? 1u : fragment->length);
-        slot->received = (uint8_t*)noxtls_malloc(fragment->length == 0u ? 1u : fragment->length);
+        slot->buffer = (uint8_t*)noxtls_malloc(fragment->length == 0U ? 1U : fragment->length);
+        slot->received = (uint8_t*)noxtls_malloc(fragment->length == 0U ? 1U : fragment->length);
         if(slot->buffer == NULL || slot->received == NULL) {
             dtls_reassembly_slot_clear(slot);
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         }
-        memset(slot->buffer, 0, fragment->length == 0u ? 1u : fragment->length);
-        memset(slot->received, 0, fragment->length == 0u ? 1u : fragment->length);
+        memset(slot->buffer, 0, fragment->length == 0U ? 1U : fragment->length);
+        memset(slot->received, 0, fragment->length == 0U ? 1U : fragment->length);
         slot->active = 1;
         slot->msg_type = fragment->msg_type;
         slot->message_seq = fragment->message_seq;
@@ -144,19 +164,27 @@ static noxtls_return_t dtls_reassembly_slot_store(dtls_reassembly_slot_t *slot,
     }
     for(uint32_t i = 0; i < fragment->fragment_length; i++) {
         uint32_t idx = fragment->fragment_offset + i;
-        if(slot->received[idx] != 0u) {
+        if(slot->received[idx] != 0U) {
             if(slot->buffer[idx] != fragment->data[i]) {
                 return NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER;
             }
         } else {
             slot->buffer[idx] = fragment->data[i];
-            slot->received[idx] = 1u;
+            slot->received[idx] = 1U;
             slot->received_count++;
         }
     }
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Take the complete message.
+ *
+ * @param[in] ctx The context value.
+ * @param[in] complete_msg The complete message value.
+ * @param[in] complete_len The complete length value.
+ * @return The return value.
+ */
 static noxtls_return_t dtls_reassembly_slot_take_complete(dtls_context_t *ctx,
                                                            uint8_t **complete_msg,
                                                            uint32_t *complete_len)
@@ -169,11 +197,11 @@ static noxtls_return_t dtls_reassembly_slot_take_complete(dtls_context_t *ctx,
     if(slot == NULL || slot->received_count != slot->length) {
         return NOXTLS_RETURN_TIMEOUT;
     }
-    *complete_msg = (uint8_t*)noxtls_malloc(slot->length == 0u ? 1u : slot->length);
+    *complete_msg = (uint8_t*)noxtls_malloc(slot->length == 0U ? 1U : slot->length);
     if(*complete_msg == NULL) {
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
-    if(slot->length > 0u) {
+    if(slot->length > 0U) {
         memcpy(*complete_msg, slot->buffer, slot->length);
     }
     *complete_len = slot->length;
@@ -182,7 +210,15 @@ static noxtls_return_t dtls_reassembly_slot_take_complete(dtls_context_t *ctx,
     return NOXTLS_RETURN_SUCCESS;
 }
 
-static void dtls_ack_range_add(dtls_context_t *ctx, uint16_t epoch, /* NOLINT(bugprone-easily-swappable-parameters): ACK tuple is (epoch,sequence). */
+/**
+ * @brief Add the ACK range.
+ * 
+ * @param ctx The context value.
+ * @param epoch The epoch value.
+ * @param seq The sequence value.
+ */
+/* NOLINT(bugprone-easily-swappable-parameters): ACK tuple is (epoch,sequence). */
+static void dtls_ack_range_add(dtls_context_t *ctx, uint16_t epoch, 
                                uint64_t seq)
 {
     if(ctx == NULL) {
@@ -323,6 +359,14 @@ static int dtls_record_acked_by_last_ack(const dtls_context_t *ctx, uint16_t epo
 static int dtls_parse_record_epoch_seq(const uint8_t *record, uint16_t record_len,
                                        uint16_t *epoch, uint64_t *seq);
 
+/**
+ * @brief Append the record to the flight buffer.
+ *
+ * @param[in] ctx The context value.
+ * @param[in] record The record value.
+ * @param[in] record_len The record length value.
+ * @return The return value.
+ */
 static noxtls_return_t dtls_flight_append(dtls_context_t *ctx, const uint8_t *record, uint32_t record_len)
 {
     uint32_t needed;
@@ -332,18 +376,18 @@ static noxtls_return_t dtls_flight_append(dtls_context_t *ctx, const uint8_t *re
         return NOXTLS_RETURN_NULL;
     }
 
-    if(record_len > UINT32_MAX - ctx->flight_buffer_len - 2u) {
+    if(record_len > UINT32_MAX - ctx->flight_buffer_len - 2U) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
-    needed = ctx->flight_buffer_len + 2u + record_len;
+    needed = ctx->flight_buffer_len + 2U + record_len;
     if(needed > ctx->flight_buffer_capacity) {
         uint32_t new_capacity = ctx->flight_buffer_capacity == 0 ? 1024 : ctx->flight_buffer_capacity << 1;
         while(new_capacity < needed) {
-            if(new_capacity > UINT32_MAX / 2u) {
+            if(new_capacity > UINT32_MAX / 2U) {
                 new_capacity = needed;
                 break;
             }
-            new_capacity *= 2u;
+            new_capacity *= 2U;
         }
         new_buf = (uint8_t*)noxtls_realloc(ctx->flight_buffer, new_capacity);
         if(new_buf == NULL) {
@@ -361,6 +405,12 @@ static noxtls_return_t dtls_flight_append(dtls_context_t *ctx, const uint8_t *re
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Retransmit the flight buffer.
+ *
+ * @param[in] ctx The context value.
+ * @return The return value.
+ */
 static noxtls_return_t dtls_flight_retransmit(dtls_context_t *ctx)
 {
     uint32_t offset = 0;
@@ -404,19 +454,32 @@ static noxtls_return_t dtls_flight_retransmit(dtls_context_t *ctx)
         offset = rec_offset + rec_len;
     }
 
-    if(ctx->base.time_callback != NULL && sent_records > 0u) {
+    if(ctx->base.time_callback != NULL && sent_records > 0U) {
         ctx->last_flight_sent_ms = ctx->base.time_callback(ctx->base.user_data);
     }
 
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Write the uint16_t to the buffer.
+ *
+ * @param[in] buf The buffer value.
+ * @param[in] value The value value.
+ */
 static void dtls_write_uint16(uint8_t *buf, uint16_t value)
 {
     buf[0] = (uint8_t)((value >> 8) & 0xFF);
     buf[1] = (uint8_t)(value & 0xFF);
 }
 
+/**
+ * @brief Compute the max fragment for the version.
+ *
+ * @param[in] mtu The mtu value.
+ * @param[in] version The version value.
+ * @return The max fragment value.
+ */
 static uint32_t dtls_compute_max_fragment_for_version(uint16_t mtu, uint16_t version)
 {
     uint32_t usable;
@@ -438,6 +501,12 @@ static uint32_t dtls_compute_max_fragment_for_version(uint16_t mtu, uint16_t ver
 }
 
 
+/**
+ * @brief Write the uint24_t to the buffer.
+ *
+ * @param[in] buf The buffer value.
+ * @param[in] value The value value.
+ */
 static void dtls_write_uint24(uint8_t *buf, uint32_t value)
 {
     buf[0] = (uint8_t)((value >> 16) & 0xFF);
@@ -445,6 +514,12 @@ static void dtls_write_uint24(uint8_t *buf, uint32_t value)
     buf[2] = (uint8_t)(value & 0xFF);
 }
 
+/**
+ * @brief Write the uint48_t to the buffer.
+ *
+ * @param[in] buf The buffer value.
+ * @param[in] value The value value.
+ */
 static void dtls_write_uint48(uint8_t *buf, uint64_t value)
 {
     buf[0] = (uint8_t)((value >> 40) & 0xFF);
@@ -455,16 +530,34 @@ static void dtls_write_uint48(uint8_t *buf, uint64_t value)
     buf[5] = (uint8_t)(value & 0xFF);
 }
 
+/**
+ * @brief Read the uint16_t from the buffer.
+ *
+ * @param[in] buf The buffer value.
+ * @return The uint16_t value.
+ */
 static uint16_t dtls_read_uint16(const uint8_t *buf)
 {
     return (uint16_t)((buf[0] << 8) | buf[1]);
 }
 
+/**
+ * @brief Read the uint24_t from the buffer.
+ *
+ * @param[in] buf The buffer value.
+ * @return The uint24_t value.
+ */
 static uint32_t dtls_read_uint24(const uint8_t *buf)
 {
     return (uint32_t)((buf[0] << 16) | (buf[1] << 8) | buf[2]);
 }
 
+/**
+ * @brief Read the uint48_t from the buffer.
+ *
+ * @param[in] buf The buffer value.
+ * @return The uint48_t value.
+ */
 static uint64_t dtls_read_uint48(const uint8_t *buf)
 {
     return ((uint64_t)buf[0] << 40) |
@@ -475,12 +568,20 @@ static uint64_t dtls_read_uint48(const uint8_t *buf)
            (uint64_t)buf[5];
 }
 
+/**
+ * @brief Check if the record is acked by the last ack.
+ *
+ * @param[in] ctx The context value.
+ * @param[in] epoch The epoch value.
+ * @param[in] seq The sequence value.
+ * @return The return value.
+ */
 static int dtls_record_acked_by_last_ack(const dtls_context_t *ctx, uint16_t epoch, uint64_t seq)
 {
     if(ctx == NULL || ctx->last_ack_epoch != epoch) {
         return 0;
     }
-    if(ctx->last_ack_ranges_min != NULL && ctx->last_ack_ranges_max != NULL && ctx->last_ack_range_count > 0u) {
+    if(ctx->last_ack_ranges_min != NULL && ctx->last_ack_ranges_max != NULL && ctx->last_ack_range_count > 0U) {
         for(uint8_t i = 0; i < ctx->last_ack_range_count; i++) {
             if(seq >= ctx->last_ack_ranges_min[i] && seq <= ctx->last_ack_ranges_max[i]) {
                 return 1;
@@ -491,6 +592,15 @@ static int dtls_record_acked_by_last_ack(const dtls_context_t *ctx, uint16_t epo
     return (seq >= ctx->last_ack_range_min && seq <= ctx->last_ack_range_max);
 }
 
+/**
+ * @brief Parse the record epoch and sequence.
+ *
+ * @param[in] record The record value.
+ * @param[in] record_len The record length value.
+ * @param[out] epoch The epoch value.
+ * @param[out] seq The sequence value.
+ * @return The return value.
+ */
 static int dtls_parse_record_epoch_seq(const uint8_t *record, uint16_t record_len,
                                        uint16_t *epoch, uint64_t *seq)
 {
@@ -507,6 +617,14 @@ static int dtls_parse_record_epoch_seq(const uint8_t *record, uint16_t record_le
     return 1;
 }
 
+/**
+ * @brief Initialize the DTLS context.
+ *
+ * @param[in] ctx The context value.
+ * @param[in] role The role value.
+ * @param[in] version The version value.
+ * @return The return value.
+ */
 noxtls_return_t noxtls_dtls_context_init(dtls_context_t *ctx, tls_role_t role, uint16_t version)
 {
     if(ctx == NULL) {
@@ -527,7 +645,7 @@ noxtls_return_t noxtls_dtls_context_init(dtls_context_t *ctx, tls_role_t role, u
     ctx->anti_amp_factor = 3;
     ctx->replay_window.window_bitmap = 0;
     ctx->replay_window.last_seq = 0;
-    for(uint32_t i = 0; i < 4u; i++) {
+    for(uint32_t i = 0; i < 4U; i++) {
         ctx->replay_windows[i].window_bitmap = 0;
         ctx->replay_windows[i].last_seq = 0;
         ctx->highest_recv_seq[i] = 0;
@@ -587,7 +705,7 @@ noxtls_return_t noxtls_dtls_context_init(dtls_context_t *ctx, tls_role_t role, u
     ctx->final_ack_len = 0;
     ctx->cookie_len = 0;
 
-        ctx->base.record_send_buf = (uint8_t*)noxtls_malloc(5u + TLS_MAX_PROTECTED_RECORD_FRAGMENT);
+        ctx->base.record_send_buf = (uint8_t*)noxtls_malloc(5U + TLS_MAX_PROTECTED_RECORD_FRAGMENT);
     if(ctx->base.record_send_buf == NULL) {
         noxtls_tls_context_free(&ctx->base);
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
@@ -596,6 +714,12 @@ noxtls_return_t noxtls_dtls_context_init(dtls_context_t *ctx, tls_role_t role, u
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Free the DTLS context.
+ *
+ * @param[in] ctx The context value.
+ * @return The return value.
+ */
 noxtls_return_t noxtls_dtls_context_free(dtls_context_t *ctx)
 {
     if(ctx == NULL) {
@@ -642,6 +766,13 @@ noxtls_return_t noxtls_dtls_context_free(dtls_context_t *ctx)
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Set the MTU.
+ *
+ * @param[in] ctx The context value.
+ * @param[in] mtu The mtu value.
+ * @return The return value.
+ */
 noxtls_return_t noxtls_dtls_set_mtu(dtls_context_t *ctx, uint16_t mtu)
 {
     if(ctx == NULL || mtu == 0) {
@@ -652,6 +783,15 @@ noxtls_return_t noxtls_dtls_set_mtu(dtls_context_t *ctx, uint16_t mtu)
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Set the retransmit.
+ *
+ * @param[in] ctx The context value.
+ * @param[in] timeout_ms The timeout value.
+ * @param[in] backoff_ms The backoff value.
+ * @param[in] max_attempts The max attempts value.
+ * @return The return value.
+ */
 noxtls_return_t dtls_set_retransmit(dtls_context_t *ctx, uint32_t timeout_ms,
                                     uint32_t backoff_ms, uint32_t max_attempts)
 {
@@ -671,6 +811,13 @@ noxtls_return_t dtls_set_retransmit(dtls_context_t *ctx, uint32_t timeout_ms,
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Set the anti-amplification limit.
+ *
+ * @param[in] ctx The context value.
+ * @param[in] factor The factor value.
+ * @return The return value.
+ */
 noxtls_return_t noxtls_dtls_set_anti_amplification_limit(dtls_context_t *ctx, uint8_t factor)
 {
     if(ctx == NULL) {
@@ -680,6 +827,13 @@ noxtls_return_t noxtls_dtls_set_anti_amplification_limit(dtls_context_t *ctx, ui
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Set the ACK range limit.
+ *
+ * @param[in] ctx The context value.
+ * @param[in] max_ranges The max ranges value.
+ * @return The return value.
+ */
 noxtls_return_t noxtls_dtls_set_ack_range_limit(dtls_context_t *ctx, uint8_t max_ranges)
 {
     if(ctx == NULL || max_ranges == 0) {
@@ -716,6 +870,15 @@ noxtls_return_t noxtls_dtls_set_ack_range_limit(dtls_context_t *ctx, uint8_t max
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Send the record.
+ *
+ * @param[in] ctx The context value.
+ * @param[in] type The type value.
+ * @param[in] data The data value.
+ * @param[in] len The length value.
+ * @return The return value.
+ */
 noxtls_return_t noxtls_dtls_send_record(dtls_context_t *ctx, uint8_t type, const uint8_t *data, uint32_t len)
 {
     uint8_t *record = NULL;
@@ -801,6 +964,13 @@ noxtls_return_t noxtls_dtls_send_record(dtls_context_t *ctx, uint8_t type, const
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Receive the record.
+ *
+ * @param[in] ctx The context value.
+ * @param[out] record The record value.
+ * @return The return value.
+ */
 noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *record)
 {
     uint8_t *packet = NULL;
@@ -845,8 +1015,8 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
                 /* RFC 9147 5.8: timer value SHOULD be backed off after each retransmission. */
                 ctx->retransmit_timeout_ms =
                     (uint32_t)(((uint64_t)ctx->retransmit_timeout_ms * ctx->retransmit_backoff_ms) / 1000u);
-                if(ctx->retransmit_timeout_ms == 0u) {
-                    ctx->retransmit_timeout_ms = 1u;
+                if(ctx->retransmit_timeout_ms == 0U) {
+                    ctx->retransmit_timeout_ms = 1U;
                 }
                 if(ctx->retransmit_timeout_ms > 60000) {
                     ctx->retransmit_timeout_ms = 60000;  /* cap at 60 seconds */
@@ -863,7 +1033,7 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
         break;
     }
     if(received > 0) {
-        ctx->retransmit_timeout_ms = ctx->retransmit_base_timeout_ms == 0u ? 1000u : ctx->retransmit_base_timeout_ms;
+        ctx->retransmit_timeout_ms = ctx->retransmit_base_timeout_ms == 0U ? 1000u : ctx->retransmit_base_timeout_ms;
     }
 
     ctx->bytes_received += (uint64_t)received;
@@ -899,7 +1069,7 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
 
     if(record->epoch != ctx->epoch) {
         noxtls_free(packet);
-        return NOXTLS_RETURN_TIMEOUT;
+        return NOXTLS_RETURN_FAILED;
     }
 
     if(length > TLS_MAX_RECORD_SIZE) {
@@ -956,6 +1126,16 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Send the handshake fragment.
+ *
+ * @param[in] ctx The context value.
+ * @param[in] msg_type The message type value.
+ * @param[in] data The data value.
+ * @param[in] len The length value.
+ * @param[in] message_seq The message sequence value.
+ * @return The return value.
+ */
 noxtls_return_t dtls_send_handshake_fragment(dtls_context_t *ctx,
                                              uint8_t msg_type,
                                              const uint8_t *data,
@@ -1014,6 +1194,13 @@ noxtls_return_t dtls_send_handshake_fragment(dtls_context_t *ctx,
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Receive the handshake fragment.
+ *
+ * @param[in] ctx The context value.
+ * @param[out] fragment The fragment value.
+ * @return The return value.
+ */
 noxtls_return_t noxtls_dtls_recv_handshake_fragment(dtls_context_t *ctx, dtls_handshake_fragment_t *fragment)
 {
     dtls_record_t record;
@@ -1068,6 +1255,15 @@ noxtls_return_t noxtls_dtls_recv_handshake_fragment(dtls_context_t *ctx, dtls_ha
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Reassemble the handshake.
+ *
+ * @param[in] ctx The context value.
+ * @param[in] fragment The fragment value.
+ * @param[out] complete_msg The complete message value.
+ * @param[out] complete_len The complete length value.
+ * @return The return value.
+ */
 noxtls_return_t noxtls_dtls_reassemble_handshake(dtls_context_t *ctx,
                                           dtls_handshake_fragment_t *fragment,
                                           uint8_t **complete_msg,
@@ -1095,7 +1291,7 @@ noxtls_return_t noxtls_dtls_reassemble_handshake(dtls_context_t *ctx,
     if(fragment->fragment_offset + fragment->fragment_length > total_len) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
-    if(fragment->fragment_length > 0u && fragment->data == NULL) {
+    if(fragment->fragment_length > 0U && fragment->data == NULL) {
         return NOXTLS_RETURN_NULL;
     }
 
@@ -1112,7 +1308,7 @@ noxtls_return_t noxtls_dtls_reassemble_handshake(dtls_context_t *ctx,
     }
 
     if(fragment->fragment_offset == 0 && fragment->fragment_length == total_len) {
-        *complete_msg = (uint8_t*)noxtls_malloc(total_len == 0u ? 1u : total_len);
+        *complete_msg = (uint8_t*)noxtls_malloc(total_len == 0U ? 1U : total_len);
         if(*complete_msg == NULL) {
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         }
@@ -1125,7 +1321,7 @@ noxtls_return_t noxtls_dtls_reassemble_handshake(dtls_context_t *ctx,
     }
 
     if(ctx->handshake_buffer == NULL || ctx->handshake_buffer_len != total_len) {
-        uint32_t alloc_len = (total_len == 0u) ? 1u : total_len;
+        uint32_t alloc_len = (total_len == 0U) ? 1U : total_len;
         ctx->expected_fragment_offset = 0;
         ctx->handshake_buffer_len = total_len;
         if(ctx->handshake_buffer == NULL || ctx->handshake_buffer_capacity < alloc_len) {
@@ -1152,24 +1348,24 @@ noxtls_return_t noxtls_dtls_reassemble_handshake(dtls_context_t *ctx,
     if(fragment->fragment_length > 0) {
         for(uint32_t i = 0; i < fragment->fragment_length; i++) {
             uint32_t idx = fragment->fragment_offset + i;
-            if(ctx->handshake_received[idx] != 0u) {
+            if(ctx->handshake_received[idx] != 0U) {
                 if(ctx->handshake_buffer[idx] != fragment->data[i]) {
                     return NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER;
                 }
             } else {
                 ctx->handshake_buffer[idx] = fragment->data[i];
-                ctx->handshake_received[idx] = 1u;
+                ctx->handshake_received[idx] = 1U;
                 ctx->handshake_received_count++;
             }
         }
     }
 
     if(ctx->handshake_received_count == total_len) {
-        *complete_msg = (uint8_t*)noxtls_malloc(total_len == 0u ? 1u : total_len);
+        *complete_msg = (uint8_t*)noxtls_malloc(total_len == 0U ? 1U : total_len);
         if(*complete_msg == NULL) {
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         }
-        if(total_len > 0u) {
+        if(total_len > 0U) {
             memcpy(*complete_msg, ctx->handshake_buffer, total_len);
         }
         *complete_len = total_len;
@@ -1180,6 +1376,13 @@ noxtls_return_t noxtls_dtls_reassemble_handshake(dtls_context_t *ctx,
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Check the replay.
+ *
+ * @param[in] ctx The context value.
+ * @param[in] sequence_number The sequence number value.
+ * @return The return value.
+ */
 noxtls_return_t noxtls_dtls_check_replay(dtls_context_t *ctx, uint64_t sequence_number)
 {
     uint64_t last_seq;
@@ -1206,6 +1409,13 @@ noxtls_return_t noxtls_dtls_check_replay(dtls_context_t *ctx, uint64_t sequence_
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Update the replay window.
+ *
+ * @param[in] ctx The context value.
+ * @param[in] sequence_number The sequence number value.
+ * @return The return value.
+ */
 noxtls_return_t noxtls_dtls_update_replay_window(dtls_context_t *ctx, uint64_t sequence_number)
 {
     uint64_t last_seq;
@@ -1236,6 +1446,16 @@ noxtls_return_t noxtls_dtls_update_replay_window(dtls_context_t *ctx, uint64_t s
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Generate the cookie.
+ *
+ * @param[in] ctx The context value.
+ * @param[in] client_hello The client hello value.
+ * @param[in] client_hello_len The client hello length value.
+ * @param[out] cookie The cookie value.
+ * @param[out] cookie_len The cookie length value.
+ * @return The return value.
+ */
 noxtls_return_t noxtls_dtls_generate_cookie(dtls_context_t *ctx,
                                      const uint8_t *client_hello,
                                      uint32_t client_hello_len,
@@ -1269,6 +1489,14 @@ noxtls_return_t noxtls_dtls_generate_cookie(dtls_context_t *ctx,
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Verify the cookie.
+ *
+ * @param[in] ctx The context value.
+ * @param[in] cookie The cookie value.
+ * @param[in] cookie_len The cookie length value.
+ * @return The return value.
+ */
 noxtls_return_t noxtls_dtls_verify_cookie(const dtls_context_t *ctx,
                                    const uint8_t *cookie,
                                    uint32_t cookie_len)
@@ -1288,6 +1516,11 @@ noxtls_return_t noxtls_dtls_verify_cookie(const dtls_context_t *ctx,
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Mark the peer as validated.
+ *
+ * @param[in] ctx The context value.
+ */
 void noxtls_dtls_mark_validated(dtls_context_t *ctx)
 {
     if(ctx == NULL) {

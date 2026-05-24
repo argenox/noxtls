@@ -1,0 +1,7 @@
+CONFIG_NOXTLS=y
+CONFIG_NOXTLS_PROFILE_MINIMAL_TLS_CLIENT=y
+CONFIG_NOXTLS_USE_ESP_ENTROPY=y
+
+# Leave disabled for init-only smoke testing; set y for a live TLS handshake.
+# CONFIG_NOXTLS_SAMPLE_TLS_CONNECT=y
+# CONFIG_NOXTLS_SAMPLE_TLS_HOST="example.com"

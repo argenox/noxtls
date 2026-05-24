@@ -3,13 +3,23 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
+*
+* This file is part of the NoxTLS Library.
+*
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
+*
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
 * File:    noxtls_crypto_provider.h
 * Summary: Optional abstraction for PKCS#11, TPM, or other hardware crypto.
 *          When a provider is set on a TLS context, private-key operations
 *          (sign, decrypt) can be delegated to the provider instead of
 *          software keys. Leave provider NULL to use built-in software PKC.
-*/
-
+*
+*****************************************************************************/
 #ifndef _NOXTLS_CRYPTO_PROVIDER_H_
 #define _NOXTLS_CRYPTO_PROVIDER_H_
 

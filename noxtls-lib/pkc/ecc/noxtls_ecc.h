@@ -6,22 +6,19 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 2 of the License, or
-* (at your option) any later version.
-*
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
-* 
+*
 *
 * File:    noxtls_ecc.h
 * Summary: Elliptic Curve Cryptography (ECC) Base Implementation
 *
-*/
+*
+*****************************************************************************/
 
 /** @addtogroup noxtls_pkc */
 /** @{ */
@@ -42,6 +39,12 @@
 #endif
 #ifndef NOXTLS_ECC_FIXED_POINT_OPTIM
 #define NOXTLS_ECC_FIXED_POINT_OPTIM 1
+#endif
+/* Process-global ECC precompute caches are disabled by default because the
+ * shared mutable state is not synchronized for concurrent TLS use. Only enable
+ * this for single-threaded builds or when external synchronization is present. */
+#ifndef NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE
+#define NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE 0
 #endif
 
 #ifdef __cplusplus
@@ -103,7 +106,7 @@ typedef struct {
 } ecc_jpoint_t;
 NOXTLS_MSVC_WARNING_POP
 
-#if (NOXTLS_ECC_POINT_MUL_WINDOW_SIZE > 0) && (NOXTLS_ECC_FIXED_POINT_OPTIM)
+#if (NOXTLS_ECC_POINT_MUL_WINDOW_SIZE > 0) && (NOXTLS_ECC_FIXED_POINT_OPTIM) && (NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE)
 /**
  * Fixed-base point multiplication cache (windowed precompute for generator G).
  * Used only inside noxtls_ecc.c; not part of the public API surface.
@@ -128,11 +131,17 @@ noxtls_return_t noxtls_ecc_point_init(ecc_point_t *point, uint32_t size);
 noxtls_return_t noxtls_ecc_point_add(ecc_point_t *result, const ecc_point_t *p1, const ecc_point_t *p2, const ecc_curve_params_t *curve);
 noxtls_return_t noxtls_ecc_point_double(ecc_point_t *result, const ecc_point_t *p, const ecc_curve_params_t *curve);
 noxtls_return_t noxtls_ecc_point_multiply(ecc_point_t *result, const uint8_t *scalar, const ecc_point_t *point, const ecc_curve_params_t *curve);
+/* Joint scalar multiplication: result = scalar1*point1 + scalar2*point2. */
+noxtls_return_t noxtls_ecc_point_muladd(ecc_point_t *result,
+                                        const uint8_t *scalar1, const ecc_point_t *point1,
+                                        const uint8_t *scalar2, const ecc_point_t *point2,
+                                        const ecc_curve_params_t *curve);
 /* Point multiply uses in-house implementation. */
 int noxtls_ecc_point_multiply_uses_ref(void);
 /** Return configured window size for point mul (0 = ladder only, 2+ = windowed). */
 int noxtls_ecc_point_mul_window_size(void);
 noxtls_return_t noxtls_ecc_point_is_on_curve(const ecc_point_t *point, const ecc_curve_params_t *curve);
+noxtls_return_t noxtls_ecc_point_validate_public(const ecc_point_t *point, const ecc_curve_params_t *curve);
 
 /* Key Management */
 noxtls_return_t noxtls_ecc_key_init(ecc_key_t *key, ecc_curve_t curve_type);

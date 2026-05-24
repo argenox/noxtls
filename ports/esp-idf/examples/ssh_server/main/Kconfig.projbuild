@@ -1,0 +1,8 @@
+menu "NoxTLS SSH server example"
+
+config NOXTLS_SSH_SERVER_PORT
+    int "SSH listen port"
+    default 22
+    range 1 65535
+
+endmenu

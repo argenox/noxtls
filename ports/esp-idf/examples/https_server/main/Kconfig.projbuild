@@ -1,0 +1,53 @@
+menu "NoxTLS HTTPS server example"
+
+config NOXTLS_HTTPS_SERVER_PORT
+	int "HTTPS listen port"
+	default 8443
+	range 1 65535
+	help
+	  TCP port the example HTTPS server listens on.
+
+config NOXTLS_HTTPS_SERVER_WIFI_SSID
+	string "WiFi SSID"
+	default "myssid"
+	help
+	  SSID (network name) of the WiFi access point.
+
+config NOXTLS_HTTPS_SERVER_WIFI_PASSWORD
+	string "WiFi password"
+	default "mypassword"
+	help
+	  WiFi password (WPA/WPA2). Leave empty for open networks.
+
+config NOXTLS_HTTPS_SERVER_USE_WIFI
+	bool "Connect to WiFi at startup"
+	default y
+	help
+	  When enabled, the example connects to the configured WiFi SSID
+	  before opening the HTTPS listener. Disable for Ethernet, manual
+	  bring-up, or for testing on the loopback interface only.
+
+config NOXTLS_HTTPS_SERVER_BACKLOG
+	int "Max pending TCP backlog"
+	default 1
+	range 1 8
+
+config NOXTLS_HTTPS_SERVER_LOG_WIFI_PASSWORD
+	bool "Log WiFi password in plaintext on startup"
+	default n
+	depends on NOXTLS_HTTPS_SERVER_USE_WIFI
+	help
+	  When enabled, the example logs the configured WiFi password on
+	  startup along with the SSID. Useful for local debugging only.
+	  Leave disabled in production; the SSID and password length are
+	  still logged so you can confirm the values were configured.
+
+config NOXTLS_HTTPS_SERVER_HANDSHAKE_DEBUG
+	bool "Verbose NoxTLS handshake logging (UART)"
+	default n
+	help
+	  Enables NoxTLS [TLS_DEBUG] printf during noxtls_tls13_accept (which
+	  step failed, ECDSA progress, etc.). Noisy and slower; use only while
+	  debugging handshake failures.
+
+endmenu

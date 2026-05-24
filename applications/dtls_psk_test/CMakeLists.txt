@@ -1,4 +1,4 @@
-# DTLS PSK test application: server and client in one process,
+﻿# DTLS PSK test application: server and client in one process,
 # exchange application data both ways, verify payloads. Requires BUILD_DTLS=ON.
 
 cmake_minimum_required(VERSION 3.10)
@@ -49,6 +49,9 @@ if(BUILDING_STANDALONE)
 endif()
 
 add_executable(dtls_psk_test main.c)
+
+# App-local noxtls_config.h takes precedence over top-level (per project policy)
+target_include_directories(dtls_psk_test BEFORE PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 if(DEFINED NOXTLS_APPLICATIONS_BINARY_DIR)
     set_target_properties(dtls_psk_test PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${NOXTLS_APPLICATIONS_BINARY_DIR}")
 endif()

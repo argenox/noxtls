@@ -1,0 +1,230 @@
+{
+  "category_order": [
+    "profiles",
+    "sidechannel",
+    "core",
+    "hash",
+    "encryption",
+    "pkc",
+    "tls",
+    "cert",
+    "memory",
+    "tls-limits",
+    "rsa-tuning",
+    "ecc-tuning",
+    "system",
+    "observability",
+    "other"
+  ],
+  "categories": {
+    "profiles": "Build Profiles",
+    "sidechannel": "Side-Channel Hardening",
+    "core": "Core Modules",
+    "hash": "Hash Algorithms",
+    "encryption": "Symmetric Encryption",
+    "pkc": "Public-Key Cryptography",
+    "tls": "TLS / DTLS",
+    "cert": "X.509 Certificates",
+    "memory": "Memory Management",
+    "tls-limits": "TLS Size Limits",
+    "rsa-tuning": "RSA Key Generation",
+    "ecc-tuning": "ECC Performance",
+    "system": "System Integration",
+    "observability": "Observability"
+  },
+  "profiles": {
+    "NOXTLS_PROFILE_MINIMAL_TLS_CLIENT": {
+      "name": "Minimal TLS Client",
+      "description": "Smallest practical TLS 1.2/1.3 client with ECDHE and AES-GCM."
+    },
+    "NOXTLS_PROFILE_TLS_SERVER_PKI": {
+      "name": "TLS Server (PKI)",
+      "description": "TLS server with certificate generation and broader cipher support."
+    },
+    "NOXTLS_PROFILE_CRYPTO_ONLY": {
+      "name": "Crypto Only",
+      "description": "Cryptographic primitives without TLS or certificate stacks."
+    },
+    "NOXTLS_PROFILE_FIPS_LIKE": {
+      "name": "FIPS-like",
+      "description": "Conservative algorithm set oriented toward FIPS-style deployments."
+    },
+    "NOXTLS_PROFILE_UT_ALL_FEATURES": {
+      "name": "Unit Test (All Features)",
+      "description": "Enables legacy and broad coverage for automated testing."
+    }
+  },
+  "settings": {
+    "NOXTLS_FEATURE_MD4": { "legacy": true, "name": "MD4" },
+    "NOXTLS_FEATURE_MD5": { "legacy": true, "name": "MD5" },
+    "NOXTLS_FEATURE_SHA1": { "legacy": true, "name": "SHA-1" },
+    "NOXTLS_FEATURE_DES": { "legacy": true, "name": "DES / 3DES" },
+    "NOXTLS_FEATURE_RC4": { "legacy": true, "name": "RC4" },
+    "NOXTLS_FEATURE_AES_ECB": { "legacy": true, "name": "AES-ECB" },
+    "NOXTLS_FEATURE_HASH": {
+      "name": "Hash Framework",
+      "category": "hash"
+    },
+    "NOXTLS_FEATURE_ENCRYPTION": {
+      "name": "Symmetric Encryption",
+      "category": "encryption"
+    },
+    "NOXTLS_FEATURE_AES": { "name": "AES" },
+    "NOXTLS_FEATURE_DRBG": {
+      "name": "DRBG",
+      "dependencies_all": [
+        { "ref": "NOXTLS_FEATURE_ENCRYPTION", "value": "1" },
+        { "ref": "NOXTLS_FEATURE_AES", "value": "1" }
+      ]
+    },
+    "NOXTLS_FEATURE_PKC": {
+      "name": "Public-Key Cryptography",
+      "category": "pkc"
+    },
+    "NOXTLS_FEATURE_CERT": {
+      "name": "X.509 Certificates",
+      "category": "cert",
+      "dependencies_all": [
+        { "ref": "NOXTLS_FEATURE_HASH", "value": "1" },
+        { "ref": "NOXTLS_FEATURE_PKC", "value": "1" }
+      ]
+    },
+    "NOXTLS_FEATURE_TLS": {
+      "name": "TLS",
+      "category": "tls",
+      "dependencies_all": [
+        { "ref": "NOXTLS_FEATURE_HASH", "value": "1" },
+        { "ref": "NOXTLS_FEATURE_ENCRYPTION", "value": "1" },
+        { "ref": "NOXTLS_FEATURE_DRBG", "value": "1" },
+        { "ref": "NOXTLS_FEATURE_PKC", "value": "1" },
+        { "ref": "NOXTLS_FEATURE_CERT", "value": "1" }
+      ]
+    },
+    "NOXTLS_FEATURE_TLS10": {
+      "legacy": true,
+      "name": "TLS 1.0",
+      "parent": "NOXTLS_FEATURE_TLS"
+    },
+    "NOXTLS_FEATURE_TLS11": {
+      "legacy": true,
+      "name": "TLS 1.1",
+      "parent": "NOXTLS_FEATURE_TLS"
+    },
+    "NOXTLS_FEATURE_TLS12": {
+      "name": "TLS 1.2",
+      "parent": "NOXTLS_FEATURE_TLS"
+    },
+    "NOXTLS_FEATURE_TLS13": {
+      "name": "TLS 1.3",
+      "parent": "NOXTLS_FEATURE_TLS"
+    },
+    "NOXTLS_FEATURE_DTLS": {
+      "name": "DTLS",
+      "parent": "NOXTLS_FEATURE_TLS"
+    },
+    "NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES": {
+      "legacy": true,
+      "name": "TLS 1.2 Legacy Cipher Suites",
+      "parent": "NOXTLS_FEATURE_TLS12"
+    },
+    "NOXTLS_CFG_TLS13_ALLOW_RSA_PKCS1_CERTVERIFY": {
+      "parent": "NOXTLS_FEATURE_TLS13"
+    },
+    "NOXTLS_CT_COMPARE": {
+      "default": "1",
+      "name": "Constant-Time Compare",
+      "description": "Enable constant-time secret compare (disabled only with NOXTLS_SIDECHANNEL_PROFILE_PERFORMANCE)."
+    },
+    "NOXTLS_HAVE_TIME": {
+      "name": "System Time Support",
+      "default": "1",
+      "description": "When disabled, certificate validity (notBefore/notAfter) checking is skipped.",
+      "profile_overrides": {
+        "NOXTLS_PROFILE_UT_ALL_FEATURES": "0"
+      }
+    },
+    "NOXTLS_FEATURE_ECDSA": {
+      "dependencies_all": [
+        { "ref": "NOXTLS_FEATURE_PKC", "value": "1" },
+        { "ref": "NOXTLS_FEATURE_ECC", "value": "1" }
+      ]
+    },
+    "NOXTLS_FEATURE_ECDH": {
+      "dependencies_all": [
+        { "ref": "NOXTLS_FEATURE_PKC", "value": "1" },
+        { "ref": "NOXTLS_FEATURE_ECC", "value": "1" }
+      ]
+    },
+    "NOXTLS_FEATURE_ED448": {
+      "dependencies_all": [
+        { "ref": "NOXTLS_FEATURE_PKC", "value": "1" },
+        { "ref": "NOXTLS_FEATURE_SHA3", "value": "1" }
+      ]
+    },
+    "NOXTLS_FEATURE_SLH_DSA": {
+      "name": "SLH-DSA",
+      "description": "Enables SLH-DSA (FIPS 205) signature APIs and TLS/X.509 PQ signature support.",
+      "dependencies_all": [
+        { "ref": "NOXTLS_FEATURE_PKC", "value": "1" },
+        { "ref": "NOXTLS_FEATURE_DRBG", "value": "1" },
+        { "ref": "NOXTLS_FEATURE_SHA3", "value": "1" },
+        { "ref": "NOXTLS_FEATURE_SHA256", "value": "1" },
+        { "ref": "NOXTLS_FEATURE_SHA512", "value": "1" }
+      ]
+    },
+    "NOXTLS_HAVE_CERT_WRITE": {
+      "dependencies_all": [
+        { "ref": "NOXTLS_FEATURE_CERT", "value": "1" },
+        { "ref": "NOXTLS_FEATURE_PKC", "value": "1" }
+      ]
+    },
+    "NOXTLS_FEATURE_AES_GCM": {
+      "description": "Enables AES-GCM AEAD mode. Required by TLS when ChaCha20-Poly1305 is disabled."
+    }
+  },
+  "constraints": {
+    "NOXTLS_FEATURE_AES": [
+      {
+        "kind": "atLeastOneEnabled",
+        "description": "At least one AES mode (ECB, CBC, CTR, CFB, OFB, XTS, GCM, CCM, CMAC) must be enabled.",
+        "refs": [
+          "NOXTLS_FEATURE_AES_ECB",
+          "NOXTLS_FEATURE_AES_CBC",
+          "NOXTLS_FEATURE_AES_CTR",
+          "NOXTLS_FEATURE_AES_CFB",
+          "NOXTLS_FEATURE_AES_OFB",
+          "NOXTLS_FEATURE_AES_XTS",
+          "NOXTLS_FEATURE_AES_GCM",
+          "NOXTLS_FEATURE_AES_CCM",
+          "NOXTLS_FEATURE_AES_CMAC"
+        ]
+      },
+      {
+        "kind": "atLeastOneEnabled",
+        "description": "At least one AES key size (128, 192, 256) must be enabled.",
+        "refs": [
+          "NOXTLS_FEATURE_AES_128",
+          "NOXTLS_FEATURE_AES_192",
+          "NOXTLS_FEATURE_AES_256"
+        ]
+      }
+    ],
+    "NOXTLS_FEATURE_TLS": [
+      {
+        "kind": "atLeastOneEnabled",
+        "description": "At least one record AEAD (AES-GCM or ChaCha20-Poly1305) should be enabled for practical TLS.",
+        "refs": [
+          "NOXTLS_FEATURE_AES_GCM",
+          "NOXTLS_FEATURE_CHACHA20_POLY1305"
+        ]
+      }
+    ],
+    "NOXTLS_TLS_MAX_WIRE_RECORD_LENGTH": [
+      {
+        "kind": "numericGte",
+        "description": "Must be greater than or equal to NOXTLS_TLS_MAX_RECORD_SIZE.",
+        "refs": ["NOXTLS_TLS_MAX_RECORD_SIZE"]
+      }
+    ]
+  }
+}

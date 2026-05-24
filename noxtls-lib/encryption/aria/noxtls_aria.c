@@ -4,39 +4,20 @@
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
 *
+* This file is part of the NoxTLS Library.
 *
-* NOTICE:  All information contained herein, source code, binaries and
-* derived works is, and remains
-* the property of Argenox Technologies and its suppliers,
-* if any.  The intellectual and technical concepts contained
-* herein are proprietary to Argenox Technologies
-* and its suppliers may be covered by U.S. and Foreign Patents,
-* patents in process, and are protected by trade secret or copyright law.
-* Dissemination of this information or reproduction of this material
-* is strictly forbidden unless prior written permission is obtained
-* from Argenox Technologies.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
-* THIS SOFTWARE IS PROVIDED BY ARGENOX "AS IS" AND
-* ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-* WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-* DISCLAIMED. IN NO EVENT SHALL ARGENOX TECHNOLOGIES LLC BE LIABLE FOR ANY
-* DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-* (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-* LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-* ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-* (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-* SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*
+* See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
 *
 *
 * File:    noxtls_aria.c
 * Summary: ARIA Block Cipher Algorithm Implementation
 *
-* ARIA is a block cipher developed in South Korea, standardized in RFC 5794.
-* This implementation follows the ARIA specification.
-*
-*/
+*****************************************************************************/
 
 /** @addtogroup noxtls_encryption */
 
@@ -99,6 +80,12 @@ static const uint8_t aria_s2[256] = {
 };
 
 /* Diffusion layer (DL) - multiplication by constant matrix */
+/**
+ * @brief The diffusion layer.
+ *
+ * @param[in] state The state value.
+ * @return void
+ */
 static void aria_diffusion_layer(uint8_t state[16])
 {
     uint8_t temp[16];
@@ -124,6 +111,12 @@ static void aria_diffusion_layer(uint8_t state[16])
     memcpy(state, temp, 16);
 }
 
+/**
+ * @brief The substitution layer 1.
+ *
+ * @param[in] state The state value.
+ * @return void
+ */
 static void aria_sl1(uint8_t state[16])
 {
     static uint8_t inv_s1[256];
@@ -149,6 +142,12 @@ static void aria_sl1(uint8_t state[16])
     state[12] = sb1[state[12]]; state[13] = sb2[state[13]]; state[14] = sb3[state[14]]; state[15] = sb4[state[15]];
 }
 
+/**
+ * @brief The substitution layer 2.
+ *
+ * @param[in] state The state value.
+ * @return void
+ */
 static void aria_sl2(uint8_t state[16])
 {
     static uint8_t inv_s1[256];
@@ -174,6 +173,14 @@ static void aria_sl2(uint8_t state[16])
     state[12] = sb3[state[12]]; state[13] = sb4[state[13]]; state[14] = sb1[state[14]]; state[15] = sb2[state[15]];
 }
 
+/**
+ * @brief The XOR block.
+ *
+ * @param[out] out The out value.
+ * @param[in] a The a value.
+ * @param[in] b The b value.
+ * @return void
+ */
 static void aria_xor_block(uint8_t out[16], const uint8_t a[16], const uint8_t b[16])
 {
     int i;
@@ -182,6 +189,12 @@ static void aria_xor_block(uint8_t out[16], const uint8_t a[16], const uint8_t b
     }
 }
 
+/**
+ * @brief The load BE 64.
+ *
+ * @param[in] p The p value.
+ * @return The return value.
+ */
 static uint64_t aria_load_be64(const uint8_t *p)
 {
     return ((uint64_t)p[0] << 56) |
@@ -194,6 +207,13 @@ static uint64_t aria_load_be64(const uint8_t *p)
            ((uint64_t)p[7]);
 }
 
+/**
+ * @brief The store BE 64.
+ *
+ * @param[out] p The p value.
+ * @param[in] v The v value.
+ * @return void
+ */
 static void aria_store_be64(uint8_t *p, uint64_t v)
 {
     p[0] = (uint8_t)(v >> 56);
@@ -206,6 +226,14 @@ static void aria_store_be64(uint8_t *p, uint64_t v)
     p[7] = (uint8_t)(v);
 }
 
+/**
+ * @brief The rotate right.
+ *
+ * @param[in] in The in value.
+ * @param[out] out The out value.
+ * @param[in] bits The bits value.
+ * @return void
+ */
 static void aria_rotate_right(const uint8_t in[16], uint8_t out[16], int bits)
 {
     uint64_t hi = aria_load_be64(in);
@@ -235,11 +263,27 @@ static void aria_rotate_right(const uint8_t in[16], uint8_t out[16], int bits)
     }
 }
 
+/**
+ * @brief The rotate left.
+ *
+ * @param[in] in The in value.
+ * @param[out] out The out value.
+ * @param[in] bits The bits value.
+ * @return void
+ */
 static void aria_rotate_left(const uint8_t in[16], uint8_t out[16], int bits)
 {
     aria_rotate_right(in, out, 128 - (bits & 127));
 }
 
+/**
+ * @brief The FO function
+ * 
+ * @param[out] out The out value.
+ * @param[in] in The in value.
+ * @param[in] rk The rk value.
+ * @return void
+ */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static void aria_fo(uint8_t out[16], const uint8_t in[16], const uint8_t rk[16])
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
@@ -250,6 +294,14 @@ static void aria_fo(uint8_t out[16], const uint8_t in[16], const uint8_t rk[16])
     aria_diffusion_layer(out);
 }
 
+/**
+ * @brief The FE function
+ * 
+ * @param[out] out The out value.
+ * @param[in] in The in value.
+ * @param[in] rk The rk value.
+ * @return void
+ */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static void aria_fe(uint8_t out[16], const uint8_t in[16], const uint8_t rk[16])
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
@@ -261,6 +313,14 @@ static void aria_fe(uint8_t out[16], const uint8_t in[16], const uint8_t rk[16])
 }
 
 /* Key schedule generation */
+/**
+ * @brief The key schedule generation.
+ *
+ * @param[in] user_key The user key value.
+ * @param[in] key_type The key type value.
+ * @param[out] key The key value.
+ * @return void
+ */
 static void aria_key_schedule(const uint8_t *user_key, noxtls_aria_type_t key_type, noxtls_aria_key_t *key)
 {
     const uint8_t c1[16] = {0x51, 0x7c, 0xc1, 0xb7, 0x27, 0x22, 0x0a, 0x94, 0xfe, 0x13, 0xab, 0xe8, 0xfa, 0x9a, 0x6e, 0xe0};
@@ -343,6 +403,11 @@ static void aria_key_schedule(const uint8_t *user_key, noxtls_aria_type_t key_ty
 
 /**
  * @brief Set ARIA encryption key
+ *
+ * @param[in] user_key The user key value.
+ * @param[in] key_type The key type value.
+ * @param[out] key The key value.
+ * @return The return value.
  */
 noxtls_return_t noxtls_aria_set_encrypt_key(const uint8_t *user_key, noxtls_aria_type_t key_type, noxtls_aria_key_t *key)
 {
@@ -358,6 +423,11 @@ noxtls_return_t noxtls_aria_set_encrypt_key(const uint8_t *user_key, noxtls_aria
 
 /**
  * @brief Set ARIA decryption key
+ *
+ * @param[in] user_key The user key value.
+ * @param[in] key_type The key type value.
+ * @param[out] key The key value.
+ * @return The return value.
  */
 noxtls_return_t noxtls_aria_set_decrypt_key(const uint8_t *user_key, noxtls_aria_type_t key_type, noxtls_aria_key_t *key)
 {
@@ -387,6 +457,11 @@ noxtls_return_t noxtls_aria_set_decrypt_key(const uint8_t *user_key, noxtls_aria
 
 /**
  * @brief ARIA block encryption
+ *
+ * @param[in] key The key value.
+ * @param[in] in The in value.
+ * @param[out] out The out value.
+ * @return void
  */
 void noxtls_aria_encrypt_block(const noxtls_aria_key_t *key, const uint8_t in[16], uint8_t out[16])
 {
@@ -418,6 +493,11 @@ void noxtls_aria_encrypt_block(const noxtls_aria_key_t *key, const uint8_t in[16
 
 /**
  * @brief ARIA block decryption
+ *
+ * @param[in] key The key value.
+ * @param[in] in The in value.
+ * @param[out] out The out value.
+ * @return void
  */
 void noxtls_aria_decrypt_block(const noxtls_aria_key_t *key, const uint8_t in[16], uint8_t out[16])
 {
@@ -462,7 +542,22 @@ extern noxtls_return_t noxtls_aria_decrypt_ofb(const uint8_t* key, const uint8_t
 
 /**
  * @brief ARIA Encrypt Data
- */
+ *
+ * @param[in] key The key value.
+ * @param[in] data The data value.
+ * @param[in] data_len The data length value.
+ * @param[in] iv The iv value.
+ * @param[out] output The output value.
+ * @param[in] type The type value.
+ * @param[in] mode The mode value.
+ * @return The return value.
+ * @note The data length must be a multiple of the block size.
+ * @note The data length must be greater than 0.
+ * @note The data length must be less than the block size.
+ * @note The data length must be less than the data length.
+ * @note The data length must be less than the data length.
+ * @note The data length must be less than the data length.
+*/
 noxtls_return_t noxtls_aria_encrypt_data(const uint8_t* key,
                       const uint8_t* data,
                       uint32_t data_len,
@@ -489,6 +584,20 @@ noxtls_return_t noxtls_aria_encrypt_data(const uint8_t* key,
 
 /**
  * @brief ARIA Decrypt Data
+ *
+ * @param[in] key The key value.
+ * @param[in] data The data value.
+ * @param[in] data_len The data length value.
+ * @param[in] iv The iv value.
+ * @param[out] output The output value.
+ * @param[in] type The type value.
+ * @param[in] mode The mode value.
+ * @return The return value.
+ * @note The data length must be a multiple of the block size.
+ * @note The data length must be greater than 0.
+ * @note The data length must be less than the block size.
+ * @note The data length must be less than the data length.
+ * @note The data length must be less than the data length.
  */
 noxtls_return_t noxtls_aria_decrypt_data(const uint8_t* key,
                       const uint8_t* data,
@@ -514,6 +623,12 @@ noxtls_return_t noxtls_aria_decrypt_data(const uint8_t* key,
     }
 }
 
+/**
+ * @brief The key size bytes.
+ *
+ * @param[in] type The type value.
+ * @return The return value.
+ */
 static uint8_t aria_key_size_bytes(noxtls_aria_type_t type)
 {
     switch(type) {
@@ -528,6 +643,12 @@ static uint8_t aria_key_size_bytes(noxtls_aria_type_t type)
     }
 }
 
+/**
+ * @brief The counter increment.
+ *
+ * @param[in] counter The counter value.
+ * @return void
+ */
 static void aria_counter_inc(uint8_t counter[NOXTLS_ARIA_BLOCK_LENGTH])
 {
     int i;
@@ -539,6 +660,17 @@ static void aria_counter_inc(uint8_t counter[NOXTLS_ARIA_BLOCK_LENGTH])
     }
 }
 
+/**
+ * @brief The ARIA init.
+ *
+ * @param[in] ctx The ctx value.
+ * @param[in] key The key value.
+ * @param[in] iv The iv value.
+ * @param[in] type The type value.
+ * @param[in] mode The mode value.
+ * @param[in] op The op value.
+ * @return The return value.
+ */
 noxtls_return_t noxtls_aria_init(noxtls_aria_context_t *ctx,
               const uint8_t *key,
               const uint8_t *iv,
@@ -602,6 +734,16 @@ noxtls_return_t noxtls_aria_init(noxtls_aria_context_t *ctx,
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief The ARIA update.
+ *
+ * @param[in] ctx The ctx value.
+ * @param[in] input The input value.
+ * @param[in] input_len The input length value.
+ * @param[out] output The output value.
+ * @param[out] output_len The output length value.
+ * @return The return value.
+ */
 noxtls_return_t noxtls_aria_update(noxtls_aria_context_t *ctx,
                 const uint8_t *input,
                 uint32_t input_len,
@@ -711,6 +853,14 @@ noxtls_return_t noxtls_aria_update(noxtls_aria_context_t *ctx,
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief The ARIA final.
+ *
+ * @param[in] ctx The ctx value.
+ * @param[out] output The output value.
+ * @param[out] output_len The output length value.
+ * @return The return value.
+ */
 noxtls_return_t noxtls_aria_final(noxtls_aria_context_t *ctx,
                uint8_t *output,
                uint32_t *output_len)
@@ -770,6 +920,8 @@ noxtls_return_t noxtls_aria_final(noxtls_aria_context_t *ctx,
 
 /**
  * @brief ARIA Self Test
+ *
+ * @return result code
  */
 noxtls_return_t noxtls_aria_self_test(void)
 {

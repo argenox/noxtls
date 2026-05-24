@@ -4,37 +4,21 @@
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
 *
+* This file is part of the NoxTLS Library.
 *
-* NOTICE:  All information contained herein, source code, binaries and
-* derived works is, and remains
-* the property of Argenox Technologies and its suppliers,
-* if any.  The intellectual and technical concepts contained
-* herein are proprietary to Argenox Technologies
-* and its suppliers may be covered by U.S. and Foreign Patents,
-* patents in process, and are protected by trade secret or copyright law.
-* Dissemination of this information or reproduction of this material
-* is strictly forbidden unless prior written permission is obtained
-* from Argenox Technologies.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
-* THIS SOFTWARE IS PROVIDED BY ARGENOX "AS IS" AND
-* ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-* WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-* DISCLAIMED. IN NO EVENT SHALL ARGENOX TECHNOLOGIES LLC BE LIABLE FOR ANY
-* DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-* (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-* LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-* ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-* (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-* SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*
+* See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
-* 
+*
 *
 * File:    noxtls_debug_printf.c
-* Summary: NOXTLS debug printf abstraction layer implementation
+* Summary: NoxTLS debug printf abstraction layer implementation
 * Currently wraps standard printf, but can be customized per platform
 *
-*/
+*****************************************************************************/
 
 /** @addtogroup noxtls_common */
 
@@ -43,7 +27,7 @@
 #include <string.h>
 #include "noxtls_debug_printf.h"
 
-static unsigned char g_noxtls_debug_level = 1u;
+static unsigned char g_noxtls_debug_level = 1U;
 static FILE *g_noxtls_debug_log_fp = NULL;
 
 #ifdef __cplusplus
@@ -88,10 +72,10 @@ int noxtls_debug_vprintf(const char *format, va_list args)
     if(format == NULL) {
         return 0;
     }
-    if(g_noxtls_debug_level == 0u) {
+    if(g_noxtls_debug_level == 0U) {
         return 0;
     }
-    if(g_noxtls_debug_level == 1u && strstr(format, "[TLS13_DEBUG]") != NULL) {
+    if(g_noxtls_debug_level == 1U && strstr(format, "[TLS13_DEBUG]") != NULL) {
         return 0;
     }
     {
@@ -109,16 +93,32 @@ int noxtls_debug_vprintf(const char *format, va_list args)
 #endif
 }
 
+/**
+ * @brief Set the debug level
+ * 
+ * @param[in] level The debug level
+ */
 void noxtls_debug_set_level(unsigned char level)
 {
     g_noxtls_debug_level = level;
 }
 
+/**
+ * @brief Get the debug level
+ * 
+ * @return The debug level
+ */
 unsigned char noxtls_debug_get_level(void)
 {
     return g_noxtls_debug_level;
 }
 
+/**
+ * @brief Set the log file
+ * 
+ * @param[in] path The path to the log file
+ * @return The return value
+ */
 int noxtls_debug_set_log_file(const char *path)
 {
     if(g_noxtls_debug_log_fp != NULL) {

@@ -1,4 +1,4 @@
-/*****************************************************************************
+﻿/*****************************************************************************
 * Copyright (c) [2019] - [2026], Argenox Technologies LLC
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
@@ -30,6 +30,8 @@
 * CONTACT: info@argenox.com
 * 
 *
+* This file is part of the NoxTLS Library.
+*
 * File:    main.c
 * Summary: TLS Test Application - Tests TLS encryption/decryption
 *
@@ -40,7 +42,7 @@
 
 /**
  * @file main.c
- * @brief TLS test client — handshake and encryption/decryption verification.
+ * @brief TLS test client â€” handshake and encryption/decryption verification.
  * @defgroup noxtls_app_tls_test TLS test
  * @details
  * In-process test: creates TLS server and client, connects via callbacks,
@@ -52,6 +54,13 @@
  * @example
  * tls_test
  */
+
+/* MUST be the FIRST #include: app-local noxtls_config.h (project policy)
+ * MSVC searches the directory of the including header first for "..."
+ * style includes; if a library header pulls in "noxtls_config.h" before
+ * this app does, the top-level config wins. Hoisting our local one
+ * here ensures _NOXTLS_CONFIG_H_ is set from THIS file. */
+#include "noxtls_config.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -73,7 +82,93 @@
 
 #if NOXTLS_CFG_ENABLE_NOXSIGHT
 #include "../../../noxsight/noxsight.h"
+
+/* ============================================================================
+ * Application-private static workspace (per project policy)
+ * ============================================================================
+ *
+ * Every application owns a large statically-allocated workspace buffer; all
+ * dynamic allocations made by this translation unit are served out of it via
+ * a simple bump arena. The buffer's size lives in this app's noxtls_config.h
+ * (NOXTLS_APP_STATIC_BUFFER_SIZE) so it can be tuned independently per app.
+ *
+ * free() is a no-op; the whole arena is released en-masse via
+ * app_workspace_reset() (e.g. between commands) which also wipes any
+ * transient secret material that may have been allocated.
+ */
+static uint8_t  g_app_workspace[NOXTLS_APP_STATIC_BUFFER_SIZE];
+static size_t   g_app_workspace_off = 0U;
+#define APP_WORKSPACE_ALIGN ((size_t)16U)
+
+/**
+ * @brief Allocate workspace
+ *
+ * @param[in] n The size to allocate
+ * @return The pointer to the allocated workspace
+ */
+static void *app_workspace_alloc(size_t n)
+{
+    size_t off = (g_app_workspace_off + (APP_WORKSPACE_ALIGN - 1U)) &
+                 ~(APP_WORKSPACE_ALIGN - 1U);
+    if(n == 0U || off > sizeof(g_app_workspace) ||
+       n > sizeof(g_app_workspace) - off) {
+        return NULL;
+    }
+    g_app_workspace_off = off + n;
+    return &g_app_workspace[off];
+}
+
+/**
+ * @brief Free the workspace
+ *
+ * @param[in] p The pointer to the workspace to free
+ * @return void
+ */
+static void app_workspace_free(void *p) 
+{ 
+    (void)p; 
+}
+
+/**
+ * @brief Reset the workspace
+ *
+ * @return void
+ */
+static void app_workspace_reset(void)
+{
+    if(g_app_workspace_off > 0U) {
+        memset(g_app_workspace, 0, g_app_workspace_off);
+    }
+    g_app_workspace_off = 0U;
+}
+
+/* Redirect malloc()/free() in this translation unit to the static workspace.
+ * Library and standard headers have already been pulled in above; they
+ * declared malloc/free as plain functions and are unaffected. App code below
+ * uses these macros transparently. */
+#undef malloc
+#undef free
+#define malloc(n) app_workspace_alloc(n)
+#define free(p)   app_workspace_free(p)
 #endif
+
+static const char *tls_test_cert_paths[] = {
+    "applications/tls_test/testdata/tls_test_server_cert.der",
+    "../applications/tls_test/testdata/tls_test_server_cert.der",
+    "../../applications/tls_test/testdata/tls_test_server_cert.der",
+    "../../../applications/tls_test/testdata/tls_test_server_cert.der"
+};
+
+static const char *tls_test_key_paths[] = {
+    "applications/tls_test/testdata/tls_test_server_key.der",
+    "../applications/tls_test/testdata/tls_test_server_key.der",
+    "../../applications/tls_test/testdata/tls_test_server_key.der",
+    "../../../applications/tls_test/testdata/tls_test_server_key.der"
+};
+
+static const uint8_t tls_test_ocsp_response_der[] = {
+    0x30, 0x03, 0x0A, 0x01, 0x00
+};
 
 /* Buffer for simulating network connection */
 typedef struct
@@ -100,6 +195,14 @@ typedef struct
     char noxsight_file_path[260];
 } tls_test_cli_options_t;
 
+/**
+ * @brief Dump the hexadecimal data
+ *
+ * @param[in] label The label to dump the hexadecimal data from
+ * @param[in] data The data to dump the hexadecimal data from
+ * @param[in] len The length of the data to dump the hexadecimal data from
+ * @return void
+ */
 static void hex_dump(const char *label, const uint8_t *data, uint32_t len)
 {
     if(label) {
@@ -117,17 +220,31 @@ static void hex_dump(const char *label, const uint8_t *data, uint32_t len)
 #if NOXTLS_CFG_ENABLE_NOXSIGHT
 static FILE *g_tls_test_noxsight_file = NULL;
 
+/**
+ * @brief Write the NoxSight sink
+ *
+ * @param[in] ctx The context to write the NoxSight sink from
+ * @param[in] data The data to write the NoxSight sink from
+ * @param[in] len The length of the data to write the NoxSight sink from
+ * @return void
+ */
 static void tls_test_noxsight_sink_write(void *ctx, const uint8_t *data, size_t len)
 {
     FILE *out = (FILE *)ctx;
-    if(out == NULL || data == NULL || len == 0u)
+    if(out == NULL || data == NULL || len == 0U)
     {
         return;
     }
 
-    (void)fwrite(data, 1u, len, out);
+    (void)fwrite(data, 1U, len, out);
 }
 
+/**
+ * @brief Flush the NoxSight sink
+ *
+ * @param[in] ctx The context to flush the NoxSight sink from
+ * @return void
+ */
 static void tls_test_noxsight_sink_flush(void *ctx)
 {
     FILE *out = (FILE *)ctx;
@@ -137,6 +254,13 @@ static void tls_test_noxsight_sink_flush(void *ctx)
     }
 }
 
+/**
+ * @brief Parse the boolean value
+ *
+ * @param[in] value The value to parse the boolean value from
+ * @param[out] out_bool The output to parse the boolean value into
+ * @return The return code
+ */
 static int tls_test_parse_bool(const char *value, int *out_bool)
 {
     if(value == NULL || out_bool == NULL)
@@ -156,6 +280,13 @@ static int tls_test_parse_bool(const char *value, int *out_bool)
     return 0;
 }
 
+/**
+ * @brief Parse the level
+ *
+ * @param[in] value The value to parse the level from
+ * @param[out] out_level The output to parse the level into
+ * @return The return code
+ */
 static int tls_test_parse_level(const char *value, uint8_t *out_level)
 {
     if(value == NULL || out_level == NULL)
@@ -170,6 +301,13 @@ static int tls_test_parse_level(const char *value, uint8_t *out_level)
     return 0;
 }
 
+/**
+ * @brief Try to add a module to the mask
+ *
+ * @param[in] mask The mask to try to add the module to
+ * @param[in] name The name of the module to try to add to the mask
+ * @return 1 if the module was added to the mask, 0 otherwise
+ */
 static int tls_test_try_add_module(uint32_t *mask, const char *name)
 {
     if(mask == NULL || name == NULL)
@@ -187,11 +325,18 @@ static int tls_test_try_add_module(uint32_t *mask, const char *name)
     return 0;
 }
 
+/**
+ * @brief Parse the modules
+ *
+ * @param[in] value The value to parse the modules from
+ * @param[out] out_mask The output to parse the modules into
+ * @return The return code
+ */
 static int tls_test_parse_modules(const char *value, uint32_t *out_mask)
 {
     char tmp[256];
     char *token;
-    uint32_t mask = 0u;
+    uint32_t mask = 0U;
 
     if(value == NULL || out_mask == NULL)
     {
@@ -212,7 +357,7 @@ static int tls_test_parse_modules(const char *value, uint32_t *out_mask)
     }
     if(strcmp(value, "none") == 0)
     {
-        *out_mask = 0u;
+        *out_mask = 0U;
         return 1;
     }
 
@@ -254,6 +399,12 @@ static int tls_test_parse_modules(const char *value, uint32_t *out_mask)
     return 1;
 }
 
+/**
+ * @brief Print the usage information
+ *
+ * @param[in] prog The program name
+ * @return void
+ */
 static void tls_test_print_usage(const char *prog)
 {
     printf("Usage: %s [options]\n", prog);
@@ -269,6 +420,14 @@ static void tls_test_print_usage(const char *prog)
     printf("  --ns-file=<path>             File path when --ns-sink=file\n");
 }
 
+/**
+ * @brief Parse the command line arguments
+ *
+ * @param[in] argc The number of arguments
+ * @param[in] argv The arguments
+ * @param[out] opts The options to parse the command line arguments into
+ * @return The return code
+ */
 static int tls_test_parse_cli(int argc, char **argv, tls_test_cli_options_t *opts)
 {
     int i;
@@ -371,6 +530,12 @@ static int tls_test_parse_cli(int argc, char **argv, tls_test_cli_options_t *opt
     return 1;
 }
 
+/**
+ * @brief Initialize the NoxSight
+ *
+ * @param[in] opts The options to initialize the NoxSight from
+ * @return The return code
+ */
 static int tls_test_noxsight_init(const tls_test_cli_options_t *opts)
 {
     noxsight_sink_t sink;
@@ -422,6 +587,11 @@ static int tls_test_noxsight_init(const tls_test_cli_options_t *opts)
     return 1;
 }
 
+/**
+ * @brief Shutdown the NoxSight
+ *
+ * @return void
+ */
 static void tls_test_noxsight_shutdown(void)
 {
     if(g_tls_test_noxsight_file != NULL)
@@ -434,6 +604,9 @@ static void tls_test_noxsight_shutdown(void)
 
 /**
  * @brief Initialize network buffer
+ *
+ * @param[in] buf The buffer to initialize the network buffer from
+ * @return void
  */
 static void network_buffer_init(network_buffer_t *buf)
 {
@@ -444,6 +617,11 @@ static void network_buffer_init(network_buffer_t *buf)
 
 /**
  * @brief Append data to network buffer
+ *
+ * @param[in] buf The buffer to append the data to
+ * @param[in] data The data to append to the buffer
+ * @param[in] len The length of the data to append to the buffer
+ * @return The return code
  */
 static noxtls_return_t network_buffer_append(network_buffer_t *buf, const uint8_t *data, uint32_t len)
 {
@@ -473,6 +651,11 @@ static noxtls_return_t network_buffer_append(network_buffer_t *buf, const uint8_
 
 /**
  * @brief Read data from network buffer
+ *
+ * @param[in] buf The buffer to read the data from
+ * @param[out] data The data to read from the buffer
+ * @param[in] len The length of the data to read from the buffer
+ * @return The return code
  */
 static int32_t network_buffer_read(network_buffer_t *buf, uint8_t *data, uint32_t len)
 {
@@ -501,6 +684,9 @@ static int32_t network_buffer_read(network_buffer_t *buf, uint8_t *data, uint32_
 
 /**
  * @brief Free network buffer
+ *
+ * @param[in] buf The buffer to free the network buffer from
+ * @return void
  */
 static void network_buffer_free(network_buffer_t *buf)
 {
@@ -518,6 +704,11 @@ static void network_buffer_free(network_buffer_t *buf)
 
 /**
  * @brief Server send callback - sends data to client
+ *
+ * @param[in] user_data The user data to send the data to
+ * @param[in] data The data to send to the client
+ * @param[in] len The length of the data to send to the client
+ * @return The return code
  */
 static int32_t server_send_callback(void *user_data, const uint8_t *data, uint32_t len)
 {
@@ -537,6 +728,11 @@ static int32_t server_send_callback(void *user_data, const uint8_t *data, uint32
 
 /**
  * @brief Server receive callback - receives data from client
+ *
+ * @param[in] user_data The user data to receive the data from
+ * @param[out] data The data to receive from the client
+ * @param[in] len The length of the data to receive from the client
+ * @return The return code
  */
 static int32_t server_recv_callback(void *user_data, uint8_t *data, uint32_t len)
 {
@@ -551,6 +747,11 @@ static int32_t server_recv_callback(void *user_data, uint8_t *data, uint32_t len
 
 /**
  * @brief Client send callback - sends data to server
+ *
+ * @param[in] user_data The user data to send the data to
+ * @param[in] data The data to send to the server
+ * @param[in] len The length of the data to send to the server
+ * @return The return code
  */
 static int32_t client_send_callback(void *user_data, const uint8_t *data, uint32_t len)
 {
@@ -570,6 +771,11 @@ static int32_t client_send_callback(void *user_data, const uint8_t *data, uint32
 
 /**
  * @brief Client receive callback - receives data from server
+ *
+ * @param[in] user_data The user data to receive the data from
+ * @param[out] data The data to receive from the server
+ * @param[in] len The length of the data to receive from the server
+ * @return The return code
  */
 static int32_t client_recv_callback(void *user_data, uint8_t *data, uint32_t len)
 {
@@ -582,24 +788,13 @@ static int32_t client_recv_callback(void *user_data, uint8_t *data, uint32_t len
     return network_buffer_read(&conn->server_to_client, data, len);
 }
 
-#define TLS_TEST_CERT_PATH_COUNT 4u
-#define TLS_TEST_KEY_PATH_COUNT 4u
-static const char *tls_test_cert_paths[TLS_TEST_CERT_PATH_COUNT] = {
-    "applications/tls_test/testdata/tls_test_server_cert.der",
-    "../applications/tls_test/testdata/tls_test_server_cert.der",
-    "../../applications/tls_test/testdata/tls_test_server_cert.der",
-    "../../../applications/tls_test/testdata/tls_test_server_cert.der"
-};
-static const char *tls_test_key_paths[TLS_TEST_KEY_PATH_COUNT] = {
-    "applications/tls_test/testdata/tls_test_server_key.der",
-    "../applications/tls_test/testdata/tls_test_server_key.der",
-    "../../applications/tls_test/testdata/tls_test_server_key.der",
-    "../../../applications/tls_test/testdata/tls_test_server_key.der"
-};
-static const uint8_t tls_test_ocsp_response_der[] = {
-    0x30, 0x03, 0x0A, 0x01, 0x00
-};
 
+/**
+ * @brief Check if the cipher suite uses server key exchange
+ *
+ * @param[in] suite The cipher suite to check if it uses server key exchange from
+ * @return 1 if the cipher suite uses server key exchange, 0 otherwise
+ */
 static int tls_test_cipher_suite_uses_server_key_exchange(uint16_t suite)
 {
     switch(suite) {
@@ -642,7 +837,7 @@ static noxtls_return_t tls_test_load_certificate(uint8_t **cert_data, uint32_t *
 
     noxtls_x509_certificate_init(&cert);
     rc = NOXTLS_RETURN_FAILED;
-    for(i = 0; i < TLS_TEST_CERT_PATH_COUNT; i++) {
+    for(i = 0; i < (uint32_t)(sizeof(tls_test_cert_paths) / sizeof(tls_test_cert_paths[0])); i++) {
         rc = noxtls_x509_certificate_load_file(&cert, tls_test_cert_paths[i]);
         if(rc == NOXTLS_RETURN_SUCCESS) {
             break;
@@ -681,7 +876,7 @@ static noxtls_return_t tls_test_load_server_key(rsa_key_t *server_key)
 
     noxtls_x509_private_key_init(&key);
     rc = NOXTLS_RETURN_FAILED;
-    for(i = 0; i < TLS_TEST_KEY_PATH_COUNT; i++) {
+    for(i = 0; i < (uint32_t)(sizeof(tls_test_key_paths) / sizeof(tls_test_key_paths[0])); i++) {
         rc = noxtls_x509_private_key_load_file(&key, tls_test_key_paths[i]);
         if(rc == NOXTLS_RETURN_SUCCESS) {
             break;
@@ -697,6 +892,13 @@ static noxtls_return_t tls_test_load_server_key(rsa_key_t *server_key)
     return rc;
 }
 
+/**
+ * @brief Main function
+ *
+ * @param[in] argc The number of arguments
+ * @param[in] argv The arguments
+ * @return The exit status
+ */
 int main(int argc, char **argv)
 {
     noxtls_return_t rc;

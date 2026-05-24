@@ -1,0 +1,601 @@
+# SPDX-License-Identifier: Apache-2.0
+# Generated from noxtls_config_catalog.xml — do not edit by hand.
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-05-20T00:14:27Z)
+
+menu "NoxTLS library options (from noxtls_config.h)"
+
+	menu "Buffer sizes and limits (RAM tuning)"
+		comment "Reduce these to lower RAM/stack usage on constrained targets."
+
+		config NOXTLS_TLS_MAX_RECORD_SIZE
+			int "Max TLS record payload size (bytes)"
+			default 16384
+			range 256 16384
+			help
+			  Reduce these in noxtls_config.h (or via compiler -D) to lower RAM/stack usage on embedded systems. Relationship to certificate size: - The Certificate handshake message carries the full certificate chain (each cert is length-prefixed). Its size is the sum of all certificate DER lengths plus a few bytes of list framing. - Each TLS record carries at most TLS_MAX_RECORD_SIZE bytes of payload. The largest single handshake message (including Certificate) must fit within one record. Set NOXTLS_TLS_MAX_RECORD_SIZE to at least the size of your largest expected Certificate message. If the chain is larger than the record limit, the handshake will fail. When reducing below the TLS default (16384): both peers must agree on smaller fragments (e.g. max_fragment_length extension) or the connection may fail. Maximum TLS record payload size (bytes). TLS default 16384. Must be >= size of largest handshake message (usually the Certificate message). This value drives large stack buffers in record send/recv; reduce it for constrained stack. Ensure peer supports smaller fragment size if below 16384.
+
+		config NOXTLS_TLS_MAX_WIRE_RECORD_LENGTH
+			int "Max TLS wire record length (bytes)"
+			default 65535
+			range 256 65535
+			help
+			  Maximum TLS record-layer fragment length from the 2-byte length field (encrypted payload). RFC 5246 plaintext is at most 2^14 bytes; ciphertext is larger. Interop tests (e.g. tlsfuzzer SetMaxRecordSize) may send fragments up to 2^16-1. Must be >= NOXTLS_TLS_MAX_RECORD_SIZE.
+
+		config NOXTLS_TLS_MAX_HANDSHAKE_SIZE
+			int "Max TLS handshake message size (bytes)"
+			default 65536
+			range 256 65536
+			help
+			  Maximum handshake message size (bytes). Used only as a bounds check: handshake messages that claim a length above this are rejected. No buffer of this size is allocated—DTLS reassembly allocates only the actual message length (from the wire). So this can be set to a small value (e.g. 16384 or 8192) on embedded without reserving 64KB. It must be >= the largest handshake message you need (typically Certificate = chain size). Default 65536 for compatibility; set to NOXTLS_TLS_MAX_RECORD_SIZE or your max cert chain size to avoid accepting oversized messages.
+
+		config NOXTLS_MAX_CERT_SIZE
+			int "Max single X.509 certificate size (bytes)"
+			default 16384
+			range 256 65536
+			help
+			  Maximum single certificate size in bytes accepted by X.509 parse APIs. Default: 16384.
+
+		config NOXTLS_MAX_CERT_CHAIN_DEPTH
+			int "Max X.509 certificate chain depth"
+			default 16
+			range 1 64
+			help
+			  Maximum certificate-chain traversal depth for trust verification. Used by X.509 trust-chain walking to cap issuer hops and prevent unbounded loops in malformed or adversarial chains. Default: 16.
+
+		config NOXTLS_STATIC_BUFFER_SIZE
+			int "Static allocator pool size (bytes)"
+			default 65536
+			range 1024 1048576
+			help
+			  NOXTLS_STATIC_BUFFER_SIZE Default size for static buffer pool (in bytes) when NOXTLS_USE_STATIC_BUFFERS is enabled. This is only used if noxtls_mem_init() is called without a buffer (uses internal allocation). Default: 64KB (65536 bytes)
+
+		config NOXTLS_ECC_POINT_MUL_WINDOW_SIZE
+			int "ECC: point-multiplication window size (0=Montgomery only)"
+			default 4
+			range 0 8
+			help
+			  NOXTLS_ECC_POINT_MUL_WINDOW_SIZE Log2 of the precomputation table size for windowed scalar multiplication. Table has 2^W Jacobian points; larger W = fewer point ops, more RAM. Uses 4 for P-256 (good tradeoff). Use 0 to disable windowing (Montgomery ladder only). Default: 4 (table of 16 points)
+
+		config NOXTLS_RSA_DEBUG_PRIMALITY_CHECK_INTERVAL
+			int "RSA: debug primality interval (0=off)"
+			default 50
+			range 0 100000
+			help
+			  NOXTLS_RSA_DEBUG_PRIMALITY_CHECK_INTERVAL Interval (in attempts) for printing messages when checking primality (after quick divisibility test passes). Set to 0 to disable these messages. Default: 50 (print every 50 attempts)
+
+		config NOXTLS_RSA_DEBUG_PROGRESS_INTERVAL
+			int "RSA: debug progress interval (0=off)"
+			default 100
+			range 0 100000
+			help
+			  NOXTLS_RSA_DEBUG_PROGRESS_INTERVAL Interval (in attempts) for printing progress messages during prime generation. Set to 0 to disable progress messages. Default: 100 (print every 100 attempts)
+
+		config NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_INTERVAL
+			int "RSA: debug rejected-candidate interval (0=off)"
+			default 100
+			range 0 100000
+			help
+			  NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_INTERVAL Interval (in attempts) for printing debug info about rejected candidates. Only prints for the first 500 attempts to avoid spam. Set to 0 to disable rejected candidate debug output. Default: 100 (print every 100 attempts, up to 500 attempts)
+
+		config NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_MAX_ATTEMPTS
+			int "RSA: debug rejected-candidate max attempts"
+			default 500
+			range 0 100000
+			help
+			  NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_MAX_ATTEMPTS Maximum number of attempts for which to print rejected candidate debug info. After this many attempts, rejected candidate debug output is disabled. Default: 500 attempts
+
+		config NOXTLS_RSA_MAX_PRIME_ATTEMPTS
+			int "RSA: max prime generation attempts"
+			default 50000
+			range 1000 1000000
+			help
+			  NOXTLS_RSA_MAX_PRIME_ATTEMPTS Maximum number of attempts to generate a prime number before giving up. With aggressive filtering (wheel + large small-prime table), the search space is reduced but candidate density can still vary significantly. Use a higher limit to avoid spurious failures on unlucky sequences. Default: 50000 attempts
+
+		config NOXTLS_RSA_MILLER_RABIN_ITERATIONS_LARGE
+			int "RSA: Miller-Rabin iterations (large primes)"
+			default 3
+			range 1 64
+			help
+			  NOXTLS_RSA_MILLER_RABIN_ITERATIONS_LARGE Number of Miller-Rabin test iterations for \"large\" primes (> 512 bits). Security: 3 iterations gives error probability of ~2^-60 (extremely secure) Default: 3 iterations
+
+		config NOXTLS_RSA_MILLER_RABIN_ITERATIONS_SMALL
+			int "RSA: Miller-Rabin iterations (small primes)"
+			default 2
+			range 1 32
+			help
+			  NOXTLS_RSA_MILLER_RABIN_ITERATIONS_SMALL Number of Miller-Rabin test iterations for \"small\" primes (<= 512 bits). Security: 2 iterations gives error probability of ~2^-40 (very secure) Default: 2 iterations
+
+		config NOXTLS_RSA_MILLER_RABIN_SMALL_THRESHOLD_BITS
+			int "RSA: small-prime size threshold (bits)"
+			default 512
+			range 64 4096
+			help
+			  NOXTLS_RSA_MILLER_RABIN_SMALL_THRESHOLD_BITS Prime size threshold (in bits) for determining \"small\" vs \"large\" primes. Primes <= this size use NOXTLS_RSA_MILLER_RABIN_ITERATIONS_SMALL. Primes > this size use NOXTLS_RSA_MILLER_RABIN_ITERATIONS_LARGE. Default: 512 bits
+
+	endmenu
+
+	menu "Core Modules"
+		config NOXTLS_FEATURE_DRBG
+			bool "DRBG"
+			default y
+			depends on NOXTLS_FEATURE_ENCRYPTION
+			depends on NOXTLS_FEATURE_AES
+			help
+			  Enables deterministic random bit generator (CTR-DRBG implementation). Prereq: NOXTLS_FEATURE_ENCRYPTION=1 and NOXTLS_FEATURE_AES=1.
+
+	endmenu
+
+	menu "Hash Algorithms"
+		config NOXTLS_FEATURE_HASH
+			bool "Hash Framework"
+			default y
+			help
+			  Core modules Enables hash framework and hash algorithm implementations. Prereq: none. Required by: certificates and TLS stacks.
+
+		config NOXTLS_FEATURE_BLAKE2
+			bool "Blake2"
+			default y
+			depends on NOXTLS_FEATURE_HASH
+			help
+			  Enables BLAKE2 hash family. Prereq: NOXTLS_FEATURE_HASH=1.
+
+		config NOXTLS_FEATURE_MD4
+			bool "MD4"
+			# legacy algorithm / option
+			default n
+			depends on NOXTLS_FEATURE_HASH
+			help
+			  Hash primitives Enables MD4 hashing algorithm. Prereq: NOXTLS_FEATURE_HASH=1. Security note: legacy algorithm; generally disable for modern deployments.
+
+		config NOXTLS_FEATURE_MD5
+			bool "MD5"
+			# legacy algorithm / option
+			default y
+			depends on NOXTLS_FEATURE_HASH
+			help
+			  Enables MD5 hashing algorithm. Prereq: NOXTLS_FEATURE_HASH=1. Security note: legacy algorithm; generally disable for modern deployments.
+
+		config NOXTLS_FEATURE_RIPEMD160
+			bool "Ripemd160"
+			default y
+			depends on NOXTLS_FEATURE_HASH
+			help
+			  Enables RIPEMD-160 hashing algorithm. Prereq: NOXTLS_FEATURE_HASH=1.
+
+		config NOXTLS_FEATURE_SHA1
+			bool "SHA-1"
+			# legacy algorithm / option
+			default y
+			depends on NOXTLS_FEATURE_HASH
+			help
+			  Enables SHA-1 hashing algorithm. Prereq: NOXTLS_FEATURE_HASH=1. Security note: legacy algorithm; generally disable for modern deployments.
+
+		config NOXTLS_FEATURE_SHA224
+			bool "Sha224"
+			default y
+			depends on NOXTLS_FEATURE_HASH
+			help
+			  Enables SHA-224 hashing algorithm (same implementation as SHA-256). Prereq: NOXTLS_FEATURE_HASH=1. Build: sha256.c is compiled when NOXTLS_FEATURE_SHA224 or NOXTLS_FEATURE_SHA256 is 1.
+
+		config NOXTLS_FEATURE_SHA256
+			bool "Sha256"
+			default y
+			depends on NOXTLS_FEATURE_HASH
+			help
+			  Enables SHA-256 hashing algorithm. Prereq: NOXTLS_FEATURE_HASH=1. Required by: TLS and certificate verification flows. Build: sha256.c is compiled when NOXTLS_FEATURE_SHA224 or NOXTLS_FEATURE_SHA256 is 1.
+
+		config NOXTLS_FEATURE_SHA3
+			bool "Sha3"
+			default y
+			depends on NOXTLS_FEATURE_HASH
+			help
+			  Enables SHA-3 hashing algorithms. Prereq: NOXTLS_FEATURE_HASH=1.
+
+		config NOXTLS_FEATURE_SHA384
+			bool "Sha384"
+			default y
+			depends on NOXTLS_FEATURE_HASH
+			help
+			  Enables SHA-384 hashing algorithm (same implementation as SHA-512). Prereq: NOXTLS_FEATURE_HASH=1. Build: sha512.c is compiled when NOXTLS_FEATURE_SHA384 or NOXTLS_FEATURE_SHA512 is 1.
+
+		config NOXTLS_FEATURE_SHA512
+			bool "Sha512"
+			default y
+			depends on NOXTLS_FEATURE_HASH
+			help
+			  Enables SHA-512 and truncated variants (SHA-512/224, SHA-512/256). Prereq: NOXTLS_FEATURE_HASH=1. Build: sha512.c is compiled when NOXTLS_FEATURE_SHA384 or NOXTLS_FEATURE_SHA512 is 1.
+
+	endmenu
+
+	menu "Symmetric Encryption"
+		config NOXTLS_FEATURE_ENCRYPTION
+			bool "Symmetric Encryption"
+			default y
+			help
+			  Enables symmetric encryption module family (AES/ARIA/Camellia/ChaCha/DES). Prereq: none. Required by: DRBG and TLS record protection.
+
+		config NOXTLS_FEATURE_AES
+			bool "AES"
+			default y
+			depends on NOXTLS_FEATURE_ENCRYPTION
+			help
+			  Symmetric primitives Enables AES cipher family. Prereq: NOXTLS_FEATURE_ENCRYPTION=1. Constraint: at least one NOXTLS_FEATURE_AES_* mode and one NOXTLS_FEATURE_AES_* key size must be enabled.
+
+		config NOXTLS_FEATURE_AES_128
+			bool "Aes 128"
+			default y
+			depends on NOXTLS_FEATURE_AES
+			help
+			  Enables AES-128 key schedule/path. Prereq: NOXTLS_FEATURE_AES=1.
+
+		config NOXTLS_FEATURE_AES_192
+			bool "Aes 192"
+			default y
+			depends on NOXTLS_FEATURE_AES
+			help
+			  Enables AES-192 key schedule/path. Prereq: NOXTLS_FEATURE_AES=1.
+
+		config NOXTLS_FEATURE_AES_256
+			bool "Aes 256"
+			default y
+			depends on NOXTLS_FEATURE_AES
+			help
+			  Enables AES-256 key schedule/path. Prereq: NOXTLS_FEATURE_AES=1.
+
+		config NOXTLS_FEATURE_AES_ACCEL_APPLE
+			bool "Aes Accel Apple"
+			default n
+			depends on NOXTLS_FEATURE_AES
+			help
+			  Enables Apple Silicon ARMv8 AES accelerated block path on arm64 Apple builds. Prereq: NOXTLS_FEATURE_AES=1. Build knob: NOXTLS_CFG_FEATURE_AES_ACCEL_APPLE.
+
+		config NOXTLS_FEATURE_AES_ACCEL_NI
+			bool "Aes Accel Ni"
+			default n
+			depends on NOXTLS_FEATURE_AES
+			help
+			  Enables AES-NI accelerated AES block path on x86/x64 builds that compile with AES intrinsics. Prereq: NOXTLS_FEATURE_AES=1. Build knob: NOXTLS_CFG_FEATURE_AES_ACCEL_NI.
+
+		config NOXTLS_FEATURE_AES_CBC
+			bool "Aes Cbc"
+			default y
+			depends on NOXTLS_FEATURE_AES
+			help
+			  Enables AES-CBC mode. Prereq: NOXTLS_FEATURE_AES=1.
+
+		config NOXTLS_FEATURE_AES_CCM
+			bool "Aes Ccm"
+			default y
+			depends on NOXTLS_FEATURE_AES
+			help
+			  Enables AES-CCM AEAD mode. Prereq: NOXTLS_FEATURE_AES=1.
+
+		config NOXTLS_FEATURE_AES_CFB
+			bool "Aes Cfb"
+			default y
+			depends on NOXTLS_FEATURE_AES
+			help
+			  Enables AES-CFB mode. Prereq: NOXTLS_FEATURE_AES=1.
+
+		config NOXTLS_FEATURE_AES_CMAC
+			bool "Aes Cmac"
+			default y
+			depends on NOXTLS_FEATURE_AES
+			help
+			  Enables AES-CMAC (RFC 4493) for message authentication (e.g. BLE Signed Write). Prereq: NOXTLS_FEATURE_AES=1.
+
+		config NOXTLS_FEATURE_AES_CTR
+			bool "Aes Ctr"
+			default y
+			depends on NOXTLS_FEATURE_AES
+			help
+			  Enables AES-CTR mode. Prereq: NOXTLS_FEATURE_AES=1.
+
+		config NOXTLS_FEATURE_AES_ECB
+			bool "AES-ECB"
+			# legacy algorithm / option
+			default y
+			depends on NOXTLS_FEATURE_AES
+			help
+			  Enables AES-ECB mode. Prereq: NOXTLS_FEATURE_AES=1. Security note: ECB is usually not suitable for bulk data confidentiality.
+
+		config NOXTLS_FEATURE_AES_GCM
+			bool "Aes Gcm"
+			default y
+			depends on NOXTLS_FEATURE_AES
+			help
+			  Enables AES-GCM AEAD mode. Required by TLS when ChaCha20-Poly1305 is disabled.
+
+		config NOXTLS_FEATURE_AES_OFB
+			bool "Aes Ofb"
+			default y
+			depends on NOXTLS_FEATURE_AES
+			help
+			  Enables AES-OFB mode. Prereq: NOXTLS_FEATURE_AES=1.
+
+		config NOXTLS_FEATURE_AES_XTS
+			bool "Aes Xts"
+			default y
+			depends on NOXTLS_FEATURE_AES
+			help
+			  Enables AES-XTS mode. Prereq: NOXTLS_FEATURE_AES=1. Typical use case: storage encryption.
+
+		config NOXTLS_FEATURE_ARIA
+			bool "Aria"
+			default y
+			depends on NOXTLS_FEATURE_ENCRYPTION
+			help
+			  Enables ARIA cipher family. Prereq: NOXTLS_FEATURE_ENCRYPTION=1.
+
+		config NOXTLS_FEATURE_CAMELLIA
+			bool "Camellia"
+			default y
+			depends on NOXTLS_FEATURE_ENCRYPTION
+			help
+			  Enables Camellia cipher family. Prereq: NOXTLS_FEATURE_ENCRYPTION=1.
+
+		config NOXTLS_FEATURE_CHACHA20_POLY1305
+			bool "Chacha20 Poly1305"
+			default y
+			depends on NOXTLS_FEATURE_ENCRYPTION
+			help
+			  Enables ChaCha20-Poly1305 AEAD. Prereq: NOXTLS_FEATURE_ENCRYPTION=1. Alternative TLS AEAD when AES-GCM is disabled or less preferred.
+
+		config NOXTLS_FEATURE_DES
+			bool "DES / 3DES"
+			# legacy algorithm / option
+			default y
+			depends on NOXTLS_FEATURE_ENCRYPTION
+			help
+			  Enables DES/3DES-related implementation units. Prereq: NOXTLS_FEATURE_ENCRYPTION=1. Security note: legacy; generally disable for modern deployments.
+
+		config NOXTLS_FEATURE_RC4
+			bool "RC4"
+			# legacy algorithm / option
+			default y
+			depends on NOXTLS_FEATURE_ENCRYPTION
+			help
+			  Enables RC4 stream cipher. Prereq: NOXTLS_FEATURE_ENCRYPTION=1. Security note: RC4 is deprecated and weak; use only for legacy compatibility.
+
+	endmenu
+
+	menu "Public-Key Cryptography"
+		config NOXTLS_FEATURE_PKC
+			bool "Public-Key Cryptography"
+			default y
+			help
+			  Enables public-key cryptography module family (RSA/ECC/curve algorithms). Prereq: none. Required by: certificates and most TLS key exchange/signature flows.
+
+		config NOXTLS_FEATURE_DH
+			bool "Dh"
+			default y
+			depends on NOXTLS_FEATURE_PKC
+			help
+			  Enables finite-field Diffie-Hellman (FFDHE) support. Prereq: NOXTLS_FEATURE_PKC=1.
+
+		config NOXTLS_FEATURE_DSA
+			bool "Dsa"
+			default y
+			depends on NOXTLS_FEATURE_PKC
+			help
+			  Enables DSA (Digital Signature Algorithm) per FIPS 186-4. Prereq: NOXTLS_FEATURE_PKC=1 (and bignum via RSA or DSA).
+
+		config NOXTLS_FEATURE_ECC
+			bool "Ecc"
+			default y
+			depends on NOXTLS_FEATURE_PKC
+			help
+			  Enables ECC core (short Weierstrass curve arithmetic). Prereq: NOXTLS_FEATURE_PKC=1. Required by: ECDSA and ECDH.
+
+		config NOXTLS_FEATURE_ECDH
+			bool "Ecdh"
+			default y
+			depends on NOXTLS_FEATURE_PKC
+			depends on NOXTLS_FEATURE_ECC
+			help
+			  Enables ECDH key agreement. Prereq: NOXTLS_FEATURE_PKC=1 and NOXTLS_FEATURE_ECC=1.
+
+		config NOXTLS_FEATURE_ECDSA
+			bool "Ecdsa"
+			default y
+			depends on NOXTLS_FEATURE_PKC
+			depends on NOXTLS_FEATURE_ECC
+			help
+			  Enables ECDSA signatures. Prereq: NOXTLS_FEATURE_PKC=1 and NOXTLS_FEATURE_ECC=1.
+
+		config NOXTLS_FEATURE_ED25519
+			bool "Ed25519"
+			default y
+			depends on NOXTLS_FEATURE_PKC
+			help
+			  Enables Ed25519 signatures. Prereq: NOXTLS_FEATURE_PKC=1.
+
+		config NOXTLS_FEATURE_ED448
+			bool "Ed448"
+			default n
+			depends on NOXTLS_FEATURE_PKC
+			depends on NOXTLS_FEATURE_SHA3
+			help
+			  Enables Ed448 signatures (RFC 8032). Requires NOXTLS_FEATURE_SHA3=1 for SHAKE256. Prereq: NOXTLS_FEATURE_PKC=1. Default OFF; set NOXTLS_CFG_FEATURE_ED448=ON in CMake to enable.
+
+		config NOXTLS_FEATURE_ML_DSA
+			bool "Ml Dsa"
+			default n
+			help
+			  Enables ML-DSA (FIPS 204) signature APIs and TLS PQ signature support.
+
+		config NOXTLS_FEATURE_ML_KEM
+			bool "Ml Kem"
+			default n
+			help
+			  Enables ML-KEM (FIPS 203) KEM APIs and TLS PQ keyshare support.
+
+		config NOXTLS_FEATURE_RSA
+			bool "Rsa"
+			default y
+			depends on NOXTLS_FEATURE_PKC
+			help
+			  PKC primitives Enables RSA (and bignum backend used by RSA paths). Prereq: NOXTLS_FEATURE_PKC=1.
+
+		config NOXTLS_FEATURE_SLH_DSA
+			bool "SLH-DSA"
+			default n
+			depends on NOXTLS_FEATURE_PKC
+			depends on NOXTLS_FEATURE_DRBG
+			depends on NOXTLS_FEATURE_SHA3
+			depends on NOXTLS_FEATURE_SHA256
+			depends on NOXTLS_FEATURE_SHA512
+			help
+			  Enables SLH-DSA (FIPS 205) signature APIs and TLS/X.509 PQ signature support.
+
+		config NOXTLS_FEATURE_X25519
+			bool "X25519"
+			default y
+			depends on NOXTLS_FEATURE_PKC
+			help
+			  Enables X25519 key agreement. Prereq: NOXTLS_FEATURE_PKC=1.
+
+		config NOXTLS_FEATURE_X448
+			bool "X448"
+			default y
+			depends on NOXTLS_FEATURE_PKC
+			help
+			  Enables X448 key agreement. Prereq: NOXTLS_FEATURE_PKC=1.
+
+	endmenu
+
+	menu "TLS / DTLS"
+		config NOXTLS_FEATURE_TLS
+			bool "TLS"
+			default y
+			depends on NOXTLS_FEATURE_HASH
+			depends on NOXTLS_FEATURE_ENCRYPTION
+			depends on NOXTLS_FEATURE_DRBG
+			depends on NOXTLS_FEATURE_PKC
+			depends on NOXTLS_FEATURE_CERT
+			help
+			  Enables TLS protocol implementation. Prereq: NOXTLS_FEATURE_HASH=1, NOXTLS_FEATURE_ENCRYPTION=1, NOXTLS_FEATURE_DRBG=1, NOXTLS_FEATURE_PKC=1, NOXTLS_FEATURE_CERT=1.
+
+		config NOXTLS_FEATURE_DTLS
+			bool "DTLS"
+			default y
+			depends on NOXTLS_FEATURE_TLS
+			help
+			  Enables DTLS support. Prereq: NOXTLS_FEATURE_TLS=1.
+
+		config NOXTLS_FEATURE_TLS10
+			bool "TLS 1.0"
+			# legacy algorithm / option
+			default n
+			depends on NOXTLS_FEATURE_TLS
+			help
+			  TLS/cert granularity Enables TLS 1.0 protocol implementation. Prereq: NOXTLS_FEATURE_TLS=1. Security note: legacy protocol; disabled by default.
+
+		config NOXTLS_FEATURE_TLS11
+			bool "TLS 1.1"
+			# legacy algorithm / option
+			default n
+			depends on NOXTLS_FEATURE_TLS
+			help
+			  Enables TLS 1.1 protocol implementation. Prereq: NOXTLS_FEATURE_TLS=1. Security note: legacy protocol; disabled by default.
+
+		config NOXTLS_FEATURE_TLS12
+			bool "TLS 1.2"
+			default y
+			depends on NOXTLS_FEATURE_TLS
+			help
+			  Enables TLS 1.2 protocol implementation. Prereq: NOXTLS_FEATURE_TLS=1.
+
+		config NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES
+			bool "TLS 1.2 Legacy Cipher Suites"
+			# legacy algorithm / option
+			default n
+			help
+			  Enables legacy TLS 1.2 cipher suites (CBC-mode and RSA key exchange suites). Security note: keep disabled for oracle/timing hardening unless strict backwards compatibility is required.
+
+		config NOXTLS_FEATURE_TLS13
+			bool "TLS 1.3"
+			default y
+			depends on NOXTLS_FEATURE_TLS
+			help
+			  Enables TLS 1.3 protocol implementation. Prereq: NOXTLS_FEATURE_TLS=1.
+
+		config NOXTLS_CFG_TLS13_ALLOW_RSA_PKCS1_CERTVERIFY
+			bool "Tls13 Allow Rsa Pkcs1 Certverify"
+			default n
+			help
+			  TLS 1.3 (RFC 8446): RSA PKCS#1 v1.5 CertificateVerify schemes (e.g. rsa_pkcs1_sha256, wire 0x0401) are deprecated for TLS 1.3 handshake signatures. NoxTLS does not implement signing those for CertificateVerify; keep 0. When 0, client offers consisting only of such schemes fail algorithm selection (fatal handshake_failure). Do not set to 1 without a reviewed implementation and test plan.
+
+	endmenu
+
+	menu "X.509 Certificates"
+		config NOXTLS_FEATURE_CERT
+			bool "X.509 Certificates"
+			default y
+			depends on NOXTLS_FEATURE_HASH
+			depends on NOXTLS_FEATURE_PKC
+			help
+			  Enables X.509 certificate parsing/verification/generation support. Prereq: NOXTLS_FEATURE_HASH=1 and NOXTLS_FEATURE_PKC=1. Required by: certificate-authenticated TLS.
+
+		config NOXTLS_HAVE_CERT_WRITE
+			bool "Cert Write"
+			default n
+			depends on NOXTLS_FEATURE_CERT
+			depends on NOXTLS_FEATURE_PKC
+			help
+			  Enables X.509 certificate writing/generation helpers. Prereq: NOXTLS_FEATURE_CERT=1 and NOXTLS_FEATURE_PKC=1.
+
+		config NOXTLS_X509_HOSTNAME_ALLOW_WILDCARD
+			bool "X509 Hostname Allow Wildcard"
+			default y
+			help
+			  Hostname verification policy for certificate matching. When 1, SAN/CN entries with left-most wildcard (\"*.example.com\") are accepted. When 0, only exact SAN/CN DNS matches are accepted. Runtime may override this default through noxtls_x509_set_hostname_wildcard_matching().
+
+	endmenu
+
+	menu "Memory Management"
+		config NOXTLS_USE_STATIC_BUFFERS
+			bool "Use Static Buffers"
+			default n
+			help
+			  NOXTLS_USE_STATIC_BUFFERS Define this to 1 to use static buffer allocation instead of system malloc. When enabled, all memory allocations will use a pre-allocated static buffer pool managed by the library's internal memory allocator. When disabled (default), the library uses standard system malloc/free. Default: 0 (disabled) - uses system malloc/free Recommended: Call noxtls_mem_init() early with a caller-supplied buffer for deterministic RAM usage. Behavior without explicit init: The allocator lazily initializes on first allocation by calling noxtls_mem_init(NULL, 0), which uses NOXTLS_STATIC_BUFFER_SIZE for the pool size.
+
+	endmenu
+
+	menu "RSA Key Generation"
+		config NOXTLS_RSA_ENABLE_QUICK_DIVISIBILITY_TEST
+			bool "Rsa Enable Quick Divisibility Test"
+			default y
+			help
+			  NOXTLS_RSA_ENABLE_QUICK_DIVISIBILITY_TEST Enable/disable quick divisibility test before expensive Miller-Rabin test. When enabled, candidates are first tested for divisibility by small primes (3, 5, 7, 11, 13, 17, 19, 23, 29, 31) to quickly filter out composites. This significantly speeds up prime generation by avoiding expensive Miller-Rabin tests on obviously composite numbers. Default: 1 (enabled)
+
+	endmenu
+
+	menu "ECC Performance"
+		config NOXTLS_ECC_FIXED_POINT_OPTIM
+			bool "Ecc Fixed Point Optim"
+			default y
+			help
+			  NOXTLS_ECC_FIXED_POINT_OPTIM When 1, cache precomputed multiples of the curve generator G and reuse for repeated k*G (ECDSA sign, key gen, ECDHE). Speeds up fixed-base multiplications. Default: 1 (enabled)
+
+	endmenu
+
+	menu "Observability"
+		config NOXTLS_CFG_ENABLE_NOXSIGHT
+			bool "Enable Noxsight"
+			default n
+			help
+			  Optional NoxSight integration for structured TLS diagnostics. Default is disabled so existing builds are unchanged unless explicitly enabled.
+
+	endmenu
+
+	menu "Other"
+		config NOXTLS_HAVE_TIME
+			bool "System Time Support"
+			default y
+			help
+			  When disabled, certificate validity (notBefore/notAfter) checking is skipped.
+
+	endmenu
+
+endmenu

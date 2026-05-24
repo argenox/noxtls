@@ -6,22 +6,20 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 2 of the License, or
-* (at your option) any later version.
-*
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
-* 
+*
 *
 * File:    noxtls_sha3.h
-* Summary: NOXTLS SHA3 Hash Definitions
+* Summary: SHA-3 (Keccak) Hash Definitions
+* Based on FIPS 202
 *
-*/
+*
+*****************************************************************************/
 
 /** @addtogroup noxtls_mdigest */
 /** @{ */
@@ -41,25 +39,25 @@ extern "C" {
 #define SHA3_MAX_X_SIZE 5
 #define SHA3_MAX_Y_SIZE 5
 #define SHA3_MAX_RATE_BYTES       (144u)
-#define SHA3_LANE_BITS            (64u)
-#define SHA3_LANE_BYTES           (8u)
+#define SHA3_LANE_BITS            (64U)
+#define SHA3_LANE_BYTES           (8U)
 #define SHA3_DOMAIN_SEP           (0x06u)
 #define SHA3_PAD_FINAL_BYTE       (0x80u)
-#define SHA3_KECCAK_ROUNDS        (24u)
+#define SHA3_KECCAK_ROUNDS        (24U)
 #define SHA3_RATE_224_BYTES       (144u)
 #define SHA3_CAPACITY_224_BYTES   (56u)
 #define SHA3_RATE_256_BYTES       (136u)
-#define SHA3_CAPACITY_256_BYTES   (64u)
+#define SHA3_CAPACITY_256_BYTES   (64U)
 #define SHA3_RATE_384_BYTES       (104u)
 #define SHA3_CAPACITY_384_BYTES   (96u)
 #define SHA3_RATE_512_BYTES       (72u)
-#define SHA3_CAPACITY_512_BYTES   (128u)
+#define SHA3_CAPACITY_512_BYTES   (128U)
 /* SHAKE256 (FIPS 202): rate 1088 bits = 136 bytes, capacity 512 bits = 64 bytes */
 #define SHA3_SHAKE128_RATE_BYTES   (168u)
-#define SHA3_SHAKE128_CAPACITY_BYTES (32u)
+#define SHA3_SHAKE128_CAPACITY_BYTES (32U)
 #define SHA3_SHAKE128_DOMAIN_SEP   (0x1Fu)
 #define SHA3_SHAKE256_RATE_BYTES   (136u)
-#define SHA3_SHAKE256_CAPACITY_BYTES (64u)
+#define SHA3_SHAKE256_CAPACITY_BYTES (64U)
 #define SHA3_SHAKE256_DOMAIN_SEP   (0x1Fu)
 
 /* SHA-3 output lengths */

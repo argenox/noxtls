@@ -6,13 +6,9 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 2 of the License, or
-* (at your option) any later version.
-*
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
@@ -21,7 +17,8 @@
 * File:    noxtls_dsa.c
 * Summary: Digital Signature Algorithm (DSA) per FIPS 186-4
 *
-*/
+*
+*****************************************************************************/
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -194,7 +191,7 @@ noxtls_return_t noxtls_dsa_key_generate(dsa_key_t *key)
 
     if(key == NULL || key->p == NULL || key->q == NULL || key->g == NULL || key->y == NULL || key->x == NULL)
         return NOXTLS_RETURN_NULL;
-    if(key->q_len > (uint32_t)(UINT32_MAX / 8u))
+    if(key->q_len > (uint32_t)(UINT32_MAX / 8U))
         return NOXTLS_RETURN_FAILED;
 
     x_buf = (uint8_t *)noxtls_calloc(key->q_len, 1);
@@ -208,7 +205,7 @@ noxtls_return_t noxtls_dsa_key_generate(dsa_key_t *key)
     }
 
     for(attempt = 0; attempt < max_attempts; attempt++) {
-        if(drbg_generate(&drbg, x_buf, key->q_len * 8u, NULL, 0) != NOXTLS_RETURN_SUCCESS) {
+        if(drbg_generate(&drbg, x_buf, key->q_len * 8U, NULL, 0) != NOXTLS_RETURN_SUCCESS) {
             noxtls_free(x_buf);
             return NOXTLS_RETURN_FAILED;
         }
@@ -321,9 +318,9 @@ noxtls_return_t noxtls_dsa_sign(const dsa_key_t *key, const uint8_t *noxtls_mess
     q_len = key->q_len;
     if(q_len > DSA_MAX_Q_BYTES || p_len > DSA_MAX_P_BYTES)
         return NOXTLS_RETURN_FAILED;
-    if(q_len > (uint32_t)(UINT32_MAX / 8u) ||
-       q_len > (uint32_t)(UINT32_MAX / 2u) ||
-       p_len > (uint32_t)(UINT32_MAX / 2u) ||
+    if(q_len > (uint32_t)(UINT32_MAX / 8U) ||
+       q_len > (uint32_t)(UINT32_MAX / 2U) ||
+       p_len > (uint32_t)(UINT32_MAX / 2U) ||
        q_len == UINT32_MAX)
         return NOXTLS_RETURN_FAILED;
 
@@ -332,7 +329,7 @@ noxtls_return_t noxtls_dsa_sign(const dsa_key_t *key, const uint8_t *noxtls_mess
     k = (uint8_t *)noxtls_calloc(q_len, 1);
     k_inv = (uint8_t *)noxtls_calloc(q_len, 1);
     g_k = (uint8_t *)noxtls_calloc(p_len, 1);
-    rx = (uint8_t *)noxtls_calloc((size_t)q_len * 2u, 1);
+    rx = (uint8_t *)noxtls_calloc((size_t)q_len * 2U, 1);
     z_rx = (uint8_t *)noxtls_calloc(q_len + 1, 1);
     random_bytes = (uint8_t *)noxtls_calloc(q_len, 1);
     if(!hash || !z || !k || !k_inv || !g_k || !rx || !z_rx || !random_bytes) {
@@ -358,7 +355,7 @@ noxtls_return_t noxtls_dsa_sign(const dsa_key_t *key, const uint8_t *noxtls_mess
         goto cleanup;
 
     for(attempt = 0; attempt < max_attempts; attempt++) {
-        if(drbg_generate(&drbg, random_bytes, q_len * 8u, NULL, 0) != NOXTLS_RETURN_SUCCESS) {
+        if(drbg_generate(&drbg, random_bytes, q_len * 8U, NULL, 0) != NOXTLS_RETURN_SUCCESS) {
             rc = NOXTLS_RETURN_FAILED;
             goto cleanup;
         }
@@ -453,8 +450,8 @@ noxtls_return_t noxtls_dsa_verify(const dsa_key_t *key, const uint8_t *noxtls_me
     q_len = key->q_len;
     if(signature->q_len != q_len || q_len > DSA_MAX_Q_BYTES || p_len > DSA_MAX_P_BYTES)
         return NOXTLS_RETURN_FAILED;
-    if(q_len > (uint32_t)(UINT32_MAX / 2u) ||
-       p_len > (uint32_t)(UINT32_MAX / 2u) ||
+    if(q_len > (uint32_t)(UINT32_MAX / 2U) ||
+       p_len > (uint32_t)(UINT32_MAX / 2U) ||
        q_len == UINT32_MAX)
         return NOXTLS_RETURN_FAILED;
 
@@ -467,12 +464,12 @@ noxtls_return_t noxtls_dsa_verify(const dsa_key_t *key, const uint8_t *noxtls_me
     hash = (uint8_t *)noxtls_calloc(64, 1);
     z = (uint8_t *)noxtls_calloc(q_len, 1);
     w = (uint8_t *)noxtls_calloc(q_len, 1);
-    u1 = (uint8_t *)noxtls_calloc((size_t)q_len * 2u, 1);
-    u2 = (uint8_t *)noxtls_calloc((size_t)q_len * 2u, 1);
+    u1 = (uint8_t *)noxtls_calloc((size_t)q_len * 2U, 1);
+    u2 = (uint8_t *)noxtls_calloc((size_t)q_len * 2U, 1);
     g_u1 = (uint8_t *)noxtls_calloc(p_len, 1);
     y_u2 = (uint8_t *)noxtls_calloc(p_len, 1);
     v = (uint8_t *)noxtls_calloc(q_len, 1);
-    product = (uint8_t *)noxtls_calloc((size_t)p_len * 2u, 1);
+    product = (uint8_t *)noxtls_calloc((size_t)p_len * 2U, 1);
     if(!hash || !z || !w || !u1 || !u2 || !g_u1 || !y_u2 || !v || !product) {
         rc = NOXTLS_RETURN_FAILED;
         goto cleanup;

@@ -6,22 +6,19 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 2 of the License, or
-* (at your option) any later version.
-*
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
-* 
+*
 *
 * File:    noxtls_common.h
-* Summary: NOXTLS Common Definitions
+* Summary: NoxTLS Common Definitions
 *
-*/
+*
+*****************************************************************************/
 
 /**
  * @defgroup noxtls Library
@@ -30,7 +27,8 @@
 
 /**
  * @defgroup return_codes Return codes (noxtls_return_t)
- * @brief API return codes. Most NoxTLS functions return noxtls_return_t; check for NOXTLS_RETURN_SUCCESS or handle specific errors.
+ * @brief API return codes. Most NoxTLS functions return noxtls_return_t; check for 
+ *        NOXTLS_RETURN_SUCCESS or handle specific errors.
  *
  * Always check the return value of functions that return noxtls_return_t. For verification-style
  * functions (e.g. noxtls_ripemd160_verify), NOXTLS_RETURN_SUCCESS means the check passed and

@@ -1,0 +1,11 @@
+sample:
+  name: NoxTLS TLS client (Zephyr)
+  description: NoxTLS TLS 1.3 client init or optional network handshake
+tests:
+  sample.noxtls.tls_client:
+    tags: crypto noxtls
+    platform_allow: native_sim qemu_x86
+    harness: console
+    timeout: 120
+    regex:
+      - "NoxTLS TLS sample ready"

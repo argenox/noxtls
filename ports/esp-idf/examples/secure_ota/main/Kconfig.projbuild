@@ -1,0 +1,33 @@
+menu "NoxTLS secure OTA example"
+
+config NOXTLS_SECURE_OTA_WIFI_SSID
+    string "WiFi SSID"
+    default "myssid"
+
+config NOXTLS_SECURE_OTA_WIFI_PASSWORD
+    string "WiFi password"
+    default "mypassword"
+
+config NOXTLS_SECURE_OTA_HOST
+    string "HTTPS host"
+    default "example.com"
+
+config NOXTLS_SECURE_OTA_PORT
+    int "HTTPS port"
+    default 443
+    range 1 65535
+
+config NOXTLS_SECURE_OTA_PATH
+    string "Firmware path"
+    default "/firmware.bin"
+
+config NOXTLS_SECURE_OTA_MAX_IMAGE_BYTES
+    int "Max firmware bytes"
+    default 2097152
+    range 65536 8388608
+
+config NOXTLS_SECURE_OTA_EXPECTED_SHA256_HEX
+    string "Expected firmware SHA-256 (64 hex chars, optional)"
+    default ""
+
+endmenu

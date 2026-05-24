@@ -6,22 +6,19 @@
 *
 * This file is part of the NoxTLS Library.
 *
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 2 of the License, or
-* (at your option) any later version.
-*
-* Alternatively, this file may be used under the terms of a
-* commercial license from Argenox Technologies LLC.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from
+* Argenox Technologies LLC.
 *
 * See the LICENSE file in the project root for full details.
 * CONTACT: info@argenox.com
-* 
 *
-* File:    noxtls_sha512.c
-* Summary: NOXTLS SHA512
 *
-*/
+* File:    noxtls_sha512.h
+* Summary: SHA-384, SHA-512, SHA-512/224 and SHA-512/256 Hash Definition
+*
+*
+*****************************************************************************/
 
 /** @addtogroup noxtls_mdigest */
 /** @{ */
@@ -41,13 +38,13 @@ extern "C" {
 #define HASH_SHA512_224_OUT_LEN (28)
 #define HASH_SHA512_256_OUT_LEN (32)
 #define HASH_SHA512_LENGTH_LEN  (16)
-#define SHA512_BLOCK_SIZE_BITS  (1024u)
+#define SHA512_BLOCK_SIZE_BITS  (1024U)
 #define SHA512_PAD_BYTE         (0x80u)
 #define SHA512_ROUND_COUNT      (80u)
-#define SHA512_STATE_WORDS      (8u)
-#define SHA384_STATE_WORDS      (6u)
-#define SHA512_WORD_BYTES       (8u)
-#define SHA512_WORDS_PER_BLOCK  (16u)
+#define SHA512_STATE_WORDS      (8U)
+#define SHA384_STATE_WORDS      (6U)
+#define SHA512_WORD_BYTES       (8U)
+#define SHA512_WORDS_PER_BLOCK  (16U)
 
 NOXTLS_MSVC_WARNING_PUSH
 NOXTLS_MSVC_DISABLE_PADDING
