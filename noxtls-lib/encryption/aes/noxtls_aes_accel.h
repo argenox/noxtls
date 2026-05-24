@@ -79,6 +79,14 @@ noxtls_return_t noxtls_aes_accel_apple_decrypt_block(const uint8_t *key,
                                                       const uint8_t *data,
                                                       uint8_t *output,
                                                       noxtls_aes_type_t type);
+noxtls_return_t noxtls_aes_accel_stm32_encrypt_block(const uint8_t *key,
+                                                      const uint8_t *data,
+                                                      uint8_t *output,
+                                                      noxtls_aes_type_t type);
+noxtls_return_t noxtls_aes_accel_stm32_decrypt_block(const uint8_t *key,
+                                                      const uint8_t *data,
+                                                      uint8_t *output,
+                                                      noxtls_aes_type_t type);
 
 /**
  * @brief Encrypt one AES block with the active platform acceleration hook.

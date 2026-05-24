@@ -92,4 +92,3 @@ noxtls_return_t noxtls_aes_decrypt_block_ctx_internal(const noxtls_aes_context_t
 noxtls_aes_accel_backend_t noxtls_aes_get_accel_backend(void);
 
 #endif /* _AES_INTERNAL_H_ */
-
