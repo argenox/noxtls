@@ -1,4 +1,4 @@
-version: "0.2.50"
+version: "0.2.51"
 description: "NoxTLS — fast, lightweight TLS crypto library for embedded"
 url: https://github.com/argenox/noxtls
 license: "GPL-2.0-or-later OR NoxTLS-Commercial"

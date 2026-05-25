@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing component tag to publish (e.g. v0.2.50)"
+        description: "Existing component tag to publish (e.g. v0.2.51)"
         required: true
         type: string
 
@@ -67,10 +67,15 @@ jobs:
 
           echo "version=${TAG_VERSION}" >> "${GITHUB_OUTPUT}"
 
+      - name: Stage self-contained ESP-IDF component
+        run: |
+          chmod +x .github/scripts/prepare_esp_idf_component.sh
+          .github/scripts/prepare_esp_idf_component.sh . artifacts/esp-idf-component
+
       - name: Upload component to ESP Component Registry
         uses: espressif/upload-components-ci-action@v2
         with:
-          components: "noxtls: ports/esp-idf"
+          components: "noxtls: artifacts/esp-idf-component"
           namespace: "argenox"
           version: ${{ steps.validate.outputs.version }}
           api_token: ${{ secrets.IDF_COMPONENT_API_TOKEN }}

@@ -1,7 +1,25 @@
 # SPDX-License-Identifier: Apache-2.0
 # ESP-IDF component wrapper for NoxTLS (see ports/esp-idf/README.md).
 
-get_filename_component(NOXTLS_PROJECT_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
+get_filename_component(_noxtls_esp_idf_dir "${CMAKE_CURRENT_LIST_DIR}" ABSOLUTE)
+
+# Registry package: library under lib_root/ inside this component directory.
+# In-repo layout: this file is ports/esp-idf, library at ../../ .
+if(EXISTS "${_noxtls_esp_idf_dir}/lib_root/noxtls-lib")
+    set(NOXTLS_PROJECT_ROOT "${_noxtls_esp_idf_dir}/lib_root")
+    set(NOXTLS_ESP_IDF_DIR "${_noxtls_esp_idf_dir}")
+elseif(EXISTS "${_noxtls_esp_idf_dir}/../../noxtls-lib")
+    get_filename_component(NOXTLS_PROJECT_ROOT "${_noxtls_esp_idf_dir}/../.." ABSOLUTE)
+    set(NOXTLS_ESP_IDF_DIR "${_noxtls_esp_idf_dir}")
+else()
+    message(FATAL_ERROR
+        "NoxTLS ESP-IDF port: library sources not found. Expected either "
+        "${_noxtls_esp_idf_dir}/lib_root/noxtls-lib (registry component) or "
+        "${_noxtls_esp_idf_dir}/../../noxtls-lib (in-repo ports/esp-idf layout).")
+endif()
+
+set(NOXTLS_ESP_IDF_DIR "${NOXTLS_ESP_IDF_DIR}" CACHE INTERNAL "")
+set(NOXTLS_PROJECT_ROOT "${NOXTLS_PROJECT_ROOT}" CACHE PATH "" FORCE)
 
 # Application projects set NOXTLS_APPLICATION_CONFIG_DIR to their main/ folder
 # (containing a project-local noxtls_config.h). That must precede NOXTLS_PROJECT_ROOT
