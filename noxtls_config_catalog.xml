@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<noxtls-config-catalog version="0.2.52">
+<noxtls-config-catalog version="0.2.54">
   <metadata>
-    <noxtls-version>0.2.52</noxtls-version>
+    <noxtls-version>0.2.54</noxtls-version>
     <source-header>noxtls/noxtls_config.h</source-header>
     <version-header>noxtls/noxtls_version.h</version-header>
     <generated-at>2026-05-19T05:32:08Z</generated-at>

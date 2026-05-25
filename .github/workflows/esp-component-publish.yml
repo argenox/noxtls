@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing component tag to publish (e.g. v0.2.52)"
+        description: "Existing component tag to publish (e.g. v0.2.54)"
         required: true
         type: string
 

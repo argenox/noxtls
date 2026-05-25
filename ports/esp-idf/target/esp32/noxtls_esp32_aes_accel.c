@@ -33,7 +33,25 @@
 #if defined(SOC_AES_SUPPORTED) && SOC_AES_SUPPORTED
 #include "aes/esp_aes.h"
 #include "aes/esp_aes_gcm.h"
+
+/* Stable values from mbedtls_cipher_id_t / GCM mode (see esp_aes_gcm.h). */
+enum {
+    NOXTLS_ESP_MBEDTLS_CIPHER_ID_AES = 2,
+    NOXTLS_ESP_MBEDTLS_GCM_ENCRYPT = 1
+};
+
+#if defined(__has_include)
+#if __has_include(<mbedtls/gcm.h>)
 #include "mbedtls/gcm.h"
+#define NOXTLS_ESP_MBEDTLS_ERR_GCM_AUTH_FAILED MBEDTLS_ERR_GCM_AUTH_FAILED
+#else
+/* IDF 6 / Mbed TLS 4.x: esp_aes_gcm_auth_decrypt returns PSA_ERROR_INVALID_SIGNATURE. */
+#define NOXTLS_ESP_MBEDTLS_ERR_GCM_AUTH_FAILED ((int)-149)
+#endif
+#else
+#include "mbedtls/gcm.h"
+#define NOXTLS_ESP_MBEDTLS_ERR_GCM_AUTH_FAILED MBEDTLS_ERR_GCM_AUTH_FAILED
+#endif
 #endif
 #endif
 
@@ -199,7 +217,16 @@ noxtls_return_t noxtls_aes_accel_port_encrypt_block(const uint8_t *key,
                                                      uint8_t *output,
                                                      noxtls_aes_type_t type)
 {
+#if defined(ESP_PLATFORM) && defined(SOC_AES_SUPPORTED) && SOC_AES_SUPPORTED && \
+    CONFIG_NOXTLS_ESP_HW_AES
     return noxtls_aes_accel_esp_crypt_block(key, data, output, type, ESP_AES_ENCRYPT);
+#else
+    (void)key;
+    (void)data;
+    (void)output;
+    (void)type;
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
 }
 
 /**
@@ -218,7 +245,16 @@ noxtls_return_t noxtls_aes_accel_port_decrypt_block(const uint8_t *key,
                                                      uint8_t *output,
                                                      noxtls_aes_type_t type)
 {
+#if defined(ESP_PLATFORM) && defined(SOC_AES_SUPPORTED) && SOC_AES_SUPPORTED && \
+    CONFIG_NOXTLS_ESP_HW_AES
     return noxtls_aes_accel_esp_crypt_block(key, data, output, type, ESP_AES_DECRYPT);
+#else
+    (void)key;
+    (void)data;
+    (void)output;
+    (void)type;
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
 }
 
 /**
@@ -335,13 +371,13 @@ noxtls_return_t noxtls_aes_gcm_encrypt_accel_port(const uint8_t *key,
     }
 
     esp_aes_gcm_init(&ctx);
-    rc = esp_aes_gcm_setkey(&ctx, MBEDTLS_CIPHER_ID_AES, key, key_bits);
+    rc = esp_aes_gcm_setkey(&ctx, NOXTLS_ESP_MBEDTLS_CIPHER_ID_AES, key, key_bits);
     if(rc != 0) {
         esp_aes_gcm_free(&ctx);
         return NOXTLS_RETURN_FAILED;
     }
 
-    rc = esp_aes_gcm_crypt_and_tag(&ctx, MBEDTLS_GCM_ENCRYPT, (size_t)plaintext_len,
+    rc = esp_aes_gcm_crypt_and_tag(&ctx, NOXTLS_ESP_MBEDTLS_GCM_ENCRYPT, (size_t)plaintext_len,
                                    nonce, 12U, aad, (size_t)aad_len,
                                    plaintext, ciphertext, 16U, tag);
     esp_aes_gcm_free(&ctx);
@@ -412,7 +448,7 @@ noxtls_return_t noxtls_aes_gcm_decrypt_accel_port(const uint8_t *key,
     }
 
     esp_aes_gcm_init(&ctx);
-    rc = esp_aes_gcm_setkey(&ctx, MBEDTLS_CIPHER_ID_AES, key, key_bits);
+    rc = esp_aes_gcm_setkey(&ctx, NOXTLS_ESP_MBEDTLS_CIPHER_ID_AES, key, key_bits);
     if(rc != 0) {
         esp_aes_gcm_free(&ctx);
         return NOXTLS_RETURN_FAILED;
@@ -425,7 +461,7 @@ noxtls_return_t noxtls_aes_gcm_decrypt_accel_port(const uint8_t *key,
     if(rc == 0) {
         return NOXTLS_RETURN_SUCCESS;
     }
-    if(rc == MBEDTLS_ERR_GCM_AUTH_FAILED) {
+    if(rc == NOXTLS_ESP_MBEDTLS_ERR_GCM_AUTH_FAILED) {
         return NOXTLS_RETURN_BAD_DATA;
     }
     return NOXTLS_RETURN_FAILED;

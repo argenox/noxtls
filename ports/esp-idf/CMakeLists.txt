@@ -26,6 +26,12 @@ set(NOXTLS_PROJECT_ROOT "${NOXTLS_PROJECT_ROOT}" CACHE PATH "" FORCE)
 # so the library does not pick up the shared repo-root noxtls_config.h.
 set(_noxtls_config_include_dirs "")
 
+# IDF 5.x: explicit "newlib" component. IDF 6+ renamed it to esp_libc (default-required).
+set(_noxtls_esp_idf_requires mbedtls)
+if(EXISTS "${IDF_PATH}/components/newlib")
+    list(APPEND _noxtls_esp_idf_requires newlib)
+endif()
+
 idf_component_register(
     SRCS
         "src/noxtls_esp_idf_glue.c"
@@ -48,8 +54,7 @@ idf_component_register(
         esp_hw_support
         freertos
     REQUIRES
-        mbedtls
-        newlib
+        ${_noxtls_esp_idf_requires}
 )
 
 if(NOT CONFIG_NOXTLS)
@@ -98,6 +103,15 @@ set(NOXTLS_SIDECHANNEL_PROFILE "${CONFIG_NOXTLS_SIDECHANNEL}" CACHE STRING "" FO
 
 include(${CMAKE_CURRENT_LIST_DIR}/noxtls_esp_idf_kconfig.cmake)
 
+# Ensure all NoxTLS library targets created under add_subdirectory(${NOXTLS_PROJECT_ROOT})
+# see the generated noxtls_config.h snapshot. Applying includes only to top-level
+# wrapper libs (noxtls_hash/noxtls_tls/...) is not sufficient because leaf targets
+# like noxtls_sha3 compile independently.
+include_directories(BEFORE ${_noxtls_config_include_dirs})
+if(EXISTS "${PROJECT_BINARY_DIR}/config")
+    include_directories(BEFORE "${PROJECT_BINARY_DIR}/config")
+endif()
+
 add_subdirectory(${NOXTLS_PROJECT_ROOT} noxtls_build)
 
 # After Kconfig -> cache and profile overrides in root CMakeLists (final NOXTLS_CFG_*).
@@ -121,6 +135,21 @@ set(NOXTLS_ESP_IDF_CRYPTO_HAL_INCLUDE_DIRS
     "${IDF_PATH}/components/mbedtls/port/include"
     "${IDF_PATH}/components/mbedtls/mbedtls/include")
 
+# HW accel .c files include mbedTLS port headers (sha/sha_core.h, aes/esp_aes.h) which
+# pull in hal/*_types.h. IDF 5.x: components/hal/include. IDF 6+: esp_hal_security/include.
+if(EXISTS "${IDF_PATH}/components/esp_hal_security/include/hal/sha_types.h")
+    list(APPEND NOXTLS_ESP_IDF_CRYPTO_HAL_INCLUDE_DIRS
+        "${IDF_PATH}/components/esp_hal_security/include")
+elseif(EXISTS "${IDF_PATH}/components/hal/include/hal/sha_types.h")
+    list(APPEND NOXTLS_ESP_IDF_CRYPTO_HAL_INCLUDE_DIRS
+        "${IDF_PATH}/components/hal/include")
+endif()
+
+# aes/esp_aes.h includes esp_types.h (IDF 6+ no longer pulls this in transitively for us).
+if(EXISTS "${IDF_PATH}/components/esp_common/include/esp_types.h")
+    list(APPEND NOXTLS_ESP_IDF_CRYPTO_HAL_INCLUDE_DIRS
+        "${IDF_PATH}/components/esp_common/include")
+endif()
 if(TARGET noxtls_certificates)
     list(APPEND NOXTLS_ESP_IDF_LIBS noxtls_certificates)
 endif()

@@ -1,32 +1,100 @@
-# NoxTLS on ESP-IDF
+# NoxTLS Embedded Crypto
 
-This directory contains the ESP-IDF component wrapper for [NoxTLS](https://noxtls.com). The core library stays in the repository root; this port only provides `idf_component_register()`, Kconfig, and ESP32 platform glue.
+[NoxTLS](https://noxtls.com) is a lightweight embedded TLS and cryptography library designed for constrained systems and IoT devices.
 
-[NoxTLS GitHub Repo](https://github.com/argenox/noxtls) contains the source code
+The ESP-IDF port provides native integration with Espressif's ESP-IDF framework, including optional hardware acceleration support for cryptographic operations on supported ESP32 targets.
 
-Other RTOS ports live alongside this one under `ports/` (for example `ports/zephyr/`).
+## Overview
 
-## Add the component to your project
+This library enables you to add security and TLS support for viarios Espressif SoCs. It provde
 
-### Option A: `EXTRA_COMPONENT_DIRS` (local checkout)
+- **Fast**: Highly optimized math and cryptographic algorithms, with hardware acceleration where available, allow NoxTLS to outperform many other libraries in speed and efficiency.
+- **Broad Support**: NoxTLS is designed for seamless integration with a wide array of Espressif SoCs and ESP-IDF versions.
+- **Supported Features**:
+    - TLS 1.2 and 1.3
+    - X.509 certificate parsing and validation
+    - Elliptic Curve Cryptography (ECDSA, ECDH) and X25519/Ed25519
+    - RSA (sign, verify, encrypt, decrypt)
+    - SHA-256, SHA-512, and other hashing algorithms
+    - AES (ECB, CBC, CTR, GCM, CCM)
+    - HMAC, HKDF
+    - Hardware acceleration support (on capable chips)
+    - Non-blocking I/O and small RAM footprint
+    - Secure random number generation (hardware-backed if available)    
+- **RAM Download and Execution**: Capability to load binaries into RAM and execute them for flexible firmware updates and testing.
+- **Registers and Control**: Supports direct read/write access to device registers, changing transmission rates, and hardware reset functionalities.
 
-Clone or submodule NoxTLS into your project, then in your app `CMakeLists.txt` **before** `project()`:
 
-```cmake
-list(APPEND EXTRA_COMPONENT_DIRS "/path/to/noxtls/ports/esp-idf")
-```
 
-Bundled **examples** under `ports/esp-idf/examples/` detect this port automatically when built in-repo (`../..` → `ports/esp-idf`). When copied elsewhere or taken from the release zip, each example uses **`argenox/noxtls`** from the ESP Component Registry via `main/idf_component.yml`. See [`examples/README.md`](examples/README.md).
+### Supported Target Devices (ESP device being flashed)
 
-### Option B: ESP-IDF Component Manager
+| Target          | Status |
+|:---------------:|:------:|
+| ESP32-S2        |  🔶    |
+| ESP32-S3        |  ✅    |
+| ESP32-C2        |  ❌    |
+| ESP32-C3        |  ❌    |
+| ESP32-H2        |  ❌    |
+| ESP32-C6        |  🚧    |
+| ESP32-C5        |  🚧    |
+| ESP32-P4        |  🚧    |
+| ESP32-C61       |  🚧    |
 
-When published to the registry:
+**Legend**: ✅ Supported | ❌ Not supported | 🚧 Under development | 🔶 Compiles but Untested
+
+
+## Running the Demo
+
+> **Warning:**  
+> **Currently, only the `examples/https_server` demo is fully tested and functional.**  
+> All other examples are a work in progress and may not build or run correctly yet.
+
+
+* Install ESP-IDF **5.0+** or **6.x** (tested with v5.5 and v6.0.1)
+* Start
+* Go to the `https_server` folder
+
+    idf.py set-target esp32s3
+
+We need to configure the SSID and Passphrase for your Access Point (AP) using menu config
+
+    idf.py menuconfig
+
+Go to `NoxTLS HTTPS server example` and modify the WiFI SSID and WiFi password
+
+
+Exit and save the settings. Then we can build and flash
+
+    idf.py build
+    idf.py flash monitor
+
+Once it runs you will see:
+
+
+    I (1214) wifi:connected with TEST_AP, aid = 1, channel 6, BW20, bssid = 2c:14:af:43:0f:14
+    I (1214) wifi:security: WPA3-SAE, phy: bgn, rssi: -57
+    I (1224) wifi:pm start, type: 1
+
+    I (1224) wifi:dp: 1, bi: 102400, li: 3, scale listen interval from 307200 us to 307200 us
+    I (1224) wifi:set rx beacon pti, rx_bcn_pti: 0, bcn_timeout: 25000, mt_pti: 0, mt_time: 10000
+    I (1294) wifi:AP's beacon interval = 102400 us, DTIM period = 1
+    I (1814) wifi:<ba-add>idx:0 (ifx:0, 3c:64:cf:42:9f:94), tid:0, ssn:0, winSize:64
+    I (2834) esp_netif_handlers: sta ip: 192.168.68.59, mask: 255.255.252.0, gw: 192.168.68.1
+    I (2834) noxtls_https_server: got ip: 192.168.68.59
+    I (2834) wifi:Set ps type: 0, coexist: 0
+
+    I (3024) noxtls_https_server: listening on TCP port 443
+    I (268524) wifi:<ba-add>idx:1 (ifx:0, 3c:64:cf:42:9f:94), tid:6, ssn:2, winSize:64
+
+
+## Adding the component to an existing project
+
+To add NoxTLS to another project, add it as an ESP-IDF dependency.
+We recommend using the latest version as it will always contain the latest features and fixes.
 
 ```sh
 idf.py add-dependency "argenox/noxtls"
 ```
-
-Until then, use Option A with a git submodule or `EXTRA_COMPONENT_DIRS`.
 
 ## Enable in your application
 
@@ -46,6 +114,8 @@ CONFIG_MBEDTLS_HARDWARE_SHA=y
 CONFIG_MBEDTLS_HARDWARE_AES=y
 ```
 
+`CONFIG_NOXTLS_ESP_HW_AES`, `CONFIG_NOXTLS_ESP_HW_SHA`, and the matching `CONFIG_MBEDTLS_HARDWARE_*` options depend on SoC capabilities (`SOC_AES_SUPPORTED`, `SOC_SHA_SUPPORTED`). Kconfig enables them by default only when the selected target has the peripheral. **Do not pin them in `sdkconfig.defaults` for multi-target projects** — use `idf.py set-target` and let Kconfig apply the right defaults, or add target-specific files such as `sdkconfig.defaults.esp32s3`.
+
 Link from application components with `REQUIRES esp-idf` (component folder name).
 
 Entropy is registered automatically via a GCC constructor in `src/noxtls_esp_idf_glue.c` when `CONFIG_NOXTLS_USE_ESP_ENTROPY` is set. You may also call `noxtls_esp_idf_init()` explicitly (see `include/noxtls_esp_idf.h`).
@@ -58,9 +128,10 @@ Entropy is registered automatically via a GCC constructor in `src/noxtls_esp_idf
 - `CONFIG_NOXTLS_ESP_HW_AES`: Enables AES block operations via ESP HAL (`esp_aes_*`).
 - `CONFIG_NOXTLS_ESP_HW_SHA`: Enables SHA-224/SHA-256 block processing via ESP HAL (`esp_sha_*`).
 
-These options are safe across multiple targets: unsupported SoCs automatically fall back to software paths.
+These options fall back to software when a peripheral is absent, but the port glue must compile on every target you build for. After changing target, run `idf.py fullclean build` if you previously forced HW options in `sdkconfig`.
 
 Target note:
+- `esp32h2` / `esp32c2`: no AES hardware (`SOC_AES_SUPPORTED=0`); use software AES (Kconfig omits `CONFIG_NOXTLS_ESP_HW_AES`).
 - `esp32s3` / `esp32c3`: no ECC peripheral (`SOC_ECC_SUPPORTED=0`), so `CONFIG_NOXTLS_ESP_HW_ECC` falls back to software ECC.
 - `esp32c6` (and other SoCs with `SOC_ECC_SUPPORTED=1`): P-256 ECC offload is used when enabled.
 
@@ -76,21 +147,13 @@ Ready-to-build projects live under `ports/esp-idf/examples/`:
 
 | Example | What it does |
 |---------|--------------|
-| [`tls_client`](examples/tls_client/) | TLS 1.3 client. Init-only by default; optional live handshake against a public host (`CONFIG_NOXTLS_SAMPLE_TLS_CONNECT=y`). |
 | [`https_server`](examples/https_server/) | TLS 1.3 HTTPS server with embedded PEM cert/key, returns an HTML page over Wi-Fi STA on `CONFIG_NOXTLS_HTTPS_SERVER_PORT` (default 8443). |
-| [`https_file_client`](examples/https_file_client/) | HTTPS file retrieval client: downloads an HTTP resource over NoxTLS TLS 1.3 and stores body bytes into SPIFFS. |
-| [`benchmark`](examples/benchmark/) | No networking. Reports MB/s for SHA-256, AES-GCM, ChaCha20-Poly1305, HMAC-SHA-256, CTR-DRBG, plus ops/s for ECDSA P-256 sign / verify. |
-| [`tls_library_compare`](examples/tls_library_compare/) | Side-by-side crypto benchmark for NoxTLS and mbedTLS (and wolfSSL when available) on one firmware image. |
-| [`secure_ota`](examples/secure_ota/) | Secure OTA flow over NoxTLS HTTPS: stream firmware into OTA partition, hash while downloading, optional digest pin, switch boot partition on success. |
-| [`ssh_client`](examples/ssh_client/) | SSH client integration example using `argenox/noxssh` transport API when that component is available in the ESP-IDF project. |
-| [`ssh_server`](examples/ssh_server/) | SSH server integration scaffold (documents future wiring once upstream `noxssh` server APIs are available). |
-| [`sftp_client`](examples/sftp_client/) | SFTP integration scaffold (documents future subsystem wiring once upstream `noxssh` exposes SFTP APIs). |
 
 Build any of them with:
 
 ```sh
 cd ports/esp-idf/examples/<name>
-idf.py set-target esp32
+idf.py set-target <esp32 variant>
 idf.py build flash monitor
 ```
 
@@ -105,7 +168,7 @@ You must configure a trust anchor (X.509 CA) for production handshakes; see the 
 
 ## Kconfig and `noxtls_config.h`
 
-ESP-IDF examples do **not** use the repository-root [`noxtls_config.h`](../../noxtls_config.h) (that file is for desktop apps and the default CMake build). Each example owns a local header, for example [`examples/https_server/main/noxtls_config.h`](examples/https_server/main/noxtls_config.h).
+Each example includes its own configuration file for example [`examples/https_server/main/noxtls_config.h`](examples/https_server/main/noxtls_config.h), which can be overriden by the menuconfig.
 
 Configuration flow:
 
@@ -154,25 +217,11 @@ CONFIG_NOXTLS_STATIC_BUFFER_SIZE=16384
 CONFIG_NOXTLS_ECC_POINT_MUL_WINDOW_SIZE=0
 ```
 
-### Regenerating Kconfig from the catalog
-
-After editing [`noxtls_config.h`](../../noxtls_config.h), refresh the catalog and port Kconfig files:
-
-```sh
-python noxtls/tools/config_catalog/generate_config_catalog.py
-python noxtls/tools/kconfig_gen/generate_kconfig.py
-```
-
-Commit the updated `noxtls_config_catalog.xml`, `ports/zephyr/Kconfig.noxtls.generated`, `ports/zephyr/noxtls_zephyr_kconfig.cmake`, `ports/esp-idf/Kconfig.noxtls.generated`, `ports/esp-idf/noxtls_esp_idf_kconfig.cmake`, and `ports/esp-idf/noxtls_esp_idf_config_header.cmake`.
-
-To verify generated files are current:
-
-```sh
-python noxtls/tools/kconfig_gen/generate_kconfig.py --check
-```
 
 ## Further reading
-
+- [NoxTLS Website](https://noxtls.com) — Main Project Website and information
+- [NoxTLS Documentation](https://docs.noxtls.com) — Documentation on the NoxTLS Library
+- [Argenox](https://www.argenox.com) — 
 - [Porting Guide](../../docs/docs/porting-guide.md) — memory, entropy, and TLS transport
 - [Configuration Guide](../../docs/docs/configuration-guide.md) — feature macros and footprint tuning
-- [Zephyr port](../zephyr/README.md) — parallel integration for Zephyr RTOS
+

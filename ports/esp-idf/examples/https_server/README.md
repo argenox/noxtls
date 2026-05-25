@@ -5,18 +5,18 @@ Minimal HTTPS server that runs a TLS 1.3 handshake against any modern browser or
 ## What it does
 
 1. Connects to WiFi as a station (`CONFIG_NOXTLS_HTTPS_SERVER_WIFI_SSID`).
-2. Parses an embedded server certificate and private key (PEM, in `main/certs/`).
+2. Parses an embedded server certificate and private key (PEM, in `certs/`).
 3. Listens on `CONFIG_NOXTLS_HTTPS_SERVER_PORT` (default 8443).
 4. For each client: runs `noxtls_tls13_accept()` (with ALPN `http/1.1` / `h2`), reads the HTTP request, returns a static `HTTP/1.0 200 OK` page, closes the connection.
 
 ## Generate a server certificate
 
-The example ships with **placeholder** files in `main/certs/`. The TLS parser will reject them — replace with a real cert and key before flashing.
+The example ships with **placeholder** files in `certs/`. The TLS parser will reject them — replace with a real cert and key before flashing.
 
 For a quick self-signed demo cert (RSA-2048, 1-year validity, CN=`esp32.local`):
 
 ```sh
-cd main/certs
+cd certs
 openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
     -subj '/CN=esp32.local' \
     -keyout server_key.pem -out server_cert.pem
@@ -33,13 +33,13 @@ openssl req -new -x509 -days 365 -key server_key.pem -out server_cert.pem \
 **Recommended on ESP32 (faster handshake):** Ed25519 — software signing is much faster than ECDSA P-256, so browsers are less likely to time out during `CertificateVerify`:
 
 ```sh
-cd main/certs
+cd certs
 openssl genpkey -algorithm ED25519 -out server_key.pem
 openssl req -new -x509 -days 365 -key server_key.pem -out server_cert.pem \
     -subj '/CN=esp32.local'
 ```
 
-Or with NoxTLS certgen (from repo root): `certgen gened25519 -out server` then copy/rename outputs into `main/certs/`.
+Or with NoxTLS certgen (from repo root): `certgen gened25519 -out server` then copy/rename outputs into `certs/`.
 
 Both RSA, ECDSA, and Ed25519 keys are supported; the example picks the signing path from the parsed key type.
 

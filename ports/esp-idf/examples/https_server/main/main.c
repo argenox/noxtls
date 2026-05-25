@@ -21,9 +21,9 @@
 * runs a TLS 1.3 handshake using embedded PEM cert/key, then returns a small
 * HTTP/1.0 page describing the negotiated connection.
 *
-* Provide your own certificate and private key in:
-*   main/certs/server_cert.pem
-*   main/certs/server_key.pem
+ * Provide your own certificate and private key in:
+ *   certs/server_cert.pem
+ *   certs/server_key.pem
 * See examples/https_server/README.md for the openssl one-liner.
 *
 *****************************************************************************/
@@ -86,7 +86,7 @@ typedef struct {
 } https_session_args_t;
 
 /* Browsers send ALPN; server must advertise overlap or handshake fails (RFC 7301). */
-static const char *const NOXTLS_HTTPS_ALPN_PROTOCOLS[] = { "http/1.1", "h2" };
+static const char *NOXTLS_HTTPS_ALPN_PROTOCOLS[] = { "http/1.1", "h2" };
 
 extern const uint8_t g_server_cert_pem_start[] asm("_binary_server_cert_pem_start");
 extern const uint8_t g_server_cert_pem_end[]   asm("_binary_server_cert_pem_end");
@@ -1162,7 +1162,7 @@ void app_main(void)
 				  &cert_der, &cert_der_len) != 0) {
 		ESP_LOGE(NOXTLS_HTTPS_TAG,
 			 "failed to decode embedded server_cert.pem (placeholder?); "
-			 "see main/certs/server_cert.pem header for the openssl command.");
+			 "see certs/server_cert.pem header for the openssl command.");
 		goto cleanup;
 	}
 
@@ -1176,7 +1176,7 @@ void app_main(void)
 					     key_pem_len) != NOXTLS_RETURN_SUCCESS) {
 		ESP_LOGE(NOXTLS_HTTPS_TAG,
 			 "failed to parse embedded server_key.pem (placeholder?); "
-			 "see main/certs/server_key.pem header for the openssl command.");
+			 "see certs/server_key.pem header for the openssl command.");
 		goto cleanup;
 	}
 

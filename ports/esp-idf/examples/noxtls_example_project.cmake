@@ -1,11 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 # Shared prelude for NoxTLS ESP-IDF examples. Include before project().
 
-set(NOXTLS_APPLICATION_CONFIG_DIR "${CMAKE_CURRENT_LIST_DIR}/main" CACHE INTERNAL "")
+# CMAKE_CURRENT_LIST_DIR is examples/ while this file is processed (not the example
+# project folder). CMAKE_SOURCE_DIR is the example root (https_server/, tls_client/, …).
+get_filename_component(_noxtls_example_dir "${CMAKE_SOURCE_DIR}" ABSOLUTE)
+set(NOXTLS_APPLICATION_CONFIG_DIR "${_noxtls_example_dir}/main" CACHE INTERNAL "")
 
-# In-repo layout: examples/<name>/../.. -> ports/esp-idf (single ESP-IDF port, no duplicate tree).
+# In-repo layout: examples/.. -> ports/esp-idf (single ESP-IDF port, no duplicate tree).
 # Standalone copy / release zip: no local port; main/idf_component.yml pulls argenox/noxtls.
-get_filename_component(_noxtls_esp_port "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
+get_filename_component(_noxtls_esp_port "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 if(EXISTS "${_noxtls_esp_port}/CMakeLists.txt" AND
    EXISTS "${_noxtls_esp_port}/idf_component.yml" AND
    EXISTS "${_noxtls_esp_port}/src/noxtls_esp_idf_glue.c")

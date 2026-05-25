@@ -5,4 +5,4 @@
 dependencies:
   idf: ">=5.0"
   argenox/noxtls:
-    version: "^0.2.52"
+    version: "^0.2.54"
