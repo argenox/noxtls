@@ -11,6 +11,15 @@ cmake -B build -D BUILD_TESTS=OFF
 cmake --build build
 ```
 
+On macOS, a single configure uses `binary-arm64/` or `binary-x86_64/` when you pass `-DCMAKE_OSX_ARCHITECTURES=arm64` or `x86_64`; otherwise apps go to `binary/`. To build **both** slices in one step:
+
+```bash
+cmake -B build -D NOXTLS_BUILD_MACOS_APPLICATION_SLICES=ON
+cmake --build build --target noxtls_macos_application_slices
+```
+
+Executables land in `binary-arm64/` and `binary-x86_64/`. You can also run `scripts/build_macos_application_slices.sh` directly.
+
 To build only the library and skip all applications:
 
 ```bash

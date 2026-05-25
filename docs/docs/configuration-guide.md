@@ -22,6 +22,8 @@ When building with CMake, common knobs include:
 | Option | Description | Default |
 |--------|-------------|---------|
 | `BUILD_APPLICATIONS` | Build sample/demo applications | `ON` |
+| `NOXTLS_BUILD_MACOS_APPLICATION_SLICES` | macOS only: build apps for `arm64` and `x86_64` via target `noxtls_macos_application_slices` | `OFF` |
+| `NOXTLS_APPLICATIONS_BINARY_DIR` | Output directory for application executables (defaults to `binary/` or `binary-<arch>/` on macOS) | `binary/` |
 | `BUILD_TESTS` | Build unit/integration tests | `OFF` |
 | `NOXTLS_PROFILE` | Preset feature profile (`default`, `minimal_tls_client`, `tls_server_pki`, `crypto_only`, `fips_like_profile`) | `default` |
 | `NOXTLS_SIDECHANNEL_PROFILE` | Side-channel hardening profile (`performance`, `balanced`, `constant_time_strict`) | `balanced` |
@@ -68,6 +70,14 @@ cmake -S noxtls -B noxtls/build-apple-aes \
   -DNOXTLS_CFG_FEATURE_AES_ACCEL_NI=OFF \
   -DNOXTLS_CFG_FEATURE_AES_ACCEL_APPLE=ON
 cmake --build noxtls/build-apple-aes
+```
+
+macOS application binaries for both Apple Silicon and Intel:
+
+```bash
+cmake -S noxtls -B noxtls/build -DNOXTLS_BUILD_MACOS_APPLICATION_SLICES=ON
+cmake --build noxtls/build --target noxtls_macos_application_slices
+# binary-arm64/ and binary-x86_64/
 ```
 
 ## Feature-gate model

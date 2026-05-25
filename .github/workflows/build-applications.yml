@@ -15,18 +15,32 @@ jobs:
         include:
           - os: ubuntu-latest
             artifact_suffix: linux-x64
+            binary_dir: binary
+            macos_arch: ""
+            use_msys2: false
+            sidechannel_profile: balanced
+          - os: macos-latest
+            artifact_suffix: macos-arm64
+            binary_dir: binary-arm64
+            macos_arch: arm64
             use_msys2: false
             sidechannel_profile: balanced
           - os: macos-latest
             artifact_suffix: macos-x64
+            binary_dir: binary-x86_64
+            macos_arch: x86_64
             use_msys2: false
             sidechannel_profile: balanced
           - os: windows-latest
             artifact_suffix: windows-x64
+            binary_dir: binary
+            macos_arch: ""
             use_msys2: true
             sidechannel_profile: balanced
           - os: ubuntu-latest
             artifact_suffix: linux-x64-strict
+            binary_dir: binary
+            macos_arch: ""
             use_msys2: false
             sidechannel_profile: constant_time_strict
 
@@ -42,7 +56,7 @@ jobs:
           python-version: "3.x"
 
       - name: Setup MSYS2 (Windows MinGW)
-        if: ${{ matrix.use_msys2 }}
+        if: matrix.use_msys2
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
@@ -88,14 +102,27 @@ jobs:
               out.write(f"noxtls_version={version}\n")
 
       - name: Configure and build applications (Linux/macOS)
-        if: ${{ !matrix.use_msys2 }}
+        if: matrix.use_msys2 == false
         shell: bash
+        env:
+          MACOS_ARCH: ${{ matrix.macos_arch }}
         run: |
-          cmake -S . -B build -G Ninja -D BUILD_SHARED_LIBS=OFF -D BUILD_TESTS=OFF -D BUILD_APPLICATIONS=ON -D CMAKE_BUILD_TYPE=Release -D NOXTLS_SIDECHANNEL_PROFILE=${{ matrix.sidechannel_profile }}
+          set -euo pipefail
+          arch_args=()
+          if [ -n "${MACOS_ARCH:-}" ]; then
+            arch_args=(-DCMAKE_OSX_ARCHITECTURES="${MACOS_ARCH}")
+          fi
+          cmake -S . -B build -G Ninja \
+            -D BUILD_SHARED_LIBS=OFF \
+            -D BUILD_TESTS=OFF \
+            -D BUILD_APPLICATIONS=ON \
+            -D CMAKE_BUILD_TYPE=Release \
+            -D NOXTLS_SIDECHANNEL_PROFILE=${{ matrix.sidechannel_profile }} \
+            "${arch_args[@]}"
           cmake --build build --parallel
 
       - name: Configure and build applications (Windows MinGW)
-        if: ${{ matrix.use_msys2 }}
+        if: matrix.use_msys2
         shell: msys2 {0}
         run: |
           cmake -S . -B build -G Ninja -D BUILD_SHARED_LIBS=OFF -D BUILD_TESTS=OFF -D BUILD_APPLICATIONS=ON -D CMAKE_BUILD_TYPE=Release -D NOXTLS_SIDECHANNEL_PROFILE=${{ matrix.sidechannel_profile }}
@@ -103,14 +130,16 @@ jobs:
 
       - name: Verify all application binaries were produced
         shell: python
+        env:
+          NOXTLS_BINARY_DIR: ${{ matrix.binary_dir }}
         run: |
           import os
           import pathlib
           import sys
 
-          binary_dir = pathlib.Path("binary")
+          binary_dir = pathlib.Path(os.environ.get("NOXTLS_BINARY_DIR", "binary"))
           if not binary_dir.exists():
-              print("Missing binary directory.")
+              print(f"Missing binary directory: {binary_dir}")
               sys.exit(1)
 
           expected = [
@@ -128,6 +157,7 @@ jobs:
               "prime",
               "sha",
               "tls_test",
+              "tlscurl",
           ]
 
           ext = ".exe" if os.name == "nt" else ""
@@ -205,5 +235,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: noxtls-applications-${{ matrix.artifact_suffix }}-v${{ steps.version.outputs.noxtls_version }}
-          path: binary/
+          path: ${{ matrix.binary_dir }}/
           if-no-files-found: error

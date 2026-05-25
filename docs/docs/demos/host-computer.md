@@ -32,7 +32,14 @@ cmake -S . -B build -D BUILD_TESTS=OFF
 cmake --build build --config Release
 ```
 
-Binaries are written under `binary/` at the repository root. `BUILD_APPLICATIONS` is **ON** by default.
+Binaries are written under `binary/` at the repository root (or `binary-arm64/` / `binary-x86_64/` on macOS when targeting one architecture). `BUILD_APPLICATIONS` is **ON** by default.
+
+On macOS, build both Apple Silicon and Intel application binaries:
+
+```bash
+cmake -S . -B build -D BUILD_TESTS=OFF -D NOXTLS_BUILD_MACOS_APPLICATION_SLICES=ON
+cmake --build build --target noxtls_macos_application_slices
+```
 
 ## Recommended smoke tests
 

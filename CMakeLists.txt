@@ -14,6 +14,9 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
 option(BUILD_TESTS "Build test applications" ON)
 option(BUILD_APPLICATIONS "Build application executables (demos, tests, etc.)" ON)
+option(NOXTLS_BUILD_MACOS_APPLICATION_SLICES
+  "macOS only: build applications for arm64 and x86_64 (target noxtls_macos_application_slices; outputs under binary-<arch>/)"
+  OFF)
 option(BUILD_BOGO_SHIM "Build the optional BoringSSL BoGo shim when its sources are present" OFF)
 set(NOXTLS_PROFILE "default" CACHE STRING "Feature profile: default|minimal_tls_client|tls_server_pki|crypto_only|fips_like_profile")
 set_property(CACHE NOXTLS_PROFILE PROPERTY STRINGS default minimal_tls_client tls_server_pki crypto_only fips_like_profile)
@@ -349,10 +352,44 @@ if(BUILD_TESTS)
 endif()
 
 # Applications (optional; disable with -DBUILD_APPLICATIONS=OFF for library-only or docs CI)
-# All application executables go into a single "binary" folder at project root when building from here
-set(NOXTLS_APPLICATIONS_BINARY_DIR "${NOXTLS_PROJECT_ROOT}/binary" CACHE PATH "Output directory for application executables")
+# On macOS, per-arch outputs default to binary-<arch>/ when CMAKE_OSX_ARCHITECTURES targets one slice.
+set(_noxtls_apps_binary_dir_default "${NOXTLS_PROJECT_ROOT}/binary")
+if(APPLE)
+  if(CMAKE_OSX_ARCHITECTURES)
+    list(LENGTH CMAKE_OSX_ARCHITECTURES _noxtls_osx_arch_count)
+    if(_noxtls_osx_arch_count EQUAL 1)
+      list(GET CMAKE_OSX_ARCHITECTURES 0 _noxtls_osx_arch)
+      set(_noxtls_apps_binary_dir_default "${NOXTLS_PROJECT_ROOT}/binary-${_noxtls_osx_arch}")
+    endif()
+  endif()
+endif()
+set(NOXTLS_APPLICATIONS_BINARY_DIR "${_noxtls_apps_binary_dir_default}" CACHE PATH "Output directory for application executables")
 
+if(NOXTLS_BUILD_MACOS_APPLICATION_SLICES AND NOT APPLE)
+  message(FATAL_ERROR "NOXTLS_BUILD_MACOS_APPLICATION_SLICES is only supported on macOS")
+endif()
+
+set(_noxtls_build_applications_in_tree OFF)
 if(BUILD_APPLICATIONS)
+  if(APPLE AND NOXTLS_BUILD_MACOS_APPLICATION_SLICES)
+    set(_noxtls_macos_slices_script "${NOXTLS_PROJECT_ROOT}/scripts/build_macos_application_slices.sh")
+    if(NOT EXISTS "${_noxtls_macos_slices_script}")
+      message(FATAL_ERROR "Missing ${_noxtls_macos_slices_script}")
+    endif()
+    add_custom_target(noxtls_macos_application_slices
+      COMMAND bash "${_noxtls_macos_slices_script}"
+              "${NOXTLS_PROJECT_ROOT}" "${CMAKE_BUILD_TYPE}"
+      WORKING_DIRECTORY "${NOXTLS_PROJECT_ROOT}"
+      COMMENT "Building NoxTLS applications for macOS arm64 and x86_64"
+      USES_TERMINAL
+    )
+    message(STATUS "NOXTLS_BUILD_MACOS_APPLICATION_SLICES=ON: build with --target noxtls_macos_application_slices")
+  else()
+    set(_noxtls_build_applications_in_tree ON)
+  endif()
+endif()
+
+if(_noxtls_build_applications_in_tree)
   add_subdirectory(applications/aes)
   add_subdirectory(applications/base64)
   if(NOXTLS_CFG_FEATURE_CERT)
