@@ -208,8 +208,33 @@ jobs:
           path: release-assets/*
           if-no-files-found: error
 
+  package-esp32-applications:
+    needs: validate-tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ needs.validate-tag.outputs.release_tag }}
+
+      - name: Package ESP32 applications
+        shell: bash
+        run: |
+          chmod +x .github/scripts/package_esp32_applications.sh
+          .github/scripts/package_esp32_applications.sh \
+            . \
+            release-assets \
+            "${{ needs.validate-tag.outputs.noxtls_version }}"
+
+      - name: Upload ESP32 applications release asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets-esp32-applications
+          path: release-assets/noxtls-esp32-applications-*.zip
+          if-no-files-found: error
+
   publish-release:
-    needs: [validate-tag, build-release-assets]
+    needs: [validate-tag, build-release-assets, package-esp32-applications]
     runs-on: ubuntu-latest
     permissions:
       contents: write
