@@ -237,3 +237,59 @@ jobs:
           name: noxtls-applications-${{ matrix.artifact_suffix }}-v${{ steps.version.outputs.noxtls_version }}
           path: ${{ matrix.binary_dir }}/
           if-no-files-found: error
+
+  package-esp32-applications:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract NoxTLS version from header
+        id: version
+        shell: python
+        run: |
+          import pathlib
+          import re
+          import sys
+          import os
+
+          header = pathlib.Path("noxtls_version.h").read_text(encoding="utf-8")
+          version_match = re.search(r'NOXTLS_VERSION_STRING\s+"([^"]+)"', header)
+          if not version_match:
+              print("Could not find NOXTLS_VERSION_STRING in noxtls_version.h")
+              sys.exit(1)
+          version = version_match.group(1)
+
+          cmake = pathlib.Path("CMakeLists.txt").read_text(encoding="utf-8")
+          cmake_match = re.search(r'project\(NoxTLS VERSION ([0-9]+\.[0-9]+\.[0-9]+) LANGUAGES C\)', cmake)
+          if not cmake_match:
+              print("Could not find project version in CMakeLists.txt")
+              sys.exit(1)
+
+          cmake_version = cmake_match.group(1)
+          if cmake_version != version:
+              print(f"Version mismatch: CMakeLists.txt={cmake_version}, noxtls_version.h={version}")
+              sys.exit(1)
+
+          github_output = os.environ.get("GITHUB_OUTPUT")
+          if not github_output:
+              print("GITHUB_OUTPUT environment variable is missing")
+              sys.exit(1)
+          with open(github_output, "a", encoding="utf-8") as out:
+              out.write(f"noxtls_version={version}\n")
+
+      - name: Package ESP32 applications
+        shell: bash
+        run: |
+          chmod +x .github/scripts/package_esp32_applications.sh
+          .github/scripts/package_esp32_applications.sh \
+            . \
+            artifacts/esp32-applications \
+            "${{ steps.version.outputs.noxtls_version }}"
+
+      - name: Upload ESP32 applications archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: noxtls-esp32-applications-${{ steps.version.outputs.noxtls_version }}
+          path: artifacts/esp32-applications/noxtls-esp32-applications-*.zip
+          if-no-files-found: error
