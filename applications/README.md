@@ -11,7 +11,7 @@ cmake -B build -D BUILD_TESTS=OFF
 cmake --build build
 ```
 
-On macOS, a single configure uses `binary-arm64/` or `binary-x86_64/` automatically when you set `-DCMAKE_OSX_ARCHITECTURES=arm64` or `x86_64`. To build **both** slices in one step:
+On macOS, a single configure uses `binary-arm64/` or `binary-x86_64/` when you pass `-DCMAKE_OSX_ARCHITECTURES=arm64` or `x86_64`; otherwise apps go to `binary/`. To build **both** slices in one step:
 
 ```bash
 cmake -B build -D NOXTLS_BUILD_MACOS_APPLICATION_SLICES=ON
