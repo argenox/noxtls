@@ -1,0 +1,76 @@
+name: ESP Component Publish
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing component tag to publish (e.g. v0.2.50)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag and component version
+        id: validate
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git fetch --force --tags
+
+          TAG_NAME="${RELEASE_TAG}"
+          if [[ ! "${TAG_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag '${TAG_NAME}' must match vX.Y.Z"
+            exit 1
+          fi
+
+          if ! git rev-parse -q --verify "refs/tags/${TAG_NAME}" >/dev/null; then
+            echo "Tag '${TAG_NAME}' does not exist in this repository"
+            exit 1
+          fi
+
+          COMPONENT_VERSION="$(python - <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          text = pathlib.Path("ports/esp-idf/idf_component.yml").read_text(encoding="utf-8")
+          m = re.search(r'^version:\s*"([^"]+)"\s*$', text, re.MULTILINE)
+          if not m:
+              sys.exit("Could not find version in ports/esp-idf/idf_component.yml")
+          print(m.group(1))
+          PY
+          )"
+
+          TAG_VERSION="${TAG_NAME#v}"
+          if [[ "${TAG_VERSION}" != "${COMPONENT_VERSION}" ]]; then
+            echo "Tag ${TAG_NAME} does not match idf_component.yml version ${COMPONENT_VERSION}"
+            exit 1
+          fi
+
+          git checkout "refs/tags/${TAG_NAME}"
+
+          echo "version=${TAG_VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload component to ESP Component Registry
+        uses: espressif/upload-components-ci-action@v2
+        with:
+          components: "noxtls: ports/esp-idf"
+          namespace: "argenox"
+          version: ${{ steps.validate.outputs.version }}
+          api_token: ${{ secrets.IDF_COMPONENT_API_TOKEN }}
