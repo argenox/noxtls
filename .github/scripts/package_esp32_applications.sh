@@ -3,13 +3,18 @@
 # with LICENSE.md at the archive root.
 set -euo pipefail
 
-ROOT="${1:-.}"
+ROOT="$(cd "${1:-.}" && pwd)"
 OUT_DIR="${2:-release-assets}"
 VERSION="${3:?version required}"
+
+if [[ "${OUT_DIR}" != /* ]]; then
+  OUT_DIR="${ROOT}/${OUT_DIR}"
+fi
 
 EXAMPLES_DIR="${ROOT}/ports/esp-idf/examples"
 LICENSE_FILE="${ROOT}/LICENSE.md"
 ARCHIVE_NAME="noxtls-esp32-applications-${VERSION}.zip"
+OUTPUT="${OUT_DIR}/${ARCHIVE_NAME}"
 
 if [[ ! -d "${EXAMPLES_DIR}" ]]; then
   echo "Missing ESP-IDF examples directory: ${EXAMPLES_DIR}" >&2
@@ -37,8 +42,8 @@ rsync -a \
 mkdir -p "${OUT_DIR}"
 (
   cd "${STAGING}"
-  zip -r "${OUT_DIR}/${ARCHIVE_NAME}" .
+  zip -r "${OUTPUT}" .
 )
 
-echo "Created ${OUT_DIR}/${ARCHIVE_NAME}"
-unzip -l "${OUT_DIR}/${ARCHIVE_NAME}" | head -30
+echo "Created ${OUTPUT}"
+unzip -l "${OUTPUT}" | head -30
