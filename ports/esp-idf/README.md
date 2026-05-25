@@ -14,11 +14,7 @@ Clone or submodule NoxTLS into your project, then in your app `CMakeLists.txt` *
 list(APPEND EXTRA_COMPONENT_DIRS "/path/to/noxtls/ports/esp-idf")
 ```
 
-Or set it from the example layout:
-
-```cmake
-list(APPEND EXTRA_COMPONENT_DIRS "${CMAKE_CURRENT_LIST_DIR}/../path/to/noxtls/ports/esp-idf")
-```
+Bundled **examples** under `ports/esp-idf/examples/` detect this port automatically when built in-repo (`../..` → `ports/esp-idf`). When copied elsewhere or taken from the release zip, each example uses **`argenox/noxtls`** from the ESP Component Registry via `main/idf_component.yml`. See [`examples/README.md`](examples/README.md).
 
 ### Option B: ESP-IDF Component Manager
 

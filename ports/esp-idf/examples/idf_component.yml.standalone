@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+# Standalone manifest (release zip / copied examples). Not used for in-repo builds.
+# Keep version in sync with ports/esp-idf/idf_component.yml.
+
+dependencies:
+  idf: ">=5.0"
+  argenox/noxtls:
+    version: "^0.2.50"
