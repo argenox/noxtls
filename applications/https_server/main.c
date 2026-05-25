@@ -172,9 +172,8 @@ static const char *DEFAULT_ALPN_PROTOCOLS[] = { "http/1.1", "h2" };
 static const uint32_t DEFAULT_ALPN_PROTOCOL_COUNT =
     (uint32_t)(sizeof(DEFAULT_ALPN_PROTOCOLS) / sizeof(DEFAULT_ALPN_PROTOCOLS[0]));
 /*
- * Default TLS 1.2 offer: forward-secret AEAD first (no static RSA key exchange, no 3DES).
- * Weak CBC/SHA1 ECDHE/DHE-RSA suites are appended last for tlsfuzzer scripts that pin only
- * TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA / TLS_DHE_RSA_WITH_AES_128_CBC_SHA (e.g. test_sig_algs.py).
+ * Default TLS 1.2 offer: forward-secret AEAD only (no static RSA key exchange, no 3DES, no CBC/SHA1).
+ * Scripts that require legacy CBC suites (e.g. tlsfuzzer test_sig_algs.py) can pass --cipher-suites.
  */
 static const uint16_t TLS12_FALLBACK_DEFAULT_SUITES[] = {
     TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
@@ -190,13 +189,7 @@ static const uint16_t TLS12_FALLBACK_DEFAULT_SUITES[] = {
     TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CCM,
     TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CCM,
     TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CCM_8,
-    TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CCM_8,
-    /*
-     * tlsfuzzer test_sig_algs.py (and similar probes) pin TLS_ECDHE/DHE_RSA_WITH_AES_128_CBC_SHA only.
-     * Keep these after AEAD so normal clients still negotiate forward-secret AEAD first.
-     */
-    TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_CBC_SHA,
-    TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_CBC_SHA
+    TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CCM_8
 };
 
 typedef struct {
