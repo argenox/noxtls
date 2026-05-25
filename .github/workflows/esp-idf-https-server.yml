@@ -57,8 +57,6 @@ jobs:
             label: ESP32-C6
           - target: esp32c5
             label: ESP32-C5
-          - target: esp32p4
-            label: ESP32-P4
           - target: esp32c61
             label: ESP32-C61
 
