@@ -547,6 +547,18 @@ noxtls_return_t noxtls_tls13_certificate_verify_build_signed_content(const uint8
                                                                      uint8_t *out,
                                                                      uint32_t *out_len);
 
+/**
+ * @brief Build CertificateVerify signed content with an explicit cipher suite hash.
+ * @param[in] cipher_suite Negotiated TLS 1.3 cipher suite, or 0 to use SignatureScheme hash only.
+ */
+noxtls_return_t noxtls_tls13_certificate_verify_build_signed_content_ex(const uint8_t *handshake_messages,
+                                                                        uint32_t handshake_messages_len,
+                                                                        uint16_t signature_scheme,
+                                                                        uint16_t cipher_suite,
+                                                                        tls_role_t role,
+                                                                        uint8_t *out,
+                                                                        uint32_t *out_len);
+
 #ifdef __cplusplus
 }
 #endif
