@@ -15,7 +15,7 @@ Use the **version dropdown** in the navbar to view docs (and release notes) for 
 
 ## 0.2.53
 
-**Release date:** 5/25/2026
+**Release date:** TBD
 
 ### Changes
 
@@ -23,8 +23,7 @@ Use the **version dropdown** in the navbar to view docs (and release notes) for 
 
 ### Fixed / Resolved
 
-- Fixes to ESP-IDF Component to build properly as independent component or as part of the repo.
-- Additions of demo certificates for `https_server` demo
+- ESP-IDF standalone examples: snapshot `main/noxtls_config.h` into the component generated config dir so ESP-IDF 5.x does not require a circular `main` ↔ `argenox__noxtls` component dependency.
 
 ### Known issues / Open
 
@@ -34,7 +33,7 @@ Use the **version dropdown** in the navbar to view docs (and release notes) for 
 
 ## 0.2.51
 
-**Release date:** 5/25/2026
+**Release date:** TBD
 
 ### Changes
 
@@ -56,7 +55,7 @@ Use the **version dropdown** in the navbar to view docs (and release notes) for 
 
 ## 0.2.50
 
-**Release date:** 5/25/2026
+**Release date:** TBD
 
 ### Changes
 

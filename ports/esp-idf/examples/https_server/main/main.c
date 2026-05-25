@@ -21,9 +21,9 @@
 * runs a TLS 1.3 handshake using embedded PEM cert/key, then returns a small
 * HTTP/1.0 page describing the negotiated connection.
 *
-* Provide your own certificate and private key in:
-*   main/certs/server_cert.pem
-*   main/certs/server_key.pem
+ * Provide your own certificate and private key in:
+ *   certs/server_cert.pem
+ *   certs/server_key.pem
 * See examples/https_server/README.md for the openssl one-liner.
 *
 *****************************************************************************/
@@ -1162,7 +1162,7 @@ void app_main(void)
 				  &cert_der, &cert_der_len) != 0) {
 		ESP_LOGE(NOXTLS_HTTPS_TAG,
 			 "failed to decode embedded server_cert.pem (placeholder?); "
-			 "see main/certs/server_cert.pem header for the openssl command.");
+			 "see certs/server_cert.pem header for the openssl command.");
 		goto cleanup;
 	}
 
@@ -1176,7 +1176,7 @@ void app_main(void)
 					     key_pem_len) != NOXTLS_RETURN_SUCCESS) {
 		ESP_LOGE(NOXTLS_HTTPS_TAG,
 			 "failed to parse embedded server_key.pem (placeholder?); "
-			 "see main/certs/server_key.pem header for the openssl command.");
+			 "see certs/server_key.pem header for the openssl command.");
 		goto cleanup;
 	}
 

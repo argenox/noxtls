@@ -2,6 +2,11 @@
 
 Each subdirectory is a standalone ESP-IDF project (TLS client/server, HTTPS, OTA, benchmarks, etc.).
 
+> **Note:**  
+> Currently, **only the `https_server` example is fully functional**.  
+> All other examples are **work in progress** and may not build or run correctly yet.
+
+
 ## NoxTLS dependency (local vs registry)
 
 Examples use **two modes** with no duplicate port tree:
@@ -9,7 +14,7 @@ Examples use **two modes** with no duplicate port tree:
 | Where you build | How NoxTLS is resolved |
 |-----------------|------------------------|
 | **In the NoxTLS repo** (`ports/esp-idf/examples/...`) | CMake detects `ports/esp-idf` two levels up and adds it via `EXTRA_COMPONENT_DIRS`. You build against the current branch. |
-| **Copied elsewhere / release zip** | `main/idf_component.yml` declares **`argenox/noxtls`** (`^0.2.52`); Component Manager downloads it into `managed_components/`. |
+| **Copied elsewhere / release zip** | `main/idf_component.yml` declares **`argenox/noxtls`** (`^0.2.53`); Component Manager downloads it into `managed_components/`. |
 
 In-repo sources do **not** commit `main/idf_component.yml` (that would fetch the registry in parallel). The release zip injects the manifest when packaging.
 
