@@ -82,6 +82,10 @@ static noxtls_return_t tls13_hash_messages(noxtls_hash_algos_t hash_algo,
                                            uint32_t messages_len,
                                            uint8_t *out_hash,
                                            uint32_t *out_hash_len);
+static noxtls_return_t tls13_get_cipher_params(uint16_t cipher_suite,
+                                                noxtls_hash_algos_t *hash_algo,
+                                                uint32_t *hash_len,
+                                                uint32_t *key_len);
 static noxtls_return_t tls13_send_encrypted_handshake(tls13_context_t *ctx,
                                                       const uint8_t *msg,
                                                       uint32_t msg_len);
@@ -2349,11 +2353,22 @@ static noxtls_return_t tls13_build_certificate_verify_tosign(tls13_context_t *ct
     uint32_t transcript_len = sizeof(transcript_hash);
     noxtls_return_t rc;
 
+    uint32_t hash_len;
+    uint32_t key_len;
+
     if(ctx == NULL || ctx_str == NULL || to_sign == NULL || to_sign_len == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(!tls13_sig_scheme_certificate_verify_hash(sig_scheme, &hash_algo)) {
-        return NOXTLS_RETURN_INVALID_ALGORITHM;
+
+    /*
+     * RFC 8446 §4.4.3: Transcript-Hash uses the negotiated cipher-suite hash.
+     * When no suite is known (cipher_suite == 0), fall back to SignatureScheme hash.
+     */
+    rc = tls13_get_cipher_params(ctx->cipher_suite, &hash_algo, &hash_len, &key_len);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        if(!tls13_sig_scheme_certificate_verify_hash(sig_scheme, &hash_algo)) {
+            return NOXTLS_RETURN_INVALID_ALGORITHM;
+        }
     }
     rc = tls13_hash_messages(hash_algo, ctx->handshake_messages, ctx->handshake_messages_len,
                              transcript_hash, &transcript_len);
@@ -2421,6 +2436,23 @@ noxtls_return_t noxtls_tls13_certificate_verify_build_signed_content(const uint8
                                                                      uint8_t *out,
                                                                      uint32_t *out_len)
 {
+    return noxtls_tls13_certificate_verify_build_signed_content_ex(handshake_messages,
+                                                                   handshake_messages_len,
+                                                                   signature_scheme,
+                                                                   0U,
+                                                                   role,
+                                                                   out,
+                                                                   out_len);
+}
+
+noxtls_return_t noxtls_tls13_certificate_verify_build_signed_content_ex(const uint8_t *handshake_messages,
+                                                                          uint32_t handshake_messages_len,
+                                                                          uint16_t signature_scheme,
+                                                                          uint16_t cipher_suite,
+                                                                          tls_role_t role,
+                                                                          uint8_t *out,
+                                                                          uint32_t *out_len)
+{
     tls13_context_t ctx;
     const char *ctx_str;
     uint32_t ctx_str_len;
@@ -2437,6 +2469,7 @@ noxtls_return_t noxtls_tls13_certificate_verify_build_signed_content(const uint8
     }
     ctx_str_len = (uint32_t)strlen(ctx_str);
     memset(&ctx, 0, sizeof(ctx));
+    ctx.cipher_suite = cipher_suite;
     ctx.handshake_messages = (uint8_t *)handshake_messages;
     ctx.handshake_messages_len = handshake_messages_len;
     return tls13_build_certificate_verify_tosign(&ctx, signature_scheme, ctx_str, ctx_str_len, out, out_len);
