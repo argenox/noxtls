@@ -1,6 +1,19 @@
 {
   "releases": [
     {
+      "version": "0.2.52",
+      "date": "TBD",
+      "changes": [
+        "Project version updated to 0.2.52 in CMake and noxtls_version.h."
+      ],
+      "fixed": [
+        "ESP-IDF standalone examples: snapshot main/noxtls_config.h into the component generated config directory (ESP-IDF 5.x cross-component include rules)."
+      ],
+      "known_issues": [
+        "DTLS 1.3 interop hardening continues against external test suites."
+      ]
+    },
+    {
       "version": "0.2.51",
       "date": "TBD",
       "changes": [

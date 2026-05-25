@@ -61,7 +61,13 @@ file(MAKE_DIRECTORY "${NOXTLS_GENERATED_CONFIG_DIR}")
 
 if(NOXTLS_APPLICATION_CONFIG_DIR AND
    EXISTS "${NOXTLS_APPLICATION_CONFIG_DIR}/noxtls_config.h")
-    list(APPEND _noxtls_config_include_dirs "${NOXTLS_APPLICATION_CONFIG_DIR}")
+    # Snapshot the application header into this component's build tree. Do not add
+    # main/ to library include paths — ESP-IDF 5.x treats that as a cross-component
+    # dependency (main would need to be in REQUIRES, which is circular).
+    configure_file(
+        "${NOXTLS_APPLICATION_CONFIG_DIR}/noxtls_config.h"
+        "${NOXTLS_GENERATED_CONFIG_DIR}/noxtls_config.h"
+        COPYONLY)
     list(APPEND _noxtls_config_include_dirs "${NOXTLS_GENERATED_CONFIG_DIR}")
 else()
     # No application header: emit a standalone noxtls_config.h from menuconfig only.
