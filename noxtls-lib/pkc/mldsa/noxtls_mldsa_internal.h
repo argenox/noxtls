@@ -24,6 +24,7 @@
 #define _NOXTLS_MLDSA_INTERNAL_H_
 
 #include <stdint.h>
+#include <stddef.h>
 
 #include "noxtls_mldsa.h"
 
