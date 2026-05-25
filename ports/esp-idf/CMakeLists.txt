@@ -98,6 +98,15 @@ set(NOXTLS_SIDECHANNEL_PROFILE "${CONFIG_NOXTLS_SIDECHANNEL}" CACHE STRING "" FO
 
 include(${CMAKE_CURRENT_LIST_DIR}/noxtls_esp_idf_kconfig.cmake)
 
+# Ensure all NoxTLS library targets created under add_subdirectory(${NOXTLS_PROJECT_ROOT})
+# see the generated noxtls_config.h snapshot. Applying includes only to top-level
+# wrapper libs (noxtls_hash/noxtls_tls/...) is not sufficient because leaf targets
+# like noxtls_sha3 compile independently.
+include_directories(BEFORE ${_noxtls_config_include_dirs})
+if(EXISTS "${PROJECT_BINARY_DIR}/config")
+    include_directories(BEFORE "${PROJECT_BINARY_DIR}/config")
+endif()
+
 add_subdirectory(${NOXTLS_PROJECT_ROOT} noxtls_build)
 
 # After Kconfig -> cache and profile overrides in root CMakeLists (final NOXTLS_CFG_*).
