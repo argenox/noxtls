@@ -20,10 +20,6 @@
 *
 *****************************************************************************/
 
-#if !(NOXTLS_FEATURE_TLS12 || NOXTLS_FEATURE_TLS13)
-#error "noxtls_tls_unified.c requires at least NOXTLS_FEATURE_TLS12 or NOXTLS_FEATURE_TLS13"
-#endif
-
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -34,6 +30,10 @@
 #include "noxtls_tls_unified.h"
 #include "noxtls_tls12.h"
 #include "noxtls_tls13.h"
+
+#if !(NOXTLS_FEATURE_TLS12 || NOXTLS_FEATURE_TLS13)
+#error "noxtls_tls_unified.c requires at least NOXTLS_FEATURE_TLS12 or NOXTLS_FEATURE_TLS13"
+#endif
 
 /**
  * @brief Copy the I/O callbacks and user data to a version context
