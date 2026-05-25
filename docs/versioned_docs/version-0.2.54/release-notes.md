@@ -15,14 +15,15 @@ Use the **version dropdown** in the navbar to view docs (and release notes) for 
 
 ## 0.2.54
 
-**Release date:** TBD
+**Release date:** 5/25/2026
 
 ### Changes
 
 - Project version updated to 0.2.54 in CMake and noxtls_version.h.
 - ESP-IDF port supports both IDF 5.x and 6.x (newlib vs esp_libc, HAL include paths, mbedTLS header locations).
-- GitHub CI builds https_server example for nine ESP targets with espressif/idf:v6.0.1.
+- GitHub CI builds https_server example for seven WiFi-capable ESP targets (S2, S3, C2, C3, C6, C5, C61) with espressif/idf:v6.0.1.
 - ESP-IDF example build script renamed to build_esp_idf_examples.sh.
+- ESP-IDF component manifest (idf_component.yml) extended for C2, C5, and C61 targets.
 
 ### Fixed / Resolved
 
