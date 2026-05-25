@@ -21,6 +21,7 @@
 *****************************************************************************/
 
 #include <stdint.h>
+#include <stddef.h>
 
 #include "noxtls_mldsa_internal.h"
 
