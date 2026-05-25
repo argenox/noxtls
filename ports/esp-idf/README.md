@@ -1,6 +1,8 @@
 # NoxTLS on ESP-IDF
 
-This directory contains the ESP-IDF component wrapper for [NoxTLS](https://github.com/argenox/noxtls). The core library stays in the repository root; this port only provides `idf_component_register()`, Kconfig, and ESP32 platform glue.
+This directory contains the ESP-IDF component wrapper for [NoxTLS](https://noxtls.com). The core library stays in the repository root; this port only provides `idf_component_register()`, Kconfig, and ESP32 platform glue.
+
+[NoxTLS GitHub Repo](https://github.com/argenox/noxtls) contains the source code
 
 Other RTOS ports live alongside this one under `ports/` (for example `ports/zephyr/`).
 
