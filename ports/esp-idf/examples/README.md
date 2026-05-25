@@ -13,12 +13,12 @@ Examples use **two modes** with no duplicate port tree:
 
 | Where you build | How NoxTLS is resolved |
 |-----------------|------------------------|
-| **In the NoxTLS repo** (`ports/esp-idf/examples/...`) | CMake detects `ports/esp-idf` two levels up and adds it via `EXTRA_COMPONENT_DIRS`. You build against the current branch. |
-| **Copied elsewhere / release zip** | `main/idf_component.yml` declares **`argenox/noxtls`** (`^0.2.53`); Component Manager downloads it into `managed_components/`. |
+| **In the NoxTLS repo** (`ports/esp-idf/examples/...`) | CMake detects `ports/esp-idf` one level above `examples/` and adds it via `EXTRA_COMPONENT_DIRS`. You build against the current branch. |
+| **Copied elsewhere / release zip** | `main/idf_component.yml` declares **`argenox/noxtls`** (`^0.2.54`); Component Manager downloads it into `managed_components/`. |
 
 In-repo sources do **not** commit `main/idf_component.yml` (that would fetch the registry in parallel). The release zip injects the manifest when packaging.
 
-Requires ESP-IDF **5.0+** with the component manager enabled for standalone builds.
+Requires ESP-IDF **5.0+** or **6.x** with the component manager enabled for standalone builds.
 
 ## Build (in repo)
 

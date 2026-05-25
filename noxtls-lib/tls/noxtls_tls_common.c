@@ -489,10 +489,12 @@ noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
     noxtls_debug_printf("[TLS_DEBUG] tls_recv_record: Header parsed - type=%u, version=0x%04x, length=%u\n", 
                           record->type, record->version, length);
     
+#if NOXTLS_TLS_MAX_WIRE_RECORD_LENGTH < 65535U
     if(length > TLS_MAX_WIRE_RECORD_LENGTH) {
         noxtls_debug_printf("[TLS_DEBUG] tls_recv_record: Record length %u exceeds max wire %u\n", length, TLS_MAX_WIRE_RECORD_LENGTH);
         return NOXTLS_RETURN_INVALID_PARAM;
     }
+#endif
 
     if(record->type != TLS_RECORD_CHANGE_CIPHER_SPEC &&
        record->type != TLS_RECORD_ALERT &&

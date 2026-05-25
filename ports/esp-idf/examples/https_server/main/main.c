@@ -86,7 +86,7 @@ typedef struct {
 } https_session_args_t;
 
 /* Browsers send ALPN; server must advertise overlap or handshake fails (RFC 7301). */
-static const char *const NOXTLS_HTTPS_ALPN_PROTOCOLS[] = { "http/1.1", "h2" };
+static const char *NOXTLS_HTTPS_ALPN_PROTOCOLS[] = { "http/1.1", "h2" };
 
 extern const uint8_t g_server_cert_pem_start[] asm("_binary_server_cert_pem_start");
 extern const uint8_t g_server_cert_pem_end[]   asm("_binary_server_cert_pem_end");

@@ -241,11 +241,15 @@ noxtls_return_t noxtls_bn_one(uint8_t *a, uint32_t len)
  */
 noxtls_return_t noxtls_bn_copy(uint8_t *dst, const uint8_t *src, uint32_t len)
 {
+    uint32_t i;
+
     if(dst == NULL || src == NULL)
         return NOXTLS_RETURN_NULL;
     if(len == 0)
         return NOXTLS_RETURN_INVALID_PARAM;
-    memcpy(dst, src, len);
+    for(i = 0; i < len; i++) {
+        dst[i] = src[i];
+    }
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -2612,7 +2616,7 @@ noxtls_return_t noxtls_bn_mod_inv(uint8_t *result, const uint8_t *a, uint32_t a_
         return NOXTLS_RETURN_FAILED;
     }
     m_padded[0] = 0;
-    memcpy(m_padded + 1, m, m_len);
+    noxtls_bn_copy(m_padded + 1, m, m_len);
     
     /* Initialize: u1 = 1, u3 = a mod m, v1 = 0, v3 = m */
     noxtls_bn_one(u1, m_len);
@@ -2661,7 +2665,7 @@ noxtls_return_t noxtls_bn_mod_inv(uint8_t *result, const uint8_t *a, uint32_t a_
             if((u1[m_len-1] & 1) != 0) {
                 /* u1 += m; use m_wide so carry is not lost (noxtls_bn_add drops carry) */
                 u1_wide[0] = 0;
-                memcpy(u1_wide + 1, u1, m_len);
+                noxtls_bn_copy(u1_wide + 1, u1, m_len);
                 noxtls_bn_add(u1_wide, u1_wide, m_padded, m_wide);
                 noxtls_bn_rshift1(u1_wide, m_wide);
                 noxtls_bn_mod(u1, u1_wide, m_wide, m, m_len);
@@ -2690,7 +2694,7 @@ noxtls_return_t noxtls_bn_mod_inv(uint8_t *result, const uint8_t *a, uint32_t a_
             if((v1[m_len-1] & 1) != 0) {
                 /* v1 += m; use m_wide so carry is not lost (noxtls_bn_add drops carry) */
                 v1_wide[0] = 0;
-                memcpy(v1_wide + 1, v1, m_len);
+                noxtls_bn_copy(v1_wide + 1, v1, m_len);
                 noxtls_bn_add(v1_wide, v1_wide, m_padded, m_wide);
                 noxtls_bn_rshift1(v1_wide, m_wide);
                 noxtls_bn_mod(v1, v1_wide, m_wide, m, m_len);

@@ -26,6 +26,12 @@ set(NOXTLS_PROJECT_ROOT "${NOXTLS_PROJECT_ROOT}" CACHE PATH "" FORCE)
 # so the library does not pick up the shared repo-root noxtls_config.h.
 set(_noxtls_config_include_dirs "")
 
+# IDF 5.x: explicit "newlib" component. IDF 6+ renamed it to esp_libc (default-required).
+set(_noxtls_esp_idf_requires mbedtls)
+if(EXISTS "${IDF_PATH}/components/newlib")
+    list(APPEND _noxtls_esp_idf_requires newlib)
+endif()
+
 idf_component_register(
     SRCS
         "src/noxtls_esp_idf_glue.c"
@@ -48,8 +54,7 @@ idf_component_register(
         esp_hw_support
         freertos
     REQUIRES
-        mbedtls
-        newlib
+        ${_noxtls_esp_idf_requires}
 )
 
 if(NOT CONFIG_NOXTLS)
@@ -130,6 +135,21 @@ set(NOXTLS_ESP_IDF_CRYPTO_HAL_INCLUDE_DIRS
     "${IDF_PATH}/components/mbedtls/port/include"
     "${IDF_PATH}/components/mbedtls/mbedtls/include")
 
+# HW accel .c files include mbedTLS port headers (sha/sha_core.h, aes/esp_aes.h) which
+# pull in hal/*_types.h. IDF 5.x: components/hal/include. IDF 6+: esp_hal_security/include.
+if(EXISTS "${IDF_PATH}/components/esp_hal_security/include/hal/sha_types.h")
+    list(APPEND NOXTLS_ESP_IDF_CRYPTO_HAL_INCLUDE_DIRS
+        "${IDF_PATH}/components/esp_hal_security/include")
+elseif(EXISTS "${IDF_PATH}/components/hal/include/hal/sha_types.h")
+    list(APPEND NOXTLS_ESP_IDF_CRYPTO_HAL_INCLUDE_DIRS
+        "${IDF_PATH}/components/hal/include")
+endif()
+
+# aes/esp_aes.h includes esp_types.h (IDF 6+ no longer pulls this in transitively for us).
+if(EXISTS "${IDF_PATH}/components/esp_common/include/esp_types.h")
+    list(APPEND NOXTLS_ESP_IDF_CRYPTO_HAL_INCLUDE_DIRS
+        "${IDF_PATH}/components/esp_common/include")
+endif()
 if(TARGET noxtls_certificates)
     list(APPEND NOXTLS_ESP_IDF_LIBS noxtls_certificates)
 endif()

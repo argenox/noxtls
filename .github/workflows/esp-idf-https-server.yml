@@ -1,0 +1,76 @@
+# Build the ESP-IDF https_server example against multiple chip targets.
+# Uses the official Espressif Docker image with ESP-IDF v6.0.1.
+
+name: ESP-IDF https_server
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - "ports/esp-idf/**"
+      - "noxtls-lib/**"
+      - "utility/**"
+      - "noxtls_config.h"
+      - "CMakeLists.txt"
+      - "cmake/**"
+      - ".github/workflows/esp-idf-https-server.yml"
+      - ".github/scripts/build_esp_idf_examples.sh"
+  pull_request:
+    branches: [master, main]
+    paths:
+      - "ports/esp-idf/**"
+      - "noxtls-lib/**"
+      - "utility/**"
+      - "noxtls_config.h"
+      - "CMakeLists.txt"
+      - "cmake/**"
+      - ".github/workflows/esp-idf-https-server.yml"
+      - ".github/scripts/build_esp_idf_examples.sh"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IDF_DOCKER_IMAGE: espressif/idf:v6.0.1
+  ESP_IDF_EXAMPLE_DIR: ports/esp-idf/examples/https_server
+
+jobs:
+  build-https-server:
+    name: https_server (${{ matrix.label }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: esp32s2
+            label: ESP32-S2
+          - target: esp32s3
+            label: ESP32-S3
+          - target: esp32c2
+            label: ESP32-C2
+          - target: esp32c3
+            label: ESP32-C3
+          - target: esp32h2
+            label: ESP32-H2
+          - target: esp32c6
+            label: ESP32-C6
+          - target: esp32c5
+            label: ESP32-C5
+          - target: esp32p4
+            label: ESP32-P4
+          - target: esp32c61
+            label: ESP32-C61
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build https_server (${{ matrix.target }})
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/project" \
+            "${IDF_DOCKER_IMAGE}" \
+            bash "/project/.github/scripts/build_esp_idf_examples.sh" \
+              "${{ matrix.target }}" \
+              "/project/${ESP_IDF_EXAMPLE_DIR}"
