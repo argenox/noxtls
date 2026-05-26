@@ -29,27 +29,9 @@ Point ESP-IDF at the NoxTLS ESP-IDF component directory:
 list(APPEND EXTRA_COMPONENT_DIRS "${CMAKE_CURRENT_LIST_DIR}/path/to/noxtls/ports/esp-idf")
 ```
 
-Your application component then depends on the NoxTLS component (same pattern as the compare example below). The component pulls sources from `noxtls-lib/` and links ESP32-specific acceleration under `ports/esp-idf/target/esp32/`.
+Your application component then depends on the NoxTLS component (same pattern as the in-tree examples below). The component pulls sources from `noxtls-lib/` and links ESP32-specific acceleration under `ports/esp-idf/target/esp32/`.
 
 Provide a project-local `noxtls_config.h` (or use Kconfig-generated settings) to trim features for flash and RAM — see [Configuration Guide](../configuration-guide).
-
-## Example: TLS library compare (repository)
-
-A full firmware image that benchmarks NoxTLS against mbedTLS (and optionally wolfSSL) lives in the OEM tree:
-
-```text
-performance/apps/esp32/tls_library_compare/
-```
-
-Build and flash:
-
-```bash
-cd performance/apps/esp32/tls_library_compare
-idf.py set-target esp32s3
-idf.py build flash monitor -p COM34
-```
-
-Replace `COM34` with your port. See the example [README](https://github.com/argenox/noxtls/blob/main/performance/apps/esp32/tls_library_compare/README.md) for optional wolfSSL Component Manager setup.
 
 ## Example: ESP-IDF benchmark app (in-tree)
 
@@ -84,7 +66,7 @@ Use ESP-IDF **lwIP** sockets (or your network stack) to send and receive TLS rec
 
 For development:
 
-1. Prove crypto with the benchmark or compare firmware.
+1. Prove crypto with the in-tree benchmark firmware.
 2. Add TLS client or server logic using the same APIs as on the host ([TLS component](../tls)).
 3. Trim `noxtls_config.h` to the cipher suites and protocol versions you ship.
 
@@ -95,7 +77,6 @@ For development:
 | Component not found | Verify `EXTRA_COMPONENT_DIRS` path to `noxtls/ports/esp-idf` |
 | Flash size warning | Align `sdkconfig` flash size with your module (see benchmark notes in internal perf logs) |
 | Task watchdog during long AES loops | Expected on heavy benchmarks; increase WDT timeout or yield in test loops |
-| mbedTLS much faster than NoxTLS in compare app | Compare uses mbedTLS’s ESP optimized paths; enable NoxTLS ESP accel and profile your production config |
 
 ## Related guides
 
