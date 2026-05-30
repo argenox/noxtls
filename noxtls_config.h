@@ -89,30 +89,40 @@
  * Prereq: none.
  * Required by: certificates and TLS stacks.
  */
+#ifndef NOXTLS_FEATURE_HASH
 #define NOXTLS_FEATURE_HASH 1
+#endif
 
 /* Enables symmetric encryption module family (AES/ARIA/Camellia/ChaCha/DES).
  * Prereq: none.
  * Required by: DRBG and TLS record protection.
  */
+#ifndef NOXTLS_FEATURE_ENCRYPTION
 #define NOXTLS_FEATURE_ENCRYPTION 1
+#endif
 
 /* Enables deterministic random bit generator (CTR-DRBG implementation).
  * Prereq: NOXTLS_FEATURE_ENCRYPTION=1 and NOXTLS_FEATURE_AES=1.
  */
+#ifndef NOXTLS_FEATURE_DRBG
 #define NOXTLS_FEATURE_DRBG 1
+#endif
 
 /* Enables public-key cryptography module family (RSA/ECC/curve algorithms).
  * Prereq: none.
  * Required by: certificates and most TLS key exchange/signature flows.
  */
+#ifndef NOXTLS_FEATURE_PKC
 #define NOXTLS_FEATURE_PKC 1
+#endif
 
 /* Enables X.509 certificate parsing/verification/generation support.
  * Prereq: NOXTLS_FEATURE_HASH=1 and NOXTLS_FEATURE_PKC=1.
  * Required by: certificate-authenticated TLS.
  */
+#ifndef NOXTLS_FEATURE_CERT
 #define NOXTLS_FEATURE_CERT 1
+#endif
 
 /* Hostname verification policy for certificate matching.
  * When 1, SAN/CN entries with left-most wildcard ("*.example.com") are accepted.
@@ -127,7 +137,9 @@
  * Prereq: NOXTLS_FEATURE_HASH=1, NOXTLS_FEATURE_ENCRYPTION=1,
  *         NOXTLS_FEATURE_DRBG=1, NOXTLS_FEATURE_PKC=1, NOXTLS_FEATURE_CERT=1.
  */
+#ifndef NOXTLS_FEATURE_TLS
 #define NOXTLS_FEATURE_TLS 1
+#endif
 
 /* Hash primitives */
 /* Enables MD4 hashing algorithm.
@@ -142,123 +154,167 @@
  * Prereq: NOXTLS_FEATURE_HASH=1.
  * Security note: legacy algorithm; generally disable for modern deployments.
  */
+#ifndef NOXTLS_FEATURE_MD5
 #define NOXTLS_FEATURE_MD5 1
+#endif
 
 /* Enables SHA-1 hashing algorithm.
  * Prereq: NOXTLS_FEATURE_HASH=1.
  * Security note: legacy algorithm; generally disable for modern deployments.
  */
+#ifndef NOXTLS_FEATURE_SHA1
 #define NOXTLS_FEATURE_SHA1 1
+#endif
 
 /* Enables SHA-224 hashing algorithm (same implementation as SHA-256).
  * Prereq: NOXTLS_FEATURE_HASH=1.
  * Build: sha256.c is compiled when NOXTLS_FEATURE_SHA224 or NOXTLS_FEATURE_SHA256 is 1.
  */
+#ifndef NOXTLS_FEATURE_SHA224
 #define NOXTLS_FEATURE_SHA224 1
+#endif
 
 /* Enables SHA-256 hashing algorithm.
  * Prereq: NOXTLS_FEATURE_HASH=1.
  * Required by: TLS and certificate verification flows.
  * Build: sha256.c is compiled when NOXTLS_FEATURE_SHA224 or NOXTLS_FEATURE_SHA256 is 1.
  */
+#ifndef NOXTLS_FEATURE_SHA256
 #define NOXTLS_FEATURE_SHA256 1
+#endif
 
 /* Enables SHA-384 hashing algorithm (same implementation as SHA-512).
  * Prereq: NOXTLS_FEATURE_HASH=1.
  * Build: sha512.c is compiled when NOXTLS_FEATURE_SHA384 or NOXTLS_FEATURE_SHA512 is 1.
  */
+#ifndef NOXTLS_FEATURE_SHA384
 #define NOXTLS_FEATURE_SHA384 1
+#endif
 
 /* Enables SHA-512 and truncated variants (SHA-512/224, SHA-512/256).
  * Prereq: NOXTLS_FEATURE_HASH=1.
  * Build: sha512.c is compiled when NOXTLS_FEATURE_SHA384 or NOXTLS_FEATURE_SHA512 is 1.
  */
+#ifndef NOXTLS_FEATURE_SHA512
 #define NOXTLS_FEATURE_SHA512 1
+#endif
 
 /* Enables SHA-3 hashing algorithms.
  * Prereq: NOXTLS_FEATURE_HASH=1.
  */
+#ifndef NOXTLS_FEATURE_SHA3
 #define NOXTLS_FEATURE_SHA3 1
+#endif
 
 /* Enables RIPEMD-160 hashing algorithm.
  * Prereq: NOXTLS_FEATURE_HASH=1.
  */
+#ifndef NOXTLS_FEATURE_RIPEMD160
 #define NOXTLS_FEATURE_RIPEMD160 1
+#endif
 
 /* Enables BLAKE2 hash family.
  * Prereq: NOXTLS_FEATURE_HASH=1.
  */
+#ifndef NOXTLS_FEATURE_BLAKE2
 #define NOXTLS_FEATURE_BLAKE2 1
+#endif
 
 /* Symmetric primitives */
 /* Enables AES cipher family.
  * Prereq: NOXTLS_FEATURE_ENCRYPTION=1.
  * Constraint: at least one NOXTLS_FEATURE_AES_* mode and one NOXTLS_FEATURE_AES_* key size must be enabled.
  */
+#ifndef NOXTLS_FEATURE_AES
 #define NOXTLS_FEATURE_AES 1
+#endif
 
 /* Enables AES-128 key schedule/path.
  * Prereq: NOXTLS_FEATURE_AES=1.
  */
+#ifndef NOXTLS_FEATURE_AES_128
 #define NOXTLS_FEATURE_AES_128 1
+#endif
 
 /* Enables AES-192 key schedule/path.
  * Prereq: NOXTLS_FEATURE_AES=1.
  */
+#ifndef NOXTLS_FEATURE_AES_192
 #define NOXTLS_FEATURE_AES_192 1
+#endif
 
 /* Enables AES-256 key schedule/path.
  * Prereq: NOXTLS_FEATURE_AES=1.
  */
+#ifndef NOXTLS_FEATURE_AES_256
 #define NOXTLS_FEATURE_AES_256 1
+#endif
 
 /* Enables AES-ECB mode.
  * Prereq: NOXTLS_FEATURE_AES=1.
  * Security note: ECB is usually not suitable for bulk data confidentiality.
  */
+#ifndef NOXTLS_FEATURE_AES_ECB
 #define NOXTLS_FEATURE_AES_ECB 1
+#endif
 
 /* Enables AES-CBC mode.
  * Prereq: NOXTLS_FEATURE_AES=1.
  */
+#ifndef NOXTLS_FEATURE_AES_CBC
 #define NOXTLS_FEATURE_AES_CBC 1
+#endif
 
 /* Enables AES-CTR mode.
  * Prereq: NOXTLS_FEATURE_AES=1.
  */
+#ifndef NOXTLS_FEATURE_AES_CTR
 #define NOXTLS_FEATURE_AES_CTR 1
+#endif
 
 /* Enables AES-CFB mode.
  * Prereq: NOXTLS_FEATURE_AES=1.
  */
+#ifndef NOXTLS_FEATURE_AES_CFB
 #define NOXTLS_FEATURE_AES_CFB 1
+#endif
 
 /* Enables AES-OFB mode.
  * Prereq: NOXTLS_FEATURE_AES=1.
  */
+#ifndef NOXTLS_FEATURE_AES_OFB
 #define NOXTLS_FEATURE_AES_OFB 1
+#endif
 
 /* Enables AES-XTS mode.
  * Prereq: NOXTLS_FEATURE_AES=1.
  * Typical use case: storage encryption.
  */
+#ifndef NOXTLS_FEATURE_AES_XTS
 #define NOXTLS_FEATURE_AES_XTS 1
+#endif
 
 /* Enables AES-GCM AEAD mode.
  * Prereq: NOXTLS_FEATURE_AES=1.
  * Required by: TLS if ChaCha20-Poly1305 is disabled.
  */
+#ifndef NOXTLS_FEATURE_AES_GCM
 #define NOXTLS_FEATURE_AES_GCM 1
+#endif
 
 /* Enables AES-CCM AEAD mode.
  * Prereq: NOXTLS_FEATURE_AES=1.
  */
+#ifndef NOXTLS_FEATURE_AES_CCM
 #define NOXTLS_FEATURE_AES_CCM 1
+#endif
 
 /* Enables AES-CMAC (RFC 4493) for message authentication (e.g. BLE Signed Write).
  * Prereq: NOXTLS_FEATURE_AES=1.
  */
+#ifndef NOXTLS_FEATURE_AES_CMAC
 #define NOXTLS_FEATURE_AES_CMAC 1
+#endif
 
 /* Enables AES-NI accelerated AES block path on x86/x64 builds that compile with AES intrinsics.
  * Prereq: NOXTLS_FEATURE_AES=1.
@@ -279,72 +335,98 @@
 /* Enables ARIA cipher family.
  * Prereq: NOXTLS_FEATURE_ENCRYPTION=1.
  */
+#ifndef NOXTLS_FEATURE_ARIA
 #define NOXTLS_FEATURE_ARIA 1
+#endif
 
 /* Enables Camellia cipher family.
  * Prereq: NOXTLS_FEATURE_ENCRYPTION=1.
  */
+#ifndef NOXTLS_FEATURE_CAMELLIA
 #define NOXTLS_FEATURE_CAMELLIA 1
+#endif
 
 /* Enables ChaCha20-Poly1305 AEAD.
  * Prereq: NOXTLS_FEATURE_ENCRYPTION=1.
  * Alternative TLS AEAD when AES-GCM is disabled or less preferred.
  */
+#ifndef NOXTLS_FEATURE_CHACHA20_POLY1305
 #define NOXTLS_FEATURE_CHACHA20_POLY1305 1
+#endif
 
 /* Enables DES/3DES-related implementation units.
  * Prereq: NOXTLS_FEATURE_ENCRYPTION=1.
  * Security note: legacy; generally disable for modern deployments.
  */
+#ifndef NOXTLS_FEATURE_DES
 #define NOXTLS_FEATURE_DES 1
+#endif
 
 /* Enables RC4 stream cipher.
  * Prereq: NOXTLS_FEATURE_ENCRYPTION=1.
  * Security note: RC4 is deprecated and weak; use only for legacy compatibility.
  */
+#ifndef NOXTLS_FEATURE_RC4
 #define NOXTLS_FEATURE_RC4 1
+#endif
 
 /* PKC primitives */
 /* Enables RSA (and bignum backend used by RSA paths).
  * Prereq: NOXTLS_FEATURE_PKC=1.
  */
+#ifndef NOXTLS_FEATURE_RSA
 #define NOXTLS_FEATURE_RSA 1
+#endif
 
 /* Enables ECC core (short Weierstrass curve arithmetic).
  * Prereq: NOXTLS_FEATURE_PKC=1.
  * Required by: ECDSA and ECDH.
  */
+#ifndef NOXTLS_FEATURE_ECC
 #define NOXTLS_FEATURE_ECC 1
+#endif
 
 /* Enables ECDSA signatures.
  * Prereq: NOXTLS_FEATURE_PKC=1 and NOXTLS_FEATURE_ECC=1.
  */
+#ifndef NOXTLS_FEATURE_ECDSA
 #define NOXTLS_FEATURE_ECDSA 1
+#endif
 
 /* Enables ECDH key agreement.
  * Prereq: NOXTLS_FEATURE_PKC=1 and NOXTLS_FEATURE_ECC=1.
  */
+#ifndef NOXTLS_FEATURE_ECDH
 #define NOXTLS_FEATURE_ECDH 1
+#endif
 
 /* Enables finite-field Diffie-Hellman (FFDHE) support.
  * Prereq: NOXTLS_FEATURE_PKC=1.
  */
+#ifndef NOXTLS_FEATURE_DH
 #define NOXTLS_FEATURE_DH 1
+#endif
 
 /* Enables X25519 key agreement.
  * Prereq: NOXTLS_FEATURE_PKC=1.
  */
+#ifndef NOXTLS_FEATURE_X25519
 #define NOXTLS_FEATURE_X25519 1
+#endif
 
 /* Enables X448 key agreement.
  * Prereq: NOXTLS_FEATURE_PKC=1.
  */
+#ifndef NOXTLS_FEATURE_X448
 #define NOXTLS_FEATURE_X448 1
+#endif
 
 /* Enables Ed25519 signatures.
  * Prereq: NOXTLS_FEATURE_PKC=1.
  */
+#ifndef NOXTLS_FEATURE_ED25519
 #define NOXTLS_FEATURE_ED25519 1
+#endif
 
 /* Enables Ed448 signatures (RFC 8032). Requires NOXTLS_FEATURE_SHA3=1 for SHAKE256.
  * Prereq: NOXTLS_FEATURE_PKC=1. Default OFF; set NOXTLS_CFG_FEATURE_ED448=ON in CMake to enable.
@@ -354,7 +436,9 @@
 /* Enables DSA (Digital Signature Algorithm) per FIPS 186-4.
  * Prereq: NOXTLS_FEATURE_PKC=1 (and bignum via RSA or DSA).
  */
+#ifndef NOXTLS_FEATURE_DSA
 #define NOXTLS_FEATURE_DSA 1
+#endif
 /* Enables ML-KEM (FIPS 203) KEM APIs and TLS PQ keyshare support. */
 #ifndef NOXTLS_FEATURE_ML_KEM
 #define NOXTLS_FEATURE_ML_KEM 0
@@ -400,12 +484,16 @@
 /* Enables TLS 1.2 protocol implementation.
  * Prereq: NOXTLS_FEATURE_TLS=1.
  */
+#ifndef NOXTLS_FEATURE_TLS12
 #define NOXTLS_FEATURE_TLS12 1
+#endif
 
 /* Enables TLS 1.3 protocol implementation.
  * Prereq: NOXTLS_FEATURE_TLS=1.
  */
+#ifndef NOXTLS_FEATURE_TLS13
 #define NOXTLS_FEATURE_TLS13 1
+#endif
 
 /*
  * TLS 1.3 (RFC 8446): RSA PKCS#1 v1.5 CertificateVerify schemes (e.g. rsa_pkcs1_sha256,
@@ -693,7 +781,7 @@
 #undef NOXTLS_FEATURE_DRBG
 #define NOXTLS_FEATURE_DRBG 1
 #undef NOXTLS_FEATURE_PKC
-#define NOXTLS_FEATURE_PKC 1
+#define NOXTLS_FEATURE_PKC 0
 #undef NOXTLS_FEATURE_CERT
 #define NOXTLS_FEATURE_CERT 0
 #undef NOXTLS_FEATURE_TLS
