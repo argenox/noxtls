@@ -43,6 +43,8 @@
 #include "drbg/noxtls_drbg.h"
 #include "certs/noxtls_x509.h"
 #include "noxtls_tls_kdf.h"
+#include "mac/noxtls_hmac.h"
+#include "kdf/noxtls_hkdf.h"
 #include "noxtls_tls_key_exchange.h"
 #include "noxtls_tls_common.h"
 #include "noxtls_tls_noxsight.h"
@@ -2813,7 +2815,7 @@ static noxtls_return_t tls13_derive_early_data_keys(tls13_context_t *ctx)
     }
 
     prk_len = hash_len;
-    rc = hkdf_extract(hash_algo, NULL, 0, ctx->resumption_psk, (uint32_t)ctx->resumption_psk_len,
+    rc = noxtls_hkdf_extract(hash_algo, NULL, 0, ctx->resumption_psk, (uint32_t)ctx->resumption_psk_len,
                       early_secret_buf, &prk_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
@@ -2909,9 +2911,9 @@ static noxtls_return_t tls13_derive_handshake_keys(tls13_context_t *ctx, const u
 
     prk_len = hash_len;
     if(ctx->psk_in_use && ctx->psk_key_len > 0) {
-        rc = hkdf_extract(hash_algo, NULL, 0, ctx->psk_key, ctx->psk_key_len, ctx->early_secret, &prk_len);
+        rc = noxtls_hkdf_extract(hash_algo, NULL, 0, ctx->psk_key, ctx->psk_key_len, ctx->early_secret, &prk_len);
     } else {
-        rc = hkdf_extract(hash_algo, NULL, 0, zero_ikm, hash_len, ctx->early_secret, &prk_len);
+        rc = noxtls_hkdf_extract(hash_algo, NULL, 0, zero_ikm, hash_len, ctx->early_secret, &prk_len);
     }
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
@@ -2959,10 +2961,10 @@ static noxtls_return_t tls13_derive_handshake_keys(tls13_context_t *ctx, const u
 
     prk_len = hash_len;
     if(shared_secret != NULL && shared_secret_len > 0) {
-        rc = hkdf_extract(hash_algo, derived_secret, hash_len, shared_secret, shared_secret_len,
+        rc = noxtls_hkdf_extract(hash_algo, derived_secret, hash_len, shared_secret, shared_secret_len,
                           ctx->handshake_secret, &prk_len);
     } else {
-        rc = hkdf_extract(hash_algo, derived_secret, hash_len, zero_ikm, hash_len,
+        rc = noxtls_hkdf_extract(hash_algo, derived_secret, hash_len, zero_ikm, hash_len,
                           ctx->handshake_secret, &prk_len);
     }
     if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -3139,7 +3141,7 @@ static noxtls_return_t tls13_derive_application_secrets(tls13_context_t *ctx)
     }
 
     prk_len = hash_len;
-    rc = hkdf_extract(hash_algo, derived_secret, hash_len, zero_ikm, hash_len,
+    rc = noxtls_hkdf_extract(hash_algo, derived_secret, hash_len, zero_ikm, hash_len,
                       ctx->master_secret, &prk_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
@@ -7700,7 +7702,7 @@ noxtls_return_t noxtls_tls13_recv_finished(tls13_context_t *ctx)
     }
 
     verify_len = hash_len;
-    rc = hmac_compute(hash_algo, finished_key, hash_len, transcript_hash, transcript_len,
+    rc = noxtls_hmac_compute(hash_algo, finished_key, hash_len, transcript_hash, transcript_len,
                       verify_data, &verify_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         free(msg);
@@ -8152,7 +8154,7 @@ noxtls_return_t noxtls_tls13_send_finished(tls13_context_t *ctx)
     }
 
     verify_len = hash_len;
-    rc = hmac_compute(hash_algo, finished_key, hash_len, transcript_hash, transcript_len,
+    rc = noxtls_hmac_compute(hash_algo, finished_key, hash_len, transcript_hash, transcript_len,
                       verify_data, &verify_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
@@ -10220,7 +10222,7 @@ noxtls_return_t noxtls_tls13_send_finished_server(tls13_context_t *ctx)
                                     finished_key, hash_len);
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
         verify_len = hash_len;
-        rc = hmac_compute(hash_algo, finished_key, hash_len, transcript_hash, transcript_len,
+        rc = noxtls_hmac_compute(hash_algo, finished_key, hash_len, transcript_hash, transcript_len,
                           finished + 4, &verify_len);
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
         finished[offset++] = TLS_HANDSHAKE_FINISHED;
@@ -10740,7 +10742,7 @@ noxtls_return_t noxtls_tls13_recv_finished_client(tls13_context_t *ctx)
             return rc;
         }
         verify_len = hash_len;
-        rc = hmac_compute(hash_algo, finished_key, hash_len, transcript_hash, transcript_len,
+        rc = noxtls_hmac_compute(hash_algo, finished_key, hash_len, transcript_hash, transcript_len,
                          verify_data, &verify_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             free(msg);

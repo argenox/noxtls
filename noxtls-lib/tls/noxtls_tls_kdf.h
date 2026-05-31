@@ -26,31 +26,11 @@
 #include <stdint.h>
 
 #include "noxtls_common.h"
-#include "noxtls_tls_common.h"
 #include "mdigest/noxtls_hash.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/* HMAC Context */
-typedef struct
-{
-    noxtls_hash_algos_t hash_algo;  /* Hash algorithm (SHA-256, SHA-384, SHA-512, or SHA-1) */
-    uint8_t key[128];                 /* HMAC key (max size for SHA-512) */
-    uint32_t key_len;                 /* Key length */
-    uint8_t o_key_pad[128];           /* Outer key padding */
-    uint8_t i_key_pad[128];           /* Inner key padding */
-    void *hash_ctx;                    /* Hash context (opaque) */
-} hmac_context_t;
-
-/* HMAC Functions */
-noxtls_return_t noxtls_hmac_init(hmac_context_t *ctx, noxtls_hash_algos_t hash_algo, const uint8_t *key, uint32_t key_len);
-noxtls_return_t noxtls_hmac_update(hmac_context_t *ctx, const uint8_t *data, uint32_t data_len);
-noxtls_return_t noxtls_hmac_final(hmac_context_t *ctx, uint8_t *mac, uint32_t *mac_len);
-noxtls_return_t noxtls_hmac_free(hmac_context_t *ctx);
-noxtls_return_t hmac_compute(noxtls_hash_algos_t hash_algo, const uint8_t *key, uint32_t key_len,
-                               const uint8_t *data, uint32_t data_len, uint8_t *mac, uint32_t *mac_len);
 
 /* TLS 1.2 PRF (Pseudo-Random Function) */
 noxtls_return_t tls12_prf(const uint8_t *secret, uint32_t secret_len,
@@ -64,17 +44,6 @@ noxtls_return_t tls10_prf(const uint8_t *secret, uint32_t secret_len,
                            const uint8_t *label, uint32_t label_len,
                            const uint8_t *seed, uint32_t seed_len,
                            uint8_t *output, uint32_t output_len);
-
-/* HKDF Functions (RFC 5869) */
-noxtls_return_t hkdf_extract(noxtls_hash_algos_t hash_algo,
-                               const uint8_t *salt, uint32_t salt_len,
-                               const uint8_t *ikm, uint32_t ikm_len,
-                               uint8_t *prk, uint32_t *prk_len);
-
-noxtls_return_t hkdf_expand(noxtls_hash_algos_t hash_algo,
-                              const uint8_t *prk, uint32_t prk_len,
-                              const uint8_t *info, uint32_t info_len,
-                              uint8_t *okm, uint32_t okm_len);
 
 /* TLS 1.3 HKDF-Expand-Label (RFC 8446 Section 7.1) */
 noxtls_return_t tls13_hkdf_expand_label(noxtls_hash_algos_t hash_algo,

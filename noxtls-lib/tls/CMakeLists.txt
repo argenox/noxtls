@@ -36,6 +36,12 @@ endif()
 if(NOT NOXTLS_CFG_FEATURE_TLS10 AND NOT NOXTLS_CFG_FEATURE_TLS11 AND NOT NOXTLS_CFG_FEATURE_TLS12 AND NOT NOXTLS_CFG_FEATURE_TLS13)
   message(FATAL_ERROR "NOXTLS_FEATURE_TLS requires at least one TLS version enabled.")
 endif()
+if(NOT NOXTLS_CFG_FEATURE_HMAC)
+  message(FATAL_ERROR "NOXTLS_FEATURE_TLS requires NOXTLS_CFG_FEATURE_HMAC.")
+endif()
+if(NOT NOXTLS_CFG_FEATURE_HKDF)
+  message(FATAL_ERROR "NOXTLS_FEATURE_TLS requires NOXTLS_CFG_FEATURE_HKDF.")
+endif()
 if(BUILD_DTLS)
     list(APPEND TLS_SOURCES noxtls_dtls_common.c)
 else()
@@ -67,10 +73,14 @@ target_include_directories(noxtls_tls PUBLIC
     ${NOXTLS_LIB_ROOT}/encryption/aes
     ${NOXTLS_LIB_ROOT}/mdigest
     ${NOXTLS_LIB_ROOT}/drbg
+    ${NOXTLS_LIB_ROOT}/mac
+    ${NOXTLS_LIB_ROOT}/kdf
     ${NOXTLS_LIB_ROOT}/common
 )
 
 target_link_libraries(noxtls_tls
+    noxtls_kdf
+    noxtls_mac
     noxtls_pkc
     noxtls_encryption
     noxtls_hash

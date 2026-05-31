@@ -36,6 +36,8 @@ SKIP_SETTING_IDS = frozenset(
 CMAKE_BOOL_CACHE_VARS: frozenset[str] = frozenset(
     {
         "NOXTLS_FEATURE_HASH",
+        "NOXTLS_FEATURE_HMAC",
+        "NOXTLS_FEATURE_HKDF",
         "NOXTLS_FEATURE_ENCRYPTION",
         "NOXTLS_FEATURE_DRBG",
         "NOXTLS_FEATURE_PKC",
