@@ -32,6 +32,8 @@ endmacro()
 
 # Default feature matrix (full build).
 noxtls_set_default(NOXTLS_CFG_FEATURE_HASH ON)
+noxtls_set_default(NOXTLS_CFG_FEATURE_HMAC ${NOXTLS_CFG_FEATURE_HASH})
+noxtls_set_default(NOXTLS_CFG_FEATURE_HKDF ${NOXTLS_CFG_FEATURE_HMAC})
 noxtls_set_default(NOXTLS_CFG_FEATURE_ENCRYPTION ON)
 noxtls_set_default(NOXTLS_CFG_FEATURE_DRBG ON)
 noxtls_set_default(NOXTLS_CFG_FEATURE_PKC ON)
@@ -187,6 +189,13 @@ elseif(NOT NOXTLS_PROFILE STREQUAL "default")
   message(FATAL_ERROR "Unknown NOXTLS_PROFILE='${NOXTLS_PROFILE}'")
 endif()
 
+if(NOXTLS_CFG_FEATURE_HMAC AND NOT NOXTLS_CFG_FEATURE_HASH)
+  message(FATAL_ERROR "NOXTLS_CFG_FEATURE_HMAC requires NOXTLS_CFG_FEATURE_HASH.")
+endif()
+if(NOXTLS_CFG_FEATURE_HKDF AND NOT NOXTLS_CFG_FEATURE_HMAC)
+  message(FATAL_ERROR "NOXTLS_CFG_FEATURE_HKDF requires NOXTLS_CFG_FEATURE_HMAC.")
+endif()
+
 if(NOXTLS_SIDECHANNEL_PROFILE STREQUAL "performance")
   set(NOXTLS_CFG_CT_COMPARE OFF)
   add_compile_definitions(NOXTLS_SIDECHANNEL_PROFILE_PERFORMANCE=1)
@@ -219,6 +228,8 @@ elseif(NOXTLS_PROFILE STREQUAL "fips_like_profile")
 endif()
 
 noxtls_define_bool(NOXTLS_FEATURE_HASH NOXTLS_CFG_FEATURE_HASH)
+noxtls_define_bool(NOXTLS_FEATURE_HMAC NOXTLS_CFG_FEATURE_HMAC)
+noxtls_define_bool(NOXTLS_FEATURE_HKDF NOXTLS_CFG_FEATURE_HKDF)
 noxtls_define_bool(NOXTLS_FEATURE_ENCRYPTION NOXTLS_CFG_FEATURE_ENCRYPTION)
 noxtls_define_bool(NOXTLS_FEATURE_DRBG NOXTLS_CFG_FEATURE_DRBG)
 noxtls_define_bool(NOXTLS_FEATURE_PKC NOXTLS_CFG_FEATURE_PKC)
@@ -315,6 +326,8 @@ include_directories(
     ${NOXTLS_LIB_ROOT}/mdigest/sha256
     ${NOXTLS_LIB_ROOT}/mdigest/sha512
     ${NOXTLS_LIB_ROOT}/mdigest/sha3
+    ${NOXTLS_LIB_ROOT}/mac
+    ${NOXTLS_LIB_ROOT}/kdf
     ${NOXTLS_LIB_ROOT}/encryption
     ${NOXTLS_LIB_ROOT}/encryption/aria
     ${NOXTLS_LIB_ROOT}/certs
@@ -336,6 +349,12 @@ include_directories(
 add_subdirectory(noxtls-lib/common)
 add_subdirectory(utility)
 add_subdirectory(noxtls-lib/mdigest)
+if(NOXTLS_CFG_FEATURE_HMAC)
+  add_subdirectory(noxtls-lib/mac)
+endif()
+if(NOXTLS_CFG_FEATURE_HKDF)
+  add_subdirectory(noxtls-lib/kdf)
+endif()
 add_subdirectory(noxtls-lib/encryption)
 add_subdirectory(noxtls-lib/mdigest/sha3)
 add_subdirectory(noxtls-lib/pkc)

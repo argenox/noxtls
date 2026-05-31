@@ -29,6 +29,8 @@
 #include "common/noxtls_memory_compat.h"
 #include "noxtls_tls13_psk.h"
 #include "noxtls_tls_kdf.h"
+#include "mac/noxtls_hmac.h"
+#include "kdf/noxtls_hkdf.h"
 #include "noxtls_tls_common.h"
 #include "mdigest/noxtls_hash.h"
 #include "mdigest/sha256/noxtls_sha256.h"
@@ -481,7 +483,7 @@ noxtls_return_t tls13_psk_compute_resumption_binder(noxtls_hash_algos_t hash_alg
     }
 
     prk_len = hash_len;
-    rc = hkdf_extract(hash_algo, NULL, 0, resumption_psk, psk_len, early_secret, &prk_len);
+    rc = noxtls_hkdf_extract(hash_algo, NULL, 0, resumption_psk, psk_len, early_secret, &prk_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -496,7 +498,7 @@ noxtls_return_t tls13_psk_compute_resumption_binder(noxtls_hash_algos_t hash_alg
         return rc;
     }
     verify_len = hash_len;
-    rc = hmac_compute(hash_algo, finished_key, hash_len, transcript_hash, transcript_len,
+    rc = noxtls_hmac_compute(hash_algo, finished_key, hash_len, transcript_hash, transcript_len,
                      computed_binder, &verify_len);
     if(rc != NOXTLS_RETURN_SUCCESS || verify_len != hash_len) {
         return NOXTLS_RETURN_FAILED;
@@ -579,7 +581,7 @@ noxtls_return_t tls13_psk_compute_external_binder(noxtls_hash_algos_t hash_algo,
     }
 
     prk_len = hash_len;
-    rc = hkdf_extract(hash_algo, NULL, 0, psk, psk_len, early_secret, &prk_len);
+    rc = noxtls_hkdf_extract(hash_algo, NULL, 0, psk, psk_len, early_secret, &prk_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -592,7 +594,7 @@ noxtls_return_t tls13_psk_compute_external_binder(noxtls_hash_algos_t hash_algo,
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    rc = hmac_compute(hash_algo, finished_key, hash_len, transcript_hash, transcript_len,
+    rc = noxtls_hmac_compute(hash_algo, finished_key, hash_len, transcript_hash, transcript_len,
                      computed_binder, &verify_len);
     if(rc != NOXTLS_RETURN_SUCCESS || verify_len != hash_len) {
         return NOXTLS_RETURN_FAILED;

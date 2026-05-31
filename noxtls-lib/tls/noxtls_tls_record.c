@@ -32,6 +32,7 @@
 #include "noxtls_tls12.h"
 #include "noxtls_tls13.h"
 #include "noxtls_tls_kdf.h"
+#include "mac/noxtls_hmac.h"
 #include "encryption/aes/noxtls_aes.h"
 #include "encryption/aes/noxtls_aes_internal.h"
 

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-05-20T00:14:27Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-05-31T03:51:46Z)
 
 function(noxtls_esp_idf_write_config_features_header out_file)
   if(NOT out_file)
@@ -31,6 +31,12 @@ else()
 endif()
 
 string(APPEND _noxtls_hdr "#define NOXTLS_ECC_POINT_MUL_WINDOW_SIZE ${CONFIG_NOXTLS_ECC_POINT_MUL_WINDOW_SIZE}\n")
+
+if(CONFIG_NOXTLS_ECDSA_SIGN_SELF_VERIFY)
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECDSA_SIGN_SELF_VERIFY 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECDSA_SIGN_SELF_VERIFY 0\n")
+endif()
 
 if(NOXTLS_CFG_FEATURE_AES)
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_AES 1\n")
@@ -218,10 +224,34 @@ else()
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_ENCRYPTION 0\n")
 endif()
 
+if(CONFIG_NOXTLS_FEATURE_FALCON)
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_FALCON 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_FALCON 0\n")
+endif()
+
 if(NOXTLS_CFG_FEATURE_HASH)
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_HASH 1\n")
 else()
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_HASH 0\n")
+endif()
+
+if(NOXTLS_CFG_FEATURE_HKDF)
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_HKDF 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_HKDF 0\n")
+endif()
+
+if(NOXTLS_CFG_FEATURE_HMAC)
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_HMAC 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_HMAC 0\n")
+endif()
+
+if(CONFIG_NOXTLS_FEATURE_LMS_HSS)
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_LMS_HSS 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_LMS_HSS 0\n")
 endif()
 
 if(NOXTLS_CFG_FEATURE_MD4)
@@ -354,6 +384,12 @@ if(NOXTLS_CFG_FEATURE_X448)
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_X448 1\n")
 else()
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_X448 0\n")
+endif()
+
+if(CONFIG_NOXTLS_FEATURE_XMSS)
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_XMSS 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_XMSS 0\n")
 endif()
 
 if(NOXTLS_CFG_HAVE_CERT_WRITE)

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-05-20T00:14:27Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-05-31T03:51:46Z)
 
 if(NOT CONFIG_NOXTLS)
   return()
@@ -47,6 +47,8 @@ noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_ED25519 NOXTLS_CFG_FEATURE_ED25519)
 noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_ED448 NOXTLS_CFG_FEATURE_ED448)
 noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_ENCRYPTION NOXTLS_CFG_FEATURE_ENCRYPTION)
 noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_HASH NOXTLS_CFG_FEATURE_HASH)
+noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_HKDF NOXTLS_CFG_FEATURE_HKDF)
+noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_HMAC NOXTLS_CFG_FEATURE_HMAC)
 noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_MD4 NOXTLS_CFG_FEATURE_MD4)
 noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_MD5 NOXTLS_CFG_FEATURE_MD5)
 noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_ML_DSA NOXTLS_CFG_FEATURE_ML_DSA)
@@ -89,6 +91,30 @@ if(CONFIG_NOXTLS_ECC_FIXED_POINT_OPTIM)
   zephyr_compile_definitions(NOXTLS_ECC_FIXED_POINT_OPTIM=1)
 else()
   zephyr_compile_definitions(NOXTLS_ECC_FIXED_POINT_OPTIM=0)
+endif()
+
+if(CONFIG_NOXTLS_ECDSA_SIGN_SELF_VERIFY)
+  zephyr_compile_definitions(NOXTLS_ECDSA_SIGN_SELF_VERIFY=1)
+else()
+  zephyr_compile_definitions(NOXTLS_ECDSA_SIGN_SELF_VERIFY=0)
+endif()
+
+if(CONFIG_NOXTLS_FEATURE_FALCON)
+  zephyr_compile_definitions(NOXTLS_FEATURE_FALCON=1)
+else()
+  zephyr_compile_definitions(NOXTLS_FEATURE_FALCON=0)
+endif()
+
+if(CONFIG_NOXTLS_FEATURE_LMS_HSS)
+  zephyr_compile_definitions(NOXTLS_FEATURE_LMS_HSS=1)
+else()
+  zephyr_compile_definitions(NOXTLS_FEATURE_LMS_HSS=0)
+endif()
+
+if(CONFIG_NOXTLS_FEATURE_XMSS)
+  zephyr_compile_definitions(NOXTLS_FEATURE_XMSS=1)
+else()
+  zephyr_compile_definitions(NOXTLS_FEATURE_XMSS=0)
 endif()
 
 if(CONFIG_NOXTLS_HAVE_TIME)
