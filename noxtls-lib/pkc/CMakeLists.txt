@@ -11,14 +11,26 @@ option(NOXTLS_ECC_LADDER_ONLY "Use Montgomery ladder only for ECC point multiply
 
 set(PKC_SOURCES
 )
+
+# Multiprecision backend shared by classic PKC primitives.
+# NOXTLS_CFG_ED25519_FIELD_MATH preserves legacy Ed25519-over-bignum builds.
+if(NOXTLS_CFG_FEATURE_BIGNUM OR NOXTLS_CFG_ED25519_FIELD_MATH)
+    list(APPEND PKC_SOURCES rsa/noxtls_bignum.c rsa/noxtls_bn_platform.c)
+endif()
+if(NOT NOXTLS_CFG_FEATURE_BIGNUM AND
+   (NOXTLS_CFG_FEATURE_RSA OR
+    NOXTLS_CFG_FEATURE_DSA OR
+    NOXTLS_CFG_FEATURE_ECC OR
+    NOXTLS_CFG_FEATURE_ECDSA OR
+    NOXTLS_CFG_FEATURE_DH OR
+    NOXTLS_CFG_FEATURE_X448 OR
+    NOXTLS_CFG_FEATURE_ED448 OR
+    NOXTLS_CFG_FEATURE_FALCON))
+    message(FATAL_ERROR
+        "NOXTLS_CFG_FEATURE_BIGNUM must be ON for RSA/DSA/ECC/ECDSA/DH/X448/ED448/FALCON.")
+endif()
 if(NOXTLS_CFG_FEATURE_RSA)
-    list(APPEND PKC_SOURCES rsa/noxtls_bignum.c rsa/noxtls_bn_platform.c rsa/noxtls_rsa.c)
-endif()
-if(NOXTLS_CFG_FEATURE_DSA AND NOT NOXTLS_CFG_FEATURE_RSA)
-    list(APPEND PKC_SOURCES rsa/noxtls_bignum.c rsa/noxtls_bn_platform.c)
-endif()
-if((NOXTLS_CFG_FEATURE_ECC OR NOXTLS_CFG_FEATURE_ECDSA) AND NOT NOXTLS_CFG_FEATURE_RSA AND NOT NOXTLS_CFG_FEATURE_DSA)
-    list(APPEND PKC_SOURCES rsa/noxtls_bignum.c rsa/noxtls_bn_platform.c)
+    list(APPEND PKC_SOURCES rsa/noxtls_rsa.c)
 endif()
 if(ESP_PLATFORM AND NOXTLS_CFG_FEATURE_PKC)
     list(APPEND PKC_SOURCES ${NOXTLS_ESP_IDF_DIR}/target/esp32/noxtls_esp32_bignum_mpi.c)
