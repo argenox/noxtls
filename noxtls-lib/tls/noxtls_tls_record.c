@@ -1763,6 +1763,14 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
     epoch = ctx->base.epoch;
     seq_num = ctx->base.write_seq_num;
 
+    noxtls_debug_printf("[TLS13_DEBUG] send_dtls13_record: hs=%d epoch=%u seq=%llu inner_len=%u content_type=0x%02X omit_length=%d\n",
+                        use_handshake_keys,
+                        (unsigned)epoch,
+                        (unsigned long long)seq_num,
+                        inner_len,
+                        content_type,
+                        omit_length);
+
     if(use_handshake_keys) {
         write_key = ctx->base.base.role == TLS_ROLE_CLIENT ? ctx->client_write_key : ctx->server_write_key;
         write_iv  = ctx->base.base.role == TLS_ROLE_CLIENT ? ctx->client_write_iv  : ctx->server_write_iv;
@@ -1871,6 +1879,8 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
             noxtls_free(ciphertext);
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         }
+        noxtls_debug_printf("[TLS13_DEBUG] send_dtls13_record: header_len=%u record_len=%u total=%u first_hdr=0x%02X\n",
+                            header_len, record_len, total, header[0]);
         memcpy(out, header, header_len);
         memcpy(out + header_len, ciphertext, record_len);
         noxtls_free(ciphertext);
@@ -2009,6 +2019,8 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
         if(raw[0] & DTLS13_UNIFIED_L_BIT) {
             ciphertext_len = (uint32_t)(((uint16_t)raw[len_offset] << 8) | raw[len_offset + 1U]);
             if(raw_len < aad_len + ciphertext_len) {
+                noxtls_debug_printf("[TLS13_DEBUG] decrypt_dtls13_record: raw_len=%u aad_len=%u ciphertext_len=%u incomplete\n",
+                                    raw_len, aad_len, ciphertext_len);
                 return NOXTLS_RETURN_BAD_DATA;
             }
         } else {
@@ -2035,6 +2047,8 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
         return NOXTLS_RETURN_INVALID_PARAM;
     }
     if(ciphertext_len <= tag_len) {
+        noxtls_debug_printf("[TLS13_DEBUG] decrypt_dtls13_record: ciphertext_len=%u tag_len=%u too small\n",
+                            ciphertext_len, tag_len);
         return NOXTLS_RETURN_BAD_DATA;
     }
 
@@ -2058,7 +2072,18 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
         seq_truncated = (uint16_t)(seq_enc ^ mask[0]);
     }
     full_seq = dtls13_reconstruct_record_number(&ctx->base, epoch, seq_truncated, (seq_len == 2U) ? 16U : 8U);
+    noxtls_debug_printf("[TLS13_DEBUG] decrypt_dtls13_record: epoch=%u use_hs=%d raw_len=%u aad_len=%u ctext_len=%u seq_len=%u seq_trunc=%u full_seq=%llu\n",
+                        epoch,
+                        use_handshake,
+                        raw_len,
+                        aad_len,
+                        ciphertext_len,
+                        seq_len,
+                        (unsigned)seq_truncated,
+                        (unsigned long long)full_seq);
     if(dtls13_replay_check_window(&ctx->base.replay_windows[epoch & DTLS13_UNIFIED_EPOCH_MASK], full_seq) != NOXTLS_RETURN_SUCCESS) {
+        noxtls_debug_printf("[TLS13_DEBUG] decrypt_dtls13_record: replay reject epoch=%u seq=%llu\n",
+                            epoch, (unsigned long long)full_seq);
         return NOXTLS_RETURN_FAILED;
     }
 
@@ -2088,6 +2113,8 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
                                             ciphertext, inner_len, tag, out_plaintext);
     }
     if(rc_aead != 0) {
+        noxtls_debug_printf("[TLS13_DEBUG] decrypt_dtls13_record: AEAD decrypt failed rc=%d epoch=%u seq=%llu\n",
+                            rc_aead, epoch, (unsigned long long)full_seq);
         return NOXTLS_RETURN_BAD_DATA;
     }
 
@@ -2096,10 +2123,13 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
         /* skip padding */
     }
     if(i == (uint32_t)-1) {
+        noxtls_debug_printf("[TLS13_DEBUG] decrypt_dtls13_record: all-padding inner plaintext\n");
         return NOXTLS_RETURN_BAD_DATA;
     }
     *out_content_type = out_plaintext[i];
     *out_plaintext_len = i;
+    noxtls_debug_printf("[TLS13_DEBUG] decrypt_dtls13_record: success inner_type=0x%02X inner_len=%u\n",
+                        *out_content_type, *out_plaintext_len);
     dtls13_replay_update_window(&ctx->base.replay_windows[epoch & DTLS13_UNIFIED_EPOCH_MASK], full_seq);
     if(ctx->base.highest_recv_seq_valid[epoch & DTLS13_UNIFIED_EPOCH_MASK] == 0U ||
        full_seq > ctx->base.highest_recv_seq[epoch & DTLS13_UNIFIED_EPOCH_MASK]) {

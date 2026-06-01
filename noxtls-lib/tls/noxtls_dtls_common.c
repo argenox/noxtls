@@ -23,6 +23,7 @@
 #include <stdint.h>
 #include <string.h>
 #include "common/noxtls_memory.h"
+#include "common/noxtls_debug_printf.h"
 #include "noxtls_dtls_common.h"
 #include "noxtls_tls_common.h"
 #include "mdigest/sha256/noxtls_sha256.h"
@@ -998,6 +999,7 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
 
     while(1) {
         received = ctx->base.recv_callback(ctx->base.user_data, packet, packet_capacity);
+        noxtls_debug_printf("[TLS13_DEBUG] dtls_recv_record: recv returned %ld\n", (long)received);
         if(received == 0) {
             if(ctx->flight_buffer_len > 0 && attempts < ctx->retransmit_max_attempts) {
                 if(ctx->base.time_callback != NULL) {
@@ -1027,6 +1029,8 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
             return NOXTLS_RETURN_TIMEOUT;
         }
         if(received < (int32_t)DTLS_RECORD_HEADER_SIZE) {
+            noxtls_debug_printf("[TLS13_DEBUG] dtls_recv_record: short packet len=%ld (<%u)\n",
+                                (long)received, (unsigned)DTLS_RECORD_HEADER_SIZE);
             noxtls_free(packet);
             return NOXTLS_RETURN_FAILED;
         }
@@ -1040,6 +1044,8 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
 
     /* RFC 9147: DTLSCiphertext has first byte in 0x20-0x3F (unified header); pass to TLS 1.3 for decrypt */
     if(ctx->base.version == DTLS_VERSION_1_3 && received >= 4 && (packet[0] & 0xE0) == 0x20) {
+        noxtls_debug_printf("[TLS13_DEBUG] dtls_recv_record: dtls13 unified packet len=%ld first=0x%02X\n",
+                            (long)received, packet[0]);
         record->type = packet[0];
         record->version = DTLS_VERSION_1_3;
         record->epoch = packet[0] & 0x03;
@@ -1068,8 +1074,17 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
     ctx->read_seq_num = record->sequence_number;
 
     if(record->epoch != ctx->epoch) {
+        if(ctx->base.version == DTLS_VERSION_1_3 &&
+           record->type == TLS_RECORD_CHANGE_CIPHER_SPEC &&
+           record->epoch == DTLS_EPOCH_UNENCRYPTED) {
+            noxtls_debug_printf("[TLS13_DEBUG] dtls_recv_record: allowing DTLS1.3 compat CCS at epoch 0 while ctx epoch=%u\n",
+                                ctx->epoch);
+        } else {
+        noxtls_debug_printf("[TLS13_DEBUG] dtls_recv_record: epoch mismatch record=%u ctx=%u type=0x%02X version=0x%04X\n",
+                            record->epoch, ctx->epoch, record->type, record->version);
         noxtls_free(packet);
         return NOXTLS_RETURN_FAILED;
+        }
     }
 
     if(length > TLS_MAX_RECORD_SIZE) {
