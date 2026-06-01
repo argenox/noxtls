@@ -531,6 +531,14 @@
 #define NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES 0
 #endif
 
+/* Allow TLS/DTLS builds without certificate support when the application is
+ * intentionally PSK-only. Keep disabled by default so general-purpose builds
+ * still require the X.509 stack when TLS is enabled.
+ */
+#ifndef NOXTLS_CFG_TLS_ALLOW_PSK_ONLY
+#define NOXTLS_CFG_TLS_ALLOW_PSK_ONLY 0
+#endif
+
 /* Enables X.509 certificate writing/generation helpers.
  * Prereq: NOXTLS_FEATURE_CERT=1 and NOXTLS_FEATURE_PKC=1.
  *

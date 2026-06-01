@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-05-20T00:14:27Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-06-01T22:10:15Z)
 
 function(noxtls_esp_idf_write_config_features_header out_file)
   if(NOT out_file)
@@ -24,6 +24,18 @@ else()
   string(APPEND _noxtls_hdr "#define NOXTLS_CFG_TLS13_ALLOW_RSA_PKCS1_CERTVERIFY 0\n")
 endif()
 
+if(CONFIG_NOXTLS_CFG_TLS13_PREFER_SECP256R1_OVER_X25519)
+  string(APPEND _noxtls_hdr "#define NOXTLS_CFG_TLS13_PREFER_SECP256R1_OVER_X25519 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_CFG_TLS13_PREFER_SECP256R1_OVER_X25519 0\n")
+endif()
+
+if(CONFIG_NOXTLS_CFG_TLS_ALLOW_PSK_ONLY)
+  string(APPEND _noxtls_hdr "#define NOXTLS_CFG_TLS_ALLOW_PSK_ONLY 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_CFG_TLS_ALLOW_PSK_ONLY 0\n")
+endif()
+
 if(CONFIG_NOXTLS_ECC_FIXED_POINT_OPTIM)
   string(APPEND _noxtls_hdr "#define NOXTLS_ECC_FIXED_POINT_OPTIM 1\n")
 else()
@@ -31,6 +43,12 @@ else()
 endif()
 
 string(APPEND _noxtls_hdr "#define NOXTLS_ECC_POINT_MUL_WINDOW_SIZE ${CONFIG_NOXTLS_ECC_POINT_MUL_WINDOW_SIZE}\n")
+
+if(CONFIG_NOXTLS_ECDSA_SIGN_SELF_VERIFY)
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECDSA_SIGN_SELF_VERIFY 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECDSA_SIGN_SELF_VERIFY 0\n")
+endif()
 
 if(NOXTLS_CFG_FEATURE_AES)
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_AES 1\n")
@@ -218,10 +236,22 @@ else()
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_ENCRYPTION 0\n")
 endif()
 
+if(CONFIG_NOXTLS_FEATURE_FALCON)
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_FALCON 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_FALCON 0\n")
+endif()
+
 if(NOXTLS_CFG_FEATURE_HASH)
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_HASH 1\n")
 else()
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_HASH 0\n")
+endif()
+
+if(CONFIG_NOXTLS_FEATURE_LMS_HSS)
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_LMS_HSS 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_LMS_HSS 0\n")
 endif()
 
 if(NOXTLS_CFG_FEATURE_MD4)
@@ -354,6 +384,12 @@ if(NOXTLS_CFG_FEATURE_X448)
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_X448 1\n")
 else()
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_X448 0\n")
+endif()
+
+if(CONFIG_NOXTLS_FEATURE_XMSS)
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_XMSS 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_XMSS 0\n")
 endif()
 
 if(NOXTLS_CFG_HAVE_CERT_WRITE)

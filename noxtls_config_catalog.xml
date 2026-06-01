@@ -4,7 +4,7 @@
     <noxtls-version>0.2.54</noxtls-version>
     <source-header>noxtls/noxtls_config.h</source-header>
     <version-header>noxtls/noxtls_version.h</version-header>
-    <generated-at>2026-05-19T05:32:08Z</generated-at>
+    <generated-at>2026-06-01T22:09:51Z</generated-at>
     <generator>noxtls/tools/config_catalog/generate_config_catalog.py</generator>
   </metadata>
   <profiles>
@@ -43,10 +43,10 @@
       </setting>
     </category>
     <category id="sidechannel" name="Side-Channel Hardening">
-      <setting id="NOXTLS_CT_COMPARE" name="Constant-Time Compare" type="boolean" default="enabled" default-value="1" legacy="false" source-line="74">
+      <setting id="NOXTLS_CT_COMPARE" name="Constant-Time Compare" type="boolean" default="enabled" default-value="1" legacy="false" source-line="76">
         <description>Enable constant-time secret compare (disabled only with NOXTLS_SIDECHANNEL_PROFILE_PERFORMANCE).</description>
       </setting>
-      <setting id="NOXTLS_SIDECHANNEL_PROFILE_BALANCED" name="Balanced" type="profile" default="1" legacy="false" source-line="68"/>
+      <setting id="NOXTLS_SIDECHANNEL_PROFILE_BALANCED" name="Balanced" type="profile" default="1" legacy="false" source-line="70"/>
       <setting id="NOXTLS_SIDECHANNEL_PROFILE_CONSTANT_TIME_STRICT" name="Constant Time Strict" type="profile" default="undefined" legacy="false">
         <description>Side-channel profile preset; define at most one.</description>
       </setting>
@@ -55,7 +55,7 @@
       </setting>
     </category>
     <category id="core" name="Core Modules">
-      <setting id="NOXTLS_FEATURE_DRBG" name="DRBG" type="boolean" default="enabled" default-value="1" legacy="false" source-line="101">
+      <setting id="NOXTLS_FEATURE_DRBG" name="DRBG" type="boolean" default="enabled" default-value="1" legacy="false" source-line="108">
         <description>Enables deterministic random bit generator (CTR-DRBG implementation). Prereq: NOXTLS_FEATURE_ENCRYPTION=1 and NOXTLS_FEATURE_AES=1.</description>
         <dependencies>
           <allOf>
@@ -73,7 +73,7 @@
       </setting>
     </category>
     <category id="hash" name="Hash Algorithms">
-      <setting id="NOXTLS_FEATURE_HASH" name="Hash Framework" type="boolean" default="enabled" default-value="1" legacy="false" source-line="90">
+      <setting id="NOXTLS_FEATURE_HASH" name="Hash Framework" type="boolean" default="enabled" default-value="1" legacy="false" source-line="93">
         <description>Core modules Enables hash framework and hash algorithm implementations. Prereq: none. Required by: certificates and TLS stacks.</description>
         <profile-overrides>
           <override profile="NOXTLS_PROFILE_CRYPTO_ONLY" value="enabled" default-value="1"/>
@@ -83,7 +83,7 @@
           <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
         </profile-overrides>
         <suboptions>
-          <setting id="NOXTLS_FEATURE_BLAKE2" name="Blake2" type="boolean" default="enabled" default-value="1" legacy="false" source-line="189">
+          <setting id="NOXTLS_FEATURE_BLAKE2" name="Blake2" type="boolean" default="enabled" default-value="1" legacy="false" source-line="220">
             <description>Enables BLAKE2 hash family. Prereq: NOXTLS_FEATURE_HASH=1.</description>
             <dependencies>
               <allOf>
@@ -97,7 +97,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_MD4" name="MD4" type="boolean" default="disabled" default-value="0" legacy="true" source-line="136">
+          <setting id="NOXTLS_FEATURE_MD4" name="MD4" type="boolean" default="disabled" default-value="0" legacy="true" source-line="150">
             <description>Hash primitives Enables MD4 hashing algorithm. Prereq: NOXTLS_FEATURE_HASH=1. Security note: legacy algorithm; generally disable for modern deployments.</description>
             <dependencies>
               <allOf>
@@ -112,7 +112,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_MD5" name="MD5" type="boolean" default="enabled" default-value="1" legacy="true" source-line="143">
+          <setting id="NOXTLS_FEATURE_MD5" name="MD5" type="boolean" default="enabled" default-value="1" legacy="true" source-line="158">
             <description>Enables MD5 hashing algorithm. Prereq: NOXTLS_FEATURE_HASH=1. Security note: legacy algorithm; generally disable for modern deployments.</description>
             <dependencies>
               <allOf>
@@ -126,7 +126,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_RIPEMD160" name="Ripemd160" type="boolean" default="enabled" default-value="1" legacy="false" source-line="184">
+          <setting id="NOXTLS_FEATURE_RIPEMD160" name="Ripemd160" type="boolean" default="enabled" default-value="1" legacy="false" source-line="213">
             <description>Enables RIPEMD-160 hashing algorithm. Prereq: NOXTLS_FEATURE_HASH=1.</description>
             <dependencies>
               <allOf>
@@ -140,7 +140,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_SHA1" name="SHA-1" type="boolean" default="enabled" default-value="1" legacy="true" source-line="149">
+          <setting id="NOXTLS_FEATURE_SHA1" name="SHA-1" type="boolean" default="enabled" default-value="1" legacy="true" source-line="166">
             <description>Enables SHA-1 hashing algorithm. Prereq: NOXTLS_FEATURE_HASH=1. Security note: legacy algorithm; generally disable for modern deployments.</description>
             <dependencies>
               <allOf>
@@ -154,7 +154,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_SHA224" name="Sha224" type="boolean" default="enabled" default-value="1" legacy="false" source-line="155">
+          <setting id="NOXTLS_FEATURE_SHA224" name="Sha224" type="boolean" default="enabled" default-value="1" legacy="false" source-line="174">
             <description>Enables SHA-224 hashing algorithm (same implementation as SHA-256). Prereq: NOXTLS_FEATURE_HASH=1. Build: sha256.c is compiled when NOXTLS_FEATURE_SHA224 or NOXTLS_FEATURE_SHA256 is 1.</description>
             <dependencies>
               <allOf>
@@ -168,7 +168,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_SHA256" name="Sha256" type="boolean" default="enabled" default-value="1" legacy="false" source-line="162">
+          <setting id="NOXTLS_FEATURE_SHA256" name="Sha256" type="boolean" default="enabled" default-value="1" legacy="false" source-line="183">
             <description>Enables SHA-256 hashing algorithm. Prereq: NOXTLS_FEATURE_HASH=1. Required by: TLS and certificate verification flows. Build: sha256.c is compiled when NOXTLS_FEATURE_SHA224 or NOXTLS_FEATURE_SHA256 is 1.</description>
             <dependencies>
               <allOf>
@@ -182,7 +182,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_SHA3" name="Sha3" type="boolean" default="enabled" default-value="1" legacy="false" source-line="179">
+          <setting id="NOXTLS_FEATURE_SHA3" name="Sha3" type="boolean" default="enabled" default-value="1" legacy="false" source-line="206">
             <description>Enables SHA-3 hashing algorithms. Prereq: NOXTLS_FEATURE_HASH=1.</description>
             <dependencies>
               <allOf>
@@ -196,7 +196,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_SHA384" name="Sha384" type="boolean" default="enabled" default-value="1" legacy="false" source-line="168">
+          <setting id="NOXTLS_FEATURE_SHA384" name="Sha384" type="boolean" default="enabled" default-value="1" legacy="false" source-line="191">
             <description>Enables SHA-384 hashing algorithm (same implementation as SHA-512). Prereq: NOXTLS_FEATURE_HASH=1. Build: sha512.c is compiled when NOXTLS_FEATURE_SHA384 or NOXTLS_FEATURE_SHA512 is 1.</description>
             <dependencies>
               <allOf>
@@ -210,7 +210,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_SHA512" name="Sha512" type="boolean" default="enabled" default-value="1" legacy="false" source-line="174">
+          <setting id="NOXTLS_FEATURE_SHA512" name="Sha512" type="boolean" default="enabled" default-value="1" legacy="false" source-line="199">
             <description>Enables SHA-512 and truncated variants (SHA-512/224, SHA-512/256). Prereq: NOXTLS_FEATURE_HASH=1. Build: sha512.c is compiled when NOXTLS_FEATURE_SHA384 or NOXTLS_FEATURE_SHA512 is 1.</description>
             <dependencies>
               <allOf>
@@ -228,7 +228,7 @@
       </setting>
     </category>
     <category id="encryption" name="Symmetric Encryption">
-      <setting id="NOXTLS_FEATURE_ENCRYPTION" name="Symmetric Encryption" type="boolean" default="enabled" default-value="1" legacy="false" source-line="96">
+      <setting id="NOXTLS_FEATURE_ENCRYPTION" name="Symmetric Encryption" type="boolean" default="enabled" default-value="1" legacy="false" source-line="101">
         <description>Enables symmetric encryption module family (AES/ARIA/Camellia/ChaCha/DES). Prereq: none. Required by: DRBG and TLS record protection.</description>
         <profile-overrides>
           <override profile="NOXTLS_PROFILE_CRYPTO_ONLY" value="enabled" default-value="1"/>
@@ -238,7 +238,7 @@
           <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
         </profile-overrides>
         <suboptions>
-          <setting id="NOXTLS_FEATURE_AES" name="AES" type="boolean" default="enabled" default-value="1" legacy="false" source-line="196">
+          <setting id="NOXTLS_FEATURE_AES" name="AES" type="boolean" default="enabled" default-value="1" legacy="false" source-line="229">
             <description>Symmetric primitives Enables AES cipher family. Prereq: NOXTLS_FEATURE_ENCRYPTION=1. Constraint: at least one NOXTLS_FEATURE_AES_* mode and one NOXTLS_FEATURE_AES_* key size must be enabled.</description>
             <dependencies>
               <allOf>
@@ -276,7 +276,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_AES_128" name="Aes 128" type="boolean" default="enabled" default-value="1" legacy="false" source-line="201">
+          <setting id="NOXTLS_FEATURE_AES_128" name="Aes 128" type="boolean" default="enabled" default-value="1" legacy="false" source-line="236">
             <description>Enables AES-128 key schedule/path. Prereq: NOXTLS_FEATURE_AES=1.</description>
             <dependencies>
               <allOf>
@@ -290,7 +290,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_AES_192" name="Aes 192" type="boolean" default="enabled" default-value="1" legacy="false" source-line="206">
+          <setting id="NOXTLS_FEATURE_AES_192" name="Aes 192" type="boolean" default="enabled" default-value="1" legacy="false" source-line="243">
             <description>Enables AES-192 key schedule/path. Prereq: NOXTLS_FEATURE_AES=1.</description>
             <dependencies>
               <allOf>
@@ -304,7 +304,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_AES_256" name="Aes 256" type="boolean" default="enabled" default-value="1" legacy="false" source-line="211">
+          <setting id="NOXTLS_FEATURE_AES_256" name="Aes 256" type="boolean" default="enabled" default-value="1" legacy="false" source-line="250">
             <description>Enables AES-256 key schedule/path. Prereq: NOXTLS_FEATURE_AES=1.</description>
             <dependencies>
               <allOf>
@@ -318,7 +318,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_AES_ACCEL_APPLE" name="Aes Accel Apple" type="boolean" default="disabled" default-value="0" legacy="false" source-line="274">
+          <setting id="NOXTLS_FEATURE_AES_ACCEL_APPLE" name="Aes Accel Apple" type="boolean" default="disabled" default-value="0" legacy="false" source-line="332">
             <description>Enables Apple Silicon ARMv8 AES accelerated block path on arm64 Apple builds. Prereq: NOXTLS_FEATURE_AES=1. Build knob: NOXTLS_CFG_FEATURE_AES_ACCEL_APPLE.</description>
             <dependencies>
               <allOf>
@@ -326,7 +326,7 @@
               </allOf>
             </dependencies>
           </setting>
-          <setting id="NOXTLS_FEATURE_AES_ACCEL_NI" name="Aes Accel Ni" type="boolean" default="disabled" default-value="0" legacy="false" source-line="266">
+          <setting id="NOXTLS_FEATURE_AES_ACCEL_NI" name="Aes Accel Ni" type="boolean" default="disabled" default-value="0" legacy="false" source-line="324">
             <description>Enables AES-NI accelerated AES block path on x86/x64 builds that compile with AES intrinsics. Prereq: NOXTLS_FEATURE_AES=1. Build knob: NOXTLS_CFG_FEATURE_AES_ACCEL_NI.</description>
             <dependencies>
               <allOf>
@@ -334,7 +334,7 @@
               </allOf>
             </dependencies>
           </setting>
-          <setting id="NOXTLS_FEATURE_AES_CBC" name="Aes Cbc" type="boolean" default="enabled" default-value="1" legacy="false" source-line="222">
+          <setting id="NOXTLS_FEATURE_AES_CBC" name="Aes Cbc" type="boolean" default="enabled" default-value="1" legacy="false" source-line="265">
             <description>Enables AES-CBC mode. Prereq: NOXTLS_FEATURE_AES=1.</description>
             <dependencies>
               <allOf>
@@ -348,7 +348,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_AES_CCM" name="Aes Ccm" type="boolean" default="enabled" default-value="1" legacy="false" source-line="254">
+          <setting id="NOXTLS_FEATURE_AES_CCM" name="Aes Ccm" type="boolean" default="enabled" default-value="1" legacy="false" source-line="309">
             <description>Enables AES-CCM AEAD mode. Prereq: NOXTLS_FEATURE_AES=1.</description>
             <dependencies>
               <allOf>
@@ -362,7 +362,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_AES_CFB" name="Aes Cfb" type="boolean" default="enabled" default-value="1" legacy="false" source-line="232">
+          <setting id="NOXTLS_FEATURE_AES_CFB" name="Aes Cfb" type="boolean" default="enabled" default-value="1" legacy="false" source-line="279">
             <description>Enables AES-CFB mode. Prereq: NOXTLS_FEATURE_AES=1.</description>
             <dependencies>
               <allOf>
@@ -376,7 +376,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_AES_CMAC" name="Aes Cmac" type="boolean" default="enabled" default-value="1" legacy="false" source-line="259">
+          <setting id="NOXTLS_FEATURE_AES_CMAC" name="Aes Cmac" type="boolean" default="enabled" default-value="1" legacy="false" source-line="316">
             <description>Enables AES-CMAC (RFC 4493) for message authentication (e.g. BLE Signed Write). Prereq: NOXTLS_FEATURE_AES=1.</description>
             <dependencies>
               <allOf>
@@ -389,7 +389,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_AES_CTR" name="Aes Ctr" type="boolean" default="enabled" default-value="1" legacy="false" source-line="227">
+          <setting id="NOXTLS_FEATURE_AES_CTR" name="Aes Ctr" type="boolean" default="enabled" default-value="1" legacy="false" source-line="272">
             <description>Enables AES-CTR mode. Prereq: NOXTLS_FEATURE_AES=1.</description>
             <dependencies>
               <allOf>
@@ -403,7 +403,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_AES_ECB" name="AES-ECB" type="boolean" default="enabled" default-value="1" legacy="true" source-line="217">
+          <setting id="NOXTLS_FEATURE_AES_ECB" name="AES-ECB" type="boolean" default="enabled" default-value="1" legacy="true" source-line="258">
             <description>Enables AES-ECB mode. Prereq: NOXTLS_FEATURE_AES=1. Security note: ECB is usually not suitable for bulk data confidentiality.</description>
             <dependencies>
               <allOf>
@@ -417,7 +417,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_AES_GCM" name="Aes Gcm" type="boolean" default="enabled" default-value="1" legacy="false" source-line="249">
+          <setting id="NOXTLS_FEATURE_AES_GCM" name="Aes Gcm" type="boolean" default="enabled" default-value="1" legacy="false" source-line="302">
             <description>Enables AES-GCM AEAD mode. Required by TLS when ChaCha20-Poly1305 is disabled.</description>
             <dependencies>
               <allOf>
@@ -431,7 +431,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_AES_OFB" name="Aes Ofb" type="boolean" default="enabled" default-value="1" legacy="false" source-line="237">
+          <setting id="NOXTLS_FEATURE_AES_OFB" name="Aes Ofb" type="boolean" default="enabled" default-value="1" legacy="false" source-line="286">
             <description>Enables AES-OFB mode. Prereq: NOXTLS_FEATURE_AES=1.</description>
             <dependencies>
               <allOf>
@@ -445,7 +445,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_AES_XTS" name="Aes Xts" type="boolean" default="enabled" default-value="1" legacy="false" source-line="243">
+          <setting id="NOXTLS_FEATURE_AES_XTS" name="Aes Xts" type="boolean" default="enabled" default-value="1" legacy="false" source-line="294">
             <description>Enables AES-XTS mode. Prereq: NOXTLS_FEATURE_AES=1. Typical use case: storage encryption.</description>
             <dependencies>
               <allOf>
@@ -460,7 +460,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_ARIA" name="Aria" type="boolean" default="enabled" default-value="1" legacy="false" source-line="280">
+          <setting id="NOXTLS_FEATURE_ARIA" name="Aria" type="boolean" default="enabled" default-value="1" legacy="false" source-line="339">
             <description>Enables ARIA cipher family. Prereq: NOXTLS_FEATURE_ENCRYPTION=1.</description>
             <dependencies>
               <allOf>
@@ -474,7 +474,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_CAMELLIA" name="Camellia" type="boolean" default="enabled" default-value="1" legacy="false" source-line="285">
+          <setting id="NOXTLS_FEATURE_CAMELLIA" name="Camellia" type="boolean" default="enabled" default-value="1" legacy="false" source-line="346">
             <description>Enables Camellia cipher family. Prereq: NOXTLS_FEATURE_ENCRYPTION=1.</description>
             <dependencies>
               <allOf>
@@ -488,7 +488,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_CHACHA20_POLY1305" name="Chacha20 Poly1305" type="boolean" default="enabled" default-value="1" legacy="false" source-line="291">
+          <setting id="NOXTLS_FEATURE_CHACHA20_POLY1305" name="Chacha20 Poly1305" type="boolean" default="enabled" default-value="1" legacy="false" source-line="354">
             <description>Enables ChaCha20-Poly1305 AEAD. Prereq: NOXTLS_FEATURE_ENCRYPTION=1. Alternative TLS AEAD when AES-GCM is disabled or less preferred.</description>
             <dependencies>
               <allOf>
@@ -502,7 +502,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_DES" name="DES / 3DES" type="boolean" default="enabled" default-value="1" legacy="true" source-line="297">
+          <setting id="NOXTLS_FEATURE_DES" name="DES / 3DES" type="boolean" default="enabled" default-value="1" legacy="true" source-line="362">
             <description>Enables DES/3DES-related implementation units. Prereq: NOXTLS_FEATURE_ENCRYPTION=1. Security note: legacy; generally disable for modern deployments.</description>
             <dependencies>
               <allOf>
@@ -516,7 +516,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_RC4" name="RC4" type="boolean" default="enabled" default-value="1" legacy="true" source-line="303">
+          <setting id="NOXTLS_FEATURE_RC4" name="RC4" type="boolean" default="enabled" default-value="1" legacy="true" source-line="370">
             <description>Enables RC4 stream cipher. Prereq: NOXTLS_FEATURE_ENCRYPTION=1. Security note: RC4 is deprecated and weak; use only for legacy compatibility.</description>
             <dependencies>
               <allOf>
@@ -534,17 +534,17 @@
       </setting>
     </category>
     <category id="pkc" name="Public-Key Cryptography">
-      <setting id="NOXTLS_FEATURE_PKC" name="Public-Key Cryptography" type="boolean" default="enabled" default-value="1" legacy="false" source-line="107">
+      <setting id="NOXTLS_FEATURE_PKC" name="Public-Key Cryptography" type="boolean" default="enabled" default-value="1" legacy="false" source-line="116">
         <description>Enables public-key cryptography module family (RSA/ECC/curve algorithms). Prereq: none. Required by: certificates and most TLS key exchange/signature flows.</description>
         <profile-overrides>
-          <override profile="NOXTLS_PROFILE_CRYPTO_ONLY" value="enabled" default-value="1"/>
+          <override profile="NOXTLS_PROFILE_CRYPTO_ONLY" value="disabled" default-value="0"/>
           <override profile="NOXTLS_PROFILE_FIPS_LIKE" value="enabled" default-value="1"/>
           <override profile="NOXTLS_PROFILE_MINIMAL_TLS_CLIENT" value="enabled" default-value="1"/>
           <override profile="NOXTLS_PROFILE_TLS_SERVER_PKI" value="enabled" default-value="1"/>
           <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
         </profile-overrides>
         <suboptions>
-          <setting id="NOXTLS_FEATURE_DH" name="Dh" type="boolean" default="enabled" default-value="1" legacy="false" source-line="330">
+          <setting id="NOXTLS_FEATURE_DH" name="Dh" type="boolean" default="enabled" default-value="1" legacy="false" source-line="407">
             <description>Enables finite-field Diffie-Hellman (FFDHE) support. Prereq: NOXTLS_FEATURE_PKC=1.</description>
             <dependencies>
               <allOf>
@@ -558,7 +558,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_DSA" name="Dsa" type="boolean" default="enabled" default-value="1" legacy="false" source-line="355">
+          <setting id="NOXTLS_FEATURE_DSA" name="Dsa" type="boolean" default="enabled" default-value="1" legacy="false" source-line="440">
             <description>Enables DSA (Digital Signature Algorithm) per FIPS 186-4. Prereq: NOXTLS_FEATURE_PKC=1 (and bignum via RSA or DSA).</description>
             <dependencies>
               <allOf>
@@ -572,7 +572,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_ECC" name="Ecc" type="boolean" default="enabled" default-value="1" legacy="false" source-line="315">
+          <setting id="NOXTLS_FEATURE_ECC" name="Ecc" type="boolean" default="enabled" default-value="1" legacy="false" source-line="386">
             <description>Enables ECC core (short Weierstrass curve arithmetic). Prereq: NOXTLS_FEATURE_PKC=1. Required by: ECDSA and ECDH.</description>
             <dependencies>
               <allOf>
@@ -586,7 +586,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_ECDH" name="Ecdh" type="boolean" default="enabled" default-value="1" legacy="false" source-line="325">
+          <setting id="NOXTLS_FEATURE_ECDH" name="Ecdh" type="boolean" default="enabled" default-value="1" legacy="false" source-line="400">
             <description>Enables ECDH key agreement. Prereq: NOXTLS_FEATURE_PKC=1 and NOXTLS_FEATURE_ECC=1.</description>
             <dependencies>
               <allOf>
@@ -601,7 +601,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_ECDSA" name="Ecdsa" type="boolean" default="enabled" default-value="1" legacy="false" source-line="320">
+          <setting id="NOXTLS_FEATURE_ECDSA" name="Ecdsa" type="boolean" default="enabled" default-value="1" legacy="false" source-line="393">
             <description>Enables ECDSA signatures. Prereq: NOXTLS_FEATURE_PKC=1 and NOXTLS_FEATURE_ECC=1.</description>
             <dependencies>
               <allOf>
@@ -616,7 +616,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_ED25519" name="Ed25519" type="boolean" default="enabled" default-value="1" legacy="false" source-line="345">
+          <setting id="NOXTLS_FEATURE_ED25519" name="Ed25519" type="boolean" default="enabled" default-value="1" legacy="false" source-line="428">
             <description>Enables Ed25519 signatures. Prereq: NOXTLS_FEATURE_PKC=1.</description>
             <dependencies>
               <allOf>
@@ -630,7 +630,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_ED448" name="Ed448" type="boolean" default="disabled" default-value="0" legacy="false" source-line="350">
+          <setting id="NOXTLS_FEATURE_ED448" name="Ed448" type="boolean" default="disabled" default-value="0" legacy="false" source-line="434">
             <description>Enables Ed448 signatures (RFC 8032). Requires NOXTLS_FEATURE_SHA3=1 for SHAKE256. Prereq: NOXTLS_FEATURE_PKC=1. Default OFF; set NOXTLS_CFG_FEATURE_ED448=ON in CMake to enable.</description>
             <dependencies>
               <allOf>
@@ -643,7 +643,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="disabled" default-value="0"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_ML_DSA" name="Ml Dsa" type="boolean" default="disabled" default-value="0" legacy="false" source-line="361">
+          <setting id="NOXTLS_FEATURE_ML_DSA" name="Ml Dsa" type="boolean" default="disabled" default-value="0" legacy="false" source-line="448">
             <description>Enables ML-DSA (FIPS 204) signature APIs and TLS PQ signature support.</description>
             <profile-overrides>
               <override profile="NOXTLS_PROFILE_CRYPTO_ONLY" value="disabled" default-value="0"/>
@@ -653,7 +653,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="disabled" default-value="0"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_ML_KEM" name="Ml Kem" type="boolean" default="disabled" default-value="0" legacy="false" source-line="358">
+          <setting id="NOXTLS_FEATURE_ML_KEM" name="Ml Kem" type="boolean" default="disabled" default-value="0" legacy="false" source-line="444">
             <description>Enables ML-KEM (FIPS 203) KEM APIs and TLS PQ keyshare support.</description>
             <profile-overrides>
               <override profile="NOXTLS_PROFILE_CRYPTO_ONLY" value="disabled" default-value="0"/>
@@ -663,54 +663,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="disabled" default-value="0"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_FALCON" name="Falcon" type="boolean" default="disabled" default-value="0" legacy="false" source-line="371">
-            <description>Enables FALCON signature APIs (NIST PQC finalist). Prereq: NOXTLS_FEATURE_PKC=1.</description>
-            <dependencies>
-              <allOf>
-                <dependency ref="NOXTLS_FEATURE_PKC" value="1"/>
-              </allOf>
-            </dependencies>
-            <profile-overrides>
-              <override profile="NOXTLS_PROFILE_CRYPTO_ONLY" value="disabled" default-value="0"/>
-              <override profile="NOXTLS_PROFILE_FIPS_LIKE" value="disabled" default-value="0"/>
-              <override profile="NOXTLS_PROFILE_MINIMAL_TLS_CLIENT" value="disabled" default-value="0"/>
-              <override profile="NOXTLS_PROFILE_TLS_SERVER_PKI" value="disabled" default-value="0"/>
-              <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="disabled" default-value="0"/>
-            </profile-overrides>
-          </setting>
-          <setting id="NOXTLS_FEATURE_LMS_HSS" name="Lms Hss" type="boolean" default="disabled" default-value="0" legacy="false" source-line="375">
-            <description>Enables LMS/HSS hash-based signature APIs (RFC 8554). Prereq: NOXTLS_FEATURE_PKC=1 and NOXTLS_FEATURE_SHA256=1.</description>
-            <dependencies>
-              <allOf>
-                <dependency ref="NOXTLS_FEATURE_PKC" value="1"/>
-                <dependency ref="NOXTLS_FEATURE_SHA256" value="1"/>
-              </allOf>
-            </dependencies>
-            <profile-overrides>
-              <override profile="NOXTLS_PROFILE_CRYPTO_ONLY" value="disabled" default-value="0"/>
-              <override profile="NOXTLS_PROFILE_FIPS_LIKE" value="disabled" default-value="0"/>
-              <override profile="NOXTLS_PROFILE_MINIMAL_TLS_CLIENT" value="disabled" default-value="0"/>
-              <override profile="NOXTLS_PROFILE_TLS_SERVER_PKI" value="disabled" default-value="0"/>
-              <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="disabled" default-value="0"/>
-            </profile-overrides>
-          </setting>
-          <setting id="NOXTLS_FEATURE_XMSS" name="Xmss Xmss Mt" type="boolean" default="disabled" default-value="0" legacy="false" source-line="379">
-            <description>Enables XMSS/XMSS^MT hash-based signature APIs (RFC 8391). Prereq: NOXTLS_FEATURE_PKC=1 and NOXTLS_FEATURE_SHA256=1.</description>
-            <dependencies>
-              <allOf>
-                <dependency ref="NOXTLS_FEATURE_PKC" value="1"/>
-                <dependency ref="NOXTLS_FEATURE_SHA256" value="1"/>
-              </allOf>
-            </dependencies>
-            <profile-overrides>
-              <override profile="NOXTLS_PROFILE_CRYPTO_ONLY" value="disabled" default-value="0"/>
-              <override profile="NOXTLS_PROFILE_FIPS_LIKE" value="disabled" default-value="0"/>
-              <override profile="NOXTLS_PROFILE_MINIMAL_TLS_CLIENT" value="disabled" default-value="0"/>
-              <override profile="NOXTLS_PROFILE_TLS_SERVER_PKI" value="disabled" default-value="0"/>
-              <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="disabled" default-value="0"/>
-            </profile-overrides>
-          </setting>
-          <setting id="NOXTLS_FEATURE_RSA" name="Rsa" type="boolean" default="enabled" default-value="1" legacy="false" source-line="309">
+          <setting id="NOXTLS_FEATURE_RSA" name="Rsa" type="boolean" default="enabled" default-value="1" legacy="false" source-line="378">
             <description>PKC primitives Enables RSA (and bignum backend used by RSA paths). Prereq: NOXTLS_FEATURE_PKC=1.</description>
             <dependencies>
               <allOf>
@@ -724,7 +677,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_SLH_DSA" name="SLH-DSA" type="boolean" default="disabled" default-value="0" legacy="false" source-line="364">
+          <setting id="NOXTLS_FEATURE_SLH_DSA" name="SLH-DSA" type="boolean" default="disabled" default-value="0" legacy="false" source-line="452">
             <description>Enables SLH-DSA (FIPS 205) signature APIs and TLS/X.509 PQ signature support.</description>
             <dependencies>
               <allOf>
@@ -743,7 +696,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="disabled" default-value="0"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_X25519" name="X25519" type="boolean" default="enabled" default-value="1" legacy="false" source-line="335">
+          <setting id="NOXTLS_FEATURE_X25519" name="X25519" type="boolean" default="enabled" default-value="1" legacy="false" source-line="414">
             <description>Enables X25519 key agreement. Prereq: NOXTLS_FEATURE_PKC=1.</description>
             <dependencies>
               <allOf>
@@ -757,7 +710,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_X448" name="X448" type="boolean" default="enabled" default-value="1" legacy="false" source-line="340">
+          <setting id="NOXTLS_FEATURE_X448" name="X448" type="boolean" default="enabled" default-value="1" legacy="false" source-line="421">
             <description>Enables X448 key agreement. Prereq: NOXTLS_FEATURE_PKC=1.</description>
             <dependencies>
               <allOf>
@@ -775,7 +728,7 @@
       </setting>
     </category>
     <category id="tls" name="TLS / DTLS">
-      <setting id="NOXTLS_FEATURE_TLS" name="TLS" type="boolean" default="enabled" default-value="1" legacy="false" source-line="128">
+      <setting id="NOXTLS_FEATURE_TLS" name="TLS" type="boolean" default="enabled" default-value="1" legacy="false" source-line="141">
         <description>Enables TLS protocol implementation. Prereq: NOXTLS_FEATURE_HASH=1, NOXTLS_FEATURE_ENCRYPTION=1, NOXTLS_FEATURE_DRBG=1, NOXTLS_FEATURE_PKC=1, NOXTLS_FEATURE_CERT=1.</description>
         <dependencies>
           <allOf>
@@ -803,8 +756,14 @@
           <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
         </profile-overrides>
         <suboptions>
-          <setting id="NOXTLS_FEATURE_DTLS" name="DTLS" type="boolean" default="enabled" default-value="1" legacy="false" source-line="408">
-            <description>Enables DTLS support. Prereq: NOXTLS_FEATURE_TLS=1.</description>
+          <setting id="NOXTLS_CFG_TLS13_PREFER_SECP256R1_OVER_X25519" name="Tls13 Prefer Secp256R1 Over X25519" type="boolean" default="disabled" default-value="0" legacy="false" source-line="515">
+            <description>Prefer secp256r1 over X25519 in TLS 1.3 group ordering. Default keeps the standard X25519-first preference. Platforms where X25519 is materially slower than P-256 can set this to 1.</description>
+          </setting>
+          <setting id="NOXTLS_CFG_TLS_ALLOW_PSK_ONLY" name="Tls Allow Psk Only" type="boolean" default="disabled" default-value="0" legacy="false" source-line="539">
+            <description>Allow TLS/DTLS builds without certificate support when the application is intentionally PSK-only. Keep disabled by default so general-purpose builds still require the X.509 stack when TLS is enabled.</description>
+          </setting>
+          <setting id="NOXTLS_FEATURE_DTLS" name="DTLS" type="boolean" default="enabled" default-value="1" legacy="false" source-line="523">
+            <description>Enables DTLS support. Prereq: NOXTLS_FEATURE_TLS=1. When built via CMake/Kconfig, NOXTLS_FEATURE_DTLS is set on the command line; do not override here.</description>
             <dependencies>
               <allOf>
                 <dependency ref="NOXTLS_FEATURE_TLS" value="1"/>
@@ -818,7 +777,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_TLS10" name="TLS 1.0" type="boolean" default="disabled" default-value="0" legacy="true" source-line="373">
+          <setting id="NOXTLS_FEATURE_TLS10" name="TLS 1.0" type="boolean" default="disabled" default-value="0" legacy="true" source-line="473">
             <description>TLS/cert granularity Enables TLS 1.0 protocol implementation. Prereq: NOXTLS_FEATURE_TLS=1. Security note: legacy protocol; disabled by default.</description>
             <dependencies>
               <allOf>
@@ -833,7 +792,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_TLS11" name="TLS 1.1" type="boolean" default="disabled" default-value="0" legacy="true" source-line="381">
+          <setting id="NOXTLS_FEATURE_TLS11" name="TLS 1.1" type="boolean" default="disabled" default-value="0" legacy="true" source-line="481">
             <description>Enables TLS 1.1 protocol implementation. Prereq: NOXTLS_FEATURE_TLS=1. Security note: legacy protocol; disabled by default.</description>
             <dependencies>
               <allOf>
@@ -848,7 +807,7 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_FEATURE_TLS12" name="TLS 1.2" type="boolean" default="enabled" default-value="1" legacy="false" source-line="387">
+          <setting id="NOXTLS_FEATURE_TLS12" name="TLS 1.2" type="boolean" default="enabled" default-value="1" legacy="false" source-line="488">
             <description>Enables TLS 1.2 protocol implementation. Prereq: NOXTLS_FEATURE_TLS=1.</description>
             <dependencies>
               <allOf>
@@ -863,12 +822,12 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
             <suboptions>
-              <setting id="NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES" name="TLS 1.2 Legacy Cipher Suites" type="boolean" default="disabled" default-value="0" legacy="true" source-line="415">
+              <setting id="NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES" name="TLS 1.2 Legacy Cipher Suites" type="boolean" default="disabled" default-value="0" legacy="true" source-line="531">
                 <description>Enables legacy TLS 1.2 cipher suites (CBC-mode and RSA key exchange suites). Security note: keep disabled for oracle/timing hardening unless strict backwards compatibility is required.</description>
               </setting>
             </suboptions>
           </setting>
-          <setting id="NOXTLS_FEATURE_TLS13" name="TLS 1.3" type="boolean" default="enabled" default-value="1" legacy="false" source-line="392">
+          <setting id="NOXTLS_FEATURE_TLS13" name="TLS 1.3" type="boolean" default="enabled" default-value="1" legacy="false" source-line="495">
             <description>Enables TLS 1.3 protocol implementation. Prereq: NOXTLS_FEATURE_TLS=1.</description>
             <dependencies>
               <allOf>
@@ -883,18 +842,18 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
             <suboptions>
-              <setting id="NOXTLS_CFG_TLS13_ALLOW_RSA_PKCS1_CERTVERIFY" name="Tls13 Allow Rsa Pkcs1 Certverify" type="boolean" default="disabled" default-value="0" legacy="false" source-line="402">
+              <setting id="NOXTLS_CFG_TLS13_ALLOW_RSA_PKCS1_CERTVERIFY" name="Tls13 Allow Rsa Pkcs1 Certverify" type="boolean" default="disabled" default-value="0" legacy="false" source-line="506">
                 <description>TLS 1.3 (RFC 8446): RSA PKCS#1 v1.5 CertificateVerify schemes (e.g. rsa_pkcs1_sha256, wire 0x0401) are deprecated for TLS 1.3 handshake signatures. NoxTLS does not implement signing those for CertificateVerify; keep 0. When 0, client offers consisting only of such schemes fail algorithm selection (fatal handshake_failure). Do not set to 1 without a reviewed implementation and test plan.</description>
               </setting>
             </suboptions>
           </setting>
-          <setting id="NOXTLS_TLS_MAX_HANDSHAKE_SIZE" name="Tls Max Handshake Size" type="integer" default="65536" legacy="false" source-line="1026">
+          <setting id="NOXTLS_TLS_MAX_HANDSHAKE_SIZE" name="Tls Max Handshake Size" type="integer" default="65536" legacy="false" source-line="1154">
             <description>Maximum handshake message size (bytes). Used only as a bounds check: handshake messages that claim a length above this are rejected. No buffer of this size is allocated—DTLS reassembly allocates only the actual message length (from the wire). So this can be set to a small value (e.g. 16384 or 8192) on embedded without reserving 64KB. It must be &gt;= the largest handshake message you need (typically Certificate = chain size). Default 65536 for compatibility; set to NOXTLS_TLS_MAX_RECORD_SIZE or your max cert chain size to avoid accepting oversized messages.</description>
           </setting>
-          <setting id="NOXTLS_TLS_MAX_RECORD_SIZE" name="Tls Max Record Size" type="integer" default="16384" legacy="false" source-line="1007">
+          <setting id="NOXTLS_TLS_MAX_RECORD_SIZE" name="Tls Max Record Size" type="integer" default="16384" legacy="false" source-line="1135">
             <description>Reduce these in noxtls_config.h (or via compiler -D) to lower RAM/stack usage on embedded systems. Relationship to certificate size: - The Certificate handshake message carries the full certificate chain (each cert is length-prefixed). Its size is the sum of all certificate DER lengths plus a few bytes of list framing. - Each TLS record carries at most TLS_MAX_RECORD_SIZE bytes of payload. The largest single handshake message (including Certificate) must fit within one record. Set NOXTLS_TLS_MAX_RECORD_SIZE to at least the size of your largest expected Certificate message. If the chain is larger than the record limit, the handshake will fail. When reducing below the TLS default (16384): both peers must agree on smaller fragments (e.g. max_fragment_length extension) or the connection may fail. Maximum TLS record payload size (bytes). TLS default 16384. Must be &gt;= size of largest handshake message (usually the Certificate message). This value drives large stack buffers in record send/recv; reduce it for constrained stack. Ensure peer supports smaller fragment size if below 16384.</description>
           </setting>
-          <setting id="NOXTLS_TLS_MAX_WIRE_RECORD_LENGTH" name="Tls Max Wire Record Length" type="integer" default="65535" legacy="false" source-line="1014">
+          <setting id="NOXTLS_TLS_MAX_WIRE_RECORD_LENGTH" name="Tls Max Wire Record Length" type="integer" default="65535" legacy="false" source-line="1142">
             <description>Maximum TLS record-layer fragment length from the 2-byte length field (encrypted payload). RFC 5246 plaintext is at most 2^14 bytes; ciphertext is larger. Interop tests (e.g. tlsfuzzer SetMaxRecordSize) may send fragments up to 2^16-1. Must be &gt;= NOXTLS_TLS_MAX_RECORD_SIZE.</description>
             <constraints>
               <constraint kind="numericGte">
@@ -909,7 +868,7 @@
       </setting>
     </category>
     <category id="cert" name="X.509 Certificates">
-      <setting id="NOXTLS_FEATURE_CERT" name="X.509 Certificates" type="boolean" default="enabled" default-value="1" legacy="false" source-line="113">
+      <setting id="NOXTLS_FEATURE_CERT" name="X.509 Certificates" type="boolean" default="enabled" default-value="1" legacy="false" source-line="124">
         <description>Enables X.509 certificate parsing/verification/generation support. Prereq: NOXTLS_FEATURE_HASH=1 and NOXTLS_FEATURE_PKC=1. Required by: certificate-authenticated TLS.</description>
         <dependencies>
           <allOf>
@@ -925,8 +884,8 @@
           <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
         </profile-overrides>
         <suboptions>
-          <setting id="NOXTLS_HAVE_CERT_WRITE" name="Cert Write" type="boolean" default="disabled" default-value="0" legacy="false" source-line="422">
-            <description>Enables X.509 certificate writing/generation helpers. Prereq: NOXTLS_FEATURE_CERT=1 and NOXTLS_FEATURE_PKC=1.</description>
+          <setting id="NOXTLS_HAVE_CERT_WRITE" name="Cert Write" type="boolean" default="enabled" default-value="1" legacy="false" source-line="550">
+            <description>Enables X.509 certificate writing/generation helpers. Prereq: NOXTLS_FEATURE_CERT=1 and NOXTLS_FEATURE_PKC=1. Default: ON. Required by the certgen application (req -new -x509) and by any embedded code path that needs to mint X.509 certificates at runtime. Disable explicitly to shave a few KB of flash on parse-only deployments.</description>
             <dependencies>
               <allOf>
                 <dependency ref="NOXTLS_FEATURE_CERT" value="1"/>
@@ -941,69 +900,80 @@
               <override profile="NOXTLS_PROFILE_UT_ALL_FEATURES" value="enabled" default-value="1"/>
             </profile-overrides>
           </setting>
-          <setting id="NOXTLS_MAX_CERT_CHAIN_DEPTH" name="Max Cert Chain Depth" type="integer" default="16" legacy="false" source-line="1042">
+          <setting id="NOXTLS_MAX_CERT_CHAIN_DEPTH" name="Max Cert Chain Depth" type="integer" default="16" legacy="false" source-line="1180">
             <description>Maximum certificate-chain traversal depth for trust verification. Used by X.509 trust-chain walking to cap issuer hops and prevent unbounded loops in malformed or adversarial chains. Default: 16.</description>
           </setting>
-          <setting id="NOXTLS_MAX_CERT_SIZE" name="Max Cert Size" type="integer" default="16384" legacy="false" source-line="1033">
-            <description>Maximum single certificate size in bytes accepted by X.509 parse APIs. Default: 16384.</description>
+          <setting id="NOXTLS_MAX_CERT_SIZE" name="Max Cert Size" type="integer" default="65536" legacy="false" source-line="1164">
+            <description>Maximum single certificate size in bytes accepted by X.509 parse APIs. Default: 16384. SLH-DSA signatures are large (up to ~50 KB). Allow 64 KB certs by default when SLH-DSA is enabled so the cert+TBS+signature comfortably fits.</description>
           </setting>
-          <setting id="NOXTLS_X509_HOSTNAME_ALLOW_WILDCARD" name="X509 Hostname Allow Wildcard" type="boolean" default="enabled" default-value="1" legacy="false" source-line="121">
+          <setting id="NOXTLS_X509_HOSTNAME_ALLOW_WILDCARD" name="X509 Hostname Allow Wildcard" type="boolean" default="enabled" default-value="1" legacy="false" source-line="133">
             <description>Hostname verification policy for certificate matching. When 1, SAN/CN entries with left-most wildcard (&quot;*.example.com&quot;) are accepted. When 0, only exact SAN/CN DNS matches are accepted. Runtime may override this default through noxtls_x509_set_hostname_wildcard_matching().</description>
           </setting>
         </suboptions>
       </setting>
     </category>
     <category id="memory" name="Memory Management">
-      <setting id="NOXTLS_STATIC_BUFFER_SIZE" name="Static Buffer Size" type="integer" default="(64 * 1024)" legacy="false" source-line="976">
+      <setting id="NOXTLS_STATIC_BUFFER_SIZE" name="Static Buffer Size" type="integer" default="(64 * 1024)" legacy="false" source-line="1104">
         <description>NOXTLS_STATIC_BUFFER_SIZE Default size for static buffer pool (in bytes) when NOXTLS_USE_STATIC_BUFFERS is enabled. This is only used if noxtls_mem_init() is called without a buffer (uses internal allocation). Default: 64KB (65536 bytes)</description>
       </setting>
-      <setting id="NOXTLS_USE_STATIC_BUFFERS" name="Use Static Buffers" type="boolean" default="disabled" default-value="0" legacy="false" source-line="965">
+      <setting id="NOXTLS_USE_STATIC_BUFFERS" name="Use Static Buffers" type="boolean" default="disabled" default-value="0" legacy="false" source-line="1093">
         <description>NOXTLS_USE_STATIC_BUFFERS Define this to 1 to use static buffer allocation instead of system malloc. When enabled, all memory allocations will use a pre-allocated static buffer pool managed by the library's internal memory allocator. When disabled (default), the library uses standard system malloc/free. Default: 0 (disabled) - uses system malloc/free Recommended: Call noxtls_mem_init() early with a caller-supplied buffer for deterministic RAM usage. Behavior without explicit init: The allocator lazily initializes on first allocation by calling noxtls_mem_init(NULL, 0), which uses NOXTLS_STATIC_BUFFER_SIZE for the pool size.</description>
       </setting>
     </category>
     <category id="rsa-tuning" name="RSA Key Generation">
-      <setting id="NOXTLS_RSA_DEBUG_PRIMALITY_CHECK_INTERVAL" name="Rsa Debug Primality Check Interval" type="integer" default="50" legacy="false" source-line="1122">
+      <setting id="NOXTLS_RSA_DEBUG_PRIMALITY_CHECK_INTERVAL" name="Rsa Debug Primality Check Interval" type="integer" default="50" legacy="false" source-line="1260">
         <description>NOXTLS_RSA_DEBUG_PRIMALITY_CHECK_INTERVAL Interval (in attempts) for printing messages when checking primality (after quick divisibility test passes). Set to 0 to disable these messages. Default: 50 (print every 50 attempts)</description>
       </setting>
-      <setting id="NOXTLS_RSA_DEBUG_PROGRESS_INTERVAL" name="Rsa Debug Progress Interval" type="integer" default="100" legacy="false" source-line="1112">
+      <setting id="NOXTLS_RSA_DEBUG_PROGRESS_INTERVAL" name="Rsa Debug Progress Interval" type="integer" default="100" legacy="false" source-line="1250">
         <description>NOXTLS_RSA_DEBUG_PROGRESS_INTERVAL Interval (in attempts) for printing progress messages during prime generation. Set to 0 to disable progress messages. Default: 100 (print every 100 attempts)</description>
       </setting>
-      <setting id="NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_INTERVAL" name="Rsa Debug Rejected Candidate Interval" type="integer" default="100" legacy="false" source-line="1132">
+      <setting id="NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_INTERVAL" name="Rsa Debug Rejected Candidate Interval" type="integer" default="100" legacy="false" source-line="1270">
         <description>NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_INTERVAL Interval (in attempts) for printing debug info about rejected candidates. Only prints for the first 500 attempts to avoid spam. Set to 0 to disable rejected candidate debug output. Default: 100 (print every 100 attempts, up to 500 attempts)</description>
       </setting>
-      <setting id="NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_MAX_ATTEMPTS" name="Rsa Debug Rejected Candidate Max Attempts" type="integer" default="500" legacy="false" source-line="1141">
+      <setting id="NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_MAX_ATTEMPTS" name="Rsa Debug Rejected Candidate Max Attempts" type="integer" default="500" legacy="false" source-line="1279">
         <description>NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_MAX_ATTEMPTS Maximum number of attempts for which to print rejected candidate debug info. After this many attempts, rejected candidate debug output is disabled. Default: 500 attempts</description>
       </setting>
-      <setting id="NOXTLS_RSA_ENABLE_QUICK_DIVISIBILITY_TEST" name="Rsa Enable Quick Divisibility Test" type="boolean" default="enabled" default-value="1" legacy="false" source-line="1103">
+      <setting id="NOXTLS_RSA_ENABLE_QUICK_DIVISIBILITY_TEST" name="Rsa Enable Quick Divisibility Test" type="boolean" default="enabled" default-value="1" legacy="false" source-line="1241">
         <description>NOXTLS_RSA_ENABLE_QUICK_DIVISIBILITY_TEST Enable/disable quick divisibility test before expensive Miller-Rabin test. When enabled, candidates are first tested for divisibility by small primes (3, 5, 7, 11, 13, 17, 19, 23, 29, 31) to quickly filter out composites. This significantly speeds up prime generation by avoiding expensive Miller-Rabin tests on obviously composite numbers. Default: 1 (enabled)</description>
       </setting>
-      <setting id="NOXTLS_RSA_MAX_PRIME_ATTEMPTS" name="Rsa Max Prime Attempts" type="integer" default="50000" legacy="false" source-line="1060">
+      <setting id="NOXTLS_RSA_MAX_PRIME_ATTEMPTS" name="Rsa Max Prime Attempts" type="integer" default="50000" legacy="false" source-line="1198">
         <description>NOXTLS_RSA_MAX_PRIME_ATTEMPTS Maximum number of attempts to generate a prime number before giving up. With aggressive filtering (wheel + large small-prime table), the search space is reduced but candidate density can still vary significantly. Use a higher limit to avoid spurious failures on unlucky sequences. Default: 50000 attempts</description>
       </setting>
-      <setting id="NOXTLS_RSA_MILLER_RABIN_ITERATIONS_LARGE" name="Rsa Miller Rabin Iterations Large" type="integer" default="3" legacy="false" source-line="1080">
+      <setting id="NOXTLS_RSA_MILLER_RABIN_ITERATIONS_LARGE" name="Rsa Miller Rabin Iterations Large" type="integer" default="3" legacy="false" source-line="1218">
         <description>NOXTLS_RSA_MILLER_RABIN_ITERATIONS_LARGE Number of Miller-Rabin test iterations for &quot;large&quot; primes (&gt; 512 bits). Security: 3 iterations gives error probability of ~2^-60 (extremely secure) Default: 3 iterations</description>
       </setting>
-      <setting id="NOXTLS_RSA_MILLER_RABIN_ITERATIONS_SMALL" name="Rsa Miller Rabin Iterations Small" type="integer" default="2" legacy="false" source-line="1070">
+      <setting id="NOXTLS_RSA_MILLER_RABIN_ITERATIONS_SMALL" name="Rsa Miller Rabin Iterations Small" type="integer" default="2" legacy="false" source-line="1208">
         <description>NOXTLS_RSA_MILLER_RABIN_ITERATIONS_SMALL Number of Miller-Rabin test iterations for &quot;small&quot; primes (&lt;= 512 bits). Security: 2 iterations gives error probability of ~2^-40 (very secure) Default: 2 iterations</description>
       </setting>
-      <setting id="NOXTLS_RSA_MILLER_RABIN_SMALL_THRESHOLD_BITS" name="Rsa Miller Rabin Small Threshold Bits" type="integer" default="512" legacy="false" source-line="1090">
+      <setting id="NOXTLS_RSA_MILLER_RABIN_SMALL_THRESHOLD_BITS" name="Rsa Miller Rabin Small Threshold Bits" type="integer" default="512" legacy="false" source-line="1228">
         <description>NOXTLS_RSA_MILLER_RABIN_SMALL_THRESHOLD_BITS Prime size threshold (in bits) for determining &quot;small&quot; vs &quot;large&quot; primes. Primes &lt;= this size use NOXTLS_RSA_MILLER_RABIN_ITERATIONS_SMALL. Primes &gt; this size use NOXTLS_RSA_MILLER_RABIN_ITERATIONS_LARGE. Default: 512 bits</description>
       </setting>
     </category>
     <category id="ecc-tuning" name="ECC Performance">
-      <setting id="NOXTLS_ECC_FIXED_POINT_OPTIM" name="Ecc Fixed Point Optim" type="boolean" default="enabled" default-value="1" legacy="false" source-line="1165">
+      <setting id="NOXTLS_ECC_FIXED_POINT_OPTIM" name="Ecc Fixed Point Optim" type="boolean" default="enabled" default-value="1" legacy="false" source-line="1306">
         <description>NOXTLS_ECC_FIXED_POINT_OPTIM When 1, cache precomputed multiples of the curve generator G and reuse for repeated k*G (ECDSA sign, key gen, ECDHE). Speeds up fixed-base multiplications. Default: 1 (enabled)</description>
       </setting>
-      <setting id="NOXTLS_ECDSA_SIGN_SELF_VERIFY" name="Ecdsa Sign Self Verify" type="boolean" default="disabled" default-value="0" legacy="false" source-line="1196">
-        <description>NOXTLS_ECDSA_SIGN_SELF_VERIFY When 1, ECDSA signing immediately verifies the produced signature before returning it. This hardens signing against local fault or glitch attacks but materially reduces signing throughput. Default: 0 (disabled)</description>
-      </setting>
-      <setting id="NOXTLS_ECC_POINT_MUL_WINDOW_SIZE" name="Ecc Point Mul Window Size" type="integer" default="4" legacy="false" source-line="1156">
+      <setting id="NOXTLS_ECC_POINT_MUL_WINDOW_SIZE" name="Ecc Point Mul Window Size" type="integer" default="4" legacy="false" source-line="1295">
         <description>NOXTLS_ECC_POINT_MUL_WINDOW_SIZE Log2 of the precomputation table size for windowed scalar multiplication. Table has 2^W Jacobian points; larger W = fewer point ops, more RAM. Uses 4 for P-256 (good tradeoff). Use 0 to disable windowing (Montgomery ladder only). Default: 4 (table of 16 points)</description>
       </setting>
     </category>
     <category id="observability" name="Observability">
-      <setting id="NOXTLS_CFG_ENABLE_NOXSIGHT" name="Enable Noxsight" type="boolean" default="disabled" default-value="0" legacy="false" source-line="1176">
+      <setting id="NOXTLS_CFG_ENABLE_NOXSIGHT" name="Enable Noxsight" type="boolean" default="disabled" default-value="0" legacy="false" source-line="1330">
         <description>Optional NoxSight integration for structured TLS diagnostics. Default is disabled so existing builds are unchanged unless explicitly enabled.</description>
+      </setting>
+    </category>
+    <category id="other" name="Other">
+      <setting id="NOXTLS_ECDSA_SIGN_SELF_VERIFY" name="Ecdsa Sign Self Verify" type="boolean" default="disabled" default-value="0" legacy="false" source-line="1318">
+        <description>NOXTLS_ECDSA_SIGN_SELF_VERIFY When 1, ECDSA signing immediately verifies the produced signature before returning it. This hardens signing against local fault/glitch attacks but materially reduces signing throughput. Default: 0 (disabled)</description>
+      </setting>
+      <setting id="NOXTLS_FEATURE_FALCON" name="Falcon" type="boolean" default="disabled" default-value="0" legacy="false" source-line="456">
+        <description>Enables FALCON signature APIs (NIST PQC finalist).</description>
+      </setting>
+      <setting id="NOXTLS_FEATURE_LMS_HSS" name="Lms Hss" type="boolean" default="disabled" default-value="0" legacy="false" source-line="460">
+        <description>Enables LMS/HSS hash-based signature APIs (RFC 8554).</description>
+      </setting>
+      <setting id="NOXTLS_FEATURE_XMSS" name="Xmss" type="boolean" default="disabled" default-value="0" legacy="false" source-line="464">
+        <description>Enables XMSS/XMSS^MT hash-based signature APIs (RFC 8391).</description>
       </setting>
     </category>
     <category id="" name="">

@@ -76,6 +76,9 @@ target_link_libraries(noxtls_tls
     noxtls_hash
     noxtls_common
     noxtls_drbg
-    noxtls_cert
 )
+
+if(TARGET noxtls_cert)
+    target_link_libraries(noxtls_tls noxtls_cert)
+endif()
 

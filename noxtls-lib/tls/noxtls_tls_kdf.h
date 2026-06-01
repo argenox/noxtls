@@ -28,10 +28,18 @@
 #include "noxtls_common.h"
 #include "noxtls_tls_common.h"
 #include "mdigest/noxtls_hash.h"
+#include "mdigest/sha256/noxtls_sha256.h"
+#include "mdigest/sha512/noxtls_sha512.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+typedef union
+{
+    noxtls_sha_ctx_t sha_ctx;
+    noxtls_sha512_ctx_t sha512_ctx;
+} hmac_hash_ctx_storage_t;
 
 /* HMAC Context */
 typedef struct
@@ -42,6 +50,7 @@ typedef struct
     uint8_t o_key_pad[128];           /* Outer key padding */
     uint8_t i_key_pad[128];           /* Inner key padding */
     void *hash_ctx;                    /* Hash context (opaque) */
+    hmac_hash_ctx_storage_t hash_ctx_storage;
 } hmac_context_t;
 
 /* HMAC Functions */

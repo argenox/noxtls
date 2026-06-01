@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-05-20T00:14:27Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-06-01T22:10:15Z)
 
 if(NOT CONFIG_NOXTLS)
   return()
@@ -85,10 +85,46 @@ else()
   target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_CFG_TLS13_ALLOW_RSA_PKCS1_CERTVERIFY=0)
 endif()
 
+if(CONFIG_NOXTLS_CFG_TLS13_PREFER_SECP256R1_OVER_X25519)
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_CFG_TLS13_PREFER_SECP256R1_OVER_X25519=1)
+else()
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_CFG_TLS13_PREFER_SECP256R1_OVER_X25519=0)
+endif()
+
+if(CONFIG_NOXTLS_CFG_TLS_ALLOW_PSK_ONLY)
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_CFG_TLS_ALLOW_PSK_ONLY=1)
+else()
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_CFG_TLS_ALLOW_PSK_ONLY=0)
+endif()
+
 if(CONFIG_NOXTLS_ECC_FIXED_POINT_OPTIM)
   target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_ECC_FIXED_POINT_OPTIM=1)
 else()
   target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_ECC_FIXED_POINT_OPTIM=0)
+endif()
+
+if(CONFIG_NOXTLS_ECDSA_SIGN_SELF_VERIFY)
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_ECDSA_SIGN_SELF_VERIFY=1)
+else()
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_ECDSA_SIGN_SELF_VERIFY=0)
+endif()
+
+if(CONFIG_NOXTLS_FEATURE_FALCON)
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_FEATURE_FALCON=1)
+else()
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_FEATURE_FALCON=0)
+endif()
+
+if(CONFIG_NOXTLS_FEATURE_LMS_HSS)
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_FEATURE_LMS_HSS=1)
+else()
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_FEATURE_LMS_HSS=0)
+endif()
+
+if(CONFIG_NOXTLS_FEATURE_XMSS)
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_FEATURE_XMSS=1)
+else()
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_FEATURE_XMSS=0)
 endif()
 
 if(CONFIG_NOXTLS_HAVE_TIME)

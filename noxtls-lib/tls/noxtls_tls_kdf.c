@@ -120,7 +120,7 @@ noxtls_return_t noxtls_hmac_init(hmac_context_t *ctx, noxtls_hash_algos_t hash_a
 {
     uint32_t block_size;
     uint32_t i;
-    const uint8_t *hash_key;
+    uint8_t hashed_key[64];
     
     if(ctx == NULL || key == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -140,10 +140,6 @@ noxtls_return_t noxtls_hmac_init(hmac_context_t *ctx, noxtls_hash_algos_t hash_a
     /* If key is longer than block size, hash it */
     if(key_len > block_size) {
         uint32_t hash_size = get_hash_output_size(hash_algo);
-        uint8_t *hashed_key = (uint8_t*)malloc(hash_size);
-        if(hashed_key == NULL) {
-            return NOXTLS_RETURN_FAILED;
-        }
         
         /* Hash the key directly */
         if(hash_algo == NOXTLS_HASH_SHA_256) {
@@ -151,7 +147,6 @@ noxtls_return_t noxtls_hmac_init(hmac_context_t *ctx, noxtls_hash_algos_t hash_a
             noxtls_sha256_init(&sha_ctx, hash_algo);
             noxtls_sha256_update(&sha_ctx, (uint8_t*)key, key_len);
             if(noxtls_sha256_finish(&sha_ctx, hashed_key) != NOXTLS_RETURN_SUCCESS) {
-                free(hashed_key);
                 return NOXTLS_RETURN_FAILED;
             }
         } else if(hash_algo == NOXTLS_HASH_SHA_384 || hash_algo == NOXTLS_HASH_SHA_512) {
@@ -159,7 +154,6 @@ noxtls_return_t noxtls_hmac_init(hmac_context_t *ctx, noxtls_hash_algos_t hash_a
             noxtls_sha512_init(&sha_ctx, hash_algo);
             noxtls_sha512_update(&sha_ctx, (uint8_t*)key, key_len);
             if(noxtls_sha512_finish(&sha_ctx, hashed_key) != NOXTLS_RETURN_SUCCESS) {
-                free(hashed_key);
                 return NOXTLS_RETURN_FAILED;
             }
         } else if(hash_algo == NOXTLS_HASH_SHA1) {
@@ -167,22 +161,17 @@ noxtls_return_t noxtls_hmac_init(hmac_context_t *ctx, noxtls_hash_algos_t hash_a
             noxtls_sha1_init(&sha_ctx, hash_algo);
             noxtls_sha1_update(&sha_ctx, (uint8_t*)key, key_len);
             if(noxtls_sha1_finish(&sha_ctx, hashed_key) != NOXTLS_RETURN_SUCCESS) {
-                free(hashed_key);
                 return NOXTLS_RETURN_FAILED;
             }
         } else {
-            free(hashed_key);
             return NOXTLS_RETURN_INVALID_ALGORITHM;
         }
         
         memcpy(ctx->key, hashed_key, hash_size);
         ctx->key_len = hash_size;
-        free(hashed_key);
-        hash_key = ctx->key;
     } else {
         memcpy(ctx->key, key, key_len);
         ctx->key_len = key_len;
-        hash_key = ctx->key;
     }
     
     /* Pad key to block size with zeros */
@@ -192,40 +181,28 @@ noxtls_return_t noxtls_hmac_init(hmac_context_t *ctx, noxtls_hash_algos_t hash_a
     
     /* Create inner and outer padding */
     for(i = 0; i < block_size; i++) {
-        ctx->i_key_pad[i] = hash_key[i] ^ 0x36;
-        ctx->o_key_pad[i] = hash_key[i] ^ 0x5C;
+        ctx->i_key_pad[i] = ctx->key[i] ^ 0x36;
+        ctx->o_key_pad[i] = ctx->key[i] ^ 0x5C;
     }
     
     /* Initialize hash context */
     if(hash_algo == NOXTLS_HASH_SHA_256) {
-        noxtls_sha_ctx_t *sha_ctx = (noxtls_sha_ctx_t*)malloc(sizeof(noxtls_sha_ctx_t));
-        if(sha_ctx == NULL) {
-            return NOXTLS_RETURN_FAILED;
-        }
+        noxtls_sha_ctx_t *sha_ctx = &ctx->hash_ctx_storage.sha_ctx;
         if(noxtls_sha256_init(sha_ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) {
-            free(sha_ctx);
             return NOXTLS_RETURN_FAILED;
         }
         noxtls_sha256_update(sha_ctx, ctx->i_key_pad, block_size);
         ctx->hash_ctx = sha_ctx;
     } else if(hash_algo == NOXTLS_HASH_SHA_384 || hash_algo == NOXTLS_HASH_SHA_512) {
-        noxtls_sha512_ctx_t *sha_ctx = (noxtls_sha512_ctx_t*)malloc(sizeof(noxtls_sha512_ctx_t));
-        if(sha_ctx == NULL) {
-            return NOXTLS_RETURN_FAILED;
-        }
+        noxtls_sha512_ctx_t *sha_ctx = &ctx->hash_ctx_storage.sha512_ctx;
         if(noxtls_sha512_init(sha_ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) {
-            free(sha_ctx);
             return NOXTLS_RETURN_FAILED;
         }
         noxtls_sha512_update(sha_ctx, ctx->i_key_pad, block_size);
         ctx->hash_ctx = sha_ctx;
     } else if(hash_algo == NOXTLS_HASH_SHA1) {
-        noxtls_sha_ctx_t *sha_ctx = (noxtls_sha_ctx_t*)malloc(sizeof(noxtls_sha_ctx_t));
-        if(sha_ctx == NULL) {
-            return NOXTLS_RETURN_FAILED;
-        }
+        noxtls_sha_ctx_t *sha_ctx = &ctx->hash_ctx_storage.sha_ctx;
         if(noxtls_sha1_init(sha_ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) {
-            free(sha_ctx);
             return NOXTLS_RETURN_FAILED;
         }
         noxtls_sha1_update(sha_ctx, ctx->i_key_pad, block_size);
@@ -298,21 +275,18 @@ noxtls_return_t noxtls_hmac_final(hmac_context_t *ctx, uint8_t *mac, uint32_t *m
     /* Complete inner hash */
     if(ctx->hash_algo == NOXTLS_HASH_SHA_256) {
         rc = noxtls_sha256_finish((noxtls_sha_ctx_t*)ctx->hash_ctx, inner_hash);
-        free(ctx->hash_ctx);
         ctx->hash_ctx = NULL;
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
     } else if(ctx->hash_algo == NOXTLS_HASH_SHA_384 || ctx->hash_algo == NOXTLS_HASH_SHA_512) {
         rc = noxtls_sha512_finish((noxtls_sha512_ctx_t*)ctx->hash_ctx, inner_hash);
-        free(ctx->hash_ctx);
         ctx->hash_ctx = NULL;
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
     } else if(ctx->hash_algo == NOXTLS_HASH_SHA1) {
         rc = noxtls_sha1_finish((noxtls_sha_ctx_t*)ctx->hash_ctx, inner_hash);
-        free(ctx->hash_ctx);
         ctx->hash_ctx = NULL;
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
@@ -363,11 +337,7 @@ noxtls_return_t noxtls_hmac_free(hmac_context_t *ctx)
         return NOXTLS_RETURN_NULL;
     }
     
-    /* Free hash context if still allocated */
-    if(ctx->hash_ctx != NULL) {
-        free(ctx->hash_ctx);
-        ctx->hash_ctx = NULL;
-    }
+    ctx->hash_ctx = NULL;
     
     /* Clear sensitive data */
     memset(ctx->key, 0, sizeof(ctx->key));

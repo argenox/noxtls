@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-05-20T00:14:27Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-06-01T22:10:15Z)
 
 menu "NoxTLS library options (from noxtls_config.h)"
 
@@ -30,10 +30,10 @@ menu "NoxTLS library options (from noxtls_config.h)"
 
 		config NOXTLS_MAX_CERT_SIZE
 			int "Max single X.509 certificate size (bytes)"
-			default 16384
+			default 65536
 			range 256 65536
 			help
-			  Maximum single certificate size in bytes accepted by X.509 parse APIs. Default: 16384.
+			  Maximum single certificate size in bytes accepted by X.509 parse APIs. Default: 16384. SLH-DSA signatures are large (up to ~50 KB). Allow 64 KB certs by default when SLH-DSA is enabled so the cert+TBS+signature comfortably fits.
 
 		config NOXTLS_MAX_CERT_CHAIN_DEPTH
 			int "Max X.509 certificate chain depth"
@@ -476,12 +476,24 @@ menu "NoxTLS library options (from noxtls_config.h)"
 			help
 			  Enables TLS protocol implementation. Prereq: NOXTLS_FEATURE_HASH=1, NOXTLS_FEATURE_ENCRYPTION=1, NOXTLS_FEATURE_DRBG=1, NOXTLS_FEATURE_PKC=1, NOXTLS_FEATURE_CERT=1.
 
+		config NOXTLS_CFG_TLS13_PREFER_SECP256R1_OVER_X25519
+			bool "Tls13 Prefer Secp256R1 Over X25519"
+			default n
+			help
+			  Prefer secp256r1 over X25519 in TLS 1.3 group ordering. Default keeps the standard X25519-first preference. Platforms where X25519 is materially slower than P-256 can set this to 1.
+
+		config NOXTLS_CFG_TLS_ALLOW_PSK_ONLY
+			bool "Tls Allow Psk Only"
+			default n
+			help
+			  Allow TLS/DTLS builds without certificate support when the application is intentionally PSK-only. Keep disabled by default so general-purpose builds still require the X.509 stack when TLS is enabled.
+
 		config NOXTLS_FEATURE_DTLS
 			bool "DTLS"
 			default y
 			depends on NOXTLS_FEATURE_TLS
 			help
-			  Enables DTLS support. Prereq: NOXTLS_FEATURE_TLS=1.
+			  Enables DTLS support. Prereq: NOXTLS_FEATURE_TLS=1. When built via CMake/Kconfig, NOXTLS_FEATURE_DTLS is set on the command line; do not override here.
 
 		config NOXTLS_FEATURE_TLS10
 			bool "TLS 1.0"
@@ -539,11 +551,11 @@ menu "NoxTLS library options (from noxtls_config.h)"
 
 		config NOXTLS_HAVE_CERT_WRITE
 			bool "Cert Write"
-			default n
+			default y
 			depends on NOXTLS_FEATURE_CERT
 			depends on NOXTLS_FEATURE_PKC
 			help
-			  Enables X.509 certificate writing/generation helpers. Prereq: NOXTLS_FEATURE_CERT=1 and NOXTLS_FEATURE_PKC=1.
+			  Enables X.509 certificate writing/generation helpers. Prereq: NOXTLS_FEATURE_CERT=1 and NOXTLS_FEATURE_PKC=1. Default: ON. Required by the certgen application (req -new -x509) and by any embedded code path that needs to mint X.509 certificates at runtime. Disable explicitly to shave a few KB of flash on parse-only deployments.
 
 		config NOXTLS_X509_HOSTNAME_ALLOW_WILDCARD
 			bool "X509 Hostname Allow Wildcard"
@@ -586,6 +598,33 @@ menu "NoxTLS library options (from noxtls_config.h)"
 			default n
 			help
 			  Optional NoxSight integration for structured TLS diagnostics. Default is disabled so existing builds are unchanged unless explicitly enabled.
+
+	endmenu
+
+	menu "Other"
+		config NOXTLS_ECDSA_SIGN_SELF_VERIFY
+			bool "Ecdsa Sign Self Verify"
+			default n
+			help
+			  NOXTLS_ECDSA_SIGN_SELF_VERIFY When 1, ECDSA signing immediately verifies the produced signature before returning it. This hardens signing against local fault/glitch attacks but materially reduces signing throughput. Default: 0 (disabled)
+
+		config NOXTLS_FEATURE_FALCON
+			bool "Falcon"
+			default n
+			help
+			  Enables FALCON signature APIs (NIST PQC finalist).
+
+		config NOXTLS_FEATURE_LMS_HSS
+			bool "Lms Hss"
+			default n
+			help
+			  Enables LMS/HSS hash-based signature APIs (RFC 8554).
+
+		config NOXTLS_FEATURE_XMSS
+			bool "Xmss"
+			default n
+			help
+			  Enables XMSS/XMSS^MT hash-based signature APIs (RFC 8391).
 
 	endmenu
 
