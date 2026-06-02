@@ -10,6 +10,7 @@
 
 #include "vendor/st/noxtls_stm32_accel.h"
 #include "vendor/st/noxtls_target_detect.h"
+#include "vendor/st/common/noxtls_stm32_hash_core.h"
 
 noxtls_return_t noxtls_aes_accel_stm32_encrypt_block(const uint8_t *key,
                                                       const uint8_t *data,
@@ -69,4 +70,16 @@ noxtls_return_t noxtls_aes_accel_stm32_decrypt_block(const uint8_t *key,
     (void)type;
     return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
+}
+
+noxtls_return_t noxtls_sha256_accel_stm32_round(noxtls_sha_ctx_t *ctx, const uint8_t *input)
+{
+    return noxtls_stm32_hash_core_sha256_round(ctx, input);
+}
+
+noxtls_return_t noxtls_sha256_accel_stm32_blocks(noxtls_sha_ctx_t *ctx,
+                                                  const uint8_t *input,
+                                                  uint32_t block_count)
+{
+    return noxtls_stm32_hash_core_sha256_blocks(ctx, input, block_count);
 }

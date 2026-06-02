@@ -20,7 +20,10 @@ if(NOXTLS_CFG_FEATURE_SHA224 OR NOXTLS_CFG_FEATURE_SHA256)
     else()
         list(APPEND NOXTLS_HASH_SOURCES sha256/noxtls_sha256_accel_port.c)
         if(NOXTLS_CFG_FEATURE_STM32_HW_ACCEL)
-            list(APPEND NOXTLS_HASH_SOURCES ${NOXTLS_LIB_ROOT}/vendor/st/common/noxtls_stm32_hash_dispatch.c)
+            list(APPEND NOXTLS_HASH_SOURCES
+                ${NOXTLS_LIB_ROOT}/vendor/st/common/noxtls_stm32_hash_dispatch.c
+                ${NOXTLS_LIB_ROOT}/vendor/st/common/noxtls_stm32_hash_core.c
+            )
         endif()
     endif()
 endif()

@@ -20,18 +20,14 @@
 *
 *****************************************************************************/
 
-#include "vendor/st/noxtls_stm32_accel.h"
+#include "vendor/st/common/noxtls_stm32_aes_core.h"
 
 noxtls_return_t noxtls_aes_accel_stm32f7_encrypt_block(const uint8_t *key,
                                                         const uint8_t *data,
                                                         uint8_t *output,
                                                         noxtls_aes_type_t type)
 {
-    (void)key;
-    (void)data;
-    (void)output;
-    (void)type;
-    return NOXTLS_RETURN_NOT_SUPPORTED;
+    return noxtls_stm32_aes_core_encrypt_block(NOXTLS_STM32_ACCEL_F7, key, data, output, type);
 }
 
 noxtls_return_t noxtls_aes_accel_stm32f7_decrypt_block(const uint8_t *key,
@@ -39,9 +35,5 @@ noxtls_return_t noxtls_aes_accel_stm32f7_decrypt_block(const uint8_t *key,
                                                         uint8_t *output,
                                                         noxtls_aes_type_t type)
 {
-    (void)key;
-    (void)data;
-    (void)output;
-    (void)type;
-    return NOXTLS_RETURN_NOT_SUPPORTED;
+    return noxtls_stm32_aes_core_decrypt_block(NOXTLS_STM32_ACCEL_F7, key, data, output, type);
 }
