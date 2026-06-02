@@ -115,7 +115,8 @@ noxtls_return_t tls13_psk_compute_external_binder(noxtls_hash_algos_t hash_algo,
                                                   uint16_t binder_len,
                                                   uint8_t *out_binder,
                                                   const uint8_t *transcript_prefix,
-                                                  uint32_t transcript_prefix_len);
+                                                  uint32_t transcript_prefix_len,
+                                                  const char **fail_step_out);
 
 /**
  * Add a session ticket to the server-side store (for lookup when client resumes).

@@ -135,6 +135,15 @@ static uint16_t psk_read_uint16(const uint8_t *buf)
     return (uint16_t)((buf[0] << 8) | buf[1]);
 }
 
+static int psk_clienthello_uses_dtls_layout(const uint8_t *client_hello, uint32_t client_hello_len)
+{
+    if(client_hello == NULL || client_hello_len < 6U) {
+        return 0;
+    }
+
+    return client_hello[4] == 0xFE;
+}
+
 /**
  * @brief Locate the binder-hash prefix length inside a ClientHello.
  *
@@ -154,6 +163,7 @@ static noxtls_return_t psk_clienthello_binder_prefix_len(const uint8_t *client_h
 {
     uint32_t offset;
     uint8_t session_id_len;
+    uint8_t cookie_len = 0;
     uint16_t cipher_len;
     uint8_t comp_len;
     uint16_t extensions_len;
@@ -174,6 +184,16 @@ static noxtls_return_t psk_clienthello_binder_prefix_len(const uint8_t *client_h
         return NOXTLS_RETURN_BAD_DATA;
     }
     offset += session_id_len;
+    if(psk_clienthello_uses_dtls_layout(client_hello, client_hello_len)) {
+        if(offset + 1U + 2U + 1U + 2U > client_hello_len) {
+            return NOXTLS_RETURN_BAD_DATA;
+        }
+        cookie_len = client_hello[offset++];
+        if(offset + cookie_len + 2U + 1U + 2U > client_hello_len) {
+            return NOXTLS_RETURN_BAD_DATA;
+        }
+        offset += cookie_len;
+    }
     cipher_len = psk_read_uint16(client_hello + offset);
     offset += 2;
     if(offset + cipher_len + 1 + 2 > client_hello_len) {
@@ -286,6 +306,7 @@ noxtls_return_t tls13_psk_find_clienthello_binder(const uint8_t *client_hello,
 {
     uint32_t offset;
     uint8_t session_id_len;
+    uint8_t cookie_len = 0;
     uint16_t cipher_len;
     uint8_t comp_len;
     uint16_t extensions_len;
@@ -306,6 +327,16 @@ noxtls_return_t tls13_psk_find_clienthello_binder(const uint8_t *client_hello,
         return NOXTLS_RETURN_BAD_DATA;
     }
     offset += session_id_len;
+    if(psk_clienthello_uses_dtls_layout(client_hello, client_hello_len)) {
+        if(offset + 1U + 2U + 1U + 2U > client_hello_len) {
+            return NOXTLS_RETURN_BAD_DATA;
+        }
+        cookie_len = client_hello[offset++];
+        if(offset + cookie_len + 2U + 1U + 2U > client_hello_len) {
+            return NOXTLS_RETURN_BAD_DATA;
+        }
+        offset += cookie_len;
+    }
     cipher_len = psk_read_uint16(client_hello + offset);
     offset += 2;
     if(offset + cipher_len + 1 + 2 > client_hello_len) {
@@ -534,7 +565,8 @@ noxtls_return_t tls13_psk_compute_external_binder(noxtls_hash_algos_t hash_algo,
                                                   uint16_t binder_len,
                                                   uint8_t *out_binder,
                                                   const uint8_t *transcript_prefix,
-                                                  uint32_t transcript_prefix_len)
+                                                  uint32_t transcript_prefix_len,
+                                                  const char **fail_step_out)
 {
     uint8_t transcript_hash[64];
     uint32_t transcript_len = sizeof(transcript_hash);
@@ -550,10 +582,20 @@ noxtls_return_t tls13_psk_compute_external_binder(noxtls_hash_algos_t hash_algo,
     noxtls_return_t rc;
     const uint8_t *label = (const uint8_t *)"ext binder";
 
+    if(fail_step_out != NULL) {
+        *fail_step_out = NULL;
+    }
+
     if(psk == NULL || psk_len == 0 || client_hello == NULL || out_binder == NULL) {
+        if(fail_step_out != NULL) {
+            *fail_step_out = "null";
+        }
         return NOXTLS_RETURN_NULL;
     }
     if(binder_len == 0 || binder_offset > client_hello_len || (uint32_t)binder_len > (client_hello_len - binder_offset)) {
+        if(fail_step_out != NULL) {
+            *fail_step_out = "binder_bounds";
+        }
         return NOXTLS_RETURN_INVALID_PARAM;
     }
     if(hash_algo == NOXTLS_HASH_SHA_256) {
@@ -561,42 +603,75 @@ noxtls_return_t tls13_psk_compute_external_binder(noxtls_hash_algos_t hash_algo,
     } else if(hash_algo == NOXTLS_HASH_SHA_384) {
         hash_len = 48;
     } else {
+        if(fail_step_out != NULL) {
+            *fail_step_out = "hash_algo";
+        }
         return NOXTLS_RETURN_INVALID_ALGORITHM;
     }
     if(binder_len != hash_len) {
+        if(fail_step_out != NULL) {
+            *fail_step_out = "binder_len";
+        }
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
     rc = psk_clienthello_binder_prefix_len(client_hello, client_hello_len, &binder_prefix_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
+        if(fail_step_out != NULL) {
+            *fail_step_out = "binder_prefix";
+        }
         return rc;
     }
     if(binder_offset < binder_prefix_len || binder_offset + binder_len > client_hello_len) {
+        if(fail_step_out != NULL) {
+            *fail_step_out = "binder_range";
+        }
         return NOXTLS_RETURN_BAD_DATA;
     }
     rc = psk_hash_binder_input(hash_algo, transcript_prefix, transcript_prefix_len,
                                client_hello, binder_prefix_len, transcript_hash, &transcript_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
+        if(fail_step_out != NULL) {
+            *fail_step_out = "transcript_hash";
+        }
         return rc;
     }
 
     prk_len = hash_len;
     rc = noxtls_hkdf_extract(hash_algo, NULL, 0, psk, psk_len, early_secret, &prk_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
+        if(fail_step_out != NULL) {
+            *fail_step_out = "hkdf_extract";
+        }
         return rc;
     }
     rc = tls13_derive_secret(hash_algo, early_secret, hash_len, label, label_len, NULL, 0, binder_key, hash_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
+        if(fail_step_out != NULL) {
+            *fail_step_out = "derive_secret";
+        }
         return rc;
     }
     rc = tls13_hkdf_expand_label(hash_algo, binder_key, hash_len, (const uint8_t *)"finished", 8,
                                  NULL, 0, finished_key, hash_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
+        if(fail_step_out != NULL) {
+            *fail_step_out = "expand_finished";
+        }
         return rc;
     }
     rc = noxtls_hmac_compute(hash_algo, finished_key, hash_len, transcript_hash, transcript_len,
                      computed_binder, &verify_len);
-    if(rc != NOXTLS_RETURN_SUCCESS || verify_len != hash_len) {
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        if(fail_step_out != NULL) {
+            *fail_step_out = "finished_hmac";
+        }
+        return rc;
+    }
+    if(verify_len != hash_len) {
+        if(fail_step_out != NULL) {
+            *fail_step_out = "verify_len";
+        }
         return NOXTLS_RETURN_FAILED;
     }
     memcpy(out_binder, computed_binder, hash_len);

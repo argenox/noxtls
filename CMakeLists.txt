@@ -5,6 +5,7 @@ project(NoxTLS VERSION 0.2.54 LANGUAGES C)
 if(NOT DEFINED NOXTLS_PROJECT_ROOT)
   set(NOXTLS_PROJECT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}" CACHE PATH "NoxTLS source root")
 endif()
+set(NOXTLS_EXTERNAL_CONFIG_INCLUDE_DIR "" CACHE PATH "Optional consumer-owned include directory that provides noxtls_config.h")
 
 # Set C standard
 set(CMAKE_C_STANDARD 99)
@@ -323,7 +324,12 @@ endif()
 set(NOXTLS_LIB_ROOT "${NOXTLS_PROJECT_ROOT}/noxtls-lib")
 
 # Include directories (for all targets)
+set(NOXTLS_CONFIG_INCLUDE_DIRS)
+if(NOXTLS_EXTERNAL_CONFIG_INCLUDE_DIR)
+  list(APPEND NOXTLS_CONFIG_INCLUDE_DIRS "${NOXTLS_EXTERNAL_CONFIG_INCLUDE_DIR}")
+endif()
 include_directories(
+    ${NOXTLS_CONFIG_INCLUDE_DIRS}
     ${NOXTLS_PROJECT_ROOT}
     ${NOXTLS_PROJECT_ROOT}/utility
     ${NOXTLS_PROJECT_ROOT}/applications/noxtls
@@ -367,7 +373,9 @@ if(NOXTLS_CFG_FEATURE_HKDF)
 endif()
 add_subdirectory(noxtls-lib/encryption)
 add_subdirectory(noxtls-lib/mdigest/sha3)
-add_subdirectory(noxtls-lib/pkc)
+if(NOXTLS_CFG_FEATURE_PKC)
+  add_subdirectory(noxtls-lib/pkc)
+endif()
 add_subdirectory(noxtls-lib/drbg)
 if(NOXTLS_CFG_FEATURE_CERT)
   add_subdirectory(noxtls-lib/certs)

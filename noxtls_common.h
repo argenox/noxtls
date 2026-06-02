@@ -40,7 +40,7 @@
 #ifndef _NOXTLS_COMMON_H_
 #define _NOXTLS_COMMON_H_
 
-#include "noxtls_config.h"
+#include <noxtls_config.h>
 #include "noxtls_check_config.h"
 
 #ifdef __cplusplus
