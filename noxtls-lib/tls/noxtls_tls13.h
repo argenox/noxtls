@@ -26,6 +26,7 @@
 
 #include "noxtls_common.h"
 #include "noxtls_tls_common.h"
+#include "noxtls_tls_key_exchange.h"
 #include "pkc/dh/noxtls_ffdhe_params.h"
 #include "noxtls_dtls_common.h"
 #include "noxtls_crypto_provider.h"
@@ -42,6 +43,7 @@ extern "C" {
 /* Max extension entries in one ClientHello extensions block (65535 bytes / 4 bytes min per ext). */
 #define TLS13_CLIENTHELLO_EXT_ORDER_MAX 16384u
 #define TLS13_RECORD_WORKSPACE_HALF  (TLS_MAX_RECORD_SIZE + 32)
+#define TLS13_INLINE_KEY_SHARE_MAX_LEN 160U
 
 /* RFC 8446 CertificateVerify signature field capacity (scheme-specific; not always SLH-DSA max). */
 #define TLS13_CV_STACK_SIGNATURE_MAX  512U
@@ -154,18 +156,26 @@ typedef struct tls13_context_s
     uint8_t handshake_encrypted;     /* Handshake encryption active */
     uint8_t awaiting_hrr_client_hello; /* Server sent HRR and expects second ClientHello */
     uint8_t sent_hrr;                /* HRR was sent in this handshake */
+    uint8_t received_hrr;            /* Client received HRR and must resend ClientHello with preserved random */
     /** RFC 8446 §4.1.2: second ClientHello must use the same extension order as the first; wire types in order (TLS server HRR path). */
     uint16_t *hrr_first_clienthello_ext_order;
     uint32_t hrr_first_clienthello_ext_order_count;
     uint8_t peer_compat_ccs_seen;    /* Number of peer compatibility CCS records accepted during handshake */
     /** RFC 8446 §5.1: next noxtls_message extracted from buffer starts at a record boundary (must be true for ClientHello, ServerHello, EndOfEarlyData, Finished, KeyUpdate). */
     uint8_t handshake_next_at_record_boundary;
+    uint8_t client_handshake_step;     /* Resumable client handshake progress for DTLS/TLS retries */
+    uint8_t server_handshake_step;     /* Resumable server handshake progress for DTLS/TLS retries */
     
     /* Key shares */
     tls13_key_share_entry_t *client_key_shares;  /* Client key shares */
     uint32_t client_key_shares_count;             /* Number of client key shares */
     tls13_key_share_entry_t *server_key_share;   /* Server key share */
     void *ecdhe_ctx;                               /* ECDHE context (tls_ecdhe_context_t*) */
+    tls13_key_share_entry_t client_key_share_inline; /* Inline client key share storage for X25519/X448/common ECC cases */
+    uint8_t client_key_share_inline_buf[TLS13_INLINE_KEY_SHARE_MAX_LEN];
+    tls13_key_share_entry_t server_key_share_inline; /* Inline server key share storage for common small groups */
+    uint8_t server_key_share_inline_buf[TLS13_INLINE_KEY_SHARE_MAX_LEN];
+    tls_ecdhe_context_t ecdhe_ctx_inline;           /* Inline ECDHE context to avoid heap allocation on embedded clients */
     uint16_t selected_kex_group;                  /* Negotiated key exchange group (classical/PQ/hybrid) */
     uint8_t selected_kex_is_hybrid;
     noxtls_mlkem_param_t selected_mlkem_param;
@@ -200,6 +210,12 @@ typedef struct tls13_context_s
     /* Optional server cipher-suite allowlist (wire IDs). If set, server selects only from this list. */
     const uint16_t *server_cipher_suites;
     uint32_t server_cipher_suites_count;
+    /* Optional client supported_groups override used when building ClientHello. */
+    const uint16_t *client_supported_groups;
+    uint32_t client_supported_groups_count;
+    /* Optional client signature_algorithms override used when building ClientHello. */
+    const uint16_t *client_signature_algorithms;
+    uint32_t client_signature_algorithms_count;
     /** Optional server ALPN protocol list (non-owning pointers). */
     const char **server_alpn_protocols;
     uint32_t server_alpn_count;
@@ -372,6 +388,18 @@ typedef struct {
 /* TLS 1.3 Functions */
 noxtls_return_t noxtls_tls13_context_init(tls13_context_t *ctx, tls_role_t role);
 noxtls_return_t noxtls_dtls13_context_init(tls13_context_t *ctx, tls_role_t role);
+noxtls_return_t noxtls_tls13_context_init_with_workspaces(tls13_context_t *ctx,
+                                                          tls_role_t role,
+                                                          uint8_t *record_workspace,
+                                                          uint32_t record_workspace_len,
+                                                          uint8_t *handshake_workspace,
+                                                          uint32_t handshake_workspace_len);
+noxtls_return_t noxtls_dtls13_context_init_with_workspaces(tls13_context_t *ctx,
+                                                           tls_role_t role,
+                                                           uint8_t *record_workspace,
+                                                           uint32_t record_workspace_len,
+                                                           uint8_t *handshake_workspace,
+                                                           uint32_t handshake_workspace_len);
 noxtls_return_t noxtls_tls13_context_free(tls13_context_t *ctx);
 /**
  * Replace internally allocated TLS 1.3 workspaces with caller-provided buffers.
@@ -386,6 +414,8 @@ noxtls_return_t noxtls_tls13_connect(tls13_context_t *ctx);
 noxtls_return_t noxtls_tls13_accept(tls13_context_t *ctx);
 /** Last accept step that failed (empty if none); for embedded logging after a failed accept. */
 const char *noxtls_tls13_last_accept_fail_step(void);
+/** Last connect step that failed (empty if none); for embedded logging after a failed connect. */
+const char *noxtls_tls13_last_connect_fail_step(void);
 noxtls_return_t noxtls_tls13_send(tls13_context_t *ctx, const uint8_t *data, uint32_t len);
 noxtls_return_t noxtls_tls13_recv(tls13_context_t *ctx, uint8_t *data, uint32_t *len);
 noxtls_return_t noxtls_tls13_close(tls13_context_t *ctx);
@@ -403,6 +433,10 @@ void noxtls_tls13_set_keylog_file(const char *path);
 void noxtls_tls13_set_prefer_chacha20(tls13_context_t *ctx, int prefer_chacha20);
 /** Set server cipher-suite allowlist (wire IDs). Call before handshake. */
 void noxtls_tls13_set_server_cipher_suites(tls13_context_t *ctx, const uint16_t *suites, uint32_t count);
+/** Override the client's supported_groups list used for ClientHello construction. Call before handshake. */
+void noxtls_tls13_set_client_supported_groups(tls13_context_t *ctx, const uint16_t *groups, uint32_t count);
+/** Override the client's signature_algorithms list used for ClientHello construction. Call before handshake. */
+void noxtls_tls13_set_client_signature_algorithms(tls13_context_t *ctx, const uint16_t *algorithms, uint32_t count);
 /** Server: set supported ALPN protocol names (non-owning). */
 void noxtls_tls13_set_server_alpn_protocols(tls13_context_t *ctx, const char **protocols, uint32_t count);
 /** Server (RFC 6066): require ClientHello SNI host_name to match \a ascii_hostname (case-insensitive). NULL disables. */

@@ -374,8 +374,11 @@ noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
             dtls_record_t drec;
             noxtls_return_t rc = noxtls_dtls_recv_record(dctx, &drec);
             if(rc != NOXTLS_RETURN_SUCCESS) {
+                noxtls_debug_printf("[TLS13_DEBUG] tls_recv_record(dtls): dtls_recv_record rc=%d\n", rc);
                 return rc;
             }
+            noxtls_debug_printf("[TLS13_DEBUG] tls_recv_record(dtls): drec.type=0x%02X len=%u version=0x%04X epoch=%u\n",
+                                drec.type, drec.length, drec.version, drec.epoch);
 
             if(drec.type != TLS_RECORD_HANDSHAKE) {
                 record->type = drec.type;

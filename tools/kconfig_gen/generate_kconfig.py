@@ -194,6 +194,8 @@ PORTS: tuple[PortOutput, ...] = (
     ),
 )
 
+GENERATOR_TS_RE = re.compile(r"^# Generator: .+ \(([^)]+)\)$", re.MULTILINE)
+
 
 @dataclass
 class Setting:
@@ -565,6 +567,21 @@ def collect_all_settings(catalog: ET.Element) -> list[Setting]:
     return settings
 
 
+def resolve_generation_timestamp(check_mode: bool) -> str:
+    if not check_mode:
+        return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    probe_paths = [PORTS[0].kconfig_out, PORTS[0].cmake_out]
+    for path in probe_paths:
+        if not path.is_file():
+            continue
+        match = GENERATOR_TS_RE.search(path.read_text(encoding="utf-8"))
+        if match is not None:
+            return match.group(1)
+
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -580,7 +597,7 @@ def main() -> int:
 
     catalog = ET.parse(CATALOG_XML).getroot()
     settings = collect_all_settings(catalog)
-    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    ts = resolve_generation_timestamp(args.check)
     kconfig_text = generate_kconfig(catalog, ts)
 
     esp_config_header_cmake = NOXTLS_ROOT / "ports" / "esp-idf" / "noxtls_esp_idf_config_header.cmake"
