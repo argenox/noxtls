@@ -357,7 +357,10 @@ extern "C" {
 #define TLS_MAX_PROTECTED_RECORD_FRAGMENT (TLS_MAX_RECORD_SIZE + TLS_RECORD_WORKSPACE_OVERHEAD)
 
 /** Size of per-connection handshake workspace for building/parsing handshake messages (client_hello, certificate, etc.). Reused to reduce peak stack and heap. */
-#define TLS_HANDSHAKE_WORKSPACE_SIZE  8192
+#ifndef NOXTLS_TLS_HANDSHAKE_WORKSPACE_SIZE
+#define NOXTLS_TLS_HANDSHAKE_WORKSPACE_SIZE 8192
+#endif
+#define TLS_HANDSHAKE_WORKSPACE_SIZE  NOXTLS_TLS_HANDSHAKE_WORKSPACE_SIZE
 
 /* Network I/O Callback Types */
 typedef enum

@@ -226,6 +226,8 @@ typedef struct
     uint8_t *flight_buffer;     /* Concatenated DTLS records with 2-byte length prefix */
     uint32_t flight_buffer_len; /* Current flight buffer length */
     uint32_t flight_buffer_capacity; /* Capacity of flight buffer */
+    uint8_t *flight_buffer_storage; /* Optional caller-managed flight buffer storage */
+    uint32_t flight_buffer_storage_capacity; /* Capacity of caller-managed flight buffer storage */
     uint32_t retransmit_max_attempts; /* Max retransmission attempts per receive */
     uint64_t bytes_received;    /* Bytes received (for anti-amplification) */
     uint64_t bytes_sent;        /* Bytes sent (for anti-amplification) */
@@ -274,6 +276,7 @@ NOXTLS_MSVC_WARNING_POP
 noxtls_return_t noxtls_dtls_context_init(dtls_context_t *ctx, tls_role_t role, uint16_t version);
 noxtls_return_t noxtls_dtls_context_free(dtls_context_t *ctx);
 noxtls_return_t noxtls_dtls_set_mtu(dtls_context_t *ctx, uint16_t mtu);
+noxtls_return_t noxtls_dtls_set_flight_buffer(dtls_context_t *ctx, uint8_t *buffer, uint32_t capacity);
 noxtls_return_t dtls_set_retransmit(dtls_context_t *ctx, uint32_t timeout_ms,
                                     uint32_t backoff_ms, uint32_t max_attempts);
 noxtls_return_t noxtls_dtls_set_anti_amplification_limit(dtls_context_t *ctx, uint8_t factor);
