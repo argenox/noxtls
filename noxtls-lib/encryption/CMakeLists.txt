@@ -10,8 +10,24 @@ if(NOXTLS_CFG_FEATURE_AES)
     list(APPEND ENC_SOURCES ${NOXTLS_ESP_IDF_DIR}/target/esp32/noxtls_esp32_aes_accel.c)
     set(NOXTLS_PORT_AES_ACCEL_ENABLED ON)
   else()
-    list(APPEND ENC_SOURCES aes/noxtls_aes_accel_esp.c)
-    set(NOXTLS_PORT_AES_ACCEL_ENABLED OFF)
+    if(NOXTLS_CFG_FEATURE_STM32_HW_ACCEL)
+      list(APPEND ENC_SOURCES
+          aes/noxtls_aes_accel_stm32_port.c
+          ${NOXTLS_LIB_ROOT}/vendor/st/common/noxtls_stm32_accel_dispatch.c
+          ${NOXTLS_LIB_ROOT}/vendor/st/stm32f2/noxtls_stm32f2_accel.c
+          ${NOXTLS_LIB_ROOT}/vendor/st/stm32f4/noxtls_stm32f4_accel.c
+          ${NOXTLS_LIB_ROOT}/vendor/st/stm32f7/noxtls_stm32f7_accel.c
+          ${NOXTLS_LIB_ROOT}/vendor/st/stm32h7/noxtls_stm32h7_accel.c
+          ${NOXTLS_LIB_ROOT}/vendor/st/stm32l4/noxtls_stm32l4_accel.c
+          ${NOXTLS_LIB_ROOT}/vendor/st/stm32u3/noxtls_stm32u3_accel.c
+          ${NOXTLS_LIB_ROOT}/vendor/st/stm32u5/noxtls_stm32u5_accel.c
+          ${NOXTLS_LIB_ROOT}/vendor/st/stm32wb/noxtls_stm32wb_accel.c
+      )
+      set(NOXTLS_PORT_AES_ACCEL_ENABLED ON)
+    else()
+      list(APPEND ENC_SOURCES aes/noxtls_aes_accel_esp.c)
+      set(NOXTLS_PORT_AES_ACCEL_ENABLED OFF)
+    endif()
   endif()
   set(NOXTLS_AES_ACCEL_NI_SOURCE_ENABLED OFF)
   set(NOXTLS_AES_ACCEL_APPLE_SOURCE_ENABLED OFF)
