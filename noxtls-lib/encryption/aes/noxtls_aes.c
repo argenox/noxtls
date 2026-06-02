@@ -43,6 +43,9 @@ extern "C"
 #ifndef NOXTLS_PORT_AES_ACCEL
 #define NOXTLS_PORT_AES_ACCEL 0
 #endif
+#ifndef NOXTLS_FEATURE_STM32_HW_AES_ONLY
+#define NOXTLS_FEATURE_STM32_HW_AES_ONLY 0
+#endif
 
 
 
@@ -816,7 +819,11 @@ noxtls_return_t noxtls_aes_encrypt_block_internal(const uint8_t *key, const uint
     }
 #endif
 
+#if NOXTLS_FEATURE_STM32_HW_AES_ONLY
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+#else
     return noxtls_aes_encrypt_block_software(key, data, output, type);
+#endif
 }
 
 /**
@@ -861,7 +868,11 @@ noxtls_return_t noxtls_aes_encrypt_block_ctx_internal(const noxtls_aes_context_t
     if(!ctx->round_keys_ready) {
         return NOXTLS_RETURN_NOT_INITIALIZED;
     }
+#if NOXTLS_FEATURE_STM32_HW_AES_ONLY
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+#else
     return noxtls_aes_encrypt_block_software_expanded(ctx->round_keys, ctx->rounds, data, output);
+#endif
 }
 
 /**
@@ -1421,7 +1432,11 @@ noxtls_return_t noxtls_aes_decrypt_block_internal(const uint8_t *key, const uint
     }
 #endif
 
+#if NOXTLS_FEATURE_STM32_HW_AES_ONLY
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+#else
     return noxtls_aes_decrypt_block_software(key, data, output, type);
+#endif
 }
 
 /**
@@ -1466,7 +1481,11 @@ noxtls_return_t noxtls_aes_decrypt_block_ctx_internal(const noxtls_aes_context_t
     if(!ctx->round_keys_ready) {
         return NOXTLS_RETURN_NOT_INITIALIZED;
     }
+#if NOXTLS_FEATURE_STM32_HW_AES_ONLY
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+#else
     return noxtls_aes_decrypt_block_software_expanded(ctx->round_keys, ctx->rounds, data, output);
+#endif
 }
 
 /**

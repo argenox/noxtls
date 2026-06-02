@@ -25,6 +25,8 @@
 
 #include "noxtls_sha.h"
 #include "noxtls_common.h"
+#include "vendor/st/noxtls_hw_accel_autoconfig.h"
+#include "vendor/st/noxtls_stm32_accel.h"
 
 /**
  * @brief SHA-256 round acceleration port
@@ -35,9 +37,13 @@
  */
 noxtls_return_t noxtls_sha256_round_accel_port(noxtls_sha_ctx_t *ctx, const uint8_t *input)
 {
+#if NOXTLS_FEATURE_HASH_ACCEL_STM32
+    return noxtls_sha256_accel_stm32_round(ctx, input);
+#else
     (void)ctx;
     (void)input;
     return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
 }
 
 /**
@@ -50,8 +56,12 @@ noxtls_return_t noxtls_sha256_round_accel_port(noxtls_sha_ctx_t *ctx, const uint
  */
 noxtls_return_t noxtls_sha256_blocks_accel_port(noxtls_sha_ctx_t *ctx, const uint8_t *input, uint32_t block_count)
 {
+#if NOXTLS_FEATURE_HASH_ACCEL_STM32
+    return noxtls_sha256_accel_stm32_blocks(ctx, input, block_count);
+#else
     (void)ctx;
     (void)input;
     (void)block_count;
     return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
 }

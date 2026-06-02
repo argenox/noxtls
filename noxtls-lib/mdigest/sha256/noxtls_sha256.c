@@ -35,6 +35,10 @@
 
 #if (NOXTLS_FEATURE_SHA224 || NOXTLS_FEATURE_SHA256)
 
+#ifndef NOXTLS_FEATURE_STM32_HW_SHA256_ONLY
+#define NOXTLS_FEATURE_STM32_HW_SHA256_ONLY 0
+#endif
+
 /* Module Debug Level */
 static uint8_t debug_lvl = 0;
 
@@ -175,6 +179,9 @@ noxtls_return_t noxtls_sha256_update(noxtls_sha_ctx_t * ctx, const uint8_t * inp
             offset += full_bytes;
             len -= full_bytes;
         } else {
+#if NOXTLS_FEATURE_STM32_HW_SHA256_ONLY
+            return rc;
+#else
             while(len >= SHA256_BLOCK_SIZE_BYTES) {
                 rc = noxtls_sha256_round(ctx, input + offset);
                 if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -184,6 +191,7 @@ noxtls_return_t noxtls_sha256_update(noxtls_sha_ctx_t * ctx, const uint8_t * inp
                 offset += SHA256_BLOCK_SIZE_BYTES;
                 len -= SHA256_BLOCK_SIZE_BYTES;
             }
+#endif
         }
     }
 
@@ -230,6 +238,9 @@ noxtls_return_t noxtls_sha256_round(noxtls_sha_ctx_t * ctx, const uint8_t * inpu
     if(rc == NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
+#if NOXTLS_FEATURE_STM32_HW_SHA256_ONLY
+    return rc;
+#endif
 
     
     
