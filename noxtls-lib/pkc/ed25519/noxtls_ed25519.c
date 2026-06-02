@@ -31,7 +31,6 @@
 #include "mdigest/sha512/noxtls_sha512.h"
 #include "noxtls_common.h"
 #include "noxtls_ed25519.h"
-#include "pkc/rsa/noxtls_bignum.h"
 
 /* p = 2^255 - 19 (same as Curve25519), big-endian */
 static const uint8_t ed25519_p[NOXTLS_ED25519_FE25519_BYTES] = {
@@ -80,7 +79,7 @@ static const uint8_t ed25519_B_y_be[NOXTLS_ED25519_FE25519_BYTES] NOXTLS_UNUSED_
 };
 
 /**
- * @brief Converts a 255-bit field element from little-endian to big-endian for bignum operations.
+ * @brief Converts a 255-bit field element from little-endian to big-endian field helpers.
  * @param[out] be Big-endian output (`NOXTLS_ED25519_FE25519_BYTES` bytes).
  * @param[in]  le Little-endian input (`NOXTLS_ED25519_FE25519_BYTES` bytes).
  * @return None.
@@ -101,13 +100,472 @@ static void be32_to_le32(uint8_t le[NOXTLS_ED25519_FE25519_BYTES], const uint8_t
     for(int i = 0; i < (int)NOXTLS_ED25519_FE25519_BYTES; i++) le[i] = be[(int)NOXTLS_ED25519_FE25519_BYTES - 1 - i];
 }
 
+static int ed25519_cmp_be(const uint8_t *a, const uint8_t *b, uint32_t len)
+{
+    for(uint32_t i = 0; i < len; i++) {
+        if(a[i] != b[i]) {
+            return (a[i] > b[i]) ? 1 : -1;
+        }
+    }
+    return 0;
+}
+
+/**
+ * @brief Load 32 bits from a little-endian source.
+ */
+static uint32_t fe25519_load32_le(const uint8_t *src)
+{
+    return ((uint32_t)src[0]) |
+           ((uint32_t)src[1] << 8) |
+           ((uint32_t)src[2] << 16) |
+           ((uint32_t)src[3] << 24);
+}
+
+/**
+ * @brief Load 24 bits from a little-endian source.
+ */
+static uint32_t fe25519_load24_le(const uint8_t *src)
+{
+    return ((uint32_t)src[0]) |
+           ((uint32_t)src[1] << 8) |
+           ((uint32_t)src[2] << 16);
+}
+
+typedef struct {
+    int32_t v[10];
+} fe25519_native_t;
+
+static void fe25519_native_copy(fe25519_native_t *dst, const fe25519_native_t *src)
+{
+    memcpy(dst, src, sizeof(*dst));
+}
+
+static void fe25519_native_zero(fe25519_native_t *a)
+{
+    memset(a, 0, sizeof(*a));
+}
+
+static void fe25519_native_from_le(fe25519_native_t *out, const uint8_t in[32])
+{
+    int64_t h0 = (int64_t)fe25519_load32_le(in);
+    int64_t h1 = (int64_t)fe25519_load24_le(in + 4U) << 6;
+    int64_t h2 = (int64_t)fe25519_load24_le(in + 7U) << 5;
+    int64_t h3 = (int64_t)fe25519_load24_le(in + 10U) << 3;
+    int64_t h4 = (int64_t)fe25519_load24_le(in + 13U) << 2;
+    int64_t h5 = (int64_t)fe25519_load32_le(in + 16U);
+    int64_t h6 = (int64_t)fe25519_load24_le(in + 20U) << 7;
+    int64_t h7 = (int64_t)fe25519_load24_le(in + 23U) << 5;
+    int64_t h8 = (int64_t)fe25519_load24_le(in + 26U) << 4;
+    int64_t h9 = (int64_t)(fe25519_load24_le(in + 29U) & 0x7FFFFFu) << 2;
+    int64_t carry;
+
+    carry = (h9 + (((int64_t)1) << 24)) >> 25;
+    h0 += carry * 19;
+    h9 -= carry << 25;
+    carry = (h1 + (((int64_t)1) << 24)) >> 25;
+    h2 += carry;
+    h1 -= carry << 25;
+    carry = (h3 + (((int64_t)1) << 24)) >> 25;
+    h4 += carry;
+    h3 -= carry << 25;
+    carry = (h5 + (((int64_t)1) << 24)) >> 25;
+    h6 += carry;
+    h5 -= carry << 25;
+    carry = (h7 + (((int64_t)1) << 24)) >> 25;
+    h8 += carry;
+    h7 -= carry << 25;
+
+    carry = (h0 + (((int64_t)1) << 25)) >> 26;
+    h1 += carry;
+    h0 -= carry << 26;
+    carry = (h2 + (((int64_t)1) << 25)) >> 26;
+    h3 += carry;
+    h2 -= carry << 26;
+    carry = (h4 + (((int64_t)1) << 25)) >> 26;
+    h5 += carry;
+    h4 -= carry << 26;
+    carry = (h6 + (((int64_t)1) << 25)) >> 26;
+    h7 += carry;
+    h6 -= carry << 26;
+    carry = (h8 + (((int64_t)1) << 25)) >> 26;
+    h9 += carry;
+    h8 -= carry << 26;
+
+    out->v[0] = (int32_t)h0;
+    out->v[1] = (int32_t)h1;
+    out->v[2] = (int32_t)h2;
+    out->v[3] = (int32_t)h3;
+    out->v[4] = (int32_t)h4;
+    out->v[5] = (int32_t)h5;
+    out->v[6] = (int32_t)h6;
+    out->v[7] = (int32_t)h7;
+    out->v[8] = (int32_t)h8;
+    out->v[9] = (int32_t)h9;
+}
+
+static void fe25519_native_to_le(uint8_t out[32], const fe25519_native_t *in)
+{
+    int64_t h0 = in->v[0];
+    int64_t h1 = in->v[1];
+    int64_t h2 = in->v[2];
+    int64_t h3 = in->v[3];
+    int64_t h4 = in->v[4];
+    int64_t h5 = in->v[5];
+    int64_t h6 = in->v[6];
+    int64_t h7 = in->v[7];
+    int64_t h8 = in->v[8];
+    int64_t h9 = in->v[9];
+    int64_t q;
+    int64_t carry;
+
+    q = (19 * h9 + (((int64_t)1) << 24)) >> 25;
+    q = (h0 + q) >> 26;
+    q = (h1 + q) >> 25;
+    q = (h2 + q) >> 26;
+    q = (h3 + q) >> 25;
+    q = (h4 + q) >> 26;
+    q = (h5 + q) >> 25;
+    q = (h6 + q) >> 26;
+    q = (h7 + q) >> 25;
+    q = (h8 + q) >> 26;
+    q = (h9 + q) >> 25;
+
+    h0 += 19 * q;
+
+    carry = h0 >> 26;
+    h1 += carry;
+    h0 -= carry << 26;
+    carry = h1 >> 25;
+    h2 += carry;
+    h1 -= carry << 25;
+    carry = h2 >> 26;
+    h3 += carry;
+    h2 -= carry << 26;
+    carry = h3 >> 25;
+    h4 += carry;
+    h3 -= carry << 25;
+    carry = h4 >> 26;
+    h5 += carry;
+    h4 -= carry << 26;
+    carry = h5 >> 25;
+    h6 += carry;
+    h5 -= carry << 25;
+    carry = h6 >> 26;
+    h7 += carry;
+    h6 -= carry << 26;
+    carry = h7 >> 25;
+    h8 += carry;
+    h7 -= carry << 25;
+    carry = h8 >> 26;
+    h9 += carry;
+    h8 -= carry << 26;
+    carry = h9 >> 25;
+    h9 -= carry << 25;
+
+    out[0] = (uint8_t)(h0 >> 0);
+    out[1] = (uint8_t)(h0 >> 8);
+    out[2] = (uint8_t)(h0 >> 16);
+    out[3] = (uint8_t)((h0 >> 24) | (h1 << 2));
+    out[4] = (uint8_t)(h1 >> 6);
+    out[5] = (uint8_t)(h1 >> 14);
+    out[6] = (uint8_t)((h1 >> 22) | (h2 << 3));
+    out[7] = (uint8_t)(h2 >> 5);
+    out[8] = (uint8_t)(h2 >> 13);
+    out[9] = (uint8_t)((h2 >> 21) | (h3 << 5));
+    out[10] = (uint8_t)(h3 >> 3);
+    out[11] = (uint8_t)(h3 >> 11);
+    out[12] = (uint8_t)((h3 >> 19) | (h4 << 6));
+    out[13] = (uint8_t)(h4 >> 2);
+    out[14] = (uint8_t)(h4 >> 10);
+    out[15] = (uint8_t)(h4 >> 18);
+    out[16] = (uint8_t)(h5 >> 0);
+    out[17] = (uint8_t)(h5 >> 8);
+    out[18] = (uint8_t)(h5 >> 16);
+    out[19] = (uint8_t)((h5 >> 24) | (h6 << 1));
+    out[20] = (uint8_t)(h6 >> 7);
+    out[21] = (uint8_t)(h6 >> 15);
+    out[22] = (uint8_t)((h6 >> 23) | (h7 << 3));
+    out[23] = (uint8_t)(h7 >> 5);
+    out[24] = (uint8_t)(h7 >> 13);
+    out[25] = (uint8_t)((h7 >> 21) | (h8 << 4));
+    out[26] = (uint8_t)(h8 >> 4);
+    out[27] = (uint8_t)(h8 >> 12);
+    out[28] = (uint8_t)((h8 >> 20) | (h9 << 6));
+    out[29] = (uint8_t)(h9 >> 2);
+    out[30] = (uint8_t)(h9 >> 10);
+    out[31] = (uint8_t)(h9 >> 18);
+}
+
+static void fe25519_native_add(fe25519_native_t *out, const fe25519_native_t *a, const fe25519_native_t *b)
+{
+    uint32_t i;
+    for(i = 0; i < 10U; i++) {
+        out->v[i] = a->v[i] + b->v[i];
+    }
+}
+
+static void fe25519_native_sub(fe25519_native_t *out, const fe25519_native_t *a, const fe25519_native_t *b)
+{
+    uint32_t i;
+    for(i = 0; i < 10U; i++) {
+        out->v[i] = a->v[i] - b->v[i];
+    }
+}
+
+static void fe25519_native_mul(fe25519_native_t *out, const fe25519_native_t *a, const fe25519_native_t *b)
+{
+    const int64_t f0 = a->v[0];
+    const int64_t f1 = a->v[1];
+    const int64_t f2 = a->v[2];
+    const int64_t f3 = a->v[3];
+    const int64_t f4 = a->v[4];
+    const int64_t f5 = a->v[5];
+    const int64_t f6 = a->v[6];
+    const int64_t f7 = a->v[7];
+    const int64_t f8 = a->v[8];
+    const int64_t f9 = a->v[9];
+    const int64_t g0 = b->v[0];
+    const int64_t g1 = b->v[1];
+    const int64_t g2 = b->v[2];
+    const int64_t g3 = b->v[3];
+    const int64_t g4 = b->v[4];
+    const int64_t g5 = b->v[5];
+    const int64_t g6 = b->v[6];
+    const int64_t g7 = b->v[7];
+    const int64_t g8 = b->v[8];
+    const int64_t g9 = b->v[9];
+    const int64_t g1_19 = 19 * g1;
+    const int64_t g2_19 = 19 * g2;
+    const int64_t g3_19 = 19 * g3;
+    const int64_t g4_19 = 19 * g4;
+    const int64_t g5_19 = 19 * g5;
+    const int64_t g6_19 = 19 * g6;
+    const int64_t g7_19 = 19 * g7;
+    const int64_t g8_19 = 19 * g8;
+    const int64_t g9_19 = 19 * g9;
+    const int64_t f1_2 = 2 * f1;
+    const int64_t f3_2 = 2 * f3;
+    const int64_t f5_2 = 2 * f5;
+    const int64_t f7_2 = 2 * f7;
+    const int64_t f9_2 = 2 * f9;
+    int64_t h0 = f0 * g0 + f1_2 * g9_19 + f2 * g8_19 + f3_2 * g7_19 + f4 * g6_19 + f5_2 * g5_19 + f6 * g4_19 + f7_2 * g3_19 + f8 * g2_19 + f9_2 * g1_19;
+    int64_t h1 = f0 * g1 + f1 * g0 + f2 * g9_19 + f3 * g8_19 + f4 * g7_19 + f5 * g6_19 + f6 * g5_19 + f7 * g4_19 + f8 * g3_19 + f9 * g2_19;
+    int64_t h2 = f0 * g2 + f1_2 * g1 + f2 * g0 + f3_2 * g9_19 + f4 * g8_19 + f5_2 * g7_19 + f6 * g6_19 + f7_2 * g5_19 + f8 * g4_19 + f9_2 * g3_19;
+    int64_t h3 = f0 * g3 + f1 * g2 + f2 * g1 + f3 * g0 + f4 * g9_19 + f5 * g8_19 + f6 * g7_19 + f7 * g6_19 + f8 * g5_19 + f9 * g4_19;
+    int64_t h4 = f0 * g4 + f1_2 * g3 + f2 * g2 + f3_2 * g1 + f4 * g0 + f5_2 * g9_19 + f6 * g8_19 + f7_2 * g7_19 + f8 * g6_19 + f9_2 * g5_19;
+    int64_t h5 = f0 * g5 + f1 * g4 + f2 * g3 + f3 * g2 + f4 * g1 + f5 * g0 + f6 * g9_19 + f7 * g8_19 + f8 * g7_19 + f9 * g6_19;
+    int64_t h6 = f0 * g6 + f1_2 * g5 + f2 * g4 + f3_2 * g3 + f4 * g2 + f5_2 * g1 + f6 * g0 + f7_2 * g9_19 + f8 * g8_19 + f9_2 * g7_19;
+    int64_t h7 = f0 * g7 + f1 * g6 + f2 * g5 + f3 * g4 + f4 * g3 + f5 * g2 + f6 * g1 + f7 * g0 + f8 * g9_19 + f9 * g8_19;
+    int64_t h8 = f0 * g8 + f1_2 * g7 + f2 * g6 + f3_2 * g5 + f4 * g4 + f5_2 * g3 + f6 * g2 + f7_2 * g1 + f8 * g0 + f9_2 * g9_19;
+    int64_t h9 = f0 * g9 + f1 * g8 + f2 * g7 + f3 * g6 + f4 * g5 + f5 * g4 + f6 * g3 + f7 * g2 + f8 * g1 + f9 * g0;
+    int64_t carry;
+
+    carry = (h0 + (((int64_t)1) << 25)) >> 26;
+    h1 += carry;
+    h0 -= carry << 26;
+    carry = (h4 + (((int64_t)1) << 25)) >> 26;
+    h5 += carry;
+    h4 -= carry << 26;
+
+    carry = (h1 + (((int64_t)1) << 24)) >> 25;
+    h2 += carry;
+    h1 -= carry << 25;
+    carry = (h5 + (((int64_t)1) << 24)) >> 25;
+    h6 += carry;
+    h5 -= carry << 25;
+
+    carry = (h2 + (((int64_t)1) << 25)) >> 26;
+    h3 += carry;
+    h2 -= carry << 26;
+    carry = (h6 + (((int64_t)1) << 25)) >> 26;
+    h7 += carry;
+    h6 -= carry << 26;
+
+    carry = (h3 + (((int64_t)1) << 24)) >> 25;
+    h4 += carry;
+    h3 -= carry << 25;
+    carry = (h7 + (((int64_t)1) << 24)) >> 25;
+    h8 += carry;
+    h7 -= carry << 25;
+
+    carry = (h4 + (((int64_t)1) << 25)) >> 26;
+    h5 += carry;
+    h4 -= carry << 26;
+    carry = (h8 + (((int64_t)1) << 25)) >> 26;
+    h9 += carry;
+    h8 -= carry << 26;
+
+    carry = (h9 + (((int64_t)1) << 24)) >> 25;
+    h0 += carry * 19;
+    h9 -= carry << 25;
+    carry = (h0 + (((int64_t)1) << 25)) >> 26;
+    h1 += carry;
+    h0 -= carry << 26;
+
+    out->v[0] = (int32_t)h0;
+    out->v[1] = (int32_t)h1;
+    out->v[2] = (int32_t)h2;
+    out->v[3] = (int32_t)h3;
+    out->v[4] = (int32_t)h4;
+    out->v[5] = (int32_t)h5;
+    out->v[6] = (int32_t)h6;
+    out->v[7] = (int32_t)h7;
+    out->v[8] = (int32_t)h8;
+    out->v[9] = (int32_t)h9;
+}
+
+static void fe25519_native_sq(fe25519_native_t *out, const fe25519_native_t *a)
+{
+    fe25519_native_mul(out, a, a);
+}
+
+static void fe25519_native_sq_times(fe25519_native_t *out, const fe25519_native_t *z, uint32_t count)
+{
+    uint32_t i;
+    fe25519_native_copy(out, z);
+    for(i = 0; i < count; i++) {
+        fe25519_native_sq(out, out);
+    }
+}
+
+static void fe25519_native_inv(fe25519_native_t *out, const fe25519_native_t *z)
+{
+    fe25519_native_t z2;
+    fe25519_native_t z9;
+    fe25519_native_t z11;
+    fe25519_native_t z2_5_0;
+    fe25519_native_t z2_10_0;
+    fe25519_native_t z2_20_0;
+    fe25519_native_t z2_50_0;
+    fe25519_native_t z2_100_0;
+    fe25519_native_t t0;
+    fe25519_native_t t1;
+
+    fe25519_native_sq(&z2, z);
+    fe25519_native_sq(&t0, &z2);
+    fe25519_native_sq(&t0, &t0);
+    fe25519_native_mul(&z9, &t0, z);
+    fe25519_native_mul(&z11, &z9, &z2);
+    fe25519_native_sq(&t0, &z11);
+    fe25519_native_mul(&z2_5_0, &t0, &z9);
+
+    fe25519_native_sq_times(&t0, &z2_5_0, 5U);
+    fe25519_native_mul(&z2_10_0, &t0, &z2_5_0);
+
+    fe25519_native_sq_times(&t0, &z2_10_0, 10U);
+    fe25519_native_mul(&z2_20_0, &t0, &z2_10_0);
+
+    fe25519_native_sq_times(&t0, &z2_20_0, 20U);
+    fe25519_native_mul(&t0, &t0, &z2_20_0);
+
+    fe25519_native_sq_times(&t0, &t0, 10U);
+    fe25519_native_mul(&z2_50_0, &t0, &z2_10_0);
+
+    fe25519_native_sq_times(&t0, &z2_50_0, 50U);
+    fe25519_native_mul(&z2_100_0, &t0, &z2_50_0);
+
+    fe25519_native_sq_times(&t1, &z2_100_0, 100U);
+    fe25519_native_mul(&t1, &t1, &z2_100_0);
+
+    fe25519_native_sq_times(&t1, &t1, 50U);
+    fe25519_native_mul(&t1, &t1, &z2_50_0);
+
+    fe25519_native_sq_times(&t1, &t1, 5U);
+    fe25519_native_mul(out, &t1, &z11);
+}
+
+static void fe25519_native_from_be(fe25519_native_t *out, const uint8_t be[NOXTLS_ED25519_FE25519_BYTES])
+{
+    uint8_t le[NOXTLS_ED25519_FE25519_BYTES];
+    be32_to_le32(le, be);
+    fe25519_native_from_le(out, le);
+}
+
+static void fe25519_native_to_be(uint8_t be[NOXTLS_ED25519_FE25519_BYTES], const fe25519_native_t *in)
+{
+    uint8_t le[NOXTLS_ED25519_FE25519_BYTES];
+    fe25519_native_to_le(le, in);
+    le32_to_be32(be, le);
+}
+
+static noxtls_return_t ed25519_sub_be(uint8_t *r, const uint8_t *a, const uint8_t *b, uint32_t len)
+{
+    int32_t borrow = 0;
+
+    if(r == NULL || a == NULL || b == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    for(int32_t i = (int32_t)len - 1; i >= 0; i--) {
+        int32_t v = (int32_t)a[i] - (int32_t)b[i] - borrow;
+        if(v < 0) {
+            v += 256;
+            borrow = 1;
+        } else {
+            borrow = 0;
+        }
+        r[i] = (uint8_t)v;
+    }
+
+    return (borrow == 0) ? NOXTLS_RETURN_SUCCESS : NOXTLS_RETURN_FAILED;
+}
+
+static void ed25519_set_zero(uint8_t *a, uint32_t len)
+{
+    if(a == NULL) {
+        return;
+    }
+    memset(a, 0, len);
+}
+
+static void ed25519_set_one_be32(uint8_t a[NOXTLS_ED25519_FE25519_BYTES])
+{
+    if(a == NULL) {
+        return;
+    }
+    memset(a, 0, NOXTLS_ED25519_FE25519_BYTES);
+    a[NOXTLS_ED25519_FE25519_BYTES - 1U] = 1U;
+}
+
+static noxtls_return_t ed25519_mod_reduce_be(const uint8_t *input,
+                                             uint32_t input_len,
+                                             const uint8_t mod[NOXTLS_ED25519_FE25519_BYTES],
+                                             uint8_t out[NOXTLS_ED25519_FE25519_BYTES])
+{
+    uint8_t rem[33];
+    uint8_t mod33[33];
+    uint8_t tmp[33];
+
+    if(input == NULL || mod == NULL || out == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    memset(rem, 0, sizeof(rem));
+    memset(mod33, 0, sizeof(mod33));
+    memcpy(&mod33[1], mod, NOXTLS_ED25519_FE25519_BYTES);
+
+    for(uint32_t i = 0; i < input_len; i++) {
+        memmove(rem, rem + 1, sizeof(rem) - 1U);
+        rem[sizeof(rem) - 1U] = input[i];
+        while(ed25519_cmp_be(rem, mod33, sizeof(rem)) >= 0) {
+            if(ed25519_sub_be(tmp, rem, mod33, sizeof(rem)) != NOXTLS_RETURN_SUCCESS) {
+                return NOXTLS_RETURN_FAILED;
+            }
+            memcpy(rem, tmp, sizeof(rem));
+        }
+    }
+
+    memcpy(out, &rem[1], NOXTLS_ED25519_FE25519_BYTES);
+    return NOXTLS_RETURN_SUCCESS;
+}
+
 /**
  * @brief Debug helper: prints a 32-byte value as hex to stderr (development builds).
  * @param[in] label NUL-terminated label printed before the hex digits.
  * @param[in] v     32-byte buffer to dump.
  * @return None.
  */
-NOXTLS_UNUSED_ATTR
+#ifndef NDEBUG
 static void ed25519_dbg_hex32(const char *label, const uint8_t v[NOXTLS_ED25519_FE25519_BYTES])
 {
     fprintf(stderr, "%s=", label);
@@ -116,6 +574,7 @@ static void ed25519_dbg_hex32(const char *label, const uint8_t v[NOXTLS_ED25519_
     }
     fprintf(stderr, "\n");
 }
+#endif
 
 /**
  * @brief Debug helper: prints a 64-byte value as hex to stderr (development builds).
@@ -123,7 +582,7 @@ static void ed25519_dbg_hex32(const char *label, const uint8_t v[NOXTLS_ED25519_
  * @param[in] v     64-byte buffer to dump.
  * @return None.
  */
-NOXTLS_UNUSED_ATTR
+#ifndef NDEBUG
 static void ed25519_dbg_hex64(const char *label, const uint8_t v[NOXTLS_ED25519_SHA512_DIGEST_BYTES])
 {
     fprintf(stderr, "%s=", label);
@@ -132,6 +591,7 @@ static void ed25519_dbg_hex64(const char *label, const uint8_t v[NOXTLS_ED25519_
     }
     fprintf(stderr, "\n");
 }
+#endif
 
 /**
  * @brief Field addition in GF(p), p = 2^255 - 19; operands and result are 32-byte big-endian.
@@ -142,17 +602,14 @@ static void ed25519_dbg_hex64(const char *label, const uint8_t v[NOXTLS_ED25519_
  */
 static noxtls_return_t fe25519_add(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], const uint8_t a[NOXTLS_ED25519_FE25519_BYTES], const uint8_t b[NOXTLS_ED25519_FE25519_BYTES])
 {
-    /* Preserve carry explicitly: build a 33-byte sum in the low half of a 64-byte BE buffer. */
-    uint8_t sum[NOXTLS_ED25519_BN_SUM_WORK_BYTES];
-    uint16_t carry = 0;
-    memset(sum, 0, sizeof(sum));
-    for(int i = (int)NOXTLS_ED25519_FE25519_BYTES - 1; i >= 0; i--) {
-        uint16_t v = (uint16_t)a[i] + (uint16_t)b[i] + carry;
-        sum[NOXTLS_ED25519_FE25519_BYTES + (uint32_t)i] = (uint8_t)(v & 0xFFu);
-        carry = (uint16_t)(v >> 8);
-    }
-    sum[NOXTLS_ED25519_FE25519_BYTES - 1] = (uint8_t)carry;
-    return noxtls_bn_mod(r, sum, NOXTLS_ED25519_BN_PRODUCT_BYTES, ed25519_p, NOXTLS_ED25519_FE25519_BYTES);
+    fe25519_native_t x;
+    fe25519_native_t y;
+    fe25519_native_t z;
+    fe25519_native_from_be(&x, a);
+    fe25519_native_from_be(&y, b);
+    fe25519_native_add(&z, &x, &y);
+    fe25519_native_to_be(r, &z);
+    return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
@@ -164,16 +621,13 @@ static noxtls_return_t fe25519_add(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], cons
  */
 static noxtls_return_t fe25519_sub(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], const uint8_t a[NOXTLS_ED25519_FE25519_BYTES], const uint8_t b[NOXTLS_ED25519_FE25519_BYTES])
 {
-    int cmp = noxtls_bn_cmp(a, b, NOXTLS_ED25519_FE25519_BYTES);
-    if(cmp >= 0) {
-        if(noxtls_bn_sub(r, a, b, NOXTLS_ED25519_FE25519_BYTES) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-        return NOXTLS_RETURN_SUCCESS;
-    }
-
-    /* r = a - b mod p = p - (b - a), with 0 < (b-a) < p */
-    uint8_t diff[NOXTLS_ED25519_FE25519_BYTES];
-    if(noxtls_bn_sub(diff, b, a, NOXTLS_ED25519_FE25519_BYTES) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(noxtls_bn_sub(r, ed25519_p, diff, NOXTLS_ED25519_FE25519_BYTES) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    fe25519_native_t x;
+    fe25519_native_t y;
+    fe25519_native_t z;
+    fe25519_native_from_be(&x, a);
+    fe25519_native_from_be(&y, b);
+    fe25519_native_sub(&z, &x, &y);
+    fe25519_native_to_be(r, &z);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -186,20 +640,59 @@ static noxtls_return_t fe25519_sub(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], cons
  */
 static noxtls_return_t fe25519_mul(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], const uint8_t a[NOXTLS_ED25519_FE25519_BYTES], const uint8_t b[NOXTLS_ED25519_FE25519_BYTES])
 {
-    uint8_t product[NOXTLS_ED25519_BN_PRODUCT_BYTES];
-    if(noxtls_bn_mul(product, a, NOXTLS_ED25519_FE25519_BYTES, b, NOXTLS_ED25519_FE25519_BYTES) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    return noxtls_bn_mod(r, product, NOXTLS_ED25519_BN_PRODUCT_BYTES, ed25519_p, NOXTLS_ED25519_FE25519_BYTES);
+    fe25519_native_t x;
+    fe25519_native_t y;
+    fe25519_native_t z;
+    fe25519_native_from_be(&x, a);
+    fe25519_native_from_be(&y, b);
+    fe25519_native_mul(&z, &x, &y);
+    fe25519_native_to_be(r, &z);
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+static noxtls_return_t fe25519_pow(uint8_t r[NOXTLS_ED25519_FE25519_BYTES],
+                                   const uint8_t a[NOXTLS_ED25519_FE25519_BYTES],
+                                   const uint8_t exp_be[NOXTLS_ED25519_FE25519_BYTES])
+{
+    uint8_t result[NOXTLS_ED25519_FE25519_BYTES];
+    uint8_t base[NOXTLS_ED25519_FE25519_BYTES];
+
+    ed25519_set_one_be32(result);
+    memcpy(base, a, NOXTLS_ED25519_FE25519_BYTES);
+
+    for(uint32_t i = 0; i < NOXTLS_ED25519_FE25519_BYTES; i++) {
+        uint8_t bits = exp_be[i];
+        for(uint32_t bit = 0; bit < 8U; bit++) {
+            if(fe25519_mul(result, result, result) != NOXTLS_RETURN_SUCCESS) {
+                return NOXTLS_RETURN_FAILED;
+            }
+            if((bits & 0x80U) != 0U) {
+                if(fe25519_mul(result, result, base) != NOXTLS_RETURN_SUCCESS) {
+                    return NOXTLS_RETURN_FAILED;
+                }
+            }
+            bits <<= 1U;
+        }
+    }
+
+    memcpy(r, result, NOXTLS_ED25519_FE25519_BYTES);
+    return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
- * @brief Multiplicative inverse in GF(p): r = a^(-1) mod p (extended GCD).
+ * @brief Multiplicative inverse in GF(p): r = a^(-1) mod p (Fermat's little theorem).
  * @param[out] r Inverse of @p a mod p.
  * @param[in]  a Non-zero field element (`NOXTLS_ED25519_FE25519_BYTES` bytes).
  * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on failure.
  */
 static noxtls_return_t fe25519_inv(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], const uint8_t a[NOXTLS_ED25519_FE25519_BYTES])
 {
-    return noxtls_bn_mod_inv(r, a, NOXTLS_ED25519_FE25519_BYTES, (const uint8_t *)ed25519_p, NOXTLS_ED25519_FE25519_BYTES);
+    fe25519_native_t x;
+    fe25519_native_t z;
+    fe25519_native_from_be(&x, a);
+    fe25519_native_inv(&z, &x);
+    fe25519_native_to_be(r, &z);
+    return NOXTLS_RETURN_SUCCESS;
 }
 
 /* 2^((p-1)/4) mod p for p = 2^255-19 (for sqrt when x^2 = -a) */
@@ -226,13 +719,12 @@ static noxtls_return_t fe25519_sqrt(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], con
     memset(p38, 0xFF, NOXTLS_ED25519_FE25519_BYTES);
     p38[0] = 0x0F;
     p38[NOXTLS_ED25519_FE25519_BYTES - 1U] = 0xFE;
-    if(noxtls_bn_mod_exp(x, a, p38, NOXTLS_ED25519_FE25519_BYTES, ed25519_p, NOXTLS_ED25519_FE25519_BYTES) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(noxtls_bn_mul(x2, x, NOXTLS_ED25519_FE25519_BYTES, x, NOXTLS_ED25519_FE25519_BYTES) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(noxtls_bn_mod(x2, x2, NOXTLS_ED25519_BN_PRODUCT_BYTES, ed25519_p, NOXTLS_ED25519_FE25519_BYTES) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(noxtls_bn_cmp(x2, a, NOXTLS_ED25519_FE25519_BYTES) == 0) { memcpy(r, x, NOXTLS_ED25519_FE25519_BYTES); return NOXTLS_RETURN_SUCCESS; }
+    if(fe25519_pow(x, a, p38) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_mul(x2, x, x) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(ed25519_cmp_be(x2, a, NOXTLS_ED25519_FE25519_BYTES) == 0) { memcpy(r, x, NOXTLS_ED25519_FE25519_BYTES); return NOXTLS_RETURN_SUCCESS; }
     /* x^2 = -a: then x * 2^((p-1)/4) is a square root of a */
     fe25519_mul(x2, x, (const uint8_t *)ed25519_sqrt_minus1);
-    if(noxtls_bn_mod(r, x2, NOXTLS_ED25519_BN_PRODUCT_BYTES, ed25519_p, NOXTLS_ED25519_FE25519_BYTES) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    memcpy(r, x2, NOXTLS_ED25519_FE25519_BYTES);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -259,10 +751,10 @@ static noxtls_return_t ge25519_set_basepoint(ge25519_pt_t *p)
  */
 static void ge25519_pt_zero(ge25519_pt_t *p)
 {
-    noxtls_bn_zero(p->X, NOXTLS_ED25519_FE25519_BYTES);
-    noxtls_bn_one(p->Y, NOXTLS_ED25519_FE25519_BYTES);
-    noxtls_bn_one(p->Z, NOXTLS_ED25519_FE25519_BYTES);
-    noxtls_bn_zero(p->T, NOXTLS_ED25519_FE25519_BYTES);
+    ed25519_set_zero(p->X, NOXTLS_ED25519_FE25519_BYTES);
+    ed25519_set_one_be32(p->Y);
+    ed25519_set_one_be32(p->Z);
+    ed25519_set_zero(p->T, NOXTLS_ED25519_FE25519_BYTES);
 }
 
 /**
@@ -274,53 +766,41 @@ static void ge25519_pt_zero(ge25519_pt_t *p)
  */
 static noxtls_return_t ge25519_add(ge25519_pt_t *r, const ge25519_pt_t *p, const ge25519_pt_t *q)
 {
-    uint8_t z1_inv[NOXTLS_ED25519_FE25519_BYTES];
-    uint8_t z2_inv[NOXTLS_ED25519_FE25519_BYTES];
-    uint8_t x1[NOXTLS_ED25519_FE25519_BYTES];
-    uint8_t y1[NOXTLS_ED25519_FE25519_BYTES];
-    uint8_t x2[NOXTLS_ED25519_FE25519_BYTES];
-    uint8_t y2[NOXTLS_ED25519_FE25519_BYTES];
-    uint8_t x1y2[NOXTLS_ED25519_FE25519_BYTES];
-    uint8_t y1x2[NOXTLS_ED25519_FE25519_BYTES];
-    uint8_t y1y2[NOXTLS_ED25519_FE25519_BYTES];
-    uint8_t x1x2[NOXTLS_ED25519_FE25519_BYTES];
-    uint8_t t[NOXTLS_ED25519_FE25519_BYTES];
-    uint8_t x_num[NOXTLS_ED25519_FE25519_BYTES];
-    uint8_t y_num[NOXTLS_ED25519_FE25519_BYTES];
-    uint8_t x_den[NOXTLS_ED25519_FE25519_BYTES];
-    uint8_t y_den[NOXTLS_ED25519_FE25519_BYTES];
-    uint8_t x_den_inv[NOXTLS_ED25519_FE25519_BYTES];
-    uint8_t y_den_inv[NOXTLS_ED25519_FE25519_BYTES];
-    uint8_t one[NOXTLS_ED25519_FE25519_BYTES] = {0};
+    uint8_t A[NOXTLS_ED25519_FE25519_BYTES];
+    uint8_t B[NOXTLS_ED25519_FE25519_BYTES];
+    uint8_t C[NOXTLS_ED25519_FE25519_BYTES];
+    uint8_t D[NOXTLS_ED25519_FE25519_BYTES];
+    uint8_t E[NOXTLS_ED25519_FE25519_BYTES];
+    uint8_t F[NOXTLS_ED25519_FE25519_BYTES];
+    uint8_t G[NOXTLS_ED25519_FE25519_BYTES];
+    uint8_t H[NOXTLS_ED25519_FE25519_BYTES];
+    uint8_t t0[NOXTLS_ED25519_FE25519_BYTES];
+    uint8_t t1[NOXTLS_ED25519_FE25519_BYTES];
 
-    one[NOXTLS_ED25519_FE25519_BYTES - 1U] = 1;
-    if(fe25519_inv(z1_inv, p->Z) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(fe25519_inv(z2_inv, q->Z) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(fe25519_mul(x1, p->X, z1_inv) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(fe25519_mul(y1, p->Y, z1_inv) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(fe25519_mul(x2, q->X, z2_inv) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(fe25519_mul(y2, q->Y, z2_inv) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_sub(t0, p->Y, p->X) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_sub(t1, q->Y, q->X) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_mul(A, t0, t1) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
 
-    if(fe25519_mul(x1y2, x1, y2) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(fe25519_mul(y1x2, y1, x2) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(fe25519_mul(y1y2, y1, y2) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(fe25519_mul(x1x2, x1, x2) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_add(t0, p->Y, p->X) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_add(t1, q->Y, q->X) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_mul(B, t0, t1) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
 
-    if(fe25519_add(x_num, x1y2, y1x2) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(fe25519_add(y_num, y1y2, x1x2) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_mul(C, p->T, q->T) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_mul(C, C, ed25519_d) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_add(C, C, C) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
 
-    if(fe25519_mul(t, x1x2, y1y2) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(fe25519_mul(t, t, ed25519_d) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_mul(D, p->Z, q->Z) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_add(D, D, D) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
 
-    if(fe25519_add(x_den, one, t) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(fe25519_sub(y_den, one, t) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(fe25519_inv(x_den_inv, x_den) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(fe25519_inv(y_den_inv, y_den) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_sub(E, B, A) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_sub(F, D, C) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_add(G, D, C) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_add(H, B, A) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
 
-    if(fe25519_mul(r->X, x_num, x_den_inv) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(fe25519_mul(r->Y, y_num, y_den_inv) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    noxtls_bn_one(r->Z, NOXTLS_ED25519_FE25519_BYTES);
-    if(fe25519_mul(r->T, r->X, r->Y) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_mul(r->X, E, F) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_mul(r->Y, G, H) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_mul(r->T, E, H) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_mul(r->Z, F, G) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -332,7 +812,39 @@ static noxtls_return_t ge25519_add(ge25519_pt_t *r, const ge25519_pt_t *p, const
  */
 static noxtls_return_t ge25519_dbl(ge25519_pt_t *r, const ge25519_pt_t *p)
 {
-    return ge25519_add(r, p, p);
+    uint8_t A[NOXTLS_ED25519_FE25519_BYTES];
+    uint8_t B[NOXTLS_ED25519_FE25519_BYTES];
+    uint8_t C[NOXTLS_ED25519_FE25519_BYTES];
+    uint8_t D[NOXTLS_ED25519_FE25519_BYTES];
+    uint8_t E[NOXTLS_ED25519_FE25519_BYTES];
+    uint8_t F[NOXTLS_ED25519_FE25519_BYTES];
+    uint8_t G[NOXTLS_ED25519_FE25519_BYTES];
+    uint8_t H[NOXTLS_ED25519_FE25519_BYTES];
+    uint8_t t0[NOXTLS_ED25519_FE25519_BYTES];
+    uint8_t zero[NOXTLS_ED25519_FE25519_BYTES];
+
+    ed25519_set_zero(zero, sizeof(zero));
+
+    if(fe25519_mul(A, p->X, p->X) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_mul(B, p->Y, p->Y) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_mul(C, p->Z, p->Z) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_add(C, C, C) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_sub(D, zero, A) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+
+    if(fe25519_add(t0, p->X, p->Y) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_mul(E, t0, t0) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_sub(E, E, A) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_sub(E, E, B) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+
+    if(fe25519_add(G, D, B) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_sub(F, G, C) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_sub(H, D, B) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+
+    if(fe25519_mul(r->X, E, F) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_mul(r->Y, G, H) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_mul(r->T, E, H) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_mul(r->Z, F, G) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
@@ -389,12 +901,11 @@ static noxtls_return_t ge25519_decode(ge25519_pt_t *p, const uint8_t enc[NOXTLS_
     memcpy(y_le, enc, NOXTLS_ED25519_FE25519_BYTES);
     y_le[NOXTLS_ED25519_FE25519_BYTES - 1U] &= NOXTLS_ED25519_COMPRESSED_Y_SIGN_MASK;
     le32_to_be32(y_be, y_le);
-    if(noxtls_bn_cmp(y_be, ed25519_p, NOXTLS_ED25519_FE25519_BYTES) >= 0) return NOXTLS_RETURN_FAILED;
+    if(ed25519_cmp_be(y_be, ed25519_p, NOXTLS_ED25519_FE25519_BYTES) >= 0) return NOXTLS_RETURN_FAILED;
     /* u = y^2 - 1, v = d*y^2 + 1 */
     rc = fe25519_mul(u, y_be, y_be);
     if(rc != NOXTLS_RETURN_SUCCESS) return rc;
-    rc = noxtls_bn_one(u_val, NOXTLS_ED25519_FE25519_BYTES);
-    if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+    ed25519_set_one_be32(u_val);
     rc = fe25519_sub(u, u, u_val);
     if(rc != NOXTLS_RETURN_SUCCESS) return rc;
     rc = fe25519_mul(v, y_be, y_be);
@@ -422,7 +933,7 @@ static noxtls_return_t ge25519_decode(ge25519_pt_t *p, const uint8_t enc[NOXTLS_
     memset(p58_exp, 0xFF, NOXTLS_ED25519_FE25519_BYTES);
     p58_exp[0] = 0x0F;
     p58_exp[NOXTLS_ED25519_FE25519_BYTES - 1U] = 0xFD;
-    if(noxtls_bn_mod_exp(p58_buf, uv7, p58_exp, NOXTLS_ED25519_FE25519_BYTES, ed25519_p, NOXTLS_ED25519_FE25519_BYTES) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe25519_pow(p58_buf, uv7, p58_exp) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
     rc = fe25519_mul(x_cand, u, v);
     if(rc != NOXTLS_RETURN_SUCCESS) return rc;
     rc = fe25519_mul(x_cand, x_cand, v);
@@ -435,22 +946,20 @@ static noxtls_return_t ge25519_decode(ge25519_pt_t *p, const uint8_t enc[NOXTLS_
     if(rc != NOXTLS_RETURN_SUCCESS) return rc;
     rc = fe25519_mul(vx2, vx2, x_cand);
     if(rc != NOXTLS_RETURN_SUCCESS) return rc;
-    if(noxtls_bn_cmp(vx2, u, NOXTLS_ED25519_FE25519_BYTES) == 0) {
+    if(ed25519_cmp_be(vx2, u, NOXTLS_ED25519_FE25519_BYTES) == 0) {
         memcpy(x, x_cand, NOXTLS_ED25519_FE25519_BYTES);
     } else {
         rc = fe25519_sub(u_val, ed25519_p, u);
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
-        if(noxtls_bn_cmp(vx2, u_val, NOXTLS_ED25519_FE25519_BYTES) != 0) return NOXTLS_RETURN_FAILED;
+        if(ed25519_cmp_be(vx2, u_val, NOXTLS_ED25519_FE25519_BYTES) != 0) return NOXTLS_RETURN_FAILED;
         rc = fe25519_mul(x, x_cand, (const uint8_t *)ed25519_sqrt_minus1);
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
-        if(noxtls_bn_mod(x, x, NOXTLS_ED25519_FE25519_BYTES, ed25519_p, NOXTLS_ED25519_FE25519_BYTES) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
     }
     if((enc[NOXTLS_ED25519_FE25519_BYTES - 1U] >> 7) != (x[NOXTLS_ED25519_FE25519_BYTES - 1U] & 1)) {
         rc = fe25519_sub(x, ed25519_p, x);
         if(rc != NOXTLS_RETURN_SUCCESS) return rc;
     }
-    rc = noxtls_bn_one(p->Z, NOXTLS_ED25519_FE25519_BYTES);
-    if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+    ed25519_set_one_be32(p->Z);
     memcpy(p->X, x, NOXTLS_ED25519_FE25519_BYTES);
     memcpy(p->Y, y_be, NOXTLS_ED25519_FE25519_BYTES);
     rc = fe25519_mul(p->T, p->X, p->Y);
@@ -507,7 +1016,7 @@ static noxtls_return_t sc25519_reduce_mod_l(uint8_t out_le[NOXTLS_ED25519_FE2551
     uint8_t in_be[NOXTLS_ED25519_SHA512_DIGEST_BYTES];
     uint8_t out_be[NOXTLS_ED25519_FE25519_BYTES];
     for(int i = 0; i < (int)NOXTLS_ED25519_SHA512_DIGEST_BYTES; i++) in_be[i] = in_le[(int)NOXTLS_ED25519_SHA512_DIGEST_BYTES - 1 - i];
-    if(noxtls_bn_mod(out_be, in_be, NOXTLS_ED25519_BN_PRODUCT_BYTES, ed25519_L, NOXTLS_ED25519_FE25519_BYTES) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(ed25519_mod_reduce_be(in_be, NOXTLS_ED25519_BN_PRODUCT_BYTES, ed25519_L, out_be) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
     be32_to_le32(out_le, out_be);
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -736,7 +1245,7 @@ static noxtls_return_t ed25519_verify_internal(const uint8_t public_key[NOXTLS_E
         uint8_t S_le[NOXTLS_ED25519_FE25519_BYTES];
         memcpy(S_le, signature + NOXTLS_ED25519_FE25519_BYTES, NOXTLS_ED25519_FE25519_BYTES);
         le32_to_be32(S_be, S_le);
-        if(noxtls_bn_cmp(S_be, ed25519_L, NOXTLS_ED25519_FE25519_BYTES) >= 0) return NOXTLS_RETURN_FAILED;
+        if(ed25519_cmp_be(S_be, ed25519_L, NOXTLS_ED25519_FE25519_BYTES) >= 0) return NOXTLS_RETURN_FAILED;
     }
 
     if(noxtls_sha512_init(&ctx, NOXTLS_HASH_SHA_512) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;

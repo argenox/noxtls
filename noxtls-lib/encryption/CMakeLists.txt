@@ -2,7 +2,10 @@
 set(ENC_SOURCES
 )
 if(NOXTLS_CFG_FEATURE_AES)
-  list(APPEND ENC_SOURCES aes/noxtls_aes.c aes/noxtls_aes_debug.c)
+  list(APPEND ENC_SOURCES aes/noxtls_aes.c)
+  if(NOT NOXTLS_OMIT_UT_SOURCES)
+    list(APPEND ENC_SOURCES aes/noxtls_aes_debug.c)
+  endif()
   if(ESP_PLATFORM)
     list(APPEND ENC_SOURCES ${NOXTLS_ESP_IDF_DIR}/target/esp32/noxtls_esp32_aes_accel.c)
     set(NOXTLS_PORT_AES_ACCEL_ENABLED ON)
