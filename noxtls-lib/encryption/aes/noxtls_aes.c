@@ -46,6 +46,15 @@ extern "C"
 #ifndef NOXTLS_FEATURE_STM32_HW_AES_ONLY
 #define NOXTLS_FEATURE_STM32_HW_AES_ONLY 0
 #endif
+#ifndef NOXTLS_FEATURE_NRF52_HW_AES_ONLY
+#define NOXTLS_FEATURE_NRF52_HW_AES_ONLY 0
+#endif
+
+#if NOXTLS_FEATURE_STM32_HW_AES_ONLY || NOXTLS_FEATURE_NRF52_HW_AES_ONLY
+#define NOXTLS_FEATURE_AES_SOFTWARE_FALLBACK 0
+#else
+#define NOXTLS_FEATURE_AES_SOFTWARE_FALLBACK 1
+#endif
 
 
 
@@ -417,11 +426,15 @@ noxtls_return_t noxtls_aes_prepare_context(noxtls_aes_context_t *ctx, const uint
 
     ctx->type = type;
     memcpy(ctx->key, key, ctx->key_len);
+#if NOXTLS_FEATURE_AES_SOFTWARE_FALLBACK
     rc = noxtls_aes_key_expansion(key, ctx->round_keys, ctx->key_words, ctx->rounds);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
     ctx->round_keys_ready = 1;
+#else
+    ctx->round_keys_ready = 0;
+#endif
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -819,7 +832,7 @@ noxtls_return_t noxtls_aes_encrypt_block_internal(const uint8_t *key, const uint
     }
 #endif
 
-#if NOXTLS_FEATURE_STM32_HW_AES_ONLY
+#if !NOXTLS_FEATURE_AES_SOFTWARE_FALLBACK
     return NOXTLS_RETURN_NOT_SUPPORTED;
 #else
     return noxtls_aes_encrypt_block_software(key, data, output, type);
@@ -865,10 +878,10 @@ noxtls_return_t noxtls_aes_encrypt_block_ctx_internal(const noxtls_aes_context_t
     }
 #endif
 
-    if(!ctx->round_keys_ready) {
+    if(NOXTLS_FEATURE_AES_SOFTWARE_FALLBACK && !ctx->round_keys_ready) {
         return NOXTLS_RETURN_NOT_INITIALIZED;
     }
-#if NOXTLS_FEATURE_STM32_HW_AES_ONLY
+#if !NOXTLS_FEATURE_AES_SOFTWARE_FALLBACK
     return NOXTLS_RETURN_NOT_SUPPORTED;
 #else
     return noxtls_aes_encrypt_block_software_expanded(ctx->round_keys, ctx->rounds, data, output);
@@ -1432,7 +1445,7 @@ noxtls_return_t noxtls_aes_decrypt_block_internal(const uint8_t *key, const uint
     }
 #endif
 
-#if NOXTLS_FEATURE_STM32_HW_AES_ONLY
+#if !NOXTLS_FEATURE_AES_SOFTWARE_FALLBACK
     return NOXTLS_RETURN_NOT_SUPPORTED;
 #else
     return noxtls_aes_decrypt_block_software(key, data, output, type);
@@ -1478,10 +1491,10 @@ noxtls_return_t noxtls_aes_decrypt_block_ctx_internal(const noxtls_aes_context_t
     }
 #endif
 
-    if(!ctx->round_keys_ready) {
+    if(NOXTLS_FEATURE_AES_SOFTWARE_FALLBACK && !ctx->round_keys_ready) {
         return NOXTLS_RETURN_NOT_INITIALIZED;
     }
-#if NOXTLS_FEATURE_STM32_HW_AES_ONLY
+#if !NOXTLS_FEATURE_AES_SOFTWARE_FALLBACK
     return NOXTLS_RETURN_NOT_SUPPORTED;
 #else
     return noxtls_aes_decrypt_block_software_expanded(ctx->round_keys, ctx->rounds, data, output);

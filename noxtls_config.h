@@ -344,6 +344,22 @@
 #define NOXTLS_FEATURE_AES_ACCEL_APPLE 0
 #endif
 
+/* Enables nRF52 ECB peripheral accelerated AES-128 block encrypt path.
+ * Prereq: NOXTLS_FEATURE_AES=1.
+ * Build knob: NOXTLS_CFG_FEATURE_NRF52_HW_ACCEL.
+ */
+#ifndef NOXTLS_FEATURE_NRF52_HW_ACCEL
+#define NOXTLS_FEATURE_NRF52_HW_ACCEL 0
+#endif
+
+/* When enabled, require nRF52 hardware AES support and disable software AES fallback.
+ * Prereq: NOXTLS_FEATURE_NRF52_HW_ACCEL=1.
+ * Build knob: NOXTLS_CFG_FEATURE_NRF52_HW_AES_ONLY.
+ */
+#ifndef NOXTLS_FEATURE_NRF52_HW_AES_ONLY
+#define NOXTLS_FEATURE_NRF52_HW_AES_ONLY 0
+#endif
+
 /* Enables ARIA cipher family.
  * Prereq: NOXTLS_FEATURE_ENCRYPTION=1.
  */
