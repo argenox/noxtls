@@ -1421,6 +1421,73 @@ static noxtls_return_t do_rsa_crt_decrypt(const rsa_key_t *key, const uint8_t *c
 }
 
 /**
+ * @brief Blinded RSA private-key operation: output = input^d mod n (NX-15).
+ *
+ * Masks the input with a fresh random factor before exponentiating so any residual
+ * data-dependent timing in the bignum primitives cannot be correlated with the
+ * attacker-chosen ciphertext/message (Bleichenbacher / Marvin timing hardening):
+ *   x = input * r^e mod n;  y = x^d mod n;  output = y * r^(-1) mod n.
+ *
+ * Fails closed: if no usable blinding factor can be produced (RNG failure or repeated
+ * inversion failure), the private-key operation is NOT performed unblinded.
+ *
+ * @param[in]  key    RSA key with n, e and d populated; key_bytes sized buffers.
+ * @param[in]  input  Input block, key->key_bytes long, numerically less than n.
+ * @param[out] output Result block, key->key_bytes long.
+ *
+ * @return `NOXTLS_RETURN_SUCCESS` on success, error code otherwise.
+ */
+static noxtls_return_t rsa_private_mod_exp_blinded(const rsa_key_t *key, const uint8_t *input, uint8_t *output)
+{
+    const uint32_t len = key->key_bytes;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+    uint32_t attempt;
+    uint8_t *r     = (uint8_t*)noxtls_calloc(len, 1);
+    uint8_t *r_inv = (uint8_t*)noxtls_calloc(len, 1);
+    uint8_t *blind = (uint8_t*)noxtls_calloc(len, 1);
+    uint8_t *wide  = (uint8_t*)noxtls_calloc((size_t)len * 2U, 1);
+
+    if(!r || !r_inv || !blind || !wide) {
+        rc = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+        goto blinded_out;
+    }
+
+    for(attempt = 0; attempt < 8U; attempt++) {
+        /* Fresh random blinding factor r in [1, n-1] with gcd(r, n) == 1. */
+        if(rsa_random_bytes(wide, len) != NOXTLS_RETURN_SUCCESS) {
+            rc = NOXTLS_RETURN_FAILED; /* never proceed with weak/no randomness */
+            goto blinded_out;
+        }
+        if(noxtls_bn_mod(r, wide, len, key->n, len) != NOXTLS_RETURN_SUCCESS) continue;
+        if(noxtls_bn_is_zero(r, len)) continue;
+        /* r_inv = r^-1 mod n; fails when gcd(r, n) != 1 (negligible probability) */
+        if(noxtls_bn_mod_inv(r_inv, r, len, key->n, len) != NOXTLS_RETURN_SUCCESS) continue;
+        if(noxtls_bn_is_zero(r_inv, len)) continue;
+
+        /* blind = r^e mod n */
+        if(noxtls_bn_mod_exp(blind, r, key->e, len, key->n, len) != NOXTLS_RETURN_SUCCESS) continue;
+        /* blind = input * r^e mod n */
+        if(noxtls_bn_mul(wide, input, len, blind, len) != NOXTLS_RETURN_SUCCESS) continue;
+        if(noxtls_bn_mod(blind, wide, len * 2U, key->n, len) != NOXTLS_RETURN_SUCCESS) continue;
+        /* blind = (input * r^e)^d mod n = input^d * r mod n */
+        if(noxtls_bn_mod_exp(blind, blind, key->d, len, key->n, len) != NOXTLS_RETURN_SUCCESS) continue;
+        /* output = blind * r^-1 mod n = input^d mod n */
+        if(noxtls_bn_mul(wide, blind, len, r_inv, len) != NOXTLS_RETURN_SUCCESS) continue;
+        if(noxtls_bn_mod(output, wide, len * 2U, key->n, len) != NOXTLS_RETURN_SUCCESS) continue;
+
+        rc = NOXTLS_RETURN_SUCCESS;
+        break;
+    }
+
+blinded_out:
+    NOXTLS_SECURE_FREE(r, len);
+    NOXTLS_SECURE_FREE(r_inv, len);
+    NOXTLS_SECURE_FREE(blind, len);
+    NOXTLS_SECURE_FREE(wide, (size_t)len * 2U);
+    return rc;
+}
+
+/**
  * @brief RSA Decryption
  */
 noxtls_return_t noxtls_rsa_decrypt(const rsa_key_t *key, const uint8_t *ciphertext, uint32_t ciphertext_len, uint8_t *plaintext, uint32_t *plaintext_len)
@@ -1438,28 +1505,60 @@ noxtls_return_t noxtls_rsa_decrypt(const rsa_key_t *key, const uint8_t *cipherte
         return NOXTLS_RETURN_FAILED;
     }
     
-    /* Standard decryption: m = c^d mod n. */
-    noxtls_bn_mod_exp(decrypted, ciphertext, key->d, key->key_bytes, key->n, key->key_bytes);
-    /* Remove PKCS#1 v1.5 padding (strict RFC 8017 structure for type 2). */
-    if(key->key_bytes >= 11U && decrypted[0] == 0x00u && decrypted[1] == 0x02u) {
-        uint32_t j = 2U;
-        while(j < key->key_bytes && decrypted[j] != 0x00u) {
-            j++;
-        }
-        /* Need at least 8 non-zero padding bytes and a separator. */
-        if(j >= 10U && j < key->key_bytes) {
-            uint32_t data_len = key->key_bytes - j - 1U;
-            if(data_len <= *plaintext_len) {
-                memcpy(plaintext, decrypted + j + 1U, data_len);
-                *plaintext_len = data_len;
-                noxtls_free(decrypted);
-                return NOXTLS_RETURN_SUCCESS;
-            }
-        }
+    /* Blinded decryption: m = c^d mod n (NX-15). */
+    if(rsa_private_mod_exp_blinded(key, ciphertext, decrypted) != NOXTLS_RETURN_SUCCESS) {
+        NOXTLS_SECURE_FREE(decrypted, key->key_bytes);
+        return NOXTLS_RETURN_FAILED;
     }
-    
-    noxtls_free(decrypted);
-    return NOXTLS_RETURN_FAILED;
+
+    /*
+     * SECURITY (NX-03): constant-time PKCS#1 v1.5 type-2 unpad (RFC 8017).
+     * The whole block is scanned without secret-dependent branches; padding
+     * validity and the separator position are computed as masks so that the
+     * time taken does not reveal WHERE the padding check failed
+     * (Bleichenbacher oracle hardening).
+     */
+    {
+        const uint32_t kb = key->key_bytes;
+        uint32_t good;       /* 0xFFFFFFFF when padding is valid, 0 otherwise */
+        uint32_t found_sep;  /* all-ones once the 0x00 separator has been seen */
+        uint32_t sep_index;  /* index of the separator byte */
+        uint32_t data_len;
+        uint32_t i;
+
+        if(kb < 11U) {
+            NOXTLS_SECURE_FREE(decrypted, kb);
+            return NOXTLS_RETURN_FAILED;
+        }
+
+        /* good := (decrypted[0] == 0x00) & (decrypted[1] == 0x02) */
+        good  = (uint32_t)0U - (uint32_t)(((uint32_t)decrypted[0] - 1U) >> 31);          /* b0 == 0 */
+        good &= (uint32_t)0U - (uint32_t)((((uint32_t)decrypted[1] ^ 0x02U) - 1U) >> 31); /* b1 == 2 */
+
+        found_sep = 0U;
+        sep_index = 0U;
+        for(i = 2U; i < kb; i++) {
+            /* is_zero = all-ones when decrypted[i] == 0 */
+            uint32_t is_zero = (uint32_t)0U - (uint32_t)(((uint32_t)decrypted[i] - 1U) >> 31);
+            uint32_t is_first = is_zero & ~found_sep;
+            sep_index |= i & is_first;
+            found_sep |= is_zero;
+        }
+        good &= found_sep;
+        /* At least 8 non-zero padding bytes: separator index must be >= 10. */
+        good &= (uint32_t)0U - (uint32_t)((9U - sep_index) >> 31);
+
+        data_len = (kb - sep_index - 1U) & good;
+
+        if(good == 0U || data_len > *plaintext_len) {
+            NOXTLS_SECURE_FREE(decrypted, kb);
+            return NOXTLS_RETURN_FAILED;
+        }
+        memcpy(plaintext, decrypted + sep_index + 1U, data_len);
+        *plaintext_len = data_len;
+        NOXTLS_SECURE_FREE(decrypted, kb);
+        return NOXTLS_RETURN_SUCCESS;
+    }
 }
 
 /**
@@ -1550,11 +1649,14 @@ noxtls_return_t noxtls_rsa_sign(const rsa_key_t *key, const uint8_t *noxtls_mess
     
     rsa_pkcs1_v15_sign_pad(padded, key->key_bytes, hash, hash_len, hash_algo);
     
-    /* Sign: s = hash^d mod n */
-    noxtls_bn_mod_exp(signature, padded, key->d, key->key_bytes, key->n, key->key_bytes);
+    /* Sign (blinded, NX-15): s = hash^d mod n */
+    rc = rsa_private_mod_exp_blinded(key, padded, signature);
+    noxtls_free(padded);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_FAILED;
+    }
     
     *signature_len = key->key_bytes;
-    noxtls_free(padded);
     
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -1918,7 +2020,8 @@ noxtls_return_t noxtls_rsa_sign_pss(const rsa_key_t *key, const uint8_t *noxtls_
         }
     } while(1);
 
-    noxtls_return_t rc = noxtls_bn_mod_exp(signature, em, key->d, key->key_bytes, key->n, key->key_bytes);
+    /* Sign (blinded, NX-15): s = em^d mod n */
+    noxtls_return_t rc = rsa_private_mod_exp_blinded(key, em, signature);
     noxtls_free(em);
     if(rc != NOXTLS_RETURN_SUCCESS) return rc;
     *signature_len = key->key_bytes;

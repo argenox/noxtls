@@ -434,12 +434,11 @@ noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
                 valid_fragment = 0;
             }
             if(!valid_fragment) {
-                record->type = drec.type;
-                record->version = drec.version;
-                record->length = drec.length;
-                record->data = drec.data;
+                /* SECURITY (NX-11): a malformed handshake fragment must not be handed to
+                 * the caller as a successfully received record. Drop it and report it. */
+                noxtls_free(drec.data);
                 dctx->flight_buffer_len = 0;
-                return NOXTLS_RETURN_SUCCESS;
+                return NOXTLS_RETURN_BAD_DATA;
             }
             fragment.data = drec.data + DTLS_HANDSHAKE_BODY_OFFSET;
 

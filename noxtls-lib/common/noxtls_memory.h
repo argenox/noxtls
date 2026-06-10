@@ -62,8 +62,13 @@ typedef struct
     size_t max_used;                 /* Maximum bytes used at peak */
 } mem_pool_t;
 
-/** Zero buffer then free; use for buffers that may hold keys or other sensitive data to avoid leakage. (ptr may be NULL.) */
-#define NOXTLS_SECURE_FREE(ptr, size) do { if((ptr) != NULL) { noxtls_secure_zero((void*)(ptr), (size)); noxtls_free(ptr); } } while(0)
+/**
+ * Zero buffer then free; use for buffers that may hold keys or other sensitive data to
+ * avoid leakage. (ptr may be NULL.) SECURITY (NX-10): the caller pointer is nulled after
+ * free so a freed secret pointer cannot be reused (use-after-free / double-free).
+ * @p ptr must be an lvalue.
+ */
+#define NOXTLS_SECURE_FREE(ptr, size) do { if((ptr) != NULL) { noxtls_secure_zero((void*)(ptr), (size)); noxtls_free(ptr); (ptr) = NULL; } } while(0)
 
 /* Memory alignment for allocator blocks */
 #define NOXTLS_MEM_ALIGNMENT (8U)

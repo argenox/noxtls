@@ -27,6 +27,7 @@
 
 #include "common/noxtls_memory.h"
 #include "common/noxtls_memory_compat.h"
+#include "common/noxtls_ct.h"
 #include "common/noxtls_debug_printf.h"
 #include "noxtls_bignum.h"
 #include "noxtls_bn_platform.h"
@@ -2398,6 +2399,339 @@ noxtls_return_t noxtls_bn_mod(uint8_t *result, const uint8_t *a, uint32_t a_len,
  * @param mod Modulus big integer
  * @param mod_len Length of the modulus big integer
  */
+/**
+ * @brief Constant-time conditional swap of two equal-length big-endian buffers.
+ *
+ * Swaps @p a and @p b byte-for-byte when @p swap is 1 and leaves them unchanged when
+ * @p swap is 0, without a data-dependent branch. Used by the Montgomery powering ladder
+ * so the secret exponent bit never selects a code path (NX-15).
+ *
+ * @param[in,out] a   First buffer.
+ * @param[in,out] b   Second buffer.
+ * @param[in]     len Length of both buffers in bytes.
+ * @param[in]     swap 1 to swap, 0 to leave unchanged (only bit 0 is significant).
+ */
+static void bn_ct_cswap(uint8_t *a, uint8_t *b, uint32_t len, uint8_t swap)
+{
+    uint8_t mask = (uint8_t)(0u - (uint8_t)(swap & 1u));
+    uint32_t i;
+    for(i = 0; i < len; i++) {
+        uint8_t d = (uint8_t)((a[i] ^ b[i]) & mask);
+        a[i] ^= d;
+        b[i] ^= d;
+    }
+}
+
+/* ===================================================================== *
+ *  Fast constant-time modular exponentiation (Montgomery + fixed window)
+ *
+ *  This is the preferred path for an ODD modulus (RSA n/p/q, DH prime p).
+ *  It is both faster and constant-time:
+ *    - Montgomery multiplication (CIOS) replaces the per-step long-division
+ *      reduction with a fixed-count multiply-accumulate pass.
+ *    - 32-bit limbs do 4x fewer iterations than the byte-wise fallback.
+ *    - A fixed 4-bit window does w squarings + 1 multiply per w exponent
+ *      bits, and the window's table entry is read by scanning ALL entries
+ *      with arithmetic masks, so neither the branch nor the memory-access
+ *      pattern depends on the secret exponent.
+ *
+ *  Timing depends only on mod_len and exp_len (both public), never on the
+ *  secret exponent or base values.
+ * ===================================================================== */
+
+typedef uint32_t bn_limb_t;
+#define BN_LIMB_BITS    32u
+#define BN_MONT_WINDOW  4u
+#define BN_MONT_TABLE   (1u << BN_MONT_WINDOW)  /* 16 */
+
+/* Convert big-endian bytes to little-endian 32-bit limbs (out[0] = least significant). */
+static void bn_be_to_limbs(bn_limb_t *out, uint32_t nlimbs, const uint8_t *be, uint32_t be_len)
+{
+    uint32_t i;
+    memset(out, 0, (size_t)nlimbs * sizeof(bn_limb_t));
+    for(i = 0; i < be_len; i++) {
+        uint32_t byte = be[be_len - 1u - i];
+        out[i >> 2] |= byte << ((i & 3u) * 8u);
+    }
+}
+
+/* Convert little-endian 32-bit limbs back to big-endian bytes. */
+static void bn_limbs_to_be(uint8_t *be, uint32_t be_len, const bn_limb_t *in, uint32_t nlimbs)
+{
+    uint32_t i;
+    (void)nlimbs;
+    for(i = 0; i < be_len; i++) {
+        be[be_len - 1u - i] = (uint8_t)(in[i >> 2] >> ((i & 3u) * 8u));
+    }
+}
+
+/* r = a - b over n limbs; returns the final borrow (1 if a < b). Constant-time. */
+static bn_limb_t bn_limbs_sub(bn_limb_t *r, const bn_limb_t *a, const bn_limb_t *b, uint32_t n)
+{
+    uint32_t i;
+    uint64_t borrow = 0;
+    for(i = 0; i < n; i++) {
+        uint64_t d = (uint64_t)a[i] - (uint64_t)b[i] - borrow;
+        r[i] = (bn_limb_t)d;
+        borrow = (d >> 63) & 1u;  /* 1 when the subtraction underflowed */
+    }
+    return (bn_limb_t)borrow;
+}
+
+/* n0inv = -m[0]^{-1} mod 2^32 (m must be odd). Newton iteration on a 3-bit seed. */
+static bn_limb_t bn_mont_n0inv(bn_limb_t m0)
+{
+    bn_limb_t inv = m0;            /* correct mod 2^3 for odd m0 */
+    uint32_t k;
+    for(k = 0; k < 4u; k++) {      /* 3 -> 6 -> 12 -> 24 -> 48 (>= 32) bits */
+        inv *= 2u - m0 * inv;
+    }
+    return (bn_limb_t)(0u - inv);
+}
+
+/*
+ * out = a * b * R^{-1} mod m, with R = 2^(32*n). CIOS form (Koc).
+ * Reads a, b, m throughout and writes out only at the final reduction, so
+ * out may alias a and/or b (needed for squaring). Constant-time.
+ * t   : scratch of (n + 2) limbs.
+ * tmp : scratch of n limbs.
+ */
+static void bn_mont_mul(bn_limb_t *out, const bn_limb_t *a, const bn_limb_t *b,
+                        const bn_limb_t *m, uint32_t n, bn_limb_t n0inv,
+                        bn_limb_t *t, bn_limb_t *tmp)
+{
+    uint32_t i, j;
+    bn_limb_t extra;
+    bn_limb_t borrow;
+    bn_limb_t condsub;
+    bn_limb_t mask;
+
+    memset(t, 0, (size_t)(n + 2u) * sizeof(bn_limb_t));
+
+    for(i = 0; i < n; i++) {
+        uint64_t carry = 0;
+        bn_limb_t mi;
+
+        /* t += a * b[i] */
+        for(j = 0; j < n; j++) {
+            uint64_t s = (uint64_t)t[j] + (uint64_t)a[j] * (uint64_t)b[i] + carry;
+            t[j] = (bn_limb_t)s;
+            carry = s >> BN_LIMB_BITS;
+        }
+        {
+            uint64_t s = (uint64_t)t[n] + carry;
+            t[n] = (bn_limb_t)s;
+            t[n + 1u] = (bn_limb_t)(s >> BN_LIMB_BITS);
+        }
+
+        /* m_ = t[0] * n0inv mod 2^32; t = (t + m_ * m) / 2^32 */
+        mi = (bn_limb_t)((uint64_t)t[0] * (uint64_t)n0inv);
+        carry = 0;
+        {
+            uint64_t s = (uint64_t)t[0] + (uint64_t)mi * (uint64_t)m[0];
+            carry = s >> BN_LIMB_BITS;   /* low word of s is discarded (== 0) */
+        }
+        for(j = 1; j < n; j++) {
+            uint64_t s = (uint64_t)t[j] + (uint64_t)mi * (uint64_t)m[j] + carry;
+            t[j - 1u] = (bn_limb_t)s;
+            carry = s >> BN_LIMB_BITS;
+        }
+        {
+            uint64_t s = (uint64_t)t[n] + carry;
+            t[n - 1u] = (bn_limb_t)s;
+            t[n] = (bn_limb_t)(t[n + 1u] + (bn_limb_t)(s >> BN_LIMB_BITS));
+        }
+    }
+
+    /* Final conditional subtraction: if extra carry set or t >= m, subtract m. */
+    extra = t[n];
+    borrow = bn_limbs_sub(tmp, t, m, n);
+    condsub = (bn_limb_t)(((extra != 0u) ? 1u : 0u) | (1u - (uint32_t)borrow));
+    mask = (bn_limb_t)(0u - condsub);
+    for(j = 0; j < n; j++) {
+        out[j] = (tmp[j] & mask) | (t[j] & ~mask);
+    }
+}
+
+/* RR = R^2 mod m = 2^(2*32*n) mod m, by repeated doubling. One-time per call. */
+static void bn_mont_RR(bn_limb_t *RR, const bn_limb_t *m, uint32_t n, bn_limb_t *tmp)
+{
+    uint32_t total = 2u * BN_LIMB_BITS * n;
+    uint32_t k, j;
+
+    memset(RR, 0, (size_t)n * sizeof(bn_limb_t));
+    RR[0] = 1u;
+
+    for(k = 0; k < total; k++) {
+        bn_limb_t carry = 0;
+        bn_limb_t borrow;
+        bn_limb_t condsub;
+        bn_limb_t mask;
+        for(j = 0; j < n; j++) {
+            bn_limb_t nc = RR[j] >> (BN_LIMB_BITS - 1u);
+            RR[j] = (bn_limb_t)((RR[j] << 1) | carry);
+            carry = nc;
+        }
+        borrow = bn_limbs_sub(tmp, RR, m, n);
+        condsub = (bn_limb_t)((carry != 0u ? 1u : 0u) | (1u - (uint32_t)borrow));
+        mask = (bn_limb_t)(0u - condsub);
+        for(j = 0; j < n; j++) {
+            RR[j] = (tmp[j] & mask) | (RR[j] & ~mask);
+        }
+    }
+}
+
+/*
+ * Constant-time Montgomery + fixed-window modular exponentiation for ODD modulus.
+ * Returns NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NOT_SUPPORTED if the modulus
+ * is even or scratch allocation fails (caller then uses the ladder fallback).
+ */
+static noxtls_return_t bn_mod_exp_mont(uint8_t *result, const uint8_t *base,
+                                       const uint8_t *exp, uint32_t exp_len,
+                                       const uint8_t *mod, uint32_t mod_len)
+{
+    uint32_t n = (mod_len + 3u) / 4u;
+    uint32_t e_skip;
+    uint32_t nb;          /* significant exponent bits (public, via byte length) */
+    uint32_t nwin;
+    uint32_t win_idx;
+    bn_limb_t n0inv;
+    noxtls_return_t rc = NOXTLS_RETURN_NOT_SUPPORTED;
+
+    bn_limb_t *m_l    = NULL;
+    bn_limb_t *RR     = NULL;
+    bn_limb_t *aR     = NULL;
+    bn_limb_t *acc    = NULL;
+    bn_limb_t *sel    = NULL;
+    bn_limb_t *one_l  = NULL;
+    bn_limb_t *t      = NULL;
+    bn_limb_t *tmp    = NULL;
+    bn_limb_t *table  = NULL;   /* BN_MONT_TABLE * n limbs */
+    uint8_t   *base_red = NULL;
+
+    if(n == 0u) {
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+    }
+
+    m_l     = (bn_limb_t*)noxtls_calloc(n, sizeof(bn_limb_t));
+    RR      = (bn_limb_t*)noxtls_calloc(n, sizeof(bn_limb_t));
+    aR      = (bn_limb_t*)noxtls_calloc(n, sizeof(bn_limb_t));
+    acc     = (bn_limb_t*)noxtls_calloc(n, sizeof(bn_limb_t));
+    sel     = (bn_limb_t*)noxtls_calloc(n, sizeof(bn_limb_t));
+    one_l   = (bn_limb_t*)noxtls_calloc(n, sizeof(bn_limb_t));
+    t       = (bn_limb_t*)noxtls_calloc(n + 2u, sizeof(bn_limb_t));
+    tmp     = (bn_limb_t*)noxtls_calloc(n, sizeof(bn_limb_t));
+    table   = (bn_limb_t*)noxtls_calloc((size_t)BN_MONT_TABLE * n, sizeof(bn_limb_t));
+    base_red = (uint8_t*)noxtls_calloc(mod_len, 1);
+
+    if(!m_l || !RR || !aR || !acc || !sel || !one_l || !t || !tmp || !table || !base_red) {
+        rc = NOXTLS_RETURN_NOT_SUPPORTED;  /* fall back to ladder */
+        goto mont_cleanup;
+    }
+
+    bn_be_to_limbs(m_l, n, mod, mod_len);
+    if((m_l[0] & 1u) == 0u) {
+        rc = NOXTLS_RETURN_NOT_SUPPORTED;  /* even modulus: Montgomery needs odd */
+        goto mont_cleanup;
+    }
+
+    n0inv = bn_mont_n0inv(m_l[0]);
+    bn_mont_RR(RR, m_l, n, tmp);
+
+    /* one_l = 1 */
+    one_l[0] = 1u;
+
+    /* a = base mod m  ->  aR = a * R mod m */
+    if(noxtls_bn_mod(base_red, base, mod_len, mod, mod_len) != NOXTLS_RETURN_SUCCESS) {
+        rc = NOXTLS_RETURN_NOT_SUPPORTED;
+        goto mont_cleanup;
+    }
+    bn_be_to_limbs(aR, n, base_red, mod_len);          /* aR currently holds a */
+    bn_mont_mul(aR, aR, RR, m_l, n, n0inv, t, tmp);    /* aR = a * R mod m */
+
+    /* table[0] = R mod m (Montgomery 1); table[1] = aR; table[i] = table[i-1] * a */
+    bn_mont_mul(&table[0], one_l, RR, m_l, n, n0inv, t, tmp);
+    memcpy(&table[1u * n], aR, (size_t)n * sizeof(bn_limb_t));
+    {
+        uint32_t idx;
+        for(idx = 2u; idx < BN_MONT_TABLE; idx++) {
+            bn_mont_mul(&table[(size_t)idx * n], &table[(size_t)(idx - 1u) * n], aR,
+                        m_l, n, n0inv, t, tmp);
+        }
+    }
+
+    /* acc = Montgomery 1 */
+    memcpy(acc, &table[0], (size_t)n * sizeof(bn_limb_t));
+
+    /* Trim leading zero bytes of the exponent (reveals only its public byte length). */
+    e_skip = 0u;
+    while(e_skip < exp_len && exp[e_skip] == 0u) {
+        e_skip++;
+    }
+    nb = (exp_len - e_skip) * 8u;
+    if(nb == 0u) {
+        /* exponent == 0: x^0 mod m = 1 */
+        (void)noxtls_bn_one(result, mod_len);
+        rc = NOXTLS_RETURN_SUCCESS;
+        goto mont_cleanup;
+    }
+    nwin = (nb + BN_MONT_WINDOW - 1u) / BN_MONT_WINDOW;
+
+    for(win_idx = nwin; win_idx > 0u; win_idx--) {
+        uint32_t bitbase = (win_idx - 1u) * BN_MONT_WINDOW;
+        uint32_t winval = 0u;
+        uint32_t b;
+        uint32_t idx;
+
+        /* w squarings */
+        for(b = 0; b < BN_MONT_WINDOW; b++) {
+            bn_mont_mul(acc, acc, acc, m_l, n, n0inv, t, tmp);
+        }
+
+        /* extract the w-bit window (bit b is the b-th least-significant of the window) */
+        for(b = 0; b < BN_MONT_WINDOW; b++) {
+            uint32_t bp = bitbase + b;
+            uint32_t bit = 0u;
+            if(bp < nb) {
+                bit = (uint32_t)((exp[exp_len - 1u - (bp >> 3)] >> (bp & 7u)) & 1u);
+            }
+            winval |= bit << b;
+        }
+
+        /* constant-time gather of table[winval] */
+        memset(sel, 0, (size_t)n * sizeof(bn_limb_t));
+        for(idx = 0; idx < BN_MONT_TABLE; idx++) {
+            uint32_t d = idx ^ winval;
+            uint32_t eq = (uint32_t)((d - 1u) >> 31) & 1u;  /* 1 iff d == 0 (d in [0,15]) */
+            bn_limb_t mask = (bn_limb_t)(0u - eq);
+            uint32_t j;
+            for(j = 0; j < n; j++) {
+                sel[j] |= table[(size_t)idx * n + j] & mask;
+            }
+        }
+
+        bn_mont_mul(acc, acc, sel, m_l, n, n0inv, t, tmp);
+    }
+
+    /* Convert out of Montgomery domain: result = acc * R^{-1} mod m = acc * 1 (mont). */
+    bn_mont_mul(acc, acc, one_l, m_l, n, n0inv, t, tmp);
+    bn_limbs_to_be(result, mod_len, acc, n);
+    rc = NOXTLS_RETURN_SUCCESS;
+
+mont_cleanup:
+    if(m_l)   NOXTLS_SECURE_FREE(m_l,   (size_t)n * sizeof(bn_limb_t));
+    if(RR)    NOXTLS_SECURE_FREE(RR,    (size_t)n * sizeof(bn_limb_t));
+    if(aR)    NOXTLS_SECURE_FREE(aR,    (size_t)n * sizeof(bn_limb_t));
+    if(acc)   NOXTLS_SECURE_FREE(acc,   (size_t)n * sizeof(bn_limb_t));
+    if(sel)   NOXTLS_SECURE_FREE(sel,   (size_t)n * sizeof(bn_limb_t));
+    if(one_l) NOXTLS_SECURE_FREE(one_l, (size_t)n * sizeof(bn_limb_t));
+    if(t)     NOXTLS_SECURE_FREE(t,     (size_t)(n + 2u) * sizeof(bn_limb_t));
+    if(tmp)   NOXTLS_SECURE_FREE(tmp,   (size_t)n * sizeof(bn_limb_t));
+    if(table) NOXTLS_SECURE_FREE(table, (size_t)BN_MONT_TABLE * n * sizeof(bn_limb_t));
+    if(base_red) NOXTLS_SECURE_FREE(base_red, mod_len);
+    return rc;
+}
+
 noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const uint8_t *exp, uint32_t exp_len, const uint8_t *mod, uint32_t mod_len)
 {
     int do_debug = g_bn_debug_modexp_first;
@@ -2407,6 +2741,7 @@ noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const ui
     uint8_t *temp;
     uint32_t total_bits;
     uint32_t bit_index = 0;
+    uint32_t exp_alloc_len;
     noxtls_return_t rc;
 
     if(result == NULL || base == NULL || exp == NULL || mod == NULL)
@@ -2418,10 +2753,18 @@ noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const ui
        exp_len > (uint32_t)(UINT32_MAX / 8U)) {
         return NOXTLS_RETURN_FAILED;
     }
+    exp_alloc_len = exp_len;
 
     {
         noxtls_return_t hw_rc = noxtls_bn_platform_try_mod_exp(result, base, exp, exp_len, mod, mod_len);
         if(hw_rc == NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_SUCCESS;
+        }
+    }
+
+    {
+        noxtls_return_t mont_rc = bn_mod_exp_mont(result, base, exp, exp_len, mod, mod_len);
+        if(mont_rc == NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_SUCCESS;
         }
     }
@@ -2473,70 +2816,74 @@ noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const ui
         return (rc == NOXTLS_RETURN_SUCCESS) ? NOXTLS_RETURN_SUCCESS : rc;
     }
 
-    /* Right-to-left (LSB-first) square-and-multiply (bitwise shift) */
-    total_bits = exp_len * 8U;
-    if(total_bits > 256) {
-        noxtls_debug_printf("      Starting modular exponentiation (%u bits)...\n", total_bits);
-        fflush(stdout);
+    /*
+     * SECURITY (NX-15): constant-time Montgomery powering ladder.
+     *
+     * temp_result (R0) starts at 1, temp_base (R1) at base mod n. For every bit of the
+     * exponent, from MSB to LSB, we perform exactly one multiply and one square with the
+     * operands selected by a constant-time conditional swap. Unlike the previous
+     * right-to-left square-and-multiply, there is no secret-bit-dependent multiply and no
+     * early loop termination, so execution time and memory-access pattern are independent
+     * of the (secret) exponent value. The loop always runs exp_len*8 iterations.
+     */
+    /*
+     * Skip leading zero BYTES of the exponent. This reveals only the exponent's
+     * byte-length: public exponents (e) are not secret, and secret exponents
+     * (RSA d, DH x) occupy their full buffer, so no secret-dependent timing is
+     * introduced while public-key operations keep their performance.
+     */
+    {
+        uint32_t skip = 0;
+        while(skip < exp_len && exp[skip] == 0U) {
+            skip++;
+        }
+        exp += skip;
+        exp_len -= skip; /* exp_len >= 1: the all-zero exponent was handled above */
     }
+    total_bits = exp_len * 8U;
+    (void)bit_index;
+    (void)do_debug;
 
-    while(!noxtls_bn_is_zero(exp_copy, exp_len)) {
-        uint8_t lsb = exp_copy[exp_len - 1] & 0x01u;
-        uint32_t byte_idx = exp_len - 1 - (bit_index >> 3);
-        uint8_t bit_idx = (uint8_t)(bit_index & 7);
+    {
+        uint32_t i;
+        for(i = total_bits; i > 0U; i--) {
+            uint32_t bitpos = i - 1U;
+            uint8_t bit = (uint8_t)((exp[exp_len - 1U - (bitpos >> 3)] >> (bitpos & 7U)) & 1U);
 
-        if(total_bits > 512 && bit_index > 0 && (bit_index & 127) == 0) {
-            uint32_t percent = (bit_index * 100) / total_bits;
-            noxtls_debug_printf("      Exponentiation progress: %u/%u bits (%u%%)...\n",
-                   bit_index, total_bits, percent);
-            fflush(stdout);
-        }
+            bn_ct_cswap(temp_result, temp_base, mod_len, bit);
 
-        if(do_debug) {
-            bn_debug_print("[noxtls_bn_mod_exp]  before square: ", temp_base, mod_len);
-        }
-
-        if(lsb) {
-            if(do_debug) bn_debug_print("[noxtls_bn_mod_exp]  multiply by base: ", temp_base, mod_len);
-            g_bn_debug_modexp_byte = byte_idx;
-            g_bn_debug_modexp_bit = bit_idx;
-            g_bn_debug_modexp_stage = 1;
+            /* R1 = R0 * R1 mod n (uses old R0; R0 not yet modified this step) */
             rc = noxtls_bn_mul(temp, temp_result, mod_len, temp_base, mod_len);
+            if(rc != NOXTLS_RETURN_SUCCESS) goto mod_exp_cleanup;
+            rc = noxtls_bn_mod(temp_base, temp, mod_len * 2, mod, mod_len);
+            if(rc != NOXTLS_RETURN_SUCCESS) goto mod_exp_cleanup;
+
+            /* R0 = R0 * R0 mod n */
+            rc = noxtls_bn_mul(temp, temp_result, mod_len, temp_result, mod_len);
             if(rc != NOXTLS_RETURN_SUCCESS) goto mod_exp_cleanup;
             rc = noxtls_bn_mod(temp_result, temp, mod_len * 2, mod, mod_len);
             if(rc != NOXTLS_RETURN_SUCCESS) goto mod_exp_cleanup;
-            if(do_debug) bn_debug_print("[noxtls_bn_mod_exp]  after multiply: ", temp_result, mod_len);
+
+            bn_ct_cswap(temp_result, temp_base, mod_len, bit);
         }
-
-        g_bn_debug_modexp_byte = byte_idx;
-        g_bn_debug_modexp_bit = bit_idx;
-        g_bn_debug_modexp_stage = 0;
-        rc = noxtls_bn_mul(temp, temp_base, mod_len, temp_base, mod_len);
-        if(rc != NOXTLS_RETURN_SUCCESS) goto mod_exp_cleanup;
-        rc = noxtls_bn_mod(temp_base, temp, mod_len * 2, mod, mod_len);
-        if(rc != NOXTLS_RETURN_SUCCESS) goto mod_exp_cleanup;
-        if(do_debug) bn_debug_print("[noxtls_bn_mod_exp]  after square: ", temp_base, mod_len);
-
-        rc = noxtls_bn_rshift1(exp_copy, exp_len);
-        if(rc != NOXTLS_RETURN_SUCCESS) goto mod_exp_cleanup;
-        bit_index++;
     }
 
     memcpy(result, temp_result, mod_len);
     if(do_debug) bn_debug_print("[noxtls_bn_mod_exp] result final: ", result, mod_len);
-    noxtls_free(temp_result);
-    noxtls_free(temp_base);
-    noxtls_free(exp_copy);
-    noxtls_free(temp);
+    /* Wipe intermediates that are derived from the secret exponent (NX-10/NX-15). */
+    NOXTLS_SECURE_FREE(temp_result, mod_len);
+    NOXTLS_SECURE_FREE(temp_base, mod_len);
+    NOXTLS_SECURE_FREE(exp_copy, exp_alloc_len);
+    NOXTLS_SECURE_FREE(temp, (size_t)mod_len * 2U);
     g_bn_debug_modexp_active = 0;
     g_bn_debug_mod_compare_all = 0;
     return NOXTLS_RETURN_SUCCESS;
 
 mod_exp_cleanup:
-    noxtls_free(temp_result);
-    noxtls_free(temp_base);
-    noxtls_free(exp_copy);
-    noxtls_free(temp);
+    NOXTLS_SECURE_FREE(temp_result, mod_len);
+    NOXTLS_SECURE_FREE(temp_base, mod_len);
+    NOXTLS_SECURE_FREE(exp_copy, exp_alloc_len);
+    NOXTLS_SECURE_FREE(temp, (size_t)mod_len * 2U);
     g_bn_debug_modexp_active = 0;
     g_bn_debug_mod_compare_all = 0;
     if(result != NULL && mod_len > 0)

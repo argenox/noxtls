@@ -129,12 +129,21 @@ static noxtls_return_t noxtls_stm32_aes_process_block(noxtls_stm32_accel_family_
     for(i = 0u; i < NOXTLS_STM32_WORDS_PER_BLOCK; i++) {
         if(noxtls_stm32_aes_wait_flag(cfg.aes_base, NOXTLS_STM32_AES_SR_OFNE, NOXTLS_STM32_AES_SR_OFNE) == 0) {
             NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_CR_OFF) = 0u;
+            /* SECURITY (NX-17): never leave a partially written block in the caller's
+             * buffer on timeout; a half-transformed block must not be used or leaked. */
+            memset(output, 0, NOXTLS_STM32_WORDS_PER_BLOCK * 4u);
             return NOXTLS_RETURN_TIMEOUT;
         }
         noxtls_store_be32(output + (i * 4u), NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_DOUT_OFF));
     }
 
-    (void)noxtls_stm32_aes_wait_flag(cfg.aes_base, NOXTLS_STM32_AES_SR_BUSY, 0u);
+    /* SECURITY (NX-17): a still-BUSY engine means the block may be incomplete; treat the
+     * exhausted wait as a hard error instead of returning SUCCESS with suspect data. */
+    if(noxtls_stm32_aes_wait_flag(cfg.aes_base, NOXTLS_STM32_AES_SR_BUSY, 0u) == 0) {
+        NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_CR_OFF) = 0u;
+        memset(output, 0, NOXTLS_STM32_WORDS_PER_BLOCK * 4u);
+        return NOXTLS_RETURN_TIMEOUT;
+    }
     NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_CR_OFF) = 0u;
     return NOXTLS_RETURN_SUCCESS;
 }
