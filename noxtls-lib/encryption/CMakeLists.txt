@@ -7,8 +7,14 @@ if(NOXTLS_CFG_FEATURE_AES)
     list(APPEND ENC_SOURCES aes/noxtls_aes_debug.c)
   endif()
   if(ESP_PLATFORM)
-    list(APPEND ENC_SOURCES ${NOXTLS_ESP_IDF_DIR}/target/esp32/noxtls_esp32_aes_accel.c)
-    set(NOXTLS_PORT_AES_ACCEL_ENABLED ON)
+    set(_noxtls_esp32_aes_accel "${NOXTLS_ESP_IDF_DIR}/target/esp32/noxtls_esp32_aes_accel.c")
+    if(EXISTS "${_noxtls_esp32_aes_accel}")
+      list(APPEND ENC_SOURCES "${_noxtls_esp32_aes_accel}")
+      set(NOXTLS_PORT_AES_ACCEL_ENABLED ON)
+    else()
+      list(APPEND ENC_SOURCES aes/noxtls_aes_accel_esp.c)
+      set(NOXTLS_PORT_AES_ACCEL_ENABLED OFF)
+    endif()
   else()
     if(NOXTLS_CFG_FEATURE_STM32_HW_ACCEL)
       list(APPEND ENC_SOURCES
@@ -155,5 +161,5 @@ target_include_directories(noxtls_encryption PUBLIC
 )
 
 target_link_libraries(noxtls_encryption
-    noxtls_hash
+    noxtls_common
 )

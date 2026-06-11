@@ -5,6 +5,9 @@ project(NoxTLS VERSION 0.2.54 LANGUAGES C)
 if(NOT DEFINED NOXTLS_PROJECT_ROOT)
   set(NOXTLS_PROJECT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}" CACHE PATH "NoxTLS source root")
 endif()
+if(NOT DEFINED NOXTLS_ESP_IDF_DIR OR "${NOXTLS_ESP_IDF_DIR}" STREQUAL "")
+  set(NOXTLS_ESP_IDF_DIR "${NOXTLS_PROJECT_ROOT}" CACHE PATH "NoxTLS ESP-IDF target source root")
+endif()
 set(NOXTLS_EXTERNAL_CONFIG_INCLUDE_DIR "" CACHE PATH "Optional consumer-owned include directory that provides noxtls_config.h")
 
 # Set C standard
