@@ -722,30 +722,39 @@ static noxtls_return_t ecdsa_hash_message(uint8_t *hash, uint32_t *hash_len, con
     }
     
     switch(hash_algo) {
+#if NOXTLS_FEATURE_MD5
         case NOXTLS_HASH_MD5:
             if(noxtls_md5_init(&ctx) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
             if(noxtls_md5_update(&ctx, (uint8_t*)noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
             if(noxtls_md5_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
             *hash_len = 16;
             break;
+#endif
+#if NOXTLS_FEATURE_SHA1
         case NOXTLS_HASH_SHA1:
             if(noxtls_sha1_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
             if(noxtls_sha1_update(&ctx, (uint8_t*)noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
             if(noxtls_sha1_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
             *hash_len = 20;
             break;
+#endif
+#if NOXTLS_FEATURE_SHA224
         case NOXTLS_HASH_SHA_224:
             if(noxtls_sha256_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
             if(noxtls_sha256_update(&ctx, (uint8_t*)noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
             if(noxtls_sha256_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
             *hash_len = 28;
             break;
+#endif
+#if NOXTLS_FEATURE_SHA256
         case NOXTLS_HASH_SHA_256:
             if(noxtls_sha256_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
             if(noxtls_sha256_update(&ctx, (uint8_t*)noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
             if(noxtls_sha256_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
             *hash_len = 32;
             break;
+#endif
+#if NOXTLS_FEATURE_SHA384 || NOXTLS_FEATURE_SHA512
         case NOXTLS_HASH_SHA_384:
         case NOXTLS_HASH_SHA_512:
             if(noxtls_sha512_init(&ctx512, hash_algo) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
@@ -753,6 +762,7 @@ static noxtls_return_t ecdsa_hash_message(uint8_t *hash, uint32_t *hash_len, con
             if(noxtls_sha512_finish(&ctx512, hash) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
             *hash_len = (hash_algo == NOXTLS_HASH_SHA_384) ? 48 : 64;
             break;
+#endif
         case NOXTLS_HASH_MD4:
         case NOXTLS_HASH_SHA_512_224:
         case NOXTLS_HASH_SHA_512_256:
