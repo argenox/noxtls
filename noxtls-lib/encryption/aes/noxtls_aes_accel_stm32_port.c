@@ -13,12 +13,46 @@
 #include "vendor/st/noxtls_hw_accel_autoconfig.h"
 #include "vendor/st/noxtls_stm32_accel.h"
 
+#if NOXTLS_FEATURE_AES_ACCEL_STM32
+static int noxtls_aes_stm32_port_selftest_ok(void)
+{
+    static int selftest_state;
+    static const uint8_t expected[16] = {
+        0xdc, 0x95, 0xc0, 0x78, 0xa2, 0x40, 0x89, 0x89,
+        0xad, 0x48, 0xa2, 0x14, 0x92, 0x84, 0x20, 0x87
+    };
+    uint8_t key[32] = {0};
+    uint8_t block[16] = {0};
+    uint8_t out[16] = {0};
+    uint32_t i;
+    uint8_t diff = 0u;
+
+    if(selftest_state != 0) {
+        return selftest_state > 0;
+    }
+
+    if(noxtls_aes_accel_stm32_encrypt_block(key, block, out, NOXTLS_AES_256_BIT) != NOXTLS_RETURN_SUCCESS) {
+        selftest_state = -1;
+        return 0;
+    }
+
+    for(i = 0u; i < sizeof(expected); i++) {
+        diff |= (uint8_t)(out[i] ^ expected[i]);
+    }
+    selftest_state = (diff == 0u) ? 1 : -1;
+    return selftest_state > 0;
+}
+#endif
+
 noxtls_return_t noxtls_aes_accel_port_encrypt_block(const uint8_t *key,
                                                      const uint8_t *data,
                                                      uint8_t *output,
                                                      noxtls_aes_type_t type)
 {
 #if NOXTLS_FEATURE_AES_ACCEL_STM32
+    if(noxtls_aes_stm32_port_selftest_ok() == 0) {
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+    }
     return noxtls_aes_accel_stm32_encrypt_block(key, data, output, type);
 #else
     (void)key;
@@ -35,6 +69,9 @@ noxtls_return_t noxtls_aes_accel_port_decrypt_block(const uint8_t *key,
                                                      noxtls_aes_type_t type)
 {
 #if NOXTLS_FEATURE_AES_ACCEL_STM32
+    if(noxtls_aes_stm32_port_selftest_ok() == 0) {
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+    }
     return noxtls_aes_accel_stm32_decrypt_block(key, data, output, type);
 #else
     (void)key;

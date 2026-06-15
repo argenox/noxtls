@@ -130,6 +130,15 @@
 #define NOXTLS_STM32_WB_HAS_CRYP 1
 #endif
 
+/* STM32H7 crypto is device-dependent. H747/H745 do not expose CRYP/HASH in the
+ * CMSIS device header, so do not enable the backend for the whole H7 family.
+ */
+#if defined(STM32H730xx) || defined(STM32H730xxQ) || defined(STM32H733xx) || defined(STM32H735xx) || \
+    defined(STM32H750xx) || defined(STM32H753xx) || defined(STM32H755xx) || defined(STM32H757xx) || \
+    defined(STM32H7B0xx) || defined(STM32H7B0xxQ) || defined(STM32H7B3xx) || defined(STM32H7B3xxQ)
+#define NOXTLS_STM32_H7_HAS_CRYP_HASH 1
+#endif
+
 #if defined(NOXTLS_STM32_FAMILY_F4) && !defined(NOXTLS_STM32_F4_HAS_CRYP)
 #define NOXTLS_STM32_F4_SW_AES_ONLY 1
 #endif
@@ -139,7 +148,7 @@
 #endif
 
 #if defined(NOXTLS_STM32_HAS_CRYP_PERIPH) || defined(NOXTLS_STM32_FAMILY_H5) || \
-    defined(NOXTLS_STM32_FAMILY_H7) || defined(NOXTLS_STM32_FAMILY_L5) || defined(NOXTLS_STM32_FAMILY_U5)
+    defined(NOXTLS_STM32_H7_HAS_CRYP_HASH) || defined(NOXTLS_STM32_FAMILY_L5) || defined(NOXTLS_STM32_FAMILY_U5)
 #define NOXTLS_STM32_HAS_AES_PERIPH 1
 #endif
 
@@ -148,7 +157,7 @@
 #endif
 
 #if defined(NOXTLS_STM32_F2_HAS_CRYP) || defined(NOXTLS_STM32_FAMILY_F4) || defined(NOXTLS_STM32_FAMILY_F7) || \
-    defined(NOXTLS_STM32_FAMILY_H5) || defined(NOXTLS_STM32_FAMILY_H7) || defined(NOXTLS_STM32_FAMILY_U5)
+    defined(NOXTLS_STM32_FAMILY_H5) || defined(NOXTLS_STM32_H7_HAS_CRYP_HASH) || defined(NOXTLS_STM32_FAMILY_U5)
 #define NOXTLS_STM32_HAS_HASH_PERIPH 1
 #endif
 
