@@ -99,19 +99,16 @@ static void noxtls_sha256_m7_compress(noxtls_sha_ctx_t *ctx, const uint8_t *inpu
         w[t] = SHA256_M7_SSIG1(w[t - 2U]) + w[t - 7U] +
                SHA256_M7_SSIG0(w[t - 15U]) + w[t - 16U];
     }
-    for(t = 0U; t < SHA256_ROUND_COUNT; ++t) {
-        w[t] += s_sha256_m7_k[t];
-    }
 
     for(t = 0U; t < SHA256_ROUND_COUNT; t += 8U) {
-        SHA256_M7_ROUND(a, b, c, d, e, f, g, h, w[t + 0U], 0U);
-        SHA256_M7_ROUND(h, a, b, c, d, e, f, g, w[t + 1U], 0U);
-        SHA256_M7_ROUND(g, h, a, b, c, d, e, f, w[t + 2U], 0U);
-        SHA256_M7_ROUND(f, g, h, a, b, c, d, e, w[t + 3U], 0U);
-        SHA256_M7_ROUND(e, f, g, h, a, b, c, d, w[t + 4U], 0U);
-        SHA256_M7_ROUND(d, e, f, g, h, a, b, c, w[t + 5U], 0U);
-        SHA256_M7_ROUND(c, d, e, f, g, h, a, b, w[t + 6U], 0U);
-        SHA256_M7_ROUND(b, c, d, e, f, g, h, a, w[t + 7U], 0U);
+        SHA256_M7_ROUND(a, b, c, d, e, f, g, h, w[t + 0U], s_sha256_m7_k[t + 0U]);
+        SHA256_M7_ROUND(h, a, b, c, d, e, f, g, w[t + 1U], s_sha256_m7_k[t + 1U]);
+        SHA256_M7_ROUND(g, h, a, b, c, d, e, f, w[t + 2U], s_sha256_m7_k[t + 2U]);
+        SHA256_M7_ROUND(f, g, h, a, b, c, d, e, w[t + 3U], s_sha256_m7_k[t + 3U]);
+        SHA256_M7_ROUND(e, f, g, h, a, b, c, d, w[t + 4U], s_sha256_m7_k[t + 4U]);
+        SHA256_M7_ROUND(d, e, f, g, h, a, b, c, w[t + 5U], s_sha256_m7_k[t + 5U]);
+        SHA256_M7_ROUND(c, d, e, f, g, h, a, b, w[t + 6U], s_sha256_m7_k[t + 6U]);
+        SHA256_M7_ROUND(b, c, d, e, f, g, h, a, w[t + 7U], s_sha256_m7_k[t + 7U]);
     }
 
     ctx->h[0] += a;
