@@ -20,6 +20,7 @@ if(NOXTLS_CFG_FEATURE_AES)
       list(APPEND ENC_SOURCES
           aes/noxtls_aes_accel_stm32_port.c
           ${NOXTLS_LIB_ROOT}/vendor/st/common/noxtls_stm32_aes_core.c
+          ${NOXTLS_LIB_ROOT}/vendor/st/common/noxtls_stm32_gcm_core.c
           ${NOXTLS_LIB_ROOT}/vendor/st/common/noxtls_stm32_accel_dispatch.c
           ${NOXTLS_LIB_ROOT}/vendor/st/stm32f2/noxtls_stm32f2_accel.c
           ${NOXTLS_LIB_ROOT}/vendor/st/stm32f4/noxtls_stm32f4_accel.c

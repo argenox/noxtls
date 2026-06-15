@@ -11,6 +11,8 @@
 
 #include <string.h>
 
+#include "vendor/st/noxtls_target_detect.h"
+
 typedef struct
 {
     uintptr_t aes_base;
@@ -76,7 +78,11 @@ static noxtls_return_t noxtls_stm32_aes_get_cfg(noxtls_stm32_accel_family_t fami
             cfg->aes_base = (uintptr_t)NOXTLS_STM32_F7_AES_BASE;
             break;
         case NOXTLS_STM32_ACCEL_H7:
+#if defined(NOXTLS_STM32_H7_HAS_CRYP_HASH) || defined(NOXTLS_STM32H7_FORCE_CRYP_HASH)
             cfg->aes_base = (uintptr_t)NOXTLS_STM32_H7_AES_BASE;
+#else
+            return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
             break;
         case NOXTLS_STM32_ACCEL_L4:
             cfg->aes_base = (uintptr_t)NOXTLS_STM32_L4_AES_BASE;

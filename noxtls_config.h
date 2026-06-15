@@ -195,6 +195,18 @@
 #define NOXTLS_FEATURE_SHA256 1
 #endif
 
+/* Enables the Cortex-M7 tuned software SHA-256 block compressor.
+ * This is CPU-only and does not use STM32 HASH/CRYP peripherals.
+ */
+#ifndef NOXTLS_FEATURE_SHA256_CORTEXM7
+#define NOXTLS_FEATURE_SHA256_CORTEXM7 0
+#endif
+
+/* Enables the 8-round unrolled portable C SHA-256 compressor path. */
+#ifndef NOXTLS_SHA256_UNROLL_8
+#define NOXTLS_SHA256_UNROLL_8 1
+#endif
+
 /* Enables SHA-384 hashing algorithm (same implementation as SHA-512).
  * Prereq: NOXTLS_FEATURE_HASH=1.
  * Build: sha512.c is compiled when NOXTLS_FEATURE_SHA384 or NOXTLS_FEATURE_SHA512 is 1.

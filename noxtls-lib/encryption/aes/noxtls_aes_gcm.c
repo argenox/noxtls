@@ -118,11 +118,18 @@ static void gcm_mul_bitserial(uint8_t x[16], const uint8_t y[16])
  * @param[in] h The h value.
  * @return void
  */
-static void gcm_precompute_tables(uint8_t table[32][16][16], const uint8_t h[16])
+static const uint8_t (*gcm_precompute_tables(const uint8_t h[16]))[16][16]
 {
+    static uint8_t cache_valid;
+    static uint8_t cache_h[16];
+    static uint8_t table[32][16][16];
     uint8_t basis[16];
     int byte_idx;
     int nibble;
+
+    if(cache_valid != 0U && memcmp(cache_h, h, 16) == 0) {
+        return table;
+    }
 
     for(byte_idx = 0; byte_idx < 16; byte_idx++) {
         for(nibble = 0; nibble < 16; nibble++) {
@@ -137,6 +144,10 @@ static void gcm_precompute_tables(uint8_t table[32][16][16], const uint8_t h[16]
             gcm_mul_bitserial(table[(byte_idx * 2) + 1][nibble], h);
         }
     }
+
+    memcpy(cache_h, h, sizeof(cache_h));
+    cache_valid = 1U;
+    return table;
 }
 
 /**
@@ -279,7 +290,7 @@ noxtls_return_t noxtls_aes_gcm_encrypt(const uint8_t *key, noxtls_aes_type_t typ
     uint8_t ctr[16];
     uint8_t s[16];
     uint8_t x[16];
-    uint8_t ghash_table[32][16][16];
+    const uint8_t (*ghash_table)[16][16];
     uint32_t offset = 0;
 
     if(key == NULL || nonce == NULL || plaintext == NULL || ciphertext == NULL || tag == NULL) {
@@ -304,7 +315,7 @@ noxtls_return_t noxtls_aes_gcm_encrypt(const uint8_t *key, noxtls_aes_type_t typ
     if(aes_block(&aes_ctx, h, h) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
-    gcm_precompute_tables(ghash_table, h);
+    ghash_table = gcm_precompute_tables(h);
 
     memcpy(j0, nonce, 12);
     j0[12] = 0x00;
@@ -373,7 +384,7 @@ noxtls_return_t noxtls_aes_gcm_decrypt(const uint8_t *key, noxtls_aes_type_t typ
     uint8_t s[16];
     uint8_t x[16];
     uint8_t expected_tag[16];
-    uint8_t ghash_table[32][16][16];
+    const uint8_t (*ghash_table)[16][16];
     uint32_t offset = 0;
 
     if(key == NULL || nonce == NULL || ciphertext == NULL || plaintext == NULL || tag == NULL) {
@@ -401,7 +412,7 @@ noxtls_return_t noxtls_aes_gcm_decrypt(const uint8_t *key, noxtls_aes_type_t typ
     if(aes_block(&aes_ctx, h, h) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
-    gcm_precompute_tables(ghash_table, h);
+    ghash_table = gcm_precompute_tables(h);
 
     memcpy(j0, nonce, 12);
     j0[12] = 0x00;

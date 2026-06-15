@@ -130,13 +130,21 @@
 #define NOXTLS_STM32_WB_HAS_CRYP 1
 #endif
 
-/* STM32H7 crypto is device-dependent. H747/H745 do not expose CRYP/HASH in the
- * CMSIS device header, so do not enable the backend for the whole H7 family.
+/* STM32H7 crypto is device-dependent. Enable only variants we have explicitly
+ * allowed for the direct-register backend.
  */
 #if defined(STM32H730xx) || defined(STM32H730xxQ) || defined(STM32H733xx) || defined(STM32H735xx) || \
     defined(STM32H750xx) || defined(STM32H753xx) || defined(STM32H755xx) || defined(STM32H757xx) || \
     defined(STM32H7B0xx) || defined(STM32H7B0xxQ) || defined(STM32H7B3xx) || defined(STM32H7B3xxQ)
 #define NOXTLS_STM32_H7_HAS_CRYP_HASH 1
+#endif
+
+/* STM32H745/H747 do not expose CRYP/HASH in the ST CMSIS device headers used by
+ * NoxADK. Keep the direct-register crypto backend disabled by default so these
+ * parts fall back to software instead of touching nonexistent peripheral space.
+ */
+#if defined(STM32H745xx) || defined(STM32H747xx)
+#define NOXTLS_STM32_H7_NO_CRYP_HASH 1
 #endif
 
 #if defined(NOXTLS_STM32_FAMILY_F4) && !defined(NOXTLS_STM32_F4_HAS_CRYP)
