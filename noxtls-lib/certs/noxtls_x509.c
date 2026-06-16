@@ -1956,62 +1956,62 @@ static noxtls_return_t noxtls_x509_ecc_curve_from_oid(const uint8_t *oid, uint32
     if(oid_len > 0) {
         if(oid_len == sizeof(noxtls_x509_oid_secp192r1) &&
            memcmp(oid, noxtls_x509_oid_secp192r1, sizeof(noxtls_x509_oid_secp192r1)) == 0) {
-            *curve_type = ECC_SECP192R1;
+            *curve_type = NOXTLS_ECC_SECP192R1;
             return NOXTLS_RETURN_SUCCESS;
         }
         if(oid_len == sizeof(noxtls_x509_oid_secp224r1) &&
            memcmp(oid, noxtls_x509_oid_secp224r1, sizeof(noxtls_x509_oid_secp224r1)) == 0) {
-            *curve_type = ECC_SECP224R1;
+            *curve_type = NOXTLS_ECC_SECP224R1;
             return NOXTLS_RETURN_SUCCESS;
         }
         if(oid_len == sizeof(noxtls_x509_oid_secp256r1) &&
            memcmp(oid, noxtls_x509_oid_secp256r1, sizeof(noxtls_x509_oid_secp256r1)) == 0) {
-            *curve_type = ECC_SECP256R1;
+            *curve_type = NOXTLS_ECC_SECP256R1;
             return NOXTLS_RETURN_SUCCESS;
         }
         if(oid_len == sizeof(noxtls_x509_oid_secp384r1) &&
            memcmp(oid, noxtls_x509_oid_secp384r1, sizeof(noxtls_x509_oid_secp384r1)) == 0) {
-            *curve_type = ECC_SECP384R1;
+            *curve_type = NOXTLS_ECC_SECP384R1;
             return NOXTLS_RETURN_SUCCESS;
         }
         if(oid_len == sizeof(noxtls_x509_oid_secp521r1) &&
            memcmp(oid, noxtls_x509_oid_secp521r1, sizeof(noxtls_x509_oid_secp521r1)) == 0) {
-            *curve_type = ECC_SECP521R1;
+            *curve_type = NOXTLS_ECC_SECP521R1;
             return NOXTLS_RETURN_SUCCESS;
         }
         if(oid_len == sizeof(noxtls_x509_oid_bp256r1) &&
            memcmp(oid, noxtls_x509_oid_bp256r1, sizeof(noxtls_x509_oid_bp256r1)) == 0) {
-            *curve_type = ECC_BP256R1;
+            *curve_type = NOXTLS_ECC_BP256R1;
             return NOXTLS_RETURN_SUCCESS;
         }
         if(oid_len == sizeof(noxtls_x509_oid_bp384r1) &&
            memcmp(oid, noxtls_x509_oid_bp384r1, sizeof(noxtls_x509_oid_bp384r1)) == 0) {
-            *curve_type = ECC_BP384R1;
+            *curve_type = NOXTLS_ECC_BP384R1;
             return NOXTLS_RETURN_SUCCESS;
         }
         if(oid_len == sizeof(noxtls_x509_oid_bp512r1) &&
            memcmp(oid, noxtls_x509_oid_bp512r1, sizeof(noxtls_x509_oid_bp512r1)) == 0) {
-            *curve_type = ECC_BP512R1;
+            *curve_type = NOXTLS_ECC_BP512R1;
             return NOXTLS_RETURN_SUCCESS;
         }
         if(oid_len == sizeof(noxtls_x509_oid_secp192k1) &&
            memcmp(oid, noxtls_x509_oid_secp192k1, sizeof(noxtls_x509_oid_secp192k1)) == 0) {
-            *curve_type = ECC_SECP192K1;
+            *curve_type = NOXTLS_ECC_SECP192K1;
             return NOXTLS_RETURN_SUCCESS;
         }
         if(oid_len == sizeof(noxtls_x509_oid_secp224k1) &&
            memcmp(oid, noxtls_x509_oid_secp224k1, sizeof(noxtls_x509_oid_secp224k1)) == 0) {
-            *curve_type = ECC_SECP224K1;
+            *curve_type = NOXTLS_ECC_SECP224K1;
             return NOXTLS_RETURN_SUCCESS;
         }
         if(oid_len == sizeof(noxtls_x509_oid_secp256k1) &&
            memcmp(oid, noxtls_x509_oid_secp256k1, sizeof(noxtls_x509_oid_secp256k1)) == 0) {
-            *curve_type = ECC_SECP256K1;
+            *curve_type = NOXTLS_ECC_SECP256K1;
             return NOXTLS_RETURN_SUCCESS;
         }
         return NOXTLS_RETURN_INVALID_ALGORITHM;
     }
-    *curve_type = ECC_SECP256R1; /* default */
+    *curve_type = NOXTLS_ECC_SECP256R1; /* default */
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -2030,27 +2030,27 @@ static noxtls_return_t noxtls_x509_ecc_curve_from_pubkey_len(uint32_t pubkey_len
         return NOXTLS_RETURN_NULL;
     }
     if(pubkey_len == 49) {   /* 0x04 || 24-byte X || 24-byte Y */
-        *curve_type = ECC_SECP192R1;
+        *curve_type = NOXTLS_ECC_SECP192R1;
         return NOXTLS_RETURN_SUCCESS;
     }
     if(pubkey_len == 57) {   /* 0x04 || 28-byte X || 28-byte Y */
-        *curve_type = ECC_SECP224R1;
+        *curve_type = NOXTLS_ECC_SECP224R1;
         return NOXTLS_RETURN_SUCCESS;
     }
     if(pubkey_len == 65) {
-        *curve_type = ECC_SECP256R1;
+        *curve_type = NOXTLS_ECC_SECP256R1;
         return NOXTLS_RETURN_SUCCESS;
     }
     if(pubkey_len == 97) {
-        *curve_type = ECC_SECP384R1;
+        *curve_type = NOXTLS_ECC_SECP384R1;
         return NOXTLS_RETURN_SUCCESS;
     }
     if(pubkey_len == 129) {  /* 0x04 || 64-byte X || 64-byte Y */
-        *curve_type = ECC_BP512R1;
+        *curve_type = NOXTLS_ECC_BP512R1;
         return NOXTLS_RETURN_SUCCESS;
     }
     if(pubkey_len == 133) {
-        *curve_type = ECC_SECP521R1;
+        *curve_type = NOXTLS_ECC_SECP521R1;
         return NOXTLS_RETURN_SUCCESS;
     }
     return NOXTLS_RETURN_INVALID_PARAM;

@@ -2006,17 +2006,17 @@ static int tls13_sig_scheme_is_deprecated_rsa_pkcs1_tls13(uint16_t scheme)
 static int tls13_ecdsa_scheme_matches_curve(ecc_curve_t curve_kind, uint16_t scheme)
 {
     switch(curve_kind) {
-        case ECC_SECP256R1:
+        case NOXTLS_ECC_SECP256R1:
             return (scheme == TLS_SIGSCHEME_ECDSA_SECP256R1_SHA256) ? 1 : 0;
-        case ECC_SECP384R1:
+        case NOXTLS_ECC_SECP384R1:
             return (scheme == TLS_SIGSCHEME_ECDSA_SECP384R1_SHA384) ? 1 : 0;
-        case ECC_SECP521R1:
+        case NOXTLS_ECC_SECP521R1:
             return (scheme == TLS_SIGSCHEME_ECDSA_SECP521R1_SHA512) ? 1 : 0;
-        case ECC_BP256R1:
+        case NOXTLS_ECC_BP256R1:
             return (scheme == TLS_SIGSCHEME_ECDSA_BRAINPOOLP256R1_TLS13_SHA256) ? 1 : 0;
-        case ECC_BP384R1:
+        case NOXTLS_ECC_BP384R1:
             return (scheme == TLS_SIGSCHEME_ECDSA_BRAINPOOLP384R1_TLS13_SHA384) ? 1 : 0;
-        case ECC_BP512R1:
+        case NOXTLS_ECC_BP512R1:
             return (scheme == TLS_SIGSCHEME_ECDSA_BRAINPOOLP512R1_TLS13_SHA512) ? 1 : 0;
         default:
             return 0;

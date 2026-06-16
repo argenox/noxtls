@@ -197,9 +197,9 @@ static noxtls_return_t bench_ecdsa_p256_sign(uint32_t iterations, uint32_t *byte
     noxtls_return_t rc;
 
     *bytes_per_iter = sizeof(g_data_64);
-    rc = noxtls_ecc_key_init(&key, ECC_SECP256R1);
+    rc = noxtls_ecc_key_init(&key, NOXTLS_ECC_SECP256R1);
     if (rc != NOXTLS_RETURN_SUCCESS) return rc;
-    rc = noxtls_ecc_key_generate(&key, ECC_SECP256R1);
+    rc = noxtls_ecc_key_generate(&key, NOXTLS_ECC_SECP256R1);
     if (rc != NOXTLS_RETURN_SUCCESS) {
         (void)noxtls_ecc_key_free(&key);
         return rc;
@@ -235,16 +235,16 @@ static noxtls_return_t bench_ecdh_p256(uint32_t iterations, uint32_t *bytes_per_
     noxtls_return_t rc;
 
     *bytes_per_iter = sizeof(g_data_64);
-    rc = noxtls_ecc_key_init(&a, ECC_SECP256R1);
+    rc = noxtls_ecc_key_init(&a, NOXTLS_ECC_SECP256R1);
     if (rc != NOXTLS_RETURN_SUCCESS) return rc;
-    rc = noxtls_ecc_key_init(&b, ECC_SECP256R1);
+    rc = noxtls_ecc_key_init(&b, NOXTLS_ECC_SECP256R1);
     if (rc != NOXTLS_RETURN_SUCCESS) {
         (void)noxtls_ecc_key_free(&a);
         return rc;
     }
-    rc = noxtls_ecc_key_generate(&a, ECC_SECP256R1);
+    rc = noxtls_ecc_key_generate(&a, NOXTLS_ECC_SECP256R1);
     if (rc != NOXTLS_RETURN_SUCCESS) goto out;
-    rc = noxtls_ecc_key_generate(&b, ECC_SECP256R1);
+    rc = noxtls_ecc_key_generate(&b, NOXTLS_ECC_SECP256R1);
     if (rc != NOXTLS_RETURN_SUCCESS) goto out;
 
     for (i = 0; i < iterations; i++) {
