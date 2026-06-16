@@ -40,11 +40,12 @@
 #ifndef NOXTLS_ECC_FIXED_POINT_OPTIM
 #define NOXTLS_ECC_FIXED_POINT_OPTIM 1
 #endif
-/* Process-global ECC precompute caches are disabled by default because the
- * shared mutable state is not synchronized for concurrent TLS use. Only enable
- * this for single-threaded builds or when external synchronization is present. */
+/* Process-global ECC precompute caches materially improve P-256 ECDSA
+ * sign/verify throughput by reusing generator and joint tables. The cache is
+ * shared mutable state, so multi-threaded users must serialize ECC calls
+ * externally or override this to 0 in noxtls_config.h. */
 #ifndef NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE
-#define NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE 0
+#define NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE 1
 #endif
 
 #ifdef __cplusplus

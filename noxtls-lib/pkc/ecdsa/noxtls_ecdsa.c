@@ -1426,9 +1426,14 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_messag
     ecdsa_debug_hex("signature->s", signature->s, size);
 #endif
 
-    /* Step 3: u1 = s^-1 * h mod n
-     * Curve orders are prime for the supported NIST curves; use extended GCD inverse. */
-    rc = noxtls_bn_mod_inv(s_inv, signature->s, size, key->curve->n, size);
+    /* Step 3: u1 = s^-1 * h mod n.
+     * P-256 has a dedicated scalar inverse path that avoids the slower generic
+     * big-number inverse used for larger/generic curves. */
+    if(ecdsa_order_is_p256(key->curve->n, size)) {
+        rc = ecdsa_mod_inv_prime(s_inv, signature->s, key->curve->n, size);
+    } else {
+        rc = noxtls_bn_mod_inv(s_inv, signature->s, size, key->curve->n, size);
+    }
     if(rc != NOXTLS_RETURN_SUCCESS) {
         goto cleanup_verify;
     }
