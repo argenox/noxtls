@@ -2300,6 +2300,11 @@ static int tls13_sig_scheme_certificate_verify_hash(uint16_t scheme, noxtls_hash
         case TLS_SIGSCHEME_RSA_PSS_RSAE_SHA256:
             *out_hash = NOXTLS_HASH_SHA_256;
             return 1;
+        case TLS_SIGSCHEME_LMS_HSS_SHA256:
+        case TLS_SIGSCHEME_XMSS_SHA256:
+        case TLS_SIGSCHEME_XMSSMT_SHA256:
+            *out_hash = NOXTLS_HASH_SHA_256;
+            return 1;
         case 0x0805u: /* rsa_pss_rsae_sha384 */
             *out_hash = NOXTLS_HASH_SHA_384;
             return 1;
