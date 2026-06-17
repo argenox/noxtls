@@ -29,6 +29,10 @@
 #include "noxtls_aes.h"
 #include "noxtls_common.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum
 {
     NOXTLS_AES_ACCEL_BACKEND_SOFTWARE = 0, /**< Software AES implementation. */
@@ -90,5 +94,9 @@ noxtls_return_t noxtls_aes_decrypt_block_ctx_internal(const noxtls_aes_context_t
  * @return The selected AES acceleration backend identifier.
  */
 noxtls_aes_accel_backend_t noxtls_aes_get_accel_backend(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _AES_INTERNAL_H_ */
