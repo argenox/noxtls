@@ -267,8 +267,10 @@ typedef struct
     uint8_t final_ack[DTLS_MAX_ACK_WIRE_LEN]; /* Retained ACK handshake message */
 
     /* Cookie (for Hello Verify Request) */
-    uint8_t cookie[32];         /* Server cookie */
+    uint8_t cookie[TLS_COOKIE_MAX_LEN]; /* Locally generated stateless cookie */
     uint32_t cookie_len;        /* Cookie length */
+    uint8_t *hrr_cookie;        /* Peer HelloRetryRequest cookie to echo */
+    uint32_t hrr_cookie_len;    /* Peer HelloRetryRequest cookie length */
 } dtls_context_t;
 NOXTLS_MSVC_WARNING_POP
 

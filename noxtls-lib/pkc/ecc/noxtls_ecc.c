@@ -287,37 +287,37 @@ noxtls_return_t noxtls_ecc_curve_init(ecc_curve_params_t *curve, ecc_curve_t cur
     
     /* Set curve size based on type */
     switch(curve_type) {
-        case ECC_SECP192R1:
+        case NOXTLS_ECC_SECP192R1:
             curve->size = 24;  /* 192 bits = 24 bytes */
             break;
-        case ECC_SECP224R1:
+        case NOXTLS_ECC_SECP224R1:
             curve->size = 28;  /* 224 bits = 28 bytes */
             break;
-        case ECC_SECP256R1:
+        case NOXTLS_ECC_SECP256R1:
             curve->size = 32;  /* 256 bits = 32 bytes */
             break;
-        case ECC_SECP384R1:
+        case NOXTLS_ECC_SECP384R1:
             curve->size = 48;  /* 384 bits = 48 bytes */
             break;
-        case ECC_SECP521R1:
+        case NOXTLS_ECC_SECP521R1:
             curve->size = 66;  /* 521 bits = 66 bytes */
             break;
-        case ECC_BP256R1:
+        case NOXTLS_ECC_BP256R1:
             curve->size = 32;  /* 256 bits = 32 bytes */
             break;
-        case ECC_BP384R1:
+        case NOXTLS_ECC_BP384R1:
             curve->size = 48;  /* 384 bits = 48 bytes */
             break;
-        case ECC_BP512R1:
+        case NOXTLS_ECC_BP512R1:
             curve->size = 64;  /* 512 bits = 64 bytes */
             break;
-        case ECC_SECP192K1:
+        case NOXTLS_ECC_SECP192K1:
             curve->size = 24;  /* 192 bits = 24 bytes */
             break;
-        case ECC_SECP224K1:
+        case NOXTLS_ECC_SECP224K1:
             curve->size = 28;  /* 224 bits = 28 bytes */
             break;
-        case ECC_SECP256K1:
+        case NOXTLS_ECC_SECP256K1:
             curve->size = 32;  /* 256 bits = 32 bytes */
             break;
         default:
@@ -339,7 +339,7 @@ noxtls_return_t noxtls_ecc_curve_init(ecc_curve_params_t *curve, ecc_curve_t cur
     uint32_t size = curve->size;
     
     switch(curve_type) {
-        case ECC_SECP192R1: {
+        case NOXTLS_ECC_SECP192R1: {
             static const uint8_t p_secp192r1[24] = {
                 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
                 0xFF, 0xFF, 0xFF, 0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
@@ -373,7 +373,7 @@ noxtls_return_t noxtls_ecc_curve_init(ecc_curve_params_t *curve, ecc_curve_t cur
             memcpy(curve->n, n_secp192r1, size);
             break;
         }
-        case ECC_SECP224R1: {
+        case NOXTLS_ECC_SECP224R1: {
             static const uint8_t p_secp224r1[28] = {
                 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
                 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -413,7 +413,7 @@ noxtls_return_t noxtls_ecc_curve_init(ecc_curve_params_t *curve, ecc_curve_t cur
             memcpy(curve->n, n_secp224r1, size);
             break;
         }
-        case ECC_SECP256R1: {
+        case NOXTLS_ECC_SECP256R1: {
             /* NIST P-256 curve parameters */
             /* p = 2^256 - 2^224 + 2^192 + 2^96 - 1 */
             curve->p[31] = 0xFF; curve->p[30] = 0xFF; curve->p[29] = 0xFF; curve->p[28] = 0xFF;
@@ -520,7 +520,7 @@ noxtls_return_t noxtls_ecc_curve_init(ecc_curve_params_t *curve, ecc_curve_t cur
             memcpy(curve->n, n_secp256r1, size);
             break;
         }
-        case ECC_SECP384R1:
+        case NOXTLS_ECC_SECP384R1:
             {
                 /* NIST P-384 (secp384r1), 48 bytes, big-endian. */
                 static const uint8_t p_secp384r1[48] = {
@@ -580,7 +580,7 @@ noxtls_return_t noxtls_ecc_curve_init(ecc_curve_params_t *curve, ecc_curve_t cur
                 memcpy(curve->n, n_secp384r1, size);
             }
             break;
-        case ECC_SECP521R1:
+        case NOXTLS_ECC_SECP521R1:
             {
                 /* NIST P-521 (secp521r1), 66 bytes, big-endian. */
                 static const uint8_t p_secp521r1[66] = {
@@ -658,7 +658,7 @@ noxtls_return_t noxtls_ecc_curve_init(ecc_curve_params_t *curve, ecc_curve_t cur
                 memcpy(curve->n, n_secp521r1, size);
             }
             break;
-        case ECC_BP256R1:
+        case NOXTLS_ECC_BP256R1:
             {
                 static const uint8_t p_brainpoolP256r1[32] = {
                     0xA9, 0xFB, 0x57, 0xDB, 0xA1, 0xEE, 0xA9, 0xBC, 0x3E, 0x66, 0x0A, 0x90, 0x9D, 0x83, 0x8D, 0x72,
@@ -693,7 +693,7 @@ noxtls_return_t noxtls_ecc_curve_init(ecc_curve_params_t *curve, ecc_curve_t cur
                 memcpy(curve->n, n_brainpoolP256r1, size);
             }
             break;
-        case ECC_BP384R1:
+        case NOXTLS_ECC_BP384R1:
             {
                 static const uint8_t p_brainpoolP384r1[48] = {
                     0x8C, 0xB9, 0x1E, 0x82, 0xA3, 0x38, 0x6D, 0x28, 0x0F, 0x5D, 0x6F, 0x7E, 0x50, 0xE6, 0x41, 0xDF,
@@ -734,7 +734,7 @@ noxtls_return_t noxtls_ecc_curve_init(ecc_curve_params_t *curve, ecc_curve_t cur
                 memcpy(curve->n, n_brainpoolP384r1, size);
             }
             break;
-        case ECC_BP512R1:
+        case NOXTLS_ECC_BP512R1:
             {
                 static const uint8_t p_brainpoolP512r1[64] = {
                     0xAA, 0xDD, 0x9D, 0xB8, 0xDB, 0xE9, 0xC4, 0x8B, 0x3F, 0xD4, 0xE6, 0xAE, 0x33, 0xC9, 0xFC, 0x07,
@@ -781,7 +781,7 @@ noxtls_return_t noxtls_ecc_curve_init(ecc_curve_params_t *curve, ecc_curve_t cur
                 memcpy(curve->n, n_brainpoolP512r1, size);
             }
             break;
-        case ECC_SECP192K1:
+        case NOXTLS_ECC_SECP192K1:
             {
                 static const uint8_t p_secp192k1[24] = {
                     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
@@ -814,7 +814,7 @@ noxtls_return_t noxtls_ecc_curve_init(ecc_curve_params_t *curve, ecc_curve_t cur
                 memcpy(curve->n, n_secp192k1, size);
             }
             break;
-        case ECC_SECP224K1:
+        case NOXTLS_ECC_SECP224K1:
             {
                 static const uint8_t p_secp224k1[28] = {
                     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
@@ -852,7 +852,7 @@ noxtls_return_t noxtls_ecc_curve_init(ecc_curve_params_t *curve, ecc_curve_t cur
                 memcpy(curve->n, n_secp224k1, size);
             }
             break;
-        case ECC_SECP256K1:
+        case NOXTLS_ECC_SECP256K1:
             {
                 static const uint8_t p_secp256k1[32] = {
                     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
@@ -3418,6 +3418,7 @@ noxtls_return_t noxtls_ecc_point_muladd(ecc_point_t *result,
     }
     n_bits = size * 8U;
     if(size == 32U) {
+#if NOXTLS_ECC_POINT_MUL_WINDOW_SIZE > 0
         rc = p256_ecc_point_muladd_windowed(result, scalar1, point1, scalar2, point2, curve);
         if(rc == NOXTLS_RETURN_SUCCESS) {
             return rc;
@@ -3425,6 +3426,7 @@ noxtls_return_t noxtls_ecc_point_muladd(ecc_point_t *result,
         if(rc != NOXTLS_RETURN_NOT_ENOUGH_MEMORY) {
             return rc;
         }
+#endif
 
         /*
          * Memory-constrained fallback: compute both scalar multiplies in Jacobian

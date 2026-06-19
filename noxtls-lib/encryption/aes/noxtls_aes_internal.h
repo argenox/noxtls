@@ -29,6 +29,10 @@
 #include "noxtls_aes.h"
 #include "noxtls_common.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum
 {
     NOXTLS_AES_ACCEL_BACKEND_SOFTWARE = 0, /**< Software AES implementation. */
@@ -77,6 +81,15 @@ noxtls_return_t noxtls_aes_prepare_context(noxtls_aes_context_t *ctx, const uint
 noxtls_return_t noxtls_aes_encrypt_block_ctx_internal(const noxtls_aes_context_t *ctx, const uint8_t *data, uint8_t *output);
 
 /**
+ * @brief Encrypt one AES block through the software backend only.
+ * @param ctx Prepared AES context with cached software round keys.
+ * @param data Input plaintext block of NOXTLS_AES_BLOCK_LENGTH bytes.
+ * @param output Output ciphertext block of NOXTLS_AES_BLOCK_LENGTH bytes.
+ * @return NOXTLS_RETURN_SUCCESS on success or a noxtls_return_t error code.
+ */
+noxtls_return_t noxtls_aes_encrypt_block_ctx_software_internal(const noxtls_aes_context_t *ctx, const uint8_t *data, uint8_t *output);
+
+/**
  * @brief Decrypt one AES block through a prepared AES context.
  * @param ctx Prepared AES context with cached round keys.
  * @param data Input ciphertext block of NOXTLS_AES_BLOCK_LENGTH bytes.
@@ -90,5 +103,9 @@ noxtls_return_t noxtls_aes_decrypt_block_ctx_internal(const noxtls_aes_context_t
  * @return The selected AES acceleration backend identifier.
  */
 noxtls_aes_accel_backend_t noxtls_aes_get_accel_backend(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _AES_INTERNAL_H_ */

@@ -40,11 +40,12 @@
 #ifndef NOXTLS_ECC_FIXED_POINT_OPTIM
 #define NOXTLS_ECC_FIXED_POINT_OPTIM 1
 #endif
-/* Process-global ECC precompute caches are disabled by default because the
- * shared mutable state is not synchronized for concurrent TLS use. Only enable
- * this for single-threaded builds or when external synchronization is present. */
+/* Process-global ECC precompute caches materially improve P-256 ECDSA
+ * sign/verify throughput by reusing generator and joint tables. The cache is
+ * shared mutable state, so multi-threaded users must serialize ECC calls
+ * externally or override this to 0 in noxtls_config.h. */
 #ifndef NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE
-#define NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE 0
+#define NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE 1
 #endif
 
 #ifdef __cplusplus
@@ -55,17 +56,17 @@ extern "C" {
 
 typedef enum
 {
-    ECC_SECP192R1,  /* NIST P-192 */
-    ECC_SECP224R1,  /* NIST P-224 */
-    ECC_SECP256R1,  /* NIST P-256 */
-    ECC_SECP384R1,  /* NIST P-384 */
-    ECC_SECP521R1,  /* NIST P-521 */
-    ECC_BP256R1,    /* Brainpool P-256r1 */
-    ECC_BP384R1,    /* Brainpool P-384r1 */
-    ECC_BP512R1,    /* Brainpool P-512r1 */
-    ECC_SECP192K1,  /* secp192k1 */
-    ECC_SECP224K1,  /* secp224k1 */
-    ECC_SECP256K1,  /* secp256k1 */
+    NOXTLS_ECC_SECP192R1,  /* NIST P-192 */
+    NOXTLS_ECC_SECP224R1,  /* NIST P-224 */
+    NOXTLS_ECC_SECP256R1,  /* NIST P-256 */
+    NOXTLS_ECC_SECP384R1,  /* NIST P-384 */
+    NOXTLS_ECC_SECP521R1,  /* NIST P-521 */
+    NOXTLS_ECC_BP256R1,    /* Brainpool P-256r1 */
+    NOXTLS_ECC_BP384R1,    /* Brainpool P-384r1 */
+    NOXTLS_ECC_BP512R1,    /* Brainpool P-512r1 */
+    NOXTLS_ECC_SECP192K1,  /* secp192k1 */
+    NOXTLS_ECC_SECP224K1,  /* secp224k1 */
+    NOXTLS_ECC_SECP256K1,  /* secp256k1 */
 } ecc_curve_t;
 
 NOXTLS_MSVC_WARNING_PUSH

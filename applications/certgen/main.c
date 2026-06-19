@@ -1,4 +1,4 @@
-﻿/*
+/*
 * This file is part of the NoxTLS Library.
 *
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
@@ -140,7 +140,7 @@ static const uint8_t oid_rsa_encryption[] = { 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D
 static const uint8_t oid_sha256_with_rsa[] = { 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0B };
 /* id-ecPublicKey OID (1.2.840.10045.2.1) - raw DER bytes */
 static const uint8_t oid_id_ec_public_key[] = { 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x02, 0x01 };
-/* id-Ed25519 (1.3.101.112), id-Ed448 (1.3.101.113) â€” RFC 8410 */
+/* id-Ed25519 (1.3.101.112), id-Ed448 (1.3.101.113) — RFC 8410 */
 static const uint8_t oid_ed25519[] = { 0x2B, 0x65, 0x70 };
 #if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
 static const uint8_t oid_ed448[] = { 0x2B, 0x65, 0x71 };
@@ -684,7 +684,7 @@ static int cmd_genec(int argc, char **argv, const char *prog)
     (void)prog;
     const char *out_file = NULL;
     const char *outform = "PEM";
-    ecc_curve_t curve_type = ECC_SECP256R1;
+    ecc_curve_t curve_type = NOXTLS_ECC_SECP256R1;
     const uint8_t *curve_oid = oid_secp256r1;
     uint32_t curve_oid_len = sizeof(oid_secp256r1);
     int i;
@@ -697,47 +697,47 @@ static int cmd_genec(int argc, char **argv, const char *prog)
         } else if (strcmp(argv[i], "-curve") == 0 && i + 1 < argc) {
             const char *curve = argv[++i];
             if (strcmp(curve, "secp192r1") == 0 || strcmp(curve, "prime192v1") == 0 || strcmp(curve, "P-192") == 0) {
-                curve_type = ECC_SECP192R1;
+                curve_type = NOXTLS_ECC_SECP192R1;
                 curve_oid = oid_secp192r1;
                 curve_oid_len = sizeof(oid_secp192r1);
             } else if (strcmp(curve, "secp224r1") == 0 || strcmp(curve, "P-224") == 0) {
-                curve_type = ECC_SECP224R1;
+                curve_type = NOXTLS_ECC_SECP224R1;
                 curve_oid = oid_secp224r1;
                 curve_oid_len = sizeof(oid_secp224r1);
             } else if (strcmp(curve, "prime256v1") == 0 || strcmp(curve, "secp256r1") == 0 || strcmp(curve, "P-256") == 0) {
-                curve_type = ECC_SECP256R1;
+                curve_type = NOXTLS_ECC_SECP256R1;
                 curve_oid = oid_secp256r1;
                 curve_oid_len = sizeof(oid_secp256r1);
             } else if (strcmp(curve, "secp384r1") == 0 || strcmp(curve, "P-384") == 0) {
-                curve_type = ECC_SECP384R1;
+                curve_type = NOXTLS_ECC_SECP384R1;
                 curve_oid = oid_secp384r1;
                 curve_oid_len = sizeof(oid_secp384r1);
             } else if (strcmp(curve, "secp521r1") == 0 || strcmp(curve, "P-521") == 0) {
-                curve_type = ECC_SECP521R1;
+                curve_type = NOXTLS_ECC_SECP521R1;
                 curve_oid = oid_secp521r1;
                 curve_oid_len = sizeof(oid_secp521r1);
             } else if (strcmp(curve, "brainpoolP256r1") == 0 || strcmp(curve, "bp256r1") == 0) {
-                curve_type = ECC_BP256R1;
+                curve_type = NOXTLS_ECC_BP256R1;
                 curve_oid = oid_bp256r1;
                 curve_oid_len = sizeof(oid_bp256r1);
             } else if (strcmp(curve, "brainpoolP384r1") == 0 || strcmp(curve, "bp384r1") == 0) {
-                curve_type = ECC_BP384R1;
+                curve_type = NOXTLS_ECC_BP384R1;
                 curve_oid = oid_bp384r1;
                 curve_oid_len = sizeof(oid_bp384r1);
             } else if (strcmp(curve, "brainpoolP512r1") == 0 || strcmp(curve, "bp512r1") == 0) {
-                curve_type = ECC_BP512R1;
+                curve_type = NOXTLS_ECC_BP512R1;
                 curve_oid = oid_bp512r1;
                 curve_oid_len = sizeof(oid_bp512r1);
             } else if (strcmp(curve, "secp192k1") == 0) {
-                curve_type = ECC_SECP192K1;
+                curve_type = NOXTLS_ECC_SECP192K1;
                 curve_oid = oid_secp192k1;
                 curve_oid_len = sizeof(oid_secp192k1);
             } else if (strcmp(curve, "secp224k1") == 0) {
-                curve_type = ECC_SECP224K1;
+                curve_type = NOXTLS_ECC_SECP224K1;
                 curve_oid = oid_secp224k1;
                 curve_oid_len = sizeof(oid_secp224k1);
             } else if (strcmp(curve, "secp256k1") == 0) {
-                curve_type = ECC_SECP256K1;
+                curve_type = NOXTLS_ECC_SECP256K1;
                 curve_oid = oid_secp256k1;
                 curve_oid_len = sizeof(oid_secp256k1);
             } else {
@@ -755,17 +755,17 @@ static int cmd_genec(int argc, char **argv, const char *prog)
     {
         const char *curve_name = "prime256v1";
         switch (curve_type) {
-            case ECC_SECP192R1: curve_name = "secp192r1"; break;
-            case ECC_SECP224R1: curve_name = "secp224r1"; break;
-            case ECC_SECP256R1: curve_name = "prime256v1"; break;
-            case ECC_SECP384R1: curve_name = "secp384r1"; break;
-            case ECC_SECP521R1: curve_name = "secp521r1"; break;
-            case ECC_BP256R1: curve_name = "brainpoolP256r1"; break;
-            case ECC_BP384R1: curve_name = "brainpoolP384r1"; break;
-            case ECC_BP512R1: curve_name = "brainpoolP512r1"; break;
-            case ECC_SECP192K1: curve_name = "secp192k1"; break;
-            case ECC_SECP224K1: curve_name = "secp224k1"; break;
-            case ECC_SECP256K1: curve_name = "secp256k1"; break;
+            case NOXTLS_ECC_SECP192R1: curve_name = "secp192r1"; break;
+            case NOXTLS_ECC_SECP224R1: curve_name = "secp224r1"; break;
+            case NOXTLS_ECC_SECP256R1: curve_name = "prime256v1"; break;
+            case NOXTLS_ECC_SECP384R1: curve_name = "secp384r1"; break;
+            case NOXTLS_ECC_SECP521R1: curve_name = "secp521r1"; break;
+            case NOXTLS_ECC_BP256R1: curve_name = "brainpoolP256r1"; break;
+            case NOXTLS_ECC_BP384R1: curve_name = "brainpoolP384r1"; break;
+            case NOXTLS_ECC_BP512R1: curve_name = "brainpoolP512r1"; break;
+            case NOXTLS_ECC_SECP192K1: curve_name = "secp192k1"; break;
+            case NOXTLS_ECC_SECP224K1: curve_name = "secp224k1"; break;
+            case NOXTLS_ECC_SECP256K1: curve_name = "secp256k1"; break;
             default: break;
         }
         printf("Generating EC private key (%s)\n", curve_name);

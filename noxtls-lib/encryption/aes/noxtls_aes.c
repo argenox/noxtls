@@ -427,6 +427,7 @@ noxtls_return_t noxtls_aes_prepare_context(noxtls_aes_context_t *ctx, const uint
     ctx->type = type;
     memcpy(ctx->key, key, ctx->key_len);
 #if NOXTLS_FEATURE_AES_SOFTWARE_FALLBACK
+    aes_software_init_encrypt_tables();
     rc = noxtls_aes_key_expansion(key, ctx->round_keys, ctx->key_words, ctx->rounds);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
@@ -888,6 +889,22 @@ noxtls_return_t noxtls_aes_encrypt_block_ctx_internal(const noxtls_aes_context_t
 #endif
 }
 
+noxtls_return_t noxtls_aes_encrypt_block_ctx_software_internal(const noxtls_aes_context_t *ctx, const uint8_t *data, uint8_t *output)
+{
+    if(ctx == NULL || data == NULL || output == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    if(NOXTLS_FEATURE_AES_SOFTWARE_FALLBACK && !ctx->round_keys_ready) {
+        return NOXTLS_RETURN_NOT_INITIALIZED;
+    }
+#if !NOXTLS_FEATURE_AES_SOFTWARE_FALLBACK
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+#else
+    return noxtls_aes_encrypt_block_software_expanded(ctx->round_keys, ctx->rounds, data, output);
+#endif
+}
+
 /**
  * @brief Report the AES block backend selected for the current build.
  *
@@ -946,6 +963,7 @@ static noxtls_return_t noxtls_aes_encrypt_block_software(const uint8_t * key, co
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
+    aes_software_init_encrypt_tables();
     return noxtls_aes_encrypt_block_software_expanded(w, rounds, data, output);
 }
 
@@ -976,8 +994,6 @@ static noxtls_return_t noxtls_aes_encrypt_block_software_expanded(const uint32_t
     if(round_keys == NULL || data == NULL || output == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-
-    aes_software_init_encrypt_tables();
 
     s0 = aes_load_be32(data) ^ round_keys[0];
     s1 = aes_load_be32(data + 4) ^ round_keys[1];

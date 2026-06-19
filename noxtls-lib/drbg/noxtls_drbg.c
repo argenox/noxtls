@@ -28,6 +28,7 @@
 
 #include "common/noxtls_memory.h"
 #include "common/noxtls_memory_compat.h"
+#include "common/noxtls_ct.h"
 #include "noxtls_drbg.h"
 #include "encryption/aes/noxtls_aes.h"
 #include "encryption/aes/noxtls_aes_accel.h"
@@ -359,6 +360,13 @@ noxtls_return_t noxtls_drbg_get_entropy(uint8_t *entropy_buffer, uint32_t entrop
     if(entropy_buffer == NULL) {
         return NOXTLS_RETURN_NULL;
     }
+    /*
+     * SECURITY (NX-01): a real entropy source failure MUST be a hard failure.
+     * The predictable `drbg_entropy_dummy` source is only ever used when the
+     * caller has explicitly selected NOXTLS_ENTROPY_SOURCE_DUMMY (tests). Any
+     * other source that cannot produce real entropy returns failure so that key
+     * and nonce generation aborts instead of silently using guessable bytes.
+     */
     switch(g_entropy_source) {
         case NOXTLS_ENTROPY_SOURCE_CUSTOM:
             if(g_entropy_cb) {
@@ -366,7 +374,7 @@ noxtls_return_t noxtls_drbg_get_entropy(uint8_t *entropy_buffer, uint32_t entrop
                     return NOXTLS_RETURN_SUCCESS;
                 }
             }
-            return drbg_entropy_dummy(entropy_buffer, entropy_len);
+            return NOXTLS_RETURN_FAILED;
         case NOXTLS_ENTROPY_SOURCE_WINDOWS_CSPRNG:
 #if defined(_WIN32) || defined(_WIN64)
             if(get_entropy_windows_bcrypt(entropy_buffer, entropy_len) == NOXTLS_RETURN_SUCCESS) {
@@ -376,20 +384,21 @@ noxtls_return_t noxtls_drbg_get_entropy(uint8_t *entropy_buffer, uint32_t entrop
                 return NOXTLS_RETURN_SUCCESS;
             }
 #endif
-            return drbg_entropy_dummy(entropy_buffer, entropy_len);
+            return NOXTLS_RETURN_FAILED;
         case NOXTLS_ENTROPY_SOURCE_UNIX_URANDOM:
 #if defined(__ZEPHYR__)
             if(g_entropy_cb && g_entropy_cb(entropy_buffer, entropy_len) == NOXTLS_RETURN_SUCCESS) {
                 return NOXTLS_RETURN_SUCCESS;
             }
-            return drbg_entropy_dummy(entropy_buffer, entropy_len);
+            return NOXTLS_RETURN_FAILED;
 #elif !(defined(_WIN32) || defined(_WIN64))
             if(get_entropy_unix(entropy_buffer, entropy_len) == NOXTLS_RETURN_SUCCESS) {
                 return NOXTLS_RETURN_SUCCESS;
             }
-            return drbg_entropy_dummy(entropy_buffer, entropy_len);
+            return NOXTLS_RETURN_FAILED;
+#else
+            return NOXTLS_RETURN_FAILED;
 #endif
-            return drbg_entropy_dummy(entropy_buffer, entropy_len);
         case NOXTLS_ENTROPY_SOURCE_DUMMY:
             return drbg_entropy_dummy(entropy_buffer, entropy_len);
         case NOXTLS_ENTROPY_SOURCE_AUTO:
@@ -398,7 +407,7 @@ noxtls_return_t noxtls_drbg_get_entropy(uint8_t *entropy_buffer, uint32_t entrop
             if(g_entropy_cb && g_entropy_cb(entropy_buffer, entropy_len) == NOXTLS_RETURN_SUCCESS) {
                 return NOXTLS_RETURN_SUCCESS;
             }
-            return drbg_entropy_dummy(entropy_buffer, entropy_len);
+            return NOXTLS_RETURN_FAILED;
 #elif defined(_WIN32) || defined(_WIN64)
             if(get_entropy_windows_bcrypt(entropy_buffer, entropy_len) == NOXTLS_RETURN_SUCCESS) {
                 return NOXTLS_RETURN_SUCCESS;
@@ -406,12 +415,12 @@ noxtls_return_t noxtls_drbg_get_entropy(uint8_t *entropy_buffer, uint32_t entrop
             if(get_entropy_windows_cryptoapi(entropy_buffer, entropy_len) == NOXTLS_RETURN_SUCCESS) {
                 return NOXTLS_RETURN_SUCCESS;
             }
-            return drbg_entropy_dummy(entropy_buffer, entropy_len);
+            return NOXTLS_RETURN_FAILED;
 #else
             if(get_entropy_unix(entropy_buffer, entropy_len) == NOXTLS_RETURN_SUCCESS) {
                 return NOXTLS_RETURN_SUCCESS;
             }
-            return drbg_entropy_dummy(entropy_buffer, entropy_len);
+            return NOXTLS_RETURN_FAILED;
 #endif
     }
 }
@@ -579,25 +588,25 @@ noxtls_return_t drbg_instantiate(drbg_state_t *state,
         memcpy(entropy, entropy_input, seedlen);
     }
     
-    /* Prepare seed material: entropy || nonce || personalization_string */
-    memset(seed_material, 0, seedlen);
-    i = 0;
-    
-    /* Copy entropy (in else branch entropy_len >= seedlen; in if branch we set entropy_len = seedlen) */
-    memcpy(seed_material + i, entropy, seedlen);
-    i += seedlen;
-    
-    /* Copy nonce if provided */
-    if(nonce != NULL && nonce_len > 0 && i < seedlen) {
-        uint32_t copy_len = (nonce_len < (seedlen - i)) ? nonce_len : (seedlen - i);
-        memcpy(seed_material + i, nonce, copy_len);
-        i += copy_len;
+    /*
+     * SECURITY (NX-05): SP 800-90A CTR_DRBG without a derivation function combines the
+     * inputs as seed_material = entropy XOR pad(nonce || personalization). The previous
+     * code appended after `i += seedlen`, so nonce/personalization were silently dropped.
+     * XOR-folding (wrapping over seedlen) ensures both inputs actually contribute and can
+     * never reduce the entropy of the seed.
+     */
+    memcpy(seed_material, entropy, seedlen);
+
+    if(nonce != NULL && nonce_len > 0) {
+        for(i = 0; i < nonce_len; i++) {
+            seed_material[i % seedlen] ^= nonce[i];
+        }
     }
-    
-    /* Copy personalization string if provided */
-    if(personalization_string != NULL && pers_len > 0 && i < seedlen) {
-        uint32_t copy_len = (pers_len < (seedlen - i)) ? pers_len : (seedlen - i);
-        memcpy(seed_material + i, personalization_string, copy_len);
+
+    if(personalization_string != NULL && pers_len > 0) {
+        for(i = 0; i < pers_len; i++) {
+            seed_material[i % seedlen] ^= personalization_string[i];
+        }
     }
     
     /* Initialize Key and V to zero */
@@ -765,18 +774,13 @@ noxtls_return_t drbg_reseed(drbg_state_t *state,
         memcpy(entropy, entropy_input, seedlen);
     }
     
-    /* Prepare seed material: entropy || additional_input */
-    memset(seed_material, 0, seedlen);
-    i = 0;
-    
-    /* Copy entropy (in else branch entropy_len >= seedlen; in if branch we set entropy_len = seedlen) */
-    memcpy(seed_material + i, entropy, seedlen);
-    i += seedlen;
-    
-    /* Copy additional input if provided */
-    if(additional_input != NULL && add_input_len > 0 && i < seedlen) {
-        uint32_t copy_len = (add_input_len < (seedlen - i)) ? add_input_len : (seedlen - i);
-        memcpy(seed_material + i, additional_input, copy_len);
+    /* SECURITY (NX-05): XOR-fold additional_input into the entropy (see drbg_instantiate). */
+    memcpy(seed_material, entropy, seedlen);
+
+    if(additional_input != NULL && add_input_len > 0) {
+        for(i = 0; i < add_input_len; i++) {
+            seed_material[i % seedlen] ^= additional_input[i];
+        }
     }
     
     /* Update state with seed material */
@@ -803,8 +807,9 @@ noxtls_return_t noxtls_drbg_uninstantiate(drbg_state_t *state)
         return NOXTLS_RETURN_NULL;
     }
     
-    /* Clear all state */
-    memset(state, 0, sizeof(drbg_state_t));
+    /* SECURITY (NX-10): securely wipe DRBG secret state (Key/V) so it cannot be
+     * recovered from freed/stack memory; plain memset may be optimized away. */
+    noxtls_secure_zero(state, sizeof(drbg_state_t));
     
     return NOXTLS_RETURN_SUCCESS;
 }

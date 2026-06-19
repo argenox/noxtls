@@ -1,6 +1,29 @@
 {
   "releases": [
     {
+      "version": "0.2.55",
+      "date": "6/15/2026",
+      "changes": [
+        "Project version updated to 0.2.55 in CMake and noxtls_version.h.",
+        "Static buffer pool bucket allocator: LEGACY, BUCKETS, and HYBRID modes (default HYBRID) with configurable size classes via NOXTLS_MEM_BUCKET_*.",
+        "noxtls_mem_get_bucket_stats() reports per-bucket block utilization and fallback pool usage.",
+        "ECC curve enum values renamed with NOXTLS_ECC_* prefix (e.g. NOXTLS_ECC_SECP256R1).",
+        "nRF52 AES hardware acceleration with hw-only fallback mode; STM32 and Cortex-M7 crypto path optimizations.",
+        "Embedded firmware size benchmark tooling (toolchains and scripts).",
+        "HMAC/HKDF split from the TLS stack; Ed25519 decoupled from bignum."
+      ],
+      "fixed": [
+        "crypto_only profile keeps PKC enabled.",
+        "LMS/HSS and XMSS certificate verification paths.",
+        "AES-CMAC calculation and AES internal header extern \"C\" linkage for C++ consumers.",
+        "DTLS embedded PSK-only handshakes and related DTLS fixes.",
+        "Security hardening across crypto and parser paths."
+      ],
+      "known_issues": [
+        "DTLS 1.3 interop hardening continues against external test suites."
+      ]
+    },
+    {
       "version": "0.2.54",
       "date": "5/25/2026",
       "changes": [

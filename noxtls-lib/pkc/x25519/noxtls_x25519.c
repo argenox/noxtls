@@ -1309,7 +1309,17 @@ noxtls_return_t noxtls_x25519_generate_key(uint8_t private_key[NOXTLS_X25519_KEY
     }
 
     rc = drbg_generate(&drbg_state, private_key, NOXTLS_X25519_DRBG_SEED_BITS, NULL, 0);
-    if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        /* SECURITY (NX-16): reseed with fresh entropy when the DRBG refuses to generate
+         * (e.g. reseed interval exceeded) instead of failing the keygen permanently. */
+        uint8_t seed[NOXTLS_X25519_DRBG_ENTROPY_SEED_BYTES];
+        rc = noxtls_drbg_get_entropy(seed, sizeof(seed));
+        if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+        rc = drbg_reseed(&drbg_state, seed, sizeof(seed), NULL, 0);
+        if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+        rc = drbg_generate(&drbg_state, private_key, NOXTLS_X25519_DRBG_SEED_BITS, NULL, 0);
+        if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+    }
 
     noxtls_x25519_clamp_scalar(private_key);
     return noxtls_x25519_public_key(private_key, public_key);

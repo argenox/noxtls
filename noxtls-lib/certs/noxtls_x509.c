@@ -806,7 +806,9 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
                         if(asn1_get_boolean(&eptr, eend, &critical) != NOXTLS_RETURN_SUCCESS) {
                             critical = 0;
                             eptr++;
-                            { uint32_t blen = asn1_get_length(&eptr, eend); eptr += blen; }
+                            { uint32_t blen = asn1_get_length(&eptr, eend);
+                              if(blen > (uint32_t)(eend - eptr)) { break; }
+                              eptr += blen; }
                         }
                     } else if(*eptr == 0x04) {
                         if(asn1_get_octet_string(&eptr, eend, &val_data, &val_len) != NOXTLS_RETURN_SUCCESS) {
@@ -836,7 +838,8 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
                         if(*gn_ptr == 0x82) {
                             gn_ptr++;
                             { uint32_t dlen = asn1_get_length(&gn_ptr, gn_end);
-                            if(cert->san_dns_count < X509_SAN_DNS_MAX && dlen > 0 && dlen < X509_SAN_DNS_LEN && gn_ptr + dlen <= gn_end) {
+                            if(dlen > (uint32_t)(gn_end - gn_ptr)) { break; }
+                            if(cert->san_dns_count < X509_SAN_DNS_MAX && dlen > 0 && dlen < X509_SAN_DNS_LEN) {
                                 memcpy(cert->san_dns_names[cert->san_dns_count], gn_ptr, dlen);
                                 cert->san_dns_names[cert->san_dns_count][dlen] = '\0';
                                 cert->san_dns_count++;
@@ -845,7 +848,8 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
                         } else if(*gn_ptr == 0x81) {
                             gn_ptr++;
                             { uint32_t elen = asn1_get_length(&gn_ptr, gn_end);
-                            if(cert->san_email_count < X509_SAN_EMAIL_MAX && elen > 0 && elen < X509_SAN_EMAIL_LEN && gn_ptr + elen <= gn_end) {
+                            if(elen > (uint32_t)(gn_end - gn_ptr)) { break; }
+                            if(cert->san_email_count < X509_SAN_EMAIL_MAX && elen > 0 && elen < X509_SAN_EMAIL_LEN) {
                                 memcpy(cert->san_emails[cert->san_email_count], gn_ptr, elen);
                                 cert->san_emails[cert->san_email_count][elen] = '\0';
                                 cert->san_email_count++;
@@ -854,7 +858,8 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
                         } else if(*gn_ptr == 0x86) {
                             gn_ptr++;
                             { uint32_t ulen = asn1_get_length(&gn_ptr, gn_end);
-                            if(cert->san_uri_count < X509_SAN_URI_MAX && ulen > 0 && ulen < X509_SAN_URI_LEN && gn_ptr + ulen <= gn_end) {
+                            if(ulen > (uint32_t)(gn_end - gn_ptr)) { break; }
+                            if(cert->san_uri_count < X509_SAN_URI_MAX && ulen > 0 && ulen < X509_SAN_URI_LEN) {
                                 memcpy(cert->san_uris[cert->san_uri_count], gn_ptr, ulen);
                                 cert->san_uris[cert->san_uri_count][ulen] = '\0';
                                 cert->san_uri_count++;
@@ -863,7 +868,8 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
                         } else if(*gn_ptr == 0x87) {
                             gn_ptr++;
                             { uint32_t iplen = asn1_get_length(&gn_ptr, gn_end);
-                            if(cert->san_ip_count < X509_SAN_IP_MAX && (iplen == 4 || iplen == 16) && gn_ptr + iplen <= gn_end) {
+                            if(iplen > (uint32_t)(gn_end - gn_ptr)) { break; }
+                            if(cert->san_ip_count < X509_SAN_IP_MAX && (iplen == 4 || iplen == 16)) {
                                 cert->san_ip_len[cert->san_ip_count] = (uint8_t)iplen;
                                 memcpy(cert->san_ips[cert->san_ip_count], gn_ptr, iplen);
                                 cert->san_ip_count++;
@@ -915,7 +921,7 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
                             int ca_val = 0;
                             if(asn1_get_boolean(&p, pe, &ca_val) == NOXTLS_RETURN_SUCCESS) {
                                 cert->basic_constraints_ca = ca_val ? 1 : 0;
-                            } else { p++; { uint32_t L = asn1_get_length(&p, pe); p += L; } }
+                            } else { p++; { uint32_t L = asn1_get_length(&p, pe); if(L > (uint32_t)(pe - p)) { break; } p += L; } }
                         } else if(*p == 0x02) {
                             uint8_t path_buf[4];
                             uint32_t path_buf_len = sizeof(path_buf);
@@ -927,7 +933,7 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
                             }
                         } else {
                             p++;
-                            { uint32_t L = asn1_get_length(&p, pe); p += L; }
+                            { uint32_t L = asn1_get_length(&p, pe); if(L > (uint32_t)(pe - p)) { break; } p += L; }
                         }
                     }
                 }
@@ -1057,6 +1063,22 @@ static int noxtls_x509_dns_name_equal(const char *hostname, uint32_t hostname_le
         }
         if(has_second_wildcard != 0) {
             return 0;
+        }
+
+        /* SECURITY (NX-18): the wildcard must not span a whole registry-level domain.
+         * Require at least two labels after "*." (e.g. "*.example.com"), rejecting
+         * certificates such as "*.com" that would match every second-level name. */
+        {
+            uint32_t dot_count = 0;
+            uint32_t k;
+            for(k = 1U; k < dns_name_len; k++) {
+                if(dns_name[k] == '.') {
+                    dot_count++;
+                }
+            }
+            if(dot_count < 2U) {
+                return 0;
+            }
         }
 
         while(first_dot_index < hostname_len) {
@@ -1956,62 +1978,62 @@ static noxtls_return_t noxtls_x509_ecc_curve_from_oid(const uint8_t *oid, uint32
     if(oid_len > 0) {
         if(oid_len == sizeof(noxtls_x509_oid_secp192r1) &&
            memcmp(oid, noxtls_x509_oid_secp192r1, sizeof(noxtls_x509_oid_secp192r1)) == 0) {
-            *curve_type = ECC_SECP192R1;
+            *curve_type = NOXTLS_ECC_SECP192R1;
             return NOXTLS_RETURN_SUCCESS;
         }
         if(oid_len == sizeof(noxtls_x509_oid_secp224r1) &&
            memcmp(oid, noxtls_x509_oid_secp224r1, sizeof(noxtls_x509_oid_secp224r1)) == 0) {
-            *curve_type = ECC_SECP224R1;
+            *curve_type = NOXTLS_ECC_SECP224R1;
             return NOXTLS_RETURN_SUCCESS;
         }
         if(oid_len == sizeof(noxtls_x509_oid_secp256r1) &&
            memcmp(oid, noxtls_x509_oid_secp256r1, sizeof(noxtls_x509_oid_secp256r1)) == 0) {
-            *curve_type = ECC_SECP256R1;
+            *curve_type = NOXTLS_ECC_SECP256R1;
             return NOXTLS_RETURN_SUCCESS;
         }
         if(oid_len == sizeof(noxtls_x509_oid_secp384r1) &&
            memcmp(oid, noxtls_x509_oid_secp384r1, sizeof(noxtls_x509_oid_secp384r1)) == 0) {
-            *curve_type = ECC_SECP384R1;
+            *curve_type = NOXTLS_ECC_SECP384R1;
             return NOXTLS_RETURN_SUCCESS;
         }
         if(oid_len == sizeof(noxtls_x509_oid_secp521r1) &&
            memcmp(oid, noxtls_x509_oid_secp521r1, sizeof(noxtls_x509_oid_secp521r1)) == 0) {
-            *curve_type = ECC_SECP521R1;
+            *curve_type = NOXTLS_ECC_SECP521R1;
             return NOXTLS_RETURN_SUCCESS;
         }
         if(oid_len == sizeof(noxtls_x509_oid_bp256r1) &&
            memcmp(oid, noxtls_x509_oid_bp256r1, sizeof(noxtls_x509_oid_bp256r1)) == 0) {
-            *curve_type = ECC_BP256R1;
+            *curve_type = NOXTLS_ECC_BP256R1;
             return NOXTLS_RETURN_SUCCESS;
         }
         if(oid_len == sizeof(noxtls_x509_oid_bp384r1) &&
            memcmp(oid, noxtls_x509_oid_bp384r1, sizeof(noxtls_x509_oid_bp384r1)) == 0) {
-            *curve_type = ECC_BP384R1;
+            *curve_type = NOXTLS_ECC_BP384R1;
             return NOXTLS_RETURN_SUCCESS;
         }
         if(oid_len == sizeof(noxtls_x509_oid_bp512r1) &&
            memcmp(oid, noxtls_x509_oid_bp512r1, sizeof(noxtls_x509_oid_bp512r1)) == 0) {
-            *curve_type = ECC_BP512R1;
+            *curve_type = NOXTLS_ECC_BP512R1;
             return NOXTLS_RETURN_SUCCESS;
         }
         if(oid_len == sizeof(noxtls_x509_oid_secp192k1) &&
            memcmp(oid, noxtls_x509_oid_secp192k1, sizeof(noxtls_x509_oid_secp192k1)) == 0) {
-            *curve_type = ECC_SECP192K1;
+            *curve_type = NOXTLS_ECC_SECP192K1;
             return NOXTLS_RETURN_SUCCESS;
         }
         if(oid_len == sizeof(noxtls_x509_oid_secp224k1) &&
            memcmp(oid, noxtls_x509_oid_secp224k1, sizeof(noxtls_x509_oid_secp224k1)) == 0) {
-            *curve_type = ECC_SECP224K1;
+            *curve_type = NOXTLS_ECC_SECP224K1;
             return NOXTLS_RETURN_SUCCESS;
         }
         if(oid_len == sizeof(noxtls_x509_oid_secp256k1) &&
            memcmp(oid, noxtls_x509_oid_secp256k1, sizeof(noxtls_x509_oid_secp256k1)) == 0) {
-            *curve_type = ECC_SECP256K1;
+            *curve_type = NOXTLS_ECC_SECP256K1;
             return NOXTLS_RETURN_SUCCESS;
         }
         return NOXTLS_RETURN_INVALID_ALGORITHM;
     }
-    *curve_type = ECC_SECP256R1; /* default */
+    *curve_type = NOXTLS_ECC_SECP256R1; /* default */
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -2030,27 +2052,27 @@ static noxtls_return_t noxtls_x509_ecc_curve_from_pubkey_len(uint32_t pubkey_len
         return NOXTLS_RETURN_NULL;
     }
     if(pubkey_len == 49) {   /* 0x04 || 24-byte X || 24-byte Y */
-        *curve_type = ECC_SECP192R1;
+        *curve_type = NOXTLS_ECC_SECP192R1;
         return NOXTLS_RETURN_SUCCESS;
     }
     if(pubkey_len == 57) {   /* 0x04 || 28-byte X || 28-byte Y */
-        *curve_type = ECC_SECP224R1;
+        *curve_type = NOXTLS_ECC_SECP224R1;
         return NOXTLS_RETURN_SUCCESS;
     }
     if(pubkey_len == 65) {
-        *curve_type = ECC_SECP256R1;
+        *curve_type = NOXTLS_ECC_SECP256R1;
         return NOXTLS_RETURN_SUCCESS;
     }
     if(pubkey_len == 97) {
-        *curve_type = ECC_SECP384R1;
+        *curve_type = NOXTLS_ECC_SECP384R1;
         return NOXTLS_RETURN_SUCCESS;
     }
     if(pubkey_len == 129) {  /* 0x04 || 64-byte X || 64-byte Y */
-        *curve_type = ECC_BP512R1;
+        *curve_type = NOXTLS_ECC_BP512R1;
         return NOXTLS_RETURN_SUCCESS;
     }
     if(pubkey_len == 133) {
-        *curve_type = ECC_SECP521R1;
+        *curve_type = NOXTLS_ECC_SECP521R1;
         return NOXTLS_RETURN_SUCCESS;
     }
     return NOXTLS_RETURN_INVALID_PARAM;

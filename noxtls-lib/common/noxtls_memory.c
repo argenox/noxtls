@@ -32,13 +32,275 @@
 /* Only include stdlib.h for internal buffer allocation when needed */
 #include <stdlib.h>
 
-
-
 static mem_pool_t g_mem_pool = {0};
 static int g_mem_initialized = 0;
 
-/* Alignment for memory blocks */
-#define ALIGN_SIZE(s) (((s) + (NOXTLS_MEM_ALIGNMENT - 1)) & ~(NOXTLS_MEM_ALIGNMENT - 1))
+#define NOXTLS_MEM_BLOCK_MAGIC 0x4E584D45UL
+#define NOXTLS_MEM_KIND_FALLBACK 1U
+#define NOXTLS_MEM_KIND_BUCKET 2U
+
+#if NOXTLS_STATIC_ALLOCATOR_MODE != NOXTLS_STATIC_ALLOCATOR_MODE_LEGACY && \
+    NOXTLS_STATIC_ALLOCATOR_MODE != NOXTLS_STATIC_ALLOCATOR_MODE_BUCKETS && \
+    NOXTLS_STATIC_ALLOCATOR_MODE != NOXTLS_STATIC_ALLOCATOR_MODE_HYBRID
+#error "Invalid NOXTLS_STATIC_ALLOCATOR_MODE"
+#endif
+
+#define ALIGN_SIZE_WITH(s, a) (((s) + ((a) - 1U)) & ~((a) - 1U))
+#define ALIGN_SIZE(s) ALIGN_SIZE_WITH((s), NOXTLS_MEM_ALIGNMENT)
+
+static uintptr_t noxtls_align_up_uintptr(uintptr_t value, size_t alignment)
+{
+    uintptr_t mask = (uintptr_t)alignment - 1U;
+    return (value + mask) & ~mask;
+}
+
+static uint8_t *noxtls_align_header_for_payload(uint8_t *cursor, size_t alignment)
+{
+    uintptr_t payload = noxtls_align_up_uintptr((uintptr_t)cursor + sizeof(mem_block_header_t), alignment);
+    return (uint8_t *)(payload - sizeof(mem_block_header_t));
+}
+
+#if NOXTLS_STATIC_ALLOCATOR_MODE != NOXTLS_STATIC_ALLOCATOR_MODE_BUCKETS
+static noxtls_return_t noxtls_mem_init_fallback(uint8_t *start, size_t size)
+{
+    mem_block_header_t *header;
+    uint8_t *aligned_start;
+    size_t skipped;
+
+    aligned_start = noxtls_align_header_for_payload(start, NOXTLS_MEM_ALIGNMENT);
+    if(aligned_start < start || aligned_start >= start + size) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    skipped = (size_t)(aligned_start - start);
+    if(size <= skipped + sizeof(mem_block_header_t)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+
+    g_mem_pool.fallback_start = aligned_start;
+    g_mem_pool.fallback_size = size - skipped;
+    g_mem_pool.fallback_used = 0U;
+    g_mem_pool.fallback_max_used = 0U;
+
+    header = (mem_block_header_t *)aligned_start;
+    header->size = g_mem_pool.fallback_size - sizeof(mem_block_header_t);
+    header->next = NULL;
+    header->allocated = 0U;
+    header->kind = NOXTLS_MEM_KIND_FALLBACK;
+    header->bucket_index = 0xFFFFU;
+    header->magic = NOXTLS_MEM_BLOCK_MAGIC;
+    g_mem_pool.free_list = header;
+
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+static void *noxtls_mem_alloc_fallback(size_t aligned_size)
+{
+    mem_block_header_t *current;
+    mem_block_header_t *prev;
+    mem_block_header_t *new_block;
+    size_t block_size;
+
+    if(g_mem_pool.free_list == NULL) {
+        return NULL;
+    }
+    if(aligned_size > SIZE_MAX - sizeof(mem_block_header_t)) {
+        return NULL;
+    }
+    block_size = aligned_size + sizeof(mem_block_header_t);
+
+    prev = NULL;
+    current = g_mem_pool.free_list;
+    while(current != NULL) {
+        if(!current->allocated && current->magic == NOXTLS_MEM_BLOCK_MAGIC && current->size >= aligned_size) {
+            if(current->size >= block_size + sizeof(mem_block_header_t) + NOXTLS_MEM_ALIGNMENT) {
+                new_block = (mem_block_header_t *)((uint8_t *)current + block_size);
+                new_block->size = current->size - block_size;
+                new_block->next = current->next;
+                new_block->allocated = 0U;
+                new_block->kind = NOXTLS_MEM_KIND_FALLBACK;
+                new_block->bucket_index = 0xFFFFU;
+                new_block->magic = NOXTLS_MEM_BLOCK_MAGIC;
+
+                if(prev == NULL) {
+                    g_mem_pool.free_list = new_block;
+                } else {
+                    prev->next = new_block;
+                }
+                current->size = aligned_size;
+            } else {
+                if(prev == NULL) {
+                    g_mem_pool.free_list = current->next;
+                } else {
+                    prev->next = current->next;
+                }
+            }
+
+            current->allocated = 1U;
+            current->next = NULL;
+            current->kind = NOXTLS_MEM_KIND_FALLBACK;
+            current->magic = NOXTLS_MEM_BLOCK_MAGIC;
+
+            g_mem_pool.total_allocated += current->size;
+            g_mem_pool.total_used += current->size;
+            g_mem_pool.fallback_used += current->size;
+            if(g_mem_pool.total_used > g_mem_pool.max_used) {
+                g_mem_pool.max_used = g_mem_pool.total_used;
+            }
+            if(g_mem_pool.fallback_used > g_mem_pool.fallback_max_used) {
+                g_mem_pool.fallback_max_used = g_mem_pool.fallback_used;
+            }
+
+            return (uint8_t *)current + sizeof(mem_block_header_t);
+        }
+
+        prev = current;
+        current = current->next;
+    }
+
+    return NULL;
+}
+
+static void noxtls_mem_coalesce_fallback(void)
+{
+    mem_block_header_t *current = g_mem_pool.free_list;
+    mem_block_header_t *next;
+    uint8_t *current_end;
+
+    while(current != NULL && current->next != NULL) {
+        next = current->next;
+        current_end = (uint8_t *)current + sizeof(mem_block_header_t) + current->size;
+        if(current_end == (uint8_t *)next && next->magic == NOXTLS_MEM_BLOCK_MAGIC &&
+           next->allocated == 0U && next->kind == NOXTLS_MEM_KIND_FALLBACK) {
+            current->size += sizeof(mem_block_header_t) + next->size;
+            current->next = next->next;
+            memset(next, 0, sizeof(*next));
+        } else {
+            current = current->next;
+        }
+    }
+}
+
+static void noxtls_mem_free_fallback(mem_block_header_t *header)
+{
+    mem_block_header_t *current;
+    mem_block_header_t *prev;
+
+    if(g_mem_pool.fallback_used >= header->size) {
+        g_mem_pool.fallback_used -= header->size;
+    } else {
+        g_mem_pool.fallback_used = 0U;
+    }
+
+    header->allocated = 0U;
+    prev = NULL;
+    current = g_mem_pool.free_list;
+    while(current != NULL && (uintptr_t)current < (uintptr_t)header) {
+        prev = current;
+        current = current->next;
+    }
+
+    header->next = current;
+    if(prev == NULL) {
+        g_mem_pool.free_list = header;
+    } else {
+        prev->next = header;
+    }
+
+    noxtls_mem_coalesce_fallback();
+}
+#endif
+
+#if NOXTLS_STATIC_ALLOCATOR_MODE != NOXTLS_STATIC_ALLOCATOR_MODE_LEGACY
+static void *noxtls_mem_alloc_bucket(size_t aligned_size)
+{
+    size_t i;
+    mem_block_header_t *header;
+
+    for(i = 0U; i < g_mem_pool.bucket_count; ++i) {
+        if(g_mem_pool.bucket_sizes[i] >= aligned_size && g_mem_pool.bucket_free_list[i] != NULL) {
+            header = g_mem_pool.bucket_free_list[i];
+            g_mem_pool.bucket_free_list[i] = header->next;
+            header->next = NULL;
+            header->allocated = 1U;
+            header->kind = NOXTLS_MEM_KIND_BUCKET;
+            header->bucket_index = (uint16_t)i;
+            header->magic = NOXTLS_MEM_BLOCK_MAGIC;
+            g_mem_pool.bucket_free[i]--;
+
+            g_mem_pool.total_allocated += header->size;
+            g_mem_pool.total_used += header->size;
+            if(g_mem_pool.total_used > g_mem_pool.max_used) {
+                g_mem_pool.max_used = g_mem_pool.total_used;
+            }
+
+            return (uint8_t *)header + sizeof(mem_block_header_t);
+        }
+    }
+
+    return NULL;
+}
+
+static noxtls_return_t noxtls_mem_init_buckets(uint8_t **cursor, uint8_t *end)
+{
+    static const size_t bucket_sizes_cfg[NOXTLS_MEM_BUCKET_COUNT] = { NOXTLS_MEM_BUCKET_SIZES };
+    static const size_t bucket_counts_cfg[NOXTLS_MEM_BUCKET_COUNT] = { NOXTLS_MEM_BUCKET_COUNTS };
+    size_t i;
+    size_t j;
+    uint8_t *p;
+    mem_block_header_t *header;
+
+    if(NOXTLS_MEM_BUCKET_COUNT > NOXTLS_MEM_BUCKET_MAX) {
+        return NOXTLS_RETURN_FAILED;
+    }
+
+    g_mem_pool.bucket_count = NOXTLS_MEM_BUCKET_COUNT;
+    for(i = 0U; i < NOXTLS_MEM_BUCKET_COUNT; ++i) {
+        if(bucket_sizes_cfg[i] == 0U || bucket_counts_cfg[i] == 0U) {
+            return NOXTLS_RETURN_FAILED;
+        }
+        g_mem_pool.bucket_sizes[i] = ALIGN_SIZE_WITH(bucket_sizes_cfg[i], NOXTLS_MEM_BUCKET_ALIGNMENT);
+        g_mem_pool.bucket_total[i] = bucket_counts_cfg[i];
+        g_mem_pool.bucket_free[i] = bucket_counts_cfg[i];
+        g_mem_pool.bucket_free_list[i] = NULL;
+
+        for(j = 0U; j < bucket_counts_cfg[i]; ++j) {
+            p = noxtls_align_header_for_payload(*cursor, NOXTLS_MEM_BUCKET_ALIGNMENT);
+            if(p < *cursor || p > end || (size_t)(end - p) < sizeof(mem_block_header_t) + g_mem_pool.bucket_sizes[i]) {
+                return NOXTLS_RETURN_FAILED;
+            }
+
+            header = (mem_block_header_t *)p;
+            header->size = g_mem_pool.bucket_sizes[i];
+            header->allocated = 0U;
+            header->kind = NOXTLS_MEM_KIND_BUCKET;
+            header->bucket_index = (uint16_t)i;
+            header->magic = NOXTLS_MEM_BLOCK_MAGIC;
+            header->next = g_mem_pool.bucket_free_list[i];
+            g_mem_pool.bucket_free_list[i] = header;
+
+            *cursor = p + sizeof(mem_block_header_t) + g_mem_pool.bucket_sizes[i];
+        }
+    }
+
+    return NOXTLS_RETURN_SUCCESS;
+}
+#endif
+
+static int noxtls_mem_header_valid(const mem_block_header_t *header)
+{
+    const uint8_t *h = (const uint8_t *)header;
+
+    if(!g_mem_initialized || g_mem_pool.buffer == NULL || header == NULL) {
+        return 0;
+    }
+    if(h < g_mem_pool.buffer || h >= g_mem_pool.buffer + g_mem_pool.buffer_size) {
+        return 0;
+    }
+    if(header->magic != NOXTLS_MEM_BLOCK_MAGIC || header->allocated == 0U) {
+        return 0;
+    }
+    return 1;
+}
 
 /**
  * @brief Initialize the static-buffer memory pool.
@@ -48,7 +310,8 @@ static int g_mem_initialized = 0;
  */
 noxtls_return_t noxtls_mem_init(uint8_t *buffer, size_t buffer_size)
 {
-    mem_block_header_t *header;
+    uint8_t *cursor;
+    uint8_t *end;
     
     if(g_mem_initialized) {
         return NOXTLS_RETURN_FAILED; /* Already initialized */
@@ -78,14 +341,38 @@ noxtls_return_t noxtls_mem_init(uint8_t *buffer, size_t buffer_size)
     g_mem_pool.total_allocated = 0;
     g_mem_pool.total_used = 0;
     g_mem_pool.max_used = 0;
-    
-    /* Initialize first free block covering entire buffer */
-    header = (mem_block_header_t*)g_mem_pool.buffer;
-    header->size = buffer_size - sizeof(mem_block_header_t);
-    header->next = NULL;
-    header->allocated = 0;
-    
-    g_mem_pool.free_list = header;
+    g_mem_pool.allocator_mode = NOXTLS_STATIC_ALLOCATOR_MODE;
+
+    cursor = g_mem_pool.buffer;
+    end = g_mem_pool.buffer + g_mem_pool.buffer_size;
+
+#if NOXTLS_STATIC_ALLOCATOR_MODE == NOXTLS_STATIC_ALLOCATOR_MODE_LEGACY
+    if(noxtls_mem_init_fallback(cursor, (size_t)(end - cursor)) != NOXTLS_RETURN_SUCCESS) {
+        if(g_mem_pool.internal_buffer && g_mem_pool.buffer != NULL) {
+            free(g_mem_pool.buffer);
+        }
+        memset(&g_mem_pool, 0, sizeof(mem_pool_t));
+        return NOXTLS_RETURN_FAILED;
+    }
+#elif NOXTLS_STATIC_ALLOCATOR_MODE == NOXTLS_STATIC_ALLOCATOR_MODE_BUCKETS
+    if(noxtls_mem_init_buckets(&cursor, end) != NOXTLS_RETURN_SUCCESS) {
+        if(g_mem_pool.internal_buffer && g_mem_pool.buffer != NULL) {
+            free(g_mem_pool.buffer);
+        }
+        memset(&g_mem_pool, 0, sizeof(mem_pool_t));
+        return NOXTLS_RETURN_FAILED;
+    }
+#else
+    if(noxtls_mem_init_buckets(&cursor, end) != NOXTLS_RETURN_SUCCESS ||
+       noxtls_mem_init_fallback(cursor, (size_t)(end - cursor)) != NOXTLS_RETURN_SUCCESS) {
+        if(g_mem_pool.internal_buffer && g_mem_pool.buffer != NULL) {
+            free(g_mem_pool.buffer);
+        }
+        memset(&g_mem_pool, 0, sizeof(mem_pool_t));
+        return NOXTLS_RETURN_FAILED;
+    }
+#endif
+
     g_mem_initialized = 1;
     
     return NOXTLS_RETURN_SUCCESS;
@@ -119,11 +406,10 @@ noxtls_return_t noxtls_mem_cleanup(void)
  */
 void *noxtls_malloc(size_t size)
 {
-    mem_block_header_t *current;
-    mem_block_header_t *prev;
-    mem_block_header_t *new_block;
     size_t aligned_size;
-    size_t block_size;
+#if NOXTLS_STATIC_ALLOCATOR_MODE == NOXTLS_STATIC_ALLOCATOR_MODE_HYBRID
+    void *ptr;
+#endif
     
     if(!g_mem_initialized) {
         /* Auto-initialize if not already done */
@@ -139,59 +425,18 @@ void *noxtls_malloc(size_t size)
         return NULL;
     }
     aligned_size = ALIGN_SIZE(size);
-    if(aligned_size > SIZE_MAX - sizeof(mem_block_header_t)) {
-        return NULL;
+
+#if NOXTLS_STATIC_ALLOCATOR_MODE == NOXTLS_STATIC_ALLOCATOR_MODE_LEGACY
+    return noxtls_mem_alloc_fallback(aligned_size);
+#elif NOXTLS_STATIC_ALLOCATOR_MODE == NOXTLS_STATIC_ALLOCATOR_MODE_BUCKETS
+    return noxtls_mem_alloc_bucket(aligned_size);
+#else
+    ptr = noxtls_mem_alloc_bucket(aligned_size);
+    if(ptr != NULL) {
+        return ptr;
     }
-    block_size = aligned_size + sizeof(mem_block_header_t);
-    
-    /* Find a free block large enough */
-    prev = NULL;
-    current = g_mem_pool.free_list;
-    
-    while(current != NULL) {
-        if(!current->allocated && current->size >= aligned_size) {
-            /* Found a suitable block */
-            if(current->size >= block_size + sizeof(mem_block_header_t) + NOXTLS_MEM_ALIGNMENT) {
-                /* Split the block */
-                new_block = (mem_block_header_t*)((uint8_t*)current + block_size);
-                new_block->size = current->size - block_size;
-                new_block->next = current->next;
-                new_block->allocated = 0;
-                
-                if(prev == NULL) {
-                    g_mem_pool.free_list = new_block;
-                } else {
-                    prev->next = new_block;
-                }
-                
-                current->size = aligned_size;
-            } else {
-                /* Use entire block */
-                if(prev == NULL) {
-                    g_mem_pool.free_list = current->next;
-                } else {
-                    prev->next = current->next;
-                }
-            }
-            
-            current->allocated = 1;
-            current->next = NULL;
-            
-            g_mem_pool.total_allocated += current->size;
-            g_mem_pool.total_used += current->size;
-            if(g_mem_pool.total_used > g_mem_pool.max_used) {
-                g_mem_pool.max_used = g_mem_pool.total_used;
-            }
-            
-            return (uint8_t*)current + sizeof(mem_block_header_t);
-        }
-        
-        prev = current;
-        current = current->next;
-    }
-    
-    /* No suitable block found */
-    return NULL;
+    return noxtls_mem_alloc_fallback(aligned_size);
+#endif
 }
 
 /**
@@ -202,33 +447,45 @@ void *noxtls_malloc(size_t size)
 void noxtls_free(void *ptr)
 {
     mem_block_header_t *header;
+    size_t bucket_index;
     
     if(ptr == NULL || !g_mem_initialized) {
         return;
     }
     
     header = (mem_block_header_t*)((uint8_t*)ptr - sizeof(mem_block_header_t));
-    
-    /* Validate pointer is within our buffer */
-    if((uint8_t*)header < g_mem_pool.buffer || 
-       (uint8_t*)header >= g_mem_pool.buffer + g_mem_pool.buffer_size) {
-        return; /* Invalid pointer */
+
+    if(!noxtls_mem_header_valid(header)) {
+        return;
     }
     
-    if(!header->allocated) {
-        return; /* Already freed */
+    if(header->kind == NOXTLS_MEM_KIND_BUCKET) {
+        bucket_index = header->bucket_index;
+        if(bucket_index >= g_mem_pool.bucket_count) {
+            return;
+        }
+        if(g_mem_pool.total_used >= header->size) {
+            g_mem_pool.total_used -= header->size;
+        } else {
+            g_mem_pool.total_used = 0U;
+        }
+        header->allocated = 0U;
+        header->next = g_mem_pool.bucket_free_list[bucket_index];
+        g_mem_pool.bucket_free_list[bucket_index] = header;
+        g_mem_pool.bucket_free[bucket_index]++;
+        return;
     }
-    
-    /* Update statistics */
-    g_mem_pool.total_used -= header->size;
-    
-    /* Mark as free */
-    header->allocated = 0;
-    
-    /* Coalesce with adjacent free blocks */
-    /* For simplicity, we'll just add to free list and coalesce on next allocation */
-    header->next = g_mem_pool.free_list;
-    g_mem_pool.free_list = header;
+
+#if NOXTLS_STATIC_ALLOCATOR_MODE != NOXTLS_STATIC_ALLOCATOR_MODE_BUCKETS
+    if(header->kind == NOXTLS_MEM_KIND_FALLBACK) {
+        if(g_mem_pool.total_used >= header->size) {
+            g_mem_pool.total_used -= header->size;
+        } else {
+            g_mem_pool.total_used = 0U;
+        }
+        noxtls_mem_free_fallback(header);
+    }
+#endif
 }
 
 /**
@@ -280,11 +537,7 @@ void *noxtls_realloc(void *ptr, size_t size)
         return NULL;
     }
     header = (const mem_block_header_t*)((const uint8_t*)ptr - sizeof(mem_block_header_t));
-    if((const uint8_t*)header < g_mem_pool.buffer ||
-       (const uint8_t*)header >= g_mem_pool.buffer + g_mem_pool.buffer_size) {
-        return NULL;
-    }
-    if(!header->allocated || header->size > g_mem_pool.buffer_size) {
+    if(!noxtls_mem_header_valid(header) || header->size > g_mem_pool.buffer_size) {
         return NULL;
     }
     old_size = header->size;
@@ -334,6 +587,31 @@ noxtls_return_t noxtls_mem_get_stats(size_t *total_allocated, size_t *total_used
         *max_used = g_mem_pool.max_used;
     }
     
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_mem_get_bucket_stats(noxtls_mem_bucket_stats_t *stats)
+{
+    size_t i;
+
+    if(!g_mem_initialized || stats == NULL) {
+        return NOXTLS_RETURN_FAILED;
+    }
+
+    memset(stats, 0, sizeof(*stats));
+    stats->allocator_mode = g_mem_pool.allocator_mode;
+    stats->bucket_count = g_mem_pool.bucket_count;
+    stats->fallback_size = g_mem_pool.fallback_size;
+    stats->fallback_used = g_mem_pool.fallback_used;
+    stats->fallback_max_used = g_mem_pool.fallback_max_used;
+
+    for(i = 0U; i < g_mem_pool.bucket_count && i < NOXTLS_MEM_BUCKET_MAX; ++i) {
+        stats->buckets[i].block_size = g_mem_pool.bucket_sizes[i];
+        stats->buckets[i].total_blocks = g_mem_pool.bucket_total[i];
+        stats->buckets[i].free_blocks = g_mem_pool.bucket_free[i];
+        stats->buckets[i].used_blocks = g_mem_pool.bucket_total[i] - g_mem_pool.bucket_free[i];
+    }
+
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -427,6 +705,12 @@ noxtls_return_t noxtls_mem_get_stats(size_t *total_allocated, /* NOLINT(bugprone
     (void)total_allocated;
     (void)total_used;
     (void)max_used;
+    return NOXTLS_RETURN_FAILED;
+}
+
+noxtls_return_t noxtls_mem_get_bucket_stats(noxtls_mem_bucket_stats_t *stats)
+{
+    (void)stats;
     return NOXTLS_RETURN_FAILED;
 }
 

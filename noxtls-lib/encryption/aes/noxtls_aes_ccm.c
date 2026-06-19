@@ -25,6 +25,7 @@
 #include "noxtls_aes_ccm.h"
 #include "noxtls_aes_internal.h"
 #include "noxtls_common.h"
+#include "common/noxtls_ct.h"
 
 #if NOXTLS_FEATURE_AES_CCM
 
@@ -336,8 +337,11 @@ noxtls_return_t noxtls_aes_ccm_decrypt(const uint8_t *key, noxtls_aes_type_t typ
     diff = 0;
     for(i = 0; i < tag_len; i++)
         diff |= (tag[i] ^ (mac_state[i] ^ keystream[i]));
-    if(diff != 0)
+    if(diff != 0) {
+        /* SECURITY (NX-06): never expose unauthenticated plaintext to the caller. */
+        noxtls_secure_zero(plaintext, ciphertext_len);
         return NOXTLS_RETURN_BAD_DATA;
+    }
     return NOXTLS_RETURN_SUCCESS;
 }
 

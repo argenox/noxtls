@@ -337,7 +337,7 @@ typedef struct tls13_context_s
     uint64_t early_seq_num;
     uint32_t max_early_data_size;       /* Default 0xFFFFFFFF */
     uint8_t sent_end_of_early_data;
-    uint8_t early_data_sent;            /* 1 if noxtls_tls13_send_early_data was used (so we must send EndOfEarlyData) */
+    uint8_t early_data_sent;            /* 1 if noxtls_tls13_send_early_data was used */
     uint8_t client_offered_early_data;  /* Server: 1 if ClientHello contained early_data extension */
     uint8_t end_of_early_data_seen;     /* Server: 1 after receiving EndOfEarlyData from client */
 

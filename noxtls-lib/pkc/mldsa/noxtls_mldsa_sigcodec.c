@@ -79,6 +79,11 @@ static uint32_t mldsa_bitpack_get(const uint8_t *src, uint32_t *bit_off, uint8_t
  * @param[in] spec The spec value.
  * @param[out] z_bits The z bits value.
  * @param[out] c_len The c len value.
+ * @param[out] z_len The z len value.
+ * @param[out] h_len The h len value.
+ * @param[out] total_len The total len value.
+ * @return The return value.
+ */
 static noxtls_return_t mldsa_sig_format(noxtls_mldsa_param_t param,
                                         noxtls_mldsa_param_spec_t *spec,
                                         uint8_t *z_bits,

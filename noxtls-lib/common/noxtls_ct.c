@@ -71,15 +71,17 @@ int noxtls_ct_equal(const void *a, const void *b, size_t len)
  * @param[in] a First buffer.
  * @param[in] b Second buffer.
  * @param[in] len Number of bytes to compare.
- * @return With `NOXTLS_CT_COMPARE`: same as @ref noxtls_ct_memcmp. Otherwise `memcmp` semantics (0 if equal, non-zero with sign per `memcmp`).
+ * @return Same as @ref noxtls_ct_memcmp: 0 if equal over @p len bytes, otherwise non-zero. Always constant-time.
  */
 int noxtls_secret_memcmp(const void *a, const void *b, size_t len)
 {
-#if NOXTLS_CT_COMPARE
+    /*
+     * SECURITY (NX-07): comparisons of secrets (MACs, AEAD tags, Finished
+     * verify_data, PSK binders) must never short-circuit. This is intentionally
+     * constant-time regardless of the side-channel performance profile; only
+     * non-secret comparisons may use plain memcmp.
+     */
     return noxtls_ct_memcmp(a, b, len);
-#else
-    return memcmp(a, b, len);
-#endif
 }
 
 /**

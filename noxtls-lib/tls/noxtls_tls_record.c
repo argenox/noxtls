@@ -486,6 +486,12 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
         uint8_t aad[13];
         uint32_t aad_len = 13;
 
+        /* SECURITY (NX-09): refuse to encrypt when the sequence number would wrap,
+         * which would reuse an AEAD nonce with the same key. */
+        if(seq_num == UINT64_MAX) {
+            return NOXTLS_RETURN_FAILED;
+        }
+
         aad[0] = (uint8_t)(seq_num >> 56);
         aad[1] = (uint8_t)(seq_num >> 48);
         aad[2] = (uint8_t)(seq_num >> 40);
@@ -1613,7 +1619,14 @@ noxtls_return_t noxtls_tls13_encrypt_record(tls13_context_t *ctx,
         iv_len = 12;
         seq_num = tls13_is_dtls_context(ctx) ? ctx->base.write_seq_num : ctx->server_seq_num;
     }
-    
+
+    /* SECURITY (NX-09): refuse to encrypt once the record sequence number is
+     * exhausted. Incrementing past UINT64_MAX would wrap and reuse an AEAD nonce
+     * with the same key. RFC 8446 requires a key update / termination here. */
+    if(seq_num == UINT64_MAX) {
+        return NOXTLS_RETURN_FAILED;
+    }
+
     /* Generate nonce */
     tls13_generate_nonce(nonce, write_iv, iv_len, seq_num);
     
@@ -1683,7 +1696,8 @@ noxtls_return_t noxtls_tls13_encrypt_record(tls13_context_t *ctx,
  * @brief RFC 9147: Send one DTLS 1.3 encrypted record (DTLSCiphertext with unified header + record number encryption).
  * inner_plaintext is the DTLSInnerPlaintext (content || content_type || padding).
  */
-#define DTLS13_MAX_HEADER_LEN  (4 + 32)  /* 4-byte base + max CID 32 */
+/* Unified header worst case: 1 flags + 2 seq + 2 length + 32 CID = 37 bytes. */
+#define DTLS13_MAX_HEADER_LEN  (1 + 2 + 2 + 32)
 
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 /**
@@ -2009,6 +2023,9 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
         uint32_t cid_len = (raw[0] & DTLS13_UNIFIED_CID_BIT) ? ctx->own_connection_id_len : 0;
         uint32_t cid_offset = len_offset + ((raw[0] & DTLS13_UNIFIED_L_BIT) ? 2U : 0U);
         aad_len = cid_offset + cid_len;
+        if(aad_len > sizeof(aad)) {
+            return NOXTLS_RETURN_BAD_DATA;  /* never copy more than the AAD buffer holds */
+        }
         if(raw_len < aad_len + 16U) {
             return NOXTLS_RETURN_BAD_DATA;
         }
