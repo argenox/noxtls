@@ -740,6 +740,8 @@ noxtls_return_t noxtls_dtls_context_init(dtls_context_t *ctx, tls_role_t role, u
     ctx->final_ack_until_ms = 0;
     ctx->final_ack_len = 0;
     ctx->cookie_len = 0;
+    ctx->hrr_cookie = NULL;
+    ctx->hrr_cookie_len = 0;
 
         ctx->base.record_send_buf = (uint8_t*)noxtls_malloc(5U + TLS_MAX_PROTECTED_RECORD_FRAGMENT);
     if(ctx->base.record_send_buf == NULL) {
@@ -797,6 +799,11 @@ noxtls_return_t noxtls_dtls_context_free(dtls_context_t *ctx)
         noxtls_free(ctx->base.record_send_buf);
         ctx->base.record_send_buf = NULL;
     }
+    if(ctx->hrr_cookie != NULL) {
+        noxtls_free(ctx->hrr_cookie);
+        ctx->hrr_cookie = NULL;
+    }
+    ctx->hrr_cookie_len = 0;
 
     noxtls_tls_context_free(&ctx->base);
     memset(ctx, 0, sizeof(dtls_context_t));
