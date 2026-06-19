@@ -125,13 +125,19 @@ noxtls_return_t noxtls_aes_cmac(const uint8_t *key,
         return noxtls_aes_encrypt_block_internal(key, state, mac, type);
     }
 
-    /* Process all full blocks except the last */
-    for(i = 0; i + 1 < n_blocks; i++)
+    /* Absorb full blocks through the CBC-MAC chain. When the message ends in a
+     * partial block, every full block is absorbed here and the padded final
+     * block is handled below with K2; otherwise the last full block is the
+     * final block and is handled below with K1 (RFC 4493 Section 2.4). */
     {
-        cmac_xor_block(state, state, &msg[(size_t)i * NOXTLS_AES_BLOCK_LENGTH]);
-        r = noxtls_aes_encrypt_block_internal(key, state, state, type);
-        if(r != NOXTLS_RETURN_SUCCESS)
-            return r;
+        uint32_t full_absorb = (msg_len % NOXTLS_AES_BLOCK_LENGTH != 0u) ? n_blocks : (n_blocks - 1u);
+        for(i = 0; i < full_absorb; i++)
+        {
+            cmac_xor_block(state, state, &msg[(size_t)i * NOXTLS_AES_BLOCK_LENGTH]);
+            r = noxtls_aes_encrypt_block_internal(key, state, state, type);
+            if(r != NOXTLS_RETURN_SUCCESS)
+                return r;
+        }
     }
 
     if(msg_len % NOXTLS_AES_BLOCK_LENGTH != 0)

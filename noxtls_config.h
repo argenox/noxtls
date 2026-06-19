@@ -195,6 +195,18 @@
 #define NOXTLS_FEATURE_SHA256 1
 #endif
 
+/* Enables the Cortex-M7 tuned software SHA-256 block compressor.
+ * This is CPU-only and does not use STM32 HASH/CRYP peripherals.
+ */
+#ifndef NOXTLS_FEATURE_SHA256_CORTEXM7
+#define NOXTLS_FEATURE_SHA256_CORTEXM7 0
+#endif
+
+/* Enables the 8-round unrolled portable C SHA-256 compressor path. */
+#ifndef NOXTLS_SHA256_UNROLL_8
+#define NOXTLS_SHA256_UNROLL_8 1
+#endif
+
 /* Enables SHA-384 hashing algorithm (same implementation as SHA-512).
  * Prereq: NOXTLS_FEATURE_HASH=1.
  * Build: sha512.c is compiled when NOXTLS_FEATURE_SHA384 or NOXTLS_FEATURE_SHA512 is 1.
@@ -1151,6 +1163,41 @@
 #define NOXTLS_STATIC_BUFFER_SIZE (64 * 1024)
 #endif
 
+/* NOXTLS_STATIC_ALLOCATOR_MODE
+ * Selects the allocator used when NOXTLS_USE_STATIC_BUFFERS is enabled.
+ * LEGACY preserves the original first-fit fallback allocator.
+ * BUCKETS uses only fixed-size bucket pools.
+ * HYBRID uses bucket pools first and a fallback pool for oversized or exhausted bucket allocations.
+ */
+#ifndef NOXTLS_STATIC_ALLOCATOR_MODE_LEGACY
+#define NOXTLS_STATIC_ALLOCATOR_MODE_LEGACY 0
+#endif
+#ifndef NOXTLS_STATIC_ALLOCATOR_MODE_BUCKETS
+#define NOXTLS_STATIC_ALLOCATOR_MODE_BUCKETS 1
+#endif
+#ifndef NOXTLS_STATIC_ALLOCATOR_MODE_HYBRID
+#define NOXTLS_STATIC_ALLOCATOR_MODE_HYBRID 2
+#endif
+#ifndef NOXTLS_STATIC_ALLOCATOR_MODE
+#define NOXTLS_STATIC_ALLOCATOR_MODE NOXTLS_STATIC_ALLOCATOR_MODE_HYBRID
+#endif
+
+#ifndef NOXTLS_MEM_BUCKET_COUNT
+#define NOXTLS_MEM_BUCKET_COUNT 9U
+#endif
+
+#ifndef NOXTLS_MEM_BUCKET_SIZES
+#define NOXTLS_MEM_BUCKET_SIZES 32U, 64U, 128U, 256U, 512U, 1024U, 2048U, 4096U, 8192U
+#endif
+
+#ifndef NOXTLS_MEM_BUCKET_COUNTS
+#define NOXTLS_MEM_BUCKET_COUNTS 16U, 16U, 12U, 10U, 8U, 6U, 4U, 2U, 1U
+#endif
+
+#ifndef NOXTLS_MEM_BUCKET_ALIGNMENT
+#define NOXTLS_MEM_BUCKET_ALIGNMENT 8U
+#endif
+
 /* ============================================================================
  * TLS size limits (stack / buffer sizing)
  * ============================================================================
@@ -1351,6 +1398,24 @@
  */
 #ifndef NOXTLS_ECC_FIXED_POINT_OPTIM
 #define NOXTLS_ECC_FIXED_POINT_OPTIM 1
+#endif
+
+/* NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE
+ *
+ * When 1, keep process-global precompute tables for repeated ECC scalar
+ * multiplication patterns. This materially improves P-256 ECDSA sign/verify
+ * throughput on embedded targets because generator and verify joint tables are
+ * reused across operations.
+ *
+ * Tradeoffs:
+ * - Retains several KB of allocator-backed tables after first use.
+ * - Shared mutable cache state is not internally locked; multi-threaded users
+ *   must serialize ECC use externally or set this to 0.
+ *
+ * Default: 1 (performance-oriented embedded default)
+ */
+#ifndef NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE
+#define NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE 1
 #endif
 
 /* NOXTLS_ECDSA_SIGN_SELF_VERIFY

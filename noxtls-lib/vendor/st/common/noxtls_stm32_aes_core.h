@@ -24,8 +24,8 @@
 #define NOXTLS_STM32_AES_CR_KEYSIZE_SHIFT 8u
 #define NOXTLS_STM32_AES_CR_FFLUSH        (1u << 14)
 #define NOXTLS_STM32_AES_CR_EN            (1u << 15)
-#define NOXTLS_STM32_AES_SR_IFNF          (1u << 0)
-#define NOXTLS_STM32_AES_SR_OFNE          (1u << 1)
+#define NOXTLS_STM32_AES_SR_IFNF          (1u << 1)
+#define NOXTLS_STM32_AES_SR_OFNE          (1u << 2)
 #define NOXTLS_STM32_AES_SR_BUSY          (1u << 4)
 #define NOXTLS_STM32_WORDS_PER_BLOCK      4u
 #define NOXTLS_STM32_AES_WORD_BYTES       4u
@@ -42,7 +42,7 @@
 #define NOXTLS_STM32_F7_AES_BASE 0x50060000u
 #endif
 #ifndef NOXTLS_STM32_H7_AES_BASE
-#define NOXTLS_STM32_H7_AES_BASE 0x50060000u
+#define NOXTLS_STM32_H7_AES_BASE 0x48021000u
 #endif
 #ifndef NOXTLS_STM32_L4_AES_BASE
 #define NOXTLS_STM32_L4_AES_BASE 0x50060000u

@@ -42,13 +42,73 @@ extern "C" {
 
 /* Static Buffer Allocator Implementation */
 
+/* Memory alignment for allocator blocks */
+#ifndef NOXTLS_MEM_ALIGNMENT
+#define NOXTLS_MEM_ALIGNMENT (8U)
+#endif
+
+#ifndef NOXTLS_STATIC_ALLOCATOR_MODE_LEGACY
+#define NOXTLS_STATIC_ALLOCATOR_MODE_LEGACY 0
+#endif
+#ifndef NOXTLS_STATIC_ALLOCATOR_MODE_BUCKETS
+#define NOXTLS_STATIC_ALLOCATOR_MODE_BUCKETS 1
+#endif
+#ifndef NOXTLS_STATIC_ALLOCATOR_MODE_HYBRID
+#define NOXTLS_STATIC_ALLOCATOR_MODE_HYBRID 2
+#endif
+
+#ifndef NOXTLS_STATIC_ALLOCATOR_MODE
+#define NOXTLS_STATIC_ALLOCATOR_MODE NOXTLS_STATIC_ALLOCATOR_MODE_HYBRID
+#endif
+
+#ifndef NOXTLS_MEM_BUCKET_ALIGNMENT
+#define NOXTLS_MEM_BUCKET_ALIGNMENT NOXTLS_MEM_ALIGNMENT
+#endif
+
+#ifndef NOXTLS_MEM_BUCKET_COUNT
+#define NOXTLS_MEM_BUCKET_COUNT 9U
+#endif
+
+#ifndef NOXTLS_MEM_BUCKET_SIZES
+#define NOXTLS_MEM_BUCKET_SIZES 32U, 64U, 128U, 256U, 512U, 1024U, 2048U, 4096U, 8192U
+#endif
+
+#ifndef NOXTLS_MEM_BUCKET_COUNTS
+#define NOXTLS_MEM_BUCKET_COUNTS 16U, 16U, 12U, 10U, 8U, 6U, 4U, 2U, 1U
+#endif
+
+#ifndef NOXTLS_MEM_BUCKET_MAX
+#define NOXTLS_MEM_BUCKET_MAX 16U
+#endif
+
 /* Memory block header */
 typedef struct mem_block_header
 {
     size_t size;                    /* Size of the block (excluding header) */
     struct mem_block_header *next;   /* Next block in free list */
     uint8_t allocated;               /* 1 if allocated, 0 if free */
+    uint8_t kind;                    /* Internal allocator region kind */
+    uint16_t bucket_index;           /* Internal bucket index, if any */
+    uint32_t magic;                  /* Internal pointer validation marker */
 } mem_block_header_t;
+
+typedef struct
+{
+    size_t block_size;
+    size_t total_blocks;
+    size_t free_blocks;
+    size_t used_blocks;
+} noxtls_mem_bucket_stat_t;
+
+typedef struct
+{
+    uint32_t allocator_mode;
+    size_t bucket_count;
+    size_t fallback_size;
+    size_t fallback_used;
+    size_t fallback_max_used;
+    noxtls_mem_bucket_stat_t buckets[NOXTLS_MEM_BUCKET_MAX];
+} noxtls_mem_bucket_stats_t;
 
 /* Memory pool structure */
 typedef struct
@@ -60,6 +120,16 @@ typedef struct
     size_t total_allocated;          /* Total bytes allocated */
     size_t total_used;               /* Total bytes currently in use */
     size_t max_used;                 /* Maximum bytes used at peak */
+    uint32_t allocator_mode;         /* Static allocator mode */
+    size_t bucket_count;             /* Number of configured bucket classes */
+    size_t bucket_sizes[NOXTLS_MEM_BUCKET_MAX];
+    size_t bucket_total[NOXTLS_MEM_BUCKET_MAX];
+    size_t bucket_free[NOXTLS_MEM_BUCKET_MAX];
+    mem_block_header_t *bucket_free_list[NOXTLS_MEM_BUCKET_MAX];
+    uint8_t *fallback_start;
+    size_t fallback_size;
+    size_t fallback_used;
+    size_t fallback_max_used;
 } mem_pool_t;
 
 /**
@@ -69,9 +139,6 @@ typedef struct
  * @p ptr must be an lvalue.
  */
 #define NOXTLS_SECURE_FREE(ptr, size) do { if((ptr) != NULL) { noxtls_secure_zero((void*)(ptr), (size)); noxtls_free(ptr); (ptr) = NULL; } } while(0)
-
-/* Memory alignment for allocator blocks */
-#define NOXTLS_MEM_ALIGNMENT (8U)
 
 /* Memory Allocation Functions */
 /* These functions replace malloc, free, calloc, realloc throughout the library */
@@ -139,6 +206,8 @@ noxtls_return_t noxtls_mem_cleanup(void);
  * @return NOXTLS_RETURN_SUCCESS on success
  */
 noxtls_return_t noxtls_mem_get_stats(size_t *total_allocated, size_t *total_used, size_t *max_used);
+
+noxtls_return_t noxtls_mem_get_bucket_stats(noxtls_mem_bucket_stats_t *stats);
 
 #ifdef __cplusplus
 } /* extern "C" */

@@ -320,7 +320,7 @@ static void bench_ecdsa_p256(uint32_t iterations)
 	key_ok = 0;
 	sig_ok = 0;
 
-	if(noxtls_ecc_key_generate(&key, ECC_SECP256R1) != NOXTLS_RETURN_SUCCESS) {
+	if(noxtls_ecc_key_generate(&key, NOXTLS_ECC_SECP256R1) != NOXTLS_RETURN_SUCCESS) {
 		ESP_LOGW(NOXTLS_BENCH_TAG, "ecc keygen failed; skipping ECDSA bench");
 		return;
 	}

@@ -57,19 +57,19 @@ noxtls_return_t noxtls_tls_named_group_to_ecc_curve(uint16_t named_group, ecc_cu
     
     switch(named_group) {
         case TLS_NAMED_GROUP_SECP256R1:
-            *curve_type = ECC_SECP256R1;
+            *curve_type = NOXTLS_ECC_SECP256R1;
             return NOXTLS_RETURN_SUCCESS;
             
         case TLS_NAMED_GROUP_SECP384R1:
-            *curve_type = ECC_SECP384R1;
+            *curve_type = NOXTLS_ECC_SECP384R1;
             return NOXTLS_RETURN_SUCCESS;
             
         case TLS_NAMED_GROUP_SECP521R1:
-            *curve_type = ECC_SECP521R1;
+            *curve_type = NOXTLS_ECC_SECP521R1;
             return NOXTLS_RETURN_SUCCESS;
             
         case TLS_NAMED_GROUP_X25519:
-            *curve_type = ECC_SECP256R1;  /* unused for X25519; callers branch on named_group */
+            *curve_type = NOXTLS_ECC_SECP256R1;  /* unused for X25519; callers branch on named_group */
             return NOXTLS_RETURN_SUCCESS;
         case TLS_NAMED_GROUP_X448:
             return NOXTLS_RETURN_FAILED;
@@ -92,15 +92,15 @@ noxtls_return_t noxtls_tls_ecc_curve_to_named_group(ecc_curve_t curve_type, uint
     }
     
     switch(curve_type) {
-        case ECC_SECP256R1:
+        case NOXTLS_ECC_SECP256R1:
             *named_group = TLS_NAMED_GROUP_SECP256R1;
             return NOXTLS_RETURN_SUCCESS;
             
-        case ECC_SECP384R1:
+        case NOXTLS_ECC_SECP384R1:
             *named_group = TLS_NAMED_GROUP_SECP384R1;
             return NOXTLS_RETURN_SUCCESS;
             
-        case ECC_SECP521R1:
+        case NOXTLS_ECC_SECP521R1:
             *named_group = TLS_NAMED_GROUP_SECP521R1;
             return NOXTLS_RETURN_SUCCESS;
             
@@ -165,13 +165,13 @@ noxtls_return_t noxtls_tls_decode_ecc_point_uncompressed(const uint8_t *encoded,
     
     /* Determine expected point size based on curve */
     switch(curve_type) {
-        case ECC_SECP256R1:
+        case NOXTLS_ECC_SECP256R1:
             expected_size = 32;
             break;
-        case ECC_SECP384R1:
+        case NOXTLS_ECC_SECP384R1:
             expected_size = 48;
             break;
-        case ECC_SECP521R1:
+        case NOXTLS_ECC_SECP521R1:
             expected_size = 66;  /* (521+7)/8 = 66 */
             break;
         default:

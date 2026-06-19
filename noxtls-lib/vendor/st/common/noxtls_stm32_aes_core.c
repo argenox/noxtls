@@ -11,11 +11,42 @@
 
 #include <string.h>
 
+#include "vendor/st/noxtls_target_detect.h"
+
 typedef struct
 {
     uintptr_t aes_base;
 } noxtls_stm32_aes_family_cfg_t;
 
+#define NOXTLS_STM32_H7_RCC_AHB2ENR       0x580244DCu
+#define NOXTLS_STM32_H7_RCC_AHB2RSTR      0x5802447Cu
+#define NOXTLS_STM32_H7_RCC_AHB2ENR_CRYPEN (1u << 4)
+#define NOXTLS_STM32_H7_RCC_AHB2RSTR_CRYPRST (1u << 4)
+
+static void noxtls_stm32_aes_enable_clock(noxtls_stm32_accel_family_t family)
+{
+    static uint8_t h7_cryp_ready;
+    volatile uint32_t readback;
+
+    if(family != NOXTLS_STM32_ACCEL_H7) {
+        return;
+    }
+    if(h7_cryp_ready != 0u) {
+        return;
+    }
+
+    NOXTLS_STM32_REG32(NOXTLS_STM32_H7_RCC_AHB2ENR) |= NOXTLS_STM32_H7_RCC_AHB2ENR_CRYPEN;
+    readback = NOXTLS_STM32_REG32(NOXTLS_STM32_H7_RCC_AHB2ENR);
+    (void)readback;
+
+    NOXTLS_STM32_REG32(NOXTLS_STM32_H7_RCC_AHB2RSTR) |= NOXTLS_STM32_H7_RCC_AHB2RSTR_CRYPRST;
+    readback = NOXTLS_STM32_REG32(NOXTLS_STM32_H7_RCC_AHB2RSTR);
+    (void)readback;
+    NOXTLS_STM32_REG32(NOXTLS_STM32_H7_RCC_AHB2RSTR) &= ~NOXTLS_STM32_H7_RCC_AHB2RSTR_CRYPRST;
+    readback = NOXTLS_STM32_REG32(NOXTLS_STM32_H7_RCC_AHB2RSTR);
+    (void)readback;
+    h7_cryp_ready = 1u;
+}
 
 static int noxtls_stm32_aes_wait_flag(uintptr_t aes_base, uint32_t mask, uint32_t value)
 {
@@ -47,7 +78,11 @@ static noxtls_return_t noxtls_stm32_aes_get_cfg(noxtls_stm32_accel_family_t fami
             cfg->aes_base = (uintptr_t)NOXTLS_STM32_F7_AES_BASE;
             break;
         case NOXTLS_STM32_ACCEL_H7:
+#if defined(NOXTLS_STM32_H7_HAS_CRYP_HASH) || defined(NOXTLS_STM32H7_FORCE_CRYP_HASH)
             cfg->aes_base = (uintptr_t)NOXTLS_STM32_H7_AES_BASE;
+#else
+            return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
             break;
         case NOXTLS_STM32_ACCEL_L4:
             cfg->aes_base = (uintptr_t)NOXTLS_STM32_L4_AES_BASE;
@@ -135,6 +170,8 @@ static noxtls_return_t noxtls_stm32_aes_process_block(noxtls_stm32_accel_family_
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
+
+    noxtls_stm32_aes_enable_clock(family);
 
     NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_CR_OFF) = 0u;
     NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_CR_OFF) = NOXTLS_STM32_AES_CR_FFLUSH;
