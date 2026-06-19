@@ -6,7 +6,7 @@ The docs site supports multiple versions so users can view documentation for the
 
 Use the **version dropdown** in the top-right of the documentation navbar to switch between:
 
-- **X.Y.Z** — snapshot of the docs at that release (e.g. **0.2.54** is the current default at `/docs/`)
+- **X.Y.Z** — snapshot of the docs at that release (e.g. **0.2.55** is the current default at `/docs/`)
 - Older versions remain available from the version dropdown
 
 ## For maintainers: adding a new version

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(NoxTLS VERSION 0.2.54 LANGUAGES C)
+project(NoxTLS VERSION 0.2.55 LANGUAGES C)
 
 # Resolve NoxTLS paths from this directory by default, while allowing parent override.
 if(NOT DEFINED NOXTLS_PROJECT_ROOT)
