@@ -61,7 +61,7 @@ If the buffer is too small, `noxtls_mem_init()` returns `NOXTLS_RETURN_FAILED`. 
 
 - Use **HYBRID** when you want predictable small allocations plus occasional large TLS records or certificate buffers.
 - Use **BUCKETS** when you want hard upper bounds on allocation size and can size every class explicitly (no fallback).
-- Use **LEGACY** only when you need backward-compatible behavior identical to pre-0.2.55 static pools.
+- Use **LEGACY** only when you need backward-compatible behavior identical to pre-0.2.56 static pools.
 
 ## Usage with Static Buffers
 

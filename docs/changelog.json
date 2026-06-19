@@ -1,10 +1,10 @@
 {
   "releases": [
     {
-      "version": "0.2.55",
+      "version": "0.2.56",
       "date": "6/15/2026",
       "changes": [
-        "Project version updated to 0.2.55 in CMake and noxtls_version.h.",
+        "Project version updated to 0.2.56 in CMake and noxtls_version.h.",
         "Static buffer pool bucket allocator: LEGACY, BUCKETS, and HYBRID modes (default HYBRID) with configurable size classes via NOXTLS_MEM_BUCKET_*.",
         "noxtls_mem_get_bucket_stats() reports per-bucket block utilization and fallback pool usage.",
         "ECC curve enum values renamed with NOXTLS_ECC_* prefix (e.g. NOXTLS_ECC_SECP256R1).",

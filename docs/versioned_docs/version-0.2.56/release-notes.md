@@ -5,7 +5,7 @@ title: Release Notes
 
 # Release Notes
 
-This page describes changes, fixes, and known issues for **NoxTLS 0.2.55**.
+This page describes changes, fixes, and known issues for **NoxTLS 0.2.56**.
 
 For source and binary artifacts, see [Releases on GitHub](https://github.com/argenox/noxtls/releases).
 
@@ -13,13 +13,13 @@ Use the **version dropdown** in the navbar to view docs (and release notes) for 
 
 ---
 
-## 0.2.55
+## 0.2.56
 
 **Release date:** 6/15/2026
 
 ### Changes
 
-- Project version updated to 0.2.55 in CMake and noxtls_version.h.
+- Project version updated to 0.2.56 in CMake and noxtls_version.h.
 - Static buffer pool bucket allocator: LEGACY, BUCKETS, and HYBRID modes (default HYBRID) with configurable size classes via NOXTLS_MEM_BUCKET_*.
 - noxtls_mem_get_bucket_stats() reports per-bucket block utilization and fallback pool usage.
 - ECC curve enum values renamed with NOXTLS_ECC_* prefix (e.g. NOXTLS_ECC_SECP256R1).
