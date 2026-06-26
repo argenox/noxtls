@@ -97,13 +97,17 @@
  * Prereq: NOXTLS_FEATURE_HASH=1.
  * Required by: HKDF and TLS transcript/finished MACs.
  */
+#ifndef NOXTLS_FEATURE_HMAC
 #define NOXTLS_FEATURE_HMAC 1
+#endif
 
 /* Enables generic HKDF (RFC 5869) primitive.
  * Prereq: NOXTLS_FEATURE_HMAC=1.
  * Required by: TLS 1.3 key schedule.
  */
+#ifndef NOXTLS_FEATURE_HKDF
 #define NOXTLS_FEATURE_HKDF 1
+#endif
 
 /* Enables symmetric encryption module family (AES/ARIA/Camellia/ChaCha/DES).
  * Prereq: none.
