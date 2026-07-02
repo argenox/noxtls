@@ -7465,6 +7465,11 @@ noxtls_return_t noxtls_tls13_recv_server_hello(tls13_context_t *ctx)
                     return NOXTLS_RETURN_FAILED;
                 }
                 if(tls13_group_is_mlkem(ctx->server_key_share->group)) {
+                    uint32_t ct_expected_len = noxtls_mlkem_ciphertext_len(p);
+                    if(ct_expected_len == 0U ||
+                       ctx->server_key_share->key_exchange_len != (uint16_t)ct_expected_len) {
+                        return NOXTLS_RETURN_FAILED;
+                    }
                     if(noxtls_mlkem_decaps(p, ctx->mlkem_client_public_key, ctx->mlkem_client_secret_key,
                                            ctx->server_key_share->key_exchange, pq_ss) != NOXTLS_RETURN_SUCCESS) {
                         return NOXTLS_RETURN_FAILED;
@@ -7909,8 +7914,15 @@ noxtls_return_t noxtls_tls13_recv_certificate_verify(tls13_context_t *ctx)
         return NOXTLS_RETURN_FAILED;
     }
 
+    if(msg_len < 8 || ctx->server_cert_parsed == NULL) {
+        free(msg);
+        NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_X509, NOXSIGHT_SEVERITY_ERROR,
+                        NOXTLS_EVT_VERIFY_SIG_FAIL, 2U, msg_len);
+        return NOXTLS_RETURN_FAILED;
+    }
+
     /* Verify Certificate Verify signature before appending (signature is over transcript excluding this noxtls_message) */
-    if(msg_len >= 8 && ctx->server_cert_parsed != NULL) {
+    {
         uint16_t sig_scheme = (msg[4] << 8) | msg[5];
         uint16_t sig_len = (msg[6] << 8) | msg[7];
         /* Signed content per RFC 8446: 64*0x20 + "TLS 1.3, server CertificateVerify" + 0x00 + Hash */
@@ -7918,7 +7930,7 @@ noxtls_return_t noxtls_tls13_recv_certificate_verify(tls13_context_t *ctx)
         uint8_t to_verify[64 + sizeof(ctx_str) + 1 + 64];
         uint32_t to_verify_len = 0;
 
-        if(8U + sig_len > msg_len) {
+        if(8U + sig_len != msg_len) {
             free(msg);
             return NOXTLS_RETURN_FAILED;
         }
@@ -9380,6 +9392,11 @@ noxtls_return_t noxtls_tls13_recv_client_hello(tls13_context_t *ctx)
     /* Cipher suites length */
     cipher_suites_len = (record.data[offset] << 8) | record.data[offset + 1];
     offset += 2;
+    if(cipher_suites_len == 0U || (cipher_suites_len & 1U) != 0U ||
+       offset + cipher_suites_len > record.length) {
+        free(record.data);
+        return NOXTLS_RETURN_BAD_DATA;
+    }
     
     /* Parse and select first supported cipher suite from client's list */
     {

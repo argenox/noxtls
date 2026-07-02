@@ -2865,6 +2865,7 @@ noxtls_return_t noxtls_tls12_recv_server_hello(tls12_context_t *ctx)
 {
     tls_record_t record;
     noxtls_return_t rc;
+    uint16_t server_version;
     
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -2929,6 +2930,12 @@ noxtls_return_t noxtls_tls12_recv_server_hello(tls12_context_t *ctx)
     }
     uint32_t offset = 4;
     /* Version (2 bytes) */
+    server_version = (uint16_t)((record.data[offset] << 8) | record.data[offset + 1]);
+    if((tls12_is_dtls(ctx) && server_version != DTLS_VERSION_1_2) ||
+       (!tls12_is_dtls(ctx) && server_version != TLS_VERSION_1_2)) {
+        free(record.data);
+        return NOXTLS_RETURN_FAILED;
+    }
     offset += 2;
     /* Random (32 bytes) */
     memcpy(ctx->server_random, record.data + offset, TLS_RANDOM_SIZE);
@@ -2946,6 +2953,68 @@ noxtls_return_t noxtls_tls12_recv_server_hello(tls12_context_t *ctx)
         return NOXTLS_RETURN_FAILED;
     }
     ctx->cipher_suite = (record.data[offset] << 8) | record.data[offset + 1];
+    {
+        static const uint16_t cipher_suites_10_11[] = {
+            TLS_CIPHER_SUITE_RSA_WITH_AES_256_CBC_SHA,
+            TLS_CIPHER_SUITE_RSA_WITH_AES_128_CBC_SHA,
+            TLS_CIPHER_SUITE_RSA_WITH_3DES_EDE_CBC_SHA
+        };
+        static const uint16_t cipher_suites_12[] = {
+            TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+            TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+            TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+            TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CCM,
+            TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CCM_8,
+            TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CCM,
+            TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CCM_8,
+            TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
+            TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384,
+            TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+            TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+            TLS_CIPHER_SUITE_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+            TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_CBC_SHA,
+            TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_CBC_SHA256,
+            TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_CBC_SHA,
+            TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_256_CBC_SHA,
+            TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_CBC_SHA256,
+            TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_256_CBC_SHA256,
+            TLS_CIPHER_SUITE_DHE_RSA_WITH_3DES_EDE_CBC_SHA,
+            TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_GCM_SHA256,
+            TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_256_GCM_SHA384,
+            TLS_CIPHER_SUITE_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+            TLS_CIPHER_SUITE_RSA_WITH_AES_128_GCM_SHA256,
+            TLS_CIPHER_SUITE_RSA_WITH_AES_256_GCM_SHA384,
+            TLS_CIPHER_SUITE_RSA_WITH_AES_128_CBC_SHA256,
+            TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_CBC_SHA384,
+            TLS_CIPHER_SUITE_RSA_WITH_AES_128_CCM,
+            TLS_CIPHER_SUITE_RSA_WITH_AES_128_CCM_8,
+            TLS_CIPHER_SUITE_RSA_WITH_AES_256_CCM,
+            TLS_CIPHER_SUITE_RSA_WITH_AES_256_CCM_8,
+            TLS_CIPHER_SUITE_RSA_WITH_AES_256_CBC_SHA256,
+            TLS_CIPHER_SUITE_RSA_WITH_3DES_EDE_CBC_SHA
+        };
+        const uint16_t *offered = (ctx->base.base.version <= TLS_VERSION_1_1) ? cipher_suites_10_11 : cipher_suites_12;
+        uint32_t offered_count = (ctx->base.base.version <= TLS_VERSION_1_1)
+            ? (uint32_t)(sizeof(cipher_suites_10_11) / sizeof(cipher_suites_10_11[0]))
+            : (uint32_t)(sizeof(cipher_suites_12) / sizeof(cipher_suites_12[0]));
+        uint32_t i;
+        uint8_t found = 0U;
+
+        if(ctx->server_cipher_suites != NULL && ctx->server_cipher_suites_count > 0U) {
+            offered = ctx->server_cipher_suites;
+            offered_count = ctx->server_cipher_suites_count;
+        }
+        for(i = 0U; i < offered_count; i++) {
+            if(ctx->cipher_suite == offered[i]) {
+                found = 1U;
+                break;
+            }
+        }
+        if(found == 0U) {
+            free(record.data);
+            return NOXTLS_RETURN_FAILED;
+        }
+    }
     ctx->use_encrypt_then_mac = 0;
     ctx->extended_master_secret_negotiated = 0;
     ctx->heartbeat_negotiated = 0;
@@ -2959,6 +3028,10 @@ noxtls_return_t noxtls_tls12_recv_server_hello(tls12_context_t *ctx)
     offset += 2;
     /* Compression method (1 byte) */
     if(offset + 1 > record.length) {
+        free(record.data);
+        return NOXTLS_RETURN_FAILED;
+    }
+    if(record.data[offset] != 0U) {
         free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
