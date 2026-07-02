@@ -7909,8 +7909,15 @@ noxtls_return_t noxtls_tls13_recv_certificate_verify(tls13_context_t *ctx)
         return NOXTLS_RETURN_FAILED;
     }
 
+    if(msg_len < 8 || ctx->server_cert_parsed == NULL) {
+        free(msg);
+        NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_X509, NOXSIGHT_SEVERITY_ERROR,
+                        NOXTLS_EVT_VERIFY_SIG_FAIL, 2U, msg_len);
+        return NOXTLS_RETURN_FAILED;
+    }
+
     /* Verify Certificate Verify signature before appending (signature is over transcript excluding this noxtls_message) */
-    if(msg_len >= 8 && ctx->server_cert_parsed != NULL) {
+    {
         uint16_t sig_scheme = (msg[4] << 8) | msg[5];
         uint16_t sig_len = (msg[6] << 8) | msg[7];
         /* Signed content per RFC 8446: 64*0x20 + "TLS 1.3, server CertificateVerify" + 0x00 + Hash */
@@ -7918,7 +7925,7 @@ noxtls_return_t noxtls_tls13_recv_certificate_verify(tls13_context_t *ctx)
         uint8_t to_verify[64 + sizeof(ctx_str) + 1 + 64];
         uint32_t to_verify_len = 0;
 
-        if(8U + sig_len > msg_len) {
+        if(8U + sig_len != msg_len) {
             free(msg);
             return NOXTLS_RETURN_FAILED;
         }
