@@ -26,6 +26,9 @@
 #include "common/noxtls_debug_printf.h"
 #include "noxtls_dtls_common.h"
 #include "noxtls_tls_common.h"
+#include "common/noxtls_ct.h"
+#include "drbg/noxtls_drbg.h"
+#include "mac/noxtls_hmac.h"
 #include "mdigest/sha256/noxtls_sha256.h"
 
 /**
@@ -740,6 +743,11 @@ noxtls_return_t noxtls_dtls_context_init(dtls_context_t *ctx, tls_role_t role, u
     ctx->final_ack_until_ms = 0;
     ctx->final_ack_len = 0;
     ctx->cookie_len = 0;
+    if(noxtls_drbg_get_entropy(ctx->cookie_secret, (uint32_t)sizeof(ctx->cookie_secret)) != NOXTLS_RETURN_SUCCESS) {
+        noxtls_tls_context_free(&ctx->base);
+        return NOXTLS_RETURN_FAILED;
+    }
+    ctx->cookie_secret_valid = 1U;
     ctx->hrr_cookie = NULL;
     ctx->hrr_cookie_len = 0;
 
@@ -1577,7 +1585,7 @@ noxtls_return_t noxtls_dtls_generate_cookie(dtls_context_t *ctx,
                                      uint32_t *cookie_len)
 {
     uint8_t digest[HASH_SHA256_OUT_LEN];
-    noxtls_sha_ctx_t sha_ctx;
+    uint32_t digest_len = (uint32_t)sizeof(digest);
 
     if(ctx == NULL || client_hello == NULL || cookie == NULL || cookie_len == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -1587,11 +1595,18 @@ noxtls_return_t noxtls_dtls_generate_cookie(dtls_context_t *ctx,
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    if(noxtls_sha256_init(&sha_ctx, NOXTLS_HASH_SHA_256) != NOXTLS_RETURN_SUCCESS) {
+    if(ctx->cookie_secret_valid == 0U) {
         return NOXTLS_RETURN_FAILED;
     }
-    noxtls_sha256_update(&sha_ctx, (uint8_t*)client_hello, client_hello_len);
-    if(noxtls_sha256_finish(&sha_ctx, digest) != NOXTLS_RETURN_SUCCESS) {
+
+    if(noxtls_hmac_compute(NOXTLS_HASH_SHA_256,
+                           ctx->cookie_secret,
+                           (uint32_t)sizeof(ctx->cookie_secret),
+                           client_hello,
+                           client_hello_len,
+                           digest,
+                           &digest_len) != NOXTLS_RETURN_SUCCESS ||
+       digest_len != HASH_SHA256_OUT_LEN) {
         return NOXTLS_RETURN_FAILED;
     }
 
@@ -1623,7 +1638,7 @@ noxtls_return_t noxtls_dtls_verify_cookie(const dtls_context_t *ctx,
         return NOXTLS_RETURN_FAILED;
     }
 
-    if(memcmp(cookie, ctx->cookie, cookie_len) != 0) {
+    if(noxtls_secret_memcmp(cookie, ctx->cookie, cookie_len) != 0) {
         return NOXTLS_RETURN_FAILED;
     }
 

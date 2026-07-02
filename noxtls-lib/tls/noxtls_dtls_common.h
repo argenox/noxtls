@@ -269,6 +269,8 @@ typedef struct
     /* Cookie (for Hello Verify Request) */
     uint8_t cookie[TLS_COOKIE_MAX_LEN]; /* Locally generated stateless cookie */
     uint32_t cookie_len;        /* Cookie length */
+    uint8_t cookie_secret[32];  /* Per-context secret for DTLS cookie HMAC */
+    uint8_t cookie_secret_valid; /* Cookie secret initialized */
     uint8_t *hrr_cookie;        /* Peer HelloRetryRequest cookie to echo */
     uint32_t hrr_cookie_len;    /* Peer HelloRetryRequest cookie length */
 } dtls_context_t;

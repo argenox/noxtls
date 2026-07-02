@@ -7465,6 +7465,11 @@ noxtls_return_t noxtls_tls13_recv_server_hello(tls13_context_t *ctx)
                     return NOXTLS_RETURN_FAILED;
                 }
                 if(tls13_group_is_mlkem(ctx->server_key_share->group)) {
+                    uint32_t ct_expected_len = noxtls_mlkem_ciphertext_len(p);
+                    if(ct_expected_len == 0U ||
+                       ctx->server_key_share->key_exchange_len != (uint16_t)ct_expected_len) {
+                        return NOXTLS_RETURN_FAILED;
+                    }
                     if(noxtls_mlkem_decaps(p, ctx->mlkem_client_public_key, ctx->mlkem_client_secret_key,
                                            ctx->server_key_share->key_exchange, pq_ss) != NOXTLS_RETURN_SUCCESS) {
                         return NOXTLS_RETURN_FAILED;
@@ -9387,6 +9392,11 @@ noxtls_return_t noxtls_tls13_recv_client_hello(tls13_context_t *ctx)
     /* Cipher suites length */
     cipher_suites_len = (record.data[offset] << 8) | record.data[offset + 1];
     offset += 2;
+    if(cipher_suites_len == 0U || (cipher_suites_len & 1U) != 0U ||
+       offset + cipher_suites_len > record.length) {
+        free(record.data);
+        return NOXTLS_RETURN_BAD_DATA;
+    }
     
     /* Parse and select first supported cipher suite from client's list */
     {
