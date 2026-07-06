@@ -114,6 +114,8 @@ Release/
 *.sublime-workspace
 *.pem
 *.der
+*.crt
+*.key
 !applications/tls_test/testdata/tls_test_server_cert.pem
 !applications/tls_test/testdata/tls_test_server_cert.der
 !applications/tls_test/testdata/tls_test_server_key.pem

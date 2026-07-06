@@ -5,7 +5,7 @@ title: Release Notes
 
 # Release Notes
 
-This page describes changes, fixes, and known issues for **NoxTLS 0.2.56**.
+This page describes changes, fixes, and known issues for **NoxTLS 0.2.60**.
 
 For source and binary artifacts, see [Releases on GitHub](https://github.com/argenox/noxtls/releases).
 
@@ -13,27 +13,21 @@ Use the **version dropdown** in the navbar to view docs (and release notes) for 
 
 ---
 
-## 0.2.56
+## 0.2.60
 
-**Release date:** 6/15/2026
+**Release date:** 7/5/2026
 
 ### Changes
 
-- Project version updated to 0.2.56 in CMake and noxtls_version.h.
-- Static buffer pool bucket allocator: LEGACY, BUCKETS, and HYBRID modes (default HYBRID) with configurable size classes via NOXTLS_MEM_BUCKET_*.
-- noxtls_mem_get_bucket_stats() reports per-bucket block utilization and fallback pool usage.
-- ECC curve enum values renamed with NOXTLS_ECC_* prefix (e.g. NOXTLS_ECC_SECP256R1).
-- nRF52 AES hardware acceleration with hw-only fallback mode; STM32 and Cortex-M7 crypto path optimizations.
-- Embedded firmware size benchmark tooling (toolchains and scripts).
-- HMAC/HKDF split from the TLS stack; Ed25519 decoupled from bignum.
+- Project version updated to 0.2.60 in CMake and noxtls_version.h.
+- TLS 1.3 key schedule: Derive-Secret with empty messages now uses Hash("") per RFC 8446, restoring OpenSSL and other RFC-compliant peer interop.
+- Resolves several TLS vulnerability found by hardening across record parsing, handshake validation, and configurable feature guards. 
+- Malformed TLS 1.3 CertificateVerify messages are rejected.
 
 ### Fixed / Resolved
 
-- crypto_only profile keeps PKC enabled.
-- LMS/HSS and XMSS certificate verification paths.
-- AES-CMAC calculation and AES internal header extern "C" linkage for C++ consumers.
-- DTLS embedded PSK-only handshakes and related DTLS fixes.
-- Security hardening across crypto and parser paths.
+- TLS 1.3 server handshakes failed at encrypted Finished with OpenSSL/curl clients due to incorrect HKDF context for the "derived" label.
+- TLS 1.2 CBC record tests updated for Encrypt-then-MAC enforcement.
 
 ### Known issues / Open
 

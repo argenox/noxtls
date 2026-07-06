@@ -1,0 +1,10 @@
+{
+  "label": "STM32",
+  "position": 2,
+  "collapsed": false,
+  "link": {
+    "type": "generated-index",
+    "title": "STM32 demos",
+    "description": "Board-specific guides for running NoxTLS on STM32 MCUs."
+  }
+}
