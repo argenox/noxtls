@@ -411,6 +411,48 @@ static noxtls_return_t hash_message(noxtls_hash_algos_t hash_algo,
     return NOXTLS_RETURN_INVALID_ALGORITHM;
 }
 
+static noxtls_return_t hash_empty_message(noxtls_hash_algos_t hash_algo,
+                                          uint8_t *out_digest, uint32_t out_len)
+{
+    if(out_digest == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    if(hash_algo == NOXTLS_HASH_SHA_256) {
+        noxtls_sha_ctx_t ctx;
+        if(out_len < 32U) {
+            return NOXTLS_RETURN_INVALID_PARAM;
+        }
+        if(noxtls_sha256_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_FAILED;
+        }
+        return noxtls_sha256_finish(&ctx, out_digest);
+    }
+    if(hash_algo == NOXTLS_HASH_SHA_384 || hash_algo == NOXTLS_HASH_SHA_512) {
+        noxtls_sha512_ctx_t ctx;
+        uint32_t need = (hash_algo == NOXTLS_HASH_SHA_384) ? 48U : 64U;
+        if(out_len < need) {
+            return NOXTLS_RETURN_INVALID_PARAM;
+        }
+        if(noxtls_sha512_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_FAILED;
+        }
+        return noxtls_sha512_finish(&ctx, out_digest);
+    }
+    if(hash_algo == NOXTLS_HASH_SHA1) {
+        noxtls_sha_ctx_t ctx;
+        if(out_len < 20U) {
+            return NOXTLS_RETURN_INVALID_PARAM;
+        }
+        if(noxtls_sha1_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_FAILED;
+        }
+        return noxtls_sha1_finish(&ctx, out_digest);
+    }
+
+    return NOXTLS_RETURN_INVALID_ALGORITHM;
+}
+
 noxtls_return_t tls13_derive_secret(noxtls_hash_algos_t hash_algo,
                                     const uint8_t *secret, uint32_t secret_len,
                                     const uint8_t *label, uint32_t label_len,
@@ -437,7 +479,10 @@ noxtls_return_t tls13_derive_secret(noxtls_hash_algos_t hash_algo,
             return rc;
         }
     } else {
-        memset(transcript_hash, 0, hash_len);
+        rc = hash_empty_message(hash_algo, transcript_hash, sizeof(transcript_hash));
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
     }
 
     return tls13_hkdf_expand_label(hash_algo, secret, secret_len, label, label_len,
@@ -470,7 +515,10 @@ noxtls_return_t dtls13_derive_secret(noxtls_hash_algos_t hash_algo,
             return rc;
         }
     } else {
-        memset(transcript_hash, 0, hash_len);
+        rc = hash_empty_message(hash_algo, transcript_hash, sizeof(transcript_hash));
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
     }
 
     return dtls13_hkdf_expand_label(hash_algo, secret, secret_len, label, label_len,

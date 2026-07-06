@@ -1618,46 +1618,61 @@ noxtls_return_t noxtls_tls12_dhe_recv_server_key_exchange(tls12_context_t *ctx, 
     off += len_Ys;
     uint32_t params_len = off - 4;
 
-    if(off + 4 <= record_len) {
+    if(off + 4 > record_len) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    {
         uint16_t sig_len = (uint16_t)((record_data[off + 2] << 8) | record_data[off + 3]);
-        if(sig_len > 0 && ctx->server_cert_parsed != NULL && off + 4 + sig_len <= record_len) {
-            const x509_certificate_t *cert = (const x509_certificate_t *)ctx->server_cert_parsed;
-            if(cert->rsa_modulus != NULL && cert->rsa_exponent != NULL) {
-                uint32_t key_bytes = cert->rsa_modulus_len;
-                rsa_key_size_t key_size;
-                if(key_bytes == 128) {
-                    key_size = RSA_1024_BIT;
-                } else if(key_bytes == 256) {
-                    key_size = RSA_2048_BIT;
-                } else if(key_bytes == 384) {
-                    key_size = RSA_3072_BIT;
-                } else if(key_bytes == 512) {
-                    key_size = RSA_4096_BIT;
-                } else {
-                    return NOXTLS_RETURN_FAILED;
-                }
-                rsa_key_t rsa_key;
-                if(noxtls_rsa_key_init(&rsa_key, key_size) == NOXTLS_RETURN_SUCCESS) {
-                    memcpy(rsa_key.n, cert->rsa_modulus, cert->rsa_modulus_len);
-                    memcpy(rsa_key.e, cert->rsa_exponent, cert->rsa_exponent_len);
-                    uint8_t *to_verify = (ctx->handshake_workspace != NULL) ? ctx->handshake_workspace : (uint8_t*)noxtls_malloc(DHE_TO_SIGN_SIZE);
-                    if(to_verify != NULL && params_len <= DHE_TO_SIGN_SIZE - (TLS_RANDOM_SIZE * 2U)) {
-                        memcpy(to_verify, ctx->client_random, TLS_RANDOM_SIZE);
-                        memcpy(to_verify + TLS_RANDOM_SIZE, ctx->server_random, TLS_RANDOM_SIZE);
-                        memcpy(to_verify + ((size_t)TLS_RANDOM_SIZE * 2U), record_data + 4, params_len);
-                        rc = noxtls_rsa_verify(&rsa_key, to_verify, (uint32_t)(TLS_RANDOM_SIZE + TLS_RANDOM_SIZE + params_len),
-                                                record_data + off + 4, sig_len, NOXTLS_HASH_SHA_256);
-                        if(to_verify != ctx->handshake_workspace) NOXTLS_SECURE_FREE(to_verify, DHE_TO_SIGN_SIZE); else memset(ctx->handshake_workspace, 0, TLS_HANDSHAKE_WORKSPACE_SIZE);
-                        noxtls_rsa_key_free(&rsa_key);
-                        if(rc != NOXTLS_RETURN_SUCCESS) {
-                            return NOXTLS_RETURN_FAILED;
-                        }
-                    } else {
-                        if(to_verify != NULL && to_verify != ctx->handshake_workspace) NOXTLS_SECURE_FREE(to_verify, DHE_TO_SIGN_SIZE);
-                        noxtls_rsa_key_free(&rsa_key);
-                    }
-                }
-            }
+        const x509_certificate_t *cert = (const x509_certificate_t *)ctx->server_cert_parsed;
+        uint32_t key_bytes;
+        rsa_key_size_t key_size;
+        rsa_key_t rsa_key;
+        uint8_t *to_verify;
+
+        if(sig_len == 0U || off + 4U + (uint32_t)sig_len != record_len ||
+           cert == NULL || cert->rsa_modulus == NULL || cert->rsa_exponent == NULL ||
+           params_len > DHE_TO_SIGN_SIZE - (TLS_RANDOM_SIZE * 2U)) {
+            return NOXTLS_RETURN_FAILED;
+        }
+
+        key_bytes = cert->rsa_modulus_len;
+        if(key_bytes == 128) {
+            key_size = RSA_1024_BIT;
+        } else if(key_bytes == 256) {
+            key_size = RSA_2048_BIT;
+        } else if(key_bytes == 384) {
+            key_size = RSA_3072_BIT;
+        } else if(key_bytes == 512) {
+            key_size = RSA_4096_BIT;
+        } else {
+            return NOXTLS_RETURN_FAILED;
+        }
+
+        rc = noxtls_rsa_key_init(&rsa_key, key_size);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
+        memcpy(rsa_key.n, cert->rsa_modulus, cert->rsa_modulus_len);
+        memcpy(rsa_key.e, cert->rsa_exponent, cert->rsa_exponent_len);
+
+        to_verify = (ctx->handshake_workspace != NULL) ? ctx->handshake_workspace : (uint8_t*)noxtls_malloc(DHE_TO_SIGN_SIZE);
+        if(to_verify == NULL) {
+            noxtls_rsa_key_free(&rsa_key);
+            return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+        }
+        memcpy(to_verify, ctx->client_random, TLS_RANDOM_SIZE);
+        memcpy(to_verify + TLS_RANDOM_SIZE, ctx->server_random, TLS_RANDOM_SIZE);
+        memcpy(to_verify + ((size_t)TLS_RANDOM_SIZE * 2U), record_data + 4, params_len);
+        rc = noxtls_rsa_verify(&rsa_key, to_verify, (uint32_t)(TLS_RANDOM_SIZE + TLS_RANDOM_SIZE + params_len),
+                                record_data + off + 4, sig_len, NOXTLS_HASH_SHA_256);
+        if(to_verify != ctx->handshake_workspace) {
+            NOXTLS_SECURE_FREE(to_verify, DHE_TO_SIGN_SIZE);
+        } else {
+            memset(ctx->handshake_workspace, 0, TLS_HANDSHAKE_WORKSPACE_SIZE);
+        }
+        noxtls_rsa_key_free(&rsa_key);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_FAILED;
         }
     }
 

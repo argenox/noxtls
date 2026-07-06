@@ -1088,6 +1088,10 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
     int use_encrypt_then_mac = tls12_should_use_encrypt_then_mac(ctx, is_gcm, is_tls12_ccm, is_tls12_chacha);
     uint32_t encrypted_part_len = encrypted_record_len;
 
+    if(use_encrypt_then_mac == 0) {
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+    }
+
     if(use_encrypt_then_mac) {
         uint8_t received_outer_mac[64];
         uint8_t computed_outer_mac[64];
@@ -1274,35 +1278,18 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
         }
     }
     if(bad_record != 0U) {
-        fprintf(stderr,
-                "[TLS12_REC] decrypt bad_record: suite=0x%04X type=%u seq=%llu etm=%d pad=%u inner_mac=%u len=%u dec_len=%u pad_len=%u body=%u mac_len=%u recv=%02X%02X%02X%02X calc=%02X%02X%02X%02X\n",
-                (unsigned)ctx->cipher_suite,
-                (unsigned)type,
-                (unsigned long long)seq_num,
-                use_encrypt_then_mac,
-                (unsigned)bad_padding,
-                (unsigned)bad_inner_mac,
-                (unsigned)bad_length,
-                (unsigned)decrypted_data_len,
-                (unsigned)padding_len,
-                (unsigned)body_len,
-                (unsigned)mac_len,
-                mac[0], mac[1], mac[2], mac[3],
-                computed_mac[0], computed_mac[1], computed_mac[2], computed_mac[3]);
-        if(use_encrypt_then_mac == 0 && bad_inner_mac != 0U) {
-            uint32_t j;
-            fprintf(stderr, "[TLS12_REC] inner-mac context: ver=0x%04X plain_len=%u key_len=%u\n",
-                    (unsigned)ctx->base.base.version, (unsigned)plaintext_data_len, (unsigned)mac_key_len);
-            fprintf(stderr, "[TLS12_REC] mac_key=");
-            for(j = 0; j < mac_key_len; j++) {
-                fprintf(stderr, "%02X", mac_key[j]);
-            }
-            fprintf(stderr, "\n[TLS12_REC] plaintext=");
-            for(j = 0; j < plaintext_data_len; j++) {
-                fprintf(stderr, "%02X", decrypted_data[j]);
-            }
-            fprintf(stderr, "\n");
-        }
+        noxtls_debug_printf("[TLS12_REC] decrypt bad_record: suite=0x%04X type=%u seq=%llu etm=%d pad=%u inner_mac=%u len=%u dec_len=%u pad_len=%u body=%u mac_len=%u\n",
+                            (unsigned)ctx->cipher_suite,
+                            (unsigned)type,
+                            (unsigned long long)seq_num,
+                            use_encrypt_then_mac,
+                            (unsigned)bad_padding,
+                            (unsigned)bad_inner_mac,
+                            (unsigned)bad_length,
+                            (unsigned)decrypted_data_len,
+                            (unsigned)padding_len,
+                            (unsigned)body_len,
+                            (unsigned)mac_len);
         noxtls_free(decrypted_data);
         return NOXTLS_RETURN_BAD_DATA;
     }
