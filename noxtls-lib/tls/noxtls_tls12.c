@@ -43,6 +43,7 @@
 #include "drbg/noxtls_drbg.h"
 #include "certs/noxtls_x509.h"
 #include "pkc/rsa/noxtls_rsa.h"
+#include "pkc/rsa/noxtls_bignum.h"
 #include "pkc/ecdsa/noxtls_ecdsa.h"
 #include "mdigest/sha256/noxtls_sha256.h"
 #include "mdigest/sha512/noxtls_sha512.h"
@@ -1173,8 +1174,11 @@ static noxtls_return_t tls12_select_ffdhe_named_group(const tls12_context_t *ctx
             if(tls12_is_supported_ffdhe_group(g) || tls12_is_supported_ec_curve(g)) {
                 continue;
             }
-            /* FFDHE groups are 256..260 in this stack; EC named groups historically use <256. */
-            if(g > 255u) {
+            /* RFC 7919 assigns FFDHE groups 256..511; if the client named one we do not
+             * implement, do not substitute suite-default FFDHE (RSA fallback may apply).
+             * Unknown EC or private-use ids (e.g. 11200) still allow suite-default FFDHE
+             * when the client offered a DHE_RSA cipher (tlsfuzzer test_x25519). */
+            if(g >= 256u && g <= 511u) {
                 allow_suite_default_ffdhe = 0;
                 break;
             }
@@ -6772,6 +6776,105 @@ static noxtls_return_t tls12_sig_hash_to_noxtls(uint8_t hash_id, noxtls_hash_alg
 }
 
 /**
+ * @brief Detect TLS 1.0/1.1 CertificateVerify signing on a TLS 1.2 connection.
+ *
+ * tlsfuzzer signs handshakeHashes.digest() (MD5||SHA1) while the wire version is
+ * TLS 1.2. Reject when the RSA PKCS#1 v1.5 plaintext embeds that legacy blob.
+ */
+static int tls12_rsa_cv_embeds_tls10_tosign(const x509_certificate_t *cert,
+                                            const uint8_t *handshake_messages,
+                                            uint32_t handshake_messages_len,
+                                            const uint8_t *signature,
+                                            uint32_t signature_len)
+{
+    uint8_t md5_hash[16];
+    uint8_t sha1_hash[20];
+    uint8_t tosign[36];
+    uint8_t *decrypted;
+    rsa_key_t rsa_key;
+    uint32_t mod_len;
+    uint32_t exp_len;
+    const uint8_t *mod_ptr;
+    const uint8_t *exp_ptr;
+    rsa_key_size_t key_size;
+    noxtls_return_t rc;
+    uint32_t i;
+    noxtls_sha_ctx_t md5_ctx;
+    noxtls_sha_ctx_t sha1_ctx;
+
+    if(cert == NULL || handshake_messages == NULL || signature == NULL ||
+       handshake_messages_len == 0U || signature_len == 0U) {
+        return 0;
+    }
+    if(cert->rsa_modulus == NULL || cert->rsa_exponent == NULL ||
+       cert->rsa_modulus_len == 0U || cert->rsa_exponent_len == 0U) {
+        return 0;
+    }
+
+    noxtls_md5_init(&md5_ctx);
+    noxtls_md5_update(&md5_ctx, (uint8_t *)handshake_messages, handshake_messages_len);
+    noxtls_md5_finish(&md5_ctx, md5_hash);
+    noxtls_sha1_init(&sha1_ctx, NOXTLS_HASH_SHA1);
+    noxtls_sha1_update(&sha1_ctx, handshake_messages, handshake_messages_len);
+    noxtls_sha1_finish(&sha1_ctx, sha1_hash);
+    memcpy(tosign, md5_hash, sizeof(md5_hash));
+    memcpy(tosign + sizeof(md5_hash), sha1_hash, sizeof(sha1_hash));
+
+    mod_ptr = cert->rsa_modulus;
+    mod_len = cert->rsa_modulus_len;
+    exp_ptr = cert->rsa_exponent;
+    exp_len = cert->rsa_exponent_len;
+    if(mod_ptr[0] == 0x00u) { mod_ptr++; mod_len--; }
+    if(exp_ptr[0] == 0x00u) { exp_ptr++; exp_len--; }
+    if(mod_len == 128U) key_size = RSA_1024_BIT;
+    else if(mod_len == 256u) key_size = RSA_2048_BIT;
+    else if(mod_len == 384u) key_size = RSA_3072_BIT;
+    else if(mod_len == 512U) key_size = RSA_4096_BIT;
+    else {
+        return 0;
+    }
+    if(signature_len != (uint32_t)key_size) {
+        return 0;
+    }
+    rc = noxtls_rsa_key_init(&rsa_key, key_size);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return 0;
+    }
+    memset(rsa_key.n, 0, rsa_key.key_bytes);
+    memset(rsa_key.e, 0, rsa_key.key_bytes);
+    memcpy(rsa_key.n + (rsa_key.key_bytes - mod_len), mod_ptr, mod_len);
+    memcpy(rsa_key.e + (rsa_key.key_bytes - exp_len), exp_ptr, exp_len);
+
+    decrypted = (uint8_t *)noxtls_malloc(rsa_key.key_bytes);
+    if(decrypted == NULL) {
+        noxtls_rsa_key_free(&rsa_key);
+        return 0;
+    }
+    noxtls_bn_mod_exp(decrypted, signature, rsa_key.e, rsa_key.key_bytes, rsa_key.n, rsa_key.key_bytes);
+
+    for(i = 16U; i + 20U <= rsa_key.key_bytes; i++) {
+        if(memcmp(decrypted + i, sha1_hash, sizeof(sha1_hash)) == 0 &&
+           memcmp(decrypted + i - 16U, md5_hash, sizeof(md5_hash)) == 0) {
+            noxtls_free(decrypted);
+            noxtls_rsa_key_free(&rsa_key);
+            return 1;
+        }
+    }
+
+    for(i = 0; i + 36U <= rsa_key.key_bytes; i++) {
+        if(memcmp(decrypted + i, tosign, sizeof(tosign)) == 0) {
+            noxtls_free(decrypted);
+            noxtls_rsa_key_free(&rsa_key);
+            return 1;
+        }
+    }
+
+    noxtls_free(decrypted);
+    noxtls_rsa_key_free(&rsa_key);
+    return 0;
+}
+
+/**
  * @brief Receive the client certificate verify.
  *
  * @param[in] ctx The context value.
@@ -6806,6 +6909,18 @@ static noxtls_return_t tls12_recv_client_certificate_verify(tls12_context_t *ctx
     if((uint32_t)8U + (uint32_t)sig_len != msg_len) {
         noxtls_free(msg);
         return NOXTLS_RETURN_BAD_DATA;
+    }
+
+    /* TLS 1.2 CertificateVerify must include SignatureAndHashAlgorithm (RFC 5246). */
+    if(ctx->base.base.version >= TLS_VERSION_1_2 && msg_len < 8U) {
+        noxtls_free(msg);
+        return NOXTLS_RETURN_BAD_DATA;
+    }
+
+    /* Reject MD5 CertificateVerify signatures (SLOTH / CVE-2015-7575). */
+    if((uint8_t)(sig_scheme >> 8) == 1u) {
+        noxtls_free(msg);
+        return NOXTLS_RETURN_FAILED;
     }
 
     cert = (x509_certificate_t*)ctx->client_cert_parsed;
@@ -6850,6 +6965,13 @@ static noxtls_return_t tls12_recv_client_certificate_verify(tls12_context_t *ctx
         memset(rsa_key.e, 0, rsa_key.key_bytes);
         memcpy(rsa_key.n + (rsa_key.key_bytes - mod_len), mod_ptr, mod_len);
         memcpy(rsa_key.e + (rsa_key.key_bytes - exp_len), exp_ptr, exp_len);
+        if(tls12_rsa_cv_embeds_tls10_tosign(cert, ctx->handshake_messages,
+                                            ctx->handshake_messages_len,
+                                            msg + 8U, sig_len)) {
+            noxtls_rsa_key_free(&rsa_key);
+            noxtls_free(msg);
+            return NOXTLS_RETURN_FAILED;
+        }
         rc = noxtls_rsa_verify(&rsa_key, ctx->handshake_messages, ctx->handshake_messages_len,
                                msg + 8U, sig_len, hash_algo);
         noxtls_rsa_key_free(&rsa_key);
@@ -8073,6 +8195,10 @@ noxtls_return_t noxtls_tls12_accept(tls12_context_t *ctx)
     if(ctx->request_client_auth && client_cert_present) {
         rc = tls12_recv_client_certificate_verify(ctx);
         if(rc != NOXTLS_RETURN_SUCCESS) {
+            if(ctx->base.base.send_callback != NULL) {
+                (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL,
+                                            TLS_ALERT_DECODE_ERROR);
+            }
             return rc;
         }
     }

@@ -73,6 +73,7 @@ typedef int socket_t;
  */
 static uint8_t  g_app_workspace[NOXTLS_APP_STATIC_BUFFER_SIZE];
 static size_t   g_app_workspace_off = 0U;
+static size_t   g_app_workspace_persistent_off = 0U;
 #define APP_WORKSPACE_ALIGN ((size_t)16U)
 
 typedef enum {
@@ -140,6 +141,22 @@ static void app_workspace_reset(void)
     g_app_workspace_off = 0U;
 }
 
+/**
+ * @brief Release per-connection workspace allocations while keeping startup data.
+ */
+static void app_workspace_reset_ephemeral(void)
+{
+    if(g_app_workspace_persistent_off > 0U) {
+        if(g_app_workspace_off > g_app_workspace_persistent_off) {
+            memset(g_app_workspace + g_app_workspace_persistent_off, 0,
+                   g_app_workspace_off - g_app_workspace_persistent_off);
+        }
+        g_app_workspace_off = g_app_workspace_persistent_off;
+    } else {
+        app_workspace_reset();
+    }
+}
+
 /* Redirect malloc()/free() in this translation unit to the static workspace.
  * Library and standard headers have already been pulled in above; they
  * declared malloc/free as plain functions and are unaffected. App code below
@@ -155,6 +172,9 @@ static void app_workspace_reset(void)
 #define DEFAULT_KEY_FILE "server.key"
 #define DEFAULT_BIND_IP "127.0.0.1"
 #define REQUEST_BUFFER_SIZE 65536u
+#if (NOXTLS_FEATURE_TLS12 || NOXTLS_FEATURE_TLS13)
+static uint8_t g_request_buffer[REQUEST_BUFFER_SIZE];
+#endif
 #define REQUEST_READ_CHUNK 65535u
 #define HTTP_HEADER_BUFFER_SIZE 512U
 #define HTTP_BODY_BUFFER_SIZE 4096u
@@ -558,6 +578,7 @@ static void close_client_socket(socket_t sock)
     }
 #endif
     CLOSESOCK(sock);
+    app_workspace_reset_ephemeral();
 }
 
 static const cipher_suite_entry_t CIPHER_NAME_TABLE[] = {
@@ -1787,13 +1808,9 @@ static int https_buf_is_tls_lengths_echo_payload(const uint8_t *buf, uint32_t le
 static int serve_one_request(void *tls_ctx, int is_tls13, const char *body, size_t body_len)
 {
     noxtls_return_t rc;
-    uint8_t *req_buf = (uint8_t *)malloc(REQUEST_BUFFER_SIZE);
+    uint8_t *req_buf = g_request_buffer;
     uint32_t req_len = 0;
     int trigger_server_keyupdate = 0;
-
-    if(req_buf == NULL) {
-        return -1;
-    }
 
     while(req_len < REQUEST_BUFFER_SIZE - 1U) {
         uint32_t space = (REQUEST_BUFFER_SIZE - 1U) - req_len;
@@ -1940,12 +1957,8 @@ fail:
 static int serve_one_request_unified(noxtls_tls_connection_t *conn, const char *body, size_t body_len)
 {
     noxtls_return_t rc;
-    uint8_t *req_buf = (uint8_t *)malloc(REQUEST_BUFFER_SIZE);
+    uint8_t *req_buf = g_request_buffer;
     uint32_t req_len = 0;
-
-    if(req_buf == NULL) {
-        return -1;
-    }
 
     while(req_len < REQUEST_BUFFER_SIZE - 1U) {
         uint32_t space = (REQUEST_BUFFER_SIZE - 1U) - req_len;
@@ -2142,12 +2155,8 @@ static int serve_interop_session(https_io_kind_t kind,
                                  const char *http_body,
                                  size_t http_body_len)
 {
-    uint8_t *req_buf = (uint8_t *)malloc(REQUEST_BUFFER_SIZE);
+    uint8_t *req_buf = g_request_buffer;
     noxtls_return_t rc;
-
-    if(req_buf == NULL) {
-        return -1;
-    }
 
     for(;;) {
         uint32_t req_len = 0;
@@ -2157,7 +2166,6 @@ static int serve_interop_session(https_io_kind_t kind,
             uint32_t to_recv;
 
             if(space == 0U) {
-                free(req_buf);
                 return -1;
             }
             to_recv = space;
@@ -2166,7 +2174,6 @@ static int serve_interop_session(https_io_kind_t kind,
             }
             rc = https_io_recv(kind, tls_ctx, uconn, req_buf + req_len, &to_recv);
             if(rc != NOXTLS_RETURN_SUCCESS) {
-                free(req_buf);
                 return 0;
             }
             if(to_recv == 0U) {
@@ -2188,7 +2195,6 @@ static int serve_interop_session(https_io_kind_t kind,
         }
 
         if(req_len == 0U) {
-            free(req_buf);
             return 0;
         }
 
@@ -2196,7 +2202,6 @@ static int serve_interop_session(https_io_kind_t kind,
            !http_headers_complete(req_buf, req_len)) {
             rc = https_io_send(kind, tls_ctx, uconn, req_buf, req_len);
             if(rc != NOXTLS_RETURN_SUCCESS) {
-                free(req_buf);
                 return 0;
             }
             continue;
@@ -2206,7 +2211,6 @@ static int serve_interop_session(https_io_kind_t kind,
             if(kind == HTTPS_IO_TLS13 && req_len >= 16U && memcmp(req_buf, "GET /keyupdate ", 15U) == 0) {
                 rc = noxtls_tls13_send_key_update((tls13_context_t *)tls_ctx, 1U);
                 if(rc != NOXTLS_RETURN_SUCCESS) {
-                    free(req_buf);
                     return 0;
                 }
             }
@@ -2221,7 +2225,6 @@ static int serve_interop_session(https_io_kind_t kind,
                 }
             }
             if(https_send_html_response(kind, tls_ctx, uconn, http_body, http_body_len) != 0) {
-                free(req_buf);
                 return 0;
             }
             continue;
@@ -2229,7 +2232,6 @@ static int serve_interop_session(https_io_kind_t kind,
 
         rc = https_io_send(kind, tls_ctx, uconn, req_buf, req_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            free(req_buf);
             return 0;
         }
     }
@@ -3047,6 +3049,7 @@ int main(int argc, char **argv)
     }
     printf("Press Ctrl+C to stop.\n\n");
 
+    g_app_workspace_persistent_off = g_app_workspace_off;
     exit_code = 0;
     for(;;) {
         struct sockaddr_in client_addr;
