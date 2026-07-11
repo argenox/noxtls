@@ -5546,15 +5546,26 @@ noxtls_return_t noxtls_tls12_send_server_hello(tls12_context_t *ctx)
         if(server_hello != ctx->handshake_workspace) NOXTLS_SECURE_FREE(server_hello, TLS_SERVER_HELLO_DEFAULT_SIZE); else if(ctx->handshake_workspace != NULL) memset(ctx->handshake_workspace, 0, TLS_HANDSHAKE_WORKSPACE_SIZE);
         return NOXTLS_RETURN_FAILED;
     }
-    /* RFC 8446 §4.1.3: server that also supports TLS 1.3 must signal TLS 1.2 downgrade in ServerHello.random. */
+    /* RFC 8446 §4.1.3: TLS 1.3-capable servers negotiating TLS 1.2 or lower set ServerHello.random suffix. */
     if(ctx->rfc8446_tls13_downgrade_sh_random != 0 &&
        ctx->base.base.role == TLS_ROLE_SERVER &&
-       !tls12_is_dtls(ctx) &&
-       ctx->base.base.version == TLS_VERSION_1_2) {
-        static const uint8_t tls13_downgrade_suffix[8] = {
+       !tls12_is_dtls(ctx)) {
+        static const uint8_t tls13_downgrade_tls12_suffix[8] = {
             0x44, 0x4F, 0x57, 0x4E, 0x47, 0x52, 0x44, 0x01
         };
-        memcpy(ctx->server_random + 24, tls13_downgrade_suffix, sizeof(tls13_downgrade_suffix));
+        static const uint8_t tls13_downgrade_pre_tls12_suffix[8] = {
+            0x44, 0x4F, 0x57, 0x4E, 0x47, 0x52, 0x44, 0x00
+        };
+        const uint8_t *suffix = NULL;
+        if(ctx->base.base.version == TLS_VERSION_1_2) {
+            suffix = tls13_downgrade_tls12_suffix;
+        } else if(ctx->base.base.version == TLS_VERSION_1_1 ||
+                  ctx->base.base.version == TLS_VERSION_1_0) {
+            suffix = tls13_downgrade_pre_tls12_suffix;
+        }
+        if(suffix != NULL) {
+            memcpy(ctx->server_random + 24, suffix, 8);
+        }
     }
 
     /* Build Server Hello noxtls_message */
