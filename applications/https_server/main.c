@@ -1466,6 +1466,7 @@ static void print_usage(const char *prog)
     printf("  --debug-log <file>     Append noxtls debug output to log file\n");
     printf("  --unified              Use noxtls_tls_connection_t API\n");
     printf("  --disable-tls13        Server negotiates TLS 1.2 only (for tlsfuzzer test_tls13_non_support)\n");
+    printf("  --interop-mode         tlsfuzzer interop: echo app data, defer close_notify, no forced HTTP\n");
     printf("  --disable-heartbeat    Disable TLS 1.2 RFC 6520 heartbeat extension/records (default)\n");
     printf("  --enable-heartbeat     Enable TLS 1.2 RFC 6520 heartbeat extension/records\n");
     printf("  --version, -V          Print NoxTLS build version and exit\n");
@@ -1935,15 +1936,6 @@ fail:
     return -1;
 }
 
-#if (NOXTLS_FEATURE_TLS12 || NOXTLS_FEATURE_TLS13)
-/**
- * @brief Serve one request unified
- *
- * @param[in] conn The connection to serve the request from
- * @param[in] body The body of the request
- * @param[in] body_len The length of the body of the request
- * @return The return code
- */
 static int serve_one_request_unified(noxtls_tls_connection_t *conn, const char *body, size_t body_len)
 {
     noxtls_return_t rc;
@@ -2048,7 +2040,199 @@ fail:
     free(req_buf);
     return -1;
 }
-#endif
+
+typedef enum {
+    HTTPS_IO_TLS12 = 0,
+    HTTPS_IO_TLS13 = 1,
+    HTTPS_IO_UNIFIED = 2
+} https_io_kind_t;
+
+static noxtls_return_t https_io_recv(https_io_kind_t kind,
+                                     void *tls_ctx,
+                                     noxtls_tls_connection_t *uconn,
+                                     uint8_t *buf,
+                                     uint32_t *len)
+{
+    if(kind == HTTPS_IO_UNIFIED) {
+        return noxtls_tls_connection_recv(uconn, buf, len);
+    }
+    if(kind == HTTPS_IO_TLS13) {
+        return noxtls_tls13_recv((tls13_context_t *)tls_ctx, buf, len);
+    }
+    return noxtls_tls12_recv((tls12_context_t *)tls_ctx, buf, len);
+}
+
+static noxtls_return_t https_io_send(https_io_kind_t kind,
+                                     void *tls_ctx,
+                                     noxtls_tls_connection_t *uconn,
+                                     const uint8_t *buf,
+                                     uint32_t len)
+{
+    if(kind == HTTPS_IO_UNIFIED) {
+        return noxtls_tls_connection_send(uconn, buf, len);
+    }
+    if(kind == HTTPS_IO_TLS13) {
+        return noxtls_tls13_send((tls13_context_t *)tls_ctx, buf, len);
+    }
+    return noxtls_tls12_send((tls12_context_t *)tls_ctx, buf, len);
+}
+
+static int https_send_html_response(https_io_kind_t kind,
+                                    void *tls_ctx,
+                                    noxtls_tls_connection_t *uconn,
+                                    const char *body,
+                                    size_t body_len)
+{
+    char header[HTTP_HEADER_BUFFER_SIZE];
+    int header_len = snprintf(header, sizeof(header),
+                              "HTTP/1.1 200 OK\r\n"
+                              "Content-Type: text/html; charset=UTF-8\r\n"
+                              "Connection: close\r\n"
+                              "Content-Length: %zu\r\n"
+                              "\r\n",
+                              body_len);
+    noxtls_return_t rc;
+
+    if(header_len <= 0 || (size_t)header_len >= sizeof(header)) {
+        return -1;
+    }
+    if((size_t)header_len + body_len <= (size_t)TLS_MAX_RECORD_SIZE) {
+        size_t response_len = (size_t)header_len + body_len;
+        uint8_t *response = (uint8_t *)malloc(response_len);
+        if(response == NULL) {
+            return -1;
+        }
+        memcpy(response, header, (size_t)header_len);
+        memcpy(response + (size_t)header_len, body, body_len);
+        rc = https_io_send(kind, tls_ctx, uconn, response, (uint32_t)response_len);
+        free(response);
+        return rc == NOXTLS_RETURN_SUCCESS ? 0 : -1;
+    }
+    rc = https_io_send(kind, tls_ctx, uconn, (const uint8_t *)header, (uint32_t)header_len);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return -1;
+    }
+    {
+        size_t sent = 0;
+        while(sent < body_len) {
+            uint32_t chunk = (uint32_t)(body_len - sent);
+            if(chunk > TLS_SEND_CHUNK) {
+                chunk = TLS_SEND_CHUNK;
+            }
+            rc = https_io_send(kind, tls_ctx, uconn, (const uint8_t *)body + sent, chunk);
+            if(rc != NOXTLS_RETURN_SUCCESS) {
+                return -1;
+            }
+            sent += chunk;
+        }
+    }
+    return 0;
+}
+
+/**
+ * @brief tlsfuzzer interop session: echo non-HTTP app data, serve HTTP when requested.
+ *
+ * Returns when the peer closes the TLS connection or recv fails. Does not force
+ * close_notify; the caller should close the socket without an immediate TLS close.
+ */
+static int serve_interop_session(https_io_kind_t kind,
+                                 void *tls_ctx,
+                                 noxtls_tls_connection_t *uconn,
+                                 const char *http_body,
+                                 size_t http_body_len)
+{
+    uint8_t *req_buf = (uint8_t *)malloc(REQUEST_BUFFER_SIZE);
+    noxtls_return_t rc;
+
+    if(req_buf == NULL) {
+        return -1;
+    }
+
+    for(;;) {
+        uint32_t req_len = 0;
+
+        while(req_len < REQUEST_BUFFER_SIZE - 1U) {
+            uint32_t space = (REQUEST_BUFFER_SIZE - 1U) - req_len;
+            uint32_t to_recv;
+
+            if(space == 0U) {
+                free(req_buf);
+                return -1;
+            }
+            to_recv = space;
+            if(to_recv > REQUEST_READ_CHUNK) {
+                to_recv = REQUEST_READ_CHUNK;
+            }
+            rc = https_io_recv(kind, tls_ctx, uconn, req_buf + req_len, &to_recv);
+            if(rc != NOXTLS_RETURN_SUCCESS) {
+                free(req_buf);
+                return 0;
+            }
+            if(to_recv == 0U) {
+                if(req_len > 0U) {
+                    break;
+                }
+                continue;
+            }
+            req_len += to_recv;
+            if(req_len < REQUEST_BUFFER_SIZE) {
+                req_buf[req_len] = '\0';
+            }
+            if(http_headers_complete(req_buf, req_len)) {
+                break;
+            }
+            if(https_buf_is_tls_lengths_echo_payload(req_buf, req_len)) {
+                break;
+            }
+        }
+
+        if(req_len == 0U) {
+            free(req_buf);
+            return 0;
+        }
+
+        if(https_buf_is_tls_lengths_echo_payload(req_buf, req_len) &&
+           !http_headers_complete(req_buf, req_len)) {
+            rc = https_io_send(kind, tls_ctx, uconn, req_buf, req_len);
+            if(rc != NOXTLS_RETURN_SUCCESS) {
+                free(req_buf);
+                return 0;
+            }
+            continue;
+        }
+
+        if(http_headers_complete(req_buf, req_len)) {
+            if(kind == HTTPS_IO_TLS13 && req_len >= 16U && memcmp(req_buf, "GET /keyupdate ", 15U) == 0) {
+                rc = noxtls_tls13_send_key_update((tls13_context_t *)tls_ctx, 1U);
+                if(rc != NOXTLS_RETURN_SUCCESS) {
+                    free(req_buf);
+                    return 0;
+                }
+            }
+            if(kind == HTTPS_IO_TLS12 && req_len >= 18U && memcmp(req_buf, "GET /secure/test ", 17U) == 0) {
+                uint8_t reneg_dummy = 0;
+                uint32_t reneg_len = 1U;
+                tls12_context_t *tls12 = (tls12_context_t *)tls_ctx;
+                noxtls_tls12_request_client_auth(tls12, 1);
+                rc = noxtls_tls12_send_hello_request(tls12);
+                if(rc == NOXTLS_RETURN_SUCCESS) {
+                    (void)noxtls_tls12_recv(tls12, &reneg_dummy, &reneg_len);
+                }
+            }
+            if(https_send_html_response(kind, tls_ctx, uconn, http_body, http_body_len) != 0) {
+                free(req_buf);
+                return 0;
+            }
+            continue;
+        }
+
+        rc = https_io_send(kind, tls_ctx, uconn, req_buf, req_len);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            free(req_buf);
+            return 0;
+        }
+    }
+}
 
 /**
  * @brief Build the HTTP body
@@ -2330,6 +2514,7 @@ int main(int argc, char **argv)
     uint8_t tls13_psk_mode = TLS13_PSK_KE_MODE_PSK_DHE_KE;
     int tls13_psk_enabled = 0;
     int disable_tls13 = 0;
+    int interop_mode = 0;
     int use_unified = 0;
     int request_client_cert = 0;
     int require_client_cert = 0;
@@ -2479,6 +2664,8 @@ int main(int argc, char **argv)
             use_unified = 1;
         } else if(strcmp(argv[i], "--disable-tls13") == 0) {
             disable_tls13 = 1;
+        } else if(strcmp(argv[i], "--interop-mode") == 0) {
+            interop_mode = 1;
         } else if(strcmp(argv[i], "--disable-heartbeat") == 0) {
             heartbeat_enabled = 0;
         } else if(strcmp(argv[i], "--enable-heartbeat") == 0) {
@@ -3074,7 +3261,14 @@ int main(int argc, char **argv)
                                                    negotiated_version,
                                                    negotiated_suite,
                                                    tls13_group);
-                        if(body_len <= 0) {
+                        if(interop_mode) {
+                            int is_tls13 = (negotiated_version == TLS_VERSION_1_3);
+                            void *tls_ctx = is_tls13 ? (void *)&tls13_ctx : (void *)&tls12_ctx;
+                            https_io_kind_t ikind = is_tls13 ? HTTPS_IO_TLS13 : HTTPS_IO_TLS12;
+                            const char *html = (body_len > 0) ? body : "";
+                            size_t html_len = (body_len > 0) ? (size_t)body_len : 0U;
+                            (void)serve_interop_session(ikind, tls_ctx, NULL, html, html_len);
+                        } else if(body_len <= 0) {
                             printf("ERROR: Failed to build response body\n");
                         } else {
                             int is_tls13 = (negotiated_version == TLS_VERSION_1_3);
@@ -3084,10 +3278,12 @@ int main(int argc, char **argv)
                             }
                         }
 
-                        if(negotiated_version == TLS_VERSION_1_3) {
-                            noxtls_tls13_close(&tls13_ctx);
-                        } else {
-                            noxtls_tls12_close(&tls12_ctx);
+                        if(!interop_mode) {
+                            if(negotiated_version == TLS_VERSION_1_3) {
+                                noxtls_tls13_close(&tls13_ctx);
+                            } else {
+                                noxtls_tls12_close(&tls12_ctx);
+                            }
                         }
                         if(tls13_stack_on) {
                             noxtls_tls13_context_free(&tls13_ctx);
@@ -3202,7 +3398,11 @@ int main(int argc, char **argv)
 
                     body_len = build_http_body(body, sizeof(body), TLS_VERSION_1_3, suite, group);
                     rc = NOXTLS_RETURN_SUCCESS;
-                    if(body_len <= 0) {
+                    if(interop_mode) {
+                        const char *html = (body_len > 0) ? body : "";
+                        size_t html_len = (body_len > 0) ? (size_t)body_len : 0U;
+                        (void)serve_interop_session(HTTPS_IO_TLS13, &tls13_ctx, NULL, html, html_len);
+                    } else if(body_len <= 0) {
                         printf("ERROR: Failed to build response body\n");
                         rc = NOXTLS_RETURN_FAILED;
                     } else if(serve_one_request(&tls13_ctx, 1, body, (size_t)body_len) != 0) {
@@ -3210,7 +3410,9 @@ int main(int argc, char **argv)
                         rc = NOXTLS_RETURN_FAILED;
                     }
 
-                    noxtls_tls13_close(&tls13_ctx);
+                    if(!interop_mode) {
+                        noxtls_tls13_close(&tls13_ctx);
+                    }
                     noxtls_tls13_context_free(&tls13_ctx);
                     if(rc != NOXTLS_RETURN_SUCCESS) {
 #ifndef _WIN32
@@ -3281,12 +3483,18 @@ int main(int argc, char **argv)
                            tls_cipher_suite_name(suite),
                            (unsigned)suite);
                     body_len = build_http_body(body, sizeof(body), ver, suite, group);
-                    if(body_len <= 0 || serve_one_request_unified(&uconn, body, (size_t)body_len) != 0) {
+                    if(interop_mode) {
+                        const char *html = (body_len > 0) ? body : "";
+                        size_t html_len = (body_len > 0) ? (size_t)body_len : 0U;
+                        (void)serve_interop_session(HTTPS_IO_UNIFIED, NULL, &uconn, html, html_len);
+                    } else if(body_len <= 0 || serve_one_request_unified(&uconn, body, (size_t)body_len) != 0) {
                         printf("ERROR: Failed to serve response\n");
                     }
                 }
 
-                noxtls_tls_connection_close(&uconn);
+                if(!interop_mode) {
+                    noxtls_tls_connection_close(&uconn);
+                }
                 noxtls_tls_connection_free(&uconn);
                 close_client_socket(client_sock);
                 continue;
@@ -3440,7 +3648,14 @@ int main(int argc, char **argv)
                                                negotiated_version,
                                                negotiated_suite,
                                                tls13_group);
-                    if(body_len <= 0) {
+                    if(interop_mode) {
+                        int is_tls13 = (negotiated_version == TLS_VERSION_1_3);
+                        void *tls_ctx = is_tls13 ? (void *)&tls13_ctx : (void *)&tls12_ctx;
+                        https_io_kind_t ikind = is_tls13 ? HTTPS_IO_TLS13 : HTTPS_IO_TLS12;
+                        const char *html = (body_len > 0) ? body : "";
+                        size_t html_len = (body_len > 0) ? (size_t)body_len : 0U;
+                        (void)serve_interop_session(ikind, tls_ctx, NULL, html, html_len);
+                    } else if(body_len <= 0) {
                         printf("ERROR: Failed to build response body\n");
                     } else {
                         int is_tls13 = (negotiated_version == TLS_VERSION_1_3);
@@ -3450,10 +3665,12 @@ int main(int argc, char **argv)
                         }
                     }
 
-                    if(negotiated_version == TLS_VERSION_1_3) {
-                        noxtls_tls13_close(&tls13_ctx);
-                    } else {
-                        noxtls_tls12_close(&tls12_ctx);
+                    if(!interop_mode) {
+                        if(negotiated_version == TLS_VERSION_1_3) {
+                            noxtls_tls13_close(&tls13_ctx);
+                        } else {
+                            noxtls_tls12_close(&tls12_ctx);
+                        }
                     }
                     if(tls13_stack_on) {
                         noxtls_tls13_context_free(&tls13_ctx);
