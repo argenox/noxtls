@@ -2091,6 +2091,46 @@ static noxtls_return_t https_io_send(https_io_kind_t kind,
     return noxtls_tls12_send((tls12_context_t *)tls_ctx, buf, len);
 }
 
+static void https_io_close(https_io_kind_t kind,
+                           void *tls_ctx,
+                           noxtls_tls_connection_t *uconn)
+{
+    if(kind == HTTPS_IO_UNIFIED) {
+        (void)noxtls_tls_connection_close(uconn);
+        return;
+    }
+    if(kind == HTTPS_IO_TLS13) {
+        (void)noxtls_tls13_close((tls13_context_t *)tls_ctx);
+        return;
+    }
+    (void)noxtls_tls12_close((tls12_context_t *)tls_ctx);
+}
+
+static int https_io_peer_half_closed(https_io_kind_t kind,
+                                     void *tls_ctx,
+                                     noxtls_tls_connection_t *uconn)
+{
+    tls_state_t state = TLS_STATE_INIT;
+
+    if(kind == HTTPS_IO_UNIFIED) {
+        if(uconn == NULL) {
+            return 0;
+        }
+        state = uconn->base.state;
+    } else if(kind == HTTPS_IO_TLS13) {
+        if(tls_ctx == NULL) {
+            return 0;
+        }
+        state = ((tls13_context_t *)tls_ctx)->base.base.state;
+    } else {
+        if(tls_ctx == NULL) {
+            return 0;
+        }
+        state = ((tls12_context_t *)tls_ctx)->base.base.state;
+    }
+    return (state == TLS_STATE_CLOSING || state == TLS_STATE_CLOSED) ? 1 : 0;
+}
+
 static int https_send_html_response(https_io_kind_t kind,
                                     void *tls_ctx,
                                     noxtls_tls_connection_t *uconn,
@@ -2146,8 +2186,8 @@ static int https_send_html_response(https_io_kind_t kind,
 /**
  * @brief tlsfuzzer interop session: echo non-HTTP app data, serve HTTP when requested.
  *
- * Returns when the peer closes the TLS connection or recv fails. Does not force
- * close_notify; the caller should close the socket without an immediate TLS close.
+ * Returns when the peer closes the TLS connection or recv fails. Does not initiate
+ * close_notify on its own, but replies with close_notify when the peer half-closes.
  */
 static int serve_interop_session(https_io_kind_t kind,
                                  void *tls_ctx,
@@ -2174,9 +2214,18 @@ static int serve_interop_session(https_io_kind_t kind,
             }
             rc = https_io_recv(kind, tls_ctx, uconn, req_buf + req_len, &to_recv);
             if(rc != NOXTLS_RETURN_SUCCESS) {
+                https_io_close(kind, tls_ctx, uconn);
                 return 0;
             }
             if(to_recv == 0U) {
+                /*
+                 * Empty app-data records are valid (len=0 while CONNECTED).
+                 * Peer close_notify moves the stack to CLOSING/CLOSED.
+                 */
+                if(https_io_peer_half_closed(kind, tls_ctx, uconn)) {
+                    https_io_close(kind, tls_ctx, uconn);
+                    return 0;
+                }
                 if(req_len > 0U) {
                     break;
                 }

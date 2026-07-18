@@ -867,13 +867,18 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
     }
     offset += compression_methods_len;
     
-    /* No extension block: low legacy ClientHello versions are treated as TLS 1.2
-     * (common for compatibility probes and tlsfuzzer downgrade checks). */
+    /*
+     * No extension block: honor ClientHello.legacy_version. Do not upgrade
+     * TLS 1.0/1.1 hellos to TLS 1.2 — that invents a higher offer than the
+     * client made and breaks protocol_version rejection when 1.0/1.1 are off.
+     */
     if(offset >= record.length) {
-        if(version == TLS_VERSION_1_0 || version == TLS_VERSION_1_1) {
+        if(version >= TLS_VERSION_1_2) {
             *detected_version = TLS_VERSION_1_2;
-        } else if(version >= TLS_VERSION_1_2) {
-            *detected_version = TLS_VERSION_1_2;
+        } else if(version == TLS_VERSION_1_1) {
+            *detected_version = TLS_VERSION_1_1;
+        } else if(version == TLS_VERSION_1_0) {
+            *detected_version = TLS_VERSION_1_0;
         } else {
             noxtls_free(*client_hello_data);
             *client_hello_data = NULL;

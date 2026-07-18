@@ -8647,7 +8647,11 @@ noxtls_return_t noxtls_tls12_recv(tls12_context_t *ctx, uint8_t *data, uint32_t 
                                       alert[0], level_str, alert[1], desc_str);
                 fflush(stdout);
                 if(alert[1] == TLS_ALERT_CLOSE_NOTIFY) {
-                    ctx->base.base.state = TLS_STATE_CLOSED;
+                    /*
+                     * Peer half-closed the connection. Keep record keys usable
+                     * so we can still send our reciprocal close_notify.
+                     */
+                    ctx->base.base.state = TLS_STATE_CLOSING;
                     *len = 0;
                     return NOXTLS_RETURN_SUCCESS;
                 }
@@ -8974,9 +8978,11 @@ noxtls_return_t noxtls_tls12_close(tls12_context_t *ctx)
 
     /*
      * After handshake, TLS 1.2 alerts are protected with the negotiated
-     * record-layer keys.
+     * record-layer keys. CLOSING means the peer already sent close_notify;
+     * we still owe a reciprocal alert on the write side.
      */
-    if(ctx->base.base.state == TLS_STATE_CONNECTED) {
+    if(ctx->base.base.state == TLS_STATE_CONNECTED ||
+       ctx->base.base.state == TLS_STATE_CLOSING) {
         rc = noxtls_tls12_encrypt_record(ctx, TLS_RECORD_ALERT, alert, sizeof(alert),
                                          encrypted_alert, &encrypted_len);
         if(rc == NOXTLS_RETURN_SUCCESS) {
