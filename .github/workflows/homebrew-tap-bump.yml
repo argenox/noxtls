@@ -73,15 +73,19 @@ jobs:
 
           path = Path("${FORMULA}")
           text = path.read_text(encoding="utf-8")
-          text = re.sub(r'(\surl\s+")[^"]+(")', r'\g<1>${URL}\g<2>', text, count=1)
-          text = re.sub(r'(\ssha256\s+")[^"]+(")', r'\g<1>${SHA256}\g<2>', text, count=1)
-          # Keep a comment with the version for humans; live version comes from the tarball.
+          url = "${URL}"
+          sha256 = "${SHA256}"
+          version = "${VERSION}"
+          text = re.sub(r'(\surl\s+")[^"]+(")', rf'\g<1>{url}\g<2>', text, count=1)
+          text = re.sub(r'(\ssha256\s+")[^"]+(")', rf'\g<1>{sha256}\g<2>', text, count=1)
           text = re.sub(
               r'(# noxtls formula version:\s*)\S+',
-              r'\g<1>${VERSION}',
+              rf'\g<1>{version}',
               text,
               count=1,
           )
+          # Prefer letting Homebrew infer version from the tag tarball URL.
+          text = re.sub(r'\n\s*version\s+"[^"]+"\s*\n', '\n', text, count=1)
           path.write_text(text, encoding="utf-8")
           print(path.read_text(encoding="utf-8"))
           PY
