@@ -1727,6 +1727,30 @@ static void send_https_required_response(socket_t sock)
  * @param[in] len The length of the buffer to check if the HTTP headers are complete from
  * @return 1 if the HTTP headers are complete, 0 otherwise
  */
+/**
+ * @brief True if @p buf looks like the start of an HTTP/1.x request method.
+ *
+ * Used so interleaved empty TLS app-data records do not flush a partial
+ * "GET /..." buffer into the echo path (tlsfuzzer zero-length app data).
+ */
+static int https_buf_looks_like_http_request(const uint8_t *buf, uint32_t len)
+{
+    static const char *const methods[] = {
+        "GET ", "POST ", "HEAD ", "PUT ", "DELETE ", "OPTIONS ", "PATCH "
+    };
+    uint32_t i;
+    if(buf == NULL || len < 4U) {
+        return 0;
+    }
+    for(i = 0; i < (uint32_t)(sizeof(methods) / sizeof(methods[0])); i++) {
+        uint32_t mlen = (uint32_t)strlen(methods[i]);
+        if(len >= mlen && memcmp(buf, methods[i], mlen) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int http_headers_complete(const uint8_t *buf, uint32_t len)
 {
     uint32_t i;
@@ -2221,12 +2245,16 @@ static int serve_interop_session(https_io_kind_t kind,
                 /*
                  * Empty app-data records are valid (len=0 while CONNECTED).
                  * Peer close_notify moves the stack to CLOSING/CLOSED.
+                 * Do not flush a partial HTTP request on empty records —
+                 * tlsfuzzer interleaves zero-length records inside GET /.
                  */
                 if(https_io_peer_half_closed(kind, tls_ctx, uconn)) {
                     https_io_close(kind, tls_ctx, uconn);
                     return 0;
                 }
-                if(req_len > 0U) {
+                if(req_len > 0U &&
+                   !(https_buf_looks_like_http_request(req_buf, req_len) &&
+                     !http_headers_complete(req_buf, req_len))) {
                     break;
                 }
                 continue;
