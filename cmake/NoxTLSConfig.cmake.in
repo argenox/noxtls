@@ -1,0 +1,184 @@
+@PACKAGE_INIT@
+
+set_and_check(_NOXTLS_LIBDIR "@PACKAGE_CMAKE_INSTALL_LIBDIR@")
+set_and_check(_NOXTLS_INCLUDEDIR "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@")
+
+set(_NOXTLS_SUPPORTED_COMPONENTS
+  common
+  utility
+  hash
+  sha3
+  mac
+  kdf
+  encryption
+  drbg
+  pkc
+  certificates
+  cert
+  tls
+)
+
+# Nested include layout matches the source tree / release static SDK.
+set(_NOXTLS_INCLUDE_DIRS
+  "${_NOXTLS_INCLUDEDIR}"
+  "${_NOXTLS_INCLUDEDIR}/utility"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/common"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/mdigest"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/mdigest/md4"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/mdigest/md5"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/mdigest/sha1"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/mdigest/sha256"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/mdigest/sha512"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/mdigest/sha3"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/mdigest/ripemd160"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/mdigest/blake2"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/mac"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/kdf"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/encryption"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/encryption/aes"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/encryption/camellia"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/encryption/aria"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/encryption/chacha20"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/encryption/des"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/encryption/rc4"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/certs"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/pkc"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/pkc/rsa"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/pkc/ecc"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/pkc/ecdsa"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/pkc/ecdh"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/pkc/dh"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/pkc/x25519"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/pkc/x448"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/pkc/ed25519"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/pkc/ed448"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/pkc/dsa"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/pkc/mlkem"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/pkc/mldsa"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/pkc/slhdsa"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/pkc/falcon"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/pkc/lms"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/pkc/xmss"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/drbg"
+  "${_NOXTLS_INCLUDEDIR}/noxtls-lib/tls"
+)
+
+function(_noxtls_add_imported_static name)
+  set(_target "NoxTLS::${name}")
+  if(TARGET "${_target}")
+    return()
+  endif()
+
+  set(_lib_names
+    "${CMAKE_STATIC_LIBRARY_PREFIX}noxtls_${name}${CMAKE_STATIC_LIBRARY_SUFFIX}"
+  )
+  # MSVC / some Windows builds may omit the "lib" prefix on archives.
+  if(WIN32)
+    list(APPEND _lib_names "noxtls_${name}${CMAKE_STATIC_LIBRARY_SUFFIX}")
+  endif()
+
+  set(_lib_path "")
+  foreach(_lib_name IN LISTS _lib_names)
+    if(EXISTS "${_NOXTLS_LIBDIR}/${_lib_name}")
+      set(_lib_path "${_NOXTLS_LIBDIR}/${_lib_name}")
+      break()
+    endif()
+  endforeach()
+
+  if(NOT _lib_path)
+    return()
+  endif()
+
+  add_library("${_target}" STATIC IMPORTED)
+  set_target_properties("${_target}" PROPERTIES
+    IMPORTED_LOCATION "${_lib_path}"
+    INTERFACE_INCLUDE_DIRECTORIES "${_NOXTLS_INCLUDE_DIRS}"
+  )
+endfunction()
+
+foreach(_comp IN LISTS _NOXTLS_SUPPORTED_COMPONENTS)
+  _noxtls_add_imported_static("${_comp}")
+endforeach()
+
+# Wire dependency edges (order matters for static archives).
+if(TARGET NoxTLS::hash AND TARGET NoxTLS::common)
+  set_property(TARGET NoxTLS::hash APPEND PROPERTY INTERFACE_LINK_LIBRARIES NoxTLS::common)
+endif()
+if(TARGET NoxTLS::mac AND TARGET NoxTLS::hash)
+  set_property(TARGET NoxTLS::mac APPEND PROPERTY INTERFACE_LINK_LIBRARIES NoxTLS::hash NoxTLS::common)
+endif()
+if(TARGET NoxTLS::kdf AND TARGET NoxTLS::mac)
+  set_property(TARGET NoxTLS::kdf APPEND PROPERTY INTERFACE_LINK_LIBRARIES NoxTLS::mac NoxTLS::common)
+endif()
+if(TARGET NoxTLS::encryption AND TARGET NoxTLS::common)
+  set_property(TARGET NoxTLS::encryption APPEND PROPERTY INTERFACE_LINK_LIBRARIES NoxTLS::common)
+endif()
+if(TARGET NoxTLS::drbg AND TARGET NoxTLS::encryption)
+  set_property(TARGET NoxTLS::drbg APPEND PROPERTY INTERFACE_LINK_LIBRARIES NoxTLS::encryption)
+  if(WIN32)
+    set_property(TARGET NoxTLS::drbg APPEND PROPERTY INTERFACE_LINK_LIBRARIES advapi32)
+  endif()
+endif()
+if(TARGET NoxTLS::pkc)
+  set(_pkc_deps)
+  foreach(_dep IN ITEMS hash common drbg)
+    if(TARGET "NoxTLS::${_dep}")
+      list(APPEND _pkc_deps "NoxTLS::${_dep}")
+    endif()
+  endforeach()
+  if(_pkc_deps)
+    set_property(TARGET NoxTLS::pkc APPEND PROPERTY INTERFACE_LINK_LIBRARIES ${_pkc_deps})
+  endif()
+  if(NOT MSVC AND NOT WIN32)
+    set_property(TARGET NoxTLS::pkc APPEND PROPERTY INTERFACE_LINK_LIBRARIES m)
+  elseif(NOT MSVC)
+    # MinGW
+    set_property(TARGET NoxTLS::pkc APPEND PROPERTY INTERFACE_LINK_LIBRARIES m)
+  endif()
+endif()
+if(TARGET NoxTLS::certificates AND TARGET NoxTLS::utility)
+  set_property(TARGET NoxTLS::certificates APPEND PROPERTY INTERFACE_LINK_LIBRARIES NoxTLS::utility)
+endif()
+if(TARGET NoxTLS::cert)
+  set(_cert_deps)
+  foreach(_dep IN ITEMS certificates utility pkc hash encryption common)
+    if(TARGET "NoxTLS::${_dep}")
+      list(APPEND _cert_deps "NoxTLS::${_dep}")
+    endif()
+  endforeach()
+  if(_cert_deps)
+    set_property(TARGET NoxTLS::cert APPEND PROPERTY INTERFACE_LINK_LIBRARIES ${_cert_deps})
+  endif()
+endif()
+if(TARGET NoxTLS::tls)
+  set(_tls_deps)
+  foreach(_dep IN ITEMS kdf mac pkc encryption hash common drbg cert)
+    if(TARGET "NoxTLS::${_dep}")
+      list(APPEND _tls_deps "NoxTLS::${_dep}")
+    endif()
+  endforeach()
+  if(_tls_deps)
+    set_property(TARGET NoxTLS::tls APPEND PROPERTY INTERFACE_LINK_LIBRARIES ${_tls_deps})
+  endif()
+endif()
+
+if(NOT TARGET NoxTLS::noxtls)
+  add_library(NoxTLS::noxtls INTERFACE IMPORTED)
+  set(_agg_libs)
+  # Prefer full TLS stack when present; otherwise link whatever was installed.
+  foreach(_comp IN ITEMS tls cert certificates pkc kdf mac drbg encryption sha3 hash utility common)
+    if(TARGET "NoxTLS::${_comp}")
+      list(APPEND _agg_libs "NoxTLS::${_comp}")
+    endif()
+  endforeach()
+  set_target_properties(NoxTLS::noxtls PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES "${_NOXTLS_INCLUDE_DIRS}"
+    INTERFACE_LINK_LIBRARIES "${_agg_libs}"
+  )
+endif()
+
+set(NoxTLS_INCLUDE_DIRS "${_NOXTLS_INCLUDE_DIRS}")
+set(NoxTLS_LIBRARIES NoxTLS::noxtls)
+
+check_required_components(NoxTLS)

@@ -5,7 +5,7 @@ title: Release Notes
 
 # Release Notes
 
-This page describes changes, fixes, and known issues for **NoxTLS 0.2.60**.
+This page describes changes, fixes, and known issues for **NoxTLS 0.2.61**.
 
 For source and binary artifacts, see [Releases on GitHub](https://github.com/argenox/noxtls/releases).
 
@@ -13,21 +13,20 @@ Use the **version dropdown** in the navbar to view docs (and release notes) for 
 
 ---
 
-## 0.2.60
+## 0.2.61
 
-**Release date:** 7/5/2026
+**Release date:** 7/18/2026
 
 ### Changes
 
-- Project version updated to 0.2.60 in CMake and noxtls_version.h.
-- TLS 1.3 key schedule: Derive-Secret with empty messages now uses Hash("") per RFC 8446, restoring OpenSSL and other RFC-compliant peer interop.
-- Resolves several TLS vulnerability found by hardening across record parsing, handshake validation, and configurable feature guards. 
-- Malformed TLS 1.3 CertificateVerify messages are rejected.
+- Project version updated to 0.2.61 in CMake and noxtls_version.h.
+- CMake install/export support for the full SDK (static libraries, headers, CLIs, NoxTLSConfig.cmake, pkg-config).
+- Homebrew tap packaging via argenox/homebrew-noxtls; release archives built with cmake --install.
+- Short generic CLI names install as noxtls-* to avoid PATH collisions.
 
 ### Fixed / Resolved
 
-- TLS 1.3 server handshakes failed at encrypted Finished with OpenSSL/curl clients due to incorrect HKDF context for the "derived" label.
-- TLS 1.2 CBC record tests updated for Encrypt-then-MAC enforcement.
+- (None recorded.)
 
 ### Known issues / Open
 
