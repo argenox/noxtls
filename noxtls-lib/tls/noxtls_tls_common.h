@@ -155,6 +155,7 @@ extern "C" {
 #define TLS_CIPHER_SUITE_NULL_WITH_NULL_NULL                 0x0000
 /* RFC 5746 / RFC 7507: Signaling cipher suite value for empty renegotiation_info */
 #define TLS_CIPHER_SUITE_EMPTY_RENEGOTIATION_INFO_SCSV       0x00FF
+#define TLS_CIPHER_SUITE_FALLBACK_SCSV                       0x5600
 #define TLS_CIPHER_SUITE_RSA_WITH_3DES_EDE_CBC_SHA           0x000A
 #define TLS_CIPHER_SUITE_DHE_RSA_WITH_3DES_EDE_CBC_SHA       0x0016
 #define TLS_CIPHER_SUITE_RSA_WITH_AES_128_CBC_SHA            0x002F

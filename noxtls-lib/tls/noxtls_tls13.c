@@ -9472,6 +9472,13 @@ noxtls_return_t noxtls_tls13_recv_client_hello(tls13_context_t *ctx)
         ctx->cipher_suite = 0;
         for(uint32_t i = 0; i + 2 <= cipher_suites_len; i += 2) {
             uint16_t candidate = (record.data[offset + i] << 8) | record.data[offset + i + 1];
+            noxtls_hash_algos_t hash_algo;
+            uint32_t hash_len;
+            uint32_t key_len;
+            /* Mixed TLS 1.2/1.3 allowlists must not select TLS 1.2 suites here. */
+            if(tls13_get_cipher_params(candidate, &hash_algo, &hash_len, &key_len) != NOXTLS_RETURN_SUCCESS) {
+                continue;
+            }
             for(uint32_t j = 0; j < num_supported; j++) {
                 if(candidate == supported_suites[j]) {
                     ctx->cipher_suite = candidate;
@@ -11680,11 +11687,23 @@ noxtls_return_t noxtls_tls13_accept(tls13_context_t *ctx)
                 step_t0 = tls13_profile_now_us();
                 NOXTLS_STATE_ENTER(ctx, NOXTLS_STATE_ACCEPT_RECV_CH);
                 rc = noxtls_tls13_recv_client_hello(ctx);
-                if(rc == NOXTLS_RETURN_TIMEOUT && (tls13_is_dtls(ctx) || ctx->awaiting_hrr_client_hello)) {
-                    ctx->awaiting_hrr_client_hello = 0;
+                if(rc == NOXTLS_RETURN_TIMEOUT && tls13_is_dtls(ctx)) {
+                    /*
+                     * DTLS HRR / flight wait: return so the application can
+                     * drive retransmission timers and call accept again.
+                     */
                     ctx->last_accept_timing.recv_client_hello_us = tls13_profile_elapsed_us(step_t0);
                     ctx->last_accept_timing.total_us = tls13_profile_elapsed_us(accept_t0);
                     return rc;
+                }
+                if(rc == NOXTLS_RETURN_TIMEOUT && ctx->awaiting_hrr_client_hello) {
+                    /*
+                     * TCP HelloRetryRequest was sent. Keep this accept() call
+                     * open and wait for the second ClientHello instead of
+                     * returning TIMEOUT (which caused https_server to close).
+                     */
+                    ctx->last_accept_timing.recv_client_hello_us = tls13_profile_elapsed_us(step_t0);
+                    break;
                 }
                 if(rc != NOXTLS_RETURN_SUCCESS) {
                     NOXTLS_STATE_EXIT(ctx, NOXTLS_STATE_ACCEPT_RECV_CH, rc);
@@ -11694,6 +11713,7 @@ noxtls_return_t noxtls_tls13_accept(tls13_context_t *ctx)
                     ctx->last_accept_timing.total_us = tls13_profile_elapsed_us(accept_t0);
                     return rc;
                 }
+                ctx->awaiting_hrr_client_hello = 0;
                 NOXTLS_STATE_EXIT(ctx, NOXTLS_STATE_ACCEPT_RECV_CH, rc);
                 ctx->last_accept_timing.recv_client_hello_us = tls13_profile_elapsed_us(step_t0);
                 ctx->server_handshake_step = TLS13_SERVER_HS_STEP_PICK_SERVER_IDENTITY;
@@ -12399,8 +12419,15 @@ noxtls_return_t noxtls_tls13_recv(tls13_context_t *ctx, uint8_t *data, uint32_t 
         }
 
         if(record.type == TLS_RECORD_CHANGE_CIPHER_SPEC) {
+            /*
+             * RFC 8446 Appendix D.4: compatibility CCS is only allowed during
+             * the handshake. After application keys are installed, treat CCS
+             * as unexpected_message.
+             */
             free(record.data);
-            continue;
+            tls13_send_fatal_alert(ctx, TLS_ALERT_UNEXPECTED_MESSAGE);
+            ctx->base.base.state = TLS_STATE_CLOSED;
+            return NOXTLS_RETURN_FAILED;
         }
         if(record.type == TLS_RECORD_ACK && tls13_is_dtls(ctx)) {
             if(record.length > 0U && record.data != NULL) {

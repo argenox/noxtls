@@ -410,7 +410,10 @@ noxtls_return_t noxtls_tls_connection_accept(noxtls_tls_connection_t *conn)
 
 #if NOXTLS_FEATURE_TLS13
         conn->u.tls12.rfc8446_tls13_downgrade_sh_random =
-            (conn->config_offers_tls13 != 0 && tls12_wire_version == TLS_VERSION_1_2) ? 1U : 0U;
+            (conn->config_offers_tls13 != 0 &&
+             (tls12_wire_version == TLS_VERSION_1_0 ||
+              tls12_wire_version == TLS_VERSION_1_1 ||
+              tls12_wire_version == TLS_VERSION_1_2)) ? 1U : 0U;
 #endif
 
         rc = noxtls_tls12_accept(&conn->u.tls12);

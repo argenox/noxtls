@@ -254,6 +254,11 @@ noxtls_return_t tls_accept_auto(tls_context_t *base_ctx,
         tls12_ctx->base.base.recv_callback = base_ctx->recv_callback;
         tls12_ctx->base.base.user_data = base_ctx->user_data;
         tls12_ctx->base.base.io_mode = base_ctx->io_mode;
+
+#if NOXTLS_FEATURE_TLS13
+        /* RFC 8446 §4.1.3: TLS 1.3-capable servers negotiating TLS 1.2 or lower. */
+        tls12_ctx->rfc8446_tls13_downgrade_sh_random = (tls13_ctx != NULL) ? 1U : 0U;
+#endif
         
         /* Call TLS 1.2 accept */
         rc = noxtls_tls12_accept(tls12_ctx);

@@ -1088,10 +1088,6 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
     int use_encrypt_then_mac = tls12_should_use_encrypt_then_mac(ctx, is_gcm, is_tls12_ccm, is_tls12_chacha);
     uint32_t encrypted_part_len = encrypted_record_len;
 
-    if(use_encrypt_then_mac == 0) {
-        return NOXTLS_RETURN_NOT_SUPPORTED;
-    }
-
     if(use_encrypt_then_mac) {
         uint8_t received_outer_mac[64];
         uint8_t computed_outer_mac[64];
