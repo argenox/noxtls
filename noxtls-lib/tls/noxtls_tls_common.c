@@ -879,8 +879,8 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
             *detected_version = TLS_VERSION_1_1;
         } else if(version == TLS_VERSION_1_0) {
             *detected_version = TLS_VERSION_1_0;
-        } else if(version == 0x0300u) {
-            /* SSLv3 disabled: protocol_version (not decode_error). */
+        } else if(version == 0x0300u || version == 0x0000u) {
+            /* SSLv3 / bogus (0,0): protocol_version (not decode_error). */
             noxtls_free(*client_hello_data);
             *client_hello_data = NULL;
             *client_hello_len = 0;
@@ -994,7 +994,8 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
         *detected_version = TLS_VERSION_1_1;
     } else if(version == TLS_VERSION_1_0) {
         *detected_version = TLS_VERSION_1_0;
-    } else if(version == 0x0300u) {
+    } else if(version == 0x0300u || version == 0x0000u) {
+        /* SSLv3 / bogus (0,0): protocol_version (not decode_error). */
         noxtls_free(*client_hello_data);
         *client_hello_data = NULL;
         *client_hello_len = 0;

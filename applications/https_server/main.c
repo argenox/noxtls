@@ -2331,6 +2331,9 @@ static int build_http_body(char *body_buf,
                                   uint16_t tls13_group)
 {
     int written;
+    /* Fixed body size so tlsfuzzer --reply-AD-size stays stable across suites/versions. */
+    static const size_t k_interop_fixed_body_len = 512U;
+
     if(body_buf == NULL || body_buf_len == 0U) {
         return -1;
     }
@@ -2362,6 +2365,12 @@ static int build_http_body(char *body_buf,
 
     if(written <= 0 || (size_t)written >= body_buf_len) {
         return -1;
+    }
+    if((size_t)written < k_interop_fixed_body_len && body_buf_len > k_interop_fixed_body_len) {
+        size_t pad = k_interop_fixed_body_len - (size_t)written;
+        memset(body_buf + (size_t)written, ' ', pad);
+        body_buf[k_interop_fixed_body_len] = '\0';
+        return (int)k_interop_fixed_body_len;
     }
     return written;
 }

@@ -62,6 +62,7 @@ static tls12_ticket_cache_entry_t g_tls12_ticket_cache[TLS12_TICKET_CACHE_SIZE];
 static void tls12_dtls_on_send_ccs(tls12_context_t *ctx);
 static noxtls_return_t tls12_send_protected_alert(tls12_context_t *ctx, uint8_t level, uint8_t desc);
 static int tls12_cipher_suite_is_ecdhe_ecdsa(uint16_t cs);
+static int tls12_server_can_offer_cipher_suite(const tls12_context_t *ctx, uint16_t cs);
 static noxtls_return_t tls12_handle_heartbeat_record(tls12_context_t *ctx, const uint8_t *record_data, uint32_t record_len);
 static noxtls_return_t tls12_send_certificate_status(tls12_context_t *ctx);
 static noxtls_return_t tls12_recv_certificate_status(tls12_context_t *ctx);
@@ -4741,6 +4742,44 @@ static int tls12_server_needs_rsa_skx_sig_prepare(const tls12_context_t *ctx)
 }
 
 /**
+ * @brief Whether the server has RSA material usable for TLS 1.2 RSA-authenticated suites.
+ */
+static int tls12_server_has_rsa_auth(const tls12_context_t *ctx)
+{
+    if(ctx == NULL) {
+        return 0;
+    }
+    if(ctx->server_private_rsa != NULL) {
+        return 1;
+    }
+    if(ctx->crypto_provider != NULL && ctx->crypto_provider->ops != NULL &&
+       ctx->crypto_provider->ops->rsa_sign != NULL && ctx->server_private_key_handle != NULL) {
+        return 1;
+    }
+    return 0;
+}
+
+/**
+ * @brief Skip cipher suites whose authentication key type is not configured.
+ *
+ * Broad allowlists (e.g. tlsfuzzer) often advertise ECDHE_ECDSA ahead of ECDHE_RSA.
+ * Selecting ECDHE_ECDSA with only an RSA leaf produces an empty/invalid SKE signature.
+ */
+static int tls12_server_can_offer_cipher_suite(const tls12_context_t *ctx, uint16_t cs)
+{
+    if(ctx == NULL) {
+        return 0;
+    }
+    if(tls12_cipher_suite_is_ecdhe_ecdsa(cs)) {
+        return ctx->server_private_ecdsa != NULL &&
+               ctx->server_ecdsa_leaf_cert != NULL &&
+               ctx->server_ecdsa_leaf_cert_len > 0U;
+    }
+    /* Remaining TLS 1.2 suites implemented here authenticate with RSA. */
+    return tls12_server_has_rsa_auth(ctx);
+}
+
+/**
  * @brief TLS 1.2 Server: Receive Client Hello
  *
  * @param[in] ctx The TLS 1.2 context
@@ -5245,6 +5284,9 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
     for(uint32_t j = 0; j < num_supported; j++) {
         uint16_t srv = supported_suites[j];
         if(tls12_cipher_suite_wire_is_tls13_range(srv)) {
+            continue;
+        }
+        if(!tls12_server_can_offer_cipher_suite(ctx, srv)) {
             continue;
         }
         for(uint32_t i = 0; i < cipher_suites_count; i++) {
@@ -6527,10 +6569,15 @@ noxtls_return_t noxtls_tls12_send_server_key_exchange(tls12_context_t *ctx)
         }
 
         if(!sig_written) {
-            server_key_exchange[offset++] = 0x00;
-            server_key_exchange[offset++] = 0x00;
-            server_key_exchange[offset++] = 0x00;
-            server_key_exchange[offset++] = 0x00;
+            if(server_key_exchange != ctx->handshake_workspace) {
+                NOXTLS_SECURE_FREE(server_key_exchange, TLS_SERVER_KEY_EXCHANGE_WORKSPACE);
+            } else if(ctx->handshake_workspace != NULL) {
+                memset(ctx->handshake_workspace, 0, TLS_HANDSHAKE_WORKSPACE_SIZE);
+            }
+            if(ctx->base.base.send_callback != NULL) {
+                (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_HANDSHAKE_FAILURE);
+            }
+            return NOXTLS_RETURN_NOT_SUPPORTED;
         }
         uint32_t handshake_len = offset - 4;
         server_key_exchange[1] = (handshake_len >> 16) & 0xFF;
@@ -7089,7 +7136,13 @@ static noxtls_return_t tls12_recv_client_certificate_verify(tls12_context_t *ctx
     /* Reject MD5 CertificateVerify signatures (SLOTH / CVE-2015-7575). */
     if((uint8_t)(sig_scheme >> 8) == 1u) {
         noxtls_free(msg);
-        return NOXTLS_RETURN_FAILED;
+        return NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER;
+    }
+
+    /* Brainpool TLS 1.3 schemes are not valid in TLS 1.2 CertificateVerify. */
+    if(sig_scheme == 0x081Au || sig_scheme == 0x081Bu || sig_scheme == 0x081Cu) {
+        noxtls_free(msg);
+        return NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER;
     }
 
     cert = (x509_certificate_t*)ctx->client_cert_parsed;
@@ -7802,6 +7855,15 @@ noxtls_return_t noxtls_tls12_recv_finished_client(tls12_context_t *ctx)
             NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_CRYPTO, NOXSIGHT_SEVERITY_ERROR,
                             NOXTLS_EVT_DECRYPT_FAIL, dec_rc, record.length);
             if(decrypted != ctx->record_workspace) noxtls_free(decrypted);
+            /*
+             * Record decrypt/auth failures are surfaced as BAD_DATA from the
+             * record layer; map them to RECORD_AUTH_FAILED so the accept path
+             * sends bad_record_mac (RFC 5246), not unexpected_message.
+             * tlsfuzzer: EMS "no EMS by default", x25519 high-bit share.
+             */
+            if(dec_rc == NOXTLS_RETURN_BAD_DATA || dec_rc == NOXTLS_RETURN_FAILED) {
+                return NOXTLS_RETURN_TLS_RECORD_AUTH_FAILED;
+            }
             return dec_rc;
         }
         finished_msg = decrypted;
@@ -8391,6 +8453,8 @@ noxtls_return_t noxtls_tls12_accept(tls12_context_t *ctx)
             uint8_t alert_desc = TLS_ALERT_DECODE_ERROR;
             if(rc == NOXTLS_RETURN_BAD_DATA || rc == NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR) {
                 alert_desc = TLS_ALERT_DECODE_ERROR;
+            } else if(rc == NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER) {
+                alert_desc = TLS_ALERT_ILLEGAL_PARAMETER;
             } else if(rc == NOXTLS_RETURN_FAILED || rc == NOXTLS_RETURN_NOT_SUPPORTED) {
                 /* Signature verification failure or unsupported scheme. */
                 alert_desc = TLS_ALERT_DECRYPT_ERROR;

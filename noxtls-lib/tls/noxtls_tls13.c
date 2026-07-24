@@ -557,10 +557,15 @@ static int tls13_named_group_obsolete_tls13(uint16_t group)
 }
 
 /**
- * @brief Reject obsolete client named groups
+ * @brief Reject obsolete groups offered in key_share (not merely advertised).
+ *
+ * Advertising obsolete NamedGroups in supported_groups is ignored (treated like
+ * unknown groups) so long unknown-only lists yield handshake_failure when none
+ * are mutually supported (tlsfuzzer test_tls13_no_unknown_groups). A key_share
+ * entry for an obsolete group is still illegal_parameter.
  *
  * @param[in] ctx The context to reject the obsolete client named groups from
- * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the context is NULL, or NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER if the client named groups are obsolete
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the context is NULL, or NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER if a key_share uses an obsolete group
  */
 static noxtls_return_t tls13_reject_obsolete_client_named_groups(const tls13_context_t *ctx)
 {
@@ -568,14 +573,6 @@ static noxtls_return_t tls13_reject_obsolete_client_named_groups(const tls13_con
 
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
-    }
-    if(ctx->client_extensions.supported_groups != NULL &&
-       ctx->client_extensions.supported_groups->groups != NULL) {
-        for(i = 0; i < ctx->client_extensions.supported_groups->count; i++) {
-            if(tls13_named_group_obsolete_tls13(ctx->client_extensions.supported_groups->groups[i])) {
-                return NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER;
-            }
-        }
     }
     if(ctx->client_extensions.key_share != NULL) {
         for(i = 0; i < ctx->client_extensions.key_share->count; i++) {
@@ -2023,6 +2020,37 @@ static int tls13_sig_scheme_is_deprecated_rsa_pkcs1_tls13(uint16_t scheme)
 #endif
 
 /**
+ * @brief Whether the configured server leaf uses id-RSASSA-PSS in the SPKI.
+ */
+static int tls13_server_leaf_is_rsassa_pss(const tls13_context_t *ctx)
+{
+    static const uint8_t oid[] = { 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0A };
+    const x509_certificate_t *cert;
+    x509_certificate_t tmp;
+    int is_pss = 0;
+
+    if(ctx == NULL) {
+        return 0;
+    }
+    if(ctx->server_cert_parsed != NULL) {
+        cert = (const x509_certificate_t *)ctx->server_cert_parsed;
+        return cert->public_key_algorithm_oid_len == sizeof(oid) &&
+               memcmp(cert->public_key_algorithm_oid, oid, sizeof(oid)) == 0;
+    }
+    /* CH-time selection runs before Certificate is built; parse DER once. */
+    if(ctx->server_cert == NULL || ctx->server_cert_len == 0U) {
+        return 0;
+    }
+    noxtls_x509_certificate_init(&tmp);
+    if(noxtls_x509_certificate_parse_der(&tmp, ctx->server_cert, ctx->server_cert_len) == NOXTLS_RETURN_SUCCESS) {
+        is_pss = (tmp.public_key_algorithm_oid_len == sizeof(oid) &&
+                  memcmp(tmp.public_key_algorithm_oid, oid, sizeof(oid)) == 0) ? 1 : 0;
+    }
+    noxtls_x509_certificate_free(&tmp);
+    return is_pss;
+}
+
+/**
  * @brief Check if the ECDSA signature scheme matches the curve
  *
  * @param[in] curve_kind The curve kind to check if the ECDSA signature scheme matches
@@ -2080,10 +2108,19 @@ static int tls13_server_can_sign_scheme(const tls13_context_t *ctx, uint16_t sch
         return 1;
     }
     if(ctx->server_private_rsa != NULL) {
-        if(scheme == TLS_SIGSCHEME_RSA_PSS_RSAE_SHA256 ||
-           scheme == 0x0805u ||
-           scheme == 0x0806u) {
-            return 1;
+        int pss_leaf = tls13_server_leaf_is_rsassa_pss(ctx);
+        if(pss_leaf) {
+            /* RSASSA-PSS SPKI → rsa_pss_pss_sha{256,384,512} only. */
+            if(scheme == 0x0809u || scheme == 0x080Au || scheme == 0x080Bu) {
+                return 1;
+            }
+        } else {
+            /* rsaEncryption SPKI → rsa_pss_rsae_sha{256,384,512}. */
+            if(scheme == TLS_SIGSCHEME_RSA_PSS_RSAE_SHA256 ||
+               scheme == 0x0805u ||
+               scheme == 0x0806u) {
+                return 1;
+            }
         }
     }
     if(ctx->server_cert_use_ed25519 != 0U && scheme == TLS_SIGSCHEME_ED25519) {
@@ -10398,7 +10435,14 @@ noxtls_return_t noxtls_tls13_send_encrypted_extensions(tls13_context_t *ctx)
         encrypted_extensions[offset++] = 0xFF;
     }
     if(ext_rsl_client != NULL) {
-        uint16_t rsl = (ctx->record_size_limit_recv > 0) ? ctx->record_size_limit_recv : (uint16_t)TLS_MAX_RECORD_SIZE;
+        /*
+         * RFC 8449: TLS 1.3 RecordSizeLimit includes the ContentType octet and
+         * padding. Default max plaintext TLS_MAX_RECORD_SIZE (16384) is
+         * advertised as 16385.
+         */
+        uint16_t rsl = (ctx->record_size_limit_recv > 0)
+            ? ctx->record_size_limit_recv
+            : (uint16_t)(TLS_MAX_RECORD_SIZE + 1U);
         encrypted_extensions[offset++] = (TLS_EXTENSION_RECORD_SIZE_LIMIT >> 8) & 0xFF;
         encrypted_extensions[offset++] = TLS_EXTENSION_RECORD_SIZE_LIMIT & 0xFF;
         encrypted_extensions[offset++] = 0x00;
@@ -10803,10 +10847,16 @@ noxtls_return_t noxtls_tls13_send_certificate_verify(tls13_context_t *ctx)
 #endif
         } else if(ctx->server_private_rsa != NULL) {
             noxtls_hash_algos_t rsa_hash = NOXTLS_HASH_SHA_256;
-            if(selected_sig_scheme == 0x0805u) {
+            if(selected_sig_scheme == 0x0805u || selected_sig_scheme == 0x080Au) {
                 rsa_hash = NOXTLS_HASH_SHA_384;
-            } else if(selected_sig_scheme == 0x0806u) {
+            } else if(selected_sig_scheme == 0x0806u || selected_sig_scheme == 0x080Bu) {
                 rsa_hash = NOXTLS_HASH_SHA_512;
+            } else if(selected_sig_scheme == TLS_SIGSCHEME_RSA_PSS_RSAE_SHA256 ||
+                      selected_sig_scheme == 0x0809u) {
+                rsa_hash = NOXTLS_HASH_SHA_256;
+            } else {
+                rc = NOXTLS_RETURN_NOT_SUPPORTED;
+                goto cv_exit;
             }
             rc = noxtls_rsa_sign_pss((const rsa_key_t *)ctx->server_private_rsa, to_sign, to_sign_len,
                                      cv_msg.buf + 8, &signature_len, rsa_hash);
@@ -11206,8 +11256,15 @@ noxtls_return_t tls13_recv_client_certificate_verify(tls13_context_t *ctx)
             }
         } else if(sig_scheme == 0x081Au /* ecdsa_brainpoolP256r1tls13_sha256 */ ||
                   sig_scheme == 0x081Bu /* ecdsa_brainpoolP384r1tls13_sha384 */ ||
-                  sig_scheme == 0x081Cu /* ecdsa_brainpoolP512r1tls13_sha512 */ ||
-                  sig_scheme == TLS_SIGSCHEME_ECDSA_SECP256R1_SHA256 ||
+                  sig_scheme == 0x081Cu /* ecdsa_brainpoolP512r1tls13_sha512 */) {
+            /*
+             * Brainpool TLS 1.3 CertificateVerify schemes are not enabled.
+             * Do not verify them as secp256r1/secp384r1/secp521r1 lookalikes
+             * (tlsfuzzer test_tls13_ecdsa_in_certificate_verify refuse probes).
+             */
+            free(msg);
+            return NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER;
+        } else if(sig_scheme == TLS_SIGSCHEME_ECDSA_SECP256R1_SHA256 ||
                   sig_scheme == TLS_SIGSCHEME_ECDSA_SECP384R1_SHA384 ||
                   sig_scheme == 0x0603u /* ecdsa_secp521r1_sha512 */) {
             if(cert->ecc_public_key == NULL || cert->ecc_public_key_len == 0) {
@@ -11221,16 +11278,14 @@ noxtls_return_t tls13_recv_client_certificate_verify(tls13_context_t *ctx)
                 ecdsa_signature_t ecdsa_sig;
                 uint32_t coord_size = 0;
                 noxtls_hash_algos_t verify_hash = NOXTLS_HASH_SHA_256;
-                if(sig_scheme == TLS_SIGSCHEME_ECDSA_SECP256R1_SHA256 ||
-                   sig_scheme == 0x081Au) {
+                if(sig_scheme == TLS_SIGSCHEME_ECDSA_SECP256R1_SHA256) {
                     coord_size = 32U;
                     verify_hash = NOXTLS_HASH_SHA_256;
-                } else if(sig_scheme == TLS_SIGSCHEME_ECDSA_SECP384R1_SHA384 ||
-                          sig_scheme == 0x081Bu) {
+                } else if(sig_scheme == TLS_SIGSCHEME_ECDSA_SECP384R1_SHA384) {
                     coord_size = 48U;
                     verify_hash = NOXTLS_HASH_SHA_384;
-                } else if(sig_scheme == 0x0603u || sig_scheme == 0x081Cu) {
-                    coord_size = (sig_scheme == 0x0603u) ? 66u : 64U;
+                } else if(sig_scheme == 0x0603u) {
+                    coord_size = 66u;
                     verify_hash = NOXTLS_HASH_SHA_512;
                 } else {
                     free(msg);
