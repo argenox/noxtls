@@ -2439,6 +2439,7 @@ static uint32_t tls13_certificate_verify_signature_capacity(uint16_t sig_scheme)
             return 114u;
         case TLS_SIGSCHEME_ECDSA_SECP256R1_SHA256:
         case TLS_SIGSCHEME_ECDSA_SECP384R1_SHA384:
+        case TLS_SIGSCHEME_ECDSA_SECP521R1_SHA512:
             return 160u;
         case TLS_SIGSCHEME_RSA_PSS_RSAE_SHA256:
         case 0x0805u:
@@ -8382,7 +8383,9 @@ static uint32_t tls13_ecdsa_signature_to_der(const ecdsa_signature_t *sig, uint8
     uint32_t s_len;
     uint32_t r_off = 0;
     uint32_t s_off = 0;
-    uint32_t pos = 2;
+    uint32_t content_len;
+    uint32_t hdr_len;
+    uint32_t pos;
 
     if(der == NULL || der_max < 10 || size > ECC_MAX_KEY_SIZE) {
         return 0;
@@ -8419,8 +8422,20 @@ static uint32_t tls13_ecdsa_signature_to_der(const ecdsa_signature_t *sig, uint8
             memcpy(s_buf, s + s_off, s_len);
         }
     }
-    if(der_max < 2 + 2 + r_len + 2 + s_len) {
+    content_len = 2U + r_len + 2U + s_len;
+    /* DER length: short form if <= 127, else one-byte long form (0x81 LL). */
+    hdr_len = (content_len > 127U) ? 3U : 2U;
+    if(der_max < hdr_len + content_len) {
         return 0;
+    }
+    der[0] = 0x30;
+    if(content_len > 127U) {
+        der[1] = 0x81;
+        der[2] = (uint8_t)content_len;
+        pos = 3;
+    } else {
+        der[1] = (uint8_t)content_len;
+        pos = 2;
     }
     der[pos++] = 0x02;
     der[pos++] = (uint8_t)r_len;
@@ -8430,8 +8445,6 @@ static uint32_t tls13_ecdsa_signature_to_der(const ecdsa_signature_t *sig, uint8
     der[pos++] = (uint8_t)s_len;
     memcpy(der + pos, s_buf, s_len);
     pos += s_len;
-    der[0] = 0x30;
-    der[1] = (uint8_t)(pos - 2);
     return pos;
 }
 

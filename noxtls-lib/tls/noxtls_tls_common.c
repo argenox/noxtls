@@ -497,6 +497,12 @@ noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 #endif
+    /* Absolute ciphertext ceiling (RFC 5246 TLSCiphertext / RFC 8446 encrypted). */
+    if(length > TLS_MAX_PROTECTED_RECORD_FRAGMENT) {
+        noxtls_debug_printf("[TLS_DEBUG] tls_recv_record: Record length %u exceeds protected max %u\n",
+                            length, (unsigned)TLS_MAX_PROTECTED_RECORD_FRAGMENT);
+        return NOXTLS_RETURN_RECORD_OVERFLOW;
+    }
 
     if(record->type != TLS_RECORD_CHANGE_CIPHER_SPEC &&
        record->type != TLS_RECORD_ALERT &&
@@ -683,6 +689,11 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
     if(record.length > 0 && record.data == NULL) {
         return NOXTLS_RETURN_BAD_DATA;
     }
+    /* ClientHello is always TLSPlaintext; reject fragments above 2^14 (RFC 5246). */
+    if(record.length > TLS_MAX_RECORD_SIZE) {
+        noxtls_free(record.data);
+        return NOXTLS_RETURN_RECORD_OVERFLOW;
+    }
     
     if(record.type != TLS_RECORD_HANDSHAKE) {
         noxtls_free(record.data);
@@ -710,6 +721,11 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
         if(next_record.length > 0U && next_record.data == NULL) {
             noxtls_free(record.data);
             return NOXTLS_RETURN_BAD_DATA;
+        }
+        if(next_record.length > TLS_MAX_RECORD_SIZE) {
+            noxtls_free(next_record.data);
+            noxtls_free(record.data);
+            return NOXTLS_RETURN_RECORD_OVERFLOW;
         }
         if(next_record.type != TLS_RECORD_HANDSHAKE) {
             if(next_record.data) {
@@ -760,6 +776,11 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
         if(next_record.length > 0 && next_record.data == NULL) {
             noxtls_free(record.data);
             return NOXTLS_RETURN_BAD_DATA;
+        }
+        if(next_record.length > TLS_MAX_RECORD_SIZE) {
+            if(next_record.data) noxtls_free(next_record.data);
+            noxtls_free(record.data);
+            return NOXTLS_RETURN_RECORD_OVERFLOW;
         }
         if(next_record.type != TLS_RECORD_HANDSHAKE) {
             if(next_record.data) noxtls_free(next_record.data);
