@@ -2325,7 +2325,7 @@ noxtls_return_t noxtls_tls13_decrypt_record(tls13_context_t *ctx,
         return NOXTLS_RETURN_NULL;
     }
     
-    if(encrypted_record_len > (uint32_t)(TLS_MAX_RECORD_SIZE + 256u)) {
+    if(encrypted_record_len > (uint32_t)TLS13_MAX_ENCRYPTED_RECORD_SIZE) {
         return NOXTLS_RETURN_RECORD_OVERFLOW;
     }
     if(encrypted_record_len < 8) {

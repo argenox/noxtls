@@ -8932,6 +8932,11 @@ noxtls_return_t noxtls_tls12_recv(tls12_context_t *ctx, uint8_t *data, uint32_t 
     while(1) {
         noxtls_return_t rc = noxtls_tls_recv_record(&ctx->base.base, &record);
         if(rc != NOXTLS_RETURN_SUCCESS) {
+            if(rc == NOXTLS_RETURN_RECORD_OVERFLOW) {
+                (void)tls12_send_protected_alert(ctx, TLS_ALERT_LEVEL_FATAL,
+                                                 TLS_ALERT_RECORD_OVERFLOW);
+                ctx->base.base.state = TLS_STATE_CLOSED;
+            }
             return rc;
         }
         if(record.length > 0 && record.data == NULL) {

@@ -81,7 +81,12 @@ extern "C" {
 #define TLS_CLIENT_KEY_EXCHANGE_MAX_LEN      512  /* Max ClientKeyExchange noxtls_message buffer */
 #define TLS_HELLO_RETRY_REQUEST_MAX_SIZE     256
 #define TLS_SERVER_KEY_EXCHANGE_WORKSPACE   (1024 + 320 + 512)  /* DHE/ECDHE params + sig buffer */
-#define TLS_RECORD_WORKSPACE_OVERHEAD        256  /* Extra bytes for record_workspace (IV/tag/etc.) */
+/*
+ * RFC 5246 TLSCiphertext expansion is up to 2048 octets beyond 2^14 plaintext.
+ * TLS 1.3 encrypted records are tighter (2^14+256) and enforced in decrypt.
+ */
+#define TLS_RECORD_WORKSPACE_OVERHEAD        2048
+#define TLS13_MAX_ENCRYPTED_RECORD_OVERHEAD  256
 #define TLS13_RECORD_WORKSPACE_SIZE         ((TLS_MAX_RECORD_SIZE + 32) * 2) /* TLS 1.3 record workspace size */
 #define TLS_KEY_SHARE_ENTRY_MAX_LEN          2048 /* Encoded key share entry buffer */
 #define TLS_SESSION_ID_MAX_LEN               32
@@ -351,11 +356,12 @@ extern "C" {
 #endif
 
 /**
- * Maximum TLS record `fragment` length after TLS 1.2 CBC protection (explicit IV
- * plus ciphertext; ciphertext length is bounded by TLS_MAX_RECORD_SIZE). This
- * exceeds TLS_MAX_RECORD_SIZE and must be accepted by noxtls_tls_send_record.
+ * Absolute wire ceiling for a TLS record fragment (RFC 5246 TLSCiphertext).
+ * TLS 1.3 still rejects ciphertext above 2^14+256 during decrypt.
  */
 #define TLS_MAX_PROTECTED_RECORD_FRAGMENT (TLS_MAX_RECORD_SIZE + TLS_RECORD_WORKSPACE_OVERHEAD)
+#define TLS13_MAX_ENCRYPTED_RECORD_SIZE \
+    (TLS_MAX_RECORD_SIZE + TLS13_MAX_ENCRYPTED_RECORD_OVERHEAD)
 
 /** Size of per-connection handshake workspace for building/parsing handshake messages (client_hello, certificate, etc.). Reused to reduce peak stack and heap. */
 #ifndef NOXTLS_TLS_HANDSHAKE_WORKSPACE_SIZE

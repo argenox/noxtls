@@ -12424,10 +12424,21 @@ noxtls_return_t noxtls_tls13_recv(tls13_context_t *ctx, uint8_t *data, uint32_t 
         uint32_t inner_plaintext_len = 0;
         rc = noxtls_tls_recv_record(&ctx->base.base, &record);
         if(rc != NOXTLS_RETURN_SUCCESS) {
+            if(rc == NOXTLS_RETURN_RECORD_OVERFLOW) {
+                tls13_send_handshake_alert_for_error(ctx, rc);
+                ctx->base.base.state = TLS_STATE_CLOSED;
+            }
             return rc;
         }
         if(record.length > 0 && record.data == NULL) {
             return NOXTLS_RETURN_FAILED;
+        }
+        /* RFC 8446: encrypted record length MUST NOT exceed 2^14 + 256. */
+        if(record.length > (uint32_t)TLS13_MAX_ENCRYPTED_RECORD_SIZE) {
+            free(record.data);
+            tls13_send_handshake_alert_for_error(ctx, NOXTLS_RETURN_RECORD_OVERFLOW);
+            ctx->base.base.state = TLS_STATE_CLOSED;
+            return NOXTLS_RETURN_RECORD_OVERFLOW;
         }
 
         if(record.type == TLS_RECORD_CHANGE_CIPHER_SPEC) {
