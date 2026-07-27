@@ -90,6 +90,9 @@ typedef enum
 #include "noxtls_tls_key_exchange.h"
 #include "noxtls_tls_common.h"
 #include "noxtls_tls_noxsight.h"
+#if NOXTLS_FEATURE_TLS12
+#include "noxtls_tls12.h"
+#endif
 #include "pkc/rsa/noxtls_rsa.h"
 #include "pkc/ecdsa/noxtls_ecdsa.h"
 #include "pkc/ecc/noxtls_ecc.h"
@@ -1395,7 +1398,12 @@ static noxtls_return_t tls13_send_hello_retry_request_dtls(tls13_context_t *ctx,
     }
     memcpy(hrr + offset, hrr_random, sizeof(hrr_random));
     offset += sizeof(hrr_random);
-    hrr[offset++] = 0x00; /* legacy session id */
+    /* RFC 8446: HelloRetryRequest must echo ClientHello.legacy_session_id. */
+    hrr[offset++] = ctx->client_legacy_session_id_len;
+    if(ctx->client_legacy_session_id_len > 0U) {
+        memcpy(hrr + offset, ctx->client_legacy_session_id, ctx->client_legacy_session_id_len);
+        offset += ctx->client_legacy_session_id_len;
+    }
     hrr[offset++] = (ctx->cipher_suite >> 8) & 0xFF;
     hrr[offset++] = ctx->cipher_suite & 0xFF;
     hrr[offset++] = 0x00; /* legacy compression */
@@ -1950,11 +1958,11 @@ static noxtls_return_t tls13_handle_peer_compat_ccs(tls13_context_t *ctx, const 
     if(record->length != 1U || record->data == NULL || record->data[0] != TLS_RECORD_CCS_PAYLOAD) {
         return NOXTLS_RETURN_TLS_ERROR;
     }
-    /* Reject repeated CCS during handshake to avoid CCS flooding patterns (CVE-2020-25648 style). */
-    if(ctx->peer_compat_ccs_seen != 0U) {
+    /* Reject more than two middlebox CCS records (CH→HRR→CCS→CH2→SH→CCS→flight). */
+    if(ctx->peer_compat_ccs_seen >= 2U) {
         return NOXTLS_RETURN_TLS_ERROR;
     }
-    ctx->peer_compat_ccs_seen = 1U;
+    ctx->peer_compat_ccs_seen++;
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -6489,8 +6497,28 @@ noxtls_return_t noxtls_tls13_send_client_hello(tls13_context_t *ctx)
         TLS_CIPHER_SUITE_AES_128_CCM_SHA256,
         TLS_CIPHER_SUITE_AES_128_CCM_8_SHA256,
         TLS_CIPHER_SUITE_AES_256_GCM_SHA384,
-        TLS_CIPHER_SUITE_CHACHA20_POLY1305_SHA256
-        /* Note: ARIA GCM suites for TLS 1.3 would need to be defined if supported */
+        TLS_CIPHER_SUITE_CHACHA20_POLY1305_SHA256,
+        /* TLS 1.2 suites for downgrade / TLS 1.2-only peers (RFC 8446 §4.1.2). */
+        TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+        TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+        TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+        TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+        TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+        TLS_CIPHER_SUITE_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+        TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
+        TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
+        TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,
+        TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384,
+        TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_CBC_SHA,
+        TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_CBC_SHA,
+        TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_CBC_SHA256,
+        TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_CBC_SHA384,
+        TLS_CIPHER_SUITE_RSA_WITH_AES_128_GCM_SHA256,
+        TLS_CIPHER_SUITE_RSA_WITH_AES_256_GCM_SHA384,
+        TLS_CIPHER_SUITE_RSA_WITH_AES_128_CBC_SHA,
+        TLS_CIPHER_SUITE_RSA_WITH_AES_256_CBC_SHA,
+        TLS_CIPHER_SUITE_RSA_WITH_AES_128_CBC_SHA256,
+        TLS_CIPHER_SUITE_RSA_WITH_AES_256_CBC_SHA256
     };
     uint16_t supported_groups[12];
     uint16_t signature_algorithms[16];
@@ -6608,21 +6636,29 @@ noxtls_return_t noxtls_tls13_send_client_hello(tls13_context_t *ctx)
     offset += TLS_RANDOM_SIZE;
     
     /* Legacy session ID length (1 byte). DTLS 1.3 clients use an empty legacy_session_id by default. */
-    uint8_t session_id[TLS_SESSION_ID_MAX_LEN];
     if(tls13_is_dtls(ctx)) {
         client_hello[offset++] = 0x00;
         client_hello[offset++] = 0x00;  /* legacy_cookie length */
+    } else if(resend_after_hrr && ctx->client_legacy_session_id_len > 0U) {
+        /* Reuse the first ClientHello session id across HRR (RFC 8446). */
+        client_hello[offset++] = ctx->client_legacy_session_id_len;
+        memcpy(client_hello + offset, ctx->client_legacy_session_id, ctx->client_legacy_session_id_len);
+        offset += ctx->client_legacy_session_id_len;
     } else {
+        uint8_t session_id[TLS_SESSION_ID_MAX_LEN];
         if(drbg_generate(&drbg_state, session_id, sizeof(session_id) * 8U, NULL, 0) != NOXTLS_RETURN_SUCCESS) {
             tls13_connect_log_fail(ctx, "send_client_hello/drbg_generate_session_id", NOXTLS_RETURN_FAILED);
             if(client_hello != ctx->handshake_workspace) NOXTLS_SECURE_FREE(client_hello, 1024 + 256); else if(ctx->handshake_workspace != NULL) memset(ctx->handshake_workspace, 0, TLS_HANDSHAKE_WORKSPACE_SIZE);
             return NOXTLS_RETURN_FAILED;
         }
-        client_hello[offset++] = (uint8_t)sizeof(session_id);
-        memcpy(client_hello + offset, session_id, sizeof(session_id));
-        offset += sizeof(session_id);
+        ctx->client_legacy_session_id_len = (uint8_t)sizeof(session_id);
+        memcpy(ctx->client_legacy_session_id, session_id, sizeof(session_id));
+        client_hello[offset++] = ctx->client_legacy_session_id_len;
+        memcpy(client_hello + offset, ctx->client_legacy_session_id, ctx->client_legacy_session_id_len);
+        offset += ctx->client_legacy_session_id_len;
     }
     
+    /* Cipher suites length (2 bytes) */
     /* Cipher suites length (2 bytes) */
     uint16_t cipher_suites_len = sizeof(cipher_suites);
     client_hello[offset++] = (cipher_suites_len >> 8) & 0xFF;
@@ -6816,11 +6852,22 @@ noxtls_return_t noxtls_tls13_send_client_hello(tls13_context_t *ctx)
     client_hello[offset++] = (TLS_EXTENSION_SUPPORTED_VERSIONS >> 8) & 0xFF;
     client_hello[offset++] = TLS_EXTENSION_SUPPORTED_VERSIONS & 0xFF;
     if(tls13_is_dtls(ctx)) {
+#if NOXTLS_FEATURE_TLS12
+        /* Offer DTLS 1.3 and 1.2 so peers that only accept 1.2 can negotiate. */
+        client_hello[offset++] = 0x00;
+        client_hello[offset++] = 0x05;
+        client_hello[offset++] = 0x04;
+        client_hello[offset++] = (DTLS_VERSION_1_3 >> 8) & 0xFF;
+        client_hello[offset++] = DTLS_VERSION_1_3 & 0xFF;
+        client_hello[offset++] = (DTLS_VERSION_1_2 >> 8) & 0xFF;
+        client_hello[offset++] = DTLS_VERSION_1_2 & 0xFF;
+#else
         client_hello[offset++] = 0x00;
         client_hello[offset++] = 0x03;
         client_hello[offset++] = 0x02;
         client_hello[offset++] = (DTLS_VERSION_1_3 >> 8) & 0xFF;
         client_hello[offset++] = DTLS_VERSION_1_3 & 0xFF;
+#endif
     } else {
         client_hello[offset++] = 0x00;
         client_hello[offset++] = 0x05;
@@ -6830,6 +6877,19 @@ noxtls_return_t noxtls_tls13_send_client_hello(tls13_context_t *ctx)
         client_hello[offset++] = 0x03;
         client_hello[offset++] = 0x03;
     }
+
+#if NOXTLS_FEATURE_TLS12
+    /* EC point formats: required by many TLS 1.2 stacks for ECDHE when this
+     * ClientHello is used to negotiate TLS 1.2 (RFC 8422; omitted in pure TLS 1.3). */
+    if(!tls13_is_dtls(ctx)) {
+        client_hello[offset++] = (TLS_EXTENSION_EC_POINT_FORMATS >> 8) & 0xFF;
+        client_hello[offset++] = TLS_EXTENSION_EC_POINT_FORMATS & 0xFF;
+        client_hello[offset++] = 0x00;
+        client_hello[offset++] = 0x02;
+        client_hello[offset++] = 0x01;
+        client_hello[offset++] = 0x00; /* uncompressed */
+    }
+#endif
 
     /* Supported Groups */
     client_hello[offset++] = (TLS_EXTENSION_SUPPORTED_GROUPS >> 8) & 0xFF;
@@ -6905,6 +6965,29 @@ noxtls_return_t noxtls_tls13_send_client_hello(tls13_context_t *ctx)
         client_hello[offset++] = 0x01;  /* extension data length */
         client_hello[offset++] = 0x00;  /* ConnectionId: zero-length cid */
     }
+
+#if NOXTLS_FEATURE_TLS12
+    /* RFC 5077 session_ticket: allows TLS 1.2 peers to issue/resume tickets after downgrade. */
+    if(!tls13_is_dtls(ctx)) {
+        uint16_t tlen = 0;
+        uint8_t ticket_buf[TLS12_TICKET_MAX_LEN];
+        if(noxtls_tls12_client_session_has_ticket() &&
+           noxtls_tls12_client_session_copy_ticket(ticket_buf, (uint16_t)sizeof(ticket_buf), &tlen) == NOXTLS_RETURN_SUCCESS &&
+           tlen > 0U) {
+            client_hello[offset++] = (TLS_EXTENSION_SESSION_TICKET >> 8) & 0xFF;
+            client_hello[offset++] = TLS_EXTENSION_SESSION_TICKET & 0xFF;
+            client_hello[offset++] = (uint8_t)(tlen >> 8);
+            client_hello[offset++] = (uint8_t)(tlen & 0xFF);
+            memcpy(client_hello + offset, ticket_buf, tlen);
+            offset += tlen;
+        } else {
+            client_hello[offset++] = (TLS_EXTENSION_SESSION_TICKET >> 8) & 0xFF;
+            client_hello[offset++] = TLS_EXTENSION_SESSION_TICKET & 0xFF;
+            client_hello[offset++] = 0x00;
+            client_hello[offset++] = 0x00;
+        }
+    }
+#endif
 
     if(offer_psk) {
         uint8_t modes_len = include_key_share ? 2 : 1;
@@ -7204,10 +7287,8 @@ noxtls_return_t noxtls_tls13_recv_server_hello(tls13_context_t *ctx)
         };
         if(memcmp(ctx->server_random, hrr_random, sizeof(hrr_random)) == 0) {
             noxtls_debug_printf("[TLS13_DEBUG] recv_server_hello: detected HelloRetryRequest (HRR)\n");
-            if(tls13_is_dtls(ctx)) {
-                is_hrr = 1;
-                ctx->received_hrr = 1U;
-            }
+            is_hrr = 1;
+            ctx->received_hrr = 1U;
         }
     }
     offset += TLS_RANDOM_SIZE;
@@ -7312,6 +7393,13 @@ noxtls_return_t noxtls_tls13_recv_server_hello(tls13_context_t *ctx)
         }
         tls13_append_handshake_message(ctx, record.data, record.length);
         free(record.data);
+        /* RFC 8446 D.4: dummy CCS before the second ClientHello after HRR (TCP). */
+        if(!tls13_is_dtls(ctx) && ctx->client_legacy_session_id_len > 0U) {
+            rc = tls13_send_middlebox_compat_ccs(ctx);
+            if(rc != NOXTLS_RETURN_SUCCESS) {
+                return rc;
+            }
+        }
         rc = noxtls_tls13_send_client_hello(ctx);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
@@ -8849,6 +8937,15 @@ noxtls_return_t noxtls_tls13_connect(tls13_context_t *ctx)
                     return rc;
                 }
                 NOXTLS_STATE_EXIT(ctx, NOXTLS_STATE_RECV_SH, rc);
+                /* RFC 8446 D.4: dummy CCS before the client's second flight when
+                 * ClientHello carried a non-empty legacy_session_id. */
+                if(!tls13_is_dtls(ctx) && ctx->client_legacy_session_id_len > 0U) {
+                    rc = tls13_send_middlebox_compat_ccs(ctx);
+                    if(rc != NOXTLS_RETURN_SUCCESS) {
+                        tls13_connect_log_fail(ctx, "send_middlebox_compat_ccs", rc);
+                        return rc;
+                    }
+                }
                 ctx->client_handshake_step = TLS13_CLIENT_HS_STEP_RECV_ENC_EXT;
                 break;
 

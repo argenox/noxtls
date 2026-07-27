@@ -326,6 +326,7 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
             aes_type = NOXTLS_AES_128_BIT;
             break;
         case TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_CBC_SHA256:
+        case TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256:
         case TLS_CIPHER_SUITE_RSA_WITH_AES_128_CBC_SHA256:
         case TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_CBC_SHA256:
             hash_algo = NOXTLS_HASH_SHA_256;
@@ -359,6 +360,8 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
             break;
         case TLS_CIPHER_SUITE_RSA_WITH_AES_256_CBC_SHA:
         case TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_256_CBC_SHA:
+        case TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_CBC_SHA:
+        case TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CBC_SHA:
             hash_algo = NOXTLS_HASH_SHA1;
             mac_key_len = 20;
             enc_key_len = 32;
@@ -840,6 +843,7 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
             is_3des = 0;
             break;
         case TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_CBC_SHA256:
+        case TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256:
         case TLS_CIPHER_SUITE_RSA_WITH_AES_128_CBC_SHA256:
         case TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_CBC_SHA256:
             hash_algo = NOXTLS_HASH_SHA_256;
@@ -873,6 +877,8 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
             break;
         case TLS_CIPHER_SUITE_RSA_WITH_AES_256_CBC_SHA:
         case TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_256_CBC_SHA:
+        case TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_CBC_SHA:
+        case TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CBC_SHA:
             hash_algo = NOXTLS_HASH_SHA1;
             mac_key_len = 20;
             enc_key_len = 32;

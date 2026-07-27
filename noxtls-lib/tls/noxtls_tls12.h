@@ -208,6 +208,13 @@ typedef struct tls12_context_s
     uint8_t heartbeat_negotiated;        /* 1 when heartbeat extension is negotiated for current connection. */
     uint8_t heartbeat_peer_mode;         /* Mode received from peer extension (1 or 2). */
     uint8_t client_heartbeat_mode;       /* Server-side: mode offered by client in ClientHello extension. */
+
+    /* Client: record peeked after ServerHello to distinguish full vs abbreviated resume. */
+    uint8_t *client_pending_record;
+    uint32_t client_pending_record_len;
+    uint8_t client_pending_record_type;
+    /* Client: 1 if ClientHello included session_ticket (empty or with ticket). */
+    uint8_t client_offered_session_ticket;
 } tls12_context_t;
 NOXTLS_MSVC_WARNING_POP
 
@@ -269,6 +276,11 @@ noxtls_return_t tls12_derive_keys(tls12_context_t *ctx);  /* Derive keys from ma
 noxtls_return_t noxtls_tls12_send(tls12_context_t *ctx, const uint8_t *data, uint32_t len);
 noxtls_return_t noxtls_tls12_recv(tls12_context_t *ctx, uint8_t *data, uint32_t *len);
 noxtls_return_t noxtls_tls12_close(tls12_context_t *ctx);
+/** Client-side TLS 1.2 session ticket cache (for BoGo/multi-connection resume). */
+int noxtls_tls12_client_session_has_ticket(void);
+uint16_t noxtls_tls12_client_session_ticket_len(void);
+noxtls_return_t noxtls_tls12_client_session_copy_ticket(uint8_t *out, uint16_t out_cap, uint16_t *out_len);
+
 
 /** Server: send HelloRequest to ask client to renegotiate (RFC 5746). */
 noxtls_return_t noxtls_tls12_send_hello_request(tls12_context_t *ctx);
