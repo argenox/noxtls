@@ -1109,16 +1109,6 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
                               computed_outer_mac, &computed_outer_mac_len);
         if(rc != NOXTLS_RETURN_SUCCESS || computed_outer_mac_len != mac_len ||
            noxtls_secret_memcmp(received_outer_mac, computed_outer_mac, mac_len) != 0) {
-            fprintf(stderr,
-                    "[TLS12_REC] EtM outer MAC mismatch: suite=0x%04X type=%u seq=%llu enc_part=%u mac_len=%u rc=%d recv=%02X%02X%02X%02X calc=%02X%02X%02X%02X\n",
-                    (unsigned)ctx->cipher_suite,
-                    (unsigned)type,
-                    (unsigned long long)seq_num,
-                    (unsigned)encrypted_part_len,
-                    (unsigned)mac_len,
-                    (int)rc,
-                    received_outer_mac[0], received_outer_mac[1], received_outer_mac[2], received_outer_mac[3],
-                    computed_outer_mac[0], computed_outer_mac[1], computed_outer_mac[2], computed_outer_mac[3]);
             return NOXTLS_RETURN_BAD_DATA;
         }
     }

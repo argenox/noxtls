@@ -366,6 +366,10 @@ extern "C" {
 #define TLS13_MAX_ENCRYPTED_RECORD_SIZE \
     (TLS_MAX_RECORD_SIZE + TLS13_MAX_ENCRYPTED_RECORD_OVERHEAD)
 
+/** BoringSSL-compatible consecutive empty record / warning alert limits. */
+#define TLS_MAX_EMPTY_RECORDS    32U
+#define TLS_MAX_WARNING_ALERTS   4U
+
 /** Size of per-connection handshake workspace for building/parsing handshake messages (client_hello, certificate, etc.). Reused to reduce peak stack and heap. */
 #ifndef NOXTLS_TLS_HANDSHAKE_WORKSPACE_SIZE
 #define NOXTLS_TLS_HANDSHAKE_WORKSPACE_SIZE 8192

@@ -191,10 +191,17 @@ typedef struct tls12_context_s
     uint8_t client_accept_server_rpk;    /* Client: 1 = send server_certificate_type ext with RPK in ClientHello */
     uint8_t client_offer_client_rpk;     /* Client: 1 = send client_certificate_type ext with RPK in ClientHello (for client auth) */
     uint8_t request_client_auth;         /* Server: 1 = send CertificateRequest and process client Certificate/CertificateVerify */
+    uint8_t client_auth_requested;       /* Client: 1 after CertificateRequest received */
+    const uint8_t *own_client_cert;      /* Client: DER leaf to send (non-owning); NULL = empty Certificate */
+    uint32_t own_client_cert_len;
+    void *client_private_rsa;            /* Client: rsa_key_t* for CertificateVerify */
+    void *client_private_ecdsa;          /* Client: ecc_key_t* for CertificateVerify */
     uint16_t client_hello_version;       /* Server: raw ClientHello legacy_version from peer. */
     /** Server: 1 until first application record is sent as 1 byte then remainder (BEAST interop when
      *  ClientHello legacy_version is TLS 1.0 but the connection negotiates TLS 1.2). */
     uint8_t tls12_beast_split_first_appdata;
+    /** Client (RFC 7507): include TLS_FALLBACK_SCSV in ClientHello cipher suites. */
+    uint8_t client_send_fallback_scsv;
 
     /* RFC 8446 §4.1.3: when 1, ServerHello.random last 8 bytes are fixed for TLS-1.3-capable server negotiating TLS 1.2 (unified API sets this). */
     uint8_t rfc8446_tls13_downgrade_sh_random;
@@ -215,6 +222,14 @@ typedef struct tls12_context_s
     uint8_t client_pending_record_type;
     /* Client: 1 if ClientHello included session_ticket (empty or with ticket). */
     uint8_t client_offered_session_ticket;
+    /** Client: ServerHello echoed session_ticket; expect NewSessionTicket before CCS. */
+    uint8_t session_ticket_negotiated;
+    /** Client: 1 after a NewSessionTicket was received in this handshake. */
+    uint8_t new_session_ticket_received;
+
+    /* Consecutive empty app-data records / warning alerts (BoringSSL-compatible limits). */
+    uint8_t empty_record_count;
+    uint8_t warning_alert_count;
 } tls12_context_t;
 NOXTLS_MSVC_WARNING_POP
 
@@ -341,8 +356,15 @@ void noxtls_tls12_set_server_use_rpk(tls12_context_t *ctx, int use_rpk);
 void noxtls_tls12_set_client_accept_server_rpk(tls12_context_t *ctx, int accept);
 /** RFC 7250: Client can send RPK for client auth (sends client_certificate_type extension). Call before connect. */
 void noxtls_tls12_set_client_offer_client_rpk(tls12_context_t *ctx, int offer);
+void noxtls_tls12_set_client_fallback_scsv(tls12_context_t *ctx, int enable);
 /** Server: request client certificate authentication (TLS 1.2 CertificateRequest). Call before accept. */
 void noxtls_tls12_request_client_auth(tls12_context_t *ctx, int request);
+/** Client: set RSA certificate + key for CertificateRequest response. Call before connect. */
+noxtls_return_t noxtls_tls12_set_client_cert_rsa(tls12_context_t *ctx, const uint8_t *cert_der,
+                                                uint32_t cert_len, void *rsa_key);
+/** Client: set ECDSA certificate + key for CertificateRequest response. Call before connect. */
+noxtls_return_t noxtls_tls12_set_client_cert_ecdsa(tls12_context_t *ctx, const uint8_t *cert_der,
+                                                  uint32_t cert_len, void *ecc_key);
 
 /** RFC 6066: Set max fragment length (client or server). code: 0 = disabled, 1=512, 2=1024, 3=2048, 4=4096 bytes. Call before handshake. */
 void noxtls_tls12_set_max_fragment_length(tls12_context_t *ctx, uint8_t code);
