@@ -32,7 +32,7 @@
 #include "noxtls_bignum.h"
 #include "noxtls_bn_platform.h"
 
-#ifdef NOXTLS_EMBEDDED_NO_STDIO
+#if defined(NOXTLS_EMBEDDED_NO_STDIO)
 #undef fprintf
 #define fprintf(...) ((void)0)
 #undef fflush
