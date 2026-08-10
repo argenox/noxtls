@@ -24,7 +24,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if !defined(NOXTLS_CUSTOM_ENTROPY_ONLY)
 #include <time.h>
+#endif
 
 #include "common/noxtls_memory.h"
 #include "common/noxtls_memory_compat.h"
@@ -42,7 +44,7 @@
 #ifndef _WIN32_WINNT
 #define _WIN32_WINNT 0x0600  /* Windows Vista or later for BCrypt */
 #endif
-#elif !defined(__ZEPHYR__)
+#elif !defined(__ZEPHYR__) && !defined(NOXTLS_CUSTOM_ENTROPY_ONLY)
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
@@ -172,7 +174,7 @@ static noxtls_return_t get_entropy_windows_cryptoapi(uint8_t *entropy_buffer, ui
 }
 #endif
 
-#elif !defined(__ZEPHYR__)
+#elif !defined(__ZEPHYR__) && !defined(NOXTLS_CUSTOM_ENTROPY_ONLY)
 /* Non-Windows, non-Zephyr: Use /dev/urandom */
 /**
  * @brief Reads @p entropy_len bytes from `/dev/urandom`.
@@ -196,7 +198,9 @@ static noxtls_return_t get_entropy_unix(uint8_t *entropy_buffer, uint32_t entrop
 #endif
 
 /* Dummy entropy source - generates deterministic but varying data */
+#if !defined(NOXTLS_CUSTOM_ENTROPY_ONLY)
 static uint32_t dummy_entropy_counter = 0;
+#endif
 static noxtls_entropy_source_t g_entropy_source = NOXTLS_ENTROPY_SOURCE_AUTO;
 static noxtls_entropy_cb_t g_entropy_cb = NULL;
 
@@ -334,6 +338,7 @@ noxtls_entropy_cb_t noxtls_drbg_get_entropy_callback(void)
  *
  * @return Always `NOXTLS_RETURN_SUCCESS`.
  */
+#if !defined(NOXTLS_CUSTOM_ENTROPY_ONLY)
 static noxtls_return_t drbg_entropy_dummy(uint8_t *entropy_buffer, uint32_t entropy_len)
 {
     uint64_t time_seed = (uint64_t)time(NULL);
@@ -346,6 +351,7 @@ static noxtls_return_t drbg_entropy_dummy(uint8_t *entropy_buffer, uint32_t entr
     }
     return NOXTLS_RETURN_SUCCESS;
 }
+#endif
 
 /**
  * @brief Fills @p entropy_len bytes using the configured entropy source and fallbacks.
@@ -386,7 +392,7 @@ noxtls_return_t noxtls_drbg_get_entropy(uint8_t *entropy_buffer, uint32_t entrop
 #endif
             return NOXTLS_RETURN_FAILED;
         case NOXTLS_ENTROPY_SOURCE_UNIX_URANDOM:
-#if defined(__ZEPHYR__)
+#if defined(__ZEPHYR__) || defined(NOXTLS_CUSTOM_ENTROPY_ONLY)
             if(g_entropy_cb && g_entropy_cb(entropy_buffer, entropy_len) == NOXTLS_RETURN_SUCCESS) {
                 return NOXTLS_RETURN_SUCCESS;
             }
@@ -400,10 +406,14 @@ noxtls_return_t noxtls_drbg_get_entropy(uint8_t *entropy_buffer, uint32_t entrop
             return NOXTLS_RETURN_FAILED;
 #endif
         case NOXTLS_ENTROPY_SOURCE_DUMMY:
+#if defined(NOXTLS_CUSTOM_ENTROPY_ONLY)
+            return NOXTLS_RETURN_FAILED;
+#else
             return drbg_entropy_dummy(entropy_buffer, entropy_len);
+#endif
         case NOXTLS_ENTROPY_SOURCE_AUTO:
         default:
-#if defined(__ZEPHYR__)
+#if defined(__ZEPHYR__) || defined(NOXTLS_CUSTOM_ENTROPY_ONLY)
             if(g_entropy_cb && g_entropy_cb(entropy_buffer, entropy_len) == NOXTLS_RETURN_SUCCESS) {
                 return NOXTLS_RETURN_SUCCESS;
             }

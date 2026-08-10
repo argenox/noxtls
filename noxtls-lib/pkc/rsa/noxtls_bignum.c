@@ -32,6 +32,13 @@
 #include "noxtls_bignum.h"
 #include "noxtls_bn_platform.h"
 
+#if defined(NOXTLS_EMBEDDED_NO_STDIO)
+#undef fprintf
+#define fprintf(...) ((void)0)
+#undef fflush
+#define fflush(...) (0)
+#endif
+
 /* Debug helpers for bn_mod / bn_mod_exp instrumentation. */
 static int g_bn_debug_mod_first = 1;
 static int g_bn_debug_modexp_first = 1;
