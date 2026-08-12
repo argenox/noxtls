@@ -224,22 +224,7 @@ void noxtls_asn1_decode_obj_ident(uint8_t ** data, uint32_t len)
     const uint8_t * ptr = *data;
     for(i = 0; i < len; i++)
     {
-        if(i == 0) {
-            /* First byte is always 40 * val1 + val2 */
-
-            for(j = 2; j >= 0; j--) {
-                if(ptr[i] - (40 * j) > 0) {
-                    if(obj_ident_cnt + 2 > (uint8_t)(sizeof(obj_ident_vals) / sizeof(obj_ident_vals[0]))) {
-                        return;
-                    }
-                    obj_ident_vals[obj_ident_cnt++] = (uint32_t)j;
-                    obj_ident_vals[obj_ident_cnt++] = (uint32_t)(ptr[i] - (40*j));
-                    break;
-                }
-            }
-        }
-        else
-        {
+        if(i != 0) {
             if(ptr[i] & 0x80) {
                 /* Multiple byte OIDs numbers */
                 uint32_t val = 0;
@@ -264,13 +249,24 @@ void noxtls_asn1_decode_obj_ident(uint8_t ** data, uint32_t len)
                 }
                 obj_ident_vals[obj_ident_cnt++] = val;
                 i += j;
-            }
-            else
-            {
+            } else {
                 if(obj_ident_cnt + 1 > (uint8_t)(sizeof(obj_ident_vals) / sizeof(obj_ident_vals[0]))) {
                     return;
                 }
                 obj_ident_vals[obj_ident_cnt++] = ptr[i];
+            }
+            continue;
+        }
+
+        /* First byte is always 40 * val1 + val2 */
+        for(j = 2; j >= 0; j--) {
+            if(ptr[i] - (40 * j) > 0) {
+                if(obj_ident_cnt + 2 > (uint8_t)(sizeof(obj_ident_vals) / sizeof(obj_ident_vals[0]))) {
+                    return;
+                }
+                obj_ident_vals[obj_ident_cnt++] = (uint32_t)j;
+                obj_ident_vals[obj_ident_cnt++] = (uint32_t)(ptr[i] - (40*j));
+                break;
             }
         }
     }

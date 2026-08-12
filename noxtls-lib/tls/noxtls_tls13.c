@@ -2306,8 +2306,7 @@ static void tls13_pick_server_ecdsa_identity_from_matrix(tls13_context_t *ctx)
                 uint16_t s = sigalgs->algorithms[ai];
                 if(tls13_ecdsa_scheme_matches_curve(ek->curve_kind, s)) {
                     /* Non-owning pointer into caller-managed matrix cert (const storage, mutable API slot). */
-                    /* NOLINTNEXTLINE(performance-no-int-to-ptr) */
-                    ctx->server_cert = (uint8_t *)(uintptr_t)ctx->server_ecdsa_matrix_certs[mi];
+                    ctx->server_cert = (uint8_t *)(uintptr_t)ctx->server_ecdsa_matrix_certs[mi]; /* NOLINT(performance-no-int-to-ptr) */
                     ctx->server_cert_len = ctx->server_ecdsa_matrix_cert_lens[mi];
                     ctx->server_private_ecdsa = ek;
                     return;
@@ -2317,8 +2316,7 @@ static void tls13_pick_server_ecdsa_identity_from_matrix(tls13_context_t *ctx)
         return;
     }
 
-    /* NOLINTNEXTLINE(performance-no-int-to-ptr) */
-    ctx->server_cert = (uint8_t *)(uintptr_t)ctx->server_ecdsa_matrix_certs[0];
+    ctx->server_cert = (uint8_t *)(uintptr_t)ctx->server_ecdsa_matrix_certs[0]; /* NOLINT(performance-no-int-to-ptr) */
     ctx->server_cert_len = ctx->server_ecdsa_matrix_cert_lens[0];
     ctx->server_private_ecdsa = ctx->server_ecdsa_matrix_keys[0];
 }

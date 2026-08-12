@@ -1383,7 +1383,15 @@ static noxtls_return_t do_rsa_crt_decrypt(const rsa_key_t *key, const uint8_t *c
             }
             h_sum[0] = (uint8_t)carry;
         }
-        noxtls_bn_mod(h, (h_sum[0] != 0) ? h_sum : h_sum + 1, (h_sum[0] != 0) ? prime_len + 1 : prime_len, key->q, prime_len);
+        {
+            const uint8_t *h_ptr = h_sum + 1;
+            uint32_t h_len = prime_len;
+            if(h_sum[0] != 0) {
+                h_ptr = h_sum;
+                h_len = prime_len + 1U;
+            }
+            noxtls_bn_mod(h, h_ptr, h_len, key->q, prime_len);
+        }
         noxtls_free(h_sum);
     }
     /* h = h * p_inv mod q */

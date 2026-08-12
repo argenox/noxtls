@@ -1559,7 +1559,15 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_messag
                 carry = sum >> 8;
             }
             u1_plus_u2_buf[0] = (uint8_t)carry;
-            noxtls_bn_mod(u1_plus_u2_mod_n_buf, carry ? u1_plus_u2_buf : (u1_plus_u2_buf + 1), carry ? (size + 1) : size, key->curve->n, size);
+            {
+                const uint8_t *sum_ptr = u1_plus_u2_buf + 1;
+                uint32_t sum_len = size;
+                if(carry != 0U) {
+                    sum_ptr = u1_plus_u2_buf;
+                    sum_len = size + 1U;
+                }
+                noxtls_bn_mod(u1_plus_u2_mod_n_buf, sum_ptr, sum_len, key->curve->n, size);
+            }
             printf("[ecdsa_verify] FAILED v != r (size=%u)\n", (unsigned)size);
             printf("  s*s_inv mod n= ");
             for(i = 0; i < size; i++) printf("%02X", s_times_s_inv_mod_n[i]);
