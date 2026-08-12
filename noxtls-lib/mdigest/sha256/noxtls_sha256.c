@@ -83,11 +83,8 @@ static const uint32_t sha224_256_k[SHA256_ROUND_COUNT] =
     0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
 };
 
-static uint8_t s_sha256_cortexm7_enabled =
 #if NOXTLS_SHA256_CORTEXM7_AVAILABLE
-    1U;
-#else
-    0U;
+static uint8_t s_sha256_cortexm7_enabled = 1U;
 #endif
 
 const char *noxtls_sha256_backend_name(void)
@@ -265,24 +262,27 @@ noxtls_return_t noxtls_sha256_update(noxtls_sha_ctx_t * ctx, const uint8_t * inp
  */
 noxtls_return_t noxtls_sha256_round(noxtls_sha_ctx_t * ctx, const uint8_t * input)
 {
-	noxtls_return_t rc = NOXTLS_RETURN_NOT_SUPPORTED;
-
 	if(ctx == NULL || input == NULL) {
 		return NOXTLS_RETURN_NULL;
 	}
 
 #if NOXTLS_FEATURE_HASH_ACCEL_STM32
-    rc = noxtls_sha256_blocks_accel_port(ctx, input, 1U);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        rc = noxtls_sha256_round_accel_port(ctx, input);
-    }
-    if(rc == NOXTLS_RETURN_SUCCESS) {
-        return rc;
-    }
-#endif
+    {
+        noxtls_return_t rc = noxtls_sha256_blocks_accel_port(ctx, input, 1U);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_sha256_round_accel_port(ctx, input);
+        }
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
 #if NOXTLS_FEATURE_STM32_HW_SHA256_ONLY
-    return rc;
-#else
+        return rc;
+#endif
+    }
+#elif NOXTLS_FEATURE_STM32_HW_SHA256_ONLY
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+#if !NOXTLS_FEATURE_STM32_HW_SHA256_ONLY
     return noxtls_sha256_round_software(ctx, input);
 #endif
 }
@@ -451,7 +451,7 @@ static noxtls_return_t noxtls_sha256_blocks_software(noxtls_sha_ctx_t * ctx, con
 #endif
 
     for(i = 0U; i < block_count; i++) {
-        noxtls_return_t rc = noxtls_sha256_round_software(ctx, input + (i * SHA256_BLOCK_SIZE_BYTES));
+        noxtls_return_t rc = noxtls_sha256_round_software(ctx, input + ((size_t)i * (size_t)SHA256_BLOCK_SIZE_BYTES));
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }

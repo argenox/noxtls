@@ -963,7 +963,9 @@ static int ecdsa_der_get_tag(const uint8_t **p, const uint8_t *e, uint8_t expect
  */
 static int ecdsa_der_get_integer(const uint8_t **p, const uint8_t *e, uint8_t *buf, uint32_t buf_size, uint32_t *out_len)
 {
-    if(*p >= e || *(*p)++ != 0x02) { return -1; }
+    if(*p >= e) { return -1; }
+    if(**p != 0x02) { return -1; }
+    (*p)++;
     uint32_t len = ecdsa_der_get_length(p, e);
     if(len == 0 || *p + len > e || len > buf_size) { return -1; }
     *out_len = len;
@@ -1153,11 +1155,11 @@ noxtls_return_t noxtls_ecdsa_sign(ecc_key_t *key, const uint8_t *noxtls_message,
         k = p; p += size;
         k_inv = p; p += size;
         h = p; p += size;
-        r_times_d = p; p += (size * 2U);
-        sum_tmp = p; p += (size + 1U);
+        r_times_d = p; p += ((size_t)size * 2U);
+        sum_tmp = p; p += ((size_t)size + 1U);
         /* h + r*d can be up to 2n-2, so we need size+1 bytes to avoid dropping carry in add */
-        h_plus_rd = p; p += (size + 1U);
-        s_product = p; p += (size * 2U);
+        h_plus_rd = p; p += ((size_t)size + 1U);
+        s_product = p; p += ((size_t)size * 2U);
         random_bytes = p;
     }
 
@@ -1401,8 +1403,8 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_messag
         h = p; p += size;
         s_inv = p; p += size;
         /* u1, u2 hold mul result (2*size bytes) before bn_mod; after mod, size-byte value in first bytes */
-        u1 = p; p += (size * 2U);
-        u2 = p; p += (size * 2U);
+        u1 = p; p += ((size_t)size * 2U);
+        u2 = p; p += ((size_t)size * 2U);
         v = p;
     }
 

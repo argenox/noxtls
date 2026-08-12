@@ -1267,7 +1267,8 @@ noxtls_return_t noxtls_rsa_encrypt(const rsa_key_t *key, const uint8_t *plaintex
     /* Apply PKCS#1 v1.5 padding */
     uint8_t *padded = (uint8_t*)noxtls_calloc(key->key_bytes, 1);
     if(!padded) {
-        fprintf(stderr, "[noxtls_rsa_encrypt] FAIL: calloc(key_bytes=%lu) returned NULL\n", key->key_bytes);
+        fprintf(stderr, "[noxtls_rsa_encrypt] FAIL: calloc(key_bytes=%lu) returned NULL\n",
+                (unsigned long)key->key_bytes);
         return NOXTLS_RETURN_FAILED;
     }
     

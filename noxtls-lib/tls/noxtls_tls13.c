@@ -2305,7 +2305,8 @@ static void tls13_pick_server_ecdsa_identity_from_matrix(tls13_context_t *ctx)
             for(ai = 0; ai < sigalgs->count; ai++) {
                 uint16_t s = sigalgs->algorithms[ai];
                 if(tls13_ecdsa_scheme_matches_curve(ek->curve_kind, s)) {
-                    ctx->server_cert = (uint8_t *)(void *)ctx->server_ecdsa_matrix_certs[mi];
+                    /* Non-owning pointer into caller-managed matrix cert (const storage, mutable API slot). */
+                    ctx->server_cert = (uint8_t *)(uintptr_t)ctx->server_ecdsa_matrix_certs[mi];
                     ctx->server_cert_len = ctx->server_ecdsa_matrix_cert_lens[mi];
                     ctx->server_private_ecdsa = ek;
                     return;
@@ -2315,7 +2316,7 @@ static void tls13_pick_server_ecdsa_identity_from_matrix(tls13_context_t *ctx)
         return;
     }
 
-    ctx->server_cert = (uint8_t *)(void *)ctx->server_ecdsa_matrix_certs[0];
+    ctx->server_cert = (uint8_t *)(uintptr_t)ctx->server_ecdsa_matrix_certs[0];
     ctx->server_cert_len = ctx->server_ecdsa_matrix_cert_lens[0];
     ctx->server_private_ecdsa = ctx->server_ecdsa_matrix_keys[0];
 }
@@ -2369,8 +2370,6 @@ static int tls13_sig_scheme_certificate_verify_hash(uint16_t scheme, noxtls_hash
     }
     switch(scheme) {
         case TLS_SIGSCHEME_RSA_PSS_RSAE_SHA256:
-            *out_hash = NOXTLS_HASH_SHA_256;
-            return 1;
         case TLS_SIGSCHEME_LMS_HSS_SHA256:
         case TLS_SIGSCHEME_XMSS_SHA256:
         case TLS_SIGSCHEME_XMSSMT_SHA256:
@@ -2380,8 +2379,6 @@ static int tls13_sig_scheme_certificate_verify_hash(uint16_t scheme, noxtls_hash
             *out_hash = NOXTLS_HASH_SHA_384;
             return 1;
         case 0x0806U: /* rsa_pss_rsae_sha512 */
-            *out_hash = NOXTLS_HASH_SHA_512;
-            return 1;
         case TLS_SIGSCHEME_ED25519:
         case TLS_SIGSCHEME_ED448:
             *out_hash = NOXTLS_HASH_SHA_512;
@@ -2800,7 +2797,7 @@ static void tls13_send_fatal_alert(tls13_context_t *ctx, uint8_t alert_desc)
     (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, alert_desc);
 }
 
-static int tls13_is_certificate_validation_error(noxtls_return_t rc)
+static NOXTLS_UNUSED_ATTR int tls13_is_certificate_validation_error(noxtls_return_t rc)
 {
     return (rc == NOXTLS_RETURN_CERT_VERIFY_FAILED ||
             rc == NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED ||
@@ -5233,9 +5230,9 @@ static noxtls_return_t tls13_context_init_internal(tls13_context_t *ctx,
     ctx->server_private_rsa = NULL;
     ctx->server_private_ecdsa = NULL;
     ctx->server_ecdsa_matrix_count = 0U;
-    memset(ctx->server_ecdsa_matrix_certs, 0, sizeof(ctx->server_ecdsa_matrix_certs));
+    memset((void *)ctx->server_ecdsa_matrix_certs, 0, sizeof(ctx->server_ecdsa_matrix_certs));
     memset(ctx->server_ecdsa_matrix_cert_lens, 0, sizeof(ctx->server_ecdsa_matrix_cert_lens));
-    memset(ctx->server_ecdsa_matrix_keys, 0, sizeof(ctx->server_ecdsa_matrix_keys));
+    memset((void *)ctx->server_ecdsa_matrix_keys, 0, sizeof(ctx->server_ecdsa_matrix_keys));
     memset(ctx->server_private_ed25519, 0, sizeof(ctx->server_private_ed25519));
     ctx->server_cert_use_ed25519 = 0;
     memset(ctx->server_private_ed448, 0, sizeof(ctx->server_private_ed448));
@@ -5464,9 +5461,9 @@ void noxtls_tls13_set_server_private_rsa(tls13_context_t *ctx, void *rsa_key)
         if(rsa_key != NULL) {
             ctx->server_private_ecdsa = NULL;
             ctx->server_ecdsa_matrix_count = 0U;
-            memset(ctx->server_ecdsa_matrix_certs, 0, sizeof(ctx->server_ecdsa_matrix_certs));
+            memset((void *)ctx->server_ecdsa_matrix_certs, 0, sizeof(ctx->server_ecdsa_matrix_certs));
             memset(ctx->server_ecdsa_matrix_cert_lens, 0, sizeof(ctx->server_ecdsa_matrix_cert_lens));
-            memset(ctx->server_ecdsa_matrix_keys, 0, sizeof(ctx->server_ecdsa_matrix_keys));
+            memset((void *)ctx->server_ecdsa_matrix_keys, 0, sizeof(ctx->server_ecdsa_matrix_keys));
             memset(ctx->server_private_ed25519, 0, sizeof(ctx->server_private_ed25519));
             ctx->server_cert_use_ed25519 = 0;
             memset(ctx->server_private_ed448, 0, sizeof(ctx->server_private_ed448));
@@ -5495,9 +5492,9 @@ void noxtls_tls13_set_server_private_ecdsa(tls13_context_t *ctx, void *ecc_key)
         if(ecc_key != NULL) {
             ctx->server_private_rsa = NULL;
             ctx->server_ecdsa_matrix_count = 0U;
-            memset(ctx->server_ecdsa_matrix_certs, 0, sizeof(ctx->server_ecdsa_matrix_certs));
+            memset((void *)ctx->server_ecdsa_matrix_certs, 0, sizeof(ctx->server_ecdsa_matrix_certs));
             memset(ctx->server_ecdsa_matrix_cert_lens, 0, sizeof(ctx->server_ecdsa_matrix_cert_lens));
-            memset(ctx->server_ecdsa_matrix_keys, 0, sizeof(ctx->server_ecdsa_matrix_keys));
+            memset((void *)ctx->server_ecdsa_matrix_keys, 0, sizeof(ctx->server_ecdsa_matrix_keys));
             memset(ctx->server_private_ed25519, 0, sizeof(ctx->server_private_ed25519));
             ctx->server_cert_use_ed25519 = 0;
             memset(ctx->server_private_ed448, 0, sizeof(ctx->server_private_ed448));
@@ -5524,9 +5521,9 @@ void noxtls_tls13_clear_server_ecdsa_identities(tls13_context_t *ctx)
         return;
     }
     ctx->server_ecdsa_matrix_count = 0U;
-    memset(ctx->server_ecdsa_matrix_certs, 0, sizeof(ctx->server_ecdsa_matrix_certs));
+    memset((void *)ctx->server_ecdsa_matrix_certs, 0, sizeof(ctx->server_ecdsa_matrix_certs));
     memset(ctx->server_ecdsa_matrix_cert_lens, 0, sizeof(ctx->server_ecdsa_matrix_cert_lens));
-    memset(ctx->server_ecdsa_matrix_keys, 0, sizeof(ctx->server_ecdsa_matrix_keys));
+    memset((void *)ctx->server_ecdsa_matrix_keys, 0, sizeof(ctx->server_ecdsa_matrix_keys));
 }
 
 /**
@@ -5597,9 +5594,9 @@ noxtls_return_t noxtls_tls13_set_server_private_ed25519(tls13_context_t *ctx, co
     ctx->server_private_rsa = NULL;
     ctx->server_private_ecdsa = NULL;
     ctx->server_ecdsa_matrix_count = 0U;
-    memset(ctx->server_ecdsa_matrix_certs, 0, sizeof(ctx->server_ecdsa_matrix_certs));
+    memset((void *)ctx->server_ecdsa_matrix_certs, 0, sizeof(ctx->server_ecdsa_matrix_certs));
     memset(ctx->server_ecdsa_matrix_cert_lens, 0, sizeof(ctx->server_ecdsa_matrix_cert_lens));
-    memset(ctx->server_ecdsa_matrix_keys, 0, sizeof(ctx->server_ecdsa_matrix_keys));
+    memset((void *)ctx->server_ecdsa_matrix_keys, 0, sizeof(ctx->server_ecdsa_matrix_keys));
     ctx->server_cert_use_mldsa = 0;
     memset(ctx->server_private_mldsa, 0, sizeof(ctx->server_private_mldsa));
     ctx->server_private_mldsa_len = 0;
@@ -5627,9 +5624,9 @@ noxtls_return_t noxtls_tls13_set_server_private_ed448(tls13_context_t *ctx, cons
     ctx->server_private_rsa = NULL;
     ctx->server_private_ecdsa = NULL;
     ctx->server_ecdsa_matrix_count = 0U;
-    memset(ctx->server_ecdsa_matrix_certs, 0, sizeof(ctx->server_ecdsa_matrix_certs));
+    memset((void *)ctx->server_ecdsa_matrix_certs, 0, sizeof(ctx->server_ecdsa_matrix_certs));
     memset(ctx->server_ecdsa_matrix_cert_lens, 0, sizeof(ctx->server_ecdsa_matrix_cert_lens));
-    memset(ctx->server_ecdsa_matrix_keys, 0, sizeof(ctx->server_ecdsa_matrix_keys));
+    memset((void *)ctx->server_ecdsa_matrix_keys, 0, sizeof(ctx->server_ecdsa_matrix_keys));
     ctx->server_cert_use_mldsa = 0;
     memset(ctx->server_private_mldsa, 0, sizeof(ctx->server_private_mldsa));
     ctx->server_private_mldsa_len = 0;
@@ -5763,9 +5760,9 @@ noxtls_return_t noxtls_tls13_set_server_private_mldsa(tls13_context_t *ctx, noxt
     ctx->server_private_rsa = NULL;
     ctx->server_private_ecdsa = NULL;
     ctx->server_ecdsa_matrix_count = 0U;
-    memset(ctx->server_ecdsa_matrix_certs, 0, sizeof(ctx->server_ecdsa_matrix_certs));
+    memset((void *)ctx->server_ecdsa_matrix_certs, 0, sizeof(ctx->server_ecdsa_matrix_certs));
     memset(ctx->server_ecdsa_matrix_cert_lens, 0, sizeof(ctx->server_ecdsa_matrix_cert_lens));
-    memset(ctx->server_ecdsa_matrix_keys, 0, sizeof(ctx->server_ecdsa_matrix_keys));
+    memset((void *)ctx->server_ecdsa_matrix_keys, 0, sizeof(ctx->server_ecdsa_matrix_keys));
     memset(ctx->server_private_ed25519, 0, sizeof(ctx->server_private_ed25519));
     ctx->server_cert_use_ed25519 = 0;
     memset(ctx->server_private_ed448, 0, sizeof(ctx->server_private_ed448));
@@ -5812,9 +5809,9 @@ noxtls_return_t noxtls_tls13_set_server_private_slhdsa(tls13_context_t *ctx,
     ctx->server_private_rsa = NULL;
     ctx->server_private_ecdsa = NULL;
     ctx->server_ecdsa_matrix_count = 0U;
-    memset(ctx->server_ecdsa_matrix_certs, 0, sizeof(ctx->server_ecdsa_matrix_certs));
+    memset((void *)ctx->server_ecdsa_matrix_certs, 0, sizeof(ctx->server_ecdsa_matrix_certs));
     memset(ctx->server_ecdsa_matrix_cert_lens, 0, sizeof(ctx->server_ecdsa_matrix_cert_lens));
-    memset(ctx->server_ecdsa_matrix_keys, 0, sizeof(ctx->server_ecdsa_matrix_keys));
+    memset((void *)ctx->server_ecdsa_matrix_keys, 0, sizeof(ctx->server_ecdsa_matrix_keys));
     memset(ctx->server_private_ed25519, 0, sizeof(ctx->server_private_ed25519));
     ctx->server_cert_use_ed25519 = 0U;
     memset(ctx->server_private_ed448, 0, sizeof(ctx->server_private_ed448));
@@ -5860,9 +5857,9 @@ noxtls_return_t noxtls_tls13_set_server_private_falcon(tls13_context_t *ctx,
     ctx->server_private_rsa = NULL;
     ctx->server_private_ecdsa = NULL;
     ctx->server_ecdsa_matrix_count = 0U;
-    memset(ctx->server_ecdsa_matrix_certs, 0, sizeof(ctx->server_ecdsa_matrix_certs));
+    memset((void *)ctx->server_ecdsa_matrix_certs, 0, sizeof(ctx->server_ecdsa_matrix_certs));
     memset(ctx->server_ecdsa_matrix_cert_lens, 0, sizeof(ctx->server_ecdsa_matrix_cert_lens));
-    memset(ctx->server_ecdsa_matrix_keys, 0, sizeof(ctx->server_ecdsa_matrix_keys));
+    memset((void *)ctx->server_ecdsa_matrix_keys, 0, sizeof(ctx->server_ecdsa_matrix_keys));
     memset(ctx->server_private_ed25519, 0, sizeof(ctx->server_private_ed25519));
     ctx->server_cert_use_ed25519 = 0U;
     memset(ctx->server_private_ed448, 0, sizeof(ctx->server_private_ed448));
@@ -6364,9 +6361,9 @@ noxtls_return_t noxtls_tls13_context_free(tls13_context_t *ctx)
         ctx->server_cert_parsed = NULL;
     }
     ctx->server_ecdsa_matrix_count = 0U;
-    memset(ctx->server_ecdsa_matrix_certs, 0, sizeof(ctx->server_ecdsa_matrix_certs));
+    memset((void *)ctx->server_ecdsa_matrix_certs, 0, sizeof(ctx->server_ecdsa_matrix_certs));
     memset(ctx->server_ecdsa_matrix_cert_lens, 0, sizeof(ctx->server_ecdsa_matrix_cert_lens));
-    memset(ctx->server_ecdsa_matrix_keys, 0, sizeof(ctx->server_ecdsa_matrix_keys));
+    memset((void *)ctx->server_ecdsa_matrix_keys, 0, sizeof(ctx->server_ecdsa_matrix_keys));
     if(ctx->client_cert) {
         free(ctx->client_cert);
         ctx->client_cert = NULL;
@@ -6706,18 +6703,16 @@ noxtls_return_t noxtls_tls13_send_client_hello(tls13_context_t *ctx)
     if(include_key_share) {
         uint8_t encoded_entry[TLS_KEY_SHARE_ENTRY_MAX_LEN];
         uint32_t encoded_entry_len = sizeof(encoded_entry);
-        uint32_t shares_capacity = 1U;
-        tls13_key_share_entry_t *shares = &ctx->client_key_share_inline;
-
 #if NOXTLS_FEATURE_ML_KEM
-        shares_capacity = 3U;
-        shares = (tls13_key_share_entry_t*)calloc(shares_capacity, sizeof(tls13_key_share_entry_t));
+        uint32_t shares_capacity = 3U;
+        tls13_key_share_entry_t *shares = (tls13_key_share_entry_t*)calloc(shares_capacity, sizeof(tls13_key_share_entry_t));
         if(shares == NULL) {
             tls13_connect_log_fail(ctx, "send_client_hello/alloc_client_shares", NOXTLS_RETURN_NOT_ENOUGH_MEMORY);
             if(client_hello != ctx->handshake_workspace) NOXTLS_SECURE_FREE(client_hello, 1024 + 256); else if(ctx->handshake_workspace != NULL) memset(ctx->handshake_workspace, 0, TLS_HANDSHAKE_WORKSPACE_SIZE);
             return NOXTLS_RETURN_FAILED;
         }
 #else
+        tls13_key_share_entry_t *shares = &ctx->client_key_share_inline;
         memset(&ctx->client_key_share_inline, 0, sizeof(ctx->client_key_share_inline));
         memset(ctx->client_key_share_inline_buf, 0, sizeof(ctx->client_key_share_inline_buf));
 #endif

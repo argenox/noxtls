@@ -410,14 +410,12 @@ noxtls_return_t noxtls_tls_connection_accept(noxtls_tls_connection_t *conn)
                 (void)noxtls_tls_send_alert(&conn->base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_PROTOCOL_VERSION);
             } else if(rc == NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER) {
                 (void)noxtls_tls_send_alert(&conn->base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_ILLEGAL_PARAMETER);
-            } else if(rc == NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR) {
+            } else if(rc == NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR || rc == NOXTLS_RETURN_BAD_DATA) {
                 (void)noxtls_tls_send_alert(&conn->base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
             } else if(rc == NOXTLS_RETURN_RECORD_OVERFLOW) {
                 (void)noxtls_tls_send_alert(&conn->base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_RECORD_OVERFLOW);
             } else if(rc == NOXTLS_RETURN_TLS_ERROR) {
                 (void)noxtls_tls_send_alert(&conn->base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_UNEXPECTED_MESSAGE);
-            } else if(rc == NOXTLS_RETURN_BAD_DATA) {
-                (void)noxtls_tls_send_alert(&conn->base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
             }
         }
         return rc;

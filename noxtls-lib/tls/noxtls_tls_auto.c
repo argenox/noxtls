@@ -90,14 +90,12 @@ noxtls_return_t tls_accept_auto(tls_context_t *base_ctx,
                 alert_desc = TLS_ALERT_PROTOCOL_VERSION;
             } else if(rc == NOXTLS_RETURN_TLS_ERROR) {
                 alert_desc = TLS_ALERT_UNEXPECTED_MESSAGE;
-            } else if(rc == NOXTLS_RETURN_BAD_DATA) {
+            } else if(rc == NOXTLS_RETURN_BAD_DATA || rc == NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR) {
                 alert_desc = TLS_ALERT_DECODE_ERROR;
             } else if(rc == NOXTLS_RETURN_RECORD_OVERFLOW) {
                 alert_desc = TLS_ALERT_RECORD_OVERFLOW;
             } else if(rc == NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER) {
                 alert_desc = TLS_ALERT_ILLEGAL_PARAMETER;
-            } else if(rc == NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR) {
-                alert_desc = TLS_ALERT_DECODE_ERROR;
             }
             (void)noxtls_tls_send_alert(base_ctx, TLS_ALERT_LEVEL_FATAL, alert_desc);
         }

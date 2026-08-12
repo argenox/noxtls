@@ -53,8 +53,17 @@ __attribute__((unused))
 static int g_bn_debug_inv_progress = 1;
 static int g_bn_debug_modexp_active = 0;
 static uint32_t g_bn_debug_mod_calls = 0;
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((unused))
+#endif
 static uint32_t g_bn_debug_modexp_byte = 0;
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((unused))
+#endif
 static uint8_t g_bn_debug_modexp_bit = 0;
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((unused))
+#endif
 static uint8_t g_bn_debug_modexp_stage = 0;
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((unused))
@@ -2733,7 +2742,7 @@ static noxtls_return_t bn_mod_exp_mont(uint8_t *result, const uint8_t *base,
 
     /* table[0] = R mod m (Montgomery 1); table[1] = aR; table[i] = table[i-1] * a */
     bn_mont_mul(&table[0], one_l, RR, m_l, n, n0inv, t, tmp);
-    memcpy(&table[1U * n], aR, (size_t)n * sizeof(bn_limb_t));
+    memcpy(&table[(size_t)n], aR, (size_t)n * sizeof(bn_limb_t));
     {
         uint32_t idx;
         for(idx = 2U; idx < BN_MONT_TABLE; idx++) {

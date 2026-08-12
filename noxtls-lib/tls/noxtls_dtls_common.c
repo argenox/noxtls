@@ -1025,7 +1025,7 @@ noxtls_return_t noxtls_dtls_send_record(dtls_context_t *ctx, uint8_t type, const
             noxtls_debug_printf("[TLS13_DEBUG] dtls_send_record: flight_append rc=%d len=%lu need=%lu cap=%lu\n",
                                 (int)append_rc,
                                 (unsigned long)record_len,
-                                (unsigned long)(ctx->flight_buffer_len + 2U + record_len),
+                                (unsigned long)ctx->flight_buffer_len + 2UL + (unsigned long)record_len,
                                 (unsigned long)ctx->flight_buffer_capacity);
             if(record != ctx->base.record_send_buf) {
                 noxtls_free(record);

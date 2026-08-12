@@ -72,8 +72,6 @@ noxtls_return_t noxtls_tls_named_group_to_ecc_curve(uint16_t named_group, ecc_cu
             *curve_type = NOXTLS_ECC_SECP256R1;  /* unused for X25519; callers branch on named_group */
             return NOXTLS_RETURN_SUCCESS;
         case TLS_NAMED_GROUP_X448:
-            return NOXTLS_RETURN_FAILED;
-            
         default:
             return NOXTLS_RETURN_FAILED;
     }

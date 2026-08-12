@@ -244,7 +244,7 @@ noxtls_return_t noxtls_tls_parse_extensions(const uint8_t *data, uint32_t data_l
                                 free(extensions->alpn->protocols[k]);
                             }
                         }
-                        free(extensions->alpn->protocols);
+                        free((void *)extensions->alpn->protocols);
                     }
                     free(extensions->alpn);
                     extensions->alpn = NULL;
@@ -277,6 +277,10 @@ noxtls_return_t noxtls_tls_parse_extensions(const uint8_t *data, uint32_t data_l
                         }
                     }
                 }
+                break;
+                
+            default:
+                /* Unknown extension types are ignored (stored in the generic list above). */
                 break;
         }
     }
@@ -367,7 +371,7 @@ noxtls_return_t noxtls_tls_extensions_free(tls_extensions_t *extensions)
                     free(extensions->alpn->protocols[i]);
                 }
             }
-            free(extensions->alpn->protocols);
+            free((void *)extensions->alpn->protocols);
         }
         free(extensions->alpn);
         extensions->alpn = NULL;
@@ -759,11 +763,11 @@ noxtls_return_t noxtls_tls_parse_extension_alpn(const uint8_t *data, uint32_t da
         
         if(alpn->count >= alloc_count) {
             uint32_t new_count = alloc_count * 2U;
-            new_protocols = (char**)realloc(alpn->protocols, new_count * sizeof(char*));
+            new_protocols = (char**)realloc((void *)alpn->protocols, new_count * sizeof(char*));
             if(new_protocols == NULL) {
                 goto alpn_parse_fail;
             }
-            memset(new_protocols + alloc_count, 0, alloc_count * sizeof(char*));
+            memset((void *)(new_protocols + alloc_count), 0, alloc_count * sizeof(char*));
             alpn->protocols = new_protocols;
             alloc_count = new_count;
         }
@@ -800,7 +804,7 @@ alpn_parse_fail:
                 free(alpn->protocols[i]);
             }
         }
-        free(alpn->protocols);
+        free((void *)alpn->protocols);
         alpn->protocols = NULL;
     }
     alpn->count = 0;

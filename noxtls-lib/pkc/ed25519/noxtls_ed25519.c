@@ -140,6 +140,7 @@ static void fe25519_native_copy(fe25519_native_t *dst, const fe25519_native_t *s
     memcpy(dst, src, sizeof(*dst));
 }
 
+NOXTLS_UNUSED_ATTR
 static void fe25519_native_zero(fe25519_native_t *a)
 {
     memset(a, 0, sizeof(*a));
@@ -566,6 +567,7 @@ static noxtls_return_t ed25519_mod_reduce_be(const uint8_t *input,
  * @return None.
  */
 #ifndef NDEBUG
+NOXTLS_UNUSED_ATTR
 static void ed25519_dbg_hex32(const char *label, const uint8_t v[NOXTLS_ED25519_FE25519_BYTES])
 {
     fprintf(stderr, "%s=", label);
@@ -583,6 +585,7 @@ static void ed25519_dbg_hex32(const char *label, const uint8_t v[NOXTLS_ED25519_
  * @return None.
  */
 #ifndef NDEBUG
+NOXTLS_UNUSED_ATTR
 static void ed25519_dbg_hex64(const char *label, const uint8_t v[NOXTLS_ED25519_SHA512_DIGEST_BYTES])
 {
     fprintf(stderr, "%s=", label);

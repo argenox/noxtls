@@ -342,7 +342,8 @@ static noxtls_return_t hkdf_expand_label_with_prefix(noxtls_hash_algos_t hash_al
     hkdf_label[offset++] = (uint8_t)((output_len >> 8) & 0xFFU);
     hkdf_label[offset++] = (uint8_t)(output_len & 0xFFU);
     hkdf_label[offset++] = (uint8_t)full_label_len;
-    memcpy(hkdf_label + offset, prefix, prefix_len);
+    /* Binary HkdfLabel buffer (not a C string); memcpy is intentional. */
+    memcpy(hkdf_label + offset, prefix, prefix_len); /* NOLINT(bugprone-not-null-terminated-result) */
     offset += prefix_len;
     memcpy(hkdf_label + offset, label, label_len);
     offset += label_len;

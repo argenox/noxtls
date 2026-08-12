@@ -1134,10 +1134,9 @@ static noxtls_hash_algos_t tls12_get_prf_hash(uint16_t cipher_suite)
         case TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_GCM_SHA256:
         case TLS_CIPHER_SUITE_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256:
         case TLS_CIPHER_SUITE_DHE_RSA_WITH_ARIA_128_CBC_SHA256:
-            return NOXTLS_HASH_SHA_256;
         case TLS_CIPHER_SUITE_RSA_WITH_3DES_EDE_CBC_SHA:
         case TLS_CIPHER_SUITE_DHE_RSA_WITH_3DES_EDE_CBC_SHA:
-            /* Record MAC is SHA-1; TLS 1.2 PRF (master secret, Finished, key block) is SHA-256 (RFC 5246). */
+            /* 3DES suites: record MAC is SHA-1; TLS 1.2 PRF uses SHA-256 (RFC 5246). */
             return NOXTLS_HASH_SHA_256;
         default:
             return NOXTLS_HASH_SHA_256;
@@ -6353,9 +6352,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
                 noxtls_tls_extensions_free(&ctx->client_extensions);
                 memset(&ctx->client_extensions, 0, sizeof(ctx->client_extensions));
                 if(ctx->base.base.send_callback != NULL) {
-                    if(ext_rc == NOXTLS_RETURN_BAD_DATA) {
-                        (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);
-                    } else if(ext_rc == NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER) {
+                    if(ext_rc == NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER) {
                         (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_ILLEGAL_PARAMETER);
                     } else {
                         (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_DECODE_ERROR);

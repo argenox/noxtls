@@ -335,26 +335,6 @@ noxtls_return_t noxtls_aes_encrypt_data(const uint8_t* key,
 }
 
 /**
- * @brief Return the key size in bytes for an AES key size selector.
- *
- * @param type AES key size selector.
- * @return Key size in bytes, or 0 for an invalid selector.
- */
-static uint8_t aes_key_size_bytes(noxtls_aes_type_t type)
-{
-    switch(type) {
-        case NOXTLS_AES_128_BIT:
-            return 16;
-        case NOXTLS_AES_192_BIT:
-            return 24;
-        case NOXTLS_AES_256_BIT:
-            return 32;
-        default:
-            return 0;
-    }
-}
-
-/**
  * @brief Map an AES key size selector to round-count and key-layout metadata.
  *
  * @param type AES key size selector.
