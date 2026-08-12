@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(NoxTLS VERSION 0.2.60 LANGUAGES C)
+project(NoxTLS VERSION 0.2.61 LANGUAGES C)
 
 # Resolve NoxTLS paths from this directory by default, while allowing parent override.
 if(NOT DEFINED NOXTLS_PROJECT_ROOT)
@@ -486,3 +486,6 @@ if(_noxtls_build_applications_in_tree)
   add_subdirectory(applications/prime)
   add_subdirectory(applications/sha)
 endif()
+
+# Install SDK (libraries, headers, CLIs, CMake package, pkg-config)
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/NoxTLSInstall.cmake")

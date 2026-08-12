@@ -66,6 +66,15 @@ Post-quantum rollout and interop status are tracked in [PQC_STATUS.md](PQC_STATU
 
 ## Getting Started
 
+### Homebrew
+
+```bash
+brew tap argenox/noxtls
+brew install noxtls
+```
+
+This installs the static SDK (libraries + headers), CMake/pkg-config metadata, and CLI tools. See [BUILDING.md](BUILDING.md) for details.
+
 ### Clone
 
 ```bash

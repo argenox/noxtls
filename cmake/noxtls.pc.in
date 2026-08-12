@@ -1,0 +1,10 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=${prefix}
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+
+Name: NoxTLS
+Description: Lightweight TLS and cryptography library
+Version: @PROJECT_VERSION@
+Libs: -L${libdir} @NOXTLS_PKGCONFIG_LIBS@
+Cflags: -I${includedir} -I${includedir}/utility -I${includedir}/noxtls-lib -I${includedir}/noxtls-lib/common -I${includedir}/noxtls-lib/mdigest -I${includedir}/noxtls-lib/mac -I${includedir}/noxtls-lib/kdf -I${includedir}/noxtls-lib/encryption -I${includedir}/noxtls-lib/encryption/aes -I${includedir}/noxtls-lib/certs -I${includedir}/noxtls-lib/pkc -I${includedir}/noxtls-lib/drbg -I${includedir}/noxtls-lib/tls

@@ -10,6 +10,17 @@ description: "NoxTLS documentation: getting-started."
 - CMake 3.10 or newer
 - C99 compiler (GCC, Clang, or MSVC)
 
+## Homebrew
+
+On macOS or Linux with Homebrew:
+
+```bash
+brew tap argenox/noxtls
+brew install noxtls
+```
+
+This installs the full SDK (static libraries, headers, CMake/pkg-config files, and CLIs).
+
 ## Building (standalone)
 
 From the repository root:
@@ -17,6 +28,7 @@ From the repository root:
 ```bash
 cmake -B build
 cmake --build build
+cmake --install build --prefix /usr/local   # optional SDK install
 ```
 
 Options:
