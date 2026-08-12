@@ -123,6 +123,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          create_legacy_aliases() {
+            local compat_dir="$1"
+            for mapping in \
+              "aes:noxtls-aes" \
+              "base64:noxtls-base64" \
+              "cert:noxtls-cert" \
+              "dtls_psk_test:noxtls-dtls_psk_test" \
+              "prime:noxtls-prime" \
+              "sha:noxtls-sha" \
+              "tls_test:noxtls-tls_test"; do
+              local legacy_name="${mapping%%:*}"
+              local current_name="${mapping##*:}"
+              if [[ -f "${compat_dir}/${current_name}" && ! -f "${compat_dir}/${legacy_name}" ]]; then
+                cp -a "${compat_dir}/${current_name}" "${compat_dir}/${legacy_name}"
+              fi
+            done
+          }
           INSTALL_PREFIX="$(pwd)/artifacts/sdk-prefix"
           cmake -S . -B build -G Ninja \
             -D BUILD_SHARED_LIBS=OFF \
@@ -139,26 +156,21 @@ jobs:
           # Applications archive contents.
           mkdir -p artifacts/applications
           cp -a "${INSTALL_PREFIX}/bin/." artifacts/applications/
+          # Backward-compatible layout for consumers that still validate
+          # binary/<legacy-name> inside application archives.
+          mkdir -p artifacts/applications/binary
+          cp -a "${INSTALL_PREFIX}/bin/." artifacts/applications/binary/
+          create_legacy_aliases "artifacts/applications/binary"
           # Backward-compatible macOS layout for consumers that still validate
           # binary-<arch>/<legacy-name> paths inside application archives.
           if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
-            arch="$(uname -m)"
-            compat_dir="artifacts/applications/binary-${arch}"
-            mkdir -p "${compat_dir}"
-            cp -a "${INSTALL_PREFIX}/bin/." "${compat_dir}/"
-            for mapping in \
-              "aes:noxtls-aes" \
-              "base64:noxtls-base64" \
-              "cert:noxtls-cert" \
-              "dtls_psk_test:noxtls-dtls_psk_test" \
-              "prime:noxtls-prime" \
-              "sha:noxtls-sha" \
-              "tls_test:noxtls-tls_test"; do
-              legacy_name="${mapping%%:*}"
-              current_name="${mapping##*:}"
-              if [[ -f "${compat_dir}/${current_name}" && ! -f "${compat_dir}/${legacy_name}" ]]; then
-                cp -a "${compat_dir}/${current_name}" "${compat_dir}/${legacy_name}"
-              fi
+            # Keep legacy validators green: provide both binary-arm64 and
+            # binary-x86_64 layouts with old executable names.
+            for arch in arm64 x86_64; do
+              compat_dir="artifacts/applications/binary-${arch}"
+              mkdir -p "${compat_dir}"
+              cp -a "${INSTALL_PREFIX}/bin/." "${compat_dir}/"
+              create_legacy_aliases "${compat_dir}"
             done
           fi
 
@@ -167,6 +179,23 @@ jobs:
         shell: msys2 {0}
         run: |
           set -euo pipefail
+          create_legacy_aliases() {
+            local compat_dir="$1"
+            for mapping in \
+              "aes:noxtls-aes" \
+              "base64:noxtls-base64" \
+              "cert:noxtls-cert" \
+              "dtls_psk_test:noxtls-dtls_psk_test" \
+              "prime:noxtls-prime" \
+              "sha:noxtls-sha" \
+              "tls_test:noxtls-tls_test"; do
+              local legacy_name="${mapping%%:*}"
+              local current_name="${mapping##*:}"
+              if [[ -f "${compat_dir}/${current_name}.exe" && ! -f "${compat_dir}/${legacy_name}.exe" ]]; then
+                cp -a "${compat_dir}/${current_name}.exe" "${compat_dir}/${legacy_name}.exe"
+              fi
+            done
+          }
           INSTALL_PREFIX="$(pwd)/artifacts/sdk-prefix"
           cmake -S . -B build -G Ninja \
             -D BUILD_SHARED_LIBS=OFF \
@@ -181,6 +210,9 @@ jobs:
           cp -a "${INSTALL_PREFIX}/lib" "${INSTALL_PREFIX}/include" artifacts/static-sdk/
           mkdir -p artifacts/applications
           cp -a "${INSTALL_PREFIX}/bin/." artifacts/applications/
+          mkdir -p artifacts/applications/binary
+          cp -a "${INSTALL_PREFIX}/bin/." artifacts/applications/binary/
+          create_legacy_aliases "artifacts/applications/binary"
 
       - name: Create release archives (Linux/macOS)
         if: ${{ !matrix.use_msys2 }}
