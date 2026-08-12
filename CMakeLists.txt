@@ -28,8 +28,8 @@ set(NOXTLS_PROFILE "default" CACHE STRING "Feature profile: default|minimal_tls_
 set_property(CACHE NOXTLS_PROFILE PROPERTY STRINGS default minimal_tls_client tls_server_pki crypto_only fips_like_profile)
 set(NOXTLS_SIDECHANNEL_PROFILE "balanced" CACHE STRING "Side-channel profile: performance|balanced|constant_time_strict")
 set_property(CACHE NOXTLS_SIDECHANNEL_PROFILE PROPERTY STRINGS performance balanced constant_time_strict)
-set(NOXTLS_SIZE_PROFILE "crypto_only" CACHE STRING "Size benchmark profile: crypto_only|tls12_only|tls13_only|tls12_tls13|full_quantum")
-set_property(CACHE NOXTLS_SIZE_PROFILE PROPERTY STRINGS crypto_only tls12_only tls13_only tls12_tls13 full_quantum)
+set(NOXTLS_SIZE_PROFILE "crypto_only" CACHE STRING "Size benchmark profile: crypto_only|tls12_only|tls13_only|tls12_tls13|full_quantum|pq_baseline|pq_ml_kem|pq_ml_dsa|pq_slh_dsa|pq_falcon|pq_lms_hss|pq_xmss")
+set_property(CACHE NOXTLS_SIZE_PROFILE PROPERTY STRINGS crypto_only tls12_only tls13_only tls12_tls13 full_quantum pq_baseline pq_ml_kem pq_ml_dsa pq_slh_dsa pq_falcon pq_lms_hss pq_xmss)
 set(NOXTLS_BENCH_OPT_LEVEL "O3" CACHE STRING "Benchmark compiler optimization level")
 set_property(CACHE NOXTLS_BENCH_OPT_LEVEL PROPERTY STRINGS O0 O1 O3 Os)
 
