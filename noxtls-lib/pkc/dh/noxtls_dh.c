@@ -514,7 +514,11 @@ noxtls_return_t noxtls_dh_shared_secret(const uint8_t *private_key,
         noxtls_free(peer_mod);
         return NOXTLS_RETURN_FAILED;
     }
-    rc = noxtls_bn_mod_exp(secret_out, peer_mod, private_key, private_len, p, p_len);
+    {
+        uint32_t exp_len = private_len;
+        uint32_t mod_len = p_len;
+        rc = noxtls_bn_mod_exp(secret_out, peer_mod, private_key, exp_len, p, mod_len);
+    }
     noxtls_free(peer_mod);
     return rc;
 }

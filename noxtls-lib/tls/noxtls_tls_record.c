@@ -1008,7 +1008,12 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
         uint32_t ciphertext_len;
         const uint8_t *ciphertext;
         const uint8_t *tag_in;
-        const uint32_t tag_len = is_tls12_chacha ? 16U : (is_gcm ? 16U : tls12_ccm_tag_len);
+        uint32_t tag_len;
+        if(is_tls12_chacha || is_gcm) {
+            tag_len = 16U;
+        } else {
+            tag_len = tls12_ccm_tag_len;
+        }
 
         if(is_tls12_chacha) {
             if(encrypted_record_len < tag_len) {

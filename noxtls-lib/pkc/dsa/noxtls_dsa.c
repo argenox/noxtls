@@ -384,9 +384,13 @@ noxtls_return_t noxtls_dsa_sign(const dsa_key_t *key, const uint8_t *noxtls_mess
             k[q_len - 1] = 1;
         }
 
-        /* r = (g^k mod p) mod q */
-        if(noxtls_bn_mod_exp(g_k, key->g, k, q_len, key->p, p_len) != NOXTLS_RETURN_SUCCESS) {
-            continue;
+        /* r = (g^k mod p) mod q; exp k is q-sized, modulus is p. */
+        {
+            uint32_t exp_len = q_len;
+            uint32_t mod_len = p_len;
+            if(noxtls_bn_mod_exp(g_k, key->g, k, exp_len, key->p, mod_len) != NOXTLS_RETURN_SUCCESS) {
+                continue;
+            }
         }
         noxtls_bn_mod(signature->r, g_k, p_len, key->q, q_len);
         if(noxtls_bn_is_zero(signature->r, q_len)) {
@@ -528,10 +532,14 @@ noxtls_return_t noxtls_dsa_verify(const dsa_key_t *key, const uint8_t *noxtls_me
     noxtls_bn_mul(u2, w, q_len, signature->r, q_len);
     noxtls_bn_mod(u2, u2, q_len * 2, key->q, q_len);
 
-    if(noxtls_bn_mod_exp(g_u1, key->g, u1, q_len, key->p, p_len) != NOXTLS_RETURN_SUCCESS ||
-        noxtls_bn_mod_exp(y_u2, key->y, u2, q_len, key->p, p_len) != NOXTLS_RETURN_SUCCESS) {
-        rc = NOXTLS_RETURN_FAILED;
-        goto cleanup;
+    {
+        uint32_t exp_len = q_len;
+        uint32_t mod_len = p_len;
+        if(noxtls_bn_mod_exp(g_u1, key->g, u1, exp_len, key->p, mod_len) != NOXTLS_RETURN_SUCCESS ||
+           noxtls_bn_mod_exp(y_u2, key->y, u2, exp_len, key->p, mod_len) != NOXTLS_RETURN_SUCCESS) {
+            rc = NOXTLS_RETURN_FAILED;
+            goto cleanup;
+        }
     }
     noxtls_bn_mul(product, g_u1, p_len, y_u2, p_len);
     noxtls_bn_mod(g_u1, product, p_len * 2, key->p, p_len);  /* g_u1 = (g^u1 * y^u2) mod p */

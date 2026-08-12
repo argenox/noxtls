@@ -1062,7 +1062,11 @@ noxtls_return_t noxtls_camellia_self_test(void)
     }
 
     /* Decrypt roundtrip: decrypt 256-bit ciphertext and compare to original plaintext */
-    noxtls_camellia_decrypt_block_internal(key, out, dec, NOXTLS_CAMELLIA_256_BIT);
+    {
+        const uint8_t *data = out;
+        uint8_t *output = dec;
+        noxtls_camellia_decrypt_block_internal(key, data, output, NOXTLS_CAMELLIA_256_BIT);
+    }
     if(memcmp(dec, pt, 16) != 0) {
         camellia_print_block_hex("noxtls_camellia_self_test dec expected: ", pt);
         camellia_print_block_hex("noxtls_camellia_self_test dec actual  : ", dec);

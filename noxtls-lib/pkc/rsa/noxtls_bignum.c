@@ -463,7 +463,11 @@ noxtls_return_t noxtls_bn_mul(uint8_t *result, const uint8_t *a, uint32_t a_len,
     }
 
     bn_bytes_to_limbs_le(a_limbs, n_limbs_a, a, a_len);
-    bn_bytes_to_limbs_le(b_limbs, n_limbs_b, b, b_len);
+    {
+        uint32_t limb_len = n_limbs_b;
+        uint32_t byte_len = b_len;
+        bn_bytes_to_limbs_le(b_limbs, limb_len, b, byte_len);
+    }
 
     /* For each limb of b: r[i..] += a[0..] * b[i]. */
     for(i = 0; i < n_limbs_b; i++) {
@@ -3112,7 +3116,11 @@ noxtls_return_t noxtls_bn_mod_inv(uint8_t *result, const uint8_t *a, uint32_t a_
                 noxtls_bn_copy(u1_wide + 1, u1, m_len);
                 noxtls_bn_add(u1_wide, u1_wide, m_padded, m_wide);
                 noxtls_bn_rshift1(u1_wide, m_wide);
-                noxtls_bn_mod(u1, u1_wide, m_wide, m, m_len);
+                {
+                    uint32_t a_len = m_wide;
+                    uint32_t mod_len = m_len;
+                    noxtls_bn_mod(u1, u1_wide, a_len, m, mod_len);
+                }
             } else {
                 noxtls_bn_rshift1(u1, m_len);
             }
@@ -3141,7 +3149,11 @@ noxtls_return_t noxtls_bn_mod_inv(uint8_t *result, const uint8_t *a, uint32_t a_
                 noxtls_bn_copy(v1_wide + 1, v1, m_len);
                 noxtls_bn_add(v1_wide, v1_wide, m_padded, m_wide);
                 noxtls_bn_rshift1(v1_wide, m_wide);
-                noxtls_bn_mod(v1, v1_wide, m_wide, m, m_len);
+                {
+                    uint32_t a_len = m_wide;
+                    uint32_t mod_len = m_len;
+                    noxtls_bn_mod(v1, v1_wide, a_len, m, mod_len);
+                }
             } else {
                 noxtls_bn_rshift1(v1, m_len);
             }

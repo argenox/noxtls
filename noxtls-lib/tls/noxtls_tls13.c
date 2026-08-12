@@ -2306,6 +2306,7 @@ static void tls13_pick_server_ecdsa_identity_from_matrix(tls13_context_t *ctx)
                 uint16_t s = sigalgs->algorithms[ai];
                 if(tls13_ecdsa_scheme_matches_curve(ek->curve_kind, s)) {
                     /* Non-owning pointer into caller-managed matrix cert (const storage, mutable API slot). */
+                    /* NOLINTNEXTLINE(performance-no-int-to-ptr) */
                     ctx->server_cert = (uint8_t *)(uintptr_t)ctx->server_ecdsa_matrix_certs[mi];
                     ctx->server_cert_len = ctx->server_ecdsa_matrix_cert_lens[mi];
                     ctx->server_private_ecdsa = ek;
@@ -2316,6 +2317,7 @@ static void tls13_pick_server_ecdsa_identity_from_matrix(tls13_context_t *ctx)
         return;
     }
 
+    /* NOLINTNEXTLINE(performance-no-int-to-ptr) */
     ctx->server_cert = (uint8_t *)(uintptr_t)ctx->server_ecdsa_matrix_certs[0];
     ctx->server_cert_len = ctx->server_ecdsa_matrix_cert_lens[0];
     ctx->server_private_ecdsa = ctx->server_ecdsa_matrix_keys[0];
@@ -8364,8 +8366,12 @@ noxtls_return_t noxtls_tls13_recv_finished(tls13_context_t *ctx)
     }
 
     verify_len = hash_len;
-    rc = noxtls_hmac_compute(hash_algo, finished_key, hash_len, transcript_hash, transcript_len,
-                      verify_data, &verify_len);
+    {
+        const uint8_t *data = transcript_hash;
+        uint8_t *mac = verify_data;
+        rc = noxtls_hmac_compute(hash_algo, finished_key, hash_len, data, transcript_len,
+                                 mac, &verify_len);
+    }
     if(rc != NOXTLS_RETURN_SUCCESS) {
         free(msg);
         return rc;
@@ -8828,8 +8834,12 @@ noxtls_return_t noxtls_tls13_send_finished(tls13_context_t *ctx)
     }
 
     verify_len = hash_len;
-    rc = noxtls_hmac_compute(hash_algo, finished_key, hash_len, transcript_hash, transcript_len,
-                      verify_data, &verify_len);
+    {
+        const uint8_t *data = transcript_hash;
+        uint8_t *mac = verify_data;
+        rc = noxtls_hmac_compute(hash_algo, finished_key, hash_len, data, transcript_len,
+                                 mac, &verify_len);
+    }
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -11154,8 +11164,12 @@ noxtls_return_t noxtls_tls13_send_finished_server(tls13_context_t *ctx)
                                     finished_key, hash_len);
         if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
         verify_len = hash_len;
-        rc = noxtls_hmac_compute(hash_algo, finished_key, hash_len, transcript_hash, transcript_len,
-                          finished + 4, &verify_len);
+        {
+            const uint8_t *data = transcript_hash;
+            uint8_t *mac = finished + 4;
+            rc = noxtls_hmac_compute(hash_algo, finished_key, hash_len, data, transcript_len,
+                                     mac, &verify_len);
+        }
         if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
         finished[offset++] = TLS_HANDSHAKE_FINISHED;
         finished[offset++] = 0x00;
@@ -11682,8 +11696,12 @@ noxtls_return_t noxtls_tls13_recv_finished_client(tls13_context_t *ctx)
             return rc;
         }
         verify_len = hash_len;
-        rc = noxtls_hmac_compute(hash_algo, finished_key, hash_len, transcript_hash, transcript_len,
-                         verify_data, &verify_len);
+        {
+            const uint8_t *data = transcript_hash;
+            uint8_t *mac = verify_data;
+            rc = noxtls_hmac_compute(hash_algo, finished_key, hash_len, data, transcript_len,
+                                     mac, &verify_len);
+        }
         if(rc != NOXTLS_RETURN_SUCCESS) {
             free(msg);
             return rc;
@@ -12033,9 +12051,13 @@ noxtls_return_t noxtls_tls13_accept(tls13_context_t *ctx)
                     ctx->last_accept_timing.total_us = tls13_profile_elapsed_us(accept_t0);
                     return rc;
                 }
-                ctx->server_handshake_step = ctx->request_client_auth ?
-                    TLS13_SERVER_HS_STEP_SEND_CERTIFICATE_REQUEST :
-                    (!ctx->psk_in_use ? TLS13_SERVER_HS_STEP_SEND_CERTIFICATE : TLS13_SERVER_HS_STEP_SEND_FINISHED);
+                if(ctx->request_client_auth) {
+                    ctx->server_handshake_step = TLS13_SERVER_HS_STEP_SEND_CERTIFICATE_REQUEST;
+                } else if(!ctx->psk_in_use) {
+                    ctx->server_handshake_step = TLS13_SERVER_HS_STEP_SEND_CERTIFICATE;
+                } else {
+                    ctx->server_handshake_step = TLS13_SERVER_HS_STEP_SEND_FINISHED;
+                }
                 break;
 
             case TLS13_SERVER_HS_STEP_SEND_CERTIFICATE_REQUEST:

@@ -10118,11 +10118,14 @@ noxtls_return_t noxtls_tls12_recv(tls12_context_t *ctx, uint8_t *data, uint32_t 
             rc = tls12_handle_heartbeat_record(ctx, record.data, record.length);
             free(record.data);
             if(rc != NOXTLS_RETURN_SUCCESS) {
-                uint8_t ad = (rc == NOXTLS_RETURN_NOT_SUPPORTED)
-                    ? TLS_ALERT_UNEXPECTED_MESSAGE
-                    : (rc == NOXTLS_RETURN_RECORD_OVERFLOW)
-                        ? TLS_ALERT_RECORD_OVERFLOW
-                        : TLS_ALERT_BAD_RECORD_MAC;
+                uint8_t ad;
+                if(rc == NOXTLS_RETURN_NOT_SUPPORTED) {
+                    ad = TLS_ALERT_UNEXPECTED_MESSAGE;
+                } else if(rc == NOXTLS_RETURN_RECORD_OVERFLOW) {
+                    ad = TLS_ALERT_RECORD_OVERFLOW;
+                } else {
+                    ad = TLS_ALERT_BAD_RECORD_MAC;
+                }
                 (void)tls12_send_protected_alert(ctx, TLS_ALERT_LEVEL_FATAL, ad);
                 ctx->base.base.state = TLS_STATE_CLOSED;
                 return rc;

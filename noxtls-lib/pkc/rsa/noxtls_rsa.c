@@ -1759,12 +1759,24 @@ static noxtls_return_t pss_hash_message(noxtls_hash_algos_t hash_algo, const uin
     return NOXTLS_RETURN_INVALID_ALGORITHM;
 }
 
+static uint32_t rsa_pss_digest_len(noxtls_hash_algos_t hash_algo)
+{
+    if(hash_algo == NOXTLS_HASH_SHA_256) {
+        return 32U;
+    }
+    if(hash_algo == NOXTLS_HASH_SHA_384) {
+        return 48U;
+    }
+    if(hash_algo == NOXTLS_HASH_SHA_512) {
+        return 64U;
+    }
+    return 0U;
+}
+
 /** MGF1 (RFC 8017): mask = MGF1(seed, seed_len, mask_len). */
 static noxtls_return_t mgf1(noxtls_hash_algos_t hash_algo, const uint8_t *seed, uint32_t seed_len, uint8_t *mask, uint32_t mask_len)
 {
-    uint32_t h_len = (hash_algo == NOXTLS_HASH_SHA_256) ? 32U :
-                     (hash_algo == NOXTLS_HASH_SHA_384) ? 48U :
-                     (hash_algo == NOXTLS_HASH_SHA_512) ? 64U : 0U;
+    uint32_t h_len = rsa_pss_digest_len(hash_algo);
     uint8_t counter[4];
     uint32_t offset = 0;
     uint8_t T_buf[64];
@@ -1999,8 +2011,7 @@ noxtls_return_t noxtls_rsa_sign_pss(const rsa_key_t *key, const uint8_t *noxtls_
        hash_algo != NOXTLS_HASH_SHA_512) { return NOXTLS_RETURN_INVALID_ALGORITHM; }
     if(*signature_len < key->key_bytes) { return NOXTLS_RETURN_FAILED; }
 
-    uint32_t h_len = (hash_algo == NOXTLS_HASH_SHA_256) ? 32U :
-                     (hash_algo == NOXTLS_HASH_SHA_384) ? 48U : 64U;
+    uint32_t h_len = rsa_pss_digest_len(hash_algo);
     uint8_t m_hash[64];
     if(pss_hash_message(hash_algo, noxtls_message, message_len, m_hash, &h_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
 
@@ -2057,8 +2068,7 @@ noxtls_return_t noxtls_rsa_verify_pss(const rsa_key_t *key, const uint8_t *noxtl
     noxtls_return_t rc = noxtls_bn_mod_exp(em, signature, key->e, key->key_bytes, key->n, key->key_bytes);
     if(rc != NOXTLS_RETURN_SUCCESS) { noxtls_free(em); return rc; }
 
-    uint32_t h_len = (hash_algo == NOXTLS_HASH_SHA_256) ? 32U :
-                     (hash_algo == NOXTLS_HASH_SHA_384) ? 48U : 64U;
+    uint32_t h_len = rsa_pss_digest_len(hash_algo);
     uint8_t m_hash[64];
     if(pss_hash_message(hash_algo, noxtls_message, message_len, m_hash, &h_len) != NOXTLS_RETURN_SUCCESS) { noxtls_free(em); return NOXTLS_RETURN_FAILED; }
 

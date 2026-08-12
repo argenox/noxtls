@@ -562,8 +562,14 @@ noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
         if(record->type == TLS_RECORD_ALERT && length >= 2) {
             uint8_t alert_level = record->data[0];
             uint8_t alert_desc = record->data[1];
-            const char *level_str = (alert_level == 1) ? "warning" :
-                                    (alert_level == 2) ? "fatal" : "unknown";
+            const char *level_str;
+            if(alert_level == 1) {
+                level_str = "warning";
+            } else if(alert_level == 2) {
+                level_str = "fatal";
+            } else {
+                level_str = "unknown";
+            }
             const char *desc_str = "unknown";
             switch(alert_desc) {
                 case 0: desc_str = "close_notify"; break;
