@@ -389,7 +389,7 @@ noxtls_return_t tls13_psk_find_clienthello_binder(const uint8_t *client_hello,
                     }
                     id_len = psk_read_uint16(client_hello + p);
                     p += 2;
-                    if((uint32_t)id_len + 4U > (uint32_t)(identities_end - p)) {
+                    if((uint32_t)id_len + 4U > (identities_end - p)) {
                         return NOXTLS_RETURN_BAD_DATA;
                     }
                     if(idx == identity_index) {

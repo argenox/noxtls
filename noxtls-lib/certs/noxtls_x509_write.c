@@ -1038,7 +1038,9 @@ noxtls_return_t noxtls_x509_certificate_generate_self_signed_with_extensions_ex(
         if(serial_enc_len == 0) { goto cleanup; }
         sig_alg_seq_len = put_algorithm_identifier(sig_alg_seq, sizeof(sig_alg_seq), sig_oid, sig_oid_len, NULL, 0);
         if(sig_alg_seq_len == 0) { goto cleanup; }
-        { uint8_t vb[32], va[32], validity_content[64];
+        { uint8_t vb[32];
+          uint8_t va[32];
+          uint8_t validity_content[64];
           uint32_t vbl = noxtls_asn1_put_utc_time(vb, sizeof(vb), not_before_utc);
           uint32_t val = noxtls_asn1_put_utc_time(va, sizeof(va), not_after_utc);
           if(vbl == 0 || val == 0) { goto cleanup; }

@@ -4578,7 +4578,7 @@ static noxtls_return_t tls13_send_new_session_ticket(tls13_context_t *ctx)
         return NOXTLS_RETURN_FAILED;
     }
 
-    rc = tls13_psk_derive_resumption_psk(hash_algo, (uint32_t)hash_len, ctx->master_secret,
+    rc = tls13_psk_derive_resumption_psk(hash_algo, hash_len, ctx->master_secret,
                                          ctx->handshake_messages, ctx->handshake_messages_len,
                                          ticket_nonce, 16, resumption_psk);
     if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -4846,7 +4846,7 @@ static noxtls_return_t tls13_recv_handshake_message(tls13_context_t *ctx, uint8_
             if(record.data == NULL) {
                 return NOXTLS_RETURN_BAD_DATA;
             }
-            uint32_t total_len = (uint32_t)record.length;
+            uint32_t total_len = record.length;
             while(offset < total_len) {
                 uint32_t rec_size = noxtls_tls13_dtls13_record_size(record.data + offset, total_len - offset,
                                                                      ctx->own_connection_id_len);
@@ -5107,7 +5107,7 @@ static noxtls_return_t tls13_recv_handshake_message(tls13_context_t *ctx, uint8_
             }
             if(tls13_is_dtls(ctx)) {
                 dtls_context_t *dctx = &ctx->base;
-                tls13_dtls_ack_range_add(dctx, (uint16_t)dctx->epoch, dctx->read_seq_num);
+                tls13_dtls_ack_range_add(dctx, dctx->epoch, dctx->read_seq_num);
                 dctx->ack_pending = 1;
             }
             rc = tls13_handshake_buffer_append(ctx, decrypted, decrypted_len);
@@ -8290,7 +8290,7 @@ noxtls_return_t noxtls_tls13_recv_certificate_verify(tls13_context_t *ctx)
         /* Client: verify server cert is valid for the requested hostname (SAN or CN) */
         if(ctx->server_name != NULL && ctx->server_name_len > 0) {
             rc = noxtls_x509_certificate_matches_hostname((x509_certificate_t*)ctx->server_cert_parsed,
-                (const char*)ctx->server_name, ctx->server_name_len);
+                ctx->server_name, ctx->server_name_len);
             if(rc != NOXTLS_RETURN_SUCCESS) {
                 free(msg);
                 NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_X509, NOXSIGHT_SEVERITY_ERROR,
@@ -8900,7 +8900,7 @@ noxtls_return_t noxtls_tls13_get_channel_binding(tls13_context_t *ctx, uint32_t 
             if(noxtls_sha256_init(&sha_ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) {
                 return NOXTLS_RETURN_FAILED;
             }
-            noxtls_sha256_update(&sha_ctx, (uint8_t *)ctx->server_cert, ctx->server_cert_len);
+            noxtls_sha256_update(&sha_ctx, ctx->server_cert, ctx->server_cert_len);
             if(noxtls_sha256_finish(&sha_ctx, out) != NOXTLS_RETURN_SUCCESS) {
                 return NOXTLS_RETURN_FAILED;
             }
@@ -9467,7 +9467,7 @@ noxtls_return_t noxtls_tls13_recv_client_hello(tls13_context_t *ctx)
         if(ctx->base.base.pending_client_hello_len > TLS_MAX_CLIENT_HELLO_BYTES) {
             return NOXTLS_RETURN_FAILED;
         }
-        record.length = (uint32_t)ctx->base.base.pending_client_hello_len;
+        record.length = ctx->base.base.pending_client_hello_len;
         record.data = (uint8_t*)malloc((size_t)record.length);
         if(record.length > 0 && record.data == NULL) {
             return NOXTLS_RETURN_FAILED;
@@ -9529,7 +9529,7 @@ noxtls_return_t noxtls_tls13_recv_client_hello(tls13_context_t *ctx)
         free(record.data);
         return NOXTLS_RETURN_TLS_ERROR;
     }
-    assembled_len = (uint32_t)record.length;
+    assembled_len = record.length;
     while(assembled_len < client_hello_total_len) {
         noxtls_return_t rc = noxtls_tls_recv_record(&ctx->base.base, &next_record);
         uint8_t *new_buf;
@@ -9561,7 +9561,7 @@ noxtls_return_t noxtls_tls13_recv_client_hello(tls13_context_t *ctx)
         if(next_record.length > 0 && next_record.data != NULL) {
             memcpy(record.data + assembled_len, next_record.data, next_record.length);
         }
-        assembled_len += (uint32_t)next_record.length;
+        assembled_len += next_record.length;
         free(next_record.data);
     }
 

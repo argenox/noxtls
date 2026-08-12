@@ -184,18 +184,18 @@ noxtls_return_t noxtls_ripemd160_init(noxtls_sha_ctx_t * ctx)
 /**
  * @brief Feed data into the RIPEMD-160 hash.
  * @param ctx Initialized RIPEMD-160 context from noxtls_ripemd160_init.
- * @param input Input data; may be NULL only if len is 0.
+ * @param data Input data; may be NULL only if len is 0.
  * @param len Number of bytes to hash.
- * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if ctx is NULL or input is NULL with len non-zero.
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if ctx is NULL or data is NULL with len non-zero.
  */
-noxtls_return_t noxtls_ripemd160_update(noxtls_sha_ctx_t * ctx, const uint8_t * input, uint32_t len)
+noxtls_return_t noxtls_ripemd160_update(noxtls_sha_ctx_t * ctx, const uint8_t * data, uint32_t len)
 {
     uint32_t fill;
 
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(input == NULL && len != 0) {
+    if(data == NULL && len != 0) {
         return NOXTLS_RETURN_NULL;
     }
 
@@ -206,23 +206,23 @@ noxtls_return_t noxtls_ripemd160_update(noxtls_sha_ctx_t * ctx, const uint8_t * 
     fill = RIPEMD160_BLOCK_SIZE_BYTES - ctx->data_len;
 
     if(ctx->data_len > 0 && len >= fill) {
-        memcpy(ctx->data + ctx->data_len, input, fill);
+        memcpy(ctx->data + ctx->data_len, data, fill);
         noxtls_ripemd160_round(ctx, ctx->data);
         ctx->length += RIPEMD160_BLOCK_SIZE_BYTES;
         ctx->data_len = 0;
-        input += fill;
+        data += fill;
         len -= fill;
     }
 
     while(len >= RIPEMD160_BLOCK_SIZE_BYTES) {
-        noxtls_ripemd160_round(ctx, input);
+        noxtls_ripemd160_round(ctx, data);
         ctx->length += RIPEMD160_BLOCK_SIZE_BYTES;
-        input += RIPEMD160_BLOCK_SIZE_BYTES;
+        data += RIPEMD160_BLOCK_SIZE_BYTES;
         len -= RIPEMD160_BLOCK_SIZE_BYTES;
     }
 
     if(len > 0) {
-        memcpy(ctx->data + ctx->data_len, input, len);
+        memcpy(ctx->data + ctx->data_len, data, len);
         ctx->data_len += (uint8_t)len;
     }
 

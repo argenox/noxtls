@@ -54,7 +54,7 @@ static uintptr_t noxtls_align_up_uintptr(uintptr_t value, size_t alignment)
     return (value + mask) & ~mask;
 }
 
-static uint8_t *noxtls_align_header_for_payload(uint8_t *cursor, size_t alignment)
+static uint8_t *noxtls_align_header_for_payload(const uint8_t *cursor, size_t alignment)
 {
     uintptr_t payload = noxtls_align_up_uintptr((uintptr_t)cursor + sizeof(mem_block_header_t), alignment);
     return (uint8_t *)(payload - sizeof(mem_block_header_t));

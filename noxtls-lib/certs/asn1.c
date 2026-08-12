@@ -328,7 +328,7 @@ void noxtls_asn1_find_oid(char * oid)
                 //NOXTLS_ASN1_PRINTF("STOP\n");
                 break;
             }
-            else if(oid_ptr->id == id)
+            if(oid_ptr->id == id)
             {
                 //NOXTLS_ASN1_PRINTF("ID Match \n");
                 if(oid_ptr->name != NULL) {
@@ -341,11 +341,8 @@ void noxtls_asn1_find_oid(char * oid)
                 }
                 break;
             }
-            else
-            {
-                //NOXTLS_ASN1_PRINTF("Increment oid\n");
-                oid_ptr++;
-            }
+            //NOXTLS_ASN1_PRINTF("Increment oid\n");
+            oid_ptr++;
         }
 
         if(oid_ptr != NULL) {

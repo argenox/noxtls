@@ -984,7 +984,7 @@ static noxtls_return_t bn_mod_2n_by_n_limb(uint8_t *rem_out, uint32_t mod_len,
     /* Knuth D1 normalization: ensure top divisor limb has MSB set. */
     norm_shift = bn_clz(v[n - 1U]);
     if(do_trace) {
-        fprintf(stderr, "[bn_mod_2n_by_n] norm_shift = clz(v[n-1]) = %u\n", (unsigned)norm_shift);
+        fprintf(stderr, "[bn_mod_2n_by_n] norm_shift = clz(v[n-1]) = %u\n", norm_shift);
     }
     if(norm_shift > 0) {
         u[m] = (uint32_t)((uint64_t)u[m - 1U] >> (32U - norm_shift));
@@ -1111,7 +1111,7 @@ static noxtls_return_t bn_mod_2n_by_n_limb(uint8_t *rem_out, uint32_t mod_len,
     }
 
     if(do_trace) {
-        fprintf(stderr, "[bn_mod_2n_by_n] after unnormalize (shift right %u):\n", (unsigned)norm_shift);
+        fprintf(stderr, "[bn_mod_2n_by_n] after unnormalize (shift right %u):\n", norm_shift);
         fflush(stderr);
         bn_debug_limbs("u[0..n-1]", u, n);
     }
@@ -2218,7 +2218,7 @@ static void bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
             q++;
             if(q > 255) { q = 255; }
             {
-                uint32_t T1_val = T1_base * (uint32_t)q;
+                uint32_t T1_val = T1_base * q;
                 uint32_t refine_iter = 0;
                 uint32_t max_refine_iter = 256; /* q is at most 255, so this is safe */
                 while(q > 0 && T1_val > T2 && refine_iter < max_refine_iter) {
@@ -2277,7 +2277,7 @@ static void bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
 
     /* Remainder = X >> k */
     if(x_len > 0) {
-        bn_shift_r_bits(X, x_len, (unsigned)k);
+        bn_shift_r_bits(X, x_len, k);
         bn_strip_leading_zeros_inplace(X, &x_len);
         if(x_len >= mod_len) {
             memcpy(rem_out, X + (x_len - mod_len), mod_len);
@@ -2592,7 +2592,8 @@ static void bn_mont_mul(bn_limb_t *out, const bn_limb_t *a, const bn_limb_t *b,
                         const bn_limb_t *m, uint32_t n, bn_limb_t n0inv,
                         bn_limb_t *t, bn_limb_t *tmp)
 {
-    uint32_t i, j;
+    uint32_t i;
+    uint32_t j;
     bn_limb_t extra;
     bn_limb_t borrow;
     bn_limb_t condsub;
@@ -2630,7 +2631,7 @@ static void bn_mont_mul(bn_limb_t *out, const bn_limb_t *a, const bn_limb_t *b,
         {
             uint64_t s = (uint64_t)t[n] + carry;
             t[n - 1U] = (bn_limb_t)s;
-            t[n] = (bn_limb_t)(t[n + 1U] + (bn_limb_t)(s >> BN_LIMB_BITS));
+            t[n] = t[n + 1U] + (bn_limb_t)(s >> BN_LIMB_BITS);
         }
     }
 
@@ -2648,7 +2649,8 @@ static void bn_mont_mul(bn_limb_t *out, const bn_limb_t *a, const bn_limb_t *b,
 static void bn_mont_RR(bn_limb_t *RR, const bn_limb_t *m, uint32_t n, bn_limb_t *tmp)
 {
     uint32_t total = 2U * BN_LIMB_BITS * n;
-    uint32_t k, j;
+    uint32_t k;
+    uint32_t j;
 
     memset(RR, 0, (size_t)n * sizeof(bn_limb_t));
     RR[0] = 1U;
@@ -2660,7 +2662,7 @@ static void bn_mont_RR(bn_limb_t *RR, const bn_limb_t *m, uint32_t n, bn_limb_t 
         bn_limb_t mask;
         for(j = 0; j < n; j++) {
             bn_limb_t nc = RR[j] >> (BN_LIMB_BITS - 1U);
-            RR[j] = (bn_limb_t)((RR[j] << 1) | carry);
+            RR[j] = (RR[j] << 1) | carry;
             carry = nc;
         }
         borrow = bn_limbs_sub(tmp, RR, m, n);
@@ -3170,20 +3172,19 @@ noxtls_return_t noxtls_bn_mod_inv(uint8_t *result, const uint8_t *a, uint32_t a_
             if(noxtls_bn_is_one(u3, m_len)) {
                 /* GCD is 1, so the inverse exists - break and use u1 as the result */
                 break;
-            } else {
-                /* GCD is not 1, so no inverse exists */
-                noxtls_bn_zero(result, m_len);
-                noxtls_free(u1);
-                noxtls_free(u3);
-                noxtls_free(v1);
-                noxtls_free(v3);
-                noxtls_free(temp);
-                noxtls_free(a_mod_m);
-                noxtls_free(m_padded);
-                noxtls_free(u1_wide);
-                noxtls_free(v1_wide);
-                return NOXTLS_RETURN_FAILED;
             }
+            /* GCD is not 1, so no inverse exists */
+            noxtls_bn_zero(result, m_len);
+            noxtls_free(u1);
+            noxtls_free(u3);
+            noxtls_free(v1);
+            noxtls_free(v3);
+            noxtls_free(temp);
+            noxtls_free(a_mod_m);
+            noxtls_free(m_padded);
+            noxtls_free(u1_wide);
+            noxtls_free(v1_wide);
+            return NOXTLS_RETURN_FAILED;
         }
         
         /* Subtract smaller from larger */

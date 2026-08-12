@@ -460,7 +460,7 @@ noxtls_return_t noxtls_tls_parse_extension_sni(const uint8_t *data, uint32_t dat
         name_type = data[pos++];
         name_len = (uint16_t)(((uint16_t)data[pos] << 8) | data[pos + 1]);
         pos += 2U;
-        if((uint32_t)pos + (uint32_t)name_len > list_end) {
+        if(pos + (uint32_t)name_len > list_end) {
             return NOXTLS_RETURN_BAD_DATA;
         }
 

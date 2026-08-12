@@ -131,11 +131,6 @@ static noxtls_return_t noxtls_aes_decrypt_block_software_expanded(const uint32_t
                                                            uint8_t rounds,
                                                            const uint8_t *data,
                                                            uint8_t *output);
-/* Make encrypt block accessible to mode implementations */
-noxtls_return_t noxtls_aes_encrypt_block_internal(const uint8_t* key, const uint8_t* data, uint8_t* output, noxtls_aes_type_t type);
-noxtls_return_t noxtls_aes_decrypt_block_internal(const uint8_t * key, const uint8_t * data, uint8_t * output, noxtls_aes_type_t type);
-
-    
 /**
  * @brief Copy an AES state matrix to a contiguous output block.
  *
@@ -247,16 +242,7 @@ static void aes_software_init_encrypt_tables(void)
     aes_enc_tables_ready = 1U;
 }
 
-/* Forward declarations for mode-specific functions */
-#if NOXTLS_FEATURE_AES_ECB
-extern noxtls_return_t noxtls_aes_encrypt_ecb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aes_type_t type);
-#endif
-#if NOXTLS_FEATURE_AES_CBC
-extern noxtls_return_t noxtls_aes_encrypt_cbc(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aes_type_t type);
-#endif
-#if NOXTLS_FEATURE_AES_CTR
-extern noxtls_return_t noxtls_aes_encrypt_ctr(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aes_type_t type);
-#endif
+/* Mode entry points are declared in noxtls_aes.h (included above). */
 #if NOXTLS_FEATURE_AES_CFB
 extern noxtls_return_t noxtls_aes_encrypt_cfb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aes_type_t type);
 #endif

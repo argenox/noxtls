@@ -717,7 +717,7 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
         return NOXTLS_RETURN_TLS_ERROR;
     }
 
-    assembled_len = (uint32_t)record.length;
+    assembled_len = record.length;
     /* Handshake length needs 4 bytes; ClientHello may be split with a tiny first record (tlsfuzzer). */
     while(assembled_len < 4U) {
         uint8_t *new_buf;
@@ -749,7 +749,7 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
             noxtls_free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
-        new_buf = (uint8_t*)noxtls_realloc(record.data, assembled_len + (uint32_t)next_record.length);
+        new_buf = (uint8_t*)noxtls_realloc(record.data, assembled_len + next_record.length);
         if(new_buf == NULL) {
             if(next_record.data) {
                 noxtls_free(next_record.data);
@@ -761,7 +761,7 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
         if(next_record.length > 0U && next_record.data != NULL) {
             memcpy(record.data + assembled_len, next_record.data, next_record.length);
         }
-        assembled_len += (uint32_t)next_record.length;
+        assembled_len += next_record.length;
         if(next_record.data) {
             noxtls_free(next_record.data);
         }
@@ -795,7 +795,7 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
             noxtls_free(record.data);
             return NOXTLS_RETURN_TLS_ERROR;
         }
-        new_buf = (uint8_t*)noxtls_realloc(record.data, assembled_len + (uint32_t)next_record.length);
+        new_buf = (uint8_t*)noxtls_realloc(record.data, assembled_len + next_record.length);
         if(new_buf == NULL) {
             if(next_record.data) { noxtls_free(next_record.data); }
             noxtls_free(record.data);
@@ -805,7 +805,7 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
         if(next_record.length > 0 && next_record.data != NULL) {
             memcpy(record.data + assembled_len, next_record.data, next_record.length);
         }
-        assembled_len += (uint32_t)next_record.length;
+        assembled_len += next_record.length;
         if(next_record.data) { noxtls_free(next_record.data); }
     }
 
@@ -981,10 +981,9 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
                 }
                 offset = ext_data_end;
                 break;  /* Found the extension, no need to continue */
-            } else {
-                /* Skip this extension */
-                offset += ext_len;
             }
+            /* Skip this extension */
+            offset += ext_len;
         }
         if(extensions_end != record.length) {
             noxtls_free(*client_hello_data);

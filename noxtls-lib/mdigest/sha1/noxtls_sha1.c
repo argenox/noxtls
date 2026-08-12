@@ -102,11 +102,11 @@ noxtls_return_t noxtls_sha1_init(noxtls_sha_ctx_t * ctx, noxtls_hash_algos_t alg
  * @brief Update the SHA1 context
  * 
  * @param[in] ctx The SHA1 context to update.
- * @param[in] input The input data to update.
+ * @param[in] data The input data to update.
  * @param[in] len The length of the input data.
  * @return The return value.
  */
-noxtls_return_t noxtls_sha1_update(noxtls_sha_ctx_t * ctx, const uint8_t * input, uint32_t len)
+noxtls_return_t noxtls_sha1_update(noxtls_sha_ctx_t * ctx, const uint8_t * data, uint32_t len)
 {
 	noxtls_return_t rc;
     uint32_t total;
@@ -117,7 +117,7 @@ noxtls_return_t noxtls_sha1_update(noxtls_sha_ctx_t * ctx, const uint8_t * input
 		return NOXTLS_RETURN_NULL;
 	}
 
-    if(input == NULL) {
+    if(data == NULL) {
         return NOXTLS_RETURN_NULL;
     }
 
@@ -126,12 +126,12 @@ noxtls_return_t noxtls_sha1_update(noxtls_sha_ctx_t * ctx, const uint8_t * input
     if(ctx->data_len > 0) {
         uint32_t space = SHA1_BLOCK_SIZE_BYTES - ctx->data_len;
         if(total < space) {
-            memcpy(&ctx->data[ctx->data_len], input, total);
+            memcpy(&ctx->data[ctx->data_len], data, total);
             ctx->data_len += (uint8_t)total;
             return NOXTLS_RETURN_SUCCESS;
         }
 
-        memcpy(&ctx->data[ctx->data_len], input, space);
+        memcpy(&ctx->data[ctx->data_len], data, space);
         rc = noxtls_sha1_round(ctx, ctx->data);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
@@ -143,7 +143,7 @@ noxtls_return_t noxtls_sha1_update(noxtls_sha_ctx_t * ctx, const uint8_t * input
     }
 
     while(total >= SHA1_BLOCK_SIZE_BYTES) {
-        rc = noxtls_sha1_round(ctx, &input[offset]);
+        rc = noxtls_sha1_round(ctx, &data[offset]);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
@@ -153,7 +153,7 @@ noxtls_return_t noxtls_sha1_update(noxtls_sha_ctx_t * ctx, const uint8_t * input
     }
 
     if(total > 0) {
-        memcpy(ctx->data, &input[offset], total);
+        memcpy(ctx->data, &data[offset], total);
         ctx->data_len = (uint8_t)total;
     }
 

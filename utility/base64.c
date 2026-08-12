@@ -24,7 +24,6 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
-#include <string.h>
 #include <limits.h>
 #include <stddef.h>
 #include <stdlib.h>
@@ -140,13 +139,13 @@ static int noxtls_base64_decode_sextet(unsigned char c)
         return -1;
     }
     if(c >= 'A' && c <= 'Z') {
-        return (int)(c - 'A');
+        return c - 'A';
     }
     if(c >= 'a' && c <= 'z') {
-        return (int)(c - 'a' + 26);
+        return c - 'a' + 26;
     }
     if(c >= '0' && c <= '9') {
-        return (int)(c - '0' + 52);
+        return c - '0' + 52;
     }
     if(c == '+') {
         return 62;
@@ -310,22 +309,18 @@ uint8_t noxtls_base64_decode_char(char c)
     if(c >= BASE64_UPPERCASE_START && c <= 'Z') {
         return (c - BASE64_UPPERCASE_START);
     }
-    else if(c >= BASE64_LOWERCASE_START && c <= 'z')
-    {
+    if(c >= BASE64_LOWERCASE_START && c <= 'z') {
         return (c - BASE64_LOWERCASE_START + BASE64_LOWERCASE_OFFSET);
     }
-    else if(c >= BASE64_DIGIT_START && c <= '9')
-    {
+    if(c >= BASE64_DIGIT_START && c <= '9') {
         return (c - BASE64_DIGIT_START + BASE64_DIGIT_OFFSET);
     }
-    else if(c == '+')
-    {
+    if(c == '+') {
         return BASE64_PLUS_VALUE;
     }
-    else if(c == '/')
-    {
+    if(c == '/') {
         return BASE64_SLASH_VALUE;
     }
-    
+
     return 0;
 }

@@ -616,7 +616,7 @@ static noxtls_return_t hmac_sha1(const uint8_t *key, uint32_t key_len,
 
     if(key_len > 64) {
         if(noxtls_sha1_init(&ctx, NOXTLS_HASH_SHA1) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-        if(noxtls_sha1_update(&ctx, (const uint8_t*)key, key_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+        if(noxtls_sha1_update(&ctx, key, key_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
         if(noxtls_sha1_finish(&ctx, tmp) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
         key = tmp;
         key_len = SHA1_OUT_LEN;
@@ -629,7 +629,7 @@ static noxtls_return_t hmac_sha1(const uint8_t *key, uint32_t key_len,
 
     if(noxtls_sha1_init(&ctx, NOXTLS_HASH_SHA1) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     if(noxtls_sha1_update(&ctx, ipad, 64) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(noxtls_sha1_update(&ctx, (const uint8_t*)msg, msg_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha1_update(&ctx, msg, msg_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     if(noxtls_sha1_finish(&ctx, mac) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     if(noxtls_sha1_init(&ctx, NOXTLS_HASH_SHA1) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     if(noxtls_sha1_update(&ctx, opad, 64) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
@@ -1302,11 +1302,6 @@ noxtls_return_t noxtls_x509_certificate_free(x509_certificate_t *cert)
     return NOXTLS_RETURN_SUCCESS;
 }
 
-static noxtls_return_t noxtls_x509_validate_ecc_public_key_bytes(const uint8_t *pubkey,
-                                                                 uint32_t pubkey_len,
-                                                                 const uint8_t *curve_oid,
-                                                                 uint32_t curve_oid_len);
-
 /**
  * @brief Parse X.509 certificate from DER format
  *
@@ -1718,7 +1713,7 @@ noxtls_return_t noxtls_x509_certificate_parse_pem(x509_certificate_t *cert, cons
     }
 
     /* Convert PEM to DER */
-    rc = noxtls_certificate_pem_to_der((uint8_t*)data, len, der_data, &der_len);
+    rc = noxtls_certificate_pem_to_der(data, len, der_data, &der_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         free(der_data);
         return rc;
@@ -2277,7 +2272,8 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(x509_certificate_t *cer
             return (rc == NOXTLS_RETURN_FAILED ? NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED : rc);
         }
         return NOXTLS_RETURN_SUCCESS;
-    } else if(is_rsa == 2) {
+    }
+    if(is_rsa == 2) {
 #if NOXTLS_FEATURE_ML_DSA
         uint32_t hash_len = 0;
         if(!issuer->has_mldsa || issuer->mldsa_public_key_len == 0 || issuer->mldsa_param == 0) {
@@ -2305,7 +2301,8 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(x509_certificate_t *cer
 #else
         return NOXTLS_RETURN_INVALID_ALGORITHM;
 #endif
-    } else if(is_rsa == 3) {
+    }
+    if(is_rsa == 3) {
 #if NOXTLS_FEATURE_SLH_DSA
         noxtls_slhdsa_param_t sig_param = NOXTLS_SLHDSA_NONE;
 
@@ -2332,7 +2329,8 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(x509_certificate_t *cer
 #else
         return NOXTLS_RETURN_INVALID_ALGORITHM;
 #endif
-    } else if(is_rsa == 4) {
+    }
+    if(is_rsa == 4) {
 #if NOXTLS_FEATURE_FALCON
         int falcon_param = x509_oid_is_falcon(cert->signature_algorithm_oid, cert->signature_algorithm_oid_len);
         if(falcon_param == 0 ||
@@ -2356,7 +2354,8 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(x509_certificate_t *cer
 #else
         return NOXTLS_RETURN_INVALID_ALGORITHM;
 #endif
-    } else {
+    }
+    {
         /* ECDSA signature verification */
         if(issuer->ecc_public_key == NULL || issuer->ecc_public_key_len == 0) {
             CERT_DEBUG_PRINT("x509_certificate_verify_signature: issuer ECC public key not available\n");
@@ -3642,7 +3641,7 @@ static noxtls_return_t noxtls_x509_crl_pem_to_der(const uint8_t *data, uint32_t 
 
     {
         uint32_t b64_len = ei - (bi + b_len);
-        int dec = (int)noxtls_base64_decode((char *)(data + bi + b_len), b64_len, output);
+        int dec = noxtls_base64_decode((char *)(data + bi + b_len), b64_len, output);
         if(dec < 0) {
             return NOXTLS_RETURN_BAD_DATA;
         }
@@ -5785,15 +5784,14 @@ noxtls_return_t noxtls_x509_private_key_parse_der_with_password(x509_private_key
                 }
                 key->encrypted = 1;
                 return dec_rc;
-            } else {
-                noxtls_x509_private_key_free(key);
-                key->raw_data = (uint8_t*)malloc(len);
-                if(key->raw_data == NULL) { return NOXTLS_RETURN_FAILED; }
-                memcpy(key->raw_data, data, len);
-                key->raw_data_len = len;
-                key->encrypted = 1;
-                return NOXTLS_RETURN_FAILED;
             }
+            noxtls_x509_private_key_free(key);
+            key->raw_data = (uint8_t*)malloc(len);
+            if(key->raw_data == NULL) { return NOXTLS_RETURN_FAILED; }
+            memcpy(key->raw_data, data, len);
+            key->raw_data_len = len;
+            key->encrypted = 1;
+            return NOXTLS_RETURN_FAILED;
         }
     }
 #endif

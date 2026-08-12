@@ -46,7 +46,7 @@
  *
  * @return @see noxtls_return_t
  */
-noxtls_return_t noxtls_certificate_der_to_pem(uint8_t * data, uint32_t length, uint8_t * output, uint32_t * out_len)
+noxtls_return_t noxtls_certificate_der_to_pem(const uint8_t * data, uint32_t length, uint8_t * output, uint32_t * out_len)
 {
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
     uint8_t * ptr;
@@ -122,7 +122,7 @@ noxtls_return_t noxtls_certificate_der_to_pem(uint8_t * data, uint32_t length, u
  *
  * @return NOXTLS_RETURN_SUCCESS on success, or an appropriate error code from @see noxtls_return_t.
  */
-noxtls_return_t noxtls_csr_der_to_pem(uint8_t *data, uint32_t length, uint8_t *output, uint32_t *out_len)
+noxtls_return_t noxtls_csr_der_to_pem(const uint8_t *data, uint32_t length, uint8_t *output, uint32_t *out_len)
 {
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
     int result;
@@ -171,7 +171,7 @@ noxtls_return_t noxtls_csr_der_to_pem(uint8_t *data, uint32_t length, uint8_t *o
  *
  * @return @see noxtls_return_t
  */
-noxtls_return_t noxtls_certificate_pem_to_der(uint8_t * data, uint32_t length, uint8_t * output, uint32_t * out_len)
+noxtls_return_t noxtls_certificate_pem_to_der(const uint8_t * data, uint32_t length, uint8_t * output, uint32_t * out_len)
 {
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
     size_t begin_len = strlen(CERT_BEGIN_STR);

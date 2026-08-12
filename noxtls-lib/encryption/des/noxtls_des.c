@@ -325,8 +325,12 @@ static void des_round_feistel(uint32_t *r, const uint8_t round_key[6], int round
     uint32_t out32 = 0;
     /* S-box: row = bits 1 and 6 (outer) = 2*b0+b5; column = bits 2-5 (middle); index = row*16+col */
     for(i = 0; i < 8; i++) {
-        int b0 = get_bit(er, i*6), b5 = get_bit(er, i*6+5);
-        int b1 = get_bit(er, i*6+1), b2 = get_bit(er, i*6+2), b3 = get_bit(er, i*6+3), b4 = get_bit(er, i*6+4);
+        int b0 = get_bit(er, i*6);
+        int b5 = get_bit(er, i*6+5);
+        int b1 = get_bit(er, i*6+1);
+        int b2 = get_bit(er, i*6+2);
+        int b3 = get_bit(er, i*6+3);
+        int b4 = get_bit(er, i*6+4);
         int row = (b0 << 1) | b5;
         int col = (b1 << 3) | (b2 << 2) | (b3 << 1) | b4;
         int idx = (row << 4) | col;
@@ -341,9 +345,10 @@ static void des_round_feistel(uint32_t *r, const uint8_t round_key[6], int round
     p_in[3] = (uint8_t)out32;
     permute(p_in, p_out, des_p, 32);
     *r = ((uint32_t)p_out[0] << 24) | ((uint32_t)p_out[1] << 16) | ((uint32_t)p_out[2] << 8) | p_out[3];
-    if(DES_TRACE() && round_index == 0)
+    if(DES_TRACE() && round_index == 0) {
         fprintf(stdout, "[DES R1] S-box out: %08X  P(S): %08X  f(R0,K1)= %08X\n",
                 (unsigned int)out32, (unsigned int)((uint32_t)p_out[0]<<24|(uint32_t)p_out[1]<<16|(uint32_t)p_out[2]<<8|p_out[3]), (unsigned int)*r);
+    }
 }
 
 /* KAT vector 1: key 133457799BBCDFF1, plain 0123456789ABCDEF (TU Berlin example) */

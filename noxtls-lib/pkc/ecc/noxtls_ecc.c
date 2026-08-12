@@ -2108,8 +2108,6 @@ static noxtls_return_t ecc_jpoint_add(ecc_jpoint_t *out, const ecc_jpoint_t *P, 
     return NOXTLS_RETURN_SUCCESS;
 }
 
-static noxtls_return_t ecc_jpoint_to_affine(uint8_t *x, uint8_t *y, const ecc_jpoint_t *J, const ecc_curve_params_t *curve);
-
 /**
  * @brief ECC Point Addition: R = P + Q
  * 
