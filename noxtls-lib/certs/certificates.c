@@ -70,10 +70,12 @@ noxtls_return_t noxtls_certificate_der_to_pem(uint8_t * data, uint32_t length, u
         while(length > 0)
         {
             const uint8_t *in_ptr = data;
-            if(length > PEM_MAX_LINE_LEN_B64)
+            if(length > PEM_MAX_LINE_LEN_B64) {
                 write_len = PEM_MAX_LINE_LEN_B64;
-            else
+            }
+            else {
                 write_len = length;
+            }
 
             result = noxtls_base64_encode(in_ptr, write_len, (char *)ptr);
             ptr += result;

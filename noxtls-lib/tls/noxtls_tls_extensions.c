@@ -80,7 +80,7 @@ noxtls_return_t noxtls_tls_parse_extensions(const uint8_t *data, uint32_t data_l
         if(extensions->count >= max_extensions) {
             uint32_t new_max = max_extensions * 2U;
             tls_extension_t *new_exts;
-            if(new_max > 65536u) {
+            if(new_max > 65536U) {
                 noxtls_tls_extensions_free(extensions);
                 return NOXTLS_RETURN_RECORD_OVERFLOW;
             }
@@ -403,7 +403,7 @@ static noxtls_return_t tls_sni_validate_host_name_octets(const uint8_t *nm, uint
             return NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER;
         }
         /* Reject controls, DEL, and non-ASCII (tlsfuzzer invalid SNI / UTF-8 probes). */
-        if(c < 0x20u || c > 0x7eu) {
+        if(c < 0x20U || c > 0x7eU) {
             return NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER;
         }
     }

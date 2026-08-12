@@ -512,7 +512,7 @@ noxtls_return_t drbg_update(drbg_state_t *state,
         /* Increment counter (big-endian) */
         for(j = DRBG_BLOCKLEN - 1; ; j--) {
             block[j]++;
-            if(block[j] != 0 || j == 0) break;
+            if(block[j] != 0 || j == 0) { break; }
         }
     }
     

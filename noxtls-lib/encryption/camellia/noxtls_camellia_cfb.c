@@ -140,11 +140,13 @@ noxtls_return_t noxtls_camellia_decrypt_cfb(const uint8_t* key,
                              (data_len - cur_block) : NOXTLS_CAMELLIA_BLOCK_LENGTH;
 
         noxtls_camellia_encrypt_block_internal(key, feedback, keystream, type);
-        for(i = 0; i < block_len; i++)
+        for(i = 0; i < block_len; i++) {
             output[cur_block + i] = data[cur_block + i] ^ keystream[i];
+        }
 
-        if(block_len == NOXTLS_CAMELLIA_BLOCK_LENGTH)
+        if(block_len == NOXTLS_CAMELLIA_BLOCK_LENGTH) {
             memcpy(feedback, &data[cur_block], NOXTLS_CAMELLIA_BLOCK_LENGTH);
+        }
         else {
             memmove(feedback, feedback + block_len, NOXTLS_CAMELLIA_BLOCK_LENGTH - block_len);
             memcpy(feedback + NOXTLS_CAMELLIA_BLOCK_LENGTH - block_len, &data[cur_block], block_len);

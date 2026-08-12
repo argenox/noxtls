@@ -227,7 +227,7 @@ noxtls_return_t noxtls_chacha20_encrypt(const uint8_t *key,
     }
     
     { noxtls_return_t r = noxtls_chacha20_init(&ctx, key, nonce, counter);
-    if(r != NOXTLS_RETURN_SUCCESS) return r; }
+    if(r != NOXTLS_RETURN_SUCCESS) { return r; } }
     
     return noxtls_chacha20_process(&ctx, input, output, input_len);
 }

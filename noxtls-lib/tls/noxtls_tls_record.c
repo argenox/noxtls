@@ -1224,7 +1224,7 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
         uint8_t diff;
 
         tail = decrypted_data[decrypted_data_len - 1U - i];
-        mask = (uint8_t)((i < pad_bytes) ? 0xFFu : 0x00u);
+        mask = (uint8_t)((i < pad_bytes) ? 0xFFU : 0x00U);
         diff = (uint8_t)((tail ^ padding_len) & mask);
         if(diff != 0U) {
             bad_record = 1U;

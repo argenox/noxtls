@@ -136,7 +136,7 @@ noxtls_return_t tls_accept_auto(tls_context_t *base_ctx,
         if(base_ctx->send_callback != NULL) {
             (void)noxtls_tls_send_alert(base_ctx, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_PROTOCOL_VERSION);
         }
-        if(client_hello_data) noxtls_free(client_hello_data);
+        if(client_hello_data) { noxtls_free(client_hello_data); }
         return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
     } else if(detected_version == TLS_VERSION_1_1) {
@@ -204,7 +204,7 @@ noxtls_return_t tls_accept_auto(tls_context_t *base_ctx,
         if(base_ctx->send_callback != NULL) {
             (void)noxtls_tls_send_alert(base_ctx, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_PROTOCOL_VERSION);
         }
-        if(client_hello_data) noxtls_free(client_hello_data);
+        if(client_hello_data) { noxtls_free(client_hello_data); }
         return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
     } else if(detected_version == TLS_VERSION_1_3 && tls13_ctx != NULL) {

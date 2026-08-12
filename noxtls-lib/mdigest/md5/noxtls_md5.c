@@ -243,8 +243,9 @@ noxtls_return_t noxtls_md5_round(noxtls_sha_ctx_t * ctx, const uint8_t * input)
         C = B;
         B = B + MD5_ROTL(F, md5_shift[t]);
         
-        if(debug_lvl > 0)
+        if(debug_lvl > 0) {
             noxtls_debug_printf("%u\t%u\t%u\t%u\t\n", A,B,C,D);
+        }
     }
     
     /* Computer the ith intermediate hash value H(i) */

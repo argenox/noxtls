@@ -387,24 +387,24 @@ static noxtls_return_t hash_message(noxtls_hash_algos_t hash_algo,
 
     if(hash_algo == NOXTLS_HASH_SHA_256) {
         noxtls_sha_ctx_t ctx;
-        if(out_len < 32U) return NOXTLS_RETURN_INVALID_PARAM;
-        if(noxtls_sha256_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-        if(noxtls_sha256_update(&ctx, messages, messages_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+        if(out_len < 32U) { return NOXTLS_RETURN_INVALID_PARAM; }
+        if(noxtls_sha256_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+        if(noxtls_sha256_update(&ctx, messages, messages_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
         return noxtls_sha256_finish(&ctx, out_digest);
     }
     if(hash_algo == NOXTLS_HASH_SHA_384 || hash_algo == NOXTLS_HASH_SHA_512) {
         noxtls_sha512_ctx_t ctx;
         uint32_t need = (hash_algo == NOXTLS_HASH_SHA_384) ? 48U : 64U;
-        if(out_len < need) return NOXTLS_RETURN_INVALID_PARAM;
-        if(noxtls_sha512_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-        if(noxtls_sha512_update(&ctx, messages, messages_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+        if(out_len < need) { return NOXTLS_RETURN_INVALID_PARAM; }
+        if(noxtls_sha512_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+        if(noxtls_sha512_update(&ctx, messages, messages_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
         return noxtls_sha512_finish(&ctx, out_digest);
     }
     if(hash_algo == NOXTLS_HASH_SHA1) {
         noxtls_sha_ctx_t ctx;
-        if(out_len < 20U) return NOXTLS_RETURN_INVALID_PARAM;
-        if(noxtls_sha1_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-        if(noxtls_sha1_update(&ctx, messages, messages_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+        if(out_len < 20U) { return NOXTLS_RETURN_INVALID_PARAM; }
+        if(noxtls_sha1_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+        if(noxtls_sha1_update(&ctx, messages, messages_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
         return noxtls_sha1_finish(&ctx, out_digest);
     }
 

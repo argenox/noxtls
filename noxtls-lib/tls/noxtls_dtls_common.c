@@ -340,8 +340,8 @@ static void dtls_ack_range_add(dtls_context_t *ctx, uint16_t epoch,
                         uint64_t *new_min = (uint64_t*)noxtls_malloc(new_bytes);
                         uint64_t *new_max = (uint64_t*)noxtls_malloc(new_bytes);
                         if(new_min == NULL || new_max == NULL) {
-                            if(new_min != NULL) noxtls_free(new_min);
-                            if(new_max != NULL) noxtls_free(new_max);
+                            if(new_min != NULL) { noxtls_free(new_min); }
+                            if(new_max != NULL) { noxtls_free(new_max); }
                             return;
                         }
                         memcpy(new_min, ctx->ack_ranges_min, copy_bytes);
@@ -644,7 +644,7 @@ static int dtls_parse_record_epoch_seq(const uint8_t *record, uint16_t record_le
     if(record == NULL || epoch == NULL || seq == NULL || record_len < DTLS_RECORD_HEADER_SIZE) {
         return 0;
     }
-    if((record[0] & 0xE0u) == DTLS13_UNIFIED_FIXED_BITS) {
+    if((record[0] & 0xE0U) == DTLS13_UNIFIED_FIXED_BITS) {
         *epoch = (uint16_t)(record[0] & DTLS13_UNIFIED_EPOCH_MASK);
         *seq = 0;
         return 1;
@@ -934,8 +934,8 @@ noxtls_return_t noxtls_dtls_set_ack_range_limit(dtls_context_t *ctx, uint8_t max
                     ctx->ack_range_count = max_ranges;
                 }
             } else {
-                if(new_min != NULL) noxtls_free(new_min);
-                if(new_max != NULL) noxtls_free(new_max);
+                if(new_min != NULL) { noxtls_free(new_min); }
+                if(new_max != NULL) { noxtls_free(new_max); }
             }
         }
     }
@@ -1105,7 +1105,7 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
                 attempts++;
                 /* RFC 9147 5.8: timer value SHOULD be backed off after each retransmission. */
                 ctx->retransmit_timeout_ms =
-                    (uint32_t)(((uint64_t)ctx->retransmit_timeout_ms * ctx->retransmit_backoff_ms) / 1000u);
+                    (uint32_t)(((uint64_t)ctx->retransmit_timeout_ms * ctx->retransmit_backoff_ms) / 1000U);
                 if(ctx->retransmit_timeout_ms == 0U) {
                     ctx->retransmit_timeout_ms = 1U;
                 }
@@ -1126,7 +1126,7 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
         break;
     }
     if(received > 0) {
-        ctx->retransmit_timeout_ms = ctx->retransmit_base_timeout_ms == 0U ? 1000u : ctx->retransmit_base_timeout_ms;
+        ctx->retransmit_timeout_ms = ctx->retransmit_base_timeout_ms == 0U ? 1000U : ctx->retransmit_base_timeout_ms;
     }
 
     ctx->bytes_received += (uint64_t)received;

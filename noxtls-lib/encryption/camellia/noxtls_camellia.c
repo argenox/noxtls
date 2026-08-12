@@ -91,7 +91,7 @@ static int camellia_sboxes_initialized;
 static void camellia_init_sboxes(void)
 {
     int i;
-    if(camellia_sboxes_initialized) return;
+    if(camellia_sboxes_initialized) { return; }
     for(i = 0; i < 256; i++) {
         camellia_sbox2[i] = (uint8_t)((camellia_sbox1[i] << 1) | (camellia_sbox1[i] >> 7));
         camellia_sbox3[i] = (uint8_t)((camellia_sbox1[i] << 7) | (camellia_sbox1[i] >> 1));
@@ -556,7 +556,7 @@ noxtls_return_t noxtls_camellia_decrypt_block_internal(const uint8_t* key, const
         ke_dec[1] = ke[2];
         ke_dec[2] = ke[1];
         ke_dec[3] = ke[0];
-        for(i = 0; i < 18; i++) k_dec[i] = k[17 - i];  /* k1<->k18: k_dec[0]=k18, k_dec[17]=k1 */
+        for(i = 0; i < 18; i++) { k_dec[i] = k[17 - i]; }  /* k1<->k18: k_dec[0]=k18, k_dec[17]=k1 */
     } else {
         ke_dec[0] = ke[5];
         ke_dec[1] = ke[4];
@@ -564,7 +564,7 @@ noxtls_return_t noxtls_camellia_decrypt_block_internal(const uint8_t* key, const
         ke_dec[3] = ke[2];
         ke_dec[4] = ke[1];
         ke_dec[5] = ke[0];
-        for(i = 0; i < 24; i++) k_dec[i] = k[23 - i];
+        for(i = 0; i < 24; i++) { k_dec[i] = k[23 - i]; }
     }
 
     load_block_be(data, &D1, &D2);

@@ -394,13 +394,13 @@ noxtls_return_t noxtls_sha512_finish(noxtls_sha512_ctx_t * ctx, uint8_t * hash)
     for(i = 0; i < digest_len; i++)
     {
         uint8_t word_idx = (uint8_t)i / SHA512_WORD_BYTES;
-        uint8_t byte_shift = (uint8_t)(56u - ((uint8_t)i % SHA512_WORD_BYTES) * 8U);
+        uint8_t byte_shift = (uint8_t)(56U - ((uint8_t)i % SHA512_WORD_BYTES) * 8U);
 
         if(debug_lvl > 0) {
             noxtls_debug_printf("ctx[%u] = %08llx\n", word_idx, ctx->h[word_idx]);
         }
 
-        hash[i] = (uint8_t)((ctx->h[word_idx] >> byte_shift) & 0xFFu);
+        hash[i] = (uint8_t)((ctx->h[word_idx] >> byte_shift) & 0xFFU);
     }
 
 	return rc;

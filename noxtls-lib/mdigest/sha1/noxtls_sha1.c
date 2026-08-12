@@ -206,8 +206,9 @@ noxtls_return_t noxtls_sha1_round(noxtls_sha_ctx_t * ctx, const uint8_t * input)
     d = ctx->h[3];
     e = ctx->h[4];
     
-    if(debug_lvl > 0)
+    if(debug_lvl > 0) {
         noxtls_debug_printf("a\t\t\tb\t\t\tc\t\t\td\t\t\te\n");
+    }
     
     for(t = 0; t < SHA1_ROUND_COUNT; t++)
     {
@@ -240,8 +241,9 @@ noxtls_return_t noxtls_sha1_round(noxtls_sha_ctx_t * ctx, const uint8_t * input)
         b = a;
         a = T;
         
-        if(debug_lvl > 0)
+        if(debug_lvl > 0) {
             noxtls_debug_printf("%08x\t%08x\t%08x\t%08x\t%08x\t\n", a,b,c,d,e);
+        }
     }
     
     /* Computer the ith intermediate hash value H(i) */
@@ -326,8 +328,9 @@ noxtls_return_t noxtls_sha1_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
 
         /* Second block: 0x80 at start (if needed), zeros, then 8-byte length at end (bytes 56-63) */
         memset(ctx->data, 0, SHA1_BLOCK_SIZE_BYTES);
-        if(zero_padding_first == 0)
+        if(zero_padding_first == 0) {
             ctx->data[0] = SHA1_PAD_BYTE;
+        }
         ctx->data[length_index + 0] = (uint8_t)((total_bits & 0xFF00000000000000ULL) >> 56);
         ctx->data[length_index + 1] = (uint8_t)((total_bits & 0x00FF000000000000ULL) >> 48);
         ctx->data[length_index + 2] = (uint8_t)((total_bits & 0x0000FF0000000000ULL) >> 40);

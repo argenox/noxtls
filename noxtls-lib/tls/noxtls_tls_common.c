@@ -786,18 +786,18 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
             return NOXTLS_RETURN_BAD_DATA;
         }
         if(next_record.length > TLS_MAX_RECORD_SIZE) {
-            if(next_record.data) noxtls_free(next_record.data);
+            if(next_record.data) { noxtls_free(next_record.data); }
             noxtls_free(record.data);
             return NOXTLS_RETURN_RECORD_OVERFLOW;
         }
         if(next_record.type != TLS_RECORD_HANDSHAKE) {
-            if(next_record.data) noxtls_free(next_record.data);
+            if(next_record.data) { noxtls_free(next_record.data); }
             noxtls_free(record.data);
             return NOXTLS_RETURN_TLS_ERROR;
         }
         new_buf = (uint8_t*)noxtls_realloc(record.data, assembled_len + (uint32_t)next_record.length);
         if(new_buf == NULL) {
-            if(next_record.data) noxtls_free(next_record.data);
+            if(next_record.data) { noxtls_free(next_record.data); }
             noxtls_free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
@@ -806,7 +806,7 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
             memcpy(record.data + assembled_len, next_record.data, next_record.length);
         }
         assembled_len += (uint32_t)next_record.length;
-        if(next_record.data) noxtls_free(next_record.data);
+        if(next_record.data) { noxtls_free(next_record.data); }
     }
 
     if(assembled_len != client_hello_total_len || assembled_len < 38U) {
@@ -908,7 +908,7 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
             *detected_version = TLS_VERSION_1_1;
         } else if(version == TLS_VERSION_1_0) {
             *detected_version = TLS_VERSION_1_0;
-        } else if(version == 0x0300u || version == 0x0000u) {
+        } else if(version == 0x0300U || version == 0x0000U) {
             /* SSLv3 / bogus (0,0): protocol_version (not decode_error). */
             noxtls_free(*client_hello_data);
             *client_hello_data = NULL;
@@ -1023,7 +1023,7 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
         *detected_version = TLS_VERSION_1_1;
     } else if(version == TLS_VERSION_1_0) {
         *detected_version = TLS_VERSION_1_0;
-    } else if(version == 0x0300u || version == 0x0000u) {
+    } else if(version == 0x0300U || version == 0x0000U) {
         /* SSLv3 / bogus (0,0): protocol_version (not decode_error). */
         noxtls_free(*client_hello_data);
         *client_hello_data = NULL;

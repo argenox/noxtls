@@ -86,7 +86,7 @@ static void ccm_inc_counter(uint8_t *block, uint32_t L)
     uint32_t stop = 16 - L;
     for(; i >= stop && i <= 15; i--) {
         block[i]++;
-        if(block[i] != 0) break;
+        if(block[i] != 0) { break; }
     }
 }
 
@@ -102,8 +102,9 @@ static void ccm_inc_counter(uint8_t *block, uint32_t L)
 static void ccm_cbc_mac_block(const uint8_t *key, noxtls_aes_type_t type,
                              const uint8_t *block, uint8_t *state)
 {
-    for(uint32_t i = 0; i < NOXTLS_AES_BLOCK; i++)
+    for(uint32_t i = 0; i < NOXTLS_AES_BLOCK; i++) {
         state[i] ^= block[i];
+    }
     noxtls_aes_encrypt_block_internal(key, state, state, type);
 }
 
@@ -138,18 +139,22 @@ noxtls_return_t noxtls_aes_ccm_encrypt(const uint8_t *key, noxtls_aes_type_t typ
     uint8_t keystream[NOXTLS_AES_BLOCK];
     uint32_t i;
 
-    if(!key || !nonce || !plaintext || !ciphertext || !tag)
+    if(!key || !nonce || !plaintext || !ciphertext || !tag) {
         return NOXTLS_RETURN_NULL;
-    if(!nonce_len_valid(nonce_len) || !tag_len_valid(tag_len))
+    }
+    if(!nonce_len_valid(nonce_len) || !tag_len_valid(tag_len)) {
         return NOXTLS_RETURN_INVALID_PARAM;
-    if(plaintext_len > (1UL << (L * 8)) - 1UL)
+    }
+    if(plaintext_len > (1UL << (L * 8)) - 1UL) {
         return NOXTLS_RETURN_INVALID_PARAM;
+    }
 
     /* B0: Flags | Nonce | Q */
     B0[0] = (uint8_t)((aad_len > 0 ? 0x40 : 0) | (((tag_len - 2) >> 1) << 3) | (L - 1));
     memcpy(B0 + 1, nonce, nonce_len);
-    for(i = 0; i < L; i++)
+    for(i = 0; i < L; i++) {
         B0[16 - L + i] = (uint8_t)((plaintext_len >> (8 * (L - 1 - i))) & 0xff);
+    }
 
     ccm_compute_mac(key, type, B0, aad, aad_len, plaintext, plaintext_len, mac_state);
 
@@ -160,17 +165,19 @@ noxtls_return_t noxtls_aes_ccm_encrypt(const uint8_t *key, noxtls_aes_type_t typ
     /* counter at ctr_block + 1 + nonce_len = 16 - L bytes at end */
 
     noxtls_aes_encrypt_block_internal(key, ctr_block, keystream, type);
-    for(i = 0; i < tag_len; i++)
+    for(i = 0; i < tag_len; i++) {
         tag[i] = mac_state[i] ^ keystream[i];
+    }
 
     /* CTR encrypt payload: counter 1, 2, ... */
     ccm_inc_counter(ctr_block, L);
     for(i = 0; i < plaintext_len; i += NOXTLS_AES_BLOCK) {
         noxtls_aes_encrypt_block_internal(key, ctr_block, keystream, type);
         uint32_t take = plaintext_len - i;
-        if(take > NOXTLS_AES_BLOCK) take = NOXTLS_AES_BLOCK;
-        for(uint32_t j = 0; j < take; j++)
+        if(take > NOXTLS_AES_BLOCK) { take = NOXTLS_AES_BLOCK; }
+        for(uint32_t j = 0; j < take; j++) {
             ciphertext[i + j] = plaintext[i + j] ^ keystream[j];
+        }
         ccm_inc_counter(ctr_block, L);
     }
 
@@ -233,18 +240,18 @@ static void ccm_compute_mac(const uint8_t *key, noxtls_aes_type_t type,
             if(off < aad_enc_len) {
                 uint32_t copy = NOXTLS_AES_BLOCK;
                 uint32_t from_enc = aad_enc_len - off;
-                if(from_enc < copy) copy = from_enc;
+                if(from_enc < copy) { copy = from_enc; }
                 memcpy(block, aad_enc + off, copy);
                 if(copy < NOXTLS_AES_BLOCK) {
                     uint32_t from_aad = NOXTLS_AES_BLOCK - copy;
-                    if(from_aad > aad_len) from_aad = aad_len;
+                    if(from_aad > aad_len) { from_aad = aad_len; }
                     memcpy(block + copy, aad, from_aad);
                 }
             } else {
                 uint32_t aad_off = off - aad_enc_len;
                 if(aad_off < aad_len) {
                     uint32_t from_aad = aad_len - aad_off;
-                    if(from_aad > NOXTLS_AES_BLOCK) from_aad = NOXTLS_AES_BLOCK;
+                    if(from_aad > NOXTLS_AES_BLOCK) { from_aad = NOXTLS_AES_BLOCK; }
                     memcpy(block, aad + aad_off, from_aad);
                 }
             }
@@ -258,7 +265,7 @@ static void ccm_compute_mac(const uint8_t *key, noxtls_aes_type_t type,
         memset(block, 0, NOXTLS_AES_BLOCK);
         uint32_t off = i * NOXTLS_AES_BLOCK;
         uint32_t copy = payload_len - off;
-        if(copy > NOXTLS_AES_BLOCK) copy = NOXTLS_AES_BLOCK;
+        if(copy > NOXTLS_AES_BLOCK) { copy = NOXTLS_AES_BLOCK; }
         memcpy(block, payload + off, copy);
         ccm_cbc_mac_block(key, type, block, mac_state);
     }
@@ -296,12 +303,15 @@ noxtls_return_t noxtls_aes_ccm_decrypt(const uint8_t *key, noxtls_aes_type_t typ
     uint32_t i;
     uint8_t diff;
 
-    if(!key || !nonce || !ciphertext || !tag || !plaintext)
+    if(!key || !nonce || !ciphertext || !tag || !plaintext) {
         return NOXTLS_RETURN_NULL;
-    if(!nonce_len_valid(nonce_len) || !tag_len_valid(tag_len))
+    }
+    if(!nonce_len_valid(nonce_len) || !tag_len_valid(tag_len)) {
         return NOXTLS_RETURN_INVALID_PARAM;
-    if(ciphertext_len > (1UL << (L * 8)) - 1UL)
+    }
+    if(ciphertext_len > (1UL << (L * 8)) - 1UL) {
         return NOXTLS_RETURN_INVALID_PARAM;
+    }
 
     /* 1) CTR decrypt to get plaintext (counter 0 = tag mask, 1,2,... = payload) */
     memset(ctr_block, 0, NOXTLS_AES_BLOCK);
@@ -314,17 +324,19 @@ noxtls_return_t noxtls_aes_ccm_decrypt(const uint8_t *key, noxtls_aes_type_t typ
     for(i = 0; i < ciphertext_len; i += NOXTLS_AES_BLOCK) {
         noxtls_aes_encrypt_block_internal(key, ctr_block, keystream, type);
         uint32_t take = ciphertext_len - i;
-        if(take > NOXTLS_AES_BLOCK) take = NOXTLS_AES_BLOCK;
-        for(uint32_t j = 0; j < take; j++)
+        if(take > NOXTLS_AES_BLOCK) { take = NOXTLS_AES_BLOCK; }
+        for(uint32_t j = 0; j < take; j++) {
             plaintext[i + j] = ciphertext[i + j] ^ keystream[j];
+        }
         ccm_inc_counter(ctr_block, L);
     }
 
     /* 2) B0 and compute MAC over B0, AAD, plaintext */
     B0[0] = (uint8_t)((aad_len > 0 ? 0x40 : 0) | (((tag_len - 2) >> 1) << 3) | (L - 1));
     memcpy(B0 + 1, nonce, nonce_len);
-    for(i = 0; i < L; i++)
+    for(i = 0; i < L; i++) {
         B0[16 - L + i] = (uint8_t)((ciphertext_len >> (8 * (L - 1 - i))) & 0xff);
+    }
 
     ccm_compute_mac(key, type, B0, aad, aad_len, plaintext, ciphertext_len, mac_state);
 
@@ -335,8 +347,9 @@ noxtls_return_t noxtls_aes_ccm_decrypt(const uint8_t *key, noxtls_aes_type_t typ
     noxtls_aes_encrypt_block_internal(key, ctr_block, keystream, type);
 
     diff = 0;
-    for(i = 0; i < tag_len; i++)
+    for(i = 0; i < tag_len; i++) {
         diff |= (tag[i] ^ (mac_state[i] ^ keystream[i]));
+    }
     if(diff != 0) {
         /* SECURITY (NX-06): never expose unauthenticated plaintext to the caller. */
         noxtls_secure_zero(plaintext, ciphertext_len);

@@ -619,10 +619,10 @@ noxtls_return_t noxtls_aes_update(noxtls_aes_context_t *ctx,
                     if(ctx->mode == NOXTLS_AES_ECB) {
                         if(ctx->op == NOXTLS_AES_OP_ENCRYPT) {
                             noxtls_return_t r = noxtls_aes_encrypt_block_ctx_internal(ctx, ctx->partial, output + produced);
-                            if(r != NOXTLS_RETURN_SUCCESS) return r;
+                            if(r != NOXTLS_RETURN_SUCCESS) { return r; }
                         } else {
                             noxtls_return_t r = noxtls_aes_decrypt_block_ctx_internal(ctx, ctx->partial, output + produced);
-                            if(r != NOXTLS_RETURN_SUCCESS) return r;
+                            if(r != NOXTLS_RETURN_SUCCESS) { return r; }
                         }
                     } else {
                         if(ctx->op == NOXTLS_AES_OP_ENCRYPT) {
@@ -631,12 +631,12 @@ noxtls_return_t noxtls_aes_update(noxtls_aes_context_t *ctx,
                                 block[i] = (uint8_t)(ctx->partial[i] ^ ctx->feedback[i]);
                             }
                             { noxtls_return_t r = noxtls_aes_encrypt_block_ctx_internal(ctx, block, output + produced);
-                            if(r != NOXTLS_RETURN_SUCCESS) return r; }
+                            if(r != NOXTLS_RETURN_SUCCESS) { return r; } }
                             memcpy(ctx->feedback, output + produced, NOXTLS_AES_BLOCK_LENGTH);
                         } else {
                             uint8_t block[NOXTLS_AES_BLOCK_LENGTH];
                             { noxtls_return_t r = noxtls_aes_decrypt_block_ctx_internal(ctx, ctx->partial, block);
-                            if(r != NOXTLS_RETURN_SUCCESS) return r; }
+                            if(r != NOXTLS_RETURN_SUCCESS) { return r; } }
                             for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
                                 output[produced + i] = (uint8_t)(block[i] ^ ctx->feedback[i]);
                             }
@@ -658,14 +658,14 @@ noxtls_return_t noxtls_aes_update(noxtls_aes_context_t *ctx,
                     noxtls_return_t r;
                     if(ctx->mode == NOXTLS_AES_CTR) {
                         r = noxtls_aes_encrypt_block_ctx_internal(ctx, ctx->feedback, ctx->partial);
-                        if(r != NOXTLS_RETURN_SUCCESS) return r;
+                        if(r != NOXTLS_RETURN_SUCCESS) { return r; }
                         aes_counter_inc(ctx->feedback);
                     } else if(ctx->mode == NOXTLS_AES_CFB) {
                         r = noxtls_aes_encrypt_block_ctx_internal(ctx, ctx->feedback, ctx->partial);
-                        if(r != NOXTLS_RETURN_SUCCESS) return r;
+                        if(r != NOXTLS_RETURN_SUCCESS) { return r; }
                     } else {
                         r = noxtls_aes_encrypt_block_ctx_internal(ctx, ctx->feedback, ctx->partial);
-                        if(r != NOXTLS_RETURN_SUCCESS) return r;
+                        if(r != NOXTLS_RETURN_SUCCESS) { return r; }
                         memcpy(ctx->feedback, ctx->partial, NOXTLS_AES_BLOCK_LENGTH);
                     }
                     ctx->partial_len = 0;
@@ -748,13 +748,13 @@ noxtls_return_t noxtls_aes_final(noxtls_aes_context_t *ctx,
 
         if(ctx->mode == NOXTLS_AES_ECB) {
             r = noxtls_aes_encrypt_block_ctx_internal(ctx, block, output);
-            if(r != NOXTLS_RETURN_SUCCESS) return r;
+            if(r != NOXTLS_RETURN_SUCCESS) { return r; }
         } else if(ctx->mode == NOXTLS_AES_CBC) {
             for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
                 block[i] ^= ctx->feedback[i];
             }
             r = noxtls_aes_encrypt_block_ctx_internal(ctx, block, output);
-            if(r != NOXTLS_RETURN_SUCCESS) return r;
+            if(r != NOXTLS_RETURN_SUCCESS) { return r; }
         } else {
             return NOXTLS_RETURN_INVALID_MODE;
         }
@@ -1159,8 +1159,9 @@ noxtls_return_t noxtls_aes_key_expansion(const uint8_t * key, uint32_t * w, int 
 static uint32_t rcon(uint8_t in)
 {
     unsigned char c = 1;
-    if(in == 0)
+    if(in == 0) {
         return 0;
+    }
     while(in != 1) {
         unsigned char b;
         b = c & 0x80;
