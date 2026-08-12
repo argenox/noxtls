@@ -135,8 +135,15 @@ jobs:
               "tls_test:noxtls-tls_test"; do
               local legacy_name="${mapping%%:*}"
               local current_name="${mapping##*:}"
-              if [[ -f "${compat_dir}/${current_name}" && ! -f "${compat_dir}/${legacy_name}" ]]; then
+              if [[ -f "${compat_dir}/${legacy_name}" ]]; then
+                continue
+              fi
+              if [[ -f "${compat_dir}/${current_name}" ]]; then
                 cp -a "${compat_dir}/${current_name}" "${compat_dir}/${legacy_name}"
+              elif [[ -f "${compat_dir}/${current_name}.exe" ]]; then
+                cp -a "${compat_dir}/${current_name}.exe" "${compat_dir}/${legacy_name}"
+              elif [[ -f "${compat_dir}/${legacy_name}.exe" ]]; then
+                cp -a "${compat_dir}/${legacy_name}.exe" "${compat_dir}/${legacy_name}"
               fi
             done
           }
@@ -169,7 +176,7 @@ jobs:
             for arch in arm64 x86_64; do
               compat_dir="artifacts/applications/binary-${arch}"
               mkdir -p "${compat_dir}"
-              cp -a "${INSTALL_PREFIX}/bin/." "${compat_dir}/"
+              cp -a "artifacts/applications/binary/." "${compat_dir}/"
               create_legacy_aliases "${compat_dir}"
             done
           fi
