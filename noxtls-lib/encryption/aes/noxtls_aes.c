@@ -242,16 +242,7 @@ static void aes_software_init_encrypt_tables(void)
     aes_enc_tables_ready = 1U;
 }
 
-/* Mode entry points are declared in noxtls_aes.h (included above). */
-#if NOXTLS_FEATURE_AES_CFB
-extern noxtls_return_t noxtls_aes_encrypt_cfb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aes_type_t type);
-#endif
-#if NOXTLS_FEATURE_AES_OFB
-extern noxtls_return_t noxtls_aes_encrypt_ofb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aes_type_t type);
-#endif
-#if NOXTLS_FEATURE_AES_XTS
-extern noxtls_return_t noxtls_aes_encrypt_xts(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aes_type_t type);
-#endif
+/* Mode entry points (ECB/CBC/CTR/CFB/OFB/XTS) are declared in noxtls_aes.h. */
 
 /**
  * @brief Encrypt data with the selected AES mode.

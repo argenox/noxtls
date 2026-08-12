@@ -193,6 +193,10 @@ static int tls13_ecdsa_sig_scheme_to_hash(uint16_t scheme, noxtls_hash_algos_t *
 static uint16_t tls13_slhdsa_param_to_sig_scheme(noxtls_slhdsa_param_t param);
 static noxtls_return_t tls13_slhdsa_sig_scheme_to_param(uint16_t scheme, noxtls_slhdsa_param_t *param);
 #endif
+#if NOXTLS_FEATURE_ML_DSA
+static uint16_t tls13_mldsa_param_to_sig_scheme(noxtls_mldsa_param_t param);
+static noxtls_mldsa_param_t tls13_mldsa_sig_scheme_to_param(uint16_t scheme);
+#endif
 static noxtls_return_t tls13_build_inner_plaintext(const uint8_t *content, uint32_t content_len,
                                                    uint8_t content_type, uint8_t *out_plaintext,
                                                    uint32_t *out_len);
@@ -2141,9 +2145,7 @@ static int tls13_server_can_sign_scheme(const tls13_context_t *ctx, uint16_t sch
 #endif
     if(ctx->server_cert_use_mldsa) {
 #if NOXTLS_FEATURE_ML_DSA
-        uint16_t mldsa_scheme = (ctx->server_private_mldsa_param == NOXTLS_MLDSA_44) ? TLS_SIGSCHEME_MLDSA44 :
-                                (ctx->server_private_mldsa_param == NOXTLS_MLDSA_65) ? TLS_SIGSCHEME_MLDSA65 :
-                                TLS_SIGSCHEME_MLDSA87;
+        uint16_t mldsa_scheme = tls13_mldsa_param_to_sig_scheme(ctx->server_private_mldsa_param);
         return (scheme == mldsa_scheme) ? 1 : 0;
 #else
         return 0;
@@ -2245,9 +2247,7 @@ static uint16_t tls13_select_server_certificate_sig_scheme_legacy(const tls13_co
     }
     if(ctx->server_cert_use_mldsa) {
 #if NOXTLS_FEATURE_ML_DSA
-        uint16_t sig_scheme = (ctx->server_private_mldsa_param == NOXTLS_MLDSA_44) ? TLS_SIGSCHEME_MLDSA44 :
-                              (ctx->server_private_mldsa_param == NOXTLS_MLDSA_65) ? TLS_SIGSCHEME_MLDSA65 :
-                              TLS_SIGSCHEME_MLDSA87;
+        uint16_t sig_scheme = tls13_mldsa_param_to_sig_scheme(ctx->server_private_mldsa_param);
         return tls13_client_supports_signature_scheme(ctx, sig_scheme) ? sig_scheme : 0U;
 #else
         return 0U;
@@ -2691,7 +2691,45 @@ static uint16_t tls13_slhdsa_param_to_sig_scheme(noxtls_slhdsa_param_t param)
             return 0U;
     }
 }
+#endif /* NOXTLS_FEATURE_SLH_DSA */
 
+#if NOXTLS_FEATURE_ML_DSA
+/**
+ * @brief Convert an ML-DSA parameter to a TLS 1.3 signature scheme
+ *
+ * @param[in] param The ML-DSA parameter to convert
+ * @return The signature scheme
+ */
+static uint16_t tls13_mldsa_param_to_sig_scheme(noxtls_mldsa_param_t param)
+{
+    if(param == NOXTLS_MLDSA_44) {
+        return TLS_SIGSCHEME_MLDSA44;
+    }
+    if(param == NOXTLS_MLDSA_65) {
+        return TLS_SIGSCHEME_MLDSA65;
+    }
+    return TLS_SIGSCHEME_MLDSA87;
+}
+
+/**
+ * @brief Convert a TLS 1.3 ML-DSA signature scheme to an ML-DSA parameter
+ *
+ * @param[in] scheme The signature scheme to convert
+ * @return The ML-DSA parameter
+ */
+static noxtls_mldsa_param_t tls13_mldsa_sig_scheme_to_param(uint16_t scheme)
+{
+    if(scheme == TLS_SIGSCHEME_MLDSA44) {
+        return NOXTLS_MLDSA_44;
+    }
+    if(scheme == TLS_SIGSCHEME_MLDSA65) {
+        return NOXTLS_MLDSA_65;
+    }
+    return NOXTLS_MLDSA_87;
+}
+#endif /* NOXTLS_FEATURE_ML_DSA */
+
+#if NOXTLS_FEATURE_SLH_DSA
 /**
  * @brief Convert a signature scheme to a SLHDSA parameter
  *
@@ -2711,7 +2749,7 @@ static noxtls_return_t tls13_slhdsa_sig_scheme_to_param(uint16_t scheme, noxtls_
                                      (uint32_t)(scheme - TLS_SIGSCHEME_SLHDSA_SHA2_128S));
     return NOXTLS_RETURN_SUCCESS;
 }
-#endif
+#endif /* NOXTLS_FEATURE_SLH_DSA */
 
 /**
  * @brief Select the server certificate signature scheme
@@ -7077,7 +7115,16 @@ noxtls_return_t noxtls_tls13_send_client_hello(tls13_context_t *ctx)
             }
 
             psk_binder_len = (uint16_t)psk_hash_len;
-            psk_binders_len = (uint16_t)((offer_resumption ? (1U + psk_binder_len) : 0) + (offer_external_psk ? (1U + psk_binder_len) : 0));
+            {
+                uint16_t binders = 0U;
+                if(offer_resumption) {
+                    binders = (uint16_t)(binders + 1U + psk_binder_len);
+                }
+                if(offer_external_psk) {
+                    binders = (uint16_t)(binders + 1U + psk_binder_len);
+                }
+                psk_binders_len = binders;
+            }
             client_hello[offset++] = (uint8_t)(psk_binders_len >> 8);
             client_hello[offset++] = (uint8_t)(psk_binders_len & 0xFF);
             if(offer_resumption) {
@@ -8240,9 +8287,7 @@ noxtls_return_t noxtls_tls13_recv_certificate_verify(tls13_context_t *ctx)
             } else if(cert->has_mldsa &&
                       (sig_scheme == TLS_SIGSCHEME_MLDSA44 || sig_scheme == TLS_SIGSCHEME_MLDSA65 || sig_scheme == TLS_SIGSCHEME_MLDSA87)) {
 #if NOXTLS_FEATURE_ML_DSA
-                noxtls_mldsa_param_t mldsa_param = (sig_scheme == TLS_SIGSCHEME_MLDSA44) ? NOXTLS_MLDSA_44 :
-                                                   (sig_scheme == TLS_SIGSCHEME_MLDSA65) ? NOXTLS_MLDSA_65 :
-                                                   NOXTLS_MLDSA_87;
+                noxtls_mldsa_param_t mldsa_param = tls13_mldsa_sig_scheme_to_param(sig_scheme);
                 rc = noxtls_mldsa_verify(mldsa_param, cert->mldsa_public_key,
                                          to_verify, to_verify_len, msg + 8, sig_len);
                 if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -8647,9 +8692,7 @@ noxtls_return_t noxtls_tls13_send_client_certificate_verify(tls13_context_t *ctx
 #endif
     } else if(ctx->client_cert_use_mldsa) {
 #if NOXTLS_FEATURE_ML_DSA
-        sig_scheme = (ctx->client_private_mldsa_param == NOXTLS_MLDSA_44) ? TLS_SIGSCHEME_MLDSA44 :
-                     (ctx->client_private_mldsa_param == NOXTLS_MLDSA_65) ? TLS_SIGSCHEME_MLDSA65 :
-                     TLS_SIGSCHEME_MLDSA87;
+        sig_scheme = tls13_mldsa_param_to_sig_scheme(ctx->client_private_mldsa_param);
 #else
         return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
@@ -9561,7 +9604,7 @@ noxtls_return_t noxtls_tls13_recv_client_hello(tls13_context_t *ctx)
             free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
-        new_buf = (uint8_t*)realloc(record.data, assembled_len + (uint32_t)next_record.length);
+        new_buf = (uint8_t*)realloc(record.data, assembled_len + next_record.length);
         if(new_buf == NULL) {
             free(next_record.data);
             free(record.data);
@@ -10956,9 +10999,7 @@ noxtls_return_t noxtls_tls13_send_certificate_verify(tls13_context_t *ctx)
     /* Pick SignatureScheme before building Transcript-Hash (RFC 8446 §4.4.3). */
     if(ctx->server_cert_use_mldsa) {
 #if NOXTLS_FEATURE_ML_DSA
-        selected_sig_scheme = (ctx->server_private_mldsa_param == NOXTLS_MLDSA_44) ? TLS_SIGSCHEME_MLDSA44 :
-                              (ctx->server_private_mldsa_param == NOXTLS_MLDSA_65) ? TLS_SIGSCHEME_MLDSA65 :
-                              TLS_SIGSCHEME_MLDSA87;
+        selected_sig_scheme = tls13_mldsa_param_to_sig_scheme(ctx->server_private_mldsa_param);
 #else
         return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif

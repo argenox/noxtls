@@ -5868,7 +5868,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
                 return NOXTLS_RETURN_FAILED;
             }
             {
-                uint8_t *new_buf = (uint8_t*)realloc(record.data, assembled_len + (uint32_t)next_record.length);
+                uint8_t *new_buf = (uint8_t*)realloc(record.data, assembled_len + next_record.length);
                 if(new_buf == NULL) {
                     free(next_record.data);
                     free(record.data);
@@ -5923,7 +5923,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
                 return NOXTLS_RETURN_FAILED;
             }
             {
-                uint8_t *new_buf = (uint8_t*)realloc(record.data, assembled_len + (uint32_t)next_record.length);
+                uint8_t *new_buf = (uint8_t*)realloc(record.data, assembled_len + next_record.length);
                 if(new_buf == NULL) {
                     free(next_record.data);
                     free(record.data);
