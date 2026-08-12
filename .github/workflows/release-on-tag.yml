@@ -139,6 +139,28 @@ jobs:
           # Applications archive contents.
           mkdir -p artifacts/applications
           cp -a "${INSTALL_PREFIX}/bin/." artifacts/applications/
+          # Backward-compatible macOS layout for consumers that still validate
+          # binary-<arch>/<legacy-name> paths inside application archives.
+          if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+            arch="$(uname -m)"
+            compat_dir="artifacts/applications/binary-${arch}"
+            mkdir -p "${compat_dir}"
+            cp -a "${INSTALL_PREFIX}/bin/." "${compat_dir}/"
+            for mapping in \
+              "aes:noxtls-aes" \
+              "base64:noxtls-base64" \
+              "cert:noxtls-cert" \
+              "dtls_psk_test:noxtls-dtls_psk_test" \
+              "prime:noxtls-prime" \
+              "sha:noxtls-sha" \
+              "tls_test:noxtls-tls_test"; do
+              legacy_name="${mapping%%:*}"
+              current_name="${mapping##*:}"
+              if [[ -f "${compat_dir}/${current_name}" && ! -f "${compat_dir}/${legacy_name}" ]]; then
+                cp -a "${compat_dir}/${current_name}" "${compat_dir}/${legacy_name}"
+              fi
+            done
+          fi
 
       - name: Configure and build (Windows MinGW)
         if: ${{ matrix.use_msys2 }}
