@@ -191,8 +191,15 @@ jobs:
               "tls_test:noxtls-tls_test"; do
               local legacy_name="${mapping%%:*}"
               local current_name="${mapping##*:}"
-              if [[ -f "${compat_dir}/${current_name}.exe" && ! -f "${compat_dir}/${legacy_name}.exe" ]]; then
+              if [[ -f "${compat_dir}/${legacy_name}.exe" ]]; then
+                continue
+              fi
+              if [[ -f "${compat_dir}/${current_name}.exe" ]]; then
                 cp -a "${compat_dir}/${current_name}.exe" "${compat_dir}/${legacy_name}.exe"
+              elif [[ -f "${compat_dir}/${current_name}" ]]; then
+                cp -a "${compat_dir}/${current_name}" "${compat_dir}/${legacy_name}.exe"
+              elif [[ -f "${compat_dir}/${legacy_name}" ]]; then
+                cp -a "${compat_dir}/${legacy_name}" "${compat_dir}/${legacy_name}.exe"
               fi
             done
           }
