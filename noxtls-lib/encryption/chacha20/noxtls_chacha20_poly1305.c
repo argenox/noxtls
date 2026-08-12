@@ -261,7 +261,7 @@ noxtls_return_t noxtls_poly1305_final(noxtls_poly1305_context_t *ctx, uint8_t *t
     }
 
     /* h = h % (2^128) */
-    h0 = ((h0) | (h1 << 26)) & 0xFFFFFFFF;
+    h0 = (h0 | (h1 << 26)) & 0xFFFFFFFF;
     h1 = ((h1 >> 6) | (h2 << 20)) & 0xFFFFFFFF;
     h2 = ((h2 >> 12) | (h3 << 14)) & 0xFFFFFFFF;
     h3 = ((h3 >> 18) | (h4 << 8)) & 0xFFFFFFFF;

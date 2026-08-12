@@ -38,11 +38,11 @@
 #include "mdigest/sha256/noxtls_sha256.h"
 #include "mdigest/sha512/noxtls_sha512.h"
 #include "drbg/noxtls_drbg.h"
-#if defined(ESP_PLATFORM)
+#ifdef ESP_PLATFORM
 #include "noxtls_esp_hw_crypto.h"
 #endif
-#if defined(__has_include)
-#if defined(ESP_PLATFORM) && __has_include("esp_timer.h")
+#ifdef __has_include
+#ifdef ESP_PLATFORM && __has_include("esp_timer.h")
 #include "esp_timer.h"
 #endif
 #endif
@@ -73,7 +73,7 @@ static const uint32_t s_p256_order_mu_words[9] = {
 
 static noxtls_ecdsa_sign_timing_t s_ecdsa_last_sign_timing;
 
-#if defined(NOXTLS_ECDSA_VERIFY_DEBUG)
+#ifdef NOXTLS_ECDSA_VERIFY_DEBUG
 
 /**
  * @brief Print a hex string
@@ -105,7 +105,7 @@ static void ecdsa_debug_hex(const char *label, const uint8_t *buf, uint32_t len)
  */
 static uint64_t ecdsa_profile_now_us(void)
 {
-#if defined(__has_include) && defined(ESP_PLATFORM) && __has_include("esp_timer.h")
+#ifdef __has_include && defined(ESP_PLATFORM) && __has_include("esp_timer.h")
     return (uint64_t)esp_timer_get_time();
 #else
     clock_t now = clock();
@@ -1347,7 +1347,7 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_messag
     }
     
     size = key->curve->size;
-#if defined(NOXTLS_ECDSA_VERIFY_DEBUG)
+#ifdef NOXTLS_ECDSA_VERIFY_DEBUG
     printf("[ecdsa_verify] size=%u message_len=%u\n", (unsigned)size, (unsigned)message_len);
     fflush(stdout);
 #endif
@@ -1419,7 +1419,7 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_messag
     memcpy(hash, hash_fast, sizeof(hash_fast));
     memcpy(h, h_fast, size);
 
-#if defined(NOXTLS_ECDSA_VERIFY_DEBUG)
+#ifdef NOXTLS_ECDSA_VERIFY_DEBUG
     printf("[ecdsa_verify] hash_len=%u\n", (unsigned)hash_fast_len);
     fflush(stdout);
     ecdsa_debug_hex("h", h, size);
@@ -1452,7 +1452,7 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_messag
         noxtls_bn_mod(v, u2, size * 2, key->curve->n, size);
         memcpy(u2, v, size);
     }
-#if defined(NOXTLS_ECDSA_VERIFY_DEBUG)
+#ifdef NOXTLS_ECDSA_VERIFY_DEBUG
     ecdsa_debug_hex("s_inv", s_inv, size);
     ecdsa_debug_hex("u1", u1, size);
     ecdsa_debug_hex("u2", u2, size);
@@ -1461,7 +1461,7 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_messag
     /* Step 5: Compute (x, y) = u1 * G + u2 * Q */
     if(size == 32U) {
         int use_hw_mul_path = 0;
-#if defined(ESP_PLATFORM)
+#ifdef ESP_PLATFORM
         use_hw_mul_path = noxtls_esp_hw_ecc_compiled_in();
 #endif
 
@@ -1509,7 +1509,7 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_messag
             goto cleanup_verify;
         }
     }
-#if defined(NOXTLS_ECDSA_VERIFY_DEBUG)
+#ifdef NOXTLS_ECDSA_VERIFY_DEBUG
     ecdsa_debug_hex("u1G.x", u1G.x, size);
     ecdsa_debug_hex("u1G.y", u1G.y, size);
     ecdsa_debug_hex("u2Q.x", u2Q.x, size);
@@ -1524,7 +1524,7 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_messag
     } else {
         noxtls_bn_mod(v, result.x, size, key->curve->n, size);
     }
-#if defined(NOXTLS_ECDSA_VERIFY_DEBUG)
+#ifdef NOXTLS_ECDSA_VERIFY_DEBUG
     ecdsa_debug_hex("result.x (before mod n)", result.x, size);
     ecdsa_debug_hex("v", v, size);
     ecdsa_debug_hex("signature->r (compare)", signature->r, size);
@@ -1539,7 +1539,7 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_messag
         rc = NOXTLS_RETURN_SUCCESS;
     } else {
         rc = NOXTLS_RETURN_FAILED;
-#if defined(NOXTLS_ECDSA_VERIFY_DEBUG)
+#ifdef NOXTLS_ECDSA_VERIFY_DEBUG
         {
             uint32_t i;
             uint8_t u1_plus_u2_buf[ECC_MAX_KEY_SIZE + 1];

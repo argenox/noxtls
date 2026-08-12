@@ -680,7 +680,7 @@ static noxtls_return_t pbkdf2_hmac_sha1(const uint8_t *password, uint32_t passwo
         block_input[params->salt_len + 0U] = (uint8_t)(block_index >> 24);
         block_input[params->salt_len + 1U] = (uint8_t)(block_index >> 16);
         block_input[params->salt_len + 2U] = (uint8_t)(block_index >> 8);
-        block_input[params->salt_len + 3U] = (uint8_t)(block_index);
+        block_input[params->salt_len + 3U] = (uint8_t)block_index;
 
         if(hmac_sha1(password, password_len, block_input, params->salt_len + 4U, u) != NOXTLS_RETURN_SUCCESS) {
             free(block_input);
@@ -2688,7 +2688,7 @@ static noxtls_return_t noxtls_x509_asn1_time_to_timet(const uint8_t *time_data, 
     if(seconds < 0 || seconds > (int64_t)INT32_MAX) {
         /* For 64-bit time_t, we can handle larger values, but check reasonable bounds */
 #ifdef _MSC_VER
-#if defined(_USE_32BIT_TIME_T)
+#ifdef _USE_32BIT_TIME_T
         if(seconds > INT32_MAX) {
             return NOXTLS_RETURN_FAILED;
         }

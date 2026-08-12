@@ -293,7 +293,7 @@ static void ghash_finalize(uint8_t x[16], const uint32_t table[32][16][4], uint6
     len_block[4] = (uint8_t)(aad_bits >> 24);
     len_block[5] = (uint8_t)(aad_bits >> 16);
     len_block[6] = (uint8_t)(aad_bits >> 8);
-    len_block[7] = (uint8_t)(aad_bits);
+    len_block[7] = (uint8_t)aad_bits;
 
     len_block[8] = (uint8_t)(data_bits >> 56);
     len_block[9] = (uint8_t)(data_bits >> 48);
@@ -302,7 +302,7 @@ static void ghash_finalize(uint8_t x[16], const uint32_t table[32][16][4], uint6
     len_block[12] = (uint8_t)(data_bits >> 24);
     len_block[13] = (uint8_t)(data_bits >> 16);
     len_block[14] = (uint8_t)(data_bits >> 8);
-    len_block[15] = (uint8_t)(data_bits);
+    len_block[15] = (uint8_t)data_bits;
 
     gcm_xor_inplace(x, len_block);
     gcm_mul(x, table);

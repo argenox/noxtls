@@ -29,7 +29,7 @@
 #include "asn1.h"
 #include "oids.h"
 
-#if defined(NOXTLS_NO_ASN1_PRINTF)
+#ifdef NOXTLS_NO_ASN1_PRINTF
 #define NOXTLS_ASN1_PRINTF(...) ((void)0)
 #else
 #define NOXTLS_ASN1_PRINTF(...) printf(__VA_ARGS__)

@@ -71,7 +71,7 @@ typedef enum
 } tls13_server_handshake_step_t;
 #include <limits.h>
 #include <time.h>
-#if defined(__has_include)
+#ifdef __has_include
 #if defined(ESP_PLATFORM) && __has_include("esp_timer.h")
 #include "esp_timer.h"
 #endif
@@ -226,7 +226,7 @@ static void tls13_accept_log_fail_detail(const tls13_context_t *ctx,
  */
 static uint64_t tls13_profile_now_us(void)
 {
-#if defined(__has_include) && defined(ESP_PLATFORM) && __has_include("esp_timer.h")
+#ifdef __has_include && defined(ESP_PLATFORM) && __has_include("esp_timer.h")
     return (uint64_t)esp_timer_get_time();
 #else
     clock_t now = clock();

@@ -24,7 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#if !defined(NOXTLS_CUSTOM_ENTROPY_ONLY)
+#ifndef NOXTLS_CUSTOM_ENTROPY_ONLY
 #include <time.h>
 #endif
 
@@ -198,7 +198,7 @@ static noxtls_return_t get_entropy_unix(uint8_t *entropy_buffer, uint32_t entrop
 #endif
 
 /* Dummy entropy source - generates deterministic but varying data */
-#if !defined(NOXTLS_CUSTOM_ENTROPY_ONLY)
+#ifndef NOXTLS_CUSTOM_ENTROPY_ONLY
 static uint32_t dummy_entropy_counter = 0;
 #endif
 static noxtls_entropy_source_t g_entropy_source = NOXTLS_ENTROPY_SOURCE_AUTO;
@@ -338,7 +338,7 @@ noxtls_entropy_cb_t noxtls_drbg_get_entropy_callback(void)
  *
  * @return Always `NOXTLS_RETURN_SUCCESS`.
  */
-#if !defined(NOXTLS_CUSTOM_ENTROPY_ONLY)
+#ifndef NOXTLS_CUSTOM_ENTROPY_ONLY
 static noxtls_return_t drbg_entropy_dummy(uint8_t *entropy_buffer, uint32_t entropy_len)
 {
     uint64_t time_seed = (uint64_t)time(NULL);
@@ -406,7 +406,7 @@ noxtls_return_t noxtls_drbg_get_entropy(uint8_t *entropy_buffer, uint32_t entrop
             return NOXTLS_RETURN_FAILED;
 #endif
         case NOXTLS_ENTROPY_SOURCE_DUMMY:
-#if defined(NOXTLS_CUSTOM_ENTROPY_ONLY)
+#ifdef NOXTLS_CUSTOM_ENTROPY_ONLY
             return NOXTLS_RETURN_FAILED;
 #else
             return drbg_entropy_dummy(entropy_buffer, entropy_len);

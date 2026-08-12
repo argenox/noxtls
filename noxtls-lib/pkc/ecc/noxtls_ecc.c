@@ -228,7 +228,7 @@ static noxtls_return_t ecc_mod_inv_prime(uint8_t *result,
  */
 int noxtls_ecc_point_multiply_uses_ref(void)
 {
-#if defined(NOXTLS_ECC_USE_REF_POINT_MUL)
+#ifdef NOXTLS_ECC_USE_REF_POINT_MUL
     return 1;
 #else
     return 0;

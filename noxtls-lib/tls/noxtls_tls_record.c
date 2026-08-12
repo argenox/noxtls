@@ -502,12 +502,12 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
         aad[4] = (uint8_t)(seq_num >> 24);
         aad[5] = (uint8_t)(seq_num >> 16);
         aad[6] = (uint8_t)(seq_num >> 8);
-        aad[7] = (uint8_t)(seq_num);
+        aad[7] = (uint8_t)seq_num;
         aad[8] = type;
         aad[9] = (uint8_t)(ctx->base.base.version >> 8);
         aad[10] = (uint8_t)(ctx->base.base.version);
         aad[11] = (uint8_t)(plaintext_len >> 8);
-        aad[12] = (uint8_t)(plaintext_len);
+        aad[12] = (uint8_t)plaintext_len;
 
         encrypted_data = (uint8_t*)noxtls_malloc(plaintext_len);
         if(encrypted_data == NULL) {
@@ -1047,12 +1047,12 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
         aad[4] = (uint8_t)(seq_num >> 24);
         aad[5] = (uint8_t)(seq_num >> 16);
         aad[6] = (uint8_t)(seq_num >> 8);
-        aad[7] = (uint8_t)(seq_num);
+        aad[7] = (uint8_t)seq_num;
         aad[8] = type;
         aad[9] = (uint8_t)(ctx->base.base.version >> 8);
         aad[10] = (uint8_t)(ctx->base.base.version);
         aad[11] = (uint8_t)(ciphertext_len >> 8);
-        aad[12] = (uint8_t)(ciphertext_len);
+        aad[12] = (uint8_t)ciphertext_len;
 
         memcpy(tag, tag_in, tag_len);
         if(type == TLS_RECORD_APPLICATION_DATA) {

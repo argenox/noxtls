@@ -223,7 +223,7 @@ static void aria_store_be64(uint8_t *p, uint64_t v)
     p[4] = (uint8_t)(v >> 24);
     p[5] = (uint8_t)(v >> 16);
     p[6] = (uint8_t)(v >> 8);
-    p[7] = (uint8_t)(v);
+    p[7] = (uint8_t)v;
 }
 
 /**
