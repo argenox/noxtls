@@ -34,6 +34,54 @@ extern "C" {
 
 #if NOXTLS_FEATURE_AES_CMAC
 
+typedef struct
+{
+    uint8_t key[32];
+    uint8_t state[NOXTLS_AES_BLOCK_LENGTH];
+    uint8_t subkey1[NOXTLS_AES_BLOCK_LENGTH];
+    uint8_t subkey2[NOXTLS_AES_BLOCK_LENGTH];
+    uint8_t partial[NOXTLS_AES_BLOCK_LENGTH];
+    uint64_t total_len;
+    uint8_t key_len;
+    uint8_t partial_len;
+    uint8_t initialized;
+    noxtls_aes_type_t type;
+} noxtls_aes_cmac_context_t;
+
+/**
+ * @brief Initialize a streaming AES-CMAC context.
+ *
+ * @param ctx   AES-CMAC context to initialize
+ * @param key   AES key (16/24/32 bytes based on type)
+ * @param type  AES key type
+ * @return NOXTLS_RETURN_SUCCESS on success
+ */
+noxtls_return_t noxtls_aes_cmac_init(noxtls_aes_cmac_context_t *ctx,
+                                     const uint8_t *key,
+                                     noxtls_aes_type_t type);
+
+/**
+ * @brief Update a streaming AES-CMAC context.
+ *
+ * @param ctx      Initialized AES-CMAC context
+ * @param msg      Message chunk bytes
+ * @param msg_len  Message chunk length
+ * @return NOXTLS_RETURN_SUCCESS on success
+ */
+noxtls_return_t noxtls_aes_cmac_update(noxtls_aes_cmac_context_t *ctx,
+                                       const uint8_t *msg,
+                                       uint32_t msg_len);
+
+/**
+ * @brief Finalize a streaming AES-CMAC computation.
+ *
+ * @param ctx  Initialized AES-CMAC context
+ * @param mac  Output 16-byte MAC
+ * @return NOXTLS_RETURN_SUCCESS on success
+ */
+noxtls_return_t noxtls_aes_cmac_final(noxtls_aes_cmac_context_t *ctx,
+                                      uint8_t *mac);
+
 /**
  * @brief Compute AES-CMAC over a noxtls_message (RFC 4493).
  *

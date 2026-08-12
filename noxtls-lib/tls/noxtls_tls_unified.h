@@ -67,6 +67,19 @@ typedef struct noxtls_tls_connection_s
     uint32_t server_alpn_count;
     const char *server_name;
     uint16_t server_name_len;
+    /** Client (RFC 7507): applied to the version context before ClientHello. */
+    uint8_t client_send_fallback_scsv;
+    /** Server: request a client certificate (CertificateRequest). */
+    uint8_t request_client_auth;
+    /** Server: require a client certificate (implies request). */
+    uint8_t require_client_auth;
+    /** Client: optional client certificate for mutual TLS (non-owning DER + key pointers). */
+    const uint8_t *client_cert;
+    uint32_t client_cert_len;
+    void *client_private_rsa;
+    void *client_private_ecdsa;
+    /** BoGo: force peer certificate verification to fail. */
+    uint8_t force_cert_verify_fail;
     union {
         tls12_context_t tls12;
         tls13_context_t tls13;
@@ -113,6 +126,26 @@ noxtls_return_t noxtls_tls_connection_set_server_alpn_protocols(noxtls_tls_conne
 
 /** Client: set SNI hostname. Applied at connect. */
 noxtls_return_t noxtls_tls_connection_set_sni(noxtls_tls_connection_t *conn, const char *name, uint16_t name_len);
+noxtls_return_t noxtls_tls_connection_set_client_fallback_scsv(noxtls_tls_connection_t *conn, int enable);
+
+/** Server: request any client certificate (mutual TLS). Call before accept. */
+noxtls_return_t noxtls_tls_connection_set_request_client_auth(noxtls_tls_connection_t *conn, int enable);
+
+/** Server: require a client certificate (implies request). Call before accept. */
+noxtls_return_t noxtls_tls_connection_set_require_client_auth(noxtls_tls_connection_t *conn, int enable);
+
+/** Client: set RSA client certificate + private key for mutual TLS. Call before connect. */
+noxtls_return_t noxtls_tls_connection_set_client_cert_rsa(noxtls_tls_connection_t *conn,
+                                                         const uint8_t *cert_der, uint32_t cert_len,
+                                                         void *rsa_key);
+
+/** Client: set ECDSA client certificate + private key for mutual TLS. Call before connect. */
+noxtls_return_t noxtls_tls_connection_set_client_cert_ecdsa(noxtls_tls_connection_t *conn,
+                                                           const uint8_t *cert_der, uint32_t cert_len,
+                                                           void *ecc_key);
+
+/** Force peer certificate verification to fail (BoGo -verify-fail with -verify-peer). */
+noxtls_return_t noxtls_tls_connection_set_force_cert_verify_fail(noxtls_tls_connection_t *conn, int enable);
 
 /** Server: receive Client Hello, detect version, complete handshake (TLS 1.2 or 1.3). */
 noxtls_return_t noxtls_tls_connection_accept(noxtls_tls_connection_t *conn);

@@ -326,6 +326,7 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
             aes_type = NOXTLS_AES_128_BIT;
             break;
         case TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_CBC_SHA256:
+        case TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256:
         case TLS_CIPHER_SUITE_RSA_WITH_AES_128_CBC_SHA256:
         case TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_CBC_SHA256:
             hash_algo = NOXTLS_HASH_SHA_256;
@@ -359,6 +360,8 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
             break;
         case TLS_CIPHER_SUITE_RSA_WITH_AES_256_CBC_SHA:
         case TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_256_CBC_SHA:
+        case TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_CBC_SHA:
+        case TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CBC_SHA:
             hash_algo = NOXTLS_HASH_SHA1;
             mac_key_len = 20;
             enc_key_len = 32;
@@ -840,6 +843,7 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
             is_3des = 0;
             break;
         case TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_CBC_SHA256:
+        case TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256:
         case TLS_CIPHER_SUITE_RSA_WITH_AES_128_CBC_SHA256:
         case TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_CBC_SHA256:
             hash_algo = NOXTLS_HASH_SHA_256;
@@ -873,6 +877,8 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
             break;
         case TLS_CIPHER_SUITE_RSA_WITH_AES_256_CBC_SHA:
         case TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_256_CBC_SHA:
+        case TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_CBC_SHA:
+        case TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CBC_SHA:
             hash_algo = NOXTLS_HASH_SHA1;
             mac_key_len = 20;
             enc_key_len = 32;
@@ -1088,10 +1094,6 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
     int use_encrypt_then_mac = tls12_should_use_encrypt_then_mac(ctx, is_gcm, is_tls12_ccm, is_tls12_chacha);
     uint32_t encrypted_part_len = encrypted_record_len;
 
-    if(use_encrypt_then_mac == 0) {
-        return NOXTLS_RETURN_NOT_SUPPORTED;
-    }
-
     if(use_encrypt_then_mac) {
         uint8_t received_outer_mac[64];
         uint8_t computed_outer_mac[64];
@@ -1107,16 +1109,6 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
                               computed_outer_mac, &computed_outer_mac_len);
         if(rc != NOXTLS_RETURN_SUCCESS || computed_outer_mac_len != mac_len ||
            noxtls_secret_memcmp(received_outer_mac, computed_outer_mac, mac_len) != 0) {
-            fprintf(stderr,
-                    "[TLS12_REC] EtM outer MAC mismatch: suite=0x%04X type=%u seq=%llu enc_part=%u mac_len=%u rc=%d recv=%02X%02X%02X%02X calc=%02X%02X%02X%02X\n",
-                    (unsigned)ctx->cipher_suite,
-                    (unsigned)type,
-                    (unsigned long long)seq_num,
-                    (unsigned)encrypted_part_len,
-                    (unsigned)mac_len,
-                    (int)rc,
-                    received_outer_mac[0], received_outer_mac[1], received_outer_mac[2], received_outer_mac[3],
-                    computed_outer_mac[0], computed_outer_mac[1], computed_outer_mac[2], computed_outer_mac[3]);
             return NOXTLS_RETURN_BAD_DATA;
         }
     }
@@ -2329,7 +2321,7 @@ noxtls_return_t noxtls_tls13_decrypt_record(tls13_context_t *ctx,
         return NOXTLS_RETURN_NULL;
     }
     
-    if(encrypted_record_len > (uint32_t)(TLS_MAX_RECORD_SIZE + 256u)) {
+    if(encrypted_record_len > (uint32_t)TLS13_MAX_ENCRYPTED_RECORD_SIZE) {
         return NOXTLS_RETURN_RECORD_OVERFLOW;
     }
     if(encrypted_record_len < 8) {

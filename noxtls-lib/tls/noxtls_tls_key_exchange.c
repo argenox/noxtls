@@ -711,10 +711,23 @@ noxtls_return_t noxtls_tls12_ecdhe_recv_server_key_exchange(tls12_context_t *ctx
             return NOXTLS_RETURN_FAILED;
         }
         rc = noxtls_tls_ecdhe_compute_shared_secret_x25519(ecdhe_ctx, record.data + offset);
-        free(record.data);
-        return rc;
-    }
-    
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            free(record.data);
+            return rc;
+        }
+        offset += public_key_len;
+    } else if(ecdhe_ctx->named_group == TLS_NAMED_GROUP_X448) {
+        if(public_key_len != 56U) {
+            free(record.data);
+            return NOXTLS_RETURN_FAILED;
+        }
+        rc = noxtls_tls_ecdhe_compute_shared_secret_x448(ecdhe_ctx, record.data + offset);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            free(record.data);
+            return rc;
+        }
+        offset += public_key_len;
+    } else {
     /* Decode peer's public key */
     rc = noxtls_tls_decode_ecc_point_uncompressed(record.data + offset, public_key_len, &peer_public_key, ecdhe_ctx->curve_type);
     if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -722,6 +735,7 @@ noxtls_return_t noxtls_tls12_ecdhe_recv_server_key_exchange(tls12_context_t *ctx
         return rc;
     }
     offset += public_key_len;
+    }
     uint32_t params_end = offset;  /* params = record.data[4..params_end-1] */
 
     /* Signature algorithm (2 bytes) and signature length (2 bytes) */
@@ -729,54 +743,64 @@ noxtls_return_t noxtls_tls12_ecdhe_recv_server_key_exchange(tls12_context_t *ctx
         free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
-    (void)record.data[offset];
-    (void)record.data[offset + 1];
-    uint16_t sig_len = (uint16_t)((record.data[offset + 2] << 8) | record.data[offset + 3]);
-    offset += 4;
-    if(offset + sig_len > record.length) {
-        free(record.data);
-        return NOXTLS_RETURN_FAILED;
-    }
-    if(sig_len > 0) {
+    {
+        uint16_t sig_scheme = (uint16_t)((record.data[offset] << 8) | record.data[offset + 1]);
+        uint16_t sig_len = (uint16_t)((record.data[offset + 2] << 8) | record.data[offset + 3]);
+        offset += 4;
+        if(sig_len == 0U || offset + sig_len > record.length) {
+            free(record.data);
+            return NOXTLS_RETURN_FAILED;
+        }
+        (void)sig_scheme; /* hash selected below as SHA-256 for RSA PKCS#1 (TLS 1.2 common case) */
         if(ctx->server_cert_parsed == NULL) {
             free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
         {
             const x509_certificate_t *cert = (const x509_certificate_t *)ctx->server_cert_parsed;
+            const uint8_t *mod_ptr;
+            const uint8_t *exp_ptr;
+            uint32_t mod_len;
+            uint32_t exp_len;
+            rsa_key_size_t key_size;
+            rsa_key_t rsa_key;
+            uint32_t params_len;
+            uint8_t *to_verify;
+
             if(cert->rsa_modulus == NULL || cert->rsa_exponent == NULL) {
                 free(record.data);
                 return NOXTLS_RETURN_FAILED;
             }
-            uint32_t key_bytes = cert->rsa_modulus_len;
-            rsa_key_size_t key_size;
-            if(key_bytes == 128) {
-                key_size = RSA_1024_BIT;
-            } else if(key_bytes == 256) {
-                key_size = RSA_2048_BIT;
-            } else if(key_bytes == 384) {
-                key_size = RSA_3072_BIT;
-            } else if(key_bytes == 512) {
-                key_size = RSA_4096_BIT;
-            } else {
+            mod_ptr = cert->rsa_modulus;
+            mod_len = cert->rsa_modulus_len;
+            exp_ptr = cert->rsa_exponent;
+            exp_len = cert->rsa_exponent_len;
+            if(mod_len > 0U && mod_ptr[0] == 0x00u) { mod_ptr++; mod_len--; }
+            if(exp_len > 0U && exp_ptr[0] == 0x00u) { exp_ptr++; exp_len--; }
+            if(mod_len == 128U) key_size = RSA_1024_BIT;
+            else if(mod_len == 256U) key_size = RSA_2048_BIT;
+            else if(mod_len == 384U) key_size = RSA_3072_BIT;
+            else if(mod_len == 512U) key_size = RSA_4096_BIT;
+            else {
                 free(record.data);
                 return NOXTLS_RETURN_FAILED;
             }
-            rsa_key_t rsa_key;
             rc = noxtls_rsa_key_init(&rsa_key, key_size);
             if(rc != NOXTLS_RETURN_SUCCESS) {
                 free(record.data);
                 return rc;
             }
-            memcpy(rsa_key.n, cert->rsa_modulus, cert->rsa_modulus_len);
-            memcpy(rsa_key.e, cert->rsa_exponent, cert->rsa_exponent_len);
-            uint32_t params_len = params_end - 4;  /* curve_type through public key */
+            memset(rsa_key.n, 0, rsa_key.key_bytes);
+            memset(rsa_key.e, 0, rsa_key.key_bytes);
+            memcpy(rsa_key.n + (rsa_key.key_bytes - mod_len), mod_ptr, mod_len);
+            memcpy(rsa_key.e + (rsa_key.key_bytes - exp_len), exp_ptr, exp_len);
+            params_len = params_end - 4U;
             if(params_len > 256u) {
                 noxtls_rsa_key_free(&rsa_key);
                 free(record.data);
                 return NOXTLS_RETURN_FAILED;
             }
-            uint8_t *to_verify = (ctx->handshake_workspace != NULL) ? ctx->handshake_workspace : (uint8_t*)noxtls_malloc(320);
+            to_verify = (ctx->handshake_workspace != NULL) ? ctx->handshake_workspace : (uint8_t*)noxtls_malloc(320);
             if(to_verify == NULL) {
                 noxtls_rsa_key_free(&rsa_key);
                 free(record.data);
@@ -796,11 +820,14 @@ noxtls_return_t noxtls_tls12_ecdhe_recv_server_key_exchange(tls12_context_t *ctx
         }
     }
 
-    /* Compute shared secret */
-    rc = noxtls_tls_ecdhe_compute_shared_secret(ecdhe_ctx, &peer_public_key);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        free(record.data);
-        return rc;
+    /* NIST curves: shared secret after signature verify. X25519/X448 already computed. */
+    if(ecdhe_ctx->named_group != TLS_NAMED_GROUP_X25519 &&
+       ecdhe_ctx->named_group != TLS_NAMED_GROUP_X448) {
+        rc = noxtls_tls_ecdhe_compute_shared_secret(ecdhe_ctx, &peer_public_key);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            free(record.data);
+            return rc;
+        }
     }
     
     free(record.data);
