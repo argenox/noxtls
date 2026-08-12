@@ -1416,7 +1416,6 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_messag
     noxtls_ecc_point_init(&result, size);
     memcpy(hash, hash_fast, sizeof(hash_fast));
     memcpy(h, h_fast, size);
-    rc = NOXTLS_RETURN_SUCCESS;
 
 #if defined(NOXTLS_ECDSA_VERIFY_DEBUG)
     printf("[ecdsa_verify] hash_len=%u\n", (unsigned)hash_fast_len);

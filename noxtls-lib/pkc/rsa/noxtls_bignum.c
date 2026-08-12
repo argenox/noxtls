@@ -2533,7 +2533,6 @@ static void bn_mont_mul(bn_limb_t *out, const bn_limb_t *a, const bn_limb_t *b,
 
         /* m_ = t[0] * n0inv mod 2^32; t = (t + m_ * m) / 2^32 */
         mi = (bn_limb_t)((uint64_t)t[0] * (uint64_t)n0inv);
-        carry = 0;
         {
             uint64_t s = (uint64_t)t[0] + (uint64_t)mi * (uint64_t)m[0];
             carry = s >> BN_LIMB_BITS;   /* low word of s is discarded (== 0) */

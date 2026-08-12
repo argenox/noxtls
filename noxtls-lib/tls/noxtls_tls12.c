@@ -8835,7 +8835,6 @@ noxtls_return_t noxtls_tls12_recv_finished_client(tls12_context_t *ctx)
            assembled_len == 0U) {
             memcpy(assembled, record.data, record.length);
             assembled_len = record.length;
-            want_len = 16U;
             free(record.data);
             break;
         }

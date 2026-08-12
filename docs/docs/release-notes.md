@@ -58,6 +58,7 @@ NoxTLS 0.2.70 focuses on TLS/DTLS robustness and security posture improvements w
 - Hardened fragmentation, resume cipher binding, and related handshake integrity checks.
 - Improved handling of legacy ClientHello version behaviors and `close_notify` response patterns.
 - Additional TLS vulnerability hardening landed from `fix/tls_0_2_54` payload.
+- Post-RC hardening update: resolved static-analysis findings in TLS 1.3 HRR extension-order validation, TLS 1.2 Finished processing, ECDSA verify flow, and RSA bignum Montgomery path.
 
 ### TLS 1.3 Exporter
 

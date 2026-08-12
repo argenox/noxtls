@@ -9745,8 +9745,9 @@ noxtls_return_t noxtls_tls13_recv_client_hello(tls13_context_t *ctx)
         }
         if(cur_count != ctx->hrr_first_clienthello_ext_order_count ||
            (cur_count > 0U &&
-            memcmp(cur_types, ctx->hrr_first_clienthello_ext_order,
-                   (size_t)cur_count * sizeof(uint16_t)) != 0)) {
+            (cur_types == NULL || ctx->hrr_first_clienthello_ext_order == NULL ||
+             memcmp(cur_types, ctx->hrr_first_clienthello_ext_order,
+                    (size_t)cur_count * sizeof(uint16_t)) != 0))) {
             free(cur_types);
             free(record.data);
             tls13_hrr_first_ch_ext_order_free(ctx);
