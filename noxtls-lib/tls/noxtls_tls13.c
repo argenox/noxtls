@@ -8930,6 +8930,62 @@ noxtls_return_t noxtls_tls13_get_channel_binding(tls13_context_t *ctx, uint32_t 
     return NOXTLS_RETURN_FAILED;
 }
 
+noxtls_return_t noxtls_tls13_export_keying_material(
+    tls13_context_t *ctx,
+    const uint8_t *label, uint32_t label_len,
+    const uint8_t *context, uint32_t context_len,
+    uint8_t *output, uint32_t output_len)
+{
+    noxtls_hash_algos_t hash_algo;
+    uint32_t hash_len;
+    uint32_t key_len;
+    uint32_t context_hash_len;
+    uint32_t transcript_len;
+    uint8_t exporter_master_secret[64];
+    uint8_t context_hash[64];
+    noxtls_return_t rc;
+
+    if(ctx == NULL || label == NULL || label_len == 0U ||
+       output == NULL || output_len == 0U ||
+       (context == NULL && context_len != 0U)) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(ctx->base.base.state != TLS_STATE_CONNECTED ||
+       ctx->app_secret_transcript_len == 0U ||
+       ctx->app_secret_transcript_len > ctx->handshake_messages_len) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    rc = tls13_get_cipher_params(
+        ctx->cipher_suite, &hash_algo, &hash_len, &key_len);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+    transcript_len = ctx->app_secret_transcript_len;
+    rc = tls13_ctx_derive_secret(
+        ctx, hash_algo, ctx->master_secret, hash_len,
+        (const uint8_t *)"exp master", 10U,
+        ctx->handshake_messages, transcript_len,
+        exporter_master_secret, hash_len);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+    context_hash_len = sizeof(context_hash);
+    rc = tls13_hash_messages(
+        hash_algo, context, context_len,
+        context_hash, &context_hash_len);
+    if(rc != NOXTLS_RETURN_SUCCESS || context_hash_len != hash_len) {
+        memset(exporter_master_secret, 0, sizeof(exporter_master_secret));
+        return rc != NOXTLS_RETURN_SUCCESS ? rc : NOXTLS_RETURN_FAILED;
+    }
+    rc = tls13_ctx_hkdf_expand_label(
+        ctx, hash_algo, exporter_master_secret, hash_len,
+        label, label_len, context_hash, context_hash_len,
+        output, output_len);
+    memset(exporter_master_secret, 0, sizeof(exporter_master_secret));
+    memset(context_hash, 0, sizeof(context_hash));
+    return rc;
+}
+
 /**
  * @brief Client: run the full TLS 1.3 handshake through application key installation.
  * @param[in,out] ctx Initialized client context.
