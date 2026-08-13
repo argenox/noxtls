@@ -104,6 +104,10 @@ int noxtls_getopt(int argc, char * const argv[], const char *optstring)
 
     optchr = strchr(optstring, optopt);
     if(optchr == NULL) {
+        if(*getopt_place == '\0') {
+            getopt_place = NULL;
+            optind++;
+        }
         if(opterr && *optstring != ':') {
             (void)fprintf(stderr, "%s: unknown option -%c\n", argv[0], optopt);
         }
@@ -113,6 +117,7 @@ int noxtls_getopt(int argc, char * const argv[], const char *optstring)
     if(optchr[1] == ':') {
         arg_rc = getopt_take_argument(argc, argv, optstring);
         if(arg_rc != 0) {
+            getopt_place = NULL;
             return arg_rc;
         }
     } else if(*getopt_place == '\0') {
