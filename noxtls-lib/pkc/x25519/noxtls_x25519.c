@@ -526,6 +526,7 @@ static void fe25519_inv(fe25519_t *out, const fe25519_t *z)
  * @param[out] result The result value.
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the input or output is NULL, or another NOXTLS_RETURN_t on failure.
  */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static noxtls_return_t x25519_scalar_mult(const uint8_t k[NOXTLS_X25519_KEY_SIZE],
                                           const uint8_t u[NOXTLS_X25519_KEY_SIZE],
                                           uint8_t result[NOXTLS_X25519_KEY_SIZE])

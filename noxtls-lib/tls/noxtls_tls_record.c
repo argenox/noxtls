@@ -1575,6 +1575,7 @@ noxtls_return_t noxtls_tls13_encrypt_record(tls13_context_t *ctx,
                                        uint32_t plaintext_len,
                                        uint8_t *encrypted_record,
                                        uint32_t *encrypted_record_len)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     const uint8_t *write_key;
     const uint8_t *write_iv;

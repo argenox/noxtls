@@ -205,7 +205,6 @@ static void permute(const uint8_t *in, uint8_t *out, const uint8_t *table, int n
  * @param count The count value
  */
 static void rotate_left_28(uint32_t *c, uint32_t *d, int count)
-/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     uint32_t c0 = *c;
     uint32_t d0 = *d;
