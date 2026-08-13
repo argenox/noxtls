@@ -369,7 +369,7 @@ static void bn_muladd_hlp(const uint32_t *s, uint32_t n, uint32_t d, uint32_t *r
     uint32_t i;
     uint64_t carry = (uint64_t)*c;
     for(i = 0; i < n; i++) {
-        uint64_t t = (uint64_t)s[i] * (uint64_t)d + (uint64_t)r[i] + carry;
+        uint64_t t = ((uint64_t)s[i] * (uint64_t)d) + (uint64_t)r[i] + carry;
         r[i] = (uint32_t)(t & 0xFFFFFFFFU);
         carry = t >> 32;
     }
@@ -806,7 +806,7 @@ static int bn_limb_mul_sub(uint32_t *rem, uint32_t start, uint32_t q,
     uint64_t borrow = 0;
     uint32_t i;
     for(i = 0; i < n; i++) {
-        const uint64_t prod = (uint64_t)mod[i] * (uint64_t)q + carry;
+        const uint64_t prod = ((uint64_t)mod[i] * (uint64_t)q) + carry;
         const uint64_t sub = (uint64_t)(uint32_t)prod + borrow;
         const uint64_t rem_i = (uint64_t)rem[start + i];
 
@@ -955,13 +955,13 @@ static noxtls_return_t bn_mod_2n_by_n_limb(uint8_t *rem_out, uint32_t mod_len,
         }
     }
 
-    memcpy(a_padded + (mod_len * 2U - a_len), a_sig, a_len);
+    memcpy(a_padded + ((mod_len * 2U) - a_len), a_sig, a_len);
     if(do_trace) {
         fprintf(stderr, "[bn_mod_2n_by_n] a_padded offset=%u (pad %u zero bytes)\n",
-                (unsigned)(mod_len * 2U - a_len), (unsigned)(mod_len * 2U - a_len));
+                (unsigned)((mod_len * 2U) - a_len), (unsigned)((mod_len * 2U) - a_len));
         fflush(stderr);
         bn_debug_bytes("a_padded (first 12)", a_padded, mod_len * 2U, 12);
-        bn_debug_bytes("a_padded (last 12)", a_padded + (mod_len * 2U - 12), 12, 0);
+        bn_debug_bytes("a_padded (last 12)", a_padded + ((mod_len * 2U) - 12), 12, 0);
     }
 
     bn_bytes_to_limbs_le(v, n, mod, mod_len);
@@ -1010,13 +1010,13 @@ static noxtls_return_t bn_mod_2n_by_n_limb(uint8_t *rem_out, uint32_t mod_len,
         uint64_t num = ((uint64_t)u[j + n] << 32) | (uint64_t)u[j + n - 1U];
         uint64_t den = (uint64_t)v[n - 1U];
         uint64_t qhat64 = num / den;
-        uint64_t rhat = num - qhat64 * den;
+        uint64_t rhat = num - (qhat64 * den);
         uint32_t qhat;
 
         if(qhat64 > 0xFFFFFFFFULL) {
             qhat = 0xFFFFFFFFU;
             /* Keep rhat consistent with clamped qhat. */
-            rhat = num - (uint64_t)qhat * den;
+            rhat = num - ((uint64_t)qhat * den);
         } else {
             qhat = (uint32_t)qhat64;
         }
@@ -1913,7 +1913,7 @@ static void bn_mul_byte(uint8_t *dest, uint8_t q, const uint8_t *src, uint32_t l
     }
     while(j > 0) {
         j--;
-        uint16_t prod = (uint16_t)src[j] * (uint16_t)q + carry;
+        uint16_t prod = ((uint16_t)src[j] * (uint16_t)q) + carry;
         dest[j + 1] = (uint8_t)(prod & 0xFF);
         carry = prod >> 8;
     }
@@ -2260,7 +2260,7 @@ static void bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
                 return;
             }
             for(int32_t j = (int32_t)y_len - 1; j >= 0; j--) {
-                uint16_t prod = (uint16_t)Y[j] * (uint16_t)(uint8_t)q + carry;
+                uint16_t prod = ((uint16_t)Y[j] * (uint16_t)(uint8_t)q) + carry;
                 tmp[j + 1] = (uint8_t)(prod & 0xFF);
                 carry = prod >> 8;
             }
@@ -2580,7 +2580,7 @@ static bn_limb_t bn_mont_n0inv(bn_limb_t m0)
     bn_limb_t inv = m0;            /* correct mod 2^3 for odd m0 */
     uint32_t k;
     for(k = 0; k < 4U; k++) {      /* 3 -> 6 -> 12 -> 24 -> 48 (>= 32) bits */
-        inv *= 2U - m0 * inv;
+        inv *= 2U - (m0 * inv);
     }
     return (bn_limb_t)(0U - inv);
 }
@@ -2611,7 +2611,7 @@ static void bn_mont_mul(bn_limb_t *out, const bn_limb_t *a, const bn_limb_t *b,
 
         /* t += a * b[i] */
         for(j = 0; j < n; j++) {
-            uint64_t s = (uint64_t)t[j] + (uint64_t)a[j] * (uint64_t)b[i] + carry;
+            uint64_t s = (uint64_t)t[j] + ((uint64_t)a[j] * (uint64_t)b[i]) + carry;
             t[j] = (bn_limb_t)s;
             carry = s >> BN_LIMB_BITS;
         }
@@ -2624,11 +2624,11 @@ static void bn_mont_mul(bn_limb_t *out, const bn_limb_t *a, const bn_limb_t *b,
         /* m_ = t[0] * n0inv mod 2^32; t = (t + m_ * m) / 2^32 */
         mi = (bn_limb_t)((uint64_t)t[0] * (uint64_t)n0inv);
         {
-            uint64_t s = (uint64_t)t[0] + (uint64_t)mi * (uint64_t)m[0];
+            uint64_t s = (uint64_t)t[0] + ((uint64_t)mi * (uint64_t)m[0]);
             carry = s >> BN_LIMB_BITS;   /* low word of s is discarded (== 0) */
         }
         for(j = 1; j < n; j++) {
-            uint64_t s = (uint64_t)t[j] + (uint64_t)mi * (uint64_t)m[j] + carry;
+            uint64_t s = (uint64_t)t[j] + ((uint64_t)mi * (uint64_t)m[j]) + carry;
             t[j - 1U] = (bn_limb_t)s;
             carry = s >> BN_LIMB_BITS;
         }
@@ -2803,7 +2803,7 @@ static noxtls_return_t bn_mod_exp_mont(uint8_t *result, const uint8_t *base,
             bn_limb_t mask = (bn_limb_t)(0U - eq);
             uint32_t j;
             for(j = 0; j < n; j++) {
-                sel[j] |= table[(size_t)idx * n + j] & mask;
+                sel[j] |= table[((size_t)idx * n) + j] & mask;
             }
         }
 

@@ -41,7 +41,7 @@ static uint8_t debug_lvl = 0;
 typedef uint64_t sha3_lane_t;
 
 /* Helper macro to access state as 5x5 array of 64-bit lanes */
-#define SHA3_LANE(x, y) (((sha3_lane_t*)ctx->state)[SHA3_MAX_X_SIZE * (y) + (x)])
+#define SHA3_LANE(x, y) (((sha3_lane_t*)ctx->state)[(SHA3_MAX_X_SIZE * (y)) + (x)])
 
 /* Rotation offsets for rho step (5x5 grid, indexed by [y][x]) */
 static const uint8_t rho_offsets[SHA3_MAX_Y_SIZE][SHA3_MAX_X_SIZE] = {
@@ -156,7 +156,7 @@ static void keccak_pi(noxtls_sha3_ctx_t * ctx)
     /* Permute lanes */
     for(x = 0; x < SHA3_MAX_X_SIZE; x++) {
         for(y = 0; y < SHA3_MAX_Y_SIZE; y++) {
-            SHA3_LANE(x, y) = temp[(x + 3 * y) % SHA3_MAX_X_SIZE][x];
+            SHA3_LANE(x, y) = temp[(x + (3 * y)) % SHA3_MAX_X_SIZE][x];
         }
     }
 }

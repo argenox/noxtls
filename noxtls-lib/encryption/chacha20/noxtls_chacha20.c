@@ -112,7 +112,7 @@ static void chacha20_block(const uint32_t state[NOXTLS_CHACHA20_STATE_WORDS], ui
     /* Convert to little-endian bytes */
     for(i = 0; i < NOXTLS_CHACHA20_STATE_WORDS; i++) {
         for(j = 0; j < 4; j++) {
-            output[i * 4 + j] = (uint8_t)(working_state[i] >> (j * 8));
+            output[(i * 4) + j] = (uint8_t)(working_state[i] >> (j * 8));
         }
     }
 }

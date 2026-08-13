@@ -5549,8 +5549,8 @@ static uint16_t tls12_select_rsa_fallback_from_client(
             continue;
         }
         for(i = 0; i < cipher_suites_count; i++) {
-            uint16_t cs = (uint16_t)((ch_buf[cipher_suites_offset + i * 2U] << 8) |
-                                    ch_buf[cipher_suites_offset + i * 2U + 1U]);
+            uint16_t cs = (uint16_t)((ch_buf[cipher_suites_offset + (i * 2U)] << 8) |
+                                    ch_buf[cipher_suites_offset + (i * 2U) + 1U]);
             if(cs == srv) {
                 return srv;
             }
@@ -5581,8 +5581,8 @@ static uint16_t tls12_select_dhe_rsa_fallback_from_client(
     uint32_t i;
     uint32_t j;
     for(i = 0; i < cipher_suites_count; i++) {
-        uint16_t cs = (uint16_t)((ch_buf[cipher_suites_offset + i * 2U] << 8) |
-                                ch_buf[cipher_suites_offset + i * 2U + 1U]);
+        uint16_t cs = (uint16_t)((ch_buf[cipher_suites_offset + (i * 2U)] << 8) |
+                                ch_buf[cipher_suites_offset + (i * 2U) + 1U]);
         if(!tls12_suite_requires_ffdhe_server_key_exchange(cs)) {
             continue;
         }
@@ -6219,7 +6219,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
         uint32_t cs0 = offset;
         int saw_fallback_scsv = 0;
         for(uint32_t si = 0; si < cipher_suites_count; si++) {
-            uint16_t cs = (record.data[cs0 + si * 2] << 8) | record.data[cs0 + si * 2 + 1];
+            uint16_t cs = (record.data[cs0 + (si * 2)] << 8) | record.data[cs0 + (si * 2) + 1];
             if(cs == TLS_CIPHER_SUITE_EMPTY_RENEGOTIATION_INFO_SCSV) {
                 ctx->client_secure_renegotiation_offered = 1;
             } else if(cs == TLS_CIPHER_SUITE_FALLBACK_SCSV) {
@@ -6259,7 +6259,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
 
     noxtls_debug_printf("[TLS12_DEBUG] Client offered %u cipher suite(s):\n", (unsigned)cipher_suites_count);
     for(uint32_t i = 0; i < cipher_suites_count; i++) {
-        uint16_t offered_suite = (record.data[offset + i*2] << 8) | record.data[offset + i*2 + 1];
+        uint16_t offered_suite = (record.data[offset + (i*2)] << 8) | record.data[offset + (i*2) + 1];
         noxtls_debug_printf("  [TLS12_DEBUG] offered[%u] = 0x%04X\n", (unsigned)i, (unsigned)offered_suite);
     }
     fflush(stdout);
@@ -6273,7 +6273,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
             continue;
         }
         for(uint32_t i = 0; i < cipher_suites_count; i++) {
-            uint16_t client_suite = (record.data[offset + i * 2U] << 8) | record.data[offset + i * 2U + 1U];
+            uint16_t client_suite = (record.data[offset + (i * 2U)] << 8) | record.data[offset + (i * 2U) + 1U];
             if(client_suite == srv) {
                 selected_suite = client_suite;
                 break;

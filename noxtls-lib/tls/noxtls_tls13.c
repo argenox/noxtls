@@ -226,7 +226,7 @@ static void tls13_accept_log_fail_detail(const tls13_context_t *ctx,
  */
 static uint64_t tls13_profile_now_us(void)
 {
-#ifdef __has_include && defined(ESP_PLATFORM) && __has_include("esp_timer.h")
+#if defined(__has_include) && defined(ESP_PLATFORM) && __has_include("esp_timer.h")
     return (uint64_t)esp_timer_get_time();
 #else
     clock_t now = clock();
@@ -1158,8 +1158,8 @@ static void tls13_dtls_note_flight_acked(dtls_context_t *dctx)
         uint32_t srtt = dctx->smoothed_rtt_ms;
         uint32_t rttvar = dctx->rttvar_ms;
         uint32_t err = (srtt > sample) ? (srtt - sample) : (sample - srtt);
-        dctx->rttvar_ms = (uint32_t)(((uint64_t)3U * rttvar + err) / 4U);
-        dctx->smoothed_rtt_ms = (uint32_t)(((uint64_t)7U * srtt + sample) / 8U);
+        dctx->rttvar_ms = (uint32_t)((((uint64_t)3U * rttvar) + err) / 4U);
+        dctx->smoothed_rtt_ms = (uint32_t)((((uint64_t)7U * srtt) + sample) / 8U);
         if(dctx->rttvar_ms == 0U) {
             dctx->rttvar_ms = 1U;
         }

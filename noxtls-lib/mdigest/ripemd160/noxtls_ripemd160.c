@@ -268,10 +268,10 @@ noxtls_return_t noxtls_ripemd160_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
     noxtls_ripemd160_round(ctx, ctx->data);
 
     for(i = 0; i < RIPEMD160_STATE_WORDS; i++) {
-        hash[i*4 + 0] = (uint8_t)(ctx->h[i] & 0xFFU);
-        hash[i*4 + 1] = (uint8_t)((ctx->h[i] >> 8) & 0xFFU);
-        hash[i*4 + 2] = (uint8_t)((ctx->h[i] >> 16) & 0xFFU);
-        hash[i*4 + 3] = (uint8_t)((ctx->h[i] >> 24) & 0xFFU);
+        hash[(i*4) + 0] = (uint8_t)(ctx->h[i] & 0xFFU);
+        hash[(i*4) + 1] = (uint8_t)((ctx->h[i] >> 8) & 0xFFU);
+        hash[(i*4) + 2] = (uint8_t)((ctx->h[i] >> 16) & 0xFFU);
+        hash[(i*4) + 3] = (uint8_t)((ctx->h[i] >> 24) & 0xFFU);
     }
 
     return NOXTLS_RETURN_SUCCESS;

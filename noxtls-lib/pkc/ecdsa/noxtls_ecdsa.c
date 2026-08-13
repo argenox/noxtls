@@ -42,7 +42,7 @@
 #include "noxtls_esp_hw_crypto.h"
 #endif
 #ifdef __has_include
-#ifdef ESP_PLATFORM && __has_include("esp_timer.h")
+#if defined(ESP_PLATFORM) && __has_include("esp_timer.h")
 #include "esp_timer.h"
 #endif
 #endif
@@ -105,7 +105,7 @@ static void ecdsa_debug_hex(const char *label, const uint8_t *buf, uint32_t len)
  */
 static uint64_t ecdsa_profile_now_us(void)
 {
-#ifdef __has_include && defined(ESP_PLATFORM) && __has_include("esp_timer.h")
+#if defined(__has_include) && defined(ESP_PLATFORM) && __has_include("esp_timer.h")
     return (uint64_t)esp_timer_get_time();
 #else
     clock_t now = clock();
@@ -710,56 +710,91 @@ static noxtls_return_t p256_scalar_inv_mod(uint8_t out[32], const uint8_t a[32])
  * @param hash_algo Hash algorithm
  * @return noxtls_return_t NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if hash is NULL
  */
+#if NOXTLS_FEATURE_MD5
+static noxtls_return_t ecdsa_hash_run_md5(uint8_t *hash, const uint8_t *msg, uint32_t len)
+{
+    noxtls_sha_ctx_t ctx;
+    if(noxtls_md5_init(&ctx) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_md5_update(&ctx, (uint8_t*)msg, len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_md5_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    return NOXTLS_RETURN_SUCCESS;
+}
+#endif
+#if NOXTLS_FEATURE_SHA1
+static noxtls_return_t ecdsa_hash_run_sha1(uint8_t *hash, const uint8_t *msg, uint32_t len, noxtls_hash_algos_t hash_algo)
+{
+    noxtls_sha_ctx_t ctx;
+    if(noxtls_sha1_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha1_update(&ctx, (uint8_t*)msg, len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha1_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    return NOXTLS_RETURN_SUCCESS;
+}
+#endif
+#if NOXTLS_FEATURE_SHA224 || NOXTLS_FEATURE_SHA256
+static noxtls_return_t ecdsa_hash_run_sha256(uint8_t *hash, const uint8_t *msg, uint32_t len, noxtls_hash_algos_t hash_algo)
+{
+    noxtls_sha_ctx_t ctx;
+    if(noxtls_sha256_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha256_update(&ctx, (uint8_t*)msg, len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha256_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    return NOXTLS_RETURN_SUCCESS;
+}
+#endif
+#if NOXTLS_FEATURE_SHA384 || NOXTLS_FEATURE_SHA512
+static noxtls_return_t ecdsa_hash_run_sha512(uint8_t *hash, const uint8_t *msg, uint32_t len, noxtls_hash_algos_t hash_algo)
+{
+    noxtls_sha512_ctx_t ctx512;
+    if(noxtls_sha512_init(&ctx512, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha512_update(&ctx512, (uint8_t*)msg, len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha512_finish(&ctx512, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    return NOXTLS_RETURN_SUCCESS;
+}
+#endif
+
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static noxtls_return_t ecdsa_hash_message(uint8_t *hash, uint32_t *hash_len, const uint8_t *noxtls_message, uint32_t message_len, noxtls_hash_algos_t hash_algo)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    noxtls_sha_ctx_t ctx;
-    noxtls_sha512_ctx_t ctx512;
-    
+    noxtls_return_t rc;
+
     if(hash == NULL || hash_len == NULL || noxtls_message == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    
+
     switch(hash_algo) {
 #if NOXTLS_FEATURE_MD5
         case NOXTLS_HASH_MD5:
-            if(noxtls_md5_init(&ctx) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-            if(noxtls_md5_update(&ctx, (uint8_t*)noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-            if(noxtls_md5_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+            rc = ecdsa_hash_run_md5(hash, noxtls_message, message_len);
+            if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
             *hash_len = 16;
             break;
 #endif
 #if NOXTLS_FEATURE_SHA1
         case NOXTLS_HASH_SHA1:
-            if(noxtls_sha1_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-            if(noxtls_sha1_update(&ctx, (uint8_t*)noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-            if(noxtls_sha1_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+            rc = ecdsa_hash_run_sha1(hash, noxtls_message, message_len, hash_algo);
+            if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
             *hash_len = 20;
             break;
 #endif
 #if NOXTLS_FEATURE_SHA224
         case NOXTLS_HASH_SHA_224:
-            if(noxtls_sha256_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-            if(noxtls_sha256_update(&ctx, (uint8_t*)noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-            if(noxtls_sha256_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+            rc = ecdsa_hash_run_sha256(hash, noxtls_message, message_len, hash_algo);
+            if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
             *hash_len = 28;
             break;
 #endif
 #if NOXTLS_FEATURE_SHA256
         case NOXTLS_HASH_SHA_256:
-            if(noxtls_sha256_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-            if(noxtls_sha256_update(&ctx, (uint8_t*)noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-            if(noxtls_sha256_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+            rc = ecdsa_hash_run_sha256(hash, noxtls_message, message_len, hash_algo);
+            if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
             *hash_len = 32;
             break;
 #endif
 #if NOXTLS_FEATURE_SHA384 || NOXTLS_FEATURE_SHA512
         case NOXTLS_HASH_SHA_384:
         case NOXTLS_HASH_SHA_512:
-            if(noxtls_sha512_init(&ctx512, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-            if(noxtls_sha512_update(&ctx512, (uint8_t*)noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-            if(noxtls_sha512_finish(&ctx512, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+            rc = ecdsa_hash_run_sha512(hash, noxtls_message, message_len, hash_algo);
+            if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
             *hash_len = (hash_algo == NOXTLS_HASH_SHA_384) ? 48 : 64;
             break;
 #endif
@@ -774,7 +809,7 @@ static noxtls_return_t ecdsa_hash_message(uint8_t *hash, uint32_t *hash_len, con
         default:
             return NOXTLS_RETURN_INVALID_ALGORITHM;
     }
-    
+
     return NOXTLS_RETURN_SUCCESS;
 }
 

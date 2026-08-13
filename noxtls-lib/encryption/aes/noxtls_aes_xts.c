@@ -158,7 +158,7 @@ noxtls_return_t noxtls_aes_encrypt_xts(const uint8_t* key,
         
         /* XOR plaintext with tweak */
         for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
-            temp_block[i] = data[cur_block * NOXTLS_AES_BLOCK_LENGTH + i] ^ tweak[i];
+            temp_block[i] = data[(cur_block * NOXTLS_AES_BLOCK_LENGTH) + i] ^ tweak[i];
         }
         
         /* Encrypt */
@@ -170,7 +170,7 @@ noxtls_return_t noxtls_aes_encrypt_xts(const uint8_t* key,
         
         /* XOR result with tweak */
         for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
-            output[cur_block * NOXTLS_AES_BLOCK_LENGTH + i] = temp_block[i] ^ tweak[i];
+            output[(cur_block * NOXTLS_AES_BLOCK_LENGTH) + i] = temp_block[i] ^ tweak[i];
         }
         
         /* Multiply tweak by alpha for next block (except for last full block if we have partial) */
@@ -186,7 +186,7 @@ noxtls_return_t noxtls_aes_encrypt_xts(const uint8_t* key,
         
         /* Save second-to-last ciphertext block */
         if(num_blocks > 0) {
-            memcpy(second_last_block, output + (size_t)(num_blocks - 1U) * NOXTLS_AES_BLOCK_LENGTH, NOXTLS_AES_BLOCK_LENGTH);
+            memcpy(second_last_block, output + ((size_t)(num_blocks - 1U) * NOXTLS_AES_BLOCK_LENGTH), NOXTLS_AES_BLOCK_LENGTH);
         }
         
         /* Multiply tweak by alpha one more time */
@@ -196,7 +196,7 @@ noxtls_return_t noxtls_aes_encrypt_xts(const uint8_t* key,
         /* Encrypt second-to-last plaintext block with new tweak */
         if(num_blocks > 0) {
             for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
-                temp_block[i] = data[(num_blocks - 1) * NOXTLS_AES_BLOCK_LENGTH + i] ^ last_tweak[i];
+                temp_block[i] = data[((num_blocks - 1) * NOXTLS_AES_BLOCK_LENGTH) + i] ^ last_tweak[i];
             }
             {
                 const uint8_t *key = data_key;
@@ -204,13 +204,13 @@ noxtls_return_t noxtls_aes_encrypt_xts(const uint8_t* key,
                 noxtls_aes_encrypt_block_internal(key, block_in, temp_block, type);
             }
             for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
-                output[(num_blocks - 1) * NOXTLS_AES_BLOCK_LENGTH + i] = temp_block[i] ^ last_tweak[i];
+                output[((num_blocks - 1) * NOXTLS_AES_BLOCK_LENGTH) + i] = temp_block[i] ^ last_tweak[i];
             }
         }
         
         /* Handle last partial block: pad with ciphertext from second-to-last */
         for(i = 0; i < last_block_len; i++) {
-            temp_block[i] = data[num_blocks * NOXTLS_AES_BLOCK_LENGTH + i];
+            temp_block[i] = data[(num_blocks * NOXTLS_AES_BLOCK_LENGTH) + i];
         }
         for(i = last_block_len; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
             if(num_blocks > 0) {
@@ -234,9 +234,9 @@ noxtls_return_t noxtls_aes_encrypt_xts(const uint8_t* key,
         }
         
         /* Output: first part goes to last block position, rest overwrites second-to-last */
-        memcpy(output + (size_t)num_blocks * NOXTLS_AES_BLOCK_LENGTH, temp_block, last_block_len);
+        memcpy(output + ((size_t)num_blocks * NOXTLS_AES_BLOCK_LENGTH), temp_block, last_block_len);
         if(num_blocks > 0) {
-            memcpy(output + (size_t)(num_blocks - 1U) * NOXTLS_AES_BLOCK_LENGTH + last_block_len,
+            memcpy(output + ((size_t)(num_blocks - 1U) * NOXTLS_AES_BLOCK_LENGTH) + last_block_len,
                    temp_block + last_block_len, 
                    NOXTLS_AES_BLOCK_LENGTH - last_block_len);
         }

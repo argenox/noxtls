@@ -346,7 +346,7 @@ static noxtls_return_t drbg_entropy_dummy(uint8_t *entropy_buffer, uint32_t entr
         entropy_buffer[i] = (uint8_t)((dummy_entropy_counter + i + (uint32_t)time_seed) & DRBG_DUMMY_ENTROPY_MASK);
         dummy_entropy_counter++;
         if(i % DRBG_DUMMY_ENTROPY_STEP == 0) {
-            time_seed = time_seed * DRBG_DUMMY_ENTROPY_LCG_MULTIPLIER + DRBG_DUMMY_ENTROPY_LCG_INCREMENT;
+            time_seed = (time_seed * DRBG_DUMMY_ENTROPY_LCG_MULTIPLIER) + DRBG_DUMMY_ENTROPY_LCG_INCREMENT;
         }
     }
     return NOXTLS_RETURN_SUCCESS;

@@ -51,11 +51,48 @@
  * @return NOXTLS_RETURN_FAILED if the underlying hash init/update/finish fails.
  */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
-static noxtls_return_t dsa_hash_message(uint8_t *hash, uint32_t *hash_len, const uint8_t *noxtls_message, uint32_t message_len, noxtls_hash_algos_t hash_algo)
+static noxtls_return_t dsa_hash_run_md5(uint8_t *hash, const uint8_t *msg, uint32_t len)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     noxtls_sha_ctx_t ctx;
+    if(noxtls_md5_init(&ctx) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_md5_update(&ctx, (uint8_t *)msg, len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_md5_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+static noxtls_return_t dsa_hash_run_sha1(uint8_t *hash, const uint8_t *msg, uint32_t len, noxtls_hash_algos_t hash_algo)
+{
+    noxtls_sha_ctx_t ctx;
+    if(noxtls_sha1_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha1_update(&ctx, (uint8_t *)msg, len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha1_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+static noxtls_return_t dsa_hash_run_sha256(uint8_t *hash, const uint8_t *msg, uint32_t len, noxtls_hash_algos_t hash_algo)
+{
+    noxtls_sha_ctx_t ctx;
+    if(noxtls_sha256_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha256_update(&ctx, (uint8_t *)msg, len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha256_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+static noxtls_return_t dsa_hash_run_sha512(uint8_t *hash, const uint8_t *msg, uint32_t len, noxtls_hash_algos_t hash_algo)
+{
     noxtls_sha512_ctx_t ctx512;
+    if(noxtls_sha512_init(&ctx512, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha512_update(&ctx512, (uint8_t *)msg, len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha512_finish(&ctx512, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
+static noxtls_return_t dsa_hash_message(uint8_t *hash, uint32_t *hash_len, const uint8_t *noxtls_message, uint32_t message_len, noxtls_hash_algos_t hash_algo)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
+{
+    noxtls_return_t rc;
 
     if(hash == NULL || hash_len == NULL || noxtls_message == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -63,29 +100,25 @@ static noxtls_return_t dsa_hash_message(uint8_t *hash, uint32_t *hash_len, const
 
     switch(hash_algo) {
     case NOXTLS_HASH_MD5:
-        if(noxtls_md5_init(&ctx) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-        if(noxtls_md5_update(&ctx, (uint8_t *)noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-        if(noxtls_md5_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+        rc = dsa_hash_run_md5(hash, noxtls_message, message_len);
+        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
         *hash_len = 16;
         break;
     case NOXTLS_HASH_SHA1:
-        if(noxtls_sha1_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-        if(noxtls_sha1_update(&ctx, (uint8_t *)noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-        if(noxtls_sha1_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+        rc = dsa_hash_run_sha1(hash, noxtls_message, message_len, hash_algo);
+        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
         *hash_len = 20;
         break;
     case NOXTLS_HASH_SHA_224:
     case NOXTLS_HASH_SHA_256:
-        if(noxtls_sha256_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-        if(noxtls_sha256_update(&ctx, (uint8_t *)noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-        if(noxtls_sha256_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+        rc = dsa_hash_run_sha256(hash, noxtls_message, message_len, hash_algo);
+        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
         *hash_len = (hash_algo == NOXTLS_HASH_SHA_224) ? 28 : 32;
         break;
     case NOXTLS_HASH_SHA_384:
     case NOXTLS_HASH_SHA_512:
-        if(noxtls_sha512_init(&ctx512, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-        if(noxtls_sha512_update(&ctx512, (uint8_t *)noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-        if(noxtls_sha512_finish(&ctx512, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+        rc = dsa_hash_run_sha512(hash, noxtls_message, message_len, hash_algo);
+        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
         *hash_len = (hash_algo == NOXTLS_HASH_SHA_384) ? 48 : 64;
         break;
     default:

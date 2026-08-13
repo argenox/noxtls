@@ -326,11 +326,11 @@ static void des_round_feistel(uint32_t *r, const uint8_t round_key[6], int round
     /* S-box: row = bits 1 and 6 (outer) = 2*b0+b5; column = bits 2-5 (middle); index = row*16+col */
     for(i = 0; i < 8; i++) {
         int b0 = get_bit(er, i*6);
-        int b5 = get_bit(er, i*6+5);
-        int b1 = get_bit(er, i*6+1);
-        int b2 = get_bit(er, i*6+2);
-        int b3 = get_bit(er, i*6+3);
-        int b4 = get_bit(er, i*6+4);
+        int b5 = get_bit(er, (i*6)+5);
+        int b1 = get_bit(er, (i*6)+1);
+        int b2 = get_bit(er, (i*6)+2);
+        int b3 = get_bit(er, (i*6)+3);
+        int b4 = get_bit(er, (i*6)+4);
         int row = (b0 << 1) | b5;
         int col = (b1 << 3) | (b2 << 2) | (b3 << 1) | b4;
         int idx = (row << 4) | col;

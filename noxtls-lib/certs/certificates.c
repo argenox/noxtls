@@ -171,6 +171,20 @@ noxtls_return_t noxtls_csr_der_to_pem(const uint8_t *data, uint32_t length, uint
  *
  * @return @see noxtls_return_t
  */
+static uint32_t cert_pem_trim_trailing_ws(const uint8_t *data, uint32_t length)
+{
+    while(length > 0U) {
+        unsigned char uc = data[length - 1U];
+        if(uc == (unsigned char)'\r' || uc == (unsigned char)'\n' ||
+           uc == (unsigned char)'\t' || uc == (unsigned char)' ') {
+            length--;
+            continue;
+        }
+        break;
+    }
+    return length;
+}
+
 noxtls_return_t noxtls_certificate_pem_to_der(const uint8_t * data, uint32_t length, uint8_t * output, uint32_t * out_len)
 {
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
@@ -179,22 +193,15 @@ noxtls_return_t noxtls_certificate_pem_to_der(const uint8_t * data, uint32_t len
 
     do
     {
+        int dec;
+        uint32_t b64_len;
+
         if(data == NULL || length == 0 || output == NULL || out_len == NULL) {
             rc = NOXTLS_RETURN_INVALID_PARAM;
             break;
         }
 
-        while(length > 0U) {
-            unsigned char uc;
-
-            uc = data[length - 1U];
-            if(uc == (unsigned char)'\r' || uc == (unsigned char)'\n' || uc == (unsigned char)'\t' ||
-               uc == (unsigned char)' ') {
-                length--;
-                continue;
-            }
-            break;
-        }
+        length = cert_pem_trim_trailing_ws(data, length);
         if(length == 0U) {
             rc = NOXTLS_RETURN_BAD_DATA;
             break;
@@ -204,41 +211,28 @@ noxtls_return_t noxtls_certificate_pem_to_der(const uint8_t * data, uint32_t len
             rc = NOXTLS_RETURN_BAD_DATA;
             break;
         }
-        if(length < (uint32_t)begin_len || length < (uint32_t)end_len) {
-            rc = NOXTLS_RETURN_BAD_DATA;
-            break;
-        }
         if(length < (uint32_t)(begin_len + end_len)) {
             rc = NOXTLS_RETURN_BAD_DATA;
             break;
         }
 
-        /* Ensure certificate contains start string */
+        /* Ensure certificate contains start/end markers */
         if(memcmp(data, CERT_BEGIN_STR, begin_len) != 0) {
             rc = NOXTLS_RETURN_BAD_DATA;
             break;
         }
-
         if(memcmp((void *)(data + length - end_len), CERT_END_STR, end_len) != 0) {
             rc = NOXTLS_RETURN_BAD_DATA;
             break;
         }
 
-        {
-            int dec;
-
-            {
-                uint32_t b64_len = length - (uint32_t)begin_len - (uint32_t)end_len;
-
-                dec = noxtls_base64_decode((char *)&data[begin_len], b64_len, output);
-            }
-            if(dec <= 0) {
-                rc = NOXTLS_RETURN_BAD_DATA;
-                break;
-            }
-            *out_len = (uint32_t)dec;
+        b64_len = length - (uint32_t)begin_len - (uint32_t)end_len;
+        dec = noxtls_base64_decode((char *)&data[begin_len], b64_len, output);
+        if(dec <= 0) {
+            rc = NOXTLS_RETURN_BAD_DATA;
+            break;
         }
-
+        *out_len = (uint32_t)dec;
         rc = NOXTLS_RETURN_SUCCESS;
 
     } while(0);

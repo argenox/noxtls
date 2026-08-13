@@ -49,8 +49,8 @@ extern "C" {
 
 #define NOXTLS_AES_BLOCK_LENGTH 16
 
-#define NOXTLS_AES_ROTR(X, N)      ((X >> N) | (X << (32 - N)))
-#define NOXTLS_AES_ROTL(X, N)      ((X << N) | (X >> (32 - N)))
+#define NOXTLS_AES_ROTR(X, N)      (((X) >> (N)) | ((X) << (32 - (N))))
+#define NOXTLS_AES_ROTL(X, N)      (((X) << (N)) | ((X) >> (32 - (N))))
 
 typedef enum
 {

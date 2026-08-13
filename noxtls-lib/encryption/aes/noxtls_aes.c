@@ -992,22 +992,22 @@ static noxtls_return_t noxtls_aes_encrypt_block_software_expanded(const uint32_t
          ((uint32_t)aes_sbox_lookup((uint8_t)(s1 >> 16)) << 16) ^
          ((uint32_t)aes_sbox_lookup((uint8_t)(s2 >> 8)) << 8) ^
          (uint32_t)aes_sbox_lookup((uint8_t)s3) ^
-         round_keys[(size_t)rounds * 4U + 0U];
+         round_keys[((size_t)rounds * 4U) + 0U];
     t1 = ((uint32_t)aes_sbox_lookup((uint8_t)(s1 >> 24)) << 24) ^
          ((uint32_t)aes_sbox_lookup((uint8_t)(s2 >> 16)) << 16) ^
          ((uint32_t)aes_sbox_lookup((uint8_t)(s3 >> 8)) << 8) ^
          (uint32_t)aes_sbox_lookup((uint8_t)s0) ^
-         round_keys[(size_t)rounds * 4U + 1U];
+         round_keys[((size_t)rounds * 4U) + 1U];
     t2 = ((uint32_t)aes_sbox_lookup((uint8_t)(s2 >> 24)) << 24) ^
          ((uint32_t)aes_sbox_lookup((uint8_t)(s3 >> 16)) << 16) ^
          ((uint32_t)aes_sbox_lookup((uint8_t)(s0 >> 8)) << 8) ^
          (uint32_t)aes_sbox_lookup((uint8_t)s1) ^
-         round_keys[(size_t)rounds * 4U + 2U];
+         round_keys[((size_t)rounds * 4U) + 2U];
     t3 = ((uint32_t)aes_sbox_lookup((uint8_t)(s3 >> 24)) << 24) ^
          ((uint32_t)aes_sbox_lookup((uint8_t)(s0 >> 16)) << 16) ^
          ((uint32_t)aes_sbox_lookup((uint8_t)(s1 >> 8)) << 8) ^
          (uint32_t)aes_sbox_lookup((uint8_t)s2) ^
-         round_keys[(size_t)rounds * 4U + 3U];
+         round_keys[((size_t)rounds * 4U) + 3U];
 
     aes_store_be32(output, t0);
     aes_store_be32(output + 4, t1);
