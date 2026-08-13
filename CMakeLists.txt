@@ -379,6 +379,7 @@ include_directories(
     ${NOXTLS_LIB_ROOT}/pkc/ecdh
     ${NOXTLS_LIB_ROOT}/pkc/mlkem
     ${NOXTLS_LIB_ROOT}/pkc/mldsa
+    ${NOXTLS_LIB_ROOT}/pkc/slhdsa
     ${NOXTLS_LIB_ROOT}/pkc/falcon
     ${NOXTLS_LIB_ROOT}/pkc/lms
     ${NOXTLS_LIB_ROOT}/pkc/xmss

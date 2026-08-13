@@ -55,6 +55,27 @@ else()
     target_compile_definitions(noxtls_size_benchmark PRIVATE NOXTLS_BENCH_CRYPTO_ONLY=1)
 endif()
 
+# Defense in depth if a linker drops whole-archive: keep a live reference to
+# each PQ primitive enabled by the size profile.
+if(NOXTLS_CFG_FEATURE_ML_KEM)
+    target_compile_definitions(noxtls_size_benchmark PRIVATE NOXTLS_BENCH_KEEP_ML_KEM=1)
+endif()
+if(NOXTLS_CFG_FEATURE_ML_DSA)
+    target_compile_definitions(noxtls_size_benchmark PRIVATE NOXTLS_BENCH_KEEP_ML_DSA=1)
+endif()
+if(NOXTLS_CFG_FEATURE_SLH_DSA)
+    target_compile_definitions(noxtls_size_benchmark PRIVATE NOXTLS_BENCH_KEEP_SLH_DSA=1)
+endif()
+if(NOXTLS_CFG_FEATURE_FALCON)
+    target_compile_definitions(noxtls_size_benchmark PRIVATE NOXTLS_BENCH_KEEP_FALCON=1)
+endif()
+if(NOXTLS_CFG_FEATURE_LMS_HSS)
+    target_compile_definitions(noxtls_size_benchmark PRIVATE NOXTLS_BENCH_KEEP_LMS_HSS=1)
+endif()
+if(NOXTLS_CFG_FEATURE_XMSS)
+    target_compile_definitions(noxtls_size_benchmark PRIVATE NOXTLS_BENCH_KEEP_XMSS=1)
+endif()
+
 set(_bench_link_flags
     ${_bench_arch_compile_flags}
     -specs=nosys.specs
@@ -103,9 +124,15 @@ if(TARGET noxtls_tls)
     list(APPEND NOXTLS_SIZE_BENCH_LIBS noxtls_tls)
 endif()
 
-target_link_libraries(noxtls_size_benchmark PRIVATE
-    -Wl,--whole-archive
-    ${NOXTLS_SIZE_BENCH_LIBS}
-    -Wl,--no-whole-archive
-    -lgcc
-)
+# Keep every member of each enabled static archive in the size ELF.
+# Pass $<TARGET_FILE:...> (opaque paths) rather than CMake target names so the
+# generator cannot reorder archives across the --whole-archive boundary
+# (cmake#20078). Otherwise --gc-sections drops unreferenced PQ/PKC objects
+# when benchmark_entry only touches DRBG/TLS entry points.
+set(_bench_link_libs "-Wl,--whole-archive")
+foreach(_lib IN LISTS NOXTLS_SIZE_BENCH_LIBS)
+    list(APPEND _bench_link_libs "$<TARGET_FILE:${_lib}>")
+endforeach()
+list(APPEND _bench_link_libs "-Wl,--no-whole-archive" "-lgcc")
+target_link_libraries(noxtls_size_benchmark PRIVATE ${_bench_link_libs})
+add_dependencies(noxtls_size_benchmark ${NOXTLS_SIZE_BENCH_LIBS})
