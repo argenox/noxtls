@@ -12,8 +12,15 @@ SECTION_RE = re.compile(
 
 
 def parse_sections(elf_path: Path, objdump_cmd: str):
+    if not elf_path.is_file():
+        raise FileNotFoundError(f"ELF not found: {elf_path}")
     cmd = [objdump_cmd, "-h", str(elf_path)]
-    proc = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"objdump failed ({proc.returncode}) for {elf_path}:\n"
+            f"{proc.stderr.strip() or proc.stdout.strip()}"
+        )
     lines = proc.stdout.splitlines()
 
     sections = []
