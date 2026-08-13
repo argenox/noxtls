@@ -4922,7 +4922,7 @@ static noxtls_return_t tls13_recv_handshake_message(tls13_context_t *ctx, uint8_
                             ctx->base.base.state = TLS_STATE_CLOSED;
                             return NOXTLS_RETURN_TLS_ERROR;
                         }
-                        if(inner_len >= 1U && inner_buf[0] == TLS_HANDSHAKE_KEY_UPDATE) {
+                        if(inner_buf[0] == TLS_HANDSHAKE_KEY_UPDATE) {
                             free(inner_buf);
                             free(record.data);
                             tls13_send_fatal_alert(ctx, TLS_ALERT_UNEXPECTED_MESSAGE);
@@ -7299,7 +7299,7 @@ noxtls_return_t noxtls_tls13_recv_server_hello(tls13_context_t *ctx)
             continue;
         }
         if(record.type == TLS_RECORD_ACK && tls13_is_dtls(ctx)) {
-            if(record.length > 0 && record.data != NULL) {
+            if(record.length > 0) {
                 tls13_dtls_handle_ack(ctx, record.data, record.length);
             }
             free(record.data);
@@ -9791,7 +9791,7 @@ noxtls_return_t noxtls_tls13_recv_client_hello(tls13_context_t *ctx)
         }
         if(cur_count != ctx->hrr_first_clienthello_ext_order_count ||
            (cur_count > 0U &&
-            (cur_types == NULL || ctx->hrr_first_clienthello_ext_order == NULL ||
+            (cur_types == NULL ||
              memcmp(cur_types, ctx->hrr_first_clienthello_ext_order,
                     (size_t)cur_count * sizeof(uint16_t)) != 0))) {
             free(cur_types);

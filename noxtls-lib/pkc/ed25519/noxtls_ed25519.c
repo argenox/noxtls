@@ -65,13 +65,13 @@ static const uint8_t ed25519_B_encoded[NOXTLS_ED25519_FE25519_BYTES] = {
 };
 
 /* Base point affine coordinates in big-endian (reserved for future use). */
-static const uint8_t ed25519_B_x_be[NOXTLS_ED25519_FE25519_BYTES] NOXTLS_UNUSED_ATTR = {
+static NOXTLS_UNUSED_ATTR const uint8_t ed25519_B_x_be[NOXTLS_ED25519_FE25519_BYTES] = {
     0x21, 0x69, 0x36, 0xD3, 0xCD, 0x6E, 0x53, 0xFE,
     0xC0, 0xA4, 0xE2, 0x31, 0xFD, 0xD6, 0xDC, 0x5C,
     0x69, 0x2C, 0xC7, 0x60, 0x95, 0x25, 0xA7, 0xB2,
     0xC9, 0x56, 0x2D, 0x60, 0x8F, 0x25, 0xD5, 0x1A
 };
-static const uint8_t ed25519_B_y_be[NOXTLS_ED25519_FE25519_BYTES] NOXTLS_UNUSED_ATTR = {
+static NOXTLS_UNUSED_ATTR const uint8_t ed25519_B_y_be[NOXTLS_ED25519_FE25519_BYTES] = {
     0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
     0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
     0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
@@ -601,9 +601,8 @@ static void ed25519_dbg_hex64(const char *label, const uint8_t v[NOXTLS_ED25519_
  * @param[out] r Sum (a + b) mod p.
  * @param[in]  a First operand (`NOXTLS_ED25519_FE25519_BYTES` bytes).
  * @param[in]  b Second operand (`NOXTLS_ED25519_FE25519_BYTES` bytes).
- * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on failure.
  */
-static noxtls_return_t fe25519_add(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], const uint8_t a[NOXTLS_ED25519_FE25519_BYTES], const uint8_t b[NOXTLS_ED25519_FE25519_BYTES])
+static void fe25519_add(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], const uint8_t a[NOXTLS_ED25519_FE25519_BYTES], const uint8_t b[NOXTLS_ED25519_FE25519_BYTES])
 {
     fe25519_native_t x;
     fe25519_native_t y;
@@ -612,7 +611,6 @@ static noxtls_return_t fe25519_add(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], cons
     fe25519_native_from_be(&y, b);
     fe25519_native_add(&z, &x, &y);
     fe25519_native_to_be(r, &z);
-    return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
@@ -620,9 +618,8 @@ static noxtls_return_t fe25519_add(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], cons
  * @param[out] r Difference mod p.
  * @param[in]  a Minuend (`NOXTLS_ED25519_FE25519_BYTES` bytes).
  * @param[in]  b Subtrahend (`NOXTLS_ED25519_FE25519_BYTES` bytes).
- * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on failure.
  */
-static noxtls_return_t fe25519_sub(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], const uint8_t a[NOXTLS_ED25519_FE25519_BYTES], const uint8_t b[NOXTLS_ED25519_FE25519_BYTES])
+static void fe25519_sub(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], const uint8_t a[NOXTLS_ED25519_FE25519_BYTES], const uint8_t b[NOXTLS_ED25519_FE25519_BYTES])
 {
     fe25519_native_t x;
     fe25519_native_t y;
@@ -631,7 +628,6 @@ static noxtls_return_t fe25519_sub(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], cons
     fe25519_native_from_be(&y, b);
     fe25519_native_sub(&z, &x, &y);
     fe25519_native_to_be(r, &z);
-    return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
@@ -639,9 +635,8 @@ static noxtls_return_t fe25519_sub(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], cons
  * @param[out] r Product mod p.
  * @param[in]  a First factor (`NOXTLS_ED25519_FE25519_BYTES` bytes).
  * @param[in]  b Second factor (`NOXTLS_ED25519_FE25519_BYTES` bytes).
- * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on failure.
  */
-static noxtls_return_t fe25519_mul(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], const uint8_t a[NOXTLS_ED25519_FE25519_BYTES], const uint8_t b[NOXTLS_ED25519_FE25519_BYTES])
+static void fe25519_mul(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], const uint8_t a[NOXTLS_ED25519_FE25519_BYTES], const uint8_t b[NOXTLS_ED25519_FE25519_BYTES])
 {
     fe25519_native_t x;
     fe25519_native_t y;
@@ -650,12 +645,11 @@ static noxtls_return_t fe25519_mul(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], cons
     fe25519_native_from_be(&y, b);
     fe25519_native_mul(&z, &x, &y);
     fe25519_native_to_be(r, &z);
-    return NOXTLS_RETURN_SUCCESS;
 }
 
-static noxtls_return_t fe25519_pow(uint8_t r[NOXTLS_ED25519_FE25519_BYTES],
-                                   const uint8_t a[NOXTLS_ED25519_FE25519_BYTES],
-                                   const uint8_t exp_be[NOXTLS_ED25519_FE25519_BYTES])
+static void fe25519_pow(uint8_t r[NOXTLS_ED25519_FE25519_BYTES],
+                        const uint8_t a[NOXTLS_ED25519_FE25519_BYTES],
+                        const uint8_t exp_be[NOXTLS_ED25519_FE25519_BYTES])
 {
     uint8_t result[NOXTLS_ED25519_FE25519_BYTES];
     uint8_t base[NOXTLS_ED25519_FE25519_BYTES];
@@ -666,36 +660,29 @@ static noxtls_return_t fe25519_pow(uint8_t r[NOXTLS_ED25519_FE25519_BYTES],
     for(uint32_t i = 0; i < NOXTLS_ED25519_FE25519_BYTES; i++) {
         uint8_t bits = exp_be[i];
         for(uint32_t bit = 0; bit < 8U; bit++) {
-            if(fe25519_mul(result, result, result) != NOXTLS_RETURN_SUCCESS) {
-                return NOXTLS_RETURN_FAILED;
-            }
+            fe25519_mul(result, result, result);
             if((bits & 0x80U) != 0U) {
-                if(fe25519_mul(result, result, base) != NOXTLS_RETURN_SUCCESS) {
-                    return NOXTLS_RETURN_FAILED;
-                }
+                fe25519_mul(result, result, base);
             }
             bits <<= 1U;
         }
     }
 
     memcpy(r, result, NOXTLS_ED25519_FE25519_BYTES);
-    return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
  * @brief Multiplicative inverse in GF(p): r = a^(-1) mod p (Fermat's little theorem).
  * @param[out] r Inverse of @p a mod p.
  * @param[in]  a Non-zero field element (`NOXTLS_ED25519_FE25519_BYTES` bytes).
- * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on failure.
  */
-static noxtls_return_t fe25519_inv(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], const uint8_t a[NOXTLS_ED25519_FE25519_BYTES])
+static void fe25519_inv(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], const uint8_t a[NOXTLS_ED25519_FE25519_BYTES])
 {
     fe25519_native_t x;
     fe25519_native_t z;
     fe25519_native_from_be(&x, a);
     fe25519_native_inv(&z, &x);
     fe25519_native_to_be(r, &z);
-    return NOXTLS_RETURN_SUCCESS;
 }
 
 /* 2^((p-1)/4) mod p for p = 2^255-19 (for sqrt when x^2 = -a) */
@@ -722,8 +709,8 @@ static noxtls_return_t fe25519_sqrt(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], con
     memset(p38, 0xFF, NOXTLS_ED25519_FE25519_BYTES);
     p38[0] = 0x0F;
     p38[NOXTLS_ED25519_FE25519_BYTES - 1U] = 0xFE;
-    if(fe25519_pow(x, a, p38) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(fe25519_mul(x2, x, x) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    fe25519_pow(x, a, p38);
+    fe25519_mul(x2, x, x);
     if(ed25519_cmp_be(x2, a, NOXTLS_ED25519_FE25519_BYTES) == 0) { memcpy(r, x, NOXTLS_ED25519_FE25519_BYTES); return NOXTLS_RETURN_SUCCESS; }
     /* x^2 = -a: then x * 2^((p-1)/4) is a square root of a */
     fe25519_mul(x2, x, (const uint8_t *)ed25519_sqrt_minus1);
@@ -765,9 +752,8 @@ static void ge25519_pt_zero(ge25519_pt_t *p)
  * @param[out] r Sum p + q in extended coordinates.
  * @param[in]  p First summand.
  * @param[in]  q Second summand.
- * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on failure.
  */
-static noxtls_return_t ge25519_add(ge25519_pt_t *r, const ge25519_pt_t *p, const ge25519_pt_t *q)
+static void ge25519_add(ge25519_pt_t *r, const ge25519_pt_t *p, const ge25519_pt_t *q)
 {
     uint8_t A[NOXTLS_ED25519_FE25519_BYTES];
     uint8_t B[NOXTLS_ED25519_FE25519_BYTES];
@@ -780,40 +766,38 @@ static noxtls_return_t ge25519_add(ge25519_pt_t *r, const ge25519_pt_t *p, const
     uint8_t t0[NOXTLS_ED25519_FE25519_BYTES];
     uint8_t t1[NOXTLS_ED25519_FE25519_BYTES];
 
-    if(fe25519_sub(t0, p->Y, p->X) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(fe25519_sub(t1, q->Y, q->X) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(fe25519_mul(A, t0, t1) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    fe25519_sub(t0, p->Y, p->X);
+    fe25519_sub(t1, q->Y, q->X);
+    fe25519_mul(A, t0, t1);
 
-    if(fe25519_add(t0, p->Y, p->X) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(fe25519_add(t1, q->Y, q->X) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(fe25519_mul(B, t0, t1) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    fe25519_add(t0, p->Y, p->X);
+    fe25519_add(t1, q->Y, q->X);
+    fe25519_mul(B, t0, t1);
 
-    if(fe25519_mul(C, p->T, q->T) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(fe25519_mul(C, C, ed25519_d) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(fe25519_add(C, C, C) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    fe25519_mul(C, p->T, q->T);
+    fe25519_mul(C, C, ed25519_d);
+    fe25519_add(C, C, C);
 
-    if(fe25519_mul(D, p->Z, q->Z) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(fe25519_add(D, D, D) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    fe25519_mul(D, p->Z, q->Z);
+    fe25519_add(D, D, D);
 
-    if(fe25519_sub(E, B, A) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(fe25519_sub(F, D, C) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(fe25519_add(G, D, C) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(fe25519_add(H, B, A) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    fe25519_sub(E, B, A);
+    fe25519_sub(F, D, C);
+    fe25519_add(G, D, C);
+    fe25519_add(H, B, A);
 
-    if(fe25519_mul(r->X, E, F) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(fe25519_mul(r->Y, G, H) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(fe25519_mul(r->T, E, H) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(fe25519_mul(r->Z, F, G) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    return NOXTLS_RETURN_SUCCESS;
+    fe25519_mul(r->X, E, F);
+    fe25519_mul(r->Y, G, H);
+    fe25519_mul(r->T, E, H);
+    fe25519_mul(r->Z, F, G);
 }
 
 /**
  * @brief Point doubling via addition with self (RFC 8032 extended coordinates).
  * @param[out] r Double of @p p.
  * @param[in]  p Input point.
- * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on failure.
  */
-static noxtls_return_t ge25519_dbl(ge25519_pt_t *r, const ge25519_pt_t *p)
+static void ge25519_dbl(ge25519_pt_t *r, const ge25519_pt_t *p)
 {
     uint8_t A[NOXTLS_ED25519_FE25519_BYTES];
     uint8_t B[NOXTLS_ED25519_FE25519_BYTES];
@@ -828,26 +812,25 @@ static noxtls_return_t ge25519_dbl(ge25519_pt_t *r, const ge25519_pt_t *p)
 
     ed25519_set_zero(zero, sizeof(zero));
 
-    if(fe25519_mul(A, p->X, p->X) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(fe25519_mul(B, p->Y, p->Y) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(fe25519_mul(C, p->Z, p->Z) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(fe25519_add(C, C, C) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(fe25519_sub(D, zero, A) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    fe25519_mul(A, p->X, p->X);
+    fe25519_mul(B, p->Y, p->Y);
+    fe25519_mul(C, p->Z, p->Z);
+    fe25519_add(C, C, C);
+    fe25519_sub(D, zero, A);
 
-    if(fe25519_add(t0, p->X, p->Y) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(fe25519_mul(E, t0, t0) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(fe25519_sub(E, E, A) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(fe25519_sub(E, E, B) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    fe25519_add(t0, p->X, p->Y);
+    fe25519_mul(E, t0, t0);
+    fe25519_sub(E, E, A);
+    fe25519_sub(E, E, B);
 
-    if(fe25519_add(G, D, B) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(fe25519_sub(F, G, C) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(fe25519_sub(H, D, B) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    fe25519_add(G, D, B);
+    fe25519_sub(F, G, C);
+    fe25519_sub(H, D, B);
 
-    if(fe25519_mul(r->X, E, F) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(fe25519_mul(r->Y, G, H) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(fe25519_mul(r->T, E, H) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(fe25519_mul(r->Z, F, G) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    return NOXTLS_RETURN_SUCCESS;
+    fe25519_mul(r->X, E, F);
+    fe25519_mul(r->Y, G, H);
+    fe25519_mul(r->T, E, H);
+    fe25519_mul(r->Z, F, G);
 }
 
 /**
@@ -855,9 +838,8 @@ static noxtls_return_t ge25519_dbl(ge25519_pt_t *r, const ge25519_pt_t *p)
  * @param[out] R Result point.
  * @param[in]  s_le Scalar clamped to subgroup order, `NOXTLS_ED25519_FE25519_BYTES` little-endian bytes.
  * @param[in]  P Base point on the curve.
- * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on failure.
  */
-static noxtls_return_t ge25519_scalar_mult(ge25519_pt_t *R, const uint8_t s_le[NOXTLS_ED25519_FE25519_BYTES], const ge25519_pt_t *P)
+static void ge25519_scalar_mult(ge25519_pt_t *R, const uint8_t s_le[NOXTLS_ED25519_FE25519_BYTES], const ge25519_pt_t *P)
 {
     ge25519_pt_t N;
     ge25519_pt_t T;
@@ -869,16 +851,11 @@ static noxtls_return_t ge25519_scalar_mult(ge25519_pt_t *R, const uint8_t s_le[N
         int bit = (s_le[i >> 3] >> (i & 7)) & 1;
         if(bit) {
             memcpy(&T, R, sizeof(ge25519_pt_t));
-            if(ge25519_add(R, &T, &N) != NOXTLS_RETURN_SUCCESS) {
-                return NOXTLS_RETURN_FAILED;
-            }
+            ge25519_add(R, &T, &N);
         }
         memcpy(&T, &N, sizeof(ge25519_pt_t));
-        if(ge25519_dbl(&N, &T) != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
-        }
+        ge25519_dbl(&N, &T);
     }
-    return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
@@ -889,7 +866,6 @@ static noxtls_return_t ge25519_scalar_mult(ge25519_pt_t *R, const uint8_t s_le[N
  */
 static noxtls_return_t ge25519_decode(ge25519_pt_t *p, const uint8_t enc[NOXTLS_ED25519_FE25519_BYTES])
 {
-    noxtls_return_t rc;
     uint8_t y_le[NOXTLS_ED25519_FE25519_BYTES];
     uint8_t y_be[NOXTLS_ED25519_FE25519_BYTES];
     uint8_t u[NOXTLS_ED25519_FE25519_BYTES];
@@ -906,67 +882,45 @@ static noxtls_return_t ge25519_decode(ge25519_pt_t *p, const uint8_t enc[NOXTLS_
     le32_to_be32(y_be, y_le);
     if(ed25519_cmp_be(y_be, ed25519_p, NOXTLS_ED25519_FE25519_BYTES) >= 0) { return NOXTLS_RETURN_FAILED; }
     /* u = y^2 - 1, v = d*y^2 + 1 */
-    rc = fe25519_mul(u, y_be, y_be);
-    if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
+    fe25519_mul(u, y_be, y_be);
     ed25519_set_one_be32(u_val);
-    rc = fe25519_sub(u, u, u_val);
-    if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
-    rc = fe25519_mul(v, y_be, y_be);
-    if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
-    rc = fe25519_mul(v, v, (const uint8_t *)ed25519_d);
-    if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
-    rc = fe25519_add(v, v, u_val);
-    if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
+    fe25519_sub(u, u, u_val);
+    fe25519_mul(v, y_be, y_be);
+    fe25519_mul(v, v, (const uint8_t *)ed25519_d);
+    fe25519_add(v, v, u_val);
     /* x^2 = u/v => x = (u/v)^((p+3)/8). Use x = u * v^3 * (u*v^7)^((p-5)/8) */
-    rc = fe25519_mul(uv7, u, v);
-    if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
-    rc = fe25519_mul(uv7, uv7, v);
-    if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
-    rc = fe25519_mul(uv7, uv7, v);
-    if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
-    rc = fe25519_mul(uv7, uv7, v);
-    if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
-    rc = fe25519_mul(uv7, uv7, v);
-    if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
-    rc = fe25519_mul(uv7, uv7, v);
-    if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
-    rc = fe25519_mul(uv7, uv7, v);
-    if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
+    fe25519_mul(uv7, u, v);
+    fe25519_mul(uv7, uv7, v);
+    fe25519_mul(uv7, uv7, v);
+    fe25519_mul(uv7, uv7, v);
+    fe25519_mul(uv7, uv7, v);
+    fe25519_mul(uv7, uv7, v);
+    fe25519_mul(uv7, uv7, v);
     /* (p-5)/8 = 2^252 - 3 in BE */
     memset(p58_exp, 0xFF, NOXTLS_ED25519_FE25519_BYTES);
     p58_exp[0] = 0x0F;
     p58_exp[NOXTLS_ED25519_FE25519_BYTES - 1U] = 0xFD;
-    if(fe25519_pow(p58_buf, uv7, p58_exp) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    rc = fe25519_mul(x_cand, u, v);
-    if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
-    rc = fe25519_mul(x_cand, x_cand, v);
-    if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
-    rc = fe25519_mul(x_cand, x_cand, v);
-    if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
-    rc = fe25519_mul(x_cand, x_cand, p58_buf);
-    if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
-    rc = fe25519_mul(vx2, v, x_cand);
-    if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
-    rc = fe25519_mul(vx2, vx2, x_cand);
-    if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
+    fe25519_pow(p58_buf, uv7, p58_exp);
+    fe25519_mul(x_cand, u, v);
+    fe25519_mul(x_cand, x_cand, v);
+    fe25519_mul(x_cand, x_cand, v);
+    fe25519_mul(x_cand, x_cand, p58_buf);
+    fe25519_mul(vx2, v, x_cand);
+    fe25519_mul(vx2, vx2, x_cand);
     if(ed25519_cmp_be(vx2, u, NOXTLS_ED25519_FE25519_BYTES) == 0) {
         memcpy(x, x_cand, NOXTLS_ED25519_FE25519_BYTES);
     } else {
-        rc = fe25519_sub(u_val, ed25519_p, u);
-        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
+        fe25519_sub(u_val, ed25519_p, u);
         if(ed25519_cmp_be(vx2, u_val, NOXTLS_ED25519_FE25519_BYTES) != 0) { return NOXTLS_RETURN_FAILED; }
-        rc = fe25519_mul(x, x_cand, (const uint8_t *)ed25519_sqrt_minus1);
-        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
+        fe25519_mul(x, x_cand, (const uint8_t *)ed25519_sqrt_minus1);
     }
     if((enc[NOXTLS_ED25519_FE25519_BYTES - 1U] >> 7) != (x[NOXTLS_ED25519_FE25519_BYTES - 1U] & 1)) {
-        rc = fe25519_sub(x, ed25519_p, x);
-        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
+        fe25519_sub(x, ed25519_p, x);
     }
     ed25519_set_one_be32(p->Z);
     memcpy(p->X, x, NOXTLS_ED25519_FE25519_BYTES);
     memcpy(p->Y, y_be, NOXTLS_ED25519_FE25519_BYTES);
-    rc = fe25519_mul(p->T, p->X, p->Y);
-    if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
+    fe25519_mul(p->T, p->X, p->Y);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -974,22 +928,17 @@ static noxtls_return_t ge25519_decode(ge25519_pt_t *p, const uint8_t enc[NOXTLS_
  * @brief Encodes an affine-equivalent extended point to 32-byte compressed form (RFC 8032).
  * @param[out] enc Compressed public encoding (`NOXTLS_ED25519_FE25519_BYTES` bytes).
  * @param[in]  p Point in extended coordinates.
- * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on failure.
  */
-static noxtls_return_t ge25519_encode(uint8_t enc[NOXTLS_ED25519_FE25519_BYTES], const ge25519_pt_t *p)
+static void ge25519_encode(uint8_t enc[NOXTLS_ED25519_FE25519_BYTES], const ge25519_pt_t *p)
 {
-    noxtls_return_t rc;
     uint8_t zinv[NOXTLS_ED25519_FE25519_BYTES];
     uint8_t x[NOXTLS_ED25519_FE25519_BYTES];
     uint8_t y[NOXTLS_ED25519_FE25519_BYTES];
-    if(fe25519_inv(zinv, p->Z) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    rc = fe25519_mul(x, p->X, zinv);
-    if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
-    rc = fe25519_mul(y, p->Y, zinv);
-    if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
+    fe25519_inv(zinv, p->Z);
+    fe25519_mul(x, p->X, zinv);
+    fe25519_mul(y, p->Y, zinv);
     be32_to_le32(enc, y);
     enc[NOXTLS_ED25519_FE25519_BYTES - 1U] |= (x[NOXTLS_ED25519_FE25519_BYTES - 1U] & 1) << 7;
-    return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
@@ -1001,10 +950,10 @@ static noxtls_return_t ge25519_encode(uint8_t enc[NOXTLS_ED25519_FE25519_BYTES],
 NOXTLS_UNUSED_ATTR
 static noxtls_return_t ge25519_neg(ge25519_pt_t *r, const ge25519_pt_t *p)
 {
-    if(fe25519_sub(r->X, (const uint8_t *)ed25519_p, p->X) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    fe25519_sub(r->X, (const uint8_t *)ed25519_p, p->X);
     memcpy(r->Y, p->Y, NOXTLS_ED25519_FE25519_BYTES);
     memcpy(r->Z, p->Z, NOXTLS_ED25519_FE25519_BYTES);
-    if(fe25519_sub(r->T, (const uint8_t *)ed25519_p, p->T) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    fe25519_sub(r->T, (const uint8_t *)ed25519_p, p->T);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -1157,8 +1106,8 @@ static noxtls_return_t ed25519_sign_internal(const uint8_t private_key[NOXTLS_ED
     if(noxtls_sha512_finish(&ctx, r_in) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_BAD_DATA; }
     if(sc25519_reduce_mod_l(r_le, r_in) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_TIMEOUT; }
     if(ge25519_set_basepoint(&B) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_NOT_SUPPORTED; }
-    if(ge25519_scalar_mult(&R, r_le, &B) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_NOT_SUPPORTED; }
-    if(ge25519_encode(signature, &R) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_NOT_SUPPORTED; }
+    ge25519_scalar_mult(&R, r_le, &B);
+    ge25519_encode(signature, &R);
 
     if(noxtls_sha512_init(&ctx, NOXTLS_HASH_SHA_512) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_INVALID_BLOCK_SIZE; }
     if(dom_len != 0U && noxtls_sha512_update(&ctx, dom_buf, dom_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_INVALID_BLOCK_SIZE; }
@@ -1259,19 +1208,19 @@ static noxtls_return_t ed25519_verify_internal(const uint8_t public_key[NOXTLS_E
     if(noxtls_sha512_finish(&ctx, k_in) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     if(sc25519_reduce_mod_l(k_le, k_in) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
 
-    if(ge25519_scalar_mult(&kA, k_le, &A) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(ge25519_add(&R_plus_kA, &R, &kA) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    ge25519_scalar_mult(&kA, k_le, &A);
+    ge25519_add(&R_plus_kA, &R, &kA);
     if(ge25519_set_basepoint(&R) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     {
         uint8_t S_le[NOXTLS_ED25519_FE25519_BYTES];
         memcpy(S_le, signature + NOXTLS_ED25519_FE25519_BYTES, NOXTLS_ED25519_FE25519_BYTES);
-        if(ge25519_scalar_mult(&sB, S_le, &R) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+        ge25519_scalar_mult(&sB, S_le, &R);
     }
     {
         uint8_t enc1[NOXTLS_ED25519_FE25519_BYTES];
         uint8_t enc2[NOXTLS_ED25519_FE25519_BYTES];
-        if(ge25519_encode(enc1, &R_plus_kA) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-        if(ge25519_encode(enc2, &sB) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+        ge25519_encode(enc1, &R_plus_kA);
+        ge25519_encode(enc2, &sB);
         if(noxtls_secret_memcmp(enc1, enc2, NOXTLS_ED25519_FE25519_BYTES) != 0) {
             uint8_t cofactor_le[NOXTLS_ED25519_FE25519_BYTES] = {0};
             ge25519_pt_t lhs8;
@@ -1279,11 +1228,11 @@ static noxtls_return_t ed25519_verify_internal(const uint8_t public_key[NOXTLS_E
             uint8_t enc_lhs8[NOXTLS_ED25519_FE25519_BYTES];
             uint8_t enc_rhs8[NOXTLS_ED25519_FE25519_BYTES];
             cofactor_le[0] = NOXTLS_ED25519_SUBGROUP_COFACTOR;
-            if(ge25519_scalar_mult(&lhs8, cofactor_le, &sB) == NOXTLS_RETURN_SUCCESS &&
-                ge25519_scalar_mult(&rhs8, cofactor_le, &R_plus_kA) == NOXTLS_RETURN_SUCCESS &&
-                ge25519_encode(enc_lhs8, &lhs8) == NOXTLS_RETURN_SUCCESS &&
-                ge25519_encode(enc_rhs8, &rhs8) == NOXTLS_RETURN_SUCCESS &&
-                noxtls_secret_memcmp(enc_lhs8, enc_rhs8, NOXTLS_ED25519_FE25519_BYTES) == 0) {
+            ge25519_scalar_mult(&lhs8, cofactor_le, &sB);
+            ge25519_scalar_mult(&rhs8, cofactor_le, &R_plus_kA);
+            ge25519_encode(enc_lhs8, &lhs8);
+            ge25519_encode(enc_rhs8, &rhs8);
+            if(noxtls_secret_memcmp(enc_lhs8, enc_rhs8, NOXTLS_ED25519_FE25519_BYTES) == 0) {
                 return NOXTLS_RETURN_SUCCESS;
             }
             return NOXTLS_RETURN_FAILED;
@@ -1315,8 +1264,9 @@ noxtls_return_t noxtls_ed25519_public_key(const uint8_t private_key[NOXTLS_ED255
     h[NOXTLS_ED25519_FE25519_BYTES - 1U] |= NOXTLS_ED25519_SCALAR_CLAMP_BYTE31_OR;
     memcpy(s_le, h, NOXTLS_ED25519_FE25519_BYTES);
     if(ge25519_set_basepoint(&B) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(ge25519_scalar_mult(&A, s_le, &B) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    return ge25519_encode(public_key, &A);
+    ge25519_scalar_mult(&A, s_le, &B);
+    ge25519_encode(public_key, &A);
+    return NOXTLS_RETURN_SUCCESS;
 }
 
 /**

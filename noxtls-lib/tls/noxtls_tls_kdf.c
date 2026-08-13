@@ -181,7 +181,6 @@ static noxtls_return_t p_hash(noxtls_hash_algos_t hash_algo,
         memcpy(output + produced, chunk, copy_len);
         produced += copy_len;
 
-        tmp_len = hash_len;
         rc = noxtls_hmac_compute(hash_algo, secret, secret_len, A, hash_len, A, &tmp_len);
         if(rc != NOXTLS_RETURN_SUCCESS || tmp_len != hash_len) {
             free(A);

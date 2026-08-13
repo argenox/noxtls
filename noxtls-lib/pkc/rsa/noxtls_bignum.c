@@ -3117,9 +3117,7 @@ noxtls_return_t noxtls_bn_mod_inv(uint8_t *result, const uint8_t *a, uint32_t a_
                 noxtls_bn_add(u1_wide, u1_wide, m_padded, m_wide);
                 noxtls_bn_rshift1(u1_wide, m_wide);
                 {
-                    uint32_t a_len = m_wide;
-                    uint32_t mod_len = m_len;
-                    noxtls_bn_mod(u1, u1_wide, a_len, m, mod_len);
+                    noxtls_bn_mod(u1, u1_wide, m_wide, m, m_len);
                 }
             } else {
                 noxtls_bn_rshift1(u1, m_len);
@@ -3150,9 +3148,7 @@ noxtls_return_t noxtls_bn_mod_inv(uint8_t *result, const uint8_t *a, uint32_t a_
                 noxtls_bn_add(v1_wide, v1_wide, m_padded, m_wide);
                 noxtls_bn_rshift1(v1_wide, m_wide);
                 {
-                    uint32_t a_len = m_wide;
-                    uint32_t mod_len = m_len;
-                    noxtls_bn_mod(v1, v1_wide, a_len, m, mod_len);
+                    noxtls_bn_mod(v1, v1_wide, m_wide, m, m_len);
                 }
             } else {
                 noxtls_bn_rshift1(v1, m_len);

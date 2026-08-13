@@ -1495,17 +1495,8 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_messag
 
     /* Step 5: Compute (x, y) = u1 * G + u2 * Q */
     if(size == 32U) {
-        int use_hw_mul_path = 0;
 #ifdef ESP_PLATFORM
-        use_hw_mul_path = noxtls_esp_hw_ecc_compiled_in();
-#endif
-
-        if(!use_hw_mul_path) {
-            rc = noxtls_ecc_point_muladd(&result, u1, &key->curve->G, u2, &key->Q, key->curve);
-            if(rc != NOXTLS_RETURN_SUCCESS) {
-                goto cleanup_verify;
-            }
-        } else {
+        if(noxtls_esp_hw_ecc_compiled_in()) {
         /*
          * Use two scalar multiplies plus one point add for P-256 verify.
          *
@@ -1527,6 +1518,13 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_messag
         if(rc != NOXTLS_RETURN_SUCCESS) {
             goto cleanup_verify;
         }
+        } else
+#endif
+        {
+            rc = noxtls_ecc_point_muladd(&result, u1, &key->curve->G, u2, &key->Q, key->curve);
+            if(rc != NOXTLS_RETURN_SUCCESS) {
+                goto cleanup_verify;
+            }
         }
     } else {
         rc = noxtls_ecc_point_multiply(&u1G, u1, &key->curve->G, key->curve);

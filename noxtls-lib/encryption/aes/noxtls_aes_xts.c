@@ -163,9 +163,7 @@ noxtls_return_t noxtls_aes_encrypt_xts(const uint8_t* key,
         
         /* Encrypt */
         {
-            const uint8_t *key = data_key;
-            const uint8_t *block_in = temp_block;
-            noxtls_aes_encrypt_block_internal(key, block_in, temp_block, type);
+            noxtls_aes_encrypt_block_internal(data_key, temp_block, temp_block, type);
         }
         
         /* XOR result with tweak */
@@ -199,9 +197,8 @@ noxtls_return_t noxtls_aes_encrypt_xts(const uint8_t* key,
                 temp_block[i] = data[((num_blocks - 1) * NOXTLS_AES_BLOCK_LENGTH) + i] ^ last_tweak[i];
             }
             {
-                const uint8_t *key = data_key;
                 const uint8_t *block_in = temp_block;
-                noxtls_aes_encrypt_block_internal(key, block_in, temp_block, type);
+                noxtls_aes_encrypt_block_internal(data_key, block_in, temp_block, type);
             }
             for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
                 output[((num_blocks - 1) * NOXTLS_AES_BLOCK_LENGTH) + i] = temp_block[i] ^ last_tweak[i];
@@ -225,9 +222,7 @@ noxtls_return_t noxtls_aes_encrypt_xts(const uint8_t* key,
             temp_block[i] ^= last_tweak[i];
         }
         {
-            const uint8_t *key = data_key;
-            const uint8_t *block_in = temp_block;
-            noxtls_aes_encrypt_block_internal(key, block_in, temp_block, type);
+            noxtls_aes_encrypt_block_internal(data_key, temp_block, temp_block, type);
         }
         for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
             temp_block[i] ^= last_tweak[i];

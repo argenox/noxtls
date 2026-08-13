@@ -1003,12 +1003,11 @@ noxtls_return_t noxtls_x509_certificate_generate_self_signed_with_extensions_ex(
 
     {
         uint32_t eoff = 0;
-        uint32_t ext_seq_len = 0;
         if(build_extensions(ext_ws->ext_list, sizeof(ext_ws->ext_list), san_dns, san_dns_count, key_usage_bits,
                              basic_constraints_ca, basic_constraints_path_len, ext_key_usage_bits,
                              custom_exts, custom_ext_count, &eoff)) {
             if(eoff > 0) {
-                ext_seq_len = noxtls_asn1_put_sequence(ext_ws->ext_seq, sizeof(ext_ws->ext_seq), ext_ws->ext_list, eoff);
+                uint32_t ext_seq_len = noxtls_asn1_put_sequence(ext_ws->ext_seq, sizeof(ext_ws->ext_seq), ext_ws->ext_list, eoff);
                 if(ext_seq_len == 0) { goto cleanup; }
                 ext_len = noxtls_asn1_put_explicit(ext_ws->ext_buf, sizeof(ext_ws->ext_buf), 3, ext_ws->ext_seq, ext_seq_len);
                 if(ext_len == 0) { goto cleanup; }

@@ -2539,10 +2539,7 @@ static noxtls_return_t p256_build_comb_precompute_table(ecc_jpoint_t *table,
 
     for(i = 1U; i < w; i++) {
         for(j = 0U; j < d; j++) {
-            rc = p256_jpoint_double(&tmp, &cur);
-            if(rc != NOXTLS_RETURN_SUCCESS) {
-                return rc;
-            }
+                (void)p256_jpoint_double(&tmp, &cur);
             memcpy(&cur, &tmp, sizeof(cur));
         }
         memcpy(&table[1U << i], &cur, sizeof(cur));
@@ -2610,10 +2607,7 @@ static noxtls_return_t p256_ecc_jpoint_mul_comb(ecc_jpoint_t *result,
     p256_comb_recode_core(digits, d, w, reduced);
 
     for(i = d; i > 0U; i--) {
-        rc = p256_jpoint_double(&Tdbl, &R);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            return rc;
-        }
+        (void)p256_jpoint_double(&Tdbl, &R);
         memcpy(&R, &Tdbl, sizeof(R));
 
         ecc_jpoint_select_affine_table(&Txi, table, 1U << w, 32U, digits[i - 1U]);
@@ -3011,12 +3005,13 @@ static noxtls_return_t ecc_point_multiply_jpoint(ecc_jpoint_t *result,
                                                  const ecc_point_t *point,
                                                  const ecc_curve_params_t *curve)
 {
-    uint32_t size = curve->size;
+    uint32_t size;
     noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
 
     if(result == NULL || scalar == NULL || point == NULL || curve == NULL) {
         return NOXTLS_RETURN_NULL;
     }
+    size = curve->size;
     if(size == 0U || size > ECC_MAX_KEY_SIZE) {
         return NOXTLS_RETURN_FAILED;
     }

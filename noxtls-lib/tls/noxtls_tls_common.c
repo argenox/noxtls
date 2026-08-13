@@ -502,7 +502,7 @@ noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
         noxtls_debug_printf("[TLS_DEBUG] tls_recv_record: Record length %u exceeds protected max %u\n",
                             length, (unsigned)TLS_MAX_PROTECTED_RECORD_FRAGMENT);
         /* Drain so the stream stays aligned; caller sends record_overflow. */
-        if(length > 0U) {
+        {
             uint8_t *drain = (uint8_t*)noxtls_malloc(length);
             if(drain != NULL) {
                 (void)ctx->recv_callback(ctx->user_data, drain, length);

@@ -1,0 +1,17 @@
+# Cppcheck suppressions for noxtls static-analysis CI.
+# Prefer fixing real issues in code; keep this list for low-value style noise.
+#
+# Format: errorId or errorId:file[:line]
+
+# Style-only: declaration placement / const-ness (no functional impact).
+variableScope
+constVariable
+constVariablePointer
+
+# Informational / tooling noise.
+checkersReport
+unmatchedSuppression
+
+# LLP64 (Windows) false positives: unsigned long is 32-bit so UINT32_MAX checks
+# are vacuously false; on LP64 (Linux CI) the checks remain meaningful.
+compareValueOutOfTypeRangeError
