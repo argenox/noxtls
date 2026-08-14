@@ -181,13 +181,13 @@ static const uint32_t (*gcm_precompute_tables(const uint8_t h[16]))[16][4]
             basis[byte_idx] = (uint8_t)(nibble << 4);
             memcpy(product, basis, sizeof(product));
             gcm_mul_bitserial(product, h);
-            gcm_table_store(table[byte_idx * 2][nibble], product);
+            gcm_table_store(table[(size_t)byte_idx * 2U][nibble], product);
 
             memset(basis, 0, sizeof(basis));
             basis[byte_idx] = (uint8_t)nibble;
             memcpy(product, basis, sizeof(product));
             gcm_mul_bitserial(product, h);
-            gcm_table_store(table[(byte_idx * 2) + 1][nibble], product);
+            gcm_table_store(table[((size_t)byte_idx * 2U) + 1U][nibble], product);
         }
     }
 
@@ -215,14 +215,14 @@ static void gcm_mul(uint8_t x[16], const uint32_t table[32][16][4])
         const uint8_t hi = (uint8_t)(x[byte_idx] >> 4);
         const uint8_t lo = (uint8_t)(x[byte_idx] & 0x0F);
         if(hi != 0U) {
-            const uint32_t *t = table[byte_idx * 2][hi];
+            const uint32_t *t = table[(size_t)byte_idx * 2U][hi];
             z0 ^= t[0];
             z1 ^= t[1];
             z2 ^= t[2];
             z3 ^= t[3];
         }
         if(lo != 0U) {
-            const uint32_t *t = table[(byte_idx * 2) + 1][lo];
+            const uint32_t *t = table[((size_t)byte_idx * 2U) + 1U][lo];
             z0 ^= t[0];
             z1 ^= t[1];
             z2 ^= t[2];
@@ -293,7 +293,7 @@ static void ghash_finalize(uint8_t x[16], const uint32_t table[32][16][4], uint6
     len_block[4] = (uint8_t)(aad_bits >> 24);
     len_block[5] = (uint8_t)(aad_bits >> 16);
     len_block[6] = (uint8_t)(aad_bits >> 8);
-    len_block[7] = (uint8_t)(aad_bits);
+    len_block[7] = (uint8_t)aad_bits;
 
     len_block[8] = (uint8_t)(data_bits >> 56);
     len_block[9] = (uint8_t)(data_bits >> 48);
@@ -302,7 +302,7 @@ static void ghash_finalize(uint8_t x[16], const uint32_t table[32][16][4], uint6
     len_block[12] = (uint8_t)(data_bits >> 24);
     len_block[13] = (uint8_t)(data_bits >> 16);
     len_block[14] = (uint8_t)(data_bits >> 8);
-    len_block[15] = (uint8_t)(data_bits);
+    len_block[15] = (uint8_t)data_bits;
 
     gcm_xor_inplace(x, len_block);
     gcm_mul(x, table);

@@ -29,7 +29,7 @@
 #include "asn1.h"
 #include "oids.h"
 
-#if defined(NOXTLS_NO_ASN1_PRINTF)
+#ifdef NOXTLS_NO_ASN1_PRINTF
 #define NOXTLS_ASN1_PRINTF(...) ((void)0)
 #else
 #define NOXTLS_ASN1_PRINTF(...) printf(__VA_ARGS__)
@@ -224,22 +224,7 @@ void noxtls_asn1_decode_obj_ident(uint8_t ** data, uint32_t len)
     const uint8_t * ptr = *data;
     for(i = 0; i < len; i++)
     {
-        if(i == 0) {
-            /* First byte is always 40 * val1 + val2 */
-
-            for(j = 2; j >= 0; j--) {
-                if(ptr[i] - (40 * j) > 0) {
-                    if(obj_ident_cnt + 2 > (uint8_t)(sizeof(obj_ident_vals) / sizeof(obj_ident_vals[0]))) {
-                        return;
-                    }
-                    obj_ident_vals[obj_ident_cnt++] = (uint32_t)j;
-                    obj_ident_vals[obj_ident_cnt++] = (uint32_t)(ptr[i] - (40*j));
-                    break;
-                }
-            }
-        }
-        else
-        {
+        if(i != 0) {
             if(ptr[i] & 0x80) {
                 /* Multiple byte OIDs numbers */
                 uint32_t val = 0;
@@ -264,13 +249,24 @@ void noxtls_asn1_decode_obj_ident(uint8_t ** data, uint32_t len)
                 }
                 obj_ident_vals[obj_ident_cnt++] = val;
                 i += j;
-            }
-            else
-            {
+            } else {
                 if(obj_ident_cnt + 1 > (uint8_t)(sizeof(obj_ident_vals) / sizeof(obj_ident_vals[0]))) {
                     return;
                 }
                 obj_ident_vals[obj_ident_cnt++] = ptr[i];
+            }
+            continue;
+        }
+
+        /* First byte is always 40 * val1 + val2 */
+        for(j = 2; j >= 0; j--) {
+            if(ptr[i] - (40 * j) > 0) {
+                if(obj_ident_cnt + 2 > (uint8_t)(sizeof(obj_ident_vals) / sizeof(obj_ident_vals[0]))) {
+                    return;
+                }
+                obj_ident_vals[obj_ident_cnt++] = (uint32_t)j;
+                obj_ident_vals[obj_ident_cnt++] = (uint32_t)(ptr[i] - (40*j));
+                break;
             }
         }
     }
@@ -328,7 +324,7 @@ void noxtls_asn1_find_oid(char * oid)
                 //NOXTLS_ASN1_PRINTF("STOP\n");
                 break;
             }
-            else if(oid_ptr->id == id)
+            if(oid_ptr->id == id)
             {
                 //NOXTLS_ASN1_PRINTF("ID Match \n");
                 if(oid_ptr->name != NULL) {
@@ -341,11 +337,8 @@ void noxtls_asn1_find_oid(char * oid)
                 }
                 break;
             }
-            else
-            {
-                //NOXTLS_ASN1_PRINTF("Increment oid\n");
-                oid_ptr++;
-            }
+            //NOXTLS_ASN1_PRINTF("Increment oid\n");
+            oid_ptr++;
         }
 
         if(oid_ptr != NULL) {

@@ -1,0 +1,106 @@
+name: Bump Homebrew tap formula
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish to the tap (e.g. v0.2.61)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  bump-formula:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${{ github.event.release.tag_name }}"
+          fi
+          if [[ "${TAG}" != v* ]]; then
+            echo "Tag ${TAG} must start with 'v'."
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Fetch source tarball checksum
+        id: tarball
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          URL="https://github.com/argenox/noxtls/archive/refs/tags/${TAG}.tar.gz"
+          curl -fsSL -o /tmp/noxtls-src.tar.gz "${URL}"
+          SHA256="$(sha256sum /tmp/noxtls-src.tar.gz | awk '{print $1}')"
+          echo "url=${URL}" >> "${GITHUB_OUTPUT}"
+          echo "sha256=${SHA256}" >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: argenox/homebrew-noxtls
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-noxtls
+
+      - name: Update Formula/noxtls.rb
+        shell: bash
+        run: |
+          set -euo pipefail
+          FORMULA="homebrew-noxtls/Formula/noxtls.rb"
+          if [[ ! -f "${FORMULA}" ]]; then
+            echo "Missing ${FORMULA}"
+            exit 1
+          fi
+          VERSION="${{ steps.tag.outputs.version }}"
+          URL="${{ steps.tarball.outputs.url }}"
+          SHA256="${{ steps.tarball.outputs.sha256 }}"
+
+          python - <<PY
+          from pathlib import Path
+          import re
+
+          path = Path("${FORMULA}")
+          text = path.read_text(encoding="utf-8")
+          url = "${URL}"
+          sha256 = "${SHA256}"
+          version = "${VERSION}"
+          text = re.sub(r'(\surl\s+")[^"]+(")', rf'\g<1>{url}\g<2>', text, count=1)
+          text = re.sub(r'(\ssha256\s+")[^"]+(")', rf'\g<1>{sha256}\g<2>', text, count=1)
+          text = re.sub(
+              r'(# noxtls formula version:\s*)\S+',
+              rf'\g<1>{version}',
+              text,
+              count=1,
+          )
+          # Prefer letting Homebrew infer version from the tag tarball URL.
+          text = re.sub(r'\n\s*version\s+"[^"]+"\s*\n', '\n', text, count=1)
+          path.write_text(text, encoding="utf-8")
+          print(path.read_text(encoding="utf-8"))
+          PY
+
+      - name: Commit and push
+        working-directory: homebrew-noxtls
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/noxtls.rb
+          if git diff --cached --quiet; then
+            echo "Formula already up to date."
+            exit 0
+          fi
+          git commit -m "noxtls ${{ steps.tag.outputs.version }}"
+          git push

@@ -31,7 +31,7 @@
 #if NOXTLS_FEATURE_AES_CMAC
 
 /** Rb from RFC 4493: 0x87 for 128-bit block */
-#define NOXTLS_AES_CMAC_RB  0x87u
+#define NOXTLS_AES_CMAC_RB  0x87U
 
 /**
  * @brief Left-shift by one bit of a 16-byte block (MSB first).
@@ -42,8 +42,9 @@
 static void cmac_shift_left(uint8_t block[NOXTLS_AES_BLOCK_LENGTH])
 {
     int i;
-    for(i = 0; i < (int)NOXTLS_AES_BLOCK_LENGTH - 1; i++)
+    for(i = 0; i < (int)NOXTLS_AES_BLOCK_LENGTH - 1; i++) {
         block[i] = (uint8_t)((block[i] << 1) | (block[i + 1] >> 7));
+    }
     block[NOXTLS_AES_BLOCK_LENGTH - 1] = (uint8_t)(block[NOXTLS_AES_BLOCK_LENGTH - 1] << 1);
 }
 
@@ -61,8 +62,192 @@ static void cmac_xor_block(uint8_t dst[NOXTLS_AES_BLOCK_LENGTH],
                            const uint8_t b[NOXTLS_AES_BLOCK_LENGTH])
 {
     uint32_t i;
-    for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++)
+    for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
         dst[i] = (uint8_t)(a[i] ^ b[i]);
+    }
+}
+
+/**
+ * @brief Resolve AES key length from type.
+ */
+static noxtls_return_t cmac_key_len_from_type(noxtls_aes_type_t type,
+                                              uint8_t *key_len)
+{
+    if(key_len == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    switch(type)
+    {
+        case NOXTLS_AES_128_BIT:
+            *key_len = 16U;
+            break;
+        case NOXTLS_AES_192_BIT:
+            *key_len = 24U;
+            break;
+        case NOXTLS_AES_256_BIT:
+            *key_len = 32U;
+            break;
+        default:
+            return NOXTLS_RETURN_INVALID_PARAM;
+    }
+
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
+ * @brief Absorb one complete CMAC block into context state.
+ */
+static noxtls_return_t cmac_absorb_block(noxtls_aes_cmac_context_t *ctx,
+                                         const uint8_t block[NOXTLS_AES_BLOCK_LENGTH])
+{
+    cmac_xor_block(ctx->state, ctx->state, block);
+    return noxtls_aes_encrypt_block_internal(ctx->key, ctx->state, ctx->state,
+                                             ctx->type);
+}
+
+noxtls_return_t noxtls_aes_cmac_init(noxtls_aes_cmac_context_t *ctx,
+                                     const uint8_t *key,
+                                     noxtls_aes_type_t type)
+{
+    uint8_t l[NOXTLS_AES_BLOCK_LENGTH];
+    noxtls_return_t rc;
+
+    if(ctx == NULL || key == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    memset(ctx, 0, sizeof(*ctx));
+    ctx->type = type;
+    rc = cmac_key_len_from_type(type, &ctx->key_len);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+    memcpy(ctx->key, key, ctx->key_len);
+
+    memset(l, 0, sizeof(l));
+    rc = noxtls_aes_encrypt_block_internal(ctx->key, l, l, type);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+
+    memcpy(ctx->subkey1, l, NOXTLS_AES_BLOCK_LENGTH);
+    cmac_shift_left(ctx->subkey1);
+    if(l[0] & 0x80U) {
+        ctx->subkey1[NOXTLS_AES_BLOCK_LENGTH - 1] ^= NOXTLS_AES_CMAC_RB;
+    }
+
+    memcpy(ctx->subkey2, ctx->subkey1, NOXTLS_AES_BLOCK_LENGTH);
+    cmac_shift_left(ctx->subkey2);
+    if(ctx->subkey1[0] & 0x80U) {
+        ctx->subkey2[NOXTLS_AES_BLOCK_LENGTH - 1] ^= NOXTLS_AES_CMAC_RB;
+    }
+
+    ctx->initialized = 1U;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_aes_cmac_update(noxtls_aes_cmac_context_t *ctx,
+                                       const uint8_t *msg,
+                                       uint32_t msg_len)
+{
+    uint32_t offset = 0U;
+    noxtls_return_t rc;
+
+    if(ctx == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(ctx->initialized == 0U) {
+        return NOXTLS_RETURN_NOT_INITIALIZED;
+    }
+    if(msg_len > 0U && msg == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    if(msg_len == 0U) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
+
+    /* Fill any partial block first. */
+    if(ctx->partial_len > 0U)
+    {
+        uint32_t need = NOXTLS_AES_BLOCK_LENGTH - (uint32_t)ctx->partial_len;
+        uint32_t take = (msg_len < need) ? msg_len : need;
+        memcpy(&ctx->partial[ctx->partial_len], msg, take);
+        ctx->partial_len = (uint8_t)(ctx->partial_len + take);
+        offset += take;
+
+        /* Keep a full block buffered until we know more data follows. */
+        if(ctx->partial_len == NOXTLS_AES_BLOCK_LENGTH && offset < msg_len)
+        {
+            rc = cmac_absorb_block(ctx, ctx->partial);
+            if(rc != NOXTLS_RETURN_SUCCESS) {
+                return rc;
+            }
+            ctx->partial_len = 0U;
+        }
+    }
+
+    while((msg_len - offset) > NOXTLS_AES_BLOCK_LENGTH)
+    {
+        rc = cmac_absorb_block(ctx, &msg[offset]);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
+        offset += NOXTLS_AES_BLOCK_LENGTH;
+    }
+
+    if(offset < msg_len)
+    {
+        uint32_t rem = msg_len - offset;
+        memcpy(ctx->partial, &msg[offset], rem);
+        ctx->partial_len = (uint8_t)rem;
+    }
+
+    ctx->total_len += msg_len;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_aes_cmac_final(noxtls_aes_cmac_context_t *ctx,
+                                      uint8_t *mac)
+{
+    uint8_t final_block[NOXTLS_AES_BLOCK_LENGTH];
+    noxtls_return_t rc;
+
+    if(ctx == NULL || mac == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(ctx->initialized == 0U) {
+        return NOXTLS_RETURN_NOT_INITIALIZED;
+    }
+
+    memset(final_block, 0, sizeof(final_block));
+
+    if(ctx->total_len == 0U)
+    {
+        final_block[0] = 0x80U;
+        cmac_xor_block(final_block, final_block, ctx->subkey2);
+    }
+    else if(ctx->partial_len == NOXTLS_AES_BLOCK_LENGTH)
+    {
+        memcpy(final_block, ctx->partial, NOXTLS_AES_BLOCK_LENGTH);
+        cmac_xor_block(final_block, final_block, ctx->subkey1);
+    }
+    else
+    {
+        memcpy(final_block, ctx->partial, ctx->partial_len);
+        final_block[ctx->partial_len] = 0x80U;
+        cmac_xor_block(final_block, final_block, ctx->subkey2);
+    }
+
+    rc = cmac_absorb_block(ctx, final_block);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+
+    memcpy(mac, ctx->state, NOXTLS_AES_BLOCK_LENGTH);
+    ctx->initialized = 0U;
+    return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
@@ -83,83 +268,20 @@ noxtls_return_t noxtls_aes_cmac(const uint8_t *key,
                          noxtls_aes_type_t type)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    uint8_t L[NOXTLS_AES_BLOCK_LENGTH];
-    uint8_t K1[NOXTLS_AES_BLOCK_LENGTH];
-    uint8_t K2[NOXTLS_AES_BLOCK_LENGTH];
-    uint8_t state[NOXTLS_AES_BLOCK_LENGTH];
-    uint32_t n_blocks;
-    uint32_t i;
-    noxtls_return_t r;
+    noxtls_aes_cmac_context_t ctx;
+    noxtls_return_t rc;
 
-    if(key == NULL || mac == NULL)
-        return NOXTLS_RETURN_NULL;
-    if(msg_len > 0 && msg == NULL)
-        return NOXTLS_RETURN_NULL;
-
-    memset(L, 0, sizeof(L));
-    r = noxtls_aes_encrypt_block_internal(key, L, L, type);
-    if(r != NOXTLS_RETURN_SUCCESS)
-        return r;
-
-    /* K1 = L << 1; if MSB(L) then K1 ^= Rb */
-    memcpy(K1, L, NOXTLS_AES_BLOCK_LENGTH);
-    cmac_shift_left(K1);
-    if(L[0] & 0x80u)
-        K1[NOXTLS_AES_BLOCK_LENGTH - 1] ^= NOXTLS_AES_CMAC_RB;
-
-    /* K2 = K1 << 1; if MSB(K1) then K2 ^= Rb */
-    memcpy(K2, K1, NOXTLS_AES_BLOCK_LENGTH);
-    cmac_shift_left(K2);
-    if(K1[0] & 0x80u)
-        K2[NOXTLS_AES_BLOCK_LENGTH - 1] ^= NOXTLS_AES_CMAC_RB;
-
-    n_blocks = msg_len / NOXTLS_AES_BLOCK_LENGTH;
-    memset(state, 0, NOXTLS_AES_BLOCK_LENGTH);
-
-    if(msg_len == 0)
-    {
-        /* Empty noxtls_message: last "block" is 10...0 XOR K2 */
-        memset(state, 0, NOXTLS_AES_BLOCK_LENGTH);
-        state[0] = 0x80u;
-        cmac_xor_block(state, state, K2);
-        return noxtls_aes_encrypt_block_internal(key, state, mac, type);
+    rc = noxtls_aes_cmac_init(&ctx, key, type);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
     }
 
-    /* Absorb full blocks through the CBC-MAC chain. When the message ends in a
-     * partial block, every full block is absorbed here and the padded final
-     * block is handled below with K2; otherwise the last full block is the
-     * final block and is handled below with K1 (RFC 4493 Section 2.4). */
-    {
-        uint32_t full_absorb = (msg_len % NOXTLS_AES_BLOCK_LENGTH != 0u) ? n_blocks : (n_blocks - 1u);
-        for(i = 0; i < full_absorb; i++)
-        {
-            cmac_xor_block(state, state, &msg[(size_t)i * NOXTLS_AES_BLOCK_LENGTH]);
-            r = noxtls_aes_encrypt_block_internal(key, state, state, type);
-            if(r != NOXTLS_RETURN_SUCCESS)
-                return r;
-        }
+    rc = noxtls_aes_cmac_update(&ctx, msg, msg_len);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
     }
 
-    if(msg_len % NOXTLS_AES_BLOCK_LENGTH != 0)
-    {
-        /* Incomplete last block: pad with 10...0 and XOR K2 */
-        uint32_t last_off = n_blocks * NOXTLS_AES_BLOCK_LENGTH;
-        uint32_t last_len = msg_len - last_off;
-        uint8_t padded[NOXTLS_AES_BLOCK_LENGTH];
-        memset(padded, 0, NOXTLS_AES_BLOCK_LENGTH);
-        memcpy(padded, &msg[last_off], last_len);
-        padded[last_len] = 0x80u;
-        cmac_xor_block(state, state, padded);
-        cmac_xor_block(state, state, K2);
-    }
-    else
-    {
-        /* Complete last block: XOR with K1 */
-        cmac_xor_block(state, state, &msg[(size_t)(n_blocks - 1U) * NOXTLS_AES_BLOCK_LENGTH]);
-        cmac_xor_block(state, state, K1);
-    }
-
-    return noxtls_aes_encrypt_block_internal(key, state, mac, type);
+    return noxtls_aes_cmac_final(&ctx, mac);
 }
 
 #endif /* NOXTLS_FEATURE_AES_CMAC */

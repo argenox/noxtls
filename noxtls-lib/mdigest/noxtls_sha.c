@@ -169,7 +169,7 @@ noxtls_return_t noxtls_sha_init(noxtls_sha_ctx_t * ctx, noxtls_hash_algos_t algo
  * @param len Length of data to update
  * @return int NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if ctx is NULL
  */
-noxtls_return_t noxtls_sha_update(noxtls_sha_ctx_t * ctx, uint8_t * data, uint32_t len)
+noxtls_return_t noxtls_sha_update(noxtls_sha_ctx_t * ctx, const uint8_t * data, uint32_t len)
 {
     if(ctx == NULL || data == NULL) {
         return NOXTLS_RETURN_NULL;

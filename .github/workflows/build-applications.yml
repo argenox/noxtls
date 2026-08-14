@@ -142,30 +142,32 @@ jobs:
               print(f"Missing binary directory: {binary_dir}")
               sys.exit(1)
 
-          expected = [
-              "aes",
-              "base64",
-              "cert",
-              "certificate",
-              "certgen",
-              "dtls_psk_demo",
-              "dtls_psk_test",
-              "https_client",
-              "https_server",
-              "noxtls",
-              "pkc",
-              "prime",
-              "sha",
-              "tls_test",
-              "tlscurl",
-          ]
+          expected = {
+              "aes": ["aes", "noxtls-aes"],
+              "base64": ["base64", "noxtls-base64"],
+              "cert": ["cert", "noxtls-cert"],
+              "certificate": ["certificate"],
+              "certgen": ["certgen"],
+              "dtls_psk_demo": ["dtls_psk_demo"],
+              "dtls_psk_test": ["dtls_psk_test", "noxtls-dtls_psk_test"],
+              "https_client": ["https_client"],
+              "https_server": ["https_server"],
+              "noxtls": ["noxtls"],
+              "pkc": ["pkc"],
+              "prime": ["prime", "noxtls-prime"],
+              "sha": ["sha", "noxtls-sha"],
+              "tls_test": ["tls_test", "noxtls-tls_test"],
+              "tlscurl": ["tlscurl"],
+          }
 
           ext = ".exe" if os.name == "nt" else ""
           missing = []
-          for name in expected:
-              candidate = binary_dir / f"{name}{ext}"
-              if not candidate.exists():
-                  missing.append(str(candidate))
+          for logical_name, names in expected.items():
+              candidates = [binary_dir / f"{name}{ext}" for name in names]
+              if not any(candidate.exists() for candidate in candidates):
+                  missing.append(
+                      f"{binary_dir}/{logical_name}{ext} (accepted: {', '.join(str(c) for c in candidates)})"
+                  )
 
           if missing:
               print("Missing expected application binaries:")

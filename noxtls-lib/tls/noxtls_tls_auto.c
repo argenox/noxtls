@@ -90,14 +90,12 @@ noxtls_return_t tls_accept_auto(tls_context_t *base_ctx,
                 alert_desc = TLS_ALERT_PROTOCOL_VERSION;
             } else if(rc == NOXTLS_RETURN_TLS_ERROR) {
                 alert_desc = TLS_ALERT_UNEXPECTED_MESSAGE;
-            } else if(rc == NOXTLS_RETURN_BAD_DATA) {
+            } else if(rc == NOXTLS_RETURN_BAD_DATA || rc == NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR) {
                 alert_desc = TLS_ALERT_DECODE_ERROR;
             } else if(rc == NOXTLS_RETURN_RECORD_OVERFLOW) {
                 alert_desc = TLS_ALERT_RECORD_OVERFLOW;
             } else if(rc == NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER) {
                 alert_desc = TLS_ALERT_ILLEGAL_PARAMETER;
-            } else if(rc == NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR) {
-                alert_desc = TLS_ALERT_DECODE_ERROR;
             }
             (void)noxtls_tls_send_alert(base_ctx, TLS_ALERT_LEVEL_FATAL, alert_desc);
         }
@@ -136,7 +134,7 @@ noxtls_return_t tls_accept_auto(tls_context_t *base_ctx,
         if(base_ctx->send_callback != NULL) {
             (void)noxtls_tls_send_alert(base_ctx, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_PROTOCOL_VERSION);
         }
-        if(client_hello_data) noxtls_free(client_hello_data);
+        if(client_hello_data) { noxtls_free(client_hello_data); }
         return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
     } else if(detected_version == TLS_VERSION_1_1) {
@@ -204,7 +202,7 @@ noxtls_return_t tls_accept_auto(tls_context_t *base_ctx,
         if(base_ctx->send_callback != NULL) {
             (void)noxtls_tls_send_alert(base_ctx, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_PROTOCOL_VERSION);
         }
-        if(client_hello_data) noxtls_free(client_hello_data);
+        if(client_hello_data) { noxtls_free(client_hello_data); }
         return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
     } else if(detected_version == TLS_VERSION_1_3 && tls13_ctx != NULL) {
@@ -254,6 +252,11 @@ noxtls_return_t tls_accept_auto(tls_context_t *base_ctx,
         tls12_ctx->base.base.recv_callback = base_ctx->recv_callback;
         tls12_ctx->base.base.user_data = base_ctx->user_data;
         tls12_ctx->base.base.io_mode = base_ctx->io_mode;
+
+#if NOXTLS_FEATURE_TLS13
+        /* RFC 8446 §4.1.3: TLS 1.3-capable servers negotiating TLS 1.2 or lower. */
+        tls12_ctx->rfc8446_tls13_downgrade_sh_random = (tls13_ctx != NULL) ? 1U : 0U;
+#endif
         
         /* Call TLS 1.2 accept */
         rc = noxtls_tls12_accept(tls12_ctx);

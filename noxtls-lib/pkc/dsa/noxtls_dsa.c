@@ -51,40 +51,74 @@
  * @return NOXTLS_RETURN_FAILED if the underlying hash init/update/finish fails.
  */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
-static noxtls_return_t dsa_hash_message(uint8_t *hash, uint32_t *hash_len, const uint8_t *noxtls_message, uint32_t message_len, noxtls_hash_algos_t hash_algo)
+static noxtls_return_t dsa_hash_run_md5(uint8_t *hash, const uint8_t *msg, uint32_t len)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     noxtls_sha_ctx_t ctx;
-    noxtls_sha512_ctx_t ctx512;
+    if(noxtls_md5_init(&ctx) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_md5_update(&ctx, (uint8_t *)msg, len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_md5_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    return NOXTLS_RETURN_SUCCESS;
+}
 
-    if(hash == NULL || hash_len == NULL || noxtls_message == NULL)
+static noxtls_return_t dsa_hash_run_sha1(uint8_t *hash, const uint8_t *msg, uint32_t len, noxtls_hash_algos_t hash_algo)
+{
+    noxtls_sha_ctx_t ctx;
+    if(noxtls_sha1_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha1_update(&ctx, (uint8_t *)msg, len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha1_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+static noxtls_return_t dsa_hash_run_sha256(uint8_t *hash, const uint8_t *msg, uint32_t len, noxtls_hash_algos_t hash_algo)
+{
+    noxtls_sha_ctx_t ctx;
+    if(noxtls_sha256_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha256_update(&ctx, (uint8_t *)msg, len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha256_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+static noxtls_return_t dsa_hash_run_sha512(uint8_t *hash, const uint8_t *msg, uint32_t len, noxtls_hash_algos_t hash_algo)
+{
+    noxtls_sha512_ctx_t ctx512;
+    if(noxtls_sha512_init(&ctx512, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha512_update(&ctx512, (uint8_t *)msg, len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha512_finish(&ctx512, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
+static noxtls_return_t dsa_hash_message(uint8_t *hash, uint32_t *hash_len, const uint8_t *noxtls_message, uint32_t message_len, noxtls_hash_algos_t hash_algo)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
+{
+    noxtls_return_t rc;
+
+    if(hash == NULL || hash_len == NULL || noxtls_message == NULL) {
         return NOXTLS_RETURN_NULL;
+    }
 
     switch(hash_algo) {
     case NOXTLS_HASH_MD5:
-        if(noxtls_md5_init(&ctx) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-        if(noxtls_md5_update(&ctx, (uint8_t *)noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-        if(noxtls_md5_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+        rc = dsa_hash_run_md5(hash, noxtls_message, message_len);
+        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
         *hash_len = 16;
         break;
     case NOXTLS_HASH_SHA1:
-        if(noxtls_sha1_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-        if(noxtls_sha1_update(&ctx, (uint8_t *)noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-        if(noxtls_sha1_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+        rc = dsa_hash_run_sha1(hash, noxtls_message, message_len, hash_algo);
+        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
         *hash_len = 20;
         break;
     case NOXTLS_HASH_SHA_224:
     case NOXTLS_HASH_SHA_256:
-        if(noxtls_sha256_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-        if(noxtls_sha256_update(&ctx, (uint8_t *)noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-        if(noxtls_sha256_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+        rc = dsa_hash_run_sha256(hash, noxtls_message, message_len, hash_algo);
+        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
         *hash_len = (hash_algo == NOXTLS_HASH_SHA_224) ? 28 : 32;
         break;
     case NOXTLS_HASH_SHA_384:
     case NOXTLS_HASH_SHA_512:
-        if(noxtls_sha512_init(&ctx512, hash_algo) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-        if(noxtls_sha512_update(&ctx512, (uint8_t *)noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-        if(noxtls_sha512_finish(&ctx512, hash) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+        rc = dsa_hash_run_sha512(hash, noxtls_message, message_len, hash_algo);
+        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
         *hash_len = (hash_algo == NOXTLS_HASH_SHA_384) ? 48 : 64;
         break;
     default:
@@ -113,10 +147,12 @@ static noxtls_return_t dsa_hash_message(uint8_t *hash, uint32_t *hash_len, const
  */
 noxtls_return_t noxtls_dsa_key_init(dsa_key_t *key, const uint8_t *p, uint32_t p_len, const uint8_t *q, uint32_t q_len, const uint8_t *g, uint32_t g_len)
 {
-    if(key == NULL || p == NULL || q == NULL || g == NULL)
+    if(key == NULL || p == NULL || q == NULL || g == NULL) {
         return NOXTLS_RETURN_NULL;
-    if(p_len == 0 || q_len == 0 || q_len > DSA_MAX_Q_BYTES || p_len > DSA_MAX_P_BYTES || g_len != p_len)
+    }
+    if(p_len == 0 || q_len == 0 || q_len > DSA_MAX_Q_BYTES || p_len > DSA_MAX_P_BYTES || g_len != p_len) {
         return NOXTLS_RETURN_FAILED;
+    }
 
     key->p_len = p_len;
     key->q_len = q_len;
@@ -146,8 +182,9 @@ noxtls_return_t noxtls_dsa_key_init(dsa_key_t *key, const uint8_t *p, uint32_t p
  */
 noxtls_return_t noxtls_dsa_key_set_public(dsa_key_t *key, const uint8_t *y)
 {
-    if(key == NULL || key->y == NULL || y == NULL)
+    if(key == NULL || key->y == NULL || y == NULL) {
         return NOXTLS_RETURN_NULL;
+    }
     memcpy(key->y, y, key->p_len);
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -163,8 +200,9 @@ noxtls_return_t noxtls_dsa_key_set_public(dsa_key_t *key, const uint8_t *y)
  */
 noxtls_return_t noxtls_dsa_key_set_private(dsa_key_t *key, const uint8_t *x)
 {
-    if(key == NULL || key->x == NULL || x == NULL)
+    if(key == NULL || key->x == NULL || x == NULL) {
         return NOXTLS_RETURN_NULL;
+    }
     memcpy(key->x, x, key->q_len);
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -189,14 +227,17 @@ noxtls_return_t noxtls_dsa_key_generate(dsa_key_t *key)
     uint32_t max_attempts = 100;
     uint32_t attempt;
 
-    if(key == NULL || key->p == NULL || key->q == NULL || key->g == NULL || key->y == NULL || key->x == NULL)
+    if(key == NULL || key->p == NULL || key->q == NULL || key->g == NULL || key->y == NULL || key->x == NULL) {
         return NOXTLS_RETURN_NULL;
-    if(key->q_len > (uint32_t)(UINT32_MAX / 8U))
+    }
+    if(key->q_len > (uint32_t)(UINT32_MAX / 8U)) {
         return NOXTLS_RETURN_FAILED;
+    }
 
     x_buf = (uint8_t *)noxtls_calloc(key->q_len, 1);
-    if(x_buf == NULL)
+    if(x_buf == NULL) {
         return NOXTLS_RETURN_FAILED;
+    }
 
     rc = drbg_instantiate(&drbg, DRBG_AES256, NULL, 0, NULL, 0, NULL, 0);
     if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -210,12 +251,14 @@ noxtls_return_t noxtls_dsa_key_generate(dsa_key_t *key)
             return NOXTLS_RETURN_FAILED;
         }
         noxtls_bn_mod(key->x, x_buf, key->q_len, key->q, key->q_len);
-        if(noxtls_bn_is_zero(key->x, key->q_len))
+        if(noxtls_bn_is_zero(key->x, key->q_len)) {
             key->x[key->q_len - 1] = 1;
+        }
         /* y = g^x mod p */
         rc = noxtls_bn_mod_exp(key->y, key->g, key->x, key->q_len, key->p, key->p_len);
-        if(rc == NOXTLS_RETURN_SUCCESS)
+        if(rc == NOXTLS_RETURN_SUCCESS) {
             break;
+        }
     }
     noxtls_free(x_buf);
     return rc;
@@ -231,8 +274,9 @@ noxtls_return_t noxtls_dsa_key_generate(dsa_key_t *key)
  */
 noxtls_return_t noxtls_dsa_key_free(dsa_key_t *key)
 {
-    if(key == NULL)
+    if(key == NULL) {
         return NOXTLS_RETURN_NULL;
+    }
     if(key->p) { noxtls_free(key->p); key->p = NULL; }
     if(key->q) { noxtls_free(key->q); key->q = NULL; }
     if(key->g) { noxtls_free(key->g); key->g = NULL; }
@@ -254,8 +298,9 @@ noxtls_return_t noxtls_dsa_key_free(dsa_key_t *key)
  */
 noxtls_return_t noxtls_dsa_signature_init(dsa_signature_t *sig, uint32_t q_len)
 {
-    if(sig == NULL || q_len > DSA_MAX_Q_BYTES)
+    if(sig == NULL || q_len > DSA_MAX_Q_BYTES) {
         return NOXTLS_RETURN_NULL;
+    }
     memset(sig->r, 0, DSA_MAX_Q_BYTES);
     memset(sig->s, 0, DSA_MAX_Q_BYTES);
     sig->q_len = q_len;
@@ -272,8 +317,9 @@ noxtls_return_t noxtls_dsa_signature_init(dsa_signature_t *sig, uint32_t q_len)
  */
 noxtls_return_t noxtls_dsa_signature_free(dsa_signature_t *sig)
 {
-    if(sig == NULL)
+    if(sig == NULL) {
         return NOXTLS_RETURN_NULL;
+    }
     memset(sig->r, 0, DSA_MAX_Q_BYTES);
     memset(sig->s, 0, DSA_MAX_Q_BYTES);
     sig->q_len = 0;
@@ -312,17 +358,20 @@ noxtls_return_t noxtls_dsa_sign(const dsa_key_t *key, const uint8_t *noxtls_mess
     uint32_t max_attempts = 100;
     uint32_t attempt;
 
-    if(key == NULL || key->x == NULL || noxtls_message == NULL || signature == NULL)
+    if(key == NULL || key->x == NULL || noxtls_message == NULL || signature == NULL) {
         return NOXTLS_RETURN_NULL;
+    }
     p_len = key->p_len;
     q_len = key->q_len;
-    if(q_len > DSA_MAX_Q_BYTES || p_len > DSA_MAX_P_BYTES)
+    if(q_len > DSA_MAX_Q_BYTES || p_len > DSA_MAX_P_BYTES) {
         return NOXTLS_RETURN_FAILED;
+    }
     if(q_len > (uint32_t)(UINT32_MAX / 8U) ||
        q_len > (uint32_t)(UINT32_MAX / 2U) ||
        p_len > (uint32_t)(UINT32_MAX / 2U) ||
-       q_len == UINT32_MAX)
+       q_len == UINT32_MAX) {
         return NOXTLS_RETURN_FAILED;
+    }
 
     hash = (uint8_t *)noxtls_calloc(64, 1);
     z = (uint8_t *)noxtls_calloc(q_len, 1);
@@ -338,21 +387,25 @@ noxtls_return_t noxtls_dsa_sign(const dsa_key_t *key, const uint8_t *noxtls_mess
     }
 
     rc = dsa_hash_message(hash, &hash_len, noxtls_message, message_len, hash_algo);
-    if(rc != NOXTLS_RETURN_SUCCESS)
+    if(rc != NOXTLS_RETURN_SUCCESS) {
         goto cleanup;
+    }
     /* z = leftmost min(q_len, hash_len) bytes of hash; if hash_len < q_len, pad with zeros on left */
-    if(hash_len >= q_len)
+    if(hash_len >= q_len) {
         memcpy(z, hash, q_len);
+    }
     else {
         memcpy(z + q_len - hash_len, hash, hash_len);
     }
     /* Reduce z mod q if z >= q (FIPS 186-4: z may be truncated to N bits; we use bytes) */
-    if(noxtls_bn_cmp(z, key->q, q_len) >= 0)
+    if(noxtls_bn_cmp(z, key->q, q_len) >= 0) {
         noxtls_bn_mod(z, z, q_len, key->q, q_len);
+    }
 
     rc = drbg_instantiate(&drbg, DRBG_AES256, NULL, 0, NULL, 0, NULL, 0);
-    if(rc != NOXTLS_RETURN_SUCCESS)
+    if(rc != NOXTLS_RETURN_SUCCESS) {
         goto cleanup;
+    }
 
     for(attempt = 0; attempt < max_attempts; attempt++) {
         if(drbg_generate(&drbg, random_bytes, q_len * 8U, NULL, 0) != NOXTLS_RETURN_SUCCESS) {
@@ -360,19 +413,27 @@ noxtls_return_t noxtls_dsa_sign(const dsa_key_t *key, const uint8_t *noxtls_mess
             goto cleanup;
         }
         noxtls_bn_mod(k, random_bytes, q_len, key->q, q_len);
-        if(noxtls_bn_is_zero(k, q_len))
+        if(noxtls_bn_is_zero(k, q_len)) {
             k[q_len - 1] = 1;
+        }
 
-        /* r = (g^k mod p) mod q */
-        if(noxtls_bn_mod_exp(g_k, key->g, k, q_len, key->p, p_len) != NOXTLS_RETURN_SUCCESS)
-            continue;
+        /* r = (g^k mod p) mod q; exp k is q-sized, modulus is p. */
+        {
+            uint32_t exp_len = q_len;
+            uint32_t mod_len = p_len;
+            if(noxtls_bn_mod_exp(g_k, key->g, k, exp_len, key->p, mod_len) != NOXTLS_RETURN_SUCCESS) {
+                continue;
+            }
+        }
         noxtls_bn_mod(signature->r, g_k, p_len, key->q, q_len);
-        if(noxtls_bn_is_zero(signature->r, q_len))
+        if(noxtls_bn_is_zero(signature->r, q_len)) {
             continue;
+        }
 
         /* s = k^(-1) * (z + r*x) mod q */
-        if(noxtls_bn_mod_inv(k_inv, k, q_len, key->q, q_len) != NOXTLS_RETURN_SUCCESS)
+        if(noxtls_bn_mod_inv(k_inv, k, q_len, key->q, q_len) != NOXTLS_RETURN_SUCCESS) {
             continue;
+        }
         noxtls_bn_mul(rx, signature->r, q_len, key->x, q_len);
         noxtls_bn_mod(rx, rx, q_len * 2, key->q, q_len);
         /* z_rx = z + rx (both q_len; sum may need q_len+1 bytes) */
@@ -394,8 +455,9 @@ noxtls_return_t noxtls_dsa_sign(const dsa_key_t *key, const uint8_t *noxtls_mess
         }
         noxtls_bn_mul(rx, k_inv, q_len, z_rx, q_len);
         noxtls_bn_mod(signature->s, rx, q_len * 2, key->q, q_len);
-        if(noxtls_bn_is_zero(signature->s, q_len))
+        if(noxtls_bn_is_zero(signature->s, q_len)) {
             continue;
+        }
         signature->q_len = q_len;
         rc = NOXTLS_RETURN_SUCCESS;
         goto cleanup;
@@ -403,14 +465,14 @@ noxtls_return_t noxtls_dsa_sign(const dsa_key_t *key, const uint8_t *noxtls_mess
     rc = NOXTLS_RETURN_FAILED;
 
 cleanup:
-    if(hash) noxtls_free(hash);
-    if(z) noxtls_free(z);
-    if(k) noxtls_free(k);
-    if(k_inv) noxtls_free(k_inv);
-    if(g_k) noxtls_free(g_k);
-    if(rx) noxtls_free(rx);
-    if(z_rx) noxtls_free(z_rx);
-    if(random_bytes) noxtls_free(random_bytes);
+    if(hash) { noxtls_free(hash); }
+    if(z) { noxtls_free(z); }
+    if(k) { noxtls_free(k); }
+    if(k_inv) { noxtls_free(k_inv); }
+    if(g_k) { noxtls_free(g_k); }
+    if(rx) { noxtls_free(rx); }
+    if(z_rx) { noxtls_free(z_rx); }
+    if(random_bytes) { noxtls_free(random_bytes); }
     return rc;
 }
 
@@ -444,22 +506,27 @@ noxtls_return_t noxtls_dsa_verify(const dsa_key_t *key, const uint8_t *noxtls_me
     uint32_t p_len;
     uint32_t q_len;
 
-    if(key == NULL || key->y == NULL || noxtls_message == NULL || signature == NULL)
+    if(key == NULL || key->y == NULL || noxtls_message == NULL || signature == NULL) {
         return NOXTLS_RETURN_NULL;
+    }
     p_len = key->p_len;
     q_len = key->q_len;
-    if(signature->q_len != q_len || q_len > DSA_MAX_Q_BYTES || p_len > DSA_MAX_P_BYTES)
+    if(signature->q_len != q_len || q_len > DSA_MAX_Q_BYTES || p_len > DSA_MAX_P_BYTES) {
         return NOXTLS_RETURN_FAILED;
+    }
     if(q_len > (uint32_t)(UINT32_MAX / 2U) ||
        p_len > (uint32_t)(UINT32_MAX / 2U) ||
-       q_len == UINT32_MAX)
+       q_len == UINT32_MAX) {
         return NOXTLS_RETURN_FAILED;
+    }
 
     /* r, s in [1, q-1] */
-    if(noxtls_bn_is_zero(signature->r, q_len) || noxtls_bn_cmp(signature->r, key->q, q_len) >= 0)
+    if(noxtls_bn_is_zero(signature->r, q_len) || noxtls_bn_cmp(signature->r, key->q, q_len) >= 0) {
         return NOXTLS_RETURN_FAILED;
-    if(noxtls_bn_is_zero(signature->s, q_len) || noxtls_bn_cmp(signature->s, key->q, q_len) >= 0)
+    }
+    if(noxtls_bn_is_zero(signature->s, q_len) || noxtls_bn_cmp(signature->s, key->q, q_len) >= 0) {
         return NOXTLS_RETURN_FAILED;
+    }
 
     hash = (uint8_t *)noxtls_calloc(64, 1);
     z = (uint8_t *)noxtls_calloc(q_len, 1);
@@ -476,14 +543,18 @@ noxtls_return_t noxtls_dsa_verify(const dsa_key_t *key, const uint8_t *noxtls_me
     }
 
     rc = dsa_hash_message(hash, &hash_len, noxtls_message, message_len, hash_algo);
-    if(rc != NOXTLS_RETURN_SUCCESS)
+    if(rc != NOXTLS_RETURN_SUCCESS) {
         goto cleanup;
-    if(hash_len >= q_len)
+    }
+    if(hash_len >= q_len) {
         memcpy(z, hash, q_len);
-    else
+    }
+    else {
         memcpy(z + q_len - hash_len, hash, hash_len);
-    if(noxtls_bn_cmp(z, key->q, q_len) >= 0)
+    }
+    if(noxtls_bn_cmp(z, key->q, q_len) >= 0) {
         noxtls_bn_mod(z, z, q_len, key->q, q_len);
+    }
 
     if(noxtls_bn_mod_inv(w, signature->s, q_len, key->q, q_len) != NOXTLS_RETURN_SUCCESS) {
         rc = NOXTLS_RETURN_FAILED;
@@ -494,10 +565,14 @@ noxtls_return_t noxtls_dsa_verify(const dsa_key_t *key, const uint8_t *noxtls_me
     noxtls_bn_mul(u2, w, q_len, signature->r, q_len);
     noxtls_bn_mod(u2, u2, q_len * 2, key->q, q_len);
 
-    if(noxtls_bn_mod_exp(g_u1, key->g, u1, q_len, key->p, p_len) != NOXTLS_RETURN_SUCCESS ||
-        noxtls_bn_mod_exp(y_u2, key->y, u2, q_len, key->p, p_len) != NOXTLS_RETURN_SUCCESS) {
-        rc = NOXTLS_RETURN_FAILED;
-        goto cleanup;
+    {
+        uint32_t exp_len = q_len;
+        uint32_t mod_len = p_len;
+        if(noxtls_bn_mod_exp(g_u1, key->g, u1, exp_len, key->p, mod_len) != NOXTLS_RETURN_SUCCESS ||
+           noxtls_bn_mod_exp(y_u2, key->y, u2, exp_len, key->p, mod_len) != NOXTLS_RETURN_SUCCESS) {
+            rc = NOXTLS_RETURN_FAILED;
+            goto cleanup;
+        }
     }
     noxtls_bn_mul(product, g_u1, p_len, y_u2, p_len);
     noxtls_bn_mod(g_u1, product, p_len * 2, key->p, p_len);  /* g_u1 = (g^u1 * y^u2) mod p */
@@ -506,14 +581,14 @@ noxtls_return_t noxtls_dsa_verify(const dsa_key_t *key, const uint8_t *noxtls_me
     rc = (noxtls_bn_cmp(v, signature->r, q_len) == 0) ? NOXTLS_RETURN_SUCCESS : NOXTLS_RETURN_FAILED;
 
 cleanup:
-    if(hash) noxtls_free(hash);
-    if(z) noxtls_free(z);
-    if(w) noxtls_free(w);
-    if(u1) noxtls_free(u1);
-    if(u2) noxtls_free(u2);
-    if(g_u1) noxtls_free(g_u1);
-    if(y_u2) noxtls_free(y_u2);
-    if(v) noxtls_free(v);
-    if(product) noxtls_free(product);
+    if(hash) { noxtls_free(hash); }
+    if(z) { noxtls_free(z); }
+    if(w) { noxtls_free(w); }
+    if(u1) { noxtls_free(u1); }
+    if(u2) { noxtls_free(u2); }
+    if(g_u1) { noxtls_free(g_u1); }
+    if(y_u2) { noxtls_free(y_u2); }
+    if(v) { noxtls_free(v); }
+    if(product) { noxtls_free(product); }
     return rc;
 }

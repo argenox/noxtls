@@ -67,6 +67,24 @@ target_include_directories(aes_accel_backend_test PRIVATE
 )
 add_test(NAME aes_accel_backend_test COMMAND aes_accel_backend_test)
 
+set(CMAC_STREAMING_TEST_SOURCE "${NOXTLS_ROOT_UT_DIR}/encryption/cmac_streaming_test.c")
+add_executable(cmac_streaming_test "${CMAC_STREAMING_TEST_SOURCE}")
+if(MSVC)
+    set_source_files_properties("${CMAC_STREAMING_TEST_SOURCE}" PROPERTIES LANGUAGE CXX)
+endif()
+target_link_libraries(cmac_streaming_test PRIVATE
+    utnox
+    noxtls_common
+    noxtls_encryption
+)
+target_include_directories(cmac_streaming_test PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../noxtls-lib
+    ${CMAKE_CURRENT_SOURCE_DIR}/../noxtls-lib/encryption
+    ${CMAKE_CURRENT_SOURCE_DIR}/../noxtls-lib/encryption/aes
+)
+add_test(NAME cmac_streaming_test COMMAND cmac_streaming_test)
+
 add_test(
     NAME allocator_policy_check
     COMMAND python "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/check_allocator_policy.py"

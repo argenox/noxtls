@@ -65,7 +65,7 @@ The easiest way to integrate NoxTLS to your project is to use the [NoxTLS ESP Co
 
     ```yaml
     dependencies:
-      argenox/noxtls: "^0.2.60"
+      argenox/noxtls: "^0.2.61"
     ```
 
     This instructs ESP-IDF to fetch and integrate NoxTLS automatically at build time.

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(NoxTLS VERSION 0.2.60 LANGUAGES C)
+project(NoxTLS VERSION 0.2.70 LANGUAGES C)
 
 # Resolve NoxTLS paths from this directory by default, while allowing parent override.
 if(NOT DEFINED NOXTLS_PROJECT_ROOT)
@@ -28,8 +28,8 @@ set(NOXTLS_PROFILE "default" CACHE STRING "Feature profile: default|minimal_tls_
 set_property(CACHE NOXTLS_PROFILE PROPERTY STRINGS default minimal_tls_client tls_server_pki crypto_only fips_like_profile)
 set(NOXTLS_SIDECHANNEL_PROFILE "balanced" CACHE STRING "Side-channel profile: performance|balanced|constant_time_strict")
 set_property(CACHE NOXTLS_SIDECHANNEL_PROFILE PROPERTY STRINGS performance balanced constant_time_strict)
-set(NOXTLS_SIZE_PROFILE "crypto_only" CACHE STRING "Size benchmark profile: crypto_only|tls12_only|tls13_only|tls12_tls13|full_quantum")
-set_property(CACHE NOXTLS_SIZE_PROFILE PROPERTY STRINGS crypto_only tls12_only tls13_only tls12_tls13 full_quantum)
+set(NOXTLS_SIZE_PROFILE "crypto_only" CACHE STRING "Size benchmark profile: crypto_only|tls12_only|tls13_only|tls12_tls13|full_quantum|pq_baseline|pq_ml_kem|pq_ml_dsa|pq_slh_dsa|pq_falcon|pq_lms_hss|pq_xmss")
+set_property(CACHE NOXTLS_SIZE_PROFILE PROPERTY STRINGS crypto_only tls12_only tls13_only tls12_tls13 full_quantum pq_baseline pq_ml_kem pq_ml_dsa pq_slh_dsa pq_falcon pq_lms_hss pq_xmss)
 set(NOXTLS_BENCH_OPT_LEVEL "O3" CACHE STRING "Benchmark compiler optimization level")
 set_property(CACHE NOXTLS_BENCH_OPT_LEVEL PROPERTY STRINGS O0 O1 O3 Os)
 
@@ -89,6 +89,7 @@ noxtls_set_default(NOXTLS_CFG_FEATURE_STM32_HW_AES_ONLY OFF)
 noxtls_set_default(NOXTLS_CFG_FEATURE_STM32_HW_SHA256_ONLY OFF)
 noxtls_set_default(NOXTLS_CFG_FEATURE_NRF52_HW_ACCEL OFF)
 noxtls_set_default(NOXTLS_CFG_FEATURE_NRF52_HW_AES_ONLY OFF)
+noxtls_set_default(NOXTLS_CFG_FEATURE_NOXV_HW_ACCEL OFF)
 noxtls_set_default(NOXTLS_CFG_FEATURE_ARIA ON)
 noxtls_set_default(NOXTLS_CFG_FEATURE_CAMELLIA ON)
 noxtls_set_default(NOXTLS_CFG_FEATURE_CHACHA20_POLY1305 ON)
@@ -301,6 +302,7 @@ noxtls_define_bool(NOXTLS_FEATURE_STM32_HW_AES_ONLY NOXTLS_CFG_FEATURE_STM32_HW_
 noxtls_define_bool(NOXTLS_FEATURE_STM32_HW_SHA256_ONLY NOXTLS_CFG_FEATURE_STM32_HW_SHA256_ONLY)
 noxtls_define_bool(NOXTLS_FEATURE_NRF52_HW_ACCEL NOXTLS_CFG_FEATURE_NRF52_HW_ACCEL)
 noxtls_define_bool(NOXTLS_FEATURE_NRF52_HW_AES_ONLY NOXTLS_CFG_FEATURE_NRF52_HW_AES_ONLY)
+noxtls_define_bool(NOXTLS_FEATURE_NOXV_HW_ACCEL NOXTLS_CFG_FEATURE_NOXV_HW_ACCEL)
 noxtls_define_bool(NOXTLS_FEATURE_ARIA NOXTLS_CFG_FEATURE_ARIA)
 noxtls_define_bool(NOXTLS_FEATURE_CAMELLIA NOXTLS_CFG_FEATURE_CAMELLIA)
 noxtls_define_bool(NOXTLS_FEATURE_CHACHA20_POLY1305 NOXTLS_CFG_FEATURE_CHACHA20_POLY1305)
@@ -377,6 +379,7 @@ include_directories(
     ${NOXTLS_LIB_ROOT}/pkc/ecdh
     ${NOXTLS_LIB_ROOT}/pkc/mlkem
     ${NOXTLS_LIB_ROOT}/pkc/mldsa
+    ${NOXTLS_LIB_ROOT}/pkc/slhdsa
     ${NOXTLS_LIB_ROOT}/pkc/falcon
     ${NOXTLS_LIB_ROOT}/pkc/lms
     ${NOXTLS_LIB_ROOT}/pkc/xmss
@@ -484,3 +487,6 @@ if(_noxtls_build_applications_in_tree)
   add_subdirectory(applications/prime)
   add_subdirectory(applications/sha)
 endif()
+
+# Install SDK (libraries, headers, CLIs, CMake package, pkg-config)
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/NoxTLSInstall.cmake")

@@ -223,7 +223,7 @@ static void aria_store_be64(uint8_t *p, uint64_t v)
     p[4] = (uint8_t)(v >> 24);
     p[5] = (uint8_t)(v >> 16);
     p[6] = (uint8_t)(v >> 8);
-    p[7] = (uint8_t)(v);
+    p[7] = (uint8_t)v;
 }
 
 /**
@@ -527,18 +527,7 @@ void noxtls_aria_decrypt_block(const noxtls_aria_key_t *key, const uint8_t in[16
     memcpy(out, state, 16);
 }
 
-/* Forward declarations for mode-specific functions */
-extern noxtls_return_t noxtls_aria_encrypt_ecb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aria_type_t type);
-extern noxtls_return_t noxtls_aria_encrypt_cbc(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aria_type_t type);
-extern noxtls_return_t noxtls_aria_encrypt_ctr(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aria_type_t type);
-extern noxtls_return_t noxtls_aria_encrypt_cfb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aria_type_t type);
-extern noxtls_return_t noxtls_aria_encrypt_ofb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aria_type_t type);
-
-extern noxtls_return_t noxtls_aria_decrypt_ecb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aria_type_t type);
-extern noxtls_return_t noxtls_aria_decrypt_cbc(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aria_type_t type);
-extern noxtls_return_t noxtls_aria_decrypt_ctr(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aria_type_t type);
-extern noxtls_return_t noxtls_aria_decrypt_cfb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aria_type_t type);
-extern noxtls_return_t noxtls_aria_decrypt_ofb(const uint8_t* key, const uint8_t* data, uint32_t data_len, const uint8_t * iv, uint8_t* output, noxtls_aria_type_t type);
+/* Mode entry points are declared in noxtls_aria.h. */
 
 /**
  * @brief ARIA Encrypt Data

@@ -270,6 +270,7 @@ typedef struct tls13_context_s
     /* Client certificate authentication (mutual TLS / mTLS) */
     uint8_t request_client_auth;     /* Server: if set, send CertificateRequest and verify client cert */
     uint8_t require_client_auth;     /* Server: if set, missing client cert triggers certificate_required alert */
+    uint8_t force_cert_verify_fail;  /* BoGo: force peer certificate verification to fail */
     uint8_t client_auth_requested;   /* Client: set when server sent CertificateRequest */
     uint8_t cert_request_context[32];/* Client: context from CertificateRequest (for client Certificate noxtls_message) */
     uint8_t cert_request_context_len;
@@ -370,6 +371,12 @@ typedef struct tls13_context_s
     /* RFC 8449 Record Size Limit: max plaintext we may send (peer's limit); max we accept (our advertised limit). 0 = use TLS_MAX_RECORD_SIZE. */
     uint16_t record_size_limit_send;   /* Do not send records larger than this (0 = TLS_MAX_RECORD_SIZE). */
     uint16_t record_size_limit_recv;   /* We advertised this as max we accept; peer must not send larger (0 = use default). */
+    /** Client (RFC 7507): include TLS_FALLBACK_SCSV in ClientHello cipher suites. */
+    uint8_t client_send_fallback_scsv;
+
+    /* Consecutive empty app-data records / warning alerts (BoringSSL-compatible limits). */
+    uint8_t empty_record_count;
+    uint8_t warning_alert_count;
 } tls13_context_t;
 NOXTLS_MSVC_WARNING_POP
 
@@ -431,6 +438,7 @@ void noxtls_tls13_set_keylog_file(const char *path);
 
 /** Set runtime cipher preference: prefer_chacha20 0 = prefer AES-GCM, 1 = prefer ChaCha20-Poly1305. Call before handshake. */
 void noxtls_tls13_set_prefer_chacha20(tls13_context_t *ctx, int prefer_chacha20);
+void noxtls_tls13_set_client_fallback_scsv(tls13_context_t *ctx, int enable);
 /** Set server cipher-suite allowlist (wire IDs). Call before handshake. */
 void noxtls_tls13_set_server_cipher_suites(tls13_context_t *ctx, const uint16_t *suites, uint32_t count);
 /** Override the client's supported_groups list used for ClientHello construction. Call before handshake. */
@@ -486,6 +494,9 @@ void noxtls_tls13_request_client_auth(tls13_context_t *ctx, int request);
 /** Server: require client certificate (implies request). Missing cert -> certificate_required alert. */
 void noxtls_tls13_require_client_auth(tls13_context_t *ctx, int require);
 
+/** Force peer certificate verification to fail (BoGo -verify-fail). */
+void noxtls_tls13_set_force_cert_verify_fail(tls13_context_t *ctx, int enable);
+
 /** Client: set client certificate and RSA private key for mutual TLS. Call before noxtls_tls13_connect. cert in DER; rsa_key is rsa_key_t*. */
 noxtls_return_t noxtls_tls13_set_client_cert(tls13_context_t *ctx, const uint8_t *cert_der, uint32_t cert_len, void *rsa_key);
 /** Client: set client certificate and ECDSA private key (ecc_key_t*) for CertificateVerify. Use for ECDSA P-256/P-384 certs. */
@@ -529,6 +540,16 @@ noxtls_return_t tls13_set_external_psk(tls13_context_t *ctx,
  * @return NOXTLS_RETURN_SUCCESS on success; NOXTLS_RETURN_FAILED if binding not available or invalid type.
  */
 noxtls_return_t noxtls_tls13_get_channel_binding(tls13_context_t *ctx, uint32_t binding_type, uint8_t *out, uint32_t *out_len);
+
+/**
+ * RFC 8446 Section 7.5 TLS exporter. Call only after the handshake has
+ * completed. The label is supplied without the "tls13 " prefix.
+ */
+noxtls_return_t noxtls_tls13_export_keying_material(
+    tls13_context_t *ctx,
+    const uint8_t *label, uint32_t label_len,
+    const uint8_t *context, uint32_t context_len,
+    uint8_t *output, uint32_t output_len);
 
 /** RFC 8449: Set record size limit we advertise (max plaintext we are willing to receive). 0 = use default (16384). Call before handshake. */
 void noxtls_tls13_set_record_size_limit(tls13_context_t *ctx, uint16_t limit);

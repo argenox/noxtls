@@ -126,6 +126,7 @@ Release/
 .cu*
 
 build-*
+artifacts/
 *.zip
 
 # Zephyr port (ports/zephyr)

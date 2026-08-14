@@ -112,7 +112,7 @@ static void chacha20_block(const uint32_t state[NOXTLS_CHACHA20_STATE_WORDS], ui
     /* Convert to little-endian bytes */
     for(i = 0; i < NOXTLS_CHACHA20_STATE_WORDS; i++) {
         for(j = 0; j < 4; j++) {
-            output[i * 4 + j] = (uint8_t)(working_state[i] >> (j * 8));
+            output[(i * 4) + j] = (uint8_t)(working_state[i] >> (j * 8));
         }
     }
 }
@@ -227,7 +227,7 @@ noxtls_return_t noxtls_chacha20_encrypt(const uint8_t *key,
     }
     
     { noxtls_return_t r = noxtls_chacha20_init(&ctx, key, nonce, counter);
-    if(r != NOXTLS_RETURN_SUCCESS) return r; }
+    if(r != NOXTLS_RETURN_SUCCESS) { return r; } }
     
     return noxtls_chacha20_process(&ctx, input, output, input_len);
 }

@@ -1,0 +1,2 @@
+# API docs are generated here by scripts/doxygen-xml-to-md.js from Doxygen XML.
+# Do not commit generated *.md files if they are built in CI.

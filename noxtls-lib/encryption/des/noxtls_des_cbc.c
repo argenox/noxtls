@@ -56,8 +56,9 @@ noxtls_return_t noxtls_des_encrypt_cbc(const uint8_t *key,
     uint8_t zero_iv[NOXTLS_DES_BLOCK_LENGTH];
     const uint8_t *prev;
 
-    if(!key || !data || !output || (data_len % NOXTLS_DES_BLOCK_LENGTH) != 0)
+    if(!key || !data || !output || (data_len % NOXTLS_DES_BLOCK_LENGTH) != 0) {
         return NOXTLS_RETURN_INVALID_PARAM;
+    }
     prev = iv;
     if(!prev) {
         memset(zero_iv, 0, NOXTLS_DES_BLOCK_LENGTH);
@@ -65,8 +66,9 @@ noxtls_return_t noxtls_des_encrypt_cbc(const uint8_t *key,
     }
     for(cur = 0; cur < data_len; cur += NOXTLS_DES_BLOCK_LENGTH) {
         uint32_t i;
-        for(i = 0; i < NOXTLS_DES_BLOCK_LENGTH; i++)
+        for(i = 0; i < NOXTLS_DES_BLOCK_LENGTH; i++) {
             block[i] = data[cur + i] ^ prev[i];
+        }
         noxtls_des_encrypt_block_internal(key, block, &output[cur]);
         prev = &output[cur];
     }
@@ -93,8 +95,9 @@ noxtls_return_t noxtls_des_decrypt_cbc(const uint8_t *key,
     uint8_t zero_iv[NOXTLS_DES_BLOCK_LENGTH];
     const uint8_t *prev;
 
-    if(!key || !data || !output || (data_len % NOXTLS_DES_BLOCK_LENGTH) != 0)
+    if(!key || !data || !output || (data_len % NOXTLS_DES_BLOCK_LENGTH) != 0) {
         return NOXTLS_RETURN_INVALID_PARAM;
+    }
     prev = iv;
     if(!prev) {
         memset(zero_iv, 0, NOXTLS_DES_BLOCK_LENGTH);
@@ -103,8 +106,9 @@ noxtls_return_t noxtls_des_decrypt_cbc(const uint8_t *key,
     for(cur = 0; cur < data_len; cur += NOXTLS_DES_BLOCK_LENGTH) {
         uint32_t i;
         noxtls_des_decrypt_block_internal(key, &data[cur], block);
-        for(i = 0; i < NOXTLS_DES_BLOCK_LENGTH; i++)
+        for(i = 0; i < NOXTLS_DES_BLOCK_LENGTH; i++) {
             output[cur + i] = block[i] ^ prev[i];
+        }
         prev = &data[cur];
     }
     return NOXTLS_RETURN_SUCCESS;
@@ -132,8 +136,9 @@ noxtls_return_t des3_encrypt_cbc(const uint8_t *key,
     uint8_t zero_iv[NOXTLS_DES_BLOCK_LENGTH];
     const uint8_t *prev;
 
-    if(!key || !data || !output || (key_len != 16 && key_len != 24) || (data_len % NOXTLS_DES_BLOCK_LENGTH) != 0)
+    if(!key || !data || !output || (key_len != 16 && key_len != 24) || (data_len % NOXTLS_DES_BLOCK_LENGTH) != 0) {
         return NOXTLS_RETURN_INVALID_PARAM;
+    }
     prev = iv;
     if(!prev) {
         memset(zero_iv, 0, NOXTLS_DES_BLOCK_LENGTH);
@@ -141,8 +146,9 @@ noxtls_return_t des3_encrypt_cbc(const uint8_t *key,
     }
     for(cur = 0; cur < data_len; cur += NOXTLS_DES_BLOCK_LENGTH) {
         uint32_t i;
-        for(i = 0; i < NOXTLS_DES_BLOCK_LENGTH; i++)
+        for(i = 0; i < NOXTLS_DES_BLOCK_LENGTH; i++) {
             block[i] = data[cur + i] ^ prev[i];
+        }
         noxtls_des3_encrypt_block(key, key_len, block, &output[cur]);
         prev = &output[cur];
     }
@@ -171,8 +177,9 @@ noxtls_return_t des3_decrypt_cbc(const uint8_t *key,
     uint8_t zero_iv[NOXTLS_DES_BLOCK_LENGTH];
     const uint8_t *prev;
 
-    if(!key || !data || !output || (key_len != 16 && key_len != 24) || (data_len % NOXTLS_DES_BLOCK_LENGTH) != 0)
+    if(!key || !data || !output || (key_len != 16 && key_len != 24) || (data_len % NOXTLS_DES_BLOCK_LENGTH) != 0) {
         return NOXTLS_RETURN_INVALID_PARAM;
+    }
     prev = iv;
     if(!prev) {
         memset(zero_iv, 0, NOXTLS_DES_BLOCK_LENGTH);
@@ -181,8 +188,9 @@ noxtls_return_t des3_decrypt_cbc(const uint8_t *key,
     for(cur = 0; cur < data_len; cur += NOXTLS_DES_BLOCK_LENGTH) {
         uint32_t i;
         noxtls_des3_decrypt_block(key, key_len, &data[cur], block);
-        for(i = 0; i < NOXTLS_DES_BLOCK_LENGTH; i++)
+        for(i = 0; i < NOXTLS_DES_BLOCK_LENGTH; i++) {
             output[cur + i] = block[i] ^ prev[i];
+        }
         prev = &data[cur];
     }
     return NOXTLS_RETURN_SUCCESS;

@@ -81,7 +81,12 @@ extern "C" {
 #define TLS_CLIENT_KEY_EXCHANGE_MAX_LEN      512  /* Max ClientKeyExchange noxtls_message buffer */
 #define TLS_HELLO_RETRY_REQUEST_MAX_SIZE     256
 #define TLS_SERVER_KEY_EXCHANGE_WORKSPACE   (1024 + 320 + 512)  /* DHE/ECDHE params + sig buffer */
-#define TLS_RECORD_WORKSPACE_OVERHEAD        256  /* Extra bytes for record_workspace (IV/tag/etc.) */
+/*
+ * RFC 5246 TLSCiphertext expansion is up to 2048 octets beyond 2^14 plaintext.
+ * TLS 1.3 encrypted records are tighter (2^14+256) and enforced in decrypt.
+ */
+#define TLS_RECORD_WORKSPACE_OVERHEAD        2048
+#define TLS13_MAX_ENCRYPTED_RECORD_OVERHEAD  256
 #define TLS13_RECORD_WORKSPACE_SIZE         ((TLS_MAX_RECORD_SIZE + 32) * 2) /* TLS 1.3 record workspace size */
 #define TLS_KEY_SHARE_ENTRY_MAX_LEN          2048 /* Encoded key share entry buffer */
 #define TLS_SESSION_ID_MAX_LEN               32
@@ -155,6 +160,7 @@ extern "C" {
 #define TLS_CIPHER_SUITE_NULL_WITH_NULL_NULL                 0x0000
 /* RFC 5746 / RFC 7507: Signaling cipher suite value for empty renegotiation_info */
 #define TLS_CIPHER_SUITE_EMPTY_RENEGOTIATION_INFO_SCSV       0x00FF
+#define TLS_CIPHER_SUITE_FALLBACK_SCSV                       0x5600
 #define TLS_CIPHER_SUITE_RSA_WITH_3DES_EDE_CBC_SHA           0x000A
 #define TLS_CIPHER_SUITE_DHE_RSA_WITH_3DES_EDE_CBC_SHA       0x0016
 #define TLS_CIPHER_SUITE_RSA_WITH_AES_128_CBC_SHA            0x002F
@@ -170,11 +176,14 @@ extern "C" {
 #define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_GCM_SHA256     0x009E
 #define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_256_GCM_SHA384     0x009F
 #define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_CBC_SHA      0xC013
+#define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_CBC_SHA      0xC014
 #define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_CBC_SHA256   0xC027
 #define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_CBC_SHA384   0xC028
 /* TLS 1.2 ECDHE-ECDSA CBC/SHA and CBC/SHA256 (RFC 4492 / IANA) */
 #define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CBC_SHA      0xC009
-#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384   0xC00A
+#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CBC_SHA      0xC00A
+#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256   0xC023
+#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384   0xC024
 #define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 0xC02B
 #define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 0xC02C
 #define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_GCM_SHA256   0xC02F
@@ -350,11 +359,16 @@ extern "C" {
 #endif
 
 /**
- * Maximum TLS record `fragment` length after TLS 1.2 CBC protection (explicit IV
- * plus ciphertext; ciphertext length is bounded by TLS_MAX_RECORD_SIZE). This
- * exceeds TLS_MAX_RECORD_SIZE and must be accepted by noxtls_tls_send_record.
+ * Absolute wire ceiling for a TLS record fragment (RFC 5246 TLSCiphertext).
+ * TLS 1.3 still rejects ciphertext above 2^14+256 during decrypt.
  */
 #define TLS_MAX_PROTECTED_RECORD_FRAGMENT (TLS_MAX_RECORD_SIZE + TLS_RECORD_WORKSPACE_OVERHEAD)
+#define TLS13_MAX_ENCRYPTED_RECORD_SIZE \
+    (TLS_MAX_RECORD_SIZE + TLS13_MAX_ENCRYPTED_RECORD_OVERHEAD)
+
+/** BoringSSL-compatible consecutive empty record / warning alert limits. */
+#define TLS_MAX_EMPTY_RECORDS    32U
+#define TLS_MAX_WARNING_ALERTS   4U
 
 /** Size of per-connection handshake workspace for building/parsing handshake messages (client_hello, certificate, etc.). Reused to reduce peak stack and heap. */
 #ifndef NOXTLS_TLS_HANDSHAKE_WORKSPACE_SIZE

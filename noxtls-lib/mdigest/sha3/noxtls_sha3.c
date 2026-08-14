@@ -41,7 +41,7 @@ static uint8_t debug_lvl = 0;
 typedef uint64_t sha3_lane_t;
 
 /* Helper macro to access state as 5x5 array of 64-bit lanes */
-#define SHA3_LANE(x, y) (((sha3_lane_t*)ctx->state)[SHA3_MAX_X_SIZE * (y) + (x)])
+#define SHA3_LANE(x, y) (((sha3_lane_t*)ctx->state)[(SHA3_MAX_X_SIZE * (y)) + (x)])
 
 /* Rotation offsets for rho step (5x5 grid, indexed by [y][x]) */
 static const uint8_t rho_offsets[SHA3_MAX_Y_SIZE][SHA3_MAX_X_SIZE] = {
@@ -156,7 +156,7 @@ static void keccak_pi(noxtls_sha3_ctx_t * ctx)
     /* Permute lanes */
     for(x = 0; x < SHA3_MAX_X_SIZE; x++) {
         for(y = 0; y < SHA3_MAX_Y_SIZE; y++) {
-            SHA3_LANE(x, y) = temp[(x + 3 * y) % SHA3_MAX_X_SIZE][x];
+            SHA3_LANE(x, y) = temp[(x + (3 * y)) % SHA3_MAX_X_SIZE][x];
         }
     }
 }
@@ -431,7 +431,7 @@ noxtls_return_t noxtls_sha3_finish(noxtls_sha3_ctx_t * ctx, uint8_t * hash)
  */
 noxtls_return_t noxtls_shake128_init(noxtls_sha3_ctx_t * ctx)
 {
-    if(ctx == NULL) return NOXTLS_RETURN_NULL;
+    if(ctx == NULL) { return NOXTLS_RETURN_NULL; }
     memset(ctx->state, 0, SHA3_STATE_SIZE);
     memset(ctx->buffer, 0, sizeof(ctx->buffer));
     ctx->rate = SHA3_SHAKE128_RATE_BYTES;
@@ -454,8 +454,8 @@ noxtls_return_t noxtls_shake128_init(noxtls_sha3_ctx_t * ctx)
  */
 noxtls_return_t noxtls_shake128_update(noxtls_sha3_ctx_t * ctx, const uint8_t * data, uint32_t len)
 {
-    if(ctx == NULL) return NOXTLS_RETURN_NULL;
-    if(ctx->finalized) return NOXTLS_RETURN_FAILED;
+    if(ctx == NULL) { return NOXTLS_RETURN_NULL; }
+    if(ctx->finalized) { return NOXTLS_RETURN_FAILED; }
     ctx->total_length += len;
     return sha3_absorb(ctx, data, len);
 }
@@ -468,8 +468,8 @@ noxtls_return_t noxtls_shake128_update(noxtls_sha3_ctx_t * ctx, const uint8_t * 
  */
 noxtls_return_t noxtls_shake128_final(noxtls_sha3_ctx_t * ctx)
 {
-    if(ctx == NULL) return NOXTLS_RETURN_NULL;
-    if(ctx->finalized) return NOXTLS_RETURN_SUCCESS;
+    if(ctx == NULL) { return NOXTLS_RETURN_NULL; }
+    if(ctx->finalized) { return NOXTLS_RETURN_SUCCESS; }
     ctx->state[ctx->buffer_len] ^= ctx->domain_sep;
     ctx->state[ctx->rate - 1] ^= SHA3_PAD_FINAL_BYTE;
     keccak_f1600(ctx);
@@ -489,8 +489,8 @@ noxtls_return_t noxtls_shake128_final(noxtls_sha3_ctx_t * ctx)
 noxtls_return_t noxtls_shake128_squeeze(noxtls_sha3_ctx_t * ctx, uint8_t * out, uint32_t out_len)
 {
     uint32_t copied = 0;
-    if(ctx == NULL || (out == NULL && out_len != 0)) return NOXTLS_RETURN_NULL;
-    if(!ctx->finalized) return NOXTLS_RETURN_FAILED;
+    if(ctx == NULL || (out == NULL && out_len != 0)) { return NOXTLS_RETURN_NULL; }
+    if(!ctx->finalized) { return NOXTLS_RETURN_FAILED; }
     while(copied < out_len) {
         uint32_t from_state = ctx->rate - ctx->buffer_len;
         uint32_t to_copy = (out_len - copied) < from_state ? (out_len - copied) : from_state;
@@ -515,7 +515,7 @@ noxtls_return_t noxtls_shake128_squeeze(noxtls_sha3_ctx_t * ctx, uint8_t * out, 
  */
 noxtls_return_t noxtls_shake256_init(noxtls_sha3_ctx_t * ctx)
 {
-    if(ctx == NULL) return NOXTLS_RETURN_NULL;
+    if(ctx == NULL) { return NOXTLS_RETURN_NULL; }
     memset(ctx->state, 0, SHA3_STATE_SIZE);
     memset(ctx->buffer, 0, sizeof(ctx->buffer));
     ctx->rate = SHA3_SHAKE256_RATE_BYTES;
@@ -538,8 +538,8 @@ noxtls_return_t noxtls_shake256_init(noxtls_sha3_ctx_t * ctx)
  */
 noxtls_return_t noxtls_shake256_update(noxtls_sha3_ctx_t * ctx, const uint8_t * data, uint32_t len)
 {
-    if(ctx == NULL) return NOXTLS_RETURN_NULL;
-    if(ctx->finalized) return NOXTLS_RETURN_FAILED;
+    if(ctx == NULL) { return NOXTLS_RETURN_NULL; }
+    if(ctx->finalized) { return NOXTLS_RETURN_FAILED; }
     ctx->total_length += len;
     return sha3_absorb(ctx, data, len);
 }
@@ -552,8 +552,8 @@ noxtls_return_t noxtls_shake256_update(noxtls_sha3_ctx_t * ctx, const uint8_t * 
  */
 noxtls_return_t noxtls_shake256_final(noxtls_sha3_ctx_t * ctx)
 {
-    if(ctx == NULL) return NOXTLS_RETURN_NULL;
-    if(ctx->finalized) return NOXTLS_RETURN_SUCCESS;
+    if(ctx == NULL) { return NOXTLS_RETURN_NULL; }
+    if(ctx->finalized) { return NOXTLS_RETURN_SUCCESS; }
     ctx->state[ctx->buffer_len] ^= ctx->domain_sep;
     ctx->state[ctx->rate - 1] ^= SHA3_PAD_FINAL_BYTE;
     keccak_f1600(ctx);
@@ -573,8 +573,8 @@ noxtls_return_t noxtls_shake256_final(noxtls_sha3_ctx_t * ctx)
 noxtls_return_t noxtls_shake256_squeeze(noxtls_sha3_ctx_t * ctx, uint8_t * out, uint32_t out_len)
 {
     uint32_t copied = 0;
-    if(ctx == NULL || (out == NULL && out_len != 0)) return NOXTLS_RETURN_NULL;
-    if(!ctx->finalized) return NOXTLS_RETURN_FAILED;
+    if(ctx == NULL || (out == NULL && out_len != 0)) { return NOXTLS_RETURN_NULL; }
+    if(!ctx->finalized) { return NOXTLS_RETURN_FAILED; }
     while(copied < out_len) {
         uint32_t from_state = ctx->rate - ctx->buffer_len;
         uint32_t to_copy = (out_len - copied) < from_state ? (out_len - copied) : from_state;

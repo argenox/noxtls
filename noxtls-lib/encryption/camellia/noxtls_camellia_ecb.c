@@ -84,8 +84,9 @@ noxtls_return_t noxtls_camellia_decrypt_ecb(const uint8_t* key,
     uint32_t cur_block;
 
     (void)iv;
-    for(cur_block = 0; cur_block < data_len; cur_block += NOXTLS_CAMELLIA_BLOCK_LENGTH)
+    for(cur_block = 0; cur_block < data_len; cur_block += NOXTLS_CAMELLIA_BLOCK_LENGTH) {
         noxtls_camellia_decrypt_block_internal(key, &data[cur_block], &output[cur_block], type);
+    }
     return NOXTLS_RETURN_SUCCESS;
 }
 
