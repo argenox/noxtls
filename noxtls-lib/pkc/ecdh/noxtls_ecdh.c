@@ -29,6 +29,10 @@
 #include "common/noxtls_memory_compat.h"
 #include "noxtls_ecdh.h"
 
+noxtls_return_t noxtls_ecdh_compute_shared_secret_accel_port(
+    const ecc_key_t *private_key, const ecc_point_t *peer_public_key,
+    uint8_t *shared_secret, uint32_t *shared_secret_len);
+
 /**
  * @brief ECDH Compute Shared Secret
  * 
@@ -67,6 +71,14 @@ noxtls_return_t noxtls_ecdh_compute_shared_secret(ecc_key_t *private_key, const 
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
+
+    rc = noxtls_ecdh_compute_shared_secret_accel_port(
+        private_key, peer_public_key, shared_secret, shared_secret_len);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+    /* A disabled, busy, or failed accelerator is never allowed to make ECDH
+     * unavailable. Continue through the portable scalar-multiply path. */
     
     /* Compute shared secret = d * Q_peer using scalar multiplication */
     /* This uses the same scalar multiplication as ECC */

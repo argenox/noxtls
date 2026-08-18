@@ -36,6 +36,67 @@
 #undef fprintf
 #define fprintf(...) ((void)0)
 
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+#if defined(__GNUC__) || defined(__clang__)
+#define NOXTLS_ECC_DIAG_WEAK __attribute__((weak))
+#else
+#define NOXTLS_ECC_DIAG_WEAK
+#endif
+
+/*
+ * Test applications may override this with a monotonic microsecond timer.
+ * The default keeps NoxTLS portable and adds no timing dependency to products.
+ */
+NOXTLS_ECC_DIAG_WEAK uint64_t noxtls_ecc_diagnostic_time_us(void)
+{
+    return 0U;
+}
+
+NOXTLS_ECC_DIAG_WEAK uint8_t noxtls_ecc_accel_is_ready(void)
+{
+    return 0U;
+}
+
+NOXTLS_ECC_DIAG_WEAK uint32_t noxtls_ecc_accel_operation_count(void)
+{
+    return 0U;
+}
+
+NOXTLS_ECC_DIAG_WEAK uint32_t noxtls_ecc_accel_fallback_count(void)
+{
+    return 0U;
+}
+
+static uint32_t noxtls_ecc_diagnostic_elapsed_us(uint64_t start_us)
+{
+    const uint64_t end_us = noxtls_ecc_diagnostic_time_us();
+
+    return (start_us != 0U && end_us >= start_us) ?
+        (uint32_t)(end_us - start_us) : 0U;
+}
+#endif
+
+/* SM/PTS diagnostics: exported for host-side RTT status snapshots. */
+volatile int32_t noxtls_ecc_keygen_last_rc = NOXTLS_RETURN_SUCCESS;
+volatile uint32_t noxtls_ecc_keygen_last_stage = 0u;
+volatile int32_t noxtls_ecc_keygen_last_entropy_rc = NOXTLS_RETURN_SUCCESS;
+volatile int32_t noxtls_ecc_keygen_last_multiply_rc = NOXTLS_RETURN_SUCCESS;
+volatile int32_t noxtls_ecc_keyinit_last_rc = NOXTLS_RETURN_SUCCESS;
+volatile uint32_t noxtls_ecc_keyinit_last_stage = 0u;
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+volatile uint32_t noxtls_ecc_keygen_last_init_us = 0U;
+volatile uint32_t noxtls_ecc_keygen_last_private_us = 0U;
+volatile uint32_t noxtls_ecc_keygen_last_multiply_us = 0U;
+volatile uint32_t noxtls_ecc_keygen_last_validate_us = 0U;
+volatile uint32_t noxtls_ecc_keygen_last_total_us = 0U;
+volatile uint32_t noxtls_ecc_point_multiply_last_accel_us = 0U;
+volatile uint32_t noxtls_ecc_point_multiply_last_precompute_us = 0U;
+volatile uint32_t noxtls_ecc_point_multiply_last_comb_us = 0U;
+volatile uint32_t noxtls_ecc_point_multiply_last_total_us = 0U;
+volatile uint32_t noxtls_ecc_point_multiply_last_used_cache = 0U;
+volatile uint32_t noxtls_ecc_point_multiply_last_used_accel = 0U;
+#endif
+
 #if (NOXTLS_ECC_POINT_MUL_WINDOW_SIZE > 0) && (NOXTLS_ECC_FIXED_POINT_OPTIM) && (NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE)
 typedef struct {
     const ecc_curve_params_t *curve;
@@ -74,6 +135,7 @@ static noxtls_return_t ecc_keygen_drbg_generate_bits(uint8_t *out, uint32_t requ
 
     if(!s_ecc_keygen_drbg_initialized) {
         rc = noxtls_drbg_get_entropy(seed, sizeof(seed));
+        noxtls_ecc_keygen_last_entropy_rc = rc;
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
@@ -94,6 +156,7 @@ static noxtls_return_t ecc_keygen_drbg_generate_bits(uint8_t *out, uint32_t requ
     s_ecc_keygen_drbg_initialized = 0;
 
     rc = noxtls_drbg_get_entropy(seed, sizeof(seed));
+    noxtls_ecc_keygen_last_entropy_rc = rc;
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -3139,6 +3202,19 @@ static noxtls_return_t ecc_point_multiply_jpoint(ecc_jpoint_t *result,
  */
 noxtls_return_t noxtls_ecc_point_multiply(ecc_point_t *result, const uint8_t *scalar, const ecc_point_t *point, const ecc_curve_params_t *curve)
 {
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    uint64_t total_start_us;
+    uint64_t phase_start_us;
+
+    noxtls_ecc_point_multiply_last_accel_us = 0U;
+    noxtls_ecc_point_multiply_last_precompute_us = 0U;
+    noxtls_ecc_point_multiply_last_comb_us = 0U;
+    noxtls_ecc_point_multiply_last_total_us = 0U;
+    noxtls_ecc_point_multiply_last_used_cache = 0U;
+    noxtls_ecc_point_multiply_last_used_accel = 0U;
+    total_start_us = noxtls_ecc_diagnostic_time_us();
+#endif
+
     /* Check for null pointers BEFORE accessing any fields */
     if(result == NULL || scalar == NULL || point == NULL || curve == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -3161,8 +3237,20 @@ noxtls_return_t noxtls_ecc_point_multiply(ecc_point_t *result, const uint8_t *sc
         return NOXTLS_RETURN_SUCCESS;
     }
 
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    phase_start_us = noxtls_ecc_diagnostic_time_us();
+#endif
     rc = noxtls_ecc_point_multiply_accel_port(result, scalar, point, curve);
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    noxtls_ecc_point_multiply_last_accel_us =
+        noxtls_ecc_diagnostic_elapsed_us(phase_start_us);
+#endif
     if(rc == NOXTLS_RETURN_SUCCESS) {
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+        noxtls_ecc_point_multiply_last_used_accel = 1U;
+        noxtls_ecc_point_multiply_last_total_us =
+            noxtls_ecc_diagnostic_elapsed_us(total_start_us);
+#endif
         return rc;
     }
     /* HW failed or disabled: fall back to software path. */
@@ -3634,34 +3722,48 @@ noxtls_return_t noxtls_ecc_point_validate_public(const ecc_point_t *point, const
  */
 noxtls_return_t noxtls_ecc_key_init(ecc_key_t *key, ecc_curve_t curve_type)
 {
+    noxtls_return_t rc;
+    noxtls_ecc_keyinit_last_stage = 1u;
+    noxtls_ecc_keyinit_last_rc = NOXTLS_RETURN_SUCCESS;
+
     if(key == NULL) {
+        noxtls_ecc_keyinit_last_rc = NOXTLS_RETURN_NULL;
         return NOXTLS_RETURN_NULL;
     }
     
     memset(key, 0, sizeof(ecc_key_t));
+    noxtls_ecc_keyinit_last_stage = 2u;
     
     key->curve = (ecc_curve_params_t*)malloc(sizeof(ecc_curve_params_t));
     if(key->curve == NULL) {
-        return NOXTLS_RETURN_FAILED;
+        noxtls_ecc_keyinit_last_rc = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
+    noxtls_ecc_keyinit_last_stage = 3u;
     
-    noxtls_return_t rc = noxtls_ecc_curve_init(key->curve, curve_type);
+    rc = noxtls_ecc_curve_init(key->curve, curve_type);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         free(key->curve);
         key->curve = NULL;
+        noxtls_ecc_keyinit_last_rc = rc;
         return rc;
     }
     key->curve_kind = curve_type;
+    noxtls_ecc_keyinit_last_stage = 4u;
 
     key->d = (uint8_t*)calloc(key->curve->size, 1);
     if(key->d == NULL) {
         noxtls_ecc_curve_free(key->curve);
         free(key->curve);
         key->curve = NULL;
-        return NOXTLS_RETURN_FAILED;
+        noxtls_ecc_keyinit_last_rc = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
+    noxtls_ecc_keyinit_last_stage = 5u;
     
     noxtls_ecc_point_init(&key->Q, key->curve->size);
+    noxtls_ecc_keyinit_last_stage = 9u;
+    noxtls_ecc_keyinit_last_rc = NOXTLS_RETURN_SUCCESS;
     
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -3681,37 +3783,73 @@ noxtls_return_t noxtls_ecc_key_generate(ecc_key_t *key, ecc_curve_t curve_type)
     uint8_t *random_bytes = NULL;
     uint32_t size;
     uint32_t bits;
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    uint64_t total_start_us;
+    uint64_t phase_start_us;
+#endif
     noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    total_start_us = noxtls_ecc_diagnostic_time_us();
+#endif
+    noxtls_ecc_keygen_last_stage = 1u;
+    noxtls_ecc_keygen_last_rc = NOXTLS_RETURN_SUCCESS;
+    noxtls_ecc_keygen_last_entropy_rc = NOXTLS_RETURN_SUCCESS;
+    noxtls_ecc_keygen_last_multiply_rc = NOXTLS_RETURN_SUCCESS;
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    noxtls_ecc_keygen_last_init_us = 0U;
+    noxtls_ecc_keygen_last_private_us = 0U;
+    noxtls_ecc_keygen_last_multiply_us = 0U;
+    noxtls_ecc_keygen_last_validate_us = 0U;
+    noxtls_ecc_keygen_last_total_us = 0U;
+#endif
     
     if(key == NULL) {
+        noxtls_ecc_keygen_last_rc = NOXTLS_RETURN_NULL;
         return NOXTLS_RETURN_NULL;
     }
-    
+    noxtls_ecc_keygen_last_stage = 2u;
+
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    phase_start_us = noxtls_ecc_diagnostic_time_us();
+#endif
     rc = noxtls_ecc_key_init(key, curve_type);
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    noxtls_ecc_keygen_last_init_us =
+        noxtls_ecc_diagnostic_elapsed_us(phase_start_us);
+#endif
     if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_ecc_keygen_last_stage = 3u;
+        noxtls_ecc_keygen_last_rc = rc;
         return rc;
     }
+    noxtls_ecc_keygen_last_stage = 4u;
     
     size = key->curve->size;
     if(size == 0U || size > (uint32_t)(UINT32_MAX / 8U)) {
         rc = NOXTLS_RETURN_FAILED;
+        noxtls_ecc_keygen_last_stage = 5u;
         goto cleanup_keygen;
     }
     bits = size * 8U;
     
     /* Allocate buffers */
     random_bytes = (uint8_t*)calloc(size, 1);
+    noxtls_ecc_keygen_last_stage = 6u;
     do {
         if(!random_bytes) {
-            rc = NOXTLS_RETURN_FAILED;
+            rc = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
             break;
         }
 
         /* Generate private key d in range [1, n-1] */
         /* Generate random private key */
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+        phase_start_us = noxtls_ecc_diagnostic_time_us();
+#endif
         do {
             rc = ecc_keygen_drbg_generate_bits(random_bytes, bits);
             if(rc != NOXTLS_RETURN_SUCCESS) {
+                noxtls_ecc_keygen_last_stage = 7u;
                 break;
             }
             
@@ -3726,6 +3864,10 @@ noxtls_return_t noxtls_ecc_key_generate(ecc_key_t *key, ecc_curve_t curve_type)
             
             /* Ensure d < n (should already be true after mod, but check anyway) */
         } while(noxtls_bn_cmp(key->d, key->curve->n, size) >= 0 || noxtls_bn_is_zero(key->d, size));
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+        noxtls_ecc_keygen_last_private_us =
+            noxtls_ecc_diagnostic_elapsed_us(phase_start_us);
+#endif
         
         if(rc != NOXTLS_RETURN_SUCCESS) {
             break;
@@ -3733,7 +3875,16 @@ noxtls_return_t noxtls_ecc_key_generate(ecc_key_t *key, ecc_curve_t curve_type)
         
         /* Compute public key Q = d * G */
         /* This is the expensive operation - scalar multiplication */
+    noxtls_ecc_keygen_last_stage = 8u;
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    phase_start_us = noxtls_ecc_diagnostic_time_us();
+#endif
     rc = noxtls_ecc_point_multiply(&key->Q, key->d, &key->curve->G, key->curve);
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    noxtls_ecc_keygen_last_multiply_us =
+        noxtls_ecc_diagnostic_elapsed_us(phase_start_us);
+#endif
+    noxtls_ecc_keygen_last_multiply_rc = rc;
     if(rc != NOXTLS_RETURN_SUCCESS) {
         goto cleanup_keygen;
     }
@@ -3745,13 +3896,26 @@ noxtls_return_t noxtls_ecc_key_generate(ecc_key_t *key, ecc_curve_t curve_type)
     }
 
     /* Verify the generated public key is on the curve */
+    noxtls_ecc_keygen_last_stage = 9u;
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    phase_start_us = noxtls_ecc_diagnostic_time_us();
+#endif
     rc = noxtls_ecc_point_is_on_curve(&key->Q, key->curve);
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    noxtls_ecc_keygen_last_validate_us =
+        noxtls_ecc_diagnostic_elapsed_us(phase_start_us);
+#endif
     if(rc != NOXTLS_RETURN_SUCCESS) {
         goto cleanup_keygen;
     }
 
 cleanup_keygen:
     if(random_bytes) { free(random_bytes); }
+    noxtls_ecc_keygen_last_rc = rc;
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    noxtls_ecc_keygen_last_total_us =
+        noxtls_ecc_diagnostic_elapsed_us(total_start_us);
+#endif
 
     return rc;
 }
