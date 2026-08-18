@@ -49,6 +49,24 @@ static void unified_copy_io_to_version_context(noxtls_tls_connection_t *conn, tl
     version_base->user_data = conn->base.user_data;
     version_base->io_mode = conn->base.io_mode;
     version_base->time_callback = conn->base.time_callback;
+#if NOXTLS_FEATURE_TLS13
+    if(conn->is_tls13) {
+        noxtls_tls13_set_verify_crl(&conn->u.tls13, conn->verify_crl);
+        if(conn->maximum_record_payload != 0U) {
+            noxtls_tls13_set_record_size_limit(&conn->u.tls13, conn->maximum_record_payload);
+        }
+        return;
+    }
+#endif
+#if NOXTLS_FEATURE_TLS12
+    noxtls_tls12_set_verify_crl(&conn->u.tls12, conn->verify_crl);
+    if(conn->maximum_record_payload != 0U) {
+        uint8_t code = conn->maximum_record_payload == 512U ? 1U :
+                       conn->maximum_record_payload == 1024U ? 2U :
+                       conn->maximum_record_payload == 2048U ? 3U : 4U;
+        noxtls_tls12_set_max_fragment_length(&conn->u.tls12, code);
+    }
+#endif
 }
 
 #if NOXTLS_FEATURE_TLS12
@@ -381,6 +399,28 @@ noxtls_return_t noxtls_tls_connection_set_force_cert_verify_fail(noxtls_tls_conn
 {
     if(conn == NULL) return NOXTLS_RETURN_NULL;
     conn->force_cert_verify_fail = (enable != 0) ? 1U : 0U;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_tls_connection_set_verify_crl(noxtls_tls_connection_t *conn,
+                                                     const noxtls_x509_crl_t *crl)
+{
+    if(conn == NULL) return NOXTLS_RETURN_NULL;
+    if(conn->negotiated_version != 0U && !conn->fixed_version) return NOXTLS_RETURN_FAILED;
+    conn->verify_crl = crl;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_tls_connection_set_maximum_record_payload(
+    noxtls_tls_connection_t *conn, uint16_t payload_bytes)
+{
+    if(conn == NULL) return NOXTLS_RETURN_NULL;
+    if(payload_bytes != 0U && payload_bytes != 512U && payload_bytes != 1024U &&
+       payload_bytes != 2048U && payload_bytes != 4096U) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    if(conn->negotiated_version != 0U && !conn->fixed_version) return NOXTLS_RETURN_FAILED;
+    conn->maximum_record_payload = payload_bytes;
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -811,4 +851,53 @@ uint16_t noxtls_tls_connection_get_version(const noxtls_tls_connection_t *conn)
 {
     if(conn == NULL) return 0;
     return conn->negotiated_version;
+}
+
+noxtls_return_t noxtls_tls_connection_get_peer_certificate(
+    const noxtls_tls_connection_t *conn, const uint8_t **certificate_der,
+    uint32_t *certificate_length)
+{
+    if(conn == NULL || certificate_der == NULL || certificate_length == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    *certificate_der = NULL;
+    *certificate_length = 0U;
+    if(conn->negotiated_version == 0U) return NOXTLS_RETURN_FAILED;
+#if NOXTLS_FEATURE_TLS13
+    if(conn->is_tls13) {
+        if(conn->base.role == TLS_ROLE_SERVER) {
+            *certificate_der = conn->u.tls13.client_cert;
+            *certificate_length = conn->u.tls13.client_cert_len;
+        } else {
+            *certificate_der = conn->u.tls13.server_cert;
+            *certificate_length = conn->u.tls13.server_cert_len;
+        }
+    }
+#endif
+#if NOXTLS_FEATURE_TLS12
+    if(!conn->is_tls13) {
+        if(conn->base.role == TLS_ROLE_SERVER) {
+            *certificate_der = conn->u.tls12.client_cert;
+            *certificate_length = conn->u.tls12.client_cert_len;
+        } else {
+            *certificate_der = conn->u.tls12.server_cert;
+            *certificate_length = conn->u.tls12.server_cert_len;
+        }
+    }
+#endif
+    return *certificate_der != NULL && *certificate_length != 0U ?
+           NOXTLS_RETURN_SUCCESS : NOXTLS_RETURN_FAILED;
+}
+
+uint16_t noxtls_tls_connection_get_cipher_suite(const noxtls_tls_connection_t *conn)
+{
+    if(conn == NULL || conn->negotiated_version == 0U) return 0U;
+#if NOXTLS_FEATURE_TLS13
+    if(conn->is_tls13) return conn->u.tls13.cipher_suite;
+#endif
+#if NOXTLS_FEATURE_TLS12
+    return conn->u.tls12.cipher_suite;
+#else
+    return 0U;
+#endif
 }

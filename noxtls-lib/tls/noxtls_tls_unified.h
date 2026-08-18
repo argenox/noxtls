@@ -80,6 +80,10 @@ typedef struct noxtls_tls_connection_s
     void *client_private_ecdsa;
     /** BoGo: force peer certificate verification to fail. */
     uint8_t force_cert_verify_fail;
+    /** Optional CRL chain applied to either negotiated protocol version. */
+    const noxtls_x509_crl_t *verify_crl;
+    /** Requested maximum plaintext record payload; 0 keeps protocol default. */
+    uint16_t maximum_record_payload;
     union {
         tls12_context_t tls12;
         tls13_context_t tls13;
@@ -147,6 +151,18 @@ noxtls_return_t noxtls_tls_connection_set_client_cert_ecdsa(noxtls_tls_connectio
 /** Force peer certificate verification to fail (BoGo -verify-fail with -verify-peer). */
 noxtls_return_t noxtls_tls_connection_set_force_cert_verify_fail(noxtls_tls_connection_t *conn, int enable);
 
+/** Apply an application-owned CRL chain to TLS 1.2 and TLS 1.3 verification. */
+noxtls_return_t noxtls_tls_connection_set_verify_crl(noxtls_tls_connection_t *conn,
+                                                     const noxtls_x509_crl_t *crl);
+
+/**
+ * Request a bounded plaintext record payload. TLS 1.2 uses RFC 6066 maximum
+ * fragment length and therefore accepts 512, 1024, 2048, or 4096. TLS 1.3
+ * uses RFC 8449 record_size_limit. A value of zero restores protocol default.
+ */
+noxtls_return_t noxtls_tls_connection_set_maximum_record_payload(
+    noxtls_tls_connection_t *conn, uint16_t payload_bytes);
+
 /** Server: receive Client Hello, detect version, complete handshake (TLS 1.2 or 1.3). */
 noxtls_return_t noxtls_tls_connection_accept(noxtls_tls_connection_t *conn);
 
@@ -164,6 +180,14 @@ noxtls_return_t noxtls_tls_connection_close(noxtls_tls_connection_t *conn);
 
 /** Return negotiated version (TLS_VERSION_1_2, TLS_VERSION_1_3, or 0 if not yet negotiated). */
 uint16_t noxtls_tls_connection_get_version(const noxtls_tls_connection_t *conn);
+
+/** Borrow the authenticated peer leaf certificate for the connection lifetime. */
+noxtls_return_t noxtls_tls_connection_get_peer_certificate(
+    const noxtls_tls_connection_t *conn, const uint8_t **certificate_der,
+    uint32_t *certificate_length);
+
+/** Return the negotiated cipher-suite wire identifier, or zero before handshake. */
+uint16_t noxtls_tls_connection_get_cipher_suite(const noxtls_tls_connection_t *conn);
 
 #endif /* NOXTLS_FEATURE_TLS12 || NOXTLS_FEATURE_TLS13 */
 
