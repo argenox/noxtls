@@ -55,6 +55,61 @@
 #define NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES 0
 #endif
 
+typedef enum {
+    TLS12_CLIENT_POLL_NONE = 0,
+    TLS12_CLIENT_POLL_SEND_CH,
+    TLS12_CLIENT_POLL_RECV_SH,
+    TLS12_CLIENT_POLL_PEEK_RESUME,
+    TLS12_CLIENT_POLL_RESUME_DERIVE,
+    TLS12_CLIENT_POLL_RESUME_RECV_CCS,
+    TLS12_CLIENT_POLL_RESUME_RECV_FINISHED,
+    TLS12_CLIENT_POLL_RESUME_SEND_CCS,
+    TLS12_CLIENT_POLL_RESUME_SEND_FINISHED,
+    TLS12_CLIENT_POLL_RECV_CERTIFICATE,
+    TLS12_CLIENT_POLL_RECV_SERVER_KEY_EXCHANGE,
+    TLS12_CLIENT_POLL_RECV_CERTIFICATE_REQUEST,
+    TLS12_CLIENT_POLL_RECV_SERVER_HELLO_DONE,
+    TLS12_CLIENT_POLL_SEND_CERTIFICATE,
+    TLS12_CLIENT_POLL_SEND_CLIENT_KEY_EXCHANGE,
+    TLS12_CLIENT_POLL_COMPUTE_MASTER_SECRET,
+    TLS12_CLIENT_POLL_DERIVE_KEYS,
+    TLS12_CLIENT_POLL_SEND_CERTIFICATE_VERIFY,
+    TLS12_CLIENT_POLL_SEND_CCS,
+    TLS12_CLIENT_POLL_SEND_FINISHED,
+    TLS12_CLIENT_POLL_RECV_CCS,
+    TLS12_CLIENT_POLL_RECV_FINISHED,
+    TLS12_CLIENT_POLL_COMPLETE
+} tls12_client_poll_step_t;
+
+typedef enum {
+    TLS12_SERVER_POLL_NONE = 0,
+    TLS12_SERVER_POLL_RECV_CH,
+    TLS12_SERVER_POLL_CHECK_SNI,
+    TLS12_SERVER_POLL_SEND_SH,
+    TLS12_SERVER_POLL_RESUME_DERIVE,
+    TLS12_SERVER_POLL_RESUME_SEND_TICKET,
+    TLS12_SERVER_POLL_RESUME_SEND_CCS,
+    TLS12_SERVER_POLL_RESUME_SEND_FINISHED,
+    TLS12_SERVER_POLL_RESUME_RECV_CCS,
+    TLS12_SERVER_POLL_RESUME_RECV_FINISHED,
+    TLS12_SERVER_POLL_SEND_CERTIFICATE,
+    TLS12_SERVER_POLL_SEND_SERVER_KEY_EXCHANGE,
+    TLS12_SERVER_POLL_SEND_CERTIFICATE_REQUEST,
+    TLS12_SERVER_POLL_SEND_SERVER_HELLO_DONE,
+    TLS12_SERVER_POLL_RECV_CERTIFICATE,
+    TLS12_SERVER_POLL_RECV_CLIENT_KEY_EXCHANGE,
+    TLS12_SERVER_POLL_COMPUTE_MASTER_SECRET,
+    TLS12_SERVER_POLL_DERIVE_KEYS,
+    TLS12_SERVER_POLL_RECV_CERTIFICATE_VERIFY,
+    TLS12_SERVER_POLL_RECV_CCS,
+    TLS12_SERVER_POLL_RECV_FINISHED,
+    TLS12_SERVER_POLL_SEND_TICKET,
+    TLS12_SERVER_POLL_SEND_CCS,
+    TLS12_SERVER_POLL_SEND_FINISHED,
+    TLS12_SERVER_POLL_CACHE_SESSION,
+    TLS12_SERVER_POLL_COMPLETE
+} tls12_server_poll_step_t;
+
 
 static tls12_session_cache_entry_t g_tls12_session_cache[TLS12_SESSION_CACHE_SIZE];
 static tls12_ticket_cache_entry_t g_tls12_ticket_cache[TLS12_TICKET_CACHE_SIZE];
@@ -155,6 +210,8 @@ static noxtls_return_t tls12_client_parse_new_session_ticket(tls12_context_t *ct
     if(ticket_len > 0U) {
         tls12_client_session_store(msg + 10, ticket_len, ctx->master_secret, ctx->cipher_suite,
                                    ctx->extended_master_secret_negotiated);
+        memcpy(ctx->next_session_identity, msg + 10, ticket_len);
+        ctx->next_session_identity_len = ticket_len;
     }
     tls12_append_handshake_message(ctx, msg, msg_len);
     return NOXTLS_RETURN_SUCCESS;
@@ -195,6 +252,8 @@ static noxtls_return_t tls12_client_take_pending_record(tls12_context_t *ctx, tl
     ctx->client_pending_record = NULL;
     ctx->client_pending_record_len = 0;
     ctx->client_pending_record_type = 0;
+    ctx->handshake_rx_buffer = NULL;
+    ctx->handshake_rx_buffer_len = 0;
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -935,25 +994,34 @@ static int tls12_client_offered_cipher(const uint8_t *record_data,
 static noxtls_return_t tls12_send_handshake_record(tls12_context_t *ctx, const uint8_t *msg, uint32_t msg_len)
 {
     noxtls_return_t rc;
+    uint32_t offset = 0U;
+    uint32_t maximum;
     if(ctx == NULL || msg == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(ctx->renegotiation_in_progress) {
-        uint8_t enc[TLS_MAX_RECORD_SIZE + TLS_RECORD_WORKSPACE_OVERHEAD];
-        uint32_t enc_len = (uint32_t)sizeof(enc);
-        rc = noxtls_tls12_encrypt_record(ctx, TLS_RECORD_HANDSHAKE, msg, msg_len, enc, &enc_len);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            return rc;
+    maximum = ctx->max_record_payload > 0U ?
+        (uint32_t)ctx->max_record_payload : (uint32_t)TLS_MAX_RECORD_SIZE;
+    while(offset < msg_len) {
+        uint32_t chunk = msg_len - offset;
+        if(chunk > maximum) chunk = maximum;
+        if(ctx->renegotiation_in_progress) {
+            uint8_t enc[TLS_MAX_RECORD_SIZE + TLS_RECORD_WORKSPACE_OVERHEAD];
+            uint32_t enc_len = (uint32_t)sizeof(enc);
+            rc = noxtls_tls12_encrypt_record(ctx, TLS_RECORD_HANDSHAKE,
+                                             msg + offset, chunk, enc, &enc_len);
+            if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+            rc = noxtls_tls_send_record(&ctx->base.base, TLS_RECORD_HANDSHAKE,
+                                        enc, enc_len);
+            /* Encrypt path already advances write sequence internally. */
+        } else {
+            rc = noxtls_tls_send_record(&ctx->base.base, TLS_RECORD_HANDSHAKE,
+                                        msg + offset, chunk);
+            if(rc == NOXTLS_RETURN_SUCCESS) tls12_inc_send_seq(ctx);
         }
-        rc = noxtls_tls_send_record(&ctx->base.base, TLS_RECORD_HANDSHAKE, enc, enc_len);
-        /* Encrypt path already advances write sequence internally. */
-        return rc;
+        if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+        offset += chunk;
     }
-    rc = noxtls_tls_send_record(&ctx->base.base, TLS_RECORD_HANDSHAKE, msg, msg_len);
-    if(rc == NOXTLS_RETURN_SUCCESS) {
-        tls12_inc_send_seq(ctx);
-    }
-    return rc;
+    return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
@@ -1732,6 +1800,19 @@ void noxtls_tls12_request_client_auth(tls12_context_t *ctx, int request)
 {
     if(ctx != NULL) {
         ctx->request_client_auth = (request != 0) ? 1 : 0;
+        if(ctx->request_client_auth == 0U) {
+            ctx->require_client_auth = 0U;
+        }
+    }
+}
+
+void noxtls_tls12_require_client_auth(tls12_context_t *ctx, int require)
+{
+    if(ctx != NULL) {
+        ctx->require_client_auth = (require != 0) ? 1U : 0U;
+        if(ctx->require_client_auth != 0U) {
+            ctx->request_client_auth = 1U;
+        }
     }
 }
 
@@ -1797,8 +1878,10 @@ void noxtls_tls12_set_max_fragment_length(tls12_context_t *ctx, uint8_t code)
     if(ctx != NULL) {
         if(code >= 1 && code <= 4) {
             ctx->max_fragment_length_code = code;
+            ctx->configured_max_fragment_length_code = code;
         } else {
             ctx->max_fragment_length_code = 0;
+            ctx->configured_max_fragment_length_code = 0;
         }
     }
 }
@@ -2804,6 +2887,8 @@ noxtls_return_t noxtls_tls12_send_client_hello(tls12_context_t *ctx)
                     memcpy(ext_buf + ext_len, ticket_buf, tlen);
                     ext_len += tlen;
                     ctx->client_offered_session_ticket = 1U;
+                    memcpy(ctx->resumption_identity, ticket_buf, tlen);
+                    ctx->resumption_identity_len = tlen;
                 }
             } else if(ext_len + 4U < 256u) {
                 ext_buf[ext_len++] = (uint8_t)(TLS_EXTENSION_SESSION_TICKET >> 8);
@@ -3013,11 +3098,16 @@ noxtls_return_t noxtls_tls12_client_resume_from_tls13_downgrade(tls12_context_t 
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-        if(ctx->client_pending_record != NULL) {
+    if(ctx->client_pending_record != NULL) {
         free(ctx->client_pending_record);
         ctx->client_pending_record = NULL;
         ctx->client_pending_record_len = 0;
         ctx->client_pending_record_type = 0;
+    }
+    if(ctx->handshake_rx_buffer != NULL) {
+        free(ctx->handshake_rx_buffer);
+        ctx->handshake_rx_buffer = NULL;
+        ctx->handshake_rx_buffer_len = 0;
     }
 if(ctx->handshake_messages != NULL) {
         free(ctx->handshake_messages);
@@ -3489,10 +3579,6 @@ static noxtls_return_t tls12_recv_handshake_message(tls12_context_t *ctx,
                                                     uint32_t *out_len)
 {
     tls_record_t record;
-    uint8_t *msg;
-    uint32_t hs_body_len;
-    uint32_t hs_total_len;
-    uint32_t copied;
     noxtls_return_t rc;
 
     if(ctx == NULL || out_msg == NULL || out_len == NULL) {
@@ -3500,133 +3586,85 @@ static noxtls_return_t tls12_recv_handshake_message(tls12_context_t *ctx,
     }
     *out_msg = NULL;
     *out_len = 0;
-    memset(&record, 0, sizeof(record));
+    for(;;) {
+        uint32_t hs_total_len;
 
-    if(ctx->client_pending_record != NULL) {
-        rc = tls12_client_take_pending_record(ctx, &record);
-    } else {
-        rc = noxtls_tls_recv_record(&ctx->base.base, &record);
-    }
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
-    }
-    if(record.length < 1 || record.data == NULL || record.type != TLS_RECORD_HANDSHAKE) {
-        noxtls_free(record.data);
-        return NOXTLS_RETURN_TLS_ERROR;
-    }
-    if(record.data[0] != expected_type) {
-        noxtls_free(record.data);
-        return NOXTLS_RETURN_TLS_ERROR;
-    }
+        if(ctx->handshake_rx_buffer_len > 0U &&
+           ctx->handshake_rx_buffer[0] != expected_type) {
+            noxtls_free(ctx->handshake_rx_buffer);
+            ctx->handshake_rx_buffer = NULL;
+            ctx->handshake_rx_buffer_len = 0U;
+            return NOXTLS_RETURN_TLS_ERROR;
+        }
 
-    /* Accumulate until the 4-byte handshake header is present (1-byte fragments). */
-    {
-        uint8_t *hdr_buf = NULL;
-        uint32_t hdr_len = record.length;
-        tls_record_t next;
-        int frag_header = 0;
+        if(ctx->handshake_rx_buffer_len >= 4U) {
+            uint32_t hs_body_len = ((uint32_t)ctx->handshake_rx_buffer[1] << 16) |
+                                   ((uint32_t)ctx->handshake_rx_buffer[2] << 8) |
+                                   (uint32_t)ctx->handshake_rx_buffer[3];
+            hs_total_len = 4U + hs_body_len;
+            if(hs_total_len > (TLS_MAX_HANDSHAKE_SIZE + 4U)) {
+                noxtls_free(ctx->handshake_rx_buffer);
+                ctx->handshake_rx_buffer = NULL;
+                ctx->handshake_rx_buffer_len = 0U;
+                return NOXTLS_RETURN_BAD_DATA;
+            }
+            if(ctx->handshake_rx_buffer_len >= hs_total_len) {
+                uint32_t remaining = ctx->handshake_rx_buffer_len - hs_total_len;
+                uint8_t *msg = (uint8_t *)noxtls_malloc(hs_total_len);
+                if(msg == NULL) {
+                    return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+                }
+                memcpy(msg, ctx->handshake_rx_buffer, hs_total_len);
+                if(remaining > 0U) {
+                    memmove(ctx->handshake_rx_buffer,
+                            ctx->handshake_rx_buffer + hs_total_len,
+                            remaining);
+                    ctx->handshake_rx_buffer_len = remaining;
+                } else {
+                    noxtls_free(ctx->handshake_rx_buffer);
+                    ctx->handshake_rx_buffer = NULL;
+                    ctx->handshake_rx_buffer_len = 0U;
+                }
+                *out_msg = msg;
+                *out_len = hs_total_len;
+                return NOXTLS_RETURN_SUCCESS;
+            }
+        }
 
-        if(hdr_len < 4U) {
-            frag_header = 1;
-            hdr_buf = (uint8_t *)noxtls_malloc(4U);
-            if(hdr_buf == NULL) {
+        memset(&record, 0, sizeof(record));
+        if(ctx->client_pending_record != NULL) {
+            rc = tls12_client_take_pending_record(ctx, &record);
+        } else {
+            rc = noxtls_tls_recv_record(&ctx->base.base, &record);
+        }
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            /* Keep the partial handshake intact across WANT_READ polling. */
+            return rc;
+        }
+        if(record.length == 0U || record.data == NULL ||
+           record.type != TLS_RECORD_HANDSHAKE ||
+           record.length > UINT32_MAX - ctx->handshake_rx_buffer_len) {
+            noxtls_free(record.data);
+            noxtls_free(ctx->handshake_rx_buffer);
+            ctx->handshake_rx_buffer = NULL;
+            ctx->handshake_rx_buffer_len = 0U;
+            return NOXTLS_RETURN_TLS_ERROR;
+        }
+        {
+            uint32_t combined_len = ctx->handshake_rx_buffer_len + record.length;
+            uint8_t *combined = (uint8_t *)noxtls_realloc(ctx->handshake_rx_buffer,
+                                                          combined_len);
+            if(combined == NULL) {
                 noxtls_free(record.data);
                 return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
             }
-            memcpy(hdr_buf, record.data, hdr_len);
-            noxtls_free(record.data);
-            record.data = NULL;
-            tls12_inc_recv_seq(ctx);
-            while(hdr_len < 4U) {
-                memset(&next, 0, sizeof(next));
-                rc = noxtls_tls_recv_record(&ctx->base.base, &next);
-                if(rc != NOXTLS_RETURN_SUCCESS) {
-                    noxtls_free(hdr_buf);
-                    return rc;
-                }
-                if(next.type != TLS_RECORD_HANDSHAKE || next.length == 0 || next.data == NULL) {
-                    noxtls_free(next.data);
-                    noxtls_free(hdr_buf);
-                    return NOXTLS_RETURN_TLS_ERROR;
-                }
-                if(hdr_len + next.length > 4U) {
-                    uint8_t *tmp = (uint8_t *)noxtls_realloc(hdr_buf, hdr_len + next.length);
-                    if(tmp == NULL) {
-                        noxtls_free(next.data);
-                        noxtls_free(hdr_buf);
-                        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
-                    }
-                    hdr_buf = tmp;
-                    memcpy(hdr_buf + hdr_len, next.data, next.length);
-                    hdr_len += next.length;
-                    noxtls_free(next.data);
-                    tls12_inc_recv_seq(ctx);
-                    break;
-                }
-                memcpy(hdr_buf + hdr_len, next.data, next.length);
-                hdr_len += next.length;
-                noxtls_free(next.data);
-                tls12_inc_recv_seq(ctx);
-            }
-            record.data = hdr_buf;
-            record.length = hdr_len;
-        }
-
-        hs_body_len = ((uint32_t)record.data[1] << 16) |
-                      ((uint32_t)record.data[2] << 8) |
-                      (uint32_t)record.data[3];
-        hs_total_len = 4U + hs_body_len;
-        if(hs_total_len > (TLS_MAX_HANDSHAKE_SIZE + 4U)) {
-            noxtls_free(record.data);
-            return NOXTLS_RETURN_BAD_DATA;
-        }
-
-        msg = (uint8_t *)noxtls_malloc(hs_total_len);
-        if(msg == NULL) {
-            noxtls_free(record.data);
-            return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
-        }
-
-        copied = (record.length < hs_total_len) ? record.length : hs_total_len;
-        memcpy(msg, record.data, copied);
-        if(!frag_header) {
-            tls12_inc_recv_seq(ctx);
+            memcpy(combined + ctx->handshake_rx_buffer_len, record.data, record.length);
+            ctx->handshake_rx_buffer = combined;
+            ctx->handshake_rx_buffer_len = combined_len;
         }
         noxtls_free(record.data);
-        record.data = NULL;
-    }
-
-    while(copied < hs_total_len) {
-        uint32_t remain;
-        uint32_t take;
-
-        rc = noxtls_tls_recv_record(&ctx->base.base, &record);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            noxtls_free(msg);
-            return rc;
-        }
-        if(record.type != TLS_RECORD_HANDSHAKE || record.length == 0 || record.data == NULL) {
-            noxtls_free(record.data);
-            noxtls_free(msg);
-            return NOXTLS_RETURN_TLS_ERROR;
-        }
-        remain = hs_total_len - copied;
-        if(record.length > remain) {
-            noxtls_free(record.data);
-            noxtls_free(msg);
-            return NOXTLS_RETURN_BAD_DATA;
-        }
-        take = record.length;
-        memcpy(msg + copied, record.data, take);
-        copied += take;
         tls12_inc_recv_seq(ctx);
-        noxtls_free(record.data);
-        record.data = NULL;
     }
-
-    *out_msg = msg;
-    *out_len = hs_total_len;
-    return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
@@ -3691,7 +3729,10 @@ static noxtls_return_t tls12_client_maybe_abbreviated_after_sh(tls12_context_t *
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    if(ctx->client_pending_record_type == TLS_RECORD_CHANGE_CIPHER_SPEC) {
+    if(ctx->client_pending_record_type == TLS_RECORD_CHANGE_CIPHER_SPEC ||
+       (ctx->client_pending_record_type == TLS_RECORD_HANDSHAKE &&
+        ctx->client_pending_record_len > 0U &&
+        ctx->client_pending_record[0] == TLS_HANDSHAKE_NEW_SESSION_TICKET)) {
         rc = tls12_client_finish_abbreviated_resume(ctx);
         if(rc == NOXTLS_RETURN_SUCCESS && did_abbreviated) {
             *did_abbreviated = 1;
@@ -5422,6 +5463,204 @@ noxtls_return_t noxtls_tls12_connect(tls12_context_t *ctx)
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * Advance an initial TLS 1.2 client handshake one caller-polled I/O boundary at
+ * a time. Handshake steps advance only after their complete record has been
+ * accepted by the bounded record queue, so retrying after WANT_READ/WANT_WRITE
+ * cannot duplicate transcript entries or wire records.
+ */
+noxtls_return_t noxtls_tls12_connect_poll(tls12_context_t *ctx)
+{
+    noxtls_return_t rc;
+
+    if(ctx == NULL) return NOXTLS_RETURN_NULL;
+    if(ctx->base.base.role != TLS_ROLE_CLIENT) return NOXTLS_RETURN_FAILED;
+    if(tls12_is_dtls(ctx) || ctx->renegotiation_in_progress) {
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+    }
+    if(ctx->client_handshake_step == TLS12_CLIENT_POLL_NONE ||
+       ctx->base.base.state != TLS_STATE_HANDSHAKING) {
+        ctx->base.base.state = TLS_STATE_HANDSHAKING;
+        ctx->client_handshake_step = TLS12_CLIENT_POLL_SEND_CH;
+        NOXTLS_STATE_ENTER(ctx, NOXTLS_STATE_START);
+    }
+
+    while(1) {
+        switch((tls12_client_poll_step_t)ctx->client_handshake_step) {
+            case TLS12_CLIENT_POLL_SEND_CH:
+                rc = noxtls_tls12_send_client_hello(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->client_handshake_step = TLS12_CLIENT_POLL_RECV_SH;
+                if(noxtls_tls_has_pending_output(&ctx->base.base)) return NOXTLS_RETURN_WANT_WRITE;
+                break;
+
+            case TLS12_CLIENT_POLL_RECV_SH:
+                rc = noxtls_tls12_recv_server_hello(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->client_handshake_step = TLS12_CLIENT_POLL_PEEK_RESUME;
+                break;
+
+            case TLS12_CLIENT_POLL_PEEK_RESUME:
+                if(!noxtls_tls12_client_session_has_ticket()) {
+                    ctx->client_handshake_step = TLS12_CLIENT_POLL_RECV_CERTIFICATE;
+                    break;
+                }
+                rc = tls12_client_peek_after_server_hello(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                if(ctx->client_pending_record_type == TLS_RECORD_CHANGE_CIPHER_SPEC ||
+                   (ctx->client_pending_record_type == TLS_RECORD_HANDSHAKE &&
+                    ctx->client_pending_record_len > 0U &&
+                    ctx->client_pending_record[0] == TLS_HANDSHAKE_NEW_SESSION_TICKET)) {
+                    if(!tls12_client_session_load_into_ctx(ctx)) return NOXTLS_RETURN_FAILED;
+                    ctx->client_handshake_step = TLS12_CLIENT_POLL_RESUME_DERIVE;
+                } else {
+                    ctx->client_handshake_step = TLS12_CLIENT_POLL_RECV_CERTIFICATE;
+                }
+                break;
+
+            case TLS12_CLIENT_POLL_RESUME_DERIVE:
+                rc = tls12_derive_keys(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->client_handshake_step = TLS12_CLIENT_POLL_RESUME_RECV_CCS;
+                break;
+
+            case TLS12_CLIENT_POLL_RESUME_RECV_CCS:
+                rc = noxtls_tls12_recv_change_cipher_spec(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->client_handshake_step = TLS12_CLIENT_POLL_RESUME_RECV_FINISHED;
+                break;
+
+            case TLS12_CLIENT_POLL_RESUME_RECV_FINISHED:
+                rc = noxtls_tls12_recv_finished(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->client_handshake_step = TLS12_CLIENT_POLL_RESUME_SEND_CCS;
+                break;
+
+            case TLS12_CLIENT_POLL_RESUME_SEND_CCS:
+                rc = noxtls_tls12_send_change_cipher_spec(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->client_handshake_step = TLS12_CLIENT_POLL_RESUME_SEND_FINISHED;
+                if(noxtls_tls_has_pending_output(&ctx->base.base)) return NOXTLS_RETURN_WANT_WRITE;
+                break;
+
+            case TLS12_CLIENT_POLL_RESUME_SEND_FINISHED:
+                rc = noxtls_tls12_send_finished(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->client_handshake_step = TLS12_CLIENT_POLL_COMPLETE;
+                if(noxtls_tls_has_pending_output(&ctx->base.base)) return NOXTLS_RETURN_WANT_WRITE;
+                break;
+
+            case TLS12_CLIENT_POLL_RECV_CERTIFICATE:
+                rc = noxtls_tls12_recv_certificate(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->client_handshake_step = TLS12_CLIENT_POLL_RECV_SERVER_KEY_EXCHANGE;
+                break;
+
+            case TLS12_CLIENT_POLL_RECV_SERVER_KEY_EXCHANGE:
+                if(tls12_cipher_suite_needs_server_key_exchange(ctx->cipher_suite)) {
+                    rc = noxtls_tls12_recv_server_key_exchange(ctx);
+                    if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                }
+                ctx->client_handshake_step = TLS12_CLIENT_POLL_RECV_CERTIFICATE_REQUEST;
+                break;
+
+            case TLS12_CLIENT_POLL_RECV_CERTIFICATE_REQUEST:
+                rc = tls12_client_recv_optional_certificate_request(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->client_handshake_step = TLS12_CLIENT_POLL_RECV_SERVER_HELLO_DONE;
+                break;
+
+            case TLS12_CLIENT_POLL_RECV_SERVER_HELLO_DONE:
+                rc = noxtls_tls12_recv_server_hello_done(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->client_handshake_step = TLS12_CLIENT_POLL_SEND_CERTIFICATE;
+                break;
+
+            case TLS12_CLIENT_POLL_SEND_CERTIFICATE:
+                if(ctx->client_auth_requested) {
+                    rc = tls12_client_send_certificate(ctx);
+                    if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                }
+                ctx->client_handshake_step = TLS12_CLIENT_POLL_SEND_CLIENT_KEY_EXCHANGE;
+                if(noxtls_tls_has_pending_output(&ctx->base.base)) return NOXTLS_RETURN_WANT_WRITE;
+                break;
+
+            case TLS12_CLIENT_POLL_SEND_CLIENT_KEY_EXCHANGE:
+                rc = noxtls_tls12_send_client_key_exchange(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->client_handshake_step = TLS12_CLIENT_POLL_COMPUTE_MASTER_SECRET;
+                if(noxtls_tls_has_pending_output(&ctx->base.base)) return NOXTLS_RETURN_WANT_WRITE;
+                break;
+
+            case TLS12_CLIENT_POLL_COMPUTE_MASTER_SECRET:
+                if(ctx->dhe_ctx != NULL) {
+                    tls_dhe_context_t *dhe = (tls_dhe_context_t *)ctx->dhe_ctx;
+                    rc = tls12_compute_master_secret(ctx, dhe->premaster_secret,
+                                                     dhe->premaster_secret_len);
+                } else {
+                    rc = tls12_compute_master_secret(ctx, ctx->premaster_secret,
+                                                     ctx->premaster_secret_len);
+                }
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->client_handshake_step = TLS12_CLIENT_POLL_DERIVE_KEYS;
+                break;
+
+            case TLS12_CLIENT_POLL_DERIVE_KEYS:
+                rc = tls12_derive_keys(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->client_handshake_step = TLS12_CLIENT_POLL_SEND_CERTIFICATE_VERIFY;
+                break;
+
+            case TLS12_CLIENT_POLL_SEND_CERTIFICATE_VERIFY:
+                if(ctx->client_auth_requested && ctx->own_client_cert != NULL &&
+                   ctx->own_client_cert_len > 0U) {
+                    rc = tls12_client_send_certificate_verify(ctx);
+                    if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                }
+                ctx->client_handshake_step = TLS12_CLIENT_POLL_SEND_CCS;
+                if(noxtls_tls_has_pending_output(&ctx->base.base)) return NOXTLS_RETURN_WANT_WRITE;
+                break;
+
+            case TLS12_CLIENT_POLL_SEND_CCS:
+                rc = noxtls_tls12_send_change_cipher_spec(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->client_handshake_step = TLS12_CLIENT_POLL_SEND_FINISHED;
+                if(noxtls_tls_has_pending_output(&ctx->base.base)) return NOXTLS_RETURN_WANT_WRITE;
+                break;
+
+            case TLS12_CLIENT_POLL_SEND_FINISHED:
+                rc = noxtls_tls12_send_finished(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->client_handshake_step = TLS12_CLIENT_POLL_RECV_CCS;
+                if(noxtls_tls_has_pending_output(&ctx->base.base)) return NOXTLS_RETURN_WANT_WRITE;
+                break;
+
+            case TLS12_CLIENT_POLL_RECV_CCS:
+                rc = noxtls_tls12_recv_change_cipher_spec(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->client_handshake_step = TLS12_CLIENT_POLL_RECV_FINISHED;
+                break;
+
+            case TLS12_CLIENT_POLL_RECV_FINISHED:
+                rc = noxtls_tls12_recv_finished(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->client_handshake_step = TLS12_CLIENT_POLL_COMPLETE;
+                break;
+
+            case TLS12_CLIENT_POLL_COMPLETE:
+                ctx->base.base.state = TLS_STATE_CONNECTED;
+                ctx->client_handshake_step = TLS12_CLIENT_POLL_NONE;
+                NOXTLS_STATE_ENTER(ctx, NOXTLS_STATE_CONNECTED);
+                return NOXTLS_RETURN_SUCCESS;
+
+            case TLS12_CLIENT_POLL_NONE:
+            default:
+                ctx->client_handshake_step = TLS12_CLIENT_POLL_SEND_CH;
+                break;
+        }
+    }
+}
+
 /* Process ALPN after ClientHello extension parse; sends fatal alerts on failure. */
 /**
  * @brief Process ALPN after ClientHello extension parse; sends fatal alerts on failure.
@@ -6492,10 +6731,14 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
             /* RFC 6066: accept client's max_fragment_length if present and valid */
             {
                 tls_extension_t *ext_mfl = NULL;
+                ctx->max_fragment_length_code = 0U;
+                ctx->max_record_payload = 0U;
                 if(noxtls_tls_find_extension(&ctx->client_extensions, TLS_EXTENSION_MAX_FRAGMENT_LENGTH, &ext_mfl) == NOXTLS_RETURN_SUCCESS &&
                    ext_mfl != NULL && ext_mfl->data != NULL && ext_mfl->length >= 1) {
                     uint8_t mfl = ext_mfl->data[0];
-                    if(mfl >= 1 && mfl <= 4) {
+                    if(mfl >= 1 && mfl <= 4 &&
+                       (ctx->configured_max_fragment_length_code == 0U ||
+                        mfl == ctx->configured_max_fragment_length_code)) {
                         ctx->max_fragment_length_code = mfl;
                         ctx->max_record_payload = tls12_mfl_code_to_payload(mfl);
                     }
@@ -6555,6 +6798,8 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
                                                   cipher_suites_count,
                                                   ticket_entry->cipher_suite)) {
                         ctx->session_resume = 1;
+                        memcpy(ctx->resumption_identity, ext_st->data, ext_st->length);
+                        ctx->resumption_identity_len = (uint16_t)ext_st->length;
                         ctx->cipher_suite = ticket_entry->cipher_suite;
                         memcpy(ctx->master_secret, ticket_entry->master_secret, sizeof(ctx->master_secret));
                         ctx->session_resume_ems = ticket_entry->extended_master_secret;
@@ -7813,7 +8058,10 @@ static noxtls_return_t tls12_recv_client_certificate(tls12_context_t *ctx, int *
     uint32_t msg_len = 0;
     uint32_t cert_list_len;
     uint32_t cert_len;
+    uint32_t chain_pos;
+    uint32_t chain_end;
     noxtls_return_t rc;
+    x509_certificate_chain_t presented_chain;
 
     if(ctx == NULL || cert_present == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -7849,7 +8097,7 @@ static noxtls_return_t tls12_recv_client_certificate(tls12_context_t *ctx, int *
     }
 
     cert_len = ((uint32_t)msg[7] << 16) | ((uint32_t)msg[8] << 8) | (uint32_t)msg[9];
-    if(cert_len == 0U || (3U + cert_len) != cert_list_len) {
+    if(cert_len == 0U || cert_len > cert_list_len - 3U) {
         noxtls_free(msg);
         return NOXTLS_RETURN_BAD_DATA;
     }
@@ -7879,14 +8127,72 @@ static noxtls_return_t tls12_recv_client_certificate(tls12_context_t *ctx, int *
             noxtls_free(msg);
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         }
+        if(noxtls_x509_certificate_chain_init(&presented_chain) != NOXTLS_RETURN_SUCCESS) {
+            noxtls_free(parsed);
+            noxtls_free(msg);
+            return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+        }
         noxtls_x509_certificate_init(parsed);
         rc = noxtls_x509_certificate_parse_der(parsed, ctx->client_cert, ctx->client_cert_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             noxtls_x509_certificate_free(parsed);
             noxtls_free(parsed);
+            noxtls_x509_certificate_chain_free(&presented_chain);
             noxtls_free(msg);
             /* Structurally sized but unparsable DER → bad_certificate. */
             return NOXTLS_RETURN_FAILED;
+        }
+
+        chain_pos = 10U + cert_len;
+        chain_end = 7U + cert_list_len;
+        while(chain_pos + 3U <= chain_end) {
+            uint32_t issuer_len = ((uint32_t)msg[chain_pos] << 16) |
+                                  ((uint32_t)msg[chain_pos + 1U] << 8) |
+                                  (uint32_t)msg[chain_pos + 2U];
+            x509_certificate_t issuer_cert;
+            chain_pos += 3U;
+            if(issuer_len == 0U || chain_pos + issuer_len > chain_end) {
+                noxtls_x509_certificate_free(parsed);
+                noxtls_free(parsed);
+                noxtls_x509_certificate_chain_free(&presented_chain);
+                noxtls_free(msg);
+                return NOXTLS_RETURN_BAD_DATA;
+            }
+            noxtls_x509_certificate_init(&issuer_cert);
+            rc = noxtls_x509_certificate_parse_der(&issuer_cert, msg + chain_pos, issuer_len);
+            if(rc == NOXTLS_RETURN_SUCCESS) {
+                rc = noxtls_x509_certificate_chain_add(&presented_chain, &issuer_cert);
+            }
+            noxtls_x509_certificate_free(&issuer_cert);
+            if(rc != NOXTLS_RETURN_SUCCESS) {
+                noxtls_x509_certificate_free(parsed);
+                noxtls_free(parsed);
+                noxtls_x509_certificate_chain_free(&presented_chain);
+                noxtls_free(msg);
+                return rc;
+            }
+            chain_pos += issuer_len;
+        }
+        if(chain_pos != chain_end) {
+            noxtls_x509_certificate_free(parsed);
+            noxtls_free(parsed);
+            noxtls_x509_certificate_chain_free(&presented_chain);
+            noxtls_free(msg);
+            return NOXTLS_RETURN_BAD_DATA;
+        }
+
+        if(noxtls_x509_trust_store_has_anchors()) {
+            rc = noxtls_x509_verify_client_cert_trust_ex(parsed, &presented_chain,
+                                                         ctx->verify_crl, NULL);
+        } else {
+            rc = NOXTLS_RETURN_SUCCESS;
+        }
+        noxtls_x509_certificate_chain_free(&presented_chain);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_x509_certificate_free(parsed);
+            noxtls_free(parsed);
+            noxtls_free(msg);
+            return rc;
         }
         ctx->client_cert_parsed = parsed;
     }
@@ -9074,6 +9380,8 @@ static noxtls_return_t tls12_send_new_session_ticket(tls12_context_t *ctx)
     msg[8] = (uint8_t)(ticket_len >> 8);
     msg[9] = (uint8_t)(ticket_len & 0xFF);
     memcpy(msg + 10, ticket, ticket_len);
+    memcpy(ctx->next_session_identity, ticket, ticket_len);
+    ctx->next_session_identity_len = ticket_len;
 
     {
         uint8_t sni_buf[255];
@@ -9376,6 +9684,13 @@ noxtls_return_t noxtls_tls12_accept(tls12_context_t *ctx)
             }
             return rc;
         }
+        if(ctx->require_client_auth && !client_cert_present) {
+            if(ctx->base.base.send_callback != NULL) {
+                (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL,
+                                            TLS_ALERT_CERTIFICATE_REQUIRED);
+            }
+            return NOXTLS_RETURN_CERT_REQUIRED;
+        }
     }
     
     /* Receive Client Key Exchange */
@@ -9574,6 +9889,254 @@ noxtls_return_t noxtls_tls12_accept(tls12_context_t *ctx)
     NOXTLS_STATE_ENTER(ctx, NOXTLS_STATE_CONNECTED);
     
     return NOXTLS_RETURN_SUCCESS;
+}
+
+static void tls12_poll_cache_server_session(tls12_context_t *ctx)
+{
+    uint8_t sni[TLS12_SESSION_SNI_MAX];
+    uint16_t sni_len = 0U;
+    if(ctx->server_session_id_len == 0U) return;
+    if(ctx->client_extensions.sni != NULL &&
+       ctx->client_extensions.sni->hostname != NULL &&
+       ctx->client_extensions.sni->name_len > 0U &&
+       ctx->client_extensions.sni->name_len <= TLS12_SESSION_SNI_MAX) {
+        sni_len = ctx->client_extensions.sni->name_len;
+        memcpy(sni, ctx->client_extensions.sni->hostname, sni_len);
+    }
+    tls12_session_cache_store(ctx->server_session_id, ctx->server_session_id_len,
+                              ctx->master_secret, ctx->cipher_suite,
+                              ctx->negotiated_alpn, ctx->negotiated_alpn_len,
+                              ctx->extended_master_secret_negotiated,
+                              sni_len > 0U ? sni : NULL, sni_len);
+}
+
+static int tls12_poll_client_offered_ticket(tls12_context_t *ctx)
+{
+    tls_extension_t *extension = NULL;
+    return noxtls_tls_find_extension(&ctx->client_extensions,
+                                     TLS_EXTENSION_SESSION_TICKET,
+                                     &extension) == NOXTLS_RETURN_SUCCESS &&
+           extension != NULL;
+}
+
+/** Advance an initial TLS 1.2 server handshake using caller-polled I/O. */
+noxtls_return_t noxtls_tls12_accept_poll(tls12_context_t *ctx)
+{
+    noxtls_return_t rc;
+
+    if(ctx == NULL) return NOXTLS_RETURN_NULL;
+    if(ctx->base.base.role != TLS_ROLE_SERVER) return NOXTLS_RETURN_FAILED;
+    if(tls12_is_dtls(ctx) || ctx->renegotiation_in_progress) {
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+    }
+    if(ctx->server_handshake_step == TLS12_SERVER_POLL_NONE ||
+       ctx->base.base.state != TLS_STATE_HANDSHAKING) {
+        ctx->base.base.state = TLS_STATE_HANDSHAKING;
+        ctx->handshake_client_cert_present = 0U;
+        ctx->server_handshake_step = TLS12_SERVER_POLL_RECV_CH;
+        NOXTLS_STATE_ENTER(ctx, NOXTLS_STATE_START);
+    }
+
+    while(1) {
+        switch((tls12_server_poll_step_t)ctx->server_handshake_step) {
+            case TLS12_SERVER_POLL_RECV_CH:
+                rc = noxtls_tls12_recv_client_hello(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                if(ctx->renegotiation_in_progress) return NOXTLS_RETURN_NOT_SUPPORTED;
+                ctx->server_handshake_step = TLS12_SERVER_POLL_CHECK_SNI;
+                break;
+
+            case TLS12_SERVER_POLL_CHECK_SNI:
+                rc = tls12_server_maybe_alert_unrecognized_sni(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->server_handshake_step = TLS12_SERVER_POLL_SEND_SH;
+                break;
+
+            case TLS12_SERVER_POLL_SEND_SH:
+                rc = noxtls_tls12_send_server_hello(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->server_handshake_step = ctx->session_resume ?
+                    TLS12_SERVER_POLL_RESUME_DERIVE :
+                    TLS12_SERVER_POLL_SEND_CERTIFICATE;
+                if(noxtls_tls_has_pending_output(&ctx->base.base)) return NOXTLS_RETURN_WANT_WRITE;
+                break;
+
+            case TLS12_SERVER_POLL_RESUME_DERIVE:
+                rc = tls12_derive_keys(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->server_handshake_step = TLS12_SERVER_POLL_RESUME_SEND_TICKET;
+                break;
+
+            case TLS12_SERVER_POLL_RESUME_SEND_TICKET:
+                if(tls12_poll_client_offered_ticket(ctx)) {
+                    rc = tls12_send_new_session_ticket(ctx);
+                    if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                }
+                ctx->server_handshake_step = TLS12_SERVER_POLL_RESUME_SEND_CCS;
+                if(noxtls_tls_has_pending_output(&ctx->base.base)) return NOXTLS_RETURN_WANT_WRITE;
+                break;
+
+            case TLS12_SERVER_POLL_RESUME_SEND_CCS:
+                rc = noxtls_tls12_send_change_cipher_spec_server(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->server_handshake_step = TLS12_SERVER_POLL_RESUME_SEND_FINISHED;
+                if(noxtls_tls_has_pending_output(&ctx->base.base)) return NOXTLS_RETURN_WANT_WRITE;
+                break;
+
+            case TLS12_SERVER_POLL_RESUME_SEND_FINISHED:
+                rc = noxtls_tls12_send_finished_server(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->server_handshake_step = TLS12_SERVER_POLL_RESUME_RECV_CCS;
+                if(noxtls_tls_has_pending_output(&ctx->base.base)) return NOXTLS_RETURN_WANT_WRITE;
+                break;
+
+            case TLS12_SERVER_POLL_RESUME_RECV_CCS:
+                rc = noxtls_tls12_recv_change_cipher_spec_client(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->server_handshake_step = TLS12_SERVER_POLL_RESUME_RECV_FINISHED;
+                break;
+
+            case TLS12_SERVER_POLL_RESUME_RECV_FINISHED:
+                rc = noxtls_tls12_recv_finished_client(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                tls12_poll_cache_server_session(ctx);
+                ctx->server_handshake_step = TLS12_SERVER_POLL_COMPLETE;
+                break;
+
+            case TLS12_SERVER_POLL_SEND_CERTIFICATE:
+                rc = noxtls_tls12_send_certificate(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->server_handshake_step = TLS12_SERVER_POLL_SEND_SERVER_KEY_EXCHANGE;
+                if(noxtls_tls_has_pending_output(&ctx->base.base)) return NOXTLS_RETURN_WANT_WRITE;
+                break;
+
+            case TLS12_SERVER_POLL_SEND_SERVER_KEY_EXCHANGE:
+                rc = noxtls_tls12_send_server_key_exchange(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->server_handshake_step = TLS12_SERVER_POLL_SEND_CERTIFICATE_REQUEST;
+                if(noxtls_tls_has_pending_output(&ctx->base.base)) return NOXTLS_RETURN_WANT_WRITE;
+                break;
+
+            case TLS12_SERVER_POLL_SEND_CERTIFICATE_REQUEST:
+                if(ctx->request_client_auth) {
+                    rc = noxtls_tls12_send_certificate_request(ctx);
+                    if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                }
+                ctx->server_handshake_step = TLS12_SERVER_POLL_SEND_SERVER_HELLO_DONE;
+                if(noxtls_tls_has_pending_output(&ctx->base.base)) return NOXTLS_RETURN_WANT_WRITE;
+                break;
+
+            case TLS12_SERVER_POLL_SEND_SERVER_HELLO_DONE:
+                rc = noxtls_tls12_send_server_hello_done(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->server_handshake_step = ctx->request_client_auth ?
+                    TLS12_SERVER_POLL_RECV_CERTIFICATE :
+                    TLS12_SERVER_POLL_RECV_CLIENT_KEY_EXCHANGE;
+                if(noxtls_tls_has_pending_output(&ctx->base.base)) return NOXTLS_RETURN_WANT_WRITE;
+                break;
+
+            case TLS12_SERVER_POLL_RECV_CERTIFICATE:
+                {
+                    int present = 0;
+                    rc = tls12_recv_client_certificate(ctx, &present);
+                    if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                    ctx->handshake_client_cert_present = present ? 1U : 0U;
+                    if(ctx->require_client_auth && !present) {
+                        (void)noxtls_tls_send_alert(&ctx->base.base,
+                                                    TLS_ALERT_LEVEL_FATAL,
+                                                    TLS_ALERT_CERTIFICATE_REQUIRED);
+                        return NOXTLS_RETURN_CERT_REQUIRED;
+                    }
+                }
+                ctx->server_handshake_step = TLS12_SERVER_POLL_RECV_CLIENT_KEY_EXCHANGE;
+                break;
+
+            case TLS12_SERVER_POLL_RECV_CLIENT_KEY_EXCHANGE:
+                rc = noxtls_tls12_recv_client_key_exchange(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->server_handshake_step = TLS12_SERVER_POLL_COMPUTE_MASTER_SECRET;
+                break;
+
+            case TLS12_SERVER_POLL_COMPUTE_MASTER_SECRET:
+                if(ctx->dhe_ctx != NULL) {
+                    tls_dhe_context_t *dhe = (tls_dhe_context_t *)ctx->dhe_ctx;
+                    rc = tls12_compute_master_secret(ctx, dhe->premaster_secret,
+                                                     dhe->premaster_secret_len);
+                } else {
+                    rc = tls12_compute_master_secret(ctx, ctx->premaster_secret,
+                                                     ctx->premaster_secret_len);
+                }
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->server_handshake_step = TLS12_SERVER_POLL_DERIVE_KEYS;
+                break;
+
+            case TLS12_SERVER_POLL_DERIVE_KEYS:
+                rc = tls12_derive_keys(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->server_handshake_step = TLS12_SERVER_POLL_RECV_CERTIFICATE_VERIFY;
+                break;
+
+            case TLS12_SERVER_POLL_RECV_CERTIFICATE_VERIFY:
+                if(ctx->request_client_auth && ctx->handshake_client_cert_present) {
+                    rc = tls12_recv_client_certificate_verify(ctx);
+                    if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                }
+                ctx->server_handshake_step = TLS12_SERVER_POLL_RECV_CCS;
+                break;
+
+            case TLS12_SERVER_POLL_RECV_CCS:
+                rc = noxtls_tls12_recv_change_cipher_spec_client(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->server_handshake_step = TLS12_SERVER_POLL_RECV_FINISHED;
+                break;
+
+            case TLS12_SERVER_POLL_RECV_FINISHED:
+                rc = noxtls_tls12_recv_finished_client(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->server_handshake_step = TLS12_SERVER_POLL_SEND_TICKET;
+                break;
+
+            case TLS12_SERVER_POLL_SEND_TICKET:
+                if(tls12_poll_client_offered_ticket(ctx)) {
+                    rc = tls12_send_new_session_ticket(ctx);
+                    if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                }
+                ctx->server_handshake_step = TLS12_SERVER_POLL_SEND_CCS;
+                if(noxtls_tls_has_pending_output(&ctx->base.base)) return NOXTLS_RETURN_WANT_WRITE;
+                break;
+
+            case TLS12_SERVER_POLL_SEND_CCS:
+                rc = noxtls_tls12_send_change_cipher_spec_server(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->server_handshake_step = TLS12_SERVER_POLL_SEND_FINISHED;
+                if(noxtls_tls_has_pending_output(&ctx->base.base)) return NOXTLS_RETURN_WANT_WRITE;
+                break;
+
+            case TLS12_SERVER_POLL_SEND_FINISHED:
+                rc = noxtls_tls12_send_finished_server(ctx);
+                if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+                ctx->server_handshake_step = TLS12_SERVER_POLL_CACHE_SESSION;
+                if(noxtls_tls_has_pending_output(&ctx->base.base)) return NOXTLS_RETURN_WANT_WRITE;
+                break;
+
+            case TLS12_SERVER_POLL_CACHE_SESSION:
+                tls12_poll_cache_server_session(ctx);
+                ctx->server_handshake_step = TLS12_SERVER_POLL_COMPLETE;
+                break;
+
+            case TLS12_SERVER_POLL_COMPLETE:
+                tls12_server_arm_beast_split_if_needed(ctx);
+                ctx->base.base.state = TLS_STATE_CONNECTED;
+                ctx->server_handshake_step = TLS12_SERVER_POLL_NONE;
+                NOXTLS_STATE_ENTER(ctx, NOXTLS_STATE_CONNECTED);
+                return NOXTLS_RETURN_SUCCESS;
+
+            case TLS12_SERVER_POLL_NONE:
+            default:
+                ctx->server_handshake_step = TLS12_SERVER_POLL_RECV_CH;
+                break;
+        }
+    }
 }
 
 /**

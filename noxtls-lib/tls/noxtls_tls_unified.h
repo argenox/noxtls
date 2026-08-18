@@ -86,6 +86,9 @@ typedef struct noxtls_tls_connection_s
     const noxtls_x509_crl_t *verify_crl;
     /** Requested maximum plaintext record payload; 0 keeps protocol default. */
     uint16_t maximum_record_payload;
+    /** Optional caller-owned TLS 1.3 client session copied before connect. */
+    noxtls_tls13_session_t tls13_session;
+    uint8_t tls13_session_configured;
     union {
         tls12_context_t tls12;
         tls13_context_t tls13;
@@ -176,6 +179,10 @@ noxtls_return_t noxtls_tls_connection_set_verify_crl(noxtls_tls_connection_t *co
 noxtls_return_t noxtls_tls_connection_set_maximum_record_payload(
     noxtls_tls_connection_t *conn, uint16_t payload_bytes);
 
+/** Copy TLS 1.3 client resumption state to apply when the context is created. */
+noxtls_return_t noxtls_tls_connection_set_tls13_session(
+    noxtls_tls_connection_t *conn, const noxtls_tls13_session_t *session);
+
 /** Server: receive Client Hello, detect version, complete handshake (TLS 1.2 or 1.3). */
 noxtls_return_t noxtls_tls_connection_accept(noxtls_tls_connection_t *conn);
 
@@ -208,6 +215,23 @@ noxtls_return_t noxtls_tls_connection_get_peer_certificate(
 
 /** Return the negotiated cipher-suite wire identifier, or zero before handshake. */
 uint16_t noxtls_tls_connection_get_cipher_suite(const noxtls_tls_connection_t *conn);
+
+/** Return nonzero when the connection used an abbreviated/resumed handshake. */
+int noxtls_tls_connection_is_resumed(const noxtls_tls_connection_t *conn);
+
+/**
+ * Borrow the opaque session identity issued for a future resumption.
+ * Applications may use it only as a cache key; it is not an authentication
+ * identity by itself.
+ */
+noxtls_return_t noxtls_tls_connection_get_session_identity(
+    const noxtls_tls_connection_t *conn, const uint8_t **identity,
+    uint16_t *identity_length);
+
+/** Borrow the opaque identity that authenticated a resumed session. */
+noxtls_return_t noxtls_tls_connection_get_resumption_identity(
+    const noxtls_tls_connection_t *conn, const uint8_t **identity,
+    uint16_t *identity_length);
 
 #endif /* NOXTLS_FEATURE_TLS12 || NOXTLS_FEATURE_TLS13 */
 

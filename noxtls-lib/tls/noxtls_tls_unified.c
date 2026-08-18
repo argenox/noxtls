@@ -481,6 +481,18 @@ noxtls_return_t noxtls_tls_connection_set_maximum_record_payload(
     return NOXTLS_RETURN_SUCCESS;
 }
 
+noxtls_return_t noxtls_tls_connection_set_tls13_session(
+    noxtls_tls_connection_t *conn, const noxtls_tls13_session_t *session)
+{
+    if(conn == NULL || session == NULL) return NOXTLS_RETURN_NULL;
+    if(conn->base.role != TLS_ROLE_CLIENT || conn->handshake_started != 0U) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    memcpy(&conn->tls13_session, session, sizeof(*session));
+    conn->tls13_session_configured = 1U;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
 /**
  * @brief Accept a TLS connection
  *
@@ -507,10 +519,9 @@ noxtls_return_t noxtls_tls_connection_accept(noxtls_tls_connection_t *conn)
 #endif
         } else {
 #if NOXTLS_FEATURE_TLS12
-            if(conn->base.io_mode == TLS_IO_MODE_NON_BLOCKING) {
-                return NOXTLS_RETURN_NOT_SUPPORTED;
-            }
-            rc = noxtls_tls12_accept(&conn->u.tls12);
+            rc = conn->base.io_mode == TLS_IO_MODE_NON_BLOCKING ?
+                noxtls_tls12_accept_poll(&conn->u.tls12) :
+                noxtls_tls12_accept(&conn->u.tls12);
 #else
             rc = NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
@@ -617,12 +628,6 @@ noxtls_return_t noxtls_tls_connection_accept(noxtls_tls_connection_t *conn)
         conn->negotiated_version = tls12_wire_version;
         conn->is_tls13 = 0;
 
-        if(conn->base.io_mode == TLS_IO_MODE_NON_BLOCKING) {
-            if(client_hello_data) noxtls_free(client_hello_data);
-            conn->negotiated_version = 0U;
-            return NOXTLS_RETURN_NOT_SUPPORTED;
-        }
-
         rc = noxtls_tls12_context_init_with_version(&conn->u.tls12, TLS_ROLE_SERVER, tls12_wire_version);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         if(client_hello_data) noxtls_free(client_hello_data);
@@ -654,7 +659,9 @@ noxtls_return_t noxtls_tls_connection_accept(noxtls_tls_connection_t *conn)
         noxtls_tls12_set_server_alpn_protocols(&conn->u.tls12, conn->server_alpn_protocols,
                                                conn->server_alpn_count);
     }
-    if(conn->request_client_auth != 0U) {
+    if(conn->require_client_auth != 0U) {
+        noxtls_tls12_require_client_auth(&conn->u.tls12, 1);
+    } else if(conn->request_client_auth != 0U) {
         noxtls_tls12_request_client_auth(&conn->u.tls12, 1);
     }
 
@@ -666,7 +673,9 @@ noxtls_return_t noxtls_tls_connection_accept(noxtls_tls_connection_t *conn)
               tls12_wire_version == TLS_VERSION_1_2)) ? 1U : 0U;
 #endif
 
-        rc = noxtls_tls12_accept(&conn->u.tls12);
+        rc = conn->base.io_mode == TLS_IO_MODE_NON_BLOCKING ?
+            noxtls_tls12_accept_poll(&conn->u.tls12) :
+            noxtls_tls12_accept(&conn->u.tls12);
 
         if(conn->u.tls12.base.base.pending_client_hello) {
             noxtls_free(conn->u.tls12.base.base.pending_client_hello);
@@ -674,12 +683,13 @@ noxtls_return_t noxtls_tls_connection_accept(noxtls_tls_connection_t *conn)
             conn->u.tls12.base.base.pending_client_hello_len = 0;
         }
 
-        if(rc != NOXTLS_RETURN_SUCCESS) {
+        if(rc != NOXTLS_RETURN_SUCCESS && rc != NOXTLS_RETURN_WANT_READ &&
+           rc != NOXTLS_RETURN_WANT_WRITE) {
             noxtls_tls12_context_free(&conn->u.tls12);
             conn->negotiated_version = 0;
             conn->handshake_started = 0U;
         }
-        return rc;
+        return unified_poll_result(conn, rc);
     }
 #else
     if(conn->base.send_callback != NULL) {
@@ -716,10 +726,9 @@ noxtls_return_t noxtls_tls_connection_connect(noxtls_tls_connection_t *conn)
 #endif
         } else {
 #if NOXTLS_FEATURE_TLS12
-            if(conn->base.io_mode == TLS_IO_MODE_NON_BLOCKING) {
-                return NOXTLS_RETURN_NOT_SUPPORTED;
-            }
-            rc = noxtls_tls12_connect(&conn->u.tls12);
+            rc = conn->base.io_mode == TLS_IO_MODE_NON_BLOCKING ?
+                noxtls_tls12_connect_poll(&conn->u.tls12) :
+                noxtls_tls12_connect(&conn->u.tls12);
 #else
             rc = NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
@@ -744,6 +753,13 @@ noxtls_return_t noxtls_tls_connection_connect(noxtls_tls_connection_t *conn)
             }
             noxtls_tls13_set_client_fallback_scsv(&conn->u.tls13, conn->client_send_fallback_scsv);
             unified_apply_client_auth_tls13(conn);
+            if(conn->tls13_session_configured != 0U) {
+                rc = noxtls_tls13_session_import(&conn->u.tls13, &conn->tls13_session);
+                if(rc != NOXTLS_RETURN_SUCCESS) {
+                    noxtls_tls13_context_free(&conn->u.tls13);
+                    return rc;
+                }
+            }
             rc = noxtls_tls13_connect(&conn->u.tls13);
             if(rc == NOXTLS_RETURN_NEGOTIATED_TLS12) {
                 /* Fixed TLS 1.3-only: peer selected TLS 1.2 → protocol_version. */
@@ -765,9 +781,6 @@ noxtls_return_t noxtls_tls_connection_connect(noxtls_tls_connection_t *conn)
 #endif
         } else {
 #if NOXTLS_FEATURE_TLS12
-            if(conn->base.io_mode == TLS_IO_MODE_NON_BLOCKING) {
-                return NOXTLS_RETURN_NOT_SUPPORTED;
-            }
             rc = noxtls_tls12_context_init(&conn->u.tls12, TLS_ROLE_CLIENT);
             if(rc != NOXTLS_RETURN_SUCCESS) return rc;
             unified_copy_io_to_version_context(conn, &conn->u.tls12.base.base);
@@ -778,15 +791,17 @@ noxtls_return_t noxtls_tls_connection_connect(noxtls_tls_connection_t *conn)
             noxtls_tls12_set_client_fallback_scsv(&conn->u.tls12, conn->client_send_fallback_scsv);
             unified_apply_client_auth_tls12(conn);
             conn->handshake_started = 1U;
-            rc = noxtls_tls12_connect(&conn->u.tls12);
+            rc = conn->base.io_mode == TLS_IO_MODE_NON_BLOCKING ?
+                noxtls_tls12_connect_poll(&conn->u.tls12) :
+                noxtls_tls12_connect(&conn->u.tls12);
             if(rc == NOXTLS_RETURN_SUCCESS) {
                 conn->negotiated_version = TLS_VERSION_1_2;
                 conn->is_tls13 = 0;
-            } else {
+            } else if(rc != NOXTLS_RETURN_WANT_READ && rc != NOXTLS_RETURN_WANT_WRITE) {
                 noxtls_tls12_context_free(&conn->u.tls12);
                 conn->handshake_started = 0U;
             }
-            return rc;
+            return unified_poll_result(conn, rc);
 #endif
         }
     }
@@ -804,6 +819,14 @@ noxtls_return_t noxtls_tls_connection_connect(noxtls_tls_connection_t *conn)
         }
         noxtls_tls13_set_client_fallback_scsv(&conn->u.tls13, conn->client_send_fallback_scsv);
         unified_apply_client_auth_tls13(conn);
+        if(conn->tls13_session_configured != 0U) {
+            rc = noxtls_tls13_session_import(&conn->u.tls13, &conn->tls13_session);
+            if(rc != NOXTLS_RETURN_SUCCESS) {
+                noxtls_tls13_context_free(&conn->u.tls13);
+                conn->handshake_started = 0U;
+                return rc;
+            }
+        }
         rc = noxtls_tls13_connect(&conn->u.tls13);
         if(rc == NOXTLS_RETURN_SUCCESS) {
             conn->negotiated_version = TLS_VERSION_1_3;
@@ -876,9 +899,6 @@ noxtls_return_t noxtls_tls_connection_connect(noxtls_tls_connection_t *conn)
 #endif
 
 #if NOXTLS_FEATURE_TLS12
-    if(conn->base.io_mode == TLS_IO_MODE_NON_BLOCKING) {
-        return NOXTLS_RETURN_NOT_SUPPORTED;
-    }
     rc = noxtls_tls12_context_init(&conn->u.tls12, TLS_ROLE_CLIENT);
     if(rc != NOXTLS_RETURN_SUCCESS) return rc;
     unified_copy_io_to_version_context(conn, &conn->u.tls12.base.base);
@@ -889,11 +909,16 @@ noxtls_return_t noxtls_tls_connection_connect(noxtls_tls_connection_t *conn)
     noxtls_tls12_set_client_fallback_scsv(&conn->u.tls12, conn->client_send_fallback_scsv);
     unified_apply_client_auth_tls12(conn);
     conn->handshake_started = 1U;
-    rc = noxtls_tls12_connect(&conn->u.tls12);
+    rc = conn->base.io_mode == TLS_IO_MODE_NON_BLOCKING ?
+        noxtls_tls12_connect_poll(&conn->u.tls12) :
+        noxtls_tls12_connect(&conn->u.tls12);
     if(rc == NOXTLS_RETURN_SUCCESS) {
         conn->negotiated_version = TLS_VERSION_1_2;
         conn->is_tls13 = 0;
-        return NOXTLS_RETURN_SUCCESS;
+        return unified_poll_result(conn, NOXTLS_RETURN_SUCCESS);
+    }
+    if(rc == NOXTLS_RETURN_WANT_READ || rc == NOXTLS_RETURN_WANT_WRITE) {
+        return unified_poll_result(conn, rc);
     }
     noxtls_tls12_context_free(&conn->u.tls12);
     conn->handshake_started = 0U;
@@ -1055,5 +1080,96 @@ uint16_t noxtls_tls_connection_get_cipher_suite(const noxtls_tls_connection_t *c
     return conn->u.tls12.cipher_suite;
 #else
     return 0U;
+#endif
+}
+
+int noxtls_tls_connection_is_resumed(const noxtls_tls_connection_t *conn)
+{
+    if(conn == NULL || conn->handshake_started == 0U) return 0;
+    if(conn->is_tls13 != 0U) {
+#if NOXTLS_FEATURE_TLS13
+        return conn->u.tls13.psk_in_use != 0U;
+#else
+        return 0;
+#endif
+    }
+#if NOXTLS_FEATURE_TLS12
+    return conn->u.tls12.session_resume != 0U;
+#else
+    return 0;
+#endif
+}
+
+noxtls_return_t noxtls_tls_connection_get_session_identity(
+    const noxtls_tls_connection_t *conn, const uint8_t **identity,
+    uint16_t *identity_length)
+{
+    if(conn == NULL || identity == NULL || identity_length == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    *identity = NULL;
+    *identity_length = 0U;
+    if(conn->handshake_started == 0U) return NOXTLS_RETURN_FAILED;
+    if(conn->is_tls13 != 0U) {
+#if NOXTLS_FEATURE_TLS13
+        if(conn->u.tls13.ticket_identity_len == 0U) return NOXTLS_RETURN_FAILED;
+        *identity = conn->u.tls13.ticket_identity;
+        *identity_length = conn->u.tls13.ticket_identity_len;
+        return NOXTLS_RETURN_SUCCESS;
+#else
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+    }
+#if NOXTLS_FEATURE_TLS12
+    if(conn->u.tls12.next_session_identity_len != 0U) {
+        *identity = conn->u.tls12.next_session_identity;
+        *identity_length = conn->u.tls12.next_session_identity_len;
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    if(conn->u.tls12.server_session_id_len == 0U) return NOXTLS_RETURN_FAILED;
+    *identity = conn->u.tls12.server_session_id;
+    *identity_length = conn->u.tls12.server_session_id_len;
+    return NOXTLS_RETURN_SUCCESS;
+#else
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+}
+
+noxtls_return_t noxtls_tls_connection_get_resumption_identity(
+    const noxtls_tls_connection_t *conn, const uint8_t **identity,
+    uint16_t *identity_length)
+{
+    if(conn == NULL || identity == NULL || identity_length == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    *identity = NULL;
+    *identity_length = 0U;
+    if(!noxtls_tls_connection_is_resumed(conn)) return NOXTLS_RETURN_FAILED;
+    if(conn->is_tls13 != 0U) {
+#if NOXTLS_FEATURE_TLS13
+        if(conn->u.tls13.offered_ticket_identity_len == 0U) {
+            return NOXTLS_RETURN_FAILED;
+        }
+        *identity = conn->u.tls13.offered_ticket_identity;
+        *identity_length = conn->u.tls13.offered_ticket_identity_len;
+        return NOXTLS_RETURN_SUCCESS;
+#else
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+    }
+#if NOXTLS_FEATURE_TLS12
+    if(conn->u.tls12.resumption_identity_len != 0U) {
+        *identity = conn->u.tls12.resumption_identity;
+        *identity_length = conn->u.tls12.resumption_identity_len;
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    if(conn->u.tls12.server_session_id_len != 0U) {
+        *identity = conn->u.tls12.server_session_id;
+        *identity_length = conn->u.tls12.server_session_id_len;
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    return NOXTLS_RETURN_FAILED;
+#else
+    return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
 }

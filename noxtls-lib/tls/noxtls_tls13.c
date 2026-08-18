@@ -4558,6 +4558,8 @@ static noxtls_return_t tls13_send_new_session_ticket(tls13_context_t *ctx)
     if(drbg_generate(&drbg_state, ticket_id, sizeof(ticket_id) * 8U, NULL, 0) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
+    memcpy(ctx->ticket_identity, ticket_id, sizeof(ticket_id));
+    ctx->ticket_identity_len = (uint16_t)sizeof(ticket_id);
     if(drbg_generate(&drbg_state, (uint8_t*)&ticket_age_add, sizeof(ticket_age_add) * 8U, NULL, 0) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -5350,6 +5352,69 @@ static noxtls_return_t tls13_context_init_internal(tls13_context_t *ctx,
 noxtls_return_t noxtls_tls13_context_init(tls13_context_t *ctx, tls_role_t role)
 {
     return tls13_context_init_internal(ctx, role, NULL, 0U, NULL, 0U);
+}
+
+noxtls_return_t noxtls_tls13_session_export(
+    const tls13_context_t *ctx, noxtls_tls13_session_t *session)
+{
+    if(ctx == NULL || session == NULL) return NOXTLS_RETURN_NULL;
+    if(ctx->base.base.role != TLS_ROLE_CLIENT || ctx->ticket_stored == 0U ||
+       ctx->ticket_identity_len == 0U ||
+       ctx->ticket_identity_len > sizeof(session->ticket_identity) ||
+       ctx->ticket_nonce_len > sizeof(session->ticket_nonce) ||
+       ctx->resumption_psk_len == 0U ||
+       ctx->resumption_psk_len > sizeof(session->resumption_psk)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    memset(session, 0, sizeof(*session));
+    memcpy(session->ticket_identity, ctx->ticket_identity,
+           ctx->ticket_identity_len);
+    session->ticket_identity_len = ctx->ticket_identity_len;
+    memcpy(session->ticket_nonce, ctx->ticket_nonce, ctx->ticket_nonce_len);
+    session->ticket_nonce_len = ctx->ticket_nonce_len;
+    memcpy(session->resumption_psk, ctx->resumption_psk,
+           ctx->resumption_psk_len);
+    session->resumption_psk_len = ctx->resumption_psk_len;
+    session->ticket_age_add = ctx->ticket_age_add;
+    session->ticket_cipher_suite = ctx->ticket_cipher_suite;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_tls13_session_import(
+    tls13_context_t *ctx, const noxtls_tls13_session_t *session)
+{
+    noxtls_hash_algos_t hash_algo;
+    uint32_t hash_len;
+    uint32_t key_len;
+    if(ctx == NULL || session == NULL) return NOXTLS_RETURN_NULL;
+    if(ctx->base.base.role != TLS_ROLE_CLIENT || ctx->base.base.state != TLS_STATE_INIT ||
+       session->ticket_identity_len == 0U ||
+       session->ticket_identity_len > sizeof(ctx->ticket_identity) ||
+       session->ticket_nonce_len > sizeof(ctx->ticket_nonce) ||
+       session->resumption_psk_len == 0U ||
+       session->resumption_psk_len > sizeof(ctx->resumption_psk) ||
+       tls13_get_cipher_params(session->ticket_cipher_suite, &hash_algo,
+                               &hash_len, &key_len) != NOXTLS_RETURN_SUCCESS ||
+       session->resumption_psk_len != hash_len) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    memset(ctx->ticket_identity, 0, sizeof(ctx->ticket_identity));
+    memset(ctx->ticket_nonce, 0, sizeof(ctx->ticket_nonce));
+    memset(ctx->resumption_psk, 0, sizeof(ctx->resumption_psk));
+    memcpy(ctx->ticket_identity, session->ticket_identity,
+           session->ticket_identity_len);
+    ctx->ticket_identity_len = session->ticket_identity_len;
+    memcpy(ctx->ticket_nonce, session->ticket_nonce, session->ticket_nonce_len);
+    ctx->ticket_nonce_len = session->ticket_nonce_len;
+    memcpy(ctx->resumption_psk, session->resumption_psk,
+           session->resumption_psk_len);
+    ctx->resumption_psk_len = session->resumption_psk_len;
+    ctx->ticket_age_add = session->ticket_age_add;
+    ctx->ticket_cipher_suite = session->ticket_cipher_suite;
+    ctx->ticket_stored = 1U;
+    (void)hash_algo;
+    (void)key_len;
+    return NOXTLS_RETURN_SUCCESS;
 }
 
 noxtls_return_t noxtls_tls13_context_init_with_workspaces(tls13_context_t *ctx,
@@ -6547,6 +6612,11 @@ noxtls_return_t noxtls_tls13_send_client_hello(tls13_context_t *ctx)
     ctx->psk_use_ecdhe = 0;
     ctx->psk_selected_identity = 0;
     offer_resumption = (ctx->ticket_stored && ctx->ticket_identity_len > 0 && ctx->resumption_psk_len > 0);
+    if(offer_resumption) {
+        memcpy(ctx->offered_ticket_identity, ctx->ticket_identity,
+               ctx->ticket_identity_len);
+        ctx->offered_ticket_identity_len = ctx->ticket_identity_len;
+    }
     offer_external_psk = (ctx->psk_configured && ctx->psk_identity_len > 0 && ctx->psk_key_len > 0);
     offer_psk = offer_resumption || offer_external_psk;
     if((ctx->client_supported_groups != NULL) && (ctx->client_supported_groups_count > 0U)) {
@@ -9914,6 +9984,8 @@ noxtls_return_t noxtls_tls13_recv_client_hello(tls13_context_t *ctx)
                         ctx->psk_key_len = entry_psk_len;
                         ctx->psk_selected_identity = identity_index;
                         ctx->psk_in_use = 1;
+                        memcpy(ctx->offered_ticket_identity, identity_buf, id_len);
+                        ctx->offered_ticket_identity_len = id_len;
                         break;
                     }
                 }
