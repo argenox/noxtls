@@ -2825,6 +2825,9 @@ static void tls13_send_handshake_alert_for_error(tls13_context_t *ctx, noxtls_re
     if(ctx == NULL) {
         return;
     }
+    if(rc == NOXTLS_RETURN_WANT_READ || rc == NOXTLS_RETURN_WANT_WRITE) {
+        return;
+    }
     if(ctx->peer_alert_received) {
         return;
     }
@@ -3261,29 +3264,7 @@ static noxtls_return_t tls13_derive_handshake_keys(tls13_context_t *ctx, const u
     noxtls_debug_printf("[TLS13_DEBUG] s_hs_secret[0..3]=%02X%02X%02X%02X\n",
                           ctx->server_handshake_traffic_secret[0], ctx->server_handshake_traffic_secret[1],
                           ctx->server_handshake_traffic_secret[2], ctx->server_handshake_traffic_secret[3]);
-    noxtls_debug_printf("[TLS13_DEBUG] s_hs_secret=");
-    for(uint32_t i = 0; i < hash_len; i++) {
-        noxtls_debug_printf("%02X", ctx->server_handshake_traffic_secret[i]);
-    }
-    noxtls_debug_printf("\n");
-    noxtls_debug_printf("[TLS13_KEYLOG] CLIENT_HANDSHAKE_TRAFFIC_SECRET ");
-    for(uint32_t i = 0; i < 32; i++) {
-        noxtls_debug_printf("%02X", ctx->client_random[i]);
-    }
-    noxtls_debug_printf(" ");
-    for(uint32_t i = 0; i < hash_len; i++) {
-        noxtls_debug_printf("%02X", ctx->client_handshake_traffic_secret[i]);
-    }
-    noxtls_debug_printf("\n");
-    noxtls_debug_printf("[TLS13_KEYLOG] SERVER_HANDSHAKE_TRAFFIC_SECRET ");
-    for(uint32_t i = 0; i < 32; i++) {
-        noxtls_debug_printf("%02X", ctx->client_random[i]);
-    }
-    noxtls_debug_printf(" ");
-    for(uint32_t i = 0; i < hash_len; i++) {
-        noxtls_debug_printf("%02X", ctx->server_handshake_traffic_secret[i]);
-    }
-    noxtls_debug_printf("\n");
+    /* Secrets are written only through the explicit SSLKEYLOGFILE path. */
     tls13_keylog_write("CLIENT_HANDSHAKE_TRAFFIC_SECRET", ctx->client_random,
                        ctx->client_handshake_traffic_secret, hash_len);
     tls13_keylog_write("SERVER_HANDSHAKE_TRAFFIC_SECRET", ctx->client_random,
@@ -9008,7 +8989,8 @@ noxtls_return_t noxtls_tls13_connect(tls13_context_t *ctx)
                 if(rc != NOXTLS_RETURN_SUCCESS) {
                     noxtls_debug_printf("[TLS13_DEBUG] noxtls_tls13_recv_encrypted_extensions rc=%d\n", rc);
                     tls13_connect_log_fail(ctx, "recv_encrypted_extensions", rc);
-                    if(ctx->base.base.state != TLS_STATE_CLOSED) {
+                    if(rc != NOXTLS_RETURN_WANT_READ && rc != NOXTLS_RETURN_WANT_WRITE &&
+                       ctx->base.base.state != TLS_STATE_CLOSED) {
                         tls13_send_handshake_alert_for_error(ctx, rc);
                         ctx->base.base.state = TLS_STATE_CLOSED;
                     }
@@ -9036,7 +9018,8 @@ noxtls_return_t noxtls_tls13_connect(tls13_context_t *ctx)
                 if(rc != NOXTLS_RETURN_SUCCESS) {
                     noxtls_debug_printf("[TLS13_DEBUG] noxtls_tls13_recv_certificate rc=%d\n", rc);
                     tls13_connect_log_fail(ctx, "recv_certificate", rc);
-                    if(ctx->base.base.state != TLS_STATE_CLOSED) {
+                    if(rc != NOXTLS_RETURN_WANT_READ && rc != NOXTLS_RETURN_WANT_WRITE &&
+                       ctx->base.base.state != TLS_STATE_CLOSED) {
                         /* BoGo CertificateVerificationFail expects handshake_failure. */
                         tls13_send_handshake_alert_for_error(ctx, rc);
                         ctx->base.base.state = TLS_STATE_CLOSED;
@@ -9055,7 +9038,8 @@ noxtls_return_t noxtls_tls13_connect(tls13_context_t *ctx)
                 if(rc != NOXTLS_RETURN_SUCCESS) {
                     noxtls_debug_printf("[TLS13_DEBUG] noxtls_tls13_recv_certificate_verify rc=%d\n", rc);
                     tls13_connect_log_fail(ctx, "recv_certificate_verify", rc);
-                    if(ctx->base.base.state != TLS_STATE_CLOSED) {
+                    if(rc != NOXTLS_RETURN_WANT_READ && rc != NOXTLS_RETURN_WANT_WRITE &&
+                       ctx->base.base.state != TLS_STATE_CLOSED) {
                         tls13_send_handshake_alert_for_error(ctx, rc);
                         ctx->base.base.state = TLS_STATE_CLOSED;
                     }

@@ -158,6 +158,16 @@ Use [noxtls_tls_connection_t](./api/tls_unified#noxtls_tls_connection_t) for one
 - Client: init, SNI, [noxtls_tls_connection_connect](./api/tls_unified#noxtls_tls_connection_connect) (TLS 1.3 first, then 1.2).
 - Data: [noxtls_tls_connection_send](./api/tls_unified#noxtls_tls_connection_send) / [noxtls_tls_connection_recv](./api/tls_unified#noxtls_tls_connection_recv).
 
+For a caller-polled TLS 1.3 connection, select `TLS_IO_MODE_NON_BLOCKING`, set a
+bounded encrypted-output queue, and repeatedly call
+`noxtls_tls_connection_handshake()`. `NOXTLS_RETURN_WANT_READ` and
+`NOXTLS_RETURN_WANT_WRITE` are resumable states. Call
+`noxtls_tls_connection_flush()` when the socket becomes writable. Record input
+may arrive in arbitrary fragments and partial output remains queued without
+re-encrypting application data. TLS 1.2 remains available through the blocking
+unified/version-specific paths; nonblocking handshake resumption is currently
+implemented for TLS 1.3.
+
 ### DTLS client or server
 
 1. [noxtls_dtls12_context_init](./api/dtls12#noxtls_dtls12_context_init) or [noxtls_dtls13_context_init](./api/dtls13#noxtls_dtls13_context_init).

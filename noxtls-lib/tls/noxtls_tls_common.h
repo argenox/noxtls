@@ -383,6 +383,14 @@ typedef enum
     TLS_IO_MODE_NON_BLOCKING   /* Non-blocking I/O */
 } tls_io_mode_t;
 
+/** Callback result used by nonblocking transports when no progress is possible. */
+#define TLS_IO_WOULD_BLOCK (-2)
+
+/** Default upper bound for encrypted bytes accepted but not yet written. */
+#ifndef NOXTLS_TLS_IO_TX_QUEUE_LIMIT
+#define NOXTLS_TLS_IO_TX_QUEUE_LIMIT (256U * 1024U)
+#endif
+
 /* Network I/O Callback Functions */
 /* These are placeholder functions that applications must implement */
 /* 
@@ -487,6 +495,16 @@ typedef struct
     uint32_t pending_server_hello_len;
     /* Optional record send workspace (allocated by noxtls_dtls_context_init when using TLS/DTLS 1.2/1.3) */
     uint8_t *record_send_buf;
+    /* Caller-polled stream I/O state. These buffers are owned by the context. */
+    uint8_t *io_tx_pending;
+    uint32_t io_tx_pending_len;
+    uint32_t io_tx_pending_offset;
+    uint32_t io_tx_queue_limit;
+    uint8_t io_rx_header[5];
+    uint32_t io_rx_header_len;
+    uint8_t *io_rx_payload;
+    uint32_t io_rx_payload_len;
+    uint32_t io_rx_payload_offset;
 } tls_context_t;
 NOXTLS_MSVC_WARNING_POP
 
@@ -511,6 +529,14 @@ noxtls_return_t noxtls_tls_set_io_callbacks(tls_context_t *ctx,
                                         tls_recv_callback_t recv_cb, 
                                         void *user_data);
 noxtls_return_t noxtls_tls_set_time_callback(tls_context_t *ctx, tls_time_callback_t time_cb);
+/** Select blocking or caller-polled nonblocking stream behavior. */
+noxtls_return_t noxtls_tls_set_io_mode(tls_context_t *ctx, tls_io_mode_t mode);
+/** Override the encrypted-output queue limit used in nonblocking mode. */
+noxtls_return_t noxtls_tls_set_io_tx_queue_limit(tls_context_t *ctx, uint32_t limit);
+/** Attempt to flush encrypted output previously accepted by the record layer. */
+noxtls_return_t noxtls_tls_flush(tls_context_t *ctx);
+/** Return nonzero while encrypted output remains queued. */
+int noxtls_tls_has_pending_output(const tls_context_t *ctx);
 noxtls_return_t noxtls_tls_send_record(tls_context_t *ctx, uint8_t type, const uint8_t *data, uint32_t len);
 noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record);
 noxtls_return_t noxtls_tls_send_alert(tls_context_t *ctx, uint8_t level, uint8_t description);

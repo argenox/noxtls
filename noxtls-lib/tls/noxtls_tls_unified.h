@@ -54,6 +54,8 @@ typedef struct noxtls_tls_connection_s
     uint8_t fixed_version;         /* 1 if init_version was used (only that version is used) */
     /** 1 if TLS 1.3 may be negotiated on this connection (auto init, or init_version(TLS 1.3)). Used for RFC 8446 TLS 1.2 downgrade random. */
     uint8_t config_offers_tls13;
+    /** Internal: protocol context has been initialized and may be resumed. */
+    uint8_t handshake_started;
     /* Config applied when version is chosen (server cert/key; client SNI) */
     const uint8_t *server_cert;
     uint32_t server_cert_len;
@@ -105,6 +107,17 @@ noxtls_return_t noxtls_tls_connection_set_io_callbacks(noxtls_tls_connection_t *
                                                        tls_send_callback_t send_cb,
                                                        tls_recv_callback_t recv_cb,
                                                        void *user_data);
+
+/** Select blocking or caller-polled nonblocking operation. */
+noxtls_return_t noxtls_tls_connection_set_io_mode(noxtls_tls_connection_t *conn,
+                                                  tls_io_mode_t mode);
+
+/** Set the maximum encrypted bytes retained across partial writes. */
+noxtls_return_t noxtls_tls_connection_set_io_tx_queue_limit(
+    noxtls_tls_connection_t *conn, uint32_t limit);
+
+/** Flush pending encrypted output without advancing the handshake. */
+noxtls_return_t noxtls_tls_connection_flush(noxtls_tls_connection_t *conn);
 
 /** Set optional time callback (e.g. for DTLS). */
 noxtls_return_t noxtls_tls_connection_set_time_callback(noxtls_tls_connection_t *conn, tls_time_callback_t time_cb);
@@ -168,6 +181,13 @@ noxtls_return_t noxtls_tls_connection_accept(noxtls_tls_connection_t *conn);
 
 /** Client: connect with auto (try 1.3 then 1.2) or fixed version. */
 noxtls_return_t noxtls_tls_connection_connect(noxtls_tls_connection_t *conn);
+
+/**
+ * Advance a client or server handshake until it completes or needs I/O.
+ * Returns SUCCESS, WANT_READ, WANT_WRITE, or a terminal error. Blocking-mode
+ * callers may continue using connect()/accept().
+ */
+noxtls_return_t noxtls_tls_connection_handshake(noxtls_tls_connection_t *conn);
 
 /** Send application data. Call after handshake. */
 noxtls_return_t noxtls_tls_connection_send(noxtls_tls_connection_t *conn, const uint8_t *data, uint32_t len);

@@ -4215,8 +4215,6 @@ static noxtls_return_t noxtls_x509_crl_verify_signature(const noxtls_x509_crl_t 
     noxtls_return_t rc;
     noxtls_hash_algos_t hash_algo;
     int is_rsa;
-    uint8_t hash[64];
-    uint32_t hash_len = 0;
 
     if(crl == NULL || issuer == NULL || !crl->parsed || !issuer->parsed) {
         return NOXTLS_RETURN_NULL;
@@ -4237,30 +4235,9 @@ static noxtls_return_t noxtls_x509_crl_verify_signature(const noxtls_x509_crl_t 
         return NOXTLS_RETURN_INVALID_ALGORITHM;
     }
 
-    if(hash_algo == NOXTLS_HASH_SHA_256) {
-        noxtls_sha_ctx_t sha_ctx;
-        noxtls_sha256_init(&sha_ctx, hash_algo);
-        noxtls_sha256_update(&sha_ctx, crl->tbs_crl, crl->tbs_crl_len);
-        hash_len = 32;
-        rc = noxtls_sha256_finish(&sha_ctx, hash);
-    } else if(hash_algo == NOXTLS_HASH_SHA_384) {
-        noxtls_sha512_ctx_t sha_ctx;
-        noxtls_sha512_init(&sha_ctx, hash_algo);
-        noxtls_sha512_update(&sha_ctx, crl->tbs_crl, crl->tbs_crl_len);
-        hash_len = 48;
-        rc = noxtls_sha512_finish(&sha_ctx, hash);
-    } else if(hash_algo == NOXTLS_HASH_SHA_512) {
-        noxtls_sha512_ctx_t sha_ctx;
-        noxtls_sha512_init(&sha_ctx, hash_algo);
-        noxtls_sha512_update(&sha_ctx, crl->tbs_crl, crl->tbs_crl_len);
-        hash_len = 64;
-        rc = noxtls_sha512_finish(&sha_ctx, hash);
-    } else {
+    if(hash_algo != NOXTLS_HASH_SHA_256 && hash_algo != NOXTLS_HASH_SHA_384 &&
+       hash_algo != NOXTLS_HASH_SHA_512) {
         return NOXTLS_RETURN_INVALID_ALGORITHM;
-    }
-
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
     }
 
     if(is_rsa == 1) {
@@ -4308,7 +4285,9 @@ static noxtls_return_t noxtls_x509_crl_verify_signature(const noxtls_x509_crl_t 
             }
             memcpy(rsa_key.n + (rsa_key.key_bytes - mod_len), mod_ptr, mod_len);
             memcpy(rsa_key.e + (rsa_key.key_bytes - exp_len), exp_ptr, exp_len);
-            rc = noxtls_rsa_verify(&rsa_key, hash, hash_len, crl->signature, crl->signature_len, hash_algo);
+            /* PKCS#1 v1.5 verification hashes its message argument internally. */
+            rc = noxtls_rsa_verify(&rsa_key, crl->tbs_crl, crl->tbs_crl_len,
+                                   crl->signature, crl->signature_len, hash_algo);
             noxtls_rsa_key_free(&rsa_key);
         }
     } else if(is_rsa == 2) {
@@ -4319,7 +4298,9 @@ static noxtls_return_t noxtls_x509_crl_verify_signature(const noxtls_x509_crl_t 
             }
             return NOXTLS_RETURN_CRL_VERIFY_FAILED;
         }
-        rc = noxtls_mldsa_verify(issuer->mldsa_param, issuer->mldsa_public_key, hash, hash_len, crl->signature, crl->signature_len);
+        rc = noxtls_mldsa_verify(issuer->mldsa_param, issuer->mldsa_public_key,
+                                 crl->tbs_crl, crl->tbs_crl_len,
+                                 crl->signature, crl->signature_len);
 #else
         return NOXTLS_RETURN_INVALID_ALGORITHM;
 #endif

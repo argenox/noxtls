@@ -30,7 +30,8 @@
 #include <stdio.h>
 #endif
 
-static unsigned char g_noxtls_debug_level = 1U;
+/* Fail quiet by default: TLS diagnostics can include handshake material. */
+static unsigned char g_noxtls_debug_level = 0U;
 #ifndef NDEBUG
 static FILE *g_noxtls_debug_log_fp = NULL;
 #endif

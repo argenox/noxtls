@@ -161,7 +161,7 @@ target_link_libraries(noxtls_pkc PRIVATE
     noxtls_common
     noxtls_drbg
 )
-if(NOT MSVC)
+if(NOT WIN32)
     target_link_libraries(noxtls_pkc PRIVATE m)
 endif()
 
