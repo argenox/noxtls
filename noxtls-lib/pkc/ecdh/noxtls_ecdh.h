@@ -36,6 +36,50 @@ extern "C" {
 #endif
 
 /**
+ * @brief Non-secret ECDH failure provenance.
+ *
+ * This is intentionally limited to control-flow information.  It never
+ * contains a scalar, a point coordinate, or a shared secret, so callers can
+ * safely use it for field diagnostics.
+ */
+typedef enum
+{
+    NOXTLS_ECDH_DIAGNOSTIC_NONE = 0,
+    NOXTLS_ECDH_DIAGNOSTIC_ARGUMENT,
+    NOXTLS_ECDH_DIAGNOSTIC_PRIVATE_KEY,
+    NOXTLS_ECDH_DIAGNOSTIC_OUTPUT_BUFFER,
+    NOXTLS_ECDH_DIAGNOSTIC_PEER_PUBLIC_KEY,
+    NOXTLS_ECDH_DIAGNOSTIC_SCALAR_MULTIPLY,
+    NOXTLS_ECDH_DIAGNOSTIC_SHARED_POINT_INFINITY,
+    NOXTLS_ECDH_DIAGNOSTIC_SHARED_SECRET_LENGTH
+} noxtls_ecdh_diagnostic_stage_t;
+
+/**
+ * @brief Optional diagnostic result for an ECDH operation.
+ *
+ * @p internal_rc is the result from the failing internal operation when
+ * applicable.  The public function return value remains authoritative.
+ */
+typedef struct
+{
+    noxtls_ecdh_diagnostic_stage_t stage;
+    noxtls_return_t internal_rc;
+} noxtls_ecdh_diagnostic_t;
+
+/**
+ * @brief ECDH shared secret with optional non-secret failure provenance.
+ *
+ * This is the diagnostic form of noxtls_ecdh_compute_shared_secret().  Pass
+ * NULL for @p diagnostic when no additional information is required.
+ */
+noxtls_return_t noxtls_ecdh_compute_shared_secret_ex(
+    ecc_key_t *private_key,
+    const ecc_point_t *peer_public_key,
+    uint8_t *shared_secret,
+    uint32_t *shared_secret_len,
+    noxtls_ecdh_diagnostic_t *diagnostic);
+
+/**
  * @brief ECDH shared secret: scalar multiplication of peer public point by our private key.
  * @param private_key Our ECC private key (curve must match peer point).
  * @param peer_public_key Peer's public curve point.
