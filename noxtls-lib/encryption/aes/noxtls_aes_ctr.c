@@ -79,7 +79,7 @@ noxtls_return_t noxtls_aes_encrypt_ctr(const uint8_t* key,
         /* Increment counter (big-endian) */
         for(i = NOXTLS_AES_BLOCK_LENGTH - 1; i >= 0; i--) {
             counter_block[i]++;
-            if(counter_block[i] != 0) break;
+            if(counter_block[i] != 0) { break; }
         }
     }
 

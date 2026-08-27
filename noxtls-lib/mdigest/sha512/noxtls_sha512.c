@@ -49,7 +49,7 @@ static uint8_t debug_lvl = 0;
 #define SHA_SIGMA_FROM_1(X) (SHA_ROTR((X), 19)  ^ SHA_ROTR((X), 61) ^ ((X) >> 6))
 
 noxtls_return_t noxtls_sha512_round(noxtls_sha512_ctx_t * ctx, const uint8_t * input);
-noxtls_return_t noxtls_sha512_pad(uint8_t * data, uint32_t zero_pad, uint32_t len);
+noxtls_return_t noxtls_sha512_pad(const uint8_t * data, uint32_t zero_pad, uint32_t len);
 
 /* SHA-384 / SHA-512 / SHA-512/224 / SHA-512/256 round constants K[0..79] (FIPS 180-4); count matches SHA512_ROUND_COUNT. */
 uint64_t sha512_k[SHA512_ROUND_COUNT] =
@@ -153,16 +153,16 @@ noxtls_return_t noxtls_sha512_init(noxtls_sha512_ctx_t * ctx, noxtls_hash_algos_
  * @brief Update SHA-512
  * 
  * @param ctx SHA-512 context
- * @param input Data to update
+ * @param data Data to update
  * @param len Length of data to update
  * @return noxtls_return_t NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if ctx is NULL
  */
-noxtls_return_t noxtls_sha512_update(noxtls_sha512_ctx_t * ctx, const uint8_t * input, uint32_t len)
+noxtls_return_t noxtls_sha512_update(noxtls_sha512_ctx_t * ctx, const uint8_t * data, uint32_t len)
 {
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(input == NULL || len == 0) {
+    if(data == NULL || len == 0) {
         return NOXTLS_RETURN_SUCCESS;
     }
 
@@ -174,7 +174,7 @@ noxtls_return_t noxtls_sha512_update(noxtls_sha512_ctx_t * ctx, const uint8_t * 
         if(to_copy > len) {
             to_copy = len;
         }
-        memcpy(ctx->data + ctx->data_len, input, to_copy);
+        memcpy(ctx->data + ctx->data_len, data, to_copy);
         ctx->data_len = (uint8_t)(ctx->data_len + to_copy);
         offset += to_copy;
         len -= to_copy;
@@ -188,9 +188,9 @@ noxtls_return_t noxtls_sha512_update(noxtls_sha512_ctx_t * ctx, const uint8_t * 
         }
     }
 
-    /* Process full blocks directly from input */
+    /* Process full blocks directly from data */
     while(len >= HASH_SHA512_BLOCK_SIZE) {
-        noxtls_return_t rc = noxtls_sha512_round(ctx, input + offset);
+        noxtls_return_t rc = noxtls_sha512_round(ctx, data + offset);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
@@ -201,7 +201,7 @@ noxtls_return_t noxtls_sha512_update(noxtls_sha512_ctx_t * ctx, const uint8_t * 
 
     /* Store remainder */
     if(len > 0) {
-        memcpy(ctx->data, input + offset, len);
+        memcpy(ctx->data, data + offset, len);
         ctx->data_len = (uint8_t)len;
     }
 
@@ -394,13 +394,13 @@ noxtls_return_t noxtls_sha512_finish(noxtls_sha512_ctx_t * ctx, uint8_t * hash)
     for(i = 0; i < digest_len; i++)
     {
         uint8_t word_idx = (uint8_t)i / SHA512_WORD_BYTES;
-        uint8_t byte_shift = (uint8_t)(56u - ((uint8_t)i % SHA512_WORD_BYTES) * 8U);
+        uint8_t byte_shift = (uint8_t)(56U - (((uint8_t)i % SHA512_WORD_BYTES) * 8U));
 
         if(debug_lvl > 0) {
             noxtls_debug_printf("ctx[%u] = %08llx\n", word_idx, ctx->h[word_idx]);
         }
 
-        hash[i] = (uint8_t)((ctx->h[word_idx] >> byte_shift) & 0xFFu);
+        hash[i] = (uint8_t)((ctx->h[word_idx] >> byte_shift) & 0xFFU);
     }
 
 	return rc;
@@ -419,7 +419,7 @@ noxtls_return_t noxtls_sha512_finish(noxtls_sha512_ctx_t * ctx, uint8_t * hash)
  * @return NOXTLS_RETURN_SUCCESS on success, noxtls_return_t otherwise
  */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
-noxtls_return_t noxtls_sha512_pad(uint8_t * data, uint32_t zero_pad, uint32_t len)
+noxtls_return_t noxtls_sha512_pad(const uint8_t * data, uint32_t zero_pad, uint32_t len)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;

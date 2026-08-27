@@ -44,21 +44,65 @@ static noxtls_return_t noxtls_hmac_hash_once(noxtls_hash_algos_t hash_algo,
 {
     if(hash_algo == NOXTLS_HASH_SHA_256) {
         noxtls_sha_ctx_t ctx;
-        if(noxtls_sha256_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-        if(noxtls_sha256_update(&ctx, (uint8_t *)data, len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+        if(noxtls_sha256_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+        if(noxtls_sha256_update(&ctx, (uint8_t *)data, len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
         return noxtls_sha256_finish(&ctx, out);
     }
     if(hash_algo == NOXTLS_HASH_SHA_384 || hash_algo == NOXTLS_HASH_SHA_512) {
         noxtls_sha512_ctx_t ctx;
-        if(noxtls_sha512_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-        if(noxtls_sha512_update(&ctx, (uint8_t *)data, len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+        if(noxtls_sha512_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+        if(noxtls_sha512_update(&ctx, (uint8_t *)data, len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
         return noxtls_sha512_finish(&ctx, out);
     }
     if(hash_algo == NOXTLS_HASH_SHA1) {
         noxtls_sha_ctx_t ctx;
-        if(noxtls_sha1_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-        if(noxtls_sha1_update(&ctx, (uint8_t *)data, len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+        if(noxtls_sha1_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+        if(noxtls_sha1_update(&ctx, (uint8_t *)data, len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
         return noxtls_sha1_finish(&ctx, out);
+    }
+    return NOXTLS_RETURN_INVALID_ALGORITHM;
+}
+
+static noxtls_return_t noxtls_hmac_start_inner(noxtls_hmac_context_t *ctx, uint32_t block_size)
+{
+    if(ctx->hash_algo == NOXTLS_HASH_SHA_256) {
+        noxtls_sha_ctx_t *sha_ctx = (noxtls_sha_ctx_t *)malloc(sizeof(noxtls_sha_ctx_t));
+        if(sha_ctx == NULL) {
+            return NOXTLS_RETURN_FAILED;
+        }
+        if(noxtls_sha256_init(sha_ctx, ctx->hash_algo) != NOXTLS_RETURN_SUCCESS) {
+            free(sha_ctx);
+            return NOXTLS_RETURN_FAILED;
+        }
+        noxtls_sha256_update(sha_ctx, ctx->i_key_pad, block_size);
+        ctx->hash_ctx = sha_ctx;
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    if(ctx->hash_algo == NOXTLS_HASH_SHA_384 || ctx->hash_algo == NOXTLS_HASH_SHA_512) {
+        noxtls_sha512_ctx_t *sha_ctx = (noxtls_sha512_ctx_t *)malloc(sizeof(noxtls_sha512_ctx_t));
+        if(sha_ctx == NULL) {
+            return NOXTLS_RETURN_FAILED;
+        }
+        if(noxtls_sha512_init(sha_ctx, ctx->hash_algo) != NOXTLS_RETURN_SUCCESS) {
+            free(sha_ctx);
+            return NOXTLS_RETURN_FAILED;
+        }
+        noxtls_sha512_update(sha_ctx, ctx->i_key_pad, block_size);
+        ctx->hash_ctx = sha_ctx;
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    if(ctx->hash_algo == NOXTLS_HASH_SHA1) {
+        noxtls_sha_ctx_t *sha_ctx = (noxtls_sha_ctx_t *)malloc(sizeof(noxtls_sha_ctx_t));
+        if(sha_ctx == NULL) {
+            return NOXTLS_RETURN_FAILED;
+        }
+        if(noxtls_sha1_init(sha_ctx, ctx->hash_algo) != NOXTLS_RETURN_SUCCESS) {
+            free(sha_ctx);
+            return NOXTLS_RETURN_FAILED;
+        }
+        noxtls_sha1_update(sha_ctx, ctx->i_key_pad, block_size);
+        ctx->hash_ctx = sha_ctx;
+        return NOXTLS_RETURN_SUCCESS;
     }
     return NOXTLS_RETURN_INVALID_ALGORITHM;
 }
@@ -100,36 +144,7 @@ noxtls_return_t noxtls_hmac_init(noxtls_hmac_context_t *ctx, noxtls_hash_algos_t
         ctx->o_key_pad[i] = (uint8_t)(b ^ 0x5CU);
     }
 
-    if(hash_algo == NOXTLS_HASH_SHA_256) {
-        noxtls_sha_ctx_t *sha_ctx = (noxtls_sha_ctx_t *)malloc(sizeof(noxtls_sha_ctx_t));
-        if(sha_ctx == NULL) return NOXTLS_RETURN_FAILED;
-        if(noxtls_sha256_init(sha_ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) {
-            free(sha_ctx);
-            return NOXTLS_RETURN_FAILED;
-        }
-        noxtls_sha256_update(sha_ctx, ctx->i_key_pad, block_size);
-        ctx->hash_ctx = sha_ctx;
-    } else if(hash_algo == NOXTLS_HASH_SHA_384 || hash_algo == NOXTLS_HASH_SHA_512) {
-        noxtls_sha512_ctx_t *sha_ctx = (noxtls_sha512_ctx_t *)malloc(sizeof(noxtls_sha512_ctx_t));
-        if(sha_ctx == NULL) return NOXTLS_RETURN_FAILED;
-        if(noxtls_sha512_init(sha_ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) {
-            free(sha_ctx);
-            return NOXTLS_RETURN_FAILED;
-        }
-        noxtls_sha512_update(sha_ctx, ctx->i_key_pad, block_size);
-        ctx->hash_ctx = sha_ctx;
-    } else {
-        noxtls_sha_ctx_t *sha_ctx = (noxtls_sha_ctx_t *)malloc(sizeof(noxtls_sha_ctx_t));
-        if(sha_ctx == NULL) return NOXTLS_RETURN_FAILED;
-        if(noxtls_sha1_init(sha_ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) {
-            free(sha_ctx);
-            return NOXTLS_RETURN_FAILED;
-        }
-        noxtls_sha1_update(sha_ctx, ctx->i_key_pad, block_size);
-        ctx->hash_ctx = sha_ctx;
-    }
-
-    return NOXTLS_RETURN_SUCCESS;
+    return noxtls_hmac_start_inner(ctx, block_size);
 }
 
 noxtls_return_t noxtls_hmac_update(noxtls_hmac_context_t *ctx, const uint8_t *data, uint32_t data_len)
@@ -181,7 +196,7 @@ noxtls_return_t noxtls_hmac_final(noxtls_hmac_context_t *ctx, uint8_t *mac, uint
         rc = noxtls_sha256_finish((noxtls_sha_ctx_t *)ctx->hash_ctx, inner_hash);
         free(ctx->hash_ctx);
         ctx->hash_ctx = NULL;
-        if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
         {
             noxtls_sha_ctx_t outer;
             noxtls_sha256_init(&outer, ctx->hash_algo);
@@ -193,7 +208,7 @@ noxtls_return_t noxtls_hmac_final(noxtls_hmac_context_t *ctx, uint8_t *mac, uint
         rc = noxtls_sha512_finish((noxtls_sha512_ctx_t *)ctx->hash_ctx, inner_hash);
         free(ctx->hash_ctx);
         ctx->hash_ctx = NULL;
-        if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
         {
             noxtls_sha512_ctx_t outer;
             noxtls_sha512_init(&outer, ctx->hash_algo);
@@ -205,7 +220,7 @@ noxtls_return_t noxtls_hmac_final(noxtls_hmac_context_t *ctx, uint8_t *mac, uint
         rc = noxtls_sha1_finish((noxtls_sha_ctx_t *)ctx->hash_ctx, inner_hash);
         free(ctx->hash_ctx);
         ctx->hash_ctx = NULL;
-        if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
         {
             noxtls_sha_ctx_t outer;
             noxtls_sha1_init(&outer, ctx->hash_algo);

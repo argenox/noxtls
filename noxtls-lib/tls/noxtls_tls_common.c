@@ -820,8 +820,14 @@ noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
         if(record->type == TLS_RECORD_ALERT && length >= 2) {
             uint8_t alert_level = record->data[0];
             uint8_t alert_desc = record->data[1];
-            const char *level_str = (alert_level == 1) ? "warning" :
-                                    (alert_level == 2) ? "fatal" : "unknown";
+            const char *level_str;
+            if(alert_level == 1) {
+                level_str = "warning";
+            } else if(alert_level == 2) {
+                level_str = "fatal";
+            } else {
+                level_str = "unknown";
+            }
             const char *desc_str = "unknown";
             switch(alert_desc) {
                 case 0: desc_str = "close_notify"; break;
@@ -987,7 +993,7 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
         return NOXTLS_RETURN_TLS_ERROR;
     }
 
-    assembled_len = (uint32_t)record.length;
+    assembled_len = record.length;
     /* Handshake length needs 4 bytes; ClientHello may be split with a tiny first record (tlsfuzzer). */
     while(assembled_len < 4U) {
         uint8_t *new_buf;
@@ -1025,7 +1031,7 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
             noxtls_free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
-        new_buf = (uint8_t*)noxtls_realloc(record.data, assembled_len + (uint32_t)next_record.length);
+        new_buf = (uint8_t*)noxtls_realloc(record.data, assembled_len + next_record.length);
         if(new_buf == NULL) {
             if(next_record.data) {
                 noxtls_free(next_record.data);
@@ -1037,7 +1043,7 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
         if(next_record.length > 0U && next_record.data != NULL) {
             memcpy(record.data + assembled_len, next_record.data, next_record.length);
         }
-        assembled_len += (uint32_t)next_record.length;
+        assembled_len += next_record.length;
         if(next_record.data) {
             noxtls_free(next_record.data);
         }
@@ -1073,13 +1079,13 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
             return NOXTLS_RETURN_RECORD_OVERFLOW;
         }
         if(next_record.type != TLS_RECORD_HANDSHAKE) {
-            if(next_record.data) noxtls_free(next_record.data);
+            if(next_record.data) { noxtls_free(next_record.data); }
             noxtls_free(record.data);
             return NOXTLS_RETURN_TLS_ERROR;
         }
-        new_buf = (uint8_t*)noxtls_realloc(record.data, assembled_len + (uint32_t)next_record.length);
+        new_buf = (uint8_t*)noxtls_realloc(record.data, assembled_len + next_record.length);
         if(new_buf == NULL) {
-            if(next_record.data) noxtls_free(next_record.data);
+            if(next_record.data) { noxtls_free(next_record.data); }
             noxtls_free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
@@ -1087,8 +1093,8 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
         if(next_record.length > 0 && next_record.data != NULL) {
             memcpy(record.data + assembled_len, next_record.data, next_record.length);
         }
-        assembled_len += (uint32_t)next_record.length;
-        if(next_record.data) noxtls_free(next_record.data);
+        assembled_len += next_record.length;
+        if(next_record.data) { noxtls_free(next_record.data); }
     }
 
     if(assembled_len != client_hello_total_len || assembled_len < 38U) {
@@ -1263,10 +1269,9 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
                 }
                 offset = ext_data_end;
                 break;  /* Found the extension, no need to continue */
-            } else {
-                /* Skip this extension */
-                offset += ext_len;
             }
+            /* Skip this extension */
+            offset += ext_len;
         }
         if(extensions_end != record.length) {
             noxtls_free(*client_hello_data);

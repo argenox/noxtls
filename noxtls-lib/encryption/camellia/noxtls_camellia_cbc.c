@@ -138,10 +138,12 @@ noxtls_return_t noxtls_camellia_decrypt_cbc(const uint8_t* key,
             iv_src = &data[cur_block - NOXTLS_CAMELLIA_BLOCK_LENGTH];
         }
 
-        for(i = 0; i < block_len; i++)
+        for(i = 0; i < block_len; i++) {
             output[cur_block + i] = temp_block[i] ^ iv_src[i];
-        if(block_len < NOXTLS_CAMELLIA_BLOCK_LENGTH)
+        }
+        if(block_len < NOXTLS_CAMELLIA_BLOCK_LENGTH) {
             memset(&output[cur_block + block_len], 0, NOXTLS_CAMELLIA_BLOCK_LENGTH - block_len);
+        }
     }
     return NOXTLS_RETURN_SUCCESS;
 }

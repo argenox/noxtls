@@ -181,7 +181,6 @@ static noxtls_return_t p_hash(noxtls_hash_algos_t hash_algo,
         memcpy(output + produced, chunk, copy_len);
         produced += copy_len;
 
-        tmp_len = hash_len;
         rc = noxtls_hmac_compute(hash_algo, secret, secret_len, A, hash_len, A, &tmp_len);
         if(rc != NOXTLS_RETURN_SUCCESS || tmp_len != hash_len) {
             free(A);
@@ -342,7 +341,8 @@ static noxtls_return_t hkdf_expand_label_with_prefix(noxtls_hash_algos_t hash_al
     hkdf_label[offset++] = (uint8_t)((output_len >> 8) & 0xFFU);
     hkdf_label[offset++] = (uint8_t)(output_len & 0xFFU);
     hkdf_label[offset++] = (uint8_t)full_label_len;
-    memcpy(hkdf_label + offset, prefix, prefix_len);
+    /* Binary HkdfLabel buffer (not a C string); memcpy is intentional. */
+    memcpy(hkdf_label + offset, prefix, prefix_len); /* NOLINT(bugprone-not-null-terminated-result) */
     offset += prefix_len;
     memcpy(hkdf_label + offset, label, label_len);
     offset += label_len;
@@ -377,6 +377,65 @@ noxtls_return_t dtls13_hkdf_expand_label(noxtls_hash_algos_t hash_algo,
                                          output, output_len);
 }
 
+static noxtls_return_t hash_message_sha256(const uint8_t *messages, uint32_t messages_len,
+                                           uint8_t *out_digest, uint32_t out_len)
+{
+    noxtls_sha_ctx_t ctx;
+
+    if(out_len < 32U) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    if(noxtls_sha256_init(&ctx, NOXTLS_HASH_SHA_256) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    if(messages != NULL && messages_len > 0U) {
+        if(noxtls_sha256_update(&ctx, messages, messages_len) != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_FAILED;
+        }
+    }
+    return noxtls_sha256_finish(&ctx, out_digest);
+}
+
+static noxtls_return_t hash_message_sha512(noxtls_hash_algos_t hash_algo,
+                                           const uint8_t *messages, uint32_t messages_len,
+                                           uint8_t *out_digest, uint32_t out_len)
+{
+    noxtls_sha512_ctx_t ctx;
+    uint32_t need = (hash_algo == NOXTLS_HASH_SHA_384) ? 48U : 64U;
+
+    if(out_len < need) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    if(noxtls_sha512_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    if(messages != NULL && messages_len > 0U) {
+        if(noxtls_sha512_update(&ctx, messages, messages_len) != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_FAILED;
+        }
+    }
+    return noxtls_sha512_finish(&ctx, out_digest);
+}
+
+static noxtls_return_t hash_message_sha1(const uint8_t *messages, uint32_t messages_len,
+                                         uint8_t *out_digest, uint32_t out_len)
+{
+    noxtls_sha_ctx_t ctx;
+
+    if(out_len < 20U) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    if(noxtls_sha1_init(&ctx, NOXTLS_HASH_SHA1) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    if(messages != NULL && messages_len > 0U) {
+        if(noxtls_sha1_update(&ctx, messages, messages_len) != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_FAILED;
+        }
+    }
+    return noxtls_sha1_finish(&ctx, out_digest);
+}
+
 static noxtls_return_t hash_message(noxtls_hash_algos_t hash_algo,
                                     const uint8_t *messages, uint32_t messages_len,
                                     uint8_t *out_digest, uint32_t out_len)
@@ -386,26 +445,13 @@ static noxtls_return_t hash_message(noxtls_hash_algos_t hash_algo,
     }
 
     if(hash_algo == NOXTLS_HASH_SHA_256) {
-        noxtls_sha_ctx_t ctx;
-        if(out_len < 32U) return NOXTLS_RETURN_INVALID_PARAM;
-        if(noxtls_sha256_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-        if(noxtls_sha256_update(&ctx, messages, messages_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-        return noxtls_sha256_finish(&ctx, out_digest);
+        return hash_message_sha256(messages, messages_len, out_digest, out_len);
     }
     if(hash_algo == NOXTLS_HASH_SHA_384 || hash_algo == NOXTLS_HASH_SHA_512) {
-        noxtls_sha512_ctx_t ctx;
-        uint32_t need = (hash_algo == NOXTLS_HASH_SHA_384) ? 48U : 64U;
-        if(out_len < need) return NOXTLS_RETURN_INVALID_PARAM;
-        if(noxtls_sha512_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-        if(noxtls_sha512_update(&ctx, messages, messages_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-        return noxtls_sha512_finish(&ctx, out_digest);
+        return hash_message_sha512(hash_algo, messages, messages_len, out_digest, out_len);
     }
     if(hash_algo == NOXTLS_HASH_SHA1) {
-        noxtls_sha_ctx_t ctx;
-        if(out_len < 20U) return NOXTLS_RETURN_INVALID_PARAM;
-        if(noxtls_sha1_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-        if(noxtls_sha1_update(&ctx, messages, messages_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-        return noxtls_sha1_finish(&ctx, out_digest);
+        return hash_message_sha1(messages, messages_len, out_digest, out_len);
     }
 
     return NOXTLS_RETURN_INVALID_ALGORITHM;
@@ -419,35 +465,13 @@ static noxtls_return_t hash_empty_message(noxtls_hash_algos_t hash_algo,
     }
 
     if(hash_algo == NOXTLS_HASH_SHA_256) {
-        noxtls_sha_ctx_t ctx;
-        if(out_len < 32U) {
-            return NOXTLS_RETURN_INVALID_PARAM;
-        }
-        if(noxtls_sha256_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
-        }
-        return noxtls_sha256_finish(&ctx, out_digest);
+        return hash_message_sha256(NULL, 0U, out_digest, out_len);
     }
     if(hash_algo == NOXTLS_HASH_SHA_384 || hash_algo == NOXTLS_HASH_SHA_512) {
-        noxtls_sha512_ctx_t ctx;
-        uint32_t need = (hash_algo == NOXTLS_HASH_SHA_384) ? 48U : 64U;
-        if(out_len < need) {
-            return NOXTLS_RETURN_INVALID_PARAM;
-        }
-        if(noxtls_sha512_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
-        }
-        return noxtls_sha512_finish(&ctx, out_digest);
+        return hash_message_sha512(hash_algo, NULL, 0U, out_digest, out_len);
     }
     if(hash_algo == NOXTLS_HASH_SHA1) {
-        noxtls_sha_ctx_t ctx;
-        if(out_len < 20U) {
-            return NOXTLS_RETURN_INVALID_PARAM;
-        }
-        if(noxtls_sha1_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
-        }
-        return noxtls_sha1_finish(&ctx, out_digest);
+        return hash_message_sha1(NULL, 0U, out_digest, out_len);
     }
 
     return NOXTLS_RETURN_INVALID_ALGORITHM;

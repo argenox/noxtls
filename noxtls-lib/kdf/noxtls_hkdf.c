@@ -74,10 +74,17 @@ noxtls_return_t noxtls_hkdf_expand(noxtls_hash_algos_t hash_algo,
     n = (okm_len + hash_size - 1U) / hash_size;
     while(offset < okm_len && i <= n) {
         uint8_t *msg = NULL;
-        uint32_t msg_len = (i == 1U ? 0U : hash_size) + ((info != NULL) ? info_len : 0U) + 1U;
+        uint32_t msg_len = 1U;
         uint32_t pos = 0U;
         uint32_t t_len = hash_size;
         noxtls_return_t rc;
+
+        if(i != 1U) {
+            msg_len += hash_size;
+        }
+        if(info != NULL) {
+            msg_len += info_len;
+        }
 
         msg = (uint8_t *)malloc(msg_len);
         if(msg == NULL) {

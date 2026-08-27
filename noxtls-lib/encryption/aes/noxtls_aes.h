@@ -49,8 +49,8 @@ extern "C" {
 
 #define NOXTLS_AES_BLOCK_LENGTH 16
 
-#define NOXTLS_AES_ROTR(X, N)      ((X >> N) | (X << (32 - N)))
-#define NOXTLS_AES_ROTL(X, N)      ((X << N) | (X >> (32 - N)))
+#define NOXTLS_AES_ROTR(X, N)      (((X) >> (N)) | ((X) << (32 - (N))))
+#define NOXTLS_AES_ROTL(X, N)      (((X) << (N)) | ((X) >> (32 - (N))))
 
 typedef enum
 {
@@ -248,6 +248,63 @@ noxtls_return_t noxtls_aes_encrypt_ctr(const uint8_t* key,
                     const uint8_t * iv,
                     uint8_t* output,
                     noxtls_aes_type_t type);
+
+#if NOXTLS_FEATURE_AES_CFB
+/**
+ * @brief Encrypt data with AES-CFB.
+ * @param key AES key bytes for the selected key size.
+ * @param data Input plaintext buffer.
+ * @param data_len Input length in bytes.
+ * @param iv Initialization vector of NOXTLS_AES_BLOCK_LENGTH bytes.
+ * @param output Output ciphertext buffer.
+ * @param type AES key size selector.
+ * @return NOXTLS_RETURN_SUCCESS on success or a noxtls_return_t error code.
+ */
+noxtls_return_t noxtls_aes_encrypt_cfb(const uint8_t* key,
+                    const uint8_t* data,
+                    uint32_t data_len,
+                    const uint8_t * iv,
+                    uint8_t* output,
+                    noxtls_aes_type_t type);
+#endif
+
+#if NOXTLS_FEATURE_AES_OFB
+/**
+ * @brief Encrypt data with AES-OFB.
+ * @param key AES key bytes for the selected key size.
+ * @param data Input plaintext buffer.
+ * @param data_len Input length in bytes.
+ * @param iv Initialization vector of NOXTLS_AES_BLOCK_LENGTH bytes.
+ * @param output Output ciphertext buffer.
+ * @param type AES key size selector.
+ * @return NOXTLS_RETURN_SUCCESS on success or a noxtls_return_t error code.
+ */
+noxtls_return_t noxtls_aes_encrypt_ofb(const uint8_t* key,
+                    const uint8_t* data,
+                    uint32_t data_len,
+                    const uint8_t * iv,
+                    uint8_t* output,
+                    noxtls_aes_type_t type);
+#endif
+
+#if NOXTLS_FEATURE_AES_XTS
+/**
+ * @brief Encrypt data with AES-XTS.
+ * @param key AES key bytes (data key || tweak key) for the selected key size.
+ * @param data Input plaintext buffer.
+ * @param data_len Input length in bytes (at least one block).
+ * @param iv Tweak value of NOXTLS_AES_BLOCK_LENGTH bytes.
+ * @param output Output ciphertext buffer.
+ * @param type AES key size selector.
+ * @return NOXTLS_RETURN_SUCCESS on success or a noxtls_return_t error code.
+ */
+noxtls_return_t noxtls_aes_encrypt_xts(const uint8_t* key,
+                    const uint8_t* data,
+                    uint32_t data_len,
+                    const uint8_t * iv,
+                    uint8_t* output,
+                    noxtls_aes_type_t type);
+#endif
 
 /**
  * @brief Initialize a streaming AES context.

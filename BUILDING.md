@@ -27,6 +27,34 @@ cmake --build build --config Release
 Notes:
 - `BUILD_APPLICATIONS` is `ON` by default, so this builds the library and apps.
 - Application executables are written to the `binary/` directory at the repository root.
+- Short generic CLI names are installed as `noxtls-*` (for example `noxtls-base64`) to avoid PATH collisions; see [applications/README.md](applications/README.md).
+
+## Install (SDK layout)
+
+Install static libraries, public headers, CMake package files, pkg-config metadata, and CLIs:
+
+```bash
+cmake -S . -B build -D BUILD_TESTS=OFF -D BUILD_APPLICATIONS=ON -D CMAKE_BUILD_TYPE=Release -D CMAKE_INSTALL_PREFIX=/usr/local
+cmake --build build --config Release
+cmake --install build
+```
+
+After install:
+
+- Libraries: `${prefix}/lib/libnoxtls_*.a`
+- Headers: `${prefix}/include/` (root `noxtls*.h`, plus `noxtls-lib/` and `utility/`)
+- CMake package: `find_package(NoxTLS)` → link `NoxTLS::noxtls`
+- pkg-config: `pkg-config --libs --cflags noxtls`
+- CLIs: `${prefix}/bin/` (`noxtls`, `tlscurl`, `certgen`, …)
+
+## Homebrew
+
+macOS/Linux users can install the full SDK from the [argenox/homebrew-noxtls](https://github.com/argenox/homebrew-noxtls) tap:
+
+```bash
+brew tap argenox/noxtls
+brew install noxtls
+```
 
 ## Build Library Only (No Applications)
 

@@ -51,8 +51,9 @@ noxtls_return_t noxtls_aria_encrypt_cbc(const uint8_t* key,
     
     {
         noxtls_return_t r = noxtls_aria_set_encrypt_key(key, type, &aria_key);
-        if(r != NOXTLS_RETURN_SUCCESS) 
+        if(r != NOXTLS_RETURN_SUCCESS) {
             return r;        
+        }
     }
     
     for(cur_block = 0; cur_block < data_len; cur_block += NOXTLS_ARIA_BLOCK_LENGTH)

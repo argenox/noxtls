@@ -38,10 +38,10 @@
 #include "mdigest/sha256/noxtls_sha256.h"
 #include "mdigest/sha512/noxtls_sha512.h"
 #include "drbg/noxtls_drbg.h"
-#if defined(ESP_PLATFORM)
+#ifdef ESP_PLATFORM
 #include "noxtls_esp_hw_crypto.h"
 #endif
-#if defined(__has_include)
+#ifdef __has_include
 #if defined(ESP_PLATFORM) && __has_include("esp_timer.h")
 #include "esp_timer.h"
 #endif
@@ -61,19 +61,19 @@ static const uint8_t s_p256_order_be[32] = {
 };
 
 static const uint32_t s_p256_order_words[8] = {
-    0xFC632551u, 0xF3B9CAC2u, 0xA7179E84u, 0xBCE6FAADu,
-    0xFFFFFFFFu, 0xFFFFFFFFu, 0x00000000u, 0xFFFFFFFFu
+    0xFC632551U, 0xF3B9CAC2U, 0xA7179E84U, 0xBCE6FAADU,
+    0xFFFFFFFFU, 0xFFFFFFFFU, 0x00000000U, 0xFFFFFFFFU
 };
 
 static const uint32_t s_p256_order_mu_words[9] = {
-    0xEEDF9BFEu, 0x012FFD85u, 0xDF1A6C21u, 0x43190552u,
-    0xFFFFFFFFu, 0xFFFFFFFEu, 0xFFFFFFFFu, 0x00000000u,
-    0x00000001u
+    0xEEDF9BFEU, 0x012FFD85U, 0xDF1A6C21U, 0x43190552U,
+    0xFFFFFFFFU, 0xFFFFFFFEU, 0xFFFFFFFFU, 0x00000000U,
+    0x00000001U
 };
 
 static noxtls_ecdsa_sign_timing_t s_ecdsa_last_sign_timing;
 
-#if defined(NOXTLS_ECDSA_VERIFY_DEBUG)
+#ifdef NOXTLS_ECDSA_VERIFY_DEBUG
 
 /**
  * @brief Print a hex string
@@ -113,7 +113,7 @@ static uint64_t ecdsa_profile_now_us(void)
     if(now <= (clock_t)0) {
         return 0U;
     }
-    return ((uint64_t)now * 1000000u) / (uint64_t)CLOCKS_PER_SEC;
+    return ((uint64_t)now * 1000000U) / (uint64_t)CLOCKS_PER_SEC;
 #endif
 }
 
@@ -630,7 +630,7 @@ static noxtls_return_t p256_scalar_inv_mod(uint8_t out[32], const uint8_t a[32])
     uint8_t check[32];
     uint8_t one[32];
     uint32_t iter;
-    const uint32_t max_iter = 4096u;
+    const uint32_t max_iter = 4096U;
 
     memset(u, 0, sizeof(u));
     memset(v, 0, sizeof(v));
@@ -710,56 +710,91 @@ static noxtls_return_t p256_scalar_inv_mod(uint8_t out[32], const uint8_t a[32])
  * @param hash_algo Hash algorithm
  * @return noxtls_return_t NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if hash is NULL
  */
+#if NOXTLS_FEATURE_MD5
+static noxtls_return_t ecdsa_hash_run_md5(uint8_t *hash, const uint8_t *msg, uint32_t len)
+{
+    noxtls_sha_ctx_t ctx;
+    if(noxtls_md5_init(&ctx) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_md5_update(&ctx, (uint8_t*)msg, len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_md5_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    return NOXTLS_RETURN_SUCCESS;
+}
+#endif
+#if NOXTLS_FEATURE_SHA1
+static noxtls_return_t ecdsa_hash_run_sha1(uint8_t *hash, const uint8_t *msg, uint32_t len, noxtls_hash_algos_t hash_algo)
+{
+    noxtls_sha_ctx_t ctx;
+    if(noxtls_sha1_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha1_update(&ctx, (uint8_t*)msg, len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha1_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    return NOXTLS_RETURN_SUCCESS;
+}
+#endif
+#if NOXTLS_FEATURE_SHA224 || NOXTLS_FEATURE_SHA256
+static noxtls_return_t ecdsa_hash_run_sha256(uint8_t *hash, const uint8_t *msg, uint32_t len, noxtls_hash_algos_t hash_algo)
+{
+    noxtls_sha_ctx_t ctx;
+    if(noxtls_sha256_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha256_update(&ctx, (uint8_t*)msg, len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha256_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    return NOXTLS_RETURN_SUCCESS;
+}
+#endif
+#if NOXTLS_FEATURE_SHA384 || NOXTLS_FEATURE_SHA512
+static noxtls_return_t ecdsa_hash_run_sha512(uint8_t *hash, const uint8_t *msg, uint32_t len, noxtls_hash_algos_t hash_algo)
+{
+    noxtls_sha512_ctx_t ctx512;
+    if(noxtls_sha512_init(&ctx512, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha512_update(&ctx512, (uint8_t*)msg, len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha512_finish(&ctx512, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    return NOXTLS_RETURN_SUCCESS;
+}
+#endif
+
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static noxtls_return_t ecdsa_hash_message(uint8_t *hash, uint32_t *hash_len, const uint8_t *noxtls_message, uint32_t message_len, noxtls_hash_algos_t hash_algo)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    noxtls_sha_ctx_t ctx;
-    noxtls_sha512_ctx_t ctx512;
-    
+    noxtls_return_t rc;
+
     if(hash == NULL || hash_len == NULL || noxtls_message == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    
+
     switch(hash_algo) {
 #if NOXTLS_FEATURE_MD5
         case NOXTLS_HASH_MD5:
-            if(noxtls_md5_init(&ctx) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-            if(noxtls_md5_update(&ctx, (uint8_t*)noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-            if(noxtls_md5_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+            rc = ecdsa_hash_run_md5(hash, noxtls_message, message_len);
+            if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
             *hash_len = 16;
             break;
 #endif
 #if NOXTLS_FEATURE_SHA1
         case NOXTLS_HASH_SHA1:
-            if(noxtls_sha1_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-            if(noxtls_sha1_update(&ctx, (uint8_t*)noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-            if(noxtls_sha1_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+            rc = ecdsa_hash_run_sha1(hash, noxtls_message, message_len, hash_algo);
+            if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
             *hash_len = 20;
             break;
 #endif
 #if NOXTLS_FEATURE_SHA224
         case NOXTLS_HASH_SHA_224:
-            if(noxtls_sha256_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-            if(noxtls_sha256_update(&ctx, (uint8_t*)noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-            if(noxtls_sha256_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+            rc = ecdsa_hash_run_sha256(hash, noxtls_message, message_len, hash_algo);
+            if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
             *hash_len = 28;
             break;
 #endif
 #if NOXTLS_FEATURE_SHA256
         case NOXTLS_HASH_SHA_256:
-            if(noxtls_sha256_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-            if(noxtls_sha256_update(&ctx, (uint8_t*)noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-            if(noxtls_sha256_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+            rc = ecdsa_hash_run_sha256(hash, noxtls_message, message_len, hash_algo);
+            if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
             *hash_len = 32;
             break;
 #endif
 #if NOXTLS_FEATURE_SHA384 || NOXTLS_FEATURE_SHA512
         case NOXTLS_HASH_SHA_384:
         case NOXTLS_HASH_SHA_512:
-            if(noxtls_sha512_init(&ctx512, hash_algo) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-            if(noxtls_sha512_update(&ctx512, (uint8_t*)noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-            if(noxtls_sha512_finish(&ctx512, hash) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+            rc = ecdsa_hash_run_sha512(hash, noxtls_message, message_len, hash_algo);
+            if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
             *hash_len = (hash_algo == NOXTLS_HASH_SHA_384) ? 48 : 64;
             break;
 #endif
@@ -774,7 +809,7 @@ static noxtls_return_t ecdsa_hash_message(uint8_t *hash, uint32_t *hash_len, con
         default:
             return NOXTLS_RETURN_INVALID_ALGORITHM;
     }
-    
+
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -922,12 +957,12 @@ static uint32_t ecdsa_der_get_length(const uint8_t **p, const uint8_t *e)
 {
     const uint8_t *q = *p;
     uint32_t len = 0;
-    if(q >= e) return 0;
+    if(q >= e) { return 0; }
     if(*q & 0x80) {
         uint8_t n = *q & 0x7F;
         q++;
-        if(n == 0 || n > 4 || q + n > e) return 0;
-        for(; n; n--) len = (len << 8) | *q++;
+        if(n == 0 || n > 4 || q + n > e) { return 0; }
+        for(; n; n--) { len = (len << 8) | *q++; }
     } else {
         len = *q & 0x7F;
         q++;
@@ -946,7 +981,7 @@ static uint32_t ecdsa_der_get_length(const uint8_t **p, const uint8_t *e)
  */
 static int ecdsa_der_get_tag(const uint8_t **p, const uint8_t *e, uint8_t expect)
 {
-    if(*p >= e || **p != expect) return -1;
+    if(*p >= e || **p != expect) { return -1; }
     (*p)++;
     return 0;
 }
@@ -963,9 +998,11 @@ static int ecdsa_der_get_tag(const uint8_t **p, const uint8_t *e, uint8_t expect
  */
 static int ecdsa_der_get_integer(const uint8_t **p, const uint8_t *e, uint8_t *buf, uint32_t buf_size, uint32_t *out_len)
 {
-    if(*p >= e || *(*p)++ != 0x02) return -1;
+    if(*p >= e) { return -1; }
+    if(**p != 0x02) { return -1; }
+    (*p)++;
     uint32_t len = ecdsa_der_get_length(p, e);
-    if(len == 0 || *p + len > e || len > buf_size) return -1;
+    if(len == 0 || *p + len > e || len > buf_size) { return -1; }
     *out_len = len;
     memcpy(buf, *p, len);
     *p += len;
@@ -1153,11 +1190,11 @@ noxtls_return_t noxtls_ecdsa_sign(ecc_key_t *key, const uint8_t *noxtls_message,
         k = p; p += size;
         k_inv = p; p += size;
         h = p; p += size;
-        r_times_d = p; p += (size * 2U);
-        sum_tmp = p; p += (size + 1U);
+        r_times_d = p; p += ((size_t)size * 2U);
+        sum_tmp = p; p += ((size_t)size + 1U);
         /* h + r*d can be up to 2n-2, so we need size+1 bytes to avoid dropping carry in add */
-        h_plus_rd = p; p += (size + 1U);
-        s_product = p; p += (size * 2U);
+        h_plus_rd = p; p += ((size_t)size + 1U);
+        s_product = p; p += ((size_t)size * 2U);
         random_bytes = p;
     }
 
@@ -1288,7 +1325,7 @@ noxtls_return_t noxtls_ecdsa_sign(ecc_key_t *key, const uint8_t *noxtls_message,
     }
 
 cleanup:
-    if(scratch) noxtls_free(scratch);
+    if(scratch) { noxtls_free(scratch); }
     s_ecdsa_last_sign_timing.total_us = ecdsa_profile_elapsed_us(sign_t0);
     
     return rc;
@@ -1345,7 +1382,7 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_messag
     }
     
     size = key->curve->size;
-#if defined(NOXTLS_ECDSA_VERIFY_DEBUG)
+#ifdef NOXTLS_ECDSA_VERIFY_DEBUG
     printf("[ecdsa_verify] size=%u message_len=%u\n", (unsigned)size, (unsigned)message_len);
     fflush(stdout);
 #endif
@@ -1401,8 +1438,8 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_messag
         h = p; p += size;
         s_inv = p; p += size;
         /* u1, u2 hold mul result (2*size bytes) before bn_mod; after mod, size-byte value in first bytes */
-        u1 = p; p += (size * 2U);
-        u2 = p; p += (size * 2U);
+        u1 = p; p += ((size_t)size * 2U);
+        u2 = p; p += ((size_t)size * 2U);
         v = p;
     }
 
@@ -1416,9 +1453,8 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_messag
     noxtls_ecc_point_init(&result, size);
     memcpy(hash, hash_fast, sizeof(hash_fast));
     memcpy(h, h_fast, size);
-    rc = NOXTLS_RETURN_SUCCESS;
 
-#if defined(NOXTLS_ECDSA_VERIFY_DEBUG)
+#ifdef NOXTLS_ECDSA_VERIFY_DEBUG
     printf("[ecdsa_verify] hash_len=%u\n", (unsigned)hash_fast_len);
     fflush(stdout);
     ecdsa_debug_hex("h", h, size);
@@ -1451,7 +1487,7 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_messag
         noxtls_bn_mod(v, u2, size * 2, key->curve->n, size);
         memcpy(u2, v, size);
     }
-#if defined(NOXTLS_ECDSA_VERIFY_DEBUG)
+#ifdef NOXTLS_ECDSA_VERIFY_DEBUG
     ecdsa_debug_hex("s_inv", s_inv, size);
     ecdsa_debug_hex("u1", u1, size);
     ecdsa_debug_hex("u2", u2, size);
@@ -1459,17 +1495,8 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_messag
 
     /* Step 5: Compute (x, y) = u1 * G + u2 * Q */
     if(size == 32U) {
-        int use_hw_mul_path = 0;
-#if defined(ESP_PLATFORM)
-        use_hw_mul_path = noxtls_esp_hw_ecc_compiled_in();
-#endif
-
-        if(!use_hw_mul_path) {
-            rc = noxtls_ecc_point_muladd(&result, u1, &key->curve->G, u2, &key->Q, key->curve);
-            if(rc != NOXTLS_RETURN_SUCCESS) {
-                goto cleanup_verify;
-            }
-        } else {
+#ifdef ESP_PLATFORM
+        if(noxtls_esp_hw_ecc_compiled_in()) {
         /*
          * Use two scalar multiplies plus one point add for P-256 verify.
          *
@@ -1491,6 +1518,13 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_messag
         if(rc != NOXTLS_RETURN_SUCCESS) {
             goto cleanup_verify;
         }
+        } else
+#endif
+        {
+            rc = noxtls_ecc_point_muladd(&result, u1, &key->curve->G, u2, &key->Q, key->curve);
+            if(rc != NOXTLS_RETURN_SUCCESS) {
+                goto cleanup_verify;
+            }
         }
     } else {
         rc = noxtls_ecc_point_multiply(&u1G, u1, &key->curve->G, key->curve);
@@ -1508,7 +1542,7 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_messag
             goto cleanup_verify;
         }
     }
-#if defined(NOXTLS_ECDSA_VERIFY_DEBUG)
+#ifdef NOXTLS_ECDSA_VERIFY_DEBUG
     ecdsa_debug_hex("u1G.x", u1G.x, size);
     ecdsa_debug_hex("u1G.y", u1G.y, size);
     ecdsa_debug_hex("u2Q.x", u2Q.x, size);
@@ -1523,7 +1557,7 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_messag
     } else {
         noxtls_bn_mod(v, result.x, size, key->curve->n, size);
     }
-#if defined(NOXTLS_ECDSA_VERIFY_DEBUG)
+#ifdef NOXTLS_ECDSA_VERIFY_DEBUG
     ecdsa_debug_hex("result.x (before mod n)", result.x, size);
     ecdsa_debug_hex("v", v, size);
     ecdsa_debug_hex("signature->r (compare)", signature->r, size);
@@ -1538,7 +1572,7 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_messag
         rc = NOXTLS_RETURN_SUCCESS;
     } else {
         rc = NOXTLS_RETURN_FAILED;
-#if defined(NOXTLS_ECDSA_VERIFY_DEBUG)
+#ifdef NOXTLS_ECDSA_VERIFY_DEBUG
         {
             uint32_t i;
             uint8_t u1_plus_u2_buf[ECC_MAX_KEY_SIZE + 1];
@@ -1558,7 +1592,15 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_messag
                 carry = sum >> 8;
             }
             u1_plus_u2_buf[0] = (uint8_t)carry;
-            noxtls_bn_mod(u1_plus_u2_mod_n_buf, carry ? u1_plus_u2_buf : (u1_plus_u2_buf + 1), carry ? (size + 1) : size, key->curve->n, size);
+            {
+                const uint8_t *sum_ptr = u1_plus_u2_buf + 1;
+                uint32_t sum_len = size;
+                if(carry != 0U) {
+                    sum_ptr = u1_plus_u2_buf;
+                    sum_len = size + 1U;
+                }
+                noxtls_bn_mod(u1_plus_u2_mod_n_buf, sum_ptr, sum_len, key->curve->n, size);
+            }
             printf("[ecdsa_verify] FAILED v != r (size=%u)\n", (unsigned)size);
             printf("  s*s_inv mod n= ");
             for(i = 0; i < size; i++) printf("%02X", s_times_s_inv_mod_n[i]);
@@ -1602,7 +1644,7 @@ noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_messag
     }
 
 cleanup_verify:
-    if(scratch) noxtls_free(scratch);
+    if(scratch) { noxtls_free(scratch); }
 
     return rc;
 }

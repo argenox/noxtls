@@ -45,9 +45,46 @@ static char *getopt_place = NULL;
 *
 * @return The option.
 */
+static int getopt_start_next_arg(int argc, char * const argv[])
+{
+    if(optind >= argc) {
+        return -1;
+    }
+    if(argv[optind][0] != '-' || argv[optind][1] == '\0') {
+        return -1;
+    }
+    if(strcmp(argv[optind], "--") == 0) {
+        optind++;
+        return -1;
+    }
+    getopt_place = &argv[optind][1];
+    return 0;
+}
+
+static int getopt_take_argument(int argc, char * const argv[], const char *optstring)
+{
+    if(*getopt_place != '\0') {
+        optarg = (char *)getopt_place;
+        getopt_place = NULL;
+        optind++;
+        return 0;
+    }
+    if(optind + 1 >= argc) {
+        if(opterr && *optstring != ':') {
+            (void)fprintf(stderr, "%s: option -%c requires an argument\n", argv[0], optopt);
+        }
+        return (*optstring == ':') ? ':' : '?';
+    }
+    optarg = argv[optind + 1];
+    optind += 2;
+    getopt_place = NULL;
+    return 0;
+}
+
 int noxtls_getopt(int argc, char * const argv[], const char *optstring)
 {
     const char *optchr;
+    int arg_rc;
 
     optarg = NULL;
     optopt = 0;
@@ -57,17 +94,9 @@ int noxtls_getopt(int argc, char * const argv[], const char *optstring)
     }
 
     if(getopt_place == NULL || *getopt_place == '\0') {
-        if(optind >= argc) {
+        if(getopt_start_next_arg(argc, argv) != 0) {
             return -1;
         }
-        if(argv[optind][0] != '-' || argv[optind][1] == '\0') {
-            return -1;
-        }
-        if(strcmp(argv[optind], "--") == 0) {
-            optind++;
-            return -1;
-        }
-        getopt_place = &argv[optind][1];
     }
 
     optopt = (unsigned char)*getopt_place;
@@ -75,6 +104,10 @@ int noxtls_getopt(int argc, char * const argv[], const char *optstring)
 
     optchr = strchr(optstring, optopt);
     if(optchr == NULL) {
+        if(*getopt_place == '\0') {
+            getopt_place = NULL;
+            optind++;
+        }
         if(opterr && *optstring != ':') {
             (void)fprintf(stderr, "%s: unknown option -%c\n", argv[0], optopt);
         }
@@ -82,26 +115,14 @@ int noxtls_getopt(int argc, char * const argv[], const char *optstring)
     }
 
     if(optchr[1] == ':') {
-        if(*getopt_place != '\0') {
-            optarg = (char *)getopt_place;
+        arg_rc = getopt_take_argument(argc, argv, optstring);
+        if(arg_rc != 0) {
             getopt_place = NULL;
-            optind++;
-        } else {
-            if(optind + 1 >= argc) {
-                if(opterr && *optstring != ':') {
-                    (void)fprintf(stderr, "%s: option -%c requires an argument\n", argv[0], optopt);
-                }
-                return (*optstring == ':') ? ':' : '?';
-            }
-            optarg = argv[optind + 1];
-            optind += 2;
+            return arg_rc;
         }
+    } else if(*getopt_place == '\0') {
         getopt_place = NULL;
-    } else {
-        if(*getopt_place == '\0') {
-            getopt_place = NULL;
-            optind++;
-        }
+        optind++;
     }
 
     return optopt;

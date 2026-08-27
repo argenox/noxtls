@@ -136,7 +136,7 @@ static noxtls_return_t fe448_sub_be(uint8_t result[NOXTLS_X448_FE_BYTES],
                                      const uint8_t b[NOXTLS_X448_FE_BYTES])
 {
     uint8_t diff[NOXTLS_X448_FE_BYTES];
-    if(noxtls_bn_sub(diff, a, b, NOXTLS_X448_FE_BYTES) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(noxtls_bn_sub(diff, a, b, NOXTLS_X448_FE_BYTES) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     if(noxtls_bn_cmp(a, b, NOXTLS_X448_FE_BYTES) < 0) {
         if(noxtls_bn_add(diff, diff, x448_p, NOXTLS_X448_FE_BYTES) != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_FAILED;
@@ -265,8 +265,8 @@ static noxtls_return_t x448_scalar_mult(const uint8_t k[NOXTLS_X448_KEY_SIZE],
         cswap56(k_t, z_2, z_3);
     }
 
-    if(fe448_inv_be(z_2_inv, z_2) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(fe448_mul_be(x_2, x_2, z_2_inv) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(fe448_inv_be(z_2_inv, z_2) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(fe448_mul_be(x_2, x_2, z_2_inv) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     be56_to_le56(result, x_2);
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -303,7 +303,7 @@ noxtls_return_t noxtls_x448_public_key(const uint8_t private_key[NOXTLS_X448_KEY
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
     };
-    if(private_key == NULL || public_key == NULL) return NOXTLS_RETURN_NULL;
+    if(private_key == NULL || public_key == NULL) { return NOXTLS_RETURN_NULL; }
     return x448_scalar_mult(private_key, base_point, public_key);
 }
 
@@ -318,7 +318,7 @@ noxtls_return_t noxtls_x448_shared_secret(const uint8_t private_key[NOXTLS_X448_
                                          const uint8_t peer_public_key[NOXTLS_X448_KEY_SIZE],
                                          uint8_t shared_secret[NOXTLS_X448_KEY_SIZE])
 {
-    if(private_key == NULL || peer_public_key == NULL || shared_secret == NULL) return NOXTLS_RETURN_NULL;
+    if(private_key == NULL || peer_public_key == NULL || shared_secret == NULL) { return NOXTLS_RETURN_NULL; }
     return x448_scalar_mult(private_key, peer_public_key, shared_secret);
 }
 
@@ -335,19 +335,19 @@ noxtls_return_t noxtls_x448_generate_key(uint8_t private_key[NOXTLS_X448_KEY_SIZ
     static int drbg_initialized = 0;
     noxtls_return_t rc;
 
-    if(private_key == NULL || public_key == NULL) return NOXTLS_RETURN_NULL;
+    if(private_key == NULL || public_key == NULL) { return NOXTLS_RETURN_NULL; }
 
     if(!drbg_initialized) {
         uint8_t seed[NOXTLS_X448_DRBG_ENTROPY_SEED_BYTES];
         rc = noxtls_drbg_get_entropy(seed, sizeof(seed));
-        if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
         rc = drbg_instantiate(&drbg_state, DRBG_AES256, seed, sizeof(seed), NULL, 0, NULL, 0);
-        if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
         drbg_initialized = 1;
     }
 
     rc = drbg_generate(&drbg_state, private_key, NOXTLS_X448_DRBG_SEED_BITS, NULL, 0);
-    if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+    if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
 
     noxtls_x448_clamp_scalar(private_key);
     return noxtls_x448_public_key(private_key, public_key);

@@ -62,7 +62,7 @@ typedef struct
 NOXTLS_MSVC_WARNING_POP
 
 noxtls_return_t noxtls_sha_init(noxtls_sha_ctx_t * ctx, noxtls_hash_algos_t algo);
-noxtls_return_t noxtls_sha_update(noxtls_sha_ctx_t * ctx, uint8_t * data, uint32_t len);
+noxtls_return_t noxtls_sha_update(noxtls_sha_ctx_t * ctx, const uint8_t * data, uint32_t len);
 noxtls_return_t noxtls_sha_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash);
 
 #ifdef __cplusplus

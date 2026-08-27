@@ -163,7 +163,6 @@ static noxtls_return_t psk_clienthello_binder_prefix_len(const uint8_t *client_h
 {
     uint32_t offset;
     uint8_t session_id_len;
-    uint8_t cookie_len = 0;
     uint16_t cipher_len;
     uint8_t comp_len;
     uint16_t extensions_len;
@@ -185,6 +184,7 @@ static noxtls_return_t psk_clienthello_binder_prefix_len(const uint8_t *client_h
     }
     offset += session_id_len;
     if(psk_clienthello_uses_dtls_layout(client_hello, client_hello_len)) {
+        uint8_t cookie_len;
         if(offset + 1U + 2U + 1U + 2U > client_hello_len) {
             return NOXTLS_RETURN_BAD_DATA;
         }
@@ -306,7 +306,6 @@ noxtls_return_t tls13_psk_find_clienthello_binder(const uint8_t *client_hello,
 {
     uint32_t offset;
     uint8_t session_id_len;
-    uint8_t cookie_len = 0;
     uint16_t cipher_len;
     uint8_t comp_len;
     uint16_t extensions_len;
@@ -328,6 +327,7 @@ noxtls_return_t tls13_psk_find_clienthello_binder(const uint8_t *client_hello,
     }
     offset += session_id_len;
     if(psk_clienthello_uses_dtls_layout(client_hello, client_hello_len)) {
+        uint8_t cookie_len;
         if(offset + 1U + 2U + 1U + 2U > client_hello_len) {
             return NOXTLS_RETURN_BAD_DATA;
         }
@@ -389,7 +389,7 @@ noxtls_return_t tls13_psk_find_clienthello_binder(const uint8_t *client_hello,
                     }
                     id_len = psk_read_uint16(client_hello + p);
                     p += 2;
-                    if((uint32_t)id_len + 4U > (uint32_t)(identities_end - p)) {
+                    if((uint32_t)id_len + 4U > (identities_end - p)) {
                         return NOXTLS_RETURN_BAD_DATA;
                     }
                     if(idx == identity_index) {

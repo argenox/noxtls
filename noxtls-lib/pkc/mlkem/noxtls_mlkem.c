@@ -785,7 +785,14 @@ static noxtls_return_t mlkem_gen_matrix(mlkem_poly_t a[MLKEM_MAX_K][MLKEM_MAX_K]
     uint8_t j;
     for(i = 0; i < p->k; i++) {
         for(j = 0; j < p->k; j++) {
-            noxtls_return_t rc = mlkem_sample_uniform(&a[i][j], rho, transposed ? j : i, transposed ? i : j);
+            uint8_t row = i;
+            uint8_t col = j;
+            noxtls_return_t rc;
+            if(transposed != 0U) {
+                row = j;
+                col = i;
+            }
+            rc = mlkem_sample_uniform(&a[i][j], rho, row, col);
             if(rc != NOXTLS_RETURN_SUCCESS) {
                 return rc;
             }

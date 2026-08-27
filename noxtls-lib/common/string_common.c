@@ -57,11 +57,13 @@ int noxtls_hex_string_to_bytes(const char * string, uint8_t * out_buf, size_t ou
     size_t str_len;
     char val[HEX_PAIR_BUFFER_LEN];
 
-    if(string == NULL)
+    if(string == NULL) {
         return -1;
+    }
 
-    if(out_buf == NULL)
+    if(out_buf == NULL) {
         return -1;
+    }
 
     str_len = strlen(string);
     if((str_len & 1U) != 0U) {
@@ -122,8 +124,9 @@ void noxtls_print_data(const uint8_t * data, size_t len)
 {
     size_t i = 0;
 
-    if(data == NULL || len == 0)
+    if(data == NULL || len == 0) {
         return;
+    }
 
     for(i = 0; i < len; i++)
     {

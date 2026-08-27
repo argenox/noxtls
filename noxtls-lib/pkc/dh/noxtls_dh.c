@@ -102,7 +102,7 @@ static noxtls_return_t dh_validate_peer_public(const uint8_t *peer_mod,
         return NOXTLS_RETURN_FAILED;
     }
 
-    two[p_len - 1U] = 0x02u;
+    two[p_len - 1U] = 0x02U;
 
     rc = noxtls_bn_copy(p_minus_2, p, p_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -210,7 +210,7 @@ noxtls_return_t noxtls_dh_ffdhe_generate_ephemeral(uint16_t named_group,
             noxtls_free(g_padded);
             return NOXTLS_RETURN_FAILED;
         }
-        two_buf[p_len - 1U] = 0x02u;
+        two_buf[p_len - 1U] = 0x02U;
         noxtls_bn_copy(p_minus_2, p, p_len);
         rc = noxtls_bn_sub(p_minus_2, p_minus_2, two_buf, p_len);
         noxtls_free(two_buf);
@@ -238,7 +238,7 @@ noxtls_return_t noxtls_dh_ffdhe_generate_ephemeral(uint16_t named_group,
         }
         /* Ensure >= 2 */
         if(noxtls_bn_is_zero(private_out, p_len) || noxtls_bn_is_one(private_out, p_len)) {
-            private_out[p_len - 1U] = 0x02u;
+            private_out[p_len - 1U] = 0x02U;
         }
         if(noxtls_bn_cmp(private_out, p_minus_2, p_len) <= 0) {
             break;
@@ -383,9 +383,9 @@ noxtls_return_t noxtls_dh_generate_key(const uint8_t *p, uint32_t p_len,
     priv_buf = (uint8_t*)noxtls_calloc(p_len, 1);
     g_padded = (uint8_t*)noxtls_calloc(p_len, 1);
     if(p_minus_2 == NULL || priv_buf == NULL || g_padded == NULL) {
-        if(p_minus_2) noxtls_free(p_minus_2);
-        if(priv_buf) noxtls_free(priv_buf);
-        if(g_padded) noxtls_free(g_padded);
+        if(p_minus_2) { noxtls_free(p_minus_2); }
+        if(priv_buf) { noxtls_free(priv_buf); }
+        if(g_padded) { noxtls_free(g_padded); }
         return NOXTLS_RETURN_FAILED;
     }
 
@@ -514,7 +514,11 @@ noxtls_return_t noxtls_dh_shared_secret(const uint8_t *private_key,
         noxtls_free(peer_mod);
         return NOXTLS_RETURN_FAILED;
     }
-    rc = noxtls_bn_mod_exp(secret_out, peer_mod, private_key, private_len, p, p_len);
+    {
+        uint32_t exp_len = private_len;
+        uint32_t mod_len = p_len;
+        rc = noxtls_bn_mod_exp(secret_out, peer_mod, private_key, exp_len, p, mod_len);
+    }
     noxtls_free(peer_mod);
     return rc;
 }

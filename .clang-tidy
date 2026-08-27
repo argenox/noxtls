@@ -1,11 +1,35 @@
-Checks: >
+# NoxTLS clang-tidy policy (local + CI alignment).
+#
+# Cognitive complexity: keep default threshold (25). Prefer extracting helpers
+# for new/touched code in the 26-40 band. Large TLS handshake / X.509 parsers
+# (scores 100+) are deferred to dedicated refactor PRs; do not "fix" them
+# with drive-by NOLINT unless the function is intentionally dense (e.g.
+# constant-time arithmetic) and documented.
+#
+# Easily-swappable parameters: suppress at call sites with NOLINTBEGIN/END
+# when adjacent same-typed buffers are API-required (crypto in/out pairs).
+#
+# Checks listed here are the working set for local tidy iteration. CI may run
+# a broader default set; keep this file as the documented project baseline.
+
+Checks: >-
+  -*,
   bugprone-*,
   clang-analyzer-*,
-  portability-*,
   performance-*,
-  readability-*,
-  -readability-magic-numbers,
-  -readability-identifier-length
+  readability-function-cognitive-complexity,
+  readability-math-missing-parentheses,
+  readability-redundant-parentheses,
+  readability-redundant-casting,
+  readability-non-const-parameter,
+  readability-use-concise-preprocessor-directives
+
+CheckOptions:
+  - key: readability-function-cognitive-complexity.Threshold
+    value: '25'
+  - key: readability-function-cognitive-complexity.DescribeBasicIncrements
+    value: 'true'
+
 WarningsAsErrors: ''
-HeaderFilterRegex: '^(applications|noxtls-lib|ut|utility)/'
-FormatStyle: none
+HeaderFilterRegex: 'noxtls-lib/.*'
+FormatStyle: file

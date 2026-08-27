@@ -508,7 +508,7 @@ static void fe25519_inv(fe25519_t *out, const fe25519_t *z)
     fe25519_sq_times(&t0, &z2_50_0, 50U);
     fe25519_mul(&z2_100_0, &t0, &z2_50_0);
 
-    fe25519_sq_times(&t1, &z2_100_0, 100u);
+    fe25519_sq_times(&t1, &z2_100_0, 100U);
     fe25519_mul(&t1, &t1, &z2_100_0);
 
     fe25519_sq_times(&t1, &t1, 50U);
@@ -526,6 +526,7 @@ static void fe25519_inv(fe25519_t *out, const fe25519_t *z)
  * @param[out] result The result value.
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the input or output is NULL, or another NOXTLS_RETURN_t on failure.
  */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static noxtls_return_t x25519_scalar_mult(const uint8_t k[NOXTLS_X25519_KEY_SIZE],
                                           const uint8_t u[NOXTLS_X25519_KEY_SIZE],
                                           uint8_t result[NOXTLS_X25519_KEY_SIZE])
@@ -588,7 +589,7 @@ static noxtls_return_t x25519_scalar_mult(const uint8_t k[NOXTLS_X25519_KEY_SIZE
         fe25519_sq(&t0, &t1);
         fe25519_mul(&z3, &x1, &t0);
         fe25519_mul(&x2, &aa, &bb);
-        fe25519_mul_small(&t0, &e, 121665u);
+        fe25519_mul_small(&t0, &e, 121665U);
         fe25519_add(&t0, &aa, &t0);
         fe25519_mul(&z2, &e, &t0);
     }
@@ -686,7 +687,7 @@ static void fe25519_from_le(fe25519_t *out, const uint8_t in[32])
     int64_t h6 = (int64_t)load24_le(in + 20U) << 7;
     int64_t h7 = (int64_t)load24_le(in + 23U) << 5;
     int64_t h8 = (int64_t)load24_le(in + 26U) << 4;
-    int64_t h9 = (int64_t)(load24_le(in + 29U) & 0x7FFFFFu) << 2;
+    int64_t h9 = (int64_t)(load24_le(in + 29U) & 0x7FFFFFU) << 2;
     int64_t carry;
 
     carry = (h9 + (((int64_t)1) << 24)) >> 25;
@@ -754,7 +755,7 @@ static void fe25519_to_le(uint8_t out[32], const fe25519_t *in)
     int64_t q;
     int64_t carry;
 
-    q = (19 * h9 + (((int64_t)1) << 24)) >> 25;
+    q = ((19 * h9) + (((int64_t)1) << 24)) >> 25;
     q = (h0 + q) >> 26;
     q = (h1 + q) >> 25;
     q = (h2 + q) >> 26;
@@ -929,16 +930,16 @@ static void fe25519_mul(fe25519_t *out, const fe25519_t *a, const fe25519_t *b)
     const int64_t f5_2 = 2 * f5;
     const int64_t f7_2 = 2 * f7;
     const int64_t f9_2 = 2 * f9;
-    int64_t h0 = f0 * g0 + f1_2 * g9_19 + f2 * g8_19 + f3_2 * g7_19 + f4 * g6_19 + f5_2 * g5_19 + f6 * g4_19 + f7_2 * g3_19 + f8 * g2_19 + f9_2 * g1_19;
-    int64_t h1 = f0 * g1 + f1 * g0 + f2 * g9_19 + f3 * g8_19 + f4 * g7_19 + f5 * g6_19 + f6 * g5_19 + f7 * g4_19 + f8 * g3_19 + f9 * g2_19;
-    int64_t h2 = f0 * g2 + f1_2 * g1 + f2 * g0 + f3_2 * g9_19 + f4 * g8_19 + f5_2 * g7_19 + f6 * g6_19 + f7_2 * g5_19 + f8 * g4_19 + f9_2 * g3_19;
-    int64_t h3 = f0 * g3 + f1 * g2 + f2 * g1 + f3 * g0 + f4 * g9_19 + f5 * g8_19 + f6 * g7_19 + f7 * g6_19 + f8 * g5_19 + f9 * g4_19;
-    int64_t h4 = f0 * g4 + f1_2 * g3 + f2 * g2 + f3_2 * g1 + f4 * g0 + f5_2 * g9_19 + f6 * g8_19 + f7_2 * g7_19 + f8 * g6_19 + f9_2 * g5_19;
-    int64_t h5 = f0 * g5 + f1 * g4 + f2 * g3 + f3 * g2 + f4 * g1 + f5 * g0 + f6 * g9_19 + f7 * g8_19 + f8 * g7_19 + f9 * g6_19;
-    int64_t h6 = f0 * g6 + f1_2 * g5 + f2 * g4 + f3_2 * g3 + f4 * g2 + f5_2 * g1 + f6 * g0 + f7_2 * g9_19 + f8 * g8_19 + f9_2 * g7_19;
-    int64_t h7 = f0 * g7 + f1 * g6 + f2 * g5 + f3 * g4 + f4 * g3 + f5 * g2 + f6 * g1 + f7 * g0 + f8 * g9_19 + f9 * g8_19;
-    int64_t h8 = f0 * g8 + f1_2 * g7 + f2 * g6 + f3_2 * g5 + f4 * g4 + f5_2 * g3 + f6 * g2 + f7_2 * g1 + f8 * g0 + f9_2 * g9_19;
-    int64_t h9 = f0 * g9 + f1 * g8 + f2 * g7 + f3 * g6 + f4 * g5 + f5 * g4 + f6 * g3 + f7 * g2 + f8 * g1 + f9 * g0;
+    int64_t h0 = (f0 * g0) + (f1_2 * g9_19) + (f2 * g8_19) + (f3_2 * g7_19) + (f4 * g6_19) + (f5_2 * g5_19) + (f6 * g4_19) + (f7_2 * g3_19) + (f8 * g2_19) + (f9_2 * g1_19);
+    int64_t h1 = (f0 * g1) + (f1 * g0) + (f2 * g9_19) + (f3 * g8_19) + (f4 * g7_19) + (f5 * g6_19) + (f6 * g5_19) + (f7 * g4_19) + (f8 * g3_19) + (f9 * g2_19);
+    int64_t h2 = (f0 * g2) + (f1_2 * g1) + (f2 * g0) + (f3_2 * g9_19) + (f4 * g8_19) + (f5_2 * g7_19) + (f6 * g6_19) + (f7_2 * g5_19) + (f8 * g4_19) + (f9_2 * g3_19);
+    int64_t h3 = (f0 * g3) + (f1 * g2) + (f2 * g1) + (f3 * g0) + (f4 * g9_19) + (f5 * g8_19) + (f6 * g7_19) + (f7 * g6_19) + (f8 * g5_19) + (f9 * g4_19);
+    int64_t h4 = (f0 * g4) + (f1_2 * g3) + (f2 * g2) + (f3_2 * g1) + (f4 * g0) + (f5_2 * g9_19) + (f6 * g8_19) + (f7_2 * g7_19) + (f8 * g6_19) + (f9_2 * g5_19);
+    int64_t h5 = (f0 * g5) + (f1 * g4) + (f2 * g3) + (f3 * g2) + (f4 * g1) + (f5 * g0) + (f6 * g9_19) + (f7 * g8_19) + (f8 * g7_19) + (f9 * g6_19);
+    int64_t h6 = (f0 * g6) + (f1_2 * g5) + (f2 * g4) + (f3_2 * g3) + (f4 * g2) + (f5_2 * g1) + (f6 * g0) + (f7_2 * g9_19) + (f8 * g8_19) + (f9_2 * g7_19);
+    int64_t h7 = (f0 * g7) + (f1 * g6) + (f2 * g5) + (f3 * g4) + (f4 * g3) + (f5 * g2) + (f6 * g1) + (f7 * g0) + (f8 * g9_19) + (f9 * g8_19);
+    int64_t h8 = (f0 * g8) + (f1_2 * g7) + (f2 * g6) + (f3_2 * g5) + (f4 * g4) + (f5_2 * g3) + (f6 * g2) + (f7_2 * g1) + (f8 * g0) + (f9_2 * g9_19);
+    int64_t h9 = (f0 * g9) + (f1 * g8) + (f2 * g7) + (f3 * g6) + (f4 * g5) + (f5 * g4) + (f6 * g3) + (f7 * g2) + (f8 * g1) + (f9 * g0);
     int64_t carry;
 
     carry = (h0 + (((int64_t)1) << 25)) >> 26;
@@ -1140,7 +1141,7 @@ static void fe25519_inv(fe25519_t *out, const fe25519_t *z)
     fe25519_sq_times(&t0, &z2_50_0, 50U);
     fe25519_mul(&z2_100_0, &t0, &z2_50_0);
 
-    fe25519_sq_times(&t1, &z2_100_0, 100u);
+    fe25519_sq_times(&t1, &z2_100_0, 100U);
     fe25519_mul(&t1, &t1, &z2_100_0);
 
     fe25519_sq_times(&t1, &t1, 50U);
@@ -1221,7 +1222,7 @@ static noxtls_return_t x25519_scalar_mult(const uint8_t k[NOXTLS_X25519_KEY_SIZE
         fe25519_sq(&t0, &t1);
         fe25519_mul(&z3, &x1, &t0);
         fe25519_mul(&x2, &aa, &bb);
-        fe25519_mul_small(&t0, &e, 121665u);
+        fe25519_mul_small(&t0, &e, 121665U);
         fe25519_add(&t0, &aa, &t0);
         fe25519_mul(&z2, &e, &t0);
     }
@@ -1265,7 +1266,7 @@ noxtls_return_t noxtls_x25519_public_key(const uint8_t private_key[NOXTLS_X25519
         9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     };
-    if(private_key == NULL || public_key == NULL) return NOXTLS_RETURN_NULL;
+    if(private_key == NULL || public_key == NULL) { return NOXTLS_RETURN_NULL; }
     return x25519_scalar_mult(private_key, base_point, public_key);
 }
 
@@ -1280,7 +1281,7 @@ noxtls_return_t noxtls_x25519_shared_secret(const uint8_t private_key[NOXTLS_X25
                                             const uint8_t peer_public_key[NOXTLS_X25519_KEY_SIZE],
                                             uint8_t shared_secret[NOXTLS_X25519_KEY_SIZE])
 {
-    if(private_key == NULL || peer_public_key == NULL || shared_secret == NULL) return NOXTLS_RETURN_NULL;
+    if(private_key == NULL || peer_public_key == NULL || shared_secret == NULL) { return NOXTLS_RETURN_NULL; }
     return x25519_scalar_mult(private_key, peer_public_key, shared_secret);
 }
 
@@ -1297,14 +1298,14 @@ noxtls_return_t noxtls_x25519_generate_key(uint8_t private_key[NOXTLS_X25519_KEY
     static int drbg_initialized = 0;
     noxtls_return_t rc;
 
-    if(private_key == NULL || public_key == NULL) return NOXTLS_RETURN_NULL;
+    if(private_key == NULL || public_key == NULL) { return NOXTLS_RETURN_NULL; }
 
     if(!drbg_initialized) {
         uint8_t seed[NOXTLS_X25519_DRBG_ENTROPY_SEED_BYTES];
         rc = noxtls_drbg_get_entropy(seed, sizeof(seed));
-        if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
         rc = drbg_instantiate(&drbg_state, DRBG_AES256, seed, sizeof(seed), NULL, 0, NULL, 0);
-        if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
         drbg_initialized = 1;
     }
 
@@ -1314,11 +1315,11 @@ noxtls_return_t noxtls_x25519_generate_key(uint8_t private_key[NOXTLS_X25519_KEY
          * (e.g. reseed interval exceeded) instead of failing the keygen permanently. */
         uint8_t seed[NOXTLS_X25519_DRBG_ENTROPY_SEED_BYTES];
         rc = noxtls_drbg_get_entropy(seed, sizeof(seed));
-        if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
         rc = drbg_reseed(&drbg_state, seed, sizeof(seed), NULL, 0);
-        if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
         rc = drbg_generate(&drbg_state, private_key, NOXTLS_X25519_DRBG_SEED_BITS, NULL, 0);
-        if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
     }
 
     noxtls_x25519_clamp_scalar(private_key);

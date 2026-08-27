@@ -216,6 +216,34 @@ static x509_certificate_chain_t *x509_trust_store_clone(const x509_certificate_c
  * @param[in] expected_hostname_len The length of the expected hostname.
  * @param[in] cert_index The index of the certificate in the chain.
  */
+static void cert_fail_copy_bytes(char *dst, uint32_t dst_max, const uint8_t *src)
+{
+    uint32_t n = 0;
+
+    if(dst == NULL || dst_max == 0U || src == NULL) {
+        return;
+    }
+    while(n < (dst_max - 1U) && src[n] != 0) {
+        dst[n] = (char)src[n];
+        n++;
+    }
+    dst[n] = '\0';
+}
+
+static void cert_fail_copy_cstr(char *dst, uint32_t dst_max, const char *src, uint32_t src_len)
+{
+    uint32_t n = 0;
+
+    if(dst == NULL || dst_max == 0U || src == NULL) {
+        return;
+    }
+    while(n < (dst_max - 1U) && (src_len == 0U || n < src_len) && src[n] != '\0') {
+        dst[n] = src[n];
+        n++;
+    }
+    dst[n] = '\0';
+}
+
 static void cert_fail_set(noxtls_return_t return_code, const x509_certificate_t *cert, const char *expected_hostname, uint32_t expected_hostname_len, uint32_t cert_index)
 {
     memset(&s_cert_fail_info, 0, sizeof(s_cert_fail_info));
@@ -225,45 +253,19 @@ static void cert_fail_set(noxtls_return_t return_code, const x509_certificate_t 
 
     if(cert != NULL) {
         if(cert->not_before[0] != 0) {
-            uint32_t n = 0;
-            while(n < NOXTLS_CERT_FAIL_TIME_MAX - 1 && cert->not_before[n] != 0) {
-                s_cert_fail_info.not_before[n] = (char)cert->not_before[n];
-                n++;
-            }
-            s_cert_fail_info.not_before[n] = '\0';
+            cert_fail_copy_bytes(s_cert_fail_info.not_before, NOXTLS_CERT_FAIL_TIME_MAX, cert->not_before);
         }
         if(cert->not_after[0] != 0) {
-            uint32_t n = 0;
-            while(n < NOXTLS_CERT_FAIL_TIME_MAX - 1 && cert->not_after[n] != 0) {
-                s_cert_fail_info.not_after[n] = (char)cert->not_after[n];
-                n++;
-            }
-            s_cert_fail_info.not_after[n] = '\0';
+            cert_fail_copy_bytes(s_cert_fail_info.not_after, NOXTLS_CERT_FAIL_TIME_MAX, cert->not_after);
         }
         if(cert->subject_dn[0] != '\0') {
-            uint32_t n = 0;
-            while(n < NOXTLS_CERT_FAIL_DN_HOSTNAME_MAX - 1 && cert->subject_dn[n] != '\0') {
-                s_cert_fail_info.subject_dn[n] = cert->subject_dn[n];
-                n++;
-            }
-            s_cert_fail_info.subject_dn[n] = '\0';
+            cert_fail_copy_cstr(s_cert_fail_info.subject_dn, NOXTLS_CERT_FAIL_DN_HOSTNAME_MAX, cert->subject_dn, 0U);
         }
     }
 
     if(expected_hostname != NULL) {
-        uint32_t n = 0;
-        if(expected_hostname_len == 0) {
-            while(n < NOXTLS_CERT_FAIL_DN_HOSTNAME_MAX - 1 && expected_hostname[n] != '\0') {
-                s_cert_fail_info.expected_hostname[n] = expected_hostname[n];
-                n++;
-            }
-        } else {
-            while(n < NOXTLS_CERT_FAIL_DN_HOSTNAME_MAX - 1 && n < expected_hostname_len && expected_hostname[n] != '\0') {
-                s_cert_fail_info.expected_hostname[n] = expected_hostname[n];
-                n++;
-            }
-        }
-        s_cert_fail_info.expected_hostname[n] = '\0';
+        cert_fail_copy_cstr(s_cert_fail_info.expected_hostname, NOXTLS_CERT_FAIL_DN_HOSTNAME_MAX,
+                            expected_hostname, expected_hostname_len);
     }
 }
 
@@ -576,10 +578,10 @@ static noxtls_return_t noxtls_x509_slhdsa_param_from_oid(const uint8_t *oid,
         return NOXTLS_RETURN_INVALID_ALGORITHM;
     }
     last = oid[sizeof(oid_prefix)];
-    if(last < 0x14u || last > 0x1Fu) {
+    if(last < 0x14U || last > 0x1FU) {
         return NOXTLS_RETURN_INVALID_ALGORITHM;
     }
-    *param = (noxtls_slhdsa_param_t)((uint32_t)NOXTLS_SLHDSA_SHA2_128S + (uint32_t)(last - 0x14u));
+    *param = (noxtls_slhdsa_param_t)((uint32_t)NOXTLS_SLHDSA_SHA2_128S + (uint32_t)(last - 0x14U));
     return NOXTLS_RETURN_SUCCESS;
 }
 #endif
@@ -615,9 +617,9 @@ static noxtls_return_t hmac_sha1(const uint8_t *key, uint32_t key_len,
     memset(opad, 0x5C, 64);
 
     if(key_len > 64) {
-        if(noxtls_sha1_init(&ctx, NOXTLS_HASH_SHA1) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-        if(noxtls_sha1_update(&ctx, (const uint8_t*)key, key_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-        if(noxtls_sha1_finish(&ctx, tmp) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+        if(noxtls_sha1_init(&ctx, NOXTLS_HASH_SHA1) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+        if(noxtls_sha1_update(&ctx, key, key_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+        if(noxtls_sha1_finish(&ctx, tmp) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
         key = tmp;
         key_len = SHA1_OUT_LEN;
     }
@@ -627,14 +629,14 @@ static noxtls_return_t hmac_sha1(const uint8_t *key, uint32_t key_len,
         opad[i] ^= key[i];
     }
 
-    if(noxtls_sha1_init(&ctx, NOXTLS_HASH_SHA1) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(noxtls_sha1_update(&ctx, ipad, 64) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(noxtls_sha1_update(&ctx, (const uint8_t*)msg, msg_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(noxtls_sha1_finish(&ctx, mac) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(noxtls_sha1_init(&ctx, NOXTLS_HASH_SHA1) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(noxtls_sha1_update(&ctx, opad, 64) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(noxtls_sha1_update(&ctx, mac, SHA1_OUT_LEN) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(noxtls_sha1_finish(&ctx, mac) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(noxtls_sha1_init(&ctx, NOXTLS_HASH_SHA1) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha1_update(&ctx, ipad, 64) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha1_update(&ctx, msg, msg_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha1_finish(&ctx, mac) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha1_init(&ctx, NOXTLS_HASH_SHA1) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha1_update(&ctx, opad, 64) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha1_update(&ctx, mac, SHA1_OUT_LEN) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha1_finish(&ctx, mac) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -670,9 +672,9 @@ static noxtls_return_t pbkdf2_hmac_sha1(const uint8_t *password, uint32_t passwo
         return NOXTLS_RETURN_NULL;
     }
 
-    if(params->salt_len > 0xFFFF - 4) return NOXTLS_RETURN_FAILED;
+    if(params->salt_len > 0xFFFF - 4) { return NOXTLS_RETURN_FAILED; }
     block_input = (uint8_t*)malloc(params->salt_len + 4U);
-    if(block_input == NULL) return NOXTLS_RETURN_FAILED;
+    if(block_input == NULL) { return NOXTLS_RETURN_FAILED; }
     memcpy(block_input, salt, params->salt_len);
     blocks = (params->key_len + SHA1_OUT_LEN - 1U) / SHA1_OUT_LEN;
 
@@ -680,29 +682,30 @@ static noxtls_return_t pbkdf2_hmac_sha1(const uint8_t *password, uint32_t passwo
         block_input[params->salt_len + 0U] = (uint8_t)(block_index >> 24);
         block_input[params->salt_len + 1U] = (uint8_t)(block_index >> 16);
         block_input[params->salt_len + 2U] = (uint8_t)(block_index >> 8);
-        block_input[params->salt_len + 3U] = (uint8_t)(block_index);
+        block_input[params->salt_len + 3U] = (uint8_t)block_index;
 
         if(hmac_sha1(password, password_len, block_input, params->salt_len + 4U, u) != NOXTLS_RETURN_SUCCESS) {
             free(block_input);
             return NOXTLS_RETURN_FAILED;
         }
 
-        for(k = 0; k < SHA1_OUT_LEN; k++)
+        for(k = 0; k < SHA1_OUT_LEN; k++) {
             t[k] = u[k];
+        }
 
         for(j = 1; j < params->iterations; j++) {
             if(hmac_sha1(password, password_len, u, SHA1_OUT_LEN, u) != NOXTLS_RETURN_SUCCESS) {
                 free(block_input);
                 return NOXTLS_RETURN_FAILED;
             }
-            for(k = 0; k < SHA1_OUT_LEN; k++) t[k] ^= u[k];
+            for(k = 0; k < SHA1_OUT_LEN; k++) { t[k] ^= u[k]; }
         }
 
         {
             uint32_t copy_len = (block_index * SHA1_OUT_LEN <= params->key_len)
                                     ? SHA1_OUT_LEN
-                                    : (params->key_len - (block_index - 1U) * SHA1_OUT_LEN);
-            memcpy(out + (size_t)(block_index - 1U) * SHA1_OUT_LEN, t, copy_len);
+                                    : (params->key_len - ((block_index - 1U) * SHA1_OUT_LEN));
+            memcpy(out + ((size_t)(block_index - 1U) * SHA1_OUT_LEN), t, copy_len);
         }
     }
     free(block_input);
@@ -888,7 +891,7 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
                 if(asn1_get_tag(&ku_ptr, ku_end, 0x03) == NOXTLS_RETURN_SUCCESS) {
                     uint32_t bs_len = asn1_get_length(&ku_ptr, ku_end);
                     if(bs_len >= 1 && ku_ptr + bs_len <= ku_end) {
-                        uint32_t unused = ku_ptr[0] & 0x7u;
+                        uint32_t unused = ku_ptr[0] & 0x7U;
                         const uint8_t *bits_data = ku_ptr + 1;
                         uint32_t bits_bytes = bs_len - 1U;
                         uint32_t num_bits = bits_bytes * 8U;
@@ -949,15 +952,15 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
                         uint8_t ko[32];
                         uint32_t ko_len = 0;
                         if(asn1_get_oid(&q, qe, ko, &ko_len) == NOXTLS_RETURN_SUCCESS) {
-                            if(oid_equal(ko, ko_len, oid_kp_server_auth, sizeof(oid_kp_server_auth))) cert->ext_key_usage_bits |= X509_EKU_SERVER_AUTH;
-                            else if(oid_equal(ko, ko_len, oid_kp_client_auth, sizeof(oid_kp_client_auth))) cert->ext_key_usage_bits |= X509_EKU_CLIENT_AUTH;
-                            else if(oid_equal(ko, ko_len, oid_kp_code_signing, sizeof(oid_kp_code_signing))) cert->ext_key_usage_bits |= X509_EKU_CODE_SIGNING;
-                            else if(oid_equal(ko, ko_len, oid_kp_email_protection, sizeof(oid_kp_email_protection))) cert->ext_key_usage_bits |= X509_EKU_EMAIL_PROTECTION;
+                            if(oid_equal(ko, ko_len, oid_kp_server_auth, sizeof(oid_kp_server_auth))) { cert->ext_key_usage_bits |= X509_EKU_SERVER_AUTH; }
+                            else if(oid_equal(ko, ko_len, oid_kp_client_auth, sizeof(oid_kp_client_auth))) { cert->ext_key_usage_bits |= X509_EKU_CLIENT_AUTH; }
+                            else if(oid_equal(ko, ko_len, oid_kp_code_signing, sizeof(oid_kp_code_signing))) { cert->ext_key_usage_bits |= X509_EKU_CODE_SIGNING; }
+                            else if(oid_equal(ko, ko_len, oid_kp_email_protection, sizeof(oid_kp_email_protection))) { cert->ext_key_usage_bits |= X509_EKU_EMAIL_PROTECTION; }
                             else if(oid_equal(
-                            ko, ko_len, oid_kp_time_stamping, sizeof(oid_kp_time_stamping))) cert->ext_key_usage_bits |= X509_EKU_TIME_STAMPING;
-                            else if(oid_equal(ko, ko_len, oid_kp_ocsp_signing, sizeof(oid_kp_ocsp_signing))) cert->ext_key_usage_bits |= X509_EKU_OCSP_SIGNING;
-                            else if(oid_equal(ko, ko_len, oid_any_eku, sizeof(oid_any_eku))) cert->ext_key_usage_bits |= X509_EKU_ANY;
-                        } else break;
+                            ko, ko_len, oid_kp_time_stamping, sizeof(oid_kp_time_stamping))) { cert->ext_key_usage_bits |= X509_EKU_TIME_STAMPING; }
+                            else if(oid_equal(ko, ko_len, oid_kp_ocsp_signing, sizeof(oid_kp_ocsp_signing))) { cert->ext_key_usage_bits |= X509_EKU_OCSP_SIGNING; }
+                            else if(oid_equal(ko, ko_len, oid_any_eku, sizeof(oid_any_eku))) { cert->ext_key_usage_bits |= X509_EKU_ANY; }
+                        } else { break; }
                     }
                 }
             } else if(oid_equal(oid_buf, oid_len, oid_authority_key_id, sizeof(oid_authority_key_id))) {
@@ -1105,8 +1108,8 @@ static int noxtls_x509_dns_name_equal(const char *hostname, uint32_t hostname_le
         while(i < suffix_len) {
             unsigned char a = (unsigned char)hostname[first_dot_index + i];
             unsigned char b = (unsigned char)dns_name[1U + i];
-            if(a >= 'A' && a <= 'Z') a += 32;
-            if(b >= 'A' && b <= 'Z') b += 32;
+            if(a >= 'A' && a <= 'Z') { a += 32; }
+            if(b >= 'A' && b <= 'Z') { b += 32; }
             if(a != b) {
                 return 0;
             }
@@ -1118,9 +1121,9 @@ static int noxtls_x509_dns_name_equal(const char *hostname, uint32_t hostname_le
     while(i < hostname_len && hostname[i] != '\0' && dns_name[i] != '\0') {
         unsigned char a = (unsigned char)hostname[i];
         unsigned char b = (unsigned char)dns_name[i];
-        if(a >= 'A' && a <= 'Z') a += 32;
-        if(b >= 'A' && b <= 'Z') b += 32;
-        if(a != b) return 0;
+        if(a >= 'A' && a <= 'Z') { a += 32; }
+        if(b >= 'A' && b <= 'Z') { b += 32; }
+        if(a != b) { return 0; }
         i++;
     }
 
@@ -1147,7 +1150,7 @@ static void noxtls_x509_get_cn_from_subject_dn(const char *subject_dn, char *cn_
     const char *p;
     uint32_t i = 0;
     if(subject_dn == NULL || cn_out == NULL || cn_out_size == 0) {
-        if(cn_out && cn_out_size > 0) cn_out[0] = '\0';
+        if(cn_out && cn_out_size > 0) { cn_out[0] = '\0'; }
         return;
     }
 
@@ -1158,7 +1161,7 @@ static void noxtls_x509_get_cn_from_subject_dn(const char *subject_dn, char *cn_
     }
 
     p += 3;
-    while(*p == ' ') p++;
+    while(*p == ' ') { p++; }
     while(*p != '\0' && *p != ',' && i < cn_out_size - 1) {
         cn_out[i++] = *p++;
     }
@@ -1190,7 +1193,7 @@ noxtls_return_t noxtls_x509_certificate_matches_hostname(const x509_certificate_
     }
 
     if(hostname_len == 0) {
-        while(hostname_len < 256 && hostname[hostname_len] != '\0') hostname_len++;
+        while(hostname_len < 256 && hostname[hostname_len] != '\0') { hostname_len++; }
     }
 
     if(hostname_len == 0) {
@@ -1300,11 +1303,6 @@ noxtls_return_t noxtls_x509_certificate_free(x509_certificate_t *cert)
 
     return NOXTLS_RETURN_SUCCESS;
 }
-
-static noxtls_return_t noxtls_x509_validate_ecc_public_key_bytes(const uint8_t *pubkey,
-                                                                 uint32_t pubkey_len,
-                                                                 const uint8_t *curve_oid,
-                                                                 uint32_t curve_oid_len);
 
 /**
  * @brief Parse X.509 certificate from DER format
@@ -1717,7 +1715,7 @@ noxtls_return_t noxtls_x509_certificate_parse_pem(x509_certificate_t *cert, cons
     }
 
     /* Convert PEM to DER */
-    rc = noxtls_certificate_pem_to_der((uint8_t*)data, len, der_data, &der_len);
+    rc = noxtls_certificate_pem_to_der(data, len, der_data, &der_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         free(der_data);
         return rc;
@@ -1972,69 +1970,39 @@ noxtls_return_t noxtls_x509_get_channel_binding_hash_algo(const x509_certificate
  */
 static noxtls_return_t noxtls_x509_ecc_curve_from_oid(const uint8_t *oid, uint32_t oid_len, ecc_curve_t *curve_type)
 {
+    static const struct {
+        const uint8_t *oid;
+        uint32_t oid_len;
+        ecc_curve_t curve;
+    } map[] = {
+        { noxtls_x509_oid_secp192r1, (uint32_t)sizeof(noxtls_x509_oid_secp192r1), NOXTLS_ECC_SECP192R1 },
+        { noxtls_x509_oid_secp224r1, (uint32_t)sizeof(noxtls_x509_oid_secp224r1), NOXTLS_ECC_SECP224R1 },
+        { noxtls_x509_oid_secp256r1, (uint32_t)sizeof(noxtls_x509_oid_secp256r1), NOXTLS_ECC_SECP256R1 },
+        { noxtls_x509_oid_secp384r1, (uint32_t)sizeof(noxtls_x509_oid_secp384r1), NOXTLS_ECC_SECP384R1 },
+        { noxtls_x509_oid_secp521r1, (uint32_t)sizeof(noxtls_x509_oid_secp521r1), NOXTLS_ECC_SECP521R1 },
+        { noxtls_x509_oid_bp256r1, (uint32_t)sizeof(noxtls_x509_oid_bp256r1), NOXTLS_ECC_BP256R1 },
+        { noxtls_x509_oid_bp384r1, (uint32_t)sizeof(noxtls_x509_oid_bp384r1), NOXTLS_ECC_BP384R1 },
+        { noxtls_x509_oid_bp512r1, (uint32_t)sizeof(noxtls_x509_oid_bp512r1), NOXTLS_ECC_BP512R1 },
+        { noxtls_x509_oid_secp192k1, (uint32_t)sizeof(noxtls_x509_oid_secp192k1), NOXTLS_ECC_SECP192K1 },
+        { noxtls_x509_oid_secp224k1, (uint32_t)sizeof(noxtls_x509_oid_secp224k1), NOXTLS_ECC_SECP224K1 },
+        { noxtls_x509_oid_secp256k1, (uint32_t)sizeof(noxtls_x509_oid_secp256k1), NOXTLS_ECC_SECP256K1 },
+    };
+    uint32_t i;
+
     if(oid == NULL || curve_type == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(oid_len > 0) {
-        if(oid_len == sizeof(noxtls_x509_oid_secp192r1) &&
-           memcmp(oid, noxtls_x509_oid_secp192r1, sizeof(noxtls_x509_oid_secp192r1)) == 0) {
-            *curve_type = NOXTLS_ECC_SECP192R1;
-            return NOXTLS_RETURN_SUCCESS;
-        }
-        if(oid_len == sizeof(noxtls_x509_oid_secp224r1) &&
-           memcmp(oid, noxtls_x509_oid_secp224r1, sizeof(noxtls_x509_oid_secp224r1)) == 0) {
-            *curve_type = NOXTLS_ECC_SECP224R1;
-            return NOXTLS_RETURN_SUCCESS;
-        }
-        if(oid_len == sizeof(noxtls_x509_oid_secp256r1) &&
-           memcmp(oid, noxtls_x509_oid_secp256r1, sizeof(noxtls_x509_oid_secp256r1)) == 0) {
-            *curve_type = NOXTLS_ECC_SECP256R1;
-            return NOXTLS_RETURN_SUCCESS;
-        }
-        if(oid_len == sizeof(noxtls_x509_oid_secp384r1) &&
-           memcmp(oid, noxtls_x509_oid_secp384r1, sizeof(noxtls_x509_oid_secp384r1)) == 0) {
-            *curve_type = NOXTLS_ECC_SECP384R1;
-            return NOXTLS_RETURN_SUCCESS;
-        }
-        if(oid_len == sizeof(noxtls_x509_oid_secp521r1) &&
-           memcmp(oid, noxtls_x509_oid_secp521r1, sizeof(noxtls_x509_oid_secp521r1)) == 0) {
-            *curve_type = NOXTLS_ECC_SECP521R1;
-            return NOXTLS_RETURN_SUCCESS;
-        }
-        if(oid_len == sizeof(noxtls_x509_oid_bp256r1) &&
-           memcmp(oid, noxtls_x509_oid_bp256r1, sizeof(noxtls_x509_oid_bp256r1)) == 0) {
-            *curve_type = NOXTLS_ECC_BP256R1;
-            return NOXTLS_RETURN_SUCCESS;
-        }
-        if(oid_len == sizeof(noxtls_x509_oid_bp384r1) &&
-           memcmp(oid, noxtls_x509_oid_bp384r1, sizeof(noxtls_x509_oid_bp384r1)) == 0) {
-            *curve_type = NOXTLS_ECC_BP384R1;
-            return NOXTLS_RETURN_SUCCESS;
-        }
-        if(oid_len == sizeof(noxtls_x509_oid_bp512r1) &&
-           memcmp(oid, noxtls_x509_oid_bp512r1, sizeof(noxtls_x509_oid_bp512r1)) == 0) {
-            *curve_type = NOXTLS_ECC_BP512R1;
-            return NOXTLS_RETURN_SUCCESS;
-        }
-        if(oid_len == sizeof(noxtls_x509_oid_secp192k1) &&
-           memcmp(oid, noxtls_x509_oid_secp192k1, sizeof(noxtls_x509_oid_secp192k1)) == 0) {
-            *curve_type = NOXTLS_ECC_SECP192K1;
-            return NOXTLS_RETURN_SUCCESS;
-        }
-        if(oid_len == sizeof(noxtls_x509_oid_secp224k1) &&
-           memcmp(oid, noxtls_x509_oid_secp224k1, sizeof(noxtls_x509_oid_secp224k1)) == 0) {
-            *curve_type = NOXTLS_ECC_SECP224K1;
-            return NOXTLS_RETURN_SUCCESS;
-        }
-        if(oid_len == sizeof(noxtls_x509_oid_secp256k1) &&
-           memcmp(oid, noxtls_x509_oid_secp256k1, sizeof(noxtls_x509_oid_secp256k1)) == 0) {
-            *curve_type = NOXTLS_ECC_SECP256K1;
-            return NOXTLS_RETURN_SUCCESS;
-        }
-        return NOXTLS_RETURN_INVALID_ALGORITHM;
+    if(oid_len == 0U) {
+        *curve_type = NOXTLS_ECC_SECP256R1; /* default */
+        return NOXTLS_RETURN_SUCCESS;
     }
-    *curve_type = NOXTLS_ECC_SECP256R1; /* default */
-    return NOXTLS_RETURN_SUCCESS;
+    for(i = 0; i < (uint32_t)(sizeof(map) / sizeof(map[0])); i++) {
+        if(oid_len == map[i].oid_len && memcmp(oid, map[i].oid, oid_len) == 0) {
+            *curve_type = map[i].curve;
+            return NOXTLS_RETURN_SUCCESS;
+        }
+    }
+    return NOXTLS_RETURN_INVALID_ALGORITHM;
 }
 
 /**
@@ -2120,7 +2088,7 @@ static noxtls_return_t noxtls_x509_validate_ecc_public_key_bytes(const uint8_t *
     }
 
     coord_size = curve.size;
-    if(pubkey[0] != 0x04 || pubkey_len != 1U + 2U * coord_size) {
+    if(pubkey[0] != 0x04 || pubkey_len != 1U + (2U * coord_size)) {
         noxtls_ecc_curve_free(&curve);
         return NOXTLS_RETURN_INVALID_PARAM;
     }
@@ -2276,7 +2244,8 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(x509_certificate_t *cer
             return (rc == NOXTLS_RETURN_FAILED ? NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED : rc);
         }
         return NOXTLS_RETURN_SUCCESS;
-    } else if(is_rsa == 2) {
+    }
+    if(is_rsa == 2) {
 #if NOXTLS_FEATURE_ML_DSA
         uint32_t hash_len = 0;
         if(!issuer->has_mldsa || issuer->mldsa_public_key_len == 0 || issuer->mldsa_param == 0) {
@@ -2304,7 +2273,8 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(x509_certificate_t *cer
 #else
         return NOXTLS_RETURN_INVALID_ALGORITHM;
 #endif
-    } else if(is_rsa == 3) {
+    }
+    if(is_rsa == 3) {
 #if NOXTLS_FEATURE_SLH_DSA
         noxtls_slhdsa_param_t sig_param = NOXTLS_SLHDSA_NONE;
 
@@ -2331,7 +2301,8 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(x509_certificate_t *cer
 #else
         return NOXTLS_RETURN_INVALID_ALGORITHM;
 #endif
-    } else if(is_rsa == 4) {
+    }
+    if(is_rsa == 4) {
 #if NOXTLS_FEATURE_FALCON
         int falcon_param = x509_oid_is_falcon(cert->signature_algorithm_oid, cert->signature_algorithm_oid_len);
         if(falcon_param == 0 ||
@@ -2355,7 +2326,8 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(x509_certificate_t *cer
 #else
         return NOXTLS_RETURN_INVALID_ALGORITHM;
 #endif
-    } else {
+    }
+    {
         /* ECDSA signature verification */
         if(issuer->ecc_public_key == NULL || issuer->ecc_public_key_len == 0) {
             CERT_DEBUG_PRINT("x509_certificate_verify_signature: issuer ECC public key not available\n");
@@ -2391,7 +2363,7 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(x509_certificate_t *cer
         }
 
         uint32_t coord_size = ecc_key.curve->size;
-        if(issuer->ecc_public_key_len != 1 + 2 * coord_size) {
+        if(issuer->ecc_public_key_len != 1 + (2 * coord_size)) {
             CERT_DEBUG_PRINT("x509_certificate_verify_signature: invalid ECC public key length\n");
             noxtls_ecc_key_free(&ecc_key);
             return NOXTLS_RETURN_INVALID_PARAM;
@@ -2512,7 +2484,7 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(x509_certificate_t *cer
  */
 static int x509_asn1_utc_year(const uint8_t *time_data)
 {
-    int year = (time_data[0] - '0') * 10 + (time_data[1] - '0');
+    int year = ((time_data[0] - '0') * 10) + (time_data[1] - '0');
     return (year < 50) ? (year + 2000) : (year + 1900);
 }
 
@@ -2532,11 +2504,11 @@ static int x509_asn1_utc_year(const uint8_t *time_data)
 /* NOLINTNEXTLINE(bugprone-easily-swappable-parameters): grouped out-params are positional date-time components. */
 static void x509_asn1_utc_load_mdhm(const uint8_t *time_data, int *month, int *day, int *hour, int *minute, int *second)
 {
-    *month = (time_data[2] - '0') * 10 + (time_data[3] - '0');
-    *day = (time_data[4] - '0') * 10 + (time_data[5] - '0');
-    *hour = (time_data[6] - '0') * 10 + (time_data[7] - '0');
-    *minute = (time_data[8] - '0') * 10 + (time_data[9] - '0');
-    *second = (time_data[10] - '0') * 10 + (time_data[11] - '0');
+    *month = ((time_data[2] - '0') * 10) + (time_data[3] - '0');
+    *day = ((time_data[4] - '0') * 10) + (time_data[5] - '0');
+    *hour = ((time_data[6] - '0') * 10) + (time_data[7] - '0');
+    *minute = ((time_data[8] - '0') * 10) + (time_data[9] - '0');
+    *second = ((time_data[10] - '0') * 10) + (time_data[11] - '0');
 }
 
 /**
@@ -2549,8 +2521,8 @@ static void x509_asn1_utc_load_mdhm(const uint8_t *time_data, int *month, int *d
  */
 static int x509_asn1_gt_year(const uint8_t *time_data)
 {
-    return (time_data[0] - '0') * 1000 + (time_data[1] - '0') * 100 +
-           (time_data[2] - '0') * 10 + (time_data[3] - '0');
+    return ((time_data[0] - '0') * 1000) + ((time_data[1] - '0') * 100) +
+           ((time_data[2] - '0') * 10) + (time_data[3] - '0');
 }
 
 /**
@@ -2569,11 +2541,11 @@ static int x509_asn1_gt_year(const uint8_t *time_data)
 /* NOLINTNEXTLINE(bugprone-easily-swappable-parameters): grouped out-params are positional date-time components. */
 static void x509_asn1_gt_load_mdhm(const uint8_t *time_data, int *month, int *day, int *hour, int *minute, int *second)
 {
-    *month = (time_data[4] - '0') * 10 + (time_data[5] - '0');
-    *day = (time_data[6] - '0') * 10 + (time_data[7] - '0');
-    *hour = (time_data[8] - '0') * 10 + (time_data[9] - '0');
-    *minute = (time_data[10] - '0') * 10 + (time_data[11] - '0');
-    *second = (time_data[12] - '0') * 10 + (time_data[13] - '0');
+    *month = ((time_data[4] - '0') * 10) + (time_data[5] - '0');
+    *day = ((time_data[6] - '0') * 10) + (time_data[7] - '0');
+    *hour = ((time_data[8] - '0') * 10) + (time_data[9] - '0');
+    *minute = ((time_data[10] - '0') * 10) + (time_data[11] - '0');
+    *second = ((time_data[12] - '0') * 10) + (time_data[13] - '0');
 }
 
 /**
@@ -2688,7 +2660,7 @@ static noxtls_return_t noxtls_x509_asn1_time_to_timet(const uint8_t *time_data, 
     if(seconds < 0 || seconds > (int64_t)INT32_MAX) {
         /* For 64-bit time_t, we can handle larger values, but check reasonable bounds */
 #ifdef _MSC_VER
-#if defined(_USE_32BIT_TIME_T)
+#ifdef _USE_32BIT_TIME_T
         if(seconds > INT32_MAX) {
             return NOXTLS_RETURN_FAILED;
         }
@@ -2714,6 +2686,55 @@ static noxtls_return_t noxtls_x509_asn1_time_to_timet(const uint8_t *time_data, 
  * @param[in] cert The certificate to check the validity of.
  * @return The return code of the function.
  */
+#if NOXTLS_HAVE_TIME
+static noxtls_return_t x509_check_time_bound(const x509_certificate_t *cert,
+                                              const uint8_t *asn1_time,
+                                              time_t current_time,
+                                              int is_not_before,
+                                              time_t *out_bound)
+{
+    uint32_t time_len = 0;
+    time_t bound = 0;
+    noxtls_return_t rc;
+
+    if(out_bound != NULL) {
+        *out_bound = 0;
+    }
+    if(asn1_time[0] == 0) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    while(time_len < 15U && asn1_time[time_len] != 0) {
+        time_len++;
+    }
+    if(time_len == 0U) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
+
+    rc = noxtls_x509_asn1_time_to_timet(asn1_time, time_len, &bound);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        CERT_DEBUG_PRINT("x509_certificate_check_validity: failed to parse validity time\n");
+        return NOXTLS_RETURN_BAD_DATA;
+    }
+    if(out_bound != NULL) {
+        *out_bound = bound;
+    }
+
+    if(is_not_before) {
+        if(current_time < bound) {
+            CERT_DEBUG_PRINT("x509_certificate_check_validity: certificate not yet valid\n");
+            cert_fail_set(NOXTLS_RETURN_CERT_NOT_YET_VALID, cert, NULL, 0, 0);
+            return NOXTLS_RETURN_CERT_NOT_YET_VALID;
+        }
+    } else if(current_time > bound) {
+        CERT_DEBUG_PRINT("x509_certificate_check_validity: certificate expired\n");
+        cert_fail_set(NOXTLS_RETURN_CERT_EXPIRED, cert, NULL, 0, 0);
+        return NOXTLS_RETURN_CERT_EXPIRED;
+    }
+
+    return NOXTLS_RETURN_SUCCESS;
+}
+#endif /* NOXTLS_HAVE_TIME */
+
 noxtls_return_t noxtls_x509_certificate_check_validity(const x509_certificate_t *cert)
 {
     if(cert == NULL) {
@@ -2725,77 +2746,36 @@ noxtls_return_t noxtls_x509_certificate_check_validity(const x509_certificate_t 
     }
 
 #if NOXTLS_HAVE_TIME
-    time_t current_time;
-    time_t not_before_time = 0;
-    time_t not_after_time = 0;
-    noxtls_return_t rc;
+    {
+        time_t current_time;
+        time_t not_before_time = 0;
+        time_t not_after_time = 0;
+        noxtls_return_t rc;
 
-    /* Get current time */
-    current_time = time(NULL);
-    if(current_time == (time_t)-1) {
-        CERT_DEBUG_PRINT("x509_certificate_check_validity: failed to get current time\n");
-        return NOXTLS_RETURN_FAILED;
-    }
-
-    /* Parse not_before time */
-    if(cert->not_before[0] != 0) {
-        /* Find actual length by looking for null terminator or end of buffer */
-        uint32_t time_len = 0;
-        while(time_len < 15 && cert->not_before[time_len] != 0) {
-            time_len++;
+        current_time = time(NULL);
+        if(current_time == (time_t)-1) {
+            CERT_DEBUG_PRINT("x509_certificate_check_validity: failed to get current time\n");
+            return NOXTLS_RETURN_FAILED;
         }
 
-        if(time_len > 0) {
-            rc = noxtls_x509_asn1_time_to_timet(cert->not_before, time_len, &not_before_time);
-            if(rc != NOXTLS_RETURN_SUCCESS) {
-                CERT_DEBUG_PRINT("x509_certificate_check_validity: failed to parse not_before time\n");
-                return NOXTLS_RETURN_BAD_DATA;
-            }
-
-            /* Check if certificate is not yet valid */
-            if(current_time < not_before_time) {
-                CERT_DEBUG_PRINT("x509_certificate_check_validity: certificate not yet valid\n");
-                cert_fail_set(NOXTLS_RETURN_CERT_NOT_YET_VALID, cert, NULL, 0, 0);
-                return NOXTLS_RETURN_CERT_NOT_YET_VALID;
-            }
+        rc = x509_check_time_bound(cert, cert->not_before, current_time, 1, &not_before_time);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
         }
-    }
-
-    /* Parse not_after time */
-    if(cert->not_after[0] != 0) {
-        /* Find actual length by looking for null terminator or end of buffer */
-        uint32_t time_len = 0;
-        while(time_len < 15 && cert->not_after[time_len] != 0) {
-            time_len++;
+        rc = x509_check_time_bound(cert, cert->not_after, current_time, 0, &not_after_time);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
         }
 
-        if(time_len > 0) {
-            rc = noxtls_x509_asn1_time_to_timet(cert->not_after, time_len, &not_after_time);
-            if(rc != NOXTLS_RETURN_SUCCESS) {
-                CERT_DEBUG_PRINT("x509_certificate_check_validity: failed to parse not_after time\n");
-                return NOXTLS_RETURN_BAD_DATA;
-            }
-
-            /* Check if certificate has expired */
-            if(current_time > not_after_time) {
-                CERT_DEBUG_PRINT("x509_certificate_check_validity: certificate expired\n");
-                cert_fail_set(NOXTLS_RETURN_CERT_EXPIRED, cert, NULL, 0, 0);
-                return NOXTLS_RETURN_CERT_EXPIRED;
-            }
+        if(not_before_time > 0 && not_after_time > 0 && not_before_time > not_after_time) {
+            CERT_DEBUG_PRINT("x509_certificate_check_validity: invalid validity period (not_before > not_after)\n");
+            return NOXTLS_RETURN_BAD_DATA;
         }
-    }
 
-    /* If we have both times, verify not_before < not_after */
-    if(not_before_time > 0 && not_after_time > 0 && not_before_time > not_after_time) {
-        CERT_DEBUG_PRINT("x509_certificate_check_validity: invalid validity period (not_before > not_after)\n");
-        return NOXTLS_RETURN_BAD_DATA;
+        CERT_DEBUG_PRINT("x509_certificate_check_validity: certificate is valid\n");
+        return NOXTLS_RETURN_SUCCESS;
     }
-
-    CERT_DEBUG_PRINT("x509_certificate_check_validity: certificate is valid\n");
-    return NOXTLS_RETURN_SUCCESS;
 #else
-    /* Time support not available - cannot check validity period */
-    /* Still check that certificate is parsed correctly */
     CERT_DEBUG_PRINT("x509_certificate_check_validity: time support not available, skipping time-based validation\n");
     return NOXTLS_RETURN_SUCCESS;
 #endif /* NOXTLS_HAVE_TIME */
@@ -2859,7 +2839,7 @@ noxtls_return_t noxtls_x509_certificate_get_public_key(const x509_certificate_t 
     }
 
     coord_size = ecc_key->curve->size;
-    if(cert->ecc_public_key[0] != 0x04 || cert->ecc_public_key_len != 1 + 2 * coord_size) {
+    if(cert->ecc_public_key[0] != 0x04 || cert->ecc_public_key_len != 1 + (2 * coord_size)) {
         noxtls_ecc_key_free(ecc_key);
         free(ecc_key);
         return NOXTLS_RETURN_INVALID_PARAM;
@@ -3128,7 +3108,7 @@ noxtls_return_t noxtls_x509_parse_time(const uint8_t *time_data, uint32_t time_l
     /* Format: YYMMDDHHMMSSZ -> YYYY-MM-DD HH:MM:SS */
     if(time_len == 13 && time_str[12] == 'Z') {
         /* UTCTime: convert YY to YYYY */
-        int year = (time_str[0] - '0') * 10 + (time_str[1] - '0');
+        int year = ((time_str[0] - '0') * 10) + (time_str[1] - '0');
         if(year < 50) {
             year += 2000;  /* 00-49 = 2000-2049 */
         } else {
@@ -3641,7 +3621,7 @@ static noxtls_return_t noxtls_x509_crl_pem_to_der(const uint8_t *data, uint32_t 
 
     {
         uint32_t b64_len = ei - (bi + b_len);
-        int dec = (int)noxtls_base64_decode((char *)(data + bi + b_len), b64_len, output);
+        int dec = noxtls_base64_decode((char *)(data + bi + b_len), b64_len, output);
         if(dec < 0) {
             return NOXTLS_RETURN_BAD_DATA;
         }
@@ -3916,9 +3896,9 @@ noxtls_return_t noxtls_x509_crl_parse_der(noxtls_x509_crl_t *crl, const uint8_t 
                             rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
                             break;
                         }
-                        memcpy(crl->revoked_serials + (size_t)crl->revoked_count * (size_t)X509_MAX_SERIAL_SIZE, serial, slen);
+                        memcpy(crl->revoked_serials + ((size_t)crl->revoked_count * (size_t)X509_MAX_SERIAL_SIZE), serial, slen);
                         if(slen < X509_MAX_SERIAL_SIZE) {
-                            memset(crl->revoked_serials + (size_t)crl->revoked_count * (size_t)X509_MAX_SERIAL_SIZE + slen, 0,
+                            memset(crl->revoked_serials + ((size_t)crl->revoked_count * (size_t)X509_MAX_SERIAL_SIZE) + slen, 0,
                                 (size_t)X509_MAX_SERIAL_SIZE - (size_t)slen);
                         }
                         crl->revoked_serial_lens[crl->revoked_count] = slen;
@@ -4109,7 +4089,7 @@ int noxtls_x509_crl_serial_is_revoked(const noxtls_x509_crl_t *crl, const x509_c
         return 0;
     }
     for(i = 0; i < crl->revoked_count; i++) {
-        const uint8_t *s = crl->revoked_serials + (size_t)i * (size_t)X509_MAX_SERIAL_SIZE;
+        const uint8_t *s = crl->revoked_serials + ((size_t)i * (size_t)X509_MAX_SERIAL_SIZE);
         uint32_t slen = crl->revoked_serial_lens[i];
         if(x509_serial_equal_normalized(s, slen, cert->serial_number, cert->serial_number_len)) {
             return 1;
@@ -4342,7 +4322,7 @@ static noxtls_return_t noxtls_x509_crl_verify_signature(const noxtls_x509_crl_t 
         }
         {
             uint32_t coord_size = ecc_key.curve->size;
-            if(issuer->ecc_public_key_len != 1 + 2 * coord_size) {
+            if(issuer->ecc_public_key_len != 1 + (2 * coord_size)) {
                 noxtls_ecc_key_free(&ecc_key);
                 return NOXTLS_RETURN_INVALID_PARAM;
             }
@@ -5645,7 +5625,7 @@ static noxtls_return_t noxtls_x509_parse_encrypted_pkcs8(x509_private_key_t *key
         return NOXTLS_RETURN_FAILED;
     }
     const uint8_t *seq_end = seq_data + seq_len;
-    if(seq_data[0] != 0x30) return NOXTLS_RETURN_FAILED;  /* first element must be AlgorithmIdentifier SEQUENCE */
+    if(seq_data[0] != 0x30) { return NOXTLS_RETURN_FAILED; }  /* first element must be AlgorithmIdentifier SEQUENCE */
 
     if(asn1_get_sequence(&ptr, seq_end, &alg_seq, &alg_len) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
@@ -5715,7 +5695,7 @@ static noxtls_return_t noxtls_x509_parse_encrypted_pkcs8(x509_private_key_t *key
         }
     }
     decrypted = (uint8_t*)malloc(enc_data_len - NOXTLS_AES_BLOCK_LEN);
-    if(decrypted == NULL) return NOXTLS_RETURN_FAILED;
+    if(decrypted == NULL) { return NOXTLS_RETURN_FAILED; }
     if(noxtls_aes_decrypt_cbc(derived_key, enc_data + NOXTLS_AES_BLOCK_LEN, enc_data_len - NOXTLS_AES_BLOCK_LEN, enc_data, decrypted, aes_type) != NOXTLS_RETURN_SUCCESS) {
         free(decrypted);
         return NOXTLS_RETURN_FAILED;
@@ -5765,15 +5745,14 @@ noxtls_return_t noxtls_x509_private_key_parse_der_with_password(x509_private_key
                 }
                 key->encrypted = 1;
                 return dec_rc;
-            } else {
-                noxtls_x509_private_key_free(key);
-                key->raw_data = (uint8_t*)malloc(len);
-                if(key->raw_data == NULL) return NOXTLS_RETURN_FAILED;
-                memcpy(key->raw_data, data, len);
-                key->raw_data_len = len;
-                key->encrypted = 1;
-                return NOXTLS_RETURN_FAILED;
             }
+            noxtls_x509_private_key_free(key);
+            key->raw_data = (uint8_t*)malloc(len);
+            if(key->raw_data == NULL) { return NOXTLS_RETURN_FAILED; }
+            memcpy(key->raw_data, data, len);
+            key->raw_data_len = len;
+            key->encrypted = 1;
+            return NOXTLS_RETURN_FAILED;
         }
     }
 #endif
@@ -6045,31 +6024,31 @@ noxtls_return_t noxtls_x509_private_key_parse_pem_with_password(x509_private_key
     }
 
     pem_start = x509_memfind(data, len, begin_marker);
-    if(pem_start == NULL) return NOXTLS_RETURN_FAILED;
+    if(pem_start == NULL) { return NOXTLS_RETURN_FAILED; }
     pem_start += strlen(begin_marker);
 
     while(pem_start < data + len && (*pem_start == '\n' || *pem_start == '\r' || *pem_start == ' ')) {
         pem_start++;
     }
 
-    if(pem_start > data + len) return NOXTLS_RETURN_FAILED;
+    if(pem_start > data + len) { return NOXTLS_RETURN_FAILED; }
     {
         uint32_t tail_len = (uint32_t)((size_t)((data + len) - pem_start));
         pem_end = x509_memfind(pem_start, tail_len, end_marker);
     }
-    if(pem_end == NULL) return NOXTLS_RETURN_FAILED;
+    if(pem_end == NULL) { return NOXTLS_RETURN_FAILED; }
     while(pem_end > pem_start && (*(pem_end - 1) == '\n' || *(pem_end - 1) == '\r' || *(pem_end - 1) == ' ')) {
         pem_end--;
     }
 
     {
         ptrdiff_t pem_len = pem_end - pem_start;
-        if(pem_len < 0 || (unsigned long)pem_len > UINT32_MAX) return NOXTLS_RETURN_FAILED;
+        if(pem_len < 0 || (unsigned long)pem_len > UINT32_MAX) { return NOXTLS_RETURN_FAILED; }
         pem_data_len = (uint32_t)pem_len;
     }
 
     der_data = (uint8_t*)malloc(pem_data_len);
-    if(der_data == NULL) return NOXTLS_RETURN_FAILED;
+    if(der_data == NULL) { return NOXTLS_RETURN_FAILED; }
     decoded_len = noxtls_base64_decode((char*)pem_start, pem_data_len, der_data);
     if(decoded_len <= 0) {
         free(der_data);
@@ -6307,7 +6286,7 @@ noxtls_return_t noxtls_x509_private_key_to_ecc_key(const x509_private_key_t *key
     memcpy(ecc_key->d + (size - key->ecc_private_key_len), key->ecc_private_key, key->ecc_private_key_len);
 
     if(key->ecc_public_key != NULL && key->ecc_public_key_len > 0U) {
-        if(key->ecc_public_key[0] != 0x04u || key->ecc_public_key_len != 1U + (2U * size)) {
+        if(key->ecc_public_key[0] != 0x04U || key->ecc_public_key_len != 1U + (2U * size)) {
             noxtls_ecc_key_free(ecc_key);
             return NOXTLS_RETURN_BAD_DATA;
         }

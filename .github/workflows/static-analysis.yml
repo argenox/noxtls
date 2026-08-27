@@ -31,6 +31,7 @@ jobs:
           --project=build-static-analysis/compile_commands.json
           --enable=warning,style,performance,portability,information
           --inline-suppr
+          --suppressions-list=cppcheck_suppressions.txt
           --suppress=missingIncludeSystem
           --suppress=unusedFunction
           --check-level=exhaustive

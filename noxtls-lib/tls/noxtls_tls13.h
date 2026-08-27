@@ -563,6 +563,16 @@ noxtls_return_t tls13_set_external_psk(tls13_context_t *ctx,
  */
 noxtls_return_t noxtls_tls13_get_channel_binding(tls13_context_t *ctx, uint32_t binding_type, uint8_t *out, uint32_t *out_len);
 
+/**
+ * RFC 8446 Section 7.5 TLS exporter. Call only after the handshake has
+ * completed. The label is supplied without the "tls13 " prefix.
+ */
+noxtls_return_t noxtls_tls13_export_keying_material(
+    tls13_context_t *ctx,
+    const uint8_t *label, uint32_t label_len,
+    const uint8_t *context, uint32_t context_len,
+    uint8_t *output, uint32_t output_len);
+
 /** RFC 8449: Set record size limit we advertise (max plaintext we are willing to receive). 0 = use default (16384). Call before handshake. */
 void noxtls_tls13_set_record_size_limit(tls13_context_t *ctx, uint16_t limit);
 

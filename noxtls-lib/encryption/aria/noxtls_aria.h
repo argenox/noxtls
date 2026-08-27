@@ -113,6 +113,20 @@ noxtls_return_t noxtls_aria_decrypt_data(const uint8_t* key,
 noxtls_return_t noxtls_aria_self_test(void);
 
 /* ARIA Mode-Specific Functions */
+noxtls_return_t noxtls_aria_encrypt_ecb(const uint8_t* key,
+                     const uint8_t* data,
+                     uint32_t data_len,
+                     const uint8_t * iv,
+                     uint8_t* output,
+                     noxtls_aria_type_t type);
+
+noxtls_return_t noxtls_aria_decrypt_ecb(const uint8_t* key,
+                     const uint8_t* data,
+                     uint32_t data_len,
+                     const uint8_t * iv,
+                     uint8_t* output,
+                     noxtls_aria_type_t type);
+
 noxtls_return_t noxtls_aria_encrypt_cbc(const uint8_t* key,
                      const uint8_t* data,
                      uint32_t data_len,
@@ -121,6 +135,48 @@ noxtls_return_t noxtls_aria_encrypt_cbc(const uint8_t* key,
                      noxtls_aria_type_t type);
 
 noxtls_return_t noxtls_aria_decrypt_cbc(const uint8_t* key,
+                     const uint8_t* data,
+                     uint32_t data_len,
+                     const uint8_t * iv,
+                     uint8_t* output,
+                     noxtls_aria_type_t type);
+
+noxtls_return_t noxtls_aria_encrypt_ctr(const uint8_t* key,
+                     const uint8_t* data,
+                     uint32_t data_len,
+                     const uint8_t * iv,
+                     uint8_t* output,
+                     noxtls_aria_type_t type);
+
+noxtls_return_t noxtls_aria_decrypt_ctr(const uint8_t* key,
+                     const uint8_t* data,
+                     uint32_t data_len,
+                     const uint8_t * iv,
+                     uint8_t* output,
+                     noxtls_aria_type_t type);
+
+noxtls_return_t noxtls_aria_encrypt_cfb(const uint8_t* key,
+                     const uint8_t* data,
+                     uint32_t data_len,
+                     const uint8_t * iv,
+                     uint8_t* output,
+                     noxtls_aria_type_t type);
+
+noxtls_return_t noxtls_aria_decrypt_cfb(const uint8_t* key,
+                     const uint8_t* data,
+                     uint32_t data_len,
+                     const uint8_t * iv,
+                     uint8_t* output,
+                     noxtls_aria_type_t type);
+
+noxtls_return_t noxtls_aria_encrypt_ofb(const uint8_t* key,
+                     const uint8_t* data,
+                     uint32_t data_len,
+                     const uint8_t * iv,
+                     uint8_t* output,
+                     noxtls_aria_type_t type);
+
+noxtls_return_t noxtls_aria_decrypt_ofb(const uint8_t* key,
                      const uint8_t* data,
                      uint32_t data_len,
                      const uint8_t * iv,
