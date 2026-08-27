@@ -5494,13 +5494,6 @@ void noxtls_tls13_set_client_fallback_scsv(tls13_context_t *ctx, int enable)
     }
 }
 
-void noxtls_tls13_set_client_fallback_scsv(tls13_context_t *ctx, int enable)
-{
-    if(ctx != NULL) {
-        ctx->client_send_fallback_scsv = (enable != 0) ? 1U : 0U;
-    }
-}
-
 /**
  * @brief Replace TLS 1.3 internal workspaces with caller-provided buffers.
  * @param[in,out] ctx                      TLS 1.3 context (after `noxtls_tls13_context_init`).

@@ -1097,7 +1097,10 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
     block_size = is_3des ? NOXTLS_DES_BLOCK_LENGTH : NOXTLS_AES_BLOCK_LENGTH;
     mac_len = tls12_mac_len_from_hash(hash_algo);
     int use_encrypt_then_mac = tls12_should_use_encrypt_then_mac(ctx, is_gcm, is_tls12_ccm, is_tls12_chacha);
-    uint32_t encrypted_part_len;
+    /* For MAC-then-encrypt, the full record is encrypted.  Encrypt-then-MAC
+     * leaves the outer MAC after the encrypted portion and overrides this
+     * value below. */
+    uint32_t encrypted_part_len = encrypted_record_len;
 
     if(use_encrypt_then_mac) {
         uint8_t received_outer_mac[64];
