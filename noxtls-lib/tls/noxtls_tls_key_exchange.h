@@ -60,6 +60,8 @@ typedef struct
     uint32_t premaster_secret_len;  /* Premaster secret length */
     uint8_t *shared_secret;         /* Shared secret (for TLS 1.3) */
     uint32_t shared_secret_len;     /* Shared secret length */
+    /* Non-secret provenance from the most recent NIST-curve ECDHE operation. */
+    noxtls_ecdh_diagnostic_t last_ecdh_diagnostic;
 } tls_ecdhe_context_t;
 NOXTLS_MSVC_WARNING_POP
 
@@ -141,7 +143,11 @@ noxtls_return_t noxtls_tls_ecdhe_generate_ephemeral_key(tls_ecdhe_context_t *ctx
  * @brief ECDH shared secret (NIST curves): store result in @p ctx for TLS 1.2/1.3 key schedule use.
  * @param[in,out] ctx Local ephemeral key must be valid; previous `shared_secret` is replaced.
  * @param[in] peer_public_key Peer's uncompressed point on the same curve.
- * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` on invalid pointers; `NOXTLS_RETURN_FAILED` on ECDH failure or allocation failure.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` on invalid
+ * pointers; a specific `NOXTLS_RETURN_ECDH_*` code for a cryptographic ECDH
+ * failure; `NOXTLS_RETURN_NOT_ENOUGH_MEMORY` if the secret buffer cannot be
+ * allocated.  On a cryptographic failure, `ctx->last_ecdh_diagnostic` records
+ * the non-secret failing stage and its internal return code.
  */
 noxtls_return_t noxtls_tls_ecdhe_compute_shared_secret(tls_ecdhe_context_t *ctx, const ecc_point_t *peer_public_key);
 

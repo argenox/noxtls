@@ -317,7 +317,9 @@ noxtls_return_t noxtls_tls_ecdhe_generate_ephemeral_key(tls_ecdhe_context_t *ctx
  * @brief Compute ECDH shared secret from peer's uncompressed ECC public key (NIST curves).
  * @param[in,out] ctx Local ephemeral key; receives heap-allocated `shared_secret`.
  * @param[in] peer_public_key Peer's public point on the same curve.
- * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` on invalid pointers; `NOXTLS_RETURN_FAILED` on ECDH or allocation failure.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; a specific ECDH return code on
+ * cryptographic failure; `NOXTLS_RETURN_NOT_ENOUGH_MEMORY` on allocation
+ * failure.  `ctx->last_ecdh_diagnostic` retains non-secret provenance.
  */
 noxtls_return_t noxtls_tls_ecdhe_compute_shared_secret(tls_ecdhe_context_t *ctx, const ecc_point_t *peer_public_key)
 {
@@ -325,22 +327,36 @@ noxtls_return_t noxtls_tls_ecdhe_compute_shared_secret(tls_ecdhe_context_t *ctx,
     uint8_t *secret_buffer = NULL;
     uint32_t secret_len;
     
-    if(ctx == NULL || peer_public_key == NULL) {
+    if(ctx == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(peer_public_key == NULL) {
+        ctx->last_ecdh_diagnostic.stage = NOXTLS_ECDH_DIAGNOSTIC_ARGUMENT;
+        ctx->last_ecdh_diagnostic.internal_rc = NOXTLS_RETURN_NULL;
         return NOXTLS_RETURN_NULL;
     }
     
     if(ctx->ephemeral_key.curve == NULL) {
-        return NOXTLS_RETURN_FAILED;
+        ctx->last_ecdh_diagnostic.stage = NOXTLS_ECDH_DIAGNOSTIC_PRIVATE_KEY;
+        ctx->last_ecdh_diagnostic.internal_rc =
+            NOXTLS_RETURN_ECDH_PRIVATE_KEY_INVALID;
+        return NOXTLS_RETURN_ECDH_PRIVATE_KEY_INVALID;
     }
     
     secret_len = ctx->ephemeral_key.curve->size;
     secret_buffer = (uint8_t*)malloc(secret_len);
     if(secret_buffer == NULL) {
-        return NOXTLS_RETURN_FAILED;
+        ctx->last_ecdh_diagnostic.stage = NOXTLS_ECDH_DIAGNOSTIC_ALLOCATION;
+        ctx->last_ecdh_diagnostic.internal_rc = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
     
     /* Compute shared secret using ECDH */
-    rc = noxtls_ecdh_compute_shared_secret(&ctx->ephemeral_key, (ecc_point_t*)peer_public_key, secret_buffer, &secret_len);
+    rc = noxtls_ecdh_compute_shared_secret_ex(&ctx->ephemeral_key,
+                                              peer_public_key,
+                                              secret_buffer,
+                                              &secret_len,
+                                              &ctx->last_ecdh_diagnostic);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         free(secret_buffer);
         return rc;

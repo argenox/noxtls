@@ -8,6 +8,7 @@
 
 #include "pkc/ecdh/noxtls_ecdh.h"
 #include "pkc/ecc/noxtls_ecc.h"
+#include "tls/noxtls_tls_key_exchange.h"
 
 static int expect(int condition, const char *message)
 {
@@ -26,6 +27,7 @@ int main(void)
     uint32_t secret_len;
     noxtls_ecdh_diagnostic_t diagnostic;
     noxtls_return_t rc;
+    tls_ecdhe_context_t tls_ecdhe;
     int ok = 1;
 
     memset(&key, 0, sizeof(key));
@@ -105,5 +107,52 @@ int main(void)
                  "report null argument failure code");
 
     noxtls_ecc_key_free(&key);
+
+    memset(&tls_ecdhe, 0, sizeof(tls_ecdhe));
+    memset(&invalid_peer, 0, sizeof(invalid_peer));
+    rc = noxtls_tls_ecdhe_compute_shared_secret(&tls_ecdhe, &invalid_peer);
+    ok &= expect(rc == NOXTLS_RETURN_ECDH_PRIVATE_KEY_INVALID,
+                 "TLS ECDHE returns detailed missing-private-key code");
+    ok &= expect(tls_ecdhe.last_ecdh_diagnostic.stage ==
+                     NOXTLS_ECDH_DIAGNOSTIC_PRIVATE_KEY,
+                 "TLS ECDHE preserves missing-private-key stage");
+    ok &= expect(tls_ecdhe.last_ecdh_diagnostic.internal_rc ==
+                     NOXTLS_RETURN_ECDH_PRIVATE_KEY_INVALID,
+                 "TLS ECDHE preserves missing-private-key code");
+
+    rc = noxtls_tls_ecdhe_compute_shared_secret(&tls_ecdhe, NULL);
+    ok &= expect(rc == NOXTLS_RETURN_NULL,
+                 "TLS ECDHE returns null-argument code");
+    ok &= expect(tls_ecdhe.last_ecdh_diagnostic.stage ==
+                     NOXTLS_ECDH_DIAGNOSTIC_ARGUMENT,
+                 "TLS ECDHE preserves null-argument stage");
+    ok &= expect(tls_ecdhe.last_ecdh_diagnostic.internal_rc ==
+                     NOXTLS_RETURN_NULL,
+                 "TLS ECDHE preserves null-argument code");
+
+    rc = noxtls_tls_ecdhe_context_init(&tls_ecdhe, TLS_NAMED_GROUP_SECP256R1);
+    ok &= expect(rc == NOXTLS_RETURN_SUCCESS,
+                 "initialize TLS ECDHE P-256 context");
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_tls_ecdhe_generate_ephemeral_key(&tls_ecdhe);
+        ok &= expect(rc == NOXTLS_RETURN_SUCCESS,
+                     "generate TLS ECDHE P-256 key");
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            memset(&invalid_peer, 0, sizeof(invalid_peer));
+            invalid_peer.size = tls_ecdhe.ephemeral_key.curve->size;
+            rc = noxtls_tls_ecdhe_compute_shared_secret(&tls_ecdhe,
+                                                        &invalid_peer);
+            ok &= expect(rc == NOXTLS_RETURN_ECDH_PEER_PUBLIC_KEY_INVALID,
+                         "TLS ECDHE returns detailed invalid-peer code");
+            ok &= expect(tls_ecdhe.last_ecdh_diagnostic.stage ==
+                             NOXTLS_ECDH_DIAGNOSTIC_PEER_PUBLIC_KEY,
+                         "TLS ECDHE preserves invalid-peer stage");
+            ok &= expect(tls_ecdhe.last_ecdh_diagnostic.internal_rc ==
+                             NOXTLS_RETURN_FAILED,
+                         "TLS ECDHE preserves invalid-peer inner code");
+        }
+        (void)noxtls_tls_ecdhe_context_free(&tls_ecdhe);
+    }
+
     return ok ? 0 : 1;
 }

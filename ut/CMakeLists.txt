@@ -106,6 +106,7 @@ add_executable(noxtls_ecdh_diagnostic_test
 target_link_libraries(noxtls_ecdh_diagnostic_test PRIVATE
     noxtls_common
     noxtls_pkc
+    noxtls_tls
 )
 add_test(NAME noxtls_ecdh_diagnostic_test COMMAND noxtls_ecdh_diagnostic_test)
 
