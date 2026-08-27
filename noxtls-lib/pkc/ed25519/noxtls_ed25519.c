@@ -1326,19 +1326,19 @@ static noxtls_return_t ed25519_verify_finalize(const uint8_t public_key[NOXTLS_E
 
     if(sc25519_reduce_mod_l(k_le, k_in) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
 
-    if(ge25519_scalar_mult(&kA, k_le, &A) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(ge25519_add(&R_plus_kA, &R, &kA) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    ge25519_scalar_mult(&kA, k_le, &A);
+    ge25519_add(&R_plus_kA, &R, &kA);
     if(ge25519_set_basepoint(&R) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
     {
         uint8_t S_le[NOXTLS_ED25519_FE25519_BYTES];
         memcpy(S_le, signature + NOXTLS_ED25519_FE25519_BYTES, NOXTLS_ED25519_FE25519_BYTES);
-        if(ge25519_scalar_mult(&sB, S_le, &R) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+        ge25519_scalar_mult(&sB, S_le, &R);
     }
     {
         uint8_t enc1[NOXTLS_ED25519_FE25519_BYTES];
         uint8_t enc2[NOXTLS_ED25519_FE25519_BYTES];
-        if(ge25519_encode(enc1, &R_plus_kA) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-        if(ge25519_encode(enc2, &sB) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+        ge25519_encode(enc1, &R_plus_kA);
+        ge25519_encode(enc2, &sB);
         if(noxtls_secret_memcmp(enc1, enc2, NOXTLS_ED25519_FE25519_BYTES) != 0) {
             uint8_t cofactor_le[NOXTLS_ED25519_FE25519_BYTES] = {0};
             ge25519_pt_t lhs8;
@@ -1346,11 +1346,11 @@ static noxtls_return_t ed25519_verify_finalize(const uint8_t public_key[NOXTLS_E
             uint8_t enc_lhs8[NOXTLS_ED25519_FE25519_BYTES];
             uint8_t enc_rhs8[NOXTLS_ED25519_FE25519_BYTES];
             cofactor_le[0] = NOXTLS_ED25519_SUBGROUP_COFACTOR;
-            if(ge25519_scalar_mult(&lhs8, cofactor_le, &sB) == NOXTLS_RETURN_SUCCESS &&
-                ge25519_scalar_mult(&rhs8, cofactor_le, &R_plus_kA) == NOXTLS_RETURN_SUCCESS &&
-                ge25519_encode(enc_lhs8, &lhs8) == NOXTLS_RETURN_SUCCESS &&
-                ge25519_encode(enc_rhs8, &rhs8) == NOXTLS_RETURN_SUCCESS &&
-                noxtls_secret_memcmp(enc_lhs8, enc_rhs8, NOXTLS_ED25519_FE25519_BYTES) == 0) {
+            ge25519_scalar_mult(&lhs8, cofactor_le, &sB);
+            ge25519_scalar_mult(&rhs8, cofactor_le, &R_plus_kA);
+            ge25519_encode(enc_lhs8, &lhs8);
+            ge25519_encode(enc_rhs8, &rhs8);
+            if(noxtls_secret_memcmp(enc_lhs8, enc_rhs8, NOXTLS_ED25519_FE25519_BYTES) == 0) {
                 return NOXTLS_RETURN_SUCCESS;
             }
             return NOXTLS_RETURN_FAILED;
