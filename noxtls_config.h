@@ -475,7 +475,9 @@
 /* Enables Ed448 signatures (RFC 8032). Requires NOXTLS_FEATURE_SHA3=1 for SHAKE256.
  * Prereq: NOXTLS_FEATURE_PKC=1. Default OFF; set NOXTLS_CFG_FEATURE_ED448=ON in CMake to enable.
  */
+#ifndef NOXTLS_FEATURE_ED448
 #define NOXTLS_FEATURE_ED448 0
+#endif
 
 /* Enables DSA (Digital Signature Algorithm) per FIPS 186-4.
  * Prereq: NOXTLS_FEATURE_PKC=1 (and bignum via RSA or DSA).
