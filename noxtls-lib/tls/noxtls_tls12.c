@@ -4480,10 +4480,6 @@ static noxtls_return_t tls12_client_recv_optional_certificate_request(tls12_cont
     if(record.data[0] == TLS_HANDSHAKE_CERTIFICATE_REQUEST) {
         uint32_t hs_body_len;
         uint32_t hs_total;
-        if(record.length < 4U) {
-            free(record.data);
-            return NOXTLS_RETURN_FAILED;
-        }
         hs_body_len = ((uint32_t)record.data[1] << 16) | ((uint32_t)record.data[2] << 8) |
                       (uint32_t)record.data[3];
         hs_total = 4U + hs_body_len;
@@ -4620,7 +4616,7 @@ static noxtls_return_t tls12_client_send_certificate_verify(tls12_context_t *ctx
     } else if(ctx->client_private_ecdsa != NULL) {
         ecdsa_signature_t esig;
         uint32_t coord_size = 32U;
-        uint32_t der_len = 0U;
+        uint32_t der_len;
         ecc_key_t *eckey = (ecc_key_t *)ctx->client_private_ecdsa;
         sig_scheme = 0x0403u; /* ecdsa_secp256r1_sha256 */
         if(eckey->curve_kind == NOXTLS_ECC_SECP384R1) {
@@ -8452,12 +8448,6 @@ static noxtls_return_t tls12_recv_client_certificate_verify(tls12_context_t *ctx
     sig_scheme = (uint16_t)(((uint16_t)msg[4] << 8) | (uint16_t)msg[5]);
     sig_len = (uint16_t)(((uint16_t)msg[6] << 8) | (uint16_t)msg[7]);
     if((uint32_t)8U + (uint32_t)sig_len != msg_len) {
-        noxtls_free(msg);
-        return NOXTLS_RETURN_BAD_DATA;
-    }
-
-    /* TLS 1.2 CertificateVerify must include SignatureAndHashAlgorithm (RFC 5246). */
-    if(ctx->base.base.version >= TLS_VERSION_1_2 && msg_len < 8U) {
         noxtls_free(msg);
         return NOXTLS_RETURN_BAD_DATA;
     }
