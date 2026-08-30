@@ -32,6 +32,14 @@
 #include "drbg/noxtls_drbg.h"
 #include "noxtls_common.h"
 
+#if NOXTLS_FEATURE_AES_128 && !NOXTLS_FEATURE_AES_256
+#define NOXTLS_ECC_KEYGEN_DRBG_TYPE DRBG_AES128
+#define NOXTLS_ECC_KEYGEN_DRBG_SEEDLEN DRBG_SEEDLEN_AES128
+#else
+#define NOXTLS_ECC_KEYGEN_DRBG_TYPE DRBG_AES256
+#define NOXTLS_ECC_KEYGEN_DRBG_SEEDLEN DRBG_SEEDLEN_AES256
+#endif
+
 /* Disable verbose stderr debug prints in this file. */
 #undef fprintf
 #define fprintf(...) ((void)0)
@@ -126,7 +134,7 @@ static noxtls_return_t ecc_keygen_drbg_generate_bits(uint8_t *out, uint32_t requ
 {
     static drbg_state_t s_ecc_keygen_drbg_state;
     static int s_ecc_keygen_drbg_initialized = 0;
-    uint8_t seed[DRBG_SEEDLEN_AES256];
+    uint8_t seed[NOXTLS_ECC_KEYGEN_DRBG_SEEDLEN];
     noxtls_return_t rc;
 
     if(out == NULL) {
@@ -139,7 +147,7 @@ static noxtls_return_t ecc_keygen_drbg_generate_bits(uint8_t *out, uint32_t requ
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
-        rc = drbg_instantiate(&s_ecc_keygen_drbg_state, DRBG_AES256,
+        rc = drbg_instantiate(&s_ecc_keygen_drbg_state, NOXTLS_ECC_KEYGEN_DRBG_TYPE,
                               seed, sizeof(seed), NULL, 0, NULL, 0);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
@@ -160,7 +168,7 @@ static noxtls_return_t ecc_keygen_drbg_generate_bits(uint8_t *out, uint32_t requ
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    rc = drbg_instantiate(&s_ecc_keygen_drbg_state, DRBG_AES256,
+    rc = drbg_instantiate(&s_ecc_keygen_drbg_state, NOXTLS_ECC_KEYGEN_DRBG_TYPE,
                           seed, sizeof(seed), NULL, 0, NULL, 0);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
