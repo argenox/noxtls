@@ -18,6 +18,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
 option(BUILD_TESTS "Build test applications" ON)
 option(BUILD_APPLICATIONS "Build application executables (demos, tests, etc.)" ON)
+option(NOXTLS_BUILD_REGRESSION_TESTS "Build focused cryptographic regression tests" OFF)
 option(NOXTLS_BUILD_MACOS_APPLICATION_SLICES
   "macOS only: build applications for arm64 and x86_64 (target noxtls_macos_application_slices; outputs under binary-<arch>/)"
   OFF)
@@ -409,9 +410,36 @@ endif()
 if(NOXTLS_CFG_FEATURE_TLS)
   add_subdirectory(noxtls-lib/tls)
 endif()
+
+# NoxTLS is linked as a collection of static libraries into firmware images.
+# Keep its compilation granularity compatible with the embedded linker's
+# --gc-sections policy: selecting an AES service must not retain disabled AES
+# software, cipher, or PKC routines from the same translation unit.
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+  foreach(_noxtls_library
+      noxtls_common
+      noxtls_hash
+      noxtls_encryption
+      noxtls_pkc
+      noxtls_drbg
+      noxtls_mac
+      noxtls_kdf
+      noxtls_certs
+      noxtls_tls)
+    if(TARGET ${_noxtls_library})
+      target_compile_options(${_noxtls_library} PRIVATE
+        -ffunction-sections
+        -fdata-sections)
+    endif()
+  endforeach()
+endif()
 if(NOXTLS_BUILD_SIZE_BENCHMARKS)
   enable_language(ASM)
   add_subdirectory(benchmarks)
+endif()
+if(NOXTLS_BUILD_REGRESSION_TESTS)
+  enable_testing()
+  add_subdirectory(tests/regression)
 endif()
 if(BUILD_TESTS)
   enable_testing()

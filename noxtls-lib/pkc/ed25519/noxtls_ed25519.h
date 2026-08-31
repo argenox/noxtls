@@ -29,6 +29,7 @@
 #include <stdint.h>
 
 #include "noxtls_common.h"
+#include "mdigest/sha512/noxtls_sha512.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -94,6 +95,14 @@ typedef struct
      
 } ge25519_pt_t;
 
+typedef struct
+{
+    uint8_t public_key[NOXTLS_ED25519_PUBLIC_KEY_SIZE];
+    uint8_t signature[NOXTLS_ED25519_SIGNATURE_SIZE];
+    noxtls_sha512_ctx_t hash_ctx;
+    uint8_t initialized;
+} noxtls_ed25519_verify_stream_ctx_t;
+
 
 /**
  * @brief Generate an Ed25519 key pair using the library DRBG.
@@ -138,6 +147,31 @@ noxtls_return_t noxtls_ed25519_verify(const uint8_t public_key[NOXTLS_ED25519_PU
                                       const uint8_t *noxtls_message,
                                       uint32_t message_len,
                                       const uint8_t signature[NOXTLS_ED25519_SIGNATURE_SIZE]);
+
+noxtls_return_t noxtls_ed25519_verify_stream_init(noxtls_ed25519_verify_stream_ctx_t *ctx,
+                                                  const uint8_t public_key[NOXTLS_ED25519_PUBLIC_KEY_SIZE],
+                                                  const uint8_t signature[NOXTLS_ED25519_SIGNATURE_SIZE]);
+noxtls_return_t noxtls_ed25519_verify_stream_update(noxtls_ed25519_verify_stream_ctx_t *ctx,
+                                                    const uint8_t *message_part,
+                                                    uint32_t message_part_len);
+noxtls_return_t noxtls_ed25519_verify_stream_final(noxtls_ed25519_verify_stream_ctx_t *ctx);
+
+/**
+ * @brief Verify an Ed25519 signature over two concatenated message parts.
+ * @param public_key Input 32-byte public key encoding.
+ * @param message_part_a First message segment bytes.
+ * @param message_part_a_len First segment length in bytes.
+ * @param message_part_b Second message segment bytes.
+ * @param message_part_b_len Second segment length in bytes.
+ * @param signature Input 64-byte signature (R || S).
+ * @return NOXTLS_RETURN_SUCCESS if valid, NOXTLS_RETURN_FAILED if invalid, or another error code.
+ */
+noxtls_return_t noxtls_ed25519_verify_split(const uint8_t public_key[NOXTLS_ED25519_PUBLIC_KEY_SIZE],
+                                            const uint8_t *message_part_a,
+                                            uint32_t message_part_a_len,
+                                            const uint8_t *message_part_b,
+                                            uint32_t message_part_b_len,
+                                            const uint8_t signature[NOXTLS_ED25519_SIGNATURE_SIZE]);
 
 /**
  * @brief Sign with Ed25519ctx (RFC 8032): dom2(0, context) prepended to SHA-512 inputs.

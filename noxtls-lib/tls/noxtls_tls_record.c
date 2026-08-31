@@ -502,12 +502,12 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
         aad[4] = (uint8_t)(seq_num >> 24);
         aad[5] = (uint8_t)(seq_num >> 16);
         aad[6] = (uint8_t)(seq_num >> 8);
-        aad[7] = (uint8_t)seq_num;
+        aad[7] = (uint8_t)(seq_num);
         aad[8] = type;
         aad[9] = (uint8_t)(ctx->base.base.version >> 8);
         aad[10] = (uint8_t)(ctx->base.base.version);
         aad[11] = (uint8_t)(plaintext_len >> 8);
-        aad[12] = (uint8_t)plaintext_len;
+        aad[12] = (uint8_t)(plaintext_len);
 
         encrypted_data = (uint8_t*)noxtls_malloc(plaintext_len);
         if(encrypted_data == NULL) {
@@ -1008,12 +1008,7 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
         uint32_t ciphertext_len;
         const uint8_t *ciphertext;
         const uint8_t *tag_in;
-        uint32_t tag_len;
-        if(is_tls12_chacha || is_gcm) {
-            tag_len = 16U;
-        } else {
-            tag_len = tls12_ccm_tag_len;
-        }
+        const uint32_t tag_len = is_tls12_chacha ? 16U : (is_gcm ? 16U : tls12_ccm_tag_len);
 
         if(is_tls12_chacha) {
             if(encrypted_record_len < tag_len) {
@@ -1047,12 +1042,12 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
         aad[4] = (uint8_t)(seq_num >> 24);
         aad[5] = (uint8_t)(seq_num >> 16);
         aad[6] = (uint8_t)(seq_num >> 8);
-        aad[7] = (uint8_t)seq_num;
+        aad[7] = (uint8_t)(seq_num);
         aad[8] = type;
         aad[9] = (uint8_t)(ctx->base.base.version >> 8);
         aad[10] = (uint8_t)(ctx->base.base.version);
         aad[11] = (uint8_t)(ciphertext_len >> 8);
-        aad[12] = (uint8_t)ciphertext_len;
+        aad[12] = (uint8_t)(ciphertext_len);
 
         memcpy(tag, tag_in, tag_len);
         if(type == TLS_RECORD_APPLICATION_DATA) {
@@ -1097,13 +1092,9 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
     block_size = is_3des ? NOXTLS_DES_BLOCK_LENGTH : NOXTLS_AES_BLOCK_LENGTH;
     mac_len = tls12_mac_len_from_hash(hash_algo);
     int use_encrypt_then_mac = tls12_should_use_encrypt_then_mac(ctx, is_gcm, is_tls12_ccm, is_tls12_chacha);
-    uint32_t encrypted_part_len;
+    uint32_t encrypted_part_len = encrypted_record_len;
 
-    if(use_encrypt_then_mac == 0) {
-        return NOXTLS_RETURN_NOT_SUPPORTED;
-    }
-
-    {
+    if(use_encrypt_then_mac) {
         uint8_t received_outer_mac[64];
         uint8_t computed_outer_mac[64];
         uint32_t computed_outer_mac_len = mac_len;
@@ -1229,7 +1220,7 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
         uint8_t diff;
 
         tail = decrypted_data[decrypted_data_len - 1U - i];
-        mask = (uint8_t)((i < pad_bytes) ? 0xFFU : 0x00U);
+        mask = (uint8_t)((i < pad_bytes) ? 0xFFu : 0x00u);
         diff = (uint8_t)((tail ^ padding_len) & mask);
         if(diff != 0U) {
             bad_record = 1U;
@@ -1575,7 +1566,6 @@ noxtls_return_t noxtls_tls13_encrypt_record(tls13_context_t *ctx,
                                        uint32_t plaintext_len,
                                        uint8_t *encrypted_record,
                                        uint32_t *encrypted_record_len)
-/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     const uint8_t *write_key;
     const uint8_t *write_iv;
