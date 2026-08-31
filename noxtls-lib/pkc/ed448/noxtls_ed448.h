@@ -29,6 +29,7 @@
 #include <stdint.h>
 
 #include "noxtls_common.h"
+#include "mdigest/sha3/noxtls_sha3.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -75,6 +76,14 @@ extern "C" {
 /** DRBG entropy length in bits for a 57-byte private seed. */
 #define NOXTLS_ED448_DRBG_SEED_BITS           456U
 
+typedef struct
+{
+    uint8_t public_key[NOXTLS_ED448_PUBLIC_KEY_SIZE];
+    uint8_t signature[NOXTLS_ED448_SIGNATURE_SIZE];
+    noxtls_sha3_ctx_t shake_ctx;
+    uint8_t initialized;
+} noxtls_ed448_verify_stream_ctx_t;
+
 /**
  * @brief Generate an Ed448 key pair using the library DRBG.
  * @param private_key Output 57-byte seed.
@@ -118,6 +127,13 @@ noxtls_return_t noxtls_ed448_verify(const uint8_t public_key[NOXTLS_ED448_PUBLIC
                                     const uint8_t *noxtls_message,
                                     uint32_t message_len,
                                     const uint8_t signature[NOXTLS_ED448_SIGNATURE_SIZE]);
+noxtls_return_t noxtls_ed448_verify_stream_init(noxtls_ed448_verify_stream_ctx_t *ctx,
+                                                const uint8_t public_key[NOXTLS_ED448_PUBLIC_KEY_SIZE],
+                                                const uint8_t signature[NOXTLS_ED448_SIGNATURE_SIZE]);
+noxtls_return_t noxtls_ed448_verify_stream_update(noxtls_ed448_verify_stream_ctx_t *ctx,
+                                                  const uint8_t *message_part,
+                                                  uint32_t message_part_len);
+noxtls_return_t noxtls_ed448_verify_stream_final(noxtls_ed448_verify_stream_ctx_t *ctx);
 
 /**
  * @brief Sign with Ed448ctx (RFC 8032); context length 1..NOXTLS_ED448_CONTEXT_MAX.
