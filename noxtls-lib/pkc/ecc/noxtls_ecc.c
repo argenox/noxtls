@@ -81,8 +81,24 @@ volatile int32_t noxtls_ecc_keygen_last_rc = NOXTLS_RETURN_SUCCESS;
 volatile uint32_t noxtls_ecc_keygen_last_stage = 0u;
 volatile int32_t noxtls_ecc_keygen_last_entropy_rc = NOXTLS_RETURN_SUCCESS;
 volatile int32_t noxtls_ecc_keygen_last_multiply_rc = NOXTLS_RETURN_SUCCESS;
+volatile uint32_t noxtls_ecc_keygen_last_drbg_type = DRBG_AES256;
 volatile int32_t noxtls_ecc_keyinit_last_rc = NOXTLS_RETURN_SUCCESS;
 volatile uint32_t noxtls_ecc_keyinit_last_stage = 0u;
+
+/*
+ * nRF52's ECB peripheral is AES-128 only.  A CTR-DRBG does not require
+ * AES-256; selecting AES-128 retains the required random source while
+ * allowing an AES-128-only hardware build to omit the software AES-256
+ * implementation.  Desktop/full builds keep the existing AES-256 choice.
+ */
+#if NOXTLS_FEATURE_AES_256
+#define NOXTLS_ECC_KEYGEN_DRBG_TYPE     DRBG_AES256
+#define NOXTLS_ECC_KEYGEN_DRBG_SEEDLEN  DRBG_SEEDLEN_AES256
+#else
+#define NOXTLS_ECC_KEYGEN_DRBG_TYPE     DRBG_AES128
+#define NOXTLS_ECC_KEYGEN_DRBG_SEEDLEN  DRBG_SEEDLEN_AES128
+#endif
+
 #if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
 volatile uint32_t noxtls_ecc_keygen_last_init_us = 0U;
 volatile uint32_t noxtls_ecc_keygen_last_private_us = 0U;
@@ -126,12 +142,14 @@ static noxtls_return_t ecc_keygen_drbg_generate_bits(uint8_t *out, uint32_t requ
 {
     static drbg_state_t s_ecc_keygen_drbg_state;
     static int s_ecc_keygen_drbg_initialized = 0;
-    uint8_t seed[DRBG_SEEDLEN_AES256];
+    uint8_t seed[NOXTLS_ECC_KEYGEN_DRBG_SEEDLEN];
     noxtls_return_t rc;
 
     if(out == NULL) {
         return NOXTLS_RETURN_NULL;
     }
+
+    noxtls_ecc_keygen_last_drbg_type = NOXTLS_ECC_KEYGEN_DRBG_TYPE;
 
     if(!s_ecc_keygen_drbg_initialized) {
         rc = noxtls_drbg_get_entropy(seed, sizeof(seed));
@@ -139,7 +157,7 @@ static noxtls_return_t ecc_keygen_drbg_generate_bits(uint8_t *out, uint32_t requ
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
-        rc = drbg_instantiate(&s_ecc_keygen_drbg_state, DRBG_AES256,
+        rc = drbg_instantiate(&s_ecc_keygen_drbg_state, NOXTLS_ECC_KEYGEN_DRBG_TYPE,
                               seed, sizeof(seed), NULL, 0, NULL, 0);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
@@ -160,7 +178,7 @@ static noxtls_return_t ecc_keygen_drbg_generate_bits(uint8_t *out, uint32_t requ
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    rc = drbg_instantiate(&s_ecc_keygen_drbg_state, DRBG_AES256,
+    rc = drbg_instantiate(&s_ecc_keygen_drbg_state, NOXTLS_ECC_KEYGEN_DRBG_TYPE,
                           seed, sizeof(seed), NULL, 0, NULL, 0);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;

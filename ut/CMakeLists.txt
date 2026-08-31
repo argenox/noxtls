@@ -1,4 +1,9 @@
-set(NOXTLS_ROOT_UT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../ut")
+set(NOXTLS_ROOT_UT_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+
+# Some historical NoxTLS unit-test sources are supplied only by the full
+# standalone test package.  Keep them optional so an embedded submodule
+# checkout can still configure and run the self-contained regressions below.
+if(EXISTS "${NOXTLS_ROOT_UT_DIR}/common/noxtls_ct_test.c")
 
 add_executable(noxtls_ct_test "${NOXTLS_ROOT_UT_DIR}/common/noxtls_ct_test.c")
 target_link_libraries(noxtls_ct_test PRIVATE noxtls_common)
@@ -96,6 +101,8 @@ target_link_libraries(tls_version_policy_test PRIVATE
     noxtls_tls
 )
 add_test(NAME tls_version_policy_test COMMAND tls_version_policy_test)
+
+endif()
 
 add_executable(noxtls_ecdh_diagnostic_test
     "${CMAKE_CURRENT_SOURCE_DIR}/ecdh_diagnostic_test.c")

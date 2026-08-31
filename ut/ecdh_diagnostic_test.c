@@ -8,6 +8,10 @@
 
 #include "pkc/ecdh/noxtls_ecdh.h"
 #include "pkc/ecc/noxtls_ecc.h"
+#include "drbg/noxtls_drbg.h"
+
+/* PTS/SM failure diagnostics exported by the ECC implementation. */
+extern volatile uint32_t noxtls_ecc_keygen_last_drbg_type;
 
 static int expect(int condition, const char *message)
 {
@@ -21,12 +25,31 @@ static int expect(int condition, const char *message)
 int main(void)
 {
     ecc_key_t key;
+    ecc_key_t generated_key;
     ecc_point_t invalid_peer;
     uint8_t secret[32];
     uint32_t secret_len;
     noxtls_ecdh_diagnostic_t diagnostic;
     noxtls_return_t rc;
     int ok = 1;
+
+    /*
+     * nRF52 ECB is AES-128 only.  Key generation must therefore choose the
+     * enabled DRBG primitive rather than unconditionally requesting AES-256.
+     * Configure this target with AES-256 disabled to exercise the nRF52-sized
+     * build in CI.
+     */
+    memset(&generated_key, 0, sizeof(generated_key));
+    rc = noxtls_ecc_key_generate(&generated_key, NOXTLS_ECC_SECP256R1);
+    ok &= expect(rc == NOXTLS_RETURN_SUCCESS, "generate P-256 key");
+#if NOXTLS_FEATURE_AES_256
+    ok &= expect(noxtls_ecc_keygen_last_drbg_type == DRBG_AES256,
+                 "AES-256 build selects AES-256 CTR-DRBG");
+#else
+    ok &= expect(noxtls_ecc_keygen_last_drbg_type == DRBG_AES128,
+                 "AES-128-only build selects AES-128 CTR-DRBG");
+#endif
+    (void)noxtls_ecc_key_free(&generated_key);
 
     memset(&key, 0, sizeof(key));
     rc = noxtls_ecc_key_init(&key, NOXTLS_ECC_SECP256R1);
