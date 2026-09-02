@@ -272,14 +272,12 @@ noxtls_return_t noxtls_aes_cmac(const uint8_t *key,
     noxtls_return_t rc;
 
     rc = noxtls_aes_cmac_init(&ctx, key, type);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
+    if(rc != NOXTLS_RETURN_SUCCESS)
         return rc;
-    }
 
     rc = noxtls_aes_cmac_update(&ctx, msg, msg_len);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
+    if(rc != NOXTLS_RETURN_SUCCESS)
         return rc;
-    }
 
     return noxtls_aes_cmac_final(&ctx, mac);
 }

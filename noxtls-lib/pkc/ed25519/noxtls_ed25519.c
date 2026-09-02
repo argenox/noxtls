@@ -1301,6 +1301,131 @@ noxtls_return_t noxtls_ed25519_verify(const uint8_t public_key[NOXTLS_ED25519_FE
     return ed25519_verify_internal(public_key, noxtls_message, message_len, signature, NOXTLS_ED25519_PH_FLAG_PURE, NULL, 0);
 }
 
+static noxtls_return_t ed25519_verify_finalize(const uint8_t public_key[NOXTLS_ED25519_FE25519_BYTES],
+                                               const uint8_t signature[NOXTLS_ED25519_SIGNATURE_SIZE],
+                                               const uint8_t k_in[NOXTLS_ED25519_SHA512_DIGEST_BYTES])
+{
+    uint8_t k_le[NOXTLS_ED25519_FE25519_BYTES];
+    ge25519_pt_t A;
+    ge25519_pt_t R;
+    ge25519_pt_t R_plus_kA;
+    ge25519_pt_t kA;
+    ge25519_pt_t sB;
+    if(public_key == NULL || signature == NULL || k_in == NULL) return NOXTLS_RETURN_NULL;
+
+    if(ge25519_decode(&A, public_key) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(ge25519_decode(&R, signature) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+
+    {
+        uint8_t S_be[NOXTLS_ED25519_FE25519_BYTES];
+        uint8_t S_le[NOXTLS_ED25519_FE25519_BYTES];
+        memcpy(S_le, signature + NOXTLS_ED25519_FE25519_BYTES, NOXTLS_ED25519_FE25519_BYTES);
+        le32_to_be32(S_be, S_le);
+        if(ed25519_cmp_be(S_be, ed25519_L, NOXTLS_ED25519_FE25519_BYTES) >= 0) return NOXTLS_RETURN_FAILED;
+    }
+
+    if(sc25519_reduce_mod_l(k_le, k_in) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+
+    ge25519_scalar_mult(&kA, k_le, &A);
+    ge25519_add(&R_plus_kA, &R, &kA);
+    if(ge25519_set_basepoint(&R) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    {
+        uint8_t S_le[NOXTLS_ED25519_FE25519_BYTES];
+        memcpy(S_le, signature + NOXTLS_ED25519_FE25519_BYTES, NOXTLS_ED25519_FE25519_BYTES);
+        ge25519_scalar_mult(&sB, S_le, &R);
+    }
+    {
+        uint8_t enc1[NOXTLS_ED25519_FE25519_BYTES];
+        uint8_t enc2[NOXTLS_ED25519_FE25519_BYTES];
+        ge25519_encode(enc1, &R_plus_kA);
+        ge25519_encode(enc2, &sB);
+        if(noxtls_secret_memcmp(enc1, enc2, NOXTLS_ED25519_FE25519_BYTES) != 0) {
+            uint8_t cofactor_le[NOXTLS_ED25519_FE25519_BYTES] = {0};
+            ge25519_pt_t lhs8;
+            ge25519_pt_t rhs8;
+            uint8_t enc_lhs8[NOXTLS_ED25519_FE25519_BYTES];
+            uint8_t enc_rhs8[NOXTLS_ED25519_FE25519_BYTES];
+            cofactor_le[0] = NOXTLS_ED25519_SUBGROUP_COFACTOR;
+            ge25519_scalar_mult(&lhs8, cofactor_le, &sB);
+            ge25519_scalar_mult(&rhs8, cofactor_le, &R_plus_kA);
+            ge25519_encode(enc_lhs8, &lhs8);
+            ge25519_encode(enc_rhs8, &rhs8);
+            if(noxtls_secret_memcmp(enc_lhs8, enc_rhs8, NOXTLS_ED25519_FE25519_BYTES) == 0) {
+                return NOXTLS_RETURN_SUCCESS;
+            }
+            return NOXTLS_RETURN_FAILED;
+        }
+    }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_ed25519_verify_stream_init(noxtls_ed25519_verify_stream_ctx_t *ctx,
+                                                  const uint8_t public_key[NOXTLS_ED25519_FE25519_BYTES],
+                                                  const uint8_t signature[NOXTLS_ED25519_SIGNATURE_SIZE])
+{
+    if(ctx == NULL || public_key == NULL || signature == NULL) return NOXTLS_RETURN_NULL;
+
+    memset(ctx, 0, sizeof(*ctx));
+    memcpy(ctx->public_key, public_key, NOXTLS_ED25519_FE25519_BYTES);
+    memcpy(ctx->signature, signature, NOXTLS_ED25519_SIGNATURE_SIZE);
+
+    if(noxtls_sha512_init(&ctx->hash_ctx, NOXTLS_HASH_SHA_512) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(noxtls_sha512_update(&ctx->hash_ctx, signature, NOXTLS_ED25519_FE25519_BYTES) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(noxtls_sha512_update(&ctx->hash_ctx, public_key, NOXTLS_ED25519_FE25519_BYTES) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+
+    ctx->initialized = 1U;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_ed25519_verify_stream_update(noxtls_ed25519_verify_stream_ctx_t *ctx,
+                                                    const uint8_t *message_part,
+                                                    uint32_t message_part_len)
+{
+    if(ctx == NULL) return NOXTLS_RETURN_NULL;
+    if(ctx->initialized == 0U) return NOXTLS_RETURN_FAILED;
+    if(message_part == NULL && message_part_len != 0U) return NOXTLS_RETURN_NULL;
+    if(message_part_len == 0U) return NOXTLS_RETURN_SUCCESS;
+
+    return noxtls_sha512_update(&ctx->hash_ctx, message_part, message_part_len);
+}
+
+noxtls_return_t noxtls_ed25519_verify_stream_final(noxtls_ed25519_verify_stream_ctx_t *ctx)
+{
+    uint8_t k_in[NOXTLS_ED25519_SHA512_DIGEST_BYTES];
+    noxtls_return_t rc;
+
+    if(ctx == NULL) return NOXTLS_RETURN_NULL;
+    if(ctx->initialized == 0U) return NOXTLS_RETURN_FAILED;
+
+    rc = noxtls_sha512_finish(&ctx->hash_ctx, k_in);
+    if(rc != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+
+    ctx->initialized = 0U;
+    return ed25519_verify_finalize(ctx->public_key, ctx->signature, k_in);
+}
+
+noxtls_return_t noxtls_ed25519_verify_split(const uint8_t public_key[NOXTLS_ED25519_FE25519_BYTES],
+                                            const uint8_t *message_part_a,
+                                            uint32_t message_part_a_len,
+                                            const uint8_t *message_part_b,
+                                            uint32_t message_part_b_len,
+                                            const uint8_t signature[NOXTLS_ED25519_SIGNATURE_SIZE])
+{
+    noxtls_ed25519_verify_stream_ctx_t stream_ctx;
+    noxtls_return_t rc;
+
+    rc = noxtls_ed25519_verify_stream_init(&stream_ctx, public_key, signature);
+    if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+
+    rc = noxtls_ed25519_verify_stream_update(&stream_ctx, message_part_a, message_part_a_len);
+    if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+
+    rc = noxtls_ed25519_verify_stream_update(&stream_ctx, message_part_b, message_part_b_len);
+    if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+
+    return noxtls_ed25519_verify_stream_final(&stream_ctx);
+}
+
 /**
  * @brief Signs a noxtls_message with Ed25519ctx (RFC 8032 context string, not prehashed).
  * @param[in]  private_key 32-byte private key.

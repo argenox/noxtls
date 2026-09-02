@@ -54,6 +54,8 @@ typedef struct noxtls_tls_connection_s
     uint8_t fixed_version;         /* 1 if init_version was used (only that version is used) */
     /** 1 if TLS 1.3 may be negotiated on this connection (auto init, or init_version(TLS 1.3)). Used for RFC 8446 TLS 1.2 downgrade random. */
     uint8_t config_offers_tls13;
+    /** Internal: protocol context has been initialized and may be resumed. */
+    uint8_t handshake_started;
     /* Config applied when version is chosen (server cert/key; client SNI) */
     const uint8_t *server_cert;
     uint32_t server_cert_len;
@@ -80,6 +82,13 @@ typedef struct noxtls_tls_connection_s
     void *client_private_ecdsa;
     /** BoGo: force peer certificate verification to fail. */
     uint8_t force_cert_verify_fail;
+    /** Optional CRL chain applied to either negotiated protocol version. */
+    const noxtls_x509_crl_t *verify_crl;
+    /** Requested maximum plaintext record payload; 0 keeps protocol default. */
+    uint16_t maximum_record_payload;
+    /** Optional caller-owned TLS 1.3 client session copied before connect. */
+    noxtls_tls13_session_t tls13_session;
+    uint8_t tls13_session_configured;
     union {
         tls12_context_t tls12;
         tls13_context_t tls13;
@@ -101,6 +110,17 @@ noxtls_return_t noxtls_tls_connection_set_io_callbacks(noxtls_tls_connection_t *
                                                        tls_send_callback_t send_cb,
                                                        tls_recv_callback_t recv_cb,
                                                        void *user_data);
+
+/** Select blocking or caller-polled nonblocking operation. */
+noxtls_return_t noxtls_tls_connection_set_io_mode(noxtls_tls_connection_t *conn,
+                                                  tls_io_mode_t mode);
+
+/** Set the maximum encrypted bytes retained across partial writes. */
+noxtls_return_t noxtls_tls_connection_set_io_tx_queue_limit(
+    noxtls_tls_connection_t *conn, uint32_t limit);
+
+/** Flush pending encrypted output without advancing the handshake. */
+noxtls_return_t noxtls_tls_connection_flush(noxtls_tls_connection_t *conn);
 
 /** Set optional time callback (e.g. for DTLS). */
 noxtls_return_t noxtls_tls_connection_set_time_callback(noxtls_tls_connection_t *conn, tls_time_callback_t time_cb);
@@ -147,11 +167,34 @@ noxtls_return_t noxtls_tls_connection_set_client_cert_ecdsa(noxtls_tls_connectio
 /** Force peer certificate verification to fail (BoGo -verify-fail with -verify-peer). */
 noxtls_return_t noxtls_tls_connection_set_force_cert_verify_fail(noxtls_tls_connection_t *conn, int enable);
 
+/** Apply an application-owned CRL chain to TLS 1.2 and TLS 1.3 verification. */
+noxtls_return_t noxtls_tls_connection_set_verify_crl(noxtls_tls_connection_t *conn,
+                                                     const noxtls_x509_crl_t *crl);
+
+/**
+ * Request a bounded plaintext record payload. TLS 1.2 uses RFC 6066 maximum
+ * fragment length and therefore accepts 512, 1024, 2048, or 4096. TLS 1.3
+ * uses RFC 8449 record_size_limit. A value of zero restores protocol default.
+ */
+noxtls_return_t noxtls_tls_connection_set_maximum_record_payload(
+    noxtls_tls_connection_t *conn, uint16_t payload_bytes);
+
+/** Copy TLS 1.3 client resumption state to apply when the context is created. */
+noxtls_return_t noxtls_tls_connection_set_tls13_session(
+    noxtls_tls_connection_t *conn, const noxtls_tls13_session_t *session);
+
 /** Server: receive Client Hello, detect version, complete handshake (TLS 1.2 or 1.3). */
 noxtls_return_t noxtls_tls_connection_accept(noxtls_tls_connection_t *conn);
 
 /** Client: connect with auto (try 1.3 then 1.2) or fixed version. */
 noxtls_return_t noxtls_tls_connection_connect(noxtls_tls_connection_t *conn);
+
+/**
+ * Advance a client or server handshake until it completes or needs I/O.
+ * Returns SUCCESS, WANT_READ, WANT_WRITE, or a terminal error. Blocking-mode
+ * callers may continue using connect()/accept().
+ */
+noxtls_return_t noxtls_tls_connection_handshake(noxtls_tls_connection_t *conn);
 
 /** Send application data. Call after handshake. */
 noxtls_return_t noxtls_tls_connection_send(noxtls_tls_connection_t *conn, const uint8_t *data, uint32_t len);
@@ -164,6 +207,31 @@ noxtls_return_t noxtls_tls_connection_close(noxtls_tls_connection_t *conn);
 
 /** Return negotiated version (TLS_VERSION_1_2, TLS_VERSION_1_3, or 0 if not yet negotiated). */
 uint16_t noxtls_tls_connection_get_version(const noxtls_tls_connection_t *conn);
+
+/** Borrow the authenticated peer leaf certificate for the connection lifetime. */
+noxtls_return_t noxtls_tls_connection_get_peer_certificate(
+    const noxtls_tls_connection_t *conn, const uint8_t **certificate_der,
+    uint32_t *certificate_length);
+
+/** Return the negotiated cipher-suite wire identifier, or zero before handshake. */
+uint16_t noxtls_tls_connection_get_cipher_suite(const noxtls_tls_connection_t *conn);
+
+/** Return nonzero when the connection used an abbreviated/resumed handshake. */
+int noxtls_tls_connection_is_resumed(const noxtls_tls_connection_t *conn);
+
+/**
+ * Borrow the opaque session identity issued for a future resumption.
+ * Applications may use it only as a cache key; it is not an authentication
+ * identity by itself.
+ */
+noxtls_return_t noxtls_tls_connection_get_session_identity(
+    const noxtls_tls_connection_t *conn, const uint8_t **identity,
+    uint16_t *identity_length);
+
+/** Borrow the opaque identity that authenticated a resumed session. */
+noxtls_return_t noxtls_tls_connection_get_resumption_identity(
+    const noxtls_tls_connection_t *conn, const uint8_t **identity,
+    uint16_t *identity_length);
 
 #endif /* NOXTLS_FEATURE_TLS12 || NOXTLS_FEATURE_TLS13 */
 

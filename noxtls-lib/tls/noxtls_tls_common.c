@@ -127,6 +127,7 @@ noxtls_return_t noxtls_tls_context_init(tls_context_t *ctx, tls_role_t role, uin
     ctx->time_callback = NULL;
     ctx->pending_client_hello = NULL;
     ctx->pending_client_hello_len = 0;
+    ctx->io_tx_queue_limit = NOXTLS_TLS_IO_TX_QUEUE_LIMIT;
     
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -151,6 +152,14 @@ noxtls_return_t noxtls_tls_context_free(tls_context_t *ctx)
         free(ctx->pending_server_hello);
         ctx->pending_server_hello = NULL;
         ctx->pending_server_hello_len = 0;
+    }
+    if(ctx->io_tx_pending != NULL) {
+        noxtls_free(ctx->io_tx_pending);
+        ctx->io_tx_pending = NULL;
+    }
+    if(ctx->io_rx_payload != NULL) {
+        noxtls_free(ctx->io_rx_payload);
+        ctx->io_rx_payload = NULL;
     }
 
     memset(ctx, 0, sizeof(tls_context_t));
@@ -195,6 +204,132 @@ noxtls_return_t noxtls_tls_set_time_callback(tls_context_t *ctx, tls_time_callba
     }
 
     ctx->time_callback = time_cb;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_tls_set_io_mode(tls_context_t *ctx, tls_io_mode_t mode)
+{
+    if(ctx == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(mode != TLS_IO_MODE_BLOCKING && mode != TLS_IO_MODE_NON_BLOCKING) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    ctx->io_mode = mode;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_tls_set_io_tx_queue_limit(tls_context_t *ctx, uint32_t limit)
+{
+    uint32_t pending;
+    if(ctx == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    pending = ctx->io_tx_pending_len - ctx->io_tx_pending_offset;
+    if(limit < pending || limit < (5U + TLS_MAX_PROTECTED_RECORD_FRAGMENT)) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    ctx->io_tx_queue_limit = limit;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+int noxtls_tls_has_pending_output(const tls_context_t *ctx)
+{
+    return (ctx != NULL && ctx->io_tx_pending_len > ctx->io_tx_pending_offset) ? 1 : 0;
+}
+
+noxtls_return_t noxtls_tls_flush(tls_context_t *ctx)
+{
+    int32_t sent;
+    uint32_t remaining;
+
+    if(ctx == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(!noxtls_tls_has_pending_output(ctx)) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    if(ctx->send_callback == NULL) {
+        return NOXTLS_RETURN_FAILED;
+    }
+
+    remaining = ctx->io_tx_pending_len - ctx->io_tx_pending_offset;
+    sent = ctx->send_callback(ctx->user_data,
+                              ctx->io_tx_pending + ctx->io_tx_pending_offset,
+                              remaining);
+    if(sent == TLS_IO_WOULD_BLOCK || sent == 0) {
+        return NOXTLS_RETURN_WANT_WRITE;
+    }
+    if(sent < 0 || (uint32_t)sent > remaining) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    ctx->io_tx_pending_offset += (uint32_t)sent;
+    if(ctx->io_tx_pending_offset == ctx->io_tx_pending_len) {
+        noxtls_free(ctx->io_tx_pending);
+        ctx->io_tx_pending = NULL;
+        ctx->io_tx_pending_len = 0;
+        ctx->io_tx_pending_offset = 0;
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    return NOXTLS_RETURN_WANT_WRITE;
+}
+
+static noxtls_return_t tls_queue_pending_output(tls_context_t *ctx,
+                                                 const uint8_t *data,
+                                                 uint32_t len)
+{
+    uint32_t pending;
+    uint8_t *next;
+
+    if(len == 0U) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    pending = ctx->io_tx_pending_len - ctx->io_tx_pending_offset;
+    if(len > ctx->io_tx_queue_limit || pending > ctx->io_tx_queue_limit - len) {
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+    }
+    next = (uint8_t *)noxtls_malloc(pending + len);
+    if(next == NULL) {
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+    }
+    if(pending > 0U) {
+        memcpy(next, ctx->io_tx_pending + ctx->io_tx_pending_offset, pending);
+    }
+    memcpy(next + pending, data, len);
+    if(ctx->io_tx_pending != NULL) {
+        noxtls_free(ctx->io_tx_pending);
+    }
+    ctx->io_tx_pending = next;
+    ctx->io_tx_pending_len = pending + len;
+    ctx->io_tx_pending_offset = 0;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+static noxtls_return_t tls_nonblocking_send_record(tls_context_t *ctx,
+                                                    const uint8_t *record,
+                                                    uint32_t record_len)
+{
+    noxtls_return_t rc;
+    int32_t sent;
+
+    rc = noxtls_tls_flush(ctx);
+    if(rc != NOXTLS_RETURN_SUCCESS && rc != NOXTLS_RETURN_WANT_WRITE) {
+        return rc;
+    }
+    if(noxtls_tls_has_pending_output(ctx)) {
+        return tls_queue_pending_output(ctx, record, record_len);
+    }
+
+    sent = ctx->send_callback(ctx->user_data, record, record_len);
+    if(sent == TLS_IO_WOULD_BLOCK || sent == 0) {
+        return tls_queue_pending_output(ctx, record, record_len);
+    }
+    if(sent < 0 || (uint32_t)sent > record_len) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    if((uint32_t)sent < record_len) {
+        return tls_queue_pending_output(ctx, record + sent, record_len - (uint32_t)sent);
+    }
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -316,7 +451,23 @@ noxtls_return_t noxtls_tls_send_record(tls_context_t *ctx, uint8_t type, const u
     
     tls_dump_record("SEND", record, 5 + len);
 
-    /* Send via callback */
+    /* Send via callback. Nonblocking streams atomically accept the record into
+     * the bounded context queue, even when the carrier only writes a prefix. */
+    if(ctx->io_mode == TLS_IO_MODE_NON_BLOCKING) {
+        noxtls_return_t rc = tls_nonblocking_send_record(ctx, record, 5U + len);
+        if(record != ctx->record_send_buf) {
+            noxtls_free(record);
+        }
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_IO, NOXSIGHT_SEVERITY_ERROR,
+                            NOXTLS_EVT_INTERNAL_ERROR, (uint32_t)type, (uint32_t)rc);
+            return rc;
+        }
+        NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_RECORD, NOXSIGHT_SEVERITY_TRACE,
+                        NOXTLS_EVT_RECORD_TX, type, len);
+        return NOXTLS_RETURN_SUCCESS;
+    }
+
     sent = ctx->send_callback(ctx->user_data, record, 5 + len);
     if(sent < 0 || (uint32_t)sent != (5 + len)) {
         NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_IO, NOXSIGHT_SEVERITY_ERROR,
@@ -333,6 +484,109 @@ noxtls_return_t noxtls_tls_send_record(tls_context_t *ctx, uint8_t type, const u
     NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_RECORD, NOXSIGHT_SEVERITY_TRACE,
                     NOXTLS_EVT_RECORD_TX, type, len);
     
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+static noxtls_return_t tls_nonblocking_read(tls_context_t *ctx,
+                                            uint8_t *data,
+                                            uint32_t *offset,
+                                            uint32_t total)
+{
+    while(*offset < total) {
+        uint32_t remaining = total - *offset;
+        int32_t received = ctx->recv_callback(ctx->user_data, data + *offset, remaining);
+        if(received == TLS_IO_WOULD_BLOCK || received == 0) {
+            return NOXTLS_RETURN_WANT_READ;
+        }
+        if(received < 0 || (uint32_t)received > remaining) {
+            return NOXTLS_RETURN_FAILED;
+        }
+        *offset += (uint32_t)received;
+    }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+static void tls_nonblocking_reset_rx(tls_context_t *ctx)
+{
+    ctx->io_rx_header_len = 0;
+    ctx->io_rx_payload = NULL;
+    ctx->io_rx_payload_len = 0;
+    ctx->io_rx_payload_offset = 0;
+}
+
+static noxtls_return_t tls_nonblocking_recv_record(tls_context_t *ctx,
+                                                    tls_record_t *record)
+{
+    noxtls_return_t rc;
+    uint16_t length;
+    uint8_t type;
+    uint16_t version;
+    uint8_t *payload;
+
+    rc = tls_nonblocking_read(ctx, ctx->io_rx_header, &ctx->io_rx_header_len, 5U);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+    type = ctx->io_rx_header[0];
+    version = (uint16_t)(((uint16_t)ctx->io_rx_header[1] << 8) |
+                         (uint16_t)ctx->io_rx_header[2]);
+    length = (uint16_t)(((uint16_t)ctx->io_rx_header[3] << 8) |
+                        (uint16_t)ctx->io_rx_header[4]);
+
+#if NOXTLS_TLS_MAX_WIRE_RECORD_LENGTH < 65535U
+    if(length > TLS_MAX_WIRE_RECORD_LENGTH) {
+        ctx->io_rx_header_len = 0U;
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+#endif
+    if(length > TLS_MAX_PROTECTED_RECORD_FRAGMENT) {
+        ctx->io_rx_header_len = 0U;
+        return NOXTLS_RETURN_RECORD_OVERFLOW;
+    }
+
+    if(ctx->io_rx_payload == NULL && length > 0U) {
+        ctx->io_rx_payload = (uint8_t *)noxtls_malloc(length);
+        if(ctx->io_rx_payload == NULL) {
+            ctx->io_rx_header_len = 0;
+            return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+        }
+        ctx->io_rx_payload_len = length;
+    }
+    if(length > 0U) {
+        rc = tls_nonblocking_read(ctx, ctx->io_rx_payload,
+                                  &ctx->io_rx_payload_offset, length);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
+    }
+
+    payload = ctx->io_rx_payload;
+    tls_nonblocking_reset_rx(ctx);
+
+    memset(record, 0, sizeof(*record));
+    record->type = type;
+    record->version = version;
+    if(type != TLS_RECORD_CHANGE_CIPHER_SPEC &&
+       type != TLS_RECORD_ALERT &&
+       type != TLS_RECORD_HANDSHAKE &&
+       type != TLS_RECORD_APPLICATION_DATA &&
+       type != TLS_RECORD_HEARTBEAT) {
+        if(payload != NULL) noxtls_free(payload);
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    record->length = length;
+    record->data = payload;
+
+    tls_dump_record("RECV", ctx->io_rx_header, 5U);
+    if(payload != NULL && length > 0U) {
+        tls_dump_record("RECV", payload, length);
+    }
+    NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_RECORD, NOXSIGHT_SEVERITY_TRACE,
+                    NOXTLS_EVT_RECORD_RX, record->type, record->length);
+    if(record->type == TLS_RECORD_ALERT && record->length >= 2U && record->data != NULL) {
+        NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_ALERT, NOXSIGHT_SEVERITY_WARN,
+                        NOXTLS_EVT_ALERT_RECV, record->data[0], record->data[1]);
+    }
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -473,6 +727,10 @@ noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
         }
     }
 #endif /* NOXTLS_FEATURE_DTLS */
+
+    if(ctx->io_mode == TLS_IO_MODE_NON_BLOCKING) {
+        return tls_nonblocking_recv_record(ctx, record);
+    }
     
     /* Receive record header (5 bytes) */
     noxtls_debug_printf("[TLS_DEBUG] tls_recv_record: Attempting to read 5-byte header...\n");
@@ -502,12 +760,10 @@ noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
         noxtls_debug_printf("[TLS_DEBUG] tls_recv_record: Record length %u exceeds protected max %u\n",
                             length, (unsigned)TLS_MAX_PROTECTED_RECORD_FRAGMENT);
         /* Drain so the stream stays aligned; caller sends record_overflow. */
-        {
-            uint8_t *drain = (uint8_t*)noxtls_malloc(length);
-            if(drain != NULL) {
-                (void)ctx->recv_callback(ctx->user_data, drain, length);
-                noxtls_free(drain);
-            }
+        uint8_t *drain = (uint8_t*)noxtls_malloc(length);
+        if(drain != NULL) {
+            (void)ctx->recv_callback(ctx->user_data, drain, length);
+            noxtls_free(drain);
         }
         return NOXTLS_RETURN_RECORD_OVERFLOW;
     }
@@ -681,6 +937,7 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
     uint8_t has_supported_versions_ext = 0;
     uint8_t has_tls13 = 0;
     uint8_t has_tls12 = 0;
+    uint8_t resumed_reassembly = 0U;
     
     if(base_ctx == NULL || detected_version == NULL || 
        client_hello_data == NULL || client_hello_len == NULL) {
@@ -695,16 +952,27 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
     *client_hello_len = 0;
     *detected_version = TLS_VERSION_1_2;  /* Default to TLS 1.2 */
     
-    /* Receive Client Hello record */
-    rc = noxtls_tls_recv_record(base_ctx, &record);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
+    /* Receive Client Hello record, or resume handshake-message reassembly. */
+    memset(&record, 0, sizeof(record));
+    if(base_ctx->io_mode == TLS_IO_MODE_NON_BLOCKING &&
+       base_ctx->pending_client_hello != NULL) {
+        record.type = TLS_RECORD_HANDSHAKE;
+        record.data = base_ctx->pending_client_hello;
+        record.length = base_ctx->pending_client_hello_len;
+        base_ctx->pending_client_hello = NULL;
+        base_ctx->pending_client_hello_len = 0U;
+        resumed_reassembly = 1U;
+    } else {
+        rc = noxtls_tls_recv_record(base_ctx, &record);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
     }
     if(record.length > 0 && record.data == NULL) {
         return NOXTLS_RETURN_BAD_DATA;
     }
     /* ClientHello is always TLSPlaintext; reject fragments above 2^14 (RFC 5246). */
-    if(record.length > TLS_MAX_RECORD_SIZE) {
+    if(!resumed_reassembly && record.length > TLS_MAX_RECORD_SIZE) {
         noxtls_free(record.data);
         return NOXTLS_RETURN_RECORD_OVERFLOW;
     }
@@ -729,6 +997,12 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
         uint8_t *new_buf;
         rc = noxtls_tls_recv_record(base_ctx, &next_record);
         if(rc != NOXTLS_RETURN_SUCCESS) {
+            if(base_ctx->io_mode == TLS_IO_MODE_NON_BLOCKING &&
+               (rc == NOXTLS_RETURN_WANT_READ || rc == NOXTLS_RETURN_WANT_WRITE)) {
+                base_ctx->pending_client_hello = record.data;
+                base_ctx->pending_client_hello_len = assembled_len;
+                return rc;
+            }
             noxtls_free(record.data);
             return rc;
         }
@@ -784,6 +1058,12 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
         uint8_t *new_buf;
         rc = noxtls_tls_recv_record(base_ctx, &next_record);
         if(rc != NOXTLS_RETURN_SUCCESS) {
+            if(base_ctx->io_mode == TLS_IO_MODE_NON_BLOCKING &&
+               (rc == NOXTLS_RETURN_WANT_READ || rc == NOXTLS_RETURN_WANT_WRITE)) {
+                base_ctx->pending_client_hello = record.data;
+                base_ctx->pending_client_hello_len = assembled_len;
+                return rc;
+            }
             noxtls_free(record.data);
             return rc;
         }
@@ -792,7 +1072,7 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
             return NOXTLS_RETURN_BAD_DATA;
         }
         if(next_record.length > TLS_MAX_RECORD_SIZE) {
-            if(next_record.data) { noxtls_free(next_record.data); }
+            if(next_record.data) noxtls_free(next_record.data);
             noxtls_free(record.data);
             return NOXTLS_RETURN_RECORD_OVERFLOW;
         }
@@ -914,7 +1194,7 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
             *detected_version = TLS_VERSION_1_1;
         } else if(version == TLS_VERSION_1_0) {
             *detected_version = TLS_VERSION_1_0;
-        } else if(version == 0x0300U || version == 0x0000U) {
+        } else if(version == 0x0300u || version == 0x0000u) {
             /* SSLv3 / bogus (0,0): protocol_version (not decode_error). */
             noxtls_free(*client_hello_data);
             *client_hello_data = NULL;
@@ -1028,7 +1308,7 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
         *detected_version = TLS_VERSION_1_1;
     } else if(version == TLS_VERSION_1_0) {
         *detected_version = TLS_VERSION_1_0;
-    } else if(version == 0x0300U || version == 0x0000U) {
+    } else if(version == 0x0300u || version == 0x0000u) {
         /* SSLv3 / bogus (0,0): protocol_version (not decode_error). */
         noxtls_free(*client_hello_data);
         *client_hello_data = NULL;

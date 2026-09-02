@@ -315,7 +315,9 @@ noxtls_return_t noxtls_tls_ecdhe_generate_ephemeral_key(tls_ecdhe_context_t *ctx
  * @brief Compute ECDH shared secret from peer's uncompressed ECC public key (NIST curves).
  * @param[in,out] ctx Local ephemeral key; receives heap-allocated `shared_secret`.
  * @param[in] peer_public_key Peer's public point on the same curve.
- * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` on invalid pointers; `NOXTLS_RETURN_FAILED` on ECDH or allocation failure.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; a specific ECDH return code on
+ * cryptographic failure; `NOXTLS_RETURN_NOT_ENOUGH_MEMORY` on allocation
+ * failure.  `ctx->last_ecdh_diagnostic` retains non-secret provenance.
  */
 noxtls_return_t noxtls_tls_ecdhe_compute_shared_secret(tls_ecdhe_context_t *ctx, const ecc_point_t *peer_public_key)
 {
@@ -323,22 +325,36 @@ noxtls_return_t noxtls_tls_ecdhe_compute_shared_secret(tls_ecdhe_context_t *ctx,
     uint8_t *secret_buffer = NULL;
     uint32_t secret_len;
     
-    if(ctx == NULL || peer_public_key == NULL) {
+    if(ctx == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(peer_public_key == NULL) {
+        ctx->last_ecdh_diagnostic.stage = NOXTLS_ECDH_DIAGNOSTIC_ARGUMENT;
+        ctx->last_ecdh_diagnostic.internal_rc = NOXTLS_RETURN_NULL;
         return NOXTLS_RETURN_NULL;
     }
     
     if(ctx->ephemeral_key.curve == NULL) {
-        return NOXTLS_RETURN_FAILED;
+        ctx->last_ecdh_diagnostic.stage = NOXTLS_ECDH_DIAGNOSTIC_PRIVATE_KEY;
+        ctx->last_ecdh_diagnostic.internal_rc =
+            NOXTLS_RETURN_ECDH_PRIVATE_KEY_INVALID;
+        return NOXTLS_RETURN_ECDH_PRIVATE_KEY_INVALID;
     }
     
     secret_len = ctx->ephemeral_key.curve->size;
     secret_buffer = (uint8_t*)malloc(secret_len);
     if(secret_buffer == NULL) {
-        return NOXTLS_RETURN_FAILED;
+        ctx->last_ecdh_diagnostic.stage = NOXTLS_ECDH_DIAGNOSTIC_ALLOCATION;
+        ctx->last_ecdh_diagnostic.internal_rc = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
     
     /* Compute shared secret using ECDH */
-    rc = noxtls_ecdh_compute_shared_secret(&ctx->ephemeral_key, (ecc_point_t*)peer_public_key, secret_buffer, &secret_len);
+    rc = noxtls_ecdh_compute_shared_secret_ex(&ctx->ephemeral_key,
+                                              peer_public_key,
+                                              secret_buffer,
+                                              &secret_len,
+                                              &ctx->last_ecdh_diagnostic);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         free(secret_buffer);
         return rc;
@@ -773,12 +789,12 @@ noxtls_return_t noxtls_tls12_ecdhe_recv_server_key_exchange(tls12_context_t *ctx
             mod_len = cert->rsa_modulus_len;
             exp_ptr = cert->rsa_exponent;
             exp_len = cert->rsa_exponent_len;
-            if(mod_len > 0U && mod_ptr[0] == 0x00U) { mod_ptr++; mod_len--; }
-            if(exp_len > 0U && exp_ptr[0] == 0x00U) { exp_ptr++; exp_len--; }
-            if(mod_len == 128U) { key_size = RSA_1024_BIT; }
-            else if(mod_len == 256U) { key_size = RSA_2048_BIT; }
-            else if(mod_len == 384U) { key_size = RSA_3072_BIT; }
-            else if(mod_len == 512U) { key_size = RSA_4096_BIT; }
+            if(mod_len > 0U && mod_ptr[0] == 0x00u) { mod_ptr++; mod_len--; }
+            if(exp_len > 0U && exp_ptr[0] == 0x00u) { exp_ptr++; exp_len--; }
+            if(mod_len == 128U) key_size = RSA_1024_BIT;
+            else if(mod_len == 256U) key_size = RSA_2048_BIT;
+            else if(mod_len == 384U) key_size = RSA_3072_BIT;
+            else if(mod_len == 512U) key_size = RSA_4096_BIT;
             else {
                 free(record.data);
                 return NOXTLS_RETURN_FAILED;
@@ -793,7 +809,7 @@ noxtls_return_t noxtls_tls12_ecdhe_recv_server_key_exchange(tls12_context_t *ctx
             memcpy(rsa_key.n + (rsa_key.key_bytes - mod_len), mod_ptr, mod_len);
             memcpy(rsa_key.e + (rsa_key.key_bytes - exp_len), exp_ptr, exp_len);
             params_len = params_end - 4U;
-            if(params_len > 256U) {
+            if(params_len > 256u) {
                 noxtls_rsa_key_free(&rsa_key);
                 free(record.data);
                 return NOXTLS_RETURN_FAILED;

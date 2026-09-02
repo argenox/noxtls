@@ -312,6 +312,8 @@ typedef struct tls13_context_s
     /* Session ticket (resumption) – client stores one ticket from NewSessionTicket */
     uint8_t ticket_identity[32];
     uint16_t ticket_identity_len;
+    uint8_t offered_ticket_identity[32];
+    uint16_t offered_ticket_identity_len;
     uint8_t ticket_nonce[32];
     uint8_t ticket_nonce_len;
     uint8_t resumption_psk[64];
@@ -378,6 +380,26 @@ typedef struct tls13_context_s
     uint8_t empty_record_count;
     uint8_t warning_alert_count;
 } tls13_context_t;
+
+/** Portable client-side state required to resume a TLS 1.3 ticket. */
+typedef struct noxtls_tls13_session_s {
+    uint8_t ticket_identity[32];
+    uint16_t ticket_identity_len;
+    uint8_t ticket_nonce[32];
+    uint8_t ticket_nonce_len;
+    uint8_t resumption_psk[64];
+    uint8_t resumption_psk_len;
+    uint32_t ticket_age_add;
+    uint16_t ticket_cipher_suite;
+} noxtls_tls13_session_t;
+
+/** Copy the current client resumption ticket into caller-owned storage. */
+noxtls_return_t noxtls_tls13_session_export(
+    const tls13_context_t *ctx, noxtls_tls13_session_t *session);
+
+/** Install caller-owned client resumption state before ClientHello is sent. */
+noxtls_return_t noxtls_tls13_session_import(
+    tls13_context_t *ctx, const noxtls_tls13_session_t *session);
 NOXTLS_MSVC_WARNING_POP
 
 /** CertificateVerify handshake message buffer (stack for classical, heap for large PQ sigs). */

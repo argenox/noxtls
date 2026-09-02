@@ -53,6 +53,12 @@ typedef struct tls12_context_s
     dtls_context_t base;            /* Base TLS/DTLS context */
     
     /* Handshake state */
+    /** Resumable caller-polled client handshake progress. Internal. */
+    uint8_t client_handshake_step;
+    /** Resumable caller-polled server handshake progress. Internal. */
+    uint8_t server_handshake_step;
+    /** Server: whether a client certificate was present in the current handshake. */
+    uint8_t handshake_client_cert_present;
     uint8_t client_random[32];      /* Client random */
     uint8_t server_random[32];      /* Server random */
     uint16_t cipher_suite;          /* Selected cipher suite */
@@ -191,6 +197,7 @@ typedef struct tls12_context_s
     uint8_t client_accept_server_rpk;    /* Client: 1 = send server_certificate_type ext with RPK in ClientHello */
     uint8_t client_offer_client_rpk;     /* Client: 1 = send client_certificate_type ext with RPK in ClientHello (for client auth) */
     uint8_t request_client_auth;         /* Server: 1 = send CertificateRequest and process client Certificate/CertificateVerify */
+    uint8_t require_client_auth;         /* Server: fail when the client sends an empty Certificate */
     uint8_t client_auth_requested;       /* Client: 1 after CertificateRequest received */
     const uint8_t *own_client_cert;      /* Client: DER leaf to send (non-owning); NULL = empty Certificate */
     uint32_t own_client_cert_len;
@@ -208,6 +215,7 @@ typedef struct tls12_context_s
 
     /* RFC 6066 Maximum Fragment Length: 0 = not used; 1=512, 2=1024, 3=2048, 4=4096 (code). Negotiated max plaintext record payload in bytes. */
     uint8_t max_fragment_length_code;    /* Client: requested code (1-4). Server: selected code echoed in ServerHello. */
+    uint8_t configured_max_fragment_length_code; /* Local policy retained while a server parses ClientHello. */
     uint16_t max_record_payload;         /* Negotiated max record payload (plaintext). 0 = use TLS_MAX_RECORD_SIZE. */
 
     /* RFC 6520 Heartbeat */
@@ -220,8 +228,17 @@ typedef struct tls12_context_s
     uint8_t *client_pending_record;
     uint32_t client_pending_record_len;
     uint8_t client_pending_record_type;
+    /* Persistent handshake stream reassembly for caller-polled transports. */
+    uint8_t *handshake_rx_buffer;
+    uint32_t handshake_rx_buffer_len;
     /* Client: 1 if ClientHello included session_ticket (empty or with ticket). */
     uint8_t client_offered_session_ticket;
+    /** Opaque ticket used to resume this handshake (cache lookup key). */
+    uint8_t resumption_identity[TLS12_TICKET_MAX_LEN];
+    uint16_t resumption_identity_len;
+    /** Most recently issued/received ticket for a future connection. */
+    uint8_t next_session_identity[TLS12_TICKET_MAX_LEN];
+    uint16_t next_session_identity_len;
     /** Client: ServerHello echoed session_ticket; expect NewSessionTicket before CCS. */
     uint8_t session_ticket_negotiated;
     /** Client: 1 after a NewSessionTicket was received in this handshake. */
@@ -279,6 +296,8 @@ noxtls_return_t tls12_set_workspaces(tls12_context_t *ctx,
                                      uint8_t *handshake_workspace,
                                      uint32_t handshake_workspace_len);
 noxtls_return_t noxtls_tls12_connect(tls12_context_t *ctx);
+/** Advance an initial TLS 1.2 client handshake without blocking. */
+noxtls_return_t noxtls_tls12_connect_poll(tls12_context_t *ctx);
 /** Client: resume TLS 1.2 after TLS 1.3 ClientHello + TLS 1.2 ServerHello (takes ownership of both buffers on success). */
 noxtls_return_t noxtls_tls12_client_resume_from_tls13_downgrade(tls12_context_t *ctx,
                                                                 uint8_t *client_hello_transcript,
@@ -286,6 +305,8 @@ noxtls_return_t noxtls_tls12_client_resume_from_tls13_downgrade(tls12_context_t 
                                                                 uint8_t *server_hello_handshake,
                                                                 uint32_t server_hello_handshake_len);
 noxtls_return_t noxtls_tls12_accept(tls12_context_t *ctx);
+/** Advance an initial TLS 1.2 server handshake without blocking. */
+noxtls_return_t noxtls_tls12_accept_poll(tls12_context_t *ctx);
 noxtls_return_t tls12_compute_master_secret(tls12_context_t *ctx, const uint8_t *premaster_secret, uint32_t premaster_secret_len);  /* Compute master secret from premaster secret */
 noxtls_return_t tls12_derive_keys(tls12_context_t *ctx);  /* Derive keys from master secret */
 noxtls_return_t noxtls_tls12_send(tls12_context_t *ctx, const uint8_t *data, uint32_t len);
@@ -359,6 +380,8 @@ void noxtls_tls12_set_client_offer_client_rpk(tls12_context_t *ctx, int offer);
 void noxtls_tls12_set_client_fallback_scsv(tls12_context_t *ctx, int enable);
 /** Server: request client certificate authentication (TLS 1.2 CertificateRequest). Call before accept. */
 void noxtls_tls12_request_client_auth(tls12_context_t *ctx, int request);
+/** Server: require a non-empty client certificate (implies request). */
+void noxtls_tls12_require_client_auth(tls12_context_t *ctx, int require);
 /** Client: set RSA certificate + key for CertificateRequest response. Call before connect. */
 noxtls_return_t noxtls_tls12_set_client_cert_rsa(tls12_context_t *ctx, const uint8_t *cert_der,
                                                 uint32_t cert_len, void *rsa_key);

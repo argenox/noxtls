@@ -117,7 +117,21 @@ typedef enum
 	NOXTLS_RETURN_TLS_RECORD_AUTH_FAILED, /**< AEAD record open failed (e.g. bad tag); send fatal bad_record_mac (20). */
 	NOXTLS_RETURN_TLS_FINISHED_VERIFY_FAILED, /**< Client Finished verify_data mismatch after decrypt; send fatal decrypt_error (51). */
 	/** TLS 1.3 client received a TLS 1.2 ServerHello after a TLS 1.3 ClientHello; unified layer continues with TLS 1.2 on the same connection. */
-	NOXTLS_RETURN_NEGOTIATED_TLS12
+	NOXTLS_RETURN_NEGOTIATED_TLS12,
+	/** Nonblocking transport has not supplied enough bytes to continue. */
+	NOXTLS_RETURN_WANT_READ,
+	/** Nonblocking transport still has encrypted bytes waiting to be written. */
+	NOXTLS_RETURN_WANT_WRITE,
+	/** ECDH private-key context was missing or invalid. */
+	NOXTLS_RETURN_ECDH_PRIVATE_KEY_INVALID,
+	/** ECDH output buffer cannot hold the selected curve's shared secret. */
+	NOXTLS_RETURN_ECDH_OUTPUT_TOO_SMALL,
+	/** ECDH peer public key was invalid, infinity, or not on the curve. */
+	NOXTLS_RETURN_ECDH_PEER_PUBLIC_KEY_INVALID,
+	/** ECDH scalar multiplication failed; consult optional diagnostic for the inner return. */
+	NOXTLS_RETURN_ECDH_SCALAR_MULTIPLY_FAILED,
+	/** ECDH multiplication yielded the point at infinity. */
+	NOXTLS_RETURN_ECDH_SHARED_POINT_INFINITY
 } noxtls_return_t;
 
 /** @} */
