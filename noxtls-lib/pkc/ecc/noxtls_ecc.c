@@ -3186,6 +3186,7 @@ noxtls_return_t noxtls_ecc_point_multiply(ecc_point_t *result, const uint8_t *sc
     if(rc == NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
+    noxtls_ecc_accel_note_fallback();
     /* HW failed or disabled: fall back to software path. */
     if(rc != NOXTLS_RETURN_NOT_SUPPORTED) {
         noxtls_bn_zero(result->x, size);

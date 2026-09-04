@@ -8,9 +8,22 @@ option(NOXTLS_ECDSA_SIGN_SELF_VERIFY "Re-verify signatures inside noxtls_ecdsa_s
 option(NOXTLS_ECDSA_SIGN_SKIP_SELF_VERIFY_P256 "Skip sign-time self-verify for 32-byte curves (P-256 class) to improve performance" ON)
 # Force Montgomery ladder only (disable windowed scalar mult). Use to isolate windowed-path bugs.
 option(NOXTLS_ECC_LADDER_ONLY "Use Montgomery ladder only for ECC point multiply (set NOXTLS_ECC_POINT_MUL_WINDOW_SIZE=0)" OFF)
+option(NOXTLS_NRF52840_CC310_ECC "Use the nRF52840 CryptoCell 310 PSA driver for P-256" OFF)
+option(NOXTLS_NRF53_CC312_P256_ACCEL "Use the nRF5340 CryptoCell 312 P-256 accelerator" OFF)
+option(NOXTLS_NRF54_CRACEN_P256_ACCEL "Use the nRF54 CRACEN P-256 accelerator" OFF)
+option(NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS "Compile ECC timing and accelerator performance diagnostics" OFF)
+# PTS peripheral images run LE Secure Connections while a radio link is live.
+# Keep this opt-in so product and host builds retain their selected optimization
+# policy; the PTS fixture enables it before adding this subdirectory.
+option(NOXTLS_PTS_PERIPHERAL_ECC_OPTIMIZED "Compile the PTS peripheral PKC target at -O2" OFF)
 
 set(PKC_SOURCES
 )
+
+if(NOXTLS_NRF53_CC312_P256_ACCEL AND NOXTLS_NRF54_CRACEN_P256_ACCEL)
+    message(FATAL_ERROR
+        "Select only one Nordic P-256 backend: nRF53 CC312 or nRF54 CRACEN.")
+endif()
 
 # Multiprecision backend shared by classic PKC primitives.
 # NOXTLS_CFG_ED25519_FIELD_MATH preserves legacy Ed25519-over-bignum builds.
@@ -47,6 +60,10 @@ if(NOXTLS_CFG_FEATURE_ECC)
         else()
             list(APPEND PKC_SOURCES ecc/noxtls_ecc_accel_port.c)
         endif()
+    elseif(NOXTLS_NRF53_CC312_P256_ACCEL)
+        list(APPEND PKC_SOURCES ecc/noxtls_ecc_accel_nrf53_cc312.c)
+    elseif(NOXTLS_NRF54_CRACEN_P256_ACCEL)
+        list(APPEND PKC_SOURCES ecc/noxtls_ecc_accel_nrf54_cracen.c)
     else()
         list(APPEND PKC_SOURCES ecc/noxtls_ecc_accel_port.c)
     endif()
@@ -129,6 +146,10 @@ add_library(noxtls_pkc STATIC ${PKC_SOURCES})
 if(MSVC)
     # Disable Spectre mitigation warning C5045 for embedded targets.
     target_compile_options(noxtls_pkc PRIVATE /wd5045)
+endif()
+
+if(NOXTLS_PTS_PERIPHERAL_ECC_OPTIMIZED AND NOT MSVC)
+    target_compile_options(noxtls_pkc PRIVATE -O2)
 endif()
 
 # Ensure noxtls_config.h at repo root is found (NOXTLS_LIB_ROOT is noxtls-lib/)
