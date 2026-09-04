@@ -48,6 +48,7 @@ if(NOXTLS_CFG_FEATURE_BLAKE2)
     list(APPEND NOXTLS_HASH_SOURCES blake2/noxtls_blake2.c)
 endif()
 
+list(APPEND NOXTLS_HASH_SOURCES noxtls_hash_api_refs.c)
 add_library(noxtls_hash STATIC ${NOXTLS_HASH_SOURCES})
 
 # Use CURRENT_SOURCE_DIR so this works when mdigest is built as a subdirectory (e.g. from ut/)

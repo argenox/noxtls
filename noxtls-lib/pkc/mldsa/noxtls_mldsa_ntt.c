@@ -89,12 +89,12 @@ static int32_t mod_mul_q(int32_t a, int32_t b)
  */
 static int32_t mod_pow_q(int32_t base, int32_t exp)
 {
-    int32_t r = 1;
+    int32_t r = 1U;
     int32_t b = noxtls_mldsa_coeff_normalize(base);
     int32_t e = exp;
 
     while(e > 0) {
-        if((e & 1) != 0) {
+        if((e &1U) != 0) {
             r = mod_mul_q(r, b);
         }
         b = mod_mul_q(b, b);
@@ -109,10 +109,7 @@ static int32_t mod_pow_q(int32_t base, int32_t exp)
  * @param[in] x The x value.
  * @return The return value.
  */
-static int32_t mod_inv_q(int32_t x)
-{
-    return mod_pow_q(x, NOXTLS_MLDSA_Q - 2);
-}
+static int32_t mod_inv_q(int32_t x) { return mod_pow_q(x, NOXTLS_MLDSA_Q - 2); }
 
 /**
  * @brief Reverse the bits of an 8-bit integer.
@@ -123,8 +120,8 @@ static int32_t mod_inv_q(int32_t x)
 static uint32_t bit_reverse_u8(uint32_t x)
 {
     uint32_t r = 0U;
-    uint32_t i;
-    for(i = 0U; i < 8U; ++i) {
+    uint32_t i = 0U;
+    for(i = 0U; i < 8U; i += 1U) {
         r = (r << 1U) | (x & 1U);
         x >>= 1U;
     }
@@ -138,7 +135,7 @@ static uint32_t bit_reverse_u8(uint32_t x)
  */
 static int ntt_init_once(void)
 {
-    int32_t cand;
+    int32_t cand = 0;
     int32_t root = 0;
 
     if(g_ntt_ctx.initialized != 0U) {
@@ -146,7 +143,7 @@ static int ntt_init_once(void)
     }
 
     /* Find a primitive 256-th root of unity modulo q. */
-    for(cand = 2; cand < NOXTLS_MLDSA_Q; ++cand) {
+    for(cand = 2; cand < NOXTLS_MLDSA_Q; cand += 1U) {
         if(mod_pow_q(cand, NOXTLS_MLDSA_N) == 1 &&
            mod_pow_q(cand, NOXTLS_MLDSA_N / 2) != 1) {
             root = cand;
@@ -171,10 +168,10 @@ static int ntt_init_once(void)
  */
 static void bit_reverse_permute(noxtls_mldsa_poly_t *p)
 {
-    uint32_t i;
+    uint32_t i = 0U;
 
-    for(i = 0U; i < NOXTLS_MLDSA_N; ++i) {
-        uint32_t j = bit_reverse_u8(i);
+    for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
+        uint32_t j = (uint32_t)(bit_reverse_u8(i));
         if(j > i) {
             int32_t tmp = p->coeff[i];
             p->coeff[i] = p->coeff[j];
@@ -191,19 +188,19 @@ static void bit_reverse_permute(noxtls_mldsa_poly_t *p)
  */
 static void ntt_core(noxtls_mldsa_poly_t *p, int32_t omega)
 {
-    uint32_t m;
+    uint32_t m = 0U;
 
     bit_reverse_permute(p);
 
     for(m = 2U; m <= NOXTLS_MLDSA_N; m <<= 1U) {
-        uint32_t half = m >> 1U;
+        uint32_t half = (uint32_t)(m >> 1U);
         int32_t wm = mod_pow_q(omega, (int32_t)(NOXTLS_MLDSA_N / m));
-        uint32_t k;
+        uint32_t k = 0U;
 
         for(k = 0U; k < NOXTLS_MLDSA_N; k += m) {
-            int32_t w = 1;
-            uint32_t j;
-            for(j = 0U; j < half; ++j) {
+            int32_t w = 1U;
+            uint32_t j = 0U;
+            for(j = 0U; j < half; j += 1U) {
                 int32_t t = mod_mul_q(w, p->coeff[k + j + half]);
                 int32_t u = p->coeff[k + j];
                 p->coeff[k + j] = mod_add_q(u, t);
@@ -227,7 +224,7 @@ void noxtls_mldsa_poly_ntt(noxtls_mldsa_poly_t *p)
     if(ntt_init_once() != 0) {
         return;
     }
-    noxtls_mldsa_poly_reduce(p);
+    (void)noxtls_mldsa_poly_reduce(p);
     ntt_core(p, g_ntt_ctx.root);
 }
 
@@ -238,7 +235,7 @@ void noxtls_mldsa_poly_ntt(noxtls_mldsa_poly_t *p)
  */
 void noxtls_mldsa_poly_invntt_to_mont(noxtls_mldsa_poly_t *p)
 {
-    uint32_t i;
+    uint32_t i = 0U;
 
     if(p == NULL) {
         return;
@@ -247,9 +244,9 @@ void noxtls_mldsa_poly_invntt_to_mont(noxtls_mldsa_poly_t *p)
         return;
     }
 
-    noxtls_mldsa_poly_reduce(p);
+    (void)noxtls_mldsa_poly_reduce(p);
     ntt_core(p, g_ntt_ctx.inv_root);
-    for(i = 0U; i < NOXTLS_MLDSA_N; ++i) {
+    for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
         p->coeff[i] = mod_mul_q(p->coeff[i], g_ntt_ctx.inv_n);
     }
 }
@@ -265,13 +262,13 @@ void noxtls_mldsa_poly_pointwise_montgomery(noxtls_mldsa_poly_t *r,
                                             const noxtls_mldsa_poly_t *a,
                                             const noxtls_mldsa_poly_t *b)
 {
-    uint32_t i;
+    uint32_t i = 0U;
 
     if(r == NULL || a == NULL || b == NULL) {
         return;
     }
 
-    for(i = 0U; i < NOXTLS_MLDSA_N; ++i) {
+    for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
         r->coeff[i] = mod_mul_q(noxtls_mldsa_coeff_normalize(a->coeff[i]),
                                 noxtls_mldsa_coeff_normalize(b->coeff[i]));
     }

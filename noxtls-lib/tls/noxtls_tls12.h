@@ -21,8 +21,8 @@
 *
 *****************************************************************************/
 
-#ifndef _NOXTLS_TLS12_H_
-#define _NOXTLS_TLS12_H_
+#ifndef NOXTLS_TLS12_H_
+#define NOXTLS_TLS12_H_
 
 #include <stdint.h>
 
@@ -36,8 +36,7 @@
 extern "C" {
 #endif
 
-/* Forward declaration to avoid including full X.509 header here. */
-typedef struct noxtls_x509_crl noxtls_x509_crl_t;
+#include "certs/noxtls_x509_crl_fwd.h"
 
 #define TLS12_SESSION_CACHE_SIZE   16U
 #define TLS12_SESSION_SNI_MAX      255u
@@ -48,7 +47,7 @@ typedef struct noxtls_x509_crl noxtls_x509_crl_t;
 /* TLS 1.2 Context */
 NOXTLS_MSVC_WARNING_PUSH
 NOXTLS_MSVC_DISABLE_PADDING
-typedef struct tls12_context_s
+struct tls12_context_s
 {
     dtls_context_t base;            /* Base TLS/DTLS context */
     
@@ -76,7 +75,7 @@ typedef struct tls12_context_s
     uint64_t server_seq_num;        /* Server sequence number */
     
     /* Certificate */
-    uint8_t *server_cert;           /* Server certificate (DER format) */
+    uint8_t *server_cert;           /* Server certificate (DER); owned on client path */
     uint32_t server_cert_len;       /* Server certificate length */
     const uint8_t **server_cert_chain;      /* Optional intermediate certificates (DER, non-owning) */
     const uint32_t *server_cert_chain_len;  /* Lengths for server_cert_chain entries */
@@ -109,7 +108,7 @@ typedef struct tls12_context_s
     /** Number of entries in server_cipher_suites. */
     uint32_t server_cipher_suites_count;
     /** Optional server ALPN protocol list (non-owning pointers). */
-    const char **server_alpn_protocols;
+    const uint8_t **server_alpn_protocols;
     /** Number of entries in server_alpn_protocols. */
     uint32_t server_alpn_count;
     /** Negotiated ALPN protocol from last handshake (owned buffer). */
@@ -152,10 +151,10 @@ typedef struct tls12_context_s
     uint32_t peer_ocsp_response_len;      /* Client received stapled OCSP response length. */
 
     /* Client configuration */
-    const char *server_name;             /* SNI hostname (optional) */
+    const uint8_t *server_name;             /* SNI hostname (optional) */
     uint16_t server_name_len;            /* SNI hostname length */
     /** Server (RFC 6066): if non-NULL, ClientHello host_name must match (ASCII, case-insensitive). */
-    const char *server_expect_client_sni;
+    const uint8_t *server_expect_client_sni;
     /** Server: with \a server_expect_client_sni, send fatal unrecognized_name when set; else warning then continue. */
     uint8_t server_expect_sni_fatal;
     const noxtls_x509_crl_t *verify_crl; /* Optional CRL list for server cert verification (non-owning). */
@@ -247,10 +246,12 @@ typedef struct tls12_context_s
     /* Consecutive empty app-data records / warning alerts (BoringSSL-compatible limits). */
     uint8_t empty_record_count;
     uint8_t warning_alert_count;
-} tls12_context_t;
+};
+#ifndef NOXTLS_TLS12_CONTEXT_T_DEFINED
+#define NOXTLS_TLS12_CONTEXT_T_DEFINED
+typedef struct tls12_context_s tls12_context_t;
+#endif
 NOXTLS_MSVC_WARNING_POP
-
-
 
 typedef struct {
     uint8_t id[TLS_SESSION_ID_MAX_LEN];
@@ -317,7 +318,6 @@ int noxtls_tls12_client_session_has_ticket(void);
 uint16_t noxtls_tls12_client_session_ticket_len(void);
 noxtls_return_t noxtls_tls12_client_session_copy_ticket(uint8_t *out, uint16_t out_cap, uint16_t *out_len);
 
-
 /** Server: send HelloRequest to ask client to renegotiate (RFC 5746). */
 noxtls_return_t noxtls_tls12_send_hello_request(tls12_context_t *ctx);
 
@@ -359,9 +359,9 @@ noxtls_return_t noxtls_tls12_prepare_rsa_server_key_exchange_scheme(tls12_contex
 /** Set server cipher-suite allowlist (wire IDs). Call before handshake. */
 void noxtls_tls12_set_server_cipher_suites(tls12_context_t *ctx, const uint16_t *suites, uint32_t count);
 /** Server: set supported ALPN protocol names (non-owning). */
-void noxtls_tls12_set_server_alpn_protocols(tls12_context_t *ctx, const char **protocols, uint32_t count);
+void noxtls_tls12_set_server_alpn_protocols(tls12_context_t *ctx, const uint8_t **protocols, uint32_t count);
 /** Server (RFC 6066): require ClientHello SNI host_name to match \a ascii_hostname (case-insensitive). NULL disables. */
-void noxtls_tls12_set_server_expected_client_sni(tls12_context_t *ctx, const char *ascii_hostname, int mismatch_fatal);
+void noxtls_tls12_set_server_expected_client_sni(tls12_context_t *ctx, const uint8_t *ascii_hostname, int mismatch_fatal);
 /** Set optional server certificate chain (intermediate certs only, DER). */
 void noxtls_tls12_set_server_certificate_chain(tls12_context_t *ctx,
                                                const uint8_t **certs,
@@ -406,5 +406,5 @@ noxtls_return_t noxtls_tls12_get_peer_ocsp_response(const tls12_context_t *ctx,
 }
 #endif
 
-#endif /* _NOXTLS_TLS12_H_ */
+#endif /* NOXTLS_TLS12_H_ */
 

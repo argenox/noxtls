@@ -124,6 +124,7 @@ endif()
 if(USE_REF_ECC_POINT_MUL)
 endif()
 
+list(APPEND PKC_SOURCES noxtls_pkc_api_refs.c)
 add_library(noxtls_pkc STATIC ${PKC_SOURCES})
 
 if(MSVC)

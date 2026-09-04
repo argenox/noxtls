@@ -24,8 +24,8 @@
 /** @addtogroup noxtls_mdigest */
 /** @{ */
 
-#ifndef _NOXTLS_SHA256_H_
-#define _NOXTLS_SHA256_H_
+#ifndef NOXTLS_SHA256_H_
+#define NOXTLS_SHA256_H_
 
 #include "noxtls_sha.h"
 #include "noxtls_common.h"
@@ -35,7 +35,7 @@
 extern "C" {
 #endif
 
-#define HASH_SHA256_OUT_LEN       (32)
+#define HASH_SHA256_OUT_LEN       (32U)
 #define HASH_SHA224_OUT_LEN       (28U) /* SHA-224 digest size (bytes) */
 #define SHA256_BLOCK_SIZE_BYTES   (64U)
 #define SHA256_BLOCK_SIZE_BITS    (512U)

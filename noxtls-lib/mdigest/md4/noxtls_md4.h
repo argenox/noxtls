@@ -25,8 +25,8 @@
 /** @addtogroup noxtls_mdigest */
 /** @{ */
 
-#ifndef _NOXTLS_MD4_H_
-#define _NOXTLS_MD4_H_
+#ifndef NOXTLS_MD4_H_
+#define NOXTLS_MD4_H_
 
 #include "noxtls_sha.h"
 #include "noxtls_common.h"

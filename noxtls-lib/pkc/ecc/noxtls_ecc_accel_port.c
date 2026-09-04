@@ -21,8 +21,10 @@
 *****************************************************************************/
 
 #include <stdint.h>
+#include <stddef.h>
 
 #include "noxtls_ecc.h"
+#include "noxtls_ecc_accel_port.h"
 #include "noxtls_common.h"
 
 /**
@@ -39,7 +41,7 @@ noxtls_return_t noxtls_ecc_point_multiply_accel_port(ecc_point_t *result,
                                                       const ecc_point_t *point,
                                                       const ecc_curve_params_t *curve)
 {
-    (void)result;
+    if(result != NULL) { result->size = result->size; }
     (void)scalar;
     (void)point;
     (void)curve;

@@ -47,6 +47,7 @@
 #include "noxtls-lib/common/getopt_compat.h"
 #include "encryption_command.h"
 #include "message_digest.h"
+#include "noxtls_ct.h"
 
 /* ============================================================================
  * Application-private static workspace (per project policy)
@@ -117,20 +118,18 @@ static void app_workspace_reset(void)
 #define APP_VERSION_MINOR 1
 #define APP_VERSION_BUILD 4
 
-extern int noxtls_pkc_app_main(int argc, char ** argv);
-extern int noxtls_cert_app_main(int argc, char ** argv);
+extern int noxtls_pkc_app_main(int argc, uint8_t ** argv);
+extern int noxtls_cert_app_main(int argc, uint8_t ** argv);
 
-static int pkc_command(int argc, char ** argv);
-static int cert_command(int argc, char ** argv);
-
+static int pkc_command(int argc, uint8_t ** argv);
+static int cert_command(int argc, uint8_t ** argv);
 
 typedef struct {
-    char cmd[32];
-    int (*handler)(int argc, char ** argv);
-    char description[256];
+    uint8_t cmd[32];
+    int (*handler)(int argc, uint8_t ** argv);
+    uint8_t description[256];
 
 } command_list_t;
-
 
 command_list_t commands[]  = {
     {"dgst", &message_digest, "Generates the noxtls_message digest"},
@@ -142,15 +141,13 @@ command_list_t commands[]  = {
     {"x509", &cert_command, "X.509 certificate operations"}
 };
 
-
-
 /**
  * @brief Print usage information and supported subcommands.
  *
  * @param[in] name Program name (argv[0])
  * @return void
  */
-void print_usage(const char * name)
+void print_usage(const uint8_t * name)
 {
     printf( "usage: %s [command] <parameters>\n", name);
     printf("\nSupported Commands\n\n");
@@ -193,7 +190,7 @@ void print_version(void)
  * @param[in] argv Command-line arguments; argv[1] is the subcommand when present
  * @return Subcommand exit code, 0 for -v/-h, or -1 on missing command
  */
-int main(int argc, char ** argv)
+int main(int argc, char **argv)
 {
     int command_found = 0;
 
@@ -209,8 +206,8 @@ int main(int argc, char ** argv)
     size_t command_count = sizeof(commands) / sizeof(commands[0]);
     for(i = 0; i < command_count; i++)
     {
-        if(strncmp(argv[1], commands[i].cmd, strlen(commands[i].cmd)) == 0 &&
-           strlen(argv[1]) == strlen(commands[i].cmd))
+        if(noxtls_u8_strncmp(argv[1], commands[i].cmd, noxtls_u8_strlen(commands[i].cmd)) == 0 &&
+           noxtls_u8_strlen(argv[1]) == noxtls_u8_strlen(commands[i].cmd))
         {
             return commands[i].handler(argc - 2, &argv[2]);
         }
@@ -249,12 +246,12 @@ int main(int argc, char ** argv)
  * @return Return code from @p app_main, or -1 on error
  */
 static int dispatch_embedded_app(
-    int (*app_main)(int argc, char ** argv),
-    const char * app_name,
+    int (*app_main)(int argc, uint8_t ** argv),
+    const uint8_t * app_name,
     int argc,
-    char ** argv)
+    uint8_t ** argv)
 {
-    char ** forwarded_argv = NULL;
+    uint8_t ** forwarded_argv = NULL;
     int i;
     int rc;
 
@@ -262,13 +259,13 @@ static int dispatch_embedded_app(
         return -1;
     }
 
-    forwarded_argv = malloc(sizeof(char *) * (size_t)(argc + 1));
+    forwarded_argv = malloc(sizeof(uint8_t *) * (size_t)(argc + 1));
     if(forwarded_argv == NULL) {
         printf("Error: memory allocation failed\n");
         return -1;
     }
 
-    forwarded_argv[0] = (char *)app_name;
+    forwarded_argv[0] = (uint8_t *)app_name;
     for(i = 0; i < argc; i++) {
         forwarded_argv[i + 1] = argv[i];
     }
@@ -285,12 +282,12 @@ static int dispatch_embedded_app(
  * @param[in] argv Subcommand arguments
  * @return Return code from the embedded PKC application
  */
-static int pkc_command(int argc, char ** argv)
+static int pkc_command(int argc, uint8_t ** argv)
 {
-    char * help_argv[] = {"-h"};
+    uint8_t * help_argv[] = {"-h"};
 
     if(argc <= 0 || argv == NULL || argv[0] == NULL ||
-       strcmp(argv[0], "--help") == 0 || strcmp(argv[0], "help") == 0) {
+       noxtls_u8_strcmp(argv[0], "--help") == 0 || noxtls_u8_strcmp(argv[0], "help") == 0) {
         return dispatch_embedded_app(noxtls_pkc_app_main, "noxtls pkc", 1, help_argv);
     }
 
@@ -304,12 +301,12 @@ static int pkc_command(int argc, char ** argv)
  * @param[in] argv Subcommand arguments
  * @return Return code from the embedded certificate application
  */
-static int cert_command(int argc, char ** argv)
+static int cert_command(int argc, uint8_t ** argv)
 {
-    char * help_argv[] = {"-h"};
+    uint8_t * help_argv[] = {"-h"};
 
     if(argc <= 0 || argv == NULL || argv[0] == NULL ||
-       strcmp(argv[0], "--help") == 0 || strcmp(argv[0], "help") == 0) {
+       noxtls_u8_strcmp(argv[0], "--help") == 0 || noxtls_u8_strcmp(argv[0], "help") == 0) {
         return dispatch_embedded_app(noxtls_cert_app_main, "noxtls cert", 1, help_argv);
     }
 

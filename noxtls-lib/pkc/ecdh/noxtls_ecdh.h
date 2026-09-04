@@ -23,8 +23,8 @@
 /** @addtogroup noxtls_pkc */
 /** @{ */
 
-#ifndef _NOXTLS_ECDH_H_
-#define _NOXTLS_ECDH_H_
+#ifndef NOXTLS_ECDH_H_
+#define NOXTLS_ECDH_H_
 
 #include <stdint.h>
 
@@ -42,19 +42,16 @@ extern "C" {
  * contains a scalar, a point coordinate, or a shared secret, so callers can
  * safely use it for field diagnostics.
  */
-typedef enum
-{
-    NOXTLS_ECDH_DIAGNOSTIC_NONE = 0,
-    NOXTLS_ECDH_DIAGNOSTIC_ARGUMENT,
-    NOXTLS_ECDH_DIAGNOSTIC_PRIVATE_KEY,
-    NOXTLS_ECDH_DIAGNOSTIC_OUTPUT_BUFFER,
-    NOXTLS_ECDH_DIAGNOSTIC_PEER_PUBLIC_KEY,
-    NOXTLS_ECDH_DIAGNOSTIC_SCALAR_MULTIPLY,
-    NOXTLS_ECDH_DIAGNOSTIC_SHARED_POINT_INFINITY,
-    NOXTLS_ECDH_DIAGNOSTIC_SHARED_SECRET_LENGTH,
-    /* TLS ECDHE wrapper could not allocate its output secret buffer. */
-    NOXTLS_ECDH_DIAGNOSTIC_ALLOCATION
-} noxtls_ecdh_diagnostic_stage_t;
+typedef uint32_t noxtls_ecdh_diagnostic_stage_t;
+#define NOXTLS_ECDH_DIAGNOSTIC_NONE                  ((noxtls_ecdh_diagnostic_stage_t)0U)
+#define NOXTLS_ECDH_DIAGNOSTIC_ARGUMENT              ((noxtls_ecdh_diagnostic_stage_t)1U)
+#define NOXTLS_ECDH_DIAGNOSTIC_PRIVATE_KEY           ((noxtls_ecdh_diagnostic_stage_t)2U)
+#define NOXTLS_ECDH_DIAGNOSTIC_OUTPUT_BUFFER         ((noxtls_ecdh_diagnostic_stage_t)3U)
+#define NOXTLS_ECDH_DIAGNOSTIC_PEER_PUBLIC_KEY       ((noxtls_ecdh_diagnostic_stage_t)4U)
+#define NOXTLS_ECDH_DIAGNOSTIC_SCALAR_MULTIPLY       ((noxtls_ecdh_diagnostic_stage_t)5U)
+#define NOXTLS_ECDH_DIAGNOSTIC_SHARED_POINT_INFINITY ((noxtls_ecdh_diagnostic_stage_t)6U)
+/* TLS ECDHE wrapper could not allocate its output secret buffer. */
+#define NOXTLS_ECDH_DIAGNOSTIC_ALLOCATION            ((noxtls_ecdh_diagnostic_stage_t)8U)
 
 /**
  * @brief Optional diagnostic result for an ECDH operation.
@@ -98,6 +95,5 @@ noxtls_return_t noxtls_ecdh_compute_shared_secret(ecc_key_t *private_key,
 }
 #endif
 
-#endif /* _NOXTLS_ECDH_H_ */
-
+#endif /* NOXTLS_ECDH_H_ */
 

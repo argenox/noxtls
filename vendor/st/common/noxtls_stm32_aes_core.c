@@ -16,7 +16,6 @@ typedef struct
     uintptr_t aes_base;
 } noxtls_stm32_aes_family_cfg_t;
 
-
 static int noxtls_stm32_aes_wait_flag(uintptr_t aes_base, uint32_t mask, uint32_t value)
 {
     uint32_t i;

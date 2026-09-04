@@ -23,8 +23,8 @@
 /** @addtogroup noxtls_pkc */
 /** @{ */
 
-#ifndef _NOXTLS_ECDSA_H_
-#define _NOXTLS_ECDSA_H_
+#ifndef NOXTLS_ECDSA_H_
+#define NOXTLS_ECDSA_H_
 
 #include <stdint.h>
 #include "noxtls_common.h"
@@ -57,8 +57,8 @@ typedef struct
 } noxtls_ecdsa_sign_timing_t;
 
 /* ECDSA Signature Operations */
-noxtls_return_t noxtls_ecdsa_sign(ecc_key_t *key, const uint8_t *noxtls_message, uint32_t message_len, ecdsa_signature_t *signature, noxtls_hash_algos_t hash_algo);
-noxtls_return_t noxtls_ecdsa_verify(ecc_key_t *key, const uint8_t *noxtls_message, uint32_t message_len, const ecdsa_signature_t *signature, noxtls_hash_algos_t hash_algo);
+noxtls_return_t noxtls_ecdsa_sign(const ecc_key_t *key, const uint8_t *noxtls_message, uint32_t message_len, ecdsa_signature_t *signature, noxtls_hash_algos_t hash_algo);
+noxtls_return_t noxtls_ecdsa_verify(const ecc_key_t *key, const uint8_t *noxtls_message, uint32_t message_len, const ecdsa_signature_t *signature, noxtls_hash_algos_t hash_algo);
 
 /* ECDSA Signature Format */
 noxtls_return_t noxtls_ecdsa_signature_init(ecdsa_signature_t *sig, uint32_t size);
@@ -74,5 +74,5 @@ const noxtls_ecdsa_sign_timing_t *noxtls_ecdsa_last_sign_timing(void);
 }
 #endif
 
-#endif /* _NOXTLS_ECDSA_H_ */
+#endif /* NOXTLS_ECDSA_H_ */
 

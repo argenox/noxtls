@@ -24,8 +24,8 @@
 /** @addtogroup noxtls_encryption */
 /** @{ */
 
-#ifndef _NOXTLS_CHACHA20_POLY1305_H_
-#define _NOXTLS_CHACHA20_POLY1305_H_
+#ifndef NOXTLS_CHACHA20_POLY1305_H_
+#define NOXTLS_CHACHA20_POLY1305_H_
 
 /* Standard Includes */
 #include <stdint.h>
@@ -44,9 +44,9 @@ extern "C" {
 #define NOXTLS_CHACHA20_POLY1305_TAG_SIZE       16  /* 128-bit authentication tag */
 
 /* Poly1305 Constants */
-#define POLY1305_KEY_SIZE                32  /* 256-bit key */
-#define POLY1305_TAG_SIZE                16  /* 128-bit tag */
-#define POLY1305_BLOCK_SIZE              16  /* 128-bit Poly1305 block (RFC 8439 padding unit, length block) */
+#define POLY1305_KEY_SIZE                32U  /* 256-bit key */
+#define POLY1305_TAG_SIZE                16U  /* 128-bit tag */
+#define POLY1305_BLOCK_SIZE              16U  /* 128-bit Poly1305 block (RFC 8439 padding unit, length block) */
 
 /* Poly1305 Context Structure */
 NOXTLS_MSVC_WARNING_PUSH
@@ -156,6 +156,5 @@ noxtls_return_t noxtls_chacha20_poly1305_self_test(void);
 }
 #endif
 
-#endif /* _NOXTLS_CHACHA20_POLY1305_H_ */
-
+#endif /* NOXTLS_CHACHA20_POLY1305_H_ */
 

@@ -3,6 +3,7 @@
 
 add_library(noxtls_drbg STATIC
     noxtls_drbg.c
+    noxtls_drbg_api_refs.c
 )
 
 if(MSVC)

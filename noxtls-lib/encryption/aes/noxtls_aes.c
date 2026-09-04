@@ -28,7 +28,6 @@ extern "C"
 
 /* Standard Includes */
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -37,6 +36,7 @@ extern "C"
 #include "noxtls_aes_accel.h"
 #include "noxtls_aes_internal.h"
 #include "noxtls_common.h"
+#include "noxtls_ct.h"
 
 #if NOXTLS_FEATURE_AES
 
@@ -56,56 +56,31 @@ extern "C"
 #define NOXTLS_FEATURE_AES_SOFTWARE_FALLBACK 1
 #endif
 
-
-
 /** AES Substitution Box */
 static const uint8_t aes_sub_box[16][16] =
 {
-    {0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76},
-    {0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0},
-    {0xb7, 0xfd, 0x93, 0x26, 0x36, 0x3f, 0xf7, 0xcc, 0x34, 0xa5, 0xe5, 0xf1, 0x71, 0xd8, 0x31, 0x15},
-    {0x04, 0xc7, 0x23, 0xc3, 0x18, 0x96, 0x05, 0x9a, 0x07, 0x12, 0x80, 0xe2, 0xeb, 0x27, 0xb2, 0x75},
-    {0x09, 0x83, 0x2c, 0x1a, 0x1b, 0x6e, 0x5a, 0xa0, 0x52, 0x3b, 0xd6, 0xb3, 0x29, 0xe3, 0x2f, 0x84},
-    {0x53, 0xd1, 0x00, 0xed, 0x20, 0xfc, 0xb1, 0x5b, 0x6a, 0xcb, 0xbe, 0x39, 0x4a, 0x4c, 0x58, 0xcf},
-    {0xd0, 0xef, 0xaa, 0xfb, 0x43, 0x4d, 0x33, 0x85, 0x45, 0xf9, 0x02, 0x7f, 0x50, 0x3c, 0x9f, 0xa8},
-    {0x51, 0xa3, 0x40, 0x8f, 0x92, 0x9d, 0x38, 0xf5, 0xbc, 0xb6, 0xda, 0x21, 0x10, 0xff, 0xf3, 0xd2},
-    {0xcd, 0x0c, 0x13, 0xec, 0x5f, 0x97, 0x44, 0x17, 0xc4, 0xa7, 0x7e, 0x3d, 0x64, 0x5d, 0x19, 0x73},
-    {0x60, 0x81, 0x4f, 0xdc, 0x22, 0x2a, 0x90, 0x88, 0x46, 0xee, 0xb8, 0x14, 0xde, 0x5e, 0x0b, 0xdb},
-    {0xe0, 0x32, 0x3a, 0x0a, 0x49, 0x06, 0x24, 0x5c, 0xc2, 0xd3, 0xac, 0x62, 0x91, 0x95, 0xe4, 0x79},
-    {0xe7, 0xc8, 0x37, 0x6d, 0x8d, 0xd5, 0x4e, 0xa9, 0x6c, 0x56, 0xf4, 0xea, 0x65, 0x7a, 0xae, 0x08},
-    {0xba, 0x78, 0x25, 0x2e, 0x1c, 0xa6, 0xb4, 0xc6, 0xe8, 0xdd, 0x74, 0x1f, 0x4b, 0xbd, 0x8b, 0x8a},
-    {0x70, 0x3e, 0xb5, 0x66, 0x48, 0x03, 0xf6, 0x0e, 0x61, 0x35, 0x57, 0xb9, 0x86, 0xc1, 0x1d, 0x9e},
-    {0xe1, 0xf8, 0x98, 0x11, 0x69, 0xd9, 0x8e, 0x94, 0x9b, 0x1e, 0x87, 0xe9, 0xce, 0x55, 0x28, 0xdf},
-    {0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16}
-};
-
-/** AES Inverse Substitution Box */
-static const uint8_t aes_inv_sub_box[16][16] =
-{
-    {0x52, 0x09, 0x6a, 0xd5, 0x30, 0x36, 0xa5, 0x38, 0xbf, 0x40, 0xa3, 0x9e, 0x81, 0xf3, 0xd7, 0xfb},
-    {0x7c, 0xe3, 0x39, 0x82, 0x9b, 0x2f, 0xff, 0x87, 0x34, 0x8e, 0x43, 0x44, 0xc4, 0xde, 0xe9, 0xcb},
-    {0x54, 0x7b, 0x94, 0x32, 0xa6, 0xc2, 0x23, 0x3d, 0xee, 0x4c, 0x95, 0x0b, 0x42, 0xfa, 0xc3, 0x4e},
-    {0x08, 0x2e, 0xa1, 0x66, 0x28, 0xd9, 0x24, 0xb2, 0x76, 0x5b, 0xa2, 0x49, 0x6d, 0x8b, 0xd1, 0x25},
-    {0x72, 0xf8, 0xf6, 0x64, 0x86, 0x68, 0x98, 0x16, 0xd4, 0xa4, 0x5c, 0xcc, 0x5d, 0x65, 0xb6, 0x92},
-    {0x6c, 0x70, 0x48, 0x50, 0xfd, 0xed, 0xb9, 0xda, 0x5e, 0x15, 0x46, 0x57, 0xa7, 0x8d, 0x9d, 0x84},
-    {0x90, 0xd8, 0xab, 0x00, 0x8c, 0xbc, 0xd3, 0x0a, 0xf7, 0xe4, 0x58, 0x05, 0xb8, 0xb3, 0x45, 0x06},
-    {0xd0, 0x2c, 0x1e, 0x8f, 0xca, 0x3f, 0x0f, 0x02, 0xc1, 0xaf, 0xbd, 0x03, 0x01, 0x13, 0x8a, 0x6b},
-    {0x3a, 0x91, 0x11, 0x41, 0x4f, 0x67, 0xdc, 0xea, 0x97, 0xf2, 0xcf, 0xce, 0xf0, 0xb4, 0xe6, 0x73},
-    {0x96, 0xac, 0x74, 0x22, 0xe7, 0xad, 0x35, 0x85, 0xe2, 0xf9, 0x37, 0xe8, 0x1c, 0x75, 0xdf, 0x6e},
-    {0x47, 0xf1, 0x1a, 0x71, 0x1d, 0x29, 0xc5, 0x89, 0x6f, 0xb7, 0x62, 0x0e, 0xaa, 0x18, 0xbe, 0x1b},
-    {0xfc, 0x56, 0x3e, 0x4b, 0xc6, 0xd2, 0x79, 0x20, 0x9a, 0xdb, 0xc0, 0xfe, 0x78, 0xcd, 0x5a, 0xf4},
-    {0x1f, 0xdd, 0xa8, 0x33, 0x88, 0x07, 0xc7, 0x31, 0xb1, 0x12, 0x10, 0x59, 0x27, 0x80, 0xec, 0x5f},
-    {0x60, 0x51, 0x7f, 0xa9, 0x19, 0xb5, 0x4a, 0x0d, 0x2d, 0xe5, 0x7a, 0x9f, 0x93, 0xc9, 0x9c, 0xef},
-    {0xa0, 0xe0, 0x3b, 0x4d, 0xae, 0x2a, 0xf5, 0xb0, 0xc8, 0xeb, 0xbb, 0x3c, 0x83, 0x53, 0x99, 0x61},
-    {0x17, 0x2b, 0x04, 0x7e, 0xba, 0x77, 0xd6, 0x26, 0xe1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0c, 0x7d}
+    {0x63U, 0x7cU, 0x77U, 0x7bU, 0xf2U, 0x6bU, 0x6fU, 0xc5U, 0x30U, 0x01U, 0x67U, 0x2bU, 0xfeU, 0xd7U, 0xabU, 0x76U},
+    {0xcaU, 0x82U, 0xc9U, 0x7dU, 0xfaU, 0x59U, 0x47U, 0xf0U, 0xadU, 0xd4U, 0xa2U, 0xafU, 0x9cU, 0xa4U, 0x72U, 0xc0U},
+    {0xb7U, 0xfdU, 0x93U, 0x26U, 0x36U, 0x3fU, 0xf7U, 0xccU, 0x34U, 0xa5U, 0xe5U, 0xf1U, 0x71U, 0xd8U, 0x31U, 0x15U},
+    {0x04U, 0xc7U, 0x23U, 0xc3U, 0x18U, 0x96U, 0x05U, 0x9aU, 0x07U, 0x12U, 0x80U, 0xe2U, 0xebU, 0x27U, 0xb2U, 0x75U},
+    {0x09U, 0x83U, 0x2cU, 0x1aU, 0x1bU, 0x6eU, 0x5aU, 0xa0U, 0x52U, 0x3bU, 0xd6U, 0xb3U, 0x29U, 0xe3U, 0x2fU, 0x84U},
+    {0x53U, 0xd1U, 0x00U, 0xedU, 0x20U, 0xfcU, 0xb1U, 0x5bU, 0x6aU, 0xcbU, 0xbeU, 0x39U, 0x4aU, 0x4cU, 0x58U, 0xcfU},
+    {0xd0U, 0xefU, 0xaaU, 0xfbU, 0x43U, 0x4dU, 0x33U, 0x85U, 0x45U, 0xf9U, 0x02U, 0x7fU, 0x50U, 0x3cU, 0x9fU, 0xa8U},
+    {0x51U, 0xa3U, 0x40U, 0x8fU, 0x92U, 0x9dU, 0x38U, 0xf5U, 0xbcU, 0xb6U, 0xdaU, 0x21U, 0x10U, 0xffU, 0xf3U, 0xd2U},
+    {0xcdU, 0x0cU, 0x13U, 0xecU, 0x5fU, 0x97U, 0x44U, 0x17U, 0xc4U, 0xa7U, 0x7eU, 0x3dU, 0x64U, 0x5dU, 0x19U, 0x73U},
+    {0x60U, 0x81U, 0x4fU, 0xdcU, 0x22U, 0x2aU, 0x90U, 0x88U, 0x46U, 0xeeU, 0xb8U, 0x14U, 0xdeU, 0x5eU, 0x0bU, 0xdbU},
+    {0xe0U, 0x32U, 0x3aU, 0x0aU, 0x49U, 0x06U, 0x24U, 0x5cU, 0xc2U, 0xd3U, 0xacU, 0x62U, 0x91U, 0x95U, 0xe4U, 0x79U},
+    {0xe7U, 0xc8U, 0x37U, 0x6dU, 0x8dU, 0xd5U, 0x4eU, 0xa9U, 0x6cU, 0x56U, 0xf4U, 0xeaU, 0x65U, 0x7aU, 0xaeU, 0x08U},
+    {0xbaU, 0x78U, 0x25U, 0x2eU, 0x1cU, 0xa6U, 0xb4U, 0xc6U, 0xe8U, 0xddU, 0x74U, 0x1fU, 0x4bU, 0xbdU, 0x8bU, 0x8aU},
+    {0x70U, 0x3eU, 0xb5U, 0x66U, 0x48U, 0x03U, 0xf6U, 0x0eU, 0x61U, 0x35U, 0x57U, 0xb9U, 0x86U, 0xc1U, 0x1dU, 0x9eU},
+    {0xe1U, 0xf8U, 0x98U, 0x11U, 0x69U, 0xd9U, 0x8eU, 0x94U, 0x9bU, 0x1eU, 0x87U, 0xe9U, 0xceU, 0x55U, 0x28U, 0xdfU},
+    {0x8cU, 0xa1U, 0x89U, 0x0dU, 0xbfU, 0xe6U, 0x42U, 0x68U, 0x41U, 0x99U, 0x2dU, 0x0fU, 0xb0U, 0x54U, 0xbbU, 0x16U}
 };
 
 static uint32_t aes_enc_te0[256];
 static uint32_t aes_enc_te1[256];
 static uint32_t aes_enc_te2[256];
 static uint32_t aes_enc_te3[256];
-static uint8_t aes_enc_tables_ready = 0U;
-
 static uint32_t aes_rotword(uint32_t w);;
 static uint32_t aes_subword(uint32_t w);
 static uint32_t rcon(uint8_t in);
@@ -131,6 +106,9 @@ static noxtls_return_t noxtls_aes_decrypt_block_software_expanded(const uint32_t
                                                            uint8_t rounds,
                                                            const uint8_t *data,
                                                            uint8_t *output);
+static noxtls_return_t noxtls_aes_decrypt_block_ctx_internal(const noxtls_aes_context_t *ctx,
+                                                            const uint8_t *data,
+                                                            uint8_t *output);
 /**
  * @brief Copy an AES state matrix to a contiguous output block.
  *
@@ -138,16 +116,17 @@ static noxtls_return_t noxtls_aes_decrypt_block_software_expanded(const uint32_t
  * @param output Output buffer that receives NOXTLS_AES_BLOCK_LENGTH bytes.
  * @return 0 on success.
  */
-static int copy_state_to_buffer(uint8_t state[4][4], uint8_t* output)
+static int copy_state_to_buffer(const uint8_t *state_bytes, uint8_t* output)
 {
-    int row;
-    int col;
-    int cnt = 0;
-    for(col = 0; col< 4; col++)
+    uint32_t row = 0U;
+    uint32_t col = 0U;
+    uint32_t cnt = 0U;
+    for (col = 0U; col < 4U; col += 1U)
     {
-        for(row = 0; row < 4; row++)
+        for (row = 0U; row < 4U; row += 1U)
         {
-            output[cnt++] = state[row][col];
+            output[cnt] = state_bytes[(row * 4U) + col];
+            cnt += 1U;
         }
     }
 
@@ -162,12 +141,13 @@ static int copy_state_to_buffer(uint8_t state[4][4], uint8_t* output)
  */
 static uint8_t aes_xtime_byte(uint8_t x)
 {
-    uint8_t hi = (uint8_t)(x & 0x80U);
-    x = (uint8_t)(x << 1);
-    if(hi != 0U) {
-        x = (uint8_t)(x ^ 0x1BU);
+    uint8_t v = x;
+    uint8_t hi = (uint8_t)(v & 0x80U);
+    v = (uint8_t)(v << 1U);
+    if (hi != 0U) {
+        v = (uint8_t)(v ^ 0x1BU);
     }
-    return x;
+    return v;
 }
 
 /**
@@ -178,7 +158,7 @@ static uint8_t aes_xtime_byte(uint8_t x)
  */
 static uint8_t aes_sbox_lookup(uint8_t x)
 {
-    return aes_sub_box[(x >> 4) & 0x0FU][x & 0x0FU];
+    return aes_sub_box[(((uint32_t)x >> 4U) & 0x0FU)][x & 0x0FU];
 }
 
 /**
@@ -189,9 +169,9 @@ static uint8_t aes_sbox_lookup(uint8_t x)
  */
 static uint32_t aes_load_be32(const uint8_t *src)
 {
-    return ((uint32_t)src[0] << 24) |
-           ((uint32_t)src[1] << 16) |
-           ((uint32_t)src[2] << 8) |
+    return ((uint32_t)src[0] <<24U) |
+           ((uint32_t)src[1] <<16U) |
+           ((uint32_t)src[2] <<8U) |
            (uint32_t)src[3];
 }
 
@@ -204,9 +184,9 @@ static uint32_t aes_load_be32(const uint8_t *src)
  */
 static void aes_store_be32(uint8_t *dst, uint32_t word)
 {
-    dst[0] = (uint8_t)(word >> 24);
-    dst[1] = (uint8_t)(word >> 16);
-    dst[2] = (uint8_t)(word >> 8);
+    dst[0] = (uint8_t)(word >>24U);
+    dst[1] = (uint8_t)(word >>16U);
+    dst[2] = (uint8_t)(word >>8U);
     dst[3] = (uint8_t)word;
 }
 
@@ -218,25 +198,29 @@ static void aes_store_be32(uint8_t *dst, uint32_t word)
  */
 static void aes_software_init_encrypt_tables(void)
 {
-    uint32_t x;
+    /* AES enc table ready flag (Rule 8.9). */
+    static uint8_t aes_enc_tables_ready = 0U;
 
-    if(aes_enc_tables_ready != 0U) {
+
+    uint32_t x = 0U;
+
+    if (aes_enc_tables_ready != 0U) {
         return;
     }
 
-    for(x = 0U; x < 256U; x++) {
-        uint8_t s = aes_sbox_lookup((uint8_t)x);
-        uint8_t s2 = aes_xtime_byte(s);
+    for (x = 0U; x < 256U; x += 1U) {
+        uint8_t s = (uint8_t)(aes_sbox_lookup((uint8_t)x));
+        uint8_t s2 = (uint8_t)(aes_xtime_byte(s));
         uint8_t s3 = (uint8_t)(s2 ^ s);
-        uint32_t te0 = ((uint32_t)s2 << 24) |
-                       ((uint32_t)s << 16) |
-                       ((uint32_t)s << 8) |
+        uint32_t te0 = ((uint32_t)s2 <<24U) |
+                       ((uint32_t)s <<16U) |
+                       ((uint32_t)s <<8U) |
                        (uint32_t)s3;
 
         aes_enc_te0[x] = te0;
-        aes_enc_te1[x] = (te0 >> 8) | (te0 << 24);
-        aes_enc_te2[x] = (te0 >> 16) | (te0 << 16);
-        aes_enc_te3[x] = (te0 >> 24) | (te0 << 8);
+        aes_enc_te1[x] = (te0 >>8U) | (te0 <<24U);
+        aes_enc_te2[x] = (te0 >>16U) | (te0 <<16U);
+        aes_enc_te3[x] = (te0 >>24U) | (te0 <<8U);
     }
 
     aes_enc_tables_ready = 1U;
@@ -266,48 +250,51 @@ noxtls_return_t noxtls_aes_encrypt_data(const uint8_t* key,
                      noxtls_aes_mode_t mode)
 {
     /* Route to appropriate mode-specific implementation */
-    switch(mode) {
-        case NOXTLS_AES_ECB:
+    {
+        uint32_t mode_u = (uint32_t)mode;
+        switch (mode_u) {
+        case (uint32_t)NOXTLS_AES_ECB:
 #if NOXTLS_FEATURE_AES_ECB
             return noxtls_aes_encrypt_ecb(key, data, data_len, iv, output, type);
 #else
             return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
-        case NOXTLS_AES_CBC:
+        case (uint32_t)NOXTLS_AES_CBC:
 #if NOXTLS_FEATURE_AES_CBC
             return noxtls_aes_encrypt_cbc(key, data, data_len, iv, output, type);
 #else
             return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
-        case NOXTLS_AES_CTR:
+        case (uint32_t)NOXTLS_AES_CTR:
 #if NOXTLS_FEATURE_AES_CTR
             return noxtls_aes_encrypt_ctr(key, data, data_len, iv, output, type);
 #else
             return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
-        case NOXTLS_AES_CFB:
+        case (uint32_t)NOXTLS_AES_CFB:
 #if NOXTLS_FEATURE_AES_CFB
             return noxtls_aes_encrypt_cfb(key, data, data_len, iv, output, type);
 #else
             return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
-        case NOXTLS_AES_OFB:
+        case (uint32_t)NOXTLS_AES_OFB:
 #if NOXTLS_FEATURE_AES_OFB
             return noxtls_aes_encrypt_ofb(key, data, data_len, iv, output, type);
 #else
             return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
-        case NOXTLS_AES_XTS:
+        case (uint32_t)NOXTLS_AES_XTS:
 #if NOXTLS_FEATURE_AES_XTS
             return noxtls_aes_encrypt_xts(key, data, data_len, iv, output, type);
 #else
             return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
-        case NOXTLS_AES_GCM:
+        case (uint32_t)NOXTLS_AES_GCM:
             /* AES-GCM requires tag handling; use noxtls_aes_gcm_encrypt() directly. */
             return NOXTLS_RETURN_NOT_SUPPORTED;
         default:
             return NOXTLS_RETURN_INVALID_MODE; /* Unknown mode */
+    }
     }
 }
 
@@ -322,41 +309,45 @@ noxtls_return_t noxtls_aes_encrypt_data(const uint8_t* key,
  */
 static noxtls_return_t aes_type_params(noxtls_aes_type_t type, uint8_t *rounds, uint8_t *key_words, uint8_t *key_len)
 {
-    if(rounds == NULL || key_words == NULL || key_len == NULL) {
+    if ((rounds == NULL) || (key_words == NULL) || (key_len == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
-    switch(type)
     {
-    case NOXTLS_AES_128_BIT:
+        /* Widen so a defensive default remains reachable (Rule 2.1). */
+        uint32_t type_u = (uint32_t)type;
+        switch (type_u)
+        {
+        case (uint32_t)NOXTLS_AES_128_BIT:
 #if NOXTLS_FEATURE_AES_128
-        *rounds = NOXTLS_AES_128_ROUNDS;
-        *key_words = 4;
-        *key_len = 16;
-        return NOXTLS_RETURN_SUCCESS;
+            *rounds = NOXTLS_AES_128_ROUNDS;
+            *key_words = 4;
+            *key_len = 16U;
+            return NOXTLS_RETURN_SUCCESS;
 #else
-        return NOXTLS_RETURN_NOT_SUPPORTED;
+            return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
-    case NOXTLS_AES_192_BIT:
+        case (uint32_t)NOXTLS_AES_192_BIT:
 #if NOXTLS_FEATURE_AES_192
-        *rounds = NOXTLS_AES_192_ROUNDS;
-        *key_words = 6;
-        *key_len = 24;
-        return NOXTLS_RETURN_SUCCESS;
+            *rounds = NOXTLS_AES_192_ROUNDS;
+            *key_words = 6;
+            *key_len = 24U;
+            return NOXTLS_RETURN_SUCCESS;
 #else
-        return NOXTLS_RETURN_NOT_SUPPORTED;
+            return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
-    case NOXTLS_AES_256_BIT:
+        case (uint32_t)NOXTLS_AES_256_BIT:
 #if NOXTLS_FEATURE_AES_256
-        *rounds = NOXTLS_AES_256_ROUNDS;
-        *key_words = 8;
-        *key_len = 32;
-        return NOXTLS_RETURN_SUCCESS;
+            *rounds = NOXTLS_AES_256_ROUNDS;
+            *key_words = 8;
+            *key_len = 32U;
+            return NOXTLS_RETURN_SUCCESS;
 #else
-        return NOXTLS_RETURN_NOT_SUPPORTED;
+            return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
-    default:
-        return NOXTLS_RETURN_INVALID_KEY_SIZE;
+        default:
+            return NOXTLS_RETURN_INVALID_KEY_SIZE;
+        }
     }
 }
 
@@ -370,28 +361,28 @@ static noxtls_return_t aes_type_params(noxtls_aes_type_t type, uint8_t *rounds, 
  */
 noxtls_return_t noxtls_aes_prepare_context(noxtls_aes_context_t *ctx, const uint8_t *key, noxtls_aes_type_t type)
 {
-    noxtls_return_t rc;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(ctx == NULL || key == NULL) {
+    if ((ctx == NULL) || (key == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
     rc = aes_type_params(type, &ctx->rounds, &ctx->key_words, &ctx->key_len);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
+    if (rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 
     ctx->type = type;
-    memcpy(ctx->key, key, ctx->key_len);
+    noxtls_copy_u8(ctx->key, sizeof(ctx->key), key, (size_t)(ctx->key_len));
 #if NOXTLS_FEATURE_AES_SOFTWARE_FALLBACK
-    aes_software_init_encrypt_tables();
-    rc = noxtls_aes_key_expansion(key, ctx->round_keys, ctx->key_words, ctx->rounds);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
+    (void)aes_software_init_encrypt_tables();
+    rc = noxtls_aes_key_expansion(key, ctx->round_keys, (int)ctx->key_words, (int)ctx->rounds);
+    if (rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    ctx->round_keys_ready = 1;
+    ctx->round_keys_ready = 1U;
 #else
-    ctx->round_keys_ready = 0;
+    ctx->round_keys_ready = 0U;
 #endif
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -404,10 +395,10 @@ noxtls_return_t noxtls_aes_prepare_context(noxtls_aes_context_t *ctx, const uint
  */
 static void aes_counter_inc(uint8_t counter[NOXTLS_AES_BLOCK_LENGTH])
 {
-    int i;
-    for(i = NOXTLS_AES_BLOCK_LENGTH - 1; i >= 0; i--) {
-        counter[i]++;
-        if(counter[i] != 0) {
+    int32_t i = 0;
+    for (i = (int)NOXTLS_AES_BLOCK_LENGTH - 1; i >= 0; i -= 1) {
+        counter[i] = (uint8_t)(counter[i] + 1U);
+        if (counter[i] != 0U) {
             break;
         }
     }
@@ -422,10 +413,10 @@ static void aes_counter_inc(uint8_t counter[NOXTLS_AES_BLOCK_LENGTH])
  */
 static noxtls_return_t aes_init_iv_required(const uint8_t *iv, noxtls_aes_context_t *ctx)
 {
-    if(iv == NULL) {
+    if (iv == NULL) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
-    memcpy(ctx->feedback, iv, NOXTLS_AES_BLOCK_LENGTH);
+    noxtls_copy_u8(ctx->feedback, sizeof(ctx->feedback), iv, (size_t)(NOXTLS_AES_BLOCK_LENGTH));
     ctx->partial_len = NOXTLS_AES_BLOCK_LENGTH;
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -448,43 +439,46 @@ noxtls_return_t noxtls_aes_init(noxtls_aes_context_t *ctx,
              noxtls_aes_mode_t mode,
              noxtls_aes_operation_t op)
 {
-    noxtls_return_t rc;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(ctx == NULL || key == NULL) {
+    if ((ctx == NULL) || (key == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
-    memset(ctx, 0, sizeof(*ctx));
+    noxtls_secure_zero((ctx), sizeof(*(ctx)));
     ctx->mode = mode;
     ctx->op = op;
     rc = noxtls_aes_prepare_context(ctx, key, type);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
+    if (rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 
-    switch(mode) {
-        case NOXTLS_AES_ECB:
+    {
+        uint32_t mode_u = (uint32_t)mode;
+        switch (mode_u) {
+        case (uint32_t)NOXTLS_AES_ECB:
 #if NOXTLS_FEATURE_AES_ECB
             break;
 #else
             return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
-        case NOXTLS_AES_CBC:
+        case (uint32_t)NOXTLS_AES_CBC:
 #if NOXTLS_FEATURE_AES_CBC
-            if(iv != NULL) {
-                memcpy(ctx->feedback, iv, NOXTLS_AES_BLOCK_LENGTH);
+            if (iv != NULL) {
+                noxtls_copy_u8(ctx->feedback, sizeof(ctx->feedback), iv, (size_t)(NOXTLS_AES_BLOCK_LENGTH));
             } else {
-                memset(ctx->feedback, 0, NOXTLS_AES_BLOCK_LENGTH);
+                /* MISRA 15.7: final else path */
+                noxtls_secure_zero((ctx->feedback), (size_t)(NOXTLS_AES_BLOCK_LENGTH));
             }
             break;
 #else
             return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
-        case NOXTLS_AES_CTR:
+        case (uint32_t)NOXTLS_AES_CTR:
 #if NOXTLS_FEATURE_AES_CTR
         {
             noxtls_return_t ir = aes_init_iv_required(iv, ctx);
-            if(ir != NOXTLS_RETURN_SUCCESS) {
+            if (ir != NOXTLS_RETURN_SUCCESS) {
                 return ir;
             }
         }
@@ -492,11 +486,11 @@ noxtls_return_t noxtls_aes_init(noxtls_aes_context_t *ctx,
 #else
             return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
-        case NOXTLS_AES_CFB:
+        case (uint32_t)NOXTLS_AES_CFB:
 #if NOXTLS_FEATURE_AES_CFB
         {
             noxtls_return_t ir = aes_init_iv_required(iv, ctx);
-            if(ir != NOXTLS_RETURN_SUCCESS) {
+            if (ir != NOXTLS_RETURN_SUCCESS) {
                 return ir;
             }
         }
@@ -504,11 +498,11 @@ noxtls_return_t noxtls_aes_init(noxtls_aes_context_t *ctx,
 #else
             return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
-        case NOXTLS_AES_OFB:
+        case (uint32_t)NOXTLS_AES_OFB:
 #if NOXTLS_FEATURE_AES_OFB
         {
             noxtls_return_t ir = aes_init_iv_required(iv, ctx);
-            if(ir != NOXTLS_RETURN_SUCCESS) {
+            if (ir != NOXTLS_RETURN_SUCCESS) {
                 return ir;
             }
         }
@@ -519,8 +513,9 @@ noxtls_return_t noxtls_aes_init(noxtls_aes_context_t *ctx,
         default:
             return NOXTLS_RETURN_INVALID_MODE;
     }
+    }
 
-    ctx->initialized = 1;
+    ctx->initialized = 1U;
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -543,111 +538,109 @@ noxtls_return_t noxtls_aes_update(noxtls_aes_context_t *ctx,
                uint8_t *output,
                uint32_t *output_len)
 {
-    uint32_t produced = 0;
-    uint32_t i;
+    uint32_t produced = 0U;
+    uint32_t i = 0U;
+    const uint8_t *in_ptr = input;
+    uint32_t in_left = input_len;
 
-    if(ctx == NULL || output_len == NULL) {
+    if ((ctx == NULL) || (output_len == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
-    *output_len = 0;
+    *output_len = 0U;
 
-    if(!ctx->initialized) {
+    if (ctx->initialized == 0U) {
         return NOXTLS_RETURN_NOT_INITIALIZED;
     }
-    if(input_len > 0 && (input == NULL || output == NULL)) {
+    if ((in_left > 0U) && ((in_ptr == NULL) || (output == NULL))) {
         return NOXTLS_RETURN_NULL;
     }
-    if(input_len == 0) {
+    if (in_left == 0U) {
         return NOXTLS_RETURN_SUCCESS;
     }
 
-    switch(ctx->mode) {
-        case NOXTLS_AES_ECB:
-        case NOXTLS_AES_CBC:
-            while(input_len > 0) {
+    if ((ctx->mode == NOXTLS_AES_ECB) || (ctx->mode == NOXTLS_AES_CBC)) {
+            while (in_left > 0U) {
                 uint32_t need = (uint32_t)NOXTLS_AES_BLOCK_LENGTH - ctx->partial_len;
-                uint32_t take = (input_len < need) ? input_len : need;
-                memcpy(ctx->partial + ctx->partial_len, input, take);
+                uint32_t take = (uint32_t)((in_left < need) ? in_left : need);
+                noxtls_copy_u8(&ctx->partial[ctx->partial_len], sizeof(ctx->partial) - (size_t)(ctx->partial_len), in_ptr, (size_t)(take));
                 ctx->partial_len = (uint8_t)(ctx->partial_len + take);
-                input += take;
-                input_len -= take;
+                in_ptr = &in_ptr[take];
+                in_left -= take;
 
-                if(ctx->partial_len == NOXTLS_AES_BLOCK_LENGTH) {
-                    if(ctx->mode == NOXTLS_AES_ECB) {
-                        if(ctx->op == NOXTLS_AES_OP_ENCRYPT) {
-                            noxtls_return_t r = noxtls_aes_encrypt_block_ctx_internal(ctx, ctx->partial, output + produced);
-                            if(r != NOXTLS_RETURN_SUCCESS) { return r; }
+                if (ctx->partial_len == NOXTLS_AES_BLOCK_LENGTH) {
+                    if (ctx->mode == NOXTLS_AES_ECB) {
+                        if (ctx->op == NOXTLS_AES_OP_ENCRYPT) {
+                            noxtls_return_t r = noxtls_aes_encrypt_block_ctx_internal(ctx, ctx->partial, &output[produced]);
+                            if (r != NOXTLS_RETURN_SUCCESS) { return r; }
                         } else {
-                            noxtls_return_t r = noxtls_aes_decrypt_block_ctx_internal(ctx, ctx->partial, output + produced);
-                            if(r != NOXTLS_RETURN_SUCCESS) { return r; }
+                            /* MISRA 15.7: final else path */
+                            noxtls_return_t r = noxtls_aes_decrypt_block_ctx_internal(ctx, ctx->partial, &output[produced]);
+                            if (r != NOXTLS_RETURN_SUCCESS) { return r; }
                         }
                     } else {
-                        if(ctx->op == NOXTLS_AES_OP_ENCRYPT) {
+                        if (ctx->op == NOXTLS_AES_OP_ENCRYPT) {
                             uint8_t block[NOXTLS_AES_BLOCK_LENGTH];
-                            for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
+                            for (i = 0U; i < NOXTLS_AES_BLOCK_LENGTH; i += 1U) {
                                 block[i] = (uint8_t)(ctx->partial[i] ^ ctx->feedback[i]);
                             }
-                            { noxtls_return_t r = noxtls_aes_encrypt_block_ctx_internal(ctx, block, output + produced);
-                            if(r != NOXTLS_RETURN_SUCCESS) { return r; } }
-                            memcpy(ctx->feedback, output + produced, NOXTLS_AES_BLOCK_LENGTH);
+                            { noxtls_return_t r = noxtls_aes_encrypt_block_ctx_internal(ctx, block, &output[produced]);
+                            if (r != NOXTLS_RETURN_SUCCESS) { return r; } }
+                            noxtls_copy_u8(ctx->feedback, sizeof(ctx->feedback), &output[produced], (size_t)(NOXTLS_AES_BLOCK_LENGTH));
                         } else {
+                            /* MISRA 15.7: final else path */
                             uint8_t block[NOXTLS_AES_BLOCK_LENGTH];
                             { noxtls_return_t r = noxtls_aes_decrypt_block_ctx_internal(ctx, ctx->partial, block);
-                            if(r != NOXTLS_RETURN_SUCCESS) { return r; } }
-                            for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
+                            if (r != NOXTLS_RETURN_SUCCESS) { return r; } }
+                            for (i = 0U; i < NOXTLS_AES_BLOCK_LENGTH; i += 1U) {
                                 output[produced + i] = (uint8_t)(block[i] ^ ctx->feedback[i]);
                             }
-                            memcpy(ctx->feedback, ctx->partial, NOXTLS_AES_BLOCK_LENGTH);
+                            noxtls_copy_u8(ctx->feedback, sizeof(ctx->feedback), ctx->partial, (size_t)(NOXTLS_AES_BLOCK_LENGTH));
                         }
                     }
 
                     produced += NOXTLS_AES_BLOCK_LENGTH;
-                    ctx->partial_len = 0;
+                    ctx->partial_len = 0U;
                 }
             }
-            break;
-
-        case NOXTLS_AES_CTR:
-        case NOXTLS_AES_CFB:
-        case NOXTLS_AES_OFB:
-            while(input_len > 0) {
-                if(ctx->partial_len == NOXTLS_AES_BLOCK_LENGTH) {
-                    noxtls_return_t r;
-                    if(ctx->mode == NOXTLS_AES_CTR) {
+    } else if ((ctx->mode == NOXTLS_AES_CTR) || (ctx->mode == NOXTLS_AES_CFB) || (ctx->mode == NOXTLS_AES_OFB)) {
+            while (in_left > 0U) {
+                if (ctx->partial_len == NOXTLS_AES_BLOCK_LENGTH) {
+                    noxtls_return_t r = NOXTLS_RETURN_FAILED;
+                    if (ctx->mode == NOXTLS_AES_CTR) {
                         r = noxtls_aes_encrypt_block_ctx_internal(ctx, ctx->feedback, ctx->partial);
-                        if(r != NOXTLS_RETURN_SUCCESS) { return r; }
-                        aes_counter_inc(ctx->feedback);
-                    } else if(ctx->mode == NOXTLS_AES_CFB) {
+                        if (r != NOXTLS_RETURN_SUCCESS) { return r; }
+                        (void)aes_counter_inc(ctx->feedback);
+                    } else if (ctx->mode == NOXTLS_AES_CFB) {
                         r = noxtls_aes_encrypt_block_ctx_internal(ctx, ctx->feedback, ctx->partial);
-                        if(r != NOXTLS_RETURN_SUCCESS) { return r; }
+                        if (r != NOXTLS_RETURN_SUCCESS) { return r; }
                     } else {
+                        /* MISRA 15.7: final else path */
                         r = noxtls_aes_encrypt_block_ctx_internal(ctx, ctx->feedback, ctx->partial);
-                        if(r != NOXTLS_RETURN_SUCCESS) { return r; }
-                        memcpy(ctx->feedback, ctx->partial, NOXTLS_AES_BLOCK_LENGTH);
+                        if (r != NOXTLS_RETURN_SUCCESS) { return r; }
+                        noxtls_copy_u8(ctx->feedback, sizeof(ctx->feedback), ctx->partial, (size_t)(NOXTLS_AES_BLOCK_LENGTH));
                     }
-                    ctx->partial_len = 0;
+                    ctx->partial_len = 0U;
                 }
 
                 {
                     uint32_t available = (uint32_t)NOXTLS_AES_BLOCK_LENGTH - ctx->partial_len;
-                    uint32_t take = (input_len < available) ? input_len : available;
-                    for(i = 0; i < take; i++) {
-                        uint8_t out_byte = (uint8_t)(input[i] ^ ctx->partial[ctx->partial_len + i]);
+                    uint32_t take = (uint32_t)((in_left < available) ? in_left : available);
+                    for (i = 0U; i < take; i += 1U) {
+                        uint8_t out_byte = (uint8_t)(in_ptr[i] ^ ctx->partial[ctx->partial_len + i]);
                         output[produced + i] = out_byte;
-                        if(ctx->mode == NOXTLS_AES_CFB) {
-                            memmove(ctx->feedback, ctx->feedback + 1, NOXTLS_AES_BLOCK_LENGTH - 1);
-                            ctx->feedback[NOXTLS_AES_BLOCK_LENGTH - 1] = (ctx->op == NOXTLS_AES_OP_ENCRYPT) ? out_byte : input[i];
+                        if (ctx->mode == NOXTLS_AES_CFB) {
+                            noxtls_move_u8(ctx->feedback, sizeof(ctx->feedback), &ctx->feedback[1], (size_t)(NOXTLS_AES_BLOCK_LENGTH - 1U));
+                            ctx->feedback[NOXTLS_AES_BLOCK_LENGTH - 1U] = (ctx->op == NOXTLS_AES_OP_ENCRYPT) ? out_byte : in_ptr[i];
                         }
                     }
-                    input += take;
-                    input_len -= take;
+                    in_ptr = &in_ptr[take];
+                    in_left -= take;
                     produced += take;
                     ctx->partial_len = (uint8_t)(ctx->partial_len + take);
                 }
             }
-            break;
-
-        default:
+    } else {
+         /* MISRA 15.7: final else path */
             return NOXTLS_RETURN_INVALID_MODE;
     }
 
@@ -669,57 +662,58 @@ noxtls_return_t noxtls_aes_final(noxtls_aes_context_t *ctx,
               uint8_t *output,
               uint32_t *output_len)
 {
-    if(ctx == NULL || output_len == NULL) {
+    if ((ctx == NULL) || (output_len == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
-    *output_len = 0;
+    *output_len = 0U;
 
-    if(!ctx->initialized) {
+    if (ctx->initialized == 0U) {
         return NOXTLS_RETURN_NOT_INITIALIZED;
     }
 
-    if(ctx->mode == NOXTLS_AES_CTR || ctx->mode == NOXTLS_AES_CFB || ctx->mode == NOXTLS_AES_OFB) {
-        ctx->initialized = 0;
+    if ((ctx->mode == NOXTLS_AES_CTR) || (ctx->mode == NOXTLS_AES_CFB) || (ctx->mode == NOXTLS_AES_OFB)) {
+        ctx->initialized = 0U;
         return NOXTLS_RETURN_SUCCESS;
     }
 
-    if(ctx->op == NOXTLS_AES_OP_DECRYPT) {
-        if(ctx->partial_len != 0) {
+    if (ctx->op == NOXTLS_AES_OP_DECRYPT) {
+        if (ctx->partial_len != 0U) {
             return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
         }
-        ctx->initialized = 0;
+        ctx->initialized = 0U;
         return NOXTLS_RETURN_SUCCESS;
     }
 
-    if(ctx->partial_len > 0) {
+    if (ctx->partial_len > 0U) {
         uint8_t block[NOXTLS_AES_BLOCK_LENGTH];
-        uint32_t i;
-        noxtls_return_t r;
+        uint32_t i = 0U;
+        noxtls_return_t r = NOXTLS_RETURN_FAILED;
 
-        if(output == NULL) {
+        if (output == NULL) {
             return NOXTLS_RETURN_NULL;
         }
 
-        memset(block, 0, sizeof(block));
-        memcpy(block, ctx->partial, ctx->partial_len);
+        noxtls_secure_zero((block), sizeof(block));
+        noxtls_copy_u8(block, sizeof(block), ctx->partial, (size_t)(ctx->partial_len));
 
-        if(ctx->mode == NOXTLS_AES_ECB) {
+        if (ctx->mode == NOXTLS_AES_ECB) {
             r = noxtls_aes_encrypt_block_ctx_internal(ctx, block, output);
-            if(r != NOXTLS_RETURN_SUCCESS) { return r; }
-        } else if(ctx->mode == NOXTLS_AES_CBC) {
-            for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
+            if (r != NOXTLS_RETURN_SUCCESS) { return r; }
+        } else if (ctx->mode == NOXTLS_AES_CBC) {
+            for (i = 0U; i < NOXTLS_AES_BLOCK_LENGTH; i += 1U) {
                 block[i] ^= ctx->feedback[i];
             }
             r = noxtls_aes_encrypt_block_ctx_internal(ctx, block, output);
-            if(r != NOXTLS_RETURN_SUCCESS) { return r; }
+            if (r != NOXTLS_RETURN_SUCCESS) { return r; }
         } else {
+             /* MISRA 15.7: final else path */
             return NOXTLS_RETURN_INVALID_MODE;
         }
 
         *output_len = NOXTLS_AES_BLOCK_LENGTH;
     }
 
-    ctx->initialized = 0;
+    ctx->initialized = 0U;
     return NOXTLS_RETURN_SUCCESS;
 }
     
@@ -734,18 +728,18 @@ noxtls_return_t noxtls_aes_final(noxtls_aes_context_t *ctx,
  */
 noxtls_return_t noxtls_aes_init_block(uint8_t state[4][4], const uint8_t* data)
 {
-    int col;
-    int row;
+    uint32_t col = 0U;
+    uint32_t row = 0U;
 
-    if(state == NULL || data == NULL) {
+    if ((state == NULL) || (data == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
-    for(col = 0; col < 4; col++)
+    for (col = 0U; col < 4U; col += 1U)
     {
-        for(row = 0; row < 4; row++)
+        for (row = 0U; row < 4U; row += 1U)
         {
-            state[row][col] = data[row + (col * 4)];
+            state[row][col] = data[row + (col * 4U)];
         }
     }
     
@@ -769,14 +763,14 @@ noxtls_return_t noxtls_aes_encrypt_block_internal(const uint8_t *key, const uint
     (void)rc;
 
     rc = noxtls_aes_accel_port_encrypt_block(key, data, output, type);
-    if(rc == NOXTLS_RETURN_SUCCESS) {
+    if (rc == NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 #if NOXTLS_FEATURE_AES_ACCEL_NI && \
     (defined(__AES__) || defined(_MSC_VER)) && \
     (defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86))
     rc = noxtls_aes_accel_ni_encrypt_block(key, data, output, type);
-    if(rc == NOXTLS_RETURN_SUCCESS) {
+    if (rc == NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 #endif
@@ -785,7 +779,7 @@ noxtls_return_t noxtls_aes_encrypt_block_internal(const uint8_t *key, const uint
     (defined(__aarch64__) || defined(__arm64__)) && \
     defined(__ARM_FEATURE_CRYPTO)
     rc = noxtls_aes_accel_apple_encrypt_block(key, data, output, type);
-    if(rc == NOXTLS_RETURN_SUCCESS) {
+    if (rc == NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 #endif
@@ -810,19 +804,19 @@ noxtls_return_t noxtls_aes_encrypt_block_ctx_internal(const noxtls_aes_context_t
     noxtls_return_t rc = NOXTLS_RETURN_NOT_SUPPORTED;
     (void)rc;
 
-    if(ctx == NULL || data == NULL || output == NULL) {
+    if ((ctx == NULL) || (data == NULL) || (output == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
     rc = noxtls_aes_accel_port_encrypt_block(ctx->key, data, output, ctx->type);
-    if(rc == NOXTLS_RETURN_SUCCESS) {
+    if (rc == NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 #if NOXTLS_FEATURE_AES_ACCEL_NI && \
     (defined(__AES__) || defined(_MSC_VER)) && \
     (defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86))
     rc = noxtls_aes_accel_ni_encrypt_block(ctx->key, data, output, ctx->type);
-    if(rc == NOXTLS_RETURN_SUCCESS) {
+    if (rc == NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 #endif
@@ -831,12 +825,12 @@ noxtls_return_t noxtls_aes_encrypt_block_ctx_internal(const noxtls_aes_context_t
     (defined(__aarch64__) || defined(__arm64__)) && \
     defined(__ARM_FEATURE_CRYPTO)
     rc = noxtls_aes_accel_apple_encrypt_block(ctx->key, data, output, ctx->type);
-    if(rc == NOXTLS_RETURN_SUCCESS) {
+    if (rc == NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 #endif
 
-    if(NOXTLS_FEATURE_AES_SOFTWARE_FALLBACK && !ctx->round_keys_ready) {
+    if ((NOXTLS_FEATURE_AES_SOFTWARE_FALLBACK != 0) && (ctx->round_keys_ready == 0U)) {
         return NOXTLS_RETURN_NOT_INITIALIZED;
     }
 #if !NOXTLS_FEATURE_AES_SOFTWARE_FALLBACK
@@ -848,11 +842,11 @@ noxtls_return_t noxtls_aes_encrypt_block_ctx_internal(const noxtls_aes_context_t
 
 noxtls_return_t noxtls_aes_encrypt_block_ctx_software_internal(const noxtls_aes_context_t *ctx, const uint8_t *data, uint8_t *output)
 {
-    if(ctx == NULL || data == NULL || output == NULL) {
+    if ((ctx == NULL) || (data == NULL) || (output == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
-    if(NOXTLS_FEATURE_AES_SOFTWARE_FALLBACK && !ctx->round_keys_ready) {
+    if ((NOXTLS_FEATURE_AES_SOFTWARE_FALLBACK != 0) && (ctx->round_keys_ready == 0U)) {
         return NOXTLS_RETURN_NOT_INITIALIZED;
     }
 #if !NOXTLS_FEATURE_AES_SOFTWARE_FALLBACK
@@ -902,25 +896,25 @@ noxtls_aes_accel_backend_t noxtls_aes_get_accel_backend(void)
 static noxtls_return_t noxtls_aes_encrypt_block_software(const uint8_t * key, const uint8_t * data, uint8_t * output, noxtls_aes_type_t type)
 {
     uint32_t w[NOXTLS_AES_MAX_KEY_SCHEDULE_WORDS];
-    uint8_t rounds = 0;
-    uint8_t key_words = 0;
-    uint8_t key_length = 0;
-    noxtls_return_t rc;
+    uint8_t rounds = 0U;
+    uint8_t key_words = 0U;
+    uint8_t key_length = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(key == NULL || data == NULL || output == NULL) {
+    if ((key == NULL) || (data == NULL) || (output == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
     rc = aes_type_params(type, &rounds, &key_words, &key_length);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
+    if (rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 
-    rc = noxtls_aes_key_expansion(key, w, key_words, rounds);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
+    rc = noxtls_aes_key_expansion(key, w, (int)key_words, (int)rounds);
+    if (rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    aes_software_init_encrypt_tables();
+    (void)aes_software_init_encrypt_tables();
     return noxtls_aes_encrypt_block_software_expanded(w, rounds, data, output);
 }
 
@@ -938,47 +932,47 @@ static noxtls_return_t noxtls_aes_encrypt_block_software_expanded(const uint32_t
                                                            const uint8_t *data,
                                                            uint8_t *output)
 {
-    uint32_t s0;
-    uint32_t s1;
-    uint32_t s2;
-    uint32_t s3;
-    uint32_t t0;
-    uint32_t t1;
-    uint32_t t2;
-    uint32_t t3;
-    uint8_t cur_round;
+    uint32_t s0 = 0U;
+    uint32_t s1 = 0U;
+    uint32_t s2 = 0U;
+    uint32_t s3 = 0U;
+    uint32_t t0 = 0U;
+    uint32_t t1 = 0U;
+    uint32_t t2 = 0U;
+    uint32_t t3 = 0U;
+    uint8_t cur_round = 0U;
 
-    if(round_keys == NULL || data == NULL || output == NULL) {
+    if ((round_keys == NULL) || (data == NULL) || (output == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
     s0 = aes_load_be32(data) ^ round_keys[0];
-    s1 = aes_load_be32(data + 4) ^ round_keys[1];
-    s2 = aes_load_be32(data + 8) ^ round_keys[2];
-    s3 = aes_load_be32(data + 12) ^ round_keys[3];
+    s1 = aes_load_be32(&data[4]) ^ round_keys[1];
+    s2 = aes_load_be32(&data[8]) ^ round_keys[2];
+    s3 = aes_load_be32(&data[12]) ^ round_keys[3];
 
-    for(cur_round = 1; cur_round <= rounds - 1; cur_round++)
+    for (cur_round = 1U; cur_round <= (uint8_t)(rounds - 1U); cur_round += 1U)
     {
         size_t rk = (size_t)cur_round * 4U;
 
-        t0 = aes_enc_te0[(s0 >> 24) & 0xFFU] ^
-             aes_enc_te1[(s1 >> 16) & 0xFFU] ^
-             aes_enc_te2[(s2 >> 8) & 0xFFU] ^
+        t0 = aes_enc_te0[(s0 >>24U) & 0xFFU] ^
+             aes_enc_te1[(s1 >>16U) & 0xFFU] ^
+             aes_enc_te2[(s2 >>8U) & 0xFFU] ^
              aes_enc_te3[s3 & 0xFFU] ^
              round_keys[rk + 0U];
-        t1 = aes_enc_te0[(s1 >> 24) & 0xFFU] ^
-             aes_enc_te1[(s2 >> 16) & 0xFFU] ^
-             aes_enc_te2[(s3 >> 8) & 0xFFU] ^
+        t1 = aes_enc_te0[(s1 >>24U) & 0xFFU] ^
+             aes_enc_te1[(s2 >>16U) & 0xFFU] ^
+             aes_enc_te2[(s3 >>8U) & 0xFFU] ^
              aes_enc_te3[s0 & 0xFFU] ^
              round_keys[rk + 1U];
-        t2 = aes_enc_te0[(s2 >> 24) & 0xFFU] ^
-             aes_enc_te1[(s3 >> 16) & 0xFFU] ^
-             aes_enc_te2[(s0 >> 8) & 0xFFU] ^
+        t2 = aes_enc_te0[(s2 >>24U) & 0xFFU] ^
+             aes_enc_te1[(s3 >>16U) & 0xFFU] ^
+             aes_enc_te2[(s0 >>8U) & 0xFFU] ^
              aes_enc_te3[s1 & 0xFFU] ^
              round_keys[rk + 2U];
-        t3 = aes_enc_te0[(s3 >> 24) & 0xFFU] ^
-             aes_enc_te1[(s0 >> 16) & 0xFFU] ^
-             aes_enc_te2[(s1 >> 8) & 0xFFU] ^
+        t3 = aes_enc_te0[(s3 >>24U) & 0xFFU] ^
+             aes_enc_te1[(s0 >>16U) & 0xFFU] ^
+             aes_enc_te2[(s1 >>8U) & 0xFFU] ^
              aes_enc_te3[s2 & 0xFFU] ^
              round_keys[rk + 3U];
 
@@ -988,31 +982,31 @@ static noxtls_return_t noxtls_aes_encrypt_block_software_expanded(const uint32_t
         s3 = t3;
     }
 
-    t0 = ((uint32_t)aes_sbox_lookup((uint8_t)(s0 >> 24)) << 24) ^
-         ((uint32_t)aes_sbox_lookup((uint8_t)(s1 >> 16)) << 16) ^
-         ((uint32_t)aes_sbox_lookup((uint8_t)(s2 >> 8)) << 8) ^
+    t0 = ((uint32_t)aes_sbox_lookup((uint8_t)(s0 >>24U)) <<24U) ^
+         ((uint32_t)aes_sbox_lookup((uint8_t)(s1 >>16U)) <<16U) ^
+         ((uint32_t)aes_sbox_lookup((uint8_t)(s2 >>8U)) <<8U) ^
          (uint32_t)aes_sbox_lookup((uint8_t)s3) ^
          round_keys[((size_t)rounds * 4U) + 0U];
-    t1 = ((uint32_t)aes_sbox_lookup((uint8_t)(s1 >> 24)) << 24) ^
-         ((uint32_t)aes_sbox_lookup((uint8_t)(s2 >> 16)) << 16) ^
-         ((uint32_t)aes_sbox_lookup((uint8_t)(s3 >> 8)) << 8) ^
+    t1 = ((uint32_t)aes_sbox_lookup((uint8_t)(s1 >>24U)) <<24U) ^
+         ((uint32_t)aes_sbox_lookup((uint8_t)(s2 >>16U)) <<16U) ^
+         ((uint32_t)aes_sbox_lookup((uint8_t)(s3 >>8U)) <<8U) ^
          (uint32_t)aes_sbox_lookup((uint8_t)s0) ^
          round_keys[((size_t)rounds * 4U) + 1U];
-    t2 = ((uint32_t)aes_sbox_lookup((uint8_t)(s2 >> 24)) << 24) ^
-         ((uint32_t)aes_sbox_lookup((uint8_t)(s3 >> 16)) << 16) ^
-         ((uint32_t)aes_sbox_lookup((uint8_t)(s0 >> 8)) << 8) ^
+    t2 = ((uint32_t)aes_sbox_lookup((uint8_t)(s2 >>24U)) <<24U) ^
+         ((uint32_t)aes_sbox_lookup((uint8_t)(s3 >>16U)) <<16U) ^
+         ((uint32_t)aes_sbox_lookup((uint8_t)(s0 >>8U)) <<8U) ^
          (uint32_t)aes_sbox_lookup((uint8_t)s1) ^
          round_keys[((size_t)rounds * 4U) + 2U];
-    t3 = ((uint32_t)aes_sbox_lookup((uint8_t)(s3 >> 24)) << 24) ^
-         ((uint32_t)aes_sbox_lookup((uint8_t)(s0 >> 16)) << 16) ^
-         ((uint32_t)aes_sbox_lookup((uint8_t)(s1 >> 8)) << 8) ^
+    t3 = ((uint32_t)aes_sbox_lookup((uint8_t)(s3 >>24U)) <<24U) ^
+         ((uint32_t)aes_sbox_lookup((uint8_t)(s0 >>16U)) <<16U) ^
+         ((uint32_t)aes_sbox_lookup((uint8_t)(s1 >>8U)) <<8U) ^
          (uint32_t)aes_sbox_lookup((uint8_t)s2) ^
          round_keys[((size_t)rounds * 4U) + 3U];
 
-    aes_store_be32(output, t0);
-    aes_store_be32(output + 4, t1);
-    aes_store_be32(output + 8, t2);
-    aes_store_be32(output + 12, t3);
+    (void)aes_store_be32(output, t0);
+    (void)aes_store_be32(&output[4], t1);
+    (void)aes_store_be32(&output[8], t2);
+    (void)aes_store_be32(&output[12], t3);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -1028,30 +1022,28 @@ static noxtls_return_t noxtls_aes_encrypt_block_software_expanded(const uint32_t
  */
 noxtls_return_t noxtls_aes_add_round_key(uint8_t state[4][4], const uint32_t * w)
 {
-    uint8_t row = 0;
+    uint8_t row = 0U;
 
-    if(state == NULL || w == NULL) {
+    if ((state == NULL) || (w == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
-    for(row = 0; row < 4; row++)
+    for (row = 0U; row < 4U; row += 1U)
     {
-        uint32_t val1 = ((uint32_t)state[0][row] << 24) |
-                        ((uint32_t)state[1][row] << 16) |
-                        ((uint32_t)state[2][row] << 8) |
+        uint32_t val1 = ((uint32_t)state[0][row] <<24U) |
+                        ((uint32_t)state[1][row] <<16U) |
+                        ((uint32_t)state[2][row] <<8U) |
                         (uint32_t)state[3][row];
         
         
-        uint32_t temp = val1 ^ w[row];
+        uint32_t temp = (uint32_t)(val1 ^ w[row]);
         
-        //printf(" %x ^ %x = %x\n",val1,w[row],temp);
         
-        state[0][row] = (uint8_t)((temp & 0xFF000000) >> 24);
-        state[1][row] = (uint8_t)((temp & 0x00FF0000) >> 16);
-        state[2][row] = (uint8_t)((temp & 0x0000FF00) >> 8);
-        state[3][row] = (uint8_t)(temp & 0x000000FF);
+        state[0][row] = (uint8_t)((temp & 0xFF000000U) >>24U);
+        state[1][row] = (uint8_t)((temp & 0x00FF0000U) >>16U);
+        state[2][row] = (uint8_t)((temp & 0x0000FF00U) >>8U);
+        state[3][row] = (uint8_t)(temp & 0x000000FFU);
         
-        //printf(" %x %x %x %x\n",state[row][0], state[row][1], state[row][2],  state[row][3]);
     }
 
     return NOXTLS_RETURN_SUCCESS;
@@ -1071,35 +1063,42 @@ noxtls_return_t noxtls_aes_add_round_key(uint8_t state[4][4], const uint32_t * w
  */
 noxtls_return_t noxtls_aes_key_expansion(const uint8_t * key, uint32_t * w, int nk, int rounds)
 {
-    int i = 0;
+    uint32_t i = 0U;
+    uint32_t nk_u = 0U;
+    uint32_t rounds_u = 0U;
 
-    if(key == NULL || w == NULL || nk <= 0 || rounds <= 0) {
+    if ((key == NULL) || (w == NULL) || (nk <= 0) || (rounds <= 0)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
+    nk_u = (uint32_t)nk;
+    rounds_u = (uint32_t)rounds;
 
-    for(i = 0; i < nk; i++)
+    for (i = 0U; i < nk_u; i += 1U)
     {
         size_t off = (size_t)i * 4U;
-        w[i] = ((uint32_t)key[off] << 24) |
-               ((uint32_t)key[off + 1U] << 16) |
-               ((uint32_t)key[off + 2U] << 8) |
+        w[i] = ((uint32_t)key[off] <<24U) |
+               ((uint32_t)key[off + 1U] <<16U) |
+               ((uint32_t)key[off + 2U] <<8U) |
                (uint32_t)key[off + 3U];
     }
 
-    for(i = nk; i < (4 * (rounds + 1)); i++)
+    for (i = nk_u; i < (4U * (rounds_u + 1U)); i += 1U)
     {
-        uint32_t temp = w[i - 1];
-        if((i % nk) == 0)
+        uint32_t temp = (uint32_t)(w[i - 1U]);
+        if ((i % nk_u) == 0U)
         {
-            uint32_t arot = aes_rotword(temp);
-            uint32_t asub = aes_subword(arot);
-            temp = asub ^ rcon((uint8_t)(i / nk));
+            uint32_t arot = (uint32_t)(aes_rotword(temp));
+            uint32_t asub = (uint32_t)(aes_subword(arot));
+            temp = asub ^ rcon((uint8_t)(i / nk_u));
         }
-        else if(nk > 6 && ((i % nk) == 4))
+        else if ((nk_u > 6U) && ((i % nk_u) == 4U))
         {
             temp = aes_subword(temp);
         }
-        w[i] = w[i - nk] ^ temp;
+        else {
+            /* MISRA 15.7: no remaining alternative */
+        }
+        w[i] = w[i - nk_u] ^ temp;
     }
 
     return NOXTLS_RETURN_SUCCESS;
@@ -1115,20 +1114,21 @@ noxtls_return_t noxtls_aes_key_expansion(const uint8_t * key, uint32_t * w, int 
  */
 static uint32_t rcon(uint8_t in)
 {
+    uint8_t rounds = in;
     unsigned char c = 1;
-    if(in == 0) {
-        return 0;
+    if (rounds == 0U) {
+        return 0U;
     }
-    while(in != 1) {
+    while (rounds != 1U) {
         unsigned char b;
-        b = c & 0x80;
-        c <<= 1;
-        if(b == 0x80) {
-            c ^= 0x1b;
+        b = c & 0x80U;
+        c <<= 1U;
+        if (b == 0x80U) {
+            c ^= 0x1bU;
         }
-        in--;
+        rounds -= 1U;
     }
-    return ((uint32_t)c << 24);
+    return ((uint32_t)c <<24U);
 }
 
 /**
@@ -1141,11 +1141,10 @@ static uint32_t rcon(uint8_t in)
  */
 static uint32_t aes_rotword(uint32_t w)
 {
-    uint32_t word = 0;
+    uint32_t word = 0U;
 
-    word = w << 8;
-    word |= ((w & 0xFF000000) >> 24);
-
+    word = w <<8U;
+    word |= ((w & 0xFF000000U) >>24U);
 
     return word;
 }
@@ -1160,16 +1159,23 @@ static uint32_t aes_rotword(uint32_t w)
  */
 static uint32_t aes_subword(uint32_t w)
 {
-    uint32_t word = 0;
+    uint32_t word = 0U;
     const uint8_t * ptr = (const uint8_t * )&w;
-    int i;
+    uint8_t row = 0U;
+    uint8_t col = 0U;
 
-    for(i = 0; i < 4; i++)
-    {
-        uint8_t row = (ptr[i] & 0xF0) >> 4;
-        uint8_t col = (ptr[i] & 0x0F);
-        word |= ((uint32_t)aes_sub_box[row][col]) << (i * 8);
-    }
+    row = (uint8_t)((ptr[0] & 0xF0U) >> 4U);
+    col = (uint8_t)(ptr[0] & 0x0FU);
+    word |= (uint32_t)aes_sub_box[row][col];
+    row = (uint8_t)((ptr[1] & 0xF0U) >> 4U);
+    col = (uint8_t)(ptr[1] & 0x0FU);
+    word |= (uint32_t)((uint32_t)aes_sub_box[row][col] << 8U);
+    row = (uint8_t)((ptr[2] & 0xF0U) >> 4U);
+    col = (uint8_t)(ptr[2] & 0x0FU);
+    word |= (uint32_t)((uint32_t)aes_sub_box[row][col] << 16U);
+    row = (uint8_t)((ptr[3] & 0xF0U) >> 4U);
+    col = (uint8_t)(ptr[3] & 0x0FU);
+    word |= (uint32_t)((uint32_t)aes_sub_box[row][col] << 24U);
     return word;
 }
 
@@ -1183,16 +1189,16 @@ static uint32_t aes_subword(uint32_t w)
  */
 void noxtls_aes_sub_bytes(uint8_t state[4][4])
 {
-    int i;
-    int j;
-    uint8_t row;
-    uint8_t col;
-    for(i = 0; i < 4; i++)
+    uint32_t i = 0U;
+    uint32_t j = 0U;
+    uint8_t row = 0U;
+    uint8_t col = 0U;
+    for (i = 0U; i < 4U; i += 1U)
     {
-        for(j = 0; j < 4; j++)
+        for (j = 0U; j < 4U; j += 1U)
         {
-            row = (state[i][j] & 0xF0) >> 4;
-            col = (state[i][j] & 0x0F);
+            row = (state[i][j] & 0xF0U) >>4U;
+            col = (state[i][j] & 0x0FU);
             state[i][j] = aes_sub_box[row][col];
         }
 
@@ -1213,22 +1219,29 @@ void noxtls_aes_shift_rows(uint8_t state[4][4])
     /* Shift second row by one,
      Shift third row by two
      Shift fourth row by three */
-    int row;
+    uint32_t row = 0U;
 
-    for(row = 1; row < 4; row++)
+    for (row = 1U; row < 4U; row += 1U)
     {
         
-        uint32_t val1 = ((uint32_t)state[row][0] << 24) |
-                        ((uint32_t)state[row][1] << 16) |
-                        ((uint32_t)state[row][2] << 8) |
+        uint32_t val1 = ((uint32_t)state[row][0] <<24U) |
+                        ((uint32_t)state[row][1] <<16U) |
+                        ((uint32_t)state[row][2] <<8U) |
                         (uint32_t)state[row][3];
                 
-        uint32_t temp = NOXTLS_AES_ROTL(val1, 8*row);
+        uint32_t temp = 0U;
+            switch(row) {
+            case 0U: temp = val1; break;
+            case 1U: temp = (uint32_t)(NOXTLS_AES_ROTL(val1, 8U)); break;
+            case 2U: temp = (uint32_t)(NOXTLS_AES_ROTL(val1, 16U)); break;
+            case 3U: temp = (uint32_t)(NOXTLS_AES_ROTL(val1, 24U)); break;
+            default: temp = val1; break;
+            }
         
-        state[row][0] = (uint8_t)((temp & 0xFF000000) >> 24);
-        state[row][1] = (uint8_t)((temp & 0x00FF0000) >> 16);
-        state[row][2] = (uint8_t)((temp & 0x0000FF00) >> 8);
-        state[row][3] = (uint8_t)(temp & 0x000000FF);
+        state[row][0] = (uint8_t)((temp & 0xFF000000U) >>24U);
+        state[row][1] = (uint8_t)((temp & 0x00FF0000U) >>16U);
+        state[row][2] = (uint8_t)((temp & 0x0000FF00U) >>8U);
+        state[row][3] = (uint8_t)(temp & 0x000000FFU);
     }
 }
 
@@ -1244,22 +1257,18 @@ void noxtls_aes_mix_columns(uint8_t state[4][4])
 {
     uint8_t a[4];
     uint8_t b[4];
-    int i;
-    uint8_t h;
-    int j;
+    uint32_t i = 0U;
+    uint32_t j = 0U;
 
     // row x col
     /* Iterate through all columns*/
-    for(j = 0; j < 4; j++)
+    for (j = 0U; j < 4U; j += 1U)
     {
 
-        for(i = 0; i < 4; i++)
+        for (i = 0U; i < 4U; i += 1U)
         {
             a[i] = state[i][j];
-
-            h = (uint8_t)((int8_t)state[i][j] >> 7);
-            b[i] = state[i][j] << 1;
-            b[i] ^= 0x1B & h;
+            b[i] = aes_xtime_byte(state[i][j]);
         }
 
         state[0][j] = b[0] ^ a[3] ^ a[2] ^ b[1] ^ a[1];
@@ -1279,16 +1288,39 @@ void noxtls_aes_mix_columns(uint8_t state[4][4])
  */
 static void aes_inv_sub_bytes(uint8_t state[4][4])
 {
-    int i;
-    int j;
-    uint8_t row;
-    uint8_t col;
-    for(i = 0; i < 4; i++)
+    /* AES inv S-box (Rule 8.9). */
+    /** AES Inverse Substitution Box */
+    static const uint8_t aes_inv_sub_box[16][16] =
     {
-        for(j = 0; j < 4; j++)
+        {0x52U, 0x09U, 0x6aU, 0xd5U, 0x30U, 0x36U, 0xa5U, 0x38U, 0xbfU, 0x40U, 0xa3U, 0x9eU, 0x81U, 0xf3U, 0xd7U, 0xfbU},
+        {0x7cU, 0xe3U, 0x39U, 0x82U, 0x9bU, 0x2fU, 0xffU, 0x87U, 0x34U, 0x8eU, 0x43U, 0x44U, 0xc4U, 0xdeU, 0xe9U, 0xcbU},
+        {0x54U, 0x7bU, 0x94U, 0x32U, 0xa6U, 0xc2U, 0x23U, 0x3dU, 0xeeU, 0x4cU, 0x95U, 0x0bU, 0x42U, 0xfaU, 0xc3U, 0x4eU},
+        {0x08U, 0x2eU, 0xa1U, 0x66U, 0x28U, 0xd9U, 0x24U, 0xb2U, 0x76U, 0x5bU, 0xa2U, 0x49U, 0x6dU, 0x8bU, 0xd1U, 0x25U},
+        {0x72U, 0xf8U, 0xf6U, 0x64U, 0x86U, 0x68U, 0x98U, 0x16U, 0xd4U, 0xa4U, 0x5cU, 0xccU, 0x5dU, 0x65U, 0xb6U, 0x92U},
+        {0x6cU, 0x70U, 0x48U, 0x50U, 0xfdU, 0xedU, 0xb9U, 0xdaU, 0x5eU, 0x15U, 0x46U, 0x57U, 0xa7U, 0x8dU, 0x9dU, 0x84U},
+        {0x90U, 0xd8U, 0xabU, 0x00U, 0x8cU, 0xbcU, 0xd3U, 0x0aU, 0xf7U, 0xe4U, 0x58U, 0x05U, 0xb8U, 0xb3U, 0x45U, 0x06U},
+        {0xd0U, 0x2cU, 0x1eU, 0x8fU, 0xcaU, 0x3fU, 0x0fU, 0x02U, 0xc1U, 0xafU, 0xbdU, 0x03U, 0x01U, 0x13U, 0x8aU, 0x6bU},
+        {0x3aU, 0x91U, 0x11U, 0x41U, 0x4fU, 0x67U, 0xdcU, 0xeaU, 0x97U, 0xf2U, 0xcfU, 0xceU, 0xf0U, 0xb4U, 0xe6U, 0x73U},
+        {0x96U, 0xacU, 0x74U, 0x22U, 0xe7U, 0xadU, 0x35U, 0x85U, 0xe2U, 0xf9U, 0x37U, 0xe8U, 0x1cU, 0x75U, 0xdfU, 0x6eU},
+        {0x47U, 0xf1U, 0x1aU, 0x71U, 0x1dU, 0x29U, 0xc5U, 0x89U, 0x6fU, 0xb7U, 0x62U, 0x0eU, 0xaaU, 0x18U, 0xbeU, 0x1bU},
+        {0xfcU, 0x56U, 0x3eU, 0x4bU, 0xc6U, 0xd2U, 0x79U, 0x20U, 0x9aU, 0xdbU, 0xc0U, 0xfeU, 0x78U, 0xcdU, 0x5aU, 0xf4U},
+        {0x1fU, 0xddU, 0xa8U, 0x33U, 0x88U, 0x07U, 0xc7U, 0x31U, 0xb1U, 0x12U, 0x10U, 0x59U, 0x27U, 0x80U, 0xecU, 0x5fU},
+        {0x60U, 0x51U, 0x7fU, 0xa9U, 0x19U, 0xb5U, 0x4aU, 0x0dU, 0x2dU, 0xe5U, 0x7aU, 0x9fU, 0x93U, 0xc9U, 0x9cU, 0xefU},
+        {0xa0U, 0xe0U, 0x3bU, 0x4dU, 0xaeU, 0x2aU, 0xf5U, 0xb0U, 0xc8U, 0xebU, 0xbbU, 0x3cU, 0x83U, 0x53U, 0x99U, 0x61U},
+        {0x17U, 0x2bU, 0x04U, 0x7eU, 0xbaU, 0x77U, 0xd6U, 0x26U, 0xe1U, 0x69U, 0x14U, 0x63U, 0x55U, 0x21U, 0x0cU, 0x7dU}
+    };
+
+
+    uint32_t i = 0U;
+    uint32_t j = 0U;
+    uint8_t row = 0U;
+    uint8_t col = 0U;
+    for (i = 0U; i < 4U; i += 1U)
+    {
+        for (j = 0U; j < 4U; j += 1U)
         {
-            row = (state[i][j] & 0xF0) >> 4;
-            col = (state[i][j] & 0x0F);
+            row = (state[i][j] & 0xF0U) >>4U;
+            col = (state[i][j] & 0x0FU);
             state[i][j] = aes_inv_sub_box[row][col];
         }
     }
@@ -1305,18 +1337,25 @@ static void aes_inv_sub_bytes(uint8_t state[4][4])
 static void aes_inv_shift_rows(uint8_t state[4][4])
 {
     /* Inverse shift: second row by one right, third by two, fourth by three */
-    int row = 0;   
+    uint32_t row = 0U;   
 
-    for(row = 1; row < 4; row++)
+    for (row = 1U; row < 4U; row += 1U)
     {
-        uint32_t val1 = ((uint32_t)state[row][0] << 24) | ((uint32_t)state[row][1] << 16) |
-                        ((uint32_t)state[row][2] << 8) | (uint32_t)state[row][3];
-        uint32_t temp = NOXTLS_AES_ROTR(val1, 8*row);
+        uint32_t val1 = ((uint32_t)state[row][0] <<24U) | ((uint32_t)state[row][1] <<16U) |
+                        ((uint32_t)state[row][2] <<8U) | (uint32_t)state[row][3];
+        uint32_t temp = 0U;
+            switch(row) {
+            case 0U: temp = val1; break;
+            case 1U: temp = (uint32_t)(NOXTLS_AES_ROTR(val1, 8U)); break;
+            case 2U: temp = (uint32_t)(NOXTLS_AES_ROTR(val1, 16U)); break;
+            case 3U: temp = (uint32_t)(NOXTLS_AES_ROTR(val1, 24U)); break;
+            default: temp = val1; break;
+            }
         
-        state[row][0] = (uint8_t)((temp & 0xFF000000) >> 24);
-        state[row][1] = (uint8_t)((temp & 0x00FF0000) >> 16);
-        state[row][2] = (uint8_t)((temp & 0x0000FF00) >> 8);
-        state[row][3] = (uint8_t)(temp & 0x000000FF);
+        state[row][0] = (uint8_t)((temp & 0xFF000000U) >>24U);
+        state[row][1] = (uint8_t)((temp & 0x00FF0000U) >>16U);
+        state[row][2] = (uint8_t)((temp & 0x0000FF00U) >>8U);
+        state[row][3] = (uint8_t)(temp & 0x000000FFU);
     }
 }
 
@@ -1340,17 +1379,19 @@ static void aes_inv_shift_rows(uint8_t state[4][4])
 static uint8_t aes_gf_mul(uint8_t a, uint8_t b)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    uint8_t p = 0;
-    for(int i = 0; i < 8; i++) {
-        if(b & 1) {
-            p ^= a;
+    uint8_t aa = a;
+    uint8_t bb = b;
+    uint8_t p = 0U;
+    for (uint32_t i = 0U; i < 8U; i += 1U) {
+        if ((bb & 1U) != 0U) {
+            p ^= aa;
         }
-        uint8_t hi_bit = a & 0x80;
-        a <<= 1;
-        if(hi_bit) {
-            a ^= 0x1B;
+        uint8_t hi_bit = (uint8_t)(aa & 0x80U);
+        aa <<= 1U;
+        if (hi_bit != 0U) {
+            aa ^= 0x1BU;
         }
-        b >>= 1;
+        bb >>= 1U;
     }
     return p;
 }
@@ -1365,20 +1406,20 @@ static uint8_t aes_gf_mul(uint8_t a, uint8_t b)
  */
 static void aes_inv_mix_columns(uint8_t state[4][4])
 {
-    for(int j = 0; j < 4; j++) {
-        uint8_t a0 = state[0][j];
-        uint8_t a1 = state[1][j];
-        uint8_t a2 = state[2][j];
-        uint8_t a3 = state[3][j];
+    for (uint32_t j = 0U; j < 4U; j += 1U) {
+        uint8_t a0 = (uint8_t)(state[0][j]);
+        uint8_t a1 = (uint8_t)(state[1][j]);
+        uint8_t a2 = (uint8_t)(state[2][j]);
+        uint8_t a3 = (uint8_t)(state[3][j]);
 
-        state[0][j] = (uint8_t)(aes_gf_mul(a0, 0x0E) ^ aes_gf_mul(a1, 0x0B) ^
-                                 aes_gf_mul(a2, 0x0D) ^ aes_gf_mul(a3, 0x09));
-        state[1][j] = (uint8_t)(aes_gf_mul(a0, 0x09) ^ aes_gf_mul(a1, 0x0E) ^
-                                 aes_gf_mul(a2, 0x0B) ^ aes_gf_mul(a3, 0x0D));
-        state[2][j] = (uint8_t)(aes_gf_mul(a0, 0x0D) ^ aes_gf_mul(a1, 0x09) ^
-                                 aes_gf_mul(a2, 0x0E) ^ aes_gf_mul(a3, 0x0B));
-        state[3][j] = (uint8_t)(aes_gf_mul(a0, 0x0B) ^ aes_gf_mul(a1, 0x0D) ^
-                                 aes_gf_mul(a2, 0x09) ^ aes_gf_mul(a3, 0x0E));
+        state[0][j] = (uint8_t)(aes_gf_mul(a0, 0x0EU) ^ aes_gf_mul(a1, 0x0BU) ^
+                                 aes_gf_mul(a2, 0x0DU) ^ aes_gf_mul(a3, 0x09U));
+        state[1][j] = (uint8_t)(aes_gf_mul(a0, 0x09U) ^ aes_gf_mul(a1, 0x0EU) ^
+                                 aes_gf_mul(a2, 0x0BU) ^ aes_gf_mul(a3, 0x0DU));
+        state[2][j] = (uint8_t)(aes_gf_mul(a0, 0x0DU) ^ aes_gf_mul(a1, 0x09U) ^
+                                 aes_gf_mul(a2, 0x0EU) ^ aes_gf_mul(a3, 0x0BU));
+        state[3][j] = (uint8_t)(aes_gf_mul(a0, 0x0BU) ^ aes_gf_mul(a1, 0x0DU) ^
+                                 aes_gf_mul(a2, 0x09U) ^ aes_gf_mul(a3, 0x0EU));
     }
 }
 
@@ -1398,14 +1439,14 @@ noxtls_return_t noxtls_aes_decrypt_block_internal(const uint8_t *key, const uint
     (void)rc;
 
     rc = noxtls_aes_accel_port_decrypt_block(key, data, output, type);
-    if(rc == NOXTLS_RETURN_SUCCESS) {
+    if (rc == NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 #if NOXTLS_FEATURE_AES_ACCEL_NI && \
     (defined(__AES__) || defined(_MSC_VER)) && \
     (defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86))
     rc = noxtls_aes_accel_ni_decrypt_block(key, data, output, type);
-    if(rc == NOXTLS_RETURN_SUCCESS) {
+    if (rc == NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 #endif
@@ -1414,7 +1455,7 @@ noxtls_return_t noxtls_aes_decrypt_block_internal(const uint8_t *key, const uint
     (defined(__aarch64__) || defined(__arm64__)) && \
     defined(__ARM_FEATURE_CRYPTO)
     rc = noxtls_aes_accel_apple_decrypt_block(key, data, output, type);
-    if(rc == NOXTLS_RETURN_SUCCESS) {
+    if (rc == NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 #endif
@@ -1434,24 +1475,24 @@ noxtls_return_t noxtls_aes_decrypt_block_internal(const uint8_t *key, const uint
  * @param output Output plaintext block of NOXTLS_AES_BLOCK_LENGTH bytes.
  * @return NOXTLS_RETURN_SUCCESS on success or a noxtls_return_t error code.
  */
-noxtls_return_t noxtls_aes_decrypt_block_ctx_internal(const noxtls_aes_context_t *ctx, const uint8_t *data, uint8_t *output)
+static noxtls_return_t noxtls_aes_decrypt_block_ctx_internal(const noxtls_aes_context_t *ctx, const uint8_t *data, uint8_t *output)
 {
     noxtls_return_t rc = NOXTLS_RETURN_NOT_SUPPORTED;
     (void)rc;
 
-    if(ctx == NULL || data == NULL || output == NULL) {
+    if ((ctx == NULL) || (data == NULL) || (output == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
     rc = noxtls_aes_accel_port_decrypt_block(ctx->key, data, output, ctx->type);
-    if(rc == NOXTLS_RETURN_SUCCESS) {
+    if (rc == NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 #if NOXTLS_FEATURE_AES_ACCEL_NI && \
     (defined(__AES__) || defined(_MSC_VER)) && \
     (defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86))
     rc = noxtls_aes_accel_ni_decrypt_block(ctx->key, data, output, ctx->type);
-    if(rc == NOXTLS_RETURN_SUCCESS) {
+    if (rc == NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 #endif
@@ -1460,12 +1501,12 @@ noxtls_return_t noxtls_aes_decrypt_block_ctx_internal(const noxtls_aes_context_t
     (defined(__aarch64__) || defined(__arm64__)) && \
     defined(__ARM_FEATURE_CRYPTO)
     rc = noxtls_aes_accel_apple_decrypt_block(ctx->key, data, output, ctx->type);
-    if(rc == NOXTLS_RETURN_SUCCESS) {
+    if (rc == NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 #endif
 
-    if(NOXTLS_FEATURE_AES_SOFTWARE_FALLBACK && !ctx->round_keys_ready) {
+    if ((NOXTLS_FEATURE_AES_SOFTWARE_FALLBACK != 0) && (ctx->round_keys_ready == 0U)) {
         return NOXTLS_RETURN_NOT_INITIALIZED;
     }
 #if !NOXTLS_FEATURE_AES_SOFTWARE_FALLBACK
@@ -1499,18 +1540,18 @@ static noxtls_return_t noxtls_aes_decrypt_block_software(const uint8_t * key, co
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     uint32_t w[NOXTLS_AES_MAX_KEY_SCHEDULE_WORDS];
-    uint8_t rounds = 0;
-    uint8_t key_words = 0;
-    uint8_t key_len = 0;
-    noxtls_return_t rc;
+    uint8_t rounds = 0U;
+    uint8_t key_words = 0U;
+    uint8_t key_len = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     rc = aes_type_params(type, &rounds, &key_words, &key_len);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
+    if (rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 
-    rc = noxtls_aes_key_expansion(key, w, key_words, rounds);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
+    rc = noxtls_aes_key_expansion(key, w, (int)key_words, (int)rounds);
+    if (rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
     return noxtls_aes_decrypt_block_software_expanded(w, rounds, data, output);
@@ -1531,31 +1572,29 @@ static noxtls_return_t noxtls_aes_decrypt_block_software_expanded(const uint32_t
                                                            uint8_t *output)
 {
     uint8_t state[4][4];
-    int cur_round;
+    int32_t cur_round = 0;
 
-    if(round_keys == NULL || data == NULL || output == NULL) {
+    if ((round_keys == NULL) || (data == NULL) || (output == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
-    noxtls_aes_init_block(state, data);
-    noxtls_aes_add_round_key(state, &round_keys[(size_t)rounds * 4U]);
+    (void)noxtls_aes_init_block(state, data);
+    (void)noxtls_aes_add_round_key(state, &round_keys[(size_t)rounds * 4U]);
 
-    for(cur_round = (int)rounds - 1; cur_round >= 1; cur_round--)
+    for (cur_round = (int)rounds - 1; cur_round >= 1; cur_round -= 1)
     {
-        aes_inv_shift_rows(state);
-        aes_inv_sub_bytes(state);
-        noxtls_aes_add_round_key(state, &round_keys[(size_t)cur_round * 4U]);
-        aes_inv_mix_columns(state);
+        (void)aes_inv_shift_rows(state);
+        (void)aes_inv_sub_bytes(state);
+        (void)noxtls_aes_add_round_key(state, &round_keys[(size_t)cur_round * 4U]);
+        (void)aes_inv_mix_columns(state);
     }
 
-    aes_inv_shift_rows(state);
-    aes_inv_sub_bytes(state);
-    noxtls_aes_add_round_key(state, &round_keys[0]);
-    copy_state_to_buffer(state, output);
+    (void)aes_inv_shift_rows(state);
+    (void)aes_inv_sub_bytes(state);
+    (void)noxtls_aes_add_round_key(state, &round_keys[0]);
+    (void)copy_state_to_buffer(&state[0][0], output);
     return NOXTLS_RETURN_SUCCESS;
 }
-
-
 
 #ifdef __cplusplus
 }

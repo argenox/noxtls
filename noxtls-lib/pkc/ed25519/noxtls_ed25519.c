@@ -25,8 +25,8 @@
 #include <string.h>
 
 #include "common/noxtls_ct.h"
+#include "common/noxtls_debug_printf.h"
 #include "common/noxtls_memory.h"
-#include "common/noxtls_memory_compat.h"
 #include "drbg/noxtls_drbg.h"
 #include "mdigest/sha512/noxtls_sha512.h"
 #include "noxtls_common.h"
@@ -34,48 +34,26 @@
 
 /* p = 2^255 - 19 (same as Curve25519), big-endian */
 static const uint8_t ed25519_p[NOXTLS_ED25519_FE25519_BYTES] = {
-    0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xED
+    0x7FU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU,
+    0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU,
+    0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU,
+    0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xEDU
 };
 
 /* L = order of base point = 2^252 + 27742317777372353535851937790883648493, big-endian */
 static const uint8_t ed25519_L[NOXTLS_ED25519_FE25519_BYTES] = {
-    0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x14, 0xDE, 0xF9, 0xDE, 0xA2, 0xF7, 0x9C, 0xD6,
-    0x58, 0x12, 0x63, 0x1A, 0x5C, 0xF5, 0xD3, 0xED
+    0x10U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+    0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+    0x14U, 0xDEU, 0xF9U, 0xDEU, 0xA2U, 0xF7U, 0x9CU, 0xD6U,
+    0x58U, 0x12U, 0x63U, 0x1AU, 0x5CU, 0xF5U, 0xD3U, 0xEDU
 };
 
 /* d = -121665/121666 mod p (twisted Edwards curve), big-endian */
 static const uint8_t ed25519_d[NOXTLS_ED25519_FE25519_BYTES] = {
-    0x52, 0x03, 0x6C, 0xEE, 0x2B, 0x6F, 0xFE, 0x73,
-    0x8C, 0xC7, 0x40, 0x79, 0x77, 0x79, 0xE8, 0x98,
-    0x00, 0x70, 0x0A, 0x4D, 0x41, 0x41, 0xD8, 0xAB,
-    0x75, 0xEB, 0x4D, 0xCA, 0x13, 0x59, 0x78, 0xA3
-};
-
-/* Base point B encoding (32 bytes LE) per RFC 8032: y with LSB(x) in high bit of last octet */
-static const uint8_t ed25519_B_encoded[NOXTLS_ED25519_FE25519_BYTES] = {
-    0x58, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
-    0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
-    0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
-    0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66
-};
-
-/* Base point affine coordinates in big-endian (reserved for future use). */
-static NOXTLS_UNUSED_ATTR const uint8_t ed25519_B_x_be[NOXTLS_ED25519_FE25519_BYTES] = {
-    0x21, 0x69, 0x36, 0xD3, 0xCD, 0x6E, 0x53, 0xFE,
-    0xC0, 0xA4, 0xE2, 0x31, 0xFD, 0xD6, 0xDC, 0x5C,
-    0x69, 0x2C, 0xC7, 0x60, 0x95, 0x25, 0xA7, 0xB2,
-    0xC9, 0x56, 0x2D, 0x60, 0x8F, 0x25, 0xD5, 0x1A
-};
-static NOXTLS_UNUSED_ATTR const uint8_t ed25519_B_y_be[NOXTLS_ED25519_FE25519_BYTES] = {
-    0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
-    0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
-    0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
-    0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x58
+    0x52U, 0x03U, 0x6CU, 0xEEU, 0x2BU, 0x6FU, 0xFEU, 0x73U,
+    0x8CU, 0xC7U, 0x40U, 0x79U, 0x77U, 0x79U, 0xE8U, 0x98U,
+    0x00U, 0x70U, 0x0AU, 0x4DU, 0x41U, 0x41U, 0xD8U, 0xABU,
+    0x75U, 0xEBU, 0x4DU, 0xCAU, 0x13U, 0x59U, 0x78U, 0xA3U
 };
 
 /**
@@ -84,9 +62,9 @@ static NOXTLS_UNUSED_ATTR const uint8_t ed25519_B_y_be[NOXTLS_ED25519_FE25519_BY
  * @param[in]  le Little-endian input (`NOXTLS_ED25519_FE25519_BYTES` bytes).
  * @return None.
  */
-static void le32_to_be32(uint8_t be[NOXTLS_ED25519_FE25519_BYTES], const uint8_t le[NOXTLS_ED25519_FE25519_BYTES])
+static void le32_to_be32(uint8_t *be, const uint8_t *le)
 {
-    for(int i = 0; i < (int)NOXTLS_ED25519_FE25519_BYTES; i++) { be[i] = le[(int)NOXTLS_ED25519_FE25519_BYTES - 1 - i]; }
+    for(uint32_t i = 0U; i < NOXTLS_ED25519_FE25519_BYTES; i += 1U) { be[i] = le[(NOXTLS_ED25519_FE25519_BYTES - 1U - i)]; }
 }
 
 /**
@@ -95,14 +73,14 @@ static void le32_to_be32(uint8_t be[NOXTLS_ED25519_FE25519_BYTES], const uint8_t
  * @param[in]  be Big-endian input (`NOXTLS_ED25519_FE25519_BYTES` bytes).
  * @return None.
  */
-static void be32_to_le32(uint8_t le[NOXTLS_ED25519_FE25519_BYTES], const uint8_t be[NOXTLS_ED25519_FE25519_BYTES])
+static void be32_to_le32(uint8_t *le, const uint8_t *be)
 {
-    for(int i = 0; i < (int)NOXTLS_ED25519_FE25519_BYTES; i++) { le[i] = be[(int)NOXTLS_ED25519_FE25519_BYTES - 1 - i]; }
+    for(uint32_t i = 0U; i < NOXTLS_ED25519_FE25519_BYTES; i += 1U) { le[i] = be[(NOXTLS_ED25519_FE25519_BYTES - 1U - i)]; }
 }
 
 static int ed25519_cmp_be(const uint8_t *a, const uint8_t *b, uint32_t len)
 {
-    for(uint32_t i = 0; i < len; i++) {
+    for(uint32_t i = 0U; i < len; i += 1U) {
         if(a[i] != b[i]) {
             return (a[i] > b[i]) ? 1 : -1;
         }
@@ -115,10 +93,10 @@ static int ed25519_cmp_be(const uint8_t *a, const uint8_t *b, uint32_t len)
  */
 static uint32_t fe25519_load32_le(const uint8_t *src)
 {
-    return ((uint32_t)src[0]) |
-           ((uint32_t)src[1] << 8) |
-           ((uint32_t)src[2] << 16) |
-           ((uint32_t)src[3] << 24);
+    return ((uint32_t)src[0U]) |
+           ((uint32_t)src[1U] << 8U) |
+           ((uint32_t)src[2U] << 16U) |
+           ((uint32_t)src[3U] << 24U);
 }
 
 /**
@@ -126,229 +104,277 @@ static uint32_t fe25519_load32_le(const uint8_t *src)
  */
 static uint32_t fe25519_load24_le(const uint8_t *src)
 {
-    return ((uint32_t)src[0]) |
-           ((uint32_t)src[1] << 8) |
-           ((uint32_t)src[2] << 16);
+    return ((uint32_t)src[0U]) |
+           ((uint32_t)src[1U] << 8U) |
+           ((uint32_t)src[2U] << 16U);
 }
 
+/**
+ * @brief Portable arithmetic right shift for int64_t (toward -infinity).
+ */
+
+
+static int64_t ed25519_fe25519_asr64(int64_t value, uint32_t shift)
+{
+    uint64_t u = (uint64_t)value;
+    uint64_t shifted = 0U;
+
+    if(shift == 0U) {
+        return value;
+    }
+    /* Field reduction only uses arithmetic shifts of 25 or 26. */
+    if(value >= 0) {
+        switch(shift) {
+        case 25U: shifted = u >> 25U; break;
+        case 26U: shifted = u >> 26U; break;
+        default: shifted = 0U; break;
+        }
+        return (int64_t)shifted;
+    }
+    switch(shift) {
+    case 25U: shifted = ~((~u) >> 25U); break;
+    case 26U: shifted = ~((~u) >> 26U); break;
+    default: shifted = ~0ULL; break;
+    }
+    return (int64_t)shifted;
+}
+
+
 typedef struct {
-    int32_t v[10];
+    int32_t v[10U];
 } fe25519_native_t;
 
 static void fe25519_native_copy(fe25519_native_t *dst, const fe25519_native_t *src)
 {
-    memcpy(dst, src, sizeof(*dst));
+    *dst = *src;
 }
 
 NOXTLS_UNUSED_ATTR
 static void fe25519_native_zero(fe25519_native_t *a)
 {
-    memset(a, 0, sizeof(*a));
+    noxtls_secure_zero((a), sizeof(*(a)));
 }
 
-static void fe25519_native_from_le(fe25519_native_t *out, const uint8_t in[32])
+static void fe25519_native_from_le(fe25519_native_t *out, const uint8_t *in)
 {
     int64_t h0 = (int64_t)fe25519_load32_le(in);
-    int64_t h1 = (int64_t)fe25519_load24_le(in + 4U) << 6;
-    int64_t h2 = (int64_t)fe25519_load24_le(in + 7U) << 5;
-    int64_t h3 = (int64_t)fe25519_load24_le(in + 10U) << 3;
-    int64_t h4 = (int64_t)fe25519_load24_le(in + 13U) << 2;
-    int64_t h5 = (int64_t)fe25519_load32_le(in + 16U);
-    int64_t h6 = (int64_t)fe25519_load24_le(in + 20U) << 7;
-    int64_t h7 = (int64_t)fe25519_load24_le(in + 23U) << 5;
-    int64_t h8 = (int64_t)fe25519_load24_le(in + 26U) << 4;
-    int64_t h9 = (int64_t)(fe25519_load24_le(in + 29U) & 0x7FFFFFU) << 2;
-    int64_t carry;
+    uint64_t h1_u = (uint64_t)(fe25519_load24_le(&in[4U]));
+    h1_u <<= 6U;
+    int64_t h1 = (int64_t)h1_u;
+    uint64_t h2_u = (uint64_t)(fe25519_load24_le(&in[7U]));
+    h2_u <<= 5U;
+    int64_t h2 = (int64_t)h2_u;
+    uint64_t h3_u = (uint64_t)(fe25519_load24_le(&in[10U]));
+    h3_u <<= 3U;
+    int64_t h3 = (int64_t)h3_u;
+    uint64_t h4_u = (uint64_t)(fe25519_load24_le(&in[13U]));
+    h4_u <<= 2U;
+    int64_t h4 = (int64_t)h4_u;
+    int64_t h5 = (int64_t)fe25519_load32_le(&in[16U]);
+    uint64_t h6_u = (uint64_t)(fe25519_load24_le(&in[20U]));
+    h6_u <<= 7U;
+    int64_t h6 = (int64_t)h6_u;
+    uint64_t h7_u = (uint64_t)(fe25519_load24_le(&in[23U]));
+    h7_u <<= 5U;
+    int64_t h7 = (int64_t)h7_u;
+    uint64_t h8_u = (uint64_t)(fe25519_load24_le(&in[26U]));
+    h8_u <<= 4U;
+    int64_t h8 = (int64_t)h8_u;
+    uint32_t h9_raw = fe25519_load24_le(&in[29U]) & 0x7FFFFFU;
+    uint64_t h9_u = (uint64_t)h9_raw;
+    h9_u <<= 2U;
+    int64_t h9 = (int64_t)h9_u;
+    int64_t carry = 0;
 
-    carry = (h9 + (((int64_t)1) << 24)) >> 25;
-    h0 += carry * 19;
-    h9 -= carry << 25;
-    carry = (h1 + (((int64_t)1) << 24)) >> 25;
+    carry = ed25519_fe25519_asr64(h9 + (int64_t)(1ULL << 24U), 25U);
+    h0 += carry * (int64_t)19;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h9 -= (int64_t)csh; }
+    carry = ed25519_fe25519_asr64(h1 + (int64_t)(1ULL << 24U), 25U);
     h2 += carry;
-    h1 -= carry << 25;
-    carry = (h3 + (((int64_t)1) << 24)) >> 25;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h1 -= (int64_t)csh; }
+    carry = ed25519_fe25519_asr64(h3 + (int64_t)(1ULL << 24U), 25U);
     h4 += carry;
-    h3 -= carry << 25;
-    carry = (h5 + (((int64_t)1) << 24)) >> 25;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h3 -= (int64_t)csh; }
+    carry = ed25519_fe25519_asr64(h5 + (int64_t)(1ULL << 24U), 25U);
     h6 += carry;
-    h5 -= carry << 25;
-    carry = (h7 + (((int64_t)1) << 24)) >> 25;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h5 -= (int64_t)csh; }
+    carry = ed25519_fe25519_asr64(h7 + (int64_t)(1ULL << 24U), 25U);
     h8 += carry;
-    h7 -= carry << 25;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h7 -= (int64_t)csh; }
 
-    carry = (h0 + (((int64_t)1) << 25)) >> 26;
+    carry = ed25519_fe25519_asr64(h0 + (int64_t)(1ULL << 25U), 26U);
     h1 += carry;
-    h0 -= carry << 26;
-    carry = (h2 + (((int64_t)1) << 25)) >> 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h0 -= (int64_t)csh; }
+    carry = ed25519_fe25519_asr64(h2 + (int64_t)(1ULL << 25U), 26U);
     h3 += carry;
-    h2 -= carry << 26;
-    carry = (h4 + (((int64_t)1) << 25)) >> 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h2 -= (int64_t)csh; }
+    carry = ed25519_fe25519_asr64(h4 + (int64_t)(1ULL << 25U), 26U);
     h5 += carry;
-    h4 -= carry << 26;
-    carry = (h6 + (((int64_t)1) << 25)) >> 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h4 -= (int64_t)csh; }
+    carry = ed25519_fe25519_asr64(h6 + (int64_t)(1ULL << 25U), 26U);
     h7 += carry;
-    h6 -= carry << 26;
-    carry = (h8 + (((int64_t)1) << 25)) >> 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h6 -= (int64_t)csh; }
+    carry = ed25519_fe25519_asr64(h8 + (int64_t)(1ULL << 25U), 26U);
     h9 += carry;
-    h8 -= carry << 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h8 -= (int64_t)csh; }
 
-    out->v[0] = (int32_t)h0;
-    out->v[1] = (int32_t)h1;
-    out->v[2] = (int32_t)h2;
-    out->v[3] = (int32_t)h3;
-    out->v[4] = (int32_t)h4;
-    out->v[5] = (int32_t)h5;
-    out->v[6] = (int32_t)h6;
-    out->v[7] = (int32_t)h7;
-    out->v[8] = (int32_t)h8;
-    out->v[9] = (int32_t)h9;
+    out->v[0U] = (int32_t)h0;
+    out->v[1U] = (int32_t)h1;
+    out->v[2U] = (int32_t)h2;
+    out->v[3U] = (int32_t)h3;
+    out->v[4U] = (int32_t)h4;
+    out->v[5U] = (int32_t)h5;
+    out->v[6U] = (int32_t)h6;
+    out->v[7U] = (int32_t)h7;
+    out->v[8U] = (int32_t)h8;
+    out->v[9U] = (int32_t)h9;
 }
 
-static void fe25519_native_to_le(uint8_t out[32], const fe25519_native_t *in)
+static void fe25519_native_to_le(uint8_t *out, const fe25519_native_t *in)
 {
-    int64_t h0 = in->v[0];
-    int64_t h1 = in->v[1];
-    int64_t h2 = in->v[2];
-    int64_t h3 = in->v[3];
-    int64_t h4 = in->v[4];
-    int64_t h5 = in->v[5];
-    int64_t h6 = in->v[6];
-    int64_t h7 = in->v[7];
-    int64_t h8 = in->v[8];
-    int64_t h9 = in->v[9];
-    int64_t q;
-    int64_t carry;
+    int64_t h0 = in->v[0U];
+    int64_t h1 = in->v[1U];
+    int64_t h2 = in->v[2U];
+    int64_t h3 = in->v[3U];
+    int64_t h4 = in->v[4U];
+    int64_t h5 = in->v[5U];
+    int64_t h6 = in->v[6U];
+    int64_t h7 = in->v[7U];
+    int64_t h8 = in->v[8U];
+    int64_t h9 = in->v[9U];
+    int64_t q = 0;
+    int64_t carry = 0;
 
-    q = ((19 * h9) + (((int64_t)1) << 24)) >> 25;
-    q = (h0 + q) >> 26;
-    q = (h1 + q) >> 25;
-    q = (h2 + q) >> 26;
-    q = (h3 + q) >> 25;
-    q = (h4 + q) >> 26;
-    q = (h5 + q) >> 25;
-    q = (h6 + q) >> 26;
-    q = (h7 + q) >> 25;
-    q = (h8 + q) >> 26;
-    q = (h9 + q) >> 25;
+    q = ed25519_fe25519_asr64(((int64_t)19 * h9) + (int64_t)(1ULL << 24U), 25U);
+    q = ed25519_fe25519_asr64(h0 + q, 26U);
+    q = ed25519_fe25519_asr64(h1 + q, 25U);
+    q = ed25519_fe25519_asr64(h2 + q, 26U);
+    q = ed25519_fe25519_asr64(h3 + q, 25U);
+    q = ed25519_fe25519_asr64(h4 + q, 26U);
+    q = ed25519_fe25519_asr64(h5 + q, 25U);
+    q = ed25519_fe25519_asr64(h6 + q, 26U);
+    q = ed25519_fe25519_asr64(h7 + q, 25U);
+    q = ed25519_fe25519_asr64(h8 + q, 26U);
+    q = ed25519_fe25519_asr64(h9 + q, 25U);
 
-    h0 += 19 * q;
+    h0 += (int64_t)19 * q;
 
-    carry = h0 >> 26;
+    carry = ed25519_fe25519_asr64(h0, 26U);
     h1 += carry;
-    h0 -= carry << 26;
-    carry = h1 >> 25;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h0 -= (int64_t)csh; }
+    carry = ed25519_fe25519_asr64(h1, 25U);
     h2 += carry;
-    h1 -= carry << 25;
-    carry = h2 >> 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h1 -= (int64_t)csh; }
+    carry = ed25519_fe25519_asr64(h2, 26U);
     h3 += carry;
-    h2 -= carry << 26;
-    carry = h3 >> 25;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h2 -= (int64_t)csh; }
+    carry = ed25519_fe25519_asr64(h3, 25U);
     h4 += carry;
-    h3 -= carry << 25;
-    carry = h4 >> 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h3 -= (int64_t)csh; }
+    carry = ed25519_fe25519_asr64(h4, 26U);
     h5 += carry;
-    h4 -= carry << 26;
-    carry = h5 >> 25;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h4 -= (int64_t)csh; }
+    carry = ed25519_fe25519_asr64(h5, 25U);
     h6 += carry;
-    h5 -= carry << 25;
-    carry = h6 >> 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h5 -= (int64_t)csh; }
+    carry = ed25519_fe25519_asr64(h6, 26U);
     h7 += carry;
-    h6 -= carry << 26;
-    carry = h7 >> 25;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h6 -= (int64_t)csh; }
+    carry = ed25519_fe25519_asr64(h7, 25U);
     h8 += carry;
-    h7 -= carry << 25;
-    carry = h8 >> 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h7 -= (int64_t)csh; }
+    carry = ed25519_fe25519_asr64(h8, 26U);
     h9 += carry;
-    h8 -= carry << 26;
-    carry = h9 >> 25;
-    h9 -= carry << 25;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h8 -= (int64_t)csh; }
+    carry = ed25519_fe25519_asr64(h9, 25U);
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h9 -= (int64_t)csh; }
 
-    out[0] = (uint8_t)(h0 >> 0);
-    out[1] = (uint8_t)(h0 >> 8);
-    out[2] = (uint8_t)(h0 >> 16);
-    out[3] = (uint8_t)((h0 >> 24) | (h1 << 2));
-    out[4] = (uint8_t)(h1 >> 6);
-    out[5] = (uint8_t)(h1 >> 14);
-    out[6] = (uint8_t)((h1 >> 22) | (h2 << 3));
-    out[7] = (uint8_t)(h2 >> 5);
-    out[8] = (uint8_t)(h2 >> 13);
-    out[9] = (uint8_t)((h2 >> 21) | (h3 << 5));
-    out[10] = (uint8_t)(h3 >> 3);
-    out[11] = (uint8_t)(h3 >> 11);
-    out[12] = (uint8_t)((h3 >> 19) | (h4 << 6));
-    out[13] = (uint8_t)(h4 >> 2);
-    out[14] = (uint8_t)(h4 >> 10);
-    out[15] = (uint8_t)(h4 >> 18);
-    out[16] = (uint8_t)(h5 >> 0);
-    out[17] = (uint8_t)(h5 >> 8);
-    out[18] = (uint8_t)(h5 >> 16);
-    out[19] = (uint8_t)((h5 >> 24) | (h6 << 1));
-    out[20] = (uint8_t)(h6 >> 7);
-    out[21] = (uint8_t)(h6 >> 15);
-    out[22] = (uint8_t)((h6 >> 23) | (h7 << 3));
-    out[23] = (uint8_t)(h7 >> 5);
-    out[24] = (uint8_t)(h7 >> 13);
-    out[25] = (uint8_t)((h7 >> 21) | (h8 << 4));
-    out[26] = (uint8_t)(h8 >> 4);
-    out[27] = (uint8_t)(h8 >> 12);
-    out[28] = (uint8_t)((h8 >> 20) | (h9 << 6));
-    out[29] = (uint8_t)(h9 >> 2);
-    out[30] = (uint8_t)(h9 >> 10);
-    out[31] = (uint8_t)(h9 >> 18);
+    out[0U] = (uint8_t)h0;
+    { uint64_t b = (uint64_t)h0; b >>= 8U; out[1U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h0; b >>= 16U; out[2U] = (uint8_t)b; }
+    { uint64_t b = ((uint64_t)h0 >> 24U) | ((uint64_t)h1 << 2U); out[3U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h1; b >>= 6U; out[4U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h1; b >>= 14U; out[5U] = (uint8_t)b; }
+    { uint64_t b = ((uint64_t)h1 >> 22U) | ((uint64_t)h2 << 3U); out[6U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h2; b >>= 5U; out[7U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h2; b >>= 13U; out[8U] = (uint8_t)b; }
+    { uint64_t b = ((uint64_t)h2 >> 21U) | ((uint64_t)h3 << 5U); out[9U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h3; b >>= 3U; out[10U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h3; b >>= 11U; out[11U] = (uint8_t)b; }
+    { uint64_t b = ((uint64_t)h3 >> 19U) | ((uint64_t)h4 << 6U); out[12U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h4; b >>= 2U; out[13U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h4; b >>= 10U; out[14U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h4; b >>= 18U; out[15U] = (uint8_t)b; }
+    out[16U] = (uint8_t)h5;
+    { uint64_t b = (uint64_t)h5; b >>= 8U; out[17U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h5; b >>= 16U; out[18U] = (uint8_t)b; }
+    { uint64_t b = ((uint64_t)h5 >> 24U) | ((uint64_t)h6 << 1U); out[19U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h6; b >>= 7U; out[20U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h6; b >>= 15U; out[21U] = (uint8_t)b; }
+    { uint64_t b = ((uint64_t)h6 >> 23U) | ((uint64_t)h7 << 3U); out[22U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h7; b >>= 5U; out[23U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h7; b >>= 13U; out[24U] = (uint8_t)b; }
+    { uint64_t b = ((uint64_t)h7 >> 21U) | ((uint64_t)h8 << 4U); out[25U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h8; b >>= 4U; out[26U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h8; b >>= 12U; out[27U] = (uint8_t)b; }
+    { uint64_t b = ((uint64_t)h8 >> 20U) | ((uint64_t)h9 << 6U); out[28U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h9; b >>= 2U; out[29U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h9; b >>= 10U; out[30U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h9; b >>= 18U; out[31U] = (uint8_t)b; }
 }
 
 static void fe25519_native_add(fe25519_native_t *out, const fe25519_native_t *a, const fe25519_native_t *b)
 {
-    uint32_t i;
-    for(i = 0; i < 10U; i++) {
+    uint32_t i = 0U;
+    for(i = 0U; i < 10U; i += 1U) {
         out->v[i] = a->v[i] + b->v[i];
     }
 }
 
 static void fe25519_native_sub(fe25519_native_t *out, const fe25519_native_t *a, const fe25519_native_t *b)
 {
-    uint32_t i;
-    for(i = 0; i < 10U; i++) {
+    uint32_t i = 0U;
+    for(i = 0U; i < 10U; i += 1U) {
         out->v[i] = a->v[i] - b->v[i];
     }
 }
 
 static void fe25519_native_mul(fe25519_native_t *out, const fe25519_native_t *a, const fe25519_native_t *b)
 {
-    const int64_t f0 = a->v[0];
-    const int64_t f1 = a->v[1];
-    const int64_t f2 = a->v[2];
-    const int64_t f3 = a->v[3];
-    const int64_t f4 = a->v[4];
-    const int64_t f5 = a->v[5];
-    const int64_t f6 = a->v[6];
-    const int64_t f7 = a->v[7];
-    const int64_t f8 = a->v[8];
-    const int64_t f9 = a->v[9];
-    const int64_t g0 = b->v[0];
-    const int64_t g1 = b->v[1];
-    const int64_t g2 = b->v[2];
-    const int64_t g3 = b->v[3];
-    const int64_t g4 = b->v[4];
-    const int64_t g5 = b->v[5];
-    const int64_t g6 = b->v[6];
-    const int64_t g7 = b->v[7];
-    const int64_t g8 = b->v[8];
-    const int64_t g9 = b->v[9];
-    const int64_t g1_19 = 19 * g1;
-    const int64_t g2_19 = 19 * g2;
-    const int64_t g3_19 = 19 * g3;
-    const int64_t g4_19 = 19 * g4;
-    const int64_t g5_19 = 19 * g5;
-    const int64_t g6_19 = 19 * g6;
-    const int64_t g7_19 = 19 * g7;
-    const int64_t g8_19 = 19 * g8;
-    const int64_t g9_19 = 19 * g9;
-    const int64_t f1_2 = 2 * f1;
-    const int64_t f3_2 = 2 * f3;
-    const int64_t f5_2 = 2 * f5;
-    const int64_t f7_2 = 2 * f7;
-    const int64_t f9_2 = 2 * f9;
+    const int64_t f0 = a->v[0U];
+    const int64_t f1 = a->v[1U];
+    const int64_t f2 = a->v[2U];
+    const int64_t f3 = a->v[3U];
+    const int64_t f4 = a->v[4U];
+    const int64_t f5 = a->v[5U];
+    const int64_t f6 = a->v[6U];
+    const int64_t f7 = a->v[7U];
+    const int64_t f8 = a->v[8U];
+    const int64_t f9 = a->v[9U];
+    const int64_t g0 = b->v[0U];
+    const int64_t g1 = b->v[1U];
+    const int64_t g2 = b->v[2U];
+    const int64_t g3 = b->v[3U];
+    const int64_t g4 = b->v[4U];
+    const int64_t g5 = b->v[5U];
+    const int64_t g6 = b->v[6U];
+    const int64_t g7 = b->v[7U];
+    const int64_t g8 = b->v[8U];
+    const int64_t g9 = b->v[9U];
+    const int64_t g1_19 = ((int64_t)19 * g1);
+    const int64_t g2_19 = ((int64_t)19 * g2);
+    const int64_t g3_19 = ((int64_t)19 * g3);
+    const int64_t g4_19 = ((int64_t)19 * g4);
+    const int64_t g5_19 = ((int64_t)19 * g5);
+    const int64_t g6_19 = ((int64_t)19 * g6);
+    const int64_t g7_19 = ((int64_t)19 * g7);
+    const int64_t g8_19 = ((int64_t)19 * g8);
+    const int64_t g9_19 = ((int64_t)19 * g9);
+    const int64_t f1_2 = ((int64_t)2 * f1);
+    const int64_t f3_2 = ((int64_t)2 * f3);
+    const int64_t f5_2 = ((int64_t)2 * f5);
+    const int64_t f7_2 = ((int64_t)2 * f7);
+    const int64_t f9_2 = ((int64_t)2 * f9);
     int64_t h0 = (f0 * g0) + (f1_2 * g9_19) + (f2 * g8_19) + (f3_2 * g7_19) + (f4 * g6_19) + (f5_2 * g5_19) + (f6 * g4_19) + (f7_2 * g3_19) + (f8 * g2_19) + (f9_2 * g1_19);
     int64_t h1 = (f0 * g1) + (f1 * g0) + (f2 * g9_19) + (f3 * g8_19) + (f4 * g7_19) + (f5 * g6_19) + (f6 * g5_19) + (f7 * g4_19) + (f8 * g3_19) + (f9 * g2_19);
     int64_t h2 = (f0 * g2) + (f1_2 * g1) + (f2 * g0) + (f3_2 * g9_19) + (f4 * g8_19) + (f5_2 * g7_19) + (f6 * g6_19) + (f7_2 * g5_19) + (f8 * g4_19) + (f9_2 * g3_19);
@@ -359,60 +385,60 @@ static void fe25519_native_mul(fe25519_native_t *out, const fe25519_native_t *a,
     int64_t h7 = (f0 * g7) + (f1 * g6) + (f2 * g5) + (f3 * g4) + (f4 * g3) + (f5 * g2) + (f6 * g1) + (f7 * g0) + (f8 * g9_19) + (f9 * g8_19);
     int64_t h8 = (f0 * g8) + (f1_2 * g7) + (f2 * g6) + (f3_2 * g5) + (f4 * g4) + (f5_2 * g3) + (f6 * g2) + (f7_2 * g1) + (f8 * g0) + (f9_2 * g9_19);
     int64_t h9 = (f0 * g9) + (f1 * g8) + (f2 * g7) + (f3 * g6) + (f4 * g5) + (f5 * g4) + (f6 * g3) + (f7 * g2) + (f8 * g1) + (f9 * g0);
-    int64_t carry;
+    int64_t carry = 0;
 
-    carry = (h0 + (((int64_t)1) << 25)) >> 26;
+    carry = ed25519_fe25519_asr64(h0 + (int64_t)(1ULL << 25U), 26U);
     h1 += carry;
-    h0 -= carry << 26;
-    carry = (h4 + (((int64_t)1) << 25)) >> 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h0 -= (int64_t)csh; }
+    carry = ed25519_fe25519_asr64(h4 + (int64_t)(1ULL << 25U), 26U);
     h5 += carry;
-    h4 -= carry << 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h4 -= (int64_t)csh; }
 
-    carry = (h1 + (((int64_t)1) << 24)) >> 25;
+    carry = ed25519_fe25519_asr64(h1 + (int64_t)(1ULL << 24U), 25U);
     h2 += carry;
-    h1 -= carry << 25;
-    carry = (h5 + (((int64_t)1) << 24)) >> 25;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h1 -= (int64_t)csh; }
+    carry = ed25519_fe25519_asr64(h5 + (int64_t)(1ULL << 24U), 25U);
     h6 += carry;
-    h5 -= carry << 25;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h5 -= (int64_t)csh; }
 
-    carry = (h2 + (((int64_t)1) << 25)) >> 26;
+    carry = ed25519_fe25519_asr64(h2 + (int64_t)(1ULL << 25U), 26U);
     h3 += carry;
-    h2 -= carry << 26;
-    carry = (h6 + (((int64_t)1) << 25)) >> 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h2 -= (int64_t)csh; }
+    carry = ed25519_fe25519_asr64(h6 + (int64_t)(1ULL << 25U), 26U);
     h7 += carry;
-    h6 -= carry << 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h6 -= (int64_t)csh; }
 
-    carry = (h3 + (((int64_t)1) << 24)) >> 25;
+    carry = ed25519_fe25519_asr64(h3 + (int64_t)(1ULL << 24U), 25U);
     h4 += carry;
-    h3 -= carry << 25;
-    carry = (h7 + (((int64_t)1) << 24)) >> 25;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h3 -= (int64_t)csh; }
+    carry = ed25519_fe25519_asr64(h7 + (int64_t)(1ULL << 24U), 25U);
     h8 += carry;
-    h7 -= carry << 25;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h7 -= (int64_t)csh; }
 
-    carry = (h4 + (((int64_t)1) << 25)) >> 26;
+    carry = ed25519_fe25519_asr64(h4 + (int64_t)(1ULL << 25U), 26U);
     h5 += carry;
-    h4 -= carry << 26;
-    carry = (h8 + (((int64_t)1) << 25)) >> 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h4 -= (int64_t)csh; }
+    carry = ed25519_fe25519_asr64(h8 + (int64_t)(1ULL << 25U), 26U);
     h9 += carry;
-    h8 -= carry << 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h8 -= (int64_t)csh; }
 
-    carry = (h9 + (((int64_t)1) << 24)) >> 25;
-    h0 += carry * 19;
-    h9 -= carry << 25;
-    carry = (h0 + (((int64_t)1) << 25)) >> 26;
+    carry = ed25519_fe25519_asr64(h9 + (int64_t)(1ULL << 24U), 25U);
+    h0 += carry * (int64_t)19;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h9 -= (int64_t)csh; }
+    carry = ed25519_fe25519_asr64(h0 + (int64_t)(1ULL << 25U), 26U);
     h1 += carry;
-    h0 -= carry << 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h0 -= (int64_t)csh; }
 
-    out->v[0] = (int32_t)h0;
-    out->v[1] = (int32_t)h1;
-    out->v[2] = (int32_t)h2;
-    out->v[3] = (int32_t)h3;
-    out->v[4] = (int32_t)h4;
-    out->v[5] = (int32_t)h5;
-    out->v[6] = (int32_t)h6;
-    out->v[7] = (int32_t)h7;
-    out->v[8] = (int32_t)h8;
-    out->v[9] = (int32_t)h9;
+    out->v[0U] = (int32_t)h0;
+    out->v[1U] = (int32_t)h1;
+    out->v[2U] = (int32_t)h2;
+    out->v[3U] = (int32_t)h3;
+    out->v[4U] = (int32_t)h4;
+    out->v[5U] = (int32_t)h5;
+    out->v[6U] = (int32_t)h6;
+    out->v[7U] = (int32_t)h7;
+    out->v[8U] = (int32_t)h8;
+    out->v[9U] = (int32_t)h9;
 }
 
 static void fe25519_native_sq(fe25519_native_t *out, const fe25519_native_t *a)
@@ -422,9 +448,9 @@ static void fe25519_native_sq(fe25519_native_t *out, const fe25519_native_t *a)
 
 static void fe25519_native_sq_times(fe25519_native_t *out, const fe25519_native_t *z, uint32_t count)
 {
-    uint32_t i;
+    uint32_t i = 0U;
     fe25519_native_copy(out, z);
-    for(i = 0; i < count; i++) {
+    for(i = 0U; i < count; i += 1U) {
         fe25519_native_sq(out, out);
     }
 }
@@ -475,14 +501,14 @@ static void fe25519_native_inv(fe25519_native_t *out, const fe25519_native_t *z)
     fe25519_native_mul(out, &t1, &z11);
 }
 
-static void fe25519_native_from_be(fe25519_native_t *out, const uint8_t be[NOXTLS_ED25519_FE25519_BYTES])
+static void fe25519_native_from_be(fe25519_native_t *out, const uint8_t *be)
 {
     uint8_t le[NOXTLS_ED25519_FE25519_BYTES];
     be32_to_le32(le, be);
     fe25519_native_from_le(out, le);
 }
 
-static void fe25519_native_to_be(uint8_t be[NOXTLS_ED25519_FE25519_BYTES], const fe25519_native_t *in)
+static void fe25519_native_to_be(uint8_t *be, const fe25519_native_t *in)
 {
     uint8_t le[NOXTLS_ED25519_FE25519_BYTES];
     fe25519_native_to_le(le, in);
@@ -493,11 +519,11 @@ static noxtls_return_t ed25519_sub_be(uint8_t *r, const uint8_t *a, const uint8_
 {
     int32_t borrow = 0;
 
-    if(r == NULL || a == NULL || b == NULL) {
+    if((r == NULL) || (a == NULL) || (b == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
-    for(int32_t i = (int32_t)len - 1; i >= 0; i--) {
+    for(int32_t i = (int32_t)len - 1; i >= 0; i -= 1) {
         int32_t v = (int32_t)a[i] - (int32_t)b[i] - borrow;
         if(v < 0) {
             v += 256;
@@ -516,47 +542,52 @@ static void ed25519_set_zero(uint8_t *a, uint32_t len)
     if(a == NULL) {
         return;
     }
-    memset(a, 0, len);
+    noxtls_secure_zero((a), (size_t)(len));
 }
 
-static void ed25519_set_one_be32(uint8_t a[NOXTLS_ED25519_FE25519_BYTES])
+static void ed25519_set_one_be32(uint8_t *a)
 {
     if(a == NULL) {
         return;
     }
-    memset(a, 0, NOXTLS_ED25519_FE25519_BYTES);
+    noxtls_secure_zero((a), (size_t)(NOXTLS_ED25519_FE25519_BYTES));
     a[NOXTLS_ED25519_FE25519_BYTES - 1U] = 1U;
 }
 
 static noxtls_return_t ed25519_mod_reduce_be(const uint8_t *input,
                                              uint32_t input_len,
-                                             const uint8_t mod[NOXTLS_ED25519_FE25519_BYTES],
-                                             uint8_t out[NOXTLS_ED25519_FE25519_BYTES])
+                                             const uint8_t *mod,
+                                             uint8_t *out)
 {
-    uint8_t rem[33];
-    uint8_t mod33[33];
-    uint8_t tmp[33];
+    uint8_t rem[33U];
+    uint8_t mod33[33U];
+    uint8_t tmp[33U];
 
-    if(input == NULL || mod == NULL || out == NULL) {
+    if((input == NULL) || (mod == NULL) || (out == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
-    memset(rem, 0, sizeof(rem));
-    memset(mod33, 0, sizeof(mod33));
-    memcpy(&mod33[1], mod, NOXTLS_ED25519_FE25519_BYTES);
+    noxtls_secure_zero((rem), sizeof(rem));
+    noxtls_secure_zero((mod33), sizeof(mod33));
+    noxtls_copy_u8((uint8_t *)(void *)(&mod33[1U]), (size_t)NOXTLS_ED25519_FE25519_BYTES, (const uint8_t *)(const void *)(mod), (size_t)NOXTLS_ED25519_FE25519_BYTES);
 
-    for(uint32_t i = 0; i < input_len; i++) {
-        memmove(rem, rem + 1, sizeof(rem) - 1U);
+    for(uint32_t i = 0U; i < input_len; i += 1U) {
+        {
+            uint32_t ri = 0U;
+            for(ri = 0U; ri < (uint32_t)(sizeof(rem) - 1U); ri += 1U) {
+                rem[ri] = rem[ri + 1U];
+            }
+        }
         rem[sizeof(rem) - 1U] = input[i];
         while(ed25519_cmp_be(rem, mod33, sizeof(rem)) >= 0) {
             if(ed25519_sub_be(tmp, rem, mod33, sizeof(rem)) != NOXTLS_RETURN_SUCCESS) {
                 return NOXTLS_RETURN_FAILED;
             }
-            memcpy(rem, tmp, sizeof(rem));
+            noxtls_copy_u8(rem, sizeof(rem), (const uint8_t *)(tmp), sizeof(rem));
         }
     }
 
-    memcpy(out, &rem[1], NOXTLS_ED25519_FE25519_BYTES);
+    noxtls_copy_u8((uint8_t *)(void *)(out), (size_t)NOXTLS_ED25519_FE25519_BYTES, (const uint8_t *)(const void *)(&rem[1U]), (size_t)NOXTLS_ED25519_FE25519_BYTES);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -568,13 +599,13 @@ static noxtls_return_t ed25519_mod_reduce_be(const uint8_t *input,
  */
 #ifndef NDEBUG
 NOXTLS_UNUSED_ATTR
-static void ed25519_dbg_hex32(const char *label, const uint8_t v[NOXTLS_ED25519_FE25519_BYTES])
+static void ed25519_dbg_hex32(const uint8_t *label, const uint8_t *v)
 {
-    fprintf(stderr, "%s=", label);
-    for(int i = 0; i < (int)NOXTLS_ED25519_FE25519_BYTES; i++) {
-        fprintf(stderr, "%02x", v[i]);
+    (void)noxtls_debug_printf((const uint8_t *)"%s=", label);
+    for(uint32_t i = 0U; i < NOXTLS_ED25519_FE25519_BYTES; i += 1U) {
+        (void)noxtls_debug_printf((const uint8_t *)"%02x", v[i]);
     }
-    fprintf(stderr, "\n");
+    (void)noxtls_debug_printf((const uint8_t *)"\n");
 }
 #endif
 
@@ -586,13 +617,13 @@ static void ed25519_dbg_hex32(const char *label, const uint8_t v[NOXTLS_ED25519_
  */
 #ifndef NDEBUG
 NOXTLS_UNUSED_ATTR
-static void ed25519_dbg_hex64(const char *label, const uint8_t v[NOXTLS_ED25519_SHA512_DIGEST_BYTES])
+static void ed25519_dbg_hex64(const uint8_t *label, const uint8_t *v)
 {
-    fprintf(stderr, "%s=", label);
-    for(int i = 0; i < (int)NOXTLS_ED25519_SHA512_DIGEST_BYTES; i++) {
-        fprintf(stderr, "%02x", v[i]);
+    (void)noxtls_debug_printf((const uint8_t *)"%s=", label);
+    for(uint32_t i = 0U; i < NOXTLS_ED25519_SHA512_DIGEST_BYTES; i += 1U) {
+        (void)noxtls_debug_printf((const uint8_t *)"%02x", v[i]);
     }
-    fprintf(stderr, "\n");
+    (void)noxtls_debug_printf((const uint8_t *)"\n");
 }
 #endif
 
@@ -602,7 +633,7 @@ static void ed25519_dbg_hex64(const char *label, const uint8_t v[NOXTLS_ED25519_
  * @param[in]  a First operand (`NOXTLS_ED25519_FE25519_BYTES` bytes).
  * @param[in]  b Second operand (`NOXTLS_ED25519_FE25519_BYTES` bytes).
  */
-static void fe25519_add(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], const uint8_t a[NOXTLS_ED25519_FE25519_BYTES], const uint8_t b[NOXTLS_ED25519_FE25519_BYTES])
+static void ed25519_fe25519_add(uint8_t *r, const uint8_t *a, const uint8_t *b)
 {
     fe25519_native_t x;
     fe25519_native_t y;
@@ -619,7 +650,7 @@ static void fe25519_add(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], const uint8_t a
  * @param[in]  a Minuend (`NOXTLS_ED25519_FE25519_BYTES` bytes).
  * @param[in]  b Subtrahend (`NOXTLS_ED25519_FE25519_BYTES` bytes).
  */
-static void fe25519_sub(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], const uint8_t a[NOXTLS_ED25519_FE25519_BYTES], const uint8_t b[NOXTLS_ED25519_FE25519_BYTES])
+static void ed25519_fe25519_sub(uint8_t *r, const uint8_t *a, const uint8_t *b)
 {
     fe25519_native_t x;
     fe25519_native_t y;
@@ -636,7 +667,7 @@ static void fe25519_sub(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], const uint8_t a
  * @param[in]  a First factor (`NOXTLS_ED25519_FE25519_BYTES` bytes).
  * @param[in]  b Second factor (`NOXTLS_ED25519_FE25519_BYTES` bytes).
  */
-static void fe25519_mul(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], const uint8_t a[NOXTLS_ED25519_FE25519_BYTES], const uint8_t b[NOXTLS_ED25519_FE25519_BYTES])
+static void ed25519_fe25519_mul(uint8_t *r, const uint8_t *a, const uint8_t *b)
 {
     fe25519_native_t x;
     fe25519_native_t y;
@@ -647,28 +678,28 @@ static void fe25519_mul(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], const uint8_t a
     fe25519_native_to_be(r, &z);
 }
 
-static void fe25519_pow(uint8_t r[NOXTLS_ED25519_FE25519_BYTES],
-                        const uint8_t a[NOXTLS_ED25519_FE25519_BYTES],
-                        const uint8_t exp_be[NOXTLS_ED25519_FE25519_BYTES])
+static void fe25519_pow(uint8_t *r,
+                        const uint8_t *a,
+                        const uint8_t *exp_be)
 {
     uint8_t result[NOXTLS_ED25519_FE25519_BYTES];
     uint8_t base[NOXTLS_ED25519_FE25519_BYTES];
 
     ed25519_set_one_be32(result);
-    memcpy(base, a, NOXTLS_ED25519_FE25519_BYTES);
+    noxtls_copy_u8(base, sizeof(base), a, (size_t)NOXTLS_ED25519_FE25519_BYTES);
 
-    for(uint32_t i = 0; i < NOXTLS_ED25519_FE25519_BYTES; i++) {
+    for(uint32_t i = 0U; i < NOXTLS_ED25519_FE25519_BYTES; i += 1U) {
         uint8_t bits = exp_be[i];
-        for(uint32_t bit = 0; bit < 8U; bit++) {
-            fe25519_mul(result, result, result);
+        for(uint32_t bit = 0U; bit < 8U; bit += 1U) {
+            ed25519_fe25519_mul(result, result, result);
             if((bits & 0x80U) != 0U) {
-                fe25519_mul(result, result, base);
+                ed25519_fe25519_mul(result, result, base);
             }
             bits <<= 1U;
         }
     }
 
-    memcpy(r, result, NOXTLS_ED25519_FE25519_BYTES);
+    noxtls_copy_u8(r, (size_t)NOXTLS_ED25519_FE25519_BYTES, result, (size_t)NOXTLS_ED25519_FE25519_BYTES);
 }
 
 /**
@@ -676,7 +707,7 @@ static void fe25519_pow(uint8_t r[NOXTLS_ED25519_FE25519_BYTES],
  * @param[out] r Inverse of @p a mod p.
  * @param[in]  a Non-zero field element (`NOXTLS_ED25519_FE25519_BYTES` bytes).
  */
-static void fe25519_inv(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], const uint8_t a[NOXTLS_ED25519_FE25519_BYTES])
+static void ed25519_fe25519_inv(uint8_t *r, const uint8_t *a)
 {
     fe25519_native_t x;
     fe25519_native_t z;
@@ -687,10 +718,10 @@ static void fe25519_inv(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], const uint8_t a
 
 /* 2^((p-1)/4) mod p for p = 2^255-19 (for sqrt when x^2 = -a) */
 static const uint8_t ed25519_sqrt_minus1[NOXTLS_ED25519_FE25519_BYTES] = {
-    0x2b, 0x83, 0x24, 0x80, 0x4f, 0xc1, 0xdf, 0x0b,
-    0x2b, 0x4d, 0x00, 0x99, 0x3d, 0xfb, 0xd7, 0xa7,
-    0x2f, 0x43, 0x18, 0x06, 0xad, 0x2f, 0xe4, 0x78,
-    0xc4, 0xee, 0x1b, 0x27, 0x4a, 0x0e, 0xa0, 0xb0
+    0x2bU, 0x83U, 0x24U, 0x80U, 0x4fU, 0xc1U, 0xdfU, 0x0bU,
+    0x2bU, 0x4dU, 0x00U, 0x99U, 0x3dU, 0xfbU, 0xd7U, 0xa7U,
+    0x2fU, 0x43U, 0x18U, 0x06U, 0xadU, 0x2fU, 0xe4U, 0x78U,
+    0xc4U, 0xeeU, 0x1bU, 0x27U, 0x4aU, 0x0eU, 0xa0U, 0xb0U
 };
 
 /**
@@ -700,25 +731,25 @@ static const uint8_t ed25519_sqrt_minus1[NOXTLS_ED25519_FE25519_BYTES] = {
  * @return `NOXTLS_RETURN_SUCCESS` if a square root was found, or another `noxtls_return_t` on failure.
  */
 NOXTLS_UNUSED_ATTR
-static noxtls_return_t fe25519_sqrt(uint8_t r[NOXTLS_ED25519_FE25519_BYTES], const uint8_t a[NOXTLS_ED25519_FE25519_BYTES])
+static noxtls_return_t fe25519_sqrt(uint8_t *r, const uint8_t *a)
 {
     uint8_t p38[NOXTLS_ED25519_FE25519_BYTES];
     uint8_t x[NOXTLS_ED25519_FE25519_BYTES];
     uint8_t x2[NOXTLS_ED25519_FE25519_BYTES];
     /* (p+3)/8 = 2^252 - 2 in BE */
-    memset(p38, 0xFF, NOXTLS_ED25519_FE25519_BYTES);
-    p38[0] = 0x0F;
-    p38[NOXTLS_ED25519_FE25519_BYTES - 1U] = 0xFE;
+    (void)memset(p38, (int)0xFF, (size_t)NOXTLS_ED25519_FE25519_BYTES);
+    p38[0U] = 0x0FU;
+    p38[NOXTLS_ED25519_FE25519_BYTES - 1U] = 0xFEU;
     fe25519_pow(x, a, p38);
-    fe25519_mul(x2, x, x);
-    if(ed25519_cmp_be(x2, a, NOXTLS_ED25519_FE25519_BYTES) == 0) { memcpy(r, x, NOXTLS_ED25519_FE25519_BYTES); return NOXTLS_RETURN_SUCCESS; }
+    ed25519_fe25519_mul(x2, x, x);
+    if(ed25519_cmp_be(x2, a, NOXTLS_ED25519_FE25519_BYTES) == 0) { noxtls_copy_u8((uint8_t *)(void *)(r), (size_t)NOXTLS_ED25519_FE25519_BYTES, (const uint8_t *)(const void *)(x), (size_t)NOXTLS_ED25519_FE25519_BYTES); return NOXTLS_RETURN_SUCCESS; }
     /* x^2 = -a: then x * 2^((p-1)/4) is a square root of a */
-    fe25519_mul(x2, x, (const uint8_t *)ed25519_sqrt_minus1);
-    memcpy(r, x2, NOXTLS_ED25519_FE25519_BYTES);
+    ed25519_fe25519_mul(x2, x, (const uint8_t *)ed25519_sqrt_minus1);
+    noxtls_copy_u8((uint8_t *)(void *)(r), (size_t)NOXTLS_ED25519_FE25519_BYTES, (const uint8_t *)(const void *)(x2), (size_t)NOXTLS_ED25519_FE25519_BYTES);
     return NOXTLS_RETURN_SUCCESS;
 }
 
-static noxtls_return_t ge25519_decode(ge25519_pt_t *p, const uint8_t enc[NOXTLS_ED25519_FE25519_BYTES]);
+static noxtls_return_t ge25519_decode(ge25519_pt_t *p, const uint8_t *enc);
 
 /**
  * @brief Loads the RFC 8032 base point B into extended homogeneous coordinates.
@@ -727,6 +758,16 @@ static noxtls_return_t ge25519_decode(ge25519_pt_t *p, const uint8_t enc[NOXTLS_
  */
 static noxtls_return_t ge25519_set_basepoint(ge25519_pt_t *p)
 {
+    /* Ed25519 basepoint (Rule 8.9). */
+    /* Base point B encoding (32 bytes LE) per RFC 8032: y with LSB(x) in high bit of last octet */
+    static const uint8_t ed25519_B_encoded[NOXTLS_ED25519_FE25519_BYTES] = {
+        0x58U, 0x66U, 0x66U, 0x66U, 0x66U, 0x66U, 0x66U, 0x66U,
+        0x66U, 0x66U, 0x66U, 0x66U, 0x66U, 0x66U, 0x66U, 0x66U,
+        0x66U, 0x66U, 0x66U, 0x66U, 0x66U, 0x66U, 0x66U, 0x66U,
+        0x66U, 0x66U, 0x66U, 0x66U, 0x66U, 0x66U, 0x66U, 0x66U
+    };
+
+
     if(p == NULL) {
         return NOXTLS_RETURN_NULL;
     }
@@ -766,30 +807,30 @@ static void ge25519_add(ge25519_pt_t *r, const ge25519_pt_t *p, const ge25519_pt
     uint8_t t0[NOXTLS_ED25519_FE25519_BYTES];
     uint8_t t1[NOXTLS_ED25519_FE25519_BYTES];
 
-    fe25519_sub(t0, p->Y, p->X);
-    fe25519_sub(t1, q->Y, q->X);
-    fe25519_mul(A, t0, t1);
+    ed25519_fe25519_sub(t0, p->Y, p->X);
+    ed25519_fe25519_sub(t1, q->Y, q->X);
+    ed25519_fe25519_mul(A, t0, t1);
 
-    fe25519_add(t0, p->Y, p->X);
-    fe25519_add(t1, q->Y, q->X);
-    fe25519_mul(B, t0, t1);
+    ed25519_fe25519_add(t0, p->Y, p->X);
+    ed25519_fe25519_add(t1, q->Y, q->X);
+    ed25519_fe25519_mul(B, t0, t1);
 
-    fe25519_mul(C, p->T, q->T);
-    fe25519_mul(C, C, ed25519_d);
-    fe25519_add(C, C, C);
+    ed25519_fe25519_mul(C, p->T, q->T);
+    ed25519_fe25519_mul(C, C, ed25519_d);
+    ed25519_fe25519_add(C, C, C);
 
-    fe25519_mul(D, p->Z, q->Z);
-    fe25519_add(D, D, D);
+    ed25519_fe25519_mul(D, p->Z, q->Z);
+    ed25519_fe25519_add(D, D, D);
 
-    fe25519_sub(E, B, A);
-    fe25519_sub(F, D, C);
-    fe25519_add(G, D, C);
-    fe25519_add(H, B, A);
+    ed25519_fe25519_sub(E, B, A);
+    ed25519_fe25519_sub(F, D, C);
+    ed25519_fe25519_add(G, D, C);
+    ed25519_fe25519_add(H, B, A);
 
-    fe25519_mul(r->X, E, F);
-    fe25519_mul(r->Y, G, H);
-    fe25519_mul(r->T, E, H);
-    fe25519_mul(r->Z, F, G);
+    ed25519_fe25519_mul(r->X, E, F);
+    ed25519_fe25519_mul(r->Y, G, H);
+    ed25519_fe25519_mul(r->T, E, H);
+    ed25519_fe25519_mul(r->Z, F, G);
 }
 
 /**
@@ -812,25 +853,25 @@ static void ge25519_dbl(ge25519_pt_t *r, const ge25519_pt_t *p)
 
     ed25519_set_zero(zero, sizeof(zero));
 
-    fe25519_mul(A, p->X, p->X);
-    fe25519_mul(B, p->Y, p->Y);
-    fe25519_mul(C, p->Z, p->Z);
-    fe25519_add(C, C, C);
-    fe25519_sub(D, zero, A);
+    ed25519_fe25519_mul(A, p->X, p->X);
+    ed25519_fe25519_mul(B, p->Y, p->Y);
+    ed25519_fe25519_mul(C, p->Z, p->Z);
+    ed25519_fe25519_add(C, C, C);
+    ed25519_fe25519_sub(D, zero, A);
 
-    fe25519_add(t0, p->X, p->Y);
-    fe25519_mul(E, t0, t0);
-    fe25519_sub(E, E, A);
-    fe25519_sub(E, E, B);
+    ed25519_fe25519_add(t0, p->X, p->Y);
+    ed25519_fe25519_mul(E, t0, t0);
+    ed25519_fe25519_sub(E, E, A);
+    ed25519_fe25519_sub(E, E, B);
 
-    fe25519_add(G, D, B);
-    fe25519_sub(F, G, C);
-    fe25519_sub(H, D, B);
+    ed25519_fe25519_add(G, D, B);
+    ed25519_fe25519_sub(F, G, C);
+    ed25519_fe25519_sub(H, D, B);
 
-    fe25519_mul(r->X, E, F);
-    fe25519_mul(r->Y, G, H);
-    fe25519_mul(r->T, E, H);
-    fe25519_mul(r->Z, F, G);
+    ed25519_fe25519_mul(r->X, E, F);
+    ed25519_fe25519_mul(r->Y, G, H);
+    ed25519_fe25519_mul(r->T, E, H);
+    ed25519_fe25519_mul(r->Z, F, G);
 }
 
 /**
@@ -839,21 +880,23 @@ static void ge25519_dbl(ge25519_pt_t *r, const ge25519_pt_t *p)
  * @param[in]  s_le Scalar clamped to subgroup order, `NOXTLS_ED25519_FE25519_BYTES` little-endian bytes.
  * @param[in]  P Base point on the curve.
  */
-static void ge25519_scalar_mult(ge25519_pt_t *R, const uint8_t s_le[NOXTLS_ED25519_FE25519_BYTES], const ge25519_pt_t *P)
+static void ge25519_scalar_mult(ge25519_pt_t *R, const uint8_t *s_le, const ge25519_pt_t *P)
 {
+    static const uint8_t ed25519_s_bit8[8] = {0x01U,0x02U,0x04U,0x08U,0x10U,0x20U,0x40U,0x80U};
+
     ge25519_pt_t N;
     ge25519_pt_t T;
     ge25519_pt_zero(R);
-    memcpy(&N, P, sizeof(ge25519_pt_t));
+    N = *P;
 
     /* LSB-first double-and-add over little-endian scalar. */
-    for(int i = 0; i < (int)NOXTLS_ED25519_SCALAR_MULT_BITS; i++) {
-        int bit = (s_le[i >> 3] >> (i & 7)) & 1;
-        if(bit) {
-            memcpy(&T, R, sizeof(ge25519_pt_t));
+    for(uint32_t i = 0U; i < NOXTLS_ED25519_SCALAR_MULT_BITS; i += 1U) {
+        uint32_t bit = ((s_le[(uint32_t)i >> 3U] & ed25519_s_bit8[i & 7U]) != 0U) ? 1U : 0U;
+        if(bit != 0U) {
+            T = *R;
             ge25519_add(R, &T, &N);
         }
-        memcpy(&T, &N, sizeof(ge25519_pt_t));
+        T = N;
         ge25519_dbl(&N, &T);
     }
 }
@@ -864,7 +907,7 @@ static void ge25519_scalar_mult(ge25519_pt_t *R, const uint8_t s_le[NOXTLS_ED255
  * @param[in]  enc Compressed encoding (`NOXTLS_ED25519_FE25519_BYTES` bytes, little-endian wire order).
  * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` if encoding is invalid.
  */
-static noxtls_return_t ge25519_decode(ge25519_pt_t *p, const uint8_t enc[NOXTLS_ED25519_FE25519_BYTES])
+static noxtls_return_t ge25519_decode(ge25519_pt_t *p, const uint8_t *enc)
 {
     uint8_t y_le[NOXTLS_ED25519_FE25519_BYTES];
     uint8_t y_be[NOXTLS_ED25519_FE25519_BYTES];
@@ -877,50 +920,55 @@ static noxtls_return_t ge25519_decode(ge25519_pt_t *p, const uint8_t enc[NOXTLS_
     uint8_t p58_exp[NOXTLS_ED25519_FE25519_BYTES];
     uint8_t p58_buf[NOXTLS_ED25519_FE25519_BYTES];
     uint8_t x_cand[NOXTLS_ED25519_FE25519_BYTES];
-    memcpy(y_le, enc, NOXTLS_ED25519_FE25519_BYTES);
+    noxtls_copy_u8((uint8_t *)(void *)(y_le), (size_t)NOXTLS_ED25519_FE25519_BYTES, (const uint8_t *)(const void *)(enc), (size_t)NOXTLS_ED25519_FE25519_BYTES);
     y_le[NOXTLS_ED25519_FE25519_BYTES - 1U] &= NOXTLS_ED25519_COMPRESSED_Y_SIGN_MASK;
     le32_to_be32(y_be, y_le);
     if(ed25519_cmp_be(y_be, ed25519_p, NOXTLS_ED25519_FE25519_BYTES) >= 0) { return NOXTLS_RETURN_FAILED; }
     /* u = y^2 - 1, v = d*y^2 + 1 */
-    fe25519_mul(u, y_be, y_be);
+    ed25519_fe25519_mul(u, y_be, y_be);
     ed25519_set_one_be32(u_val);
-    fe25519_sub(u, u, u_val);
-    fe25519_mul(v, y_be, y_be);
-    fe25519_mul(v, v, (const uint8_t *)ed25519_d);
-    fe25519_add(v, v, u_val);
-    /* x^2 = u/v => x = (u/v)^((p+3)/8). Use x = u * v^3 * (u*v^7)^((p-5)/8) */
-    fe25519_mul(uv7, u, v);
-    fe25519_mul(uv7, uv7, v);
-    fe25519_mul(uv7, uv7, v);
-    fe25519_mul(uv7, uv7, v);
-    fe25519_mul(uv7, uv7, v);
-    fe25519_mul(uv7, uv7, v);
-    fe25519_mul(uv7, uv7, v);
+    ed25519_fe25519_sub(u, u, u_val);
+    ed25519_fe25519_mul(v, y_be, y_be);
+    ed25519_fe25519_mul(v, v, (const uint8_t *)ed25519_d);
+    ed25519_fe25519_add(v, v, u_val);
+    /* x^2 = u/v => x = (u/v)^((p+3)/8). Use x = u * v^3U * (u*v^7)^((p-5)/8) */
+    ed25519_fe25519_mul(uv7, u, v);
+    ed25519_fe25519_mul(uv7, uv7, v);
+    ed25519_fe25519_mul(uv7, uv7, v);
+    ed25519_fe25519_mul(uv7, uv7, v);
+    ed25519_fe25519_mul(uv7, uv7, v);
+    ed25519_fe25519_mul(uv7, uv7, v);
+    ed25519_fe25519_mul(uv7, uv7, v);
     /* (p-5)/8 = 2^252 - 3 in BE */
-    memset(p58_exp, 0xFF, NOXTLS_ED25519_FE25519_BYTES);
-    p58_exp[0] = 0x0F;
-    p58_exp[NOXTLS_ED25519_FE25519_BYTES - 1U] = 0xFD;
+    (void)memset(p58_exp, (int)0xFF, (size_t)NOXTLS_ED25519_FE25519_BYTES);
+    p58_exp[0U] = 0x0FU;
+    p58_exp[NOXTLS_ED25519_FE25519_BYTES - 1U] = 0xFDU;
     fe25519_pow(p58_buf, uv7, p58_exp);
-    fe25519_mul(x_cand, u, v);
-    fe25519_mul(x_cand, x_cand, v);
-    fe25519_mul(x_cand, x_cand, v);
-    fe25519_mul(x_cand, x_cand, p58_buf);
-    fe25519_mul(vx2, v, x_cand);
-    fe25519_mul(vx2, vx2, x_cand);
+    ed25519_fe25519_mul(x_cand, u, v);
+    ed25519_fe25519_mul(x_cand, x_cand, v);
+    ed25519_fe25519_mul(x_cand, x_cand, v);
+    ed25519_fe25519_mul(x_cand, x_cand, p58_buf);
+    ed25519_fe25519_mul(vx2, v, x_cand);
+    ed25519_fe25519_mul(vx2, vx2, x_cand);
     if(ed25519_cmp_be(vx2, u, NOXTLS_ED25519_FE25519_BYTES) == 0) {
-        memcpy(x, x_cand, NOXTLS_ED25519_FE25519_BYTES);
+        noxtls_copy_u8((uint8_t *)(void *)(x), (size_t)NOXTLS_ED25519_FE25519_BYTES, (const uint8_t *)(const void *)(x_cand), (size_t)NOXTLS_ED25519_FE25519_BYTES);
     } else {
-        fe25519_sub(u_val, ed25519_p, u);
+        /* MISRA 15.7: final else path */
+        ed25519_fe25519_sub(u_val, ed25519_p, u);
         if(ed25519_cmp_be(vx2, u_val, NOXTLS_ED25519_FE25519_BYTES) != 0) { return NOXTLS_RETURN_FAILED; }
-        fe25519_mul(x, x_cand, (const uint8_t *)ed25519_sqrt_minus1);
+        ed25519_fe25519_mul(x, x_cand, (const uint8_t *)ed25519_sqrt_minus1);
     }
-    if((enc[NOXTLS_ED25519_FE25519_BYTES - 1U] >> 7) != (x[NOXTLS_ED25519_FE25519_BYTES - 1U] & 1)) {
-        fe25519_sub(x, ed25519_p, x);
+    {
+        const uint32_t enc_sign_bit = ((uint32_t)enc[NOXTLS_ED25519_FE25519_BYTES - 1U] >> 7U) & 1U;
+        const uint32_t x_parity_bit = (uint32_t)x[NOXTLS_ED25519_FE25519_BYTES - 1U] & 1U;
+        if(enc_sign_bit != x_parity_bit) {
+            ed25519_fe25519_sub(x, ed25519_p, x);
+        }
     }
     ed25519_set_one_be32(p->Z);
-    memcpy(p->X, x, NOXTLS_ED25519_FE25519_BYTES);
-    memcpy(p->Y, y_be, NOXTLS_ED25519_FE25519_BYTES);
-    fe25519_mul(p->T, p->X, p->Y);
+    noxtls_copy_u8((uint8_t *)(void *)(p->X), (size_t)NOXTLS_ED25519_FE25519_BYTES, (const uint8_t *)(const void *)(x), (size_t)NOXTLS_ED25519_FE25519_BYTES);
+    noxtls_copy_u8((uint8_t *)(void *)(p->Y), (size_t)NOXTLS_ED25519_FE25519_BYTES, (const uint8_t *)(const void *)(y_be), (size_t)NOXTLS_ED25519_FE25519_BYTES);
+    ed25519_fe25519_mul(p->T, p->X, p->Y);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -929,16 +977,16 @@ static noxtls_return_t ge25519_decode(ge25519_pt_t *p, const uint8_t enc[NOXTLS_
  * @param[out] enc Compressed public encoding (`NOXTLS_ED25519_FE25519_BYTES` bytes).
  * @param[in]  p Point in extended coordinates.
  */
-static void ge25519_encode(uint8_t enc[NOXTLS_ED25519_FE25519_BYTES], const ge25519_pt_t *p)
+static void ge25519_encode(uint8_t *enc, const ge25519_pt_t *p)
 {
     uint8_t zinv[NOXTLS_ED25519_FE25519_BYTES];
     uint8_t x[NOXTLS_ED25519_FE25519_BYTES];
     uint8_t y[NOXTLS_ED25519_FE25519_BYTES];
-    fe25519_inv(zinv, p->Z);
-    fe25519_mul(x, p->X, zinv);
-    fe25519_mul(y, p->Y, zinv);
+    ed25519_fe25519_inv(zinv, p->Z);
+    ed25519_fe25519_mul(x, p->X, zinv);
+    ed25519_fe25519_mul(y, p->Y, zinv);
     be32_to_le32(enc, y);
-    enc[NOXTLS_ED25519_FE25519_BYTES - 1U] |= (x[NOXTLS_ED25519_FE25519_BYTES - 1U] & 1) << 7;
+    enc[NOXTLS_ED25519_FE25519_BYTES - 1U] |= (x[NOXTLS_ED25519_FE25519_BYTES - 1U] & 1U) << 7U;
 }
 
 /**
@@ -950,10 +998,10 @@ static void ge25519_encode(uint8_t enc[NOXTLS_ED25519_FE25519_BYTES], const ge25
 NOXTLS_UNUSED_ATTR
 static noxtls_return_t ge25519_neg(ge25519_pt_t *r, const ge25519_pt_t *p)
 {
-    fe25519_sub(r->X, (const uint8_t *)ed25519_p, p->X);
-    memcpy(r->Y, p->Y, NOXTLS_ED25519_FE25519_BYTES);
-    memcpy(r->Z, p->Z, NOXTLS_ED25519_FE25519_BYTES);
-    fe25519_sub(r->T, (const uint8_t *)ed25519_p, p->T);
+    ed25519_fe25519_sub(r->X, (const uint8_t *)ed25519_p, p->X);
+    noxtls_copy_u8((uint8_t *)(void *)(r->Y), (size_t)NOXTLS_ED25519_FE25519_BYTES, (const uint8_t *)(const void *)(p->Y), (size_t)NOXTLS_ED25519_FE25519_BYTES);
+    noxtls_copy_u8((uint8_t *)(void *)(r->Z), (size_t)NOXTLS_ED25519_FE25519_BYTES, (const uint8_t *)(const void *)(p->Z), (size_t)NOXTLS_ED25519_FE25519_BYTES);
+    ed25519_fe25519_sub(r->T, (const uint8_t *)ed25519_p, p->T);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -963,11 +1011,11 @@ static noxtls_return_t ge25519_neg(ge25519_pt_t *r, const ge25519_pt_t *p)
  * @param[in]  in_le 64-byte little-endian input (typically SHA-512 output).
  * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on failure.
  */
-static noxtls_return_t sc25519_reduce_mod_l(uint8_t out_le[NOXTLS_ED25519_FE25519_BYTES], const uint8_t in_le[NOXTLS_ED25519_SHA512_DIGEST_BYTES])
+static noxtls_return_t sc25519_reduce_mod_l(uint8_t *out_le, const uint8_t *in_le)
 {
     uint8_t in_be[NOXTLS_ED25519_SHA512_DIGEST_BYTES];
     uint8_t out_be[NOXTLS_ED25519_FE25519_BYTES];
-    for(int i = 0; i < (int)NOXTLS_ED25519_SHA512_DIGEST_BYTES; i++) { in_be[i] = in_le[(int)NOXTLS_ED25519_SHA512_DIGEST_BYTES - 1 - i]; }
+    for(uint32_t i = 0U; i < NOXTLS_ED25519_SHA512_DIGEST_BYTES; i += 1U) { in_be[i] = in_le[(NOXTLS_ED25519_SHA512_DIGEST_BYTES - 1U - i)]; }
     if(ed25519_mod_reduce_be(in_be, NOXTLS_ED25519_BN_PRODUCT_BYTES, ed25519_L, out_be) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     be32_to_le32(out_le, out_be);
     return NOXTLS_RETURN_SUCCESS;
@@ -980,23 +1028,23 @@ static noxtls_return_t sc25519_reduce_mod_l(uint8_t out_le[NOXTLS_ED25519_FE2551
  * @param[in]  b_le Second factor (`NOXTLS_ED25519_FE25519_BYTES` bytes).
  * @return None.
  */
-static void sc25519_mul_le(uint8_t out_le[NOXTLS_ED25519_SHA512_DIGEST_BYTES], const uint8_t a_le[NOXTLS_ED25519_FE25519_BYTES], const uint8_t b_le[NOXTLS_ED25519_FE25519_BYTES])
+static void sc25519_mul_le(uint8_t *out_le, const uint8_t *a_le, const uint8_t *b_le)
 {
-    memset(out_le, 0, NOXTLS_ED25519_BN_PRODUCT_BYTES);
-    for(int i = 0; i < (int)NOXTLS_ED25519_FE25519_BYTES; i++) {
-        uint32_t carry = 0;
-        for(int j = 0; j < (int)NOXTLS_ED25519_FE25519_BYTES; j++) {
-            uint32_t idx = (uint32_t)i + (uint32_t)j;
-            uint32_t t = (uint32_t)out_le[idx] + ((uint32_t)a_le[i] * (uint32_t)b_le[j]) + carry;
-            out_le[idx] = (uint8_t)(t & 0xFFU);
-            carry = t >> 8;
+    noxtls_secure_zero((out_le), (size_t)(NOXTLS_ED25519_BN_PRODUCT_BYTES));
+    for(uint32_t i = 0U; i < NOXTLS_ED25519_FE25519_BYTES; i += 1U) {
+        uint32_t carry = 0U;
+        for(uint32_t j = 0U; j < NOXTLS_ED25519_FE25519_BYTES; j += 1U) {
+            uint32_t mul_idx = (uint32_t)i + (uint32_t)j;
+            uint32_t t = (uint32_t)out_le[mul_idx] + ((uint32_t)a_le[i] * (uint32_t)b_le[j]) + carry;
+            out_le[mul_idx] = (uint8_t)(t & 0xFFU);
+            carry = (uint32_t)(t >> 8U);
         }
         uint32_t idx = (uint32_t)i + (uint32_t)NOXTLS_ED25519_FE25519_BYTES;
-        while(carry != 0 && idx < (uint32_t)NOXTLS_ED25519_SHA512_DIGEST_BYTES) {
+        while((carry != 0U) && (idx < (uint32_t)NOXTLS_ED25519_SHA512_DIGEST_BYTES)) {
             uint32_t t = (uint32_t)out_le[idx] + carry;
             out_le[idx] = (uint8_t)(t & 0xFFU);
-            carry = t >> 8;
-            idx++;
+            carry = (uint32_t)(t >> 8U);
+            idx += 1U;
         }
     }
 }
@@ -1008,22 +1056,22 @@ static void sc25519_mul_le(uint8_t out_le[NOXTLS_ED25519_SHA512_DIGEST_BYTES], c
  * @param[in]  b_le Second summand (`NOXTLS_ED25519_FE25519_BYTES` bytes).
  * @return None.
  */
-static void sc25519_add_le_32_to_64(uint8_t out_le[NOXTLS_ED25519_SHA512_DIGEST_BYTES], const uint8_t a_le[NOXTLS_ED25519_FE25519_BYTES], const uint8_t b_le[NOXTLS_ED25519_FE25519_BYTES])
+static void sc25519_add_le_32_to_64(uint8_t *out_le, const uint8_t *a_le, const uint8_t *b_le)
 {
-    memset(out_le, 0, NOXTLS_ED25519_BN_PRODUCT_BYTES);
-    uint32_t carry = 0;
-    for(int i = 0; i < (int)NOXTLS_ED25519_FE25519_BYTES; i++) {
+    noxtls_secure_zero((out_le), (size_t)(NOXTLS_ED25519_BN_PRODUCT_BYTES));
+    uint32_t carry = 0U;
+    for(uint32_t i = 0U; i < NOXTLS_ED25519_FE25519_BYTES; i += 1U) {
         uint32_t t = (uint32_t)a_le[i] + (uint32_t)b_le[i] + carry;
         out_le[i] = (uint8_t)(t & 0xFFU);
-        carry = t >> 8;
+        carry = (uint32_t)(t >> 8U);
     }
     out_le[NOXTLS_ED25519_FE25519_BYTES] = (uint8_t)carry;
 }
 
-/* RFC 8032 dom2 prefix (32 bytes, no NUL); avoids MSVC C4295 on char[32] = "..." */
+/* RFC 8032 dom2 prefix (32 bytes, no NUL); avoids MSVC C4295 on char[32U] = "..." */
 static const uint8_t ed25519_dom2_literal[NOXTLS_ED25519_DOM2_LITERAL_BYTES] = {
-    'S', 'i', 'g', 'E', 'd', '2', '5', '5', '1', '9', ' ', 'n', 'o', ' ', 'E', 'd',
-    '2', '5', '5', '1', '9', ' ', 'c', 'o', 'l', 'l', 'i', 's', 'i', 'o', 'n', 's'
+    (uint8_t)'S', (uint8_t)'i', (uint8_t)'g', (uint8_t)'E', (uint8_t)'d', (uint8_t)'2', (uint8_t)'5', (uint8_t)'5', (uint8_t)'1', (uint8_t)'9', (uint8_t)' ', (uint8_t)'n', (uint8_t)'o', (uint8_t)' ', (uint8_t)'E', (uint8_t)'d',
+    (uint8_t)'2', (uint8_t)'5', (uint8_t)'5', (uint8_t)'1', (uint8_t)'9', (uint8_t)' ', (uint8_t)'c', (uint8_t)'o', (uint8_t)'l', (uint8_t)'l', (uint8_t)'i', (uint8_t)'s', (uint8_t)'i', (uint8_t)'o', (uint8_t)'n', (uint8_t)'s'
 };
 
 /**
@@ -1037,10 +1085,10 @@ static const uint8_t ed25519_dom2_literal[NOXTLS_ED25519_DOM2_LITERAL_BYTES] = {
  * @param[in]  ctx_len Context length; must be 0 for prehash variant.
  * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on validation or crypto failure.
  */
-static noxtls_return_t ed25519_sign_internal(const uint8_t private_key[NOXTLS_ED25519_FE25519_BYTES],
+static noxtls_return_t ed25519_sign_internal(const uint8_t *private_key,
                                              const uint8_t *noxtls_message,
                                              uint32_t message_len,
-                                             uint8_t signature[NOXTLS_ED25519_SIGNATURE_SIZE],
+                                             uint8_t *signature,
                                              uint8_t phflag,
                                              const uint8_t *ctx_str,
                                              uint32_t ctx_len)
@@ -1057,31 +1105,33 @@ static noxtls_return_t ed25519_sign_internal(const uint8_t private_key[NOXTLS_ED
     noxtls_sha512_ctx_t ctx;
     uint8_t public_key[NOXTLS_ED25519_FE25519_BYTES];
     uint8_t dom_buf[NOXTLS_ED25519_DOM2_BUFFER_BYTES];
-    uint32_t dom_len = 0;
+    uint32_t dom_len = 0U;
     uint8_t ph_digest[NOXTLS_ED25519_SHA512_DIGEST_BYTES];
     const uint8_t *m_body = noxtls_message;
     uint32_t m_len = message_len;
 
-    if(private_key == NULL || signature == NULL) { return NOXTLS_RETURN_NULL; }
-    if(noxtls_message == NULL && message_len != 0) { return NOXTLS_RETURN_NULL; }
+    if((private_key == NULL) || (signature == NULL)) { return NOXTLS_RETURN_NULL; }
+    if((noxtls_message == NULL) && (message_len != 0U)) { return NOXTLS_RETURN_NULL; }
     if(phflag > NOXTLS_ED25519_PH_FLAG_PREHASH) { return NOXTLS_RETURN_INVALID_PARAM; }
-    if(phflag == NOXTLS_ED25519_PH_FLAG_PREHASH && ctx_len != 0) { return NOXTLS_RETURN_INVALID_PARAM; }
+    if((phflag == NOXTLS_ED25519_PH_FLAG_PREHASH) && (ctx_len != 0U)) { return NOXTLS_RETURN_INVALID_PARAM; }
     if(ctx_len > NOXTLS_ED25519_CONTEXT_MAX) { return NOXTLS_RETURN_INVALID_PARAM; }
-    if(ctx_len > 0 && ctx_str == NULL) { return NOXTLS_RETURN_NULL; }
+    if((ctx_len > 0U) && (ctx_str == NULL)) { return NOXTLS_RETURN_NULL; }
 
-    if(phflag != NOXTLS_ED25519_PH_FLAG_PURE || ctx_len > 0) {
-        memcpy(dom_buf, ed25519_dom2_literal, NOXTLS_ED25519_DOM2_LITERAL_BYTES);
+    if((phflag != NOXTLS_ED25519_PH_FLAG_PURE) || (ctx_len > 0U)) {
+        noxtls_copy_u8(dom_buf, sizeof(dom_buf), ed25519_dom2_literal, (size_t)NOXTLS_ED25519_DOM2_LITERAL_BYTES);
         dom_buf[NOXTLS_ED25519_DOM2_PHFLAG_OCTET_INDEX] = phflag;
         dom_buf[NOXTLS_ED25519_DOM2_CTX_LEN_OCTET_INDEX] = (uint8_t)ctx_len;
-        if(ctx_len > 0) {
-            memcpy(dom_buf + NOXTLS_ED25519_DOM2_CTX_START_OCTET_INDEX, ctx_str, ctx_len);
+        if(ctx_len > 0U) {
+            noxtls_copy_u8(&dom_buf[NOXTLS_ED25519_DOM2_CTX_START_OCTET_INDEX], sizeof(dom_buf) - (size_t)(NOXTLS_ED25519_DOM2_CTX_START_OCTET_INDEX), ctx_str, (size_t)ctx_len);
         }
         dom_len = NOXTLS_ED25519_DOM2_PREFIX_BYTES + ctx_len;
     }
 
     if(phflag == NOXTLS_ED25519_PH_FLAG_PREHASH) {
         if(noxtls_sha512_init(&ctx, NOXTLS_HASH_SHA_512) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-        if(message_len != 0U && noxtls_sha512_update(&ctx, noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+        if(message_len != 0U) {
+        if(noxtls_sha512_update(&ctx, noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    }
         if(noxtls_sha512_finish(&ctx, ph_digest) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
         m_body = ph_digest;
         m_len = NOXTLS_ED25519_SHA512_DIGEST_BYTES;
@@ -1093,16 +1143,20 @@ static noxtls_return_t ed25519_sign_internal(const uint8_t private_key[NOXTLS_ED
     if(noxtls_sha512_init(&ctx, NOXTLS_HASH_SHA_512) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_INVALID_ALGORITHM; }
     if(noxtls_sha512_update(&ctx, private_key, NOXTLS_ED25519_FE25519_BYTES) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_INVALID_ALGORITHM; }
     if(noxtls_sha512_finish(&ctx, h) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_INVALID_ALGORITHM; }
-    h[0] &= NOXTLS_ED25519_SCALAR_CLAMP_BYTE0_MASK;
+    h[0U] &= NOXTLS_ED25519_SCALAR_CLAMP_BYTE0_MASK;
     h[NOXTLS_ED25519_FE25519_BYTES - 1U] &= NOXTLS_ED25519_SCALAR_CLAMP_BYTE31_AND;
     h[NOXTLS_ED25519_FE25519_BYTES - 1U] |= NOXTLS_ED25519_SCALAR_CLAMP_BYTE31_OR;
-    memcpy(prefix, h + NOXTLS_ED25519_FE25519_BYTES, NOXTLS_ED25519_FE25519_BYTES);
-    memcpy(s_le, h, NOXTLS_ED25519_FE25519_BYTES);
+    noxtls_copy_u8((uint8_t *)(void *)(prefix), (size_t)NOXTLS_ED25519_FE25519_BYTES, (const uint8_t *)(const void *)(&h[NOXTLS_ED25519_FE25519_BYTES]), (size_t)NOXTLS_ED25519_FE25519_BYTES);
+    noxtls_copy_u8((uint8_t *)(void *)(s_le), (size_t)NOXTLS_ED25519_FE25519_BYTES, (const uint8_t *)(const void *)(h), (size_t)NOXTLS_ED25519_FE25519_BYTES);
 
     if(noxtls_sha512_init(&ctx, NOXTLS_HASH_SHA_512) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_BAD_DATA; }
-    if(dom_len != 0U && noxtls_sha512_update(&ctx, dom_buf, dom_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_BAD_DATA; }
+    if(dom_len != 0U) {
+        if(noxtls_sha512_update(&ctx, dom_buf, dom_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_BAD_DATA; }
+    }
     if(noxtls_sha512_update(&ctx, prefix, NOXTLS_ED25519_FE25519_BYTES) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_BAD_DATA; }
-    if(m_len != 0U && noxtls_sha512_update(&ctx, m_body, m_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_BAD_DATA; }
+    if(m_len != 0U) {
+        if(noxtls_sha512_update(&ctx, m_body, m_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_BAD_DATA; }
+    }
     if(noxtls_sha512_finish(&ctx, r_in) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_BAD_DATA; }
     if(sc25519_reduce_mod_l(r_le, r_in) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_TIMEOUT; }
     if(ge25519_set_basepoint(&B) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_NOT_SUPPORTED; }
@@ -1110,10 +1164,14 @@ static noxtls_return_t ed25519_sign_internal(const uint8_t private_key[NOXTLS_ED
     ge25519_encode(signature, &R);
 
     if(noxtls_sha512_init(&ctx, NOXTLS_HASH_SHA_512) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_INVALID_BLOCK_SIZE; }
-    if(dom_len != 0U && noxtls_sha512_update(&ctx, dom_buf, dom_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_INVALID_BLOCK_SIZE; }
+    if(dom_len != 0U) {
+        if(noxtls_sha512_update(&ctx, dom_buf, dom_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_INVALID_BLOCK_SIZE; }
+    }
     if(noxtls_sha512_update(&ctx, signature, NOXTLS_ED25519_FE25519_BYTES) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_INVALID_BLOCK_SIZE; }
     if(noxtls_sha512_update(&ctx, public_key, NOXTLS_ED25519_FE25519_BYTES) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_INVALID_BLOCK_SIZE; }
-    if(m_len != 0U && noxtls_sha512_update(&ctx, m_body, m_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_INVALID_BLOCK_SIZE; }
+    if(m_len != 0U) {
+        if(noxtls_sha512_update(&ctx, m_body, m_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_INVALID_BLOCK_SIZE; }
+    }
     if(noxtls_sha512_finish(&ctx, k_in) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_INVALID_BLOCK_SIZE; }
     if(sc25519_reduce_mod_l(k_le, k_in) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_NOT_ENOUGH_MEMORY; }
 
@@ -1126,7 +1184,7 @@ static noxtls_return_t ed25519_sign_internal(const uint8_t private_key[NOXTLS_ED
         if(sc25519_reduce_mod_l(ks_le32, ks_le64) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_NOT_ENOUGH_MEMORY; }
         sc25519_add_le_32_to_64(sum_le64, r_le, ks_le32);
         if(sc25519_reduce_mod_l(S_le, sum_le64) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_NOT_ENOUGH_ENTROPY; }
-        memcpy(signature + NOXTLS_ED25519_FE25519_BYTES, S_le, NOXTLS_ED25519_FE25519_BYTES);
+        noxtls_copy_u8((uint8_t *)(void *)(&signature[NOXTLS_ED25519_FE25519_BYTES]), (size_t)NOXTLS_ED25519_FE25519_BYTES, (const uint8_t *)(const void *)(S_le), (size_t)NOXTLS_ED25519_FE25519_BYTES);
     }
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -1142,10 +1200,10 @@ static noxtls_return_t ed25519_sign_internal(const uint8_t private_key[NOXTLS_ED
  * @param[in] ctx_len Context length; must be 0 for prehash variant.
  * @return `NOXTLS_RETURN_SUCCESS` if the signature is valid, otherwise an error `noxtls_return_t`.
  */
-static noxtls_return_t ed25519_verify_internal(const uint8_t public_key[NOXTLS_ED25519_FE25519_BYTES],
+static noxtls_return_t ed25519_verify_internal(const uint8_t *public_key,
                                                 const uint8_t *noxtls_message,
                                                 uint32_t message_len,
-                                                const uint8_t signature[NOXTLS_ED25519_SIGNATURE_SIZE],
+                                                const uint8_t *signature,
                                                 uint8_t phflag,
                                                 const uint8_t *ctx_str,
                                                 uint32_t ctx_len)
@@ -1159,31 +1217,33 @@ static noxtls_return_t ed25519_verify_internal(const uint8_t public_key[NOXTLS_E
     ge25519_pt_t sB;
     noxtls_sha512_ctx_t ctx;
     uint8_t dom_buf[NOXTLS_ED25519_DOM2_BUFFER_BYTES];
-    uint32_t dom_len = 0;
+    uint32_t dom_len = 0U;
     uint8_t ph_digest[NOXTLS_ED25519_SHA512_DIGEST_BYTES];
     const uint8_t *m_body = noxtls_message;
     uint32_t m_len = message_len;
 
-    if(public_key == NULL || signature == NULL) { return NOXTLS_RETURN_NULL; }
-    if(noxtls_message == NULL && message_len != 0) { return NOXTLS_RETURN_NULL; }
+    if((public_key == NULL) || (signature == NULL)) { return NOXTLS_RETURN_NULL; }
+    if((noxtls_message == NULL) && (message_len != 0U)) { return NOXTLS_RETURN_NULL; }
     if(phflag > NOXTLS_ED25519_PH_FLAG_PREHASH) { return NOXTLS_RETURN_INVALID_PARAM; }
-    if(phflag == NOXTLS_ED25519_PH_FLAG_PREHASH && ctx_len != 0) { return NOXTLS_RETURN_INVALID_PARAM; }
+    if((phflag == NOXTLS_ED25519_PH_FLAG_PREHASH) && (ctx_len != 0U)) { return NOXTLS_RETURN_INVALID_PARAM; }
     if(ctx_len > NOXTLS_ED25519_CONTEXT_MAX) { return NOXTLS_RETURN_INVALID_PARAM; }
-    if(ctx_len > 0 && ctx_str == NULL) { return NOXTLS_RETURN_NULL; }
+    if((ctx_len > 0U) && (ctx_str == NULL)) { return NOXTLS_RETURN_NULL; }
 
-    if(phflag != NOXTLS_ED25519_PH_FLAG_PURE || ctx_len > 0) {
-        memcpy(dom_buf, ed25519_dom2_literal, NOXTLS_ED25519_DOM2_LITERAL_BYTES);
+    if((phflag != NOXTLS_ED25519_PH_FLAG_PURE) || (ctx_len > 0U)) {
+        noxtls_copy_u8(dom_buf, sizeof(dom_buf), ed25519_dom2_literal, (size_t)NOXTLS_ED25519_DOM2_LITERAL_BYTES);
         dom_buf[NOXTLS_ED25519_DOM2_PHFLAG_OCTET_INDEX] = phflag;
         dom_buf[NOXTLS_ED25519_DOM2_CTX_LEN_OCTET_INDEX] = (uint8_t)ctx_len;
-        if(ctx_len > 0) {
-            memcpy(dom_buf + NOXTLS_ED25519_DOM2_CTX_START_OCTET_INDEX, ctx_str, ctx_len);
+        if(ctx_len > 0U) {
+            noxtls_copy_u8(&dom_buf[NOXTLS_ED25519_DOM2_CTX_START_OCTET_INDEX], sizeof(dom_buf) - (size_t)(NOXTLS_ED25519_DOM2_CTX_START_OCTET_INDEX), ctx_str, (size_t)ctx_len);
         }
         dom_len = NOXTLS_ED25519_DOM2_PREFIX_BYTES + ctx_len;
     }
 
     if(phflag == NOXTLS_ED25519_PH_FLAG_PREHASH) {
         if(noxtls_sha512_init(&ctx, NOXTLS_HASH_SHA_512) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-        if(message_len != 0U && noxtls_sha512_update(&ctx, noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+        if(message_len != 0U) {
+        if(noxtls_sha512_update(&ctx, noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    }
         if(noxtls_sha512_finish(&ctx, ph_digest) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
         m_body = ph_digest;
         m_len = NOXTLS_ED25519_SHA512_DIGEST_BYTES;
@@ -1195,16 +1255,20 @@ static noxtls_return_t ed25519_verify_internal(const uint8_t public_key[NOXTLS_E
     {
         uint8_t S_be[NOXTLS_ED25519_FE25519_BYTES];
         uint8_t S_le[NOXTLS_ED25519_FE25519_BYTES];
-        memcpy(S_le, signature + NOXTLS_ED25519_FE25519_BYTES, NOXTLS_ED25519_FE25519_BYTES);
+        noxtls_copy_u8((uint8_t *)(void *)(S_le), (size_t)NOXTLS_ED25519_FE25519_BYTES, (const uint8_t *)(const void *)(&signature[NOXTLS_ED25519_FE25519_BYTES]), (size_t)NOXTLS_ED25519_FE25519_BYTES);
         le32_to_be32(S_be, S_le);
         if(ed25519_cmp_be(S_be, ed25519_L, NOXTLS_ED25519_FE25519_BYTES) >= 0) { return NOXTLS_RETURN_FAILED; }
     }
 
     if(noxtls_sha512_init(&ctx, NOXTLS_HASH_SHA_512) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(dom_len != 0U && noxtls_sha512_update(&ctx, dom_buf, dom_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(dom_len != 0U) {
+        if(noxtls_sha512_update(&ctx, dom_buf, dom_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    }
     if(noxtls_sha512_update(&ctx, signature, NOXTLS_ED25519_FE25519_BYTES) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     if(noxtls_sha512_update(&ctx, public_key, NOXTLS_ED25519_FE25519_BYTES) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(m_len != 0U && noxtls_sha512_update(&ctx, m_body, m_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(m_len != 0U) {
+        if(noxtls_sha512_update(&ctx, m_body, m_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    }
     if(noxtls_sha512_finish(&ctx, k_in) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     if(sc25519_reduce_mod_l(k_le, k_in) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
 
@@ -1213,7 +1277,7 @@ static noxtls_return_t ed25519_verify_internal(const uint8_t public_key[NOXTLS_E
     if(ge25519_set_basepoint(&R) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     {
         uint8_t S_le[NOXTLS_ED25519_FE25519_BYTES];
-        memcpy(S_le, signature + NOXTLS_ED25519_FE25519_BYTES, NOXTLS_ED25519_FE25519_BYTES);
+        noxtls_copy_u8((uint8_t *)(void *)(S_le), (size_t)NOXTLS_ED25519_FE25519_BYTES, (const uint8_t *)(const void *)(&signature[NOXTLS_ED25519_FE25519_BYTES]), (size_t)NOXTLS_ED25519_FE25519_BYTES);
         ge25519_scalar_mult(&sB, S_le, &R);
     }
     {
@@ -1221,18 +1285,18 @@ static noxtls_return_t ed25519_verify_internal(const uint8_t public_key[NOXTLS_E
         uint8_t enc2[NOXTLS_ED25519_FE25519_BYTES];
         ge25519_encode(enc1, &R_plus_kA);
         ge25519_encode(enc2, &sB);
-        if(noxtls_secret_memcmp(enc1, enc2, NOXTLS_ED25519_FE25519_BYTES) != 0) {
+        if(noxtls_secret_memcmp(enc1, enc2, (size_t)(NOXTLS_ED25519_FE25519_BYTES)) != 0) {
             uint8_t cofactor_le[NOXTLS_ED25519_FE25519_BYTES] = {0};
             ge25519_pt_t lhs8;
             ge25519_pt_t rhs8;
             uint8_t enc_lhs8[NOXTLS_ED25519_FE25519_BYTES];
             uint8_t enc_rhs8[NOXTLS_ED25519_FE25519_BYTES];
-            cofactor_le[0] = NOXTLS_ED25519_SUBGROUP_COFACTOR;
+            cofactor_le[0U] = NOXTLS_ED25519_SUBGROUP_COFACTOR;
             ge25519_scalar_mult(&lhs8, cofactor_le, &sB);
             ge25519_scalar_mult(&rhs8, cofactor_le, &R_plus_kA);
             ge25519_encode(enc_lhs8, &lhs8);
             ge25519_encode(enc_rhs8, &rhs8);
-            if(noxtls_secret_memcmp(enc_lhs8, enc_rhs8, NOXTLS_ED25519_FE25519_BYTES) == 0) {
+            if(noxtls_secret_memcmp(enc_lhs8, enc_rhs8, (size_t)(NOXTLS_ED25519_FE25519_BYTES)) == 0) {
                 return NOXTLS_RETURN_SUCCESS;
             }
             return NOXTLS_RETURN_FAILED;
@@ -1247,7 +1311,7 @@ static noxtls_return_t ed25519_verify_internal(const uint8_t public_key[NOXTLS_E
  * @param[out] public_key 32-byte compressed public key encoding.
  * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on failure.
  */
-noxtls_return_t noxtls_ed25519_public_key(const uint8_t private_key[NOXTLS_ED25519_FE25519_BYTES], uint8_t public_key[NOXTLS_ED25519_FE25519_BYTES])
+noxtls_return_t noxtls_ed25519_public_key(const uint8_t *private_key, uint8_t *public_key)
 {
     uint8_t h[NOXTLS_ED25519_SHA512_DIGEST_BYTES];
     uint8_t s_le[NOXTLS_ED25519_FE25519_BYTES];
@@ -1255,14 +1319,14 @@ noxtls_return_t noxtls_ed25519_public_key(const uint8_t private_key[NOXTLS_ED255
     ge25519_pt_t A;
     noxtls_sha512_ctx_t ctx;
 
-    if(private_key == NULL || public_key == NULL) { return NOXTLS_RETURN_NULL; }
+    if((private_key == NULL) || (public_key == NULL)) { return NOXTLS_RETURN_NULL; }
     if(noxtls_sha512_init(&ctx, NOXTLS_HASH_SHA_512) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     if(noxtls_sha512_update(&ctx, private_key, NOXTLS_ED25519_FE25519_BYTES) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     if(noxtls_sha512_finish(&ctx, h) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    h[0] &= NOXTLS_ED25519_SCALAR_CLAMP_BYTE0_MASK;
+    h[0U] &= NOXTLS_ED25519_SCALAR_CLAMP_BYTE0_MASK;
     h[NOXTLS_ED25519_FE25519_BYTES - 1U] &= NOXTLS_ED25519_SCALAR_CLAMP_BYTE31_AND;
     h[NOXTLS_ED25519_FE25519_BYTES - 1U] |= NOXTLS_ED25519_SCALAR_CLAMP_BYTE31_OR;
-    memcpy(s_le, h, NOXTLS_ED25519_FE25519_BYTES);
+    noxtls_copy_u8((uint8_t *)(void *)(s_le), (size_t)NOXTLS_ED25519_FE25519_BYTES, (const uint8_t *)(const void *)(h), (size_t)NOXTLS_ED25519_FE25519_BYTES);
     if(ge25519_set_basepoint(&B) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     ge25519_scalar_mult(&A, s_le, &B);
     ge25519_encode(public_key, &A);
@@ -1277,10 +1341,10 @@ noxtls_return_t noxtls_ed25519_public_key(const uint8_t private_key[NOXTLS_ED255
  * @param[out] signature 64-byte signature output.
  * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on failure.
  */
-noxtls_return_t noxtls_ed25519_sign(const uint8_t private_key[NOXTLS_ED25519_FE25519_BYTES],
+noxtls_return_t noxtls_ed25519_sign(const uint8_t *private_key,
                                      const uint8_t *noxtls_message,
                                      uint32_t message_len,
-                                     uint8_t signature[NOXTLS_ED25519_SIGNATURE_SIZE])
+                                     uint8_t *signature)
 {
     return ed25519_sign_internal(private_key, noxtls_message, message_len, signature, NOXTLS_ED25519_PH_FLAG_PURE, NULL, 0);
 }
@@ -1293,17 +1357,17 @@ noxtls_return_t noxtls_ed25519_sign(const uint8_t private_key[NOXTLS_ED25519_FE2
  * @param[in] signature 64-byte signature.
  * @return `NOXTLS_RETURN_SUCCESS` if valid, otherwise an error `noxtls_return_t`.
  */
-noxtls_return_t noxtls_ed25519_verify(const uint8_t public_key[NOXTLS_ED25519_FE25519_BYTES],
+noxtls_return_t noxtls_ed25519_verify(const uint8_t *public_key,
                                       const uint8_t *noxtls_message,
                                       uint32_t message_len,
-                                      const uint8_t signature[NOXTLS_ED25519_SIGNATURE_SIZE])
+                                      const uint8_t *signature)
 {
     return ed25519_verify_internal(public_key, noxtls_message, message_len, signature, NOXTLS_ED25519_PH_FLAG_PURE, NULL, 0);
 }
 
-static noxtls_return_t ed25519_verify_finalize(const uint8_t public_key[NOXTLS_ED25519_FE25519_BYTES],
-                                               const uint8_t signature[NOXTLS_ED25519_SIGNATURE_SIZE],
-                                               const uint8_t k_in[NOXTLS_ED25519_SHA512_DIGEST_BYTES])
+static noxtls_return_t ed25519_verify_finalize(const uint8_t *public_key,
+                                               const uint8_t *signature,
+                                               const uint8_t *k_in)
 {
     uint8_t k_le[NOXTLS_ED25519_FE25519_BYTES];
     ge25519_pt_t A;
@@ -1311,27 +1375,39 @@ static noxtls_return_t ed25519_verify_finalize(const uint8_t public_key[NOXTLS_E
     ge25519_pt_t R_plus_kA;
     ge25519_pt_t kA;
     ge25519_pt_t sB;
-    if(public_key == NULL || signature == NULL || k_in == NULL) return NOXTLS_RETURN_NULL;
+    if((public_key == NULL) || (signature == NULL) || (k_in == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
 
-    if(ge25519_decode(&A, public_key) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(ge25519_decode(&R, signature) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(ge25519_decode(&A, public_key) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    if(ge25519_decode(&R, signature) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_FAILED;
+    }
 
     {
         uint8_t S_be[NOXTLS_ED25519_FE25519_BYTES];
         uint8_t S_le[NOXTLS_ED25519_FE25519_BYTES];
-        memcpy(S_le, signature + NOXTLS_ED25519_FE25519_BYTES, NOXTLS_ED25519_FE25519_BYTES);
+        noxtls_copy_u8((uint8_t *)(void *)(S_le), (size_t)NOXTLS_ED25519_FE25519_BYTES, (const uint8_t *)(const void *)(&signature[NOXTLS_ED25519_FE25519_BYTES]), (size_t)NOXTLS_ED25519_FE25519_BYTES);
         le32_to_be32(S_be, S_le);
-        if(ed25519_cmp_be(S_be, ed25519_L, NOXTLS_ED25519_FE25519_BYTES) >= 0) return NOXTLS_RETURN_FAILED;
+        if(ed25519_cmp_be(S_be, ed25519_L, NOXTLS_ED25519_FE25519_BYTES) >= 0) {
+            return NOXTLS_RETURN_FAILED;
+        }
     }
 
-    if(sc25519_reduce_mod_l(k_le, k_in) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(sc25519_reduce_mod_l(k_le, k_in) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_FAILED;
+    }
 
     ge25519_scalar_mult(&kA, k_le, &A);
     ge25519_add(&R_plus_kA, &R, &kA);
-    if(ge25519_set_basepoint(&R) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(ge25519_set_basepoint(&R) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_FAILED;
+    }
     {
         uint8_t S_le[NOXTLS_ED25519_FE25519_BYTES];
-        memcpy(S_le, signature + NOXTLS_ED25519_FE25519_BYTES, NOXTLS_ED25519_FE25519_BYTES);
+        noxtls_copy_u8((uint8_t *)(void *)(S_le), (size_t)NOXTLS_ED25519_FE25519_BYTES, (const uint8_t *)(const void *)(&signature[NOXTLS_ED25519_FE25519_BYTES]), (size_t)NOXTLS_ED25519_FE25519_BYTES);
         ge25519_scalar_mult(&sB, S_le, &R);
     }
     {
@@ -1339,18 +1415,18 @@ static noxtls_return_t ed25519_verify_finalize(const uint8_t public_key[NOXTLS_E
         uint8_t enc2[NOXTLS_ED25519_FE25519_BYTES];
         ge25519_encode(enc1, &R_plus_kA);
         ge25519_encode(enc2, &sB);
-        if(noxtls_secret_memcmp(enc1, enc2, NOXTLS_ED25519_FE25519_BYTES) != 0) {
+        if(noxtls_secret_memcmp(enc1, enc2, (size_t)(NOXTLS_ED25519_FE25519_BYTES)) != 0) {
             uint8_t cofactor_le[NOXTLS_ED25519_FE25519_BYTES] = {0};
             ge25519_pt_t lhs8;
             ge25519_pt_t rhs8;
             uint8_t enc_lhs8[NOXTLS_ED25519_FE25519_BYTES];
             uint8_t enc_rhs8[NOXTLS_ED25519_FE25519_BYTES];
-            cofactor_le[0] = NOXTLS_ED25519_SUBGROUP_COFACTOR;
+            cofactor_le[0U] = NOXTLS_ED25519_SUBGROUP_COFACTOR;
             ge25519_scalar_mult(&lhs8, cofactor_le, &sB);
             ge25519_scalar_mult(&rhs8, cofactor_le, &R_plus_kA);
             ge25519_encode(enc_lhs8, &lhs8);
             ge25519_encode(enc_rhs8, &rhs8);
-            if(noxtls_secret_memcmp(enc_lhs8, enc_rhs8, NOXTLS_ED25519_FE25519_BYTES) == 0) {
+            if(noxtls_secret_memcmp(enc_lhs8, enc_rhs8, (size_t)(NOXTLS_ED25519_FE25519_BYTES)) == 0) {
                 return NOXTLS_RETURN_SUCCESS;
             }
             return NOXTLS_RETURN_FAILED;
@@ -1360,18 +1436,26 @@ static noxtls_return_t ed25519_verify_finalize(const uint8_t public_key[NOXTLS_E
 }
 
 noxtls_return_t noxtls_ed25519_verify_stream_init(noxtls_ed25519_verify_stream_ctx_t *ctx,
-                                                  const uint8_t public_key[NOXTLS_ED25519_FE25519_BYTES],
-                                                  const uint8_t signature[NOXTLS_ED25519_SIGNATURE_SIZE])
+                                                  const uint8_t *public_key,
+                                                  const uint8_t *signature)
 {
-    if(ctx == NULL || public_key == NULL || signature == NULL) return NOXTLS_RETURN_NULL;
+    if((ctx == NULL) || (public_key == NULL) || (signature == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
 
-    memset(ctx, 0, sizeof(*ctx));
-    memcpy(ctx->public_key, public_key, NOXTLS_ED25519_FE25519_BYTES);
-    memcpy(ctx->signature, signature, NOXTLS_ED25519_SIGNATURE_SIZE);
+    noxtls_secure_zero((ctx), sizeof(*(ctx)));
+    noxtls_copy_u8((uint8_t *)(void *)(ctx->public_key), (size_t)NOXTLS_ED25519_FE25519_BYTES, (const uint8_t *)(const void *)(public_key), (size_t)NOXTLS_ED25519_FE25519_BYTES);
+    noxtls_copy_u8(ctx->signature, sizeof(ctx->signature), signature, (size_t)NOXTLS_ED25519_SIGNATURE_SIZE);
 
-    if(noxtls_sha512_init(&ctx->hash_ctx, NOXTLS_HASH_SHA_512) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(noxtls_sha512_update(&ctx->hash_ctx, signature, NOXTLS_ED25519_FE25519_BYTES) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(noxtls_sha512_update(&ctx->hash_ctx, public_key, NOXTLS_ED25519_FE25519_BYTES) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(noxtls_sha512_init(&ctx->hash_ctx, NOXTLS_HASH_SHA_512) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    if(noxtls_sha512_update(&ctx->hash_ctx, signature, NOXTLS_ED25519_FE25519_BYTES) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    if(noxtls_sha512_update(&ctx->hash_ctx, public_key, NOXTLS_ED25519_FE25519_BYTES) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_FAILED;
+    }
 
     ctx->initialized = 1U;
     return NOXTLS_RETURN_SUCCESS;
@@ -1381,10 +1465,18 @@ noxtls_return_t noxtls_ed25519_verify_stream_update(noxtls_ed25519_verify_stream
                                                     const uint8_t *message_part,
                                                     uint32_t message_part_len)
 {
-    if(ctx == NULL) return NOXTLS_RETURN_NULL;
-    if(ctx->initialized == 0U) return NOXTLS_RETURN_FAILED;
-    if(message_part == NULL && message_part_len != 0U) return NOXTLS_RETURN_NULL;
-    if(message_part_len == 0U) return NOXTLS_RETURN_SUCCESS;
+    if(ctx == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(ctx->initialized == 0U) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    if((message_part == NULL) && (message_part_len != 0U)) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(message_part_len == 0U) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
 
     return noxtls_sha512_update(&ctx->hash_ctx, message_part, message_part_len);
 }
@@ -1392,36 +1484,48 @@ noxtls_return_t noxtls_ed25519_verify_stream_update(noxtls_ed25519_verify_stream
 noxtls_return_t noxtls_ed25519_verify_stream_final(noxtls_ed25519_verify_stream_ctx_t *ctx)
 {
     uint8_t k_in[NOXTLS_ED25519_SHA512_DIGEST_BYTES];
-    noxtls_return_t rc;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(ctx == NULL) return NOXTLS_RETURN_NULL;
-    if(ctx->initialized == 0U) return NOXTLS_RETURN_FAILED;
+    if(ctx == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(ctx->initialized == 0U) {
+        return NOXTLS_RETURN_FAILED;
+    }
 
     rc = noxtls_sha512_finish(&ctx->hash_ctx, k_in);
-    if(rc != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_FAILED;
+    }
 
     ctx->initialized = 0U;
     return ed25519_verify_finalize(ctx->public_key, ctx->signature, k_in);
 }
 
-noxtls_return_t noxtls_ed25519_verify_split(const uint8_t public_key[NOXTLS_ED25519_FE25519_BYTES],
+noxtls_return_t noxtls_ed25519_verify_split(const uint8_t *public_key,
                                             const uint8_t *message_part_a,
                                             uint32_t message_part_a_len,
                                             const uint8_t *message_part_b,
                                             uint32_t message_part_b_len,
-                                            const uint8_t signature[NOXTLS_ED25519_SIGNATURE_SIZE])
+                                            const uint8_t *signature)
 {
     noxtls_ed25519_verify_stream_ctx_t stream_ctx;
-    noxtls_return_t rc;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     rc = noxtls_ed25519_verify_stream_init(&stream_ctx, public_key, signature);
-    if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
 
     rc = noxtls_ed25519_verify_stream_update(&stream_ctx, message_part_a, message_part_a_len);
-    if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
 
     rc = noxtls_ed25519_verify_stream_update(&stream_ctx, message_part_b, message_part_b_len);
-    if(rc != NOXTLS_RETURN_SUCCESS) return rc;
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
 
     return noxtls_ed25519_verify_stream_final(&stream_ctx);
 }
@@ -1436,15 +1540,15 @@ noxtls_return_t noxtls_ed25519_verify_split(const uint8_t public_key[NOXTLS_ED25
  * @param[out] signature 64-byte signature output.
  * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on failure.
  */
-noxtls_return_t noxtls_ed25519ctx_sign(const uint8_t private_key[NOXTLS_ED25519_FE25519_BYTES],
+noxtls_return_t noxtls_ed25519ctx_sign(const uint8_t *private_key,
                                        const uint8_t *context,
                                        uint32_t context_len,
                                        const uint8_t *noxtls_message,
                                        uint32_t message_len,
-                                       uint8_t signature[NOXTLS_ED25519_SIGNATURE_SIZE])
+                                       uint8_t *signature)
 {
-    if(context == NULL && context_len != 0) { return NOXTLS_RETURN_NULL; }
-    if(context_len < 1U || context_len > NOXTLS_ED25519_CONTEXT_MAX) { return NOXTLS_RETURN_INVALID_PARAM; }
+    if((context == NULL) && (context_len != 0U)) { return NOXTLS_RETURN_NULL; }
+    if((context_len < 1U) || (context_len > NOXTLS_ED25519_CONTEXT_MAX)) { return NOXTLS_RETURN_INVALID_PARAM; }
     return ed25519_sign_internal(private_key, noxtls_message, message_len, signature, NOXTLS_ED25519_PH_FLAG_PURE, context, context_len);
 }
 
@@ -1458,15 +1562,15 @@ noxtls_return_t noxtls_ed25519ctx_sign(const uint8_t private_key[NOXTLS_ED25519_
  * @param[in] signature 64-byte signature.
  * @return `NOXTLS_RETURN_SUCCESS` if valid, otherwise an error `noxtls_return_t`.
  */
-noxtls_return_t noxtls_ed25519ctx_verify(const uint8_t public_key[NOXTLS_ED25519_FE25519_BYTES],
+noxtls_return_t noxtls_ed25519ctx_verify(const uint8_t *public_key,
                                          const uint8_t *context,
                                          uint32_t context_len,
                                          const uint8_t *noxtls_message,
                                          uint32_t message_len,
-                                         const uint8_t signature[NOXTLS_ED25519_SIGNATURE_SIZE])
+                                         const uint8_t *signature)
 {
-    if(context == NULL && context_len != 0) { return NOXTLS_RETURN_NULL; }
-    if(context_len < 1U || context_len > NOXTLS_ED25519_CONTEXT_MAX) { return NOXTLS_RETURN_INVALID_PARAM; }
+    if((context == NULL) && (context_len != 0U)) { return NOXTLS_RETURN_NULL; }
+    if((context_len < 1U) || (context_len > NOXTLS_ED25519_CONTEXT_MAX)) { return NOXTLS_RETURN_INVALID_PARAM; }
     return ed25519_verify_internal(public_key, noxtls_message, message_len, signature, NOXTLS_ED25519_PH_FLAG_PURE, context, context_len);
 }
 
@@ -1478,10 +1582,10 @@ noxtls_return_t noxtls_ed25519ctx_verify(const uint8_t public_key[NOXTLS_ED25519
  * @param[out] signature 64-byte signature output.
  * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on failure.
  */
-noxtls_return_t noxtls_ed25519ph_sign(const uint8_t private_key[NOXTLS_ED25519_FE25519_BYTES],
+noxtls_return_t noxtls_ed25519ph_sign(const uint8_t *private_key,
                                       const uint8_t *noxtls_message,
                                       uint32_t message_len,
-                                      uint8_t signature[NOXTLS_ED25519_SIGNATURE_SIZE])
+                                      uint8_t *signature)
 {
     return ed25519_sign_internal(private_key, noxtls_message, message_len, signature, NOXTLS_ED25519_PH_FLAG_PREHASH, NULL, 0);
 }
@@ -1494,10 +1598,10 @@ noxtls_return_t noxtls_ed25519ph_sign(const uint8_t private_key[NOXTLS_ED25519_F
  * @param[in] signature 64-byte signature.
  * @return `NOXTLS_RETURN_SUCCESS` if valid, otherwise an error `noxtls_return_t`.
  */
-noxtls_return_t noxtls_ed25519ph_verify(const uint8_t public_key[NOXTLS_ED25519_FE25519_BYTES],
+noxtls_return_t noxtls_ed25519ph_verify(const uint8_t *public_key,
                                         const uint8_t *noxtls_message,
                                         uint32_t message_len,
-                                        const uint8_t signature[NOXTLS_ED25519_SIGNATURE_SIZE])
+                                        const uint8_t *signature)
 {
     return ed25519_verify_internal(public_key, noxtls_message, message_len, signature, NOXTLS_ED25519_PH_FLAG_PREHASH, NULL, 0);
 }
@@ -1508,14 +1612,14 @@ noxtls_return_t noxtls_ed25519ph_verify(const uint8_t public_key[NOXTLS_ED25519_
  * @param[out] public_key 32-byte derived public key encoding.
  * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on failure.
  */
-noxtls_return_t noxtls_ed25519_generate_key(uint8_t private_key[NOXTLS_ED25519_FE25519_BYTES], uint8_t public_key[NOXTLS_ED25519_FE25519_BYTES])
+noxtls_return_t noxtls_ed25519_generate_key(uint8_t *private_key, uint8_t *public_key)
 {
     static drbg_state_t drbg_state;
     static int drbg_initialized = 0;
-    noxtls_return_t rc;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(private_key == NULL || public_key == NULL) { return NOXTLS_RETURN_NULL; }
-    if(!drbg_initialized) {
+    if((private_key == NULL) || (public_key == NULL)) { return NOXTLS_RETURN_NULL; }
+    if(drbg_initialized == 0) {
         rc = drbg_instantiate(&drbg_state, DRBG_AES256, NULL, 0, NULL, 0, NULL, 0);
         if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
         drbg_initialized = 1;

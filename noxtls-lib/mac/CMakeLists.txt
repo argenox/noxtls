@@ -2,6 +2,7 @@
 
 add_library(noxtls_mac STATIC
     noxtls_hmac.c
+    noxtls_mac_api_refs.c
 )
 
 if(MSVC)

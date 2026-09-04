@@ -26,8 +26,8 @@
  */
 /** @{ */
 
-#ifndef _NOXTLS_MEMORY_H_
-#define _NOXTLS_MEMORY_H_
+#ifndef NOXTLS_MEMORY_H_
+#define NOXTLS_MEMORY_H_
 
 #include <stdint.h>
 #include <stddef.h>
@@ -138,7 +138,8 @@ typedef struct
  * free so a freed secret pointer cannot be reused (use-after-free / double-free).
  * @p ptr must be an lvalue.
  */
-#define NOXTLS_SECURE_FREE(ptr, size) do { if((ptr) != NULL) { noxtls_secure_zero((void*)(ptr), (size)); noxtls_free(ptr); (ptr) = NULL; } } while(0)
+/* Dir 4.9: statement-expression style free+null requires a macro (lvalue assignment). */
+#define NOXTLS_SECURE_FREE(ptr, size) do { if((ptr) != NULL) { noxtls_secure_zero((void*)(ptr), (size)); noxtls_free(ptr); (ptr) = NULL; } } while (0 == 1)
 
 /* Memory Allocation Functions */
 /* These functions replace malloc, free, calloc, realloc throughout the library */
@@ -213,6 +214,5 @@ noxtls_return_t noxtls_mem_get_bucket_stats(noxtls_mem_bucket_stats_t *stats);
 } /* extern "C" */
 #endif
 
-#endif /* _NOXTLS_MEMORY_H_ */
-
+#endif /* NOXTLS_MEMORY_H_ */
 

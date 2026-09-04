@@ -23,8 +23,8 @@
 /** @addtogroup noxtls_pkc */
 /** @{ */
 
-#ifndef _NOXTLS_ED448_H_
-#define _NOXTLS_ED448_H_
+#ifndef NOXTLS_ED448_H_
+#define NOXTLS_ED448_H_
 
 #include <stdint.h>
 
@@ -183,4 +183,4 @@ noxtls_return_t noxtls_ed448ph_verify(const uint8_t public_key[NOXTLS_ED448_PUBL
 }
 #endif
 
-#endif /* _NOXTLS_ED448_H_ */
+#endif /* NOXTLS_ED448_H_ */

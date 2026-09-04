@@ -64,6 +64,7 @@
 #endif
 #if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
 #include "noxtls-lib/pkc/ed448/noxtls_ed448.h"
+#include "noxtls_ct.h"
 #endif
 #if NOXTLS_FEATURE_ED25519 || (NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3)
 #include "noxtls-lib/certs/noxtls_x509.h"
@@ -113,7 +114,6 @@ static void app_workspace_free(void *p)
 { 
     (void)p; 
 }
-
 
 /**
  * @brief Reset the workspace
@@ -173,7 +173,7 @@ uint8_t debug_lvl = 0;
  * @param[in] name The name value.
  * @return void
  */
-void print_usage(const char *name)
+void print_usage(const uint8_t *name)
 {
     printf("usage: %s [operation] [algorithm] <parameters>\n", name);
     printf("\nSupported Operations:\n\n");
@@ -268,7 +268,7 @@ static int pkc_alg_is_eddsa(pkc_alg_t a)
  * @param[out] out_len The out length value.
  * @return The return value.
  */
-static int pkc_read_file_alloc(const char *path, uint8_t **out, uint32_t *out_len)
+static int pkc_read_file_alloc(const uint8_t *path, uint8_t **out, uint32_t *out_len)
 {
     FILE *fp;
 #ifdef _MSC_VER
@@ -315,7 +315,7 @@ static int pkc_read_file_alloc(const char *path, uint8_t **out, uint32_t *out_le
  * @param[out] key The key value.
  * @return The return value.
  */
-static int pkc_load_x509_private_key_file(const char *path, x509_private_key_t *key)
+static int pkc_load_x509_private_key_file(const uint8_t *path, x509_private_key_t *key)
 {
     uint8_t *buf = NULL;
     uint32_t blen = 0;
@@ -340,9 +340,9 @@ static int pkc_load_x509_private_key_file(const char *path, x509_private_key_t *
  * @param[out] out_len The out length value.
  * @return The return value.
  */
-static int pkc_hex_to_bytes(const char *hex, uint8_t *out, uint32_t out_max, uint32_t *out_len)
+static int pkc_hex_to_bytes(const uint8_t *hex, uint8_t *out, uint32_t out_max, uint32_t *out_len)
 {
-    size_t hl = strlen(hex);
+    size_t hl = noxtls_u8_strlen(hex);
     int parsed_len;
     if(hl % 2U != 0 || hl / 2U > (size_t)out_max) {
         return -1;
@@ -368,7 +368,7 @@ static int pkc_hex_to_bytes(const char *hex, uint8_t *out, uint32_t out_max, uin
  * @param[in] msg_len The msg length value.
  * @return The return value.
  */
-static int pkc_eddsa_sign(pkc_alg_t alg, const char *key_path, const char *ctx_hex,
+static int pkc_eddsa_sign(pkc_alg_t alg, const uint8_t *key_path, const uint8_t *ctx_hex,
     const uint8_t *msg, uint32_t msg_len)
 {
     x509_private_key_t pk;
@@ -474,7 +474,7 @@ static int pkc_eddsa_sign(pkc_alg_t alg, const char *key_path, const char *ctx_h
  * @param[in] sig_len The sig length value.
  * @return The return value.
  */
-static int pkc_eddsa_verify(pkc_alg_t alg, const char *pub_hex, const char *ctx_hex,
+static int pkc_eddsa_verify(pkc_alg_t alg, const uint8_t *pub_hex, const uint8_t *ctx_hex,
     const uint8_t *msg, uint32_t msg_len, const uint8_t *sig, uint32_t sig_len)
 {
     uint8_t pub[57];
@@ -967,34 +967,34 @@ int main(int argc, char **argv)
     int argc_skip = 1;
     uint8_t *data_buffer = NULL;
     uint32_t data_length = 0;
-    const char *opt_key_file = NULL;
-    const char *opt_pub_hex = NULL;
-    const char *opt_ctx_hex = NULL;
+    const uint8_t *opt_key_file = NULL;
+    const uint8_t *opt_pub_hex = NULL;
+    const uint8_t *opt_ctx_hex = NULL;
 
     if(argc < 2) {
         print_usage(argv[0]);
         return -1;
     }
 
-    if(strcmp(argv[argc_skip], "encrypt") == 0) {
+    if(noxtls_u8_strcmp(argv[argc_skip], "encrypt") == 0) {
         operation = PKC_OP_ENCRYPT;
         argc_skip++;
-    } else if(strcmp(argv[argc_skip], "decrypt") == 0) {
+    } else if(noxtls_u8_strcmp(argv[argc_skip], "decrypt") == 0) {
         operation = PKC_OP_DECRYPT;
         argc_skip++;
-    } else if(strcmp(argv[argc_skip], "sign") == 0) {
+    } else if(noxtls_u8_strcmp(argv[argc_skip], "sign") == 0) {
         operation = PKC_OP_SIGN;
         argc_skip++;
-    } else if(strcmp(argv[argc_skip], "verify") == 0) {
+    } else if(noxtls_u8_strcmp(argv[argc_skip], "verify") == 0) {
         operation = PKC_OP_VERIFY;
         argc_skip++;
-    } else if(strcmp(argv[argc_skip], "genkey") == 0) {
+    } else if(noxtls_u8_strcmp(argv[argc_skip], "genkey") == 0) {
         operation = PKC_OP_GENKEY;
         argc_skip++;
-    } else if(strcmp(argv[argc_skip], "-v") == 0 || strcmp(argv[argc_skip], "--version") == 0) {
+    } else if(noxtls_u8_strcmp(argv[argc_skip], "-v") == 0 || noxtls_u8_strcmp(argv[argc_skip], "--version") == 0) {
         print_version();
         return 0;
-    } else if(strcmp(argv[argc_skip], "-h") == 0 || strcmp(argv[argc_skip], "--help") == 0) {
+    } else if(noxtls_u8_strcmp(argv[argc_skip], "-h") == 0 || noxtls_u8_strcmp(argv[argc_skip], "--help") == 0) {
         print_usage(argv[0]);
         return 0;
     } else {
@@ -1009,7 +1009,7 @@ int main(int argc, char **argv)
         return -1;
     }
 
-    if(strcmp(argv[argc_skip], "rsa") == 0) {
+    if(noxtls_u8_strcmp(argv[argc_skip], "rsa") == 0) {
         algorithm_specified = 1;
         alg = PKC_ALG_RSA;
         argc_skip++;
@@ -1055,7 +1055,7 @@ int main(int argc, char **argv)
 
     int arg_idx = argc_skip;
     while(arg_idx < argc && argv[arg_idx][0] == '-') {
-        if(strcmp(argv[arg_idx], "-k") == 0) {
+        if(noxtls_u8_strcmp(argv[arg_idx], "-k") == 0) {
             if(arg_idx + 1 >= argc) {
                 printf("Error: -k option requires a key size\n");
                 return -1;
@@ -1075,7 +1075,7 @@ int main(int argc, char **argv)
                 return -1;
             }
             arg_idx++;
-        } else if(strcmp(argv[arg_idx], "-K") == 0) {
+        } else if(noxtls_u8_strcmp(argv[arg_idx], "-K") == 0) {
             if(arg_idx + 1 >= argc) {
                 printf("Error: -K requires a private key file path\n");
                 return -1;
@@ -1083,14 +1083,14 @@ int main(int argc, char **argv)
             opt_key_file = argv[++arg_idx];
             arg_idx++;
 #if NOXTLS_FEATURE_ED25519 || (NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3)
-        } else if(strcmp(argv[arg_idx], "-P") == 0) {
+        } else if(noxtls_u8_strcmp(argv[arg_idx], "-P") == 0) {
             if(arg_idx + 1 >= argc) {
                 printf("Error: -P requires hex public key\n");
                 return -1;
             }
             opt_pub_hex = argv[++arg_idx];
             arg_idx++;
-        } else if(strcmp(argv[arg_idx], "-C") == 0) {
+        } else if(noxtls_u8_strcmp(argv[arg_idx], "-C") == 0) {
             if(arg_idx + 1 >= argc) {
                 printf("Error: -C requires hex context\n");
                 return -1;
@@ -1098,7 +1098,7 @@ int main(int argc, char **argv)
             opt_ctx_hex = argv[++arg_idx];
             arg_idx++;
 #endif
-        } else if(strcmp(argv[arg_idx], "-h") == 0) {
+        } else if(noxtls_u8_strcmp(argv[arg_idx], "-h") == 0) {
             if(arg_idx + 1 >= argc) {
                 printf("Error: -h option requires a hash algorithm\n");
                 return -1;
@@ -1115,10 +1115,10 @@ int main(int argc, char **argv)
                 return -1;
             }
             arg_idx++;
-        } else if(strcmp(argv[arg_idx], "-d") == 0) {
+        } else if(noxtls_u8_strcmp(argv[arg_idx], "-d") == 0) {
             debug_lvl = 1;
             arg_idx++;
-        } else if(strcmp(argv[arg_idx], "-x") == 0) {
+        } else if(noxtls_u8_strcmp(argv[arg_idx], "-x") == 0) {
             input_type = INPUT_DATA_TYPE_HEX;
             arg_idx++;
         } else {
@@ -1155,7 +1155,7 @@ int main(int argc, char **argv)
             return -1;
         }
 
-        size_t msg_len = strlen(argv[arg_idx]);
+        size_t msg_len = noxtls_u8_strlen(argv[arg_idx]);
         if(msg_len > UINT32_MAX) {
             printf("Error: Input too large\n");
             return -1;
@@ -1178,7 +1178,7 @@ int main(int argc, char **argv)
         }
 
         arg_idx++;
-        size_t sig_hex_len = strlen(argv[arg_idx]);
+        size_t sig_hex_len = noxtls_u8_strlen(argv[arg_idx]);
         if(sig_hex_len > UINT32_MAX) {
             free(data_buffer);
             printf("Error: Signature too large\n");
@@ -1228,7 +1228,7 @@ int main(int argc, char **argv)
     size_t total_len = 0;
     int i;
     for(i = arg_idx; i < argc; i++) {
-        size_t arg_len = strlen(argv[i]);
+        size_t arg_len = noxtls_u8_strlen(argv[i]);
         if(total_len > SIZE_MAX - arg_len - 1) {
             printf("Error: Input too large\n");
             return -1;
@@ -1258,7 +1258,7 @@ int main(int argc, char **argv)
             }
             data_length += len;
         } else {
-            size_t len = strlen(argv[i]);
+            size_t len = noxtls_u8_strlen(argv[i]);
             if(len > UINT32_MAX - data_length) {
                 free(data_buffer);
                 printf("Error: Input too large\n");

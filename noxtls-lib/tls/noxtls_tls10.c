@@ -69,10 +69,7 @@ noxtls_return_t noxtls_tls10_context_free(tls10_context_t *ctx)
  * @return NOXTLS_RETURN_SUCCESS on success,
  *         NOXTLS_RETURN_NULL if the context is NULL
  */
-noxtls_return_t noxtls_tls10_connect(tls10_context_t *ctx)
-{
-    return noxtls_tls12_connect((tls12_context_t*)ctx);
-}
+noxtls_return_t noxtls_tls10_connect(tls10_context_t *ctx) { return noxtls_tls12_connect((tls12_context_t*)ctx); }
 
 /**
  * @brief Accept a TLS 1.0 context
@@ -81,10 +78,7 @@ noxtls_return_t noxtls_tls10_connect(tls10_context_t *ctx)
  * @return NOXTLS_RETURN_SUCCESS on success,
  *         NOXTLS_RETURN_NULL if the context is NULL
  */
-noxtls_return_t noxtls_tls10_accept(tls10_context_t *ctx)
-{
-    return noxtls_tls12_accept((tls12_context_t*)ctx);
-}
+noxtls_return_t noxtls_tls10_accept(tls10_context_t *ctx) { return noxtls_tls12_accept((tls12_context_t*)ctx); }
 
 /**
  * @brief Send data over a TLS 1.0 context
@@ -96,10 +90,7 @@ noxtls_return_t noxtls_tls10_accept(tls10_context_t *ctx)
  *         NOXTLS_RETURN_NULL if the context is NULL,
  *         NOXTLS_RETURN_FAILED if the data cannot be sent
  */
-noxtls_return_t noxtls_tls10_send(tls10_context_t *ctx, const uint8_t *data, uint32_t len)
-{
-    return noxtls_tls12_send((tls12_context_t*)ctx, data, len);
-}
+noxtls_return_t noxtls_tls10_send(tls10_context_t *ctx, const uint8_t *data, uint32_t len) { return noxtls_tls12_send((tls12_context_t*)ctx, data, len); }
 
 /**
  * @brief Receive data over a TLS 1.0 context
@@ -111,10 +102,7 @@ noxtls_return_t noxtls_tls10_send(tls10_context_t *ctx, const uint8_t *data, uin
  *         NOXTLS_RETURN_NULL if the context is NULL,
  *         NOXTLS_RETURN_FAILED if the data cannot be received
  */
-noxtls_return_t noxtls_tls10_recv(tls10_context_t *ctx, uint8_t *data, uint32_t *len)
-{
-    return noxtls_tls12_recv((tls12_context_t*)ctx, data, len);
-}
+noxtls_return_t noxtls_tls10_recv(tls10_context_t *ctx, uint8_t *data, uint32_t *len) { return noxtls_tls12_recv((tls12_context_t*)ctx, data, len); }
 
 /**
  * @brief Close a TLS 1.0 context
@@ -123,10 +111,7 @@ noxtls_return_t noxtls_tls10_recv(tls10_context_t *ctx, uint8_t *data, uint32_t 
  * @return NOXTLS_RETURN_SUCCESS on success,
  *         NOXTLS_RETURN_NULL if the context is NULL
  */
-noxtls_return_t noxtls_tls10_close(tls10_context_t *ctx)
-{
-    return noxtls_tls12_close((tls12_context_t*)ctx);
-}
+noxtls_return_t noxtls_tls10_close(tls10_context_t *ctx) { return noxtls_tls12_close((tls12_context_t*)ctx); }
 
 /* Client handshake */
 /**
@@ -136,10 +121,7 @@ noxtls_return_t noxtls_tls10_close(tls10_context_t *ctx)
  * @return NOXTLS_RETURN_SUCCESS on success,
  *         NOXTLS_RETURN_NULL if the context is NULL
  */
-noxtls_return_t noxtls_tls10_send_client_hello(tls10_context_t *ctx)
-{
-    return noxtls_tls12_send_client_hello((tls12_context_t*)ctx);
-}
+noxtls_return_t noxtls_tls10_send_client_hello(tls10_context_t *ctx) { return noxtls_tls12_send_client_hello((tls12_context_t*)ctx); }
 
 /**
  * @brief Receive a server hello over a TLS 1.0 context
@@ -148,10 +130,7 @@ noxtls_return_t noxtls_tls10_send_client_hello(tls10_context_t *ctx)
  * @return NOXTLS_RETURN_SUCCESS on success,
  *         NOXTLS_RETURN_NULL if the context is NULL
  */
-noxtls_return_t noxtls_tls10_recv_server_hello(tls10_context_t *ctx)
-{
-    return noxtls_tls12_recv_server_hello((tls12_context_t*)ctx);
-}
+noxtls_return_t noxtls_tls10_recv_server_hello(tls10_context_t *ctx) { return noxtls_tls12_recv_server_hello((tls12_context_t*)ctx); }
 
 /**
  * @brief Receive a certificate over a TLS 1.0 context
@@ -160,10 +139,7 @@ noxtls_return_t noxtls_tls10_recv_server_hello(tls10_context_t *ctx)
  * @return NOXTLS_RETURN_SUCCESS on success,
  *         NOXTLS_RETURN_NULL if the context is NULL
  */
-noxtls_return_t noxtls_tls10_recv_certificate(tls10_context_t *ctx)
-{
-    return noxtls_tls12_recv_certificate((tls12_context_t*)ctx);
-}
+noxtls_return_t noxtls_tls10_recv_certificate(tls10_context_t *ctx) { return noxtls_tls12_recv_certificate((tls12_context_t*)ctx); }
 
 /**
  * @brief Receive a server key exchange over a TLS 1.0 context
@@ -172,10 +148,7 @@ noxtls_return_t noxtls_tls10_recv_certificate(tls10_context_t *ctx)
  * @return NOXTLS_RETURN_SUCCESS on success,
  *         NOXTLS_RETURN_NULL if the context is NULL
  */
-noxtls_return_t noxtls_tls10_recv_server_key_exchange(tls10_context_t *ctx)
-{
-    return noxtls_tls12_recv_server_key_exchange((tls12_context_t*)ctx);
-}
+noxtls_return_t noxtls_tls10_recv_server_key_exchange(tls10_context_t *ctx) { return noxtls_tls12_recv_server_key_exchange((tls12_context_t*)ctx); }
 
 /**
  * @brief Receive a server hello done over a TLS 1.0 context
@@ -184,10 +157,7 @@ noxtls_return_t noxtls_tls10_recv_server_key_exchange(tls10_context_t *ctx)
  * @return NOXTLS_RETURN_SUCCESS on success,
  *         NOXTLS_RETURN_NULL if the context is NULL
  */
-noxtls_return_t noxtls_tls10_recv_server_hello_done(tls10_context_t *ctx)
-{
-    return noxtls_tls12_recv_server_hello_done((tls12_context_t*)ctx);
-}
+noxtls_return_t noxtls_tls10_recv_server_hello_done(tls10_context_t *ctx) { return noxtls_tls12_recv_server_hello_done((tls12_context_t*)ctx); }
 
 /**
  * @brief Send a client key exchange over a TLS 1.0 context
@@ -196,10 +166,7 @@ noxtls_return_t noxtls_tls10_recv_server_hello_done(tls10_context_t *ctx)
  * @return NOXTLS_RETURN_SUCCESS on success,
  *         NOXTLS_RETURN_NULL if the context is NULL
  */
-noxtls_return_t noxtls_tls10_send_client_key_exchange(tls10_context_t *ctx)
-{
-    return noxtls_tls12_send_client_key_exchange((tls12_context_t*)ctx);
-}
+noxtls_return_t noxtls_tls10_send_client_key_exchange(tls10_context_t *ctx) { return noxtls_tls12_send_client_key_exchange((tls12_context_t*)ctx); }
 
 /**
  * @brief Send a change cipher spec over a TLS 1.0 context
@@ -208,10 +175,7 @@ noxtls_return_t noxtls_tls10_send_client_key_exchange(tls10_context_t *ctx)
  * @return NOXTLS_RETURN_SUCCESS on success,
  *         NOXTLS_RETURN_NULL if the context is NULL
  */
-noxtls_return_t noxtls_tls10_send_change_cipher_spec(tls10_context_t *ctx)
-{
-    return noxtls_tls12_send_change_cipher_spec((tls12_context_t*)ctx);
-}
+noxtls_return_t noxtls_tls10_send_change_cipher_spec(tls10_context_t *ctx) { return noxtls_tls12_send_change_cipher_spec((tls12_context_t*)ctx); }
 
 /**
  * @brief Send a finished over a TLS 1.0 context
@@ -220,10 +184,7 @@ noxtls_return_t noxtls_tls10_send_change_cipher_spec(tls10_context_t *ctx)
  * @return NOXTLS_RETURN_SUCCESS on success,
  *         NOXTLS_RETURN_NULL if the context is NULL
  */
-noxtls_return_t noxtls_tls10_send_finished(tls10_context_t *ctx)
-{
-    return noxtls_tls12_send_finished((tls12_context_t*)ctx);
-}
+noxtls_return_t noxtls_tls10_send_finished(tls10_context_t *ctx) { return noxtls_tls12_send_finished((tls12_context_t*)ctx); }
 
 /**
  * @brief Receive a change cipher spec over a TLS 1.0 context
@@ -232,10 +193,7 @@ noxtls_return_t noxtls_tls10_send_finished(tls10_context_t *ctx)
  * @return NOXTLS_RETURN_SUCCESS on success,
  *         NOXTLS_RETURN_NULL if the context is NULL
  */
-noxtls_return_t noxtls_tls10_recv_change_cipher_spec(tls10_context_t *ctx)
-{
-    return noxtls_tls12_recv_change_cipher_spec((tls12_context_t*)ctx);
-}
+noxtls_return_t noxtls_tls10_recv_change_cipher_spec(tls10_context_t *ctx) { return noxtls_tls12_recv_change_cipher_spec((tls12_context_t*)ctx); }
 
 /**
  * @brief Receive a finished over a TLS 1.0 context
@@ -244,10 +202,7 @@ noxtls_return_t noxtls_tls10_recv_change_cipher_spec(tls10_context_t *ctx)
  * @return NOXTLS_RETURN_SUCCESS on success,
  *         NOXTLS_RETURN_NULL if the context is NULL
  */
-noxtls_return_t noxtls_tls10_recv_finished(tls10_context_t *ctx)
-{
-    return noxtls_tls12_recv_finished((tls12_context_t*)ctx);
-}
+noxtls_return_t noxtls_tls10_recv_finished(tls10_context_t *ctx) { return noxtls_tls12_recv_finished((tls12_context_t*)ctx); }
 
 /* Server handshake */
 /**
@@ -257,10 +212,7 @@ noxtls_return_t noxtls_tls10_recv_finished(tls10_context_t *ctx)
  * @return NOXTLS_RETURN_SUCCESS on success,
  *         NOXTLS_RETURN_NULL if the context is NULL
  */
-noxtls_return_t noxtls_tls10_recv_client_hello(tls10_context_t *ctx)
-{
-    return noxtls_tls12_recv_client_hello((tls12_context_t*)ctx);
-}
+noxtls_return_t noxtls_tls10_recv_client_hello(tls10_context_t *ctx) { return noxtls_tls12_recv_client_hello((tls12_context_t*)ctx); }
 
 /**
  * @brief Send a server hello over a TLS 1.0 context
@@ -269,10 +221,7 @@ noxtls_return_t noxtls_tls10_recv_client_hello(tls10_context_t *ctx)
  * @return NOXTLS_RETURN_SUCCESS on success,
  *         NOXTLS_RETURN_NULL if the context is NULL
  */
-noxtls_return_t noxtls_tls10_send_server_hello(tls10_context_t *ctx)
-{
-    return noxtls_tls12_send_server_hello((tls12_context_t*)ctx);
-}
+noxtls_return_t noxtls_tls10_send_server_hello(tls10_context_t *ctx) { return noxtls_tls12_send_server_hello((tls12_context_t*)ctx); }
 
 /**
  * @brief Send a certificate over a TLS 1.0 context
@@ -281,10 +230,7 @@ noxtls_return_t noxtls_tls10_send_server_hello(tls10_context_t *ctx)
  * @return NOXTLS_RETURN_SUCCESS on success,
  *         NOXTLS_RETURN_NULL if the context is NULL
  */
-noxtls_return_t noxtls_tls10_send_certificate(tls10_context_t *ctx)
-{
-    return noxtls_tls12_send_certificate((tls12_context_t*)ctx);
-}
+noxtls_return_t noxtls_tls10_send_certificate(tls10_context_t *ctx) { return noxtls_tls12_send_certificate((tls12_context_t*)ctx); }
 
 /**
  * @brief Send a server key exchange over a TLS 1.0 context
@@ -293,10 +239,7 @@ noxtls_return_t noxtls_tls10_send_certificate(tls10_context_t *ctx)
  * @return NOXTLS_RETURN_SUCCESS on success,
  *         NOXTLS_RETURN_NULL if the context is NULL
  */
-noxtls_return_t noxtls_tls10_send_server_key_exchange(tls10_context_t *ctx)
-{
-    return noxtls_tls12_send_server_key_exchange((tls12_context_t*)ctx);
-}
+noxtls_return_t noxtls_tls10_send_server_key_exchange(tls10_context_t *ctx) { return noxtls_tls12_send_server_key_exchange((tls12_context_t*)ctx); }
 
 /**
  * @brief Send a server hello done over a TLS 1.0 context
@@ -305,10 +248,7 @@ noxtls_return_t noxtls_tls10_send_server_key_exchange(tls10_context_t *ctx)
  * @return NOXTLS_RETURN_SUCCESS on success,
  *         NOXTLS_RETURN_NULL if the context is NULL
  */
-noxtls_return_t noxtls_tls10_send_server_hello_done(tls10_context_t *ctx)
-{
-    return noxtls_tls12_send_server_hello_done((tls12_context_t*)ctx);
-}
+noxtls_return_t noxtls_tls10_send_server_hello_done(tls10_context_t *ctx) { return noxtls_tls12_send_server_hello_done((tls12_context_t*)ctx); }
 
 /**
  * @brief Receive a client key exchange over a TLS 1.0 context
@@ -317,10 +257,7 @@ noxtls_return_t noxtls_tls10_send_server_hello_done(tls10_context_t *ctx)
  * @return NOXTLS_RETURN_SUCCESS on success,
  *         NOXTLS_RETURN_NULL if the context is NULL
  */
-noxtls_return_t noxtls_tls10_recv_client_key_exchange(tls10_context_t *ctx)
-{
-    return noxtls_tls12_recv_client_key_exchange((tls12_context_t*)ctx);
-}
+noxtls_return_t noxtls_tls10_recv_client_key_exchange(tls10_context_t *ctx) { return noxtls_tls12_recv_client_key_exchange((tls12_context_t*)ctx); }
 
 /**
  * @brief Receive a change cipher spec over a TLS 1.0 context
@@ -329,10 +266,7 @@ noxtls_return_t noxtls_tls10_recv_client_key_exchange(tls10_context_t *ctx)
  * @return NOXTLS_RETURN_SUCCESS on success,
  *         NOXTLS_RETURN_NULL if the context is NULL
  */
-noxtls_return_t noxtls_tls10_recv_change_cipher_spec_client(tls10_context_t *ctx)
-{
-    return noxtls_tls12_recv_change_cipher_spec_client((tls12_context_t*)ctx);
-}
+noxtls_return_t noxtls_tls10_recv_change_cipher_spec_client(tls10_context_t *ctx) { return noxtls_tls12_recv_change_cipher_spec_client((tls12_context_t*)ctx); }
 
 /**
  * @brief Receive a finished over a TLS 1.0 context
@@ -341,10 +275,7 @@ noxtls_return_t noxtls_tls10_recv_change_cipher_spec_client(tls10_context_t *ctx
  * @return NOXTLS_RETURN_SUCCESS on success,
  *         NOXTLS_RETURN_NULL if the context is NULL
  */
-noxtls_return_t noxtls_tls10_recv_finished_client(tls10_context_t *ctx)
-{
-    return noxtls_tls12_recv_finished_client((tls12_context_t*)ctx);
-}
+noxtls_return_t noxtls_tls10_recv_finished_client(tls10_context_t *ctx) { return noxtls_tls12_recv_finished_client((tls12_context_t*)ctx); }
 
 /**
  * @brief Send a change cipher spec over a TLS 1.0 context
@@ -353,10 +284,7 @@ noxtls_return_t noxtls_tls10_recv_finished_client(tls10_context_t *ctx)
  * @return NOXTLS_RETURN_SUCCESS on success,
  *         NOXTLS_RETURN_NULL if the context is NULL
  */
-noxtls_return_t noxtls_tls10_send_change_cipher_spec_server(tls10_context_t *ctx)
-{
-    return noxtls_tls12_send_change_cipher_spec_server((tls12_context_t*)ctx);
-}
+noxtls_return_t noxtls_tls10_send_change_cipher_spec_server(tls10_context_t *ctx) { return noxtls_tls12_send_change_cipher_spec_server((tls12_context_t*)ctx); }
 
 /**
  * @brief Send a finished over a TLS 1.0 context
@@ -365,7 +293,4 @@ noxtls_return_t noxtls_tls10_send_change_cipher_spec_server(tls10_context_t *ctx
  * @return NOXTLS_RETURN_SUCCESS on success,
  *         NOXTLS_RETURN_NULL if the context is NULL
  */
-noxtls_return_t noxtls_tls10_send_finished_server(tls10_context_t *ctx)
-{
-    return noxtls_tls12_send_finished_server((tls12_context_t*)ctx);
-}
+noxtls_return_t noxtls_tls10_send_finished_server(tls10_context_t *ctx) { return noxtls_tls12_send_finished_server((tls12_context_t*)ctx); }

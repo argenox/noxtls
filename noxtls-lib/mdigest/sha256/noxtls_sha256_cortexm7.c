@@ -46,9 +46,9 @@ static const uint32_t s_sha256_m7_k[SHA256_ROUND_COUNT] = {
 
 static uint32_t noxtls_sha256_m7_load_be32(const uint8_t *p)
 {
-    return ((uint32_t)p[0] << 24) |
-           ((uint32_t)p[1] << 16) |
-           ((uint32_t)p[2] << 8) |
+    return ((uint32_t)p[0] <<24U) |
+           ((uint32_t)p[1] <<16U) |
+           ((uint32_t)p[2] <<8U) |
            (uint32_t)p[3];
 }
 
@@ -57,10 +57,10 @@ static uint32_t noxtls_sha256_m7_bswap32(uint32_t x)
 #if defined(__GNUC__) || defined(__clang__)
     return __builtin_bswap32(x);
 #else
-    return ((x & 0x000000FFU) << 24) |
-           ((x & 0x0000FF00U) << 8) |
-           ((x & 0x00FF0000U) >> 8) |
-           ((x & 0xFF000000U) >> 24);
+    return ((x & 0x000000FFU) <<24U) |
+           ((x & 0x0000FF00U) <<8U) |
+           ((x & 0x00FF0000U) >>8U) |
+           ((x & 0xFF000000U) >>24U);
 #endif
 }
 
@@ -69,33 +69,33 @@ static uint32_t noxtls_sha256_m7_bswap32(uint32_t x)
         uint32_t _t2 = SHA256_M7_BSIG0(a) + SHA256_M7_MAJ((a), (b), (c)); \
         (d) += _t1; \
         (h) = _t1 + _t2; \
-    } while(0)
+    } while (0 == 1)
 
 static void noxtls_sha256_m7_compress(noxtls_sha_ctx_t *ctx, const uint8_t *input)
 {
     uint32_t w[SHA256_ROUND_COUNT];
-    uint32_t a = ctx->h[0];
-    uint32_t b = ctx->h[1];
-    uint32_t c = ctx->h[2];
-    uint32_t d = ctx->h[3];
-    uint32_t e = ctx->h[4];
-    uint32_t f = ctx->h[5];
-    uint32_t g = ctx->h[6];
-    uint32_t h = ctx->h[7];
+    uint32_t a = (uint32_t)(ctx->h[0U]);
+    uint32_t b = (uint32_t)(ctx->h[1U]);
+    uint32_t c = (uint32_t)(ctx->h[2U]);
+    uint32_t d = (uint32_t)(ctx->h[3U]);
+    uint32_t e = (uint32_t)(ctx->h[4U]);
+    uint32_t f = (uint32_t)(ctx->h[5U]);
+    uint32_t g = (uint32_t)(ctx->h[6U]);
+    uint32_t h = (uint32_t)(ctx->h[7U]);
     uint32_t t;
 
     if((((uintptr_t)input) & 0x03U) == 0U) {
         const uint32_t *input_words = (const uint32_t *)(const void *)input;
-        for(t = 0U; t < SHA256_WORDS_PER_BLOCK; ++t) {
+        for(t = 0U; t < SHA256_WORDS_PER_BLOCK; t += 1U) {
             w[t] = noxtls_sha256_m7_bswap32(input_words[t]);
         }
     } else {
-        for(t = 0U; t < SHA256_WORDS_PER_BLOCK; ++t) {
-            w[t] = noxtls_sha256_m7_load_be32(input + (t * SHA256_WORD_BYTES));
+        for(t = 0U; t < SHA256_WORDS_PER_BLOCK; t += 1U) {
+            w[t] = noxtls_sha256_m7_load_be32(&input[(t * SHA256_WORD_BYTES)]);
         }
     }
 
-    for(t = SHA256_WORDS_PER_BLOCK; t < SHA256_ROUND_COUNT; ++t) {
+    for(t = SHA256_WORDS_PER_BLOCK; t < SHA256_ROUND_COUNT; t += 1U) {
         w[t] = SHA256_M7_SSIG1(w[t - 2U]) + w[t - 7U] +
                SHA256_M7_SSIG0(w[t - 15U]) + w[t - 16U];
     }
@@ -127,12 +127,12 @@ noxtls_return_t noxtls_sha256_blocks_cortexm7(noxtls_sha_ctx_t *ctx,
 {
     uint32_t i;
 
-    if(ctx == 0 || input == 0) {
+    if((ctx == NULL) || (input == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
-    for(i = 0U; i < block_count; ++i) {
-        noxtls_sha256_m7_compress(ctx, input + (i * SHA256_BLOCK_SIZE_BYTES));
+    for(i = 0U; i < block_count; i += 1U) {
+        (void)noxtls_sha256_m7_compress(ctx, &input[(i * SHA256_BLOCK_SIZE_BYTES)]);
     }
 
     return NOXTLS_RETURN_SUCCESS;

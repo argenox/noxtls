@@ -22,8 +22,8 @@
 /** @addtogroup noxtls_utility */
 /** @{ */
 
-#ifndef _NOXTLS_BASE64_H
-#define _NOXTLS_BASE64_H
+#ifndef NOXTLS_BASE64_H
+#define NOXTLS_BASE64_H
 
 #include <stdint.h>
 
@@ -50,10 +50,10 @@ extern "C" {
 #define BASE64_PLUS_VALUE (62u)
 #define BASE64_SLASH_VALUE (63u)
 
-int noxtls_base64_encode(const uint8_t * input, uint32_t len, char * output);
+int32_t noxtls_base64_encode(const uint8_t * input, uint32_t len, uint8_t * output);
 /** @brief Decode Base64; skips PEM/MIME line breaks (CR, LF, TAB, space) and handles '=' padding. */
-int noxtls_base64_decode(const char * input, uint32_t len, uint8_t * output);
-uint8_t noxtls_base64_decode_char(char c);
+int32_t noxtls_base64_decode(const uint8_t * input, uint32_t len, uint8_t * output);
+uint8_t noxtls_base64_decode_char(uint8_t c);
 
 #ifdef __cplusplus
 }

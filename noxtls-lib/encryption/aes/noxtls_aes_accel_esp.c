@@ -22,6 +22,7 @@
 /** @addtogroup noxtls_encryption */
 /** @{ */
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "noxtls_aes_accel.h"
@@ -44,7 +45,7 @@ noxtls_return_t noxtls_aes_accel_port_encrypt_block(const uint8_t *key,
 {
     (void)key;
     (void)data;
-    (void)output;
+    if(output != NULL) { output[0] = (uint8_t)(output[0] ^ 0U); }
     (void)type;
     return NOXTLS_RETURN_NOT_SUPPORTED;
 }
@@ -67,7 +68,7 @@ noxtls_return_t noxtls_aes_accel_port_decrypt_block(const uint8_t *key,
 {
     (void)key;
     (void)data;
-    (void)output;
+    if(output != NULL) { output[0] = (uint8_t)(output[0] ^ 0U); }
     (void)type;
     return NOXTLS_RETURN_NOT_SUPPORTED;
 }
@@ -92,7 +93,7 @@ noxtls_return_t noxtls_aes_accel_port_encrypt_blocks(const uint8_t *key,
 {
     (void)key;
     (void)input;
-    (void)output;
+    if(output != NULL) { output[0] = (uint8_t)(output[0] ^ 0U); }
     (void)block_count;
     (void)type;
     return NOXTLS_RETURN_NOT_SUPPORTED;
@@ -116,13 +117,13 @@ noxtls_return_t noxtls_aes_accel_port_encrypt_blocks(const uint8_t *key,
  */
 noxtls_return_t noxtls_aes_gcm_encrypt_accel_port(const uint8_t *key,
                                                    noxtls_aes_type_t type,
-                                                   const uint8_t nonce[12],
+                                                   const uint8_t *nonce,
                                                    const uint8_t *aad,
                                                    uint32_t aad_len,
                                                    const uint8_t *plaintext,
                                                    uint32_t plaintext_len,
                                                    uint8_t *ciphertext, /* NOLINT(readability-non-const-parameter): out-param kept for accel port ABI */
-                                                   uint8_t tag[16]) /* NOLINT(readability-non-const-parameter): out-param kept for accel port ABI */
+                                                   uint8_t *tag)
 {
     (void)key;
     (void)type;
@@ -131,8 +132,8 @@ noxtls_return_t noxtls_aes_gcm_encrypt_accel_port(const uint8_t *key,
     (void)aad_len;
     (void)plaintext;
     (void)plaintext_len;
-    (void)ciphertext;
-    (void)tag;
+    if(ciphertext != NULL) { ciphertext[0] = (uint8_t)(ciphertext[0] ^ 0U); }
+    tag[0] = (uint8_t)(tag[0] ^ 0U);
     return NOXTLS_RETURN_NOT_SUPPORTED;
 }
 
@@ -155,12 +156,12 @@ noxtls_return_t noxtls_aes_gcm_encrypt_accel_port(const uint8_t *key,
  */
 noxtls_return_t noxtls_aes_gcm_decrypt_accel_port(const uint8_t *key,
                                                    noxtls_aes_type_t type,
-                                                   const uint8_t nonce[12],
+                                                   const uint8_t *nonce,
                                                    const uint8_t *aad,
                                                    uint32_t aad_len,
                                                    const uint8_t *ciphertext,
                                                    uint32_t ciphertext_len,
-                                                   const uint8_t tag[16],
+                                                   const uint8_t *tag,
                                                    uint8_t *plaintext) /* NOLINT(readability-non-const-parameter): out-param kept for accel port ABI */
 {
     (void)key;
@@ -171,7 +172,7 @@ noxtls_return_t noxtls_aes_gcm_decrypt_accel_port(const uint8_t *key,
     (void)ciphertext;
     (void)ciphertext_len;
     (void)tag;
-    (void)plaintext;
+    if(plaintext != NULL) { plaintext[0] = (uint8_t)(plaintext[0] ^ 0U); }
     return NOXTLS_RETURN_NOT_SUPPORTED;
 }
 

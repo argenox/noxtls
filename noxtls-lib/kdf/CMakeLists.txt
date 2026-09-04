@@ -2,6 +2,7 @@
 
 add_library(noxtls_kdf STATIC
     noxtls_hkdf.c
+    noxtls_kdf_api_refs.c
 )
 
 if(MSVC)

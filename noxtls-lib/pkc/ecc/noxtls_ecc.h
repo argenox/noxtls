@@ -23,8 +23,8 @@
 /** @addtogroup noxtls_pkc */
 /** @{ */
 
-#ifndef _NOXTLS_ECC_H_
-#define _NOXTLS_ECC_H_
+#ifndef NOXTLS_ECC_H_
+#define NOXTLS_ECC_H_
 
 #include <stdint.h>
 #include "noxtls_common.h"
@@ -52,22 +52,21 @@
 extern "C" {
 #endif
 
-#define ECC_MAX_KEY_SIZE 66  /* 521 bits = 66 bytes */
+#define ECC_MAX_KEY_SIZE 66U  /* 521 bits = 66 bytes */
 
-typedef enum
-{
-    NOXTLS_ECC_SECP192R1,  /* NIST P-192 */
-    NOXTLS_ECC_SECP224R1,  /* NIST P-224 */
-    NOXTLS_ECC_SECP256R1,  /* NIST P-256 */
-    NOXTLS_ECC_SECP384R1,  /* NIST P-384 */
-    NOXTLS_ECC_SECP521R1,  /* NIST P-521 */
-    NOXTLS_ECC_BP256R1,    /* Brainpool P-256r1 */
-    NOXTLS_ECC_BP384R1,    /* Brainpool P-384r1 */
-    NOXTLS_ECC_BP512R1,    /* Brainpool P-512r1 */
-    NOXTLS_ECC_SECP192K1,  /* secp192k1 */
-    NOXTLS_ECC_SECP224K1,  /* secp224k1 */
-    NOXTLS_ECC_SECP256K1,  /* secp256k1 */
-} ecc_curve_t;
+/* Unsigned curve ids (MISRA C:2025 Rule 10.3); values match historical enum order. */
+typedef uint32_t ecc_curve_t;
+#define NOXTLS_ECC_SECP192R1 ((ecc_curve_t)0U)  /* NIST P-192 */
+#define NOXTLS_ECC_SECP224R1 ((ecc_curve_t)1U)  /* NIST P-224 */
+#define NOXTLS_ECC_SECP256R1 ((ecc_curve_t)2U)  /* NIST P-256 */
+#define NOXTLS_ECC_SECP384R1 ((ecc_curve_t)3U)  /* NIST P-384 */
+#define NOXTLS_ECC_SECP521R1 ((ecc_curve_t)4U)  /* NIST P-521 */
+#define NOXTLS_ECC_BP256R1   ((ecc_curve_t)5U)  /* Brainpool P-256r1 */
+#define NOXTLS_ECC_BP384R1   ((ecc_curve_t)6U)  /* Brainpool P-384r1 */
+#define NOXTLS_ECC_BP512R1   ((ecc_curve_t)7U)  /* Brainpool P-512r1 */
+#define NOXTLS_ECC_SECP192K1 ((ecc_curve_t)8U)  /* secp192k1 */
+#define NOXTLS_ECC_SECP224K1 ((ecc_curve_t)9U)  /* secp224k1 */
+#define NOXTLS_ECC_SECP256K1 ((ecc_curve_t)10U) /* secp256k1 */
 
 NOXTLS_MSVC_WARNING_PUSH
 NOXTLS_MSVC_DISABLE_PADDING
@@ -153,5 +152,5 @@ noxtls_return_t noxtls_ecc_key_free(ecc_key_t *key);
 }
 #endif
 
-#endif /* _NOXTLS_ECC_H_ */
+#endif /* NOXTLS_ECC_H_ */
 

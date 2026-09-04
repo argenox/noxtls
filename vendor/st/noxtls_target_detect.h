@@ -20,8 +20,8 @@
 *
 *****************************************************************************/
 
-#ifndef _NOXTLS_TARGET_DETECT_H_
-#define _NOXTLS_TARGET_DETECT_H_
+#ifndef NOXTLS_TARGET_DETECT_H_
+#define NOXTLS_TARGET_DETECT_H_
 
 /* Generic architecture flags */
 #if defined(__arm__) || defined(__thumb__) || defined(__arm64__) || defined(__aarch64__)
@@ -168,4 +168,4 @@
 #define NOXTLS_STM32_HAS_PKA_PERIPH 1
 #endif
 
-#endif /* _NOXTLS_TARGET_DETECT_H_ */
+#endif /* NOXTLS_TARGET_DETECT_H_ */

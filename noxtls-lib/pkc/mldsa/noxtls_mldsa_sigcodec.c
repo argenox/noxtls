@@ -25,6 +25,7 @@
 #include <string.h>
 
 #include "noxtls_mldsa_internal.h"
+#include "noxtls_ct.h"
 
 /**
  * @brief Bitpack put.
@@ -36,17 +37,17 @@
  */
 static void mldsa_bitpack_put(uint8_t *dst, uint32_t *bit_off, uint32_t value, uint8_t bit_count)
 {
-    uint8_t i;
-    for(i = 0U; i < bit_count; ++i) {
-        uint32_t bit = (value >> i) & 1U;
-        uint32_t byte_idx = (*bit_off) >> 3;
+    uint8_t i = 0U;
+    for(i = 0U; i < bit_count; i += 1U) {
+        uint32_t bit = (uint32_t)((value >> i) & 1U);
+        uint32_t byte_idx = (uint32_t)((*bit_off) >>3U);
         uint8_t bit_idx = (uint8_t)((*bit_off) & 7U);
         if(bit != 0U) {
             dst[byte_idx] = (uint8_t)(dst[byte_idx] | (uint8_t)(1U << bit_idx));
         } else {
             dst[byte_idx] = (uint8_t)(dst[byte_idx] & (uint8_t)(~(1U << bit_idx)));
         }
-        (*bit_off)++;
+        (*bit_off) += 1U;
     }
 }
 
@@ -61,13 +62,13 @@ static void mldsa_bitpack_put(uint8_t *dst, uint32_t *bit_off, uint32_t value, u
 static uint32_t mldsa_bitpack_get(const uint8_t *src, uint32_t *bit_off, uint8_t bit_count)
 {
     uint32_t value = 0U;
-    uint8_t i;
-    for(i = 0U; i < bit_count; ++i) {
-        uint32_t byte_idx = (*bit_off) >> 3;
+    uint8_t i = 0U;
+    for(i = 0U; i < bit_count; i += 1U) {
+        uint32_t byte_idx = (uint32_t)((*bit_off) >>3U);
         uint8_t bit_idx = (uint8_t)((*bit_off) & 7U);
         uint32_t bit = (uint32_t)((src[byte_idx] >> bit_idx) & 1U);
         value |= (bit << i);
-        (*bit_off)++;
+        (*bit_off) += 1U;
     }
     return value;
 }
@@ -92,9 +93,9 @@ static noxtls_return_t mldsa_sig_format(noxtls_mldsa_param_t param,
                                         uint32_t *h_len,
                                         uint32_t *total_len)
 {
-    uint32_t local_c_len;
-    uint8_t local_z_bits;
-    noxtls_return_t rc;
+    uint32_t local_c_len = 0U;
+    uint8_t local_z_bits = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(spec == NULL || z_bits == NULL || c_len == NULL || z_len == NULL || h_len == NULL || total_len == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -110,6 +111,7 @@ static noxtls_return_t mldsa_sig_format(noxtls_mldsa_param_t param,
     } else if(spec->gamma1 == 524288) {
         local_z_bits = 20U;
     } else {
+        /* MISRA 15.7: final else path */
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
@@ -120,6 +122,7 @@ static noxtls_return_t mldsa_sig_format(noxtls_mldsa_param_t param,
     } else if(param == NOXTLS_MLDSA_87) {
         local_c_len = 64U;
     } else {
+        /* MISRA 15.7: final else path */
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
@@ -138,21 +141,21 @@ static noxtls_return_t mldsa_encode_z(const noxtls_mldsa_param_spec_t *spec,
                                       uint32_t dst_len)
 {
     uint32_t bit_off = 0U;
-    uint32_t i;
-    uint32_t j;
+    uint32_t i = 0U;
+    uint32_t j = 0U;
 
     if(spec == NULL || z == NULL || dst == NULL) {
         return NOXTLS_RETURN_NULL;
     }
 
-    memset(dst, 0, dst_len);
-    for(j = 0U; j < spec->l; ++j) {
-        for(i = 0U; i < NOXTLS_MLDSA_N; ++i) {
+    noxtls_secure_zero((dst), (size_t)(dst_len));
+    for(j = 0U; j < spec->l; j += 1U) {
+        for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
             int32_t coeff = z->v[j].coeff[i];
             if(coeff < -spec->gamma1 || coeff > spec->gamma1) {
                 return NOXTLS_RETURN_INVALID_PARAM;
             }
-            mldsa_bitpack_put(dst, &bit_off, (uint32_t)(coeff + spec->gamma1), z_bits);
+            (void)mldsa_bitpack_put(dst, &bit_off, (uint32_t)(coeff + spec->gamma1), z_bits);
         }
     }
     if((bit_off / 8U) != dst_len) {
@@ -178,24 +181,24 @@ static noxtls_return_t mldsa_decode_z(const noxtls_mldsa_param_spec_t *spec,
                                       noxtls_mldsa_polyvecl_t *z)
 {
     uint32_t bit_off = 0U;
-    uint32_t i;
-    uint32_t j;
+    uint32_t i = 0U;
+    uint32_t j = 0U;
 
     if(spec == NULL || src == NULL || z == NULL) {
         return NOXTLS_RETURN_NULL;
     }
 
-    noxtls_mldsa_poly_zero(&z->v[0]);
-    noxtls_mldsa_poly_zero(&z->v[1]);
-    noxtls_mldsa_poly_zero(&z->v[2]);
-    noxtls_mldsa_poly_zero(&z->v[3]);
-    noxtls_mldsa_poly_zero(&z->v[4]);
-    noxtls_mldsa_poly_zero(&z->v[5]);
-    noxtls_mldsa_poly_zero(&z->v[6]);
+    (void)noxtls_mldsa_poly_zero(&z->v[0]);
+    (void)noxtls_mldsa_poly_zero(&z->v[1]);
+    (void)noxtls_mldsa_poly_zero(&z->v[2]);
+    (void)noxtls_mldsa_poly_zero(&z->v[3]);
+    (void)noxtls_mldsa_poly_zero(&z->v[4]);
+    (void)noxtls_mldsa_poly_zero(&z->v[5]);
+    (void)noxtls_mldsa_poly_zero(&z->v[6]);
 
-    for(j = 0U; j < spec->l; ++j) {
-        for(i = 0U; i < NOXTLS_MLDSA_N; ++i) {
-            uint32_t enc = mldsa_bitpack_get(src, &bit_off, z_bits);
+    for(j = 0U; j < spec->l; j += 1U) {
+        for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
+            uint32_t enc = (uint32_t)(mldsa_bitpack_get(src, &bit_off, z_bits));
             int32_t coeff = (int32_t)enc - spec->gamma1;
             if(coeff < -spec->gamma1 || coeff > spec->gamma1) {
                 return NOXTLS_RETURN_BAD_DATA;
@@ -224,8 +227,8 @@ static noxtls_return_t mldsa_encode_h(const noxtls_mldsa_param_spec_t *spec,
                                       uint32_t dst_len)
 {
     uint32_t hint_count = 0U;
-    uint32_t i;
-    uint32_t j;
+    uint32_t i = 0U;
+    uint32_t j = 0U;
 
     if(spec == NULL || h == NULL || dst == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -234,9 +237,9 @@ static noxtls_return_t mldsa_encode_h(const noxtls_mldsa_param_spec_t *spec,
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    memset(dst, 0, dst_len);
-    for(j = 0U; j < spec->k; ++j) {
-        for(i = 0U; i < NOXTLS_MLDSA_N; ++i) {
+    noxtls_secure_zero((dst), (size_t)(dst_len));
+    for(j = 0U; j < spec->k; j += 1U) {
+        for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
             int32_t coeff = h->v[j].coeff[i];
             if(coeff != 0 && coeff != 1) {
                 return NOXTLS_RETURN_INVALID_PARAM;
@@ -246,7 +249,7 @@ static noxtls_return_t mldsa_encode_h(const noxtls_mldsa_param_spec_t *spec,
                     return NOXTLS_RETURN_INVALID_PARAM;
                 }
                 dst[hint_count] = (uint8_t)i;
-                hint_count++;
+                hint_count += 1U;
             }
         }
         dst[spec->omega + j] = (uint8_t)hint_count;
@@ -268,8 +271,8 @@ static noxtls_return_t mldsa_decode_h(const noxtls_mldsa_param_spec_t *spec,
                                       uint32_t src_len,
                                       noxtls_mldsa_polyveck_t *h)
 {
-    uint32_t i;
-    uint32_t j;
+    uint32_t i = 0U;
+    uint32_t j = 0U;
     uint32_t hint_cursor = 0U;
 
     if(spec == NULL || src == NULL || h == NULL) {
@@ -279,28 +282,28 @@ static noxtls_return_t mldsa_decode_h(const noxtls_mldsa_param_spec_t *spec,
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    for(j = 0U; j < NOXTLS_MLDSA_K_MAX; ++j) {
-        noxtls_mldsa_poly_zero(&h->v[j]);
+    for(j = 0U; j < NOXTLS_MLDSA_K_MAX; j += 1U) {
+        (void)noxtls_mldsa_poly_zero(&h->v[j]);
     }
 
-    for(j = 0U; j < spec->k; ++j) {
+    for(j = 0U; j < spec->k; j += 1U) {
         uint32_t hint_bound = (uint32_t)src[spec->omega + j];
         uint8_t prev_index = 0U;
 
         if(hint_bound < hint_cursor || hint_bound > spec->omega) {
             return NOXTLS_RETURN_BAD_DATA;
         }
-        for(i = hint_cursor; i < hint_bound; ++i) {
-            uint8_t coeff_index = src[i];
+        for(i = hint_cursor; i < hint_bound; i += 1U) {
+            uint8_t coeff_index = (uint8_t)(src[i]);
             if(i > hint_cursor && coeff_index <= prev_index) {
                 return NOXTLS_RETURN_BAD_DATA;
             }
-            h->v[j].coeff[coeff_index] = 1;
+            h->v[j].coeff[coeff_index] = 1U;
             prev_index = coeff_index;
         }
         hint_cursor = hint_bound;
     }
-    for(i = hint_cursor; i < spec->omega; ++i) {
+    for(i = hint_cursor; i < spec->omega; i += 1U) {
         if(src[i] != 0U) {
             return NOXTLS_RETURN_BAD_DATA;
         }
@@ -323,14 +326,14 @@ noxtls_return_t noxtls_mldsa_pack_signature_internal(noxtls_mldsa_param_t param,
                                                      uint32_t *sig_len)
 {
     noxtls_mldsa_param_spec_t spec;
-    noxtls_return_t rc;
-    uint8_t z_bits;
-    uint32_t c_len;
-    uint32_t z_len;
-    uint32_t h_len;
-    uint32_t need_len;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+    uint8_t z_bits = 0U;
+    uint32_t c_len = 0U;
+    uint32_t z_len = 0U;
+    uint32_t h_len = 0U;
+    uint32_t need_len = 0U;
 
-    if(parts == NULL || sig_len == NULL) {
+    if((parts == NULL) || (sig_len == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
@@ -344,12 +347,12 @@ noxtls_return_t noxtls_mldsa_pack_signature_internal(noxtls_mldsa_param_t param,
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    memcpy(sig, parts->c_seed, c_len);
-    rc = mldsa_encode_z(&spec, z_bits, &parts->z, sig + c_len, z_len);
+    (void)memcpy(sig, parts->c_seed, (size_t)c_len);
+    rc = mldsa_encode_z(&spec, z_bits, &parts->z, &sig[c_len], z_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    rc = mldsa_encode_h(&spec, &parts->h, sig + c_len + z_len, h_len);
+    rc = mldsa_encode_h(&spec, &parts->h, &sig[c_len + z_len], h_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -373,14 +376,14 @@ noxtls_return_t noxtls_mldsa_unpack_signature_internal(noxtls_mldsa_param_t para
                                                        noxtls_mldsa_sig_parts_t *parts)
 {
     noxtls_mldsa_param_spec_t spec;
-    noxtls_return_t rc;
-    uint8_t z_bits;
-    uint32_t c_len;
-    uint32_t z_len;
-    uint32_t h_len;
-    uint32_t need_len;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+    uint8_t z_bits = 0U;
+    uint32_t c_len = 0U;
+    uint32_t z_len = 0U;
+    uint32_t h_len = 0U;
+    uint32_t need_len = 0U;
 
-    if(sig == NULL || parts == NULL) {
+    if((sig == NULL) || (parts == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
@@ -392,17 +395,17 @@ noxtls_return_t noxtls_mldsa_unpack_signature_internal(noxtls_mldsa_param_t para
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    memset(parts->c_seed, 0, sizeof(parts->c_seed));
-    memcpy(parts->c_seed, sig, c_len);
+    noxtls_secure_zero((parts->c_seed), sizeof(parts->c_seed));
+    (void)memcpy(parts->c_seed, sig, (size_t)c_len);
     rc = noxtls_mldsa_make_challenge(param, parts->c_seed, c_len, &parts->c);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    rc = mldsa_decode_z(&spec, z_bits, sig + c_len, z_len, &parts->z);
+    rc = mldsa_decode_z(&spec, z_bits, &sig[c_len], z_len, &parts->z);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    rc = mldsa_decode_h(&spec, sig + c_len + z_len, h_len, &parts->h);
+    rc = mldsa_decode_h(&spec, &sig[c_len + z_len], h_len, &parts->h);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }

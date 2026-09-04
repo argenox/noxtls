@@ -51,6 +51,7 @@
 #include "asn1.h"
 #include "base64.h"
 #include "string_common.h"
+#include "noxtls_ct.h"
 
 /* ============================================================================
  * Application-private static workspace (per project policy)
@@ -124,7 +125,6 @@ static void app_workspace_reset(void)
 #define APP_VERSION_MINOR 1
 #define APP_VERSION_BUILD 4
 
-
 void print_array_hex(const uint8_t * data, uint32_t len);
 void print_array_char(const uint8_t * data, uint32_t len);
 
@@ -136,13 +136,12 @@ typedef enum
     BASE64_TEST
 } base64_op_t;
 
-
 /**
  * @brief Print the usage of the application
  * 
  * @param[in] name The name of the application
  */
-void print_usage(const char * name)
+void print_usage(const uint8_t * name)
 {
     printf( "usage: %s [switch] <parameters>\n", name);
     
@@ -167,7 +166,6 @@ void print_version(void)
     printf("Copyright Argenox Technologies LLC. All Rights Reserved.\n");
 }
 
-
 /**
  * @brief Run the tests of the application
  */
@@ -183,7 +181,7 @@ void run_tests(void)
  * @param[in] argv The argument vector
  * @return The return value
  */
-int main(int argc, char ** argv)
+int main(int argc, char **argv)
 {
     uint8_t * input_data = NULL;
     uint8_t * output = NULL;
@@ -197,7 +195,6 @@ int main(int argc, char ** argv)
     size_t output_len = 0;
     size_t conv_length = 0;
     int exit_code = 0;
-
 
     /* check for command line arguments */
     if (argc < 2)
@@ -214,7 +211,7 @@ int main(int argc, char ** argv)
             {
             case 's': /* Input to encode is a string */
             {
-                size_t opt_len = strlen(optarg);
+                size_t opt_len = noxtls_u8_strlen(optarg);
                 if(opt_len > UINT32_MAX) {
                     exit_code = -1;
                     break;
@@ -234,7 +231,7 @@ int main(int argc, char ** argv)
 
             case 'x': /* Input to encode is hex */
             {
-                size_t opt_len = strlen(optarg);
+                size_t opt_len = noxtls_u8_strlen(optarg);
                 if(opt_len > UINT32_MAX) {
                     exit_code = -1;
                     break;
@@ -255,7 +252,7 @@ int main(int argc, char ** argv)
             case 'D':
             case 'd': /* Input to decode is string */
             {
-                size_t opt_len = strlen(optarg);
+                size_t opt_len = noxtls_u8_strlen(optarg);
                 if(opt_len > UINT32_MAX) {
                     exit_code = -1;
                     break;
@@ -327,14 +324,13 @@ int main(int argc, char ** argv)
                 exit_code = -1;
                 break;
             }
-            length = noxtls_base64_encode(input_data, (uint32_t)input_len, (char *)output);
+            length = noxtls_base64_encode(input_data, (uint32_t)input_len, (uint8_t *)output);
             if(length < 0 || (size_t)length != output_len) {
                 printf("Output Length Error: %d != %u\n", length, (unsigned)output_len);
             }
             if(length > 0) {
                 print_array_char(output, (uint32_t)length);
             }
-
 
             break;
         case BASE64_ENCODE_BINARY_HEX:
@@ -352,7 +348,7 @@ int main(int argc, char ** argv)
             }
             memset(conv_data, 0, sizeof(uint8_t) * conv_length);
 
-            length = noxtls_hex_string_to_bytes((char *)input_data, conv_data, conv_length);
+            length = noxtls_hex_string_to_bytes((uint8_t *)input_data, conv_data, conv_length);
             if(length < 0 || (size_t)length != conv_length) {
                 exit_code = -1;
                 break;
@@ -382,14 +378,13 @@ int main(int argc, char ** argv)
                 exit_code = -1;
                 break;
             }
-            length = noxtls_base64_encode(conv_data, (uint32_t)conv_length, (char *)output);
+            length = noxtls_base64_encode(conv_data, (uint32_t)conv_length, (uint8_t *)output);
             if(length < 0 || (size_t)length != output_len) {
                 printf("Output Length Error: %d != %u\n", length, (unsigned)output_len);
             }
             if(length > 0) {
                 print_array_char(output, (uint32_t)length);
             }
-
 
             break;
         case BASE64_DECODE:
@@ -413,7 +408,7 @@ int main(int argc, char ** argv)
                 exit_code = -1;
                 break;
             }
-            length = noxtls_base64_decode((char *)input_data, (uint32_t)input_len, (uint8_t *)output);
+            length = noxtls_base64_decode((const uint8_t *)input_data, (uint32_t)input_len, (uint8_t *)output);
             if(length < 0 || (size_t)length != output_len) {
                 printf("Output Length Error: %d != %u\n", length, (unsigned)output_len);
             }

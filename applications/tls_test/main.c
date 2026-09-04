@@ -82,6 +82,7 @@
 
 #if NOXTLS_CFG_ENABLE_NOXSIGHT
 #include "../../../noxsight/noxsight.h"
+#include "noxtls_ct.h"
 
 /* ============================================================================
  * Application-private static workspace (per project policy)
@@ -152,14 +153,14 @@ static void app_workspace_reset(void)
 #define free(p)   app_workspace_free(p)
 #endif
 
-static const char *tls_test_cert_paths[] = {
+static const uint8_t *tls_test_cert_paths[] = {
     "applications/tls_test/testdata/tls_test_server_cert.der",
     "../applications/tls_test/testdata/tls_test_server_cert.der",
     "../../applications/tls_test/testdata/tls_test_server_cert.der",
     "../../../applications/tls_test/testdata/tls_test_server_cert.der"
 };
 
-static const char *tls_test_key_paths[] = {
+static const uint8_t *tls_test_key_paths[] = {
     "applications/tls_test/testdata/tls_test_server_key.der",
     "../applications/tls_test/testdata/tls_test_server_key.der",
     "../../applications/tls_test/testdata/tls_test_server_key.der",
@@ -191,8 +192,8 @@ typedef struct
     int noxsight_enabled;
     uint8_t noxsight_level;
     uint32_t noxsight_module_mask;
-    const char *noxsight_sink;
-    char noxsight_file_path[260];
+    const uint8_t *noxsight_sink;
+    uint8_t noxsight_file_path[260];
 } tls_test_cli_options_t;
 
 /**
@@ -203,7 +204,7 @@ typedef struct
  * @param[in] len The length of the data to dump the hexadecimal data from
  * @return void
  */
-static void hex_dump(const char *label, const uint8_t *data, uint32_t len)
+static void hex_dump(const uint8_t *label, const uint8_t *data, uint32_t len)
 {
     if(label) {
         printf("%s (%u bytes): ", label, len);
@@ -261,18 +262,18 @@ static void tls_test_noxsight_sink_flush(void *ctx)
  * @param[out] out_bool The output to parse the boolean value into
  * @return The return code
  */
-static int tls_test_parse_bool(const char *value, int *out_bool)
+static int tls_test_parse_bool(const uint8_t *value, int *out_bool)
 {
     if(value == NULL || out_bool == NULL)
     {
         return 0;
     }
-    if(strcmp(value, "1") == 0 || strcmp(value, "on") == 0 || strcmp(value, "true") == 0 || strcmp(value, "yes") == 0)
+    if(noxtls_u8_strcmp(value, "1") == 0 || noxtls_u8_strcmp(value, "on") == 0 || noxtls_u8_strcmp(value, "true") == 0 || noxtls_u8_strcmp(value, "yes") == 0)
     {
         *out_bool = 1;
         return 1;
     }
-    if(strcmp(value, "0") == 0 || strcmp(value, "off") == 0 || strcmp(value, "false") == 0 || strcmp(value, "no") == 0)
+    if(noxtls_u8_strcmp(value, "0") == 0 || noxtls_u8_strcmp(value, "off") == 0 || noxtls_u8_strcmp(value, "false") == 0 || noxtls_u8_strcmp(value, "no") == 0)
     {
         *out_bool = 0;
         return 1;
@@ -287,17 +288,17 @@ static int tls_test_parse_bool(const char *value, int *out_bool)
  * @param[out] out_level The output to parse the level into
  * @return The return code
  */
-static int tls_test_parse_level(const char *value, uint8_t *out_level)
+static int tls_test_parse_level(const uint8_t *value, uint8_t *out_level)
 {
     if(value == NULL || out_level == NULL)
     {
         return 0;
     }
-    if(strcmp(value, "error") == 0 || strcmp(value, "0") == 0) { *out_level = NOXSIGHT_SEVERITY_ERROR; return 1; }
-    if(strcmp(value, "warn") == 0  || strcmp(value, "1") == 0) { *out_level = NOXSIGHT_SEVERITY_WARN;  return 1; }
-    if(strcmp(value, "info") == 0  || strcmp(value, "2") == 0) { *out_level = NOXSIGHT_SEVERITY_INFO;  return 1; }
-    if(strcmp(value, "debug") == 0 || strcmp(value, "3") == 0) { *out_level = NOXSIGHT_SEVERITY_DEBUG; return 1; }
-    if(strcmp(value, "trace") == 0 || strcmp(value, "4") == 0) { *out_level = NOXSIGHT_SEVERITY_TRACE; return 1; }
+    if(noxtls_u8_strcmp(value, "error") == 0 || noxtls_u8_strcmp(value, "0") == 0) { *out_level = NOXSIGHT_SEVERITY_ERROR; return 1; }
+    if(noxtls_u8_strcmp(value, "warn") == 0  || noxtls_u8_strcmp(value, "1") == 0) { *out_level = NOXSIGHT_SEVERITY_WARN;  return 1; }
+    if(noxtls_u8_strcmp(value, "info") == 0  || noxtls_u8_strcmp(value, "2") == 0) { *out_level = NOXSIGHT_SEVERITY_INFO;  return 1; }
+    if(noxtls_u8_strcmp(value, "debug") == 0 || noxtls_u8_strcmp(value, "3") == 0) { *out_level = NOXSIGHT_SEVERITY_DEBUG; return 1; }
+    if(noxtls_u8_strcmp(value, "trace") == 0 || noxtls_u8_strcmp(value, "4") == 0) { *out_level = NOXSIGHT_SEVERITY_TRACE; return 1; }
     return 0;
 }
 
@@ -308,20 +309,20 @@ static int tls_test_parse_level(const char *value, uint8_t *out_level)
  * @param[in] name The name of the module to try to add to the mask
  * @return 1 if the module was added to the mask, 0 otherwise
  */
-static int tls_test_try_add_module(uint32_t *mask, const char *name)
+static int tls_test_try_add_module(uint32_t *mask, const uint8_t *name)
 {
     if(mask == NULL || name == NULL)
     {
         return 0;
     }
-    if(strcmp(name, "handshake") == 0) { *mask |= NOXTLS_LOG_MOD_HANDSHAKE; return 1; }
-    if(strcmp(name, "record") == 0)    { *mask |= NOXTLS_LOG_MOD_RECORD;    return 1; }
-    if(strcmp(name, "x509") == 0)      { *mask |= NOXTLS_LOG_MOD_X509;      return 1; }
-    if(strcmp(name, "crypto") == 0)    { *mask |= NOXTLS_LOG_MOD_CRYPTO;    return 1; }
-    if(strcmp(name, "io") == 0)        { *mask |= NOXTLS_LOG_MOD_IO;        return 1; }
-    if(strcmp(name, "session") == 0)   { *mask |= NOXTLS_LOG_MOD_SESSION;   return 1; }
-    if(strcmp(name, "keysched") == 0)  { *mask |= NOXTLS_LOG_MOD_KEYSCHED;  return 1; }
-    if(strcmp(name, "alert") == 0)     { *mask |= NOXTLS_LOG_MOD_ALERT;     return 1; }
+    if(noxtls_u8_strcmp(name, "handshake") == 0) { *mask |= NOXTLS_LOG_MOD_HANDSHAKE; return 1; }
+    if(noxtls_u8_strcmp(name, "record") == 0)    { *mask |= NOXTLS_LOG_MOD_RECORD;    return 1; }
+    if(noxtls_u8_strcmp(name, "x509") == 0)      { *mask |= NOXTLS_LOG_MOD_X509;      return 1; }
+    if(noxtls_u8_strcmp(name, "crypto") == 0)    { *mask |= NOXTLS_LOG_MOD_CRYPTO;    return 1; }
+    if(noxtls_u8_strcmp(name, "io") == 0)        { *mask |= NOXTLS_LOG_MOD_IO;        return 1; }
+    if(noxtls_u8_strcmp(name, "session") == 0)   { *mask |= NOXTLS_LOG_MOD_SESSION;   return 1; }
+    if(noxtls_u8_strcmp(name, "keysched") == 0)  { *mask |= NOXTLS_LOG_MOD_KEYSCHED;  return 1; }
+    if(noxtls_u8_strcmp(name, "alert") == 0)     { *mask |= NOXTLS_LOG_MOD_ALERT;     return 1; }
     return 0;
 }
 
@@ -332,10 +333,10 @@ static int tls_test_try_add_module(uint32_t *mask, const char *name)
  * @param[out] out_mask The output to parse the modules into
  * @return The return code
  */
-static int tls_test_parse_modules(const char *value, uint32_t *out_mask)
+static int tls_test_parse_modules(const uint8_t *value, uint32_t *out_mask)
 {
-    char tmp[256];
-    char *token;
+    uint8_t tmp[256];
+    uint8_t *token;
     uint32_t mask = 0U;
 
     if(value == NULL || out_mask == NULL)
@@ -343,7 +344,7 @@ static int tls_test_parse_modules(const char *value, uint32_t *out_mask)
         return 0;
     }
 
-    if(strcmp(value, "all") == 0)
+    if(noxtls_u8_strcmp(value, "all") == 0)
     {
         *out_mask = NOXTLS_LOG_MOD_HANDSHAKE |
                     NOXTLS_LOG_MOD_RECORD |
@@ -355,13 +356,13 @@ static int tls_test_parse_modules(const char *value, uint32_t *out_mask)
                     NOXTLS_LOG_MOD_ALERT;
         return 1;
     }
-    if(strcmp(value, "none") == 0)
+    if(noxtls_u8_strcmp(value, "none") == 0)
     {
         *out_mask = 0U;
         return 1;
     }
 
-    if(strlen(value) >= sizeof(tmp))
+    if(noxtls_u8_strlen(value) >= sizeof(tmp))
     {
         return 0;
     }
@@ -369,7 +370,7 @@ static int tls_test_parse_modules(const char *value, uint32_t *out_mask)
 
 #ifdef _MSC_VER
     {
-        char *next = NULL;
+        uint8_t *next = NULL;
         token = strtok_s(tmp, ",", &next);
         while(token != NULL)
         {
@@ -382,7 +383,7 @@ static int tls_test_parse_modules(const char *value, uint32_t *out_mask)
     }
 #else
     {
-        char *next = NULL;
+        uint8_t *next = NULL;
         token = strtok_r(tmp, ",", &next);
         while(token != NULL)
         {
@@ -405,7 +406,7 @@ static int tls_test_parse_modules(const char *value, uint32_t *out_mask)
  * @param[in] prog The program name
  * @return void
  */
-static void tls_test_print_usage(const char *prog)
+static void tls_test_print_usage(const uint8_t *prog)
 {
     printf("Usage: %s [options]\n", prog);
     printf("Options:\n");
@@ -428,7 +429,7 @@ static void tls_test_print_usage(const char *prog)
  * @param[out] opts The options to parse the command line arguments into
  * @return The return code
  */
-static int tls_test_parse_cli(int argc, char **argv, tls_test_cli_options_t *opts)
+static int tls_test_parse_cli(int argc, uint8_t **argv, tls_test_cli_options_t *opts)
 {
     int i;
     if(opts == NULL)
@@ -452,23 +453,23 @@ static int tls_test_parse_cli(int argc, char **argv, tls_test_cli_options_t *opt
 
     for(i = 1; i < argc; ++i)
     {
-        const char *arg = argv[i];
-        if(strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0)
+        const uint8_t *arg = argv[i];
+        if(noxtls_u8_strcmp(arg, "-h") == 0 || noxtls_u8_strcmp(arg, "--help") == 0)
         {
             opts->show_help = 1;
             continue;
         }
-        if(strcmp(arg, "--noxsight-on") == 0)
+        if(noxtls_u8_strcmp(arg, "--noxsight-on") == 0)
         {
             opts->noxsight_enabled = 1;
             continue;
         }
-        if(strcmp(arg, "--noxsight-off") == 0)
+        if(noxtls_u8_strcmp(arg, "--noxsight-off") == 0)
         {
             opts->noxsight_enabled = 0;
             continue;
         }
-        if(strncmp(arg, "--noxsight=", 11) == 0)
+        if(noxtls_u8_strncmp(arg, "--noxsight=", 11) == 0)
         {
             if(!tls_test_parse_bool(arg + 11, &opts->noxsight_enabled))
             {
@@ -476,7 +477,7 @@ static int tls_test_parse_cli(int argc, char **argv, tls_test_cli_options_t *opt
             }
             continue;
         }
-        if(strncmp(arg, "--ns-level=", 11) == 0)
+        if(noxtls_u8_strncmp(arg, "--ns-level=", 11) == 0)
         {
             if(!tls_test_parse_level(arg + 11, &opts->noxsight_level))
             {
@@ -484,9 +485,9 @@ static int tls_test_parse_cli(int argc, char **argv, tls_test_cli_options_t *opt
             }
             continue;
         }
-        if(strncmp(arg, "--ns-mask=", 10) == 0)
+        if(noxtls_u8_strncmp(arg, "--ns-mask=", 10) == 0)
         {
-            char *endptr = NULL;
+            uint8_t *endptr = NULL;
             unsigned long v = strtoul(arg + 10, &endptr, 0);
             if(endptr == NULL || *endptr != '\0')
             {
@@ -495,7 +496,7 @@ static int tls_test_parse_cli(int argc, char **argv, tls_test_cli_options_t *opt
             opts->noxsight_module_mask = (uint32_t)v;
             continue;
         }
-        if(strncmp(arg, "--ns-modules=", 13) == 0)
+        if(noxtls_u8_strncmp(arg, "--ns-modules=", 13) == 0)
         {
             if(!tls_test_parse_modules(arg + 13, &opts->noxsight_module_mask))
             {
@@ -503,20 +504,20 @@ static int tls_test_parse_cli(int argc, char **argv, tls_test_cli_options_t *opt
             }
             continue;
         }
-        if(strncmp(arg, "--ns-sink=", 10) == 0)
+        if(noxtls_u8_strncmp(arg, "--ns-sink=", 10) == 0)
         {
-            const char *sink = arg + 10;
-            if(strcmp(sink, "stdout") != 0 && strcmp(sink, "stderr") != 0 && strcmp(sink, "file") != 0)
+            const uint8_t *sink = arg + 10;
+            if(noxtls_u8_strcmp(sink, "stdout") != 0 && noxtls_u8_strcmp(sink, "stderr") != 0 && noxtls_u8_strcmp(sink, "file") != 0)
             {
                 return 0;
             }
             opts->noxsight_sink = sink;
             continue;
         }
-        if(strncmp(arg, "--ns-file=", 10) == 0)
+        if(noxtls_u8_strncmp(arg, "--ns-file=", 10) == 0)
         {
-            const char *path = arg + 10;
-            if(strlen(path) >= sizeof(opts->noxsight_file_path))
+            const uint8_t *path = arg + 10;
+            if(noxtls_u8_strlen(path) >= sizeof(opts->noxsight_file_path))
             {
                 return 0;
             }
@@ -546,11 +547,11 @@ static int tls_test_noxsight_init(const tls_test_cli_options_t *opts)
         return 0;
     }
 
-    if(strcmp(opts->noxsight_sink, "stderr") == 0)
+    if(noxtls_u8_strcmp(opts->noxsight_sink, "stderr") == 0)
     {
         out = stderr;
     }
-    else if(strcmp(opts->noxsight_sink, "file") == 0)
+    else if(noxtls_u8_strcmp(opts->noxsight_sink, "file") == 0)
     {
         if(opts->noxsight_file_path[0] == '\0')
         {
@@ -788,7 +789,6 @@ static int32_t client_recv_callback(void *user_data, uint8_t *data, uint32_t len
     return network_buffer_read(&conn->server_to_client, data, len);
 }
 
-
 /**
  * @brief Check if the cipher suite uses server key exchange
  *
@@ -929,7 +929,7 @@ int main(int argc, char **argv)
     printf("========================================\n\n");
 
     for(int argi = 1; argi < argc; argi++) {
-        if(argv[argi] != NULL && strcmp(argv[argi], "--ocsp-only") == 0) {
+        if(argv[argi] != NULL && noxtls_u8_strcmp(argv[argi], "--ocsp-only") == 0) {
             ocsp_only = 1;
         }
     }
@@ -963,7 +963,7 @@ int main(int argc, char **argv)
         int i;
         for(i = 1; i < argc; ++i)
         {
-            if(strncmp(argv[i], "--noxsight", 10) == 0 || strncmp(argv[i], "--ns-", 5) == 0)
+            if(noxtls_u8_strncmp(argv[i], "--noxsight", 10) == 0 || noxtls_u8_strncmp(argv[i], "--ns-", 5) == 0)
             {
                 printf("[TLS_TEST] NoxSight options were provided, but this build has NOXTLS_CFG_ENABLE_NOXSIGHT=0\n");
                 break;
@@ -1113,20 +1113,20 @@ int main(int argc, char **argv)
         printf("    Debug: server_to_client buffer length after send: %u\n", network.server_to_client.len);
         fflush(stdout);
         
-        noxtls_debug_printf("    Client: Receiving certificate...\n");
-        noxtls_debug_printf("    Debug: server_to_client buffer length before recv: %u\n", network.server_to_client.len);
+        noxtls_debug_printf((const uint8_t *)"    Client: Receiving certificate...\n");
+        noxtls_debug_printf((const uint8_t *)"    Debug: server_to_client buffer length before recv: %u\n", network.server_to_client.len);
         fflush(stdout);
         rc = noxtls_tls12_recv_certificate(&client_ctx);
-        noxtls_debug_printf("    Debug: noxtls_tls12_recv_certificate returned: %d\n", rc);
+        noxtls_debug_printf((const uint8_t *)"    Debug: noxtls_tls12_recv_certificate returned: %d\n", rc);
         if(rc != NOXTLS_RETURN_SUCCESS)
         {
-            noxtls_debug_printf("ERROR: Failed to receive Certificate: %d\n", rc);
-            noxtls_debug_printf("    Debug: server_to_client buffer length after recv: %u\n", network.server_to_client.len);
+            noxtls_debug_printf((const uint8_t *)"ERROR: Failed to receive Certificate: %d\n", rc);
+            noxtls_debug_printf((const uint8_t *)"    Debug: server_to_client buffer length after recv: %u\n", network.server_to_client.len);
             fflush(stdout);
             break;
         }
-        noxtls_debug_printf("    Client: Certificate received successfully\n");
-        noxtls_debug_printf("    Debug: server_to_client buffer length after recv: %u\n", network.server_to_client.len);
+        noxtls_debug_printf((const uint8_t *)"    Client: Certificate received successfully\n");
+        noxtls_debug_printf((const uint8_t *)"    Debug: server_to_client buffer length after recv: %u\n", network.server_to_client.len);
         fflush(stdout);
         {
             const uint8_t *peer_ocsp = NULL;

@@ -4,8 +4,8 @@
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
  */
 
-#ifndef _NOXTLS_VERSION_H_
-#define _NOXTLS_VERSION_H_
+#ifndef NOXTLS_VERSION_H_
+#define NOXTLS_VERSION_H_
 
 /* Version follows Semantic Versioning (https://semver.org/) */
 /* Format: MAJOR.MINOR.PATCH */
@@ -16,4 +16,4 @@
 /* Version string (e.g., "0.1.0") */
 #define NOXTLS_VERSION_STRING "0.2.70"
 
-#endif /* _NOXTLS_VERSION_H_ */
+#endif /* NOXTLS_VERSION_H_ */

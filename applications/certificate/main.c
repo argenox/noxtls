@@ -125,14 +125,12 @@ static void app_workspace_reset(void)
 #define APP_VERSION_MINOR 1
 #define APP_VERSION_BUILD 4
 
-
 typedef struct {
-    char cmd[32];
-    int (*handler)(int argc, char ** argv);
-    char description[256];
+    uint8_t cmd[32];
+    int (*handler)(int argc, uint8_t ** argv);
+    uint8_t description[256];
 
 } command_list_t;
-
 
 command_list_t commands[]  = {
     /* {"dgst", &message_digest, "Generates the noxtls_message digest"} */
@@ -145,7 +143,7 @@ command_list_t commands[]  = {
  * @param[in] name Program name (argv[0])
  * @return void
  */
-void print_usage(const char * name)
+void print_usage(const uint8_t * name)
 {
     printf( "usage: %s [command] <parameters>\n", name);
     printf("\nSupported Commands\n\n");
@@ -183,7 +181,7 @@ void print_version(void)
  * @param[in] argv Command-line arguments (currently unused)
  * @return 0 on success, -1 on allocation failure
  */
-int main(int argc, char ** argv)
+int main(int argc, char **argv)
 {
     uint8_t * buffer = NULL;
 
@@ -213,16 +211,15 @@ int main(int argc, char ** argv)
     memset(cert_output, 0, sizeof(uint8_t) * output_len * 2);
     uint32_t pem_cert_length = 0;
 
-    /*int pem_cert_length = noxtls_base64_encode(buffer, res, (char *)cert_output);
+    /*int pem_cert_length = noxtls_base64_encode(buffer, res, (uint8_t *)cert_output);
     if(pem_cert_length != output_len) {
         printf("Output Length Error: %d != %d\n", pem_cert_length, output_len);
     }*/
 
-
     noxtls_certificate_der_to_pem(buffer, res, cert_output, &pem_cert_length);
 
     noxtls_write_text_file("2048b-rsa-example-cert.pem", cert_output, pem_cert_length);
-    free(buffer);
+    noxtls_free(buffer);
 
     printf("Loading PEM\n");
     res = noxtls_load_text_file("2048b-rsa-example-cert.pem", &buffer);
@@ -234,9 +231,7 @@ int main(int argc, char ** argv)
 
     printf("DER LEngth: %u\n", (unsigned int)der_cert_length);
     noxtls_write_file("2048b-rsa-example-cert.der", cert_output, der_cert_length);
-    free(buffer);
-
-
+    noxtls_free(buffer);
 
     return 0;    
 }

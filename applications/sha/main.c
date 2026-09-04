@@ -56,6 +56,7 @@
 
 #include "noxtls-lib/common/getopt_compat.h"
 #include "message_digest.h"
+#include "noxtls_ct.h"
 
 /* ============================================================================
  * Application-private static workspace (per project policy)
@@ -103,7 +104,6 @@ static void app_workspace_free(void *p)
     (void)p;
 }
 
-
 /**
  * @brief Reset the workspace
  *
@@ -130,14 +130,13 @@ static void app_workspace_reset(void)
 #define APP_VERSION_MINOR 1
 #define APP_VERSION_BUILD 4
 
-
 /**
  * @brief Print the usage
  * 
  * @param[in] name The name of the program.
  * @return void
  */
-void print_usage(const char * name)
+void print_usage(const uint8_t * name)
 {
     printf("usage: %s <algorithm> [options] [text...]\n", name);
     printf("       %s <algorithm> -f <file> [options]\n", name);
@@ -169,7 +168,7 @@ void print_version(void)
  * @param[in] argv The argument vector
  * @return The return value
  */
-int main(int argc, char ** argv)
+int main(int argc, char **argv)
 {
     /* check for command line arguments */
     if (argc < 2)
@@ -178,11 +177,11 @@ int main(int argc, char ** argv)
         return 0;
     }
 
-    if(strcmp(argv[1], "-v") == 0 || strcmp(argv[1], "--version") == 0) {
+    if(noxtls_u8_strcmp(argv[1], "-v") == 0 || noxtls_u8_strcmp(argv[1], "--version") == 0) {
         print_version();
         return 0;
     }
-    if(strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
+    if(noxtls_u8_strcmp(argv[1], "-h") == 0 || noxtls_u8_strcmp(argv[1], "--help") == 0) {
         print_digest_usage();
         return 0;
     }

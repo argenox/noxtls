@@ -22,6 +22,7 @@
 /** @addtogroup noxtls_encryption */
 
 #include <stdint.h>
+#include "common/noxtls_ct.h"
 #include <string.h>
 #include "noxtls_aria.h"
 #include "noxtls_common.h"
@@ -31,6 +32,7 @@
 /**
  * @brief ARIA Encrypt/Decrypt in CTR Mode
  */
+/* Block-indexed CTR walk; extents follow caller data_len / ARIA block size. */
 noxtls_return_t noxtls_aria_encrypt_ctr(const uint8_t* key,
                      const uint8_t* data,
                      uint32_t data_len,
@@ -39,44 +41,45 @@ noxtls_return_t noxtls_aria_encrypt_ctr(const uint8_t* key,
                      noxtls_aria_type_t type)
 {
     uint32_t i;
-    uint32_t cur_block = 0;
+    uint32_t cur_block = 0U;
     uint8_t counter_block[NOXTLS_ARIA_BLOCK_LENGTH];
     uint8_t keystream[NOXTLS_ARIA_BLOCK_LENGTH];
     noxtls_aria_key_t aria_key;
-    
-    if(key == NULL || data == NULL || output == NULL || iv == NULL) {
+    const uint32_t block_sz = (uint32_t)NOXTLS_ARIA_BLOCK_LENGTH;
+
+    if ((key == NULL) || (data == NULL) || (output == NULL) || (iv == NULL)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
-    
-    if(noxtls_aria_set_encrypt_key(key, type, &aria_key) != 0) {
+
+    if (noxtls_aria_set_encrypt_key(key, type, &aria_key) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
-    
+
     /* Initialize counter from IV */
-    memcpy(counter_block, iv, NOXTLS_ARIA_BLOCK_LENGTH);
-    
-    for(cur_block = 0; cur_block < data_len; cur_block += NOXTLS_ARIA_BLOCK_LENGTH)
+    noxtls_copy_u8(counter_block, sizeof(counter_block), iv, (size_t)block_sz);
+
+    for (cur_block = 0U; cur_block < data_len; cur_block += block_sz)
     {
-        uint32_t block_len = (data_len - cur_block < NOXTLS_ARIA_BLOCK_LENGTH) ?
-                             (data_len - cur_block) : NOXTLS_ARIA_BLOCK_LENGTH;
-        
+        uint32_t remain = (uint32_t)(data_len - cur_block);
+        uint32_t block_len = (uint32_t)((remain < block_sz) ? remain : block_sz);
+
         /* Encrypt counter to produce keystream */
-        noxtls_aria_encrypt_block(&aria_key, counter_block, keystream);
-        
+        (void)noxtls_aria_encrypt_block(&aria_key, counter_block, keystream);
+
         /* XOR keystream with plaintext */
-        for(i = 0; i < block_len; i++) {
-            output[cur_block + i] = data[cur_block + i] ^ keystream[i];
+        for (i = 0U; i < block_len; i += 1U) {
+            output[cur_block + i] = (uint8_t)(data[cur_block + i] ^ keystream[i]);
         }
-        
+
         /* Increment counter (big-endian) */
-        for(i = NOXTLS_ARIA_BLOCK_LENGTH; i > 0; i--) {
-            counter_block[i-1]++;
-            if(counter_block[i-1] != 0) {
+        for (i = block_sz; i > 0U; i -= 1U) {
+            counter_block[i - 1U] = (uint8_t)(counter_block[i - 1U] + 1U);
+            if (counter_block[i - 1U] != 0U) {
                 break;
             }
         }
     }
-    
+
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -95,4 +98,3 @@ noxtls_return_t noxtls_aria_decrypt_ctr(const uint8_t* key,
 }
 
 #endif /* NOXTLS_FEATURE_ARIA */
-

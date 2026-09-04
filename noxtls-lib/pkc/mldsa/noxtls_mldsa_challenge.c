@@ -38,7 +38,7 @@ noxtls_return_t noxtls_mldsa_make_challenge(noxtls_mldsa_param_t param,
     uint32_t off = 0U;
     uint16_t picked = 0U;
 
-    if(mu == NULL || c == NULL) {
+    if((mu == NULL) || (c == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
@@ -47,7 +47,7 @@ noxtls_return_t noxtls_mldsa_make_challenge(noxtls_mldsa_param_t param,
         return rc;
     }
 
-    noxtls_mldsa_poly_zero(c);
+    (void)noxtls_mldsa_poly_zero(c);
 
     while(picked < spec.tau) {
         uint8_t pos_byte;
@@ -59,21 +59,24 @@ noxtls_return_t noxtls_mldsa_make_challenge(noxtls_mldsa_param_t param,
             off = 0U;
         }
         if(off == 0U) {
-            rc = noxtls_mldsa_expand_xof(mu, mu_len, 0xD0u, stream_nonce, stream, (uint32_t)sizeof(stream));
+            rc = noxtls_mldsa_expand_xof(mu, mu_len, 0xD0U, stream_nonce, stream, (uint32_t)sizeof(stream));
             if(rc != NOXTLS_RETURN_SUCCESS) {
                 return rc;
             }
-            stream_nonce++;
+            stream_nonce += 1U;
         }
 
-        pos_byte = stream[off++];
-        sign_byte = stream[off++];
+        pos_byte = stream[off];
+
+        off += 1U;
+        sign_byte = stream[off];
+        off += 1U;
         pos = (uint16_t)(pos_byte % NOXTLS_MLDSA_N);
-        coeff = (sign_byte & 1U) ? -1 : 1;
+        coeff = ((sign_byte & 1U) != 0) ? -1 : 1;
 
         if(c->coeff[pos] == 0) {
             c->coeff[pos] = coeff;
-            picked++;
+            picked += 1U;
         }
     }
 

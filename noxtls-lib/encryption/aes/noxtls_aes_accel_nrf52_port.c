@@ -12,6 +12,7 @@
 
 #include "../../../noxtls_common.h"
 #include "noxtls_aes.h"
+#include "noxtls_ct.h"
 
 #ifndef NOXTLS_FEATURE_NRF52_HW_ACCEL
 #define NOXTLS_FEATURE_NRF52_HW_ACCEL 0
@@ -32,10 +33,7 @@ typedef struct
     uint8_t ciphertext[16];
 } noxtls_nrf52_ecb_data_t;
 
-static volatile uint32_t *noxtls_nrf52_reg(uint32_t offset)
-{
-    return (volatile uint32_t *)(NOXTLS_NRF52_ECB_BASE_ADDR + (uintptr_t)offset);
-}
+static volatile uint32_t *noxtls_nrf52_reg(uint32_t offset) { return (volatile uint32_t *)(NOXTLS_NRF52_ECB_BASE_ADDR + (uintptr_t)offset); }
 
 static noxtls_return_t noxtls_nrf52_ecb_encrypt_128(const uint8_t *key,
                                                      const uint8_t *data,
@@ -53,18 +51,18 @@ static noxtls_return_t noxtls_nrf52_ecb_encrypt_128(const uint8_t *key,
         return NOXTLS_RETURN_NULL;
     }
 
-    memcpy(ecb_data.key, key, sizeof(ecb_data.key));
-    memcpy(ecb_data.cleartext, data, sizeof(ecb_data.cleartext));
-    memset(ecb_data.ciphertext, 0, sizeof(ecb_data.ciphertext));
+    noxtls_copy_u8((uint8_t *)(ecb_data.key), sizeof(ecb_data.key), (const uint8_t *)(key), sizeof(ecb_data.key));
+    noxtls_copy_u8((uint8_t *)(ecb_data.cleartext), sizeof(ecb_data.cleartext), (const uint8_t *)(data), sizeof(ecb_data.cleartext));
+    noxtls_secure_zero((ecb_data.ciphertext), sizeof(ecb_data.ciphertext));
 
     *event_end = 0U;
     *event_error = 0U;
     *ecb_ptr = (uint32_t)(uintptr_t)&ecb_data;
     *task_start = 1U;
 
-    for(spins = 0U; spins < NOXTLS_NRF52_ECB_TIMEOUT_SPINS; ++spins) {
+    for(spins = 0U; spins < NOXTLS_NRF52_ECB_TIMEOUT_SPINS; spins += 1U) {
         if(*event_end != 0U) {
-            memcpy(output, ecb_data.ciphertext, sizeof(ecb_data.ciphertext));
+            noxtls_copy_u8((uint8_t *)(output), sizeof(ecb_data.ciphertext), (const uint8_t *)(ecb_data.ciphertext), sizeof(ecb_data.ciphertext));
             *event_end = 0U;
             return NOXTLS_RETURN_SUCCESS;
         }
@@ -123,10 +121,10 @@ noxtls_return_t noxtls_aes_accel_port_encrypt_blocks(const uint8_t *key,
         return NOXTLS_RETURN_NULL;
     }
 
-    for(i = 0U; i < block_count; ++i) {
+    for(i = 0U; i < block_count; i += 1U) {
         noxtls_return_t rc = noxtls_aes_accel_port_encrypt_block(key,
-                                                                  input + (i * 16U),
-                                                                  output + (i * 16U),
+                                                                  &input[(i * 16U)],
+                                                                  &output[(i * 16U)],
                                                                   type);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;

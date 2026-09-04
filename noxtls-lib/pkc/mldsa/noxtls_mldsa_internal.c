@@ -26,9 +26,9 @@
 #include "noxtls_mldsa_internal.h"
 
 static const noxtls_mldsa_param_spec_t g_mldsa_specs[] = {
-    { NOXTLS_MLDSA_44, 1312u, 2560u, 2420u, 4U, 4U, 2U, 80u, 39U, 78u, 131072, 95232 },
-    { NOXTLS_MLDSA_65, 1952u, 4032u, 3309u, 6U, 5U, 4U, 55u, 49U, 196u, 524288, 261888 },
-    { NOXTLS_MLDSA_87, 2592u, 4896u, 4627u, 8U, 7U, 2U, 75u, 60u, 120u, 524288, 261888 }
+    { NOXTLS_MLDSA_44, 1312U, 2560U, 2420U, 4U, 4U, 2U, 80U, 39U, 78U, 131072, 95232 },
+    { NOXTLS_MLDSA_65, 1952U, 4032U, 3309U, 6U, 5U, 4U, 55U, 49U, 196U, 524288, 261888 },
+    { NOXTLS_MLDSA_87, 2592U, 4896U, 4627U, 8U, 7U, 2U, 75U, 60U, 120U, 524288, 261888 }
 };
 
 /**
@@ -47,7 +47,7 @@ noxtls_return_t noxtls_mldsa_internal_get_param_spec(noxtls_mldsa_param_t param,
         return NOXTLS_RETURN_NULL;
     }
 
-    for(i = 0U; i < (sizeof(g_mldsa_specs) / sizeof(g_mldsa_specs[0])); ++i) {
+    for(i = 0U; i < (sizeof(g_mldsa_specs)) / (sizeof(g_mldsa_specs[0])); i += 1U) {
         if(g_mldsa_specs[i].param == param) {
             *spec = g_mldsa_specs[i];
             return NOXTLS_RETURN_SUCCESS;
@@ -85,8 +85,8 @@ void noxtls_mldsa_poly_zero(noxtls_mldsa_poly_t *p)
         return;
     }
 
-    for(i = 0U; i < NOXTLS_MLDSA_N; ++i) {
-        p->coeff[i] = 0;
+    for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
+        p->coeff[i] = 0U;
     }
 }
 
@@ -107,7 +107,7 @@ void noxtls_mldsa_poly_add(noxtls_mldsa_poly_t *r,
         return;
     }
 
-    for(i = 0U; i < NOXTLS_MLDSA_N; ++i) {
+    for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
         r->coeff[i] = a->coeff[i] + b->coeff[i];
     }
 }
@@ -129,7 +129,7 @@ void noxtls_mldsa_poly_sub(noxtls_mldsa_poly_t *r,
         return;
     }
 
-    for(i = 0U; i < NOXTLS_MLDSA_N; ++i) {
+    for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
         r->coeff[i] = a->coeff[i] - b->coeff[i];
     }
 }
@@ -147,7 +147,7 @@ void noxtls_mldsa_poly_reduce(noxtls_mldsa_poly_t *p)
         return;
     }
 
-    for(i = 0U; i < NOXTLS_MLDSA_N; ++i) {
+    for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
         p->coeff[i] = noxtls_mldsa_coeff_normalize(p->coeff[i]);
     }
 }

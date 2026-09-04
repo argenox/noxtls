@@ -20,8 +20,8 @@
 *
 *****************************************************************************/
 
-#ifndef _NOXTLS_SLHDSA_H_
-#define _NOXTLS_SLHDSA_H_
+#ifndef NOXTLS_SLHDSA_H_
+#define NOXTLS_SLHDSA_H_
 
 #include <stdint.h>
 
@@ -31,22 +31,21 @@
 extern "C" {
 #endif
 
-typedef enum
-{
-    NOXTLS_SLHDSA_NONE = 0,
-    NOXTLS_SLHDSA_SHA2_128S = 1,
-    NOXTLS_SLHDSA_SHA2_128F = 2,
-    NOXTLS_SLHDSA_SHA2_192S = 3,
-    NOXTLS_SLHDSA_SHA2_192F = 4,
-    NOXTLS_SLHDSA_SHA2_256S = 5,
-    NOXTLS_SLHDSA_SHA2_256F = 6,
-    NOXTLS_SLHDSA_SHAKE_128S = 7,
-    NOXTLS_SLHDSA_SHAKE_128F = 8,
-    NOXTLS_SLHDSA_SHAKE_192S = 9,
-    NOXTLS_SLHDSA_SHAKE_192F = 10,
-    NOXTLS_SLHDSA_SHAKE_256S = 11,
-    NOXTLS_SLHDSA_SHAKE_256F = 12
-} noxtls_slhdsa_param_t;
+
+typedef uint32_t noxtls_slhdsa_param_t;
+#define NOXTLS_SLHDSA_NONE       ((noxtls_slhdsa_param_t)0U)
+#define NOXTLS_SLHDSA_SHA2_128S  ((noxtls_slhdsa_param_t)1U)
+#define NOXTLS_SLHDSA_SHA2_128F  ((noxtls_slhdsa_param_t)2U)
+#define NOXTLS_SLHDSA_SHA2_192S  ((noxtls_slhdsa_param_t)3U)
+#define NOXTLS_SLHDSA_SHA2_192F  ((noxtls_slhdsa_param_t)4U)
+#define NOXTLS_SLHDSA_SHA2_256S  ((noxtls_slhdsa_param_t)5U)
+#define NOXTLS_SLHDSA_SHA2_256F  ((noxtls_slhdsa_param_t)6U)
+#define NOXTLS_SLHDSA_SHAKE_128S ((noxtls_slhdsa_param_t)7U)
+#define NOXTLS_SLHDSA_SHAKE_128F ((noxtls_slhdsa_param_t)8U)
+#define NOXTLS_SLHDSA_SHAKE_192S ((noxtls_slhdsa_param_t)9U)
+#define NOXTLS_SLHDSA_SHAKE_192F ((noxtls_slhdsa_param_t)10U)
+#define NOXTLS_SLHDSA_SHAKE_256S ((noxtls_slhdsa_param_t)11U)
+#define NOXTLS_SLHDSA_SHAKE_256F ((noxtls_slhdsa_param_t)12U)
 
 #define NOXTLS_SLHDSA_MAX_PUBLIC_KEY_LEN 64U
 #define NOXTLS_SLHDSA_MAX_SECRET_KEY_LEN 128U
@@ -63,6 +62,7 @@ typedef struct
     uint8_t small_variant;
 } slhdsa_sizes_t;
 
+#if NOXTLS_FEATURE_SLH_DSA
 uint32_t noxtls_slhdsa_public_key_len(noxtls_slhdsa_param_t param);
 uint32_t noxtls_slhdsa_secret_key_len(noxtls_slhdsa_param_t param);
 uint32_t noxtls_slhdsa_signature_len(noxtls_slhdsa_param_t param);
@@ -86,8 +86,10 @@ noxtls_return_t noxtls_slhdsa_verify(noxtls_slhdsa_param_t param,
                                      const uint8_t *signature,
                                      uint32_t signature_len);
 
+
+#endif /* NOXTLS_FEATURE_SLH_DSA */
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _NOXTLS_SLHDSA_H_ */
+#endif /* NOXTLS_SLHDSA_H_ */

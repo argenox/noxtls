@@ -12,15 +12,9 @@
 noxtls_return_t noxtls_aes_accel_stm32wb_encrypt_block(const uint8_t *key,
                                                         const uint8_t *data,
                                                         uint8_t *output,
-                                                        noxtls_aes_type_t type)
-{
-    return noxtls_stm32_aes_core_encrypt_block(NOXTLS_STM32_ACCEL_WB, key, data, output, type);
-}
+                                                        noxtls_aes_type_t type) { return noxtls_stm32_aes_core_encrypt_block(NOXTLS_STM32_ACCEL_WB, key, data, output, type); }
 
 noxtls_return_t noxtls_aes_accel_stm32wb_decrypt_block(const uint8_t *key,
                                                         const uint8_t *data,
                                                         uint8_t *output,
-                                                        noxtls_aes_type_t type)
-{
-    return noxtls_stm32_aes_core_decrypt_block(NOXTLS_STM32_ACCEL_WB, key, data, output, type);
-}
+                                                        noxtls_aes_type_t type) { return noxtls_stm32_aes_core_decrypt_block(NOXTLS_STM32_ACCEL_WB, key, data, output, type); }

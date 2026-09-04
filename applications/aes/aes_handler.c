@@ -44,12 +44,11 @@ extern "C"
 #include "noxtls-lib/mdigest/noxtls_hash.h"
 #include "noxtls-lib/mdigest/md5/noxtls_md5.h"
 #include "message_digest.h"
-
+#include "noxtls_ct.h"
 
 int aes_128_handler(uint8_t * data, uint32_t len);
 int aes_256_handler(uint8_t * data, uint32_t len);
 int aes_192_handler(uint8_t * data, uint32_t len);
-
 
 uint8_t debug_lvl = 0;
 
@@ -84,13 +83,12 @@ void print_digest_usage()
  * @param[in] argv The arguments
  * @return 0 on success, -1 on failure
  */
-int aes_handler(int argc, char ** argv)
+int aes_handler(int argc, uint8_t ** argv)
 {
     int c;   
     uint32_t data_length = 0;
     uint8_t * data_buffer;
     int argc_skip = 0;
-
 
     input_data_type_t type = INPUT_DATA_TYPE_STRING;
 
@@ -99,7 +97,7 @@ int aes_handler(int argc, char ** argv)
     int i = 0;
     for(i = 0; i < sizeof(aes_handlers) / sizeof(aes_handlers[0]); i++)
     {
-        if(strncasecmp(argv[0], aes_handlers[i].algo, strlen(aes_handlers[i].algo)) == 0)
+        if(strncasecmp(argv[0], aes_handlers[i].algo, noxtls_u8_strlen(aes_handlers[i].algo)) == 0)
         {
             function_handler = aes_handlers[i].handler;
             break;
@@ -143,7 +141,6 @@ int aes_handler(int argc, char ** argv)
         }
     }
 
-
     if(type == INPUT_DATA_TYPE_STRING)
     {
         int j = 0;
@@ -160,7 +157,7 @@ int aes_handler(int argc, char ** argv)
 
         for(j = argc_skip; j <= (argc - 1); j++)
         {
-            int str_len = (int)strlen(argv[j]); /* Space */
+            int str_len = (int)noxtls_u8_strlen(argv[j]); /* Space */
             printf("j=%d  %s\n", j, argv[j]);
 
             memcpy(&data_buffer[total_str_len], argv[j], str_len);
@@ -177,12 +174,12 @@ int aes_handler(int argc, char ** argv)
     }
     else if(type == INPUT_DATA_TYPE_HEX)
     {
-        size_t hex_len = strlen(argv[argc_skip]);
+        size_t hex_len = noxtls_u8_strlen(argv[argc_skip]);
         int parsed_len;
         
         printf("Hex\n");
         printf("Expected hex string: %s\n",argv[argc_skip]);
-        printf("Hex string length: %zu\n", strlen(argv[argc_skip]));
+        printf("Hex string length: %zu\n", noxtls_u8_strlen(argv[argc_skip]));
 
         data_buffer = malloc(hex_len * sizeof(uint8_t));
 
@@ -302,9 +299,6 @@ int aes_256_handler(uint8_t * data, uint32_t len)
     noxtls_print_hash(hash, HASH_MD5_OUT_LEN);
     return 0;
 }
-
-
-
 
 #ifdef __cplusplus
 }

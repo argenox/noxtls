@@ -23,8 +23,8 @@
 /** @addtogroup noxtls_pkc */
 /** @{ */
 
-#ifndef _NOXTLS_ED25519_H_
-#define _NOXTLS_ED25519_H_
+#ifndef NOXTLS_ED25519_H_
+#define NOXTLS_ED25519_H_
 
 #include <stdint.h>
 
@@ -84,7 +84,6 @@ extern "C" {
 /** DRBG output length for private seed in bits (32 bytes). */
 #define NOXTLS_ED25519_DRBG_SEED_BITS       256U
 
-
 /* Extended homogeneous point (X, Y, Z, T) with T = X*Y/Z. All 32-byte BE. */
 typedef struct 
 { 
@@ -103,15 +102,14 @@ typedef struct
     uint8_t initialized;
 } noxtls_ed25519_verify_stream_ctx_t;
 
-
 /**
  * @brief Generate an Ed25519 key pair using the library DRBG.
  * @param private_key Output 32-byte seed (little-endian).
  * @param public_key Output 32-byte public key encoding.
  * @return NOXTLS_RETURN_SUCCESS on success, or an error code on failure.
  */
-noxtls_return_t noxtls_ed25519_generate_key(uint8_t private_key[NOXTLS_ED25519_PRIVATE_KEY_SIZE],
-                                            uint8_t public_key[NOXTLS_ED25519_PUBLIC_KEY_SIZE]);
+noxtls_return_t noxtls_ed25519_generate_key(uint8_t *private_key,
+                                            uint8_t *public_key);
 
 /**
  * @brief Derive the public key from a 32-byte private seed (RFC 8032).
@@ -119,8 +117,8 @@ noxtls_return_t noxtls_ed25519_generate_key(uint8_t private_key[NOXTLS_ED25519_P
  * @param public_key Output 32-byte public key encoding.
  * @return NOXTLS_RETURN_SUCCESS on success, or an error code on failure.
  */
-noxtls_return_t noxtls_ed25519_public_key(const uint8_t private_key[NOXTLS_ED25519_PRIVATE_KEY_SIZE],
-                                          uint8_t public_key[NOXTLS_ED25519_PUBLIC_KEY_SIZE]);
+noxtls_return_t noxtls_ed25519_public_key(const uint8_t *private_key,
+                                          uint8_t *public_key);
 
 /**
  * @brief Sign a noxtls_message with Ed25519 (PureEdDSA, RFC 8032).
@@ -130,10 +128,10 @@ noxtls_return_t noxtls_ed25519_public_key(const uint8_t private_key[NOXTLS_ED255
  * @param signature Output 64-byte signature (R || S).
  * @return NOXTLS_RETURN_SUCCESS on success, or an error code on failure.
  */
-noxtls_return_t noxtls_ed25519_sign(const uint8_t private_key[NOXTLS_ED25519_PRIVATE_KEY_SIZE],
+noxtls_return_t noxtls_ed25519_sign(const uint8_t *private_key,
                                     const uint8_t *noxtls_message,
                                     uint32_t message_len,
-                                    uint8_t signature[NOXTLS_ED25519_SIGNATURE_SIZE]);
+                                    uint8_t *signature);
 
 /**
  * @brief Verify an Ed25519 signature (RFC 8032).
@@ -143,14 +141,14 @@ noxtls_return_t noxtls_ed25519_sign(const uint8_t private_key[NOXTLS_ED25519_PRI
  * @param signature Input 64-byte signature (R || S).
  * @return NOXTLS_RETURN_SUCCESS if valid, NOXTLS_RETURN_FAILED if invalid, or another error code.
  */
-noxtls_return_t noxtls_ed25519_verify(const uint8_t public_key[NOXTLS_ED25519_PUBLIC_KEY_SIZE],
+noxtls_return_t noxtls_ed25519_verify(const uint8_t *public_key,
                                       const uint8_t *noxtls_message,
                                       uint32_t message_len,
-                                      const uint8_t signature[NOXTLS_ED25519_SIGNATURE_SIZE]);
+                                      const uint8_t *signature);
 
 noxtls_return_t noxtls_ed25519_verify_stream_init(noxtls_ed25519_verify_stream_ctx_t *ctx,
-                                                  const uint8_t public_key[NOXTLS_ED25519_PUBLIC_KEY_SIZE],
-                                                  const uint8_t signature[NOXTLS_ED25519_SIGNATURE_SIZE]);
+                                                  const uint8_t *public_key,
+                                                  const uint8_t *signature);
 noxtls_return_t noxtls_ed25519_verify_stream_update(noxtls_ed25519_verify_stream_ctx_t *ctx,
                                                     const uint8_t *message_part,
                                                     uint32_t message_part_len);
@@ -166,12 +164,12 @@ noxtls_return_t noxtls_ed25519_verify_stream_final(noxtls_ed25519_verify_stream_
  * @param signature Input 64-byte signature (R || S).
  * @return NOXTLS_RETURN_SUCCESS if valid, NOXTLS_RETURN_FAILED if invalid, or another error code.
  */
-noxtls_return_t noxtls_ed25519_verify_split(const uint8_t public_key[NOXTLS_ED25519_PUBLIC_KEY_SIZE],
+noxtls_return_t noxtls_ed25519_verify_split(const uint8_t *public_key,
                                             const uint8_t *message_part_a,
                                             uint32_t message_part_a_len,
                                             const uint8_t *message_part_b,
                                             uint32_t message_part_b_len,
-                                            const uint8_t signature[NOXTLS_ED25519_SIGNATURE_SIZE]);
+                                            const uint8_t *signature);
 
 /**
  * @brief Sign with Ed25519ctx (RFC 8032): dom2(0, context) prepended to SHA-512 inputs.
@@ -183,12 +181,12 @@ noxtls_return_t noxtls_ed25519_verify_split(const uint8_t public_key[NOXTLS_ED25
  * @param signature Output 64-byte signature (R || S).
  * @return NOXTLS_RETURN_SUCCESS on success, or an error code on failure.
  */
-noxtls_return_t noxtls_ed25519ctx_sign(const uint8_t private_key[NOXTLS_ED25519_PRIVATE_KEY_SIZE],
+noxtls_return_t noxtls_ed25519ctx_sign(const uint8_t *private_key,
                                        const uint8_t *context,
                                        uint32_t context_len,
                                        const uint8_t *noxtls_message,
                                        uint32_t message_len,
-                                       uint8_t signature[NOXTLS_ED25519_SIGNATURE_SIZE]);
+                                       uint8_t *signature);
 
 /**
  * @brief Verify Ed25519ctx signature (RFC 8032).
@@ -200,12 +198,12 @@ noxtls_return_t noxtls_ed25519ctx_sign(const uint8_t private_key[NOXTLS_ED25519_
  * @param signature Input 64-byte signature (R || S).
  * @return NOXTLS_RETURN_SUCCESS if valid, NOXTLS_RETURN_FAILED if invalid, or another error code.
  */
-noxtls_return_t noxtls_ed25519ctx_verify(const uint8_t public_key[NOXTLS_ED25519_PUBLIC_KEY_SIZE],
+noxtls_return_t noxtls_ed25519ctx_verify(const uint8_t *public_key,
                                          const uint8_t *context,
                                          uint32_t context_len,
                                          const uint8_t *noxtls_message,
                                          uint32_t message_len,
-                                         const uint8_t signature[NOXTLS_ED25519_SIGNATURE_SIZE]);
+                                         const uint8_t *signature);
 
 /**
  * @brief Sign with Ed25519ph (RFC 8032): PH(M) = SHA-512(M); dom2(1, "") prepended to hash inputs.
@@ -215,10 +213,10 @@ noxtls_return_t noxtls_ed25519ctx_verify(const uint8_t public_key[NOXTLS_ED25519
  * @param signature Output 64-byte signature (R || S).
  * @return NOXTLS_RETURN_SUCCESS on success, or an error code on failure.
  */
-noxtls_return_t noxtls_ed25519ph_sign(const uint8_t private_key[NOXTLS_ED25519_PRIVATE_KEY_SIZE],
+noxtls_return_t noxtls_ed25519ph_sign(const uint8_t *private_key,
                                       const uint8_t *noxtls_message,
                                       uint32_t message_len,
-                                      uint8_t signature[NOXTLS_ED25519_SIGNATURE_SIZE]);
+                                      uint8_t *signature);
 
 /**
  * @brief Verify Ed25519ph signature (RFC 8032).
@@ -228,13 +226,13 @@ noxtls_return_t noxtls_ed25519ph_sign(const uint8_t private_key[NOXTLS_ED25519_P
  * @param signature Input 64-byte signature (R || S).
  * @return NOXTLS_RETURN_SUCCESS if valid, NOXTLS_RETURN_FAILED if invalid, or another error code.
  */
-noxtls_return_t noxtls_ed25519ph_verify(const uint8_t public_key[NOXTLS_ED25519_PUBLIC_KEY_SIZE],
+noxtls_return_t noxtls_ed25519ph_verify(const uint8_t *public_key,
                                         const uint8_t *noxtls_message,
                                         uint32_t message_len,
-                                        const uint8_t signature[NOXTLS_ED25519_SIGNATURE_SIZE]);
+                                        const uint8_t *signature);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _NOXTLS_ED25519_H_ */
+#endif /* NOXTLS_ED25519_H_ */

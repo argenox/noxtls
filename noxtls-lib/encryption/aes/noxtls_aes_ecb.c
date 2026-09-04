@@ -43,6 +43,7 @@
  * @param type is the AES variant, 128, 192, 256
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_* on failure
  */
+/* Block-indexed ECB walk; extents follow caller data_len / AES block size. */
 noxtls_return_t noxtls_aes_encrypt_ecb(const uint8_t* key,
                     const uint8_t* data,
                     uint32_t data_len,
@@ -50,14 +51,14 @@ noxtls_return_t noxtls_aes_encrypt_ecb(const uint8_t* key,
                     uint8_t* output,
                     noxtls_aes_type_t type)
 {
-    uint32_t cur_block = 0;
+    uint32_t cur_block = 0U;
     
     (void)iv; /* IV not used in ECB mode */
     
-    for(cur_block = 0; cur_block < data_len; cur_block += NOXTLS_AES_BLOCK_LENGTH)
+    for(cur_block = 0U; cur_block < data_len; cur_block += (uint32_t)NOXTLS_AES_BLOCK_LENGTH)
     {
         /* Electronic Codebook: Direct encryption of each block */
-        noxtls_aes_encrypt_block_internal(key, &data[cur_block], &output[cur_block], type);
+        (void)noxtls_aes_encrypt_block_internal(key, &data[cur_block], &output[cur_block], type);
     }
 
     return NOXTLS_RETURN_SUCCESS;
@@ -84,17 +85,16 @@ noxtls_return_t noxtls_aes_decrypt_ecb(const uint8_t* key,
                     uint8_t* output,
                     noxtls_aes_type_t type)
 {
-    uint32_t cur_block = 0;
+    uint32_t cur_block = 0U;
 
     (void)iv; /* IV not used in ECB mode */
 
-    for(cur_block = 0; cur_block < data_len; cur_block += NOXTLS_AES_BLOCK_LENGTH)
+    for(cur_block = 0U; cur_block < data_len; cur_block += (uint32_t)NOXTLS_AES_BLOCK_LENGTH)
     {
-        noxtls_aes_decrypt_block_internal(key, &data[cur_block], &output[cur_block], type);
+        (void)noxtls_aes_decrypt_block_internal(key, &data[cur_block], &output[cur_block], type);
     }
 
     return NOXTLS_RETURN_SUCCESS;
 }
 
 #endif /* NOXTLS_FEATURE_AES_ECB */
-

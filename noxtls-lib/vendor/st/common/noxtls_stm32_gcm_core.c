@@ -29,7 +29,7 @@
 
 #define NOXTLS_CRYP_CR_ALGODIR            (1u << 2)
 #define NOXTLS_CRYP_CR_AES_GCM            (1u << 19)
-#define NOXTLS_CRYP_CR_KEYSIZE_256        (2u << 8)
+#define NOXTLS_CRYP_CR_KEYSIZE_256        (2u << 8U)
 #define NOXTLS_CRYP_CR_CRYPEN             (1u << 15)
 #define NOXTLS_CRYP_CR_GCM_PHASE_MASK     (3u << 16)
 #define NOXTLS_CRYP_CR_GCM_PHASE_INIT     (0u << 16)
@@ -55,7 +55,7 @@ static uint32_t noxtls_load_be32(const uint8_t *src)
 {
     return ((uint32_t)src[0] << 24) |
            ((uint32_t)src[1] << 16) |
-           ((uint32_t)src[2] << 8) |
+           ((uint32_t)src[2] << 8U) |
            ((uint32_t)src[3]);
 }
 
@@ -63,14 +63,14 @@ static void noxtls_store_be32(uint8_t *dst, uint32_t val)
 {
     dst[0] = (uint8_t)(val >> 24);
     dst[1] = (uint8_t)(val >> 16);
-    dst[2] = (uint8_t)(val >> 8);
+    dst[2] = (uint8_t)(val >> 8U);
     dst[3] = (uint8_t)val;
 }
 
 static int noxtls_wait_sr(uintptr_t base, uint32_t mask, uint32_t value)
 {
     uint32_t i;
-    for(i = 0u; i < NOXTLS_STM32_GCM_POLL_LIMIT; i++) {
+    for(i = 0u; i < NOXTLS_STM32_GCM_POLL_LIMIT; i += 1U) {
         if((NOXTLS_STM32_REG32(base + NOXTLS_CRYP_SR_OFF) & mask) == value) {
             return 1;
         }
@@ -81,7 +81,7 @@ static int noxtls_wait_sr(uintptr_t base, uint32_t mask, uint32_t value)
 static int noxtls_wait_cr(uintptr_t base, uint32_t mask, uint32_t value)
 {
     uint32_t i;
-    for(i = 0u; i < NOXTLS_STM32_GCM_POLL_LIMIT; i++) {
+    for(i = 0u; i < NOXTLS_STM32_GCM_POLL_LIMIT; i += 1U) {
         if((NOXTLS_STM32_REG32(base + NOXTLS_CRYP_CR_OFF) & mask) == value) {
             return 1;
         }
@@ -131,11 +131,11 @@ static noxtls_return_t noxtls_get_cryp_base(noxtls_stm32_accel_family_t family, 
 static noxtls_return_t noxtls_cryp_write_block(uintptr_t base, const uint8_t *block)
 {
     uint32_t i;
-    for(i = 0u; i < 4u; i++) {
+    for(i = 0u; i < 4u; i += 1U) {
         if(noxtls_wait_sr(base, NOXTLS_CRYP_SR_IFNF, NOXTLS_CRYP_SR_IFNF) == 0) {
             return NOXTLS_RETURN_TIMEOUT;
         }
-        NOXTLS_STM32_REG32(base + NOXTLS_CRYP_DIN_OFF) = noxtls_load_be32(block + (i * 4u));
+        NOXTLS_STM32_REG32(base + NOXTLS_CRYP_DIN_OFF) = noxtls_load_be32(&block[(i * 4u)]);
     }
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -146,8 +146,8 @@ static noxtls_return_t noxtls_cryp_read_block(uintptr_t base, uint8_t *block)
     if(noxtls_wait_sr(base, NOXTLS_CRYP_SR_OFNE, NOXTLS_CRYP_SR_OFNE) == 0) {
         return NOXTLS_RETURN_TIMEOUT;
     }
-    for(i = 0u; i < 4u; i++) {
-        noxtls_store_be32(block + (i * 4u), NOXTLS_STM32_REG32(base + NOXTLS_CRYP_DOUT_OFF));
+    for(i = 0u; i < 4u; i += 1U) {
+        noxtls_store_be32(&block[(i * 4u)], NOXTLS_STM32_REG32(base + NOXTLS_CRYP_DOUT_OFF));
     }
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -199,11 +199,11 @@ static noxtls_return_t noxtls_stm32_gcm_process(noxtls_stm32_accel_family_t fami
     NOXTLS_STM32_REG32(base + NOXTLS_CRYP_CR_OFF) = 0u;
     noxtls_set_phase(base, NOXTLS_CRYP_CR_GCM_PHASE_INIT);
 
-    for(i = 0u; i < 8u; i++) {
-        NOXTLS_STM32_REG32(base + NOXTLS_CRYP_K0LR_OFF + (i * 4u)) = noxtls_load_be32(key + (i * 4u));
+    for(i = 0u; i < 8u; i += 1U) {
+        NOXTLS_STM32_REG32(base + NOXTLS_CRYP_K0LR_OFF + (i * 4u)) = noxtls_load_be32(&key[(i * 4u)]);
     }
-    for(i = 0u; i < 3u; i++) {
-        NOXTLS_STM32_REG32(base + NOXTLS_CRYP_IV0LR_OFF + (i * 4u)) = noxtls_load_be32(nonce + (i * 4u));
+    for(i = 0u; i < 3u; i += 1U) {
+        NOXTLS_STM32_REG32(base + NOXTLS_CRYP_IV0LR_OFF + (i * 4u)) = noxtls_load_be32(&nonce[(i * 4u)]);
     }
     NOXTLS_STM32_REG32(base + NOXTLS_CRYP_IV0LR_OFF + 12u) = 2u;
 
@@ -222,7 +222,7 @@ static noxtls_return_t noxtls_stm32_gcm_process(noxtls_stm32_accel_family_t fami
         noxtls_set_phase(base, NOXTLS_CRYP_CR_GCM_PHASE_HEADER);
         NOXTLS_STM32_REG32(base + NOXTLS_CRYP_CR_OFF) |= NOXTLS_CRYP_CR_CRYPEN;
         for(i = 0u; i < aad_len; i += 16u) {
-            rc = noxtls_cryp_write_block(base, aad + i);
+            rc = noxtls_cryp_write_block(base, &aad[i]);
             if(rc != NOXTLS_RETURN_SUCCESS) {
                 NOXTLS_STM32_REG32(base + NOXTLS_CRYP_CR_OFF) = 0u;
                 return rc;
@@ -244,12 +244,12 @@ static noxtls_return_t noxtls_stm32_gcm_process(noxtls_stm32_accel_family_t fami
     NOXTLS_STM32_REG32(base + NOXTLS_CRYP_CR_OFF) |= NOXTLS_CRYP_CR_CRYPEN;
 
     for(i = 0u; i < input_len; i += 16u) {
-        rc = noxtls_cryp_write_block(base, input + i);
+        rc = noxtls_cryp_write_block(base, &input[i]);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             NOXTLS_STM32_REG32(base + NOXTLS_CRYP_CR_OFF) = 0u;
             return rc;
         }
-        rc = noxtls_cryp_read_block(base, output + i);
+        rc = noxtls_cryp_read_block(base, &output[i]);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             NOXTLS_STM32_REG32(base + NOXTLS_CRYP_CR_OFF) = 0u;
             return rc;

@@ -26,25 +26,25 @@
 /** @addtogroup noxtls_mdigest */
 
 #include <stdint.h>
-#include <stdio.h>
 #include <string.h>
 
 #include "string_common.h"
 #include "noxtls_common.h"
 #include "common/noxtls_debug_printf.h"
 #include "noxtls_md4.h"
+#include "noxtls_ct.h"
 
 #if NOXTLS_FEATURE_MD4
 
 /* Module Debug Level */
-static uint8_t debug_lvl = 0;
+static uint8_t md4_debug_lvl = 0U;
 
 /* MD4 Operations */
 #define MD4_F(X, Y, Z)     ((X & Y) | ((~X) & Z))
 #define MD4_G(X, Y, Z)     ((X & Y) | (X & Z) | (Y & Z))
 #define MD4_H(X, Y, Z)     (X ^ Y ^ Z)
 
-#define MD4_ROTL(X, N)      ((X << N) | (X >> (32 - N)))
+#define MD4_ROTL(X, N)      (((X) << ((uint32_t)(N) & 31U)) | ((X) >> ((32U - (uint32_t)(N)) & 31U)))
 
 /* Max bytes per update to avoid misuse (e.g. UINT32_MAX with small buffer). */
 #define MD4_MAX_UPDATE_LEN  0x7FFFFFFFu
@@ -71,7 +71,7 @@ static uint32_t md4_shift[MD4_ROT_SHIFT_TABLE_LEN] =
  */
 void noxtls_md4_set_debug(uint8_t lvl)
 {
-    debug_lvl = lvl;
+    md4_debug_lvl = lvl;
 }
 
 /**
@@ -89,21 +89,21 @@ noxtls_return_t noxtls_md4_init(noxtls_sha_ctx_t * ctx)
     
     ctx->algo = NOXTLS_HASH_MD4;
     
-    memset(ctx->h, 0, sizeof(ctx->h));
+    noxtls_secure_zero((ctx->h), sizeof(ctx->h));
         
     /* MD4 initial hash values */
-    ctx->h[0] = 0x67452301;
-    ctx->h[1] = 0xefcdab89;
-    ctx->h[2] = 0x98badcfe;
-    ctx->h[3] = 0x10325476;
+    ctx->h[0] = 0x67452301U;
+    ctx->h[1] = 0xefcdab89U;
+    ctx->h[2] = 0x98badcfeU;
+    ctx->h[3] = 0x10325476U;
 
-    if(debug_lvl > 0) {
-        noxtls_debug_printf("ctx->h[0] = %x\n", ctx->h[0]);
+    if(md4_debug_lvl > 0U) {
+        (void)noxtls_debug_printf((const uint8_t *)"ctx->h[0] = %x\n", ctx->h[0]);
     }
 
-    memset(&ctx->data, 0, HASH_MD4_BLOCK_SIZE);
-    ctx->data_len = 0;
-    ctx->length = 0;
+    noxtls_secure_zero((&ctx->data), (size_t)(HASH_MD4_BLOCK_SIZE));
+    ctx->data_len = 0U;
+    ctx->length = 0U;
     
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -123,54 +123,55 @@ noxtls_return_t noxtls_md4_init(noxtls_sha_ctx_t * ctx)
 noxtls_return_t noxtls_md4_update(noxtls_sha_ctx_t * ctx, const uint8_t * input, uint32_t len)
 {
     noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
-    uint32_t offset = 0;
+    uint32_t offset = 0U;
+    uint32_t in_left = len;
 
 	if(ctx == NULL) {
 		return NOXTLS_RETURN_NULL;
 	}
-    if(input == NULL || len == 0) {
+    if((input == NULL) || (in_left == 0U)) {
         return NOXTLS_RETURN_SUCCESS;
     }
     /* Reject lengths that would overflow total length or are commonly misused (e.g. UINT32_MAX). */
-    if(len > (uint32_t)MD4_MAX_UPDATE_LEN || (ctx->length + len < ctx->length)) {
+    if(in_left > (uint32_t)MD4_MAX_UPDATE_LEN || ((ctx->length + in_left) < ctx->length)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
     /* Fill existing buffer if present */
-    if(ctx->data_len > 0) {
-        uint32_t to_copy = HASH_MD4_BLOCK_SIZE - ctx->data_len;
-        if(to_copy > len) {
-            to_copy = len;
+    if(ctx->data_len > 0U) {
+        uint32_t to_copy = (uint32_t)(HASH_MD4_BLOCK_SIZE - ctx->data_len);
+        if(to_copy > in_left) {
+            to_copy = in_left;
         }
-        memcpy(ctx->data + ctx->data_len, input, to_copy);
+        (void)memcpy(&ctx->data[ctx->data_len], input, (size_t)to_copy);
         ctx->data_len += (uint8_t)to_copy; /* Due to 64 subtraction, will always be less than 64 */
         offset += to_copy;
-        len -= to_copy;
+        in_left -= to_copy;
         if(ctx->data_len == HASH_MD4_BLOCK_SIZE) {
             rc = noxtls_md4_round(ctx, ctx->data);
             if(rc != NOXTLS_RETURN_SUCCESS) {
                 return rc;
             }
             ctx->length += HASH_MD4_BLOCK_SIZE;
-            ctx->data_len = 0;
+            ctx->data_len = 0U;
         }
     }
 
     /* Process full blocks directly from input */
-    while(len >= HASH_MD4_BLOCK_SIZE) {
-        rc = noxtls_md4_round(ctx, input + offset);
+    while(in_left >= HASH_MD4_BLOCK_SIZE) {
+        rc = noxtls_md4_round(ctx, &input[offset]);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
         ctx->length += HASH_MD4_BLOCK_SIZE;
         offset += HASH_MD4_BLOCK_SIZE;
-        len -= HASH_MD4_BLOCK_SIZE;
+        in_left -= HASH_MD4_BLOCK_SIZE;
     }
 
     /* Store remainder */
-    if(len > 0) {
-        memcpy(ctx->data, input + offset, len);
-        ctx->data_len = (uint8_t)len;
+    if(in_left > 0U) {
+        (void)memcpy(ctx->data, &input[offset], (size_t)in_left);
+        ctx->data_len = (uint8_t)in_left;
     }
 
     return rc;
@@ -188,23 +189,23 @@ noxtls_return_t noxtls_md4_update(noxtls_sha_ctx_t * ctx, const uint8_t * input,
 noxtls_return_t noxtls_md4_round(noxtls_sha_ctx_t * ctx, const uint8_t * input)
 {
 	noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
-	uint32_t t = 0;
+	uint32_t t = 0U;
 	uint32_t w[MD4_WORDS_PER_BLOCK] = {0};
 
     uint32_t A;
     uint32_t B;
     uint32_t C;
-    uint32_t D = 0;
+    uint32_t D = 0U;
     
 	if(ctx == NULL) {
 		return NOXTLS_RETURN_NULL;
 	}    
     
     /* Copy the noxtls_message to the first 16 words (little-endian) */
-    for(t = 0; t < MD4_WORDS_PER_BLOCK; t++) {
-        w[t] = (input[(t * MD4_WORD_BYTES) + 3] << 24) | ((input[(t * MD4_WORD_BYTES) + 2]) << 16) | (input[(t * MD4_WORD_BYTES) + 1] << 8) | input[(t * MD4_WORD_BYTES)];
-        if(debug_lvl > 0) {
-            noxtls_debug_printf("w[%d] %u  0x%08x\n", t, w[t], w[t]);
+    for(t = 0U; t < MD4_WORDS_PER_BLOCK; t += 1U) {
+        w[t] = (input[(t * MD4_WORD_BYTES) +3U] <<24U) | ((input[(t * MD4_WORD_BYTES) +2U]) <<16U) | ((uint16_t)input[(t * MD4_WORD_BYTES) + 1U] << 8U) | (uint16_t)input[(t * MD4_WORD_BYTES)];
+        if(md4_debug_lvl > 0U) {
+            (void)noxtls_debug_printf((const uint8_t *)"w[%d] %u  0x%08x\n", t, w[t], w[t]);
         }
     }
 
@@ -213,69 +214,69 @@ noxtls_return_t noxtls_md4_round(noxtls_sha_ctx_t * ctx, const uint8_t * input)
     C = ctx->h[2];
     D = ctx->h[3];
     
-    if(debug_lvl > 0) {
-        noxtls_debug_printf("A\t\t\tB\t\t\tC\t\t\tD\t\t\tF\n");
-        noxtls_debug_printf("%08x\t%08x\t%08x\t%08x\t\n", A, B, C, D);
+    if(md4_debug_lvl > 0U) {
+        (void)noxtls_debug_printf((const uint8_t *)"A\t\t\tB\t\t\tC\t\t\tD\t\t\tF\n");
+        (void)noxtls_debug_printf((const uint8_t *)"%08x\t%08x\t%08x\t%08x\t\n", A, B, C, D);
     }
     
     /* Round 1: F function */
-    for(t = 0; t < MD4_WORDS_PER_BLOCK; t++)
+    for(t = 0U; t < MD4_WORDS_PER_BLOCK; t += 1U)
     {
-        uint32_t F = MD4_F(B, C, D);
+        uint32_t F = (uint32_t)(MD4_F(B, C, D));
         F = F + A + w[t];
         A = MD4_ROTL(F, md4_shift[t]);
         
         /* Rotate registers */
-        uint32_t temp = D;
+        uint32_t temp = (uint32_t)(D);
         D = C;
         C = B;
         B = A;
         A = temp;
         
-        if(debug_lvl > 0) {
-            noxtls_debug_printf("%u\t%u\t%u\t%u\t\n", A, B, C, D);
+        if(md4_debug_lvl > 0U) {
+            (void)noxtls_debug_printf((const uint8_t *)"%u\t%u\t%u\t%u\t\n", A, B, C, D);
         }
     }
     
     /* Round 2: G function */
     /* Word selection: 0, 4, 8, 12, 1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15 */
     const uint32_t round2_words[MD4_WORDS_PER_BLOCK] = {0, 4, 8, 12, 1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15};
-    for(t = 0; t < MD4_WORDS_PER_BLOCK; t++)
+    for(t = 0U; t < MD4_WORDS_PER_BLOCK; t += 1U)
     {
-        uint32_t G = MD4_G(B, C, D);
+        uint32_t G = (uint32_t)(MD4_G(B, C, D));
         G = G + A + w[round2_words[t]] + MD4_ROUND2_CONST;  /* MD4 round 2 constant */
-        A = MD4_ROTL(G, md4_shift[16 + t]);
+        A = MD4_ROTL(G, md4_shift[16U + t]);
         
         /* Rotate registers */
-        uint32_t temp = D;
+        uint32_t temp = (uint32_t)(D);
         D = C;
         C = B;
         B = A;
         A = temp;
         
-        if(debug_lvl > 0) {
-            noxtls_debug_printf("%u\t%u\t%u\t%u\t\n", A, B, C, D);
+        if(md4_debug_lvl > 0U) {
+            (void)noxtls_debug_printf((const uint8_t *)"%u\t%u\t%u\t%u\t\n", A, B, C, D);
         }
     }
     
     /* Round 3: H function */
     /* Word selection: 0, 8, 4, 12, 2, 10, 6, 14, 1, 9, 5, 13, 3, 11, 7, 15 */
     const uint32_t round3_words[MD4_WORDS_PER_BLOCK] = {0, 8, 4, 12, 2, 10, 6, 14, 1, 9, 5, 13, 3, 11, 7, 15};
-    for(t = 0; t < MD4_WORDS_PER_BLOCK; t++)
+    for(t = 0U; t < MD4_WORDS_PER_BLOCK; t += 1U)
     {
-        uint32_t H = MD4_H(B, C, D);
+        uint32_t H = (uint32_t)(MD4_H(B, C, D));
         H = H + A + w[round3_words[t]] + MD4_ROUND3_CONST;  /* MD4 round 3 constant */
         A = MD4_ROTL(H, md4_shift[MD4_ROT_SHIFT_ROUND3_BASE + t]);
         
         /* Rotate registers */
-        uint32_t temp = D;
+        uint32_t temp = (uint32_t)(D);
         D = C;
         C = B;
         B = A;
         A = temp;
         
-        if(debug_lvl > 0) {
-            noxtls_debug_printf("%u\t%u\t%u\t%u\t\n", A, B, C, D);
+        if(md4_debug_lvl > 0U) {
+            (void)noxtls_debug_printf((const uint8_t *)"%u\t%u\t%u\t%u\t\n", A, B, C, D);
         }
     }
     
@@ -302,82 +303,82 @@ noxtls_return_t noxtls_md4_round(noxtls_sha_ctx_t * ctx, const uint8_t * input)
 noxtls_return_t noxtls_md4_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
 {
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
-    uint32_t len = 0;
+    uint32_t len = 0U;
     uint8_t * data = NULL;
-    uint32_t total_length = 0;
+    uint32_t total_length = 0U;
     int i = 0;
     int space_occupied = 0;
     int space_left = 0;
     uint8_t temp[HASH_MD4_BLOCK_SIZE];
 
     /* Process any pending data */
-    if(ctx->data_len > 0)
+    if(ctx->data_len > 0U)
     {
         len = ctx->data_len;
         data = ctx->data;
-        memset(temp, 0, sizeof(temp));
-        memcpy(temp, ctx->data, len);
+        noxtls_secure_zero((temp), sizeof(temp));
+        (void)memcpy(temp, ctx->data, (size_t)len);
         total_length = ctx->length + ctx->data_len;
     }
     else
     {
-        memset(ctx->data, 0, HASH_MD4_BLOCK_SIZE);
+        noxtls_secure_zero((ctx->data), (size_t)(HASH_MD4_BLOCK_SIZE));
         data = ctx->data;
-        memset(temp, 0, sizeof(temp));
+        noxtls_secure_zero((temp), sizeof(temp));
     }
 
     space_occupied = (len % HASH_MD4_BLOCK_SIZE);
     space_left = HASH_MD4_BLOCK_SIZE - space_occupied;
 
-    if(len == 0) {
+    if(len == 0U) {
         space_occupied = 0;
         space_left = HASH_MD4_BLOCK_SIZE;
     }
 
-    if(space_left >= 1) {
+    if(space_left >= 1U) {
         temp[space_occupied] = MD4_PAD_BYTE;
     }
 
-    if(space_left >= HASH_MD4_LENGTH_LEN + 1) {
-        noxtls_add_padding_length_little(temp, HASH_MD4_BLOCK_SIZE, total_length, HASH_MD4_LENGTH_LEN);
+    if(space_left >= (HASH_MD4_LENGTH_LEN + 1U)) {
+        (void)noxtls_add_padding_length_little(temp, HASH_MD4_BLOCK_SIZE, total_length, HASH_MD4_LENGTH_LEN);
     }
 
-    if(debug_lvl > 0) {
-        noxtls_debug_printf("%d %s \n", __LINE__, __func__);
-        for(i = 0; i < HASH_MD4_BLOCK_SIZE; i++) {
-            noxtls_debug_printf("%02x ", temp[i]);
+    if(md4_debug_lvl > 0U) {
+        (void)noxtls_debug_printf((const uint8_t *)"%d %s \n", __LINE__, __func__);
+        for(i = 0U; i < HASH_MD4_BLOCK_SIZE; i += 1U) {
+            (void)noxtls_debug_printf((const uint8_t *)"%02x ", temp[i]);
         }
-        noxtls_debug_printf("\n");
+        (void)noxtls_debug_printf((const uint8_t *)"\n");
     }
 
     rc = noxtls_md4_round(ctx, temp);
 
-    if(space_left < HASH_MD4_LENGTH_LEN + 1)
+    if(space_left < (HASH_MD4_LENGTH_LEN + 1U))
     {
-        memset(temp, 0, HASH_MD4_BLOCK_SIZE);
+        noxtls_secure_zero((temp), (size_t)(HASH_MD4_BLOCK_SIZE));
         if(space_left == 0) {
             data[0] = MD4_PAD_BYTE;
         }
 
-        noxtls_add_padding_length_little(temp, HASH_MD4_BLOCK_SIZE, total_length, HASH_MD4_LENGTH_LEN);
+        (void)noxtls_add_padding_length_little(temp, HASH_MD4_BLOCK_SIZE, total_length, HASH_MD4_LENGTH_LEN);
 
-        if(debug_lvl > 0) {
-            for(i = 0; i < HASH_MD4_BLOCK_SIZE; i++) {
-                noxtls_debug_printf("%02x", temp[i]);
+        if(md4_debug_lvl > 0U) {
+            for(i = 0U; i < HASH_MD4_BLOCK_SIZE; i += 1U) {
+                (void)noxtls_debug_printf((const uint8_t *)"%02x", temp[i]);
             }
-            noxtls_debug_printf("\n");
-            noxtls_debug_printf("Process additional block since could not fit padding\n");
+            (void)noxtls_debug_printf((const uint8_t *)"\n");
+            (void)noxtls_debug_printf((const uint8_t *)"Process additional block since could not fit padding\n");
         }
 
         rc = noxtls_md4_round(ctx, temp);
     }
 
-    for(i = 0; i < HASH_MD4_STATE_WORDS; i++)
+    for(i = 0U; i < HASH_MD4_STATE_WORDS; i += 1U)
     {
-        hash[(i * 4) + 3] = (uint8_t)((ctx->h[i] & 0xFF000000) >> 24);
-        hash[(i * 4) + 2] = (uint8_t)((ctx->h[i] & 0x00FF0000) >> 16);
-        hash[(i * 4) + 1] = (uint8_t)((ctx->h[i] & 0x0000FF00) >> 8);
-        hash[i * 4] = (uint8_t)(ctx->h[i] & 0x000000FF);
+        hash[(i * 4) +3U] = (uint8_t)((ctx->h[i] &0xFF000000U) >>24U);
+        hash[(i * 4) +2U] = (uint8_t)((ctx->h[i] &0x00FF0000U) >>16U);
+        hash[(i * 4) + 1U] = (uint8_t)((ctx->h[i] &0x0000FF00U) >>8U);
+        hash[i * 4] = (uint8_t)(ctx->h[i] &0x000000FFU);
     }
 
     return rc;
@@ -400,14 +401,14 @@ noxtls_return_t noxtls_md4_verify(const uint8_t * data, uint32_t len, const uint
     uint8_t hash[HASH_MD4_OUT_LEN] = {0};
     noxtls_sha_ctx_t ctx;
     
-    noxtls_md4_init(&ctx);
-    noxtls_md4_update(&ctx, data, len);
-    noxtls_md4_finish(&ctx, hash);
+    (void)noxtls_md4_init(&ctx);
+    (void)noxtls_md4_update(&ctx, data, len);
+    (void)noxtls_md4_finish(&ctx, hash);
     
-    if(debug_lvl > 0) {
-        noxtls_debug_printf("Compare: \n");
-        noxtls_print_data(hash, sizeof(hash));
-        noxtls_print_data(expected, HASH_MD4_OUT_LEN);
+    if(md4_debug_lvl > 0U) {
+        (void)noxtls_debug_printf((const uint8_t *)"Compare: \n");
+        (void)noxtls_print_data(hash, sizeof(hash));
+        (void)noxtls_print_data(expected, HASH_MD4_OUT_LEN);
     }
     if(memcmp(hash, expected, sizeof(hash)) == 0) {
         rc = NOXTLS_RETURN_SUCCESS;

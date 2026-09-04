@@ -4,8 +4,8 @@
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *****************************************************************************/
 
-#ifndef _NOXTLS_HMAC_H_
-#define _NOXTLS_HMAC_H_
+#ifndef NOXTLS_HMAC_H_
+#define NOXTLS_HMAC_H_
 
 #include <stdint.h>
 
@@ -44,4 +44,4 @@ noxtls_return_t hmac_compute(noxtls_hash_algos_t hash_algo, const uint8_t *key, 
 }
 #endif
 
-#endif /* _NOXTLS_HMAC_H_ */
+#endif /* NOXTLS_HMAC_H_ */
