@@ -1,5 +1,23 @@
-set(NOXTLS_ROOT_UT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../ut")
+set(NOXTLS_ROOT_UT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../ut"
+    CACHE PATH "Path to the shared NoxTLS unit-test sources")
+option(NOXTLS_REQUIRE_SHARED_UT_SOURCES
+       "Fail configuration when the shared NoxTLS unit-test sources are absent"
+       OFF)
 
+if(EXISTS "${NOXTLS_ROOT_UT_DIR}/common/noxtls_ct_test.c")
+    set(NOXTLS_SHARED_UT_SOURCES_AVAILABLE ON)
+elseif(NOXTLS_REQUIRE_SHARED_UT_SOURCES)
+    message(FATAL_ERROR
+        "NOXTLS_ROOT_UT_DIR does not contain the shared NoxTLS unit-test sources: "
+        "${NOXTLS_ROOT_UT_DIR}")
+else()
+    set(NOXTLS_SHARED_UT_SOURCES_AVAILABLE OFF)
+    message(STATUS
+        "NoxTLS shared unit-test sources are unavailable; skipping shared tests "
+        "from ${NOXTLS_ROOT_UT_DIR}")
+endif()
+
+if(NOXTLS_SHARED_UT_SOURCES_AVAILABLE)
 add_executable(noxtls_ct_test "${NOXTLS_ROOT_UT_DIR}/common/noxtls_ct_test.c")
 target_link_libraries(noxtls_ct_test PRIVATE noxtls_common)
 
@@ -44,11 +62,26 @@ target_link_libraries(bounded_memory_allocator_test PRIVATE
     noxtls_cert
 )
 add_test(NAME bounded_memory_allocator_test COMMAND bounded_memory_allocator_test)
-
-if(NOT TARGET utnox)
-    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../utnox/utnox" utnox)
 endif()
 
+# Keep this embedded NoxTLS tree on the repository's newest UTNox checkout.
+# The cache variable permits an explicit integrator override.
+if(NOT DEFINED NOXTLS_UTNOX_DIR OR "${NOXTLS_UTNOX_DIR}" STREQUAL "")
+    set(NOXTLS_UTNOX_DIR
+        "${CMAKE_CURRENT_LIST_DIR}/../../../bluenox-stack/utnox/utnox"
+        CACHE PATH "Path to the shared UTNox framework")
+endif()
+
+if(NOT EXISTS "${NOXTLS_UTNOX_DIR}/CMakeLists.txt")
+    message(FATAL_ERROR
+        "NOXTLS_UTNOX_DIR does not contain UTNox: ${NOXTLS_UTNOX_DIR}")
+endif()
+
+if(NOT TARGET utnox)
+    add_subdirectory("${NOXTLS_UTNOX_DIR}" utnox)
+endif()
+
+if(NOXTLS_SHARED_UT_SOURCES_AVAILABLE)
 set(AES_ACCEL_BACKEND_TEST_SOURCE "${NOXTLS_ROOT_UT_DIR}/encryption/aes_accel_backend_test.c")
 add_executable(aes_accel_backend_test "${AES_ACCEL_BACKEND_TEST_SOURCE}")
 if(MSVC)
@@ -66,20 +99,23 @@ target_include_directories(aes_accel_backend_test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../noxtls-lib/encryption/aes
 )
 add_test(NAME aes_accel_backend_test COMMAND aes_accel_backend_test)
+endif()
 
 add_test(
     NAME allocator_policy_check
     COMMAND python "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/check_allocator_policy.py"
 )
 
+if(NOXTLS_SHARED_UT_SOURCES_AVAILABLE)
 add_executable(tls_version_policy_test "${NOXTLS_ROOT_UT_DIR}/tls/tls_version_policy_test.c")
 target_link_libraries(tls_version_policy_test PRIVATE
     noxtls_common
     noxtls_tls
 )
 add_test(NAME tls_version_policy_test COMMAND tls_version_policy_test)
+endif()
 
-if(NOXTLS_CFG_FEATURE_SLH_DSA)
+if(NOXTLS_SHARED_UT_SOURCES_AVAILABLE AND NOXTLS_CFG_FEATURE_SLH_DSA)
     add_executable(slhdsa_sizes_test "${NOXTLS_ROOT_UT_DIR}/pkc/test_slhdsa_sizes.c")
     target_link_libraries(slhdsa_sizes_test PRIVATE noxtls_common noxtls_pkc)
     add_test(NAME slhdsa_sizes_test COMMAND slhdsa_sizes_test)
