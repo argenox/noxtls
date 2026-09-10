@@ -72,7 +72,10 @@ if(NOXTLS_CFG_FEATURE_ECC)
 endif()
 if(NOXTLS_CFG_FEATURE_ECDSA)
     list(APPEND PKC_SOURCES ecdsa/noxtls_ecdsa.c)
-    if(ESP_PLATFORM)
+    if(NOXTLS_NRF52840_CC310_ECC)
+        # The nRF52840 port implements the optional ECDSA hook in the same
+        # CryptoCell translation unit as the P-256/ECDH hooks above.
+    elseif(ESP_PLATFORM)
         set(_noxtls_esp32_ecdsa "${NOXTLS_ESP_IDF_DIR}/target/esp32/noxtls_esp32_ecdsa_accel.c")
         if(EXISTS "${_noxtls_esp32_ecdsa}")
             list(APPEND PKC_SOURCES "${_noxtls_esp32_ecdsa}")

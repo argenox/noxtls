@@ -51,6 +51,16 @@
 #define NOXTLS_ECDSA_SIGN_SELF_VERIFY 0
 #endif
 
+#if NOXTLS_FEATURE_AES_256
+#define NOXTLS_ECDSA_DRBG_TYPE     DRBG_AES256
+#define NOXTLS_ECDSA_DRBG_SEEDLEN  DRBG_SEEDLEN_AES256
+#else
+/* P-256 ECDSA has a 128-bit security level, so the nRF52 AES-128 ECB
+ * backend is sufficient when the size-constrained target excludes AES-256. */
+#define NOXTLS_ECDSA_DRBG_TYPE     DRBG_AES128
+#define NOXTLS_ECDSA_DRBG_SEEDLEN  DRBG_SEEDLEN_AES128
+#endif
+
 
 
 static const uint8_t s_p256_order_be[32] = {
@@ -72,6 +82,12 @@ static const uint32_t s_p256_order_mu_words[9] = {
 };
 
 static noxtls_ecdsa_sign_timing_t s_ecdsa_last_sign_timing;
+
+/* Retained for on-target commissioning diagnostics.  These describe the
+ * last signer invocation without involving the radio/controller path. */
+volatile int32_t noxtls_ecdsa_sign_last_rc = NOXTLS_RETURN_SUCCESS;
+volatile uint32_t noxtls_ecdsa_sign_last_stage = 0U;
+volatile uint8_t noxtls_ecdsa_sign_last_nonce[ECC_MAX_KEY_SIZE];
 
 #ifdef NOXTLS_ECDSA_VERIFY_DEBUG
 
@@ -154,7 +170,7 @@ static noxtls_return_t ecdsa_drbg_generate_bits(uint8_t *out, uint32_t requested
 {
     static drbg_state_t s_ecdsa_drbg_state;
     static int s_ecdsa_drbg_initialized = 0;
-    uint8_t seed[DRBG_SEEDLEN_AES256];
+    uint8_t seed[NOXTLS_ECDSA_DRBG_SEEDLEN];
     noxtls_return_t rc;
 
     if(out == NULL) {
@@ -166,7 +182,7 @@ static noxtls_return_t ecdsa_drbg_generate_bits(uint8_t *out, uint32_t requested
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
-        rc = drbg_instantiate(&s_ecdsa_drbg_state, DRBG_AES256,
+        rc = drbg_instantiate(&s_ecdsa_drbg_state, NOXTLS_ECDSA_DRBG_TYPE,
                               seed, sizeof(seed), NULL, 0, NULL, 0);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
@@ -186,7 +202,7 @@ static noxtls_return_t ecdsa_drbg_generate_bits(uint8_t *out, uint32_t requested
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    rc = drbg_instantiate(&s_ecdsa_drbg_state, DRBG_AES256,
+    rc = drbg_instantiate(&s_ecdsa_drbg_state, NOXTLS_ECDSA_DRBG_TYPE,
                           seed, sizeof(seed), NULL, 0, NULL, 0);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
@@ -446,103 +462,33 @@ static void p256_scalar_mul_words(uint32_t out[16], const uint32_t a[8], const u
  */
 static void p256_scalar_reduce_barrett_words(uint32_t out[8], const uint32_t in[16])
 {
-    uint32_t q1[9];
-    uint32_t q2[18];
-    uint32_t q3[9];
-    uint32_t r1[9];
-    uint32_t r2_full[17];
-    uint32_t r2[9];
-    uint32_t r[9];
+    uint32_t remainder[9];
     uint32_t n9[9];
-    uint32_t i;
+    uint32_t word_index;
 
-    memset(q1, 0, sizeof(q1));
-    memset(q2, 0, sizeof(q2));
-    memset(q3, 0, sizeof(q3));
-    memset(r1, 0, sizeof(r1));
-    memset(r2_full, 0, sizeof(r2_full));
-    memset(r2, 0, sizeof(r2));
-    memset(r, 0, sizeof(r));
+    memset(remainder, 0, sizeof(remainder));
     memset(n9, 0, sizeof(n9));
     memcpy(n9, s_p256_order_words, 8U * sizeof(uint32_t));
 
-    for(i = 0; i < 9U; i++) {
-        q1[i] = in[i + 7U];
-        r1[i] = in[i];
-    }
+    for(word_index = 16U; word_index > 0U; --word_index) {
+        uint32_t bit_index;
+        uint32_t word = in[word_index - 1U];
 
-    for(i = 0; i < 9U; i++) {
-        uint64_t carry = 0U;
-        uint32_t j;
-        for(j = 0; j < 9U; j++) {
-            uint64_t t = (uint64_t)q2[i + j] + ((uint64_t)q1[i] * (uint64_t)s_p256_order_mu_words[j]) + carry;
-            q2[i + j] = (uint32_t)t;
-            carry = t >> 32;
-        }
-        {
-            uint32_t k = i + 9U;
-            while(carry != 0U && k < 18U) {
-                uint64_t t = (uint64_t)q2[k] + carry;
-                q2[k] = (uint32_t)t;
-                carry = t >> 32;
-                k++;
+        for(bit_index = 32U; bit_index > 0U; --bit_index) {
+            uint32_t limb_index;
+            uint32_t carry = (word >> (bit_index - 1U)) & 1U;
+
+            for(limb_index = 0U; limb_index < 9U; ++limb_index) {
+                uint32_t next_carry = remainder[limb_index] >> 31;
+                remainder[limb_index] = (remainder[limb_index] << 1) | carry;
+                carry = next_carry;
+            }
+            if(p256_scalar_cmp_words(remainder, n9, 9U) >= 0) {
+                (void)p256_scalar_sub_words(remainder, remainder, n9, 9U);
             }
         }
     }
-
-    for(i = 0; i < 9U; i++) {
-        q3[i] = q2[i + 9U];
-    }
-
-    for(i = 0; i < 9U; i++) {
-        uint64_t carry = 0U;
-        uint32_t j;
-        for(j = 0; j < 8U; j++) {
-            uint64_t t = (uint64_t)r2_full[i + j] + ((uint64_t)q3[i] * (uint64_t)s_p256_order_words[j]) + carry;
-            r2_full[i + j] = (uint32_t)t;
-            carry = t >> 32;
-        }
-        {
-            uint32_t k = i + 8U;
-            while(carry != 0U && k < 17U) {
-                uint64_t t = (uint64_t)r2_full[k] + carry;
-                r2_full[k] = (uint32_t)t;
-                carry = t >> 32;
-                k++;
-            }
-        }
-    }
-    memcpy(r2, r2_full, 9U * sizeof(uint32_t));
-
-    if(p256_scalar_sub_words(r, r1, r2, 9U) != 0U) {
-        uint64_t carry = 0U;
-        for(i = 0; i < 9U; i++) {
-            uint64_t t = (uint64_t)r[i] + (uint64_t)n9[i] + carry;
-            r[i] = (uint32_t)t;
-            carry = t >> 32;
-        }
-    }
-
-    while(r[8] != 0U || p256_scalar_cmp_words(r, s_p256_order_words, 8U) >= 0) {
-        if(r[8] != 0U) {
-            uint64_t borrow = 0U;
-            for(i = 0; i < 8U; i++) {
-                uint64_t bi = (uint64_t)s_p256_order_words[i] + borrow;
-                if((uint64_t)r[i] < bi) {
-                    r[i] = (uint32_t)((uint64_t)r[i] + (1ULL << 32) - bi);
-                    borrow = 1U;
-                } else {
-                    r[i] = (uint32_t)((uint64_t)r[i] - bi);
-                    borrow = 0U;
-                }
-            }
-            r[8] = (uint32_t)((uint64_t)r[8] - borrow);
-        } else {
-            (void)p256_scalar_sub_words(r, r, s_p256_order_words, 8U);
-        }
-    }
-
-    memcpy(out, r, 8U * sizeof(uint32_t));
+    memcpy(out, remainder, 8U * sizeof(uint32_t));
 }
 
 /**
@@ -575,19 +521,24 @@ static void p256_scalar_add_mod(uint8_t out[32], const uint8_t a[32], const uint
 {
     uint32_t aw[8];
     uint32_t bw[8];
-    uint32_t sum[8];
+    uint32_t sum[9];
+    uint32_t n9[9];
     uint64_t carry = 0U;
     uint32_t i;
 
     p256_scalar_words_from_be(aw, a);
     p256_scalar_words_from_be(bw, b);
+    memset(sum, 0, sizeof(sum));
+    memset(n9, 0, sizeof(n9));
+    memcpy(n9, s_p256_order_words, sizeof(aw));
     for(i = 0; i < 8U; i++) {
         uint64_t t = (uint64_t)aw[i] + (uint64_t)bw[i] + carry;
         sum[i] = (uint32_t)t;
         carry = t >> 32;
     }
-    if(carry != 0U || p256_scalar_cmp_words(sum, s_p256_order_words, 8U) >= 0) {
-        (void)p256_scalar_sub_words(sum, sum, s_p256_order_words, 8U);
+    sum[8] = (uint32_t)carry;
+    if(p256_scalar_cmp_words(sum, n9, 9U) >= 0) {
+        (void)p256_scalar_sub_words(sum, sum, n9, 9U);
     }
     p256_scalar_words_to_be(out, sum);
 }
@@ -1133,6 +1084,9 @@ noxtls_return_t noxtls_ecdsa_sign(ecc_key_t *key, const uint8_t *noxtls_message,
     noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
     uint64_t sign_t0;
     uint64_t step_t0;
+
+    noxtls_ecdsa_sign_last_rc = NOXTLS_RETURN_SUCCESS;
+    noxtls_ecdsa_sign_last_stage = 1U;
     
     if(key == NULL || noxtls_message == NULL || signature == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -1154,6 +1108,7 @@ noxtls_return_t noxtls_ecdsa_sign(ecc_key_t *key, const uint8_t *noxtls_message,
     rc = ecdsa_hash_message(hash_fast, &hash_fast_len, noxtls_message, message_len, hash_algo);
     s_ecdsa_last_sign_timing.hash_prepare_us = ecdsa_profile_elapsed_us(step_t0);
     if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_ecdsa_sign_last_rc = rc;
         return rc;
     }
     if(hash_fast_len >= size) {
@@ -1172,6 +1127,7 @@ noxtls_return_t noxtls_ecdsa_sign(ecc_key_t *key, const uint8_t *noxtls_message,
     rc = noxtls_ecdsa_sign_accel_port(key, h_fast, size, signature);
     s_ecdsa_last_sign_timing.accel_port_us = ecdsa_profile_elapsed_us(step_t0);
     if(rc == NOXTLS_RETURN_SUCCESS) {
+        noxtls_ecdsa_sign_last_stage = 9U;
         s_ecdsa_last_sign_timing.total_us = ecdsa_profile_elapsed_us(sign_t0);
         return NOXTLS_RETURN_SUCCESS;
     }
@@ -1183,6 +1139,8 @@ noxtls_return_t noxtls_ecdsa_sign(ecc_key_t *key, const uint8_t *noxtls_message,
         scratch = (uint8_t*)noxtls_calloc(scratch_len, 1);
         if(!scratch) {
             rc = NOXTLS_RETURN_FAILED;
+            noxtls_ecdsa_sign_last_stage = 2U;
+            noxtls_ecdsa_sign_last_rc = rc;
             goto cleanup;
         }
         p = scratch;
@@ -1200,6 +1158,8 @@ noxtls_return_t noxtls_ecdsa_sign(ecc_key_t *key, const uint8_t *noxtls_message,
 
     if(!hash || !k || !k_inv || !h || !r_times_d || !sum_tmp || !h_plus_rd || !s_product || !random_bytes) {
         rc = NOXTLS_RETURN_FAILED;
+        noxtls_ecdsa_sign_last_stage = 2U;
+        noxtls_ecdsa_sign_last_rc = rc;
         goto cleanup;
     }
 
@@ -1217,6 +1177,8 @@ noxtls_return_t noxtls_ecdsa_sign(ecc_key_t *key, const uint8_t *noxtls_message,
             step_t0 = ecdsa_profile_now_us();
             rc = ecdsa_drbg_generate_bits(random_bytes, bits);
             if(rc != NOXTLS_RETURN_SUCCESS) {
+                noxtls_ecdsa_sign_last_stage = 3U;
+                noxtls_ecdsa_sign_last_rc = rc;
                 goto cleanup;
             }
 
@@ -1230,12 +1192,15 @@ noxtls_return_t noxtls_ecdsa_sign(ecc_key_t *key, const uint8_t *noxtls_message,
 
             /* Ensure k is not zero */
         } while(noxtls_bn_is_zero(k, size));
+        memcpy((void *)noxtls_ecdsa_sign_last_nonce, k, size);
 
         /* Step 3: Compute (x, y) = k * G */
         step_t0 = ecdsa_profile_now_us();
         rc = noxtls_ecc_point_multiply(&kG, k, &key->curve->G, key->curve);
         s_ecdsa_last_sign_timing.base_point_mul_us += ecdsa_profile_elapsed_us(step_t0);
         if(rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_ecdsa_sign_last_stage = 4U;
+            noxtls_ecdsa_sign_last_rc = rc;
             goto cleanup;
         }
             
@@ -1259,6 +1224,8 @@ noxtls_return_t noxtls_ecdsa_sign(ecc_key_t *key, const uint8_t *noxtls_message,
         rc = ecdsa_mod_inv_prime(k_inv, k, key->curve->n, size);
         s_ecdsa_last_sign_timing.nonce_inv_us += ecdsa_profile_elapsed_us(step_t0);
         if(rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_ecdsa_sign_last_stage = 5U;
+            noxtls_ecdsa_sign_last_rc = rc;
             continue;
         }
 
@@ -1316,6 +1283,7 @@ noxtls_return_t noxtls_ecdsa_sign(ecc_key_t *key, const uint8_t *noxtls_message,
 
         /* Success! */
         rc = NOXTLS_RETURN_SUCCESS;
+        noxtls_ecdsa_sign_last_stage = 9U;
         goto cleanup;
     }
 
@@ -1326,6 +1294,7 @@ noxtls_return_t noxtls_ecdsa_sign(ecc_key_t *key, const uint8_t *noxtls_message,
 
 cleanup:
     if(scratch) { noxtls_free(scratch); }
+    noxtls_ecdsa_sign_last_rc = rc;
     s_ecdsa_last_sign_timing.total_us = ecdsa_profile_elapsed_us(sign_t0);
     
     return rc;
