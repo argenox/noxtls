@@ -70,33 +70,51 @@
 
 /**
  * Define `NOXTLS_ED25519_SMALL_BASE` to use a compact 16-entry extended base
- * table (~2.5 KiB RAM) instead of the ref10-style fixed-base flash tables.
- * Default (undefined): full SUPERCOP/ref10 Bi[32][8] precomp in .rodata (~30 KiB flash).
+ * table (~2.5 KiB RAM) instead of the Hamburg signed multi-comb fixed-base tables.
+ * Default (undefined): signed multi-comb (Mike Hamburg ePrint 2012/309).
  */
 /* #define NOXTLS_ED25519_SMALL_BASE */
 
 /**
  * Define `NOXTLS_ED25519_DUMP_BASE` when building a host dump tool that fills
- * mutable BSS tables and prints `noxtls_ed25519_base_data.inc` to stdout.
+ * mutable BSS tables and prints table `.inc` files to stdout.
  */
 /* #define NOXTLS_ED25519_DUMP_BASE */
 
-/** Signed radix-16 digit count for fixed-base (ref10). */
+/**
+ * Hamburg signed multi-comb parameters for fixed-base (sign/keygen).
+ * (4,6,11) → RANGE=264, 44 mixed adds + 10 doubles (vs ref10 64+4).
+ * Table: 4 * 32 Duif points ≈ 15 KiB BSS (flash dump later).
+ */
+#ifndef NOXTLS_ED25519_COMB_BLOCKS
+#define NOXTLS_ED25519_COMB_BLOCKS 4U
+#endif
+#ifndef NOXTLS_ED25519_COMB_TEETH
+#define NOXTLS_ED25519_COMB_TEETH 6U
+#endif
+#ifndef NOXTLS_ED25519_COMB_SPACING
+#define NOXTLS_ED25519_COMB_SPACING 11U
+#endif
+
+#define NOXTLS_ED25519_COMB_RANGE \
+    (NOXTLS_ED25519_COMB_BLOCKS * NOXTLS_ED25519_COMB_TEETH * \
+     NOXTLS_ED25519_COMB_SPACING)
+#define NOXTLS_ED25519_COMB_POINTS (1U << (NOXTLS_ED25519_COMB_TEETH - 1U))
+#define NOXTLS_ED25519_COMB_MASK (NOXTLS_ED25519_COMB_POINTS - 1U)
+
+/** Signed radix-16 digit count for legacy ref10 dump tooling. */
 #define NOXTLS_ED25519_BASE_DIGIT_COUNT 64U
 
-/** Number of 16^i position tables for fixed-base (ref10). */
+/** Number of 16^i position tables for legacy ref10 dump tooling. */
 #define NOXTLS_ED25519_BASE_POS_COUNT 32U
 
 /**
- * Number of precomp entries per 256^i position for fixed-base (ref10):
- * stores 1B,2B,...,8B times 256^i (select by absolute digit 1..8).
- * Also used as odd-multiple count for sliding-window verify tables.
+ * Odd-multiple count for sliding-window verify tables (A,3A,...,15A).
+ * Also used by legacy ref10 Bi dump tooling.
  */
 #define NOXTLS_ED25519_BASE_ODD_COUNT 8U
 
-/**
- * Doublings between successive Bi positions (256 = 2^8).
- */
+/** Doublings between successive Bi positions (legacy dump tooling). */
 #define NOXTLS_ED25519_BASE_POS_DBL_COUNT 8U
 
 /**
@@ -106,13 +124,12 @@
 #define NOXTLS_ED25519_PRECOMP_BYTES \
     (3U * NOXTLS_ED25519_FE_LIMBS * (uint32_t)sizeof(int32_t))
 
-/**
- * Full ref10 fixed-base table size: 32 positions * 8 multiples * precomp.
- * Bi[i][j] = (j+1)*256^i*B. Approximately 30 KiB in **flash /.rodata** by default
- * (`noxtls_ed25519_base_data.inc`). Not placed in RAM/BSS.
- * Define NOXTLS_ED25519_SMALL_BASE for a ~2.5 KiB RAM windowed table instead.
- * Define NOXTLS_ED25519_DUMP_BASE to regenerate the .inc from mutable BSS tables.
- */
+/** Comb fixed-base table size in bytes. */
+#define NOXTLS_ED25519_COMB_TABLE_BYTES \
+    (NOXTLS_ED25519_COMB_BLOCKS * NOXTLS_ED25519_COMB_POINTS * \
+     NOXTLS_ED25519_PRECOMP_BYTES)
+
+/** Legacy ref10 Bi table size (dump tooling / optional fallback). */
 #define NOXTLS_ED25519_BASE_TABLE_BYTES \
     (NOXTLS_ED25519_BASE_POS_COUNT * NOXTLS_ED25519_BASE_ODD_COUNT * \
      NOXTLS_ED25519_PRECOMP_BYTES)

@@ -56,14 +56,12 @@ static const uint8_t ed25519_sqrt_minus1[NOXTLS_ED25519_FE25519_BYTES] = {
 };
 
 /* Base point B encoding (32 bytes LE) per RFC 8032. */
-#if defined(NOXTLS_ED25519_DUMP_BASE) || defined(NOXTLS_ED25519_SMALL_BASE)
 static const uint8_t ed25519_B_encoded[NOXTLS_ED25519_FE25519_BYTES] = {
     0x58, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
     0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
     0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
     0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66
 };
-#endif
 
 /** Completed (p1p1) intermediate: X:Y:Z:T before conversion to extended. */
 typedef struct
@@ -114,22 +112,26 @@ static ge25519_precomp_t g_base_bi[NOXTLS_ED25519_BASE_POS_COUNT][NOXTLS_ED25519
 static int g_base_bi_ready;
 static ge25519_precomp_t g_base_odd[NOXTLS_ED25519_BASE_ODD_COUNT];
 static int g_base_odd_ready;
+static ge25519_precomp_t g_base_comb[NOXTLS_ED25519_COMB_BLOCKS][NOXTLS_ED25519_COMB_POINTS];
+static int g_base_comb_ready;
 #elif defined(NOXTLS_ED25519_SMALL_BASE)
 static ge25519_n_t g_base_table_small[NOXTLS_ED25519_SCALAR_TABLE_ENTRIES];
 static int g_base_table_small_ready;
 static ge25519_precomp_t g_base_odd[NOXTLS_ED25519_BASE_ODD_COUNT];
 static int g_base_odd_ready;
 #else
-/* Flash-resident ref10 Bi[32][8] + odd-B Duif tables (~30 KiB .rodata). */
+/* Verify odd-B table in flash; fixed-base uses Hamburg signed multi-comb. */
 #if defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmissing-braces"
 #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
 #endif
-#include "noxtls_ed25519_base_data.inc"
+#include "noxtls_ed25519_base_odd.inc"
 #if defined(__GNUC__)
 #pragma GCC diagnostic pop
 #endif
+static ge25519_precomp_t g_base_comb[NOXTLS_ED25519_COMB_BLOCKS][NOXTLS_ED25519_COMB_POINTS];
+static int g_base_comb_ready;
 #endif
 
 /**
@@ -250,7 +252,7 @@ static void ge25519_precomp_0(ge25519_precomp_t *t)
  * @param[out] t Precomp (y+x, y-x, 2dxy).
  * @param[in] p Extended point with Z preferably 1 (affine).
  */
-#if defined(NOXTLS_ED25519_DUMP_BASE) || defined(NOXTLS_ED25519_SMALL_BASE)
+#if !defined(NOXTLS_ED25519_SMALL_BASE) || defined(NOXTLS_ED25519_DUMP_BASE)
 static void ge25519_n_to_precomp(ge25519_precomp_t *t, const ge25519_n_t *p)
 {
     fe25519_native_t x;
@@ -642,6 +644,7 @@ static void ge25519_n_scalarmult_windowed(ge25519_n_t *r,
  * @param[out] e 64 signed digits.
  * @param[in] a_le Little-endian scalar.
  */
+#if defined(NOXTLS_ED25519_DUMP_BASE)
 static void ge25519_to_signed_radix16(int8_t e[NOXTLS_ED25519_BASE_DIGIT_COUNT],
                                       const uint8_t a_le[NOXTLS_ED25519_FE25519_BYTES])
 {
@@ -692,6 +695,7 @@ static void ge25519_base_select(ge25519_precomp_t *t,
     fe25519_native_neg(&minust.xy2d, &t->xy2d);
     ge25519_precomp_cmov(t, &minust, (unsigned int)bnegative);
 }
+#endif /* NOXTLS_ED25519_DUMP_BASE */
 
 /**
  * @brief Affine-normalize extended point (Z := 1) for precomp table build.
@@ -699,7 +703,7 @@ static void ge25519_base_select(ge25519_precomp_t *t,
  *
  * @param[in,out] p Point to project to Z=1.
  */
-#if defined(NOXTLS_ED25519_DUMP_BASE) || defined(NOXTLS_ED25519_SMALL_BASE)
+#if 1 /* always available for table builders */
 static void ge25519_n_to_affine(ge25519_n_t *p)
 {
     fe25519_native_t zinv;
@@ -716,7 +720,7 @@ static void ge25519_n_to_affine(ge25519_n_t *p)
  * @internal
  *
  * Only used when tables are mutable (DUMP_BASE or SMALL_BASE). Production
- * builds include flash-resident `g_base_odd` from `noxtls_ed25519_base_data.inc`.
+ * builds include flash-resident `g_base_odd` from `noxtls_ed25519_base_odd.inc`.
  *
  * @return Success or failure.
  */
@@ -803,56 +807,281 @@ static noxtls_return_t ge25519_base_bi_init(void)
 #endif /* NOXTLS_ED25519_DUMP_BASE */
 
 #if !defined(NOXTLS_ED25519_SMALL_BASE)
+/** Ed25519 group order L as little-endian 32-bit limbs (for signed-digit recode). */
+static const uint32_t g_ed25519_L_le[8] = {
+    0x5CF5D3EDu, 0x5812631Au, 0xA2F79CD6u, 0x14DEF9DEu,
+    0x00000000u, 0x00000000u, 0x00000000u, 0x10000000u
+};
+
 /**
- * @brief Fixed-base R = s*B using ref10 signed radix-16 + Bi tables.
+ * @brief Read bit @p pos from a little-endian limb array.
+ * @internal
+ */
+static unsigned int ge25519_limb_bit(const uint32_t *n, unsigned int pos)
+{
+    return (n[pos >> 5] >> (pos & 31U)) & 1U;
+}
+
+/**
+ * @brief Recode scalar to signed binary digits of length COMB_RANGE.
  * @internal
  *
- * Complexity: 32 mixed adds (odd digits) + 4 doubles + 32 mixed adds (even).
- * Production uses flash `g_base_bi`; DUMP_BASE fills BSS then uses the same path.
+ * @param[out] n Nine LE limbs (supports RANGE up to 288).
+ * @param[in] s_le Little-endian 32-byte scalar.
+ */
+static void ge25519_to_signed_digits_comb(uint32_t n[9],
+                                          const uint8_t s_le[NOXTLS_ED25519_FE25519_BYTES])
+{
+    uint32_t i;
+    uint32_t cond;
+    uint32_t mask;
+    uint64_t carry;
+    uint32_t c;
+    uint32_t next;
+
+    for(i = 0U; i < 8U; i++) {
+        n[i] = (uint32_t)s_le[4U * i] |
+               ((uint32_t)s_le[4U * i + 1U] << 8) |
+               ((uint32_t)s_le[4U * i + 2U] << 16) |
+               ((uint32_t)s_le[4U * i + 3U] << 24);
+    }
+    n[8] = 0U;
+
+    cond = (~n[0]) & 1U;
+    mask = 0U - cond;
+    carry = 0U;
+    for(i = 0U; i < 8U; i++) {
+        carry += (uint64_t)n[i] + (uint64_t)(g_ed25519_L_le[i] & mask);
+        n[i] = (uint32_t)carry;
+        carry >>= 32;
+    }
+    n[8] = (uint32_t)carry;
+
+#if NOXTLS_ED25519_COMB_RANGE > 256U
+    n[8] += 1U << (NOXTLS_ED25519_COMB_RANGE - 256U);
+    c = 0U;
+#else
+    c = 1U;
+#endif
+
+    /* Arithmetic right-shift across limbs from high index to low. */
+    i = 9U;
+    while(i > 0U) {
+        i--;
+        next = n[i];
+        n[i] = (c << 31) | (next >> 1);
+        c = next;
+    }
+}
+
+/**
+ * @brief Bit-permute for 32-bit comb packing (gather teeth within a limb).
+ * @internal
+ */
+#if (NOXTLS_ED25519_COMB_TEETH * NOXTLS_ED25519_COMB_SPACING) == 32U
+static uint32_t ge25519_shuffle2(uint32_t x)
+{
+    uint32_t t;
+    t = ((x >> 7) ^ x) & 0x00AA00AAu;
+    x = (x ^ t) ^ (t << 7);
+    t = ((x >> 14) ^ x) & 0x0000CCCCu;
+    x = (x ^ t) ^ (t << 14);
+    t = ((x >> 4) ^ x) & 0x00F000F0u;
+    x = (x ^ t) ^ (t << 4);
+    t = ((x >> 8) ^ x) & 0x0000FF00u;
+    x = (x ^ t) ^ (t << 8);
+    return x;
+}
+
+/**
+ * @brief Group signed digits into comb teeth within each 32-bit block limb.
+ * @internal
+ */
+static void ge25519_group_comb_bits(uint32_t n[8])
+{
+    uint32_t i;
+    for(i = 0U; i < 8U; i++) {
+        n[i] = ge25519_shuffle2(n[i]);
+    }
+}
+#endif /* TEETH*SPACING == 32 */
+
+/**
+ * @brief Constant-time select comb table entry by absolute index.
+ * @internal
+ */
+static void ge25519_comb_select(ge25519_precomp_t *t,
+                                const ge25519_precomp_t table[NOXTLS_ED25519_COMB_POINTS],
+                                unsigned int abs_index)
+{
+    uint32_t j;
+
+    ge25519_precomp_0(t);
+    for(j = 0U; j < NOXTLS_ED25519_COMB_POINTS; j++) {
+        ge25519_precomp_cmov(t, &table[j],
+                             ge25519_ct_equal_u8((uint8_t)abs_index, (uint8_t)j));
+    }
+}
+
+/**
+ * @brief Build Hamburg signed multi-comb tables for base point B.
+ * @internal
+ *
+ * Builds Duif precomp entries for each comb block from tooth powers of B
+ * (Mike Hamburg, ePrint 2012/309).
+ *
+ * @return Success or failure.
+ */
+static noxtls_return_t ge25519_comb_init(void)
+{
+    ge25519_pt_t B_pt;
+    ge25519_n_t p;
+    ge25519_n_t tooth_powers[NOXTLS_ED25519_COMB_TEETH];
+    ge25519_n_t points[NOXTLS_ED25519_COMB_POINTS];
+    ge25519_n_t sum;
+    ge25519_n_t u;
+    uint32_t block;
+    uint32_t tooth;
+    uint32_t spacing;
+    uint32_t size;
+    uint32_t j;
+    uint32_t idx;
+
+    if(g_base_comb_ready != 0) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
+
+    if(ge25519_decode(&B_pt, ed25519_B_encoded) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    ge25519_n_from_pt(&p, &B_pt);
+
+    for(block = 0U; block < NOXTLS_ED25519_COMB_BLOCKS; block++) {
+        for(tooth = 0U; tooth < NOXTLS_ED25519_COMB_TEETH; tooth++) {
+            if(tooth == 0U) {
+                sum = p;
+            } else {
+                u = p;
+                ge25519_n_add(&sum, &sum, &u);
+            }
+
+            ge25519_n_dbl(&p, &p);
+            tooth_powers[tooth] = p;
+
+            if((block + tooth) !=
+               (NOXTLS_ED25519_COMB_BLOCKS + NOXTLS_ED25519_COMB_TEETH - 2U)) {
+                for(spacing = 1U; spacing < NOXTLS_ED25519_COMB_SPACING; spacing++) {
+                    ge25519_n_dbl(&p, &p);
+                }
+            }
+        }
+
+        ge25519_n_neg(&sum, &sum);
+        points[0] = sum;
+
+        idx = 1U;
+        for(tooth = 0U; tooth < (NOXTLS_ED25519_COMB_TEETH - 1U); tooth++) {
+            size = 1U << tooth;
+            for(j = 0U; j < size; j++, idx++) {
+                ge25519_n_add(&points[idx], &points[idx - size], &tooth_powers[tooth]);
+            }
+        }
+
+        for(j = 0U; j < NOXTLS_ED25519_COMB_POINTS; j++) {
+            ge25519_n_to_affine(&points[j]);
+            ge25519_n_to_precomp(&g_base_comb[block][j], &points[j]);
+        }
+    }
+
+    g_base_comb_ready = 1;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
+ * @brief Fixed-base R = s*B using Hamburg signed multi-comb (ePrint 2012/309).
+ * @internal
+ *
+ * Supports (8,4,8) with per-limb tooth shuffle, or general (B,T,S) via bit extract.
+ * Sign is applied to the Duif precomp (swap y±x, negate 2dxy).
  *
  * @param[out] r Extended result.
  * @param[in] s_le Little-endian scalar.
  */
-static void ge25519_n_scalarmult_base_ref10(ge25519_n_t *r,
-                                            const uint8_t s_le[NOXTLS_ED25519_FE25519_BYTES])
+static void ge25519_n_scalarmult_base_comb(ge25519_n_t *r,
+                                           const uint8_t s_le[NOXTLS_ED25519_FE25519_BYTES])
 {
-    int8_t e[NOXTLS_ED25519_BASE_DIGIT_COUNT];
+    uint32_t n[9];
     ge25519_precomp_t t;
+    ge25519_precomp_t tneg;
     ge25519_p1p1_t p1;
-    ge25519_p2_t s;
-    int32_t i;
+    int32_t spacing;
+    uint32_t block;
+    uint32_t tooth;
+    unsigned int teeth;
+    unsigned int sign;
+    unsigned int abs_index;
+    unsigned int pos;
+#if (NOXTLS_ED25519_COMB_TEETH * NOXTLS_ED25519_COMB_SPACING) == 32U
+    int32_t c_off;
+    uint32_t w;
+#endif
 
-    ge25519_to_signed_radix16(e, s_le);
-
-    /* First odd digit into identity (ref10-style), then remaining odds. */
+    ge25519_to_signed_digits_comb(n, s_le);
+#if (NOXTLS_ED25519_COMB_TEETH * NOXTLS_ED25519_COMB_SPACING) == 32U
+    ge25519_group_comb_bits(n);
+#endif
     ge25519_n_zero(r);
-    ge25519_base_select(&t, g_base_bi[0], e[1]);
-    ge25519_madd(&p1, r, &t);
-    ge25519_p1p1_to_n(r, &p1);
-    for(i = 3; i < (int32_t)NOXTLS_ED25519_BASE_DIGIT_COUNT; i += 2) {
-        ge25519_base_select(&t, g_base_bi[(uint32_t)i / 2U], e[i]);
-        ge25519_madd(&p1, r, &t);
-        ge25519_p1p1_to_n(r, &p1);
-    }
 
-    /* Four doubles via p2 accumulator (ref10: p3_to_p2 + 4x p2_dbl). */
-    fe25519_native_copy(&s.X, &r->X);
-    fe25519_native_copy(&s.Y, &r->Y);
-    fe25519_native_copy(&s.Z, &r->Z);
-    ge25519_p2_dbl_p1p1(&p1, &s);
-    ge25519_p1p1_to_p2(&s, &p1);
-    ge25519_p2_dbl_p1p1(&p1, &s);
-    ge25519_p1p1_to_p2(&s, &p1);
-    ge25519_p2_dbl_p1p1(&p1, &s);
-    ge25519_p1p1_to_p2(&s, &p1);
-    ge25519_p2_dbl_p1p1(&p1, &s);
-    ge25519_p1p1_to_n(r, &p1);
+#if (NOXTLS_ED25519_COMB_TEETH * NOXTLS_ED25519_COMB_SPACING) == 32U
+    c_off = (int32_t)((NOXTLS_ED25519_COMB_SPACING - 1U) * NOXTLS_ED25519_COMB_TEETH);
+    for(;;) {
+        for(block = 0U; block < NOXTLS_ED25519_COMB_BLOCKS; block++) {
+            w = n[block] >> (uint32_t)c_off;
+            sign = (w >> (NOXTLS_ED25519_COMB_TEETH - 1U)) & 1U;
+            abs_index = (w ^ (0U - sign)) & NOXTLS_ED25519_COMB_MASK;
 
-    for(i = 0; i < (int32_t)NOXTLS_ED25519_BASE_DIGIT_COUNT; i += 2) {
-        ge25519_base_select(&t, g_base_bi[(uint32_t)i / 2U], e[i]);
-        ge25519_madd(&p1, r, &t);
-        ge25519_p1p1_to_n(r, &p1);
+            ge25519_comb_select(&t, g_base_comb[block], abs_index);
+            fe25519_native_copy(&tneg.yplusx, &t.yminusx);
+            fe25519_native_copy(&tneg.yminusx, &t.yplusx);
+            fe25519_native_neg(&tneg.xy2d, &t.xy2d);
+            ge25519_precomp_cmov(&t, &tneg, sign);
+
+            ge25519_madd(&p1, r, &t);
+            ge25519_p1p1_to_n(r, &p1);
+        }
+
+        c_off -= (int32_t)NOXTLS_ED25519_COMB_TEETH;
+        if(c_off < 0) {
+            break;
+        }
+        ge25519_n_dbl(r, r);
     }
+#else
+    for(spacing = (int32_t)NOXTLS_ED25519_COMB_SPACING - 1; spacing >= 0; spacing--) {
+        for(block = 0U; block < NOXTLS_ED25519_COMB_BLOCKS; block++) {
+            teeth = 0U;
+            for(tooth = 0U; tooth < NOXTLS_ED25519_COMB_TEETH; tooth++) {
+                pos = (block * NOXTLS_ED25519_COMB_TEETH * NOXTLS_ED25519_COMB_SPACING) +
+                      (tooth * NOXTLS_ED25519_COMB_SPACING) + (uint32_t)spacing;
+                teeth |= ge25519_limb_bit(n, pos) << tooth;
+            }
+            sign = (teeth >> (NOXTLS_ED25519_COMB_TEETH - 1U)) & 1U;
+            abs_index = (teeth ^ (0U - sign)) & NOXTLS_ED25519_COMB_MASK;
+
+            ge25519_comb_select(&t, g_base_comb[block], abs_index);
+            fe25519_native_copy(&tneg.yplusx, &t.yminusx);
+            fe25519_native_copy(&tneg.yminusx, &t.yplusx);
+            fe25519_native_neg(&tneg.xy2d, &t.xy2d);
+            ge25519_precomp_cmov(&t, &tneg, sign);
+
+            ge25519_madd(&p1, r, &t);
+            ge25519_p1p1_to_n(r, &p1);
+        }
+        if(spacing > 0) {
+            ge25519_n_dbl(r, r);
+        }
+    }
+#endif
 }
 #endif /* !SMALL_BASE */
 
@@ -1183,13 +1412,11 @@ void ge25519_scalarmult_base_n(ge25519_n_t *R,
     }
     ge25519_n_scalarmult_windowed(R, s_le, g_base_table_small);
 #else
-#if defined(NOXTLS_ED25519_DUMP_BASE)
-    if(ge25519_base_bi_init() != NOXTLS_RETURN_SUCCESS) {
+    if(ge25519_comb_init() != NOXTLS_RETURN_SUCCESS) {
         ge25519_n_zero(R);
         return;
     }
-#endif
-    ge25519_n_scalarmult_base_ref10(R, s_le);
+    ge25519_n_scalarmult_base_comb(R, s_le);
 #endif
 }
 
