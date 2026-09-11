@@ -11,6 +11,7 @@
 
 #include "noxtls_aes_accel.h"
 #include "vendor/st/common/noxtls_stm32_gcm_core.h"
+#include "vendor/st/common/noxtls_stm32_u5_aes_core.h"
 #include "vendor/st/noxtls_hw_accel_autoconfig.h"
 #include "vendor/st/noxtls_stm32_accel.h"
 #include "vendor/st/noxtls_target_detect.h"
@@ -69,6 +70,9 @@ static noxtls_return_t noxtls_stm32_gcm_accel_encrypt_dispatch(const uint8_t *ke
 #elif NOXTLS_FEATURE_AES_ACCEL_STM32 && defined(NOXTLS_STM32_F2_HAS_CRYP)
     return noxtls_stm32_gcm_encrypt(NOXTLS_STM32_ACCEL_F2, key, type, nonce, aad, aad_len,
                                     plaintext, plaintext_len, ciphertext, tag);
+#elif NOXTLS_FEATURE_AES_ACCEL_STM32 && defined(NOXTLS_STM32_FAMILY_U5)
+    return noxtls_stm32_u5_gcm_encrypt(key, type, nonce, aad, aad_len,
+                                       plaintext, plaintext_len, ciphertext, tag);
 #else
     (void)key;
     (void)type;
@@ -102,6 +106,9 @@ static noxtls_return_t noxtls_stm32_gcm_accel_decrypt_dispatch(const uint8_t *ke
 #elif NOXTLS_FEATURE_AES_ACCEL_STM32 && defined(NOXTLS_STM32_F2_HAS_CRYP)
     return noxtls_stm32_gcm_decrypt(NOXTLS_STM32_ACCEL_F2, key, type, nonce, aad, aad_len,
                                     ciphertext, ciphertext_len, tag, plaintext);
+#elif NOXTLS_FEATURE_AES_ACCEL_STM32 && defined(NOXTLS_STM32_FAMILY_U5)
+    return noxtls_stm32_u5_gcm_decrypt(key, type, nonce, aad, aad_len,
+                                       ciphertext, ciphertext_len, tag, plaintext);
 #else
     (void)key;
     (void)type;

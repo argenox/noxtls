@@ -4,17 +4,17 @@
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
 * File: noxtls_stm32u5_accel.c
-* Summary: STM32U5 AES acceleration backend (in-house register-level core).
+* Summary: STM32U5 AES acceleration backend (AES-IP register-level core).
 *****************************************************************************/
 
-#include "vendor/st/common/noxtls_stm32_aes_core.h"
+#include "vendor/st/common/noxtls_stm32_u5_aes_core.h"
 
 noxtls_return_t noxtls_aes_accel_stm32u5_encrypt_block(const uint8_t *key,
                                                         const uint8_t *data,
                                                         uint8_t *output,
                                                         noxtls_aes_type_t type)
 {
-    return noxtls_stm32_aes_core_encrypt_block(NOXTLS_STM32_ACCEL_U5, key, data, output, type);
+    return noxtls_stm32_u5_aes_encrypt_block(key, data, output, type);
 }
 
 noxtls_return_t noxtls_aes_accel_stm32u5_decrypt_block(const uint8_t *key,
@@ -22,5 +22,5 @@ noxtls_return_t noxtls_aes_accel_stm32u5_decrypt_block(const uint8_t *key,
                                                         uint8_t *output,
                                                         noxtls_aes_type_t type)
 {
-    return noxtls_stm32_aes_core_decrypt_block(NOXTLS_STM32_ACCEL_U5, key, data, output, type);
+    return noxtls_stm32_u5_aes_decrypt_block(key, data, output, type);
 }
