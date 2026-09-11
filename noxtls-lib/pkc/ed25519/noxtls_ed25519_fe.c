@@ -241,95 +241,200 @@ void fe25519_native_sub(fe25519_native_t *out, const fe25519_native_t *a, const 
     }
 }
 
+/**
+ * @brief Reduce limb a0 to 26 bits; carry into a1 (ref10 / wolfSSL TO_26).
+ * @internal
+ */
+#define FE25519_TO_26(a0, a1, c) \
+    do { \
+        (c) = ((a0) + ((int64_t)1 << 25)) >> 26; \
+        (a1) += (c); \
+        (a0) -= (c) << 26; \
+    } while(0)
+
+/**
+ * @brief Reduce limb a0 to 25 bits; carry into a1 (ref10 / wolfSSL TO_25).
+ * @internal
+ */
+#define FE25519_TO_25(a0, a1, c) \
+    do { \
+        (c) = ((a0) + ((int64_t)1 << 24)) >> 25; \
+        (a1) += (c); \
+        (a0) -= (c) << 25; \
+    } while(0)
+
+/**
+ * @brief Reduce limb a0 to 25 bits; carry * 19 into a1 (mod p).
+ * @internal
+ */
+#define FE25519_TO_25_RED(a0, a1, c) \
+    do { \
+        (c) = ((a0) + ((int64_t)1 << 24)) >> 25; \
+        (a1) += (c) * 19; \
+        (a0) -= (c) << 25; \
+    } while(0)
+
 void fe25519_native_mul(fe25519_native_t *out, const fe25519_native_t *a, const fe25519_native_t *b)
 {
-    const int64_t f0 = a->v[0];
-    const int64_t f1 = a->v[1];
-    const int64_t f2 = a->v[2];
-    const int64_t f3 = a->v[3];
-    const int64_t f4 = a->v[4];
-    const int64_t f5 = a->v[5];
-    const int64_t f6 = a->v[6];
-    const int64_t f7 = a->v[7];
-    const int64_t f8 = a->v[8];
-    const int64_t f9 = a->v[9];
-    const int64_t g0 = b->v[0];
-    const int64_t g1 = b->v[1];
-    const int64_t g2 = b->v[2];
-    const int64_t g3 = b->v[3];
-    const int64_t g4 = b->v[4];
-    const int64_t g5 = b->v[5];
-    const int64_t g6 = b->v[6];
-    const int64_t g7 = b->v[7];
-    const int64_t g8 = b->v[8];
-    const int64_t g9 = b->v[9];
-    const int64_t g1_19 = 19 * g1;
-    const int64_t g2_19 = 19 * g2;
-    const int64_t g3_19 = 19 * g3;
-    const int64_t g4_19 = 19 * g4;
-    const int64_t g5_19 = 19 * g5;
-    const int64_t g6_19 = 19 * g6;
-    const int64_t g7_19 = 19 * g7;
-    const int64_t g8_19 = 19 * g8;
-    const int64_t g9_19 = 19 * g9;
-    const int64_t f1_2 = 2 * f1;
-    const int64_t f3_2 = 2 * f3;
-    const int64_t f5_2 = 2 * f5;
-    const int64_t f7_2 = 2 * f7;
-    const int64_t f9_2 = 2 * f9;
-    int64_t h0 = (f0 * g0) + (f1_2 * g9_19) + (f2 * g8_19) + (f3_2 * g7_19) + (f4 * g6_19) + (f5_2 * g5_19) + (f6 * g4_19) + (f7_2 * g3_19) + (f8 * g2_19) + (f9_2 * g1_19);
-    int64_t h1 = (f0 * g1) + (f1 * g0) + (f2 * g9_19) + (f3 * g8_19) + (f4 * g7_19) + (f5 * g6_19) + (f6 * g5_19) + (f7 * g4_19) + (f8 * g3_19) + (f9 * g2_19);
-    int64_t h2 = (f0 * g2) + (f1_2 * g1) + (f2 * g0) + (f3_2 * g9_19) + (f4 * g8_19) + (f5_2 * g7_19) + (f6 * g6_19) + (f7_2 * g5_19) + (f8 * g4_19) + (f9_2 * g3_19);
-    int64_t h3 = (f0 * g3) + (f1 * g2) + (f2 * g1) + (f3 * g0) + (f4 * g9_19) + (f5 * g8_19) + (f6 * g7_19) + (f7 * g6_19) + (f8 * g5_19) + (f9 * g4_19);
-    int64_t h4 = (f0 * g4) + (f1_2 * g3) + (f2 * g2) + (f3_2 * g1) + (f4 * g0) + (f5_2 * g9_19) + (f6 * g8_19) + (f7_2 * g7_19) + (f8 * g6_19) + (f9_2 * g5_19);
-    int64_t h5 = (f0 * g5) + (f1 * g4) + (f2 * g3) + (f3 * g2) + (f4 * g1) + (f5 * g0) + (f6 * g9_19) + (f7 * g8_19) + (f8 * g7_19) + (f9 * g6_19);
-    int64_t h6 = (f0 * g6) + (f1_2 * g5) + (f2 * g4) + (f3_2 * g3) + (f4 * g2) + (f5_2 * g1) + (f6 * g0) + (f7_2 * g9_19) + (f8 * g8_19) + (f9_2 * g7_19);
-    int64_t h7 = (f0 * g7) + (f1 * g6) + (f2 * g5) + (f3 * g4) + (f4 * g3) + (f5 * g2) + (f6 * g1) + (f7 * g0) + (f8 * g9_19) + (f9 * g8_19);
-    int64_t h8 = (f0 * g8) + (f1_2 * g7) + (f2 * g6) + (f3_2 * g5) + (f4 * g4) + (f5_2 * g3) + (f6 * g2) + (f7_2 * g1) + (f8 * g0) + (f9_2 * g9_19);
-    int64_t h9 = (f0 * g9) + (f1 * g8) + (f2 * g7) + (f3 * g6) + (f4 * g5) + (f5 * g4) + (f6 * g3) + (f7 * g2) + (f8 * g1) + (f9 * g0);
+    /* ref10 / wolfSSL fe_mul: keep limbs int32 so f*(int64_t)g is SMULL on Cortex-M4. */
+    const int32_t f0 = a->v[0];
+    const int32_t f1 = a->v[1];
+    const int32_t f2 = a->v[2];
+    const int32_t f3 = a->v[3];
+    const int32_t f4 = a->v[4];
+    const int32_t f5 = a->v[5];
+    const int32_t f6 = a->v[6];
+    const int32_t f7 = a->v[7];
+    const int32_t f8 = a->v[8];
+    const int32_t f9 = a->v[9];
+    const int32_t g0 = b->v[0];
+    const int32_t g1 = b->v[1];
+    const int32_t g2 = b->v[2];
+    const int32_t g3 = b->v[3];
+    const int32_t g4 = b->v[4];
+    const int32_t g5 = b->v[5];
+    const int32_t g6 = b->v[6];
+    const int32_t g7 = b->v[7];
+    const int32_t g8 = b->v[8];
+    const int32_t g9 = b->v[9];
+    const int32_t g1_19 = 19 * g1;
+    const int32_t g2_19 = 19 * g2;
+    const int32_t g3_19 = 19 * g3;
+    const int32_t g4_19 = 19 * g4;
+    const int32_t g5_19 = 19 * g5;
+    const int32_t g6_19 = 19 * g6;
+    const int32_t g7_19 = 19 * g7;
+    const int32_t g8_19 = 19 * g8;
+    const int32_t g9_19 = 19 * g9;
+    const int32_t f1_2 = 2 * f1;
+    const int32_t f3_2 = 2 * f3;
+    const int32_t f5_2 = 2 * f5;
+    const int32_t f7_2 = 2 * f7;
+    const int32_t f9_2 = 2 * f9;
+    const int64_t f0g0 = f0 * (int64_t)g0;
+    const int64_t f0g1 = f0 * (int64_t)g1;
+    const int64_t f0g2 = f0 * (int64_t)g2;
+    const int64_t f0g3 = f0 * (int64_t)g3;
+    const int64_t f0g4 = f0 * (int64_t)g4;
+    const int64_t f0g5 = f0 * (int64_t)g5;
+    const int64_t f0g6 = f0 * (int64_t)g6;
+    const int64_t f0g7 = f0 * (int64_t)g7;
+    const int64_t f0g8 = f0 * (int64_t)g8;
+    const int64_t f0g9 = f0 * (int64_t)g9;
+    const int64_t f1g0 = f1 * (int64_t)g0;
+    const int64_t f1g1_2 = f1_2 * (int64_t)g1;
+    const int64_t f1g2 = f1 * (int64_t)g2;
+    const int64_t f1g3_2 = f1_2 * (int64_t)g3;
+    const int64_t f1g4 = f1 * (int64_t)g4;
+    const int64_t f1g5_2 = f1_2 * (int64_t)g5;
+    const int64_t f1g6 = f1 * (int64_t)g6;
+    const int64_t f1g7_2 = f1_2 * (int64_t)g7;
+    const int64_t f1g8 = f1 * (int64_t)g8;
+    const int64_t f1g9_38 = f1_2 * (int64_t)g9_19;
+    const int64_t f2g0 = f2 * (int64_t)g0;
+    const int64_t f2g1 = f2 * (int64_t)g1;
+    const int64_t f2g2 = f2 * (int64_t)g2;
+    const int64_t f2g3 = f2 * (int64_t)g3;
+    const int64_t f2g4 = f2 * (int64_t)g4;
+    const int64_t f2g5 = f2 * (int64_t)g5;
+    const int64_t f2g6 = f2 * (int64_t)g6;
+    const int64_t f2g7 = f2 * (int64_t)g7;
+    const int64_t f2g8_19 = f2 * (int64_t)g8_19;
+    const int64_t f2g9_19 = f2 * (int64_t)g9_19;
+    const int64_t f3g0 = f3 * (int64_t)g0;
+    const int64_t f3g1_2 = f3_2 * (int64_t)g1;
+    const int64_t f3g2 = f3 * (int64_t)g2;
+    const int64_t f3g3_2 = f3_2 * (int64_t)g3;
+    const int64_t f3g4 = f3 * (int64_t)g4;
+    const int64_t f3g5_2 = f3_2 * (int64_t)g5;
+    const int64_t f3g6 = f3 * (int64_t)g6;
+    const int64_t f3g7_38 = f3_2 * (int64_t)g7_19;
+    const int64_t f3g8_19 = f3 * (int64_t)g8_19;
+    const int64_t f3g9_38 = f3_2 * (int64_t)g9_19;
+    const int64_t f4g0 = f4 * (int64_t)g0;
+    const int64_t f4g1 = f4 * (int64_t)g1;
+    const int64_t f4g2 = f4 * (int64_t)g2;
+    const int64_t f4g3 = f4 * (int64_t)g3;
+    const int64_t f4g4 = f4 * (int64_t)g4;
+    const int64_t f4g5 = f4 * (int64_t)g5;
+    const int64_t f4g6_19 = f4 * (int64_t)g6_19;
+    const int64_t f4g7_19 = f4 * (int64_t)g7_19;
+    const int64_t f4g8_19 = f4 * (int64_t)g8_19;
+    const int64_t f4g9_19 = f4 * (int64_t)g9_19;
+    const int64_t f5g0 = f5 * (int64_t)g0;
+    const int64_t f5g1_2 = f5_2 * (int64_t)g1;
+    const int64_t f5g2 = f5 * (int64_t)g2;
+    const int64_t f5g3_2 = f5_2 * (int64_t)g3;
+    const int64_t f5g4 = f5 * (int64_t)g4;
+    const int64_t f5g5_38 = f5_2 * (int64_t)g5_19;
+    const int64_t f5g6_19 = f5 * (int64_t)g6_19;
+    const int64_t f5g7_38 = f5_2 * (int64_t)g7_19;
+    const int64_t f5g8_19 = f5 * (int64_t)g8_19;
+    const int64_t f5g9_38 = f5_2 * (int64_t)g9_19;
+    const int64_t f6g0 = f6 * (int64_t)g0;
+    const int64_t f6g1 = f6 * (int64_t)g1;
+    const int64_t f6g2 = f6 * (int64_t)g2;
+    const int64_t f6g3 = f6 * (int64_t)g3;
+    const int64_t f6g4_19 = f6 * (int64_t)g4_19;
+    const int64_t f6g5_19 = f6 * (int64_t)g5_19;
+    const int64_t f6g6_19 = f6 * (int64_t)g6_19;
+    const int64_t f6g7_19 = f6 * (int64_t)g7_19;
+    const int64_t f6g8_19 = f6 * (int64_t)g8_19;
+    const int64_t f6g9_19 = f6 * (int64_t)g9_19;
+    const int64_t f7g0 = f7 * (int64_t)g0;
+    const int64_t f7g1_2 = f7_2 * (int64_t)g1;
+    const int64_t f7g2 = f7 * (int64_t)g2;
+    const int64_t f7g3_38 = f7_2 * (int64_t)g3_19;
+    const int64_t f7g4_19 = f7 * (int64_t)g4_19;
+    const int64_t f7g5_38 = f7_2 * (int64_t)g5_19;
+    const int64_t f7g6_19 = f7 * (int64_t)g6_19;
+    const int64_t f7g7_38 = f7_2 * (int64_t)g7_19;
+    const int64_t f7g8_19 = f7 * (int64_t)g8_19;
+    const int64_t f7g9_38 = f7_2 * (int64_t)g9_19;
+    const int64_t f8g0 = f8 * (int64_t)g0;
+    const int64_t f8g1 = f8 * (int64_t)g1;
+    const int64_t f8g2_19 = f8 * (int64_t)g2_19;
+    const int64_t f8g3_19 = f8 * (int64_t)g3_19;
+    const int64_t f8g4_19 = f8 * (int64_t)g4_19;
+    const int64_t f8g5_19 = f8 * (int64_t)g5_19;
+    const int64_t f8g6_19 = f8 * (int64_t)g6_19;
+    const int64_t f8g7_19 = f8 * (int64_t)g7_19;
+    const int64_t f8g8_19 = f8 * (int64_t)g8_19;
+    const int64_t f8g9_19 = f8 * (int64_t)g9_19;
+    const int64_t f9g0 = f9 * (int64_t)g0;
+    const int64_t f9g1_38 = f9_2 * (int64_t)g1_19;
+    const int64_t f9g2_19 = f9 * (int64_t)g2_19;
+    const int64_t f9g3_38 = f9_2 * (int64_t)g3_19;
+    const int64_t f9g4_19 = f9 * (int64_t)g4_19;
+    const int64_t f9g5_38 = f9_2 * (int64_t)g5_19;
+    const int64_t f9g6_19 = f9 * (int64_t)g6_19;
+    const int64_t f9g7_38 = f9_2 * (int64_t)g7_19;
+    const int64_t f9g8_19 = f9 * (int64_t)g8_19;
+    const int64_t f9g9_38 = f9_2 * (int64_t)g9_19;
+    int64_t h0 = f0g0 + f1g9_38 + f2g8_19 + f3g7_38 + f4g6_19 + f5g5_38 + f6g4_19 + f7g3_38 + f8g2_19 + f9g1_38;
+    int64_t h1 = f0g1 + f1g0 + f2g9_19 + f3g8_19 + f4g7_19 + f5g6_19 + f6g5_19 + f7g4_19 + f8g3_19 + f9g2_19;
+    int64_t h2 = f0g2 + f1g1_2 + f2g0 + f3g9_38 + f4g8_19 + f5g7_38 + f6g6_19 + f7g5_38 + f8g4_19 + f9g3_38;
+    int64_t h3 = f0g3 + f1g2 + f2g1 + f3g0 + f4g9_19 + f5g8_19 + f6g7_19 + f7g6_19 + f8g5_19 + f9g4_19;
+    int64_t h4 = f0g4 + f1g3_2 + f2g2 + f3g1_2 + f4g0 + f5g9_38 + f6g8_19 + f7g7_38 + f8g6_19 + f9g5_38;
+    int64_t h5 = f0g5 + f1g4 + f2g3 + f3g2 + f4g1 + f5g0 + f6g9_19 + f7g8_19 + f8g7_19 + f9g6_19;
+    int64_t h6 = f0g6 + f1g5_2 + f2g4 + f3g3_2 + f4g2 + f5g1_2 + f6g0 + f7g9_38 + f8g8_19 + f9g7_38;
+    int64_t h7 = f0g7 + f1g6 + f2g5 + f3g4 + f4g3 + f5g2 + f6g1 + f7g0 + f8g9_19 + f9g8_19;
+    int64_t h8 = f0g8 + f1g7_2 + f2g6 + f3g5_2 + f4g4 + f5g3_2 + f6g2 + f7g1_2 + f8g0 + f9g9_38;
+    int64_t h9 = f0g9 + f1g8 + f2g7 + f3g6 + f4g5 + f5g4 + f6g3 + f7g2 + f8g1 + f9g0;
     int64_t carry;
 
-    carry = (h0 + (((int64_t)1) << 25)) >> 26;
-    h1 += carry;
-    h0 -= carry << 26;
-    carry = (h4 + (((int64_t)1) << 25)) >> 26;
-    h5 += carry;
-    h4 -= carry << 26;
-
-    carry = (h1 + (((int64_t)1) << 24)) >> 25;
-    h2 += carry;
-    h1 -= carry << 25;
-    carry = (h5 + (((int64_t)1) << 24)) >> 25;
-    h6 += carry;
-    h5 -= carry << 25;
-
-    carry = (h2 + (((int64_t)1) << 25)) >> 26;
-    h3 += carry;
-    h2 -= carry << 26;
-    carry = (h6 + (((int64_t)1) << 25)) >> 26;
-    h7 += carry;
-    h6 -= carry << 26;
-
-    carry = (h3 + (((int64_t)1) << 24)) >> 25;
-    h4 += carry;
-    h3 -= carry << 25;
-    carry = (h7 + (((int64_t)1) << 24)) >> 25;
-    h8 += carry;
-    h7 -= carry << 25;
-
-    carry = (h4 + (((int64_t)1) << 25)) >> 26;
-    h5 += carry;
-    h4 -= carry << 26;
-    carry = (h8 + (((int64_t)1) << 25)) >> 26;
-    h9 += carry;
-    h8 -= carry << 26;
-
-    carry = (h9 + (((int64_t)1) << 24)) >> 25;
-    h0 += carry * 19;
-    h9 -= carry << 25;
-    carry = (h0 + (((int64_t)1) << 25)) >> 26;
-    h1 += carry;
-    h0 -= carry << 26;
+    FE25519_TO_26(h0, h1, carry);
+    FE25519_TO_26(h4, h5, carry);
+    FE25519_TO_25(h1, h2, carry);
+    FE25519_TO_25(h5, h6, carry);
+    FE25519_TO_26(h2, h3, carry);
+    FE25519_TO_26(h6, h7, carry);
+    FE25519_TO_25(h3, h4, carry);
+    FE25519_TO_25(h7, h8, carry);
+    FE25519_TO_26(h4, h5, carry);
+    FE25519_TO_26(h8, h9, carry);
+    FE25519_TO_25_RED(h9, h0, carry);
+    FE25519_TO_26(h0, h1, carry);
 
     out->v[0] = (int32_t)h0;
     out->v[1] = (int32_t)h1;
@@ -345,7 +450,249 @@ void fe25519_native_mul(fe25519_native_t *out, const fe25519_native_t *a, const 
 
 void fe25519_native_sq(fe25519_native_t *out, const fe25519_native_t *a)
 {
-    fe25519_native_mul(out, a, a);
+    /* Dedicated ref10 / wolfSSL fe_sq (fewer products than mul(a,a)). */
+    const int32_t f0 = a->v[0];
+    const int32_t f1 = a->v[1];
+    const int32_t f2 = a->v[2];
+    const int32_t f3 = a->v[3];
+    const int32_t f4 = a->v[4];
+    const int32_t f5 = a->v[5];
+    const int32_t f6 = a->v[6];
+    const int32_t f7 = a->v[7];
+    const int32_t f8 = a->v[8];
+    const int32_t f9 = a->v[9];
+    const int32_t f0_2 = 2 * f0;
+    const int32_t f1_2 = 2 * f1;
+    const int32_t f2_2 = 2 * f2;
+    const int32_t f3_2 = 2 * f3;
+    const int32_t f4_2 = 2 * f4;
+    const int32_t f5_2 = 2 * f5;
+    const int32_t f6_2 = 2 * f6;
+    const int32_t f7_2 = 2 * f7;
+    const int32_t f5_38 = 38 * f5;
+    const int32_t f6_19 = 19 * f6;
+    const int32_t f7_38 = 38 * f7;
+    const int32_t f8_19 = 19 * f8;
+    const int32_t f9_38 = 38 * f9;
+    const int64_t f0f0 = f0 * (int64_t)f0;
+    const int64_t f0f1_2 = f0_2 * (int64_t)f1;
+    const int64_t f0f2_2 = f0_2 * (int64_t)f2;
+    const int64_t f0f3_2 = f0_2 * (int64_t)f3;
+    const int64_t f0f4_2 = f0_2 * (int64_t)f4;
+    const int64_t f0f5_2 = f0_2 * (int64_t)f5;
+    const int64_t f0f6_2 = f0_2 * (int64_t)f6;
+    const int64_t f0f7_2 = f0_2 * (int64_t)f7;
+    const int64_t f0f8_2 = f0_2 * (int64_t)f8;
+    const int64_t f0f9_2 = f0_2 * (int64_t)f9;
+    const int64_t f1f1_2 = f1_2 * (int64_t)f1;
+    const int64_t f1f2_2 = f1_2 * (int64_t)f2;
+    const int64_t f1f3_4 = f1_2 * (int64_t)f3_2;
+    const int64_t f1f4_2 = f1_2 * (int64_t)f4;
+    const int64_t f1f5_4 = f1_2 * (int64_t)f5_2;
+    const int64_t f1f6_2 = f1_2 * (int64_t)f6;
+    const int64_t f1f7_4 = f1_2 * (int64_t)f7_2;
+    const int64_t f1f8_2 = f1_2 * (int64_t)f8;
+    const int64_t f1f9_76 = f1_2 * (int64_t)f9_38;
+    const int64_t f2f2 = f2 * (int64_t)f2;
+    const int64_t f2f3_2 = f2_2 * (int64_t)f3;
+    const int64_t f2f4_2 = f2_2 * (int64_t)f4;
+    const int64_t f2f5_2 = f2_2 * (int64_t)f5;
+    const int64_t f2f6_2 = f2_2 * (int64_t)f6;
+    const int64_t f2f7_2 = f2_2 * (int64_t)f7;
+    const int64_t f2f8_38 = f2_2 * (int64_t)f8_19;
+    const int64_t f2f9_38 = f2 * (int64_t)f9_38;
+    const int64_t f3f3_2 = f3_2 * (int64_t)f3;
+    const int64_t f3f4_2 = f3_2 * (int64_t)f4;
+    const int64_t f3f5_4 = f3_2 * (int64_t)f5_2;
+    const int64_t f3f6_2 = f3_2 * (int64_t)f6;
+    const int64_t f3f7_76 = f3_2 * (int64_t)f7_38;
+    const int64_t f3f8_38 = f3_2 * (int64_t)f8_19;
+    const int64_t f3f9_76 = f3_2 * (int64_t)f9_38;
+    const int64_t f4f4 = f4 * (int64_t)f4;
+    const int64_t f4f5_2 = f4_2 * (int64_t)f5;
+    const int64_t f4f6_38 = f4_2 * (int64_t)f6_19;
+    const int64_t f4f7_38 = f4 * (int64_t)f7_38;
+    const int64_t f4f8_38 = f4_2 * (int64_t)f8_19;
+    const int64_t f4f9_38 = f4 * (int64_t)f9_38;
+    const int64_t f5f5_38 = f5 * (int64_t)f5_38;
+    const int64_t f5f6_38 = f5_2 * (int64_t)f6_19;
+    const int64_t f5f7_76 = f5_2 * (int64_t)f7_38;
+    const int64_t f5f8_38 = f5_2 * (int64_t)f8_19;
+    const int64_t f5f9_76 = f5_2 * (int64_t)f9_38;
+    const int64_t f6f6_19 = f6 * (int64_t)f6_19;
+    const int64_t f6f7_38 = f6 * (int64_t)f7_38;
+    const int64_t f6f8_38 = f6_2 * (int64_t)f8_19;
+    const int64_t f6f9_38 = f6 * (int64_t)f9_38;
+    const int64_t f7f7_38 = f7 * (int64_t)f7_38;
+    const int64_t f7f8_38 = f7_2 * (int64_t)f8_19;
+    const int64_t f7f9_76 = f7_2 * (int64_t)f9_38;
+    const int64_t f8f8_19 = f8 * (int64_t)f8_19;
+    const int64_t f8f9_38 = f8 * (int64_t)f9_38;
+    const int64_t f9f9_38 = f9 * (int64_t)f9_38;
+    int64_t h0 = f0f0 + f1f9_76 + f2f8_38 + f3f7_76 + f4f6_38 + f5f5_38;
+    int64_t h1 = f0f1_2 + f2f9_38 + f3f8_38 + f4f7_38 + f5f6_38;
+    int64_t h2 = f0f2_2 + f1f1_2 + f3f9_76 + f4f8_38 + f5f7_76 + f6f6_19;
+    int64_t h3 = f0f3_2 + f1f2_2 + f4f9_38 + f5f8_38 + f6f7_38;
+    int64_t h4 = f0f4_2 + f1f3_4 + f2f2 + f5f9_76 + f6f8_38 + f7f7_38;
+    int64_t h5 = f0f5_2 + f1f4_2 + f2f3_2 + f6f9_38 + f7f8_38;
+    int64_t h6 = f0f6_2 + f1f5_4 + f2f4_2 + f3f3_2 + f7f9_76 + f8f8_19;
+    int64_t h7 = f0f7_2 + f1f6_2 + f2f5_2 + f3f4_2 + f8f9_38;
+    int64_t h8 = f0f8_2 + f1f7_4 + f2f6_2 + f3f5_4 + f4f4 + f9f9_38;
+    int64_t h9 = f0f9_2 + f1f8_2 + f2f7_2 + f3f6_2 + f4f5_2;
+    int64_t carry;
+
+    FE25519_TO_26(h0, h1, carry);
+    FE25519_TO_26(h4, h5, carry);
+    FE25519_TO_25(h1, h2, carry);
+    FE25519_TO_25(h5, h6, carry);
+    FE25519_TO_26(h2, h3, carry);
+    FE25519_TO_26(h6, h7, carry);
+    FE25519_TO_25(h3, h4, carry);
+    FE25519_TO_25(h7, h8, carry);
+    FE25519_TO_26(h4, h5, carry);
+    FE25519_TO_26(h8, h9, carry);
+    FE25519_TO_25_RED(h9, h0, carry);
+    FE25519_TO_26(h0, h1, carry);
+
+    out->v[0] = (int32_t)h0;
+    out->v[1] = (int32_t)h1;
+    out->v[2] = (int32_t)h2;
+    out->v[3] = (int32_t)h3;
+    out->v[4] = (int32_t)h4;
+    out->v[5] = (int32_t)h5;
+    out->v[6] = (int32_t)h6;
+    out->v[7] = (int32_t)h7;
+    out->v[8] = (int32_t)h8;
+    out->v[9] = (int32_t)h9;
+}
+
+void fe25519_native_sq2(fe25519_native_t *out, const fe25519_native_t *a)
+{
+    /* ref10 / wolfSSL fe_sq2: square then double before carry (2*a^2). */
+    const int32_t f0 = a->v[0];
+    const int32_t f1 = a->v[1];
+    const int32_t f2 = a->v[2];
+    const int32_t f3 = a->v[3];
+    const int32_t f4 = a->v[4];
+    const int32_t f5 = a->v[5];
+    const int32_t f6 = a->v[6];
+    const int32_t f7 = a->v[7];
+    const int32_t f8 = a->v[8];
+    const int32_t f9 = a->v[9];
+    const int32_t f0_2 = 2 * f0;
+    const int32_t f1_2 = 2 * f1;
+    const int32_t f2_2 = 2 * f2;
+    const int32_t f3_2 = 2 * f3;
+    const int32_t f4_2 = 2 * f4;
+    const int32_t f5_2 = 2 * f5;
+    const int32_t f6_2 = 2 * f6;
+    const int32_t f7_2 = 2 * f7;
+    const int32_t f5_38 = 38 * f5;
+    const int32_t f6_19 = 19 * f6;
+    const int32_t f7_38 = 38 * f7;
+    const int32_t f8_19 = 19 * f8;
+    const int32_t f9_38 = 38 * f9;
+    const int64_t f0f0 = f0 * (int64_t)f0;
+    const int64_t f0f1_2 = f0_2 * (int64_t)f1;
+    const int64_t f0f2_2 = f0_2 * (int64_t)f2;
+    const int64_t f0f3_2 = f0_2 * (int64_t)f3;
+    const int64_t f0f4_2 = f0_2 * (int64_t)f4;
+    const int64_t f0f5_2 = f0_2 * (int64_t)f5;
+    const int64_t f0f6_2 = f0_2 * (int64_t)f6;
+    const int64_t f0f7_2 = f0_2 * (int64_t)f7;
+    const int64_t f0f8_2 = f0_2 * (int64_t)f8;
+    const int64_t f0f9_2 = f0_2 * (int64_t)f9;
+    const int64_t f1f1_2 = f1_2 * (int64_t)f1;
+    const int64_t f1f2_2 = f1_2 * (int64_t)f2;
+    const int64_t f1f3_4 = f1_2 * (int64_t)f3_2;
+    const int64_t f1f4_2 = f1_2 * (int64_t)f4;
+    const int64_t f1f5_4 = f1_2 * (int64_t)f5_2;
+    const int64_t f1f6_2 = f1_2 * (int64_t)f6;
+    const int64_t f1f7_4 = f1_2 * (int64_t)f7_2;
+    const int64_t f1f8_2 = f1_2 * (int64_t)f8;
+    const int64_t f1f9_76 = f1_2 * (int64_t)f9_38;
+    const int64_t f2f2 = f2 * (int64_t)f2;
+    const int64_t f2f3_2 = f2_2 * (int64_t)f3;
+    const int64_t f2f4_2 = f2_2 * (int64_t)f4;
+    const int64_t f2f5_2 = f2_2 * (int64_t)f5;
+    const int64_t f2f6_2 = f2_2 * (int64_t)f6;
+    const int64_t f2f7_2 = f2_2 * (int64_t)f7;
+    const int64_t f2f8_38 = f2_2 * (int64_t)f8_19;
+    const int64_t f2f9_38 = f2 * (int64_t)f9_38;
+    const int64_t f3f3_2 = f3_2 * (int64_t)f3;
+    const int64_t f3f4_2 = f3_2 * (int64_t)f4;
+    const int64_t f3f5_4 = f3_2 * (int64_t)f5_2;
+    const int64_t f3f6_2 = f3_2 * (int64_t)f6;
+    const int64_t f3f7_76 = f3_2 * (int64_t)f7_38;
+    const int64_t f3f8_38 = f3_2 * (int64_t)f8_19;
+    const int64_t f3f9_76 = f3_2 * (int64_t)f9_38;
+    const int64_t f4f4 = f4 * (int64_t)f4;
+    const int64_t f4f5_2 = f4_2 * (int64_t)f5;
+    const int64_t f4f6_38 = f4_2 * (int64_t)f6_19;
+    const int64_t f4f7_38 = f4 * (int64_t)f7_38;
+    const int64_t f4f8_38 = f4_2 * (int64_t)f8_19;
+    const int64_t f4f9_38 = f4 * (int64_t)f9_38;
+    const int64_t f5f5_38 = f5 * (int64_t)f5_38;
+    const int64_t f5f6_38 = f5_2 * (int64_t)f6_19;
+    const int64_t f5f7_76 = f5_2 * (int64_t)f7_38;
+    const int64_t f5f8_38 = f5_2 * (int64_t)f8_19;
+    const int64_t f5f9_76 = f5_2 * (int64_t)f9_38;
+    const int64_t f6f6_19 = f6 * (int64_t)f6_19;
+    const int64_t f6f7_38 = f6 * (int64_t)f7_38;
+    const int64_t f6f8_38 = f6_2 * (int64_t)f8_19;
+    const int64_t f6f9_38 = f6 * (int64_t)f9_38;
+    const int64_t f7f7_38 = f7 * (int64_t)f7_38;
+    const int64_t f7f8_38 = f7_2 * (int64_t)f8_19;
+    const int64_t f7f9_76 = f7_2 * (int64_t)f9_38;
+    const int64_t f8f8_19 = f8 * (int64_t)f8_19;
+    const int64_t f8f9_38 = f8 * (int64_t)f9_38;
+    const int64_t f9f9_38 = f9 * (int64_t)f9_38;
+    int64_t h0 = f0f0 + f1f9_76 + f2f8_38 + f3f7_76 + f4f6_38 + f5f5_38;
+    int64_t h1 = f0f1_2 + f2f9_38 + f3f8_38 + f4f7_38 + f5f6_38;
+    int64_t h2 = f0f2_2 + f1f1_2 + f3f9_76 + f4f8_38 + f5f7_76 + f6f6_19;
+    int64_t h3 = f0f3_2 + f1f2_2 + f4f9_38 + f5f8_38 + f6f7_38;
+    int64_t h4 = f0f4_2 + f1f3_4 + f2f2 + f5f9_76 + f6f8_38 + f7f7_38;
+    int64_t h5 = f0f5_2 + f1f4_2 + f2f3_2 + f6f9_38 + f7f8_38;
+    int64_t h6 = f0f6_2 + f1f5_4 + f2f4_2 + f3f3_2 + f7f9_76 + f8f8_19;
+    int64_t h7 = f0f7_2 + f1f6_2 + f2f5_2 + f3f4_2 + f8f9_38;
+    int64_t h8 = f0f8_2 + f1f7_4 + f2f6_2 + f3f5_4 + f4f4 + f9f9_38;
+    int64_t h9 = f0f9_2 + f1f8_2 + f2f7_2 + f3f6_2 + f4f5_2;
+    int64_t carry;
+
+    h0 += h0;
+    h1 += h1;
+    h2 += h2;
+    h3 += h3;
+    h4 += h4;
+    h5 += h5;
+    h6 += h6;
+    h7 += h7;
+    h8 += h8;
+    h9 += h9;
+
+    FE25519_TO_26(h0, h1, carry);
+    FE25519_TO_26(h4, h5, carry);
+    FE25519_TO_25(h1, h2, carry);
+    FE25519_TO_25(h5, h6, carry);
+    FE25519_TO_26(h2, h3, carry);
+    FE25519_TO_26(h6, h7, carry);
+    FE25519_TO_25(h3, h4, carry);
+    FE25519_TO_25(h7, h8, carry);
+    FE25519_TO_26(h4, h5, carry);
+    FE25519_TO_26(h8, h9, carry);
+    FE25519_TO_25_RED(h9, h0, carry);
+    FE25519_TO_26(h0, h1, carry);
+
+    out->v[0] = (int32_t)h0;
+    out->v[1] = (int32_t)h1;
+    out->v[2] = (int32_t)h2;
+    out->v[3] = (int32_t)h3;
+    out->v[4] = (int32_t)h4;
+    out->v[5] = (int32_t)h5;
+    out->v[6] = (int32_t)h6;
+    out->v[7] = (int32_t)h7;
+    out->v[8] = (int32_t)h8;
+    out->v[9] = (int32_t)h9;
 }
 
 static void fe25519_native_sq_times(fe25519_native_t *out, const fe25519_native_t *z, uint32_t count)

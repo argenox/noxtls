@@ -119,7 +119,6 @@ static noxtls_return_t ed25519_sign_expanded(const uint8_t s_le[NOXTLS_ED25519_F
     uint8_t k_in[NOXTLS_ED25519_SHA512_DIGEST_BYTES];
     uint8_t k_le[NOXTLS_ED25519_FE25519_BYTES];
     uint8_t S_le[NOXTLS_ED25519_FE25519_BYTES];
-    ge25519_pt_t R;
     noxtls_sha512_ctx_t ctx;
     uint8_t dom_buf[NOXTLS_ED25519_DOM2_BUFFER_BYTES];
     uint32_t dom_len = 0;
@@ -187,8 +186,11 @@ static noxtls_return_t ed25519_sign_expanded(const uint8_t s_le[NOXTLS_ED25519_F
         return NOXTLS_RETURN_BAD_DATA;
     }
     sc25519_reduce(r_le, r_in);
-    ge25519_scalarmult_base(&R, r_le);
-    ge25519_encode(signature, &R);
+    {
+        ge25519_n_t R_n;
+        ge25519_scalarmult_base_n(&R_n, r_le);
+        ge25519_encode_n(signature, &R_n);
+    }
 
     /* k = SHA-512(dom2 || R || A || M) mod L; S = (r + k*s) mod L (ref10 sc_muladd). */
     if(noxtls_sha512_init(&ctx, NOXTLS_HASH_SHA_512) != NOXTLS_RETURN_SUCCESS) {
@@ -232,7 +234,7 @@ static noxtls_return_t ed25519_expand_seed(const uint8_t seed[NOXTLS_ED25519_FE2
                                            uint8_t public_key[NOXTLS_ED25519_FE25519_BYTES])
 {
     uint8_t h[NOXTLS_ED25519_SHA512_DIGEST_BYTES];
-    ge25519_pt_t A_pt;
+    ge25519_n_t A_n;
     noxtls_sha512_ctx_t ctx;
 
     if(seed == NULL || s_le == NULL || prefix == NULL || public_key == NULL) {
@@ -254,8 +256,8 @@ static noxtls_return_t ed25519_expand_seed(const uint8_t seed[NOXTLS_ED25519_FE2
     h[NOXTLS_ED25519_FE25519_BYTES - 1U] |= NOXTLS_ED25519_SCALAR_CLAMP_BYTE31_OR;
     memcpy(s_le, h, NOXTLS_ED25519_FE25519_BYTES);
     memcpy(prefix, h + NOXTLS_ED25519_FE25519_BYTES, NOXTLS_ED25519_FE25519_BYTES);
-    ge25519_scalarmult_base(&A_pt, s_le);
-    ge25519_encode(public_key, &A_pt);
+    ge25519_scalarmult_base_n(&A_n, s_le);
+    ge25519_encode_n(public_key, &A_n);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -298,59 +300,37 @@ static noxtls_return_t ed25519_sign_internal(const uint8_t private_key[NOXTLS_ED
 }
 
 /**
- * @brief Check [S]B - [k]A == R (with cofactor-8 fallback).
+ * @brief Check [S]B - [k]A == R by encoding (RFC 8032 §5.1.7 / wolfSSL path).
  * @internal
  *
- * Uses interleaved double-scalar multiplication (RFC 8032 §5.1.7 equation).
+ * Decodes and negates A only. Does not decode R: after
+ * @c double_scalarmult computes [S]B - [k]A, encodes once and compares to
+ * @p R_bytes (`signature[0..31]`). Matches RFC 8032 §5.1.7 equation check
+ * as implemented by wolfSSL (encode result vs signature R octets).
  *
- * @param[in] A Decoded public point.
- * @param[in] R Decoded commitment point.
+ * @param[in] A_n Decoded public point (native).
+ * @param[in] R_bytes Commitment R as 32 wire bytes (not decoded as a point).
  * @param[in] k_le Challenge scalar (little-endian).
- * @param[in] S_le Response scalar (little-endian).
+ * @param[in] S_le Response scalar (little-endian), already checked S < L.
  *
  * @return `NOXTLS_RETURN_SUCCESS` if the equation holds, else `NOXTLS_RETURN_FAILED`.
  */
-static noxtls_return_t ed25519_check_verify_equation(const ge25519_pt_t *A,
-                                                     const ge25519_pt_t *R,
+static noxtls_return_t ed25519_check_verify_equation(const ge25519_n_t *A_n,
+                                                     const uint8_t R_bytes[NOXTLS_ED25519_FE25519_BYTES],
                                                      const uint8_t k_le[NOXTLS_ED25519_FE25519_BYTES],
                                                      const uint8_t S_le[NOXTLS_ED25519_FE25519_BYTES])
 {
-    ge25519_n_t A_n;
-    ge25519_n_t Aneg_n;
-    ge25519_pt_t Aneg;
-    ge25519_pt_t check;
+    ge25519_n_t Aneg;
+    ge25519_n_t check;
     uint8_t enc_check[NOXTLS_ED25519_FE25519_BYTES];
-    uint8_t enc_R[NOXTLS_ED25519_FE25519_BYTES];
 
-    /* check = [k](-A) + [S]B = [S]B - [k]A */
-    ge25519_n_from_pt(&A_n, A);
-    ge25519_n_neg(&Aneg_n, &A_n);
-    ge25519_n_to_pt(&Aneg, &Aneg_n);
-    ge25519_double_scalarmult(&check, k_le, &Aneg, S_le);
+    /* check = [k](-A) + [S]B = [S]B - [k]A  (RFC 8032 §5.1.7) */
+    ge25519_n_neg(&Aneg, A_n);
+    ge25519_double_scalarmult_n(&check, k_le, &Aneg, S_le);
+    ge25519_encode_n(enc_check, &check);
 
-    ge25519_encode(enc_check, &check);
-    ge25519_encode(enc_R, R);
-    if(noxtls_secret_memcmp(enc_check, enc_R, NOXTLS_ED25519_FE25519_BYTES) == 0) {
+    if(noxtls_secret_memcmp(enc_check, R_bytes, NOXTLS_ED25519_FE25519_BYTES) == 0) {
         return NOXTLS_RETURN_SUCCESS;
-    }
-
-    /* Cofactor clear: accept if [8]check == [8]R (existing fallback behavior). */
-    {
-        uint8_t cofactor_le[NOXTLS_ED25519_FE25519_BYTES];
-        ge25519_pt_t lhs8;
-        ge25519_pt_t rhs8;
-        uint8_t enc_lhs8[NOXTLS_ED25519_FE25519_BYTES];
-        uint8_t enc_rhs8[NOXTLS_ED25519_FE25519_BYTES];
-
-        memset(cofactor_le, 0, sizeof(cofactor_le));
-        cofactor_le[0] = NOXTLS_ED25519_SUBGROUP_COFACTOR;
-        ge25519_scalar_mult(&lhs8, cofactor_le, &check);
-        ge25519_scalar_mult(&rhs8, cofactor_le, R);
-        ge25519_encode(enc_lhs8, &lhs8);
-        ge25519_encode(enc_rhs8, &rhs8);
-        if(noxtls_secret_memcmp(enc_lhs8, enc_rhs8, NOXTLS_ED25519_FE25519_BYTES) == 0) {
-            return NOXTLS_RETURN_SUCCESS;
-        }
     }
     return NOXTLS_RETURN_FAILED;
 }
@@ -376,8 +356,7 @@ static noxtls_return_t ed25519_verify_internal(const uint8_t public_key[NOXTLS_E
 {
     uint8_t k_in[NOXTLS_ED25519_SHA512_DIGEST_BYTES];
     uint8_t k_le[NOXTLS_ED25519_FE25519_BYTES];
-    ge25519_pt_t A;
-    ge25519_pt_t R;
+    ge25519_n_t A_n;
     noxtls_sha512_ctx_t ctx;
     uint8_t dom_buf[NOXTLS_ED25519_DOM2_BUFFER_BYTES];
     uint32_t dom_len = 0;
@@ -411,9 +390,12 @@ static noxtls_return_t ed25519_verify_internal(const uint8_t public_key[NOXTLS_E
         m_len = NOXTLS_ED25519_SHA512_DIGEST_BYTES;
     }
 
-    /* RFC 8032 §5.1.7 */
-    if(ge25519_decode(&A, public_key) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(ge25519_decode(&R, signature) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    /*
+     * RFC 8032 §5.1.7: decode A; reject if S >= L; compute k = SHA512(R||A||M);
+     * check encode([S]B - [k]A) == R. R is not decoded as a curve point for the
+     * equation check (wolfSSL-compatible); only its 32 encoding bytes are used.
+     */
+    if(ge25519_decode_n(&A_n, public_key) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
 
     {
         uint8_t S_be[NOXTLS_ED25519_FE25519_BYTES];
@@ -430,7 +412,7 @@ static noxtls_return_t ed25519_verify_internal(const uint8_t public_key[NOXTLS_E
     if(noxtls_sha512_finish(&ctx, k_in) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     sc25519_reduce(k_le, k_in);
 
-    return ed25519_check_verify_equation(&A, &R, k_le, S_le);
+    return ed25519_check_verify_equation(&A_n, signature, k_le, S_le);
 }
 
 /**
@@ -538,13 +520,11 @@ static noxtls_return_t ed25519_verify_finalize(const uint8_t public_key[NOXTLS_E
 {
     uint8_t k_le[NOXTLS_ED25519_FE25519_BYTES];
     uint8_t S_le[NOXTLS_ED25519_FE25519_BYTES];
-    ge25519_pt_t A;
-    ge25519_pt_t R;
+    ge25519_n_t A_n;
 
     if(public_key == NULL || signature == NULL || k_in == NULL) return NOXTLS_RETURN_NULL;
 
-    if(ge25519_decode(&A, public_key) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(ge25519_decode(&R, signature) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(ge25519_decode_n(&A_n, public_key) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
 
     {
         uint8_t S_be[NOXTLS_ED25519_FE25519_BYTES];
@@ -555,7 +535,7 @@ static noxtls_return_t ed25519_verify_finalize(const uint8_t public_key[NOXTLS_E
 
     sc25519_reduce(k_le, k_in);
 
-    return ed25519_check_verify_equation(&A, &R, k_le, S_le);
+    return ed25519_check_verify_equation(&A_n, signature, k_le, S_le);
 }
 
 noxtls_return_t noxtls_ed25519_verify_stream_init(noxtls_ed25519_verify_stream_ctx_t *ctx,

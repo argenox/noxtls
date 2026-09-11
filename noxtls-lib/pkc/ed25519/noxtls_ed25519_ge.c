@@ -74,6 +74,18 @@ typedef struct
     fe25519_native_t T;
 } ge25519_p1p1_t;
 
+/** Projective (p2) point: (X:Y:Z) with x=X/Z, y=Y/Z (ref10 ge_p2). */
+typedef struct
+{
+    fe25519_native_t X;
+    fe25519_native_t Y;
+    fe25519_native_t Z;
+} ge25519_p2_t;
+
+static void ge25519_p2_dbl_p1p1(ge25519_p1p1_t *r, const ge25519_p2_t *p);
+static void ge25519_p1p1_to_p2(ge25519_p2_t *r, const ge25519_p1p1_t *p);
+void ge25519_scalarmult_base_n(ge25519_n_t *R, const uint8_t s_le[NOXTLS_ED25519_FE25519_BYTES]);
+
 /** Duif precomputed (affine-like): y+x, y-x, 2d*x*y (SUPERCOP/ref10 ge_precomp). */
 typedef struct
 {
@@ -288,6 +300,57 @@ static void ge25519_p1p1_to_n(ge25519_n_t *r, const ge25519_p1p1_t *p)
 }
 
 /**
+ * @brief Convert p1p1 to projective p2 (ref10 ge_p1p1_to_p2).
+ * @internal
+ *
+ * @param[out] r Projective point.
+ * @param[in] p Completed intermediate.
+ */
+static void ge25519_p1p1_to_p2(ge25519_p2_t *r, const ge25519_p1p1_t *p)
+{
+    fe25519_native_mul(&r->X, &p->X, &p->T);
+    fe25519_native_mul(&r->Y, &p->Y, &p->Z);
+    fe25519_native_mul(&r->Z, &p->Z, &p->T);
+}
+
+/**
+ * @brief Set projective point to the identity.
+ * @internal
+ *
+ * @param[out] h Point to clear.
+ */
+static void ge25519_p2_0(ge25519_p2_t *h)
+{
+    fe25519_native_zero(&h->X);
+    fe25519_native_one(&h->Y);
+    fe25519_native_one(&h->Z);
+}
+
+/**
+ * @brief Double a projective point into p1p1 (ref10 ge_p2_dbl).
+ * @internal
+ *
+ * Uses @ref fe25519_native_sq and @ref fe25519_native_sq2. Extended T is unused.
+ *
+ * @param[out] r Completed double.
+ * @param[in] p Projective input (X:Y:Z).
+ */
+static void ge25519_p2_dbl_p1p1(ge25519_p1p1_t *r, const ge25519_p2_t *p)
+{
+    fe25519_native_t t0;
+
+    fe25519_native_sq(&r->X, &p->X);
+    fe25519_native_sq(&r->Z, &p->Y);
+    fe25519_native_sq2(&r->T, &p->Z);
+    fe25519_native_add(&r->Y, &p->X, &p->Y);
+    fe25519_native_sq(&t0, &r->Y);
+    fe25519_native_add(&r->Y, &r->Z, &r->X);
+    fe25519_native_sub(&r->Z, &r->Z, &r->X);
+    fe25519_native_sub(&r->X, &t0, &r->Y);
+    fe25519_native_sub(&r->T, &r->T, &r->Z);
+}
+
+/**
  * @brief Mixed addition: extended + precomp -> p1p1 (ref10 ge_madd).
  * @internal
  *
@@ -402,70 +465,23 @@ static void ge25519_sub_cached(ge25519_p1p1_t *r,
 }
 
 /**
- * @brief Double extended point into p1p1 via full extended dbl then split.
+ * @brief Double extended point into p1p1 (ref10 ge_p3_dbl via ge_p2_dbl).
  * @internal
  *
- * Uses the same formulas as @ref ge25519_n_dbl but writes p1p1 components
- * so callers can convert with @ref ge25519_p1p1_to_n.
+ * Ignores extended T; matches wolfSSL/ref10 ge_p2_dbl using
+ * @ref fe25519_native_sq / @ref fe25519_native_sq2.
  *
- * @param[out] r Completed double (encoded as X=E*F style via conversion path).
+ * @param[out] r Completed double.
  * @param[in] p Extended input.
  */
 static void ge25519_n_dbl_p1p1(ge25519_p1p1_t *r, const ge25519_n_t *p)
 {
-    /* Produce r such that p1p1_to_n(r) == dbl(p). Match ref10 p3_dbl output. */
-    fe25519_native_t A;
-    fe25519_native_t B;
-    fe25519_native_t C;
-    fe25519_native_t D;
-    fe25519_native_t E;
-    fe25519_native_t F;
-    fe25519_native_t G;
-    fe25519_native_t H;
-    fe25519_native_t t0;
+    ge25519_p2_t q;
 
-    fe25519_native_sq(&A, &p->X);
-    fe25519_native_sq(&B, &p->Y);
-    fe25519_native_sq(&C, &p->Z);
-    fe25519_native_add(&C, &C, &C);
-    fe25519_native_neg(&D, &A);
-
-    fe25519_native_add(&t0, &p->X, &p->Y);
-    fe25519_native_sq(&E, &t0);
-    fe25519_native_sub(&E, &E, &A);
-    fe25519_native_sub(&E, &E, &B);
-
-    fe25519_native_add(&G, &D, &B);
-    fe25519_native_sub(&F, &G, &C);
-    fe25519_native_sub(&H, &D, &B);
-
-    /* p1p1: X=E, Y=G, Z=F? Wait ref10 p2_dbl:
-     * X3 = E*F, Y3 = G*H, Z3 = F*G, T3 = E*H in extended after convert.
-     * p1p1 stores (X,Y,Z,T) = (E, G, F? no):
-     * From ref10 ge_p2_dbl:
-     *   r->X = E*F via later convert: actually
-     *   fe_sq(r->X,p->X); ...
-     *   Final: r->X = E; r->Z = F? Looking at ge_p1p1_to_p2:
-     *   X = X*T, Y = Y*Z, Z = Z*T  (no T for p2)
-     * And ge_p1p1_to_p3: X=X*T, Y=Y*Z, Z=Z*T, T=X*Y
-     * So for dbl result to match X3=E*F, Y3=G*H, Z3=F*G, T3=E*H:
-     *   p1p1.X = E, p1p1.Y = G, p1p1.Z = H? No:
-     *   X3 = p1p1.X * p1p1.T = E * F  => T = F, X = E
-     *   Y3 = p1p1.Y * p1p1.Z = G * H  => Y = G, Z = H
-     *   Z3 = p1p1.Z * p1p1.T = H * F  -- but we need F*G!
-     *
-     * Correct mapping from Hisil extended dbl:
-     *   X3 = E*F, Y3 = G*H, Z3 = F*G, T3 = E*H
-     * So: p1p1.X=E, p1p1.Y=G, p1p1.Z=F? Then Y3=G*F wrong.
-     *   p1p1.X=E, p1p1.Y=G, p1p1.Z=H, p1p1.T=F:
-     *   X3=E*F, Y3=G*H, Z3=H*F, T3=E*G — Z3 and T3 wrong.
-     *   p1p1.X=E, p1p1.Y=H, p1p1.Z=G, p1p1.T=F:
-     *   X3=E*F, Y3=H*G, Z3=G*F, T3=E*H — YES matches.
-     */
-    fe25519_native_copy(&r->X, &E);
-    fe25519_native_copy(&r->Y, &H);
-    fe25519_native_copy(&r->Z, &G);
-    fe25519_native_copy(&r->T, &F);
+    fe25519_native_copy(&q.X, &p->X);
+    fe25519_native_copy(&q.Y, &p->Y);
+    fe25519_native_copy(&q.Z, &p->Z);
+    ge25519_p2_dbl_p1p1(r, &q);
 }
 
 void ge25519_n_from_pt(ge25519_n_t *out, const ge25519_pt_t *in)
@@ -803,23 +819,34 @@ static void ge25519_n_scalarmult_base_ref10(ge25519_n_t *r,
     int8_t e[NOXTLS_ED25519_BASE_DIGIT_COUNT];
     ge25519_precomp_t t;
     ge25519_p1p1_t p1;
+    ge25519_p2_t s;
     int32_t i;
-    uint32_t k;
 
     ge25519_to_signed_radix16(e, s_le);
-    ge25519_n_zero(r);
 
-    /* Odd digits first (ref10 ge_scalarmult_base). */
-    for(i = 1; i < (int32_t)NOXTLS_ED25519_BASE_DIGIT_COUNT; i += 2) {
+    /* First odd digit into identity (ref10-style), then remaining odds. */
+    ge25519_n_zero(r);
+    ge25519_base_select(&t, g_base_bi[0], e[1]);
+    ge25519_madd(&p1, r, &t);
+    ge25519_p1p1_to_n(r, &p1);
+    for(i = 3; i < (int32_t)NOXTLS_ED25519_BASE_DIGIT_COUNT; i += 2) {
         ge25519_base_select(&t, g_base_bi[(uint32_t)i / 2U], e[i]);
         ge25519_madd(&p1, r, &t);
         ge25519_p1p1_to_n(r, &p1);
     }
 
-    for(k = 0U; k < NOXTLS_ED25519_SCALAR_WINDOW_BITS; k++) {
-        ge25519_n_dbl_p1p1(&p1, r);
-        ge25519_p1p1_to_n(r, &p1);
-    }
+    /* Four doubles via p2 accumulator (ref10: p3_to_p2 + 4x p2_dbl). */
+    fe25519_native_copy(&s.X, &r->X);
+    fe25519_native_copy(&s.Y, &r->Y);
+    fe25519_native_copy(&s.Z, &r->Z);
+    ge25519_p2_dbl_p1p1(&p1, &s);
+    ge25519_p1p1_to_p2(&s, &p1);
+    ge25519_p2_dbl_p1p1(&p1, &s);
+    ge25519_p1p1_to_p2(&s, &p1);
+    ge25519_p2_dbl_p1p1(&p1, &s);
+    ge25519_p1p1_to_p2(&s, &p1);
+    ge25519_p2_dbl_p1p1(&p1, &s);
+    ge25519_p1p1_to_n(r, &p1);
 
     for(i = 0; i < (int32_t)NOXTLS_ED25519_BASE_DIGIT_COUNT; i += 2) {
         ge25519_base_select(&t, g_base_bi[(uint32_t)i / 2U], e[i]);
@@ -922,72 +949,57 @@ void ge25519_scalarmult_base(ge25519_pt_t *R,
 {
     ge25519_n_t r_n;
 
-#if defined(NOXTLS_ED25519_SMALL_BASE)
-    if(ge25519_base_table_small_init() != NOXTLS_RETURN_SUCCESS) {
-        ge25519_n_zero(&r_n);
-        ge25519_n_to_pt(R, &r_n);
-        return;
-    }
-    ge25519_n_scalarmult_windowed(&r_n, s_le, g_base_table_small);
-#else
-#if defined(NOXTLS_ED25519_DUMP_BASE)
-    if(ge25519_base_bi_init() != NOXTLS_RETURN_SUCCESS) {
-        ge25519_n_zero(&r_n);
-        ge25519_n_to_pt(R, &r_n);
-        return;
-    }
-#endif
-    /* Production: g_base_bi is const flash from noxtls_ed25519_base_data.inc. */
-    ge25519_n_scalarmult_base_ref10(&r_n, s_le);
-#endif
+    ge25519_scalarmult_base_n(&r_n, s_le);
     ge25519_n_to_pt(R, &r_n);
 }
 
-void ge25519_double_scalarmult(ge25519_pt_t *R,
-                               const uint8_t a_le[NOXTLS_ED25519_FE25519_BYTES],
-                               const ge25519_pt_t *P,
-                               const uint8_t b_le[NOXTLS_ED25519_FE25519_BYTES])
+/**
+ * @brief Native double-scalar: R = [a]P + [b]B (ref10 ge_double_scalarmult_vartime).
+ *
+ * Uses a projective (p2) accumulator with p2_dbl + p1p1_to_p2 on the hot path.
+ * Result X:Y:Z are projective; T is set to X*Y (valid once Z=1 after encode path).
+ *
+ * @param[out] R Native result (projective X,Y,Z sufficient for encode).
+ * @param[in] a_le Little-endian scalar for @p P.
+ * @param[in] P Native variable base.
+ * @param[in] b_le Little-endian scalar for base point B.
+ */
+void ge25519_double_scalarmult_n(ge25519_n_t *R,
+                                        const uint8_t a_le[NOXTLS_ED25519_FE25519_BYTES],
+                                        const ge25519_n_t *P,
+                                        const uint8_t b_le[NOXTLS_ED25519_FE25519_BYTES])
 {
-    /*
-     * Variable-time sliding-window double-scalar (ref10 ge_double_scalarmult_vartime):
-     * R = [a]P + [b]B. Safe for public verification scalars.
-     */
     int8_t aslide[NOXTLS_ED25519_SCALAR_BIT_LENGTH];
     int8_t bslide[NOXTLS_ED25519_SCALAR_BIT_LENGTH];
     ge25519_cached_t Ai[NOXTLS_ED25519_SLIDE_ODD_COUNT];
-    ge25519_n_t A;
     ge25519_n_t A2;
     ge25519_n_t u;
-    ge25519_n_t r_n;
+    ge25519_n_t odd;
+    ge25519_p2_t r;
     ge25519_p1p1_t t;
     int32_t i;
+    uint32_t j;
 
 #if defined(NOXTLS_ED25519_DUMP_BASE) || defined(NOXTLS_ED25519_SMALL_BASE)
     if(ge25519_base_odd_init() != NOXTLS_RETURN_SUCCESS) {
-        ge25519_n_zero(&r_n);
-        ge25519_n_to_pt(R, &r_n);
+        ge25519_n_zero(R);
         return;
     }
 #endif
-    /* Production: g_base_odd is const flash from noxtls_ed25519_base_data.inc. */
 
     ge25519_slide(aslide, a_le);
     ge25519_slide(bslide, b_le);
 
-    ge25519_n_from_pt(&A, P);
-    ge25519_n_to_cached(&Ai[0], &A);
-    ge25519_n_dbl(&A2, &A);
-    {
-        ge25519_n_t odd = A;
-        uint32_t j;
-        for(j = 1U; j < NOXTLS_ED25519_SLIDE_ODD_COUNT; j++) {
-            ge25519_add_cached(&t, &A2, &Ai[j - 1U]);
-            ge25519_p1p1_to_n(&odd, &t);
-            ge25519_n_to_cached(&Ai[j], &odd);
-        }
+    ge25519_n_to_cached(&Ai[0], P);
+    ge25519_n_dbl(&A2, P);
+    odd = *P;
+    for(j = 1U; j < NOXTLS_ED25519_SLIDE_ODD_COUNT; j++) {
+        ge25519_add_cached(&t, &A2, &Ai[j - 1U]);
+        ge25519_p1p1_to_n(&odd, &t);
+        ge25519_n_to_cached(&Ai[j], &odd);
     }
 
-    ge25519_n_zero(&r_n);
+    ge25519_p2_0(&r);
 
     for(i = (int32_t)NOXTLS_ED25519_SCALAR_BIT_LENGTH - 1; i >= 0; i--) {
         if((aslide[i] != 0) || (bslide[i] != 0)) {
@@ -996,7 +1008,7 @@ void ge25519_double_scalarmult(ge25519_pt_t *R,
     }
 
     for(; i >= 0; i--) {
-        ge25519_n_dbl_p1p1(&t, &r_n);
+        ge25519_p2_dbl_p1p1(&t, &r);
 
         if(aslide[i] > 0) {
             ge25519_p1p1_to_n(&u, &t);
@@ -1014,13 +1026,37 @@ void ge25519_double_scalarmult(ge25519_pt_t *R,
             ge25519_msub(&t, &u, &g_base_odd[(-bslide[i]) / 2]);
         }
 
-        ge25519_p1p1_to_n(&r_n, &t);
+        ge25519_p1p1_to_p2(&r, &t);
     }
 
+    /* Projective result; T=X*Y is unused by encode_n (uses X/Z, Y/Z only). */
+    fe25519_native_copy(&R->X, &r.X);
+    fe25519_native_copy(&R->Y, &r.Y);
+    fe25519_native_copy(&R->Z, &r.Z);
+    fe25519_native_mul(&R->T, &r.X, &r.Y);
+}
+
+void ge25519_double_scalarmult(ge25519_pt_t *R,
+                               const uint8_t a_le[NOXTLS_ED25519_FE25519_BYTES],
+                               const ge25519_pt_t *P,
+                               const uint8_t b_le[NOXTLS_ED25519_FE25519_BYTES])
+{
+    ge25519_n_t P_n;
+    ge25519_n_t r_n;
+    fe25519_native_t zinv;
+
+    ge25519_n_from_pt(&P_n, P);
+    ge25519_double_scalarmult_n(&r_n, a_le, &P_n, b_le);
+    /* Affine for BE ABI so T = XY/Z holds. */
+    fe25519_native_inv(&zinv, &r_n.Z);
+    fe25519_native_mul(&r_n.X, &r_n.X, &zinv);
+    fe25519_native_mul(&r_n.Y, &r_n.Y, &zinv);
+    fe25519_native_one(&r_n.Z);
+    fe25519_native_mul(&r_n.T, &r_n.X, &r_n.Y);
     ge25519_n_to_pt(R, &r_n);
 }
 
-noxtls_return_t ge25519_decode(ge25519_pt_t *p, const uint8_t enc[NOXTLS_ED25519_FE25519_BYTES])
+noxtls_return_t ge25519_decode_n(ge25519_n_t *p, const uint8_t enc[NOXTLS_ED25519_FE25519_BYTES])
 {
     /* RFC 8032 §5.1.3: recover x from compressed y and sign bit. */
     uint8_t y_le[NOXTLS_ED25519_FE25519_BYTES];
@@ -1039,7 +1075,6 @@ noxtls_return_t ge25519_decode(ge25519_pt_t *p, const uint8_t enc[NOXTLS_ED25519
     fe25519_native_t d;
     fe25519_native_t neg_u;
     unsigned int sign;
-    ge25519_n_t pn;
 
     if(p == NULL || enc == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -1092,28 +1127,70 @@ noxtls_return_t ge25519_decode(ge25519_pt_t *p, const uint8_t enc[NOXTLS_ED25519
         fe25519_native_neg(&x, &x);
     }
 
-    fe25519_native_copy(&pn.X, &x);
-    fe25519_native_copy(&pn.Y, &y);
-    fe25519_native_one(&pn.Z);
-    fe25519_native_mul(&pn.T, &pn.X, &pn.Y);
+    fe25519_native_copy(&p->X, &x);
+    fe25519_native_copy(&p->Y, &y);
+    fe25519_native_one(&p->Z);
+    fe25519_native_mul(&p->T, &p->X, &p->Y);
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t ge25519_decode(ge25519_pt_t *p, const uint8_t enc[NOXTLS_ED25519_FE25519_BYTES])
+{
+    ge25519_n_t pn;
+    noxtls_return_t rc;
+
+    if(p == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    rc = ge25519_decode_n(&pn, enc);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
     ge25519_n_to_pt(p, &pn);
     return NOXTLS_RETURN_SUCCESS;
+}
+
+void ge25519_encode_n(uint8_t enc[NOXTLS_ED25519_FE25519_BYTES], const ge25519_n_t *p)
+{
+    /* RFC 8032 §5.1.2: compress (x,y) with sign(x) in high bit of y encoding. */
+    fe25519_native_t zinv;
+    fe25519_native_t x;
+    fe25519_native_t y;
+
+    fe25519_native_inv(&zinv, &p->Z);
+    fe25519_native_mul(&x, &p->X, &zinv);
+    fe25519_native_mul(&y, &p->Y, &zinv);
+    fe25519_native_to_le(enc, &y);
+    enc[NOXTLS_ED25519_FE25519_BYTES - 1U] |=
+        (uint8_t)(fe25519_native_isnegative(&x) << 7);
 }
 
 void ge25519_encode(uint8_t enc[NOXTLS_ED25519_FE25519_BYTES], const ge25519_pt_t *p)
 {
     ge25519_n_t pn;
-    fe25519_native_t zinv;
-    fe25519_native_t x;
-    fe25519_native_t y;
 
     ge25519_n_from_pt(&pn, p);
-    fe25519_native_inv(&zinv, &pn.Z);
-    fe25519_native_mul(&x, &pn.X, &zinv);
-    fe25519_native_mul(&y, &pn.Y, &zinv);
-    fe25519_native_to_le(enc, &y);
-    enc[NOXTLS_ED25519_FE25519_BYTES - 1U] |=
-        (uint8_t)(fe25519_native_isnegative(&x) << 7);
+    ge25519_encode_n(enc, &pn);
+}
+
+void ge25519_scalarmult_base_n(ge25519_n_t *R,
+                               const uint8_t s_le[NOXTLS_ED25519_FE25519_BYTES])
+{
+#if defined(NOXTLS_ED25519_SMALL_BASE)
+    if(ge25519_base_table_small_init() != NOXTLS_RETURN_SUCCESS) {
+        ge25519_n_zero(R);
+        return;
+    }
+    ge25519_n_scalarmult_windowed(R, s_le, g_base_table_small);
+#else
+#if defined(NOXTLS_ED25519_DUMP_BASE)
+    if(ge25519_base_bi_init() != NOXTLS_RETURN_SUCCESS) {
+        ge25519_n_zero(R);
+        return;
+    }
+#endif
+    ge25519_n_scalarmult_base_ref10(R, s_le);
+#endif
 }
 
 #if defined(NOXTLS_ED25519_DUMP_BASE)

@@ -123,6 +123,15 @@ void ge25519_scalarmult_base(ge25519_pt_t *R,
                              const uint8_t s_le[NOXTLS_ED25519_FE25519_BYTES]);
 
 /**
+ * @brief Fixed-base scalar multiplication into native extended coordinates.
+ *
+ * @param[out] R Native result.
+ * @param[in] s_le Little-endian scalar.
+ */
+void ge25519_scalarmult_base_n(ge25519_n_t *R,
+                               const uint8_t s_le[NOXTLS_ED25519_FE25519_BYTES]);
+
+/**
  * @brief Double-scalar: R = [a]P + [b]B (sliding-window, variable-time for verify).
  *
  * @param[out] R Result point (BE ABI).
@@ -136,6 +145,19 @@ void ge25519_double_scalarmult(ge25519_pt_t *R,
                                const uint8_t b_le[NOXTLS_ED25519_FE25519_BYTES]);
 
 /**
+ * @brief Double-scalar into native coordinates (ref10 p2 accumulator).
+ *
+ * @param[out] R Native result (X:Y:Z projective; encode via @ref ge25519_encode_n).
+ * @param[in] a_le Little-endian scalar for @p P.
+ * @param[in] P Native variable base.
+ * @param[in] b_le Little-endian scalar for base point B.
+ */
+void ge25519_double_scalarmult_n(ge25519_n_t *R,
+                                 const uint8_t a_le[NOXTLS_ED25519_FE25519_BYTES],
+                                 const ge25519_n_t *P,
+                                 const uint8_t b_le[NOXTLS_ED25519_FE25519_BYTES]);
+
+/**
  * @brief Decode a 32-byte compressed Edwards-y encoding (RFC 8032 §5.1.3).
  *
  * @param[out] p Decoded point in BE extended coordinates.
@@ -147,12 +169,31 @@ noxtls_return_t ge25519_decode(ge25519_pt_t *p,
                                const uint8_t enc[NOXTLS_ED25519_FE25519_BYTES]);
 
 /**
+ * @brief Decode compressed point into native extended coordinates (RFC 8032 §5.1.3).
+ *
+ * @param[out] p Native decoded point.
+ * @param[in] enc Compressed encoding (little-endian wire order).
+ *
+ * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` if invalid.
+ */
+noxtls_return_t ge25519_decode_n(ge25519_n_t *p,
+                                 const uint8_t enc[NOXTLS_ED25519_FE25519_BYTES]);
+
+/**
  * @brief Encode an extended point to 32-byte compressed form (RFC 8032 §5.1.2).
  *
  * @param[out] enc Compressed public encoding.
  * @param[in] p Point in BE extended coordinates.
  */
 void ge25519_encode(uint8_t enc[NOXTLS_ED25519_FE25519_BYTES], const ge25519_pt_t *p);
+
+/**
+ * @brief Encode a native point to 32-byte compressed form (RFC 8032 §5.1.2).
+ *
+ * @param[out] enc Compressed public encoding.
+ * @param[in] p Native point (projective X:Y:Z is sufficient).
+ */
+void ge25519_encode_n(uint8_t enc[NOXTLS_ED25519_FE25519_BYTES], const ge25519_n_t *p);
 
 #ifdef __cplusplus
 }

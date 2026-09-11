@@ -144,12 +144,20 @@ void fe25519_native_mul(fe25519_native_t *out,
                         const fe25519_native_t *b);
 
 /**
- * @brief Field square: out = a^2 mod p.
+ * @brief Field square: out = a^2 mod p (dedicated ref10 fe_sq, not via mul).
  *
  * @param[out] out Square.
  * @param[in] a Input.
  */
 void fe25519_native_sq(fe25519_native_t *out, const fe25519_native_t *a);
+
+/**
+ * @brief Field square-then-double: out = 2 * a^2 mod p (ref10 fe_sq2).
+ *
+ * @param[out] out Twice the square of @p a.
+ * @param[in] a Input.
+ */
+void fe25519_native_sq2(fe25519_native_t *out, const fe25519_native_t *a);
 
 /**
  * @brief Multiplicative inverse via Fermat: out = a^(p-2) mod p.
