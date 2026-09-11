@@ -320,7 +320,9 @@ static void ghash_finalize(uint8_t x[16], const uint32_t table[32][16][4], uint6
  */
 static noxtls_return_t aes_block(const noxtls_aes_context_t *ctx, const uint8_t in[16], uint8_t out[16])
 {
-    return noxtls_aes_encrypt_block_ctx_software_internal(ctx, in, out);
+    /* Prefer the configured block backend (STM32/nRF port, AES-NI, …) so
+     * HW builds accelerate GCM CTR/GHASH keystream, not only H7 full-AEAD. */
+    return noxtls_aes_encrypt_block_ctx_internal(ctx, in, out);
 }
 
 /**
