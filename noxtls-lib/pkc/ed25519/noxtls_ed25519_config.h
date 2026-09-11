@@ -136,12 +136,17 @@
      NOXTLS_ED25519_PRECOMP_BYTES)
 
 /**
- * Sliding-window max odd multiple index for verify double-scalar (ref10 slide).
- * Digits in [-15,15]; table holds A,3A,...,15A (8 entries).
+ * Sliding-window max odd multiple index for verify double-scalar.
+ * Digits in [-31,31]; table holds A,3A,...,31A (16 entries). Wider than
+ * classic ref10 ([-15,15]/8) to cut Hamming weight on the verify ladder.
  */
-#define NOXTLS_ED25519_SLIDE_ODD_COUNT 8U
+#ifndef NOXTLS_ED25519_SLIDE_ODD_COUNT
+#define NOXTLS_ED25519_SLIDE_ODD_COUNT 16U
+#endif
 
 /** Maximum absolute slide digit (inclusive). */
-#define NOXTLS_ED25519_SLIDE_MAX_ABS 15
+#ifndef NOXTLS_ED25519_SLIDE_MAX_ABS
+#define NOXTLS_ED25519_SLIDE_MAX_ABS 31
+#endif
 
 #endif /* _NOXTLS_ED25519_CONFIG_H_ */

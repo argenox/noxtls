@@ -110,28 +110,21 @@ static int g_ed25519_curve_ready;
 /* Mutable tables filled then dumped by host tool (NOXTLS_ED25519_DUMP_BASE). */
 static ge25519_precomp_t g_base_bi[NOXTLS_ED25519_BASE_POS_COUNT][NOXTLS_ED25519_BASE_ODD_COUNT];
 static int g_base_bi_ready;
-static ge25519_precomp_t g_base_odd[NOXTLS_ED25519_BASE_ODD_COUNT];
+static ge25519_precomp_t g_base_odd[NOXTLS_ED25519_SLIDE_ODD_COUNT];
 static int g_base_odd_ready;
 static ge25519_precomp_t g_base_comb[NOXTLS_ED25519_COMB_BLOCKS][NOXTLS_ED25519_COMB_POINTS];
 static int g_base_comb_ready;
 #elif defined(NOXTLS_ED25519_SMALL_BASE)
 static ge25519_n_t g_base_table_small[NOXTLS_ED25519_SCALAR_TABLE_ENTRIES];
 static int g_base_table_small_ready;
-static ge25519_precomp_t g_base_odd[NOXTLS_ED25519_BASE_ODD_COUNT];
+static ge25519_precomp_t g_base_odd[NOXTLS_ED25519_SLIDE_ODD_COUNT];
 static int g_base_odd_ready;
 #else
-/* Verify odd-B table in flash; fixed-base uses Hamburg signed multi-comb. */
-#if defined(__GNUC__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmissing-braces"
-#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
-#endif
-#include "noxtls_ed25519_base_odd.inc"
-#if defined(__GNUC__)
-#pragma GCC diagnostic pop
-#endif
+/* Comb + verify odd-B tables: lazy BSS (flash dump can replace later). */
 static ge25519_precomp_t g_base_comb[NOXTLS_ED25519_COMB_BLOCKS][NOXTLS_ED25519_COMB_POINTS];
 static int g_base_comb_ready;
+static ge25519_precomp_t g_base_odd[NOXTLS_ED25519_SLIDE_ODD_COUNT];
+static int g_base_odd_ready;
 #endif
 
 /**
@@ -252,7 +245,6 @@ static void ge25519_precomp_0(ge25519_precomp_t *t)
  * @param[out] t Precomp (y+x, y-x, 2dxy).
  * @param[in] p Extended point with Z preferably 1 (affine).
  */
-#if !defined(NOXTLS_ED25519_SMALL_BASE) || defined(NOXTLS_ED25519_DUMP_BASE)
 static void ge25519_n_to_precomp(ge25519_precomp_t *t, const ge25519_n_t *p)
 {
     fe25519_native_t x;
@@ -268,7 +260,6 @@ static void ge25519_n_to_precomp(ge25519_precomp_t *t, const ge25519_n_t *p)
     fe25519_native_mul(&xy, &x, &y);
     fe25519_native_mul(&t->xy2d, &xy, &g_ed25519_d2);
 }
-#endif
 
 /**
  * @brief Convert extended to cached form for ge_add/ge_sub.
@@ -703,7 +694,7 @@ static void ge25519_base_select(ge25519_precomp_t *t,
  *
  * @param[in,out] p Point to project to Z=1.
  */
-#if 1 /* always available for table builders */
+/* Always available for table builders (comb / odd-B / dump). */
 static void ge25519_n_to_affine(ge25519_n_t *p)
 {
     fe25519_native_t zinv;
@@ -713,18 +704,15 @@ static void ge25519_n_to_affine(ge25519_n_t *p)
     fe25519_native_one(&p->Z);
     fe25519_native_mul(&p->T, &p->X, &p->Y);
 }
-#endif
 
 /**
  * @brief Lazy-init odd multiples of B used by sliding-window verify.
  * @internal
  *
- * Only used when tables are mutable (DUMP_BASE or SMALL_BASE). Production
- * builds include flash-resident `g_base_odd` from `noxtls_ed25519_base_odd.inc`.
+ * Builds A,3A,...,(2*SLIDE_ODD_COUNT-1)A as Duif precomp.
  *
  * @return Success or failure.
  */
-#if defined(NOXTLS_ED25519_DUMP_BASE) || defined(NOXTLS_ED25519_SMALL_BASE)
 static noxtls_return_t ge25519_base_odd_init(void)
 {
     ge25519_pt_t B_pt;
@@ -745,17 +733,16 @@ static noxtls_return_t ge25519_base_odd_init(void)
     ge25519_n_to_affine(&B2);
 
     odd = B;
-    for(j = 0U; j < NOXTLS_ED25519_BASE_ODD_COUNT; j++) {
+    for(j = 0U; j < NOXTLS_ED25519_SLIDE_ODD_COUNT; j++) {
         ge25519_n_to_affine(&odd);
         ge25519_n_to_precomp(&g_base_odd[j], &odd);
-        if(j + 1U < NOXTLS_ED25519_BASE_ODD_COUNT) {
+        if(j + 1U < NOXTLS_ED25519_SLIDE_ODD_COUNT) {
             ge25519_n_add(&odd, &odd, &B2);
         }
     }
     g_base_odd_ready = 1;
     return NOXTLS_RETURN_SUCCESS;
 }
-#endif /* DUMP_BASE || SMALL_BASE */
 
 #if defined(NOXTLS_ED25519_DUMP_BASE)
 /**
@@ -1215,12 +1202,10 @@ void ge25519_double_scalarmult_n(ge25519_n_t *R,
     int32_t i;
     uint32_t j;
 
-#if defined(NOXTLS_ED25519_DUMP_BASE) || defined(NOXTLS_ED25519_SMALL_BASE)
     if(ge25519_base_odd_init() != NOXTLS_RETURN_SUCCESS) {
         ge25519_n_zero(R);
         return;
     }
-#endif
 
     ge25519_slide(aslide, a_le);
     ge25519_slide(bslide, b_le);
@@ -1495,11 +1480,11 @@ int main(void)
     fputs("};\n\n", stdout);
 #endif
     fputs("static const ge25519_precomp_t g_base_odd"
-          "[NOXTLS_ED25519_BASE_ODD_COUNT] = {\n",
+          "[NOXTLS_ED25519_SLIDE_ODD_COUNT] = {\n",
           stdout);
-    for(j = 0U; j < NOXTLS_ED25519_BASE_ODD_COUNT; j++) {
+    for(j = 0U; j < NOXTLS_ED25519_SLIDE_ODD_COUNT; j++) {
         ge25519_dump_precomp(stdout, &g_base_odd[j]);
-        fputs((j + 1U < NOXTLS_ED25519_BASE_ODD_COUNT) ? ",\n" : "\n", stdout);
+        fputs((j + 1U < NOXTLS_ED25519_SLIDE_ODD_COUNT) ? ",\n" : "\n", stdout);
     }
     fputs("};\n", stdout);
     return 0;

@@ -30,6 +30,17 @@
 
 #include "noxtls_ed25519_fe.h"
 
+/*
+ * On Cortex-M4/M7, keep 32x32→64 products as SMULL via int32*(int64_t).
+ * Full UMAAL schoolbook (unsigned limb reformulation) is a follow-on P1 stretch;
+ * the portable path already maps cleanly to SMULL/SMLAL with -O2/-O3.
+ */
+#if defined(__ARM_ARCH_7EM__) || defined(__ARM_ARCH_8M_MAIN__)
+#define FE25519_HOT __attribute__((optimize("O3")))
+#else
+#define FE25519_HOT
+#endif
+
 /**
  * @brief Swap endianness of a 32-byte field element (LE <-> BE).
  * @internal
@@ -274,7 +285,7 @@ void fe25519_native_sub(fe25519_native_t *out, const fe25519_native_t *a, const 
         (a0) -= (c) << 25; \
     } while(0)
 
-void fe25519_native_mul(fe25519_native_t *out, const fe25519_native_t *a, const fe25519_native_t *b)
+FE25519_HOT void fe25519_native_mul(fe25519_native_t *out, const fe25519_native_t *a, const fe25519_native_t *b)
 {
     /* ref10 / wolfSSL fe_mul: keep limbs int32 so f*(int64_t)g is SMULL on Cortex-M4. */
     const int32_t f0 = a->v[0];
@@ -448,7 +459,7 @@ void fe25519_native_mul(fe25519_native_t *out, const fe25519_native_t *a, const 
     out->v[9] = (int32_t)h9;
 }
 
-void fe25519_native_sq(fe25519_native_t *out, const fe25519_native_t *a)
+FE25519_HOT void fe25519_native_sq(fe25519_native_t *out, const fe25519_native_t *a)
 {
     /* Dedicated ref10 / wolfSSL fe_sq (fewer products than mul(a,a)). */
     const int32_t f0 = a->v[0];
@@ -566,7 +577,7 @@ void fe25519_native_sq(fe25519_native_t *out, const fe25519_native_t *a)
     out->v[9] = (int32_t)h9;
 }
 
-void fe25519_native_sq2(fe25519_native_t *out, const fe25519_native_t *a)
+FE25519_HOT void fe25519_native_sq2(fe25519_native_t *out, const fe25519_native_t *a)
 {
     /* ref10 / wolfSSL fe_sq2: square then double before carry (2*a^2). */
     const int32_t f0 = a->v[0];
