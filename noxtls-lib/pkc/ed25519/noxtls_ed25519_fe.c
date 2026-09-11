@@ -28,14 +28,16 @@
 
 #include <string.h>
 
+#include "noxtls_ed25519_config.h"
 #include "noxtls_ed25519_fe.h"
 
 /*
- * On Cortex-M4/M7, keep 32x32→64 products as SMULL via int32*(int64_t).
- * Full UMAAL schoolbook (unsigned limb reformulation) is a follow-on P1 stretch;
- * the portable path already maps cleanly to SMULL/SMLAL with -O2/-O3.
+ * On Cortex-M4/M7 with NOXTLS_ED25519_FE_USE_HAASE_ASM, mul/sq/sq2 live in
+ * noxtls_ed25519_fe_arm.c (Haase CC0 packed UMAAL). Otherwise this file owns
+ * the portable 10-limb SMULL path.
  */
-#if defined(__ARM_ARCH_7EM__) || defined(__ARM_ARCH_8M_MAIN__)
+#if (defined(__ARM_ARCH_7EM__) || defined(__ARM_ARCH_8M_MAIN__)) && \
+    !defined(NOXTLS_ED25519_FE_USE_HAASE_ASM)
 #define FE25519_HOT __attribute__((optimize("O3")))
 #else
 #define FE25519_HOT
@@ -285,6 +287,8 @@ void fe25519_native_sub(fe25519_native_t *out, const fe25519_native_t *a, const 
         (a0) -= (c) << 25; \
     } while(0)
 
+#if !((defined(__ARM_ARCH_7EM__) || defined(__ARM_ARCH_8M_MAIN__)) && \
+      defined(NOXTLS_ED25519_FE_USE_HAASE_ASM))
 FE25519_HOT void fe25519_native_mul(fe25519_native_t *out, const fe25519_native_t *a, const fe25519_native_t *b)
 {
     /* ref10 / wolfSSL fe_mul: keep limbs int32 so f*(int64_t)g is SMULL on Cortex-M4. */
@@ -705,6 +709,7 @@ FE25519_HOT void fe25519_native_sq2(fe25519_native_t *out, const fe25519_native_
     out->v[8] = (int32_t)h8;
     out->v[9] = (int32_t)h9;
 }
+#endif /* !HAASE_ASM — mul/sq/sq2 provided by noxtls_ed25519_fe_arm.c */
 
 static void fe25519_native_sq_times(fe25519_native_t *out, const fe25519_native_t *z, uint32_t count)
 {

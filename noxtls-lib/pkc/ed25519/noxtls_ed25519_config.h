@@ -136,6 +136,15 @@
      NOXTLS_ED25519_PRECOMP_BYTES)
 
 /**
+ * Enable Björn Haase CC0 Cortex-M4 packed fe25519 mul/sqr assembly.
+ * When set on ARMv7E-M / ARMv8-M Mainline, native_mul/sq/sq2 use asm/ after
+ * a fast limb pack. Undefine to keep the portable 10-limb SMULL path.
+ */
+#ifndef NOXTLS_ED25519_FE_USE_HAASE_ASM
+#define NOXTLS_ED25519_FE_USE_HAASE_ASM
+#endif
+
+/**
  * Sliding-window max odd multiple index for verify double-scalar.
  * Digits in [-31,31]; table holds A,3A,...,31A (16 entries). Wider than
  * classic ref10 ([-15,15]/8) to cut Hamming weight on the verify ladder.

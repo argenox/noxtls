@@ -80,9 +80,19 @@ if(NOXTLS_CFG_FEATURE_ED25519)
     list(APPEND PKC_SOURCES
         ed25519/noxtls_ed25519.c
         ed25519/noxtls_ed25519_fe.c
+        ed25519/noxtls_ed25519_fe_arm.c
         ed25519/noxtls_ed25519_ge.c
         ed25519/noxtls_ed25519_sc.c
     )
+    # Haase CC0 packed mul/sqr for Cortex-M4/M7 (gated in C by arch + config).
+    if(CMAKE_C_COMPILER MATCHES "arm-none-eabi" OR
+       CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm|ARM|aarch32)")
+        enable_language(ASM)
+        list(APPEND PKC_SOURCES
+            ed25519/asm/noxtls_fe25519_mul_armv7em.S
+            ed25519/asm/noxtls_fe25519_sqr_armv7em.S
+        )
+    endif()
 endif()
 if(NOXTLS_CFG_FEATURE_ED448)
     list(APPEND PKC_SOURCES ed448/noxtls_ed448.c)

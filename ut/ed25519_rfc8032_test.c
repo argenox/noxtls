@@ -31,6 +31,8 @@
 
 #include "noxtls_common.h"
 #include "pkc/ed25519/noxtls_ed25519.h"
+#include "pkc/ed25519/noxtls_ed25519_fe.h"
+#include "pkc/ed25519/noxtls_ed25519_fe_arm.h"
 
 /* RFC 8032 §7.1 TEST 1 — empty message. */
 static const uint8_t tv1_sk[NOXTLS_ED25519_PRIVATE_KEY_SIZE] = {
@@ -104,6 +106,53 @@ static int expect(int cond, const char *msg)
     return 1;
 }
 
+/**
+ * @brief Host check: packed u32 mul/sqr match limb mul/sq after canonicalization.
+ * @internal
+ *
+ * @return 1 on match, 0 on mismatch.
+ */
+static int fe25519_u32_vs_limb_check(void)
+{
+    fe25519_native_t a;
+    fe25519_native_t b;
+    fe25519_native_t r_limb;
+    fe25519_native_t r_u32;
+    fe25519_native_t s_limb;
+    fe25519_native_t s_u32;
+    uint32_t au[8];
+    uint32_t bu[8];
+    uint32_t ru[8];
+    uint32_t su[8];
+    uint8_t x[NOXTLS_ED25519_FE25519_BYTES];
+    uint8_t y[NOXTLS_ED25519_FE25519_BYTES];
+
+    fe25519_native_from_le(&a, tv1_pk);
+    fe25519_native_from_le(&b, tv1_sig);
+
+    fe25519_native_mul(&r_limb, &a, &b);
+    fe25519_limbs_to_u32(au, &a);
+    fe25519_limbs_to_u32(bu, &b);
+    fe25519_u32_mul(ru, au, bu);
+    fe25519_u32_to_limbs(&r_u32, ru);
+    fe25519_native_to_le(x, &r_limb);
+    fe25519_native_to_le(y, &r_u32);
+    if(memcmp(x, y, sizeof(x)) != 0) {
+        return 0;
+    }
+
+    fe25519_native_sq(&s_limb, &a);
+    fe25519_u32_sqr(su, au);
+    fe25519_u32_to_limbs(&s_u32, su);
+    fe25519_native_to_le(x, &s_limb);
+    fe25519_native_to_le(y, &s_u32);
+    if(memcmp(x, y, sizeof(x)) != 0) {
+        return 0;
+    }
+
+    return 1;
+}
+
 int main(void)
 {
     uint8_t pk[NOXTLS_ED25519_PUBLIC_KEY_SIZE];
@@ -112,6 +161,8 @@ int main(void)
     uint8_t msg_nonempty[1] = {0x00};
     noxtls_return_t rc;
     int ok = 1;
+
+    ok &= expect(fe25519_u32_vs_limb_check() != 0, "u32 mul/sqr matches limb path");
 
     /* Positive: public key from seed (RFC 8032 §5.1.5 / §7.1). */
     rc = noxtls_ed25519_public_key(tv1_sk, pk);
