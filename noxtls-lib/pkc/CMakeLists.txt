@@ -77,7 +77,12 @@ if(NOXTLS_CFG_FEATURE_X448)
     list(APPEND PKC_SOURCES x448/noxtls_x448.c)
 endif()
 if(NOXTLS_CFG_FEATURE_ED25519)
-    list(APPEND PKC_SOURCES ed25519/noxtls_ed25519.c)
+    list(APPEND PKC_SOURCES
+        ed25519/noxtls_ed25519.c
+        ed25519/noxtls_ed25519_fe.c
+        ed25519/noxtls_ed25519_ge.c
+        ed25519/noxtls_ed25519_sc.c
+    )
 endif()
 if(NOXTLS_CFG_FEATURE_ED448)
     list(APPEND PKC_SOURCES ed448/noxtls_ed448.c)

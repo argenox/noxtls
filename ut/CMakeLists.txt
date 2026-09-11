@@ -46,9 +46,18 @@ target_link_libraries(bounded_memory_allocator_test PRIVATE
 add_test(NAME bounded_memory_allocator_test COMMAND bounded_memory_allocator_test)
 
 if(NOT TARGET utnox)
-    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../utnox/utnox" utnox)
+    set(_noxtls_utnox_dir "${CMAKE_CURRENT_SOURCE_DIR}/../../utnox/utnox")
+    if(EXISTS "${_noxtls_utnox_dir}/CMakeLists.txt")
+        add_subdirectory("${_noxtls_utnox_dir}" utnox)
+    endif()
 endif()
 
+set(_noxtls_have_utnox FALSE)
+if(TARGET utnox)
+    set(_noxtls_have_utnox TRUE)
+endif()
+
+if(_noxtls_have_utnox)
 set(AES_ACCEL_BACKEND_TEST_SOURCE "${NOXTLS_ROOT_UT_DIR}/encryption/aes_accel_backend_test.c")
 add_executable(aes_accel_backend_test "${AES_ACCEL_BACKEND_TEST_SOURCE}")
 if(MSVC)
@@ -84,6 +93,7 @@ target_include_directories(cmac_streaming_test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../noxtls-lib/encryption/aes
 )
 add_test(NAME cmac_streaming_test COMMAND cmac_streaming_test)
+endif()
 
 add_test(
     NAME allocator_policy_check
@@ -109,6 +119,16 @@ target_link_libraries(noxtls_ecdh_diagnostic_test PRIVATE
     noxtls_tls
 )
 add_test(NAME noxtls_ecdh_diagnostic_test COMMAND noxtls_ecdh_diagnostic_test)
+
+if(NOXTLS_CFG_FEATURE_ED25519)
+    add_executable(ed25519_rfc8032_test
+        "${CMAKE_CURRENT_SOURCE_DIR}/ed25519_rfc8032_test.c")
+    target_link_libraries(ed25519_rfc8032_test PRIVATE
+        noxtls_common
+        noxtls_pkc
+    )
+    add_test(NAME ed25519_rfc8032_test COMMAND ed25519_rfc8032_test)
+endif()
 
 if(NOXTLS_CFG_FEATURE_SLH_DSA)
     add_executable(slhdsa_sizes_test "${NOXTLS_ROOT_UT_DIR}/pkc/test_slhdsa_sizes.c")
