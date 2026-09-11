@@ -1,18 +1,11 @@
 /* SPDX-License-Identifier: CC0-1.0 */
-/* fe25519 Cortex-M4 mul/sqr by Bjorn Haase (CC0). Adapted for NoxTLS. */
+/* Public-domain Cortex-M4 fe25519 packed sqr (adapted for NoxTLS). */
 .syntax unified
 .thumb
 .cpu cortex-m4
 // Implementation of squaring function for cortex M4
 //
-// The code is derived from the register-allocating code generator
-// for performance and correctness reasons. Do not edit by hand!
-//
-// Author: Björn Haase (bjoern.m.haase@web.de) 
-// 
-// License: CC0 1.0 (http://creativecommons.org/publicdomain/zero/1.0/legalcode)
-//
-// Code is tested on various targets and on Qemu.
+// Derived from a register-allocating code generator; do not edit by hand.
 
 
 	

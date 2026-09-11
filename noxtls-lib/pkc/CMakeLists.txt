@@ -84,7 +84,7 @@ if(NOXTLS_CFG_FEATURE_ED25519)
         ed25519/noxtls_ed25519_ge.c
         ed25519/noxtls_ed25519_sc.c
     )
-    # Haase CC0 packed mul/sqr for Cortex-M4/M7 (gated in C by arch + config).
+    # Public-domain packed mul/sqr for Cortex-M4/M7 (gated in C by arch + config).
     if(CMAKE_C_COMPILER MATCHES "arm-none-eabi" OR
        CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm|ARM|aarch32)")
         enable_language(ASM)

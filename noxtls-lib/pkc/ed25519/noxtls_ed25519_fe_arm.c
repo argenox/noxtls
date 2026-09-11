@@ -15,12 +15,12 @@
 *
 *
 * File:    noxtls_ed25519_fe_arm.c
-* Summary: Packed 8×uint32 FE helpers; Cortex-M4/M7 uses Haase CC0 asm mul/sqr
+* Summary: Packed 8×uint32 FE helpers; Cortex-M4/M7 packed UMAAL asm mul/sqr
 *
-* On ARMv7E-M / ARMv8-M Mainline, field mul/sq route through Björn Haase's
-* packed UMAAL assembly (CC0-1.0) after a fast limb→u32 pack (carry + bit
-* pack, no full canonical reduction). Portable schoolbook remains for host
-* tests and non-ARM targets.
+* On ARMv7E-M / ARMv8-M Mainline, field mul/sq route through public-domain
+* packed UMAAL assembly after a fast limb→u32 pack (carry + bit pack, no
+* full canonical reduction). Portable schoolbook remains for host tests
+* and non-ARM targets.
 *
 *****************************************************************************/
 
@@ -71,7 +71,7 @@ static uint32_t fe25519_arm_load32_le(const uint8_t *src)
  * @internal
  *
  * Same final carry schedule as fe_mul / fe_tobytes after the q fold — enough
- * for a weakly reduced 255-bit encoding suitable as Haase asm input.
+ * for a weakly reduced 255-bit encoding suitable as packed-asm input.
  */
 static void fe25519_limbs_pack_le_fast(uint8_t out[NOXTLS_ED25519_FE25519_BYTES],
                                        const fe25519_native_t *in)
@@ -286,9 +286,9 @@ void fe25519_u32_sqr(uint32_t out[8], const uint32_t a[8])
 }
 
 #if (defined(__ARM_ARCH_7EM__) || defined(__ARM_ARCH_8M_MAIN__)) && \
-    defined(NOXTLS_ED25519_FE_USE_HAASE_ASM)
+    defined(NOXTLS_ED25519_FE_USE_PACKED_ASM)
 
-/* Björn Haase CC0 Cortex-M4 packed mul/sqr (see asm/noxtls_fe25519_*_armv7em.S). */
+/* Public-domain Cortex-M4 packed mul/sqr (see asm/noxtls_fe25519_*_armv7em.S). */
 void fe25519_mul_asm(uint32_t out[8], const uint32_t a[8], const uint32_t b[8]);
 void fe25519_square_asm(uint32_t out[8], const uint32_t a[8]);
 
@@ -360,4 +360,4 @@ void fe25519_native_sq2(fe25519_native_t *out, const fe25519_native_t *a)
     fe25519_u32_to_limbs(out, rr);
 }
 
-#endif /* ARM + NOXTLS_ED25519_FE_USE_HAASE_ASM */
+#endif /* ARM + NOXTLS_ED25519_FE_USE_PACKED_ASM */

@@ -26,9 +26,9 @@
  * @ingroup noxtls_ed25519
  *
  * Conversion and portable schoolbook multiply live in @c noxtls_ed25519_fe_arm.c.
- * On Cortex-M4/M7 with @c NOXTLS_ED25519_FE_USE_HAASE_ASM, that file also
+ * On Cortex-M4/M7 with @c NOXTLS_ED25519_FE_USE_PACKED_ASM, that file also
  * provides @c fe25519_native_mul / @c fe25519_native_sq / @c fe25519_native_sq2
- * via Haase CC0 packed UMAAL assembly.
+ * via public-domain packed UMAAL assembly.
  */
 
 #ifndef _NOXTLS_ED25519_FE_ARM_H_
