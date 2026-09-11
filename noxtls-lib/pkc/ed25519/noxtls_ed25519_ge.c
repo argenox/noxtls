@@ -817,10 +817,12 @@ static const uint32_t g_ed25519_L_le[8] = {
  * @brief Read bit @p pos from a little-endian limb array.
  * @internal
  */
+#if (NOXTLS_ED25519_COMB_TEETH * NOXTLS_ED25519_COMB_SPACING) != 32U
 static unsigned int ge25519_limb_bit(const uint32_t *n, unsigned int pos)
 {
     return (n[pos >> 5] >> (pos & 31U)) & 1U;
 }
+#endif
 
 /**
  * @brief Recode scalar to signed binary digits of length COMB_RANGE.
@@ -860,12 +862,13 @@ static void ge25519_to_signed_digits_comb(uint32_t n[9],
 #if NOXTLS_ED25519_COMB_RANGE > 256U
     n[8] += 1U << (NOXTLS_ED25519_COMB_RANGE - 256U);
     c = 0U;
+    /* Arithmetic right-shift across 9 limbs (RANGE padding in n[8]). */
+    i = 9U;
 #else
     c = 1U;
+    /* Arithmetic right-shift across 8 limbs with high carry-in 1. */
+    i = 8U;
 #endif
-
-    /* Arithmetic right-shift across limbs from high index to low. */
-    i = 9U;
     while(i > 0U) {
         i--;
         next = n[i];
@@ -1014,71 +1017,74 @@ static void ge25519_n_scalarmult_base_comb(ge25519_n_t *r,
     ge25519_precomp_t t;
     ge25519_precomp_t tneg;
     ge25519_p1p1_t p1;
-    int32_t spacing;
     uint32_t block;
-    uint32_t tooth;
-    unsigned int teeth;
     unsigned int sign;
     unsigned int abs_index;
-    unsigned int pos;
-#if (NOXTLS_ED25519_COMB_TEETH * NOXTLS_ED25519_COMB_SPACING) == 32U
-    int32_t c_off;
-    uint32_t w;
-#endif
 
     ge25519_to_signed_digits_comb(n, s_le);
 #if (NOXTLS_ED25519_COMB_TEETH * NOXTLS_ED25519_COMB_SPACING) == 32U
-    ge25519_group_comb_bits(n);
-#endif
-    ge25519_n_zero(r);
+    {
+        int32_t c_off;
+        uint32_t w;
 
-#if (NOXTLS_ED25519_COMB_TEETH * NOXTLS_ED25519_COMB_SPACING) == 32U
-    c_off = (int32_t)((NOXTLS_ED25519_COMB_SPACING - 1U) * NOXTLS_ED25519_COMB_TEETH);
-    for(;;) {
-        for(block = 0U; block < NOXTLS_ED25519_COMB_BLOCKS; block++) {
-            w = n[block] >> (uint32_t)c_off;
-            sign = (w >> (NOXTLS_ED25519_COMB_TEETH - 1U)) & 1U;
-            abs_index = (w ^ (0U - sign)) & NOXTLS_ED25519_COMB_MASK;
+        ge25519_group_comb_bits(n);
+        ge25519_n_zero(r);
 
-            ge25519_comb_select(&t, g_base_comb[block], abs_index);
-            fe25519_native_copy(&tneg.yplusx, &t.yminusx);
-            fe25519_native_copy(&tneg.yminusx, &t.yplusx);
-            fe25519_native_neg(&tneg.xy2d, &t.xy2d);
-            ge25519_precomp_cmov(&t, &tneg, sign);
+        c_off = (int32_t)((NOXTLS_ED25519_COMB_SPACING - 1U) * NOXTLS_ED25519_COMB_TEETH);
+        for(;;) {
+            for(block = 0U; block < NOXTLS_ED25519_COMB_BLOCKS; block++) {
+                w = n[block] >> (uint32_t)c_off;
+                sign = (w >> (NOXTLS_ED25519_COMB_TEETH - 1U)) & 1U;
+                abs_index = (w ^ (0U - sign)) & NOXTLS_ED25519_COMB_MASK;
 
-            ge25519_madd(&p1, r, &t);
-            ge25519_p1p1_to_n(r, &p1);
+                ge25519_comb_select(&t, g_base_comb[block], abs_index);
+                fe25519_native_copy(&tneg.yplusx, &t.yminusx);
+                fe25519_native_copy(&tneg.yminusx, &t.yplusx);
+                fe25519_native_neg(&tneg.xy2d, &t.xy2d);
+                ge25519_precomp_cmov(&t, &tneg, sign);
+
+                ge25519_madd(&p1, r, &t);
+                ge25519_p1p1_to_n(r, &p1);
+            }
+
+            c_off -= (int32_t)NOXTLS_ED25519_COMB_TEETH;
+            if(c_off < 0) {
+                break;
+            }
+            ge25519_n_dbl(r, r);
         }
-
-        c_off -= (int32_t)NOXTLS_ED25519_COMB_TEETH;
-        if(c_off < 0) {
-            break;
-        }
-        ge25519_n_dbl(r, r);
     }
 #else
-    for(spacing = (int32_t)NOXTLS_ED25519_COMB_SPACING - 1; spacing >= 0; spacing--) {
-        for(block = 0U; block < NOXTLS_ED25519_COMB_BLOCKS; block++) {
-            teeth = 0U;
-            for(tooth = 0U; tooth < NOXTLS_ED25519_COMB_TEETH; tooth++) {
-                pos = (block * NOXTLS_ED25519_COMB_TEETH * NOXTLS_ED25519_COMB_SPACING) +
-                      (tooth * NOXTLS_ED25519_COMB_SPACING) + (uint32_t)spacing;
-                teeth |= ge25519_limb_bit(n, pos) << tooth;
+    {
+        int32_t spacing;
+        uint32_t tooth;
+        unsigned int teeth;
+        unsigned int pos;
+
+        ge25519_n_zero(r);
+        for(spacing = (int32_t)NOXTLS_ED25519_COMB_SPACING - 1; spacing >= 0; spacing--) {
+            for(block = 0U; block < NOXTLS_ED25519_COMB_BLOCKS; block++) {
+                teeth = 0U;
+                for(tooth = 0U; tooth < NOXTLS_ED25519_COMB_TEETH; tooth++) {
+                    pos = (block * NOXTLS_ED25519_COMB_TEETH * NOXTLS_ED25519_COMB_SPACING) +
+                          (tooth * NOXTLS_ED25519_COMB_SPACING) + (uint32_t)spacing;
+                    teeth |= ge25519_limb_bit(n, pos) << tooth;
+                }
+                sign = (teeth >> (NOXTLS_ED25519_COMB_TEETH - 1U)) & 1U;
+                abs_index = (teeth ^ (0U - sign)) & NOXTLS_ED25519_COMB_MASK;
+
+                ge25519_comb_select(&t, g_base_comb[block], abs_index);
+                fe25519_native_copy(&tneg.yplusx, &t.yminusx);
+                fe25519_native_copy(&tneg.yminusx, &t.yplusx);
+                fe25519_native_neg(&tneg.xy2d, &t.xy2d);
+                ge25519_precomp_cmov(&t, &tneg, sign);
+
+                ge25519_madd(&p1, r, &t);
+                ge25519_p1p1_to_n(r, &p1);
             }
-            sign = (teeth >> (NOXTLS_ED25519_COMB_TEETH - 1U)) & 1U;
-            abs_index = (teeth ^ (0U - sign)) & NOXTLS_ED25519_COMB_MASK;
-
-            ge25519_comb_select(&t, g_base_comb[block], abs_index);
-            fe25519_native_copy(&tneg.yplusx, &t.yminusx);
-            fe25519_native_copy(&tneg.yminusx, &t.yplusx);
-            fe25519_native_neg(&tneg.xy2d, &t.xy2d);
-            ge25519_precomp_cmov(&t, &tneg, sign);
-
-            ge25519_madd(&p1, r, &t);
-            ge25519_p1p1_to_n(r, &p1);
-        }
-        if(spacing > 0) {
-            ge25519_n_dbl(r, r);
+            if(spacing > 0) {
+                ge25519_n_dbl(r, r);
+            }
         }
     }
 #endif

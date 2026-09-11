@@ -83,17 +83,18 @@
 
 /**
  * Hamburg signed multi-comb parameters for fixed-base (sign/keygen).
- * (4,6,11) → RANGE=264, 44 mixed adds + 10 doubles (vs ref10 64+4).
- * Table: 4 * 32 Duif points ≈ 15 KiB BSS (flash dump later).
+ * Default (8,4,8): RANGE=256, 64 mixed adds + 7 doubles, 8-entry CT select
+ * (same select width as ref10; ~7.5 KiB table). Prefer over (4,6,11) on M4
+ * where wide CT table scans dominate the fewer-add savings.
  */
 #ifndef NOXTLS_ED25519_COMB_BLOCKS
-#define NOXTLS_ED25519_COMB_BLOCKS 4U
+#define NOXTLS_ED25519_COMB_BLOCKS 8U
 #endif
 #ifndef NOXTLS_ED25519_COMB_TEETH
-#define NOXTLS_ED25519_COMB_TEETH 6U
+#define NOXTLS_ED25519_COMB_TEETH 4U
 #endif
 #ifndef NOXTLS_ED25519_COMB_SPACING
-#define NOXTLS_ED25519_COMB_SPACING 11U
+#define NOXTLS_ED25519_COMB_SPACING 8U
 #endif
 
 #define NOXTLS_ED25519_COMB_RANGE \
