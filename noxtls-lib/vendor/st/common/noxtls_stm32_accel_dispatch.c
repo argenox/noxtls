@@ -28,7 +28,7 @@ noxtls_return_t noxtls_aes_accel_stm32_encrypt_block(const uint8_t *key,
     return noxtls_aes_accel_stm32l4_encrypt_block(key, data, output, type);
 #elif defined(NOXTLS_STM32_FAMILY_U3)
     return noxtls_aes_accel_stm32u3_encrypt_block(key, data, output, type);
-#elif defined(NOXTLS_STM32_FAMILY_U5)
+#elif defined(NOXTLS_STM32_U5_HAS_AES)
     return noxtls_aes_accel_stm32u5_encrypt_block(key, data, output, type);
 #elif defined(NOXTLS_STM32_FAMILY_WB)
     return noxtls_aes_accel_stm32wb_encrypt_block(key, data, output, type);
@@ -58,7 +58,7 @@ noxtls_return_t noxtls_aes_accel_stm32_decrypt_block(const uint8_t *key,
     return noxtls_aes_accel_stm32l4_decrypt_block(key, data, output, type);
 #elif defined(NOXTLS_STM32_FAMILY_U3)
     return noxtls_aes_accel_stm32u3_decrypt_block(key, data, output, type);
-#elif defined(NOXTLS_STM32_FAMILY_U5)
+#elif defined(NOXTLS_STM32_U5_HAS_AES)
     return noxtls_aes_accel_stm32u5_decrypt_block(key, data, output, type);
 #elif defined(NOXTLS_STM32_FAMILY_WB)
     return noxtls_aes_accel_stm32wb_decrypt_block(key, data, output, type);

@@ -8,13 +8,22 @@
 *****************************************************************************/
 
 #include "vendor/st/common/noxtls_stm32_u5_aes_core.h"
+#include "vendor/st/noxtls_target_detect.h"
 
 noxtls_return_t noxtls_aes_accel_stm32u5_encrypt_block(const uint8_t *key,
                                                         const uint8_t *data,
                                                         uint8_t *output,
                                                         noxtls_aes_type_t type)
 {
+#if defined(NOXTLS_STM32_U5_HAS_AES)
     return noxtls_stm32_u5_aes_encrypt_block(key, data, output, type);
+#else
+    (void)key;
+    (void)data;
+    (void)output;
+    (void)type;
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
 }
 
 noxtls_return_t noxtls_aes_accel_stm32u5_decrypt_block(const uint8_t *key,
@@ -22,5 +31,13 @@ noxtls_return_t noxtls_aes_accel_stm32u5_decrypt_block(const uint8_t *key,
                                                         uint8_t *output,
                                                         noxtls_aes_type_t type)
 {
+#if defined(NOXTLS_STM32_U5_HAS_AES)
     return noxtls_stm32_u5_aes_decrypt_block(key, data, output, type);
+#else
+    (void)key;
+    (void)data;
+    (void)output;
+    (void)type;
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
 }
