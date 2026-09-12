@@ -606,7 +606,12 @@ noxtls_return_t noxtls_ecc_point_multiply_accel_port(ecc_point_t *result,
     ++s_cc312_operations;
     s_cc312_ready = 1u;
     rc = NOXTLS_RETURN_SUCCESS;
-    s_cc312_last_stage = 7u;
+    /* Keep the successful-output stage consistent with the nRF54 CRACEN
+     * backend and the shared on-target accelerator KAT. Stage 7 is reserved
+     * for an operation that reached its terminal hardware state but has not
+     * yet produced a verified result; stage 8 means the affine output was
+     * read, validated, and accepted by this backend. */
+    s_cc312_last_stage = 8u;
 
 cleanup_hw:
     s_cc312_last_status = *cc312_reg(CC312_PKA_STATUS_OFF);

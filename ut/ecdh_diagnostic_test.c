@@ -28,6 +28,7 @@ int main(void)
     ecc_key_t key;
     ecc_key_t generated_key;
     ecc_point_t invalid_peer;
+    ecc_point_t captured_invalid_p256_point;
     uint8_t secret[32];
     uint32_t secret_len;
     noxtls_ecdh_diagnostic_t diagnostic;
@@ -57,6 +58,39 @@ int main(void)
     rc = noxtls_ecc_key_init(&key, NOXTLS_ECC_SECP256R1);
     if(!expect(rc == NOXTLS_RETURN_SUCCESS, "initialize P-256 key")) {
         return 1;
+    }
+
+    /*
+     * Regression vector captured from a failed LE Secure Connections P-256
+     * exchange.  Its coordinates are stored here in NoxTLS' big-endian
+     * representation; the original SMP Pairing Public Key was little-endian
+     * X || Y.  Independently checking the curve equation rejects this point.
+     */
+    {
+        static const uint8_t captured_x[32] = {
+            0x13u, 0x4Cu, 0x61u, 0xB5u, 0x52u, 0x97u, 0xB2u, 0x2Au,
+            0xEDu, 0x5Fu, 0xB3u, 0xC7u, 0x85u, 0xE2u, 0xFCu, 0xEDu,
+            0x8Fu, 0x69u, 0xE5u, 0xBCu, 0x65u, 0x22u, 0x30u, 0x7Eu,
+            0xF9u, 0xCCu, 0xAFu, 0xE9u, 0x25u, 0x03u, 0xADu, 0xB7u,
+        };
+        static const uint8_t captured_y[32] = {
+            0xB2u, 0x80u, 0x34u, 0x49u, 0x23u, 0x13u, 0x4Cu, 0x61u,
+            0xB5u, 0x52u, 0x97u, 0xB2u, 0x2Au, 0xEDu, 0x5Fu, 0x94u,
+            0x94u, 0xA5u, 0x88u, 0x92u, 0x9Fu, 0xA9u, 0x70u, 0xBDu,
+            0xA8u, 0x30u, 0xEDu, 0xB2u, 0x80u, 0x34u, 0x49u, 0x23u,
+        };
+
+        memset(&captured_invalid_p256_point, 0,
+               sizeof(captured_invalid_p256_point));
+        memcpy(captured_invalid_p256_point.x, captured_x,
+               sizeof(captured_x));
+        memcpy(captured_invalid_p256_point.y, captured_y,
+               sizeof(captured_y));
+        captured_invalid_p256_point.size = key.curve->size;
+        rc = noxtls_ecc_point_validate_public(&captured_invalid_p256_point,
+                                              key.curve);
+        ok &= expect(rc != NOXTLS_RETURN_SUCCESS,
+                     "reject captured off-curve P-256 public key");
     }
 
     /* d = 1 makes the curve generator an inexpensive known-valid peer. */
