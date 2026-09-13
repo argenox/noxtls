@@ -36,6 +36,23 @@
 #undef fprintf
 #define fprintf(...) ((void)0)
 
+/* PTS status ABI. Values report control-flow only and never key material. */
+volatile int32_t noxtls_ecc_keygen_last_rc = NOXTLS_RETURN_SUCCESS;
+volatile uint32_t noxtls_ecc_keygen_last_stage = 0U;
+volatile int32_t noxtls_ecc_keygen_last_entropy_rc = NOXTLS_RETURN_SUCCESS;
+volatile int32_t noxtls_ecc_keygen_last_multiply_rc = NOXTLS_RETURN_SUCCESS;
+volatile uint32_t noxtls_ecc_keygen_last_drbg_type = DRBG_AES256;
+volatile int32_t noxtls_ecc_keyinit_last_rc = NOXTLS_RETURN_SUCCESS;
+volatile uint32_t noxtls_ecc_keyinit_last_stage = 0U;
+/* nRF52's ECB peripheral is AES-128 only. A CTR-DRBG does not require
+ * AES-256; select an enabled primitive for constrained builds. */
+#if NOXTLS_FEATURE_AES_256
+#define NOXTLS_ECC_KEYGEN_DRBG_TYPE     DRBG_AES256
+#define NOXTLS_ECC_KEYGEN_DRBG_SEEDLEN  DRBG_SEEDLEN_AES256
+#else
+#define NOXTLS_ECC_KEYGEN_DRBG_TYPE     DRBG_AES128
+#define NOXTLS_ECC_KEYGEN_DRBG_SEEDLEN  DRBG_SEEDLEN_AES128
+#endif
 #if (NOXTLS_ECC_POINT_MUL_WINDOW_SIZE > 0) && (NOXTLS_ECC_FIXED_POINT_OPTIM) && (NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE)
 typedef struct {
     const ecc_curve_params_t *curve;
@@ -65,19 +82,22 @@ static noxtls_return_t ecc_keygen_drbg_generate_bits(uint8_t *out, uint32_t requ
 {
     static drbg_state_t s_ecc_keygen_drbg_state;
     static int s_ecc_keygen_drbg_initialized = 0;
-    uint8_t seed[DRBG_SEEDLEN_AES256];
+    uint8_t seed[NOXTLS_ECC_KEYGEN_DRBG_SEEDLEN];
     noxtls_return_t rc;
 
     if(out == NULL) {
         return NOXTLS_RETURN_NULL;
     }
 
+    noxtls_ecc_keygen_last_drbg_type = NOXTLS_ECC_KEYGEN_DRBG_TYPE;
+
     if(!s_ecc_keygen_drbg_initialized) {
         rc = noxtls_drbg_get_entropy(seed, sizeof(seed));
+        noxtls_ecc_keygen_last_entropy_rc = rc;
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
-        rc = drbg_instantiate(&s_ecc_keygen_drbg_state, DRBG_AES256,
+        rc = drbg_instantiate(&s_ecc_keygen_drbg_state, NOXTLS_ECC_KEYGEN_DRBG_TYPE,
                               seed, sizeof(seed), NULL, 0, NULL, 0);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
@@ -94,10 +114,11 @@ static noxtls_return_t ecc_keygen_drbg_generate_bits(uint8_t *out, uint32_t requ
     s_ecc_keygen_drbg_initialized = 0;
 
     rc = noxtls_drbg_get_entropy(seed, sizeof(seed));
+    noxtls_ecc_keygen_last_entropy_rc = rc;
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    rc = drbg_instantiate(&s_ecc_keygen_drbg_state, DRBG_AES256,
+    rc = drbg_instantiate(&s_ecc_keygen_drbg_state, NOXTLS_ECC_KEYGEN_DRBG_TYPE,
                           seed, sizeof(seed), NULL, 0, NULL, 0);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
@@ -3165,6 +3186,7 @@ noxtls_return_t noxtls_ecc_point_multiply(ecc_point_t *result, const uint8_t *sc
     if(rc == NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
+    noxtls_ecc_accel_note_fallback();
     /* HW failed or disabled: fall back to software path. */
     if(rc != NOXTLS_RETURN_NOT_SUPPORTED) {
         noxtls_bn_zero(result->x, size);
@@ -3634,35 +3656,48 @@ noxtls_return_t noxtls_ecc_point_validate_public(const ecc_point_t *point, const
  */
 noxtls_return_t noxtls_ecc_key_init(ecc_key_t *key, ecc_curve_t curve_type)
 {
+    noxtls_return_t rc;
+
+    noxtls_ecc_keyinit_last_stage = 1U;
+    noxtls_ecc_keyinit_last_rc = NOXTLS_RETURN_SUCCESS;
     if(key == NULL) {
+        noxtls_ecc_keyinit_last_rc = NOXTLS_RETURN_NULL;
         return NOXTLS_RETURN_NULL;
     }
     
     memset(key, 0, sizeof(ecc_key_t));
+    noxtls_ecc_keyinit_last_stage = 2U;
     
     key->curve = (ecc_curve_params_t*)malloc(sizeof(ecc_curve_params_t));
     if(key->curve == NULL) {
+        noxtls_ecc_keyinit_last_rc = NOXTLS_RETURN_FAILED;
         return NOXTLS_RETURN_FAILED;
     }
     
-    noxtls_return_t rc = noxtls_ecc_curve_init(key->curve, curve_type);
+    noxtls_ecc_keyinit_last_stage = 3U;
+    rc = noxtls_ecc_curve_init(key->curve, curve_type);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         free(key->curve);
         key->curve = NULL;
+        noxtls_ecc_keyinit_last_rc = rc;
         return rc;
     }
     key->curve_kind = curve_type;
 
+    noxtls_ecc_keyinit_last_stage = 4U;
     key->d = (uint8_t*)calloc(key->curve->size, 1);
     if(key->d == NULL) {
         noxtls_ecc_curve_free(key->curve);
         free(key->curve);
         key->curve = NULL;
+        noxtls_ecc_keyinit_last_rc = NOXTLS_RETURN_FAILED;
         return NOXTLS_RETURN_FAILED;
     }
     
+    noxtls_ecc_keyinit_last_stage = 5U;
     noxtls_ecc_point_init(&key->Q, key->curve->size);
-    
+    noxtls_ecc_keyinit_last_stage = 9U;
+    noxtls_ecc_keyinit_last_rc = NOXTLS_RETURN_SUCCESS;
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -3682,25 +3717,37 @@ noxtls_return_t noxtls_ecc_key_generate(ecc_key_t *key, ecc_curve_t curve_type)
     uint32_t size;
     uint32_t bits;
     noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
+
+    noxtls_ecc_keygen_last_stage = 1U;
+    noxtls_ecc_keygen_last_rc = NOXTLS_RETURN_SUCCESS;
+    noxtls_ecc_keygen_last_entropy_rc = NOXTLS_RETURN_SUCCESS;
+    noxtls_ecc_keygen_last_multiply_rc = NOXTLS_RETURN_SUCCESS;
     
     if(key == NULL) {
+        noxtls_ecc_keygen_last_rc = NOXTLS_RETURN_NULL;
         return NOXTLS_RETURN_NULL;
     }
     
+    noxtls_ecc_keygen_last_stage = 2U;
     rc = noxtls_ecc_key_init(key, curve_type);
     if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_ecc_keygen_last_stage = 3U;
+        noxtls_ecc_keygen_last_rc = rc;
         return rc;
     }
     
+    noxtls_ecc_keygen_last_stage = 4U;
     size = key->curve->size;
     if(size == 0U || size > (uint32_t)(UINT32_MAX / 8U)) {
         rc = NOXTLS_RETURN_FAILED;
+        noxtls_ecc_keygen_last_stage = 5U;
         goto cleanup_keygen;
     }
     bits = size * 8U;
     
     /* Allocate buffers */
     random_bytes = (uint8_t*)calloc(size, 1);
+    noxtls_ecc_keygen_last_stage = 6U;
     do {
         if(!random_bytes) {
             rc = NOXTLS_RETURN_FAILED;
@@ -3712,6 +3759,7 @@ noxtls_return_t noxtls_ecc_key_generate(ecc_key_t *key, ecc_curve_t curve_type)
         do {
             rc = ecc_keygen_drbg_generate_bits(random_bytes, bits);
             if(rc != NOXTLS_RETURN_SUCCESS) {
+                noxtls_ecc_keygen_last_stage = 7U;
                 break;
             }
             
@@ -3733,7 +3781,9 @@ noxtls_return_t noxtls_ecc_key_generate(ecc_key_t *key, ecc_curve_t curve_type)
         
         /* Compute public key Q = d * G */
         /* This is the expensive operation - scalar multiplication */
+    noxtls_ecc_keygen_last_stage = 8U;
     rc = noxtls_ecc_point_multiply(&key->Q, key->d, &key->curve->G, key->curve);
+    noxtls_ecc_keygen_last_multiply_rc = rc;
     if(rc != NOXTLS_RETURN_SUCCESS) {
         goto cleanup_keygen;
     }
@@ -3745,6 +3795,7 @@ noxtls_return_t noxtls_ecc_key_generate(ecc_key_t *key, ecc_curve_t curve_type)
     }
 
     /* Verify the generated public key is on the curve */
+    noxtls_ecc_keygen_last_stage = 9U;
     rc = noxtls_ecc_point_is_on_curve(&key->Q, key->curve);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         goto cleanup_keygen;
@@ -3752,6 +3803,7 @@ noxtls_return_t noxtls_ecc_key_generate(ecc_key_t *key, ecc_curve_t curve_type)
 
 cleanup_keygen:
     if(random_bytes) { free(random_bytes); }
+    noxtls_ecc_keygen_last_rc = rc;
 
     return rc;
 }

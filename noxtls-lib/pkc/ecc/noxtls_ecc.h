@@ -144,6 +144,19 @@ int noxtls_ecc_point_mul_window_size(void);
 noxtls_return_t noxtls_ecc_point_is_on_curve(const ecc_point_t *point, const ecc_curve_params_t *curve);
 noxtls_return_t noxtls_ecc_point_validate_public(const ecc_point_t *point, const ecc_curve_params_t *curve);
 
+/* Optional platform point-multiplication accelerator telemetry.  These
+ * values expose control flow only: no key, scalar, or point material is
+ * retained or reported.  A successful operation count is the authoritative
+ * indication that the selected accelerator completed a request. */
+int noxtls_ecc_accel_is_ready(void);
+uint32_t noxtls_ecc_accel_operation_count(void);
+uint32_t noxtls_ecc_accel_fallback_count(void);
+void noxtls_ecc_accel_note_fallback(void);
+int32_t noxtls_ecc_accel_last_rc(void);
+uint32_t noxtls_ecc_accel_last_status(void);
+uint32_t noxtls_ecc_accel_last_stage(void);
+int noxtls_ecc_accel_input_echo_ok(void);
+
 /* Key Management */
 noxtls_return_t noxtls_ecc_key_init(ecc_key_t *key, ecc_curve_t curve_type);
 noxtls_return_t noxtls_ecc_key_generate(ecc_key_t *key, ecc_curve_t curve_type);
