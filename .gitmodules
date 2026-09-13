@@ -1,3 +1,0 @@
-[submodule "ports/nordic/nrfxlib"]
-	path = ports/nordic/nrfxlib
-	url = https://github.com/nrfconnect/sdk-nrfxlib.git

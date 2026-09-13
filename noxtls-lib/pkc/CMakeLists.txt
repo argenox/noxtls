@@ -8,7 +8,7 @@ option(NOXTLS_ECDSA_SIGN_SELF_VERIFY "Re-verify signatures inside noxtls_ecdsa_s
 option(NOXTLS_ECDSA_SIGN_SKIP_SELF_VERIFY_P256 "Skip sign-time self-verify for 32-byte curves (P-256 class) to improve performance" ON)
 # Force Montgomery ladder only (disable windowed scalar mult). Use to isolate windowed-path bugs.
 option(NOXTLS_ECC_LADDER_ONLY "Use Montgomery ladder only for ECC point multiply (set NOXTLS_ECC_POINT_MUL_WINDOW_SIZE=0)" OFF)
-option(NOXTLS_NRF52840_CC310_ECC "Use the nRF52840 CryptoCell 310 PSA driver for P-256" OFF)
+option(NOXTLS_NRF52840_CC310_ECC "Use the direct nRF52840 CryptoCell 310 PKA for P-256" OFF)
 option(NOXTLS_NRF53_CC312_P256_ACCEL "Use the nRF5340 CryptoCell 312 P-256 accelerator" OFF)
 option(NOXTLS_NRF54_CRACEN_P256_ACCEL "Use the nRF54 CRACEN P-256 accelerator" OFF)
 option(NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS "Compile ECC timing and accelerator performance diagnostics" OFF)
@@ -20,9 +20,11 @@ option(NOXTLS_PTS_PERIPHERAL_ECC_OPTIMIZED "Compile the PTS peripheral PKC targe
 set(PKC_SOURCES
 )
 
-if(NOXTLS_NRF53_CC312_P256_ACCEL AND NOXTLS_NRF54_CRACEN_P256_ACCEL)
+if((NOXTLS_NRF52840_CC310_ECC AND NOXTLS_NRF53_CC312_P256_ACCEL) OR
+   (NOXTLS_NRF52840_CC310_ECC AND NOXTLS_NRF54_CRACEN_P256_ACCEL) OR
+   (NOXTLS_NRF53_CC312_P256_ACCEL AND NOXTLS_NRF54_CRACEN_P256_ACCEL))
     message(FATAL_ERROR
-        "Select only one Nordic P-256 backend: nRF53 CC312 or nRF54 CRACEN.")
+        "Select only one Nordic P-256 backend: nRF52 CC310, nRF53 CC312, or nRF54 CRACEN.")
 endif()
 
 # Multiprecision backend shared by classic PKC primitives.
@@ -53,18 +55,15 @@ if(ESP_PLATFORM AND NOXTLS_CFG_FEATURE_PKC)
 endif()
 if(NOXTLS_CFG_FEATURE_ECC)
     list(APPEND PKC_SOURCES ecc/noxtls_ecc.c)
-    if(NOXTLS_NRF52840_CC310_ECC)
-        list(APPEND PKC_SOURCES
-            ${CMAKE_CURRENT_LIST_DIR}/../../ports/nordic/nrf52840/noxtls_nrf52840_cc310_ecc.c)
-    elseif(ESP_PLATFORM)
+    if(ESP_PLATFORM)
         set(_noxtls_esp32_ecc "${NOXTLS_ESP_IDF_DIR}/target/esp32/noxtls_esp32_ecc_accel.c")
         if(EXISTS "${_noxtls_esp32_ecc}")
             list(APPEND PKC_SOURCES "${_noxtls_esp32_ecc}")
         else()
             list(APPEND PKC_SOURCES ecc/noxtls_ecc_accel_port.c)
         endif()
-    elseif(NOXTLS_NRF53_CC312_P256_ACCEL)
-        list(APPEND PKC_SOURCES ecc/noxtls_ecc_accel_nrf53_cc312.c)
+    elseif(NOXTLS_NRF52840_CC310_ECC OR NOXTLS_NRF53_CC312_P256_ACCEL)
+        list(APPEND PKC_SOURCES ecc/noxtls_ecc_accel_nordic_cc31x.c)
     elseif(NOXTLS_NRF54_CRACEN_P256_ACCEL)
         list(APPEND PKC_SOURCES ecc/noxtls_ecc_accel_nrf54_cracen.c)
     else()
@@ -86,9 +85,7 @@ if(NOXTLS_CFG_FEATURE_ECDSA)
 endif()
 if(NOXTLS_CFG_FEATURE_ECDH)
     list(APPEND PKC_SOURCES ecdh/noxtls_ecdh.c)
-    if(NOT NOXTLS_NRF52840_CC310_ECC)
-        list(APPEND PKC_SOURCES ecdh/noxtls_ecdh_accel_port.c)
-    endif()
+    list(APPEND PKC_SOURCES ecdh/noxtls_ecdh_accel_port.c)
 endif()
 if(NOXTLS_CFG_FEATURE_DH)
     list(APPEND PKC_SOURCES dh/noxtls_dh.c dh/noxtls_ffdhe_params.c)
@@ -199,61 +196,7 @@ target_include_directories(noxtls_pkc PUBLIC
 )
 
 if(NOXTLS_NRF52840_CC310_ECC)
-    if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "arm" AND
-       NOT DEFINED CONFIG_NOXADK_TARGET_NRF52)
-        message(FATAL_ERROR "NOXTLS_NRF52840_CC310_ECC requires an Arm nRF52840 target")
-    endif()
-
-    set(NOXTLS_NRFXLIB_ROOT
-        "${CMAKE_CURRENT_LIST_DIR}/../../ports/nordic/nrfxlib"
-        CACHE PATH "Pinned Nordic nrfxlib root")
-    if(NOT EXISTS "${NOXTLS_NRFXLIB_ROOT}/crypto/nrf_cc310_mbedcrypto")
-        message(FATAL_ERROR
-            "NOXTLS_NRF52840_CC310_ECC requires the pinned nrfxlib submodule at ${NOXTLS_NRFXLIB_ROOT}")
-    endif()
-
-    find_path(NOXTLS_PSA_INCLUDE_DIR psa/crypto.h
-        HINTS
-            "${CMAKE_SOURCE_DIR}/components/mbedtls/mbedtls/include"
-            "${CMAKE_SOURCE_DIR}/../../../../components/mbedtls/mbedtls/include"
-        DOC "Directory containing PSA Crypto headers")
-    if(NOT NOXTLS_PSA_INCLUDE_DIR)
-        message(FATAL_ERROR "PSA Crypto headers are required for the nRF52840 CC310 backend")
-    endif()
-
-    set(_cc310_mbedcrypto "${NOXTLS_NRFXLIB_ROOT}/crypto/nrf_cc310_mbedcrypto")
-    set(_cc310_platform "${NOXTLS_NRFXLIB_ROOT}/crypto/nrf_cc310_platform")
-    file(GLOB _cc310_psa_lib
-        "${_cc310_mbedcrypto}/lib/cortex-m4/hard-float/no-interrupts/libnrf_cc310_psa_crypto_*.a")
-    file(GLOB _cc310_core_lib
-        "${_cc310_mbedcrypto}/lib/cortex-m4/hard-float/no-interrupts/libnrf_cc310_core_*.a")
-    file(GLOB _cc310_platform_lib
-        "${_cc310_platform}/lib/cortex-m4/hard-float/no-interrupts/libnrf_cc310_platform_*.a")
-    list(LENGTH _cc310_psa_lib _cc310_psa_count)
-    list(LENGTH _cc310_core_lib _cc310_core_count)
-    list(LENGTH _cc310_platform_lib _cc310_platform_count)
-    if(NOT _cc310_psa_count EQUAL 1 OR
-       NOT _cc310_core_count EQUAL 1 OR
-       NOT _cc310_platform_count EQUAL 1)
-        message(FATAL_ERROR "Expected exactly one pinned nRF52840 CC310 library set")
-    endif()
-
-    target_include_directories(noxtls_pkc PRIVATE
-        ${NOXTLS_PSA_INCLUDE_DIR}
-        ${_cc310_mbedcrypto}/include
-        ${_cc310_platform}/include
-        ${CMAKE_CURRENT_LIST_DIR}/../../ports/nordic/nrf52840)
-    target_compile_definitions(noxtls_pkc PUBLIC
-        NOXTLS_NRF52840_CC310_ECC=1)
-    # Repeat the archives to resolve the intentional circular references in
-    # Nordic's PSA/core/platform static-library split on older GNU linkers.
-    target_link_libraries(noxtls_pkc PRIVATE
-        ${_cc310_psa_lib}
-        ${_cc310_core_lib}
-        ${_cc310_platform_lib}
-        ${_cc310_psa_lib}
-        ${_cc310_core_lib}
-        ${_cc310_platform_lib})
+    target_compile_definitions(noxtls_pkc PRIVATE NOXTLS_NRF52840_CC310_ECC=1)
 endif()
 
 target_link_libraries(noxtls_pkc PRIVATE

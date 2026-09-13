@@ -3,11 +3,11 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
-* File: noxtls_ecc_accel_nrf53_cc312.c
-* Summary: Clean-room nRF5340 CryptoCell 312 PKA P-256 backend.
+* File: noxtls_ecc_accel_nordic_cc31x.c
+* Summary: Clean-room Nordic CryptoCell 31x PKA P-256 backend.
 *
-* This driver uses only the published CC312 register contract.  It does not
-* link, embed, or derive code from Nordic's binary CryptoCell distribution.
+* This driver uses only the published CC310/CC312 register contract. It does
+* not link, embed, or derive code from Nordic's binary CryptoCell distribution.
 *****************************************************************************/
 
 #include <stddef.h>
@@ -19,8 +19,13 @@
 #include "noxtls_ct.h"
 #include "noxtls_ecc.h"
 
+#if defined(NOXTLS_NRF52840_CC310_ECC) && NOXTLS_NRF52840_CC310_ECC
+#define CC312_WRAPPER_BASE             ((uintptr_t)0x5002a000u)
+#define CC312_ENGINE_BASE              ((uintptr_t)0x5002b000u)
+#else
 #define CC312_WRAPPER_BASE             ((uintptr_t)0x50844000u)
 #define CC312_ENGINE_BASE              ((uintptr_t)0x50845000u)
+#endif
 #define CC312_WRAPPER_ENABLE_OFF       0x500u
 
 #define CC312_PKA_MAP_OFF              0x000u
