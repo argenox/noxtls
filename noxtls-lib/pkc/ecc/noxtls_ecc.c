@@ -3798,11 +3798,21 @@ noxtls_return_t noxtls_ecc_key_generate(ecc_key_t *key, ecc_curve_t curve_type)
     uint64_t phase_start_us;
 #endif
     noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    total_start_us = noxtls_ecc_diagnostic_time_us();
+#endif
 
     noxtls_ecc_keygen_last_stage = 1U;
     noxtls_ecc_keygen_last_rc = NOXTLS_RETURN_SUCCESS;
     noxtls_ecc_keygen_last_entropy_rc = NOXTLS_RETURN_SUCCESS;
     noxtls_ecc_keygen_last_multiply_rc = NOXTLS_RETURN_SUCCESS;
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    noxtls_ecc_keygen_last_init_us = 0U;
+    noxtls_ecc_keygen_last_private_us = 0U;
+    noxtls_ecc_keygen_last_multiply_us = 0U;
+    noxtls_ecc_keygen_last_validate_us = 0U;
+    noxtls_ecc_keygen_last_total_us = 0U;
+#endif
     
     if(key == NULL) {
         noxtls_ecc_keygen_last_rc = NOXTLS_RETURN_NULL;
@@ -3810,6 +3820,9 @@ noxtls_return_t noxtls_ecc_key_generate(ecc_key_t *key, ecc_curve_t curve_type)
     }
     
     noxtls_ecc_keygen_last_stage = 2U;
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    phase_start_us = noxtls_ecc_diagnostic_time_us();
+#endif
     rc = noxtls_ecc_key_init(key, curve_type);
 #if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
     noxtls_ecc_keygen_last_init_us =
@@ -3820,8 +3833,6 @@ noxtls_return_t noxtls_ecc_key_generate(ecc_key_t *key, ecc_curve_t curve_type)
         noxtls_ecc_keygen_last_rc = rc;
         return rc;
     }
-    noxtls_ecc_keygen_last_stage = 4u;
-    
     noxtls_ecc_keygen_last_stage = 4U;
     size = key->curve->size;
     if(size == 0U || size > (uint32_t)(UINT32_MAX / 8U)) {
@@ -3831,8 +3842,7 @@ noxtls_return_t noxtls_ecc_key_generate(ecc_key_t *key, ecc_curve_t curve_type)
     }
     bits = size * 8U;
     
-    /* Allocate buffers */
-    random_bytes = (uint8_t*)calloc(size, 1);
+    memset(random_bytes, 0, sizeof(random_bytes));
     noxtls_ecc_keygen_last_stage = 6U;
     do {
         /* Generate private key d in range [1, n-1] */
@@ -3870,7 +3880,14 @@ noxtls_return_t noxtls_ecc_key_generate(ecc_key_t *key, ecc_curve_t curve_type)
         /* Compute public key Q = d * G */
         /* This is the expensive operation - scalar multiplication */
     noxtls_ecc_keygen_last_stage = 8U;
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    phase_start_us = noxtls_ecc_diagnostic_time_us();
+#endif
     rc = noxtls_ecc_point_multiply(&key->Q, key->d, &key->curve->G, key->curve);
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    noxtls_ecc_keygen_last_multiply_us =
+        noxtls_ecc_diagnostic_elapsed_us(phase_start_us);
+#endif
     noxtls_ecc_keygen_last_multiply_rc = rc;
     if(rc != NOXTLS_RETURN_SUCCESS) {
         goto cleanup_keygen;
@@ -3884,6 +3901,9 @@ noxtls_return_t noxtls_ecc_key_generate(ecc_key_t *key, ecc_curve_t curve_type)
 
     /* Verify the generated public key is on the curve */
     noxtls_ecc_keygen_last_stage = 9U;
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    phase_start_us = noxtls_ecc_diagnostic_time_us();
+#endif
     rc = noxtls_ecc_point_is_on_curve(&key->Q, key->curve);
 #if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
     noxtls_ecc_keygen_last_validate_us =
@@ -3896,6 +3916,10 @@ noxtls_return_t noxtls_ecc_key_generate(ecc_key_t *key, ecc_curve_t curve_type)
 cleanup_keygen:
     memset(random_bytes, 0, sizeof(random_bytes));
     noxtls_ecc_keygen_last_rc = rc;
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    noxtls_ecc_keygen_last_total_us =
+        noxtls_ecc_diagnostic_elapsed_us(total_start_us);
+#endif
 
     return rc;
 }
