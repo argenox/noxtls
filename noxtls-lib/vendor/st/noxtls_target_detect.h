@@ -126,6 +126,12 @@
 #define NOXTLS_STM32_F4_HAS_CRYP 1
 #endif
 
+/* STM32F7 CRYP-capable variants (classic CRYP + GCM, same map as F4 crypto). */
+#if defined(STM32F756xx) || defined(STM32F767xx) || defined(STM32F769xx) || \
+    defined(STM32F777xx) || defined(STM32F779xx)
+#define NOXTLS_STM32_F7_HAS_CRYP 1
+#endif
+
 #if defined(NOXTLS_STM32_FAMILY_WB)
 #define NOXTLS_STM32_WB_HAS_CRYP 1
 #endif
@@ -151,7 +157,12 @@
 #define NOXTLS_STM32_F4_SW_AES_ONLY 1
 #endif
 
-#if defined(NOXTLS_STM32_F2_HAS_CRYP) || defined(NOXTLS_STM32_F4_HAS_CRYP) || defined(NOXTLS_STM32_WB_HAS_CRYP)
+#if defined(NOXTLS_STM32_FAMILY_F7) && !defined(NOXTLS_STM32_F7_HAS_CRYP)
+#define NOXTLS_STM32_F7_SW_AES_ONLY 1
+#endif
+
+#if defined(NOXTLS_STM32_F2_HAS_CRYP) || defined(NOXTLS_STM32_F4_HAS_CRYP) || \
+    defined(NOXTLS_STM32_F7_HAS_CRYP) || defined(NOXTLS_STM32_WB_HAS_CRYP)
 #define NOXTLS_STM32_HAS_CRYP_PERIPH 1
 #endif
 

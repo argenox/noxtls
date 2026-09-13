@@ -73,4 +73,15 @@ noxtls_return_t noxtls_stm32_aes_core_decrypt_block(noxtls_stm32_accel_family_t 
                                                      uint8_t *output,
                                                      noxtls_aes_type_t type);
 
+/**
+ * @brief Probe whether classic CRYP register space is live for @p family.
+ *
+ * Some F7/H7 units ship with CRYP/HASH fuse-disabled (ST quality alert /
+ * factory test issue): RCC clock bits stick, but CRYP key/control registers
+ * are RAZ/WI while RNG still works. Detect that before long IFNF polls.
+ *
+ * @return 1 if a key register readback sticks, 0 otherwise.
+ */
+int noxtls_stm32_cryp_ip_present(noxtls_stm32_accel_family_t family);
+
 #endif /* _NOXTLS_STM32_AES_CORE_H_ */

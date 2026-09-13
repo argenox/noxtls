@@ -9,6 +9,7 @@
 
 #include "vendor/st/common/noxtls_stm32_aes_core.h"
 
+#include <stdint.h>
 #include <string.h>
 
 #include "vendor/st/noxtls_target_detect.h"
@@ -78,6 +79,41 @@ static void noxtls_stm32_aes_enable_clock(noxtls_stm32_accel_family_t family)
     readback = NOXTLS_STM32_REG32(NOXTLS_STM32_H7_RCC_AHB2RSTR);
     (void)readback;
     h7_cryp_ready = 1u;
+}
+
+int noxtls_stm32_cryp_ip_present(noxtls_stm32_accel_family_t family)
+{
+    /* 0=unknown, 1=present, -1=absent. F2/F4/F7 share the classic map. */
+    static int8_t classic_state;
+    static int8_t h7_state;
+    uintptr_t base;
+    uint32_t marker = 0xA5A55A5Au;
+    uint32_t readback;
+    int8_t *state;
+
+    if((family == NOXTLS_STM32_ACCEL_F2) ||
+       (family == NOXTLS_STM32_ACCEL_F4) ||
+       (family == NOXTLS_STM32_ACCEL_F7)) {
+        state = &classic_state;
+        base = (uintptr_t)NOXTLS_STM32_F4_AES_BASE;
+    } else if(family == NOXTLS_STM32_ACCEL_H7) {
+        state = &h7_state;
+        base = (uintptr_t)NOXTLS_STM32_H7_AES_BASE;
+    } else {
+        return 0;
+    }
+
+    if(*state != 0) {
+        return (*state > 0) ? 1 : 0;
+    }
+
+    noxtls_stm32_aes_enable_clock(family);
+    NOXTLS_STM32_REG32(base + NOXTLS_STM32_AES_CR_OFF) = 0u;
+    NOXTLS_STM32_REG32(base + NOXTLS_STM32_AES_K0LR_OFF) = marker;
+    readback = NOXTLS_STM32_REG32(base + NOXTLS_STM32_AES_K0LR_OFF);
+    NOXTLS_STM32_REG32(base + NOXTLS_STM32_AES_K0LR_OFF) = 0u;
+    *state = (readback == marker) ? (int8_t)1 : (int8_t)-1;
+    return (*state > 0) ? 1 : 0;
 }
 
 static int noxtls_stm32_aes_wait_flag(uintptr_t aes_base, uint32_t mask, uint32_t value)
@@ -201,6 +237,15 @@ static noxtls_return_t noxtls_stm32_aes_process_block(noxtls_stm32_accel_family_
     rc = noxtls_stm32_aes_key_size_bits(type, &key_bytes, &key_size_bits);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
+    }
+
+    if((family == NOXTLS_STM32_ACCEL_F2) ||
+       (family == NOXTLS_STM32_ACCEL_F4) ||
+       (family == NOXTLS_STM32_ACCEL_F7) ||
+       (family == NOXTLS_STM32_ACCEL_H7)) {
+        if(noxtls_stm32_cryp_ip_present(family) == 0) {
+            return NOXTLS_RETURN_NOT_SUPPORTED;
+        }
     }
 
     noxtls_stm32_aes_enable_clock(family);
