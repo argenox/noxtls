@@ -105,6 +105,63 @@ int main(void)
     ok &= expect(diagnostic.internal_rc == NOXTLS_RETURN_SUCCESS,
                  "successful ECDH has successful internal result");
 
+    /*
+     * A scalar-one generator test takes the point-multiply fast path and
+     * cannot exercise the arbitrary-peer multiplication used by Bluetooth LE
+     * Secure Connections.  Keep this independent P-256 KAT here so both the
+     * windowed and embedded software paths are required to compute d * Q.
+     * The peer point is scalar_dense * G; expected_secret is
+     * ecdh_scalar * peer.
+     */
+    {
+        static const uint8_t ecdh_scalar[32] = {
+            0xA7u, 0x7Fu, 0x6Du, 0xF7u, 0xC4u, 0xB9u, 0x6Bu, 0x76u,
+            0x14u, 0xD4u, 0xA6u, 0xF2u, 0xCBu, 0xADu, 0x6Du, 0x1Eu,
+            0xF0u, 0x69u, 0x8Au, 0x6Au, 0x0Au, 0x6Du, 0x09u, 0x29u,
+            0x24u, 0xC8u, 0x8Cu, 0x67u, 0xCCu, 0xE2u, 0x4Eu, 0x35u,
+        };
+        static const uint8_t peer_x[32] = {
+            0xF3u, 0x86u, 0x59u, 0xB4u, 0x20u, 0x1Fu, 0xAEu, 0x0Cu,
+            0xAFu, 0xC6u, 0x04u, 0x29u, 0xE3u, 0x37u, 0x79u, 0x4Cu,
+            0x4Eu, 0x4Eu, 0x10u, 0xB0u, 0x7Cu, 0xD3u, 0x18u, 0x84u,
+            0x7Cu, 0xB0u, 0xFFu, 0xADu, 0x1Bu, 0x00u, 0xD2u, 0x19u,
+        };
+        static const uint8_t peer_y[32] = {
+            0x63u, 0xD1u, 0x10u, 0xD1u, 0x58u, 0x06u, 0x09u, 0xFAu,
+            0x60u, 0x68u, 0xE3u, 0xE9u, 0x9Du, 0xB0u, 0xB5u, 0x1Du,
+            0x1Fu, 0xF4u, 0xA3u, 0x12u, 0x9Eu, 0xB7u, 0x4Du, 0x66u,
+            0x4Au, 0x09u, 0x90u, 0xFEu, 0x93u, 0x15u, 0xF3u, 0x49u,
+        };
+        static const uint8_t expected_secret[32] = {
+            0x1Bu, 0x0Fu, 0x19u, 0x81u, 0x0Cu, 0xC0u, 0x1Cu, 0x3Du,
+            0x85u, 0x01u, 0xF3u, 0x11u, 0x99u, 0x79u, 0x13u, 0x93u,
+            0xDBu, 0x45u, 0x22u, 0xD2u, 0xEAu, 0xD6u, 0x9Eu, 0x60u,
+            0x80u, 0xABu, 0x50u, 0x39u, 0x2Fu, 0x73u, 0xFBu, 0x9Cu,
+        };
+        ecc_point_t peer;
+
+        memset(&peer, 0, sizeof(peer));
+        peer.size = key.curve->size;
+        memcpy(peer.x, peer_x, sizeof(peer_x));
+        memcpy(peer.y, peer_y, sizeof(peer_y));
+        memcpy(key.d, ecdh_scalar, sizeof(ecdh_scalar));
+        secret_len = sizeof(secret);
+        rc = noxtls_ecdh_compute_shared_secret_ex(&key, &peer, secret,
+                                                  &secret_len, &diagnostic);
+        ok &= expect(rc == NOXTLS_RETURN_SUCCESS,
+                     "compute nontrivial P-256 ECDH secret");
+        ok &= expect(secret_len == sizeof(expected_secret),
+                     "nontrivial P-256 ECDH secret length");
+        ok &= expect(memcmp(secret, expected_secret,
+                            sizeof(expected_secret)) == 0,
+                     "match nontrivial P-256 ECDH known answer");
+        ok &= expect(diagnostic.stage == NOXTLS_ECDH_DIAGNOSTIC_NONE,
+                     "nontrivial P-256 ECDH has no diagnostic stage");
+    }
+
+    memset(key.d, 0, key.curve->size);
+    key.d[31] = 1u;
+
     secret_len = sizeof(secret) - 1u;
     rc = noxtls_ecdh_compute_shared_secret_ex(&key, &key.curve->G, secret,
                                               &secret_len, &diagnostic);
