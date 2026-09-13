@@ -8,6 +8,10 @@ CONFIG_NOXTLS=y
 CONFIG_NOXTLS_PROFILE_DEFAULT=y
 CONFIG_NOXTLS_USE_ESP_ENTROPY=y
 
+# The complete TLS server is slightly larger than the default 1 MiB factory
+# partition on ESP32-C6. Use ESP-IDF's 1.5 MiB single-app layout (no OTA).
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+
 # NoxTLS ESP hardware crypto (see ports/esp-idf/Kconfig and README.md).
 # HW AES/SHA/ECC/ECDSA defaults are target-specific (Kconfig depends on SOC_*).
 # Do not force CONFIG_NOXTLS_ESP_HW_AES or CONFIG_MBEDTLS_HARDWARE_AES here — chips
