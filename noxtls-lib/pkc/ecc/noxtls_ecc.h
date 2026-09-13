@@ -47,6 +47,20 @@
 #ifndef NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE
 #define NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE 1
 #endif
+#ifndef NOXTLS_ECC_P256_FLASH_PRECOMPUTE
+#define NOXTLS_ECC_P256_FLASH_PRECOMPUTE 0
+#endif
+#ifndef NOXTLS_ECC_P256_LOW_RAM_VERIFY
+#define NOXTLS_ECC_P256_LOW_RAM_VERIFY 0
+#endif
+#if NOXTLS_ECC_P256_LOW_RAM_VERIFY && !NOXTLS_ECC_P256_FLASH_PRECOMPUTE
+#error "NOXTLS_ECC_P256_LOW_RAM_VERIFY requires NOXTLS_ECC_P256_FLASH_PRECOMPUTE"
+#endif
+/* Timing and accelerator counters are intended for targeted investigations.
+ * Keep them out of normal products unless explicitly requested at build time. */
+#ifndef NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+#define NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS 0
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -141,8 +155,29 @@ noxtls_return_t noxtls_ecc_point_muladd(ecc_point_t *result,
 int noxtls_ecc_point_multiply_uses_ref(void);
 /** Return configured window size for point mul (0 = ladder only, 2+ = windowed). */
 int noxtls_ecc_point_mul_window_size(void);
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+/** Return nonzero after the selected platform ECC accelerator is ready. */
+uint8_t noxtls_ecc_accel_is_ready(void);
+/** Number of ECC operations completed by the selected accelerator. */
+uint32_t noxtls_ecc_accel_operation_count(void);
+/** Number of accelerator attempts that continued through software fallback. */
+uint32_t noxtls_ecc_accel_fallback_count(void);
+#endif
 noxtls_return_t noxtls_ecc_point_is_on_curve(const ecc_point_t *point, const ecc_curve_params_t *curve);
 noxtls_return_t noxtls_ecc_point_validate_public(const ecc_point_t *point, const ecc_curve_params_t *curve);
+
+/* Optional platform point-multiplication accelerator telemetry.  These
+ * values expose control flow only: no key, scalar, or point material is
+ * retained or reported.  A successful operation count is the authoritative
+ * indication that the selected accelerator completed a request. */
+int noxtls_ecc_accel_is_ready(void);
+uint32_t noxtls_ecc_accel_operation_count(void);
+uint32_t noxtls_ecc_accel_fallback_count(void);
+void noxtls_ecc_accel_note_fallback(void);
+int32_t noxtls_ecc_accel_last_rc(void);
+uint32_t noxtls_ecc_accel_last_status(void);
+uint32_t noxtls_ecc_accel_last_stage(void);
+int noxtls_ecc_accel_input_echo_ok(void);
 
 /* Key Management */
 noxtls_return_t noxtls_ecc_key_init(ecc_key_t *key, ecc_curve_t curve_type);

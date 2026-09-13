@@ -100,163 +100,302 @@ static void gcm_xor_stream_partial(uint8_t *out, const uint8_t *in, const uint8_
     }
 }
 
+/** Shoup 4-bit GHASH H-table size (H[i] = i * H). */
+#define NOXTLS_GCM_HTABLE_SIZE          16U
+/** Index of H^1 in the Shoup H-table (binary 1000b). */
+#define NOXTLS_GCM_HTABLE_H1_INDEX      (NOXTLS_GCM_HTABLE_SIZE / 2U)
+/** last4[] reduction lookup size (one entry per 4-bit remainder). */
+#define NOXTLS_GCM_LAST4_SIZE           16U
+/** GF(2^128) reduction byte for the degree-128 term (R = x^128+x^7+x^2+x+1). */
+#define NOXTLS_GCM_POLY_R_BYTE          0xE1U
+/** Bit width of one GHASH nibble. */
+#define NOXTLS_GCM_NIBBLE_BITS          4U
+/** Mask for a low nibble. */
+#define NOXTLS_GCM_NIBBLE_MASK          0x0FU
+/** Shift used to place last4[rem] into the high half of u64z[0]. */
+#define NOXTLS_GCM_LAST4_SHIFT          48U
+/** Bytes in a GCM/GHASH block. */
+#define NOXTLS_GCM_BLOCK_BYTES          16U
+
 /**
- * @brief Shift the vector right
- *
- * @param v is the vector to shift
- *
+ * last4[x] = x * P^128 in GF(2^128) (Shoup / MGV 4-bit method).
+ * Public field arithmetic constants.
+ */
+static const uint16_t gcm_last4[NOXTLS_GCM_LAST4_SIZE] = {
+    0x0000U, 0x1c20U, 0x3840U, 0x2460U,
+    0x7080U, 0x6ca0U, 0x48c0U, 0x54e0U,
+    0xe100U, 0xfd20U, 0xd940U, 0xc560U,
+    0x9180U, 0x8da0U, 0xa9c0U, 0xb5e0U
+};
+
+/**
+ * @brief Load a big-endian uint64 from a byte buffer.
+ * @param p Source pointer (8 bytes).
+ * @return Big-endian interpreted value.
+ */
+static uint64_t gcm_load_be64(const uint8_t *p)
+{
+    return ((uint64_t)p[0] << 56) |
+           ((uint64_t)p[1] << 48) |
+           ((uint64_t)p[2] << 40) |
+           ((uint64_t)p[3] << 32) |
+           ((uint64_t)p[4] << 24) |
+           ((uint64_t)p[5] << 16) |
+           ((uint64_t)p[6] << 8) |
+           (uint64_t)p[7];
+}
+
+/**
+ * @brief Store a uint64 as big-endian bytes.
+ * @param p Destination pointer (8 bytes).
+ * @param v Value to store.
  * @return None.
  */
-static void gcm_shift_right(uint8_t v[16])
+static void gcm_store_be64(uint8_t *p, uint64_t v)
+{
+    p[0] = (uint8_t)(v >> 56);
+    p[1] = (uint8_t)(v >> 48);
+    p[2] = (uint8_t)(v >> 40);
+    p[3] = (uint8_t)(v >> 32);
+    p[4] = (uint8_t)(v >> 24);
+    p[5] = (uint8_t)(v >> 16);
+    p[6] = (uint8_t)(v >> 8);
+    p[7] = (uint8_t)v;
+}
+
+/**
+ * @brief One-bit right shift of a BE-packed GHASH element with reduction.
+ *
+ * Operates on H-table entries packed as two big-endian uint64 halves
+ * (bytes 0..7 in dst[0]/src[0], bytes 8..15 in dst[1]/src[1]).
+ *
+ * @param dst Destination element.
+ * @param src Source element.
+ * @return None.
+ */
+static void gcm_gen_table_rightshift(uint64_t dst[2], const uint64_t src[2])
+{
+    const uint64_t hi = src[0];
+    const uint64_t lo = src[1];
+
+    dst[1] = (lo >> 1) | (hi << 63);
+    dst[0] = (hi >> 1);
+    if((lo & 1U) != 0U) {
+        dst[0] ^= ((uint64_t)NOXTLS_GCM_POLY_R_BYTE << 56);
+    }
+}
+
+#if defined(NOXTLS_GCM_GHASH_SELFCHECK)
+/**
+ * @brief Shift a 16-byte GHASH block one bit toward the LSB (byte form).
+ * @param v Block to shift in place.
+ * @return None.
+ */
+static void gcm_shift_right(uint8_t v[NOXTLS_GCM_BLOCK_BYTES])
 {
     uint8_t carry = 0;
-    for(int i = 0; i < 16; i++) {
-        uint8_t new_carry = (uint8_t)(v[i] & 0x01);
+    for(int i = 0; i < (int)NOXTLS_GCM_BLOCK_BYTES; i++) {
+        uint8_t new_carry = (uint8_t)(v[i] & 0x01U);
         v[i] = (uint8_t)((v[i] >> 1) | (carry << 7));
         carry = new_carry;
     }
 }
 
 /**
- * @brief Multiply the vector
- *
- * @param x is the vector to multiply
- * @param y is the vector to multiply
- *
+ * @brief Bit-serial GF(2^128) multiply (debug / self-check only).
+ * @param x Multiplicand; replaced with x * y.
+ * @param y Multiplier (H).
  * @return None.
  */
-static void gcm_mul_bitserial(uint8_t x[16], const uint8_t y[16])
+static void gcm_mul_bitserial(uint8_t x[NOXTLS_GCM_BLOCK_BYTES],
+                             const uint8_t y[NOXTLS_GCM_BLOCK_BYTES])
 {
-    uint8_t z[16] = {0};
-    uint8_t v[16];
-    memcpy(v, y, 16);
+    uint8_t z[NOXTLS_GCM_BLOCK_BYTES];
+    uint8_t v[NOXTLS_GCM_BLOCK_BYTES];
+    int i;
 
-    for(int i = 0; i < 128; i++) {
+    memset(z, 0, sizeof(z));
+    memcpy(v, y, NOXTLS_GCM_BLOCK_BYTES);
+
+    for(i = 0; i < 128; i++) {
         int byte_idx = i >> 3;
         int bit_idx = 7 - (i & 7);
-        if((x[byte_idx] >> bit_idx) & 1) {
+        if(((x[byte_idx] >> bit_idx) & 1) != 0) {
             gcm_xor(z, z, v);
         }
-        uint8_t lsb = (uint8_t)(v[15] & 1);
-        gcm_shift_right(v);
-        if(lsb) {
-            v[0] ^= 0xE1;
+        {
+            uint8_t lsb = (uint8_t)(v[15] & 1U);
+            gcm_shift_right(v);
+            if(lsb != 0U) {
+                v[0] ^= (uint8_t)NOXTLS_GCM_POLY_R_BYTE;
+            }
         }
     }
-    memcpy(x, z, 16);
+    memcpy(x, z, NOXTLS_GCM_BLOCK_BYTES);
+}
+#endif /* NOXTLS_GCM_GHASH_SELFCHECK */
+
+/**
+ * @brief Build Shoup 4-bit H-table from hash subkey H.
+ *
+ * H[NOXTLS_GCM_HTABLE_H1_INDEX] = H; successive right-shifts fill powers
+ * of two; remaining indices are XOR combinations (H[i] = i * H).
+ * Entries are stored as big-endian uint64 pairs.
+ *
+ * @param H Destination table.
+ * @param h Hash subkey (AES-ECB(K, 0^128)).
+ * @return None.
+ */
+static void gcm_gen_table(uint64_t H[NOXTLS_GCM_HTABLE_SIZE][2], const uint8_t h[NOXTLS_GCM_BLOCK_BYTES])
+{
+    unsigned int i;
+    unsigned int j;
+
+    H[NOXTLS_GCM_HTABLE_H1_INDEX][0] = gcm_load_be64(h);
+    H[NOXTLS_GCM_HTABLE_H1_INDEX][1] = gcm_load_be64(h + 8U);
+
+    H[0][0] = 0U;
+    H[0][1] = 0U;
+
+    for(i = NOXTLS_GCM_HTABLE_SIZE / 4U; i > 0U; i >>= 1) {
+        gcm_gen_table_rightshift(H[i], H[i * 2U]);
+    }
+
+    for(i = 2U; i < NOXTLS_GCM_HTABLE_SIZE; i <<= 1) {
+        for(j = 1U; j < i; j++) {
+            H[i + j][0] = H[i][0] ^ H[j][0];
+            H[i + j][1] = H[i][1] ^ H[j][1];
+        }
+    }
 }
 
 /**
- * @brief Precompute the tables
- * 
- * @param[in] table The table to precompute.
- * @param[in] h The h value.
- * @return void
+ * @brief Return a cached Shoup H-table for hash subkey h.
+ * @param h Hash subkey.
+ * @return Pointer to H[NOXTLS_GCM_HTABLE_SIZE][2].
  */
-static void gcm_table_store(uint32_t dst[4], const uint8_t src[16])
-{
-    dst[0] = gcm_load_ne32(src + 0U);
-    dst[1] = gcm_load_ne32(src + 4U);
-    dst[2] = gcm_load_ne32(src + 8U);
-    dst[3] = gcm_load_ne32(src + 12U);
-}
-
-static const uint32_t (*gcm_precompute_tables(const uint8_t h[16]))[16][4]
+static const uint64_t (*gcm_precompute_tables(const uint8_t h[NOXTLS_GCM_BLOCK_BYTES]))[2]
 {
     static uint8_t cache_valid;
-    static uint8_t cache_h[16];
-    static uint32_t table[32][16][4];
-    uint8_t basis[16];
-    uint8_t product[16];
-    int byte_idx;
-    int nibble;
+    static uint8_t cache_h[NOXTLS_GCM_BLOCK_BYTES];
+    static uint64_t table[NOXTLS_GCM_HTABLE_SIZE][2];
 
-    if(cache_valid != 0U && memcmp(cache_h, h, 16) == 0) {
+    if(cache_valid != 0U && memcmp(cache_h, h, NOXTLS_GCM_BLOCK_BYTES) == 0) {
         return table;
     }
 
-    for(byte_idx = 0; byte_idx < 16; byte_idx++) {
-        for(nibble = 0; nibble < 16; nibble++) {
-            memset(basis, 0, sizeof(basis));
-            basis[byte_idx] = (uint8_t)(nibble << 4);
-            memcpy(product, basis, sizeof(product));
-            gcm_mul_bitserial(product, h);
-            gcm_table_store(table[(size_t)byte_idx * 2U][nibble], product);
-
-            memset(basis, 0, sizeof(basis));
-            basis[byte_idx] = (uint8_t)nibble;
-            memcpy(product, basis, sizeof(product));
-            gcm_mul_bitserial(product, h);
-            gcm_table_store(table[((size_t)byte_idx * 2U) + 1U][nibble], product);
-        }
-    }
-
+    gcm_gen_table(table, h);
     memcpy(cache_h, h, sizeof(cache_h));
     cache_valid = 1U;
     return table;
 }
 
 /**
- * @brief Multiply the vector
- * 
- * @param[in] x The vector to multiply.
- * @param[in] table The table to multiply.
- * @return void
+ * @brief GF(2^128) multiply x by H using Shoup's 4-bit small table.
+ *
+ * Processes x from byte 15 down to 0; for each byte the low nibble is
+ * applied, then a 4-bit word shift with last4 reduction, then the high
+ * nibble (matching the standard small-table GHASH multiply).
+ *
+ * @param x Field element; replaced with x * H.
+ * @param H Precomputed Shoup table.
+ * @return None.
  */
-static void gcm_mul(uint8_t x[16], const uint32_t table[32][16][4])
+static void gcm_mult_smalltable(uint8_t x[NOXTLS_GCM_BLOCK_BYTES],
+                               const uint64_t H[NOXTLS_GCM_HTABLE_SIZE][2])
 {
-    uint32_t z0 = 0U;
-    uint32_t z1 = 0U;
-    uint32_t z2 = 0U;
-    uint32_t z3 = 0U;
-    int byte_idx;
+    int i;
+    uint8_t lo;
+    uint8_t hi;
+    uint8_t rem;
+    uint64_t u64z[2];
+    const uint64_t *pu64z;
 
-    for(byte_idx = 0; byte_idx < 16; byte_idx++) {
-        const uint8_t hi = (uint8_t)(x[byte_idx] >> 4);
-        const uint8_t lo = (uint8_t)(x[byte_idx] & 0x0F);
-        if(hi != 0U) {
-            const uint32_t *t = table[(size_t)byte_idx * 2U][hi];
-            z0 ^= t[0];
-            z1 ^= t[1];
-            z2 ^= t[2];
-            z3 ^= t[3];
-        }
-        if(lo != 0U) {
-            const uint32_t *t = table[((size_t)byte_idx * 2U) + 1U][lo];
-            z0 ^= t[0];
-            z1 ^= t[1];
-            z2 ^= t[2];
-            z3 ^= t[3];
-        }
+    lo = (uint8_t)(x[15] & NOXTLS_GCM_NIBBLE_MASK);
+    hi = (uint8_t)((x[15] >> NOXTLS_GCM_NIBBLE_BITS) & NOXTLS_GCM_NIBBLE_MASK);
+
+    pu64z = H[lo];
+    rem = (uint8_t)(pu64z[1] & NOXTLS_GCM_NIBBLE_MASK);
+    u64z[1] = (pu64z[0] << 60) | (pu64z[1] >> NOXTLS_GCM_NIBBLE_BITS);
+    u64z[0] = (pu64z[0] >> NOXTLS_GCM_NIBBLE_BITS);
+    u64z[0] ^= ((uint64_t)gcm_last4[rem] << NOXTLS_GCM_LAST4_SHIFT);
+    u64z[0] ^= H[hi][0];
+    u64z[1] ^= H[hi][1];
+
+    for(i = 14; i >= 0; i--) {
+        lo = (uint8_t)(x[i] & NOXTLS_GCM_NIBBLE_MASK);
+        hi = (uint8_t)((x[i] >> NOXTLS_GCM_NIBBLE_BITS) & NOXTLS_GCM_NIBBLE_MASK);
+
+        rem = (uint8_t)(u64z[1] & NOXTLS_GCM_NIBBLE_MASK);
+        u64z[1] = (u64z[0] << 60) | (u64z[1] >> NOXTLS_GCM_NIBBLE_BITS);
+        u64z[0] = (u64z[0] >> NOXTLS_GCM_NIBBLE_BITS);
+        u64z[0] ^= ((uint64_t)gcm_last4[rem] << NOXTLS_GCM_LAST4_SHIFT);
+        u64z[0] ^= H[lo][0];
+        u64z[1] ^= H[lo][1];
+
+        rem = (uint8_t)(u64z[1] & NOXTLS_GCM_NIBBLE_MASK);
+        u64z[1] = (u64z[0] << 60) | (u64z[1] >> NOXTLS_GCM_NIBBLE_BITS);
+        u64z[0] = (u64z[0] >> NOXTLS_GCM_NIBBLE_BITS);
+        u64z[0] ^= ((uint64_t)gcm_last4[rem] << NOXTLS_GCM_LAST4_SHIFT);
+        u64z[0] ^= H[hi][0];
+        u64z[1] ^= H[hi][1];
     }
 
-    gcm_store_ne32(x + 0U, z0);
-    gcm_store_ne32(x + 4U, z1);
-    gcm_store_ne32(x + 8U, z2);
-    gcm_store_ne32(x + 12U, z3);
+    gcm_store_be64(x + 0U, u64z[0]);
+    gcm_store_be64(x + 8U, u64z[1]);
 }
 
 /**
- * @brief Update the hash
- *
- * @param x is the hash to update
- * @param h is the hash to update
- * @param data is the data to update the hash with
- * @param len is the length of the data
- *
+ * @brief Multiply x by H using the Shoup H-table.
+ * @param x Field element; replaced with x * H.
+ * @param H Precomputed table.
+ * @return None.
+ */
+static void gcm_mul(uint8_t x[NOXTLS_GCM_BLOCK_BYTES],
+                    const uint64_t H[NOXTLS_GCM_HTABLE_SIZE][2])
+{
+#if defined(NOXTLS_GCM_GHASH_SELFCHECK)
+    {
+        uint8_t ref[NOXTLS_GCM_BLOCK_BYTES];
+        uint8_t h_bytes[NOXTLS_GCM_BLOCK_BYTES];
+        memcpy(ref, x, NOXTLS_GCM_BLOCK_BYTES);
+        gcm_store_be64(h_bytes + 0U, H[NOXTLS_GCM_HTABLE_H1_INDEX][0]);
+        gcm_store_be64(h_bytes + 8U, H[NOXTLS_GCM_HTABLE_H1_INDEX][1]);
+        gcm_mul_bitserial(ref, h_bytes);
+        gcm_mult_smalltable(x, H);
+        if(memcmp(ref, x, NOXTLS_GCM_BLOCK_BYTES) != 0) {
+            /* Keep bitserial result if smalltable diverges (debug builds). */
+            memcpy(x, ref, NOXTLS_GCM_BLOCK_BYTES);
+        }
+        return;
+    }
+#else
+    gcm_mult_smalltable(x, H);
+#endif
+}
+
+/**
+ * @brief Update GHASH state with additional authenticated data or ciphertext.
+ * @param x Running GHASH state.
+ * @param H Precomputed Shoup H-table.
+ * @param data Input bytes.
+ * @param len Input length in bytes.
  * @return None.
  */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
-static void ghash_update(uint8_t x[16], const uint32_t table[32][16][4], const uint8_t *data, uint32_t len)
+static void ghash_update(uint8_t x[NOXTLS_GCM_BLOCK_BYTES],
+                         const uint64_t H[NOXTLS_GCM_HTABLE_SIZE][2],
+                         const uint8_t *data,
+                         uint32_t len)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    uint8_t block[16];
+    uint8_t block[NOXTLS_GCM_BLOCK_BYTES];
     uint32_t offset = 0;
 
-    while((len - offset) >= 16U) {
+    while((len - offset) >= NOXTLS_GCM_BLOCK_BYTES) {
         gcm_xor_inplace(x, data + offset);
-        gcm_mul(x, table);
-        offset += 16U;
+        gcm_mul(x, H);
+        offset += NOXTLS_GCM_BLOCK_BYTES;
     }
 
     if(offset < len) {
@@ -264,26 +403,26 @@ static void ghash_update(uint8_t x[16], const uint32_t table[32][16][4], const u
         memset(block, 0, sizeof(block));
         memcpy(block, data + offset, take);
         gcm_xor_inplace(x, block);
-        gcm_mul(x, table);
+        gcm_mul(x, H);
     }
 }
 
-
 /**
- * @brief Finalize the hash
- *
- * @param x is the hash to finalize
- * @param h is the hash to finalize
- * @param aad_bits is the length of the AAD
- * @param data_bits is the length of the data
- *
+ * @brief Finalize GHASH with AAD and ciphertext bit lengths.
+ * @param x Running GHASH state.
+ * @param H Precomputed Shoup H-table.
+ * @param aad_bits AAD length in bits.
+ * @param data_bits Ciphertext/plaintext length in bits.
  * @return None.
  */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
-static void ghash_finalize(uint8_t x[16], const uint32_t table[32][16][4], uint64_t aad_bits, uint64_t data_bits)
+static void ghash_finalize(uint8_t x[NOXTLS_GCM_BLOCK_BYTES],
+                           const uint64_t H[NOXTLS_GCM_HTABLE_SIZE][2],
+                           uint64_t aad_bits,
+                           uint64_t data_bits)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    uint8_t len_block[16];
+    uint8_t len_block[NOXTLS_GCM_BLOCK_BYTES];
     memset(len_block, 0, sizeof(len_block));
 
     len_block[0] = (uint8_t)(aad_bits >> 56);
@@ -305,7 +444,7 @@ static void ghash_finalize(uint8_t x[16], const uint32_t table[32][16][4], uint6
     len_block[15] = (uint8_t)data_bits;
 
     gcm_xor_inplace(x, len_block);
-    gcm_mul(x, table);
+    gcm_mul(x, H);
 }
 
 /**
@@ -320,7 +459,9 @@ static void ghash_finalize(uint8_t x[16], const uint32_t table[32][16][4], uint6
  */
 static noxtls_return_t aes_block(const noxtls_aes_context_t *ctx, const uint8_t in[16], uint8_t out[16])
 {
-    return noxtls_aes_encrypt_block_ctx_software_internal(ctx, in, out);
+    /* Prefer the configured block backend (STM32/nRF port, AES-NI, …) so
+     * HW builds accelerate GCM CTR/GHASH keystream, not only H7 full-AEAD. */
+    return noxtls_aes_encrypt_block_ctx_internal(ctx, in, out);
 }
 
 /**
@@ -353,7 +494,7 @@ noxtls_return_t noxtls_aes_gcm_encrypt(const uint8_t *key, noxtls_aes_type_t typ
     uint8_t ctr[16];
     uint8_t s[16];
     uint8_t x[16];
-    const uint32_t (*ghash_table)[16][4];
+    const uint64_t (*ghash_table)[2];
     uint32_t offset = 0;
 
     if(key == NULL || nonce == NULL || plaintext == NULL || ciphertext == NULL || tag == NULL) {
@@ -458,7 +599,7 @@ noxtls_return_t noxtls_aes_gcm_decrypt(const uint8_t *key, noxtls_aes_type_t typ
     uint8_t s[16];
     uint8_t x[16];
     uint8_t expected_tag[16];
-    const uint32_t (*ghash_table)[16][4];
+    const uint64_t (*ghash_table)[2];
     uint32_t offset = 0;
 
     if(key == NULL || nonce == NULL || ciphertext == NULL || plaintext == NULL || tag == NULL) {

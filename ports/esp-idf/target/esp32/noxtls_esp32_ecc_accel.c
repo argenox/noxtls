@@ -33,7 +33,14 @@
 #include "esp_log.h"
 #include "soc/soc_caps.h"
 
-#if defined(SOC_ECC_SUPPORTED) && SOC_ECC_SUPPORTED
+static uint32_t s_noxtls_esp_ecc_operation_count;
+static uint32_t s_noxtls_esp_ecc_fallback_count;
+static int32_t s_noxtls_esp_ecc_last_rc = NOXTLS_RETURN_NOT_SUPPORTED;
+static uint32_t s_noxtls_esp_ecc_last_status;
+static uint32_t s_noxtls_esp_ecc_last_stage;
+
+#if defined(SOC_ECC_SUPPORTED) && SOC_ECC_SUPPORTED && \
+    (CONFIG_NOXTLS_ESP_HW_ECC || CONFIG_NOXTLS_ESP_HW_ECDSA)
 #define ecc_point_t esp_idf_ecc_point_t
 #include "ecc_impl.h"
 #undef ecc_point_t
@@ -48,6 +55,8 @@ typedef struct {
 static noxtls_esp_verified_point_cache_t s_verified_point_cache = { 0 };
 #endif
 
+#if defined(SOC_ECC_SUPPORTED) && SOC_ECC_SUPPORTED && \
+    (CONFIG_NOXTLS_ESP_HW_ECC || CONFIG_NOXTLS_ESP_HW_ECDSA)
 /**
  * @brief Reverse the copy of the data
  *
@@ -103,6 +112,7 @@ static int noxtls_esp_curve_is_secp256r1(const ecc_curve_params_t *curve)
     }
     return 1;
 }
+#endif
 
 /**
  * @brief Check if the ESP hardware ECC is compiled in
@@ -147,6 +157,47 @@ void noxtls_esp_hw_ecc_status_str(char *buf, unsigned int buflen)
     (void)snprintf(buf, (size_t)buflen, "%s", msg);
 }
 
+int noxtls_ecc_accel_is_ready(void)
+{
+    return noxtls_esp_hw_ecc_compiled_in();
+}
+
+uint32_t noxtls_ecc_accel_operation_count(void)
+{
+    return s_noxtls_esp_ecc_operation_count;
+}
+
+uint32_t noxtls_ecc_accel_fallback_count(void)
+{
+    return s_noxtls_esp_ecc_fallback_count;
+}
+
+void noxtls_ecc_accel_note_fallback(void)
+{
+    ++s_noxtls_esp_ecc_fallback_count;
+}
+
+int32_t noxtls_ecc_accel_last_rc(void)
+{
+    return s_noxtls_esp_ecc_last_rc;
+}
+
+uint32_t noxtls_ecc_accel_last_status(void)
+{
+    return s_noxtls_esp_ecc_last_status;
+}
+
+uint32_t noxtls_ecc_accel_last_stage(void)
+{
+    return s_noxtls_esp_ecc_last_stage;
+}
+
+int noxtls_ecc_accel_input_echo_ok(void)
+{
+    /* ESP-IDF's ECC API does not expose peripheral operand readback. */
+    return 0;
+}
+
 /**
  * @brief Multiply the point by the scalar
  *
@@ -169,13 +220,18 @@ noxtls_return_t noxtls_ecc_point_multiply_accel_port(ecc_point_t *result,
     int verify_first = 1;
     int rc;
 
+    s_noxtls_esp_ecc_last_stage = 1U;
+    s_noxtls_esp_ecc_last_status = 0U;
     if(result == NULL || scalar == NULL || point == NULL || curve == NULL) {
+        s_noxtls_esp_ecc_last_rc = NOXTLS_RETURN_NULL;
         return NOXTLS_RETURN_NULL;
     }
     if(!noxtls_esp_curve_is_secp256r1(curve)) {
+        s_noxtls_esp_ecc_last_rc = NOXTLS_RETURN_NOT_SUPPORTED;
         return NOXTLS_RETURN_NOT_SUPPORTED;
     }
     if(point->size != 32U) {
+        s_noxtls_esp_ecc_last_rc = NOXTLS_RETURN_NOT_SUPPORTED;
         return NOXTLS_RETURN_NOT_SUPPORTED;
     }
 
@@ -194,7 +250,10 @@ noxtls_return_t noxtls_ecc_point_multiply_accel_port(ecc_point_t *result,
               memcmp(s_verified_point_cache.y, point->y, 32U) == 0) {
         verify_first = 0;
     } else {
+        s_noxtls_esp_ecc_last_stage = 2U;
         if(esp_ecc_point_verify(&in_pt) != 1) {
+            s_noxtls_esp_ecc_last_rc = NOXTLS_RETURN_FAILED;
+            s_noxtls_esp_ecc_last_status = 1U;
             return NOXTLS_RETURN_FAILED;
         }
         s_verified_point_cache.curve = curve;
@@ -204,7 +263,9 @@ noxtls_return_t noxtls_ecc_point_multiply_accel_port(ecc_point_t *result,
         verify_first = 0;
     }
 
+    s_noxtls_esp_ecc_last_stage = 3U;
     rc = esp_ecc_point_multiply(&in_pt, scalar_le, &out_pt, verify_first);
+    s_noxtls_esp_ecc_last_status = (uint32_t)rc;
     if(rc != 0 || out_pt.len != 32U) {
         static int s_logged;
         if(!s_logged) {
@@ -212,18 +273,25 @@ noxtls_return_t noxtls_ecc_point_multiply_accel_port(ecc_point_t *result,
                      rc, (unsigned)out_pt.len);
             s_logged = 1;
         }
+        s_noxtls_esp_ecc_last_rc = NOXTLS_RETURN_FAILED;
         return NOXTLS_RETURN_FAILED;
     }
 
     noxtls_esp_reverse_copy(result->x, out_pt.x, 32U);
     noxtls_esp_reverse_copy(result->y, out_pt.y, 32U);
     result->size = 32U;
+    ++s_noxtls_esp_ecc_operation_count;
+    s_noxtls_esp_ecc_last_rc = NOXTLS_RETURN_SUCCESS;
+    s_noxtls_esp_ecc_last_stage = 4U;
     return NOXTLS_RETURN_SUCCESS;
 #else
     (void)result;
     (void)scalar;
     (void)point;
     (void)curve;
+    s_noxtls_esp_ecc_last_rc = NOXTLS_RETURN_NOT_SUPPORTED;
+    s_noxtls_esp_ecc_last_status = 0U;
+    s_noxtls_esp_ecc_last_stage = 0U;
     return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
 }

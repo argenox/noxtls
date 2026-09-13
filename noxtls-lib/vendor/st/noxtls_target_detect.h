@@ -126,6 +126,12 @@
 #define NOXTLS_STM32_F4_HAS_CRYP 1
 #endif
 
+/* STM32F7 CRYP-capable variants (classic CRYP + GCM, same map as F4 crypto). */
+#if defined(STM32F756xx) || defined(STM32F767xx) || defined(STM32F769xx) || \
+    defined(STM32F777xx) || defined(STM32F779xx)
+#define NOXTLS_STM32_F7_HAS_CRYP 1
+#endif
+
 #if defined(NOXTLS_STM32_FAMILY_WB)
 #define NOXTLS_STM32_WB_HAS_CRYP 1
 #endif
@@ -151,12 +157,29 @@
 #define NOXTLS_STM32_F4_SW_AES_ONLY 1
 #endif
 
-#if defined(NOXTLS_STM32_F2_HAS_CRYP) || defined(NOXTLS_STM32_F4_HAS_CRYP) || defined(NOXTLS_STM32_WB_HAS_CRYP)
+#if defined(NOXTLS_STM32_FAMILY_F7) && !defined(NOXTLS_STM32_F7_HAS_CRYP)
+#define NOXTLS_STM32_F7_SW_AES_ONLY 1
+#endif
+
+#if defined(NOXTLS_STM32_F2_HAS_CRYP) || defined(NOXTLS_STM32_F4_HAS_CRYP) || \
+    defined(NOXTLS_STM32_F7_HAS_CRYP) || defined(NOXTLS_STM32_WB_HAS_CRYP)
 #define NOXTLS_STM32_HAS_CRYP_PERIPH 1
 #endif
 
+/* STM32U5 AES-IP is device-dependent. U575 (and some other non-crypto SKUs)
+ * expose HASH/RNG/PKA but not AES; U545/U585/U5A5 and similar do. Match ST
+ * CMSIS device headers (AES_BASE / RCC_AHB2ENR1_AESEN present).
+ */
+#if defined(STM32U535xx) || defined(STM32U545xx) || defined(STM32U585xx) || \
+    defined(STM32U595xx) || defined(STM32U599xx) || defined(STM32U5A5xx) || \
+    defined(STM32U5A9xx) || defined(STM32U5F7xx) || defined(STM32U5G7xx) || \
+    defined(STM32U5F9xx) || defined(STM32U5G9xx)
+#define NOXTLS_STM32_U5_HAS_AES 1
+#endif
+
 #if defined(NOXTLS_STM32_HAS_CRYP_PERIPH) || defined(NOXTLS_STM32_FAMILY_H5) || \
-    defined(NOXTLS_STM32_H7_HAS_CRYP_HASH) || defined(NOXTLS_STM32_FAMILY_L5) || defined(NOXTLS_STM32_FAMILY_U5)
+    defined(NOXTLS_STM32_H7_HAS_CRYP_HASH) || defined(NOXTLS_STM32_FAMILY_L5) || \
+    defined(NOXTLS_STM32_U5_HAS_AES)
 #define NOXTLS_STM32_HAS_AES_PERIPH 1
 #endif
 

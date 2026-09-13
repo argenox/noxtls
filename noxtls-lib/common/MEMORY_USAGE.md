@@ -81,6 +81,41 @@ if(noxtls_mem_get_stats(&total_allocated, &total_used, &max_used) == NOXTLS_RETU
 }
 ```
 
+## Last Allocation Failure
+
+When an operation reports `NOXTLS_RETURN_NOT_ENOUGH_MEMORY`, the last allocator
+failure can be inspected without enabling test instrumentation:
+
+```c
+noxtls_mem_error_info_t error;
+
+if(noxtls_mem_get_last_error(&error) == NOXTLS_RETURN_SUCCESS) {
+    printf("OOM at %s:%u (%s): requested=%zu, additional=%zu\n",
+           error.source_file != NULL ? error.source_file : "<unknown>",
+           (unsigned)error.source_line,
+           error.source_function != NULL ? error.source_function : "<unknown>",
+           error.requested_bytes,
+           error.minimum_additional_bytes);
+}
+```
+
+The saved record persists until another allocation fails or
+`noxtls_mem_clear_last_error()` is called. Static pools report the minimum
+additional contiguous payload capacity. System allocators use
+`NOXTLS_MEM_SIZE_UNKNOWN` for capacity values the host cannot determine. The
+record is module-wide, so concurrent users should serialize access when they need
+per-thread attribution.
+
+## P-256 embedded-memory options
+
+Enable `NOXTLS_ECC_P256_FLASH_PRECOMPUTE` to replace the 6528-byte heap-backed
+P-256 generator table with a compact 2048-byte read-only table placed in
+flash/ROM by the linker. Enable `NOXTLS_ECC_P256_LOW_RAM_VERIFY` as well to
+replace the 13056-byte ECDSA verification joint table with a compact 512-byte
+runtime public-key table. The low-RAM verification option requires the flash
+precompute option and trades some verification speed for substantially lower
+peak and retained heap use.
+
 ## Notes
 
 - When `NOXTLS_USE_STATIC_BUFFERS` is 0 (default), all functions use system malloc/free
