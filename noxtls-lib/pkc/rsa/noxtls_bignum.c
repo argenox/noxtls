@@ -2443,10 +2443,15 @@ noxtls_return_t noxtls_bn_mod(uint8_t *result, const uint8_t *a, uint32_t a_len,
     if((mod_len == 32U || mod_len == 48U || mod_len == 64U || mod_len == 128U || mod_len == 256U ||
         mod_len == 384U || mod_len == 512U || mod_len == 768U || mod_len == 1024U) &&
        a_len == mod_len * 2U) {
-        if(bn_mod_2n_by_n_limb(result, mod_len, a_src, a_len, mod) == NOXTLS_RETURN_SUCCESS) {
+        noxtls_return_t fast_rc = bn_mod_2n_by_n_limb(result, mod_len, a_src, a_len, mod);
+        if(fast_rc == NOXTLS_RETURN_SUCCESS) {
             if(do_debug) { bn_debug_print("[noxtls_bn_mod] result (2n/n limb path): ", result, mod_len); }
             if(a_copy) { noxtls_free(a_copy); }
             return NOXTLS_RETURN_SUCCESS;
+        }
+        if(fast_rc == NOXTLS_RETURN_NOT_ENOUGH_MEMORY) {
+            if(a_copy) { noxtls_free(a_copy); }
+            return fast_rc;
         }
     }
 
@@ -2465,10 +2470,17 @@ noxtls_return_t noxtls_bn_mod(uint8_t *result, const uint8_t *a, uint32_t a_len,
     }
 
     /* General limb path (bit-by-bit) for other operand sizes. */
-    if(bn_div_remainder_limb(result, mod_len, a_src, a_len, mod, mod_len) == NOXTLS_RETURN_SUCCESS) {
-        if(do_debug) { bn_debug_print("[noxtls_bn_mod] result (limb fast path): ", result, mod_len); }
-        if(a_copy) { noxtls_free(a_copy); }
-        return NOXTLS_RETURN_SUCCESS;
+    {
+        noxtls_return_t limb_rc = bn_div_remainder_limb(result, mod_len, a_src, a_len, mod, mod_len);
+        if(limb_rc == NOXTLS_RETURN_SUCCESS) {
+            if(do_debug) { bn_debug_print("[noxtls_bn_mod] result (limb fast path): ", result, mod_len); }
+            if(a_copy) { noxtls_free(a_copy); }
+            return NOXTLS_RETURN_SUCCESS;
+        }
+        if(limb_rc == NOXTLS_RETURN_NOT_ENOUGH_MEMORY) {
+            if(a_copy) { noxtls_free(a_copy); }
+            return limb_rc;
+        }
     }
 
     /* In-house bn_div_remainder. */

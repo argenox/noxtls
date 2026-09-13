@@ -1107,7 +1107,7 @@ noxtls_return_t noxtls_rsa_key_init(rsa_key_t *key, rsa_key_size_t key_size)
     
     if(!key->n || !key->e || !key->d || !key->p || !key->q || !key->dp || !key->dq || !key->qi) {
         noxtls_rsa_key_free(key);
-        return NOXTLS_RETURN_FAILED;
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
     
     /* Set default public exponent (65537 = 0x10001) */

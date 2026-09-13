@@ -161,8 +161,10 @@ static noxtls_return_t fe448_mul_be(uint8_t result[NOXTLS_X448_FE_BYTES],
                                     const uint8_t b[NOXTLS_X448_FE_BYTES])
 {
     uint8_t product[NOXTLS_X448_BN_PRODUCT_BYTES];
-    if(noxtls_bn_mul(product, a, NOXTLS_X448_FE_BYTES, b, NOXTLS_X448_FE_BYTES) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
+    noxtls_return_t rc = noxtls_bn_mul(product, a, NOXTLS_X448_FE_BYTES,
+                                       b, NOXTLS_X448_FE_BYTES);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
     }
     return noxtls_bn_mod(result, product, NOXTLS_X448_BN_PRODUCT_BYTES, x448_p, NOXTLS_X448_FE_BYTES);
 }
@@ -222,7 +224,13 @@ static noxtls_return_t x448_scalar_mult(const uint8_t k[NOXTLS_X448_KEY_SIZE],
     uint8_t t1[NOXTLS_X448_FE_BYTES];
     uint8_t t2[NOXTLS_X448_FE_BYTES];
     uint8_t z_2_inv[NOXTLS_X448_FE_BYTES];
+    noxtls_return_t rc;
     int t;
+
+#define X448_TRY(operation) do { \
+        rc = (operation); \
+        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; } \
+    } while(0)
 
     memcpy(k_clamped, k, NOXTLS_X448_KEY_SIZE);
     k_clamped[0] &= (uint8_t)NOXTLS_X448_CLAMP_BYTE0_MASK;
@@ -242,32 +250,33 @@ static noxtls_return_t x448_scalar_mult(const uint8_t k[NOXTLS_X448_KEY_SIZE],
         cswap56(k_t, x_2, x_3);
         cswap56(k_t, z_2, z_3);
 
-        fe448_add_be(A, x_2, z_2);
-        fe448_mul_be(AA, A, A);
-        fe448_sub_be(B, x_2, z_2);
-        fe448_mul_be(BB, B, B);
-        fe448_sub_be(E, AA, BB);
-        fe448_add_be(C, x_3, z_3);
-        fe448_sub_be(D, x_3, z_3);
-        fe448_mul_be(DA, D, A);
-        fe448_mul_be(CB, C, B);
-        fe448_add_be(DA_plus_CB, DA, CB);
-        fe448_sub_be(DA_minus_CB, DA, CB);
-        fe448_mul_be(x_3, DA_plus_CB, DA_plus_CB);
-        fe448_mul_be(t1, DA_minus_CB, DA_minus_CB);
-        fe448_mul_be(z_3, x_1, t1);
-        fe448_mul_be(x_2, AA, BB);
-        fe448_mul_be(t2, x448_a24_be, E);
-        fe448_add_be(t1, AA, t2);
-        fe448_mul_be(z_2, E, t1);
+        X448_TRY(fe448_add_be(A, x_2, z_2));
+        X448_TRY(fe448_mul_be(AA, A, A));
+        X448_TRY(fe448_sub_be(B, x_2, z_2));
+        X448_TRY(fe448_mul_be(BB, B, B));
+        X448_TRY(fe448_sub_be(E, AA, BB));
+        X448_TRY(fe448_add_be(C, x_3, z_3));
+        X448_TRY(fe448_sub_be(D, x_3, z_3));
+        X448_TRY(fe448_mul_be(DA, D, A));
+        X448_TRY(fe448_mul_be(CB, C, B));
+        X448_TRY(fe448_add_be(DA_plus_CB, DA, CB));
+        X448_TRY(fe448_sub_be(DA_minus_CB, DA, CB));
+        X448_TRY(fe448_mul_be(x_3, DA_plus_CB, DA_plus_CB));
+        X448_TRY(fe448_mul_be(t1, DA_minus_CB, DA_minus_CB));
+        X448_TRY(fe448_mul_be(z_3, x_1, t1));
+        X448_TRY(fe448_mul_be(x_2, AA, BB));
+        X448_TRY(fe448_mul_be(t2, x448_a24_be, E));
+        X448_TRY(fe448_add_be(t1, AA, t2));
+        X448_TRY(fe448_mul_be(z_2, E, t1));
 
         cswap56(k_t, x_2, x_3);
         cswap56(k_t, z_2, z_3);
     }
 
-    if(fe448_inv_be(z_2_inv, z_2) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(fe448_mul_be(x_2, x_2, z_2_inv) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    X448_TRY(fe448_inv_be(z_2_inv, z_2));
+    X448_TRY(fe448_mul_be(x_2, x_2, z_2_inv));
     be56_to_le56(result, x_2);
+#undef X448_TRY
     return NOXTLS_RETURN_SUCCESS;
 }
 
