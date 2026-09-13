@@ -143,6 +143,15 @@
         "NOXTLS_PROFILE_UT_ALL_FEATURES": "0"
       }
     },
+    "NOXTLS_ECC_P256_FLASH_PRECOMPUTE": {
+      "name": "P-256 Generator Table in Flash"
+    },
+    "NOXTLS_ECC_P256_LOW_RAM_VERIFY": {
+      "name": "P-256 Low-RAM Verification",
+      "dependencies_all": [
+        { "ref": "NOXTLS_ECC_P256_FLASH_PRECOMPUTE", "value": "1" }
+      ]
+    },
     "NOXTLS_FEATURE_ECDSA": {
       "dependencies_all": [
         { "ref": "NOXTLS_FEATURE_PKC", "value": "1" },

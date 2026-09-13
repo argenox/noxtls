@@ -47,6 +47,15 @@
 #ifndef NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE
 #define NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE 1
 #endif
+#ifndef NOXTLS_ECC_P256_FLASH_PRECOMPUTE
+#define NOXTLS_ECC_P256_FLASH_PRECOMPUTE 0
+#endif
+#ifndef NOXTLS_ECC_P256_LOW_RAM_VERIFY
+#define NOXTLS_ECC_P256_LOW_RAM_VERIFY 0
+#endif
+#if NOXTLS_ECC_P256_LOW_RAM_VERIFY && !NOXTLS_ECC_P256_FLASH_PRECOMPUTE
+#error "NOXTLS_ECC_P256_LOW_RAM_VERIFY requires NOXTLS_ECC_P256_FLASH_PRECOMPUTE"
+#endif
 /* Timing and accelerator counters are intended for targeted investigations.
  * Keep them out of normal products unless explicitly requested at build time. */
 #ifndef NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
