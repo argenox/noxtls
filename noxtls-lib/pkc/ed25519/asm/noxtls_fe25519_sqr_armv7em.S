@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: CC0-1.0 */
 /* Public-domain Cortex-M4 fe25519 packed sqr (adapted for NoxTLS). */
+#if defined(__ARM_ARCH_7EM__) || defined(__ARM_ARCH_8M_MAIN__)
 .syntax unified
 .thumb
 .cpu cortex-m4
@@ -397,4 +398,5 @@ fe25519_square_asm:
    .syntax divided
 
 	.size	fe25519_square_asm, .-fe25519_square_asm
-	
+
+#endif /* __ARM_ARCH_7EM__ || __ARM_ARCH_8M_MAIN__ */

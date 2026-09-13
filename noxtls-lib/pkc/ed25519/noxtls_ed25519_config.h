@@ -136,11 +136,12 @@
      NOXTLS_ED25519_PRECOMP_BYTES)
 
 /**
- * Enable public-domain Cortex-M4 packed fe25519 mul/sqr assembly.
+ * Enable public-domain GNU-syntax Cortex-M4 packed fe25519 mul/sqr assembly.
  * When set on ARMv7E-M / ARMv8-M Mainline, native_mul/sq/sq2 use asm/ after
- * a fast limb pack. Undefine to keep the portable 10-limb SMULL path.
+ * a fast limb pack. Clang defaults to the portable 10-limb SMULL path because
+ * its integrated assembler does not accept this source's divided syntax.
  */
-#ifndef NOXTLS_ED25519_FE_USE_PACKED_ASM
+#if !defined(NOXTLS_ED25519_FE_USE_PACKED_ASM) && !defined(__clang__)
 #define NOXTLS_ED25519_FE_USE_PACKED_ASM
 #endif
 

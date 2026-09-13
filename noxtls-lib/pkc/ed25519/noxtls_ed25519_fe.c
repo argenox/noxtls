@@ -37,7 +37,7 @@
  * portable 10-limb SMULL path.
  */
 #if (defined(__ARM_ARCH_7EM__) || defined(__ARM_ARCH_8M_MAIN__)) && \
-    !defined(NOXTLS_ED25519_FE_USE_PACKED_ASM)
+    !defined(NOXTLS_ED25519_FE_USE_PACKED_ASM) && !defined(__clang__)
 #define FE25519_HOT __attribute__((optimize("O3")))
 #else
 #define FE25519_HOT

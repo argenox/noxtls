@@ -106,9 +106,20 @@ if(NOXTLS_CFG_FEATURE_ED25519)
         ed25519/noxtls_ed25519_ge.c
         ed25519/noxtls_ed25519_sc.c
     )
-    # Public-domain packed mul/sqr for Cortex-M4/M7 (gated in C by arch + config).
-    if(CMAKE_C_COMPILER MATCHES "arm-none-eabi" OR
-       CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm|ARM|aarch32)")
+    # Public-domain packed mul/sqr for ARMv7E-M/ARMv8-M Mainline.  Do not use
+    # a generic ARM prefix here: for example, "arm64" is an Apple AArch64
+    # target and cannot assemble Cortex-M Thumb source.
+    set(_noxtls_ed25519_armv7em_asm OFF)
+    if(NOT APPLE AND CMAKE_SIZEOF_VOID_P EQUAL 4 AND
+       CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        if(CMAKE_C_COMPILER MATCHES "(arm-none-eabi|arm-zephyr-eabi)" OR
+           CMAKE_C_COMPILER_TARGET MATCHES "^arm.*-(none|zephyr)-eabi" OR
+           CMAKE_SYSTEM_PROCESSOR MATCHES
+               "^(armv7e-m|armv8-m[.]main|cortex-m4|cortex-m7|cortex-m33|cortex-m35p|cortex-m55|cortex-m85)$")
+            set(_noxtls_ed25519_armv7em_asm ON)
+        endif()
+    endif()
+    if(_noxtls_ed25519_armv7em_asm)
         enable_language(ASM)
         list(APPEND PKC_SOURCES
             ed25519/asm/noxtls_fe25519_mul_armv7em.S
