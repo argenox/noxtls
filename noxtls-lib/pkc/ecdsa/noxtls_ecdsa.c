@@ -75,12 +75,6 @@ static const uint32_t s_p256_order_words[8] = {
     0xFFFFFFFFU, 0xFFFFFFFFU, 0x00000000U, 0xFFFFFFFFU
 };
 
-static const uint32_t s_p256_order_mu_words[9] = {
-    0xEEDF9BFEU, 0x012FFD85U, 0xDF1A6C21U, 0x43190552U,
-    0xFFFFFFFFU, 0xFFFFFFFEU, 0xFFFFFFFFU, 0x00000000U,
-    0x00000001U
-};
-
 static noxtls_ecdsa_sign_timing_t s_ecdsa_last_sign_timing;
 
 /* Retained for on-target commissioning diagnostics.  These describe the
