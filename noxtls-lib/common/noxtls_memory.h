@@ -61,6 +61,12 @@ extern "C" {
 #define NOXTLS_STATIC_ALLOCATOR_MODE NOXTLS_STATIC_ALLOCATOR_MODE_HYBRID
 #endif
 
+/** Value reported by diagnostics when the system allocator is in use. */
+#define NOXTLS_MEM_ALLOCATOR_MODE_SYSTEM 3U
+
+/** Size value used when the platform cannot report an amount. */
+#define NOXTLS_MEM_SIZE_UNKNOWN SIZE_MAX
+
 #ifndef NOXTLS_MEM_BUCKET_ALIGNMENT
 #define NOXTLS_MEM_BUCKET_ALIGNMENT NOXTLS_MEM_ALIGNMENT
 #endif
@@ -109,6 +115,52 @@ typedef struct
     size_t fallback_max_used;
     noxtls_mem_bucket_stat_t buckets[NOXTLS_MEM_BUCKET_MAX];
 } noxtls_mem_bucket_stats_t;
+
+/** Allocation operation associated with the last memory failure. */
+typedef enum
+{
+    NOXTLS_MEM_OPERATION_NONE = 0,
+    NOXTLS_MEM_OPERATION_MALLOC,
+    NOXTLS_MEM_OPERATION_CALLOC,
+    NOXTLS_MEM_OPERATION_REALLOC,
+    NOXTLS_MEM_OPERATION_INITIALIZE
+} noxtls_mem_operation_t;
+
+/** Cause recorded for the last failed allocation. */
+typedef enum
+{
+    NOXTLS_MEM_FAILURE_NONE = 0,
+    NOXTLS_MEM_FAILURE_POOL_EXHAUSTED,
+    NOXTLS_MEM_FAILURE_SYSTEM_ALLOCATOR,
+    NOXTLS_MEM_FAILURE_SIZE_OVERFLOW,
+    NOXTLS_MEM_FAILURE_INITIALIZATION,
+    NOXTLS_MEM_FAILURE_INJECTED
+} noxtls_mem_failure_reason_t;
+
+/**
+ * Diagnostic details for the most recent failed allocation.
+ *
+ * `largest_available_block` and `minimum_additional_bytes` describe payload
+ * capacity, not allocator metadata. They are `NOXTLS_MEM_SIZE_UNKNOWN` when
+ * the host system allocator cannot supply that information. Source strings
+ * point at static compiler-generated storage and must not be freed. The
+ * record is module-wide; applications using the allocator concurrently must
+ * serialize access if they need to associate a diagnostic with one thread.
+ */
+typedef struct
+{
+    noxtls_mem_operation_t operation;
+    noxtls_mem_failure_reason_t reason;
+    uint32_t allocator_mode;
+    uint32_t source_line;
+    size_t requested_bytes;
+    size_t largest_available_block;
+    size_t minimum_additional_bytes;
+    size_t pool_capacity;
+    size_t pool_used;
+    const char *source_file;
+    const char *source_function;
+} noxtls_mem_error_info_t;
 
 /* Memory pool structure */
 typedef struct
@@ -176,6 +228,23 @@ void *noxtls_calloc(size_t nmemb, size_t size);
  */
 void *noxtls_realloc(void *ptr, size_t size);
 
+/** Location-aware allocation entry points used by the public macros below. */
+void *noxtls_malloc_at(size_t size, const char *file, uint32_t line, const char *function);
+void *noxtls_calloc_at(size_t nmemb, size_t size, const char *file, uint32_t line, const char *function);
+void *noxtls_realloc_at(void *ptr, size_t size, const char *file, uint32_t line, const char *function);
+
+/**
+ * Copy the most recent allocation failure diagnostic.
+ *
+ * @return NOXTLS_RETURN_SUCCESS when a failure is available,
+ *         NOXTLS_RETURN_NOT_INITIALIZED when none has been recorded, or
+ *         NOXTLS_RETURN_NULL when @p info is NULL.
+ */
+noxtls_return_t noxtls_mem_get_last_error(noxtls_mem_error_info_t *info);
+
+/** Clear the module-wide saved allocation failure diagnostic. */
+void noxtls_mem_clear_last_error(void);
+
 /* Static Buffer Management Functions */
 
 /**
@@ -208,6 +277,20 @@ noxtls_return_t noxtls_mem_cleanup(void);
 noxtls_return_t noxtls_mem_get_stats(size_t *total_allocated, size_t *total_used, size_t *max_used);
 
 noxtls_return_t noxtls_mem_get_bucket_stats(noxtls_mem_bucket_stats_t *stats);
+
+#if !defined(NOXTLS_MEMORY_IMPLEMENTATION) && !defined(NOXTLS_DISABLE_MEMORY_LOCATION_TRACKING)
+#if defined(_MSC_VER)
+#define NOXTLS_MEM_CALLER_FUNCTION __FUNCTION__
+#else
+#define NOXTLS_MEM_CALLER_FUNCTION __func__
+#endif
+#define noxtls_malloc(size) \
+    noxtls_malloc_at((size), __FILE__, (uint32_t)__LINE__, NOXTLS_MEM_CALLER_FUNCTION)
+#define noxtls_calloc(nmemb, size) \
+    noxtls_calloc_at((nmemb), (size), __FILE__, (uint32_t)__LINE__, NOXTLS_MEM_CALLER_FUNCTION)
+#define noxtls_realloc(ptr, size) \
+    noxtls_realloc_at((ptr), (size), __FILE__, (uint32_t)__LINE__, NOXTLS_MEM_CALLER_FUNCTION)
+#endif
 
 #ifdef __cplusplus
 } /* extern "C" */
