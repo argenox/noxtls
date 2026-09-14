@@ -117,6 +117,11 @@ target_link_libraries(noxtls_ecdh_diagnostic_test PRIVATE
 )
 add_test(NAME noxtls_ecdh_diagnostic_test COMMAND noxtls_ecdh_diagnostic_test)
 
+add_executable(noxtls_memory_diagnostic_test
+    "${CMAKE_CURRENT_SOURCE_DIR}/memory_diagnostic_test.c")
+target_link_libraries(noxtls_memory_diagnostic_test PRIVATE noxtls_common)
+add_test(NAME noxtls_memory_diagnostic_test COMMAND noxtls_memory_diagnostic_test)
+
 if(NOXTLS_CFG_FEATURE_SLH_DSA)
     add_executable(slhdsa_sizes_test "${NOXTLS_ROOT_UT_DIR}/pkc/test_slhdsa_sizes.c")
     target_link_libraries(slhdsa_sizes_test PRIVATE noxtls_common noxtls_pkc)

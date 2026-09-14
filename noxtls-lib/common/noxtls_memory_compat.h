@@ -40,10 +40,14 @@
 #undef calloc
 #undef realloc
 
-#define malloc(size) noxtls_malloc(size)
+#define noxtls_malloc(size) noxtls_malloc_at((size), __FILE__, (uint32_t)__LINE__)
+#define noxtls_calloc(nmemb, size) noxtls_calloc_at((nmemb), (size), __FILE__, (uint32_t)__LINE__)
+#define noxtls_realloc(ptr, size) noxtls_realloc_at((ptr), (size), __FILE__, (uint32_t)__LINE__)
+
+#define malloc(size) noxtls_malloc_at((size), __FILE__, (uint32_t)__LINE__)
 #define free(ptr) noxtls_free(ptr)
-#define calloc(nmemb, size) noxtls_calloc(nmemb, size)
-#define realloc(ptr, size) noxtls_realloc(ptr, size)
+#define calloc(nmemb, size) noxtls_calloc_at((nmemb), (size), __FILE__, (uint32_t)__LINE__)
+#define realloc(ptr, size) noxtls_realloc_at((ptr), (size), __FILE__, (uint32_t)__LINE__)
 
 #endif /* _NOXTLS_MEMORY_COMPAT_H_ */
 

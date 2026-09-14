@@ -49,6 +49,11 @@ static void noxtls_ecdh_set_diagnostic(
     if(diagnostic != NULL) {
         diagnostic->stage = stage;
         diagnostic->internal_rc = internal_rc;
+        memset(&diagnostic->memory_failure, 0,
+               sizeof(diagnostic->memory_failure));
+        if(internal_rc == NOXTLS_RETURN_NOT_ENOUGH_MEMORY) {
+            (void)noxtls_mem_get_last_failure(&diagnostic->memory_failure);
+        }
     }
 }
 
@@ -66,6 +71,7 @@ noxtls_return_t noxtls_ecdh_compute_shared_secret_ex(
 
     noxtls_ecdh_set_diagnostic(diagnostic, NOXTLS_ECDH_DIAGNOSTIC_NONE,
                                NOXTLS_RETURN_SUCCESS);
+    noxtls_mem_clear_last_failure();
 
     if(private_key == NULL || peer_public_key == NULL || shared_secret == NULL || shared_secret_len == NULL) {
         noxtls_ecdh_set_diagnostic(diagnostic, NOXTLS_ECDH_DIAGNOSTIC_ARGUMENT,
@@ -104,6 +110,9 @@ noxtls_return_t noxtls_ecdh_compute_shared_secret_ex(
     if(rc != NOXTLS_RETURN_SUCCESS) {
         noxtls_ecdh_set_diagnostic(diagnostic, NOXTLS_ECDH_DIAGNOSTIC_SCALAR_MULTIPLY,
                                    rc);
+        if(rc == NOXTLS_RETURN_NOT_ENOUGH_MEMORY) {
+            return rc;
+        }
         return NOXTLS_RETURN_ECDH_SCALAR_MULTIPLY_FAILED;
     }
     

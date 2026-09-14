@@ -159,6 +159,101 @@ int main(void)
                      "nontrivial P-256 ECDH has no diagnostic stage");
     }
 
+    /*
+     * Exercise the Bluetooth LE Secure Connections shape repeatedly: derive
+     * two arbitrary public points from independent private scalars, then
+     * compute dA * QB and dB * QA.  Equality alone is not sufficient—the
+     * calls must complete through the software multiplication and inversion
+     * path so regressions cannot be hidden by a generic ECDH failure code.
+     */
+    {
+        static const uint8_t private_scalars[][32] = {
+            { 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u,
+              0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u,
+              0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u,
+              0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x02u },
+            { 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u,
+              0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u,
+              0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u,
+              0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x03u },
+            { 0x80u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u,
+              0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u,
+              0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u,
+              0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x07u },
+            { 0x7Fu, 0xFFu, 0xFFu, 0xFEu, 0x12u, 0x34u, 0x56u, 0x78u,
+              0x9Au, 0xBCu, 0xDEu, 0xF0u, 0x10u, 0x32u, 0x54u, 0x76u,
+              0x98u, 0xBAu, 0xDCu, 0xFEu, 0x13u, 0x57u, 0x9Bu, 0xDFu,
+              0x24u, 0x68u, 0xACu, 0xE0u, 0x11u, 0x22u, 0x33u, 0x45u },
+        };
+        const uint32_t scalar_count =
+            (uint32_t)(sizeof(private_scalars) / sizeof(private_scalars[0]));
+        uint32_t i;
+
+        for(i = 0U; i < scalar_count; i++) {
+            const uint32_t peer_index = (i + 1U) % scalar_count;
+            ecc_point_t public_a;
+            ecc_point_t public_b;
+            uint8_t secret_ab[32];
+            uint8_t secret_ba[32];
+            uint32_t secret_ab_len = sizeof(secret_ab);
+            uint32_t secret_ba_len = sizeof(secret_ba);
+
+            memset(&public_a, 0, sizeof(public_a));
+            memset(&public_b, 0, sizeof(public_b));
+            memset(secret_ab, 0, sizeof(secret_ab));
+            memset(secret_ba, 0, sizeof(secret_ba));
+            rc = noxtls_ecc_point_multiply(&public_a, private_scalars[i],
+                                           &key.curve->G, key.curve);
+            ok &= expect(rc == NOXTLS_RETURN_SUCCESS,
+                         "derive first P-256 public point");
+            rc = noxtls_ecc_point_multiply(&public_b,
+                                           private_scalars[peer_index],
+                                           &key.curve->G, key.curve);
+            ok &= expect(rc == NOXTLS_RETURN_SUCCESS,
+                         "derive second P-256 public point");
+
+            memcpy(key.d, private_scalars[i], key.curve->size);
+            rc = noxtls_ecdh_compute_shared_secret_ex(&key, &public_b,
+                                                      secret_ab,
+                                                      &secret_ab_len,
+                                                      &diagnostic);
+            ok &= expect(rc == NOXTLS_RETURN_SUCCESS,
+                         "compute first arbitrary-peer P-256 ECDH secret");
+            ok &= expect(secret_ab_len == sizeof(secret_ab),
+                         "first arbitrary-peer P-256 ECDH secret length");
+            ok &= expect(diagnostic.stage == NOXTLS_ECDH_DIAGNOSTIC_NONE,
+                         "first arbitrary-peer P-256 ECDH provenance");
+            ok &= expect(noxtls_ecc_point_multiply_last_stage() == 8U &&
+                         noxtls_ecc_point_multiply_last_rc() ==
+                             NOXTLS_RETURN_SUCCESS,
+                         "first arbitrary-peer P-256 scalar multiply");
+            ok &= expect(noxtls_ecc_mod_inv_last_stage() == 8U &&
+                         noxtls_ecc_mod_inv_last_rc() == NOXTLS_RETURN_SUCCESS,
+                         "first arbitrary-peer P-256 modular inverse");
+
+            memcpy(key.d, private_scalars[peer_index], key.curve->size);
+            rc = noxtls_ecdh_compute_shared_secret_ex(&key, &public_a,
+                                                      secret_ba,
+                                                      &secret_ba_len,
+                                                      &diagnostic);
+            ok &= expect(rc == NOXTLS_RETURN_SUCCESS,
+                         "compute reciprocal arbitrary-peer P-256 ECDH secret");
+            ok &= expect(secret_ba_len == sizeof(secret_ba),
+                         "reciprocal arbitrary-peer P-256 ECDH secret length");
+            ok &= expect(diagnostic.stage == NOXTLS_ECDH_DIAGNOSTIC_NONE,
+                         "reciprocal arbitrary-peer P-256 ECDH provenance");
+            ok &= expect(memcmp(secret_ab, secret_ba, sizeof(secret_ab)) == 0,
+                         "reciprocal arbitrary-peer P-256 ECDH agreement");
+            ok &= expect(noxtls_ecc_point_multiply_last_stage() == 8U &&
+                         noxtls_ecc_point_multiply_last_rc() ==
+                             NOXTLS_RETURN_SUCCESS,
+                         "reciprocal arbitrary-peer P-256 scalar multiply");
+            ok &= expect(noxtls_ecc_mod_inv_last_stage() == 8U &&
+                         noxtls_ecc_mod_inv_last_rc() == NOXTLS_RETURN_SUCCESS,
+                         "reciprocal arbitrary-peer P-256 modular inverse");
+        }
+    }
+
     memset(key.d, 0, key.curve->size);
     key.d[31] = 1u;
 

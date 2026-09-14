@@ -110,6 +110,37 @@ typedef struct
     noxtls_mem_bucket_stat_t buckets[NOXTLS_MEM_BUCKET_MAX];
 } noxtls_mem_bucket_stats_t;
 
+/* Allocation provenance is intentionally metadata-only: it records neither
+ * allocated contents nor caller pointers.  A caller can therefore expose it
+ * in diagnostics without disclosing key material. */
+typedef enum {
+    NOXTLS_MEM_FAILURE_NONE = 0,
+    NOXTLS_MEM_FAILURE_INVALID_REQUEST,
+    NOXTLS_MEM_FAILURE_SIZE_OVERFLOW,
+    NOXTLS_MEM_FAILURE_SYSTEM_ALLOC,
+    NOXTLS_MEM_FAILURE_POOL_INIT,
+    NOXTLS_MEM_FAILURE_BUCKET_EXHAUSTED,
+    NOXTLS_MEM_FAILURE_FALLBACK_EXHAUSTED
+} noxtls_mem_failure_reason_t;
+
+typedef enum {
+    NOXTLS_MEM_OPERATION_NONE = 0,
+    NOXTLS_MEM_OPERATION_MALLOC,
+    NOXTLS_MEM_OPERATION_CALLOC,
+    NOXTLS_MEM_OPERATION_REALLOC
+} noxtls_mem_operation_t;
+
+typedef struct {
+    uint32_t sequence;
+    noxtls_mem_operation_t operation;
+    noxtls_mem_failure_reason_t reason;
+    size_t requested_size;
+    size_t element_count;
+    size_t element_size;
+    const char *file;
+    uint32_t line;
+} noxtls_mem_failure_t;
+
 /* Memory pool structure */
 typedef struct
 {
@@ -151,6 +182,9 @@ typedef struct
  */
 void *noxtls_malloc(size_t size);
 
+/** Allocate memory and retain non-secret source provenance if it fails. */
+void *noxtls_malloc_at(size_t size, const char *file, uint32_t line);
+
 /**
  * @brief Free allocated memory
  * 
@@ -167,6 +201,10 @@ void noxtls_free(void *ptr);
  */
 void *noxtls_calloc(size_t nmemb, size_t size);
 
+/** Allocate zeroed memory and retain non-secret source provenance if it fails. */
+void *noxtls_calloc_at(size_t nmemb, size_t size, const char *file,
+                       uint32_t line);
+
 /**
  * @brief Reallocate memory
  * 
@@ -175,6 +213,10 @@ void *noxtls_calloc(size_t nmemb, size_t size);
  * @return Pointer to reallocated memory, or NULL on failure
  */
 void *noxtls_realloc(void *ptr, size_t size);
+
+/** Resize memory and retain non-secret source provenance if it fails. */
+void *noxtls_realloc_at(void *ptr, size_t size, const char *file,
+                        uint32_t line);
 
 /* Static Buffer Management Functions */
 
@@ -208,6 +250,12 @@ noxtls_return_t noxtls_mem_cleanup(void);
 noxtls_return_t noxtls_mem_get_stats(size_t *total_allocated, size_t *total_used, size_t *max_used);
 
 noxtls_return_t noxtls_mem_get_bucket_stats(noxtls_mem_bucket_stats_t *stats);
+
+/** Return the latest allocator failure recorded in this build. */
+noxtls_return_t noxtls_mem_get_last_failure(noxtls_mem_failure_t *failure);
+
+/** Clear the latest allocator-failure provenance before an operation. */
+void noxtls_mem_clear_last_failure(void);
 
 #ifdef __cplusplus
 } /* extern "C" */

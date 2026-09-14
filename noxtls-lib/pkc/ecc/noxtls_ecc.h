@@ -141,6 +141,14 @@ noxtls_return_t noxtls_ecc_point_muladd(ecc_point_t *result,
 int noxtls_ecc_point_multiply_uses_ref(void);
 /** Return configured window size for point mul (0 = ladder only, 2+ = windowed). */
 int noxtls_ecc_point_mul_window_size(void);
+/* Non-secret software point-multiply provenance.  These values identify only
+ * the last control-flow stage and status; they never retain scalar, point, or
+ * shared-secret material. */
+int32_t noxtls_ecc_point_multiply_last_rc(void);
+uint32_t noxtls_ecc_point_multiply_last_stage(void);
+uint32_t noxtls_ecc_point_multiply_last_detail(void);
+int32_t noxtls_ecc_mod_inv_last_rc(void);
+uint32_t noxtls_ecc_mod_inv_last_stage(void);
 noxtls_return_t noxtls_ecc_point_is_on_curve(const ecc_point_t *point, const ecc_curve_params_t *curve);
 noxtls_return_t noxtls_ecc_point_validate_public(const ecc_point_t *point, const ecc_curve_params_t *curve);
 

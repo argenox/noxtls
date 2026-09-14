@@ -29,6 +29,7 @@
 #include <stdint.h>
 
 #include "noxtls_common.h"
+#include "common/noxtls_memory.h"
 #include "pkc/ecc/noxtls_ecc.h"
 
 #ifdef __cplusplus
@@ -66,6 +67,10 @@ typedef struct
 {
     noxtls_ecdh_diagnostic_stage_t stage;
     noxtls_return_t internal_rc;
+    /* Set when the failing internal operation encountered an allocator
+     * failure.  This is metadata only: no pointer or secret material is
+     * retained. */
+    noxtls_mem_failure_t memory_failure;
 } noxtls_ecdh_diagnostic_t;
 
 /**
