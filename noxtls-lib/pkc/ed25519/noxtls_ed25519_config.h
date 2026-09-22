@@ -141,9 +141,8 @@
  * a fast limb pack. Clang defaults to the portable 10-limb SMULL path because
  * its integrated assembler does not accept this source's divided syntax.
  */
-#if !defined(NOXTLS_ED25519_FE_USE_PACKED_ASM) && !defined(__clang__)
-#define NOXTLS_ED25519_FE_USE_PACKED_ASM
-#endif
+/* The build system defines NOXTLS_ED25519_FE_USE_PACKED_ASM only when the
+ * matching ARM assembly sources are part of the PKC target. */
 
 /**
  * Sliding-window max odd multiple index for verify double-scalar.

@@ -174,6 +174,12 @@ endif()
 
 add_library(noxtls_pkc STATIC ${PKC_SOURCES})
 
+if(_noxtls_ed25519_armv7em_asm)
+    target_compile_definitions(noxtls_pkc PRIVATE
+        NOXTLS_ED25519_FE_USE_PACKED_ASM=1
+    )
+endif()
+
 if(MSVC)
     # Disable Spectre mitigation warning C5045 for embedded targets.
     target_compile_options(noxtls_pkc PRIVATE /wd5045)
