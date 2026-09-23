@@ -4,7 +4,7 @@
 
 # NoxTLS
 
-**A fast, lightweight TLS crypto library designed for embedded and constrained systems.**  
+**A fast, lightweight TLS crypto library designed for embedded and constrained systems by Argenox**  
 Built for deterministic performance, clean APIs, and modern cryptography.
 
 
