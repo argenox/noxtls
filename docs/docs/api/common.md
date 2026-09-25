@@ -121,6 +121,23 @@ Reallocate memory
 
 **Returns:** Pointer to reallocated memory, or NULL on failure
 
+### `noxtls_mem_get_last_error`
+
+```c
+noxtls_return_t noxtls_mem_get_last_error(noxtls_mem_error_info_t *info);
+void noxtls_mem_clear_last_error(void);
+```
+
+Query or clear the most recent allocation failure. The diagnostic reports the
+allocation operation and failure reason, requested bytes, source file/function/line,
+allocator mode, pool capacity and usage, largest available payload block, and the
+minimum additional contiguous payload capacity required. System allocators report
+sizes they cannot determine as `NOXTLS_MEM_SIZE_UNKNOWN`.
+
+The saved error is not cleared by a later successful allocation. Call
+`noxtls_mem_clear_last_error()` when beginning an operation if only failures from
+that operation are relevant. The record is module-wide rather than per-thread.
+
 ### `noxtls_mem_get_stats`
 
 ```c

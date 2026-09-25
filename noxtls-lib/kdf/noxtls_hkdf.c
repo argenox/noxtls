@@ -5,7 +5,6 @@
 *****************************************************************************/
 
 #include <stdint.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "noxtls_hkdf.h"
@@ -73,36 +72,26 @@ noxtls_return_t noxtls_hkdf_expand(noxtls_hash_algos_t hash_algo,
 
     n = (okm_len + hash_size - 1U) / hash_size;
     while(offset < okm_len && i <= n) {
-        uint8_t *msg = NULL;
-        uint32_t msg_len = 1U;
-        uint32_t pos = 0U;
+        noxtls_hmac_context_t ctx;
+        uint8_t counter = (uint8_t)i;
         uint32_t t_len = hash_size;
         noxtls_return_t rc;
 
-        if(i != 1U) {
-            msg_len += hash_size;
+        memset(&ctx, 0, sizeof(ctx));
+        rc = noxtls_hmac_init(&ctx, hash_algo, prk, prk_len);
+        if(rc == NOXTLS_RETURN_SUCCESS && i > 1U) {
+            rc = noxtls_hmac_update(&ctx, T, hash_size);
         }
-        if(info != NULL) {
-            msg_len += info_len;
+        if(rc == NOXTLS_RETURN_SUCCESS && info != NULL && info_len > 0U) {
+            rc = noxtls_hmac_update(&ctx, info, info_len);
         }
-
-        msg = (uint8_t *)malloc(msg_len);
-        if(msg == NULL) {
-            return NOXTLS_RETURN_FAILED;
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_hmac_update(&ctx, &counter, 1U);
         }
-
-        if(i > 1U) {
-            memcpy(msg + pos, T, hash_size);
-            pos += hash_size;
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_hmac_final(&ctx, T, &t_len);
         }
-        if(info != NULL && info_len > 0U) {
-            memcpy(msg + pos, info, info_len);
-            pos += info_len;
-        }
-        msg[pos] = (uint8_t)i;
-
-        rc = noxtls_hmac_compute(hash_algo, prk, prk_len, msg, msg_len, T, &t_len);
-        free(msg);
+        (void)noxtls_hmac_free(&ctx);
         if(rc != NOXTLS_RETURN_SUCCESS || t_len != hash_size) {
             return NOXTLS_RETURN_FAILED;
         }

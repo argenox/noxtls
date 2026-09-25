@@ -163,7 +163,7 @@ noxtls_return_t noxtls_dsa_key_init(dsa_key_t *key, const uint8_t *p, uint32_t p
     key->x = (uint8_t *)noxtls_calloc(q_len, 1);
     if(key->p == NULL || key->q == NULL || key->g == NULL || key->y == NULL || key->x == NULL) {
         noxtls_dsa_key_free(key);
-        return NOXTLS_RETURN_FAILED;
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
     memcpy(key->p, p, p_len);
     memcpy(key->q, q, q_len);

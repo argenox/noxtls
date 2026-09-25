@@ -25,6 +25,48 @@
 #include "noxtls_ecc.h"
 #include "noxtls_common.h"
 
+static uint32_t s_noxtls_ecc_accel_fallback_count;
+
+int noxtls_ecc_accel_is_ready(void)
+{
+    return 0;
+}
+
+uint32_t noxtls_ecc_accel_operation_count(void)
+{
+    return 0u;
+}
+
+uint32_t noxtls_ecc_accel_fallback_count(void)
+{
+    return s_noxtls_ecc_accel_fallback_count;
+}
+
+void noxtls_ecc_accel_note_fallback(void)
+{
+    ++s_noxtls_ecc_accel_fallback_count;
+}
+
+int32_t noxtls_ecc_accel_last_rc(void)
+{
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+}
+
+uint32_t noxtls_ecc_accel_last_status(void)
+{
+    return 0u;
+}
+
+uint32_t noxtls_ecc_accel_last_stage(void)
+{
+    return 0u;
+}
+
+int noxtls_ecc_accel_input_echo_ok(void)
+{
+    return 0;
+}
+
 /**
  * @brief Multiply the point by the scalar using the acceleration port
  *

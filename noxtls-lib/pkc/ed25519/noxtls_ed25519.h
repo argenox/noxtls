@@ -103,6 +103,46 @@ typedef struct
     uint8_t initialized;
 } noxtls_ed25519_verify_stream_ctx_t;
 
+/**
+ * @brief Expanded Ed25519 key material for repeated signing without recomputing A=[s]B.
+ *
+ * Matches the wolfSSL-style cached-pubkey sign path used by the crypto benchmark:
+ * expand the seed once, then sign many messages with the cached scalar and public key.
+ */
+typedef struct
+{
+    uint8_t seed[NOXTLS_ED25519_PRIVATE_KEY_SIZE];       /**< Original 32-byte seed. */
+    uint8_t s[NOXTLS_ED25519_PRIVATE_KEY_SIZE];          /**< Clamped signing scalar (LE). */
+    uint8_t prefix[NOXTLS_ED25519_PRIVATE_KEY_SIZE];     /**< SHA-512(seed)[32..63]. */
+    uint8_t public_key[NOXTLS_ED25519_PUBLIC_KEY_SIZE];  /**< Encoded A = [s]B. */
+    uint8_t ready;                                      /**< Non-zero after successful expand. */
+} noxtls_ed25519_keypair_t;
+
+/**
+ * @brief Expand a 32-byte seed into a reusable keypair context (cached A / s / prefix).
+ *
+ * @param[out] keypair Keypair context to fill.
+ * @param[in] seed 32-byte private seed (RFC 8032).
+ *
+ * @return NOXTLS_RETURN_SUCCESS on success, or an error code on failure.
+ */
+noxtls_return_t noxtls_ed25519_keypair_from_seed(noxtls_ed25519_keypair_t *keypair,
+                                                 const uint8_t seed[NOXTLS_ED25519_PRIVATE_KEY_SIZE]);
+
+/**
+ * @brief Sign with a prepared keypair without recomputing A = [s]B.
+ *
+ * @param[in] keypair Prepared keypair from `noxtls_ed25519_keypair_from_seed`.
+ * @param[in] noxtls_message Message bytes (may be NULL if message_len is 0).
+ * @param[in] message_len Message length in bytes.
+ * @param[out] signature Output 64-byte signature (R || S).
+ *
+ * @return NOXTLS_RETURN_SUCCESS on success, or an error code on failure.
+ */
+noxtls_return_t noxtls_ed25519_sign_keypair(const noxtls_ed25519_keypair_t *keypair,
+                                           const uint8_t *noxtls_message,
+                                           uint32_t message_len,
+                                           uint8_t signature[NOXTLS_ED25519_SIGNATURE_SIZE]);
 
 /**
  * @brief Generate an Ed25519 key pair using the library DRBG.

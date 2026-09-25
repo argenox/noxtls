@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-05-31T03:51:46Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-09-13T05:08:47Z)
 
 menu "NoxTLS library options (from noxtls_config.h)"
 
@@ -30,10 +30,10 @@ menu "NoxTLS library options (from noxtls_config.h)"
 
 		config NOXTLS_MAX_CERT_SIZE
 			int "Max single X.509 certificate size (bytes)"
-			default 16384
+			default 65536
 			range 256 65536
 			help
-			  Maximum single certificate size in bytes accepted by X.509 parse APIs. Default: 16384.
+			  Maximum single certificate size in bytes accepted by X.509 parse APIs. Default: 16384. SLH-DSA signatures are large (up to ~50 KB). Allow 64 KB certs by default when SLH-DSA is enabled so the cert+TBS+signature comfortably fits.
 
 		config NOXTLS_MAX_CERT_CHAIN_DEPTH
 			int "Max X.509 certificate chain depth"
@@ -55,6 +55,18 @@ menu "NoxTLS library options (from noxtls_config.h)"
 			range 0 8
 			help
 			  NOXTLS_ECC_POINT_MUL_WINDOW_SIZE Log2 of the precomputation table size for windowed scalar multiplication. Table has 2^W Jacobian points; larger W = fewer point ops, more RAM. Uses 4 for P-256 (good tradeoff). Use 0 to disable windowing (Montgomery ladder only). Default: 4 (table of 16 points)
+
+		config NOXTLS_MEM_BUCKET_ALIGNMENT
+			int "Mem Bucket Alignment"
+
+		config NOXTLS_MEM_BUCKET_COUNT
+			int "Mem Bucket Count"
+
+		config NOXTLS_MEM_BUCKET_COUNTS
+			int "Mem Bucket Counts"
+
+		config NOXTLS_MEM_BUCKET_SIZES
+			int "Mem Bucket Sizes"
 
 		config NOXTLS_RSA_DEBUG_PRIMALITY_CHECK_INTERVAL
 			int "RSA: debug primality interval (0=off)"
@@ -112,6 +124,13 @@ menu "NoxTLS library options (from noxtls_config.h)"
 			help
 			  NOXTLS_RSA_MILLER_RABIN_SMALL_THRESHOLD_BITS Prime size threshold (in bits) for determining \"small\" vs \"large\" primes. Primes <= this size use NOXTLS_RSA_MILLER_RABIN_ITERATIONS_SMALL. Primes > this size use NOXTLS_RSA_MILLER_RABIN_ITERATIONS_LARGE. Default: 512 bits
 
+		config NOXTLS_STATIC_ALLOCATOR_MODE
+			int "Static Allocator Mode"
+
+		config NOXTLS_STATIC_ALLOCATOR_MODE_HYBRID
+			int "Static Allocator Mode Hybrid"
+			default 2
+
 	endmenu
 
 	menu "Core Modules"
@@ -122,20 +141,6 @@ menu "NoxTLS library options (from noxtls_config.h)"
 			depends on NOXTLS_FEATURE_AES
 			help
 			  Enables deterministic random bit generator (CTR-DRBG implementation). Prereq: NOXTLS_FEATURE_ENCRYPTION=1 and NOXTLS_FEATURE_AES=1.
-
-		config NOXTLS_FEATURE_HMAC
-			bool "Hmac"
-			default y
-			depends on NOXTLS_FEATURE_HASH
-			help
-			  Enables generic HMAC primitive. Prereq: NOXTLS_FEATURE_HASH=1. Required by: HKDF and TLS transcript/finished MACs.
-
-		config NOXTLS_FEATURE_HKDF
-			bool "Hkdf"
-			default y
-			depends on NOXTLS_FEATURE_HMAC
-			help
-			  Enables generic HKDF (RFC 5869) primitive. Prereq: NOXTLS_FEATURE_HMAC=1. Required by: TLS 1.3 key schedule.
 
 	endmenu
 
@@ -197,6 +202,12 @@ menu "NoxTLS library options (from noxtls_config.h)"
 			depends on NOXTLS_FEATURE_HASH
 			help
 			  Enables SHA-256 hashing algorithm. Prereq: NOXTLS_FEATURE_HASH=1. Required by: TLS and certificate verification flows. Build: sha256.c is compiled when NOXTLS_FEATURE_SHA224 or NOXTLS_FEATURE_SHA256 is 1.
+
+		config NOXTLS_FEATURE_SHA256_CORTEXM7
+			bool "Sha256 Cortexm7"
+			default n
+			help
+			  Enables the Cortex-M7 tuned software SHA-256 block compressor. This is CPU-only and does not use STM32 HASH/CRYP peripherals.
 
 		config NOXTLS_FEATURE_SHA3
 			bool "Sha3"
@@ -444,29 +455,6 @@ menu "NoxTLS library options (from noxtls_config.h)"
 			help
 			  Enables ML-KEM (FIPS 203) KEM APIs and TLS PQ keyshare support.
 
-		config NOXTLS_FEATURE_FALCON
-			bool "Falcon"
-			default n
-			depends on NOXTLS_FEATURE_PKC
-			help
-			  Enables FALCON signature APIs (NIST PQC finalist). Prereq: NOXTLS_FEATURE_PKC=1.
-
-		config NOXTLS_FEATURE_LMS_HSS
-			bool "Lms Hss"
-			default n
-			depends on NOXTLS_FEATURE_PKC
-			depends on NOXTLS_FEATURE_SHA256
-			help
-			  Enables LMS/HSS hash-based signature APIs (RFC 8554). Prereq: NOXTLS_FEATURE_PKC=1 and NOXTLS_FEATURE_SHA256=1.
-
-		config NOXTLS_FEATURE_XMSS
-			bool "Xmss Xmss Mt"
-			default n
-			depends on NOXTLS_FEATURE_PKC
-			depends on NOXTLS_FEATURE_SHA256
-			help
-			  Enables XMSS/XMSS^MT hash-based signature APIs (RFC 8391). Prereq: NOXTLS_FEATURE_PKC=1 and NOXTLS_FEATURE_SHA256=1.
-
 		config NOXTLS_FEATURE_RSA
 			bool "Rsa"
 			default y
@@ -513,12 +501,18 @@ menu "NoxTLS library options (from noxtls_config.h)"
 			help
 			  Enables TLS protocol implementation. Prereq: NOXTLS_FEATURE_HASH=1, NOXTLS_FEATURE_ENCRYPTION=1, NOXTLS_FEATURE_DRBG=1, NOXTLS_FEATURE_PKC=1, NOXTLS_FEATURE_CERT=1.
 
+		config NOXTLS_CFG_TLS13_PREFER_SECP256R1_OVER_X25519
+			bool "Tls13 Prefer Secp256R1 Over X25519"
+			default n
+			help
+			  Prefer secp256r1 over X25519 in TLS 1.3 group ordering. Default keeps the standard X25519-first preference. Platforms where X25519 is materially slower than P-256 can set this to 1.
+
 		config NOXTLS_FEATURE_DTLS
 			bool "DTLS"
 			default y
 			depends on NOXTLS_FEATURE_TLS
 			help
-			  Enables DTLS support. Prereq: NOXTLS_FEATURE_TLS=1.
+			  Enables DTLS support. Prereq: NOXTLS_FEATURE_TLS=1. When built via CMake/Kconfig, NOXTLS_FEATURE_DTLS is set on the command line; do not override here.
 
 		config NOXTLS_FEATURE_TLS10
 			bool "TLS 1.0"
@@ -576,11 +570,11 @@ menu "NoxTLS library options (from noxtls_config.h)"
 
 		config NOXTLS_HAVE_CERT_WRITE
 			bool "Cert Write"
-			default n
+			default y
 			depends on NOXTLS_FEATURE_CERT
 			depends on NOXTLS_FEATURE_PKC
 			help
-			  Enables X.509 certificate writing/generation helpers. Prereq: NOXTLS_FEATURE_CERT=1 and NOXTLS_FEATURE_PKC=1.
+			  Enables X.509 certificate writing/generation helpers. Prereq: NOXTLS_FEATURE_CERT=1 and NOXTLS_FEATURE_PKC=1. Default: ON. Required by the certgen application (req -new -x509) and by any embedded code path that needs to mint X.509 certificates at runtime. Disable explicitly to shave a few KB of flash on parse-only deployments.
 
 		config NOXTLS_X509_HOSTNAME_ALLOW_WILDCARD
 			bool "X509 Hostname Allow Wildcard"
@@ -615,11 +609,24 @@ menu "NoxTLS library options (from noxtls_config.h)"
 			help
 			  NOXTLS_ECC_FIXED_POINT_OPTIM When 1, cache precomputed multiples of the curve generator G and reuse for repeated k*G (ECDSA sign, key gen, ECDHE). Speeds up fixed-base multiplications. Default: 1 (enabled)
 
-		config NOXTLS_ECDSA_SIGN_SELF_VERIFY
-			bool "Ecdsa Sign Self Verify"
+		config NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE
+			bool "Ecc Global Precompute Cache"
+			default y
+			help
+			  NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE When 1, keep process-global precompute tables for repeated ECC scalar multiplication patterns. This materially improves P-256 ECDSA sign/verify throughput on embedded targets because generator and verify joint tables are reused across operations. Tradeoffs: - Retains several KB of allocator-backed tables after first use. - Shared mutable cache state is not internally locked; multi-threaded users must serialize ECC use externally or set this to 0. Default: 1 (performance-oriented embedded default)
+
+		config NOXTLS_ECC_P256_FLASH_PRECOMPUTE
+			bool "P-256 Generator Table in Flash"
 			default n
 			help
-			  NOXTLS_ECDSA_SIGN_SELF_VERIFY When 1, ECDSA signing immediately verifies the produced signature before returning it. This hardens signing against local fault or glitch attacks but materially reduces signing throughput. Default: 0 (disabled)
+			  NOXTLS_ECC_P256_FLASH_PRECOMPUTE When 1, use a compact, compile-time P-256 generator comb table from read-only storage instead of allocating the fixed-base table from the heap. Embedded linkers normally place the const table in flash/ROM. This adds approximately 2 KiB of read-only data and saves 6528 bytes of heap whenever the P-256 fixed-base table would otherwise be cached. Default: 0 (preserve the existing flash-size/RAM tradeoff)
+
+		config NOXTLS_ECC_P256_LOW_RAM_VERIFY
+			bool "P-256 Low-RAM Verification"
+			default n
+			depends on NOXTLS_ECC_P256_FLASH_PRECOMPUTE
+			help
+			  NOXTLS_ECC_P256_LOW_RAM_VERIFY When 1, P-256 two-scalar multiplication with G as the first point uses the flash generator table plus a compact 8-entry runtime table for the public point. This replaces the 13056-byte joint verification table. Requires NOXTLS_ECC_P256_FLASH_PRECOMPUTE. Default: 0 (retain the faster joint-table verification path)
 
 	endmenu
 
@@ -629,6 +636,78 @@ menu "NoxTLS library options (from noxtls_config.h)"
 			default n
 			help
 			  Optional NoxSight integration for structured TLS diagnostics. Default is disabled so existing builds are unchanged unless explicitly enabled.
+
+	endmenu
+
+	menu "Other"
+		config NOXTLS_ECDSA_SIGN_SELF_VERIFY
+			bool "Ecdsa Sign Self Verify"
+			default n
+			help
+			  NOXTLS_ECDSA_SIGN_SELF_VERIFY When 1, ECDSA signing immediately verifies the produced signature before returning it. This hardens signing against local fault/glitch attacks but materially reduces signing throughput. Default: 0 (disabled)
+
+		config NOXTLS_FEATURE_FALCON
+			bool "Falcon"
+			default n
+			help
+			  Enables FALCON signature APIs (NIST PQC finalist).
+
+		config NOXTLS_FEATURE_HKDF
+			bool "Hkdf"
+			default y
+			depends on NOXTLS_FEATURE_HMAC
+			help
+			  Enables generic HKDF (RFC 5869) primitive. Prereq: NOXTLS_FEATURE_HMAC=1. Required by: TLS 1.3 key schedule.
+
+		config NOXTLS_FEATURE_HMAC
+			bool "Hmac"
+			default y
+			depends on NOXTLS_FEATURE_HASH
+			help
+			  Enables generic HMAC primitive. Prereq: NOXTLS_FEATURE_HASH=1. Required by: HKDF and TLS transcript/finished MACs.
+
+		config NOXTLS_FEATURE_LMS_HSS
+			bool "Lms Hss"
+			default n
+			help
+			  Enables LMS/HSS hash-based signature APIs (RFC 8554).
+
+		config NOXTLS_FEATURE_NRF52_HW_ACCEL
+			bool "Nrf52 Hw Accel"
+			default n
+			depends on NOXTLS_FEATURE_AES
+			help
+			  Enables nRF52 ECB peripheral accelerated AES-128 block encrypt path. Prereq: NOXTLS_FEATURE_AES=1. Build knob: NOXTLS_CFG_FEATURE_NRF52_HW_ACCEL.
+
+		config NOXTLS_FEATURE_NRF52_HW_AES_ONLY
+			bool "Nrf52 Hw Aes Only"
+			default n
+			depends on NOXTLS_FEATURE_NRF52_HW_ACCEL
+			help
+			  When enabled, require nRF52 hardware AES support and disable software AES fallback. Prereq: NOXTLS_FEATURE_NRF52_HW_ACCEL=1. Build knob: NOXTLS_CFG_FEATURE_NRF52_HW_AES_ONLY.
+
+		config NOXTLS_FEATURE_XMSS
+			bool "Xmss"
+			default n
+			help
+			  Enables XMSS/XMSS^MT hash-based signature APIs (RFC 8391).
+
+		config NOXTLS_SHA256_UNROLL_8
+			bool "Sha256 Unroll 8"
+			default y
+			help
+			  Enables the 8-round unrolled portable C SHA-256 compressor path.
+
+		config NOXTLS_STATIC_ALLOCATOR_MODE_BUCKETS
+			bool "Static Allocator Mode Buckets"
+			default y
+
+		config NOXTLS_STATIC_ALLOCATOR_MODE_LEGACY
+			bool "Static Allocator Mode Legacy"
+			# legacy algorithm / option
+			default n
+			help
+			  NOXTLS_STATIC_ALLOCATOR_MODE Selects the allocator used when NOXTLS_USE_STATIC_BUFFERS is enabled. LEGACY preserves the original first-fit fallback allocator. BUCKETS uses only fixed-size bucket pools. HYBRID uses bucket pools first and a fallback pool for oversized or exhausted bucket allocations.
 
 	endmenu
 

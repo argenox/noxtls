@@ -28,14 +28,42 @@
 #include "common/noxtls_memory.h"
 #include "common/noxtls_memory_compat.h"
 #include "noxtls_ecc.h"
+
+#if defined(__GNUC__) || defined(__clang__)
+void noxtls_ecc_yield(void) __attribute__((weak));
+#endif
+void noxtls_ecc_yield(void)
+{
+}
 #include "pkc/rsa/noxtls_bignum.h"
 #include "drbg/noxtls_drbg.h"
 #include "noxtls_common.h"
+
+#if NOXTLS_ECC_P256_FLASH_PRECOMPUTE
+#include "noxtls_p256_precomputed_g.h"
+#endif
 
 /* Disable verbose stderr debug prints in this file. */
 #undef fprintf
 #define fprintf(...) ((void)0)
 
+/* PTS status ABI. Values report control-flow only and never key material. */
+volatile int32_t noxtls_ecc_keygen_last_rc = NOXTLS_RETURN_SUCCESS;
+volatile uint32_t noxtls_ecc_keygen_last_stage = 0U;
+volatile int32_t noxtls_ecc_keygen_last_entropy_rc = NOXTLS_RETURN_SUCCESS;
+volatile int32_t noxtls_ecc_keygen_last_multiply_rc = NOXTLS_RETURN_SUCCESS;
+volatile uint32_t noxtls_ecc_keygen_last_drbg_type = DRBG_AES256;
+volatile int32_t noxtls_ecc_keyinit_last_rc = NOXTLS_RETURN_SUCCESS;
+volatile uint32_t noxtls_ecc_keyinit_last_stage = 0U;
+/* nRF52's ECB peripheral is AES-128 only. A CTR-DRBG does not require
+ * AES-256; select an enabled primitive for constrained builds. */
+#if NOXTLS_FEATURE_AES_256
+#define NOXTLS_ECC_KEYGEN_DRBG_TYPE     DRBG_AES256
+#define NOXTLS_ECC_KEYGEN_DRBG_SEEDLEN  DRBG_SEEDLEN_AES256
+#else
+#define NOXTLS_ECC_KEYGEN_DRBG_TYPE     DRBG_AES128
+#define NOXTLS_ECC_KEYGEN_DRBG_SEEDLEN  DRBG_SEEDLEN_AES128
+#endif
 #if (NOXTLS_ECC_POINT_MUL_WINDOW_SIZE > 0) && (NOXTLS_ECC_FIXED_POINT_OPTIM) && (NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE)
 typedef struct {
     const ecc_curve_params_t *curve;
@@ -65,19 +93,22 @@ static noxtls_return_t ecc_keygen_drbg_generate_bits(uint8_t *out, uint32_t requ
 {
     static drbg_state_t s_ecc_keygen_drbg_state;
     static int s_ecc_keygen_drbg_initialized = 0;
-    uint8_t seed[DRBG_SEEDLEN_AES256];
+    uint8_t seed[NOXTLS_ECC_KEYGEN_DRBG_SEEDLEN];
     noxtls_return_t rc;
 
     if(out == NULL) {
         return NOXTLS_RETURN_NULL;
     }
 
+    noxtls_ecc_keygen_last_drbg_type = NOXTLS_ECC_KEYGEN_DRBG_TYPE;
+
     if(!s_ecc_keygen_drbg_initialized) {
         rc = noxtls_drbg_get_entropy(seed, sizeof(seed));
+        noxtls_ecc_keygen_last_entropy_rc = rc;
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
-        rc = drbg_instantiate(&s_ecc_keygen_drbg_state, DRBG_AES256,
+        rc = drbg_instantiate(&s_ecc_keygen_drbg_state, NOXTLS_ECC_KEYGEN_DRBG_TYPE,
                               seed, sizeof(seed), NULL, 0, NULL, 0);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
@@ -94,10 +125,11 @@ static noxtls_return_t ecc_keygen_drbg_generate_bits(uint8_t *out, uint32_t requ
     s_ecc_keygen_drbg_initialized = 0;
 
     rc = noxtls_drbg_get_entropy(seed, sizeof(seed));
+    noxtls_ecc_keygen_last_entropy_rc = rc;
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    rc = drbg_instantiate(&s_ecc_keygen_drbg_state, DRBG_AES256,
+    rc = drbg_instantiate(&s_ecc_keygen_drbg_state, NOXTLS_ECC_KEYGEN_DRBG_TYPE,
                           seed, sizeof(seed), NULL, 0, NULL, 0);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
@@ -139,28 +171,26 @@ static noxtls_return_t ecc_mod_inv_prime(uint8_t *result,
     if(result == NULL || a == NULL || p == NULL || size == 0) {
         return NOXTLS_RETURN_NULL;
     }
-
-    uint8_t *p_minus_2 = (uint8_t*)calloc(size, 1);
-    uint8_t *two = (uint8_t*)calloc(size, 1);
-    uint8_t *a_mod = (uint8_t*)calloc(size, 1);
-    uint8_t *prod = (uint8_t*)calloc((size_t)size * 2U, 1);
-    uint8_t *check = (uint8_t*)calloc(size, 1);
-    uint8_t *one = (uint8_t*)calloc(size, 1);
-    if(!p_minus_2 || !two || !a_mod || !prod || !check || !one) {
-        if(p_minus_2) { free(p_minus_2); }
-        if(two) { free(two); }
-        if(a_mod) { free(a_mod); }
-        if(prod) { free(prod); }
-        if(check) { free(check); }
-        if(one) { free(one); }
+    if(size > ECC_MAX_KEY_SIZE) {
         return NOXTLS_RETURN_FAILED;
     }
 
+    static uint8_t p_minus_2[ECC_MAX_KEY_SIZE];
+    static uint8_t two[ECC_MAX_KEY_SIZE];
+    static uint8_t a_mod[ECC_MAX_KEY_SIZE];
+    static uint8_t prod[ECC_MAX_KEY_SIZE * 2U];
+    static uint8_t check[ECC_MAX_KEY_SIZE];
+    static uint8_t one[ECC_MAX_KEY_SIZE];
+
+    memset(p_minus_2, 0, sizeof(p_minus_2));
+    memset(two, 0, sizeof(two));
+    memset(a_mod, 0, sizeof(a_mod));
+    memset(prod, 0, sizeof(prod));
+    memset(check, 0, sizeof(check));
+    memset(one, 0, sizeof(one));
+
     noxtls_bn_mod(a_mod, a, size, p, size);
     if(noxtls_bn_is_zero(a_mod, size)) {
-        free(p_minus_2);
-        free(two);
-        free(a_mod);
         return NOXTLS_RETURN_FAILED;
     }
 
@@ -174,12 +204,6 @@ static noxtls_return_t ecc_mod_inv_prime(uint8_t *result,
         noxtls_bn_mul(prod, a_mod, size, result, size);
         noxtls_bn_mod(check, prod, size * 2U, p, size);
         if(noxtls_bn_cmp(check, one, size) == 0) {
-            free(p_minus_2);
-            free(two);
-            free(a_mod);
-            free(prod);
-            free(check);
-            free(one);
             return NOXTLS_RETURN_SUCCESS;
         }
     }
@@ -191,33 +215,15 @@ static noxtls_return_t ecc_mod_inv_prime(uint8_t *result,
     if(noxtls_bn_cmp(check, one, size) != 0) {
         noxtls_return_t rc = noxtls_bn_mod_inv(result, a_mod, size, p, size);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            free(p_minus_2);
-            free(two);
-            free(a_mod);
-            free(prod);
-            free(check);
-            free(one);
             return NOXTLS_RETURN_FAILED;
         }
         noxtls_bn_mul(prod, a_mod, size, result, size);
         noxtls_bn_mod(check, prod, size * 2U, p, size);
         if(noxtls_bn_cmp(check, one, size) != 0) {
-            free(p_minus_2);
-            free(two);
-            free(a_mod);
-            free(prod);
-            free(check);
-            free(one);
             return NOXTLS_RETURN_FAILED;
         }
     }
 
-    free(p_minus_2);
-    free(two);
-    free(a_mod);
-    free(prod);
-    free(check);
-    free(one);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -325,14 +331,14 @@ noxtls_return_t noxtls_ecc_curve_init(ecc_curve_params_t *curve, ecc_curve_t cur
     }
     
     /* Allocate memory for curve parameters */
-    curve->p = (uint8_t*)calloc(curve->size, 1);
-    curve->a = (uint8_t*)calloc(curve->size, 1);
-    curve->b = (uint8_t*)calloc(curve->size, 1);
-    curve->n = (uint8_t*)calloc(curve->size, 1);
+    curve->p = (uint8_t*)noxtls_calloc(curve->size, 1);
+    curve->a = (uint8_t*)noxtls_calloc(curve->size, 1);
+    curve->b = (uint8_t*)noxtls_calloc(curve->size, 1);
+    curve->n = (uint8_t*)noxtls_calloc(curve->size, 1);
     
     if(!curve->p || !curve->a || !curve->b || !curve->n) {
         noxtls_ecc_curve_free(curve);
-        return NOXTLS_RETURN_FAILED;
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
     
     /* Initialize curve parameters for specific curves */
@@ -918,7 +924,7 @@ noxtls_return_t noxtls_ecc_curve_free(ecc_curve_params_t *curve)
      */
     if(s_fixed_base_cache.valid && s_fixed_base_cache.curve == curve) {
         if(s_fixed_base_cache.table) {
-            free(s_fixed_base_cache.table);
+            noxtls_free(s_fixed_base_cache.table);
             s_fixed_base_cache.table = NULL;
         }
         s_fixed_base_cache.curve = NULL;
@@ -927,7 +933,7 @@ noxtls_return_t noxtls_ecc_curve_free(ecc_curve_params_t *curve)
     }
     if(s_point_cache.valid && s_point_cache.curve == curve) {
         if(s_point_cache.table) {
-            free(s_point_cache.table);
+            noxtls_free(s_point_cache.table);
             s_point_cache.table = NULL;
         }
         s_point_cache.curve = NULL;
@@ -936,7 +942,7 @@ noxtls_return_t noxtls_ecc_curve_free(ecc_curve_params_t *curve)
     }
     if(s_muladd_cache.valid && s_muladd_cache.curve == curve) {
         if(s_muladd_cache.table) {
-            free(s_muladd_cache.table);
+            noxtls_free(s_muladd_cache.table);
             s_muladd_cache.table = NULL;
         }
         s_muladd_cache.curve = NULL;
@@ -945,10 +951,10 @@ noxtls_return_t noxtls_ecc_curve_free(ecc_curve_params_t *curve)
     }
 #endif
 
-    if(curve->p) { free(curve->p); curve->p = NULL; }
-    if(curve->a) { free(curve->a); curve->a = NULL; }
-    if(curve->b) { free(curve->b); curve->b = NULL; }
-    if(curve->n) { free(curve->n); curve->n = NULL; }
+    if(curve->p) { noxtls_free(curve->p); curve->p = NULL; }
+    if(curve->a) { noxtls_free(curve->a); curve->a = NULL; }
+    if(curve->b) { noxtls_free(curve->b); curve->b = NULL; }
+    if(curve->n) { noxtls_free(curve->n); curve->n = NULL; }
     
     memset(curve, 0, sizeof(ecc_curve_params_t));
     
@@ -1077,6 +1083,33 @@ static void ecc_jpoint_select_affine_table(ecc_jpoint_t *out,
     ecc_cond_select(out->Z, z_one, out->Z, size, (uint8_t)(idx != 0U));
 }
 
+#if NOXTLS_ECC_P256_FLASH_PRECOMPUTE
+/** Constant-time selection from a compact P-256 affine table (X || Y). */
+static void p256_select_compact_affine_table(ecc_jpoint_t *out,
+                                             const uint8_t (*table)[NOXTLS_P256_AFFINE_POINT_SIZE],
+                                             uint32_t table_len,
+                                             uint32_t idx)
+{
+    uint8_t z_one[NOXTLS_P256_AFFINE_COORD_SIZE];
+    uint32_t j;
+
+    memset(out, 0, sizeof(*out));
+    out->size = NOXTLS_P256_AFFINE_COORD_SIZE;
+    memset(z_one, 0, sizeof(z_one));
+    z_one[NOXTLS_P256_AFFINE_COORD_SIZE - 1U] = 0x01U;
+
+    for(j = 1U; j < table_len; j++) {
+        uint8_t selected = (uint8_t)(idx == j);
+        ecc_cond_select(out->X, table[j], out->X,
+                        NOXTLS_P256_AFFINE_COORD_SIZE, selected);
+        ecc_cond_select(out->Y, table[j] + NOXTLS_P256_AFFINE_COORD_SIZE, out->Y,
+                        NOXTLS_P256_AFFINE_COORD_SIZE, selected);
+    }
+    ecc_cond_select(out->Z, z_one, out->Z,
+                    NOXTLS_P256_AFFINE_COORD_SIZE, (uint8_t)(idx != 0U));
+}
+#endif
+
 /** Get bit at bit_index (0 = MSB of scalar[0]) from big-endian scalar. */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static uint8_t ecc_scalar_getbit(const uint8_t *scalar, uint32_t size_bytes, uint32_t bit_index)
@@ -1150,7 +1183,13 @@ static const uint32_t s_p256_order_words[8] = {
  */
 static int ecc_modulus_is_secp256r1(const uint8_t *p, uint32_t size)
 {
+#if defined(NOXTLS_P256_GENERIC_ARITHMETIC) && NOXTLS_P256_GENERIC_ARITHMETIC
+    (void)p;
+    (void)size;
+    return 0;
+#else
     return (size == 32U && p != NULL && memcmp(p, s_p256_prime_be, 32U) == 0);
+#endif
 }
 
 /**
@@ -1161,11 +1200,16 @@ static int ecc_modulus_is_secp256r1(const uint8_t *p, uint32_t size)
  */
 static int ecc_curve_is_secp256r1(const ecc_curve_params_t *curve)
 {
+#if defined(NOXTLS_P256_GENERIC_ARITHMETIC) && NOXTLS_P256_GENERIC_ARITHMETIC
+    (void)curve;
+    return 0;
+#else
     if(curve == NULL || curve->size != 32U || curve->p == NULL || curve->a == NULL) {
         return 0;
     }
     return memcmp(curve->p, s_p256_prime_be, 32U) == 0 &&
            memcmp(curve->a, s_p256_a_be, 32U) == 0;
+#endif
 }
 
 /**
@@ -1905,6 +1949,80 @@ static noxtls_return_t p256_jpoint_add_mixed(ecc_jpoint_t *out,
     return NOXTLS_RETURN_SUCCESS;
 }
 
+static noxtls_return_t p256_jpoint_add(ecc_jpoint_t *out,
+                                       const ecc_jpoint_t *P,
+                                       const ecc_jpoint_t *Q)
+{
+    uint8_t Z1Z1[32];
+    uint8_t Z2Z2[32];
+    uint8_t U1[32];
+    uint8_t U2[32];
+    uint8_t S1[32];
+    uint8_t S2[32];
+    uint8_t H[32];
+    uint8_t HH[32];
+    uint8_t HHH[32];
+    uint8_t R[32];
+    uint8_t V[32];
+    uint8_t tmp1[32];
+    uint32_t h_words[8];
+    uint32_t r_words[8];
+
+    if(noxtls_bn_is_zero(P->Z, 32U)) {
+        noxtls_bn_copy(out->X, Q->X, 32U);
+        noxtls_bn_copy(out->Y, Q->Y, 32U);
+        noxtls_bn_copy(out->Z, Q->Z, 32U);
+        out->size = 32U;
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    if(noxtls_bn_is_zero(Q->Z, 32U)) {
+        noxtls_bn_copy(out->X, P->X, 32U);
+        noxtls_bn_copy(out->Y, P->Y, 32U);
+        noxtls_bn_copy(out->Z, P->Z, 32U);
+        out->size = 32U;
+        return NOXTLS_RETURN_SUCCESS;
+    }
+
+    p256_fe_sqr(Z1Z1, P->Z);
+    p256_fe_sqr(Z2Z2, Q->Z);
+    p256_fe_mul(U1, P->X, Z2Z2);
+    p256_fe_mul(U2, Q->X, Z1Z1);
+    p256_fe_mul(tmp1, Z2Z2, Q->Z);
+    p256_fe_mul(S1, P->Y, tmp1);
+    p256_fe_mul(tmp1, Z1Z1, P->Z);
+    p256_fe_mul(S2, Q->Y, tmp1);
+    p256_fe_sub(H, U2, U1);
+    p256_fe_sub(R, S2, S1);
+    p256_words_from_be(h_words, H);
+    p256_words_from_be(r_words, R);
+    if(p256_words_is_zero(h_words)) {
+        if(p256_words_is_zero(r_words)) {
+            return p256_jpoint_double(out, P);
+        }
+        noxtls_bn_zero(out->X, 32U);
+        noxtls_bn_zero(out->Y, 32U);
+        noxtls_bn_zero(out->Z, 32U);
+        out->size = 32U;
+        return NOXTLS_RETURN_SUCCESS;
+    }
+
+    p256_fe_sqr(HH, H);
+    p256_fe_mul(HHH, H, HH);
+    p256_fe_mul(V, U1, HH);
+    p256_fe_sqr(out->X, R);
+    p256_fe_sub(out->X, out->X, HHH);
+    p256_fe_double(tmp1, V);
+    p256_fe_sub(out->X, out->X, tmp1);
+    p256_fe_sub(tmp1, V, out->X);
+    p256_fe_mul(tmp1, R, tmp1);
+    p256_fe_mul(out->Y, S1, HHH);
+    p256_fe_sub(out->Y, tmp1, out->Y);
+    p256_fe_mul(tmp1, P->Z, Q->Z);
+    p256_fe_mul(out->Z, tmp1, H);
+    out->size = 32U;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
 static noxtls_return_t ecc_jpoint_to_affine(uint8_t *x, uint8_t *y, const ecc_jpoint_t *J, const ecc_curve_params_t *curve);
 
 /**
@@ -2039,6 +2157,7 @@ static noxtls_return_t ecc_jpoint_add(ecc_jpoint_t *out, const ecc_jpoint_t *P, 
         if(noxtls_bn_is_one(P->Z, size)) {
             return p256_jpoint_add_mixed(out, Q, P);
         }
+        return p256_jpoint_add(out, P, Q);
     }
 
     noxtls_bn_zero(U1, size);
@@ -2303,14 +2422,14 @@ static noxtls_return_t ecc_precompute_table_to_affine(ecc_jpoint_t *T, uint32_t 
         return NOXTLS_RETURN_FAILED;
     }
 
-    active_idx = (uint32_t*)calloc(table_len, sizeof(uint32_t));
-    prefix = (uint8_t*)calloc((size_t)table_len, size);
+    active_idx = (uint32_t*)noxtls_calloc(table_len, sizeof(uint32_t));
+    prefix = (uint8_t*)noxtls_calloc((size_t)table_len, size);
     if(active_idx == NULL || prefix == NULL) {
         if(active_idx != NULL) {
-            free(active_idx);
+            noxtls_free(active_idx);
         }
         if(prefix != NULL) {
-            free(prefix);
+            noxtls_free(prefix);
         }
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
@@ -2340,15 +2459,15 @@ static noxtls_return_t ecc_precompute_table_to_affine(ecc_jpoint_t *T, uint32_t 
     }
 
     if(count == 0U) {
-        free(prefix);
-        free(active_idx);
+        noxtls_free(prefix);
+        noxtls_free(active_idx);
         return NOXTLS_RETURN_SUCCESS;
     }
 
     rc = ecc_mod_inv_prime(acc, prefix + (((size_t)count - 1U) * size), p, size);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        free(prefix);
-        free(active_idx);
+        noxtls_free(prefix);
+        noxtls_free(active_idx);
         return rc;
     }
 
@@ -2372,8 +2491,8 @@ static noxtls_return_t ecc_precompute_table_to_affine(ecc_jpoint_t *T, uint32_t 
         T[point_idx].Z[size - 1U] = 0x01;
     }
 
-    free(prefix);
-    free(active_idx);
+    noxtls_free(prefix);
+    noxtls_free(active_idx);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -2426,6 +2545,39 @@ static noxtls_return_t ecc_build_precompute_table(ecc_jpoint_t *T, uint32_t tabl
 
     return NOXTLS_RETURN_SUCCESS;
 }
+
+#if NOXTLS_ECC_P256_LOW_RAM_VERIFY
+/* Build a compact runtime table for a public P-256 point. The temporary
+ * Jacobian table is released after its affine coordinates are packed. */
+static noxtls_return_t p256_build_compact_window_table(
+    uint8_t (*compact)[NOXTLS_P256_AFFINE_POINT_SIZE],
+    uint32_t table_len,
+    const ecc_point_t *point,
+    const ecc_curve_params_t *curve)
+{
+    ecc_jpoint_t *work;
+    noxtls_return_t rc;
+    uint32_t i;
+
+    work = (ecc_jpoint_t*)noxtls_calloc(table_len, sizeof(ecc_jpoint_t));
+    if(work == NULL) {
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+    }
+
+    rc = ecc_build_precompute_table(work, table_len, point, curve);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        memset(compact, 0, (size_t)table_len * NOXTLS_P256_AFFINE_POINT_SIZE);
+        for(i = 1U; i < table_len; i++) {
+            memcpy(compact[i], work[i].X, NOXTLS_P256_AFFINE_COORD_SIZE);
+            memcpy(compact[i] + NOXTLS_P256_AFFINE_COORD_SIZE,
+                   work[i].Y, NOXTLS_P256_AFFINE_COORD_SIZE);
+        }
+    }
+
+    noxtls_free(work);
+    return rc;
+}
+#endif
 
 /**
  * @brief Get the bit at the given index
@@ -2624,6 +2776,75 @@ static noxtls_return_t p256_ecc_jpoint_mul_comb(ecc_jpoint_t *result,
     return NOXTLS_RETURN_SUCCESS;
 }
 
+#if NOXTLS_ECC_P256_FLASH_PRECOMPUTE
+/* P-256 fixed-base comb multiplication using the compact read-only G table. */
+static noxtls_return_t p256_ecc_jpoint_mul_comb_flash(
+    ecc_jpoint_t *result,
+    const uint8_t *scalar,
+    const ecc_curve_params_t *curve)
+{
+    const uint32_t w = NOXTLS_P256_FLASH_G_WINDOW;
+    const uint32_t d = (256U + w - 1U) / w;
+    uint8_t digits[64];
+    uint8_t reduced[32];
+    ecc_jpoint_t R;
+    ecc_jpoint_t selected;
+    ecc_jpoint_t doubled;
+    noxtls_return_t rc;
+    uint32_t i;
+
+    memset(&R, 0, sizeof(R));
+    memset(&selected, 0, sizeof(selected));
+    memset(&doubled, 0, sizeof(doubled));
+    R.size = selected.size = doubled.size = NOXTLS_P256_AFFINE_COORD_SIZE;
+
+    p256_scalar_reduce_mod_order(reduced, scalar);
+    p256_comb_recode_core(digits, d, w, reduced);
+
+    for(i = d; i > 0U; i--) {
+        rc = p256_jpoint_double(&doubled, &R);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
+        memcpy(&R, &doubled, sizeof(R));
+
+        p256_select_compact_affine_table(&selected, s_noxtls_p256_g_comb_w5,
+                                         NOXTLS_P256_FLASH_G_TABLE_LEN,
+                                         digits[i - 1U]);
+        rc = ecc_jpoint_add(&doubled, &R, &selected, curve);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
+        memcpy(&R, &doubled, sizeof(R));
+    }
+
+    memcpy(result, &R, sizeof(R));
+    result->size = NOXTLS_P256_AFFINE_COORD_SIZE;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+static noxtls_return_t p256_ecc_point_mul_comb_flash(
+    ecc_point_t *result,
+    const uint8_t *scalar,
+    const ecc_curve_params_t *curve)
+{
+    ecc_jpoint_t R;
+    noxtls_return_t rc;
+
+    memset(&R, 0, sizeof(R));
+    R.size = NOXTLS_P256_AFFINE_COORD_SIZE;
+    rc = p256_ecc_jpoint_mul_comb_flash(&R, scalar, curve);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+    rc = ecc_jpoint_to_affine(result->x, result->y, &R, curve);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        result->size = NOXTLS_P256_AFFINE_COORD_SIZE;
+    }
+    return rc;
+}
+#endif
+
 /**
  * @brief Multiply the point by the scalar using the combination precomputation table
  * 
@@ -2683,8 +2904,8 @@ static noxtls_return_t p256_build_joint_precompute_table(ecc_jpoint_t *joint_tab
     uint32_t a;
     uint32_t b;
 
-    table1 = (ecc_jpoint_t*)calloc(side_len, sizeof(ecc_jpoint_t));
-    table2 = (ecc_jpoint_t*)calloc(side_len, sizeof(ecc_jpoint_t));
+    table1 = (ecc_jpoint_t*)noxtls_calloc(side_len, sizeof(ecc_jpoint_t));
+    table2 = (ecc_jpoint_t*)noxtls_calloc(side_len, sizeof(ecc_jpoint_t));
     if(table1 == NULL || table2 == NULL) {
         rc = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         goto cleanup_joint_table;
@@ -2728,10 +2949,10 @@ static noxtls_return_t p256_build_joint_precompute_table(ecc_jpoint_t *joint_tab
 
 cleanup_joint_table:
     if(table1 != NULL) {
-        free(table1);
+        noxtls_free(table1);
     }
     if(table2 != NULL) {
-        free(table2);
+        noxtls_free(table2);
     }
     return rc;
 }
@@ -2797,21 +3018,21 @@ static noxtls_return_t p256_ecc_point_muladd_windowed(ecc_point_t *result,
 #endif
 
     if(table == NULL) {
-        owned_table = (ecc_jpoint_t*)calloc(joint_len, sizeof(ecc_jpoint_t));
+        owned_table = (ecc_jpoint_t*)noxtls_calloc(joint_len, sizeof(ecc_jpoint_t));
         if(owned_table == NULL) {
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         }
 
         rc = p256_build_joint_precompute_table(owned_table, w, point1, point2, curve);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            free(owned_table);
+            noxtls_free(owned_table);
             return rc;
         }
         table = owned_table;
 
 #if (NOXTLS_ECC_POINT_MUL_WINDOW_SIZE > 0) && (NOXTLS_ECC_FIXED_POINT_OPTIM) && (NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE)
         if(s_muladd_cache.table != NULL) {
-            free(s_muladd_cache.table);
+            noxtls_free(s_muladd_cache.table);
         }
         s_muladd_cache.curve = curve;
         s_muladd_cache.table = owned_table;
@@ -2857,7 +3078,7 @@ static noxtls_return_t p256_ecc_point_muladd_windowed(ecc_point_t *result,
     }
 
     if(owned_table != NULL && !use_cache) {
-        free(owned_table);
+        noxtls_free(owned_table);
     }
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
@@ -2961,6 +3182,64 @@ static noxtls_return_t ecc_jpoint_mul_windowed(ecc_jpoint_t *result,
     return NOXTLS_RETURN_SUCCESS;
 }
 
+#if NOXTLS_ECC_P256_LOW_RAM_VERIFY
+/* Variable-base P-256 multiplication using a compact affine runtime table. */
+static noxtls_return_t p256_ecc_jpoint_mul_windowed_compact(
+    ecc_jpoint_t *result,
+    const uint8_t *scalar,
+    const ecc_curve_params_t *curve,
+    const uint8_t (*table)[NOXTLS_P256_AFFINE_POINT_SIZE],
+    uint32_t w)
+{
+    const uint32_t n_bits = 256U;
+    const uint32_t windows = (n_bits + w - 1U) / w;
+    uint32_t first_w = n_bits - ((windows - 1U) * w);
+    const uint32_t table_len = 1U << w;
+    ecc_jpoint_t R;
+    ecc_jpoint_t selected;
+    ecc_jpoint_t doubled;
+    noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
+    uint32_t i;
+    uint32_t j;
+    uint32_t digit;
+
+    memset(&R, 0, sizeof(R));
+    memset(&selected, 0, sizeof(selected));
+    memset(&doubled, 0, sizeof(doubled));
+    R.size = selected.size = doubled.size = NOXTLS_P256_AFFINE_COORD_SIZE;
+    if(first_w == 0U) {
+        first_w = w;
+    }
+
+    digit = ecc_scalar_digit_range(scalar, NOXTLS_P256_AFFINE_COORD_SIZE,
+                                    0U, first_w);
+    p256_select_compact_affine_table(&R, table, table_len, digit);
+
+    for(i = 1U; i < windows; i++) {
+        for(j = 0U; j < w; j++) {
+            rc = p256_jpoint_double(&doubled, &R);
+            if(rc != NOXTLS_RETURN_SUCCESS) {
+                return rc;
+            }
+            memcpy(&R, &doubled, sizeof(R));
+        }
+
+        digit = ecc_scalar_digit_range(scalar, NOXTLS_P256_AFFINE_COORD_SIZE,
+                                        first_w + ((i - 1U) * w), w);
+        p256_select_compact_affine_table(&selected, table, table_len, digit);
+        rc = ecc_jpoint_add(&doubled, &R, &selected, curve);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
+        memcpy(&R, &doubled, sizeof(R));
+    }
+
+    memcpy(result, &R, sizeof(R));
+    result->size = NOXTLS_P256_AFFINE_COORD_SIZE;
+    return NOXTLS_RETURN_SUCCESS;
+}
+#endif
+
 /**
  * @brief Multiply the point by the scalar using the windowed precomputation table
  * 
@@ -3038,6 +3317,17 @@ static noxtls_return_t ecc_point_multiply_jpoint(ecc_jpoint_t *result,
         uint32_t table_len = 1U << w;
         ecc_jpoint_t *table = NULL;
         int use_cache = 0;
+        int use_flash = 0;
+
+#if NOXTLS_ECC_P256_FLASH_PRECOMPUTE
+        if(is_fixed_base && ecc_curve_is_secp256r1(curve)) {
+            use_flash = 1;
+            rc = p256_ecc_jpoint_mul_comb_flash(result, scalar, curve);
+            if(rc == NOXTLS_RETURN_SUCCESS) {
+                return rc;
+            }
+        }
+#endif
 
 #if NOXTLS_ECC_FIXED_POINT_OPTIM && NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE
         if(is_fixed_base && s_fixed_base_cache.valid && s_fixed_base_cache.curve == curve &&
@@ -3056,8 +3346,8 @@ static noxtls_return_t ecc_point_multiply_jpoint(ecc_jpoint_t *result,
             use_cache = 1;
         }
 #endif
-        if(!use_cache) {
-            table = (ecc_jpoint_t*)calloc(table_len, sizeof(ecc_jpoint_t));
+        if(!use_cache && !use_flash) {
+            table = (ecc_jpoint_t*)noxtls_calloc(table_len, sizeof(ecc_jpoint_t));
             if(table) {
                 if(ecc_curve_is_secp256r1(curve)) {
                     rc = p256_build_comb_precompute_table(table, table_len, point, curve, w, (256U + w - 1U) / w);
@@ -3065,12 +3355,12 @@ static noxtls_return_t ecc_point_multiply_jpoint(ecc_jpoint_t *result,
                     rc = ecc_build_precompute_table(table, table_len, point, curve);
                 }
                 if(rc != NOXTLS_RETURN_SUCCESS) {
-                    free(table);
+                    noxtls_free(table);
                     table = NULL;
                 }
 #if NOXTLS_ECC_FIXED_POINT_OPTIM && NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE
                 else if(is_fixed_base) {
-                    if(s_fixed_base_cache.table) { free(s_fixed_base_cache.table); }
+                    if(s_fixed_base_cache.table) { noxtls_free(s_fixed_base_cache.table); }
                     s_fixed_base_cache.curve = curve;
                     s_fixed_base_cache.table = table;
                     s_fixed_base_cache.w = w;
@@ -3080,7 +3370,7 @@ static noxtls_return_t ecc_point_multiply_jpoint(ecc_jpoint_t *result,
                     s_fixed_base_cache.valid = 1;
                     use_cache = 1;
                 } else {
-                    if(s_point_cache.table) { free(s_point_cache.table); }
+                    if(s_point_cache.table) { noxtls_free(s_point_cache.table); }
                     s_point_cache.curve = curve;
                     s_point_cache.table = table;
                     s_point_cache.w = w;
@@ -3100,9 +3390,9 @@ static noxtls_return_t ecc_point_multiply_jpoint(ecc_jpoint_t *result,
                 rc = ecc_jpoint_mul_windowed(result, scalar, curve, table, w);
             }
 #if !(NOXTLS_ECC_FIXED_POINT_OPTIM && NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE)
-            free(table);
+            noxtls_free(table);
 #else
-            if(!use_cache) { free(table); }
+            if(!use_cache) { noxtls_free(table); }
 #endif
             if(rc == NOXTLS_RETURN_SUCCESS) {
                 return rc;
@@ -3139,6 +3429,19 @@ static noxtls_return_t ecc_point_multiply_jpoint(ecc_jpoint_t *result,
  */
 noxtls_return_t noxtls_ecc_point_multiply(ecc_point_t *result, const uint8_t *scalar, const ecc_point_t *point, const ecc_curve_params_t *curve)
 {
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    uint64_t total_start_us;
+    uint64_t phase_start_us;
+
+    noxtls_ecc_point_multiply_last_accel_us = 0U;
+    noxtls_ecc_point_multiply_last_precompute_us = 0U;
+    noxtls_ecc_point_multiply_last_comb_us = 0U;
+    noxtls_ecc_point_multiply_last_total_us = 0U;
+    noxtls_ecc_point_multiply_last_used_cache = 0U;
+    noxtls_ecc_point_multiply_last_used_accel = 0U;
+    total_start_us = noxtls_ecc_diagnostic_time_us();
+#endif
+
     /* Check for null pointers BEFORE accessing any fields */
     if(result == NULL || scalar == NULL || point == NULL || curve == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -3161,10 +3464,23 @@ noxtls_return_t noxtls_ecc_point_multiply(ecc_point_t *result, const uint8_t *sc
         return NOXTLS_RETURN_SUCCESS;
     }
 
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    phase_start_us = noxtls_ecc_diagnostic_time_us();
+#endif
     rc = noxtls_ecc_point_multiply_accel_port(result, scalar, point, curve);
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    noxtls_ecc_point_multiply_last_accel_us =
+        noxtls_ecc_diagnostic_elapsed_us(phase_start_us);
+#endif
     if(rc == NOXTLS_RETURN_SUCCESS) {
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+        noxtls_ecc_point_multiply_last_used_accel = 1U;
+        noxtls_ecc_point_multiply_last_total_us =
+            noxtls_ecc_diagnostic_elapsed_us(total_start_us);
+#endif
         return rc;
     }
+    noxtls_ecc_accel_note_fallback();
     /* HW failed or disabled: fall back to software path. */
     if(rc != NOXTLS_RETURN_NOT_SUPPORTED) {
         noxtls_bn_zero(result->x, size);
@@ -3185,6 +3501,17 @@ noxtls_return_t noxtls_ecc_point_multiply(ecc_point_t *result, const uint8_t *sc
             uint32_t table_len = 1U << w;
             ecc_jpoint_t *table = NULL;
             int use_cache = 0;
+            int use_flash = 0;
+
+#if NOXTLS_ECC_P256_FLASH_PRECOMPUTE
+            if(is_fixed_base && ecc_curve_is_secp256r1(curve)) {
+                use_flash = 1;
+                rc = p256_ecc_point_mul_comb_flash(result, scalar, curve);
+                if(rc == NOXTLS_RETURN_SUCCESS) {
+                    return rc;
+                }
+            }
+#endif
 
 #if NOXTLS_ECC_FIXED_POINT_OPTIM && NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE
             if(is_fixed_base && s_fixed_base_cache.valid && s_fixed_base_cache.curve == curve &&
@@ -3203,8 +3530,8 @@ noxtls_return_t noxtls_ecc_point_multiply(ecc_point_t *result, const uint8_t *sc
                 use_cache = 1;
             }
 #endif
-            if(!use_cache) {
-                table = (ecc_jpoint_t*)calloc(table_len, sizeof(ecc_jpoint_t));
+            if(!use_cache && !use_flash) {
+                table = (ecc_jpoint_t*)noxtls_calloc(table_len, sizeof(ecc_jpoint_t));
                 if(table) {
                     if(ecc_curve_is_secp256r1(curve)) {
                         rc = p256_build_comb_precompute_table(table, table_len, point, curve, w, (256U + w - 1U) / w);
@@ -3212,13 +3539,13 @@ noxtls_return_t noxtls_ecc_point_multiply(ecc_point_t *result, const uint8_t *sc
                         rc = ecc_build_precompute_table(table, table_len, point, curve);
                     }
                     if(rc != NOXTLS_RETURN_SUCCESS) {
-                        free(table);
+                        noxtls_free(table);
                         table = NULL;
                     }
 #if NOXTLS_ECC_FIXED_POINT_OPTIM && NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE
                     else if(is_fixed_base) {
                         /* Evict previous cache */
-                        if(s_fixed_base_cache.table) { free(s_fixed_base_cache.table); }
+                        if(s_fixed_base_cache.table) { noxtls_free(s_fixed_base_cache.table); }
                         s_fixed_base_cache.curve = curve;
                         s_fixed_base_cache.table = table;
                         s_fixed_base_cache.w = w;
@@ -3229,7 +3556,7 @@ noxtls_return_t noxtls_ecc_point_multiply(ecc_point_t *result, const uint8_t *sc
                         use_cache = 1;  /* don't free table below */
                     }
                     else {
-                        if(s_point_cache.table) { free(s_point_cache.table); }
+                        if(s_point_cache.table) { noxtls_free(s_point_cache.table); }
                         s_point_cache.curve = curve;
                         s_point_cache.table = table;
                         s_point_cache.w = w;
@@ -3249,9 +3576,9 @@ noxtls_return_t noxtls_ecc_point_multiply(ecc_point_t *result, const uint8_t *sc
                     rc = ecc_point_mul_windowed(result, scalar, curve, table, w);
                 }
 #if !(NOXTLS_ECC_FIXED_POINT_OPTIM && NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE)
-                free(table);
+                noxtls_free(table);
 #else
-                if(!use_cache) { free(table); }
+                if(!use_cache) { noxtls_free(table); }
 #endif
                 if(rc == NOXTLS_RETURN_SUCCESS) { return rc; }
                 /* Fall through to ladder on failure (e.g. add returned failure) */
@@ -3293,6 +3620,7 @@ noxtls_return_t noxtls_ecc_point_multiply(ecc_point_t *result, const uint8_t *sc
 
         for(i = 0; i < size && rc == NOXTLS_RETURN_SUCCESS; i++) {
             for(j = 8; j > 0; j--) {
+                noxtls_ecc_yield();
                 bit = (scalar[i] >> (j - 1)) & 1;
                 rc = ecc_jpoint_add(&T_sum, &R0, &R1, curve);
                 if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -3331,6 +3659,78 @@ noxtls_return_t noxtls_ecc_point_multiply(ecc_point_t *result, const uint8_t *sc
     result->size = size;
     return NOXTLS_RETURN_SUCCESS;
 }
+
+#if NOXTLS_ECC_P256_LOW_RAM_VERIFY
+/* Compute k1*G + k2*Q without the 64-entry joint table. G comes from the
+ * read-only comb table; only an 8-entry compact table for runtime Q is kept. */
+static noxtls_return_t p256_ecc_point_muladd_low_ram(
+    ecc_point_t *result,
+    const uint8_t *scalar_g,
+    const uint8_t *scalar_q,
+    const ecc_point_t *point_q,
+    const ecc_curve_params_t *curve)
+{
+    const uint32_t q_window = 3U;
+    const uint32_t q_table_len = 1U << q_window;
+    uint8_t (*q_table)[NOXTLS_P256_AFFINE_POINT_SIZE] = NULL;
+    ecc_jpoint_t Jg;
+    ecc_jpoint_t Jq;
+    ecc_jpoint_t sum;
+    noxtls_return_t rc;
+
+    memset(&Jg, 0, sizeof(Jg));
+    memset(&Jq, 0, sizeof(Jq));
+    memset(&sum, 0, sizeof(sum));
+    Jg.size = Jq.size = sum.size = NOXTLS_P256_AFFINE_COORD_SIZE;
+
+    q_table = (uint8_t (*)[NOXTLS_P256_AFFINE_POINT_SIZE])
+        noxtls_calloc(q_table_len, NOXTLS_P256_AFFINE_POINT_SIZE);
+    if(q_table == NULL) {
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+    }
+
+    rc = p256_build_compact_window_table(q_table, q_table_len, point_q, curve);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = p256_ecc_jpoint_mul_comb_flash(&Jg, scalar_g, curve);
+    }
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = p256_ecc_jpoint_mul_windowed_compact(&Jq, scalar_q, curve,
+                                                   q_table, q_window);
+    }
+    noxtls_free(q_table);
+    q_table = NULL;
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+
+    if(ecc_jpoint_is_infinity(&Jg, NOXTLS_P256_AFFINE_COORD_SIZE)) {
+        memcpy(&sum, &Jq, sizeof(sum));
+    } else if(ecc_jpoint_is_infinity(&Jq, NOXTLS_P256_AFFINE_COORD_SIZE)) {
+        memcpy(&sum, &Jg, sizeof(sum));
+    } else {
+        rc = ecc_jpoint_add(&sum, &Jg, &Jq, curve);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
+    }
+
+    if(ecc_jpoint_is_infinity(&sum, NOXTLS_P256_AFFINE_COORD_SIZE)) {
+        noxtls_bn_zero(result->x, NOXTLS_P256_AFFINE_COORD_SIZE);
+        noxtls_bn_zero(result->y, NOXTLS_P256_AFFINE_COORD_SIZE);
+        result->size = NOXTLS_P256_AFFINE_COORD_SIZE;
+        return NOXTLS_RETURN_SUCCESS;
+    }
+
+    rc = ecc_jpoint_to_affine(result->x, result->y, &sum, curve);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        result->size = NOXTLS_P256_AFFINE_COORD_SIZE;
+    } else {
+        noxtls_bn_zero(result->x, NOXTLS_P256_AFFINE_COORD_SIZE);
+        noxtls_bn_zero(result->y, NOXTLS_P256_AFFINE_COORD_SIZE);
+    }
+    return rc;
+}
+#endif
 
 /**
  * @brief Joint scalar multiplication: R = k1*P1 + k2*P2
@@ -3411,15 +3811,41 @@ noxtls_return_t noxtls_ecc_point_muladd(ecc_point_t *result,
     }
     n_bits = size * 8U;
     if(size == 32U) {
-#if NOXTLS_ECC_POINT_MUL_WINDOW_SIZE > 0
-        rc = p256_ecc_point_muladd_windowed(result, scalar1, point1, scalar2, point2, curve);
-        if(rc == NOXTLS_RETURN_SUCCESS) {
-            return rc;
-        }
-        if(rc != NOXTLS_RETURN_NOT_ENOUGH_MEMORY) {
-            return rc;
-        }
+#if NOXTLS_ECC_P256_LOW_RAM_VERIFY
+        if(ecc_curve_is_secp256r1(curve) &&
+           ecc_point_equal(point1, &curve->G, size)) {
+            rc = p256_ecc_point_muladd_low_ram(result, scalar1, scalar2,
+                                               point2, curve);
+            if(rc == NOXTLS_RETURN_SUCCESS) {
+                return rc;
+            }
+            if(rc != NOXTLS_RETURN_NOT_ENOUGH_MEMORY) {
+                return rc;
+            }
+        } else if(ecc_curve_is_secp256r1(curve) &&
+                  ecc_point_equal(point2, &curve->G, size)) {
+            rc = p256_ecc_point_muladd_low_ram(result, scalar2, scalar1,
+                                               point1, curve);
+            if(rc == NOXTLS_RETURN_SUCCESS) {
+                return rc;
+            }
+            if(rc != NOXTLS_RETURN_NOT_ENOUGH_MEMORY) {
+                return rc;
+            }
+        } else
 #endif
+        {
+#if NOXTLS_ECC_POINT_MUL_WINDOW_SIZE > 0
+            rc = p256_ecc_point_muladd_windowed(result, scalar1, point1,
+                                                scalar2, point2, curve);
+            if(rc == NOXTLS_RETURN_SUCCESS) {
+                return rc;
+            }
+            if(rc != NOXTLS_RETURN_NOT_ENOUGH_MEMORY) {
+                return rc;
+            }
+#endif
+        }
 
         /*
          * Memory-constrained fallback: compute both scalar multiplies in Jacobian
@@ -3531,10 +3957,10 @@ noxtls_return_t noxtls_ecc_point_muladd(ecc_point_t *result,
  */
 noxtls_return_t noxtls_ecc_point_is_on_curve(const ecc_point_t *point, const ecc_curve_params_t *curve)
 {
-    uint8_t *left = NULL;
-    uint8_t *right = NULL;
-    uint8_t *temp1 = NULL;
-    uint8_t *temp2 = NULL;
+    static uint8_t left[ECC_MAX_KEY_SIZE];
+    static uint8_t right[ECC_MAX_KEY_SIZE];
+    static uint8_t temp1[ECC_MAX_KEY_SIZE * 2U];
+    static uint8_t temp2[ECC_MAX_KEY_SIZE * 2U];
     uint32_t size;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
     
@@ -3543,56 +3969,37 @@ noxtls_return_t noxtls_ecc_point_is_on_curve(const ecc_point_t *point, const ecc
     }
     
     size = curve->size;
-    if(size == 0U || size > (uint32_t)(UINT32_MAX / 2U)) {
+    if(size == 0U || size > ECC_MAX_KEY_SIZE) {
         return NOXTLS_RETURN_FAILED;
     }
-    
-    /* Allocate temporary buffers */
-    left = (uint8_t*)calloc(size, 1);
-    right = (uint8_t*)calloc(size, 1);
-    temp1 = (uint8_t*)calloc((size_t)size * 2U, 1);
-    temp2 = (uint8_t*)calloc((size_t)size * 2U, 1);
-    
-    do {
-        if(!left || !right || !temp1 || !temp2) {
-            rc = NOXTLS_RETURN_FAILED;
-            goto cleanup_curve;
-        }
-        
-        /* Check if point is at infinity */
-        if(ecc_point_is_infinity(point, size)) {
-            rc = NOXTLS_RETURN_SUCCESS;  /* Point at infinity is valid */
-            goto cleanup_curve;
-        }
-        
-        /* Compute left side: y^2 mod p */
-        noxtls_bn_mul(temp1, point->y, size, point->y, size);
-        noxtls_bn_mod(left, temp1, size * 2, curve->p, size);
-        
-        /* Compute right side: x^3 + ax + b mod p (use curve->a so it matches add/double) */
-        noxtls_bn_mul(temp1, point->x, size, point->x, size);
-        noxtls_bn_mod(temp1, temp1, size * 2, curve->p, size);
-        noxtls_bn_mul(temp2, temp1, size, point->x, size);
-        noxtls_bn_mod(temp2, temp2, size * 2, curve->p, size);
-        noxtls_bn_mul(temp1, curve->a, size, point->x, size);
-        noxtls_bn_mod(temp1, temp1, size * 2, curve->p, size);
-        ecc_mod_add(temp2, temp2, temp1, curve->p, size);
-        ecc_mod_add(right, temp2, curve->b, curve->p, size);
-        
-        /* Compare left and right sides */
-        if(noxtls_bn_cmp(left, right, size) == 0) {
-            rc = NOXTLS_RETURN_SUCCESS;
-        } else {
-            rc = NOXTLS_RETURN_FAILED;
-        }
 
-    } while(0);
+    memset(left, 0, sizeof(left));
+    memset(right, 0, sizeof(right));
+    memset(temp1, 0, sizeof(temp1));
+    memset(temp2, 0, sizeof(temp2));
 
-cleanup_curve:
-    if(left) { free(left); }
-    if(right) { free(right); }
-    if(temp1) { free(temp1); }
-    if(temp2) { free(temp2); }
+    /* Check if point is at infinity */
+    if(ecc_point_is_infinity(point, size)) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
+
+    /* Compute left side: y^2 mod p */
+    noxtls_bn_mul(temp1, point->y, size, point->y, size);
+    noxtls_bn_mod(left, temp1, size * 2, curve->p, size);
+
+    /* Compute right side: x^3 + ax + b mod p (use curve->a so it matches add/double) */
+    noxtls_bn_mul(temp1, point->x, size, point->x, size);
+    noxtls_bn_mod(temp1, temp1, size * 2, curve->p, size);
+    noxtls_bn_mul(temp2, temp1, size, point->x, size);
+    noxtls_bn_mod(temp2, temp2, size * 2, curve->p, size);
+    noxtls_bn_mul(temp1, curve->a, size, point->x, size);
+    noxtls_bn_mod(temp1, temp1, size * 2, curve->p, size);
+    ecc_mod_add(temp2, temp2, temp1, curve->p, size);
+    ecc_mod_add(right, temp2, curve->b, curve->p, size);
+
+    if(noxtls_bn_cmp(left, right, size) == 0) {
+        rc = NOXTLS_RETURN_SUCCESS;
+    }
 
     return rc;
 }
@@ -3634,35 +4041,51 @@ noxtls_return_t noxtls_ecc_point_validate_public(const ecc_point_t *point, const
  */
 noxtls_return_t noxtls_ecc_key_init(ecc_key_t *key, ecc_curve_t curve_type)
 {
+    noxtls_return_t rc;
+
+    noxtls_ecc_keyinit_last_stage = 1U;
+    noxtls_ecc_keyinit_last_rc = NOXTLS_RETURN_SUCCESS;
     if(key == NULL) {
+        noxtls_ecc_keyinit_last_rc = NOXTLS_RETURN_NULL;
         return NOXTLS_RETURN_NULL;
     }
     
     memset(key, 0, sizeof(ecc_key_t));
+    noxtls_ecc_keyinit_last_stage = 2U;
     
-    key->curve = (ecc_curve_params_t*)malloc(sizeof(ecc_curve_params_t));
+    key->curve = (ecc_curve_params_t*)noxtls_malloc(sizeof(ecc_curve_params_t));
     if(key->curve == NULL) {
-        return NOXTLS_RETURN_FAILED;
+        noxtls_ecc_keyinit_last_rc = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
+    noxtls_ecc_keyinit_last_stage = 3u;
     
-    noxtls_return_t rc = noxtls_ecc_curve_init(key->curve, curve_type);
+    noxtls_ecc_keyinit_last_stage = 3U;
+    rc = noxtls_ecc_curve_init(key->curve, curve_type);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        free(key->curve);
+        noxtls_free(key->curve);
         key->curve = NULL;
+        noxtls_ecc_keyinit_last_rc = rc;
         return rc;
     }
     key->curve_kind = curve_type;
+    noxtls_ecc_keyinit_last_stage = 4u;
 
-    key->d = (uint8_t*)calloc(key->curve->size, 1);
+    noxtls_ecc_keyinit_last_stage = 4U;
+    key->d = (uint8_t*)noxtls_calloc(key->curve->size, 1);
     if(key->d == NULL) {
         noxtls_ecc_curve_free(key->curve);
-        free(key->curve);
+        noxtls_free(key->curve);
         key->curve = NULL;
-        return NOXTLS_RETURN_FAILED;
+        noxtls_ecc_keyinit_last_rc = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
+    noxtls_ecc_keyinit_last_stage = 5u;
     
+    noxtls_ecc_keyinit_last_stage = 5U;
     noxtls_ecc_point_init(&key->Q, key->curve->size);
-    
+    noxtls_ecc_keyinit_last_stage = 9U;
+    noxtls_ecc_keyinit_last_rc = NOXTLS_RETURN_SUCCESS;
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -3678,40 +4101,70 @@ noxtls_return_t noxtls_ecc_key_init(ecc_key_t *key, ecc_curve_t curve_type)
  */
 noxtls_return_t noxtls_ecc_key_generate(ecc_key_t *key, ecc_curve_t curve_type)
 {
-    uint8_t *random_bytes = NULL;
+    uint8_t random_bytes[ECC_MAX_KEY_SIZE];
     uint32_t size;
     uint32_t bits;
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    uint64_t total_start_us;
+    uint64_t phase_start_us;
+#endif
     noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    total_start_us = noxtls_ecc_diagnostic_time_us();
+#endif
+
+    noxtls_ecc_keygen_last_stage = 1U;
+    noxtls_ecc_keygen_last_rc = NOXTLS_RETURN_SUCCESS;
+    noxtls_ecc_keygen_last_entropy_rc = NOXTLS_RETURN_SUCCESS;
+    noxtls_ecc_keygen_last_multiply_rc = NOXTLS_RETURN_SUCCESS;
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    noxtls_ecc_keygen_last_init_us = 0U;
+    noxtls_ecc_keygen_last_private_us = 0U;
+    noxtls_ecc_keygen_last_multiply_us = 0U;
+    noxtls_ecc_keygen_last_validate_us = 0U;
+    noxtls_ecc_keygen_last_total_us = 0U;
+#endif
     
     if(key == NULL) {
+        noxtls_ecc_keygen_last_rc = NOXTLS_RETURN_NULL;
         return NOXTLS_RETURN_NULL;
     }
     
+    noxtls_ecc_keygen_last_stage = 2U;
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    phase_start_us = noxtls_ecc_diagnostic_time_us();
+#endif
     rc = noxtls_ecc_key_init(key, curve_type);
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    noxtls_ecc_keygen_last_init_us =
+        noxtls_ecc_diagnostic_elapsed_us(phase_start_us);
+#endif
     if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_ecc_keygen_last_stage = 3U;
+        noxtls_ecc_keygen_last_rc = rc;
         return rc;
     }
-    
+    noxtls_ecc_keygen_last_stage = 4U;
     size = key->curve->size;
     if(size == 0U || size > (uint32_t)(UINT32_MAX / 8U)) {
         rc = NOXTLS_RETURN_FAILED;
+        noxtls_ecc_keygen_last_stage = 5U;
         goto cleanup_keygen;
     }
     bits = size * 8U;
     
-    /* Allocate buffers */
-    random_bytes = (uint8_t*)calloc(size, 1);
+    memset(random_bytes, 0, sizeof(random_bytes));
+    noxtls_ecc_keygen_last_stage = 6U;
     do {
-        if(!random_bytes) {
-            rc = NOXTLS_RETURN_FAILED;
-            break;
-        }
-
         /* Generate private key d in range [1, n-1] */
         /* Generate random private key */
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+        phase_start_us = noxtls_ecc_diagnostic_time_us();
+#endif
         do {
             rc = ecc_keygen_drbg_generate_bits(random_bytes, bits);
             if(rc != NOXTLS_RETURN_SUCCESS) {
+                noxtls_ecc_keygen_last_stage = 7U;
                 break;
             }
             
@@ -3726,6 +4179,10 @@ noxtls_return_t noxtls_ecc_key_generate(ecc_key_t *key, ecc_curve_t curve_type)
             
             /* Ensure d < n (should already be true after mod, but check anyway) */
         } while(noxtls_bn_cmp(key->d, key->curve->n, size) >= 0 || noxtls_bn_is_zero(key->d, size));
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+        noxtls_ecc_keygen_last_private_us =
+            noxtls_ecc_diagnostic_elapsed_us(phase_start_us);
+#endif
         
         if(rc != NOXTLS_RETURN_SUCCESS) {
             break;
@@ -3733,7 +4190,16 @@ noxtls_return_t noxtls_ecc_key_generate(ecc_key_t *key, ecc_curve_t curve_type)
         
         /* Compute public key Q = d * G */
         /* This is the expensive operation - scalar multiplication */
+    noxtls_ecc_keygen_last_stage = 8U;
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    phase_start_us = noxtls_ecc_diagnostic_time_us();
+#endif
     rc = noxtls_ecc_point_multiply(&key->Q, key->d, &key->curve->G, key->curve);
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    noxtls_ecc_keygen_last_multiply_us =
+        noxtls_ecc_diagnostic_elapsed_us(phase_start_us);
+#endif
+    noxtls_ecc_keygen_last_multiply_rc = rc;
     if(rc != NOXTLS_RETURN_SUCCESS) {
         goto cleanup_keygen;
     }
@@ -3745,13 +4211,26 @@ noxtls_return_t noxtls_ecc_key_generate(ecc_key_t *key, ecc_curve_t curve_type)
     }
 
     /* Verify the generated public key is on the curve */
+    noxtls_ecc_keygen_last_stage = 9U;
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    phase_start_us = noxtls_ecc_diagnostic_time_us();
+#endif
     rc = noxtls_ecc_point_is_on_curve(&key->Q, key->curve);
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    noxtls_ecc_keygen_last_validate_us =
+        noxtls_ecc_diagnostic_elapsed_us(phase_start_us);
+#endif
     if(rc != NOXTLS_RETURN_SUCCESS) {
         goto cleanup_keygen;
     }
 
 cleanup_keygen:
-    if(random_bytes) { free(random_bytes); }
+    memset(random_bytes, 0, sizeof(random_bytes));
+    noxtls_ecc_keygen_last_rc = rc;
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+    noxtls_ecc_keygen_last_total_us =
+        noxtls_ecc_diagnostic_elapsed_us(total_start_us);
+#endif
 
     return rc;
 }
@@ -3770,13 +4249,13 @@ noxtls_return_t noxtls_ecc_key_free(ecc_key_t *key)
     
     if(key->d) {
         memset(key->d, 0, key->curve ? key->curve->size : ECC_MAX_KEY_SIZE);
-        free(key->d);
+        noxtls_free(key->d);
         key->d = NULL;
     }
     
     if(key->curve) {
         noxtls_ecc_curve_free(key->curve);
-        free(key->curve);
+        noxtls_free(key->curve);
         key->curve = NULL;
     }
     /* Do not memset(key, 0, sizeof(ecc_key_t)): key may be on the caller's stack and

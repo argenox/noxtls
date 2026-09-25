@@ -336,18 +336,22 @@ static int tls12_suite_supports_encrypt_then_mac(uint16_t suite)
  */
 noxtls_return_t noxtls_tls12_context_init_with_version(tls12_context_t *ctx, tls_role_t role, uint16_t version)
 {
+    noxtls_return_t rc;
+
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
     /* For TLS 1.0/1.1 use plain TLS context init; for TLS/DTLS 1.2 use noxtls_dtls_context_init */
     if(version == TLS_VERSION_1_0 || version == TLS_VERSION_1_1) {
         memset(&ctx->base, 0, sizeof(dtls_context_t));
-        if(noxtls_tls_context_init(&ctx->base.base, role, version) != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
+        rc = noxtls_tls_context_init(&ctx->base.base, role, version);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
         }
     } else {
-        if(noxtls_dtls_context_init(&ctx->base, role, version) != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
+        rc = noxtls_dtls_context_init(&ctx->base, role, version);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
         }
     }
     
