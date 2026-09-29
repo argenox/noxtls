@@ -8,9 +8,26 @@ option(NOXTLS_ECDSA_SIGN_SELF_VERIFY "Re-verify signatures inside noxtls_ecdsa_s
 option(NOXTLS_ECDSA_SIGN_SKIP_SELF_VERIFY_P256 "Skip sign-time self-verify for 32-byte curves (P-256 class) to improve performance" ON)
 # Force Montgomery ladder only (disable windowed scalar mult). Use to isolate windowed-path bugs.
 option(NOXTLS_ECC_LADDER_ONLY "Use Montgomery ladder only for ECC point multiply (set NOXTLS_ECC_POINT_MUL_WINDOW_SIZE=0)" OFF)
+option(NOXTLS_ECC_P256_FLASH_PRECOMPUTE "Store the compact P-256 generator precompute table in flash/ROM" OFF)
+option(NOXTLS_ECC_P256_LOW_RAM_VERIFY "Use flash G precompute plus a compact runtime Q table for P-256 verification" OFF)
+option(NOXTLS_NRF52840_CC310_ECC "Use the direct nRF52840 CryptoCell 310 PKA for P-256" OFF)
+option(NOXTLS_NRF53_CC312_P256_ACCEL "Use the nRF5340 CryptoCell 312 P-256 accelerator" OFF)
+option(NOXTLS_NRF54_CRACEN_P256_ACCEL "Use the nRF54 CRACEN P-256 accelerator" OFF)
+option(NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS "Compile ECC timing and accelerator performance diagnostics" OFF)
+# PTS peripheral images run LE Secure Connections while a radio link is live.
+# Keep this opt-in so product and host builds retain their selected optimization
+# policy; the PTS fixture enables it before adding this subdirectory.
+option(NOXTLS_PTS_PERIPHERAL_ECC_OPTIMIZED "Compile the PTS peripheral PKC target at -O2" OFF)
 
 set(PKC_SOURCES
 )
+
+if((NOXTLS_NRF52840_CC310_ECC AND NOXTLS_NRF53_CC312_P256_ACCEL) OR
+   (NOXTLS_NRF52840_CC310_ECC AND NOXTLS_NRF54_CRACEN_P256_ACCEL) OR
+   (NOXTLS_NRF53_CC312_P256_ACCEL AND NOXTLS_NRF54_CRACEN_P256_ACCEL))
+    message(FATAL_ERROR
+        "Select only one Nordic P-256 backend: nRF52 CC310, nRF53 CC312, or nRF54 CRACEN.")
+endif()
 
 # Multiprecision backend shared by classic PKC primitives.
 # NOXTLS_CFG_ED25519_FIELD_MATH preserves legacy Ed25519-over-bignum builds.
@@ -47,6 +64,10 @@ if(NOXTLS_CFG_FEATURE_ECC)
         else()
             list(APPEND PKC_SOURCES ecc/noxtls_ecc_accel_port.c)
         endif()
+    elseif(NOXTLS_NRF52840_CC310_ECC OR NOXTLS_NRF53_CC312_P256_ACCEL)
+        list(APPEND PKC_SOURCES ecc/noxtls_ecc_accel_nordic_cc31x.c)
+    elseif(NOXTLS_NRF54_CRACEN_P256_ACCEL)
+        list(APPEND PKC_SOURCES ecc/noxtls_ecc_accel_nrf54_cracen.c)
     else()
         list(APPEND PKC_SOURCES ecc/noxtls_ecc_accel_port.c)
     endif()
@@ -66,6 +87,7 @@ if(NOXTLS_CFG_FEATURE_ECDSA)
 endif()
 if(NOXTLS_CFG_FEATURE_ECDH)
     list(APPEND PKC_SOURCES ecdh/noxtls_ecdh.c)
+    list(APPEND PKC_SOURCES ecdh/noxtls_ecdh_accel_port.c)
 endif()
 if(NOXTLS_CFG_FEATURE_DH)
     list(APPEND PKC_SOURCES dh/noxtls_dh.c dh/noxtls_ffdhe_params.c)
@@ -77,7 +99,33 @@ if(NOXTLS_CFG_FEATURE_X448)
     list(APPEND PKC_SOURCES x448/noxtls_x448.c)
 endif()
 if(NOXTLS_CFG_FEATURE_ED25519)
-    list(APPEND PKC_SOURCES ed25519/noxtls_ed25519.c)
+    list(APPEND PKC_SOURCES
+        ed25519/noxtls_ed25519.c
+        ed25519/noxtls_ed25519_fe.c
+        ed25519/noxtls_ed25519_fe_arm.c
+        ed25519/noxtls_ed25519_ge.c
+        ed25519/noxtls_ed25519_sc.c
+    )
+    # Public-domain packed mul/sqr for ARMv7E-M/ARMv8-M Mainline.  Do not use
+    # a generic ARM prefix here: for example, "arm64" is an Apple AArch64
+    # target and cannot assemble Cortex-M Thumb source.
+    set(_noxtls_ed25519_armv7em_asm OFF)
+    if(NOT APPLE AND CMAKE_SIZEOF_VOID_P EQUAL 4 AND
+       CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        if(CMAKE_C_COMPILER MATCHES "(arm-none-eabi|arm-zephyr-eabi)" OR
+           CMAKE_C_COMPILER_TARGET MATCHES "^arm.*-(none|zephyr)-eabi" OR
+           CMAKE_SYSTEM_PROCESSOR MATCHES
+               "^(armv7e-m|armv8-m[.]main|cortex-m4|cortex-m7|cortex-m33|cortex-m35p|cortex-m55|cortex-m85)$")
+            set(_noxtls_ed25519_armv7em_asm ON)
+        endif()
+    endif()
+    if(_noxtls_ed25519_armv7em_asm)
+        enable_language(ASM)
+        list(APPEND PKC_SOURCES
+            ed25519/asm/noxtls_fe25519_mul_armv7em.S
+            ed25519/asm/noxtls_fe25519_sqr_armv7em.S
+        )
+    endif()
 endif()
 if(NOXTLS_CFG_FEATURE_ED448)
     list(APPEND PKC_SOURCES ed448/noxtls_ed448.c)
@@ -131,6 +179,10 @@ if(MSVC)
     target_compile_options(noxtls_pkc PRIVATE /wd5045)
 endif()
 
+if(NOXTLS_PTS_PERIPHERAL_ECC_OPTIMIZED AND NOT MSVC)
+    target_compile_options(noxtls_pkc PRIVATE -O2)
+endif()
+
 # Ensure noxtls_config.h at repo root is found (NOXTLS_LIB_ROOT is noxtls-lib/)
 get_filename_component(_project_root "${NOXTLS_LIB_ROOT}/.." ABSOLUTE)
 target_include_directories(noxtls_pkc PUBLIC
@@ -156,6 +208,10 @@ target_include_directories(noxtls_pkc PUBLIC
     ${NOXTLS_LIB_ROOT}/mdigest
 )
 
+if(NOXTLS_NRF52840_CC310_ECC)
+    target_compile_definitions(noxtls_pkc PRIVATE NOXTLS_NRF52840_CC310_ECC=1)
+endif()
+
 target_link_libraries(noxtls_pkc PRIVATE
     noxtls_hash
     noxtls_common
@@ -180,6 +236,20 @@ else()
 endif()
 if(NOXTLS_ECC_LADDER_ONLY)
     target_compile_definitions(noxtls_pkc PRIVATE NOXTLS_ECC_POINT_MUL_WINDOW_SIZE=0)
+endif()
+if(NOXTLS_ECC_P256_LOW_RAM_VERIFY AND NOT NOXTLS_ECC_P256_FLASH_PRECOMPUTE)
+    message(FATAL_ERROR "NOXTLS_ECC_P256_LOW_RAM_VERIFY requires NOXTLS_ECC_P256_FLASH_PRECOMPUTE=ON")
+endif()
+if(NOXTLS_ECC_P256_FLASH_PRECOMPUTE)
+    target_compile_definitions(noxtls_pkc PUBLIC NOXTLS_ECC_P256_FLASH_PRECOMPUTE=1)
+endif()
+if(NOXTLS_ECC_P256_LOW_RAM_VERIFY)
+    target_compile_definitions(noxtls_pkc PUBLIC NOXTLS_ECC_P256_LOW_RAM_VERIFY=1)
+endif()
+if(NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS)
+    target_compile_definitions(noxtls_pkc PUBLIC NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS=1)
+else()
+    target_compile_definitions(noxtls_pkc PUBLIC NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS=0)
 endif()
 
 if(USE_REF_ECC_POINT_MUL)

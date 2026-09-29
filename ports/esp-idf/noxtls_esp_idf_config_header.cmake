@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-05-31T03:51:46Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-09-13T05:08:47Z)
 
 function(noxtls_esp_idf_write_config_features_header out_file)
   if(NOT out_file)
@@ -24,10 +24,34 @@ else()
   string(APPEND _noxtls_hdr "#define NOXTLS_CFG_TLS13_ALLOW_RSA_PKCS1_CERTVERIFY 0\n")
 endif()
 
+if(CONFIG_NOXTLS_CFG_TLS13_PREFER_SECP256R1_OVER_X25519)
+  string(APPEND _noxtls_hdr "#define NOXTLS_CFG_TLS13_PREFER_SECP256R1_OVER_X25519 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_CFG_TLS13_PREFER_SECP256R1_OVER_X25519 0\n")
+endif()
+
 if(CONFIG_NOXTLS_ECC_FIXED_POINT_OPTIM)
   string(APPEND _noxtls_hdr "#define NOXTLS_ECC_FIXED_POINT_OPTIM 1\n")
 else()
   string(APPEND _noxtls_hdr "#define NOXTLS_ECC_FIXED_POINT_OPTIM 0\n")
+endif()
+
+if(CONFIG_NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE)
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE 0\n")
+endif()
+
+if(CONFIG_NOXTLS_ECC_P256_FLASH_PRECOMPUTE)
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_P256_FLASH_PRECOMPUTE 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_P256_FLASH_PRECOMPUTE 0\n")
+endif()
+
+if(CONFIG_NOXTLS_ECC_P256_LOW_RAM_VERIFY)
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_P256_LOW_RAM_VERIFY 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_P256_LOW_RAM_VERIFY 0\n")
 endif()
 
 string(APPEND _noxtls_hdr "#define NOXTLS_ECC_POINT_MUL_WINDOW_SIZE ${CONFIG_NOXTLS_ECC_POINT_MUL_WINDOW_SIZE}\n")
@@ -278,6 +302,18 @@ else()
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_ML_KEM 0\n")
 endif()
 
+if(CONFIG_NOXTLS_FEATURE_NRF52_HW_ACCEL)
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_NRF52_HW_ACCEL 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_NRF52_HW_ACCEL 0\n")
+endif()
+
+if(CONFIG_NOXTLS_FEATURE_NRF52_HW_AES_ONLY)
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_NRF52_HW_AES_ONLY 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_NRF52_HW_AES_ONLY 0\n")
+endif()
+
 if(NOXTLS_CFG_FEATURE_PKC)
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_PKC 1\n")
 else()
@@ -318,6 +354,12 @@ if(NOXTLS_CFG_FEATURE_SHA256)
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_SHA256 1\n")
 else()
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_SHA256 0\n")
+endif()
+
+if(CONFIG_NOXTLS_FEATURE_SHA256_CORTEXM7)
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_SHA256_CORTEXM7 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_SHA256_CORTEXM7 0\n")
 endif()
 
 if(NOXTLS_CFG_FEATURE_SHA3)
@@ -408,6 +450,14 @@ string(APPEND _noxtls_hdr "#define NOXTLS_MAX_CERT_CHAIN_DEPTH ${CONFIG_NOXTLS_M
 
 string(APPEND _noxtls_hdr "#define NOXTLS_MAX_CERT_SIZE ${CONFIG_NOXTLS_MAX_CERT_SIZE}\n")
 
+string(APPEND _noxtls_hdr "#define NOXTLS_MEM_BUCKET_ALIGNMENT ${CONFIG_NOXTLS_MEM_BUCKET_ALIGNMENT}\n")
+
+string(APPEND _noxtls_hdr "#define NOXTLS_MEM_BUCKET_COUNT ${CONFIG_NOXTLS_MEM_BUCKET_COUNT}\n")
+
+string(APPEND _noxtls_hdr "#define NOXTLS_MEM_BUCKET_COUNTS ${CONFIG_NOXTLS_MEM_BUCKET_COUNTS}\n")
+
+string(APPEND _noxtls_hdr "#define NOXTLS_MEM_BUCKET_SIZES ${CONFIG_NOXTLS_MEM_BUCKET_SIZES}\n")
+
 string(APPEND _noxtls_hdr "#define NOXTLS_RSA_DEBUG_PRIMALITY_CHECK_INTERVAL ${CONFIG_NOXTLS_RSA_DEBUG_PRIMALITY_CHECK_INTERVAL}\n")
 
 string(APPEND _noxtls_hdr "#define NOXTLS_RSA_DEBUG_PROGRESS_INTERVAL ${CONFIG_NOXTLS_RSA_DEBUG_PROGRESS_INTERVAL}\n")
@@ -429,6 +479,28 @@ string(APPEND _noxtls_hdr "#define NOXTLS_RSA_MILLER_RABIN_ITERATIONS_LARGE ${CO
 string(APPEND _noxtls_hdr "#define NOXTLS_RSA_MILLER_RABIN_ITERATIONS_SMALL ${CONFIG_NOXTLS_RSA_MILLER_RABIN_ITERATIONS_SMALL}\n")
 
 string(APPEND _noxtls_hdr "#define NOXTLS_RSA_MILLER_RABIN_SMALL_THRESHOLD_BITS ${CONFIG_NOXTLS_RSA_MILLER_RABIN_SMALL_THRESHOLD_BITS}\n")
+
+if(CONFIG_NOXTLS_SHA256_UNROLL_8)
+  string(APPEND _noxtls_hdr "#define NOXTLS_SHA256_UNROLL_8 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_SHA256_UNROLL_8 0\n")
+endif()
+
+string(APPEND _noxtls_hdr "#define NOXTLS_STATIC_ALLOCATOR_MODE ${CONFIG_NOXTLS_STATIC_ALLOCATOR_MODE}\n")
+
+if(CONFIG_NOXTLS_STATIC_ALLOCATOR_MODE_BUCKETS)
+  string(APPEND _noxtls_hdr "#define NOXTLS_STATIC_ALLOCATOR_MODE_BUCKETS 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_STATIC_ALLOCATOR_MODE_BUCKETS 0\n")
+endif()
+
+string(APPEND _noxtls_hdr "#define NOXTLS_STATIC_ALLOCATOR_MODE_HYBRID ${CONFIG_NOXTLS_STATIC_ALLOCATOR_MODE_HYBRID}\n")
+
+if(CONFIG_NOXTLS_STATIC_ALLOCATOR_MODE_LEGACY)
+  string(APPEND _noxtls_hdr "#define NOXTLS_STATIC_ALLOCATOR_MODE_LEGACY 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_STATIC_ALLOCATOR_MODE_LEGACY 0\n")
+endif()
 
 string(APPEND _noxtls_hdr "#define NOXTLS_STATIC_BUFFER_SIZE ${CONFIG_NOXTLS_STATIC_BUFFER_SIZE}\n")
 

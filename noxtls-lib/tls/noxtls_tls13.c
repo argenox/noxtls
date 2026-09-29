@@ -5173,6 +5173,7 @@ static noxtls_return_t tls13_context_init_internal(tls13_context_t *ctx,
                                                    uint32_t handshake_workspace_len)
 {
     int use_caller_workspaces;
+    noxtls_return_t rc;
 
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -5189,8 +5190,9 @@ static noxtls_return_t tls13_context_init_internal(tls13_context_t *ctx,
     }
     
     /* TLS 1.3 uses 0x0303 in the record layer */
-    if(noxtls_dtls_context_init(&ctx->base, role, TLS_VERSION_1_2) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
+    rc = noxtls_dtls_context_init(&ctx->base, role, TLS_VERSION_1_2);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
     }
     
     memset(ctx->client_random, 0, sizeof(ctx->client_random));

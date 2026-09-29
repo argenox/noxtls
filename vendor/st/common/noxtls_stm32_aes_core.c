@@ -9,13 +9,112 @@
 
 #include "vendor/st/common/noxtls_stm32_aes_core.h"
 
+#include <stdint.h>
 #include <string.h>
+
+#include "vendor/st/noxtls_target_detect.h"
 
 typedef struct
 {
     uintptr_t aes_base;
 } noxtls_stm32_aes_family_cfg_t;
 
+#define NOXTLS_STM32_H7_RCC_AHB2ENR       0x580244DCu
+#define NOXTLS_STM32_H7_RCC_AHB2RSTR      0x5802447Cu
+#define NOXTLS_STM32_H7_RCC_AHB2ENR_CRYPEN (1u << 4)
+#define NOXTLS_STM32_H7_RCC_AHB2RSTR_CRYPRST (1u << 4)
+
+/* STM32F2/F4/F7 CRYP on AHB2 (RM0090 / RM0385). */
+#define NOXTLS_STM32_F4_RCC_BASE          0x40023800u
+#define NOXTLS_STM32_F4_RCC_AHB2RSTR      (NOXTLS_STM32_F4_RCC_BASE + 0x14u)
+#define NOXTLS_STM32_F4_RCC_AHB2ENR       (NOXTLS_STM32_F4_RCC_BASE + 0x34u)
+#define NOXTLS_STM32_F4_RCC_AHB2ENR_CRYPEN (1u << 4)
+#define NOXTLS_STM32_F4_RCC_AHB2RSTR_CRYPRST (1u << 4)
+
+/**
+ * @brief Enable and reset the CRYP/AES clock for the selected STM32 family.
+ * @param family Accelerator family.
+ * @return None.
+ */
+static void noxtls_stm32_aes_enable_clock(noxtls_stm32_accel_family_t family)
+{
+    static uint8_t h7_cryp_ready;
+    static uint8_t f4_cryp_ready;
+    volatile uint32_t readback;
+
+    if((family == NOXTLS_STM32_ACCEL_F2) ||
+       (family == NOXTLS_STM32_ACCEL_F4) ||
+       (family == NOXTLS_STM32_ACCEL_F7)) {
+        if(f4_cryp_ready != 0u) {
+            return;
+        }
+        NOXTLS_STM32_REG32(NOXTLS_STM32_F4_RCC_AHB2ENR) |= NOXTLS_STM32_F4_RCC_AHB2ENR_CRYPEN;
+        readback = NOXTLS_STM32_REG32(NOXTLS_STM32_F4_RCC_AHB2ENR);
+        (void)readback;
+        NOXTLS_STM32_REG32(NOXTLS_STM32_F4_RCC_AHB2RSTR) |= NOXTLS_STM32_F4_RCC_AHB2RSTR_CRYPRST;
+        readback = NOXTLS_STM32_REG32(NOXTLS_STM32_F4_RCC_AHB2RSTR);
+        (void)readback;
+        NOXTLS_STM32_REG32(NOXTLS_STM32_F4_RCC_AHB2RSTR) &= ~NOXTLS_STM32_F4_RCC_AHB2RSTR_CRYPRST;
+        readback = NOXTLS_STM32_REG32(NOXTLS_STM32_F4_RCC_AHB2RSTR);
+        (void)readback;
+        f4_cryp_ready = 1u;
+        return;
+    }
+
+    if(family != NOXTLS_STM32_ACCEL_H7) {
+        return;
+    }
+    if(h7_cryp_ready != 0u) {
+        return;
+    }
+
+    NOXTLS_STM32_REG32(NOXTLS_STM32_H7_RCC_AHB2ENR) |= NOXTLS_STM32_H7_RCC_AHB2ENR_CRYPEN;
+    readback = NOXTLS_STM32_REG32(NOXTLS_STM32_H7_RCC_AHB2ENR);
+    (void)readback;
+
+    NOXTLS_STM32_REG32(NOXTLS_STM32_H7_RCC_AHB2RSTR) |= NOXTLS_STM32_H7_RCC_AHB2RSTR_CRYPRST;
+    readback = NOXTLS_STM32_REG32(NOXTLS_STM32_H7_RCC_AHB2RSTR);
+    (void)readback;
+    NOXTLS_STM32_REG32(NOXTLS_STM32_H7_RCC_AHB2RSTR) &= ~NOXTLS_STM32_H7_RCC_AHB2RSTR_CRYPRST;
+    readback = NOXTLS_STM32_REG32(NOXTLS_STM32_H7_RCC_AHB2RSTR);
+    (void)readback;
+    h7_cryp_ready = 1u;
+}
+
+int noxtls_stm32_cryp_ip_present(noxtls_stm32_accel_family_t family)
+{
+    /* 0=unknown, 1=present, -1=absent. F2/F4/F7 share the classic map. */
+    static int8_t classic_state;
+    static int8_t h7_state;
+    uintptr_t base;
+    uint32_t marker = 0xA5A55A5Au;
+    uint32_t readback;
+    int8_t *state;
+
+    if((family == NOXTLS_STM32_ACCEL_F2) ||
+       (family == NOXTLS_STM32_ACCEL_F4) ||
+       (family == NOXTLS_STM32_ACCEL_F7)) {
+        state = &classic_state;
+        base = (uintptr_t)NOXTLS_STM32_F4_AES_BASE;
+    } else if(family == NOXTLS_STM32_ACCEL_H7) {
+        state = &h7_state;
+        base = (uintptr_t)NOXTLS_STM32_H7_AES_BASE;
+    } else {
+        return 0;
+    }
+
+    if(*state != 0) {
+        return (*state > 0) ? 1 : 0;
+    }
+
+    noxtls_stm32_aes_enable_clock(family);
+    NOXTLS_STM32_REG32(base + NOXTLS_STM32_AES_CR_OFF) = 0u;
+    NOXTLS_STM32_REG32(base + NOXTLS_STM32_AES_K0LR_OFF) = marker;
+    readback = NOXTLS_STM32_REG32(base + NOXTLS_STM32_AES_K0LR_OFF);
+    NOXTLS_STM32_REG32(base + NOXTLS_STM32_AES_K0LR_OFF) = 0u;
+    *state = (readback == marker) ? (int8_t)1 : (int8_t)-1;
+    return (*state > 0) ? 1 : 0;
+}
 
 static int noxtls_stm32_aes_wait_flag(uintptr_t aes_base, uint32_t mask, uint32_t value)
 {
@@ -34,19 +133,45 @@ static noxtls_return_t noxtls_stm32_aes_get_cfg(noxtls_stm32_accel_family_t fami
     if(cfg == NULL) {
         return NOXTLS_RETURN_NULL;
     }
+
     memset(cfg, 0, sizeof(*cfg));
     switch(family) {
-        case NOXTLS_STM32_ACCEL_F2: cfg->aes_base = (uintptr_t)NOXTLS_STM32_F2_AES_BASE; break;
-        case NOXTLS_STM32_ACCEL_F4: cfg->aes_base = (uintptr_t)NOXTLS_STM32_F4_AES_BASE; break;
-        case NOXTLS_STM32_ACCEL_F7: cfg->aes_base = (uintptr_t)NOXTLS_STM32_F7_AES_BASE; break;
-        case NOXTLS_STM32_ACCEL_H7: cfg->aes_base = (uintptr_t)NOXTLS_STM32_H7_AES_BASE; break;
-        case NOXTLS_STM32_ACCEL_L4: cfg->aes_base = (uintptr_t)NOXTLS_STM32_L4_AES_BASE; break;
-        case NOXTLS_STM32_ACCEL_U3: cfg->aes_base = (uintptr_t)NOXTLS_STM32_U3_AES_BASE; break;
-        case NOXTLS_STM32_ACCEL_U5: cfg->aes_base = (uintptr_t)NOXTLS_STM32_U5_AES_BASE; break;
-        case NOXTLS_STM32_ACCEL_WB: cfg->aes_base = (uintptr_t)NOXTLS_STM32_WB_AES_BASE; break;
-        default: return NOXTLS_RETURN_NOT_SUPPORTED;
+        case NOXTLS_STM32_ACCEL_F2:
+            cfg->aes_base = (uintptr_t)NOXTLS_STM32_F2_AES_BASE;
+            break;
+        case NOXTLS_STM32_ACCEL_F4:
+            cfg->aes_base = (uintptr_t)NOXTLS_STM32_F4_AES_BASE;
+            break;
+        case NOXTLS_STM32_ACCEL_F7:
+            cfg->aes_base = (uintptr_t)NOXTLS_STM32_F7_AES_BASE;
+            break;
+        case NOXTLS_STM32_ACCEL_H7:
+#if defined(NOXTLS_STM32_H7_HAS_CRYP_HASH) || defined(NOXTLS_STM32H7_FORCE_CRYP_HASH)
+            cfg->aes_base = (uintptr_t)NOXTLS_STM32_H7_AES_BASE;
+#else
+            return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+            break;
+        case NOXTLS_STM32_ACCEL_L4:
+            cfg->aes_base = (uintptr_t)NOXTLS_STM32_L4_AES_BASE;
+            break;
+        case NOXTLS_STM32_ACCEL_U3:
+            cfg->aes_base = (uintptr_t)NOXTLS_STM32_U3_AES_BASE;
+            break;
+        case NOXTLS_STM32_ACCEL_U5:
+            cfg->aes_base = (uintptr_t)NOXTLS_STM32_U5_AES_BASE;
+            break;
+        case NOXTLS_STM32_ACCEL_WB:
+            cfg->aes_base = (uintptr_t)NOXTLS_STM32_WB_AES_BASE;
+            break;
+        default:
+            return NOXTLS_RETURN_NOT_SUPPORTED;
     }
-    return (cfg->aes_base == (uintptr_t)0u) ? NOXTLS_RETURN_NOT_SUPPORTED : NOXTLS_RETURN_SUCCESS;
+
+    if(cfg->aes_base == (uintptr_t)0u) {
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+    }
+    return NOXTLS_RETURN_SUCCESS;
 }
 
 static noxtls_return_t noxtls_stm32_aes_key_size_bits(noxtls_aes_type_t type, uint32_t *key_bytes, uint32_t *bits)
@@ -54,17 +179,31 @@ static noxtls_return_t noxtls_stm32_aes_key_size_bits(noxtls_aes_type_t type, ui
     if(key_bytes == NULL || bits == NULL) {
         return NOXTLS_RETURN_NULL;
     }
+
     switch(type) {
-        case NOXTLS_AES_128_BIT: *key_bytes = 16u; *bits = 0u; return NOXTLS_RETURN_SUCCESS;
-        case NOXTLS_AES_192_BIT: *key_bytes = 24u; *bits = 1u; return NOXTLS_RETURN_SUCCESS;
-        case NOXTLS_AES_256_BIT: *key_bytes = 32u; *bits = 2u; return NOXTLS_RETURN_SUCCESS;
-        default: return NOXTLS_RETURN_INVALID_KEY_SIZE;
+        case NOXTLS_AES_128_BIT:
+            *key_bytes = 16u;
+            *bits = 0u;
+            return NOXTLS_RETURN_SUCCESS;
+        case NOXTLS_AES_192_BIT:
+            *key_bytes = 24u;
+            *bits = 1u;
+            return NOXTLS_RETURN_SUCCESS;
+        case NOXTLS_AES_256_BIT:
+            *key_bytes = 32u;
+            *bits = 2u;
+            return NOXTLS_RETURN_SUCCESS;
+        default:
+            return NOXTLS_RETURN_INVALID_KEY_SIZE;
     }
 }
 
 static uint32_t noxtls_load_be32(const uint8_t *src)
 {
-    return ((uint32_t)src[0] << 24) | ((uint32_t)src[1] << 16) | ((uint32_t)src[2] << 8) | ((uint32_t)src[3]);
+    return ((uint32_t)src[0] << 24) |
+           ((uint32_t)src[1] << 16) |
+           ((uint32_t)src[2] << 8) |
+           ((uint32_t)src[3]);
 }
 
 static void noxtls_store_be32(uint8_t *dst, uint32_t val)
@@ -94,25 +233,65 @@ static noxtls_return_t noxtls_stm32_aes_process_block(noxtls_stm32_accel_family_
     if(key == NULL || data == NULL || output == NULL) {
         return NOXTLS_RETURN_NULL;
     }
+
     rc = noxtls_stm32_aes_key_size_bits(type, &key_bytes, &key_size_bits);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 
+    if((family == NOXTLS_STM32_ACCEL_F2) ||
+       (family == NOXTLS_STM32_ACCEL_F4) ||
+       (family == NOXTLS_STM32_ACCEL_F7) ||
+       (family == NOXTLS_STM32_ACCEL_H7)) {
+        if(noxtls_stm32_cryp_ip_present(family) == 0) {
+            return NOXTLS_RETURN_NOT_SUPPORTED;
+        }
+    }
+
+    noxtls_stm32_aes_enable_clock(family);
+
     NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_CR_OFF) = 0u;
     NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_CR_OFF) = NOXTLS_STM32_AES_CR_FFLUSH;
 
-    for(i = 0u; i < key_bytes / NOXTLS_STM32_AES_WORD_BYTES; i++) {
-        NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_K0LR_OFF + (i * 4u)) = noxtls_load_be32(key + (i * 4u));
-    }
-    for(i = key_bytes / NOXTLS_STM32_AES_WORD_BYTES; i < 8u; i++) {
-        NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_K0LR_OFF + (i * 4u)) = 0u;
+    /* Classic CRYP places AES-128 in K2/K3 and AES-192 in K1..K3; AES-256 uses K0..K3. */
+    if((family == NOXTLS_STM32_ACCEL_F2) ||
+       (family == NOXTLS_STM32_ACCEL_F4) ||
+       (family == NOXTLS_STM32_ACCEL_F7) ||
+       (family == NOXTLS_STM32_ACCEL_H7)) {
+        uint32_t key_word_off = (8u - (key_bytes / NOXTLS_STM32_AES_WORD_BYTES)) * 4u;
+        for(i = 0u; i < 8u; i++) {
+            NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_K0LR_OFF + (i * 4u)) = 0u;
+        }
+        for(i = 0u; i < key_bytes / NOXTLS_STM32_AES_WORD_BYTES; i++) {
+            NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_K0LR_OFF + key_word_off + (i * 4u)) =
+                noxtls_load_be32(key + (i * 4u));
+        }
+    } else {
+        for(i = 0u; i < key_bytes / NOXTLS_STM32_AES_WORD_BYTES; i++) {
+            NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_K0LR_OFF + (i * 4u)) =
+                noxtls_load_be32(key + (i * 4u));
+        }
+        for(i = key_bytes / NOXTLS_STM32_AES_WORD_BYTES; i < 8u; i++) {
+            NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_K0LR_OFF + (i * 4u)) = 0u;
+        }
     }
     for(i = 0u; i < 4u; i++) {
         NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_IV0LR_OFF + (i * 4u)) = 0u;
     }
 
-    cr = NOXTLS_STM32_AES_CR_DATATYPE_8B | (key_size_bits << NOXTLS_STM32_AES_CR_KEYSIZE_SHIFT) | NOXTLS_STM32_AES_CR_EN;
+    if((family == NOXTLS_STM32_ACCEL_F2) ||
+       (family == NOXTLS_STM32_ACCEL_F4) ||
+       (family == NOXTLS_STM32_ACCEL_F7) ||
+       (family == NOXTLS_STM32_ACCEL_H7)) {
+        /* Classic CRYP: 32-bit datatype + BE DIN/DOUT words (matches GCM backend). */
+        cr = NOXTLS_STM32_CRYP_CR_ALGOMODE_AES_ECB |
+             (key_size_bits << NOXTLS_STM32_AES_CR_KEYSIZE_SHIFT) |
+             NOXTLS_STM32_AES_CR_EN;
+    } else {
+        cr = NOXTLS_STM32_AES_CR_DATATYPE_8B |
+             (key_size_bits << NOXTLS_STM32_AES_CR_KEYSIZE_SHIFT) |
+             NOXTLS_STM32_AES_CR_EN;
+    }
     if(decrypt != 0) {
         cr |= NOXTLS_STM32_AES_CR_ALGODIR;
     }
@@ -145,6 +324,7 @@ static noxtls_return_t noxtls_stm32_aes_process_block(noxtls_stm32_accel_family_
         return NOXTLS_RETURN_TIMEOUT;
     }
     NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_CR_OFF) = 0u;
+
     return NOXTLS_RETURN_SUCCESS;
 }
 

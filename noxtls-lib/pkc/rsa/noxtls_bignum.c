@@ -2443,10 +2443,15 @@ noxtls_return_t noxtls_bn_mod(uint8_t *result, const uint8_t *a, uint32_t a_len,
     if((mod_len == 32U || mod_len == 48U || mod_len == 64U || mod_len == 128U || mod_len == 256U ||
         mod_len == 384U || mod_len == 512U || mod_len == 768U || mod_len == 1024U) &&
        a_len == mod_len * 2U) {
-        if(bn_mod_2n_by_n_limb(result, mod_len, a_src, a_len, mod) == NOXTLS_RETURN_SUCCESS) {
+        noxtls_return_t fast_rc = bn_mod_2n_by_n_limb(result, mod_len, a_src, a_len, mod);
+        if(fast_rc == NOXTLS_RETURN_SUCCESS) {
             if(do_debug) { bn_debug_print("[noxtls_bn_mod] result (2n/n limb path): ", result, mod_len); }
             if(a_copy) { noxtls_free(a_copy); }
             return NOXTLS_RETURN_SUCCESS;
+        }
+        if(fast_rc == NOXTLS_RETURN_NOT_ENOUGH_MEMORY) {
+            if(a_copy) { noxtls_free(a_copy); }
+            return fast_rc;
         }
     }
 
@@ -2465,10 +2470,17 @@ noxtls_return_t noxtls_bn_mod(uint8_t *result, const uint8_t *a, uint32_t a_len,
     }
 
     /* General limb path (bit-by-bit) for other operand sizes. */
-    if(bn_div_remainder_limb(result, mod_len, a_src, a_len, mod, mod_len) == NOXTLS_RETURN_SUCCESS) {
-        if(do_debug) { bn_debug_print("[noxtls_bn_mod] result (limb fast path): ", result, mod_len); }
-        if(a_copy) { noxtls_free(a_copy); }
-        return NOXTLS_RETURN_SUCCESS;
+    {
+        noxtls_return_t limb_rc = bn_div_remainder_limb(result, mod_len, a_src, a_len, mod, mod_len);
+        if(limb_rc == NOXTLS_RETURN_SUCCESS) {
+            if(do_debug) { bn_debug_print("[noxtls_bn_mod] result (limb fast path): ", result, mod_len); }
+            if(a_copy) { noxtls_free(a_copy); }
+            return NOXTLS_RETURN_SUCCESS;
+        }
+        if(limb_rc == NOXTLS_RETURN_NOT_ENOUGH_MEMORY) {
+            if(a_copy) { noxtls_free(a_copy); }
+            return limb_rc;
+        }
     }
 
     /* In-house bn_div_remainder. */
@@ -3016,25 +3028,33 @@ noxtls_return_t noxtls_bn_mod_inv(uint8_t *result, const uint8_t *a, uint32_t a_
         0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
     };
     if(m_len == 32 && noxtls_bn_cmp(m, secp256r1_p, 32) == 0) {
-        uint8_t *m_minus_2 = (uint8_t*)noxtls_calloc(m_len, 1);
-        uint8_t *two_buf = (uint8_t*)noxtls_calloc(m_len, 1);
-        uint8_t *a_mod_m = (uint8_t*)noxtls_calloc(m_len, 1);
-        if(m_minus_2 && two_buf && a_mod_m) {
-            noxtls_bn_mod(a_mod_m, a, a_len, m, m_len);
-            if(!noxtls_bn_is_zero(a_mod_m, m_len)) {
-                two_buf[m_len - 1] = 2;
-                noxtls_bn_copy(m_minus_2, m, m_len);
-                noxtls_bn_sub(m_minus_2, m_minus_2, two_buf, m_len);
-                noxtls_bn_mod_exp(result, a_mod_m, m_minus_2, m_len, m, m_len);
-                noxtls_free(m_minus_2);
-                noxtls_free(two_buf);
-                noxtls_free(a_mod_m);
-                return NOXTLS_RETURN_SUCCESS;
-            }
+        noxtls_return_t rc;
+        static uint8_t m_minus_2[32];
+        static uint8_t two_buf[32];
+        static uint8_t a_mod_m[32];
+
+        memset(m_minus_2, 0, sizeof(m_minus_2));
+        memset(two_buf, 0, sizeof(two_buf));
+        memset(a_mod_m, 0, sizeof(a_mod_m));
+        rc = noxtls_bn_mod(a_mod_m, a, a_len, m, m_len);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_bn_zero(result, m_len);
+            noxtls_secure_zero(a_mod_m, sizeof(a_mod_m));
+            return rc;
         }
-        if(m_minus_2) { noxtls_free(m_minus_2); }
-        if(two_buf) { noxtls_free(two_buf); }
-        if(a_mod_m) { noxtls_free(a_mod_m); }
+        if(!noxtls_bn_is_zero(a_mod_m, m_len)) {
+            two_buf[m_len - 1] = 2;
+            noxtls_bn_copy(m_minus_2, m, m_len);
+            noxtls_bn_sub(m_minus_2, m_minus_2, two_buf, m_len);
+            rc = noxtls_bn_mod_exp(result, a_mod_m, m_minus_2, m_len, m, m_len);
+            noxtls_secure_zero(m_minus_2, sizeof(m_minus_2));
+            noxtls_secure_zero(two_buf, sizeof(two_buf));
+            noxtls_secure_zero(a_mod_m, sizeof(a_mod_m));
+            return rc;
+        }
+        noxtls_bn_zero(result, m_len);
+        noxtls_secure_zero(a_mod_m, sizeof(a_mod_m));
+        return NOXTLS_RETURN_FAILED;
     }
 
     /* Allocate all buffers once */

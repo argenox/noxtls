@@ -3,22 +3,10 @@
 * All rights reserved.
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *
-*
-* This file is part of the NoxTLS Library.
-*
-* Licensed under the GNU General Public License v2.0 or later,
-* or alternatively under a commercial license from
-* Argenox Technologies LLC.
-*
-* See the LICENSE file in the project root for full details.
-* CONTACT: info@argenox.com
-*
-*
 * File:    noxtls_target_detect.h
 * Summary: Compile-time target detection for platform-specific acceleration.
 *
-*
-*****************************************************************************/
+*/
 
 #ifndef _NOXTLS_TARGET_DETECT_H_
 #define _NOXTLS_TARGET_DETECT_H_
@@ -138,20 +126,60 @@
 #define NOXTLS_STM32_F4_HAS_CRYP 1
 #endif
 
+/* STM32F7 CRYP-capable variants (classic CRYP + GCM, same map as F4 crypto). */
+#if defined(STM32F756xx) || defined(STM32F767xx) || defined(STM32F769xx) || \
+    defined(STM32F777xx) || defined(STM32F779xx)
+#define NOXTLS_STM32_F7_HAS_CRYP 1
+#endif
+
 #if defined(NOXTLS_STM32_FAMILY_WB)
 #define NOXTLS_STM32_WB_HAS_CRYP 1
+#endif
+
+/* STM32H7 crypto is device-dependent. Enable only variants we have explicitly
+ * allowed for the direct-register backend.
+ */
+#if defined(STM32H730xx) || defined(STM32H730xxQ) || defined(STM32H733xx) || defined(STM32H735xx) || \
+    defined(STM32H750xx) || defined(STM32H753xx) || defined(STM32H755xx) || defined(STM32H757xx) || \
+    defined(STM32H7B0xx) || defined(STM32H7B0xxQ) || defined(STM32H7B3xx) || defined(STM32H7B3xxQ)
+#define NOXTLS_STM32_H7_HAS_CRYP_HASH 1
+#endif
+
+/* STM32H745/H747 do not expose CRYP/HASH in the ST CMSIS device headers used by
+ * NoxADK. Keep the direct-register crypto backend disabled by default so these
+ * parts fall back to software instead of touching nonexistent peripheral space.
+ */
+#if defined(STM32H745xx) || defined(STM32H747xx)
+#define NOXTLS_STM32_H7_NO_CRYP_HASH 1
 #endif
 
 #if defined(NOXTLS_STM32_FAMILY_F4) && !defined(NOXTLS_STM32_F4_HAS_CRYP)
 #define NOXTLS_STM32_F4_SW_AES_ONLY 1
 #endif
 
-#if defined(NOXTLS_STM32_F2_HAS_CRYP) || defined(NOXTLS_STM32_F4_HAS_CRYP) || defined(NOXTLS_STM32_WB_HAS_CRYP)
+#if defined(NOXTLS_STM32_FAMILY_F7) && !defined(NOXTLS_STM32_F7_HAS_CRYP)
+#define NOXTLS_STM32_F7_SW_AES_ONLY 1
+#endif
+
+#if defined(NOXTLS_STM32_F2_HAS_CRYP) || defined(NOXTLS_STM32_F4_HAS_CRYP) || \
+    defined(NOXTLS_STM32_F7_HAS_CRYP) || defined(NOXTLS_STM32_WB_HAS_CRYP)
 #define NOXTLS_STM32_HAS_CRYP_PERIPH 1
 #endif
 
+/* STM32U5 AES-IP is device-dependent. U575 (and some other non-crypto SKUs)
+ * expose HASH/RNG/PKA but not AES; U545/U585/U5A5 and similar do. Match ST
+ * CMSIS device headers (AES_BASE / RCC_AHB2ENR1_AESEN present).
+ */
+#if defined(STM32U535xx) || defined(STM32U545xx) || defined(STM32U585xx) || \
+    defined(STM32U595xx) || defined(STM32U599xx) || defined(STM32U5A5xx) || \
+    defined(STM32U5A9xx) || defined(STM32U5F7xx) || defined(STM32U5G7xx) || \
+    defined(STM32U5F9xx) || defined(STM32U5G9xx)
+#define NOXTLS_STM32_U5_HAS_AES 1
+#endif
+
 #if defined(NOXTLS_STM32_HAS_CRYP_PERIPH) || defined(NOXTLS_STM32_FAMILY_H5) || \
-    defined(NOXTLS_STM32_FAMILY_H7) || defined(NOXTLS_STM32_FAMILY_L5) || defined(NOXTLS_STM32_FAMILY_U5)
+    defined(NOXTLS_STM32_H7_HAS_CRYP_HASH) || defined(NOXTLS_STM32_FAMILY_L5) || \
+    defined(NOXTLS_STM32_U5_HAS_AES)
 #define NOXTLS_STM32_HAS_AES_PERIPH 1
 #endif
 
@@ -160,7 +188,7 @@
 #endif
 
 #if defined(NOXTLS_STM32_F2_HAS_CRYP) || defined(NOXTLS_STM32_FAMILY_F4) || defined(NOXTLS_STM32_FAMILY_F7) || \
-    defined(NOXTLS_STM32_FAMILY_H5) || defined(NOXTLS_STM32_FAMILY_H7) || defined(NOXTLS_STM32_FAMILY_U5)
+    defined(NOXTLS_STM32_FAMILY_H5) || defined(NOXTLS_STM32_H7_HAS_CRYP_HASH) || defined(NOXTLS_STM32_FAMILY_U5)
 #define NOXTLS_STM32_HAS_HASH_PERIPH 1
 #endif
 

@@ -12,6 +12,13 @@
 #include "mdigest/sha1/noxtls_sha1.h"
 #include "mdigest/sha256/noxtls_sha256.h"
 #include "mdigest/sha512/noxtls_sha512.h"
+#include "mdigest/noxtls_sha.h"
+
+/* SHA-256 HMAC is the Matter PASE / Thread path. noxtls_sha_ctx_t is ~900 B
+ * (SHA-3/BLAKE2 union); do not malloc it or put it on the NoxOS Thread stack. */
+static noxtls_sha_ctx_t s_hmac_sha256_inner;
+static noxtls_sha_ctx_t s_hmac_sha256_scratch;
+static uint8_t s_hmac_sha256_inner_busy;
 
 static uint32_t noxtls_hmac_hash_block_size(noxtls_hash_algos_t hash_algo)
 {
@@ -43,10 +50,9 @@ static noxtls_return_t noxtls_hmac_hash_once(noxtls_hash_algos_t hash_algo,
                                              uint8_t *out)
 {
     if(hash_algo == NOXTLS_HASH_SHA_256) {
-        noxtls_sha_ctx_t ctx;
-        if(noxtls_sha256_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-        if(noxtls_sha256_update(&ctx, (uint8_t *)data, len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-        return noxtls_sha256_finish(&ctx, out);
+        if(noxtls_sha256_init(&s_hmac_sha256_scratch, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+        if(noxtls_sha256_update(&s_hmac_sha256_scratch, (uint8_t *)data, len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+        return noxtls_sha256_finish(&s_hmac_sha256_scratch, out);
     }
     if(hash_algo == NOXTLS_HASH_SHA_384 || hash_algo == NOXTLS_HASH_SHA_512) {
         noxtls_sha512_ctx_t ctx;
@@ -66,16 +72,17 @@ static noxtls_return_t noxtls_hmac_hash_once(noxtls_hash_algos_t hash_algo,
 static noxtls_return_t noxtls_hmac_start_inner(noxtls_hmac_context_t *ctx, uint32_t block_size)
 {
     if(ctx->hash_algo == NOXTLS_HASH_SHA_256) {
-        noxtls_sha_ctx_t *sha_ctx = (noxtls_sha_ctx_t *)malloc(sizeof(noxtls_sha_ctx_t));
-        if(sha_ctx == NULL) {
+        if(s_hmac_sha256_inner_busy != 0U) {
             return NOXTLS_RETURN_FAILED;
         }
-        if(noxtls_sha256_init(sha_ctx, ctx->hash_algo) != NOXTLS_RETURN_SUCCESS) {
-            free(sha_ctx);
+        s_hmac_sha256_inner_busy = 1U;
+        memset(&s_hmac_sha256_inner, 0, sizeof(s_hmac_sha256_inner));
+        if(noxtls_sha256_init(&s_hmac_sha256_inner, ctx->hash_algo) != NOXTLS_RETURN_SUCCESS) {
+            s_hmac_sha256_inner_busy = 0U;
             return NOXTLS_RETURN_FAILED;
         }
-        noxtls_sha256_update(sha_ctx, ctx->i_key_pad, block_size);
-        ctx->hash_ctx = sha_ctx;
+        noxtls_sha256_update(&s_hmac_sha256_inner, ctx->i_key_pad, block_size);
+        ctx->hash_ctx = &s_hmac_sha256_inner;
         return NOXTLS_RETURN_SUCCESS;
     }
     if(ctx->hash_algo == NOXTLS_HASH_SHA_384 || ctx->hash_algo == NOXTLS_HASH_SHA_512) {
@@ -194,16 +201,18 @@ noxtls_return_t noxtls_hmac_final(noxtls_hmac_context_t *ctx, uint8_t *mac, uint
 
     if(ctx->hash_algo == NOXTLS_HASH_SHA_256) {
         rc = noxtls_sha256_finish((noxtls_sha_ctx_t *)ctx->hash_ctx, inner_hash);
-        free(ctx->hash_ctx);
+        if(ctx->hash_ctx == &s_hmac_sha256_inner) {
+            memset(&s_hmac_sha256_inner, 0, sizeof(s_hmac_sha256_inner));
+            s_hmac_sha256_inner_busy = 0U;
+        } else {
+            free(ctx->hash_ctx);
+        }
         ctx->hash_ctx = NULL;
         if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
-        {
-            noxtls_sha_ctx_t outer;
-            noxtls_sha256_init(&outer, ctx->hash_algo);
-            noxtls_sha256_update(&outer, ctx->o_key_pad, block_size);
-            noxtls_sha256_update(&outer, inner_hash, hash_size);
-            rc = noxtls_sha256_finish(&outer, mac);
-        }
+        noxtls_sha256_init(&s_hmac_sha256_scratch, ctx->hash_algo);
+        noxtls_sha256_update(&s_hmac_sha256_scratch, ctx->o_key_pad, block_size);
+        noxtls_sha256_update(&s_hmac_sha256_scratch, inner_hash, hash_size);
+        rc = noxtls_sha256_finish(&s_hmac_sha256_scratch, mac);
     } else if(ctx->hash_algo == NOXTLS_HASH_SHA_384 || ctx->hash_algo == NOXTLS_HASH_SHA_512) {
         rc = noxtls_sha512_finish((noxtls_sha512_ctx_t *)ctx->hash_ctx, inner_hash);
         free(ctx->hash_ctx);
@@ -242,7 +251,12 @@ noxtls_return_t noxtls_hmac_free(noxtls_hmac_context_t *ctx)
         return NOXTLS_RETURN_NULL;
     }
     if(ctx->hash_ctx != NULL) {
-        free(ctx->hash_ctx);
+        if(ctx->hash_ctx == &s_hmac_sha256_inner) {
+            memset(&s_hmac_sha256_inner, 0, sizeof(s_hmac_sha256_inner));
+            s_hmac_sha256_inner_busy = 0U;
+        } else {
+            free(ctx->hash_ctx);
+        }
         ctx->hash_ctx = NULL;
     }
     memset(ctx, 0, sizeof(*ctx));

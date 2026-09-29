@@ -29,6 +29,10 @@
 #include "noxtls_aes.h"
 #include "noxtls_common.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 noxtls_return_t noxtls_aes_gcm_encrypt(const uint8_t *key, noxtls_aes_type_t type,
                     const uint8_t nonce[12],
                     const uint8_t *aad, uint32_t aad_len,
@@ -42,5 +46,9 @@ noxtls_return_t noxtls_aes_gcm_decrypt(const uint8_t *key, noxtls_aes_type_t typ
                     const uint8_t *ciphertext, uint32_t ciphertext_len,
                     const uint8_t tag[16],
                     uint8_t *plaintext);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _NOXTLS_AES_GCM_H_ */

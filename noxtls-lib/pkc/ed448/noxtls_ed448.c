@@ -633,6 +633,10 @@ static noxtls_return_t ed448_sign_internal(const uint8_t private_key[NOXTLS_ED44
     return NOXTLS_RETURN_SUCCESS;
 }
 
+static noxtls_return_t ed448_verify_finalize(const uint8_t public_key[NOXTLS_ED448_PUBLIC_KEY_SIZE],
+                                             const uint8_t signature[NOXTLS_ED448_SIGNATURE_SIZE],
+                                             const uint8_t k_in[NOXTLS_ED448_SHAKE_WIDE_BYTES]);
+
 /**
  * @internal
  * @brief Shared Ed448 / Ed448ctx / Ed448ph verification (RFC 8032) with cofactor check.
@@ -653,19 +657,10 @@ static noxtls_return_t ed448_verify_internal(const uint8_t public_key[NOXTLS_ED4
     const uint8_t *noxtls_message, uint32_t message_len, const uint8_t signature[NOXTLS_ED448_SIGNATURE_SIZE],
     uint8_t phflag, const uint8_t *ctx, uint32_t ctx_len)
 {
-    ge448_pt_t A;
-    ge448_pt_t R;
-    ge448_pt_t R_plus_kA;
-    ge448_pt_t kA;
-    ge448_pt_t sB;
     uint8_t dom[NOXTLS_ED448_DOM4_BUFFER_BYTES];
     uint32_t dom_len;
     uint8_t k_in[NOXTLS_ED448_SHAKE_WIDE_BYTES];
-    uint8_t k_le[NOXTLS_ED448_PUBLIC_KEY_SIZE];
-    uint8_t S_be[NOXTLS_ED448_FE448_BYTES];
-    uint8_t S_le[NOXTLS_ED448_PUBLIC_KEY_SIZE];
     noxtls_sha3_ctx_t ctx_shake;
-    uint8_t four[NOXTLS_ED448_PUBLIC_KEY_SIZE];
     uint8_t ph_buf[NOXTLS_ED448_PH_DIGEST_BYTES];
     const uint8_t *m_body;
     uint32_t m_len;
@@ -692,14 +687,10 @@ static noxtls_return_t ed448_verify_internal(const uint8_t public_key[NOXTLS_ED4
         m_len = message_len;
     }
 
-    if(ge448_decode(&A, public_key) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(ge448_decode(&R, signature) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    memcpy(S_le, signature + NOXTLS_ED448_PUBLIC_KEY_SIZE, NOXTLS_ED448_PUBLIC_KEY_SIZE);
-    le56_to_be56(S_be, S_le);
-    if(noxtls_bn_cmp(S_be, ed448_L, NOXTLS_ED448_FE448_BYTES) >= 0) return NOXTLS_RETURN_FAILED;
-
     if(noxtls_shake256_init(&ctx_shake) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-    if(noxtls_shake256_update(&ctx_shake, dom, dom_len) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(dom_len != 0U && noxtls_shake256_update(&ctx_shake, dom, dom_len) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_FAILED;
+    }
     if(noxtls_shake256_update(&ctx_shake, signature, NOXTLS_ED448_PUBLIC_KEY_SIZE) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -714,6 +705,32 @@ static noxtls_return_t ed448_verify_internal(const uint8_t public_key[NOXTLS_ED4
     if(noxtls_shake256_squeeze(&ctx_shake, k_in, NOXTLS_ED448_SHAKE_WIDE_BYTES) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
+
+    return ed448_verify_finalize(public_key, signature, k_in);
+}
+
+static noxtls_return_t ed448_verify_finalize(const uint8_t public_key[NOXTLS_ED448_PUBLIC_KEY_SIZE],
+                                             const uint8_t signature[NOXTLS_ED448_SIGNATURE_SIZE],
+                                             const uint8_t k_in[NOXTLS_ED448_SHAKE_WIDE_BYTES])
+{
+    ge448_pt_t A;
+    ge448_pt_t R;
+    ge448_pt_t R_plus_kA;
+    ge448_pt_t kA;
+    ge448_pt_t sB;
+    uint8_t k_le[NOXTLS_ED448_PUBLIC_KEY_SIZE];
+    uint8_t S_be[NOXTLS_ED448_FE448_BYTES];
+    uint8_t S_le[NOXTLS_ED448_PUBLIC_KEY_SIZE];
+    uint8_t four[NOXTLS_ED448_PUBLIC_KEY_SIZE];
+
+    if(public_key == NULL || signature == NULL) return NOXTLS_RETURN_NULL;
+    if(k_in == NULL) return NOXTLS_RETURN_NULL;
+
+    if(ge448_decode(&A, public_key) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(ge448_decode(&R, signature) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    memcpy(S_le, signature + NOXTLS_ED448_PUBLIC_KEY_SIZE, NOXTLS_ED448_PUBLIC_KEY_SIZE);
+    le56_to_be56(S_be, S_le);
+    if(noxtls_bn_cmp(S_be, ed448_L, NOXTLS_ED448_FE448_BYTES) >= 0) return NOXTLS_RETURN_FAILED;
 
     if(sc448_reduce_mod_l(k_le, k_in) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
     if(ge448_scalar_mult(&kA, k_le, &A) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
@@ -734,6 +751,56 @@ static noxtls_return_t ed448_verify_internal(const uint8_t public_key[NOXTLS_ED4
         if(noxtls_secret_memcmp(enc_l, enc_r, NOXTLS_ED448_PUBLIC_KEY_SIZE) != 0) return NOXTLS_RETURN_FAILED;
     }
     return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_ed448_verify_stream_init(noxtls_ed448_verify_stream_ctx_t *ctx,
+                                                const uint8_t public_key[NOXTLS_ED448_PUBLIC_KEY_SIZE],
+                                                const uint8_t signature[NOXTLS_ED448_SIGNATURE_SIZE])
+{
+    if(ctx == NULL || public_key == NULL || signature == NULL) return NOXTLS_RETURN_NULL;
+
+    memset(ctx, 0, sizeof(*ctx));
+    memcpy(ctx->public_key, public_key, NOXTLS_ED448_PUBLIC_KEY_SIZE);
+    memcpy(ctx->signature, signature, NOXTLS_ED448_SIGNATURE_SIZE);
+
+    if(noxtls_shake256_init(&ctx->shake_ctx) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(noxtls_shake256_update(&ctx->shake_ctx, signature, NOXTLS_ED448_PUBLIC_KEY_SIZE) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    if(noxtls_shake256_update(&ctx->shake_ctx, public_key, NOXTLS_ED448_PUBLIC_KEY_SIZE) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_FAILED;
+    }
+
+    ctx->initialized = 1U;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_ed448_verify_stream_update(noxtls_ed448_verify_stream_ctx_t *ctx,
+                                                  const uint8_t *message_part,
+                                                  uint32_t message_part_len)
+{
+    if(ctx == NULL) return NOXTLS_RETURN_NULL;
+    if(ctx->initialized == 0U) return NOXTLS_RETURN_FAILED;
+    if(message_part == NULL && message_part_len != 0U) return NOXTLS_RETURN_NULL;
+    if(message_part_len == 0U) return NOXTLS_RETURN_SUCCESS;
+
+    return noxtls_shake256_update(&ctx->shake_ctx, message_part, message_part_len);
+}
+
+noxtls_return_t noxtls_ed448_verify_stream_final(noxtls_ed448_verify_stream_ctx_t *ctx)
+{
+    uint8_t k_in[NOXTLS_ED448_SHAKE_WIDE_BYTES];
+
+    if(ctx == NULL) return NOXTLS_RETURN_NULL;
+    if(ctx->initialized == 0U) return NOXTLS_RETURN_FAILED;
+
+    if(noxtls_shake256_final(&ctx->shake_ctx) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
+    if(noxtls_shake256_squeeze(&ctx->shake_ctx, k_in, NOXTLS_ED448_SHAKE_WIDE_BYTES) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_FAILED;
+    }
+
+    ctx->initialized = 0U;
+    return ed448_verify_finalize(ctx->public_key, ctx->signature, k_in);
 }
 
 /**
