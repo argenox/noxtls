@@ -91,6 +91,9 @@ noxtls_set_default(NOXTLS_CFG_FEATURE_STM32_HW_SHA256_ONLY OFF)
 noxtls_set_default(NOXTLS_CFG_FEATURE_NRF52_HW_ACCEL OFF)
 noxtls_set_default(NOXTLS_CFG_FEATURE_NRF52_HW_AES_ONLY OFF)
 noxtls_set_default(NOXTLS_CFG_FEATURE_NOXV_HW_ACCEL OFF)
+# Some NoxV targets retain AES acceleration but omit the optional P-256 block.
+# Keep ECC's MMIO backend separately selectable for those SoC configurations.
+noxtls_set_default(NOXTLS_CFG_NOXV_ECC_P256_ACCEL ${NOXTLS_CFG_FEATURE_NOXV_HW_ACCEL})
 noxtls_set_default(NOXTLS_CFG_FEATURE_ARIA ON)
 noxtls_set_default(NOXTLS_CFG_FEATURE_CAMELLIA ON)
 noxtls_set_default(NOXTLS_CFG_FEATURE_CHACHA20_POLY1305 ON)
