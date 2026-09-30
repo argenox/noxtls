@@ -155,14 +155,14 @@ noxtls_return_t noxtls_dsa_key_init(dsa_key_t *key, const uint8_t *p, uint32_t p
 
     key->p_len = p_len;
     key->q_len = q_len;
-    key->p = (uint8_t *)noxtls_calloc(p_len, 1U);
-    key->q = (uint8_t *)noxtls_calloc(q_len, 1U);
-    key->g = (uint8_t *)noxtls_calloc(p_len, 1U);
-    key->y = (uint8_t *)noxtls_calloc(p_len, 1U);
-    key->x = (uint8_t *)noxtls_calloc(q_len, 1U);
+    key->p = (uint8_t *)NOXTLS_CALLOC(p_len, 1U);
+    key->q = (uint8_t *)NOXTLS_CALLOC(q_len, 1U);
+    key->g = (uint8_t *)NOXTLS_CALLOC(p_len, 1U);
+    key->y = (uint8_t *)NOXTLS_CALLOC(p_len, 1U);
+    key->x = (uint8_t *)NOXTLS_CALLOC(q_len, 1U);
     if ((key->p == NULL) || (key->q == NULL) || (key->g == NULL) || (key->y == NULL) || (key->x == NULL)) {
         (void)noxtls_dsa_key_free(key);
-        return NOXTLS_RETURN_FAILED;
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
     noxtls_copy_u8(key->p, (size_t)p_len, p, (size_t)p_len);
     noxtls_copy_u8(key->q, (size_t)q_len, q, (size_t)q_len);
@@ -233,7 +233,7 @@ noxtls_return_t noxtls_dsa_key_generate(dsa_key_t *key)
         return NOXTLS_RETURN_FAILED;
     }
 
-    x_buf = (uint8_t *)noxtls_calloc(key->q_len, 1U);
+    x_buf = (uint8_t *)NOXTLS_CALLOC(key->q_len, 1U);
     if (x_buf == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -372,14 +372,14 @@ noxtls_return_t noxtls_dsa_sign(const dsa_key_t *key, const uint8_t *noxtls_mess
         return NOXTLS_RETURN_FAILED;
     }
 
-    hash = (uint8_t *)noxtls_calloc(64U, 1U);
-    z = (uint8_t *)noxtls_calloc(q_len, 1U);
-    k = (uint8_t *)noxtls_calloc(q_len, 1U);
-    k_inv = (uint8_t *)noxtls_calloc(q_len, 1U);
-    g_k = (uint8_t *)noxtls_calloc(p_len, 1U);
-    rx = (uint8_t *)noxtls_calloc((size_t)q_len * 2U, 1U);
-    z_rx = (uint8_t *)noxtls_calloc(q_len + 1U, 1U);
-    random_bytes = (uint8_t *)noxtls_calloc(q_len, 1U);
+    hash = (uint8_t *)NOXTLS_CALLOC(64U, 1U);
+    z = (uint8_t *)NOXTLS_CALLOC(q_len, 1U);
+    k = (uint8_t *)NOXTLS_CALLOC(q_len, 1U);
+    k_inv = (uint8_t *)NOXTLS_CALLOC(q_len, 1U);
+    g_k = (uint8_t *)NOXTLS_CALLOC(p_len, 1U);
+    rx = (uint8_t *)NOXTLS_CALLOC((size_t)q_len * 2U, 1U);
+    z_rx = (uint8_t *)NOXTLS_CALLOC(q_len + 1U, 1U);
+    random_bytes = (uint8_t *)NOXTLS_CALLOC(q_len, 1U);
     if ((hash == NULL) || (z == NULL) || (k == NULL) || (k_inv == NULL) || (g_k == NULL) || (rx == NULL) || (z_rx == NULL) || (random_bytes == NULL)) {
         rc = NOXTLS_RETURN_FAILED;
         if (hash != NULL) { (void)noxtls_free(hash); }
@@ -578,15 +578,15 @@ noxtls_return_t noxtls_dsa_verify(const dsa_key_t *key, const uint8_t *noxtls_me
         }
     }
 
-    hash = (uint8_t *)noxtls_calloc(64U, 1U);
-    z = (uint8_t *)noxtls_calloc(q_len, 1U);
-    w = (uint8_t *)noxtls_calloc(q_len, 1U);
-    u1 = (uint8_t *)noxtls_calloc((size_t)q_len * 2U, 1U);
-    u2 = (uint8_t *)noxtls_calloc((size_t)q_len * 2U, 1U);
-    g_u1 = (uint8_t *)noxtls_calloc(p_len, 1U);
-    y_u2 = (uint8_t *)noxtls_calloc(p_len, 1U);
-    v = (uint8_t *)noxtls_calloc(q_len, 1U);
-    product = (uint8_t *)noxtls_calloc((size_t)p_len * 2U, 1U);
+    hash = (uint8_t *)NOXTLS_CALLOC(64U, 1U);
+    z = (uint8_t *)NOXTLS_CALLOC(q_len, 1U);
+    w = (uint8_t *)NOXTLS_CALLOC(q_len, 1U);
+    u1 = (uint8_t *)NOXTLS_CALLOC((size_t)q_len * 2U, 1U);
+    u2 = (uint8_t *)NOXTLS_CALLOC((size_t)q_len * 2U, 1U);
+    g_u1 = (uint8_t *)NOXTLS_CALLOC(p_len, 1U);
+    y_u2 = (uint8_t *)NOXTLS_CALLOC(p_len, 1U);
+    v = (uint8_t *)NOXTLS_CALLOC(q_len, 1U);
+    product = (uint8_t *)NOXTLS_CALLOC((size_t)p_len * 2U, 1U);
     if ((hash == NULL) || (z == NULL) || (w == NULL) || (u1 == NULL) || (u2 == NULL) || (g_u1 == NULL) || (y_u2 == NULL) || (v == NULL) || (product == NULL)) {
         rc = NOXTLS_RETURN_FAILED;
         if (hash != NULL) { (void)noxtls_free(hash); }

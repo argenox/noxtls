@@ -89,8 +89,8 @@ static noxtls_return_t dh_validate_peer_public(const uint8_t *peer_mod,
         return NOXTLS_RETURN_FAILED;
     }
 
-    two = (uint8_t*)noxtls_calloc(p_len, 1);
-    p_minus_2 = (uint8_t*)noxtls_calloc(p_len, 1);
+    two = (uint8_t*)NOXTLS_CALLOC(p_len, 1);
+    p_minus_2 = (uint8_t*)NOXTLS_CALLOC(p_len, 1);
     if ((two == NULL) || (p_minus_2 == NULL)) {
         if (two != NULL) {
             (void)noxtls_free(two);
@@ -98,7 +98,7 @@ static noxtls_return_t dh_validate_peer_public(const uint8_t *peer_mod,
         if (p_minus_2 != NULL) {
             (void)noxtls_free(p_minus_2);
         }
-        return NOXTLS_RETURN_FAILED;
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
 
     two[p_len - 1U] = 0x02U;
@@ -201,8 +201,8 @@ noxtls_return_t noxtls_dh_ffdhe_generate_ephemeral(uint16_t named_group,
     noxtls_secure_zero((private_out), (size_t)(p_len));
     noxtls_secure_zero((public_out), (size_t)(p_len));
 
-    p_minus_2 = (uint8_t*)noxtls_calloc(p_len, 1);
-    g_padded = (uint8_t*)noxtls_calloc(p_len, 1);
+    p_minus_2 = (uint8_t*)NOXTLS_CALLOC(p_len, 1);
+    g_padded = (uint8_t*)NOXTLS_CALLOC(p_len, 1);
     if ((p_minus_2 == NULL) || (g_padded == NULL)) {
         if (p_minus_2 != NULL) {
             (void)noxtls_free(p_minus_2);
@@ -210,14 +210,14 @@ noxtls_return_t noxtls_dh_ffdhe_generate_ephemeral(uint16_t named_group,
         if (g_padded != NULL) {
             (void)noxtls_free(g_padded);
         }
-        return NOXTLS_RETURN_FAILED;
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
     {
-        uint8_t *two_buf = (uint8_t*)noxtls_calloc(p_len, 1);
+        uint8_t *two_buf = (uint8_t*)NOXTLS_CALLOC(p_len, 1);
         if (two_buf == NULL) {
             (void)noxtls_free(p_minus_2);
             (void)noxtls_free(g_padded);
-            return NOXTLS_RETURN_FAILED;
+            return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         }
         two_buf[p_len - 1U] = 0x02U;
         (void)noxtls_bn_copy(p_minus_2, p, p_len);
@@ -299,9 +299,9 @@ noxtls_return_t noxtls_dh_ffdhe_validate_client_key_share(uint16_t named_group,
     if ((key_exchange_len != p_len) || (key_exchange == NULL)) {
         return NOXTLS_RETURN_FAILED;
     }
-    peer_mod = (uint8_t*)noxtls_calloc(p_len, 1);
+    peer_mod = (uint8_t*)NOXTLS_CALLOC(p_len, 1);
     if (peer_mod == NULL) {
-        return NOXTLS_RETURN_FAILED;
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
     noxtls_copy_u8(peer_mod, (size_t)p_len, key_exchange, (size_t)p_len);
     rc = dh_validate_peer_public(peer_mod, p, p_len);
@@ -370,7 +370,8 @@ noxtls_return_t noxtls_dh_ffdhe_params(uint16_t named_group,
  *
  * @return NOXTLS_RETURN_SUCCESS on success.
  * @return NOXTLS_RETURN_NULL if p, g, private_out, or public_out is NULL.
- * @return NOXTLS_RETURN_FAILED if p_len or g_len is zero, memory allocation fails, or DRBG setup fails.
+ * @return NOXTLS_RETURN_FAILED if p_len or g_len is zero, or DRBG setup fails.
+ * @return NOXTLS_RETURN_NOT_ENOUGH_MEMORY if a temporary buffer cannot be allocated.
  * @return Other noxtls_return_t values propagated from bignum or DRBG operations on failure.
  */
 noxtls_return_t noxtls_dh_generate_key(const uint8_t *p, uint32_t p_len,
@@ -397,24 +398,24 @@ noxtls_return_t noxtls_dh_generate_key(const uint8_t *p, uint32_t p_len,
     }
 
     /* p-2 for range [2, p-2] */
-    p_minus_2 = (uint8_t*)noxtls_calloc(p_len, 1);
-    priv_buf = (uint8_t*)noxtls_calloc(p_len, 1);
-    g_padded = (uint8_t*)noxtls_calloc(p_len, 1);
+    p_minus_2 = (uint8_t*)NOXTLS_CALLOC(p_len, 1);
+    priv_buf = (uint8_t*)NOXTLS_CALLOC(p_len, 1);
+    g_padded = (uint8_t*)NOXTLS_CALLOC(p_len, 1);
     if ((p_minus_2 == NULL) || (priv_buf == NULL) || (g_padded == NULL)) {
         if (p_minus_2 != NULL) { (void)noxtls_free(p_minus_2); }
         if (priv_buf != NULL) { (void)noxtls_free(priv_buf); }
         if (g_padded != NULL) { (void)noxtls_free(g_padded); }
-        return NOXTLS_RETURN_FAILED;
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
 
     /* p_minus_2 = p - 2 (bignum sub uses same len for all operands) */
     {
-        uint8_t *two_buf = (uint8_t*)noxtls_calloc(p_len, 1);
+        uint8_t *two_buf = (uint8_t*)NOXTLS_CALLOC(p_len, 1);
         if (two_buf == NULL) {
             (void)noxtls_free(p_minus_2);
             (void)noxtls_free(priv_buf);
             (void)noxtls_free(g_padded);
-            return NOXTLS_RETURN_FAILED;
+            return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         }
         two_buf[p_len - 1U] = 0x02U;
         (void)noxtls_bn_copy(p_minus_2, p, p_len);
@@ -495,7 +496,8 @@ noxtls_return_t noxtls_dh_generate_key(const uint8_t *p, uint32_t p_len,
  *
  * @return NOXTLS_RETURN_SUCCESS on success.
  * @return NOXTLS_RETURN_NULL if private_key, peer_public, p, or secret_out is NULL.
- * @return NOXTLS_RETURN_FAILED if p_len is zero or a temporary buffer cannot be allocated.
+ * @return NOXTLS_RETURN_FAILED if p_len is zero.
+ * @return NOXTLS_RETURN_NOT_ENOUGH_MEMORY if a temporary buffer cannot be allocated.
  * @return Other noxtls_return_t values propagated from modular exponentiation on failure.
  */
 noxtls_return_t noxtls_dh_shared_secret(const uint8_t *private_key,
@@ -526,16 +528,16 @@ noxtls_return_t noxtls_dh_shared_secret(const uint8_t *private_key,
         peer_bytes = p_len;
     }
 
-    peer_mod = (uint8_t*)noxtls_calloc(p_len, 1);
+    peer_mod = (uint8_t*)NOXTLS_CALLOC(p_len, 1);
     if (peer_mod == NULL) {
-        return NOXTLS_RETURN_FAILED;
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
 
     noxtls_copy_u8(&peer_mod[(p_len - peer_bytes)], (size_t)peer_bytes, peer_public, (size_t)peer_bytes);
     rc = dh_validate_peer_public(peer_mod, p, p_len);
     if (rc != NOXTLS_RETURN_SUCCESS) {
         (void)noxtls_free(peer_mod);
-        return NOXTLS_RETURN_FAILED;
+        return rc;
     }
     {
         uint32_t exp_len = (uint32_t)(private_len);

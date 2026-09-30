@@ -91,6 +91,10 @@ noxtls_return_t noxtls_ecdh_compute_shared_secret(ecc_key_t *private_key,
                                                   uint8_t *shared_secret,
                                                   uint32_t *shared_secret_len);
 
+noxtls_return_t noxtls_ecdh_compute_shared_secret_accel_port(
+    const ecc_key_t *private_key, const ecc_point_t *peer_public_key,
+    uint8_t *shared_secret, uint32_t *shared_secret_len);
+
 #ifdef __cplusplus
 }
 #endif

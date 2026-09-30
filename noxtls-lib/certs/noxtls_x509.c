@@ -47,6 +47,9 @@ static const uint8_t s_u8txt_noxtls_x509_3290[] = { (uint8_t)'O', (uint8_t)'I', 
 #include "common/noxtls_memory_compat.h"
 #include "common/noxtls_debug_printf.h"
 #include "noxtls_x509.h"
+#if NOXTLS_FEATURE_PBKDF2
+#include "kdf/noxtls_pbkdf2.h"
+#endif
 #include "certificates.h"
 #include "asn1.h"
 
@@ -166,7 +169,7 @@ static x509_certificate_chain_t *x509_trust_store_clone(const x509_certificate_c
         return NULL;
     }
 
-    snapshot = (x509_certificate_chain_t *)noxtls_calloc(1, sizeof(x509_certificate_chain_t));
+    snapshot = (x509_certificate_chain_t *)NOXTLS_CALLOC(1, sizeof(x509_certificate_chain_t));
     if(snapshot == NULL) {
         return NULL;
     }
@@ -584,6 +587,32 @@ static noxtls_return_t noxtls_x509_slhdsa_param_from_oid(const uint8_t *oid,
 }
 #endif
 
+#if NOXTLS_FEATURE_PBKDF2
+/**
+ * @brief Derives the key using PBKDF2-HMAC-SHA1 (RFC 8018 §5.2).
+ *
+ * Thin adapter over the shared noxtls_pbkdf2_hmac() primitive.
+ *
+ * @param[in] password The password to use for the derivation.
+ * @param[in] password_len The length of the password.
+ * @param[in] salt The salt to use for the derivation.
+ * @param[in] params The parameters for the derivation.
+ * @param[out] out The buffer to receive the derived key.
+ *
+ * @return The return code of the function.
+ */
+static noxtls_return_t pbkdf2_hmac_sha1(const uint8_t *password, uint32_t password_len,
+                                         const uint8_t *salt, const pbkdf2_sha1_params_t *params, uint8_t *out)
+{
+    if(password == NULL || salt == NULL || params == NULL || out == NULL || params->iterations == 0U) {
+        return NOXTLS_RETURN_NULL;
+    }
+    return noxtls_pbkdf2_hmac(NOXTLS_HASH_SHA1, password, password_len,
+                              salt, params->salt_len, params->iterations,
+                              out, params->key_len);
+}
+#else
+/* Builds without NOXTLS_FEATURE_HMAC keep a private PBKDF2-HMAC-SHA1. */
 /**
  * @brief Computes the HMAC-SHA1 of a message.
  *
@@ -678,7 +707,7 @@ static noxtls_return_t pbkdf2_hmac_sha1(const uint8_t *password, uint32_t passwo
     }
 
     if(params->salt_len > (0xFFFFU - 4U)) { return NOXTLS_RETURN_FAILED; }
-    block_input = (uint8_t*)noxtls_malloc(params->salt_len + 4U);
+    block_input = (uint8_t*)NOXTLS_MALLOC(params->salt_len + 4U);
     if(block_input == NULL) { return NOXTLS_RETURN_FAILED; }
     noxtls_copy_u8((uint8_t *)(void *)(block_input), (size_t)params->salt_len, (const uint8_t *)(const void *)(salt), (size_t)params->salt_len);
     blocks = (params->key_len + SHA1_OUT_LEN - 1U) / SHA1_OUT_LEN;
@@ -716,6 +745,7 @@ static noxtls_return_t pbkdf2_hmac_sha1(const uint8_t *password, uint32_t passwo
     (void)noxtls_free(block_input);
     return NOXTLS_RETURN_SUCCESS;
 }
+#endif /* NOXTLS_FEATURE_PBKDF2 */
 #endif
 
 /**
@@ -1302,7 +1332,7 @@ noxtls_return_t noxtls_x509_certificate_matches_hostname(const x509_certificate_
     }
 
     /* Fallback: subject CN */
-    cn_buf = (uint8_t *)noxtls_malloc(cn_buf_size);
+    cn_buf = (uint8_t *)NOXTLS_MALLOC(cn_buf_size);
     if(cn_buf == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -1433,7 +1463,7 @@ static noxtls_return_t x509_certificate_parse_der_body(x509_certificate_t *cert,
 
             /* Signature is computed over full DER TBSCertificate (&tag[length+value]), not value only. */
             cert->tbs_certificate_len = (uint32_t)((uintptr_t)ptr - (uintptr_t)tbs_seq_start);
-            cert->tbs_certificate = (uint8_t*)noxtls_malloc(cert->tbs_certificate_len);
+            cert->tbs_certificate = (uint8_t*)NOXTLS_MALLOC(cert->tbs_certificate_len);
             if(cert->tbs_certificate == NULL) {
                 rc = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
                 return rc;
@@ -1604,7 +1634,7 @@ static noxtls_return_t x509_certificate_parse_der_body(x509_certificate_t *cert,
                 uint32_t mod_len = 0U;
                 if(asn1_get_integer(&rsa_seq_ptr, rsa_seq_end, NULL, &mod_len) == NOXTLS_RETURN_SUCCESS) {
                     cert->rsa_modulus_len = mod_len;
-                    cert->rsa_modulus = (uint8_t*)noxtls_malloc(mod_len);
+                    cert->rsa_modulus = (uint8_t*)NOXTLS_MALLOC(mod_len);
                     if(cert->rsa_modulus != NULL) {
                         rsa_seq_ptr = mod_start;
                         uint32_t mod_len2 = mod_len;
@@ -1618,7 +1648,7 @@ static noxtls_return_t x509_certificate_parse_der_body(x509_certificate_t *cert,
                 uint32_t exp_len = 0U;
                 if(asn1_get_integer(&rsa_seq_ptr, rsa_seq_end, NULL, &exp_len) == NOXTLS_RETURN_SUCCESS) {
                     cert->rsa_exponent_len = exp_len;
-                    cert->rsa_exponent = (uint8_t*)noxtls_malloc(exp_len);
+                    cert->rsa_exponent = (uint8_t*)NOXTLS_MALLOC(exp_len);
                     if(cert->rsa_exponent != NULL) {
                         rsa_seq_ptr = exp_start;
                         uint32_t exp_len2 = exp_len;
@@ -1639,7 +1669,7 @@ static noxtls_return_t x509_certificate_parse_der_body(x509_certificate_t *cert,
                     return NOXTLS_RETURN_BAD_DATA;
                 }
                 cert->ecc_public_key_len = public_key_len;
-                cert->ecc_public_key = (uint8_t*)noxtls_malloc(public_key_len);
+                cert->ecc_public_key = (uint8_t*)NOXTLS_MALLOC(public_key_len);
                 if(cert->ecc_public_key != NULL) {
                     noxtls_copy_u8((uint8_t *)(void *)(cert->ecc_public_key), (size_t)public_key_len, (const uint8_t *)(const void *)(spki_ptr), (size_t)public_key_len);
                 }
@@ -1735,7 +1765,7 @@ static noxtls_return_t x509_certificate_parse_der_body(x509_certificate_t *cert,
             tbs_ptr = &tbs_ptr[1];
             uint32_t ext_len = (uint32_t)(asn1_get_length(&tbs_ptr, tbs_end));
             if((ext_len > 0U) && ((uintptr_t)(&tbs_ptr[ext_len]) <= (uintptr_t)tbs_end)) {
-                cert->extensions = (uint8_t*)noxtls_malloc(ext_len);
+                cert->extensions = (uint8_t*)NOXTLS_MALLOC(ext_len);
                 if(cert->extensions != NULL) {
                     noxtls_return_t ext_rc = NOXTLS_RETURN_FAILED;
                     noxtls_copy_u8((uint8_t *)(void *)(cert->extensions), (size_t)ext_len, (const uint8_t *)(const void *)(tbs_ptr), (size_t)ext_len);
@@ -1770,7 +1800,7 @@ static noxtls_return_t x509_certificate_parse_der_body(x509_certificate_t *cert,
         if((sig_len > 0U) && ((uintptr_t)(&ptr[sig_len]) <= (uintptr_t)cert_end)) {
             ptr = &ptr[1];  /* Skip unused bits */
             sig_len -= 1U;
-            cert->signature = (uint8_t*)noxtls_malloc(sig_len);
+            cert->signature = (uint8_t*)NOXTLS_MALLOC(sig_len);
             if(cert->signature != NULL) {
                 noxtls_copy_u8((uint8_t *)(void *)(cert->signature), (size_t)sig_len, (const uint8_t *)(const void *)(ptr), (size_t)sig_len);
                 cert->signature_len = sig_len;
@@ -1792,7 +1822,7 @@ noxtls_return_t noxtls_x509_certificate_parse_der(x509_certificate_t *cert, cons
 
     (void)noxtls_x509_certificate_free(cert);
 
-    cert->raw_data = (uint8_t*)noxtls_malloc(len);
+    cert->raw_data = (uint8_t*)NOXTLS_MALLOC(len);
     if(cert->raw_data == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -1829,7 +1859,7 @@ noxtls_return_t noxtls_x509_certificate_parse_pem(x509_certificate_t *cert, cons
     }
 
     /* Allocate buffer for DER data */
-    der_data = (uint8_t*)noxtls_malloc(len);
+    der_data = (uint8_t*)NOXTLS_MALLOC(len);
     if(der_data == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -1913,7 +1943,7 @@ noxtls_return_t noxtls_x509_certificate_load_file(x509_certificate_t *cert, cons
         return NOXTLS_RETURN_FAILED;
     }
 
-    data = (uint8_t*)noxtls_malloc(len);
+    data = (uint8_t*)NOXTLS_MALLOC(len);
     if(data == NULL) {
         (void)fclose(fp);
         return NOXTLS_RETURN_FAILED;
@@ -3115,7 +3145,7 @@ noxtls_return_t noxtls_x509_certificate_get_public_key(const x509_certificate_t 
         return rc;
     }
 
-    ecc_key = (ecc_key_t *)noxtls_calloc(1, sizeof(ecc_key_t));
+    ecc_key = (ecc_key_t *)NOXTLS_CALLOC(1, sizeof(ecc_key_t));
     if(ecc_key == NULL) {
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
@@ -3520,7 +3550,7 @@ noxtls_return_t noxtls_x509_certificate_chain_init(x509_certificate_chain_t *cha
 
     noxtls_secure_zero((chain), sizeof(x509_certificate_chain_t));
     chain->capacity = 8;
-    chain->certs = (x509_certificate_t*)noxtls_calloc(chain->capacity, sizeof(x509_certificate_t));
+    chain->certs = (x509_certificate_t*)NOXTLS_CALLOC(chain->capacity, sizeof(x509_certificate_t));
     if(chain->certs == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -3583,7 +3613,7 @@ noxtls_return_t noxtls_x509_certificate_chain_add(x509_certificate_chain_t *chai
         if(new_capacity > (UINT32_MAX / (uint32_t)sizeof(x509_certificate_t))) {
             return NOXTLS_RETURN_FAILED;
         }
-        x509_certificate_t *new_certs = (x509_certificate_t*)noxtls_realloc(chain->certs, (size_t)new_capacity * sizeof(x509_certificate_t));
+        x509_certificate_t *new_certs = (x509_certificate_t*)NOXTLS_REALLOC(chain->certs, (size_t)new_capacity * sizeof(x509_certificate_t));
         if(new_certs == NULL) {
             return NOXTLS_RETURN_FAILED;
         }
@@ -4108,7 +4138,7 @@ static noxtls_return_t x509_crl_parse_der_body(noxtls_x509_crl_t *crl)
         }
 
         crl->tbs_crl_len = (uint32_t)((uintptr_t)ptr - (uintptr_t)tbs_outer_start);
-        crl->tbs_crl = (uint8_t*)noxtls_malloc(crl->tbs_crl_len);
+        crl->tbs_crl = (uint8_t*)NOXTLS_MALLOC(crl->tbs_crl_len);
         if(crl->tbs_crl == NULL) {
             rc = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
             return rc;
@@ -4233,8 +4263,8 @@ static noxtls_return_t x509_crl_parse_der_body(noxtls_x509_crl_t *crl)
                 if((asn1_get_sequence(&probe, list_end, &e0, &e0_len) == NOXTLS_RETURN_SUCCESS) && (e0_len > 0U) && (*e0 == 0x02U)) {
                     const uint8_t *walk = list_body;
                     uint32_t cap = NOXTLS_X509_CRL_MAX_REVOKED;
-                    crl->revoked_serials = (uint8_t*)noxtls_malloc((size_t)cap * (size_t)X509_MAX_SERIAL_SIZE);
-                    crl->revoked_serial_lens = (uint32_t*)noxtls_malloc((size_t)cap * sizeof(uint32_t));
+                    crl->revoked_serials = (uint8_t*)NOXTLS_MALLOC((size_t)cap * (size_t)X509_MAX_SERIAL_SIZE);
+                    crl->revoked_serial_lens = (uint32_t*)NOXTLS_MALLOC((size_t)cap * sizeof(uint32_t));
                     if((crl->revoked_serials == NULL) || (crl->revoked_serial_lens == NULL)) {
                         rc = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
                         return rc;
@@ -4323,7 +4353,7 @@ static noxtls_return_t x509_crl_parse_der_body(noxtls_x509_crl_t *crl)
             }
             ptr = &ptr[1];
             sig_len -= 1U;
-            crl->signature = (uint8_t*)noxtls_malloc(sig_len);
+            crl->signature = (uint8_t*)NOXTLS_MALLOC(sig_len);
             if(crl->signature == NULL) {
                 rc = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
                 return rc;
@@ -4352,7 +4382,7 @@ noxtls_return_t noxtls_x509_crl_parse_der(noxtls_x509_crl_t *crl, const uint8_t 
 
     noxtls_x509_crl_free(crl);
 
-    crl->raw_data = (uint8_t*)noxtls_malloc(len);
+    crl->raw_data = (uint8_t*)NOXTLS_MALLOC(len);
     if(crl->raw_data == NULL) {
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
@@ -4389,7 +4419,7 @@ noxtls_return_t noxtls_x509_crl_parse_pem(noxtls_x509_crl_t *crl, const uint8_t 
         return NOXTLS_RETURN_NULL;
     }
 
-    der = (uint8_t*)noxtls_malloc(len);
+    der = (uint8_t*)NOXTLS_MALLOC(len);
     if(der == NULL) {
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
@@ -4468,7 +4498,7 @@ noxtls_return_t noxtls_x509_crl_load_file(noxtls_x509_crl_t *crl, const uint8_t 
         return NOXTLS_RETURN_FAILED;
     }
 
-    data = (uint8_t*)noxtls_malloc(file_len);
+    data = (uint8_t*)NOXTLS_MALLOC(file_len);
     if(data == NULL) {
         (void)fclose(fp);
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
@@ -5282,7 +5312,7 @@ static noxtls_return_t noxtls_x509_parse_pkcs1_rsa_private_key(x509_private_key_
             return NOXTLS_RETURN_FAILED;
         }
         key->rsa_modulus_len = seq_len;
-        key->rsa_modulus = (uint8_t*)noxtls_malloc(seq_len);
+        key->rsa_modulus = (uint8_t*)NOXTLS_MALLOC(seq_len);
         if(key->rsa_modulus != NULL) {
             (void)asn1_get_integer(&seq_ptr, seq_end, key->rsa_modulus, &key->rsa_modulus_len);
         } else {
@@ -5298,7 +5328,7 @@ static noxtls_return_t noxtls_x509_parse_pkcs1_rsa_private_key(x509_private_key_
             return NOXTLS_RETURN_FAILED;
         }
         key->rsa_public_exponent_len = seq_len;
-        key->rsa_public_exponent = (uint8_t*)noxtls_malloc(seq_len);
+        key->rsa_public_exponent = (uint8_t*)NOXTLS_MALLOC(seq_len);
         if(key->rsa_public_exponent != NULL) {
             (void)asn1_get_integer(&seq_ptr, seq_end, key->rsa_public_exponent, &key->rsa_public_exponent_len);
         } else {
@@ -5315,7 +5345,7 @@ static noxtls_return_t noxtls_x509_parse_pkcs1_rsa_private_key(x509_private_key_
             return NOXTLS_RETURN_FAILED;
         }
         key->rsa_private_exponent_len = seq_len;
-        key->rsa_private_exponent = (uint8_t*)noxtls_malloc(seq_len);
+        key->rsa_private_exponent = (uint8_t*)NOXTLS_MALLOC(seq_len);
         if(key->rsa_private_exponent != NULL) {
             (void)asn1_get_integer(&seq_ptr, seq_end, key->rsa_private_exponent, &key->rsa_private_exponent_len);
         } else {
@@ -5328,7 +5358,7 @@ static noxtls_return_t noxtls_x509_parse_pkcs1_rsa_private_key(x509_private_key_
         const uint8_t *probe = seq_ptr;
         if(asn1_get_integer(&probe, seq_end, NULL, &seq_len) == NOXTLS_RETURN_SUCCESS) {
             key->rsa_prime1_len = seq_len;
-            key->rsa_prime1 = (uint8_t*)noxtls_malloc(seq_len);
+            key->rsa_prime1 = (uint8_t*)NOXTLS_MALLOC(seq_len);
             if(key->rsa_prime1 != NULL) {
                 (void)asn1_get_integer(&seq_ptr, seq_end, key->rsa_prime1, &key->rsa_prime1_len);
             } else {
@@ -5342,7 +5372,7 @@ static noxtls_return_t noxtls_x509_parse_pkcs1_rsa_private_key(x509_private_key_
         const uint8_t *probe = seq_ptr;
         if(asn1_get_integer(&probe, seq_end, NULL, &seq_len) == NOXTLS_RETURN_SUCCESS) {
             key->rsa_prime2_len = seq_len;
-            key->rsa_prime2 = (uint8_t*)noxtls_malloc(seq_len);
+            key->rsa_prime2 = (uint8_t*)NOXTLS_MALLOC(seq_len);
             if(key->rsa_prime2 != NULL) {
                 (void)asn1_get_integer(&seq_ptr, seq_end, key->rsa_prime2, &key->rsa_prime2_len);
             } else {
@@ -5356,7 +5386,7 @@ static noxtls_return_t noxtls_x509_parse_pkcs1_rsa_private_key(x509_private_key_
         const uint8_t *probe = seq_ptr;
         if(asn1_get_integer(&probe, seq_end, NULL, &seq_len) == NOXTLS_RETURN_SUCCESS) {
             key->rsa_exponent1_len = seq_len;
-            key->rsa_exponent1 = (uint8_t*)noxtls_malloc(seq_len);
+            key->rsa_exponent1 = (uint8_t*)NOXTLS_MALLOC(seq_len);
             if(key->rsa_exponent1 != NULL) {
                 (void)asn1_get_integer(&seq_ptr, seq_end, key->rsa_exponent1, &key->rsa_exponent1_len);
             } else {
@@ -5370,7 +5400,7 @@ static noxtls_return_t noxtls_x509_parse_pkcs1_rsa_private_key(x509_private_key_
         const uint8_t *probe = seq_ptr;
         if(asn1_get_integer(&probe, seq_end, NULL, &seq_len) == NOXTLS_RETURN_SUCCESS) {
             key->rsa_exponent2_len = seq_len;
-            key->rsa_exponent2 = (uint8_t*)noxtls_malloc(seq_len);
+            key->rsa_exponent2 = (uint8_t*)NOXTLS_MALLOC(seq_len);
             if(key->rsa_exponent2 != NULL) {
                 (void)asn1_get_integer(&seq_ptr, seq_end, key->rsa_exponent2, &key->rsa_exponent2_len);
             } else {
@@ -5384,7 +5414,7 @@ static noxtls_return_t noxtls_x509_parse_pkcs1_rsa_private_key(x509_private_key_
         const uint8_t *probe = seq_ptr;
         if(asn1_get_integer(&probe, seq_end, NULL, &seq_len) == NOXTLS_RETURN_SUCCESS) {
             key->rsa_coefficient_len = seq_len;
-            key->rsa_coefficient = (uint8_t*)noxtls_malloc(seq_len);
+            key->rsa_coefficient = (uint8_t*)NOXTLS_MALLOC(seq_len);
             if(key->rsa_coefficient != NULL) {
                 (void)asn1_get_integer(&seq_ptr, seq_end, key->rsa_coefficient, &key->rsa_coefficient_len);
             } else {
@@ -5678,7 +5708,7 @@ static noxtls_return_t noxtls_x509_parse_pkcs8_private_key(x509_private_key_t *k
         uint32_t seed_len = 0U;
         if(x509_pkcs8_ed_seed_from_octet(info_ptr, private_key_len, 32, &seed_ptr, &seed_len) == NOXTLS_RETURN_SUCCESS) {
             (void)noxtls_x509_private_key_free(key);
-            key->raw_data = (uint8_t*)noxtls_malloc(len);
+            key->raw_data = (uint8_t*)NOXTLS_MALLOC(len);
             if(key->raw_data == NULL) {
                 return NOXTLS_RETURN_FAILED;
             }
@@ -5686,7 +5716,7 @@ static noxtls_return_t noxtls_x509_parse_pkcs8_private_key(x509_private_key_t *k
             key->raw_data_len = len;
             key->key_type = X509_PRIVATE_KEY_ED25519;
             key->format = X509_PRIVATE_KEY_FORMAT_PKCS8;
-            key->eddsa_seed = (uint8_t*)noxtls_malloc(32);
+            key->eddsa_seed = (uint8_t*)NOXTLS_MALLOC(32);
             if(key->eddsa_seed == NULL) {
                 (void)noxtls_x509_private_key_free(key);
                 return NOXTLS_RETURN_FAILED;
@@ -5704,7 +5734,7 @@ static noxtls_return_t noxtls_x509_parse_pkcs8_private_key(x509_private_key_t *k
         uint32_t seed_len = 0U;
         if(x509_pkcs8_ed_seed_from_octet(info_ptr, private_key_len, 57, &seed_ptr, &seed_len) == NOXTLS_RETURN_SUCCESS) {
             (void)noxtls_x509_private_key_free(key);
-            key->raw_data = (uint8_t*)noxtls_malloc(len);
+            key->raw_data = (uint8_t*)NOXTLS_MALLOC(len);
             if(key->raw_data == NULL) {
                 return NOXTLS_RETURN_FAILED;
             }
@@ -5712,7 +5742,7 @@ static noxtls_return_t noxtls_x509_parse_pkcs8_private_key(x509_private_key_t *k
             key->raw_data_len = len;
             key->key_type = X509_PRIVATE_KEY_ED448;
             key->format = X509_PRIVATE_KEY_FORMAT_PKCS8;
-            key->eddsa_seed = (uint8_t*)noxtls_malloc(57);
+            key->eddsa_seed = (uint8_t*)NOXTLS_MALLOC(57);
             if(key->eddsa_seed == NULL) {
                 (void)noxtls_x509_private_key_free(key);
                 return NOXTLS_RETURN_FAILED;
@@ -5752,7 +5782,7 @@ static noxtls_return_t noxtls_x509_parse_pkcs8_private_key(x509_private_key_t *k
                 return NOXTLS_RETURN_FAILED;
             }
             (void)noxtls_x509_private_key_free(key);
-            key->raw_data = (uint8_t*)noxtls_malloc(len);
+            key->raw_data = (uint8_t*)NOXTLS_MALLOC(len);
             if(key->raw_data == NULL) {
                 return NOXTLS_RETURN_FAILED;
             }
@@ -5761,7 +5791,7 @@ static noxtls_return_t noxtls_x509_parse_pkcs8_private_key(x509_private_key_t *k
             key->key_type = X509_PRIVATE_KEY_ML_DSA;
             key->format = X509_PRIVATE_KEY_FORMAT_PKCS8;
             key->pqc_param = (uint32_t)mldsa_param;
-            key->pqc_secret_key = (uint8_t*)noxtls_malloc(sk_len);
+            key->pqc_secret_key = (uint8_t*)NOXTLS_MALLOC(sk_len);
             if(key->pqc_secret_key == NULL) {
                 (void)noxtls_x509_private_key_free(key);
                 return NOXTLS_RETURN_FAILED;
@@ -5798,7 +5828,7 @@ static noxtls_return_t noxtls_x509_parse_pkcs8_private_key(x509_private_key_t *k
                 return NOXTLS_RETURN_FAILED;
             }
             (void)noxtls_x509_private_key_free(key);
-            key->raw_data = (uint8_t*)noxtls_malloc(len);
+            key->raw_data = (uint8_t*)NOXTLS_MALLOC(len);
             if(key->raw_data == NULL) {
                 return NOXTLS_RETURN_FAILED;
             }
@@ -5807,7 +5837,7 @@ static noxtls_return_t noxtls_x509_parse_pkcs8_private_key(x509_private_key_t *k
             key->key_type = X509_PRIVATE_KEY_SLH_DSA;
             key->format = X509_PRIVATE_KEY_FORMAT_PKCS8;
             key->pqc_param = (uint32_t)slhdsa_param;
-            key->pqc_secret_key = (uint8_t*)noxtls_malloc(sk_len);
+            key->pqc_secret_key = (uint8_t*)NOXTLS_MALLOC(sk_len);
             if(key->pqc_secret_key == NULL) {
                 (void)noxtls_x509_private_key_free(key);
                 return NOXTLS_RETURN_FAILED;
@@ -5844,7 +5874,7 @@ static noxtls_return_t noxtls_x509_parse_pkcs8_private_key(x509_private_key_t *k
                 return NOXTLS_RETURN_FAILED;
             }
             (void)noxtls_x509_private_key_free(key);
-            key->raw_data = (uint8_t*)noxtls_malloc(len);
+            key->raw_data = (uint8_t*)NOXTLS_MALLOC(len);
             if(key->raw_data == NULL) {
                 return NOXTLS_RETURN_FAILED;
             }
@@ -5853,7 +5883,7 @@ static noxtls_return_t noxtls_x509_parse_pkcs8_private_key(x509_private_key_t *k
             key->key_type = X509_PRIVATE_KEY_FALCON;
             key->format = X509_PRIVATE_KEY_FORMAT_PKCS8;
             key->pqc_param = (uint32_t)falcon_param;
-            key->pqc_secret_key = (uint8_t*)noxtls_malloc(sk_len);
+            key->pqc_secret_key = (uint8_t*)NOXTLS_MALLOC(sk_len);
             if(key->pqc_secret_key == NULL) {
                 (void)noxtls_x509_private_key_free(key);
                 return NOXTLS_RETURN_FAILED;
@@ -5869,7 +5899,7 @@ static noxtls_return_t noxtls_x509_parse_pkcs8_private_key(x509_private_key_t *k
     /* Try SEC1 ECC (OCTET STRING content is DER ECPrivateKey, starts with 0x30) */
     if(info_ptr[0] == 0x30U) {
         (void)noxtls_x509_private_key_free(key);
-        key->raw_data = (uint8_t*)noxtls_malloc(len);
+        key->raw_data = (uint8_t*)NOXTLS_MALLOC(len);
         if(key->raw_data == NULL) {
             return NOXTLS_RETURN_FAILED;
         }
@@ -5897,7 +5927,7 @@ static noxtls_return_t noxtls_x509_parse_pkcs8_private_key(x509_private_key_t *k
                 if(asn1_get_oid(&params_ptr, oid_end, curve_oid, &curve_oid_len) == NOXTLS_RETURN_SUCCESS) {
                     if(curve_oid_len <= 32U) {
                         (void)noxtls_x509_private_key_free(key);
-                        key->raw_data = (uint8_t*)noxtls_malloc(len);
+                        key->raw_data = (uint8_t*)NOXTLS_MALLOC(len);
                         if(key->raw_data == NULL) {
                             return NOXTLS_RETURN_FAILED;
                         }
@@ -5908,7 +5938,7 @@ static noxtls_return_t noxtls_x509_parse_pkcs8_private_key(x509_private_key_t *k
                         key->ecc_curve_oid_len = curve_oid_len;
                         noxtls_copy_u8((uint8_t *)(void *)(key->ecc_curve_oid), (size_t)curve_oid_len, (const uint8_t *)(const void *)(curve_oid), (size_t)curve_oid_len);
                         key->ecc_private_key_len = private_key_len;
-                        key->ecc_private_key = (uint8_t*)noxtls_malloc(private_key_len);
+                        key->ecc_private_key = (uint8_t*)NOXTLS_MALLOC(private_key_len);
                         if(key->ecc_private_key != NULL) {
                             noxtls_copy_u8((uint8_t *)(void *)(key->ecc_private_key), (size_t)private_key_len, (const uint8_t *)(const void *)(info_ptr), (size_t)private_key_len);
                         }
@@ -5967,7 +5997,7 @@ static noxtls_return_t noxtls_x509_parse_sec1_ecc_private_key(x509_private_key_t
     }
 
     key->ecc_private_key_len = private_key_len;
-    key->ecc_private_key = (uint8_t*)noxtls_malloc(private_key_len);
+    key->ecc_private_key = (uint8_t*)NOXTLS_MALLOC(private_key_len);
     if(key->ecc_private_key != NULL) {
         noxtls_copy_u8((uint8_t *)(void *)(key->ecc_private_key), (size_t)private_key_len, (const uint8_t *)(const void *)(seq_ptr), (size_t)private_key_len);
     }
@@ -5996,7 +6026,7 @@ static noxtls_return_t noxtls_x509_parse_sec1_ecc_private_key(x509_private_key_t
                 seq_ptr = &seq_ptr[1];  /* Skip unused bits */
                 public_key_len -= 1U;
                 key->ecc_public_key_len = public_key_len;
-                key->ecc_public_key = (uint8_t*)noxtls_malloc(public_key_len);
+                key->ecc_public_key = (uint8_t*)NOXTLS_MALLOC(public_key_len);
                 if(key->ecc_public_key != NULL) {
                     noxtls_copy_u8((uint8_t *)(void *)(key->ecc_public_key), (size_t)public_key_len, (const uint8_t *)(const void *)(seq_ptr), (size_t)public_key_len);
                 }
@@ -6132,7 +6162,7 @@ static noxtls_return_t noxtls_x509_parse_encrypted_pkcs8(x509_private_key_t *key
     {
         pbkdf2_sha1_params_t p = {salt_len, iterations, key_bits};
         {
-            uint8_t *pw_bytes = (uint8_t*)noxtls_malloc(password_len);
+            uint8_t *pw_bytes = (uint8_t*)NOXTLS_MALLOC(password_len);
             uint32_t pi = 0U;
             noxtls_return_t pbrc = NOXTLS_RETURN_FAILED;
             if(pw_bytes == NULL) {
@@ -6148,7 +6178,7 @@ static noxtls_return_t noxtls_x509_parse_encrypted_pkcs8(x509_private_key_t *key
             }
         }
     }
-    decrypted = (uint8_t*)noxtls_malloc((size_t)(enc_data_len - (uint32_t)NOXTLS_AES_BLOCK_LEN));
+    decrypted = (uint8_t*)NOXTLS_MALLOC((size_t)(enc_data_len - (uint32_t)NOXTLS_AES_BLOCK_LEN));
     if(decrypted == NULL) { return NOXTLS_RETURN_FAILED; }
     if(noxtls_aes_decrypt_cbc(derived_key, &enc_data[(uint32_t)NOXTLS_AES_BLOCK_LEN], (uint32_t)(enc_data_len - (uint32_t)NOXTLS_AES_BLOCK_LEN), enc_data, decrypted, aes_type) != NOXTLS_RETURN_SUCCESS) {
         (void)noxtls_free(decrypted);
@@ -6192,7 +6222,7 @@ noxtls_return_t noxtls_x509_private_key_parse_der_with_password(x509_private_key
                     return NOXTLS_RETURN_SUCCESS;
                 }
                 (void)noxtls_x509_private_key_free(key);
-                key->raw_data = (uint8_t*)noxtls_malloc(len);
+                key->raw_data = (uint8_t*)NOXTLS_MALLOC(len);
                 if(key->raw_data != NULL) {
                     noxtls_copy_u8((uint8_t *)(void *)(key->raw_data), (size_t)len, (const uint8_t *)(const void *)(data), (size_t)len);
                     key->raw_data_len = len;
@@ -6201,7 +6231,7 @@ noxtls_return_t noxtls_x509_private_key_parse_der_with_password(x509_private_key
                 return dec_rc;
             }
             (void)noxtls_x509_private_key_free(key);
-            key->raw_data = (uint8_t*)noxtls_malloc(len);
+            key->raw_data = (uint8_t*)NOXTLS_MALLOC(len);
             if(key->raw_data == NULL) { return NOXTLS_RETURN_FAILED; }
             noxtls_copy_u8((uint8_t *)(void *)(key->raw_data), (size_t)len, (const uint8_t *)(const void *)(data), (size_t)len);
             key->raw_data_len = len;
@@ -6242,7 +6272,7 @@ noxtls_return_t noxtls_x509_private_key_parse_der(x509_private_key_t *key, const
         const uint8_t *seq_data = NULL;
         uint32_t seq_len = 0U;
         if((asn1_get_sequence(&ptr, end, &seq_data, &seq_len) == NOXTLS_RETURN_SUCCESS) && (seq_len > 0U) && (seq_data[0] == 0x30U)) {
-            key->raw_data = (uint8_t*)noxtls_malloc(len);
+            key->raw_data = (uint8_t*)NOXTLS_MALLOC(len);
             if(key->raw_data != NULL) {
                 noxtls_copy_u8((uint8_t *)(void *)(key->raw_data), (size_t)len, (const uint8_t *)(const void *)(data), (size_t)len);
                 key->raw_data_len = len;
@@ -6253,7 +6283,7 @@ noxtls_return_t noxtls_x509_private_key_parse_der(x509_private_key_t *key, const
     }
 
     /* Store raw private key data */
-    key->raw_data = (uint8_t*)noxtls_malloc(len);
+    key->raw_data = (uint8_t*)NOXTLS_MALLOC(len);
     if(key->raw_data == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -6433,7 +6463,7 @@ noxtls_return_t noxtls_x509_private_key_parse_pem(x509_private_key_t *key, const
     }
 
     /* Allocate buffer for DER data */
-    der_data = (uint8_t*)noxtls_malloc(pem_data_len);
+    der_data = (uint8_t*)NOXTLS_MALLOC(pem_data_len);
     if(der_data == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -6537,7 +6567,7 @@ noxtls_return_t noxtls_x509_private_key_parse_pem_with_password(x509_private_key
         }
     }
 
-    der_data = (uint8_t*)noxtls_malloc(pem_data_len);
+    der_data = (uint8_t*)NOXTLS_MALLOC(pem_data_len);
     if(der_data == NULL) { return NOXTLS_RETURN_FAILED; }
     decoded_len = noxtls_base64_decode(pem_start, pem_data_len, der_data);
     if(decoded_len <= 0) {
@@ -6625,7 +6655,7 @@ noxtls_return_t noxtls_x509_private_key_load_file(x509_private_key_t *key, const
         return NOXTLS_RETURN_FAILED;
     }
 
-    data = (uint8_t*)noxtls_malloc(len);
+    data = (uint8_t*)NOXTLS_MALLOC(len);
     if(data == NULL) {
         (void)fclose(fp);
         return NOXTLS_RETURN_FAILED;
@@ -6909,7 +6939,7 @@ noxtls_return_t noxtls_x509_private_key_sign_data(const uint8_t *key, uint32_t k
         }
         seq_len = r_enc_len + s_enc_len;
 
-        der_buf = (uint8_t *)noxtls_malloc(der_buf_size);
+        der_buf = (uint8_t *)NOXTLS_MALLOC(der_buf_size);
         if(der_buf == NULL) {
             return NOXTLS_RETURN_FAILED;
         }

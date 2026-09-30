@@ -590,7 +590,7 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
         aad[11] = (uint8_t)(((uint32_t)plaintext_len) >> 8U);
         aad[12] = (uint8_t)plaintext_len;
 
-        encrypted_data = (uint8_t*)noxtls_malloc(plaintext_len);
+        encrypted_data = (uint8_t*)NOXTLS_MALLOC(plaintext_len);
         if(encrypted_data == NULL) {
             return NOXTLS_RETURN_FAILED;
         }
@@ -684,7 +684,7 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
     uint8_t padding_len = (uint8_t)(block_size - ((plaintext_len + mac_input_len) % block_size) - 1U);
     
     padded_len = plaintext_len + mac_input_len + padding_len + 1U;
-    padded_plaintext = (uint8_t*)noxtls_malloc(padded_len);
+    padded_plaintext = (uint8_t*)NOXTLS_MALLOC(padded_len);
     if(padded_plaintext == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -744,7 +744,7 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
     }
     
     /* Encrypt */
-    encrypted_data = (uint8_t*)noxtls_malloc(padded_len);
+    encrypted_data = (uint8_t*)NOXTLS_MALLOC(padded_len);
     if(encrypted_data == NULL) {
         (void)noxtls_free(padded_plaintext);
         return NOXTLS_RETURN_FAILED;
@@ -1247,7 +1247,7 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
     }
     
     /* Allocate buffer for decrypted data */
-    decrypted_data = (uint8_t*)noxtls_malloc(encrypted_data_len);
+    decrypted_data = (uint8_t*)NOXTLS_MALLOC(encrypted_data_len);
     if(decrypted_data == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -1865,7 +1865,7 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
         if(padded_len < aead_inner_len) {
             return NOXTLS_RETURN_FAILED;
         }
-        padded_inner = (uint8_t*)noxtls_malloc(padded_len);
+        padded_inner = (uint8_t*)NOXTLS_MALLOC(padded_len);
         if(padded_inner == NULL) {
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         }
@@ -1921,7 +1921,7 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
         noxtls_copy_u8(&header[cid_offset], sizeof(header) - (size_t)(cid_offset), ctx->peer_connection_id, (size_t)(ctx->peer_connection_id_len));
     }
 
-    ciphertext = (uint8_t*)noxtls_malloc(record_len);
+    ciphertext = (uint8_t*)NOXTLS_MALLOC(record_len);
     if(ciphertext == NULL) {
         if(padded_inner != NULL) {
             (void)noxtls_free(padded_inner);
@@ -1991,7 +1991,7 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
 
     {
         uint32_t total = (uint32_t)(header_len + record_len);
-        uint8_t *out = (uint8_t*)noxtls_malloc(total);
+        uint8_t *out = (uint8_t*)NOXTLS_MALLOC(total);
         if(out == NULL) {
             (void)noxtls_free(ciphertext);
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;

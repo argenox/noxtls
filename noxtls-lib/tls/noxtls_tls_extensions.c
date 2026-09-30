@@ -68,7 +68,7 @@ noxtls_return_t noxtls_tls_parse_extensions(const uint8_t *data, uint32_t data_l
     }
     
     /* Allocate extension array */
-    extensions->extensions = (tls_extension_t*)noxtls_calloc(max_extensions, sizeof(tls_extension_t));
+    extensions->extensions = (tls_extension_t*)NOXTLS_CALLOC(max_extensions, sizeof(tls_extension_t));
     if (extensions->extensions == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -82,7 +82,7 @@ noxtls_return_t noxtls_tls_parse_extensions(const uint8_t *data, uint32_t data_l
                 (void)noxtls_tls_extensions_free(extensions);
                 return NOXTLS_RETURN_RECORD_OVERFLOW;
             }
-            new_exts = (tls_extension_t*)noxtls_realloc(extensions->extensions,
+            new_exts = (tls_extension_t*)NOXTLS_REALLOC(extensions->extensions,
                                                  new_max * (sizeof(tls_extension_t)));
             if (new_exts == NULL) {
                 (void)noxtls_tls_extensions_free(extensions);
@@ -103,7 +103,7 @@ noxtls_return_t noxtls_tls_parse_extensions(const uint8_t *data, uint32_t data_l
         
         if ((ext->length > 0U) && ((offset + (uint32_t)ext->length) <= data_len)) {
             /* Allocate and copy extension data */
-            ext->data = (uint8_t*)noxtls_malloc(ext->length);
+            ext->data = (uint8_t*)NOXTLS_MALLOC(ext->length);
             if (ext->data == NULL) {
                 (void)noxtls_tls_extensions_free(extensions);
                 return NOXTLS_RETURN_FAILED;
@@ -135,7 +135,7 @@ noxtls_return_t noxtls_tls_parse_extensions(const uint8_t *data, uint32_t data_l
                         (void)noxtls_free(extensions->sni);
                         extensions->sni = NULL;
                     }
-                    extensions->sni = (tls_sni_extension_t*)noxtls_malloc(sizeof(tls_sni_extension_t));
+                    extensions->sni = (tls_sni_extension_t*)NOXTLS_MALLOC(sizeof(tls_sni_extension_t));
                     if (extensions->sni == NULL) {
                         (void)noxtls_tls_extensions_free(extensions);
                         return NOXTLS_RETURN_FAILED;
@@ -159,7 +159,7 @@ noxtls_return_t noxtls_tls_parse_extensions(const uint8_t *data, uint32_t data_l
                         (void)noxtls_free(extensions->supported_groups);
                         extensions->supported_groups = NULL;
                     }
-                    extensions->supported_groups = (tls_supported_groups_extension_t*)noxtls_malloc(sizeof(tls_supported_groups_extension_t));
+                    extensions->supported_groups = (tls_supported_groups_extension_t*)NOXTLS_MALLOC(sizeof(tls_supported_groups_extension_t));
                     if (extensions->supported_groups != NULL) {
                         if (noxtls_tls_parse_extension_supported_groups(ext->data, ext->length, extensions->supported_groups) != NOXTLS_RETURN_SUCCESS) {
                             (void)noxtls_tls_extensions_free(extensions);
@@ -185,7 +185,7 @@ noxtls_return_t noxtls_tls_parse_extensions(const uint8_t *data, uint32_t data_l
                         (void)noxtls_free(extensions->key_share);
                         extensions->key_share = NULL;
                     }
-                    extensions->key_share = (tls_key_share_list_extension_t*)noxtls_malloc(sizeof(tls_key_share_list_extension_t));
+                    extensions->key_share = (tls_key_share_list_extension_t*)NOXTLS_MALLOC(sizeof(tls_key_share_list_extension_t));
                     if (extensions->key_share != NULL) {
                         if (noxtls_tls_parse_extension_key_share(ext->data, ext->length, extensions->key_share) != NOXTLS_RETURN_SUCCESS) {
                             (void)noxtls_tls_extensions_free(extensions);
@@ -206,7 +206,7 @@ noxtls_return_t noxtls_tls_parse_extensions(const uint8_t *data, uint32_t data_l
                         (void)noxtls_free(extensions->signature_algorithms);
                         extensions->signature_algorithms = NULL;
                     }
-                    extensions->signature_algorithms = (tls_signature_algorithms_extension_t*)noxtls_malloc(sizeof(tls_signature_algorithms_extension_t));
+                    extensions->signature_algorithms = (tls_signature_algorithms_extension_t*)NOXTLS_MALLOC(sizeof(tls_signature_algorithms_extension_t));
                     if (extensions->signature_algorithms != NULL) {
                         if (noxtls_tls_parse_extension_signature_algorithms(ext->data, ext->length, extensions->signature_algorithms) != NOXTLS_RETURN_SUCCESS) {
                             (void)noxtls_tls_extensions_free(extensions);
@@ -239,7 +239,7 @@ noxtls_return_t noxtls_tls_parse_extensions(const uint8_t *data, uint32_t data_l
                     (void)noxtls_free(extensions->alpn);
                     extensions->alpn = NULL;
                 }
-                extensions->alpn = (tls_alpn_extension_t*)noxtls_malloc(sizeof(tls_alpn_extension_t));
+                extensions->alpn = (tls_alpn_extension_t*)NOXTLS_MALLOC(sizeof(tls_alpn_extension_t));
                 if (extensions->alpn == NULL) {
                     (void)noxtls_tls_extensions_free(extensions);
                     return NOXTLS_RETURN_FAILED;
@@ -257,7 +257,7 @@ noxtls_return_t noxtls_tls_parse_extensions(const uint8_t *data, uint32_t data_l
                         (void)noxtls_free(extensions->supported_versions);
                         extensions->supported_versions = NULL;
                     }
-                    extensions->supported_versions = (tls_supported_versions_extension_t*)noxtls_malloc(sizeof(tls_supported_versions_extension_t));
+                    extensions->supported_versions = (tls_supported_versions_extension_t*)NOXTLS_MALLOC(sizeof(tls_supported_versions_extension_t));
                     if (extensions->supported_versions != NULL) {
                         if (noxtls_tls_parse_extension_supported_versions(ext->data, ext->length, extensions->supported_versions) != NOXTLS_RETURN_SUCCESS) {
                             (void)noxtls_free(extensions->supported_versions);
@@ -508,7 +508,7 @@ noxtls_return_t noxtls_tls_parse_extension_sni(const uint8_t *data, uint32_t dat
         return NOXTLS_RETURN_BAD_DATA;
     }
 
-    sni->hostname = (uint8_t *)noxtls_malloc((size_t)host_len + 1U);
+    sni->hostname = (uint8_t *)NOXTLS_MALLOC((size_t)host_len + 1U);
     if (sni->hostname == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -560,7 +560,7 @@ noxtls_return_t noxtls_tls_parse_extension_supported_groups(const uint8_t *data,
     groups->count = (uint32_t)groups_list_len / 2U;
     
     /* Allocate groups array */
-    groups->groups = (uint16_t*)noxtls_malloc(groups->count * (sizeof(uint16_t)));
+    groups->groups = (uint16_t*)NOXTLS_MALLOC(groups->count * (sizeof(uint16_t)));
     if (groups->groups == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -614,7 +614,7 @@ noxtls_return_t noxtls_tls_parse_extension_key_share(const uint8_t *data, uint32
     }
     
     /* Allocate entries array */
-    key_share->entries = (tls_key_share_extension_t*)noxtls_calloc(max_entries, sizeof(tls_key_share_extension_t));
+    key_share->entries = (tls_key_share_extension_t*)NOXTLS_CALLOC(max_entries, sizeof(tls_key_share_extension_t));
     if (key_share->entries == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -636,7 +636,7 @@ noxtls_return_t noxtls_tls_parse_extension_key_share(const uint8_t *data, uint32
             if ((entry->key_exchange_len > 0U) && ((offset + entry->key_exchange_len) <= data_len) &&
                ((offset + entry->key_exchange_len) <= key_share_list_end)) {
                 /* Allocate and copy key exchange data */
-                entry->key_exchange = (uint8_t*)noxtls_malloc(entry->key_exchange_len);
+                entry->key_exchange = (uint8_t*)NOXTLS_MALLOC(entry->key_exchange_len);
                 if (entry->key_exchange == NULL) {
                     /* Cleanup partial entries */
                     for (uint32_t i = 0U; i < key_share->count; i += 1U) {
@@ -722,7 +722,7 @@ noxtls_return_t noxtls_tls_parse_extension_signature_algorithms(const uint8_t *d
     algorithms->count = (uint32_t)algorithms_list_len / 2U;
     
     /* Allocate algorithms array */
-    algorithms->algorithms = (uint16_t*)noxtls_malloc(algorithms->count * (sizeof(uint16_t)));
+    algorithms->algorithms = (uint16_t*)NOXTLS_MALLOC(algorithms->count * (sizeof(uint16_t)));
     if (algorithms->algorithms == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -774,7 +774,7 @@ noxtls_return_t noxtls_tls_parse_extension_alpn(const uint8_t *data, uint32_t da
     
     list_end = 2U + (uint32_t)protocol_name_list_len;
     
-    alpn->protocols = (uint8_t **)noxtls_calloc(alloc_count, sizeof(uint8_t *));
+    alpn->protocols = (uint8_t **)NOXTLS_CALLOC(alloc_count, sizeof(uint8_t *));
     if (alpn->protocols == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -785,7 +785,7 @@ noxtls_return_t noxtls_tls_parse_extension_alpn(const uint8_t *data, uint32_t da
         
         if (alpn->count >= alloc_count) {
             uint32_t new_count = (uint32_t)(alloc_count * 2U);
-            new_protocols = (uint8_t **)noxtls_realloc((void *)alpn->protocols, new_count * (sizeof(uint8_t *)));
+            new_protocols = (uint8_t **)NOXTLS_REALLOC((void *)alpn->protocols, new_count * (sizeof(uint8_t *)));
             if (new_protocols == NULL) {
                 if (alpn->protocols != NULL) {
                     uint32_t i = 0U;
@@ -837,7 +837,7 @@ noxtls_return_t noxtls_tls_parse_extension_alpn(const uint8_t *data, uint32_t da
             return NOXTLS_RETURN_BAD_DATA;
         }
         
-        alpn->protocols[alpn->count] = (uint8_t *)noxtls_malloc((size_t)name_len + 1U);
+        alpn->protocols[alpn->count] = (uint8_t *)NOXTLS_MALLOC((size_t)name_len + 1U);
         if (alpn->protocols[alpn->count] == NULL) {
             return NOXTLS_RETURN_FAILED;
         }
@@ -1085,7 +1085,7 @@ noxtls_return_t noxtls_tls_parse_extension_supported_versions(const uint8_t *dat
     }
     
     /* Allocate versions array */
-    versions->versions = (uint16_t*)noxtls_malloc(versions->count * (sizeof(uint16_t)));
+    versions->versions = (uint16_t*)NOXTLS_MALLOC(versions->count * (sizeof(uint16_t)));
     if (versions->versions == NULL) {
         return NOXTLS_RETURN_FAILED;
     }

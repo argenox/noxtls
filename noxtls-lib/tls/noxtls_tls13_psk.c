@@ -123,7 +123,7 @@ static noxtls_return_t psk_hash_binder_input(noxtls_hash_algos_t hash_algo,
     }
     {
         uint32_t combined_len = (uint32_t)(transcript_prefix_len + client_hello_prefix_len);
-        uint8_t *combined = (uint8_t *)noxtls_malloc(combined_len);
+        uint8_t *combined = (uint8_t *)NOXTLS_MALLOC(combined_len);
         noxtls_return_t rc = NOXTLS_RETURN_FAILED;
         if (combined == NULL) {
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;

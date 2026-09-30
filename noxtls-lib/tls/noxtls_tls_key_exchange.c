@@ -347,7 +347,7 @@ noxtls_return_t noxtls_tls_ecdhe_compute_shared_secret(tls_ecdhe_context_t *ctx,
     }
     
     secret_len = ctx->ephemeral_key.curve->size;
-    secret_buffer = (uint8_t*)noxtls_malloc(secret_len);
+    secret_buffer = (uint8_t*)NOXTLS_MALLOC(secret_len);
     if (secret_buffer == NULL) {
         ctx->last_ecdh_diagnostic.stage = NOXTLS_ECDH_DIAGNOSTIC_ALLOCATION;
         ctx->last_ecdh_diagnostic.internal_rc = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
@@ -444,7 +444,7 @@ noxtls_return_t noxtls_tls_ecdhe_compute_shared_secret_x25519(tls_ecdhe_context_
         return NOXTLS_RETURN_FAILED;
     }
     
-    secret_buffer = (uint8_t*)noxtls_malloc(NOXTLS_X25519_KEY_SIZE);
+    secret_buffer = (uint8_t*)NOXTLS_MALLOC(NOXTLS_X25519_KEY_SIZE);
     if (secret_buffer == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -489,7 +489,7 @@ noxtls_return_t noxtls_tls_ecdhe_compute_shared_secret_x448(tls_ecdhe_context_t 
         return NOXTLS_RETURN_FAILED;
     }
 
-    secret_buffer = (uint8_t*)noxtls_malloc(NOXTLS_X448_KEY_SIZE);
+    secret_buffer = (uint8_t*)NOXTLS_MALLOC(NOXTLS_X448_KEY_SIZE);
     if (secret_buffer == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -533,7 +533,7 @@ noxtls_return_t noxtls_tls12_ecdhe_send_server_key_exchange(tls12_context_t *ctx
     uint8_t *to_sign = (ctx->handshake_workspace != NULL) ? (&ctx->handshake_workspace[1024]) : NULL;
     uint8_t *sig_buf = (ctx->handshake_workspace != NULL) ? (&ctx->handshake_workspace[1344]) : NULL;
     if (server_key_exchange == NULL) {
-        server_key_exchange = (uint8_t*)noxtls_malloc(1024 + 320 + 512);
+        server_key_exchange = (uint8_t*)NOXTLS_MALLOC(1024 + 320 + 512);
         if (server_key_exchange == NULL) {
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         }
@@ -874,7 +874,7 @@ noxtls_return_t noxtls_tls12_ecdhe_recv_server_key_exchange(tls12_context_t *ctx
                 (void)noxtls_free(record.data);
                 return NOXTLS_RETURN_FAILED;
             }
-            to_verify = (ctx->handshake_workspace != NULL) ? ctx->handshake_workspace : (uint8_t*)noxtls_malloc(320);
+            to_verify = (ctx->handshake_workspace != NULL) ? ctx->handshake_workspace : (uint8_t*)NOXTLS_MALLOC(320);
             if (to_verify == NULL) {
                 (void)noxtls_rsa_key_free(&rsa_key);
                 (void)noxtls_free(record.data);
@@ -926,7 +926,7 @@ noxtls_return_t noxtls_tls12_ecdhe_send_client_key_exchange(tls12_context_t *ctx
     }
     uint8_t *client_key_exchange = ctx->handshake_workspace;
     if (client_key_exchange == NULL) {
-        client_key_exchange = (uint8_t*)noxtls_malloc(512);
+        client_key_exchange = (uint8_t*)NOXTLS_MALLOC(512);
         if (client_key_exchange == NULL) {
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         }
@@ -1087,10 +1087,10 @@ noxtls_return_t noxtls_tls_dhe_context_init(tls_dhe_context_t *ctx, uint16_t nam
     }
     ctx->named_group = named_group;
     ctx->p_len = p_len;
-    ctx->server_private = (uint8_t*)noxtls_malloc(p_len);
-    ctx->server_public  = (uint8_t*)noxtls_malloc(p_len);
-    ctx->client_private = (uint8_t*)noxtls_malloc(p_len);
-    ctx->client_public  = (uint8_t*)noxtls_malloc(p_len);
+    ctx->server_private = (uint8_t*)NOXTLS_MALLOC(p_len);
+    ctx->server_public  = (uint8_t*)NOXTLS_MALLOC(p_len);
+    ctx->client_private = (uint8_t*)NOXTLS_MALLOC(p_len);
+    ctx->client_public  = (uint8_t*)NOXTLS_MALLOC(p_len);
     if ((ctx->server_private == NULL) || (ctx->server_public == NULL) ||
        (ctx->client_private == NULL) || (ctx->client_public == NULL)) {
         if (ctx->server_private != NULL) { (void)noxtls_free(ctx->server_private); }
@@ -1548,7 +1548,7 @@ noxtls_return_t noxtls_tls12_dhe_send_server_key_exchange(tls12_context_t *ctx, 
 
     if (ctx->handshake_workspace != NULL) {
         server_key_exchange = ctx->handshake_workspace;
-        alloc_aux = (uint8_t*)noxtls_malloc(DHE_TO_SIGN_SIZE + DHE_SIG_BUF_SIZE);
+        alloc_aux = (uint8_t*)NOXTLS_MALLOC(DHE_TO_SIGN_SIZE + DHE_SIG_BUF_SIZE);
         if (alloc_aux == NULL) {
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         }
@@ -1556,7 +1556,7 @@ noxtls_return_t noxtls_tls12_dhe_send_server_key_exchange(tls12_context_t *ctx, 
         sig_buf = &alloc_aux[DHE_TO_SIGN_SIZE];
     } else {
         /* MISRA 15.7: final else path */
-        server_key_exchange = (uint8_t*)noxtls_malloc(NOXTLS_TLS12_DHE_SKX_MSG_MAX + DHE_TO_SIGN_SIZE + DHE_SIG_BUF_SIZE);
+        server_key_exchange = (uint8_t*)NOXTLS_MALLOC(NOXTLS_TLS12_DHE_SKX_MSG_MAX + DHE_TO_SIGN_SIZE + DHE_SIG_BUF_SIZE);
         if (server_key_exchange == NULL) {
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         }
@@ -1823,7 +1823,7 @@ noxtls_return_t noxtls_tls12_dhe_recv_server_key_exchange(tls12_context_t *ctx, 
         noxtls_copy_u8(rsa_key.n, (size_t)cert->rsa_modulus_len, cert->rsa_modulus, (size_t)cert->rsa_modulus_len);
         noxtls_copy_u8(rsa_key.e, (size_t)rsa_key.key_bytes, cert->rsa_exponent, (size_t)cert->rsa_exponent_len);
 
-        to_verify = (ctx->handshake_workspace != NULL) ? ctx->handshake_workspace : (uint8_t*)noxtls_malloc(DHE_TO_SIGN_SIZE);
+        to_verify = (ctx->handshake_workspace != NULL) ? ctx->handshake_workspace : (uint8_t*)NOXTLS_MALLOC(DHE_TO_SIGN_SIZE);
         if (to_verify == NULL) {
             (void)noxtls_rsa_key_free(&rsa_key);
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
@@ -1873,7 +1873,7 @@ noxtls_return_t noxtls_tls12_dhe_send_client_key_exchange(tls12_context_t *ctx, 
     }
     uint8_t *client_key_exchange = ctx->handshake_workspace;
     if (client_key_exchange == NULL) {
-        client_key_exchange = (uint8_t*)noxtls_malloc(1024);
+        client_key_exchange = (uint8_t*)NOXTLS_MALLOC(1024);
         if (client_key_exchange == NULL) {
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         }

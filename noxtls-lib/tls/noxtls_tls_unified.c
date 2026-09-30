@@ -935,7 +935,7 @@ noxtls_return_t noxtls_tls_connection_connect(noxtls_tls_connection_t *conn)
                 return NOXTLS_RETURN_FAILED;
             }
 
-            ch_copy = (uint8_t *)noxtls_malloc(ch_len);
+            ch_copy = (uint8_t *)NOXTLS_MALLOC(ch_len);
             if(ch_copy == NULL) {
                 (void)noxtls_free(stash_sh);
                 (void)noxtls_tls13_context_free(&conn->tls13);

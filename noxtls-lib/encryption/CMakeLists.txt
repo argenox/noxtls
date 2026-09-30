@@ -21,6 +21,7 @@ if(NOXTLS_CFG_FEATURE_AES)
           aes/noxtls_aes_accel_stm32_port.c
           ${NOXTLS_LIB_ROOT}/vendor/st/common/noxtls_stm32_aes_core.c
           ${NOXTLS_LIB_ROOT}/vendor/st/common/noxtls_stm32_gcm_core.c
+          ${NOXTLS_LIB_ROOT}/vendor/st/common/noxtls_stm32_u5_aes_core.c
           ${NOXTLS_LIB_ROOT}/vendor/st/common/noxtls_stm32_accel_dispatch.c
           ${NOXTLS_LIB_ROOT}/vendor/st/stm32f2/noxtls_stm32f2_accel.c
           ${NOXTLS_LIB_ROOT}/vendor/st/stm32f4/noxtls_stm32f4_accel.c
@@ -59,6 +60,8 @@ if(NOXTLS_CFG_FEATURE_AES)
   endif()
   if(NOXTLS_CFG_FEATURE_AES_ECB)
     list(APPEND ENC_SOURCES aes/noxtls_aes_ecb.c)
+    # RFC 3394 key wrap is built on single-block AES-ECB.
+    list(APPEND ENC_SOURCES aes/noxtls_aes_keywrap.c)
   endif()
   if(NOXTLS_CFG_FEATURE_AES_CBC)
     list(APPEND ENC_SOURCES aes/noxtls_aes_cbc.c)

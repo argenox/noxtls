@@ -238,7 +238,7 @@ static noxtls_return_t dn_from_cn(const uint8_t *cn, uint8_t *out, uint32_t out_
         return NOXTLS_RETURN_NULL;
     }
 
-    ws = (x509_dn_from_cn_ws_t *)noxtls_malloc(sizeof(x509_dn_from_cn_ws_t));
+    ws = (x509_dn_from_cn_ws_t *)NOXTLS_MALLOC(sizeof(x509_dn_from_cn_ws_t));
     if(ws == NULL) {
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
@@ -352,7 +352,7 @@ noxtls_return_t noxtls_x509_certificate_write_pem(const x509_certificate_t *cert
         return NOXTLS_RETURN_NULL;
     }
 
-    der_buf = (uint8_t *)noxtls_malloc(X509_MAX_CERT_SIZE);
+    der_buf = (uint8_t *)NOXTLS_MALLOC(X509_MAX_CERT_SIZE);
     if(der_buf == NULL) {
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
@@ -434,7 +434,7 @@ noxtls_return_t noxtls_x509_certificate_generate_self_signed_ex(
         return NOXTLS_RETURN_NULL;
     }
 
-    ws = (x509_cert_gen_ws_t *)noxtls_malloc(sizeof(x509_cert_gen_ws_t));
+    ws = (x509_cert_gen_ws_t *)NOXTLS_MALLOC(sizeof(x509_cert_gen_ws_t));
     if(ws == NULL) {
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
@@ -739,7 +739,7 @@ static uint32_t build_extensions(
 
     uint32_t eoff_local = 0U;
     x509_ext_build_ws_t *ws = NULL;
-    ws = (x509_ext_build_ws_t *)noxtls_malloc(sizeof(x509_ext_build_ws_t));
+    ws = (x509_ext_build_ws_t *)NOXTLS_MALLOC(sizeof(x509_ext_build_ws_t));
 
     if(ws == NULL) {
         return 0U;
@@ -1077,8 +1077,8 @@ noxtls_return_t noxtls_x509_certificate_generate_self_signed_with_extensions_ex(
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    ext_ws = (x509_ext_wrap_ws_t *)noxtls_malloc(sizeof(*ext_ws));
-    ws = (x509_cert_gen_ws_t *)noxtls_malloc(sizeof(x509_cert_gen_ws_t));
+    ext_ws = (x509_ext_wrap_ws_t *)NOXTLS_MALLOC(sizeof(*ext_ws));
+    ws = (x509_cert_gen_ws_t *)NOXTLS_MALLOC(sizeof(x509_cert_gen_ws_t));
     if((ext_ws == NULL) || (ws == NULL)) {
         ret = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         (void)noxtls_free(ws);
@@ -1332,7 +1332,7 @@ noxtls_return_t noxtls_x509_csr_create_der(
         return NOXTLS_RETURN_NULL;
     }
 
-    ws = (x509_csr_ws_t *)noxtls_malloc(sizeof(x509_csr_ws_t));
+    ws = (x509_csr_ws_t *)NOXTLS_MALLOC(sizeof(x509_csr_ws_t));
     if(ws == NULL) {
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
@@ -1462,7 +1462,7 @@ noxtls_return_t noxtls_x509_csr_create_pem(
         return NOXTLS_RETURN_NULL;
     }
 
-    der_buf = (uint8_t *)noxtls_malloc(X509_CSR_CRI_MAX + 400U);
+    der_buf = (uint8_t *)NOXTLS_MALLOC(X509_CSR_CRI_MAX + 400U);
     if(der_buf == NULL) {
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
