@@ -61,10 +61,61 @@
 #define NOXTLS_ECDSA_SIGN_SELF_VERIFY 0
 #endif
 
+#if NOXTLS_FEATURE_AES_256
+#define NOXTLS_ECDSA_DRBG_TYPE     DRBG_AES256
+#define NOXTLS_ECDSA_DRBG_SEEDLEN  DRBG_SEEDLEN_AES256
+#else
+/* P-256 ECDSA has a 128-bit security level, so the nRF52 AES-128 ECB
+ * backend is sufficient when the size-constrained target excludes AES-256. */
+#define NOXTLS_ECDSA_DRBG_TYPE     DRBG_AES128
+#define NOXTLS_ECDSA_DRBG_SEEDLEN  DRBG_SEEDLEN_AES128
+#endif
+
 
 /**
  * @brief Bytes remaining between cursor and one-past-end (same object).
  */
+static uint32_t ecdsa_shift_right(uint32_t value, uint32_t count)
+{
+    uint32_t result = 0U;
+    switch(count) {
+    case 0U: result = value >> 0U; break;
+    case 1U: result = value >> 1U; break;
+    case 2U: result = value >> 2U; break;
+    case 3U: result = value >> 3U; break;
+    case 4U: result = value >> 4U; break;
+    case 5U: result = value >> 5U; break;
+    case 6U: result = value >> 6U; break;
+    case 7U: result = value >> 7U; break;
+    case 8U: result = value >> 8U; break;
+    case 9U: result = value >> 9U; break;
+    case 10U: result = value >> 10U; break;
+    case 11U: result = value >> 11U; break;
+    case 12U: result = value >> 12U; break;
+    case 13U: result = value >> 13U; break;
+    case 14U: result = value >> 14U; break;
+    case 15U: result = value >> 15U; break;
+    case 16U: result = value >> 16U; break;
+    case 17U: result = value >> 17U; break;
+    case 18U: result = value >> 18U; break;
+    case 19U: result = value >> 19U; break;
+    case 20U: result = value >> 20U; break;
+    case 21U: result = value >> 21U; break;
+    case 22U: result = value >> 22U; break;
+    case 23U: result = value >> 23U; break;
+    case 24U: result = value >> 24U; break;
+    case 25U: result = value >> 25U; break;
+    case 26U: result = value >> 26U; break;
+    case 27U: result = value >> 27U; break;
+    case 28U: result = value >> 28U; break;
+    case 29U: result = value >> 29U; break;
+    case 30U: result = value >> 30U; break;
+    case 31U: result = value >> 31U; break;
+    default: result = 0U; break;
+    }
+    return result;
+}
+
 static size_t ecdsa_bytes_remaining(const uint8_t *ptr, const uint8_t *end)
 {
     uintptr_t start_addr;
@@ -86,6 +137,12 @@ static const uint32_t ecdsa_s_p256_order_words[8] = {
 };
 
 static noxtls_ecdsa_sign_timing_t s_ecdsa_last_sign_timing;
+
+/* Retained for on-target commissioning diagnostics.  These describe the
+ * last signer invocation without involving the radio/controller path. */
+volatile int32_t noxtls_ecdsa_sign_last_rc = (int32_t)NOXTLS_RETURN_SUCCESS;
+volatile uint32_t noxtls_ecdsa_sign_last_stage = 0U;
+volatile uint8_t noxtls_ecdsa_sign_last_nonce[ECC_MAX_KEY_SIZE];
 
 #ifdef NOXTLS_ECDSA_VERIFY_DEBUG
 
@@ -172,7 +229,7 @@ static noxtls_return_t ecdsa_drbg_generate_bits(uint8_t *out, uint32_t requested
 {
     static drbg_state_t s_ecdsa_drbg_state;
     static int s_ecdsa_drbg_initialized = 0;
-    uint8_t seed[DRBG_SEEDLEN_AES256];
+    uint8_t seed[NOXTLS_ECDSA_DRBG_SEEDLEN];
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if (out == NULL) {
@@ -184,7 +241,7 @@ static noxtls_return_t ecdsa_drbg_generate_bits(uint8_t *out, uint32_t requested
         if (rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
-        rc = drbg_instantiate(&s_ecdsa_drbg_state, DRBG_AES256,
+        rc = drbg_instantiate(&s_ecdsa_drbg_state, NOXTLS_ECDSA_DRBG_TYPE,
                               seed, sizeof(seed), NULL, 0, NULL, 0);
         if (rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
@@ -204,7 +261,7 @@ static noxtls_return_t ecdsa_drbg_generate_bits(uint8_t *out, uint32_t requested
     if (rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    rc = drbg_instantiate(&s_ecdsa_drbg_state, DRBG_AES256,
+    rc = drbg_instantiate(&s_ecdsa_drbg_state, NOXTLS_ECDSA_DRBG_TYPE,
                           seed, sizeof(seed), NULL, 0, NULL, 0);
     if (rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
@@ -477,109 +534,33 @@ static void p256_scalar_mul_words(uint32_t *out, const uint32_t *a, const uint32
  */
 static void p256_scalar_reduce_barrett_words(uint32_t *out, const uint32_t *in)
 {
-    static const uint32_t s_p256_order_mu_words[9] = {
-        0xEEDF9BFEU, 0x012FFD85U, 0xDF1A6C21U, 0x43190552U,
-        0xFFFFFFFFU, 0xFFFFFFFEU, 0xFFFFFFFFU, 0x00000000U,
-        0x00000001U
-    };
-
-    uint32_t q1[9];
-    uint32_t q2[18];
-    uint32_t q3[9];
-    uint32_t r1[9];
-    uint32_t r2_full[17];
-    uint32_t r2[9];
-    uint32_t r[9];
+    uint32_t remainder[9];
     uint32_t n9[9];
-    uint32_t i = 0U;
+    uint32_t word_index;
 
-    noxtls_secure_zero((q1), sizeof(q1));
-    noxtls_secure_zero((q2), sizeof(q2));
-    noxtls_secure_zero((q3), sizeof(q3));
-    noxtls_secure_zero((r1), sizeof(r1));
-    noxtls_secure_zero((r2_full), sizeof(r2_full));
-    noxtls_secure_zero((r2), sizeof(r2));
-    noxtls_secure_zero((r), sizeof(r));
-    noxtls_secure_zero((n9), sizeof(n9));
+    noxtls_secure_zero(remainder, (size_t)(sizeof(remainder)));
+    noxtls_secure_zero(n9, (size_t)(sizeof(n9)));
     noxtls_copy_u8((uint8_t *)(void *)(n9), (size_t)(8U * sizeof(uint32_t)), (const uint8_t *)(const void *)(ecdsa_s_p256_order_words), (size_t)(8U * sizeof(uint32_t)));
 
-    for (i = 0U; i < 9U; i += 1U) {
-        q1[i] = in[i + 7U];
-        r1[i] = in[i];
-    }
+    for(word_index = 16U; word_index > 0U; --word_index) {
+        uint32_t bit_index;
+        uint32_t word = in[word_index - 1U];
 
-    for (i = 0U; i < 9U; i += 1U) {
-        uint64_t carry = 0U;
-        uint32_t j = 0U;
-        for (j = 0U; j < 9U; j += 1U) {
-            uint64_t t = (uint64_t)q2[i + j] + ((uint64_t)q1[i] * (uint64_t)s_p256_order_mu_words[j]) + carry;
-            q2[i + j] = (uint32_t)t;
-            carry = (uint32_t)(t >> 32U);
-        }
-        {
-            uint32_t k = (uint32_t)(i + 9U);
-            while ((carry != 0U) && (k < 18U)) {
-                uint64_t t = (uint64_t)q2[k] + carry;
-                q2[k] = (uint32_t)t;
-                carry = (uint32_t)(t >> 32U);
-                k += 1U;
+        for(bit_index = 32U; bit_index > 0U; --bit_index) {
+            uint32_t limb_index;
+            uint32_t carry = ecdsa_shift_right(word, bit_index - 1U) & 1U;
+
+            for(limb_index = 0U; limb_index < 9U; ++limb_index) {
+                uint32_t next_carry = remainder[limb_index] >> 31;
+                remainder[limb_index] = (remainder[limb_index] << 1) | carry;
+                carry = next_carry;
+            }
+            if(p256_scalar_cmp_words(remainder, n9, 9U) >= 0) {
+                (void)p256_scalar_sub_words(remainder, remainder, n9, 9U);
             }
         }
     }
-
-    for (i = 0U; i < 9U; i += 1U) {
-        q3[i] = q2[i + 9U];
-    }
-
-    for (i = 0U; i < 9U; i += 1U) {
-        uint64_t carry = 0U;
-        uint32_t j = 0U;
-        for (j = 0U; j < 8U; j += 1U) {
-            uint64_t t = (uint64_t)r2_full[i + j] + ((uint64_t)q3[i] * (uint64_t)ecdsa_s_p256_order_words[j]) + carry;
-            r2_full[i + j] = (uint32_t)t;
-            carry = (uint32_t)(t >> 32U);
-        }
-        {
-            uint32_t k = (uint32_t)(i + 8U);
-            while ((carry != 0U) && (k < 17U)) {
-                uint64_t t = (uint64_t)r2_full[k] + carry;
-                r2_full[k] = (uint32_t)t;
-                carry = (uint32_t)(t >> 32U);
-                k += 1U;
-            }
-        }
-    }
-    noxtls_copy_u8((uint8_t *)(void *)(r2), (size_t)(9U * sizeof(uint32_t)), (const uint8_t *)(const void *)(r2_full), (size_t)(9U * sizeof(uint32_t)));
-
-    if (p256_scalar_sub_words(r, r1, r2, 9U) != 0U) {
-        uint64_t carry = 0U;
-        for (i = 0U; i < 9U; i += 1U) {
-            uint64_t t = (uint64_t)r[i] + (uint64_t)n9[i] + carry;
-            r[i] = (uint32_t)t;
-            carry = (uint32_t)(t >> 32U);
-        }
-    }
-
-    while ((r[8] != 0U) || (p256_scalar_cmp_words(r, ecdsa_s_p256_order_words, 8U) >= 0)) {
-        if (r[8] != 0U) {
-            uint64_t borrow = 0U;
-            for (i = 0U; i < 8U; i += 1U) {
-                uint64_t bi = (uint64_t)ecdsa_s_p256_order_words[i] + borrow;
-                if ((uint64_t)r[i] < bi) {
-                    r[i] = (uint32_t)((uint64_t)r[i] + (1ULL << 32U) - bi);
-                    borrow = 1U;
-                } else {
-                    r[i] = (uint32_t)((uint64_t)r[i] - bi);
-                    borrow = 0U;
-                }
-            }
-            r[8] = (uint32_t)((uint64_t)r[8U] - borrow);
-        } else {
-            (void)p256_scalar_sub_words(r, r, ecdsa_s_p256_order_words, 8U);
-        }
-    }
-
-    noxtls_copy_u8((uint8_t *)(void *)(out), (size_t)(8U * sizeof(uint32_t)), (const uint8_t *)(const void *)(r), (size_t)(8U * sizeof(uint32_t)));
+    noxtls_copy_u8((uint8_t *)(void *)(out), (size_t)(8U * sizeof(uint32_t)), (const uint8_t *)(const void *)(remainder), (size_t)(8U * sizeof(uint32_t)));
 }
 
 /**
@@ -612,19 +593,24 @@ static void p256_scalar_add_mod(uint8_t *out, const uint8_t *a, const uint8_t *b
 {
     uint32_t aw[8];
     uint32_t bw[8];
-    uint32_t sum[8];
+    uint32_t sum[9];
+    uint32_t n9[9];
     uint64_t carry = 0U;
     uint32_t i = 0U;
 
-    (void)p256_scalar_words_from_be(aw, a);
-    (void)p256_scalar_words_from_be(bw, b);
-    for (i = 0U; i < 8U; i += 1U) {
+    p256_scalar_words_from_be(aw, a);
+    p256_scalar_words_from_be(bw, b);
+    noxtls_secure_zero(sum, (size_t)(sizeof(sum)));
+    noxtls_secure_zero(n9, (size_t)(sizeof(n9)));
+    noxtls_copy_u8((uint8_t *)(void *)(n9), (size_t)(sizeof(aw)), (const uint8_t *)(const void *)(ecdsa_s_p256_order_words), (size_t)(sizeof(aw)));
+    for(i = 0; i < 8U; i++) {
         uint64_t t = (uint64_t)aw[i] + (uint64_t)bw[i] + carry;
         sum[i] = (uint32_t)t;
         carry = (uint32_t)(t >> 32U);
     }
-    if ((carry != 0U) || (p256_scalar_cmp_words(sum, ecdsa_s_p256_order_words, 8U) >= 0)) {
-        (void)p256_scalar_sub_words(sum, sum, ecdsa_s_p256_order_words, 8U);
+    sum[8] = (uint32_t)carry;
+    if(p256_scalar_cmp_words(sum, n9, 9U) >= 0) {
+        (void)p256_scalar_sub_words(sum, sum, n9, 9U);
     }
     (void)p256_scalar_words_to_be(out, sum);
 }
@@ -1213,6 +1199,8 @@ noxtls_return_t noxtls_ecdsa_sign(const ecc_key_t *key, const uint8_t *noxtls_me
     noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
     uint64_t sign_t0 = 0U;
     uint64_t step_t0 = 0U;
+    noxtls_ecdsa_sign_last_rc = (int32_t)NOXTLS_RETURN_SUCCESS;
+    noxtls_ecdsa_sign_last_stage = 1U;
     
     if ((key == NULL) || (noxtls_message == NULL) || (signature == NULL)) {
         return NOXTLS_RETURN_NULL;
@@ -1233,7 +1221,8 @@ noxtls_return_t noxtls_ecdsa_sign(const ecc_key_t *key, const uint8_t *noxtls_me
     step_t0 = ecdsa_profile_now_us();
     rc = ecdsa_hash_message(hash_fast, &hash_fast_len, noxtls_message, message_len, hash_algo);
     s_ecdsa_last_sign_timing.hash_prepare_us = ecdsa_profile_elapsed_us(step_t0);
-    if (rc != NOXTLS_RETURN_SUCCESS) {
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_ecdsa_sign_last_rc = (int32_t)rc;
         return rc;
     }
     if (hash_fast_len >= size) {
@@ -1254,7 +1243,8 @@ noxtls_return_t noxtls_ecdsa_sign(const ecc_key_t *key, const uint8_t *noxtls_me
     step_t0 = ecdsa_profile_now_us();
     rc = noxtls_ecdsa_sign_accel_port(key, h_fast, size, signature);
     s_ecdsa_last_sign_timing.accel_port_us = ecdsa_profile_elapsed_us(step_t0);
-    if (rc == NOXTLS_RETURN_SUCCESS) {
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        noxtls_ecdsa_sign_last_stage = 9U;
         s_ecdsa_last_sign_timing.total_us = ecdsa_profile_elapsed_us(sign_t0);
         return NOXTLS_RETURN_SUCCESS;
     }
@@ -1263,9 +1253,11 @@ noxtls_return_t noxtls_ecdsa_sign(const ecc_key_t *key, const uint8_t *noxtls_me
     {
         const size_t scratch_len = (size_t)(64U + ((size_t)size * 10U) + 2U);
         size_t off = 0U;
-        scratch = (uint8_t *)noxtls_calloc(scratch_len, 1U);
+        scratch = (uint8_t *)NOXTLS_CALLOC(scratch_len, 1U);
         if (scratch == NULL) {
             rc = NOXTLS_RETURN_FAILED;
+            noxtls_ecdsa_sign_last_stage = 2U;
+            noxtls_ecdsa_sign_last_rc = (int32_t)rc;
             if (scratch != NULL) { (void)noxtls_free(scratch); }
             s_ecdsa_last_sign_timing.total_us = ecdsa_profile_elapsed_us(sign_t0);
             
@@ -1294,6 +1286,8 @@ noxtls_return_t noxtls_ecdsa_sign(const ecc_key_t *key, const uint8_t *noxtls_me
 
     if ((hash == NULL) || (k == NULL) || (k_inv == NULL) || (h == NULL) || (r_times_d == NULL) || (sum_tmp == NULL) || (h_plus_rd == NULL) || (s_product == NULL) || (random_bytes == NULL)) {
         rc = NOXTLS_RETURN_FAILED;
+        noxtls_ecdsa_sign_last_stage = 2U;
+        noxtls_ecdsa_sign_last_rc = (int32_t)rc;
         if (scratch != NULL) { (void)noxtls_free(scratch); }
         s_ecdsa_last_sign_timing.total_us = ecdsa_profile_elapsed_us(sign_t0);
         
@@ -1314,7 +1308,9 @@ noxtls_return_t noxtls_ecdsa_sign(const ecc_key_t *key, const uint8_t *noxtls_me
             step_t0 = ecdsa_profile_now_us();
             rc = ecdsa_drbg_generate_bits(random_bytes, bits);
             if (rc != NOXTLS_RETURN_SUCCESS) {
-                if (scratch != NULL) { (void)noxtls_free(scratch); }
+                    noxtls_ecdsa_sign_last_stage = 3U;
+                noxtls_ecdsa_sign_last_rc = (int32_t)rc;
+            if (scratch != NULL) { (void)noxtls_free(scratch); }
                 s_ecdsa_last_sign_timing.total_us = ecdsa_profile_elapsed_us(sign_t0);
                 
                 return rc;
@@ -1330,12 +1326,17 @@ noxtls_return_t noxtls_ecdsa_sign(const ecc_key_t *key, const uint8_t *noxtls_me
 
             /* Ensure k is not zero */
         } while (noxtls_bn_is_zero(k, size) != 0);
+        for(uint32_t nonce_index = 0U; nonce_index < size; ++nonce_index) {
+            noxtls_ecdsa_sign_last_nonce[nonce_index] = k[nonce_index];
+        }
 
         /* Step 3: Compute (x, y) = k * G */
         step_t0 = ecdsa_profile_now_us();
         rc = noxtls_ecc_point_multiply(&kG, k, &key->curve->G, key->curve);
         s_ecdsa_last_sign_timing.base_point_mul_us += ecdsa_profile_elapsed_us(step_t0);
         if (rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_ecdsa_sign_last_stage = 4U;
+            noxtls_ecdsa_sign_last_rc = (int32_t)rc;
             if (scratch != NULL) { (void)noxtls_free(scratch); }
             s_ecdsa_last_sign_timing.total_us = ecdsa_profile_elapsed_us(sign_t0);
             
@@ -1361,7 +1362,9 @@ noxtls_return_t noxtls_ecdsa_sign(const ecc_key_t *key, const uint8_t *noxtls_me
         step_t0 = ecdsa_profile_now_us();
         rc = ecdsa_mod_inv_prime(k_inv, k, key->curve->n, size);
         s_ecdsa_last_sign_timing.nonce_inv_us += ecdsa_profile_elapsed_us(step_t0);
-        if (rc != NOXTLS_RETURN_SUCCESS) {
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_ecdsa_sign_last_stage = 5U;
+            noxtls_ecdsa_sign_last_rc = (int32_t)rc;
             continue;
         }
 
@@ -1423,6 +1426,7 @@ noxtls_return_t noxtls_ecdsa_sign(const ecc_key_t *key, const uint8_t *noxtls_me
 
         /* Success! */
         rc = NOXTLS_RETURN_SUCCESS;
+        noxtls_ecdsa_sign_last_stage = 9U;
         if (scratch != NULL) { (void)noxtls_free(scratch); }
         s_ecdsa_last_sign_timing.total_us = ecdsa_profile_elapsed_us(sign_t0);
         
@@ -1435,6 +1439,7 @@ noxtls_return_t noxtls_ecdsa_sign(const ecc_key_t *key, const uint8_t *noxtls_me
     }
 
 if (scratch != NULL) { (void)noxtls_free(scratch); }
+    noxtls_ecdsa_sign_last_rc = (int32_t)rc;
     s_ecdsa_last_sign_timing.total_us = ecdsa_profile_elapsed_us(sign_t0);
     
     return rc;
@@ -1543,7 +1548,7 @@ noxtls_return_t noxtls_ecdsa_verify(const ecc_key_t *key, const uint8_t *noxtls_
     {
         const size_t scratch_len = (size_t)(64U + ((size_t)size * 7U));
         size_t off = 0U;
-        scratch = (uint8_t *)noxtls_calloc(scratch_len, 1U);
+        scratch = (uint8_t *)NOXTLS_CALLOC(scratch_len, 1U);
         if (scratch == NULL) {
             rc = NOXTLS_RETURN_FAILED;
             if (scratch != NULL) { (void)noxtls_free(scratch); }
@@ -1701,7 +1706,7 @@ noxtls_return_t noxtls_ecdsa_verify(const ecc_key_t *key, const uint8_t *noxtls_
     (void)ecdsa_debug_hex("v", v, size);
     (void)ecdsa_debug_hex("signature->r (compare)", signature->r, size);
     (void)noxtls_debug_printf((const uint8_t *)"[ecdsa_verify] v %s r (cmp=%d)\n",
-           noxtls_bn_cmp(v, signature->r, size) == 0 ? "==" : "!=",
+           (void)noxtls_bn_cmp(v, signature->r, size) == 0 ? "==" : "!=",
            noxtls_bn_cmp(v, signature->r, size));
 #endif
 

@@ -305,7 +305,7 @@ static noxtls_return_t tls_queue_pending_output(tls_context_t *ctx,
     if ((len > ctx->io_tx_queue_limit) || (pending > (ctx->io_tx_queue_limit - len))) {
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
-    next = (uint8_t *)noxtls_malloc(pending + len);
+    next = (uint8_t *)NOXTLS_MALLOC(pending + len);
     if (next == NULL) {
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
@@ -422,7 +422,7 @@ noxtls_return_t noxtls_tls_send_record(tls_context_t *ctx, uint8_t type, const u
     
     record = ctx->record_send_buf;
     if (record == NULL) {
-        record = (uint8_t*)noxtls_malloc(5U + TLS_MAX_PROTECTED_RECORD_FRAGMENT);
+        record = (uint8_t*)NOXTLS_MALLOC(5U + TLS_MAX_PROTECTED_RECORD_FRAGMENT);
         if (record == NULL) {
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         }
@@ -559,7 +559,7 @@ static noxtls_return_t tls_nonblocking_recv_record(tls_context_t *ctx,
     }
 
     if ((ctx->io_rx_payload == NULL) && (length > 0U)) {
-        ctx->io_rx_payload = (uint8_t *)noxtls_malloc(length);
+        ctx->io_rx_payload = (uint8_t *)NOXTLS_MALLOC(length);
         if (ctx->io_rx_payload == NULL) {
             ctx->io_rx_header_len = 0U;
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
@@ -743,7 +743,7 @@ noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
             record->type = TLS_RECORD_HANDSHAKE;
             record->version = ctx->version;
             record->length = complete_len + 4U;
-            record->data = (uint8_t*)noxtls_malloc((size_t)record->length);
+            record->data = (uint8_t*)NOXTLS_MALLOC((size_t)record->length);
             if (record->data == NULL) {
                 (void)noxtls_free(complete_msg);
                 return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
@@ -807,7 +807,7 @@ noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
         (void)noxtls_debug_printf((const uint8_t *)"[TLS_DEBUG] tls_recv_record: Record length %u exceeds protected max %u\n",
                             length, (uint32_t)TLS_MAX_PROTECTED_RECORD_FRAGMENT);
         /* Drain so the stream stays aligned; caller sends record_overflow. */
-        uint8_t *drain = (uint8_t*)noxtls_malloc(length);
+        uint8_t *drain = (uint8_t*)NOXTLS_MALLOC(length);
         if (drain != NULL) {
             (void)ctx->recv_callback(ctx->user_data, drain, length);
             (void)noxtls_free(drain);
@@ -824,7 +824,7 @@ noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
                             (uint32_t)record->type, (uint32_t)length);
         /* Read full payload so the byte stream stays aligned; upper layer sends fatal unexpected_message. */
         if (length > 0U) {
-            uint8_t *drain = (uint8_t*)noxtls_malloc(length);
+            uint8_t *drain = (uint8_t*)NOXTLS_MALLOC(length);
             if (drain == NULL) {
                 return NOXTLS_RETURN_FAILED;
             }
@@ -846,7 +846,7 @@ noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
     /* Allocate and receive record data */
     if (length > 0U) {
         (void)noxtls_debug_printf((const uint8_t *)"[TLS_DEBUG] tls_recv_record: Allocating %u bytes for record data...\n", length);
-        record->data = (uint8_t*)noxtls_malloc(length);
+        record->data = (uint8_t*)NOXTLS_MALLOC(length);
         if (record->data == NULL) {
             (void)noxtls_debug_printf((const uint8_t *)"[TLS_DEBUG] tls_recv_record: Memory allocation failed\n");
             return NOXTLS_RETURN_FAILED;
@@ -1077,7 +1077,7 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
             (void)noxtls_free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
-        new_buf = (uint8_t*)noxtls_realloc(record.data, assembled_len + next_record.length);
+        new_buf = (uint8_t*)NOXTLS_REALLOC(record.data, assembled_len + next_record.length);
         if (new_buf == NULL) {
             if (next_record.data != NULL) {
                 (void)noxtls_free(next_record.data);
@@ -1131,7 +1131,7 @@ noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *det
             (void)noxtls_free(record.data);
             return NOXTLS_RETURN_TLS_ERROR;
         }
-        new_buf = (uint8_t*)noxtls_realloc(record.data, assembled_len + next_record.length);
+        new_buf = (uint8_t*)NOXTLS_REALLOC(record.data, assembled_len + next_record.length);
         if (new_buf == NULL) {
             if (next_record.data != NULL) { (void)noxtls_free(next_record.data); }
             (void)noxtls_free(record.data);

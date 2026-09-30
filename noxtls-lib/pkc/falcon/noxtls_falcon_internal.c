@@ -3332,9 +3332,9 @@ static noxtls_return_t falcon_bn_exact_div_positive(uint8_t *quotient,
     }
     }
 
-    remainder = (uint8_t*)noxtls_calloc(numerator_len, 1U);
-    shifted = (uint8_t*)noxtls_calloc(numerator_len, 1U);
-    qwide = (uint8_t*)noxtls_calloc(numerator_len, 1U);
+    remainder = (uint8_t*)NOXTLS_CALLOC(numerator_len, 1U);
+    shifted = (uint8_t*)NOXTLS_CALLOC(numerator_len, 1U);
+    qwide = (uint8_t*)NOXTLS_CALLOC(numerator_len, 1U);
     if(remainder == NULL || shifted == NULL || qwide == NULL) {
         if(remainder != NULL) {
         (void)noxtls_free(remainder);
@@ -3516,7 +3516,7 @@ static noxtls_return_t falcon_bn_mul_to_len(uint8_t *out,
     if(out == NULL || a == NULL || b == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    prod = (uint8_t*)noxtls_calloc(a_len + b_len, 1U);
+    prod = (uint8_t*)NOXTLS_CALLOC(a_len + b_len, 1U);
     if(prod == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -3643,8 +3643,8 @@ static noxtls_return_t falcon_bn_signed_add_to_len(const uint8_t *a_mag,
         return NOXTLS_RETURN_FAILED;
     }
 
-    awide = (uint8_t*)noxtls_calloc(out_len, 1U);
-    bwide = (uint8_t*)noxtls_calloc(out_len, 1U);
+    awide = (uint8_t*)NOXTLS_CALLOC(out_len, 1U);
+    bwide = (uint8_t*)NOXTLS_CALLOC(out_len, 1U);
     if((awide == NULL) || (bwide == NULL)) {
         if(awide != NULL) {
         (void)noxtls_free(awide);
@@ -3788,8 +3788,8 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n2(const uint8_t *a0_mag,
         return NOXTLS_RETURN_FAILED;
     }
 
-    sq0 = (uint8_t*)noxtls_calloc(len << 1U, 1U);
-    sq1 = (uint8_t*)noxtls_calloc(len << 1U, 1U);
+    sq0 = (uint8_t*)NOXTLS_CALLOC(len << 1U, 1U);
+    sq1 = (uint8_t*)NOXTLS_CALLOC(len << 1U, 1U);
     if((sq0 == NULL) || (sq1 == NULL)) {
         if(sq0 != NULL) {
         (void)noxtls_free(sq0);
@@ -3882,14 +3882,14 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n4(const uint8_t *a_mag,
     a1_mag = &a_mag[coeff_len];
     a2_mag = &a_mag[coeff_len << 1U];
     a3_mag = &a_mag[coeff_len * 3U];
-    sq0 = (uint8_t*)noxtls_calloc(prod_len, 1U);
-    sq1 = (uint8_t*)noxtls_calloc(prod_len, 1U);
-    sq2 = (uint8_t*)noxtls_calloc(prod_len, 1U);
-    sq3 = (uint8_t*)noxtls_calloc(prod_len, 1U);
-    p02 = (uint8_t*)noxtls_calloc(prod_len, 1U);
-    p13 = (uint8_t*)noxtls_calloc(prod_len, 1U);
-    term0 = (uint8_t*)noxtls_calloc(norm_len, 1U);
-    term1 = (uint8_t*)noxtls_calloc(norm_len, 1U);
+    sq0 = (uint8_t*)NOXTLS_CALLOC(prod_len, 1U);
+    sq1 = (uint8_t*)NOXTLS_CALLOC(prod_len, 1U);
+    sq2 = (uint8_t*)NOXTLS_CALLOC(prod_len, 1U);
+    sq3 = (uint8_t*)NOXTLS_CALLOC(prod_len, 1U);
+    p02 = (uint8_t*)NOXTLS_CALLOC(prod_len, 1U);
+    p13 = (uint8_t*)NOXTLS_CALLOC(prod_len, 1U);
+    term0 = (uint8_t*)NOXTLS_CALLOC(norm_len, 1U);
+    term1 = (uint8_t*)NOXTLS_CALLOC(norm_len, 1U);
     if(sq0 == NULL || sq1 == NULL || sq2 == NULL || sq3 == NULL ||
        p02 == NULL || p13 == NULL || term0 == NULL || term1 == NULL) {
         if(sq0 != NULL) {
@@ -4316,10 +4316,10 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n8(const uint8_t *a_mag,
         return NOXTLS_RETURN_FAILED;
     }
 
-    even_mag = (uint8_t*)noxtls_calloc(coeff_len * 4U, 1U);
-    odd_mag = (uint8_t*)noxtls_calloc(coeff_len * 4U, 1U);
-    ee_mag = (uint8_t*)noxtls_calloc(norm_len * 4U, 1U);
-    oo_mag = (uint8_t*)noxtls_calloc(norm_len * 4U, 1U);
+    even_mag = (uint8_t*)NOXTLS_CALLOC(coeff_len * 4U, 1U);
+    odd_mag = (uint8_t*)NOXTLS_CALLOC(coeff_len * 4U, 1U);
+    ee_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 4U, 1U);
+    oo_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 4U, 1U);
     if(even_mag == NULL || odd_mag == NULL || ee_mag == NULL || oo_mag == NULL) {
         if(even_mag != NULL) {
         (void)noxtls_free(even_mag);
@@ -4540,10 +4540,10 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n16(const uint8_t *a_mag,
         return NOXTLS_RETURN_FAILED;
     }
 
-    even_mag = (uint8_t*)noxtls_calloc(coeff_len * 8U, 1U);
-    odd_mag = (uint8_t*)noxtls_calloc(coeff_len * 8U, 1U);
-    ee_mag = (uint8_t*)noxtls_calloc(norm_len * 8U, 1U);
-    oo_mag = (uint8_t*)noxtls_calloc(norm_len * 8U, 1U);
+    even_mag = (uint8_t*)NOXTLS_CALLOC(coeff_len * 8U, 1U);
+    odd_mag = (uint8_t*)NOXTLS_CALLOC(coeff_len * 8U, 1U);
+    ee_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 8U, 1U);
+    oo_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 8U, 1U);
     if(even_mag == NULL || odd_mag == NULL || ee_mag == NULL || oo_mag == NULL) {
         if(even_mag != NULL) {
         (void)noxtls_free(even_mag);
@@ -4764,10 +4764,10 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n32(const uint8_t *a_mag,
         return NOXTLS_RETURN_FAILED;
     }
 
-    even_mag = (uint8_t*)noxtls_calloc(coeff_len * 16U, 1U);
-    odd_mag = (uint8_t*)noxtls_calloc(coeff_len * 16U, 1U);
-    ee_mag = (uint8_t*)noxtls_calloc(norm_len * 16U, 1U);
-    oo_mag = (uint8_t*)noxtls_calloc(norm_len * 16U, 1U);
+    even_mag = (uint8_t*)NOXTLS_CALLOC(coeff_len * 16U, 1U);
+    odd_mag = (uint8_t*)NOXTLS_CALLOC(coeff_len * 16U, 1U);
+    ee_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 16U, 1U);
+    oo_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 16U, 1U);
     if(even_mag == NULL || odd_mag == NULL || ee_mag == NULL || oo_mag == NULL) {
         if(even_mag != NULL) {
         (void)noxtls_free(even_mag);
@@ -4988,10 +4988,10 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n64(const uint8_t *a_mag,
         return NOXTLS_RETURN_FAILED;
     }
 
-    even_mag = (uint8_t*)noxtls_calloc(coeff_len * 32U, 1U);
-    odd_mag = (uint8_t*)noxtls_calloc(coeff_len * 32U, 1U);
-    ee_mag = (uint8_t*)noxtls_calloc(norm_len * 32U, 1U);
-    oo_mag = (uint8_t*)noxtls_calloc(norm_len * 32U, 1U);
+    even_mag = (uint8_t*)NOXTLS_CALLOC(coeff_len * 32U, 1U);
+    odd_mag = (uint8_t*)NOXTLS_CALLOC(coeff_len * 32U, 1U);
+    ee_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 32U, 1U);
+    oo_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 32U, 1U);
     if(even_mag == NULL || odd_mag == NULL || ee_mag == NULL || oo_mag == NULL) {
         if(even_mag != NULL) {
         (void)noxtls_free(even_mag);
@@ -5212,10 +5212,10 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n128(const uint8_t *a_mag,
         return NOXTLS_RETURN_FAILED;
     }
 
-    even_mag = (uint8_t*)noxtls_calloc(coeff_len * 64U, 1U);
-    odd_mag = (uint8_t*)noxtls_calloc(coeff_len * 64U, 1U);
-    ee_mag = (uint8_t*)noxtls_calloc(norm_len * 64U, 1U);
-    oo_mag = (uint8_t*)noxtls_calloc(norm_len * 64U, 1U);
+    even_mag = (uint8_t*)NOXTLS_CALLOC(coeff_len * 64U, 1U);
+    odd_mag = (uint8_t*)NOXTLS_CALLOC(coeff_len * 64U, 1U);
+    ee_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 64U, 1U);
+    oo_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 64U, 1U);
     if(even_mag == NULL || odd_mag == NULL || ee_mag == NULL || oo_mag == NULL) {
         if(even_mag != NULL) {
         (void)noxtls_free(even_mag);
@@ -5436,10 +5436,10 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n256(const uint8_t *a_mag,
         return NOXTLS_RETURN_FAILED;
     }
 
-    even_mag = (uint8_t*)noxtls_calloc(coeff_len * 128U, 1U);
-    odd_mag = (uint8_t*)noxtls_calloc(coeff_len * 128U, 1U);
-    ee_mag = (uint8_t*)noxtls_calloc(norm_len * 128U, 1U);
-    oo_mag = (uint8_t*)noxtls_calloc(norm_len * 128U, 1U);
+    even_mag = (uint8_t*)NOXTLS_CALLOC(coeff_len * 128U, 1U);
+    odd_mag = (uint8_t*)NOXTLS_CALLOC(coeff_len * 128U, 1U);
+    ee_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 128U, 1U);
+    oo_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 128U, 1U);
     if(even_mag == NULL || odd_mag == NULL || ee_mag == NULL || oo_mag == NULL) {
         if(even_mag != NULL) {
         (void)noxtls_free(even_mag);
@@ -5660,10 +5660,10 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n512(const uint8_t *a_mag,
         return NOXTLS_RETURN_FAILED;
     }
 
-    even_mag = (uint8_t*)noxtls_calloc(coeff_len * 256u, 1U);
-    odd_mag = (uint8_t*)noxtls_calloc(coeff_len * 256u, 1U);
-    ee_mag = (uint8_t*)noxtls_calloc(norm_len * 256u, 1U);
-    oo_mag = (uint8_t*)noxtls_calloc(norm_len * 256u, 1U);
+    even_mag = (uint8_t*)NOXTLS_CALLOC(coeff_len * 256u, 1U);
+    odd_mag = (uint8_t*)NOXTLS_CALLOC(coeff_len * 256u, 1U);
+    ee_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 256u, 1U);
+    oo_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 256u, 1U);
     if(even_mag == NULL || odd_mag == NULL || ee_mag == NULL || oo_mag == NULL) {
         if(even_mag != NULL) {
         (void)noxtls_free(even_mag);
@@ -5894,8 +5894,8 @@ static noxtls_return_t falcon_bn_poly_mul_xn1_signed_to_len(const uint8_t *a_mag
 
     noxtls_secure_zero((out_mag), ((size_t)n * out_coeff_len));
     noxtls_secure_zero((out_negative), (size_t)((n)));
-    term_mag = (uint8_t*)noxtls_calloc(out_coeff_len, 1U);
-    sum_mag = (uint8_t*)noxtls_calloc(out_coeff_len, 1U);
+    term_mag = (uint8_t*)NOXTLS_CALLOC(out_coeff_len, 1U);
+    sum_mag = (uint8_t*)NOXTLS_CALLOC(out_coeff_len, 1U);
     if((term_mag == NULL) || (sum_mag == NULL)) {
         if(term_mag != NULL) {
         (void)noxtls_free(term_mag);
@@ -6032,10 +6032,10 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n2(const uint8_t *f_mag,
     }
 
     norm_len = (uint32_t)((coeff_len << 1U) + 1U);
-    f_norm = (uint8_t*)noxtls_calloc(norm_len, 1U);
-    g_norm = (uint8_t*)noxtls_calloc(norm_len, 1U);
-    Fp_mag = (uint8_t*)noxtls_calloc(norm_len, 1U);
-    Gp_mag = (uint8_t*)noxtls_calloc(norm_len, 1U);
+    f_norm = (uint8_t*)NOXTLS_CALLOC(norm_len, 1U);
+    g_norm = (uint8_t*)NOXTLS_CALLOC(norm_len, 1U);
+    Fp_mag = (uint8_t*)NOXTLS_CALLOC(norm_len, 1U);
+    Gp_mag = (uint8_t*)NOXTLS_CALLOC(norm_len, 1U);
     if(f_norm == NULL || g_norm == NULL || Fp_mag == NULL || Gp_mag == NULL) {
         if(f_norm != NULL) {
         (void)noxtls_free(f_norm);
@@ -6272,12 +6272,12 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n4(const uint8_t *f_mag,
 
     norm_len = (uint32_t)((coeff_len << 1U) + 1U);
     child_len = (uint32_t)((norm_len * 3U) + 1U);
-    f_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 2U, 1U);
-    g_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 2U, 1U);
-    Fp_mag = (uint8_t*)noxtls_calloc(child_len * 2U, 1U);
-    Gp_mag = (uint8_t*)noxtls_calloc(child_len * 2U, 1U);
-    Fp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 4U, 1U);
-    Gp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 4U, 1U);
+    f_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 2U, 1U);
+    g_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 2U, 1U);
+    Fp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 2U, 1U);
+    Gp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 2U, 1U);
+    Fp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 4U, 1U);
+    Gp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 4U, 1U);
     if(f_norm_mag == NULL || g_norm_mag == NULL || Fp_mag == NULL || Gp_mag == NULL ||
        Fp_lift_mag == NULL || Gp_lift_mag == NULL) {
         if(f_norm_mag != NULL) {
@@ -6609,12 +6609,12 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n8(const uint8_t *f_mag,
 
     norm_len = (uint32_t)((coeff_len << 1U) + 1U);
     child_len = (uint32_t)((norm_len * 7U) + 4U);
-    f_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 4U, 1U);
-    g_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 4U, 1U);
-    Fp_mag = (uint8_t*)noxtls_calloc(child_len * 4U, 1U);
-    Gp_mag = (uint8_t*)noxtls_calloc(child_len * 4U, 1U);
-    Fp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 8U, 1U);
-    Gp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 8U, 1U);
+    f_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 4U, 1U);
+    g_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 4U, 1U);
+    Fp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 4U, 1U);
+    Gp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 4U, 1U);
+    Fp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 8U, 1U);
+    Gp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 8U, 1U);
     if(f_norm_mag == NULL || g_norm_mag == NULL || Fp_mag == NULL || Gp_mag == NULL ||
        Fp_lift_mag == NULL || Gp_lift_mag == NULL) {
         if(f_norm_mag != NULL) {
@@ -6906,12 +6906,12 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n16(const uint8_t *f_mag,
 
     norm_len = (uint32_t)((coeff_len << 1U) + 1U);
     child_len = (uint32_t)((norm_len * 15U) + 11U);
-    f_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 8U, 1U);
-    g_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 8U, 1U);
-    Fp_mag = (uint8_t*)noxtls_calloc(child_len * 8U, 1U);
-    Gp_mag = (uint8_t*)noxtls_calloc(child_len * 8U, 1U);
-    Fp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 16U, 1U);
-    Gp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 16U, 1U);
+    f_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 8U, 1U);
+    g_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 8U, 1U);
+    Fp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 8U, 1U);
+    Gp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 8U, 1U);
+    Fp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 16U, 1U);
+    Gp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 16U, 1U);
     if(f_norm_mag == NULL || g_norm_mag == NULL || Fp_mag == NULL || Gp_mag == NULL ||
        Fp_lift_mag == NULL || Gp_lift_mag == NULL) {
         if(f_norm_mag != NULL) {
@@ -7203,12 +7203,12 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n32(const uint8_t *f_mag,
 
     norm_len = (uint32_t)((coeff_len << 1U) + 1U);
     child_len = (uint32_t)((norm_len * 31U) + 26U);
-    f_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 16U, 1U);
-    g_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 16U, 1U);
-    Fp_mag = (uint8_t*)noxtls_calloc(child_len * 16U, 1U);
-    Gp_mag = (uint8_t*)noxtls_calloc(child_len * 16U, 1U);
-    Fp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 32U, 1U);
-    Gp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 32U, 1U);
+    f_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 16U, 1U);
+    g_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 16U, 1U);
+    Fp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 16U, 1U);
+    Gp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 16U, 1U);
+    Fp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 32U, 1U);
+    Gp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 32U, 1U);
     if(f_norm_mag == NULL || g_norm_mag == NULL || Fp_mag == NULL || Gp_mag == NULL ||
        Fp_lift_mag == NULL || Gp_lift_mag == NULL) {
         if(f_norm_mag != NULL) {
@@ -7500,12 +7500,12 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n64(const uint8_t *f_mag,
 
     norm_len = (uint32_t)((coeff_len << 1U) + 1U);
     child_len = (uint32_t)((norm_len * 63u) + 57u);
-    f_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 32U, 1U);
-    g_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 32U, 1U);
-    Fp_mag = (uint8_t*)noxtls_calloc(child_len * 32U, 1U);
-    Gp_mag = (uint8_t*)noxtls_calloc(child_len * 32U, 1U);
-    Fp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 64U, 1U);
-    Gp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 64U, 1U);
+    f_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 32U, 1U);
+    g_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 32U, 1U);
+    Fp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 32U, 1U);
+    Gp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 32U, 1U);
+    Fp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 64U, 1U);
+    Gp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 64U, 1U);
     if(f_norm_mag == NULL || g_norm_mag == NULL || Fp_mag == NULL || Gp_mag == NULL ||
        Fp_lift_mag == NULL || Gp_lift_mag == NULL) {
         if(f_norm_mag != NULL) {
@@ -7797,12 +7797,12 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n128(const uint8_t *f_mag,
 
     norm_len = (uint32_t)((coeff_len << 1U) + 1U);
     child_len = (uint32_t)((norm_len * 127u) + 120u);
-    f_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 64U, 1U);
-    g_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 64U, 1U);
-    Fp_mag = (uint8_t*)noxtls_calloc(child_len * 64U, 1U);
-    Gp_mag = (uint8_t*)noxtls_calloc(child_len * 64U, 1U);
-    Fp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 128U, 1U);
-    Gp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 128U, 1U);
+    f_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 64U, 1U);
+    g_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 64U, 1U);
+    Fp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 64U, 1U);
+    Gp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 64U, 1U);
+    Fp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 128U, 1U);
+    Gp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 128U, 1U);
     if(f_norm_mag == NULL || g_norm_mag == NULL || Fp_mag == NULL || Gp_mag == NULL ||
        Fp_lift_mag == NULL || Gp_lift_mag == NULL) {
         if(f_norm_mag != NULL) {
@@ -8094,12 +8094,12 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n256(const uint8_t *f_mag,
 
     norm_len = (uint32_t)((coeff_len << 1U) + 1U);
     child_len = (uint32_t)((norm_len * 255u) + 247u);
-    f_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 128U, 1U);
-    g_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 128U, 1U);
-    Fp_mag = (uint8_t*)noxtls_calloc(child_len * 128U, 1U);
-    Gp_mag = (uint8_t*)noxtls_calloc(child_len * 128U, 1U);
-    Fp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 256u, 1U);
-    Gp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 256u, 1U);
+    f_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 128U, 1U);
+    g_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 128U, 1U);
+    Fp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 128U, 1U);
+    Gp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 128U, 1U);
+    Fp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 256u, 1U);
+    Gp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 256u, 1U);
     if(f_norm_mag == NULL || g_norm_mag == NULL || Fp_mag == NULL || Gp_mag == NULL ||
        Fp_lift_mag == NULL || Gp_lift_mag == NULL) {
         if(f_norm_mag != NULL) {
@@ -8391,12 +8391,12 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n512(const uint8_t *f_mag,
 
     norm_len = (uint32_t)((coeff_len << 1U) + 1U);
     child_len = (uint32_t)((norm_len * 511u) + 502u);
-    f_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 256u, 1U);
-    g_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 256u, 1U);
-    Fp_mag = (uint8_t*)noxtls_calloc(child_len * 256u, 1U);
-    Gp_mag = (uint8_t*)noxtls_calloc(child_len * 256u, 1U);
-    Fp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 512U, 1U);
-    Gp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 512U, 1U);
+    f_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 256u, 1U);
+    g_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 256u, 1U);
+    Fp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 256u, 1U);
+    Gp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 256u, 1U);
+    Fp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 512U, 1U);
+    Gp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 512U, 1U);
     if(f_norm_mag == NULL || g_norm_mag == NULL || Fp_mag == NULL || Gp_mag == NULL ||
        Fp_lift_mag == NULL || Gp_lift_mag == NULL) {
         if(f_norm_mag != NULL) {
@@ -8758,13 +8758,13 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_base_bn(const uint8_t *f_mag,
         }
     }
 
-    q_buf = (uint8_t*)noxtls_calloc(len, 1U);
-    inv_f = (uint8_t*)noxtls_calloc(len, 1U);
-    prod = (uint8_t*)noxtls_calloc(len * 2U, 1U);
-    g_abs = (uint8_t*)noxtls_calloc(len, 1U);
-    g_term = (uint8_t*)noxtls_calloc(len * 2U, 1U);
-    numerator = (uint8_t*)noxtls_calloc(len * 2U, 1U);
-    numerator_abs = (uint8_t*)noxtls_calloc(len * 2U, 1U);
+    q_buf = (uint8_t*)NOXTLS_CALLOC(len, 1U);
+    inv_f = (uint8_t*)NOXTLS_CALLOC(len, 1U);
+    prod = (uint8_t*)NOXTLS_CALLOC(len * 2U, 1U);
+    g_abs = (uint8_t*)NOXTLS_CALLOC(len, 1U);
+    g_term = (uint8_t*)NOXTLS_CALLOC(len * 2U, 1U);
+    numerator = (uint8_t*)NOXTLS_CALLOC(len * 2U, 1U);
+    numerator_abs = (uint8_t*)NOXTLS_CALLOC(len * 2U, 1U);
     if(q_buf == NULL || inv_f == NULL || prod == NULL || g_abs == NULL ||
        g_term == NULL || numerator == NULL || numerator_abs == NULL) {
         if(q_buf != NULL) {
@@ -10451,22 +10451,22 @@ static noxtls_return_t falcon_keygen_reduce_solution_bn_to_i32(const int16_t *f,
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    f_mag = (uint8_t*)noxtls_calloc((size_t)n * 2U, 1U);
-    g_mag = (uint8_t*)noxtls_calloc((size_t)n * 2U, 1U);
-    f_negative = (uint8_t*)noxtls_calloc(n, 1U);
-    g_negative = (uint8_t*)noxtls_calloc(n, 1U);
-    k_mag = (uint8_t*)noxtls_calloc((size_t)n * coeff_len, 1U);
-    k_negative = (uint8_t*)noxtls_calloc(n, 1U);
-    kf_mag = (uint8_t*)noxtls_calloc((size_t)n * coeff_len, 1U);
-    kg_mag = (uint8_t*)noxtls_calloc((size_t)n * coeff_len, 1U);
-    kf_negative = (uint8_t*)noxtls_calloc(n, 1U);
-    kg_negative = (uint8_t*)noxtls_calloc(n, 1U);
-    F_try_mag = (uint8_t*)noxtls_calloc((size_t)n * coeff_len, 1U);
-    G_try_mag = (uint8_t*)noxtls_calloc((size_t)n * coeff_len, 1U);
-    F_try_negative = (uint8_t*)noxtls_calloc(n, 1U);
-    G_try_negative = (uint8_t*)noxtls_calloc(n, 1U);
-    before_max = (uint8_t*)noxtls_calloc(coeff_len, 1U);
-    after_max = (uint8_t*)noxtls_calloc(coeff_len, 1U);
+    f_mag = (uint8_t*)NOXTLS_CALLOC((size_t)n * 2U, 1U);
+    g_mag = (uint8_t*)NOXTLS_CALLOC((size_t)n * 2U, 1U);
+    f_negative = (uint8_t*)NOXTLS_CALLOC(n, 1U);
+    g_negative = (uint8_t*)NOXTLS_CALLOC(n, 1U);
+    k_mag = (uint8_t*)NOXTLS_CALLOC((size_t)n * coeff_len, 1U);
+    k_negative = (uint8_t*)NOXTLS_CALLOC(n, 1U);
+    kf_mag = (uint8_t*)NOXTLS_CALLOC((size_t)n * coeff_len, 1U);
+    kg_mag = (uint8_t*)NOXTLS_CALLOC((size_t)n * coeff_len, 1U);
+    kf_negative = (uint8_t*)NOXTLS_CALLOC(n, 1U);
+    kg_negative = (uint8_t*)NOXTLS_CALLOC(n, 1U);
+    F_try_mag = (uint8_t*)NOXTLS_CALLOC((size_t)n * coeff_len, 1U);
+    G_try_mag = (uint8_t*)NOXTLS_CALLOC((size_t)n * coeff_len, 1U);
+    F_try_negative = (uint8_t*)NOXTLS_CALLOC(n, 1U);
+    G_try_negative = (uint8_t*)NOXTLS_CALLOC(n, 1U);
+    before_max = (uint8_t*)NOXTLS_CALLOC(coeff_len, 1U);
+    after_max = (uint8_t*)NOXTLS_CALLOC(coeff_len, 1U);
     if(f_mag == NULL || g_mag == NULL || f_negative == NULL || g_negative == NULL ||
        k_mag == NULL || k_negative == NULL || kf_mag == NULL || kg_mag == NULL ||
        kf_negative == NULL || kg_negative == NULL || F_try_mag == NULL || G_try_mag == NULL ||
@@ -11880,10 +11880,10 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_reduced(const int16_t *f,
         return falcon_keygen_reduce_solution_i64_to_i32(fi, gi, n, F64, G64, F, G);
     }
     coeff_len = (n == 256u) ? 1524u : 3059u;
-    F_bn_mag = (uint8_t*)noxtls_calloc((size_t)n * coeff_len, 1U);
-    G_bn_mag = (uint8_t*)noxtls_calloc((size_t)n * coeff_len, 1U);
-    F_bn_negative = (uint8_t*)noxtls_calloc(n, 1U);
-    G_bn_negative = (uint8_t*)noxtls_calloc(n, 1U);
+    F_bn_mag = (uint8_t*)NOXTLS_CALLOC((size_t)n * coeff_len, 1U);
+    G_bn_mag = (uint8_t*)NOXTLS_CALLOC((size_t)n * coeff_len, 1U);
+    F_bn_negative = (uint8_t*)NOXTLS_CALLOC(n, 1U);
+    G_bn_negative = (uint8_t*)NOXTLS_CALLOC(n, 1U);
     if(F_bn_mag == NULL || G_bn_mag == NULL || F_bn_negative == NULL || G_bn_negative == NULL) {
         rc = NOXTLS_RETURN_FAILED;
         if(F_bn_mag != NULL) {
@@ -11906,10 +11906,10 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_reduced(const int16_t *f,
         uint8_t *f_negative = NULL;
         uint8_t *g_negative = NULL;
 
-        f_mag = (uint8_t*)noxtls_calloc((size_t)n * 2U, 1U);
-        g_mag = (uint8_t*)noxtls_calloc((size_t)n * 2U, 1U);
-        f_negative = (uint8_t*)noxtls_calloc(n, 1U);
-        g_negative = (uint8_t*)noxtls_calloc(n, 1U);
+        f_mag = (uint8_t*)NOXTLS_CALLOC((size_t)n * 2U, 1U);
+        g_mag = (uint8_t*)NOXTLS_CALLOC((size_t)n * 2U, 1U);
+        f_negative = (uint8_t*)NOXTLS_CALLOC(n, 1U);
+        g_negative = (uint8_t*)NOXTLS_CALLOC(n, 1U);
         if(f_mag == NULL || g_mag == NULL || f_negative == NULL || g_negative == NULL) {
             if(f_mag != NULL) {
                 (void)noxtls_free(f_mag);

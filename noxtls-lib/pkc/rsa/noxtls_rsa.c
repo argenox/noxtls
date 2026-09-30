@@ -210,8 +210,8 @@ static noxtls_return_t rsa_mod_inv_small(uint8_t *result,
         return NOXTLS_RETURN_NULL;
     }
 
-    uint8_t *quotient = (uint8_t*)noxtls_calloc(mod_len, 1);
-    uint8_t *qy = (uint8_t*)noxtls_calloc(mod_len, 1);
+    uint8_t *quotient = (uint8_t*)NOXTLS_CALLOC(mod_len, 1);
+    uint8_t *qy = (uint8_t*)NOXTLS_CALLOC(mod_len, 1);
     if((quotient == NULL) || (qy == NULL)) {
         if(quotient != NULL) { (void)noxtls_free(quotient); }
         if(qy != NULL) { (void)noxtls_free(qy); }
@@ -324,12 +324,12 @@ static int32_t rsa_is_prime(const uint8_t *n, uint32_t len, int32_t iterations)
 {
     uint32_t i = 0U;
     uint32_t j = 0U;
-    uint8_t *n_minus_1 = (uint8_t*)noxtls_calloc(len, 1);
-    uint8_t *d = (uint8_t*)noxtls_calloc(len, 1);
-    uint8_t *a = (uint8_t*)noxtls_calloc(len, 1);
-    uint8_t *x = (uint8_t*)noxtls_calloc(len, 1);
+    uint8_t *n_minus_1 = (uint8_t*)NOXTLS_CALLOC(len, 1);
+    uint8_t *d = (uint8_t*)NOXTLS_CALLOC(len, 1);
+    uint8_t *a = (uint8_t*)NOXTLS_CALLOC(len, 1);
+    uint8_t *x = (uint8_t*)NOXTLS_CALLOC(len, 1);
     /* temp needs to be len * 2 because noxtls_bn_mul(x, len, x, len) produces len * 2 bytes */
-    uint8_t *temp = (uint8_t*)noxtls_calloc((size_t)len * 2U, 1);
+    uint8_t *temp = (uint8_t*)NOXTLS_CALLOC((size_t)len * 2U, 1);
     
     if((n_minus_1 == NULL) || (d == NULL) || (a == NULL) || (x == NULL) || (temp == NULL)) {
         (void)noxtls_debug_printf((const uint8_t *)"ERROR: rsa_is_prime: Memory allocation failed!\n");
@@ -366,7 +366,7 @@ static int32_t rsa_is_prime(const uint8_t *n, uint32_t len, int32_t iterations)
     }
     
     /* Write n - 1U as d * 2^r */
-    uint8_t *one = (uint8_t*)noxtls_calloc(len, 1);
+    uint8_t *one = (uint8_t*)NOXTLS_CALLOC(len, 1);
     if(one == NULL) {
         (void)noxtls_debug_printf((const uint8_t *)"ERROR: rsa_is_prime: Failed to allocate 'one'\n");
         (void)noxtls_free(n_minus_1);
@@ -417,7 +417,7 @@ static int32_t rsa_is_prime(const uint8_t *n, uint32_t len, int32_t iterations)
         }
     }
     
-    uint8_t *two = (uint8_t*)noxtls_calloc(len, 1);
+    uint8_t *two = (uint8_t*)NOXTLS_CALLOC(len, 1);
     if(two == NULL) {
         (void)noxtls_debug_printf((const uint8_t *)"ERROR: rsa_is_prime: Failed to allocate 'two'\n");
         (void)noxtls_free(n_minus_1);
@@ -495,7 +495,7 @@ static int32_t rsa_is_prime(const uint8_t *n, uint32_t len, int32_t iterations)
                 /* Use a deterministic value: 2 + (i mod (n - 4U)) to ensure variety */
                 (void)noxtls_bn_copy(a, two, len);
                 if((noxtls_bn_is_zero(n_minus_1, len) == 0)) {
-                    uint8_t *offset = (uint8_t*)noxtls_calloc(len, 1);
+                    uint8_t *offset = (uint8_t*)NOXTLS_CALLOC(len, 1);
                     if(offset != NULL) {
                         /* offset = (i + 1U) mod (n - 4U), but simplified: just use i + 1U if small enough */
                         if(((i + 1U) < 256U) && ((i + 1U) < len)) {
@@ -1133,18 +1133,18 @@ noxtls_return_t noxtls_rsa_key_init(rsa_key_t *key, rsa_key_size_t key_size)
     key->key_bytes = key_bytes;
     
     /* Allocate memory for key components */
-    key->n = (uint8_t*)noxtls_calloc(key_bytes, 1);
-    key->e = (uint8_t*)noxtls_calloc(key_bytes, 1);
-    key->d = (uint8_t*)noxtls_calloc(key_bytes, 1);
-    key->p = (uint8_t*)noxtls_calloc(key_bytes / 2U, 1U);
-    key->q = (uint8_t*)noxtls_calloc(key_bytes / 2U, 1U);
-    key->dp = (uint8_t*)noxtls_calloc(key_bytes / 2U, 1U);
-    key->dq = (uint8_t*)noxtls_calloc(key_bytes / 2U, 1U);
-    key->qi = (uint8_t*)noxtls_calloc(key_bytes / 2U, 1U);
+    key->n = (uint8_t*)NOXTLS_CALLOC(key_bytes, 1);
+    key->e = (uint8_t*)NOXTLS_CALLOC(key_bytes, 1);
+    key->d = (uint8_t*)NOXTLS_CALLOC(key_bytes, 1);
+    key->p = (uint8_t*)NOXTLS_CALLOC(key_bytes / 2U, 1U);
+    key->q = (uint8_t*)NOXTLS_CALLOC(key_bytes / 2U, 1U);
+    key->dp = (uint8_t*)NOXTLS_CALLOC(key_bytes / 2U, 1U);
+    key->dq = (uint8_t*)NOXTLS_CALLOC(key_bytes / 2U, 1U);
+    key->qi = (uint8_t*)NOXTLS_CALLOC(key_bytes / 2U, 1U);
     
     if((key->n == NULL) || (key->e == NULL) || (key->d == NULL) || (key->p == NULL) || (key->q == NULL) || (key->dp == NULL) || (key->dq == NULL) || (key->qi == NULL)) {
         (void)noxtls_rsa_key_free(key);
-        return NOXTLS_RETURN_FAILED;
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
     
     /* Set default public exponent (65537 = 0x10001) */
@@ -1174,11 +1174,11 @@ noxtls_return_t noxtls_rsa_key_generate(rsa_key_t *key, rsa_key_size_t key_size)
     }
     
     uint32_t prime_len = (uint32_t)(key->key_bytes >> 1U);
-    uint8_t *phi = (uint8_t*)noxtls_calloc(key->key_bytes, 1);
-    uint8_t *p_minus_1 = (uint8_t*)noxtls_calloc(prime_len, 1);
-    uint8_t *q_minus_1 = (uint8_t*)noxtls_calloc(prime_len, 1);
-    uint8_t *temp = (uint8_t*)noxtls_calloc(key->key_bytes, 1);
-    uint8_t *one = (uint8_t*)noxtls_calloc(prime_len, 1);
+    uint8_t *phi = (uint8_t*)NOXTLS_CALLOC(key->key_bytes, 1);
+    uint8_t *p_minus_1 = (uint8_t*)NOXTLS_CALLOC(prime_len, 1);
+    uint8_t *q_minus_1 = (uint8_t*)NOXTLS_CALLOC(prime_len, 1);
+    uint8_t *temp = (uint8_t*)NOXTLS_CALLOC(key->key_bytes, 1);
+    uint8_t *one = (uint8_t*)NOXTLS_CALLOC(prime_len, 1);
     
     if((phi == NULL) || (p_minus_1 == NULL) || (q_minus_1 == NULL) || (temp == NULL) || (one == NULL)) {
         (void)noxtls_debug_printf((const uint8_t *)"ERROR: noxtls_rsa_key_generate: Memory allocation failed!\n");
@@ -1321,9 +1321,9 @@ noxtls_return_t noxtls_rsa_encrypt(const rsa_key_t *key, const uint8_t *plaintex
     }
     
     /* Apply PKCS#1 v1.5 padding */
-    uint8_t *padded = (uint8_t*)noxtls_calloc(key->key_bytes, 1);
+    uint8_t *padded = (uint8_t*)NOXTLS_CALLOC(key->key_bytes, 1);
     if(padded == NULL) {
-        (void)noxtls_debug_printf((const uint8_t *)"[noxtls_rsa_encrypt] FAIL: noxtls_calloc(key_bytes=%lu) returned NULL\n",
+        (void)noxtls_debug_printf((const uint8_t *)"[noxtls_rsa_encrypt] FAIL: NOXTLS_CALLOC(key_bytes=%lu) returned NULL\n",
                 (unsigned long)key->key_bytes);
         return NOXTLS_RETURN_FAILED;
     }
@@ -1351,17 +1351,17 @@ static noxtls_return_t do_rsa_crt_decrypt(const rsa_key_t *key, const uint8_t *c
 {
     uint32_t prime_len = (uint32_t)(key->key_bytes >> 1U);
     (void)noxtls_debug_printf((const uint8_t *)"[CRT] do_rsa_crt_decrypt: start key_bytes=%lu prime_len=%lu\n", (unsigned long)key->key_bytes, (unsigned long)prime_len);
-    uint8_t *c_mod_p = (uint8_t*)noxtls_calloc(prime_len, 1);
-    uint8_t *c_mod_q = (uint8_t*)noxtls_calloc(prime_len, 1);
-    uint8_t *m1 = (uint8_t*)noxtls_calloc(prime_len, 1);
-    uint8_t *m2 = (uint8_t*)noxtls_calloc(prime_len, 1);
-    uint8_t *h = (uint8_t*)noxtls_calloc(prime_len, 1);
-    uint8_t *p_inv = (uint8_t*)noxtls_calloc(prime_len, 1);
-    uint8_t *q_minus_2 = (uint8_t*)noxtls_calloc(prime_len, 1);
-    uint8_t *two_buf = (uint8_t*)noxtls_calloc(prime_len, 1);
-    uint8_t *temp = (uint8_t*)noxtls_calloc(key->key_bytes, 1);
-    uint8_t *m1_padded = (uint8_t*)noxtls_calloc(key->key_bytes, 1);
-    uint8_t *sum = (uint8_t*)noxtls_calloc(key->key_bytes + 1U, 1);
+    uint8_t *c_mod_p = (uint8_t*)NOXTLS_CALLOC(prime_len, 1);
+    uint8_t *c_mod_q = (uint8_t*)NOXTLS_CALLOC(prime_len, 1);
+    uint8_t *m1 = (uint8_t*)NOXTLS_CALLOC(prime_len, 1);
+    uint8_t *m2 = (uint8_t*)NOXTLS_CALLOC(prime_len, 1);
+    uint8_t *h = (uint8_t*)NOXTLS_CALLOC(prime_len, 1);
+    uint8_t *p_inv = (uint8_t*)NOXTLS_CALLOC(prime_len, 1);
+    uint8_t *q_minus_2 = (uint8_t*)NOXTLS_CALLOC(prime_len, 1);
+    uint8_t *two_buf = (uint8_t*)NOXTLS_CALLOC(prime_len, 1);
+    uint8_t *temp = (uint8_t*)NOXTLS_CALLOC(key->key_bytes, 1);
+    uint8_t *m1_padded = (uint8_t*)NOXTLS_CALLOC(key->key_bytes, 1);
+    uint8_t *sum = (uint8_t*)NOXTLS_CALLOC(key->key_bytes + 1U, 1);
 
     if((c_mod_p == NULL) || (c_mod_q == NULL) || (m1 == NULL) || (m2 == NULL) || (h == NULL) || (p_inv == NULL) || (q_minus_2 == NULL) || (two_buf == NULL) || (temp == NULL) || (m1_padded == NULL) || (sum == NULL)) {
         (void)noxtls_debug_printf((const uint8_t *)"[CRT] do_rsa_crt_decrypt: alloc failed\n");
@@ -1413,7 +1413,7 @@ static noxtls_return_t do_rsa_crt_decrypt(const rsa_key_t *key, const uint8_t *c
         (void)noxtls_bn_sub(temp, m2, h, prime_len);
         noxtls_copy_u8(h, (size_t)(prime_len), temp, (size_t)(prime_len));
     } else {
-        uint8_t *h_sum = (uint8_t*)noxtls_calloc(prime_len + 1U, 1);
+        uint8_t *h_sum = (uint8_t*)NOXTLS_CALLOC(prime_len + 1U, 1);
         if(h_sum == NULL) {
             (void)noxtls_debug_printf((const uint8_t *)"[CRT] do_rsa_crt_decrypt: h_sum alloc failed\n");
             (void)noxtls_free(c_mod_p);
@@ -1515,10 +1515,10 @@ static noxtls_return_t rsa_private_mod_exp_blinded(const rsa_key_t *key, const u
     const uint32_t len = (uint32_t)(key->key_bytes);
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
     uint32_t attempt = 0U;
-    uint8_t *r     = (uint8_t*)noxtls_calloc(len, 1);
-    uint8_t *r_inv = (uint8_t*)noxtls_calloc(len, 1);
-    uint8_t *blind = (uint8_t*)noxtls_calloc(len, 1);
-    uint8_t *wide  = (uint8_t*)noxtls_calloc((size_t)len * 2U, 1);
+    uint8_t *r     = (uint8_t*)NOXTLS_CALLOC(len, 1);
+    uint8_t *r_inv = (uint8_t*)NOXTLS_CALLOC(len, 1);
+    uint8_t *blind = (uint8_t*)NOXTLS_CALLOC(len, 1);
+    uint8_t *wide  = (uint8_t*)NOXTLS_CALLOC((size_t)len * 2U, 1);
 
     if((r == NULL) || (r_inv == NULL) || (blind == NULL) || (wide == NULL)) {
         rc = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
@@ -1580,7 +1580,7 @@ noxtls_return_t noxtls_rsa_decrypt(const rsa_key_t *key, const uint8_t *cipherte
         return NOXTLS_RETURN_FAILED;
     }
     
-    uint8_t *decrypted = (uint8_t*)noxtls_calloc(key->key_bytes, 1);
+    uint8_t *decrypted = (uint8_t*)NOXTLS_CALLOC(key->key_bytes, 1);
     if(decrypted == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -1656,7 +1656,7 @@ noxtls_return_t noxtls_rsa_decrypt_crt_only(const rsa_key_t *key, const uint8_t 
         return NOXTLS_RETURN_FAILED;
     }
 
-    uint8_t *decrypted = (uint8_t*)noxtls_calloc(key->key_bytes, 1);
+    uint8_t *decrypted = (uint8_t*)NOXTLS_CALLOC(key->key_bytes, 1);
     if(decrypted == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -1722,7 +1722,7 @@ noxtls_return_t noxtls_rsa_sign(const rsa_key_t *key, const uint8_t *noxtls_mess
     }
     
     /* Apply PKCS#1 v1.5 signature padding */
-    uint8_t *padded = (uint8_t*)noxtls_calloc(key->key_bytes, 1);
+    uint8_t *padded = (uint8_t*)NOXTLS_CALLOC(key->key_bytes, 1);
     if(padded == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -1757,7 +1757,7 @@ noxtls_return_t noxtls_rsa_verify(const rsa_key_t *key, const uint8_t *noxtls_me
     }
     
     /* Verify: hash' = signature^e mod n */
-    uint8_t *decrypted = (uint8_t*)noxtls_calloc(key->key_bytes, 1);
+    uint8_t *decrypted = (uint8_t*)NOXTLS_CALLOC(key->key_bytes, 1);
     if(decrypted == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -1871,7 +1871,7 @@ static noxtls_return_t mgf1(noxtls_hash_algos_t hash_algo, const uint8_t *seed, 
         return NOXTLS_RETURN_FAILED;
     }
 
-    input = (uint8_t*)noxtls_calloc(seed_len + 4U, 1);
+    input = (uint8_t*)NOXTLS_CALLOC(seed_len + 4U, 1);
     if(input == NULL) { return NOXTLS_RETURN_FAILED; }
     noxtls_copy_u8(input, (size_t)seed_len, seed, (size_t)seed_len);
 
@@ -1915,7 +1915,7 @@ static noxtls_return_t emsa_pss_encode(const uint8_t *m_hash, uint32_t h_len,
     uint32_t ps_len = (uint32_t)(em_len - salt_len - h_len - 2U);
     uint32_t db_len = (uint32_t)(em_len - h_len - 1U);
 
-    uint8_t *salt = (uint8_t*)noxtls_calloc(salt_len, 1);
+    uint8_t *salt = (uint8_t*)NOXTLS_CALLOC(salt_len, 1);
     if(salt == NULL) { return NOXTLS_RETURN_FAILED; }
     if(rsa_random_bytes(salt, salt_len) != NOXTLS_RETURN_SUCCESS) {
         (void)noxtls_free(salt);
@@ -1945,7 +1945,7 @@ static noxtls_return_t emsa_pss_encode(const uint8_t *m_hash, uint32_t h_len,
     noxtls_copy_u8(&em[ps_len + 1U], (size_t)salt_len, salt, (size_t)salt_len);
     (void)noxtls_free(salt);
 
-    uint8_t *db_mask = (uint8_t*)noxtls_calloc(db_len, 1);
+    uint8_t *db_mask = (uint8_t*)NOXTLS_CALLOC(db_len, 1);
     if(db_mask == NULL) { return NOXTLS_RETURN_FAILED; }
     (void)mgf1(hash_algo, H, h_len, db_mask, db_len);
     for(uint32_t i = 0U; i < db_len; i += 1U) { em[i] ^= db_mask[i]; }
@@ -1993,10 +1993,10 @@ static noxtls_return_t emsa_pss_verify(const uint8_t *m_hash, uint32_t h_len,
     const uint8_t *masked_db = em;
     const uint8_t *H = &em[db_len];
 
-    uint8_t *db_mask = (uint8_t*)noxtls_calloc(db_len, 1);
+    uint8_t *db_mask = (uint8_t*)NOXTLS_CALLOC(db_len, 1);
     if(db_mask == NULL) { return NOXTLS_RETURN_FAILED; }
     (void)mgf1(hash_algo, H, h_len, db_mask, db_len);
-    uint8_t *DB = (uint8_t*)noxtls_calloc(db_len, 1);
+    uint8_t *DB = (uint8_t*)NOXTLS_CALLOC(db_len, 1);
     if(DB == NULL) { (void)noxtls_free(db_mask); return NOXTLS_RETURN_FAILED; }
     for(uint32_t db_i = 0U; db_i < db_len; db_i += 1U) { DB[db_i] = masked_db[db_i] ^ db_mask[db_i]; }
     (void)noxtls_free(db_mask);
@@ -2093,7 +2093,7 @@ noxtls_return_t noxtls_rsa_sign_pss(const rsa_key_t *key, const uint8_t *noxtls_
     uint8_t m_hash[64];
     if(pss_hash_message(hash_algo, noxtls_message, message_len, m_hash, &h_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
 
-    uint8_t *em = (uint8_t*)noxtls_calloc(key->key_bytes, 1);
+    uint8_t *em = (uint8_t*)NOXTLS_CALLOC(key->key_bytes, 1);
     if(em == NULL) { return NOXTLS_RETURN_FAILED; }
 
     /* RFC 8017: noxtls_message representative m = OS2IP(EM) must be < n; otherwise retry with new salt. */
@@ -2142,7 +2142,7 @@ noxtls_return_t noxtls_rsa_verify_pss(const rsa_key_t *key, const uint8_t *noxtl
        (hash_algo != NOXTLS_HASH_SHA_384) &&
        (hash_algo != NOXTLS_HASH_SHA_512)) { return NOXTLS_RETURN_INVALID_ALGORITHM; }
 
-    uint8_t *em = (uint8_t*)noxtls_calloc(key->key_bytes, 1);
+    uint8_t *em = (uint8_t*)NOXTLS_CALLOC(key->key_bytes, 1);
     if(em == NULL) { return NOXTLS_RETURN_FAILED; }
     noxtls_return_t rc = noxtls_bn_mod_exp(em, signature, key->e, key->key_bytes, key->n, key->key_bytes);
     if(rc != NOXTLS_RETURN_SUCCESS) { (void)noxtls_free(em); return rc; }

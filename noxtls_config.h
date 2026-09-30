@@ -109,6 +109,14 @@
 #define NOXTLS_FEATURE_HKDF 1
 #endif
 
+/* Enables generic PBKDF2 (RFC 8018 §5.2) primitive.
+ * Prereq: NOXTLS_FEATURE_HMAC=1.
+ * Required by: PKCS#8 PBES2 key decryption, IEEE 802.11 PSK-to-PMK.
+ */
+#ifndef NOXTLS_FEATURE_PBKDF2
+#define NOXTLS_FEATURE_PBKDF2 NOXTLS_FEATURE_HMAC
+#endif
+
 /* Enables symmetric encryption module family (AES/ARIA/Camellia/ChaCha/DES).
  * Prereq: none.
  * Required by: DRBG and TLS record protection.
@@ -1150,6 +1158,27 @@
  * ============================================================================
  */
 
+/* NOXTLS_HMAC_SHA256_SHARED_STATE
+ * Use one fixed SHA-256 HMAC hash context instead of an allocator block per
+ * live context. A second live context fails with NOXTLS_RETURN_FAILED.
+ * Callers MUST serialize all SHA-256 HMAC access, including interrupts, and
+ * may not interleave streaming contexts. The slot is wiped on final/free.
+ * Default: 0 (private context state, permits independent live contexts).
+ */
+#ifndef NOXTLS_HMAC_SHA256_SHARED_STATE
+#define NOXTLS_HMAC_SHA256_SHARED_STATE 0
+#endif
+
+/* NOXTLS_ECC_SHARED_SCRATCH
+ * Move ECC inversion and the P-256 bignum inversion fast-path scratch from
+ * the call stack to fixed shared storage. Callers MUST serialize operations
+ * that use this scratch, including interrupts; this mode is not reentrant.
+ * Default: 0 (private per-call scratch).
+ */
+#ifndef NOXTLS_ECC_SHARED_SCRATCH
+#define NOXTLS_ECC_SHARED_SCRATCH 0
+#endif
+
 /* NOXTLS_USE_STATIC_BUFFERS
  * 
  * Define this to 1 to use static buffer allocation instead of system malloc.
@@ -1435,6 +1464,33 @@
  */
 #ifndef NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE
 #define NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE 1
+#endif
+
+/* NOXTLS_ECC_P256_FLASH_PRECOMPUTE
+ *
+ * When 1, use a compact, compile-time P-256 generator comb table from
+ * read-only storage instead of allocating the fixed-base table from the heap.
+ * Embedded linkers normally place the const table in flash/ROM. This adds
+ * approximately 2 KiB of read-only data and saves 6528 bytes of heap whenever
+ * the P-256 fixed-base table would otherwise be cached.
+ *
+ * Default: 0 (preserve the existing flash-size/RAM tradeoff)
+ */
+#ifndef NOXTLS_ECC_P256_FLASH_PRECOMPUTE
+#define NOXTLS_ECC_P256_FLASH_PRECOMPUTE 0
+#endif
+
+/* NOXTLS_ECC_P256_LOW_RAM_VERIFY
+ *
+ * When 1, P-256 two-scalar multiplication with G as the first point uses the
+ * flash generator table plus a compact 8-entry runtime table for the public
+ * point. This replaces the 13056-byte joint verification table. Requires
+ * NOXTLS_ECC_P256_FLASH_PRECOMPUTE.
+ *
+ * Default: 0 (retain the faster joint-table verification path)
+ */
+#ifndef NOXTLS_ECC_P256_LOW_RAM_VERIFY
+#define NOXTLS_ECC_P256_LOW_RAM_VERIFY 0
 #endif
 
 /* NOXTLS_ECDSA_SIGN_SELF_VERIFY

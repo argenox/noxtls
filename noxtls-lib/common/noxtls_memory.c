@@ -25,7 +25,142 @@
 #include <stddef.h>
 #include <string.h>
 
+#define NOXTLS_MEMORY_IMPLEMENTATION 1
 #include "noxtls_memory.h"
+
+static noxtls_mem_error_info_t g_noxtls_last_mem_error;
+static uint8_t g_noxtls_last_mem_error_valid;
+
+static void noxtls_mem_record_failure(noxtls_mem_operation_t operation,
+                                      noxtls_mem_failure_reason_t reason,
+                                      size_t requested_bytes,
+                                      size_t largest_available_block,
+                                      size_t pool_capacity,
+                                      size_t pool_used,
+                                      uint32_t allocator_mode,
+                                      const char *file,
+                                      uint32_t line,
+                                      const char *function)
+{
+    size_t additional = NOXTLS_MEM_SIZE_UNKNOWN;
+
+    if(largest_available_block != NOXTLS_MEM_SIZE_UNKNOWN) {
+        additional = requested_bytes > largest_available_block
+                   ? requested_bytes - largest_available_block : 0U;
+    }
+
+    g_noxtls_last_mem_error.operation = operation;
+    g_noxtls_last_mem_error.reason = reason;
+    g_noxtls_last_mem_error.allocator_mode = allocator_mode;
+    g_noxtls_last_mem_error.requested_bytes = requested_bytes;
+    g_noxtls_last_mem_error.largest_available_block = largest_available_block;
+    g_noxtls_last_mem_error.minimum_additional_bytes = additional;
+    g_noxtls_last_mem_error.pool_capacity = pool_capacity;
+    g_noxtls_last_mem_error.pool_used = pool_used;
+    g_noxtls_last_mem_error.source_file = file;
+    g_noxtls_last_mem_error.source_function = function;
+    g_noxtls_last_mem_error.source_line = line;
+    g_noxtls_last_mem_error_valid = 1U;
+}
+
+noxtls_return_t noxtls_mem_get_last_error(noxtls_mem_error_info_t *info)
+{
+    if(info == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(g_noxtls_last_mem_error_valid == 0U) {
+        noxtls_secure_zero(info, (size_t)(sizeof(*info)));
+        return NOXTLS_RETURN_NOT_INITIALIZED;
+    }
+    *info = g_noxtls_last_mem_error;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+void noxtls_mem_clear_last_error(void)
+{
+    noxtls_secure_zero(&g_noxtls_last_mem_error, (size_t)(sizeof(g_noxtls_last_mem_error)));
+    g_noxtls_last_mem_error_valid = 0U;
+}
+
+#if defined(NOXTLS_TEST_ALLOCATOR_FAULT_INJECTION)
+#include "noxtls_memory_test.h"
+
+/* Unit-test-only deterministic allocation failure control. */
+static size_t g_noxtls_test_allocations_before_failure = SIZE_MAX;
+static noxtls_mem_test_stats_t g_noxtls_test_stats;
+
+void noxtls_mem_test_fail_after(size_t allocations_before_failure)
+{
+    g_noxtls_test_allocations_before_failure = allocations_before_failure;
+}
+
+void noxtls_mem_test_fail_reset(void)
+{
+    g_noxtls_test_allocations_before_failure = SIZE_MAX;
+}
+
+void noxtls_mem_test_stats_reset(void)
+{
+    noxtls_secure_zero(&g_noxtls_test_stats, (size_t)(sizeof(g_noxtls_test_stats)));
+}
+
+void noxtls_mem_test_get_stats(noxtls_mem_test_stats_t *stats)
+{
+    if(stats != NULL) {
+        *stats = g_noxtls_test_stats;
+    }
+}
+
+static void noxtls_mem_test_record_attempt(size_t size)
+{
+    g_noxtls_test_stats.allocation_attempts++;
+    g_noxtls_test_stats.requested_bytes += size;
+    if(size > g_noxtls_test_stats.largest_request) {
+        g_noxtls_test_stats.largest_request = size;
+    }
+}
+
+static void noxtls_mem_test_record_result(size_t size, const void *ptr)
+{
+    if(ptr != NULL) {
+        g_noxtls_test_stats.successful_allocations++;
+        g_noxtls_test_stats.successful_bytes += size;
+    } else {
+        g_noxtls_test_stats.failed_allocations++;
+    }
+}
+
+static int noxtls_mem_test_should_fail(void)
+{
+    if(g_noxtls_test_allocations_before_failure == SIZE_MAX) {
+        return 0;
+    }
+    if(g_noxtls_test_allocations_before_failure == 0U) {
+        return 1;
+    }
+    g_noxtls_test_allocations_before_failure--;
+    return 0;
+}
+#else
+#define noxtls_mem_test_should_fail() 0
+#define noxtls_mem_test_record_attempt(size) ((void)(size))
+#define noxtls_mem_test_record_result(size, ptr) ((void)(size), (void)(ptr))
+#endif
+
+static void noxtls_mem_record_system_failure(noxtls_mem_operation_t operation,
+                                             noxtls_mem_failure_reason_t reason,
+                                             size_t requested_bytes,
+                                             const char *file,
+                                             uint32_t line,
+                                             const char *function)
+{
+    size_t available = reason == (noxtls_mem_failure_reason_t)NOXTLS_MEM_FAILURE_INJECTED
+                     ? 0U : NOXTLS_MEM_SIZE_UNKNOWN;
+    noxtls_mem_record_failure(operation, reason, requested_bytes, available,
+                              NOXTLS_MEM_SIZE_UNKNOWN, NOXTLS_MEM_SIZE_UNKNOWN,
+                              NOXTLS_MEM_ALLOCATOR_MODE_SYSTEM,
+                              file, line, function);
+}
 
 #if NOXTLS_USE_STATIC_BUFFERS
 
@@ -39,6 +174,45 @@ static uint8_t g_noxtls_default_pool[NOXTLS_STATIC_BUFFER_SIZE];
 #define NOXTLS_MEM_BLOCK_MAGIC 0x4E584D45UL
 #define NOXTLS_MEM_KIND_FALLBACK 1U
 #define NOXTLS_MEM_KIND_BUCKET 2U
+
+static size_t noxtls_mem_largest_available_block(void)
+{
+    size_t largest = 0U;
+#if NOXTLS_STATIC_ALLOCATOR_MODE != NOXTLS_STATIC_ALLOCATOR_MODE_LEGACY
+    size_t i;
+    for(i = 0U; i < g_mem_pool.bucket_count; ++i) {
+        if(g_mem_pool.bucket_free_list[i] != NULL && g_mem_pool.bucket_sizes[i] > largest) {
+            largest = g_mem_pool.bucket_sizes[i];
+        }
+    }
+#endif
+#if NOXTLS_STATIC_ALLOCATOR_MODE != NOXTLS_STATIC_ALLOCATOR_MODE_BUCKETS
+    {
+        const mem_block_header_t *block = g_mem_pool.free_list;
+        while(block != NULL) {
+            if(block->allocated == 0U && block->size > largest) {
+                largest = block->size;
+            }
+            block = block->next;
+        }
+    }
+#endif
+    return largest;
+}
+
+static void noxtls_mem_record_static_failure(noxtls_mem_operation_t operation,
+                                             noxtls_mem_failure_reason_t reason,
+                                             size_t requested_bytes,
+                                             const char *file,
+                                             uint32_t line,
+                                             const char *function)
+{
+    noxtls_mem_record_failure(operation, reason, requested_bytes,
+                              noxtls_mem_largest_available_block(),
+                              g_mem_pool.buffer_size, g_mem_pool.total_used,
+                              (uint32_t)NOXTLS_STATIC_ALLOCATOR_MODE,
+                              file, line, function);
+}
 
 #if NOXTLS_STATIC_ALLOCATOR_MODE != NOXTLS_STATIC_ALLOCATOR_MODE_LEGACY && \
     NOXTLS_STATIC_ALLOCATOR_MODE != NOXTLS_STATIC_ALLOCATOR_MODE_BUCKETS && \
@@ -392,16 +566,20 @@ noxtls_return_t noxtls_mem_cleanup(void)
  * @param[in] size Requested payload size in bytes (must be non-zero for a non-NULL result).
  * @return Pointer to usable memory, or NULL if uninitialized, zero size, overflow, or no block fits.
  */
-void *noxtls_malloc(size_t size)
+static void *noxtls_mem_allocate_at(size_t size,
+                                    noxtls_mem_operation_t operation,
+                                    const char *file,
+                                    uint32_t line,
+                                    const char *function)
 {
     size_t aligned_size = 0U;
-#if NOXTLS_STATIC_ALLOCATOR_MODE == NOXTLS_STATIC_ALLOCATOR_MODE_HYBRID
     void *ptr;
-#endif
     
     if (g_mem_initialized == 0U) {
         /* Auto-initialize if not already done */
         if(noxtls_mem_init(NULL, 0) != NOXTLS_RETURN_SUCCESS) {
+            noxtls_mem_record_static_failure(operation, (noxtls_mem_failure_reason_t)NOXTLS_MEM_FAILURE_INITIALIZATION,
+                                             size, file, line, function);
             return NULL;
         }
     }
@@ -409,22 +587,49 @@ void *noxtls_malloc(size_t size)
     if(size == 0U) {
         return NULL;
     }
+    noxtls_mem_test_record_attempt(size);
+#if defined(NOXTLS_TEST_ALLOCATOR_FAULT_INJECTION)
+    if(noxtls_mem_test_should_fail()) {
+        noxtls_mem_test_record_result(size, NULL);
+        noxtls_mem_record_static_failure(operation, (noxtls_mem_failure_reason_t)NOXTLS_MEM_FAILURE_INJECTED,
+                                         size, file, line, function);
+        return NULL;
+    }
+#endif
     if(size > (SIZE_MAX - (NOXTLS_MEM_ALIGNMENT - 1U))) {
+        noxtls_mem_test_record_result(size, NULL);
+        noxtls_mem_record_static_failure(operation, (noxtls_mem_failure_reason_t)NOXTLS_MEM_FAILURE_SIZE_OVERFLOW,
+                                         size, file, line, function);
         return NULL;
     }
     aligned_size = ALIGN_SIZE(size);
 
 #if NOXTLS_STATIC_ALLOCATOR_MODE == NOXTLS_STATIC_ALLOCATOR_MODE_LEGACY
-    return noxtls_mem_alloc_fallback(aligned_size);
+    ptr = noxtls_mem_alloc_fallback(aligned_size);
 #elif NOXTLS_STATIC_ALLOCATOR_MODE == NOXTLS_STATIC_ALLOCATOR_MODE_BUCKETS
-    return noxtls_mem_alloc_bucket(aligned_size);
+    ptr = noxtls_mem_alloc_bucket(aligned_size);
 #else
     ptr = noxtls_mem_alloc_bucket(aligned_size);
-    if(ptr != NULL) {
-        return ptr;
+    if(ptr == NULL) {
+        ptr = noxtls_mem_alloc_fallback(aligned_size);
     }
-    return noxtls_mem_alloc_fallback(aligned_size);
 #endif
+    noxtls_mem_test_record_result(size, ptr);
+    if(ptr == NULL) {
+        noxtls_mem_record_static_failure(operation, (noxtls_mem_failure_reason_t)NOXTLS_MEM_FAILURE_POOL_EXHAUSTED,
+                                         size, file, line, function);
+    }
+    return ptr;
+}
+
+void *noxtls_malloc_at(size_t size, const char *file, uint32_t line, const char *function)
+{
+    return noxtls_mem_allocate_at(size, (noxtls_mem_operation_t)NOXTLS_MEM_OPERATION_MALLOC, file, line, function);
+}
+
+void *noxtls_malloc(size_t size)
+{
+    return noxtls_malloc_at(size, NULL, 0U, NULL);
 }
 
 /**
@@ -482,16 +687,21 @@ void noxtls_free(void *ptr)
  * @param[in] size Size of each element in bytes.
  * @return Pointer to zeroed memory, or NULL on overflow or allocation failure.
  */
-void *noxtls_calloc(size_t nmemb, size_t size)
+void *noxtls_calloc_at(size_t nmemb, size_t size,
+                       const char *file, uint32_t line, const char *function)
 {
     void *ptr;
     size_t total_size = 0U;
 
     if((nmemb != 0U) && (size > (SIZE_MAX / nmemb))) {
+        noxtls_mem_record_static_failure((noxtls_mem_operation_t)NOXTLS_MEM_OPERATION_CALLOC,
+                                         (noxtls_mem_failure_reason_t)NOXTLS_MEM_FAILURE_SIZE_OVERFLOW,
+                                         SIZE_MAX, file, line, function);
         return NULL;
     }
     total_size = nmemb * size;
-    ptr = noxtls_malloc(total_size);
+    ptr = noxtls_mem_allocate_at(total_size, (noxtls_mem_operation_t)NOXTLS_MEM_OPERATION_CALLOC,
+                                 file, line, function);
     
     if(ptr != NULL) {
         noxtls_secure_zero((ptr), (size_t)(total_size));
@@ -500,26 +710,38 @@ void *noxtls_calloc(size_t nmemb, size_t size)
     return ptr;
 }
 
+void *noxtls_calloc(size_t nmemb, size_t size)
+{
+    return noxtls_calloc_at(nmemb, size, NULL, 0U, NULL);
+}
+
 /**
  * @brief Resizes a static-pool block; copies to a new block if @p size exceeds the current payload.
  * @param[in,out] ptr Existing allocation, or NULL to behave as @ref noxtls_malloc.
  * @param[in]     size New requested payload size; zero frees @p ptr and returns NULL.
  * @return Pointer to usable memory (may equal @p ptr when shrinking or in-place), or NULL on failure.
  */
-void *noxtls_realloc(void *ptr, size_t size)
+void *noxtls_realloc_at(void *ptr, size_t size,
+                        const char *file, uint32_t line, const char *function)
 {
     const mem_block_header_t *header;
     void *new_ptr;
     size_t old_size = 0U;
     
-    if(ptr == NULL) { return noxtls_malloc(size); }
+    if(ptr == NULL) {
+        return noxtls_mem_allocate_at(size, (noxtls_mem_operation_t)NOXTLS_MEM_OPERATION_REALLOC,
+                                      file, line, function);
+    }
     
     if(size == 0U) {
         (void)noxtls_free(ptr);
         return NULL;
     }
     
-    if ((g_mem_initialized == 0U) || (g_mem_pool.buffer == NULL)) {
+    if((g_mem_initialized == 0U) || (g_mem_pool.buffer == NULL)) {
+        noxtls_mem_record_static_failure((noxtls_mem_operation_t)NOXTLS_MEM_OPERATION_REALLOC,
+                                         (noxtls_mem_failure_reason_t)NOXTLS_MEM_FAILURE_INITIALIZATION,
+                                         size, file, line, function);
         return NULL;
     }
     header = (const mem_block_header_t *)(const void *)(uintptr_t)((uintptr_t)ptr - (uintptr_t)(sizeof(mem_block_header_t)));
@@ -534,7 +756,8 @@ void *noxtls_realloc(void *ptr, size_t size)
     }
     
     /* Allocate new block */
-    new_ptr = noxtls_malloc(size);
+    new_ptr = noxtls_mem_allocate_at(size, (noxtls_mem_operation_t)NOXTLS_MEM_OPERATION_REALLOC,
+                                     file, line, function);
     if(new_ptr == NULL) {
         return NULL;
     }
@@ -546,6 +769,11 @@ void *noxtls_realloc(void *ptr, size_t size)
     (void)noxtls_free(ptr);
     
     return new_ptr;
+}
+
+void *noxtls_realloc(void *ptr, size_t size)
+{
+    return noxtls_realloc_at(ptr, size, NULL, 0U, NULL);
 }
 
 /**
@@ -602,21 +830,43 @@ noxtls_return_t noxtls_mem_get_bucket_stats(noxtls_mem_bucket_stats_t *stats)
 }
 
 #else /* !NOXTLS_USE_STATIC_BUFFERS */
+#include <stdlib.h>
 
 /*
  * Host allocator backend (Rule 8.6): keep definitions in this always-analyzed
  * TU. <stdlib.h> is included only in this branch so static-buffer/freestanding
  * builds never observe malloc/free (Rule 21.3 isolation by configuration).
  */
-#include <stdlib.h>
-#include "noxtls_ct.h"
-
-void *noxtls_malloc(size_t size)
+void *noxtls_malloc_at(size_t size, const char *file, uint32_t line, const char *function)
 {
+    void *ptr;
+
     if(size == 0U) {
         return NULL;
     }
-    return malloc(size);
+    noxtls_mem_test_record_attempt(size);
+#if defined(NOXTLS_TEST_ALLOCATOR_FAULT_INJECTION)
+    if(noxtls_mem_test_should_fail()) {
+        noxtls_mem_test_record_result(size, NULL);
+        noxtls_mem_record_system_failure((noxtls_mem_operation_t)NOXTLS_MEM_OPERATION_MALLOC,
+                                         (noxtls_mem_failure_reason_t)NOXTLS_MEM_FAILURE_INJECTED,
+                                         size, file, line, function);
+        return NULL;
+    }
+#endif
+    ptr = malloc(size);
+    noxtls_mem_test_record_result(size, ptr);
+    if(ptr == NULL) {
+        noxtls_mem_record_system_failure((noxtls_mem_operation_t)NOXTLS_MEM_OPERATION_MALLOC,
+                                         (noxtls_mem_failure_reason_t)NOXTLS_MEM_FAILURE_SYSTEM_ALLOCATOR,
+                                         size, file, line, function);
+    }
+    return ptr;
+}
+
+void *noxtls_malloc(size_t size)
+{
+    return noxtls_malloc_at(size, NULL, 0U, NULL);
 }
 
 void noxtls_free(void *ptr)
@@ -624,18 +874,89 @@ void noxtls_free(void *ptr)
     free(ptr);
 }
 
-void *noxtls_calloc(size_t nmemb, size_t size)
+/**
+ * @brief Allocates `nmemb * size` bytes with `calloc` (zeroed).
+ * @param[in] nmemb Number of elements.
+ * @param[in] size Element size in bytes.
+ * @return Pointer from `calloc`, or NULL on failure or zero total size.
+ */
+void *noxtls_calloc_at(size_t nmemb, size_t size,
+                       const char *file, uint32_t line, const char *function)
 {
-    return calloc(nmemb, size);
+    size_t total_size;
+    void *ptr;
+
+    if(nmemb != 0U && size > SIZE_MAX / nmemb) {
+        noxtls_mem_record_system_failure((noxtls_mem_operation_t)NOXTLS_MEM_OPERATION_CALLOC,
+                                         (noxtls_mem_failure_reason_t)NOXTLS_MEM_FAILURE_SIZE_OVERFLOW,
+                                         SIZE_MAX, file, line, function);
+        return NULL;
+    }
+    total_size = nmemb * size;
+    if(total_size == 0U) {
+        return calloc(nmemb, size);
+    }
+    noxtls_mem_test_record_attempt(total_size);
+    if((nmemb != 0U) && (size != 0U) && (noxtls_mem_test_should_fail() != 0)) {
+        noxtls_mem_test_record_result(total_size, NULL);
+        noxtls_mem_record_system_failure((noxtls_mem_operation_t)NOXTLS_MEM_OPERATION_CALLOC,
+                                         (noxtls_mem_failure_reason_t)NOXTLS_MEM_FAILURE_INJECTED,
+                                         total_size, file, line, function);
+        return NULL;
+    }
+    ptr = calloc(nmemb, size);
+    noxtls_mem_test_record_result(total_size, ptr);
+    if(ptr == NULL) {
+        noxtls_mem_record_system_failure((noxtls_mem_operation_t)NOXTLS_MEM_OPERATION_CALLOC,
+                                         (noxtls_mem_failure_reason_t)NOXTLS_MEM_FAILURE_SYSTEM_ALLOCATOR,
+                                         total_size, file, line, function);
+    }
+    return ptr;
 }
 
-void *noxtls_realloc(void *ptr, size_t size)
+void *noxtls_calloc(size_t nmemb, size_t size)
 {
+    return noxtls_calloc_at(nmemb, size, NULL, 0U, NULL);
+}
+
+/**
+ * @brief Resizes or frees using the host `realloc` / `free`.
+ * @param[in,out] ptr Existing block or NULL for a fresh allocation.
+ * @param[in]     size New size; zero frees @p ptr and returns NULL.
+ * @return Pointer from `realloc`, or NULL per C library rules.
+ */
+void *noxtls_realloc_at(void *ptr, size_t size,
+                        const char *file, uint32_t line, const char *function)
+{
+    void *new_ptr;
+
     if(size == 0U) {
         free(ptr);
         return NULL;
     }
-    return realloc(ptr, size);
+    noxtls_mem_test_record_attempt(size);
+#if defined(NOXTLS_TEST_ALLOCATOR_FAULT_INJECTION)
+    if(noxtls_mem_test_should_fail()) {
+        noxtls_mem_test_record_result(size, NULL);
+        noxtls_mem_record_system_failure((noxtls_mem_operation_t)NOXTLS_MEM_OPERATION_REALLOC,
+                                         (noxtls_mem_failure_reason_t)NOXTLS_MEM_FAILURE_INJECTED,
+                                         size, file, line, function);
+        return NULL;
+    }
+#endif
+    new_ptr = realloc(ptr, size);
+    noxtls_mem_test_record_result(size, new_ptr);
+    if(new_ptr == NULL) {
+        noxtls_mem_record_system_failure((noxtls_mem_operation_t)NOXTLS_MEM_OPERATION_REALLOC,
+                                         (noxtls_mem_failure_reason_t)NOXTLS_MEM_FAILURE_SYSTEM_ALLOCATOR,
+                                         size, file, line, function);
+    }
+    return new_ptr;
+}
+
+void *noxtls_realloc(void *ptr, size_t size)
+{
+    return noxtls_realloc_at(ptr, size, NULL, 0U, NULL);
 }
 
 noxtls_return_t noxtls_mem_init(uint8_t *buffer, size_t buffer_size)

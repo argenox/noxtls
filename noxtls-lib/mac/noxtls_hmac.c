@@ -13,6 +13,40 @@
 #include "mdigest/sha256/noxtls_sha256.h"
 #include "mdigest/sha512/noxtls_sha512.h"
 #include "noxtls_ct.h"
+#include "mdigest/noxtls_sha.h"
+
+#if NOXTLS_HMAC_SHA256_SHARED_STATE
+/* External serialization is required in this explicitly selected mode.
+ * The busy flag rejects overlapping lifetimes; it is not a thread lock. */
+static noxtls_sha_ctx_t s_hmac_sha256_shared;
+static uint8_t s_hmac_sha256_shared_busy;
+#endif
+
+static noxtls_sha_ctx_t *noxtls_hmac_sha256_acquire(void)
+{
+#if NOXTLS_HMAC_SHA256_SHARED_STATE
+    noxtls_sha_ctx_t *result = NULL;
+    if(s_hmac_sha256_shared_busy == 0U) {
+        s_hmac_sha256_shared_busy = 1U;
+        result = &s_hmac_sha256_shared;
+    }
+    return result;
+#else
+    return (noxtls_sha_ctx_t *)NOXTLS_MALLOC(sizeof(noxtls_sha_ctx_t));
+#endif
+}
+
+static void noxtls_hmac_sha256_release(noxtls_sha_ctx_t *ctx)
+{
+    if(ctx != NULL) {
+        noxtls_secure_zero(ctx, sizeof(noxtls_sha_ctx_t));
+#if NOXTLS_HMAC_SHA256_SHARED_STATE
+        s_hmac_sha256_shared_busy = 0U;
+#else
+        (void)noxtls_free(ctx);
+#endif
+    }
+}
 
 static uint32_t noxtls_hmac_hash_block_size(noxtls_hash_algos_t hash_algo)
 {
@@ -46,15 +80,21 @@ static noxtls_return_t noxtls_hmac_hash_once(noxtls_hash_algos_t hash_algo,
                                              const uint8_t *data, uint32_t len,
                                              uint8_t *out)
 {
-    if (hash_algo == NOXTLS_HASH_SHA_256) {
-        noxtls_sha_ctx_t ctx;
-        if (noxtls_sha256_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) {
+    if(hash_algo == NOXTLS_HASH_SHA_256) {
+        noxtls_sha_ctx_t *scratch = noxtls_hmac_sha256_acquire();
+        noxtls_return_t rc;
+        if(scratch == NULL) {
             return NOXTLS_RETURN_FAILED;
         }
-        if (noxtls_sha256_update(&ctx, data, len) != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
+        rc = noxtls_sha256_init(scratch, hash_algo);
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_sha256_update(scratch, data, len);
         }
-        return noxtls_sha256_finish(&ctx, out);
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_sha256_finish(scratch, out);
+        }
+        noxtls_hmac_sha256_release(scratch);
+        return rc;
     }
     if ((hash_algo == NOXTLS_HASH_SHA_384) || (hash_algo == NOXTLS_HASH_SHA_512)) {
         noxtls_sha512_ctx_t ctx;
@@ -80,26 +120,31 @@ static noxtls_return_t noxtls_hmac_hash_once(noxtls_hash_algos_t hash_algo,
 }
 
 /*
- * Streaming HMAC keeps an opaque hash context on the heap so the public
- * context stays algorithm-agnostic (Dir 4.12 / Rule 21.3 intentional).
+ * Streaming HMAC keeps an opaque hash context so the public context stays
+ * algorithm-agnostic. SHA-256 can explicitly select one serialized shared slot;
+ * otherwise hash state uses the configured allocator.
  */
 static noxtls_return_t noxtls_hmac_start_inner(noxtls_hmac_context_t *ctx, uint32_t block_size)
 {
-    if (ctx->hash_algo == NOXTLS_HASH_SHA_256) {
-        noxtls_sha_ctx_t *sha_ctx = (noxtls_sha_ctx_t *)noxtls_malloc(sizeof(noxtls_sha_ctx_t));
-        if (sha_ctx == NULL) {
+    if(ctx->hash_algo == NOXTLS_HASH_SHA_256) {
+        noxtls_sha_ctx_t *sha_ctx = noxtls_hmac_sha256_acquire();
+        noxtls_return_t rc;
+        if(sha_ctx == NULL) {
             return NOXTLS_RETURN_FAILED;
         }
-        if (noxtls_sha256_init(sha_ctx, ctx->hash_algo) != NOXTLS_RETURN_SUCCESS) {
-            (void)noxtls_free(sha_ctx);
-            return NOXTLS_RETURN_FAILED;
+        rc = noxtls_sha256_init(sha_ctx, ctx->hash_algo);
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_sha256_update(sha_ctx, ctx->i_key_pad, block_size);
         }
-        (void)noxtls_sha256_update(sha_ctx, ctx->i_key_pad, block_size);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_hmac_sha256_release(sha_ctx);
+            return rc;
+        }
         ctx->hash_ctx = sha_ctx;
         return NOXTLS_RETURN_SUCCESS;
     }
     if ((ctx->hash_algo == NOXTLS_HASH_SHA_384) || (ctx->hash_algo == NOXTLS_HASH_SHA_512)) {
-        noxtls_sha512_ctx_t *sha_ctx = (noxtls_sha512_ctx_t *)noxtls_malloc(sizeof(noxtls_sha512_ctx_t));
+        noxtls_sha512_ctx_t *sha_ctx = (noxtls_sha512_ctx_t *)NOXTLS_MALLOC(sizeof(noxtls_sha512_ctx_t));
         if (sha_ctx == NULL) {
             return NOXTLS_RETURN_FAILED;
         }
@@ -112,7 +157,7 @@ static noxtls_return_t noxtls_hmac_start_inner(noxtls_hmac_context_t *ctx, uint3
         return NOXTLS_RETURN_SUCCESS;
     }
     if (ctx->hash_algo == NOXTLS_HASH_SHA1) {
-        noxtls_sha_ctx_t *sha_ctx = (noxtls_sha_ctx_t *)noxtls_malloc(sizeof(noxtls_sha_ctx_t));
+        noxtls_sha_ctx_t *sha_ctx = (noxtls_sha_ctx_t *)NOXTLS_MALLOC(sizeof(noxtls_sha_ctx_t));
         if (sha_ctx == NULL) {
             return NOXTLS_RETURN_FAILED;
         }
@@ -149,9 +194,11 @@ noxtls_return_t noxtls_hmac_init(noxtls_hmac_context_t *ctx, noxtls_hash_algos_t
 
     if (key_len > block_size) {
         if (noxtls_hmac_hash_once(hash_algo, key, key_len, key_hash) != NOXTLS_RETURN_SUCCESS) {
+            noxtls_secure_zero(key_hash, sizeof(key_hash));
             return NOXTLS_RETURN_FAILED;
         }
         noxtls_copy_u8(ctx->key, sizeof(ctx->key), key_hash, (size_t)hash_size);
+        noxtls_secure_zero(key_hash, sizeof(key_hash));
         ctx->key_len = hash_size;
     } else {
         noxtls_copy_u8(ctx->key, sizeof(ctx->key), key, (size_t)key_len);
@@ -207,24 +254,29 @@ noxtls_return_t noxtls_hmac_final(noxtls_hmac_context_t *ctx, uint8_t *mac, uint
     }
 
     if (ctx->hash_algo == NOXTLS_HASH_SHA_256) {
-        rc = noxtls_sha256_finish((noxtls_sha_ctx_t *)ctx->hash_ctx, inner_hash);
-        (void)noxtls_free(ctx->hash_ctx);
+        /* Reuse this HMAC's reserved state for the outer hash. */
+        noxtls_sha_ctx_t *sha_ctx = (noxtls_sha_ctx_t *)ctx->hash_ctx;
+        rc = noxtls_sha256_finish(sha_ctx, inner_hash);
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_sha256_init(sha_ctx, ctx->hash_algo);
+        }
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_sha256_update(sha_ctx, ctx->o_key_pad, block_size);
+        }
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_sha256_update(sha_ctx, inner_hash, hash_size);
+        }
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_sha256_finish(sha_ctx, mac);
+        }
+        noxtls_hmac_sha256_release(sha_ctx);
         ctx->hash_ctx = NULL;
-        if (rc != NOXTLS_RETURN_SUCCESS) {
-            return rc;
-        }
-        {
-            noxtls_sha_ctx_t outer;
-            (void)noxtls_sha256_init(&outer, ctx->hash_algo);
-            (void)noxtls_sha256_update(&outer, ctx->o_key_pad, block_size);
-            (void)noxtls_sha256_update(&outer, inner_hash, hash_size);
-            rc = noxtls_sha256_finish(&outer, mac);
-        }
-    } else if ((ctx->hash_algo == NOXTLS_HASH_SHA_384) || (ctx->hash_algo == NOXTLS_HASH_SHA_512)) {
+    } else if((ctx->hash_algo == NOXTLS_HASH_SHA_384) || (ctx->hash_algo == NOXTLS_HASH_SHA_512)) {
         rc = noxtls_sha512_finish((noxtls_sha512_ctx_t *)ctx->hash_ctx, inner_hash);
         (void)noxtls_free(ctx->hash_ctx);
         ctx->hash_ctx = NULL;
         if (rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_secure_zero(inner_hash, sizeof(inner_hash));
             return rc;
         }
         {
@@ -239,6 +291,7 @@ noxtls_return_t noxtls_hmac_final(noxtls_hmac_context_t *ctx, uint8_t *mac, uint
         (void)noxtls_free(ctx->hash_ctx);
         ctx->hash_ctx = NULL;
         if (rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_secure_zero(inner_hash, sizeof(inner_hash));
             return rc;
         }
         {
@@ -253,6 +306,7 @@ noxtls_return_t noxtls_hmac_final(noxtls_hmac_context_t *ctx, uint8_t *mac, uint
     if (rc == NOXTLS_RETURN_SUCCESS) {
         *mac_len = hash_size;
     }
+    noxtls_secure_zero(inner_hash, sizeof(inner_hash));
     return rc;
 }
 
@@ -261,8 +315,12 @@ noxtls_return_t noxtls_hmac_free(noxtls_hmac_context_t *ctx)
     if (ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if (ctx->hash_ctx != NULL) {
-        (void)noxtls_free(ctx->hash_ctx);
+    if(ctx->hash_ctx != NULL) {
+        if(ctx->hash_algo == NOXTLS_HASH_SHA_256) {
+            noxtls_hmac_sha256_release((noxtls_sha_ctx_t *)ctx->hash_ctx);
+        } else {
+            (void)noxtls_free(ctx->hash_ctx);
+        }
         ctx->hash_ctx = NULL;
     }
     noxtls_secure_zero((ctx), sizeof(*(ctx)));

@@ -137,8 +137,8 @@ static noxtls_return_t p_hash(noxtls_hash_algos_t hash_algo,
         return NOXTLS_RETURN_INVALID_ALGORITHM;
     }
 
-    A = (uint8_t *)noxtls_malloc(hash_len);
-    chunk = (uint8_t *)noxtls_malloc(hash_len);
+    A = (uint8_t *)NOXTLS_MALLOC(hash_len);
+    chunk = (uint8_t *)NOXTLS_MALLOC(hash_len);
     if((A == NULL) || (chunk == NULL)) {
         (void)noxtls_free(A);
         (void)noxtls_free(chunk);
@@ -161,7 +161,7 @@ static noxtls_return_t p_hash(noxtls_hash_algos_t hash_algo,
         uint32_t tmp_len = hash_len;
         uint32_t copy_len = 0U;
 
-        input = (uint8_t *)noxtls_malloc(input_len);
+        input = (uint8_t *)NOXTLS_MALLOC(input_len);
         if(input == NULL) {
             (void)noxtls_free(A);
             (void)noxtls_free(chunk);
@@ -209,7 +209,7 @@ noxtls_return_t tls12_prf(const uint8_t *secret, uint32_t secret_len,
         return NOXTLS_RETURN_NULL;
     }
 
-    label_seed = (uint8_t *)noxtls_malloc(label_len + seed_len);
+    label_seed = (uint8_t *)NOXTLS_MALLOC(label_len + seed_len);
     if(label_seed == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -246,9 +246,9 @@ noxtls_return_t tls10_prf(const uint8_t *secret, uint32_t secret_len,
     s1 = secret;
     s2 = &secret[secret_len - half_len];
 
-    label_seed = (uint8_t *)noxtls_malloc(label_len + seed_len);
-    md5_out = (uint8_t *)noxtls_malloc(output_len);
-    sha1_out = (uint8_t *)noxtls_malloc(output_len);
+    label_seed = (uint8_t *)NOXTLS_MALLOC(label_len + seed_len);
+    md5_out = (uint8_t *)NOXTLS_MALLOC(output_len);
+    sha1_out = (uint8_t *)NOXTLS_MALLOC(output_len);
     if((label_seed == NULL) || (md5_out == NULL) || (sha1_out == NULL)) {
         (void)noxtls_free(label_seed);
         (void)noxtls_free(md5_out);
@@ -275,7 +275,7 @@ noxtls_return_t tls10_prf(const uint8_t *secret, uint32_t secret_len,
             uint8_t *input = NULL;
             uint32_t copy_len = 0U;
             uint32_t label_seed_len = label_len + seed_len;
-            input = (uint8_t *)noxtls_malloc(16U + label_seed_len);
+            input = (uint8_t *)NOXTLS_MALLOC(16U + label_seed_len);
             if(input == NULL) {
                 (void)noxtls_free(label_seed);
                 (void)noxtls_free(md5_out);

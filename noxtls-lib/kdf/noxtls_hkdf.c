@@ -68,7 +68,7 @@ noxtls_return_t noxtls_hkdf_extract(noxtls_hash_algos_t hash_algo,
 
 /*
  * Expand builds T(i) = HMAC(PRK, T(i-1) | info | i).
- * The per-round message buffer is sized from the pool (bucket allocator).
+ * Streaming HMAC avoids a per-round message allocation.
  */
 noxtls_return_t noxtls_hkdf_expand(noxtls_hash_algos_t hash_algo,
                                    const uint8_t *prk, uint32_t prk_len,
@@ -77,8 +77,6 @@ noxtls_return_t noxtls_hkdf_expand(noxtls_hash_algos_t hash_algo,
 {
     uint32_t hash_size = (uint32_t)(noxtls_hkdf_hash_output_size(hash_algo));
     uint8_t T[64];
-    uint8_t *msg = NULL;
-    uint32_t msg_cap;
     uint32_t offset = 0U;
     uint32_t i = 1U;
     uint32_t n;
@@ -96,43 +94,29 @@ noxtls_return_t noxtls_hkdf_expand(noxtls_hash_algos_t hash_algo,
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    msg_cap = hash_size + info_len + 1U;
-    msg = (uint8_t *)noxtls_malloc((size_t)msg_cap);
-    if (msg == NULL) {
-        return NOXTLS_RETURN_FAILED;
-    }
-
     n = (okm_len + hash_size - 1U) / hash_size;
-    while ((offset < okm_len) && (i <= n)) {
-        uint32_t msg_len = 1U;
-        uint32_t pos = 0U;
-        uint32_t t_len = (uint32_t)(hash_size);
+    while(offset < okm_len && i <= n) {
+        noxtls_hmac_context_t ctx;
+        uint8_t counter = (uint8_t)i;
+        uint32_t t_len = hash_size;
         noxtls_return_t rc;
 
-        if (i != 1U) {
-            msg_len += hash_size;
+        noxtls_secure_zero(&ctx, (size_t)(sizeof(ctx)));
+        rc = noxtls_hmac_init(&ctx, hash_algo, prk, prk_len);
+        if(rc == NOXTLS_RETURN_SUCCESS && i > 1U) {
+            rc = noxtls_hmac_update(&ctx, T, hash_size);
         }
-        if ((info != NULL) && (info_len > 0U)) {
-            msg_len += info_len;
+        if(rc == NOXTLS_RETURN_SUCCESS && info != NULL && info_len > 0U) {
+            rc = noxtls_hmac_update(&ctx, info, info_len);
         }
-        if (msg_len > msg_cap) {
-            (void)noxtls_free(msg);
-            return NOXTLS_RETURN_INVALID_PARAM;
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_hmac_update(&ctx, &counter, 1U);
         }
-
-        if (i > 1U) {
-            noxtls_copy_u8(&msg[pos], (size_t)msg_cap - (size_t)pos, &T[0], (size_t)hash_size);
-            pos += hash_size;
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_hmac_final(&ctx, T, &t_len);
         }
-        if ((info != NULL) && (info_len > 0U)) {
-            noxtls_copy_u8(&msg[pos], (size_t)msg_cap - (size_t)pos, &info[0], (size_t)info_len);
-            pos += info_len;
-        }
-        msg[pos] = (uint8_t)i;
-
-        rc = noxtls_hmac_compute(hash_algo, prk, prk_len, &msg[0], msg_len, &T[0], &t_len);
-        if ((rc != NOXTLS_RETURN_SUCCESS) || (t_len != hash_size)) {
-            (void)noxtls_free(msg);
+        (void)noxtls_hmac_free(&ctx);
+        if(rc != NOXTLS_RETURN_SUCCESS || t_len != hash_size) {
             return NOXTLS_RETURN_FAILED;
         }
 
@@ -146,7 +130,6 @@ noxtls_return_t noxtls_hkdf_expand(noxtls_hash_algos_t hash_algo,
         i += 1U;
     }
 
-    (void)noxtls_free(msg);
     return NOXTLS_RETURN_SUCCESS;
 }
 
