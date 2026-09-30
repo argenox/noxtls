@@ -28,10 +28,12 @@
 #include "camellia/noxtls_camellia_internal.h"
 static void noxtls_encryption_misra_api_refs(void)
 {
+#if NOXTLS_FEATURE_AES_CMAC
     NOXTLS_MISRA_REF_FN(&noxtls_aes_cmac);
     NOXTLS_MISRA_REF_FN(&noxtls_aes_cmac_final);
     NOXTLS_MISRA_REF_FN(&noxtls_aes_cmac_init);
     NOXTLS_MISRA_REF_FN(&noxtls_aes_cmac_update);
+#endif
     NOXTLS_MISRA_REF_FN(&noxtls_aes_decrypt_ecb);
     NOXTLS_MISRA_REF_FN(&noxtls_aria_decrypt_data);
     NOXTLS_MISRA_REF_FN(&noxtls_aria_encrypt_data);
