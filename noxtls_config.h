@@ -109,6 +109,14 @@
 #define NOXTLS_FEATURE_HKDF 1
 #endif
 
+/* Enables generic PBKDF2 (RFC 8018 §5.2) primitive.
+ * Prereq: NOXTLS_FEATURE_HMAC=1.
+ * Required by: PKCS#8 PBES2 key decryption, IEEE 802.11 PSK-to-PMK.
+ */
+#ifndef NOXTLS_FEATURE_PBKDF2
+#define NOXTLS_FEATURE_PBKDF2 NOXTLS_FEATURE_HMAC
+#endif
+
 /* Enables symmetric encryption module family (AES/ARIA/Camellia/ChaCha/DES).
  * Prereq: none.
  * Required by: DRBG and TLS record protection.

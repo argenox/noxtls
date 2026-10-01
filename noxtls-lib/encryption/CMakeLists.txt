@@ -60,6 +60,8 @@ if(NOXTLS_CFG_FEATURE_AES)
   endif()
   if(NOXTLS_CFG_FEATURE_AES_ECB)
     list(APPEND ENC_SOURCES aes/noxtls_aes_ecb.c)
+    # RFC 3394 key wrap is built on single-block AES-ECB.
+    list(APPEND ENC_SOURCES aes/noxtls_aes_keywrap.c)
   endif()
   if(NOXTLS_CFG_FEATURE_AES_CBC)
     list(APPEND ENC_SOURCES aes/noxtls_aes_cbc.c)
