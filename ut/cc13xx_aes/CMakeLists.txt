@@ -1,0 +1,32 @@
+cmake_minimum_required(VERSION 3.20)
+project(noxtls_cc13xx_aes_tests C)
+enable_testing()
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+get_filename_component(NOXTLS_CC13XX_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
+if(NOT TARGET utnox)
+    set(NOXTLS_ERROR_UTNOX "" CACHE PATH "Existing UTNox source checkout")
+    if(NOT EXISTS "${NOXTLS_ERROR_UTNOX}/CMakeLists.txt")
+        message(FATAL_ERROR "Set NOXTLS_ERROR_UTNOX to an existing UTNox checkout")
+    endif()
+    add_subdirectory("${NOXTLS_ERROR_UTNOX}" utnox)
+endif()
+set(CC13XX_LIB "${NOXTLS_CC13XX_ROOT}/noxtls-lib")
+foreach(enabled IN ITEMS 0 1)
+    set(target "noxtls_cc13xx_aes_enabled${enabled}_ut")
+    add_executable(${target} cc13xx_aes_ut.c)
+    if(enabled)
+        target_sources(${target} PRIVATE
+            "${CC13XX_LIB}/common/noxtls_cc13xx_crypto.c"
+            "${CC13XX_LIB}/common/noxtls_ct.c"
+            "${CC13XX_LIB}/encryption/aes/noxtls_aes_accel_cc13xx_port.c")
+    else()
+        target_sources(${target} PRIVATE "${CC13XX_LIB}/encryption/aes/noxtls_aes_accel_esp.c")
+    endif()
+    target_include_directories(${target} PRIVATE "${NOXTLS_CC13XX_ROOT}"
+        "${CC13XX_LIB}" "${CC13XX_LIB}/common" "${CC13XX_LIB}/encryption/aes")
+    target_compile_definitions(${target} PRIVATE NOXTLS_FEATURE_CC13XX_HW_ACCEL=${enabled}
+        NOXTLS_FEATURE_AES_ACCEL_NI=0 NOXTLS_FEATURE_AES_ACCEL_APPLE=0)
+    set_target_properties(${target} PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+    target_link_libraries(${target} PRIVATE utnox)
+    add_test(NAME ${target} COMMAND ${target} RUN_ALL)
+endforeach()

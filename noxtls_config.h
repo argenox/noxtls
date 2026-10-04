@@ -368,6 +368,14 @@
 #define NOXTLS_FEATURE_NRF52_HW_ACCEL 0
 #endif
 
+/* Original injected CC13xx AES/P-256 accelerator callbacks, disabled by default.
+ * No TI SDK or OS dependency. Bind only while all crypto callers are idle.
+ * Build knob: NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL.
+ */
+#ifndef NOXTLS_FEATURE_CC13XX_HW_ACCEL
+#define NOXTLS_FEATURE_CC13XX_HW_ACCEL 0
+#endif
+
 /* When enabled, require nRF52 hardware AES support and disable software AES fallback.
  * Prereq: NOXTLS_FEATURE_NRF52_HW_ACCEL=1.
  * Build knob: NOXTLS_CFG_FEATURE_NRF52_HW_AES_ONLY.

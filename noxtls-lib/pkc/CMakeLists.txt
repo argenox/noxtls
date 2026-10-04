@@ -21,6 +21,11 @@ option(NOXTLS_PTS_PERIPHERAL_ECC_OPTIMIZED "Compile the PTS peripheral PKC targe
 
 set(PKC_SOURCES
 )
+if(NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL AND
+   (ESP_PLATFORM OR NOXTLS_NRF52840_CC310_ECC OR
+    NOXTLS_NRF53_CC312_P256_ACCEL OR NOXTLS_NRF54_CRACEN_P256_ACCEL))
+    message(FATAL_ERROR "CC13xx requires exclusive platform P-256 accelerator selection")
+endif()
 
 if((NOXTLS_NRF52840_CC310_ECC AND NOXTLS_NRF53_CC312_P256_ACCEL) OR
    (NOXTLS_NRF52840_CC310_ECC AND NOXTLS_NRF54_CRACEN_P256_ACCEL) OR
@@ -57,7 +62,9 @@ if(ESP_PLATFORM AND NOXTLS_CFG_FEATURE_PKC)
 endif()
 if(NOXTLS_CFG_FEATURE_ECC)
     list(APPEND PKC_SOURCES ecc/noxtls_ecc.c)
-    if(ESP_PLATFORM)
+    if(NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL)
+        list(APPEND PKC_SOURCES ecc/noxtls_ecc_accel_cc13xx_port.c)
+    elseif(ESP_PLATFORM)
         set(_noxtls_esp32_ecc "${NOXTLS_ESP_IDF_DIR}/target/esp32/noxtls_esp32_ecc_accel.c")
         if(EXISTS "${_noxtls_esp32_ecc}")
             list(APPEND PKC_SOURCES "${_noxtls_esp32_ecc}")
