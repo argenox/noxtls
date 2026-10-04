@@ -86,6 +86,8 @@ static uint32_t s_nrf54_cracen_microcode_loaded;
 static uint32_t s_nrf54_cracen_ready;
 static uint32_t s_nrf54_cracen_operation_count;
 static uint32_t s_nrf54_cracen_fallback_count;
+volatile uint32_t noxtls_nrf54_cracen_verify_count;
+volatile uint32_t noxtls_nrf54_cracen_verify_mismatch_count;
 static int32_t s_nrf54_cracen_last_rc = NOXTLS_RETURN_NOT_SUPPORTED;
 static uint32_t s_nrf54_cracen_last_status;
 static uint32_t s_nrf54_cracen_last_stage;
@@ -315,6 +317,9 @@ noxtls_return_t noxtls_ecc_point_multiply_accel_port(ecc_point_t *result,
     uint32_t command;
     uint32_t status;
     uint8_t blind_factor[NOXTLS_NRF54_PKE_BLIND_FACTOR_BYTES];
+    uint8_t verify_blind_factor[NOXTLS_NRF54_PKE_BLIND_FACTOR_BYTES];
+    uint8_t first_result_x[NOXTLS_NRF54_PKE_OPERAND_BYTES];
+    uint8_t first_result_y[NOXTLS_NRF54_PKE_OPERAND_BYTES];
     noxtls_return_t rc = NOXTLS_RETURN_NOT_SUPPORTED;
 
     if(result == NULL || scalar == NULL || point == NULL || !noxtls_nrf54_is_p256(curve) ||
@@ -324,18 +329,27 @@ noxtls_return_t noxtls_ecc_point_multiply_accel_port(ecc_point_t *result,
     s_nrf54_cracen_last_stage = 1u;
     s_nrf54_cracen_last_status = 0u;
     memset(blind_factor, 0, sizeof(blind_factor));
-    if(noxtls_drbg_get_entropy(blind_factor, sizeof(blind_factor)) != NOXTLS_RETURN_SUCCESS) {
+    memset(verify_blind_factor, 0, sizeof(verify_blind_factor));
+    memset(first_result_x, 0, sizeof(first_result_x));
+    memset(first_result_y, 0, sizeof(first_result_y));
+    if(noxtls_drbg_get_entropy(blind_factor, sizeof(blind_factor)) != NOXTLS_RETURN_SUCCESS ||
+       noxtls_drbg_get_entropy(verify_blind_factor, sizeof(verify_blind_factor)) != NOXTLS_RETURN_SUCCESS) {
         s_nrf54_cracen_last_rc = NOXTLS_RETURN_NOT_SUPPORTED;
+        noxtls_secure_zero(blind_factor, sizeof(blind_factor));
+        noxtls_secure_zero(verify_blind_factor, sizeof(verify_blind_factor));
         return NOXTLS_RETURN_NOT_SUPPORTED;
     }
     /* BA414ep requires an odd 64-bit factor with bits 63..62 clear and bit
      * 61 set.  In big-endian mode the most-significant byte is stored first. */
     blind_factor[0] = (uint8_t)((blind_factor[0] & 0x3fu) | 0x20u);
     blind_factor[NOXTLS_NRF54_PKE_BLIND_FACTOR_BYTES - 1u] |= 1u;
+    verify_blind_factor[0] = (uint8_t)((verify_blind_factor[0] & 0x3fu) | 0x20u);
+    verify_blind_factor[NOXTLS_NRF54_PKE_BLIND_FACTOR_BYTES - 1u] |= 1u;
     if(!noxtls_nordic_crypto_try_acquire()) {
         s_nrf54_cracen_last_stage = 1u;
         s_nrf54_cracen_last_rc = NOXTLS_RETURN_NOT_SUPPORTED;
         noxtls_secure_zero(blind_factor, sizeof(blind_factor));
+        noxtls_secure_zero(verify_blind_factor, sizeof(verify_blind_factor));
         return NOXTLS_RETURN_NOT_SUPPORTED;
     }
     s_nrf54_cracen_last_stage = 2u;
@@ -390,6 +404,10 @@ noxtls_return_t noxtls_ecc_point_multiply_accel_port(ecc_point_t *result,
         noxtls_secure_zero(y_echo, sizeof(y_echo));
         noxtls_secure_zero(scalar_echo, sizeof(scalar_echo));
     }
+    if(s_nrf54_cracen_input_echo_ok == 0u) {
+        s_nrf54_cracen_last_stage = 13u;
+        goto cleanup;
+    }
     *noxtls_nrf54_reg(NOXTLS_NRF54_PKE_REGS_BASE, NOXTLS_NRF54_PKE_CONFIG_OFF) =
         NOXTLS_NRF54_PKE_CONFIG_ECC_PTMUL;
 
@@ -414,16 +432,91 @@ noxtls_return_t noxtls_ecc_point_multiply_accel_port(ecc_point_t *result,
     noxtls_nrf54_pke_read_slot(result->x, NOXTLS_NRF54_PKE_SLOT_OUTPUT_X);
     noxtls_nrf54_pke_read_slot(result->y, NOXTLS_NRF54_PKE_SLOT_OUTPUT_Y);
     result->size = NOXTLS_NRF54_PKE_OPERAND_BYTES;
+
+    /*
+     * A successful BA414ep status only proves that the command completed; it
+     * does not authenticate the arithmetic result.  Secure Connections is
+     * especially sensitive to a transient valid-but-wrong point: key
+     * generation can still publish an on-curve Q that is not d*G, or ECDH can
+     * return the wrong d*Q, and the first externally visible symptom is then
+     * a peer DHKey-check failure.
+     *
+     * Repeat the operation under an independently generated blinding factor
+     * and accept the accelerated result only when both coordinates agree.
+     * Disagreement returns NOT_SUPPORTED so the common ECC layer recomputes
+     * through its portable path.  This is intentionally confined to the
+     * nRF54 CRACEN backend and cannot affect nRF52/nRF53 timing or behavior.
+     */
+    memcpy(first_result_x, result->x, sizeof(first_result_x));
+    memcpy(first_result_y, result->y, sizeof(first_result_y));
+    noxtls_nrf54_pke_clear_operation_slots();
+    noxtls_nrf54_pke_clear_slot(NOXTLS_NRF54_PKE_SLOT_BLIND_FACTOR);
+    *noxtls_nrf54_reg(NOXTLS_NRF54_PKE_REGS_BASE, NOXTLS_NRF54_PKE_COMMAND_OFF) = command;
+    noxtls_nrf54_pke_write_slot(NOXTLS_NRF54_PKE_SLOT_INPUT_X, point->x);
+    noxtls_nrf54_pke_write_slot(NOXTLS_NRF54_PKE_SLOT_INPUT_Y, point->y);
+    noxtls_nrf54_pke_write_slot(NOXTLS_NRF54_PKE_SLOT_SCALAR, scalar);
+    noxtls_nrf54_pke_write_blind_factor(verify_blind_factor);
+    noxtls_secure_zero(verify_blind_factor, sizeof(verify_blind_factor));
+    {
+        uint8_t x_echo[NOXTLS_NRF54_PKE_OPERAND_BYTES];
+        uint8_t y_echo[NOXTLS_NRF54_PKE_OPERAND_BYTES];
+        uint8_t scalar_echo[NOXTLS_NRF54_PKE_OPERAND_BYTES];
+
+        noxtls_nrf54_pke_read_slot(x_echo, NOXTLS_NRF54_PKE_SLOT_INPUT_X);
+        noxtls_nrf54_pke_read_slot(y_echo, NOXTLS_NRF54_PKE_SLOT_INPUT_Y);
+        noxtls_nrf54_pke_read_slot(scalar_echo, NOXTLS_NRF54_PKE_SLOT_SCALAR);
+        s_nrf54_cracen_input_echo_ok =
+            (memcmp(x_echo, point->x, sizeof(x_echo)) == 0 &&
+             memcmp(y_echo, point->y, sizeof(y_echo)) == 0 &&
+             memcmp(scalar_echo, scalar, sizeof(scalar_echo)) == 0) ? 1u : 0u;
+        noxtls_secure_zero(x_echo, sizeof(x_echo));
+        noxtls_secure_zero(y_echo, sizeof(y_echo));
+        noxtls_secure_zero(scalar_echo, sizeof(scalar_echo));
+    }
+    if(s_nrf54_cracen_input_echo_ok == 0u) {
+        s_nrf54_cracen_last_stage = 14u;
+        goto cleanup;
+    }
+    *noxtls_nrf54_reg(NOXTLS_NRF54_PKE_REGS_BASE, NOXTLS_NRF54_PKE_CONFIG_OFF) =
+        NOXTLS_NRF54_PKE_CONFIG_ECC_PTMUL;
+    *noxtls_nrf54_reg(NOXTLS_NRF54_PKE_REGS_BASE, NOXTLS_NRF54_PKE_CONTROL_OFF) =
+        NOXTLS_NRF54_PKE_CONTROL_START | NOXTLS_NRF54_PKE_CONTROL_CLEAR_IRQ;
+    s_nrf54_cracen_last_stage = 9u;
+    if(!noxtls_nrf54_pke_wait()) {
+        goto cleanup;
+    }
+    status = *noxtls_nrf54_reg(NOXTLS_NRF54_PKE_REGS_BASE, NOXTLS_NRF54_PKE_STATUS_OFF);
+    s_nrf54_cracen_last_status = status;
+    s_nrf54_cracen_last_stage = 10u;
+    if((status & NOXTLS_NRF54_PKE_STATUS_ERRORS) != 0u) {
+        if((status & (1u << 5)) != 0u) {
+            s_nrf54_cracen_microcode_loaded = 0u;
+        }
+        goto cleanup;
+    }
+    noxtls_nrf54_pke_read_slot(result->x, NOXTLS_NRF54_PKE_SLOT_OUTPUT_X);
+    noxtls_nrf54_pke_read_slot(result->y, NOXTLS_NRF54_PKE_SLOT_OUTPUT_Y);
+    ++noxtls_nrf54_cracen_verify_count;
+    if(memcmp(first_result_x, result->x, sizeof(first_result_x)) != 0 ||
+       memcmp(first_result_y, result->y, sizeof(first_result_y)) != 0) {
+        ++noxtls_nrf54_cracen_verify_mismatch_count;
+        s_nrf54_cracen_last_stage = 11u;
+        goto cleanup;
+    }
+
     ++s_nrf54_cracen_operation_count;
     rc = NOXTLS_RETURN_SUCCESS;
     s_nrf54_cracen_ready = 1u;
-    s_nrf54_cracen_last_stage = 8u;
+    s_nrf54_cracen_last_stage = 12u;
 
 cleanup:
     /* Scalar and peer-point material must not persist in CRACEN PKE RAM. */
     noxtls_nrf54_pke_clear_operation_slots();
     noxtls_nrf54_pke_clear_slot(NOXTLS_NRF54_PKE_SLOT_BLIND_FACTOR);
     noxtls_secure_zero(blind_factor, sizeof(blind_factor));
+    noxtls_secure_zero(verify_blind_factor, sizeof(verify_blind_factor));
+    noxtls_secure_zero(first_result_x, sizeof(first_result_x));
+    noxtls_secure_zero(first_result_y, sizeof(first_result_y));
     if(rc != NOXTLS_RETURN_SUCCESS) {
         s_nrf54_cracen_ready = 0u;
     }
