@@ -1,4 +1,9 @@
 set(NOXTLS_ROOT_UT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../ut")
+option(NOXTLS_BUILD_ACCEL_ERROR_TESTS "Build focused accelerator error-contract UTNox tests" OFF)
+if(NOXTLS_BUILD_ACCEL_ERROR_TESTS)
+    add_subdirectory(accel_errors_aes)
+    add_subdirectory(accel_errors_ecc)
+endif()
 if(NOT EXISTS "${NOXTLS_ROOT_UT_DIR}")
     # GPL tree may not ship the shared components/ut mirror; fall back to OEM UT.
     set(NOXTLS_ROOT_UT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../noxtls-oem/ut")

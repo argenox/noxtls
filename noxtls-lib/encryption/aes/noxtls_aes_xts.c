@@ -80,6 +80,10 @@ noxtls_return_t noxtls_aes_encrypt_xts(const uint8_t* key,
                     noxtls_aes_type_t type)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
+    if ((key == NULL) || (data == NULL) || (output == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+
     uint32_t cur_block = 0;
     uint32_t i = 0;
     uint8_t tweak[NOXTLS_AES_BLOCK_LENGTH];
@@ -146,7 +150,7 @@ noxtls_return_t noxtls_aes_encrypt_xts(const uint8_t* key,
     }
     
     /* Encrypt tweak (IV) with the same AES key size selected for data path. */
-    noxtls_aes_encrypt_block_internal(tweak_key, iv, tweak, type);
+    NOXTLS_AES_CHECK(noxtls_aes_encrypt_block_internal(tweak_key, iv, tweak, type), output, data_len, NULL, 0U);
     
     /* Calculate number of blocks */
     num_blocks = data_len / NOXTLS_AES_BLOCK_LENGTH;
@@ -163,7 +167,7 @@ noxtls_return_t noxtls_aes_encrypt_xts(const uint8_t* key,
         
         /* Encrypt */
         {
-            noxtls_aes_encrypt_block_internal(data_key, temp_block, temp_block, type);
+            NOXTLS_AES_CHECK(noxtls_aes_encrypt_block_internal(data_key, temp_block, temp_block, type), output, data_len, NULL, 0U);
         }
         
         /* XOR result with tweak */
@@ -198,7 +202,7 @@ noxtls_return_t noxtls_aes_encrypt_xts(const uint8_t* key,
             }
             {
                 const uint8_t *block_in = temp_block;
-                noxtls_aes_encrypt_block_internal(data_key, block_in, temp_block, type);
+                NOXTLS_AES_CHECK(noxtls_aes_encrypt_block_internal(data_key, block_in, temp_block, type), output, data_len, NULL, 0U);
             }
             for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
                 output[((num_blocks - 1) * NOXTLS_AES_BLOCK_LENGTH) + i] = temp_block[i] ^ last_tweak[i];
@@ -222,7 +226,7 @@ noxtls_return_t noxtls_aes_encrypt_xts(const uint8_t* key,
             temp_block[i] ^= last_tweak[i];
         }
         {
-            noxtls_aes_encrypt_block_internal(data_key, temp_block, temp_block, type);
+            NOXTLS_AES_CHECK(noxtls_aes_encrypt_block_internal(data_key, temp_block, temp_block, type), output, data_len, NULL, 0U);
         }
         for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
             temp_block[i] ^= last_tweak[i];

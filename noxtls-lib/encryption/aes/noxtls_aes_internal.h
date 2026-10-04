@@ -28,6 +28,24 @@
 #include <stdint.h>
 #include "noxtls_aes.h"
 #include "noxtls_common.h"
+#include "noxtls_ct.h"
+
+/**
+ * @brief Return an actual cipher failure after erasing bounded output spans.
+ * @internal
+ *
+ * Every expression is evaluated once. Callers pass known writable spans; zero
+ * length / NULL auxiliary output is permitted. This is not a fallback hook.
+ */
+#define NOXTLS_AES_CHECK(operation, output, length, auxiliary, auxiliary_length) \
+    do { \
+        const noxtls_return_t noxtls_block_status = (operation); \
+        if (noxtls_block_status != NOXTLS_RETURN_SUCCESS) { \
+            noxtls_secure_zero((output), (length)); \
+            noxtls_secure_zero((auxiliary), (auxiliary_length)); \
+            return noxtls_block_status; \
+        } \
+    } while (0)
 
 #ifdef __cplusplus
 extern "C" {

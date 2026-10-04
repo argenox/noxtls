@@ -501,9 +501,18 @@ noxtls_return_t noxtls_aes_gcm_encrypt(const uint8_t *key, noxtls_aes_type_t typ
         return NOXTLS_RETURN_NULL;
     }
 
-    if(noxtls_aes_gcm_encrypt_accel_port(key, type, nonce, aad, aad_len, plaintext, plaintext_len, ciphertext, tag) ==
-       NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_SUCCESS;
+    {
+        const noxtls_return_t port_result = noxtls_aes_gcm_encrypt_accel_port(
+            key, type, nonce, aad, aad_len, plaintext, plaintext_len, ciphertext, tag);
+        if (port_result == NOXTLS_RETURN_SUCCESS) {
+            return port_result;
+        }
+
+        if (port_result != NOXTLS_RETURN_NOT_SUPPORTED) {
+            noxtls_secure_zero(ciphertext, plaintext_len);
+            noxtls_secure_zero(tag, 16U);
+            return port_result;
+        }
     }
 
     {
@@ -516,9 +525,9 @@ noxtls_return_t noxtls_aes_gcm_encrypt(const uint8_t *key, noxtls_aes_type_t typ
     }
 
     memset(h, 0, sizeof(h));
-    if(aes_block(&aes_ctx, h, h) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
-    }
+
+    NOXTLS_AES_CHECK(aes_block(&aes_ctx, h, h), ciphertext, plaintext_len, tag, 16U);
+
     ghash_table = gcm_precompute_tables(h);
 
     memcpy(j0, nonce, 12);
@@ -537,9 +546,9 @@ noxtls_return_t noxtls_aes_gcm_encrypt(const uint8_t *key, noxtls_aes_type_t typ
 
     while(offset < plaintext_len) {
         uint32_t take = (plaintext_len - offset >= 16) ? 16 : (plaintext_len - offset);
-        if(aes_block(&aes_ctx, ctr, s) != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
-        }
+
+        NOXTLS_AES_CHECK(aes_block(&aes_ctx, ctr, s), ciphertext, plaintext_len, tag, 16U);
+
         if(take == 16U) {
             gcm_xor_stream_block(ciphertext + offset, plaintext + offset, s);
         } else {
@@ -560,9 +569,11 @@ noxtls_return_t noxtls_aes_gcm_encrypt(const uint8_t *key, noxtls_aes_type_t typ
 
     ghash_finalize(x, ghash_table, (uint64_t)aad_len * 8U, (uint64_t)plaintext_len * 8U);
 
-    if(aes_block(&aes_ctx, j0, s) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
-    }
+
+
+    NOXTLS_AES_CHECK(aes_block(&aes_ctx, j0, s), ciphertext, plaintext_len, tag, 16U);
+
+
     gcm_xor(tag, x, s);
 
     return NOXTLS_RETURN_SUCCESS;
@@ -609,7 +620,12 @@ noxtls_return_t noxtls_aes_gcm_decrypt(const uint8_t *key, noxtls_aes_type_t typ
     {
         noxtls_return_t port_rc = noxtls_aes_gcm_decrypt_accel_port(key, type, nonce, aad, aad_len,
                                                                      ciphertext, ciphertext_len, tag, plaintext);
-        if(port_rc == NOXTLS_RETURN_SUCCESS || port_rc == NOXTLS_RETURN_BAD_DATA) {
+        if (port_rc == NOXTLS_RETURN_SUCCESS) {
+            return port_rc;
+        }
+
+        if (port_rc != NOXTLS_RETURN_NOT_SUPPORTED) {
+            noxtls_secure_zero(plaintext, ciphertext_len);
             return port_rc;
         }
     }
@@ -624,9 +640,9 @@ noxtls_return_t noxtls_aes_gcm_decrypt(const uint8_t *key, noxtls_aes_type_t typ
     }
 
     memset(h, 0, sizeof(h));
-    if(aes_block(&aes_ctx, h, h) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
-    }
+
+    NOXTLS_AES_CHECK(aes_block(&aes_ctx, h, h), plaintext, ciphertext_len, NULL, 0U);
+
     ghash_table = gcm_precompute_tables(h);
 
     memcpy(j0, nonce, 12);
@@ -642,12 +658,15 @@ noxtls_return_t noxtls_aes_gcm_decrypt(const uint8_t *key, noxtls_aes_type_t typ
     ghash_update(x, ghash_table, ciphertext, ciphertext_len);
     ghash_finalize(x, ghash_table, (uint64_t)aad_len * 8U, (uint64_t)ciphertext_len * 8U);
 
-    if(aes_block(&aes_ctx, j0, s) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
-    }
+
+
+    NOXTLS_AES_CHECK(aes_block(&aes_ctx, j0, s), plaintext, ciphertext_len, NULL, 0U);
+
+
     gcm_xor(expected_tag, x, s);
 
     if(noxtls_secret_memcmp(expected_tag, tag, 16) != 0) {
+        noxtls_secure_zero(plaintext, ciphertext_len);
         return NOXTLS_RETURN_BAD_DATA;
     }
 
@@ -656,9 +675,9 @@ noxtls_return_t noxtls_aes_gcm_decrypt(const uint8_t *key, noxtls_aes_type_t typ
 
     while(offset < ciphertext_len) {
         uint32_t take = (ciphertext_len - offset >= 16) ? 16 : (ciphertext_len - offset);
-        if(aes_block(&aes_ctx, ctr, s) != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
-        }
+
+        NOXTLS_AES_CHECK(aes_block(&aes_ctx, ctr, s), plaintext, ciphertext_len, NULL, 0U);
+
         if(take == 16U) {
             gcm_xor_stream_block(plaintext + offset, ciphertext + offset, s);
         } else {

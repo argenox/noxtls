@@ -52,6 +52,18 @@ noxtls_return_t noxtls_aes_encrypt_cbc(const uint8_t* key,
                     noxtls_aes_type_t type)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
+    if ((key == NULL) || (data == NULL) || (output == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    if (data_len > UINT32_MAX - (NOXTLS_AES_BLOCK_LENGTH - 1U)) {
+        return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
+    }
+
+    /* Preserve the existing zero-padding contract for CBC encryption. */
+    const uint32_t output_span = ((data_len + NOXTLS_AES_BLOCK_LENGTH - 1U) /
+        NOXTLS_AES_BLOCK_LENGTH) * NOXTLS_AES_BLOCK_LENGTH;
+
     int i;
     uint32_t cur_block = 0;
     const uint8_t * iv_src = NULL;
@@ -89,7 +101,7 @@ noxtls_return_t noxtls_aes_encrypt_cbc(const uint8_t* key,
             temp_block[i] ^= iv_src[i];
         }
 
-        noxtls_aes_encrypt_block_internal(key, temp_block, &output[cur_block], type);
+        NOXTLS_AES_CHECK(noxtls_aes_encrypt_block_internal(key, temp_block, &output[cur_block], type), output, output_span, NULL, 0U);
     }
 
     return NOXTLS_RETURN_SUCCESS;
@@ -116,6 +128,14 @@ noxtls_return_t noxtls_aes_decrypt_cbc(const uint8_t* key,
                     uint8_t* output,
                     noxtls_aes_type_t type)
 {
+    if ((key == NULL) || (data == NULL) || (output == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    if ((data_len % NOXTLS_AES_BLOCK_LENGTH) != 0U) {
+        return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
+    }
+
     int i;
     uint32_t cur_block = 0;
     const uint8_t* iv_src = NULL;
@@ -125,7 +145,7 @@ noxtls_return_t noxtls_aes_decrypt_cbc(const uint8_t* key,
     for(cur_block = 0; cur_block < data_len; cur_block += NOXTLS_AES_BLOCK_LENGTH)
     {
         /* Decrypt current ciphertext block into temp */
-        noxtls_aes_decrypt_block_internal(key, &data[cur_block], temp_block, type);
+        NOXTLS_AES_CHECK(noxtls_aes_decrypt_block_internal(key, &data[cur_block], temp_block, type), output, data_len, NULL, 0U);
 
         /* XOR with previous ciphertext (or IV for first block) */
         if(cur_block == 0) {
