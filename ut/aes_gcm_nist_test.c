@@ -183,6 +183,13 @@ static int run_vector(const aes_gcm_nist_vector_t *v)
                                 v->pt_len,
                                 ct, tag);
     if(rc != NOXTLS_RETURN_SUCCESS) {
+        if((v->type == NOXTLS_AES_128_BIT && !NOXTLS_FEATURE_AES_128) ||
+           (v->type == NOXTLS_AES_256_BIT && !NOXTLS_FEATURE_AES_256)) {
+            if(rc == NOXTLS_RETURN_NOT_SUPPORTED) {
+                printf("PASS %s disabled key size rejected\n", v->name);
+                return 0;
+            }
+        }
         fprintf(stderr, "%s: encrypt failed (%d)\n", v->name, (int)rc);
         return -1;
     }

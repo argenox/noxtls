@@ -116,6 +116,10 @@ static const uint8_t noxtls_x509_oid_secp256k1[] = {0x2B, 0x81, 0x04, 0x00, 0x0A
 static noxtls_x509_unknown_ext_cb_t noxtls_x509_unknown_ext_cb;
 static void *noxtls_x509_unknown_ext_user_ctx;
 
+#if NOXTLS_FEATURE_FALCON
+static int x509_oid_is_falcon(const uint8_t *o, uint32_t l);
+#endif
+
 static noxtls_return_t noxtls_x509_validate_ecc_public_key_bytes(const uint8_t *pubkey,
                                                                  uint32_t pubkey_len,
                                                                  const uint8_t *curve_oid,

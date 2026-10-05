@@ -109,6 +109,8 @@ add_test(
     NAME allocator_policy_check
     COMMAND python "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/check_allocator_policy.py"
 )
+add_test(NAME allocator_policy_checker_self_test
+    COMMAND python "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/check_allocator_policy.py" --self-test)
 
 if(_noxtls_have_root_ut AND EXISTS "${NOXTLS_ROOT_UT_DIR}/tls/tls_version_policy_test.c")
 add_executable(tls_version_policy_test "${NOXTLS_ROOT_UT_DIR}/tls/tls_version_policy_test.c")
@@ -156,6 +158,12 @@ if(NOXTLS_CFG_FEATURE_AES_GCM)
         ${CMAKE_CURRENT_SOURCE_DIR}/../noxtls-lib
     )
     add_test(NAME aes_gcm_nist_test COMMAND aes_gcm_nist_test)
+endif()
+
+if(TARGET noxtls_encryption AND NOXTLS_CFG_FEATURE_AES_CMAC)
+    add_executable(cmac_rfc4493_test cmac_rfc4493_test.c)
+    target_link_libraries(cmac_rfc4493_test PRIVATE noxtls_encryption noxtls_common)
+    add_test(NAME cmac_rfc4493_test COMMAND cmac_rfc4493_test)
 endif()
 
 if(NOXTLS_CFG_FEATURE_SLH_DSA AND _noxtls_have_root_ut)

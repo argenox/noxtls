@@ -26,7 +26,11 @@ if(NOXTLS_CFG_FEATURE_SHA224 OR NOXTLS_CFG_FEATURE_SHA256)
             list(APPEND NOXTLS_HASH_SOURCES sha256/noxtls_sha256_accel_port.c)
         endif()
     else()
-        list(APPEND NOXTLS_HASH_SOURCES sha256/noxtls_sha256_accel_port.c)
+        if(NOXTLS_CFG_FEATURE_NOXV_HW_ACCEL)
+            list(APPEND NOXTLS_HASH_SOURCES sha256/noxtls_sha256_accel_noxv_port.c)
+        else()
+            list(APPEND NOXTLS_HASH_SOURCES sha256/noxtls_sha256_accel_port.c)
+        endif()
         if(NOXTLS_CFG_FEATURE_STM32_HW_ACCEL)
             list(APPEND NOXTLS_HASH_SOURCES
                 ${NOXTLS_LIB_ROOT}/vendor/st/common/noxtls_stm32_hash_dispatch.c

@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include "common/noxtls_memory_compat.h"
 
 #include "noxtls_hmac.h"
 #include "mdigest/sha1/noxtls_sha1.h"

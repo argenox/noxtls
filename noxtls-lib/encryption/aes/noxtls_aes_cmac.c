@@ -31,7 +31,7 @@
 #if NOXTLS_FEATURE_AES_CMAC
 
 /** Rb from RFC 4493: 0x87 for 128-bit block */
-#define NOXTLS_AES_CMAC_RB  0x87U
+#define NOXTLS_AES_CMAC_RB  0x87u
 
 /**
  * @brief Left-shift by one bit of a 16-byte block (MSB first).
@@ -42,9 +42,8 @@
 static void cmac_shift_left(uint8_t block[NOXTLS_AES_BLOCK_LENGTH])
 {
     int i;
-    for(i = 0; i < (int)NOXTLS_AES_BLOCK_LENGTH - 1; i++) {
+    for(i = 0; i < (int)NOXTLS_AES_BLOCK_LENGTH - 1; i++)
         block[i] = (uint8_t)((block[i] << 1) | (block[i + 1] >> 7));
-    }
     block[NOXTLS_AES_BLOCK_LENGTH - 1] = (uint8_t)(block[NOXTLS_AES_BLOCK_LENGTH - 1] << 1);
 }
 
@@ -62,9 +61,8 @@ static void cmac_xor_block(uint8_t dst[NOXTLS_AES_BLOCK_LENGTH],
                            const uint8_t b[NOXTLS_AES_BLOCK_LENGTH])
 {
     uint32_t i;
-    for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
+    for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++)
         dst[i] = (uint8_t)(a[i] ^ b[i]);
-    }
 }
 
 /**

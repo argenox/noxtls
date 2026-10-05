@@ -67,96 +67,17 @@ static uint32_t fe25519_arm_load32_le(const uint8_t *src)
 }
 
 /**
- * @brief Carry-reduce limbs then pack to 32 LE bytes (no canonical q step).
+ * @brief Canonically encode signed ref10 limbs before packing ARM words.
  * @internal
  *
- * Same final carry schedule as fe_mul / fe_tobytes after the q fold — enough
- * for a weakly reduced 255-bit encoding suitable as packed-asm input.
+ * Balanced limbs can be negative. Bitwise packing those signed values
+ * without the canonical carry reduction corrupts neighboring packed bits.
+ * Reuse the portable encoder; the packed mul/sqr ABI remains unchanged.
  */
 static void fe25519_limbs_pack_le_fast(uint8_t out[NOXTLS_ED25519_FE25519_BYTES],
                                        const fe25519_native_t *in)
 {
-    int64_t h0 = in->v[0];
-    int64_t h1 = in->v[1];
-    int64_t h2 = in->v[2];
-    int64_t h3 = in->v[3];
-    int64_t h4 = in->v[4];
-    int64_t h5 = in->v[5];
-    int64_t h6 = in->v[6];
-    int64_t h7 = in->v[7];
-    int64_t h8 = in->v[8];
-    int64_t h9 = in->v[9];
-    int64_t carry;
-
-    carry = (h0 + (((int64_t)1) << 25)) >> 26;
-    h1 += carry;
-    h0 -= carry << 26;
-    carry = (h4 + (((int64_t)1) << 25)) >> 26;
-    h5 += carry;
-    h4 -= carry << 26;
-    carry = (h1 + (((int64_t)1) << 24)) >> 25;
-    h2 += carry;
-    h1 -= carry << 25;
-    carry = (h5 + (((int64_t)1) << 24)) >> 25;
-    h6 += carry;
-    h5 -= carry << 25;
-    carry = (h2 + (((int64_t)1) << 25)) >> 26;
-    h3 += carry;
-    h2 -= carry << 26;
-    carry = (h6 + (((int64_t)1) << 25)) >> 26;
-    h7 += carry;
-    h6 -= carry << 26;
-    carry = (h3 + (((int64_t)1) << 24)) >> 25;
-    h4 += carry;
-    h3 -= carry << 25;
-    carry = (h7 + (((int64_t)1) << 24)) >> 25;
-    h8 += carry;
-    h7 -= carry << 25;
-    carry = (h4 + (((int64_t)1) << 25)) >> 26;
-    h5 += carry;
-    h4 -= carry << 26;
-    carry = (h8 + (((int64_t)1) << 25)) >> 26;
-    h9 += carry;
-    h8 -= carry << 26;
-    carry = (h9 + (((int64_t)1) << 24)) >> 25;
-    h0 += carry * 19;
-    h9 -= carry << 25;
-    carry = (h0 + (((int64_t)1) << 25)) >> 26;
-    h1 += carry;
-    h0 -= carry << 26;
-
-    out[0] = (uint8_t)(h0 >> 0);
-    out[1] = (uint8_t)(h0 >> 8);
-    out[2] = (uint8_t)(h0 >> 16);
-    out[3] = (uint8_t)((h0 >> 24) | (h1 << 2));
-    out[4] = (uint8_t)(h1 >> 6);
-    out[5] = (uint8_t)(h1 >> 14);
-    out[6] = (uint8_t)((h1 >> 22) | (h2 << 3));
-    out[7] = (uint8_t)(h2 >> 5);
-    out[8] = (uint8_t)(h2 >> 13);
-    out[9] = (uint8_t)((h2 >> 21) | (h3 << 5));
-    out[10] = (uint8_t)(h3 >> 3);
-    out[11] = (uint8_t)(h3 >> 11);
-    out[12] = (uint8_t)((h3 >> 19) | (h4 << 6));
-    out[13] = (uint8_t)(h4 >> 2);
-    out[14] = (uint8_t)(h4 >> 10);
-    out[15] = (uint8_t)(h4 >> 18);
-    out[16] = (uint8_t)(h5 >> 0);
-    out[17] = (uint8_t)(h5 >> 8);
-    out[18] = (uint8_t)(h5 >> 16);
-    out[19] = (uint8_t)((h5 >> 24) | (h6 << 1));
-    out[20] = (uint8_t)(h6 >> 7);
-    out[21] = (uint8_t)(h6 >> 15);
-    out[22] = (uint8_t)((h6 >> 23) | (h7 << 3));
-    out[23] = (uint8_t)(h7 >> 5);
-    out[24] = (uint8_t)(h7 >> 13);
-    out[25] = (uint8_t)((h7 >> 21) | (h8 << 4));
-    out[26] = (uint8_t)(h8 >> 4);
-    out[27] = (uint8_t)(h8 >> 12);
-    out[28] = (uint8_t)((h8 >> 20) | (h9 << 6));
-    out[29] = (uint8_t)(h9 >> 2);
-    out[30] = (uint8_t)(h9 >> 10);
-    out[31] = (uint8_t)(h9 >> 18);
+    fe25519_native_to_le(out, in);
 }
 
 void fe25519_limbs_to_u32(uint32_t out[8], const fe25519_native_t *in)

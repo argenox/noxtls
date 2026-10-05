@@ -26,6 +26,7 @@
 
 #include "noxtls_common.h"
 #include "common/noxtls_memory.h"
+#include "common/noxtls_memory_compat.h"
 #include "noxtls_tls_common.h"
 #include "noxtls_tls_unified.h"
 #include "noxtls_tls12.h"

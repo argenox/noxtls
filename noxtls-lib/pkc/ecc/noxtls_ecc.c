@@ -47,6 +47,45 @@ void noxtls_ecc_yield(void)
 #undef fprintf
 #define fprintf(...) ((void)0)
 
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+#if defined(__GNUC__) || defined(__clang__)
+#define NOXTLS_ECC_DIAG_WEAK __attribute__((weak))
+#else
+#define NOXTLS_ECC_DIAG_WEAK
+#endif
+
+/*
+ * Test applications may override this with a monotonic microsecond timer.
+ * The default keeps NoxTLS portable and adds no timing dependency to products.
+ */
+NOXTLS_ECC_DIAG_WEAK uint64_t noxtls_ecc_diagnostic_time_us(void)
+{
+    return 0U;
+}
+
+static uint32_t noxtls_ecc_diagnostic_elapsed_us(uint64_t start_us)
+{
+    const uint64_t end_us = noxtls_ecc_diagnostic_time_us();
+
+    return (start_us != 0U && end_us >= start_us) ?
+        (uint32_t)(end_us - start_us) : 0U;
+}
+#endif
+
+#if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
+volatile uint32_t noxtls_ecc_keygen_last_init_us = 0U;
+volatile uint32_t noxtls_ecc_keygen_last_private_us = 0U;
+volatile uint32_t noxtls_ecc_keygen_last_multiply_us = 0U;
+volatile uint32_t noxtls_ecc_keygen_last_validate_us = 0U;
+volatile uint32_t noxtls_ecc_keygen_last_total_us = 0U;
+volatile uint32_t noxtls_ecc_point_multiply_last_accel_us = 0U;
+volatile uint32_t noxtls_ecc_point_multiply_last_precompute_us = 0U;
+volatile uint32_t noxtls_ecc_point_multiply_last_comb_us = 0U;
+volatile uint32_t noxtls_ecc_point_multiply_last_total_us = 0U;
+volatile uint32_t noxtls_ecc_point_multiply_last_used_cache = 0U;
+volatile uint32_t noxtls_ecc_point_multiply_last_used_accel = 0U;
+#endif
+
 /* PTS status ABI. Values report control-flow only and never key material. */
 volatile int32_t noxtls_ecc_keygen_last_rc = NOXTLS_RETURN_SUCCESS;
 volatile uint32_t noxtls_ecc_keygen_last_stage = 0U;
@@ -4058,7 +4097,6 @@ noxtls_return_t noxtls_ecc_key_init(ecc_key_t *key, ecc_curve_t curve_type)
         noxtls_ecc_keyinit_last_rc = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
-    noxtls_ecc_keyinit_last_stage = 3u;
     
     noxtls_ecc_keyinit_last_stage = 3U;
     rc = noxtls_ecc_curve_init(key->curve, curve_type);
@@ -4069,7 +4107,6 @@ noxtls_return_t noxtls_ecc_key_init(ecc_key_t *key, ecc_curve_t curve_type)
         return rc;
     }
     key->curve_kind = curve_type;
-    noxtls_ecc_keyinit_last_stage = 4u;
 
     noxtls_ecc_keyinit_last_stage = 4U;
     key->d = (uint8_t*)noxtls_calloc(key->curve->size, 1);
@@ -4080,7 +4117,6 @@ noxtls_return_t noxtls_ecc_key_init(ecc_key_t *key, ecc_curve_t curve_type)
         noxtls_ecc_keyinit_last_rc = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
-    noxtls_ecc_keyinit_last_stage = 5u;
     
     noxtls_ecc_keyinit_last_stage = 5U;
     noxtls_ecc_point_init(&key->Q, key->curve->size);
