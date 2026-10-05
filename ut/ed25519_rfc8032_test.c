@@ -150,6 +150,44 @@ static int fe25519_u32_vs_limb_check(void)
         return 0;
     }
 
+    /* Signed limbs (a - b, a + b) through the packed conversion and multiply. */
+    {
+        fe25519_native_t d;
+        fe25519_native_t e;
+
+        fe25519_native_sub(&d, &a, &b);
+        fe25519_native_add(&e, &a, &b);
+        fe25519_native_mul(&r_limb, &d, &e);
+        fe25519_limbs_to_u32(au, &d);
+        fe25519_limbs_to_u32(bu, &e);
+        fe25519_u32_mul(ru, au, bu);
+        fe25519_u32_to_limbs(&r_u32, ru);
+        fe25519_native_to_le(x, &r_limb);
+        fe25519_native_to_le(y, &r_u32);
+        if(memcmp(x, y, sizeof(x)) != 0) {
+            return 0;
+        }
+        fe25519_u32_to_limbs(&r_u32, au);
+        fe25519_native_to_le(x, &d);
+        fe25519_native_to_le(y, &r_u32);
+        if(memcmp(x, y, sizeof(x)) != 0) {
+            return 0;
+        }
+    }
+
+    /* Bit 255 of a packed value is 2^255 = 19 (mod p): 2^255 + 1 -> 20. */
+    {
+        uint32_t w[8] = { 1U, 0U, 0U, 0U, 0U, 0U, 0U, 0x80000000U };
+
+        fe25519_u32_to_limbs(&r_u32, w);
+        fe25519_native_to_le(y, &r_u32);
+        (void)memset(x, 0, sizeof(x));
+        x[0] = 20U;
+        if(memcmp(x, y, sizeof(x)) != 0) {
+            return 0;
+        }
+    }
+
     return 1;
 }
 
