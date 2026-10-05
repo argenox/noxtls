@@ -30,3 +30,16 @@ endfunction()
 if(NOXTLS_CFG_FEATURE_PBKDF2)
     noxtls_pake_add_ut(noxtls_pbkdf_ut pbkdf_ut.c noxtls_kdf noxtls_mac noxtls_hash noxtls_common)
 endif()
+
+if(NOXTLS_CFG_FEATURE_SPAKE2P)
+    noxtls_pake_add_ut(noxtls_spake2p_ut spake2p_ut.c noxtls_pake)
+    if(NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL)
+        noxtls_pake_add_ut(noxtls_spake2p_accel_ut spake2p_accel_ut.c noxtls_pake)
+    endif()
+endif()
+
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME noxtls_spake2p_reference_vectors
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/spake2p_reference.py" --check)
+endif()

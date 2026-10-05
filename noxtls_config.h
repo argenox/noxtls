@@ -526,6 +526,31 @@
 #define NOXTLS_FEATURE_XMSS 0
 #endif
 
+/* Enables SPAKE2+ augmented PAKE over P-256 with SHA-256, HKDF-SHA256 and HMAC-SHA256.
+ * Prereq: NOXTLS_FEATURE_PKC=1 and NOXTLS_FEATURE_ECC=1 and NOXTLS_FEATURE_SHA256=1 and NOXTLS_FEATURE_HMAC=1 and NOXTLS_FEATURE_HKDF=1 and NOXTLS_FEATURE_DRBG=1.
+ * Constraint: at least one of NOXTLS_FEATURE_SPAKE2P_RFC9383 / NOXTLS_FEATURE_SPAKE2P_MATTER.
+ * Build knob: NOXTLS_CFG_FEATURE_SPAKE2P. Default OFF.
+ */
+#ifndef NOXTLS_FEATURE_SPAKE2P
+#define NOXTLS_FEATURE_SPAKE2P 0
+#endif
+
+/* Includes the standard RFC 9383 SPAKE2+ key schedule (NOXTLS_SPAKE2P_PROFILE_RFC9383).
+ * Effective only when NOXTLS_FEATURE_SPAKE2P=1; this is the default profile.
+ * Build knob: NOXTLS_CFG_FEATURE_SPAKE2P_RFC9383. Default ON.
+ */
+#ifndef NOXTLS_FEATURE_SPAKE2P_RFC9383
+#define NOXTLS_FEATURE_SPAKE2P_RFC9383 1
+#endif
+
+/* Includes the draft-bar-cfrg-spake2plus-01 key schedule used by Matter PASE
+ * (NOXTLS_SPAKE2P_PROFILE_MATTER). Not RFC 9383; for Matter interoperability only.
+ * Effective only when NOXTLS_FEATURE_SPAKE2P=1.
+ * Build knob: NOXTLS_CFG_FEATURE_SPAKE2P_MATTER. Default OFF.
+ */
+#ifndef NOXTLS_FEATURE_SPAKE2P_MATTER
+#define NOXTLS_FEATURE_SPAKE2P_MATTER 0
+#endif
 
 
 /* TLS/cert granularity */
