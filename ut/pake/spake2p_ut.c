@@ -76,6 +76,7 @@ static int ut_all_zero(const void *buf, size_t len)
     return 1;
 }
 
+#if NOXTLS_FEATURE_SPAKE2P_RFC9383
 /**
  * @brief Return 1 when the context holds no secret material (aborted or freed).
  * @internal
@@ -93,6 +94,7 @@ static int ut_secrets_erased(const noxtls_spake2p_ctx_t *ctx)
            ut_all_zero(ctx->shared_key, sizeof(ctx->shared_key)) &&
            ut_all_zero(&ctx->transcript, sizeof(ctx->transcript));
 }
+#endif
 
 /**
  * @brief Build transcript params from strings.
@@ -318,6 +320,7 @@ static int ut_random_exchange(noxtls_spake2p_profile_t profile_p, noxtls_spake2p
     return 0;
 }
 
+#if NOXTLS_FEATURE_SPAKE2P_RFC9383
 /**
  * @brief Compute w0*Q for a public point Q with the NoxTLS ECC API (test helper).
  * @internal
@@ -350,6 +353,7 @@ static noxtls_return_t ut_mul_point(const uint8_t *scalar, const uint8_t *q, uin
     (void)noxtls_ecc_curve_free(&curve);
     return rc;
 }
+#endif
 
 /**
  * @brief M and N are the RFC 9383 section 4 points and are valid curve points.
