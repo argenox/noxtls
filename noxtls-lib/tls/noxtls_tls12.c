@@ -285,6 +285,15 @@ static void tls12_dtls_on_send_ccs(tls12_context_t *ctx);
 static noxtls_return_t tls12_send_protected_alert(tls12_context_t *ctx, uint8_t level, uint8_t desc);
 static int tls12_cipher_suite_is_ecdhe_ecdsa(uint16_t cs);
 static int tls12_server_can_offer_cipher_suite(const tls12_context_t *ctx, uint16_t cs);
+
+/*
+ * Several builders lay messages out at fixed offsets (for example ClientHello
+ * extensions start TLS_CLIENT_HELLO_BASE_SIZE bytes in). Use the shared
+ * handshake workspace only when NOXTLS_TLS_HANDSHAKE_WORKSPACE_SIZE can hold
+ * that layout; otherwise return NULL so the caller allocates a dedicated
+ * buffer instead of writing past the workspace.
+ */
+#define TLS12_WORKSPACE_FOR(ctx, need)     (((uint32_t)TLS_HANDSHAKE_WORKSPACE_SIZE >= (uint32_t)(need)) ? (ctx)->handshake_workspace : NULL)
 static noxtls_return_t tls12_handle_heartbeat_record(tls12_context_t *ctx, const uint8_t *record_data, uint32_t record_len);
 static noxtls_return_t tls12_send_certificate_status(tls12_context_t *ctx);
 static noxtls_return_t tls12_recv_certificate_status(tls12_context_t *ctx);
@@ -2303,7 +2312,7 @@ noxtls_return_t tls12_derive_keys(tls12_context_t *ctx)
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    key_block = ctx->handshake_workspace;
+    key_block = TLS12_WORKSPACE_FOR(ctx, TLS_KEY_BLOCK_MAX_LEN);
     if(key_block == NULL) {
         key_block = (uint8_t*)noxtls_malloc(TLS_KEY_BLOCK_MAX_LEN);
         if(key_block == NULL) {
@@ -2749,7 +2758,7 @@ noxtls_return_t noxtls_tls12_send_client_hello(tls12_context_t *ctx)
         return NOXTLS_RETURN_NULL;
     }
 
-    client_hello = ctx->handshake_workspace;
+    client_hello = TLS12_WORKSPACE_FOR(ctx, TLS_CLIENT_HELLO_DEFAULT_SIZE);
     if(client_hello == NULL) {
         client_hello = (uint8_t*)noxtls_malloc(TLS_CLIENT_HELLO_DEFAULT_SIZE);
         if(client_hello == NULL) {
@@ -6999,7 +7008,7 @@ noxtls_return_t noxtls_tls12_send_server_hello(tls12_context_t *ctx)
     if(ctx->base.base.role != TLS_ROLE_SERVER) {
         return NOXTLS_RETURN_FAILED;
     }
-    uint8_t *server_hello = ctx->handshake_workspace;
+    uint8_t *server_hello = TLS12_WORKSPACE_FOR(ctx, TLS_SERVER_HELLO_DEFAULT_SIZE);
     if(server_hello == NULL) {
         server_hello = (uint8_t*)noxtls_malloc(TLS_SERVER_HELLO_DEFAULT_SIZE);
         if(server_hello == NULL) {
@@ -7690,7 +7699,10 @@ noxtls_return_t noxtls_tls12_send_server_key_exchange(tls12_context_t *ctx)
     }
     if(is_dhe_kex) {
         uint16_t named_group;
-        uint8_t *skx_buf = (ctx->handshake_workspace != NULL) ? ctx->handshake_workspace : (uint8_t*)noxtls_malloc(NOXTLS_TLS12_DHE_SKX_MSG_MAX);
+        uint8_t *skx_buf = TLS12_WORKSPACE_FOR(ctx, NOXTLS_TLS12_DHE_SKX_MSG_MAX);
+        if(skx_buf == NULL) {
+            skx_buf = (uint8_t*)noxtls_malloc(NOXTLS_TLS12_DHE_SKX_MSG_MAX);
+        }
         uint32_t skx_len = 0;
         noxtls_return_t rc;
         if(skx_buf == NULL) {
@@ -7787,7 +7799,7 @@ noxtls_return_t noxtls_tls12_send_server_key_exchange(tls12_context_t *ctx)
         
         /* Build Server Key Exchange noxtls_message ourselves to have control over handshake noxtls_message accumulation */
         /* workspace layout: server_key_exchange 0..1023, to_sign 1024..1343, sig_buf 1344..1855 */
-        uint8_t *server_key_exchange = ctx->handshake_workspace;
+        uint8_t *server_key_exchange = TLS12_WORKSPACE_FOR(ctx, TLS_SERVER_KEY_EXCHANGE_WORKSPACE);
         uint8_t *to_sign = (ctx->handshake_workspace != NULL) ? (ctx->handshake_workspace + 1024) : NULL;
         uint8_t *sig_buf = (ctx->handshake_workspace != NULL) ? (ctx->handshake_workspace + 1344) : NULL;
         if(server_key_exchange == NULL) {

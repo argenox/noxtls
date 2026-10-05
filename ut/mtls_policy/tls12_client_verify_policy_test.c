@@ -69,11 +69,25 @@ static pipe_t s_c2s;
 static pipe_t s_s2c;
 static fixture_t s_fx;
 
+/* Optional carrier back-pressure: accept at most s_send_limit bytes, then block once. */
+static uint32_t s_send_limit;
+static uint8_t s_send_block_next;
+
 static int32_t pipe_send(void *user_data, const uint8_t *data, uint32_t len)
 {
     endpoint_t *ep = (endpoint_t *)user_data;
     uint32_t space = PIPE_CAPACITY - ep->tx->len;
     uint32_t count = (len < space) ? len : space;
+
+    if(s_send_block_next != 0U) {
+        s_send_block_next = 0U;
+        return TLS_IO_WOULD_BLOCK;
+    }
+
+    if((s_send_limit != 0U) && (count > s_send_limit)) {
+        count = s_send_limit;
+        s_send_block_next = 1U;
+    }
 
     if(count == 0U) {
         return TLS_IO_WOULD_BLOCK;
@@ -406,6 +420,20 @@ static int test_tls12_mutual_auth(void)
     CHECK(is_zero(s_session.client.client_write_key, sizeof(s_session.client.client_write_key)));
     CHECK(is_zero(s_session.client.client_write_iv, sizeof(s_session.client.client_write_iv)));
     CHECK(noxtls_tls12_context_size() == (uint32_t)sizeof(tls12_context_t));
+
+    /* Partial carrier writes and would-block results keep record order intact. */
+    s_send_limit = 17U;
+    CHECK(session_setup(&s_session, mtls_client_direct_cert, sizeof(mtls_client_direct_cert), &policy) == 0);
+    session_handshake(&s_session);
+    if((s_session.client_rc != NOXTLS_RETURN_SUCCESS) || (s_session.server_rc != NOXTLS_RETURN_SUCCESS)) {
+        fprintf(stderr, "backpressure handshake: client_rc=%d server_rc=%d\n", (int)s_session.client_rc,
+                (int)s_session.server_rc);
+    }
+
+    CHECK((s_session.client_rc == NOXTLS_RETURN_SUCCESS) && (s_session.server_rc == NOXTLS_RETURN_SUCCESS));
+    session_free(&s_session);
+    s_send_limit = 0U;
+    s_send_block_next = 0U;
 
     /* A policy-bound server never resumes: the client must authenticate again. */
     CHECK(session_setup(&s_session, mtls_client_direct_cert, sizeof(mtls_client_direct_cert), &policy) == 0);
