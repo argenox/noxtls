@@ -139,6 +139,10 @@ target_link_libraries(noxtls_ecdh_diagnostic_test PRIVATE
 add_test(NAME noxtls_ecdh_diagnostic_test COMMAND noxtls_ecdh_diagnostic_test)
 endif()
 
+if(TARGET noxtls_cert)
+    add_subdirectory(mtls_policy)
+endif()
+
 if(NOXTLS_CFG_FEATURE_ED25519)
     add_executable(ed25519_rfc8032_test
         "${CMAKE_CURRENT_SOURCE_DIR}/ed25519_rfc8032_test.c")
