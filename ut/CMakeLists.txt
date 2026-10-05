@@ -169,6 +169,11 @@ if(NOXTLS_CFG_FEATURE_SLH_DSA AND _noxtls_have_root_ut)
     add_test(NAME slhdsa_sizes_test COMMAND slhdsa_sizes_test)
 endif()
 
+option(NOXTLS_BUILD_PAKE_TESTS "Build PBKDF2, SPAKE2+ and Matter PASE UTNox tests" OFF)
+if(NOXTLS_BUILD_PAKE_TESTS)
+    add_subdirectory(pake)
+endif()
+
 option(NOXTLS_BUILD_CC13XX_PORT_TESTS "Build injected CC13xx port contract tests" OFF)
 if(NOXTLS_BUILD_CC13XX_PORT_TESTS)
     add_subdirectory(cc13xx_aes)

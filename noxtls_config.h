@@ -109,6 +109,14 @@
 #define NOXTLS_FEATURE_HKDF 1
 #endif
 
+/* Enables PBKDF2 (RFC 8018 section 5.2) password-based key derivation over HMAC.
+ * Prereq: NOXTLS_FEATURE_HMAC=1.
+ * Build knob: NOXTLS_CFG_FEATURE_PBKDF2. Default OFF.
+ */
+#ifndef NOXTLS_FEATURE_PBKDF2
+#define NOXTLS_FEATURE_PBKDF2 0
+#endif
+
 /* Enables symmetric encryption module family (AES/ARIA/Camellia/ChaCha/DES).
  * Prereq: none.
  * Required by: DRBG and TLS record protection.
@@ -517,6 +525,8 @@
 #ifndef NOXTLS_FEATURE_XMSS
 #define NOXTLS_FEATURE_XMSS 0
 #endif
+
+
 
 /* TLS/cert granularity */
 /* Enables TLS 1.0 protocol implementation.
