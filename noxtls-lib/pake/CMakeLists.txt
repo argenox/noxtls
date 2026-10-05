@@ -1,5 +1,5 @@
 # Password-authenticated key exchange library: SPAKE2+ (RFC 9383) with an
-# optional Matter (draft-bar-cfrg-spake2plus-01) profile.
+# optional Matter (draft-bar-cfrg-spake2plus-01) profile and Matter PASE helpers.
 
 set(NOXTLS_PAKE_SOURCES
     noxtls_spake2p.c
@@ -11,6 +11,9 @@ if(NOXTLS_CFG_FEATURE_SPAKE2P_RFC9383)
 endif()
 if(NOXTLS_CFG_FEATURE_SPAKE2P_MATTER)
     list(APPEND NOXTLS_PAKE_SOURCES noxtls_spake2p_matter.c)
+endif()
+if(NOXTLS_CFG_FEATURE_MATTER_PASE)
+    list(APPEND NOXTLS_PAKE_SOURCES noxtls_matter_pase.c)
 endif()
 
 add_library(noxtls_pake STATIC ${NOXTLS_PAKE_SOURCES})

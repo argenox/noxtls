@@ -111,6 +111,7 @@
 
 /* Enables PBKDF2 (RFC 8018 section 5.2) password-based key derivation over HMAC.
  * Prereq: NOXTLS_FEATURE_HMAC=1.
+ * Required by: NOXTLS_FEATURE_MATTER_PASE (Matter passcode verifier).
  * Build knob: NOXTLS_CFG_FEATURE_PBKDF2. Default OFF.
  */
 #ifndef NOXTLS_FEATURE_PBKDF2
@@ -552,6 +553,13 @@
 #define NOXTLS_FEATURE_SPAKE2P_MATTER 0
 #endif
 
+/* Enables Matter PASE cryptographic helpers (passcode verifier, PASE context, session keys).
+ * Prereq: NOXTLS_FEATURE_SPAKE2P=1 and NOXTLS_FEATURE_SPAKE2P_MATTER=1 and NOXTLS_FEATURE_PBKDF2=1.
+ * Build knob: NOXTLS_CFG_FEATURE_MATTER_PASE. Default OFF.
+ */
+#ifndef NOXTLS_FEATURE_MATTER_PASE
+#define NOXTLS_FEATURE_MATTER_PASE 0
+#endif
 
 /* TLS/cert granularity */
 /* Enables TLS 1.0 protocol implementation.

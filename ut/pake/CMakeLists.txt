@@ -38,6 +38,10 @@ if(NOXTLS_CFG_FEATURE_SPAKE2P)
     endif()
 endif()
 
+if(NOXTLS_CFG_FEATURE_MATTER_PASE)
+    noxtls_pake_add_ut(noxtls_matter_pase_ut matter_pase_ut.c noxtls_pake)
+endif()
+
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
     add_test(NAME noxtls_spake2p_reference_vectors
