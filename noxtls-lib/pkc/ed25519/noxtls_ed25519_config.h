@@ -136,14 +136,16 @@
      NOXTLS_ED25519_PRECOMP_BYTES)
 
 /**
- * Enable public-domain GNU-syntax Cortex-M4 packed fe25519 mul/sqr assembly.
- * When set on ARMv7E-M / ARMv8-M Mainline, native_mul/sq/sq2 use asm/ after
- * a fast limb pack. Clang defaults to the portable 10-limb SMULL path because
- * its integrated assembler does not accept this source's divided syntax.
+ * Public-domain GNU-syntax Cortex-M4 packed fe25519 mul/sqr assembly (opt-in).
+ * When NOXTLS_ED25519_FE_USE_PACKED_ASM is defined on ARMv7E-M / ARMv8-M
+ * Mainline with GCC, native_mul/sq/sq2 use asm/ after converting the 10-limb
+ * representation to 8 packed words and back. Not enabled by default: the
+ * conversion must produce the canonical encoding (the limbs are signed after
+ * add / sub) and fold bit 255 of the asm result, and with those exact
+ * conversions the path measured slower than the portable 10-limb SMULL path
+ * on an nRF54LM20 (Cortex-M33, 128 MHz, -O2): Ed25519 verify 260 ms vs 113 ms.
+ * Clang cannot use it (its integrated assembler rejects the divided syntax).
  */
-#if !defined(NOXTLS_ED25519_FE_USE_PACKED_ASM) && !defined(__clang__)
-#define NOXTLS_ED25519_FE_USE_PACKED_ASM
-#endif
 
 /**
  * Sliding-window max odd multiple index for verify double-scalar.
