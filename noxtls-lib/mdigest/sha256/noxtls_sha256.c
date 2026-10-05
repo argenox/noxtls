@@ -29,6 +29,7 @@
 #include <string.h>
 
 #include "noxtls_common.h"
+#include "common/noxtls_accel_port.h"
 #include "common/noxtls_debug_printf.h"
 #include "noxtls_sha.h"
 #include "noxtls_sha256.h"
@@ -220,7 +221,7 @@ noxtls_return_t noxtls_sha256_update(noxtls_sha_ctx_t * ctx, const uint8_t * dat
         uint32_t full_bytes = full_blocks * SHA256_BLOCK_SIZE_BYTES;
         noxtls_return_t rc = NOXTLS_RETURN_NOT_SUPPORTED;
 
-#if NOXTLS_FEATURE_HASH_ACCEL_STM32
+#if NOXTLS_FEATURE_HASH_ACCEL_STM32 || NOXTLS_PORT_SHA256_ACCEL
         rc = noxtls_sha256_blocks_accel_port(ctx, data + offset, full_blocks);
         if(rc == NOXTLS_RETURN_SUCCESS) {
             ctx->length += full_bytes;
@@ -266,7 +267,7 @@ noxtls_return_t noxtls_sha256_round(noxtls_sha_ctx_t * ctx, const uint8_t * inpu
 		return NOXTLS_RETURN_NULL;
 	}
 
-#if NOXTLS_FEATURE_HASH_ACCEL_STM32
+#if NOXTLS_FEATURE_HASH_ACCEL_STM32 || NOXTLS_PORT_SHA256_ACCEL
     {
         noxtls_return_t rc = noxtls_sha256_blocks_accel_port(ctx, input, 1U);
         if(rc != NOXTLS_RETURN_SUCCESS) {

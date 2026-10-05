@@ -23,8 +23,10 @@
 
 #include <string.h>
 #include "noxtls_aes_ccm.h"
+#include "noxtls_aes_accel.h"
 #include "noxtls_aes_internal.h"
 #include "noxtls_common.h"
+#include "common/noxtls_accel_port.h"
 #include "common/noxtls_ct.h"
 
 #if NOXTLS_FEATURE_AES_CCM
@@ -145,9 +147,20 @@ noxtls_return_t noxtls_aes_ccm_encrypt(const uint8_t *key, noxtls_aes_type_t typ
     if(!nonce_len_valid(nonce_len) || !tag_len_valid(tag_len)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
-    if(plaintext_len > (1UL << (L * 8)) - 1UL) {
+    /* 0 <= p < 2^(8q) (SP 800-38C A.1); with q >= 4 every 32-bit length fits (no shift past the type width). */
+    if((L < 4U) && (plaintext_len > (1UL << (L * 8)) - 1UL)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
+#if NOXTLS_PORT_AES_MODE_ACCEL
+    {
+        noxtls_return_t port_rc = noxtls_aes_ccm_encrypt_accel_port(key, type, nonce, nonce_len, aad, aad_len,
+                                                                     plaintext, plaintext_len, ciphertext,
+                                                                     tag, tag_len);
+        if(port_rc != NOXTLS_RETURN_NOT_SUPPORTED) {
+            return port_rc;
+        }
+    }
+#endif
 
     /* B0: Flags | Nonce | Q */
     B0[0] = (uint8_t)((aad_len > 0 ? 0x40 : 0) | (((tag_len - 2) >> 1) << 3) | (L - 1));
@@ -309,9 +322,20 @@ noxtls_return_t noxtls_aes_ccm_decrypt(const uint8_t *key, noxtls_aes_type_t typ
     if(!nonce_len_valid(nonce_len) || !tag_len_valid(tag_len)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
-    if(ciphertext_len > (1UL << (L * 8)) - 1UL) {
+    /* 0 <= p < 2^(8q) (SP 800-38C A.1); with q >= 4 every 32-bit length fits (no shift past the type width). */
+    if((L < 4U) && (ciphertext_len > (1UL << (L * 8)) - 1UL)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
+#if NOXTLS_PORT_AES_MODE_ACCEL
+    {
+        noxtls_return_t port_rc = noxtls_aes_ccm_decrypt_accel_port(key, type, nonce, nonce_len, aad, aad_len,
+                                                                     ciphertext, ciphertext_len, tag, tag_len,
+                                                                     plaintext);
+        if(port_rc != NOXTLS_RETURN_NOT_SUPPORTED) {
+            return port_rc;
+        }
+    }
+#endif
 
     /* 1) CTR decrypt to get plaintext (counter 0 = tag mask, 1,2,... = payload) */
     memset(ctr_block, 0, NOXTLS_AES_BLOCK);

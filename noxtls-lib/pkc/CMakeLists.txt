@@ -29,6 +29,23 @@ if((NOXTLS_NRF52840_CC310_ECC AND NOXTLS_NRF53_CC312_P256_ACCEL) OR
         "Select only one Nordic P-256 backend: nRF52 CC310, nRF53 CC312, or nRF54 CRACEN.")
 endif()
 
+# nRF54L CRACEN BA414EP: P-256 point multiply, ECDSA P-256 verify and Ed25519
+# verify ports (noxtls_nrf54_port_pkc.c replaces the default ECC / ECDSA stubs).
+set(_noxtls_pkc_nrf54 OFF)
+set(_noxtls_pkc_nrf54_link OFF)
+if(NOT ESP_PLATFORM AND (NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL OR NOXTLS_NRF54_CRACEN_P256_ACCEL))
+    include(${NOXTLS_LIB_ROOT}/vendor/nordic/nrf54x/noxtls_nrf54_sources.cmake)
+    if(NOXTLS_CFG_FEATURE_ECC)
+        set(_noxtls_pkc_nrf54 ON)
+        set(_noxtls_pkc_nrf54_link ON)
+        list(APPEND PKC_SOURCES ${NOXTLS_NRF54_PORT_ECC_SOURCES})
+    endif()
+    if(NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL AND NOXTLS_CFG_FEATURE_ED25519)
+        set(_noxtls_pkc_nrf54_link ON)
+        list(APPEND PKC_SOURCES ${NOXTLS_NRF54_PORT_ED25519_SOURCES})
+    endif()
+endif()
+
 # Multiprecision backend shared by classic PKC primitives.
 # NOXTLS_CFG_ED25519_FIELD_MATH preserves legacy Ed25519-over-bignum builds.
 if(NOXTLS_CFG_FEATURE_BIGNUM OR NOXTLS_CFG_ED25519_FIELD_MATH)
@@ -66,8 +83,8 @@ if(NOXTLS_CFG_FEATURE_ECC)
         endif()
     elseif(NOXTLS_NRF52840_CC310_ECC OR NOXTLS_NRF53_CC312_P256_ACCEL)
         list(APPEND PKC_SOURCES ecc/noxtls_ecc_accel_nordic_cc31x.c)
-    elseif(NOXTLS_NRF54_CRACEN_P256_ACCEL)
-        list(APPEND PKC_SOURCES ecc/noxtls_ecc_accel_nrf54_cracen.c)
+    elseif(_noxtls_pkc_nrf54)
+        # nRF54L CRACEN BA414EP port (added once below).
     else()
         list(APPEND PKC_SOURCES ecc/noxtls_ecc_accel_port.c)
     endif()
@@ -81,7 +98,7 @@ if(NOXTLS_CFG_FEATURE_ECDSA)
         else()
             list(APPEND PKC_SOURCES ecdsa/noxtls_ecdsa_accel_port.c)
         endif()
-    else()
+    elseif(NOT _noxtls_pkc_nrf54)
         list(APPEND PKC_SOURCES ecdsa/noxtls_ecdsa_accel_port.c)
     endif()
 endif()
@@ -217,6 +234,9 @@ target_link_libraries(noxtls_pkc PRIVATE
     noxtls_common
     noxtls_drbg
 )
+if(_noxtls_pkc_nrf54_link)
+    target_link_libraries(noxtls_pkc PUBLIC noxtls_nrf54)
+endif()
 if(NOT WIN32)
     target_link_libraries(noxtls_pkc PRIVATE m)
 endif()

@@ -30,6 +30,7 @@
 
 #include "common/noxtls_memory.h"
 #include "common/noxtls_memory_compat.h"
+#include "common/noxtls_accel_port.h"
 #include "common/noxtls_ct.h"
 #include "noxtls_drbg.h"
 #include "encryption/aes/noxtls_aes.h"
@@ -413,6 +414,12 @@ noxtls_return_t noxtls_drbg_get_entropy(uint8_t *entropy_buffer, uint32_t entrop
 #endif
         case NOXTLS_ENTROPY_SOURCE_AUTO:
         default:
+#if NOXTLS_PORT_ENTROPY_ACCEL
+            /* Platform hardware entropy source first (for example a TRNG). */
+            if(noxtls_drbg_entropy_accel_port(entropy_buffer, entropy_len) == NOXTLS_RETURN_SUCCESS) {
+                return NOXTLS_RETURN_SUCCESS;
+            }
+#endif
 #if defined(__ZEPHYR__) || defined(NOXTLS_CUSTOM_ENTROPY_ONLY)
             if(g_entropy_cb && g_entropy_cb(entropy_buffer, entropy_len) == NOXTLS_RETURN_SUCCESS) {
                 return NOXTLS_RETURN_SUCCESS;
