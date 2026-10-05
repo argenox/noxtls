@@ -93,6 +93,20 @@ typedef struct
  */
 noxtls_return_t noxtls_drbg_get_entropy(uint8_t *entropy_buffer, uint32_t entropy_len);
 
+/**
+ * @brief Optional platform hook: fill a buffer from a hardware entropy source.
+ *
+ * Implemented by the selected accelerator port when NOXTLS_PORT_ENTROPY_ACCEL is
+ * set (common/noxtls_accel_port.h); used by NOXTLS_ENTROPY_SOURCE_AUTO before
+ * the operating-system sources.
+ *
+ * @param[out] entropy_buffer Destination.
+ * @param[in]  entropy_len    Bytes.
+ *
+ * @return NOXTLS_RETURN_SUCCESS, or NOXTLS_RETURN_NOT_SUPPORTED when the hardware cannot serve the request.
+ */
+noxtls_return_t noxtls_drbg_entropy_accel_port(uint8_t *entropy_buffer, uint32_t entropy_len);
+
 void noxtls_drbg_set_entropy_source(noxtls_entropy_source_t source);
 noxtls_entropy_source_t noxtls_drbg_get_entropy_source(void);
 void noxtls_drbg_set_entropy_callback(noxtls_entropy_cb_t cb);

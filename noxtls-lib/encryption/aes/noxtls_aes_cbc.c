@@ -24,8 +24,10 @@
 #include <stdint.h>
 #include <string.h>
 #include "noxtls_aes.h"
+#include "noxtls_aes_accel.h"
 #include "noxtls_aes_internal.h"
 #include "noxtls_common.h"
+#include "common/noxtls_accel_port.h"
 
 #if NOXTLS_FEATURE_AES_CBC
 
@@ -58,6 +60,14 @@ noxtls_return_t noxtls_aes_encrypt_cbc(const uint8_t* key,
     uint8_t temp_block[NOXTLS_AES_BLOCK_LENGTH];
     uint8_t zero_iv[NOXTLS_AES_BLOCK_LENGTH];
 
+#if NOXTLS_PORT_AES_MODE_ACCEL
+    {
+        noxtls_return_t port_rc = noxtls_aes_mode_accel_port(NOXTLS_AES_ACCEL_MODE_CBC, 0U, key, type, iv, data, data_len, output);
+        if(port_rc != NOXTLS_RETURN_NOT_SUPPORTED) {
+            return port_rc;
+        }
+    }
+#endif
     for(cur_block = 0; cur_block < data_len; cur_block += NOXTLS_AES_BLOCK_LENGTH)
     {
         uint32_t block_len = (data_len - cur_block < NOXTLS_AES_BLOCK_LENGTH) ?
@@ -122,6 +132,14 @@ noxtls_return_t noxtls_aes_decrypt_cbc(const uint8_t* key,
     uint8_t temp_block[NOXTLS_AES_BLOCK_LENGTH];
     uint8_t zero_iv[NOXTLS_AES_BLOCK_LENGTH];
 
+#if NOXTLS_PORT_AES_MODE_ACCEL
+    {
+        noxtls_return_t port_rc = noxtls_aes_mode_accel_port(NOXTLS_AES_ACCEL_MODE_CBC, 1U, key, type, iv, data, data_len, output);
+        if(port_rc != NOXTLS_RETURN_NOT_SUPPORTED) {
+            return port_rc;
+        }
+    }
+#endif
     for(cur_block = 0; cur_block < data_len; cur_block += NOXTLS_AES_BLOCK_LENGTH)
     {
         /* Decrypt current ciphertext block into temp */

@@ -29,6 +29,7 @@
 #include <string.h>
 
 #include "noxtls_common.h"
+#include "common/noxtls_accel_port.h"
 #include "common/noxtls_debug_printf.h"
 #include "noxtls_sha.h"
 #include "noxtls_sha512.h"
@@ -189,6 +190,19 @@ noxtls_return_t noxtls_sha512_update(noxtls_sha512_ctx_t * ctx, const uint8_t * 
     }
 
     /* Process full blocks directly from data */
+#if NOXTLS_PORT_SHA512_ACCEL
+    if(len >= HASH_SHA512_BLOCK_SIZE) {
+        uint32_t full_blocks = len / HASH_SHA512_BLOCK_SIZE;
+        uint32_t full_bytes = full_blocks * HASH_SHA512_BLOCK_SIZE;
+
+        /* Platform block hook: all whole blocks in one request (software on NOT_SUPPORTED). */
+        if(noxtls_sha512_blocks_accel_port(ctx, data + offset, full_blocks) == NOXTLS_RETURN_SUCCESS) {
+            ctx->length += full_bytes;
+            offset += full_bytes;
+            len -= full_bytes;
+        }
+    }
+#endif
     while(len >= HASH_SHA512_BLOCK_SIZE) {
         noxtls_return_t rc = noxtls_sha512_round(ctx, data + offset);
         if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -235,6 +249,12 @@ noxtls_return_t noxtls_sha512_round(noxtls_sha512_ctx_t * ctx, const uint8_t * i
 		return NOXTLS_RETURN_NULL;
 	}    
     
+#if NOXTLS_PORT_SHA512_ACCEL
+    if((input != NULL) && (noxtls_sha512_blocks_accel_port(ctx, input, 1U) == NOXTLS_RETURN_SUCCESS)) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
+#endif
+
     /* Copy the noxtls_message to the first 16 words */    
     for(t = 0; t < SHA512_WORDS_PER_BLOCK; t++) {
         size_t in_off = (size_t)t * (size_t)SHA512_WORD_BYTES;
