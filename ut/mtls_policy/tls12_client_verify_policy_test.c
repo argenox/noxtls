@@ -301,6 +301,18 @@ static int session_setup(session_t *session, const uint8_t *client_cert, uint32_
     return 0;
 }
 
+static int is_zero(const uint8_t *data, size_t len)
+{
+    size_t i;
+    uint8_t acc = 0U;
+
+    for(i = 0U; i < len; i++) {
+        acc |= data[i];
+    }
+
+    return acc == 0U;
+}
+
 static int is_progress(noxtls_return_t rc)
 {
     return (rc == NOXTLS_RETURN_WANT_READ) || (rc == NOXTLS_RETURN_WANT_WRITE);
@@ -389,6 +401,11 @@ static int test_tls12_mutual_auth(void)
     CHECK(rc == NOXTLS_RETURN_SUCCESS);
     CHECK((len == sizeof(ping)) && (memcmp(buffer, ping, sizeof(ping)) == 0));
     session_free(&s_session);
+    CHECK(is_zero(s_session.server.master_secret, sizeof(s_session.server.master_secret)));
+    CHECK(is_zero(s_session.server.server_write_key, sizeof(s_session.server.server_write_key)));
+    CHECK(is_zero(s_session.client.client_write_key, sizeof(s_session.client.client_write_key)));
+    CHECK(is_zero(s_session.client.client_write_iv, sizeof(s_session.client.client_write_iv)));
+    CHECK(noxtls_tls12_context_size() == (uint32_t)sizeof(tls12_context_t));
 
     /* A policy-bound server never resumes: the client must authenticate again. */
     CHECK(session_setup(&s_session, mtls_client_direct_cert, sizeof(mtls_client_direct_cert), &policy) == 0);

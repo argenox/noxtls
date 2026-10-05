@@ -400,6 +400,12 @@ void noxtls_tls12_set_client_verify_policy(tls12_context_t *ctx,
  * Pointers stay valid until the context is freed. Returns NOXTLS_RETURN_FAILED when
  * no client certificate was accepted.
  */
+/**
+ * Return sizeof(tls12_context_t) as compiled into the library. Consumers compare
+ * it with their own sizeof to detect a noxtls_config.h mismatch (for example a
+ * different NOXTLS_TLS_MAX_RECORD_SIZE) before using a context.
+ */
+uint32_t noxtls_tls12_context_size(void);
 noxtls_return_t noxtls_tls12_get_client_certificate(const tls12_context_t *ctx,
                                                     const uint8_t **der,
                                                     uint32_t *der_len,

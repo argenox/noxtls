@@ -1576,7 +1576,25 @@ noxtls_return_t noxtls_tls12_context_free(tls12_context_t *ctx)
         ctx->handshake_workspace_owned = 0;
     }
     noxtls_dtls_context_free(&ctx->base);
-    
+
+    /* Erase in-context secrets: premaster/master secret (RFC 5246 Section 8.1),
+     * traffic keys and IVs (Section 6.3), Finished data and buffered plaintext. */
+    noxtls_secure_zero(ctx->premaster_secret, sizeof(ctx->premaster_secret));
+    ctx->premaster_secret_len = 0U;
+    noxtls_secure_zero(ctx->master_secret, sizeof(ctx->master_secret));
+    noxtls_secure_zero(ctx->client_write_key, sizeof(ctx->client_write_key));
+    noxtls_secure_zero(ctx->server_write_key, sizeof(ctx->server_write_key));
+    noxtls_secure_zero(ctx->client_write_iv, sizeof(ctx->client_write_iv));
+    noxtls_secure_zero(ctx->server_write_iv, sizeof(ctx->server_write_iv));
+    noxtls_secure_zero(ctx->client_write_mac_key, sizeof(ctx->client_write_mac_key));
+    noxtls_secure_zero(ctx->server_write_mac_key, sizeof(ctx->server_write_mac_key));
+    noxtls_secure_zero(ctx->previous_client_verify_data, sizeof(ctx->previous_client_verify_data));
+    noxtls_secure_zero(ctx->previous_server_verify_data, sizeof(ctx->previous_server_verify_data));
+    noxtls_secure_zero(ctx->client_last_cipher_block, sizeof(ctx->client_last_cipher_block));
+    noxtls_secure_zero(ctx->server_last_cipher_block, sizeof(ctx->server_last_cipher_block));
+    noxtls_secure_zero(ctx->pending_app_data, sizeof(ctx->pending_app_data));
+    ctx->pending_app_data_len = 0U;
+
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -1832,6 +1850,16 @@ void noxtls_tls12_set_client_verify_policy(tls12_context_t *ctx,
     if(ctx != NULL) {
         ctx->client_verify_policy = policy;
     }
+}
+
+/**
+ * @brief Return the library's sizeof(tls12_context_t) for configuration checks.
+ *
+ * @return Size in bytes of tls12_context_t in this build.
+ */
+uint32_t noxtls_tls12_context_size(void)
+{
+    return (uint32_t)sizeof(tls12_context_t);
 }
 
 /**
