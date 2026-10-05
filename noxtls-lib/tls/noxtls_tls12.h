@@ -38,6 +38,7 @@ extern "C" {
 
 /* Forward declaration to avoid including full X.509 header here. */
 typedef struct noxtls_x509_crl noxtls_x509_crl_t;
+struct noxtls_x509_verify_policy;
 
 #define TLS12_SESSION_CACHE_SIZE   16U
 #define TLS12_SESSION_SNI_MAX      255u
@@ -247,6 +248,9 @@ typedef struct tls12_context_s
     /* Consecutive empty app-data records / warning alerts (BoringSSL-compatible limits). */
     uint8_t empty_record_count;
     uint8_t warning_alert_count;
+
+    /** Server: optional explicit client-certificate policy (non-owning); overrides the global trust store. */
+    const struct noxtls_x509_verify_policy *client_verify_policy;
 } tls12_context_t;
 NOXTLS_MSVC_WARNING_POP
 
@@ -382,6 +386,24 @@ void noxtls_tls12_set_client_fallback_scsv(tls12_context_t *ctx, int enable);
 void noxtls_tls12_request_client_auth(tls12_context_t *ctx, int request);
 /** Server: require a non-empty client certificate (implies request). */
 void noxtls_tls12_require_client_auth(tls12_context_t *ctx, int require);
+/**
+ * Server: verify client certificates against an explicit policy (trust anchors,
+ * key usage, EKU, time source) instead of the global trust store. When set,
+ * verification fails closed if the policy has no anchors. The policy must stay
+ * valid for the lifetime of the handshake. NULL restores the global behavior.
+ */
+void noxtls_tls12_set_client_verify_policy(tls12_context_t *ctx,
+                                           const struct noxtls_x509_verify_policy *policy);
+/**
+ * Server: return the verified client leaf certificate after the handshake.
+ * \p parsed (optional) receives the parsed x509_certificate_t as an opaque pointer.
+ * Pointers stay valid until the context is freed. Returns NOXTLS_RETURN_FAILED when
+ * no client certificate was accepted.
+ */
+noxtls_return_t noxtls_tls12_get_client_certificate(const tls12_context_t *ctx,
+                                                    const uint8_t **der,
+                                                    uint32_t *der_len,
+                                                    const void **parsed);
 /** Client: set RSA certificate + key for CertificateRequest response. Call before connect. */
 noxtls_return_t noxtls_tls12_set_client_cert_rsa(tls12_context_t *ctx, const uint8_t *cert_der,
                                                 uint32_t cert_len, void *rsa_key);

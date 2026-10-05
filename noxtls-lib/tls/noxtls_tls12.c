@@ -451,6 +451,7 @@ noxtls_return_t noxtls_tls12_context_init_with_version(tls12_context_t *ctx, tls
     ctx->client_accept_server_rpk = 0;
     ctx->client_offer_client_rpk = 0;
     ctx->request_client_auth = 0;
+    ctx->client_verify_policy = NULL;
     ctx->client_auth_requested = 0;
     ctx->own_client_cert = NULL;
     ctx->own_client_cert_len = 0;
@@ -1817,6 +1818,60 @@ void noxtls_tls12_require_client_auth(tls12_context_t *ctx, int require)
             ctx->request_client_auth = 1U;
         }
     }
+}
+
+/**
+ * @brief Server: verify client certificates against an explicit policy.
+ *
+ * @param[in,out] ctx The TLS 1.2 context.
+ * @param[in] policy Explicit policy (non-owning), or NULL for the global trust store.
+ */
+void noxtls_tls12_set_client_verify_policy(tls12_context_t *ctx,
+                                           const struct noxtls_x509_verify_policy *policy)
+{
+    if(ctx != NULL) {
+        ctx->client_verify_policy = policy;
+    }
+}
+
+/**
+ * @brief Server: return the accepted client leaf certificate.
+ *
+ * @param[in] ctx The TLS 1.2 context.
+ * @param[out] der Leaf certificate DER.
+ * @param[out] der_len Length of @p der.
+ * @param[out] parsed Optional parsed x509_certificate_t (opaque pointer), may be NULL.
+ *
+ * @return NOXTLS_RETURN_SUCCESS, NOXTLS_RETURN_NULL, or NOXTLS_RETURN_FAILED when no
+ *         client certificate was accepted.
+ */
+noxtls_return_t noxtls_tls12_get_client_certificate(const tls12_context_t *ctx,
+                                                    const uint8_t **der,
+                                                    uint32_t *der_len,
+                                                    const void **parsed)
+{
+    if((ctx == NULL) || (der == NULL) || (der_len == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    *der = NULL;
+    *der_len = 0U;
+    if(parsed != NULL) {
+        *parsed = NULL;
+    }
+
+    if((ctx->base.base.role != TLS_ROLE_SERVER) || (ctx->client_cert == NULL) ||
+       (ctx->client_cert_len == 0U) || (ctx->client_cert_parsed == NULL)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+
+    *der = ctx->client_cert;
+    *der_len = ctx->client_cert_len;
+    if(parsed != NULL) {
+        *parsed = ctx->client_cert_parsed;
+    }
+
+    return NOXTLS_RETURN_SUCCESS;
 }
 
 noxtls_return_t noxtls_tls12_set_client_cert_rsa(tls12_context_t *ctx, const uint8_t *cert_der,
@@ -5987,6 +6042,22 @@ static int tls12_server_has_rsa_auth(const tls12_context_t *ctx)
  * Broad allowlists (e.g. tlsfuzzer) often advertise ECDHE_ECDSA ahead of ECDHE_RSA.
  * Selecting ECDHE_ECDSA with only an RSA leaf produces an empty/invalid SKE signature.
  */
+/**
+ * @brief Server: whether a session may be resumed for this context.
+ *
+ * Session and ticket caches keep only the master secret, not the peer
+ * certificate. A server bound to an explicit client-certificate policy must
+ * therefore run a full handshake so every connection re-authenticates the
+ * client (RFC 5246 Section 7.4.6; RFC 5077 Section 3.4 allows declining).
+ *
+ * @param[in] ctx The TLS 1.2 context.
+ * @return 1 when resumption may be attempted, 0 otherwise.
+ */
+static int tls12_server_resumption_allowed(const tls12_context_t *ctx)
+{
+    return (ctx->client_verify_policy == NULL) ? 1 : 0;
+}
+
 static int tls12_server_can_offer_cipher_suite(const tls12_context_t *ctx, uint16_t cs)
 {
     if(ctx == NULL) {
@@ -6297,7 +6368,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
     }
     client_session_id = record.data + offset;
     uint16_t resume_cached_cipher = 0;
-    if(session_id_len > 0 && !ctx->renegotiation_in_progress) {
+    if(session_id_len > 0 && !ctx->renegotiation_in_progress && tls12_server_resumption_allowed(ctx)) {
         tls12_session_cache_entry_t *entry = tls12_session_cache_find(client_session_id, session_id_len);
         if(entry != NULL) {
             ctx->session_resume = 1;
@@ -6785,7 +6856,8 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
                 tls12_maybe_upgrade_rsa_to_dhe_for_fs(ctx, record.data, record.length,
                                                         cipher_suites_offset, cipher_suites_count);
             }
-            if(!ctx->session_resume && !ctx->renegotiation_in_progress) {
+            if(!ctx->session_resume && !ctx->renegotiation_in_progress &&
+               tls12_server_resumption_allowed(ctx)) {
                 tls_extension_t *ext_st = NULL;
                 if(noxtls_tls_find_extension(&ctx->client_extensions, TLS_EXTENSION_SESSION_TICKET, &ext_st) == NOXTLS_RETURN_SUCCESS &&
                    ext_st != NULL && ext_st->data != NULL && ext_st->length > 0) {
@@ -8182,7 +8254,15 @@ static noxtls_return_t tls12_recv_client_certificate(tls12_context_t *ctx, int *
             return NOXTLS_RETURN_BAD_DATA;
         }
 
-        if(noxtls_x509_trust_store_has_anchors()) {
+        if(ctx->client_verify_policy != NULL) {
+            /* Explicit per-context policy: never falls back to the global store and
+             * fails closed when no anchors are configured. */
+            noxtls_x509_verify_policy_t effective = *ctx->client_verify_policy;
+            if(effective.crl == NULL) {
+                effective.crl = ctx->verify_crl;
+            }
+            rc = noxtls_x509_verify_cert_with_policy(parsed, &presented_chain, &effective, NULL);
+        } else if(noxtls_x509_trust_store_has_anchors()) {
             rc = noxtls_x509_verify_client_cert_trust_ex(parsed, &presented_chain,
                                                          ctx->verify_crl, NULL);
         } else {
@@ -8193,6 +8273,9 @@ static noxtls_return_t tls12_recv_client_certificate(tls12_context_t *ctx, int *
             noxtls_x509_certificate_free(parsed);
             noxtls_free(parsed);
             noxtls_free(msg);
+            noxtls_free(ctx->client_cert);
+            ctx->client_cert = NULL;
+            ctx->client_cert_len = 0U;
             /* Structurally sized but unparsable DER → bad_certificate. */
             return NOXTLS_RETURN_FAILED;
         }

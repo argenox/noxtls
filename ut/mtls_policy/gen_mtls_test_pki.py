@@ -107,6 +107,8 @@ def main():
                                  23, ku=key_usage(key_agreement=True), extra=(auth_attr,))
     client_server_eku = build("Test Commissioner ServerAuth", client_key, "Test Root CA", ca_key, 24,
                               ku=leaf_ku, eku=[ExtendedKeyUsageOID.SERVER_AUTH], extra=(auth_attr,))
+    client_no_ku = build("Test Commissioner NoKeyUsage", client_key, "Test Root CA", ca_key, 26,
+                         extra=(auth_attr,))
     client_rogue = build("Test Commissioner Rogue", client_key, "Rogue Root CA", rogue_key, 25,
                          ku=leaf_ku, extra=(auth_attr,))
 
@@ -125,6 +127,7 @@ def main():
                         ("mtls_client_expired_cert", der(client_expired)),
                         ("mtls_client_key_agreement_cert", der(client_key_agreement)),
                         ("mtls_client_server_eku_cert", der(client_server_eku)),
+                        ("mtls_client_no_ku_cert", der(client_no_ku)),
                         ("mtls_client_rogue_cert", der(client_rogue)),
                         ("mtls_client_key", key_der(client_key))):
         out.append(c_array(label, data))
