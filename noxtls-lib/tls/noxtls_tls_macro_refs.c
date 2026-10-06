@@ -130,19 +130,12 @@ static void noxtls_tls_misra_macro_refs(void)
     NOXTLS_NS_EVENT_SENSITIVE(NULL, 0U, 0U, 0U, 0U, 0U);
 }
 
-/* Keep refs TU live for analyzers without exporting linkage (Rule 8.7). */
-NOXTLS_MISRA_KEEP static void noxtls_tls_misra_macro_refs_keep(void)
-{
-    noxtls_tls_misra_macro_refs();
-}
-
 /* Rule 2.3: ensure typedefs are referenced by the analyzed project. */
 static void noxtls_tls_typedef_refs(void)
 {
-    tls_handshake_header_t hs_hdr;
-    tls_cipher_suite_t suite;
-    (void)hs_hdr;
-    (void)suite;
+    /* sizeof references the typedefs without declaring never-assigned objects. */
+    (void)sizeof(tls_handshake_header_t);
+    (void)sizeof(tls_cipher_suite_t);
 }
 
 static void noxtls_tls_tag_refs(void)
@@ -150,4 +143,13 @@ static void noxtls_tls_tag_refs(void)
     /* Reference incomplete TLS context tags without non-const pointer objects (Rule 8.13). */
     (void)sizeof(struct tls12_context_s *);
     (void)sizeof(struct tls13_context_s *);
+}
+
+/* Keep refs TU live for analyzers without exporting linkage (Rule 8.7). All static
+ * reference helpers are called from here so none is an unused static function. */
+NOXTLS_MISRA_KEEP static void noxtls_tls_misra_macro_refs_keep(void)
+{
+    noxtls_tls_misra_macro_refs();
+    noxtls_tls_typedef_refs();
+    noxtls_tls_tag_refs();
 }

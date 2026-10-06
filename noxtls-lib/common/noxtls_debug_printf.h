@@ -47,6 +47,8 @@ extern "C" {
  * @return Number of characters printed, or negative value on error
  */
 #if defined(NOXTLS_DEBUG_PRINTF_STDIO) && (NOXTLS_DEBUG_PRINTF_STDIO != 0)
+/** @brief 1 when noxtls_debug_printf() is a real function (its arguments are evaluated). */
+#define NOXTLS_DEBUG_PRINTF_ENABLED 1
 int noxtls_debug_printf(const uint8_t *format, ...);
 /**
  * @brief Optional va_list debug printer (stdio backend only).
@@ -57,9 +59,13 @@ int noxtls_debug_printf(const uint8_t *format, ...);
 #include <stdarg.h>
 int noxtls_debug_vprintf(const uint8_t *format, va_list args);
 #elif defined(NOXTLS_DEBUG_PRINTF_IMPLEMENTATION)
+#define NOXTLS_DEBUG_PRINTF_ENABLED 1
 int noxtls_debug_printf(const uint8_t *format, ...);
 #else
-/* Freestanding/MISRA stub builds: discard call-site string literals (Rule 7.4 vs Dir 1.1). */
+/* Freestanding/MISRA stub builds: discard call-site string literals (Rule 7.4 vs Dir 1.1).
+ * The arguments are not evaluated, so values computed only for a debug print should be
+ * guarded with #if NOXTLS_DEBUG_PRINTF_ENABLED to avoid dead stores. */
+#define NOXTLS_DEBUG_PRINTF_ENABLED 0
 #define noxtls_debug_printf(...) (0)
 #endif
 

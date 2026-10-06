@@ -487,8 +487,8 @@ static int tls_test_parse_cli(int argc, uint8_t **argv, tls_test_cli_options_t *
         }
         if(noxtls_u8_strncmp(arg, "--ns-mask=", 10) == 0)
         {
-            uint8_t *endptr = NULL;
-            unsigned long v = strtoul(arg + 10, &endptr, 0);
+            char *endptr = NULL;
+            unsigned long v = strtoul((const char *)(arg + 10), &endptr, 0);
             if(endptr == NULL || *endptr != '\0')
             {
                 return 0;

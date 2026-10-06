@@ -446,7 +446,7 @@ static int find_cipher_mode(const uint8_t * name, const cipher_mode_t ** spec)
  */
 static int parse_offset_value(const uint8_t * value, size_t * offset)
 {
-    uint8_t * endptr = NULL;
+    char * endptr = NULL;
     unsigned long long parsed = 0;
 
     if(value == NULL || offset == NULL || value[0] == '\0') {
@@ -454,8 +454,8 @@ static int parse_offset_value(const uint8_t * value, size_t * offset)
     }
 
     errno = 0;
-    parsed = strtoull(value, &endptr, 0);
-    if(errno != 0 || endptr == value || *endptr != '\0') {
+    parsed = strtoull((const char *)value, &endptr, 0);
+    if(errno != 0 || (const uint8_t *)endptr == value || *endptr != '\0') {
         return -1;
     }
 

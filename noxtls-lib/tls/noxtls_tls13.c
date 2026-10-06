@@ -2188,12 +2188,12 @@ static FILE *tls13_keylog_fopen(const uint8_t *path)
 {
 #ifdef _MSC_VER
     FILE *fp = NULL;
-    if(fopen_s(&fp, path, "a") != 0U) {
+    if(fopen_s(&fp, (const char *)path, "a") != 0U) {
         return NULL;
     }
     return fp;
 #else
-    return fopen(path, "a");
+    return fopen((const char *)path, "a");
 #endif
 }
 #endif
@@ -2251,6 +2251,7 @@ static noxtls_return_t tls13_append_handshake_message(tls13_context_t *ctx, cons
         return NOXTLS_RETURN_NULL;
     }
 
+#if NOXTLS_DEBUG_PRINTF_ENABLED
     if(len >= 4U) {
         uint32_t hs_len = ((uint32_t)data[1] << 16U) | ((uint32_t)data[2] << 8U) | (uint32_t)data[3];
         (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] append_handshake: type=0x%02X hs_len=%u total_len=%u\n",
@@ -2258,6 +2259,7 @@ static noxtls_return_t tls13_append_handshake_message(tls13_context_t *ctx, cons
     } else {
         (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] append_handshake: len=%u\n", len);
     }
+#endif
 
     if(len > (UINT32_MAX - ctx->handshake_messages_len)) {
         return NOXTLS_RETURN_FAILED;
@@ -2275,6 +2277,7 @@ static noxtls_return_t tls13_append_handshake_message(tls13_context_t *ctx, cons
     noxtls_copy_u8(&ctx->handshake_messages[ctx->handshake_messages_len], (size_t)len, data, (size_t)len);
     ctx->handshake_messages_len = new_len;
     (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] handshake_messages_len=%u\n", ctx->handshake_messages_len);
+#if NOXTLS_DEBUG_PRINTF_ENABLED
     if(ctx->handshake_messages_len >= 16U) {
         uint8_t *buf = ctx->handshake_messages;
         uint32_t total = (uint32_t)(ctx->handshake_messages_len);
@@ -2284,6 +2287,7 @@ static noxtls_return_t tls13_append_handshake_message(tls13_context_t *ctx, cons
                               buf[total - 8U], buf[total - 7U], buf[total - 6U], buf[total - 5U],
                               buf[total - 4U], buf[total - 3U], buf[total - 2U], buf[total - 1U]);
     }
+#endif
 
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -5454,6 +5458,7 @@ static noxtls_return_t tls13_recv_handshake_message(tls13_context_t *ctx, uint8_
     }
 
     /* Try to satisfy from buffered data first */
+    /* cppcheck-suppress duplicateExpression ; MISRA C:2025 Rule 14.3 infinite-loop idiom */
     while(1U == 1U) {
         rc = tls13_handshake_buffer_get(ctx, out_msg, out_len);
         if(rc == NOXTLS_RETURN_SUCCESS) {
@@ -5472,6 +5477,7 @@ static noxtls_return_t tls13_recv_handshake_message(tls13_context_t *ctx, uint8_
         break;
     }
 
+    /* cppcheck-suppress duplicateExpression ; MISRA C:2025 Rule 14.3 infinite-loop idiom */
     while(1U == 1U) {
         rc = noxtls_tls_recv_record(&ctx->base.base, &record);
         if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -8384,10 +8390,8 @@ noxtls_return_t noxtls_tls13_recv_server_hello(tls13_context_t *ctx)
         (void)noxtls_free(record.data);
         return NOXTLS_RETURN_FAILED;
     }
-    {
-        uint32_t hs_len = ((uint32_t)record.data[1] << 16U) | ((uint32_t)record.data[2] << 8U) | (uint32_t)record.data[3];
-        (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] recv_server_hello: hs_len=%u\n", hs_len);
-    }
+    (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] recv_server_hello: hs_len=%u\n",
+                          ((uint32_t)record.data[1] << 16U) | ((uint32_t)record.data[2] << 8U) | (uint32_t)record.data[3]);
     (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] server_hello hex:\n");
     for(uint32_t i = 0U; i < record.length; i += 1U) {
         (void)noxtls_debug_printf((const uint8_t *)"%02X", record.data[i]);
@@ -9889,14 +9893,12 @@ noxtls_return_t noxtls_tls13_send_client_certificate_verify(tls13_context_t *ctx
         return rc;
     }
 
-    cv_msg.buf[offset] = TLS_HANDSHAKE_CERTIFICATE_VERIFY;
-    offset += 1U;
-    cv_msg.buf[offset] = 0x00U;
-    offset += 1U;
-    cv_msg.buf[offset] = 0x00U;
-    offset += 1U;
-    cv_msg.buf[offset] = 0x00U;
-    offset += 1U;
+    /* Handshake header: type + 24-bit length placeholder (length filled in once the
+     * signature is known; offset is set to the full message length below). */
+    cv_msg.buf[0] = TLS_HANDSHAKE_CERTIFICATE_VERIFY;
+    cv_msg.buf[1] = 0x00U;
+    cv_msg.buf[2] = 0x00U;
+    cv_msg.buf[3] = 0x00U;
 
     if(ctx->client_private_rsa != NULL) {
 #if NOXTLS_FEATURE_RSA
@@ -10312,6 +10314,7 @@ noxtls_return_t noxtls_tls13_connect(tls13_context_t *ctx)
         NOXTLS_STATE_ENTER(ctx, NOXTLS_STATE_START);
     }
 
+    /* cppcheck-suppress duplicateExpression ; MISRA C:2025 Rule 14.3 infinite-loop idiom */
     while(1U == 1U) {
         switch(ctx->client_handshake_step) {
             case (uint8_t)TLS13_CLIENT_HS_STEP_SEND_CH:
@@ -13642,6 +13645,7 @@ noxtls_return_t noxtls_tls13_accept(tls13_context_t *ctx)
 
     accept_t0 = tls13_profile_now_us();
 
+    /* cppcheck-suppress duplicateExpression ; MISRA C:2025 Rule 14.3 infinite-loop idiom */
     while(1U == 1U) {
         switch(ctx->server_handshake_step) {
             case (uint8_t)TLS13_SERVER_HS_STEP_RECV_CH:
@@ -14401,6 +14405,7 @@ noxtls_return_t noxtls_tls13_recv(tls13_context_t *ctx, uint8_t *data, uint32_t 
         return NOXTLS_RETURN_SUCCESS;
     }
     
+    /* cppcheck-suppress duplicateExpression ; MISRA C:2025 Rule 14.3 infinite-loop idiom */
     while(1U == 1U) {
         uint32_t inner_plaintext_len = 0U;
         /*
@@ -14740,6 +14745,7 @@ noxtls_return_t noxtls_tls13_recv(tls13_context_t *ctx, uint8_t *data, uint32_t 
                 return rc;
             }
 
+            /* cppcheck-suppress duplicateExpression ; MISRA C:2025 Rule 14.3 infinite-loop idiom */
             while(1U == 1U) {
                 uint8_t *hs_msg = NULL;
                 uint32_t hs_msg_len = 0U;

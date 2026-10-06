@@ -131,12 +131,12 @@ static FILE *noxtls_x509_fopen(const uint8_t *filename, const uint8_t *mode)
 {
 #ifdef _MSC_VER
     FILE *fp = NULL;
-    if(fopen_s(&fp, filename, mode) != 0U) {
+    if(fopen_s(&fp, (const char *)filename, (const char *)mode) != 0U) {
         return NULL;
     }
     return fp;
 #else
-    return fopen(filename, mode);
+    return fopen((const char *)filename, (const char *)mode);
 #endif
 }
 #endif
@@ -336,7 +336,7 @@ static uint32_t asn1_get_length(const uint8_t **data, const uint8_t *end)
     const uint8_t *ptr = *data;
     uint32_t length = 0U;
 
-    if((uintptr_t)ptr >= (uintptr_t)end) {
+    if((ptr == NULL) || (end == NULL) || ((uintptr_t)ptr >= (uintptr_t)end)) {
         return 0U;
     }
 
@@ -376,7 +376,7 @@ static uint32_t asn1_get_length(const uint8_t **data, const uint8_t *end)
  */
 static noxtls_return_t asn1_get_tag(const uint8_t **data, const uint8_t *end, uint8_t expected_tag)
 {
-    if((uintptr_t)(*data) >= (uintptr_t)end) {
+    if((data == NULL) || (*data == NULL) || (end == NULL) || ((uintptr_t)(*data) >= (uintptr_t)end)) {
         return NOXTLS_RETURN_FAILED;
     }
 
@@ -488,8 +488,9 @@ static noxtls_return_t asn1_get_sequence(const uint8_t **data, const uint8_t *en
 
     *seq_len = asn1_get_length(data, end);
 
-    /* Zero-length SEQUENCE is valid (e.g. empty X.509 subject DN: 30 00). */
-    if(x509_bytes_remaining(*data, end) < (size_t)(*seq_len)) {
+    /* Zero-length SEQUENCE is valid (e.g. empty X.509 subject DN: 30 00). The cursor is
+     * re-checked so a successful return always yields a non-NULL seq_data / *data. */
+    if((*data == NULL) || (x509_bytes_remaining(*data, end) < (size_t)(*seq_len))) {
         return NOXTLS_RETURN_FAILED;
     }
 
@@ -520,7 +521,7 @@ static noxtls_return_t asn1_get_octet_string(const uint8_t **data, const uint8_t
     }
 
     *out_len = asn1_get_length(data, end);
-    if(x509_bytes_remaining(*data, end) < (size_t)(*out_len)) {
+    if((*data == NULL) || (x509_bytes_remaining(*data, end) < (size_t)(*out_len))) {
         return NOXTLS_RETURN_FAILED;
     }
 
@@ -2107,7 +2108,7 @@ noxtls_return_t noxtls_x509_certificate_load_file(x509_certificate_t *cert, cons
         return NOXTLS_RETURN_NULL;
     }
 
-    fp = noxtls_x509_fopen(filename, "rb");
+    fp = noxtls_x509_fopen(filename, (const uint8_t *)"rb");
     if(fp == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -4814,7 +4815,7 @@ noxtls_return_t noxtls_x509_crl_load_file(noxtls_x509_crl_t *crl, const uint8_t 
         return NOXTLS_RETURN_NULL;
     }
 
-    fp = noxtls_x509_fopen(filename, "rb");
+    fp = noxtls_x509_fopen(filename, (const uint8_t *)"rb");
     if(fp == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -7364,7 +7365,7 @@ noxtls_return_t noxtls_x509_private_key_load_file(x509_private_key_t *key, const
         return NOXTLS_RETURN_NULL;
     }
 
-    fp = noxtls_x509_fopen(filename, "rb");
+    fp = noxtls_x509_fopen(filename, (const uint8_t *)"rb");
     if(fp == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -8036,9 +8037,9 @@ void noxtls_x509_debug_print_oid(const uint8_t *label, const uint8_t *oid_bytes,
 
     /* Print OID in dot notation (oid_bytes_len > 0U guaranteed by check above) */
     {
-        uint32_t first = (uint32_t)oid_bytes[0] / 40U;
-        uint32_t second = (uint32_t)oid_bytes[0] % 40U;
-        (void)noxtls_debug_printf((const uint8_t *)"%u.%u", first, second);
+        /* First two arcs are packed into the first byte (X.690 8.19.4). Computed inline so
+         * nothing is stored when noxtls_debug_printf compiles out. */
+        (void)noxtls_debug_printf((const uint8_t *)"%u.%u", (uint32_t)oid_bytes[0] / 40U, (uint32_t)oid_bytes[0] % 40U);
 
         uint32_t oid_arc = 0U;
         uint32_t i = 0U;
@@ -8111,6 +8112,7 @@ void noxtls_x509_debug_print_hex(const uint8_t *label, const uint8_t *data, uint
  *
  * @return @see noxtls_return_t
  */
+/* cppcheck-suppress constParameterPointer ; public API signature kept for compatibility */
 noxtls_return_t noxtls_x509_certificate_debug_print(x509_certificate_t *cert, uint8_t verbose)
 {
     uint32_t i = 0U;
@@ -8164,7 +8166,7 @@ noxtls_return_t noxtls_x509_certificate_debug_print(x509_certificate_t *cert, ui
 
     /* Issuer */
     (void)noxtls_debug_printf((const uint8_t *)"--- Issuer ---\n");
-    (void)noxtls_debug_printf((const uint8_t *)"Distinguished Name: %s\n", (cert->issuer_dn[0] != 0U) ? cert->issuer_dn : "(not parsed)");
+    (void)noxtls_debug_printf((const uint8_t *)"Distinguished Name: %s\n", (cert->issuer_dn[0] != 0U) ? cert->issuer_dn : (const uint8_t *)"(not parsed)");
     noxtls_x509_debug_print_hex(NULL, cert->issuer, cert->issuer_len, verbose);
     (void)noxtls_debug_printf((const uint8_t *)"\n");
 
@@ -8185,7 +8187,7 @@ noxtls_return_t noxtls_x509_certificate_debug_print(x509_certificate_t *cert, ui
 
     /* Subject */
     (void)noxtls_debug_printf((const uint8_t *)"--- Subject ---\n");
-    (void)noxtls_debug_printf((const uint8_t *)"Distinguished Name: %s\n", (cert->subject_dn[0] != 0U) ? cert->subject_dn : "(not parsed)");
+    (void)noxtls_debug_printf((const uint8_t *)"Distinguished Name: %s\n", (cert->subject_dn[0] != 0U) ? cert->subject_dn : (const uint8_t *)"(not parsed)");
     noxtls_x509_debug_print_hex(NULL, cert->subject, cert->subject_len, verbose);
     (void)noxtls_debug_printf((const uint8_t *)"\n");
 
@@ -8248,6 +8250,7 @@ noxtls_return_t noxtls_x509_certificate_debug_print(x509_certificate_t *cert, ui
  *
  * @return @see noxtls_return_t
  */
+/* cppcheck-suppress constParameterPointer ; public API signature kept for compatibility */
 noxtls_return_t noxtls_x509_private_key_debug_print(x509_private_key_t *key, uint8_t verbose)
 {
     if(key == NULL) {

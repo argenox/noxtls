@@ -1362,15 +1362,20 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
 
     bad_record = 0U;
     uint8_t bad_padding = 0U;
+#if NOXTLS_DEBUG_PRINTF_ENABLED
+    /* Diagnostic-only detail for the bad_record trace below; bad_record alone decides. */
     uint8_t bad_inner_mac = 0U;
     uint8_t bad_length = 0U;
+#endif
     pad_bytes = 1U;
     noxtls_secure_zero((mac), sizeof(mac));
     noxtls_secure_zero((computed_mac), sizeof(computed_mac));
 
     if(decrypted_data_len == 0U) {
         bad_record = 1U;
+#if NOXTLS_DEBUG_PRINTF_ENABLED
         bad_length = 1U;
+#endif
         padding_len = 0U;
     } else {
         padding_len = decrypted_data[decrypted_data_len - 1U];
@@ -1380,7 +1385,9 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
   /* TLS CBC padding may be up to 255 bytes (length byte value 0..255). */
     if(pad_bytes > decrypted_data_len) {
         bad_record = 1U;
+#if NOXTLS_DEBUG_PRINTF_ENABLED
         bad_length = 1U;
+#endif
         pad_bytes = 1U; /* keep bounds-safe for scan and length math */
     }
 
@@ -1410,7 +1417,9 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
     } else {
         if(body_len < mac_len) {
             bad_record = 1U;
+#if NOXTLS_DEBUG_PRINTF_ENABLED
             bad_length = 1U;
+#endif
             plaintext_data_len = 0U;
         } else {
             plaintext_data_len = body_len - mac_len;
@@ -1428,15 +1437,21 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
                               computed_mac, &computed_mac_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             bad_record = 1U;
+#if NOXTLS_DEBUG_PRINTF_ENABLED
             bad_inner_mac = 1U;
+#endif
         }
 
         if(computed_mac_len != mac_len) {
             bad_record = 1U;
+#if NOXTLS_DEBUG_PRINTF_ENABLED
             bad_inner_mac = 1U;
+#endif
         } else if(noxtls_secret_memcmp(mac, computed_mac, (size_t)(mac_len)) != 0) {
             bad_record = 1U;
+#if NOXTLS_DEBUG_PRINTF_ENABLED
             bad_inner_mac = 1U;
+#endif
         }
          else {
              /* MISRA 15.7: no remaining alternative */

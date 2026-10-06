@@ -27,7 +27,6 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <io.h>
-#include "noxtls_ct.h"
 typedef SOCKET socket_t;
 #define CLOSESOCK closesocket
 #define INVALID_SOCKET_VALUE INVALID_SOCKET
@@ -56,6 +55,7 @@ typedef int socket_t;
 #include "noxtls-lib/tls/noxtls_tls12.h"
 #include "noxtls-lib/tls/noxtls_tls13.h"
 #include "noxtls-lib/tls/noxtls_tls_common.h"
+#include "noxtls_ct.h"
 #if (NOXTLS_FEATURE_TLS12 || NOXTLS_FEATURE_TLS13)
 #include "noxtls-lib/tls/noxtls_tls_unified.h"
 
@@ -939,14 +939,14 @@ static int parse_format_arg(const uint8_t *text, file_format_t *format)
  */
 static int parse_port_arg(const uint8_t *text, uint16_t *port)
 {
-    uint8_t *end = NULL;
+    char *end = NULL;
     long value;
     if(text == NULL || port == NULL) {
         return 0;
     }
     errno = 0;
-    value = strtol(text, &end, 10);
-    if(errno != 0 || end == text || *end != '\0') {
+    value = strtol((const char *)text, &end, 10);
+    if(errno != 0 || (const uint8_t *)end == text || *end != '\0') {
         return 0;
     }
     if(value < 1 || value > 65535) {
@@ -991,9 +991,9 @@ static int parse_cipher_token(const uint8_t *token, uint16_t *suite)
     }
 
     if((token[0] == '0') && (token[1] == 'x' || token[1] == 'X')) {
-        uint8_t *end = NULL;
-        unsigned long value = strtoul(token + 2, &end, 16);
-        if(end != token + 2 && *end == '\0' && value <= 0xFFFFul) {
+        char *end = NULL;
+        unsigned long value = strtoul((const char *)(token + 2), &end, 16);
+        if((const uint8_t *)end != token + 2 && *end == '\0' && value <= 0xFFFFul) {
             *suite = (uint16_t)value;
             return 1;
         }
@@ -1398,24 +1398,26 @@ static int parse_alpn_list(const uint8_t *text,
     uint8_t *token;
     uint32_t n = 0;
 #ifdef _WIN32
-    uint8_t *next = NULL;
+    char *next = NULL;
 #else
-    uint8_t *saveptr = NULL;
+    char *saveptr = NULL;
 #endif
 
     if(text == NULL || protocol_bufs == NULL || protocol_ptrs == NULL || count == NULL) {
         return 0;
     }
 
-    copy = strdup(text);
+    /* strdup()/strtok_*() are char-based C library calls; the parsed text is
+     * handled as uint8_t like the rest of the NoxTLS API. */
+    copy = (uint8_t *)strdup((const char *)text);
     if(copy == NULL) {
         return 0;
     }
 
 #ifdef _WIN32
-    token = strtok_s(copy, ",", &next);
+    token = (uint8_t *)strtok_s((char *)copy, ",", &next);
 #else
-    token = strtok_r(copy, ",", &saveptr);
+    token = (uint8_t *)strtok_r((char *)copy, ",", &saveptr);
 #endif
     while(token != NULL) {
         size_t len;
@@ -1434,9 +1436,9 @@ static int parse_alpn_list(const uint8_t *text,
         protocol_ptrs[n] = protocol_bufs[n];
         n++;
 #ifdef _WIN32
-        token = strtok_s(NULL, ",", &next);
+        token = (uint8_t *)strtok_s(NULL, ",", &next);
 #else
-        token = strtok_r(NULL, ",", &saveptr);
+        token = (uint8_t *)strtok_r(NULL, ",", &saveptr);
 #endif
     }
 
@@ -3354,7 +3356,7 @@ int main(int argc, char **argv)
                             int is_tls13 = (negotiated_version == TLS_VERSION_1_3);
                             void *tls_ctx = is_tls13 ? (void *)&tls13_ctx : (void *)&tls12_ctx;
                             https_io_kind_t ikind = is_tls13 ? HTTPS_IO_TLS13 : HTTPS_IO_TLS12;
-                            const uint8_t *html = (body_len > 0) ? body : "";
+                            const uint8_t *html = (body_len > 0) ? body : (const uint8_t *)"";
                             size_t html_len = (body_len > 0) ? (size_t)body_len : 0U;
                             (void)serve_interop_session(ikind, tls_ctx, NULL, html, html_len);
                         } else if(body_len <= 0) {
@@ -3488,7 +3490,7 @@ int main(int argc, char **argv)
                     body_len = build_http_body(body, sizeof(body), TLS_VERSION_1_3, suite, group);
                     rc = NOXTLS_RETURN_SUCCESS;
                     if(interop_mode) {
-                        const uint8_t *html = (body_len > 0) ? body : "";
+                        const uint8_t *html = (body_len > 0) ? body : (const uint8_t *)"";
                         size_t html_len = (body_len > 0) ? (size_t)body_len : 0U;
                         (void)serve_interop_session(HTTPS_IO_TLS13, &tls13_ctx, NULL, html, html_len);
                     } else if(body_len <= 0) {
@@ -3573,7 +3575,7 @@ int main(int argc, char **argv)
                            (unsigned)suite);
                     body_len = build_http_body(body, sizeof(body), ver, suite, group);
                     if(interop_mode) {
-                        const uint8_t *html = (body_len > 0) ? body : "";
+                        const uint8_t *html = (body_len > 0) ? body : (const uint8_t *)"";
                         size_t html_len = (body_len > 0) ? (size_t)body_len : 0U;
                         (void)serve_interop_session(HTTPS_IO_UNIFIED, NULL, &uconn, html, html_len);
                     } else if(body_len <= 0 || serve_one_request_unified(&uconn, body, (size_t)body_len) != 0) {
@@ -3741,7 +3743,7 @@ int main(int argc, char **argv)
                         int is_tls13 = (negotiated_version == TLS_VERSION_1_3);
                         void *tls_ctx = is_tls13 ? (void *)&tls13_ctx : (void *)&tls12_ctx;
                         https_io_kind_t ikind = is_tls13 ? HTTPS_IO_TLS13 : HTTPS_IO_TLS12;
-                        const uint8_t *html = (body_len > 0) ? body : "";
+                        const uint8_t *html = (body_len > 0) ? body : (const uint8_t *)"";
                         size_t html_len = (body_len > 0) ? (size_t)body_len : 0U;
                         (void)serve_interop_session(ikind, tls_ctx, NULL, html, html_len);
                     } else if(body_len <= 0) {

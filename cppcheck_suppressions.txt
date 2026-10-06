@@ -11,3 +11,13 @@ unmatchedSuppression
 # LLP64 (Windows) false positives: unsigned long is 32-bit so UINT32_MAX checks
 # are vacuously false; on LP64 (Linux CI) the checks remain meaningful.
 compareValueOutOfTypeRangeError
+# objectIndex false positive: cppcheck treats the heap pointers dtls_record_t.data and
+# tls_context_t.record_send_buf as single local objects when they are passed (with an offset)
+# to the dtls_read/write_uint16/24 helpers. Both point to buffers of at least
+# DTLS_HANDSHAKE_HEADER_SIZE bytes, checked before the calls.
+objectIndex:noxtls-lib/tls/noxtls_dtls_common.c
+# MISRA C:2025 coding style: every variable is initialised at its declaration (Rule 9.1 practice)
+# and defensive range/NULL checks are kept even where value-flow analysis proves them
+# redundant (Directive 4.1). cppcheck reports both patterns as style noise.
+unreadVariable
+knownConditionTrueFalse

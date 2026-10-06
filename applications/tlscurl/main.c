@@ -20,6 +20,7 @@
  * this app does, the top-level config wins. Hoisting our local one
  * here ensures _NOXTLS_CONFIG_H_ is set from THIS file. */
 #include "noxtls_config.h"
+#include <stdint.h>
 
 static const uint8_t s_app_cert_pub_key_begin[] = { (uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'B',(uint8_t)'E',(uint8_t)'G',(uint8_t)'I',(uint8_t)'N',(uint8_t)' ',(uint8_t)'P',(uint8_t)'U',(uint8_t)'B',(uint8_t)'L',(uint8_t)'I',(uint8_t)'C',(uint8_t)' ',(uint8_t)'K',(uint8_t)'E',(uint8_t)'Y',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',0 };
 static const uint8_t s_app_cert_pub_key_end[] = { (uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'E',(uint8_t)'N',(uint8_t)'D',(uint8_t)' ',(uint8_t)'P',(uint8_t)'U',(uint8_t)'B',(uint8_t)'L',(uint8_t)'I',(uint8_t)'C',(uint8_t)' ',(uint8_t)'K',(uint8_t)'E',(uint8_t)'Y',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',0 };
@@ -40,7 +41,6 @@ static const uint8_t s_app_cert_end[] = { (uint8_t)'-',(uint8_t)'-',(uint8_t)'-'
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#include "noxtls_ct.h"
 typedef SOCKET socket_t;
 #define CLOSESOCK closesocket
 #define TLSCURL_SOCKERR() ((int)WSAGetLastError())
@@ -58,6 +58,7 @@ typedef int socket_t;
 #include "noxtls_common.h"
 #include "noxtls-lib/certs/certificates.h"
 #include "noxtls-lib/certs/noxtls_x509.h"
+#include "noxtls_ct.h"
 #include "noxtls-lib/mdigest/sha256/noxtls_sha256.h"
 #include "noxtls-lib/tls/noxtls_tls12.h"
 #include "noxtls-lib/tls/noxtls_tls13.h"
@@ -204,7 +205,7 @@ static void tlscurl_print_usage(const uint8_t *prog)
 {
     const uint8_t *p;
 
-    p = (prog != NULL) ? prog : "tlscurl";
+    p = (prog != NULL) ? prog : (const uint8_t *)"tlscurl";
     printf("Usage: %s <https://host[:port]/path> [options]\n", p);
     printf("Options:\n");
     printf("  -h, --help                 Show this help\n");
@@ -1621,7 +1622,9 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    if(tlscurl_parse_cli(argc, argv, &cfg) == 0) {
+    /* The C runtime passes char strings; the CLI parser takes uint8_t text
+     * like the NoxTLS API (same representation). */
+    if(tlscurl_parse_cli(argc, (uint8_t **)argv, &cfg) == 0) {
         tlscurl_print_usage((argc > 0 && argv != NULL) ? argv[0] : "tlscurl");
 #ifdef _WIN32
         WSACleanup();

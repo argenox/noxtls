@@ -53,6 +53,15 @@
 #include "string_common.h"
 #include "noxtls_ct.h"
 
+/* noxtls_getopt() is POSIX getopt(int, char * const[], const char *) on
+ * non-Windows hosts and the uint8_t-based shim from getopt_win.h on Windows;
+ * adapt the argv pointer type at that boundary only. */
+#ifdef _WIN32
+#define APP_GETOPT_ARGV(v) ((uint8_t * const *)(v))
+#else
+#define APP_GETOPT_ARGV(v) ((char * const *)(v))
+#endif
+
 /* ============================================================================
  * Application-private static workspace (per project policy)
  * ============================================================================
@@ -205,7 +214,7 @@ int main(int argc, char **argv)
 
     do {
         int c;
-        while ((c = noxtls_getopt (argc, argv, "vhs:x:d:D:t")) != -1)
+        while ((c = noxtls_getopt (argc, APP_GETOPT_ARGV(argv), "vhs:x:d:D:t")) != -1)
         {
             switch (c)
             {

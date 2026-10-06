@@ -443,7 +443,7 @@ int message_digest(int argc, uint8_t ** argv)
  */
 static int parse_offset_value(const uint8_t * value, size_t * offset)
 {
-    uint8_t * endptr = NULL;
+    char * endptr = NULL;
     unsigned long long parsed = 0;
 
     if(value == NULL || offset == NULL || value[0] == '\0') {
@@ -451,8 +451,8 @@ static int parse_offset_value(const uint8_t * value, size_t * offset)
     }
 
     errno = 0;
-    parsed = strtoull(value, &endptr, 0);
-    if(errno != 0 || endptr == value || *endptr != '\0') {
+    parsed = strtoull((const char *)value, &endptr, 0);
+    if(errno != 0 || (const uint8_t *)endptr == value || *endptr != '\0') {
         return -1;
     }
 
@@ -714,7 +714,7 @@ static int print_digest_hex(const uint8_t * digest, uint32_t digest_len, const u
         return -1;
     }
 
-    printf("%s 0x%s\n", algorithm != NULL ? algorithm : "digest", digest_hex);
+    printf("%s 0x%s\n", algorithm != NULL ? (const char *)algorithm : "digest", digest_hex);
 
     free(digest_hex);
     return 0;

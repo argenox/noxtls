@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-06T02:41:31Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-06T14:12:04Z)
 
 menu "NoxTLS library options (from noxtls_config.h)"
 
@@ -9,6 +9,7 @@ menu "NoxTLS library options (from noxtls_config.h)"
 
 		config NOXTLS_TLS_MAX_RECORD_SIZE
 			int "Max TLS record payload size (bytes)"
+			default 16384
 			range 256 16384
 			help
 			  Reduce these in noxtls_config.h (or via compiler -D) to lower RAM/stack usage on embedded systems. Relationship to certificate size: - The Certificate handshake message carries the full certificate chain (each cert is length-prefixed). Its size is the sum of all certificate DER lengths plus a few bytes of list framing. - Each TLS record carries at most TLS_MAX_RECORD_SIZE bytes of payload. The largest single handshake message (including Certificate) must fit within one record. Set NOXTLS_TLS_MAX_RECORD_SIZE to at least the size of your largest expected Certificate message. If the chain is larger than the record limit, the handshake will fail. When reducing below the TLS default (16384): both peers must agree on smaller fragments (e.g. max_fragment_length extension) or the connection may fail. Maximum TLS record payload size (bytes). TLS default 16384. Must be >= size of largest handshake message (usually the Certificate message). This value drives large stack buffers in record send/recv; reduce it for constrained stack. Ensure peer supports smaller fragment size if below 16384.
@@ -22,12 +23,14 @@ menu "NoxTLS library options (from noxtls_config.h)"
 
 		config NOXTLS_TLS_MAX_HANDSHAKE_SIZE
 			int "Max TLS handshake message size (bytes)"
+			default 65536
 			range 256 65536
 			help
 			  Maximum handshake message size (bytes). Used only as a bounds check: handshake messages that claim a length above this are rejected. No buffer of this size is allocated—DTLS reassembly allocates only the actual message length (from the wire). So this can be set to a small value (e.g. 16384 or 8192) on embedded without reserving 64KB. It must be >= the largest handshake message you need (typically Certificate = chain size). Default 65536 for compatibility; set to NOXTLS_TLS_MAX_RECORD_SIZE or your max cert chain size to avoid accepting oversized messages.
 
 		config NOXTLS_MAX_CERT_SIZE
 			int "Max single X.509 certificate size (bytes)"
+			default 65536
 			range 256 65536
 			help
 			  Maximum single certificate size in bytes accepted by X.509 parse APIs. Default: 16384. SLH-DSA signatures are large (up to ~50 KB). Allow 64 KB certs by default when SLH-DSA is enabled so the cert+TBS+signature comfortably fits.
@@ -55,9 +58,11 @@ menu "NoxTLS library options (from noxtls_config.h)"
 
 		config NOXTLS_MEM_BUCKET_ALIGNMENT
 			int "Mem Bucket Alignment"
+			default 8
 
 		config NOXTLS_MEM_BUCKET_COUNT
 			int "Mem Bucket Count"
+			default 9
 
 		config NOXTLS_MEM_BUCKET_COUNTS
 			int "Mem Bucket Counts"
@@ -67,48 +72,56 @@ menu "NoxTLS library options (from noxtls_config.h)"
 
 		config NOXTLS_RSA_DEBUG_PRIMALITY_CHECK_INTERVAL
 			int "RSA: debug primality interval (0=off)"
+			default 50
 			range 0 100000
 			help
 			  NOXTLS_RSA_DEBUG_PRIMALITY_CHECK_INTERVAL Interval (in attempts) for printing messages when checking primality (after quick divisibility test passes). Set to 0 to disable these messages. Default: 50 (print every 50 attempts)
 
 		config NOXTLS_RSA_DEBUG_PROGRESS_INTERVAL
 			int "RSA: debug progress interval (0=off)"
+			default 100
 			range 0 100000
 			help
 			  NOXTLS_RSA_DEBUG_PROGRESS_INTERVAL Interval (in attempts) for printing progress messages during prime generation. Set to 0 to disable progress messages. Default: 100 (print every 100 attempts)
 
 		config NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_INTERVAL
 			int "RSA: debug rejected-candidate interval (0=off)"
+			default 100
 			range 0 100000
 			help
 			  NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_INTERVAL Interval (in attempts) for printing debug info about rejected candidates. Only prints for the first 500 attempts to avoid spam. Set to 0 to disable rejected candidate debug output. Default: 100 (print every 100 attempts, up to 500 attempts)
 
 		config NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_MAX_ATTEMPTS
 			int "RSA: debug rejected-candidate max attempts"
+			default 500
 			range 0 100000
 			help
 			  NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_MAX_ATTEMPTS Maximum number of attempts for which to print rejected candidate debug info. After this many attempts, rejected candidate debug output is disabled. Default: 500 attempts
 
 		config NOXTLS_RSA_MAX_PRIME_ATTEMPTS
 			int "RSA: max prime generation attempts"
+			default 50000
 			range 1000 1000000
 			help
 			  NOXTLS_RSA_MAX_PRIME_ATTEMPTS Maximum number of attempts to generate a prime number before giving up. With aggressive filtering (wheel + large small-prime table), the search space is reduced but candidate density can still vary significantly. Use a higher limit to avoid spurious failures on unlucky sequences. Default: 50000 attempts
 
 		config NOXTLS_RSA_MILLER_RABIN_ITERATIONS_LARGE
 			int "RSA: Miller-Rabin iterations (large primes)"
+			default 3
 			range 1 64
 			help
 			  NOXTLS_RSA_MILLER_RABIN_ITERATIONS_LARGE Number of Miller-Rabin test iterations for \"large\" primes (> 512 bits). Security: 3 iterations gives error probability of ~2^-60 (extremely secure) Default: 3 iterations
 
 		config NOXTLS_RSA_MILLER_RABIN_ITERATIONS_SMALL
 			int "RSA: Miller-Rabin iterations (small primes)"
+			default 2
 			range 1 32
 			help
 			  NOXTLS_RSA_MILLER_RABIN_ITERATIONS_SMALL Number of Miller-Rabin test iterations for \"small\" primes (<= 512 bits). Security: 2 iterations gives error probability of ~2^-40 (very secure) Default: 2 iterations
 
 		config NOXTLS_RSA_MILLER_RABIN_SMALL_THRESHOLD_BITS
 			int "RSA: small-prime size threshold (bits)"
+			default 512
 			range 64 4096
 			help
 			  NOXTLS_RSA_MILLER_RABIN_SMALL_THRESHOLD_BITS Prime size threshold (in bits) for determining \"small\" vs \"large\" primes. Primes <= this size use NOXTLS_RSA_MILLER_RABIN_ITERATIONS_SMALL. Primes > this size use NOXTLS_RSA_MILLER_RABIN_ITERATIONS_LARGE. Default: 512 bits

@@ -272,9 +272,12 @@ static noxtls_return_t rsa_mod_inv_small(uint8_t *result,
 /* Forward declaration */
 static int32_t rsa_is_prime(const uint8_t *n, uint32_t len, int32_t iterations);
 
+#if NOXTLS_DEBUG_PRINTF_ENABLED
 /**
  * @brief Test Miller-Rabin with known primes
- * 
+ *
+ * Diagnostic only: the results are reported through noxtls_debug_printf and do not affect
+ * key generation, so the self-check is compiled only when debug output is compiled in.
  */
 static void test_miller_rabin_known_primes(void)
 {
@@ -303,6 +306,7 @@ static void test_miller_rabin_known_primes(void)
     (void)noxtls_debug_printf((const uint8_t *)"  Composite 21: %s\n", (result != 0) ? "FAIL (incorrectly accepted)" : "PASS (correctly rejected)");
     (void)noxtls_debug_printf((const uint8_t *)"Miller-Rabin test verification complete.\n");
 }
+#endif /* NOXTLS_DEBUG_PRINTF_ENABLED */
 
 /**
  * @brief Miller-Rabin primality test
@@ -755,7 +759,9 @@ static noxtls_return_t rsa_wheel_advance(uint8_t *prime, uint32_t len,
  */
 static int rsa_generate_prime(uint8_t *prime, uint32_t len)
 {
+#if NOXTLS_DEBUG_PRINTF_ENABLED
     static int test_run = 0;
+#endif
     uint32_t attempts = 0U;
     uint32_t prime_bits = (uint32_t)(len * 8U);
     static int wheel_init = 0;
@@ -766,11 +772,13 @@ static int rsa_generate_prime(uint8_t *prime, uint32_t len)
     uint32_t wheel_rem = 0U;
     /* No quotient needed; just compute modulus for wheel alignment. */
     
+#if NOXTLS_DEBUG_PRINTF_ENABLED
     /* Run Miller-Rabin test verification once on first prime generation */
     if(test_run == 0) {
         test_miller_rabin_known_primes();
         test_run = 1;
     }
+#endif
     
     (void)noxtls_debug_printf((const uint8_t *)"  Starting prime generation (this may take several minutes for large keys)...\n");
     if(wheel_init == 0) {
@@ -2256,6 +2264,7 @@ noxtls_return_t noxtls_rsa_sign_pss(const rsa_key_t *key, const uint8_t *noxtls_
             (void)noxtls_free(em);
             return NOXTLS_RETURN_FAILED;
         }
+    /* cppcheck-suppress duplicateExpression ; MISRA C:2025 Rule 14.3 infinite-loop idiom */
     } while(1U == 1U);
 
     /* Sign (blinded, NX-15): s = em^d mod n */

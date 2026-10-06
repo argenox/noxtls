@@ -78,8 +78,8 @@ else()
     # No application header: emit a standalone noxtls_config.h from menuconfig only.
     file(WRITE "${NOXTLS_GENERATED_CONFIG_DIR}/noxtls_config.h"
         "/* Generated from ESP-IDF sdkconfig (menuconfig). */\n"
-        "#ifndef _NOXTLS_CONFIG_H_\n"
-        "#define _NOXTLS_CONFIG_H_\n"
+        "#ifndef NOXTLS_CONFIG_H_\n"
+        "#define NOXTLS_CONFIG_H_\n"
         "#include \"noxtls_config_features.h\"\n"
         "#include \"noxtls_esp_hw_accel.h\"\n"
         "#include \"noxtls_check_config.h\"\n"
@@ -188,6 +188,11 @@ foreach(_noxtls_lib IN LISTS NOXTLS_ESP_IDF_LIBS)
         endif()
     endif()
 endforeach()
+
+# noxtls_time_mono_us() (noxtls_ct.c) uses esp_timer_get_time() on ESP-IDF.
+if(TARGET noxtls_common)
+    target_link_libraries(noxtls_common PRIVATE idf::esp_timer)
+endif()
 
 # Propagate sdkconfig HW toggles into NoxTLS static libs (belt-and-suspenders with sdkconfig.h).
 if(TARGET noxtls_pkc)

@@ -186,5 +186,7 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    return message_digest(argc - 1, &argv[1]);
+    /* The C runtime passes char strings; message_digest() takes uint8_t text
+     * like the NoxTLS API (same representation). */
+    return message_digest(argc - 1, (uint8_t **)&argv[1]);
 }

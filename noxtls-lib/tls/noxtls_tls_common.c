@@ -26,9 +26,12 @@
 #include "common/noxtls_debug_printf.h"
 #include "noxtls_tls_common.h"
 
+#if NOXTLS_DEBUG_PRINTF_ENABLED
+/* Alert level names; only referenced by the tls_recv_record debug trace. */
 static const uint8_t s_u8txt_noxtls_tls_common_865[] = { (uint8_t)'w', (uint8_t)'a', (uint8_t)'r', (uint8_t)'n', (uint8_t)'i', (uint8_t)'n', (uint8_t)'g', 0 };
 static const uint8_t s_u8txt_noxtls_tls_common_867[] = { (uint8_t)'f', (uint8_t)'a', (uint8_t)'t', (uint8_t)'a', (uint8_t)'l', 0 };
 static const uint8_t s_u8txt_noxtls_tls_common_869[] = { (uint8_t)'u', (uint8_t)'n', (uint8_t)'k', (uint8_t)'n', (uint8_t)'o', (uint8_t)'w', (uint8_t)'n', 0 };
+#endif
 
 #if NOXTLS_FEATURE_DTLS
 #include "noxtls_dtls_common.h"
@@ -629,7 +632,7 @@ static noxtls_return_t tls_nonblocking_recv_record(tls_context_t *ctx,
  * @param[in] complete_len The body length.
  * @return The return value.
  */
-static noxtls_return_t tls_dtls_deliver_handshake(tls_context_t *ctx, dtls_context_t *dctx,
+static noxtls_return_t tls_dtls_deliver_handshake(const tls_context_t *ctx, dtls_context_t *dctx,
                                                   tls_record_t *record, uint8_t msg_type,
                                                   uint8_t *complete_msg, uint32_t complete_len)
 {
@@ -959,6 +962,8 @@ noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
             return NOXTLS_RETURN_FAILED;
         }
         (void)noxtls_debug_printf((const uint8_t *)"[TLS_DEBUG] tls_recv_record: Successfully received complete record (%u bytes)\n", length);
+#if NOXTLS_DEBUG_PRINTF_ENABLED
+        /* Alert decode for the debug trace only (no effect on record processing). */
         if ((record->type == TLS_RECORD_ALERT) && (length >= 2U)) {
             uint8_t alert_level = (uint8_t)(record->data[0U]);
             uint8_t alert_desc = (uint8_t)(record->data[1U]);
@@ -1003,6 +1008,7 @@ noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
             (void)noxtls_debug_printf((const uint8_t *)"[TLS_DEBUG] tls_recv_record: Alert level=%u (%s) desc=%u (%s)\n",
                                   alert_level, level_str, alert_desc, desc_str);
         }
+#endif /* NOXTLS_DEBUG_PRINTF_ENABLED */
     }
 
     {

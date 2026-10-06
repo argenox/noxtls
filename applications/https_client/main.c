@@ -43,7 +43,6 @@ typedef SOCKET socket_t;
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
-#include "noxtls_ct.h"
 typedef int socket_t;
 #define INVALID_SOCKET (-1)
 #define CLOSESOCK close
@@ -54,6 +53,7 @@ typedef int socket_t;
 #include "noxtls-lib/tls/noxtls_tls12.h"
 #include "noxtls-lib/tls/noxtls_tls13.h"
 #include "noxtls-lib/certs/noxtls_x509.h"
+#include "noxtls_ct.h"
 
 /* ============================================================================
  * Application-private static workspace (per project policy)
