@@ -15,13 +15,15 @@
 *
 *
 * File:    noxtls_aes_xts.c
-* Summary: AES XEX-based Tweaked CodeBook mode with ciphertext Stealing (XTS) Implementation
+* Summary: AES XEX-based Tweaked CodeBook mode with ciphertext Stealing (XTS)
+*          as specified by IEEE Std 1619-2007 / NIST SP 800-38E.
 *
 *****************************************************************************/
 
 /** @addtogroup noxtls_encryption */
 
 #include <stdint.h>
+#include "common/noxtls_ct.h"
 #include <string.h>
 #include "noxtls_aes.h"
 #include "noxtls_aes_internal.h"
@@ -29,216 +31,275 @@
 
 #if NOXTLS_FEATURE_AES_XTS
 
+/** Direction selector for the shared XTS walk. */
+#define AES_XTS_DIR_ENCRYPT (0U)
+#define AES_XTS_DIR_DECRYPT (1U)
+
 /**
- * @brief Galois Field multiplication by alpha (x) in GF(2^128)
- * 
- * Multiplies a 128-bit value by x (alpha) in GF(2^128) with reduction polynomial x^128 + x^7 + x^2 + x + 1
- * 
- * @param block 16-byte block to multiply
- * @return None.
+ * @brief Multiply an XTS tweak by alpha (x) in GF(2^128), IEEE 1619-2007 5.2.
+ *
+ * The tweak is a little-endian 128-bit value: byte 0 holds the least
+ * significant bits and bit 7 of byte 15 is the coefficient of x^127. The
+ * value is shifted one bit towards byte 15 and, when x^127 was set, reduced
+ * with x^128 = x^7 + x^2 + x + 1 (0x87 into byte 0). The reduction is masked
+ * rather than branched so the tweak (secret) does not steer control flow.
+ *
+ * @param block Tweak to update in place.
  */
 static void gf128_multiply_alpha(uint8_t block[NOXTLS_AES_BLOCK_LENGTH])
 {
-    int i;
-    uint8_t carry = 0;
-    uint8_t msb = block[15] & 0x80;
-    
-    /* Left shift the block */
-    for(i = NOXTLS_AES_BLOCK_LENGTH - 1; i >= 0; i--) {
-        uint8_t next_carry = (block[i] & 0x80) ? 1 : 0;
-        block[i] = (block[i] << 1) | carry;
+    uint32_t i;
+    uint32_t carry = 0U;
+
+    for (i = 0U; i < (uint32_t)NOXTLS_AES_BLOCK_LENGTH; i += 1U) {
+        uint32_t next_carry = ((uint32_t)block[i] >> 7U) & 1U;
+        block[i] = (uint8_t)((((uint32_t)block[i] << 1U) | carry) & 0xFFU);
         carry = next_carry;
     }
-    
-    /* Apply reduction if MSB was set */
-    if(msb) {
-        block[0] ^= 0x87; /* x^7 + x^2 + x + 1 */
-    }
+
+    /* carry is 0 or 1: (0U - carry) is all-zeros or all-ones. */
+    block[0] ^= (uint8_t)((0U - carry) & 0x87U);
 }
 
 /**
- * @brief AES Encrypt in XTS Mode
+ * @brief Validate the AES key size selector for XTS.
  *
- * XEX-based Tweaked CodeBook mode with ciphertext Stealing (XTS-AES).
- * Used for disk encryption. Requires two keys (or key split in half).
- * The IV parameter is used as the tweak value (typically sector number).
+ * Key1 and Key2 are each one AES key of the selected size.
  *
- * @param key is a pointer to the encryption key (full key, will be split)
- * @param data is a pointer to the plaintext to be encrypted
- * @param data_len is the length of the plaintext in bytes
- * @param iv is the tweak value (16 bytes). Typically represents sector number.
- * @param output is the output buffer where the encrypted plaintext will be placed
- * @param type is the AES variant, 128, 192, 256
- * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_* on failure
+ * @param type AES key size selector.
+ * @return NOXTLS_RETURN_SUCCESS, NOXTLS_RETURN_NOT_SUPPORTED for a disabled
+ *         key size or NOXTLS_RETURN_INVALID_KEY_SIZE for an unknown selector.
  */
-/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
-noxtls_return_t noxtls_aes_encrypt_xts(const uint8_t* key,
-                    const uint8_t* data,
-                    uint32_t data_len,
-                    const uint8_t * iv,
-                    uint8_t* output,
-                    noxtls_aes_type_t type)
-/* NOLINTEND(bugprone-easily-swappable-parameters) */
+static noxtls_return_t aes_xts_check_type(noxtls_aes_type_t type)
 {
-    uint32_t cur_block = 0;
-    uint32_t i = 0;
-    uint8_t tweak[NOXTLS_AES_BLOCK_LENGTH];
-    uint8_t tweak_key[32];
-    uint8_t data_key[32];   /* Max key size for data encryption */
-    uint8_t temp_block[NOXTLS_AES_BLOCK_LENGTH];
-    uint32_t key_len = 0;
-    uint32_t num_blocks = 0;
-    uint32_t last_block_len = 0;
-    
-    /* Determine key length */
-    switch(type) {
+    switch (type) {
         case NOXTLS_AES_128_BIT:
 #if NOXTLS_FEATURE_AES_128
-            key_len = 16;
-            break;
+            return NOXTLS_RETURN_SUCCESS;
 #else
             return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
         case NOXTLS_AES_192_BIT:
 #if NOXTLS_FEATURE_AES_192
-            key_len = 24;
-            break;
+            return NOXTLS_RETURN_SUCCESS;
 #else
             return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
         case NOXTLS_AES_256_BIT:
 #if NOXTLS_FEATURE_AES_256
-            key_len = 32;
-            break;
+            return NOXTLS_RETURN_SUCCESS;
 #else
             return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
         default:
             return NOXTLS_RETURN_INVALID_KEY_SIZE;
     }
-    
-    /* XTS requires IV (tweak) */
-    if(iv == NULL) {
+}
+
+/**
+ * @brief Process one XTS block: out = E/D_K1(in ^ T) ^ T.
+ *
+ * @param key Data key (Key1).
+ * @param tweak Current tweak T.
+ * @param in Input block (may alias @p out).
+ * @param out Output block.
+ * @param type AES key size selector.
+ * @param dir AES_XTS_DIR_ENCRYPT or AES_XTS_DIR_DECRYPT.
+ * @return NOXTLS_RETURN_SUCCESS or the block cipher error.
+ */
+static noxtls_return_t aes_xts_block(const uint8_t *key,
+                                     const uint8_t tweak[NOXTLS_AES_BLOCK_LENGTH],
+                                     const uint8_t *in,
+                                     uint8_t *out,
+                                     noxtls_aes_type_t type,
+                                     uint32_t dir)
+{
+    noxtls_return_t rc;
+    uint8_t x[NOXTLS_AES_BLOCK_LENGTH];
+    uint32_t i;
+
+    for (i = 0U; i < (uint32_t)NOXTLS_AES_BLOCK_LENGTH; i += 1U) {
+        x[i] = (uint8_t)(in[i] ^ tweak[i]);
+    }
+    if (dir == AES_XTS_DIR_DECRYPT) {
+        rc = noxtls_aes_decrypt_block_internal(key, x, x, type);
+    } else {
+        rc = noxtls_aes_encrypt_block_internal(key, x, x, type);
+    }
+    if (rc == NOXTLS_RETURN_SUCCESS) {
+        for (i = 0U; i < (uint32_t)NOXTLS_AES_BLOCK_LENGTH; i += 1U) {
+            out[i] = (uint8_t)(x[i] ^ tweak[i]);
+        }
+    }
+    noxtls_secure_zero(x, sizeof(x));
+    return rc;
+}
+
+/**
+ * @brief Shared IEEE 1619 XTS-AES walk (encrypt or decrypt).
+ *
+ * Data unit of m = data_len / 16 full blocks plus a b = data_len % 16 byte
+ * tail. Block j uses tweak T_j = E_K2(i) * alpha^j. When b != 0 the last two
+ * blocks use ciphertext stealing (IEEE 1619-2007 5.3.2 / 5.4.2):
+ *   encrypt: CC = XTS(K1, P_{m-1}, T_{m-1}); C_m = CC[0..b);
+ *            C_{m-1} = XTS(K1, P_m || CC[b..16), T_m)
+ *   decrypt: PP = XTS^-1(K1, C_{m-1}, T_m); P_m = PP[0..b);
+ *            P_{m-1} = XTS^-1(K1, C_m || PP[b..16), T_{m-1})
+ * Input and output may be the same buffer.
+ */
+static noxtls_return_t aes_xts_crypt(const uint8_t *data_key,
+                                     const uint8_t *tweak_key,
+                                     const uint8_t *data,
+                                     uint32_t data_len,
+                                     const uint8_t *iv,
+                                     uint8_t *output,
+                                     noxtls_aes_type_t type,
+                                     uint32_t dir)
+{
+    noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
+    uint8_t tweak[NOXTLS_AES_BLOCK_LENGTH];
+    uint8_t prev_tweak[NOXTLS_AES_BLOCK_LENGTH];
+    uint8_t steal[NOXTLS_AES_BLOCK_LENGTH];
+    uint8_t last[NOXTLS_AES_BLOCK_LENGTH];
+    uint32_t num_blocks = 0U;
+    uint32_t full_blocks = 0U;
+    uint32_t tail_len = 0U;
+    uint32_t cur_block = 0U;
+    uint32_t i = 0U;
+    const uint32_t block_sz = (uint32_t)NOXTLS_AES_BLOCK_LENGTH;
+
+    if ((data_key == NULL) || (tweak_key == NULL) || (data == NULL) || (output == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    rc = aes_xts_check_type(type);
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+
+    /* XTS requires the 128-bit tweak (data unit sequence number). */
+    if (iv == NULL) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
-    
-    /* XTS requires two keys: one for data encryption, one for tweak encryption */
-    /* Standard XTS-AES key sizes:
-     *   - AES-128-XTS: 256-bit key (two 128-bit keys)
-     *   - AES-256-XTS: 512-bit key (two 256-bit keys)
-     * 
-     * For this implementation, we expect the key to be double the normal size.
-     * If a single-size key is provided, we'll use it for both (non-standard but workable).
-     */
-    if(key_len == 16) {
-        /* For 128-bit: use same key for both if only 16 bytes provided */
-        /* Standard XTS-128 would use 32-byte key (two 128-bit keys) */
-        memcpy(data_key, key, 16);
-        memcpy(tweak_key, key, 16); /* Use same key (non-standard) */
-    } else if(key_len == 24) {
-        /* For 192-bit: use same key for both (XTS-192 not standard) */
-        memcpy(data_key, key, 24);
-        memcpy(tweak_key, key, 24);
-    } else if(key_len == 32) {
-        /* For 256-bit: check if we have 64-byte key (standard XTS-256) */
-        memcpy(data_key, key, 32);
-        memcpy(tweak_key, key, 32);
+
+    /* IEEE 1619: a data unit is at least one full block (128 bits). */
+    if (data_len < block_sz) {
+        return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
     }
-    
-    /* Encrypt tweak (IV) with the same AES key size selected for data path. */
-    noxtls_aes_encrypt_block_internal(tweak_key, iv, tweak, type);
-    
-    /* Calculate number of blocks */
-    num_blocks = data_len / NOXTLS_AES_BLOCK_LENGTH;
-    last_block_len = data_len % NOXTLS_AES_BLOCK_LENGTH;
-    
-    /* Process full blocks */
-    for(cur_block = 0; cur_block < num_blocks; cur_block++) {
-        /* XTS: C = E(K1, P XOR T) XOR T, where T is the tweak */
-        
-        /* XOR plaintext with tweak */
-        for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
-            temp_block[i] = data[(cur_block * NOXTLS_AES_BLOCK_LENGTH) + i] ^ tweak[i];
-        }
-        
-        /* Encrypt */
-        {
-            noxtls_aes_encrypt_block_internal(data_key, temp_block, temp_block, type);
-        }
-        
-        /* XOR result with tweak */
-        for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
-            output[(cur_block * NOXTLS_AES_BLOCK_LENGTH) + i] = temp_block[i] ^ tweak[i];
-        }
-        
-        /* Multiply tweak by alpha for next block (except for last full block if we have partial) */
-        if(!(cur_block == num_blocks - 1 && last_block_len > 0)) {
-            gf128_multiply_alpha(tweak);
-        }
+
+    num_blocks = data_len / block_sz;
+    tail_len = data_len % block_sz;
+    full_blocks = (tail_len == 0U) ? num_blocks : (num_blocks - 1U);
+
+    /* T_0 = E_K2(i) */
+    rc = noxtls_aes_encrypt_block_internal(tweak_key, iv, tweak, type);
+
+    for (cur_block = 0U; (rc == NOXTLS_RETURN_SUCCESS) && (cur_block < full_blocks); cur_block += 1U) {
+        uint32_t base = cur_block * block_sz;
+        rc = aes_xts_block(data_key, tweak, &data[base], &output[base], type, dir);
+        gf128_multiply_alpha(tweak);
     }
-    
-    /* Handle partial last block with ciphertext stealing */
-    if(last_block_len > 0) {
-        uint8_t last_tweak[NOXTLS_AES_BLOCK_LENGTH];
-        uint8_t second_last_block[NOXTLS_AES_BLOCK_LENGTH];
-        
-        /* Save second-to-last ciphertext block */
-        if(num_blocks > 0) {
-            memcpy(second_last_block, output + ((size_t)(num_blocks - 1U) * NOXTLS_AES_BLOCK_LENGTH), NOXTLS_AES_BLOCK_LENGTH);
+
+    if ((rc == NOXTLS_RETURN_SUCCESS) && (tail_len != 0U)) {
+        /* Here tweak == T_{m-1} (index of the last full block, num_blocks - 1). */
+        uint32_t prev_base = (num_blocks - 1U) * block_sz;
+        uint32_t tail_base = num_blocks * block_sz;
+
+        noxtls_copy_u8(prev_tweak, sizeof(prev_tweak), tweak, (size_t)block_sz);
+        gf128_multiply_alpha(tweak); /* tweak == T_m */
+
+        if (dir == AES_XTS_DIR_DECRYPT) {
+            /* PP = XTS^-1(K1, C_{m-1}, T_m) */
+            rc = aes_xts_block(data_key, tweak, &data[prev_base], steal, type, dir);
+        } else {
+            /* CC = XTS(K1, P_{m-1}, T_{m-1}) */
+            rc = aes_xts_block(data_key, prev_tweak, &data[prev_base], steal, type, dir);
         }
-        
-        /* Multiply tweak by alpha one more time */
-        memcpy(last_tweak, tweak, NOXTLS_AES_BLOCK_LENGTH);
-        gf128_multiply_alpha(last_tweak);
-        
-        /* Encrypt second-to-last plaintext block with new tweak */
-        if(num_blocks > 0) {
-            for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
-                temp_block[i] = data[((num_blocks - 1) * NOXTLS_AES_BLOCK_LENGTH) + i] ^ last_tweak[i];
+
+        if (rc == NOXTLS_RETURN_SUCCESS) {
+            /* Read the short input block before the output (it may alias) is written. */
+            for (i = 0U; i < tail_len; i += 1U) {
+                last[i] = data[tail_base + i];
             }
-            {
-                const uint8_t *block_in = temp_block;
-                noxtls_aes_encrypt_block_internal(data_key, block_in, temp_block, type);
+            for (i = tail_len; i < block_sz; i += 1U) {
+                last[i] = steal[i];
             }
-            for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
-                output[((num_blocks - 1) * NOXTLS_AES_BLOCK_LENGTH) + i] = temp_block[i] ^ last_tweak[i];
+            /* Short output block = first tail_len bytes of the stolen block. */
+            for (i = 0U; i < tail_len; i += 1U) {
+                output[tail_base + i] = steal[i];
             }
-        }
-        
-        /* Handle last partial block: pad with ciphertext from second-to-last */
-        for(i = 0; i < last_block_len; i++) {
-            temp_block[i] = data[(num_blocks * NOXTLS_AES_BLOCK_LENGTH) + i];
-        }
-        for(i = last_block_len; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
-            if(num_blocks > 0) {
-                temp_block[i] = second_last_block[i];
+            if (dir == AES_XTS_DIR_DECRYPT) {
+                /* P_{m-1} = XTS^-1(K1, C_m || PP[b..16), T_{m-1}) */
+                rc = aes_xts_block(data_key, prev_tweak, last, &output[prev_base], type, dir);
             } else {
-                temp_block[i] = 0; /* Zero pad if no previous block */
+                /* C_{m-1} = XTS(K1, P_m || CC[b..16), T_m) */
+                rc = aes_xts_block(data_key, tweak, last, &output[prev_base], type, dir);
             }
         }
-        
-        /* Encrypt padded block */
-        for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
-            temp_block[i] ^= last_tweak[i];
-        }
-        {
-            noxtls_aes_encrypt_block_internal(data_key, temp_block, temp_block, type);
-        }
-        for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
-            temp_block[i] ^= last_tweak[i];
-        }
-        
-        /* Output: first part goes to last block position, rest overwrites second-to-last */
-        memcpy(output + ((size_t)num_blocks * NOXTLS_AES_BLOCK_LENGTH), temp_block, last_block_len);
-        if(num_blocks > 0) {
-            memcpy(output + ((size_t)(num_blocks - 1U) * NOXTLS_AES_BLOCK_LENGTH) + last_block_len,
-                   temp_block + last_block_len, 
-                   NOXTLS_AES_BLOCK_LENGTH - last_block_len);
-        }
     }
-    
-    return NOXTLS_RETURN_SUCCESS;
+
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(output, (size_t)data_len);
+    }
+    noxtls_secure_zero(tweak, sizeof(tweak));
+    noxtls_secure_zero(prev_tweak, sizeof(prev_tweak));
+    noxtls_secure_zero(steal, sizeof(steal));
+    noxtls_secure_zero(last, sizeof(last));
+    return rc;
+}
+
+/**
+ * @brief XTS-AES encryption with independent data (Key1) and tweak (Key2) keys.
+ */
+noxtls_return_t noxtls_aes_xts_encrypt(const uint8_t *data_key,
+                                       const uint8_t *tweak_key,
+                                       const uint8_t *data,
+                                       uint32_t data_len,
+                                       const uint8_t *tweak,
+                                       uint8_t *output,
+                                       noxtls_aes_type_t type)
+{
+    return aes_xts_crypt(data_key, tweak_key, data, data_len, tweak, output, type, AES_XTS_DIR_ENCRYPT);
+}
+
+/**
+ * @brief XTS-AES decryption with independent data (Key1) and tweak (Key2) keys.
+ */
+noxtls_return_t noxtls_aes_xts_decrypt(const uint8_t *data_key,
+                                       const uint8_t *tweak_key,
+                                       const uint8_t *data,
+                                       uint32_t data_len,
+                                       const uint8_t *tweak,
+                                       uint8_t *output,
+                                       noxtls_aes_type_t type)
+{
+    return aes_xts_crypt(data_key, tweak_key, data, data_len, tweak, output, type, AES_XTS_DIR_DECRYPT);
+}
+
+/**
+ * @brief AES Encrypt in XTS Mode (single key used as both Key1 and Key2).
+ */
+noxtls_return_t noxtls_aes_encrypt_xts(const uint8_t* key,
+                    const uint8_t* data,
+                    uint32_t data_len,
+                    const uint8_t * iv,
+                    uint8_t* output,
+                    noxtls_aes_type_t type)
+{
+    return aes_xts_crypt(key, key, data, data_len, iv, output, type, AES_XTS_DIR_ENCRYPT);
+}
+
+/**
+ * @brief AES Decrypt in XTS Mode (single key used as both Key1 and Key2).
+ */
+noxtls_return_t noxtls_aes_decrypt_xts(const uint8_t* key,
+                    const uint8_t* data,
+                    uint32_t data_len,
+                    const uint8_t * iv,
+                    uint8_t* output,
+                    noxtls_aes_type_t type)
+{
+    return aes_xts_crypt(key, key, data, data_len, iv, output, type, AES_XTS_DIR_DECRYPT);
 }
 
 #endif /* NOXTLS_FEATURE_AES_XTS */
-

@@ -23,8 +23,8 @@
 /** @addtogroup noxtls_mdigest */
 /** @{ */
 
-#ifndef _NOXTLS_BLAKE2_H_
-#define _NOXTLS_BLAKE2_H_
+#ifndef NOXTLS_BLAKE2_H_
+#define NOXTLS_BLAKE2_H_
 
 #include <stdint.h>
 #include "noxtls_hash.h"
@@ -40,32 +40,30 @@ extern "C" {
 #define BLAKE2B_BLOCK_BYTES (128U)
 
 /* RFC 7693 compression: noxtls_message schedule words, chaining half, full v[], sigma table */
-#define BLAKE2_MSG_WORDS        16
-#define BLAKE2_CHAINING_WORDS    8
-#define BLAKE2_V_WORDS          16
-#define BLAKE2_SIGMA_ROWS       10
-#define BLAKE2S_ROUNDS          10
-#define BLAKE2B_ROUNDS          12
-#define BLAKE2S_WORD_BYTES       4
-#define BLAKE2B_WORD_BYTES       8
+#define BLAKE2_MSG_WORDS        16U
+#define BLAKE2_CHAINING_WORDS    8U
+#define BLAKE2_V_WORDS          16U
+#define BLAKE2_SIGMA_ROWS       10U
+#define BLAKE2S_ROUNDS          10U
+#define BLAKE2B_ROUNDS          12U
+#define BLAKE2S_WORD_BYTES       4U
+#define BLAKE2B_WORD_BYTES       8U
 /* Indices in v[] for t (byte count low/high) and final-block flag f */
-#define BLAKE2_V_INDEX_T0       12
-#define BLAKE2_V_INDEX_T1       13
-#define BLAKE2_V_INDEX_F        14
+#define BLAKE2_V_INDEX_T0       12U
+#define BLAKE2_V_INDEX_T1       13U
+#define BLAKE2_V_INDEX_F        14U
 
 NOXTLS_MSVC_WARNING_PUSH
 NOXTLS_MSVC_DISABLE_PADDING
 typedef struct {
     uint8_t is_blake2b;   /* 1 for BLAKE2b, 0 for BLAKE2s */
     uint8_t outlen;       /* digest size in bytes */
-    uint16_t _pad;
+    uint16_t pad_u16;
     uint8_t buf[128];     /* block buffer */
     uint32_t buflen;      /* bytes in buf */
     uint64_t total;       /* total bytes hashed */
-    union {
-        uint32_t h32[8];  /* BLAKE2s state */
-        uint64_t h64[8];  /* BLAKE2b state */
-    } h;
+    uint32_t h32[8];  /* BLAKE2s state */
+    uint64_t h64[8];  /* BLAKE2b state */
 } noxtls_blake2_ctx_t;
 NOXTLS_MSVC_WARNING_POP
 

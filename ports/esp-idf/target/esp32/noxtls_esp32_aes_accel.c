@@ -338,13 +338,13 @@ noxtls_return_t noxtls_aes_accel_port_encrypt_blocks(const uint8_t *key,
  */
 noxtls_return_t noxtls_aes_gcm_encrypt_accel_port(const uint8_t *key,
                                                    noxtls_aes_type_t type,
-                                                   const uint8_t nonce[12],
+                                                   const uint8_t *nonce,
                                                    const uint8_t *aad,
                                                    uint32_t aad_len,
                                                    const uint8_t *plaintext,
                                                    uint32_t plaintext_len,
                                                    uint8_t *ciphertext,
-                                                   uint8_t tag[16])
+                                                   uint8_t *tag)
 {
 #if defined(ESP_PLATFORM) && defined(SOC_AES_SUPPORTED) && SOC_AES_SUPPORTED && \
     CONFIG_NOXTLS_ESP_HW_AES
@@ -415,12 +415,12 @@ noxtls_return_t noxtls_aes_gcm_encrypt_accel_port(const uint8_t *key,
  */
 noxtls_return_t noxtls_aes_gcm_decrypt_accel_port(const uint8_t *key,
                                                    noxtls_aes_type_t type,
-                                                   const uint8_t nonce[12],
+                                                   const uint8_t *nonce,
                                                    const uint8_t *aad,
                                                    uint32_t aad_len,
                                                    const uint8_t *ciphertext,
                                                    uint32_t ciphertext_len,
-                                                   const uint8_t tag[16],
+                                                   const uint8_t *tag,
                                                    uint8_t *plaintext)
 {
 #if defined(ESP_PLATFORM) && defined(SOC_AES_SUPPORTED) && SOC_AES_SUPPORTED && \

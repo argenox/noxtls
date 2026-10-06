@@ -134,7 +134,7 @@ void noxtls_mldsa_set_test_signing_overrides(const uint8_t *pre,
  */
 noxtls_return_t noxtls_mldsa_keygen(noxtls_mldsa_param_t param, uint8_t *public_key, uint8_t *secret_key)
 {
-    if(public_key == NULL || secret_key == NULL) {
+    if((public_key == NULL) || (secret_key == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
@@ -167,7 +167,7 @@ noxtls_return_t noxtls_mldsa_sign(noxtls_mldsa_param_t param,
         return NOXTLS_RETURN_NULL;
     }
 
-    if(noxtls_message == NULL && message_len != 0U) {
+    if((noxtls_message == NULL) && (message_len != 0U)) {
         return NOXTLS_RETURN_NULL;
     }
 
@@ -198,11 +198,11 @@ noxtls_return_t noxtls_mldsa_verify(noxtls_mldsa_param_t param,
 {
     (void)signature_len;
 
-    if(public_key == NULL || signature == NULL) {
+    if((public_key == NULL) || (signature == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
-    if(noxtls_message == NULL && message_len != 0U) {
+    if((noxtls_message == NULL) && (message_len != 0U)) {
         return NOXTLS_RETURN_NULL;
     }
 

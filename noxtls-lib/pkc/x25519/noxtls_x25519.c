@@ -24,10 +24,10 @@
 #include <string.h>
 
 #include "common/noxtls_memory.h"
-#include "common/noxtls_memory_compat.h"
 #include "drbg/noxtls_drbg.h"
 #include "noxtls_common.h"
 #include "noxtls_x25519.h"
+#include "noxtls_ct.h"
 
 /*
  * Keep the X25519 backend portable across the embedded targets we actually
@@ -72,9 +72,9 @@ static const uint64_t x25519_p_limbs[X25519_FE_LIMBS] = {
 static uint64_t load64_le(const uint8_t *src)
 {
     uint64_t value = 0U;
-    uint32_t i;
+    uint32_t i = 0U;
 
-    for(i = 0U; i < 8U; i++) {
+    for(i = 0U; i < 8U; i += 1U) {
         value |= ((uint64_t)src[i]) << (8U * i);
     }
     return value;
@@ -88,9 +88,9 @@ static uint64_t load64_le(const uint8_t *src)
  */
 static void store64_le(uint8_t *dst, uint64_t value)
 {
-    uint32_t i;
+    uint32_t i = 0U;
 
-    for(i = 0U; i < 8U; i++) {
+    for(i = 0U; i < 8U; i += 1U) {
         dst[i] = (uint8_t)(value >> (8U * i));
     }
 }
@@ -102,26 +102,26 @@ static void store64_le(uint8_t *dst, uint64_t value)
  */
 static void fe25519_carry(fe25519_t *a)
 {
-    uint64_t carry;
+    uint64_t carry = 0U;
 
-    carry = a->v[0] >> 51;
-    a->v[0] &= X25519_FE51_MASK;
-    a->v[1] += carry;
-    carry = a->v[1] >> 51;
-    a->v[1] &= X25519_FE51_MASK;
-    a->v[2] += carry;
-    carry = a->v[2] >> 51;
-    a->v[2] &= X25519_FE51_MASK;
-    a->v[3] += carry;
-    carry = a->v[3] >> 51;
-    a->v[3] &= X25519_FE51_MASK;
-    a->v[4] += carry;
-    carry = a->v[4] >> 51;
-    a->v[4] &= X25519_FE51_MASK;
-    a->v[0] += carry * 19U;
-    carry = a->v[0] >> 51;
-    a->v[0] &= X25519_FE51_MASK;
-    a->v[1] += carry;
+    carry = a->v[0U] >> 51U;
+    a->v[0U] &= X25519_FE51_MASK;
+    a->v[1U] += carry;
+    carry = a->v[1U] >> 51U;
+    a->v[1U] &= X25519_FE51_MASK;
+    a->v[2U] += carry;
+    carry = a->v[2U] >> 51U;
+    a->v[2U] &= X25519_FE51_MASK;
+    a->v[3U] += carry;
+    carry = a->v[3U] >> 51U;
+    a->v[3U] &= X25519_FE51_MASK;
+    a->v[4U] += carry;
+    carry = a->v[4U] >> 51U;
+    a->v[4U] &= X25519_FE51_MASK;
+    a->v[0U] += carry * 19U;
+    carry = a->v[0U] >> 51U;
+    a->v[0U] &= X25519_FE51_MASK;
+    a->v[1U] += carry;
 }
 
 /**
@@ -132,9 +132,9 @@ static void fe25519_carry(fe25519_t *a)
  */
 static int fe25519_ge_p(const fe25519_t *a)
 {
-    int i;
+    int i = 0;
 
-    for(i = (int)X25519_FE_LIMBS - 1; i >= 0; i--) {
+    for(i = (int)X25519_FE_LIMBS - 1; i >= 0; i -= 1) {
         if(a->v[i] > x25519_p_limbs[i]) {
             return 1;
         }
@@ -152,11 +152,11 @@ static int fe25519_ge_p(const fe25519_t *a)
  */
 static void fe25519_sub_p(fe25519_t *a)
 {
-    uint32_t i;
+    uint32_t i = 0U;
     uint64_t borrow = 0U;
 
-    for(i = 0U; i < X25519_FE_LIMBS; i++) {
-        uint64_t bi = x25519_p_limbs[i] + borrow;
+    for(i = 0U; i < X25519_FE_LIMBS; i += 1U) {
+        uint64_t bi = (uint64_t)(x25519_p_limbs[i] + borrow);
         if(a->v[i] < bi) {
             a->v[i] = (a->v[i] + (X25519_FE51_MASK + 1U)) - bi;
             borrow = 1U;
@@ -176,7 +176,7 @@ static void fe25519_normalize(fe25519_t *a)
 {
     fe25519_carry(a);
     fe25519_carry(a);
-    if(fe25519_ge_p(a)) {
+    if(fe25519_ge_p(a) != 0) {
         fe25519_sub_p(a);
     }
 }
@@ -189,7 +189,7 @@ static void fe25519_normalize(fe25519_t *a)
  */
 static void fe25519_copy(fe25519_t *dst, const fe25519_t *src)
 {
-    memcpy(dst, src, sizeof(*dst));
+    *(dst) = *(src);
 }
 
 /**
@@ -199,7 +199,7 @@ static void fe25519_copy(fe25519_t *dst, const fe25519_t *src)
  */
 static void fe25519_zero(fe25519_t *a)
 {
-    memset(a, 0, sizeof(*a));
+    noxtls_secure_zero((a), sizeof(*(a)));
 }
 
 /**
@@ -210,7 +210,7 @@ static void fe25519_zero(fe25519_t *a)
 static void fe25519_one(fe25519_t *a)
 {
     fe25519_zero(a);
-    a->v[0] = 1U;
+    a->v[0U] = 1U;
 }
 
 /**
@@ -219,18 +219,18 @@ static void fe25519_one(fe25519_t *a)
  * @param[out] out The output value.
  * @param[in] in The input value.
  */
-static void fe25519_from_le(fe25519_t *out, const uint8_t in[32])
+static void fe25519_from_le(fe25519_t *out, const uint8_t *in)
 {
     uint64_t x0 = load64_le(in);
-    uint64_t x1 = load64_le(in + 8U);
-    uint64_t x2 = load64_le(in + 16U);
-    uint64_t x3 = load64_le(in + 24U);
+    uint64_t x1 = (uint64_t)(load64_le(&in[8U]));
+    uint64_t x2 = (uint64_t)(load64_le(&in[16U]));
+    uint64_t x3 = (uint64_t)(load64_le(&in[24U]));
 
-    out->v[0] = x0 & X25519_FE51_MASK;
-    out->v[1] = ((x0 >> 51) | (x1 << 13)) & X25519_FE51_MASK;
-    out->v[2] = ((x1 >> 38) | (x2 << 26)) & X25519_FE51_MASK;
-    out->v[3] = ((x2 >> 25) | (x3 << 39)) & X25519_FE51_MASK;
-    out->v[4] = (x3 >> 12) & X25519_FE51_MASK;
+    out->v[0U] = x0 & X25519_FE51_MASK;
+    out->v[1U] = ((x0 >> 51U) | (x1 << 13U)) & X25519_FE51_MASK;
+    out->v[2U] = ((x1 >> 38U) | (x2 << 26U)) & X25519_FE51_MASK;
+    out->v[3U] = ((x2 >> 25U) | (x3 << 39U)) & X25519_FE51_MASK;
+    out->v[4U] = (x3 >> 12U) & X25519_FE51_MASK;
     fe25519_normalize(out);
 }
 
@@ -240,27 +240,27 @@ static void fe25519_from_le(fe25519_t *out, const uint8_t in[32])
  * @param[out] out The output value.
  * @param[in] in The input value.
  */
-static void fe25519_to_le(uint8_t out[32], const fe25519_t *in)
+static void fe25519_to_le(uint8_t *out, const fe25519_t *in)
 {
     fe25519_t t;
-    uint64_t x0;
-    uint64_t x1;
-    uint64_t x2;
-    uint64_t x3;
+    uint64_t x0 = 0U;
+    uint64_t x1 = 0U;
+    uint64_t x2 = 0U;
+    uint64_t x3 = 0U;
 
     fe25519_copy(&t, in);
     fe25519_normalize(&t);
 
-    x0 = t.v[0] | (t.v[1] << 51);
-    x1 = (t.v[1] >> 13) | (t.v[2] << 38);
-    x2 = (t.v[2] >> 26) | (t.v[3] << 25);
-    x3 = (t.v[3] >> 39) | (t.v[4] << 12);
+    x0 = t.v[0U] | (t.v[1U] << 51U);
+    x1 = (t.v[1U] >> 13U) | (t.v[2U] << 38U);
+    x2 = (t.v[2U] >> 26U) | (t.v[3U] << 25U);
+    x3 = (t.v[3U] >> 39U) | (t.v[4U] << 12U);
 
     store64_le(out, x0);
-    store64_le(out + 8U, x1);
-    store64_le(out + 16U, x2);
-    store64_le(out + 24U, x3);
-    out[31] &= (uint8_t)NOXTLS_X25519_RESULT_HIGH_CLEAR;
+    store64_le(&out[8U], x1);
+    store64_le(&out[16U], x2);
+    store64_le(&out[24U], x3);
+    out[31U] &= (uint8_t)NOXTLS_X25519_RESULT_HIGH_CLEAR;
 }
 
 /**
@@ -272,11 +272,14 @@ static void fe25519_to_le(uint8_t out[32], const fe25519_t *in)
  */
 static void fe25519_cswap(uint8_t swap, fe25519_t *a, fe25519_t *b)
 {
-    uint64_t mask = (uint64_t)(0U - (uint64_t)(swap & 1U));
-    uint32_t i;
+    uint64_t swap_bit = (uint64_t)swap;
+    swap_bit &= 1U;
+    uint64_t mask = 0U - swap_bit;
+    uint32_t i = 0U;
 
-    for(i = 0U; i < X25519_FE_LIMBS; i++) {
-        uint64_t d = mask & (a->v[i] ^ b->v[i]);
+    for(i = 0U; i < X25519_FE_LIMBS; i += 1U) {
+        uint64_t xored = a->v[i] ^ b->v[i];
+        uint64_t d = mask & xored;
         a->v[i] ^= d;
         b->v[i] ^= d;
     }
@@ -291,11 +294,11 @@ static void fe25519_cswap(uint8_t swap, fe25519_t *a, fe25519_t *b)
  */
 static void fe25519_add(fe25519_t *out, const fe25519_t *a, const fe25519_t *b)
 {
-    out->v[0] = a->v[0] + b->v[0];
-    out->v[1] = a->v[1] + b->v[1];
-    out->v[2] = a->v[2] + b->v[2];
-    out->v[3] = a->v[3] + b->v[3];
-    out->v[4] = a->v[4] + b->v[4];
+    out->v[0U] = a->v[0U] + b->v[0U];
+    out->v[1U] = a->v[1U] + b->v[1U];
+    out->v[2U] = a->v[2U] + b->v[2U];
+    out->v[3U] = a->v[3U] + b->v[3U];
+    out->v[4U] = a->v[4U] + b->v[4U];
     fe25519_carry(out);
 }
 
@@ -308,11 +311,11 @@ static void fe25519_add(fe25519_t *out, const fe25519_t *a, const fe25519_t *b)
  */
 static void fe25519_sub(fe25519_t *out, const fe25519_t *a, const fe25519_t *b)
 {
-    out->v[0] = a->v[0] + ((x25519_p_limbs[0]) << 2) - b->v[0];
-    out->v[1] = a->v[1] + ((x25519_p_limbs[1]) << 2) - b->v[1];
-    out->v[2] = a->v[2] + ((x25519_p_limbs[2]) << 2) - b->v[2];
-    out->v[3] = a->v[3] + ((x25519_p_limbs[3]) << 2) - b->v[3];
-    out->v[4] = a->v[4] + ((x25519_p_limbs[4]) << 2) - b->v[4];
+    out->v[0U] = a->v[0U] + ((x25519_p_limbs[0U]) << 2U) - b->v[0U];
+    out->v[1U] = a->v[1U] + ((x25519_p_limbs[1U]) << 2U) - b->v[1U];
+    out->v[2U] = a->v[2U] + ((x25519_p_limbs[2U]) << 2U) - b->v[2U];
+    out->v[3U] = a->v[3U] + ((x25519_p_limbs[3U]) << 2U) - b->v[3U];
+    out->v[4U] = a->v[4U] + ((x25519_p_limbs[4U]) << 2U) - b->v[4U];
     fe25519_carry(out);
 }
 
@@ -325,42 +328,42 @@ static void fe25519_sub(fe25519_t *out, const fe25519_t *a, const fe25519_t *b)
  */
 static void fe25519_mul(fe25519_t *out, const fe25519_t *a, const fe25519_t *b)
 {
-    const uint64_t f0 = a->v[0];
-    const uint64_t f1 = a->v[1];
-    const uint64_t f2 = a->v[2];
-    const uint64_t f3 = a->v[3];
-    const uint64_t f4 = a->v[4];
-    const uint64_t g0 = b->v[0];
-    const uint64_t g1 = b->v[1];
-    const uint64_t g2 = b->v[2];
-    const uint64_t g3 = b->v[3];
-    const uint64_t g4 = b->v[4];
-    const uint64_t g1_19 = g1 * 19U;
-    const uint64_t g2_19 = g2 * 19U;
-    const uint64_t g3_19 = g3 * 19U;
-    const uint64_t g4_19 = g4 * 19U;
+    const uint64_t f0 = (uint64_t)(a->v[0U]);
+    const uint64_t f1 = (uint64_t)(a->v[1U]);
+    const uint64_t f2 = (uint64_t)(a->v[2U]);
+    const uint64_t f3 = (uint64_t)(a->v[3U]);
+    const uint64_t f4 = (uint64_t)(a->v[4U]);
+    const uint64_t g0 = (uint64_t)(b->v[0U]);
+    const uint64_t g1 = (uint64_t)(b->v[1U]);
+    const uint64_t g2 = (uint64_t)(b->v[2U]);
+    const uint64_t g3 = (uint64_t)(b->v[3U]);
+    const uint64_t g4 = (uint64_t)(b->v[4U]);
+    const uint64_t g1_19 = (uint64_t)(g1 * 19U);
+    const uint64_t g2_19 = (uint64_t)(g2 * 19U);
+    const uint64_t g3_19 = (uint64_t)(g3 * 19U);
+    const uint64_t g4_19 = (uint64_t)(g4 * 19U);
     fe25519_u128_t h0 = ((fe25519_u128_t)f0 * g0) + ((fe25519_u128_t)f1 * g4_19) + ((fe25519_u128_t)f2 * g3_19) + ((fe25519_u128_t)f3 * g2_19) + ((fe25519_u128_t)f4 * g1_19);
     fe25519_u128_t h1 = ((fe25519_u128_t)f0 * g1) + ((fe25519_u128_t)f1 * g0) + ((fe25519_u128_t)f2 * g4_19) + ((fe25519_u128_t)f3 * g3_19) + ((fe25519_u128_t)f4 * g2_19);
     fe25519_u128_t h2 = ((fe25519_u128_t)f0 * g2) + ((fe25519_u128_t)f1 * g1) + ((fe25519_u128_t)f2 * g0) + ((fe25519_u128_t)f3 * g4_19) + ((fe25519_u128_t)f4 * g3_19);
     fe25519_u128_t h3 = ((fe25519_u128_t)f0 * g3) + ((fe25519_u128_t)f1 * g2) + ((fe25519_u128_t)f2 * g1) + ((fe25519_u128_t)f3 * g0) + ((fe25519_u128_t)f4 * g4_19);
     fe25519_u128_t h4 = ((fe25519_u128_t)f0 * g4) + ((fe25519_u128_t)f1 * g3) + ((fe25519_u128_t)f2 * g2) + ((fe25519_u128_t)f3 * g1) + ((fe25519_u128_t)f4 * g0);
-    uint64_t carry;
+    uint64_t carry = 0U;
 
-    carry = (uint64_t)(h0 >> 51);
+    carry = (uint64_t)(h0 >> 51U);
     h1 += carry;
-    out->v[0] = (uint64_t)h0 & X25519_FE51_MASK;
-    carry = (uint64_t)(h1 >> 51);
+    out->v[0U] = (uint64_t)h0 & X25519_FE51_MASK;
+    carry = (uint64_t)(h1 >> 51U);
     h2 += carry;
-    out->v[1] = (uint64_t)h1 & X25519_FE51_MASK;
-    carry = (uint64_t)(h2 >> 51);
+    out->v[1U] = (uint64_t)h1 & X25519_FE51_MASK;
+    carry = (uint64_t)(h2 >> 51U);
     h3 += carry;
-    out->v[2] = (uint64_t)h2 & X25519_FE51_MASK;
-    carry = (uint64_t)(h3 >> 51);
+    out->v[2U] = (uint64_t)h2 & X25519_FE51_MASK;
+    carry = (uint64_t)(h3 >> 51U);
     h4 += carry;
-    out->v[3] = (uint64_t)h3 & X25519_FE51_MASK;
-    carry = (uint64_t)(h4 >> 51);
-    out->v[4] = (uint64_t)h4 & X25519_FE51_MASK;
-    out->v[0] += carry * 19U;
+    out->v[3U] = (uint64_t)h3 & X25519_FE51_MASK;
+    carry = (uint64_t)(h4 >> 51U);
+    out->v[4U] = (uint64_t)h4 & X25519_FE51_MASK;
+    out->v[0U] += carry * 19U;
     fe25519_carry(out);
 }
 
@@ -372,46 +375,46 @@ static void fe25519_mul(fe25519_t *out, const fe25519_t *a, const fe25519_t *b)
  */
 static void fe25519_sq(fe25519_t *out, const fe25519_t *a)
 {
-    const uint64_t f0 = a->v[0];
-    const uint64_t f1 = a->v[1];
-    const uint64_t f2 = a->v[2];
-    const uint64_t f3 = a->v[3];
-    const uint64_t f4 = a->v[4];
-    const uint64_t f0_2 = f0 * 2U;
-    const uint64_t f1_2 = f1 * 2U;
-    const uint64_t f2_2 = f2 * 2U;
-    const uint64_t f3_2 = f3 * 2U;
-    const uint64_t f1_38 = f1 * 38U;
-    const uint64_t f2_38 = f2 * 38U;
-    const uint64_t f3_38 = f3 * 38U;
-    const uint64_t f4_19 = f4 * 19U;
-    const uint64_t f4_38 = f4 * 38U;
+    const uint64_t f0 = (uint64_t)(a->v[0U]);
+    const uint64_t f1 = (uint64_t)(a->v[1U]);
+    const uint64_t f2 = (uint64_t)(a->v[2U]);
+    const uint64_t f3 = (uint64_t)(a->v[3U]);
+    const uint64_t f4 = (uint64_t)(a->v[4U]);
+    const uint64_t f0_2 = (uint64_t)(f0 * 2U);
+    const uint64_t f1_2 = (uint64_t)(f1 * 2U);
+    const uint64_t f2_2 = (uint64_t)(f2 * 2U);
+    const uint64_t f3_2 = (uint64_t)(f3 * 2U);
+    const uint64_t f1_38 = (uint64_t)(f1 * 38U);
+    const uint64_t f2_38 = (uint64_t)(f2 * 38U);
+    const uint64_t f3_38 = (uint64_t)(f3 * 38U);
+    const uint64_t f4_19 = (uint64_t)(f4 * 19U);
+    const uint64_t f4_38 = (uint64_t)(f4 * 38U);
     fe25519_u128_t h0 = ((fe25519_u128_t)f0 * f0) + ((fe25519_u128_t)f1_38 * f4) + ((fe25519_u128_t)f2_38 * f3);
     fe25519_u128_t h1 = ((fe25519_u128_t)f0_2 * f1) + ((fe25519_u128_t)f2_38 * f4) + ((fe25519_u128_t)f3 * (f3 * 19U));
     fe25519_u128_t h2 = ((fe25519_u128_t)f0_2 * f2) + ((fe25519_u128_t)f1 * f1) + ((fe25519_u128_t)f3_38 * f4);
     fe25519_u128_t h3 = ((fe25519_u128_t)f0_2 * f3) + ((fe25519_u128_t)f1_2 * f2) + ((fe25519_u128_t)f4_19 * f4);
     fe25519_u128_t h4 = ((fe25519_u128_t)f0_2 * f4) + ((fe25519_u128_t)f1_2 * f3) + ((fe25519_u128_t)f2 * f2);
-    uint64_t carry;
+    uint64_t carry = 0U;
 
     (void)f2_2;
     (void)f3_2;
     (void)f4_38;
 
-    carry = (uint64_t)(h0 >> 51);
+    carry = (uint64_t)(h0 >> 51U);
     h1 += carry;
-    out->v[0] = (uint64_t)h0 & X25519_FE51_MASK;
-    carry = (uint64_t)(h1 >> 51);
+    out->v[0U] = (uint64_t)h0 & X25519_FE51_MASK;
+    carry = (uint64_t)(h1 >> 51U);
     h2 += carry;
-    out->v[1] = (uint64_t)h1 & X25519_FE51_MASK;
-    carry = (uint64_t)(h2 >> 51);
+    out->v[1U] = (uint64_t)h1 & X25519_FE51_MASK;
+    carry = (uint64_t)(h2 >> 51U);
     h3 += carry;
-    out->v[2] = (uint64_t)h2 & X25519_FE51_MASK;
-    carry = (uint64_t)(h3 >> 51);
+    out->v[2U] = (uint64_t)h2 & X25519_FE51_MASK;
+    carry = (uint64_t)(h3 >> 51U);
     h4 += carry;
-    out->v[3] = (uint64_t)h3 & X25519_FE51_MASK;
-    carry = (uint64_t)(h4 >> 51);
-    out->v[4] = (uint64_t)h4 & X25519_FE51_MASK;
-    out->v[0] += carry * 19U;
+    out->v[3U] = (uint64_t)h3 & X25519_FE51_MASK;
+    carry = (uint64_t)(h4 >> 51U);
+    out->v[4U] = (uint64_t)h4 & X25519_FE51_MASK;
+    out->v[0U] += carry * 19U;
     fe25519_carry(out);
 }
 
@@ -424,28 +427,28 @@ static void fe25519_sq(fe25519_t *out, const fe25519_t *a)
  */
 static void fe25519_mul_small(fe25519_t *out, const fe25519_t *a, uint32_t c)
 {
-    fe25519_u128_t h0 = (fe25519_u128_t)a->v[0] * c;
-    fe25519_u128_t h1 = (fe25519_u128_t)a->v[1] * c;
-    fe25519_u128_t h2 = (fe25519_u128_t)a->v[2] * c;
-    fe25519_u128_t h3 = (fe25519_u128_t)a->v[3] * c;
-    fe25519_u128_t h4 = (fe25519_u128_t)a->v[4] * c;
-    uint64_t carry;
+    fe25519_u128_t h0 = (fe25519_u128_t)a->v[0U] * c;
+    fe25519_u128_t h1 = (fe25519_u128_t)a->v[1U] * c;
+    fe25519_u128_t h2 = (fe25519_u128_t)a->v[2U] * c;
+    fe25519_u128_t h3 = (fe25519_u128_t)a->v[3U] * c;
+    fe25519_u128_t h4 = (fe25519_u128_t)a->v[4U] * c;
+    uint64_t carry = 0U;
 
-    carry = (uint64_t)(h0 >> 51);
+    carry = (uint64_t)(h0 >> 51U);
     h1 += carry;
-    out->v[0] = (uint64_t)h0 & X25519_FE51_MASK;
-    carry = (uint64_t)(h1 >> 51);
+    out->v[0U] = (uint64_t)h0 & X25519_FE51_MASK;
+    carry = (uint64_t)(h1 >> 51U);
     h2 += carry;
-    out->v[1] = (uint64_t)h1 & X25519_FE51_MASK;
-    carry = (uint64_t)(h2 >> 51);
+    out->v[1U] = (uint64_t)h1 & X25519_FE51_MASK;
+    carry = (uint64_t)(h2 >> 51U);
     h3 += carry;
-    out->v[2] = (uint64_t)h2 & X25519_FE51_MASK;
-    carry = (uint64_t)(h3 >> 51);
+    out->v[2U] = (uint64_t)h2 & X25519_FE51_MASK;
+    carry = (uint64_t)(h3 >> 51U);
     h4 += carry;
-    out->v[3] = (uint64_t)h3 & X25519_FE51_MASK;
-    carry = (uint64_t)(h4 >> 51);
-    out->v[4] = (uint64_t)h4 & X25519_FE51_MASK;
-    out->v[0] += carry * 19U;
+    out->v[3U] = (uint64_t)h3 & X25519_FE51_MASK;
+    carry = (uint64_t)(h4 >> 51U);
+    out->v[4U] = (uint64_t)h4 & X25519_FE51_MASK;
+    out->v[0U] += carry * 19U;
     fe25519_carry(out);
 }
 
@@ -458,10 +461,10 @@ static void fe25519_mul_small(fe25519_t *out, const fe25519_t *a, uint32_t c)
  */
 static void fe25519_sq_times(fe25519_t *out, const fe25519_t *z, uint32_t count)
 {
-    uint32_t i;
+    uint32_t i = 0U;
 
     fe25519_copy(out, z);
-    for(i = 0U; i < count; i++) {
+    for(i = 0U; i < count; i += 1U) {
         fe25519_sq(out, out);
     }
 }
@@ -527,9 +530,9 @@ static void fe25519_inv(fe25519_t *out, const fe25519_t *z)
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the input or output is NULL, or another NOXTLS_RETURN_t on failure.
  */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
-static noxtls_return_t x25519_scalar_mult(const uint8_t k[NOXTLS_X25519_KEY_SIZE],
-                                          const uint8_t u[NOXTLS_X25519_KEY_SIZE],
-                                          uint8_t result[NOXTLS_X25519_KEY_SIZE])
+static noxtls_return_t x25519_scalar_mult(const uint8_t *k,
+                                          const uint8_t *u,
+                                          uint8_t *result)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     uint8_t k_clamped[NOXTLS_X25519_KEY_SIZE];
@@ -552,14 +555,14 @@ static noxtls_return_t x25519_scalar_mult(const uint8_t k[NOXTLS_X25519_KEY_SIZE
     fe25519_t t1;
     fe25519_t inv;
     uint8_t swap = 0U;
-    int t;
+    int t = 0;
 
-    memcpy(k_clamped, k, NOXTLS_X25519_KEY_SIZE);
-    memcpy(u_masked, u, NOXTLS_X25519_KEY_SIZE);
-    k_clamped[0] &= (uint8_t)NOXTLS_X25519_CLAMP_BYTE0_MASK;
-    k_clamped[31] &= (uint8_t)NOXTLS_X25519_CLAMP_BYTE31_AND;
-    k_clamped[31] |= (uint8_t)NOXTLS_X25519_CLAMP_BYTE31_OR;
-    u_masked[31] &= (uint8_t)NOXTLS_X25519_U_COORD_HIGH_CLEAR;
+    noxtls_copy_u8(k_clamped, sizeof(k_clamped), k, (size_t)NOXTLS_X25519_KEY_SIZE);
+    noxtls_copy_u8(u_masked, sizeof(u_masked), u, (size_t)NOXTLS_X25519_KEY_SIZE);
+    k_clamped[0U] &= (uint8_t)NOXTLS_X25519_CLAMP_BYTE0_MASK;
+    k_clamped[31U] &= (uint8_t)NOXTLS_X25519_CLAMP_BYTE31_AND;
+    k_clamped[31U] |= (uint8_t)NOXTLS_X25519_CLAMP_BYTE31_OR;
+    u_masked[31U] &= (uint8_t)NOXTLS_X25519_U_COORD_HIGH_CLEAR;
 
     fe25519_from_le(&x1, u_masked);
     fe25519_one(&x2);
@@ -567,8 +570,10 @@ static noxtls_return_t x25519_scalar_mult(const uint8_t k[NOXTLS_X25519_KEY_SIZE
     fe25519_copy(&x3, &x1);
     fe25519_one(&z3);
 
-    for(t = (int)NOXTLS_X25519_SCALAR_LOOP_TOP; t >= 0; t--) {
-        uint8_t k_t = (uint8_t)((k_clamped[t >> 3] >> (t & 7)) & 1U);
+    for(t = (int)NOXTLS_X25519_SCALAR_LOOP_TOP; t >= 0; t -= 1) {
+        uint32_t ti = (uint32_t)t;
+    static const uint8_t x25519_s_bit8[8] = {0x01U,0x02U,0x04U,0x08U,0x10U,0x20U,0x40U,0x80U};
+        uint8_t k_t = ((k_clamped[(uint32_t)ti >> 3U] & x25519_s_bit8[ti & 7U]) != 0U) ? 1U : 0U;
         swap ^= k_t;
         fe25519_cswap(swap, &x2, &x3);
         fe25519_cswap(swap, &z2, &z3);
@@ -619,10 +624,10 @@ typedef struct {
  */
 static uint32_t load32_le(const uint8_t *src)
 {
-    return ((uint32_t)src[0]) |
-           ((uint32_t)src[1] << 8) |
-           ((uint32_t)src[2] << 16) |
-           ((uint32_t)src[3] << 24);
+    return ((uint32_t)src[0U]) |
+           ((uint32_t)src[1U] << 8U) |
+           ((uint32_t)src[2U] << 16U) |
+           ((uint32_t)src[3U] << 24U);
 }
 
 /**
@@ -633,10 +638,41 @@ static uint32_t load32_le(const uint8_t *src)
  */
 static uint32_t load24_le(const uint8_t *src)
 {
-    return ((uint32_t)src[0]) |
-           ((uint32_t)src[1] << 8) |
-           ((uint32_t)src[2] << 16);
+    return ((uint32_t)src[0U]) |
+           ((uint32_t)src[1U] << 8U) |
+           ((uint32_t)src[2U] << 16U);
 }
+
+/**
+ * @brief Portable arithmetic right shift for int64_t (toward -infinity).
+ */
+
+
+static int64_t fe25519_asr64(int64_t value, uint32_t shift)
+{
+    uint64_t u = (uint64_t)value;
+    uint64_t shifted = 0U;
+
+    if(shift == 0U) {
+        return value;
+    }
+    /* Field reduction only uses arithmetic shifts of 25 or 26. */
+    if(value >= 0) {
+        switch(shift) {
+        case 25U: shifted = u >> 25U; break;
+        case 26U: shifted = u >> 26U; break;
+        default: shifted = 0U; break;
+        }
+        return (int64_t)shifted;
+    }
+    switch(shift) {
+    case 25U: shifted = ~((~u) >> 25U); break;
+    case 26U: shifted = ~((~u) >> 26U); break;
+    default: shifted = ~0ULL; break;
+    }
+    return (int64_t)shifted;
+}
+
 
 /**
  * @brief Copy the fe25519_t.
@@ -646,7 +682,7 @@ static uint32_t load24_le(const uint8_t *src)
  */
 static void fe25519_copy(fe25519_t *dst, const fe25519_t *src)
 {
-    memcpy(dst, src, sizeof(*dst));
+    *(dst) = *(src);
 }
 
 /**
@@ -656,7 +692,7 @@ static void fe25519_copy(fe25519_t *dst, const fe25519_t *src)
  */
 static void fe25519_zero(fe25519_t *a)
 {
-    memset(a, 0, sizeof(*a));
+    noxtls_secure_zero((a), sizeof(*(a)));
 }
 
 /**
@@ -667,7 +703,7 @@ static void fe25519_zero(fe25519_t *a)
 static void fe25519_one(fe25519_t *a)
 {
     fe25519_zero(a);
-    a->v[0] = 1;
+    a->v[0U] = 1;
 }
 
 /**
@@ -676,62 +712,79 @@ static void fe25519_one(fe25519_t *a)
  * @param[out] out The output value.
  * @param[in] in The input value.
  */
-static void fe25519_from_le(fe25519_t *out, const uint8_t in[32])
+static void fe25519_from_le(fe25519_t *out, const uint8_t *in)
 {
     int64_t h0 = (int64_t)load32_le(in);
-    int64_t h1 = (int64_t)load24_le(in + 4U) << 6;
-    int64_t h2 = (int64_t)load24_le(in + 7U) << 5;
-    int64_t h3 = (int64_t)load24_le(in + 10U) << 3;
-    int64_t h4 = (int64_t)load24_le(in + 13U) << 2;
-    int64_t h5 = (int64_t)load32_le(in + 16U);
-    int64_t h6 = (int64_t)load24_le(in + 20U) << 7;
-    int64_t h7 = (int64_t)load24_le(in + 23U) << 5;
-    int64_t h8 = (int64_t)load24_le(in + 26U) << 4;
-    int64_t h9 = (int64_t)(load24_le(in + 29U) & 0x7FFFFFU) << 2;
-    int64_t carry;
+    uint64_t h1_u = (uint64_t)(load24_le(&in[4U]));
+    h1_u <<= 6U;
+    int64_t h1 = (int64_t)h1_u;
+    uint64_t h2_u = (uint64_t)(load24_le(&in[7U]));
+    h2_u <<= 5U;
+    int64_t h2 = (int64_t)h2_u;
+    uint64_t h3_u = (uint64_t)(load24_le(&in[10U]));
+    h3_u <<= 3U;
+    int64_t h3 = (int64_t)h3_u;
+    uint64_t h4_u = (uint64_t)(load24_le(&in[13U]));
+    h4_u <<= 2U;
+    int64_t h4 = (int64_t)h4_u;
+    int64_t h5 = (int64_t)load32_le(&in[16U]);
+    uint64_t h6_u = (uint64_t)(load24_le(&in[20U]));
+    h6_u <<= 7U;
+    int64_t h6 = (int64_t)h6_u;
+    uint64_t h7_u = (uint64_t)(load24_le(&in[23U]));
+    h7_u <<= 5U;
+    int64_t h7 = (int64_t)h7_u;
+    uint64_t h8_u = (uint64_t)(load24_le(&in[26U]));
+    h8_u <<= 4U;
+    int64_t h8 = (int64_t)h8_u;
+    uint32_t h9_raw = load24_le(&in[29U]) & 0x7FFFFFU;
+    uint64_t h9_u = (uint64_t)h9_raw;
+    h9_u <<= 2U;
+    int64_t h9 = (int64_t)h9_u;
+    int64_t carry = 0;
 
-    carry = (h9 + (((int64_t)1) << 24)) >> 25;
-    h0 += carry * 19;
-    h9 -= carry << 25;
-    carry = (h1 + (((int64_t)1) << 24)) >> 25;
+    carry = fe25519_asr64(h9 + (int64_t)(1ULL << 24U), 25U);
+    h0 += carry * (int64_t)19;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h9 -= (int64_t)csh; }
+    carry = fe25519_asr64(h1 + (int64_t)(1ULL << 24U), 25U);
     h2 += carry;
-    h1 -= carry << 25;
-    carry = (h3 + (((int64_t)1) << 24)) >> 25;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h1 -= (int64_t)csh; }
+    carry = fe25519_asr64(h3 + (int64_t)(1ULL << 24U), 25U);
     h4 += carry;
-    h3 -= carry << 25;
-    carry = (h5 + (((int64_t)1) << 24)) >> 25;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h3 -= (int64_t)csh; }
+    carry = fe25519_asr64(h5 + (int64_t)(1ULL << 24U), 25U);
     h6 += carry;
-    h5 -= carry << 25;
-    carry = (h7 + (((int64_t)1) << 24)) >> 25;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h5 -= (int64_t)csh; }
+    carry = fe25519_asr64(h7 + (int64_t)(1ULL << 24U), 25U);
     h8 += carry;
-    h7 -= carry << 25;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h7 -= (int64_t)csh; }
 
-    carry = (h0 + (((int64_t)1) << 25)) >> 26;
+    carry = fe25519_asr64(h0 + (int64_t)(1ULL << 25U), 26U);
     h1 += carry;
-    h0 -= carry << 26;
-    carry = (h2 + (((int64_t)1) << 25)) >> 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h0 -= (int64_t)csh; }
+    carry = fe25519_asr64(h2 + (int64_t)(1ULL << 25U), 26U);
     h3 += carry;
-    h2 -= carry << 26;
-    carry = (h4 + (((int64_t)1) << 25)) >> 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h2 -= (int64_t)csh; }
+    carry = fe25519_asr64(h4 + (int64_t)(1ULL << 25U), 26U);
     h5 += carry;
-    h4 -= carry << 26;
-    carry = (h6 + (((int64_t)1) << 25)) >> 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h4 -= (int64_t)csh; }
+    carry = fe25519_asr64(h6 + (int64_t)(1ULL << 25U), 26U);
     h7 += carry;
-    h6 -= carry << 26;
-    carry = (h8 + (((int64_t)1) << 25)) >> 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h6 -= (int64_t)csh; }
+    carry = fe25519_asr64(h8 + (int64_t)(1ULL << 25U), 26U);
     h9 += carry;
-    h8 -= carry << 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h8 -= (int64_t)csh; }
 
-    out->v[0] = (int32_t)h0;
-    out->v[1] = (int32_t)h1;
-    out->v[2] = (int32_t)h2;
-    out->v[3] = (int32_t)h3;
-    out->v[4] = (int32_t)h4;
-    out->v[5] = (int32_t)h5;
-    out->v[6] = (int32_t)h6;
-    out->v[7] = (int32_t)h7;
-    out->v[8] = (int32_t)h8;
-    out->v[9] = (int32_t)h9;
+    out->v[0U] = (int32_t)h0;
+    out->v[1U] = (int32_t)h1;
+    out->v[2U] = (int32_t)h2;
+    out->v[3U] = (int32_t)h3;
+    out->v[4U] = (int32_t)h4;
+    out->v[5U] = (int32_t)h5;
+    out->v[6U] = (int32_t)h6;
+    out->v[7U] = (int32_t)h7;
+    out->v[8U] = (int32_t)h8;
+    out->v[9U] = (int32_t)h9;
 }
 
 /**
@@ -740,98 +793,98 @@ static void fe25519_from_le(fe25519_t *out, const uint8_t in[32])
  * @param[out] out The output value.
  * @param[in] in The input value.
  */
-static void fe25519_to_le(uint8_t out[32], const fe25519_t *in)
+static void fe25519_to_le(uint8_t *out, const fe25519_t *in)
 {
-    int64_t h0 = in->v[0];
-    int64_t h1 = in->v[1];
-    int64_t h2 = in->v[2];
-    int64_t h3 = in->v[3];
-    int64_t h4 = in->v[4];
-    int64_t h5 = in->v[5];
-    int64_t h6 = in->v[6];
-    int64_t h7 = in->v[7];
-    int64_t h8 = in->v[8];
-    int64_t h9 = in->v[9];
-    int64_t q;
-    int64_t carry;
+    int64_t h0 = in->v[0U];
+    int64_t h1 = in->v[1U];
+    int64_t h2 = in->v[2U];
+    int64_t h3 = in->v[3U];
+    int64_t h4 = in->v[4U];
+    int64_t h5 = in->v[5U];
+    int64_t h6 = in->v[6U];
+    int64_t h7 = in->v[7U];
+    int64_t h8 = in->v[8U];
+    int64_t h9 = in->v[9U];
+    int64_t q = 0;
+    int64_t carry = 0;
 
-    q = ((19 * h9) + (((int64_t)1) << 24)) >> 25;
-    q = (h0 + q) >> 26;
-    q = (h1 + q) >> 25;
-    q = (h2 + q) >> 26;
-    q = (h3 + q) >> 25;
-    q = (h4 + q) >> 26;
-    q = (h5 + q) >> 25;
-    q = (h6 + q) >> 26;
-    q = (h7 + q) >> 25;
-    q = (h8 + q) >> 26;
-    q = (h9 + q) >> 25;
+    q = fe25519_asr64(((int64_t)19 * h9) + (int64_t)(1ULL << 24U), 25U);
+    q = fe25519_asr64(h0 + q, 26U);
+    q = fe25519_asr64(h1 + q, 25U);
+    q = fe25519_asr64(h2 + q, 26U);
+    q = fe25519_asr64(h3 + q, 25U);
+    q = fe25519_asr64(h4 + q, 26U);
+    q = fe25519_asr64(h5 + q, 25U);
+    q = fe25519_asr64(h6 + q, 26U);
+    q = fe25519_asr64(h7 + q, 25U);
+    q = fe25519_asr64(h8 + q, 26U);
+    q = fe25519_asr64(h9 + q, 25U);
 
-    h0 += 19 * q;
+    h0 += (int64_t)19 * q;
 
-    carry = h0 >> 26;
+    carry = fe25519_asr64(h0, 26U);
     h1 += carry;
-    h0 -= carry << 26;
-    carry = h1 >> 25;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h0 -= (int64_t)csh; }
+    carry = fe25519_asr64(h1, 25U);
     h2 += carry;
-    h1 -= carry << 25;
-    carry = h2 >> 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h1 -= (int64_t)csh; }
+    carry = fe25519_asr64(h2, 26U);
     h3 += carry;
-    h2 -= carry << 26;
-    carry = h3 >> 25;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h2 -= (int64_t)csh; }
+    carry = fe25519_asr64(h3, 25U);
     h4 += carry;
-    h3 -= carry << 25;
-    carry = h4 >> 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h3 -= (int64_t)csh; }
+    carry = fe25519_asr64(h4, 26U);
     h5 += carry;
-    h4 -= carry << 26;
-    carry = h5 >> 25;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h4 -= (int64_t)csh; }
+    carry = fe25519_asr64(h5, 25U);
     h6 += carry;
-    h5 -= carry << 25;
-    carry = h6 >> 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h5 -= (int64_t)csh; }
+    carry = fe25519_asr64(h6, 26U);
     h7 += carry;
-    h6 -= carry << 26;
-    carry = h7 >> 25;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h6 -= (int64_t)csh; }
+    carry = fe25519_asr64(h7, 25U);
     h8 += carry;
-    h7 -= carry << 25;
-    carry = h8 >> 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h7 -= (int64_t)csh; }
+    carry = fe25519_asr64(h8, 26U);
     h9 += carry;
-    h8 -= carry << 26;
-    carry = h9 >> 25;
-    h9 -= carry << 25;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h8 -= (int64_t)csh; }
+    carry = fe25519_asr64(h9, 25U);
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h9 -= (int64_t)csh; }
 
-    out[0] = (uint8_t)(h0 >> 0);
-    out[1] = (uint8_t)(h0 >> 8);
-    out[2] = (uint8_t)(h0 >> 16);
-    out[3] = (uint8_t)((h0 >> 24) | (h1 << 2));
-    out[4] = (uint8_t)(h1 >> 6);
-    out[5] = (uint8_t)(h1 >> 14);
-    out[6] = (uint8_t)((h1 >> 22) | (h2 << 3));
-    out[7] = (uint8_t)(h2 >> 5);
-    out[8] = (uint8_t)(h2 >> 13);
-    out[9] = (uint8_t)((h2 >> 21) | (h3 << 5));
-    out[10] = (uint8_t)(h3 >> 3);
-    out[11] = (uint8_t)(h3 >> 11);
-    out[12] = (uint8_t)((h3 >> 19) | (h4 << 6));
-    out[13] = (uint8_t)(h4 >> 2);
-    out[14] = (uint8_t)(h4 >> 10);
-    out[15] = (uint8_t)(h4 >> 18);
-    out[16] = (uint8_t)(h5 >> 0);
-    out[17] = (uint8_t)(h5 >> 8);
-    out[18] = (uint8_t)(h5 >> 16);
-    out[19] = (uint8_t)((h5 >> 24) | (h6 << 1));
-    out[20] = (uint8_t)(h6 >> 7);
-    out[21] = (uint8_t)(h6 >> 15);
-    out[22] = (uint8_t)((h6 >> 23) | (h7 << 3));
-    out[23] = (uint8_t)(h7 >> 5);
-    out[24] = (uint8_t)(h7 >> 13);
-    out[25] = (uint8_t)((h7 >> 21) | (h8 << 4));
-    out[26] = (uint8_t)(h8 >> 4);
-    out[27] = (uint8_t)(h8 >> 12);
-    out[28] = (uint8_t)((h8 >> 20) | (h9 << 6));
-    out[29] = (uint8_t)(h9 >> 2);
-    out[30] = (uint8_t)(h9 >> 10);
-    out[31] = (uint8_t)(h9 >> 18);
-    out[31] &= (uint8_t)NOXTLS_X25519_RESULT_HIGH_CLEAR;
+    out[0U] = (uint8_t)h0;
+    { uint64_t b = (uint64_t)h0; b >>= 8U; out[1U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h0; b >>= 16U; out[2U] = (uint8_t)b; }
+    { uint64_t b = ((uint64_t)h0 >> 24U) | ((uint64_t)h1 << 2U); out[3U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h1; b >>= 6U; out[4U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h1; b >>= 14U; out[5U] = (uint8_t)b; }
+    { uint64_t b = ((uint64_t)h1 >> 22U) | ((uint64_t)h2 << 3U); out[6U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h2; b >>= 5U; out[7U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h2; b >>= 13U; out[8U] = (uint8_t)b; }
+    { uint64_t b = ((uint64_t)h2 >> 21U) | ((uint64_t)h3 << 5U); out[9U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h3; b >>= 3U; out[10U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h3; b >>= 11U; out[11U] = (uint8_t)b; }
+    { uint64_t b = ((uint64_t)h3 >> 19U) | ((uint64_t)h4 << 6U); out[12U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h4; b >>= 2U; out[13U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h4; b >>= 10U; out[14U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h4; b >>= 18U; out[15U] = (uint8_t)b; }
+    out[16U] = (uint8_t)h5;
+    { uint64_t b = (uint64_t)h5; b >>= 8U; out[17U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h5; b >>= 16U; out[18U] = (uint8_t)b; }
+    { uint64_t b = ((uint64_t)h5 >> 24U) | ((uint64_t)h6 << 1U); out[19U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h6; b >>= 7U; out[20U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h6; b >>= 15U; out[21U] = (uint8_t)b; }
+    { uint64_t b = ((uint64_t)h6 >> 23U) | ((uint64_t)h7 << 3U); out[22U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h7; b >>= 5U; out[23U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h7; b >>= 13U; out[24U] = (uint8_t)b; }
+    { uint64_t b = ((uint64_t)h7 >> 21U) | ((uint64_t)h8 << 4U); out[25U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h8; b >>= 4U; out[26U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h8; b >>= 12U; out[27U] = (uint8_t)b; }
+    { uint64_t b = ((uint64_t)h8 >> 20U) | ((uint64_t)h9 << 6U); out[28U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h9; b >>= 2U; out[29U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h9; b >>= 10U; out[30U] = (uint8_t)b; }
+    { uint64_t b = (uint64_t)h9; b >>= 18U; out[31U] = (uint8_t)b; }
+    out[31U] &= (uint8_t)NOXTLS_X25519_RESULT_HIGH_CLEAR;
 }
 
 /**
@@ -843,15 +896,20 @@ static void fe25519_to_le(uint8_t out[32], const fe25519_t *in)
  */
 static void fe25519_cswap(uint8_t swap, fe25519_t *a, fe25519_t *b)
 {
-    uint32_t mask = (uint32_t)(0U - (uint32_t)(swap & 1U));
-    uint32_t i;
+    uint32_t swap_bit = (uint32_t)swap;
+    swap_bit &= 1U;
+    uint32_t mask = 0U - swap_bit;
+    uint32_t i = 0U;
 
-    for(i = 0U; i < X25519_FE_LIMBS; i++) {
+    for(i = 0U; i < X25519_FE_LIMBS; i += 1U) {
         uint32_t ai = (uint32_t)a->v[i];
         uint32_t bi = (uint32_t)b->v[i];
-        uint32_t d = mask & (ai ^ bi);
-        a->v[i] = (int32_t)(ai ^ d);
-        b->v[i] = (int32_t)(bi ^ d);
+        uint32_t xored = ai ^ bi;
+        uint32_t d = mask & xored;
+        uint32_t a_new = ai ^ d;
+        uint32_t b_new = bi ^ d;
+        a->v[i] = (int32_t)a_new;
+        b->v[i] = (int32_t)b_new;
     }
 }
 
@@ -864,9 +922,9 @@ static void fe25519_cswap(uint8_t swap, fe25519_t *a, fe25519_t *b)
  */
 static void fe25519_add(fe25519_t *out, const fe25519_t *a, const fe25519_t *b)
 {
-    uint32_t i;
+    uint32_t i = 0U;
 
-    for(i = 0U; i < X25519_FE_LIMBS; i++) {
+    for(i = 0U; i < X25519_FE_LIMBS; i += 1U) {
         out->v[i] = a->v[i] + b->v[i];
     }
 }
@@ -880,9 +938,9 @@ static void fe25519_add(fe25519_t *out, const fe25519_t *a, const fe25519_t *b)
  */
 static void fe25519_sub(fe25519_t *out, const fe25519_t *a, const fe25519_t *b)
 {
-    uint32_t i;
+    uint32_t i = 0U;
 
-    for(i = 0U; i < X25519_FE_LIMBS; i++) {
+    for(i = 0U; i < X25519_FE_LIMBS; i += 1U) {
         out->v[i] = a->v[i] - b->v[i];
     }
 }
@@ -896,40 +954,40 @@ static void fe25519_sub(fe25519_t *out, const fe25519_t *a, const fe25519_t *b)
  */
 static void fe25519_mul(fe25519_t *out, const fe25519_t *a, const fe25519_t *b)
 {
-    const int64_t f0 = a->v[0];
-    const int64_t f1 = a->v[1];
-    const int64_t f2 = a->v[2];
-    const int64_t f3 = a->v[3];
-    const int64_t f4 = a->v[4];
-    const int64_t f5 = a->v[5];
-    const int64_t f6 = a->v[6];
-    const int64_t f7 = a->v[7];
-    const int64_t f8 = a->v[8];
-    const int64_t f9 = a->v[9];
-    const int64_t g0 = b->v[0];
-    const int64_t g1 = b->v[1];
-    const int64_t g2 = b->v[2];
-    const int64_t g3 = b->v[3];
-    const int64_t g4 = b->v[4];
-    const int64_t g5 = b->v[5];
-    const int64_t g6 = b->v[6];
-    const int64_t g7 = b->v[7];
-    const int64_t g8 = b->v[8];
-    const int64_t g9 = b->v[9];
-    const int64_t g1_19 = 19 * g1;
-    const int64_t g2_19 = 19 * g2;
-    const int64_t g3_19 = 19 * g3;
-    const int64_t g4_19 = 19 * g4;
-    const int64_t g5_19 = 19 * g5;
-    const int64_t g6_19 = 19 * g6;
-    const int64_t g7_19 = 19 * g7;
-    const int64_t g8_19 = 19 * g8;
-    const int64_t g9_19 = 19 * g9;
-    const int64_t f1_2 = 2 * f1;
-    const int64_t f3_2 = 2 * f3;
-    const int64_t f5_2 = 2 * f5;
-    const int64_t f7_2 = 2 * f7;
-    const int64_t f9_2 = 2 * f9;
+    const int64_t f0 = a->v[0U];
+    const int64_t f1 = a->v[1U];
+    const int64_t f2 = a->v[2U];
+    const int64_t f3 = a->v[3U];
+    const int64_t f4 = a->v[4U];
+    const int64_t f5 = a->v[5U];
+    const int64_t f6 = a->v[6U];
+    const int64_t f7 = a->v[7U];
+    const int64_t f8 = a->v[8U];
+    const int64_t f9 = a->v[9U];
+    const int64_t g0 = b->v[0U];
+    const int64_t g1 = b->v[1U];
+    const int64_t g2 = b->v[2U];
+    const int64_t g3 = b->v[3U];
+    const int64_t g4 = b->v[4U];
+    const int64_t g5 = b->v[5U];
+    const int64_t g6 = b->v[6U];
+    const int64_t g7 = b->v[7U];
+    const int64_t g8 = b->v[8U];
+    const int64_t g9 = b->v[9U];
+    const int64_t g1_19 = ((int64_t)19 * g1);
+    const int64_t g2_19 = ((int64_t)19 * g2);
+    const int64_t g3_19 = ((int64_t)19 * g3);
+    const int64_t g4_19 = ((int64_t)19 * g4);
+    const int64_t g5_19 = ((int64_t)19 * g5);
+    const int64_t g6_19 = ((int64_t)19 * g6);
+    const int64_t g7_19 = ((int64_t)19 * g7);
+    const int64_t g8_19 = ((int64_t)19 * g8);
+    const int64_t g9_19 = ((int64_t)19 * g9);
+    const int64_t f1_2 = ((int64_t)2 * f1);
+    const int64_t f3_2 = ((int64_t)2 * f3);
+    const int64_t f5_2 = ((int64_t)2 * f5);
+    const int64_t f7_2 = ((int64_t)2 * f7);
+    const int64_t f9_2 = ((int64_t)2 * f9);
     int64_t h0 = (f0 * g0) + (f1_2 * g9_19) + (f2 * g8_19) + (f3_2 * g7_19) + (f4 * g6_19) + (f5_2 * g5_19) + (f6 * g4_19) + (f7_2 * g3_19) + (f8 * g2_19) + (f9_2 * g1_19);
     int64_t h1 = (f0 * g1) + (f1 * g0) + (f2 * g9_19) + (f3 * g8_19) + (f4 * g7_19) + (f5 * g6_19) + (f6 * g5_19) + (f7 * g4_19) + (f8 * g3_19) + (f9 * g2_19);
     int64_t h2 = (f0 * g2) + (f1_2 * g1) + (f2 * g0) + (f3_2 * g9_19) + (f4 * g8_19) + (f5_2 * g7_19) + (f6 * g6_19) + (f7_2 * g5_19) + (f8 * g4_19) + (f9_2 * g3_19);
@@ -940,60 +998,60 @@ static void fe25519_mul(fe25519_t *out, const fe25519_t *a, const fe25519_t *b)
     int64_t h7 = (f0 * g7) + (f1 * g6) + (f2 * g5) + (f3 * g4) + (f4 * g3) + (f5 * g2) + (f6 * g1) + (f7 * g0) + (f8 * g9_19) + (f9 * g8_19);
     int64_t h8 = (f0 * g8) + (f1_2 * g7) + (f2 * g6) + (f3_2 * g5) + (f4 * g4) + (f5_2 * g3) + (f6 * g2) + (f7_2 * g1) + (f8 * g0) + (f9_2 * g9_19);
     int64_t h9 = (f0 * g9) + (f1 * g8) + (f2 * g7) + (f3 * g6) + (f4 * g5) + (f5 * g4) + (f6 * g3) + (f7 * g2) + (f8 * g1) + (f9 * g0);
-    int64_t carry;
+    int64_t carry = 0;
 
-    carry = (h0 + (((int64_t)1) << 25)) >> 26;
+    carry = fe25519_asr64(h0 + (int64_t)(1ULL << 25U), 26U);
     h1 += carry;
-    h0 -= carry << 26;
-    carry = (h4 + (((int64_t)1) << 25)) >> 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h0 -= (int64_t)csh; }
+    carry = fe25519_asr64(h4 + (int64_t)(1ULL << 25U), 26U);
     h5 += carry;
-    h4 -= carry << 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h4 -= (int64_t)csh; }
 
-    carry = (h1 + (((int64_t)1) << 24)) >> 25;
+    carry = fe25519_asr64(h1 + (int64_t)(1ULL << 24U), 25U);
     h2 += carry;
-    h1 -= carry << 25;
-    carry = (h5 + (((int64_t)1) << 24)) >> 25;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h1 -= (int64_t)csh; }
+    carry = fe25519_asr64(h5 + (int64_t)(1ULL << 24U), 25U);
     h6 += carry;
-    h5 -= carry << 25;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h5 -= (int64_t)csh; }
 
-    carry = (h2 + (((int64_t)1) << 25)) >> 26;
+    carry = fe25519_asr64(h2 + (int64_t)(1ULL << 25U), 26U);
     h3 += carry;
-    h2 -= carry << 26;
-    carry = (h6 + (((int64_t)1) << 25)) >> 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h2 -= (int64_t)csh; }
+    carry = fe25519_asr64(h6 + (int64_t)(1ULL << 25U), 26U);
     h7 += carry;
-    h6 -= carry << 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h6 -= (int64_t)csh; }
 
-    carry = (h3 + (((int64_t)1) << 24)) >> 25;
+    carry = fe25519_asr64(h3 + (int64_t)(1ULL << 24U), 25U);
     h4 += carry;
-    h3 -= carry << 25;
-    carry = (h7 + (((int64_t)1) << 24)) >> 25;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h3 -= (int64_t)csh; }
+    carry = fe25519_asr64(h7 + (int64_t)(1ULL << 24U), 25U);
     h8 += carry;
-    h7 -= carry << 25;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h7 -= (int64_t)csh; }
 
-    carry = (h4 + (((int64_t)1) << 25)) >> 26;
+    carry = fe25519_asr64(h4 + (int64_t)(1ULL << 25U), 26U);
     h5 += carry;
-    h4 -= carry << 26;
-    carry = (h8 + (((int64_t)1) << 25)) >> 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h4 -= (int64_t)csh; }
+    carry = fe25519_asr64(h8 + (int64_t)(1ULL << 25U), 26U);
     h9 += carry;
-    h8 -= carry << 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h8 -= (int64_t)csh; }
 
-    carry = (h9 + (((int64_t)1) << 24)) >> 25;
-    h0 += carry * 19;
-    h9 -= carry << 25;
-    carry = (h0 + (((int64_t)1) << 25)) >> 26;
+    carry = fe25519_asr64(h9 + (int64_t)(1ULL << 24U), 25U);
+    h0 += carry * (int64_t)19;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h9 -= (int64_t)csh; }
+    carry = fe25519_asr64(h0 + (int64_t)(1ULL << 25U), 26U);
     h1 += carry;
-    h0 -= carry << 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h0 -= (int64_t)csh; }
 
-    out->v[0] = (int32_t)h0;
-    out->v[1] = (int32_t)h1;
-    out->v[2] = (int32_t)h2;
-    out->v[3] = (int32_t)h3;
-    out->v[4] = (int32_t)h4;
-    out->v[5] = (int32_t)h5;
-    out->v[6] = (int32_t)h6;
-    out->v[7] = (int32_t)h7;
-    out->v[8] = (int32_t)h8;
-    out->v[9] = (int32_t)h9;
+    out->v[0U] = (int32_t)h0;
+    out->v[1U] = (int32_t)h1;
+    out->v[2U] = (int32_t)h2;
+    out->v[3U] = (int32_t)h3;
+    out->v[4U] = (int32_t)h4;
+    out->v[5U] = (int32_t)h5;
+    out->v[6U] = (int32_t)h6;
+    out->v[7U] = (int32_t)h7;
+    out->v[8U] = (int32_t)h8;
+    out->v[9U] = (int32_t)h9;
 }
 
 /**
@@ -1016,70 +1074,70 @@ static void fe25519_sq(fe25519_t *out, const fe25519_t *a)
  */
 static void fe25519_mul_small(fe25519_t *out, const fe25519_t *a, uint32_t c)
 {
-    int64_t h0 = (int64_t)a->v[0] * (int64_t)c;
-    int64_t h1 = (int64_t)a->v[1] * (int64_t)c;
-    int64_t h2 = (int64_t)a->v[2] * (int64_t)c;
-    int64_t h3 = (int64_t)a->v[3] * (int64_t)c;
-    int64_t h4 = (int64_t)a->v[4] * (int64_t)c;
-    int64_t h5 = (int64_t)a->v[5] * (int64_t)c;
-    int64_t h6 = (int64_t)a->v[6] * (int64_t)c;
-    int64_t h7 = (int64_t)a->v[7] * (int64_t)c;
-    int64_t h8 = (int64_t)a->v[8] * (int64_t)c;
-    int64_t h9 = (int64_t)a->v[9] * (int64_t)c;
-    int64_t carry;
+    int64_t h0 = (int64_t)a->v[0U] * (int64_t)c;
+    int64_t h1 = (int64_t)a->v[1U] * (int64_t)c;
+    int64_t h2 = (int64_t)a->v[2U] * (int64_t)c;
+    int64_t h3 = (int64_t)a->v[3U] * (int64_t)c;
+    int64_t h4 = (int64_t)a->v[4U] * (int64_t)c;
+    int64_t h5 = (int64_t)a->v[5U] * (int64_t)c;
+    int64_t h6 = (int64_t)a->v[6U] * (int64_t)c;
+    int64_t h7 = (int64_t)a->v[7U] * (int64_t)c;
+    int64_t h8 = (int64_t)a->v[8U] * (int64_t)c;
+    int64_t h9 = (int64_t)a->v[9U] * (int64_t)c;
+    int64_t carry = 0;
 
-    carry = (h0 + (((int64_t)1) << 25)) >> 26;
+    carry = fe25519_asr64(h0 + (int64_t)(1ULL << 25U), 26U);
     h1 += carry;
-    h0 -= carry << 26;
-    carry = (h4 + (((int64_t)1) << 25)) >> 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h0 -= (int64_t)csh; }
+    carry = fe25519_asr64(h4 + (int64_t)(1ULL << 25U), 26U);
     h5 += carry;
-    h4 -= carry << 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h4 -= (int64_t)csh; }
 
-    carry = (h1 + (((int64_t)1) << 24)) >> 25;
+    carry = fe25519_asr64(h1 + (int64_t)(1ULL << 24U), 25U);
     h2 += carry;
-    h1 -= carry << 25;
-    carry = (h5 + (((int64_t)1) << 24)) >> 25;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h1 -= (int64_t)csh; }
+    carry = fe25519_asr64(h5 + (int64_t)(1ULL << 24U), 25U);
     h6 += carry;
-    h5 -= carry << 25;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h5 -= (int64_t)csh; }
 
-    carry = (h2 + (((int64_t)1) << 25)) >> 26;
+    carry = fe25519_asr64(h2 + (int64_t)(1ULL << 25U), 26U);
     h3 += carry;
-    h2 -= carry << 26;
-    carry = (h6 + (((int64_t)1) << 25)) >> 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h2 -= (int64_t)csh; }
+    carry = fe25519_asr64(h6 + (int64_t)(1ULL << 25U), 26U);
     h7 += carry;
-    h6 -= carry << 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h6 -= (int64_t)csh; }
 
-    carry = (h3 + (((int64_t)1) << 24)) >> 25;
+    carry = fe25519_asr64(h3 + (int64_t)(1ULL << 24U), 25U);
     h4 += carry;
-    h3 -= carry << 25;
-    carry = (h7 + (((int64_t)1) << 24)) >> 25;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h3 -= (int64_t)csh; }
+    carry = fe25519_asr64(h7 + (int64_t)(1ULL << 24U), 25U);
     h8 += carry;
-    h7 -= carry << 25;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h7 -= (int64_t)csh; }
 
-    carry = (h4 + (((int64_t)1) << 25)) >> 26;
+    carry = fe25519_asr64(h4 + (int64_t)(1ULL << 25U), 26U);
     h5 += carry;
-    h4 -= carry << 26;
-    carry = (h8 + (((int64_t)1) << 25)) >> 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h4 -= (int64_t)csh; }
+    carry = fe25519_asr64(h8 + (int64_t)(1ULL << 25U), 26U);
     h9 += carry;
-    h8 -= carry << 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h8 -= (int64_t)csh; }
 
-    carry = (h9 + (((int64_t)1) << 24)) >> 25;
-    h0 += carry * 19;
-    h9 -= carry << 25;
-    carry = (h0 + (((int64_t)1) << 25)) >> 26;
+    carry = fe25519_asr64(h9 + (int64_t)(1ULL << 24U), 25U);
+    h0 += carry * (int64_t)19;
+    { uint64_t csh = (uint64_t)carry; csh <<= 25U; h9 -= (int64_t)csh; }
+    carry = fe25519_asr64(h0 + (int64_t)(1ULL << 25U), 26U);
     h1 += carry;
-    h0 -= carry << 26;
+    { uint64_t csh = (uint64_t)carry; csh <<= 26U; h0 -= (int64_t)csh; }
 
-    out->v[0] = (int32_t)h0;
-    out->v[1] = (int32_t)h1;
-    out->v[2] = (int32_t)h2;
-    out->v[3] = (int32_t)h3;
-    out->v[4] = (int32_t)h4;
-    out->v[5] = (int32_t)h5;
-    out->v[6] = (int32_t)h6;
-    out->v[7] = (int32_t)h7;
-    out->v[8] = (int32_t)h8;
-    out->v[9] = (int32_t)h9;
+    out->v[0U] = (int32_t)h0;
+    out->v[1U] = (int32_t)h1;
+    out->v[2U] = (int32_t)h2;
+    out->v[3U] = (int32_t)h3;
+    out->v[4U] = (int32_t)h4;
+    out->v[5U] = (int32_t)h5;
+    out->v[6U] = (int32_t)h6;
+    out->v[7U] = (int32_t)h7;
+    out->v[8U] = (int32_t)h8;
+    out->v[9U] = (int32_t)h9;
 }
 
 /**
@@ -1091,10 +1149,10 @@ static void fe25519_mul_small(fe25519_t *out, const fe25519_t *a, uint32_t c)
  */
 static void fe25519_sq_times(fe25519_t *out, const fe25519_t *z, uint32_t count)
 {
-    uint32_t i;
+    uint32_t i = 0U;
 
     fe25519_copy(out, z);
-    for(i = 0U; i < count; i++) {
+    for(i = 0U; i < count; i += 1U) {
         fe25519_sq(out, out);
     }
 }
@@ -1160,11 +1218,12 @@ static void fe25519_inv(fe25519_t *out, const fe25519_t *z)
  * @return The return value
  */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
-static noxtls_return_t x25519_scalar_mult(const uint8_t k[NOXTLS_X25519_KEY_SIZE],
-                                          const uint8_t u[NOXTLS_X25519_KEY_SIZE],
-                                          uint8_t result[NOXTLS_X25519_KEY_SIZE])
+static noxtls_return_t x25519_scalar_mult(const uint8_t *k,
+                                          const uint8_t *u,
+                                          uint8_t *result)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
+
     uint8_t k_clamped[NOXTLS_X25519_KEY_SIZE];
     uint8_t u_masked[NOXTLS_X25519_KEY_SIZE];
     fe25519_t x1;
@@ -1185,14 +1244,14 @@ static noxtls_return_t x25519_scalar_mult(const uint8_t k[NOXTLS_X25519_KEY_SIZE
     fe25519_t t1;
     fe25519_t inv;
     uint8_t swap = 0U;
-    int t;
+    int t = 0;
 
-    memcpy(k_clamped, k, NOXTLS_X25519_KEY_SIZE);
-    memcpy(u_masked, u, NOXTLS_X25519_KEY_SIZE);
-    k_clamped[0] &= (uint8_t)NOXTLS_X25519_CLAMP_BYTE0_MASK;
-    k_clamped[31] &= (uint8_t)NOXTLS_X25519_CLAMP_BYTE31_AND;
-    k_clamped[31] |= (uint8_t)NOXTLS_X25519_CLAMP_BYTE31_OR;
-    u_masked[31] &= (uint8_t)NOXTLS_X25519_U_COORD_HIGH_CLEAR;
+    noxtls_copy_u8(k_clamped, sizeof(k_clamped), k, (size_t)NOXTLS_X25519_KEY_SIZE);
+    noxtls_copy_u8(u_masked, sizeof(u_masked), u, (size_t)NOXTLS_X25519_KEY_SIZE);
+    k_clamped[0U] &= (uint8_t)NOXTLS_X25519_CLAMP_BYTE0_MASK;
+    k_clamped[31U] &= (uint8_t)NOXTLS_X25519_CLAMP_BYTE31_AND;
+    k_clamped[31U] |= (uint8_t)NOXTLS_X25519_CLAMP_BYTE31_OR;
+    u_masked[31U] &= (uint8_t)NOXTLS_X25519_U_COORD_HIGH_CLEAR;
 
     fe25519_from_le(&x1, u_masked);
     fe25519_one(&x2);
@@ -1200,8 +1259,10 @@ static noxtls_return_t x25519_scalar_mult(const uint8_t k[NOXTLS_X25519_KEY_SIZE
     fe25519_copy(&x3, &x1);
     fe25519_one(&z3);
 
-    for(t = (int)NOXTLS_X25519_SCALAR_LOOP_TOP; t >= 0; t--) {
-        uint8_t k_t = (uint8_t)((k_clamped[t >> 3] >> (t & 7)) & 1U);
+    for(t = (int)NOXTLS_X25519_SCALAR_LOOP_TOP; t >= 0; t -= 1) {
+        uint32_t ti = (uint32_t)t;
+    static const uint8_t x25519_s_bit8[8] = {0x01U,0x02U,0x04U,0x08U,0x10U,0x20U,0x40U,0x80U};
+        uint8_t k_t = ((k_clamped[(uint32_t)ti >> 3U] & x25519_s_bit8[ti & 7U]) != 0U) ? 1U : 0U;
         swap ^= k_t;
         fe25519_cswap(swap, &x2, &x3);
         fe25519_cswap(swap, &z2, &z3);
@@ -1243,12 +1304,12 @@ static noxtls_return_t x25519_scalar_mult(const uint8_t k[NOXTLS_X25519_KEY_SIZE
  * @param[in,out] k Little-endian scalar (`NOXTLS_X25519_KEY_SIZE` bytes); no-op if NULL.
  * @return None.
  */
-void noxtls_x25519_clamp_scalar(uint8_t k[NOXTLS_X25519_KEY_SIZE])
+void noxtls_x25519_clamp_scalar(uint8_t *k)
 {
     if(k == NULL) {
         return;
     }
-    k[0] &= (uint8_t)NOXTLS_X25519_CLAMP_BYTE0_MASK;
+    k[0U] &= (uint8_t)NOXTLS_X25519_CLAMP_BYTE0_MASK;
     k[NOXTLS_X25519_FE_BYTES - 1U] &= (uint8_t)NOXTLS_X25519_CLAMP_BYTE31_AND;
     k[NOXTLS_X25519_FE_BYTES - 1U] |= (uint8_t)NOXTLS_X25519_CLAMP_BYTE31_OR;
 }
@@ -1259,14 +1320,14 @@ void noxtls_x25519_clamp_scalar(uint8_t k[NOXTLS_X25519_KEY_SIZE])
  * @param[out] public_key 32-byte little-endian public u-coordinate.
  * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on failure.
  */
-noxtls_return_t noxtls_x25519_public_key(const uint8_t private_key[NOXTLS_X25519_KEY_SIZE],
-                                         uint8_t public_key[NOXTLS_X25519_KEY_SIZE])
+noxtls_return_t noxtls_x25519_public_key(const uint8_t *private_key,
+                                         uint8_t *public_key)
 {
     static const uint8_t base_point[NOXTLS_X25519_KEY_SIZE] = {
         9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     };
-    if(private_key == NULL || public_key == NULL) { return NOXTLS_RETURN_NULL; }
+    if((private_key == NULL) || (public_key == NULL)) { return NOXTLS_RETURN_NULL; }
     return x25519_scalar_mult(private_key, base_point, public_key);
 }
 
@@ -1277,11 +1338,11 @@ noxtls_return_t noxtls_x25519_public_key(const uint8_t private_key[NOXTLS_X25519
  * @param[out] shared_secret 32-byte little-endian shared secret output.
  * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on failure.
  */
-noxtls_return_t noxtls_x25519_shared_secret(const uint8_t private_key[NOXTLS_X25519_KEY_SIZE],
-                                            const uint8_t peer_public_key[NOXTLS_X25519_KEY_SIZE],
-                                            uint8_t shared_secret[NOXTLS_X25519_KEY_SIZE])
+noxtls_return_t noxtls_x25519_shared_secret(const uint8_t *private_key,
+                                            const uint8_t *peer_public_key,
+                                            uint8_t *shared_secret)
 {
-    if(private_key == NULL || peer_public_key == NULL || shared_secret == NULL) { return NOXTLS_RETURN_NULL; }
+    if((private_key == NULL) || (peer_public_key == NULL) || (shared_secret == NULL)) { return NOXTLS_RETURN_NULL; }
     return x25519_scalar_mult(private_key, peer_public_key, shared_secret);
 }
 
@@ -1291,37 +1352,45 @@ noxtls_return_t noxtls_x25519_shared_secret(const uint8_t private_key[NOXTLS_X25
  * @param[out] public_key 32-byte little-endian public key.
  * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on failure.
  */
-noxtls_return_t noxtls_x25519_generate_key(uint8_t private_key[NOXTLS_X25519_KEY_SIZE],
-                                           uint8_t public_key[NOXTLS_X25519_KEY_SIZE])
+noxtls_return_t noxtls_x25519_generate_key(uint8_t *private_key,
+                                           uint8_t *public_key)
 {
     static drbg_state_t drbg_state;
     static int drbg_initialized = 0;
-    noxtls_return_t rc;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(private_key == NULL || public_key == NULL) { return NOXTLS_RETURN_NULL; }
+    if((private_key == NULL) || (public_key == NULL)) { return NOXTLS_RETURN_NULL; }
 
-    if(!drbg_initialized) {
+    if(drbg_initialized == 0) {
         uint8_t seed[NOXTLS_X25519_DRBG_ENTROPY_SEED_BYTES];
         rc = noxtls_drbg_get_entropy(seed, sizeof(seed));
-        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
-        rc = drbg_instantiate(&drbg_state, DRBG_AES256, seed, sizeof(seed), NULL, 0, NULL, 0);
-        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            rc = drbg_instantiate(&drbg_state, DRBG_AES256, seed, sizeof(seed), NULL, 0, NULL, 0);
+        }
+        noxtls_secure_zero(seed, sizeof(seed));
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            (void)noxtls_drbg_uninstantiate(&drbg_state);
+            return rc;
+        }
         drbg_initialized = 1;
     }
 
     rc = drbg_generate(&drbg_state, private_key, NOXTLS_X25519_DRBG_SEED_BITS, NULL, 0);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        /* SECURITY (NX-16): reseed with fresh entropy when the DRBG refuses to generate
-         * (e.g. reseed interval exceeded) instead of failing the keygen permanently. */
-        uint8_t seed[NOXTLS_X25519_DRBG_ENTROPY_SEED_BYTES];
-        rc = noxtls_drbg_get_entropy(seed, sizeof(seed));
-        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
-        rc = drbg_reseed(&drbg_state, seed, sizeof(seed), NULL, 0);
-        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
-        rc = drbg_generate(&drbg_state, private_key, NOXTLS_X25519_DRBG_SEED_BITS, NULL, 0);
-        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
+        /* SECURITY (NX-16): a failed generate (reseed interval exceeded, or an
+         * AES failure that wiped the state) fails this call closed and drops
+         * the instance, so the next call re-instantiates from fresh entropy.
+         * Reseeding in place cannot work: drbg_reseed() rejects a wiped state. */
+        (void)noxtls_drbg_uninstantiate(&drbg_state);
+        drbg_initialized = 0;
+        noxtls_secure_zero(private_key, (size_t)NOXTLS_X25519_KEY_SIZE);
+        return rc;
     }
 
     noxtls_x25519_clamp_scalar(private_key);
-    return noxtls_x25519_public_key(private_key, public_key);
+    rc = noxtls_x25519_public_key(private_key, public_key);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(private_key, (size_t)NOXTLS_X25519_KEY_SIZE);
+    }
+    return rc;
 }

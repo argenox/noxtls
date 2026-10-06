@@ -19,8 +19,8 @@
 *
 *****************************************************************************/
 
-#ifndef _NOXTLS_TLS13_H_
-#define _NOXTLS_TLS13_H_
+#ifndef NOXTLS_TLS13_H_
+#define NOXTLS_TLS13_H_
 
 #include <stdint.h>
 
@@ -30,26 +30,68 @@
 #include "pkc/dh/noxtls_ffdhe_params.h"
 #include "noxtls_dtls_common.h"
 #include "noxtls_crypto_provider.h"
+#if NOXTLS_FEATURE_ML_KEM
 #include "pkc/mlkem/noxtls_mlkem.h"
+#else
+typedef uint32_t noxtls_mlkem_param_t;
+#ifndef NOXTLS_MLKEM_NONE
+#define NOXTLS_MLKEM_NONE ((noxtls_mlkem_param_t)0u)
+#endif
+#ifndef NOXTLS_MLKEM_512
+#define NOXTLS_MLKEM_512 ((noxtls_mlkem_param_t)1u)
+#endif
+#ifndef NOXTLS_MLKEM_768
+#define NOXTLS_MLKEM_768 ((noxtls_mlkem_param_t)2u)
+#endif
+#ifndef NOXTLS_MLKEM_1024
+#define NOXTLS_MLKEM_1024 ((noxtls_mlkem_param_t)3u)
+#endif
+#ifndef NOXTLS_MLKEM_MAX_PUBLIC_KEY_LEN
+#define NOXTLS_MLKEM_MAX_PUBLIC_KEY_LEN 1u
+#endif
+#ifndef NOXTLS_MLKEM_MAX_SECRET_KEY_LEN
+#define NOXTLS_MLKEM_MAX_SECRET_KEY_LEN 1u
+#endif
+#ifndef NOXTLS_MLKEM_SHARED_SECRET_LEN
+#define NOXTLS_MLKEM_SHARED_SECRET_LEN 1u
+#endif
+#endif
+
+#if NOXTLS_FEATURE_ML_DSA
 #include "pkc/mldsa/noxtls_mldsa.h"
+#endif
+#if NOXTLS_FEATURE_SLH_DSA
 #include "pkc/slhdsa/noxtls_slhdsa.h"
+#endif
+#if NOXTLS_FEATURE_FALCON
 #include "pkc/falcon/noxtls_falcon.h"
+#endif
+#include "common/noxtls_pq_param_typedefs.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-
 /* Max extension entries in one ClientHello extensions block (65535 bytes / 4 bytes min per ext). */
 #define TLS13_CLIENTHELLO_EXT_ORDER_MAX 16384u
-#define TLS13_RECORD_WORKSPACE_HALF  (TLS_MAX_RECORD_SIZE + 32)
+#define TLS13_RECORD_WORKSPACE_HALF  (TLS_MAX_RECORD_SIZE + 32U)
 #define TLS13_INLINE_KEY_SHARE_MAX_LEN 160U
+/* RFC 9147 4.2.3: largest DTLS 1.3 record-number key (AES-256 / ChaCha20 key length). */
+#define TLS13_DTLS_SN_KEY_MAX_LEN 32U
 
 /* RFC 8446 CertificateVerify signature field capacity (scheme-specific; not always SLH-DSA max). */
 #define TLS13_CV_STACK_SIGNATURE_MAX  512U
 
-/* Forward declaration to avoid including full X.509 header here. */
-typedef struct noxtls_x509_crl noxtls_x509_crl_t;
+/* RFC 8446 4.4.3 CertificateVerify signed content: 64 x 0x20 || context string || 0x00 || Transcript-Hash. */
+#define TLS13_CV_PAD_LEN                     64U
+/* Longest context string the builder accepts ("TLS 1.3, server CertificateVerify" is 33 bytes). */
+#define TLS13_CV_CONTEXT_STRING_MAX_LEN      64U
+/* Largest transcript hash (SHA-512) that can appear in the signed content. */
+#define TLS13_CV_TRANSCRIPT_HASH_MAX_LEN     64U
+/* Output capacity that always suffices for noxtls_tls13_certificate_verify_build_signed_content(). */
+#define NOXTLS_TLS13_CV_SIGNED_CONTENT_MAX_LEN (TLS13_CV_PAD_LEN + 33U + 1U + TLS13_CV_TRANSCRIPT_HASH_MAX_LEN)
+
+#include "certs/noxtls_x509_crl_fwd.h"
 
 /* TLS 1.3 Key Share Entry */
 NOXTLS_MSVC_WARNING_PUSH
@@ -98,7 +140,7 @@ typedef struct
 /* TLS 1.3 Context */
 NOXTLS_MSVC_WARNING_PUSH
 NOXTLS_MSVC_DISABLE_PADDING
-typedef struct tls13_context_s
+struct tls13_context_s
 {
     dtls_context_t base;            /* Base TLS/DTLS context */
     
@@ -123,18 +165,19 @@ typedef struct tls13_context_s
     uint8_t server_write_key[32];   /* Server write key */
     uint8_t client_write_iv[12];    /* Client write IV */
     uint8_t server_write_iv[12];    /* Server write IV */
-    /* RFC 9147 §4.2.3: record number encryption keys (one block = 16 bytes) */
-    uint8_t client_sn_key[16];
-    uint8_t server_sn_key[16];
-    uint8_t client_handshake_sn_key[16];
-    uint8_t server_handshake_sn_key[16];
+    /* RFC 9147 §4.2.3: record number encryption keys. sn_key is as long as
+     * the AEAD key (16 bytes for AES-128, 32 for AES-256 and ChaCha20-Poly1305). */
+    uint8_t client_sn_key[TLS13_DTLS_SN_KEY_MAX_LEN];
+    uint8_t server_sn_key[TLS13_DTLS_SN_KEY_MAX_LEN];
+    uint8_t client_handshake_sn_key[TLS13_DTLS_SN_KEY_MAX_LEN];
+    uint8_t server_handshake_sn_key[TLS13_DTLS_SN_KEY_MAX_LEN];
     
     /* Sequence numbers */
     uint64_t client_seq_num;        /* Client sequence number */
     uint64_t server_seq_num;        /* Server sequence number */
     
     /* Certificate */
-    uint8_t *server_cert;           /* Server certificate (DER format) */
+    uint8_t *server_cert;           /* Server certificate (DER); owned on client path */
     uint32_t server_cert_len;       /* Server certificate length */
     const uint8_t **server_cert_chain;      /* Optional intermediate certificates (DER, non-owning) */
     const uint32_t *server_cert_chain_len;  /* Lengths for server_cert_chain entries */
@@ -157,6 +200,7 @@ typedef struct tls13_context_s
     uint8_t awaiting_hrr_client_hello; /* Server sent HRR and expects second ClientHello */
     uint8_t sent_hrr;                /* HRR was sent in this handshake */
     uint8_t received_hrr;            /* Client received HRR and must resend ClientHello with preserved random */
+    uint16_t hrr_selected_group;     /* RFC 8446 §4.2.8: NamedGroup selected by the HRR key_share (0 = none) */
     /** RFC 8446 §4.1.2: second ClientHello must use the same extension order as the first; wire types in order (TLS server HRR path). */
     uint16_t *hrr_first_clienthello_ext_order;
     uint32_t hrr_first_clienthello_ext_order_count;
@@ -187,7 +231,7 @@ typedef struct tls13_context_s
     uint32_t mlkem_server_public_key_len;
     uint8_t mlkem_server_secret_key[NOXTLS_MLKEM_MAX_SECRET_KEY_LEN];
     uint32_t mlkem_server_secret_key_len;
-    uint8_t hybrid_shared_secret[NOXTLS_MLKEM_SHARED_SECRET_LEN + 64];
+    uint8_t hybrid_shared_secret[NOXTLS_MLKEM_SHARED_SECRET_LEN + 64U];
     uint32_t hybrid_shared_secret_len;
     uint8_t ffdhe_shared_secret[NOXTLS_FFDHE_MAX_P_BYTES]; /* RFC 7919; max modulus is FFDHE8192 */
     uint32_t ffdhe_shared_secret_len;
@@ -197,10 +241,10 @@ typedef struct tls13_context_s
     tls_extensions_t server_extensions;  /* Server Hello extensions */
 
     /* Client configuration */
-    const char *server_name;             /* SNI hostname (optional) */
+    const uint8_t *server_name;             /* SNI hostname (optional) */
     uint16_t server_name_len;            /* SNI hostname length */
     /** Server (RFC 6066): if non-NULL, ClientHello host_name must match (ASCII, case-insensitive). */
-    const char *server_expect_client_sni;
+    const uint8_t *server_expect_client_sni;
     /** Server: with \a server_expect_client_sni, send fatal unrecognized_name when set; else warning then continue. */
     uint8_t server_expect_sni_fatal;
     const noxtls_x509_crl_t *verify_crl; /* Optional CRL list for server cert verification (non-owning). */
@@ -217,7 +261,7 @@ typedef struct tls13_context_s
     const uint16_t *client_signature_algorithms;
     uint32_t client_signature_algorithms_count;
     /** Optional server ALPN protocol list (non-owning pointers). */
-    const char **server_alpn_protocols;
+    const uint8_t **server_alpn_protocols;
     uint32_t server_alpn_count;
     /** Negotiated ALPN protocol from last handshake (owned buffer). */
     uint8_t negotiated_alpn[NOXTLS_TLS_ALPN_MAX_PROTOCOL_LEN + 1U];
@@ -343,9 +387,10 @@ typedef struct tls13_context_s
     uint8_t early_data_sent;            /* 1 if noxtls_tls13_send_early_data was used */
     uint8_t client_offered_early_data;  /* Server: 1 if ClientHello contained early_data extension */
     uint8_t end_of_early_data_seen;     /* Server: 1 after receiving EndOfEarlyData from client */
+    uint8_t end_of_early_data_appended; /* Server: EndOfEarlyData added to the transcript */
 
     /* RFC 9147 Connection ID: CID sent by peer (included in records we send); our CID (expected in records we receive) */
-#define DTLS13_MAX_CID_POOL 4
+#define DTLS13_MAX_CID_POOL 4U
     uint8_t peer_connection_id[32];
     uint8_t peer_connection_id_len;
     uint8_t own_connection_id[32];
@@ -379,10 +424,14 @@ typedef struct tls13_context_s
     /* Consecutive empty app-data records / warning alerts (BoringSSL-compatible limits). */
     uint8_t empty_record_count;
     uint8_t warning_alert_count;
-} tls13_context_t;
+};
+#ifndef NOXTLS_TLS13_CONTEXT_T_DEFINED
+#define NOXTLS_TLS13_CONTEXT_T_DEFINED
+typedef struct tls13_context_s tls13_context_t;
+#endif
 
 /** Portable client-side state required to resume a TLS 1.3 ticket. */
-typedef struct noxtls_tls13_session_s {
+typedef struct {
     uint8_t ticket_identity[32];
     uint16_t ticket_identity_len;
     uint8_t ticket_nonce[32];
@@ -412,8 +461,6 @@ typedef struct {
 #define TLS13_PSK_KE_MODE_PSK_KE 0
 #define TLS13_PSK_KE_MODE_PSK_DHE_KE 1
 
-
-
 /* TLS 1.3 Functions */
 noxtls_return_t noxtls_tls13_context_init(tls13_context_t *ctx, tls_role_t role);
 noxtls_return_t noxtls_dtls13_context_init(tls13_context_t *ctx, tls_role_t role);
@@ -442,9 +489,9 @@ noxtls_return_t tls13_set_workspaces(tls13_context_t *ctx,
 noxtls_return_t noxtls_tls13_connect(tls13_context_t *ctx);
 noxtls_return_t noxtls_tls13_accept(tls13_context_t *ctx);
 /** Last accept step that failed (empty if none); for embedded logging after a failed accept. */
-const char *noxtls_tls13_last_accept_fail_step(void);
+const uint8_t *noxtls_tls13_last_accept_fail_step(void);
 /** Last connect step that failed (empty if none); for embedded logging after a failed connect. */
-const char *noxtls_tls13_last_connect_fail_step(void);
+const uint8_t *noxtls_tls13_last_connect_fail_step(void);
 noxtls_return_t noxtls_tls13_send(tls13_context_t *ctx, const uint8_t *data, uint32_t len);
 noxtls_return_t noxtls_tls13_recv(tls13_context_t *ctx, uint8_t *data, uint32_t *len);
 noxtls_return_t noxtls_tls13_close(tls13_context_t *ctx);
@@ -456,7 +503,7 @@ noxtls_return_t noxtls_dtls13_rotate_connection_id(tls13_context_t *ctx);
 
 /** Client: send 0-RTT early data (only when resuming and before handshake completes). */
 noxtls_return_t noxtls_tls13_send_early_data(tls13_context_t *ctx, const uint8_t *data, uint32_t len);
-void noxtls_tls13_set_keylog_file(const char *path);
+void noxtls_tls13_set_keylog_file(const uint8_t *path);
 
 /** Set runtime cipher preference: prefer_chacha20 0 = prefer AES-GCM, 1 = prefer ChaCha20-Poly1305. Call before handshake. */
 void noxtls_tls13_set_prefer_chacha20(tls13_context_t *ctx, int prefer_chacha20);
@@ -468,9 +515,9 @@ void noxtls_tls13_set_client_supported_groups(tls13_context_t *ctx, const uint16
 /** Override the client's signature_algorithms list used for ClientHello construction. Call before handshake. */
 void noxtls_tls13_set_client_signature_algorithms(tls13_context_t *ctx, const uint16_t *algorithms, uint32_t count);
 /** Server: set supported ALPN protocol names (non-owning). */
-void noxtls_tls13_set_server_alpn_protocols(tls13_context_t *ctx, const char **protocols, uint32_t count);
+void noxtls_tls13_set_server_alpn_protocols(tls13_context_t *ctx, const uint8_t **protocols, uint32_t count);
 /** Server (RFC 6066): require ClientHello SNI host_name to match \a ascii_hostname (case-insensitive). NULL disables. */
-void noxtls_tls13_set_server_expected_client_sni(tls13_context_t *ctx, const char *ascii_hostname, int mismatch_fatal);
+void noxtls_tls13_set_server_expected_client_sni(tls13_context_t *ctx, const uint8_t *ascii_hostname, int mismatch_fatal);
 /** Set optional server certificate chain (intermediate certs only, DER). */
 void noxtls_tls13_set_server_certificate_chain(tls13_context_t *ctx,
                                                const uint8_t **certs,
@@ -496,16 +543,22 @@ noxtls_return_t noxtls_tls13_add_server_ecdsa_identity(tls13_context_t *ctx,
 noxtls_return_t noxtls_tls13_set_server_private_ed25519(tls13_context_t *ctx, const uint8_t *private_key_32);
 /** Set server Ed448 private key seed (57 bytes) for CertificateVerify. Call before handshake for Ed448 certs. */
 noxtls_return_t noxtls_tls13_set_server_private_ed448(tls13_context_t *ctx, const uint8_t *private_key_57);
+#if NOXTLS_FEATURE_ML_DSA
 /** Set server ML-DSA private key for CertificateVerify. */
 noxtls_return_t noxtls_tls13_set_server_private_mldsa(tls13_context_t *ctx, noxtls_mldsa_param_t param, const uint8_t *private_key);
+#endif /* NOXTLS_FEATURE_ML_DSA */
+#if NOXTLS_FEATURE_SLH_DSA
 /** Set server SLH-DSA private key for CertificateVerify. */
 noxtls_return_t noxtls_tls13_set_server_private_slhdsa(tls13_context_t *ctx,
                                                        noxtls_slhdsa_param_t param,
                                                        const uint8_t *private_key);
+#endif /* NOXTLS_FEATURE_SLH_DSA */
+#if NOXTLS_FEATURE_FALCON
 /** Set server FALCON private key for CertificateVerify. */
 noxtls_return_t noxtls_tls13_set_server_private_falcon(tls13_context_t *ctx,
                                                        noxtls_falcon_param_t param,
                                                        const uint8_t *private_key);
+#endif /* NOXTLS_FEATURE_FALCON */
 /** Set optional crypto provider and server key handle for server sign (CertificateVerify). Use instead of server_private_rsa when key is in HSM/TPM. */
 void noxtls_tls13_set_crypto_provider_server(tls13_context_t *ctx, const noxtls_crypto_provider_t *provider, noxtls_crypto_key_handle_t server_key_handle);
 /** Set optional CRL chain for certificate revocation checks during peer cert verification. */
@@ -527,21 +580,27 @@ noxtls_return_t noxtls_tls13_set_client_cert_ecdsa(tls13_context_t *ctx, const u
 noxtls_return_t noxtls_tls13_set_client_cert_ed25519(tls13_context_t *ctx, const uint8_t *cert_der, uint32_t cert_len, const uint8_t *private_key_32);
 /** Client: set client certificate and Ed448 private key (57-byte seed) for CertificateVerify. Requires NOXTLS_FEATURE_ED448 and SHA3. */
 noxtls_return_t noxtls_tls13_set_client_cert_ed448(tls13_context_t *ctx, const uint8_t *cert_der, uint32_t cert_len, const uint8_t *private_key_57);
+#if NOXTLS_FEATURE_ML_DSA
 /** Client: set client certificate and ML-DSA private key for CertificateVerify. */
 noxtls_return_t tls13_set_client_cert_mldsa(tls13_context_t *ctx, const uint8_t *cert_der, uint32_t cert_len,
                                             noxtls_mldsa_param_t param, const uint8_t *private_key);
+#endif /* NOXTLS_FEATURE_ML_DSA */
+#if NOXTLS_FEATURE_SLH_DSA
 /** Client: set client certificate and SLH-DSA private key for CertificateVerify. */
 noxtls_return_t tls13_set_client_cert_slhdsa(tls13_context_t *ctx,
                                              const uint8_t *cert_der,
                                              uint32_t cert_len,
                                              noxtls_slhdsa_param_t param,
                                              const uint8_t *private_key);
+#endif /* NOXTLS_FEATURE_SLH_DSA */
+#if NOXTLS_FEATURE_FALCON
 /** Client: set client certificate and FALCON private key for CertificateVerify. */
 noxtls_return_t tls13_set_client_cert_falcon(tls13_context_t *ctx,
                                              const uint8_t *cert_der,
                                              uint32_t cert_len,
                                              noxtls_falcon_param_t param,
                                              const uint8_t *private_key);
+#endif /* NOXTLS_FEATURE_FALCON */
 
 /** Configure external PSK identity/key for TLS 1.3 PSK or ECDHE-PSK handshakes. */
 noxtls_return_t tls13_set_external_psk(tls13_context_t *ctx,
@@ -550,8 +609,8 @@ noxtls_return_t tls13_set_external_psk(tls13_context_t *ctx,
                                        uint8_t preferred_mode);
 
 /** RFC 5929 channel binding types for noxtls_tls13_get_channel_binding. */
-#define NOXTLS_TLS_CHANNEL_BINDING_TLS_UNIQUE           1
-#define NOXTLS_TLS_CHANNEL_BINDING_TLS_SERVER_END_POINT 2
+#define NOXTLS_TLS_CHANNEL_BINDING_TLS_UNIQUE           1U
+#define NOXTLS_TLS_CHANNEL_BINDING_TLS_SERVER_END_POINT 2U
 
 /**
  * Get TLS channel binding data (RFC 5929). Call after handshake completes.
@@ -614,8 +673,12 @@ noxtls_return_t noxtls_tls13_certificate_verify_transcript_hash_length(uint16_t 
  * @param[in] signature_scheme SignatureScheme used for CertificateVerify.
  * @param[in] role TLS_ROLE_SERVER or TLS_ROLE_CLIENT (selects context string).
  * @param[out] out Output buffer for signed content.
- * @param[in,out] out_len On input: out capacity; on success: bytes written.
- * @return NOXTLS_RETURN_SUCCESS on success.
+ * @param[in,out] out_len On input: out capacity; on success: bytes written. When the capacity is too
+ *                        small nothing is written, *out_len is set to the required length and
+ *                        NOXTLS_RETURN_INVALID_PARAM is returned. NOXTLS_TLS13_CV_SIGNED_CONTENT_MAX_LEN
+ *                        bytes always suffice.
+ * @return NOXTLS_RETURN_SUCCESS on success; NOXTLS_RETURN_NULL on NULL pointers;
+ *         NOXTLS_RETURN_INVALID_PARAM on an invalid role or too-small output buffer.
  */
 noxtls_return_t noxtls_tls13_certificate_verify_build_signed_content(const uint8_t *handshake_messages,
                                                                      uint32_t handshake_messages_len,
@@ -640,4 +703,4 @@ noxtls_return_t noxtls_tls13_certificate_verify_build_signed_content_ex(const ui
 }
 #endif
 
-#endif /* _NOXTLS_TLS13_H_ */
+#endif /* NOXTLS_TLS13_H_ */

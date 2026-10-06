@@ -27,6 +27,7 @@
 #include "noxtls_aes_internal.h"
 #include "noxtls_aes_cmac.h"
 #include "noxtls_common.h"
+#include "noxtls_ct.h"
 
 #if NOXTLS_FEATURE_AES_CMAC
 
@@ -35,34 +36,30 @@
 
 /**
  * @brief Left-shift by one bit of a 16-byte block (MSB first).
- *
- * @param block  In/out 16-byte block
- * @return None.
  */
 static void cmac_shift_left(uint8_t block[NOXTLS_AES_BLOCK_LENGTH])
 {
-    int i;
-    for(i = 0; i < (int)NOXTLS_AES_BLOCK_LENGTH - 1; i++) {
-        block[i] = (uint8_t)((block[i] << 1) | (block[i + 1] >> 7));
+    uint32_t i = 0U;
+    const uint32_t block_sz = (uint32_t)NOXTLS_AES_BLOCK_LENGTH;
+
+    for (i = 0U; i < (block_sz - 1U); i += 1U) {
+        block[i] = (uint8_t)((((uint32_t)block[i] << 1U)
+                              | (((uint32_t)block[i + 1U]) >> 7U)));
     }
-    block[NOXTLS_AES_BLOCK_LENGTH - 1] = (uint8_t)(block[NOXTLS_AES_BLOCK_LENGTH - 1] << 1);
+    block[block_sz - 1U] = (uint8_t)(((uint32_t)block[block_sz - 1U]) << 1U);
 }
 
 /**
- * @brief XOR subkey into the last block (for final block).
- *
- * @param dst  Destination buffer
- * @param a    First source buffer
- * @param b    Second source buffer
- *
- * @return None.
+ * @brief XOR two blocks into destination.
  */
 static void cmac_xor_block(uint8_t dst[NOXTLS_AES_BLOCK_LENGTH],
                            const uint8_t a[NOXTLS_AES_BLOCK_LENGTH],
                            const uint8_t b[NOXTLS_AES_BLOCK_LENGTH])
 {
-    uint32_t i;
-    for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
+    uint32_t i = 0U;
+    const uint32_t block_sz = (uint32_t)NOXTLS_AES_BLOCK_LENGTH;
+
+    for (i = 0U; i < block_sz; i += 1U) {
         dst[i] = (uint8_t)(a[i] ^ b[i]);
     }
 }
@@ -73,11 +70,11 @@ static void cmac_xor_block(uint8_t dst[NOXTLS_AES_BLOCK_LENGTH],
 static noxtls_return_t cmac_key_len_from_type(noxtls_aes_type_t type,
                                               uint8_t *key_len)
 {
-    if(key_len == NULL) {
+    if (key_len == NULL) {
         return NOXTLS_RETURN_NULL;
     }
 
-    switch(type)
+    switch (type)
     {
         case NOXTLS_AES_128_BIT:
             *key_len = 16U;
@@ -101,46 +98,61 @@ static noxtls_return_t cmac_key_len_from_type(noxtls_aes_type_t type,
 static noxtls_return_t cmac_absorb_block(noxtls_aes_cmac_context_t *ctx,
                                          const uint8_t block[NOXTLS_AES_BLOCK_LENGTH])
 {
-    cmac_xor_block(ctx->state, ctx->state, block);
-    return noxtls_aes_encrypt_block_internal(ctx->key, ctx->state, ctx->state,
-                                             ctx->type);
+    uint8_t state_block[NOXTLS_AES_BLOCK_LENGTH];
+    uint8_t input_block[NOXTLS_AES_BLOCK_LENGTH];
+    noxtls_copy_u8(state_block, sizeof(state_block), ctx->state, (size_t)(NOXTLS_AES_BLOCK_LENGTH));
+    noxtls_copy_u8(input_block, sizeof(input_block), block, (size_t)(NOXTLS_AES_BLOCK_LENGTH));
+    cmac_xor_block(state_block, state_block, input_block);
+    {
+        noxtls_return_t rc = noxtls_aes_encrypt_block_internal(ctx->key, state_block, state_block,
+                                                              ctx->type);
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
+    }
+    noxtls_copy_u8(ctx->state, sizeof(ctx->state), state_block, (size_t)(NOXTLS_AES_BLOCK_LENGTH));
+    return NOXTLS_RETURN_SUCCESS;
 }
 
+/* Streaming CMAC API; extents follow AES block size and caller lengths. */
 noxtls_return_t noxtls_aes_cmac_init(noxtls_aes_cmac_context_t *ctx,
                                      const uint8_t *key,
                                      noxtls_aes_type_t type)
 {
     uint8_t l[NOXTLS_AES_BLOCK_LENGTH];
-    noxtls_return_t rc;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+    const uint32_t block_sz = (uint32_t)NOXTLS_AES_BLOCK_LENGTH;
 
-    if(ctx == NULL || key == NULL) {
+    if ((ctx == NULL) || (key == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
-    memset(ctx, 0, sizeof(*ctx));
+    noxtls_secure_zero((ctx), sizeof(*(ctx)));
     ctx->type = type;
     rc = cmac_key_len_from_type(type, &ctx->key_len);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(ctx, sizeof(*ctx));
         return rc;
     }
-    memcpy(ctx->key, key, ctx->key_len);
+    noxtls_copy_u8(ctx->key, sizeof(ctx->key), key, (size_t)(ctx->key_len));
 
-    memset(l, 0, sizeof(l));
+    noxtls_secure_zero((l), sizeof(l));
     rc = noxtls_aes_encrypt_block_internal(ctx->key, l, l, type);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(ctx, sizeof(*ctx));
         return rc;
     }
 
-    memcpy(ctx->subkey1, l, NOXTLS_AES_BLOCK_LENGTH);
+    noxtls_copy_u8(ctx->subkey1, sizeof(ctx->subkey1), l, (size_t)(block_sz));
     cmac_shift_left(ctx->subkey1);
-    if(l[0] & 0x80U) {
-        ctx->subkey1[NOXTLS_AES_BLOCK_LENGTH - 1] ^= NOXTLS_AES_CMAC_RB;
+    if ((l[0] & 0x80U) != 0U) {
+        ctx->subkey1[block_sz - 1U] ^= (uint8_t)NOXTLS_AES_CMAC_RB;
     }
 
-    memcpy(ctx->subkey2, ctx->subkey1, NOXTLS_AES_BLOCK_LENGTH);
+    noxtls_copy_u8(ctx->subkey2, sizeof(ctx->subkey2), ctx->subkey1, (size_t)(block_sz));
     cmac_shift_left(ctx->subkey2);
-    if(ctx->subkey1[0] & 0x80U) {
-        ctx->subkey2[NOXTLS_AES_BLOCK_LENGTH - 1] ^= NOXTLS_AES_CMAC_RB;
+    if ((ctx->subkey1[0] & 0x80U) != 0U) {
+        ctx->subkey2[block_sz - 1U] ^= (uint8_t)NOXTLS_AES_CMAC_RB;
     }
 
     ctx->initialized = 1U;
@@ -152,55 +164,64 @@ noxtls_return_t noxtls_aes_cmac_update(noxtls_aes_cmac_context_t *ctx,
                                        uint32_t msg_len)
 {
     uint32_t offset = 0U;
-    noxtls_return_t rc;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+    const uint32_t block_sz = (uint32_t)NOXTLS_AES_BLOCK_LENGTH;
 
-    if(ctx == NULL) {
+    if (ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(ctx->initialized == 0U) {
+    if (ctx->initialized == 0U) {
         return NOXTLS_RETURN_NOT_INITIALIZED;
     }
-    if(msg_len > 0U && msg == NULL) {
+    if ((msg_len > 0U) && (msg == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
-    if(msg_len == 0U) {
+    if (msg_len == 0U) {
         return NOXTLS_RETURN_SUCCESS;
     }
 
     /* Fill any partial block first. */
-    if(ctx->partial_len > 0U)
+    if (ctx->partial_len > 0U)
     {
-        uint32_t need = NOXTLS_AES_BLOCK_LENGTH - (uint32_t)ctx->partial_len;
-        uint32_t take = (msg_len < need) ? msg_len : need;
-        memcpy(&ctx->partial[ctx->partial_len], msg, take);
+        uint32_t need = (uint32_t)(block_sz - (uint32_t)ctx->partial_len);
+        uint32_t take = (uint32_t)((msg_len < need) ? msg_len : need);
+        noxtls_copy_u8(&ctx->partial[ctx->partial_len], sizeof(ctx->partial) - (size_t)(ctx->partial_len), msg, (size_t)(take));
         ctx->partial_len = (uint8_t)(ctx->partial_len + take);
         offset += take;
 
         /* Keep a full block buffered until we know more data follows. */
-        if(ctx->partial_len == NOXTLS_AES_BLOCK_LENGTH && offset < msg_len)
+        if ((ctx->partial_len == (uint8_t)block_sz) && (offset < msg_len))
         {
-            rc = cmac_absorb_block(ctx, ctx->partial);
-            if(rc != NOXTLS_RETURN_SUCCESS) {
+            {
+                uint8_t full_block[NOXTLS_AES_BLOCK_LENGTH];
+                noxtls_copy_u8(full_block, sizeof(full_block), ctx->partial, (size_t)(block_sz));
+                rc = cmac_absorb_block(ctx, full_block);
+            }
+            if (rc != NOXTLS_RETURN_SUCCESS) {
+                noxtls_secure_zero(ctx, sizeof(*ctx));
                 return rc;
             }
             ctx->partial_len = 0U;
         }
     }
 
-    while((msg_len - offset) > NOXTLS_AES_BLOCK_LENGTH)
+    while ((msg_len - offset) > block_sz)
     {
-        rc = cmac_absorb_block(ctx, &msg[offset]);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
+        uint8_t full_block[NOXTLS_AES_BLOCK_LENGTH];
+        noxtls_copy_u8(full_block, sizeof(full_block), &msg[offset], (size_t)(block_sz));
+        rc = cmac_absorb_block(ctx, full_block);
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_secure_zero(ctx, sizeof(*ctx));
             return rc;
         }
-        offset += NOXTLS_AES_BLOCK_LENGTH;
+        offset += block_sz;
     }
 
-    if(offset < msg_len)
+    if (offset < msg_len)
     {
-        uint32_t rem = msg_len - offset;
-        memcpy(ctx->partial, &msg[offset], rem);
+        uint32_t rem = (uint32_t)(msg_len - offset);
+        noxtls_copy_u8(ctx->partial, sizeof(ctx->partial), &msg[offset], (size_t)(rem));
         ctx->partial_len = (uint8_t)rem;
     }
 
@@ -212,74 +233,77 @@ noxtls_return_t noxtls_aes_cmac_final(noxtls_aes_cmac_context_t *ctx,
                                       uint8_t *mac)
 {
     uint8_t final_block[NOXTLS_AES_BLOCK_LENGTH];
-    noxtls_return_t rc;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+    const uint32_t block_sz = (uint32_t)NOXTLS_AES_BLOCK_LENGTH;
 
-    if(ctx == NULL || mac == NULL) {
+    if ((ctx == NULL) || (mac == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
-    if(ctx->initialized == 0U) {
+    if (ctx->initialized == 0U) {
         return NOXTLS_RETURN_NOT_INITIALIZED;
     }
 
-    memset(final_block, 0, sizeof(final_block));
+    noxtls_secure_zero((final_block), sizeof(final_block));
 
-    if(ctx->total_len == 0U)
+    if (ctx->total_len == 0U)
     {
         final_block[0] = 0x80U;
         cmac_xor_block(final_block, final_block, ctx->subkey2);
     }
-    else if(ctx->partial_len == NOXTLS_AES_BLOCK_LENGTH)
+    else if (ctx->partial_len == (uint8_t)block_sz)
     {
-        memcpy(final_block, ctx->partial, NOXTLS_AES_BLOCK_LENGTH);
+        noxtls_copy_u8(final_block, sizeof(final_block), ctx->partial, (size_t)(block_sz));
         cmac_xor_block(final_block, final_block, ctx->subkey1);
     }
     else
     {
-        memcpy(final_block, ctx->partial, ctx->partial_len);
+        noxtls_copy_u8(final_block, sizeof(final_block), ctx->partial, (size_t)(ctx->partial_len));
         final_block[ctx->partial_len] = 0x80U;
         cmac_xor_block(final_block, final_block, ctx->subkey2);
     }
 
     rc = cmac_absorb_block(ctx, final_block);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(final_block, sizeof(final_block));
+        noxtls_secure_zero(mac, NOXTLS_AES_BLOCK_LENGTH);
+        noxtls_secure_zero(ctx, sizeof(*ctx));
         return rc;
     }
 
-    memcpy(mac, ctx->state, NOXTLS_AES_BLOCK_LENGTH);
+    noxtls_copy_u8(mac, (size_t)block_sz, ctx->state, (size_t)(block_sz));
     ctx->initialized = 0U;
     return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
  * @brief Compute AES-CMAC over a message (RFC 4493).
- *
- * @param key    AES key (16 bytes for AES-128)
- * @param msg    Message to authenticate
- * @param msg_len Message length in bytes
- * @param mac    Output buffer for 16-byte MAC
- * @param type   AES key type (NOXTLS_AES_128_BIT recommended)
- * @return NOXTLS_RETURN_SUCCESS on success
  */
-/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 noxtls_return_t noxtls_aes_cmac(const uint8_t *key,
                          const uint8_t *msg,
                          uint32_t msg_len,
                          uint8_t *mac,
                          noxtls_aes_type_t type)
-/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     noxtls_aes_cmac_context_t ctx;
-    noxtls_return_t rc;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     rc = noxtls_aes_cmac_init(&ctx, key, type);
-    if(rc != NOXTLS_RETURN_SUCCESS)
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(mac, NOXTLS_AES_BLOCK_LENGTH);
+        noxtls_secure_zero(&ctx, sizeof(ctx));
         return rc;
+    }
 
     rc = noxtls_aes_cmac_update(&ctx, msg, msg_len);
-    if(rc != NOXTLS_RETURN_SUCCESS)
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(mac, NOXTLS_AES_BLOCK_LENGTH);
+        noxtls_secure_zero(&ctx, sizeof(ctx));
         return rc;
+    }
 
-    return noxtls_aes_cmac_final(&ctx, mac);
+    rc = noxtls_aes_cmac_final(&ctx, mac);
+    noxtls_secure_zero(&ctx, sizeof(ctx));
+    return rc;
 }
 
 #endif /* NOXTLS_FEATURE_AES_CMAC */

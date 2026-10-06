@@ -1,0 +1,20 @@
+Start testing: Oct 05 04:46 Central Daylight Time
+----------------------------------------------------------
+4/5 Testing: ed25519_rfc8032_test
+4/5 Test: ed25519_rfc8032_test
+Command: "C:/NoxADK_work/NoxADK_thread/.codex-tmp/noxtls-ebc-audit-build/ut/ed25519_rfc8032_test.exe"
+Directory: C:/NoxADK_work/NoxADK_thread/.codex-tmp/noxtls-ebc-audit-build/ut
+"ed25519_rfc8032_test" start time: Oct 05 04:46 Central Daylight Time
+Output:
+----------------------------------------------------------
+ed25519_rfc8032_test: FAIL
+FAIL: u32 mul/sqr matches limb path
+<end of output>
+Test time =   0.32 sec
+----------------------------------------------------------
+Test Failed.
+"ed25519_rfc8032_test" end time: Oct 05 04:46 Central Daylight Time
+"ed25519_rfc8032_test" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Oct 05 04:46 Central Daylight Time

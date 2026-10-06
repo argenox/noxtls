@@ -22,13 +22,11 @@
 /** @addtogroup noxtls_encryption */
 /** @{ */
 
-#ifndef _AES_DEBUG_H_
-#define _AES_DEBUG_H_
+#ifndef AES_DEBUG_H_
+#define AES_DEBUG_H_
 
 /* Standard Includes */
 #include <stdint.h>
-#include <stdio.h>
-
 
 /**
  * @brief Print a compact AES state line for debugging.
@@ -37,12 +35,5 @@
  * @param prefix Label inserted into the debug output.
  * @return None.
  */
-void noxtls_print_state(uint32_t cur_round, const uint8_t state[4][4], const char * prefix);
-/**
- * @brief Print an AES state matrix for debugging.
- * @param state AES state matrix to print.
- * @return None.
- */
-void noxtls_print_state_matrix(uint8_t state[4][4]);
-
-#endif /* _AES_DEBUG_H_ */
+void noxtls_print_state(uint32_t cur_round, const uint8_t state[4][4], const uint8_t * prefix);
+#endif /* AES_DEBUG_H_ */

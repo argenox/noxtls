@@ -1,0 +1,2 @@
+# Application docs are generated here by scripts/doxygen-xml-to-md.js (app_* groups).
+# Do not commit generated *.md files if they are built in CI.

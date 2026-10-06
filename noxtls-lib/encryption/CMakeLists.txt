@@ -1,6 +1,11 @@
 # Encryption library (when NOXTLS_OMIT_UT_SOURCES=ON, exclude unit-test sources for embedded build)
 set(ENC_SOURCES
 )
+if(NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL AND
+   (ESP_PLATFORM OR NOXTLS_CFG_FEATURE_STM32_HW_ACCEL OR
+    NOXTLS_CFG_FEATURE_NOXV_HW_ACCEL OR NOXTLS_CFG_FEATURE_NRF52_HW_ACCEL))
+    message(FATAL_ERROR "CC13xx requires exclusive platform AES accelerator selection")
+endif()
 if(NOXTLS_CFG_FEATURE_AES)
   list(APPEND ENC_SOURCES aes/noxtls_aes.c)
   if(NOT NOXTLS_OMIT_UT_SOURCES)
@@ -16,7 +21,10 @@ if(NOXTLS_CFG_FEATURE_AES)
       set(NOXTLS_PORT_AES_ACCEL_ENABLED OFF)
     endif()
   else()
-    if(NOXTLS_CFG_FEATURE_STM32_HW_ACCEL)
+    if(NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL)
+      list(APPEND ENC_SOURCES aes/noxtls_aes_accel_cc13xx_port.c)
+      set(NOXTLS_PORT_AES_ACCEL_ENABLED ON)
+    elseif(NOXTLS_CFG_FEATURE_STM32_HW_ACCEL)
       list(APPEND ENC_SOURCES
           aes/noxtls_aes_accel_stm32_port.c
           ${NOXTLS_LIB_ROOT}/vendor/st/common/noxtls_stm32_aes_core.c
@@ -35,6 +43,11 @@ if(NOXTLS_CFG_FEATURE_AES)
       set(NOXTLS_PORT_AES_ACCEL_ENABLED ON)
     elseif(NOXTLS_CFG_FEATURE_NOXV_HW_ACCEL)
       list(APPEND ENC_SOURCES aes/noxtls_aes_accel_noxv_port.c)
+      set(NOXTLS_PORT_AES_ACCEL_ENABLED ON)
+    elseif(NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL)
+      # nRF54L CRACEN: block, ECB / CBC / CTR, GCM and CCM ports.
+      include(${NOXTLS_LIB_ROOT}/vendor/nordic/nrf54x/noxtls_nrf54_sources.cmake)
+      list(APPEND ENC_SOURCES ${NOXTLS_NRF54_PORT_AES_SOURCES})
       set(NOXTLS_PORT_AES_ACCEL_ENABLED ON)
     elseif(NOXTLS_CFG_FEATURE_NRF52_HW_ACCEL)
       list(APPEND ENC_SOURCES aes/noxtls_aes_accel_nrf52_port.c)
@@ -60,6 +73,8 @@ if(NOXTLS_CFG_FEATURE_AES)
   endif()
   if(NOXTLS_CFG_FEATURE_AES_ECB)
     list(APPEND ENC_SOURCES aes/noxtls_aes_ecb.c)
+    # RFC 3394 key wrap is built on single-block AES-ECB.
+    list(APPEND ENC_SOURCES aes/noxtls_aes_keywrap.c)
   endif()
   if(NOXTLS_CFG_FEATURE_AES_CBC)
     list(APPEND ENC_SOURCES aes/noxtls_aes_cbc.c)
@@ -126,6 +141,7 @@ if(NOT ENC_SOURCES)
   message(FATAL_ERROR "At least one NOXTLS_FEATURE_* cipher must be enabled.")
 endif()
 # _ut sources moved to ut/encryption; not built into library
+list(APPEND ENC_SOURCES noxtls_encryption_api_refs.c)
 add_library(noxtls_encryption STATIC
     ${ENC_SOURCES}
 )
@@ -168,3 +184,6 @@ target_include_directories(noxtls_encryption PUBLIC
 target_link_libraries(noxtls_encryption
     noxtls_common
 )
+if(NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL AND NOT ESP_PLATFORM)
+  target_link_libraries(noxtls_encryption noxtls_nrf54)
+endif()

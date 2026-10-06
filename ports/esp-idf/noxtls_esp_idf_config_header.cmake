@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-09-13T05:08:47Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-06T14:12:04Z)
 
 function(noxtls_esp_idf_write_config_features_header out_file)
   if(NOT out_file)
@@ -55,6 +55,12 @@ else()
 endif()
 
 string(APPEND _noxtls_hdr "#define NOXTLS_ECC_POINT_MUL_WINDOW_SIZE ${CONFIG_NOXTLS_ECC_POINT_MUL_WINDOW_SIZE}\n")
+
+if(CONFIG_NOXTLS_ECC_SHARED_SCRATCH)
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_SHARED_SCRATCH 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_SHARED_SCRATCH 0\n")
+endif()
 
 if(CONFIG_NOXTLS_ECDSA_SIGN_SELF_VERIFY)
   string(APPEND _noxtls_hdr "#define NOXTLS_ECDSA_SIGN_SELF_VERIFY 1\n")
@@ -170,6 +176,12 @@ else()
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_CAMELLIA 0\n")
 endif()
 
+if(CONFIG_NOXTLS_FEATURE_CC13XX_HW_ACCEL)
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_CC13XX_HW_ACCEL 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_CC13XX_HW_ACCEL 0\n")
+endif()
+
 if(NOXTLS_CFG_FEATURE_CERT)
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_CERT 1\n")
 else()
@@ -278,6 +290,12 @@ else()
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_LMS_HSS 0\n")
 endif()
 
+if(NOXTLS_CFG_FEATURE_MATTER_PASE)
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_MATTER_PASE 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_MATTER_PASE 0\n")
+endif()
+
 if(NOXTLS_CFG_FEATURE_MD4)
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_MD4 1\n")
 else()
@@ -312,6 +330,18 @@ if(CONFIG_NOXTLS_FEATURE_NRF52_HW_AES_ONLY)
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_NRF52_HW_AES_ONLY 1\n")
 else()
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_NRF52_HW_AES_ONLY 0\n")
+endif()
+
+if(CONFIG_NOXTLS_FEATURE_NRF54_HW_ACCEL)
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_NRF54_HW_ACCEL 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_NRF54_HW_ACCEL 0\n")
+endif()
+
+if(NOXTLS_CFG_FEATURE_PBKDF2)
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_PBKDF2 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_PBKDF2 0\n")
 endif()
 
 if(NOXTLS_CFG_FEATURE_PKC)
@@ -386,6 +416,24 @@ else()
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_SLH_DSA 0\n")
 endif()
 
+if(NOXTLS_CFG_FEATURE_SPAKE2P)
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_SPAKE2P 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_SPAKE2P 0\n")
+endif()
+
+if(NOXTLS_CFG_FEATURE_SPAKE2P_MATTER)
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_SPAKE2P_MATTER 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_SPAKE2P_MATTER 0\n")
+endif()
+
+if(NOXTLS_CFG_FEATURE_SPAKE2P_RFC9383)
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_SPAKE2P_RFC9383 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_SPAKE2P_RFC9383 0\n")
+endif()
+
 if(NOXTLS_CFG_FEATURE_TLS)
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_TLS 1\n")
 else()
@@ -440,10 +488,22 @@ else()
   string(APPEND _noxtls_hdr "#define NOXTLS_HAVE_CERT_WRITE 0\n")
 endif()
 
+if(CONFIG_NOXTLS_HAVE_FILE_IO)
+  string(APPEND _noxtls_hdr "#define NOXTLS_HAVE_FILE_IO 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_HAVE_FILE_IO 0\n")
+endif()
+
 if(CONFIG_NOXTLS_HAVE_TIME)
   string(APPEND _noxtls_hdr "#define NOXTLS_HAVE_TIME 1\n")
 else()
   string(APPEND _noxtls_hdr "#define NOXTLS_HAVE_TIME 0\n")
+endif()
+
+if(CONFIG_NOXTLS_HMAC_SHA256_SHARED_STATE)
+  string(APPEND _noxtls_hdr "#define NOXTLS_HMAC_SHA256_SHARED_STATE 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_HMAC_SHA256_SHARED_STATE 0\n")
 endif()
 
 string(APPEND _noxtls_hdr "#define NOXTLS_MAX_CERT_CHAIN_DEPTH ${CONFIG_NOXTLS_MAX_CERT_CHAIN_DEPTH}\n")

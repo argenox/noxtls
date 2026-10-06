@@ -75,7 +75,7 @@ static int32_t mldsa_w1_modulus(int32_t gamma2)
  */
 static int32_t mldsa_mod_centered_int(int32_t x, int32_t mod)
 {
-    int32_t r;
+    int32_t r = 0;
 
     if(mod <= 0) {
         return x;
@@ -101,9 +101,9 @@ noxtls_return_t noxtls_mldsa_decompose_poly(const noxtls_mldsa_poly_t *w,
                                             noxtls_mldsa_poly_t *w1,
                                             noxtls_mldsa_poly_t *w0)
 {
-    int32_t two_gamma;
-    int32_t a1_mod;
-    uint32_t i;
+    int32_t two_gamma = 0;
+    int32_t a1_mod = 0;
+    uint32_t i = 0U;
 
     if(w == NULL || w1 == NULL || w0 == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -118,7 +118,7 @@ noxtls_return_t noxtls_mldsa_decompose_poly(const noxtls_mldsa_poly_t *w,
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    for(i = 0U; i < NOXTLS_MLDSA_N; ++i) {
+    for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
         int32_t a = mldsa_center_mod_q(w->coeff[i]);
         int32_t a1 = a / two_gamma;
         int32_t a0 = a - (a1 * two_gamma);
@@ -152,9 +152,9 @@ noxtls_return_t noxtls_mldsa_make_hint_poly(const noxtls_mldsa_poly_t *w0,
                                             noxtls_mldsa_poly_t *h,
                                             uint32_t *weight)
 {
-    uint32_t i;
+    uint32_t i = 0U;
     uint32_t local_weight = 0U;
-    int32_t threshold;
+    int32_t threshold = 0;
 
     if(w0 == NULL || h == NULL || weight == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -164,12 +164,12 @@ noxtls_return_t noxtls_mldsa_make_hint_poly(const noxtls_mldsa_poly_t *w0,
     }
 
     threshold = gamma2 / 2;
-    for(i = 0U; i < NOXTLS_MLDSA_N; ++i) {
+    for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
         if(mldsa_abs_i32(w0->coeff[i]) > threshold) {
-            h->coeff[i] = 1;
-            local_weight++;
+            h->coeff[i] = 1U;
+            local_weight += 1U;
         } else {
-            h->coeff[i] = 0;
+            h->coeff[i] = 0U;
         }
     }
 
@@ -193,9 +193,9 @@ noxtls_return_t noxtls_mldsa_use_hint_poly(const noxtls_mldsa_poly_t *w,
 {
     noxtls_mldsa_poly_t w1;
     noxtls_mldsa_poly_t w0;
-    int32_t mod;
-    noxtls_return_t rc;
-    uint32_t i;
+    int32_t mod = 0;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+    uint32_t i = 0U;
 
     if(w == NULL || h == NULL || w1_adj == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -214,7 +214,7 @@ noxtls_return_t noxtls_mldsa_use_hint_poly(const noxtls_mldsa_poly_t *w,
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    for(i = 0U; i < NOXTLS_MLDSA_N; ++i) {
+    for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
         int32_t hint = h->coeff[i];
         int32_t out = w1.coeff[i];
 
@@ -226,7 +226,7 @@ noxtls_return_t noxtls_mldsa_use_hint_poly(const noxtls_mldsa_poly_t *w,
         }
         out %= mod;
         if(out < 0) {
-            out += mod;
+            out = &out[mod];
         }
         w1_adj->coeff[i] = out;
     }

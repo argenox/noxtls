@@ -20,8 +20,8 @@
 *
 *****************************************************************************/
 
-#ifndef _NOXTLS_TLS_COMMON_H_
-#define _NOXTLS_TLS_COMMON_H_
+#ifndef NOXTLS_TLS_COMMON_H_
+#define NOXTLS_TLS_COMMON_H_
 
 #include <stdint.h>
 
@@ -32,64 +32,64 @@ extern "C" {
 #endif
 
 /* TLS Versions */
-#define TLS_VERSION_1_0    0x0301
-#define TLS_VERSION_1_1    0x0302
-#define TLS_VERSION_1_2    0x0303
-#define TLS_VERSION_1_3    0x0304
+#define TLS_VERSION_1_0    0x0301U
+#define TLS_VERSION_1_1    0x0302U
+#define TLS_VERSION_1_2    0x0303U
+#define TLS_VERSION_1_3    0x0304U
 
 /* TLS Record Types */
-#define TLS_RECORD_CHANGE_CIPHER_SPEC   20
-#define TLS_RECORD_CCS_PAYLOAD          0x01  /* Single byte payload of Change Cipher Spec record */
-#define TLS_RECORD_ALERT                21
-#define TLS_RECORD_HANDSHAKE            22
-#define TLS_RECORD_APPLICATION_DATA     23
-#define TLS_RECORD_HEARTBEAT            24   /* RFC 6520: Heartbeat protocol */
-#define TLS_RECORD_ACK                  26   /* RFC 9147: DTLS 1.3 ACK (plaintext) */
+#define TLS_RECORD_CHANGE_CIPHER_SPEC   20U
+#define TLS_RECORD_CCS_PAYLOAD          0x01U  /* Single byte payload of Change Cipher Spec record */
+#define TLS_RECORD_ALERT                21U
+#define TLS_RECORD_HANDSHAKE            22U
+#define TLS_RECORD_APPLICATION_DATA     23U
+#define TLS_RECORD_HEARTBEAT            24U   /* RFC 6520: Heartbeat protocol */
+#define TLS_RECORD_ACK                  26U  /* RFC 9147: DTLS 1.3 ACK (plaintext) */
 
 /* TLS Handshake Types */
-#define TLS_HANDSHAKE_HELLO_REQUEST         0
-#define TLS_HANDSHAKE_CLIENT_HELLO           1
-#define TLS_HANDSHAKE_SERVER_HELLO           2
-#define TLS_HANDSHAKE_NEW_SESSION_TICKET     4
-#define TLS_HANDSHAKE_END_OF_EARLY_DATA      5
-#define TLS_HANDSHAKE_ENCRYPTED_EXTENSIONS   8
-#define TLS_HANDSHAKE_CERTIFICATE            11
-#define TLS_HANDSHAKE_SERVER_KEY_EXCHANGE     12
-#define TLS_HANDSHAKE_CERTIFICATE_REQUEST    13
-#define TLS_HANDSHAKE_SERVER_HELLO_DONE      14
-#define TLS_HANDSHAKE_CERTIFICATE_VERIFY     15
-#define TLS_HANDSHAKE_CLIENT_KEY_EXCHANGE    16
-#define TLS_HANDSHAKE_FINISHED               20
-#define TLS_HANDSHAKE_CERTIFICATE_STATUS     22
-#define TLS_HANDSHAKE_KEY_UPDATE             24
-#define TLS_HANDSHAKE_ACK                    25
-#define TLS_HANDSHAKE_REQUEST_CONNECTION_ID   9   /* RFC 9147 */
-#define TLS_HANDSHAKE_NEW_CONNECTION_ID      10   /* RFC 9147 */
-#define TLS_HANDSHAKE_MESSAGE_HASH           254
+#define TLS_HANDSHAKE_HELLO_REQUEST         0U
+#define TLS_HANDSHAKE_CLIENT_HELLO           1U
+#define TLS_HANDSHAKE_SERVER_HELLO           2U
+#define TLS_HANDSHAKE_NEW_SESSION_TICKET     4U
+#define TLS_HANDSHAKE_END_OF_EARLY_DATA      5U
+#define TLS_HANDSHAKE_ENCRYPTED_EXTENSIONS   8U
+#define TLS_HANDSHAKE_CERTIFICATE            11U
+#define TLS_HANDSHAKE_SERVER_KEY_EXCHANGE     12U
+#define TLS_HANDSHAKE_CERTIFICATE_REQUEST    13U
+#define TLS_HANDSHAKE_SERVER_HELLO_DONE      14U
+#define TLS_HANDSHAKE_CERTIFICATE_VERIFY     15U
+#define TLS_HANDSHAKE_CLIENT_KEY_EXCHANGE    16U
+#define TLS_HANDSHAKE_FINISHED               20U
+#define TLS_HANDSHAKE_CERTIFICATE_STATUS     22U
+#define TLS_HANDSHAKE_KEY_UPDATE             24U
+#define TLS_HANDSHAKE_ACK                    25U
+#define TLS_HANDSHAKE_REQUEST_CONNECTION_ID   9U   /* RFC 9147 */
+#define TLS_HANDSHAKE_NEW_CONNECTION_ID      10U   /* RFC 9147 */
+#define TLS_HANDSHAKE_MESSAGE_HASH           254U
 
 /* TLS protocol sizes (bytes) */
-#define TLS_RANDOM_SIZE                      32   /* ClientHello / ServerHello random length */
+#define TLS_RANDOM_SIZE                      32U   /* ClientHello / ServerHello random length */
 #define TLS_MASTER_SECRET_LEN                48   /* Master secret length (RFC 5246/8446) */
-#define TLS_MAX_SECRET_LEN                   64   /* Max HKDF/PRF output (e.g. SHA-512) */
+#define TLS_MAX_SECRET_LEN                   64U   /* Max HKDF/PRF output (e.g. SHA-512) */
 #define TLS_KEY_BLOCK_MAX_LEN                256  /* Max key_block length (TLS 1.2) */
 #define TLS_FINISHED_VERIFY_DATA_LEN_12      12   /* TLS 1.0/1.1 Finished verify_data length */
-#define TLS_HANDSHAKE_HEADER_LEN             4    /* Handshake type (1) + length (3) */
-#define TLS_CLIENT_HELLO_BASE_SIZE           2048 /* Base size for ClientHello before extensions */
-#define TLS_CLIENT_HELLO_EXTENSIONS_TAIL     2048 /* Tail buffer for building extensions */
+#define TLS_HANDSHAKE_HEADER_LEN             4U    /* Handshake type (1) + length (3) */
+#define TLS_CLIENT_HELLO_BASE_SIZE           2048U /* Base size for ClientHello before extensions */
+#define TLS_CLIENT_HELLO_EXTENSIONS_TAIL     2048U /* Tail buffer for building extensions */
 #define TLS_CLIENT_HELLO_DEFAULT_SIZE       (TLS_CLIENT_HELLO_BASE_SIZE + TLS_CLIENT_HELLO_EXTENSIONS_TAIL)
-#define TLS_SERVER_HELLO_DEFAULT_SIZE        2048
-#define TLS_CLIENT_KEY_EXCHANGE_MAX_LEN      512  /* Max ClientKeyExchange noxtls_message buffer */
+#define TLS_SERVER_HELLO_DEFAULT_SIZE        2048U
+#define TLS_CLIENT_KEY_EXCHANGE_MAX_LEN      512U  /* Max ClientKeyExchange noxtls_message buffer */
 #define TLS_HELLO_RETRY_REQUEST_MAX_SIZE     256
 #define TLS_SERVER_KEY_EXCHANGE_WORKSPACE   (1024 + 320 + 512)  /* DHE/ECDHE params + sig buffer */
 /*
  * RFC 5246 TLSCiphertext expansion is up to 2048 octets beyond 2^14 plaintext.
  * TLS 1.3 encrypted records are tighter (2^14+256) and enforced in decrypt.
  */
-#define TLS_RECORD_WORKSPACE_OVERHEAD        2048
-#define TLS13_MAX_ENCRYPTED_RECORD_OVERHEAD  256
-#define TLS13_RECORD_WORKSPACE_SIZE         ((TLS_MAX_RECORD_SIZE + 32) * 2) /* TLS 1.3 record workspace size */
+#define TLS_RECORD_WORKSPACE_OVERHEAD        2048U
+#define TLS13_MAX_ENCRYPTED_RECORD_OVERHEAD  256U
+#define TLS13_RECORD_WORKSPACE_SIZE         ((TLS_MAX_RECORD_SIZE + 32U) * 2U) /* TLS 1.3 record workspace size */
 #define TLS_KEY_SHARE_ENTRY_MAX_LEN          2048 /* Encoded key share entry buffer */
-#define TLS_SESSION_ID_MAX_LEN               32
+#define TLS_SESSION_ID_MAX_LEN               32U
 #define TLS_CERT_REQUEST_CONTEXT_MAX_LEN    32
 #define TLS_NEW_SESSION_TICKET_NONCE_LEN     16
 #define TLS_NST_TICKET_ID_LEN                16
@@ -97,215 +97,193 @@ extern "C" {
 #define TLS_COOKIE_MAX_LEN                   32
 
 /* EC point format and curve type (wire format) */
-#define TLS_EC_POINT_UNCOMPRESSED            0x04
-#define TLS_EC_CURVE_TYPE_NAMED              0x03
+#define TLS_EC_POINT_UNCOMPRESSED            0x04U
+#define TLS_EC_CURVE_TYPE_NAMED              0x03U
 
 /* TLS 1.3 / RFC 8446 signature schemes */
-#define TLS_SIGSCHEME_RSA_PSS_RSAE_SHA256    0x0804
-#define TLS_SIGSCHEME_ECDSA_SECP256R1_SHA256 0x0403
-#define TLS_SIGSCHEME_ECDSA_SECP384R1_SHA384 0x0503
-#define TLS_SIGSCHEME_ECDSA_SECP521R1_SHA512 0x0603
-#define TLS_SIGSCHEME_ECDSA_BRAINPOOLP256R1_TLS13_SHA256 0x081A
-#define TLS_SIGSCHEME_ECDSA_BRAINPOOLP384R1_TLS13_SHA384 0x081B
-#define TLS_SIGSCHEME_ECDSA_BRAINPOOLP512R1_TLS13_SHA512 0x081C
-#define TLS_SIGSCHEME_ED25519                0x0807
-#define TLS_SIGSCHEME_ED448                  0x0808
-/* Private-use IDs for PQ/hybrid prototyping; switch to final IANA IDs when standardized. */
-#define TLS_SIGSCHEME_MLDSA44                0xFEA0
-#define TLS_SIGSCHEME_MLDSA65                0xFEA1
-#define TLS_SIGSCHEME_MLDSA87                0xFEA2
-#define TLS_SIGSCHEME_RSA_PSS_SHA256_MLDSA44 0xFEB0
-#define TLS_SIGSCHEME_RSA_PSS_SHA256_MLDSA65 0xFEB1
-#define TLS_SIGSCHEME_RSA_PSS_SHA384_MLDSA87 0xFEB2
-#define TLS_SIGSCHEME_SLHDSA_SHA2_128S       0xFEC0
-#define TLS_SIGSCHEME_SLHDSA_SHA2_128F       0xFEC1
-#define TLS_SIGSCHEME_SLHDSA_SHA2_192S       0xFEC2
-#define TLS_SIGSCHEME_SLHDSA_SHA2_192F       0xFEC3
-#define TLS_SIGSCHEME_SLHDSA_SHA2_256S       0xFEC4
-#define TLS_SIGSCHEME_SLHDSA_SHA2_256F       0xFEC5
-#define TLS_SIGSCHEME_SLHDSA_SHAKE_128S      0xFEC6
-#define TLS_SIGSCHEME_SLHDSA_SHAKE_128F      0xFEC7
-#define TLS_SIGSCHEME_SLHDSA_SHAKE_192S      0xFEC8
-#define TLS_SIGSCHEME_SLHDSA_SHAKE_192F      0xFEC9
-#define TLS_SIGSCHEME_SLHDSA_SHAKE_256S      0xFECA
-#define TLS_SIGSCHEME_SLHDSA_SHAKE_256F      0xFECB
-#define TLS_SIGSCHEME_FALCON512              0xFECC
-#define TLS_SIGSCHEME_FALCON1024             0xFECD
-#define TLS_SIGSCHEME_LMS_HSS_SHA256         0xFECE
-#define TLS_SIGSCHEME_XMSS_SHA256            0xFECF
-#define TLS_SIGSCHEME_XMSSMT_SHA256          0xFED0
-
-/* TLS Named Groups (for key exchange) */
-#define TLS_NAMED_GROUP_SECP256R1    23  /* secp256r1 (NIST P-256) */
-#define TLS_NAMED_GROUP_SECP384R1    24  /* secp384r1 (NIST P-384) */
-#define TLS_NAMED_GROUP_SECP521R1    25  /* secp521r1 (NIST P-521) */
-#define TLS_NAMED_GROUP_X25519       29  /* x25519 (Curve25519) */
-#define TLS_NAMED_GROUP_X448         30  /* x448 (Curve448) */
+#define TLS_SIGSCHEME_RSA_PSS_RSAE_SHA256 ((uint16_t)0x0804U)
+#define TLS_SIGSCHEME_ECDSA_SECP256R1_SHA256 ((uint16_t)0x0403U)
+#define TLS_SIGSCHEME_ECDSA_SECP384R1_SHA384 ((uint16_t)0x0503U)
+#define TLS_SIGSCHEME_ECDSA_SECP521R1_SHA512 ((uint16_t)0x0603U)
+#define TLS_SIGSCHEME_ECDSA_BRAINPOOLP256R1_TLS13_SHA256 ((uint16_t)0x081AU)
+#define TLS_SIGSCHEME_ECDSA_BRAINPOOLP384R1_TLS13_SHA384 ((uint16_t)0x081BU)
+#define TLS_SIGSCHEME_ECDSA_BRAINPOOLP512R1_TLS13_SHA512 ((uint16_t)0x081CU)
+#define TLS_SIGSCHEME_ED25519 ((uint16_t)0x0807U)
+#define TLS_SIGSCHEME_ED448 ((uint16_t)0x0808U) /* Private-use IDs for PQ/hybrid prototyping; switch to final IANA IDs when standardized. */
+#define TLS_SIGSCHEME_MLDSA44 ((uint16_t)0xFEA0U)
+#define TLS_SIGSCHEME_MLDSA65 ((uint16_t)0xFEA1U)
+#define TLS_SIGSCHEME_MLDSA87 ((uint16_t)0xFEA2U)
+#define TLS_SIGSCHEME_RSA_PSS_SHA256_MLDSA44 ((uint16_t)0xFEB0U)
+#define TLS_SIGSCHEME_RSA_PSS_SHA256_MLDSA65 ((uint16_t)0xFEB1U)
+#define TLS_SIGSCHEME_RSA_PSS_SHA384_MLDSA87 ((uint16_t)0xFEB2U)
+#define TLS_SIGSCHEME_SLHDSA_SHA2_128S ((uint16_t)0xFEC0U)
+#define TLS_SIGSCHEME_SLHDSA_SHA2_128F ((uint16_t)0xFEC1U)
+#define TLS_SIGSCHEME_SLHDSA_SHA2_192S ((uint16_t)0xFEC2U)
+#define TLS_SIGSCHEME_SLHDSA_SHA2_192F ((uint16_t)0xFEC3U)
+#define TLS_SIGSCHEME_SLHDSA_SHA2_256S ((uint16_t)0xFEC4U)
+#define TLS_SIGSCHEME_SLHDSA_SHA2_256F ((uint16_t)0xFEC5U)
+#define TLS_SIGSCHEME_SLHDSA_SHAKE_128S ((uint16_t)0xFEC6U)
+#define TLS_SIGSCHEME_SLHDSA_SHAKE_128F ((uint16_t)0xFEC7U)
+#define TLS_SIGSCHEME_SLHDSA_SHAKE_192S ((uint16_t)0xFEC8U)
+#define TLS_SIGSCHEME_SLHDSA_SHAKE_192F ((uint16_t)0xFEC9U)
+#define TLS_SIGSCHEME_SLHDSA_SHAKE_256S ((uint16_t)0xFECAU)
+#define TLS_SIGSCHEME_SLHDSA_SHAKE_256F ((uint16_t)0xFECBU)
+#define TLS_SIGSCHEME_FALCON512 ((uint16_t)0xFECCU)
+#define TLS_SIGSCHEME_FALCON1024 ((uint16_t)0xFECDU)
+#define TLS_SIGSCHEME_LMS_HSS_SHA256 ((uint16_t)0xFECEU)
+#define TLS_SIGSCHEME_XMSS_SHA256 ((uint16_t)0xFECFU)
+#define TLS_SIGSCHEME_XMSSMT_SHA256 ((uint16_t)0xFED0U) /* TLS Named Groups (for key exchange) */
+#define TLS_NAMED_GROUP_SECP256R1 ((uint16_t)23U) /* secp256r1 (NIST P-256) */
+#define TLS_NAMED_GROUP_SECP384R1 ((uint16_t)24U) /* secp384r1 (NIST P-384) */
+#define TLS_NAMED_GROUP_SECP521R1 ((uint16_t)25U) /* secp521r1 (NIST P-521) */
+#define TLS_NAMED_GROUP_X25519 ((uint16_t)29U) /* x25519 (Curve25519) */
+#define TLS_NAMED_GROUP_X448 ((uint16_t)30U) /* x448 (Curve448) */
 /* Private-use IDs for PQ/hybrid prototyping plus current IANA assignment where available. */
-#define TLS_NAMED_GROUP_MLKEM512     0xFE30
-#define TLS_NAMED_GROUP_MLKEM768     0xFE31
-#define TLS_NAMED_GROUP_MLKEM1024    0xFE32
-#define TLS_NAMED_GROUP_X25519_MLKEM512 0xFE40
-#define TLS_NAMED_GROUP_X25519_MLKEM768 0x11EC
-#define TLS_NAMED_GROUP_X25519_MLKEM768_LEGACY 0xFE41
-#define TLS_NAMED_GROUP_X25519_MLKEM1024 0xFE42
-/* RFC 7919 FFDHE (finite-field DH) */
-#define TLS_NAMED_GROUP_FFDHE2048   256
-#define TLS_NAMED_GROUP_FFDHE3072   257
-#define TLS_NAMED_GROUP_FFDHE4096   258
-#define TLS_NAMED_GROUP_FFDHE6144   259
-#define TLS_NAMED_GROUP_FFDHE8192   260
-
-/* TLS Cipher Suites */
-#define TLS_CIPHER_SUITE_NULL_WITH_NULL_NULL                 0x0000
-/* RFC 5746 / RFC 7507: Signaling cipher suite value for empty renegotiation_info */
-#define TLS_CIPHER_SUITE_EMPTY_RENEGOTIATION_INFO_SCSV       0x00FF
-#define TLS_CIPHER_SUITE_FALLBACK_SCSV                       0x5600
-#define TLS_CIPHER_SUITE_RSA_WITH_3DES_EDE_CBC_SHA           0x000A
-#define TLS_CIPHER_SUITE_DHE_RSA_WITH_3DES_EDE_CBC_SHA       0x0016
-#define TLS_CIPHER_SUITE_RSA_WITH_AES_128_CBC_SHA            0x002F
-#define TLS_CIPHER_SUITE_RSA_WITH_AES_256_CBC_SHA            0x0035
-#define TLS_CIPHER_SUITE_RSA_WITH_AES_128_CBC_SHA256         0x003C
-#define TLS_CIPHER_SUITE_RSA_WITH_AES_256_CBC_SHA256         0x003D
-#define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_CBC_SHA        0x0033
-#define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_256_CBC_SHA        0x0039
-#define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_CBC_SHA256     0x0067
-#define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_256_CBC_SHA256     0x006B
-#define TLS_CIPHER_SUITE_RSA_WITH_AES_128_GCM_SHA256         0x009C
-#define TLS_CIPHER_SUITE_RSA_WITH_AES_256_GCM_SHA384         0x009D
-#define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_GCM_SHA256     0x009E
-#define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_256_GCM_SHA384     0x009F
-#define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_CBC_SHA      0xC013
-#define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_CBC_SHA      0xC014
-#define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_CBC_SHA256   0xC027
-#define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_CBC_SHA384   0xC028
-/* TLS 1.2 ECDHE-ECDSA CBC/SHA and CBC/SHA256 (RFC 4492 / IANA) */
-#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CBC_SHA      0xC009
-#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CBC_SHA      0xC00A
-#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256   0xC023
-#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384   0xC024
-#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 0xC02B
-#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 0xC02C
-#define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_GCM_SHA256   0xC02F
-#define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_GCM_SHA384   0xC030
-
-/* TLS 1.2 ChaCha20-Poly1305 (RFC 7905) */
-#define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256    0xCCA8
-#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256  0xCCA9
-#define TLS_CIPHER_SUITE_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256      0xCCAA
-
-#define TLS_CIPHER_SUITE_AES_128_GCM_SHA256                  0x1301
-#define TLS_CIPHER_SUITE_AES_256_GCM_SHA384                  0x1302
-#define TLS_CIPHER_SUITE_CHACHA20_POLY1305_SHA256            0x1303
-#define TLS_CIPHER_SUITE_AES_128_CCM_SHA256                  0x1304
-#define TLS_CIPHER_SUITE_AES_128_CCM_8_SHA256                0x1305
-
-/* TLS 1.2 AES-CCM / AES-CCM_8 (RFC 6655) */
-#define TLS_CIPHER_SUITE_RSA_WITH_AES_128_CCM                0xC09C
-#define TLS_CIPHER_SUITE_RSA_WITH_AES_256_CCM                0xC09D
-/* RFC 6655: DHE_RSA CCM (16-byte tag) precedes RSA CCM_8 on the wire */
-#define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_CCM            0xC09E
-#define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_256_CCM            0xC09F
-#define TLS_CIPHER_SUITE_RSA_WITH_AES_128_CCM_8              0xC0A0
-#define TLS_CIPHER_SUITE_RSA_WITH_AES_256_CCM_8              0xC0A1
-#define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_CCM_8          0xC0A2
-#define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_256_CCM_8          0xC0A3
-#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CCM        0xC0AC
-#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CCM        0xC0AD
-#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CCM_8      0xC0AE
-#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CCM_8      0xC0AF
-
-/* ARIA Cipher Suites (RFC 6209) */
-#define TLS_CIPHER_SUITE_RSA_WITH_ARIA_128_CBC_SHA256        0xC03C
-#define TLS_CIPHER_SUITE_RSA_WITH_ARIA_256_CBC_SHA384        0xC03D
-#define TLS_CIPHER_SUITE_DH_DSS_WITH_ARIA_128_CBC_SHA256     0xC03E
-#define TLS_CIPHER_SUITE_DH_DSS_WITH_ARIA_256_CBC_SHA384     0xC03F
-#define TLS_CIPHER_SUITE_DH_RSA_WITH_ARIA_128_CBC_SHA256     0xC040
-#define TLS_CIPHER_SUITE_DH_RSA_WITH_ARIA_256_CBC_SHA384     0xC041
-#define TLS_CIPHER_SUITE_DHE_DSS_WITH_ARIA_128_CBC_SHA256    0xC042
-#define TLS_CIPHER_SUITE_DHE_DSS_WITH_ARIA_256_CBC_SHA384    0xC043
-#define TLS_CIPHER_SUITE_DHE_RSA_WITH_ARIA_128_CBC_SHA256    0xC044
-#define TLS_CIPHER_SUITE_DHE_RSA_WITH_ARIA_256_CBC_SHA384    0xC045
-#define TLS_CIPHER_SUITE_DHE_RSA_WITH_ARIA_128_GCM_SHA256    0xC07C
-#define TLS_CIPHER_SUITE_DHE_RSA_WITH_ARIA_256_GCM_SHA384    0xC07D
-#define TLS_CIPHER_SUITE_DH_anon_WITH_ARIA_128_CBC_SHA256    0xC046
-#define TLS_CIPHER_SUITE_DH_anon_WITH_ARIA_256_CBC_SHA384    0xC047
-#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_ARIA_128_CBC_SHA256 0xC048
-#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_ARIA_256_CBC_SHA384 0xC049
-#define TLS_CIPHER_SUITE_ECDH_ECDSA_WITH_ARIA_128_CBC_SHA256 0xC04A
-#define TLS_CIPHER_SUITE_ECDH_ECDSA_WITH_ARIA_256_CBC_SHA384 0xC04B
-#define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_ARIA_128_CBC_SHA256  0xC04C
-#define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_ARIA_256_CBC_SHA384  0xC04D
-#define TLS_CIPHER_SUITE_ECDH_RSA_WITH_ARIA_128_CBC_SHA256   0xC04E
-#define TLS_CIPHER_SUITE_ECDH_RSA_WITH_ARIA_256_CBC_SHA384   0xC04F
-#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_ARIA_128_GCM_SHA256 0xC050
-#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_ARIA_256_GCM_SHA384 0xC051
-#define TLS_CIPHER_SUITE_ECDH_ECDSA_WITH_ARIA_128_GCM_SHA256 0xC052
-#define TLS_CIPHER_SUITE_ECDH_ECDSA_WITH_ARIA_256_GCM_SHA384 0xC053
-#define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_ARIA_128_GCM_SHA256  0xC054
-#define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_ARIA_256_GCM_SHA384  0xC055
-#define TLS_CIPHER_SUITE_ECDH_RSA_WITH_ARIA_128_GCM_SHA256   0xC056
-#define TLS_CIPHER_SUITE_ECDH_RSA_WITH_ARIA_256_GCM_SHA384   0xC057
-
-/* TLS Alert Levels */
-#define TLS_ALERT_LEVEL_WARNING   1
-#define TLS_ALERT_LEVEL_FATAL    2
+#define TLS_NAMED_GROUP_MLKEM512 ((uint16_t)0xFE30U)
+#define TLS_NAMED_GROUP_MLKEM768 ((uint16_t)0xFE31U)
+#define TLS_NAMED_GROUP_MLKEM1024 ((uint16_t)0xFE32U)
+#define TLS_NAMED_GROUP_X25519_MLKEM512 ((uint16_t)0xFE40U)
+#define TLS_NAMED_GROUP_X25519_MLKEM768 ((uint16_t)0x11ECU)
+#define TLS_NAMED_GROUP_X25519_MLKEM768_LEGACY ((uint16_t)0xFE41U)
+#define TLS_NAMED_GROUP_X25519_MLKEM1024 ((uint16_t)0xFE42U) /* RFC 7919 FFDHE (finite-field DH) */
+#define TLS_NAMED_GROUP_FFDHE2048 ((uint16_t)256U)
+#define TLS_NAMED_GROUP_FFDHE3072 ((uint16_t)257U)
+#define TLS_NAMED_GROUP_FFDHE4096 ((uint16_t)258U)
+#define TLS_NAMED_GROUP_FFDHE6144 ((uint16_t)259U)
+#define TLS_NAMED_GROUP_FFDHE8192 ((uint16_t)260U) /* TLS Cipher Suites */
+#define TLS_CIPHER_SUITE_NULL_WITH_NULL_NULL ((uint16_t)0x0000U) /* RFC 5746 / RFC 7507: Signaling cipher suite value for empty renegotiation_info */
+#define TLS_CIPHER_SUITE_EMPTY_RENEGOTIATION_INFO_SCSV ((uint16_t)0x00FFU)
+#define TLS_CIPHER_SUITE_FALLBACK_SCSV ((uint16_t)0x5600U)
+#define TLS_CIPHER_SUITE_RSA_WITH_3DES_EDE_CBC_SHA ((uint16_t)0x000AU)
+#define TLS_CIPHER_SUITE_DHE_RSA_WITH_3DES_EDE_CBC_SHA ((uint16_t)0x0016U)
+#define TLS_CIPHER_SUITE_RSA_WITH_AES_128_CBC_SHA ((uint16_t)0x002FU)
+#define TLS_CIPHER_SUITE_RSA_WITH_AES_256_CBC_SHA ((uint16_t)0x0035U)
+#define TLS_CIPHER_SUITE_RSA_WITH_AES_128_CBC_SHA256 ((uint16_t)0x003CU)
+#define TLS_CIPHER_SUITE_RSA_WITH_AES_256_CBC_SHA256 ((uint16_t)0x003DU)
+#define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_CBC_SHA ((uint16_t)0x0033U)
+#define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_256_CBC_SHA ((uint16_t)0x0039U)
+#define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_CBC_SHA256 ((uint16_t)0x0067U)
+#define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_256_CBC_SHA256 ((uint16_t)0x006BU)
+#define TLS_CIPHER_SUITE_RSA_WITH_AES_128_GCM_SHA256 ((uint16_t)0x009CU)
+#define TLS_CIPHER_SUITE_RSA_WITH_AES_256_GCM_SHA384 ((uint16_t)0x009DU)
+#define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_GCM_SHA256 ((uint16_t)0x009EU)
+#define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_256_GCM_SHA384 ((uint16_t)0x009FU)
+#define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_CBC_SHA ((uint16_t)0xC013U)
+#define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_CBC_SHA ((uint16_t)0xC014U)
+#define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_CBC_SHA256 ((uint16_t)0xC027U)
+#define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_CBC_SHA384 ((uint16_t)0xC028U) /* TLS 1.2 ECDHE-ECDSA CBC/SHA and CBC/SHA256 (RFC 4492 / IANA) */
+#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CBC_SHA ((uint16_t)0xC009U)
+#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CBC_SHA ((uint16_t)0xC00AU)
+#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256 ((uint16_t)0xC023U)
+#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384 ((uint16_t)0xC024U)
+#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 ((uint16_t)0xC02BU)
+#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 ((uint16_t)0xC02CU)
+#define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_GCM_SHA256 ((uint16_t)0xC02FU)
+#define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_GCM_SHA384 ((uint16_t)0xC030U) /* TLS 1.2 ChaCha20-Poly1305 (RFC 7905) */
+#define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 ((uint16_t)0xCCA8U)
+#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 ((uint16_t)0xCCA9U)
+#define TLS_CIPHER_SUITE_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256 ((uint16_t)0xCCAAU)
+#define TLS_CIPHER_SUITE_AES_128_GCM_SHA256 ((uint16_t)0x1301U)
+#define TLS_CIPHER_SUITE_AES_256_GCM_SHA384 ((uint16_t)0x1302U)
+#define TLS_CIPHER_SUITE_CHACHA20_POLY1305_SHA256 ((uint16_t)0x1303U)
+#define TLS_CIPHER_SUITE_AES_128_CCM_SHA256 ((uint16_t)0x1304U)
+#define TLS_CIPHER_SUITE_AES_128_CCM_8_SHA256 ((uint16_t)0x1305U) /* TLS 1.2 AES-CCM / AES-CCM_8 (RFC 6655) */
+#define TLS_CIPHER_SUITE_RSA_WITH_AES_128_CCM ((uint16_t)0xC09CU)
+#define TLS_CIPHER_SUITE_RSA_WITH_AES_256_CCM ((uint16_t)0xC09DU) /* RFC 6655: DHE_RSA CCM (16-byte tag) precedes RSA CCM_8 on the wire */
+#define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_CCM ((uint16_t)0xC09EU)
+#define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_256_CCM ((uint16_t)0xC09FU)
+#define TLS_CIPHER_SUITE_RSA_WITH_AES_128_CCM_8 ((uint16_t)0xC0A0U)
+#define TLS_CIPHER_SUITE_RSA_WITH_AES_256_CCM_8 ((uint16_t)0xC0A1U)
+#define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_CCM_8 ((uint16_t)0xC0A2U)
+#define TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_256_CCM_8 ((uint16_t)0xC0A3U)
+#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CCM ((uint16_t)0xC0ACU)
+#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CCM ((uint16_t)0xC0ADU)
+#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CCM_8 ((uint16_t)0xC0AEU)
+#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CCM_8 ((uint16_t)0xC0AFU) /* ARIA Cipher Suites (RFC 6209) */
+#define TLS_CIPHER_SUITE_RSA_WITH_ARIA_128_CBC_SHA256 ((uint16_t)0xC03CU)
+#define TLS_CIPHER_SUITE_RSA_WITH_ARIA_256_CBC_SHA384 ((uint16_t)0xC03DU)
+#define TLS_CIPHER_SUITE_DH_DSS_WITH_ARIA_128_CBC_SHA256 ((uint16_t)0xC03EU)
+#define TLS_CIPHER_SUITE_DH_DSS_WITH_ARIA_256_CBC_SHA384 ((uint16_t)0xC03FU)
+#define TLS_CIPHER_SUITE_DH_RSA_WITH_ARIA_128_CBC_SHA256 ((uint16_t)0xC040U)
+#define TLS_CIPHER_SUITE_DH_RSA_WITH_ARIA_256_CBC_SHA384 ((uint16_t)0xC041U)
+#define TLS_CIPHER_SUITE_DHE_DSS_WITH_ARIA_128_CBC_SHA256 ((uint16_t)0xC042U)
+#define TLS_CIPHER_SUITE_DHE_DSS_WITH_ARIA_256_CBC_SHA384 ((uint16_t)0xC043U)
+#define TLS_CIPHER_SUITE_DHE_RSA_WITH_ARIA_128_CBC_SHA256 ((uint16_t)0xC044U)
+#define TLS_CIPHER_SUITE_DHE_RSA_WITH_ARIA_256_CBC_SHA384 ((uint16_t)0xC045U)
+#define TLS_CIPHER_SUITE_DHE_RSA_WITH_ARIA_128_GCM_SHA256 ((uint16_t)0xC07CU)
+#define TLS_CIPHER_SUITE_DHE_RSA_WITH_ARIA_256_GCM_SHA384 ((uint16_t)0xC07DU)
+#define TLS_CIPHER_SUITE_DH_anon_WITH_ARIA_128_CBC_SHA256    0xC046U
+#define TLS_CIPHER_SUITE_DH_anon_WITH_ARIA_256_CBC_SHA384    0xC047U
+#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_ARIA_128_CBC_SHA256 ((uint16_t)0xC048U)
+#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_ARIA_256_CBC_SHA384 ((uint16_t)0xC049U)
+#define TLS_CIPHER_SUITE_ECDH_ECDSA_WITH_ARIA_128_CBC_SHA256 ((uint16_t)0xC04AU)
+#define TLS_CIPHER_SUITE_ECDH_ECDSA_WITH_ARIA_256_CBC_SHA384 ((uint16_t)0xC04BU)
+#define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_ARIA_128_CBC_SHA256 ((uint16_t)0xC04CU)
+#define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_ARIA_256_CBC_SHA384 ((uint16_t)0xC04DU)
+#define TLS_CIPHER_SUITE_ECDH_RSA_WITH_ARIA_128_CBC_SHA256 ((uint16_t)0xC04EU)
+#define TLS_CIPHER_SUITE_ECDH_RSA_WITH_ARIA_256_CBC_SHA384 ((uint16_t)0xC04FU)
+#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_ARIA_128_GCM_SHA256 ((uint16_t)0xC050U)
+#define TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_ARIA_256_GCM_SHA384 ((uint16_t)0xC051U)
+#define TLS_CIPHER_SUITE_ECDH_ECDSA_WITH_ARIA_128_GCM_SHA256 ((uint16_t)0xC052U)
+#define TLS_CIPHER_SUITE_ECDH_ECDSA_WITH_ARIA_256_GCM_SHA384 ((uint16_t)0xC053U)
+#define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_ARIA_128_GCM_SHA256 ((uint16_t)0xC054U)
+#define TLS_CIPHER_SUITE_ECDHE_RSA_WITH_ARIA_256_GCM_SHA384 ((uint16_t)0xC055U)
+#define TLS_CIPHER_SUITE_ECDH_RSA_WITH_ARIA_128_GCM_SHA256 ((uint16_t)0xC056U)
+#define TLS_CIPHER_SUITE_ECDH_RSA_WITH_ARIA_256_GCM_SHA384 ((uint16_t)0xC057U) /* TLS Alert Levels */
+#define TLS_ALERT_LEVEL_WARNING   1U
+#define TLS_ALERT_LEVEL_FATAL     2U
 
 /* TLS Extension Types */
-#define TLS_EXTENSION_SERVER_NAME              0
-#define TLS_EXTENSION_MAX_FRAGMENT_LENGTH      1
-#define TLS_EXTENSION_STATUS_REQUEST          5
-#define TLS_EXTENSION_SUPPORTED_GROUPS         10
-#define TLS_EXTENSION_EC_POINT_FORMATS         11
-#define TLS_EXTENSION_SIGNATURE_ALGORITHMS     13
-#define TLS_EXTENSION_USE_SRTP                 14
-#define TLS_EXTENSION_HEARTBEAT                15
-/* TLS Heartbeat (RFC 6520) */
-#define TLS_HEARTBEAT_MESSAGE_REQUEST               1
-#define TLS_HEARTBEAT_MESSAGE_RESPONSE              2
-#define TLS_HEARTBEAT_MODE_PEER_ALLOWED_TO_SEND    1
-#define TLS_HEARTBEAT_MODE_PEER_NOT_ALLOWED_TO_SEND 2
-#define TLS_HEARTBEAT_MIN_PADDING_LEN             16
+#define TLS_EXTENSION_SERVER_NAME ((uint16_t)0U)
+#define TLS_EXTENSION_MAX_FRAGMENT_LENGTH ((uint16_t)1U)
+#define TLS_EXTENSION_STATUS_REQUEST ((uint16_t)5U)
+#define TLS_EXTENSION_SUPPORTED_GROUPS ((uint16_t)10U)
+#define TLS_EXTENSION_EC_POINT_FORMATS ((uint16_t)11U)
+#define TLS_EXTENSION_SIGNATURE_ALGORITHMS ((uint16_t)13U)
+#define TLS_EXTENSION_USE_SRTP ((uint16_t)14U)
+#define TLS_EXTENSION_HEARTBEAT ((uint16_t)15U) /* TLS Heartbeat (RFC 6520) */
+#define TLS_HEARTBEAT_MESSAGE_REQUEST               1U
+#define TLS_HEARTBEAT_MESSAGE_RESPONSE              2U
+#define TLS_HEARTBEAT_MODE_PEER_ALLOWED_TO_SEND    1U
+#define TLS_HEARTBEAT_MODE_PEER_NOT_ALLOWED_TO_SEND 2U
+#define TLS_HEARTBEAT_MIN_PADDING_LEN             16U
 
-#define TLS_EXTENSION_APPLICATION_LAYER_PROTOCOL_NEGOTIATION 16
-#define TLS_EXTENSION_SIGNED_CERTIFICATE_TIMESTAMP 18
-#define TLS_EXTENSION_CLIENT_CERTIFICATE_TYPE  19
-#define TLS_EXTENSION_SERVER_CERTIFICATE_TYPE  20
-/* RFC 7250 / IANA TLS Certificate Types */
-#define TLS_CERT_TYPE_X509               0
+#define TLS_EXTENSION_APPLICATION_LAYER_PROTOCOL_NEGOTIATION ((uint16_t)16U)
+#define TLS_EXTENSION_SIGNED_CERTIFICATE_TIMESTAMP ((uint16_t)18U)
+#define TLS_EXTENSION_CLIENT_CERTIFICATE_TYPE ((uint16_t)19U)
+#define TLS_EXTENSION_SERVER_CERTIFICATE_TYPE ((uint16_t)20U) /* RFC 7250 / IANA TLS Certificate Types */
+#define TLS_CERT_TYPE_X509               0U
 #define TLS_CERT_TYPE_OPENPGP            1
-#define TLS_CERT_TYPE_RAW_PUBLIC_KEY     2
-#define TLS_EXTENSION_PADDING                  21
-#define TLS_EXTENSION_ENCRYPT_THEN_MAC         22
-#define TLS_EXTENSION_EXTENDED_MASTER_SECRET   23
-#define TLS_EXTENSION_TOKEN_BINDING            24
-#define TLS_EXTENSION_CACHED_INFO              25
-#define TLS_EXTENSION_TLS_LTS                  27
-#define TLS_EXTENSION_COMPRESS_CERTIFICATE     27
-#define TLS_EXTENSION_RECORD_SIZE_LIMIT        28
-#define TLS_EXTENSION_PWD_PROTECT              29
-#define TLS_EXTENSION_PWD_CLEAR                30
-#define TLS_EXTENSION_PASSWORD_SALT            31
-#define TLS_EXTENSION_TICKET_PINNING           35
-#define TLS_EXTENSION_TLS_CERT_WITH_EXTERN_PSK 36
-#define TLS_EXTENSION_DELEGATED_CREDENTIAL     34
-#define TLS_EXTENSION_SESSION_TICKET           35
-#define TLS_EXTENSION_PRE_SHARED_KEY           41
-#define TLS_EXTENSION_EARLY_DATA               42
-#define TLS_EXTENSION_SUPPORTED_VERSIONS       43
-#define TLS_EXTENSION_COOKIE                   44
-#define TLS_EXTENSION_PSK_KEY_EXCHANGE_MODES   45
-#define TLS_EXTENSION_CERTIFICATE_AUTHORITIES  47
-#define TLS_EXTENSION_OID_FILTERS              48
-#define TLS_EXTENSION_POST_HANDSHAKE_AUTH      49
-#define TLS_EXTENSION_SIGNATURE_ALGORITHMS_CERT 50
-#define TLS_EXTENSION_KEY_SHARE                51
-#define TLS_EXTENSION_CONNECTION_ID            54  /* RFC 9146 / RFC 9147: DTLS Connection ID */
+#define TLS_CERT_TYPE_RAW_PUBLIC_KEY     2U
+#define TLS_EXTENSION_PADDING ((uint16_t)21U)
+#define TLS_EXTENSION_ENCRYPT_THEN_MAC ((uint16_t)22U)
+#define TLS_EXTENSION_EXTENDED_MASTER_SECRET ((uint16_t)23U)
+#define TLS_EXTENSION_TOKEN_BINDING ((uint16_t)24U)
+#define TLS_EXTENSION_CACHED_INFO ((uint16_t)25U)
+#define TLS_EXTENSION_TLS_LTS ((uint16_t)27U)
+#define TLS_EXTENSION_COMPRESS_CERTIFICATE ((uint16_t)27U)
+#define TLS_EXTENSION_RECORD_SIZE_LIMIT ((uint16_t)28U)
+#define TLS_EXTENSION_PWD_PROTECT ((uint16_t)29U)
+#define TLS_EXTENSION_PWD_CLEAR ((uint16_t)30U)
+#define TLS_EXTENSION_PASSWORD_SALT ((uint16_t)31U)
+#define TLS_EXTENSION_TICKET_PINNING ((uint16_t)35U)
+#define TLS_EXTENSION_TLS_CERT_WITH_EXTERN_PSK ((uint16_t)36U)
+#define TLS_EXTENSION_DELEGATED_CREDENTIAL ((uint16_t)34U)
+#define TLS_EXTENSION_SESSION_TICKET ((uint16_t)35U)
+#define TLS_EXTENSION_PRE_SHARED_KEY ((uint16_t)41U)
+#define TLS_EXTENSION_EARLY_DATA ((uint16_t)42U)
+#define TLS_EXTENSION_SUPPORTED_VERSIONS ((uint16_t)43U)
+#define TLS_EXTENSION_COOKIE ((uint16_t)44U)
+#define TLS_EXTENSION_PSK_KEY_EXCHANGE_MODES ((uint16_t)45U)
+#define TLS_EXTENSION_CERTIFICATE_AUTHORITIES ((uint16_t)47U)
+#define TLS_EXTENSION_OID_FILTERS ((uint16_t)48U)
+#define TLS_EXTENSION_POST_HANDSHAKE_AUTH ((uint16_t)49U)
+#define TLS_EXTENSION_SIGNATURE_ALGORITHMS_CERT ((uint16_t)50U)
+#define TLS_EXTENSION_KEY_SHARE ((uint16_t)51U)
+#define TLS_EXTENSION_CONNECTION_ID ((uint16_t)54U) /* RFC 9146 / RFC 9147: DTLS Connection ID */
 /* RFC 5746: Secure renegotiation */
-#define TLS_EXTENSION_RENEGOTIATION_INFO       0xFF01
-
-/* TLS Alert Types */
-#define TLS_ALERT_CLOSE_NOTIFY               0
+#define TLS_EXTENSION_RENEGOTIATION_INFO ((uint16_t)0xFF01U) /* TLS Alert Types */
+#define TLS_ALERT_CLOSE_NOTIFY               0U
 #define TLS_ALERT_UNEXPECTED_MESSAGE         10
 #define TLS_ALERT_BAD_RECORD_MAC             20
 #define TLS_ALERT_DECRYPTION_FAILED           21
@@ -372,16 +350,14 @@ extern "C" {
 
 /** Size of per-connection handshake workspace for building/parsing handshake messages (client_hello, certificate, etc.). Reused to reduce peak stack and heap. */
 #ifndef NOXTLS_TLS_HANDSHAKE_WORKSPACE_SIZE
-#define NOXTLS_TLS_HANDSHAKE_WORKSPACE_SIZE 8192
+#define NOXTLS_TLS_HANDSHAKE_WORKSPACE_SIZE 8192U
 #endif
 #define TLS_HANDSHAKE_WORKSPACE_SIZE  NOXTLS_TLS_HANDSHAKE_WORKSPACE_SIZE
 
-/* Network I/O Callback Types */
-typedef enum
-{
-    TLS_IO_MODE_BLOCKING,      /* Blocking I/O */
-    TLS_IO_MODE_NON_BLOCKING   /* Non-blocking I/O */
-} tls_io_mode_t;
+/* Network I/O modes (unsigned for Rule 10.3). */
+typedef uint32_t tls_io_mode_t;
+#define TLS_IO_MODE_BLOCKING     ((tls_io_mode_t)0U)  /* Blocking I/O */
+#define TLS_IO_MODE_NON_BLOCKING ((tls_io_mode_t)1U)  /* Non-blocking I/O */
 
 /** Callback result used by nonblocking transports when no progress is possible. */
 #define TLS_IO_WOULD_BLOCK (-2)
@@ -400,7 +376,7 @@ typedef enum
  * @param len: Length of data to send
  * @return: Number of bytes sent, or negative on error
  */
-typedef int32_t (*tls_send_callback_t)(void *user_data, const uint8_t *data, uint32_t len);
+typedef int32_t (*tls_send_callback_t)(void *send_user_data, const uint8_t *send_data, uint32_t send_len);
 
 /*
  * tls_recv_callback: Receive data from the network
@@ -409,32 +385,28 @@ typedef int32_t (*tls_send_callback_t)(void *user_data, const uint8_t *data, uin
  * @param len: Maximum length to receive
  * @return: Number of bytes received, or negative on error
  */
-typedef int32_t (*tls_recv_callback_t)(void *user_data, uint8_t *data, uint32_t len);
+typedef int32_t (*tls_recv_callback_t)(void *recv_user_data, uint8_t *recv_data, uint32_t recv_len);
 
 /*
  * tls_time_callback: Monotonic time in milliseconds
  * @param user_data: Application-specific context
  * @return: Time in milliseconds
  */
-typedef uint64_t (*tls_time_callback_t)(void *user_data);
+typedef uint64_t (*tls_time_callback_t)(void *time_user_data);
 
-/* TLS Connection State */
-typedef enum
-{
-    TLS_STATE_INIT,
-    TLS_STATE_HANDSHAKING,
-    TLS_STATE_CONNECTED,
-    TLS_STATE_CLOSING,
-    TLS_STATE_CLOSED,
-    TLS_STATE_ERROR
-} tls_state_t;
+/* TLS connection state (unsigned for Rule 10.3). */
+typedef uint32_t tls_state_t;
+#define TLS_STATE_INIT        ((tls_state_t)0U)
+#define TLS_STATE_HANDSHAKING ((tls_state_t)1U)
+#define TLS_STATE_CONNECTED   ((tls_state_t)2U)
+#define TLS_STATE_CLOSING     ((tls_state_t)3U)
+#define TLS_STATE_CLOSED      ((tls_state_t)4U)
+#define TLS_STATE_ERROR       ((tls_state_t)5U)
 
-/* TLS Role */
-typedef enum
-{
-    TLS_ROLE_CLIENT,
-    TLS_ROLE_SERVER
-} tls_role_t;
+/* TLS role (unsigned for Rule 10.3). */
+typedef uint32_t tls_role_t;
+#define TLS_ROLE_CLIENT ((tls_role_t)0U)
+#define TLS_ROLE_SERVER ((tls_role_t)1U)
 
 /* Wire-format headers (packed, byte-addressed fields) */
 NOXTLS_PACK_BEGIN
@@ -514,7 +486,7 @@ NOXTLS_MSVC_DISABLE_PADDING
 typedef struct
 {
     uint16_t suite;         /* Cipher suite ID */
-    const char *name;       /* Cipher suite name */
+    const uint8_t *name;       /* Cipher suite name */
     uint8_t key_size;       /* Key size in bytes */
     uint8_t iv_size;        /* IV size in bytes */
     uint8_t mac_size;       /* MAC size in bytes */
@@ -540,7 +512,7 @@ int noxtls_tls_has_pending_output(const tls_context_t *ctx);
 noxtls_return_t noxtls_tls_send_record(tls_context_t *ctx, uint8_t type, const uint8_t *data, uint32_t len);
 noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record);
 noxtls_return_t noxtls_tls_send_alert(tls_context_t *ctx, uint8_t level, uint8_t description);
-void noxtls_tls_set_record_dump_file(const char *path);
+void noxtls_tls_set_record_dump_file(const uint8_t *path);
 
 /* Version Detection */
 noxtls_return_t noxtls_tls_detect_version(tls_context_t *base_ctx, uint16_t *detected_version, uint8_t **client_hello_data, uint32_t *client_hello_len);
@@ -553,15 +525,59 @@ int noxtls_tls_client_hello_supported_versions_has(const uint8_t *client_hello,
                                                    uint32_t client_hello_len,
                                                    uint16_t version);
 
+/*
+ * Algorithm availability (feature-reduced builds).
+ *
+ * NOXTLS_TLS_ALGORITHM_FILTER is 1 when an algorithm that a built-in cipher
+ * suite, signature scheme or named group depends on is compiled out
+ * (NOXTLS_FEATURE_* = 0). The helpers below then report whether a code point
+ * is usable in this build: a client never offers, and a server never selects
+ * or accepts, a code point whose algorithm is unavailable. Code points the
+ * helpers do not classify are reported as available, so the existing
+ * negotiation logic keeps deciding on them. With every such algorithm compiled
+ * in, the filter is 0, the helpers are not built and negotiation is unchanged.
+ */
+#define NOXTLS_TLS_ALGORITHM_FILTER \
+    (!(NOXTLS_FEATURE_RSA && NOXTLS_FEATURE_ECDSA && NOXTLS_FEATURE_ECDH && NOXTLS_FEATURE_DH && \
+       NOXTLS_FEATURE_X25519 && NOXTLS_FEATURE_X448 && NOXTLS_FEATURE_ED25519 && \
+       NOXTLS_FEATURE_MD5 && NOXTLS_FEATURE_SHA1 && NOXTLS_FEATURE_SHA224 && \
+       NOXTLS_FEATURE_SHA384 && NOXTLS_FEATURE_SHA512 && \
+       NOXTLS_FEATURE_AES_CBC && NOXTLS_FEATURE_AES_GCM && NOXTLS_FEATURE_AES_CCM && \
+       NOXTLS_FEATURE_CHACHA20_POLY1305 && NOXTLS_FEATURE_DES && NOXTLS_FEATURE_ARIA))
+
+#if NOXTLS_TLS_ALGORITHM_FILTER
+/**
+ * @brief Return 1 if every algorithm @p cipher_suite needs (key exchange, authentication,
+ *        bulk cipher, record MAC / PRF hash) is compiled into this build, else 0.
+ */
+int noxtls_tls_cipher_suite_is_available(uint16_t cipher_suite);
+/**
+ * @brief Return 1 if the signature algorithm and hash of SignatureScheme / TLS 1.2
+ *        SignatureAndHashAlgorithm @p sig_scheme are compiled into this build, else 0.
+ */
+int noxtls_tls_signature_scheme_is_available(uint16_t sig_scheme);
+/**
+ * @brief Return 1 if the key exchange of TLS named group @p named_group is compiled
+ *        into this build, else 0.
+ */
+int noxtls_tls_named_group_is_available(uint16_t named_group);
+#endif
+
 /* TLS Certificate Verification Functions */
 /* Note: These functions require including NOXTLS_x509.h */
-noxtls_return_t noxtls_tls_verify_certificate_signature(void *cert, void *issuer);
+noxtls_return_t noxtls_tls_verify_certificate_signature(const void *cert, const void *issuer);
 
 /* TLS Record Encryption/Decryption Functions */
 /* Note: These require including NOXTLS_tls12.h or NOXTLS_tls13.h */
 /* Forward declarations to avoid circular dependencies */
+#ifndef NOXTLS_TLS12_CONTEXT_T_DEFINED
+#define NOXTLS_TLS12_CONTEXT_T_DEFINED
 typedef struct tls12_context_s tls12_context_t;
+#endif
+#ifndef NOXTLS_TLS13_CONTEXT_T_DEFINED
+#define NOXTLS_TLS13_CONTEXT_T_DEFINED
 typedef struct tls13_context_s tls13_context_t;
+#endif
 
 noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx, 
                                        uint8_t type,
@@ -591,11 +607,11 @@ noxtls_return_t noxtls_tls13_encrypt_record_early(tls13_context_t *ctx,
 /* RFC 9147: send one DTLS 1.3 encrypted record (DTLSCiphertext with unified header + record number encryption).
  * omit_length: 1 = omit length field (L=0, record runs to end of datagram); 0 = include length (L=1). */
 noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
-                                       int use_handshake_keys,
+                                       int32_t use_handshake_keys,
                                        uint8_t content_type,
                                        const uint8_t *inner_plaintext,
                                        uint32_t inner_len,
-                                       int omit_length);
+                                       int32_t omit_length);
 /* RFC 9147: decrypt one DTLS 1.3 DTLSCiphertext (unified header + record number decryption + AEAD). raw = full packet. */
 noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
                                        const uint8_t *raw, uint32_t raw_len,
@@ -632,7 +648,7 @@ typedef struct
 {
     uint8_t name_type;     /* Name type (0 = host_name) */
     uint16_t name_len;     /* Name length */
-    char *hostname;        /* Hostname (null-terminated) */
+    uint8_t *hostname;        /* Hostname (null-terminated) */
 } tls_sni_extension_t;
 NOXTLS_MSVC_WARNING_POP
 
@@ -682,7 +698,7 @@ NOXTLS_MSVC_WARNING_PUSH
 NOXTLS_MSVC_DISABLE_PADDING
 typedef struct
 {
-    char **protocols;      /* Array of protocol strings */
+    uint8_t **protocols;      /* Array of protocol strings */
     uint32_t count;        /* Number of protocols */
 } tls_alpn_extension_t;
 NOXTLS_MSVC_WARNING_POP
@@ -730,12 +746,11 @@ noxtls_return_t noxtls_tls_find_extension(tls_extensions_t *extensions, uint16_t
 #define NOXTLS_TLS_ALPN_MAX_PROTOCOL_LEN 255u
 
 /** Result of server-side ALPN processing after ClientHello extension parse. */
-typedef enum {
-    NOXTLS_TLS_ALPN_STATUS_NONE = 0,        /**< Client did not offer ALPN. */
-    NOXTLS_TLS_ALPN_STATUS_NEGOTIATED = 1,  /**< Protocol selected (server preference order). */
-    NOXTLS_TLS_ALPN_STATUS_DECODE_ERROR = 2,/**< Malformed ALPN extension. */
-    NOXTLS_TLS_ALPN_STATUS_NO_OVERLAP = 3   /**< Client offered ALPN but no protocol overlap. */
-} noxtls_tls_alpn_status_t;
+typedef uint32_t noxtls_tls_alpn_status_t;
+#define NOXTLS_TLS_ALPN_STATUS_NONE         ((noxtls_tls_alpn_status_t)0U) /**< Client did not offer ALPN. */
+#define NOXTLS_TLS_ALPN_STATUS_NEGOTIATED   ((noxtls_tls_alpn_status_t)1U) /**< Protocol selected (server preference order). */
+#define NOXTLS_TLS_ALPN_STATUS_DECODE_ERROR ((noxtls_tls_alpn_status_t)2U) /**< Malformed ALPN extension. */
+#define NOXTLS_TLS_ALPN_STATUS_NO_OVERLAP   ((noxtls_tls_alpn_status_t)3U) /**< Client offered ALPN but no protocol overlap. */
 
 /**
  * @brief Select ALPN protocol from ClientHello extensions (server role).
@@ -747,10 +762,10 @@ typedef enum {
  * @param selected_len Output length of selected protocol.
  * @return ALPN processing status.
  */
-noxtls_tls_alpn_status_t noxtls_tls_alpn_server_process(const tls_extensions_t *extensions,
-                                                        const char * const *server_protocols,
+noxtls_tls_alpn_status_t noxtls_tls_alpn_server_process(tls_extensions_t *extensions,
+                                                        const uint8_t * const *server_protocols,
                                                         uint32_t server_count,
-                                                        char *selected,
+                                                        uint8_t *selected,
                                                         uint32_t selected_cap,
                                                         uint16_t *selected_len);
 
@@ -758,7 +773,7 @@ noxtls_tls_alpn_status_t noxtls_tls_alpn_server_process(const tls_extensions_t *
  * @brief Write RFC 7301 ALPN extension (type 0x0010) for a single selected protocol.
  * @return Bytes written, or 0 on error.
  */
-uint32_t noxtls_tls_alpn_write_selected_extension(const char *protocol,
+uint32_t noxtls_tls_alpn_write_selected_extension(const uint8_t *protocol,
                                                   uint16_t protocol_len,
                                                   uint8_t *buf,
                                                   uint32_t buf_cap);
@@ -767,5 +782,5 @@ uint32_t noxtls_tls_alpn_write_selected_extension(const char *protocol,
 }
 #endif
 
-#endif /* _NOXTLS_TLS_COMMON_H_ */
+#endif /* NOXTLS_TLS_COMMON_H_ */
 

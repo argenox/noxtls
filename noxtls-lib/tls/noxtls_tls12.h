@@ -21,8 +21,8 @@
 *
 *****************************************************************************/
 
-#ifndef _NOXTLS_TLS12_H_
-#define _NOXTLS_TLS12_H_
+#ifndef NOXTLS_TLS12_H_
+#define NOXTLS_TLS12_H_
 
 #include <stdint.h>
 
@@ -36,8 +36,8 @@
 extern "C" {
 #endif
 
-/* Forward declaration to avoid including full X.509 header here. */
-typedef struct noxtls_x509_crl noxtls_x509_crl_t;
+#include "certs/noxtls_x509_crl_fwd.h"
+struct noxtls_x509_verify_policy;
 
 #define TLS12_SESSION_CACHE_SIZE   16U
 #define TLS12_SESSION_SNI_MAX      255u
@@ -48,7 +48,7 @@ typedef struct noxtls_x509_crl noxtls_x509_crl_t;
 /* TLS 1.2 Context */
 NOXTLS_MSVC_WARNING_PUSH
 NOXTLS_MSVC_DISABLE_PADDING
-typedef struct tls12_context_s
+struct tls12_context_s
 {
     dtls_context_t base;            /* Base TLS/DTLS context */
     
@@ -76,7 +76,7 @@ typedef struct tls12_context_s
     uint64_t server_seq_num;        /* Server sequence number */
     
     /* Certificate */
-    uint8_t *server_cert;           /* Server certificate (DER format) */
+    uint8_t *server_cert;           /* Server certificate (DER); owned on client path */
     uint32_t server_cert_len;       /* Server certificate length */
     const uint8_t **server_cert_chain;      /* Optional intermediate certificates (DER, non-owning) */
     const uint32_t *server_cert_chain_len;  /* Lengths for server_cert_chain entries */
@@ -109,7 +109,7 @@ typedef struct tls12_context_s
     /** Number of entries in server_cipher_suites. */
     uint32_t server_cipher_suites_count;
     /** Optional server ALPN protocol list (non-owning pointers). */
-    const char **server_alpn_protocols;
+    const uint8_t **server_alpn_protocols;
     /** Number of entries in server_alpn_protocols. */
     uint32_t server_alpn_count;
     /** Negotiated ALPN protocol from last handshake (owned buffer). */
@@ -146,16 +146,17 @@ typedef struct tls12_context_s
     uint8_t client_request_ocsp_status;   /* Client: send status_request extension in ClientHello. */
     uint8_t client_offered_ocsp_status;   /* Server: parsed client status_request(ocsp) extension. */
     uint8_t status_request_negotiated;    /* ServerHello carried status_request (client expects CertificateStatus). */
+    uint8_t client_certificate_status_pending; /* Client: Certificate processed, CertificateStatus not yet read (re-entry after WANT_READ). */
     const uint8_t *server_ocsp_response;  /* Server: configured stapled OCSP response DER (non-owning). */
     uint32_t server_ocsp_response_len;    /* Server stapled OCSP response length. */
     uint8_t *peer_ocsp_response;          /* Client: received stapled OCSP response DER (owned). */
     uint32_t peer_ocsp_response_len;      /* Client received stapled OCSP response length. */
 
     /* Client configuration */
-    const char *server_name;             /* SNI hostname (optional) */
+    const uint8_t *server_name;             /* SNI hostname (optional) */
     uint16_t server_name_len;            /* SNI hostname length */
     /** Server (RFC 6066): if non-NULL, ClientHello host_name must match (ASCII, case-insensitive). */
-    const char *server_expect_client_sni;
+    const uint8_t *server_expect_client_sni;
     /** Server: with \a server_expect_client_sni, send fatal unrecognized_name when set; else warning then continue. */
     uint8_t server_expect_sni_fatal;
     const noxtls_x509_crl_t *verify_crl; /* Optional CRL list for server cert verification (non-owning). */
@@ -247,10 +248,15 @@ typedef struct tls12_context_s
     /* Consecutive empty app-data records / warning alerts (BoringSSL-compatible limits). */
     uint8_t empty_record_count;
     uint8_t warning_alert_count;
-} tls12_context_t;
+
+    /** Server: optional explicit client-certificate policy (non-owning); overrides the global trust store. */
+    const struct noxtls_x509_verify_policy *client_verify_policy;
+};
+#ifndef NOXTLS_TLS12_CONTEXT_T_DEFINED
+#define NOXTLS_TLS12_CONTEXT_T_DEFINED
+typedef struct tls12_context_s tls12_context_t;
+#endif
 NOXTLS_MSVC_WARNING_POP
-
-
 
 typedef struct {
     uint8_t id[TLS_SESSION_ID_MAX_LEN];
@@ -262,6 +268,7 @@ typedef struct {
     uint16_t sni_len;
     uint8_t sni[255];
     uint8_t extended_master_secret; /* RFC 7627: session established with EMS */
+    uint8_t server_binding[32];     /* SHA-256 of issuing server config (leaf certs, version, cert type) */
     uint8_t in_use;
 } tls12_session_cache_entry_t;
 
@@ -277,6 +284,7 @@ typedef struct {
     uint8_t extended_master_secret;
     uint32_t issued_at;
     uint32_t lifetime_hint;
+    uint8_t server_binding[32];     /* SHA-256 of issuing server config (leaf certs, version, cert type) */
     uint8_t in_use;
 } tls12_ticket_cache_entry_t;
 
@@ -316,7 +324,6 @@ noxtls_return_t noxtls_tls12_close(tls12_context_t *ctx);
 int noxtls_tls12_client_session_has_ticket(void);
 uint16_t noxtls_tls12_client_session_ticket_len(void);
 noxtls_return_t noxtls_tls12_client_session_copy_ticket(uint8_t *out, uint16_t out_cap, uint16_t *out_len);
-
 
 /** Server: send HelloRequest to ask client to renegotiate (RFC 5746). */
 noxtls_return_t noxtls_tls12_send_hello_request(tls12_context_t *ctx);
@@ -359,9 +366,9 @@ noxtls_return_t noxtls_tls12_prepare_rsa_server_key_exchange_scheme(tls12_contex
 /** Set server cipher-suite allowlist (wire IDs). Call before handshake. */
 void noxtls_tls12_set_server_cipher_suites(tls12_context_t *ctx, const uint16_t *suites, uint32_t count);
 /** Server: set supported ALPN protocol names (non-owning). */
-void noxtls_tls12_set_server_alpn_protocols(tls12_context_t *ctx, const char **protocols, uint32_t count);
+void noxtls_tls12_set_server_alpn_protocols(tls12_context_t *ctx, const uint8_t **protocols, uint32_t count);
 /** Server (RFC 6066): require ClientHello SNI host_name to match \a ascii_hostname (case-insensitive). NULL disables. */
-void noxtls_tls12_set_server_expected_client_sni(tls12_context_t *ctx, const char *ascii_hostname, int mismatch_fatal);
+void noxtls_tls12_set_server_expected_client_sni(tls12_context_t *ctx, const uint8_t *ascii_hostname, int mismatch_fatal);
 /** Set optional server certificate chain (intermediate certs only, DER). */
 void noxtls_tls12_set_server_certificate_chain(tls12_context_t *ctx,
                                                const uint8_t **certs,
@@ -382,6 +389,30 @@ void noxtls_tls12_set_client_fallback_scsv(tls12_context_t *ctx, int enable);
 void noxtls_tls12_request_client_auth(tls12_context_t *ctx, int request);
 /** Server: require a non-empty client certificate (implies request). */
 void noxtls_tls12_require_client_auth(tls12_context_t *ctx, int require);
+/**
+ * Server: verify client certificates against an explicit policy (trust anchors,
+ * key usage, EKU, time source) instead of the global trust store. When set,
+ * verification fails closed if the policy has no anchors. The policy must stay
+ * valid for the lifetime of the handshake. NULL restores the global behavior.
+ */
+void noxtls_tls12_set_client_verify_policy(tls12_context_t *ctx,
+                                           const struct noxtls_x509_verify_policy *policy);
+/**
+ * Server: return the verified client leaf certificate after the handshake.
+ * \p parsed (optional) receives the parsed x509_certificate_t as an opaque pointer.
+ * Pointers stay valid until the context is freed. Returns NOXTLS_RETURN_FAILED when
+ * no client certificate was accepted.
+ */
+/**
+ * Return sizeof(tls12_context_t) as compiled into the library. Consumers compare
+ * it with their own sizeof to detect a noxtls_config.h mismatch (for example a
+ * different NOXTLS_TLS_MAX_RECORD_SIZE) before using a context.
+ */
+uint32_t noxtls_tls12_context_size(void);
+noxtls_return_t noxtls_tls12_get_client_certificate(const tls12_context_t *ctx,
+                                                    const uint8_t **der,
+                                                    uint32_t *der_len,
+                                                    const void **parsed);
 /** Client: set RSA certificate + key for CertificateRequest response. Call before connect. */
 noxtls_return_t noxtls_tls12_set_client_cert_rsa(tls12_context_t *ctx, const uint8_t *cert_der,
                                                 uint32_t cert_len, void *rsa_key);
@@ -406,5 +437,5 @@ noxtls_return_t noxtls_tls12_get_peer_ocsp_response(const tls12_context_t *ctx,
 }
 #endif
 
-#endif /* _NOXTLS_TLS12_H_ */
+#endif /* NOXTLS_TLS12_H_ */
 

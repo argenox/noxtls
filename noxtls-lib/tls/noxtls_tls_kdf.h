@@ -20,8 +20,8 @@
 *
 *****************************************************************************/
 
-#ifndef _NOXTLS_TLS_KDF_H_
-#define _NOXTLS_TLS_KDF_H_
+#ifndef NOXTLS_TLS_KDF_H_
+#define NOXTLS_TLS_KDF_H_
 
 #include <stdint.h>
 
@@ -76,5 +76,5 @@ noxtls_return_t dtls13_derive_secret(noxtls_hash_algos_t hash_algo,
 }
 #endif
 
-#endif /* _NOXTLS_TLS_KDF_H_ */
+#endif /* NOXTLS_TLS_KDF_H_ */
 

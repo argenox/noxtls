@@ -24,8 +24,11 @@
 #include <stdint.h>
 #include <string.h>
 #include "noxtls_aes.h"
+#include "noxtls_aes_accel.h"
 #include "noxtls_aes_internal.h"
 #include "noxtls_common.h"
+#include "common/noxtls_accel_port.h"
+#include "noxtls_ct.h"
 
 #if NOXTLS_FEATURE_AES_CBC
 
@@ -43,32 +46,52 @@
  * @param type is the AES variant, 128, 192, 256
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_* on failure
  */
-/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
+/* Block-indexed CBC encrypt; extents follow caller data_len / AES block size. */
 noxtls_return_t noxtls_aes_encrypt_cbc(const uint8_t* key,
                     const uint8_t* data,
                     uint32_t data_len,
                     const uint8_t * iv,
                     uint8_t* output,
                     noxtls_aes_type_t type)
-/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    int i;
-    uint32_t cur_block = 0;
+    if ((key == NULL) || (data == NULL) || (output == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    if (data_len > UINT32_MAX - (NOXTLS_AES_BLOCK_LENGTH - 1U)) {
+        return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
+    }
+
+    /* Preserve the existing zero-padding contract for CBC encryption. */
+    const uint32_t output_span = ((data_len + NOXTLS_AES_BLOCK_LENGTH - 1U) /
+        NOXTLS_AES_BLOCK_LENGTH) * NOXTLS_AES_BLOCK_LENGTH;
+
+    uint32_t i;
+    uint32_t cur_block = 0U;
     const uint8_t * iv_src = NULL;
     uint8_t temp_block[NOXTLS_AES_BLOCK_LENGTH];
     uint8_t zero_iv[NOXTLS_AES_BLOCK_LENGTH];
+    const uint32_t block_sz = (uint32_t)NOXTLS_AES_BLOCK_LENGTH;
 
-    for(cur_block = 0; cur_block < data_len; cur_block += NOXTLS_AES_BLOCK_LENGTH)
+#if NOXTLS_PORT_AES_MODE_ACCEL
     {
-        uint32_t block_len = (data_len - cur_block < NOXTLS_AES_BLOCK_LENGTH) ?
-                             (data_len - cur_block) : NOXTLS_AES_BLOCK_LENGTH;
+        noxtls_return_t port_rc = noxtls_aes_mode_accel_port(NOXTLS_AES_ACCEL_MODE_CBC, 0U, key, type, iv, data, data_len, output);
+        if(port_rc != NOXTLS_RETURN_NOT_SUPPORTED) {
+            return port_rc;
+        }
+    }
+#endif
+    for (cur_block = 0U; cur_block < data_len; cur_block += block_sz)
+    {
+        uint32_t remain = (uint32_t)(data_len - cur_block);
+        uint32_t block_len = (uint32_t)((remain < block_sz) ? remain : block_sz);
 
         /* Cipher Block Chaining: XOR with previous ciphertext (or IV) */
-        if(cur_block == 0) {
+        if (cur_block == 0U) {
             /* Use IV for first block */
-            if(iv == NULL) {
+            if (iv == NULL) {
                 /* Zero IV if not provided */
-                memset(zero_iv, 0, NOXTLS_AES_BLOCK_LENGTH);
+                noxtls_secure_zero((zero_iv), (size_t)(block_sz));
                 iv_src = zero_iv;
             }
             else {
@@ -77,19 +100,19 @@ noxtls_return_t noxtls_aes_encrypt_cbc(const uint8_t* key,
         }
         else {
             /* Previous Block Output */
-            iv_src = &output[cur_block - NOXTLS_AES_BLOCK_LENGTH];
+            iv_src = &output[cur_block - block_sz];
         }
 
         /* XOR the input data with IV/previous ciphertext */
-        memcpy(temp_block, &data[cur_block], block_len);
-        if(block_len < NOXTLS_AES_BLOCK_LENGTH) {
-            memset(&temp_block[block_len], 0, NOXTLS_AES_BLOCK_LENGTH - block_len);
+        noxtls_copy_u8(temp_block, sizeof(temp_block), &data[cur_block], (size_t)block_len);
+        if (block_len < block_sz) {
+            noxtls_secure_zero((&temp_block[block_len]), ((size_t)(block_sz - block_len)));
         }
-        for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
-            temp_block[i] ^= iv_src[i];
+        for (i = 0U; i < block_sz; i += 1U) {
+            temp_block[i] = (uint8_t)(temp_block[i] ^ iv_src[i]);
         }
 
-        noxtls_aes_encrypt_block_internal(key, temp_block, &output[cur_block], type);
+        NOXTLS_AES_CHECK(noxtls_aes_encrypt_block_internal(key, temp_block, &output[cur_block], type), output, output_span, NULL, 0U);
     }
 
     return NOXTLS_RETURN_SUCCESS;
@@ -109,6 +132,7 @@ noxtls_return_t noxtls_aes_encrypt_cbc(const uint8_t* key,
  * @param type is the AES variant, 128, 192, 256
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_* on failure
  */
+/* Block-indexed CBC decrypt; extents follow caller data_len / AES block size. */
 noxtls_return_t noxtls_aes_decrypt_cbc(const uint8_t* key,
                     const uint8_t* data,
                     uint32_t data_len,
@@ -116,31 +140,48 @@ noxtls_return_t noxtls_aes_decrypt_cbc(const uint8_t* key,
                     uint8_t* output,
                     noxtls_aes_type_t type)
 {
-    int i;
-    uint32_t cur_block = 0;
+    if ((key == NULL) || (data == NULL) || (output == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    if ((data_len % NOXTLS_AES_BLOCK_LENGTH) != 0U) {
+        return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
+    }
+
+    uint32_t i;
+    uint32_t cur_block = 0U;
     const uint8_t* iv_src = NULL;
     uint8_t temp_block[NOXTLS_AES_BLOCK_LENGTH];
     uint8_t zero_iv[NOXTLS_AES_BLOCK_LENGTH];
+    const uint32_t block_sz = (uint32_t)NOXTLS_AES_BLOCK_LENGTH;
 
-    for(cur_block = 0; cur_block < data_len; cur_block += NOXTLS_AES_BLOCK_LENGTH)
+#if NOXTLS_PORT_AES_MODE_ACCEL
+    {
+        noxtls_return_t port_rc = noxtls_aes_mode_accel_port(NOXTLS_AES_ACCEL_MODE_CBC, 1U, key, type, iv, data, data_len, output);
+        if(port_rc != NOXTLS_RETURN_NOT_SUPPORTED) {
+            return port_rc;
+        }
+    }
+#endif
+    for (cur_block = 0U; cur_block < data_len; cur_block += block_sz)
     {
         /* Decrypt current ciphertext block into temp */
-        noxtls_aes_decrypt_block_internal(key, &data[cur_block], temp_block, type);
+        NOXTLS_AES_CHECK(noxtls_aes_decrypt_block_internal(key, &data[cur_block], temp_block, type), output, data_len, NULL, 0U);
 
         /* XOR with previous ciphertext (or IV for first block) */
-        if(cur_block == 0) {
-            if(iv == NULL) {
-                memset(zero_iv, 0, NOXTLS_AES_BLOCK_LENGTH);
+        if (cur_block == 0U) {
+            if (iv == NULL) {
+                noxtls_secure_zero((zero_iv), (size_t)(block_sz));
                 iv_src = zero_iv;
             } else {
                 iv_src = iv;
             }
         } else {
-            iv_src = &data[cur_block - NOXTLS_AES_BLOCK_LENGTH];
+            iv_src = &data[cur_block - block_sz];
         }
 
-        for(i = 0; i < NOXTLS_AES_BLOCK_LENGTH; i++) {
-            output[cur_block + i] = temp_block[i] ^ iv_src[i];
+        for (i = 0U; i < block_sz; i += 1U) {
+            output[cur_block + i] = (uint8_t)(temp_block[i] ^ iv_src[i]);
         }
     }
 

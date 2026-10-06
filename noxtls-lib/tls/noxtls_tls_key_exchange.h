@@ -20,8 +20,8 @@
 *
 *****************************************************************************/
 
-#ifndef _NOXTLS_TLS_KEY_EXCHANGE_H_
-#define _NOXTLS_TLS_KEY_EXCHANGE_H_
+#ifndef NOXTLS_TLS_KEY_EXCHANGE_H_
+#define NOXTLS_TLS_KEY_EXCHANGE_H_
 
 #include <stdint.h>
 
@@ -41,8 +41,14 @@ extern "C" {
 #endif
 
 /* Forward declarations - actual types are defined in NOXTLS_tls12.h and NOXTLS_tls13.h */
+#ifndef NOXTLS_TLS12_CONTEXT_T_DEFINED
+#define NOXTLS_TLS12_CONTEXT_T_DEFINED
 typedef struct tls12_context_s tls12_context_t;
+#endif
+#ifndef NOXTLS_TLS13_CONTEXT_T_DEFINED
+#define NOXTLS_TLS13_CONTEXT_T_DEFINED
 typedef struct tls13_context_s tls13_context_t;
+#endif
 
 /* TLS ECDHE Key Exchange Context */
 NOXTLS_MSVC_WARNING_PUSH
@@ -157,7 +163,7 @@ noxtls_return_t noxtls_tls_ecdhe_compute_shared_secret(tls_ecdhe_context_t *ctx,
  * @param[in] peer_public_key Peer's 32-byte public key (RFC 7748).
  * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` on invalid pointers; `NOXTLS_RETURN_FAILED` if wrong group, all-zero shared secret, or allocation failure.
  */
-noxtls_return_t noxtls_tls_ecdhe_compute_shared_secret_x25519(tls_ecdhe_context_t *ctx, const uint8_t peer_public_key[32]);
+noxtls_return_t noxtls_tls_ecdhe_compute_shared_secret_x25519(tls_ecdhe_context_t *ctx, const uint8_t *peer_public_key);
 
 /**
  * @brief X448 shared secret: replaces any previous `shared_secret` in @p ctx (56 bytes).
@@ -165,7 +171,7 @@ noxtls_return_t noxtls_tls_ecdhe_compute_shared_secret_x25519(tls_ecdhe_context_
  * @param[in] peer_public_key Peer's 56-byte public key (RFC 7748).
  * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` on invalid pointers; `NOXTLS_RETURN_FAILED` if wrong group, all-zero shared secret, or allocation failure.
  */
-noxtls_return_t noxtls_tls_ecdhe_compute_shared_secret_x448(tls_ecdhe_context_t *ctx, const uint8_t peer_public_key[56]);
+noxtls_return_t noxtls_tls_ecdhe_compute_shared_secret_x448(tls_ecdhe_context_t *ctx, const uint8_t *peer_public_key);
 
 /**
  * @brief Serialize the local ECDHE public key for wire encoding (raw X25519/X448 bytes or uncompressed ECC point).
@@ -174,7 +180,7 @@ noxtls_return_t noxtls_tls_ecdhe_compute_shared_secret_x448(tls_ecdhe_context_t 
  * @param[in,out] output_len On input, size of @p output; on success, written length; on undersized buffer, set to required length and returns `NOXTLS_RETURN_FAILED`.
  * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` on invalid pointers; `NOXTLS_RETURN_FAILED` if keys are missing or buffer too small.
  */
-noxtls_return_t noxtls_tls_ecdhe_get_public_key_encoded(tls_ecdhe_context_t *ctx, uint8_t *output, uint32_t *output_len);
+noxtls_return_t noxtls_tls_ecdhe_get_public_key_encoded(const tls_ecdhe_context_t *ctx, uint8_t *output, uint32_t *output_len);
 
 /**
  * @brief TLS 1.2 server: build and send ECDHE ServerKeyExchange (signed when server credentials are configured).
@@ -182,7 +188,7 @@ noxtls_return_t noxtls_tls_ecdhe_get_public_key_encoded(tls_ecdhe_context_t *ctx
  * @param[in,out] ecdhe_ctx ECDHE state with generated ephemeral key and named group.
  * @return `NOXTLS_RETURN_SUCCESS` if the record was sent; `NOXTLS_RETURN_NULL` on invalid pointers; `NOXTLS_RETURN_FAILED` on role/build/sign errors; `NOXTLS_RETURN_NOT_ENOUGH_MEMORY` if allocation fails.
  */
-noxtls_return_t noxtls_tls12_ecdhe_send_server_key_exchange(tls12_context_t *ctx, tls_ecdhe_context_t *ecdhe_ctx);
+noxtls_return_t noxtls_tls12_ecdhe_send_server_key_exchange(tls12_context_t *ctx, const tls_ecdhe_context_t *ecdhe_ctx);
 
 /**
  * @brief TLS 1.2 client: receive and verify ECDHE ServerKeyExchange, then compute shared secret.
@@ -198,7 +204,7 @@ noxtls_return_t noxtls_tls12_ecdhe_recv_server_key_exchange(tls12_context_t *ctx
  * @param[in] ecdhe_ctx Local ECDHE public material.
  * @return `NOXTLS_RETURN_SUCCESS` if the record was sent; `NOXTLS_RETURN_NULL` on invalid pointers; `NOXTLS_RETURN_FAILED` on role or encode errors; `NOXTLS_RETURN_NOT_ENOUGH_MEMORY` if allocation fails.
  */
-noxtls_return_t noxtls_tls12_ecdhe_send_client_key_exchange(tls12_context_t *ctx, tls_ecdhe_context_t *ecdhe_ctx);
+noxtls_return_t noxtls_tls12_ecdhe_send_client_key_exchange(tls12_context_t *ctx, const tls_ecdhe_context_t *ecdhe_ctx);
 
 /**
  * @brief TLS 1.2 server: receive ClientKeyExchange and compute ECDHE shared secret.
@@ -267,6 +273,27 @@ noxtls_return_t noxtls_tls12_dhe_send_server_key_exchange(tls12_context_t *ctx, 
 noxtls_return_t noxtls_tls12_dhe_recv_server_key_exchange(tls12_context_t *ctx, tls_dhe_context_t *dhe_ctx, const uint8_t *record_data, uint32_t record_len);
 
 /**
+ * @brief TLS 1.2 client: verify the ServerKeyExchange signature (ECDHE and DHE).
+ *
+ * Verifies the signature over client_random || server_random || params using the
+ * SignatureAndHashAlgorithm carried in the message (RSA PKCS#1 v1.5, RSA-PSS rsae or
+ * ECDSA) and the key in the parsed server certificate. The scheme must be one the
+ * client advertised in its ClientHello \c signature_algorithms extension.
+ *
+ * @param[in,out] ctx TLS 1.2 client context (randoms, parsed server certificate, workspace).
+ * @param[in] hs_msg Full handshake message including the 4-byte header.
+ * @param[in] hs_len Length of @p hs_msg.
+ * @param[in] params_end Offset in @p hs_msg where the signed params end (signature header starts).
+ * @return `NOXTLS_RETURN_SUCCESS` if the signature verifies; `NOXTLS_RETURN_BAD_DATA` on framing errors;
+ *         `NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER` if the scheme was not offered;
+ *         `NOXTLS_RETURN_NOT_ENOUGH_MEMORY` on allocation failure; `NOXTLS_RETURN_FAILED` otherwise.
+ */
+noxtls_return_t noxtls_tls12_client_verify_ske_signature(tls12_context_t *ctx,
+                                                        const uint8_t *hs_msg,
+                                                        uint32_t hs_len,
+                                                        uint32_t params_end);
+
+/**
  * @brief TLS 1.2 client: send DHE ClientKeyExchange with local public value.
  * @param[in,out] ctx TLS 1.2 client context.
  * @param[in,out] dhe_ctx Client public must be populated after server message processing.
@@ -282,7 +309,7 @@ noxtls_return_t noxtls_tls12_dhe_send_client_key_exchange(tls12_context_t *ctx, 
  * @param[in] record_len Length of @p record_data.
  * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` on invalid pointers; TLS alert codes such as `NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR` on malformed messages.
  */
-noxtls_return_t noxtls_tls12_dhe_recv_client_key_exchange(tls12_context_t *ctx, tls_dhe_context_t *dhe_ctx, const uint8_t *record_data, uint32_t record_len);
+noxtls_return_t noxtls_tls12_dhe_recv_client_key_exchange(const tls12_context_t *ctx, tls_dhe_context_t *dhe_ctx, const uint8_t *record_data, uint32_t record_len);
 
 /**
  * @brief TLS 1.3: encode one KeyShareEntry (group, length, key exchange bytes).
@@ -323,4 +350,4 @@ noxtls_return_t noxtls_tls13_process_server_key_share(const tls13_context_t *ctx
 }
 #endif
 
-#endif /* _NOXTLS_TLS_KEY_EXCHANGE_H_ */
+#endif /* NOXTLS_TLS_KEY_EXCHANGE_H_ */

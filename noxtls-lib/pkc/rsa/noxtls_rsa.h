@@ -23,8 +23,8 @@
 /** @addtogroup noxtls_pkc */
 /** @{ */
 
-#ifndef _NOXTLS_RSA_H_
-#define _NOXTLS_RSA_H_
+#ifndef NOXTLS_RSA_H_
+#define NOXTLS_RSA_H_
 
 #include <stdint.h>
 #include "noxtls_common.h"
@@ -34,16 +34,14 @@
 extern "C" {
 #endif
 
-#define RSA_MAX_KEY_SIZE 4096
-#define RSA_MIN_KEY_SIZE 1024
+#define RSA_MAX_KEY_SIZE 4096U
+#define RSA_MIN_KEY_SIZE 1024U
 
-typedef enum
-{
-    RSA_1024_BIT = 1024,
-    RSA_2048_BIT = 2048,
-    RSA_3072_BIT = 3072,
-    RSA_4096_BIT = 4096,
-} rsa_key_size_t;
+typedef uint32_t rsa_key_size_t;
+#define RSA_1024_BIT ((rsa_key_size_t)1024U)
+#define RSA_2048_BIT ((rsa_key_size_t)2048U)
+#define RSA_3072_BIT ((rsa_key_size_t)3072U)
+#define RSA_4096_BIT ((rsa_key_size_t)4096U)
 
 typedef struct
 {
@@ -86,5 +84,5 @@ noxtls_return_t noxtls_rsa_verify_pss(const rsa_key_t *key, const uint8_t *noxtl
 }
 #endif
 
-#endif /* _NOXTLS_RSA_H_ */
+#endif /* NOXTLS_RSA_H_ */
 

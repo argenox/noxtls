@@ -7,8 +7,8 @@
 * Summary: In-house STM32 AES register-level backend helpers.
 *****************************************************************************/
 
-#ifndef _NOXTLS_STM32_AES_CORE_H_
-#define _NOXTLS_STM32_AES_CORE_H_
+#ifndef NOXTLS_STM32_AES_CORE_H_
+#define NOXTLS_STM32_AES_CORE_H_
 
 #include "vendor/st/noxtls_stm32_accel.h"
 
@@ -84,4 +84,4 @@ noxtls_return_t noxtls_stm32_aes_core_decrypt_block(noxtls_stm32_accel_family_t 
  */
 int noxtls_stm32_cryp_ip_present(noxtls_stm32_accel_family_t family);
 
-#endif /* _NOXTLS_STM32_AES_CORE_H_ */
+#endif /* NOXTLS_STM32_AES_CORE_H_ */

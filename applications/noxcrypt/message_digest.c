@@ -41,6 +41,7 @@ extern "C"
 #endif
 
 #include "noxtls-lib/common/getopt_compat.h"
+#include "noxtls_ct.h"
 #ifdef _MSC_VER
 #pragma warning(disable: 4710)  /* printf/stdio not inlined - CRT, harmless */
 #endif
@@ -108,14 +109,13 @@ void print_digest_usage(void)
  * @param[in] argv Arguments: algorithm name, options, then input text
  * @return 0 on success, -1 on error
  */
-int message_digest(int argc, char ** argv)
+int message_digest(int argc, uint8_t ** argv)
 {
     int c;
    // uint32_t length = 0;
     uint32_t data_length = 0;
     uint8_t * data_buffer = NULL;
     int argc_skip = 0;
-
 
     input_data_type_t type = INPUT_DATA_TYPE_STRING;
 
@@ -124,7 +124,7 @@ int message_digest(int argc, char ** argv)
     size_t i = 0;
     for(i = 0; i < sizeof(md_handlers) / sizeof(md_handlers[0]); i++)
     {
-        if(strncasecmp(argv[0], md_handlers[i].algo, strlen(md_handlers[i].algo)) == 0)
+        if(strncasecmp(argv[0], md_handlers[i].algo, noxtls_u8_strlen(md_handlers[i].algo)) == 0)
         {
             function_handler = md_handlers[i].handler;
             break;
@@ -168,7 +168,6 @@ int message_digest(int argc, char ** argv)
         }
     }
 
-
     if(type == INPUT_DATA_TYPE_STRING)
     {
         int j = 0;
@@ -185,7 +184,7 @@ int message_digest(int argc, char ** argv)
 
         for(j = argc_skip; j <= (argc - 1); j++)
         {
-            int str_len = (int)strlen(argv[j]); /* Space */
+            int str_len = (int)noxtls_u8_strlen(argv[j]); /* Space */
             printf("j=%d  %s\n", j, argv[j]);
 
             memcpy(&data_buffer[total_str_len], argv[j], (size_t)str_len);
@@ -202,7 +201,7 @@ int message_digest(int argc, char ** argv)
     }
     else if(type == INPUT_DATA_TYPE_HEX)
     {
-        size_t hex_len = strlen(argv[argc_skip]);
+        size_t hex_len = noxtls_u8_strlen(argv[argc_skip]);
         int parsed_len;
 
         printf("Hex\n");
@@ -442,9 +441,6 @@ int hash_sha_512_256_handler(uint8_t * data, uint32_t len)
         printf("%s - %u bytes\n", __func__, (unsigned int)len);
     return 0;
 }
-
-
-
 
 #ifdef __cplusplus
 }

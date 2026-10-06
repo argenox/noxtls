@@ -62,6 +62,16 @@
 #include "asn1.h"
 #include "base64.h"
 #include "string_common.h"
+#include "noxtls_ct.h"
+
+/* noxtls_getopt() is POSIX getopt(int, char * const[], const char *) on
+ * non-Windows hosts and the uint8_t-based shim from getopt_win.h on Windows;
+ * adapt the argv pointer type at that boundary only. */
+#ifdef _WIN32
+#define APP_GETOPT_ARGV(v) ((uint8_t * const *)(v))
+#else
+#define APP_GETOPT_ARGV(v) ((char * const *)(v))
+#endif
 
 /* ============================================================================
  * Application-private static workspace (per project policy)
@@ -109,7 +119,6 @@ static void app_workspace_free(void *p)
     (void)p; 
 }
 
-
 /**
  * @brief Reset the workspace
  * 
@@ -136,7 +145,6 @@ static void app_workspace_reset(void)
 #define APP_VERSION_MINOR 1
 #define APP_VERSION_BUILD 4
 
-
 void print_array_hex(const uint8_t * data, uint32_t len);
 void print_array_char(const uint8_t * data, uint32_t len);
 
@@ -148,14 +156,12 @@ typedef enum
     BASE64_TEST
 } base64_op_t;
 
-
-
 /**
  * @brief Print the usage of the application
  *
  * @param[in] name The name of the application
  */
-void print_usage(const char * name)
+void print_usage(const uint8_t * name)
 {
     printf( "usage: %s [switch] <parameters>\n", name);
     
@@ -180,7 +186,6 @@ void print_version(void)
     printf("Copyright Argenox Technologies LLC. All Rights Reserved.\n");
 }
 
-
 /**
  * @brief Run the tests of the application
  */
@@ -196,7 +201,7 @@ void run_tests(void)
  * @param[in] argv The arguments
  * @return The return code
  */
-int main(int argc, char ** argv)
+int main(int argc, char **argv)
 {
     int c;
     uint8_t * input_data = NULL;
@@ -210,7 +215,6 @@ int main(int argc, char ** argv)
     uint32_t output_len = 0;
     uint32_t conv_length = 0;
 
-
     /* check for command line arguments */
     if (argc < 2)
     {
@@ -218,7 +222,7 @@ int main(int argc, char ** argv)
         return -1;
     }
 
-    while ((c = noxtls_getopt (argc, argv, "vhs:x:d:D:t")) != -1)
+    while ((c = noxtls_getopt (argc, APP_GETOPT_ARGV(argv), "vhs:x:d:D:t")) != -1)
     {
         switch (c)
         {
@@ -227,7 +231,7 @@ int main(int argc, char ** argv)
                 op = BASE64_ENCODE_STRING;
                 op_set = 1;
                 {
-                    size_t input_len_sz = strlen(optarg);
+                    size_t input_len_sz = noxtls_u8_strlen(optarg);
                     if(input_len_sz > UINT32_MAX) {
                         return -1;
                     }
@@ -245,7 +249,7 @@ int main(int argc, char ** argv)
                 op = BASE64_ENCODE_BINARY_HEX;
                 op_set = 1;
                 {
-                    size_t input_len_sz = strlen(optarg);
+                    size_t input_len_sz = noxtls_u8_strlen(optarg);
                     if(input_len_sz > UINT32_MAX) {
                         return -1;
                     }
@@ -264,7 +268,7 @@ int main(int argc, char ** argv)
                 op = BASE64_DECODE;
                 op_set = 1;
                 {
-                    size_t input_len_sz = strlen(optarg);
+                    size_t input_len_sz = noxtls_u8_strlen(optarg);
                     if(input_len_sz > UINT32_MAX) {
                         return -1;
                     }
@@ -310,12 +314,11 @@ int main(int argc, char ** argv)
             if(output == NULL) {
                 return -1;
             }
-            length = noxtls_base64_encode(input_data, input_len, (char *)output);
+            length = noxtls_base64_encode(input_data, input_len, (uint8_t *)output);
             if(length < 0 || (uint32_t)length != output_len) {
                 printf("Output Length Error: %d != %u\n", length, output_len);
             }
             print_array_char(output, length);
-
 
             break;
         case BASE64_ENCODE_BINARY_HEX:
@@ -331,7 +334,7 @@ int main(int argc, char ** argv)
             }
             memset(conv_data, 0, sizeof(uint8_t) * conv_length);
 
-            length = noxtls_hex_string_to_bytes((char *)input_data, conv_data, conv_length);
+            length = noxtls_hex_string_to_bytes((uint8_t *)input_data, conv_data, conv_length);
             if(length < 0 || (uint32_t)length != conv_length) {
                 free(conv_data);
                 return -1;
@@ -349,12 +352,11 @@ int main(int argc, char ** argv)
             if(output == NULL) {
                 return -1;
             }
-            length = noxtls_base64_encode(conv_data, conv_length, (char *)output);
+            length = noxtls_base64_encode(conv_data, conv_length, (uint8_t *)output);
             if(length < 0 || (uint32_t)length != output_len) {
                 printf("Output Length Error: %d != %u\n", length, output_len);
             }
             print_array_char(output, length);
-
 
             break;
         case BASE64_DECODE:
@@ -370,7 +372,7 @@ int main(int argc, char ** argv)
                 return -1;
             }
 
-            length = noxtls_base64_decode((char *)input_data, input_len, (uint8_t *)output);
+            length = noxtls_base64_decode((const uint8_t *)input_data, input_len, (uint8_t *)output);
             if(length < 0 || (uint32_t)length != output_len) {
                 printf("Output Length Error: %d != %u\n", length, output_len);
             }
@@ -381,7 +383,6 @@ int main(int argc, char ** argv)
             run_tests();
             break;
     }
-
 
     if(input_data != NULL) {
         free(input_data);

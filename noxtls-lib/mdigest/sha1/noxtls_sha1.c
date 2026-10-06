@@ -35,20 +35,21 @@
 #include "common/noxtls_debug_printf.h"
 #include "noxtls_sha.h"
 #include "noxtls_sha1.h"
+#include "noxtls_ct.h"
 
 #if NOXTLS_FEATURE_SHA1
 
 /* Module Debug Level */
-static uint8_t debug_lvl = 0;
+static uint8_t sha1_debug_lvl = 0U;
 
 /* SHA-1 Operations */
 #define SHA_CH(X, Y, Z)     (((X) & (Y)) ^ ((~(X)) & (Z)))
 #define SHA_PARITY(X,Y,Z)   ((X) ^ (Y) ^ (Z))
 #define SHA_MAJ(X,Y, Z)     (((X) & (Y)) ^ ((X) & (Z)) ^ ((Y) & (Z)))
 
-#define SHA_ROTL(X, N)      (((X) << (N)) | ((X) >> (32 - (N))))
+#define SHA_ROTL(X, N)      (((X) << ((uint32_t)(N) & 31U)) | ((X) >> ((32U - (uint32_t)(N)) & 31U)))
 
-noxtls_return_t noxtls_sha1_round(noxtls_sha_ctx_t * ctx, const uint8_t * input);
+static noxtls_return_t noxtls_sha1_round(noxtls_sha_ctx_t * ctx, const uint8_t * input);
 
 /**
  * @brief Set the debug level
@@ -58,7 +59,7 @@ noxtls_return_t noxtls_sha1_round(noxtls_sha_ctx_t * ctx, const uint8_t * input)
  */
 void noxtls_sha1_set_debug(uint8_t lvl)
 {
-    debug_lvl = lvl;
+    sha1_debug_lvl = lvl;
 }
 
 /**
@@ -70,28 +71,28 @@ void noxtls_sha1_set_debug(uint8_t lvl)
  */
 noxtls_return_t noxtls_sha1_init(noxtls_sha_ctx_t * ctx, noxtls_hash_algos_t algo)
 {
-	if(ctx == NULL) {
+	if (ctx == NULL) {
 		return NOXTLS_RETURN_NULL;
 	}
     
     ctx->algo = algo;
     
-    if(ctx->algo == NOXTLS_HASH_SHA1) {
+    if (ctx->algo == NOXTLS_HASH_SHA1) {
 
-        ctx->h[0] = 0x67452301;
-        ctx->h[1] = 0xefcdab89;
-        ctx->h[2] = 0x98badcfe;
-        ctx->h[3] = 0x10325476;
-        ctx->h[4] = 0xc3d2e1f0;        
+        ctx->h[0] = 0x67452301U;
+        ctx->h[1] = 0xefcdab89U;
+        ctx->h[2] = 0x98badcfeU;
+        ctx->h[3] = 0x10325476U;
+        ctx->h[4] = 0xc3d2e1f0U;        
     }    
     else
     {
         return NOXTLS_RETURN_INVALID_ALGORITHM;
     }
 
-    memset(&ctx->data, 0, SHA1_BLOCK_SIZE_BYTES);
-    ctx->data_len = 0;
-    ctx->length = 0;
+    noxtls_secure_zero((&ctx->data), (size_t)(SHA1_BLOCK_SIZE_BYTES));
+    ctx->data_len = 0U;
+    ctx->length = 0U;
     
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -108,43 +109,47 @@ noxtls_return_t noxtls_sha1_init(noxtls_sha_ctx_t * ctx, noxtls_hash_algos_t alg
  */
 noxtls_return_t noxtls_sha1_update(noxtls_sha_ctx_t * ctx, const uint8_t * data, uint32_t len)
 {
-	noxtls_return_t rc;
-    uint32_t total;
-    uint32_t offset = 0;
+	noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+    uint32_t total = 0U;
+    uint32_t offset = 0U;
 
-	if(ctx == NULL) {
-        noxtls_debug_printf("ctx is NULL\n");
+	if (ctx == NULL) {
+        (void)noxtls_debug_printf((const uint8_t *)"ctx is NULL\n");
 		return NOXTLS_RETURN_NULL;
 	}
 
-    if(data == NULL) {
+    if (data == NULL) {
         return NOXTLS_RETURN_NULL;
     }
 
     total = len;
 
-    if(ctx->data_len > 0) {
-        uint32_t space = SHA1_BLOCK_SIZE_BYTES - ctx->data_len;
-        if(total < space) {
-            memcpy(&ctx->data[ctx->data_len], data, total);
+    if (ctx->data_len > 0U) {
+        uint32_t space = 0U;
+    {
+        uint32_t used = ctx->data_len;
+        space = SHA1_BLOCK_SIZE_BYTES - used;
+    }
+        if (total < space) {
+            noxtls_copy_u8(&ctx->data[ctx->data_len], sizeof(ctx->data) - (size_t)(ctx->data_len), data, (size_t)total);
             ctx->data_len += (uint8_t)total;
             return NOXTLS_RETURN_SUCCESS;
         }
 
-        memcpy(&ctx->data[ctx->data_len], data, space);
+        noxtls_copy_u8(&ctx->data[ctx->data_len], sizeof(ctx->data) - (size_t)(ctx->data_len), data, (size_t)space);
         rc = noxtls_sha1_round(ctx, ctx->data);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
+        if (rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
         ctx->length += SHA1_BLOCK_SIZE_BYTES;
-        ctx->data_len = 0;
+        ctx->data_len = 0U;
         offset += space;
         total -= space;
     }
 
-    while(total >= SHA1_BLOCK_SIZE_BYTES) {
+    while (total >= SHA1_BLOCK_SIZE_BYTES) {
         rc = noxtls_sha1_round(ctx, &data[offset]);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
+        if (rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
         ctx->length += SHA1_BLOCK_SIZE_BYTES;
@@ -152,8 +157,8 @@ noxtls_return_t noxtls_sha1_update(noxtls_sha_ctx_t * ctx, const uint8_t * data,
         total -= SHA1_BLOCK_SIZE_BYTES;
     }
 
-    if(total > 0) {
-        memcpy(ctx->data, &data[offset], total);
+    if (total > 0U) {
+        noxtls_copy_u8(ctx->data, sizeof(ctx->data), &data[offset], (size_t)total);
         ctx->data_len = (uint8_t)total;
     }
 
@@ -167,37 +172,37 @@ noxtls_return_t noxtls_sha1_update(noxtls_sha_ctx_t * ctx, const uint8_t * data,
  * @param[in] input The input data.
  * @return The return value.
  */
-noxtls_return_t noxtls_sha1_round(noxtls_sha_ctx_t * ctx, const uint8_t * input)
+static noxtls_return_t noxtls_sha1_round(noxtls_sha_ctx_t * ctx, const uint8_t * input)
 {
 	noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
-	uint32_t t = 0;
+	uint32_t t = 0U;
 	uint32_t w[SHA1_ROUND_COUNT] = {0};
 
-    uint32_t a;
-    uint32_t b;
-    uint32_t c;
-    uint32_t d;
-    uint32_t e = 0;
+    uint32_t a = 0U;
+    uint32_t b = 0U;
+    uint32_t c = 0U;
+    uint32_t d = 0U;
+    uint32_t e = 0U;
     
-	if(ctx == NULL) {
+	if (ctx == NULL) {
 		return NOXTLS_RETURN_NULL;
 	}    
-    if(input == NULL) {
+    if (input == NULL) {
         return NOXTLS_RETURN_NULL;
     }
     
     /* Copy the noxtls_message to the first 16 words */    
-    for(t = 0; t < 16; t++) {
+    for (t = 0U; t < 16U; t += 1U) {
         size_t in_off = (size_t)t * 4U;
         w[t] =
-            ((uint32_t)input[in_off] << 24) |
-            ((uint32_t)input[in_off + 1U] << 16) |
-            ((uint32_t)input[in_off + 2U] << 8) |
+            ((uint32_t)input[in_off] <<24U) |
+            ((uint32_t)input[in_off + 1U] <<16U) |
+            ((uint32_t)input[in_off + 2U] <<8U) |
             ((uint32_t)input[in_off + 3U]);
     }
 
-    for(t = 16; t < SHA1_ROUND_COUNT; t++) {
-        w[t] = SHA_ROTL((w[t-3] ^ w[t-8] ^ w[t-14] ^ w[t-16]), 1);
+    for (t = 16U; t < SHA1_ROUND_COUNT; t += 1U) {
+        w[t] = SHA_ROTL((w[t - 3U] ^ w[t - 8U] ^ w[t - 14U] ^ w[t - 16U]), 1U);
     }
     
     a = ctx->h[0];
@@ -206,43 +211,43 @@ noxtls_return_t noxtls_sha1_round(noxtls_sha_ctx_t * ctx, const uint8_t * input)
     d = ctx->h[3];
     e = ctx->h[4];
     
-    if(debug_lvl > 0) {
-        noxtls_debug_printf("a\t\t\tb\t\t\tc\t\t\td\t\t\te\n");
+    if (sha1_debug_lvl > 0U) {
+        (void)noxtls_debug_printf((const uint8_t *)"a\t\t\tb\t\t\tc\t\t\td\t\t\te\n");
     }
     
-    for(t = 0; t < SHA1_ROUND_COUNT; t++)
+    for (t = 0U; t < SHA1_ROUND_COUNT; t += 1U)
     {
-        uint32_t ft = 0;
-        uint32_t sha1_k = 0;
-        uint32_t T;
+        uint32_t ft = 0U;
+        uint32_t sha1_k = 0U;
+        uint32_t T = 0U;
         
-        if(t <= 19) {
-            sha1_k = 0x5A827999;
+        if (t <= 19U) {
+            sha1_k = 0x5A827999U;
             ft = SHA_CH(b,c,d);
         }
-        else if(t <= 39) {
-            sha1_k = 0x6ED9EBA1;
+        else if (t <= 39U) {
+            sha1_k = 0x6ED9EBA1U;
             ft = SHA_PARITY(b,c,d);
         }
-        else if(t <= 59) {
-            sha1_k = 0x8F1BBCDC;
+        else if (t <= 59U) {
+            sha1_k = 0x8F1BBCDCU;
             ft = SHA_MAJ(b,c,d);
         }
         else {
             /* t in [60..79] */
-            sha1_k = 0xCA62C1D6;
+            sha1_k = 0xCA62C1D6U;
             ft = SHA_PARITY(b,c,d);
         }
         
-        T = SHA_ROTL(a, 5) + ft + e + sha1_k + w[t];
+        T = (uint32_t)(SHA_ROTL(a, 5U) + ft + e + sha1_k + w[t]);
         e = d;
         d = c;
-        c = SHA_ROTL(b, 30);
+        c = SHA_ROTL(b, 30U);
         b = a;
         a = T;
         
-        if(debug_lvl > 0) {
-            noxtls_debug_printf("%08x\t%08x\t%08x\t%08x\t%08x\t\n", a,b,c,d,e);
+        if (sha1_debug_lvl > 0U) {
+            (void)noxtls_debug_printf((const uint8_t *)"%08x\t%08x\t%08x\t%08x\t%08x\t\n", a,b,c,d,e);
         }
     }
     
@@ -269,111 +274,116 @@ noxtls_return_t noxtls_sha1_round(noxtls_sha_ctx_t * ctx, const uint8_t * input)
  */
 static void sha1_store_bitlen_be(uint8_t *block, uint32_t length_index, uint64_t total_bits)
 {
-    block[length_index + 0] = (uint8_t)((total_bits & 0xFF00000000000000ULL) >> 56);
-    block[length_index + 1] = (uint8_t)((total_bits & 0x00FF000000000000ULL) >> 48);
-    block[length_index + 2] = (uint8_t)((total_bits & 0x0000FF0000000000ULL) >> 40);
-    block[length_index + 3] = (uint8_t)((total_bits & 0x000000FF00000000ULL) >> 32);
-    block[length_index + 4] = (uint8_t)((total_bits & 0x00000000FF000000ULL) >> 24);
-    block[length_index + 5] = (uint8_t)((total_bits & 0x0000000000FF0000ULL) >> 16);
-    block[length_index + 6] = (uint8_t)((total_bits & 0x000000000000FF00ULL) >> 8);
-    block[length_index + 7] = (uint8_t)(total_bits & 0x00000000000000FFULL);
+    block[length_index + 0U] = (uint8_t)((total_bits & 0xFF00000000000000ULL) >>56U);
+    block[length_index + 1U] = (uint8_t)((total_bits & 0x00FF000000000000ULL) >>48U);
+    block[length_index + 2U] = (uint8_t)((total_bits & 0x0000FF0000000000ULL) >>40U);
+    block[length_index + 3U] = (uint8_t)((total_bits & 0x000000FF00000000ULL) >>32U);
+    block[length_index + 4U] = (uint8_t)((total_bits & 0x00000000FF000000ULL) >>24U);
+    block[length_index + 5U] = (uint8_t)((total_bits & 0x0000000000FF0000ULL) >>16U);
+    block[length_index + 6U] = (uint8_t)((total_bits & 0x000000000000FF00ULL) >>8U);
+    block[length_index + 7U] = (uint8_t)(total_bits & 0x00000000000000FFULL);
 }
 
 static noxtls_return_t sha1_finish_two_blocks(noxtls_sha_ctx_t *ctx, uint32_t len,
                                                uint32_t space_for_padding,
                                                uint32_t length_index, uint64_t total_bits)
 {
-    noxtls_return_t rc;
-    uint32_t zero_padding_first = 0;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+    uint32_t zero_padding_first = 0U;
 
-    if((len << 3) != SHA1_BLOCK_SIZE_BITS) {
-        zero_padding_first = space_for_padding - 1;
+    if ((len <<3U) != SHA1_BLOCK_SIZE_BITS) {
+        zero_padding_first = space_for_padding - 1U;
         ctx->data[len] = SHA1_PAD_BYTE;
-        if((len + 1U) < SHA1_BLOCK_SIZE_BYTES) {
-            memset(ctx->data + len + 1U, 0, SHA1_BLOCK_SIZE_BYTES - (len + 1U));
+        if ((len + 1U) < SHA1_BLOCK_SIZE_BYTES) {
+            noxtls_secure_zero((&ctx->data[len + 1U]), ((size_t)(SHA1_BLOCK_SIZE_BYTES - (len + 1U))));
         }
         rc = noxtls_sha1_round(ctx, ctx->data);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
+        if (rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
     } else {
+        /* MISRA 15.7: final else path */
         rc = noxtls_sha1_round(ctx, ctx->data);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
+        if (rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
     }
 
-    memset(ctx->data, 0, SHA1_BLOCK_SIZE_BYTES);
-    if(zero_padding_first == 0) {
+    noxtls_secure_zero((ctx->data), (size_t)(SHA1_BLOCK_SIZE_BYTES));
+    if (zero_padding_first == 0U) {
         ctx->data[0] = SHA1_PAD_BYTE;
     }
-    sha1_store_bitlen_be(ctx->data, length_index, total_bits);
+    (void)sha1_store_bitlen_be(ctx->data, length_index, total_bits);
     return noxtls_sha1_round(ctx, ctx->data);
 }
 
 static noxtls_return_t sha1_finish_one_block(noxtls_sha_ctx_t *ctx, uint32_t space_for_padding,
                                               uint32_t length_index, uint64_t total_bits)
 {
-    uint32_t pad_byte_idx = SHA1_BLOCK_SIZE_BYTES - (space_for_padding >> 3);
-    uint32_t zero_count = length_index - (pad_byte_idx + 1U);
+    uint32_t pad_byte_idx = (uint32_t)(SHA1_BLOCK_SIZE_BYTES - (space_for_padding >>3U));
+    uint32_t zero_count = (uint32_t)(length_index - (pad_byte_idx + 1U));
 
     ctx->data[pad_byte_idx] = SHA1_PAD_BYTE;
-    if(zero_count > 0U) {
-        memset(ctx->data + pad_byte_idx + 1U, 0, zero_count);
+    if (zero_count > 0U) {
+        noxtls_secure_zero((&ctx->data[pad_byte_idx + 1U]), (size_t)(zero_count));
     }
-    sha1_store_bitlen_be(ctx->data, length_index, total_bits);
+    (void)sha1_store_bitlen_be(ctx->data, length_index, total_bits);
     return noxtls_sha1_round(ctx, ctx->data);
 }
 
 noxtls_return_t noxtls_sha1_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
 {
 	noxtls_return_t rc = NOXTLS_RETURN_FAILED;
-    uint64_t total_bits = 0;
-    uint32_t len = 0;
-    uint32_t total_length = 0;
-    uint32_t length_index = SHA1_BLOCK_SIZE_BYTES - SHA1_LENGTH_FIELD_BYTES;
-    uint32_t space_for_padding;
-    uint8_t alg_sz;
-    int i = 0;
+    uint64_t total_bits = 0U;
+    uint32_t len = 0U;
+    uint32_t total_length = 0U;
+    uint32_t length_index = (uint32_t)(SHA1_BLOCK_SIZE_BYTES - SHA1_LENGTH_FIELD_BYTES);
+    uint32_t space_for_padding = 0U;
+    uint32_t alg_sz = 0U;
+    uint32_t i = 0U;
 
-    if(ctx == NULL || hash == NULL) {
+    if ((ctx == NULL) || (hash == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
-    if(ctx->data_len > 0) {
+    if (ctx->data_len > 0U) {
         len = ctx->data_len;
         total_length = ctx->length + ctx->data_len;
     } else {
-        memset(ctx->data, 0, SHA1_BLOCK_SIZE_BYTES);
+        noxtls_secure_zero((ctx->data), (size_t)(SHA1_BLOCK_SIZE_BYTES));
         total_length = ctx->length;
     }
 
-    space_for_padding = SHA1_BLOCK_SIZE_BITS - ((len << 3) % SHA1_BLOCK_SIZE_BITS);
+    space_for_padding = SHA1_BLOCK_SIZE_BITS - ((len <<3U) % SHA1_BLOCK_SIZE_BITS);
     total_bits = (uint64_t)total_length * 8U;
 
-    if(space_for_padding < ((SHA1_LENGTH_FIELD_BYTES + 1U) << 3)) {
+    if (space_for_padding < ((SHA1_LENGTH_FIELD_BYTES + 1U) <<3U)) {
         rc = sha1_finish_two_blocks(ctx, len, space_for_padding, length_index, total_bits);
     } else {
+        /* MISRA 15.7: final else path */
         rc = sha1_finish_one_block(ctx, space_for_padding, length_index, total_bits);
-    }
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
     }
 
     alg_sz = SHA1_LENGTH_FIELD_BYTES;
-    if(ctx->algo == NOXTLS_HASH_SHA_224) {
-        alg_sz = 6;
+    if (ctx->algo == NOXTLS_HASH_SHA_224) {
+        alg_sz = 6U;
     }
-    if(ctx->algo == NOXTLS_HASH_SHA1) {
+    if (ctx->algo == NOXTLS_HASH_SHA1) {
         alg_sz = SHA1_STATE_WORDS;
     }
-    for(i = 0; i < alg_sz; i++)
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        /* Never release a partial digest: wipe the output and the state. */
+        noxtls_secure_zero(hash, (size_t)alg_sz * 4U);
+        noxtls_secure_zero(ctx, sizeof(*ctx));
+        return rc;
+    }
+    for (i = 0U; i < alg_sz; i += 1U)
     {
         size_t out_off = (size_t)i * 4U;
-        hash[out_off]       = (uint8_t)((ctx->h[i] & 0xFF000000) >> 24);
-        hash[out_off + 1U] = (uint8_t)((ctx->h[i] & 0x00FF0000) >> 16);
-        hash[out_off + 2U] = (uint8_t)((ctx->h[i] & 0x0000FF00) >> 8);
-        hash[out_off + 3U] = (uint8_t)(ctx->h[i] & 0x000000FF);
+        hash[out_off]       = (uint8_t)((ctx->h[i] &0xFF000000U) >>24U);
+        hash[out_off + 1U] = (uint8_t)((ctx->h[i] &0x00FF0000U) >>16U);
+        hash[out_off + 2U] = (uint8_t)((ctx->h[i] &0x0000FF00U) >>8U);
+        hash[out_off + 3U] = (uint8_t)(ctx->h[i] &0x000000FFU);
     }
 
 	return rc;
@@ -395,28 +405,36 @@ noxtls_return_t noxtls_sha1_verify(const uint8_t * data, uint32_t len, const uin
 {
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
     
-    uint8_t hash[32] = {0};
+    uint8_t hash[HASH_SHA1_OUT_LEN] = {0};
     noxtls_sha_ctx_t ctx;
     
+    if (expected == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+
     rc = noxtls_sha1_init(&ctx, NOXTLS_HASH_SHA1);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        noxtls_debug_printf("Failed to initialize SHA1 context\n");
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        (void)noxtls_debug_printf((const uint8_t *)"Failed to initialize SHA1 context\n");
         return rc;
     }
     rc = noxtls_sha1_update(&ctx, data, len);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        noxtls_debug_printf("Failed to update SHA1 context\n");
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        (void)noxtls_debug_printf((const uint8_t *)"Failed to update SHA1 context\n");
         return rc;
     }
     rc = noxtls_sha1_finish(&ctx, hash);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        noxtls_debug_printf("Failed to finish SHA1 context\n");
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        (void)noxtls_debug_printf((const uint8_t *)"Failed to finish SHA1 context\n");
         return rc;
     }
     
-    if(memcmp(hash, expected, sizeof(hash)) == 0) {
+    /* Compare exactly the 20-byte SHA-1 digest; mismatch is a failure. */
+    if (noxtls_ct_equal(hash, expected, (size_t)HASH_SHA1_OUT_LEN) != 0) {
         rc = NOXTLS_RETURN_SUCCESS;
+    } else {
+        rc = NOXTLS_RETURN_FAILED;
     }
+    noxtls_secure_zero((hash), sizeof(hash));
 
     return rc;
 }

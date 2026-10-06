@@ -24,8 +24,8 @@
 /** @addtogroup noxtls_mdigest */
 /** @{ */
 
-#ifndef _NOXTLS_SHA3_H
-#define _NOXTLS_SHA3_H
+#ifndef NOXTLS_SHA3_H
+#define NOXTLS_SHA3_H
 
 #include <stdint.h>
 #include "noxtls_hash.h"
@@ -36,10 +36,9 @@ extern "C" {
 #endif
 
 #define SHA3_STATE_SIZE 200  /* 1600 bits = 200 bytes */
-#define SHA3_MAX_X_SIZE 5
-#define SHA3_MAX_Y_SIZE 5
-#define SHA3_MAX_RATE_BYTES       (144u)
-#define SHA3_LANE_BITS            (64U)
+#define SHA3_MAX_X_SIZE 5U
+#define SHA3_MAX_Y_SIZE 5U
+#define SHA3_MAX_RATE_BYTES       (144U)
 #define SHA3_LANE_BYTES           (8U)
 #define SHA3_DOMAIN_SEP           (0x06u)
 #define SHA3_PAD_FINAL_BYTE       (0x80u)

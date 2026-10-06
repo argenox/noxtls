@@ -26,12 +26,54 @@
  * @ingroup noxtls_ed25519
  */
 
+#include "common/noxtls_ct.h"
 #include <string.h>
 
 #include "common/noxtls_memory.h"
 #include "noxtls_ed25519_ge.h"
 
 /* p = 2^255 - 19, big-endian (RFC 8032). */
+static uint32_t ge25519_shift_right(uint32_t value, uint32_t count)
+{
+    uint32_t result = 0U;
+    switch(count) {
+    case 0U: result = value >> 0U; break;
+    case 1U: result = value >> 1U; break;
+    case 2U: result = value >> 2U; break;
+    case 3U: result = value >> 3U; break;
+    case 4U: result = value >> 4U; break;
+    case 5U: result = value >> 5U; break;
+    case 6U: result = value >> 6U; break;
+    case 7U: result = value >> 7U; break;
+    case 8U: result = value >> 8U; break;
+    case 9U: result = value >> 9U; break;
+    case 10U: result = value >> 10U; break;
+    case 11U: result = value >> 11U; break;
+    case 12U: result = value >> 12U; break;
+    case 13U: result = value >> 13U; break;
+    case 14U: result = value >> 14U; break;
+    case 15U: result = value >> 15U; break;
+    case 16U: result = value >> 16U; break;
+    case 17U: result = value >> 17U; break;
+    case 18U: result = value >> 18U; break;
+    case 19U: result = value >> 19U; break;
+    case 20U: result = value >> 20U; break;
+    case 21U: result = value >> 21U; break;
+    case 22U: result = value >> 22U; break;
+    case 23U: result = value >> 23U; break;
+    case 24U: result = value >> 24U; break;
+    case 25U: result = value >> 25U; break;
+    case 26U: result = value >> 26U; break;
+    case 27U: result = value >> 27U; break;
+    case 28U: result = value >> 28U; break;
+    case 29U: result = value >> 29U; break;
+    case 30U: result = value >> 30U; break;
+    case 31U: result = value >> 31U; break;
+    default: result = 0U; break;
+    }
+    return result;
+}
+
 static const uint8_t ed25519_p[NOXTLS_ED25519_FE25519_BYTES] = {
     0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
@@ -82,7 +124,6 @@ typedef struct
 
 static void ge25519_p2_dbl_p1p1(ge25519_p1p1_t *r, const ge25519_p2_t *p);
 static void ge25519_p1p1_to_p2(ge25519_p2_t *r, const ge25519_p1p1_t *p);
-void ge25519_scalarmult_base_n(ge25519_n_t *R, const uint8_t s_le[NOXTLS_ED25519_FE25519_BYTES]);
 
 /** Duif precomputed (affine-like): y+x, y-x, 2d*x*y (SUPERCOP/ref10 ge_precomp). */
 typedef struct
@@ -561,7 +602,7 @@ void ge25519_n_dbl(ge25519_n_t *r, const ge25519_n_t *p)
  * @internal
  */
 static void ge25519_n_select(ge25519_n_t *u,
-                             const ge25519_n_t table[NOXTLS_ED25519_SCALAR_TABLE_ENTRIES],
+                             const ge25519_n_t *table,
                              uint32_t digit)
 {
     uint32_t i;
@@ -575,15 +616,16 @@ static void ge25519_n_select(ge25519_n_t *u,
  * @brief Extract an unsigned window digit from a little-endian scalar.
  * @internal
  */
-static uint32_t ge25519_scalar_window_digit(const uint8_t s_le[NOXTLS_ED25519_FE25519_BYTES],
+static uint32_t ge25519_scalar_window_digit(const uint8_t *s_le,
                                            uint32_t window_index)
 {
+    static const uint32_t powers_of_two[9] = {1U, 2U, 4U, 8U, 16U, 32U, 64U, 128U, 256U};
     uint32_t bit_offset = window_index * NOXTLS_ED25519_SCALAR_WINDOW_BITS;
     uint32_t byte_index = bit_offset / 8U;
     uint32_t bit_in_byte = bit_offset % 8U;
-    uint32_t value = (uint32_t)s_le[byte_index] >> bit_in_byte;
+    uint32_t value = ge25519_shift_right((uint32_t)s_le[byte_index], bit_in_byte);
     if((bit_in_byte + NOXTLS_ED25519_SCALAR_WINDOW_BITS) > 8U) {
-        value |= (uint32_t)s_le[byte_index + 1U] << (8U - bit_in_byte);
+        value |= ((uint32_t)s_le[byte_index + 1U] * powers_of_two[8U - bit_in_byte]);
     }
     return value & (uint32_t)NOXTLS_ED25519_SCALAR_WINDOW_MASK;
 }
@@ -592,7 +634,7 @@ static uint32_t ge25519_scalar_window_digit(const uint8_t s_le[NOXTLS_ED25519_FE
  * @brief Build unsigned multiples {0P, P, 2P, ..., (RADIX-1)P}.
  * @internal
  */
-static void ge25519_n_precompute_table(ge25519_n_t table[NOXTLS_ED25519_SCALAR_TABLE_ENTRIES],
+static void ge25519_n_precompute_table(ge25519_n_t *table,
                                        const ge25519_n_t *p)
 {
     uint32_t i;
@@ -608,8 +650,8 @@ static void ge25519_n_precompute_table(ge25519_n_t table[NOXTLS_ED25519_SCALAR_T
  * @internal
  */
 static void ge25519_n_scalarmult_windowed(ge25519_n_t *r,
-                                         const uint8_t s_le[NOXTLS_ED25519_FE25519_BYTES],
-                                         const ge25519_n_t table[NOXTLS_ED25519_SCALAR_TABLE_ENTRIES])
+                                         const uint8_t *s_le,
+                                         const ge25519_n_t *table)
 {
     ge25519_n_t t;
     ge25519_n_t selected;
@@ -637,7 +679,7 @@ static void ge25519_n_scalarmult_windowed(ge25519_n_t *r,
  */
 #if defined(NOXTLS_ED25519_DUMP_BASE)
 static void ge25519_to_signed_radix16(int8_t e[NOXTLS_ED25519_BASE_DIGIT_COUNT],
-                                      const uint8_t a_le[NOXTLS_ED25519_FE25519_BYTES])
+                                      const uint8_t *a_le)
 {
     int32_t i;
     int8_t carry;
@@ -818,8 +860,8 @@ static unsigned int ge25519_limb_bit(const uint32_t *n, unsigned int pos)
  * @param[out] n Nine LE limbs (supports RANGE up to 288).
  * @param[in] s_le Little-endian 32-byte scalar.
  */
-static void ge25519_to_signed_digits_comb(uint32_t n[9],
-                                          const uint8_t s_le[NOXTLS_ED25519_FE25519_BYTES])
+static void ge25519_to_signed_digits_comb(uint32_t *n,
+                                          const uint8_t *s_le)
 {
     uint32_t i;
     uint32_t cond;
@@ -840,7 +882,7 @@ static void ge25519_to_signed_digits_comb(uint32_t n[9],
     mask = 0U - cond;
     carry = 0U;
     for(i = 0U; i < 8U; i++) {
-        carry += (uint64_t)n[i] + (uint64_t)(g_ed25519_L_le[i] & mask);
+        carry += (uint64_t)n[i] + ((uint64_t)g_ed25519_L_le[i] & (uint64_t)mask);
         n[i] = (uint32_t)carry;
         carry >>= 32;
     }
@@ -887,7 +929,7 @@ static uint32_t ge25519_shuffle2(uint32_t x)
  * @brief Group signed digits into comb teeth within each 32-bit block limb.
  * @internal
  */
-static void ge25519_group_comb_bits(uint32_t n[8])
+static void ge25519_group_comb_bits(uint32_t *n)
 {
     uint32_t i;
     for(i = 0U; i < 8U; i++) {
@@ -969,9 +1011,10 @@ static noxtls_return_t ge25519_comb_init(void)
         ge25519_n_neg(&sum, &sum);
         points[0] = sum;
 
+        static const uint32_t powers_of_two[8] = {1U, 2U, 4U, 8U, 16U, 32U, 64U, 128U};
         idx = 1U;
         for(tooth = 0U; tooth < (NOXTLS_ED25519_COMB_TEETH - 1U); tooth++) {
-            size = 1U << tooth;
+            size = powers_of_two[tooth];
             for(j = 0U; j < size; j++, idx++) {
                 ge25519_n_add(&points[idx], &points[idx - size], &tooth_powers[tooth]);
             }
@@ -998,7 +1041,7 @@ static noxtls_return_t ge25519_comb_init(void)
  * @param[in] s_le Little-endian scalar.
  */
 static void ge25519_n_scalarmult_base_comb(ge25519_n_t *r,
-                                           const uint8_t s_le[NOXTLS_ED25519_FE25519_BYTES])
+                                           const uint8_t *s_le)
 {
     uint32_t n[9];
     ge25519_precomp_t t;
@@ -1020,7 +1063,7 @@ static void ge25519_n_scalarmult_base_comb(ge25519_n_t *r,
         c_off = (int32_t)((NOXTLS_ED25519_COMB_SPACING - 1U) * NOXTLS_ED25519_COMB_TEETH);
         for(;;) {
             for(block = 0U; block < NOXTLS_ED25519_COMB_BLOCKS; block++) {
-                w = n[block] >> (uint32_t)c_off;
+                w = ge25519_shift_right(n[block], (uint32_t)c_off);
                 sign = (w >> (NOXTLS_ED25519_COMB_TEETH - 1U)) & 1U;
                 abs_index = (w ^ (0U - sign)) & NOXTLS_ED25519_COMB_MASK;
 
@@ -1105,14 +1148,17 @@ static noxtls_return_t ge25519_base_table_small_init(void)
  * @param[in] a Little-endian scalar.
  */
 static void ge25519_slide(int8_t r[NOXTLS_ED25519_SCALAR_BIT_LENGTH],
-                          const uint8_t a[NOXTLS_ED25519_FE25519_BYTES])
+                          const uint8_t *a)
 {
     int32_t i;
     int32_t b;
     int32_t k;
+    static const int32_t powers_of_two[7] = {1, 2, 4, 8, 16, 32, 64};
 
     for(i = 0; i < (int32_t)NOXTLS_ED25519_SCALAR_BIT_LENGTH; i++) {
-        r[i] = (int8_t)(1 & (a[i >> 3] >> (i & 7)));
+        uint32_t i_u = (uint32_t)i;
+        uint32_t bit = ge25519_shift_right((uint32_t)a[i_u >> 3U], i_u & 7U) & 1U;
+        r[i] = (int8_t)bit;
     }
 
     for(i = 0; i < (int32_t)NOXTLS_ED25519_SCALAR_BIT_LENGTH; i++) {
@@ -1123,11 +1169,11 @@ static void ge25519_slide(int8_t r[NOXTLS_ED25519_SCALAR_BIT_LENGTH],
             if(r[i + b] == 0) {
                 continue;
             }
-            if(r[i] + (r[i + b] << b) <= NOXTLS_ED25519_SLIDE_MAX_ABS) {
-                r[i] = (int8_t)(r[i] + (r[i + b] << b));
+            if(r[i] + ((int32_t)r[i + b] * powers_of_two[b]) <= NOXTLS_ED25519_SLIDE_MAX_ABS) {
+                r[i] = (int8_t)(r[i] + ((int32_t)r[i + b] * powers_of_two[b]));
                 r[i + b] = 0;
-            } else if(r[i] - (r[i + b] << b) >= -NOXTLS_ED25519_SLIDE_MAX_ABS) {
-                r[i] = (int8_t)(r[i] - (r[i + b] << b));
+            } else if(r[i] - ((int32_t)r[i + b] * powers_of_two[b]) >= -NOXTLS_ED25519_SLIDE_MAX_ABS) {
+                r[i] = (int8_t)(r[i] - ((int32_t)r[i + b] * powers_of_two[b]));
                 for(k = i + b; k < (int32_t)NOXTLS_ED25519_SCALAR_BIT_LENGTH; k++) {
                     if(r[k] == 0) {
                         r[k] = 1;
@@ -1136,15 +1182,16 @@ static void ge25519_slide(int8_t r[NOXTLS_ED25519_SCALAR_BIT_LENGTH],
                     r[k] = 0;
                 }
             } else {
+                /* This digit cannot be combined within the slide range. */
                 break;
             }
         }
     }
 }
 
-void ge25519_scalar_mult(ge25519_pt_t *R,
-                         const uint8_t s_le[NOXTLS_ED25519_FE25519_BYTES],
-                         const ge25519_pt_t *P)
+noxtls_return_t ge25519_scalar_mult(ge25519_pt_t *R,
+                                    const uint8_t *s_le,
+                                    const ge25519_pt_t *P)
 {
     ge25519_n_t p_n;
     ge25519_n_t r_n;
@@ -1152,11 +1199,12 @@ void ge25519_scalar_mult(ge25519_pt_t *R,
     const size_t table_bytes =
         (size_t)NOXTLS_ED25519_SCALAR_TABLE_ENTRIES * sizeof(ge25519_n_t);
 
-    table = (ge25519_n_t *)noxtls_malloc(table_bytes);
+    table = (ge25519_n_t *)NOXTLS_MALLOC(table_bytes);
     if(table == NULL) {
+        /* Report the failure: the identity written here is not s * P. */
         ge25519_n_zero(&r_n);
         ge25519_n_to_pt(R, &r_n);
-        return;
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
 
     ge25519_n_from_pt(&p_n, P);
@@ -1164,10 +1212,11 @@ void ge25519_scalar_mult(ge25519_pt_t *R,
     ge25519_n_scalarmult_windowed(&r_n, s_le, table);
     ge25519_n_to_pt(R, &r_n);
     NOXTLS_SECURE_FREE(table, table_bytes);
+    return NOXTLS_RETURN_SUCCESS;
 }
 
 void ge25519_scalarmult_base(ge25519_pt_t *R,
-                             const uint8_t s_le[NOXTLS_ED25519_FE25519_BYTES])
+                             const uint8_t *s_le)
 {
     ge25519_n_t r_n;
 
@@ -1187,9 +1236,9 @@ void ge25519_scalarmult_base(ge25519_pt_t *R,
  * @param[in] b_le Little-endian scalar for base point B.
  */
 void ge25519_double_scalarmult_n(ge25519_n_t *R,
-                                        const uint8_t a_le[NOXTLS_ED25519_FE25519_BYTES],
+                                        const uint8_t *a_le,
                                         const ge25519_n_t *P,
-                                        const uint8_t b_le[NOXTLS_ED25519_FE25519_BYTES])
+                                        const uint8_t *b_le)
 {
     int8_t aslide[NOXTLS_ED25519_SCALAR_BIT_LENGTH];
     int8_t bslide[NOXTLS_ED25519_SCALAR_BIT_LENGTH];
@@ -1236,6 +1285,8 @@ void ge25519_double_scalarmult_n(ge25519_n_t *R,
         } else if(aslide[i] < 0) {
             ge25519_p1p1_to_n(&u, &t);
             ge25519_sub_cached(&t, &u, &Ai[(-aslide[i]) / 2]);
+        } else {
+            /* A zero digit contributes no point. */
         }
 
         if(bslide[i] > 0) {
@@ -1244,6 +1295,8 @@ void ge25519_double_scalarmult_n(ge25519_n_t *R,
         } else if(bslide[i] < 0) {
             ge25519_p1p1_to_n(&u, &t);
             ge25519_msub(&t, &u, &g_base_odd[(-bslide[i]) / 2]);
+        } else {
+            /* A zero digit contributes no point. */
         }
 
         ge25519_p1p1_to_p2(&r, &t);
@@ -1257,9 +1310,9 @@ void ge25519_double_scalarmult_n(ge25519_n_t *R,
 }
 
 void ge25519_double_scalarmult(ge25519_pt_t *R,
-                               const uint8_t a_le[NOXTLS_ED25519_FE25519_BYTES],
+                               const uint8_t *a_le,
                                const ge25519_pt_t *P,
-                               const uint8_t b_le[NOXTLS_ED25519_FE25519_BYTES])
+                               const uint8_t *b_le)
 {
     ge25519_n_t P_n;
     ge25519_n_t r_n;
@@ -1276,7 +1329,7 @@ void ge25519_double_scalarmult(ge25519_pt_t *R,
     ge25519_n_to_pt(R, &r_n);
 }
 
-noxtls_return_t ge25519_decode_n(ge25519_n_t *p, const uint8_t enc[NOXTLS_ED25519_FE25519_BYTES])
+noxtls_return_t ge25519_decode_n(ge25519_n_t *p, const uint8_t *enc)
 {
     /* RFC 8032 §5.1.3: recover x from compressed y and sign bit. */
     uint8_t y_le[NOXTLS_ED25519_FE25519_BYTES];
@@ -1304,8 +1357,8 @@ noxtls_return_t ge25519_decode_n(ge25519_n_t *p, const uint8_t enc[NOXTLS_ED2551
     fe25519_native_one(&one);
     fe25519_native_from_be(&d, ed25519_d);
 
-    memcpy(y_le, enc, NOXTLS_ED25519_FE25519_BYTES);
-    sign = (unsigned int)(y_le[NOXTLS_ED25519_FE25519_BYTES - 1U] >> 7);
+    noxtls_copy_u8((uint8_t *)(void *)(y_le), (size_t)(NOXTLS_ED25519_FE25519_BYTES), (const uint8_t *)(const void *)(enc), (size_t)(NOXTLS_ED25519_FE25519_BYTES));
+    sign = ((unsigned int)y_le[NOXTLS_ED25519_FE25519_BYTES - 1U] >> 7U);
     y_le[NOXTLS_ED25519_FE25519_BYTES - 1U] &= NOXTLS_ED25519_COMPRESSED_Y_SIGN_MASK;
 
     {
@@ -1343,6 +1396,12 @@ noxtls_return_t ge25519_decode_n(ge25519_n_t *p, const uint8_t enc[NOXTLS_ED2551
         fe25519_native_mul(&x, &x, &g_ed25519_sqrtm1);
     }
 
+    /* RFC 8032 5.1.3 step 4: x = 0 with x_0 = 1 is a non-canonical ("negative zero")
+     * encoding and must be rejected. */
+    if((fe25519_native_iszero(&x) != 0U) && (sign != 0U)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+
     if(fe25519_native_isnegative(&x) != sign) {
         fe25519_native_neg(&x, &x);
     }
@@ -1354,7 +1413,7 @@ noxtls_return_t ge25519_decode_n(ge25519_n_t *p, const uint8_t enc[NOXTLS_ED2551
     return NOXTLS_RETURN_SUCCESS;
 }
 
-noxtls_return_t ge25519_decode(ge25519_pt_t *p, const uint8_t enc[NOXTLS_ED25519_FE25519_BYTES])
+noxtls_return_t ge25519_decode(ge25519_pt_t *p, const uint8_t *enc)
 {
     ge25519_n_t pn;
     noxtls_return_t rc;
@@ -1370,7 +1429,7 @@ noxtls_return_t ge25519_decode(ge25519_pt_t *p, const uint8_t enc[NOXTLS_ED25519
     return NOXTLS_RETURN_SUCCESS;
 }
 
-void ge25519_encode_n(uint8_t enc[NOXTLS_ED25519_FE25519_BYTES], const ge25519_n_t *p)
+void ge25519_encode_n(uint8_t *enc, const ge25519_n_t *p)
 {
     /* RFC 8032 §5.1.2: compress (x,y) with sign(x) in high bit of y encoding. */
     fe25519_native_t zinv;
@@ -1385,7 +1444,7 @@ void ge25519_encode_n(uint8_t enc[NOXTLS_ED25519_FE25519_BYTES], const ge25519_n
         (uint8_t)(fe25519_native_isnegative(&x) << 7);
 }
 
-void ge25519_encode(uint8_t enc[NOXTLS_ED25519_FE25519_BYTES], const ge25519_pt_t *p)
+void ge25519_encode(uint8_t *enc, const ge25519_pt_t *p)
 {
     ge25519_n_t pn;
 
@@ -1394,7 +1453,7 @@ void ge25519_encode(uint8_t enc[NOXTLS_ED25519_FE25519_BYTES], const ge25519_pt_
 }
 
 void ge25519_scalarmult_base_n(ge25519_n_t *R,
-                               const uint8_t s_le[NOXTLS_ED25519_FE25519_BYTES])
+                               const uint8_t *s_le)
 {
 #if defined(NOXTLS_ED25519_SMALL_BASE)
     if(ge25519_base_table_small_init() != NOXTLS_RETURN_SUCCESS) {

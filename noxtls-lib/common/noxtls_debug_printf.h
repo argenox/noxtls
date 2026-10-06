@@ -23,11 +23,11 @@
 /** @addtogroup noxtls_common */
 /** @{ */
 
-#ifndef _NOXTLS_DEBUG_PRINTF_H_
-#define _NOXTLS_DEBUG_PRINTF_H_
+#ifndef NOXTLS_DEBUG_PRINTF_H_
+#define NOXTLS_DEBUG_PRINTF_H_
 
-#include <stdarg.h>
 #include <stddef.h>
+#include <stdint.h>
 #include "noxtls_config.h"
 
 #ifdef __cplusplus
@@ -46,20 +46,28 @@ extern "C" {
  * 
  * @return Number of characters printed, or negative value on error
  */
-int noxtls_debug_printf(const char *format, ...);
-
+#if defined(NOXTLS_DEBUG_PRINTF_STDIO) && (NOXTLS_DEBUG_PRINTF_STDIO != 0)
+/** @brief 1 when noxtls_debug_printf() is a real function (its arguments are evaluated). */
+#define NOXTLS_DEBUG_PRINTF_ENABLED 1
+int noxtls_debug_printf(const uint8_t *format, ...);
 /**
- * @brief Print formatted debug output with va_list (similar to vprintf)
- * 
- * This function is the va_list version of noxtls_debug_printf, useful for
- * creating wrapper functions.
- * 
- * @param[in] format Format string (same as printf)
- * @param[in] args Variable argument list
- * 
- * @return Number of characters printed, or negative value on error
+ * @brief Optional va_list debug printer (stdio backend only).
+ *
+ * Declared only when the stdio backend header support is enabled so library
+ * translation units do not pull in <stdarg.h> (MISRA 17.1).
  */
-int noxtls_debug_vprintf(const char *format, va_list args);
+#include <stdarg.h>
+int noxtls_debug_vprintf(const uint8_t *format, va_list args);
+#elif defined(NOXTLS_DEBUG_PRINTF_IMPLEMENTATION)
+#define NOXTLS_DEBUG_PRINTF_ENABLED 1
+int noxtls_debug_printf(const uint8_t *format, ...);
+#else
+/* Freestanding/MISRA stub builds: discard call-site string literals (Rule 7.4 vs Dir 1.1).
+ * The arguments are not evaluated, so values computed only for a debug print should be
+ * guarded with #if NOXTLS_DEBUG_PRINTF_ENABLED to avoid dead stores. */
+#define NOXTLS_DEBUG_PRINTF_ENABLED 0
+#define noxtls_debug_printf(...) (0)
+#endif
 
 /**
  * @brief Set runtime debug verbosity level for noxtls_debug_printf.
@@ -89,12 +97,11 @@ unsigned char noxtls_debug_get_level(void);
  * @param[in] path Log file path to open in append mode, or NULL/empty to disable.
  * @return 0 on success, -1 on failure (e.g., file open error).
  */
-int noxtls_debug_set_log_file(const char *path);
+int noxtls_debug_set_log_file(const uint8_t *path);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _NOXTLS_DEBUG_PRINTF_H_ */
-
+#endif /* NOXTLS_DEBUG_PRINTF_H_ */
 

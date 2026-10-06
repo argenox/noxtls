@@ -26,6 +26,7 @@
 #include "common/noxtls_ct.h"
 #include "drbg/noxtls_drbg.h"
 #include "mdigest/sha3/noxtls_sha3.h"
+#include "noxtls_ct.h"
 
 static const uint8_t *g_mlkem_test_random_seq = NULL;
 static uint32_t g_mlkem_test_random_seq_len = 0U;
@@ -65,19 +66,19 @@ static noxtls_return_t mlkem_get_params(noxtls_mlkem_param_t param, mlkem_params
     if(p == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    memset(p, 0, sizeof(*p));
+    noxtls_secure_zero((p), sizeof(*(p)));
     switch(param) {
         case NOXTLS_MLKEM_512:
             p->k = 2U; p->eta1 = 3U; p->eta2 = 2U; p->du = 10U; p->dv = 4U;
-            p->public_key_len = 800u; p->secret_key_len = 1632u; p->ciphertext_len = 768u;
+            p->public_key_len = 800U; p->secret_key_len = 1632U; p->ciphertext_len = 768U;
             return NOXTLS_RETURN_SUCCESS;
         case NOXTLS_MLKEM_768:
             p->k = 3U; p->eta1 = 2U; p->eta2 = 2U; p->du = 10U; p->dv = 4U;
-            p->public_key_len = 1184u; p->secret_key_len = 2400u; p->ciphertext_len = 1088u;
+            p->public_key_len = 1184U; p->secret_key_len = 2400U; p->ciphertext_len = 1088U;
             return NOXTLS_RETURN_SUCCESS;
         case NOXTLS_MLKEM_1024:
             p->k = 4U; p->eta1 = 2U; p->eta2 = 2U; p->du = 11U; p->dv = 5U;
-            p->public_key_len = 1568u; p->secret_key_len = 3168u; p->ciphertext_len = 1568u;
+            p->public_key_len = 1568U; p->secret_key_len = 3168U; p->ciphertext_len = 1568U;
             return NOXTLS_RETURN_SUCCESS;
         default:
             return NOXTLS_RETURN_INVALID_PARAM;
@@ -108,7 +109,7 @@ static int16_t mlkem_mod_q(int32_t x)
 static int16_t mlkem_montgomery_reduce(int32_t a)
 {
     int16_t t = (int16_t)(a * (int32_t)MLKEM_QINV);
-    return (int16_t)((a - ((int32_t)t * MLKEM_Q)) >> 16);
+    return (int16_t)((a - ((int32_t)t * MLKEM_Q)) >>16U);
 }
 
 /**
@@ -119,8 +120,8 @@ static int16_t mlkem_montgomery_reduce(int32_t a)
  */
 static int16_t mlkem_barrett_reduce(int16_t a)
 {
-    const int32_t v = ((1 << 26) + (MLKEM_Q / 2)) / MLKEM_Q;
-    int32_t t = ((int32_t)v * a + (1 << 25)) >> 26;
+    const int32_t v = ((1 <<26U) + (MLKEM_Q / 2)) / MLKEM_Q;
+    int32_t t = ((int32_t)v * a + (1 <<25U)) >>26U;
     t *= MLKEM_Q;
     return (int16_t)(a - t);
 }
@@ -132,10 +133,7 @@ static int16_t mlkem_barrett_reduce(int16_t a)
  * @param[in] b The second input value.
  * @return The field multiplication value.
  */
-static int16_t mlkem_fqmul(int16_t a, int16_t b)
-{
-    return mlkem_montgomery_reduce((int32_t)a * b);
-}
+static int16_t mlkem_fqmul(int16_t a, int16_t b) { return mlkem_montgomery_reduce((int32_t)a * b); }
 
 /**
  * @brief Base multiplication.
@@ -161,13 +159,14 @@ static void mlkem_basemul(int16_t r[2], const int16_t a[2], const int16_t b[2], 
 static void mlkem_poly_ntt(mlkem_poly_t *r)
 {
     uint8_t k = 1U;
-    uint32_t len;
-    uint32_t start;
-    uint32_t j;
+    uint32_t len = 0U;
+    uint32_t start = 0U;
+    uint32_t j = 0U;
     for(len = 128U; len >= 2U; len >>= 1U) {
         for(start = 0U; start < MLKEM_N; start = j + len) {
-            int16_t zeta = mlkem_zetas[k++];
-            for(j = start; j < start + len; j++) {
+            int16_t zeta = mlkem_zetas[k];
+            k += 1U;
+            for(j = start; j < start + len; j += 1U) {
                 int16_t t = mlkem_fqmul(zeta, r->c[j + len]);
                 r->c[j + len] = (int16_t)((int32_t)r->c[j] - t);
                 r->c[j] = (int16_t)((int32_t)r->c[j] + t);
@@ -183,15 +182,16 @@ static void mlkem_poly_ntt(mlkem_poly_t *r)
  */
 static void mlkem_poly_invntt_tomont(mlkem_poly_t *r)
 {
-    uint8_t k = 127u;
-    uint32_t len;
-    uint32_t start;
-    uint32_t j;
-    const int16_t f = 1441;
+    uint8_t k = 127U;
+    uint32_t len = 0U;
+    uint32_t start = 0U;
+    uint32_t j = 0U;
+    const int16_t f = 1441U;
     for(len = 2U; len <= 128U; len <<= 1U) {
         for(start = 0U; start < MLKEM_N; start = j + len) {
-            int16_t zeta = mlkem_zetas[k--];
-            for(j = start; j < start + len; j++) {
+            int16_t zeta = mlkem_zetas[k];
+            k -= 1U;
+            for(j = start; j < start + len; j += 1U) {
                 int16_t t = r->c[j];
                 r->c[j] = mlkem_barrett_reduce((int16_t)((int32_t)t + r->c[j + len]));
                 r->c[j + len] = (int16_t)((int32_t)t - r->c[j + len]);
@@ -199,7 +199,7 @@ static void mlkem_poly_invntt_tomont(mlkem_poly_t *r)
             }
         }
     }
-    for(j = 0U; j < MLKEM_N; j++) {
+    for(j = 0U; j < MLKEM_N; j += 1U) {
         r->c[j] = mlkem_fqmul(r->c[j], f);
     }
 }
@@ -213,10 +213,10 @@ static void mlkem_poly_invntt_tomont(mlkem_poly_t *r)
  */
 static void mlkem_poly_basemul_montgomery(mlkem_poly_t *r, const mlkem_poly_t *a, const mlkem_poly_t *b)
 {
-    uint32_t i;
-    for(i = 0U; i < (MLKEM_N / 4U); i++) {
-        mlkem_basemul(&r->c[4U * i], &a->c[4U * i], &b->c[4U * i], mlkem_zetas[64U + i]);
-        mlkem_basemul(&r->c[4U * i + 2U], &a->c[4U * i + 2U], &b->c[4U * i + 2U], (int16_t)-mlkem_zetas[64U + i]);
+    uint32_t i = 0U;
+    for(i = 0U; i < (MLKEM_N / 4U); i += 1U) {
+        (void)mlkem_basemul(&r->c[4U * i], &a->c[4U * i], &b->c[4U * i], mlkem_zetas[64U + i]);
+        (void)mlkem_basemul(&r->c[4U * i + 2U], &a->c[4U * i + 2U], &b->c[4U * i + 2U], (int16_t)-mlkem_zetas[64U + i]);
     }
 }
 
@@ -227,9 +227,9 @@ static void mlkem_poly_basemul_montgomery(mlkem_poly_t *r, const mlkem_poly_t *a
  */
 static void mlkem_poly_tomont(mlkem_poly_t *r)
 {
-    uint32_t i;
-    const int16_t f = 1353;
-    for(i = 0U; i < MLKEM_N; i++) {
+    uint32_t i = 0U;
+    const int16_t f = 1353U;
+    for(i = 0U; i < MLKEM_N; i += 1U) {
         r->c[i] = mlkem_fqmul(r->c[i], f);
     }
 }
@@ -241,8 +241,8 @@ static void mlkem_poly_tomont(mlkem_poly_t *r)
  */
 static void mlkem_poly_reduce(mlkem_poly_t *r)
 {
-    uint32_t i;
-    for(i = 0U; i < MLKEM_N; i++) {
+    uint32_t i = 0U;
+    for(i = 0U; i < MLKEM_N; i += 1U) {
         r->c[i] = mlkem_barrett_reduce(r->c[i]);
     }
 }
@@ -255,9 +255,9 @@ static void mlkem_poly_reduce(mlkem_poly_t *r)
  */
 static void mlkem_polyvec_ntt(mlkem_polyvec_t *v, uint8_t k)
 {
-    uint8_t i;
-    for(i = 0; i < k; i++) {
-        mlkem_poly_ntt(&v->v[i]);
+    uint8_t i = 0U;
+    for(i = 0U; i < k; i += 1U) {
+        (void)mlkem_poly_ntt(&v->v[i]);
     }
 }
 
@@ -269,9 +269,9 @@ static void mlkem_polyvec_ntt(mlkem_polyvec_t *v, uint8_t k)
  */
 static void mlkem_polyvec_invntt_tomont(mlkem_polyvec_t *v, uint8_t k)
 {
-    uint8_t i;
-    for(i = 0; i < k; i++) {
-        mlkem_poly_invntt_tomont(&v->v[i]);
+    uint8_t i = 0U;
+    for(i = 0U; i < k; i += 1U) {
+        (void)mlkem_poly_invntt_tomont(&v->v[i]);
     }
 }
 
@@ -283,9 +283,9 @@ static void mlkem_polyvec_invntt_tomont(mlkem_polyvec_t *v, uint8_t k)
  */
 static void mlkem_polyvec_reduce(mlkem_polyvec_t *v, uint8_t k)
 {
-    uint8_t i;
-    for(i = 0; i < k; i++) {
-        mlkem_poly_reduce(&v->v[i]);
+    uint8_t i = 0U;
+    for(i = 0U; i < k; i += 1U) {
+        (void)mlkem_poly_reduce(&v->v[i]);
     }
 }
 
@@ -299,12 +299,12 @@ static void mlkem_polyvec_reduce(mlkem_polyvec_t *v, uint8_t k)
  */
 static void mlkem_polyvec_basemul_acc_montgomery(mlkem_poly_t *r, const mlkem_polyvec_t *a, const mlkem_polyvec_t *b, uint8_t k)
 {
-    uint8_t i;
+    uint8_t i = 0U;
     mlkem_poly_t t;
-    mlkem_poly_basemul_montgomery(r, &a->v[0], &b->v[0]);
-    for(i = 1; i < k; i++) {
-        mlkem_poly_basemul_montgomery(&t, &a->v[i], &b->v[i]);
-        mlkem_poly_add(r, r, &t);
+    (void)mlkem_poly_basemul_montgomery(r, &a->v[0], &b->v[0]);
+    for(i = 1U; i < k; i += 1U) {
+        (void)mlkem_poly_basemul_montgomery(&t, &a->v[i], &b->v[i]);
+        (void)mlkem_poly_add(r, r, &t);
     }
 }
 
@@ -320,7 +320,7 @@ static void mlkem_polyvec_basemul_acc_montgomery(mlkem_poly_t *r, const mlkem_po
 static noxtls_return_t mlkem_shake_expand(const uint8_t *seed, uint32_t seed_len, uint8_t *out, uint32_t out_len)
 {
     noxtls_sha3_ctx_t ctx;
-    noxtls_return_t rc;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
     rc = noxtls_shake256_init(&ctx);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
@@ -389,8 +389,8 @@ static noxtls_return_t mlkem_sha3_512(const uint8_t *in, uint32_t in_len, uint8_
  */
 static void mlkem_poly_add(mlkem_poly_t *r, const mlkem_poly_t *a, const mlkem_poly_t *b)
 {
-    uint32_t i;
-    for(i = 0; i < MLKEM_N; i++) {
+    uint32_t i = 0U;
+    for(i = 0U; i < MLKEM_N; i += 1U) {
         r->c[i] = mlkem_mod_q((int32_t)a->c[i] + (int32_t)b->c[i]);
     }
 }
@@ -404,8 +404,8 @@ static void mlkem_poly_add(mlkem_poly_t *r, const mlkem_poly_t *a, const mlkem_p
  */
 static void mlkem_poly_sub(mlkem_poly_t *r, const mlkem_poly_t *a, const mlkem_poly_t *b)
 {
-    uint32_t i;
-    for(i = 0; i < MLKEM_N; i++) {
+    uint32_t i = 0U;
+    for(i = 0U; i < MLKEM_N; i += 1U) {
         r->c[i] = mlkem_mod_q((int32_t)a->c[i] - (int32_t)b->c[i]);
     }
 }
@@ -420,9 +420,9 @@ static void mlkem_poly_sub(mlkem_poly_t *r, const mlkem_poly_t *a, const mlkem_p
  */
 static void mlkem_polyvec_add(mlkem_polyvec_t *r, const mlkem_polyvec_t *a, const mlkem_polyvec_t *b, uint8_t k)
 {
-    uint8_t i;
-    for(i = 0; i < k; i++) {
-        mlkem_poly_add(&r->v[i], &a->v[i], &b->v[i]);
+    uint8_t i = 0U;
+    for(i = 0U; i < k; i += 1U) {
+        (void)mlkem_poly_add(&r->v[i], &a->v[i], &b->v[i]);
     }
 }
 
@@ -436,18 +436,18 @@ static void mlkem_polyvec_add(mlkem_polyvec_t *r, const mlkem_polyvec_t *a, cons
 static void mlkem_poly_mul(mlkem_poly_t *r, const mlkem_poly_t *a, const mlkem_poly_t *b)
 {
     int32_t tmp[MLKEM_N * 2];
-    uint32_t i;
-    uint32_t j;
-    memset(tmp, 0, sizeof(tmp));
-    for(i = 0; i < MLKEM_N; i++) {
-        for(j = 0; j < MLKEM_N; j++) {
+    uint32_t i = 0U;
+    uint32_t j = 0U;
+    noxtls_secure_zero((tmp), sizeof(tmp));
+    for(i = 0U; i < MLKEM_N; i += 1U) {
+        for(j = 0U; j < MLKEM_N; j += 1U) {
             tmp[i + j] += (int32_t)a->c[i] * (int32_t)b->c[j];
         }
     }
-    for(i = 0; i < MLKEM_N; i++) {
+    for(i = 0U; i < MLKEM_N; i += 1U) {
         tmp[i] -= tmp[i + MLKEM_N];
     }
-    for(i = 0; i < MLKEM_N; i++) {
+    for(i = 0U; i < MLKEM_N; i += 1U) {
         r->c[i] = mlkem_mod_q(tmp[i]);
     }
 }
@@ -463,11 +463,11 @@ static void mlkem_poly_mul(mlkem_poly_t *r, const mlkem_poly_t *a, const mlkem_p
 static void mlkem_polyvec_dot(mlkem_poly_t *r, const mlkem_polyvec_t *a, const mlkem_polyvec_t *b, uint8_t k)
 {
     mlkem_poly_t t;
-    uint8_t i;
-    memset(r, 0, sizeof(*r));
-    for(i = 0; i < k; i++) {
-        mlkem_poly_mul(&t, &a->v[i], &b->v[i]);
-        mlkem_poly_add(r, r, &t);
+    uint8_t i = 0U;
+    noxtls_secure_zero((r), sizeof(*(r)));
+    for(i = 0U; i < k; i += 1U) {
+        (void)mlkem_poly_mul(&t, &a->v[i], &b->v[i]);
+        (void)mlkem_poly_add(r, r, &t);
     }
 }
 
@@ -483,7 +483,7 @@ static void mlkem_polyvec_dot(mlkem_poly_t *r, const mlkem_polyvec_t *a, const m
 static noxtls_return_t mlkem_prf(uint8_t *out, uint32_t out_len, const uint8_t seed[32], uint8_t nonce)
 {
     uint8_t in[33];
-    memcpy(in, seed, 32U);
+    noxtls_copy_u8((uint8_t *)(void *)(in), 32U, (const uint8_t *)(const void *)(seed), 32U);
     in[32] = nonce;
     return mlkem_shake_expand(in, sizeof(in), out, out_len);
 }
@@ -500,7 +500,7 @@ static noxtls_return_t mlkem_prf(uint8_t *out, uint32_t out_len, const uint8_t s
 static noxtls_return_t mlkem_xof_expand128(const uint8_t *seed, uint32_t seed_len, uint8_t *out, uint32_t out_len)
 {
     noxtls_sha3_ctx_t ctx;
-    noxtls_return_t rc;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
     rc = noxtls_shake128_init(&ctx);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
@@ -531,11 +531,11 @@ static noxtls_return_t mlkem_sample_uniform(mlkem_poly_t *p, const uint8_t rho[3
 {
     uint8_t seed[34];
     uint8_t buf[672];
-    uint32_t pos = 0;
-    uint32_t ctr = 0;
-    noxtls_return_t rc;
+    uint32_t pos = 0U;
+    uint32_t ctr = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    memcpy(seed, rho, 32U);
+    noxtls_copy_u8((uint8_t *)(void *)(seed), 32U, (const uint8_t *)(const void *)(rho), 32U);
     seed[32] = j;
     seed[33] = i;
     rc = mlkem_xof_expand128(seed, sizeof(seed), buf, sizeof(buf));
@@ -543,15 +543,17 @@ static noxtls_return_t mlkem_sample_uniform(mlkem_poly_t *p, const uint8_t rho[3
         return rc;
     }
 
-    while(ctr < MLKEM_N && (pos + 2U) < sizeof(buf)) {
-        uint16_t v0 = ((uint16_t)buf[pos]) | (((uint16_t)buf[pos + 1] & 0x0Fu) << 8);
-        uint16_t v1 = (((uint16_t)buf[pos + 1]) >> 4) | (((uint16_t)buf[pos + 2]) << 4);
+    while(ctr < MLKEM_N && (pos + 2U) < (sizeof(buf)) ){
+        uint16_t v0 = (uint16_t)(((uint16_t)buf[pos]) | (((uint16_t)buf[pos + 1U] & 0x0FU) <<8U));
+        uint16_t v1 = (uint16_t)((((uint16_t)buf[pos + 1U]) >>4U) | (((uint16_t)buf[pos + 2U]) <<4U));
         pos += 3U;
         if(v0 < MLKEM_Q) {
-            p->c[ctr++] = (int16_t)v0;
+            p->c[ctr] = (int16_t)v0;
+            ctr += 1U;
         }
         if(ctr < MLKEM_N && v1 < MLKEM_Q) {
-            p->c[ctr++] = (int16_t)v1;
+            p->c[ctr] = (int16_t)v1;
+            ctr += 1U;
         }
     }
     if(ctr != MLKEM_N) {
@@ -568,7 +570,7 @@ static noxtls_return_t mlkem_sample_uniform(mlkem_poly_t *p, const uint8_t rho[3
  */
 static uint8_t mlkem_popcount_u32(uint32_t x)
 {
-    uint8_t c = 0;
+    uint8_t c = 0U;
     while(x != 0U) {
         c = (uint8_t)(c + (uint8_t)(x & 1U));
         x >>= 1U;
@@ -585,20 +587,20 @@ static uint8_t mlkem_popcount_u32(uint32_t x)
  */
 static void mlkem_sample_cbd(mlkem_poly_t *p, const uint8_t *buf, uint8_t eta)
 {
-    uint32_t i;
+    uint32_t i = 0U;
     if(eta == 2U) {
-        for(i = 0U; i < (MLKEM_N / 8U); i++) {
+        for(i = 0U; i < (MLKEM_N / 8U); i += 1U) {
             uint32_t t = ((uint32_t)buf[4U * i + 0U]) |
-                         ((uint32_t)buf[4U * i + 1U] << 8) |
-                         ((uint32_t)buf[4U * i + 2U] << 16) |
-                         ((uint32_t)buf[4U * i + 3U] << 24);
-            uint32_t d = t & 0x55555555u;
-            d += (t >> 1) & 0x55555555u;
+                         ((uint32_t)buf[4U * i + 1U] <<8U) |
+                         ((uint32_t)buf[4U * i + 2U] <<16U) |
+                         ((uint32_t)buf[4U * i + 3U] <<24U);
+            uint32_t d = (uint32_t)(t & 0x55555555U);
+            d += (t >>1U) & 0x55555555U;
             {
-                uint32_t j;
-                for(j = 0U; j < 8U; j++) {
-                    uint32_t a = (d >> (4U * j + 0U)) & 0x3u;
-                    uint32_t b = (d >> (4U * j + 2U)) & 0x3u;
+                uint32_t j = 0U;
+                for(j = 0U; j < 8U; j += 1U) {
+                    uint32_t a = (uint32_t)((d >> (4U * j + 0U)) & 0x3U);
+                    uint32_t b = (uint32_t)((d >> (4U * j + 2U)) & 0x3U);
                     p->c[8U * i + j] = (int16_t)((int16_t)a - (int16_t)b);
                 }
             }
@@ -606,26 +608,26 @@ static void mlkem_sample_cbd(mlkem_poly_t *p, const uint8_t *buf, uint8_t eta)
         return;
     }
     if(eta == 3U) {
-        for(i = 0U; i < (MLKEM_N / 4U); i++) {
+        for(i = 0U; i < (MLKEM_N / 4U); i += 1U) {
             uint32_t t = ((uint32_t)buf[3U * i + 0U]) |
-                         ((uint32_t)buf[3U * i + 1U] << 8) |
-                         ((uint32_t)buf[3U * i + 2U] << 16);
-            uint32_t d = t & 0x00249249u;
-            d += (t >> 1) & 0x00249249u;
-            d += (t >> 2) & 0x00249249u;
+                         ((uint32_t)buf[3U * i + 1U] <<8U) |
+                         ((uint32_t)buf[3U * i + 2U] <<16U);
+            uint32_t d = (uint32_t)(t & 0x00249249U);
+            d += (t >>1U) & 0x00249249U;
+            d += (t >>2U) & 0x00249249U;
             {
-                uint32_t j;
-                for(j = 0U; j < 4U; j++) {
-                    uint32_t a = (d >> (6U * j + 0U)) & 0x7u;
-                    uint32_t b = (d >> (6U * j + 3U)) & 0x7u;
+                uint32_t j = 0U;
+                for(j = 0U; j < 4U; j += 1U) {
+                    uint32_t a = (uint32_t)((d >> (6U * j + 0U)) & 0x7U);
+                    uint32_t b = (uint32_t)((d >> (6U * j + 3U)) & 0x7U);
                     p->c[4U * i + j] = (int16_t)((int16_t)a - (int16_t)b);
                 }
             }
         }
         return;
     }
-    for(i = 0U; i < MLKEM_N; i++) {
-        p->c[i] = 0;
+    for(i = 0U; i < MLKEM_N; i += 1U) {
+        p->c[i] = 0U;
     }
 }
 
@@ -640,17 +642,17 @@ static void mlkem_sample_cbd(mlkem_poly_t *p, const uint8_t *buf, uint8_t eta)
  */
 static noxtls_return_t mlkem_sample_noise_eta(mlkem_poly_t *p, const uint8_t sigma[32], uint8_t nonce, uint8_t eta)
 {
-    uint32_t bytes = ((uint32_t)MLKEM_N * (uint32_t)eta * 2U) / 8U;
+    uint32_t bytes = (uint32_t)(((uint32_t)MLKEM_N * (uint32_t)eta * 2U) / 8U);
     uint8_t buf[192];
-    noxtls_return_t rc;
-    if(bytes > sizeof(buf)) {
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+    if(bytes > (size_t)sizeof(buf)) {
         return NOXTLS_RETURN_FAILED;
     }
     rc = mlkem_prf(buf, bytes, sigma, nonce);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    mlkem_sample_cbd(p, buf, eta);
+    (void)mlkem_sample_cbd(p, buf, eta);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -662,13 +664,13 @@ static noxtls_return_t mlkem_sample_noise_eta(mlkem_poly_t *p, const uint8_t sig
  */
 static void mlkem_poly_tobytes12(uint8_t out[MLKEM_POLY12_BYTES], const mlkem_poly_t *p)
 {
-    uint32_t i;
-    for(i = 0; i < (MLKEM_N / 2U); i++) {
+    uint32_t i = 0U;
+    for(i = 0U; i < (MLKEM_N / 2U); i += 1U) {
         uint16_t t0 = (uint16_t)mlkem_mod_q(p->c[2U * i]);
         uint16_t t1 = (uint16_t)mlkem_mod_q(p->c[2U * i + 1U]);
-        out[3U * i + 0U] = (uint8_t)(t0 & 0xFFu);
-        out[3U * i + 1U] = (uint8_t)((t0 >> 8) | ((t1 & 0x0Fu) << 4));
-        out[3U * i + 2U] = (uint8_t)(t1 >> 4);
+        out[3U * i + 0U] = (uint8_t)(t0 & 0xFFU);
+        out[3U * i + 1U] = (uint8_t)((t0 >>8U) | ((t1 & 0x0FU) <<4U));
+        out[3U * i + 2U] = (uint8_t)(t1 >>4U);
     }
 }
 
@@ -680,10 +682,10 @@ static void mlkem_poly_tobytes12(uint8_t out[MLKEM_POLY12_BYTES], const mlkem_po
  */
 static void mlkem_poly_frombytes12(mlkem_poly_t *p, const uint8_t in[MLKEM_POLY12_BYTES])
 {
-    uint32_t i;
-    for(i = 0; i < (MLKEM_N / 2U); i++) {
-        uint16_t t0 = ((uint16_t)in[3U * i + 0U]) | (((uint16_t)in[3U * i + 1U] & 0x0Fu) << 8);
-        uint16_t t1 = (((uint16_t)in[3U * i + 1U]) >> 4) | (((uint16_t)in[3U * i + 2U]) << 4);
+    uint32_t i = 0U;
+    for(i = 0U; i < (MLKEM_N / 2U); i += 1U) {
+        uint16_t t0 = (uint16_t)(((uint16_t)in[3U * i + 0U]) | (((uint16_t)in[3U * i + 1U] & 0x0FU) <<8U));
+        uint16_t t1 = (uint16_t)((((uint16_t)in[3U * i + 1U]) >>4U) | (((uint16_t)in[3U * i + 2U]) <<4U));
         p->c[2U * i] = (int16_t)(t0 % MLKEM_Q);
         p->c[2U * i + 1U] = (int16_t)(t1 % MLKEM_Q);
     }
@@ -698,17 +700,17 @@ static void mlkem_poly_frombytes12(mlkem_poly_t *p, const uint8_t in[MLKEM_POLY1
  */
 static void mlkem_poly_compress_bits(uint8_t *out, const mlkem_poly_t *p, uint8_t bits)
 {
-    uint32_t i;
-    uint32_t bitpos = 0;
-    memset(out, 0, ((uint32_t)MLKEM_N * bits) / 8U);
-    for(i = 0; i < MLKEM_N; i++) {
+    uint32_t i = 0U;
+    uint32_t bitpos = 0U;
+    noxtls_secure_zero((out), (((uint32_t)MLKEM_N * bits) / 8U));
+    for(i = 0U; i < MLKEM_N; i += 1U) {
         uint32_t v = (uint32_t)mlkem_mod_q(p->c[i]);
-        uint32_t t = ((v << bits) + (MLKEM_Q / 2U)) / MLKEM_Q;
-        uint32_t j;
+        uint32_t t = (uint32_t)(((v << bits) + (MLKEM_Q / 2U)) / MLKEM_Q);
+        uint32_t j = 0U;
         t &= ((1U << bits) - 1U);
-        for(j = 0; j < bits; j++) {
-            if((t >> j) & 1U) {
-                out[(bitpos + j) >> 3] |= (uint8_t)(1U << ((bitpos + j) & 7U));
+        for(j = 0U; j < bits; j += 1U) {
+            if (((t >> j) & 1U) != 0U) {
+                out[(bitpos + j) >>3U] |= (uint8_t)(1U << ((bitpos + j) & 7U));
             }
         }
         bitpos += bits;
@@ -724,16 +726,16 @@ static void mlkem_poly_compress_bits(uint8_t *out, const mlkem_poly_t *p, uint8_
  */
 static void mlkem_poly_decompress_bits(mlkem_poly_t *p, const uint8_t *in, uint8_t bits)
 {
-    uint32_t i;
-    uint32_t bitpos = 0;
-    for(i = 0; i < MLKEM_N; i++) {
-        uint32_t t = 0;
-        uint32_t j;
-        for(j = 0; j < bits; j++) {
-            uint32_t bit = (uint32_t)((in[(bitpos + j) >> 3] >> ((bitpos + j) & 7U)) & 1U);
+    uint32_t i = 0U;
+    uint32_t bitpos = 0U;
+    for(i = 0U; i < MLKEM_N; i += 1U) {
+        uint32_t t = 0U;
+        uint32_t j = 0U;
+        for(j = 0U; j < bits; j += 1U) {
+            uint32_t bit = (uint32_t)((in[(bitpos + j) >>3U] >> ((bitpos + j) & 7U)) & 1U);
             t |= (bit << j);
         }
-        p->c[i] = (int16_t)(((t * MLKEM_Q) + (1U << (bits - 1U))) >> bits);
+        p->c[i] = (int16_t)(((t * MLKEM_Q) + (1U << (bits - 1U)) >> bits));
         bitpos += bits;
     }
 }
@@ -746,9 +748,9 @@ static void mlkem_poly_decompress_bits(mlkem_poly_t *p, const uint8_t *in, uint8
  */
 static void mlkem_msg_to_poly(mlkem_poly_t *p, const uint8_t msg[32])
 {
-    uint32_t i;
-    for(i = 0; i < MLKEM_N; i++) {
-        uint8_t bit = (uint8_t)((msg[i >> 3] >> (i & 7U)) & 1U);
+    uint32_t i = 0U;
+    for(i = 0U; i < MLKEM_N; i += 1U) {
+        uint8_t bit = (uint8_t)((msg[(uint32_t)i >> 3U] >> (i & 7U)) & 1U);
         p->c[i] = bit ? (MLKEM_Q + 1) / 2 : 0;
     }
 }
@@ -761,12 +763,12 @@ static void mlkem_msg_to_poly(mlkem_poly_t *p, const uint8_t msg[32])
  */
 static void mlkem_poly_to_msg(uint8_t msg[32], const mlkem_poly_t *p)
 {
-    uint32_t i;
-    memset(msg, 0, 32U);
-    for(i = 0; i < MLKEM_N; i++) {
+    uint32_t i = 0U;
+    noxtls_secure_zero((msg), (size_t)(32U));
+    for(i = 0U; i < MLKEM_N; i += 1U) {
         uint16_t t = (uint16_t)mlkem_mod_q(p->c[i]);
         uint8_t bit = (uint8_t)((((uint32_t)t * 2U + (MLKEM_Q / 2U)) / MLKEM_Q) & 1U);
-        msg[i >> 3] |= (uint8_t)(bit << (i & 7U));
+        msg[i >> 3U] |= (uint8_t)(bit << (i & 7U));
     }
 }
 
@@ -781,13 +783,13 @@ static void mlkem_poly_to_msg(uint8_t msg[32], const mlkem_poly_t *p)
  */
 static noxtls_return_t mlkem_gen_matrix(mlkem_poly_t a[MLKEM_MAX_K][MLKEM_MAX_K], const mlkem_params_t *p, const uint8_t rho[32], uint8_t transposed)
 {
-    uint8_t i;
-    uint8_t j;
-    for(i = 0; i < p->k; i++) {
-        for(j = 0; j < p->k; j++) {
-            uint8_t row = i;
-            uint8_t col = j;
-            noxtls_return_t rc;
+    uint8_t i = 0U;
+    uint8_t j = 0U;
+    for(i = 0U; i < p->k; i += 1U) {
+        for(j = 0U; j < p->k; j += 1U) {
+            uint8_t row = (uint8_t)(i);
+            uint8_t col = (uint8_t)(j);
+            noxtls_return_t rc = NOXTLS_RETURN_FAILED;
             if(transposed != 0U) {
                 row = j;
                 col = i;
@@ -811,11 +813,11 @@ static noxtls_return_t mlkem_gen_matrix(mlkem_poly_t a[MLKEM_MAX_K][MLKEM_MAX_K]
  */
 static void mlkem_pack_pk(uint8_t *pk, const mlkem_polyvec_t *t, const uint8_t rho[32], uint8_t k)
 {
-    uint8_t i;
-    for(i = 0; i < k; i++) {
-        mlkem_poly_tobytes12(pk + ((uint32_t)i * MLKEM_POLY12_BYTES), &t->v[i]);
+    uint8_t i = 0U;
+    for(i = 0U; i < k; i += 1U) {
+        (void)mlkem_poly_tobytes12(&pk[((uint32_t)i * MLKEM_POLY12_BYTES)], &t->v[i]);
     }
-    memcpy(pk + ((uint32_t)k * MLKEM_POLY12_BYTES), rho, 32U);
+    noxtls_copy_u8((uint8_t *)(void *)(&pk[((uint32_t)k * MLKEM_POLY12_BYTES)]), 32U, (const uint8_t *)(const void *)(rho), 32U);
 }
 
 /**
@@ -828,11 +830,11 @@ static void mlkem_pack_pk(uint8_t *pk, const mlkem_polyvec_t *t, const uint8_t r
  */
 static void mlkem_unpack_pk(mlkem_polyvec_t *t, uint8_t rho[32], const uint8_t *pk, uint8_t k)
 {
-    uint8_t i;
-    for(i = 0; i < k; i++) {
-        mlkem_poly_frombytes12(&t->v[i], pk + ((uint32_t)i * MLKEM_POLY12_BYTES));
+    uint8_t i = 0U;
+    for(i = 0U; i < k; i += 1U) {
+        (void)mlkem_poly_frombytes12(&t->v[i], &pk[((uint32_t)i * MLKEM_POLY12_BYTES)]);
     }
-    memcpy(rho, pk + ((uint32_t)k * MLKEM_POLY12_BYTES), 32U);
+    noxtls_copy_u8((uint8_t *)(void *)(rho), 32U, (const uint8_t *)(const void *)(&pk[((uint32_t)k * MLKEM_POLY12_BYTES)]), 32U);
 }
 
 /**
@@ -848,13 +850,13 @@ static void mlkem_unpack_pk(mlkem_polyvec_t *t, uint8_t rho[32], const uint8_t *
  */
 static void mlkem_pack_sk(uint8_t *sk, const mlkem_polyvec_t *s, const uint8_t *pk, uint32_t pk_len, const uint8_t hpk[32], const uint8_t z[32], uint8_t k)
 {
-    uint8_t i;
-    for(i = 0; i < k; i++) {
-        mlkem_poly_tobytes12(sk + ((uint32_t)i * MLKEM_POLY12_BYTES), &s->v[i]);
+    uint8_t i = 0U;
+    for(i = 0U; i < k; i += 1U) {
+        (void)mlkem_poly_tobytes12(&sk[((uint32_t)i * MLKEM_POLY12_BYTES)], &s->v[i]);
     }
-    memcpy(sk + ((uint32_t)k * MLKEM_POLY12_BYTES), pk, pk_len);
-    memcpy(sk + ((uint32_t)k * MLKEM_POLY12_BYTES) + pk_len, hpk, 32U);
-    memcpy(sk + ((uint32_t)k * MLKEM_POLY12_BYTES) + pk_len + 32U, z, 32U);
+    (void)memcpy(&sk[((uint32_t)k * MLKEM_POLY12_BYTES)], pk, (size_t)pk_len);
+    noxtls_copy_u8((uint8_t *)(void *)(&sk[((uint32_t)k * MLKEM_POLY12_BYTES) + pk_len]), 32U, (const uint8_t *)(const void *)(hpk), 32U);
+    noxtls_copy_u8((uint8_t *)(void *)(&sk[((uint32_t)k * MLKEM_POLY12_BYTES) + pk_len + 32U]), 32U, (const uint8_t *)(const void *)(z), 32U);
 }
 
 /**
@@ -870,13 +872,13 @@ static void mlkem_pack_sk(uint8_t *sk, const mlkem_polyvec_t *s, const uint8_t *
  */
 static void mlkem_unpack_sk(mlkem_polyvec_t *s, uint8_t *pk, uint32_t pk_len, uint8_t hpk[32], uint8_t z[32], const uint8_t *sk, uint8_t k)
 {
-    uint8_t i;
-    for(i = 0; i < k; i++) {
-        mlkem_poly_frombytes12(&s->v[i], sk + ((uint32_t)i * MLKEM_POLY12_BYTES));
+    uint8_t i = 0U;
+    for(i = 0U; i < k; i += 1U) {
+        (void)mlkem_poly_frombytes12(&s->v[i], &sk[((uint32_t)i * MLKEM_POLY12_BYTES)]);
     }
-    memcpy(pk, sk + ((uint32_t)k * MLKEM_POLY12_BYTES), pk_len);
-    memcpy(hpk, sk + ((uint32_t)k * MLKEM_POLY12_BYTES) + pk_len, 32U);
-    memcpy(z, sk + ((uint32_t)k * MLKEM_POLY12_BYTES) + pk_len + 32U, 32U);
+    (void)memcpy(pk, &sk[((uint32_t)k * MLKEM_POLY12_BYTES)], (size_t)pk_len);
+    noxtls_copy_u8((uint8_t *)(void *)(hpk), 32U, (const uint8_t *)(const void *)(&sk[((uint32_t)k * MLKEM_POLY12_BYTES) + pk_len]), 32U);
+    noxtls_copy_u8((uint8_t *)(void *)(z), 32U, (const uint8_t *)(const void *)(&sk[((uint32_t)k * MLKEM_POLY12_BYTES) + pk_len + 32U]), 32U);
 }
 
 /**
@@ -889,18 +891,18 @@ static void mlkem_unpack_sk(mlkem_polyvec_t *s, uint8_t *pk, uint32_t pk_len, ui
  */
 static void mlkem_pack_ct(uint8_t *ct, const mlkem_polyvec_t *u, const mlkem_poly_t *v, const mlkem_params_t *p)
 {
-    uint8_t i;
-    uint32_t off = 0;
-    uint32_t u_bytes = ((uint32_t)MLKEM_N * p->du) / 8U;
-    uint32_t v_bytes = ((uint32_t)MLKEM_N * p->dv) / 8U;
-    for(i = 0; i < p->k; i++) {
-        mlkem_poly_compress_bits(ct + off, &u->v[i], p->du);
+    uint8_t i = 0U;
+    uint32_t off = 0U;
+    uint32_t u_bytes = (uint32_t)(((uint32_t)MLKEM_N * p->du) / 8U);
+    uint32_t v_bytes = (uint32_t)(((uint32_t)MLKEM_N * p->dv) / 8U);
+    for(i = 0U; i < p->k; i += 1U) {
+        (void)mlkem_poly_compress_bits(&ct[off], &u->v[i], p->du);
         off += u_bytes;
     }
-    mlkem_poly_compress_bits(ct + off, v, p->dv);
+    (void)mlkem_poly_compress_bits(&ct[off], v, p->dv);
     off += v_bytes;
     if(off < p->ciphertext_len) {
-        memset(ct + off, 0, p->ciphertext_len - off);
+        noxtls_secure_zero((&ct[off]), ((size_t)(p->ciphertext_len - off)));
     }
 }
 
@@ -914,14 +916,14 @@ static void mlkem_pack_ct(uint8_t *ct, const mlkem_polyvec_t *u, const mlkem_pol
  */
 static void mlkem_unpack_ct(mlkem_polyvec_t *u, mlkem_poly_t *v, const uint8_t *ct, const mlkem_params_t *p)
 {
-    uint8_t i;
-    uint32_t off = 0;
-    uint32_t u_bytes = ((uint32_t)MLKEM_N * p->du) / 8U;
-    for(i = 0; i < p->k; i++) {
-        mlkem_poly_decompress_bits(&u->v[i], ct + off, p->du);
+    uint8_t i = 0U;
+    uint32_t off = 0U;
+    uint32_t u_bytes = (uint32_t)(((uint32_t)MLKEM_N * p->du) / 8U);
+    for(i = 0U; i < p->k; i += 1U) {
+        (void)mlkem_poly_decompress_bits(&u->v[i], &ct[off], p->du);
         off += u_bytes;
     }
-    mlkem_poly_decompress_bits(v, ct + off, p->dv);
+    (void)mlkem_poly_decompress_bits(v, &ct[off], p->dv);
 }
 
 /**
@@ -941,42 +943,44 @@ static noxtls_return_t mlkem_indcpa_keypair(const mlkem_params_t *p, const uint8
     uint8_t g_in[33];
     uint8_t g_out[64];
     uint8_t sigma[32];
-    uint8_t i;
-    uint8_t nonce = 0;
-    noxtls_return_t rc;
+    uint8_t i = 0U;
+    uint8_t nonce = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    memcpy(g_in, d, 32U);
+    noxtls_copy_u8((uint8_t *)(void *)(g_in), 32U, (const uint8_t *)(const void *)(d), 32U);
     g_in[32] = p->k;
     rc = mlkem_sha3_512(g_in, sizeof(g_in), g_out);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    memcpy(rho, g_out, 32U);
-    memcpy(sigma, g_out + 32U, 32U);
+    noxtls_copy_u8((uint8_t *)(void *)(rho), 32U, (const uint8_t *)(const void *)(g_out), 32U);
+    noxtls_copy_u8((uint8_t *)(void *)(sigma), 32U, (const uint8_t *)(const void *)(&g_out[32U]), 32U);
     rc = mlkem_gen_matrix(a, p, rho, 0U);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    for(i = 0; i < p->k; i++) {
-        rc = mlkem_sample_noise_eta(&s->v[i], sigma, nonce++, p->eta1);
+    for(i = 0U; i < p->k; i += 1U) {
+        rc = mlkem_sample_noise_eta(&s->v[i], sigma, nonce, p->eta1);
+        nonce = &nonce[1U];
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
     }
-    for(i = 0; i < p->k; i++) {
-        rc = mlkem_sample_noise_eta(&e.v[i], sigma, nonce++, p->eta1);
+    for(i = 0U; i < p->k; i += 1U) {
+        rc = mlkem_sample_noise_eta(&e.v[i], sigma, nonce, p->eta1);
+        nonce = &nonce[1U];
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
     }
-    mlkem_polyvec_ntt(s, p->k);
-    mlkem_polyvec_ntt(&e, p->k);
-    for(i = 0; i < p->k; i++) {
-        mlkem_polyvec_basemul_acc_montgomery(&t->v[i], (const mlkem_polyvec_t *)&a[i], s, p->k);
-        mlkem_poly_tomont(&t->v[i]);
-        mlkem_poly_add(&t->v[i], &t->v[i], &e.v[i]);
+    (void)mlkem_polyvec_ntt(s, p->k);
+    (void)mlkem_polyvec_ntt(&e, p->k);
+    for(i = 0U; i < p->k; i += 1U) {
+        (void)mlkem_polyvec_basemul_acc_montgomery(&t->v[i], (const mlkem_polyvec_t *)&a[i], s, p->k);
+        (void)mlkem_poly_tomont(&t->v[i]);
+        (void)mlkem_poly_add(&t->v[i], &t->v[i], &e.v[i]);
     }
-    mlkem_polyvec_reduce(t, p->k);
+    (void)mlkem_polyvec_reduce(t, p->k);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -1005,45 +1009,48 @@ static noxtls_return_t mlkem_indcpa_enc(const mlkem_params_t *p,
     mlkem_polyvec_t e1;
     mlkem_poly_t e2;
     mlkem_poly_t mp;
-    uint8_t i;
-    uint8_t nonce = 0;
-    noxtls_return_t rc;
+    uint8_t i = 0U;
+    uint8_t nonce = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     rc = mlkem_gen_matrix(a, p, rho, 1U);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    for(i = 0; i < p->k; i++) {
-        rc = mlkem_sample_noise_eta(&r.v[i], coins, nonce++, p->eta1);
+    for(i = 0U; i < p->k; i += 1U) {
+        rc = mlkem_sample_noise_eta(&r.v[i], coins, nonce, p->eta1);
+        nonce = &nonce[1U];
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
     }
-    for(i = 0; i < p->k; i++) {
-        rc = mlkem_sample_noise_eta(&e1.v[i], coins, nonce++, p->eta2);
+    for(i = 0U; i < p->k; i += 1U) {
+        rc = mlkem_sample_noise_eta(&e1.v[i], coins, nonce, p->eta2);
+        nonce = &nonce[1U];
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
     }
-    rc = mlkem_sample_noise_eta(&e2, coins, nonce++, p->eta2);
+    rc = mlkem_sample_noise_eta(&e2, coins, nonce, p->eta2);
+    nonce = &nonce[1U];
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 
-    mlkem_polyvec_ntt(&r, p->k);
-    for(i = 0; i < p->k; i++) {
-        mlkem_polyvec_basemul_acc_montgomery(&u->v[i], (const mlkem_polyvec_t *)&a[i], &r, p->k);
+    (void)mlkem_polyvec_ntt(&r, p->k);
+    for(i = 0U; i < p->k; i += 1U) {
+        (void)mlkem_polyvec_basemul_acc_montgomery(&u->v[i], (const mlkem_polyvec_t *)&a[i], &r, p->k);
     }
-    mlkem_polyvec_invntt_tomont(u, p->k);
-    mlkem_polyvec_add(u, u, &e1, p->k);
-    mlkem_polyvec_reduce(u, p->k);
+    (void)mlkem_polyvec_invntt_tomont(u, p->k);
+    (void)mlkem_polyvec_add(u, u, &e1, p->k);
+    (void)mlkem_polyvec_reduce(u, p->k);
 
-    mlkem_polyvec_basemul_acc_montgomery(v, t, &r, p->k);
-    mlkem_poly_invntt_tomont(v);
-    mlkem_poly_add(v, v, &e2);
-    mlkem_msg_to_poly(&mp, m);
-    mlkem_poly_add(v, v, &mp);
-    mlkem_poly_reduce(v);
+    (void)mlkem_polyvec_basemul_acc_montgomery(v, t, &r, p->k);
+    (void)mlkem_poly_invntt_tomont(v);
+    (void)mlkem_poly_add(v, v, &e2);
+    (void)mlkem_msg_to_poly(&mp, m);
+    (void)mlkem_poly_add(v, v, &mp);
+    (void)mlkem_poly_reduce(v);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -1066,12 +1073,12 @@ static void mlkem_indcpa_dec(const mlkem_params_t *p,
     mlkem_poly_t mp;
     mlkem_poly_t r;
     up = *u;
-    mlkem_polyvec_ntt(&up, p->k);
-    mlkem_polyvec_basemul_acc_montgomery(&mp, s, &up, p->k);
-    mlkem_poly_invntt_tomont(&mp);
-    mlkem_poly_sub(&r, v, &mp);
-    mlkem_poly_reduce(&r);
-    mlkem_poly_to_msg(m, &r);
+    (void)mlkem_polyvec_ntt(&up, p->k);
+    (void)mlkem_polyvec_basemul_acc_montgomery(&mp, s, &up, p->k);
+    (void)mlkem_poly_invntt_tomont(&mp);
+    (void)mlkem_poly_sub(&r, v, &mp);
+    (void)mlkem_poly_reduce(&r);
+    (void)mlkem_poly_to_msg(m, &r);
 }
 
 /**
@@ -1084,7 +1091,7 @@ static noxtls_return_t mlkem_gen_random32(uint8_t out[32])
 {
     if(g_mlkem_test_random_seq != NULL &&
        (g_mlkem_test_random_seq_off + 32U) <= g_mlkem_test_random_seq_len) {
-        memcpy(out, g_mlkem_test_random_seq + g_mlkem_test_random_seq_off, 32U);
+        noxtls_copy_u8((uint8_t *)(void *)(out), 32U, (const uint8_t *)(const void *)(&g_mlkem_test_random_seq[g_mlkem_test_random_seq_off]), 32U);
         g_mlkem_test_random_seq_off += 32U;
         return NOXTLS_RETURN_SUCCESS;
     }
@@ -1162,9 +1169,9 @@ noxtls_return_t noxtls_mlkem_keygen(noxtls_mlkem_param_t param, uint8_t *public_
     uint8_t seed[32];
     uint8_t hpk[32];
     uint8_t z[32];
-    noxtls_return_t rc;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(public_key == NULL || secret_key == NULL) {
+    if((public_key == NULL) || (secret_key == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
     rc = mlkem_get_params(param, &p);
@@ -1180,7 +1187,7 @@ noxtls_return_t noxtls_mlkem_keygen(noxtls_mlkem_param_t param, uint8_t *public_
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    mlkem_pack_pk(public_key, &t, rho, p.k);
+    (void)mlkem_pack_pk(public_key, &t, rho, p.k);
     rc = mlkem_sha3_256(public_key, p.public_key_len, hpk);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
@@ -1189,7 +1196,7 @@ noxtls_return_t noxtls_mlkem_keygen(noxtls_mlkem_param_t param, uint8_t *public_
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    mlkem_pack_sk(secret_key, &s, public_key, p.public_key_len, hpk, z, p.k);
+    (void)mlkem_pack_sk(secret_key, &s, public_key, p.public_key_len, hpk, z, p.k);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -1216,7 +1223,7 @@ noxtls_return_t noxtls_mlkem_encaps(noxtls_mlkem_param_t param, const uint8_t *p
     uint8_t keymat[64];
     uint8_t hc[32];
     uint8_t ss_in[64];
-    noxtls_return_t rc;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(public_key == NULL || ciphertext == NULL || shared_secret_32 == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -1225,7 +1232,7 @@ noxtls_return_t noxtls_mlkem_encaps(noxtls_mlkem_param_t param, const uint8_t *p
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    mlkem_unpack_pk(&t, rho, public_key, p.k);
+    (void)mlkem_unpack_pk(&t, rho, public_key, p.k);
     rc = mlkem_gen_random32(m_rand);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
@@ -1238,23 +1245,23 @@ noxtls_return_t noxtls_mlkem_encaps(noxtls_mlkem_param_t param, const uint8_t *p
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    memcpy(mh, m, 32U);
-    memcpy(mh + 32U, hpk, 32U);
+    noxtls_copy_u8((uint8_t *)(void *)(mh), 32U, (const uint8_t *)(const void *)(m), 32U);
+    noxtls_copy_u8((uint8_t *)(void *)(&mh[32U]), 32U, (const uint8_t *)(const void *)(hpk), 32U);
     rc = mlkem_sha3_512(mh, sizeof(mh), keymat);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    rc = mlkem_indcpa_enc(&p, &t, rho, m, keymat + 32U, &u, &v);
+    rc = mlkem_indcpa_enc(&p, &t, rho, m, &keymat[32U], &u, &v);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    mlkem_pack_ct(ciphertext, &u, &v, &p);
+    (void)mlkem_pack_ct(ciphertext, &u, &v, &p);
     rc = mlkem_sha3_256(ciphertext, p.ciphertext_len, hc);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    memcpy(ss_in, keymat, 32U);
-    memcpy(ss_in + 32U, hc, 32U);
+    noxtls_copy_u8((uint8_t *)(void *)(ss_in), 32U, (const uint8_t *)(const void *)(keymat), 32U);
+    noxtls_copy_u8((uint8_t *)(void *)(&ss_in[32U]), 32U, (const uint8_t *)(const void *)(hc), 32U);
     return mlkem_shake_expand(ss_in, sizeof(ss_in), shared_secret_32, NOXTLS_MLKEM_SHARED_SECRET_LEN);
 }
 
@@ -1284,7 +1291,7 @@ noxtls_return_t noxtls_mlkem_decaps(noxtls_mlkem_param_t param, const uint8_t *p
     uint8_t ct_cmp[NOXTLS_MLKEM_MAX_CIPHERTEXT_LEN];
     uint8_t hc[32];
     uint8_t ss_in[64];
-    noxtls_return_t rc;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(public_key == NULL || secret_key == NULL || ciphertext == NULL || shared_secret_32 == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -1293,35 +1300,35 @@ noxtls_return_t noxtls_mlkem_decaps(noxtls_mlkem_param_t param, const uint8_t *p
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    if(noxtls_secret_memcmp(public_key, secret_key + ((uint32_t)p.k * MLKEM_POLY12_BYTES), p.public_key_len) != 0) {
+    if(noxtls_secret_memcmp(public_key, &secret_key[((uint32_t)p.k * MLKEM_POLY12_BYTES)], (size_t)(p.public_key_len)) != 0) {
         return NOXTLS_RETURN_FAILED;
     }
 
-    mlkem_unpack_sk(&s, pk2, p.public_key_len, hpk, z, secret_key, p.k);
-    mlkem_unpack_pk(&t, rho, pk2, p.k);
-    mlkem_unpack_ct(&u, &v, ciphertext, &p);
-    mlkem_indcpa_dec(&p, &s, &u, &v, m);
+    (void)mlkem_unpack_sk(&s, pk2, p.public_key_len, hpk, z, secret_key, p.k);
+    (void)mlkem_unpack_pk(&t, rho, pk2, p.k);
+    (void)mlkem_unpack_ct(&u, &v, ciphertext, &p);
+    (void)mlkem_indcpa_dec(&p, &s, &u, &v, m);
 
-    memcpy(ss_in, m, 32U);
-    memcpy(ss_in + 32U, hpk, 32U);
+    noxtls_copy_u8((uint8_t *)(void *)(ss_in), 32U, (const uint8_t *)(const void *)(m), 32U);
+    noxtls_copy_u8((uint8_t *)(void *)(&ss_in[32U]), 32U, (const uint8_t *)(const void *)(hpk), 32U);
     rc = mlkem_sha3_512(ss_in, sizeof(ss_in), keymat);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    rc = mlkem_indcpa_enc(&p, &t, rho, m, keymat + 32U, &u, &v);
+    rc = mlkem_indcpa_enc(&p, &t, rho, m, &keymat[32U], &u, &v);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    mlkem_pack_ct(ct_cmp, &u, &v, &p);
+    (void)mlkem_pack_ct(ct_cmp, &u, &v, &p);
 
-    if(noxtls_secret_memcmp(ciphertext, ct_cmp, p.ciphertext_len) != 0) {
-        memcpy(keymat, z, 32U);
+    if(noxtls_secret_memcmp(ciphertext, ct_cmp, (size_t)(p.ciphertext_len)) != 0) {
+        noxtls_copy_u8((uint8_t *)(void *)(keymat), 32U, (const uint8_t *)(const void *)(z), 32U);
     }
     rc = mlkem_sha3_256(ciphertext, p.ciphertext_len, hc);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    memcpy(ss_in, keymat, 32U);
-    memcpy(ss_in + 32U, hc, 32U);
+    noxtls_copy_u8((uint8_t *)(void *)(ss_in), 32U, (const uint8_t *)(const void *)(keymat), 32U);
+    noxtls_copy_u8((uint8_t *)(void *)(&ss_in[32U]), 32U, (const uint8_t *)(const void *)(hc), 32U);
     return mlkem_shake_expand(ss_in, sizeof(ss_in), shared_secret_32, NOXTLS_MLKEM_SHARED_SECRET_LEN);
 }

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(NoxTLS VERSION 0.2.70 LANGUAGES C)
+project(NoxTLS VERSION 0.3.0 LANGUAGES C)
 
 # Resolve NoxTLS paths from this directory by default, while allowing parent override.
 if(NOT DEFINED NOXTLS_PROJECT_ROOT)
@@ -91,6 +91,8 @@ noxtls_set_default(NOXTLS_CFG_FEATURE_STM32_HW_SHA256_ONLY OFF)
 noxtls_set_default(NOXTLS_CFG_FEATURE_NRF52_HW_ACCEL OFF)
 noxtls_set_default(NOXTLS_CFG_FEATURE_NRF52_HW_AES_ONLY OFF)
 noxtls_set_default(NOXTLS_CFG_FEATURE_NOXV_HW_ACCEL OFF)
+noxtls_set_default(NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL OFF)
+noxtls_set_default(NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL OFF)
 noxtls_set_default(NOXTLS_CFG_FEATURE_ARIA ON)
 noxtls_set_default(NOXTLS_CFG_FEATURE_CAMELLIA ON)
 noxtls_set_default(NOXTLS_CFG_FEATURE_CHACHA20_POLY1305 ON)
@@ -115,6 +117,11 @@ noxtls_set_default(NOXTLS_CFG_FEATURE_SLH_DSA OFF)
 noxtls_set_default(NOXTLS_CFG_FEATURE_FALCON OFF)
 noxtls_set_default(NOXTLS_CFG_FEATURE_LMS_HSS OFF)
 noxtls_set_default(NOXTLS_CFG_FEATURE_XMSS OFF)
+noxtls_set_default(NOXTLS_CFG_FEATURE_PBKDF2 OFF)
+noxtls_set_default(NOXTLS_CFG_FEATURE_SPAKE2P OFF)
+noxtls_set_default(NOXTLS_CFG_FEATURE_SPAKE2P_RFC9383 ON)
+noxtls_set_default(NOXTLS_CFG_FEATURE_SPAKE2P_MATTER OFF)
+noxtls_set_default(NOXTLS_CFG_FEATURE_MATTER_PASE OFF)
 noxtls_set_default(NOXTLS_CFG_PQC_STRICT_OFFICIAL_VECTORS OFF)
 noxtls_set_default(NOXTLS_CFG_TLS12_ENABLE_LEGACY_CIPHER_SUITES OFF)
 
@@ -217,11 +224,34 @@ if(NOXTLS_BUILD_SIZE_BENCHMARKS)
   noxtls_apply_bench_opt_level("${NOXTLS_BENCH_OPT_LEVEL}")
 endif()
 
+if(NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL AND
+   (NOXTLS_CFG_FEATURE_STM32_HW_ACCEL OR NOXTLS_CFG_FEATURE_NRF52_HW_ACCEL OR NOXTLS_CFG_FEATURE_NOXV_HW_ACCEL OR
+    NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL OR
+    NOXTLS_NRF52840_CC310_ECC OR NOXTLS_NRF53_CC312_P256_ACCEL))
+  message(FATAL_ERROR "NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL cannot be combined with another hardware backend.")
+endif()
 if(NOXTLS_CFG_FEATURE_HMAC AND NOT NOXTLS_CFG_FEATURE_HASH)
   message(FATAL_ERROR "NOXTLS_CFG_FEATURE_HMAC requires NOXTLS_CFG_FEATURE_HASH.")
 endif()
 if(NOXTLS_CFG_FEATURE_HKDF AND NOT NOXTLS_CFG_FEATURE_HMAC)
   message(FATAL_ERROR "NOXTLS_CFG_FEATURE_HKDF requires NOXTLS_CFG_FEATURE_HMAC.")
+endif()
+if(NOXTLS_CFG_FEATURE_PBKDF2 AND NOT NOXTLS_CFG_FEATURE_HMAC)
+  message(FATAL_ERROR "NOXTLS_CFG_FEATURE_PBKDF2 requires NOXTLS_CFG_FEATURE_HMAC.")
+endif()
+if(NOXTLS_CFG_FEATURE_SPAKE2P)
+  foreach(_noxtls_spake2p_dep PKC ECC SHA256 HMAC HKDF DRBG)
+    if(NOT NOXTLS_CFG_FEATURE_${_noxtls_spake2p_dep})
+      message(FATAL_ERROR "NOXTLS_CFG_FEATURE_SPAKE2P requires NOXTLS_CFG_FEATURE_${_noxtls_spake2p_dep}.")
+    endif()
+  endforeach()
+  if(NOT NOXTLS_CFG_FEATURE_SPAKE2P_RFC9383 AND NOT NOXTLS_CFG_FEATURE_SPAKE2P_MATTER)
+    message(FATAL_ERROR "NOXTLS_CFG_FEATURE_SPAKE2P requires NOXTLS_CFG_FEATURE_SPAKE2P_RFC9383 and/or NOXTLS_CFG_FEATURE_SPAKE2P_MATTER.")
+  endif()
+endif()
+if(NOXTLS_CFG_FEATURE_MATTER_PASE AND
+   (NOT NOXTLS_CFG_FEATURE_SPAKE2P OR NOT NOXTLS_CFG_FEATURE_SPAKE2P_MATTER OR NOT NOXTLS_CFG_FEATURE_PBKDF2))
+  message(FATAL_ERROR "NOXTLS_CFG_FEATURE_MATTER_PASE requires NOXTLS_CFG_FEATURE_SPAKE2P, NOXTLS_CFG_FEATURE_SPAKE2P_MATTER and NOXTLS_CFG_FEATURE_PBKDF2.")
 endif()
 
 if(NOXTLS_SIDECHANNEL_PROFILE STREQUAL "performance")
@@ -258,6 +288,7 @@ endif()
 noxtls_define_bool(NOXTLS_FEATURE_HASH NOXTLS_CFG_FEATURE_HASH)
 noxtls_define_bool(NOXTLS_FEATURE_HMAC NOXTLS_CFG_FEATURE_HMAC)
 noxtls_define_bool(NOXTLS_FEATURE_HKDF NOXTLS_CFG_FEATURE_HKDF)
+noxtls_define_bool(NOXTLS_FEATURE_PBKDF2 NOXTLS_CFG_FEATURE_PBKDF2)
 noxtls_define_bool(NOXTLS_FEATURE_ENCRYPTION NOXTLS_CFG_FEATURE_ENCRYPTION)
 noxtls_define_bool(NOXTLS_FEATURE_DRBG NOXTLS_CFG_FEATURE_DRBG)
 noxtls_define_bool(NOXTLS_FEATURE_PKC NOXTLS_CFG_FEATURE_PKC)
@@ -304,6 +335,8 @@ noxtls_define_bool(NOXTLS_FEATURE_STM32_HW_SHA256_ONLY NOXTLS_CFG_FEATURE_STM32_
 noxtls_define_bool(NOXTLS_FEATURE_NRF52_HW_ACCEL NOXTLS_CFG_FEATURE_NRF52_HW_ACCEL)
 noxtls_define_bool(NOXTLS_FEATURE_NRF52_HW_AES_ONLY NOXTLS_CFG_FEATURE_NRF52_HW_AES_ONLY)
 noxtls_define_bool(NOXTLS_FEATURE_NOXV_HW_ACCEL NOXTLS_CFG_FEATURE_NOXV_HW_ACCEL)
+noxtls_define_bool(NOXTLS_FEATURE_CC13XX_HW_ACCEL NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL)
+noxtls_define_bool(NOXTLS_FEATURE_NRF54_HW_ACCEL NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL)
 noxtls_define_bool(NOXTLS_FEATURE_ARIA NOXTLS_CFG_FEATURE_ARIA)
 noxtls_define_bool(NOXTLS_FEATURE_CAMELLIA NOXTLS_CFG_FEATURE_CAMELLIA)
 noxtls_define_bool(NOXTLS_FEATURE_CHACHA20_POLY1305 NOXTLS_CFG_FEATURE_CHACHA20_POLY1305)
@@ -327,6 +360,10 @@ noxtls_define_bool(NOXTLS_FEATURE_SLH_DSA NOXTLS_CFG_FEATURE_SLH_DSA)
 noxtls_define_bool(NOXTLS_FEATURE_FALCON NOXTLS_CFG_FEATURE_FALCON)
 noxtls_define_bool(NOXTLS_FEATURE_LMS_HSS NOXTLS_CFG_FEATURE_LMS_HSS)
 noxtls_define_bool(NOXTLS_FEATURE_XMSS NOXTLS_CFG_FEATURE_XMSS)
+noxtls_define_bool(NOXTLS_FEATURE_SPAKE2P NOXTLS_CFG_FEATURE_SPAKE2P)
+noxtls_define_bool(NOXTLS_FEATURE_SPAKE2P_RFC9383 NOXTLS_CFG_FEATURE_SPAKE2P_RFC9383)
+noxtls_define_bool(NOXTLS_FEATURE_SPAKE2P_MATTER NOXTLS_CFG_FEATURE_SPAKE2P_MATTER)
+noxtls_define_bool(NOXTLS_FEATURE_MATTER_PASE NOXTLS_CFG_FEATURE_MATTER_PASE)
 noxtls_define_bool(NOXTLS_CT_COMPARE NOXTLS_CFG_CT_COMPARE)
 noxtls_define_bool(NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES NOXTLS_CFG_TLS12_ENABLE_LEGACY_CIPHER_SUITES)
 
@@ -385,17 +422,23 @@ include_directories(
     ${NOXTLS_LIB_ROOT}/pkc/lms
     ${NOXTLS_LIB_ROOT}/pkc/xmss
     ${NOXTLS_LIB_ROOT}/drbg
+    ${NOXTLS_LIB_ROOT}/pake
     ${NOXTLS_LIB_ROOT}/tls
 )
 
 # Library components
 add_subdirectory(noxtls-lib/common)
+# nRF54L CRACEN drivers: the full backend (NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL) or
+# the P-256 point-multiply port only (NOXTLS_NRF54_CRACEN_P256_ACCEL, legacy).
+if(NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL OR NOXTLS_NRF54_CRACEN_P256_ACCEL)
+  add_subdirectory(noxtls-lib/vendor/nordic/nrf54x)
+endif()
 add_subdirectory(utility)
 add_subdirectory(noxtls-lib/mdigest)
 if(NOXTLS_CFG_FEATURE_HMAC)
   add_subdirectory(noxtls-lib/mac)
 endif()
-if(NOXTLS_CFG_FEATURE_HKDF)
+if(NOXTLS_CFG_FEATURE_HKDF OR NOXTLS_CFG_FEATURE_PBKDF2)
   add_subdirectory(noxtls-lib/kdf)
 endif()
 add_subdirectory(noxtls-lib/encryption)
@@ -404,11 +447,37 @@ if(NOXTLS_CFG_FEATURE_PKC)
   add_subdirectory(noxtls-lib/pkc)
 endif()
 add_subdirectory(noxtls-lib/drbg)
+if(NOXTLS_CFG_FEATURE_SPAKE2P)
+  add_subdirectory(noxtls-lib/pake)
+endif()
 if(NOXTLS_CFG_FEATURE_CERT)
   add_subdirectory(noxtls-lib/certs)
 endif()
 if(NOXTLS_CFG_FEATURE_TLS)
   add_subdirectory(noxtls-lib/tls)
+endif()
+
+# NoxTLS is linked as a collection of static libraries into firmware images.
+# Keep its compilation granularity compatible with the embedded linker's
+# --gc-sections policy: selecting an AES service must not retain disabled AES
+# software, cipher, or PKC routines from the same translation unit.
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+  foreach(_noxtls_library
+      noxtls_common
+      noxtls_hash
+      noxtls_encryption
+      noxtls_pkc
+      noxtls_drbg
+      noxtls_mac
+      noxtls_kdf
+      noxtls_certs
+      noxtls_tls)
+    if(TARGET ${_noxtls_library})
+      target_compile_options(${_noxtls_library} PRIVATE
+        -ffunction-sections
+        -fdata-sections)
+    endif()
+  endforeach()
 endif()
 if(NOXTLS_BUILD_SIZE_BENCHMARKS)
   enable_language(ASM)

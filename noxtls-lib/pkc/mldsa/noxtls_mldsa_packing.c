@@ -44,16 +44,16 @@ noxtls_return_t noxtls_mldsa_pack_seeds(uint8_t *out,
 {
     const uint32_t need = 3U * NOXTLS_MLDSA_INTERNAL_SEED_BYTES;
 
-    if(out == NULL || rho == NULL || k == NULL || tr == NULL) {
+    if(out == NULL || rho == NULL || k == 0U || tr == NULL) {
         return NOXTLS_RETURN_NULL;
     }
     if(out_len < need) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    memcpy(out, rho, NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
-    memcpy(out + NOXTLS_MLDSA_INTERNAL_SEED_BYTES, k, NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
-    memcpy(out + (2U * NOXTLS_MLDSA_INTERNAL_SEED_BYTES), tr, NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
+    (void)memcpy(out, rho, (size_t)NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
+    (void)memcpy(&out[NOXTLS_MLDSA_INTERNAL_SEED_BYTES], k, (size_t)NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
+    (void)memcpy(&out[(2U * NOXTLS_MLDSA_INTERNAL_SEED_BYTES)], tr, (size_t)NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -75,16 +75,16 @@ noxtls_return_t noxtls_mldsa_unpack_seeds(const uint8_t *in,
 {
     const uint32_t need = 3U * NOXTLS_MLDSA_INTERNAL_SEED_BYTES;
 
-    if(in == NULL || rho == NULL || k == NULL || tr == NULL) {
+    if(in == NULL || rho == NULL || k == 0U || tr == NULL) {
         return NOXTLS_RETURN_NULL;
     }
     if(in_len < need) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    memcpy(rho, in, NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
-    memcpy(k, in + NOXTLS_MLDSA_INTERNAL_SEED_BYTES, NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
-    memcpy(tr, in + (2U * NOXTLS_MLDSA_INTERNAL_SEED_BYTES), NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
+    (void)memcpy(rho, in, (size_t)NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
+    (void)memcpy(k, &in[NOXTLS_MLDSA_INTERNAL_SEED_BYTES], (size_t)NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
+    (void)memcpy(tr, &in[(2U * NOXTLS_MLDSA_INTERNAL_SEED_BYTES)], (size_t)NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
     return NOXTLS_RETURN_SUCCESS;
 }
 

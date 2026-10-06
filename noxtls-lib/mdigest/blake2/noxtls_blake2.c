@@ -26,6 +26,7 @@
 #include <string.h>
 #include "noxtls_common.h"
 #include "noxtls_blake2.h"
+#include "noxtls_ct.h"
 
 #if NOXTLS_FEATURE_BLAKE2
 
@@ -57,32 +58,32 @@ static const uint8_t blake2_sigma[BLAKE2_SIGMA_ROWS][BLAKE2_MSG_WORDS] = {
     { 10,  2,  8,  4,  7,  6,  1,  5, 15, 11,  9, 14,  3, 12, 13,  0 }
 };
 
-#define ROTR32(x, n) (((x) >> (n)) | ((x) << (32 - (n))))
-#define ROTR64(x, n) (((x) >> (n)) | ((x) << (64 - (n))))
+#define ROTR32(x, n) (((x) >> (n)) | ((x) << (32U - (n))))
+#define ROTR64(x, n) (((x) >> (n)) | ((x) << (64U - (n))))
 
 /* BLAKE2s G: R1=16, R2=12, R3=8, R4=7 */
 #define B2S_G(v, a, b, c, d, x, y) do { \
     (v)[a] = (v)[a] + (v)[b] + (x); \
-    (v)[d] = ROTR32((v)[d] ^ (v)[a], 16); \
+    (v)[d] = ROTR32((v)[d] ^ (v)[a], 16U); \
     (v)[c] = (v)[c] + (v)[d]; \
-    (v)[b] = ROTR32((v)[b] ^ (v)[c], 12); \
+    (v)[b] = ROTR32((v)[b] ^ (v)[c], 12U); \
     (v)[a] = (v)[a] + (v)[b] + (y); \
-    (v)[d] = ROTR32((v)[d] ^ (v)[a], 8); \
+    (v)[d] = ROTR32((v)[d] ^ (v)[a], 8U); \
     (v)[c] = (v)[c] + (v)[d]; \
-    (v)[b] = ROTR32((v)[b] ^ (v)[c], 7); \
-} while(0)
+    (v)[b] = ROTR32((v)[b] ^ (v)[c], 7U); \
+} while (0 == 1)
 
 /* BLAKE2b G: R1=32, R2=24, R3=16, R4=63 */
 #define B2B_G(v, a, b, c, d, x, y) do { \
     (v)[a] = (v)[a] + (v)[b] + (x); \
-    (v)[d] = ROTR64((v)[d] ^ (v)[a], 32); \
+    (v)[d] = ROTR64((v)[d] ^ (v)[a], 32U); \
     (v)[c] = (v)[c] + (v)[d]; \
-    (v)[b] = ROTR64((v)[b] ^ (v)[c], 24); \
+    (v)[b] = ROTR64((v)[b] ^ (v)[c], 24U); \
     (v)[a] = (v)[a] + (v)[b] + (y); \
-    (v)[d] = ROTR64((v)[d] ^ (v)[a], 16); \
+    (v)[d] = ROTR64((v)[d] ^ (v)[a], 16U); \
     (v)[c] = (v)[c] + (v)[d]; \
-    (v)[b] = ROTR64((v)[b] ^ (v)[c], 63); \
-} while(0)
+    (v)[b] = ROTR64((v)[b] ^ (v)[c], 63U); \
+} while (0 == 1)
 
 /**
  * @brief BLAKE2s compression function (process one 64-byte block).
@@ -91,43 +92,43 @@ static const uint8_t blake2_sigma[BLAKE2_SIGMA_ROWS][BLAKE2_MSG_WORDS] = {
  * @param block Pointer to 64-byte (BLAKE2S_BLOCK_BYTES) noxtls_message block.
  * @param last 1 if this is the last block, 0 otherwise.
  */
-static void blake2s_compress(noxtls_blake2_ctx_t * ctx, const uint8_t * block, int last)
+static void blake2s_compress(noxtls_blake2_ctx_t * ctx, const uint8_t * block, int32_t last)
 {
     uint32_t m[BLAKE2_MSG_WORDS];
     uint32_t v[BLAKE2_V_WORDS];
-    int i;
-    int r;
+    uint32_t i = 0U;
+    uint32_t r = 0U;
 
-    for(i = 0; i < BLAKE2_MSG_WORDS; i++) {
+    for (i = 0U; i < BLAKE2_MSG_WORDS; i += 1U) {
         size_t off = (size_t)i * BLAKE2S_WORD_BYTES;
-        m[i] = (uint32_t)block[off] | ((uint32_t)block[off + 1U] << 8) |
-               ((uint32_t)block[off + 2U] << 16) | ((uint32_t)block[off + 3U] << 24);
+        m[i] = (uint32_t)block[off] | ((uint32_t)block[off + 1U] <<8U) |
+               ((uint32_t)block[off + 2U] <<16U) | ((uint32_t)block[off + 3U] <<24U);
     }
 
-    for(i = 0; i < BLAKE2_CHAINING_WORDS; i++) {
-        v[i] = ctx->h.h32[i];
+    for (i = 0U; i < BLAKE2_CHAINING_WORDS; i += 1U) {
+        v[i] = ctx->h32[i];
         v[i + BLAKE2_CHAINING_WORDS] = blake2s_iv[i];
     }
     v[BLAKE2_V_INDEX_T0] ^= (uint32_t)(ctx->total & 0xFFFFFFFFU);
-    v[BLAKE2_V_INDEX_T1] ^= (uint32_t)(ctx->total >> 32);
-    if(last) {
+    v[BLAKE2_V_INDEX_T1] ^= (uint32_t)(ctx->total >>32U);
+    if (last != 0) {
         v[BLAKE2_V_INDEX_F] ^= 0xFFFFFFFFU;
     }
 
-    for(r = 0; r < BLAKE2S_ROUNDS; r++) {
+    for (r = 0U; r < BLAKE2S_ROUNDS; r += 1U) {
         const uint8_t * s = blake2_sigma[r];
-        B2S_G(v, 0, 4,  8, 12, m[s[ 0]], m[s[ 1]]);
-        B2S_G(v, 1, 5,  9, 13, m[s[ 2]], m[s[ 3]]);
-        B2S_G(v, 2, 6, 10, 14, m[s[ 4]], m[s[ 5]]);
-        B2S_G(v, 3, 7, 11, 15, m[s[ 6]], m[s[ 7]]);
-        B2S_G(v, 0, 5, 10, 15, m[s[ 8]], m[s[ 9]]);
-        B2S_G(v, 1, 6, 11, 12, m[s[10]], m[s[11]]);
-        B2S_G(v, 2, 7,  8, 13, m[s[12]], m[s[13]]);
-        B2S_G(v, 3, 4,  9, 14, m[s[14]], m[s[15]]);
+        B2S_G(v, 0U, 4U, 8U, 12U, m[s[0U]], m[s[1U]]);
+        B2S_G(v, 1U, 5U, 9U, 13U, m[s[2U]], m[s[3U]]);
+        B2S_G(v, 2U, 6U, 10U, 14U, m[s[4U]], m[s[5U]]);
+        B2S_G(v, 3U, 7U, 11U, 15U, m[s[6U]], m[s[7U]]);
+        B2S_G(v, 0U, 5U, 10U, 15U, m[s[8U]], m[s[9U]]);
+        B2S_G(v, 1U, 6U, 11U, 12U, m[s[10U]], m[s[11U]]);
+        B2S_G(v, 2U, 7U, 8U, 13U, m[s[12U]], m[s[13U]]);
+        B2S_G(v, 3U, 4U, 9U, 14U, m[s[14U]], m[s[15U]]);
     }
 
-    for(i = 0; i < BLAKE2_CHAINING_WORDS; i++) {
-        ctx->h.h32[i] ^= v[i] ^ v[i + BLAKE2_CHAINING_WORDS];
+    for (i = 0U; i < BLAKE2_CHAINING_WORDS; i += 1U) {
+        ctx->h32[i] ^= v[i] ^ v[i + BLAKE2_CHAINING_WORDS];
     }
 }
 
@@ -138,47 +139,48 @@ static void blake2s_compress(noxtls_blake2_ctx_t * ctx, const uint8_t * block, i
  * @param block Pointer to 128-byte (BLAKE2B_BLOCK_BYTES) noxtls_message block.
  * @param last 1 if this is the last block, 0 otherwise.
  */
-static void blake2b_compress(noxtls_blake2_ctx_t * ctx, const uint8_t * block, int last)
+static void blake2b_compress(noxtls_blake2_ctx_t * ctx, const uint8_t * block, int32_t last)
 {
     uint64_t m[BLAKE2_MSG_WORDS];
     uint64_t v[BLAKE2_V_WORDS];
-    int i;
-    int r;
+    uint32_t i = 0U;
+    uint32_t r = 0U;
 
-    for(i = 0; i < BLAKE2_MSG_WORDS; i++)
+    for (i = 0U; i < BLAKE2_MSG_WORDS; i += 1U)
     {
         size_t off = (size_t)i * BLAKE2B_WORD_BYTES;
-        m[i] = (uint64_t)block[off] | ((uint64_t)block[off + 1U] << 8) |
-               ((uint64_t)block[off + 2U] << 16) | ((uint64_t)block[off + 3U] << 24) |
-               ((uint64_t)block[off + 4U] << 32) | ((uint64_t)block[off + 5U] << 40) |
-               ((uint64_t)block[off + 6U] << 48) | ((uint64_t)block[off + 7U] << 56);
+        m[i] = (uint64_t)block[off] | ((uint64_t)block[off + 1U] <<8U) |
+               ((uint64_t)block[off + 2U] <<16U) | ((uint64_t)block[off + 3U] <<24U) |
+               ((uint64_t)block[off + 4U] <<32U) | ((uint64_t)block[off + 5U] <<40U) |
+               ((uint64_t)block[off + 6U] <<48U) | ((uint64_t)block[off + 7U] <<56U);
     }
 
-    for(i = 0; i < BLAKE2_CHAINING_WORDS; i++) {
-        v[i] = ctx->h.h64[i];
+    for (i = 0U; i < BLAKE2_CHAINING_WORDS; i += 1U) {
+        v[i] = ctx->h64[i];
         v[i + BLAKE2_CHAINING_WORDS] = blake2b_iv[i];
     }
     
-    v[BLAKE2_V_INDEX_T0] ^= (uint64_t)(ctx->total & 0xFFFFFFFFU);
-    v[BLAKE2_V_INDEX_T1] ^= (uint64_t)(ctx->total >> 32);
-    if(last) {
+    /* BLAKE2b counter t is 128 bits: t0 = low 64 bits of the byte count;
+     * t1 (high 64 bits) is always zero because total is a uint64_t. */
+    v[BLAKE2_V_INDEX_T0] ^= ctx->total;
+    if (last != 0) {
         v[BLAKE2_V_INDEX_F] ^= UINT64_MAX;
     }
 
-    for(r = 0; r < BLAKE2B_ROUNDS; r++) {
+    for (r = 0U; r < BLAKE2B_ROUNDS; r += 1U) {
         const uint8_t * s = blake2_sigma[r % BLAKE2_SIGMA_ROWS];
-        B2B_G(v, 0, 4,  8, 12, m[s[ 0]], m[s[ 1]]);
-        B2B_G(v, 1, 5,  9, 13, m[s[ 2]], m[s[ 3]]);
-        B2B_G(v, 2, 6, 10, 14, m[s[ 4]], m[s[ 5]]);
-        B2B_G(v, 3, 7, 11, 15, m[s[ 6]], m[s[ 7]]);
-        B2B_G(v, 0, 5, 10, 15, m[s[ 8]], m[s[ 9]]);
-        B2B_G(v, 1, 6, 11, 12, m[s[10]], m[s[11]]);
-        B2B_G(v, 2, 7,  8, 13, m[s[12]], m[s[13]]);
-        B2B_G(v, 3, 4,  9, 14, m[s[14]], m[s[15]]);
+        B2B_G(v, 0U, 4U, 8U, 12U, m[s[0U]], m[s[1U]]);
+        B2B_G(v, 1U, 5U, 9U, 13U, m[s[2U]], m[s[3U]]);
+        B2B_G(v, 2U, 6U, 10U, 14U, m[s[4U]], m[s[5U]]);
+        B2B_G(v, 3U, 7U, 11U, 15U, m[s[6U]], m[s[7U]]);
+        B2B_G(v, 0U, 5U, 10U, 15U, m[s[8U]], m[s[9U]]);
+        B2B_G(v, 1U, 6U, 11U, 12U, m[s[10U]], m[s[11U]]);
+        B2B_G(v, 2U, 7U, 8U, 13U, m[s[12U]], m[s[13U]]);
+        B2B_G(v, 3U, 4U, 9U, 14U, m[s[14U]], m[s[15U]]);
     }
 
-    for(i = 0; i < BLAKE2_CHAINING_WORDS; i++) {
-        ctx->h.h64[i] ^= v[i] ^ v[i + BLAKE2_CHAINING_WORDS];
+    for (i = 0U; i < BLAKE2_CHAINING_WORDS; i += 1U) {
+        ctx->h64[i] ^= v[i] ^ v[i + BLAKE2_CHAINING_WORDS];
     }
 }
 
@@ -189,17 +191,22 @@ static void blake2b_compress(noxtls_blake2_ctx_t * ctx, const uint8_t * block, i
  */
 noxtls_return_t noxtls_blake2s_256_init(noxtls_blake2_ctx_t * ctx)
 {
-    if(ctx == NULL) {
+    if (ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
 
-    ctx->is_blake2b = 0;
+    ctx->is_blake2b = 0U;
     ctx->outlen = 32;
-    ctx->buflen = 0;
-    ctx->total = 0;
-    memcpy(ctx->h.h32, blake2s_iv, sizeof(blake2s_iv));
-    /* Parameter block: 0x01010000 ^ (kk<<8) ^ nn -> 0x01010020 for unkeyed 32-byte hash */
-    ctx->h.h32[0] ^= 0x01010020U;
+    ctx->buflen = 0U;
+    ctx->total = 0U;
+    {
+        uint32_t iv_i = 0U;
+        for (iv_i = 0U; iv_i < 8U; iv_i += 1U) {
+            ctx->h32[iv_i] = blake2s_iv[iv_i];
+        }
+    }
+    /* Parameter block: 0x01010000 ^ (kk<<8U) ^ nn -> 0x01010020U for unkeyed 32-byte hash */
+    ctx->h32[0] ^= 0x01010020U;
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -210,16 +217,21 @@ noxtls_return_t noxtls_blake2s_256_init(noxtls_blake2_ctx_t * ctx)
  */
 noxtls_return_t noxtls_blake2b_512_init(noxtls_blake2_ctx_t * ctx)
 {
-    if(ctx == NULL) {
+    if (ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
 
-    ctx->is_blake2b = 1;
+    ctx->is_blake2b = 1U;
     ctx->outlen = 64;
-    ctx->buflen = 0;
-    ctx->total = 0;
-    memcpy(ctx->h.h64, blake2b_iv, sizeof(blake2b_iv));
-    ctx->h.h64[0] ^= UINT64_C(0x01010040); /* unkeyed, 64-byte digest */
+    ctx->buflen = 0U;
+    ctx->total = 0U;
+    {
+        uint32_t iv_i = 0U;
+        for (iv_i = 0U; iv_i < 8U; iv_i += 1U) {
+            ctx->h64[iv_i] = blake2b_iv[iv_i];
+        }
+    }
+    ctx->h64[0] ^= UINT64_C(0x01010040); /* unkeyed, 64-byte digest */
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -232,53 +244,68 @@ noxtls_return_t noxtls_blake2b_512_init(noxtls_blake2_ctx_t * ctx)
  */
 noxtls_return_t noxtls_blake2_update(noxtls_blake2_ctx_t * ctx, const uint8_t * data, uint32_t len)
 {
-    uint32_t block_bytes;
-    uint32_t fill;
+    uint32_t block_bytes = 0U;
+    uint32_t fill = 0U;
+    const uint8_t *in_ptr = data;
+    uint32_t in_left = len;
 
-    if(ctx == NULL) {
+    if (ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(data == NULL && len != 0) {
+    if ((in_ptr == NULL) && (in_left != 0U)) {
         return NOXTLS_RETURN_NULL;
     }
 
-    block_bytes = ctx->is_blake2b ? BLAKE2B_BLOCK_BYTES : BLAKE2S_BLOCK_BYTES;
+    block_bytes = (ctx->is_blake2b != 0U) ? BLAKE2B_BLOCK_BYTES : BLAKE2S_BLOCK_BYTES;
 
-    if(len == 0) {
+    if (in_left == 0U) {
         return NOXTLS_RETURN_SUCCESS;
     }
+    if (ctx->buflen > block_bytes) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
 
-    ctx->total += len;
+    /*
+     * RFC 7693: the final block (which may be a full block) must be
+     * compressed with the last-block flag set. Therefore a block is only
+     * compressed here once more input is known to follow it; up to one full
+     * block always stays buffered for noxtls_blake2_finish. ctx->total
+     * counts only the bytes already fed to the compression function and is
+     * advanced before each compression (the counter t includes the block).
+     */
     fill = block_bytes - ctx->buflen;
-
-    if(ctx->buflen > 0 && len >= fill) {
-        memcpy(ctx->buf + ctx->buflen, data, fill);
-        if(ctx->is_blake2b) {
+    if (in_left > fill) {
+        if (fill > 0U) {
+            noxtls_copy_u8(&ctx->buf[ctx->buflen], (size_t)(sizeof(ctx->buf) - (size_t)ctx->buflen), in_ptr, (size_t)fill);
+        }
+        ctx->total += (uint64_t)block_bytes;
+        if (ctx->is_blake2b != 0U) {
             blake2b_compress(ctx, ctx->buf, 0);
         }
         else {
             blake2s_compress(ctx, ctx->buf, 0);
         }
-        ctx->buflen = 0;
-        data += fill;
-        len -= fill;
+        ctx->buflen = 0U;
+        in_ptr = &in_ptr[fill];
+        in_left -= fill;
+
+        while (in_left > block_bytes) {
+            ctx->total += (uint64_t)block_bytes;
+            if (ctx->is_blake2b != 0U) {
+                blake2b_compress(ctx, in_ptr, 0);
+            }
+            else {
+                blake2s_compress(ctx, in_ptr, 0);
+            }
+            in_ptr = &in_ptr[block_bytes];
+            in_left -= block_bytes;
+        }
     }
 
-    while(len >= block_bytes) {
-        if(ctx->is_blake2b) {
-            blake2b_compress(ctx, data, 0);
-        }
-        else {
-            blake2s_compress(ctx, data, 0);
-        }
-        data += block_bytes;
-        len -= block_bytes;
+    if (in_left > 0U) {
+        noxtls_copy_u8(&ctx->buf[ctx->buflen], (size_t)(sizeof(ctx->buf) - (size_t)ctx->buflen), in_ptr, (size_t)in_left);
+        ctx->buflen += in_left;
     }
-
-    if(len > 0) {
-        memcpy(ctx->buf + ctx->buflen, data, len);
-    }
-    ctx->buflen += len;
 
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -291,31 +318,59 @@ noxtls_return_t noxtls_blake2_update(noxtls_blake2_ctx_t * ctx, const uint8_t * 
  */
 noxtls_return_t noxtls_blake2_finish(noxtls_blake2_ctx_t * ctx, uint8_t * hash)
 {
-    uint32_t block_bytes;
-    uint32_t i;
+    uint32_t block_bytes = 0U;
+    uint32_t i = 0U;
 
-    if(ctx == NULL || hash == NULL) {
+    if ((ctx == NULL) || (hash == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
-    block_bytes = ctx->is_blake2b ? BLAKE2B_BLOCK_BYTES : BLAKE2S_BLOCK_BYTES;
+    block_bytes = (ctx->is_blake2b != 0U) ? BLAKE2B_BLOCK_BYTES : BLAKE2S_BLOCK_BYTES;
+    if (ctx->buflen > block_bytes) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
 
-    memset(ctx->buf + ctx->buflen, 0, block_bytes - ctx->buflen);
+    /* Last block (possibly full, possibly empty for the empty message):
+     * counter = total message length, zero padded, f0 set. */
+    ctx->total += (uint64_t)ctx->buflen;
+    if (ctx->buflen < block_bytes) {
+        noxtls_secure_zero((&ctx->buf[ctx->buflen]), ((size_t)(block_bytes - ctx->buflen)));
+    }
 
-    if(ctx->is_blake2b) {
+    if (ctx->is_blake2b != 0U) {
         blake2b_compress(ctx, ctx->buf, 1);
     }
     else {
         blake2s_compress(ctx, ctx->buf, 1);
     }
 
-    if(ctx->is_blake2b) {
-        for(i = 0; i < ctx->outlen; i++) {
-            hash[i] = (uint8_t)((ctx->h.h64[i >> 3] >> (8 * (i & 7))) & 0xFFU);
+    if (ctx->is_blake2b != 0U) {
+        for (i = 0U; i < ctx->outlen; i += 1U) {
+            uint64_t w = ctx->h64[(uint32_t)i >> 3U];
+            uint8_t b = 0U;
+            switch(i & 7U) {
+            case 0U: b = (uint8_t)w; break;
+            case 1U: b = (uint8_t)(w >> 8U); break;
+            case 2U: b = (uint8_t)(w >> 16U); break;
+            case 3U: b = (uint8_t)(w >> 24U); break;
+            case 4U: b = (uint8_t)(w >> 32U); break;
+            case 5U: b = (uint8_t)(w >> 40U); break;
+            case 6U: b = (uint8_t)(w >> 48U); break;
+            default: b = (uint8_t)(w >> 56U); break;
+            }
+            hash[i] = b;
         }
     } else {
-        for(i = 0; i < ctx->outlen; i++) {
-            hash[i] = (uint8_t)((ctx->h.h32[i >> 2] >> (8 * (i & 3))) & 0xFFU);
+        for (i = 0U; i < ctx->outlen; i += 1U) {
+            uint32_t w = ctx->h32[(uint32_t)i >> 2U];
+            uint8_t b = 0U;
+            switch(i & 3U) {
+            case 0U: b = (uint8_t)w; break;
+            case 1U: b = (uint8_t)(w >> 8U); break;
+            case 2U: b = (uint8_t)(w >> 16U); break;
+            default: b = (uint8_t)(w >> 24U); break;
+            }
+            hash[i] = b;
         }
     }
 

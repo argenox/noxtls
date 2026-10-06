@@ -4,8 +4,8 @@
 * SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 *****************************************************************************/
 
-#ifndef _NOXTLS_HKDF_H_
-#define _NOXTLS_HKDF_H_
+#ifndef NOXTLS_HKDF_H_
+#define NOXTLS_HKDF_H_
 
 #include <stdint.h>
 
@@ -41,4 +41,4 @@ noxtls_return_t hkdf_expand(noxtls_hash_algos_t hash_algo,
 }
 #endif
 
-#endif /* _NOXTLS_HKDF_H_ */
+#endif /* NOXTLS_HKDF_H_ */

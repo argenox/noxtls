@@ -24,8 +24,8 @@
 *
 *****************************************************************************/
 
-#ifndef _NOXTLS_CONFIG_H_
-#define _NOXTLS_CONFIG_H_
+#ifndef NOXTLS_CONFIG_H_
+#define NOXTLS_CONFIG_H_
 
 /* ============================================================================
  * Profile selection
@@ -107,6 +107,17 @@
  */
 #ifndef NOXTLS_FEATURE_HKDF
 #define NOXTLS_FEATURE_HKDF 1
+#endif
+
+/* Enables PBKDF2 (RFC 8018 section 5.2) password-based key derivation over HMAC.
+ * Prereq: NOXTLS_FEATURE_HMAC=1.
+ * Required by: NOXTLS_FEATURE_MATTER_PASE (Matter passcode verifier).
+ * Also used by: PKCS#8 PBES2 key decryption (falls back to a private
+ * PBKDF2-HMAC-SHA1 when disabled) and IEEE 802.11 PSK-to-PMK mapping.
+ * Build knob: NOXTLS_CFG_FEATURE_PBKDF2. Default OFF.
+ */
+#ifndef NOXTLS_FEATURE_PBKDF2
+#define NOXTLS_FEATURE_PBKDF2 0
 #endif
 
 /* Enables symmetric encryption module family (AES/ARIA/Camellia/ChaCha/DES).
@@ -368,12 +379,30 @@
 #define NOXTLS_FEATURE_NRF52_HW_ACCEL 0
 #endif
 
+/* Original injected CC13xx AES/P-256 accelerator callbacks, disabled by default.
+ * No TI SDK or OS dependency. Bind only while all crypto callers are idle.
+ * Build knob: NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL.
+ */
+#ifndef NOXTLS_FEATURE_CC13XX_HW_ACCEL
+#define NOXTLS_FEATURE_CC13XX_HW_ACCEL 0
+#endif
+
 /* When enabled, require nRF52 hardware AES support and disable software AES fallback.
  * Prereq: NOXTLS_FEATURE_NRF52_HW_ACCEL=1.
  * Build knob: NOXTLS_CFG_FEATURE_NRF52_HW_AES_ONLY.
  */
 #ifndef NOXTLS_FEATURE_NRF52_HW_AES_ONLY
 #define NOXTLS_FEATURE_NRF52_HW_AES_ONLY 0
+#endif
+
+/* Enables the nRF54L (nRF54LM20 / nRF54L15) CRACEN backend: AES block, ECB/CBC/CTR, GCM and CCM,
+ * SHA-224/256/384/512, TRNG entropy for the DRBG, P-256 point multiply, ECDSA P-256 and Ed25519 verify,
+ * with software fallback (noxtls-lib/vendor/nordic/nrf54x).
+ * Prereq: NOXTLS_FEATURE_AES=1.
+ * Build knob: NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL.
+ */
+#ifndef NOXTLS_FEATURE_NRF54_HW_ACCEL
+#define NOXTLS_FEATURE_NRF54_HW_ACCEL 0
 #endif
 
 /* Enables ARIA cipher family.
@@ -508,6 +537,40 @@
 /* Enables XMSS/XMSS^MT hash-based signature APIs (RFC 8391). */
 #ifndef NOXTLS_FEATURE_XMSS
 #define NOXTLS_FEATURE_XMSS 0
+#endif
+
+/* Enables SPAKE2+ augmented PAKE over P-256 with SHA-256, HKDF-SHA256 and HMAC-SHA256.
+ * Prereq: NOXTLS_FEATURE_PKC=1 and NOXTLS_FEATURE_ECC=1 and NOXTLS_FEATURE_SHA256=1 and NOXTLS_FEATURE_HMAC=1 and NOXTLS_FEATURE_HKDF=1 and NOXTLS_FEATURE_DRBG=1.
+ * Constraint: at least one of NOXTLS_FEATURE_SPAKE2P_RFC9383 / NOXTLS_FEATURE_SPAKE2P_MATTER.
+ * Build knob: NOXTLS_CFG_FEATURE_SPAKE2P. Default OFF.
+ */
+#ifndef NOXTLS_FEATURE_SPAKE2P
+#define NOXTLS_FEATURE_SPAKE2P 0
+#endif
+
+/* Includes the standard RFC 9383 SPAKE2+ key schedule (NOXTLS_SPAKE2P_PROFILE_RFC9383).
+ * Effective only when NOXTLS_FEATURE_SPAKE2P=1; this is the default profile.
+ * Build knob: NOXTLS_CFG_FEATURE_SPAKE2P_RFC9383. Default ON.
+ */
+#ifndef NOXTLS_FEATURE_SPAKE2P_RFC9383
+#define NOXTLS_FEATURE_SPAKE2P_RFC9383 1
+#endif
+
+/* Includes the draft-bar-cfrg-spake2plus-01 key schedule used by Matter PASE
+ * (NOXTLS_SPAKE2P_PROFILE_MATTER). Not RFC 9383; for Matter interoperability only.
+ * Effective only when NOXTLS_FEATURE_SPAKE2P=1.
+ * Build knob: NOXTLS_CFG_FEATURE_SPAKE2P_MATTER. Default OFF.
+ */
+#ifndef NOXTLS_FEATURE_SPAKE2P_MATTER
+#define NOXTLS_FEATURE_SPAKE2P_MATTER 0
+#endif
+
+/* Enables Matter PASE cryptographic helpers (passcode verifier, PASE context, session keys).
+ * Prereq: NOXTLS_FEATURE_SPAKE2P=1 and NOXTLS_FEATURE_SPAKE2P_MATTER=1 and NOXTLS_FEATURE_PBKDF2=1.
+ * Build knob: NOXTLS_CFG_FEATURE_MATTER_PASE. Default OFF.
+ */
+#ifndef NOXTLS_FEATURE_MATTER_PASE
+#define NOXTLS_FEATURE_MATTER_PASE 0
 #endif
 
 /* TLS/cert granularity */
@@ -693,6 +756,8 @@
 #define NOXTLS_FEATURE_X448 1
 #undef NOXTLS_FEATURE_ED25519
 #define NOXTLS_FEATURE_ED25519 0
+#undef NOXTLS_FEATURE_ED448
+#define NOXTLS_FEATURE_ED448 0
 #undef NOXTLS_FEATURE_DSA
 #define NOXTLS_FEATURE_DSA 0
 #undef NOXTLS_FEATURE_ML_KEM
@@ -701,6 +766,12 @@
 #define NOXTLS_FEATURE_ML_DSA 0
 #undef NOXTLS_FEATURE_SLH_DSA
 #define NOXTLS_FEATURE_SLH_DSA 0
+#undef NOXTLS_FEATURE_FALCON
+#define NOXTLS_FEATURE_FALCON 0
+#undef NOXTLS_FEATURE_LMS_HSS
+#define NOXTLS_FEATURE_LMS_HSS 0
+#undef NOXTLS_FEATURE_XMSS
+#define NOXTLS_FEATURE_XMSS 0
 
 #undef NOXTLS_FEATURE_TLS12
 #define NOXTLS_FEATURE_TLS12 1
@@ -816,6 +887,12 @@
 #define NOXTLS_FEATURE_ML_DSA 0
 #undef NOXTLS_FEATURE_SLH_DSA
 #define NOXTLS_FEATURE_SLH_DSA 0
+#undef NOXTLS_FEATURE_FALCON
+#define NOXTLS_FEATURE_FALCON 0
+#undef NOXTLS_FEATURE_LMS_HSS
+#define NOXTLS_FEATURE_LMS_HSS 0
+#undef NOXTLS_FEATURE_XMSS
+#define NOXTLS_FEATURE_XMSS 0
 
 #undef NOXTLS_FEATURE_TLS12
 #define NOXTLS_FEATURE_TLS12 1
@@ -972,6 +1049,8 @@
 #define NOXTLS_FEATURE_X448 0
 #undef NOXTLS_FEATURE_ED25519
 #define NOXTLS_FEATURE_ED25519 0
+#undef NOXTLS_FEATURE_ED448
+#define NOXTLS_FEATURE_ED448 0
 #undef NOXTLS_FEATURE_DSA
 #define NOXTLS_FEATURE_DSA 1
 #undef NOXTLS_FEATURE_ML_KEM
@@ -980,6 +1059,12 @@
 #define NOXTLS_FEATURE_ML_DSA 0
 #undef NOXTLS_FEATURE_SLH_DSA
 #define NOXTLS_FEATURE_SLH_DSA 0
+#undef NOXTLS_FEATURE_FALCON
+#define NOXTLS_FEATURE_FALCON 0
+#undef NOXTLS_FEATURE_LMS_HSS
+#define NOXTLS_FEATURE_LMS_HSS 0
+#undef NOXTLS_FEATURE_XMSS
+#define NOXTLS_FEATURE_XMSS 0
 
 #undef NOXTLS_FEATURE_TLS12
 #define NOXTLS_FEATURE_TLS12 1
@@ -1084,7 +1169,7 @@
 #undef NOXTLS_FEATURE_ED25519
 #define NOXTLS_FEATURE_ED25519 1
 #undef NOXTLS_FEATURE_ED448
-#define NOXTLS_FEATURE_ED448 0
+#define NOXTLS_FEATURE_ED448 1
 #undef NOXTLS_FEATURE_DSA
 #define NOXTLS_FEATURE_DSA 1
 #undef NOXTLS_FEATURE_ML_KEM
@@ -1126,16 +1211,50 @@
  * 
  * Default: 1 (enabled) - assumes standard systems have time support
  */
+#ifndef NOXTLS_HAVE_TIME
 #if defined(NOXTLS_PROFILE_UT_ALL_FEATURES)
 #define NOXTLS_HAVE_TIME 0
 #else
 #define NOXTLS_HAVE_TIME 1
+#endif
+#endif
+
+/* NOXTLS_HAVE_FILE_IO
+ *
+ * Define to 1 when stdio file helpers (fopen/fread/load_file) are available.
+ * Define to 0 for embedded/MISRA scan profiles that must not pull in stdio.
+ *
+ * File-load APIs return NOXTLS_RETURN_FAILED when disabled.
+ */
+#ifndef NOXTLS_HAVE_FILE_IO
+#define NOXTLS_HAVE_FILE_IO 1
 #endif
 
 /* ============================================================================
  * Memory Management Configuration
  * ============================================================================
  */
+
+/* NOXTLS_HMAC_SHA256_SHARED_STATE
+ * Use one fixed SHA-256 HMAC hash context instead of an allocator block per
+ * live context. A second live context fails with NOXTLS_RETURN_FAILED.
+ * Callers MUST serialize all SHA-256 HMAC access, including interrupts, and
+ * may not interleave streaming contexts. The slot is wiped on final/free.
+ * Default: 0 (private context state, permits independent live contexts).
+ */
+#ifndef NOXTLS_HMAC_SHA256_SHARED_STATE
+#define NOXTLS_HMAC_SHA256_SHARED_STATE 0
+#endif
+
+/* NOXTLS_ECC_SHARED_SCRATCH
+ * Move ECC inversion and the P-256 bignum inversion fast-path scratch from
+ * the call stack to fixed shared storage. Callers MUST serialize operations
+ * that use this scratch, including interrupts; this mode is not reentrant.
+ * Default: 0 (private per-call scratch).
+ */
+#ifndef NOXTLS_ECC_SHARED_SCRATCH
+#define NOXTLS_ECC_SHARED_SCRATCH 0
+#endif
 
 /* NOXTLS_USE_STATIC_BUFFERS
  * 
@@ -1232,7 +1351,7 @@
  *  reduce it for constrained stack. Ensure peer supports smaller fragment
  *  size if below 16384. */
 #ifndef NOXTLS_TLS_MAX_RECORD_SIZE
-#define NOXTLS_TLS_MAX_RECORD_SIZE 16384
+#define NOXTLS_TLS_MAX_RECORD_SIZE 16384U
 #endif
 
 /** Maximum TLS record-layer fragment length from the 2-byte length field (encrypted payload).
@@ -1251,7 +1370,7 @@
  *  chain size). Default 65536 for compatibility; set to NOXTLS_TLS_MAX_RECORD_SIZE
  *  or your max cert chain size to avoid accepting oversized messages. */
 #ifndef NOXTLS_TLS_MAX_HANDSHAKE_SIZE
-#define NOXTLS_TLS_MAX_HANDSHAKE_SIZE 65536
+#define NOXTLS_TLS_MAX_HANDSHAKE_SIZE 65536U
 #endif
 
 /** Maximum single certificate size in bytes accepted by X.509 parse APIs.
@@ -1261,13 +1380,13 @@
 #if NOXTLS_FEATURE_SLH_DSA
 /* SLH-DSA signatures are large (up to ~50 KB). Allow 64 KB certs by default
  * when SLH-DSA is enabled so the cert+TBS+signature comfortably fits. */
-#define NOXTLS_MAX_CERT_SIZE 65536
+#define NOXTLS_MAX_CERT_SIZE 65536U
 #elif NOXTLS_FEATURE_ML_DSA
 /* ML-DSA-87 signatures are ~4.6 KB; combined with public-key (~2.6 KB) and TBS
  * fields, 32 KB headroom is plenty. */
-#define NOXTLS_MAX_CERT_SIZE 32768
+#define NOXTLS_MAX_CERT_SIZE 32768U
 #else
-#define NOXTLS_MAX_CERT_SIZE 16384
+#define NOXTLS_MAX_CERT_SIZE 16384U
 #endif
 #endif
 
@@ -1295,7 +1414,9 @@
  * 
  * Default: 50000 attempts
  */
-#define NOXTLS_RSA_MAX_PRIME_ATTEMPTS 50000
+#ifndef NOXTLS_RSA_MAX_PRIME_ATTEMPTS
+#define NOXTLS_RSA_MAX_PRIME_ATTEMPTS 50000U
+#endif
 
 /* NOXTLS_RSA_MILLER_RABIN_ITERATIONS_SMALL
  * 
@@ -1305,7 +1426,9 @@
  * 
  * Default: 2 iterations
  */
-#define NOXTLS_RSA_MILLER_RABIN_ITERATIONS_SMALL 2
+#ifndef NOXTLS_RSA_MILLER_RABIN_ITERATIONS_SMALL
+#define NOXTLS_RSA_MILLER_RABIN_ITERATIONS_SMALL 2U
+#endif
 
 /* NOXTLS_RSA_MILLER_RABIN_ITERATIONS_LARGE
  * 
@@ -1315,7 +1438,9 @@
  * 
  * Default: 3 iterations
  */
-#define NOXTLS_RSA_MILLER_RABIN_ITERATIONS_LARGE 3
+#ifndef NOXTLS_RSA_MILLER_RABIN_ITERATIONS_LARGE
+#define NOXTLS_RSA_MILLER_RABIN_ITERATIONS_LARGE 3U
+#endif
 
 /* NOXTLS_RSA_MILLER_RABIN_SMALL_THRESHOLD_BITS
  * 
@@ -1325,7 +1450,9 @@
  * 
  * Default: 512 bits
  */
-#define NOXTLS_RSA_MILLER_RABIN_SMALL_THRESHOLD_BITS 512
+#ifndef NOXTLS_RSA_MILLER_RABIN_SMALL_THRESHOLD_BITS
+#define NOXTLS_RSA_MILLER_RABIN_SMALL_THRESHOLD_BITS 512U
+#endif
 
 /* NOXTLS_RSA_ENABLE_QUICK_DIVISIBILITY_TEST
  * 
@@ -1338,7 +1465,9 @@
  * 
  * Default: 1 (enabled)
  */
+#ifndef NOXTLS_RSA_ENABLE_QUICK_DIVISIBILITY_TEST
 #define NOXTLS_RSA_ENABLE_QUICK_DIVISIBILITY_TEST 1
+#endif
 
 /* NOXTLS_RSA_DEBUG_PROGRESS_INTERVAL
  * 
@@ -1347,7 +1476,9 @@
  * 
  * Default: 100 (print every 100 attempts)
  */
-#define NOXTLS_RSA_DEBUG_PROGRESS_INTERVAL 100
+#ifndef NOXTLS_RSA_DEBUG_PROGRESS_INTERVAL
+#define NOXTLS_RSA_DEBUG_PROGRESS_INTERVAL 100U
+#endif
 
 /* NOXTLS_RSA_DEBUG_PRIMALITY_CHECK_INTERVAL
  * 
@@ -1357,7 +1488,9 @@
  * 
  * Default: 50 (print every 50 attempts)
  */
-#define NOXTLS_RSA_DEBUG_PRIMALITY_CHECK_INTERVAL 50
+#ifndef NOXTLS_RSA_DEBUG_PRIMALITY_CHECK_INTERVAL
+#define NOXTLS_RSA_DEBUG_PRIMALITY_CHECK_INTERVAL 50U
+#endif
 
 /* NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_INTERVAL
  * 
@@ -1367,7 +1500,9 @@
  * 
  * Default: 100 (print every 100 attempts, up to 500 attempts)
  */
-#define NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_INTERVAL 100
+#ifndef NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_INTERVAL
+#define NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_INTERVAL 100U
+#endif
 
 /* NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_MAX_ATTEMPTS
  * 
@@ -1376,7 +1511,9 @@
  * 
  * Default: 500 attempts
  */
-#define NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_MAX_ATTEMPTS 500
+#ifndef NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_MAX_ATTEMPTS
+#define NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_MAX_ATTEMPTS 500U
+#endif
 
 /* ============================================================================
  * ECC Point Multiplication Configuration
@@ -1475,4 +1612,4 @@
 #define NOXTLS_CFG_ENABLE_NOXSIGHT 0
 #endif
 
-#endif /* _NOXTLS_CONFIG_H_ */
+#endif /* NOXTLS_CONFIG_H_ */

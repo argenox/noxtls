@@ -76,6 +76,17 @@
 #include "noxtls-lib/certs/noxtls_x509.h"
 #include "noxtls-lib/certs/certificates.h"
 #include "utility/base64.h"
+#include "noxtls_ct.h"
+
+/* noxtls_getopt() is POSIX getopt(int, char * const[], const char *) on
+ * non-Windows hosts and the uint8_t-based shim from getopt_win.h on Windows.
+ * The handlers keep argv as uint8_t text (like the NoxTLS API), so adapt the
+ * pointer type at the getopt boundary only. */
+#ifdef _WIN32
+#define APP_GETOPT_ARGV(v) ((uint8_t * const *)(v))
+#else
+#define APP_GETOPT_ARGV(v) ((char * const *)(v))
+#endif
 
 /* ============================================================================
  * Application-private static workspace (per project policy)
@@ -176,7 +187,7 @@ uint8_t debug_lvl = 0;
  * @param[in] mode The mode to open the file from
  * @return The file pointer
  */
-static FILE *noxtls_fopen(const char *filename, const char *mode)
+static FILE *noxtls_fopen(const uint8_t *filename, const uint8_t *mode)
 {
 #ifdef _MSC_VER
     FILE *fp = NULL;
@@ -196,20 +207,20 @@ static FILE *noxtls_fopen(const char *filename, const char *mode)
  * @param[out] parsed The parsed format
  * @return The return code
  */
-static int parse_format(const char *format, cert_format_t *parsed)
+static int parse_format(const uint8_t *format, cert_format_t *parsed)
 {
     if(parsed == NULL) {
         return -1;
     }
-    if(format == NULL || strcmp(format, "auto") == 0) {
+    if(format == NULL || noxtls_u8_strcmp(format, "auto") == 0) {
         *parsed = CERT_FORMAT_AUTO;
         return 0;
     }
-    if(strcmp(format, "der") == 0 || strcmp(format, "DER") == 0) {
+    if(noxtls_u8_strcmp(format, "der") == 0 || noxtls_u8_strcmp(format, "DER") == 0) {
         *parsed = CERT_FORMAT_DER;
         return 0;
     }
-    if(strcmp(format, "pem") == 0 || strcmp(format, "PEM") == 0) {
+    if(noxtls_u8_strcmp(format, "pem") == 0 || noxtls_u8_strcmp(format, "PEM") == 0) {
         *parsed = CERT_FORMAT_PEM;
         return 0;
     }
@@ -224,7 +235,7 @@ static int parse_format(const char *format, cert_format_t *parsed)
  * @param[out] len The length of the data to read the file into
  * @return The return code
  */
-static noxtls_return_t read_file_alloc(const char *filename, uint8_t **data, uint32_t *len)
+static noxtls_return_t read_file_alloc(const uint8_t *filename, uint8_t **data, uint32_t *len)
 {
     FILE *fp = NULL;
     long file_size = 0;
@@ -282,7 +293,7 @@ static noxtls_return_t read_file_alloc(const char *filename, uint8_t **data, uin
  */
 static noxtls_return_t load_certificate_with_format(
     x509_certificate_t *cert,
-    const char *input_file,
+    const uint8_t *input_file,
     cert_format_t input_format)
 {
     uint8_t *data = NULL;
@@ -318,7 +329,7 @@ static noxtls_return_t load_certificate_with_format(
  */
 static noxtls_return_t load_private_key_with_format(
     x509_private_key_t *key,
-    const char *input_file,
+    const uint8_t *input_file,
     cert_format_t input_format)
 {
     uint8_t *data = NULL;
@@ -351,7 +362,7 @@ static noxtls_return_t load_private_key_with_format(
  * @param[in] bad_data_label The label of the bad data
  * @return void
  */
-static void print_return_reason(noxtls_return_t rc, const char *bad_data_label)
+static void print_return_reason(noxtls_return_t rc, const uint8_t *bad_data_label)
 {
     switch(rc) {
         case NOXTLS_RETURN_SUCCESS:
@@ -418,7 +429,7 @@ void print_hex(const uint8_t *data, uint32_t len)
  * @param[in] name The name of the application
  * @return void
  */
-void print_usage(const char *name)
+void print_usage(const uint8_t *name)
 {
     printf("usage: %s [operation] <parameters>\n", name);
     printf("\nSupported Operations:\n\n");
@@ -504,7 +515,7 @@ void print_certificate_info(const x509_certificate_t *cert)
             time_len++;
         }
         /* Use the actual length found, not the full buffer size */
-        char time_str[64];
+        uint8_t time_str[64];
         if(noxtls_x509_parse_time(cert->not_before, time_len, time_str, sizeof(time_str)) == NOXTLS_RETURN_SUCCESS) {
             printf("%s\n", time_str);
         } else {
@@ -523,7 +534,7 @@ void print_certificate_info(const x509_certificate_t *cert)
             time_len++;
         }
         /* Use the actual length found, not the full buffer size */
-        char time_str[64];
+        uint8_t time_str[64];
         if(noxtls_x509_parse_time(cert->not_after, time_len, time_str, sizeof(time_str)) == NOXTLS_RETURN_SUCCESS) {
             printf("%s\n", time_str);
         } else {
@@ -653,14 +664,14 @@ void print_private_key_info(const x509_private_key_t *key)
  * @param[in] argv The arguments
  * @return The exit status
  */
-noxtls_return_t read_certificate_handler(int argc, char **argv)
+noxtls_return_t read_certificate_handler(int argc, uint8_t **argv)
 {
-    const char *input_file = NULL;
+    const uint8_t *input_file = NULL;
     x509_certificate_t cert;
     noxtls_return_t rc;
     int c;
     
-    while((c = noxtls_getopt(argc, argv, "i:d")) != -1) {
+    while((c = noxtls_getopt(argc, APP_GETOPT_ARGV(argv), "i:d")) != -1) {
         switch(c) {
             case 'i':
                 input_file = optarg;
@@ -702,10 +713,10 @@ noxtls_return_t read_certificate_handler(int argc, char **argv)
  * @param[in] argv The arguments
  * @return The exit status
  */
-noxtls_return_t write_certificate_handler(int argc, char **argv)
+noxtls_return_t write_certificate_handler(int argc, uint8_t **argv)
 {
-    const char *input_file = NULL;
-    const char *output_file = NULL;
+    const uint8_t *input_file = NULL;
+    const uint8_t *output_file = NULL;
     cert_format_t input_format = CERT_FORMAT_AUTO;
     cert_format_t output_format = CERT_FORMAT_PEM;
     x509_certificate_t cert;
@@ -715,7 +726,7 @@ noxtls_return_t write_certificate_handler(int argc, char **argv)
     noxtls_return_t rc;
     int c;
     
-    while((c = noxtls_getopt(argc, argv, "i:o:f:I:O:d")) != -1) {
+    while((c = noxtls_getopt(argc, APP_GETOPT_ARGV(argv), "i:o:f:I:O:d")) != -1) {
         switch(c) {
             case 'i':
                 input_file = optarg;
@@ -818,7 +829,7 @@ noxtls_return_t write_certificate_handler(int argc, char **argv)
  * @param[in] argv The arguments
  * @return The exit status
  */
-noxtls_return_t info_certificate_handler(int argc, char **argv)
+noxtls_return_t info_certificate_handler(int argc, uint8_t **argv)
 {
     return read_certificate_handler(argc, argv);
 }
@@ -830,7 +841,7 @@ noxtls_return_t info_certificate_handler(int argc, char **argv)
  * @param[in] argv The arguments
  * @return The exit status
  */
-noxtls_return_t convert_certificate_handler(int argc, char **argv)
+noxtls_return_t convert_certificate_handler(int argc, uint8_t **argv)
 {
     return write_certificate_handler(argc, argv);
 }
@@ -842,14 +853,14 @@ noxtls_return_t convert_certificate_handler(int argc, char **argv)
  * @param[in] argv The arguments
  * @return The exit status
  */
-noxtls_return_t verify_certificate_handler(int argc, char **argv)
+noxtls_return_t verify_certificate_handler(int argc, uint8_t **argv)
 {
-    const char *input_file = NULL;
+    const uint8_t *input_file = NULL;
     x509_certificate_t cert;
     noxtls_return_t rc;
     int c;
     
-    while((c = noxtls_getopt(argc, argv, "i:d")) != -1) {
+    while((c = noxtls_getopt(argc, APP_GETOPT_ARGV(argv), "i:d")) != -1) {
         switch(c) {
             case 'i':
                 input_file = optarg;
@@ -901,14 +912,14 @@ noxtls_return_t verify_certificate_handler(int argc, char **argv)
  * @param[in] argv The arguments
  * @return The exit status
  */
-noxtls_return_t keyinfo_handler(int argc, char **argv)
+noxtls_return_t keyinfo_handler(int argc, uint8_t **argv)
 {
-    const char *input_file = NULL;
+    const uint8_t *input_file = NULL;
     x509_private_key_t key;
     noxtls_return_t rc;
     int c;
     
-    while((c = noxtls_getopt(argc, argv, "i:d")) != -1) {
+    while((c = noxtls_getopt(argc, APP_GETOPT_ARGV(argv), "i:d")) != -1) {
         switch(c) {
             case 'i':
                 input_file = optarg;
@@ -950,10 +961,10 @@ noxtls_return_t keyinfo_handler(int argc, char **argv)
  * @param[in] argv The arguments
  * @return The exit status
  */
-noxtls_return_t keywrite_handler(int argc, char **argv)
+noxtls_return_t keywrite_handler(int argc, uint8_t **argv)
 {
-    const char *input_file = NULL;
-    const char *output_file = NULL;
+    const uint8_t *input_file = NULL;
+    const uint8_t *output_file = NULL;
     cert_format_t input_format = CERT_FORMAT_AUTO;
     cert_format_t output_format = CERT_FORMAT_PEM;
     x509_private_key_t key;
@@ -963,7 +974,7 @@ noxtls_return_t keywrite_handler(int argc, char **argv)
     noxtls_return_t rc;
     int c;
     
-    while((c = noxtls_getopt(argc, argv, "i:o:f:I:O:d")) != -1) {
+    while((c = noxtls_getopt(argc, APP_GETOPT_ARGV(argv), "i:o:f:I:O:d")) != -1) {
         switch(c) {
             case 'i':
                 input_file = optarg;
@@ -1023,8 +1034,8 @@ noxtls_return_t keywrite_handler(int argc, char **argv)
         }
         
         /* Determine PEM header based on key type and format */
-        const char *begin_marker;
-        const char *end_marker;
+        const uint8_t *begin_marker;
+        const uint8_t *end_marker;
         
         if(key.key_type == X509_PRIVATE_KEY_RSA) {
             if(key.format == X509_PRIVATE_KEY_FORMAT_PKCS1) {
@@ -1050,8 +1061,8 @@ noxtls_return_t keywrite_handler(int argc, char **argv)
         /* Build PEM */
         size_t offset = 0;
         size_t buffer_size = output_len;
-        size_t begin_len = strlen(begin_marker);
-        size_t end_len = strlen(end_marker);
+        size_t begin_len = noxtls_u8_strlen(begin_marker);
+        size_t end_len = noxtls_u8_strlen(end_marker);
         if(begin_len > buffer_size) {
             free(output_data);
             noxtls_x509_private_key_free(&key);
@@ -1061,7 +1072,7 @@ noxtls_return_t keywrite_handler(int argc, char **argv)
         offset += begin_len;
         
         /* Base64 encode the DER data */
-        int b64_len = noxtls_base64_encode(key.raw_data, key.raw_data_len, (char*)(output_data + offset));
+        int b64_len = noxtls_base64_encode(key.raw_data, key.raw_data_len, (uint8_t *)(output_data + offset));
         if(b64_len < 0 || (size_t)b64_len > buffer_size - offset) {
             free(output_data);
             noxtls_x509_private_key_free(&key);
@@ -1134,15 +1145,15 @@ noxtls_return_t keywrite_handler(int argc, char **argv)
  * @param[in] argv The arguments
  * @return The exit status
  */
-noxtls_return_t debug_certificate_handler(int argc, char **argv)
+noxtls_return_t debug_certificate_handler(int argc, uint8_t **argv)
 {
-    const char *input_file = NULL;
+    const uint8_t *input_file = NULL;
     x509_certificate_t cert;
     noxtls_return_t rc;
     uint8_t verbose = 0;
     int c;
     
-    while((c = noxtls_getopt(argc, argv, "i:vd")) != -1) {
+    while((c = noxtls_getopt(argc, APP_GETOPT_ARGV(argv), "i:vd")) != -1) {
         switch(c) {
             case 'i':
                 input_file = optarg;
@@ -1187,15 +1198,15 @@ noxtls_return_t debug_certificate_handler(int argc, char **argv)
  * @param[in] argv The arguments
  * @return The exit status
  */
-noxtls_return_t debug_key_handler(int argc, char **argv)
+noxtls_return_t debug_key_handler(int argc, uint8_t **argv)
 {
-    const char *input_file = NULL;
+    const uint8_t *input_file = NULL;
     x509_private_key_t key;
     noxtls_return_t rc;
     uint8_t verbose = 0;
     int c;
     
-    while((c = noxtls_getopt(argc, argv, "i:vd")) != -1) {
+    while((c = noxtls_getopt(argc, APP_GETOPT_ARGV(argv), "i:vd")) != -1) {
         switch(c) {
             case 'i':
                 input_file = optarg;
@@ -1244,6 +1255,7 @@ int main(int argc, char **argv)
 {
     cert_operation_t op = CERT_OP_READ;
     noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
+    uint8_t **op_argv = NULL;
     
     if(argc < 2) {
         print_usage(argv[0]);
@@ -1251,28 +1263,28 @@ int main(int argc, char **argv)
     }
     
     /* Parse operation */
-    if(strcmp(argv[1], "read") == 0) {
+    if(noxtls_u8_strcmp(argv[1], "read") == 0) {
         op = CERT_OP_READ;
-    } else if(strcmp(argv[1], "write") == 0) {
+    } else if(noxtls_u8_strcmp(argv[1], "write") == 0) {
         op = CERT_OP_WRITE;
-    } else if(strcmp(argv[1], "info") == 0) {
+    } else if(noxtls_u8_strcmp(argv[1], "info") == 0) {
         op = CERT_OP_INFO;
-    } else if(strcmp(argv[1], "convert") == 0) {
+    } else if(noxtls_u8_strcmp(argv[1], "convert") == 0) {
         op = CERT_OP_CONVERT;
-    } else if(strcmp(argv[1], "verify") == 0) {
+    } else if(noxtls_u8_strcmp(argv[1], "verify") == 0) {
         op = CERT_OP_VERIFY;
-    } else if(strcmp(argv[1], "keyinfo") == 0) {
+    } else if(noxtls_u8_strcmp(argv[1], "keyinfo") == 0) {
         op = CERT_OP_KEY_INFO;
-    } else if(strcmp(argv[1], "keywrite") == 0) {
+    } else if(noxtls_u8_strcmp(argv[1], "keywrite") == 0) {
         op = CERT_OP_KEY_WRITE;
-    } else if(strcmp(argv[1], "debug") == 0) {
+    } else if(noxtls_u8_strcmp(argv[1], "debug") == 0) {
         op = CERT_OP_DEBUG;
-    } else if(strcmp(argv[1], "keydebug") == 0) {
+    } else if(noxtls_u8_strcmp(argv[1], "keydebug") == 0) {
         op = CERT_OP_KEY_DEBUG;
-    } else if(strcmp(argv[1], "-v") == 0 || strcmp(argv[1], "--version") == 0) {
+    } else if(noxtls_u8_strcmp(argv[1], "-v") == 0 || noxtls_u8_strcmp(argv[1], "--version") == 0) {
         print_version();
         return 0;
-    } else if(strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
+    } else if(noxtls_u8_strcmp(argv[1], "-h") == 0 || noxtls_u8_strcmp(argv[1], "--help") == 0) {
         print_usage(argv[0]);
         return 0;
     } else {
@@ -1281,38 +1293,40 @@ int main(int argc, char **argv)
         return -1;
     }
     
-    /* Adjust argc/argv for noxtls_getopt */
+    /* Adjust argc/argv for noxtls_getopt. The C runtime passes char strings;
+     * the handlers work on uint8_t text like the NoxTLS API, so view argv as
+     * uint8_t once here (char and unsigned char share representation). */
     argc--;
-    argv++;
+    op_argv = (uint8_t **)&argv[1];
     
     /* Execute operation */
     switch(op) {
         case CERT_OP_READ:
-            rc = read_certificate_handler(argc, argv);
+            rc = read_certificate_handler(argc, op_argv);
             break;
         case CERT_OP_WRITE:
-            rc = write_certificate_handler(argc, argv);
+            rc = write_certificate_handler(argc, op_argv);
             break;
         case CERT_OP_INFO:
-            rc = info_certificate_handler(argc, argv);
+            rc = info_certificate_handler(argc, op_argv);
             break;
         case CERT_OP_CONVERT:
-            rc = convert_certificate_handler(argc, argv);
+            rc = convert_certificate_handler(argc, op_argv);
             break;
         case CERT_OP_VERIFY:
-            rc = verify_certificate_handler(argc, argv);
+            rc = verify_certificate_handler(argc, op_argv);
             break;
         case CERT_OP_KEY_INFO:
-            rc = keyinfo_handler(argc, argv);
+            rc = keyinfo_handler(argc, op_argv);
             break;
         case CERT_OP_KEY_WRITE:
-            rc = keywrite_handler(argc, argv);
+            rc = keywrite_handler(argc, op_argv);
             break;
         case CERT_OP_DEBUG:
-            rc = debug_certificate_handler(argc, argv);
+            rc = debug_certificate_handler(argc, op_argv);
             break;
         case CERT_OP_KEY_DEBUG:
-            rc = debug_key_handler(argc, argv);
+            rc = debug_key_handler(argc, op_argv);
             break;
         default:
             printf("Error: Unknown operation\n");
