@@ -40,9 +40,24 @@ extern "C" {
 
 #define PEM_MAX_LINE_LEN_B64    48U
 
+/**
+ * DER -> PEM ("CERTIFICATE" banners). @p out_max is the capacity of @p output including the NUL
+ * terminator; when the PEM text plus NUL does not fit, NOXTLS_RETURN_FAILED is returned and
+ * @p output is not written. *out_len receives the PEM length without the NUL.
+ */
+noxtls_return_t noxtls_certificate_der_to_pem_ex(const uint8_t *data, uint32_t length, uint8_t *output,
+                                                 uint32_t out_max, uint32_t *out_len);
+/** DER -> PEM ("CERTIFICATE REQUEST" banners); same contract as noxtls_certificate_der_to_pem_ex(). */
+noxtls_return_t noxtls_csr_der_to_pem_ex(const uint8_t *data, uint32_t length, uint8_t *output,
+                                         uint32_t out_max, uint32_t *out_len);
+/**
+ * Legacy unbounded forms: @p output must hold the complete PEM text plus NUL (about
+ * 4/3 * length + length/48 + 60 bytes). Prefer the _ex variants.
+ */
 noxtls_return_t noxtls_certificate_der_to_pem(const uint8_t * data, uint32_t length, uint8_t * output, uint32_t * out_len);
-noxtls_return_t noxtls_certificate_pem_to_der(const uint8_t * data, uint32_t length, uint8_t * output, uint32_t * out_len);
 noxtls_return_t noxtls_csr_der_to_pem(const uint8_t *data, uint32_t length, uint8_t *output, uint32_t *out_len);
+/** PEM -> DER. @p output must hold at least @p length bytes (decoded DER is always shorter). */
+noxtls_return_t noxtls_certificate_pem_to_der(const uint8_t * data, uint32_t length, uint8_t * output, uint32_t * out_len);
 
 #ifdef __cplusplus
 }

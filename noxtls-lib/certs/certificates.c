@@ -98,81 +98,143 @@ static uint8_t cert_bytes_equal(const uint8_t *a, const uint8_t *b, uint32_t n)
     return (diff == 0U) ? 1U : 0U;
 }
 
+/** Base64 characters plus '\n' emitted for one full PEM line of PEM_MAX_LINE_LEN_B64 DER bytes. */
+#define CERT_PEM_FULL_LINE_OUT  (((PEM_MAX_LINE_LEN_B64 / BASE64_ENCODE_BLOCK_BYTES) * BASE64_ENCODE_OUTPUT_BYTES) + 1U)
+
 /**
- * @brief Converts DER certificate to PEM
+ * @brief PEM text length (without the NUL) produced for @p length DER bytes.
+ *
+ * Layout: BEGIN banner, '\n', base64 body wrapped at PEM_MAX_LINE_LEN_B64 input bytes per line
+ * (each line ends with '\n'), END banner.
+ *
+ * @return Length in bytes, or 0 when the result would not fit in uint32_t.
  */
-noxtls_return_t noxtls_certificate_der_to_pem(const uint8_t * data, uint32_t length, uint8_t * output, uint32_t * out_len)
+static uint32_t cert_pem_text_len(uint32_t length, uint32_t begin_len, uint32_t end_len)
 {
-    uint8_t *ptr = NULL;
-    int32_t result = 0;
-    uint32_t write_len = 0U;
-    uintptr_t out_u;
-    uintptr_t ptr_u;
-    uintptr_t written_u;
-    const uint8_t *src = NULL;
+    uint32_t full_lines = length / PEM_MAX_LINE_LEN_B64;
+    uint32_t rem = length % PEM_MAX_LINE_LEN_B64;
+    uint32_t total = begin_len + 1U + end_len;
+
+    /* PEM is ~1.36x the DER size: bounding the input keeps every product below 2^32. */
+    if(length > (UINT32_MAX / 2U)) {
+        return 0U;
+    }
+    total += full_lines * CERT_PEM_FULL_LINE_OUT;
+    if(rem != 0U) {
+        total += (((rem + (BASE64_ENCODE_BLOCK_BYTES - 1U)) / BASE64_ENCODE_BLOCK_BYTES) * BASE64_ENCODE_OUTPUT_BYTES) + 1U;
+    }
+    return total;
+}
+
+/**
+ * @brief Shared DER -> PEM writer that never writes past @p out_max.
+ *
+ * The full output size (PEM text plus NUL terminator) is computed before the first byte is
+ * written, so a too-small buffer is rejected without being touched.
+ *
+ * @param[in]  begin      BEGIN banner bytes.
+ * @param[in]  begin_len  Length of @p begin.
+ * @param[in]  end        END banner bytes.
+ * @param[in]  end_len    Length of @p end.
+ * @param[in]  data       DER input.
+ * @param[in]  length     Length of @p data (> 0).
+ * @param[out] output     Output buffer (NUL-terminated on success).
+ * @param[in]  out_max    Capacity of @p output in bytes, including room for the NUL.
+ * @param[out] out_len    PEM length written, not counting the NUL.
+ *
+ * @return NOXTLS_RETURN_SUCCESS, NOXTLS_RETURN_INVALID_PARAM for NULL/empty input, or
+ *         NOXTLS_RETURN_FAILED when @p out_max is too small (nothing is written).
+ */
+static noxtls_return_t cert_der_to_pem_bounded(const uint8_t *begin, uint32_t begin_len,
+                                               const uint8_t *end, uint32_t end_len,
+                                               const uint8_t *data, uint32_t length,
+                                               uint8_t *output, uint32_t out_max, uint32_t *out_len)
+{
+    uint32_t text_len = 0U;
+    uint32_t pos = 0U;
     uint32_t remaining = 0U;
+    const uint8_t *src = NULL;
 
     if((data == NULL) || (length == 0U) || (output == NULL) || (out_len == NULL)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    /* Touch banner table so PEM string macros stay live in this TU. */
-    (void)cert_pem_banner_len(0U);
+    text_len = cert_pem_text_len(length, begin_len, end_len);
+    if((text_len == 0U) || (text_len >= out_max)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+
+    cert_copy_bytes(output, begin, begin_len);
+    pos = begin_len;
+    output[pos] = (uint8_t)'\n';
+    pos += 1U;
+
     src = data;
     remaining = length;
-
-    ptr = output;
-    cert_copy_bytes(ptr, CERT_BEGIN_BYTES, (uint32_t)sizeof(CERT_BEGIN_BYTES));
-    ptr = &ptr[sizeof(CERT_BEGIN_BYTES)];
-    *ptr = (uint8_t)'\n';
-    ptr = &ptr[1U];
-
-    result = 0;
-    while(remaining > 0U)
-    {
-        const uint8_t *in_ptr = src;
-        if(remaining > PEM_MAX_LINE_LEN_B64) {
-            write_len = PEM_MAX_LINE_LEN_B64;
-        }
-        else {
-            write_len = remaining;
-        }
-
-        result = noxtls_base64_encode(in_ptr, write_len, (uint8_t *)ptr);
+    while(remaining > 0U) {
+        uint32_t write_len = (remaining > PEM_MAX_LINE_LEN_B64) ? PEM_MAX_LINE_LEN_B64 : remaining;
+        int32_t result = noxtls_base64_encode(src, write_len, &output[pos]);
         if(result < 0) {
             return NOXTLS_RETURN_FAILED;
         }
-        ptr = &ptr[(size_t)result];
-
+        pos += (uint32_t)result;
+        output[pos] = (uint8_t)'\n';
+        pos += 1U;
         src = &src[write_len];
-
-        *ptr = (uint8_t)'\n';
-        ptr = &ptr[1U];
-
         remaining -= write_len;
     }
 
-    cert_copy_bytes(ptr, CERT_END_BYTES, (uint32_t)sizeof(CERT_END_BYTES));
-    ptr = &ptr[sizeof(CERT_END_BYTES)];
-    *ptr = (uint8_t)'\0';
-
-    out_u = (uintptr_t)output;
-    ptr_u = (uintptr_t)ptr;
-    if(ptr_u < out_u) {
+    cert_copy_bytes(&output[pos], end, end_len);
+    pos += end_len;
+    if(pos != text_len) {
+        /* Cannot happen: the size computation mirrors the loop above. */
         return NOXTLS_RETURN_FAILED;
     }
-    written_u = ptr_u - out_u;
-    if(written_u > (uintptr_t)UINT32_MAX) {
-        return NOXTLS_RETURN_FAILED;
-    }
-    *out_len = (uint32_t)written_u;
+    output[pos] = (uint8_t)'\0';
+    *out_len = pos;
     return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
- * @brief Converts a DER-encoded Certificate Signing Request (PKCS#10) to PEM format.
+ * @brief Converts a DER certificate to PEM, bounded by the output capacity.
+ *
+ * @param[in]  data     DER certificate.
+ * @param[in]  length   Length of @p data.
+ * @param[out] output   Output buffer; receives NUL-terminated PEM text.
+ * @param[in]  out_max  Capacity of @p output, including the NUL terminator.
+ * @param[out] out_len  PEM length, not counting the NUL.
+ *
+ * @return NOXTLS_RETURN_SUCCESS, NOXTLS_RETURN_INVALID_PARAM, or NOXTLS_RETURN_FAILED when
+ *         @p out_max is too small (the buffer is left untouched).
  */
-noxtls_return_t noxtls_csr_der_to_pem(const uint8_t *data, uint32_t length, uint8_t *output, uint32_t *out_len)
+noxtls_return_t noxtls_certificate_der_to_pem_ex(const uint8_t *data, uint32_t length, uint8_t *output,
+                                                 uint32_t out_max, uint32_t *out_len)
+{
+    /* Touch banner table so PEM string macros stay live in this TU. */
+    (void)cert_pem_banner_len(0U);
+    return cert_der_to_pem_bounded(CERT_BEGIN_BYTES, (uint32_t)sizeof(CERT_BEGIN_BYTES),
+                                   CERT_END_BYTES, (uint32_t)sizeof(CERT_END_BYTES),
+                                   data, length, output, out_max, out_len);
+}
+
+/**
+ * @brief Converts DER certificate to PEM (legacy, unbounded).
+ *
+ * @warning @p output must hold the whole PEM text plus a NUL terminator; this function cannot
+ *          check it. Use noxtls_certificate_der_to_pem_ex() to pass the buffer capacity.
+ */
+noxtls_return_t noxtls_certificate_der_to_pem(const uint8_t * data, uint32_t length, uint8_t * output, uint32_t * out_len)
+{
+    return noxtls_certificate_der_to_pem_ex(data, length, output, UINT32_MAX, out_len);
+}
+
+/**
+ * @brief Converts a DER PKCS#10 request to PEM, bounded by the output capacity.
+ *
+ * Same contract as noxtls_certificate_der_to_pem_ex() with CERTIFICATE REQUEST banners.
+ */
+noxtls_return_t noxtls_csr_der_to_pem_ex(const uint8_t *data, uint32_t length, uint8_t *output,
+                                         uint32_t out_max, uint32_t *out_len)
 {
     /* Local to this function (Rule 8.9). */
     static const uint8_t cert_req_begin_bytes[] = {
@@ -187,57 +249,20 @@ noxtls_return_t noxtls_csr_der_to_pem(const uint8_t *data, uint32_t length, uint
         0x52U,0x45U,0x51U,0x55U,0x45U,0x53U,0x54U,
         0x2DU,0x2DU,0x2DU,0x2DU,0x2DU
     };
-    int32_t result = 0;
-    uint8_t *ptr = NULL;
-    uintptr_t out_u;
-    uintptr_t ptr_u;
-    uintptr_t written_u;
-    const uint8_t *src = NULL;
-    uint32_t remaining = 0U;
+    return cert_der_to_pem_bounded(cert_req_begin_bytes, (uint32_t)sizeof(cert_req_begin_bytes),
+                                   cert_req_end_bytes, (uint32_t)sizeof(cert_req_end_bytes),
+                                   data, length, output, out_max, out_len);
+}
 
-    if((data == NULL) || (length == 0U) || (output == NULL) || (out_len == NULL)) {
-        return NOXTLS_RETURN_INVALID_PARAM;
-    }
-
-    src = data;
-    remaining = length;
-
-    ptr = output;
-    cert_copy_bytes(ptr, cert_req_begin_bytes, (uint32_t)sizeof(cert_req_begin_bytes));
-    ptr = &ptr[sizeof(cert_req_begin_bytes)];
-    *ptr = (uint8_t)'\n';
-    ptr = &ptr[1U];
-
-    result = 0;
-    while(remaining > 0U) {
-        const uint8_t *ptr_data = src;
-        uint32_t write_len = (remaining > PEM_MAX_LINE_LEN_B64) ? PEM_MAX_LINE_LEN_B64 : remaining;
-        result = noxtls_base64_encode(ptr_data, write_len, (uint8_t *)ptr);
-        if(result < 0) {
-            return NOXTLS_RETURN_FAILED;
-        }
-        ptr = &ptr[(size_t)result];
-        src = &src[write_len];
-        *ptr = (uint8_t)'\n';
-        ptr = &ptr[1U];
-        remaining -= write_len;
-    }
-
-    cert_copy_bytes(ptr, cert_req_end_bytes, (uint32_t)sizeof(cert_req_end_bytes));
-    ptr = &ptr[sizeof(cert_req_end_bytes)];
-    *ptr = (uint8_t)'\0';
-
-    out_u = (uintptr_t)output;
-    ptr_u = (uintptr_t)ptr;
-    if(ptr_u < out_u) {
-        return NOXTLS_RETURN_FAILED;
-    }
-    written_u = ptr_u - out_u;
-    if(written_u > (uintptr_t)UINT32_MAX) {
-        return NOXTLS_RETURN_FAILED;
-    }
-    *out_len = (uint32_t)written_u;
-    return NOXTLS_RETURN_SUCCESS;
+/**
+ * @brief Converts a DER-encoded Certificate Signing Request (PKCS#10) to PEM format (legacy, unbounded).
+ *
+ * @warning @p output must hold the whole PEM text plus a NUL terminator; this function cannot
+ *          check it. Use noxtls_csr_der_to_pem_ex() to pass the buffer capacity.
+ */
+noxtls_return_t noxtls_csr_der_to_pem(const uint8_t *data, uint32_t length, uint8_t *output, uint32_t *out_len)
+{
+    return noxtls_csr_der_to_pem_ex(data, length, output, UINT32_MAX, out_len);
 }
 
 /**
