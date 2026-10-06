@@ -273,6 +273,27 @@ noxtls_return_t noxtls_tls12_dhe_send_server_key_exchange(tls12_context_t *ctx, 
 noxtls_return_t noxtls_tls12_dhe_recv_server_key_exchange(tls12_context_t *ctx, tls_dhe_context_t *dhe_ctx, const uint8_t *record_data, uint32_t record_len);
 
 /**
+ * @brief TLS 1.2 client: verify the ServerKeyExchange signature (ECDHE and DHE).
+ *
+ * Verifies the signature over client_random || server_random || params using the
+ * SignatureAndHashAlgorithm carried in the message (RSA PKCS#1 v1.5, RSA-PSS rsae or
+ * ECDSA) and the key in the parsed server certificate. The scheme must be one the
+ * client advertised in its ClientHello \c signature_algorithms extension.
+ *
+ * @param[in,out] ctx TLS 1.2 client context (randoms, parsed server certificate, workspace).
+ * @param[in] hs_msg Full handshake message including the 4-byte header.
+ * @param[in] hs_len Length of @p hs_msg.
+ * @param[in] params_end Offset in @p hs_msg where the signed params end (signature header starts).
+ * @return `NOXTLS_RETURN_SUCCESS` if the signature verifies; `NOXTLS_RETURN_BAD_DATA` on framing errors;
+ *         `NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER` if the scheme was not offered;
+ *         `NOXTLS_RETURN_NOT_ENOUGH_MEMORY` on allocation failure; `NOXTLS_RETURN_FAILED` otherwise.
+ */
+noxtls_return_t noxtls_tls12_client_verify_ske_signature(tls12_context_t *ctx,
+                                                        const uint8_t *hs_msg,
+                                                        uint32_t hs_len,
+                                                        uint32_t params_end);
+
+/**
  * @brief TLS 1.2 client: send DHE ClientKeyExchange with local public value.
  * @param[in,out] ctx TLS 1.2 client context.
  * @param[in,out] dhe_ctx Client public must be populated after server message processing.
