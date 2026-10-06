@@ -426,7 +426,7 @@ noxtls_return_t noxtls_drbg_get_entropy(uint8_t *entropy_out, uint32_t entropy_o
         default:
 #if NOXTLS_PORT_ENTROPY_ACCEL
             /* Platform hardware entropy source first (for example a TRNG). */
-            if(noxtls_drbg_entropy_accel_port(entropy_buffer, entropy_len) == NOXTLS_RETURN_SUCCESS) {
+            if(noxtls_drbg_entropy_accel_port(entropy_out, entropy_out_len) == NOXTLS_RETURN_SUCCESS) {
                 return NOXTLS_RETURN_SUCCESS;
             }
 #endif
