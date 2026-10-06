@@ -3003,29 +3003,29 @@ noxtls_return_t noxtls_tls12_send_client_hello(tls12_context_t *ctx)
                 ext_len += 1U;
                 /* rsa_pkcs1_sha256 (0x0401), rsa_pkcs1_sha384 (0x0501), rsa_pkcs1_sha1 (0x0201) */
                 ext_buf[ext_len] = 0x04U;
-                ext_buf[ext_len] = 0x01U;
                 ext_len += 1U;
+                ext_buf[ext_len] = 0x01U;
                 ext_len += 1U;
                 ext_buf[ext_len] = 0x05U;
-                ext_buf[ext_len] = 0x01U;
                 ext_len += 1U;
+                ext_buf[ext_len] = 0x01U;
                 ext_len += 1U;
                 ext_buf[ext_len] = 0x02U;
-                ext_buf[ext_len] = 0x01U;
                 ext_len += 1U;
+                ext_buf[ext_len] = 0x01U;
                 ext_len += 1U;
                 /* ecdsa_secp256r1_sha256 (0x0403), ecdsa_secp384r1_sha384 (0x0503), ecdsa_sha1 (0x0203) */
                 ext_buf[ext_len] = 0x04U;
-                ext_buf[ext_len] = 0x03U;
                 ext_len += 1U;
+                ext_buf[ext_len] = 0x03U;
                 ext_len += 1U;
                 ext_buf[ext_len] = 0x05U;
-                ext_buf[ext_len] = 0x03U;
                 ext_len += 1U;
+                ext_buf[ext_len] = 0x03U;
                 ext_len += 1U;
                 ext_buf[ext_len] = 0x02U;
-                ext_buf[ext_len] = 0x03U;
                 ext_len += 1U;
+                ext_buf[ext_len] = 0x03U;
                 ext_len += 1U;
             }
         }
