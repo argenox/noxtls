@@ -1888,14 +1888,18 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
                         content_type,
                         omit_length);
 
-    if(use_handshake_keys != 0) {
-        write_key = (ctx->base.base.role == TLS_ROLE_CLIENT) ? ctx->client_write_key : ctx->server_write_key;
-        write_iv  = (ctx->base.base.role == TLS_ROLE_CLIENT) ? ctx->client_write_iv  : ctx->server_write_iv;
-        sn_key    = (ctx->base.base.role == TLS_ROLE_CLIENT) ? ctx->client_handshake_sn_key : ctx->server_handshake_sn_key;
+    /*
+     * The write key / IV always hold the current write epoch's traffic keys. RFC 9147 4.2.3:
+     * the record number is encrypted with the sn_key of the epoch the record is sent in, so
+     * the key is chosen from the write epoch (handshake epoch 2 vs. application epochs >= 3);
+     * use_handshake_keys is only a caller hint and cannot select a key of another epoch.
+     */
+    write_key = (ctx->base.base.role == TLS_ROLE_CLIENT) ? ctx->client_write_key : ctx->server_write_key;
+    write_iv  = (ctx->base.base.role == TLS_ROLE_CLIENT) ? ctx->client_write_iv  : ctx->server_write_iv;
+    if(epoch == (uint16_t)DTLS13_EPOCH_HANDSHAKE) {
+        sn_key = (ctx->base.base.role == TLS_ROLE_CLIENT) ? ctx->client_handshake_sn_key : ctx->server_handshake_sn_key;
     } else {
-        write_key = (ctx->base.base.role == TLS_ROLE_CLIENT) ? ctx->client_write_key : ctx->server_write_key;
-        write_iv  = (ctx->base.base.role == TLS_ROLE_CLIENT) ? ctx->client_write_iv  : ctx->server_write_iv;
-        sn_key    = (ctx->base.base.role == TLS_ROLE_CLIENT) ? ctx->client_sn_key : ctx->server_sn_key;
+        sn_key = (ctx->base.base.role == TLS_ROLE_CLIENT) ? ctx->client_sn_key : ctx->server_sn_key;
     }
 
     /* Unified header: 001 C S L EE, encrypted 8- or 16-bit sequence number, optional length and CID. */
@@ -2130,7 +2134,13 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
     }
 
     epoch = raw[0] & DTLS13_UNIFIED_EPOCH_MASK;
-    use_handshake = (epoch == DTLS13_EPOCH_HANDSHAKE) ? 1U : 0U;
+    /*
+     * RFC 9147 4.2.3: unmask with the sn_key of the record's epoch. The header carries only the
+     * low two epoch bits, and records never arrive from an epoch above the current read epoch,
+     * so low bits 2 denote the handshake epoch until the read epoch reaches 6 (then 6, 10, ...).
+     */
+    use_handshake = ((epoch == DTLS13_EPOCH_HANDSHAKE) &&
+                     (ctx->base.read_connection_epoch < (uint64_t)(DTLS13_EPOCH_HANDSHAKE + 4U))) ? 1U : 0U;
     seq_len = ((raw[0] & DTLS13_UNIFIED_S_BIT) != 0U) ? 2U : 1U;
     seq_offset = 1U;
     len_offset = seq_offset + seq_len;

@@ -76,6 +76,8 @@ extern "C" {
 #define TLS13_CLIENTHELLO_EXT_ORDER_MAX 16384u
 #define TLS13_RECORD_WORKSPACE_HALF  (TLS_MAX_RECORD_SIZE + 32U)
 #define TLS13_INLINE_KEY_SHARE_MAX_LEN 160U
+/* RFC 9147 4.2.3: largest DTLS 1.3 record-number key (AES-256 / ChaCha20 key length). */
+#define TLS13_DTLS_SN_KEY_MAX_LEN 32U
 
 /* RFC 8446 CertificateVerify signature field capacity (scheme-specific; not always SLH-DSA max). */
 #define TLS13_CV_STACK_SIGNATURE_MAX  512U
@@ -154,11 +156,12 @@ struct tls13_context_s
     uint8_t server_write_key[32];   /* Server write key */
     uint8_t client_write_iv[12];    /* Client write IV */
     uint8_t server_write_iv[12];    /* Server write IV */
-    /* RFC 9147 §4.2.3: record number encryption keys (one block = 16 bytes) */
-    uint8_t client_sn_key[16];
-    uint8_t server_sn_key[16];
-    uint8_t client_handshake_sn_key[16];
-    uint8_t server_handshake_sn_key[16];
+    /* RFC 9147 §4.2.3: record number encryption keys. sn_key is as long as
+     * the AEAD key (16 bytes for AES-128, 32 for AES-256 and ChaCha20-Poly1305). */
+    uint8_t client_sn_key[TLS13_DTLS_SN_KEY_MAX_LEN];
+    uint8_t server_sn_key[TLS13_DTLS_SN_KEY_MAX_LEN];
+    uint8_t client_handshake_sn_key[TLS13_DTLS_SN_KEY_MAX_LEN];
+    uint8_t server_handshake_sn_key[TLS13_DTLS_SN_KEY_MAX_LEN];
     
     /* Sequence numbers */
     uint64_t client_seq_num;        /* Client sequence number */

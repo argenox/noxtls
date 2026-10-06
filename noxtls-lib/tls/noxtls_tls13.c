@@ -1580,6 +1580,34 @@ static noxtls_return_t tls13_ctx_derive_secret(const tls13_context_t *ctx,
 }
 
 /**
+ * @brief Derive a DTLS 1.3 record-number encryption key
+ *
+ * RFC 9147 4.2.3: sn_key = HKDF-Expand-Label(Secret, "sn", "", key_length), where
+ * key_length is the AEAD key length of the negotiated suite (16 for AES-128,
+ * 32 for AES-256 and ChaCha20-Poly1305).
+ *
+ * @param[in] ctx The context
+ * @param[in] hash_algo The suite hash algorithm
+ * @param[in] secret The traffic secret of the epoch
+ * @param[in] secret_len The length of the traffic secret
+ * @param[out] sn_key The record-number key storage (TLS13_DTLS_SN_KEY_MAX_LEN bytes)
+ * @param[in] key_len The AEAD key length of the suite
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_INVALID_PARAM if @p key_len does not fit
+ */
+static noxtls_return_t tls13_derive_sn_key(const tls13_context_t *ctx,
+                                           noxtls_hash_algos_t hash_algo,
+                                           const uint8_t *secret, uint32_t secret_len,
+                                           uint8_t *sn_key, uint32_t key_len)
+{
+    if((key_len == 0U) || (key_len > TLS13_DTLS_SN_KEY_MAX_LEN)) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    return tls13_ctx_hkdf_expand_label(ctx, hash_algo, secret, secret_len,
+                                       s_tls13_label_sn, (uint32_t)(sizeof(s_tls13_label_sn) - 1U), NULL, 0U,
+                                       sn_key, key_len);
+}
+
+/**
  * @brief Check if the client has a key share
  *
  * @param[in] ctx The context to check if the client has a key share from
@@ -3187,8 +3215,13 @@ static void tls13_send_fatal_alert(tls13_context_t *ctx, uint8_t alert_desc)
                                               TLS_RECORD_ALERT, inner, &inner_len);
         if(send_rc == NOXTLS_RETURN_SUCCESS) {
             if(tls13_is_dtls(ctx) != 0) {
+                /*
+                 * RFC 9147 4.2.3: protect the alert with the keys and record-number key of
+                 * the epoch it is sent in (handshake epoch 2, or the application epoch >= 3).
+                 */
+                int32_t use_hs_keys = (ctx->base.epoch < (uint16_t)DTLS13_EPOCH_APPLICATION) ? 1 : 0;
                 send_rc = noxtls_tls13_send_dtls13_encrypted_record(
-                    ctx, 1, TLS_RECORD_ALERT, inner, inner_len, 1);
+                    ctx, use_hs_keys, TLS_RECORD_ALERT, inner, inner_len, 1);
             } else {
                 send_rc = noxtls_tls13_encrypt_record(ctx, TLS_RECORD_APPLICATION_DATA,
                                                       inner, inner_len,
@@ -3715,15 +3748,13 @@ static noxtls_return_t tls13_derive_handshake_keys(tls13_context_t *ctx, const u
     }
 
     /* RFC 9147 ?4.2.3: record number encryption keys for DTLS 1.3 handshake */
-    rc = tls13_ctx_hkdf_expand_label(ctx, hash_algo, ctx->client_handshake_traffic_secret, hash_len,
-                                 s_tls13_label_sn, (uint32_t)(sizeof(s_tls13_label_sn) - 1U), NULL, 0,
-                                 ctx->client_handshake_sn_key, DTLS13_RECORD_NUMBER_ENC_LEN);
+    rc = tls13_derive_sn_key(ctx, hash_algo, ctx->client_handshake_traffic_secret, hash_len,
+                                 ctx->client_handshake_sn_key, key_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    rc = tls13_ctx_hkdf_expand_label(ctx, hash_algo, ctx->server_handshake_traffic_secret, hash_len,
-                                 s_tls13_label_sn, (uint32_t)(sizeof(s_tls13_label_sn) - 1U), NULL, 0,
-                                 ctx->server_handshake_sn_key, DTLS13_RECORD_NUMBER_ENC_LEN);
+    rc = tls13_derive_sn_key(ctx, hash_algo, ctx->server_handshake_traffic_secret, hash_len,
+                                 ctx->server_handshake_sn_key, key_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -3889,15 +3920,13 @@ static noxtls_return_t tls13_install_application_keys(tls13_context_t *ctx)
     }
 
     /* RFC 9147 ?4.2.3: record number encryption keys for DTLS 1.3 application data */
-    rc = tls13_ctx_hkdf_expand_label(ctx, hash_algo, ctx->client_application_traffic_secret, hash_len,
-                                 s_tls13_label_sn, (uint32_t)(sizeof(s_tls13_label_sn) - 1U), NULL, 0,
-                                 ctx->client_sn_key, DTLS13_RECORD_NUMBER_ENC_LEN);
+    rc = tls13_derive_sn_key(ctx, hash_algo, ctx->client_application_traffic_secret, hash_len,
+                                 ctx->client_sn_key, key_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    rc = tls13_ctx_hkdf_expand_label(ctx, hash_algo, ctx->server_application_traffic_secret, hash_len,
-                                 s_tls13_label_sn, (uint32_t)(sizeof(s_tls13_label_sn) - 1U), NULL, 0,
-                                 ctx->server_sn_key, DTLS13_RECORD_NUMBER_ENC_LEN);
+    rc = tls13_derive_sn_key(ctx, hash_algo, ctx->server_application_traffic_secret, hash_len,
+                                 ctx->server_sn_key, key_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -3960,9 +3989,8 @@ static noxtls_return_t tls13_install_server_application_write_keys(tls13_context
         return rc;
     }
     if(tls13_is_dtls(ctx) != 0) {
-        rc = tls13_ctx_hkdf_expand_label(ctx, hash_algo, ctx->server_application_traffic_secret, hash_len,
-                                     s_tls13_label_sn, (uint32_t)(sizeof(s_tls13_label_sn) - 1U), NULL, 0,
-                                     ctx->server_sn_key, DTLS13_RECORD_NUMBER_ENC_LEN);
+        rc = tls13_derive_sn_key(ctx, hash_algo, ctx->server_application_traffic_secret, hash_len,
+                                     ctx->server_sn_key, key_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
@@ -4016,9 +4044,8 @@ static noxtls_return_t tls13_install_client_application_read_keys(tls13_context_
     }
     if(tls13_is_dtls(ctx) != 0) {
         uint8_t epoch_low = (uint8_t)(DTLS13_EPOCH_APPLICATION & DTLS13_UNIFIED_EPOCH_MASK);
-        rc = tls13_ctx_hkdf_expand_label(ctx, hash_algo, ctx->client_application_traffic_secret, hash_len,
-                                     s_tls13_label_sn, (uint32_t)(sizeof(s_tls13_label_sn) - 1U), NULL, 0,
-                                     ctx->client_sn_key, DTLS13_RECORD_NUMBER_ENC_LEN);
+        rc = tls13_derive_sn_key(ctx, hash_algo, ctx->client_application_traffic_secret, hash_len,
+                                     ctx->client_sn_key, key_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
@@ -4100,9 +4127,8 @@ static noxtls_return_t tls13_update_write_traffic_secret(tls13_context_t *ctx)
     }
     if(tls13_is_dtls(ctx) != 0) {
         uint8_t *write_sn_key = (ctx->base.base.role == TLS_ROLE_SERVER) ? ctx->server_sn_key : ctx->client_sn_key;
-        rc = tls13_ctx_hkdf_expand_label(ctx, hash_algo, write_secret, hash_len,
-                                     s_tls13_label_sn, (uint32_t)(sizeof(s_tls13_label_sn) - 1U), NULL, 0,
-                                     write_sn_key, DTLS13_RECORD_NUMBER_ENC_LEN);
+        rc = tls13_derive_sn_key(ctx, hash_algo, write_secret, hash_len,
+                                     write_sn_key, key_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
@@ -4182,9 +4208,8 @@ static noxtls_return_t tls13_update_read_traffic_secret(tls13_context_t *ctx)
     if(tls13_is_dtls(ctx) != 0) {
         uint8_t *read_sn_key = (ctx->base.base.role == TLS_ROLE_SERVER) ? ctx->client_sn_key : ctx->server_sn_key;
         uint8_t epoch_low = 0U;
-        rc = tls13_ctx_hkdf_expand_label(ctx, hash_algo, read_secret, hash_len,
-                                     s_tls13_label_sn, (uint32_t)(sizeof(s_tls13_label_sn) - 1U), NULL, 0,
-                                     read_sn_key, DTLS13_RECORD_NUMBER_ENC_LEN);
+        rc = tls13_derive_sn_key(ctx, hash_algo, read_secret, hash_len,
+                                     read_sn_key, key_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
