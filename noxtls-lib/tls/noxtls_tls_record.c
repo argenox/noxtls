@@ -146,6 +146,7 @@ static void tls12_generate_iv(uint8_t *iv, const uint8_t *write_iv, uint32_t iv_
     }
 }
 
+#if NOXTLS_FEATURE_CHACHA20_POLY1305
 /**
  * @brief Generate TLS 1.2 ChaCha20-Poly1305 record nonce
  *
@@ -175,6 +176,7 @@ static void tls12_chacha20_poly1305_record_nonce(uint8_t *nonce,
         nonce[i] ^= write_iv[i];
     }
 }
+#endif /* NOXTLS_FEATURE_CHACHA20_POLY1305 */
 
 /**
  * @brief Compute TLS 1.2 MAC
@@ -599,6 +601,7 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
         }
 
         if(is_tls12_chacha != 0U) {
+#if NOXTLS_FEATURE_CHACHA20_POLY1305
             const uint32_t tag_len = 16U;
             tls12_chacha20_poly1305_record_nonce(nonce, write_iv, seq_num);
             if(noxtls_chacha20_poly1305_encrypt(enc_key, nonce, aad, aad_len,
@@ -617,6 +620,10 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
             offset += encrypted_data_len;
             noxtls_copy_u8(&encrypted_record[offset], (size_t)(*encrypted_record_len), tag, (size_t)(tag_len));
             offset += tag_len;
+#else
+            (void)noxtls_free(encrypted_data);
+            return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
         } else {
             uint8_t fixed_iv[4];
             uint8_t explicit_nonce[8];
@@ -633,18 +640,28 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
             noxtls_copy_u8(nonce, sizeof(nonce), fixed_iv, (size_t)(4U));
             noxtls_copy_u8(&nonce[4], sizeof(nonce) - (size_t)(4), explicit_nonce, (size_t)(8U));
             if(is_gcm != 0U) {
+#if NOXTLS_FEATURE_AES_GCM
                 if(noxtls_aes_gcm_encrypt(enc_key, aes_type, nonce, aad, aad_len,
                                    plaintext, plaintext_len, encrypted_data, tag) != NOXTLS_RETURN_SUCCESS) {
                     (void)noxtls_free(encrypted_data);
                     return NOXTLS_RETURN_FAILED;
                 }
+#else
+                (void)noxtls_free(encrypted_data);
+                return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
             } else {
                 /* MISRA 15.7: final else path */
+#if NOXTLS_FEATURE_AES_CCM
                 if(noxtls_aes_ccm_encrypt(enc_key, aes_type, nonce, 12U, aad, aad_len,
                                    plaintext, plaintext_len, encrypted_data, tag, tag_len) != NOXTLS_RETURN_SUCCESS) {
                     (void)noxtls_free(encrypted_data);
                     return NOXTLS_RETURN_FAILED;
                 }
+#else
+                (void)noxtls_free(encrypted_data);
+                return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
             }
             encrypted_data_len = plaintext_len;
 
@@ -755,24 +772,43 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
     
     /* Encrypt using 3DES-CBC, AES-CBC, or ARIA-CBC */
     if(is_3des != 0U) {
+#if NOXTLS_FEATURE_DES
         if(des3_encrypt_cbc(enc_key, 24, padded_plaintext, padded_len, iv_enc, encrypted_data) != NOXTLS_RETURN_SUCCESS) {
             (void)noxtls_free(padded_plaintext);
             (void)noxtls_free(encrypted_data);
             return NOXTLS_RETURN_FAILED;
         }
+#else
+        (void)noxtls_free(padded_plaintext);
+        (void)noxtls_free(encrypted_data);
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     } else if(is_aria != 0U) {
+#if NOXTLS_FEATURE_ARIA
         if(noxtls_aria_encrypt_cbc(enc_key, padded_plaintext, padded_len, iv_enc, encrypted_data, aria_type) != NOXTLS_RETURN_SUCCESS) {
             (void)noxtls_free(padded_plaintext);
             (void)noxtls_free(encrypted_data);
             return NOXTLS_RETURN_FAILED;
         }
+#else
+        (void)aria_type;
+        (void)noxtls_free(padded_plaintext);
+        (void)noxtls_free(encrypted_data);
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     } else {
         /* MISRA 15.7: final else path */
+#if NOXTLS_FEATURE_AES_CBC
         if(noxtls_aes_encrypt_cbc(enc_key, padded_plaintext, padded_len, iv_enc, encrypted_data, aes_type) != NOXTLS_RETURN_SUCCESS) {
             (void)noxtls_free(padded_plaintext);
             (void)noxtls_free(encrypted_data);
             return NOXTLS_RETURN_FAILED;
         }
+#else
+        (void)noxtls_free(padded_plaintext);
+        (void)noxtls_free(encrypted_data);
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     }
     
     encrypted_data_len = padded_len;
@@ -1118,7 +1154,11 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
             ciphertext_len = encrypted_record_len - tag_len;
             ciphertext = encrypted_record;
             tag_in = &encrypted_record[ciphertext_len];
+#if NOXTLS_FEATURE_CHACHA20_POLY1305
             tls12_chacha20_poly1305_record_nonce(nonce, write_iv, seq_num);
+#else
+            return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
         } else {
             /* MISRA 15.7: final else path */
             if(encrypted_record_len < (8U + tag_len)) {
@@ -1163,21 +1203,33 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
             return NOXTLS_RETURN_FAILED;
         }
         if(is_tls12_chacha != 0U) {
+#if NOXTLS_FEATURE_CHACHA20_POLY1305
             if(noxtls_chacha20_poly1305_decrypt(enc_key, nonce, aad, aad_len,
                                                 ciphertext, ciphertext_len, tag, plaintext) != NOXTLS_RETURN_SUCCESS) {
                 return NOXTLS_RETURN_BAD_DATA;
             }
+#else
+            return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
         } else if(is_gcm != 0U) {
+#if NOXTLS_FEATURE_AES_GCM
             if(noxtls_aes_gcm_decrypt(enc_key, aes_type, nonce, aad, aad_len,
                                ciphertext, ciphertext_len, tag, plaintext) != NOXTLS_RETURN_SUCCESS) {
                 return NOXTLS_RETURN_BAD_DATA;
             }
+#else
+            return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
         } else {
             /* MISRA 15.7: final else path */
+#if NOXTLS_FEATURE_AES_CCM
             if(noxtls_aes_ccm_decrypt(enc_key, aes_type, nonce, 12U, aad, aad_len,
                                ciphertext, ciphertext_len, tag, tag_len, plaintext) != NOXTLS_RETURN_SUCCESS) {
                 return NOXTLS_RETURN_BAD_DATA;
             }
+#else
+            return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
         }
         *plaintext_len = ciphertext_len;
 
@@ -1257,21 +1309,37 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
     
     /* Decrypt using AES-CBC or ARIA-CBC */
     if(is_3des != 0U) {
+#if NOXTLS_FEATURE_DES
         if(des3_decrypt_cbc(enc_key, 24U, &encrypted_record[offset], encrypted_data_len, iv, decrypted_data) != NOXTLS_RETURN_SUCCESS) {
             (void)noxtls_free(decrypted_data);
             return NOXTLS_RETURN_BAD_DATA;
         }
+#else
+        (void)noxtls_free(decrypted_data);
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     } else if(is_aria != 0U) {
+#if NOXTLS_FEATURE_ARIA
         if(noxtls_aria_decrypt_cbc(enc_key, &encrypted_record[offset], encrypted_data_len, iv, decrypted_data, aria_type) != NOXTLS_RETURN_SUCCESS) {
             (void)noxtls_free(decrypted_data);
             return NOXTLS_RETURN_BAD_DATA;
         }
+#else
+        (void)aria_type;
+        (void)noxtls_free(decrypted_data);
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     } else {
         /* MISRA 15.7: final else path */
+#if NOXTLS_FEATURE_AES_CBC
         if(noxtls_aes_decrypt_cbc(enc_key, &encrypted_record[offset], encrypted_data_len, iv, decrypted_data, aes_type) != NOXTLS_RETURN_SUCCESS) {
             (void)noxtls_free(decrypted_data);
             return NOXTLS_RETURN_BAD_DATA;
         }
+#else
+        (void)noxtls_free(decrypted_data);
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     }
     
     decrypted_data_len = encrypted_data_len;
@@ -1670,6 +1738,7 @@ static noxtls_return_t tls13_get_record_cipher_params(uint16_t cipher_suite,
     *tag_len = 16U;
 
     switch(cipher_suite) {
+#if NOXTLS_FEATURE_AES_GCM
         case TLS_CIPHER_SUITE_AES_128_GCM_SHA256:
             *use_aes_gcm = 1U;
             *aes_type = NOXTLS_AES_128_BIT;
@@ -1680,6 +1749,8 @@ static noxtls_return_t tls13_get_record_cipher_params(uint16_t cipher_suite,
             *aes_type = NOXTLS_AES_256_BIT;
             *tag_len = 16U;
             return NOXTLS_RETURN_SUCCESS;
+#endif
+#if NOXTLS_FEATURE_AES_CCM
         case TLS_CIPHER_SUITE_AES_128_CCM_SHA256:
             *use_aes_ccm = 1U;
             *aes_type = NOXTLS_AES_128_BIT;
@@ -1690,10 +1761,13 @@ static noxtls_return_t tls13_get_record_cipher_params(uint16_t cipher_suite,
             *aes_type = NOXTLS_AES_128_BIT;
             *tag_len = 8U;
             return NOXTLS_RETURN_SUCCESS;
+#endif
+#if NOXTLS_FEATURE_CHACHA20_POLY1305
         case TLS_CIPHER_SUITE_CHACHA20_POLY1305_SHA256:
             *use_chacha = 1U;
             *tag_len = 16U;
             return NOXTLS_RETURN_SUCCESS;
+#endif
         default:
             return NOXTLS_RETURN_INVALID_PARAM;
     }
@@ -1783,22 +1857,34 @@ noxtls_return_t noxtls_tls13_encrypt_record(tls13_context_t *ctx,
     }
     
     if(use_aes_gcm != 0U) {
+#if NOXTLS_FEATURE_AES_GCM
         rc = noxtls_aes_gcm_encrypt(write_key, aes_type, nonce, aad, 5U,
                              plaintext, plaintext_len,
                              encrypted_record, tag);
+#else
+        rc = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_FAILED;
         }
     } else if(use_aes_ccm != 0U) {
+#if NOXTLS_FEATURE_AES_CCM
         rc = noxtls_aes_ccm_encrypt(write_key, aes_type, nonce, 12U, aad, 5U,
                              plaintext, plaintext_len, encrypted_record, tag, tag_len);
+#else
+        rc = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_FAILED;
         }
     } else if(use_chacha != 0U) {
+#if NOXTLS_FEATURE_CHACHA20_POLY1305
         rc = noxtls_chacha20_poly1305_encrypt(write_key, nonce, aad, 5U,
                                        plaintext, plaintext_len,
                                        encrypted_record, tag);
+#else
+        rc = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_FAILED;
         }
@@ -1877,7 +1963,9 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
     noxtls_aes_type_t aes_type = NOXTLS_AES_128_BIT;
     uint32_t tag_len = 16U;
     noxtls_return_t rc_aead = NOXTLS_RETURN_FAILED;
+#if NOXTLS_FEATURE_CHACHA20_POLY1305
     noxtls_chacha20_context_t chacha_ctx;
+#endif
 
     if((ctx == NULL) || (inner_plaintext == NULL)) {
         return NOXTLS_RETURN_NULL;
@@ -1980,14 +2068,26 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
     tls13_generate_nonce(nonce, write_iv, 12U, seq_num);
 
     if(use_aes_gcm != 0U) {
+#if NOXTLS_FEATURE_AES_GCM
         rc_aead = noxtls_aes_gcm_encrypt(write_key, aes_type, nonce, header, header_len,
                                   aead_inner, aead_inner_len, ciphertext, tag);
+#else
+        rc_aead = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     } else if(use_aes_ccm != 0U) {
+#if NOXTLS_FEATURE_AES_CCM
         rc_aead = noxtls_aes_ccm_encrypt(write_key, aes_type, nonce, 12U, header, header_len,
                                   aead_inner, aead_inner_len, ciphertext, tag, tag_len);
+#else
+        rc_aead = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     } else if(use_chacha != 0U) {
+#if NOXTLS_FEATURE_CHACHA20_POLY1305
         rc_aead = noxtls_chacha20_poly1305_encrypt(write_key, nonce, header, header_len,
                                             aead_inner, aead_inner_len, ciphertext, tag);
+#else
+        rc_aead = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     } else {
         if(padded_inner != NULL) {
             (void)noxtls_free(padded_inner);
@@ -2018,6 +2118,7 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
             return NOXTLS_RETURN_FAILED;
         }
     } else {
+#if NOXTLS_FEATURE_CHACHA20_POLY1305
         static const uint8_t zeros_16[16] = { 0 };
         uint32_t counter32 = (uint32_t)ciphertext[0] | ((uint32_t)ciphertext[1] << 8U) | ((uint32_t)ciphertext[2] << 16U) | ((uint32_t)ciphertext[3] << 24U);
         uint64_t counter = (uint64_t)counter32;
@@ -2029,6 +2130,10 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
             (void)noxtls_free(ciphertext);
             return NOXTLS_RETURN_FAILED;
         }
+#else
+        (void)noxtls_free(ciphertext);
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     }
     if(seq_len == 2U) {
         header[seq_offset] = (uint8_t)(((seq_num >> 8U) & 0xFFU) ^ mask[0]);
@@ -2160,8 +2265,10 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
     noxtls_aes_type_t aes_type = NOXTLS_AES_128_BIT;
     noxtls_return_t rc_aead = NOXTLS_RETURN_FAILED;
     uint32_t i = 0U;
+#if NOXTLS_FEATURE_CHACHA20_POLY1305
     noxtls_chacha20_context_t chacha_ctx;
     static const uint8_t zeros_16[16] = { 0 };
+#endif
 
     if((ctx == NULL) || (raw == NULL) || (out_content_type == NULL) || (out_plaintext == NULL) || (out_plaintext_len == NULL)) {
         return NOXTLS_RETURN_NULL;
@@ -2266,6 +2373,7 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
         }
     } else {
         /* MISRA 15.7: final else path */
+#if NOXTLS_FEATURE_CHACHA20_POLY1305
         uint32_t counter32 = (uint32_t)ciphertext[0] | ((uint32_t)ciphertext[1] << 8U) | ((uint32_t)ciphertext[2] << 16U) | ((uint32_t)ciphertext[3] << 24U);
         uint64_t counter = (uint64_t)counter32;
         if(noxtls_chacha20_init(&chacha_ctx, sn_key, &ciphertext[4], counter) != NOXTLS_RETURN_SUCCESS) {
@@ -2274,6 +2382,9 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
         if(noxtls_chacha20_process(&chacha_ctx, zeros_16, mask, DTLS13_RECORD_NUMBER_ENC_LEN) != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_FAILED;
         }
+#else
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     }
     if(seq_len == 2U) {
         seq_truncated = (uint16_t)(seq_enc ^ (uint16_t)(((uint16_t)mask[0] << 8U) | (uint16_t)mask[1]));
@@ -2312,14 +2423,26 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
     inner_len = ciphertext_len - tag_len;
 
     if(use_aes_gcm != 0U) {
+#if NOXTLS_FEATURE_AES_GCM
         rc_aead = noxtls_aes_gcm_decrypt(read_key, aes_type, nonce, aad, aad_len,
                                   ciphertext, inner_len, tag, out_plaintext);
+#else
+        rc_aead = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     } else if(use_aes_ccm != 0U) {
+#if NOXTLS_FEATURE_AES_CCM
         rc_aead = noxtls_aes_ccm_decrypt(read_key, aes_type, nonce, 12U, aad, aad_len,
                                   ciphertext, inner_len, tag, tag_len, out_plaintext);
+#else
+        rc_aead = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     } else {
+#if NOXTLS_FEATURE_CHACHA20_POLY1305
         rc_aead = noxtls_chacha20_poly1305_decrypt(read_key, nonce, aad, aad_len,
                                             ciphertext, inner_len, tag, out_plaintext);
+#else
+        rc_aead = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     }
     if(rc_aead != NOXTLS_RETURN_SUCCESS) {
         (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] decrypt_dtls13_record: AEAD decrypt failed rc=%d epoch=%u seq=%llu\n",
@@ -2403,22 +2526,34 @@ noxtls_return_t noxtls_tls13_encrypt_record_early(tls13_context_t *ctx,
     }
 
     if(use_aes_gcm != 0U) {
+#if NOXTLS_FEATURE_AES_GCM
         rc = noxtls_aes_gcm_encrypt(write_key, aes_type, nonce, aad, 5U,
                              plaintext, plaintext_len,
                              encrypted_record, tag);
+#else
+        rc = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_FAILED;
         }
     } else if(use_aes_ccm != 0U) {
+#if NOXTLS_FEATURE_AES_CCM
         rc = noxtls_aes_ccm_encrypt(write_key, aes_type, nonce, 12U, aad, 5U,
                              plaintext, plaintext_len, encrypted_record, tag, tag_len);
+#else
+        rc = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_FAILED;
         }
     } else if(use_chacha != 0U) {
+#if NOXTLS_FEATURE_CHACHA20_POLY1305
         rc = noxtls_chacha20_poly1305_encrypt(write_key, nonce, aad, 5U,
                                        plaintext, plaintext_len,
                                        encrypted_record, tag);
+#else
+        rc = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_FAILED;
         }
@@ -2487,15 +2622,27 @@ noxtls_return_t noxtls_tls13_decrypt_record_early(tls13_context_t *ctx,
         return NOXTLS_RETURN_FAILED;
     }
     if(use_aes_gcm != 0U) {
+#if NOXTLS_FEATURE_AES_GCM
         rc = noxtls_aes_gcm_decrypt(write_key, aes_type, nonce, aad, 5U,
                              encrypted_record, ciphertext_len, tag, plaintext);
+#else
+        rc = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     } else if(use_aes_ccm != 0U) {
          /* MISRA 15.7: final else path */
+#if NOXTLS_FEATURE_AES_CCM
         rc = noxtls_aes_ccm_decrypt(write_key, aes_type, nonce, 12U, aad, 5U,
                              encrypted_record, ciphertext_len, tag, tag_len, plaintext);
+#else
+        rc = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     } else if(use_chacha != 0U) {
+#if NOXTLS_FEATURE_CHACHA20_POLY1305
         rc = noxtls_chacha20_poly1305_decrypt(write_key, nonce, aad, 5U,
                                        encrypted_record, ciphertext_len, tag, plaintext);
+#else
+        rc = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     } else {
         /* MISRA 15.7: final else path */
         return NOXTLS_RETURN_INVALID_PARAM;
@@ -2606,16 +2753,28 @@ noxtls_return_t noxtls_tls13_decrypt_record(tls13_context_t *ctx,
     }
 
     if(use_aes_gcm != 0U) {
+#if NOXTLS_FEATURE_AES_GCM
         rc = noxtls_aes_gcm_decrypt(write_key, aes_type, nonce, aad, 5U,
                              encrypted_record, ciphertext_len,
                              tag, plaintext);
+#else
+        rc = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     } else if(use_aes_ccm != 0U) {
+#if NOXTLS_FEATURE_AES_CCM
         rc = noxtls_aes_ccm_decrypt(write_key, aes_type, nonce, 12U, aad, 5U,
                              encrypted_record, ciphertext_len, tag, tag_len, plaintext);
+#else
+        rc = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     } else if(use_chacha != 0U) {
+#if NOXTLS_FEATURE_CHACHA20_POLY1305
         rc = noxtls_chacha20_poly1305_decrypt(write_key, nonce, aad, 5U,
                                        encrypted_record, ciphertext_len,
                                        tag, plaintext);
+#else
+        rc = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     } else {
         /* MISRA 15.7: final else path */
         return NOXTLS_RETURN_INVALID_PARAM;

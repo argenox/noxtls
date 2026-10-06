@@ -525,6 +525,44 @@ int noxtls_tls_client_hello_supported_versions_has(const uint8_t *client_hello,
                                                    uint32_t client_hello_len,
                                                    uint16_t version);
 
+/*
+ * Algorithm availability (feature-reduced builds).
+ *
+ * NOXTLS_TLS_ALGORITHM_FILTER is 1 when an algorithm that a built-in cipher
+ * suite, signature scheme or named group depends on is compiled out
+ * (NOXTLS_FEATURE_* = 0). The helpers below then report whether a code point
+ * is usable in this build: a client never offers, and a server never selects
+ * or accepts, a code point whose algorithm is unavailable. Code points the
+ * helpers do not classify are reported as available, so the existing
+ * negotiation logic keeps deciding on them. With every such algorithm compiled
+ * in, the filter is 0, the helpers are not built and negotiation is unchanged.
+ */
+#define NOXTLS_TLS_ALGORITHM_FILTER \
+    (!(NOXTLS_FEATURE_RSA && NOXTLS_FEATURE_ECDSA && NOXTLS_FEATURE_ECDH && NOXTLS_FEATURE_DH && \
+       NOXTLS_FEATURE_X25519 && NOXTLS_FEATURE_X448 && NOXTLS_FEATURE_ED25519 && \
+       NOXTLS_FEATURE_MD5 && NOXTLS_FEATURE_SHA1 && NOXTLS_FEATURE_SHA224 && \
+       NOXTLS_FEATURE_SHA384 && NOXTLS_FEATURE_SHA512 && \
+       NOXTLS_FEATURE_AES_CBC && NOXTLS_FEATURE_AES_GCM && NOXTLS_FEATURE_AES_CCM && \
+       NOXTLS_FEATURE_CHACHA20_POLY1305 && NOXTLS_FEATURE_DES && NOXTLS_FEATURE_ARIA))
+
+#if NOXTLS_TLS_ALGORITHM_FILTER
+/**
+ * @brief Return 1 if every algorithm @p cipher_suite needs (key exchange, authentication,
+ *        bulk cipher, record MAC / PRF hash) is compiled into this build, else 0.
+ */
+int noxtls_tls_cipher_suite_is_available(uint16_t cipher_suite);
+/**
+ * @brief Return 1 if the signature algorithm and hash of SignatureScheme / TLS 1.2
+ *        SignatureAndHashAlgorithm @p sig_scheme are compiled into this build, else 0.
+ */
+int noxtls_tls_signature_scheme_is_available(uint16_t sig_scheme);
+/**
+ * @brief Return 1 if the key exchange of TLS named group @p named_group is compiled
+ *        into this build, else 0.
+ */
+int noxtls_tls_named_group_is_available(uint16_t named_group);
+#endif
+
 /* TLS Certificate Verification Functions */
 /* Note: These functions require including NOXTLS_x509.h */
 noxtls_return_t noxtls_tls_verify_certificate_signature(const void *cert, const void *issuer);

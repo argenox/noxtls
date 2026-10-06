@@ -1605,3 +1605,264 @@ noxtls_return_t noxtls_tls_verify_certificate_signature(const void *cert, const 
     return noxtls_x509_certificate_verify_signature((const x509_certificate_t*)cert,
                                                     (const x509_certificate_t*)issuer);
 }
+
+#if NOXTLS_TLS_ALGORITHM_FILTER
+/* Algorithms a cipher suite can depend on (bit set in tls_suite_needs_t.needs). */
+#define TLS_ALG_RSA       0x0001U
+#define TLS_ALG_ECDSA     0x0002U
+#define TLS_ALG_ECDH      0x0004U
+#define TLS_ALG_DH        0x0008U
+#define TLS_ALG_SHA1      0x0010U
+#define TLS_ALG_SHA384    0x0020U
+#define TLS_ALG_AES_CBC   0x0040U
+#define TLS_ALG_AES_GCM   0x0080U
+#define TLS_ALG_AES_CCM   0x0100U
+#define TLS_ALG_CHACHA    0x0200U
+#define TLS_ALG_DES       0x0400U
+#define TLS_ALG_ARIA      0x0800U
+
+/* Algorithms compiled into this build. */
+static const uint32_t s_tls_alg_compiled =
+    ((NOXTLS_FEATURE_RSA != 0) ? TLS_ALG_RSA : 0U) |
+    ((NOXTLS_FEATURE_ECDSA != 0) ? TLS_ALG_ECDSA : 0U) |
+    ((NOXTLS_FEATURE_ECDH != 0) ? TLS_ALG_ECDH : 0U) |
+    ((NOXTLS_FEATURE_DH != 0) ? TLS_ALG_DH : 0U) |
+    ((NOXTLS_FEATURE_SHA1 != 0) ? TLS_ALG_SHA1 : 0U) |
+    ((NOXTLS_FEATURE_SHA384 != 0) ? TLS_ALG_SHA384 : 0U) |
+    ((NOXTLS_FEATURE_AES_CBC != 0) ? TLS_ALG_AES_CBC : 0U) |
+    ((NOXTLS_FEATURE_AES_GCM != 0) ? TLS_ALG_AES_GCM : 0U) |
+    ((NOXTLS_FEATURE_AES_CCM != 0) ? TLS_ALG_AES_CCM : 0U) |
+    ((NOXTLS_FEATURE_CHACHA20_POLY1305 != 0) ? TLS_ALG_CHACHA : 0U) |
+    ((NOXTLS_FEATURE_DES != 0) ? TLS_ALG_DES : 0U) |
+    ((NOXTLS_FEATURE_ARIA != 0) ? TLS_ALG_ARIA : 0U);
+
+/* Shorthands for the key exchange / authentication part of a suite. */
+#define TLS_KX_RSA          (TLS_ALG_RSA)
+#define TLS_KX_DHE_RSA      (TLS_ALG_DH | TLS_ALG_RSA)
+#define TLS_KX_ECDHE_RSA    (TLS_ALG_ECDH | TLS_ALG_RSA)
+#define TLS_KX_ECDHE_ECDSA  (TLS_ALG_ECDH | TLS_ALG_ECDSA)
+
+NOXTLS_MSVC_WARNING_PUSH
+NOXTLS_MSVC_DISABLE_PADDING
+typedef struct
+{
+    uint16_t suite;
+    uint32_t needs;
+} tls_suite_needs_t;
+NOXTLS_MSVC_WARNING_POP
+
+/* Algorithms each cipher suite implemented by the TLS 1.2 / TLS 1.3 layers depends on.
+ * *_CBC_SHA suites use HMAC-SHA-1 record MACs; *_SHA384 suites use SHA-384 for the PRF
+ * or HKDF (and the CBC record MAC). */
+static const tls_suite_needs_t s_tls_suite_needs[] = {
+    /* TLS 1.3 (RFC 8446) */
+    { TLS_CIPHER_SUITE_AES_128_GCM_SHA256, TLS_ALG_AES_GCM },
+    { TLS_CIPHER_SUITE_AES_256_GCM_SHA384, TLS_ALG_AES_GCM | TLS_ALG_SHA384 },
+    { TLS_CIPHER_SUITE_CHACHA20_POLY1305_SHA256, TLS_ALG_CHACHA },
+    { TLS_CIPHER_SUITE_AES_128_CCM_SHA256, TLS_ALG_AES_CCM },
+    { TLS_CIPHER_SUITE_AES_128_CCM_8_SHA256, TLS_ALG_AES_CCM },
+    /* RSA key exchange */
+    { TLS_CIPHER_SUITE_RSA_WITH_3DES_EDE_CBC_SHA, TLS_KX_RSA | TLS_ALG_DES | TLS_ALG_SHA1 },
+    { TLS_CIPHER_SUITE_RSA_WITH_AES_128_CBC_SHA, TLS_KX_RSA | TLS_ALG_AES_CBC | TLS_ALG_SHA1 },
+    { TLS_CIPHER_SUITE_RSA_WITH_AES_256_CBC_SHA, TLS_KX_RSA | TLS_ALG_AES_CBC | TLS_ALG_SHA1 },
+    { TLS_CIPHER_SUITE_RSA_WITH_AES_128_CBC_SHA256, TLS_KX_RSA | TLS_ALG_AES_CBC },
+    { TLS_CIPHER_SUITE_RSA_WITH_AES_256_CBC_SHA256, TLS_KX_RSA | TLS_ALG_AES_CBC },
+    { TLS_CIPHER_SUITE_RSA_WITH_AES_128_GCM_SHA256, TLS_KX_RSA | TLS_ALG_AES_GCM },
+    { TLS_CIPHER_SUITE_RSA_WITH_AES_256_GCM_SHA384, TLS_KX_RSA | TLS_ALG_AES_GCM | TLS_ALG_SHA384 },
+    { TLS_CIPHER_SUITE_RSA_WITH_AES_128_CCM, TLS_KX_RSA | TLS_ALG_AES_CCM },
+    { TLS_CIPHER_SUITE_RSA_WITH_AES_256_CCM, TLS_KX_RSA | TLS_ALG_AES_CCM },
+    { TLS_CIPHER_SUITE_RSA_WITH_AES_128_CCM_8, TLS_KX_RSA | TLS_ALG_AES_CCM },
+    { TLS_CIPHER_SUITE_RSA_WITH_AES_256_CCM_8, TLS_KX_RSA | TLS_ALG_AES_CCM },
+    { TLS_CIPHER_SUITE_RSA_WITH_ARIA_128_CBC_SHA256, TLS_KX_RSA | TLS_ALG_ARIA },
+    { TLS_CIPHER_SUITE_RSA_WITH_ARIA_256_CBC_SHA384, TLS_KX_RSA | TLS_ALG_ARIA | TLS_ALG_SHA384 },
+    /* DHE_RSA (RFC 7919 FFDHE) */
+    { TLS_CIPHER_SUITE_DHE_RSA_WITH_3DES_EDE_CBC_SHA, TLS_KX_DHE_RSA | TLS_ALG_DES | TLS_ALG_SHA1 },
+    { TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_CBC_SHA, TLS_KX_DHE_RSA | TLS_ALG_AES_CBC | TLS_ALG_SHA1 },
+    { TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_256_CBC_SHA, TLS_KX_DHE_RSA | TLS_ALG_AES_CBC | TLS_ALG_SHA1 },
+    { TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_CBC_SHA256, TLS_KX_DHE_RSA | TLS_ALG_AES_CBC },
+    { TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_256_CBC_SHA256, TLS_KX_DHE_RSA | TLS_ALG_AES_CBC },
+    { TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_GCM_SHA256, TLS_KX_DHE_RSA | TLS_ALG_AES_GCM },
+    { TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_256_GCM_SHA384, TLS_KX_DHE_RSA | TLS_ALG_AES_GCM | TLS_ALG_SHA384 },
+    { TLS_CIPHER_SUITE_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256, TLS_KX_DHE_RSA | TLS_ALG_CHACHA },
+    { TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_CCM, TLS_KX_DHE_RSA | TLS_ALG_AES_CCM },
+    { TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_256_CCM, TLS_KX_DHE_RSA | TLS_ALG_AES_CCM },
+    { TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_CCM_8, TLS_KX_DHE_RSA | TLS_ALG_AES_CCM },
+    { TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_256_CCM_8, TLS_KX_DHE_RSA | TLS_ALG_AES_CCM },
+    { TLS_CIPHER_SUITE_DHE_RSA_WITH_ARIA_128_CBC_SHA256, TLS_KX_DHE_RSA | TLS_ALG_ARIA },
+    { TLS_CIPHER_SUITE_DHE_RSA_WITH_ARIA_256_CBC_SHA384, TLS_KX_DHE_RSA | TLS_ALG_ARIA | TLS_ALG_SHA384 },
+    { TLS_CIPHER_SUITE_DHE_RSA_WITH_ARIA_128_GCM_SHA256, TLS_KX_DHE_RSA | TLS_ALG_ARIA },
+    { TLS_CIPHER_SUITE_DHE_RSA_WITH_ARIA_256_GCM_SHA384, TLS_KX_DHE_RSA | TLS_ALG_ARIA | TLS_ALG_SHA384 },
+    /* ECDHE_RSA */
+    { TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_CBC_SHA, TLS_KX_ECDHE_RSA | TLS_ALG_AES_CBC | TLS_ALG_SHA1 },
+    { TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_CBC_SHA, TLS_KX_ECDHE_RSA | TLS_ALG_AES_CBC | TLS_ALG_SHA1 },
+    { TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_CBC_SHA256, TLS_KX_ECDHE_RSA | TLS_ALG_AES_CBC },
+    { TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_CBC_SHA384, TLS_KX_ECDHE_RSA | TLS_ALG_AES_CBC | TLS_ALG_SHA384 },
+    { TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_128_GCM_SHA256, TLS_KX_ECDHE_RSA | TLS_ALG_AES_GCM },
+    { TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_GCM_SHA384, TLS_KX_ECDHE_RSA | TLS_ALG_AES_GCM | TLS_ALG_SHA384 },
+    { TLS_CIPHER_SUITE_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256, TLS_KX_ECDHE_RSA | TLS_ALG_CHACHA },
+    { TLS_CIPHER_SUITE_ECDHE_RSA_WITH_ARIA_128_CBC_SHA256, TLS_KX_ECDHE_RSA | TLS_ALG_ARIA },
+    { TLS_CIPHER_SUITE_ECDHE_RSA_WITH_ARIA_256_CBC_SHA384, TLS_KX_ECDHE_RSA | TLS_ALG_ARIA | TLS_ALG_SHA384 },
+    { TLS_CIPHER_SUITE_ECDHE_RSA_WITH_ARIA_128_GCM_SHA256, TLS_KX_ECDHE_RSA | TLS_ALG_ARIA },
+    { TLS_CIPHER_SUITE_ECDHE_RSA_WITH_ARIA_256_GCM_SHA384, TLS_KX_ECDHE_RSA | TLS_ALG_ARIA | TLS_ALG_SHA384 },
+    /* ECDHE_ECDSA */
+    { TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CBC_SHA, TLS_KX_ECDHE_ECDSA | TLS_ALG_AES_CBC | TLS_ALG_SHA1 },
+    { TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CBC_SHA, TLS_KX_ECDHE_ECDSA | TLS_ALG_AES_CBC | TLS_ALG_SHA1 },
+    { TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256, TLS_KX_ECDHE_ECDSA | TLS_ALG_AES_CBC },
+    { TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384, TLS_KX_ECDHE_ECDSA | TLS_ALG_AES_CBC | TLS_ALG_SHA384 },
+    { TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, TLS_KX_ECDHE_ECDSA | TLS_ALG_AES_GCM },
+    { TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, TLS_KX_ECDHE_ECDSA | TLS_ALG_AES_GCM | TLS_ALG_SHA384 },
+    { TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, TLS_KX_ECDHE_ECDSA | TLS_ALG_CHACHA },
+    { TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CCM, TLS_KX_ECDHE_ECDSA | TLS_ALG_AES_CCM },
+    { TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CCM, TLS_KX_ECDHE_ECDSA | TLS_ALG_AES_CCM },
+    { TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CCM_8, TLS_KX_ECDHE_ECDSA | TLS_ALG_AES_CCM },
+    { TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CCM_8, TLS_KX_ECDHE_ECDSA | TLS_ALG_AES_CCM },
+    { TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_ARIA_128_CBC_SHA256, TLS_KX_ECDHE_ECDSA | TLS_ALG_ARIA },
+    { TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_ARIA_256_CBC_SHA384, TLS_KX_ECDHE_ECDSA | TLS_ALG_ARIA | TLS_ALG_SHA384 },
+    { TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_ARIA_128_GCM_SHA256, TLS_KX_ECDHE_ECDSA | TLS_ALG_ARIA },
+    { TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_ARIA_256_GCM_SHA384, TLS_KX_ECDHE_ECDSA | TLS_ALG_ARIA | TLS_ALG_SHA384 }
+};
+
+int noxtls_tls_cipher_suite_is_available(uint16_t cipher_suite)
+{
+    int available = 1;
+    uint32_t i = 0U;
+
+    for(i = 0U; i < (uint32_t)(sizeof(s_tls_suite_needs) / sizeof(s_tls_suite_needs[0])); i += 1U) {
+        if(s_tls_suite_needs[i].suite == cipher_suite) {
+            available = ((s_tls_suite_needs[i].needs & ~s_tls_alg_compiled) == 0U) ? 1 : 0;
+            break;
+        }
+    }
+    return available;
+}
+
+/**
+ * @brief Return 1 if the TLS 1.2 SignatureAndHashAlgorithm hash byte @p hash_id names a
+ *        digest compiled into this build (1 = MD5 ... 6 = SHA-512), else 0.
+ */
+static int tls_sig_hash_id_is_available(uint8_t hash_id)
+{
+    int available = 0;
+
+    switch(hash_id) {
+        case 1U:
+            available = (NOXTLS_FEATURE_MD5 != 0) ? 1 : 0;
+            break;
+        case 2U:
+            available = (NOXTLS_FEATURE_SHA1 != 0) ? 1 : 0;
+            break;
+        case 3U:
+            available = (NOXTLS_FEATURE_SHA224 != 0) ? 1 : 0;
+            break;
+        case 4U:
+            available = (NOXTLS_FEATURE_SHA256 != 0) ? 1 : 0;
+            break;
+        case 5U:
+            available = (NOXTLS_FEATURE_SHA384 != 0) ? 1 : 0;
+            break;
+        case 6U:
+            available = (NOXTLS_FEATURE_SHA512 != 0) ? 1 : 0;
+            break;
+        default:
+            /* Not a digest the TLS layer signs with: no algorithm requirement known here. */
+            available = 1;
+            break;
+    }
+    return available;
+}
+
+int noxtls_tls_signature_scheme_is_available(uint16_t sig_scheme)
+{
+    int available = 1;
+    uint8_t hash_id = (uint8_t)(((uint32_t)sig_scheme >> 8U) & 0xFFU);
+    uint8_t sig_id = (uint8_t)((uint32_t)sig_scheme & 0xFFU);
+
+    switch(sig_scheme) {
+        case 0x0804U: /* rsa_pss_rsae_sha256 */
+        case 0x0809U: /* rsa_pss_pss_sha256 */
+            available = ((NOXTLS_FEATURE_RSA != 0) && (NOXTLS_FEATURE_SHA256 != 0)) ? 1 : 0;
+            break;
+        case 0x0805U: /* rsa_pss_rsae_sha384 */
+        case 0x080AU: /* rsa_pss_pss_sha384 */
+            available = ((NOXTLS_FEATURE_RSA != 0) && (NOXTLS_FEATURE_SHA384 != 0)) ? 1 : 0;
+            break;
+        case 0x0806U: /* rsa_pss_rsae_sha512 */
+        case 0x080BU: /* rsa_pss_pss_sha512 */
+            available = ((NOXTLS_FEATURE_RSA != 0) && (NOXTLS_FEATURE_SHA512 != 0)) ? 1 : 0;
+            break;
+        case TLS_SIGSCHEME_ED25519:
+            available = (NOXTLS_FEATURE_ED25519 != 0) ? 1 : 0;
+            break;
+        case TLS_SIGSCHEME_ED448:
+            available = ((NOXTLS_FEATURE_ED448 != 0) && (NOXTLS_FEATURE_SHA3 != 0)) ? 1 : 0;
+            break;
+        case TLS_SIGSCHEME_ECDSA_BRAINPOOLP256R1_TLS13_SHA256:
+            available = ((NOXTLS_FEATURE_ECDSA != 0) && (NOXTLS_FEATURE_SHA256 != 0)) ? 1 : 0;
+            break;
+        case TLS_SIGSCHEME_ECDSA_BRAINPOOLP384R1_TLS13_SHA384:
+            available = ((NOXTLS_FEATURE_ECDSA != 0) && (NOXTLS_FEATURE_SHA384 != 0)) ? 1 : 0;
+            break;
+        case TLS_SIGSCHEME_ECDSA_BRAINPOOLP512R1_TLS13_SHA512:
+            available = ((NOXTLS_FEATURE_ECDSA != 0) && (NOXTLS_FEATURE_SHA512 != 0)) ? 1 : 0;
+            break;
+        default:
+            if((hash_id >= 1U) && (hash_id <= 6U)) {
+                /* TLS 1.2 SignatureAndHashAlgorithm / TLS 1.3 legacy-format schemes. */
+                if(sig_id == 1U) {
+                    available = ((NOXTLS_FEATURE_RSA != 0) && (tls_sig_hash_id_is_available(hash_id) != 0)) ? 1 : 0;
+                } else if(sig_id == 2U) {
+                    available = ((NOXTLS_FEATURE_DSA != 0) && (tls_sig_hash_id_is_available(hash_id) != 0)) ? 1 : 0;
+                } else if(sig_id == 3U) {
+                    available = ((NOXTLS_FEATURE_ECDSA != 0) && (tls_sig_hash_id_is_available(hash_id) != 0)) ? 1 : 0;
+                } else {
+                    /* MISRA 15.7: unknown signature byte, no requirement known here */
+                    available = 1;
+                }
+            }
+            break;
+    }
+    return available;
+}
+
+int noxtls_tls_named_group_is_available(uint16_t named_group)
+{
+    int available = 1;
+
+    switch(named_group) {
+        case TLS_NAMED_GROUP_SECP256R1:
+        case TLS_NAMED_GROUP_SECP384R1:
+        case TLS_NAMED_GROUP_SECP521R1:
+            available = ((NOXTLS_FEATURE_ECC != 0) && (NOXTLS_FEATURE_ECDH != 0)) ? 1 : 0;
+            break;
+        case TLS_NAMED_GROUP_X25519:
+            available = (NOXTLS_FEATURE_X25519 != 0) ? 1 : 0;
+            break;
+        case TLS_NAMED_GROUP_X448:
+            available = (NOXTLS_FEATURE_X448 != 0) ? 1 : 0;
+            break;
+        case TLS_NAMED_GROUP_FFDHE2048:
+        case TLS_NAMED_GROUP_FFDHE3072:
+        case TLS_NAMED_GROUP_FFDHE4096:
+        case TLS_NAMED_GROUP_FFDHE6144:
+        case TLS_NAMED_GROUP_FFDHE8192:
+            available = (NOXTLS_FEATURE_DH != 0) ? 1 : 0;
+            break;
+        case TLS_NAMED_GROUP_MLKEM512:
+        case TLS_NAMED_GROUP_MLKEM768:
+        case TLS_NAMED_GROUP_MLKEM1024:
+            available = (NOXTLS_FEATURE_ML_KEM != 0) ? 1 : 0;
+            break;
+        case TLS_NAMED_GROUP_X25519_MLKEM512:
+        case TLS_NAMED_GROUP_X25519_MLKEM768:
+        case TLS_NAMED_GROUP_X25519_MLKEM768_LEGACY:
+        case TLS_NAMED_GROUP_X25519_MLKEM1024:
+            available = ((NOXTLS_FEATURE_ML_KEM != 0) && (NOXTLS_FEATURE_X25519 != 0)) ? 1 : 0;
+            break;
+        default:
+            /* Intentional: groups not classified here keep their existing handling. */
+            available = 1;
+            break;
+    }
+    return available;
+}
+#endif /* NOXTLS_TLS_ALGORITHM_FILTER */
