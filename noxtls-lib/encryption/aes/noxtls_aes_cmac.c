@@ -32,7 +32,7 @@
 #if NOXTLS_FEATURE_AES_CMAC
 
 /** Rb from RFC 4493: 0x87 for 128-bit block */
-#define NOXTLS_AES_CMAC_RB  0x87u
+#define NOXTLS_AES_CMAC_RB  0x87U
 
 /**
  * @brief Left-shift by one bit of a 16-byte block (MSB first).
@@ -61,6 +61,7 @@ static void cmac_xor_block(uint8_t dst[NOXTLS_AES_BLOCK_LENGTH],
 
     for (i = 0U; i < block_sz; i += 1U) {
         dst[i] = (uint8_t)(a[i] ^ b[i]);
+    }
 }
 
 /**
