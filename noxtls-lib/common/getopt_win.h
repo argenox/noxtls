@@ -28,6 +28,7 @@
 
 #ifdef _WIN32
 
+#include <stdint.h>
 #include "noxtls_config.h"
 
 #ifdef __cplusplus
