@@ -3429,6 +3429,16 @@ if(ctx->handshake_messages != NULL) {
     ctx->base.base.state = TLS_STATE_HANDSHAKING;
     NOXTLS_STATE_ENTER(ctx, NOXTLS_STATE_START);
 
+    if(ctx->base.base.io_mode == TLS_IO_MODE_NON_BLOCKING) {
+        /*
+         * Caller-polled transport: continue in the resumable client state machine from the
+         * ServerHello step (the ServerHello is taken from pending_server_hello), so that a
+         * WANT_READ / WANT_WRITE can be resumed later with noxtls_tls12_connect_poll().
+         */
+        ctx->client_handshake_step = (uint8_t)TLS12_CLIENT_POLL_RECV_SH;
+        return noxtls_tls12_connect_poll(ctx);
+    }
+
     NOXTLS_STATE_ENTER(ctx, NOXTLS_STATE_RECV_SH);
     rc = noxtls_tls12_recv_server_hello(ctx);
     if(rc != NOXTLS_RETURN_SUCCESS) {

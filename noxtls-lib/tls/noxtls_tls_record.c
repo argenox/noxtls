@@ -2483,8 +2483,13 @@ noxtls_return_t noxtls_tls13_decrypt_record(tls13_context_t *ctx,
         return NOXTLS_RETURN_BAD_DATA;  /* Need at least tag */
     }
     
-    /* Determine keys based on role */
-    uint8_t used_client_keys = 0U;
+    /*
+     * RFC 8446 5.2 / RFC 9147 4: records are only ever deprotected with the peer's write
+     * (our read) traffic key and the read sequence number. A record that fails AEAD
+     * deprotection is rejected (bad_record_mac); in particular there is no retry with this
+     * endpoint's own write key, which would accept the endpoint's own records reflected
+     * back to it.
+     */
     if(ctx->base.base.role == TLS_ROLE_CLIENT) {
         write_key = ctx->server_write_key;  /* Receive from server */
         write_iv = ctx->server_write_iv;
@@ -2495,7 +2500,6 @@ noxtls_return_t noxtls_tls13_decrypt_record(tls13_context_t *ctx,
         write_iv = ctx->client_write_iv;
         iv_len = 12U;
         seq_num = (tls13_is_dtls_context(ctx) != 0) ? ctx->base.read_seq_num : ctx->client_seq_num;
-        used_client_keys = 1U;
     }
     
     if(tls13_get_record_cipher_params(ctx->cipher_suite, &use_aes_gcm, &use_aes_ccm, &use_chacha, &aes_type, &tag_len) != NOXTLS_RETURN_SUCCESS) {
@@ -2545,106 +2549,32 @@ noxtls_return_t noxtls_tls13_decrypt_record(tls13_context_t *ctx,
         rc = noxtls_aes_gcm_decrypt(write_key, aes_type, nonce, aad, 5U,
                              encrypted_record, ciphertext_len,
                              tag, plaintext);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            if(ctx->base.base.role == TLS_ROLE_CLIENT) {
-                (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] decrypt_record: aes_gcm rc=%d, trying client keys...\n", rc);
-                write_key = ctx->client_write_key;
-                write_iv = ctx->client_write_iv;
-                seq_num = (tls13_is_dtls_context(ctx) != 0) ? ctx->base.read_seq_num : ctx->client_seq_num;
-                used_client_keys = 1U;
-            } else {
-                (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] decrypt_record: aes_gcm rc=%d, trying server keys...\n", rc);
-                write_key = ctx->server_write_key;
-                write_iv = ctx->server_write_iv;
-                seq_num = (tls13_is_dtls_context(ctx) != 0) ? ctx->base.read_seq_num : ctx->server_seq_num;
-                used_client_keys = 0U;
-            }
-            tls13_generate_nonce(nonce, write_iv, iv_len, seq_num);
-            rc = noxtls_aes_gcm_decrypt(write_key, aes_type, nonce, aad, 5U,
-                                 encrypted_record, ciphertext_len,
-                                 tag, plaintext);
-        }
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] decrypt_record: aes_gcm rc=%d\n", rc);
-            if((ctx->base.base.role == TLS_ROLE_CLIENT) && (seq_num == 0U)) {
-                (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] decrypt_record: ciphertext+tag (hex)\n");
-                for(uint32_t i = 0U; i < encrypted_record_len; i += 1U) {
-                    (void)noxtls_debug_printf((const uint8_t *)"%02X", encrypted_record[i]);
-                    if(((i + 1U) & 31U) == 0U) {
-                        (void)noxtls_debug_printf((const uint8_t *)"\n");
-                    }
-                }
-                if((encrypted_record_len & 31U) != 0U) {
-                    (void)noxtls_debug_printf((const uint8_t *)"\n");
-                }
-            }
-            return NOXTLS_RETURN_BAD_DATA;  /* AEAD tag verification failed */
-        }
     } else if(use_aes_ccm != 0U) {
         rc = noxtls_aes_ccm_decrypt(write_key, aes_type, nonce, 12U, aad, 5U,
                              encrypted_record, ciphertext_len, tag, tag_len, plaintext);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            if(ctx->base.base.role == TLS_ROLE_CLIENT) {
-                (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] decrypt_record: aes_ccm rc=%d, trying client keys...\n", rc);
-                write_key = ctx->client_write_key;
-                write_iv = ctx->client_write_iv;
-                seq_num = (tls13_is_dtls_context(ctx) != 0) ? ctx->base.read_seq_num : ctx->client_seq_num;
-                used_client_keys = 1U;
-            } else {
-                (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] decrypt_record: aes_ccm rc=%d, trying server keys...\n", rc);
-                write_key = ctx->server_write_key;
-                write_iv = ctx->server_write_iv;
-                seq_num = (tls13_is_dtls_context(ctx) != 0) ? ctx->base.read_seq_num : ctx->server_seq_num;
-                used_client_keys = 0U;
-            }
-            tls13_generate_nonce(nonce, write_iv, iv_len, seq_num);
-            rc = noxtls_aes_ccm_decrypt(write_key, aes_type, nonce, 12U, aad, 5U,
-                                 encrypted_record, ciphertext_len, tag, tag_len, plaintext);
-        }
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] decrypt_record: aes_ccm rc=%d\n", rc);
-            return NOXTLS_RETURN_BAD_DATA;  /* AEAD tag verification failed */
-        }
     } else if(use_chacha != 0U) {
         rc = noxtls_chacha20_poly1305_decrypt(write_key, nonce, aad, 5U,
                                        encrypted_record, ciphertext_len,
                                        tag, plaintext);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            if(ctx->base.base.role == TLS_ROLE_CLIENT) {
-                (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] decrypt_record: chacha rc=%d, trying client keys...\n", rc);
-                write_key = ctx->client_write_key;
-                write_iv = ctx->client_write_iv;
-                seq_num = (tls13_is_dtls_context(ctx) != 0) ? ctx->base.read_seq_num : ctx->client_seq_num;
-                used_client_keys = 1U;
-            } else {
-                (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] decrypt_record: chacha rc=%d, trying server keys...\n", rc);
-                write_key = ctx->server_write_key;
-                write_iv = ctx->server_write_iv;
-                seq_num = (tls13_is_dtls_context(ctx) != 0) ? ctx->base.read_seq_num : ctx->server_seq_num;
-                used_client_keys = 0U;
-            }
-            tls13_generate_nonce(nonce, write_iv, iv_len, seq_num);
-            rc = noxtls_chacha20_poly1305_decrypt(write_key, nonce, aad, 5U,
-                                           encrypted_record, ciphertext_len,
-                                           tag, plaintext);
-        }
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] decrypt_record: chacha rc=%d\n", rc);
-            return NOXTLS_RETURN_BAD_DATA;  /* AEAD tag verification failed */
-        }
     } else {
         /* MISRA 15.7: final else path */
         return NOXTLS_RETURN_INVALID_PARAM;
     }
-    
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        /* AEAD tag verification failed: no sequence number is consumed (bad_record_mac). */
+        (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] decrypt_record: AEAD open failed rc=%d\n", rc);
+        noxtls_secure_zero(plaintext, (size_t)ciphertext_len);
+        return NOXTLS_RETURN_BAD_DATA;
+    }
+
     *plaintext_len = ciphertext_len;
-    
-    /* Update sequence number */
-    if((tls13_is_dtls_context(ctx) == 0)) {
-        if(used_client_keys != 0U) {
-            ctx->client_seq_num += 1U;
-        } else {
+
+    /* Update the read sequence number (DTLS tracks the per-record sequence number in the record layer). */
+    if(tls13_is_dtls_context(ctx) == 0) {
+        if(ctx->base.base.role == TLS_ROLE_CLIENT) {
             ctx->server_seq_num += 1U;
+        } else {
+            ctx->client_seq_num += 1U;
         }
     }
     

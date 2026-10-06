@@ -1134,9 +1134,11 @@ noxtls_return_t noxtls_dtls_send_record(dtls_context_t *ctx, uint8_t type, const
 
     if(type == TLS_RECORD_HANDSHAKE) {
         noxtls_return_t append_rc = NOXTLS_RETURN_FAILED;
-        dtls_flight_note_handshake_seq(ctx, ctx->write_seq_num);
         append_rc = dtls_flight_append(ctx, record, record_len);
-        if(append_rc != NOXTLS_RETURN_SUCCESS) {
+        if(append_rc == NOXTLS_RETURN_SUCCESS) {
+            /* Record the flight range only once the record is actually buffered for retransmission. */
+            dtls_flight_note_handshake_seq(ctx, ctx->write_seq_num);
+        } else {
             (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] dtls_send_record: flight_append rc=%d len=%lu need=%lu cap=%lu\n",
                                 (int)append_rc,
                                 (unsigned long)record_len,
@@ -1578,14 +1580,25 @@ noxtls_return_t noxtls_dtls_reassemble_handshake(dtls_context_t *ctx,
             noxtls_copy_u8(*complete_msg, (size_t)total_len, fragment->data, (size_t)total_len);
         }
         *complete_len = total_len;
+        /* Drop any partial reassembly of this message (e.g. an unfragmented retransmission). */
+        ctx->handshake_received_count = 0U;
+        ctx->handshake_buffer_len = 0U;
         ctx->expected_message_seq += 1U;
         return NOXTLS_RETURN_SUCCESS;
     }
 
-    if((ctx->handshake_buffer == NULL) || (ctx->handshake_buffer_len != total_len)) {
+    if((ctx->handshake_buffer == NULL) || (ctx->handshake_received == NULL) ||
+       (ctx->handshake_buffer_len != total_len)) {
         uint32_t alloc_len = (total_len == 0U) ? 1U : total_len;
+        /*
+         * Invalidate the in-progress reassembly first, then (re)allocate. The new message
+         * length is committed only once both the buffer and the received map are large
+         * enough, so a failed allocation can never leave a "message in progress" whose
+         * received map is NULL or shorter than handshake_buffer_len.
+         */
+        ctx->handshake_buffer_len = 0U;
+        ctx->handshake_received_count = 0U;
         ctx->expected_fragment_offset = 0U;
-        ctx->handshake_buffer_len = total_len;
         if((ctx->handshake_buffer == NULL) || (ctx->handshake_buffer_capacity < alloc_len)) {
             uint8_t *new_buf = (uint8_t*)NOXTLS_REALLOC(ctx->handshake_buffer, alloc_len);
             if(new_buf == NULL) {
@@ -1604,7 +1617,7 @@ noxtls_return_t noxtls_dtls_reassemble_handshake(dtls_context_t *ctx,
         }
         noxtls_secure_zero((ctx->handshake_buffer), (size_t)(alloc_len));
         noxtls_secure_zero((ctx->handshake_received), (size_t)(alloc_len));
-        ctx->handshake_received_count = 0U;
+        ctx->handshake_buffer_len = total_len;
     }
 
     if(fragment->fragment_length > 0U) {
@@ -1631,7 +1644,12 @@ noxtls_return_t noxtls_dtls_reassemble_handshake(dtls_context_t *ctx,
             noxtls_copy_u8(*complete_msg, (size_t)total_len, ctx->handshake_buffer, (size_t)total_len);
         }
         *complete_len = total_len;
+        /*
+         * Message delivered: retire the reassembly state so the next message (even one of
+         * the same length) starts from an empty received map.
+         */
         ctx->handshake_received_count = 0U;
+        ctx->handshake_buffer_len = 0U;
         ctx->expected_message_seq += 1U;
     }
 
