@@ -774,6 +774,86 @@ noxtls_return_t noxtls_tls_connection_accept(noxtls_tls_connection_t *conn)
 #endif
 }
 
+#if NOXTLS_FEATURE_TLS13 && NOXTLS_FEATURE_TLS12
+/**
+ * @brief Automatic client: continue as TLS 1.2 after the server answered the TLS 1.3
+ *        ClientHello with a TLS 1.2 ServerHello (noxtls_tls13_connect returned
+ *        NOXTLS_RETURN_NEGOTIATED_TLS12).
+ *
+ * Moves the ClientHello transcript and the stashed ServerHello from the TLS 1.3 context into
+ * a fresh TLS 1.2 context and resumes the TLS 1.2 handshake there. Used both by the first
+ * connect call and by caller-polled re-entry, so blocking and non-blocking clients downgrade
+ * identically. On a non-blocking transport the TLS 1.2 continuation may return WANT_READ /
+ * WANT_WRITE; the connection is then left on the TLS 1.2 context (is_tls13 == 0) so the next
+ * connect call resumes it with noxtls_tls12_connect_poll().
+ *
+ * @param[in,out] conn The connection.
+ * @return NOXTLS_RETURN_SUCCESS, WANT_READ / WANT_WRITE, or an error (state fully released).
+ */
+static noxtls_return_t unified_client_downgrade_to_tls12(noxtls_tls_connection_t *conn)
+{
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+    uint8_t *stash_sh = conn->tls13.client_tls12_downgrade_server_hello;
+    uint32_t stash_sh_len = (uint32_t)(conn->tls13.client_tls12_downgrade_server_hello_len);
+    uint32_t ch_len = (uint32_t)(conn->tls13.handshake_messages_len);
+    uint8_t *ch_copy = NULL;
+
+    conn->tls13.client_tls12_downgrade_server_hello = NULL;
+    conn->tls13.client_tls12_downgrade_server_hello_len = 0U;
+
+    if((stash_sh == NULL) || (stash_sh_len < 4U) || (ch_len < 4U) || (conn->tls13.handshake_messages == NULL)) {
+        rc = NOXTLS_RETURN_FAILED;
+    } else {
+        ch_copy = (uint8_t *)NOXTLS_MALLOC(ch_len);
+        if(ch_copy == NULL) {
+            rc = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+        } else {
+            noxtls_copy_u8(ch_copy, (size_t)ch_len, conn->tls13.handshake_messages, (size_t)ch_len);
+            rc = NOXTLS_RETURN_SUCCESS;
+        }
+    }
+
+    /* The TLS 1.3 attempt is over in every case. */
+    (void)noxtls_tls13_context_free(&conn->tls13);
+    conn->handshake_started = 0U;
+    conn->is_tls13 = 0U;
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        if(stash_sh != NULL) {
+            (void)noxtls_free(stash_sh);
+        }
+        return rc;
+    }
+
+    rc = noxtls_tls12_context_init(&conn->tls12, TLS_ROLE_CLIENT);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        (void)noxtls_free(ch_copy);
+        (void)noxtls_free(stash_sh);
+        return rc;
+    }
+    unified_copy_io_to_version_context(conn, &conn->tls12.base.base);
+    conn->handshake_started = 1U;
+    if(conn->server_name != NULL) {
+        conn->tls12.server_name = conn->server_name;
+        conn->tls12.server_name_len = conn->server_name_len;
+    }
+    conn->tls12.rfc8446_tls13_downgrade_sh_random = (conn->config_offers_tls13 != 0U) ? 1U : 0U;
+    unified_apply_client_auth_tls12(conn);
+
+    /* Takes ownership of ch_copy and stash_sh. */
+    rc = noxtls_tls12_client_resume_from_tls13_downgrade(&conn->tls12, ch_copy, ch_len, stash_sh, stash_sh_len);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        conn->negotiated_version = TLS_VERSION_1_2;
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    if((rc == NOXTLS_RETURN_WANT_READ) || (rc == NOXTLS_RETURN_WANT_WRITE)) {
+        return rc;
+    }
+    (void)noxtls_tls12_context_free(&conn->tls12);
+    conn->handshake_started = 0U;
+    return rc;
+}
+#endif
+
 /**
  * @brief Connect a TLS connection
  *
@@ -794,6 +874,32 @@ noxtls_return_t noxtls_tls_connection_connect(noxtls_tls_connection_t *conn)
             rc = noxtls_tls13_connect(&conn->tls13);
             if(rc == NOXTLS_RETURN_SUCCESS) {
                 conn->negotiated_version = TLS_VERSION_1_3;
+            } else if(rc == NOXTLS_RETURN_NEGOTIATED_TLS12) {
+                /*
+                 * Caller-polled client: the TLS 1.2 ServerHello arrived on a later connect call.
+                 * Handle it exactly like the first-call path instead of leaking the internal
+                 * NEGOTIATED_TLS12 code to the caller.
+                 */
+                if(conn->fixed_version != 0U) {
+                    /* Fixed TLS 1.3-only: peer selected TLS 1.2 -> protocol_version. */
+                    if(conn->tls13.base.base.send_callback != NULL) {
+                        (void)noxtls_tls_send_alert(&conn->tls13.base.base, TLS_ALERT_LEVEL_FATAL,
+                                                     TLS_ALERT_PROTOCOL_VERSION);
+                    }
+                    (void)noxtls_tls13_context_free(&conn->tls13);
+                    conn->handshake_started = 0U;
+                    rc = NOXTLS_RETURN_NOT_SUPPORTED;
+                } else {
+#if NOXTLS_FEATURE_TLS12
+                    rc = unified_client_downgrade_to_tls12(conn);
+#else
+                    (void)noxtls_tls13_context_free(&conn->tls13);
+                    conn->handshake_started = 0U;
+                    rc = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+                }
+            } else {
+                /* MISRA 15.7: WANT_READ / WANT_WRITE / errors are returned below. */
             }
 #else
             rc = NOXTLS_RETURN_NOT_SUPPORTED;
@@ -803,6 +909,9 @@ noxtls_return_t noxtls_tls_connection_connect(noxtls_tls_connection_t *conn)
             rc = (conn->base.io_mode == TLS_IO_MODE_NON_BLOCKING) ?
                 noxtls_tls12_connect_poll(&conn->tls12) :
                 noxtls_tls12_connect(&conn->tls12);
+            if(rc == NOXTLS_RETURN_SUCCESS) {
+                conn->negotiated_version = TLS_VERSION_1_2;
+            }
 #else
             rc = NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
@@ -919,58 +1028,8 @@ noxtls_return_t noxtls_tls_connection_connect(noxtls_tls_connection_t *conn)
         }
 #if NOXTLS_FEATURE_TLS12
         if(rc == NOXTLS_RETURN_NEGOTIATED_TLS12) {
-            uint8_t *stash_sh = conn->tls13.client_tls12_downgrade_server_hello;
-            uint32_t stash_sh_len = (uint32_t)(conn->tls13.client_tls12_downgrade_server_hello_len);
-            conn->tls13.client_tls12_downgrade_server_hello = NULL;
-            conn->tls13.client_tls12_downgrade_server_hello_len = 0U;
-
-            uint32_t ch_len = (uint32_t)(conn->tls13.handshake_messages_len);
-            uint8_t *ch_copy = NULL;
-
-            if((stash_sh == NULL) || (stash_sh_len < 4U) || (ch_len < 4U) || (conn->tls13.handshake_messages == NULL)) {
-                if(stash_sh != NULL) {
-                    (void)noxtls_free(stash_sh);
-                }
-                (void)noxtls_tls13_context_free(&conn->tls13);
-                conn->handshake_started = 0U;
-                return NOXTLS_RETURN_FAILED;
-            }
-
-            ch_copy = (uint8_t *)NOXTLS_MALLOC(ch_len);
-            if(ch_copy == NULL) {
-                (void)noxtls_free(stash_sh);
-                (void)noxtls_tls13_context_free(&conn->tls13);
-                return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
-            }
-            noxtls_copy_u8(ch_copy, (size_t)ch_len, conn->tls13.handshake_messages, (size_t)ch_len);
-
-            (void)noxtls_tls13_context_free(&conn->tls13);
-            conn->handshake_started = 0U;
-
-            rc = noxtls_tls12_context_init(&conn->tls12, TLS_ROLE_CLIENT);
-            if(rc != NOXTLS_RETURN_SUCCESS) {
-                (void)noxtls_free(ch_copy);
-                (void)noxtls_free(stash_sh);
-                return rc;
-            }
-            unified_copy_io_to_version_context(conn, &conn->tls12.base.base);
-            conn->handshake_started = 1U;
-            if(conn->server_name != NULL) {
-                conn->tls12.server_name = conn->server_name;
-                conn->tls12.server_name_len = conn->server_name_len;
-            }
-            conn->tls12.rfc8446_tls13_downgrade_sh_random = (conn->config_offers_tls13 != 0U) ? 1U : 0U;
-            unified_apply_client_auth_tls12(conn);
-
-            rc = noxtls_tls12_client_resume_from_tls13_downgrade(&conn->tls12, ch_copy, ch_len, stash_sh, stash_sh_len);
-            if(rc == NOXTLS_RETURN_SUCCESS) {
-                conn->negotiated_version = TLS_VERSION_1_2;
-                conn->is_tls13 = 0U;
-                return NOXTLS_RETURN_SUCCESS;
-            }
-            (void)noxtls_tls12_context_free(&conn->tls12);
-            conn->handshake_started = 0U;
-            return rc;
+            rc = unified_client_downgrade_to_tls12(conn);
+            return unified_poll_result(conn, rc);
         }
 #endif
         (void)noxtls_tls13_context_free(&conn->tls13);
