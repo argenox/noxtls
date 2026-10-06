@@ -50,6 +50,10 @@ noxtls_return_t noxtls_aria_encrypt_ecb(const uint8_t* key,
     if ((key == NULL) || (data == NULL) || (output == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
+    /* Output is rounded up to a whole block; keep the block loop from wrapping. */
+    if (data_len > (UINT32_MAX - (block_sz - 1U))) {
+        return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
+    }
 
     {
         noxtls_return_t r = noxtls_aria_set_encrypt_key(key, type, &aria_key);
@@ -102,6 +106,9 @@ noxtls_return_t noxtls_aria_decrypt_ecb(const uint8_t* key,
 
     if ((key == NULL) || (data == NULL) || (output == NULL)) {
         return NOXTLS_RETURN_NULL;
+    }
+    if ((data_len % block_sz) != 0U) {
+        return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
     }
 
     {

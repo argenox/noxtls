@@ -59,6 +59,13 @@ noxtls_return_t noxtls_camellia_encrypt_ofb(const uint8_t* key,
     const uint8_t * iv_src = NULL;
     const uint32_t block_sz = (uint32_t)NOXTLS_CAMELLIA_BLOCK_LENGTH;
 
+    {
+        noxtls_return_t rc = noxtls_camellia_check_oneshot_args(key, data, output, type);
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
+    }
+
     /* Initialize keystream block with IV */
     if (iv == NULL) {
         noxtls_secure_zero((zero_iv), (size_t)(block_sz));
@@ -76,7 +83,13 @@ noxtls_return_t noxtls_camellia_encrypt_ofb(const uint8_t* key,
         uint32_t block_len = (uint32_t)((remain < block_sz) ? remain : block_sz);
 
         /* Encrypt keystream block to generate next keystream */
-        (void)noxtls_camellia_encrypt_block_internal(key, keystream_block, keystream_block, type);
+        {
+            noxtls_return_t rc = noxtls_camellia_encrypt_block_internal(key, keystream_block, keystream_block, type);
+            if (rc != NOXTLS_RETURN_SUCCESS) {
+                noxtls_secure_zero(output, (size_t)data_len);
+                return rc;
+            }
+        }
 
         /* XOR keystream with plaintext */
         for (i = 0U; i < block_len; i += 1U) {

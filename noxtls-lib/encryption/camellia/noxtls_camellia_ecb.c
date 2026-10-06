@@ -26,6 +26,7 @@
 #include "noxtls_camellia.h"
 #include "noxtls_camellia_internal.h"
 #include "noxtls_common.h"
+#include "noxtls_ct.h"
 
 #if NOXTLS_FEATURE_CAMELLIA
 
@@ -56,10 +57,24 @@ noxtls_return_t noxtls_camellia_encrypt_ecb(const uint8_t* key,
 
     (void)iv; /* IV not used in ECB mode */
 
+    {
+        noxtls_return_t rc = noxtls_camellia_check_oneshot_args(key, data, output, type);
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
+    }
+    if ((data_len % block_sz) != 0U) {
+        return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
+    }
+
     for (cur_block = 0U; cur_block < data_len; cur_block += block_sz)
     {
         /* Electronic Codebook: Direct encryption of each block */
-        (void)noxtls_camellia_encrypt_block_internal(key, &data[cur_block], &output[cur_block], type);
+        noxtls_return_t rc = noxtls_camellia_encrypt_block_internal(key, &data[cur_block], &output[cur_block], type);
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_secure_zero(output, (size_t)data_len);
+            return rc;
+        }
     }
 
     return NOXTLS_RETURN_SUCCESS;
@@ -87,8 +102,23 @@ noxtls_return_t noxtls_camellia_decrypt_ecb(const uint8_t* key,
     const uint32_t block_sz = (uint32_t)NOXTLS_CAMELLIA_BLOCK_LENGTH;
 
     (void)iv;
+
+    {
+        noxtls_return_t rc = noxtls_camellia_check_oneshot_args(key, data, output, type);
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
+    }
+    if ((data_len % block_sz) != 0U) {
+        return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
+    }
+
     for (cur_block = 0U; cur_block < data_len; cur_block += block_sz) {
-        (void)noxtls_camellia_decrypt_block_internal(key, &data[cur_block], &output[cur_block], type);
+        noxtls_return_t rc = noxtls_camellia_decrypt_block_internal(key, &data[cur_block], &output[cur_block], type);
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_secure_zero(output, (size_t)data_len);
+            return rc;
+        }
     }
     return NOXTLS_RETURN_SUCCESS;
 }

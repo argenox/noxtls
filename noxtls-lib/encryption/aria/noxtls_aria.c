@@ -347,6 +347,43 @@ static void aria_fe(uint8_t *out, const uint8_t *in, const uint8_t *rk)
     (void)aria_diffusion_layer(out);
 }
 
+/**
+ * @brief Check that an ARIA key type identifier is supported.
+ *
+ * @param[in] key_type The key type value.
+ * @return NOXTLS_RETURN_SUCCESS for 128/192/256-bit keys, otherwise
+ *         NOXTLS_RETURN_INVALID_KEY_SIZE.
+ */
+static noxtls_return_t aria_check_key_type(noxtls_aria_type_t key_type)
+{
+    noxtls_return_t rc = NOXTLS_RETURN_INVALID_KEY_SIZE;
+
+    if ((key_type == NOXTLS_ARIA_128_BIT) ||
+        (key_type == NOXTLS_ARIA_192_BIT) ||
+        (key_type == NOXTLS_ARIA_256_BIT)) {
+        rc = NOXTLS_RETURN_SUCCESS;
+    }
+    return rc;
+}
+
+/**
+ * @brief Check that a key schedule carries a supported round count.
+ *
+ * @param[in] key The key schedule.
+ * @return 1U when the round count is 12, 14 or 16, otherwise 0U.
+ */
+static uint8_t aria_rounds_valid(const noxtls_aria_key_t *key)
+{
+    uint8_t valid = 0U;
+
+    if ((key->rounds == NOXTLS_ARIA_128_ROUNDS) ||
+        (key->rounds == NOXTLS_ARIA_192_ROUNDS) ||
+        (key->rounds == NOXTLS_ARIA_256_ROUNDS)) {
+        valid = 1U;
+    }
+    return valid;
+}
+
 /* Key schedule generation */
 /**
  * @brief The key schedule generation.
@@ -452,6 +489,10 @@ noxtls_return_t noxtls_aria_set_encrypt_key(const uint8_t *user_key, noxtls_aria
     if ((user_key == NULL) || (key == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
+    /* Reject unsupported key types before the schedule is touched. */
+    if (aria_check_key_type(key_type) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_INVALID_KEY_SIZE;
+    }
 
     key->key_type = key_type;
     (void)aria_key_schedule(user_key, key_type, key);
@@ -475,6 +516,11 @@ noxtls_return_t noxtls_aria_set_decrypt_key(const uint8_t *user_key, noxtls_aria
 
     if ((user_key == NULL) || (key == NULL)) {
         return NOXTLS_RETURN_NULL;
+    }
+    /* Reject unsupported key types: key->rounds would otherwise be left
+     * unset and index temp_keys[] out of bounds below. */
+    if (aria_check_key_type(key_type) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_INVALID_KEY_SIZE;
     }
 
     key->key_type = key_type;
@@ -508,6 +554,9 @@ void noxtls_aria_encrypt_block(const noxtls_aria_key_t *key, const uint8_t *in, 
     uint32_t round = 0U;
 
     if ((key == NULL) || (in == NULL) || (out == NULL)) {
+        return;
+    }
+    if (aria_rounds_valid(key) == 0U) {
         return;
     }
 
@@ -544,6 +593,9 @@ void noxtls_aria_decrypt_block(const noxtls_aria_key_t *key, const uint8_t *in, 
     uint32_t round = 0U;
 
     if ((key == NULL) || (in == NULL) || (out == NULL)) {
+        return;
+    }
+    if (aria_rounds_valid(key) == 0U) {
         return;
     }
 
