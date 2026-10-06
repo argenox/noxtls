@@ -29,6 +29,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "common/noxtls_accel_port.h"
 #include "common/noxtls_ct.h"
 #include "drbg/noxtls_drbg.h"
 #include "mdigest/sha512/noxtls_sha512.h"
@@ -395,8 +396,6 @@ static noxtls_return_t ed25519_verify_internal(const uint8_t public_key[NOXTLS_E
      * check encode([S]B - [k]A) == R. R is not decoded as a curve point for the
      * equation check (wolfSSL-compatible); only its 32 encoding bytes are used.
      */
-    if(ge25519_decode_n(&A_n, public_key) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-
     {
         uint8_t S_be[NOXTLS_ED25519_FE25519_BYTES];
         memcpy(S_le, signature + NOXTLS_ED25519_FE25519_BYTES, NOXTLS_ED25519_FE25519_BYTES);
@@ -410,6 +409,14 @@ static noxtls_return_t ed25519_verify_internal(const uint8_t public_key[NOXTLS_E
     if(noxtls_sha512_update(&ctx, public_key, NOXTLS_ED25519_FE25519_BYTES) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     if(m_len != 0U && noxtls_sha512_update(&ctx, m_body, m_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     if(noxtls_sha512_finish(&ctx, k_in) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+#if NOXTLS_PORT_ED25519_ACCEL
+    {
+        /* Platform verifier: a definitive answer skips the software group arithmetic. */
+        noxtls_return_t port_rc = noxtls_ed25519_verify_accel_port(public_key, signature, k_in);
+        if(port_rc == NOXTLS_RETURN_SUCCESS || port_rc == NOXTLS_RETURN_FAILED) { return port_rc; }
+    }
+#endif
+    if(ge25519_decode_n(&A_n, public_key) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     sc25519_reduce(k_le, k_in);
 
     return ed25519_check_verify_equation(&A_n, signature, k_le, S_le);
@@ -524,14 +531,21 @@ static noxtls_return_t ed25519_verify_finalize(const uint8_t public_key[NOXTLS_E
 
     if(public_key == NULL || signature == NULL || k_in == NULL) return NOXTLS_RETURN_NULL;
 
-    if(ge25519_decode_n(&A_n, public_key) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
-
     {
         uint8_t S_be[NOXTLS_ED25519_FE25519_BYTES];
         memcpy(S_le, signature + NOXTLS_ED25519_FE25519_BYTES, NOXTLS_ED25519_FE25519_BYTES);
         le32_to_be32(S_be, S_le);
         if(ed25519_cmp_be(S_be, ed25519_L, NOXTLS_ED25519_FE25519_BYTES) >= 0) return NOXTLS_RETURN_FAILED;
     }
+#if NOXTLS_PORT_ED25519_ACCEL
+    {
+        /* Platform verifier: a definitive answer skips the software group arithmetic. */
+        noxtls_return_t port_rc = noxtls_ed25519_verify_accel_port(public_key, signature, k_in);
+        if(port_rc == NOXTLS_RETURN_SUCCESS || port_rc == NOXTLS_RETURN_FAILED) return port_rc;
+    }
+#endif
+
+    if(ge25519_decode_n(&A_n, public_key) != NOXTLS_RETURN_SUCCESS) return NOXTLS_RETURN_FAILED;
 
     sc25519_reduce(k_le, k_in);
 

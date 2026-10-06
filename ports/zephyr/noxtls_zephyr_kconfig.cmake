@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-05T22:12:09Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-06T02:23:48Z)
 
 if(NOT CONFIG_NOXTLS)
   return()
@@ -156,6 +156,12 @@ if(CONFIG_NOXTLS_FEATURE_NRF52_HW_AES_ONLY)
   zephyr_compile_definitions(NOXTLS_FEATURE_NRF52_HW_AES_ONLY=1)
 else()
   zephyr_compile_definitions(NOXTLS_FEATURE_NRF52_HW_AES_ONLY=0)
+endif()
+
+if(CONFIG_NOXTLS_FEATURE_NRF54_HW_ACCEL)
+  zephyr_compile_definitions(NOXTLS_FEATURE_NRF54_HW_ACCEL=1)
+else()
+  zephyr_compile_definitions(NOXTLS_FEATURE_NRF54_HW_ACCEL=0)
 endif()
 
 if(CONFIG_NOXTLS_FEATURE_SHA256_CORTEXM7)

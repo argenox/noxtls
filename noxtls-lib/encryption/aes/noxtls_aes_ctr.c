@@ -24,8 +24,10 @@
 #include <stdint.h>
 #include <string.h>
 #include "noxtls_aes.h"
+#include "noxtls_aes_accel.h"
 #include "noxtls_aes_internal.h"
 #include "noxtls_common.h"
+#include "common/noxtls_accel_port.h"
 
 #if NOXTLS_FEATURE_AES_CTR
 
@@ -64,6 +66,15 @@ noxtls_return_t noxtls_aes_encrypt_ctr(const uint8_t* key,
         return NOXTLS_RETURN_NULL;
     }
     
+#if NOXTLS_PORT_AES_MODE_ACCEL
+    {
+        noxtls_return_t port_rc = noxtls_aes_mode_accel_port(NOXTLS_AES_ACCEL_MODE_CTR, 0U, key, type, iv, data, data_len, output);
+        if(port_rc != NOXTLS_RETURN_NOT_SUPPORTED) {
+            return port_rc;
+        }
+    }
+#endif
+
     /* Initialize counter from IV */
     memcpy(counter_block, iv, NOXTLS_AES_BLOCK_LENGTH);
     

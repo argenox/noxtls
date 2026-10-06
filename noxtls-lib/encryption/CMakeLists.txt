@@ -44,6 +44,11 @@ if(NOXTLS_CFG_FEATURE_AES)
     elseif(NOXTLS_CFG_FEATURE_NOXV_HW_ACCEL)
       list(APPEND ENC_SOURCES aes/noxtls_aes_accel_noxv_port.c)
       set(NOXTLS_PORT_AES_ACCEL_ENABLED ON)
+    elseif(NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL)
+      # nRF54L CRACEN: block, ECB / CBC / CTR, GCM and CCM ports.
+      include(${NOXTLS_LIB_ROOT}/vendor/nordic/nrf54x/noxtls_nrf54_sources.cmake)
+      list(APPEND ENC_SOURCES ${NOXTLS_NRF54_PORT_AES_SOURCES})
+      set(NOXTLS_PORT_AES_ACCEL_ENABLED ON)
     elseif(NOXTLS_CFG_FEATURE_NRF52_HW_ACCEL)
       list(APPEND ENC_SOURCES aes/noxtls_aes_accel_nrf52_port.c)
       set(NOXTLS_PORT_AES_ACCEL_ENABLED ON)
@@ -176,3 +181,6 @@ target_include_directories(noxtls_encryption PUBLIC
 target_link_libraries(noxtls_encryption
     noxtls_common
 )
+if(NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL AND NOT ESP_PLATFORM)
+  target_link_libraries(noxtls_encryption noxtls_nrf54)
+endif()

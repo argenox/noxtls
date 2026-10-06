@@ -393,6 +393,16 @@
 #define NOXTLS_FEATURE_NRF52_HW_AES_ONLY 0
 #endif
 
+/* Enables the nRF54L (nRF54LM20 / nRF54L15) CRACEN backend: AES block, ECB/CBC/CTR, GCM and CCM,
+ * SHA-224/256/384/512, TRNG entropy for the DRBG, P-256 point multiply, ECDSA P-256 and Ed25519 verify,
+ * with software fallback (noxtls-lib/vendor/nordic/nrf54x).
+ * Prereq: NOXTLS_FEATURE_AES=1.
+ * Build knob: NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL.
+ */
+#ifndef NOXTLS_FEATURE_NRF54_HW_ACCEL
+#define NOXTLS_FEATURE_NRF54_HW_ACCEL 0
+#endif
+
 /* Enables ARIA cipher family.
  * Prereq: NOXTLS_FEATURE_ENCRYPTION=1.
  */
