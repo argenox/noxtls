@@ -38,6 +38,7 @@ CMAKE_BOOL_CACHE_VARS: frozenset[str] = frozenset(
         "NOXTLS_FEATURE_HASH",
         "NOXTLS_FEATURE_HMAC",
         "NOXTLS_FEATURE_HKDF",
+        "NOXTLS_FEATURE_PBKDF2",
         "NOXTLS_FEATURE_ENCRYPTION",
         "NOXTLS_FEATURE_DRBG",
         "NOXTLS_FEATURE_PKC",
@@ -92,6 +93,10 @@ CMAKE_BOOL_CACHE_VARS: frozenset[str] = frozenset(
         "NOXTLS_FEATURE_ML_KEM",
         "NOXTLS_FEATURE_ML_DSA",
         "NOXTLS_FEATURE_SLH_DSA",
+        "NOXTLS_FEATURE_SPAKE2P",
+        "NOXTLS_FEATURE_SPAKE2P_RFC9383",
+        "NOXTLS_FEATURE_SPAKE2P_MATTER",
+        "NOXTLS_FEATURE_MATTER_PASE",
         "NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES",
     }
 )
@@ -233,7 +238,9 @@ def should_skip_setting(setting_id: str, setting_type: str) -> bool:
 
 
 def parse_int_default(raw: str) -> str:
-    raw = raw.strip()
+    # Catalog defaults may carry C integer suffixes (e.g. "100U" since the MISRA
+    # conversion); Kconfig needs a plain integer.
+    raw = re.sub(r"(?<=\d)[uUlL]+", "", raw.strip())
     m = EXPR_RE.fullmatch(raw)
     if m:
         return str(int(m.group(1)) * int(m.group(2)))

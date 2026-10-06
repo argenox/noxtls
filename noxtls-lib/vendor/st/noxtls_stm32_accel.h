@@ -8,8 +8,8 @@
 *
 */
 
-#ifndef _NOXTLS_STM32_ACCEL_H_
-#define _NOXTLS_STM32_ACCEL_H_
+#ifndef NOXTLS_STM32_ACCEL_H_
+#define NOXTLS_STM32_ACCEL_H_
 
 #include <stdint.h>
 
@@ -17,17 +17,15 @@
 #include "encryption/aes/noxtls_aes.h"
 #include "mdigest/noxtls_sha.h"
 
-typedef enum
-{
-    NOXTLS_STM32_ACCEL_F2 = 0,
-    NOXTLS_STM32_ACCEL_F4,
-    NOXTLS_STM32_ACCEL_F7,
-    NOXTLS_STM32_ACCEL_H7,
-    NOXTLS_STM32_ACCEL_L4,
-    NOXTLS_STM32_ACCEL_U3,
-    NOXTLS_STM32_ACCEL_U5,
-    NOXTLS_STM32_ACCEL_WB
-} noxtls_stm32_accel_family_t;
+typedef uint32_t noxtls_stm32_accel_family_t;
+#define NOXTLS_STM32_ACCEL_F2 ((noxtls_stm32_accel_family_t)0U)
+#define NOXTLS_STM32_ACCEL_F4 ((noxtls_stm32_accel_family_t)1U)
+#define NOXTLS_STM32_ACCEL_F7 ((noxtls_stm32_accel_family_t)2U)
+#define NOXTLS_STM32_ACCEL_H7 ((noxtls_stm32_accel_family_t)3U)
+#define NOXTLS_STM32_ACCEL_L4 ((noxtls_stm32_accel_family_t)4U)
+#define NOXTLS_STM32_ACCEL_U3 ((noxtls_stm32_accel_family_t)5U)
+#define NOXTLS_STM32_ACCEL_U5 ((noxtls_stm32_accel_family_t)6U)
+#define NOXTLS_STM32_ACCEL_WB ((noxtls_stm32_accel_family_t)7U)
 
 noxtls_return_t noxtls_aes_accel_stm32_encrypt_block(const uint8_t *key,
                                                       const uint8_t *data,
@@ -116,4 +114,4 @@ noxtls_return_t noxtls_aes_accel_stm32wb_decrypt_block(const uint8_t *key,
                                                         uint8_t *output,
                                                         noxtls_aes_type_t type);
 
-#endif /* _NOXTLS_STM32_ACCEL_H_ */
+#endif /* NOXTLS_STM32_ACCEL_H_ */

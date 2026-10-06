@@ -26,8 +26,8 @@
  * @ingroup noxtls_ed25519
  */
 
-#ifndef _NOXTLS_ED25519_FE_H_
-#define _NOXTLS_ED25519_FE_H_
+#ifndef NOXTLS_ED25519_FE_H_
+#define NOXTLS_ED25519_FE_H_
 
 #include <stdint.h>
 
@@ -73,7 +73,7 @@ void fe25519_native_one(fe25519_native_t *a);
  * @param[in] in Little-endian bytes (`NOXTLS_ED25519_FE25519_BYTES`).
  */
 void fe25519_native_from_le(fe25519_native_t *out,
-                            const uint8_t in[NOXTLS_ED25519_FE25519_BYTES]);
+                            const uint8_t *in);
 
 /**
  * @brief Store a native field element as little-endian 32 bytes.
@@ -81,7 +81,7 @@ void fe25519_native_from_le(fe25519_native_t *out,
  * @param[out] out Little-endian bytes.
  * @param[in] in Native field element.
  */
-void fe25519_native_to_le(uint8_t out[NOXTLS_ED25519_FE25519_BYTES],
+void fe25519_native_to_le(uint8_t *out,
                           const fe25519_native_t *in);
 
 /**
@@ -91,7 +91,7 @@ void fe25519_native_to_le(uint8_t out[NOXTLS_ED25519_FE25519_BYTES],
  * @param[in] be Big-endian bytes.
  */
 void fe25519_native_from_be(fe25519_native_t *out,
-                            const uint8_t be[NOXTLS_ED25519_FE25519_BYTES]);
+                            const uint8_t *be);
 
 /**
  * @brief Store a native field element as big-endian 32 bytes.
@@ -99,7 +99,7 @@ void fe25519_native_from_be(fe25519_native_t *out,
  * @param[out] be Big-endian bytes.
  * @param[in] in Native field element.
  */
-void fe25519_native_to_be(uint8_t be[NOXTLS_ED25519_FE25519_BYTES],
+void fe25519_native_to_be(uint8_t *be,
                           const fe25519_native_t *in);
 
 /**
@@ -219,4 +219,4 @@ unsigned int fe25519_native_equal(const fe25519_native_t *a,
 }
 #endif
 
-#endif /* _NOXTLS_ED25519_FE_H_ */
+#endif /* NOXTLS_ED25519_FE_H_ */

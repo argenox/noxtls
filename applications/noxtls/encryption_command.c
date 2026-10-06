@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "noxtls_ct.h"
 #ifdef _WIN32
 #define strcasecmp _stricmp
 #define strncasecmp _strnicmp
@@ -27,13 +28,13 @@
 #include "noxtls-lib/encryption/aes/noxtls_aes.h"
 
 typedef struct {
-    const char *name;
+    const uint8_t *name;
     noxtls_aes_type_t type;
     uint32_t key_len;
 } cipher_algorithm_t;
 
 typedef struct {
-    const char *name;
+    const uint8_t *name;
     noxtls_aes_mode_t mode;
     int needs_iv;
 } cipher_mode_t;
@@ -68,16 +69,16 @@ static const cipher_mode_t cipher_modes[] = {
 #endif
 };
 
-static int run_cipher_command(noxtls_aes_operation_t operation, int argc, char ** argv);
-static int find_cipher_algorithm(const char * name, const cipher_algorithm_t ** spec);
-static int find_cipher_mode(const char * name, const cipher_mode_t ** spec);
-static int parse_offset_value(const char * value, size_t * offset);
-static int read_binary_file(const char * path, uint8_t ** buffer, size_t * length);
-static int write_binary_file(const char * path, const uint8_t * buffer, size_t length);
-static int parse_hex_alloc(const char * hex, uint8_t ** out, uint32_t * out_len);
-static int bytes_to_hex(const uint8_t * bytes, uint32_t bytes_len, char ** hex_out);
+static int run_cipher_command(noxtls_aes_operation_t operation, int argc, uint8_t ** argv);
+static int find_cipher_algorithm(const uint8_t * name, const cipher_algorithm_t ** spec);
+static int find_cipher_mode(const uint8_t * name, const cipher_mode_t ** spec);
+static int parse_offset_value(const uint8_t * value, size_t * offset);
+static int read_binary_file(const uint8_t * path, uint8_t ** buffer, size_t * length);
+static int write_binary_file(const uint8_t * path, const uint8_t * buffer, size_t length);
+static int parse_hex_alloc(const uint8_t * hex, uint8_t ** out, uint32_t * out_len);
+static int bytes_to_hex(const uint8_t * bytes, uint32_t bytes_len, uint8_t ** hex_out);
 static int print_hex_output(const uint8_t * bytes, uint32_t bytes_len);
-static int join_text_args(int start_idx, int argc, char ** argv, uint8_t ** out, uint32_t * out_len);
+static int join_text_args(int start_idx, int argc, uint8_t ** argv, uint8_t ** out, uint32_t * out_len);
 static int run_aes(
     noxtls_aes_operation_t operation,
     const cipher_algorithm_t * algorithm,
@@ -94,7 +95,7 @@ static int run_aes(
  * 
  * @param command The command
  */
-void print_encryption_usage(const char * command)
+void print_encryption_usage(const uint8_t * command)
 {
     size_t i;
     size_t displayed;
@@ -152,7 +153,7 @@ void print_encryption_usage(const char * command)
  * @param argv The argument vector
  * @return The return value
  */
-int encryption_encrypt_command(int argc, char ** argv)
+int encryption_encrypt_command(int argc, uint8_t ** argv)
 {
     return run_cipher_command(NOXTLS_AES_OP_ENCRYPT, argc, argv);
 }
@@ -164,7 +165,7 @@ int encryption_encrypt_command(int argc, char ** argv)
  * @param argv The argument vector
  * @return The return value
  */
-int encryption_decrypt_command(int argc, char ** argv)
+int encryption_decrypt_command(int argc, uint8_t ** argv)
 {
     return run_cipher_command(NOXTLS_AES_OP_DECRYPT, argc, argv);
 }
@@ -177,13 +178,13 @@ int encryption_decrypt_command(int argc, char ** argv)
  * @param argv The argument vector
  * @return The return value
  */
-static int run_cipher_command(noxtls_aes_operation_t operation, int argc, char ** argv)
+static int run_cipher_command(noxtls_aes_operation_t operation, int argc, uint8_t ** argv)
 {
-    const char * command = (operation == NOXTLS_AES_OP_ENCRYPT) ? "enc" : "dec";
+    const uint8_t * command = (operation == NOXTLS_AES_OP_ENCRYPT) ? "enc" : "dec";
     const cipher_algorithm_t * algorithm = NULL;
     const cipher_mode_t * mode = NULL;
-    const char * input_file_path = NULL;
-    const char * output_file_path = NULL;
+    const uint8_t * input_file_path = NULL;
+    const uint8_t * output_file_path = NULL;
     size_t file_offset = 0;
     uint8_t * key = NULL;
     uint32_t key_len = 0;
@@ -199,9 +200,9 @@ static int run_cipher_command(noxtls_aes_operation_t operation, int argc, char *
     int rc = -1;
 
     if(argc <= 0 || argv == NULL || argv[0] == NULL ||
-       strcmp(argv[0], "-h") == 0 ||
-       strcmp(argv[0], "--help") == 0 ||
-       strcmp(argv[0], "help") == 0) {
+       noxtls_u8_strcmp(argv[0], "-h") == 0 ||
+       noxtls_u8_strcmp(argv[0], "--help") == 0 ||
+       noxtls_u8_strcmp(argv[0], "help") == 0) {
         print_encryption_usage(command);
         return 0;
     }
@@ -223,13 +224,13 @@ static int run_cipher_command(noxtls_aes_operation_t operation, int argc, char *
             break;
         }
 
-        if(strcmp(argv[arg_idx], "-h") == 0) {
+        if(noxtls_u8_strcmp(argv[arg_idx], "-h") == 0) {
             input_is_hex = 1;
             arg_idx++;
-        } else if(strcmp(argv[arg_idx], "--help") == 0) {
+        } else if(noxtls_u8_strcmp(argv[arg_idx], "--help") == 0) {
             print_encryption_usage(command);
             return 0;
-        } else if(strcmp(argv[arg_idx], "-k") == 0) {
+        } else if(noxtls_u8_strcmp(argv[arg_idx], "-k") == 0) {
             if(arg_idx + 1 >= argc) {
                 printf("Error: -k option requires a hex key\n");
                 goto cleanup;
@@ -239,7 +240,7 @@ static int run_cipher_command(noxtls_aes_operation_t operation, int argc, char *
                 goto cleanup;
             }
             arg_idx += 2;
-        } else if(strcmp(argv[arg_idx], "-i") == 0) {
+        } else if(noxtls_u8_strcmp(argv[arg_idx], "-i") == 0) {
             if(arg_idx + 1 >= argc) {
                 printf("Error: -i option requires a hex IV\n");
                 goto cleanup;
@@ -249,7 +250,7 @@ static int run_cipher_command(noxtls_aes_operation_t operation, int argc, char *
                 goto cleanup;
             }
             arg_idx += 2;
-        } else if(strcmp(argv[arg_idx], "-m") == 0) {
+        } else if(noxtls_u8_strcmp(argv[arg_idx], "-m") == 0) {
             if(arg_idx + 1 >= argc) {
                 printf("Error: -m option requires a mode\n");
                 goto cleanup;
@@ -260,21 +261,21 @@ static int run_cipher_command(noxtls_aes_operation_t operation, int argc, char *
                 goto cleanup;
             }
             arg_idx += 2;
-        } else if(strcmp(argv[arg_idx], "-f") == 0) {
+        } else if(noxtls_u8_strcmp(argv[arg_idx], "-f") == 0) {
             if(arg_idx + 1 >= argc) {
                 printf("Error: -f option requires an input file path\n");
                 goto cleanup;
             }
             input_file_path = argv[arg_idx + 1];
             arg_idx += 2;
-        } else if(strcmp(argv[arg_idx], "-o") == 0) {
+        } else if(noxtls_u8_strcmp(argv[arg_idx], "-o") == 0) {
             if(arg_idx + 1 >= argc) {
                 printf("Error: -o option requires an output file path\n");
                 goto cleanup;
             }
             output_file_path = argv[arg_idx + 1];
             arg_idx += 2;
-        } else if(strcmp(argv[arg_idx], "-s") == 0) {
+        } else if(noxtls_u8_strcmp(argv[arg_idx], "-s") == 0) {
             if(arg_idx + 1 >= argc) {
                 printf("Error: -s option requires an offset value\n");
                 goto cleanup;
@@ -397,7 +398,7 @@ cleanup:
  * @param spec The specification
  * @return The return value
  */
-static int find_cipher_algorithm(const char * name, const cipher_algorithm_t ** spec)
+static int find_cipher_algorithm(const uint8_t * name, const cipher_algorithm_t ** spec)
 {
     size_t i;
 
@@ -405,7 +406,7 @@ static int find_cipher_algorithm(const char * name, const cipher_algorithm_t ** 
         return -1;
     }
     for(i = 0; i < sizeof(cipher_algorithms) / sizeof(cipher_algorithms[0]); i++) {
-        if(strcmp(name, cipher_algorithms[i].name) == 0) {
+        if(noxtls_u8_strcmp(name, cipher_algorithms[i].name) == 0) {
             *spec = &cipher_algorithms[i];
             return 0;
         }
@@ -420,7 +421,7 @@ static int find_cipher_algorithm(const char * name, const cipher_algorithm_t ** 
  * @param spec The specification
  * @return The return value
  */
-static int find_cipher_mode(const char * name, const cipher_mode_t ** spec)
+static int find_cipher_mode(const uint8_t * name, const cipher_mode_t ** spec)
 {
     size_t i;
 
@@ -443,7 +444,7 @@ static int find_cipher_mode(const char * name, const cipher_mode_t ** spec)
  * @param offset The offset
  * @return The return value
  */
-static int parse_offset_value(const char * value, size_t * offset)
+static int parse_offset_value(const uint8_t * value, size_t * offset)
 {
     char * endptr = NULL;
     unsigned long long parsed = 0;
@@ -453,8 +454,8 @@ static int parse_offset_value(const char * value, size_t * offset)
     }
 
     errno = 0;
-    parsed = strtoull(value, &endptr, 0);
-    if(errno != 0 || endptr == value || *endptr != '\0') {
+    parsed = strtoull((const char *)value, &endptr, 0);
+    if(errno != 0 || (const uint8_t *)endptr == value || *endptr != '\0') {
         return -1;
     }
 
@@ -470,7 +471,7 @@ static int parse_offset_value(const char * value, size_t * offset)
  * @param length The length
  * @return The return value
  */
-static int read_binary_file(const char * path, uint8_t ** buffer, size_t * length)
+static int read_binary_file(const uint8_t * path, uint8_t ** buffer, size_t * length)
 {
     FILE * file = NULL;
     long file_size = 0;
@@ -526,7 +527,7 @@ static int read_binary_file(const char * path, uint8_t ** buffer, size_t * lengt
  * @param length The length
  * @return The return value
  */
-static int write_binary_file(const char * path, const uint8_t * buffer, size_t length)
+static int write_binary_file(const uint8_t * path, const uint8_t * buffer, size_t length)
 {
     FILE * file = NULL;
 
@@ -556,7 +557,7 @@ static int write_binary_file(const char * path, const uint8_t * buffer, size_t l
  * @param out_len The output length
  * @return The return value
  */
-static int parse_hex_alloc(const char * hex, uint8_t ** out, uint32_t * out_len)
+static int parse_hex_alloc(const uint8_t * hex, uint8_t ** out, uint32_t * out_len)
 {
     size_t hex_len;
     uint8_t * buffer = NULL;
@@ -566,7 +567,7 @@ static int parse_hex_alloc(const char * hex, uint8_t ** out, uint32_t * out_len)
         return -1;
     }
 
-    hex_len = strlen(hex);
+    hex_len = noxtls_u8_strlen(hex);
     if(hex_len / 2U > UINT32_MAX) {
         return -1;
     }
@@ -595,10 +596,10 @@ static int parse_hex_alloc(const char * hex, uint8_t ** out, uint32_t * out_len)
  * @param hex_out The hex output
  * @return The return value
  */
-static int bytes_to_hex(const uint8_t * bytes, uint32_t bytes_len, char ** hex_out)
+static int bytes_to_hex(const uint8_t * bytes, uint32_t bytes_len, uint8_t ** hex_out)
 {
-    static const char hex_chars[] = "0123456789abcdef";
-    char * output = NULL;
+    static const uint8_t hex_chars[] = "0123456789abcdef";
+    uint8_t * output = NULL;
     uint32_t i;
 
     if(bytes == NULL || hex_out == NULL) {
@@ -632,7 +633,7 @@ static int bytes_to_hex(const uint8_t * bytes, uint32_t bytes_len, char ** hex_o
  */
 static int print_hex_output(const uint8_t * bytes, uint32_t bytes_len)
 {
-    char * hex = NULL;
+    uint8_t * hex = NULL;
 
     if(bytes_to_hex(bytes, bytes_len, &hex) != 0) {
         return -1;
@@ -652,7 +653,7 @@ static int print_hex_output(const uint8_t * bytes, uint32_t bytes_len)
  * @param out_len The output length
  * @return The return value
  */
-static int join_text_args(int start_idx, int argc, char ** argv, uint8_t ** out, uint32_t * out_len)
+static int join_text_args(int start_idx, int argc, uint8_t ** argv, uint8_t ** out, uint32_t * out_len)
 {
     size_t total_len = 0;
     uint8_t * buffer = NULL;
@@ -666,7 +667,7 @@ static int join_text_args(int start_idx, int argc, char ** argv, uint8_t ** out,
     }
 
     for(i = start_idx; i < argc; i++) {
-        total_len += strlen(argv[i]);
+        total_len += noxtls_u8_strlen(argv[i]);
         if(i < argc - 1) {
             total_len++;
         }
@@ -682,7 +683,7 @@ static int join_text_args(int start_idx, int argc, char ** argv, uint8_t ** out,
 
     total_len = 0;
     for(i = start_idx; i < argc; i++) {
-        size_t arg_len = strlen(argv[i]);
+        size_t arg_len = noxtls_u8_strlen(argv[i]);
         memcpy(buffer + total_len, argv[i], arg_len);
         total_len += arg_len;
         if(i < argc - 1) {

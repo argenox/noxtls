@@ -55,6 +55,7 @@ typedef int socket_t;
 #include "noxtls-lib/tls/noxtls_tls12.h"
 #include "noxtls-lib/tls/noxtls_tls13.h"
 #include "noxtls-lib/tls/noxtls_tls_common.h"
+#include "noxtls_ct.h"
 #if (NOXTLS_FEATURE_TLS12 || NOXTLS_FEATURE_TLS13)
 #include "noxtls-lib/tls/noxtls_tls_unified.h"
 
@@ -83,7 +84,7 @@ typedef enum {
 } file_format_t;
 
 typedef struct {
-    const char *name;
+    const uint8_t *name;
     uint16_t suite;
 } cipher_suite_entry_t;
 
@@ -188,7 +189,7 @@ static uint8_t g_request_buffer[REQUEST_BUFFER_SIZE];
 #define MAX_CERT_CHAIN_ENTRIES 8U
 #define MAX_ALPN_PROTOCOLS 8U
 #define MAX_ALPN_PROTOCOL_LEN 64U
-static const char *DEFAULT_ALPN_PROTOCOLS[] = { "http/1.1", "h2" };
+static const uint8_t *DEFAULT_ALPN_PROTOCOLS[] = { "http/1.1", "h2" };
 static const uint32_t DEFAULT_ALPN_PROTOCOL_COUNT =
     (uint32_t)(sizeof(DEFAULT_ALPN_PROTOCOLS) / sizeof(DEFAULT_ALPN_PROTOCOLS[0]));
 /*
@@ -232,9 +233,9 @@ static uint32_t g_https_tls13_ecdsa_matrix_n;
  * @param[in] dir_len Size of @p dir in bytes.
  * @return void
  */
-static void https_path_dirname(const char *path, char *dir, size_t dir_len)
+static void https_path_dirname(const uint8_t *path, uint8_t *dir, size_t dir_len)
 {
-    const char *slash;
+    const uint8_t *slash;
 
     if(path == NULL || dir_len < 2U) {
         if(dir_len >= 1U && dir != NULL) {
@@ -275,7 +276,7 @@ static void https_path_dirname(const char *path, char *dir, size_t dir_len)
  * @param[in] base The base to join the path into
  * @return 1 on success, 0 on failure
  */
-static int https_join_path(char *out, size_t out_len, const char *dir, const char *base)
+static int https_join_path(uint8_t *out, size_t out_len, const uint8_t *dir, const uint8_t *base)
 {
     int w = snprintf(out, out_len, "%s/%s", dir, base);
     return w > 0 && (size_t)w < out_len;
@@ -293,10 +294,10 @@ static int https_join_path(char *out, size_t out_len, const char *dir, const cha
  * @param[in] out_key_len Size of @p out_key.
  * @return 1 if both files were found, 0 otherwise
  */
-static int https_try_tls12_rsa_in_dir(const char *dir,
-                                      char *out_cert,
+static int https_try_tls12_rsa_in_dir(const uint8_t *dir,
+                                      uint8_t *out_cert,
                                       size_t out_cert_len,
-                                      char *out_key,
+                                      uint8_t *out_key,
                                       size_t out_key_len)
 {
     if(dir == NULL || dir[0] == '\0' || out_cert == NULL || out_key == NULL ||
@@ -332,13 +333,13 @@ static int https_try_tls12_rsa_in_dir(const char *dir,
  * @param[in] out_key_len Size of @p out_key.
  * @return 1 if paths were found, 0 otherwise
  */
-static int https_try_auto_tls12_rsa_paths(const char *cert_path,
-                                          char *out_cert,
+static int https_try_auto_tls12_rsa_paths(const uint8_t *cert_path,
+                                          uint8_t *out_cert,
                                           size_t out_cert_len,
-                                          char *out_key,
+                                          uint8_t *out_key,
                                           size_t out_key_len)
 {
-    char dir[512];
+    uint8_t dir[512];
 
     if(cert_path == NULL) {
         return 0;
@@ -360,12 +361,12 @@ static int https_try_auto_tls12_rsa_paths(const char *cert_path,
  * @param[in] out_key_len Size of @p out_key.
  * @return 1 if paths were found, 0 otherwise
  */
-static int https_try_tls12_rsa_next_to_linux_exe(char *out_cert,
+static int https_try_tls12_rsa_next_to_linux_exe(uint8_t *out_cert,
                                                  size_t out_cert_len,
-                                                 char *out_key,
+                                                 uint8_t *out_key,
                                                  size_t out_key_len)
 {
-    char exe_buf[512];
+    uint8_t exe_buf[512];
     ssize_t n;
 
     n = readlink("/proc/self/exe", exe_buf, sizeof(exe_buf) - 1);
@@ -374,7 +375,7 @@ static int https_try_tls12_rsa_next_to_linux_exe(char *out_cert,
     }
     exe_buf[n] = '\0';
     {
-        char dir[512];
+        uint8_t dir[512];
         https_path_dirname(exe_buf, dir, sizeof(dir));
         return https_try_tls12_rsa_in_dir(dir, out_cert, out_cert_len, out_key, out_key_len);
     }
@@ -393,10 +394,10 @@ static int https_try_tls12_rsa_next_to_linux_exe(char *out_cert,
  * @param[in] out_key_len Size of @p out_key.
  * @return 1 if both files were found, 0 otherwise
  */
-static int https_try_tls12_rsa_pss_in_dir(const char *dir,
-                                          char *out_cert,
+static int https_try_tls12_rsa_pss_in_dir(const uint8_t *dir,
+                                          uint8_t *out_cert,
                                           size_t out_cert_len,
-                                          char *out_key,
+                                          uint8_t *out_key,
                                           size_t out_key_len)
 {
     if(dir == NULL || dir[0] == '\0' || out_cert == NULL || out_key == NULL ||
@@ -429,13 +430,13 @@ static int https_try_tls12_rsa_pss_in_dir(const char *dir,
  * @param[in] out_key_len The length of the output to try to get the TLS 1.2 RSA PSS paths into
  * @return 1 on success, 0 on failure
  */
-static int https_try_auto_tls12_rsa_pss_paths(const char *cert_path,
-                                               char *out_cert,
+static int https_try_auto_tls12_rsa_pss_paths(const uint8_t *cert_path,
+                                               uint8_t *out_cert,
                                                size_t out_cert_len,
-                                               char *out_key,
+                                               uint8_t *out_key,
                                                size_t out_key_len)
 {
-    char dir[512];
+    uint8_t dir[512];
 
     if(cert_path == NULL) {
         return 0;
@@ -455,12 +456,12 @@ static int https_try_auto_tls12_rsa_pss_paths(const char *cert_path,
  * @param[in] out_key_len The length of the output to try to get the TLS 1.2 RSA PSS paths next to the Linux executable into
  * @return 1 on success, 0 on failure
  */
-static int https_try_tls12_rsa_pss_next_to_linux_exe(char *out_cert,
+static int https_try_tls12_rsa_pss_next_to_linux_exe(uint8_t *out_cert,
                                                     size_t out_cert_len,
-                                                    char *out_key,
+                                                    uint8_t *out_key,
                                                     size_t out_key_len)
 {
-    char exe_buf[512];
+    uint8_t exe_buf[512];
     ssize_t n;
 
     n = readlink("/proc/self/exe", exe_buf, sizeof(exe_buf) - 1);
@@ -469,7 +470,7 @@ static int https_try_tls12_rsa_pss_next_to_linux_exe(char *out_cert,
     }
     exe_buf[n] = '\0';
     {
-        char dir[512];
+        uint8_t dir[512];
         https_path_dirname(exe_buf, dir, sizeof(dir));
         return https_try_tls12_rsa_pss_in_dir(dir, out_cert, out_cert_len, out_key, out_key_len);
     }
@@ -483,7 +484,7 @@ static int https_try_tls12_rsa_pss_next_to_linux_exe(char *out_cert,
  * @param[in] t The private key type to get the name from
  * @return The private key type name
  */
-static const char *https_x509_private_key_type_name(x509_private_key_type_t t)
+static const uint8_t *https_x509_private_key_type_name(x509_private_key_type_t t)
 {
     switch(t) {
         case X509_PRIVATE_KEY_RSA:
@@ -533,8 +534,6 @@ static int https_infer_leaf_cert_public_key_type(const x509_certificate_t *cert,
     return 0;
 }
 
-
-
 /**
  * @brief Close the client socket
  *
@@ -550,7 +549,7 @@ static void close_client_socket(socket_t sock)
     shutdown(sock, SD_SEND);
 #else
     {
-        char drain_buf[4096];
+        uint8_t drain_buf[4096];
         ssize_t dn;
         int di;
 
@@ -633,7 +632,7 @@ static const cipher_suite_entry_t CIPHER_NAME_TABLE[] = {
  * @param[in] format The format to get the name from
  * @return The format name
  */
-static const char *format_name(file_format_t format)
+static const uint8_t *format_name(file_format_t format)
 {
     if(format == FILE_FORMAT_PEM) return "pem";
     if(format == FILE_FORMAT_DER) return "der";
@@ -646,7 +645,7 @@ static const char *format_name(file_format_t format)
  * @param[in] kind The server key kind to get the name from
  * @return The server key kind name
  */
-static const char *server_key_kind_name(server_key_kind_t kind)
+static const uint8_t *server_key_kind_name(server_key_kind_t kind)
 {
     if(kind == SERVER_KEY_KIND_RSA) return "RSA";
     if(kind == SERVER_KEY_KIND_ECDSA) return "ECDSA";
@@ -661,7 +660,7 @@ static const char *server_key_kind_name(server_key_kind_t kind)
  * @param[in] version The TLS version to get the name from
  * @return The TLS version name
  */
-static const char *tls_version_name(uint16_t version)
+static const uint8_t *tls_version_name(uint16_t version)
 {
     if(version == TLS_VERSION_1_3) return "TLS 1.3";
     if(version == TLS_VERSION_1_2) return "TLS 1.2";
@@ -676,7 +675,7 @@ static const char *tls_version_name(uint16_t version)
  * @param[in] suite The cipher suite to get the name from
  * @return The cipher suite name
  */
-static const char *tls_cipher_suite_name(uint16_t suite)
+static const uint8_t *tls_cipher_suite_name(uint16_t suite)
 {
     uint32_t i;
     for(i = 0; i < (uint32_t)(sizeof(CIPHER_NAME_TABLE) / sizeof(CIPHER_NAME_TABLE[0])); i++) {
@@ -693,7 +692,7 @@ static const char *tls_cipher_suite_name(uint16_t suite)
  * @param[in] group The group to get the name from
  * @return The group name
  */
-static const char *tls_group_name(uint16_t group)
+static const uint8_t *tls_group_name(uint16_t group)
 {
     switch(group) {
         case TLS_NAMED_GROUP_SECP256R1: return "secp256r1";
@@ -723,7 +722,7 @@ static const char *tls_group_name(uint16_t group)
  * @param[in] tls13_group The TLS 1.3 group to get the KEX name from
  * @return The KEX name
  */
-static const char *tls_kex_name_from_suite(uint16_t suite, uint16_t tls13_group)
+static const uint8_t *tls_kex_name_from_suite(uint16_t suite, uint16_t tls13_group)
 {
     if(suite >= 0x1301u && suite <= 0x13FFu) {
         return tls_group_name(tls13_group);
@@ -783,7 +782,7 @@ static const char *tls_kex_name_from_suite(uint16_t suite, uint16_t tls13_group)
  * @param[in] suite The suite to get the bulk cipher name from
  * @return The bulk cipher name
  */
-static const char *tls_bulk_cipher_name(uint16_t suite)
+static const uint8_t *tls_bulk_cipher_name(uint16_t suite)
 {
     switch(suite) {
         case TLS_CIPHER_SUITE_RSA_WITH_3DES_EDE_CBC_SHA:
@@ -850,7 +849,7 @@ static const char *tls_bulk_cipher_name(uint16_t suite)
  * @param[in] suite The suite to get the hash name from
  * @return The hash name
  */
-static const char *tls_hash_name(uint16_t suite)
+static const uint8_t *tls_hash_name(uint16_t suite)
 {
     switch(suite) {
         case TLS_CIPHER_SUITE_RSA_WITH_AES_256_CBC_SHA:
@@ -911,7 +910,7 @@ static const char *tls_hash_name(uint16_t suite)
  * @param[out] format The format to parse the format argument into
  * @return The return code
  */
-static int parse_format_arg(const char *text, file_format_t *format)
+static int parse_format_arg(const uint8_t *text, file_format_t *format)
 {
     if(text == NULL || format == NULL) {
         return 0;
@@ -938,7 +937,7 @@ static int parse_format_arg(const char *text, file_format_t *format)
  * @param[out] port The port to parse the port argument into
  * @return The return code
  */
-static int parse_port_arg(const char *text, uint16_t *port)
+static int parse_port_arg(const uint8_t *text, uint16_t *port)
 {
     char *end = NULL;
     long value;
@@ -946,8 +945,8 @@ static int parse_port_arg(const char *text, uint16_t *port)
         return 0;
     }
     errno = 0;
-    value = strtol(text, &end, 10);
-    if(errno != 0 || end == text || *end != '\0') {
+    value = strtol((const char *)text, &end, 10);
+    if(errno != 0 || (const uint8_t *)end == text || *end != '\0') {
         return 0;
     }
     if(value < 1 || value > 65535) {
@@ -963,13 +962,13 @@ static int parse_port_arg(const char *text, uint16_t *port)
  * @param[in] s The string to trim the string in place from
  * @return The trimmed string
  */
-static char *trim_in_place(char *s)
+static uint8_t *trim_in_place(uint8_t *s)
 {
-    char *end;
+    uint8_t *end;
     while(*s != '\0' && isspace((unsigned char)*s)) {
         s++;
     }
-    end = s + strlen(s);
+    end = s + noxtls_u8_strlen(s);
     while(end > s && isspace((unsigned char)end[-1])) {
         end--;
     }
@@ -984,7 +983,7 @@ static char *trim_in_place(char *s)
  * @param[out] suite The suite to parse the cipher token into
  * @return The return code
  */
-static int parse_cipher_token(const char *token, uint16_t *suite)
+static int parse_cipher_token(const uint8_t *token, uint16_t *suite)
 {
     uint32_t i;
     if(token == NULL || suite == NULL) {
@@ -993,8 +992,8 @@ static int parse_cipher_token(const char *token, uint16_t *suite)
 
     if((token[0] == '0') && (token[1] == 'x' || token[1] == 'X')) {
         char *end = NULL;
-        unsigned long value = strtoul(token + 2, &end, 16);
-        if(end != token + 2 && *end == '\0' && value <= 0xFFFFul) {
+        unsigned long value = strtoul((const char *)(token + 2), &end, 16);
+        if((const uint8_t *)end != token + 2 && *end == '\0' && value <= 0xFFFFul) {
             *suite = (uint16_t)value;
             return 1;
         }
@@ -1018,25 +1017,25 @@ static int parse_cipher_token(const char *token, uint16_t *suite)
  * @param[out] out_count The count of the suites to parse the cipher suite list into
  * @return The return code
  */
-static int parse_cipher_suite_list(const char *arg, uint16_t *out_suites, uint32_t *out_count)
+static int parse_cipher_suite_list(const uint8_t *arg, uint16_t *out_suites, uint32_t *out_count)
 {
-    char *copy;
-    char *cursor;
+    uint8_t *copy;
+    uint8_t *cursor;
     uint32_t count = 0;
     if(arg == NULL || out_suites == NULL || out_count == NULL) {
         return 0;
     }
 
-    copy = (char *)malloc(strlen(arg) + 1U);
+    copy = (uint8_t *)malloc(noxtls_u8_strlen(arg) + 1U);
     if(copy == NULL) {
         return 0;
     }
-    memcpy(copy, arg, strlen(arg) + 1U);
+    memcpy(copy, arg, noxtls_u8_strlen(arg) + 1U);
 
     cursor = copy;
     while(cursor != NULL && *cursor != '\0') {
-        char *sep = strchr(cursor, ',');
-        char *token;
+        uint8_t *sep = strchr(cursor, ',');
+        uint8_t *token;
         uint16_t suite_id;
         if(sep != NULL) {
             *sep = '\0';
@@ -1066,7 +1065,7 @@ static int parse_cipher_suite_list(const char *arg, uint16_t *out_suites, uint32
     return (count > 0U) ? 1 : 0;
 }
 
-static noxtls_return_t load_certificate_with_format(x509_certificate_t *cert, const char *path, file_format_t format);
+static noxtls_return_t load_certificate_with_format(x509_certificate_t *cert, const uint8_t *path, file_format_t format);
 
 /**
  * @brief Free the certificate chain buffers
@@ -1102,14 +1101,14 @@ static void free_certificate_chain_buffers(uint8_t **chain_data, uint32_t *chain
  * @param[out] out_chain_count The count of the certificate chain list to load the certificate chain list into
  * @return The return code
  */
-static int load_certificate_chain_list(const char *arg,
+static int load_certificate_chain_list(const uint8_t *arg,
                                        file_format_t format,
                                        uint8_t ***out_chain_data,
                                        uint32_t **out_chain_lens,
                                        uint32_t *out_chain_count)
 {
-    char *copy = NULL;
-    char *cursor = NULL;
+    uint8_t *copy = NULL;
+    uint8_t *cursor = NULL;
     uint8_t **chain_data = NULL;
     uint32_t *chain_lens = NULL;
     uint32_t chain_count = 0;
@@ -1122,11 +1121,11 @@ static int load_certificate_chain_list(const char *arg,
     *out_chain_lens = NULL;
     *out_chain_count = 0;
 
-    copy = (char *)malloc(strlen(arg) + 1U);
+    copy = (uint8_t *)malloc(noxtls_u8_strlen(arg) + 1U);
     if(copy == NULL) {
         return 0;
     }
-    memcpy(copy, arg, strlen(arg) + 1U);
+    memcpy(copy, arg, noxtls_u8_strlen(arg) + 1U);
 
     chain_data = (uint8_t **)calloc(MAX_CERT_CHAIN_ENTRIES, sizeof(uint8_t *));
     chain_lens = (uint32_t *)calloc(MAX_CERT_CHAIN_ENTRIES, sizeof(uint32_t));
@@ -1139,8 +1138,8 @@ static int load_certificate_chain_list(const char *arg,
 
     cursor = copy;
     while(cursor != NULL && *cursor != '\0') {
-        char *sep = strchr(cursor, ',');
-        char *token;
+        uint8_t *sep = strchr(cursor, ',');
+        uint8_t *token;
         x509_certificate_t chain_cert;
 
         if(sep != NULL) {
@@ -1202,7 +1201,7 @@ static int load_certificate_chain_list(const char *arg,
  * @param[out] out_len The length of the buffer to load the file bytes into
  * @return The return code
  */
-static noxtls_return_t load_file_bytes(const char *path, uint8_t **out_buf, uint32_t *out_len)
+static noxtls_return_t load_file_bytes(const uint8_t *path, uint8_t **out_buf, uint32_t *out_len)
 {
     FILE *fp;
     long size;
@@ -1256,7 +1255,7 @@ static noxtls_return_t load_file_bytes(const char *path, uint8_t **out_buf, uint
  * @param[in] format The format to load the certificate with format from
  * @return The return code
  */
-static noxtls_return_t load_certificate_with_format(x509_certificate_t *cert, const char *path, file_format_t format)
+static noxtls_return_t load_certificate_with_format(x509_certificate_t *cert, const uint8_t *path, file_format_t format)
 {
     noxtls_return_t rc;
     uint8_t *file_data = NULL;
@@ -1290,7 +1289,7 @@ static noxtls_return_t load_certificate_with_format(x509_certificate_t *cert, co
  * @param[in] format The format to load the private key with format from
  * @return The return code
  */
-static noxtls_return_t load_private_key_with_format(x509_private_key_t *key, const char *path, file_format_t format)
+static noxtls_return_t load_private_key_with_format(x509_private_key_t *key, const uint8_t *path, file_format_t format)
 {
     noxtls_return_t rc;
     uint8_t *file_data = NULL;
@@ -1325,7 +1324,7 @@ static noxtls_return_t load_private_key_with_format(x509_private_key_t *key, con
  * @param[in] out_cap The capacity of the output to parse the hex bytes into
  * @return The return code
  */
-static int parse_hex_bytes(const char *hex, uint8_t *out, uint16_t *out_len, uint16_t out_cap)
+static int parse_hex_bytes(const uint8_t *hex, uint8_t *out, uint16_t *out_len, uint16_t out_cap)
 {
     uint16_t i;
     uint16_t nbytes;
@@ -1335,17 +1334,17 @@ static int parse_hex_bytes(const char *hex, uint8_t *out, uint16_t *out_len, uin
     if(hex[0] == '\0') {
         return 0;
     }
-    if((strlen(hex) % 2U) != 0U) {
+    if((noxtls_u8_strlen(hex) % 2U) != 0U) {
         return 0;
     }
-    nbytes = (uint16_t)(strlen(hex) / 2U);
+    nbytes = (uint16_t)(noxtls_u8_strlen(hex) / 2U);
     if(nbytes == 0U || nbytes > out_cap) {
         return 0;
     }
     for(i = 0; i < nbytes; i++) {
         unsigned int v;
-        char hi = hex[i * 2U];
-        char lo = hex[i * 2U + 1U];
+        uint8_t hi= hex[i * 2U];
+        uint8_t lo= hex[i * 2U + 1U];
         if(!isxdigit((unsigned char)hi) || !isxdigit((unsigned char)lo)) {
             return 0;
         }
@@ -1365,7 +1364,7 @@ static int parse_hex_bytes(const char *hex, uint8_t *out, uint16_t *out_len, uin
  * @param[out] mode The mode to parse the TLS 1.3 PSK mode into
  * @return The return code
  */
-static int parse_tls13_psk_mode(const char *text, uint8_t *mode)
+static int parse_tls13_psk_mode(const uint8_t *text, uint8_t *mode)
 {
     if(text == NULL || mode == NULL) {
         return 0;
@@ -1390,13 +1389,13 @@ static int parse_tls13_psk_mode(const char *text, uint8_t *mode)
  * @param[out] count The count of the protocols to parse the ALPN list into
  * @return The return code
  */
-static int parse_alpn_list(const char *text,
-                           char protocol_bufs[][MAX_ALPN_PROTOCOL_LEN],
-                           const char **protocol_ptrs,
+static int parse_alpn_list(const uint8_t *text,
+                           uint8_t protocol_bufs[][MAX_ALPN_PROTOCOL_LEN],
+                           const uint8_t **protocol_ptrs,
                            uint32_t *count)
 {
-    char *copy = NULL;
-    char *token;
+    uint8_t *copy = NULL;
+    uint8_t *token;
     uint32_t n = 0;
 #ifdef _WIN32
     char *next = NULL;
@@ -1408,22 +1407,24 @@ static int parse_alpn_list(const char *text,
         return 0;
     }
 
-    copy = strdup(text);
+    /* strdup()/strtok_*() are char-based C library calls; the parsed text is
+     * handled as uint8_t like the rest of the NoxTLS API. */
+    copy = (uint8_t *)strdup((const char *)text);
     if(copy == NULL) {
         return 0;
     }
 
 #ifdef _WIN32
-    token = strtok_s(copy, ",", &next);
+    token = (uint8_t *)strtok_s((char *)copy, ",", &next);
 #else
-    token = strtok_r(copy, ",", &saveptr);
+    token = (uint8_t *)strtok_r((char *)copy, ",", &saveptr);
 #endif
     while(token != NULL) {
         size_t len;
         while(*token == ' ' || *token == '\t') {
             token++;
         }
-        len = strlen(token);
+        len = noxtls_u8_strlen(token);
         while(len > 0U && (token[len - 1U] == ' ' || token[len - 1U] == '\t')) {
             token[--len] = '\0';
         }
@@ -1435,9 +1436,9 @@ static int parse_alpn_list(const char *text,
         protocol_ptrs[n] = protocol_bufs[n];
         n++;
 #ifdef _WIN32
-        token = strtok_s(NULL, ",", &next);
+        token = (uint8_t *)strtok_s(NULL, ",", &next);
 #else
-        token = strtok_r(NULL, ",", &saveptr);
+        token = (uint8_t *)strtok_r(NULL, ",", &saveptr);
 #endif
     }
 
@@ -1455,7 +1456,7 @@ static int parse_alpn_list(const char *text,
  * @param[in] prog The program to print the usage from
  * @return void
  */
-static void print_usage(const char *prog)
+static void print_usage(const uint8_t *prog)
 {
     printf("Usage: %s [port] [options]\n", prog);
     printf("  port                   Listen port (default: %u)\n", (unsigned)DEFAULT_PORT);
@@ -1506,7 +1507,7 @@ static void print_usage(const char *prog)
  * @param[in] bind_ip The IP address to create the listen socket from
  * @return The listen socket
  */
-static socket_t create_listen_socket(uint16_t port, const char *bind_ip)
+static socket_t create_listen_socket(uint16_t port, const uint8_t *bind_ip)
 {
     socket_t listen_sock;
     struct sockaddr_in addr;
@@ -1524,7 +1525,7 @@ static socket_t create_listen_socket(uint16_t port, const char *bind_ip)
     {
 #ifdef _WIN32
         int opt = 1;
-        setsockopt(listen_sock, SOL_SOCKET, SO_REUSEADDR, (const char *)&opt, sizeof(opt));
+        setsockopt(listen_sock, SOL_SOCKET, SO_REUSEADDR, (const uint8_t *)&opt, sizeof(opt));
 #else
         int opt = 1;
         setsockopt(listen_sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
@@ -1564,8 +1565,8 @@ static void configure_client_socket_timeouts(socket_t sock)
 {
 #ifdef _WIN32
     DWORD timeout_ms = (DWORD)CLIENT_IO_TIMEOUT_MS;
-    (void)setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout_ms, (int)sizeof(timeout_ms));
-    (void)setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char *)&timeout_ms, (int)sizeof(timeout_ms));
+    (void)setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const uint8_t *)&timeout_ms, (int)sizeof(timeout_ms));
+    (void)setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const uint8_t *)&timeout_ms, (int)sizeof(timeout_ms));
 #else
     struct timeval tv;
     tv.tv_sec = (time_t)(CLIENT_IO_TIMEOUT_MS / 1000u);
@@ -1593,7 +1594,7 @@ static int32_t https_send_cb(void *user_data, const uint8_t *data, uint32_t len)
     while(sent_total < len) {
         int chunk = (int)(len - sent_total);
 #ifdef _WIN32
-        int sent = send(conn->sock, (const char *)data + sent_total, chunk, 0);
+        int sent = send(conn->sock, (const uint8_t *)data + sent_total, chunk, 0);
 #else
         ssize_t sent = send(conn->sock, data + sent_total, (size_t)chunk, 0);
 #endif
@@ -1623,7 +1624,7 @@ static int32_t https_recv_cb(void *user_data, uint8_t *data, uint32_t len)
     while(recv_total < len) {
         int chunk = (int)(len - recv_total);
 #ifdef _WIN32
-        int received = recv(conn->sock, (char *)data + recv_total, chunk, 0);
+        int received = recv(conn->sock, (uint8_t *)data + recv_total, chunk, 0);
 #else
         ssize_t received = recv(conn->sock, data + recv_total, (size_t)chunk, 0);
 #endif
@@ -1645,7 +1646,7 @@ static int is_likely_plain_http_request(socket_t sock)
 {
     uint8_t peek[8];
 #ifdef _WIN32
-    int received = recv(sock, (char *)peek, (int)sizeof(peek), MSG_PEEK);
+    int received = recv(sock, (uint8_t *)peek, (int)sizeof(peek), MSG_PEEK);
 #else
     ssize_t received = recv(sock, peek, sizeof(peek), MSG_PEEK);
 #endif
@@ -1675,9 +1676,9 @@ static int is_likely_plain_http_request(socket_t sock)
  */
 static void send_https_required_response(socket_t sock)
 {
-    static const char body[] =
+    static const uint8_t body[] =
         "This endpoint expects HTTPS (TLS). Use an https:// URL.\n";
-    char header[256];
+    uint8_t header[256];
     int header_len;
     uint32_t sent_total = 0;
 
@@ -1695,7 +1696,7 @@ static void send_https_required_response(socket_t sock)
     while(sent_total < (uint32_t)header_len) {
         int chunk = (int)((uint32_t)header_len - sent_total);
 #ifdef _WIN32
-        int sent = send(sock, (const char *)header + sent_total, chunk, 0);
+        int sent = send(sock, (const uint8_t *)header + sent_total, chunk, 0);
 #else
         ssize_t sent = send(sock, header + sent_total, (size_t)chunk, 0);
 #endif
@@ -1735,7 +1736,7 @@ static void send_https_required_response(socket_t sock)
  */
 static int https_buf_looks_like_http_request(const uint8_t *buf, uint32_t len)
 {
-    static const char *const methods[] = {
+    static const uint8_t *const methods[] = {
         "GET ", "POST ", "HEAD ", "PUT ", "DELETE ", "OPTIONS ", "PATCH "
     };
     uint32_t i;
@@ -1743,7 +1744,7 @@ static int https_buf_looks_like_http_request(const uint8_t *buf, uint32_t len)
         return 0;
     }
     for(i = 0; i < (uint32_t)(sizeof(methods) / sizeof(methods[0])); i++) {
-        uint32_t mlen = (uint32_t)strlen(methods[i]);
+        uint32_t mlen = (uint32_t)noxtls_u8_strlen(methods[i]);
         if(len >= mlen && memcmp(buf, methods[i], mlen) == 0) {
             return 1;
         }
@@ -1829,7 +1830,7 @@ static int https_buf_is_tls_lengths_echo_payload(const uint8_t *buf, uint32_t le
  * @param[in] body_len The length of the body of the request
  * @return The return code
  */ 
-static int serve_one_request(void *tls_ctx, int is_tls13, const char *body, size_t body_len)
+static int serve_one_request(void *tls_ctx, int is_tls13, const uint8_t *body, size_t body_len)
 {
     noxtls_return_t rc;
     uint8_t *req_buf = g_request_buffer;
@@ -1913,7 +1914,7 @@ static int serve_one_request(void *tls_ctx, int is_tls13, const char *body, size
     }
 
     {
-        char header[HTTP_HEADER_BUFFER_SIZE];
+        uint8_t header[HTTP_HEADER_BUFFER_SIZE];
         int header_len = snprintf(header, sizeof(header),
                                          "HTTP/1.1 200 OK\r\n"
                                          "Content-Type: text/html; charset=UTF-8\r\n"
@@ -1978,7 +1979,7 @@ fail:
     return -1;
 }
 
-static int serve_one_request_unified(noxtls_tls_connection_t *conn, const char *body, size_t body_len)
+static int serve_one_request_unified(noxtls_tls_connection_t *conn, const uint8_t *body, size_t body_len)
 {
     noxtls_return_t rc;
     uint8_t *req_buf = g_request_buffer;
@@ -2027,7 +2028,7 @@ static int serve_one_request_unified(noxtls_tls_connection_t *conn, const char *
     }
 
     {
-        char header[HTTP_HEADER_BUFFER_SIZE];
+        uint8_t header[HTTP_HEADER_BUFFER_SIZE];
         int header_len = snprintf(header, sizeof(header),
                                          "HTTP/1.1 200 OK\r\n"
                                          "Content-Type: text/html; charset=UTF-8\r\n"
@@ -2158,10 +2159,10 @@ static int https_io_peer_half_closed(https_io_kind_t kind,
 static int https_send_html_response(https_io_kind_t kind,
                                     void *tls_ctx,
                                     noxtls_tls_connection_t *uconn,
-                                    const char *body,
+                                    const uint8_t *body,
                                     size_t body_len)
 {
-    char header[HTTP_HEADER_BUFFER_SIZE];
+    uint8_t header[HTTP_HEADER_BUFFER_SIZE];
     int header_len = snprintf(header, sizeof(header),
                               "HTTP/1.1 200 OK\r\n"
                               "Content-Type: text/html; charset=UTF-8\r\n"
@@ -2216,7 +2217,7 @@ static int https_send_html_response(https_io_kind_t kind,
 static int serve_interop_session(https_io_kind_t kind,
                                  void *tls_ctx,
                                  noxtls_tls_connection_t *uconn,
-                                 const char *http_body,
+                                 const uint8_t *http_body,
                                  size_t http_body_len)
 {
     uint8_t *req_buf = g_request_buffer;
@@ -2324,7 +2325,7 @@ static int serve_interop_session(https_io_kind_t kind,
  * @param[in] tls13_group The TLS 1.3 group to build the HTTP body into
  * @return The return code
  */
-static int build_http_body(char *body_buf,
+static int build_http_body(uint8_t *body_buf,
                                   size_t body_buf_len,
                                   uint16_t tls_version,
                                   uint16_t cipher_suite,
@@ -2445,9 +2446,9 @@ static void https_tls13_ecdsa_matrix_free_all(void)
  * @param[in] key_fmt The format of the private key to load the HTTPS TLS 1.3 ECDSA matrix from
  * @return The return code
  */
-static int https_tls13_ecdsa_matrix_load(const char *dir, file_format_t cert_fmt, file_format_t key_fmt)
+static int https_tls13_ecdsa_matrix_load(const uint8_t *dir, file_format_t cert_fmt, file_format_t key_fmt)
 {
-    static const char *const bases[] = {
+    static const uint8_t *const bases[] = {
         "prime256v1",
         "secp384r1",
         "secp521r1",
@@ -2464,8 +2465,8 @@ static int https_tls13_ecdsa_matrix_load(const char *dir, file_format_t cert_fmt
     https_tls13_ecdsa_matrix_free_all();
 
     for(bi = 0; bi < (uint32_t)(sizeof(bases) / sizeof(bases[0])); bi++) {
-        char path_c[512];
-        char path_k[512];
+        uint8_t path_c[512];
+        uint8_t path_k[512];
         https_tls13_ecdsa_matrix_slot_t *sl;
         int wc;
         int wk;
@@ -2573,29 +2574,29 @@ static int https_tls13_configure_ecdsa_identities(tls13_context_t *ctx, ecc_key_
 int main(int argc, char **argv)
 {
     uint16_t port = DEFAULT_PORT;
-    const char *bind_ip = DEFAULT_BIND_IP;
+    const uint8_t *bind_ip = DEFAULT_BIND_IP;
     unsigned char debug_level = 0U;
-    const char *cert_file = DEFAULT_CERT_FILE;
-    const char *cert_chain_files = NULL;
-    const char *key_file = DEFAULT_KEY_FILE;
-    const char *tls12_cert_file = NULL;
-    const char *tls12_cert_chain_files = NULL;
-    const char *tls12_key_file = NULL;
-    const char *debug_log_file = NULL;
+    const uint8_t *cert_file = DEFAULT_CERT_FILE;
+    const uint8_t *cert_chain_files = NULL;
+    const uint8_t *key_file = DEFAULT_KEY_FILE;
+    const uint8_t *tls12_cert_file = NULL;
+    const uint8_t *tls12_cert_chain_files = NULL;
+    const uint8_t *tls12_key_file = NULL;
+    const uint8_t *debug_log_file = NULL;
     file_format_t cert_format = FILE_FORMAT_AUTO;
     file_format_t key_format = FILE_FORMAT_AUTO;
     file_format_t tls12_cert_format = FILE_FORMAT_AUTO;
     file_format_t tls12_key_format = FILE_FORMAT_AUTO;
     uint16_t configured_cipher_suites[MAX_CIPHER_SUITES];
     uint32_t configured_cipher_suite_count = 0;
-    char alpn_protocol_bufs[MAX_ALPN_PROTOCOLS][MAX_ALPN_PROTOCOL_LEN];
-    const char *alpn_protocol_ptrs[MAX_ALPN_PROTOCOLS];
+    uint8_t alpn_protocol_bufs[MAX_ALPN_PROTOCOLS][MAX_ALPN_PROTOCOL_LEN];
+    const uint8_t *alpn_protocol_ptrs[MAX_ALPN_PROTOCOLS];
     uint32_t configured_alpn_count = DEFAULT_ALPN_PROTOCOL_COUNT;
-    const char *alpn_list_text = NULL;
-    const char *tls13_psk_id_text = NULL;
-    const char *tls13_psk_key_hex = NULL;
-    const char *tls13_psk_mode_text = "psk_dhe_ke";
-    const char *tls13_ecdsa_matrix_dir = NULL;
+    const uint8_t *alpn_list_text = NULL;
+    const uint8_t *tls13_psk_id_text = NULL;
+    const uint8_t *tls13_psk_key_hex = NULL;
+    const uint8_t *tls13_psk_mode_text = "psk_dhe_ke";
+    const uint8_t *tls13_ecdsa_matrix_dir = NULL;
     uint8_t tls13_psk_id[256];
     uint16_t tls13_psk_id_len = 0;
     uint8_t tls13_psk_key[64];
@@ -2641,12 +2642,12 @@ int main(int argc, char **argv)
     int tls12_fallback_enabled = 0;
     int exit_code = 1;
     int i;
-    char auto_tls12_cert_buf[512];
-    char auto_tls12_key_buf[512];
-    char auto_tls12_pss_cert_buf[512];
-    char auto_tls12_pss_key_buf[512];
-    char expect_client_sni_buf[256];
-    const char *expect_client_sni = NULL;
+    uint8_t auto_tls12_cert_buf[512];
+    uint8_t auto_tls12_key_buf[512];
+    uint8_t auto_tls12_pss_cert_buf[512];
+    uint8_t auto_tls12_pss_key_buf[512];
+    uint8_t expect_client_sni_buf[256];
+    const uint8_t *expect_client_sni = NULL;
     int expect_client_sni_fatal = 0;
 
     memset(&cert, 0, sizeof(cert));
@@ -2687,86 +2688,86 @@ int main(int argc, char **argv)
 #endif
 
     for(i = 1; i < argc; i++) {
-        if((strcmp(argv[i], "-if") == 0 || strcmp(argv[i], "--interface") == 0) && i + 1 < argc) {
+        if((noxtls_u8_strcmp(argv[i], "-if") == 0 || noxtls_u8_strcmp(argv[i], "--interface") == 0) && i + 1 < argc) {
             bind_ip = argv[++i];
-        } else if(strcmp(argv[i], "-v") == 0) {
+        } else if(noxtls_u8_strcmp(argv[i], "-v") == 0) {
             if(debug_level < 1U) {
                 debug_level = 1U;
             }
-        } else if(strcmp(argv[i], "-vv") == 0) {
+        } else if(noxtls_u8_strcmp(argv[i], "-vv") == 0) {
             debug_level = 2U;
-        } else if(strcmp(argv[i], "--cert") == 0 && i + 1 < argc) {
+        } else if(noxtls_u8_strcmp(argv[i], "--cert") == 0 && i + 1 < argc) {
             cert_file = argv[++i];
-        } else if(strcmp(argv[i], "--cert-chain") == 0 && i + 1 < argc) {
+        } else if(noxtls_u8_strcmp(argv[i], "--cert-chain") == 0 && i + 1 < argc) {
             cert_chain_files = argv[++i];
-        } else if(strcmp(argv[i], "--key") == 0 && i + 1 < argc) {
+        } else if(noxtls_u8_strcmp(argv[i], "--key") == 0 && i + 1 < argc) {
             key_file = argv[++i];
-        } else if(strcmp(argv[i], "--tls12-cert") == 0 && i + 1 < argc) {
+        } else if(noxtls_u8_strcmp(argv[i], "--tls12-cert") == 0 && i + 1 < argc) {
             tls12_cert_file = argv[++i];
-        } else if(strcmp(argv[i], "--tls12-cert-chain") == 0 && i + 1 < argc) {
+        } else if(noxtls_u8_strcmp(argv[i], "--tls12-cert-chain") == 0 && i + 1 < argc) {
             tls12_cert_chain_files = argv[++i];
-        } else if(strcmp(argv[i], "--tls12-key") == 0 && i + 1 < argc) {
+        } else if(noxtls_u8_strcmp(argv[i], "--tls12-key") == 0 && i + 1 < argc) {
             tls12_key_file = argv[++i];
-        } else if(strcmp(argv[i], "--cert-format") == 0 && i + 1 < argc) {
+        } else if(noxtls_u8_strcmp(argv[i], "--cert-format") == 0 && i + 1 < argc) {
             if(!parse_format_arg(argv[++i], &cert_format)) {
                 printf("ERROR: Invalid --cert-format. Use auto|pem|der.\n");
                 print_usage(argv[0]);
                 goto cleanup;
             }
-        } else if(strcmp(argv[i], "--key-format") == 0 && i + 1 < argc) {
+        } else if(noxtls_u8_strcmp(argv[i], "--key-format") == 0 && i + 1 < argc) {
             if(!parse_format_arg(argv[++i], &key_format)) {
                 printf("ERROR: Invalid --key-format. Use auto|pem|der.\n");
                 print_usage(argv[0]);
                 goto cleanup;
             }
-        } else if(strcmp(argv[i], "--tls12-cert-format") == 0 && i + 1 < argc) {
+        } else if(noxtls_u8_strcmp(argv[i], "--tls12-cert-format") == 0 && i + 1 < argc) {
             if(!parse_format_arg(argv[++i], &tls12_cert_format)) {
                 printf("ERROR: Invalid --tls12-cert-format. Use auto|pem|der.\n");
                 print_usage(argv[0]);
                 goto cleanup;
             }
-        } else if(strcmp(argv[i], "--tls12-key-format") == 0 && i + 1 < argc) {
+        } else if(noxtls_u8_strcmp(argv[i], "--tls12-key-format") == 0 && i + 1 < argc) {
             if(!parse_format_arg(argv[++i], &tls12_key_format)) {
                 printf("ERROR: Invalid --tls12-key-format. Use auto|pem|der.\n");
                 print_usage(argv[0]);
                 goto cleanup;
             }
-        } else if(strcmp(argv[i], "--cipher-suites") == 0 && i + 1 < argc) {
+        } else if(noxtls_u8_strcmp(argv[i], "--cipher-suites") == 0 && i + 1 < argc) {
             if(!parse_cipher_suite_list(argv[++i], configured_cipher_suites, &configured_cipher_suite_count)) {
                 printf("ERROR: Invalid --cipher-suites value.\n");
                 print_usage(argv[0]);
                 goto cleanup;
             }
-        } else if(strcmp(argv[i], "--alpn") == 0 && i + 1 < argc) {
+        } else if(noxtls_u8_strcmp(argv[i], "--alpn") == 0 && i + 1 < argc) {
             alpn_list_text = argv[++i];
-        } else if(strcmp(argv[i], "--tls13-psk-id") == 0 && i + 1 < argc) {
+        } else if(noxtls_u8_strcmp(argv[i], "--tls13-psk-id") == 0 && i + 1 < argc) {
             tls13_psk_id_text = argv[++i];
-        } else if(strcmp(argv[i], "--tls13-psk-key") == 0 && i + 1 < argc) {
+        } else if(noxtls_u8_strcmp(argv[i], "--tls13-psk-key") == 0 && i + 1 < argc) {
             tls13_psk_key_hex = argv[++i];
-        } else if(strcmp(argv[i], "--tls13-psk-mode") == 0 && i + 1 < argc) {
+        } else if(noxtls_u8_strcmp(argv[i], "--tls13-psk-mode") == 0 && i + 1 < argc) {
             tls13_psk_mode_text = argv[++i];
-        } else if(strcmp(argv[i], "--tls13-ecdsa-matrix-dir") == 0 && i + 1 < argc) {
+        } else if(noxtls_u8_strcmp(argv[i], "--tls13-ecdsa-matrix-dir") == 0 && i + 1 < argc) {
             tls13_ecdsa_matrix_dir = argv[++i];
-        } else if(strcmp(argv[i], "--debug-log") == 0 && i + 1 < argc) {
+        } else if(noxtls_u8_strcmp(argv[i], "--debug-log") == 0 && i + 1 < argc) {
             debug_log_file = argv[++i];
-        } else if(strcmp(argv[i], "--unified") == 0) {
+        } else if(noxtls_u8_strcmp(argv[i], "--unified") == 0) {
             use_unified = 1;
-        } else if(strcmp(argv[i], "--disable-tls13") == 0) {
+        } else if(noxtls_u8_strcmp(argv[i], "--disable-tls13") == 0) {
             disable_tls13 = 1;
-        } else if(strcmp(argv[i], "--interop-mode") == 0) {
+        } else if(noxtls_u8_strcmp(argv[i], "--interop-mode") == 0) {
             interop_mode = 1;
-        } else if(strcmp(argv[i], "--disable-heartbeat") == 0) {
+        } else if(noxtls_u8_strcmp(argv[i], "--disable-heartbeat") == 0) {
             heartbeat_enabled = 0;
-        } else if(strcmp(argv[i], "--enable-heartbeat") == 0) {
+        } else if(noxtls_u8_strcmp(argv[i], "--enable-heartbeat") == 0) {
             heartbeat_enabled = 1;
-        } else if(strcmp(argv[i], "--request-client-cert") == 0) {
+        } else if(noxtls_u8_strcmp(argv[i], "--request-client-cert") == 0) {
             request_client_cert = 1;
-        } else if(strcmp(argv[i], "--require-client-cert") == 0) {
+        } else if(noxtls_u8_strcmp(argv[i], "--require-client-cert") == 0) {
             request_client_cert = 1;
             require_client_cert = 1;
-        } else if(strcmp(argv[i], "--expect-client-sni") == 0 && i + 1 < argc) {
-            const char *v = argv[++i];
-            size_t vl = strlen(v);
+        } else if(noxtls_u8_strcmp(argv[i], "--expect-client-sni") == 0 && i + 1 < argc) {
+            const uint8_t *v = argv[++i];
+            size_t vl = noxtls_u8_strlen(v);
             if(vl == 0U || vl >= sizeof(expect_client_sni_buf)) {
                 printf("ERROR: --expect-client-sni must be 1..%u characters\n",
                        (unsigned)(sizeof(expect_client_sni_buf) - 1U));
@@ -2775,13 +2776,13 @@ int main(int argc, char **argv)
             }
             memcpy(expect_client_sni_buf, v, vl + 1U);
             expect_client_sni = expect_client_sni_buf;
-        } else if(strcmp(argv[i], "--expect-client-sni-fatal") == 0) {
+        } else if(noxtls_u8_strcmp(argv[i], "--expect-client-sni-fatal") == 0) {
             expect_client_sni_fatal = 1;
-        } else if(strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+        } else if(noxtls_u8_strcmp(argv[i], "--help") == 0 || noxtls_u8_strcmp(argv[i], "-h") == 0) {
             print_usage(argv[0]);
             exit_code = 0;
             goto cleanup;
-        } else if(strcmp(argv[i], "--version") == 0 || strcmp(argv[i], "-V") == 0) {
+        } else if(noxtls_u8_strcmp(argv[i], "--version") == 0 || noxtls_u8_strcmp(argv[i], "-V") == 0) {
             printf("https_server (NoxTLS) %s\n", HTTPS_SERVER_APP_VERSION);
             exit_code = 0;
             goto cleanup;
@@ -2804,7 +2805,7 @@ int main(int argc, char **argv)
         goto cleanup;
     }
     if(tls13_psk_id_text != NULL && tls13_psk_key_hex != NULL) {
-        size_t id_len = strlen(tls13_psk_id_text);
+        size_t id_len = noxtls_u8_strlen(tls13_psk_id_text);
         if(id_len == 0U || id_len > sizeof(tls13_psk_id)) {
             printf("ERROR: --tls13-psk-id length must be 1..%u bytes\n", (unsigned)sizeof(tls13_psk_id));
             goto cleanup;
@@ -3170,7 +3171,7 @@ int main(int argc, char **argv)
                     tls13_context_t tls13_ctx;
                     uint16_t negotiated_version = 0;
                     noxtls_return_t rc;
-                    char body[HTTP_BODY_BUFFER_SIZE];
+                    uint8_t body[HTTP_BODY_BUFFER_SIZE];
                     int body_len;
                     uint16_t negotiated_suite = 0;
                     uint16_t tls13_group = 0;
@@ -3355,7 +3356,7 @@ int main(int argc, char **argv)
                             int is_tls13 = (negotiated_version == TLS_VERSION_1_3);
                             void *tls_ctx = is_tls13 ? (void *)&tls13_ctx : (void *)&tls12_ctx;
                             https_io_kind_t ikind = is_tls13 ? HTTPS_IO_TLS13 : HTTPS_IO_TLS12;
-                            const char *html = (body_len > 0) ? body : "";
+                            const uint8_t *html = (body_len > 0) ? body : (const uint8_t *)"";
                             size_t html_len = (body_len > 0) ? (size_t)body_len : 0U;
                             (void)serve_interop_session(ikind, tls_ctx, NULL, html, html_len);
                         } else if(body_len <= 0) {
@@ -3386,7 +3387,7 @@ int main(int argc, char **argv)
                 } else {
                     tls13_context_t tls13_ctx;
                     noxtls_return_t rc;
-                    char body[HTTP_BODY_BUFFER_SIZE];
+                    uint8_t body[HTTP_BODY_BUFFER_SIZE];
                     int body_len;
                     uint16_t suite = 0;
                     uint16_t group = 0;
@@ -3489,7 +3490,7 @@ int main(int argc, char **argv)
                     body_len = build_http_body(body, sizeof(body), TLS_VERSION_1_3, suite, group);
                     rc = NOXTLS_RETURN_SUCCESS;
                     if(interop_mode) {
-                        const char *html = (body_len > 0) ? body : "";
+                        const uint8_t *html = (body_len > 0) ? body : (const uint8_t *)"";
                         size_t html_len = (body_len > 0) ? (size_t)body_len : 0U;
                         (void)serve_interop_session(HTTPS_IO_TLS13, &tls13_ctx, NULL, html, html_len);
                     } else if(body_len <= 0) {
@@ -3560,13 +3561,13 @@ int main(int argc, char **argv)
                     uint16_t ver = noxtls_tls_connection_get_version(&uconn);
                     uint16_t suite = 0;
                     uint16_t group = 0;
-                    char body[HTTP_BODY_BUFFER_SIZE];
+                    uint8_t body[HTTP_BODY_BUFFER_SIZE];
                     int body_len;
                     if(ver == TLS_VERSION_1_3) {
-                        suite = uconn.u.tls13.cipher_suite;
-                        group = uconn.u.tls13.selected_kex_group;
+                        suite = uconn.tls13.cipher_suite;
+                        group = uconn.tls13.selected_kex_group;
                     } else if(ver == TLS_VERSION_1_2) {
-                        suite = uconn.u.tls12.cipher_suite;
+                        suite = uconn.tls12.cipher_suite;
                     }
                     printf("TLS handshake complete (unified): version=%s suite=%s (0x%04X)\n",
                            tls_version_name(ver),
@@ -3574,7 +3575,7 @@ int main(int argc, char **argv)
                            (unsigned)suite);
                     body_len = build_http_body(body, sizeof(body), ver, suite, group);
                     if(interop_mode) {
-                        const char *html = (body_len > 0) ? body : "";
+                        const uint8_t *html = (body_len > 0) ? body : (const uint8_t *)"";
                         size_t html_len = (body_len > 0) ? (size_t)body_len : 0U;
                         (void)serve_interop_session(HTTPS_IO_UNIFIED, NULL, &uconn, html, html_len);
                     } else if(body_len <= 0 || serve_one_request_unified(&uconn, body, (size_t)body_len) != 0) {
@@ -3597,7 +3598,7 @@ int main(int argc, char **argv)
                 tls13_context_t tls13_ctx;
                 uint16_t negotiated_version = 0;
                 noxtls_return_t rc;
-                char body[HTTP_BODY_BUFFER_SIZE];
+                uint8_t body[HTTP_BODY_BUFFER_SIZE];
                 int body_len;
                 uint16_t negotiated_suite = 0;
                 uint16_t tls13_group = 0;
@@ -3742,7 +3743,7 @@ int main(int argc, char **argv)
                         int is_tls13 = (negotiated_version == TLS_VERSION_1_3);
                         void *tls_ctx = is_tls13 ? (void *)&tls13_ctx : (void *)&tls12_ctx;
                         https_io_kind_t ikind = is_tls13 ? HTTPS_IO_TLS13 : HTTPS_IO_TLS12;
-                        const char *html = (body_len > 0) ? body : "";
+                        const uint8_t *html = (body_len > 0) ? body : (const uint8_t *)"";
                         size_t html_len = (body_len > 0) ? (size_t)body_len : 0U;
                         (void)serve_interop_session(ikind, tls_ctx, NULL, html, html_len);
                     } else if(body_len <= 0) {

@@ -29,12 +29,12 @@
 #include <stdio.h>
 #include "getopt_win.h"
 
-char *optarg = NULL;
+uint8_t *optarg = NULL;
 int optind = 1;
 int opterr = 1;
 int optopt = 0;
 
-static char *getopt_place = NULL;
+static uint8_t *getopt_place = NULL;
 
 /** 
 * @brief Get an option from the command line
@@ -45,45 +45,45 @@ static char *getopt_place = NULL;
 *
 * @return The option.
 */
-static int getopt_start_next_arg(int argc, char * const argv[])
+static int getopt_start_next_arg(int argc, uint8_t * const argv[])
 {
     if(optind >= argc) {
         return -1;
     }
-    if(argv[optind][0] != '-' || argv[optind][1] == '\0') {
+    if(argv[optind][0] != '-' || argv[optind][1] == 0U) {
         return -1;
     }
     if(strcmp(argv[optind], "--") == 0) {
-        optind++;
+        optind += 1;
         return -1;
     }
     getopt_place = &argv[optind][1];
     return 0;
 }
 
-static int getopt_take_argument(int argc, char * const argv[], const char *optstring)
+static int getopt_take_argument(int argc, uint8_t * const argv[], const uint8_t *optstring)
 {
-    if(*getopt_place != '\0') {
-        optarg = (char *)getopt_place;
+    if(*getopt_place != 0U) {
+        optarg = (uint8_t *)getopt_place;
         getopt_place = NULL;
-        optind++;
+        optind += 1;
         return 0;
     }
-    if(optind + 1 >= argc) {
+    if((optind + 1U) >= argc) {
         if(opterr && *optstring != ':') {
             (void)fprintf(stderr, "%s: option -%c requires an argument\n", argv[0], optopt);
         }
         return (*optstring == ':') ? ':' : '?';
     }
-    optarg = argv[optind + 1];
+    optarg = argv[optind + 1U];
     optind += 2;
     getopt_place = NULL;
     return 0;
 }
 
-int noxtls_getopt(int argc, char * const argv[], const char *optstring)
+int noxtls_getopt(int argc, uint8_t * const argv[], const uint8_t *optstring)
 {
-    const char *optchr;
+    const uint8_t *optchr;
     int arg_rc;
 
     optarg = NULL;
@@ -93,20 +93,20 @@ int noxtls_getopt(int argc, char * const argv[], const char *optstring)
         return -1;
     }
 
-    if(getopt_place == NULL || *getopt_place == '\0') {
+    if(getopt_place == NULL || *getopt_place == 0U) {
         if(getopt_start_next_arg(argc, argv) != 0) {
             return -1;
         }
     }
 
     optopt = (unsigned char)*getopt_place;
-    getopt_place++;
+    getopt_place = &getopt_place[1];
 
     optchr = strchr(optstring, optopt);
     if(optchr == NULL) {
-        if(*getopt_place == '\0') {
+        if(*getopt_place == 0U) {
             getopt_place = NULL;
-            optind++;
+            optind += 1;
         }
         if(opterr && *optstring != ':') {
             (void)fprintf(stderr, "%s: unknown option -%c\n", argv[0], optopt);
@@ -120,9 +120,9 @@ int noxtls_getopt(int argc, char * const argv[], const char *optstring)
             getopt_place = NULL;
             return arg_rc;
         }
-    } else if(*getopt_place == '\0') {
+    } else if(*getopt_place == 0U) {
         getopt_place = NULL;
-        optind++;
+        optind += 1;
     }
 
     return optopt;

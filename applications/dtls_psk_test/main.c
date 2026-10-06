@@ -47,6 +47,7 @@
 #include "noxtls_tls_common.h"
 #include "noxtls_dtls_common.h"
 #include "mdigest/sha256/noxtls_sha256.h"
+#include "noxtls_ct.h"
 
 /* ============================================================================
  * Application-private static workspace (per project policy)
@@ -278,7 +279,7 @@ static int32_t client_recv(void *u, uint8_t *data, uint32_t len)
  */
 static noxtls_return_t exchange_and_verify(dtls_context_t *sender, dtls_context_t *receiver,
                                            const uint8_t *payload, uint32_t len,
-                                           const char *direction)
+                                           const uint8_t *direction)
 {
     dtls_record_t record;
     noxtls_return_t rc;
@@ -365,8 +366,8 @@ static noxtls_return_t run_dtls_psk_test(udp_conn_t *conn)
     noxtls_return_t rc;
     const uint8_t *msg_s2c = (const uint8_t *)MSG_SERVER_TO_CLIENT;
     const uint8_t *msg_c2s = (const uint8_t *)MSG_CLIENT_TO_SERVER;
-    uint32_t len_s2c = (uint32_t)strlen(MSG_SERVER_TO_CLIENT);
-    uint32_t len_c2s = (uint32_t)strlen(MSG_CLIENT_TO_SERVER);
+    uint32_t len_s2c = (uint32_t)noxtls_u8_strlen(MSG_SERVER_TO_CLIENT);
+    uint32_t len_c2s = (uint32_t)noxtls_u8_strlen(MSG_CLIENT_TO_SERVER);
 
     memset(&client_ctx, 0, sizeof(client_ctx));
     memset(&server_ctx, 0, sizeof(server_ctx));

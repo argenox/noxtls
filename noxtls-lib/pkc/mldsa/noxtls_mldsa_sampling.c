@@ -49,13 +49,13 @@ noxtls_return_t noxtls_mldsa_expand_xof(const uint8_t *seed,
     uint8_t meta[3];
     noxtls_return_t rc;
 
-    if(seed == NULL || out == NULL) {
+    if((seed == NULL) || (out == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
     meta[0] = domain_tag;
-    meta[1] = (uint8_t)(nonce & 0xFFu);
-    meta[2] = (uint8_t)((nonce >> 8) & 0xFFu);
+    meta[1] = (uint8_t)(nonce & 0xFFU);
+    meta[2] = (uint8_t)((nonce >>8U) & 0xFFU);
 
     rc = noxtls_shake256_init(&shake);
     if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -93,13 +93,13 @@ noxtls_return_t noxtls_mldsa_derive_seeds(const uint8_t master_seed[NOXTLS_MLDSA
     uint8_t block[3U * NOXTLS_MLDSA_INTERNAL_SEED_BYTES];
     noxtls_return_t rc;
 
-    if(master_seed == NULL || rho == NULL || k == NULL || tr == NULL) {
+    if(master_seed == NULL || rho == NULL || k == 0U || tr == NULL) {
         return NOXTLS_RETURN_NULL;
     }
 
     rc = noxtls_mldsa_expand_xof(master_seed,
                                  NOXTLS_MLDSA_INTERNAL_SEED_BYTES,
-                                 0xA1u,
+                                 0xA1U,
                                  0U,
                                  block,
                                  (uint32_t)sizeof(block));
@@ -107,9 +107,9 @@ noxtls_return_t noxtls_mldsa_derive_seeds(const uint8_t master_seed[NOXTLS_MLDSA
         return rc;
     }
 
-    memcpy(rho, block, NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
-    memcpy(k, block + NOXTLS_MLDSA_INTERNAL_SEED_BYTES, NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
-    memcpy(tr, block + (2U * NOXTLS_MLDSA_INTERNAL_SEED_BYTES), NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
+    (void)memcpy(rho, block, (size_t)NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
+    (void)memcpy(k, &block[NOXTLS_MLDSA_INTERNAL_SEED_BYTES], (size_t)NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
+    (void)memcpy(tr, &block[(2U * NOXTLS_MLDSA_INTERNAL_SEED_BYTES)], (size_t)NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -132,7 +132,7 @@ noxtls_return_t noxtls_mldsa_sample_uniform_q(noxtls_mldsa_param_t param,
     noxtls_return_t rc;
     uint32_t i;
 
-    if(seed == NULL || poly == NULL) {
+    if((seed == NULL) || (poly == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
@@ -143,7 +143,7 @@ noxtls_return_t noxtls_mldsa_sample_uniform_q(noxtls_mldsa_param_t param,
 
     rc = noxtls_mldsa_expand_xof(seed,
                                  NOXTLS_MLDSA_INTERNAL_SEED_BYTES,
-                                 (uint8_t)(0xB0u + spec.k),
+                                 (uint8_t)(0xB0U + spec.k),
                                  nonce,
                                  buf,
                                  (uint32_t)sizeof(buf));
@@ -151,12 +151,12 @@ noxtls_return_t noxtls_mldsa_sample_uniform_q(noxtls_mldsa_param_t param,
         return rc;
     }
 
-    for(i = 0U; i < NOXTLS_MLDSA_N; ++i) {
-        uint32_t off = i * 4U;
+    for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
+        uint32_t off = (uint32_t)(i * 4U);
         uint32_t v = (uint32_t)buf[off]
-                   | ((uint32_t)buf[off + 1U] << 8)
-                   | ((uint32_t)buf[off + 2U] << 16)
-                   | ((uint32_t)buf[off + 3U] << 24);
+                   | ((uint32_t)buf[off + 1U] <<8U)
+                   | ((uint32_t)buf[off + 2U] <<16U)
+                   | ((uint32_t)buf[off + 3U] <<24U);
         poly->coeff[i] = (int32_t)(v % NOXTLS_MLDSA_Q);
     }
 
@@ -182,7 +182,7 @@ noxtls_return_t noxtls_mldsa_sample_small_eta(noxtls_mldsa_param_t param,
     noxtls_return_t rc;
     uint32_t i;
 
-    if(seed == NULL || poly == NULL) {
+    if((seed == NULL) || (poly == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
@@ -193,7 +193,7 @@ noxtls_return_t noxtls_mldsa_sample_small_eta(noxtls_mldsa_param_t param,
 
     rc = noxtls_mldsa_expand_xof(seed,
                                  NOXTLS_MLDSA_INTERNAL_SEED_BYTES,
-                                 (uint8_t)(0xC0u + spec.l),
+                                 (uint8_t)(0xC0U + spec.l),
                                  nonce,
                                  buf,
                                  (uint32_t)sizeof(buf));
@@ -201,7 +201,7 @@ noxtls_return_t noxtls_mldsa_sample_small_eta(noxtls_mldsa_param_t param,
         return rc;
     }
 
-    for(i = 0U; i < NOXTLS_MLDSA_N; ++i) {
+    for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
         uint8_t span = (uint8_t)((2U * spec.eta) + 1U);
         int32_t centered = (int32_t)(buf[i] % span) - (int32_t)spec.eta;
         poly->coeff[i] = centered;

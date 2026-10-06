@@ -7,8 +7,8 @@
 * Summary: STM32 CRYP AES-GCM register-level backend.
 *****************************************************************************/
 
-#ifndef _NOXTLS_STM32_GCM_CORE_H_
-#define _NOXTLS_STM32_GCM_CORE_H_
+#ifndef NOXTLS_STM32_GCM_CORE_H_
+#define NOXTLS_STM32_GCM_CORE_H_
 
 #include "vendor/st/noxtls_stm32_accel.h"
 
@@ -43,4 +43,4 @@ int noxtls_stm32_gcm_support_status(void);
 #define NOXTLS_STM32_GCM_STATUS_H7_UNSUPPORTED 4
 #define NOXTLS_STM32_GCM_STATUS_NOT_STM32H7    5
 
-#endif /* _NOXTLS_STM32_GCM_CORE_H_ */
+#endif /* NOXTLS_STM32_GCM_CORE_H_ */

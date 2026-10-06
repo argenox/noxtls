@@ -150,7 +150,90 @@ static int fe25519_u32_vs_limb_check(void)
         return 0;
     }
 
+    /* Signed limbs (a - b, a + b) through the packed conversion and multiply. */
+    {
+        fe25519_native_t d;
+        fe25519_native_t e;
+
+        fe25519_native_sub(&d, &a, &b);
+        fe25519_native_add(&e, &a, &b);
+        fe25519_native_mul(&r_limb, &d, &e);
+        fe25519_limbs_to_u32(au, &d);
+        fe25519_limbs_to_u32(bu, &e);
+        fe25519_u32_mul(ru, au, bu);
+        fe25519_u32_to_limbs(&r_u32, ru);
+        fe25519_native_to_le(x, &r_limb);
+        fe25519_native_to_le(y, &r_u32);
+        if(memcmp(x, y, sizeof(x)) != 0) {
+            return 0;
+        }
+        fe25519_u32_to_limbs(&r_u32, au);
+        fe25519_native_to_le(x, &d);
+        fe25519_native_to_le(y, &r_u32);
+        if(memcmp(x, y, sizeof(x)) != 0) {
+            return 0;
+        }
+    }
+
+    /* Bit 255 of a packed value is 2^255 = 19 (mod p): 2^255 + 1 -> 20. */
+    {
+        uint32_t w[8] = { 1U, 0U, 0U, 0U, 0U, 0U, 0U, 0x80000000U };
+
+        fe25519_u32_to_limbs(&r_u32, w);
+        fe25519_native_to_le(y, &r_u32);
+        (void)memset(x, 0, sizeof(x));
+        x[0] = 20U;
+        if(memcmp(x, y, sizeof(x)) != 0) {
+            return 0;
+        }
+    }
+
     return 1;
+}
+
+/* Independent modular field KAT plus signed-limb encoding round trips. */
+static int packed_field_dense_checks(void)
+{
+    static const uint8_t product[32] = {
+        0x21,0x39,0x8e,0xe3,0x38,0x8e,0xe3,0x38,
+        0x8e,0xe3,0x38,0x8e,0xe3,0x38,0x8e,0xe3,
+        0x38,0x8e,0xe3,0x38,0x8e,0xe3,0x38,0x8e,
+        0xe3,0x38,0x8e,0xe3,0x38,0x8e,0xe3,0x38
+    }; /* (0x55 repeated * 0x2aaa...aaaa) mod (2^255-19). */
+    uint8_t a_bytes[32], b_bytes[32], canonical[32], encoded[32];
+    uint32_t a_words[8], b_words[8], result_words[8];
+    fe25519_native_t a, b, result;
+    uint32_t vector, i;
+    for(vector = 0; vector < 64U; ++vector) {
+        for(i = 0; i < 32U; ++i) a_bytes[i] = (uint8_t)(vector * 73U + i * 29U);
+        a_bytes[31] &= 0x7fU;
+        fe25519_native_from_le(&a, a_bytes);
+        fe25519_native_to_le(canonical, &a);
+        fe25519_limbs_to_u32(a_words, &a);
+        fe25519_u32_to_limbs(&result, a_words);
+        fe25519_native_to_le(encoded, &result);
+        if(memcmp(encoded, canonical, sizeof(encoded)) != 0) return 0;
+    }
+    memset(a_bytes, 0x55, sizeof(a_bytes));
+    memset(b_bytes, 0xaa, sizeof(b_bytes)); b_bytes[31] = 0x2a;
+    fe25519_native_from_le(&a, a_bytes); fe25519_native_from_le(&b, b_bytes);
+    fe25519_limbs_to_u32(a_words, &a); fe25519_limbs_to_u32(b_words, &b);
+    fe25519_u32_mul(result_words, a_words, b_words);
+    fe25519_u32_to_limbs(&result, result_words); fe25519_native_to_le(encoded, &result);
+    if(memcmp(encoded, product, 32U) != 0) return 0;
+    /* (p-1)^2 = 1 and (p-1)*(p-2) = 2 stress full-width carries. */
+    memset(a_bytes, 0xff, 32); a_bytes[0] = 0xec; a_bytes[31] = 0x7f;
+    memcpy(b_bytes, a_bytes, 32); b_bytes[0] = 0xeb;
+    fe25519_native_from_le(&a, a_bytes); fe25519_native_from_le(&b, b_bytes);
+    fe25519_limbs_to_u32(a_words, &a); fe25519_limbs_to_u32(b_words, &b);
+    fe25519_u32_sqr(result_words, a_words);
+    fe25519_u32_to_limbs(&result, result_words); fe25519_native_to_le(encoded, &result);
+    memset(canonical, 0, 32); canonical[0] = 1;
+    if(memcmp(encoded, canonical, 32) != 0) return 0;
+    fe25519_u32_mul(result_words, a_words, b_words);
+    fe25519_u32_to_limbs(&result, result_words); fe25519_native_to_le(encoded, &result);
+    canonical[0] = 2;
+    return memcmp(encoded, canonical, 32) == 0;
 }
 
 int main(void)
@@ -163,6 +246,7 @@ int main(void)
     int ok = 1;
 
     ok &= expect(fe25519_u32_vs_limb_check() != 0, "u32 mul/sqr matches limb path");
+    ok &= expect(packed_field_dense_checks() != 0, "dense packed field KAT and conversion round trips");
 
     /* Positive: public key from seed (RFC 8032 §5.1.5 / §7.1). */
     rc = noxtls_ed25519_public_key(tv1_sk, pk);
@@ -214,6 +298,38 @@ int main(void)
     ok &= expect(memcmp(sig, tv2_sig, sizeof(tv2_sig)) == 0, "tv2 signature matches");
     rc = noxtls_ed25519_verify(tv2_pk, tv2_msg, sizeof(tv2_msg), tv2_sig);
     ok &= expect(rc == NOXTLS_RETURN_SUCCESS, "tv2 verify succeeds");
+
+    /* Streaming verification retains pure Ed25519 semantics across chunks. */
+    {
+        noxtls_ed25519_verify_stream_ctx_t stream;
+        noxtls_ed25519_keypair_t cached;
+        memset(&stream, 0, sizeof(stream));
+        rc = noxtls_ed25519_verify_stream_update(&stream, tv2_msg, 1U);
+        ok &= expect(rc != NOXTLS_RETURN_SUCCESS, "stream rejects update before init");
+        rc = noxtls_ed25519_verify_stream_init(&stream, tv2_pk, tv2_sig);
+        ok &= expect(rc == NOXTLS_RETURN_SUCCESS, "stream initializes RFC vector 2");
+        rc = noxtls_ed25519_verify_stream_update(&stream, NULL, 0U);
+        ok &= expect(rc == NOXTLS_RETURN_SUCCESS, "stream accepts empty chunk");
+        rc = noxtls_ed25519_verify_stream_update(&stream, tv2_msg, 1U);
+        ok &= expect(rc == NOXTLS_RETURN_SUCCESS, "stream absorbs message chunk");
+        rc = noxtls_ed25519_verify_stream_final(&stream);
+        ok &= expect(rc == NOXTLS_RETURN_SUCCESS, "stream verifies RFC vector 2");
+        rc = noxtls_ed25519_verify_stream_final(&stream);
+        ok &= expect(rc != NOXTLS_RETURN_SUCCESS, "stream rejects second final");
+        rc = noxtls_ed25519_verify_stream_init(&stream, tv2_pk, tv2_sig);
+        ok &= expect(rc == NOXTLS_RETURN_SUCCESS, "stream reinitializes");
+        rc = noxtls_ed25519_verify_stream_update(&stream, msg_nonempty, 1U);
+        ok &= expect(rc == NOXTLS_RETURN_SUCCESS, "stream absorbs wrong message");
+        rc = noxtls_ed25519_verify_stream_final(&stream);
+        ok &= expect(rc != NOXTLS_RETURN_SUCCESS, "stream rejects wrong message");
+        rc = noxtls_ed25519_keypair_from_seed(&cached, tv2_sk);
+        ok &= expect(rc == NOXTLS_RETURN_SUCCESS, "prepare cached keypair");
+        rc = noxtls_ed25519_sign_keypair(&cached, tv2_msg, 1U, sig);
+        ok &= expect(rc == NOXTLS_RETURN_SUCCESS &&
+                     memcmp(sig, tv2_sig, sizeof(sig)) == 0,
+                     "cached keypair matches RFC signature");
+        memset(&cached, 0, sizeof(cached));
+    }
 
     /* Negative: NULL private key / signature buffers. */
     rc = noxtls_ed25519_sign(NULL, NULL, 0U, sig);

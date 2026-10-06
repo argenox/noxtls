@@ -86,7 +86,7 @@ typedef struct {
 } https_session_args_t;
 
 /* Browsers send ALPN; server must advertise overlap or handshake fails (RFC 7301). */
-static const char *NOXTLS_HTTPS_ALPN_PROTOCOLS[] = { "http/1.1", "h2" };
+static const uint8_t *NOXTLS_HTTPS_ALPN_PROTOCOLS[] = { (const uint8_t *)"http/1.1", (const uint8_t *)"h2" };
 
 extern const uint8_t g_server_cert_pem_start[] asm("_binary_server_cert_pem_start");
 extern const uint8_t g_server_cert_pem_end[]   asm("_binary_server_cert_pem_end");
@@ -907,7 +907,7 @@ static int https_serve_one(int client_sock,
 #endif
 
 	if(rc != NOXTLS_RETURN_SUCCESS) {
-		const char *fail_step = noxtls_tls13_last_accept_fail_step();
+		const char *fail_step = (const char *)noxtls_tls13_last_accept_fail_step();
 
 		if(tls_ctx->peer_alert_received != 0U &&
 		   fail_step != NULL && strcmp(fail_step, "recv_finished") == 0) {

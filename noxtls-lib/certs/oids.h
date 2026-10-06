@@ -22,8 +22,8 @@
 /** @addtogroup noxtls_certs */
 /** @{ */
 
-#ifndef _NOXTLS_OIDS_H_
-#define _NOXTLS_OIDS_H_
+#ifndef NOXTLS_OIDS_H_
+#define NOXTLS_OIDS_H_
 
 #include <stdint.h>
 #include "noxtls_common.h"
@@ -32,21 +32,17 @@
 extern "C" {
 #endif
 
-
-#define PKCS_BASE "1.2.840.113549.1"
-
-
 NOXTLS_MSVC_WARNING_PUSH
 NOXTLS_MSVC_DISABLE_PADDING
 typedef struct oid_item_t
 {
 	uint32_t id;
-	char * name;
+	/* Dir 1.1: OID label text; signedness of plain char is not relied upon. */
+	const uint8_t * name;
 	const struct oid_item_t * items;
 
 } oid_item_t;
 NOXTLS_MSVC_WARNING_POP
-
 
 extern const oid_item_t base_oids[3];
 
@@ -54,4 +50,4 @@ extern const oid_item_t base_oids[3];
 }
 #endif
 
-#endif /* _NOXTLS_OIDS_H_ */
+#endif /* NOXTLS_OIDS_H_ */

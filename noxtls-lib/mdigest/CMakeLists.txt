@@ -25,8 +25,14 @@ if(NOXTLS_CFG_FEATURE_SHA224 OR NOXTLS_CFG_FEATURE_SHA256)
         else()
             list(APPEND NOXTLS_HASH_SOURCES sha256/noxtls_sha256_accel_port.c)
         endif()
+    elseif(NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL)
+        # nRF54L CRACEN: SHA-224/256 and SHA-384/512 block ports (added once below).
     else()
-        list(APPEND NOXTLS_HASH_SOURCES sha256/noxtls_sha256_accel_port.c)
+        if(NOXTLS_CFG_FEATURE_NOXV_HW_ACCEL)
+            list(APPEND NOXTLS_HASH_SOURCES sha256/noxtls_sha256_accel_noxv_port.c)
+        else()
+            list(APPEND NOXTLS_HASH_SOURCES sha256/noxtls_sha256_accel_port.c)
+        endif()
         if(NOXTLS_CFG_FEATURE_STM32_HW_ACCEL)
             list(APPEND NOXTLS_HASH_SOURCES
                 ${NOXTLS_LIB_ROOT}/vendor/st/common/noxtls_stm32_hash_dispatch.c
@@ -38,6 +44,12 @@ endif()
 if(NOXTLS_CFG_FEATURE_SHA384 OR NOXTLS_CFG_FEATURE_SHA512)
     list(APPEND NOXTLS_HASH_SOURCES sha512/noxtls_sha512.c)
 endif()
+if(NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL AND NOT ESP_PLATFORM AND
+   (NOXTLS_CFG_FEATURE_SHA224 OR NOXTLS_CFG_FEATURE_SHA256 OR NOXTLS_CFG_FEATURE_SHA384 OR NOXTLS_CFG_FEATURE_SHA512))
+    include(${NOXTLS_LIB_ROOT}/vendor/nordic/nrf54x/noxtls_nrf54_sources.cmake)
+    list(APPEND NOXTLS_HASH_SOURCES ${NOXTLS_NRF54_PORT_HASH_SOURCES})
+    set(_noxtls_hash_nrf54 ON)
+endif()
 if(NOXTLS_CFG_FEATURE_SHA3)
     list(APPEND NOXTLS_HASH_SOURCES sha3/noxtls_sha3.c)
 endif()
@@ -48,6 +60,7 @@ if(NOXTLS_CFG_FEATURE_BLAKE2)
     list(APPEND NOXTLS_HASH_SOURCES blake2/noxtls_blake2.c)
 endif()
 
+list(APPEND NOXTLS_HASH_SOURCES noxtls_hash_api_refs.c)
 add_library(noxtls_hash STATIC ${NOXTLS_HASH_SOURCES})
 
 # Use CURRENT_SOURCE_DIR so this works when mdigest is built as a subdirectory (e.g. from ut/)
@@ -67,6 +80,9 @@ target_include_directories(noxtls_hash PUBLIC
 target_link_libraries(noxtls_hash
     noxtls_common
 )
+if(_noxtls_hash_nrf54)
+    target_link_libraries(noxtls_hash noxtls_nrf54)
+endif()
 
 if(MSVC)
     # Suppress Spectre mitigation notice for mdigest on MSVC.

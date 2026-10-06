@@ -21,8 +21,10 @@
 *****************************************************************************/
 
 #include <stdint.h>
+#include <stddef.h>
 
 #include "noxtls_ecc.h"
+#include "noxtls_ecc_accel_port.h"
 #include "noxtls_common.h"
 
 static uint32_t s_noxtls_ecc_accel_fallback_count;
@@ -49,7 +51,7 @@ void noxtls_ecc_accel_note_fallback(void)
 
 int32_t noxtls_ecc_accel_last_rc(void)
 {
-    return NOXTLS_RETURN_NOT_SUPPORTED;
+    return (int32_t)NOXTLS_RETURN_NOT_SUPPORTED;
 }
 
 uint32_t noxtls_ecc_accel_last_status(void)
@@ -81,7 +83,8 @@ noxtls_return_t noxtls_ecc_point_multiply_accel_port(ecc_point_t *result,
                                                       const ecc_point_t *point,
                                                       const ecc_curve_params_t *curve)
 {
-    (void)result;
+    /* cppcheck-suppress selfAssignment ; MISRA 8.13: marks the non-const parameter as used */
+    if(result != NULL) { result->size = result->size; }
     (void)scalar;
     (void)point;
     (void)curve;

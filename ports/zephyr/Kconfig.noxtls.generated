@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-09-13T05:08:47Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-06T14:12:04Z)
 
 menu "NoxTLS library options (from noxtls_config.h)"
 
@@ -58,9 +58,11 @@ menu "NoxTLS library options (from noxtls_config.h)"
 
 		config NOXTLS_MEM_BUCKET_ALIGNMENT
 			int "Mem Bucket Alignment"
+			default 8
 
 		config NOXTLS_MEM_BUCKET_COUNT
 			int "Mem Bucket Count"
+			default 9
 
 		config NOXTLS_MEM_BUCKET_COUNTS
 			int "Mem Bucket Counts"
@@ -585,6 +587,18 @@ menu "NoxTLS library options (from noxtls_config.h)"
 	endmenu
 
 	menu "Memory Management"
+		config NOXTLS_ECC_SHARED_SCRATCH
+			bool "Shared ECC Inversion Scratch (Serialized)"
+			default n
+			help
+			  NOXTLS_ECC_SHARED_SCRATCH Move ECC inversion and the P-256 bignum inversion fast-path scratch from the call stack to fixed shared storage. Callers MUST serialize operations that use this scratch, including interrupts; this mode is not reentrant. Default: 0 (private per-call scratch).
+
+		config NOXTLS_HMAC_SHA256_SHARED_STATE
+			bool "Shared SHA-256 HMAC State (Serialized)"
+			default n
+			help
+			  NOXTLS_HMAC_SHA256_SHARED_STATE Use one fixed SHA-256 HMAC hash context instead of an allocator block per live context. A second live context fails with NOXTLS_RETURN_FAILED. Callers MUST serialize all SHA-256 HMAC access, including interrupts, and may not interleave streaming contexts. The slot is wiped on final/free. Default: 0 (private context state, permits independent live contexts).
+
 		config NOXTLS_USE_STATIC_BUFFERS
 			bool "Use Static Buffers"
 			default n
@@ -646,6 +660,12 @@ menu "NoxTLS library options (from noxtls_config.h)"
 			help
 			  NOXTLS_ECDSA_SIGN_SELF_VERIFY When 1, ECDSA signing immediately verifies the produced signature before returning it. This hardens signing against local fault/glitch attacks but materially reduces signing throughput. Default: 0 (disabled)
 
+		config NOXTLS_FEATURE_CC13XX_HW_ACCEL
+			bool "Cc13Xx Hw Accel"
+			default n
+			help
+			  Original injected CC13xx AES/P-256 accelerator callbacks, disabled by default. No TI SDK or OS dependency. Bind only while all crypto callers are idle. Build knob: NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL.
+
 		config NOXTLS_FEATURE_FALCON
 			bool "Falcon"
 			default n
@@ -686,11 +706,64 @@ menu "NoxTLS library options (from noxtls_config.h)"
 			help
 			  When enabled, require nRF52 hardware AES support and disable software AES fallback. Prereq: NOXTLS_FEATURE_NRF52_HW_ACCEL=1. Build knob: NOXTLS_CFG_FEATURE_NRF52_HW_AES_ONLY.
 
+		config NOXTLS_FEATURE_NRF54_HW_ACCEL
+			bool "Nrf54 Hw Accel"
+			default n
+			depends on NOXTLS_FEATURE_AES
+			help
+			  Enables the nRF54L (nRF54LM20 / nRF54L15) CRACEN backend: AES block, ECB/CBC/CTR, GCM and CCM, SHA-224/256/384/512, TRNG entropy for the DRBG, P-256 point multiply, ECDSA P-256 and Ed25519 verify, with software fallback (noxtls-lib/vendor/nordic/nrf54x). Prereq: NOXTLS_FEATURE_AES=1. Build knob: NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL.
+
+		config NOXTLS_FEATURE_PBKDF2
+			bool "PBKDF2"
+			default n
+			depends on NOXTLS_FEATURE_HMAC
+			help
+			  Enables PBKDF2 (RFC 8018 section 5.2) password-based key derivation over HMAC. Prereq: NOXTLS_FEATURE_HMAC=1. Required by: NOXTLS_FEATURE_MATTER_PASE (Matter passcode verifier). Also used by: PKCS#8 PBES2 key decryption (falls back to a private PBKDF2-HMAC-SHA1 when disabled) and IEEE 802.11 PSK-to-PMK mapping. Build knob: NOXTLS_CFG_FEATURE_PBKDF2. Default OFF.
+
+		config NOXTLS_FEATURE_SPAKE2P
+			bool "SPAKE2+"
+			default n
+			depends on NOXTLS_FEATURE_PKC
+			depends on NOXTLS_FEATURE_ECC
+			depends on NOXTLS_FEATURE_SHA256
+			depends on NOXTLS_FEATURE_HMAC
+			depends on NOXTLS_FEATURE_HKDF
+			depends on NOXTLS_FEATURE_DRBG
+			help
+			  Enables SPAKE2+ augmented PAKE over P-256 with SHA-256, HKDF-SHA256 and HMAC-SHA256. Prereq: NOXTLS_FEATURE_PKC=1 and NOXTLS_FEATURE_ECC=1 and NOXTLS_FEATURE_SHA256=1 and NOXTLS_FEATURE_HMAC=1 and NOXTLS_FEATURE_HKDF=1 and NOXTLS_FEATURE_DRBG=1. Constraint: at least one of NOXTLS_FEATURE_SPAKE2P_RFC9383 / NOXTLS_FEATURE_SPAKE2P_MATTER. Build knob: NOXTLS_CFG_FEATURE_SPAKE2P. Default OFF.
+
+		config NOXTLS_FEATURE_MATTER_PASE
+			bool "Matter PASE"
+			default n
+			depends on NOXTLS_FEATURE_SPAKE2P
+			depends on NOXTLS_FEATURE_SPAKE2P_MATTER
+			depends on NOXTLS_FEATURE_PBKDF2
+			help
+			  Enables Matter PASE cryptographic helpers (passcode verifier, PASE context, session keys). Prereq: NOXTLS_FEATURE_SPAKE2P=1 and NOXTLS_FEATURE_SPAKE2P_MATTER=1 and NOXTLS_FEATURE_PBKDF2=1. Build knob: NOXTLS_CFG_FEATURE_MATTER_PASE. Default OFF.
+
+		config NOXTLS_FEATURE_SPAKE2P_MATTER
+			bool "SPAKE2+ Matter (draft-01) Profile"
+			default n
+			help
+			  Includes the draft-bar-cfrg-spake2plus-01 key schedule used by Matter PASE (NOXTLS_SPAKE2P_PROFILE_MATTER). Not RFC 9383; for Matter interoperability only. Effective only when NOXTLS_FEATURE_SPAKE2P=1. Build knob: NOXTLS_CFG_FEATURE_SPAKE2P_MATTER. Default OFF.
+
+		config NOXTLS_FEATURE_SPAKE2P_RFC9383
+			bool "SPAKE2+ RFC 9383 Profile"
+			default y
+			help
+			  Includes the standard RFC 9383 SPAKE2+ key schedule (NOXTLS_SPAKE2P_PROFILE_RFC9383). Effective only when NOXTLS_FEATURE_SPAKE2P=1; this is the default profile. Build knob: NOXTLS_CFG_FEATURE_SPAKE2P_RFC9383. Default ON.
+
 		config NOXTLS_FEATURE_XMSS
 			bool "Xmss"
 			default n
 			help
 			  Enables XMSS/XMSS^MT hash-based signature APIs (RFC 8391).
+
+		config NOXTLS_HAVE_FILE_IO
+			bool "File Io"
+			default y
+			help
+			  NOXTLS_HAVE_FILE_IO Define to 1 when stdio file helpers (fopen/fread/load_file) are available. Define to 0 for embedded/MISRA scan profiles that must not pull in stdio. File-load APIs return NOXTLS_RETURN_FAILED when disabled.
 
 		config NOXTLS_SHA256_UNROLL_8
 			bool "Sha256 Unroll 8"

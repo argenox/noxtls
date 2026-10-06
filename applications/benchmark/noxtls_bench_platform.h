@@ -8,13 +8,13 @@
 *
 */
 
-#ifndef _NOXTLS_BENCH_PLATFORM_H_
-#define _NOXTLS_BENCH_PLATFORM_H_
+#ifndef NOXTLS_BENCH_PLATFORM_H_
+#define NOXTLS_BENCH_PLATFORM_H_
 
 #include <stdint.h>
 
 void noxtls_bench_platform_init(void);
 uint64_t noxtls_bench_time_now_ns(void);
-void noxtls_bench_log(const char *fmt, ...);
+void noxtls_bench_log(const uint8_t *fmt, ...);
 
-#endif /* _NOXTLS_BENCH_PLATFORM_H_ */
+#endif /* NOXTLS_BENCH_PLATFORM_H_ */

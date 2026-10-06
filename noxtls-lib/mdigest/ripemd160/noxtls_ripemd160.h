@@ -27,8 +27,8 @@
 /** @addtogroup noxtls_mdigest */
 /** @{ */
 
-#ifndef _NOXTLS_RIPEMD160_H_
-#define _NOXTLS_RIPEMD160_H_
+#ifndef NOXTLS_RIPEMD160_H_
+#define NOXTLS_RIPEMD160_H_
 
 #include "noxtls_sha.h"
 #include "noxtls_common.h"

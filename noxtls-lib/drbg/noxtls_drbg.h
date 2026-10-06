@@ -22,8 +22,8 @@
 /** @addtogroup noxtls_drbg */
 /** @{ */
 
-#ifndef _NOXTLS_DRBG_H_
-#define _NOXTLS_DRBG_H_
+#ifndef NOXTLS_DRBG_H_
+#define NOXTLS_DRBG_H_
 
 #include <stdint.h>
 #include "noxtls_common.h"
@@ -41,13 +41,13 @@ extern "C" {
 #define DRBG_KEYLEN_AES192   24  /* 192 bits */
 #define DRBG_KEYLEN_AES256   32  /* 256 bits */
 
-#define DRBG_BLOCKLEN        16  /* 128 bits (AES block size) */
+#define DRBG_BLOCKLEN        16U  /* 128 bits (AES block size) */
 
 /* Maximum reseed counter (2^48 for AES-256) */
 #define DRBG_RESEED_INTERVAL 0xFFFFFFFFFFFFULL
 
 /* Maximum number of bits per request (2^19 bits = 65536 bytes) */
-#define DRBG_MAX_BITS_PER_REQUEST 524288
+#define DRBG_MAX_BITS_PER_REQUEST 524288U
 
 /* Dummy entropy generator constants */
 #define DRBG_DUMMY_ENTROPY_MASK           (0xFFu)
@@ -55,23 +55,19 @@ extern "C" {
 #define DRBG_DUMMY_ENTROPY_LCG_MULTIPLIER (1103515245ULL)
 #define DRBG_DUMMY_ENTROPY_LCG_INCREMENT  (12345ULL)
 
-typedef enum
-{
-    DRBG_AES128 = 0,  /* Security strength: 128 bits */
-    DRBG_AES192 = 1,  /* Security strength: 192 bits */
-    DRBG_AES256 = 2,  /* Security strength: 256 bits */
-} drbg_aes_type_t;
+typedef uint32_t drbg_aes_type_t;
+#define DRBG_AES128 ((drbg_aes_type_t)0U)  /* Security strength: 128 bits */
+#define DRBG_AES192 ((drbg_aes_type_t)1U)  /* Security strength: 192 bits */
+#define DRBG_AES256 ((drbg_aes_type_t)2U)  /* Security strength: 256 bits */
 
-typedef enum
-{
-    NOXTLS_ENTROPY_SOURCE_AUTO = 0,
-    NOXTLS_ENTROPY_SOURCE_WINDOWS_CSPRNG = 1,
-    NOXTLS_ENTROPY_SOURCE_UNIX_URANDOM = 2,
-    NOXTLS_ENTROPY_SOURCE_CUSTOM = 3,
-    NOXTLS_ENTROPY_SOURCE_DUMMY = 4,
-} noxtls_entropy_source_t;
+typedef uint32_t noxtls_entropy_source_t;
+#define NOXTLS_ENTROPY_SOURCE_AUTO            ((noxtls_entropy_source_t)0U)
+#define NOXTLS_ENTROPY_SOURCE_WINDOWS_CSPRNG  ((noxtls_entropy_source_t)1U)
+#define NOXTLS_ENTROPY_SOURCE_UNIX_URANDOM    ((noxtls_entropy_source_t)2U)
+#define NOXTLS_ENTROPY_SOURCE_CUSTOM          ((noxtls_entropy_source_t)3U)
+#define NOXTLS_ENTROPY_SOURCE_DUMMY           ((noxtls_entropy_source_t)4U)
 
-typedef noxtls_return_t (*noxtls_entropy_cb_t)(uint8_t *entropy_buffer, uint32_t entropy_len);
+typedef noxtls_return_t (*noxtls_entropy_cb_t)(uint8_t *entropy_cb_out, uint32_t entropy_cb_out_len);
 
 typedef struct
 {
@@ -91,7 +87,21 @@ typedef struct
  * @param entropy_len Required entropy length in bytes
  * @return noxtls_return_t NOXTLS_RETURN_SUCCESS on success
  */
-noxtls_return_t noxtls_drbg_get_entropy(uint8_t *entropy_buffer, uint32_t entropy_len);
+noxtls_return_t noxtls_drbg_get_entropy(uint8_t *entropy_out, uint32_t entropy_out_len);
+
+/**
+ * @brief Optional platform hook: fill a buffer from a hardware entropy source.
+ *
+ * Implemented by the selected accelerator port when NOXTLS_PORT_ENTROPY_ACCEL is
+ * set (common/noxtls_accel_port.h); used by NOXTLS_ENTROPY_SOURCE_AUTO before
+ * the operating-system sources.
+ *
+ * @param[out] entropy_buffer Destination.
+ * @param[in]  entropy_len    Bytes.
+ *
+ * @return NOXTLS_RETURN_SUCCESS, or NOXTLS_RETURN_NOT_SUPPORTED when the hardware cannot serve the request.
+ */
+noxtls_return_t noxtls_drbg_entropy_accel_port(uint8_t *entropy_buffer, uint32_t entropy_len);
 
 void noxtls_drbg_set_entropy_source(noxtls_entropy_source_t source);
 noxtls_entropy_source_t noxtls_drbg_get_entropy_source(void);
@@ -116,7 +126,7 @@ noxtls_entropy_cb_t noxtls_drbg_get_entropy_callback(void);
 noxtls_return_t drbg_instantiate(drbg_state_t *state,
                                     drbg_aes_type_t aes_type,
                                     const uint8_t *entropy_input,
-                                    uint32_t entropy_len,
+                                    uint32_t entropy_input_len,
                                     const uint8_t *nonce,
                                     uint32_t nonce_len,
                                     const uint8_t *personalization_string,
@@ -154,7 +164,7 @@ noxtls_return_t drbg_generate(drbg_state_t *state,
  */
 noxtls_return_t drbg_reseed(drbg_state_t *state,
                               const uint8_t *entropy_input,
-                              uint32_t entropy_len,
+                              uint32_t entropy_input_len,
                               const uint8_t *additional_input,
                               uint32_t add_input_len);
 
@@ -184,7 +194,6 @@ noxtls_return_t noxtls_drbg_uninstantiate(drbg_state_t *state);
 }
 #endif
 
-#endif /* _NOXTLS_DRBG_H_ */
-
+#endif /* NOXTLS_DRBG_H_ */
 
 /** @} */

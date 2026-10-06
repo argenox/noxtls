@@ -23,8 +23,8 @@
 /** @addtogroup noxtls_mdigest */
 /** @{ */
 
-#ifndef _NOXTLS_SHA_H_
-#define _NOXTLS_SHA_H_
+#ifndef NOXTLS_SHA_H_
+#define NOXTLS_SHA_H_
 
 #include "noxtls_hash.h"
 #include "noxtls_common.h"

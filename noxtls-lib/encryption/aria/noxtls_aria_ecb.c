@@ -22,6 +22,7 @@
 /** @addtogroup noxtls_encryption */
 
 #include <stdint.h>
+#include "common/noxtls_ct.h"
 #include <string.h>
 #include "noxtls_aria.h"
 #include "noxtls_common.h"
@@ -31,6 +32,7 @@
 /**
  * @brief ARIA Encrypt in ECB Mode
  */
+/* Block-indexed ECB walk; extents follow caller data_len / ARIA block size. */
 noxtls_return_t noxtls_aria_encrypt_ecb(const uint8_t* key,
                      const uint8_t* data,
                      uint32_t data_len,
@@ -38,38 +40,48 @@ noxtls_return_t noxtls_aria_encrypt_ecb(const uint8_t* key,
                      uint8_t* output,
                      noxtls_aria_type_t type)
 {
-    uint32_t cur_block = 0;
+    uint32_t cur_block = 0U;
     uint8_t temp_block[NOXTLS_ARIA_BLOCK_LENGTH];
     noxtls_aria_key_t aria_key;
+    const uint32_t block_sz = (uint32_t)NOXTLS_ARIA_BLOCK_LENGTH;
 
     (void)iv;
 
-    if(key == NULL || data == NULL || output == NULL) {
+    if ((key == NULL) || (data == NULL) || (output == NULL)) {
         return NOXTLS_RETURN_NULL;
+    }
+    /* Output is rounded up to a whole block; keep the block loop from wrapping. */
+    if (data_len > (UINT32_MAX - (block_sz - 1U))) {
+        return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
     }
 
     {
         noxtls_return_t r = noxtls_aria_set_encrypt_key(key, type, &aria_key);
-        if(r != NOXTLS_RETURN_SUCCESS) {
+        if (r != NOXTLS_RETURN_SUCCESS) {
             return r;
         }
     }
 
-    for(cur_block = 0; cur_block < data_len; cur_block += NOXTLS_ARIA_BLOCK_LENGTH)
+    for (cur_block = 0U; cur_block < data_len; cur_block += block_sz)
     {
-        uint32_t block_len = (data_len - cur_block < NOXTLS_ARIA_BLOCK_LENGTH) ?
-                             (data_len - cur_block) : NOXTLS_ARIA_BLOCK_LENGTH;
+        uint32_t remain = (uint32_t)(data_len - cur_block);
+        uint32_t block_len = (uint32_t)((remain < block_sz) ? remain : block_sz);
 
-        memcpy(temp_block, data + cur_block, block_len);
+        noxtls_copy_u8(temp_block, sizeof(temp_block), &data[cur_block], (size_t)block_len);
 
         /* Pad if necessary */
-        if(block_len < NOXTLS_ARIA_BLOCK_LENGTH) {
-            uint8_t pad_value = (uint8_t)(NOXTLS_ARIA_BLOCK_LENGTH - block_len);
-            memset(temp_block + block_len, pad_value, pad_value);
+        if (block_len < block_sz) {
+            uint8_t pad_value = (uint8_t)(block_sz - block_len);
+            {
+            uint32_t pi = 0U;
+            for(pi = 0U; pi < (uint32_t)pad_value; pi += 1U) {
+                temp_block[block_len + pi] = (uint8_t)pad_value;
+            }
+        }
         }
 
         /* Encrypt block */
-        noxtls_aria_encrypt_block(&aria_key, temp_block, output + cur_block);
+        (void)noxtls_aria_encrypt_block(&aria_key, temp_block, &output[cur_block]);
     }
 
     return NOXTLS_RETURN_SUCCESS;
@@ -85,38 +97,42 @@ noxtls_return_t noxtls_aria_decrypt_ecb(const uint8_t* key,
                      uint8_t* output,
                      noxtls_aria_type_t type)
 {
-    uint32_t cur_block = 0;
+    uint32_t cur_block = 0U;
     uint8_t temp_block[NOXTLS_ARIA_BLOCK_LENGTH];
     noxtls_aria_key_t aria_key;
+    const uint32_t block_sz = (uint32_t)NOXTLS_ARIA_BLOCK_LENGTH;
 
     (void)iv;
 
-    if(key == NULL || data == NULL || output == NULL) {
+    if ((key == NULL) || (data == NULL) || (output == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
-
-    { noxtls_return_t r = noxtls_aria_set_decrypt_key(key, type, &aria_key);
-        if(r != NOXTLS_RETURN_SUCCESS) {
-            return r;
-        }    
+    if ((data_len % block_sz) != 0U) {
+        return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
     }
 
-    for(cur_block = 0; cur_block < data_len; cur_block += NOXTLS_ARIA_BLOCK_LENGTH)
     {
-        uint32_t block_len = (data_len - cur_block < NOXTLS_ARIA_BLOCK_LENGTH) ?
-                             (data_len - cur_block) : NOXTLS_ARIA_BLOCK_LENGTH;
+        noxtls_return_t r = noxtls_aria_set_decrypt_key(key, type, &aria_key);
+        if (r != NOXTLS_RETURN_SUCCESS) {
+            return r;
+        }
+    }
 
-        if(block_len != NOXTLS_ARIA_BLOCK_LENGTH) {
+    for (cur_block = 0U; cur_block < data_len; cur_block += block_sz)
+    {
+        uint32_t remain = (uint32_t)(data_len - cur_block);
+        uint32_t block_len = (uint32_t)((remain < block_sz) ? remain : block_sz);
+
+        if (block_len != block_sz) {
             return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
         }
 
         /* Decrypt block */
-        noxtls_aria_decrypt_block(&aria_key, data + cur_block, temp_block);
-        memcpy(output + cur_block, temp_block, NOXTLS_ARIA_BLOCK_LENGTH);
+        (void)noxtls_aria_decrypt_block(&aria_key, &data[cur_block], temp_block);
+        noxtls_copy_u8(&output[cur_block], (size_t)block_sz, temp_block, (size_t)block_sz);
     }
 
     return NOXTLS_RETURN_SUCCESS;
 }
 
 #endif /* NOXTLS_FEATURE_ARIA */
-

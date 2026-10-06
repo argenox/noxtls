@@ -25,6 +25,7 @@
 
 #include <string.h>
 #include "noxtls_dtls_common.h"
+#include "noxtls_ct.h"
 
 /**
  * @brief Initialize the DTLS context.
@@ -39,7 +40,7 @@ noxtls_return_t noxtls_dtls_context_init(dtls_context_t *ctx, tls_role_t role, u
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    memset(ctx, 0, sizeof(dtls_context_t));
+    noxtls_secure_zero((ctx), sizeof(dtls_context_t));
     if(noxtls_tls_context_init(&ctx->base, role, version) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -57,7 +58,7 @@ noxtls_return_t noxtls_dtls_context_free(dtls_context_t *ctx)
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    noxtls_tls_context_free(&ctx->base);
-    memset(ctx, 0, sizeof(dtls_context_t));
+    (void)noxtls_tls_context_free(&ctx->base);
+    noxtls_secure_zero((ctx), sizeof(dtls_context_t));
     return NOXTLS_RETURN_SUCCESS;
 }

@@ -20,8 +20,8 @@
 *
 *****************************************************************************/
 
-#ifndef _NOXTLS_MLKEM_H_
-#define _NOXTLS_MLKEM_H_
+#ifndef NOXTLS_MLKEM_H_
+#define NOXTLS_MLKEM_H_
 
 #include <stdint.h>
 #include "noxtls_common.h"
@@ -30,13 +30,12 @@
 extern "C" {
 #endif
 
-typedef enum
-{
-    NOXTLS_MLKEM_NONE = 0,
-    NOXTLS_MLKEM_512 = 1,
-    NOXTLS_MLKEM_768 = 2,
-    NOXTLS_MLKEM_1024 = 3
-} noxtls_mlkem_param_t;
+
+typedef uint32_t noxtls_mlkem_param_t;
+#define NOXTLS_MLKEM_NONE  ((noxtls_mlkem_param_t)0U)
+#define NOXTLS_MLKEM_512   ((noxtls_mlkem_param_t)1U)
+#define NOXTLS_MLKEM_768   ((noxtls_mlkem_param_t)2U)
+#define NOXTLS_MLKEM_1024  ((noxtls_mlkem_param_t)3U)
 
 #define NOXTLS_MLKEM_MAX_PUBLIC_KEY_LEN 1568u
 #define NOXTLS_MLKEM_MAX_SECRET_KEY_LEN 3168u
@@ -71,7 +70,7 @@ typedef struct
     mlkem_poly_t v[MLKEM_MAX_K];
 } mlkem_polyvec_t;
 
-
+#if NOXTLS_FEATURE_ML_KEM
 uint32_t noxtls_mlkem_public_key_len(noxtls_mlkem_param_t param);
 uint32_t noxtls_mlkem_secret_key_len(noxtls_mlkem_param_t param);
 uint32_t noxtls_mlkem_ciphertext_len(noxtls_mlkem_param_t param);
@@ -92,8 +91,10 @@ noxtls_return_t noxtls_mlkem_decaps(noxtls_mlkem_param_t param,
 /* Test-only deterministic hook for vector conformance harnesses. */
 void noxtls_mlkem_set_test_random_sequence(const uint8_t *bytes, uint32_t byte_len);
 
+
+#endif /* NOXTLS_FEATURE_ML_KEM */
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _NOXTLS_MLKEM_H_ */
+#endif /* NOXTLS_MLKEM_H_ */

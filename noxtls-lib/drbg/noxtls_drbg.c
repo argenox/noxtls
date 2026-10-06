@@ -21,15 +21,10 @@
 *****************************************************************************/
 
 #include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-#ifndef NOXTLS_CUSTOM_ENTROPY_ONLY
-#include <time.h>
-#endif
-
 #include "common/noxtls_memory.h"
-#include "common/noxtls_memory_compat.h"
+#include "common/noxtls_accel_port.h"
+#include "common/noxtls_time.h"
 #include "common/noxtls_ct.h"
 #include "noxtls_drbg.h"
 #include "encryption/aes/noxtls_aes.h"
@@ -48,6 +43,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+#include "noxtls_ct.h"
 #endif
 /* On Zephyr, no unistd/fcntl - entropy via noxtls_drbg_set_entropy_callback only */
 
@@ -77,7 +73,7 @@ static BCryptOpenAlgorithmProviderFunc g_BCryptOpenAlgorithmProvider = NULL;
 static BCryptGenRandomFunc g_BCryptGenRandom = NULL;
 static BCryptCloseAlgorithmProviderFunc g_BCryptCloseAlgorithmProvider = NULL;
 static BCRYPT_ALG_HANDLE g_bcrypt_alg_handle = NULL;
-static int g_bcrypt_initialized = 0;
+static uint8_t g_bcrypt_initialized = 0U;
 
 /**
  * @brief Dynamically loads bcrypt.dll and opens the CNG RNG algorithm provider.
@@ -86,15 +82,15 @@ static int g_bcrypt_initialized = 0;
  */
 static int init_bcrypt(void)
 {
-    if(g_bcrypt_initialized) {
+    if (g_bcrypt_initialized != 0U) {
         return (g_bcrypt_alg_handle != NULL) ? 1 : 0;
     }
     
-    g_bcrypt_initialized = 1;
+    g_bcrypt_initialized = 1U;
     
     /* Load bcrypt.dll */
     g_bcrypt_dll = LoadLibraryA("bcrypt.dll");
-    if(g_bcrypt_dll == NULL) {
+    if (g_bcrypt_dll == NULL) {
         return 0;
     }
     
@@ -113,14 +109,14 @@ static int init_bcrypt(void)
     NOXTLS_MSVC_WARNING_POP
 #endif
     
-    if(!g_BCryptOpenAlgorithmProvider || !g_BCryptGenRandom || !g_BCryptCloseAlgorithmProvider) {
+    if ((g_BCryptOpenAlgorithmProvider == NULL) || (g_BCryptGenRandom == NULL) || (g_BCryptCloseAlgorithmProvider == NULL)) {
         FreeLibrary(g_bcrypt_dll);
         g_bcrypt_dll = NULL;
         return 0;
     }
     
     /* Open algorithm provider for RNG */
-    if(g_BCryptOpenAlgorithmProvider(&g_bcrypt_alg_handle, BCRYPT_RNG_ALGORITHM, NULL, 0) != 0) {
+    if (g_BCryptOpenAlgorithmProvider(&g_bcrypt_alg_handle, BCRYPT_RNG_ALGORITHM, NULL, 0) != 0) {
         g_bcrypt_alg_handle = NULL;
         FreeLibrary(g_bcrypt_dll);
         g_bcrypt_dll = NULL;
@@ -133,14 +129,14 @@ static int init_bcrypt(void)
 /**
  * @brief Fills a buffer using Windows CNG `BCryptGenRandom`.
  *
- * @param[out] entropy_buffer Output bytes.
+ * @param[out] entropy_out Output bytes.
  * @param[in]  entropy_len Number of bytes to produce.
  * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_FAILED` if BCrypt is unavailable or the call fails.
  */
-static noxtls_return_t get_entropy_windows_bcrypt(uint8_t *entropy_buffer, uint32_t entropy_len)
+static noxtls_return_t get_entropy_windows_bcrypt(uint8_t *entropy_out, uint32_t entropy_out_len)
 {
-    if(init_bcrypt() && g_bcrypt_alg_handle != NULL && g_BCryptGenRandom != NULL) {
-        if(g_BCryptGenRandom(g_bcrypt_alg_handle, entropy_buffer, entropy_len, 0) == 0) {
+    if ((init_bcrypt()) && (g_bcrypt_alg_handle != NULL) && (g_BCryptGenRandom != NULL)) {
+        if (g_BCryptGenRandom(g_bcrypt_alg_handle, entropy_out, entropy_out_len, 0) == 0) {
             return NOXTLS_RETURN_SUCCESS;
         }
     }
@@ -152,16 +148,16 @@ static noxtls_return_t get_entropy_windows_bcrypt(uint8_t *entropy_buffer, uint3
  *
  * Fallback: Use CryptGenRandom (legacy CryptoAPI)
  *
- * @param[out] entropy_buffer Output bytes.
+ * @param[out] entropy_out Output bytes.
  * @param[in]  entropy_len Number of bytes to produce.
  * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_FAILED` on acquire or generation failure.
  */
-static noxtls_return_t get_entropy_windows_cryptoapi(uint8_t *entropy_buffer, uint32_t entropy_len)
+static noxtls_return_t get_entropy_windows_cryptoapi(uint8_t *entropy_out, uint32_t entropy_out_len)
 {
     HCRYPTPROV hProv = 0;
     
-    if(CryptAcquireContext(&hProv, NULL, NULL, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT | CRYPT_SILENT)) {
-        if(CryptGenRandom(hProv, entropy_len, entropy_buffer)) {
+    if (CryptAcquireContext(&hProv, NULL, NULL, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT | CRYPT_SILENT) != 0) {
+        if (CryptGenRandom(hProv, entropy_out_len, entropy_out) != 0) {
             CryptReleaseContext(hProv, 0);
             return NOXTLS_RETURN_SUCCESS;
         }
@@ -179,17 +175,17 @@ static noxtls_return_t get_entropy_windows_cryptoapi(uint8_t *entropy_buffer, ui
 /**
  * @brief Reads @p entropy_len bytes from `/dev/urandom`.
  *
- * @param[out] entropy_buffer Output bytes.
+ * @param[out] entropy_out Output bytes.
  * @param[in]  entropy_len Number of bytes to read.
  * @return `NOXTLS_RETURN_SUCCESS` if a full read succeeds; `NOXTLS_RETURN_FAILED` otherwise.
  */
-static noxtls_return_t get_entropy_unix(uint8_t *entropy_buffer, uint32_t entropy_len)
+static noxtls_return_t get_entropy_unix(uint8_t *entropy_out, uint32_t entropy_out_len)
 {
     int fd = open("/dev/urandom", O_RDONLY);
-    if(fd >= 0) {
-        ssize_t bytes_read = read(fd, entropy_buffer, entropy_len);
-        close(fd);
-        if((size_t)bytes_read == entropy_len) {
+    if (fd >= 0) {
+        ssize_t bytes_read = read(fd, entropy_out, entropy_out_len);
+        (void)close(fd);
+        if ((size_t)bytes_read == entropy_out_len) {
             return NOXTLS_RETURN_SUCCESS;
         }
     }
@@ -199,7 +195,6 @@ static noxtls_return_t get_entropy_unix(uint8_t *entropy_buffer, uint32_t entrop
 
 /* Dummy entropy source - generates deterministic but varying data */
 #ifndef NOXTLS_CUSTOM_ENTROPY_ONLY
-static uint32_t dummy_entropy_counter = 0;
 #endif
 static noxtls_entropy_source_t g_entropy_source = NOXTLS_ENTROPY_SOURCE_AUTO;
 static noxtls_entropy_cb_t g_entropy_cb = NULL;
@@ -210,12 +205,12 @@ static noxtls_entropy_cb_t g_entropy_cb = NULL;
  * @param[in,out] counter Counter to increment.
  * @return None.
  */
-static void drbg_increment_counter_be(uint8_t counter[DRBG_BLOCKLEN])
+static void drbg_increment_counter_be(uint8_t *counter)
 {
-    uint32_t idx;
-    for(idx = DRBG_BLOCKLEN; idx > 0U; idx--) {
-        counter[idx - 1U]++;
-        if(counter[idx - 1U] != 0U) {
+    uint32_t idx = 0U;
+    for (idx = DRBG_BLOCKLEN; idx > 0U; idx -= 1U) {
+        counter[idx - 1U] = (uint8_t)(counter[idx - 1U] + 1U);
+        if (counter[idx - 1U] != 0U) {
             break;
         }
     }
@@ -233,25 +228,28 @@ static void drbg_increment_counter_be(uint8_t counter[DRBG_BLOCKLEN])
  * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_FAILED` otherwise.
  */
 static noxtls_return_t drbg_generate_keystream_blocks(const uint8_t *key,
-                                                      uint8_t counter[DRBG_BLOCKLEN],
+                                                      uint8_t *counter,
                                                       uint8_t *output,
                                                       uint32_t block_count,
                                                       noxtls_aes_type_t aes_type)
 {
-    enum { DRBG_PORT_AES_BATCH_BLOCKS = 16 };
-    uint8_t ctr_blocks[DRBG_PORT_AES_BATCH_BLOCKS * DRBG_BLOCKLEN];
-    uint8_t ks_blocks[DRBG_PORT_AES_BATCH_BLOCKS * DRBG_BLOCKLEN];
-    uint32_t remaining = block_count;
+    enum { DRBG_PORT_AES_BATCH_BLOCKS = 16 }; /* sized arrays: keep ICE */
+    uint8_t ctr_blocks[16U * DRBG_BLOCKLEN];
+    uint8_t ks_blocks[16U * DRBG_BLOCKLEN];
+    uint8_t batch_counter[DRBG_BLOCKLEN];
+    uint32_t remaining = (uint32_t)(block_count);
+    uint8_t *out_ptr = output;
 
-    while(remaining > 0U) {
-        uint32_t chunk_blocks = (remaining > DRBG_PORT_AES_BATCH_BLOCKS) ?
-                                DRBG_PORT_AES_BATCH_BLOCKS : remaining;
-        uint32_t b;
-        noxtls_return_t rc;
+    while (remaining > 0U) {
+        uint32_t chunk_blocks = (remaining > (uint32_t)DRBG_PORT_AES_BATCH_BLOCKS) ?
+                                (uint32_t)DRBG_PORT_AES_BATCH_BLOCKS : remaining;
+        uint32_t b = 0U;
+        noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-        for(b = 0U; b < chunk_blocks; b++) {
-            memcpy(ctr_blocks + ((size_t)b * DRBG_BLOCKLEN), counter, DRBG_BLOCKLEN);
-            drbg_increment_counter_be(counter);
+        noxtls_copy_u8(batch_counter, sizeof(batch_counter), counter, (size_t)DRBG_BLOCKLEN);
+        for (b = 0U; b < chunk_blocks; b += 1U) {
+            noxtls_copy_u8(&ctr_blocks[((size_t)b * DRBG_BLOCKLEN)], (size_t)DRBG_BLOCKLEN, counter, (size_t)DRBG_BLOCKLEN);
+            (void)drbg_increment_counter_be(counter);
         }
 
         rc = noxtls_aes_accel_port_encrypt_blocks(key,
@@ -259,29 +257,39 @@ static noxtls_return_t drbg_generate_keystream_blocks(const uint8_t *key,
                                                   ks_blocks,
                                                   chunk_blocks,
                                                   aes_type);
-        if(rc == NOXTLS_RETURN_SUCCESS) {
-            memcpy(output, ks_blocks, (size_t)chunk_blocks * DRBG_BLOCKLEN);
-            output += (size_t)chunk_blocks * DRBG_BLOCKLEN;
+        if (rc == NOXTLS_RETURN_SUCCESS) {
+            noxtls_copy_u8(out_ptr, (size_t)chunk_blocks * (size_t)DRBG_BLOCKLEN, ks_blocks, (size_t)chunk_blocks * (size_t)DRBG_BLOCKLEN);
+            out_ptr = &out_ptr[(size_t)chunk_blocks * DRBG_BLOCKLEN];
             remaining -= chunk_blocks;
             continue;
         }
 
+        if (rc != NOXTLS_RETURN_NOT_SUPPORTED) {
+            noxtls_secure_zero(output, (size_t)block_count * DRBG_BLOCKLEN);
+            noxtls_secure_zero(ks_blocks, sizeof(ks_blocks));
+            return rc;
+        }
+
+        /* Only this unprocessed batch may fall back. Restore its first counter. */
+        noxtls_copy_u8(counter, (size_t)DRBG_BLOCKLEN, batch_counter, sizeof(batch_counter));
+        noxtls_secure_zero(ks_blocks, sizeof(ks_blocks));
         break;
     }
 
-    if(remaining == 0U) {
+    if (remaining == 0U) {
         return NOXTLS_RETURN_SUCCESS;
     }
 
-    uint32_t block;
+    uint32_t block = 0U;
 
-    for(block = 0U; block < remaining; block++) {
-        noxtls_return_t rc = noxtls_aes_encrypt_block_internal(key, counter, output, aes_type);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
+    for (block = 0U; block < remaining; block += 1U) {
+        noxtls_return_t rc = noxtls_aes_encrypt_block_internal(key, counter, out_ptr, aes_type);
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_secure_zero(output, (size_t)block_count * DRBG_BLOCKLEN);
             return rc;
         }
-        output += DRBG_BLOCKLEN;
-        drbg_increment_counter_be(counter);
+        out_ptr = &out_ptr[DRBG_BLOCKLEN];
+        (void)drbg_increment_counter_be(counter);
     }
 
     return NOXTLS_RETURN_SUCCESS;
@@ -333,19 +341,22 @@ noxtls_entropy_cb_t noxtls_drbg_get_entropy_callback(void)
 /**
  * @brief Deterministic fallback entropy (not cryptographic); used when platform entropy is unavailable.
  *
- * @param[out] entropy_buffer Output bytes.
+ * @param[out] entropy_out Output bytes.
  * @param[in]  entropy_len Number of bytes to fill.
  *
  * @return Always `NOXTLS_RETURN_SUCCESS`.
  */
 #ifndef NOXTLS_CUSTOM_ENTROPY_ONLY
-static noxtls_return_t drbg_entropy_dummy(uint8_t *entropy_buffer, uint32_t entropy_len)
+static noxtls_return_t drbg_entropy_dummy(uint8_t *entropy_out, uint32_t entropy_out_len)
 {
-    uint64_t time_seed = (uint64_t)time(NULL);
-    for(uint32_t i = 0; i < entropy_len; i++) {
-        entropy_buffer[i] = (uint8_t)((dummy_entropy_counter + i + (uint32_t)time_seed) & DRBG_DUMMY_ENTROPY_MASK);
-        dummy_entropy_counter++;
-        if(i % DRBG_DUMMY_ENTROPY_STEP == 0) {
+    /* dummy entropy counter (Rule 8.9). */
+    static uint32_t dummy_entropy_counter = 0U;
+
+    uint64_t time_seed = (uint64_t)noxtls_time_unix_seconds();
+    for (uint32_t i = 0U; i < entropy_out_len; i += 1U) {
+        entropy_out[i] = (uint8_t)((dummy_entropy_counter + i + (uint32_t)time_seed) & DRBG_DUMMY_ENTROPY_MASK);
+        dummy_entropy_counter += 1U;
+        if ((i % DRBG_DUMMY_ENTROPY_STEP) == 0U) {
             time_seed = (time_seed * DRBG_DUMMY_ENTROPY_LCG_MULTIPLIER) + DRBG_DUMMY_ENTROPY_LCG_INCREMENT;
         }
     }
@@ -356,14 +367,14 @@ static noxtls_return_t drbg_entropy_dummy(uint8_t *entropy_buffer, uint32_t entr
 /**
  * @brief Fills @p entropy_len bytes using the configured entropy source and fallbacks.
  *
- * @param[out] entropy_buffer Caller buffer; must not be NULL.
+ * @param[out] entropy_out Caller buffer; must not be NULL.
  * @param[in]  entropy_len Number of bytes to produce.
  *
- * @return `NOXTLS_RETURN_SUCCESS` when bytes are written; `NOXTLS_RETURN_NULL` if @p entropy_buffer is NULL.
+ * @return `NOXTLS_RETURN_SUCCESS` when bytes are written; `NOXTLS_RETURN_NULL` if @p entropy_out is NULL.
  */
-noxtls_return_t noxtls_drbg_get_entropy(uint8_t *entropy_buffer, uint32_t entropy_len)
+noxtls_return_t noxtls_drbg_get_entropy(uint8_t *entropy_out, uint32_t entropy_out_len)
 {
-    if(entropy_buffer == NULL) {
+    if (entropy_out == NULL) {
         return NOXTLS_RETURN_NULL;
     }
     /*
@@ -373,32 +384,32 @@ noxtls_return_t noxtls_drbg_get_entropy(uint8_t *entropy_buffer, uint32_t entrop
      * other source that cannot produce real entropy returns failure so that key
      * and nonce generation aborts instead of silently using guessable bytes.
      */
-    switch(g_entropy_source) {
+    switch (g_entropy_source) {
         case NOXTLS_ENTROPY_SOURCE_CUSTOM:
-            if(g_entropy_cb) {
-                if(g_entropy_cb(entropy_buffer, entropy_len) == NOXTLS_RETURN_SUCCESS) {
+            if (g_entropy_cb != NULL) {
+                if (g_entropy_cb(entropy_out, entropy_out_len) == NOXTLS_RETURN_SUCCESS) {
                     return NOXTLS_RETURN_SUCCESS;
                 }
             }
             return NOXTLS_RETURN_FAILED;
         case NOXTLS_ENTROPY_SOURCE_WINDOWS_CSPRNG:
 #if defined(_WIN32) || defined(_WIN64)
-            if(get_entropy_windows_bcrypt(entropy_buffer, entropy_len) == NOXTLS_RETURN_SUCCESS) {
+            if (get_entropy_windows_bcrypt(entropy_out, entropy_out_len) == NOXTLS_RETURN_SUCCESS) {
                 return NOXTLS_RETURN_SUCCESS;
             }
-            if(get_entropy_windows_cryptoapi(entropy_buffer, entropy_len) == NOXTLS_RETURN_SUCCESS) {
+            if (get_entropy_windows_cryptoapi(entropy_out, entropy_out_len) == NOXTLS_RETURN_SUCCESS) {
                 return NOXTLS_RETURN_SUCCESS;
             }
 #endif
             return NOXTLS_RETURN_FAILED;
         case NOXTLS_ENTROPY_SOURCE_UNIX_URANDOM:
 #if defined(__ZEPHYR__) || defined(NOXTLS_CUSTOM_ENTROPY_ONLY)
-            if(g_entropy_cb && g_entropy_cb(entropy_buffer, entropy_len) == NOXTLS_RETURN_SUCCESS) {
+            if ((g_entropy_cb) && (g_entropy_cb(entropy_out, entropy_out_len) == NOXTLS_RETURN_SUCCESS)) {
                 return NOXTLS_RETURN_SUCCESS;
             }
             return NOXTLS_RETURN_FAILED;
 #elif !(defined(_WIN32) || defined(_WIN64))
-            if(get_entropy_unix(entropy_buffer, entropy_len) == NOXTLS_RETURN_SUCCESS) {
+            if (get_entropy_unix(entropy_out, entropy_out_len) == NOXTLS_RETURN_SUCCESS) {
                 return NOXTLS_RETURN_SUCCESS;
             }
             return NOXTLS_RETURN_FAILED;
@@ -406,28 +417,34 @@ noxtls_return_t noxtls_drbg_get_entropy(uint8_t *entropy_buffer, uint32_t entrop
             return NOXTLS_RETURN_FAILED;
 #endif
         case NOXTLS_ENTROPY_SOURCE_DUMMY:
-#ifdef NOXTLS_CUSTOM_ENTROPY_ONLY
+#if defined(NOXTLS_CUSTOM_ENTROPY_ONLY)
             return NOXTLS_RETURN_FAILED;
 #else
-            return drbg_entropy_dummy(entropy_buffer, entropy_len);
+            return drbg_entropy_dummy(entropy_out, entropy_out_len);
 #endif
         case NOXTLS_ENTROPY_SOURCE_AUTO:
         default:
+#if NOXTLS_PORT_ENTROPY_ACCEL
+            /* Platform hardware entropy source first (for example a TRNG). */
+            if(noxtls_drbg_entropy_accel_port(entropy_out, entropy_out_len) == NOXTLS_RETURN_SUCCESS) {
+                return NOXTLS_RETURN_SUCCESS;
+            }
+#endif
 #if defined(__ZEPHYR__) || defined(NOXTLS_CUSTOM_ENTROPY_ONLY)
-            if(g_entropy_cb && g_entropy_cb(entropy_buffer, entropy_len) == NOXTLS_RETURN_SUCCESS) {
+            if ((g_entropy_cb) && (g_entropy_cb(entropy_out, entropy_out_len) == NOXTLS_RETURN_SUCCESS)) {
                 return NOXTLS_RETURN_SUCCESS;
             }
             return NOXTLS_RETURN_FAILED;
 #elif defined(_WIN32) || defined(_WIN64)
-            if(get_entropy_windows_bcrypt(entropy_buffer, entropy_len) == NOXTLS_RETURN_SUCCESS) {
+            if (get_entropy_windows_bcrypt(entropy_out, entropy_out_len) == NOXTLS_RETURN_SUCCESS) {
                 return NOXTLS_RETURN_SUCCESS;
             }
-            if(get_entropy_windows_cryptoapi(entropy_buffer, entropy_len) == NOXTLS_RETURN_SUCCESS) {
+            if (get_entropy_windows_cryptoapi(entropy_out, entropy_out_len) == NOXTLS_RETURN_SUCCESS) {
                 return NOXTLS_RETURN_SUCCESS;
             }
             return NOXTLS_RETURN_FAILED;
 #else
-            if(get_entropy_unix(entropy_buffer, entropy_len) == NOXTLS_RETURN_SUCCESS) {
+            if (get_entropy_unix(entropy_out, entropy_out_len) == NOXTLS_RETURN_SUCCESS) {
                 return NOXTLS_RETURN_SUCCESS;
             }
             return NOXTLS_RETURN_FAILED;
@@ -451,19 +468,19 @@ noxtls_return_t drbg_update(drbg_state_t *state,
     uint8_t temp[DRBG_SEEDLEN_AES256];  /* Maximum seed length */
     uint8_t block[DRBG_BLOCKLEN];
     uint8_t keystream[DRBG_BLOCKLEN];
-    uint32_t i;
-    uint32_t j;
-    uint32_t seedlen;
+    uint32_t i = 0U;
+    uint32_t j = 0U;
+    uint32_t seedlen = 0U;
     noxtls_aes_type_t aes_type;
     
-    if(state == NULL) {
+    if (state == NULL) {
         return NOXTLS_RETURN_NULL;
     }
     
     seedlen = state->seedlen;
     
     /* Convert DRBG AES type to AES type */
-    switch(state->aes_type) {
+    switch (state->aes_type) {
         case DRBG_AES128:
             aes_type = NOXTLS_AES_128_BIT;
             break;
@@ -478,16 +495,16 @@ noxtls_return_t drbg_update(drbg_state_t *state,
     }
     
     /* Initialize temp with provided_data */
-    memset(temp, 0, seedlen);
-    if(provided_data != NULL && provided_data_len > 0) {
-        uint32_t copy_len = (provided_data_len < seedlen) ? provided_data_len : seedlen;
-        memcpy(temp, provided_data, copy_len);
+    noxtls_secure_zero((temp), (size_t)(seedlen));
+    if ((provided_data != NULL) && (provided_data_len > 0U)) {
+        uint32_t copy_len = (uint32_t)((provided_data_len < seedlen) ? provided_data_len : seedlen);
+        noxtls_copy_u8(temp, (size_t)copy_len, provided_data, (size_t)copy_len);
     }
     
-    /* Step 1: temp = temp XOR (V || 0x00...0x00) */
+    /* Step 1: temp = temp XOR (V ||0x00U...0x00) */
     /* Concatenate V with zeros to fill seedlen */
-    for(i = 0; i < seedlen; i++) {
-        if(i < DRBG_BLOCKLEN) {
+    for (i = 0U; i < seedlen; i += 1U) {
+        if (i < DRBG_BLOCKLEN) {
             temp[i] ^= state->V[i];
         }
     }
@@ -495,34 +512,36 @@ noxtls_return_t drbg_update(drbg_state_t *state,
     /* Step 2: Key = df(Key || temp, keylen) */
     /* df (derivation function) using AES-CTR */
     /* For simplicity, we use AES-CTR to generate keylen bytes */
-    memcpy(block, state->V, DRBG_BLOCKLEN);
+    noxtls_copy_u8(block, (size_t)DRBG_BLOCKLEN, state->V, (size_t)DRBG_BLOCKLEN);
     
     /* Encrypt counter blocks to generate new key material */
-    for(i = 0; i < state->keylen; i += DRBG_BLOCKLEN) {
-        uint32_t block_len = (state->keylen - i < DRBG_BLOCKLEN) ? 
+    for(i = 0U; i < state->keylen; i += DRBG_BLOCKLEN) {
+        uint32_t block_len = ((state->keylen - i) < DRBG_BLOCKLEN) ? 
                              (state->keylen - i) : DRBG_BLOCKLEN;
         
-        noxtls_aes_encrypt_block_internal(state->Key, block, keystream, aes_type);
+        NOXTLS_AES_CHECK(noxtls_aes_encrypt_block_internal(state->Key, block, keystream, aes_type), state, sizeof(*state), temp, sizeof(temp));
         
         /* XOR with temp data */
-        for(j = 0; j < block_len; j++) {
+        for (j = 0U; j < block_len; j += 1U) {
             state->Key[i + j] = keystream[j] ^ temp[i + j];
         }
         
         /* Increment counter (big-endian) */
-        for(j = DRBG_BLOCKLEN - 1; ; j--) {
-            block[j]++;
-            if(block[j] != 0 || j == 0) { break; }
+        for (j = DRBG_BLOCKLEN - 1U; ; j -= 1U) {
+            block[j] = (uint8_t)(block[j] + 1U);
+            if ((block[j] != 0U) || (j == 0U)) {
+                break;
+            }
         }
     }
     
     /* Step 3: V = df(Key || V, blocklen) */
     /* Generate new V using AES-CTR */
-    memcpy(block, state->V, DRBG_BLOCKLEN);
-    noxtls_aes_encrypt_block_internal(state->Key, block, state->V, aes_type);
+    noxtls_copy_u8(block, (size_t)DRBG_BLOCKLEN, state->V, (size_t)DRBG_BLOCKLEN);
+    NOXTLS_AES_CHECK(noxtls_aes_encrypt_block_internal(state->Key, block, state->V, aes_type), state, sizeof(*state), temp, sizeof(temp));
     
     /* XOR with temp data */
-    for(i = 0; i < DRBG_BLOCKLEN; i++) {
+    for (i = 0U; i < DRBG_BLOCKLEN; i += 1U) {
         state->V[i] ^= temp[i];
     }
     
@@ -546,7 +565,7 @@ noxtls_return_t drbg_update(drbg_state_t *state,
 noxtls_return_t drbg_instantiate(drbg_state_t *state,
                                     drbg_aes_type_t aes_type,
                                     const uint8_t *entropy_input,
-                                    uint32_t entropy_len,
+                                    uint32_t entropy_input_len,
                                     const uint8_t *nonce,
                                     uint32_t nonce_len,
                                     const uint8_t *personalization_string,
@@ -554,20 +573,20 @@ noxtls_return_t drbg_instantiate(drbg_state_t *state,
 {
     uint8_t seed_material[DRBG_SEEDLEN_AES256];
     uint8_t entropy[DRBG_SEEDLEN_AES256];
-    uint32_t seedlen;
-    uint32_t keylen;
-    uint32_t i;
+    uint32_t seedlen = 0U;
+    uint32_t keylen = 0U;
+    uint32_t i = 0U;
     
-    if(state == NULL) {
+    if (state == NULL) {
         return NOXTLS_RETURN_NULL;
     }
     
     /* Initialize state structure */
-    memset(state, 0, sizeof(drbg_state_t));
+    noxtls_secure_zero((state), sizeof(drbg_state_t));
     state->aes_type = aes_type;
     
     /* Set seed and key lengths based on AES type */
-    switch(aes_type) {
+    switch (aes_type) {
         case DRBG_AES128:
             seedlen = DRBG_SEEDLEN_AES128;
             keylen = DRBG_KEYLEN_AES128;
@@ -588,14 +607,14 @@ noxtls_return_t drbg_instantiate(drbg_state_t *state,
     state->keylen = keylen;
     
     /* Get entropy input */
-    if(entropy_input == NULL || entropy_len < seedlen) {
+    if ((entropy_input == NULL) || (entropy_input_len < seedlen)) {
         /* Use dummy entropy source */
-        if(noxtls_drbg_get_entropy(entropy, seedlen) != NOXTLS_RETURN_SUCCESS) {
+        if (noxtls_drbg_get_entropy(entropy, seedlen) != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_FAILED;
         }
-        /* entropy_len is input-only; seedlen drives local buffer sizing */
+        /* entropy_input_len is input-only; seedlen drives local buffer sizing */
     } else {
-        memcpy(entropy, entropy_input, seedlen);
+        noxtls_copy_u8(entropy, sizeof(entropy), entropy_input, (size_t)(seedlen));
     }
     
     /*
@@ -605,31 +624,29 @@ noxtls_return_t drbg_instantiate(drbg_state_t *state,
      * XOR-folding (wrapping over seedlen) ensures both inputs actually contribute and can
      * never reduce the entropy of the seed.
      */
-    memcpy(seed_material, entropy, seedlen);
+    noxtls_copy_u8(seed_material, sizeof(seed_material), entropy, (size_t)(seedlen));
 
-    if(nonce != NULL && nonce_len > 0) {
-        for(i = 0; i < nonce_len; i++) {
+    if ((nonce != NULL) && (nonce_len > 0U)) {
+        for (i = 0U; i < nonce_len; i += 1U) {
             seed_material[i % seedlen] ^= nonce[i];
         }
     }
 
-    if(personalization_string != NULL && pers_len > 0) {
-        for(i = 0; i < pers_len; i++) {
+    if ((personalization_string != NULL) && (pers_len > 0U)) {
+        for (i = 0U; i < pers_len; i += 1U) {
             seed_material[i % seedlen] ^= personalization_string[i];
         }
     }
     
     /* Initialize Key and V to zero */
-    memset(state->Key, 0, DRBG_KEYLEN_AES256);
-    memset(state->V, 0, DRBG_BLOCKLEN);
+    noxtls_secure_zero((state->Key), (size_t)(DRBG_KEYLEN_AES256));
+    noxtls_secure_zero((state->V), (size_t)(DRBG_BLOCKLEN));
     
     /* Update state with seed material */
-    if(drbg_update(state, seed_material, seedlen) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
-    }
+    NOXTLS_AES_CHECK(drbg_update(state, seed_material, seedlen), seed_material, sizeof(seed_material), state, sizeof(*state));
     
     /* Initialize reseed counter */
-    state->reseed_counter = 1;
+    state->reseed_counter = 1U;
     state->instantiated = 1;
     
     return NOXTLS_RETURN_SUCCESS;
@@ -652,34 +669,34 @@ noxtls_return_t drbg_generate(drbg_state_t *state,
 {
     uint8_t block[DRBG_BLOCKLEN];
     uint8_t keystream[DRBG_BLOCKLEN];
-    uint32_t requested_bytes;
-    uint32_t full_blocks;
-    uint32_t tail_bytes;
+    uint32_t requested_bytes = 0U;
+    uint32_t full_blocks = 0U;
+    uint32_t tail_bytes = 0U;
     noxtls_aes_type_t aes_type;
     
-    if(state == NULL || output_buffer == NULL) {
+    if ((state == NULL) || (output_buffer == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
     
-    if(!state->instantiated) {
+    if (state->instantiated == 0) {
         return NOXTLS_RETURN_FAILED;
     }
     
     /* Check reseed requirement */
-    if(state->reseed_counter > DRBG_RESEED_INTERVAL) {
+    if (state->reseed_counter > DRBG_RESEED_INTERVAL) {
         return NOXTLS_RETURN_FAILED;  /* Reseed required */
     }
     
     /* Check maximum request size */
-    if(requested_bits > DRBG_MAX_BITS_PER_REQUEST) {
+    if (requested_bits > DRBG_MAX_BITS_PER_REQUEST) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
     
     /* Convert bits to bytes (round up) */
-    requested_bytes = (requested_bits + 7) >> 3;
+    requested_bytes = (requested_bits + 7U) >> 3U;
     
     /* Convert DRBG AES type to AES type */
-    switch(state->aes_type) {
+    switch (state->aes_type) {
         case DRBG_AES128:
             aes_type = NOXTLS_AES_128_BIT;
             break;
@@ -694,48 +711,50 @@ noxtls_return_t drbg_generate(drbg_state_t *state,
     }
     
     /* Step 1: If additional_input is provided, update state */
-    if(additional_input != NULL && add_input_len > 0) {
-        if(drbg_update(state, additional_input, add_input_len) != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
-        }
+    if ((additional_input != NULL) && (add_input_len > 0U)) {
+        NOXTLS_AES_CHECK(drbg_update(state, additional_input, add_input_len), output_buffer, requested_bytes, state, sizeof(*state));
     }
     
     /* Step 2: Generate output using AES-CTR */
-    memcpy(block, state->V, DRBG_BLOCKLEN);
+    noxtls_copy_u8(block, (size_t)DRBG_BLOCKLEN, state->V, (size_t)DRBG_BLOCKLEN);
 
     full_blocks = requested_bytes / DRBG_BLOCKLEN;
     tail_bytes = requested_bytes % DRBG_BLOCKLEN;
 
-    if(full_blocks > 0U) {
-        if(drbg_generate_keystream_blocks(state->Key,
+    if (full_blocks > 0U) {
+        NOXTLS_AES_CHECK(drbg_generate_keystream_blocks(state->Key,
                                           block,
                                           output_buffer,
                                           full_blocks,
-                                          aes_type) != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
-        }
+                                          aes_type), output_buffer, requested_bytes, state, sizeof(*state));
     }
 
-    if(tail_bytes > 0U) {
-        if(noxtls_aes_encrypt_block_internal(state->Key, block, keystream, aes_type) != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
-        }
-        memcpy(output_buffer + ((size_t)full_blocks * DRBG_BLOCKLEN), keystream, tail_bytes);
-        drbg_increment_counter_be(block);
+    if (tail_bytes > 0U) {
+        NOXTLS_AES_CHECK(noxtls_aes_encrypt_block_internal(state->Key, block, keystream, aes_type), output_buffer, requested_bytes, state, sizeof(*state));
+        noxtls_copy_u8(&output_buffer[((size_t)full_blocks * DRBG_BLOCKLEN)], (size_t)tail_bytes, keystream, (size_t)tail_bytes);
+        (void)drbg_increment_counter_be(block);
     }
     
     /* Step 3: Update state */
-    if(drbg_update(state, additional_input, add_input_len) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
-    }
+    NOXTLS_AES_CHECK(drbg_update(state, additional_input, add_input_len), output_buffer, requested_bytes, state, sizeof(*state));
     
     /* Step 4: Increment reseed counter */
-    state->reseed_counter++;
+    state->reseed_counter += 1U;
     
     /* Step 5: Truncate output if requested_bits is not a multiple of 8 */
-    if((requested_bits & 7U) != 0U) {
-        uint8_t mask = (uint8_t)((1U << (requested_bits & 7U)) - 1U);
-        output_buffer[requested_bytes - 1] &= mask;
+    if ((requested_bits & 7U) != 0U) {
+        uint8_t mask = 0U;
+        switch(requested_bits & 7U) {
+        case 1U: mask = 0x01U; break;
+        case 2U: mask = 0x03U; break;
+        case 3U: mask = 0x07U; break;
+        case 4U: mask = 0x0FU; break;
+        case 5U: mask = 0x1FU; break;
+        case 6U: mask = 0x3FU; break;
+        case 7U: mask = 0x7FU; break;
+        default: mask = 0x00U; break;
+        }
+        output_buffer[requested_bytes - 1U] &= mask;
     }
     
     return NOXTLS_RETURN_SUCCESS;
@@ -754,52 +773,50 @@ noxtls_return_t drbg_generate(drbg_state_t *state,
  */
 noxtls_return_t drbg_reseed(drbg_state_t *state,
                               const uint8_t *entropy_input,
-                              uint32_t entropy_len,
+                              uint32_t entropy_input_len,
                               const uint8_t *additional_input,
                               uint32_t add_input_len)
 {
     uint8_t seed_material[DRBG_SEEDLEN_AES256];
     uint8_t entropy[DRBG_SEEDLEN_AES256];
-    uint32_t seedlen;
-    uint32_t i;
+    uint32_t seedlen = 0U;
+    uint32_t i = 0U;
     
-    if(state == NULL) {
+    if (state == NULL) {
         return NOXTLS_RETURN_NULL;
     }
     
-    if(!state->instantiated) {
+    if (state->instantiated == 0) {
         return NOXTLS_RETURN_FAILED;
     }
     
     seedlen = state->seedlen;
     
     /* Get entropy input */
-    if(entropy_input == NULL || entropy_len < seedlen) {
+    if ((entropy_input == NULL) || (entropy_input_len < seedlen)) {
         /* Use dummy entropy source */
-        if(noxtls_drbg_get_entropy(entropy, seedlen) != NOXTLS_RETURN_SUCCESS) {
+        if (noxtls_drbg_get_entropy(entropy, seedlen) != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_FAILED;
         }
-        /* entropy_len is input-only; seedlen drives local buffer sizing */
+        /* entropy_input_len is input-only; seedlen drives local buffer sizing */
     } else {
-        memcpy(entropy, entropy_input, seedlen);
+        noxtls_copy_u8(entropy, sizeof(entropy), entropy_input, (size_t)(seedlen));
     }
     
     /* SECURITY (NX-05): XOR-fold additional_input into the entropy (see drbg_instantiate). */
-    memcpy(seed_material, entropy, seedlen);
+    noxtls_copy_u8(seed_material, sizeof(seed_material), entropy, (size_t)(seedlen));
 
-    if(additional_input != NULL && add_input_len > 0) {
-        for(i = 0; i < add_input_len; i++) {
+    if ((additional_input != NULL) && (add_input_len > 0U)) {
+        for (i = 0U; i < add_input_len; i += 1U) {
             seed_material[i % seedlen] ^= additional_input[i];
         }
     }
     
     /* Update state with seed material */
-    if(drbg_update(state, seed_material, seedlen) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
-    }
+    NOXTLS_AES_CHECK(drbg_update(state, seed_material, seedlen), seed_material, sizeof(seed_material), state, sizeof(*state));
     
     /* Reset reseed counter */
-    state->reseed_counter = 1;
+    state->reseed_counter = 1U;
     
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -813,13 +830,13 @@ noxtls_return_t drbg_reseed(drbg_state_t *state,
  */
 noxtls_return_t noxtls_drbg_uninstantiate(drbg_state_t *state)
 {
-    if(state == NULL) {
+    if (state == NULL) {
         return NOXTLS_RETURN_NULL;
     }
     
     /* SECURITY (NX-10): securely wipe DRBG secret state (Key/V) so it cannot be
      * recovered from freed/stack memory; plain memset may be optimized away. */
-    noxtls_secure_zero(state, sizeof(drbg_state_t));
+    (void)noxtls_secure_zero(state, sizeof(drbg_state_t));
     
     return NOXTLS_RETURN_SUCCESS;
 }

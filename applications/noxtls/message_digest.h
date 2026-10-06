@@ -18,17 +18,17 @@
 *
 */
 
-#ifndef _MESSAGE_DIGEST_H_
-#define _MESSAGE_DIGEST_H_
+#ifndef MESSAGE_DIGEST_H_
+#define MESSAGE_DIGEST_H_
 
 /* Standard Includes */
 #include <stdint.h>
 #include <stdio.h>
 
 typedef struct {
-    char algo[32];
+    uint8_t algo[32];
     int (*handler)(uint8_t * data, uint32_t len);
-    char description[256];
+    uint8_t description[256];
 
 } message_digest_handlers_t;
 
@@ -38,7 +38,7 @@ typedef enum {
     INPUT_DATA_TYPE_HEX
 } input_data_type_t;
 
-int message_digest(int argc, char ** argv);
+int message_digest(int argc, uint8_t ** argv);
 void print_digest_usage(void);
 
-#endif /* _MESSAGE_DIGEST_H_ */
+#endif /* MESSAGE_DIGEST_H_ */

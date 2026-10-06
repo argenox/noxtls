@@ -17,6 +17,8 @@ set(TLS_SOURCES
     noxtls_tls_kdf.c
     noxtls_tls_extensions.c
     noxtls_tls_record.c
+    noxtls_tls_api_refs.c
+    noxtls_tls_macro_refs.c
 )
 if(NOXTLS_CFG_FEATURE_TLS12)
   list(APPEND TLS_SOURCES noxtls_tls12.c)

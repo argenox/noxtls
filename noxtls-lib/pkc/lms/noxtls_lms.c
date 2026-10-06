@@ -35,7 +35,7 @@ uint32_t noxtls_lms_public_key_len(noxtls_lms_param_t param)
         case NOXTLS_LMS_SHA256_M32_H15:
         case NOXTLS_HSS_SHA256_M32_H10_D2:
         case NOXTLS_HSS_SHA256_M32_H15_D2:
-            return 56u;
+            return 56U;
         default:
             return 0U;
     }
@@ -70,11 +70,11 @@ uint32_t noxtls_lms_secret_key_len(noxtls_lms_param_t param)
 uint32_t noxtls_lms_signature_len(noxtls_lms_param_t param)
 {
     switch(param) {
-        case NOXTLS_LMS_SHA256_M32_H5: return 1452u;
-        case NOXTLS_LMS_SHA256_M32_H10: return 1708u;
-        case NOXTLS_LMS_SHA256_M32_H15: return 1964u;
-        case NOXTLS_HSS_SHA256_M32_H10_D2: return 3480u;
-        case NOXTLS_HSS_SHA256_M32_H15_D2: return 3992u;
+        case NOXTLS_LMS_SHA256_M32_H5: return 1452U;
+        case NOXTLS_LMS_SHA256_M32_H10: return 1708U;
+        case NOXTLS_LMS_SHA256_M32_H15: return 1964U;
+        case NOXTLS_HSS_SHA256_M32_H10_D2: return 3480U;
+        case NOXTLS_HSS_SHA256_M32_H15_D2: return 3992U;
         default: return 0U;
     }
 }

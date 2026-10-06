@@ -33,7 +33,7 @@ else()
     option(NOXTLS_HAVE_CERT_WRITE "Enable certificate writing and generation (write DER/PEM, generate self-signed)" OFF)
 endif()
 
-set(NOXTLS_CERT_SOURCES noxtls_x509.c)
+set(NOXTLS_CERT_SOURCES noxtls_x509.c noxtls_x509_ext.c noxtls_cert_api_refs.c)
 if(NOXTLS_HAVE_CERT_WRITE)
     list(APPEND NOXTLS_CERT_SOURCES noxtls_x509_write.c)
 endif()
@@ -76,3 +76,8 @@ target_link_libraries(noxtls_cert
     noxtls_encryption
     noxtls_common
 )
+
+# PKCS#8 PBES2 decryption uses the shared PBKDF2 primitive when available.
+if(NOXTLS_CFG_FEATURE_PBKDF2 AND TARGET noxtls_kdf)
+    target_link_libraries(noxtls_cert noxtls_kdf)
+endif()

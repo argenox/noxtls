@@ -22,8 +22,8 @@
 /** @addtogroup noxtls_common */
 /** @{ */
 
-#ifndef _STRING_COMMON_H_
-#define _STRING_COMMON_H_
+#ifndef STRING_COMMON_H_
+#define STRING_COMMON_H_
 
 #include <stdint.h>
 #include <stddef.h>
@@ -43,18 +43,18 @@ extern "C" {
  * @brief Parse a null-terminated hex string into binary bytes.
  * @param[in] string Null-terminated string of hex digit pairs (no separators); length must be even.
  * @param[out] out_buf Output buffer for decoded bytes.
- * @param[in] out_length Capacity of @p out_buf in bytes; must be at least `strlen(string) / 2`.
+ * @param[in] out_length Capacity of @p out_buf in bytes; must be at least `noxtls_u8_strlen(string) / 2`.
  * @return Number of bytes written on success; -1 on NULL input, -2 if @p out_buf is too small, -3 if odd-length string, -4 on overflow guard.
  */
-extern int noxtls_hex_string_to_bytes(const char * string, uint8_t * out_buf, size_t out_length);
+extern int noxtls_hex_string_to_bytes(const uint8_t * string, uint8_t * out_buf, size_t out_length);
 
 /**
  * @brief Hex string to bytes using an implicit output length of half the string length.
  * @param[in] string Same format as @ref noxtls_hex_string_to_bytes.
- * @param[out] output Buffer sized for `strlen(string) / 2` bytes.
+ * @param[out] output Buffer sized for `noxtls_u8_strlen(string) / 2` bytes.
  * @return Same conventions as @ref noxtls_hex_string_to_bytes; -1 if @p string or @p output is NULL.
  */
-extern int noxtls_process_string_to_bytes(const char *string, uint8_t *output);
+extern int noxtls_process_string_to_bytes(const uint8_t *string, uint8_t *output);
 
 /**
  * @brief Print a byte buffer as uppercase hex via the library debug printf (for diagnostics).
@@ -67,4 +67,4 @@ void noxtls_print_data(const uint8_t * data, size_t len);
 }
 #endif
 
-#endif /* _STRING_COMMON_H_ */
+#endif /* STRING_COMMON_H_ */

@@ -26,6 +26,7 @@
 #include "mdigest/sha3/noxtls_sha3.h"
 #include "noxtls_falcon.h"
 #include "noxtls_falcon_internal.h"
+#include "noxtls_ct.h"
 
 /** Maximum number of public Falcon signing attempts before returning failure. */
 #define NOXTLS_FALCON_SIGN_MAX_ATTEMPTS 1024U
@@ -45,13 +46,13 @@ static noxtls_return_t falcon_poly_i32_to_i16(const int32_t *src,
                                               uint16_t n,
                                               int16_t *dst)
 {
-    uint16_t i;
+    uint16_t i = 0U;
 
-    if(src == NULL || dst == NULL) {
+    if((src == NULL) || (dst == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
-    for(i = 0U; i < n; i++) {
+    for(i = 0U; i < n; i += 1U) {
         if(src[i] < (int32_t)INT16_MIN || src[i] > (int32_t)INT16_MAX) {
             return NOXTLS_RETURN_FAILED;
         }
@@ -70,8 +71,8 @@ static uint32_t falcon_get_l2bound(noxtls_falcon_param_t param)
 {
     switch(param) {
         case NOXTLS_FALCON_NONE: return 0U;
-        case NOXTLS_FALCON_512: return 34034726u;
-        case NOXTLS_FALCON_1024: return 70265242u;
+        case NOXTLS_FALCON_512: return 34034726U;
+        case NOXTLS_FALCON_1024: return 70265242U;
         default: return 0U;
     }
 }
@@ -95,13 +96,13 @@ static noxtls_return_t falcon_hash_to_point_salted(const uint8_t *salt,
     noxtls_sha3_ctx_t shake;
     uint8_t block[2];
     uint32_t i = 0U;
-    uint32_t limit = (65536u / NOXTLS_FALCON_Q) * NOXTLS_FALCON_Q;
-    noxtls_return_t rc;
+    uint32_t limit = (uint32_t)((65536U / NOXTLS_FALCON_Q) * NOXTLS_FALCON_Q);
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(salt == NULL || coeffs == NULL) {
+    if((salt == NULL) || (coeffs == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
-    if(message == NULL && message_len != 0U) {
+    if((message == NULL) && (message_len != 0U)) {
         return NOXTLS_RETURN_NULL;
     }
 
@@ -123,15 +124,16 @@ static noxtls_return_t falcon_hash_to_point_salted(const uint8_t *salt,
     }
 
     while(i < coeff_count) {
-        uint32_t t;
+        uint32_t t = 0U;
 
         rc = noxtls_shake256_squeeze(&shake, block, sizeof(block));
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
-        t = ((uint32_t)block[0] << 8) | (uint32_t)block[1];
+        t = ((uint32_t)block[0] <<8U) | (uint32_t)block[1];
         if(t < limit) {
-            coeffs[i++] = (uint16_t)(t % NOXTLS_FALCON_Q);
+            coeffs[i] = (uint16_t)(t % NOXTLS_FALCON_Q);
+            i += 1U;
         }
     }
 
@@ -139,7 +141,7 @@ static noxtls_return_t falcon_hash_to_point_salted(const uint8_t *salt,
 }
 
 /**
- * @brief Multiply an integer polynomial by a Falcon public key modulo `x^n + 1` and `q`.
+ * @brief Multiply an integer polynomial by a Falcon public key modulo `x^n + 1U` and `q`.
  *
  * @param[out] out Output polynomial coefficients modulo `q`.
  * @param[in] a Signed integer polynomial.
@@ -152,15 +154,15 @@ static void falcon_poly_mul_mod_q(uint16_t *out,
                                   uint16_t n)
 {
     int64_t accum[1024];
-    uint32_t i;
-    uint32_t j;
+    uint32_t i = 0U;
+    uint32_t j = 0U;
 
-    memset(accum, 0, sizeof(accum));
+    noxtls_secure_zero((accum), sizeof(accum));
 
-    for(i = 0U; i < n; i++) {
+    for(i = 0U; i < n; i += 1U) {
         int32_t ai = (int32_t)a[i];
-        for(j = 0U; j < n; j++) {
-            uint32_t idx = i + j;
+        for(j = 0U; j < n; j += 1U) {
+            uint32_t idx = (uint32_t)(i + j);
             int64_t term = (int64_t)ai * (int64_t)b[j];
             if(idx < n) {
                 accum[idx] += term;
@@ -170,7 +172,7 @@ static void falcon_poly_mul_mod_q(uint16_t *out,
         }
     }
 
-    for(i = 0U; i < n; i++) {
+    for(i = 0U; i < n; i += 1U) {
         out[i] = noxtls_falcon_mod_q_reduce_i32((int32_t)(accum[i] % (int64_t)NOXTLS_FALCON_Q));
     }
 }
@@ -190,9 +192,9 @@ static uint8_t falcon_is_short(const int16_t *s1,
                                uint32_t l2bound)
 {
     uint64_t norm = 0U;
-    uint32_t i;
+    uint32_t i = 0U;
 
-    for(i = 0U; i < n; i++) {
+    for(i = 0U; i < n; i += 1U) {
         int32_t x1 = (int32_t)s1[i];
         int32_t x2 = (int32_t)s2[i];
 
@@ -235,8 +237,8 @@ static noxtls_return_t falcon_decode_signature(const noxtls_falcon_param_spec_t 
         return NOXTLS_RETURN_BAD_DATA;
     }
 
-    memcpy(salt, signature + 1U, NOXTLS_FALCON_SALT_LEN);
-    return noxtls_falcon_comp_decode(signature + 1U + NOXTLS_FALCON_SALT_LEN,
+    (void)memcpy(salt, &signature[1U], (size_t)NOXTLS_FALCON_SALT_LEN);
+    return noxtls_falcon_comp_decode(&signature[1U + NOXTLS_FALCON_SALT_LEN],
                                      signature_len - 1U - NOXTLS_FALCON_SALT_LEN,
                                      s2,
                                      spec->n);
@@ -256,17 +258,17 @@ static noxtls_return_t falcon_encode_signature(const noxtls_falcon_param_spec_t 
                                                const int16_t *s2,
                                                uint8_t *signature)
 {
-    uint32_t comp_len;
+    uint32_t comp_len = 0U;
 
     if(spec == NULL || salt == NULL || s2 == NULL || signature == NULL) {
         return NOXTLS_RETURN_NULL;
     }
 
-    memset(signature, 0, spec->signature_len);
+    noxtls_secure_zero((signature), ((size_t)spec->signature_len));
     signature[0] = (uint8_t)(NOXTLS_FALCON_SIG_COMP_HDR | spec->logn);
-    memcpy(signature + 1U, salt, NOXTLS_FALCON_SALT_LEN);
+    (void)memcpy(&signature[1U], salt, (size_t)NOXTLS_FALCON_SALT_LEN);
     comp_len = spec->signature_len - 1U - NOXTLS_FALCON_SALT_LEN;
-    return noxtls_falcon_comp_encode(s2, spec->n, signature + 1U + NOXTLS_FALCON_SALT_LEN, comp_len);
+    return noxtls_falcon_comp_encode(s2, spec->n, &signature[1U + NOXTLS_FALCON_SALT_LEN], comp_len);
 }
 
 /**
@@ -280,9 +282,9 @@ static void falcon_fft_scale_real(noxtls_falcon_complex_t *vec,
                                   uint16_t n,
                                   double scalar)
 {
-    uint32_t i;
+    uint32_t i = 0U;
 
-    for(i = 0U; i < n; i++) {
+    for(i = 0U; i < n; i += 1U) {
         vec[i].re *= scalar;
         vec[i].im *= scalar;
     }
@@ -312,15 +314,15 @@ static noxtls_return_t falcon_build_sign_target_fft(const noxtls_falcon_expanded
                                                     const noxtls_falcon_complex_t *b11_fft)
 {
     int16_t hm_poly[NOXTLS_FALCON_MAX_N];
-    uint32_t i;
-    noxtls_return_t rc;
+    uint32_t i = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(expanded == NULL || c == NULL || t0_fft == NULL || t1_fft == NULL ||
        hm_fft == NULL || b01_fft == NULL || b11_fft == NULL) {
         return NOXTLS_RETURN_NULL;
     }
 
-    for(i = 0U; i < expanded->spec.n; i++) {
+    for(i = 0U; i < expanded->spec.n; i += 1U) {
         hm_poly[i] = (int16_t)c[i];
     }
 
@@ -337,8 +339,8 @@ static noxtls_return_t falcon_build_sign_target_fft(const noxtls_falcon_expanded
         return rc;
     }
 
-    falcon_fft_scale_real(t0_fft, expanded->spec.n, 1.0 / (double)NOXTLS_FALCON_Q);
-    falcon_fft_scale_real(t1_fft, expanded->spec.n, -1.0 / (double)NOXTLS_FALCON_Q);
+    (void)falcon_fft_scale_real(t0_fft, expanded->spec.n, 1.0 / (double)NOXTLS_FALCON_Q);
+    (void)falcon_fft_scale_real(t1_fft, expanded->spec.n, -1.0 / (double)NOXTLS_FALCON_Q);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -374,8 +376,8 @@ static noxtls_return_t falcon_sign_map_sample_to_signature(const noxtls_falcon_e
     noxtls_falcon_complex_t v1b_fft[NOXTLS_FALCON_MAX_N];
     int16_t v0[NOXTLS_FALCON_MAX_N];
     int16_t v1[NOXTLS_FALCON_MAX_N];
-    uint32_t i;
-    noxtls_return_t rc;
+    uint32_t i = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(expanded == NULL || c == NULL || z0_fft == NULL || z1_fft == NULL ||
        b00_fft == NULL || b01_fft == NULL || b10_fft == NULL || b11_fft == NULL ||
@@ -400,7 +402,7 @@ static noxtls_return_t falcon_sign_map_sample_to_signature(const noxtls_falcon_e
         return rc;
     }
 
-    for(i = 0U; i < expanded->spec.n; i++) {
+    for(i = 0U; i < expanded->spec.n; i += 1U) {
         v0a_fft[i].re += v0b_fft[i].re;
         v0a_fft[i].im += v0b_fft[i].im;
         v1a_fft[i].re += v1b_fft[i].re;
@@ -410,7 +412,7 @@ static noxtls_return_t falcon_sign_map_sample_to_signature(const noxtls_falcon_e
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    for(i = 0U; i < expanded->spec.n; i++) {
+    for(i = 0U; i < expanded->spec.n; i += 1U) {
         int32_t diff = (int32_t)c[i] - (int32_t)v0[i];
 
         if(diff < -32768 || diff > 32767) {
@@ -423,7 +425,7 @@ static noxtls_return_t falcon_sign_map_sample_to_signature(const noxtls_falcon_e
         return rc;
     }
 
-    for(i = 0U; i < expanded->spec.n; i++) {
+    for(i = 0U; i < expanded->spec.n; i += 1U) {
         if(v1[i] == INT16_MIN) {
             return NOXTLS_RETURN_FAILED;
         }
@@ -497,10 +499,10 @@ noxtls_return_t noxtls_falcon_keygen(noxtls_falcon_param_t param,
     int32_t G32[NOXTLS_FALCON_MAX_N];
     int16_t F16[NOXTLS_FALCON_MAX_N];
     uint8_t seed[DRBG_SEEDLEN_AES256];
-    uint32_t attempt;
-    noxtls_return_t rc;
+    uint32_t attempt = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(public_key == NULL || secret_key == NULL) {
+    if((public_key == NULL) || (secret_key == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
     if(noxtls_falcon_internal_get_param_spec(param, &spec) != NOXTLS_RETURN_SUCCESS) {
@@ -510,7 +512,7 @@ noxtls_return_t noxtls_falcon_keygen(noxtls_falcon_param_t param,
         return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
     }
 
-    for(attempt = 0U; attempt < NOXTLS_FALCON_KEYGEN_MAX_ATTEMPTS; attempt++) {
+    for(attempt = 0U; attempt < NOXTLS_FALCON_KEYGEN_MAX_ATTEMPTS; attempt += 1U) {
         rc = noxtls_drbg_get_entropy(seed, (uint32_t)sizeof(seed));
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
@@ -594,15 +596,15 @@ noxtls_return_t noxtls_falcon_sign(noxtls_falcon_param_t param,
     int16_t s2[NOXTLS_FALCON_MAX_N];
     uint8_t entropy[NOXTLS_FALCON_SALT_LEN + DRBG_SEEDLEN_AES256];
     uint8_t *salt = entropy;
-    uint8_t *seed = entropy + NOXTLS_FALCON_SALT_LEN;
-    uint32_t l2bound;
-    uint32_t attempt;
-    noxtls_return_t rc;
+    uint8_t *seed = &entropy[NOXTLS_FALCON_SALT_LEN];
+    uint32_t l2bound = 0U;
+    uint32_t attempt = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(secret_key == NULL || signature == NULL || signature_len == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(message == NULL && message_len != 0U) {
+    if((message == NULL) && (message_len != 0U)) {
         return NOXTLS_RETURN_NULL;
     }
     if(noxtls_falcon_internal_get_param_spec(param, &spec) != NOXTLS_RETURN_SUCCESS) {
@@ -630,7 +632,7 @@ noxtls_return_t noxtls_falcon_sign(noxtls_falcon_param_t param,
     }
     *signature_len = spec.signature_len;
 
-    for(attempt = 0U; attempt < NOXTLS_FALCON_SIGN_MAX_ATTEMPTS; attempt++) {
+    for(attempt = 0U; attempt < NOXTLS_FALCON_SIGN_MAX_ATTEMPTS; attempt += 1U) {
         noxtls_falcon_sampler_ctx_t sampler;
 
         rc = noxtls_drbg_get_entropy(entropy, (uint32_t)sizeof(entropy));
@@ -701,14 +703,14 @@ noxtls_return_t noxtls_falcon_verify(noxtls_falcon_param_t param,
     int16_t s1[NOXTLS_FALCON_MAX_N];
     int16_t s2[NOXTLS_FALCON_MAX_N];
     uint8_t salt[NOXTLS_FALCON_SALT_LEN];
-    uint32_t l2bound;
-    uint32_t i;
-    noxtls_return_t rc;
+    uint32_t l2bound = 0U;
+    uint32_t i = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(public_key == NULL || signature == NULL) {
+    if((public_key == NULL) || (signature == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
-    if(message == NULL && message_len != 0U) {
+    if((message == NULL) && (message_len != 0U)) {
         return NOXTLS_RETURN_NULL;
     }
 
@@ -734,8 +736,8 @@ noxtls_return_t noxtls_falcon_verify(noxtls_falcon_param_t param,
         return rc;
     }
 
-    falcon_poly_mul_mod_q(prod, s2, h, spec.n);
-    for(i = 0U; i < spec.n; i++) {
+    (void)falcon_poly_mul_mod_q(prod, s2, h, spec.n);
+    for(i = 0U; i < spec.n; i += 1U) {
         s1[i] = noxtls_falcon_mod_q_center(noxtls_falcon_mod_q_sub(c[i], prod[i]));
     }
 

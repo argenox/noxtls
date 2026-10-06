@@ -23,6 +23,7 @@ const sidebars = {
         'start-here/port-to-platform',
       ],
     },
+    'misra-c',
     {
       type: 'category',
       label: 'Demos',
@@ -60,10 +61,12 @@ const sidebars = {
     'configuration-guide',
     'memory-usage',
     'release-notes',
+    'security-fixes-0.3.0',
     'documentation-parity-matrix',
     'project',
     'security-reporting',
     'eddsa',
+    'spake2p',
     'tls',
     'dtls13',
     {
@@ -113,6 +116,7 @@ const sidebars = {
             'api/aes_ccm',
             'api/aes_xts',
             'api/aes_shared',
+            'api/aes_keywrap',
             'api/aria_ecb',
             'api/aria_cbc',
             'api/aria_ctr',
@@ -149,6 +153,8 @@ const sidebars = {
           ],
         },
         'api/drbg',
+        'api/kdf',
+        'api/spake2p',
         'api/pkc',
         {
           type: 'category',

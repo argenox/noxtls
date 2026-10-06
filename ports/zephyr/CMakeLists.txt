@@ -42,6 +42,10 @@ if(TARGET noxtls_kdf)
   list(APPEND NOXTLS_ZEPHYR_LIBS noxtls_kdf)
 endif()
 
+if(TARGET noxtls_pake)
+  list(APPEND NOXTLS_ZEPHYR_LIBS noxtls_pake)
+endif()
+
 if(TARGET noxtls_cert)
   list(APPEND NOXTLS_ZEPHYR_LIBS noxtls_cert)
 endif()

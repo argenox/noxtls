@@ -26,7 +26,6 @@
 #include <string.h>
 
 #include "common/noxtls_memory.h"
-#include "common/noxtls_memory_compat.h"
 #include "common/noxtls_debug_printf.h"
 #include "common/noxtls_ct.h"
 #include "noxtls_config.h"
@@ -37,43 +36,9 @@
 #include "mdigest/sha1/noxtls_sha1.h"
 #include "mdigest/sha256/noxtls_sha256.h"
 #include "mdigest/sha512/noxtls_sha512.h"
+#include "noxtls_ct.h"
 
 /* Big number operations are now in NOXTLS_bignum.c */
-
-/* Test divisibility by a wider set of small primes for faster rejection */
-static const uint16_t small_primes[] = {
-    3, 5, 7, 11, 13, 17, 19, 23, 29, 31,
-    37, 41, 43, 47, 53, 59, 61, 67, 71, 73,
-    79, 83, 89, 97, 101, 103, 107, 109, 113, 127,
-    131, 137, 139, 149, 151, 157, 163, 167, 173, 179,
-    181, 191, 193, 197, 199, 211, 223, 227, 229, 233,
-    239, 241, 251, 257, 263, 269, 271, 277, 281, 283,
-    293, 307, 311, 313, 317, 331, 337, 347, 349, 353,
-    359, 367, 373, 379, 383, 389, 397, 401, 409, 419,
-    421, 431, 433, 439, 443, 449, 457, 461, 463, 467,
-    479, 487, 491, 499, 503, 509, 521, 523, 541, 547,
-    557, 563, 569, 571, 577, 587, 593, 599, 601, 607,
-    613, 617, 619, 631, 641, 643, 647, 653, 659, 661,
-    673, 677, 683, 691, 701, 709, 719, 727, 733, 739,
-    743, 751, 757, 761, 769, 773, 787, 797, 809, 811,
-    821, 823, 827, 829, 839, 853, 857, 859, 863, 877,
-    881, 883, 887, 907, 911, 919, 929, 937, 941, 947,
-    953, 967, 971, 977, 983, 991, 997,
-    1009, 1013, 1019, 1021, 1031, 1033, 1039, 1049, 1051, 1061,
-    1063, 1069, 1087, 1091, 1093, 1097, 1103, 1109, 1117, 1123,
-    1129, 1151, 1153, 1163, 1171, 1181, 1187, 1193, 1201, 1213,
-    1217, 1223, 1229, 1231, 1237, 1249, 1259, 1277, 1279, 1283,
-    1289, 1291, 1297, 1301, 1303, 1307, 1319, 1321, 1327, 1361,
-    1367, 1373, 1381, 1399, 1409, 1423, 1427, 1429, 1433, 1439,
-    1447, 1451, 1453, 1459, 1471, 1481, 1483, 1487, 1489, 1493,
-    1499, 1511, 1523, 1531, 1543, 1549, 1553, 1559, 1567, 1571,
-    1579, 1583, 1597, 1601, 1607, 1609, 1613, 1619, 1621, 1627,
-    1637, 1657, 1663, 1667, 1669, 1693, 1697, 1699, 1709, 1721,
-    1723, 1733, 1741, 1747, 1753, 1759, 1777, 1783, 1787, 1789,
-    1801, 1811, 1823, 1831, 1847, 1861, 1867, 1871, 1873, 1877,
-    1879, 1889, 1901, 1907, 1913, 1931, 1933, 1949, 1951, 1973,
-    1979, 1987, 1993, 1997
-};
 
 #define RSA_DRBG_SEED_LEN_BYTES 48U
 #define RSA_PKCS1_PAD_RETRY_MAX 16U
@@ -90,11 +55,11 @@ static noxtls_return_t rsa_random_bytes(uint8_t *buf, uint32_t len)
 {
     static drbg_state_t drbg_state;
     static int drbg_initialized = 0;
-    noxtls_return_t rc;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
     uint8_t seed[RSA_DRBG_SEED_LEN_BYTES];
     
     /* Initialize DRBG once and reuse it */
-    if(!drbg_initialized) {
+    if(drbg_initialized == 0) {
         rc = noxtls_drbg_get_entropy(seed, sizeof(seed));
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_FAILED;
@@ -102,7 +67,9 @@ static noxtls_return_t rsa_random_bytes(uint8_t *buf, uint32_t len)
         
         /* Instantiate DRBG */
         rc = drbg_instantiate(&drbg_state, DRBG_AES256, seed, sizeof(seed), NULL, 0, NULL, 0);
+        noxtls_secure_zero(seed, sizeof(seed));
         if(rc != NOXTLS_RETURN_SUCCESS) {
+            (void)noxtls_drbg_uninstantiate(&drbg_state);
             return NOXTLS_RETURN_FAILED;
         }
         
@@ -112,21 +79,13 @@ static noxtls_return_t rsa_random_bytes(uint8_t *buf, uint32_t len)
     /* Generate random bytes using existing DRBG instance */
     rc = drbg_generate(&drbg_state, buf, len * 8U, NULL, 0);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        /* If generation fails, reseed with new entropy from platform source */
-        rc = noxtls_drbg_get_entropy(seed, sizeof(seed));
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
-        }
-        
-        rc = drbg_reseed(&drbg_state, seed, sizeof(seed), NULL, 0);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
-        }
-        
-        rc = drbg_generate(&drbg_state, buf, len * 8U, NULL, 0);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
-        }
+        /* Fail closed for this call and drop the instance: a failed generate
+         * (AES failure) wipes the state, which drbg_reseed() then rejects, so
+         * the next call re-instantiates from fresh entropy instead. */
+        (void)noxtls_drbg_uninstantiate(&drbg_state);
+        drbg_initialized = 0;
+        noxtls_secure_zero(buf, (size_t)len);
+        return NOXTLS_RETURN_FAILED;
     }
 
     return NOXTLS_RETURN_SUCCESS;
@@ -150,14 +109,14 @@ static noxtls_return_t rsa_div_mod_small(uint8_t *quotient,
                                          uint32_t divisor)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    uint32_t rem = 0;
+    uint32_t rem = 0U;
 
-    if(quotient == NULL || remainder == NULL || num == NULL || divisor == 0) {
+    if((quotient == NULL) || (remainder == NULL) || (num == NULL) || (divisor == 0U)) {
         return NOXTLS_RETURN_NULL;
     }
     
-    for(uint32_t i = 0; i < num_len; i++) {
-        uint32_t acc = (rem << 8) | num[i];
+    for(uint32_t i = 0U; i < num_len; i += 1U) {
+        uint32_t acc = (uint32_t)((rem << 8U) | num[i]);
         quotient[i] = (uint8_t)(acc / divisor);
         rem = acc % divisor;
     }
@@ -178,9 +137,9 @@ static noxtls_return_t rsa_div_mod_small(uint8_t *quotient,
 static uint32_t rsa_mod_small(const uint8_t *num, uint32_t num_len, uint32_t divisor)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    uint32_t rem = 0;
-    for(uint32_t i = 0; i < num_len; i++) {
-        rem = ((rem << 8) | num[i]) % divisor;
+    uint32_t rem = 0U;
+    for(uint32_t i = 0U; i < num_len; i += 1U) {
+        rem = ((rem << 8U) | num[i]) % divisor;
     }
     return rem;
 }
@@ -200,11 +159,11 @@ static void rsa_mul_small(uint8_t *out,
                           uint32_t multiplier)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    uint32_t carry = 0;
-    for(uint32_t i = in_len; i > 0; i--) {
-        uint32_t prod = ((uint32_t)in[i - 1] * multiplier) + carry;
-        out[i - 1] = (uint8_t)(prod & 0xFF);
-        carry = prod >> 8;
+    uint32_t carry = 0U;
+    for(uint32_t i = in_len; i > 0U; i -= 1U) {
+        uint32_t prod = (uint32_t)(((uint32_t)in[i - 1U] * multiplier) + carry);
+        out[i - 1U] = (uint8_t)(prod & 0xFFU);
+        carry = (uint32_t)prod >> 8U;
     }
 }
 
@@ -219,11 +178,11 @@ static void rsa_mul_small(uint8_t *out,
 static void rsa_add_small(uint8_t *inout, uint32_t len, uint32_t addend)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    uint32_t carry = addend;
-    for(uint32_t i = len; i > 0 && carry > 0; i--) {
-        uint32_t sum = (uint32_t)inout[i - 1] + (carry & 0xFF);
-        inout[i - 1] = (uint8_t)(sum & 0xFF);
-        carry = (carry >> 8) + (sum >> 8);
+    uint32_t carry = (uint32_t)(addend);
+    for(uint32_t i = len; (i > 0U) && (carry > 0U); i -= 1U) {
+        uint32_t sum = (uint32_t)inout[i - 1U] + (carry & 0xFFU);
+        inout[i - 1U] = (uint8_t)(sum & 0xFFU);
+        carry = (carry >> 8U) + (sum >> 8U);
     }
 }
 
@@ -241,27 +200,27 @@ static noxtls_return_t rsa_mod_inv_small(uint8_t *result,
                                          uint32_t mod_len,
                                          uint32_t a)
 {
-    if(result == NULL || mod == NULL || mod_len == 0 || a == 0) {
+    if((result == NULL) || (mod == NULL) || (mod_len == 0U) || (a == 0U)) {
         return NOXTLS_RETURN_NULL;
     }
 
-    uint8_t *quotient = (uint8_t*)noxtls_calloc(mod_len, 1);
-    uint8_t *qy = (uint8_t*)noxtls_calloc(mod_len, 1);
-    if(!quotient || !qy) {
-        if(quotient) { noxtls_free(quotient); }
-        if(qy) { noxtls_free(qy); }
+    uint8_t *quotient = (uint8_t*)NOXTLS_CALLOC(mod_len, 1);
+    uint8_t *qy = (uint8_t*)NOXTLS_CALLOC(mod_len, 1);
+    if((quotient == NULL) || (qy == NULL)) {
+        if(quotient != NULL) { (void)noxtls_free(quotient); }
+        if(qy != NULL) { (void)noxtls_free(qy); }
         return NOXTLS_RETURN_FAILED;
     }
 
-    uint32_t r = 0;
+    uint32_t r = 0U;
     if(rsa_div_mod_small(quotient, &r, mod, mod_len, a) != NOXTLS_RETURN_SUCCESS) {
-        noxtls_free(quotient);
-        noxtls_free(qy);
+        (void)noxtls_free(quotient);
+        (void)noxtls_free(qy);
         return NOXTLS_RETURN_FAILED;
     }
-    if(r == 0) {
-        noxtls_free(quotient);
-        noxtls_free(qy);
+    if(r == 0U) {
+        (void)noxtls_free(quotient);
+        (void)noxtls_free(qy);
         return NOXTLS_RETURN_FAILED;
     }
 
@@ -280,83 +239,74 @@ static noxtls_return_t rsa_mod_inv_small(uint8_t *result,
         rr = tmp_r;
     }
     if(rr != 1) {
-        noxtls_free(quotient);
-        noxtls_free(qy);
+        (void)noxtls_free(quotient);
+        (void)noxtls_free(qy);
         return NOXTLS_RETURN_FAILED;
     }
     if(t < 0) {
-        t += a;
+        t += (int64_t)a;
     }
     uint32_t y = (uint32_t)t;
 
-    uint64_t k = (((uint64_t)r * (uint64_t)y) - 1ULL) / (uint64_t)a;
+    uint64_t k = (uint64_t)((((uint64_t)r * (uint64_t)y) - 1ULL) / (uint64_t)a);
 
-    /* t = q * y + k */
+    /* t = (q * y) + k */
     rsa_mul_small(qy, quotient, mod_len, y);
     rsa_add_small(qy, mod_len, (uint32_t)k);
 
     if(noxtls_bn_cmp(qy, mod, mod_len) >= 0) {
-        noxtls_bn_sub(qy, qy, mod, mod_len);
+        (void)noxtls_bn_sub(qy, qy, mod, mod_len);
     }
 
-    if(noxtls_bn_is_zero(qy, mod_len)) {
-        noxtls_bn_zero(result, mod_len);
+    if(noxtls_bn_is_zero(qy, mod_len) != 0) {
+        (void)noxtls_bn_zero(result, mod_len);
     } else {
-        noxtls_bn_sub(result, mod, qy, mod_len);
+        (void)noxtls_bn_sub(result, mod, qy, mod_len);
     }
 
-    noxtls_free(quotient);
-    noxtls_free(qy);
+    (void)noxtls_free(quotient);
+    (void)noxtls_free(qy);
     return NOXTLS_RETURN_SUCCESS;
 }
 
 /* Forward declaration */
-static int rsa_is_prime(const uint8_t *n, uint32_t len, int iterations);
+static int32_t rsa_is_prime(const uint8_t *n, uint32_t len, int32_t iterations);
 
+#if NOXTLS_DEBUG_PRINTF_ENABLED
 /**
  * @brief Test Miller-Rabin with known primes
- * 
+ *
+ * Diagnostic only: the results are reported through noxtls_debug_printf and do not affect
+ * key generation, so the self-check is compiled only when debug output is compiled in.
  */
 static void test_miller_rabin_known_primes(void)
 {
     /* Test with small known primes */
-    const uint8_t known_prime_17[] = {0x11};  /* 17 is prime */
-    const uint8_t known_prime_97[] = {0x61};  /* 97 is prime */
-    const uint8_t known_prime_101[] = {0x65}; /* 101 is prime */
+    const uint8_t known_prime_17[] = {0x11U};  /* 17 is prime */
+    const uint8_t known_prime_97[] = {0x61U};  /* 97 is prime */
+    const uint8_t known_prime_101[] = {0x65U}; /* 101 is prime */
     
-    noxtls_debug_printf("Testing Miller-Rabin with known primes...\n");
-    fflush(stdout);
-    
-    int result;
+    (void)noxtls_debug_printf((const uint8_t *)"Testing Miller-Rabin with known primes...\n");
+    int32_t result = 0;
     
     /* Test small primes */
     result = rsa_is_prime(known_prime_17, 1, 3);
-    noxtls_debug_printf("  Known prime 17: %s\n", result ? "PASS (detected as prime)" : "FAIL (incorrectly rejected)");
-    fflush(stdout);
-    
+    (void)noxtls_debug_printf((const uint8_t *)"  Known prime 17: %s\n", (result != 0) ? "PASS (detected as prime)" : "FAIL (incorrectly rejected)");
     result = rsa_is_prime(known_prime_97, 1, 3);
-    noxtls_debug_printf("  Known prime 97: %s\n", result ? "PASS (detected as prime)" : "FAIL (incorrectly rejected)");
-    fflush(stdout);
-    
+    (void)noxtls_debug_printf((const uint8_t *)"  Known prime 97: %s\n", (result != 0) ? "PASS (detected as prime)" : "FAIL (incorrectly rejected)");
     result = rsa_is_prime(known_prime_101, 1, 3);
-    noxtls_debug_printf("  Known prime 101: %s\n", result ? "PASS (detected as prime)" : "FAIL (incorrectly rejected)");
-    fflush(stdout);
-    
+    (void)noxtls_debug_printf((const uint8_t *)"  Known prime 101: %s\n", (result != 0) ? "PASS (detected as prime)" : "FAIL (incorrectly rejected)");
     /* Test composite numbers to ensure they're rejected */
-    const uint8_t composite_15[] = {0x0F};  /* 15 = 3 * 5 */
-    const uint8_t composite_21[] = {0x15};  /* 21 = 3 * 7 */
+    const uint8_t composite_15[] = {0x0FU};  /* 15 = 3 * 5 */
+    const uint8_t composite_21[] = {0x15U};  /* 21 = 3 * 7 */
     
     result = rsa_is_prime(composite_15, 1, 3);
-    noxtls_debug_printf("  Composite 15: %s\n", result ? "FAIL (incorrectly accepted)" : "PASS (correctly rejected)");
-    fflush(stdout);
-    
+    (void)noxtls_debug_printf((const uint8_t *)"  Composite 15: %s\n", (result != 0) ? "FAIL (incorrectly accepted)" : "PASS (correctly rejected)");
     result = rsa_is_prime(composite_21, 1, 3);
-    noxtls_debug_printf("  Composite 21: %s\n", result ? "FAIL (incorrectly accepted)" : "PASS (correctly rejected)");
-    fflush(stdout);
-    
-    noxtls_debug_printf("Miller-Rabin test verification complete.\n");
-    fflush(stdout);
+    (void)noxtls_debug_printf((const uint8_t *)"  Composite 21: %s\n", (result != 0) ? "FAIL (incorrectly accepted)" : "PASS (correctly rejected)");
+    (void)noxtls_debug_printf((const uint8_t *)"Miller-Rabin test verification complete.\n");
 }
+#endif /* NOXTLS_DEBUG_PRINTF_ENABLED */
 
 /**
  * @brief Miller-Rabin primality test
@@ -364,238 +314,293 @@ static void test_miller_rabin_known_primes(void)
  * @param n Number to test
  * @param len Length of the number to test
  * @param iterations Number of iterations
- * @return int 1 if the number is prime, 0 otherwise
+ * @return 1 if the number is probably prime, 0 if it is composite (or n <= 1 / even),
+ *         -1 if the test could not be completed (allocation or bignum failure). A
+ *         failed bignum step is never interpreted as "probably prime".
  */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
-static int rsa_is_prime(const uint8_t *n, uint32_t len, int iterations)
+static int32_t rsa_is_prime(const uint8_t *n, uint32_t len, int32_t iterations)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    uint32_t i;
-    uint32_t j;
-    uint8_t *n_minus_1 = (uint8_t*)noxtls_calloc(len, 1);
-    uint8_t *d = (uint8_t*)noxtls_calloc(len, 1);
-    uint8_t *a = (uint8_t*)noxtls_calloc(len, 1);
-    uint8_t *x = (uint8_t*)noxtls_calloc(len, 1);
+    uint32_t i = 0U;
+    uint32_t j = 0U;
+    uint8_t *n_minus_1 = (uint8_t*)NOXTLS_CALLOC(len, 1);
+    uint8_t *d = (uint8_t*)NOXTLS_CALLOC(len, 1);
+    uint8_t *a = (uint8_t*)NOXTLS_CALLOC(len, 1);
+    uint8_t *x = (uint8_t*)NOXTLS_CALLOC(len, 1);
     /* temp needs to be len * 2 because noxtls_bn_mul(x, len, x, len) produces len * 2 bytes */
-    uint8_t *temp = (uint8_t*)noxtls_calloc((size_t)len * 2U, 1);
+    uint8_t *temp = (uint8_t*)NOXTLS_CALLOC((size_t)len * 2U, 1);
     
-    if(!n_minus_1 || !d || !a || !x || !temp) {
-        noxtls_debug_printf("ERROR: rsa_is_prime: Memory allocation failed!\n");
-        fflush(stdout);
-        if(n_minus_1) { noxtls_free(n_minus_1); }
-        if(d) { noxtls_free(d); }
-        if(a) { noxtls_free(a); }
-        if(x) { noxtls_free(x); }
-        if(temp) { noxtls_free(temp); }
-        return 0;
+    if((n_minus_1 == NULL) || (d == NULL) || (a == NULL) || (x == NULL) || (temp == NULL)) {
+        (void)noxtls_debug_printf((const uint8_t *)"ERROR: rsa_is_prime: Memory allocation failed!\n");
+        if(n_minus_1 != NULL) { (void)noxtls_free(n_minus_1); }
+        if(d != NULL) { (void)noxtls_free(d); }
+        if(a != NULL) { (void)noxtls_free(a); }
+        if(x != NULL) { (void)noxtls_free(x); }
+        if(temp != NULL) { (void)noxtls_free(temp); }
+        return -1;
     }
-    
+
     /* n must be > 1 */
-    if(noxtls_bn_is_one(n, len) || noxtls_bn_is_zero(n, len)) {
-        noxtls_free(n_minus_1);
-        noxtls_free(d);
-        noxtls_free(a);
-        noxtls_free(x);
-        noxtls_free(temp);
-        return 0;
+    {
+        int32_t n_is_one = noxtls_bn_is_one(n, len);
+        int32_t n_is_zero = noxtls_bn_is_zero(n, len);
+        if((n_is_one != 0) || (n_is_zero != 0)) {
+            (void)noxtls_free(n_minus_1);
+            (void)noxtls_free(d);
+            (void)noxtls_free(a);
+            (void)noxtls_free(x);
+            (void)noxtls_free(temp);
+            return 0;
+        }
     }
     
     /* Check if even */
-    if((n[len-1] & 1) == 0) {
-        noxtls_free(n_minus_1);
-        noxtls_free(d);
-        noxtls_free(a);
-        noxtls_free(x);
-        noxtls_free(temp);
+    if((n[len - 1U] & 1U) == 0U) {
+        (void)noxtls_free(n_minus_1);
+        (void)noxtls_free(d);
+        (void)noxtls_free(a);
+        (void)noxtls_free(x);
+        (void)noxtls_free(temp);
         return 0;
     }
     
-    /* Write n-1 as d * 2^r */
-    uint8_t *one = (uint8_t*)noxtls_calloc(len, 1);
-    if(!one) {
-        noxtls_debug_printf("ERROR: rsa_is_prime: Failed to allocate 'one'\n");
-        fflush(stdout);
-        noxtls_free(n_minus_1);
-        noxtls_free(d);
-        noxtls_free(a);
-        noxtls_free(x);
-        noxtls_free(temp);
-        return 0;
+    /* Write n - 1U as d * 2^r */
+    uint8_t *one = (uint8_t*)NOXTLS_CALLOC(len, 1);
+    if(one == NULL) {
+        (void)noxtls_debug_printf((const uint8_t *)"ERROR: rsa_is_prime: Failed to allocate 'one'\n");
+        (void)noxtls_free(n_minus_1);
+        (void)noxtls_free(d);
+        (void)noxtls_free(a);
+        (void)noxtls_free(x);
+        (void)noxtls_free(temp);
+        return -1;
     }
-    noxtls_bn_one(one, len);
-    noxtls_bn_copy(n_minus_1, n, len);
-    noxtls_bn_sub(n_minus_1, n_minus_1, one, len);  /* n-1 */
-    noxtls_bn_copy(d, n_minus_1, len);
-    noxtls_free(one);
+    (void)noxtls_bn_one(one, len);
+    (void)noxtls_bn_copy(n_minus_1, n, len);
+    (void)noxtls_bn_sub(n_minus_1, n_minus_1, one, len);  /* n - 1U */
+    (void)noxtls_bn_copy(d, n_minus_1, len);
+    (void)noxtls_free(one);
     
-    uint32_t r = 0;
-    uint32_t max_divisions = len * 8;  /* Safety limit */
-    while((d[len-1] & 1) == 0 && r < max_divisions && !noxtls_bn_is_zero(d, len)) {
-        /* Divide d by 2 - use the dedicated function */
-        noxtls_bn_rshift1(d, len);
-        r++;
+    uint32_t r = 0U;
+    uint32_t max_divisions = (uint32_t)(len * 8U);  /* Safety limit */
+    {
+        uint8_t d_shift_done = 0U;
+        while (d_shift_done == 0U) {
+            int32_t d_nonzero;
+            if((d[len - 1U] & 1U) != 0U) {
+                d_shift_done = 1U;
+            } else if(r >= max_divisions) {
+                d_shift_done = 1U;
+            } else {
+                d_nonzero = noxtls_bn_is_zero(d, len);
+                if(d_nonzero != 0) {
+                    d_shift_done = 1U;
+                } else {
+                    (void)noxtls_bn_rshift1(d, len);
+                    r += 1U;
+                }
+            }
+        }
     }
     
-    if(r >= max_divisions || noxtls_bn_is_zero(d, len)) {
-        noxtls_debug_printf("ERROR: rsa_is_prime: Invalid d value after division\n");
-        fflush(stdout);
-        noxtls_free(n_minus_1);
-        noxtls_free(d);
-        noxtls_free(a);
-        noxtls_free(x);
-        noxtls_free(temp);
-        return 0;
+    {
+        int32_t d_is_zero = noxtls_bn_is_zero(d, len);
+        if((r >= max_divisions) || (d_is_zero != 0)) {
+            (void)noxtls_debug_printf((const uint8_t *)"ERROR: rsa_is_prime: Invalid d value after division\n");
+            (void)noxtls_free(n_minus_1);
+            (void)noxtls_free(d);
+            (void)noxtls_free(a);
+            (void)noxtls_free(x);
+            (void)noxtls_free(temp);
+            return 0;
+        }
     }
     
-    uint8_t *two = (uint8_t*)noxtls_calloc(len, 1);
-    if(!two) {
-        noxtls_debug_printf("ERROR: rsa_is_prime: Failed to allocate 'two'\n");
-        fflush(stdout);
-        noxtls_free(n_minus_1);
-        noxtls_free(d);
-        noxtls_free(a);
-        noxtls_free(x);
-        noxtls_free(temp);
-        return 0;
+    uint8_t *two = (uint8_t*)NOXTLS_CALLOC(len, 1);
+    if(two == NULL) {
+        (void)noxtls_debug_printf((const uint8_t *)"ERROR: rsa_is_prime: Failed to allocate 'two'\n");
+        (void)noxtls_free(n_minus_1);
+        (void)noxtls_free(d);
+        (void)noxtls_free(a);
+        (void)noxtls_free(x);
+        (void)noxtls_free(temp);
+        return -1;
     }
-    noxtls_bn_zero(two, len);
-    two[len-1] = 2;  /* Set to 2 */
+    (void)noxtls_bn_zero(two, len);
+    two[len - 1U] = 2;  /* Set to 2 */
     
     /* Debug: Print d and r for small numbers */
-    if(len == 1 && n[0] < 255) {
-        noxtls_debug_printf("  [DEBUG] Testing n=%u, d=%u, r=%u\n", n[0], d[0], r);
-        fflush(stdout);
+    if((len == 1U) && (n[0] < 255U)) {
+        (void)noxtls_debug_printf((const uint8_t *)"  [DEBUG] Testing n=%u, d=%u, r=%u\n", n[0], d[0], r);
     }
     
-    uint32_t iterations_u = (iterations < 0) ? 0U : (uint32_t)iterations;
-    for(i = 0; i < iterations_u; i++) {
-        /* Choose random a in [2, n-2] */
+    uint32_t iterations_u = (uint32_t)((iterations < 0) ? 0U : (uint32_t)iterations);
+    int32_t bn_failed = 0;
+    for(i = 0U; (i < iterations_u) && (bn_failed == 0); i += 1U) {
+        /* Choose random a in [2, n - 2U] */
         /* For small numbers, use deterministic witnesses for better testing */
-        if(len == 1 && n[0] < 255) {
+        if((len == 1U) && (n[0] < 255U)) {
             /* Use small deterministic witnesses for testing small primes */
             uint8_t small_witnesses[] = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29};
-            if(i < sizeof(small_witnesses)) {
-                uint8_t w = small_witnesses[i];
-                if(w >= n[0] || w == 0) {
-                    noxtls_bn_copy(a, two, len);  /* Fallback to 2 */
+            if(i < (sizeof(small_witnesses)) ){
+                uint8_t w = (uint8_t)(small_witnesses[i]);
+                if((w >= n[0]) || (w == 0U)) {
+                    (void)noxtls_bn_copy(a, two, len);  /* Fallback to 2 */
                 } else {
-                    noxtls_bn_zero(a, len);
-                    a[len-1] = w;
+                    (void)noxtls_bn_zero(a, len);
+                    a[len - 1U] = w;
                 }
             } else {
-                noxtls_bn_copy(a, two, len);
+                (void)noxtls_bn_copy(a, two, len);
             }
         } else {
             /* Use deterministic witnesses first to reduce RNG dependence */
             static const uint8_t mr_witnesses[] = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37};
             if(i < (uint32_t)(sizeof(mr_witnesses) / sizeof(mr_witnesses[0]))) {
-                uint8_t w = mr_witnesses[i];
-                noxtls_bn_zero(a, len);
-                a[len - 1] = w;
+                uint8_t w = (uint8_t)(mr_witnesses[i]);
+                (void)noxtls_bn_zero(a, len);
+                a[len - 1U] = w;
             } else {
-            /* Simple approach: generate random, reduce modulo n, ensure it's in [2, n-2] */
-            uint32_t retry_count = 0;
-            do {
-                if(rsa_random_bytes(a, len) != NOXTLS_RETURN_SUCCESS) {
-                    noxtls_bn_copy(a, two, len);
-                    break;
-                }
-                /* Reduce a modulo n to get value in [0, n-1] */
-                noxtls_bn_mod(a, a, len, n, len);
-                retry_count++;
-            } while((noxtls_bn_is_zero(a, len) || noxtls_bn_is_one(a, len) || 
-                     noxtls_bn_cmp(a, n_minus_1, len) == 0) && retry_count < 20);
-            
-            /* If we still don't have a valid a, set it to a safe value */
-            if(noxtls_bn_is_zero(a, len) || noxtls_bn_is_one(a, len) || 
-               noxtls_bn_cmp(a, n_minus_1, len) == 0) {
-                /* Use a deterministic value: 2 + (i mod (n-4)) to ensure variety */
-                noxtls_bn_copy(a, two, len);
-                if(!noxtls_bn_is_zero(n_minus_1, len)) {
-                    uint8_t *offset = (uint8_t*)noxtls_calloc(len, 1);
-                    if(offset) {
-                        /* offset = (i + 1) mod (n-4), but simplified: just use i+1 if small enough */
-                        if(i + 1 < 256 && i + 1 < len) {
-                            offset[len - 1] = (uint8_t)(i + 1);
-                            noxtls_bn_add(a, a, offset, len);
-                            noxtls_free(offset);
-                        } else {
-                            noxtls_free(offset);
+            /* Simple approach: generate random, reduce modulo n, ensure it's in [2, n - 2U] */
+            uint32_t retry_count = 0U;
+            {
+                uint8_t a_pick_done = 0U;
+                while (a_pick_done == 0U) {
+                    int32_t a_is_zero = 0;
+                    int32_t a_is_one = 0;
+                    int32_t a_cmp_nm1 = 0;
+                    int32_t a_bad = 0;
+                    if(rsa_random_bytes(a, len) != NOXTLS_RETURN_SUCCESS) {
+                        (void)noxtls_bn_copy(a, two, len);
+                        a_pick_done = 1U;
+                    } else if(noxtls_bn_mod(a, a, len, n, len) != NOXTLS_RETURN_SUCCESS) {
+                        /* reduction failed: fall back to the fixed witness 2 */
+                        (void)noxtls_bn_copy(a, two, len);
+                        a_pick_done = 1U;
+                    } else {
+                        retry_count += 1U;
+                        a_is_zero = noxtls_bn_is_zero(a, len);
+                        a_is_one = noxtls_bn_is_one(a, len);
+                        a_cmp_nm1 = noxtls_bn_cmp(a, n_minus_1, len);
+                        a_bad = ((a_is_zero != 0) || (a_is_one != 0) || (a_cmp_nm1 == 0)) ? 1 : 0;
+                        if((a_bad == 0) || (retry_count >= 20U)) {
+                            a_pick_done = 1U;
                         }
                     }
                 }
             }
+            /* If we still don't have a valid a, set it to a safe value */
+            {
+                int32_t a_is_zero = noxtls_bn_is_zero(a, len);
+                int32_t a_is_one = noxtls_bn_is_one(a, len);
+                int32_t a_cmp_nm1 = noxtls_bn_cmp(a, n_minus_1, len);
+                if((a_is_zero != 0) || (a_is_one != 0) || (a_cmp_nm1 == 0)) {
+                /* Use a deterministic value: 2 + (i mod (n - 4U)) to ensure variety */
+                (void)noxtls_bn_copy(a, two, len);
+                if((noxtls_bn_is_zero(n_minus_1, len) == 0)) {
+                    uint8_t *offset = (uint8_t*)NOXTLS_CALLOC(len, 1);
+                    if(offset != NULL) {
+                        /* offset = (i + 1U) mod (n - 4U), but simplified: just use i + 1U if small enough */
+                        if(((i + 1U) < 256U) && ((i + 1U) < len)) {
+                            offset[len - 1U] = (uint8_t)(i + 1U);
+                            (void)noxtls_bn_add(a, a, offset, len);
+                            (void)noxtls_free(offset);
+                        } else {
+                            (void)noxtls_free(offset);
+                        }
+                    }
+                }
+                }
+            }
             }
         }
         
-        /* Final safety check: ensure a is in [2, n-2] */
+        /* Final safety check: ensure a is in [2, n - 2U] */
         if(noxtls_bn_cmp(a, n, len) >= 0) {
             /* Reduce modulo n again */
-            noxtls_bn_mod(a, a, len, n, len);
+            if(noxtls_bn_mod(a, a, len, n, len) != NOXTLS_RETURN_SUCCESS) {
+                bn_failed = 1;
+                continue;
+            }
         }
-        if(noxtls_bn_is_zero(a, len) || noxtls_bn_is_one(a, len)) {
-            noxtls_bn_copy(a, two, len);
+        {
+            int32_t a_is_zero = noxtls_bn_is_zero(a, len);
+            int32_t a_is_one = noxtls_bn_is_one(a, len);
+            if((a_is_zero != 0) || (a_is_one != 0)) {
+                (void)noxtls_bn_copy(a, two, len);
+            }
         }
         if(noxtls_bn_cmp(a, n_minus_1, len) == 0) {
-            /* a == n-1, use n-2 instead */
-            noxtls_bn_sub(a, n_minus_1, two, len);
+            /* a == n - 1U, use n - 2U instead */
+            (void)noxtls_bn_sub(a, n_minus_1, two, len);
         }
         
-        /* x = a^d mod n */
-        noxtls_bn_mod_exp(x, a, d, len, n, len);
-        
+        /* x = a^d mod n. A failed exponentiation must not be read as x == 1 ("probably prime"). */
+        if(noxtls_bn_mod_exp(x, a, d, len, n, len) != NOXTLS_RETURN_SUCCESS) {
+            bn_failed = 1;
+            continue;
+        }
+
         /* Debug for small numbers */
-        if(len == 1 && n[0] < 255) {
-            noxtls_debug_printf("    [DEBUG] Witness a=%u, x=a^d mod n=%u\n", a[0], x[0]);
-            fflush(stdout);
+        if((len == 1U) && (n[0] < 255U)) {
+            (void)noxtls_debug_printf((const uint8_t *)"    [DEBUG] Witness a=%u, x=a^d mod n=%u\n", a[0], x[0]);
         }
         
-        if(noxtls_bn_is_one(x, len) || noxtls_bn_cmp(x, n_minus_1, len) == 0) {
-            continue;  /* This witness says "probably prime", continue to next witness */
+        {
+            int32_t x_is_one = noxtls_bn_is_one(x, len);
+            int32_t x_cmp_nm1 = noxtls_bn_cmp(x, n_minus_1, len);
+            if((x_is_one != 0) || (x_cmp_nm1 == 0)) {
+                continue;  /* This witness says "probably prime", continue to next witness */
+            }
         }
         
-        /* Check if x^(2^j) == n-1 for some j in [1, r-1] */
-        int composite = 1;
-        for(j = 0; j < r - 1; j++) {
-            noxtls_bn_mul(temp, x, len, x, len);
-            noxtls_bn_mod(x, temp, len * 2, n, len);
-            
+        /* Check if x^(2^j) == n - 1U for some j in [1, r-1] */
+        int32_t composite = 1;
+        for(j = 0U; (j < (r - 1U)) && (bn_failed == 0); j += 1U) {
+            if((noxtls_bn_mul(temp, x, len, x, len) != NOXTLS_RETURN_SUCCESS) ||
+               (noxtls_bn_mod(x, temp, len * 2U, n, len) != NOXTLS_RETURN_SUCCESS)) {
+                bn_failed = 1;
+                continue;
+            }
+
             /* Debug for small numbers */
-            if(len == 1 && n[0] < 255) {
-                noxtls_debug_printf("      [DEBUG] After square %u: x=%u\n", j+1, x[0]);
-                fflush(stdout);
+            if((len == 1U) && (n[0] < 255U)) {
+                (void)noxtls_debug_printf((const uint8_t *)"      [DEBUG] After square %u: x=%u\n", j + 1U, x[0]);
             }
             
             if(noxtls_bn_cmp(x, n_minus_1, len) == 0) {
-                composite = 0;  /* Found that x^(2^j) == n-1, so probably prime */
+                composite = 0;  /* Found that x^(2^j) == n - 1U, so probably prime */
                 break;
             }
         }
         
-        if(composite) {
+        if(bn_failed != 0) {
+            continue;
+        }
+        if(composite != 0) {
             /* Debug for small numbers */
-            if(len == 1 && n[0] < 255) {
-                noxtls_debug_printf("    [DEBUG] Witness a=%u says COMPOSITE\n", a[0]);
-                fflush(stdout);
+            if((len == 1U) && (n[0] < 255U)) {
+                (void)noxtls_debug_printf((const uint8_t *)"    [DEBUG] Witness a=%u says COMPOSITE\n", a[0]);
             }
             /* This witness says "composite" */
-            noxtls_free(n_minus_1);
-            noxtls_free(d);
-            noxtls_free(a);
-            noxtls_free(x);
-            noxtls_free(temp);
-            noxtls_free(two);
+            (void)noxtls_free(n_minus_1);
+            (void)noxtls_free(d);
+            (void)noxtls_free(a);
+            (void)noxtls_free(x);
+            (void)noxtls_free(temp);
+            (void)noxtls_free(two);
             return 0;
         }
     }
     
-    noxtls_free(n_minus_1);
-    noxtls_free(d);
-    noxtls_free(a);
-    noxtls_free(x);
-    noxtls_free(temp);
-    noxtls_free(two);
-    return 1;
+    (void)noxtls_free(n_minus_1);
+    (void)noxtls_free(d);
+    (void)noxtls_free(a);
+    (void)noxtls_free(x);
+    (void)noxtls_free(temp);
+    (void)noxtls_free(two);
+    return (bn_failed != 0) ? -1 : 1;
 }
 
 /* Quick divisibility test for small primes */
@@ -608,19 +613,56 @@ static int rsa_is_prime(const uint8_t *n, uint32_t len, int iterations)
  */
 static int rsa_quick_divisibility_test(const uint8_t *n, uint32_t len)
 {
-    uint32_t i;
-    uint32_t j;
+    /* small primes table (Rule 8.9). */
+    /* Test divisibility by a wider set of small primes for faster rejection */
+    static const uint16_t small_primes[] = {
+        3, 5, 7, 11, 13, 17, 19, 23, 29, 31,
+        37, 41, 43, 47, 53, 59, 61, 67, 71, 73,
+        79, 83, 89, 97, 101, 103, 107, 109, 113, 127,
+        131, 137, 139, 149, 151, 157, 163, 167, 173, 179,
+        181, 191, 193, 197, 199, 211, 223, 227, 229, 233,
+        239, 241, 251, 257, 263, 269, 271, 277, 281, 283,
+        293, 307, 311, 313, 317, 331, 337, 347, 349, 353,
+        359, 367, 373, 379, 383, 389, 397, 401, 409, 419,
+        421, 431, 433, 439, 443, 449, 457, 461, 463, 467,
+        479, 487, 491, 499, 503, 509, 521, 523, 541, 547,
+        557, 563, 569, 571, 577, 587, 593, 599, 601, 607,
+        613, 617, 619, 631, 641, 643, 647, 653, 659, 661,
+        673, 677, 683, 691, 701, 709, 719, 727, 733, 739,
+        743, 751, 757, 761, 769, 773, 787, 797, 809, 811,
+        821, 823, 827, 829, 839, 853, 857, 859, 863, 877,
+        881, 883, 887, 907, 911, 919, 929, 937, 941, 947,
+        953, 967, 971, 977, 983, 991, 997,
+        1009, 1013, 1019, 1021, 1031, 1033, 1039, 1049, 1051, 1061,
+        1063, 1069, 1087, 1091, 1093, 1097, 1103, 1109, 1117, 1123,
+        1129, 1151, 1153, 1163, 1171, 1181, 1187, 1193, 1201, 1213,
+        1217, 1223, 1229, 1231, 1237, 1249, 1259, 1277, 1279, 1283,
+        1289, 1291, 1297, 1301, 1303, 1307, 1319, 1321, 1327, 1361,
+        1367, 1373, 1381, 1399, 1409, 1423, 1427, 1429, 1433, 1439,
+        1447, 1451, 1453, 1459, 1471, 1481, 1483, 1487, 1489, 1493,
+        1499, 1511, 1523, 1531, 1543, 1549, 1553, 1559, 1567, 1571,
+        1579, 1583, 1597, 1601, 1607, 1609, 1613, 1619, 1621, 1627,
+        1637, 1657, 1663, 1667, 1669, 1693, 1697, 1699, 1709, 1721,
+        1723, 1733, 1741, 1747, 1753, 1759, 1777, 1783, 1787, 1789,
+        1801, 1811, 1823, 1831, 1847, 1861, 1867, 1871, 1873, 1877,
+        1879, 1889, 1901, 1907, 1913, 1931, 1933, 1949, 1951, 1973,
+        1979, 1987, 1993, 1997
+    };
+
+
+    uint32_t i = 0U;
+    uint32_t j = 0U;
     
     /* Compute n mod each small prime using modular arithmetic */
-    for(i = 0; i < (uint32_t)(sizeof(small_primes) / sizeof(small_primes[0])); i++) {
-        uint32_t mod = 0;  /* Use uint32_t to avoid overflow */
-        uint16_t prime = small_primes[i];
+    for(i = 0U; i < (uint32_t)(sizeof(small_primes) / sizeof(small_primes[0])); i += 1U) {
+        uint32_t mod = 0U;  /* Use uint32_t to avoid overflow */
+        uint16_t prime = (uint16_t)(small_primes[i]);
         
         /* Compute n mod prime using: (a * 256 + b) mod p = ((a mod p) * 256 + b) mod p */
-        for(j = 0; j < len; j++) {
-            mod = ((mod * 256) + n[j]) % prime;
+        for(j = 0U; j < len; j += 1U) {
+            mod = ((mod * 256U) + n[j]) % prime;
         }
-        if(mod == 0) {
+        if(mod == 0U) {
             return 0;  /* Divisible by small prime, definitely composite */
         }
     }
@@ -638,17 +680,18 @@ static int rsa_quick_divisibility_test(const uint8_t *n, uint32_t len)
 static void rsa_wheel_init(uint16_t *residues, uint16_t *steps, uint32_t *count)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    uint32_t idx = 0;
-    for(uint32_t r = 1; r < 2310; r++) {
-        if((r % 2) == 0 || (r % 3) == 0 || (r % 5) == 0 || (r % 7) == 0 || (r % 11) == 0) {
+    uint32_t idx = 0U;
+    for(uint32_t r = 1U; r < 2310U; r += 1U) {
+        if(((r % 2U) == 0U) || ((r % 3U) == 0U) || ((r % 5U) == 0U) || ((r % 7U) == 0U) || ((r % 11U) == 0U)) {
             continue;
         }
-        residues[idx++] = (uint16_t)r;
+        residues[idx] = (uint16_t)r;
+        idx += 1U;
     }
     *count = idx;
-    for(uint32_t i = 0; i < *count; i++) {
-        uint32_t curr = residues[i];
-        uint32_t next = (i + 1 < *count) ? residues[i + 1] : (residues[0] + 2310);
+    for(uint32_t i = 0U; i < *count; i += 1U) {
+        uint32_t curr = (uint32_t)(residues[i]);
+        uint32_t next = ((i + 1U) < *count) ? (uint32_t)residues[i + 1U] : ((uint32_t)residues[0U] + 2310U);
         steps[i] = (uint16_t)(next - curr);
     }
 }
@@ -671,35 +714,38 @@ static noxtls_return_t rsa_wheel_advance(uint8_t *prime, uint32_t len,
                                          uint32_t wheel_count, uint32_t *wheel_idx, uint32_t *wheel_rem)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    if(wheel_count == 0) {
+    if(wheel_count == 0U) {
         return NOXTLS_RETURN_SUCCESS;
     }
-    uint32_t step = wheel_steps[*wheel_idx];
+    uint32_t step = (uint32_t)(wheel_steps[*wheel_idx]);
     rsa_add_small(prime, len, step);
     *wheel_rem = (*wheel_rem + step) % 2310U;
-    *wheel_idx = (*wheel_idx + 1) % wheel_count;
+    *wheel_idx = (*wheel_idx + 1U) % wheel_count;
     /* If we wrapped past the size (MSB cleared), reseed and realign */
-    if((prime[0] & 0x80) == 0) {
+    if((prime[0] & 0x80U) == 0U) {
         if(rsa_random_bytes(prime, len) != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_FAILED;
         }
-        prime[0] |= 0x80;
-        prime[len-1] |= 1;
+        prime[0] |= 0x80U;
+        prime[len - 1U] |= 1U;
         *wheel_rem = rsa_mod_small(prime, len, 2310);
-        *wheel_idx = 0;
-        while(*wheel_idx < wheel_count && wheel_residues[*wheel_idx] < *wheel_rem) {
+        *wheel_idx = 0U;
+        while((*wheel_idx < wheel_count) && (wheel_residues[*wheel_idx] < *wheel_rem)) {
             (*wheel_idx)++;
         }
         if(*wheel_idx >= wheel_count) {
-            uint32_t delta = (2310U - *wheel_rem) + wheel_residues[0];
+            uint32_t delta = (uint32_t)((2310U - *wheel_rem) + wheel_residues[0U]);
             rsa_add_small(prime, len, delta);
             *wheel_rem = (*wheel_rem + delta) % 2310U;
-            *wheel_idx = 0;
+            *wheel_idx = 0U;
         } else if(wheel_residues[*wheel_idx] != *wheel_rem) {
             uint32_t delta = (uint32_t)wheel_residues[*wheel_idx] - *wheel_rem;
             rsa_add_small(prime, len, delta);
             *wheel_rem = (*wheel_rem + delta) % 2310U;
         }
+         else {
+             /* MISRA 15.7: no remaining alternative */
+         }
     }
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -713,26 +759,29 @@ static noxtls_return_t rsa_wheel_advance(uint8_t *prime, uint32_t len,
  */
 static int rsa_generate_prime(uint8_t *prime, uint32_t len)
 {
+#if NOXTLS_DEBUG_PRINTF_ENABLED
     static int test_run = 0;
-    uint32_t attempts = 0;
-    uint32_t prime_bits = len * 8;
+#endif
+    uint32_t attempts = 0U;
+    uint32_t prime_bits = (uint32_t)(len * 8U);
     static int wheel_init = 0;
     static uint16_t wheel_residues[480];
     static uint16_t wheel_steps[480];
-    static uint32_t wheel_count = 0;
-    uint32_t wheel_idx = 0;
-    uint32_t wheel_rem = 0;
+    static uint32_t wheel_count = 0U;
+    uint32_t wheel_idx = 0U;
+    uint32_t wheel_rem = 0U;
     /* No quotient needed; just compute modulus for wheel alignment. */
     
+#if NOXTLS_DEBUG_PRINTF_ENABLED
     /* Run Miller-Rabin test verification once on first prime generation */
-    if(!test_run) {
+    if(test_run == 0) {
         test_miller_rabin_known_primes();
         test_run = 1;
     }
+#endif
     
-    noxtls_debug_printf("  Starting prime generation (this may take several minutes for large keys)...\n");
-    fflush(stdout);
-    if(!wheel_init) {
+    (void)noxtls_debug_printf((const uint8_t *)"  Starting prime generation (this may take several minutes for large keys)...\n");
+    if(wheel_init == 0) {
         rsa_wheel_init(wheel_residues, wheel_steps, &wheel_count);
         wheel_init = 1;
     }
@@ -741,37 +790,39 @@ static int rsa_generate_prime(uint8_t *prime, uint32_t len)
     if(rsa_random_bytes(prime, len) != NOXTLS_RETURN_SUCCESS) {
         return 0;
     }
-    prime[0] |= 0x80;  /* Set MSB to ensure correct bit length */
-    prime[len-1] |= 1;  /* Make odd */
+    prime[0] |= 0x80U;  /* Set MSB to ensure correct bit length */
+    prime[len - 1U] |= 1U;  /* Make odd */
     wheel_rem = rsa_mod_small(prime, len, 2310);
-    wheel_idx = 0;
-    while(wheel_idx < wheel_count && wheel_residues[wheel_idx] < wheel_rem) {
-        wheel_idx++;
+    wheel_idx = 0U;
+    while((wheel_idx < wheel_count) && (wheel_residues[wheel_idx] < wheel_rem)) {
+        wheel_idx += 1U;
     }
     if(wheel_idx >= wheel_count) {
-        uint32_t delta = (2310U - wheel_rem) + wheel_residues[0];
+        uint32_t delta = (uint32_t)((2310U - wheel_rem) + wheel_residues[0U]);
         rsa_add_small(prime, len, delta);
         wheel_rem = (wheel_rem + delta) % 2310U;
-        wheel_idx = 0;
+        wheel_idx = 0U;
     } else if(wheel_residues[wheel_idx] != wheel_rem) {
         uint32_t delta = (uint32_t)wheel_residues[wheel_idx] - wheel_rem;
         rsa_add_small(prime, len, delta);
         wheel_rem = (wheel_rem + delta) % 2310U;
     }
+     else {
+         /* MISRA 15.7: no remaining alternative */
+     }
     
     do {
-        attempts++;
+        attempts += 1U;
         
 #if NOXTLS_RSA_DEBUG_PROGRESS_INTERVAL > 0
-        if(attempts % NOXTLS_RSA_DEBUG_PROGRESS_INTERVAL == 0) {
-            noxtls_debug_printf("  Testing candidate %u...\n", attempts);
-            fflush(stdout);
+        if((attempts % NOXTLS_RSA_DEBUG_PROGRESS_INTERVAL) == 0U) {
+            (void)noxtls_debug_printf((const uint8_t *)"  Testing candidate %u...\n", attempts);
         }
 #endif
         
         /* Quick divisibility test before expensive Miller-Rabin */
 #if NOXTLS_RSA_ENABLE_QUICK_DIVISIBILITY_TEST
-        if(!rsa_quick_divisibility_test(prime, len)) {
+        if((rsa_quick_divisibility_test(prime, len) == 0)) {
             if(rsa_wheel_advance(prime, len, wheel_residues, wheel_steps, wheel_count, &wheel_idx, &wheel_rem) != NOXTLS_RETURN_SUCCESS) {
                 return 0;
             }
@@ -780,41 +831,41 @@ static int rsa_generate_prime(uint8_t *prime, uint32_t len)
 #endif
         
 #if NOXTLS_RSA_DEBUG_PRIMALITY_CHECK_INTERVAL > 0
-        if(attempts % NOXTLS_RSA_DEBUG_PRIMALITY_CHECK_INTERVAL == 0) {
-            noxtls_debug_printf("  Checking primality of candidate %u (passed quick test)...\n", attempts);
-            fflush(stdout);
+        if((attempts % NOXTLS_RSA_DEBUG_PRIMALITY_CHECK_INTERVAL) == 0U) {
+            (void)noxtls_debug_printf((const uint8_t *)"  Checking primality of candidate %u (passed quick test)...\n", attempts);
         }
 #endif
         
         /* Determine number of Miller-Rabin iterations based on prime size */
-        int iterations;
+        int32_t iterations = 0;
         if(prime_bits <= NOXTLS_RSA_MILLER_RABIN_SMALL_THRESHOLD_BITS) {
-            iterations = NOXTLS_RSA_MILLER_RABIN_ITERATIONS_SMALL;
+            iterations = (int)NOXTLS_RSA_MILLER_RABIN_ITERATIONS_SMALL;
         } else {
-            iterations = NOXTLS_RSA_MILLER_RABIN_ITERATIONS_LARGE;
+            iterations = (int)NOXTLS_RSA_MILLER_RABIN_ITERATIONS_LARGE;
         }
         
-        int is_prime = rsa_is_prime(prime, len, iterations);
-        if(is_prime) {
-            noxtls_debug_printf("  Found prime after %u attempts!\n", attempts);
-            fflush(stdout);
+        int32_t is_prime = rsa_is_prime(prime, len, iterations);
+        if(is_prime < 0) {
+            /* Primality test could not complete (e.g. out of memory): fail, never accept. */
+            return 0;
+        }
+        if(is_prime > 0) {
+            (void)noxtls_debug_printf((const uint8_t *)"  Found prime after %u attempts!\n", attempts);
             return 1;
         }
         
         /* Debug: Check if this might be a false negative */
-        if(attempts % 200 == 0 && attempts <= 1000) {
-            noxtls_debug_printf("  Debug: Candidate rejected (first byte: 0x%02x, last byte: 0x%02x)\n", 
-                   prime[0], prime[len-1]);
-            fflush(stdout);
+        if(((attempts % 200U) == 0U) && (attempts <= 1000U)) {
+            (void)noxtls_debug_printf((const uint8_t *)"  Debug: Candidate rejected (first byte: 0x%02x, last byte: 0x%02x)\n", 
+                   prime[0], prime[len - 1U]);
         }
         
 #if NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_INTERVAL > 0
         /* Debug: Print first few bytes of rejected candidate */
-        if(attempts % NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_INTERVAL == 0 && 
-           attempts <= NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_MAX_ATTEMPTS) {
-            noxtls_debug_printf("  Rejected candidate (first 4 bytes): %02x %02x %02x %02x\n", 
+        if(((attempts % NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_INTERVAL) == 0U) &&
+           (attempts <= NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_MAX_ATTEMPTS)) {
+            (void)noxtls_debug_printf((const uint8_t *)"  Rejected candidate (first 4 bytes): %02x %02x %02x %02x\n", 
                    prime[0], prime[1], prime[2], prime[3]);
-            fflush(stdout);
         }
 #endif
         /* Advance to next wheel residue for next candidate */
@@ -823,8 +874,7 @@ static int rsa_generate_prime(uint8_t *prime, uint32_t len)
         }
     } while(attempts < NOXTLS_RSA_MAX_PRIME_ATTEMPTS);
     
-    noxtls_debug_printf("  Warning: Failed to find prime after %u attempts\n", NOXTLS_RSA_MAX_PRIME_ATTEMPTS);
-    fflush(stdout);
+    (void)noxtls_debug_printf((const uint8_t *)"  Warning: Failed to find prime after %u attempts\n", NOXTLS_RSA_MAX_PRIME_ATTEMPTS);
     return 0;  /* Failed to find prime */
 }
 
@@ -839,37 +889,37 @@ static int rsa_generate_prime(uint8_t *prime, uint32_t len)
  */
 static noxtls_return_t rsa_pkcs1_v15_encrypt_pad(uint8_t *padded, uint32_t padded_len, const uint8_t *data, uint32_t data_len)
 {
-    noxtls_return_t rc;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(data_len > padded_len - 11) {
+    if(data_len > (padded_len - 11U)) {
         return NOXTLS_RETURN_FAILED;
     }
     
-    padded[0] = 0x00;
-    padded[1] = 0x02;  /* Encryption block type */
+    padded[0] = 0x00U;
+    padded[1] = 0x02U;  /* Encryption block type */
     
     /* Random padding (non-zero bytes) */
-    uint32_t pad_len = padded_len - data_len - 3;
-    rc = rsa_random_bytes(padded + 2, pad_len);
+    uint32_t pad_len = (uint32_t)(padded_len - data_len - 3U);
+    rc = rsa_random_bytes(&padded[2], pad_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    for(uint32_t i = 0; i < pad_len; i++) {
-        uint32_t retries = 0;
-        while(padded[2 + i] == 0 && retries < RSA_PKCS1_PAD_RETRY_MAX) {
-            rc = rsa_random_bytes(padded + 2 + i, 1U);
+    for(uint32_t i = 0U; i < pad_len; i += 1U) {
+        uint32_t retries = 0U;
+        while((padded[2U + i] == 0U) && (retries < RSA_PKCS1_PAD_RETRY_MAX)) {
+            rc = rsa_random_bytes(&padded[2U + i], 1U);
             if(rc != NOXTLS_RETURN_SUCCESS) {
                 return rc;
             }
-            retries++;
+            retries += 1U;
         }
-        if(padded[2 + i] == 0) {
+        if(padded[2U + i] == 0U) {
             return NOXTLS_RETURN_FAILED;
         }
     }
     
-    padded[2 + pad_len] = 0x00;  /* Separator */
-    memcpy(padded + 3 + pad_len, data, data_len);
+    padded[2U + pad_len] = 0x00U;  /* Separator */
+    noxtls_copy_u8(&padded[3U + pad_len], (size_t)(data_len), data, (size_t)(data_len));
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -884,94 +934,116 @@ static noxtls_return_t rsa_pkcs1_v15_encrypt_pad(uint8_t *padded, uint32_t padde
  * @param hash_algo The hash algorithm value
  */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
-static void rsa_pkcs1_v15_sign_pad(uint8_t *padded, uint32_t padded_len, const uint8_t *hash, uint32_t hash_len, noxtls_hash_algos_t hash_algo)
+static noxtls_return_t rsa_pkcs1_v15_encode_digest(uint8_t *padded, uint32_t padded_len, const uint8_t *hash, uint32_t hash_len,
+                                                   noxtls_hash_algos_t hash_algo, uint32_t omit_null_params)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     uint8_t hash_oid[20];
-    uint32_t oid_len = 0;
+    uint32_t oid_len = 0U;
 
-    if(hash_algo != NOXTLS_HASH_MD5 &&
-       hash_algo != NOXTLS_HASH_SHA1 &&
-       hash_algo != NOXTLS_HASH_SHA_224 &&
-       hash_algo != NOXTLS_HASH_SHA_256 &&
-       hash_algo != NOXTLS_HASH_SHA_384 &&
-       hash_algo != NOXTLS_HASH_SHA_512) {
-        return;
+    if((hash_algo != NOXTLS_HASH_MD5) &&
+       (hash_algo != NOXTLS_HASH_SHA1) &&
+       (hash_algo != NOXTLS_HASH_SHA_224) &&
+       (hash_algo != NOXTLS_HASH_SHA_256) &&
+       (hash_algo != NOXTLS_HASH_SHA_384) &&
+       (hash_algo != NOXTLS_HASH_SHA_512)) {
+        return NOXTLS_RETURN_INVALID_ALGORITHM;
     }
     
     /* ASN.1 DigestInfo structure */
-    switch(hash_algo) {
-        case NOXTLS_HASH_MD5:
+    {
+        uint32_t hash_algo_u = (uint32_t)hash_algo;
+        switch (hash_algo_u) {
+        case (uint32_t)NOXTLS_HASH_MD5:
             /* MD5 OID: 1.2.840.113549.2.5 */
-            hash_oid[0] = 0x30; hash_oid[1] = 0x20; hash_oid[2] = 0x30; hash_oid[3] = 0x0C;
-            hash_oid[4] = 0x06; hash_oid[5] = 0x08; hash_oid[6] = 0x2A; hash_oid[7] = 0x86;
-            hash_oid[8] = 0x48; hash_oid[9] = 0x86; hash_oid[10] = 0xF7; hash_oid[11] = 0x0D;
-            hash_oid[12] = 0x02; hash_oid[13] = 0x05; hash_oid[14] = 0x05; hash_oid[15] = 0x00;
-            hash_oid[16] = 0x04; hash_oid[17] = 0x10;
-            oid_len = 18;
+            hash_oid[0] = 0x30U; hash_oid[1] = 0x20U; hash_oid[2] = 0x30U; hash_oid[3] = 0x0CU;
+            hash_oid[4] = 0x06U; hash_oid[5] = 0x08U; hash_oid[6] = 0x2AU; hash_oid[7] = 0x86U;
+            hash_oid[8] = 0x48U; hash_oid[9] = 0x86U; hash_oid[10] = 0xF7U; hash_oid[11] = 0x0DU;
+            hash_oid[12] = 0x02U; hash_oid[13] = 0x05U; hash_oid[14] = 0x05U; hash_oid[15] = 0x00U;
+            hash_oid[16] = 0x04U; hash_oid[17] = 0x10U;
+            oid_len = 18U;
             break;
-        case NOXTLS_HASH_SHA1:
+        case (uint32_t)NOXTLS_HASH_SHA1:
             /* SHA-1 OID: 1.3.14.3.2.26 */
-            hash_oid[0] = 0x30; hash_oid[1] = 0x21; hash_oid[2] = 0x30; hash_oid[3] = 0x09;
-            hash_oid[4] = 0x06; hash_oid[5] = 0x05; hash_oid[6] = 0x2B; hash_oid[7] = 0x0E;
-            hash_oid[8] = 0x03; hash_oid[9] = 0x02; hash_oid[10] = 0x1A; hash_oid[11] = 0x05;
-            hash_oid[12] = 0x00; hash_oid[13] = 0x04; hash_oid[14] = 0x14;
-            oid_len = 15;
+            hash_oid[0] = 0x30U; hash_oid[1] = 0x21U; hash_oid[2] = 0x30U; hash_oid[3] = 0x09U;
+            hash_oid[4] = 0x06U; hash_oid[5] = 0x05U; hash_oid[6] = 0x2BU; hash_oid[7] = 0x0EU;
+            hash_oid[8] = 0x03U; hash_oid[9] = 0x02U; hash_oid[10] = 0x1AU; hash_oid[11] = 0x05U;
+            hash_oid[12] = 0x00U; hash_oid[13] = 0x04U; hash_oid[14] = 0x14U;
+            oid_len = 15U;
             break;
-        case NOXTLS_HASH_SHA_224:
+        case (uint32_t)NOXTLS_HASH_SHA_224:
             /* SHA-224 OID: 2.16.840.1.101.3.4.2.4 */
-            hash_oid[0] = 0x30; hash_oid[1] = 0x2d; hash_oid[2] = 0x30; hash_oid[3] = 0x0d;
-            hash_oid[4] = 0x06; hash_oid[5] = 0x09; hash_oid[6] = 0x60; hash_oid[7] = 0x86;
-            hash_oid[8] = 0x48; hash_oid[9] = 0x01; hash_oid[10] = 0x65; hash_oid[11] = 0x03;
-            hash_oid[12] = 0x04; hash_oid[13] = 0x02; hash_oid[14] = 0x04; hash_oid[15] = 0x05;
-            hash_oid[16] = 0x00; hash_oid[17] = 0x04; hash_oid[18] = 0x1c;
-            oid_len = 19;
+            hash_oid[0] = 0x30U; hash_oid[1] = 0x2dU; hash_oid[2] = 0x30U; hash_oid[3] = 0x0dU;
+            hash_oid[4] = 0x06U; hash_oid[5] = 0x09U; hash_oid[6] = 0x60U; hash_oid[7] = 0x86U;
+            hash_oid[8] = 0x48U; hash_oid[9] = 0x01U; hash_oid[10] = 0x65U; hash_oid[11] = 0x03U;
+            hash_oid[12] = 0x04U; hash_oid[13] = 0x02U; hash_oid[14] = 0x04U; hash_oid[15] = 0x05U;
+            hash_oid[16] = 0x00U; hash_oid[17] = 0x04U; hash_oid[18] = 0x1cU;
+            oid_len = 19U;
             break;
-        case NOXTLS_HASH_SHA_256:
+        case (uint32_t)NOXTLS_HASH_SHA_256:
             /* SHA-256 OID: 2.16.840.1.101.3.4.2.1 */
-            hash_oid[0] = 0x30; hash_oid[1] = 0x31; hash_oid[2] = 0x30; hash_oid[3] = 0x0D;
-            hash_oid[4] = 0x06; hash_oid[5] = 0x09; hash_oid[6] = 0x60; hash_oid[7] = 0x86;
-            hash_oid[8] = 0x48; hash_oid[9] = 0x01; hash_oid[10] = 0x65; hash_oid[11] = 0x03;
-            hash_oid[12] = 0x04; hash_oid[13] = 0x02; hash_oid[14] = 0x01; hash_oid[15] = 0x05;
-            hash_oid[16] = 0x00; hash_oid[17] = 0x04; hash_oid[18] = 0x20;
-            oid_len = 19;
+            hash_oid[0] = 0x30U; hash_oid[1] = 0x31U; hash_oid[2] = 0x30U; hash_oid[3] = 0x0DU;
+            hash_oid[4] = 0x06U; hash_oid[5] = 0x09U; hash_oid[6] = 0x60U; hash_oid[7] = 0x86U;
+            hash_oid[8] = 0x48U; hash_oid[9] = 0x01U; hash_oid[10] = 0x65U; hash_oid[11] = 0x03U;
+            hash_oid[12] = 0x04U; hash_oid[13] = 0x02U; hash_oid[14] = 0x01U; hash_oid[15] = 0x05U;
+            hash_oid[16] = 0x00U; hash_oid[17] = 0x04U; hash_oid[18] = 0x20U;
+            oid_len = 19U;
             break;
-        case NOXTLS_HASH_SHA_384:
+        case (uint32_t)NOXTLS_HASH_SHA_384:
             /* SHA-384 OID: 2.16.840.1.101.3.4.2.2 */
-            hash_oid[0] = 0x30; hash_oid[1] = 0x41; hash_oid[2] = 0x30; hash_oid[3] = 0x0d;
-            hash_oid[4] = 0x06; hash_oid[5] = 0x09; hash_oid[6] = 0x60; hash_oid[7] = 0x86;
-            hash_oid[8] = 0x48; hash_oid[9] = 0x01; hash_oid[10] = 0x65; hash_oid[11] = 0x03;
-            hash_oid[12] = 0x04; hash_oid[13] = 0x02; hash_oid[14] = 0x02; hash_oid[15] = 0x05;
-            hash_oid[16] = 0x00; hash_oid[17] = 0x04; hash_oid[18] = 0x30;
-            oid_len = 19;
+            hash_oid[0] = 0x30U; hash_oid[1] = 0x41U; hash_oid[2] = 0x30U; hash_oid[3] = 0x0dU;
+            hash_oid[4] = 0x06U; hash_oid[5] = 0x09U; hash_oid[6] = 0x60U; hash_oid[7] = 0x86U;
+            hash_oid[8] = 0x48U; hash_oid[9] = 0x01U; hash_oid[10] = 0x65U; hash_oid[11] = 0x03U;
+            hash_oid[12] = 0x04U; hash_oid[13] = 0x02U; hash_oid[14] = 0x02U; hash_oid[15] = 0x05U;
+            hash_oid[16] = 0x00U; hash_oid[17] = 0x04U; hash_oid[18] = 0x30U;
+            oid_len = 19U;
             break;
-        case NOXTLS_HASH_SHA_512:
+        case (uint32_t)NOXTLS_HASH_SHA_512:
             /* SHA-512 OID: 2.16.840.1.101.3.4.2.3 */
-            hash_oid[0] = 0x30; hash_oid[1] = 0x51; hash_oid[2] = 0x30; hash_oid[3] = 0x0d;
-            hash_oid[4] = 0x06; hash_oid[5] = 0x09; hash_oid[6] = 0x60; hash_oid[7] = 0x86;
-            hash_oid[8] = 0x48; hash_oid[9] = 0x01; hash_oid[10] = 0x65; hash_oid[11] = 0x03;
-            hash_oid[12] = 0x04; hash_oid[13] = 0x02; hash_oid[14] = 0x03; hash_oid[15] = 0x05;
-            hash_oid[16] = 0x00; hash_oid[17] = 0x04; hash_oid[18] = 0x40;
-            oid_len = 19;
+            hash_oid[0] = 0x30U; hash_oid[1] = 0x51U; hash_oid[2] = 0x30U; hash_oid[3] = 0x0dU;
+            hash_oid[4] = 0x06U; hash_oid[5] = 0x09U; hash_oid[6] = 0x60U; hash_oid[7] = 0x86U;
+            hash_oid[8] = 0x48U; hash_oid[9] = 0x01U; hash_oid[10] = 0x65U; hash_oid[11] = 0x03U;
+            hash_oid[12] = 0x04U; hash_oid[13] = 0x02U; hash_oid[14] = 0x03U; hash_oid[15] = 0x05U;
+            hash_oid[16] = 0x00U; hash_oid[17] = 0x04U; hash_oid[18] = 0x40U;
+            oid_len = 19U;
             break;
         default:
-            return;
+            return NOXTLS_RETURN_INVALID_ALGORITHM;
+    }
+    }
+
+    if(omit_null_params != 0U) {
+        /* Alternative DigestInfo with absent AlgorithmIdentifier parameters
+         * (RFC 8017 section 9.2 note 1): drop the "05 00" NULL that precedes
+         * the "04 <hLen>" OCTET STRING header and shorten both SEQUENCEs. */
+        hash_oid[oid_len - 4U] = hash_oid[oid_len - 2U];
+        hash_oid[oid_len - 3U] = hash_oid[oid_len - 1U];
+        hash_oid[1] = (uint8_t)(hash_oid[1] - 2U);
+        hash_oid[3] = (uint8_t)(hash_oid[3] - 2U);
+        oid_len -= 2U;
+    }
+
+    /* EMSA-PKCS1-v1_5 (RFC 8017 section 9.2): emLen >= tLen + 11, i.e. PS >= 8 bytes. */
+    if((padded_len < 11U) || ((oid_len + hash_len) > (padded_len - 11U))) {
+        return NOXTLS_RETURN_FAILED;
     }
     
-    if(oid_len + hash_len + 3 > padded_len) {
-        return;  /* Invalid */
+    padded[0] = 0x00U;
+    padded[1] = 0x01U;  /* Signature block type */
+    
+    /* Padding with 0xFFU */
+    uint32_t pad_len = (uint32_t)(padded_len - oid_len - hash_len - 3U);
+    {
+        uint32_t pi = 0U;
+        for(pi = 0U; pi < pad_len; pi += 1U) {
+            padded[2U + pi] = 0xFFU;
+        }
     }
     
-    padded[0] = 0x00;
-    padded[1] = 0x01;  /* Signature block type */
-    
-    /* Padding with 0xFF */
-    uint32_t pad_len = padded_len - oid_len - hash_len - 3;
-    memset(padded + 2, 0xFF, pad_len);
-    
-    padded[2 + pad_len] = 0x00;  /* Separator */
-    memcpy(padded + 3 + pad_len, hash_oid, oid_len);
-    memcpy(padded + 3 + pad_len + oid_len, hash, hash_len);
+    padded[2U + pad_len] = 0x00U;  /* Separator */
+    noxtls_copy_u8(&padded[3U + pad_len], (size_t)(oid_len), hash_oid, (size_t)(oid_len));
+    noxtls_copy_u8(&padded[3U + pad_len + oid_len], (size_t)(hash_len), hash, (size_t)(hash_len));
+    return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
@@ -984,33 +1056,40 @@ static void rsa_pkcs1_v15_sign_pad(uint8_t *padded, uint32_t padded_len, const u
  * @param hash_algo The hash algorithm value
  * @return The return value
  */
+#if NOXTLS_FEATURE_MD5
 static noxtls_return_t rsa_hash_run_md5(uint8_t *hash, const uint8_t *msg, uint32_t len)
 {
     noxtls_sha_ctx_t ctx;
     if(noxtls_md5_init(&ctx) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(noxtls_md5_update(&ctx, (uint8_t*)msg, len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_md5_update(&ctx, msg, len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     if(noxtls_md5_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     return NOXTLS_RETURN_SUCCESS;
 }
+#endif /* NOXTLS_FEATURE_MD5 */
 
+#if NOXTLS_FEATURE_SHA1
 static noxtls_return_t rsa_hash_run_sha1(uint8_t *hash, const uint8_t *msg, uint32_t len, noxtls_hash_algos_t hash_algo)
 {
     noxtls_sha_ctx_t ctx;
     if(noxtls_sha1_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(noxtls_sha1_update(&ctx, (uint8_t*)msg, len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha1_update(&ctx, msg, len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     if(noxtls_sha1_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     return NOXTLS_RETURN_SUCCESS;
 }
+#endif /* NOXTLS_FEATURE_SHA1 */
 
+#if (NOXTLS_FEATURE_SHA224 || NOXTLS_FEATURE_SHA256)
 static noxtls_return_t rsa_hash_run_sha256(uint8_t *hash, const uint8_t *msg, uint32_t len, noxtls_hash_algos_t hash_algo)
 {
     noxtls_sha_ctx_t ctx;
     if(noxtls_sha256_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(noxtls_sha256_update(&ctx, (uint8_t*)msg, len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+    if(noxtls_sha256_update(&ctx, msg, len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     if(noxtls_sha256_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     return NOXTLS_RETURN_SUCCESS;
 }
+#endif /* NOXTLS_FEATURE_SHA224 || NOXTLS_FEATURE_SHA256 */
 
+#if (NOXTLS_FEATURE_SHA384 || NOXTLS_FEATURE_SHA512)
 static noxtls_return_t rsa_hash_run_sha512(uint8_t *hash, const uint8_t *msg, uint32_t len, noxtls_hash_algos_t hash_algo)
 {
     noxtls_sha512_ctx_t ctx512;
@@ -1019,54 +1098,83 @@ static noxtls_return_t rsa_hash_run_sha512(uint8_t *hash, const uint8_t *msg, ui
     if(noxtls_sha512_finish(&ctx512, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     return NOXTLS_RETURN_SUCCESS;
 }
+#endif /* NOXTLS_FEATURE_SHA384 || NOXTLS_FEATURE_SHA512 */
 
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static noxtls_return_t rsa_hash_message(uint8_t *hash, uint32_t *hash_len, const uint8_t *noxtls_message, uint32_t message_len, noxtls_hash_algos_t hash_algo)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    noxtls_return_t rc;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    switch(hash_algo) {
-        case NOXTLS_HASH_MD5:
+    {
+        uint32_t hash_algo_u = (uint32_t)hash_algo;
+        switch (hash_algo_u) {
+        /* Digests compiled out of this build are NOT_SUPPORTED. */
+        case (uint32_t)NOXTLS_HASH_MD5:
+#if NOXTLS_FEATURE_MD5
             rc = rsa_hash_run_md5(hash, noxtls_message, message_len);
             if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
-            *hash_len = 16;
+            *hash_len = 16U;
             break;
-        case NOXTLS_HASH_SHA1:
+#else
+            return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+        case (uint32_t)NOXTLS_HASH_SHA1:
+#if NOXTLS_FEATURE_SHA1
             rc = rsa_hash_run_sha1(hash, noxtls_message, message_len, hash_algo);
             if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
-            *hash_len = 20;
+            *hash_len = 20U;
             break;
-        case NOXTLS_HASH_SHA_224:
+#else
+            return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+        case (uint32_t)NOXTLS_HASH_SHA_224:
+#if NOXTLS_FEATURE_SHA224
             rc = rsa_hash_run_sha256(hash, noxtls_message, message_len, hash_algo);
             if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
-            *hash_len = 28;
+            *hash_len = 28U;
             break;
-        case NOXTLS_HASH_SHA_256:
+#else
+            return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+        case (uint32_t)NOXTLS_HASH_SHA_256:
+#if NOXTLS_FEATURE_SHA256
             rc = rsa_hash_run_sha256(hash, noxtls_message, message_len, hash_algo);
             if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
-            *hash_len = 32;
+            *hash_len = 32U;
             break;
-        case NOXTLS_HASH_SHA_384:
+#else
+            return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+        case (uint32_t)NOXTLS_HASH_SHA_384:
+#if NOXTLS_FEATURE_SHA384
             rc = rsa_hash_run_sha512(hash, noxtls_message, message_len, hash_algo);
             if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
-            *hash_len = 48;
+            *hash_len = 48U;
             break;
-        case NOXTLS_HASH_SHA_512:
+#else
+            return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+        case (uint32_t)NOXTLS_HASH_SHA_512:
+#if NOXTLS_FEATURE_SHA512
             rc = rsa_hash_run_sha512(hash, noxtls_message, message_len, hash_algo);
             if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
-            *hash_len = 64;
+            *hash_len = 64U;
             break;
-        case NOXTLS_HASH_MD4:
-        case NOXTLS_HASH_SHA_512_224:
-        case NOXTLS_HASH_SHA_512_256:
-        case NOXTLS_HASH_SHA3_224:
-        case NOXTLS_HASH_SHA3_256:
-        case NOXTLS_HASH_SHA3_384:
-        case NOXTLS_HASH_SHA3_512:
+#else
+            return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+        case (uint32_t)NOXTLS_HASH_MD4:
+        case (uint32_t)NOXTLS_HASH_SHA_512_224:
+        case (uint32_t)NOXTLS_HASH_SHA_512_256:
+        case (uint32_t)NOXTLS_HASH_SHA3_224:
+        case (uint32_t)NOXTLS_HASH_SHA3_256:
+        case (uint32_t)NOXTLS_HASH_SHA3_384:
+        case (uint32_t)NOXTLS_HASH_SHA3_512:
             return NOXTLS_RETURN_NOT_SUPPORTED;
         default:
             return NOXTLS_RETURN_INVALID_ALGORITHM;
+    }
     }
 
     return NOXTLS_RETURN_SUCCESS;
@@ -1085,35 +1193,35 @@ noxtls_return_t noxtls_rsa_key_init(rsa_key_t *key, rsa_key_size_t key_size)
         return NOXTLS_RETURN_NULL;
     }
     
-    if(key_size < RSA_MIN_KEY_SIZE || key_size > RSA_MAX_KEY_SIZE) {
+    if(((uint32_t)key_size < RSA_MIN_KEY_SIZE) || ((uint32_t)key_size > RSA_MAX_KEY_SIZE)) {
         return NOXTLS_RETURN_FAILED;
     }
     
-    uint32_t key_bytes = key_size >> 3;
+    uint32_t key_bytes = (uint32_t)key_size / 8U;
     
-    memset(key, 0, sizeof(rsa_key_t));
-    key->key_size = key_size;
+    noxtls_secure_zero((key), sizeof(rsa_key_t));
+    key->key_size = (uint32_t)key_size;
     key->key_bytes = key_bytes;
     
     /* Allocate memory for key components */
-    key->n = (uint8_t*)noxtls_calloc(key_bytes, 1);
-    key->e = (uint8_t*)noxtls_calloc(key_bytes, 1);
-    key->d = (uint8_t*)noxtls_calloc(key_bytes, 1);
-    key->p = (uint8_t*)noxtls_calloc(key_bytes / 2, 1);
-    key->q = (uint8_t*)noxtls_calloc(key_bytes / 2, 1);
-    key->dp = (uint8_t*)noxtls_calloc(key_bytes / 2, 1);
-    key->dq = (uint8_t*)noxtls_calloc(key_bytes / 2, 1);
-    key->qi = (uint8_t*)noxtls_calloc(key_bytes / 2, 1);
+    key->n = (uint8_t*)NOXTLS_CALLOC(key_bytes, 1);
+    key->e = (uint8_t*)NOXTLS_CALLOC(key_bytes, 1);
+    key->d = (uint8_t*)NOXTLS_CALLOC(key_bytes, 1);
+    key->p = (uint8_t*)NOXTLS_CALLOC(key_bytes / 2U, 1U);
+    key->q = (uint8_t*)NOXTLS_CALLOC(key_bytes / 2U, 1U);
+    key->dp = (uint8_t*)NOXTLS_CALLOC(key_bytes / 2U, 1U);
+    key->dq = (uint8_t*)NOXTLS_CALLOC(key_bytes / 2U, 1U);
+    key->qi = (uint8_t*)NOXTLS_CALLOC(key_bytes / 2U, 1U);
     
-    if(!key->n || !key->e || !key->d || !key->p || !key->q || !key->dp || !key->dq || !key->qi) {
-        noxtls_rsa_key_free(key);
+    if((key->n == NULL) || (key->e == NULL) || (key->d == NULL) || (key->p == NULL) || (key->q == NULL) || (key->dp == NULL) || (key->dq == NULL) || (key->qi == NULL)) {
+        (void)noxtls_rsa_key_free(key);
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
     
     /* Set default public exponent (65537 = 0x10001) */
-    key->e[key_bytes - 3] = 0x01;
-    key->e[key_bytes - 2] = 0x00;
-    key->e[key_bytes - 1] = 0x01;
+    key->e[key_bytes - 3U] = 0x01U;
+    key->e[key_bytes - 2U] = 0x00U;
+    key->e[key_bytes - 1U] = 0x01U;
     
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -1136,105 +1244,111 @@ noxtls_return_t noxtls_rsa_key_generate(rsa_key_t *key, rsa_key_size_t key_size)
         return rc;
     }
     
-    uint32_t prime_len = key->key_bytes >> 1;
-    uint8_t *phi = (uint8_t*)noxtls_calloc(key->key_bytes, 1);
-    uint8_t *p_minus_1 = (uint8_t*)noxtls_calloc(prime_len, 1);
-    uint8_t *q_minus_1 = (uint8_t*)noxtls_calloc(prime_len, 1);
-    uint8_t *temp = (uint8_t*)noxtls_calloc(key->key_bytes, 1);
-    uint8_t *one = (uint8_t*)noxtls_calloc(prime_len, 1);
+    uint32_t prime_len = (uint32_t)(key->key_bytes >> 1U);
+    uint8_t *phi = (uint8_t*)NOXTLS_CALLOC(key->key_bytes, 1);
+    uint8_t *p_minus_1 = (uint8_t*)NOXTLS_CALLOC(prime_len, 1);
+    uint8_t *q_minus_1 = (uint8_t*)NOXTLS_CALLOC(prime_len, 1);
+    uint8_t *temp = (uint8_t*)NOXTLS_CALLOC(key->key_bytes, 1);
+    uint8_t *one = (uint8_t*)NOXTLS_CALLOC(prime_len, 1);
     
-    if(!phi || !p_minus_1 || !q_minus_1 || !temp || !one) {
-        noxtls_debug_printf("ERROR: noxtls_rsa_key_generate: Memory allocation failed!\n");
-        fflush(stdout);
-        if(phi) { noxtls_free(phi); }
-        if(p_minus_1) { noxtls_free(p_minus_1); }
-        if(q_minus_1) { noxtls_free(q_minus_1); }
-        if(temp) { noxtls_free(temp); }
-        if(one) { noxtls_free(one); }
+    if((phi == NULL) || (p_minus_1 == NULL) || (q_minus_1 == NULL) || (temp == NULL) || (one == NULL)) {
+        (void)noxtls_debug_printf((const uint8_t *)"ERROR: noxtls_rsa_key_generate: Memory allocation failed!\n");
+        if(phi != NULL) { (void)noxtls_free(phi); }
+        if(p_minus_1 != NULL) { (void)noxtls_free(p_minus_1); }
+        if(q_minus_1 != NULL) { (void)noxtls_free(q_minus_1); }
+        if(temp != NULL) { (void)noxtls_free(temp); }
+        if(one != NULL) { (void)noxtls_free(one); }
         return NOXTLS_RETURN_FAILED;
     }
     
-    noxtls_bn_one(one, prime_len);
+    (void)noxtls_bn_one(one, prime_len);
     
     /* Generate two primes p and q */
-    noxtls_debug_printf("Generating prime p (%u bits)...\n", prime_len * 8);
-    fflush(stdout);
-    if(!rsa_generate_prime(key->p, prime_len)) {
-        noxtls_debug_printf("Error: Failed to generate prime p after %u attempts\n", NOXTLS_RSA_MAX_PRIME_ATTEMPTS);
-        noxtls_free(phi);
-        noxtls_free(p_minus_1);
-        noxtls_free(q_minus_1);
-        noxtls_free(temp);
-        noxtls_free(one);
+    (void)noxtls_debug_printf((const uint8_t *)"Generating prime p (%u bits)...\n", prime_len * 8U);
+    if((rsa_generate_prime(key->p, prime_len) == 0)) {
+        (void)noxtls_debug_printf((const uint8_t *)"Error: Failed to generate prime p after %u attempts\n", NOXTLS_RSA_MAX_PRIME_ATTEMPTS);
+        (void)noxtls_free(phi);
+        (void)noxtls_free(p_minus_1);
+        (void)noxtls_free(q_minus_1);
+        (void)noxtls_free(temp);
+        (void)noxtls_free(one);
         return NOXTLS_RETURN_FAILED;
     }
-    noxtls_debug_printf("Prime p generated successfully!\n");
-    noxtls_debug_printf("Prime p (hex): ");
-    uint32_t i;
-    for(i = 0; i < prime_len; i++) {
-        noxtls_debug_printf("%02x", key->p[i]);
+    (void)noxtls_debug_printf((const uint8_t *)"Prime p generated successfully!\n");
+    (void)noxtls_debug_printf((const uint8_t *)"Prime p (hex): ");
+    uint32_t i = 0U;
+    for(i = 0U; i < prime_len; i += 1U) {
+        (void)noxtls_debug_printf((const uint8_t *)"%02x", key->p[i]);
     }
-    noxtls_debug_printf("\n");
-    fflush(stdout);
-    
-    noxtls_debug_printf("Generating prime q (%u bits)...\n", prime_len * 8);
-    fflush(stdout);
-    if(!rsa_generate_prime(key->q, prime_len)) {
-        noxtls_debug_printf("Error: Failed to generate prime q after %u attempts\n", NOXTLS_RSA_MAX_PRIME_ATTEMPTS);
-        noxtls_free(phi);
-        noxtls_free(p_minus_1);
-        noxtls_free(q_minus_1);
-        noxtls_free(temp);
-        noxtls_free(one);
+    (void)noxtls_debug_printf((const uint8_t *)"\n");
+    (void)noxtls_debug_printf((const uint8_t *)"Generating prime q (%u bits)...\n", prime_len * 8U);
+    if((rsa_generate_prime(key->q, prime_len) == 0)) {
+        (void)noxtls_debug_printf((const uint8_t *)"Error: Failed to generate prime q after %u attempts\n", NOXTLS_RSA_MAX_PRIME_ATTEMPTS);
+        (void)noxtls_free(phi);
+        (void)noxtls_free(p_minus_1);
+        (void)noxtls_free(q_minus_1);
+        (void)noxtls_free(temp);
+        (void)noxtls_free(one);
         return NOXTLS_RETURN_FAILED;
     }
-    noxtls_debug_printf("Prime q generated successfully!\n");
-    noxtls_debug_printf("Prime q (hex): ");
-    for(i = 0; i < prime_len; i++) {
-        noxtls_debug_printf("%02x", key->q[i]);
+    (void)noxtls_debug_printf((const uint8_t *)"Prime q generated successfully!\n");
+    (void)noxtls_debug_printf((const uint8_t *)"Prime q (hex): ");
+    for(i = 0U; i < prime_len; i += 1U) {
+        (void)noxtls_debug_printf((const uint8_t *)"%02x", key->q[i]);
     }
-    noxtls_debug_printf("\n");
-    fflush(stdout);
-    
-    noxtls_debug_printf("Computing key components...\n");
-    fflush(stdout);
-    
+    (void)noxtls_debug_printf((const uint8_t *)"\n");
+    (void)noxtls_debug_printf((const uint8_t *)"Computing key components...\n");
     /* Compute n = p * q */
-    noxtls_bn_mul(key->n, key->p, prime_len, key->q, prime_len);
-    
-    /* Compute phi(n) = (p-1) * (q-1) */
-    noxtls_bn_copy(p_minus_1, key->p, prime_len);
-    noxtls_bn_sub(p_minus_1, p_minus_1, one, prime_len);
-    noxtls_bn_copy(q_minus_1, key->q, prime_len);
-    noxtls_bn_sub(q_minus_1, q_minus_1, one, prime_len);
-    noxtls_bn_mul(phi, p_minus_1, prime_len, q_minus_1, prime_len);
-    
+    rc = noxtls_bn_mul(key->n, key->p, prime_len, key->q, prime_len);
+
+    /* Compute phi(n) = (p - 1U) * (q-1) */
+    if(rc == NOXTLS_RETURN_SUCCESS) { rc = noxtls_bn_copy(p_minus_1, key->p, prime_len); }
+    if(rc == NOXTLS_RETURN_SUCCESS) { rc = noxtls_bn_sub(p_minus_1, p_minus_1, one, prime_len); }
+    if(rc == NOXTLS_RETURN_SUCCESS) { rc = noxtls_bn_copy(q_minus_1, key->q, prime_len); }
+    if(rc == NOXTLS_RETURN_SUCCESS) { rc = noxtls_bn_sub(q_minus_1, q_minus_1, one, prime_len); }
+    if(rc == NOXTLS_RETURN_SUCCESS) { rc = noxtls_bn_mul(phi, p_minus_1, prime_len, q_minus_1, prime_len); }
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        (void)noxtls_debug_printf((const uint8_t *)"ERROR: noxtls_rsa_key_generate: Failed to compute n / phi(n)\n");
+        NOXTLS_SECURE_FREE(phi, key->key_bytes);
+        NOXTLS_SECURE_FREE(p_minus_1, prime_len);
+        NOXTLS_SECURE_FREE(q_minus_1, prime_len);
+        NOXTLS_SECURE_FREE(temp, key->key_bytes);
+        (void)noxtls_free(one);
+        return rc;
+    }
+
     /* Compute d = e^-1 mod phi(n) (phi is even; use small-e inverse helper) */
     if(rsa_mod_inv_small(key->d, phi, key->key_bytes, 65537U) != NOXTLS_RETURN_SUCCESS) {
-        noxtls_debug_printf("ERROR: noxtls_rsa_key_generate: Failed to compute private exponent d\n");
-        fflush(stdout);
-        noxtls_free(phi);
-        noxtls_free(p_minus_1);
-        noxtls_free(q_minus_1);
-        noxtls_free(temp);
-        noxtls_free(one);
+        (void)noxtls_debug_printf((const uint8_t *)"ERROR: noxtls_rsa_key_generate: Failed to compute private exponent d\n");
+        (void)noxtls_free(phi);
+        (void)noxtls_free(p_minus_1);
+        (void)noxtls_free(q_minus_1);
+        (void)noxtls_free(temp);
+        (void)noxtls_free(one);
         return NOXTLS_RETURN_FAILED;
     }
     
     /* Compute CRT parameters */
-    noxtls_bn_mod(key->dp, key->d, key->key_bytes, p_minus_1, prime_len);
-    noxtls_bn_mod(key->dq, key->d, key->key_bytes, q_minus_1, prime_len);
-    /* qi = q^(p-2) mod p (Fermat), avoids mod_inv pitfalls */
-    noxtls_bn_sub(p_minus_1, p_minus_1, one, prime_len); /* p_minus_1 now p-2 */
-    noxtls_bn_mod_exp(key->qi, key->q, p_minus_1, prime_len, key->p, prime_len);
-    
-    noxtls_free(phi);
-    noxtls_free(p_minus_1);
-    noxtls_free(q_minus_1);
-    noxtls_free(temp);
-    noxtls_free(one);
-    
-    return NOXTLS_RETURN_SUCCESS;
+    rc = noxtls_bn_mod(key->dp, key->d, key->key_bytes, p_minus_1, prime_len);
+    if(rc == NOXTLS_RETURN_SUCCESS) { rc = noxtls_bn_mod(key->dq, key->d, key->key_bytes, q_minus_1, prime_len); }
+    /* qi = q^(p - 2U) mod p (Fermat), avoids mod_inv pitfalls */
+    if(rc == NOXTLS_RETURN_SUCCESS) { rc = noxtls_bn_sub(p_minus_1, p_minus_1, one, prime_len); } /* p_minus_1 now p - 2U */
+    if(rc == NOXTLS_RETURN_SUCCESS) { rc = noxtls_bn_mod_exp(key->qi, key->q, p_minus_1, prime_len, key->p, prime_len); }
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        /* Never hand out a key whose CRT components were not computed. */
+        noxtls_secure_zero(key->d, key->key_bytes);
+        noxtls_secure_zero(key->dp, prime_len);
+        noxtls_secure_zero(key->dq, prime_len);
+        noxtls_secure_zero(key->qi, prime_len);
+    }
+
+    NOXTLS_SECURE_FREE(phi, key->key_bytes);
+    NOXTLS_SECURE_FREE(p_minus_1, prime_len);
+    NOXTLS_SECURE_FREE(q_minus_1, prime_len);
+    NOXTLS_SECURE_FREE(temp, key->key_bytes);
+    (void)noxtls_free(one);
+
+    return rc;
 }
 
 /**
@@ -1249,16 +1363,16 @@ noxtls_return_t noxtls_rsa_key_free(rsa_key_t *key)
         return NOXTLS_RETURN_NULL;
     }
     
-    if(key->n) { noxtls_free(key->n); key->n = NULL; }
-    if(key->e) { noxtls_free(key->e); key->e = NULL; }
-    if(key->d) { noxtls_free(key->d); key->d = NULL; }
-    if(key->p) { noxtls_free(key->p); key->p = NULL; }
-    if(key->q) { noxtls_free(key->q); key->q = NULL; }
-    if(key->dp) { noxtls_free(key->dp); key->dp = NULL; }
-    if(key->dq) { noxtls_free(key->dq); key->dq = NULL; }
-    if(key->qi) { noxtls_free(key->qi); key->qi = NULL; }
+    if(key->n != NULL) { (void)noxtls_free(key->n); key->n = NULL; }
+    if(key->e != NULL) { (void)noxtls_free(key->e); key->e = NULL; }
+    if(key->d != NULL) { (void)noxtls_free(key->d); key->d = NULL; }
+    if(key->p != NULL) { (void)noxtls_free(key->p); key->p = NULL; }
+    if(key->q != NULL) { (void)noxtls_free(key->q); key->q = NULL; }
+    if(key->dp != NULL) { (void)noxtls_free(key->dp); key->dp = NULL; }
+    if(key->dq != NULL) { (void)noxtls_free(key->dq); key->dq = NULL; }
+    if(key->qi != NULL) { (void)noxtls_free(key->qi); key->qi = NULL; }
     
-    memset(key, 0, sizeof(rsa_key_t));
+    noxtls_secure_zero((key), sizeof(rsa_key_t));
     
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -1275,44 +1389,48 @@ noxtls_return_t noxtls_rsa_key_free(rsa_key_t *key)
  */
 noxtls_return_t noxtls_rsa_encrypt(const rsa_key_t *key, const uint8_t *plaintext, uint32_t plaintext_len, uint8_t *ciphertext, uint32_t *ciphertext_len)
 {
-    noxtls_return_t rc;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(key == NULL || plaintext == NULL || ciphertext == NULL || ciphertext_len == NULL) {
+    if((key == NULL) || (plaintext == NULL) || (ciphertext == NULL) || (ciphertext_len == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
     
-    if(plaintext_len > key->key_bytes - 11) {
-        fprintf(stderr, "[noxtls_rsa_encrypt] FAIL: plaintext_len %lu > key_bytes-11 %lu\n",
-                (unsigned long)plaintext_len, (unsigned long)(key->key_bytes - 11));
+    if(plaintext_len > (key->key_bytes - 11U)) {
+        (void)noxtls_debug_printf((const uint8_t *)"[noxtls_rsa_encrypt] FAIL: plaintext_len %lu > key_bytes - 11U %lu\n",
+                (unsigned long)plaintext_len, (unsigned long)(key->key_bytes - 11U));
         return NOXTLS_RETURN_FAILED;
     }
     
     if(*ciphertext_len < key->key_bytes) {
-        fprintf(stderr, "[noxtls_rsa_encrypt] FAIL: *ciphertext_len %lu < key_bytes %lu\n",
+        (void)noxtls_debug_printf((const uint8_t *)"[noxtls_rsa_encrypt] FAIL: *ciphertext_len %lu < key_bytes %lu\n",
                 (unsigned long)*ciphertext_len, (unsigned long)key->key_bytes);
         return NOXTLS_RETURN_FAILED;
     }
     
     /* Apply PKCS#1 v1.5 padding */
-    uint8_t *padded = (uint8_t*)noxtls_calloc(key->key_bytes, 1);
-    if(!padded) {
-        fprintf(stderr, "[noxtls_rsa_encrypt] FAIL: calloc(key_bytes=%lu) returned NULL\n",
+    uint8_t *padded = (uint8_t*)NOXTLS_CALLOC(key->key_bytes, 1);
+    if(padded == NULL) {
+        (void)noxtls_debug_printf((const uint8_t *)"[noxtls_rsa_encrypt] FAIL: NOXTLS_CALLOC(key_bytes=%lu) returned NULL\n",
                 (unsigned long)key->key_bytes);
         return NOXTLS_RETURN_FAILED;
     }
     
     rc = rsa_pkcs1_v15_encrypt_pad(padded, key->key_bytes, plaintext, plaintext_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        noxtls_free(padded);
+        (void)noxtls_free(padded);
         return rc;
     }
     
     /* Encrypt: c = m^e mod n */
-    noxtls_bn_mod_exp(ciphertext, padded, key->e, key->key_bytes, key->n, key->key_bytes);
-    
+    rc = noxtls_bn_mod_exp(ciphertext, padded, key->e, key->key_bytes, key->n, key->key_bytes);
+    NOXTLS_SECURE_FREE(padded, key->key_bytes);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(ciphertext, key->key_bytes);
+        return rc;
+    }
+
     *ciphertext_len = key->key_bytes;
-    noxtls_free(padded);
-    
+
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -1322,140 +1440,132 @@ noxtls_return_t noxtls_rsa_encrypt(const rsa_key_t *key, const uint8_t *plaintex
  */
 static noxtls_return_t do_rsa_crt_decrypt(const rsa_key_t *key, const uint8_t *ciphertext, uint8_t *decrypted)
 {
-    uint32_t prime_len = key->key_bytes >> 1;
-    fprintf(stderr, "[CRT] do_rsa_crt_decrypt: start key_bytes=%lu prime_len=%lu\n", (unsigned long)key->key_bytes, (unsigned long)prime_len);
-    uint8_t *c_mod_p = (uint8_t*)noxtls_calloc(prime_len, 1);
-    uint8_t *c_mod_q = (uint8_t*)noxtls_calloc(prime_len, 1);
-    uint8_t *m1 = (uint8_t*)noxtls_calloc(prime_len, 1);
-    uint8_t *m2 = (uint8_t*)noxtls_calloc(prime_len, 1);
-    uint8_t *h = (uint8_t*)noxtls_calloc(prime_len, 1);
-    uint8_t *p_inv = (uint8_t*)noxtls_calloc(prime_len, 1);
-    uint8_t *q_minus_2 = (uint8_t*)noxtls_calloc(prime_len, 1);
-    uint8_t *two_buf = (uint8_t*)noxtls_calloc(prime_len, 1);
-    uint8_t *temp = (uint8_t*)noxtls_calloc(key->key_bytes, 1);
-    uint8_t *m1_padded = (uint8_t*)noxtls_calloc(key->key_bytes, 1);
-    uint8_t *sum = (uint8_t*)noxtls_calloc(key->key_bytes + 1, 1);
+    uint32_t prime_len = (uint32_t)(key->key_bytes >> 1U);
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+    (void)noxtls_debug_printf((const uint8_t *)"[CRT] do_rsa_crt_decrypt: start key_bytes=%lu prime_len=%lu\n", (unsigned long)key->key_bytes, (unsigned long)prime_len);
+    uint8_t *c_mod_p = (uint8_t*)NOXTLS_CALLOC(prime_len, 1);
+    uint8_t *c_mod_q = (uint8_t*)NOXTLS_CALLOC(prime_len, 1);
+    uint8_t *m1 = (uint8_t*)NOXTLS_CALLOC(prime_len, 1);
+    uint8_t *m2 = (uint8_t*)NOXTLS_CALLOC(prime_len, 1);
+    uint8_t *h = (uint8_t*)NOXTLS_CALLOC(prime_len, 1);
+    uint8_t *p_inv = (uint8_t*)NOXTLS_CALLOC(prime_len, 1);
+    uint8_t *q_minus_2 = (uint8_t*)NOXTLS_CALLOC(prime_len, 1);
+    uint8_t *two_buf = (uint8_t*)NOXTLS_CALLOC(prime_len, 1);
+    uint8_t *temp = (uint8_t*)NOXTLS_CALLOC(key->key_bytes, 1);
+    uint8_t *m1_padded = (uint8_t*)NOXTLS_CALLOC(key->key_bytes, 1);
+    uint8_t *sum = (uint8_t*)NOXTLS_CALLOC(key->key_bytes + 1U, 1);
+    uint8_t *h_sum = NULL;
 
-    if(!c_mod_p || !c_mod_q || !m1 || !m2 || !h || !p_inv || !q_minus_2 || !two_buf || !temp || !m1_padded || !sum) {
-        fprintf(stderr, "[CRT] do_rsa_crt_decrypt: alloc failed\n");
-        if(c_mod_p) { noxtls_free(c_mod_p); }
-        if(c_mod_q) { noxtls_free(c_mod_q); }
-        if(m1) { noxtls_free(m1); }
-        if(m2) { noxtls_free(m2); }
-        if(h) { noxtls_free(h); }
-        if(p_inv) { noxtls_free(p_inv); }
-        if(q_minus_2) { noxtls_free(q_minus_2); }
-        if(two_buf) { noxtls_free(two_buf); }
-        if(temp) { noxtls_free(temp); }
-        if(m1_padded) { noxtls_free(m1_padded); }
-        if(sum) { noxtls_free(sum); }
-        return NOXTLS_RETURN_FAILED;
-    }
-
-    /* Reduce c mod p and mod q first; bn_mod_exp uses only first mod_len bytes of base. */
-    noxtls_bn_mod(c_mod_p, ciphertext, key->key_bytes, key->p, prime_len);
-    noxtls_bn_mod(c_mod_q, ciphertext, key->key_bytes, key->q, prime_len);
-    noxtls_bn_mod_exp(m1, c_mod_p, key->dp, prime_len, key->p, prime_len);
-    noxtls_bn_mod_exp(m2, c_mod_q, key->dq, prime_len, key->q, prime_len);
-
-    /* Symmetric CRT: m = m1 + h*p where h = (m2 - m1) * p_inv mod q.
-     * Compute p_inv via Fermat (p^(q-2) mod q) to avoid mod_inv issues. */
-    noxtls_bn_copy(q_minus_2, key->q, prime_len);
-    two_buf[prime_len - 1] = 2;
-    noxtls_bn_sub(q_minus_2, q_minus_2, two_buf, prime_len);
-    noxtls_bn_mod_exp(p_inv, key->p, q_minus_2, prime_len, key->q, prime_len);
-    if(noxtls_bn_is_zero(p_inv, prime_len)) {
-        fprintf(stderr, "[CRT] do_rsa_crt_decrypt: p_inv is zero\n");
-        noxtls_free(c_mod_p);
-        noxtls_free(c_mod_q);
-        noxtls_free(m1);
-        noxtls_free(m2);
-        noxtls_free(h);
-        noxtls_free(p_inv);
-        noxtls_free(q_minus_2);
-        noxtls_free(two_buf);
-        noxtls_free(temp);
-        noxtls_free(m1_padded);
-        noxtls_free(sum);
-        return NOXTLS_RETURN_FAILED;
-    }
-    /* h = m1 mod q (m1 can be >= q) */
-    noxtls_bn_mod(h, m1, prime_len, key->q, prime_len);
-    /* h = (m2 - h) mod q */
-    if(noxtls_bn_cmp(m2, h, prime_len) >= 0) {
-        noxtls_bn_sub(temp, m2, h, prime_len);
-        memcpy(h, temp, prime_len);
+    if((c_mod_p == NULL) || (c_mod_q == NULL) || (m1 == NULL) || (m2 == NULL) || (h == NULL) || (p_inv == NULL) || (q_minus_2 == NULL) || (two_buf == NULL) || (temp == NULL) || (m1_padded == NULL) || (sum == NULL)) {
+        (void)noxtls_debug_printf((const uint8_t *)"[CRT] do_rsa_crt_decrypt: alloc failed\n");
+        rc = NOXTLS_RETURN_FAILED;
     } else {
-        uint8_t *h_sum = (uint8_t*)noxtls_calloc(prime_len + 1, 1);
-        if(!h_sum) {
-            fprintf(stderr, "[CRT] do_rsa_crt_decrypt: h_sum alloc failed\n");
-            noxtls_free(c_mod_p);
-            noxtls_free(c_mod_q);
-            noxtls_free(m1);
-            noxtls_free(m2);
-            noxtls_free(h);
-            noxtls_free(p_inv);
-            noxtls_free(q_minus_2);
-            noxtls_free(two_buf);
-            noxtls_free(temp);
-            noxtls_free(m1_padded);
-            noxtls_free(sum);
-            return NOXTLS_RETURN_FAILED;
+        /* Every bignum step is checked: a failed reduction/exponentiation must never be
+         * recombined into a "decrypted" block. */
+        /* Reduce c mod p and mod q first; bn_mod_exp uses only first mod_len bytes of base. */
+        rc = noxtls_bn_mod(c_mod_p, ciphertext, key->key_bytes, key->p, prime_len);
+        if(rc == NOXTLS_RETURN_SUCCESS) { rc = noxtls_bn_mod(c_mod_q, ciphertext, key->key_bytes, key->q, prime_len); }
+        if(rc == NOXTLS_RETURN_SUCCESS) { rc = noxtls_bn_mod_exp(m1, c_mod_p, key->dp, prime_len, key->p, prime_len); }
+        if(rc == NOXTLS_RETURN_SUCCESS) { rc = noxtls_bn_mod_exp(m2, c_mod_q, key->dq, prime_len, key->q, prime_len); }
+
+        /* Symmetric CRT: m = m1 + (h * p) where h = (m2 - m1) * p_inv mod q.
+         * Compute p_inv via Fermat (p^(q-2) mod q) to avoid mod_inv issues. */
+        if(rc == NOXTLS_RETURN_SUCCESS) { rc = noxtls_bn_copy(q_minus_2, key->q, prime_len); }
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            two_buf[prime_len - 1U] = 2;
+            rc = noxtls_bn_sub(q_minus_2, q_minus_2, two_buf, prime_len);
         }
-        noxtls_bn_sub(h_sum + 1, key->q, h, prime_len);
-        {
-            uint16_t carry = 0;
-            for(uint32_t i = prime_len; i > 0; i--) {
-                uint16_t s = (uint16_t)h_sum[i] + (uint16_t)m2[i - 1] + carry;
-                h_sum[i] = (uint8_t)(s & 0xFF);
-                carry = s >> 8;
+        if(rc == NOXTLS_RETURN_SUCCESS) { rc = noxtls_bn_mod_exp(p_inv, key->p, q_minus_2, prime_len, key->q, prime_len); }
+        if((rc == NOXTLS_RETURN_SUCCESS) && (noxtls_bn_is_zero(p_inv, prime_len) != 0)) {
+            (void)noxtls_debug_printf((const uint8_t *)"[CRT] do_rsa_crt_decrypt: p_inv is zero\n");
+            rc = NOXTLS_RETURN_FAILED;
+        }
+        /* h = m1 mod q (m1 can be >= q) */
+        if(rc == NOXTLS_RETURN_SUCCESS) { rc = noxtls_bn_mod(h, m1, prime_len, key->q, prime_len); }
+        /* h = (m2 - h) mod q */
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            if(noxtls_bn_cmp(m2, h, prime_len) >= 0) {
+                rc = noxtls_bn_sub(temp, m2, h, prime_len);
+                if(rc == NOXTLS_RETURN_SUCCESS) {
+                    noxtls_copy_u8(h, (size_t)(prime_len), temp, (size_t)(prime_len));
+                }
+            } else {
+                h_sum = (uint8_t*)NOXTLS_CALLOC(prime_len + 1U, 1);
+                if(h_sum == NULL) {
+                    (void)noxtls_debug_printf((const uint8_t *)"[CRT] do_rsa_crt_decrypt: h_sum alloc failed\n");
+                    rc = NOXTLS_RETURN_FAILED;
+                } else {
+                    rc = noxtls_bn_sub(&h_sum[1], key->q, h, prime_len);
+                }
+                if(rc == NOXTLS_RETURN_SUCCESS) {
+                    uint16_t carry = 0U;
+                    for(uint32_t i = prime_len; i > 0U; i -= 1U) {
+                        uint16_t s = (uint16_t)((uint16_t)h_sum[i] + (uint16_t)m2[i - 1U] + carry);
+                        h_sum[i] = (uint8_t)(s & 0xFFU);
+                        {
+                            uint32_t next_carry = (uint32_t)s;
+                            next_carry >>= 8U;
+                            carry = (uint16_t)next_carry;
+                        }
+                    }
+                    h_sum[0] = (uint8_t)carry;
+                }
+                if(rc == NOXTLS_RETURN_SUCCESS) {
+                    const uint8_t *h_ptr = &h_sum[1];
+                    uint32_t h_len = (uint32_t)(prime_len);
+                    if(h_sum[0] != 0U) {
+                        h_ptr = h_sum;
+                        h_len = prime_len + 1U;
+                    }
+                    rc = noxtls_bn_mod(h, h_ptr, h_len, key->q, prime_len);
+                }
+                NOXTLS_SECURE_FREE(h_sum, (size_t)prime_len + 1U);
             }
-            h_sum[0] = (uint8_t)carry;
         }
-        {
-            const uint8_t *h_ptr = h_sum + 1;
-            uint32_t h_len = prime_len;
-            if(h_sum[0] != 0) {
-                h_ptr = h_sum;
-                h_len = prime_len + 1U;
+        /* h = h * p_inv mod q */
+        if(rc == NOXTLS_RETURN_SUCCESS) { rc = noxtls_bn_mul(temp, h, prime_len, p_inv, prime_len); }
+        if(rc == NOXTLS_RETURN_SUCCESS) { rc = noxtls_bn_mod(h, temp, prime_len * 2U, key->q, prime_len); }
+        /* m = m1 + (h * p): m1_padded has m1 in low prime_len bytes; temp = h*p */
+        if(rc == NOXTLS_RETURN_SUCCESS) { rc = noxtls_bn_mul(temp, h, prime_len, key->p, prime_len); }
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            noxtls_copy_u8(&m1_padded[key->key_bytes - prime_len], (size_t)(prime_len), m1, (size_t)(prime_len));  /* m1 in low half */
+            {
+                uint16_t carry = 0U;
+                for(uint32_t i = (uint32_t)(key->key_bytes); i > 0U; i -= 1U) {
+                    uint16_t s = (uint16_t)((uint16_t)m1_padded[i - 1U] + (uint16_t)temp[i - 1U] + carry);
+                    sum[i] = (uint8_t)(s & 0xFFU);
+                    {
+                        uint32_t next_carry = (uint32_t)s;
+                        next_carry >>= 8U;
+                        carry = (uint16_t)next_carry;
+                    }
+                }
+                sum[0] = (uint8_t)carry;
             }
-            noxtls_bn_mod(h, h_ptr, h_len, key->q, prime_len);
+            if(sum[0] != 0U) {
+                rc = noxtls_bn_mod(decrypted, sum, key->key_bytes + 1U, key->n, key->key_bytes);
+            } else {
+                rc = noxtls_bn_mod(decrypted, &sum[1], key->key_bytes, key->n, key->key_bytes);
+            }
         }
-        noxtls_free(h_sum);
-    }
-    /* h = h * p_inv mod q */
-    noxtls_bn_mul(temp, h, prime_len, p_inv, prime_len);
-    noxtls_bn_mod(h, temp, prime_len * 2, key->q, prime_len);
-    /* m = m1 + h*p: m1_padded has m1 in low prime_len bytes; temp = h*p */
-    noxtls_bn_mul(temp, h, prime_len, key->p, prime_len);
-    memcpy(m1_padded + key->key_bytes - prime_len, m1, prime_len);  /* m1 in low half */
-    {
-        uint16_t carry = 0;
-        for(uint32_t i = key->key_bytes; i > 0; i--) {
-            uint16_t s = (uint16_t)m1_padded[i - 1] + (uint16_t)temp[i - 1] + carry;
-            sum[i] = (uint8_t)(s & 0xFF);
-            carry = s >> 8;
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_secure_zero(decrypted, key->key_bytes);
         }
-        sum[0] = (uint8_t)carry;
-    }
-    if(sum[0] != 0) {
-        noxtls_bn_mod(decrypted, sum, key->key_bytes + 1, key->n, key->key_bytes);
-    } else {
-        noxtls_bn_mod(decrypted, sum + 1, key->key_bytes, key->n, key->key_bytes);
     }
 
-    noxtls_free(c_mod_p);
-    noxtls_free(c_mod_q);
-    noxtls_free(m1);
-    noxtls_free(m2);
-    noxtls_free(h);
-    noxtls_free(p_inv);
-    noxtls_free(temp);
-    noxtls_free(m1_padded);
-    noxtls_free(sum);
-    noxtls_free(q_minus_2);
-    noxtls_free(two_buf);
-    return NOXTLS_RETURN_SUCCESS;
+    /* All intermediates are derived from the private key or the plaintext: wipe them. */
+    NOXTLS_SECURE_FREE(c_mod_p, prime_len);
+    NOXTLS_SECURE_FREE(c_mod_q, prime_len);
+    NOXTLS_SECURE_FREE(m1, prime_len);
+    NOXTLS_SECURE_FREE(m2, prime_len);
+    NOXTLS_SECURE_FREE(h, prime_len);
+    NOXTLS_SECURE_FREE(p_inv, prime_len);
+    NOXTLS_SECURE_FREE(temp, key->key_bytes);
+    NOXTLS_SECURE_FREE(m1_padded, key->key_bytes);
+    NOXTLS_SECURE_FREE(sum, (size_t)key->key_bytes + 1U);
+    NOXTLS_SECURE_FREE(q_minus_2, prime_len);
+    NOXTLS_SECURE_FREE(two_buf, prime_len);
+    return (rc == NOXTLS_RETURN_SUCCESS) ? NOXTLS_RETURN_SUCCESS : NOXTLS_RETURN_FAILED;
 }
 
 /**
@@ -1477,47 +1587,60 @@ static noxtls_return_t do_rsa_crt_decrypt(const rsa_key_t *key, const uint8_t *c
  */
 static noxtls_return_t rsa_private_mod_exp_blinded(const rsa_key_t *key, const uint8_t *input, uint8_t *output)
 {
-    const uint32_t len = key->key_bytes;
+    const uint32_t len = (uint32_t)(key->key_bytes);
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
-    uint32_t attempt;
-    uint8_t *r     = (uint8_t*)noxtls_calloc(len, 1);
-    uint8_t *r_inv = (uint8_t*)noxtls_calloc(len, 1);
-    uint8_t *blind = (uint8_t*)noxtls_calloc(len, 1);
-    uint8_t *wide  = (uint8_t*)noxtls_calloc((size_t)len * 2U, 1);
+    uint32_t attempt = 0U;
+    uint8_t *r     = (uint8_t*)NOXTLS_CALLOC(len, 1);
+    uint8_t *r_inv = (uint8_t*)NOXTLS_CALLOC(len, 1);
+    uint8_t *blind = (uint8_t*)NOXTLS_CALLOC(len, 1);
+    uint8_t *wide  = (uint8_t*)NOXTLS_CALLOC((size_t)len * 2U, 1);
 
-    if(!r || !r_inv || !blind || !wide) {
+    if((r == NULL) || (r_inv == NULL) || (blind == NULL) || (wide == NULL)) {
         rc = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
-        goto blinded_out;
+        NOXTLS_SECURE_FREE(r, len);
+        NOXTLS_SECURE_FREE(r_inv, len);
+        NOXTLS_SECURE_FREE(blind, len);
+        NOXTLS_SECURE_FREE(wide, (size_t)len * 2U);
+        return rc;
     }
 
-    for(attempt = 0; attempt < 8U; attempt++) {
-        /* Fresh random blinding factor r in [1, n-1] with gcd(r, n) == 1. */
+    for(attempt = 0U; attempt < 8U; attempt += 1U) {
+        /* Fresh random blinding factor r in [1, n - 1U] with gcd(r, n) == 1. */
         if(rsa_random_bytes(wide, len) != NOXTLS_RETURN_SUCCESS) {
             rc = NOXTLS_RETURN_FAILED; /* never proceed with weak/no randomness */
-            goto blinded_out;
+            NOXTLS_SECURE_FREE(r, len);
+            NOXTLS_SECURE_FREE(r_inv, len);
+            NOXTLS_SECURE_FREE(blind, len);
+            NOXTLS_SECURE_FREE(wide, (size_t)len * 2U);
+            return rc;
         }
-        if(noxtls_bn_mod(r, wide, len, key->n, len) != NOXTLS_RETURN_SUCCESS) { continue; }
-        if(noxtls_bn_is_zero(r, len)) { continue; }
+        /* Only a zero r or a non-invertible r (gcd(r, n) != 1) is retried with a fresh
+         * factor; any other bignum error (e.g. NOT_ENOUGH_MEMORY) aborts immediately. */
+        rc = noxtls_bn_mod(r, wide, len, key->n, len);
+        if(rc != NOXTLS_RETURN_SUCCESS) { break; }
+        if(noxtls_bn_is_zero(r, len) != 0) { rc = NOXTLS_RETURN_FAILED; continue; }
         /* r_inv = r^-1 mod n; fails when gcd(r, n) != 1 (negligible probability) */
-        if(noxtls_bn_mod_inv(r_inv, r, len, key->n, len) != NOXTLS_RETURN_SUCCESS) { continue; }
-        if(noxtls_bn_is_zero(r_inv, len)) { continue; }
+        rc = noxtls_bn_mod_inv(r_inv, r, len, key->n, len);
+        if(rc == NOXTLS_RETURN_FAILED) { continue; }
+        if(rc != NOXTLS_RETURN_SUCCESS) { break; }
+        if(noxtls_bn_is_zero(r_inv, len) != 0) { rc = NOXTLS_RETURN_FAILED; continue; }
 
         /* blind = r^e mod n */
-        if(noxtls_bn_mod_exp(blind, r, key->e, len, key->n, len) != NOXTLS_RETURN_SUCCESS) { continue; }
+        rc = noxtls_bn_mod_exp(blind, r, key->e, len, key->n, len);
         /* blind = input * r^e mod n */
-        if(noxtls_bn_mul(wide, input, len, blind, len) != NOXTLS_RETURN_SUCCESS) { continue; }
-        if(noxtls_bn_mod(blind, wide, len * 2U, key->n, len) != NOXTLS_RETURN_SUCCESS) { continue; }
+        if(rc == NOXTLS_RETURN_SUCCESS) { rc = noxtls_bn_mul(wide, input, len, blind, len); }
+        if(rc == NOXTLS_RETURN_SUCCESS) { rc = noxtls_bn_mod(blind, wide, len * 2U, key->n, len); }
         /* blind = (input * r^e)^d mod n = input^d * r mod n */
-        if(noxtls_bn_mod_exp(blind, blind, key->d, len, key->n, len) != NOXTLS_RETURN_SUCCESS) { continue; }
+        if(rc == NOXTLS_RETURN_SUCCESS) { rc = noxtls_bn_mod_exp(blind, blind, key->d, len, key->n, len); }
         /* output = blind * r^-1 mod n = input^d mod n */
-        if(noxtls_bn_mul(wide, blind, len, r_inv, len) != NOXTLS_RETURN_SUCCESS) { continue; }
-        if(noxtls_bn_mod(output, wide, len * 2U, key->n, len) != NOXTLS_RETURN_SUCCESS) { continue; }
-
-        rc = NOXTLS_RETURN_SUCCESS;
+        if(rc == NOXTLS_RETURN_SUCCESS) { rc = noxtls_bn_mul(wide, blind, len, r_inv, len); }
+        if(rc == NOXTLS_RETURN_SUCCESS) { rc = noxtls_bn_mod(output, wide, len * 2U, key->n, len); }
         break;
     }
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(output, (size_t)len);
+    }
 
-blinded_out:
     NOXTLS_SECURE_FREE(r, len);
     NOXTLS_SECURE_FREE(r_inv, len);
     NOXTLS_SECURE_FREE(blind, len);
@@ -1530,16 +1653,22 @@ blinded_out:
  */
 noxtls_return_t noxtls_rsa_decrypt(const rsa_key_t *key, const uint8_t *ciphertext, uint32_t ciphertext_len, uint8_t *plaintext, uint32_t *plaintext_len)
 {
-    if(key == NULL || ciphertext == NULL || plaintext == NULL || plaintext_len == NULL) {
+    if((key == NULL) || (ciphertext == NULL) || (plaintext == NULL) || (plaintext_len == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
     
     if(ciphertext_len != key->key_bytes) {
         return NOXTLS_RETURN_FAILED;
     }
+
+    /* RSADP (RFC 8017 section 5.1.2) step 1: the ciphertext representative must be < n
+     * ("ciphertext representative out of range"). c and n are public: no oracle. */
+    if(noxtls_bn_cmp(ciphertext, key->n, key->key_bytes) >= 0) {
+        return NOXTLS_RETURN_FAILED;
+    }
     
-    uint8_t *decrypted = (uint8_t*)noxtls_calloc(key->key_bytes, 1);
-    if(!decrypted) {
+    uint8_t *decrypted = (uint8_t*)NOXTLS_CALLOC(key->key_bytes, 1);
+    if(decrypted == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
     
@@ -1557,12 +1686,12 @@ noxtls_return_t noxtls_rsa_decrypt(const rsa_key_t *key, const uint8_t *cipherte
      * (Bleichenbacher oracle hardening).
      */
     {
-        const uint32_t kb = key->key_bytes;
-        uint32_t good;       /* 0xFFFFFFFF when padding is valid, 0 otherwise */
-        uint32_t found_sep;  /* all-ones once the 0x00 separator has been seen */
+        const uint32_t kb = (uint32_t)(key->key_bytes);
+        uint32_t good;       /* 0xFFFFFFFFU when padding is valid, 0 otherwise */
+        uint32_t found_sep;  /* all-ones once the 0x00U separator has been seen */
         uint32_t sep_index;  /* index of the separator byte */
-        uint32_t data_len;
-        uint32_t i;
+        uint32_t data_len = 0U;
+        uint32_t i = 0U;
 
         if(kb < 11U) {
             NOXTLS_SECURE_FREE(decrypted, kb);
@@ -1570,29 +1699,29 @@ noxtls_return_t noxtls_rsa_decrypt(const rsa_key_t *key, const uint8_t *cipherte
         }
 
         /* good := (decrypted[0] == 0x00) & (decrypted[1] == 0x02) */
-        good  = (uint32_t)0U - (uint32_t)(((uint32_t)decrypted[0] - 1U) >> 31);          /* b0 == 0 */
-        good &= (uint32_t)0U - (uint32_t)((((uint32_t)decrypted[1] ^ 0x02U) - 1U) >> 31); /* b1 == 2 */
+        good  = (uint32_t)0U - (uint32_t)(((uint32_t)decrypted[0U] - 1U) >> 31U);          /* b0 == 0 */
+        good &= (uint32_t)0U - (uint32_t)((((uint32_t)decrypted[1U] ^ 0x02U) - 1U) >> 31U); /* b1 == 2 */
 
         found_sep = 0U;
         sep_index = 0U;
-        for(i = 2U; i < kb; i++) {
+        for(i = 2U; i < kb; i += 1U) {
             /* is_zero = all-ones when decrypted[i] == 0 */
-            uint32_t is_zero = (uint32_t)0U - (uint32_t)(((uint32_t)decrypted[i] - 1U) >> 31);
-            uint32_t is_first = is_zero & ~found_sep;
+            uint32_t is_zero = (uint32_t)0U - (uint32_t)(((uint32_t)decrypted[i] - 1U) >> 31U);
+            uint32_t is_first = (uint32_t)(is_zero & ~found_sep);
             sep_index |= i & is_first;
             found_sep |= is_zero;
         }
         good &= found_sep;
         /* At least 8 non-zero padding bytes: separator index must be >= 10. */
-        good &= (uint32_t)0U - (uint32_t)((9U - sep_index) >> 31);
+        good &= (uint32_t)0U - (uint32_t)((9U - sep_index) >> 31U);
 
         data_len = (kb - sep_index - 1U) & good;
 
-        if(good == 0U || data_len > *plaintext_len) {
+        if((good == 0U) || (data_len > *plaintext_len)) {
             NOXTLS_SECURE_FREE(decrypted, kb);
             return NOXTLS_RETURN_FAILED;
         }
-        memcpy(plaintext, decrypted + sep_index + 1U, data_len);
+        noxtls_copy_u8(plaintext, (size_t)(data_len), &decrypted[sep_index + 1U], (size_t)(data_len));
         *plaintext_len = data_len;
         NOXTLS_SECURE_FREE(decrypted, kb);
         return NOXTLS_RETURN_SUCCESS;
@@ -1604,57 +1733,61 @@ noxtls_return_t noxtls_rsa_decrypt(const rsa_key_t *key, const uint8_t *cipherte
  */
 noxtls_return_t noxtls_rsa_decrypt_crt_only(const rsa_key_t *key, const uint8_t *ciphertext, uint32_t ciphertext_len, uint8_t *plaintext, uint32_t *plaintext_len)
 {
-    if(key == NULL || ciphertext == NULL || plaintext == NULL || plaintext_len == NULL) {
+    if((key == NULL) || (ciphertext == NULL) || (plaintext == NULL) || (plaintext_len == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
     if(ciphertext_len != key->key_bytes) {
         return NOXTLS_RETURN_FAILED;
     }
-    if(!key->p || !key->q || !key->dp || !key->dq || !key->qi) {
+    if((key->p == NULL) || (key->q == NULL) || (key->dp == NULL) || (key->dq == NULL) || (key->qi == NULL)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    /* RSADP step 1 (RFC 8017 section 5.1.2): ciphertext representative must be < n. */
+    if((key->n == NULL) || (noxtls_bn_cmp(ciphertext, key->n, key->key_bytes) >= 0)) {
         return NOXTLS_RETURN_FAILED;
     }
 
-    uint8_t *decrypted = (uint8_t*)noxtls_calloc(key->key_bytes, 1);
-    if(!decrypted) {
+    uint8_t *decrypted = (uint8_t*)NOXTLS_CALLOC(key->key_bytes, 1);
+    if(decrypted == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
 
     if(do_rsa_crt_decrypt(key, ciphertext, decrypted) != NOXTLS_RETURN_SUCCESS) {
-        fprintf(stderr, "[CRT] do_rsa_crt_decrypt returned FAILED\n");
-        noxtls_free(decrypted);
+        (void)noxtls_debug_printf((const uint8_t *)"[CRT] do_rsa_crt_decrypt returned FAILED\n");
+        (void)noxtls_free(decrypted);
         return NOXTLS_RETURN_FAILED;
     }
 
     /* Debug: dump first bytes of CRT decrypted block */
-    fprintf(stderr, "[CRT] decrypted block (first 32 bytes): ");
-    for(uint32_t k = 0; k < 32 && k < key->key_bytes; k++) {
-        fprintf(stderr, "%02X ", decrypted[k]);
+    (void)noxtls_debug_printf((const uint8_t *)"[CRT] decrypted block (first 32 bytes): ");
+    for(uint32_t k = 0U; (k < 32U) && (k < key->key_bytes); k += 1U) {
+        (void)noxtls_debug_printf((const uint8_t *)"%02X ", decrypted[k]);
     }
-    fprintf(stderr, "\n");
+    (void)noxtls_debug_printf((const uint8_t *)"\n");
 
     /* Remove PKCS#1 v1.5 padding (strict RFC 8017 structure for type 2). */
-    if(key->key_bytes >= 11U && decrypted[0] == 0x00U && decrypted[1] == 0x02U) {
+    if((key->key_bytes >= 11U) && (decrypted[0] == 0x00U) && (decrypted[1] == 0x02U)) {
         uint32_t j = 2U;
-        while(j < key->key_bytes && decrypted[j] != 0x00U) {
-            j++;
+        while((j < key->key_bytes) && (decrypted[j] != 0x00U)) {
+            j += 1U;
         }
-        if(j >= 10U && j < key->key_bytes) {
-            uint32_t data_len = key->key_bytes - j - 1U;
+        if((j >= 10U) && (j < key->key_bytes)) {
+            uint32_t data_len = (uint32_t)(key->key_bytes - j - 1U);
             if(data_len <= *plaintext_len) {
-                memcpy(plaintext, decrypted + j + 1U, data_len);
+                noxtls_copy_u8(plaintext, (size_t)(data_len), &decrypted[j + 1U], (size_t)(data_len));
                 *plaintext_len = data_len;
-                noxtls_free(decrypted);
+                (void)noxtls_free(decrypted);
                 return NOXTLS_RETURN_SUCCESS;
             }
         }
     }
-    fprintf(stderr, "[CRT] padding strip failed - no 0x00 0x02 ... 0x00 pattern; full block (hex): ");
-    for(uint32_t k = 0; k < key->key_bytes; k++) {
-        fprintf(stderr, "%02X", decrypted[k]);
-        if(((k + 1) & 31) == 0) { fprintf(stderr, "\n  "); }
+    (void)noxtls_debug_printf((const uint8_t *)"[CRT] padding strip failed - no 0x00 0x02 ... 0x00 pattern; full block (hex): ");
+    for(uint32_t k = 0U; k < key->key_bytes; k += 1U) {
+        (void)noxtls_debug_printf((const uint8_t *)"%02X", decrypted[k]);
+        if(((k + 1U) & 31U) == 0U) { (void)noxtls_debug_printf((const uint8_t *)"\n  "); }
     }
-    fprintf(stderr, "\n");
-    noxtls_free(decrypted);
+    (void)noxtls_debug_printf((const uint8_t *)"\n");
+    (void)noxtls_free(decrypted);
     return NOXTLS_RETURN_FAILED;
 }
 
@@ -1663,7 +1796,7 @@ noxtls_return_t noxtls_rsa_decrypt_crt_only(const rsa_key_t *key, const uint8_t 
  */
 noxtls_return_t noxtls_rsa_sign(const rsa_key_t *key, const uint8_t *noxtls_message, uint32_t message_len, uint8_t *signature, uint32_t *signature_len, noxtls_hash_algos_t hash_algo)
 {
-    if(key == NULL || noxtls_message == NULL || signature == NULL || signature_len == NULL) {
+    if((key == NULL) || (noxtls_message == NULL) || (signature == NULL) || (signature_len == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
     
@@ -1673,23 +1806,28 @@ noxtls_return_t noxtls_rsa_sign(const rsa_key_t *key, const uint8_t *noxtls_mess
     
     /* Hash the noxtls_message */
     uint8_t hash[64];
-    uint32_t hash_len = 0;
+    uint32_t hash_len = 0U;
     noxtls_return_t rc = rsa_hash_message(hash, &hash_len, noxtls_message, message_len, hash_algo);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
     
     /* Apply PKCS#1 v1.5 signature padding */
-    uint8_t *padded = (uint8_t*)noxtls_calloc(key->key_bytes, 1);
-    if(!padded) {
+    uint8_t *padded = (uint8_t*)NOXTLS_CALLOC(key->key_bytes, 1);
+    if(padded == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
     
-    rsa_pkcs1_v15_sign_pad(padded, key->key_bytes, hash, hash_len, hash_algo);
+    rc = rsa_pkcs1_v15_encode_digest(padded, key->key_bytes, hash, hash_len, hash_algo, 0U);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(padded, key->key_bytes);
+        (void)noxtls_free(padded);
+        return rc;
+    }
     
     /* Sign (blinded, NX-15): s = hash^d mod n */
     rc = rsa_private_mod_exp_blinded(key, padded, signature);
-    noxtls_free(padded);
+    (void)noxtls_free(padded);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -1706,7 +1844,7 @@ noxtls_return_t noxtls_rsa_sign(const rsa_key_t *key, const uint8_t *noxtls_mess
 noxtls_return_t noxtls_rsa_verify(const rsa_key_t *key, const uint8_t *noxtls_message, uint32_t message_len, const uint8_t *signature, uint32_t signature_len, noxtls_hash_algos_t hash_algo)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    if(key == NULL || noxtls_message == NULL || signature == NULL) {
+    if((key == NULL) || (noxtls_message == NULL) || (signature == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
     
@@ -1714,54 +1852,54 @@ noxtls_return_t noxtls_rsa_verify(const rsa_key_t *key, const uint8_t *noxtls_me
         return NOXTLS_RETURN_FAILED;
     }
     
-    /* Verify: hash' = signature^e mod n */
-    uint8_t *decrypted = (uint8_t*)noxtls_calloc(key->key_bytes, 1);
-    if(!decrypted) {
+    /* RSAVP1 (RFC 8017 section 5.2.2): the signature representative must be < n. */
+    if(noxtls_bn_cmp(signature, key->n, key->key_bytes) >= 0) {
         return NOXTLS_RETURN_FAILED;
     }
-    
-    noxtls_bn_mod_exp(decrypted, signature, key->e, key->key_bytes, key->n, key->key_bytes);
-    
+
+    /* Verify: EM = signature^e mod n */
+    uint8_t *decrypted = (uint8_t*)NOXTLS_CALLOC(key->key_bytes, 1);
+    if(decrypted == NULL) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    uint8_t *expected = (uint8_t*)NOXTLS_CALLOC(key->key_bytes, 1);
+    if(expected == NULL) {
+        (void)noxtls_free(decrypted);
+        return NOXTLS_RETURN_FAILED;
+    }
+
+    noxtls_return_t rc = noxtls_bn_mod_exp(decrypted, signature, key->e, key->key_bytes, key->n, key->key_bytes);
+
     /* Hash the noxtls_message */
     uint8_t hash[64];
-    uint32_t hash_len = 0;
-    noxtls_return_t rc = rsa_hash_message(hash, &hash_len, noxtls_message, message_len, hash_algo);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        noxtls_free(decrypted);
-        return rc;
+    uint32_t hash_len = 0U;
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = rsa_hash_message(hash, &hash_len, noxtls_message, message_len, hash_algo);
     }
-    
-    /* Extract hash from PKCS#1 v1.5 padding and compare */
-    uint32_t i;
-    for(i = 0; i < key->key_bytes; i++) {
-        if(decrypted[i] == 0x00 && i + 1 < key->key_bytes && decrypted[i+1] == 0x01) {
-            /* Find separator after 0xFF padding */
-            uint32_t j;
-            for(j = i + 2; j < key->key_bytes; j++) {
-                if(decrypted[j] == 0x00) {
-                    /* Compare the expected digest against the trailing bytes of EMSA-PKCS1-v1_5.
-                     * DigestInfo encoding can differ in parameter encoding (e.g. NULL present/omitted). */
-                    uint32_t hash_offset;
-                    if(key->key_bytes < hash_len) {
-                        noxtls_free(decrypted);
-                        return NOXTLS_RETURN_FAILED;
-                    }
-                    hash_offset = key->key_bytes - hash_len;
-                    if(hash_offset <= j) {
-                        noxtls_free(decrypted);
-                        return NOXTLS_RETURN_FAILED;
-                    }
-                    if(noxtls_secret_memcmp(decrypted + hash_offset, hash, hash_len) == 0) {
-                        noxtls_free(decrypted);
-                        return NOXTLS_RETURN_SUCCESS;
-                    }
-                }
+
+    /* RSASSA-PKCS1-v1_5-VERIFY (RFC 8017 section 8.2.2): re-encode the digest and
+     * compare the whole encoded message. Only the standard DigestInfo and the
+     * variant with absent NULL parameters are accepted; no lenient parsing. */
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = rsa_pkcs1_v15_encode_digest(expected, key->key_bytes, hash, hash_len, hash_algo, 0U);
+    }
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        if(noxtls_secret_memcmp(decrypted, expected, (size_t)key->key_bytes) != 0) {
+            rc = rsa_pkcs1_v15_encode_digest(expected, key->key_bytes, hash, hash_len, hash_algo, 1U);
+            if((rc == NOXTLS_RETURN_SUCCESS) &&
+               (noxtls_secret_memcmp(decrypted, expected, (size_t)key->key_bytes) != 0)) {
+                rc = NOXTLS_RETURN_FAILED;
             }
         }
     }
-    
-    noxtls_free(decrypted);
-    return NOXTLS_RETURN_FAILED;
+
+    noxtls_secure_zero(decrypted, key->key_bytes);
+    noxtls_secure_zero(expected, key->key_bytes);
+    (void)noxtls_free(decrypted);
+    (void)noxtls_free(expected);
+    /* Hash selection errors (NOT_SUPPORTED, INVALID_ALGORITHM) propagate; any
+     * encoding mismatch has already been mapped to NOXTLS_RETURN_FAILED. */
+    return rc;
 }
 
 /* --- RSA-PSS (RFC 8017) --- */
@@ -1772,25 +1910,25 @@ static noxtls_return_t pss_hash_message(noxtls_hash_algos_t hash_algo, const uin
     if(hash_algo == NOXTLS_HASH_SHA_256) {
         noxtls_sha_ctx_t ctx;
         if(noxtls_sha256_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-        if(noxtls_sha256_update(&ctx, (uint8_t*)noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+        if(noxtls_sha256_update(&ctx, noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
         if(noxtls_sha256_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-        *hash_len = 32;
+        *hash_len = 32U;
         return NOXTLS_RETURN_SUCCESS;
     }
     if(hash_algo == NOXTLS_HASH_SHA_384) {
         noxtls_sha512_ctx_t ctx;
         if(noxtls_sha512_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-        if(noxtls_sha512_update(&ctx, (uint8_t*)noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+        if(noxtls_sha512_update(&ctx, noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
         if(noxtls_sha512_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-        *hash_len = 48;
+        *hash_len = 48U;
         return NOXTLS_RETURN_SUCCESS;
     }
     if(hash_algo == NOXTLS_HASH_SHA_512) {
         noxtls_sha512_ctx_t ctx;
         if(noxtls_sha512_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-        if(noxtls_sha512_update(&ctx, (uint8_t*)noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
+        if(noxtls_sha512_update(&ctx, noxtls_message, message_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
         if(noxtls_sha512_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-        *hash_len = 64;
+        *hash_len = 64U;
         return NOXTLS_RETURN_SUCCESS;
     }
     return NOXTLS_RETURN_INVALID_ALGORITHM;
@@ -1813,13 +1951,13 @@ static uint32_t rsa_pss_digest_len(noxtls_hash_algos_t hash_algo)
 /** MGF1 (RFC 8017): mask = MGF1(seed, seed_len, mask_len). */
 static noxtls_return_t mgf1(noxtls_hash_algos_t hash_algo, const uint8_t *seed, uint32_t seed_len, uint8_t *mask, uint32_t mask_len)
 {
-    uint32_t h_len = rsa_pss_digest_len(hash_algo);
+    uint32_t h_len = (uint32_t)(rsa_pss_digest_len(hash_algo));
     uint8_t counter[4];
-    uint32_t offset = 0;
+    uint32_t offset = 0U;
     uint8_t T_buf[64];
-    uint8_t *input;
+    uint8_t *input = NULL;
 
-    if(seed == NULL || (mask == NULL && mask_len > 0U)) {
+    if((seed == NULL) || ((mask == NULL) && (mask_len > 0U))) {
         return NOXTLS_RETURN_NULL;
     }
     if(h_len == 0U) {
@@ -1829,89 +1967,130 @@ static noxtls_return_t mgf1(noxtls_hash_algos_t hash_algo, const uint8_t *seed, 
         return NOXTLS_RETURN_FAILED;
     }
 
-    input = (uint8_t*)noxtls_calloc(seed_len + 4U, 1);
-    if(!input) { return NOXTLS_RETURN_FAILED; }
-    memcpy(input, seed, seed_len);
+    input = (uint8_t*)NOXTLS_CALLOC(seed_len + 4U, 1);
+    if(input == NULL) { return NOXTLS_RETURN_FAILED; }
+    noxtls_copy_u8(input, (size_t)seed_len, seed, (size_t)seed_len);
 
     while(offset < mask_len) {
-        counter[0] = (uint8_t)((offset / h_len) >> 24);
-        counter[1] = (uint8_t)((offset / h_len) >> 16);
-        counter[2] = (uint8_t)((offset / h_len) >> 8);
+        counter[0] = (uint8_t)((offset / h_len) >> 24U);
+        counter[1] = (uint8_t)((offset / h_len) >> 16U);
+        counter[2] = (uint8_t)((offset / h_len) >> 8U);
         counter[3] = (uint8_t)(offset / h_len);
-        memcpy(input + seed_len, counter, 4);
+        noxtls_copy_u8(&input[seed_len], 4U, counter, 4U);
         if(hash_algo == NOXTLS_HASH_SHA_256) {
             noxtls_sha_ctx_t ctx;
-            noxtls_sha256_init(&ctx, hash_algo);
-            noxtls_sha256_update(&ctx, input, seed_len + 4);
-            noxtls_sha256_finish(&ctx, T_buf);
+            (void)noxtls_sha256_init(&ctx, hash_algo);
+            (void)noxtls_sha256_update(&ctx, input, seed_len + 4U);
+            (void)noxtls_sha256_finish(&ctx, T_buf);
         } else {
             noxtls_sha512_ctx_t ctx;
-            noxtls_sha512_init(&ctx, hash_algo);
-            noxtls_sha512_update(&ctx, input, seed_len + 4);
-            noxtls_sha512_finish(&ctx, T_buf);
+            (void)noxtls_sha512_init(&ctx, hash_algo);
+            (void)noxtls_sha512_update(&ctx, input, seed_len + 4U);
+            (void)noxtls_sha512_finish(&ctx, T_buf);
         }
-        uint32_t copy = mask_len - offset;
+        uint32_t copy = (uint32_t)(mask_len - offset);
         if(copy > h_len) { copy = h_len; }
-        memcpy(mask + offset, T_buf, copy);
+        noxtls_copy_u8(&mask[offset], (size_t)copy, T_buf, (size_t)copy);
         offset += copy;
     }
-    noxtls_free(input);
+    (void)noxtls_free(input);
     return NOXTLS_RETURN_SUCCESS;
 }
 
-/** EMSA-PSS-ENCODE (RFC 8017). salt_len must equal h_len. */
+/**
+ * @brief Number of significant bits of a big-endian modulus (RFC 8017 modBits).
+ *
+ * @param[in] n   Modulus, big-endian.
+ * @param[in] len Length of @p n in bytes.
+ * @return Bit length of n (0 when n is zero).
+ */
+static uint32_t rsa_modulus_bits(const uint8_t *n, uint32_t len)
+{
+    uint32_t i = 0U;
+    uint32_t bits = 0U;
+
+    while((i < len) && (n[i] == 0U)) {
+        i += 1U;
+    }
+    if(i < len) {
+        uint32_t top = (uint32_t)n[i];
+        bits = (len - i - 1U) * 8U;
+        while(top != 0U) {
+            bits += 1U;
+            top >>= 1U;
+        }
+    }
+    return bits;
+}
+
+/**
+ * @brief Mask of the bits of EM's first octet that may be non-zero (RFC 8017 9.1.1 step 11,
+ *        9.1.2 step 6): the leftmost 8*emLen - emBits bits must be zero.
+ */
+static uint8_t rsa_pss_top_mask(uint32_t em_len, uint32_t em_bits)
+{
+    uint32_t unused = (uint32_t)((em_len * 8U) - em_bits); /* 0..7 */
+    return (uint8_t)(0xFFU >> unused);
+}
+
+/** EMSA-PSS-ENCODE (RFC 8017). salt_len must equal h_len; em_len == ceil(em_bits / 8). */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static noxtls_return_t emsa_pss_encode(const uint8_t *m_hash, uint32_t h_len,
-    uint32_t em_len, noxtls_hash_algos_t hash_algo, uint32_t salt_len,
+    uint32_t em_len, uint32_t em_bits, noxtls_hash_algos_t hash_algo, uint32_t salt_len,
     uint8_t *em)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    if(m_hash == NULL || em == NULL) { return NOXTLS_RETURN_NULL; }
-    if(h_len > 64U || salt_len > 64U) { return NOXTLS_RETURN_INVALID_PARAM; }
+    if((m_hash == NULL) || (em == NULL)) { return NOXTLS_RETURN_NULL; }
+    if((h_len > 64U) || (salt_len > 64U)) { return NOXTLS_RETURN_INVALID_PARAM; }
+    if((em_len == 0U) || (em_len != ((em_bits + 7U) / 8U))) { return NOXTLS_RETURN_INVALID_PARAM; }
     if(h_len > (uint32_t)(UINT32_MAX - salt_len - 8U)) { return NOXTLS_RETURN_FAILED; }
-    if(em_len < h_len + salt_len + 2) { return NOXTLS_RETURN_FAILED; }
-    uint32_t ps_len = em_len - salt_len - h_len - 2;
-    uint32_t db_len = em_len - h_len - 1;
+    if(em_len < (h_len + salt_len + 2U)) { return NOXTLS_RETURN_FAILED; }
+    uint32_t ps_len = (uint32_t)(em_len - salt_len - h_len - 2U);
+    uint32_t db_len = (uint32_t)(em_len - h_len - 1U);
 
-    uint8_t *salt = (uint8_t*)noxtls_calloc(salt_len, 1);
-    if(!salt) { return NOXTLS_RETURN_FAILED; }
+    uint8_t *salt = (uint8_t*)NOXTLS_CALLOC(salt_len, 1);
+    if(salt == NULL) { return NOXTLS_RETURN_FAILED; }
     if(rsa_random_bytes(salt, salt_len) != NOXTLS_RETURN_SUCCESS) {
-        noxtls_free(salt);
+        (void)noxtls_free(salt);
         return NOXTLS_RETURN_FAILED;
     }
 
-    uint8_t m_prime[8 + 64 + 64];
-    memset(m_prime, 0, 8);
-    memcpy(m_prime + 8, m_hash, h_len);
-    memcpy(m_prime + 8 + h_len, salt, salt_len);
-    uint32_t m_prime_len = 8U + h_len + salt_len;
+    uint8_t m_prime[8U +64U +64U];
+    noxtls_secure_zero((m_prime), (size_t)(8));
+    noxtls_copy_u8(&m_prime[8], sizeof(m_prime) - (size_t)(8), m_hash, (size_t)(h_len));
+    noxtls_copy_u8(&m_prime[8U + h_len], sizeof(m_prime) - (size_t)(8U + h_len), salt, (size_t)(salt_len));
+    uint32_t m_prime_len = (uint32_t)(8U + h_len + salt_len);
 
     uint8_t H[64];
     if(hash_algo == NOXTLS_HASH_SHA_256) {
         noxtls_sha_ctx_t ctx;
-        noxtls_sha256_init(&ctx, hash_algo);
-        noxtls_sha256_update(&ctx, m_prime, m_prime_len);
-        noxtls_sha256_finish(&ctx, H);
+        (void)noxtls_sha256_init(&ctx, hash_algo);
+        (void)noxtls_sha256_update(&ctx, m_prime, m_prime_len);
+        (void)noxtls_sha256_finish(&ctx, H);
     } else {
         noxtls_sha512_ctx_t ctx;
-        noxtls_sha512_init(&ctx, hash_algo);
-        noxtls_sha512_update(&ctx, m_prime, m_prime_len);
-        noxtls_sha512_finish(&ctx, H);
+        (void)noxtls_sha512_init(&ctx, hash_algo);
+        (void)noxtls_sha512_update(&ctx, m_prime, m_prime_len);
+        (void)noxtls_sha512_finish(&ctx, H);
     }
-    memset(em, 0, ps_len);
-    em[ps_len] = 0x01;
-    memcpy(em + ps_len + 1, salt, salt_len);
-    noxtls_free(salt);
+    noxtls_secure_zero((em), (size_t)(ps_len));
+    em[ps_len] = 0x01U;
+    noxtls_copy_u8(&em[ps_len + 1U], (size_t)salt_len, salt, (size_t)salt_len);
+    (void)noxtls_free(salt);
 
-    uint8_t *db_mask = (uint8_t*)noxtls_calloc(db_len, 1);
-    if(!db_mask) { return NOXTLS_RETURN_FAILED; }
-    mgf1(hash_algo, H, h_len, db_mask, db_len);
-    for(uint32_t i = 0; i < db_len; i++) { em[i] ^= db_mask[i]; }
-    noxtls_free(db_mask);
+    uint8_t *db_mask = (uint8_t*)NOXTLS_CALLOC(db_len, 1);
+    if(db_mask == NULL) { return NOXTLS_RETURN_FAILED; }
+    if(mgf1(hash_algo, H, h_len, db_mask, db_len) != NOXTLS_RETURN_SUCCESS) {
+        (void)noxtls_free(db_mask);
+        return NOXTLS_RETURN_FAILED;
+    }
+    for(uint32_t i = 0U; i < db_len; i += 1U) { em[i] ^= db_mask[i]; }
+    (void)noxtls_free(db_mask);
 
-    em[0] &= 0x7F;
-    memcpy(em + db_len, H, h_len);
-    em[em_len - 1] = 0xbc;
+    /* Step 11: clear the leftmost 8*emLen - emBits bits so that EM < 2^emBits <= n. */
+    em[0] &= rsa_pss_top_mask(em_len, em_bits);
+    noxtls_copy_u8(&em[db_len], (size_t)h_len, H, (size_t)h_len);
+    em[em_len - 1U] = 0xbcU;
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -1920,110 +2099,117 @@ static noxtls_return_t emsa_pss_encode(const uint8_t *m_hash, uint32_t h_len,
 #define NOXTLS_DEBUG_PSS_VERIFY 0
 #endif
 
-/** EMSA-PSS-VERIFY (RFC 8017). */
+/** EMSA-PSS-VERIFY (RFC 8017). em_len == ceil(em_bits / 8). */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static noxtls_return_t emsa_pss_verify(const uint8_t *m_hash, uint32_t h_len,
-    const uint8_t *em, uint32_t em_len, noxtls_hash_algos_t hash_algo, uint32_t salt_len)
+    const uint8_t *em, uint32_t em_len, uint32_t em_bits, noxtls_hash_algos_t hash_algo, uint32_t salt_len)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    if(m_hash == NULL || em == NULL) {
+    uint8_t top_mask;
+
+    if((m_hash == NULL) || (em == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
-    if(h_len > 64U || salt_len > 64U) {
+    if((h_len > 64U) || (salt_len > 64U)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
+    if((em_len == 0U) || (em_len != ((em_bits + 7U) / 8U))) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    top_mask = rsa_pss_top_mask(em_len, em_bits);
     if(h_len > (uint32_t)(UINT32_MAX - salt_len - 8U)) {
         return NOXTLS_RETURN_FAILED;
     }
-    if(em_len < h_len + salt_len + 2 || em[em_len - 1] != 0xbc) {
+    if((em_len < (h_len + salt_len + 2U)) || (em[em_len - 1U] != 0xbcU)) {
 #if NOXTLS_DEBUG_PSS_VERIFY
-        (void)fprintf(stderr, "[PSS_VERIFY] fail: em_len=%u last_byte=0x%02x (expect 0xbc)\n",
-            (unsigned)em_len, (unsigned)(em_len > 0 ? em[em_len - 1] : 0));
+        (void)noxtls_debug_printf((const uint8_t *)"[PSS_VERIFY] fail: em_len=%u last_byte=0x%02x (expect 0xbc)\n",
+            (uint32_t)em_len, (uint32_t)(em_len > 0U ? em[em_len - 1U] : 0U));
 #endif
         return NOXTLS_RETURN_FAILED;
     }
 #if NOXTLS_DEBUG_PSS_VERIFY
-    (void)fprintf(stderr, "[PSS_VERIFY] step: trailer 0xbc ok em_len=%u\n", (unsigned)em_len);
+    (void)noxtls_debug_printf((const uint8_t *)"[PSS_VERIFY] step: trailer 0xbc ok em_len=%u\n", (uint32_t)em_len);
 #endif
-    uint32_t db_len = em_len - h_len - 1;
-    uint32_t ps_len_val = em_len - salt_len - h_len - 2;
+    uint32_t db_len = (uint32_t)(em_len - h_len - 1U);
+    uint32_t ps_len_val = (uint32_t)(em_len - salt_len - h_len - 2U);
 
     const uint8_t *masked_db = em;
-    const uint8_t *H = em + db_len;
+    const uint8_t *H = &em[db_len];
 
-    uint8_t *db_mask = (uint8_t*)noxtls_calloc(db_len, 1);
-    if(!db_mask) { return NOXTLS_RETURN_FAILED; }
-    mgf1(hash_algo, H, h_len, db_mask, db_len);
-
-    uint8_t *DB = (uint8_t*)noxtls_calloc(db_len, 1);
-    if(!DB) { noxtls_free(db_mask); return NOXTLS_RETURN_FAILED; }
-    for(uint32_t i = 0; i < db_len; i++) { DB[i] = masked_db[i] ^ db_mask[i]; }
-    noxtls_free(db_mask);
-
-    /* Encoding set the leftmost bit of the first octet of maskedDB to zero (em[0] &= 0x7F); match that when verifying. */
-    DB[0] &= 0x7FU;
-
-    if((DB[0] & 0x80) != 0) {
+    /* Step 6: the leftmost 8*emLen - emBits bits of maskedDB must be zero (reject, never mask). */
+    if((masked_db[0] & (uint8_t)~top_mask) != 0U) {
 #if NOXTLS_DEBUG_PSS_VERIFY
-        (void)fprintf(stderr, "[PSS_VERIFY] fail: DB[0] has high bit set (0x%02x)\n", (unsigned)DB[0]);
+        (void)noxtls_debug_printf((const uint8_t *)"[PSS_VERIFY] fail: maskedDB[0]=0x%02x has bits outside 0x%02x\n",
+            (uint32_t)masked_db[0], (uint32_t)top_mask);
 #endif
-        noxtls_free(DB); return NOXTLS_RETURN_FAILED;
+        return NOXTLS_RETURN_FAILED;
     }
-#if NOXTLS_DEBUG_PSS_VERIFY
-    (void)fprintf(stderr, "[PSS_VERIFY] step: DB[0] high bit ok (0x%02x)\n", (unsigned)DB[0]);
-#endif
+
+    uint8_t *db_mask = (uint8_t*)NOXTLS_CALLOC(db_len, 1);
+    if(db_mask == NULL) { return NOXTLS_RETURN_FAILED; }
+    if(mgf1(hash_algo, H, h_len, db_mask, db_len) != NOXTLS_RETURN_SUCCESS) {
+        (void)noxtls_free(db_mask);
+        return NOXTLS_RETURN_FAILED;
+    }
+    uint8_t *DB = (uint8_t*)NOXTLS_CALLOC(db_len, 1);
+    if(DB == NULL) { (void)noxtls_free(db_mask); return NOXTLS_RETURN_FAILED; }
+    for(uint32_t db_i = 0U; db_i < db_len; db_i += 1U) { DB[db_i] = masked_db[db_i] ^ db_mask[db_i]; }
+    (void)noxtls_free(db_mask);
+
+    /* Step 9: set the leftmost 8*emLen - emBits bits of DB to zero. */
+    DB[0] &= top_mask;
 
     /* Padding: ps_len_val zeros, then 0x01 (at index ps_len_val). */
-    uint32_t i;
-    for(i = 0; i < ps_len_val && DB[i] == 0; i++) { }
-    if(i != ps_len_val || i >= db_len || DB[i] != 0x01) {
+    uint32_t i = 0U;
+    for(i = 0U; (i < ps_len_val) && (DB[i] == 0U); i += 1U) { }
+    if((i != ps_len_val) || (i >= db_len) || (DB[i] != 0x01U)) {
 #if NOXTLS_DEBUG_PSS_VERIFY
-        (void)fprintf(stderr, "[PSS_VERIFY] fail: padding: i=%u ps_len_val=%u db_len=%u DB[i]=0x%02x (expect 0x01 at i==ps_len_val)\n",
-            (unsigned)i, (unsigned)ps_len_val, (unsigned)db_len, (unsigned)(i < db_len ? DB[i] : 0));
+        (void)noxtls_debug_printf((const uint8_t *)"[PSS_VERIFY] fail: padding: i=%u ps_len_val=%u db_len=%u DB[i]=0x%02x (expect 0x01 at i==ps_len_val)\n",
+            (uint32_t)i, (uint32_t)ps_len_val, (uint32_t)db_len, (uint32_t)(i < db_len ? DB[i] : 0));
 #endif
-        noxtls_free(DB); return NOXTLS_RETURN_FAILED;
+        (void)noxtls_free(DB); return NOXTLS_RETURN_FAILED;
     }
-    uint32_t salt_offset = i + 1;
+    uint32_t salt_offset = (uint32_t)(i + 1U);
 #if NOXTLS_DEBUG_PSS_VERIFY
-    (void)fprintf(stderr, "[PSS_VERIFY] step: padding ok i=%u salt_offset=%u\n", (unsigned)i, (unsigned)salt_offset);
+    (void)noxtls_debug_printf((const uint8_t *)"[PSS_VERIFY] step: padding ok i=%u salt_offset=%u\n", (uint32_t)i, (uint32_t)salt_offset);
 #endif
-    if(salt_offset > db_len || salt_len > (db_len - salt_offset)) {
+    if((salt_offset > db_len) || (salt_len > (db_len - salt_offset))) {
 #if NOXTLS_DEBUG_PSS_VERIFY
-        (void)fprintf(stderr, "[PSS_VERIFY] fail: salt_offset+salt_len > db_len\n");
+        (void)noxtls_debug_printf((const uint8_t *)"[PSS_VERIFY] fail: salt_offset+salt_len > db_len\n");
 #endif
-        noxtls_free(DB); return NOXTLS_RETURN_FAILED;
+        (void)noxtls_free(DB); return NOXTLS_RETURN_FAILED;
     }
 
-    uint8_t m_prime[8 + 64 + 64];
-    memset(m_prime, 0, 8);
-    memcpy(m_prime + 8, m_hash, h_len);
-    memcpy(m_prime + 8 + h_len, DB + salt_offset, salt_len);
-    noxtls_free(DB);
-    uint32_t m_prime_len = 8U + h_len + salt_len;
+    uint8_t m_prime[8U +64U +64U];
+    noxtls_secure_zero((m_prime), (size_t)(8));
+    noxtls_copy_u8(&m_prime[8], sizeof(m_prime) - (size_t)(8), m_hash, (size_t)(h_len));
+    noxtls_copy_u8(&m_prime[8U + h_len], sizeof(m_prime) - (size_t)(8U + h_len), &DB[salt_offset], (size_t)(salt_len));
+    (void)noxtls_free(DB);
+    uint32_t m_prime_len = (uint32_t)(8U + h_len + salt_len);
 
     uint8_t H_prime[64];
     if(hash_algo == NOXTLS_HASH_SHA_256) {
         noxtls_sha_ctx_t ctx;
-        noxtls_sha256_init(&ctx, hash_algo);
-        noxtls_sha256_update(&ctx, m_prime, m_prime_len);
-        noxtls_sha256_finish(&ctx, H_prime);
+        (void)noxtls_sha256_init(&ctx, hash_algo);
+        (void)noxtls_sha256_update(&ctx, m_prime, m_prime_len);
+        (void)noxtls_sha256_finish(&ctx, H_prime);
     } else {
         noxtls_sha512_ctx_t ctx;
-        noxtls_sha512_init(&ctx, hash_algo);
-        noxtls_sha512_update(&ctx, m_prime, m_prime_len);
-        noxtls_sha512_finish(&ctx, H_prime);
+        (void)noxtls_sha512_init(&ctx, hash_algo);
+        (void)noxtls_sha512_update(&ctx, m_prime, m_prime_len);
+        (void)noxtls_sha512_finish(&ctx, H_prime);
     }
 #if NOXTLS_DEBUG_PSS_VERIFY
-    (void)fprintf(stderr, "[PSS_VERIFY] step: comparing H, H' (h_len=%u)\n", (unsigned)h_len);
+    (void)noxtls_debug_printf((const uint8_t *)"[PSS_VERIFY] step: comparing H, H' (h_len=%u)\n", (uint32_t)h_len);
 #endif
-    if(noxtls_secret_memcmp(H, H_prime, h_len) != 0) {
+    if(noxtls_secret_memcmp(H, H_prime, (size_t)(h_len)) != 0) {
 #if NOXTLS_DEBUG_PSS_VERIFY
-        (void)fprintf(stderr, "[PSS_VERIFY] fail: H != H' (hash mismatch)\n");
+        (void)noxtls_debug_printf((const uint8_t *)"[PSS_VERIFY] fail: H != H' (hash mismatch)\n");
 #endif
         return NOXTLS_RETURN_FAILED;
     }
 #if NOXTLS_DEBUG_PSS_VERIFY
-    (void)fprintf(stderr, "[PSS_VERIFY] ok\n");
+    (void)noxtls_debug_printf((const uint8_t *)"[PSS_VERIFY] ok\n");
 #endif
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -2042,37 +2228,48 @@ static noxtls_return_t emsa_pss_verify(const uint8_t *m_hash, uint32_t h_len,
 noxtls_return_t noxtls_rsa_sign_pss(const rsa_key_t *key, const uint8_t *noxtls_message, uint32_t message_len,
     uint8_t *signature, uint32_t *signature_len, noxtls_hash_algos_t hash_algo)
 {
-    if(key == NULL || noxtls_message == NULL || signature == NULL || signature_len == NULL) { return NOXTLS_RETURN_NULL; }
-    if(hash_algo != NOXTLS_HASH_SHA_256 &&
-       hash_algo != NOXTLS_HASH_SHA_384 &&
-       hash_algo != NOXTLS_HASH_SHA_512) { return NOXTLS_RETURN_INVALID_ALGORITHM; }
+    if((key == NULL) || (noxtls_message == NULL) || (signature == NULL) || (signature_len == NULL)) { return NOXTLS_RETURN_NULL; }
+    if((hash_algo != NOXTLS_HASH_SHA_256) &&
+       (hash_algo != NOXTLS_HASH_SHA_384) &&
+       (hash_algo != NOXTLS_HASH_SHA_512)) { return NOXTLS_RETURN_INVALID_ALGORITHM; }
     if(*signature_len < key->key_bytes) { return NOXTLS_RETURN_FAILED; }
 
-    uint32_t h_len = rsa_pss_digest_len(hash_algo);
+    uint32_t h_len = (uint32_t)(rsa_pss_digest_len(hash_algo));
     uint8_t m_hash[64];
     if(pss_hash_message(hash_algo, noxtls_message, message_len, m_hash, &h_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
 
-    uint8_t *em = (uint8_t*)noxtls_calloc(key->key_bytes, 1);
-    if(!em) { return NOXTLS_RETURN_FAILED; }
+    /* RFC 8017 8.1.1: emBits = modBits - 1, emLen = ceil(emBits / 8). EM occupies the low emLen
+     * octets of the key_bytes-long representative (one leading zero octet when modBits = 8k + 1). */
+    uint32_t mod_bits = rsa_modulus_bits(key->n, key->key_bytes);
+    if(mod_bits < 2U) { return NOXTLS_RETURN_FAILED; }
+    uint32_t em_bits = mod_bits - 1U;
+    uint32_t em_len = (em_bits + 7U) / 8U;
+    uint32_t em_off = (uint32_t)(key->key_bytes - em_len);
 
-    /* RFC 8017: noxtls_message representative m = OS2IP(EM) must be < n; otherwise retry with new salt. */
+    uint8_t *em = (uint8_t*)NOXTLS_CALLOC(key->key_bytes, 1);
+    if(em == NULL) { return NOXTLS_RETURN_FAILED; }
+
+    /* RFC 8017: noxtls_message representative m = OS2IP(EM) must be < n (guaranteed by emBits < modBits;
+     * the retry is kept as a defensive check). */
     unsigned retries = 0;
     const unsigned max_retries = 16;
     do {
-        noxtls_return_t rc = emsa_pss_encode(m_hash, h_len, key->key_bytes, hash_algo, h_len, em);
-        if(rc != NOXTLS_RETURN_SUCCESS) { noxtls_free(em); return rc; }
+        noxtls_return_t encode_rc = emsa_pss_encode(m_hash, h_len, em_len, em_bits, hash_algo, h_len, &em[em_off]);
+        if(encode_rc != NOXTLS_RETURN_SUCCESS) { (void)noxtls_free(em); return encode_rc; }
         if(noxtls_bn_cmp(em, key->n, key->key_bytes) < 0) {
             break;
         }
-        if(++retries >= max_retries) {
-            noxtls_free(em);
+        retries += 1U;
+        if(retries >= max_retries) {
+            (void)noxtls_free(em);
             return NOXTLS_RETURN_FAILED;
         }
-    } while(1);
+    /* cppcheck-suppress duplicateExpression ; MISRA C:2025 Rule 14.3 infinite-loop idiom */
+    } while(1U == 1U);
 
     /* Sign (blinded, NX-15): s = em^d mod n */
     noxtls_return_t rc = rsa_private_mod_exp_blinded(key, em, signature);
-    noxtls_free(em);
+    (void)noxtls_free(em);
     if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
     *signature_len = key->key_bytes;
     return NOXTLS_RETURN_SUCCESS;
@@ -2094,22 +2291,39 @@ noxtls_return_t noxtls_rsa_verify_pss(const rsa_key_t *key, const uint8_t *noxtl
     const uint8_t *signature, uint32_t signature_len, noxtls_hash_algos_t hash_algo)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    if(key == NULL || noxtls_message == NULL || signature == NULL) { return NOXTLS_RETURN_NULL; }
+    if((key == NULL) || (noxtls_message == NULL) || (signature == NULL)) { return NOXTLS_RETURN_NULL; }
     if(signature_len != key->key_bytes) { return NOXTLS_RETURN_FAILED; }
-    if(hash_algo != NOXTLS_HASH_SHA_256 &&
-       hash_algo != NOXTLS_HASH_SHA_384 &&
-       hash_algo != NOXTLS_HASH_SHA_512) { return NOXTLS_RETURN_INVALID_ALGORITHM; }
+    if((hash_algo != NOXTLS_HASH_SHA_256) &&
+       (hash_algo != NOXTLS_HASH_SHA_384) &&
+       (hash_algo != NOXTLS_HASH_SHA_512)) { return NOXTLS_RETURN_INVALID_ALGORITHM; }
 
-    uint8_t *em = (uint8_t*)noxtls_calloc(key->key_bytes, 1);
-    if(!em) { return NOXTLS_RETURN_FAILED; }
+    /* RSAVP1 (RFC 8017 section 5.2.2) step 1: the signature representative must be < n,
+     * otherwise s + n would verify as well (signature malleability). */
+    if(noxtls_bn_cmp(signature, key->n, key->key_bytes) >= 0) { return NOXTLS_RETURN_FAILED; }
+
+    /* RFC 8017 8.1.2 step 2c: emBits = modBits - 1, emLen = ceil(emBits / 8). */
+    uint32_t mod_bits = rsa_modulus_bits(key->n, key->key_bytes);
+    if(mod_bits < 2U) { return NOXTLS_RETURN_FAILED; }
+    uint32_t em_bits = mod_bits - 1U;
+    uint32_t em_len = (em_bits + 7U) / 8U;
+    uint32_t em_off = (uint32_t)(key->key_bytes - em_len);
+
+    uint8_t *em = (uint8_t*)NOXTLS_CALLOC(key->key_bytes, 1);
+    if(em == NULL) { return NOXTLS_RETURN_FAILED; }
     noxtls_return_t rc = noxtls_bn_mod_exp(em, signature, key->e, key->key_bytes, key->n, key->key_bytes);
-    if(rc != NOXTLS_RETURN_SUCCESS) { noxtls_free(em); return rc; }
+    if(rc != NOXTLS_RETURN_SUCCESS) { (void)noxtls_free(em); return rc; }
 
-    uint32_t h_len = rsa_pss_digest_len(hash_algo);
+    /* I2OSP(m, emLen) fails ("invalid signature") when m does not fit in emLen octets. */
+    for(uint32_t i = 0U; i < em_off; i += 1U) {
+        if(em[i] != 0U) { rc = NOXTLS_RETURN_FAILED; }
+    }
+    if(rc != NOXTLS_RETURN_SUCCESS) { (void)noxtls_free(em); return rc; }
+
+    uint32_t h_len = (uint32_t)(rsa_pss_digest_len(hash_algo));
     uint8_t m_hash[64];
-    if(pss_hash_message(hash_algo, noxtls_message, message_len, m_hash, &h_len) != NOXTLS_RETURN_SUCCESS) { noxtls_free(em); return NOXTLS_RETURN_FAILED; }
+    if(pss_hash_message(hash_algo, noxtls_message, message_len, m_hash, &h_len) != NOXTLS_RETURN_SUCCESS) { (void)noxtls_free(em); return NOXTLS_RETURN_FAILED; }
 
-    rc = emsa_pss_verify(m_hash, h_len, em, key->key_bytes, hash_algo, h_len);
-    noxtls_free(em);
+    rc = emsa_pss_verify(m_hash, h_len, &em[em_off], em_len, em_bits, hash_algo, h_len);
+    (void)noxtls_free(em);
     return rc;
 }

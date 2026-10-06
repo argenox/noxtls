@@ -7,8 +7,8 @@
 * Summary: In-house STM32 SHA-256 backend helpers.
 *****************************************************************************/
 
-#ifndef _NOXTLS_STM32_HASH_CORE_H_
-#define _NOXTLS_STM32_HASH_CORE_H_
+#ifndef NOXTLS_STM32_HASH_CORE_H_
+#define NOXTLS_STM32_HASH_CORE_H_
 
 #include "vendor/st/noxtls_stm32_accel.h"
 
@@ -28,4 +28,4 @@ noxtls_return_t noxtls_stm32_hash_core_sha256_blocks(noxtls_sha_ctx_t *ctx,
                                                       const uint8_t *input,
                                                       uint32_t block_count);
 
-#endif /* _NOXTLS_STM32_HASH_CORE_H_ */
+#endif /* NOXTLS_STM32_HASH_CORE_H_ */

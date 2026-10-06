@@ -13,6 +13,7 @@
 #include <string.h>
 
 #include "vendor/st/noxtls_target_detect.h"
+#include "noxtls_ct.h"
 
 typedef struct
 {
@@ -119,7 +120,7 @@ int noxtls_stm32_cryp_ip_present(noxtls_stm32_accel_family_t family)
 static int noxtls_stm32_aes_wait_flag(uintptr_t aes_base, uint32_t mask, uint32_t value)
 {
     uint32_t i;
-    for(i = 0u; i < NOXTLS_STM32_AES_POLL_LIMIT; i++) {
+    for(i = 0u; i < NOXTLS_STM32_AES_POLL_LIMIT; i += 1U) {
         if((NOXTLS_STM32_REG32(aes_base + NOXTLS_STM32_AES_SR_OFF) & mask) == value) {
             return 1;
         }
@@ -134,7 +135,7 @@ static noxtls_return_t noxtls_stm32_aes_get_cfg(noxtls_stm32_accel_family_t fami
         return NOXTLS_RETURN_NULL;
     }
 
-    memset(cfg, 0, sizeof(*cfg));
+    noxtls_secure_zero((cfg), sizeof(*(cfg)));
     switch(family) {
         case NOXTLS_STM32_ACCEL_F2:
             cfg->aes_base = (uintptr_t)NOXTLS_STM32_F2_AES_BASE;
@@ -176,7 +177,7 @@ static noxtls_return_t noxtls_stm32_aes_get_cfg(noxtls_stm32_accel_family_t fami
 
 static noxtls_return_t noxtls_stm32_aes_key_size_bits(noxtls_aes_type_t type, uint32_t *key_bytes, uint32_t *bits)
 {
-    if(key_bytes == NULL || bits == NULL) {
+    if((key_bytes == NULL) || (bits == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
@@ -202,7 +203,7 @@ static uint32_t noxtls_load_be32(const uint8_t *src)
 {
     return ((uint32_t)src[0] << 24) |
            ((uint32_t)src[1] << 16) |
-           ((uint32_t)src[2] << 8) |
+           ((uint32_t)src[2] << 8U) |
            ((uint32_t)src[3]);
 }
 
@@ -210,7 +211,7 @@ static void noxtls_store_be32(uint8_t *dst, uint32_t val)
 {
     dst[0] = (uint8_t)(val >> 24);
     dst[1] = (uint8_t)(val >> 16);
-    dst[2] = (uint8_t)(val >> 8);
+    dst[2] = (uint8_t)(val >> 8U);
     dst[3] = (uint8_t)(val);
 }
 
@@ -275,7 +276,7 @@ static noxtls_return_t noxtls_stm32_aes_process_block(noxtls_stm32_accel_family_
             NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_K0LR_OFF + (i * 4u)) = 0u;
         }
     }
-    for(i = 0u; i < 4u; i++) {
+    for(i = 0u; i < 4u; i += 1U) {
         NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_IV0LR_OFF + (i * 4u)) = 0u;
     }
 
@@ -297,30 +298,30 @@ static noxtls_return_t noxtls_stm32_aes_process_block(noxtls_stm32_accel_family_
     }
     NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_CR_OFF) = cr;
 
-    for(i = 0u; i < NOXTLS_STM32_WORDS_PER_BLOCK; i++) {
+    for(i = 0u; i < NOXTLS_STM32_WORDS_PER_BLOCK; i += 1U) {
         if(noxtls_stm32_aes_wait_flag(cfg.aes_base, NOXTLS_STM32_AES_SR_IFNF, NOXTLS_STM32_AES_SR_IFNF) == 0) {
             NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_CR_OFF) = 0u;
             return NOXTLS_RETURN_TIMEOUT;
         }
-        NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_DIN_OFF) = noxtls_load_be32(data + (i * 4u));
+        NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_DIN_OFF) = noxtls_load_be32(&data[(i * 4u)]);
     }
 
-    for(i = 0u; i < NOXTLS_STM32_WORDS_PER_BLOCK; i++) {
+    for(i = 0u; i < NOXTLS_STM32_WORDS_PER_BLOCK; i += 1U) {
         if(noxtls_stm32_aes_wait_flag(cfg.aes_base, NOXTLS_STM32_AES_SR_OFNE, NOXTLS_STM32_AES_SR_OFNE) == 0) {
             NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_CR_OFF) = 0u;
             /* SECURITY (NX-17): never leave a partially written block in the caller's
              * buffer on timeout; a half-transformed block must not be used or leaked. */
-            memset(output, 0, NOXTLS_STM32_WORDS_PER_BLOCK * 4u);
+            (void)memset(output, 0, NOXTLS_STM32_WORDS_PER_BLOCK * 4u);
             return NOXTLS_RETURN_TIMEOUT;
         }
-        noxtls_store_be32(output + (i * 4u), NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_DOUT_OFF));
+        noxtls_store_be32(&output[(i * 4u)], NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_DOUT_OFF));
     }
 
     /* SECURITY (NX-17): a still-BUSY engine means the block may be incomplete; treat the
      * exhausted wait as a hard error instead of returning SUCCESS with suspect data. */
     if(noxtls_stm32_aes_wait_flag(cfg.aes_base, NOXTLS_STM32_AES_SR_BUSY, 0u) == 0) {
         NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_CR_OFF) = 0u;
-        memset(output, 0, NOXTLS_STM32_WORDS_PER_BLOCK * 4u);
+        (void)memset(output, 0, NOXTLS_STM32_WORDS_PER_BLOCK * 4u);
         return NOXTLS_RETURN_TIMEOUT;
     }
     NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_CR_OFF) = 0u;

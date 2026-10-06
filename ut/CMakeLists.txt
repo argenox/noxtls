@@ -1,4 +1,9 @@
 set(NOXTLS_ROOT_UT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../ut")
+option(NOXTLS_BUILD_ACCEL_ERROR_TESTS "Build focused accelerator error-contract UTNox tests" OFF)
+if(NOXTLS_BUILD_ACCEL_ERROR_TESTS)
+    add_subdirectory(accel_errors_aes)
+    add_subdirectory(accel_errors_ecc)
+endif()
 if(NOT EXISTS "${NOXTLS_ROOT_UT_DIR}")
     # GPL tree may not ship the shared components/ut mirror; fall back to OEM UT.
     set(NOXTLS_ROOT_UT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../noxtls-oem/ut")
@@ -105,10 +110,13 @@ target_include_directories(cmac_streaming_test PRIVATE
 add_test(NAME cmac_streaming_test COMMAND cmac_streaming_test)
 endif()
 
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_test(
     NAME allocator_policy_check
-    COMMAND python "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/check_allocator_policy.py"
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/check_allocator_policy.py"
 )
+add_test(NAME allocator_policy_checker_self_test
+    COMMAND python "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/check_allocator_policy.py" --self-test)
 
 if(_noxtls_have_root_ut AND EXISTS "${NOXTLS_ROOT_UT_DIR}/tls/tls_version_policy_test.c")
 add_executable(tls_version_policy_test "${NOXTLS_ROOT_UT_DIR}/tls/tls_version_policy_test.c")
@@ -132,6 +140,10 @@ target_link_libraries(noxtls_ecdh_diagnostic_test PRIVATE
     noxtls_tls
 )
 add_test(NAME noxtls_ecdh_diagnostic_test COMMAND noxtls_ecdh_diagnostic_test)
+endif()
+
+if(TARGET noxtls_cert)
+    add_subdirectory(mtls_policy)
 endif()
 
 if(NOXTLS_CFG_FEATURE_ED25519)
@@ -158,8 +170,25 @@ if(NOXTLS_CFG_FEATURE_AES_GCM)
     add_test(NAME aes_gcm_nist_test COMMAND aes_gcm_nist_test)
 endif()
 
+if(TARGET noxtls_encryption AND NOXTLS_CFG_FEATURE_AES_CMAC)
+    add_executable(cmac_rfc4493_test cmac_rfc4493_test.c)
+    target_link_libraries(cmac_rfc4493_test PRIVATE noxtls_encryption noxtls_common)
+    add_test(NAME cmac_rfc4493_test COMMAND cmac_rfc4493_test)
+endif()
+
 if(NOXTLS_CFG_FEATURE_SLH_DSA AND _noxtls_have_root_ut)
     add_executable(slhdsa_sizes_test "${NOXTLS_ROOT_UT_DIR}/pkc/test_slhdsa_sizes.c")
     target_link_libraries(slhdsa_sizes_test PRIVATE noxtls_common noxtls_pkc)
     add_test(NAME slhdsa_sizes_test COMMAND slhdsa_sizes_test)
+endif()
+
+option(NOXTLS_BUILD_PAKE_TESTS "Build PBKDF2, SPAKE2+ and Matter PASE UTNox tests" OFF)
+if(NOXTLS_BUILD_PAKE_TESTS)
+    add_subdirectory(pake)
+endif()
+
+option(NOXTLS_BUILD_CC13XX_PORT_TESTS "Build injected CC13xx port contract tests" OFF)
+if(NOXTLS_BUILD_CC13XX_PORT_TESTS)
+    add_subdirectory(cc13xx_aes)
+    add_subdirectory(cc13xx_p256)
 endif()

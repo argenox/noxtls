@@ -25,8 +25,8 @@
 /** @addtogroup noxtls_encryption */
 /** @{ */
 
-#ifndef _NOXTLS_RC4_H_
-#define _NOXTLS_RC4_H_
+#ifndef NOXTLS_RC4_H_
+#define NOXTLS_RC4_H_
 
 /* Standard Includes */
 #include <stdint.h>
@@ -118,4 +118,4 @@ noxtls_return_t noxtls_rc4_self_test(void);
 }
 #endif
 
-#endif /* _NOXTLS_RC4_H_ */
+#endif /* NOXTLS_RC4_H_ */

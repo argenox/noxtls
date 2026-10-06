@@ -28,52 +28,47 @@
 #include <string.h>
 #include "common/noxtls_debug_printf.h"
 #include "noxtls_rc4.h"
+#include "noxtls_ct.h"
 
 #if NOXTLS_FEATURE_RC4
 
 #if NOXTLS_RC4_DEBUG
-#define RC4_DEBUG_PRINT(fmt, ...) noxtls_debug_printf("[RC4_DEBUG] " fmt, ##__VA_ARGS__)
+/* Directive: debug-only printf wrapper; prefer macro for optional compile-out. */
+#define RC4_DEBUG_PRINT(fmt, ...) noxtls_debug_printf((const uint8_t *)"[RC4_DEBUG] " fmt, ##__VA_ARGS__)
 #else
 #define RC4_DEBUG_PRINT(fmt, ...) ((void)0)
 #endif
 
 /**
  * @brief Key-Scheduling Algorithm: initialize S and scramble with key
- *
- * @param[in] ctx The ctx value.
- * @param[in] key The key value.
- * @param[in] key_len The key length value.
- * @return void
  */
+/* S-box indices are always in 0..255. */
 static void rc4_ksa(noxtls_rc4_context_t *ctx, const uint8_t *key, uint32_t key_len)
 {
-    uint32_t i;
-    uint8_t j = 0;
+    uint32_t i = 0U;
+    uint8_t j = 0U;
 
-    for(i = 0; i < 256; i++) {
+    for (i = 0U; i < 256U; i += 1U) {
         ctx->S[i] = (uint8_t)i;
     }
-    for(i = 0; i < 256; i++) {
-        uint8_t t;
+    for (i = 0U; i < 256U; i += 1U) {
+        uint8_t t = 0U;
         j = (uint8_t)(j + ctx->S[i] + key[i % key_len]);
         t = ctx->S[i];
         ctx->S[i] = ctx->S[j];
         ctx->S[j] = t;
     }
-    ctx->i = 0;
-    ctx->j = 0;
+    ctx->i = 0U;
+    ctx->j = 0U;
 }
 
 /**
  * @brief Generate next byte of keystream (PRGA), update state
- *
- * @param[in] ctx The ctx value.
- * @return The return value.
  */
 static uint8_t rc4_prga_byte(noxtls_rc4_context_t *ctx)
 {
-    uint8_t t;
-    ctx->i = (uint8_t)(ctx->i + 1);
+    uint8_t t = 0U;
+    ctx->i = (uint8_t)(ctx->i + 1U);
     ctx->j = (uint8_t)(ctx->j + ctx->S[ctx->i]);
     t = ctx->S[ctx->i];
     ctx->S[ctx->i] = ctx->S[ctx->j];
@@ -83,18 +78,13 @@ static uint8_t rc4_prga_byte(noxtls_rc4_context_t *ctx)
 
 /**
  * @brief Initialize RC4 context
- *
- * @param[in] ctx The ctx value.
- * @param[in] key The key value.
- * @param[in] key_len The key length value.
- * @return The return value.
  */
 noxtls_return_t noxtls_rc4_init(noxtls_rc4_context_t *ctx, const uint8_t *key, uint32_t key_len)
 {
-    if(ctx == NULL || key == NULL) {
+    if ((ctx == NULL) || (key == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
-    if(key_len < NOXTLS_RC4_KEY_MIN_BYTES || key_len > NOXTLS_RC4_KEY_MAX_BYTES) {
+    if ((key_len < (uint32_t)NOXTLS_RC4_KEY_MIN_BYTES) || (key_len > (uint32_t)NOXTLS_RC4_KEY_MAX_BYTES)) {
         return NOXTLS_RETURN_FAILED;
     }
     rc4_ksa(ctx, key, key_len);
@@ -103,38 +93,25 @@ noxtls_return_t noxtls_rc4_init(noxtls_rc4_context_t *ctx, const uint8_t *key, u
 
 /**
  * @brief Encrypt/Decrypt data using RC4
- *
- * @param[in] ctx The ctx value.
- * @param[in] input The input value.
- * @param[out] output The output value.
- * @param[in] input_len The input length value.
- * @return The return value.
  */
 noxtls_return_t noxtls_rc4_process(noxtls_rc4_context_t *ctx,
                               const uint8_t *input,
                               uint8_t *output,
                               uint32_t input_len)
 {
-    uint32_t n;
+    uint32_t n = 0U;
 
-    if(ctx == NULL || input == NULL || output == NULL) {
+    if ((ctx == NULL) || (input == NULL) || (output == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
-    for(n = 0; n < input_len; n++) {
-        output[n] = input[n] ^ rc4_prga_byte(ctx);
+    for (n = 0U; n < input_len; n += 1U) {
+        output[n] = (uint8_t)(input[n] ^ rc4_prga_byte(ctx));
     }
     return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
  * @brief Encrypt data using RC4
- *
- * @param[in] key The key value.
- * @param[in] key_len The key length value.
- * @param[in] input The input value.
- * @param[in] input_len The input length value.
- * @param[out] output The output value.
- * @return The return value.
  */
 noxtls_return_t noxtls_rc4_encrypt(const uint8_t *key, uint32_t key_len,
                             const uint8_t *input, uint32_t input_len,
@@ -142,10 +119,10 @@ noxtls_return_t noxtls_rc4_encrypt(const uint8_t *key, uint32_t key_len,
 {
     noxtls_rc4_context_t ctx;
 
-    if(key == NULL || input == NULL || output == NULL) {
+    if ((key == NULL) || (input == NULL) || (output == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
-    if(noxtls_rc4_init(&ctx, key, key_len) != NOXTLS_RETURN_SUCCESS) {
+    if (noxtls_rc4_init(&ctx, key, key_len) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
     return noxtls_rc4_process(&ctx, input, output, input_len);
@@ -153,13 +130,6 @@ noxtls_return_t noxtls_rc4_encrypt(const uint8_t *key, uint32_t key_len,
 
 /**
  * @brief Decrypt data using RC4
- *
- * @param[in] key The key value.
- * @param[in] key_len The key length value.
- * @param[in] input The input value.
- * @param[in] input_len The input length value.
- * @param[out] output The output value.
- * @return The return value.
  */
 noxtls_return_t noxtls_rc4_decrypt(const uint8_t *key, uint32_t key_len,
                             const uint8_t *input, uint32_t input_len,
@@ -171,36 +141,34 @@ noxtls_return_t noxtls_rc4_decrypt(const uint8_t *key, uint32_t key_len,
 
 /**
  * @brief Self-test using RFC 6229 test vector (40-bit key 0x0102030405, offset 0)
- *
- * @return The return value.
  */
 noxtls_return_t noxtls_rc4_self_test(void)
 {
-    const uint8_t key[] = { 0x01, 0x02, 0x03, 0x04, 0x05 };
+    const uint8_t key[] = { 0x01U, 0x02U, 0x03U, 0x04U, 0x05U };
     const uint8_t expected[16] = {
-        0xb2, 0x39, 0x63, 0x05, 0xf0, 0x3d, 0xc0, 0x27,
-        0xcc, 0xc3, 0x52, 0x4a, 0x0a, 0x11, 0x18, 0xa8
+        0xb2U, 0x39U, 0x63U, 0x05U, 0xf0U, 0x3dU, 0xc0U, 0x27U,
+        0xccU, 0xc3U, 0x52U, 0x4aU, 0x0aU, 0x11U, 0x18U, 0xa8U
     };
     uint8_t keystream[16];
     noxtls_rc4_context_t ctx;
-    uint32_t i;
+    uint32_t i = 0U;
 
     RC4_DEBUG_PRINT("Running RC4 self-test...\n");
 
-    if(noxtls_rc4_init(&ctx, key, (uint32_t)sizeof(key)) != NOXTLS_RETURN_SUCCESS) {
-        noxtls_debug_printf("RC4 self-test FAILED: init failed\n");
+    if (noxtls_rc4_init(&ctx, key, (uint32_t)sizeof(key)) != NOXTLS_RETURN_SUCCESS) {
+        (void)noxtls_debug_printf((const uint8_t *)"RC4 self-test FAILED: init failed\n");
         return NOXTLS_RETURN_FAILED;
     }
     /* First 16 bytes of keystream = encrypt zeros */
-    memset(keystream, 0, sizeof(keystream));
-    if(noxtls_rc4_process(&ctx, keystream, keystream, 16) != NOXTLS_RETURN_SUCCESS) {
-        noxtls_debug_printf("RC4 self-test FAILED: process failed\n");
+    noxtls_secure_zero((keystream), sizeof(keystream));
+    if (noxtls_rc4_process(&ctx, keystream, keystream, 16U) != NOXTLS_RETURN_SUCCESS) {
+        (void)noxtls_debug_printf((const uint8_t *)"RC4 self-test FAILED: process failed\n");
         return NOXTLS_RETURN_FAILED;
     }
-    for(i = 0; i < 16; i++) {
-        if(keystream[i] != expected[i]) {
-            noxtls_debug_printf("RC4 self-test FAILED: byte %u expected 0x%02x got 0x%02x\n",
-                               (unsigned)i, expected[i], keystream[i]);
+    for (i = 0U; i < 16U; i += 1U) {
+        if (keystream[i] != expected[i]) {
+            (void)noxtls_debug_printf((const uint8_t *)"RC4 self-test FAILED: byte %u expected 0x%02x got 0x%02x\n",
+                               (uint32_t)i, expected[i], keystream[i]);
             return NOXTLS_RETURN_FAILED;
         }
     }

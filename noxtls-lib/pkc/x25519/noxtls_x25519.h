@@ -20,8 +20,8 @@
 *
 *****************************************************************************/
 
-#ifndef _NOXTLS_X25519_H_
-#define _NOXTLS_X25519_H_
+#ifndef NOXTLS_X25519_H_
+#define NOXTLS_X25519_H_
 
 #include <stdint.h>
 
@@ -61,7 +61,7 @@ extern "C" {
  * @param k Little-endian scalar buffer (`NOXTLS_X25519_KEY_SIZE` bytes).
  * @return None.
  */
-void noxtls_x25519_clamp_scalar(uint8_t k[NOXTLS_X25519_KEY_SIZE]);
+void noxtls_x25519_clamp_scalar(uint8_t *k);
 
 /**
  * @brief Compute public key from private key: X25519(private_key, 9) (RFC 7748).
@@ -69,8 +69,8 @@ void noxtls_x25519_clamp_scalar(uint8_t k[NOXTLS_X25519_KEY_SIZE]);
  * @param public_key 32-byte little-endian public u-coordinate output.
  * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on failure.
  */
-noxtls_return_t noxtls_x25519_public_key(const uint8_t private_key[NOXTLS_X25519_KEY_SIZE],
-                                        uint8_t public_key[NOXTLS_X25519_KEY_SIZE]);
+noxtls_return_t noxtls_x25519_public_key(const uint8_t *private_key,
+                                        uint8_t *public_key);
 
 /**
  * @brief Compute shared secret: X25519(private_key, peer_public_key) (RFC 7748).
@@ -79,9 +79,9 @@ noxtls_return_t noxtls_x25519_public_key(const uint8_t private_key[NOXTLS_X25519
  * @param shared_secret 32-byte little-endian shared secret output.
  * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on failure.
  */
-noxtls_return_t noxtls_x25519_shared_secret(const uint8_t private_key[NOXTLS_X25519_KEY_SIZE],
-                                            const uint8_t peer_public_key[NOXTLS_X25519_KEY_SIZE],
-                                            uint8_t shared_secret[NOXTLS_X25519_KEY_SIZE]);
+noxtls_return_t noxtls_x25519_shared_secret(const uint8_t *private_key,
+                                            const uint8_t *peer_public_key,
+                                            uint8_t *shared_secret);
 
 /**
  * @brief Generate a random key pair (DRBG), clamp private key, derive public key.
@@ -89,11 +89,11 @@ noxtls_return_t noxtls_x25519_shared_secret(const uint8_t private_key[NOXTLS_X25
  * @param public_key Output 32-byte little-endian public key.
  * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on failure.
  */
-noxtls_return_t noxtls_x25519_generate_key(uint8_t private_key[NOXTLS_X25519_KEY_SIZE],
-                                           uint8_t public_key[NOXTLS_X25519_KEY_SIZE]);
+noxtls_return_t noxtls_x25519_generate_key(uint8_t *private_key,
+                                           uint8_t *public_key);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _NOXTLS_X25519_H_ */
+#endif /* NOXTLS_X25519_H_ */

@@ -10,11 +10,11 @@
 *
 */
 
-#ifndef _ENCRYPTION_COMMAND_H_
-#define _ENCRYPTION_COMMAND_H_
+#ifndef ENCRYPTION_COMMAND_H_
+#define ENCRYPTION_COMMAND_H_
 
-int encryption_encrypt_command(int argc, char ** argv);
-int encryption_decrypt_command(int argc, char ** argv);
-void print_encryption_usage(const char * command);
+int encryption_encrypt_command(int argc, uint8_t ** argv);
+int encryption_decrypt_command(int argc, uint8_t ** argv);
+void print_encryption_usage(const uint8_t * command);
 
-#endif /* _ENCRYPTION_COMMAND_H_ */
+#endif /* ENCRYPTION_COMMAND_H_ */

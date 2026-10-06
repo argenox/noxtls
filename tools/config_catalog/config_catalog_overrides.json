@@ -122,6 +122,20 @@
       "name": "DTLS",
       "parent": "NOXTLS_FEATURE_TLS"
     },
+    "NOXTLS_FEATURE_PBKDF2": { "name": "PBKDF2" },
+    "NOXTLS_FEATURE_SPAKE2P": { "name": "SPAKE2+" },
+    "NOXTLS_FEATURE_SPAKE2P_RFC9383": {
+      "name": "SPAKE2+ RFC 9383 Profile",
+      "parent": "NOXTLS_FEATURE_SPAKE2P"
+    },
+    "NOXTLS_FEATURE_SPAKE2P_MATTER": {
+      "name": "SPAKE2+ Matter (draft-01) Profile",
+      "parent": "NOXTLS_FEATURE_SPAKE2P"
+    },
+    "NOXTLS_FEATURE_MATTER_PASE": {
+      "name": "Matter PASE",
+      "parent": "NOXTLS_FEATURE_SPAKE2P"
+    },
     "NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES": {
       "legacy": true,
       "name": "TLS 1.2 Legacy Cipher Suites",
@@ -142,6 +156,14 @@
       "profile_overrides": {
         "NOXTLS_PROFILE_UT_ALL_FEATURES": "0"
       }
+    },
+    "NOXTLS_HMAC_SHA256_SHARED_STATE": {
+      "name": "Shared SHA-256 HMAC State (Serialized)",
+      "category": "memory"
+    },
+    "NOXTLS_ECC_SHARED_SCRATCH": {
+      "name": "Shared ECC Inversion Scratch (Serialized)",
+      "category": "memory"
     },
     "NOXTLS_ECC_P256_FLASH_PRECOMPUTE": {
       "name": "P-256 Generator Table in Flash"
@@ -192,6 +214,16 @@
     }
   },
   "constraints": {
+    "NOXTLS_FEATURE_SPAKE2P": [
+      {
+        "kind": "atLeastOneEnabled",
+        "description": "At least one SPAKE2+ key-schedule profile must be enabled.",
+        "refs": [
+          "NOXTLS_FEATURE_SPAKE2P_RFC9383",
+          "NOXTLS_FEATURE_SPAKE2P_MATTER"
+        ]
+      }
+    ],
     "NOXTLS_FEATURE_AES": [
       {
         "kind": "atLeastOneEnabled",

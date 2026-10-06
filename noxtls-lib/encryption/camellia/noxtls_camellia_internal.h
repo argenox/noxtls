@@ -22,8 +22,8 @@
 /** @addtogroup noxtls_encryption */
 /** @{ */
 
-#ifndef _NOXTLS_CAMELLIA_INTERNAL_H_
-#define _NOXTLS_CAMELLIA_INTERNAL_H_
+#ifndef NOXTLS_CAMELLIA_INTERNAL_H_
+#define NOXTLS_CAMELLIA_INTERNAL_H_
 
 #include <stdint.h>
 #include "noxtls_camellia.h"
@@ -36,4 +36,13 @@ noxtls_return_t noxtls_camellia_key_schedule(const uint8_t* key, uint64_t* kw, u
 noxtls_return_t noxtls_camellia_encrypt_block_internal(const uint8_t* key, const uint8_t* data, uint8_t* output, noxtls_camellia_type_t type);
 noxtls_return_t noxtls_camellia_decrypt_block_internal(const uint8_t* key, const uint8_t* data, uint8_t* output, noxtls_camellia_type_t type);
 
-#endif /* _NOXTLS_CAMELLIA_INTERNAL_H_ */
+/* Common argument validation for the one-shot mode entry points:
+ * NOXTLS_RETURN_NULL for a NULL key/data/output, NOXTLS_RETURN_INVALID_KEY_SIZE
+ * for an unsupported key type, NOXTLS_RETURN_SUCCESS otherwise. */
+noxtls_return_t noxtls_camellia_check_oneshot_args(const uint8_t* key, const uint8_t* data, const uint8_t* output, noxtls_camellia_type_t type);
+
+/* Increment a 128-bit CTR counter block (big-endian, wraps mod 2^128). Used by
+ * both the one-shot and the streaming CTR implementations. */
+void noxtls_camellia_counter_inc(uint8_t counter[NOXTLS_CAMELLIA_BLOCK_LENGTH]);
+
+#endif /* NOXTLS_CAMELLIA_INTERNAL_H_ */

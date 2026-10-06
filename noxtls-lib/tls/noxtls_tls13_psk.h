@@ -22,8 +22,8 @@
 *
 *****************************************************************************/
 
-#ifndef _NOXTLS_TLS13_PSK_H_
-#define _NOXTLS_TLS13_PSK_H_
+#ifndef NOXTLS_TLS13_PSK_H_
+#define NOXTLS_TLS13_PSK_H_
 
 #include <stdint.h>
 #include "noxtls_common.h"
@@ -36,9 +36,9 @@ extern "C" {
 #endif
 
 /* Ticket/session store constants */
-#define TLS13_PSK_TICKET_ID_LEN    16
-#define TLS13_PSK_TICKET_STORE_MAX 64
-#define TLS13_PSK_TICKET_NONCE_MAX 32
+#define TLS13_PSK_TICKET_ID_LEN    16U
+#define TLS13_PSK_TICKET_STORE_MAX 64U
+#define TLS13_PSK_TICKET_NONCE_MAX 32U
 
 /* Ticket store (server-side session cache for resumption) */
 typedef struct
@@ -116,7 +116,7 @@ noxtls_return_t tls13_psk_compute_external_binder(noxtls_hash_algos_t hash_algo,
                                                   uint8_t *out_binder,
                                                   const uint8_t *transcript_prefix,
                                                   uint32_t transcript_prefix_len,
-                                                  const char **fail_step_out);
+                                                  const uint8_t **fail_step_out);
 
 /**
  * Add a session ticket to the server-side store (for lookup when client resumes).
@@ -170,4 +170,4 @@ noxtls_return_t tls13_psk_derive_resumption_psk(noxtls_hash_algos_t hash_algo,
 }
 #endif
 
-#endif /* _NOXTLS_TLS13_PSK_H_ */
+#endif /* NOXTLS_TLS13_PSK_H_ */

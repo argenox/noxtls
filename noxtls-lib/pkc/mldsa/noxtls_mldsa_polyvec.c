@@ -43,7 +43,7 @@ noxtls_return_t noxtls_mldsa_sample_polyvecl_eta(noxtls_mldsa_param_t param,
     noxtls_return_t rc;
     uint8_t j;
 
-    if(seed == NULL || out == NULL) {
+    if((seed == NULL) || (out == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
@@ -52,7 +52,7 @@ noxtls_return_t noxtls_mldsa_sample_polyvecl_eta(noxtls_mldsa_param_t param,
         return rc;
     }
 
-    for(j = 0U; j < spec.l; ++j) {
+    for(j = 0U; j < spec.l; j += 1U) {
         rc = noxtls_mldsa_sample_small_eta(param, seed, (uint16_t)(nonce_base + j), &out->v[j]);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
@@ -80,7 +80,7 @@ noxtls_return_t noxtls_mldsa_expand_matrix_row(noxtls_mldsa_param_t param,
     noxtls_return_t rc;
     uint8_t j;
 
-    if(rho == NULL || row_out == NULL) {
+    if((rho == NULL) || (row_out == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
@@ -93,7 +93,7 @@ noxtls_return_t noxtls_mldsa_expand_matrix_row(noxtls_mldsa_param_t param,
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    for(j = 0U; j < spec.l; ++j) {
+    for(j = 0U; j < spec.l; j += 1U) {
         uint16_t nonce = (uint16_t)(((uint16_t)row_index << 8U) | (uint16_t)j);
         rc = noxtls_mldsa_sample_uniform_q(param, rho, nonce, &row_out->v[j]);
         if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -131,7 +131,7 @@ noxtls_return_t noxtls_mldsa_matrix_vector_mul(noxtls_mldsa_param_t param,
         return rc;
     }
 
-    for(row = 0U; row < spec.k; ++row) {
+    for(row = 0U; row < spec.k; row += 1U) {
         noxtls_mldsa_polyvecl_t arow;
         noxtls_mldsa_poly_t acc;
         uint8_t j;
@@ -141,24 +141,24 @@ noxtls_return_t noxtls_mldsa_matrix_vector_mul(noxtls_mldsa_param_t param,
             return rc;
         }
 
-        noxtls_mldsa_poly_zero(&acc);
-        for(j = 0U; j < spec.l; ++j) {
+        (void)noxtls_mldsa_poly_zero(&acc);
+        for(j = 0U; j < spec.l; j += 1U) {
             noxtls_mldsa_poly_t a = arow.v[j];
             noxtls_mldsa_poly_t b = s1->v[j];
             noxtls_mldsa_poly_t p;
 
-            noxtls_mldsa_poly_ntt(&a);
-            noxtls_mldsa_poly_ntt(&b);
-            noxtls_mldsa_poly_pointwise_montgomery(&p, &a, &b);
-            noxtls_mldsa_poly_invntt_to_mont(&p);
-            noxtls_mldsa_poly_add(&acc, &acc, &p);
+            (void)noxtls_mldsa_poly_ntt(&a);
+            (void)noxtls_mldsa_poly_ntt(&b);
+            (void)noxtls_mldsa_poly_pointwise_montgomery(&p, &a, &b);
+            (void)noxtls_mldsa_poly_invntt_to_mont(&p);
+            (void)noxtls_mldsa_poly_add(&acc, &acc, &p);
         }
-        noxtls_mldsa_poly_reduce(&acc);
+        (void)noxtls_mldsa_poly_reduce(&acc);
         t_out->v[row] = acc;
     }
 
-    for(row = spec.k; row < NOXTLS_MLDSA_K_MAX; ++row) {
-        noxtls_mldsa_poly_zero(&t_out->v[row]);
+    for(row = spec.k; row < NOXTLS_MLDSA_K_MAX; row += 1U) {
+        (void)noxtls_mldsa_poly_zero(&t_out->v[row]);
     }
 
     return NOXTLS_RETURN_SUCCESS;

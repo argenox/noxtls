@@ -9,6 +9,7 @@ option(NOXTLS_ECDSA_SIGN_SKIP_SELF_VERIFY_P256 "Skip sign-time self-verify for 3
 # Force Montgomery ladder only (disable windowed scalar mult). Use to isolate windowed-path bugs.
 option(NOXTLS_ECC_LADDER_ONLY "Use Montgomery ladder only for ECC point multiply (set NOXTLS_ECC_POINT_MUL_WINDOW_SIZE=0)" OFF)
 option(NOXTLS_ECC_P256_FLASH_PRECOMPUTE "Store the compact P-256 generator precompute table in flash/ROM" OFF)
+option(NOXTLS_ECC_SHARED_SCRATCH "Use externally serialized shared ECC/P-256 inversion scratch" OFF)
 option(NOXTLS_ECC_P256_LOW_RAM_VERIFY "Use flash G precompute plus a compact runtime Q table for P-256 verification" OFF)
 option(NOXTLS_NRF52840_CC310_ECC "Use the direct nRF52840 CryptoCell 310 PKA for P-256" OFF)
 option(NOXTLS_NRF53_CC312_P256_ACCEL "Use the nRF5340 CryptoCell 312 P-256 accelerator" OFF)
@@ -21,12 +22,34 @@ option(NOXTLS_PTS_PERIPHERAL_ECC_OPTIMIZED "Compile the PTS peripheral PKC targe
 
 set(PKC_SOURCES
 )
+if(NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL AND
+   (ESP_PLATFORM OR NOXTLS_NRF52840_CC310_ECC OR
+    NOXTLS_NRF53_CC312_P256_ACCEL OR NOXTLS_NRF54_CRACEN_P256_ACCEL))
+    message(FATAL_ERROR "CC13xx requires exclusive platform P-256 accelerator selection")
+endif()
 
 if((NOXTLS_NRF52840_CC310_ECC AND NOXTLS_NRF53_CC312_P256_ACCEL) OR
    (NOXTLS_NRF52840_CC310_ECC AND NOXTLS_NRF54_CRACEN_P256_ACCEL) OR
    (NOXTLS_NRF53_CC312_P256_ACCEL AND NOXTLS_NRF54_CRACEN_P256_ACCEL))
     message(FATAL_ERROR
         "Select only one Nordic P-256 backend: nRF52 CC310, nRF53 CC312, or nRF54 CRACEN.")
+endif()
+
+# nRF54L CRACEN BA414EP: P-256 point multiply, ECDSA P-256 verify and Ed25519
+# verify ports (noxtls_nrf54_port_pkc.c replaces the default ECC / ECDSA stubs).
+set(_noxtls_pkc_nrf54 OFF)
+set(_noxtls_pkc_nrf54_link OFF)
+if(NOT ESP_PLATFORM AND (NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL OR NOXTLS_NRF54_CRACEN_P256_ACCEL))
+    include(${NOXTLS_LIB_ROOT}/vendor/nordic/nrf54x/noxtls_nrf54_sources.cmake)
+    if(NOXTLS_CFG_FEATURE_ECC)
+        set(_noxtls_pkc_nrf54 ON)
+        set(_noxtls_pkc_nrf54_link ON)
+        list(APPEND PKC_SOURCES ${NOXTLS_NRF54_PORT_ECC_SOURCES})
+    endif()
+    if(NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL AND NOXTLS_CFG_FEATURE_ED25519)
+        set(_noxtls_pkc_nrf54_link ON)
+        list(APPEND PKC_SOURCES ${NOXTLS_NRF54_PORT_ED25519_SOURCES})
+    endif()
 endif()
 
 # Multiprecision backend shared by classic PKC primitives.
@@ -57,7 +80,9 @@ if(ESP_PLATFORM AND NOXTLS_CFG_FEATURE_PKC)
 endif()
 if(NOXTLS_CFG_FEATURE_ECC)
     list(APPEND PKC_SOURCES ecc/noxtls_ecc.c)
-    if(ESP_PLATFORM)
+    if(NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL)
+        list(APPEND PKC_SOURCES ecc/noxtls_ecc_accel_cc13xx_port.c)
+    elseif(ESP_PLATFORM)
         set(_noxtls_esp32_ecc "${NOXTLS_ESP_IDF_DIR}/target/esp32/noxtls_esp32_ecc_accel.c")
         if(EXISTS "${_noxtls_esp32_ecc}")
             list(APPEND PKC_SOURCES "${_noxtls_esp32_ecc}")
@@ -66,10 +91,14 @@ if(NOXTLS_CFG_FEATURE_ECC)
         endif()
     elseif(NOXTLS_NRF52840_CC310_ECC OR NOXTLS_NRF53_CC312_P256_ACCEL)
         list(APPEND PKC_SOURCES ecc/noxtls_ecc_accel_nordic_cc31x.c)
-    elseif(NOXTLS_NRF54_CRACEN_P256_ACCEL)
-        list(APPEND PKC_SOURCES ecc/noxtls_ecc_accel_nrf54_cracen.c)
+    elseif(_noxtls_pkc_nrf54)
+        # nRF54L CRACEN BA414EP port (added once below).
     else()
-        list(APPEND PKC_SOURCES ecc/noxtls_ecc_accel_port.c)
+        if(NOXTLS_CFG_FEATURE_NOXV_HW_ACCEL)
+            list(APPEND PKC_SOURCES ecc/noxtls_ecc_accel_noxv_port.c)
+        else()
+            list(APPEND PKC_SOURCES ecc/noxtls_ecc_accel_port.c)
+        endif()
     endif()
 endif()
 if(NOXTLS_CFG_FEATURE_ECDSA)
@@ -81,7 +110,7 @@ if(NOXTLS_CFG_FEATURE_ECDSA)
         else()
             list(APPEND PKC_SOURCES ecdsa/noxtls_ecdsa_accel_port.c)
         endif()
-    else()
+    elseif(NOT _noxtls_pkc_nrf54)
         list(APPEND PKC_SOURCES ecdsa/noxtls_ecdsa_accel_port.c)
     endif()
 endif()
@@ -172,6 +201,7 @@ endif()
 if(USE_REF_ECC_POINT_MUL)
 endif()
 
+list(APPEND PKC_SOURCES noxtls_pkc_api_refs.c)
 add_library(noxtls_pkc STATIC ${PKC_SOURCES})
 
 if(MSVC)
@@ -217,6 +247,9 @@ target_link_libraries(noxtls_pkc PRIVATE
     noxtls_common
     noxtls_drbg
 )
+if(_noxtls_pkc_nrf54_link)
+    target_link_libraries(noxtls_pkc PUBLIC noxtls_nrf54)
+endif()
 if(NOT WIN32)
     target_link_libraries(noxtls_pkc PRIVATE m)
 endif()
@@ -253,4 +286,8 @@ else()
 endif()
 
 if(USE_REF_ECC_POINT_MUL)
+endif()
+
+if(NOXTLS_ECC_SHARED_SCRATCH)
+    target_compile_definitions(noxtls_pkc PUBLIC NOXTLS_ECC_SHARED_SCRATCH=1)
 endif()

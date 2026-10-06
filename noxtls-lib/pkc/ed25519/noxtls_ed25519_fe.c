@@ -26,10 +26,28 @@
  * @ingroup noxtls_ed25519
  */
 
+#include "common/noxtls_ct.h"
 #include <string.h>
 
 #include "noxtls_ed25519_config.h"
 #include "noxtls_ed25519_fe.h"
+
+/* Arithmetic floor shifts used by the radix 2^25/2^26 carry schedule.
+ * Secret values use only unsigned shifts and representable signed arithmetic. */
+static int64_t fe25519_asr25(int64_t value)
+{
+    uint64_t bits = (uint64_t)value;
+    uint64_t magnitude = bits >> 25U;
+    uint64_t correction = (bits >> 63U) << 39U;
+    return (int64_t)magnitude - (int64_t)correction;
+}
+static int64_t fe25519_asr26(int64_t value)
+{
+    uint64_t bits = (uint64_t)value;
+    uint64_t magnitude = bits >> 26U;
+    uint64_t correction = (bits >> 63U) << 38U;
+    return (int64_t)magnitude - (int64_t)correction;
+}
 
 /*
  * On Cortex-M4/M7 with NOXTLS_ED25519_FE_USE_PACKED_ASM, mul/sq/sq2 live in
@@ -50,8 +68,8 @@
  * @param[out] dst Destination bytes.
  * @param[in] src Source bytes.
  */
-static void fe25519_swap_endian32(uint8_t dst[NOXTLS_ED25519_FE25519_BYTES],
-                                  const uint8_t src[NOXTLS_ED25519_FE25519_BYTES])
+static void fe25519_swap_endian32(uint8_t *dst,
+                                  const uint8_t *src)
 {
     uint32_t i;
     for(i = 0U; i < NOXTLS_ED25519_FE25519_BYTES; i++) {
@@ -79,59 +97,60 @@ static uint32_t fe25519_load24_le(const uint8_t *src)
 
 void fe25519_native_copy(fe25519_native_t *dst, const fe25519_native_t *src)
 {
-    memcpy(dst, src, sizeof(*dst));
+    *dst = *src;
 }
 
 void fe25519_native_zero(fe25519_native_t *a)
 {
-    memset(a, 0, sizeof(*a));
+    noxtls_secure_zero(a, (size_t)(sizeof(*a)));
 }
 
-void fe25519_native_from_le(fe25519_native_t *out, const uint8_t in[NOXTLS_ED25519_FE25519_BYTES])
+void fe25519_native_from_le(fe25519_native_t *out, const uint8_t *in)
 {
     int64_t h0 = (int64_t)fe25519_load32_le(in);
-    int64_t h1 = (int64_t)fe25519_load24_le(in + 4U) << 6;
-    int64_t h2 = (int64_t)fe25519_load24_le(in + 7U) << 5;
-    int64_t h3 = (int64_t)fe25519_load24_le(in + 10U) << 3;
-    int64_t h4 = (int64_t)fe25519_load24_le(in + 13U) << 2;
-    int64_t h5 = (int64_t)fe25519_load32_le(in + 16U);
-    int64_t h6 = (int64_t)fe25519_load24_le(in + 20U) << 7;
-    int64_t h7 = (int64_t)fe25519_load24_le(in + 23U) << 5;
-    int64_t h8 = (int64_t)fe25519_load24_le(in + 26U) << 4;
-    int64_t h9 = (int64_t)(fe25519_load24_le(in + 29U) & 0x7FFFFFU) << 2;
+    int64_t h1 = (int64_t)fe25519_load24_le(&in[4U]) * INT64_C(64);
+    int64_t h2 = (int64_t)fe25519_load24_le(&in[7U]) * INT64_C(32);
+    int64_t h3 = (int64_t)fe25519_load24_le(&in[10U]) * INT64_C(8);
+    int64_t h4 = (int64_t)fe25519_load24_le(&in[13U]) * INT64_C(4);
+    int64_t h5 = (int64_t)fe25519_load32_le(&in[16U]);
+    int64_t h6 = (int64_t)fe25519_load24_le(&in[20U]) * INT64_C(128);
+    int64_t h7 = (int64_t)fe25519_load24_le(&in[23U]) * INT64_C(32);
+    int64_t h8 = (int64_t)fe25519_load24_le(&in[26U]) * INT64_C(16);
+    uint32_t h9_raw = fe25519_load24_le(&in[29U]) & 0x7FFFFFU;
+    int64_t h9 = (int64_t)h9_raw * INT64_C(4);
     int64_t carry;
 
-    carry = (h9 + (((int64_t)1) << 24)) >> 25;
+    carry = fe25519_asr25((h9 + INT64_C(16777216)));
     h0 += carry * 19;
-    h9 -= carry << 25;
-    carry = (h1 + (((int64_t)1) << 24)) >> 25;
+    h9 -= carry * INT64_C(33554432);
+    carry = fe25519_asr25((h1 + INT64_C(16777216)));
     h2 += carry;
-    h1 -= carry << 25;
-    carry = (h3 + (((int64_t)1) << 24)) >> 25;
+    h1 -= carry * INT64_C(33554432);
+    carry = fe25519_asr25((h3 + INT64_C(16777216)));
     h4 += carry;
-    h3 -= carry << 25;
-    carry = (h5 + (((int64_t)1) << 24)) >> 25;
+    h3 -= carry * INT64_C(33554432);
+    carry = fe25519_asr25((h5 + INT64_C(16777216)));
     h6 += carry;
-    h5 -= carry << 25;
-    carry = (h7 + (((int64_t)1) << 24)) >> 25;
+    h5 -= carry * INT64_C(33554432);
+    carry = fe25519_asr25((h7 + INT64_C(16777216)));
     h8 += carry;
-    h7 -= carry << 25;
+    h7 -= carry * INT64_C(33554432);
 
-    carry = (h0 + (((int64_t)1) << 25)) >> 26;
+    carry = fe25519_asr26((h0 + INT64_C(33554432)));
     h1 += carry;
-    h0 -= carry << 26;
-    carry = (h2 + (((int64_t)1) << 25)) >> 26;
+    h0 -= carry * INT64_C(67108864);
+    carry = fe25519_asr26((h2 + INT64_C(33554432)));
     h3 += carry;
-    h2 -= carry << 26;
-    carry = (h4 + (((int64_t)1) << 25)) >> 26;
+    h2 -= carry * INT64_C(67108864);
+    carry = fe25519_asr26((h4 + INT64_C(33554432)));
     h5 += carry;
-    h4 -= carry << 26;
-    carry = (h6 + (((int64_t)1) << 25)) >> 26;
+    h4 -= carry * INT64_C(67108864);
+    carry = fe25519_asr26((h6 + INT64_C(33554432)));
     h7 += carry;
-    h6 -= carry << 26;
-    carry = (h8 + (((int64_t)1) << 25)) >> 26;
+    h6 -= carry * INT64_C(67108864);
+    carry = fe25519_asr26((h8 + INT64_C(33554432)));
     h9 += carry;
-    h8 -= carry << 26;
+    h8 -= carry * INT64_C(67108864);
 
     out->v[0] = (int32_t)h0;
     out->v[1] = (int32_t)h1;
@@ -145,7 +164,7 @@ void fe25519_native_from_le(fe25519_native_t *out, const uint8_t in[NOXTLS_ED255
     out->v[9] = (int32_t)h9;
 }
 
-void fe25519_native_to_le(uint8_t out[NOXTLS_ED25519_FE25519_BYTES], const fe25519_native_t *in)
+void fe25519_native_to_le(uint8_t *out, const fe25519_native_t *in)
 {
     int64_t h0 = in->v[0];
     int64_t h1 = in->v[1];
@@ -160,82 +179,82 @@ void fe25519_native_to_le(uint8_t out[NOXTLS_ED25519_FE25519_BYTES], const fe255
     int64_t q;
     int64_t carry;
 
-    q = ((19 * h9) + (((int64_t)1) << 24)) >> 25;
-    q = (h0 + q) >> 26;
-    q = (h1 + q) >> 25;
-    q = (h2 + q) >> 26;
-    q = (h3 + q) >> 25;
-    q = (h4 + q) >> 26;
-    q = (h5 + q) >> 25;
-    q = (h6 + q) >> 26;
-    q = (h7 + q) >> 25;
-    q = (h8 + q) >> 26;
-    q = (h9 + q) >> 25;
+    q = fe25519_asr25(((19 * h9) + INT64_C(16777216)));
+    q = fe25519_asr26((h0 + q));
+    q = fe25519_asr25((h1 + q));
+    q = fe25519_asr26((h2 + q));
+    q = fe25519_asr25((h3 + q));
+    q = fe25519_asr26((h4 + q));
+    q = fe25519_asr25((h5 + q));
+    q = fe25519_asr26((h6 + q));
+    q = fe25519_asr25((h7 + q));
+    q = fe25519_asr26((h8 + q));
+    q = fe25519_asr25((h9 + q));
 
     h0 += 19 * q;
 
-    carry = h0 >> 26;
+    carry = fe25519_asr26(h0);
     h1 += carry;
-    h0 -= carry << 26;
-    carry = h1 >> 25;
+    h0 -= carry * INT64_C(67108864);
+    carry = fe25519_asr25(h1);
     h2 += carry;
-    h1 -= carry << 25;
-    carry = h2 >> 26;
+    h1 -= carry * INT64_C(33554432);
+    carry = fe25519_asr26(h2);
     h3 += carry;
-    h2 -= carry << 26;
-    carry = h3 >> 25;
+    h2 -= carry * INT64_C(67108864);
+    carry = fe25519_asr25(h3);
     h4 += carry;
-    h3 -= carry << 25;
-    carry = h4 >> 26;
+    h3 -= carry * INT64_C(33554432);
+    carry = fe25519_asr26(h4);
     h5 += carry;
-    h4 -= carry << 26;
-    carry = h5 >> 25;
+    h4 -= carry * INT64_C(67108864);
+    carry = fe25519_asr25(h5);
     h6 += carry;
-    h5 -= carry << 25;
-    carry = h6 >> 26;
+    h5 -= carry * INT64_C(33554432);
+    carry = fe25519_asr26(h6);
     h7 += carry;
-    h6 -= carry << 26;
-    carry = h7 >> 25;
+    h6 -= carry * INT64_C(67108864);
+    carry = fe25519_asr25(h7);
     h8 += carry;
-    h7 -= carry << 25;
-    carry = h8 >> 26;
+    h7 -= carry * INT64_C(33554432);
+    carry = fe25519_asr26(h8);
     h9 += carry;
-    h8 -= carry << 26;
-    carry = h9 >> 25;
-    h9 -= carry << 25;
+    h8 -= carry * INT64_C(67108864);
+    carry = fe25519_asr25(h9);
+    h9 -= carry * INT64_C(33554432);
 
-    out[0] = (uint8_t)(h0 >> 0);
-    out[1] = (uint8_t)(h0 >> 8);
-    out[2] = (uint8_t)(h0 >> 16);
-    out[3] = (uint8_t)((h0 >> 24) | (h1 << 2));
-    out[4] = (uint8_t)(h1 >> 6);
-    out[5] = (uint8_t)(h1 >> 14);
-    out[6] = (uint8_t)((h1 >> 22) | (h2 << 3));
-    out[7] = (uint8_t)(h2 >> 5);
-    out[8] = (uint8_t)(h2 >> 13);
-    out[9] = (uint8_t)((h2 >> 21) | (h3 << 5));
-    out[10] = (uint8_t)(h3 >> 3);
-    out[11] = (uint8_t)(h3 >> 11);
-    out[12] = (uint8_t)((h3 >> 19) | (h4 << 6));
-    out[13] = (uint8_t)(h4 >> 2);
-    out[14] = (uint8_t)(h4 >> 10);
-    out[15] = (uint8_t)(h4 >> 18);
-    out[16] = (uint8_t)(h5 >> 0);
-    out[17] = (uint8_t)(h5 >> 8);
-    out[18] = (uint8_t)(h5 >> 16);
-    out[19] = (uint8_t)((h5 >> 24) | (h6 << 1));
-    out[20] = (uint8_t)(h6 >> 7);
-    out[21] = (uint8_t)(h6 >> 15);
-    out[22] = (uint8_t)((h6 >> 23) | (h7 << 3));
-    out[23] = (uint8_t)(h7 >> 5);
-    out[24] = (uint8_t)(h7 >> 13);
-    out[25] = (uint8_t)((h7 >> 21) | (h8 << 4));
-    out[26] = (uint8_t)(h8 >> 4);
-    out[27] = (uint8_t)(h8 >> 12);
-    out[28] = (uint8_t)((h8 >> 20) | (h9 << 6));
-    out[29] = (uint8_t)(h9 >> 2);
-    out[30] = (uint8_t)(h9 >> 10);
-    out[31] = (uint8_t)(h9 >> 18);
+    out[0] = (uint8_t)(((uint64_t)h0) >> 0);
+    out[1] = (uint8_t)(((uint64_t)h0) >> 8);
+    out[2] = (uint8_t)(((uint64_t)h0) >> 16);
+    out[3] = (uint8_t)((((uint64_t)h0) >> 24) | (((uint64_t)h1) << 2));
+    out[4] = (uint8_t)(((uint64_t)h1) >> 6);
+    out[5] = (uint8_t)(((uint64_t)h1) >> 14);
+    out[6] = (uint8_t)((((uint64_t)h1) >> 22) | (((uint64_t)h2) << 3));
+    out[7] = (uint8_t)(((uint64_t)h2) >> 5);
+    out[8] = (uint8_t)(((uint64_t)h2) >> 13);
+    out[9] = (uint8_t)((((uint64_t)h2) >> 21) | (((uint64_t)h3) << 5));
+    out[10] = (uint8_t)(((uint64_t)h3) >> 3);
+    out[11] = (uint8_t)(((uint64_t)h3) >> 11);
+    out[12] = (uint8_t)((((uint64_t)h3) >> 19) | (((uint64_t)h4) << 6));
+    out[13] = (uint8_t)(((uint64_t)h4) >> 2);
+    out[14] = (uint8_t)(((uint64_t)h4) >> 10);
+    out[15] = (uint8_t)(((uint64_t)h4) >> 18);
+    out[16] = (uint8_t)(((uint64_t)h5) >> 0);
+    out[17] = (uint8_t)(((uint64_t)h5) >> 8);
+    out[18] = (uint8_t)(((uint64_t)h5) >> 16);
+    out[19] = (uint8_t)((((uint64_t)h5) >> 24) | (((uint64_t)h6) << 1));
+    out[20] = (uint8_t)(((uint64_t)h6) >> 7);
+    out[21] = (uint8_t)(((uint64_t)h6) >> 15);
+    out[22] = (uint8_t)((((uint64_t)h6) >> 23) | (((uint64_t)h7) << 3));
+    out[23] = (uint8_t)(((uint64_t)h7) >> 5);
+    out[24] = (uint8_t)(((uint64_t)h7) >> 13);
+    out[25] = (uint8_t)((((uint64_t)h7) >> 21) | (((uint64_t)h8) << 4));
+    out[26] = (uint8_t)(((uint64_t)h8) >> 4);
+    out[27] = (uint8_t)(((uint64_t)h8) >> 12);
+    out[28] = (uint8_t)((((uint64_t)h8) >> 20) | (((uint64_t)h9) << 6));
+    out[29] = (uint8_t)(((uint64_t)h9) >> 2);
+    out[30] = (uint8_t)(((uint64_t)h9) >> 10);
+    out[31] = (uint8_t)(((uint64_t)h9) >> 18);
 }
 
 void fe25519_native_add(fe25519_native_t *out, const fe25519_native_t *a, const fe25519_native_t *b)
@@ -260,9 +279,9 @@ void fe25519_native_sub(fe25519_native_t *out, const fe25519_native_t *a, const 
  */
 #define FE25519_TO_26(a0, a1, c) \
     do { \
-        (c) = ((a0) + ((int64_t)1 << 25)) >> 26; \
+        (c) = fe25519_asr26(((a0) + INT64_C(33554432))); \
         (a1) += (c); \
-        (a0) -= (c) << 26; \
+        (a0) -= (c) * INT64_C(67108864); \
     } while(0)
 
 /**
@@ -271,9 +290,9 @@ void fe25519_native_sub(fe25519_native_t *out, const fe25519_native_t *a, const 
  */
 #define FE25519_TO_25(a0, a1, c) \
     do { \
-        (c) = ((a0) + ((int64_t)1 << 24)) >> 25; \
+        (c) = fe25519_asr25(((a0) + INT64_C(16777216))); \
         (a1) += (c); \
-        (a0) -= (c) << 25; \
+        (a0) -= (c) * INT64_C(33554432); \
     } while(0)
 
 /**
@@ -282,9 +301,9 @@ void fe25519_native_sub(fe25519_native_t *out, const fe25519_native_t *a, const 
  */
 #define FE25519_TO_25_RED(a0, a1, c) \
     do { \
-        (c) = ((a0) + ((int64_t)1 << 24)) >> 25; \
+        (c) = fe25519_asr25(((a0) + INT64_C(16777216))); \
         (a1) += (c) * 19; \
-        (a0) -= (c) << 25; \
+        (a0) -= (c) * INT64_C(33554432); \
     } while(0)
 
 #if !((defined(__ARM_ARCH_7EM__) || defined(__ARM_ARCH_8M_MAIN__)) && \
@@ -766,14 +785,14 @@ void fe25519_native_inv(fe25519_native_t *out, const fe25519_native_t *z)
     fe25519_native_mul(out, &t1, &z11);
 }
 
-void fe25519_native_from_be(fe25519_native_t *out, const uint8_t be[NOXTLS_ED25519_FE25519_BYTES])
+void fe25519_native_from_be(fe25519_native_t *out, const uint8_t *be)
 {
     uint8_t le[NOXTLS_ED25519_FE25519_BYTES];
     fe25519_swap_endian32(le, be);
     fe25519_native_from_le(out, le);
 }
 
-void fe25519_native_to_be(uint8_t be[NOXTLS_ED25519_FE25519_BYTES], const fe25519_native_t *in)
+void fe25519_native_to_be(uint8_t *be, const fe25519_native_t *in)
 {
     uint8_t le[NOXTLS_ED25519_FE25519_BYTES];
     fe25519_native_to_le(le, in);
@@ -877,9 +896,12 @@ void fe25519_native_pow22523(fe25519_native_t *out, const fe25519_native_t *z)
 void fe25519_native_cmov(fe25519_native_t *f, const fe25519_native_t *g, unsigned int b)
 {
     uint32_t i;
-    int32_t mask = -(int32_t)(b & 1U);
+    uint32_t mask = 0U - (b & 1U);
     for(i = 0U; i < NOXTLS_ED25519_FE_LIMBS; i++) {
-        f->v[i] ^= mask & (f->v[i] ^ g->v[i]);
+        uint32_t value = (uint32_t)f->v[i] ^ (mask & ((uint32_t)f->v[i] ^ (uint32_t)g->v[i]));
+        uint32_t high_bit = value >> 31U;
+        int64_t signed_value = (int64_t)value - ((int64_t)high_bit * INT64_C(4294967296));
+        f->v[i] = (int32_t)signed_value;
     }
 }
 
@@ -894,7 +916,7 @@ unsigned int fe25519_native_isnegative(const fe25519_native_t *f)
 {
     uint8_t s[NOXTLS_ED25519_FE25519_BYTES];
     fe25519_native_to_le(s, f);
-    return (unsigned int)(s[0] & 1U);
+    return (unsigned int)s[0] & 1U;
 }
 
 /**

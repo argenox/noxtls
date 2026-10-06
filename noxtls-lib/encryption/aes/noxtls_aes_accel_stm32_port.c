@@ -24,14 +24,14 @@ static int noxtls_aes_stm32_port_selftest_ok(void)
 #else
     static int selftest_state;
     static const uint8_t expected[16] = {
-        0xdc, 0x95, 0xc0, 0x78, 0xa2, 0x40, 0x89, 0x89,
-        0xad, 0x48, 0xa2, 0x14, 0x92, 0x84, 0x20, 0x87
+        0xdcU, 0x95U, 0xc0U, 0x78U, 0xa2U, 0x40U, 0x89U, 0x89U,
+        0xadU, 0x48U, 0xa2U, 0x14U, 0x92U, 0x84U, 0x20U, 0x87U
     };
     uint8_t key[32] = {0};
     uint8_t block[16] = {0};
     uint8_t out[16] = {0};
     uint32_t i;
-    uint8_t diff = 0u;
+    uint8_t diff = 0U;
 
     if(selftest_state != 0) {
         return selftest_state > 0;
@@ -42,10 +42,10 @@ static int noxtls_aes_stm32_port_selftest_ok(void)
         return 0;
     }
 
-    for(i = 0u; i < sizeof(expected); i++) {
+    for(i = 0U; i < (size_t)sizeof(expected); i += 1U) {
         diff |= (uint8_t)(out[i] ^ expected[i]);
     }
-    selftest_state = (diff == 0u) ? 1 : -1;
+    selftest_state = (diff == 0U) ? 1 : -1;
     return selftest_state > 0;
 #endif
 }
@@ -133,19 +133,19 @@ static int noxtls_stm32_gcm_port_selftest_ok(void)
 {
     static int selftest_state;
     static const uint8_t expected_ct[16] = {
-        0xce, 0xa7, 0x40, 0x3d, 0x4d, 0x60, 0x6b, 0x6e,
-        0x07, 0x4e, 0xc5, 0xd3, 0xba, 0xf3, 0x9d, 0x18
+        0xceU, 0xa7U, 0x40U, 0x3dU, 0x4dU, 0x60U, 0x6bU, 0x6eU,
+        0x07U, 0x4eU, 0xc5U, 0xd3U, 0xbaU, 0xf3U, 0x9dU, 0x18U
     };
     static const uint8_t expected_tag[16] = {
-        0xd0, 0xd1, 0xc8, 0xa7, 0x99, 0x99, 0x6b, 0xf0,
-        0x26, 0x5b, 0x98, 0xb5, 0xd4, 0x8a, 0xb9, 0x19
+        0xd0U, 0xd1U, 0xc8U, 0xa7U, 0x99U, 0x99U, 0x6bU, 0xf0U,
+        0x26U, 0x5bU, 0x98U, 0xb5U, 0xd4U, 0x8aU, 0xb9U, 0x19U
     };
     uint8_t key[32] = {0};
     uint8_t nonce[12] = {0};
     uint8_t pt[16] = {0};
     uint8_t ct[16] = {0};
     uint8_t tag[16] = {0};
-    uint8_t diff = 0u;
+    uint8_t diff = 0U;
     uint32_t i;
     noxtls_return_t rc;
 
@@ -153,25 +153,22 @@ static int noxtls_stm32_gcm_port_selftest_ok(void)
         return selftest_state > 0;
     }
 
-    rc = noxtls_stm32_gcm_accel_encrypt_dispatch(key, NOXTLS_AES_256_BIT, nonce, NULL, 0u,
+    rc = noxtls_stm32_gcm_accel_encrypt_dispatch(key, NOXTLS_AES_256_BIT, nonce, NULL, 0U,
                                                  pt, sizeof(pt), ct, tag);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         selftest_state = -1;
         return 0;
     }
 
-    for(i = 0u; i < sizeof(ct); i++) {
+    for(i = 0U; i < (size_t)sizeof(ct); i += 1U) {
         diff |= (uint8_t)(ct[i] ^ expected_ct[i]);
         diff |= (uint8_t)(tag[i] ^ expected_tag[i]);
     }
-    selftest_state = (diff == 0u) ? 1 : -1;
+    selftest_state = (diff == 0U) ? 1 : -1;
     return selftest_state > 0;
 }
 
-int noxtls_aes_gcm_accel_port_is_enabled(void)
-{
-    return noxtls_stm32_gcm_port_selftest_ok();
-}
+int noxtls_aes_gcm_accel_port_is_enabled(void) { return noxtls_stm32_gcm_port_selftest_ok(); }
 
 noxtls_return_t noxtls_aes_accel_port_encrypt_block(const uint8_t *key,
                                                      const uint8_t *data,
@@ -223,10 +220,10 @@ noxtls_return_t noxtls_aes_accel_port_encrypt_blocks(const uint8_t *key,
         return NOXTLS_RETURN_NULL;
     }
 
-    for(i = 0U; i < block_count; i++) {
+    for(i = 0U; i < block_count; i += 1U) {
         noxtls_return_t rc = noxtls_aes_accel_port_encrypt_block(key,
-                                                                  input + (i * 16U),
-                                                                  output + (i * 16U),
+                                                                  &input[(i * 16U)],
+                                                                  &output[(i * 16U)],
                                                                   type);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
