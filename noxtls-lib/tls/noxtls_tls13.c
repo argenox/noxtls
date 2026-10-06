@@ -2077,7 +2077,10 @@ static void tls13_keylog_write(const uint8_t *label, const uint8_t *client_rando
     (void)secret;
     (void)secret_len;
 #else
-    const uint8_t *path = (tls13_keylog_path[0] != 0U) ? tls13_keylog_path : getenv("SSLKEYLOGFILE");
+    const uint8_t *path = tls13_keylog_path;
+    if(tls13_keylog_path[0] == 0U) {
+        path = (const uint8_t *)getenv("SSLKEYLOGFILE");
+    }
     if((path == NULL) || (client_random == NULL) || (secret == NULL)) {
         return;
     }
