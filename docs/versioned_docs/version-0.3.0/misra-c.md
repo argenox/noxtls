@@ -40,7 +40,7 @@ The MISRA history in the 0.3.0 line has three stages:
 |---|---|---|
 | MISRA clean-up | `6327562`: *feat(misra): clear Required/Mandatory MISRA C:2025 findings without exemptions* | Mandatory and Required findings fixed in code: fixed-width `uint8_t` APIs, bounded copy and fill helpers, control-flow and shift hardening, and host stdio gated behind `NOXTLS_HAVE_FILE_IO`. On the scanned profile: **Mandatory = 0, Required = 0**. |
 | Integration with upstream 0.2.72 and PR 34 | `0a1c948` (merged through `9b7c164`, `752a572`, `356d064`) | Scans of both the private-state and shared-state configurations covered **96 translation units** each: **0 Mandatory, 24 Required, 2174 Advisory**. The 24 Required findings have draft technical dispositions that still need project sign-off. The raw gate is **not** clear. |
-| Release-branch integration | `9413b02` (*Merge origin/feat/misra-work into release/0.3.00rc*), then `d518cf9` and `432f2b6` | Conflicts with the other 0.3.0 features were resolved in the MISRA style. This covered the AES modes, CCM, GCM, CMAC, XTS, DRBG, Ed25519, the X.509 policy API, the TLS 1.2 policy and workspace changes, PBKDF2, AES key wrap, and the allocator checker. **This repository has no MISRA scan result for the final merged tree.** |
+| Release-branch integration | `8d30d30` (*Merge origin/feat/misra-work into release/0.3.00rc*), then `0659e37` and `16876ce` | Conflicts with the other 0.3.0 features were resolved in the MISRA style. This covered the AES modes, CCM, GCM, CMAC, XTS, DRBG, Ed25519, the X.509 policy API, the TLS 1.2 policy and workspace changes, PBKDF2, AES key wrap, and the allocator checker. **This repository has no MISRA scan result for the final merged tree.** |
 
 What this means for 0.3.0:
 
