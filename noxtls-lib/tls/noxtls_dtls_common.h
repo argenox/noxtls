@@ -187,17 +187,47 @@ typedef struct
 } dtls_reassembly_slot_t;
 NOXTLS_MSVC_WARNING_POP
 
+/* DTLS 1.2 sequence numbers are 48 bits (RFC 6347 4.1). */
+#define DTLS_SEQ_NUM_MASK               0x0000FFFFFFFFFFFFULL
+
+/* DTLS 1.2: records examined by one noxtls_dtls_recv_record() call before it gives up with
+ * NOXTLS_RETURN_TIMEOUT when all of them are discarded (wrong epoch, replayed, malformed). */
+#define DTLS12_MAX_RECORDS_PER_READ     64U
+
+/* Flight buffer entry flag: the stored record body is plaintext of a protected record
+ * (DTLS 1.2 epoch >= 1); it is re-protected with a fresh sequence number when sent. */
+#define DTLS_FLIGHT_ENTRY_PROTECT       0x01U
+
+struct dtls_context_s;
+
+/**
+ * Record protection hook used to (re)protect DTLS 1.2 records of the current write epoch
+ * (the encrypted Finished of a flight). Must encrypt @p in with the write keys of epoch
+ * ctx->epoch and the sequence number ctx->write_seq_num, without advancing it.
+ */
+typedef noxtls_return_t (*dtls_protect_record_fn)(struct dtls_context_s *ctx, uint8_t type,
+                                                  const uint8_t *in, uint32_t in_len,
+                                                  uint8_t *out, uint32_t *out_len);
+
 /* DTLS Context Base Structure */
 NOXTLS_MSVC_WARNING_PUSH
 NOXTLS_MSVC_DISABLE_PADDING
-typedef struct
+typedef struct dtls_context_s
 {
     tls_context_t base;         /* Base TLS context (reused) */
-    
+
     /* DTLS-specific fields */
-    uint16_t epoch;             /* Current epoch */
-    uint64_t read_seq_num;      /* Read sequence number */
-    uint64_t write_seq_num;     /* Write sequence number */
+    uint16_t epoch;             /* Current (write) epoch; DTLS 1.3 also uses it for reading */
+    uint16_t read_epoch;        /* DTLS 1.2: epoch of records accepted for reading (RFC 6347 4.1) */
+    uint64_t read_seq_num;      /* Read sequence number (48-bit record sequence of the last record) */
+    uint64_t write_seq_num;     /* Write sequence number (next record of the current write epoch) */
+    uint64_t prev_write_seq_num; /* DTLS 1.2: next sequence number of the previous write epoch */
+    dtls_protect_record_fn protect_record; /* DTLS 1.2: protects records of the current write epoch */
+    uint16_t last_rx_message_seq;  /* message_seq of the last handshake message delivered */
+    uint8_t flight_final;       /* DTLS 1.2: buffered flight is our last flight (no retransmit timer) */
+    uint8_t flight_peer_next;   /* DTLS 1.2: the peer's next flight started; ours is released when we send again */
+    uint8_t *rx_datagram;       /* DTLS 1.2: unread records of the last datagram */
+    uint32_t rx_datagram_len;   /* Length of rx_datagram */
     uint16_t send_message_seq;  /* DTLS handshake noxtls_message sequence */
     uint16_t mtu;               /* MTU for fragmentation */
     uint32_t max_fragment;      /* Max fragment size */
@@ -290,6 +320,27 @@ noxtls_return_t noxtls_dtls_set_ack_range_limit(dtls_context_t *ctx, uint8_t max
 /* DTLS Record Layer */
 noxtls_return_t noxtls_dtls_send_record(dtls_context_t *ctx, uint8_t type, const uint8_t *data, uint32_t len);
 noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *record);
+
+/* DTLS 1.2: protect @p plaintext with ctx->protect_record under the current write epoch and send
+ * it as one record; the plaintext is kept in the flight so a retransmission is re-protected with a
+ * fresh record sequence number (RFC 6347 4.2.4). */
+noxtls_return_t noxtls_dtls_send_protected_record(dtls_context_t *ctx, uint8_t type,
+                                                  const uint8_t *plaintext, uint32_t len);
+/* DTLS 1.2 64-bit sequence number used in MAC/AEAD input: epoch(16) || sequence_number(48). */
+uint64_t noxtls_dtls_record_seq64(uint16_t epoch, uint64_t sequence_number);
+/* DTLS 1.2: switch the write / read state to the next epoch (ChangeCipherSpec sent / received). */
+void noxtls_dtls_next_write_epoch(dtls_context_t *ctx);
+void noxtls_dtls_next_read_epoch(dtls_context_t *ctx);
+/* Retransmit the buffered flight now (peer retransmitted its previous flight). */
+noxtls_return_t noxtls_dtls_retransmit_flight(dtls_context_t *ctx);
+/* Forget the buffered flight (the peer's next flight has arrived). */
+void noxtls_dtls_flight_reset(dtls_context_t *ctx);
+/* A message of the peer's next flight arrived: the buffered flight is kept (and retransmitted on
+ * timeout) until the peer's flight is complete, and is replaced when our next flight starts. */
+void noxtls_dtls_flight_peer_progress(dtls_context_t *ctx);
+/* Deliver a complete, previously queued handshake message whose message_seq is next. */
+noxtls_return_t noxtls_dtls_take_queued_handshake(dtls_context_t *ctx, uint8_t *msg_type,
+                                                  uint8_t **complete_msg, uint32_t *complete_len);
 
 /* DTLS Handshake Fragmentation */
 noxtls_return_t dtls_send_handshake_fragment(dtls_context_t *ctx, 

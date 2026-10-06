@@ -35,6 +35,8 @@
 #include "encryption/aes/noxtls_aes_internal.h"
 
 static int32_t tls12_is_dtls_context(const tls12_context_t *ctx);
+static uint64_t tls12_dtls_write_seq64(const tls12_context_t *ctx);
+static uint64_t tls12_dtls_read_seq64(const tls12_context_t *ctx);
 static int32_t tls13_is_dtls_context(const tls13_context_t *ctx);
 #include "encryption/aes/noxtls_aes_gcm.h"
 #include "encryption/aes/noxtls_aes_ccm.h"
@@ -366,13 +368,13 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
         enc_key = ctx->client_write_key;
         write_iv = ctx->client_write_iv;
         iv_len = 16U;
-        seq_num = (tls12_is_dtls_context(ctx) != 0) ? ctx->base.write_seq_num : ctx->client_seq_num;
+        seq_num = (tls12_is_dtls_context(ctx) != 0) ? tls12_dtls_write_seq64(ctx) : ctx->client_seq_num;
     } else {
         mac_key = ctx->server_write_mac_key;
         enc_key = ctx->server_write_key;
         write_iv = ctx->server_write_iv;
         iv_len = 16U;
-        seq_num = (tls12_is_dtls_context(ctx) != 0) ? ctx->base.write_seq_num : ctx->server_seq_num;
+        seq_num = (tls12_is_dtls_context(ctx) != 0) ? tls12_dtls_write_seq64(ctx) : ctx->server_seq_num;
     }
 
     /* Determine hash algorithm, MAC length, and cipher type from cipher suite */
@@ -900,13 +902,13 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
         enc_key = ctx->server_write_key;
         write_iv = ctx->server_write_iv;
         iv_len = 16U;
-        seq_num = (tls12_is_dtls_context(ctx) != 0) ? ctx->base.read_seq_num : ctx->server_seq_num;
+        seq_num = (tls12_is_dtls_context(ctx) != 0) ? tls12_dtls_read_seq64(ctx) : ctx->server_seq_num;
     } else {
         mac_key = ctx->client_write_mac_key;  /* Receive from client */
         enc_key = ctx->client_write_key;
         write_iv = ctx->client_write_iv;
         iv_len = 16U;
-        seq_num = (tls12_is_dtls_context(ctx) != 0) ? ctx->base.read_seq_num : ctx->client_seq_num;
+        seq_num = (tls12_is_dtls_context(ctx) != 0) ? tls12_dtls_read_seq64(ctx) : ctx->client_seq_num;
     }
 
     /* Determine hash algorithm, MAC length, and cipher type from cipher suite */
@@ -1316,25 +1318,22 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
 
     /* TLS requires every padding byte to match the length field. Scanning
      * only one cipher block misses invalid padding when pad_bytes > block_size
-     * (e.g. tlsfuzzer test_fuzzed_padding with min_length=20 on AES-CBC). */
-    pad_scan_len = pad_bytes;
-    if(pad_scan_len > decrypted_data_len) {
-        pad_scan_len = decrypted_data_len;
-    }
-
-    /* Scan all bytes in the claimed padding region (bounded above). */
-    for(i = 0U; i < pad_scan_len; i += 1U) {
-        uint8_t tail = 0U;
-        uint8_t mask = 0U;
-        uint8_t diff = 0U;
-
-        tail = decrypted_data[decrypted_data_len - 1U - i];
-        mask = (uint8_t)((i < pad_bytes) ? 0xFFU : 0x00U);
-        diff = (uint8_t)((tail ^ padding_len) & mask);
-        if(diff != 0U) {
-            bad_record = 1U;
-            bad_padding = 1U;
+     * (e.g. tlsfuzzer test_fuzzed_padding with min_length=20 on AES-CBC).
+     * The scan always covers the largest possible padding region (256 bytes,
+     * bounded by the record) and masks bytes outside the claimed padding, so
+     * the loop count and branches do not depend on the decrypted length byte. */
+    pad_scan_len = (decrypted_data_len < 256U) ? decrypted_data_len : 256U;
+    {
+        uint8_t pad_diff = 0U;
+        for(i = 0U; i < pad_scan_len; i += 1U) {
+            uint8_t tail = decrypted_data[decrypted_data_len - 1U - i];
+            /* in_pad = 1 when i < pad_bytes (both < 2^31: the difference wraps). */
+            uint32_t in_pad = (uint32_t)((i - pad_bytes) >> 31U);
+            uint8_t mask = (uint8_t)((0U - in_pad) & 0xFFU);
+            pad_diff |= (uint8_t)((tail ^ padding_len) & mask);
         }
+        bad_padding = (uint8_t)((((uint32_t)pad_diff + 0xFFU) >> 8U) & 1U);
+        bad_record |= (uint32_t)bad_padding;
     }
 
     body_len = decrypted_data_len - pad_bytes;
@@ -1375,15 +1374,13 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
              /* MISRA 15.7: no remaining alternative */
          }
     }
-    if(type == TLS_RECORD_APPLICATION_DATA) {
-        uint32_t max_pl = (uint32_t)((ctx->max_record_payload > 0U)
-            ? (uint32_t)ctx->max_record_payload
-            : (uint32_t)TLS_MAX_RECORD_SIZE);
-        if(plaintext_data_len > max_pl) {
-            (void)noxtls_free(decrypted_data);
-            return NOXTLS_RETURN_RECORD_OVERFLOW;
-        }
-    }
+    /*
+     * Padding, length and MAC failures all end in the same bad_record_mac result
+     * (RFC 5246 6.2.3.2, RFC 7366). The record_overflow check uses a length derived
+     * from the (unauthenticated) padding byte, so it is only evaluated after the
+     * record authenticated; reporting it first turned the error code into a
+     * padding oracle.
+     */
     if(bad_record != 0U) {
         (void)noxtls_debug_printf((const uint8_t *)"[TLS12_REC] decrypt bad_record: suite=0x%04X type=%u seq=%llu etm=%d pad=%u inner_mac=%u len=%u dec_len=%u pad_len=%u body=%u mac_len=%u\n",
                             (uint32_t)ctx->cipher_suite,
@@ -1400,7 +1397,16 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
         (void)noxtls_free(decrypted_data);
         return NOXTLS_RETURN_BAD_DATA;
     }
-    
+    if(type == TLS_RECORD_APPLICATION_DATA) {
+        uint32_t max_pl = (uint32_t)((ctx->max_record_payload > 0U)
+            ? (uint32_t)ctx->max_record_payload
+            : (uint32_t)TLS_MAX_RECORD_SIZE);
+        if(plaintext_data_len > max_pl) {
+            (void)noxtls_free(decrypted_data);
+            return NOXTLS_RETURN_RECORD_OVERFLOW;
+        }
+    }
+
     /* Copy plaintext to output */
     if(*plaintext_len < plaintext_data_len) {
         (void)noxtls_free(decrypted_data);
@@ -1460,6 +1466,33 @@ static void tls13_generate_nonce(uint8_t *nonce, const uint8_t *write_iv, uint32
  * @return 1 if the context is a DTLS 1.2 context, 0 otherwise
  */
 static int32_t tls12_is_dtls_context(const tls12_context_t *ctx) { return (((ctx != NULL) && (ctx->base.base.version == DTLS_VERSION_1_2)) ? 1 : 0); }
+
+/**
+ * @brief DTLS 1.2 write sequence number for the MAC / AEAD input.
+ *
+ * RFC 6347 4.1.2.1: the 64-bit seq_num of the TLS MAC (and of the RFC 5246 AEAD additional
+ * data / explicit nonce, RFC 7905 nonce) is epoch(16) || sequence_number(48) of the record.
+ *
+ * @param[in] ctx The DTLS 1.2 context.
+ * @return epoch || write sequence number.
+ */
+static uint64_t tls12_dtls_write_seq64(const tls12_context_t *ctx)
+{
+    return (((uint64_t)ctx->base.epoch) << 48U) | (ctx->base.write_seq_num & DTLS_SEQ_NUM_MASK);
+}
+
+/**
+ * @brief DTLS 1.2 read sequence number (current read epoch || sequence number of the record).
+ *
+ * The record layer only delivers records of the current read epoch (noxtls_dtls_recv_record).
+ *
+ * @param[in] ctx The DTLS 1.2 context.
+ * @return epoch || read sequence number.
+ */
+static uint64_t tls12_dtls_read_seq64(const tls12_context_t *ctx)
+{
+    return (((uint64_t)ctx->base.read_epoch) << 48U) | (ctx->base.read_seq_num & DTLS_SEQ_NUM_MASK);
+}
 
 /**
  * @brief Check if the context is a DTLS 1.3 context
@@ -1902,12 +1935,15 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
         sn_key = (ctx->base.base.role == TLS_ROLE_CLIENT) ? ctx->client_sn_key : ctx->server_sn_key;
     }
 
-    /* Unified header: 001 C S L EE, encrypted 8- or 16-bit sequence number, optional length and CID. */
+    /*
+     * Unified header (RFC 9147 4, Figure 3): 001 C S L EE, optional CID, encrypted 8- or 16-bit
+     * sequence number, optional 16-bit length.
+     */
     seq_len = ((seq_num & ~0xFFULL) != 0U) ? 2U : 1U;
-    seq_offset = 1U;
+    cid_offset = 1U;
+    seq_offset = cid_offset + (uint32_t)ctx->peer_connection_id_len;
     len_offset = seq_offset + seq_len;
-    cid_offset = len_offset + ((omit_length != 0) ? 0U : 2U);
-    header_len = cid_offset + (uint32_t)ctx->peer_connection_id_len;
+    header_len = len_offset + ((omit_length != 0) ? 0U : 2U);
     if((header_len > (uint32_t)sizeof(header)) ||
        ((uint32_t)ctx->peer_connection_id_len > (uint32_t)sizeof(ctx->peer_connection_id))) {
         if(padded_inner != NULL) {
@@ -2028,50 +2064,57 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
 
 /**
  * @brief RFC 9147: Return byte length of the first DTLSCiphertext record in raw (for multiple records per datagram).
- * own_connection_id_len is from ctx->own_connection_id_len. Returns 0 if invalid or incomplete.
+ *
+ * Unified header layout (RFC 9147 section 4): 001CSLEE || CID (C set, negotiated length)
+ * || sequence number (1 or 2 bytes) || length (2 bytes, L set) || encrypted record.
+ * own_connection_id_len is from ctx->own_connection_id_len. Returns 0 if the header is invalid
+ * or the record (including its encrypted part) does not fit entirely in raw_len bytes, so a
+ * non-zero result can always be passed as the record length to noxtls_tls13_decrypt_dtls13_record().
  */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 uint32_t noxtls_tls13_dtls13_record_size(const uint8_t *raw, uint32_t raw_len, uint8_t own_connection_id_len)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     uint32_t cid_len = 0U;
+    uint32_t seq_len = 0U;
+    uint32_t len_offset = 0U;
     uint32_t aad_len = 0U;
     uint32_t ciphertext_len = 0U;
+    uint32_t record_len = 0U;
     if((raw == NULL) || (raw_len < 2U)) {
-        return 0;
+        return 0U;
     }
     if((raw[0] & 0xE0U) != DTLS13_UNIFIED_FIXED_BITS) {
-        return 0;
+        return 0U;
     }
-    if (((raw[0] & DTLS13_UNIFIED_CID_BIT) != 0U) && (own_connection_id_len == 0U)) {
-        return 0;
+    if(((raw[0] & DTLS13_UNIFIED_CID_BIT) != 0U) && (own_connection_id_len == 0U)) {
+        return 0U;
     }
     cid_len = ((raw[0] & DTLS13_UNIFIED_CID_BIT) != 0U) ? (uint32_t)own_connection_id_len : 0U;
-    {
-        uint32_t seq_len = (uint32_t)(((raw[0] & DTLS13_UNIFIED_S_BIT) != 0U) ? 2U : 1U);
-        uint32_t len_offset = (uint32_t)(1U + seq_len);
-        if ((raw[0] & DTLS13_UNIFIED_L_BIT) != 0U) {
-            aad_len = len_offset + 2U + cid_len;
-            if((raw_len < (aad_len + 16U)) || (raw_len < (len_offset + 2U))) {
-                return 0;
-            }
-            {
-            uint32_t len_hi = (uint32_t)raw[len_offset];
-            uint32_t len_lo = (uint32_t)raw[len_offset + 1U];
-            ciphertext_len = (len_hi << 8U) | len_lo;
+    seq_len = ((raw[0] & DTLS13_UNIFIED_S_BIT) != 0U) ? 2U : 1U;
+    len_offset = 1U + cid_len + seq_len;
+    if((raw[0] & DTLS13_UNIFIED_L_BIT) != 0U) {
+        aad_len = len_offset + 2U;
+        if(raw_len < (aad_len + 16U)) {
+            return 0U;
         }
-            if(ciphertext_len < 16U) {
-                return 0;
-            }
-            return aad_len + ciphertext_len;
+        ciphertext_len = ((uint32_t)raw[len_offset] << 8U) | (uint32_t)raw[len_offset + 1U];
+        if(ciphertext_len < 16U) {
+            return 0U;
         }
-        aad_len = 1U + seq_len + cid_len;
+        record_len = aad_len + ciphertext_len;
+        /* The 16-bit length is attacker controlled: never report a record that extends past the datagram. */
+        if(record_len > raw_len) {
+            return 0U;
+        }
+        return record_len;
     }
+    aad_len = len_offset;
     if(raw_len < (aad_len + 16U)) {
-        return 0;
+        return 0U;
     }
-    ciphertext_len = raw_len - aad_len;
-    return aad_len + ciphertext_len;
+    /* No length field: the record extends to the end of the datagram. */
+    return raw_len;
 }
 
 /**
@@ -2142,13 +2185,16 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
     use_handshake = ((epoch == DTLS13_EPOCH_HANDSHAKE) &&
                      (ctx->base.read_connection_epoch < (uint64_t)(DTLS13_EPOCH_HANDSHAKE + 4U))) ? 1U : 0U;
     seq_len = ((raw[0] & DTLS13_UNIFIED_S_BIT) != 0U) ? 2U : 1U;
-    seq_offset = 1U;
-    len_offset = seq_offset + seq_len;
     {
-        /* RFC 9147 4: the CID field carries the full negotiated connection ID (0..255 bytes). */
+        /*
+         * RFC 9147 4 (Figure 3): 001CSLEE || CID || sequence number || length. The CID field
+         * carries the full negotiated connection ID (0..255 bytes) right after the first byte.
+         */
         uint32_t cid_len = (uint32_t)(((raw[0U] & DTLS13_UNIFIED_CID_BIT) != 0U) ? (uint32_t)ctx->own_connection_id_len : 0U);
-        uint32_t cid_offset = (uint32_t)(len_offset + (((raw[0U] & DTLS13_UNIFIED_L_BIT) != 0U) ? 2U : 0U));
-        aad_len = cid_offset + cid_len;
+        uint32_t cid_offset = 1U;
+        seq_offset = cid_offset + cid_len;
+        len_offset = seq_offset + seq_len;
+        aad_len = (uint32_t)(len_offset + (((raw[0U] & DTLS13_UNIFIED_L_BIT) != 0U) ? 2U : 0U));
         if(aad_len > (sizeof(aad)) ){
             return NOXTLS_RETURN_BAD_DATA;  /* never copy more than the AAD buffer holds */
         }
@@ -2173,6 +2219,10 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
             }
         } else {
             ciphertext_len = raw_len - aad_len;
+        }
+        /* RFC 9147 4.2.3: the record number mask is taken from the first 16 ciphertext bytes. */
+        if(ciphertext_len < DTLS13_RECORD_NUMBER_ENC_LEN) {
+            return NOXTLS_RETURN_BAD_DATA;
         }
         ciphertext = &raw[aad_len];
         if(cid_len > 0U) {

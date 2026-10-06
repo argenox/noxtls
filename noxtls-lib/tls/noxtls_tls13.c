@@ -4710,13 +4710,22 @@ static noxtls_return_t tls13_handshake_buffer_append(tls13_context_t *ctx, const
         return NOXTLS_RETURN_FAILED;
     }
     uint32_t new_len = (uint32_t)(remaining + len);
+    /* Compact the unread bytes to the front of the current allocation BEFORE resizing it:
+     * new_len (remaining + len) can be smaller than the current length (pos + remaining)
+     * when len < pos, and a shrinking realloc would truncate the unread bytes we still
+     * have to move. After compaction the buffer state is consistent even if the
+     * realloc below fails. */
+    if((ctx->handshake_buffer != NULL) && (ctx->handshake_buffer_pos > 0U)) {
+        if(remaining > 0U) {
+            noxtls_move_u8(ctx->handshake_buffer, (size_t)remaining,
+                           &ctx->handshake_buffer[ctx->handshake_buffer_pos], (size_t)remaining);
+        }
+        ctx->handshake_buffer_len = remaining;
+        ctx->handshake_buffer_pos = 0U;
+    }
     uint8_t *new_buffer = (uint8_t*)NOXTLS_REALLOC(ctx->handshake_buffer, new_len);
     if(new_buffer == NULL) {
         return NOXTLS_RETURN_FAILED;
-    }
-    /* Compact to front if we've consumed data */
-    if((remaining > 0U) && (ctx->handshake_buffer_pos > 0U)) {
-        noxtls_move_u8(new_buffer, (size_t)remaining, &new_buffer[ctx->handshake_buffer_pos], (size_t)remaining);
     }
     noxtls_copy_u8(&new_buffer[remaining], (size_t)len, data, (size_t)len);
     ctx->handshake_buffer = new_buffer;
@@ -8347,8 +8356,13 @@ noxtls_return_t noxtls_tls13_recv_server_hello(tls13_context_t *ctx)
     /* Parse extensions */
     (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] recv_server_hello: extensions_len=%u\n", (uint32_t)(record.length - offset));
     {
-        noxtls_return_t ext_rc = tls13_parse_raw_extension_list(&record.data[offset], record.length - offset,
-                                                                &ctx->server_extensions);
+        noxtls_return_t ext_rc;
+        /* After a HelloRetryRequest server_extensions still owns the HRR's extension list
+         * (the HRR cookie was copied into base.hrr_cookie); release it before the
+         * re-parse, which zeroes the structure. */
+        (void)noxtls_tls_extensions_free(&ctx->server_extensions);
+        ext_rc = tls13_parse_raw_extension_list(&record.data[offset], record.length - offset,
+                                                &ctx->server_extensions);
         if(ext_rc != NOXTLS_RETURN_SUCCESS) {
             (void)noxtls_free(record.data);
             /* Duplicate extension -> illegal_parameter; malformed list -> decode_error. */

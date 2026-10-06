@@ -146,6 +146,7 @@ struct tls12_context_s
     uint8_t client_request_ocsp_status;   /* Client: send status_request extension in ClientHello. */
     uint8_t client_offered_ocsp_status;   /* Server: parsed client status_request(ocsp) extension. */
     uint8_t status_request_negotiated;    /* ServerHello carried status_request (client expects CertificateStatus). */
+    uint8_t client_certificate_status_pending; /* Client: Certificate processed, CertificateStatus not yet read (re-entry after WANT_READ). */
     const uint8_t *server_ocsp_response;  /* Server: configured stapled OCSP response DER (non-owning). */
     uint32_t server_ocsp_response_len;    /* Server stapled OCSP response length. */
     uint8_t *peer_ocsp_response;          /* Client: received stapled OCSP response DER (owned). */
