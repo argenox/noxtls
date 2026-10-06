@@ -809,89 +809,28 @@ noxtls_return_t noxtls_tls12_ecdhe_recv_server_key_exchange(tls12_context_t *ctx
         return NOXTLS_RETURN_FAILED;
     }
     {
-        uint16_t sig_scheme = (uint16_t)(((uint16_t)record.data[offset] << 8U) | (uint16_t)record.data[offset + 1U]);
         uint16_t sig_len = (uint16_t)(((uint16_t)record.data[offset + 2U] << 8U) | (uint16_t)record.data[offset + 3U]);
         offset += 4U;
         if ((sig_len == 0U) || ((offset + sig_len) > record.length)) {
             (void)noxtls_free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
-        (void)sig_scheme; /* hash selected below as SHA-256 for RSA PKCS#1 (TLS 1.2 common case) */
         if (ctx->server_cert_parsed == NULL) {
             (void)noxtls_free(record.data);
             return NOXTLS_RETURN_FAILED;
         }
-        {
-            const x509_certificate_t *cert = (const x509_certificate_t *)ctx->server_cert_parsed;
-            const uint8_t *mod_ptr = NULL;
-            const uint8_t *exp_ptr = NULL;
-            uint32_t mod_len = 0U;
-            uint32_t exp_len = 0U;
-            rsa_key_size_t key_size = RSA_2048_BIT;
-            rsa_key_t rsa_key;
-            uint32_t params_len = 0U;
-            uint8_t *to_verify = NULL;
-
-            if((cert->rsa_modulus == NULL) || (cert->rsa_exponent == NULL)) {
-                (void)noxtls_free(record.data);
-                return NOXTLS_RETURN_FAILED;
-            }
-            mod_ptr = cert->rsa_modulus;
-            mod_len = cert->rsa_modulus_len;
-            exp_ptr = cert->rsa_exponent;
-            exp_len = cert->rsa_exponent_len;
-            if ((mod_len > 0U) && (mod_ptr[0] == 0x00U)) { mod_ptr = &mod_ptr[1]; mod_len -= 1U; }
-            if ((exp_len > 0U) && (exp_ptr[0] == 0x00U)) { exp_ptr = &exp_ptr[1]; exp_len -= 1U; }
-            if (mod_len == 128U) {
-                key_size = RSA_1024_BIT;
-            }
-            else if (mod_len == 256U) {
-                key_size = RSA_2048_BIT;
-            }
-            else if (mod_len == 384U) {
-                key_size = RSA_3072_BIT;
-            }
-            else if (mod_len == 512U) {
-                key_size = RSA_4096_BIT;
-            }
-            else {
-                /* MISRA 15.7: final else path */
-                (void)noxtls_free(record.data);
-                return NOXTLS_RETURN_FAILED;
-            }
-            rc = noxtls_rsa_key_init(&rsa_key, key_size);
-            if (rc != NOXTLS_RETURN_SUCCESS) {
-                (void)noxtls_free(record.data);
+        /*
+         * Same verifier as the noxtls_tls12_recv_server_key_exchange() ECDHE path: honours the
+         * SignatureAndHashAlgorithm (RSA PKCS#1 v1.5, RSA-PSS rsae, ECDSA), requires it to be
+         * one the client offered and normalizes the certificate RSA modulus/exponent.
+         */
+        rc = noxtls_tls12_client_verify_ske_signature(ctx, record.data, record.length, params_end);
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            (void)noxtls_free(record.data);
+            if ((rc == NOXTLS_RETURN_NOT_ENOUGH_MEMORY) || (rc == NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER)) {
                 return rc;
             }
-            noxtls_secure_zero((rsa_key.n), (size_t)(rsa_key.key_bytes));
-            noxtls_secure_zero((rsa_key.e), (size_t)(rsa_key.key_bytes));
-            noxtls_copy_u8(&rsa_key.n[(rsa_key.key_bytes - mod_len)], (size_t)mod_len, mod_ptr, (size_t)mod_len);
-            noxtls_copy_u8(&rsa_key.e[(rsa_key.key_bytes - exp_len)], (size_t)exp_len, exp_ptr, (size_t)exp_len);
-            params_len = params_end - 4U;
-            if (params_len > 256U) {
-                (void)noxtls_rsa_key_free(&rsa_key);
-                (void)noxtls_free(record.data);
-                return NOXTLS_RETURN_FAILED;
-            }
-            to_verify = (ctx->handshake_workspace != NULL) ? ctx->handshake_workspace : (uint8_t*)NOXTLS_MALLOC(320);
-            if (to_verify == NULL) {
-                (void)noxtls_rsa_key_free(&rsa_key);
-                (void)noxtls_free(record.data);
-                return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
-            }
-            noxtls_copy_u8(to_verify, (size_t)(320), ctx->client_random, (size_t)(TLS_RANDOM_SIZE));
-            noxtls_copy_u8(&to_verify[TLS_RANDOM_SIZE], (size_t)(320), ctx->server_random, (size_t)(TLS_RANDOM_SIZE));
-            noxtls_copy_u8(&to_verify[((size_t)TLS_RANDOM_SIZE * 2U)], (size_t)(320), &record.data[4], (size_t)(params_len));
-            rc = noxtls_rsa_verify(&rsa_key, to_verify, (uint32_t)(TLS_RANDOM_SIZE + TLS_RANDOM_SIZE + params_len),
-                                  &record.data[offset], sig_len, NOXTLS_HASH_SHA_256);
-            (void)noxtls_rsa_key_free(&rsa_key);
-            if (to_verify != ctx->handshake_workspace) { NOXTLS_SECURE_FREE(to_verify, 320); } else { noxtls_secure_zero((ctx->handshake_workspace), (size_t)(TLS_HANDSHAKE_WORKSPACE_SIZE)); }
-            /* MISRA 15.7: final else path */
-            if (rc != NOXTLS_RETURN_SUCCESS) {
-                (void)noxtls_free(record.data);
-                return NOXTLS_RETURN_FAILED;
-            }
+            return NOXTLS_RETURN_FAILED;
         }
     }
 
@@ -1044,7 +983,17 @@ noxtls_return_t noxtls_tls12_ecdhe_recv_client_key_exchange(tls12_context_t *ctx
         (void)noxtls_free(record.data);
         return rc;
     }
-    
+    if (ecdhe_ctx->named_group == TLS_NAMED_GROUP_X448) {
+        /* RFC 8422 §5.7 / RFC 7748: raw 56-byte X448 public value; all-zero secret rejected. */
+        if (public_key_len != NOXTLS_X448_KEY_SIZE) {
+            (void)noxtls_free(record.data);
+            return NOXTLS_RETURN_FAILED;
+        }
+        rc = noxtls_tls_ecdhe_compute_shared_secret_x448(ecdhe_ctx, &record.data[offset]);
+        (void)noxtls_free(record.data);
+        return rc;
+    }
+
     /* Decode peer's public key */
     rc = noxtls_tls_decode_ecc_point_uncompressed(&record.data[offset], public_key_len, &peer_public_key, ecdhe_ctx->curve_type);
     if (rc != NOXTLS_RETURN_SUCCESS) {
@@ -1725,22 +1674,87 @@ noxtls_return_t noxtls_tls12_dhe_send_server_key_exchange(tls12_context_t *ctx, 
 }
 
 /**
+ * @brief Skip leading zero octets of a big-endian unsigned integer.
+ * @param[in,out] v Pointer to the integer; advanced past leading zeros.
+ * @param[in,out] len Length of the integer; reduced accordingly (0 for the value zero).
+ */
+static void tls_dhe_skip_leading_zeros(const uint8_t **v, uint32_t *len)
+{
+    while ((*len > 0U) && ((*v)[0] == 0x00U)) {
+        *v = &(*v)[1];
+        *len -= 1U;
+    }
+}
+
+/**
+ * @brief Check 1 < g < p - 1 for a minimal-length generator against an odd prime.
+ * @param[in] g Generator without leading zero octets.
+ * @param[in] g_len Length of @p g (0 means g == 0).
+ * @param[in] p Odd prime without leading zero octets.
+ * @param[in] p_len Length of @p p.
+ * @return 1 if the generator is in range, 0 otherwise.
+ */
+static int tls_dhe_generator_in_range(const uint8_t *g, uint32_t g_len, const uint8_t *p, uint32_t p_len)
+{
+    uint32_t i = 0U;
+    uint32_t pad = 0U;
+    int cmp = 0;
+
+    if ((g_len == 0U) || (p_len == 0U) || (g_len > p_len) || ((p[p_len - 1U] & 0x01U) == 0U)) {
+        return 0;
+    }
+    if ((g_len == 1U) && (g[0] <= 1U)) {
+        return 0;   /* g == 0 or g == 1 */
+    }
+    /* Compare g with p - 1 (p is odd, so p - 1 only clears the low bit; no borrow). */
+    pad = p_len - g_len;
+    for (i = 0U; (i < p_len) && (cmp == 0); i += 1U) {
+        uint8_t gb = (i < pad) ? (uint8_t)0x00U : g[i - pad];
+        uint8_t pb = (i == (p_len - 1U)) ? (uint8_t)(p[i] & 0xFEU) : p[i];
+        if (gb < pb) {
+            cmp = -1;
+        } else if (gb > pb) {
+            cmp = 1;
+        } else {
+            /* MISRA 15.7: equal octet, keep scanning */
+        }
+    }
+    return (cmp < 0) ? 1 : 0;
+}
+
+/**
  * @brief TLS 1.2 client: parse DHE ServerKeyExchange from caller-supplied handshake bytes.
+ *
+ * The server's dh_p must be the RFC 7919 prime of @p dhe_ctx->named_group (leading zero
+ * octets allowed). dh_g may use any encoding length (typically one octet) and must satisfy
+ * 1 < g < p - 1. The signature is verified with the SignatureAndHashAlgorithm the server
+ * used (RSA PKCS#1 v1.5 or RSA-PSS), which must be one the client offered.
+ *
  * @param[in,out] ctx TLS 1.2 client context.
  * @param[in,out] dhe_ctx DHE context for expected group; receives server public and premaster.
  * @param[in] record_data Full handshake message including 4-byte header.
  * @param[in] record_len Length of @p record_data.
- * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` on invalid pointers; `NOXTLS_RETURN_FAILED` or `NOXTLS_RETURN_TLS_WEAK_DHE_PARAMS` on validation failure.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` on invalid pointers; `NOXTLS_RETURN_FAILED`,
+ *         `NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER` (scheme not offered) or `NOXTLS_RETURN_TLS_WEAK_DHE_PARAMS`
+ *         on validation failure; `NOXTLS_RETURN_NOT_ENOUGH_MEMORY` on allocation failure.
  */
 noxtls_return_t noxtls_tls12_dhe_recv_server_key_exchange(tls12_context_t *ctx, tls_dhe_context_t *dhe_ctx, const uint8_t *record_data, uint32_t record_len)
 {
     const uint8_t *p = NULL;
     const uint8_t *g = NULL;
+    const uint8_t *srv_p = NULL;
+    const uint8_t *srv_g = NULL;
+    const uint8_t *exp_p = NULL;
     uint32_t p_len = 0U;
+    uint32_t srv_p_len = 0U;
+    uint32_t srv_g_len = 0U;
+    uint32_t exp_p_len = 0U;
     uint32_t off = 0U;
+    uint32_t params_end = 0U;
     uint16_t len_p = 0U;
     uint16_t len_g = 0U;
     uint16_t len_Ys = 0U;
+    uint16_t sig_len = 0U;
     const uint8_t *ys_ptr = NULL;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
@@ -1763,88 +1777,69 @@ noxtls_return_t noxtls_tls12_dhe_recv_server_key_exchange(tls12_context_t *ctx, 
     if ((off + len_p + 2U) > record_len) {
         return NOXTLS_RETURN_FAILED;
     }
+    srv_p = &record_data[off];
     off += len_p;
     len_g = (uint16_t)(((uint16_t)record_data[off] << 8U) | (uint16_t)record_data[off + 1U]);
     off += 2U;
     if ((off + len_g + 2U) > record_len) {
         return NOXTLS_RETURN_FAILED;
     }
+    srv_g = &record_data[off];
     off += len_g;
     len_Ys = (uint16_t)(((uint16_t)record_data[off] << 8U) | (uint16_t)record_data[off + 1U]);
     off += 2U;
-    if(((off + len_Ys) > record_len)) {
+    if ((off + len_Ys) > record_len) {
         return NOXTLS_RETURN_FAILED;
     }
     if ((noxtls_dh_ffdhe_params(dhe_ctx->named_group, &p, &g, &p_len) != NOXTLS_RETURN_SUCCESS) ||
-       (len_p != p_len) || (len_g != p_len) || (len_Ys == 0U) || (len_Ys > p_len) || (p_len > dhe_ctx->p_len)) {
+       (len_Ys == 0U) || (len_Ys > p_len) || (p_len > dhe_ctx->p_len)) {
+        return NOXTLS_RETURN_TLS_WEAK_DHE_PARAMS;
+    }
+    (void)g;
+    /*
+     * dh_p must be the negotiated RFC 7919 prime. Compare as integers so a leading zero
+     * octet (DER-style sign padding) is accepted.
+     */
+    srv_p_len = (uint32_t)len_p;
+    tls_dhe_skip_leading_zeros(&srv_p, &srv_p_len);
+    exp_p = p;
+    exp_p_len = p_len;
+    tls_dhe_skip_leading_zeros(&exp_p, &exp_p_len);
+    if ((srv_p_len != exp_p_len) || (exp_p_len == 0U) ||
+       (noxtls_ct_memcmp(srv_p, exp_p, (size_t)exp_p_len) != 0)) {
+        return NOXTLS_RETURN_TLS_WEAK_DHE_PARAMS;
+    }
+    /* dh_g: minimal (usually 1-octet) or padded encoding; require 1 < g < p - 1. */
+    srv_g_len = (uint32_t)len_g;
+    tls_dhe_skip_leading_zeros(&srv_g, &srv_g_len);
+    if (tls_dhe_generator_in_range(srv_g, srv_g_len, exp_p, exp_p_len) == 0) {
         return NOXTLS_RETURN_TLS_WEAK_DHE_PARAMS;
     }
     ys_ptr = &record_data[off];
-    noxtls_secure_zero((dhe_ctx->server_public), ((size_t)dhe_ctx->p_len));
-    noxtls_copy_u8(&dhe_ctx->server_public[(p_len - len_Ys)], (size_t)len_Ys, ys_ptr, (size_t)len_Ys);
     off += len_Ys;
-    uint32_t params_len = (uint32_t)(off - 4U);
+    params_end = off;
 
+    /* SignatureAndHashAlgorithm (2) + signature length (2) + signature, ending the message. */
     if ((off + 4U) > record_len) {
         return NOXTLS_RETURN_FAILED;
     }
-    {
-        uint16_t sig_len = (uint16_t)(((uint16_t)record_data[off + 2U] << 8U) | (uint16_t)record_data[off + 3U]);
-        const x509_certificate_t *cert = (const x509_certificate_t *)ctx->server_cert_parsed;
-        uint32_t key_bytes = 0U;
-        rsa_key_size_t key_size = RSA_2048_BIT;
-        rsa_key_t rsa_key;
-        uint8_t *to_verify = NULL;
-
-        if ((sig_len == 0U) || ((off + 4U + (uint32_t)sig_len) != record_len) ||
-           (cert == NULL) || (cert->rsa_modulus == NULL) || (cert->rsa_exponent == NULL) ||
-           (params_len > (DHE_TO_SIGN_SIZE - (TLS_RANDOM_SIZE * 2U)))) {
-            return NOXTLS_RETURN_FAILED;
-        }
-
-        key_bytes = cert->rsa_modulus_len;
-        if (key_bytes == 128U) {
-            key_size = RSA_1024_BIT;
-        } else if (key_bytes == 256U) {
-            key_size = RSA_2048_BIT;
-        } else if (key_bytes == 384U) {
-            key_size = RSA_3072_BIT;
-        } else if (key_bytes == 512U) {
-            key_size = RSA_4096_BIT;
-        } else {
-            /* MISRA 15.7: final else path */
-            return NOXTLS_RETURN_FAILED;
-        }
-
-        rc = noxtls_rsa_key_init(&rsa_key, key_size);
-        if (rc != NOXTLS_RETURN_SUCCESS) {
+    sig_len = (uint16_t)(((uint16_t)record_data[off + 2U] << 8U) | (uint16_t)record_data[off + 3U]);
+    if ((sig_len == 0U) || ((off + 4U + (uint32_t)sig_len) != record_len) ||
+       (ctx->server_cert_parsed == NULL)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    rc = noxtls_tls12_client_verify_ske_signature(ctx, record_data, record_len, params_end);
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        if ((rc == NOXTLS_RETURN_NOT_ENOUGH_MEMORY) || (rc == NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER)) {
             return rc;
         }
-        noxtls_copy_u8(rsa_key.n, (size_t)cert->rsa_modulus_len, cert->rsa_modulus, (size_t)cert->rsa_modulus_len);
-        noxtls_copy_u8(rsa_key.e, (size_t)rsa_key.key_bytes, cert->rsa_exponent, (size_t)cert->rsa_exponent_len);
-
-        to_verify = (ctx->handshake_workspace != NULL) ? ctx->handshake_workspace : (uint8_t*)NOXTLS_MALLOC(DHE_TO_SIGN_SIZE);
-        if (to_verify == NULL) {
-            (void)noxtls_rsa_key_free(&rsa_key);
-            return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
-        }
-        noxtls_copy_u8(to_verify, (size_t)(DHE_TO_SIGN_SIZE), ctx->client_random, (size_t)(TLS_RANDOM_SIZE));
-        noxtls_copy_u8(&to_verify[TLS_RANDOM_SIZE], (size_t)(DHE_TO_SIGN_SIZE), ctx->server_random, (size_t)(TLS_RANDOM_SIZE));
-        noxtls_copy_u8(&to_verify[((size_t)TLS_RANDOM_SIZE * 2U)], (size_t)(DHE_TO_SIGN_SIZE), &record_data[4], (size_t)(params_len));
-        rc = noxtls_rsa_verify(&rsa_key, to_verify, (uint32_t)(TLS_RANDOM_SIZE + TLS_RANDOM_SIZE + params_len),
-                                &record_data[off + 4U], sig_len, NOXTLS_HASH_SHA_256);
-        if (to_verify != ctx->handshake_workspace) {
-            NOXTLS_SECURE_FREE(to_verify, DHE_TO_SIGN_SIZE);
-        } else {
-            noxtls_secure_zero((ctx->handshake_workspace), (size_t)(TLS_HANDSHAKE_WORKSPACE_SIZE));
-        }
-        (void)noxtls_rsa_key_free(&rsa_key);
-        if (rc != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
-        }
+        return NOXTLS_RETURN_FAILED;
     }
 
-    rc = noxtls_dh_generate_key(p, p_len, g, p_len, dhe_ctx->client_private, dhe_ctx->client_public);
+    noxtls_secure_zero((dhe_ctx->server_public), ((size_t)dhe_ctx->p_len));
+    noxtls_copy_u8(&dhe_ctx->server_public[(p_len - len_Ys)], (size_t)len_Ys, ys_ptr, (size_t)len_Ys);
+
+    rc = noxtls_dh_generate_key(p, p_len, srv_g, srv_g_len, dhe_ctx->client_private, dhe_ctx->client_public);
     if (rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }

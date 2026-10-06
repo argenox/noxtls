@@ -100,7 +100,21 @@ noxtls_return_t noxtls_tls_parse_extensions(const uint8_t *data, uint32_t data_l
         ext->type = (uint16_t)((((uint16_t)data[offset]) << 8U) | ((uint16_t)data[offset + 1U]));
         ext->length = (uint16_t)((((uint16_t)data[offset + 2U]) << 8U) | ((uint16_t)data[offset + 3U]));
         offset += 4U;
-        
+
+        /*
+         * RFC 8446 §4.2 / RFC 5246 §7.4.1.4: at most one extension of each type per block.
+         * Reject repeats instead of letting a later copy replace the earlier one.
+         */
+        {
+            uint32_t prev = 0U;
+            for (prev = 0U; prev < extensions->count; prev += 1U) {
+                if (extensions->extensions[prev].type == ext->type) {
+                    (void)noxtls_tls_extensions_free(extensions);
+                    return NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER;
+                }
+            }
+        }
+
         if ((ext->length > 0U) && ((offset + (uint32_t)ext->length) <= data_len)) {
             /* Allocate and copy extension data */
             ext->data = (uint8_t*)NOXTLS_MALLOC(ext->length);
@@ -128,13 +142,6 @@ noxtls_return_t noxtls_tls_parse_extensions(const uint8_t *data, uint32_t data_l
                     return NOXTLS_RETURN_BAD_DATA;
                 }
                 if (ext->data != NULL) {
-                    if (extensions->sni != NULL) {
-                        if (extensions->sni->hostname != NULL) {
-                            (void)noxtls_free(extensions->sni->hostname);
-                        }
-                        (void)noxtls_free(extensions->sni);
-                        extensions->sni = NULL;
-                    }
                     extensions->sni = (tls_sni_extension_t*)NOXTLS_MALLOC(sizeof(tls_sni_extension_t));
                     if (extensions->sni == NULL) {
                         (void)noxtls_tls_extensions_free(extensions);
@@ -152,13 +159,6 @@ noxtls_return_t noxtls_tls_parse_extensions(const uint8_t *data, uint32_t data_l
                 }
         } else if (ext->type == TLS_EXTENSION_SUPPORTED_GROUPS) {
                 if ((ext->data != NULL) && (ext->length > 0U)) {
-                    if (extensions->supported_groups != NULL) {
-                        if (extensions->supported_groups->groups != NULL) {
-                            (void)noxtls_free(extensions->supported_groups->groups);
-                        }
-                        (void)noxtls_free(extensions->supported_groups);
-                        extensions->supported_groups = NULL;
-                    }
                     extensions->supported_groups = (tls_supported_groups_extension_t*)NOXTLS_MALLOC(sizeof(tls_supported_groups_extension_t));
                     if (extensions->supported_groups != NULL) {
                         if (noxtls_tls_parse_extension_supported_groups(ext->data, ext->length, extensions->supported_groups) != NOXTLS_RETURN_SUCCESS) {
@@ -173,18 +173,6 @@ noxtls_return_t noxtls_tls_parse_extensions(const uint8_t *data, uint32_t data_l
                 }
         } else if (ext->type == TLS_EXTENSION_KEY_SHARE) {
                 if ((ext->data != NULL) && (ext->length > 0U)) {
-                    if (extensions->key_share != NULL) {
-                        if (extensions->key_share->entries != NULL) {
-                            for (uint32_t k = 0U; k < extensions->key_share->count; k += 1U) {
-                                if (extensions->key_share->entries[k].key_exchange != NULL) {
-                                    (void)noxtls_free(extensions->key_share->entries[k].key_exchange);
-                                }
-                            }
-                            (void)noxtls_free(extensions->key_share->entries);
-                        }
-                        (void)noxtls_free(extensions->key_share);
-                        extensions->key_share = NULL;
-                    }
                     extensions->key_share = (tls_key_share_list_extension_t*)NOXTLS_MALLOC(sizeof(tls_key_share_list_extension_t));
                     if (extensions->key_share != NULL) {
                         if (noxtls_tls_parse_extension_key_share(ext->data, ext->length, extensions->key_share) != NOXTLS_RETURN_SUCCESS) {
@@ -199,13 +187,6 @@ noxtls_return_t noxtls_tls_parse_extensions(const uint8_t *data, uint32_t data_l
                 }
         } else if (ext->type == TLS_EXTENSION_SIGNATURE_ALGORITHMS) {
                 if ((ext->data != NULL) && (ext->length > 0U)) {
-                    if (extensions->signature_algorithms != NULL) {
-                        if (extensions->signature_algorithms->algorithms != NULL) {
-                            (void)noxtls_free(extensions->signature_algorithms->algorithms);
-                        }
-                        (void)noxtls_free(extensions->signature_algorithms);
-                        extensions->signature_algorithms = NULL;
-                    }
                     extensions->signature_algorithms = (tls_signature_algorithms_extension_t*)NOXTLS_MALLOC(sizeof(tls_signature_algorithms_extension_t));
                     if (extensions->signature_algorithms != NULL) {
                         if (noxtls_tls_parse_extension_signature_algorithms(ext->data, ext->length, extensions->signature_algorithms) != NOXTLS_RETURN_SUCCESS) {
@@ -227,18 +208,6 @@ noxtls_return_t noxtls_tls_parse_extensions(const uint8_t *data, uint32_t data_l
                     (void)noxtls_tls_extensions_free(extensions);
                     return NOXTLS_RETURN_BAD_DATA;
                 }
-                if (extensions->alpn != NULL) {
-                    if (extensions->alpn->protocols != NULL) {
-                        for (uint32_t k = 0U; k < extensions->alpn->count; k += 1U) {
-                            if (extensions->alpn->protocols[k] != NULL) {
-                                (void)noxtls_free(extensions->alpn->protocols[k]);
-                            }
-                        }
-                        (void)noxtls_free((void *)extensions->alpn->protocols);
-                    }
-                    (void)noxtls_free(extensions->alpn);
-                    extensions->alpn = NULL;
-                }
                 extensions->alpn = (tls_alpn_extension_t*)NOXTLS_MALLOC(sizeof(tls_alpn_extension_t));
                 if (extensions->alpn == NULL) {
                     (void)noxtls_tls_extensions_free(extensions);
@@ -250,13 +219,6 @@ noxtls_return_t noxtls_tls_parse_extensions(const uint8_t *data, uint32_t data_l
                 }
         } else if (ext->type == TLS_EXTENSION_SUPPORTED_VERSIONS) {
                 if ((ext->data != NULL) && (ext->length > 0U)) {
-                    if (extensions->supported_versions != NULL) {
-                        if (extensions->supported_versions->versions != NULL) {
-                            (void)noxtls_free(extensions->supported_versions->versions);
-                        }
-                        (void)noxtls_free(extensions->supported_versions);
-                        extensions->supported_versions = NULL;
-                    }
                     extensions->supported_versions = (tls_supported_versions_extension_t*)NOXTLS_MALLOC(sizeof(tls_supported_versions_extension_t));
                     if (extensions->supported_versions != NULL) {
                         if (noxtls_tls_parse_extension_supported_versions(ext->data, ext->length, extensions->supported_versions) != NOXTLS_RETURN_SUCCESS) {

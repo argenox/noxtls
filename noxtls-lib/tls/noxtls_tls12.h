@@ -267,6 +267,7 @@ typedef struct {
     uint16_t sni_len;
     uint8_t sni[255];
     uint8_t extended_master_secret; /* RFC 7627: session established with EMS */
+    uint8_t server_binding[32];     /* SHA-256 of issuing server config (leaf certs, version, cert type) */
     uint8_t in_use;
 } tls12_session_cache_entry_t;
 
@@ -282,6 +283,7 @@ typedef struct {
     uint8_t extended_master_secret;
     uint32_t issued_at;
     uint32_t lifetime_hint;
+    uint8_t server_binding[32];     /* SHA-256 of issuing server config (leaf certs, version, cert type) */
     uint8_t in_use;
 } tls12_ticket_cache_entry_t;
 
