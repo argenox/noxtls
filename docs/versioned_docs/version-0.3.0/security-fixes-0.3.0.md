@@ -33,6 +33,8 @@ No CVE identifiers have been assigned to these issues. To report a suspected vul
 | High | [ECDSA signing nonce exposed in a public global](#ecdsa-signing-nonce-exposed-in-a-public-global) | Development line after 0.2.70 | **Remove references to the symbol** |
 | High | [TLS 1.2 client-authentication bypass through session resumption](#tls-12-client-authentication-bypass-through-session-resumption) | Origin not determined | **Expect full handshakes** |
 | High | [TLS 1.2 Finished accepted without record protection](#tls-12-finished-accepted-without-record-protection) | Origin not determined | None |
+| High | [TLS 1.3 accepted records reflected back to their sender](#tls-13-accepted-records-reflected-back-to-their-sender) | Origin not determined | None |
+| High | [TLS 1.3 CertificateVerify signed-content buffer overflow](#tls-13-certificateverify-signed-content-buffer-overflow) | Origin not determined | **Check buffer sizes and return codes** |
 
 ## Critical
 
@@ -128,6 +130,24 @@ No CVE identifiers have been assigned to these issues. To report a suspected vul
 - **Fix:** Both plaintext paths were removed. A Finished record must decrypt and authenticate under the new keys, and Finished is always sent protected. A memory leak on the rejected plaintext path was removed with it.
 - **Action:** Upgrade. No API changes.
 
+### TLS 1.3 accepted records reflected back to their sender
+
+- **Severity:** High.
+- **Affected:** TLS 1.3 and DTLS 1.3 record decryption (`noxtls_tls13_decrypt_record()`) with AES-GCM, AES-CCM, and ChaCha20-Poly1305 cipher suites, on clients and servers.
+- **Origin:** Origin not determined.
+- **Impact:** When a received record failed to decrypt under the peer's traffic key, the library tried again with the endpoint's own write key and sequence number, and on success advanced its own write sequence number. RFC 8446 section 5.2 requires such a record to be rejected. An attacker on the network path could therefore send an endpoint's own records back to it, and the endpoint accepted them as data from its peer. Protected records that one side sent, such as application data, could be delivered back to that same side as if the other side had sent them.
+- **Fix:** The retry with the endpoint's own key was removed for all three AEAD modes. A record that fails authentication now zeroes the output and returns `NOXTLS_RETURN_BAD_DATA` (bad_record_mac) without moving any sequence number or replay window. Nothing in the library depended on the retry.
+- **Action:** Upgrade. No API changes.
+
+### TLS 1.3 CertificateVerify signed-content buffer overflow
+
+- **Severity:** High.
+- **Affected:** The public functions `noxtls_tls13_certificate_verify_build_signed_content()` and `noxtls_tls13_certificate_verify_build_signed_content_ex()`, and the internal TLS 1.3 code that builds and checks CertificateVerify messages.
+- **Origin:** Origin not determined.
+- **Impact:** These functions build the content that a TLS 1.3 CertificateVerify signs: 64 bytes of padding, a context string, a zero byte, and the transcript hash, up to 162 bytes in total. They did not read the buffer capacity passed in `*out_len`, so an application that passed a smaller buffer had memory past the end of that buffer overwritten. Inside the library, the buffer the server uses to check a client's CertificateVerify was one byte shorter than this maximum.
+- **Fix:** The functions compute the required length first. When the buffer is too small they write nothing, set `*out_len` to the required length, and return `NOXTLS_RETURN_INVALID_PARAM`; context strings longer than 64 bytes are rejected. The new constant `NOXTLS_TLS13_CV_SIGNED_CONTENT_MAX_LEN` (162 bytes) is always large enough. Internal callers now pass their buffer sizes, and the server's buffer was corrected. A review of the other TLS 1.3 functions that write to caller buffers also changed `noxtls_tls13_get_channel_binding()`, which now reports the required length when the buffer is too small and returns 28 bytes (not 32) for a SHA-224-signed server certificate, and `noxtls_tls13_export_keying_material()`, which now rejects output longer than 255 times the hash length and labels longer than 249 bytes.
+- **Action:** **API behaviour change.** If you call either function, set `*out_len` to the real buffer size before the call, size the buffer with `NOXTLS_TLS13_CV_SIGNED_CONTENT_MAX_LEN`, and check for `NOXTLS_RETURN_INVALID_PARAM`. Applications that do not call these functions directly need no changes.
+
 ## Related hardening
 
 These fixes in 0.3.0 are not rated as security issues above, but are relevant to security reviews. See the [Release Notes](./release-notes.md) for the complete list.
@@ -138,3 +158,8 @@ These fixes in 0.3.0 are not rated as security issues above, but are relevant to
 - ChaCha20-Poly1305 compares tags in constant time and rejects a NULL AAD pointer with a non-zero length.
 - Duplicate TLS extensions are rejected, and the TLS 1.3 client rejects malformed EncryptedExtensions and ServerHello extensions.
 - `noxtls_dh_shared_secret()` rejects over-long peer values with non-zero leading bytes.
+- Bignum, DSA, RSA, ECC, digest, HMAC, HKDF, and PBKDF2 functions no longer report success after an internal failure such as an allocation or accelerator error. Before these fixes, memory pressure could make DSA signing return an invalid signature, and ECC key generation return the point at infinity as a public key, with success.
+- `noxtls_ecc_point_validate_public()` rejects the point at infinity and coordinates that are not less than p, so ECDH and ECDSA reject such peer keys.
+- The X.509 parser checks every cursor advance against the bytes remaining, and rejects malformed BOOLEAN values that could previously move it past the end of an extension.
+- A failed allocation during DTLS handshake reassembly, or while a DTLS 1.3 server stores the client's key shares, no longer leads to a NULL pointer dereference.
+- `noxtls_ecc_key_free()` no longer writes past a private-key buffer smaller than 66 bytes.
