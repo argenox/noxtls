@@ -1,7 +1,12 @@
 # Encryption library (when NOXTLS_OMIT_UT_SOURCES=ON, exclude unit-test sources for embedded build)
 set(ENC_SOURCES
 )
-if(NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL AND
+# The root CMakeLists expands the CC13xx umbrella; repeat it for consumers
+# that add noxtls-lib directly.
+if(NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL)
+    set(NOXTLS_CFG_FEATURE_CC13XX_AES_ACCEL ON)
+endif()
+if(NOXTLS_CFG_FEATURE_CC13XX_AES_ACCEL AND
    (ESP_PLATFORM OR NOXTLS_CFG_FEATURE_STM32_HW_ACCEL OR
     NOXTLS_CFG_FEATURE_NOXV_HW_ACCEL OR NOXTLS_CFG_FEATURE_NRF52_HW_ACCEL))
     message(FATAL_ERROR "CC13xx requires exclusive platform AES accelerator selection")
@@ -21,7 +26,7 @@ if(NOXTLS_CFG_FEATURE_AES)
       set(NOXTLS_PORT_AES_ACCEL_ENABLED OFF)
     endif()
   else()
-    if(NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL)
+    if(NOXTLS_CFG_FEATURE_CC13XX_AES_ACCEL)
       list(APPEND ENC_SOURCES aes/noxtls_aes_accel_cc13xx_port.c)
       set(NOXTLS_PORT_AES_ACCEL_ENABLED ON)
     elseif(NOXTLS_CFG_FEATURE_STM32_HW_ACCEL)

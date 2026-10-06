@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-06T16:26:39Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-06T19:47:27Z)
 
 function(noxtls_esp_idf_write_config_features_header out_file)
   if(NOT out_file)
@@ -176,10 +176,22 @@ else()
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_CAMELLIA 0\n")
 endif()
 
+if(CONFIG_NOXTLS_FEATURE_CC13XX_AES_ACCEL)
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_CC13XX_AES_ACCEL 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_CC13XX_AES_ACCEL 0\n")
+endif()
+
 if(CONFIG_NOXTLS_FEATURE_CC13XX_HW_ACCEL)
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_CC13XX_HW_ACCEL 1\n")
 else()
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_CC13XX_HW_ACCEL 0\n")
+endif()
+
+if(CONFIG_NOXTLS_FEATURE_CC13XX_P256_ACCEL)
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_CC13XX_P256_ACCEL 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_CC13XX_P256_ACCEL 0\n")
 endif()
 
 if(NOXTLS_CFG_FEATURE_CERT)

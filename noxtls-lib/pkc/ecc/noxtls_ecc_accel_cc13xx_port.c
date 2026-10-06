@@ -31,7 +31,7 @@
 #include "common/noxtls_ct.h"
 #include <string.h>
 #include <limits.h>
-#if NOXTLS_FEATURE_CC13XX_HW_ACCEL
+#if NOXTLS_CC13XX_P256_ACCEL_ENABLED
 #include "noxtls_ecc_accel_cc13xx_config.h"
 #endif
 
@@ -44,7 +44,7 @@ static noxtls_return_t s_last_rc = (noxtls_return_t)NOXTLS_RETURN_NOT_SUPPORTED;
  * @return One for an enabled P-256 callback, zero otherwise. */
 int noxtls_ecc_accel_is_ready(void)
 {
-#if NOXTLS_FEATURE_CC13XX_HW_ACCEL
+#if NOXTLS_CC13XX_P256_ACCEL_ENABLED
     return noxtls_cc13xx_crypto_has_p256() ? 1 : 0;
 #else
     return 0;
@@ -126,7 +126,7 @@ static noxtls_return_t reject(ecc_point_t *result, noxtls_return_t rc)
     return rc;
 }
 
-#if NOXTLS_FEATURE_CC13XX_HW_ACCEL
+#if NOXTLS_CC13XX_P256_ACCEL_ENABLED
 /** @brief Compare fixed-width big-endian values in a constant iteration count.
  * @internal
  *
@@ -210,7 +210,7 @@ static bool valid_point(const ecc_point_t *point, const ecc_curve_params_t *curv
 noxtls_return_t noxtls_ecc_point_multiply_accel_port(ecc_point_t *result,
     const uint8_t *scalar, const ecc_point_t *point, const ecc_curve_params_t *curve)
 {
-#if NOXTLS_FEATURE_CC13XX_HW_ACCEL
+#if NOXTLS_CC13XX_P256_ACCEL_ENABLED
     ecc_point_t candidate = {{0U}, {0U}, NOXTLS_CC13XX_ECC_BYTES};
     noxtls_return_t rc;
     if (result == NULL || scalar == NULL || point == NULL || curve == NULL) {

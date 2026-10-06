@@ -986,8 +986,24 @@
       <setting id="NOXTLS_ECDSA_SIGN_SELF_VERIFY" name="Ecdsa Sign Self Verify" type="boolean" default="disabled" default-value="0" legacy="false" source-line="1560">
         <description>NOXTLS_ECDSA_SIGN_SELF_VERIFY When 1, ECDSA signing immediately verifies the produced signature before returning it. This hardens signing against local fault/glitch attacks but materially reduces signing throughput. Default: 0 (disabled)</description>
       </setting>
-      <setting id="NOXTLS_FEATURE_CC13XX_HW_ACCEL" name="Cc13Xx Hw Accel" type="boolean" default="disabled" default-value="0" legacy="false" source-line="387">
-        <description>Original injected CC13xx AES/P-256 accelerator callbacks, disabled by default. No TI SDK or OS dependency. Bind only while all crypto callers are idle. Build knob: NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL.</description>
+      <setting id="NOXTLS_FEATURE_CC13XX_AES_ACCEL" name="Cc13Xx Aes Accel" type="boolean" default="disabled" default-value="0" legacy="false" source-line="397">
+        <description>Injected CC13xx AES engine callback port (AES block and bounded batch); a busy or unbound engine falls back to software AES. Also enabled by NOXTLS_FEATURE_CC13XX_HW_ACCEL. Prereq: NOXTLS_FEATURE_AES=1. Build knob: NOXTLS_CFG_FEATURE_CC13XX_AES_ACCEL.</description>
+        <dependencies>
+          <allOf>
+            <dependency ref="NOXTLS_FEATURE_AES" value="1"/>
+          </allOf>
+        </dependencies>
+      </setting>
+      <setting id="NOXTLS_FEATURE_CC13XX_HW_ACCEL" name="Cc13Xx Hw Accel" type="boolean" default="disabled" default-value="0" legacy="false" source-line="388">
+        <description>Umbrella for the original injected CC13xx accelerator callbacks: when 1, enables both NOXTLS_FEATURE_CC13XX_AES_ACCEL and NOXTLS_FEATURE_CC13XX_P256_ACCEL. No vendor SDK or OS dependency. Disabled by default. Build knob: NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL.</description>
+      </setting>
+      <setting id="NOXTLS_FEATURE_CC13XX_P256_ACCEL" name="Cc13Xx P256 Accel" type="boolean" default="disabled" default-value="0" legacy="false" source-line="406">
+        <description>Injected CC13xx PKA callback port for secp256r1 point multiplication; a busy or unbound PKA falls back to software ECC. Also enabled by NOXTLS_FEATURE_CC13XX_HW_ACCEL. Prereq: NOXTLS_FEATURE_ECC=1. Build knob: NOXTLS_CFG_FEATURE_CC13XX_P256_ACCEL.</description>
+        <dependencies>
+          <allOf>
+            <dependency ref="NOXTLS_FEATURE_ECC" value="1"/>
+          </allOf>
+        </dependencies>
       </setting>
       <setting id="NOXTLS_FEATURE_FALCON" name="Falcon" type="boolean" default="disabled" default-value="0" legacy="false" source-line="531">
         <description>Enables FALCON signature APIs (NIST PQC finalist).</description>

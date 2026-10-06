@@ -126,9 +126,22 @@
 #if !NOXTLS_CFG_BOOL_OK(NOXTLS_FEATURE_CC13XX_HW_ACCEL)
 #error "NOXTLS_FEATURE_CC13XX_HW_ACCEL must be 0 or 1."
 #endif
-#if NOXTLS_FEATURE_CC13XX_HW_ACCEL && (NOXTLS_FEATURE_NRF52_HW_ACCEL || NOXTLS_FEATURE_STM32_HW_ACCEL || NOXTLS_FEATURE_NOXV_HW_ACCEL || \
-                                      NOXTLS_FEATURE_NRF54_HW_ACCEL)
-#error "CC13xx callbacks require exclusive platform accelerator selection."
+#if !NOXTLS_CFG_BOOL_OK(NOXTLS_FEATURE_CC13XX_AES_ACCEL)
+#error "NOXTLS_FEATURE_CC13XX_AES_ACCEL must be 0 or 1."
+#endif
+#if !NOXTLS_CFG_BOOL_OK(NOXTLS_FEATURE_CC13XX_P256_ACCEL)
+#error "NOXTLS_FEATURE_CC13XX_P256_ACCEL must be 0 or 1."
+#endif
+/* The umbrella enables both CC13xx ports; each port excludes the other backends
+ * for its engine (AES: nRF52, STM32, NoxV, nRF54; P-256: NoxV, nRF54). */
+#if (NOXTLS_FEATURE_CC13XX_HW_ACCEL || NOXTLS_FEATURE_CC13XX_AES_ACCEL) && \
+    (NOXTLS_FEATURE_NRF52_HW_ACCEL || NOXTLS_FEATURE_STM32_HW_ACCEL || NOXTLS_FEATURE_NOXV_HW_ACCEL || \
+     NOXTLS_FEATURE_NRF54_HW_ACCEL)
+#error "CC13xx AES callbacks require exclusive platform AES accelerator selection."
+#endif
+#if (NOXTLS_FEATURE_CC13XX_HW_ACCEL || NOXTLS_FEATURE_CC13XX_P256_ACCEL) && \
+    (NOXTLS_FEATURE_NOXV_HW_ACCEL || NOXTLS_FEATURE_NRF54_HW_ACCEL)
+#error "CC13xx P-256 callbacks require exclusive platform P-256 accelerator selection."
 #endif
 #if !NOXTLS_CFG_BOOL_OK(NOXTLS_FEATURE_SHA224)
 #error "NOXTLS_FEATURE_SHA224 must be 0 or 1."
