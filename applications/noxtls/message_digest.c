@@ -43,6 +43,7 @@ extern "C"
 #include "noxtls-lib/common/getopt_win.h"
 #else
 #include <unistd.h>
+#include "noxtls_ct.h"
 #endif
 
 #ifdef _MSC_VER
@@ -74,24 +75,24 @@ int hash_sha_512_handler(uint8_t * data, uint32_t len);
 int hash_sha_512_224_handler(uint8_t * data, uint32_t len);
 int hash_sha_512_256_handler(uint8_t * data, uint32_t len);
 typedef struct {
-    const char *name;
-    const char *display_name;
+    const uint8_t *name;
+    const uint8_t *display_name;
     noxtls_hash_algos_t algo;
     uint32_t digest_len;
 } digest_algorithm_t;
-static int parse_offset_value(const char * value, size_t * offset);
-static int read_binary_file(const char * path, uint8_t ** buffer, size_t * length);
-static int write_text_file(const char * path, const char * text);
-static int bytes_to_hex(const uint8_t * bytes, uint32_t bytes_len, char ** hex_out);
-static int find_digest_algorithm(const char * algorithm, const digest_algorithm_t ** spec);
+static int parse_offset_value(const uint8_t * value, size_t * offset);
+static int read_binary_file(const uint8_t * path, uint8_t ** buffer, size_t * length);
+static int write_text_file(const uint8_t * path, const uint8_t * text);
+static int bytes_to_hex(const uint8_t * bytes, uint32_t bytes_len, uint8_t ** hex_out);
+static int find_digest_algorithm(const uint8_t * algorithm, const digest_algorithm_t ** spec);
 static int compute_digest_for_algorithm(
-    const char * algorithm,
+    const uint8_t * algorithm,
     const uint8_t * data,
     uint32_t len,
     uint8_t * digest,
     uint32_t * digest_len);
-static const char *canonical_digest_name(const digest_algorithm_t *spec);
-static int print_digest_hex(const uint8_t * digest, uint32_t digest_len, const char * algorithm);
+static const uint8_t *canonical_digest_name(const digest_algorithm_t *spec);
+static int print_digest_hex(const uint8_t * digest, uint32_t digest_len, const uint8_t * algorithm);
 
 void print_digest_usage(void);
 
@@ -162,7 +163,6 @@ static const digest_algorithm_t digest_algorithms[] = {
 #endif
 };
 
-
 /**
  * @brief Print digest subcommand usage, options, and examples.
  *
@@ -218,27 +218,27 @@ void print_digest_usage(void)
  * @param[in] argv Arguments: algorithm name, options, then input text or file path
  * @return 0 on success, -1 on error
  */
-int message_digest(int argc, char ** argv)
+int message_digest(int argc, uint8_t ** argv)
 {
     uint32_t data_length = 0;
     uint8_t * data_buffer = NULL;
     int arg_idx = 1;
     int data_start_idx = -1;
-    const char * input_file_path = NULL;
-    const char * output_file_path = NULL;
+    const uint8_t * input_file_path = NULL;
+    const uint8_t * output_file_path = NULL;
     size_t file_offset = 0;
     uint8_t digest[HASH_SHA512_OUT_LEN] = {0};
     uint32_t digest_len = 0;
-    char * digest_hex = NULL;
+    uint8_t * digest_hex = NULL;
 
     input_data_type_t type = INPUT_DATA_TYPE_STRING;
 
     const digest_algorithm_t *algorithm_spec = NULL;
 
     if(argc <= 0 || argv == NULL || argv[0] == NULL ||
-       strcmp(argv[0], "-h") == 0 ||
-       strcmp(argv[0], "--help") == 0 ||
-       strcmp(argv[0], "help") == 0) {
+       noxtls_u8_strcmp(argv[0], "-h") == 0 ||
+       noxtls_u8_strcmp(argv[0], "--help") == 0 ||
+       noxtls_u8_strcmp(argv[0], "help") == 0) {
         print_digest_usage();
         return 0;
     }
@@ -255,16 +255,16 @@ int message_digest(int argc, char ** argv)
             break;
         }
 
-        if(strcmp(argv[arg_idx], "-d") == 0) {
+        if(noxtls_u8_strcmp(argv[arg_idx], "-d") == 0) {
             debug_lvl = 1;
             printf("Debug LVL = %d\n", debug_lvl);
             arg_idx++;
         }
-        else if(strcmp(argv[arg_idx], "-h") == 0) {
+        else if(noxtls_u8_strcmp(argv[arg_idx], "-h") == 0) {
             type = INPUT_DATA_TYPE_HEX;
             arg_idx++;
         }
-        else if(strcmp(argv[arg_idx], "-f") == 0) {
+        else if(noxtls_u8_strcmp(argv[arg_idx], "-f") == 0) {
             if(arg_idx + 1 >= argc) {
                 printf("Error: -f option requires an input file path\n");
                 return -1;
@@ -272,7 +272,7 @@ int message_digest(int argc, char ** argv)
             input_file_path = argv[arg_idx + 1];
             arg_idx += 2;
         }
-        else if(strcmp(argv[arg_idx], "-o") == 0) {
+        else if(noxtls_u8_strcmp(argv[arg_idx], "-o") == 0) {
             if(arg_idx + 1 >= argc) {
                 printf("Error: -o option requires an output file path\n");
                 return -1;
@@ -280,7 +280,7 @@ int message_digest(int argc, char ** argv)
             output_file_path = argv[arg_idx + 1];
             arg_idx += 2;
         }
-        else if(strcmp(argv[arg_idx], "-s") == 0) {
+        else if(noxtls_u8_strcmp(argv[arg_idx], "-s") == 0) {
             if(arg_idx + 1 >= argc) {
                 printf("Error: -s option requires an offset value\n");
                 return -1;
@@ -367,7 +367,7 @@ int message_digest(int argc, char ** argv)
         size_t total_str_len = 0;
 
         for(j = data_start_idx; j <= (argc - 1); j++) {
-            total_str_len += strlen(argv[j]);
+            total_str_len += noxtls_u8_strlen(argv[j]);
             if(j < argc - 1) {
                 total_str_len++;
             }
@@ -387,7 +387,7 @@ int message_digest(int argc, char ** argv)
 
         for(j = data_start_idx; j <= (argc - 1); j++)
         {
-            size_t str_len = strlen(argv[j]);
+            size_t str_len = noxtls_u8_strlen(argv[j]);
 
             memcpy(&data_buffer[total_str_len], argv[j], str_len);
             total_str_len += str_len;
@@ -400,7 +400,7 @@ int message_digest(int argc, char ** argv)
     }
     else
     {
-        size_t hex_len = strlen(argv[data_start_idx]);
+        size_t hex_len = noxtls_u8_strlen(argv[data_start_idx]);
         int parsed_len;
 
         data_buffer = malloc(hex_len * sizeof(uint8_t));
@@ -441,9 +441,9 @@ int message_digest(int argc, char ** argv)
  * @param[out] offset Parsed offset
  * @return 0 on success, -1 on parse error
  */
-static int parse_offset_value(const char * value, size_t * offset)
+static int parse_offset_value(const uint8_t * value, size_t * offset)
 {
-    char * endptr = NULL;
+    uint8_t * endptr = NULL;
     unsigned long long parsed = 0;
 
     if(value == NULL || offset == NULL || value[0] == '\0') {
@@ -468,7 +468,7 @@ static int parse_offset_value(const char * value, size_t * offset)
  * @param[out] length Number of bytes read
  * @return 0 on success, -1 on error
  */
-static int read_binary_file(const char * path, uint8_t ** buffer, size_t * length)
+static int read_binary_file(const uint8_t * path, uint8_t ** buffer, size_t * length)
 {
     FILE * file = NULL;
     long file_size = 0;
@@ -527,7 +527,7 @@ static int read_binary_file(const char * path, uint8_t ** buffer, size_t * lengt
  * @param[in] text Text to write
  * @return 0 on success, -1 on error
  */
-static int write_text_file(const char * path, const char * text)
+static int write_text_file(const uint8_t * path, const uint8_t * text)
 {
     FILE * file = NULL;
 
@@ -557,11 +557,11 @@ static int write_text_file(const char * path, const char * text)
  * @param[out] hex_out Allocated hex string (caller must free)
  * @return 0 on success, -1 on error
  */
-static int bytes_to_hex(const uint8_t * bytes, uint32_t bytes_len, char ** hex_out)
+static int bytes_to_hex(const uint8_t * bytes, uint32_t bytes_len, uint8_t ** hex_out)
 {
-    static const char hex_chars[] = "0123456789abcdef";
+    static const uint8_t hex_chars[] = "0123456789abcdef";
     size_t i = 0;
-    char * output = NULL;
+    uint8_t * output = NULL;
 
     if(bytes == NULL || hex_out == NULL) {
         return -1;
@@ -589,7 +589,7 @@ static int bytes_to_hex(const uint8_t * bytes, uint32_t bytes_len, char ** hex_o
  * @param[out] spec Matching algorithm descriptor, or NULL if not found
  * @return 0 on success, -1 if @p algorithm is unknown
  */
-static int find_digest_algorithm(const char * algorithm, const digest_algorithm_t ** spec)
+static int find_digest_algorithm(const uint8_t * algorithm, const digest_algorithm_t ** spec)
 {
     size_t i;
 
@@ -598,8 +598,8 @@ static int find_digest_algorithm(const char * algorithm, const digest_algorithm_
     }
 
     for(i = 0; i < sizeof(digest_algorithms) / sizeof(digest_algorithms[0]); i++) {
-        if(strncasecmp(algorithm, digest_algorithms[i].name, strlen(digest_algorithms[i].name)) == 0 &&
-           strlen(algorithm) == strlen(digest_algorithms[i].name)) {
+        if(strncasecmp(algorithm, digest_algorithms[i].name, noxtls_u8_strlen(digest_algorithms[i].name)) == 0 &&
+           noxtls_u8_strlen(algorithm) == noxtls_u8_strlen(digest_algorithms[i].name)) {
             *spec = &digest_algorithms[i];
             return 0;
         }
@@ -619,7 +619,7 @@ static int find_digest_algorithm(const char * algorithm, const digest_algorithm_
  * @return 0 on success, -1 on error
  */
 static int compute_digest_for_algorithm(
-    const char * algorithm,
+    const uint8_t * algorithm,
     const uint8_t * data,
     uint32_t len,
     uint8_t * digest,
@@ -675,7 +675,7 @@ static int compute_digest_for_algorithm(
  * @param[in] spec Algorithm descriptor
  * @return Display name string, or "digest" if @p spec is NULL
  */
-static const char *canonical_digest_name(const digest_algorithm_t *spec)
+static const uint8_t *canonical_digest_name(const digest_algorithm_t *spec)
 {
     size_t i = 0;
 
@@ -706,9 +706,9 @@ static const char *canonical_digest_name(const digest_algorithm_t *spec)
  * @param[in] algorithm Algorithm label for output
  * @return 0 on success, -1 on error
  */
-static int print_digest_hex(const uint8_t * digest, uint32_t digest_len, const char * algorithm)
+static int print_digest_hex(const uint8_t * digest, uint32_t digest_len, const uint8_t * algorithm)
 {
-    char * digest_hex = NULL;
+    uint8_t * digest_hex = NULL;
 
     if(bytes_to_hex(digest, digest_len, &digest_hex) != 0) {
         return -1;
@@ -907,9 +907,6 @@ int hash_sha_512_256_handler(uint8_t * data, uint32_t len)
         printf("%s - %u bytes\n", __func__, (unsigned int)len);
     return 0;
 }
-
-
-
 
 #ifdef __cplusplus
 }

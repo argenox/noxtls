@@ -25,24 +25,22 @@
 
 #include "noxtls-lib/common/getopt_compat.h"
 #include "message_digest.h"
+#include "noxtls_ct.h"
 
 #define APP_VERSION_MAJOR 0
 #define APP_VERSION_MINOR 1
 #define APP_VERSION_BUILD 4
 
-
 typedef struct {
-    char cmd[32];
-    int (*handler)(int argc, char ** argv);
-    char description[256];
+    uint8_t cmd[32];
+    int (*handler)(int argc, uint8_t ** argv);
+    uint8_t description[256];
 
 } command_list_t;
-
 
 command_list_t commands[]  = {
     {"dgst", &message_digest, "Generates the noxtls_message digest"}
 };
-
 
 /**
  * @brief Print the usage
@@ -50,7 +48,7 @@ command_list_t commands[]  = {
  * @param[in] name The name of the program.
  * @return void
  */
-void print_usage(const char * name)
+void print_usage(const uint8_t * name)
 {
     printf( "usage: %s [command] <parameters>\n", name);
     printf("\nSupported Commands\n\n");
@@ -88,7 +86,7 @@ void print_version(void)
  * @param[in] argv The argument vector.
  * @return The return value.
  */
-int main(int argc, char ** argv)
+int main(int argc, char **argv)
 {
     int command_found = 0;
 
@@ -103,7 +101,7 @@ int main(int argc, char ** argv)
     int i = 0;
     for(i = 0; i < sizeof(commands) / sizeof(commands[0]); i++)
     {
-        if(strncmp(argv[1], commands[i].cmd, strlen(commands[i].cmd)) == 0)
+        if(noxtls_u8_strncmp(argv[1], commands[i].cmd, noxtls_u8_strlen(commands[i].cmd)) == 0)
         {
             commands[i].handler(argc - 2, &argv[2]);
             command_found = 1;

@@ -20,8 +20,8 @@
 *
 *****************************************************************************/
 
-#ifndef _NOXTLS_MLDSA_H_
-#define _NOXTLS_MLDSA_H_
+#ifndef NOXTLS_MLDSA_H_
+#define NOXTLS_MLDSA_H_
 
 #include <stdint.h>
 #include "noxtls_common.h"
@@ -30,13 +30,13 @@
 extern "C" {
 #endif
 
-typedef enum
-{
-    NOXTLS_MLDSA_NONE = 0,
-    NOXTLS_MLDSA_44 = 1,
-    NOXTLS_MLDSA_65 = 2,
-    NOXTLS_MLDSA_87 = 3
-} noxtls_mldsa_param_t;
+
+/* Unsigned parameter ids (MISRA C:2025 Rule 10.3); values match historical enum. */
+typedef uint32_t noxtls_mldsa_param_t;
+#define NOXTLS_MLDSA_NONE ((noxtls_mldsa_param_t)0U)
+#define NOXTLS_MLDSA_44   ((noxtls_mldsa_param_t)1U)
+#define NOXTLS_MLDSA_65   ((noxtls_mldsa_param_t)2U)
+#define NOXTLS_MLDSA_87   ((noxtls_mldsa_param_t)3U)
 
 #define NOXTLS_MLDSA_MAX_PUBLIC_KEY_LEN 2592u
 #define NOXTLS_MLDSA_MAX_SECRET_KEY_LEN 4896u
@@ -54,6 +54,7 @@ typedef struct
     uint32_t signature_len;
 } mldsa_sizes_t;
 
+#if NOXTLS_FEATURE_ML_DSA
 uint32_t noxtls_mldsa_public_key_len(noxtls_mldsa_param_t param);
 uint32_t noxtls_mldsa_secret_key_len(noxtls_mldsa_param_t param);
 uint32_t noxtls_mldsa_signature_len(noxtls_mldsa_param_t param);
@@ -80,8 +81,10 @@ noxtls_return_t noxtls_mldsa_verify(noxtls_mldsa_param_t param,
                                     const uint8_t *signature,
                                     uint32_t signature_len);
 
+
+#endif /* NOXTLS_FEATURE_ML_DSA */
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _NOXTLS_MLDSA_H_ */
+#endif /* NOXTLS_MLDSA_H_ */

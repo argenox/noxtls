@@ -27,6 +27,7 @@
 #include "noxtls_mldsa_internal.h"
 #include "drbg/noxtls_drbg.h"
 #include "mdigest/sha3/noxtls_sha3.h"
+#include "noxtls_ct.h"
 
 static noxtls_return_t mldsa_make_mu(const uint8_t seed[NOXTLS_MLDSA_INTERNAL_SEED_BYTES],
                                      const uint8_t *noxtls_message,
@@ -81,7 +82,7 @@ noxtls_return_t noxtls_mldsa_backend_keygen(noxtls_mldsa_param_t param,
     noxtls_return_t rc;
     drbg_state_t drbg;
 
-    if(public_key == NULL || secret_key == NULL) {
+    if((public_key == NULL) || (secret_key == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
@@ -118,24 +119,24 @@ noxtls_return_t noxtls_mldsa_backend_keygen(noxtls_mldsa_param_t param,
         return rc;
     }
 
-    memset(public_key, 0, spec.public_key_len);
-    memset(secret_key, 0, spec.secret_key_len);
-    memcpy(public_key, rho, NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
+    noxtls_secure_zero((public_key), (size_t)(spec.public_key_len));
+    noxtls_secure_zero((secret_key), (size_t)(spec.secret_key_len));
+    (void)memcpy(public_key, rho, (size_t)NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
     pk_tail_len = (spec.public_key_len > NOXTLS_MLDSA_INTERNAL_SEED_BYTES)
                     ? (spec.public_key_len - NOXTLS_MLDSA_INTERNAL_SEED_BYTES)
                     : 0U;
     if(pk_tail_len > 0U) {
         rc = noxtls_mldsa_expand_xof((const uint8_t *)&t,
                                      (uint32_t)sizeof(t),
-                                     0xE1u,
+                                     0xE1U,
                                      0U,
-                                     public_key + NOXTLS_MLDSA_INTERNAL_SEED_BYTES,
+                                     &public_key[NOXTLS_MLDSA_INTERNAL_SEED_BYTES],
                                      pk_tail_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
     }
-    memcpy(secret_key, seed_blob, (uint32_t)sizeof(seed_blob));
+    (void)memcpy(secret_key, seed_blob, (size_t)((uint32_t)sizeof(seed_blob)));
     return NOXTLS_RETURN_NOT_SUPPORTED;
 }
 
@@ -235,7 +236,7 @@ noxtls_return_t noxtls_mldsa_backend_verify(noxtls_mldsa_param_t param,
     uint8_t rho[NOXTLS_MLDSA_INTERNAL_SEED_BYTES];
     uint8_t mu[NOXTLS_MLDSA_INTERNAL_SEED_BYTES];
 
-    if(public_key == NULL || signature == NULL) {
+    if((public_key == NULL) || (signature == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
@@ -246,7 +247,7 @@ noxtls_return_t noxtls_mldsa_backend_verify(noxtls_mldsa_param_t param,
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    memcpy(rho, public_key, NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
+    (void)memcpy(rho, public_key, (size_t)NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
     rc = noxtls_mldsa_sample_polyvecl_eta(param, rho, 0U, &y);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;

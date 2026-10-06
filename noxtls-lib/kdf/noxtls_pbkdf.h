@@ -88,6 +88,14 @@ noxtls_return_t noxtls_pbkdf2_hmac(noxtls_hash_algos_t hash_algo,
                                    uint32_t iterations,
                                    uint8_t *dk, uint32_t dk_len);
 
+/**
+ * @brief Run PBKDF2-HMAC-SHA1 known-answer tests (RFC 6070 section 2, c = 1, 2).
+ *
+ * @return NOXTLS_RETURN_SUCCESS when all vectors match, else
+ *         NOXTLS_RETURN_FAILED.
+ */
+noxtls_return_t noxtls_pbkdf2_self_test(void);
+
 #ifdef __cplusplus
 }
 #endif

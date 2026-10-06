@@ -33,7 +33,7 @@ else()
     option(NOXTLS_HAVE_CERT_WRITE "Enable certificate writing and generation (write DER/PEM, generate self-signed)" OFF)
 endif()
 
-set(NOXTLS_CERT_SOURCES noxtls_x509.c noxtls_x509_ext.c)
+set(NOXTLS_CERT_SOURCES noxtls_x509.c noxtls_x509_ext.c noxtls_cert_api_refs.c)
 if(NOXTLS_HAVE_CERT_WRITE)
     list(APPEND NOXTLS_CERT_SOURCES noxtls_x509_write.c)
 endif()

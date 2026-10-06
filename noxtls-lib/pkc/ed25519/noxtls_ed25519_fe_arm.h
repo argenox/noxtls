@@ -31,8 +31,8 @@
  * via public-domain packed UMAAL assembly.
  */
 
-#ifndef _NOXTLS_ED25519_FE_ARM_H_
-#define _NOXTLS_ED25519_FE_ARM_H_
+#ifndef NOXTLS_ED25519_FE_ARM_H_
+#define NOXTLS_ED25519_FE_ARM_H_
 
 #include <stdint.h>
 
@@ -50,7 +50,7 @@ extern "C" {
  * @param[out] out Eight LE limbs.
  * @param[in] in Native field element.
  */
-void fe25519_limbs_to_u32(uint32_t out[8], const fe25519_native_t *in);
+void fe25519_limbs_to_u32(uint32_t *out, const fe25519_native_t *in);
 
 /**
  * @brief Unpack eight little-endian 32-bit words into native limbs.
@@ -61,7 +61,7 @@ void fe25519_limbs_to_u32(uint32_t out[8], const fe25519_native_t *in);
  * @param[out] out Native field element.
  * @param[in] in Eight LE limbs, any value below 2^256 (bit 255 is folded as 19).
  */
-void fe25519_u32_to_limbs(fe25519_native_t *out, const uint32_t in[8]);
+void fe25519_u32_to_limbs(fe25519_native_t *out, const uint32_t *in);
 
 /**
  * @brief Field multiply on packed limbs: out = a * b mod (2^255-19), weakly reduced.
@@ -72,7 +72,7 @@ void fe25519_u32_to_limbs(fe25519_native_t *out, const uint32_t in[8]);
  * @param[in] a First factor.
  * @param[in] b Second factor.
  */
-void fe25519_u32_mul(uint32_t out[8], const uint32_t a[8], const uint32_t b[8]);
+void fe25519_u32_mul(uint32_t *out, const uint32_t *a, const uint32_t *b);
 
 /**
  * @brief Field square on packed limbs: out = a^2 mod (2^255-19), weakly reduced.
@@ -80,10 +80,10 @@ void fe25519_u32_mul(uint32_t out[8], const uint32_t a[8], const uint32_t b[8]);
  * @param[out] out Square (8 limbs, bit 255 clear).
  * @param[in] a Input.
  */
-void fe25519_u32_sqr(uint32_t out[8], const uint32_t a[8]);
+void fe25519_u32_sqr(uint32_t *out, const uint32_t *a);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _NOXTLS_ED25519_FE_ARM_H_ */
+#endif /* NOXTLS_ED25519_FE_ARM_H_ */

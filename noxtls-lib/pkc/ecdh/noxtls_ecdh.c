@@ -21,17 +21,14 @@
 *****************************************************************************/
 
 #include <stdint.h>
-#include <stdio.h>
+#include "common/noxtls_ct.h"
 #include <stdlib.h>
 #include <string.h>
 
 #include "common/noxtls_memory.h"
-#include "common/noxtls_memory_compat.h"
 #include "noxtls_ecdh.h"
 
-noxtls_return_t noxtls_ecdh_compute_shared_secret_accel_port(
-    const ecc_key_t *private_key, const ecc_point_t *peer_public_key,
-    uint8_t *shared_secret, uint32_t *shared_secret_len);
+
 
 /**
  * @brief ECDH Compute Shared Secret
@@ -66,12 +63,12 @@ noxtls_return_t noxtls_ecdh_compute_shared_secret_ex(
     uint32_t required_len;
     noxtls_return_t rc;
     uint32_t i;
-    int is_infinity = 1;
+    uint8_t is_infinity = 1U;
 
     noxtls_ecdh_set_diagnostic(diagnostic, NOXTLS_ECDH_DIAGNOSTIC_NONE,
                                NOXTLS_RETURN_SUCCESS);
 
-    if(private_key == NULL || peer_public_key == NULL || shared_secret == NULL || shared_secret_len == NULL) {
+    if((private_key == NULL) || (peer_public_key == NULL) || (shared_secret == NULL) || (shared_secret_len == NULL)) {
         noxtls_ecdh_set_diagnostic(diagnostic, NOXTLS_ECDH_DIAGNOSTIC_ARGUMENT,
                                    NOXTLS_RETURN_NULL);
         return NOXTLS_RETURN_NULL;
@@ -110,7 +107,7 @@ noxtls_return_t noxtls_ecdh_compute_shared_secret_ex(
     /* Compute shared secret = d * Q_peer using scalar multiplication */
     /* This uses the same scalar multiplication as ECC */
     ecc_point_t shared_point;
-    noxtls_ecc_point_init(&shared_point, private_key->curve->size);
+    (void)noxtls_ecc_point_init(&shared_point, private_key->curve->size);
     
     rc = noxtls_ecc_point_multiply(&shared_point, private_key->d, peer_public_key, private_key->curve);
     if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -120,14 +117,14 @@ noxtls_return_t noxtls_ecdh_compute_shared_secret_ex(
     }
     
     /* Verify shared point is not at infinity (should not happen with valid inputs) */
-    is_infinity = 1;
-    for(i = 0; i < required_len; i++) {
-        if(shared_point.x[i] != 0 || shared_point.y[i] != 0) {
-            is_infinity = 0;
+    is_infinity = 1U;
+    for(i = 0U; i < required_len; i += 1U) {
+        if((shared_point.x[i] != 0U) || (shared_point.y[i] != 0U)) {
+            is_infinity = 0U;
             break;
         }
     }
-    if(is_infinity) {
+    if(is_infinity != 0U) {
         noxtls_ecdh_set_diagnostic(diagnostic,
                                    NOXTLS_ECDH_DIAGNOSTIC_SHARED_POINT_INFINITY,
                                    NOXTLS_RETURN_ECDH_SHARED_POINT_INFINITY);
@@ -135,7 +132,7 @@ noxtls_return_t noxtls_ecdh_compute_shared_secret_ex(
     }
     
     /* Extract x-coordinate as shared secret */
-    memcpy(shared_secret, shared_point.x, required_len);
+    noxtls_copy_u8(shared_secret, (size_t)required_len, shared_point.x, (size_t)required_len);
     *shared_secret_len = required_len;
     
     return NOXTLS_RETURN_SUCCESS;

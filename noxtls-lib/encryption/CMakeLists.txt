@@ -141,6 +141,7 @@ if(NOT ENC_SOURCES)
   message(FATAL_ERROR "At least one NOXTLS_FEATURE_* cipher must be enabled.")
 endif()
 # _ut sources moved to ut/encryption; not built into library
+list(APPEND ENC_SOURCES noxtls_encryption_api_refs.c)
 add_library(noxtls_encryption STATIC
     ${ENC_SOURCES}
 )

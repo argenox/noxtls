@@ -20,8 +20,8 @@
 *
 *****************************************************************************/
 
-#ifndef _NOXTLS_TLS_UNIFIED_H_
-#define _NOXTLS_TLS_UNIFIED_H_
+#ifndef NOXTLS_TLS_UNIFIED_H_
+#define NOXTLS_TLS_UNIFIED_H_
 
 #include <stdint.h>
 
@@ -42,11 +42,11 @@ extern "C" {
 /**
  * Unified TLS connection: one context type for TLS 1.2 or 1.3 with automatic
  * version negotiation. Server uses accept(); client uses connect() (tries 1.3 then 1.2).
- * Only one of u.tls12 or u.tls13 is active per connection.
+ * Only one of tls12 or tls13 is active per connection.
  */
 NOXTLS_MSVC_WARNING_PUSH
 NOXTLS_MSVC_DISABLE_PADDING
-typedef struct noxtls_tls_connection_s
+typedef struct
 {
     tls_context_t base;            /* I/O and first-record recv for server version detection */
     uint16_t negotiated_version;   /* 0 before handshake; TLS_VERSION_1_2 or TLS_VERSION_1_3 after */
@@ -57,7 +57,7 @@ typedef struct noxtls_tls_connection_s
     /** Internal: protocol context has been initialized and may be resumed. */
     uint8_t handshake_started;
     /* Config applied when version is chosen (server cert/key; client SNI) */
-    const uint8_t *server_cert;
+    uint8_t *server_cert;
     uint32_t server_cert_len;
     const uint8_t **server_cert_chain;
     const uint32_t *server_cert_chain_len;
@@ -65,9 +65,9 @@ typedef struct noxtls_tls_connection_s
     void *server_private_rsa;
     const uint16_t *server_cipher_suites;
     uint32_t server_cipher_suites_count;
-    const char **server_alpn_protocols;
+    const uint8_t **server_alpn_protocols;
     uint32_t server_alpn_count;
-    const char *server_name;
+    const uint8_t *server_name;
     uint16_t server_name_len;
     /** Client (RFC 7507): applied to the version context before ClientHello. */
     uint8_t client_send_fallback_scsv;
@@ -89,10 +89,8 @@ typedef struct noxtls_tls_connection_s
     /** Optional caller-owned TLS 1.3 client session copied before connect. */
     noxtls_tls13_session_t tls13_session;
     uint8_t tls13_session_configured;
-    union {
-        tls12_context_t tls12;
-        tls13_context_t tls13;
-    } u;
+    tls12_context_t tls12;
+    tls13_context_t tls13;
 } noxtls_tls_connection_t;
 NOXTLS_MSVC_WARNING_POP
 
@@ -126,7 +124,7 @@ noxtls_return_t noxtls_tls_connection_flush(noxtls_tls_connection_t *conn);
 noxtls_return_t noxtls_tls_connection_set_time_callback(noxtls_tls_connection_t *conn, tls_time_callback_t time_cb);
 
 /** Server: set certificate (DER). Applied to chosen context at accept. */
-noxtls_return_t noxtls_tls_connection_set_server_cert(noxtls_tls_connection_t *conn, const uint8_t *cert, uint32_t cert_len);
+noxtls_return_t noxtls_tls_connection_set_server_cert(noxtls_tls_connection_t *conn, uint8_t *cert, uint32_t cert_len);
 /** Server: set optional intermediate certificate chain (DER). Applied at accept. */
 noxtls_return_t noxtls_tls_connection_set_server_cert_chain(noxtls_tls_connection_t *conn,
                                                             const uint8_t **certs,
@@ -141,11 +139,11 @@ noxtls_return_t noxtls_tls_connection_set_server_cipher_suites(noxtls_tls_connec
                                                                uint32_t count);
 /** Server: set supported ALPN protocol names (non-owning). */
 noxtls_return_t noxtls_tls_connection_set_server_alpn_protocols(noxtls_tls_connection_t *conn,
-                                                                const char **protocols,
+                                                                const uint8_t **protocols,
                                                                 uint32_t count);
 
 /** Client: set SNI hostname. Applied at connect. */
-noxtls_return_t noxtls_tls_connection_set_sni(noxtls_tls_connection_t *conn, const char *name, uint16_t name_len);
+noxtls_return_t noxtls_tls_connection_set_sni(noxtls_tls_connection_t *conn, const uint8_t *name, uint16_t name_len);
 noxtls_return_t noxtls_tls_connection_set_client_fallback_scsv(noxtls_tls_connection_t *conn, int enable);
 
 /** Server: request any client certificate (mutual TLS). Call before accept. */
@@ -239,4 +237,4 @@ noxtls_return_t noxtls_tls_connection_get_resumption_identity(
 }
 #endif
 
-#endif /* _NOXTLS_TLS_UNIFIED_H_ */
+#endif /* NOXTLS_TLS_UNIFIED_H_ */

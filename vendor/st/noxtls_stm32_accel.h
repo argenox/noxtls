@@ -20,8 +20,8 @@
 *
 *****************************************************************************/
 
-#ifndef _NOXTLS_STM32_ACCEL_H_
-#define _NOXTLS_STM32_ACCEL_H_
+#ifndef NOXTLS_STM32_ACCEL_H_
+#define NOXTLS_STM32_ACCEL_H_
 
 #include <stdint.h>
 
@@ -128,4 +128,4 @@ noxtls_return_t noxtls_aes_accel_stm32wb_decrypt_block(const uint8_t *key,
                                                         uint8_t *output,
                                                         noxtls_aes_type_t type);
 
-#endif /* _NOXTLS_STM32_ACCEL_H_ */
+#endif /* NOXTLS_STM32_ACCEL_H_ */

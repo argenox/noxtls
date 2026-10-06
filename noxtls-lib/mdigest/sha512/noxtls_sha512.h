@@ -23,8 +23,8 @@
 /** @addtogroup noxtls_mdigest */
 /** @{ */
 
-#ifndef _NOXTLS_SHA512_H_
-#define _NOXTLS_SHA512_H_
+#ifndef NOXTLS_SHA512_H_
+#define NOXTLS_SHA512_H_
 
 #include "noxtls_common.h"
 #include "noxtls_hash.h"
@@ -33,14 +33,14 @@
 extern "C" {
 #endif
 
-#define HASH_SHA512_BLOCK_SIZE  (128)
-#define HASH_SHA512_OUT_LEN     (64)
-#define HASH_SHA512_224_OUT_LEN (28)
-#define HASH_SHA512_256_OUT_LEN (32)
-#define HASH_SHA512_LENGTH_LEN  (16)
+#define HASH_SHA512_BLOCK_SIZE  (128U)
+#define HASH_SHA512_OUT_LEN     (64U)
+#define HASH_SHA512_224_OUT_LEN (28U)
+#define HASH_SHA512_256_OUT_LEN (32U)
+#define HASH_SHA512_LENGTH_LEN  (16U)
 #define SHA512_BLOCK_SIZE_BITS  (1024U)
 #define SHA512_PAD_BYTE         (0x80u)
-#define SHA512_ROUND_COUNT      (80u)
+#define SHA512_ROUND_COUNT      (80U)
 #define SHA512_STATE_WORDS      (8U)
 #define SHA384_STATE_WORDS      (6U)
 #define SHA512_WORD_BYTES       (8U)

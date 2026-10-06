@@ -19,8 +19,8 @@
 *
 *****************************************************************************/
 
-#ifndef _NOXTLS_FALCON_INTERNAL_H_
-#define _NOXTLS_FALCON_INTERNAL_H_
+#ifndef NOXTLS_FALCON_INTERNAL_H_
+#define NOXTLS_FALCON_INTERNAL_H_
 
 #include <stdint.h>
 #include "mdigest/sha3/noxtls_sha3.h"
@@ -1578,4 +1578,4 @@ noxtls_return_t noxtls_falcon_comp_decode(const uint8_t *encoded,
 }
 #endif
 
-#endif /* _NOXTLS_FALCON_INTERNAL_H_ */
+#endif /* NOXTLS_FALCON_INTERNAL_H_ */

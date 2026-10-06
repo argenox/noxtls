@@ -22,8 +22,8 @@
 /** @addtogroup noxtls_certs */
 /** @{ */
 
-#ifndef _NOXTLS_ASN1_H
-#define _NOXTLS_ASN1_H
+#ifndef NOXTLS_ASN1_H
+#define NOXTLS_ASN1_H
 
 #include <stdint.h>
 
@@ -55,30 +55,20 @@ extern "C" {
 /* DER encoding: constructed SEQUENCE tag (0x30 = constructed | tag 16) */
 #define ASN1_DER_TAG_SEQUENCE      0x30
 
-#define GET_TAG_CLASS(X)      (((((1U << 7) | (1U << 6)) & (X))) >> 6)
-#define GET_TAG_PRIM_CONST(X) ((((1U << 5) & (X))) >> 5)
+/* Use bit-field extractors (also referenced so Rule 2.5 stays clean). */
 #define GET_TAG_NUM(X)        ((X) & 0x1Fu)
-
 #define GET_LENGTH(X)         ((X) & 0x7Fu)
 
-#define ASN1_CLASS_TYPE_UNIVERSAL     0
-#define ASN1_CLASS_TYPE_APPLICATION   1
-#define ASN1_CLASS_TYPE_CONTEXT       2
-#define ASN1_CLASS_TYPE_PRIVATE       3
-
-#define ASN1_TAG_TYPE_PRIMITIVE       0
-#define ASN1_TAG_TYPE_CONSTRUCTED     1
-
-uint32_t noxtls_parse_der(uint8_t * data, uint32_t len);
+uint32_t noxtls_parse_der(const uint8_t * data, uint32_t len);
 
 /* ASN.1 DER encode API (for keys, certificates, etc.) */
 
 /** Encode length in DER format into out. Returns bytes written (1 or 2-5), or 0 if length too large. */
-uint32_t noxtls_asn1_put_length(uint8_t *out, uint32_t len);
+uint32_t noxtls_asn1_put_length(uint8_t *out, uint32_t out_max, uint32_t len);
 
 /** Encode INTEGER from big-endian buffer. Skips leading zeros, adds 0x00 if high bit set.
  *  Returns bytes written, or 0 on error (buffer too small). */
-uint32_t noxtls_asn1_put_integer(uint8_t *out, uint32_t out_max, const uint8_t *value, uint32_t value_len);
+uint32_t noxtls_asn1_put_integer(uint8_t *out, uint32_t out_max, const uint8_t *int_be, uint32_t int_be_len);
 
 /** Encode SEQUENCE: write 0x30 + length + contents.
  *  Returns total bytes written, or 0 on error. */
@@ -86,7 +76,7 @@ uint32_t noxtls_asn1_put_sequence(uint8_t *out, uint32_t out_max, const uint8_t 
 
 /** Encode OBJECT IDENTIFIER from raw DER-encoded OID bytes.
  *  Returns bytes written, or 0 on error. */
-uint32_t noxtls_asn1_put_oid_raw(uint8_t *out, uint32_t out_max, const uint8_t *oid, uint32_t oid_len);
+uint32_t noxtls_asn1_put_oid_raw(uint8_t *out, uint32_t out_max, const uint8_t *oid_bytes, uint32_t oid_bytes_len);
 
 /** Encode BIT STRING: tag 0x03, unused bits 0, then data.
  *  Returns bytes written, or 0 on error. */
@@ -94,7 +84,7 @@ uint32_t noxtls_asn1_put_bit_string(uint8_t *out, uint32_t out_max, const uint8_
 
 /** Encode UTCTime (0x17): time_str must be "YYMMDDHHMMSSZ" (13 bytes).
  *  Returns bytes written, or 0 on error. */
-uint32_t noxtls_asn1_put_utc_time(uint8_t *out, uint32_t out_max, const char *time_str);
+uint32_t noxtls_asn1_put_utc_time(uint8_t *out, uint32_t out_max, const uint8_t *time_str);
 
 /** Encode context-specific EXPLICIT tag [tag_no]: 0x80|0x20|tag_no, length, contents.
  *  Returns bytes written, or 0 on error. */
@@ -110,11 +100,11 @@ uint32_t noxtls_asn1_put_set(uint8_t *out, uint32_t out_max, const uint8_t *cont
 
 /** Encode PrintableString (0x13): str is NUL-terminated.
  *  Returns bytes written, or 0 on error. */
-uint32_t noxtls_asn1_put_printable_string(uint8_t *out, uint32_t out_max, const char *str);
+uint32_t noxtls_asn1_put_printable_string(uint8_t *out, uint32_t out_max, const uint8_t *str);
 
 /** Encode IA5String (0x16): str is NUL-terminated.
  *  Returns bytes written, or 0 on error. */
-uint32_t noxtls_asn1_put_ia5_string(uint8_t *out, uint32_t out_max, const char *str);
+uint32_t noxtls_asn1_put_ia5_string(uint8_t *out, uint32_t out_max, const uint8_t *str);
 
 #ifdef __cplusplus
 }

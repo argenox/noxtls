@@ -21,8 +21,8 @@
 /** @addtogroup noxtls_certs */
 /** @{ */
 
-#ifndef _NOXTLS_CERTIFICATES_H_
-#define _NOXTLS_CERTIFICATES_H_
+#ifndef NOXTLS_CERTIFICATES_H_
+#define NOXTLS_CERTIFICATES_H_
 
 #include <stdint.h>
 #include "noxtls_common.h"
@@ -31,23 +31,14 @@
 extern "C" {
 #endif
 
-#define CERT_BEGIN_STR    "-----BEGIN CERTIFICATE-----"
-#define CERT_END_STR      "-----END CERTIFICATE-----"
-
-#define CERT_PUB_KEY_STR  "-----BEGIN PUBLIC KEY-----"
-#define CERT_PUB_KEY_END  "-----END PUBLIC KEY-----"
-
-#define CERT_PRIV_KEY_STR "-----BEGIN PRIVATE KEY-----"
-#define CERT_PRIV_KEY_END "-----END PRIVATE KEY-----"
-
-#define CERT_REQ_BEGIN_STR "-----BEGIN CERTIFICATE REQUEST-----"
-#define CERT_REQ_END_STR   "-----END CERTIFICATE REQUEST-----"
-
-#define PEM_MAX_LINE_LEN        64
-#define PEM_MAX_LINE_LEN_B64    48
 
 
+/* Private-key PEM banners used by certgen / tooling. */
 
+/* CSR PEM banners used by certgen / tooling. */
+
+
+#define PEM_MAX_LINE_LEN_B64    48U
 
 noxtls_return_t noxtls_certificate_der_to_pem(const uint8_t * data, uint32_t length, uint8_t * output, uint32_t * out_len);
 noxtls_return_t noxtls_certificate_pem_to_der(const uint8_t * data, uint32_t length, uint8_t * output, uint32_t * out_len);

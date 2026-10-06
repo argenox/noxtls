@@ -24,8 +24,8 @@
 /** @addtogroup noxtls_encryption */
 /** @{ */
 
-#ifndef _NOXTLS_DES_H_
-#define _NOXTLS_DES_H_
+#ifndef NOXTLS_DES_H_
+#define NOXTLS_DES_H_
 
 #include <stdint.h>
 #include "noxtls_common.h"
@@ -34,15 +34,14 @@
 extern "C" {
 #endif
 
-#define NOXTLS_DES_BLOCK_LENGTH  8
+#define NOXTLS_DES_BLOCK_LENGTH  8U
 #define NOXTLS_DES_KEY_LENGTH    8   /* 56-bit key in 8 bytes (parity bits in low bit of each byte) */
 #define NOXTLS_DES3_KEY_LENGTH   24  /* 168-bit key: K1||K2||K3 (each 8 bytes). 2-key: K1||K2||K1. */
 
-typedef enum {
-    NOXTLS_DES_56_BIT = 0,   /* Single DES: 8-byte key */
-    NOXTLS_DES3_2KEY  = 1,   /* 3DES with 2 keys: 16 bytes, used as K1,K2,K1 */
-    NOXTLS_DES3_3KEY  = 2,   /* 3DES with 3 keys: 24 bytes */
-} noxtls_des_type_t;
+typedef uint32_t noxtls_des_type_t;
+#define NOXTLS_DES_56_BIT ((noxtls_des_type_t)0U)  /* Single DES: 8-byte key */
+#define NOXTLS_DES3_2KEY  ((noxtls_des_type_t)1U)  /* 3DES with 2 keys: 16 bytes, used as K1,K2,K1 */
+#define NOXTLS_DES3_3KEY  ((noxtls_des_type_t)2U)  /* 3DES with 3 keys: 24 bytes */
 
 /**
  * @brief Encrypt a single 8-byte block with DES.
@@ -119,5 +118,5 @@ noxtls_return_t noxtls_des_self_test(void);
 }
 #endif
 
-#endif /* _NOXTLS_DES_H_ */
+#endif /* NOXTLS_DES_H_ */
 /** @} */

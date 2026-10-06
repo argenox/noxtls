@@ -27,8 +27,8 @@
  */
 /** @{ */
 
-#ifndef _NOXTLS_PKC_H_
-#define _NOXTLS_PKC_H_
+#ifndef NOXTLS_PKC_H_
+#define NOXTLS_PKC_H_
 
 #include <stdint.h>
 #include "noxtls_common.h"
@@ -45,5 +45,5 @@
 /* #include "lms/noxtls_lms.h" */
 /* #include "xmss/noxtls_xmss.h" */
 
-#endif /* _NOXTLS_PKC_H_ */
+#endif /* NOXTLS_PKC_H_ */
 

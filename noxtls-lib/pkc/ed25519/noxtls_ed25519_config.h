@@ -26,8 +26,8 @@
  * @ingroup noxtls_ed25519
  */
 
-#ifndef _NOXTLS_ED25519_CONFIG_H_
-#define _NOXTLS_ED25519_CONFIG_H_
+#ifndef NOXTLS_ED25519_CONFIG_H_
+#define NOXTLS_ED25519_CONFIG_H_
 
 #include <stdint.h>
 
@@ -161,4 +161,4 @@
 #define NOXTLS_ED25519_SLIDE_MAX_ABS 31
 #endif
 
-#endif /* _NOXTLS_ED25519_CONFIG_H_ */
+#endif /* NOXTLS_ED25519_CONFIG_H_ */

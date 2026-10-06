@@ -29,8 +29,8 @@
 /** @addtogroup noxtls_mdigest */
 /** @{ */
 
-#ifndef _NOXTLS_SHA1_H_
-#define _NOXTLS_SHA1_H_
+#ifndef NOXTLS_SHA1_H_
+#define NOXTLS_SHA1_H_
 
 #include "noxtls_sha.h"
 #include "noxtls_common.h"

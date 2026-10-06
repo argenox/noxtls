@@ -22,26 +22,22 @@
 /** @addtogroup noxtls_common */
 /** @{ */
 
-#ifndef _HANDLERS_H_
-#define _HANDLERS_H_
+#ifndef HANDLERS_H_
+#define HANDLERS_H_
 
 /* Standard Includes */
 #include <stdint.h>
-#include <stdio.h>
 #include "noxtls_config.h"
 
 typedef struct {
-    char algo[32];
+    uint8_t algo[32];
     int (*handler)(uint8_t * data, uint32_t len);
-    char description[256];
+    uint8_t description[256];
 
 } handlers_t;
 
-typedef enum {
+typedef uint32_t input_data_type_t;
+#define INPUT_DATA_TYPE_STRING ((input_data_type_t)0U)
+#define INPUT_DATA_TYPE_HEX    ((input_data_type_t)1U)
 
-    INPUT_DATA_TYPE_STRING,
-    INPUT_DATA_TYPE_HEX
-} input_data_type_t;
-
-
-#endif /* _HANDLERS_H_ */
+#endif /* HANDLERS_H_ */

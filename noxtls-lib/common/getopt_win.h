@@ -34,12 +34,12 @@
 extern "C" {
 #endif
 
-extern char *optarg;
+extern uint8_t *optarg;
 extern int optind;
 extern int opterr;
 extern int optopt;
 
-int noxtls_getopt(int argc, char * const argv[], const char *optstring);
+int noxtls_getopt(int argc, uint8_t * const argv[], const uint8_t *optstring);
 
 #ifdef __cplusplus
 }

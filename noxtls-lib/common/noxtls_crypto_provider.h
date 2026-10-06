@@ -20,8 +20,8 @@
 *          software keys. Leave provider NULL to use built-in software PKC.
 *
 *****************************************************************************/
-#ifndef _NOXTLS_CRYPTO_PROVIDER_H_
-#define _NOXTLS_CRYPTO_PROVIDER_H_
+#ifndef NOXTLS_CRYPTO_PROVIDER_H_
+#define NOXTLS_CRYPTO_PROVIDER_H_
 
 #include <stdint.h>
 #include "noxtls_common.h"
@@ -32,7 +32,7 @@ extern "C" {
 
 /**
  * Hash algorithm identifier for sign/verify. Values match noxtls_hash_algos_t
- * (e.g. NOXTLS_HASH_SHA_256 = 4). Include mdigest/noxtls_hash.h for the enum.
+ * (e.g. NOXTLS_HASH_SHA_256 = 4). Include mdigest/noxtls_hash.h for the macros.
  */
 typedef unsigned int noxtls_crypto_hash_algo_t;
 
@@ -50,124 +50,117 @@ typedef void *noxtls_crypto_provider_ctx_t;
 
 /**
  * RSA sign with PSS (TLS 1.3 CertificateVerify, server/client).
- * \p key_handle  Provider's handle for the RSA private key.
- * \p noxtls_message    Data to sign (e.g. hash or full noxtls_message; same as noxtls_rsa_sign_pss).
- * \p message_len Length of \p noxtls_message.
- * \p signature  Output buffer for signature.
- * \p signature_len In: size of buffer; Out: actual signature length.
- * \p hash_algo  noxtls_crypto_hash_algo_t (e.g. NOXTLS_HASH_SHA_256).
  * Return NOXTLS_RETURN_SUCCESS on success.
  */
 typedef noxtls_return_t (*noxtls_crypto_rsa_sign_pss_t)(
-    noxtls_crypto_provider_ctx_t prov_ctx,
-    noxtls_crypto_key_handle_t key_handle,
-    const uint8_t *noxtls_message,
-    uint32_t message_len,
-    uint8_t *signature,
-    uint32_t *signature_len,
-    noxtls_crypto_hash_algo_t hash_algo);
+    noxtls_crypto_provider_ctx_t rsa_sign_pss_prov_ctx,
+    noxtls_crypto_key_handle_t rsa_sign_pss_key,
+    const uint8_t *rsa_sign_pss_message,
+    uint32_t rsa_sign_pss_message_len,
+    uint8_t *rsa_sign_pss_signature,
+    uint32_t *rsa_sign_pss_signature_len,
+    noxtls_crypto_hash_algo_t rsa_sign_pss_hash_algo);
 
 /**
  * RSA sign with PKCS#1 v1.5 (TLS 1.2 ServerKeyExchange, DHE/ECDHE).
  * Same semantics as noxtls_rsa_sign.
  */
 typedef noxtls_return_t (*noxtls_crypto_rsa_sign_t)(
-    noxtls_crypto_provider_ctx_t prov_ctx,
-    noxtls_crypto_key_handle_t key_handle,
-    const uint8_t *noxtls_message,
-    uint32_t message_len,
-    uint8_t *signature,
-    uint32_t *signature_len,
-    noxtls_crypto_hash_algo_t hash_algo);
+    noxtls_crypto_provider_ctx_t rsa_sign_prov_ctx,
+    noxtls_crypto_key_handle_t rsa_sign_key,
+    const uint8_t *rsa_sign_message,
+    uint32_t rsa_sign_message_len,
+    uint8_t *rsa_sign_signature,
+    uint32_t *rsa_sign_signature_len,
+    noxtls_crypto_hash_algo_t rsa_sign_hash_algo);
 
 /**
  * RSA decrypt (TLS 1.2 RSA key exchange: Client Key Exchange).
- * \p ciphertext_len Typically key size in bytes (e.g. 256 for 2048-bit).
- * \p plaintext_len In: size of \p plaintext buffer; Out: actual plaintext length.
+ * ciphertext_len typically key size in bytes; plaintext_len is IN/OUT.
  */
 typedef noxtls_return_t (*noxtls_crypto_rsa_decrypt_t)(
-    noxtls_crypto_provider_ctx_t prov_ctx,
-    noxtls_crypto_key_handle_t key_handle,
-    const uint8_t *ciphertext,
-    uint32_t ciphertext_len,
-    uint8_t *plaintext,
-    uint32_t *plaintext_len);
+    noxtls_crypto_provider_ctx_t rsa_decrypt_prov_ctx,
+    noxtls_crypto_key_handle_t rsa_decrypt_key,
+    const uint8_t *rsa_decrypt_ciphertext,
+    uint32_t rsa_decrypt_ciphertext_len,
+    uint8_t *rsa_decrypt_plaintext,
+    uint32_t *rsa_decrypt_plaintext_len);
 
 /**
  * Optional: RSA verify (public key). Used when verifying peer certs with
  * a key held in the provider. NULL = NoxTLS uses software verify.
  */
 typedef noxtls_return_t (*noxtls_crypto_rsa_verify_pss_t)(
-    noxtls_crypto_provider_ctx_t prov_ctx,
-    noxtls_crypto_key_handle_t key_handle,
-    const uint8_t *noxtls_message,
-    uint32_t message_len,
-    const uint8_t *signature,
-    uint32_t signature_len,
-    noxtls_crypto_hash_algo_t hash_algo);
+    noxtls_crypto_provider_ctx_t rsa_verify_pss_prov_ctx,
+    noxtls_crypto_key_handle_t rsa_verify_pss_key,
+    const uint8_t *rsa_verify_pss_message,
+    uint32_t rsa_verify_pss_message_len,
+    const uint8_t *rsa_verify_pss_signature,
+    uint32_t rsa_verify_pss_signature_len,
+    noxtls_crypto_hash_algo_t rsa_verify_pss_hash_algo);
 
 /**
  * Optional: ECDSA sign (TLS 1.3 client CertificateVerify with ECDSA cert).
  * NULL = use software ECDSA when client key is software.
  */
 typedef noxtls_return_t (*noxtls_crypto_ecdsa_sign_t)(
-    noxtls_crypto_provider_ctx_t prov_ctx,
-    noxtls_crypto_key_handle_t key_handle,
-    const uint8_t *noxtls_message,
-    uint32_t message_len,
-    uint8_t *signature_der,
-    uint32_t *signature_der_len,
-    noxtls_crypto_hash_algo_t hash_algo);
+    noxtls_crypto_provider_ctx_t ecdsa_sign_prov_ctx,
+    noxtls_crypto_key_handle_t ecdsa_sign_key,
+    const uint8_t *ecdsa_sign_message,
+    uint32_t ecdsa_sign_message_len,
+    uint8_t *ecdsa_sign_signature_der,
+    uint32_t *ecdsa_sign_signature_der_len,
+    noxtls_crypto_hash_algo_t ecdsa_sign_hash_algo);
 
 /**
  * Optional: Ed25519 sign. NULL = use software Ed25519.
  */
 typedef noxtls_return_t (*noxtls_crypto_ed25519_sign_t)(
-    noxtls_crypto_provider_ctx_t prov_ctx,
-    noxtls_crypto_key_handle_t key_handle,
-    const uint8_t *noxtls_message,
-    uint32_t message_len,
-    uint8_t signature[64]);
+    noxtls_crypto_provider_ctx_t ed25519_sign_prov_ctx,
+    noxtls_crypto_key_handle_t ed25519_sign_key,
+    const uint8_t *ed25519_sign_message,
+    uint32_t ed25519_sign_message_len,
+    uint8_t ed25519_sign_signature[64]);
 
 /**
  * Optional: ML-DSA sign. signature_len is IN/OUT like RSA callbacks.
  */
 typedef noxtls_return_t (*noxtls_crypto_mldsa_sign_t)(
-    noxtls_crypto_provider_ctx_t prov_ctx,
-    noxtls_crypto_key_handle_t key_handle,
-    uint16_t mldsa_param,
-    const uint8_t *noxtls_message,
-    uint32_t message_len,
-    uint8_t *signature,
-    uint32_t *signature_len);
+    noxtls_crypto_provider_ctx_t mldsa_sign_prov_ctx,
+    noxtls_crypto_key_handle_t mldsa_sign_key,
+    uint16_t mldsa_sign_param,
+    const uint8_t *mldsa_sign_message,
+    uint32_t mldsa_sign_message_len,
+    uint8_t *mldsa_sign_signature,
+    uint32_t *mldsa_sign_signature_len);
 
 /**
  * Optional: ML-KEM encapsulation using provider-held public key.
  */
 typedef noxtls_return_t (*noxtls_crypto_mlkem_encaps_t)(
-    noxtls_crypto_provider_ctx_t prov_ctx,
-    noxtls_crypto_key_handle_t key_handle,
-    uint16_t mlkem_param,
-    uint8_t *ciphertext,
-    uint32_t *ciphertext_len,
-    uint8_t shared_secret[32]);
+    noxtls_crypto_provider_ctx_t mlkem_encaps_prov_ctx,
+    noxtls_crypto_key_handle_t mlkem_encaps_key,
+    uint16_t mlkem_encaps_param,
+    uint8_t *mlkem_encaps_ciphertext,
+    uint32_t *mlkem_encaps_ciphertext_len,
+    uint8_t mlkem_encaps_shared_secret[32]);
 
 /**
  * Optional: ML-KEM decapsulation using provider-held private key.
  */
 typedef noxtls_return_t (*noxtls_crypto_mlkem_decaps_t)(
-    noxtls_crypto_provider_ctx_t prov_ctx,
-    noxtls_crypto_key_handle_t key_handle,
-    uint16_t mlkem_param,
-    const uint8_t *ciphertext,
-    uint32_t ciphertext_len,
-    uint8_t shared_secret[32]);
+    noxtls_crypto_provider_ctx_t mlkem_decaps_prov_ctx,
+    noxtls_crypto_key_handle_t mlkem_decaps_key,
+    uint16_t mlkem_decaps_param,
+    const uint8_t *mlkem_decaps_ciphertext,
+    uint32_t mlkem_decaps_ciphertext_len,
+    uint8_t mlkem_decaps_shared_secret[32]);
 
 /**
  * Operations table for a crypto provider. Set unused ops to NULL;
  * NoxTLS will use software for those operations.
  */
-typedef struct noxtls_crypto_provider_ops_s
+typedef struct
 {
     noxtls_crypto_rsa_sign_pss_t   rsa_sign_pss;
     noxtls_crypto_rsa_sign_t       rsa_sign;
@@ -184,7 +177,7 @@ typedef struct noxtls_crypto_provider_ops_s
  * Crypto provider: context + ops. Register this on a TLS context to use
  * hardware or external keys for sign/decrypt. Leave NULL to use only software.
  */
-typedef struct noxtls_crypto_provider_s
+typedef struct
 {
     noxtls_crypto_provider_ctx_t       ctx;
     const noxtls_crypto_provider_ops_t *ops;
@@ -194,4 +187,4 @@ typedef struct noxtls_crypto_provider_s
 }
 #endif
 
-#endif /* _NOXTLS_CRYPTO_PROVIDER_H_ */
+#endif /* NOXTLS_CRYPTO_PROVIDER_H_ */

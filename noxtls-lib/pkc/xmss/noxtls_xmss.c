@@ -41,7 +41,7 @@ uint32_t noxtls_xmss_secret_key_len(noxtls_xmss_param_t param)
         case NOXTLS_XMSS_SHA2_16_256:
         case NOXTLS_XMSSMT_SHA2_20_2_256:
         case NOXTLS_XMSSMT_SHA2_20_4_256:
-            return 132u;
+            return 132U;
         default:
             return 0U;
     }
@@ -56,10 +56,10 @@ uint32_t noxtls_xmss_secret_key_len(noxtls_xmss_param_t param)
 uint32_t noxtls_xmss_signature_len(noxtls_xmss_param_t param)
 {
     switch(param) {
-        case NOXTLS_XMSS_SHA2_10_256: return 2500u;
-        case NOXTLS_XMSS_SHA2_16_256: return 2692u;
-        case NOXTLS_XMSSMT_SHA2_20_2_256: return 4968u;
-        case NOXTLS_XMSSMT_SHA2_20_4_256: return 5608u;
+        case NOXTLS_XMSS_SHA2_10_256: return 2500U;
+        case NOXTLS_XMSS_SHA2_16_256: return 2692U;
+        case NOXTLS_XMSSMT_SHA2_20_2_256: return 4968U;
+        case NOXTLS_XMSSMT_SHA2_20_4_256: return 5608U;
         default: return 0U;
     }
 }
@@ -114,7 +114,6 @@ noxtls_return_t noxtls_xmss_sign(noxtls_xmss_param_t param,
     (void)signature_len;
     return NOXTLS_RETURN_NOT_SUPPORTED;
 }
-
 
 /**
  * @brief Verify a message with XMSS

@@ -62,9 +62,9 @@ uint64_t noxtls_bench_time_now_ns(void)
 #endif
 }
 
-void noxtls_bench_log(const char *fmt, ...)
+void noxtls_bench_log(const uint8_t *fmt, ...)
 {
-    char line[256];
+    uint8_t line[256];
     va_list ap;
     va_start(ap, fmt);
     (void)vsnprintf(line, sizeof(line), fmt, ap);

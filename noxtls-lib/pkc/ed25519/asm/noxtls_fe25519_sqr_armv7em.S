@@ -9,22 +9,22 @@
 // Derived from a register-allocating code generator; do not edit by hand.
 
 
-	
+
 	.file	"cortex_m4_sqr_fe25519.S"
-	
+
 	.text
 	.align	2
 
 // ****************************************************
 // Implementation of fe25519 square.
 // uses packed non-redundant representation.
-// 
-// 
+//
+//
 // implements the interface
 //
 // void
 // fe25519_square_asm (fe25519 *pResult, const fe25519 *pVal1);
-//	
+//
 // in:
 //    r0 == ptr to Result word
 //    r1 == prt to value to square

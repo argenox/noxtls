@@ -23,8 +23,8 @@
 /** @addtogroup noxtls_pkc */
 /** @{ */
 
-#ifndef _NOXTLS_DSA_H_
-#define _NOXTLS_DSA_H_
+#ifndef NOXTLS_DSA_H_
+#define NOXTLS_DSA_H_
 
 #include <stdint.h>
 #include "noxtls_common.h"
@@ -35,9 +35,9 @@ extern "C" {
 #endif
 
 /** Maximum length of DSA prime q in bytes (256-bit q). */
-#define DSA_MAX_Q_BYTES 32
+#define DSA_MAX_Q_BYTES 32U
 /** Maximum length of DSA prime modulus p in bytes (3072-bit p). */
-#define DSA_MAX_P_BYTES 384
+#define DSA_MAX_P_BYTES 384U
 
 /**
  * DSA domain parameters and key.
@@ -85,4 +85,4 @@ noxtls_return_t noxtls_dsa_signature_free(dsa_signature_t *sig);
 }
 #endif
 
-#endif /* _NOXTLS_DSA_H_ */
+#endif /* NOXTLS_DSA_H_ */

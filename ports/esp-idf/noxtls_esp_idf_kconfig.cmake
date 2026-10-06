@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-06T02:26:05Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-06T02:37:00Z)
 
 if(NOT CONFIG_NOXTLS)
   return()
@@ -122,6 +122,12 @@ else()
   target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_ECC_P256_LOW_RAM_VERIFY=0)
 endif()
 
+if(CONFIG_NOXTLS_ECC_SHARED_SCRATCH)
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_ECC_SHARED_SCRATCH=1)
+else()
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_ECC_SHARED_SCRATCH=0)
+endif()
+
 if(CONFIG_NOXTLS_ECDSA_SIGN_SELF_VERIFY)
   target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_ECDSA_SIGN_SELF_VERIFY=1)
 else()
@@ -176,10 +182,22 @@ else()
   target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_FEATURE_XMSS=0)
 endif()
 
+if(CONFIG_NOXTLS_HAVE_FILE_IO)
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_HAVE_FILE_IO=1)
+else()
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_HAVE_FILE_IO=0)
+endif()
+
 if(CONFIG_NOXTLS_HAVE_TIME)
   target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_HAVE_TIME=1)
 else()
   target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_HAVE_TIME=0)
+endif()
+
+if(CONFIG_NOXTLS_HMAC_SHA256_SHARED_STATE)
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_HMAC_SHA256_SHARED_STATE=1)
+else()
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_HMAC_SHA256_SHARED_STATE=0)
 endif()
 
 if(CONFIG_NOXTLS_RSA_ENABLE_QUICK_DIVISIBILITY_TEST)

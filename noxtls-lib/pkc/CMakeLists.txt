@@ -9,6 +9,7 @@ option(NOXTLS_ECDSA_SIGN_SKIP_SELF_VERIFY_P256 "Skip sign-time self-verify for 3
 # Force Montgomery ladder only (disable windowed scalar mult). Use to isolate windowed-path bugs.
 option(NOXTLS_ECC_LADDER_ONLY "Use Montgomery ladder only for ECC point multiply (set NOXTLS_ECC_POINT_MUL_WINDOW_SIZE=0)" OFF)
 option(NOXTLS_ECC_P256_FLASH_PRECOMPUTE "Store the compact P-256 generator precompute table in flash/ROM" OFF)
+option(NOXTLS_ECC_SHARED_SCRATCH "Use externally serialized shared ECC/P-256 inversion scratch" OFF)
 option(NOXTLS_ECC_P256_LOW_RAM_VERIFY "Use flash G precompute plus a compact runtime Q table for P-256 verification" OFF)
 option(NOXTLS_NRF52840_CC310_ECC "Use the direct nRF52840 CryptoCell 310 PKA for P-256" OFF)
 option(NOXTLS_NRF53_CC312_P256_ACCEL "Use the nRF5340 CryptoCell 312 P-256 accelerator" OFF)
@@ -200,6 +201,7 @@ endif()
 if(USE_REF_ECC_POINT_MUL)
 endif()
 
+list(APPEND PKC_SOURCES noxtls_pkc_api_refs.c)
 add_library(noxtls_pkc STATIC ${PKC_SOURCES})
 
 if(MSVC)
@@ -284,4 +286,8 @@ else()
 endif()
 
 if(USE_REF_ECC_POINT_MUL)
+endif()
+
+if(NOXTLS_ECC_SHARED_SCRATCH)
+    target_compile_definitions(noxtls_pkc PUBLIC NOXTLS_ECC_SHARED_SCRATCH=1)
 endif()

@@ -9,6 +9,7 @@ if(NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL)
 endif()
 add_library(noxtls_drbg STATIC
     ${NOXTLS_DRBG_SOURCES}
+    noxtls_drbg_api_refs.c
 )
 
 if(MSVC)

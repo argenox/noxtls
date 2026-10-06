@@ -26,6 +26,7 @@
 #include "noxtls_camellia.h"
 #include "noxtls_camellia_internal.h"
 #include "noxtls_common.h"
+#include "noxtls_ct.h"
 
 #if NOXTLS_FEATURE_CAMELLIA
 
@@ -43,43 +44,43 @@
  * @param type is the Camellia variant, 128, 192, 256
  * @return NOXTLS_RETURN_SUCCESS on success
  */
-/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
+/* Block-indexed OFB walk; extents follow caller data_len / Camellia block size. */
 noxtls_return_t noxtls_camellia_encrypt_ofb(const uint8_t* key, 
                          const uint8_t* data, 
                          uint32_t data_len,
                          const uint8_t * iv,
                          uint8_t* output, 
                          noxtls_camellia_type_t type)
-/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    uint32_t cur_block = 0;
+    uint32_t cur_block = 0U;
     uint32_t i;
     uint8_t keystream_block[NOXTLS_CAMELLIA_BLOCK_LENGTH];
     uint8_t zero_iv[NOXTLS_CAMELLIA_BLOCK_LENGTH];
     const uint8_t * iv_src = NULL;
-    
+    const uint32_t block_sz = (uint32_t)NOXTLS_CAMELLIA_BLOCK_LENGTH;
+
     /* Initialize keystream block with IV */
-    if(iv == NULL) {
-        memset(zero_iv, 0, NOXTLS_CAMELLIA_BLOCK_LENGTH);
+    if (iv == NULL) {
+        noxtls_secure_zero((zero_iv), (size_t)(block_sz));
         iv_src = zero_iv;
     }
     else {
         iv_src = iv;
     }
-    
-    memcpy(keystream_block, iv_src, NOXTLS_CAMELLIA_BLOCK_LENGTH);
-    
-    for(cur_block = 0; cur_block < data_len; cur_block += NOXTLS_CAMELLIA_BLOCK_LENGTH)
+
+    noxtls_copy_u8(keystream_block, sizeof(keystream_block), iv_src, (size_t)block_sz);
+
+    for (cur_block = 0U; cur_block < data_len; cur_block += block_sz)
     {
-        uint32_t block_len = (data_len - cur_block < NOXTLS_CAMELLIA_BLOCK_LENGTH) ? 
-                             (data_len - cur_block) : NOXTLS_CAMELLIA_BLOCK_LENGTH;
-        
+        uint32_t remain = (uint32_t)(data_len - cur_block);
+        uint32_t block_len = (uint32_t)((remain < block_sz) ? remain : block_sz);
+
         /* Encrypt keystream block to generate next keystream */
-        noxtls_camellia_encrypt_block_internal(key, keystream_block, keystream_block, type);
-        
+        (void)noxtls_camellia_encrypt_block_internal(key, keystream_block, keystream_block, type);
+
         /* XOR keystream with plaintext */
-        for(i = 0; i < block_len; i++) {
-            output[cur_block + i] = data[cur_block + i] ^ keystream_block[i];
+        for (i = 0U; i < block_len; i += 1U) {
+            output[cur_block + i] = (uint8_t)(data[cur_block + i] ^ keystream_block[i]);
         }
     }
 
@@ -94,9 +95,6 @@ noxtls_return_t noxtls_camellia_decrypt_ofb(const uint8_t* key,
                          uint32_t data_len,
                          const uint8_t * iv,
                          uint8_t* output,
-                         noxtls_camellia_type_t type)
-{
-    return noxtls_camellia_encrypt_ofb(key, data, data_len, iv, output, type);
-}
+                         noxtls_camellia_type_t type) { return noxtls_camellia_encrypt_ofb(key, data, data_len, iv, output, type); }
 
 #endif /* NOXTLS_FEATURE_CAMELLIA */

@@ -24,7 +24,7 @@ static uint32_t noxtls_load_be32(const uint8_t *src)
 {
     return ((uint32_t)src[0] << 24) |
            ((uint32_t)src[1] << 16) |
-           ((uint32_t)src[2] << 8) |
+           ((uint32_t)src[2] << 8U) |
            ((uint32_t)src[3]);
 }
 
@@ -42,14 +42,14 @@ noxtls_return_t noxtls_stm32_hash_core_sha256_round(noxtls_sha_ctx_t *ctx,
     uint32_t h;
     uint32_t t;
 
-    if(ctx == NULL || input == NULL) {
+    if((ctx == NULL) || (input == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
-    for(t = 0u; t < 16u; t++) {
-        w[t] = noxtls_load_be32(input + (t * 4u));
+    for(t = 0u; t < 16u; t += 1U) {
+        w[t] = noxtls_load_be32(&input[(t * 4u)]);
     }
-    for(t = 16u; t < NOXTLS_STM32_SHA256_ROUND_COUNT; t++) {
+    for(t = 16u; t < NOXTLS_STM32_SHA256_ROUND_COUNT; t += 1U) {
         w[t] = NOXTLS_STM32_SHA_SIGMA_FROM_1(w[t - 2u]) + w[t - 7u] +
                NOXTLS_STM32_SHA_SIGMA_FROM_0(w[t - 15u]) + w[t - 16u];
     }
@@ -63,7 +63,7 @@ noxtls_return_t noxtls_stm32_hash_core_sha256_round(noxtls_sha_ctx_t *ctx,
     g = ctx->h[6];
     h = ctx->h[7];
 
-    for(t = 0u; t < NOXTLS_STM32_SHA256_ROUND_COUNT; t++) {
+    for(t = 0u; t < NOXTLS_STM32_SHA256_ROUND_COUNT; t += 1U) {
         uint32_t t1 = h + NOXTLS_STM32_SHA_SUM_FROM_1(e) + NOXTLS_STM32_SHA_CH(e, f, g) +
                       s_sha256_k[t] + w[t];
         uint32_t t2 = NOXTLS_STM32_SHA_SUM_FROM_0(a) + NOXTLS_STM32_SHA_MAJ(a, b, c);
@@ -95,12 +95,12 @@ noxtls_return_t noxtls_stm32_hash_core_sha256_blocks(noxtls_sha_ctx_t *ctx,
 {
     uint32_t i;
 
-    if(ctx == NULL || input == NULL) {
+    if((ctx == NULL) || (input == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
-    for(i = 0u; i < block_count; i++) {
-        noxtls_return_t rc = noxtls_stm32_hash_core_sha256_round(ctx, input + (i * 64u));
+    for(i = 0u; i < block_count; i += 1U) {
+        noxtls_return_t rc = noxtls_stm32_hash_core_sha256_round(ctx, &input[(i * 64u)]);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }

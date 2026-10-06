@@ -37,11 +37,12 @@
  * @{
  */
 
-#ifndef _NOXTLS_COMMON_H_
-#define _NOXTLS_COMMON_H_
+#ifndef NOXTLS_COMMON_H_
+#define NOXTLS_COMMON_H_
 
 #include <noxtls_config.h>
 #include "noxtls_check_config.h"
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -80,59 +81,56 @@ extern "C" {
 #endif
 
 /** @addtogroup return_codes */
-/** Return type for NoxTLS API functions. */
-typedef enum
-{
-	NOXTLS_RETURN_SUCCESS,           /**< Operation completed successfully (value 0). */
-	NOXTLS_RETURN_FAILED,            /**< General failure (e.g. verification failed, crypto operation failed). */
-	NOXTLS_RETURN_NULL,              /**< A required pointer argument was NULL. */
-	NOXTLS_RETURN_INVALID_PARAM,     /**< An argument was invalid (e.g. out of range, inconsistent). */
-	NOXTLS_RETURN_INVALID_BLOCK_SIZE,/**< Block or buffer size invalid for the operation. */
-	NOXTLS_RETURN_INVALID_KEY_SIZE,  /**< Key size invalid for the algorithm or mode. */
-	NOXTLS_RETURN_INVALID_MODE,      /**< Cipher mode invalid or not supported for this operation. */
-	NOXTLS_RETURN_INVALID_ALGORITHM, /**< Requested algorithm not supported or invalid in this context. */
-	NOXTLS_RETURN_BAD_DATA,          /**< Input data was malformed or invalid. */
-	NOXTLS_RETURN_TIMEOUT,           /**< Operation timed out. */
-	NOXTLS_RETURN_NOT_SUPPORTED,     /**< Requested feature or option is not supported. */
-	NOXTLS_RETURN_NOT_INITIALIZED,   /**< Context or module was not initialized. */
-	NOXTLS_RETURN_NOT_ENOUGH_MEMORY, /**< Memory allocation failed. */
-	NOXTLS_RETURN_NOT_ENOUGH_ENTROPY,/**< Insufficient entropy for random or key-generation. */
-	NOXTLS_RETURN_CERT_PARSE_FAILED,         /**< Certificate parsing failed (malformed DER or invalid structure). */
-	NOXTLS_RETURN_CERT_VERIFY_FAILED,        /**< Certificate verification failed (generic). */
-	NOXTLS_RETURN_TLS_ERROR,                 /**< TLS/protocol error (handshake, record, or unexpected message). */
-	NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED,/**< Certificate signature verification failed (invalid or issuer key missing). */
-	NOXTLS_RETURN_CERT_VERIFY_HOSTNAME_MISMATCH,/**< Hostname does not match certificate SAN or subject CN. */
-	NOXTLS_RETURN_CERT_EXPIRED,              /**< Certificate has expired (current time > notAfter). */
-	NOXTLS_RETURN_CERT_NOT_YET_VALID,        /**< Certificate not yet valid (current time < notBefore). */
-	NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED,  /**< Certificate chain verification failed (signature or validity of a link). */
-	NOXTLS_RETURN_CERT_REVOKED,              /**< Certificate serial appears on the provided CRL (revoked). */
-	NOXTLS_RETURN_CRL_PARSE_FAILED,         /**< CRL DER/PEM parsing failed (malformed structure). */
-	NOXTLS_RETURN_CRL_VERIFY_FAILED,        /**< CRL signature verification failed against issuer. */
-	NOXTLS_RETURN_CRL_EXPIRED,              /**< CRL nextUpdate (or validity window) is not acceptable (e.g. stale CRL). */
-	NOXTLS_RETURN_TLS_WEAK_DHE_PARAMS,      /**< TLS DHE ServerKeyExchange parameters are weak/unsupported (e.g. very small finite-field DH). */
-	NOXTLS_RETURN_RECORD_OVERFLOW,          /**< TLS record plaintext exceeds negotiated or protocol maximum (send record_overflow). */
-	NOXTLS_RETURN_CERT_REQUIRED,            /**< TLS 1.3: server required a client certificate, but peer did not present one. */
-	NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR,   /**< Malformed handshake: send fatal decode_error (50). */
-	NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER, /**< Invalid handshake field: send fatal illegal_parameter (47). */
-	NOXTLS_RETURN_TLS_RECORD_AUTH_FAILED, /**< AEAD record open failed (e.g. bad tag); send fatal bad_record_mac (20). */
-	NOXTLS_RETURN_TLS_FINISHED_VERIFY_FAILED, /**< Client Finished verify_data mismatch after decrypt; send fatal decrypt_error (51). */
-	/** TLS 1.3 client received a TLS 1.2 ServerHello after a TLS 1.3 ClientHello; unified layer continues with TLS 1.2 on the same connection. */
-	NOXTLS_RETURN_NEGOTIATED_TLS12,
-	/** Nonblocking transport has not supplied enough bytes to continue. */
-	NOXTLS_RETURN_WANT_READ,
-	/** Nonblocking transport still has encrypted bytes waiting to be written. */
-	NOXTLS_RETURN_WANT_WRITE,
-	/** ECDH private-key context was missing or invalid. */
-	NOXTLS_RETURN_ECDH_PRIVATE_KEY_INVALID,
-	/** ECDH output buffer cannot hold the selected curve's shared secret. */
-	NOXTLS_RETURN_ECDH_OUTPUT_TOO_SMALL,
-	/** ECDH peer public key was invalid, infinity, or not on the curve. */
-	NOXTLS_RETURN_ECDH_PEER_PUBLIC_KEY_INVALID,
-	/** ECDH scalar multiplication failed; consult optional diagnostic for the inner return. */
-	NOXTLS_RETURN_ECDH_SCALAR_MULTIPLY_FAILED,
-	/** ECDH multiplication yielded the point at infinity. */
-	NOXTLS_RETURN_ECDH_SHARED_POINT_INFINITY
-} noxtls_return_t;
+/**
+ * Return type for NoxTLS API functions.
+ *
+ * Implemented as an unsigned integer (not a C enum) so return constants have
+ * the same essential type as the API return type (MISRA C:2025 Rule 10.3).
+ * Numeric values match the historical enum order.
+ */
+typedef uint32_t noxtls_return_t;
+
+#define NOXTLS_RETURN_SUCCESS                         ((noxtls_return_t)0U)  /**< Operation completed successfully. */
+#define NOXTLS_RETURN_FAILED                          ((noxtls_return_t)1U)  /**< General failure. */
+#define NOXTLS_RETURN_NULL                            ((noxtls_return_t)2U)  /**< A required pointer argument was NULL. */
+#define NOXTLS_RETURN_INVALID_PARAM                   ((noxtls_return_t)3U)  /**< An argument was invalid. */
+#define NOXTLS_RETURN_INVALID_BLOCK_SIZE              ((noxtls_return_t)4U)  /**< Block or buffer size invalid. */
+#define NOXTLS_RETURN_INVALID_KEY_SIZE                ((noxtls_return_t)5U)  /**< Key size invalid. */
+#define NOXTLS_RETURN_INVALID_MODE                    ((noxtls_return_t)6U)  /**< Cipher mode invalid or unsupported. */
+#define NOXTLS_RETURN_INVALID_ALGORITHM               ((noxtls_return_t)7U)  /**< Algorithm not supported or invalid. */
+#define NOXTLS_RETURN_BAD_DATA                        ((noxtls_return_t)8U)  /**< Input data was malformed or invalid. */
+#define NOXTLS_RETURN_TIMEOUT                         ((noxtls_return_t)9U)  /**< Operation timed out. */
+#define NOXTLS_RETURN_NOT_SUPPORTED                   ((noxtls_return_t)10U) /**< Feature or option not supported. */
+#define NOXTLS_RETURN_NOT_INITIALIZED                 ((noxtls_return_t)11U) /**< Context or module not initialized. */
+#define NOXTLS_RETURN_NOT_ENOUGH_MEMORY               ((noxtls_return_t)12U) /**< Memory allocation failed. */
+#define NOXTLS_RETURN_NOT_ENOUGH_ENTROPY              ((noxtls_return_t)13U) /**< Insufficient entropy. */
+#define NOXTLS_RETURN_CERT_PARSE_FAILED               ((noxtls_return_t)14U) /**< Certificate parsing failed. */
+#define NOXTLS_RETURN_CERT_VERIFY_FAILED              ((noxtls_return_t)15U) /**< Certificate verification failed. */
+#define NOXTLS_RETURN_TLS_ERROR                       ((noxtls_return_t)16U) /**< TLS/protocol error. */
+#define NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED    ((noxtls_return_t)17U) /**< Certificate signature verification failed. */
+#define NOXTLS_RETURN_CERT_VERIFY_HOSTNAME_MISMATCH   ((noxtls_return_t)18U) /**< Hostname does not match certificate. */
+#define NOXTLS_RETURN_CERT_EXPIRED                    ((noxtls_return_t)19U) /**< Certificate has expired. */
+#define NOXTLS_RETURN_CERT_NOT_YET_VALID              ((noxtls_return_t)20U) /**< Certificate not yet valid. */
+#define NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED        ((noxtls_return_t)21U) /**< Certificate chain verification failed. */
+#define NOXTLS_RETURN_CERT_REVOKED                    ((noxtls_return_t)22U) /**< Certificate appears on CRL. */
+#define NOXTLS_RETURN_CRL_PARSE_FAILED                ((noxtls_return_t)23U) /**< CRL parsing failed. */
+#define NOXTLS_RETURN_CRL_VERIFY_FAILED               ((noxtls_return_t)24U) /**< CRL signature verification failed. */
+#define NOXTLS_RETURN_CRL_EXPIRED                     ((noxtls_return_t)25U) /**< CRL validity window not acceptable. */
+#define NOXTLS_RETURN_TLS_WEAK_DHE_PARAMS             ((noxtls_return_t)26U) /**< Weak/unsupported DHE parameters. */
+#define NOXTLS_RETURN_RECORD_OVERFLOW                 ((noxtls_return_t)27U) /**< TLS record plaintext exceeds maximum. */
+#define NOXTLS_RETURN_CERT_REQUIRED                   ((noxtls_return_t)28U) /**< Client certificate was required but missing. */
+#define NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR          ((noxtls_return_t)29U) /**< Malformed handshake (decode_error). */
+#define NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER     ((noxtls_return_t)30U) /**< Invalid handshake field (illegal_parameter). */
+#define NOXTLS_RETURN_TLS_RECORD_AUTH_FAILED          ((noxtls_return_t)31U) /**< AEAD record open failed (bad_record_mac). */
+#define NOXTLS_RETURN_TLS_FINISHED_VERIFY_FAILED      ((noxtls_return_t)32U) /**< Finished verify_data mismatch. */
+#define NOXTLS_RETURN_NEGOTIATED_TLS12                ((noxtls_return_t)33U) /**< Downgrade path: continue as TLS 1.2. */
+#define NOXTLS_RETURN_WANT_READ                       ((noxtls_return_t)34U) /**< Nonblocking: need more input bytes. */
+#define NOXTLS_RETURN_WANT_WRITE                      ((noxtls_return_t)35U) /**< Nonblocking: encrypted output pending. */
+#define NOXTLS_RETURN_ECDH_PRIVATE_KEY_INVALID        ((noxtls_return_t)36U) /**< ECDH private-key context invalid. */
+#define NOXTLS_RETURN_ECDH_OUTPUT_TOO_SMALL           ((noxtls_return_t)37U) /**< ECDH output buffer too small. */
+#define NOXTLS_RETURN_ECDH_PEER_PUBLIC_KEY_INVALID    ((noxtls_return_t)38U) /**< ECDH peer public key invalid. */
+#define NOXTLS_RETURN_ECDH_SCALAR_MULTIPLY_FAILED     ((noxtls_return_t)39U) /**< ECDH scalar multiplication failed. */
+#define NOXTLS_RETURN_ECDH_SHARED_POINT_INFINITY      ((noxtls_return_t)40U) /**< ECDH result was the point at infinity. */
 
 /** @} */
 

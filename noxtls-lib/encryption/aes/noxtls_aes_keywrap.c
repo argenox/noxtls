@@ -14,6 +14,7 @@
 #include <string.h>
 
 #include "noxtls_aes_keywrap.h"
+#include "common/noxtls_ct.h"
 
 /** @brief RFC 3394 §2.2.3.1 default initial value (0xA6 repeated). */
 #define NOXTLS_AES_KW_IV_OCTET 0xA6U
@@ -29,7 +30,7 @@
  * @param [in,out] a 8-octet register A.
  * @param [in] t Counter value n*j + i.
  */
-static void noxtls_aes_kw_xor_t(uint8_t a[NOXTLS_AES_KW_SEMIBLOCK], uint32_t t)
+static void noxtls_aes_kw_xor_t(uint8_t *a, uint32_t t)
 {
     a[4] ^= (uint8_t)(t >> 24);
     a[5] ^= (uint8_t)(t >> 16);
@@ -46,34 +47,46 @@ noxtls_return_t noxtls_aes_key_wrap(const uint8_t *kek, noxtls_aes_type_t type,
     uint32_t n;
     uint32_t i;
     uint32_t j;
+    noxtls_return_t rc;
 
     if((kek == NULL) || (plain == NULL) || (wrapped == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
+    if((type != NOXTLS_AES_128_BIT) && (type != NOXTLS_AES_192_BIT) && (type != NOXTLS_AES_256_BIT)) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
     if(((plain_len % NOXTLS_AES_KW_SEMIBLOCK) != 0U) ||
        ((plain_len / NOXTLS_AES_KW_SEMIBLOCK) < NOXTLS_AES_KW_MIN_N)) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    if(plain_len > (UINT32_MAX - NOXTLS_AES_KW_SEMIBLOCK)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
     n = plain_len / NOXTLS_AES_KW_SEMIBLOCK;
 
     /* §2.2.1: A = IV, R[i] = P[i]; C[0] = A lives in wrapped[0..7]. */
     a = wrapped;
-    (void)memset(a, (int)NOXTLS_AES_KW_IV_OCTET, NOXTLS_AES_KW_SEMIBLOCK);
-    (void)memmove(&wrapped[NOXTLS_AES_KW_SEMIBLOCK], plain, plain_len);
+    noxtls_move_u8(&wrapped[NOXTLS_AES_KW_SEMIBLOCK], plain_len, plain, plain_len);
+    noxtls_fill_u8(a, NOXTLS_AES_KW_SEMIBLOCK, NOXTLS_AES_KW_IV_OCTET, NOXTLS_AES_KW_SEMIBLOCK);
 
     for(j = 0U; j < NOXTLS_AES_KW_ROUNDS; j++) {
         for(i = 1U; i <= n; i++) {
             uint8_t *r = &wrapped[i * NOXTLS_AES_KW_SEMIBLOCK];
 
-            (void)memcpy(b, a, NOXTLS_AES_KW_SEMIBLOCK);
-            (void)memcpy(&b[NOXTLS_AES_KW_SEMIBLOCK], r, NOXTLS_AES_KW_SEMIBLOCK);
-            (void)noxtls_aes_encrypt_ecb(kek, b, NOXTLS_AES_BLOCK_LENGTH, NULL, b, type);
-            (void)memcpy(a, b, NOXTLS_AES_KW_SEMIBLOCK);
+            (void)noxtls_copy_u8((uint8_t *)(void *)(b), (size_t)(NOXTLS_AES_KW_SEMIBLOCK), (const uint8_t *)(const void *)(a), (size_t)(NOXTLS_AES_KW_SEMIBLOCK));
+            (void)noxtls_copy_u8((uint8_t *)(void *)(&b[NOXTLS_AES_KW_SEMIBLOCK]), (size_t)(NOXTLS_AES_KW_SEMIBLOCK), (const uint8_t *)(const void *)(r), (size_t)(NOXTLS_AES_KW_SEMIBLOCK));
+            rc = noxtls_aes_encrypt_ecb(kek, b, NOXTLS_AES_BLOCK_LENGTH, NULL, b, type);
+            if(rc != NOXTLS_RETURN_SUCCESS) {
+                noxtls_secure_zero(b, sizeof(b));
+                noxtls_secure_zero(wrapped, plain_len + NOXTLS_AES_KW_SEMIBLOCK);
+                return rc;
+            }
+            (void)noxtls_copy_u8((uint8_t *)(void *)(a), (size_t)(NOXTLS_AES_KW_SEMIBLOCK), (const uint8_t *)(const void *)(b), (size_t)(NOXTLS_AES_KW_SEMIBLOCK));
             noxtls_aes_kw_xor_t(a, (n * j) + i);
-            (void)memcpy(r, &b[NOXTLS_AES_KW_SEMIBLOCK], NOXTLS_AES_KW_SEMIBLOCK);
+            (void)noxtls_copy_u8((uint8_t *)(void *)(r), (size_t)(NOXTLS_AES_KW_SEMIBLOCK), (const uint8_t *)(const void *)(&b[NOXTLS_AES_KW_SEMIBLOCK]), (size_t)(NOXTLS_AES_KW_SEMIBLOCK));
         }
     }
-    (void)memset(b, 0, sizeof(b));
+    (void)noxtls_secure_zero(b, (size_t)(sizeof(b)));
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -87,9 +100,13 @@ noxtls_return_t noxtls_aes_key_unwrap(const uint8_t *kek, noxtls_aes_type_t type
     uint32_t n;
     uint32_t i;
     uint32_t j;
+    noxtls_return_t rc;
 
     if((kek == NULL) || (wrapped == NULL) || (plain == NULL)) {
         return NOXTLS_RETURN_NULL;
+    }
+    if((type != NOXTLS_AES_128_BIT) && (type != NOXTLS_AES_192_BIT) && (type != NOXTLS_AES_256_BIT)) {
+        return NOXTLS_RETURN_INVALID_PARAM;
     }
     if(((wrapped_len % NOXTLS_AES_KW_SEMIBLOCK) != 0U) ||
        ((wrapped_len / NOXTLS_AES_KW_SEMIBLOCK) < (NOXTLS_AES_KW_MIN_N + 1U))) {
@@ -98,19 +115,24 @@ noxtls_return_t noxtls_aes_key_unwrap(const uint8_t *kek, noxtls_aes_type_t type
     n = (wrapped_len / NOXTLS_AES_KW_SEMIBLOCK) - 1U;
 
     /* §2.2.2: A = C[0], R[i] = C[i]; R lives in plain. */
-    (void)memcpy(a, wrapped, NOXTLS_AES_KW_SEMIBLOCK);
-    (void)memmove(plain, &wrapped[NOXTLS_AES_KW_SEMIBLOCK], wrapped_len - NOXTLS_AES_KW_SEMIBLOCK);
+    (void)noxtls_copy_u8((uint8_t *)(void *)(a), (size_t)(NOXTLS_AES_KW_SEMIBLOCK), (const uint8_t *)(const void *)(wrapped), (size_t)(NOXTLS_AES_KW_SEMIBLOCK));
+    (void)noxtls_move_u8((uint8_t *)(void *)(plain), (size_t)(wrapped_len - NOXTLS_AES_KW_SEMIBLOCK), (const uint8_t *)(const void *)(&wrapped[NOXTLS_AES_KW_SEMIBLOCK]), (size_t)(wrapped_len - NOXTLS_AES_KW_SEMIBLOCK));
 
     for(j = NOXTLS_AES_KW_ROUNDS; j > 0U; j--) {
         for(i = n; i > 0U; i--) {
             uint8_t *r = &plain[(i - 1U) * NOXTLS_AES_KW_SEMIBLOCK];
 
-            (void)memcpy(b, a, NOXTLS_AES_KW_SEMIBLOCK);
+            (void)noxtls_copy_u8((uint8_t *)(void *)(b), (size_t)(NOXTLS_AES_KW_SEMIBLOCK), (const uint8_t *)(const void *)(a), (size_t)(NOXTLS_AES_KW_SEMIBLOCK));
             noxtls_aes_kw_xor_t(b, (n * (j - 1U)) + i);
-            (void)memcpy(&b[NOXTLS_AES_KW_SEMIBLOCK], r, NOXTLS_AES_KW_SEMIBLOCK);
-            (void)noxtls_aes_decrypt_ecb(kek, b, NOXTLS_AES_BLOCK_LENGTH, NULL, b, type);
-            (void)memcpy(a, b, NOXTLS_AES_KW_SEMIBLOCK);
-            (void)memcpy(r, &b[NOXTLS_AES_KW_SEMIBLOCK], NOXTLS_AES_KW_SEMIBLOCK);
+            (void)noxtls_copy_u8((uint8_t *)(void *)(&b[NOXTLS_AES_KW_SEMIBLOCK]), (size_t)(NOXTLS_AES_KW_SEMIBLOCK), (const uint8_t *)(const void *)(r), (size_t)(NOXTLS_AES_KW_SEMIBLOCK));
+            rc = noxtls_aes_decrypt_ecb(kek, b, NOXTLS_AES_BLOCK_LENGTH, NULL, b, type);
+            if(rc != NOXTLS_RETURN_SUCCESS) {
+                noxtls_secure_zero(b, sizeof(b));
+                noxtls_secure_zero(plain, wrapped_len - NOXTLS_AES_KW_SEMIBLOCK);
+                return rc;
+            }
+            (void)noxtls_copy_u8((uint8_t *)(void *)(a), (size_t)(NOXTLS_AES_KW_SEMIBLOCK), (const uint8_t *)(const void *)(b), (size_t)(NOXTLS_AES_KW_SEMIBLOCK));
+            (void)noxtls_copy_u8((uint8_t *)(void *)(r), (size_t)(NOXTLS_AES_KW_SEMIBLOCK), (const uint8_t *)(const void *)(&b[NOXTLS_AES_KW_SEMIBLOCK]), (size_t)(NOXTLS_AES_KW_SEMIBLOCK));
         }
     }
 
@@ -118,9 +140,9 @@ noxtls_return_t noxtls_aes_key_unwrap(const uint8_t *kek, noxtls_aes_type_t type
     for(i = 0U; i < NOXTLS_AES_KW_SEMIBLOCK; i++) {
         diff |= (uint8_t)(a[i] ^ NOXTLS_AES_KW_IV_OCTET);
     }
-    (void)memset(b, 0, sizeof(b));
+    (void)noxtls_secure_zero(b, (size_t)(sizeof(b)));
     if(diff != 0U) {
-        (void)memset(plain, 0, wrapped_len - NOXTLS_AES_KW_SEMIBLOCK);
+        (void)noxtls_secure_zero(plain, (size_t)(wrapped_len - NOXTLS_AES_KW_SEMIBLOCK));
         return NOXTLS_RETURN_FAILED;
     }
     return NOXTLS_RETURN_SUCCESS;
@@ -147,12 +169,12 @@ noxtls_return_t noxtls_aes_keywrap_self_test(void)
 
     if((noxtls_aes_key_wrap(kek, NOXTLS_AES_128_BIT, key_data, sizeof(key_data),
                             wrapped) != NOXTLS_RETURN_SUCCESS) ||
-       (memcmp(wrapped, expected, sizeof(expected)) != 0)) {
+       (noxtls_ct_memcmp(wrapped, expected, sizeof(expected)) != 0)) {
         return NOXTLS_RETURN_FAILED;
     }
     if((noxtls_aes_key_unwrap(kek, NOXTLS_AES_128_BIT, expected, sizeof(expected),
                               unwrapped) != NOXTLS_RETURN_SUCCESS) ||
-       (memcmp(unwrapped, key_data, sizeof(key_data)) != 0)) {
+       (noxtls_ct_memcmp(unwrapped, key_data, sizeof(key_data)) != 0)) {
         return NOXTLS_RETURN_FAILED;
     }
     wrapped[0] ^= 0x01U;
