@@ -7,11 +7,13 @@ description: "Security issues fixed in NoxTLS 0.3.0: severity, affected APIs and
 
 This page describes the security issues fixed in NoxTLS 0.3.0. Use it to decide whether a product built on an earlier release is affected and whether you need to change your code when you upgrade. The full list of changes is in the [Release Notes](./release-notes.md).
 
+NoxTLS 0.3.0 fixes 26 security issues: two rated Critical, fourteen High, seven Medium, and three Low. Fourteen of them (four High and all of the Medium and Low issues) were found by a final round of fuzz testing, code review, and interoperability testing before release.
+
 No CVE identifiers have been assigned to these issues. To report a suspected vulnerability, see [Security Reporting](./security-reporting.md).
 
 ## How to read this page
 
-**Severity.** *Critical* and *High* mean a wrong cryptographic result, a signature or trust bypass, or a memory-safety error. Ratings describe the defect itself; the practical risk to a product depends on which features it enables and where its inputs come from.
+**Severity.** *Critical* and *High* mean a wrong cryptographic result, a signature or trust bypass, or a memory-safety error. *Medium* means a weakness in a less common path or one that needs more conditions to exploit, such as a memory leak a peer can trigger repeatedly. *Low* means a validation gap with limited practical impact. Ratings describe the defect itself; the practical risk to a product depends on which features it enables and where its inputs come from.
 
 **Origin** states which releases are affected:
 
@@ -35,6 +37,20 @@ No CVE identifiers have been assigned to these issues. To report a suspected vul
 | High | [TLS 1.2 Finished accepted without record protection](#tls-12-finished-accepted-without-record-protection) | Origin not determined | None |
 | High | [TLS 1.3 accepted records reflected back to their sender](#tls-13-accepted-records-reflected-back-to-their-sender) | Origin not determined | None |
 | High | [TLS 1.3 CertificateVerify signed-content buffer overflow](#tls-13-certificateverify-signed-content-buffer-overflow) | Origin not determined | **Check buffer sizes and return codes** |
+| High | [DTLS 1.3 record length not checked against the datagram](#dtls-13-record-length-not-checked-against-the-datagram) | Origin not determined | None |
+| High | [TLS 1.3 handshake buffer over-read](#tls-13-handshake-buffer-over-read) | Origin not determined | None |
+| High | [Certificate and CSR PEM writers ignored the buffer size](#certificate-and-csr-pem-writers-ignored-the-buffer-size) | Origin not determined | **Check buffer sizes and return codes** |
+| High | [TLS 1.2 server accepted loosely encoded RSA client signatures](#tls-12-server-accepted-loosely-encoded-rsa-client-signatures) | Origin not determined | None (stricter verification) |
+| Medium | [TLS 1.3 HelloRetryRequest memory leak](#tls-13-helloretryrequest-memory-leak) | Origin not determined | None |
+| Medium | [TLS 1.2 context free leaked partial handshake state](#tls-12-context-free-leaked-partial-handshake-state) | Origin not determined | None |
+| Medium | [Global trust store leaked every replaced copy](#global-trust-store-leaked-every-replaced-copy) | Origin not determined | **Do not replace the store during verification** |
+| Medium | [SAN DNS name with an embedded NUL matched its prefix](#san-dns-name-with-an-embedded-nul-matched-its-prefix) | Origin not determined | None |
+| Medium | [Hostname fallback read CN from other subject attributes](#hostname-fallback-read-cn-from-other-subject-attributes) | Origin not determined | None for parsed certificates |
+| Medium | [EC private-key import accepted out-of-range scalars](#ec-private-key-import-accepted-out-of-range-scalars) | Origin not determined | Handle new error codes |
+| Medium | [RSA-PSS verification and RSA decryption accepted out-of-range values](#rsa-pss-verification-and-rsa-decryption-accepted-out-of-range-values) | Origin not determined | None |
+| Low | [TLS 1.2 CBC padding oracle through the record-overflow error](#tls-12-cbc-padding-oracle-through-the-record-overflow-error) | Origin not determined | Prefer AEAD cipher suites |
+| Low | [RSA-PSS ignored the leftmost encoded-message bits](#rsa-pss-ignored-the-leftmost-encoded-message-bits) | Origin not determined | None |
+| Low | [Ed25519 accepted a non-canonical negative-zero point](#ed25519-accepted-a-non-canonical-negative-zero-point) | Origin not determined | None |
 
 ## Critical
 
@@ -148,6 +164,136 @@ No CVE identifiers have been assigned to these issues. To report a suspected vul
 - **Fix:** The functions compute the required length first. When the buffer is too small they write nothing, set `*out_len` to the required length, and return `NOXTLS_RETURN_INVALID_PARAM`; context strings longer than 64 bytes are rejected. The new constant `NOXTLS_TLS13_CV_SIGNED_CONTENT_MAX_LEN` (162 bytes) is always large enough. Internal callers now pass their buffer sizes, and the server's buffer was corrected. A review of the other TLS 1.3 functions that write to caller buffers also changed `noxtls_tls13_get_channel_binding()`, which now reports the required length when the buffer is too small and returns 28 bytes (not 32) for a SHA-224-signed server certificate, and `noxtls_tls13_export_keying_material()`, which now rejects output longer than 255 times the hash length and labels longer than 249 bytes.
 - **Action:** **API behaviour change.** If you call either function, set `*out_len` to the real buffer size before the call, size the buffer with `NOXTLS_TLS13_CV_SIGNED_CONTENT_MAX_LEN`, and check for `NOXTLS_RETURN_INVALID_PARAM`. Applications that do not call these functions directly need no changes.
 
+### DTLS 1.3 record length not checked against the datagram
+
+- **Severity:** High.
+- **Affected:** DTLS 1.3 clients and servers: record parsing in `noxtls_tls13_dtls13_record_size()` and `noxtls_tls13_decrypt_dtls13_record()`, reached for every received datagram.
+- **Origin:** Origin not determined.
+- **Impact:** For a record header with a length field, the record size was taken from the 16-bit length without checking it against the bytes left in the datagram. Record decryption then read up to 64 KB past the end of the received datagram. Any peer could trigger this before authentication with a single datagram. The record still fails authentication, so no data is delivered to the application, but the over-read can fault on targets with memory protection and reads unrelated memory on targets without it.
+- **Fix:** A record whose header and length are larger than the rest of the datagram is malformed and the datagram is dropped with `NOXTLS_RETURN_BAD_DATA`. Records too short for the 16-byte record-number mask sample (RFC 9147 section 4.2.3) are also rejected.
+- **Action:** Upgrade. No API changes.
+
+### TLS 1.3 handshake buffer over-read
+
+- **Severity:** High.
+- **Affected:** TLS 1.3 and DTLS 1.3 clients, while receiving the encrypted server handshake flight.
+- **Origin:** Origin not determined.
+- **Impact:** The buffer that collects decrypted handshake messages was resized to the new size before its unread bytes were moved to the front. When one record completed several messages and began another, and the next record was shorter than the part already consumed, the buffer shrank and the move read past the end of the new allocation. A server, or an attacker in the network path, could trigger this before the server was authenticated. Without memory checking it corrupted or stalled the handshake.
+- **Fix:** The unread bytes are moved to the front of the current buffer before it is resized, so a shrink only drops consumed bytes. The buffer also stays consistent if the reallocation fails.
+- **Action:** Upgrade. No API changes.
+
+### Certificate and CSR PEM writers ignored the buffer size
+
+- **Severity:** High.
+- **Affected:** `noxtls_x509_certificate_write_pem()` and `noxtls_x509_csr_create_pem()` in builds with certificate writing (`NOXTLS_HAVE_CERT_WRITE`).
+- **Origin:** Origin not determined.
+- **Impact:** Both functions take an `out_max` capacity but passed the caller's buffer to DER-to-PEM converters that have no capacity parameter and write the whole PEM text and a NUL terminator. Any `out_max` smaller than the PEM text was a buffer overflow. `noxtls_x509_certificate_write_pem()` also made a temporary heap copy of `NOXTLS_MAX_CERT_SIZE` (16 to 64 KB) bytes.
+- **Fix:** One bounded encoder computes the exact PEM size before writing and returns `NOXTLS_RETURN_FAILED` without touching the buffer when the text and its NUL do not fit. It is public as `noxtls_certificate_der_to_pem_ex()` and `noxtls_csr_der_to_pem_ex()`. `noxtls_x509_certificate_write_pem()` now encodes directly from the parsed certificate, with no heap copy. A review of the other certificate writers added explicit bounds for offset checks that could wrap, for the validity-time scratch buffer, and for the self-signed certificate workspace when `NOXTLS_MAX_CERT_SIZE` is reduced.
+- **Action:** **API behaviour change.** Size `out_max` for the full PEM text plus its NUL terminator and check for `NOXTLS_RETURN_FAILED`. The legacy `noxtls_certificate_der_to_pem()` and `noxtls_csr_der_to_pem()` keep their signatures and still require the caller to size the buffer; use the `_ex` variants in new code. See [Certificates](./api/certs.md).
+
+### TLS 1.2 server accepted loosely encoded RSA client signatures
+
+- **Severity:** High.
+- **Affected:** TLS 1.2 servers that request or require client certificates, when the client signs CertificateVerify with an RSA PKCS#1 v1.5 key.
+- **Origin:** Origin not determined.
+- **Impact:** The server's CertificateVerify check did not reject a signature value not less than the modulus, ignored the result of the modular exponentiation, and searched the decrypted block for a padding-and-DigestInfo pattern anywhere in it instead of comparing the whole block. A value of s + n verified like s, and blocks that only contained the expected digest were accepted. This is the same class of lenient check as the [RSA PKCS#1 v1.5 signature forgery](#rsa-pkcs1-v15-signature-forgery) above, which makes forged client signatures possible against keys with a small public exponent such as e = 3.
+- **Fix:** The check follows RFC 8017 section 8.2.2: it rejects s >= n, checks the exponentiation result, builds the expected encoding `00 01 FF..FF 00 || T`, and compares the whole block in constant time. The CertificateVerify decision depends on this exact check alone.
+- **Action:** Upgrade. No API changes. Clients that send non-standard encodings are now rejected.
+
+## Medium
+
+### TLS 1.3 HelloRetryRequest memory leak
+
+- **Severity:** Medium.
+- **Affected:** TLS 1.3 clients that receive a HelloRetryRequest, and every DTLS 1.3 client, because the DTLS 1.3 cookie exchange uses a HelloRetryRequest.
+- **Origin:** Origin not determined.
+- **Impact:** The extension list parsed from the HelloRetryRequest was overwritten without being freed when the ServerHello arrived, leaking about 300 bytes per handshake. A server can force a HelloRetryRequest on every connection, and on a fixed embedded memory pool the leak eventually exhausts memory.
+- **Fix:** The previous extension list is freed before the next one is parsed.
+- **Action:** Upgrade. No API changes.
+
+### TLS 1.2 context free leaked partial handshake state
+
+- **Severity:** Medium.
+- **Affected:** TLS 1.2 and DTLS 1.2 clients and servers: `noxtls_tls12_context_free()`.
+- **Origin:** Origin not determined.
+- **Impact:** Freeing a context did not release a partly received handshake message or a record buffered by the client state machine, and taking a buffered record left the reassembly buffer behind. A peer that sends the first fragment of a handshake message and disconnects leaks memory on every connection. Context initialization also left the reassembly pointer uninitialized.
+- **Fix:** Context free releases both buffers, taking a buffered record frees the stale reassembly buffer, and initialization sets both fields to empty.
+- **Action:** Upgrade. No API changes.
+
+### Global trust store leaked every replaced copy
+
+- **Severity:** Medium.
+- **Affected:** `noxtls_x509_trust_store_set()` and `noxtls_x509_trust_store_clear()`.
+- **Origin:** Origin not determined.
+- **Impact:** `noxtls_x509_trust_store_set()` stores a deep copy of the trust anchors, but both functions only dropped the pointer to the previous copy. Each reconfiguration leaked several KB per anchor, which exhausts a fixed embedded memory pool when trust anchors are updated in the field.
+- **Fix:** The store owns exactly one copy. Replacing or clearing it frees the previous copy before a new one is allocated, and an allocation failure leaves the store empty (fail closed). Verification reads the store only for the duration of a call, and TLS contexts do not keep a pointer to it.
+- **Action:** **Threading requirement.** The library has no internal locking, so do not call `noxtls_x509_trust_store_set()` or `noxtls_x509_trust_store_clear()` while another thread verifies a certificate against the global store or runs a TLS handshake that does. Configure the store at start-up, serialize updates with your own lock, or pass anchors per call with `noxtls_x509_verify_cert_with_policy()`.
+
+### SAN DNS name with an embedded NUL matched its prefix
+
+- **Severity:** Medium.
+- **Affected:** Hostname verification with `noxtls_x509_certificate_matches_hostname()`, including TLS client server-name checks.
+- **Origin:** Origin not determined.
+- **Impact:** SAN dNSName values were copied into C strings, so a name such as `victim.example\0.evil.example` was stored, and matched, as `victim.example`. A certificate authority that checks only the full name could be led to issue a certificate that impersonates the prefix.
+- **Fix:** A dNSName that contains a NUL byte is stored as an empty entry that never matches. It still counts as a SAN, so the subject-CN fallback stays disabled (RFC 6125 section 6.4.4).
+- **Action:** Upgrade. No API changes.
+
+### Hostname fallback read CN from other subject attributes
+
+- **Severity:** Medium.
+- **Affected:** `noxtls_x509_certificate_matches_hostname()` for certificates without a SAN DNS name, including TLS client server-name checks.
+- **Origin:** Origin not determined.
+- **Impact:** Without a SAN, the hostname was compared with the first `CN=` text in the formatted subject string. An attribute whose value contained `CN=`, such as an organization name `CN=victim.example`, therefore acted as the common name.
+- **Fix:** The fallback walks the DER subject and compares the hostname only with commonName attributes, including those in multi-valued RDNs. A value is used only if it is a PrintableString, UTF8String, IA5String, or TeletexString, contains no NUL, and is shorter than 256 bytes.
+- **Action:** None for certificates from the parser. Code that builds an `x509_certificate_t` by hand must fill in the DER subject, not only the `subject_dn` text, for the CN fallback to match.
+
+### EC private-key import accepted out-of-range scalars
+
+- **Severity:** Medium.
+- **Affected:** `noxtls_x509_private_key_to_ecc_key()`, and signing with `noxtls_x509_private_key_sign_data()`, for SEC1 and PKCS#8 EC private keys.
+- **Origin:** Origin not determined.
+- **Impact:** The private scalar d was not range-checked. A key with d = 0 corresponds to the point at infinity, and a key with d not less than the group order n produces signatures that do not verify under the stated public key. Both were accepted and used for signing.
+- **Fix:** The scalar must be in the range [1, n - 1], checked in constant time against the curve order. Out-of-range keys return `NOXTLS_RETURN_BAD_DATA`.
+- **Action:** Keys with an invalid scalar now fail to load. Check the return codes.
+
+### RSA-PSS verification and RSA decryption accepted out-of-range values
+
+- **Severity:** Medium.
+- **Affected:** `noxtls_rsa_verify_pss()`, and the RSA decryption functions `noxtls_rsa_decrypt()` and `noxtls_rsa_decrypt_crt_only()`.
+- **Origin:** Origin not determined.
+- **Impact:** PSS verification reduced the signature modulo n before checking it, so s + n (and s + 2n while it fits) verified like s. This makes signatures malleable: a second, different byte string verifies for the same message. RSA decryption likewise decrypted c + n to the same plaintext as c instead of rejecting it, against RFC 8017 section 5.1.2.
+- **Fix:** PSS verification rejects a signature not less than n before exponentiation, and both decryption paths reject a ciphertext not less than n before any private-key work. PKCS#1 v1.5 verification already had this check.
+- **Action:** Upgrade. No API changes.
+
+## Low
+
+### TLS 1.2 CBC padding oracle through the record-overflow error
+
+- **Severity:** Low.
+- **Affected:** TLS 1.2 and DTLS 1.2 connections that negotiate a CBC cipher suite (MAC-then-encrypt).
+- **Origin:** Origin not determined.
+- **Impact:** The record_overflow check ran before the padding and MAC checks, on a plaintext length derived from the unauthenticated padding byte. Two forged records of the same length that differed only in their decrypted padding byte returned different errors, `NOXTLS_RETURN_RECORD_OVERFLOW` or `NOXTLS_RETURN_BAD_DATA`, which is a padding oracle. The padding scan also branched on the padding byte.
+- **Fix:** Padding, length, and MAC failures all return `NOXTLS_RETURN_BAD_DATA` (bad_record_mac), and `NOXTLS_RETURN_RECORD_OVERFLOW` is returned only for a record that authenticated. The padding check always scans the same number of bytes without branching on the padding.
+- **Action:** Upgrade, and prefer AEAD cipher suites (AES-GCM, AES-CCM, or ChaCha20-Poly1305). The MAC is still computed over a length that depends on the padding, so a Lucky13-style timing difference remains; see the [Release Notes](./release-notes.md) known issues.
+
+### RSA-PSS ignored the leftmost encoded-message bits
+
+- **Severity:** Low.
+- **Affected:** `noxtls_rsa_sign_pss()` and `noxtls_rsa_verify_pss()`, and the RSA-PSS signature schemes in TLS and X.509 that use them.
+- **Origin:** Origin not determined.
+- **Impact:** Verification cleared the leftmost bit of the encoded message and then tested the bit it had just cleared, so a signature with that bit set was accepted, against RFC 8017 section 9.1.2. Signing and verification also assumed a modulus length that is a multiple of 8 bits. For moduli of 8k - 1 bits, such as 2047-bit keys, about half of NoxTLS's signatures failed verification elsewhere and about half of valid signatures from other implementations were rejected; for 8k + 1 bits, signing failed.
+- **Fix:** emBits and emLen are derived from the modulus. The encoder clears the required leftmost bits, and the verifier rejects any set bit outside the mask instead of clearing it. Mask-generation failures are checked.
+- **Action:** Upgrade. No API changes. RSA-PSS now interoperates with OpenSSL for every modulus size.
+
+### Ed25519 accepted a non-canonical negative-zero point
+
+- **Severity:** Low.
+- **Affected:** `noxtls_ed25519_verify()`, its ctx and ph variants, and Ed25519 streaming verification.
+- **Origin:** Origin not determined.
+- **Impact:** RFC 8032 section 5.1.3 requires point decoding to fail when x = 0 and the sign bit is set. The decoder accepted that encoding, so the identity point and the point of order 2 each had two accepted encodings, and the identity public key `01 00..00 80` verified the identity signature for every message. Exploiting this requires the attacker to choose the public key.
+- **Fix:** Decoding fails when x is zero and the sign bit is set.
+- **Action:** Upgrade. No API changes.
+
 ## Related hardening
 
 These fixes in 0.3.0 are not rated as security issues above, but are relevant to security reviews. See the [Release Notes](./release-notes.md) for the complete list.
@@ -163,3 +309,10 @@ These fixes in 0.3.0 are not rated as security issues above, but are relevant to
 - The X.509 parser checks every cursor advance against the bytes remaining, and rejects malformed BOOLEAN values that could previously move it past the end of an extension.
 - A failed allocation during DTLS handshake reassembly, or while a DTLS 1.3 server stores the client's key shares, no longer leads to a NULL pointer dereference.
 - `noxtls_ecc_key_free()` no longer writes past a private-key buffer smaller than 66 bytes.
+- SHA-3 and SHAKE no longer access the Keccak state through misaligned 64-bit pointers, which faulted on strict-alignment cores (Cortex-M0/M0+ and many RISC-V and Xtensa cores) and gave wrong digests on big-endian targets. MD4 no longer relies on an undefined signed shift.
+- P-521 field arithmetic no longer uses generic bignum division. A single P-521 ECDSA verification took 0.4 to 1 s at -O2 on a host machine, so a peer presenting P-521 certificates or key shares could exhaust the CPU of a small core.
+- Ed448 rejects reserved bits, non-canonical points, and S values not less than the group order, and its scalar multiplication no longer branches on secret bits. The earlier Ed448 code did not compile when enabled.
+- AES-XTS follows IEEE 1619; earlier output was wrong after the first block and could not be fully decrypted. See the [Release Notes](./release-notes.md) for the compatibility impact.
+- A basicConstraints pathLenConstraint above 255 is no longer truncated to 8 bits when a certificate is written, which silently changed the constraint the caller asked for. The parser rejects a negative pathLenConstraint instead of reading it as absent, which lifted the constraint.
+- With an explicit verification time, `noxtls_x509_verify_cert_with_policy()` checks CRL freshness against that time instead of the system clock.
+- DTLS 1.2 and DTLS 1.3 record handling was brought in line with RFC 6347 and RFC 9147, including the epoch in the DTLS 1.2 MAC and AEAD sequence number and silent discarding of replayed and wrong-epoch records.

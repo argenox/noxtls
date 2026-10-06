@@ -73,6 +73,10 @@ The NoxTLS TLS component implements **Transport Layer Security (TLS)** and **Dat
 
 Initialize with [noxtls_dtls12_context_init](./api/dtls12#noxtls_dtls12_context_init), then use the same [noxtls_tls12_connect](./api/tls12#noxtls_tls12_connect) / [noxtls_tls12_accept](./api/tls12#noxtls_tls12_accept) and send/recv APIs as for TLS over TCP.
 
+:::caution Interoperability note
+In 0.3.0, DTLS 1.2 was brought in line with RFC 6347 and interoperates with OpenSSL (tested with OpenSSL 3.6.2, NoxTLS as client and as server). Earlier builds hashed TLS-style handshake headers, sent Finished without a DTLS handshake header, and left the epoch out of the MAC and AEAD sequence number, so they only worked with another NoxTLS peer. They cannot complete a DTLS 1.2 handshake with 0.3.0: upgrade both ends together. See the [Release Notes](./release-notes.md) for the remaining DTLS 1.2 limitations.
+:::
+
 ## DTLS 1.3 features (RFC 9147)
 
 DTLS 1.3 shares the TLS 1.3 handshake and cipher suites but uses a datagram record layer. NoxTLS implements the following (see also the [DTLS 1.3 guide](./dtls13)):
@@ -95,7 +99,7 @@ DTLS 1.3 shares the TLS 1.3 handshake and cipher suites but uses a datagram reco
 Initialize with [noxtls_dtls13_context_init](./api/dtls13#noxtls_dtls13_context_init). Configure the shared DTLS base via [DTLS API](./api/dtls) (MTU, retransmit, ACK range limit).
 
 :::caution Interoperability note
-DTLS 1.3 wire format and key derivation changed to align with RFC 9147. Peers built before this alignment are not interoperable with RFC 9147-conformant builds.
+DTLS 1.3 wire format and key derivation changed to align with RFC 9147. Peers built before this alignment are not interoperable with RFC 9147-conformant builds. In 0.3.0, records that carry a connection ID also use the RFC 9147 unified header order (connection ID directly after the first byte, then the sequence number and length), so links that negotiate connection IDs need both ends upgraded.
 :::
 
 ## Extensions and security properties (summary)
