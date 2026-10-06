@@ -188,6 +188,17 @@ cmake --build build --config Release
 
 `NOXTLS_CFG_FEATURE_ED448` defaults to `OFF` in the top-level `CMakeLists.txt`. With Ed448 enabled, TLS 1.3 advertises signature scheme **0x0808** (Ed448), X.509 parses **id-Ed448** (1.3.101.113) subject public keys, and the **certgen** tool provides `gened448`. Unit tests under `ut/pkc/` exercise Ed448 and Ed25519ctx/Ed25519ph when these flags are on.
 
+## SPAKE2+, Matter PASE and PBKDF2 (optional)
+
+SPAKE2+ (RFC 9383, P-256/SHA-256/HKDF/HMAC), the Matter draft-01 SPAKE2+ profile, Matter PASE helpers and PBKDF2 are disabled by default:
+
+```bash
+cmake -S . -B build -D NOXTLS_CFG_FEATURE_SPAKE2P=ON                      # RFC 9383 profile
+cmake -S . -B build -D NOXTLS_CFG_FEATURE_PBKDF2=ON -D NOXTLS_CFG_FEATURE_SPAKE2P=ON       -D NOXTLS_CFG_FEATURE_SPAKE2P_MATTER=ON -D NOXTLS_CFG_FEATURE_MATTER_PASE=ON   # + Matter PASE
+```
+
+`NOXTLS_CFG_FEATURE_SPAKE2P_RFC9383` (ON) and `NOXTLS_CFG_FEATURE_SPAKE2P_MATTER` (OFF) select which key-schedule profiles are compiled; at least one is required. Unit tests: add `-D BUILD_TESTS=ON -D NOXTLS_BUILD_PAKE_TESTS=ON -D NOXTLS_ERROR_UTNOX=<utnox checkout>`. See `docs/docs/spake2p.md`.
+
 ## Self-Signed Certificate Generation (certgen)
 
 The X.509 write/generate APIs in `noxtls-lib/certs/noxtls_x509_write.c` are gated by `NOXTLS_HAVE_CERT_WRITE`, which is now **ON by default** in the `default`, `tls_server_pki` and `fips_like_profile` profiles. They are required to use the `certgen req -new -x509` command. To explicitly toggle:

@@ -37,7 +37,8 @@ NoxTLS is built specifically for engineers building secure firmware and embedded
 - ECC (P-256, P-384, P-521) ECDH and ECDSA
 - AES-GCM AEAD
 - Standard Message Digests - MD4, MD5, SHA-1, SHA-2, SHA-3 hashing
-- HMAC
+- HMAC, HKDF and PBKDF2 (RFC 8018, opt-in)
+- SPAKE2+ (RFC 9383) PAKE with an opt-in Matter PASE profile and helpers
 - Deterministic random bit generator (DRBG)
 - X.509 parsing helpers
 - Experimental Post-Quantum TLS 1.3 primitives:

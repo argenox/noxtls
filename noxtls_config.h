@@ -109,6 +109,15 @@
 #define NOXTLS_FEATURE_HKDF 1
 #endif
 
+/* Enables PBKDF2 (RFC 8018 section 5.2) password-based key derivation over HMAC.
+ * Prereq: NOXTLS_FEATURE_HMAC=1.
+ * Required by: NOXTLS_FEATURE_MATTER_PASE (Matter passcode verifier).
+ * Build knob: NOXTLS_CFG_FEATURE_PBKDF2. Default OFF.
+ */
+#ifndef NOXTLS_FEATURE_PBKDF2
+#define NOXTLS_FEATURE_PBKDF2 0
+#endif
+
 /* Enables symmetric encryption module family (AES/ARIA/Camellia/ChaCha/DES).
  * Prereq: none.
  * Required by: DRBG and TLS record protection.
@@ -516,6 +525,40 @@
 /* Enables XMSS/XMSS^MT hash-based signature APIs (RFC 8391). */
 #ifndef NOXTLS_FEATURE_XMSS
 #define NOXTLS_FEATURE_XMSS 0
+#endif
+
+/* Enables SPAKE2+ augmented PAKE over P-256 with SHA-256, HKDF-SHA256 and HMAC-SHA256.
+ * Prereq: NOXTLS_FEATURE_PKC=1 and NOXTLS_FEATURE_ECC=1 and NOXTLS_FEATURE_SHA256=1 and NOXTLS_FEATURE_HMAC=1 and NOXTLS_FEATURE_HKDF=1 and NOXTLS_FEATURE_DRBG=1.
+ * Constraint: at least one of NOXTLS_FEATURE_SPAKE2P_RFC9383 / NOXTLS_FEATURE_SPAKE2P_MATTER.
+ * Build knob: NOXTLS_CFG_FEATURE_SPAKE2P. Default OFF.
+ */
+#ifndef NOXTLS_FEATURE_SPAKE2P
+#define NOXTLS_FEATURE_SPAKE2P 0
+#endif
+
+/* Includes the standard RFC 9383 SPAKE2+ key schedule (NOXTLS_SPAKE2P_PROFILE_RFC9383).
+ * Effective only when NOXTLS_FEATURE_SPAKE2P=1; this is the default profile.
+ * Build knob: NOXTLS_CFG_FEATURE_SPAKE2P_RFC9383. Default ON.
+ */
+#ifndef NOXTLS_FEATURE_SPAKE2P_RFC9383
+#define NOXTLS_FEATURE_SPAKE2P_RFC9383 1
+#endif
+
+/* Includes the draft-bar-cfrg-spake2plus-01 key schedule used by Matter PASE
+ * (NOXTLS_SPAKE2P_PROFILE_MATTER). Not RFC 9383; for Matter interoperability only.
+ * Effective only when NOXTLS_FEATURE_SPAKE2P=1.
+ * Build knob: NOXTLS_CFG_FEATURE_SPAKE2P_MATTER. Default OFF.
+ */
+#ifndef NOXTLS_FEATURE_SPAKE2P_MATTER
+#define NOXTLS_FEATURE_SPAKE2P_MATTER 0
+#endif
+
+/* Enables Matter PASE cryptographic helpers (passcode verifier, PASE context, session keys).
+ * Prereq: NOXTLS_FEATURE_SPAKE2P=1 and NOXTLS_FEATURE_SPAKE2P_MATTER=1 and NOXTLS_FEATURE_PBKDF2=1.
+ * Build knob: NOXTLS_CFG_FEATURE_MATTER_PASE. Default OFF.
+ */
+#ifndef NOXTLS_FEATURE_MATTER_PASE
+#define NOXTLS_FEATURE_MATTER_PASE 0
 #endif
 
 /* TLS/cert granularity */

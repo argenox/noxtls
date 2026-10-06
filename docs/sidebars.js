@@ -64,6 +64,7 @@ const sidebars = {
     'project',
     'security-reporting',
     'eddsa',
+    'spake2p',
     'tls',
     'dtls13',
     {

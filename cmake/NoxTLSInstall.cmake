@@ -17,6 +17,7 @@ set(_NOXTLS_LIBRARY_TARGETS
   noxtls_encryption
   noxtls_drbg
   noxtls_pkc
+  noxtls_pake
   noxtls_certificates
   noxtls_cert
   noxtls_tls
@@ -136,7 +137,7 @@ install(FILES
 # ---------------------------------------------------------------------------
 set(NOXTLS_PKGCONFIG_LIBS "")
 # Link line: dependents first (static archive order).
-foreach(_comp IN ITEMS tls cert certificates pkc kdf mac drbg encryption sha3 hash utility common)
+foreach(_comp IN ITEMS tls cert certificates pake pkc kdf mac drbg encryption sha3 hash utility common)
   if(TARGET "noxtls_${_comp}")
     string(APPEND NOXTLS_PKGCONFIG_LIBS " -lnoxtls_${_comp}")
   endif()
