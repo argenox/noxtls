@@ -779,10 +779,25 @@ noxtls_return_t noxtls_ed25519_generate_key(uint8_t *private_key, uint8_t *publi
     if((private_key == NULL) || (public_key == NULL)) { return NOXTLS_RETURN_NULL; }
     if(drbg_initialized == 0) {
         rc = drbg_instantiate(&drbg_state, DRBG_AES256, NULL, 0, NULL, 0, NULL, 0);
-        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            (void)noxtls_drbg_uninstantiate(&drbg_state);
+            return rc;
+        }
         drbg_initialized = 1;
     }
     rc = drbg_generate(&drbg_state, private_key, NOXTLS_ED25519_DRBG_SEED_BITS, NULL, 0);
-    if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
-    return noxtls_ed25519_public_key(private_key, public_key);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        /* Fail closed for this call and drop the instance: a failed generate
+         * may have wiped the state, so the next call re-instantiates from
+         * fresh entropy instead of failing forever. */
+        (void)noxtls_drbg_uninstantiate(&drbg_state);
+        drbg_initialized = 0;
+        noxtls_secure_zero(private_key, (size_t)(NOXTLS_ED25519_DRBG_SEED_BITS / 8U));
+        return rc;
+    }
+    rc = noxtls_ed25519_public_key(private_key, public_key);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(private_key, (size_t)(NOXTLS_ED25519_DRBG_SEED_BITS / 8U));
+    }
+    return rc;
 }

@@ -104,6 +104,11 @@ volatile uint32_t noxtls_ecc_keyinit_last_stage = 0U;
 #define NOXTLS_ECC_KEYGEN_DRBG_TYPE     DRBG_AES128
 #define NOXTLS_ECC_KEYGEN_DRBG_SEEDLEN  DRBG_SEEDLEN_AES128
 #endif
+/* Upper bound on private-scalar draws (d == 0 / d >= n is rejected and
+ * redrawn; the probability of needing more than one draw is negligible). */
+#ifndef NOXTLS_ECC_KEYGEN_MAX_ATTEMPTS
+#define NOXTLS_ECC_KEYGEN_MAX_ATTEMPTS  64U
+#endif
 #if (NOXTLS_ECC_POINT_MUL_WINDOW_SIZE > 0) && (NOXTLS_ECC_FIXED_POINT_OPTIM) && (NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE)
 typedef struct {
     const ecc_curve_params_t *curve;
@@ -149,32 +154,24 @@ static noxtls_return_t ecc_keygen_drbg_generate_bits(uint8_t *out, uint32_t requ
         }
         rc = drbg_instantiate(&s_ecc_keygen_drbg_state, NOXTLS_ECC_KEYGEN_DRBG_TYPE,
                               seed, sizeof(seed), NULL, 0, NULL, 0);
+        noxtls_secure_zero(seed, sizeof(seed));
         if(rc != NOXTLS_RETURN_SUCCESS) {
+            (void)noxtls_drbg_uninstantiate(&s_ecc_keygen_drbg_state);
             return rc;
         }
         s_ecc_keygen_drbg_initialized = 1;
     }
 
     rc = drbg_generate(&s_ecc_keygen_drbg_state, out, requested_bits, NULL, 0);
-    if(rc == NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_SUCCESS;
-    }
-
-    noxtls_fill_u8((uint8_t *)(void *)(&s_ecc_keygen_drbg_state), sizeof(s_ecc_keygen_drbg_state), 0U, sizeof(s_ecc_keygen_drbg_state));
-    s_ecc_keygen_drbg_initialized = 0;
-
-    rc = noxtls_drbg_get_entropy(seed, sizeof(seed));
-    noxtls_ecc_keygen_last_entropy_rc = (int32_t)rc;
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
+        /* Fail closed for this call and drop the instance: a failed generate
+         * may have wiped the state, so the next call re-instantiates from
+         * fresh entropy instead of failing forever. */
+        (void)noxtls_drbg_uninstantiate(&s_ecc_keygen_drbg_state);
+        s_ecc_keygen_drbg_initialized = 0;
+        noxtls_secure_zero(out, (size_t)((requested_bits + 7U) / 8U));
     }
-    rc = drbg_instantiate(&s_ecc_keygen_drbg_state, NOXTLS_ECC_KEYGEN_DRBG_TYPE,
-                          seed, sizeof(seed), NULL, 0, NULL, 0);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
-    }
-    s_ecc_keygen_drbg_initialized = 1;
-    return drbg_generate(&s_ecc_keygen_drbg_state, out, requested_bits, NULL, 0);
+    return rc;
 }
 
 /**
@@ -204,6 +201,9 @@ static noxtls_return_t ecc_mod_inv_prime(uint8_t *result,
                                          const uint8_t *p,
                                          uint32_t size)
 {
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+    int verified = 0;
+
     if((result == NULL) || (a == NULL) || (p == NULL) || (size == 0U)) {
         return NOXTLS_RETURN_NULL;
     }
@@ -225,48 +225,70 @@ static noxtls_return_t ecc_mod_inv_prime(uint8_t *result,
     } scratch;
     noxtls_secure_zero(&scratch, sizeof(scratch));
 
-    (void)noxtls_bn_mod(scratch.a_mod, a, size, p, size);
-    if(noxtls_bn_is_zero(scratch.a_mod, size) != 0) {
-        noxtls_secure_zero(&scratch, sizeof(scratch));
-        return NOXTLS_RETURN_FAILED;
+    /* Every bignum status is checked: an allocation failure inside the
+     * reduction or the verification product must never be mistaken for a
+     * valid inverse (or for a non-invertible input). */
+    rc = noxtls_bn_mod(scratch.a_mod, a, size, p, size);
+    if((rc == NOXTLS_RETURN_SUCCESS) && (noxtls_bn_is_zero(scratch.a_mod, size) != 0)) {
+        rc = NOXTLS_RETURN_FAILED;
     }
 
-    scratch.two[size - 1U] = 0x02U;
-    scratch.one[size - 1U] = 0x01U;
-    (void)noxtls_bn_copy(scratch.p_minus_2, p, size);
-    (void)noxtls_bn_sub(scratch.p_minus_2, scratch.p_minus_2, scratch.two, size);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        scratch.two[size - 1U] = 0x02U;
+        scratch.one[size - 1U] = 0x01U;
+        (void)noxtls_bn_copy(scratch.p_minus_2, p, size);
+        (void)noxtls_bn_sub(scratch.p_minus_2, scratch.p_minus_2, scratch.two, size);
 
-    /* Fast path: use generic modular inverse first. */
-    if(noxtls_bn_mod_inv(result, scratch.a_mod, size, p, size) == NOXTLS_RETURN_SUCCESS) {
-        (void)noxtls_bn_mul(scratch.prod, scratch.a_mod, size, result, size);
-        (void)noxtls_bn_mod(scratch.check, scratch.prod, size * 2U, p, size);
-        if(noxtls_bn_cmp(scratch.check, scratch.one, size) == 0) {
-            noxtls_secure_zero(&scratch, sizeof(scratch));
-            return NOXTLS_RETURN_SUCCESS;
+        /* Fast path: use generic modular inverse first. */
+        if(noxtls_bn_mod_inv(result, scratch.a_mod, size, p, size) == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_bn_mul(scratch.prod, scratch.a_mod, size, result, size);
+            if(rc == NOXTLS_RETURN_SUCCESS) {
+                rc = noxtls_bn_mod(scratch.check, scratch.prod, size * 2U, p, size);
+            }
+            if((rc == NOXTLS_RETURN_SUCCESS) && (noxtls_bn_cmp(scratch.check, scratch.one, size) == 0)) {
+                verified = 1;
+            }
         }
     }
 
-    /* Fallback for edge cases: Fermat inverse. */
-    (void)noxtls_bn_mod_exp(result, scratch.a_mod, scratch.p_minus_2, size, p, size);
-    (void)noxtls_bn_mul(scratch.prod, scratch.a_mod, size, result, size);
-    (void)noxtls_bn_mod(scratch.check, scratch.prod, size * 2U, p, size);
-    if(noxtls_bn_cmp(scratch.check, scratch.one, size) != 0) {
-        noxtls_return_t rc = noxtls_bn_mod_inv(result, scratch.a_mod, size, p, size);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            noxtls_secure_zero(&scratch, sizeof(scratch));
-            return NOXTLS_RETURN_FAILED;
+    if((rc == NOXTLS_RETURN_SUCCESS) && (verified == 0)) {
+        /* Fallback for edge cases: Fermat inverse. */
+        rc = noxtls_bn_mod_exp(result, scratch.a_mod, scratch.p_minus_2, size, p, size);
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_bn_mul(scratch.prod, scratch.a_mod, size, result, size);
         }
-        (void)noxtls_bn_mul(scratch.prod, scratch.a_mod, size, result, size);
-        (void)noxtls_bn_mod(scratch.check, scratch.prod, size * 2U, p, size);
-        if(noxtls_bn_cmp(scratch.check, scratch.one, size) != 0) {
-            noxtls_secure_zero(&scratch, sizeof(scratch));
-            return NOXTLS_RETURN_FAILED;
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_bn_mod(scratch.check, scratch.prod, size * 2U, p, size);
+        }
+        if((rc == NOXTLS_RETURN_SUCCESS) && (noxtls_bn_cmp(scratch.check, scratch.one, size) == 0)) {
+            verified = 1;
+        }
+    }
+
+    if((rc == NOXTLS_RETURN_SUCCESS) && (verified == 0)) {
+        rc = noxtls_bn_mod_inv(result, scratch.a_mod, size, p, size);
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_bn_mul(scratch.prod, scratch.a_mod, size, result, size);
+        }
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_bn_mod(scratch.check, scratch.prod, size * 2U, p, size);
+        }
+        if((rc == NOXTLS_RETURN_SUCCESS) && (noxtls_bn_cmp(scratch.check, scratch.one, size) == 0)) {
+            verified = 1;
+        }
+        if((rc == NOXTLS_RETURN_SUCCESS) && (verified == 0)) {
+            rc = NOXTLS_RETURN_FAILED;
         }
     }
 
     noxtls_secure_zero(&scratch, sizeof(scratch));
-
-    return NOXTLS_RETURN_SUCCESS;
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(result, (size_t)size);
+        if(rc != NOXTLS_RETURN_NOT_ENOUGH_MEMORY) {
+            rc = NOXTLS_RETURN_FAILED;
+        }
+    }
+    return rc;
 }
 
 /**
@@ -1253,7 +1275,7 @@ static uint32_t ecc_scalar_digit_range(const uint8_t *scalar,
 }
 
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
-static void ecc_mod_add(uint8_t *out, const uint8_t *a, const uint8_t *b, const uint8_t *p, uint32_t size);
+static noxtls_return_t ecc_mod_add(uint8_t *out, const uint8_t *a, const uint8_t *b, const uint8_t *p, uint32_t size);
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 
 static const uint8_t s_p256_prime_be[32] = {
@@ -1807,6 +1829,21 @@ static void ecc_mul_256_to_512(uint8_t *out64, const uint8_t *a32, const uint8_t
     }
 }
 
+/**
+ * @brief Merge a field/point operation status into a running status
+ *
+ * The first failure is sticky: once @p acc reports an error, later statuses
+ * are ignored, so a chain of field operations reports the first failure.
+ *
+ * @param acc The running status
+ * @param rc The status of the latest operation
+ * @return The merged status
+ */
+static noxtls_return_t ecc_rc_merge(noxtls_return_t acc, noxtls_return_t rc)
+{
+    return (acc != NOXTLS_RETURN_SUCCESS) ? acc : rc;
+}
+
 /* Field multiply + reduce helper. Uses specialized 32-byte multiply on P-256-class curves. */
 /**
  * @brief Multiply two field elements modulo the modulus
@@ -1817,21 +1854,55 @@ static void ecc_mul_256_to_512(uint8_t *out64, const uint8_t *a32, const uint8_t
  * @param p The modulus
  * @param size The size of the operands and modulus
  * @param tmp2n The temporary buffer
+ * @return NOXTLS_RETURN_SUCCESS, or the bignum error (the output is zeroed on failure)
  */
-static void ecc_mul_mod(uint8_t *out, const uint8_t *a, const uint8_t *b, const uint8_t *p, uint32_t size, uint8_t *tmp2n)
+static noxtls_return_t ecc_mul_mod(uint8_t *out, const uint8_t *a, const uint8_t *b, const uint8_t *p, uint32_t size, uint8_t *tmp2n)
 {
+    noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
+
+    if((size == 0U) || (size > ECC_MAX_KEY_SIZE)) {
+        return NOXTLS_RETURN_FAILED;
+    }
     if(ecc_modulus_is_secp256r1(p, size) != 0) {
         p256_fe_mul(out, a, b);
-        return;
-    }
-    if(size == 32U) {
+    } else if(size == 32U) {
         uint8_t prod64[64];
         ecc_mul_256_to_512(prod64, a, b);
-        (void)noxtls_bn_mod(out, prod64, 64U, p, 32U);
-        return;
+        rc = noxtls_bn_mod(out, prod64, 64U, p, 32U);
+    } else {
+        rc = noxtls_bn_mul(tmp2n, a, size, b, size);
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_bn_mod(out, tmp2n, size * 2U, p, size);
+        }
     }
-    (void)noxtls_bn_mul(tmp2n, a, size, b, size);
-    (void)noxtls_bn_mod(out, tmp2n, size * 2U, p, size);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        (void)noxtls_bn_zero(out, size);
+    }
+    return rc;
+}
+
+/**
+ * @brief Multiply a field element by a one-byte constant modulo the modulus
+ *
+ * @param out The output buffer (may alias @p tmp)
+ * @param a The field element
+ * @param k The one-byte constant
+ * @param p The modulus
+ * @param size The size of the operands and modulus
+ * @param tmp Temporary buffer of at least size + 1 bytes
+ * @return NOXTLS_RETURN_SUCCESS, or the bignum error (the output is zeroed on failure)
+ */
+static noxtls_return_t ecc_mul_small_mod(uint8_t *out, const uint8_t *a, const uint8_t *k,
+                                         const uint8_t *p, uint32_t size, uint8_t *tmp)
+{
+    noxtls_return_t rc = noxtls_bn_mul(tmp, a, size, k, 1U);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_bn_mod(out, tmp, size + 1U, p, size);
+    }
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        (void)noxtls_bn_zero(out, size);
+    }
+    return rc;
 }
 
 /**
@@ -1844,18 +1915,16 @@ static void ecc_mul_mod(uint8_t *out, const uint8_t *a, const uint8_t *b, const 
  * @param b The second field element
  * @param p The modulus
  * @param size The size of the operands and modulus
+ * @return NOXTLS_RETURN_SUCCESS, or NOXTLS_RETURN_FAILED for an invalid size
  */
-static void ecc_mod_sub(uint8_t *out, const uint8_t *a, const uint8_t *b, const uint8_t *p, uint32_t size)
+static noxtls_return_t ecc_mod_sub(uint8_t *out, const uint8_t *a, const uint8_t *b, const uint8_t *p, uint32_t size)
 {
     if(ecc_modulus_is_secp256r1(p, size) != 0) {
         p256_fe_sub(out, a, b);
-        return;
+        return NOXTLS_RETURN_SUCCESS;
     }
     if((size == 0U) || (size > ECC_MAX_KEY_SIZE)) {
-        if(out != NULL) {
-            (void)noxtls_bn_zero(out, size);
-        }
-        return;
+        return NOXTLS_RETURN_FAILED;
     }
     if(noxtls_bn_cmp(a, b, size) >= 0) {
         /* a,b < p so (a-b) is already canonical. */
@@ -1866,6 +1935,7 @@ static void ecc_mod_sub(uint8_t *out, const uint8_t *a, const uint8_t *b, const 
         (void)noxtls_bn_sub(p_minus_b, p, b, size);  /* p >= b, so p_minus_b = p - b */
         (void)noxtls_bn_add(out, a, p_minus_b, size); /* (a - b) mod p = a + (p - b); result < p */
     }
+    return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
@@ -1876,9 +1946,10 @@ static void ecc_mod_sub(uint8_t *out, const uint8_t *a, const uint8_t *b, const 
  * @param b Second operand
  * @param p Modulus
  * @param size Size of the operands and modulus
+ * @return NOXTLS_RETURN_SUCCESS, or NOXTLS_RETURN_FAILED for an invalid size
  */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
-static void ecc_mod_add(uint8_t *out, const uint8_t *a, const uint8_t *b, const uint8_t *p, uint32_t size)
+static noxtls_return_t ecc_mod_add(uint8_t *out, const uint8_t *a, const uint8_t *b, const uint8_t *p, uint32_t size)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     uint16_t carry = 0U;
@@ -1887,11 +1958,11 @@ static void ecc_mod_add(uint8_t *out, const uint8_t *a, const uint8_t *b, const 
 
     if(ecc_modulus_is_secp256r1(p, size) != 0) {
         p256_fe_add(out, a, b);
-        return;
+        return NOXTLS_RETURN_SUCCESS;
     }
 
     if((size == 0U) || (size == UINT32_MAX) || (size > ECC_MAX_KEY_SIZE)) {
-        return;
+        return NOXTLS_RETURN_FAILED;
     }
 
     for(i = size; i > 0U; i -= 1U) {
@@ -1913,6 +1984,7 @@ static void ecc_mod_add(uint8_t *out, const uint8_t *a, const uint8_t *b, const 
             }
         }
     }
+    return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
@@ -2156,6 +2228,7 @@ static noxtls_return_t ecc_jpoint_double(ecc_jpoint_t *out, const ecc_jpoint_t *
     uint8_t t3[ECC_MAX_KEY_SIZE * 2U];
     uint8_t S[ECC_MAX_KEY_SIZE];
     uint8_t M[ECC_MAX_KEY_SIZE];
+    noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
     static const uint8_t two_arr[1] = {0x02U};
     static const uint8_t three_arr[1] = {0x03U};
     static const uint8_t four_arr[1] = {0x04U};
@@ -2182,43 +2255,45 @@ static noxtls_return_t ecc_jpoint_double(ecc_jpoint_t *out, const ecc_jpoint_t *
     (void)noxtls_bn_zero(S, size);
     (void)noxtls_bn_zero(M, size);
 
+    /* Every field operation can fail (bignum allocation); the first failure
+     * is kept in rc and the output is wiped instead of returning a wrong point. */
     /* S = 4*X1*Y1^2 mod p */
-        ecc_mul_mod(t2, P->Y, P->Y, p, size, t1);
-        ecc_mul_mod(t2, P->X, t2, p, size, t1);
-        (void)noxtls_bn_mul(t1, t2, size, four_arr, 1);
-        (void)noxtls_bn_mod(S, t1, size + 1U, p, size);
+    rc = ecc_rc_merge(rc, ecc_mul_mod(t2, P->Y, P->Y, p, size, t1));
+    rc = ecc_rc_merge(rc, ecc_mul_mod(t2, P->X, t2, p, size, t1));
+    rc = ecc_rc_merge(rc, ecc_mul_small_mod(S, t2, four_arr, p, size, t1));
 
-        /* M = 3*X1^2 + a*Z1^4 mod p */
-        ecc_mul_mod(t2, P->X, P->X, p, size, t1);
-        (void)noxtls_bn_mul(t1, t2, size, three_arr, 1);
-        (void)noxtls_bn_mod(t2, t1, size + 1U, p, size);
-        ecc_mul_mod(t3, P->Z, P->Z, p, size, t1);
-        ecc_mul_mod(t3, t3, t3, p, size, t1);
-        ecc_mul_mod(t3, a, t3, p, size, t1);
-        ecc_mod_add(M, t2, t3, p, size);
+    /* M = 3*X1^2 + a*Z1^4 mod p */
+    rc = ecc_rc_merge(rc, ecc_mul_mod(t2, P->X, P->X, p, size, t1));
+    rc = ecc_rc_merge(rc, ecc_mul_small_mod(t2, t2, three_arr, p, size, t1));
+    rc = ecc_rc_merge(rc, ecc_mul_mod(t3, P->Z, P->Z, p, size, t1));
+    rc = ecc_rc_merge(rc, ecc_mul_mod(t3, t3, t3, p, size, t1));
+    rc = ecc_rc_merge(rc, ecc_mul_mod(t3, a, t3, p, size, t1));
+    rc = ecc_rc_merge(rc, ecc_mod_add(M, t2, t3, p, size));
 
-        /* X3 = M^2 - 2*S mod p */
-        ecc_mul_mod(t2, M, M, p, size, t1);
-        (void)noxtls_bn_mul(t1, S, size, two_arr, 1);
-        (void)noxtls_bn_mod(t3, t1, size + 1U, p, size);
-        ecc_mod_sub(out->X, t2, t3, p, size);
+    /* X3 = M^2 - 2*S mod p */
+    rc = ecc_rc_merge(rc, ecc_mul_mod(t2, M, M, p, size, t1));
+    rc = ecc_rc_merge(rc, ecc_mul_small_mod(t3, S, two_arr, p, size, t1));
+    rc = ecc_rc_merge(rc, ecc_mod_sub(out->X, t2, t3, p, size));
 
-        /* Y3 = M*(S - X3) - 8*Y1^4 mod p */
-        ecc_mod_sub(t2, S, out->X, p, size);
-        ecc_mul_mod(t2, M, t2, p, size, t1);
-        ecc_mul_mod(t3, P->Y, P->Y, p, size, t1);
-        ecc_mul_mod(t3, t3, t3, p, size, t1);
-        (void)noxtls_bn_mul(t1, t3, size, eight_arr, 1);
-        (void)noxtls_bn_mod(t3, t1, size + 1U, p, size);
-        ecc_mod_sub(out->Y, t2, t3, p, size);
+    /* Y3 = M*(S - X3) - 8*Y1^4 mod p */
+    rc = ecc_rc_merge(rc, ecc_mod_sub(t2, S, out->X, p, size));
+    rc = ecc_rc_merge(rc, ecc_mul_mod(t2, M, t2, p, size, t1));
+    rc = ecc_rc_merge(rc, ecc_mul_mod(t3, P->Y, P->Y, p, size, t1));
+    rc = ecc_rc_merge(rc, ecc_mul_mod(t3, t3, t3, p, size, t1));
+    rc = ecc_rc_merge(rc, ecc_mul_small_mod(t3, t3, eight_arr, p, size, t1));
+    rc = ecc_rc_merge(rc, ecc_mod_sub(out->Y, t2, t3, p, size));
 
-        /* Z3 = 2*Y1*Z1 mod p */
-        ecc_mul_mod(t2, P->Y, P->Z, p, size, t1);
-        (void)noxtls_bn_mul(t1, t2, size, two_arr, 1);
-        (void)noxtls_bn_mod(out->Z, t1, size + 1U, p, size);
+    /* Z3 = 2*Y1*Z1 mod p */
+    rc = ecc_rc_merge(rc, ecc_mul_mod(t2, P->Y, P->Z, p, size, t1));
+    rc = ecc_rc_merge(rc, ecc_mul_small_mod(out->Z, t2, two_arr, p, size, t1));
 
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        (void)noxtls_bn_zero(out->X, size);
+        (void)noxtls_bn_zero(out->Y, size);
+        (void)noxtls_bn_zero(out->Z, size);
+    }
     out->size = size;
-    return NOXTLS_RETURN_SUCCESS;
+    return rc;
 }
 
 /* Jacobian add: out = P + Q. No inversion. Handles identity, P == Q (doubles) and P == -Q (identity). */
@@ -2244,6 +2319,8 @@ static noxtls_return_t ecc_jpoint_add(ecc_jpoint_t *out, const ecc_jpoint_t *P, 
     uint8_t t1[ECC_MAX_KEY_SIZE * 2U];
     uint8_t t2[ECC_MAX_KEY_SIZE * 2U];
     uint8_t t3[ECC_MAX_KEY_SIZE * 2U];
+    noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
+    static const uint8_t two_arr[1] = {0x02U};
     if((size == 0U) || (size > ECC_MAX_KEY_SIZE) || (size > (uint32_t)(UINT32_MAX / 2U))) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -2284,21 +2361,31 @@ static noxtls_return_t ecc_jpoint_add(ecc_jpoint_t *out, const ecc_jpoint_t *P, 
     (void)noxtls_bn_zero(t3, size * 2U);
 
     /* Z1^2, Z2^2 */
-    ecc_mul_mod(t2, P->Z, P->Z, p, size, t1);
-    ecc_mul_mod(t3, Q->Z, Q->Z, p, size, t1);
+    rc = ecc_rc_merge(rc, ecc_mul_mod(t2, P->Z, P->Z, p, size, t1));
+    rc = ecc_rc_merge(rc, ecc_mul_mod(t3, Q->Z, Q->Z, p, size, t1));
     /* U1 = X1*Z2^2, U2 = X2*Z1^2 */
-    ecc_mul_mod(U1, P->X, t3, p, size, t1);
-    ecc_mul_mod(U2, Q->X, t2, p, size, t1);
+    rc = ecc_rc_merge(rc, ecc_mul_mod(U1, P->X, t3, p, size, t1));
+    rc = ecc_rc_merge(rc, ecc_mul_mod(U2, Q->X, t2, p, size, t1));
     /* Z2^3 = Z2^2*Z2, Z1^3 = Z1^2*Z1 */
-    ecc_mul_mod(t3, t3, Q->Z, p, size, t1);
-    ecc_mul_mod(t2, t2, P->Z, p, size, t1);
+    rc = ecc_rc_merge(rc, ecc_mul_mod(t3, t3, Q->Z, p, size, t1));
+    rc = ecc_rc_merge(rc, ecc_mul_mod(t2, t2, P->Z, p, size, t1));
     /* S1 = Y1*Z2^3, S2 = Y2*Z1^3 */
-    ecc_mul_mod(S1, P->Y, t3, p, size, t1);
-    ecc_mul_mod(S2, Q->Y, t2, p, size, t1);
+    rc = ecc_rc_merge(rc, ecc_mul_mod(S1, P->Y, t3, p, size, t1));
+    rc = ecc_rc_merge(rc, ecc_mul_mod(S2, Q->Y, t2, p, size, t1));
 
     /* H = U2 - U1, R = S2 - S1 */
-    ecc_mod_sub(H, U2, U1, p, size);
-    ecc_mod_sub(R, S2, S1, p, size);
+    rc = ecc_rc_merge(rc, ecc_mod_sub(H, U2, U1, p, size));
+    rc = ecc_rc_merge(rc, ecc_mod_sub(R, S2, S1, p, size));
+
+    /* H and R select the special cases below: they are only meaningful when
+     * every operation above succeeded. */
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        (void)noxtls_bn_zero(out->X, size);
+        (void)noxtls_bn_zero(out->Y, size);
+        (void)noxtls_bn_zero(out->Z, size);
+        out->size = size;
+        return rc;
+    }
 
     if(noxtls_bn_is_zero(H, size) != 0) {
         /* Same x coordinate: P == Q (R == 0) or P == -Q (R != 0). Precompute
@@ -2318,31 +2405,32 @@ static noxtls_return_t ecc_jpoint_add(ecc_jpoint_t *out, const ecc_jpoint_t *P, 
     }
 
     /* X3 = R^2 - H^3 - 2*U1*H^2; also keep U1*H^2 and H^3 for Y3 */
-    ecc_mul_mod(t2, H, H, p, size, t1);         /* t2 = H^2 */
-    ecc_mul_mod(t3, t2, H, p, size, t1);        /* t3 = H^3 */
-    ecc_mul_mod(t2, R, R, p, size, t1);         /* t2 = R^2 */
-    ecc_mod_sub(t2, t2, t3, p, size);             /* t2 = R^2 - H^3 */
-    ecc_mul_mod(t3, U1, H, p, size, t1);
-    ecc_mul_mod(t3, t3, H, p, size, t1);        /* t3 = U1*H^2 */
-    {
-        const uint8_t two_arr[1] = {0x02U};
-        (void)noxtls_bn_mul(t1, t3, size, two_arr, 1);
-        (void)noxtls_bn_mod(t1, t1, size + 1U, p, size);
-        ecc_mod_sub(out->X, t2, t1, p, size);
-    }
+    rc = ecc_rc_merge(rc, ecc_mul_mod(t2, H, H, p, size, t1));         /* t2 = H^2 */
+    rc = ecc_rc_merge(rc, ecc_mul_mod(t3, t2, H, p, size, t1));        /* t3 = H^3 */
+    rc = ecc_rc_merge(rc, ecc_mul_mod(t2, R, R, p, size, t1));         /* t2 = R^2 */
+    rc = ecc_rc_merge(rc, ecc_mod_sub(t2, t2, t3, p, size));           /* t2 = R^2 - H^3 */
+    rc = ecc_rc_merge(rc, ecc_mul_mod(t3, U1, H, p, size, t1));
+    rc = ecc_rc_merge(rc, ecc_mul_mod(t3, t3, H, p, size, t1));        /* t3 = U1*H^2 */
+    rc = ecc_rc_merge(rc, ecc_mul_small_mod(t1, t3, two_arr, p, size, t1));
+    rc = ecc_rc_merge(rc, ecc_mod_sub(out->X, t2, t1, p, size));
     /* Y3 = R*(U1*H^2 - X3) - S1*H^3; t3 = U1*H^2, need H^3 again */
-    ecc_mod_sub(t2, t3, out->X, p, size);         /* t2 = U1*H^2 - X3 */
-    ecc_mul_mod(t2, R, t2, p, size, t1);        /* t2 = R*(U1*H^2 - X3) */
-    ecc_mul_mod(t3, H, H, p, size, t1);
-    ecc_mul_mod(t3, t3, H, p, size, t1);        /* t3 = H^3 */
-    ecc_mul_mod(t3, S1, t3, p, size, t1);
-    ecc_mod_sub(out->Y, t2, t3, p, size);
+    rc = ecc_rc_merge(rc, ecc_mod_sub(t2, t3, out->X, p, size));       /* t2 = U1*H^2 - X3 */
+    rc = ecc_rc_merge(rc, ecc_mul_mod(t2, R, t2, p, size, t1));        /* t2 = R*(U1*H^2 - X3) */
+    rc = ecc_rc_merge(rc, ecc_mul_mod(t3, H, H, p, size, t1));
+    rc = ecc_rc_merge(rc, ecc_mul_mod(t3, t3, H, p, size, t1));        /* t3 = H^3 */
+    rc = ecc_rc_merge(rc, ecc_mul_mod(t3, S1, t3, p, size, t1));
+    rc = ecc_rc_merge(rc, ecc_mod_sub(out->Y, t2, t3, p, size));
 
     /* Z3 = Z1*Z2*H */
-    ecc_mul_mod(t2, P->Z, Q->Z, p, size, t1);
-    ecc_mul_mod(out->Z, t2, H, p, size, t1);
+    rc = ecc_rc_merge(rc, ecc_mul_mod(t2, P->Z, Q->Z, p, size, t1));
+    rc = ecc_rc_merge(rc, ecc_mul_mod(out->Z, t2, H, p, size, t1));
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        (void)noxtls_bn_zero(out->X, size);
+        (void)noxtls_bn_zero(out->Y, size);
+        (void)noxtls_bn_zero(out->Z, size);
+    }
     out->size = size;
-    return NOXTLS_RETURN_SUCCESS;
+    return rc;
 }
 
 /**
@@ -2368,7 +2456,7 @@ noxtls_return_t noxtls_ecc_point_add(ecc_point_t *result, const ecc_point_t *p1,
     }
 
     size = curve->size;
-    if((size == 0U) || (size > (uint32_t)(UINT32_MAX / 2U))) {
+    if((size == 0U) || (size > ECC_MAX_KEY_SIZE) || (size > (uint32_t)(UINT32_MAX / 2U))) {
         return NOXTLS_RETURN_FAILED;
     }
 
@@ -2390,7 +2478,13 @@ noxtls_return_t noxtls_ecc_point_add(ecc_point_t *result, const ecc_point_t *p1,
     /* Check if P == -Q (P + (-Q) = infinity) */
     (void)noxtls_bn_copy(temp1, p2->y, size);
     (void)noxtls_bn_sub(temp2, curve->p, temp1, size);  /* temp2 = p - y2 */
-    (void)noxtls_bn_mod(temp2, temp2, size, curve->p, size);
+    rc = noxtls_bn_mod(temp2, temp2, size, curve->p, size);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        (void)noxtls_bn_zero(result->x, size);
+        (void)noxtls_bn_zero(result->y, size);
+        result->size = size;
+        return rc;
+    }
 
     if((noxtls_bn_cmp(p1->x, p2->x, size) == 0) && (noxtls_bn_cmp(p1->y, temp2, size) == 0)) {
         /* Result is point at infinity */
@@ -2498,16 +2592,19 @@ static noxtls_return_t ecc_jpoint_to_affine(uint8_t *x, uint8_t *y, const ecc_jp
     (void)noxtls_bn_zero(t1, size * 2U);
 
     rc = ecc_mod_inv_prime(inv, J->Z, p, size);
+    if((rc == NOXTLS_RETURN_SUCCESS) && (noxtls_bn_is_zero(inv, size) != 0)) {
+        rc = NOXTLS_RETURN_FAILED;
+    }
+    rc = ecc_rc_merge(rc, ecc_mul_mod(z2, inv, inv, p, size, t1));
+    rc = ecc_rc_merge(rc, ecc_mul_mod(z3, z2, inv, p, size, t1));
+    rc = ecc_rc_merge(rc, ecc_mul_mod(x, J->X, z2, p, size, t1));
+    rc = ecc_rc_merge(rc, ecc_mul_mod(y, J->Y, z3, p, size, t1));
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
+        /* Never hand back a partially converted (wrong) affine point. */
+        (void)noxtls_bn_zero(x, size);
+        (void)noxtls_bn_zero(y, size);
     }
-    if(noxtls_bn_is_zero(inv, size) != 0) {
-        return NOXTLS_RETURN_FAILED;
-    }
-    ecc_mul_mod(z2, inv, inv, p, size, t1);
-    ecc_mul_mod(z3, z2, inv, p, size, t1);
-    ecc_mul_mod(x, J->X, z2, p, size, t1);
-    ecc_mul_mod(y, J->Y, z3, p, size, t1);
+    noxtls_secure_zero(inv, sizeof(inv));
     return rc;
 }
 
@@ -2571,8 +2668,9 @@ static noxtls_return_t ecc_precompute_table_to_affine(ecc_jpoint_t *T, uint32_t 
         prefix_i = &prefix[((size_t)count * size)];
         if(count == 0U) {
             (void)noxtls_bn_copy(prefix_i, T[i].Z, size);
+            rc = NOXTLS_RETURN_SUCCESS;
         } else {
-            ecc_mul_mod(prefix_i, &prefix[(((size_t)count - 1U) * size)], T[i].Z, p, size, tmp2n);
+            rc = ecc_rc_merge(rc, ecc_mul_mod(prefix_i, &prefix[(((size_t)count - 1U) * size)], T[i].Z, p, size, tmp2n));
         }
         count += 1U;
     }
@@ -2583,36 +2681,41 @@ static noxtls_return_t ecc_precompute_table_to_affine(ecc_jpoint_t *T, uint32_t 
         return NOXTLS_RETURN_SUCCESS;
     }
 
-    rc = ecc_mod_inv_prime(acc, &prefix[(((size_t)count - 1U) * size)], p, size);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = ecc_mod_inv_prime(acc, &prefix[(((size_t)count - 1U) * size)], p, size);
+    }
     if(rc != NOXTLS_RETURN_SUCCESS) {
         (void)noxtls_free(prefix);
         (void)noxtls_free(active_idx);
         return rc;
     }
 
-    for(i = count; i > 0U; i -= 1U) {
+    for(i = count; (i > 0U) && (rc == NOXTLS_RETURN_SUCCESS); i -= 1U) {
         uint32_t pos = (uint32_t)(i - 1U);
         uint32_t point_idx = active_idx[pos];
 
         if(pos == 0U) {
             (void)noxtls_bn_copy(inv_z, acc, size);
         } else {
-            ecc_mul_mod(inv_z, acc, &prefix[(((size_t)pos - 1U) * size)], p, size, tmp2n);
-            ecc_mul_mod(next_acc, acc, T[point_idx].Z, p, size, tmp2n);
+            rc = ecc_rc_merge(rc, ecc_mul_mod(inv_z, acc, &prefix[(((size_t)pos - 1U) * size)], p, size, tmp2n));
+            rc = ecc_rc_merge(rc, ecc_mul_mod(next_acc, acc, T[point_idx].Z, p, size, tmp2n));
             (void)noxtls_bn_copy(acc, next_acc, size);
         }
 
-        ecc_mul_mod(z2, inv_z, inv_z, p, size, tmp2n);
-        ecc_mul_mod(z3, z2, inv_z, p, size, tmp2n);
-        ecc_mul_mod(T[point_idx].X, T[point_idx].X, z2, p, size, tmp2n);
-        ecc_mul_mod(T[point_idx].Y, T[point_idx].Y, z3, p, size, tmp2n);
+        rc = ecc_rc_merge(rc, ecc_mul_mod(z2, inv_z, inv_z, p, size, tmp2n));
+        rc = ecc_rc_merge(rc, ecc_mul_mod(z3, z2, inv_z, p, size, tmp2n));
+        rc = ecc_rc_merge(rc, ecc_mul_mod(T[point_idx].X, T[point_idx].X, z2, p, size, tmp2n));
+        rc = ecc_rc_merge(rc, ecc_mul_mod(T[point_idx].Y, T[point_idx].Y, z3, p, size, tmp2n));
         (void)noxtls_bn_zero(T[point_idx].Z, size);
         T[point_idx].Z[size - 1U] = 0x01U;
     }
 
+    noxtls_secure_zero(acc, sizeof(acc));
+    noxtls_secure_zero(inv_z, sizeof(inv_z));
     (void)noxtls_free(prefix);
     (void)noxtls_free(active_idx);
-    return NOXTLS_RETURN_SUCCESS;
+    /* On failure the table is only partially converted: callers discard it. */
+    return rc;
 }
 
 /** Build precomputation table T[0..2^w-1]: T[0]=identity, T[1]=P, T[i]=i*P in Jacobian. */
@@ -3590,7 +3693,7 @@ static noxtls_return_t ecc_point_multiply_jpoint(ecc_jpoint_t *result,
  * Uses windowed precomputation when NOXTLS_ECC_POINT_MUL_WINDOW_SIZE >= 2,
  * with optional fixed-base cache for G. Falls back to constant-time Montgomery ladder otherwise.
  */
-noxtls_return_t noxtls_ecc_point_multiply(ecc_point_t *result, const uint8_t *scalar, const ecc_point_t *point, const ecc_curve_params_t *curve)
+static noxtls_return_t ecc_point_multiply_core(ecc_point_t *result, const uint8_t *scalar, const ecc_point_t *point, const ecc_curve_params_t *curve)
 {
 #if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
     uint64_t total_start_us;
@@ -3845,6 +3948,23 @@ noxtls_return_t noxtls_ecc_point_multiply(ecc_point_t *result, const uint8_t *sc
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief ECC Scalar Multiplication: R = k * P (public entry point)
+ *
+ * On any failure (including a field-arithmetic allocation failure deep in
+ * the point formulas) the result is wiped, so a caller never sees a
+ * partially computed point together with an error.
+ */
+noxtls_return_t noxtls_ecc_point_multiply(ecc_point_t *result, const uint8_t *scalar, const ecc_point_t *point, const ecc_curve_params_t *curve)
+{
+    noxtls_return_t rc = ecc_point_multiply_core(result, scalar, point, curve);
+    if((rc != NOXTLS_RETURN_SUCCESS) && (result != NULL)) {
+        noxtls_secure_zero(result->x, sizeof(result->x));
+        noxtls_secure_zero(result->y, sizeof(result->y));
+    }
+    return rc;
+}
+
 #if NOXTLS_ECC_P256_LOW_RAM_VERIFY
 /* Compute k1*G + k2*Q without the 64-entry joint table. G comes from the
  * read-only comb table; only an 8-entry compact table for runtime Q is kept. */
@@ -3923,10 +4043,10 @@ static noxtls_return_t p256_ecc_point_muladd_low_ram(
  * Uses Jacobian arithmetic internally to avoid repeated inversions and performs
  * a single affine conversion at the end.
  */
-noxtls_return_t noxtls_ecc_point_muladd(ecc_point_t *result,
-                                        const uint8_t *scalar1, const ecc_point_t *point1,
-                                        const uint8_t *scalar2, const ecc_point_t *point2,
-                                        const ecc_curve_params_t *curve)
+static noxtls_return_t ecc_point_muladd_core(ecc_point_t *result,
+                                              const uint8_t *scalar1, const ecc_point_t *point1,
+                                              const uint8_t *scalar2, const ecc_point_t *point2,
+                                              const ecc_curve_params_t *curve)
 {
     ecc_jpoint_t R;
     ecc_jpoint_t J1;
@@ -4147,6 +4267,26 @@ noxtls_return_t noxtls_ecc_point_muladd(ecc_point_t *result,
 }
 
 /**
+ * @brief Joint scalar multiplication: R = k1*P1 + (k2 * P2)
+ *
+ * On any failure (including a field-arithmetic allocation failure deep in
+ * the point formulas) the result is wiped, so a caller never sees a
+ * partially computed point together with an error.
+ */
+noxtls_return_t noxtls_ecc_point_muladd(ecc_point_t *result,
+                                        const uint8_t *scalar1, const ecc_point_t *point1,
+                                        const uint8_t *scalar2, const ecc_point_t *point2,
+                                        const ecc_curve_params_t *curve)
+{
+    noxtls_return_t rc = ecc_point_muladd_core(result, scalar1, point1, scalar2, point2, curve);
+    if((rc != NOXTLS_RETURN_SUCCESS) && (result != NULL)) {
+        noxtls_secure_zero(result->x, sizeof(result->x));
+        noxtls_secure_zero(result->y, sizeof(result->y));
+    }
+    return rc;
+}
+
+/**
  * @brief Check if point is on curve
  *
  * Verifies that y^2 = x^3 + ax + b (mod p). Uses curve params from noxtls_ecc_curve_init
@@ -4175,27 +4315,31 @@ noxtls_return_t noxtls_ecc_point_is_on_curve(const ecc_point_t *point, const ecc
     noxtls_secure_zero(temp1, (size_t)(sizeof(temp1)));
     noxtls_secure_zero(temp2, (size_t)(sizeof(temp2)));
 
-    /* Check if point is at infinity */
+    /* Check if point is at infinity. The identity is a group element, so this
+     * internal helper accepts it; public-key validation
+     * (noxtls_ecc_point_validate_public) and key generation reject it. */
     if(ecc_point_is_infinity(point, size) != 0) {
         return NOXTLS_RETURN_SUCCESS;
     }
 
+    /* Every bignum status is checked: a failed multiply/reduction leaves a
+     * meaningless value that must never be compared as if it were valid. */
     /* Compute left side: y^2 mod p */
-    (void)noxtls_bn_mul(temp1, point->y, size, point->y, size);
-    (void)noxtls_bn_mod(left, temp1, size * 2U, curve->p, size);
+    rc = noxtls_bn_mul(temp1, point->y, size, point->y, size);
+    rc = ecc_rc_merge(rc, noxtls_bn_mod(left, temp1, size * 2U, curve->p, size));
 
     /* Compute right side: x^3 + ax + b mod p (use curve->a so it matches add/double) */
-    (void)noxtls_bn_mul(temp1, point->x, size, point->x, size);
-    (void)noxtls_bn_mod(temp1, temp1, size * 2U, curve->p, size);
-    (void)noxtls_bn_mul(temp2, temp1, size, point->x, size);
-    (void)noxtls_bn_mod(temp2, temp2, size * 2U, curve->p, size);
-    (void)noxtls_bn_mul(temp1, curve->a, size, point->x, size);
-    (void)noxtls_bn_mod(temp1, temp1, size * 2U, curve->p, size);
-    ecc_mod_add(temp2, temp2, temp1, curve->p, size);
-    ecc_mod_add(right, temp2, curve->b, curve->p, size);
+    rc = ecc_rc_merge(rc, noxtls_bn_mul(temp1, point->x, size, point->x, size));
+    rc = ecc_rc_merge(rc, noxtls_bn_mod(temp1, temp1, size * 2U, curve->p, size));
+    rc = ecc_rc_merge(rc, noxtls_bn_mul(temp2, temp1, size, point->x, size));
+    rc = ecc_rc_merge(rc, noxtls_bn_mod(temp2, temp2, size * 2U, curve->p, size));
+    rc = ecc_rc_merge(rc, noxtls_bn_mul(temp1, curve->a, size, point->x, size));
+    rc = ecc_rc_merge(rc, noxtls_bn_mod(temp1, temp1, size * 2U, curve->p, size));
+    rc = ecc_rc_merge(rc, ecc_mod_add(temp2, temp2, temp1, curve->p, size));
+    rc = ecc_rc_merge(rc, ecc_mod_add(right, temp2, curve->b, curve->p, size));
 
-    if(noxtls_bn_cmp(left, right, size) == 0) {
-        rc = NOXTLS_RETURN_SUCCESS;
+    if((rc == NOXTLS_RETURN_SUCCESS) && (noxtls_bn_cmp(left, right, size) != 0)) {
+        rc = NOXTLS_RETURN_FAILED;
     }
 
     return rc;
@@ -4218,13 +4362,21 @@ noxtls_return_t noxtls_ecc_point_validate_public(const ecc_point_t *point, const
     if((point->size != curve->size) || (curve->size == 0U) || (curve->size > ECC_MAX_KEY_SIZE)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
+    /* The identity (affine encoding (0, 0)) is never a valid public key. */
     if((ecc_point_is_infinity(point, curve->size) != 0)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    /* Coordinates must be canonical field elements (x, y < p). */
+    if((curve->p == NULL) ||
+       (noxtls_bn_cmp(point->x, curve->p, curve->size) >= 0) ||
+       (noxtls_bn_cmp(point->y, curve->p, curve->size) >= 0)) {
         return NOXTLS_RETURN_FAILED;
     }
 
     rc = noxtls_ecc_point_is_on_curve(point, curve);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
+        /* Keep an allocation failure distinguishable from an invalid point. */
+        return (rc == NOXTLS_RETURN_NOT_ENOUGH_MEMORY) ? rc : NOXTLS_RETURN_FAILED;
     }
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -4268,6 +4420,7 @@ noxtls_return_t noxtls_ecc_key_init(ecc_key_t *key, ecc_curve_t curve_type)
 
     noxtls_ecc_keyinit_last_stage = 4U;
     key->d = (uint8_t*)NOXTLS_CALLOC(key->curve->size, 1);
+    key->d_size = (key->d != NULL) ? key->curve->size : 0U;
     if(key->d == NULL) {
         (void)noxtls_ecc_curve_free(key->curve);
         (void)noxtls_free(key->curve);
@@ -4350,37 +4503,46 @@ noxtls_return_t noxtls_ecc_key_generate(ecc_key_t *key, ecc_curve_t curve_type)
     noxtls_secure_zero(random_bytes, (size_t)(sizeof(random_bytes)));
     noxtls_ecc_keygen_last_stage = 6U;
     do {
+        uint32_t attempts = 0U;
+        int d_valid = 0;
         /* Generate private key d in range [1, n-1] */
         /* Generate random private key */
 #if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
         phase_start_us = noxtls_ecc_diagnostic_time_us();
 #endif
-        do {
+        while((d_valid == 0) && (attempts < NOXTLS_ECC_KEYGEN_MAX_ATTEMPTS)) {
+            attempts += 1U;
             rc = ecc_keygen_drbg_generate_bits(random_bytes, bits);
             if(rc != NOXTLS_RETURN_SUCCESS) {
                 noxtls_ecc_keygen_last_stage = 7U;
                 break;
             }
 
-            /* Ensure d is in range [1, n-1] by reducing mod (n-1) and adding 1 */
-            /* First, reduce mod n (which gives [0, n-1]) */
             if(noxtls_ecc_curve_order_size(key->curve) > size) {
                 /* Order longer than the field (secp224k1): every size-byte value is
                  * already below n, so no reduction is needed. */
                 noxtls_copy_u8(key->d, (size_t)size, random_bytes, (size_t)size);
             } else {
-                (void)noxtls_bn_mod(key->d, random_bytes, size, key->curve->n, size);
+                /* Reduce mod n (gives [0, n-1]); a failed reduction must not
+                 * leave a stale or zero d behind as the "generated" key. */
+                rc = noxtls_bn_mod(key->d, random_bytes, size, key->curve->n, size);
+                if(rc != NOXTLS_RETURN_SUCCESS) {
+                    noxtls_ecc_keygen_last_stage = 7U;
+                    break;
+                }
             }
 
-            /* If d is zero, set to 1 */
-            if(noxtls_bn_is_zero(key->d, size) != 0) {
-                (void)noxtls_bn_one(key->d, size);
+            /* d == 0 (or, defensively, d >= n) is rejected and redrawn. */
+            if((noxtls_bn_is_zero(key->d, size) == 0) &&
+               ((noxtls_ecc_curve_order_size(key->curve) != size) ||
+                (noxtls_bn_cmp(key->d, key->curve->n, size) < 0))) {
+                d_valid = 1;
             }
-
-            /* Ensure d < n (should already be true after mod, but check anyway) */
-        } while(((noxtls_ecc_curve_order_size(key->curve) == size) &&
-                 (noxtls_bn_cmp(key->d, key->curve->n, size) >= 0)) ||
-                (noxtls_bn_is_zero(key->d, size) != 0));
+        }
+        if((rc == NOXTLS_RETURN_SUCCESS) && (d_valid == 0)) {
+            noxtls_ecc_keygen_last_stage = 7U;
+            rc = NOXTLS_RETURN_FAILED;
+        }
 #if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
         noxtls_ecc_keygen_last_private_us =
             noxtls_ecc_diagnostic_elapsed_us(phase_start_us);
@@ -4392,32 +4554,29 @@ noxtls_return_t noxtls_ecc_key_generate(ecc_key_t *key, ecc_curve_t curve_type)
 
         /* Compute public key Q = d * G */
         /* This is the expensive operation - scalar multiplication */
-    noxtls_ecc_keygen_last_stage = 8U;
+        noxtls_ecc_keygen_last_stage = 8U;
 #if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
-    phase_start_us = noxtls_ecc_diagnostic_time_us();
+        phase_start_us = noxtls_ecc_diagnostic_time_us();
 #endif
-    rc = noxtls_ecc_point_multiply(&key->Q, key->d, &key->curve->G, key->curve);
+        rc = noxtls_ecc_point_multiply(&key->Q, key->d, &key->curve->G, key->curve);
 #if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
-    noxtls_ecc_keygen_last_multiply_us =
-        noxtls_ecc_diagnostic_elapsed_us(phase_start_us);
+        noxtls_ecc_keygen_last_multiply_us =
+            noxtls_ecc_diagnostic_elapsed_us(phase_start_us);
 #endif
-    noxtls_ecc_keygen_last_multiply_rc = (int32_t)rc;
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup_keygen;
-    }
-
+        noxtls_ecc_keygen_last_multiply_rc = (int32_t)rc;
     } while(0 == 1);
 
     if(rc != NOXTLS_RETURN_SUCCESS) {
         goto cleanup_keygen;
     }
 
-    /* Verify the generated public key is on the curve */
+    /* Verify the generated public key: on the curve and not the identity
+     * (noxtls_ecc_point_is_on_curve() accepts the identity by itself). */
     noxtls_ecc_keygen_last_stage = 9U;
 #if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
     phase_start_us = noxtls_ecc_diagnostic_time_us();
 #endif
-    rc = noxtls_ecc_point_is_on_curve(&key->Q, key->curve);
+    rc = noxtls_ecc_point_validate_public(&key->Q, key->curve);
 #if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
     noxtls_ecc_keygen_last_validate_us =
         noxtls_ecc_diagnostic_elapsed_us(phase_start_us);
@@ -4428,6 +4587,13 @@ noxtls_return_t noxtls_ecc_key_generate(ecc_key_t *key, ecc_curve_t curve_type)
 
 cleanup_keygen:
     noxtls_secure_zero(random_bytes, (size_t)(sizeof(random_bytes)));
+    if((rc != NOXTLS_RETURN_SUCCESS) && (key->d != NULL)) {
+        /* Fail closed: never leave a half-generated key pair behind. The key
+         * stays initialized (noxtls_ecc_key_free() is still required). */
+        noxtls_secure_zero(key->d, (size_t)key->d_size);
+        noxtls_secure_zero(key->Q.x, sizeof(key->Q.x));
+        noxtls_secure_zero(key->Q.y, sizeof(key->Q.y));
+    }
     noxtls_ecc_keygen_last_rc = (int32_t)rc;
 #if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
     noxtls_ecc_keygen_last_total_us =
@@ -4450,13 +4616,16 @@ noxtls_return_t noxtls_ecc_key_free(ecc_key_t *key)
     }
 
     if(key->d != NULL) {
-        {
-            size_t d_cap = (key->curve != NULL) ? (size_t)key->curve->size : (size_t)ECC_MAX_KEY_SIZE;
-            noxtls_fill_u8(key->d, d_cap, 0U, d_cap);
+        /* Wipe exactly the allocated length recorded by noxtls_ecc_key_init().
+         * The curve may be detached or replaced, so its size is not a safe
+         * bound; an unknown length (0) skips the wipe rather than overrunning. */
+        if((key->d_size != 0U) && (key->d_size <= ECC_MAX_KEY_SIZE)) {
+            noxtls_secure_zero(key->d, (size_t)key->d_size);
         }
         (void)noxtls_free(key->d);
         key->d = NULL;
     }
+    key->d_size = 0U;
 
     if(key->curve != NULL) {
         (void)noxtls_ecc_curve_free(key->curve);

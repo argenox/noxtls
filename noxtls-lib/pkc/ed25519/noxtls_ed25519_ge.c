@@ -1189,9 +1189,9 @@ static void ge25519_slide(int8_t r[NOXTLS_ED25519_SCALAR_BIT_LENGTH],
     }
 }
 
-void ge25519_scalar_mult(ge25519_pt_t *R,
-                         const uint8_t *s_le,
-                         const ge25519_pt_t *P)
+noxtls_return_t ge25519_scalar_mult(ge25519_pt_t *R,
+                                    const uint8_t *s_le,
+                                    const ge25519_pt_t *P)
 {
     ge25519_n_t p_n;
     ge25519_n_t r_n;
@@ -1201,9 +1201,10 @@ void ge25519_scalar_mult(ge25519_pt_t *R,
 
     table = (ge25519_n_t *)NOXTLS_MALLOC(table_bytes);
     if(table == NULL) {
+        /* Report the failure: the identity written here is not s * P. */
         ge25519_n_zero(&r_n);
         ge25519_n_to_pt(R, &r_n);
-        return;
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
 
     ge25519_n_from_pt(&p_n, P);
@@ -1211,6 +1212,7 @@ void ge25519_scalar_mult(ge25519_pt_t *R,
     ge25519_n_scalarmult_windowed(&r_n, s_le, table);
     ge25519_n_to_pt(R, &r_n);
     NOXTLS_SECURE_FREE(table, table_bytes);
+    return NOXTLS_RETURN_SUCCESS;
 }
 
 void ge25519_scalarmult_base(ge25519_pt_t *R,

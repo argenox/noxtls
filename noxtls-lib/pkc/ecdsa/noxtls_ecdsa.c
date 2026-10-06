@@ -242,31 +242,24 @@ static noxtls_return_t ecdsa_drbg_generate_bits(uint8_t *out, uint32_t requested
         }
         rc = drbg_instantiate(&s_ecdsa_drbg_state, NOXTLS_ECDSA_DRBG_TYPE,
                               seed, sizeof(seed), NULL, 0, NULL, 0);
+        noxtls_secure_zero(seed, sizeof(seed));
         if (rc != NOXTLS_RETURN_SUCCESS) {
+            (void)noxtls_drbg_uninstantiate(&s_ecdsa_drbg_state);
             return rc;
         }
         s_ecdsa_drbg_initialized = 1;
     }
 
     rc = drbg_generate(&s_ecdsa_drbg_state, out, requested_bits, NULL, 0);
-    if (rc == NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_SUCCESS;
-    }
-
-    noxtls_secure_zero(&s_ecdsa_drbg_state, sizeof(s_ecdsa_drbg_state));
-    s_ecdsa_drbg_initialized = 0;
-
-    rc = noxtls_drbg_get_entropy(seed, sizeof(seed));
     if (rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
+        /* Fail closed for this call and drop the instance: a failed generate
+         * may have wiped the state, so the next call re-instantiates from
+         * fresh entropy instead of failing forever. */
+        (void)noxtls_drbg_uninstantiate(&s_ecdsa_drbg_state);
+        s_ecdsa_drbg_initialized = 0;
+        noxtls_secure_zero(out, (size_t)((requested_bits + 7U) / 8U));
     }
-    rc = drbg_instantiate(&s_ecdsa_drbg_state, NOXTLS_ECDSA_DRBG_TYPE,
-                          seed, sizeof(seed), NULL, 0, NULL, 0);
-    if (rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
-    }
-    s_ecdsa_drbg_initialized = 1;
-    return drbg_generate(&s_ecdsa_drbg_state, out, requested_bits, NULL, 0);
+    return rc;
 }
 
 /**
@@ -841,6 +834,36 @@ static noxtls_return_t ecdsa_hash_message(uint8_t *hash, uint32_t *hash_len, con
 }
 
 /**
+ * @brief Check that a * inv == 1 (mod m)
+ *
+ * @param[out] prod Scratch product buffer (2 * size bytes)
+ * @param[out] check Scratch reduced buffer (size bytes)
+ * @param[in] a The value
+ * @param[in] inv The candidate inverse
+ * @param[in] one The constant 1 (size bytes)
+ * @param[in] mod The modulus
+ * @param[in] size Length of the operands in bytes
+ * @param[out] verified Set to 1 when the product is 1, 0 otherwise
+ * @return NOXTLS_RETURN_SUCCESS when the check could be computed, or the bignum error
+ */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
+static noxtls_return_t ecdsa_inverse_check(uint8_t *prod, uint8_t *check, const uint8_t *a,
+                                           const uint8_t *inv, const uint8_t *one,
+                                           const uint8_t *mod, uint32_t size, int *verified)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
+{
+    noxtls_return_t rc = noxtls_bn_mul(prod, a, size, inv, size);
+    *verified = 0;
+    if (rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_bn_mod(check, prod, size * 2U, mod, size);
+    }
+    if ((rc == NOXTLS_RETURN_SUCCESS) && (noxtls_bn_cmp(check, one, size) == 0)) {
+        *verified = 1;
+    }
+    return rc;
+}
+
+/**
  * @brief Modular inverse for prime modulus using Fermat: a^(p-2) mod p
  * 
  * @param result Result of the modular inverse
@@ -860,6 +883,8 @@ static noxtls_return_t ecdsa_mod_inv_prime(uint8_t *result,
     uint8_t prod[ECC_MAX_KEY_SIZE * 2U];
     uint8_t check[ECC_MAX_KEY_SIZE];
     uint8_t one[ECC_MAX_KEY_SIZE];
+    noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
+    int verified = 0;
 
     if ((result == NULL) || (a == NULL) || (mod == NULL) || (size == 0U)) {
         return NOXTLS_RETURN_NULL;
@@ -892,48 +917,58 @@ static noxtls_return_t ecdsa_mod_inv_prime(uint8_t *result,
         return NOXTLS_RETURN_FAILED;
     }
 
-    /* a_mod = a mod p */
+    /* a_mod = a mod p. Every bignum status below is checked: an allocation
+     * failure must never be mistaken for a verified inverse. */
     if (noxtls_bn_cmp(a, mod, size) >= 0) {
-        (void)noxtls_bn_mod(a_mod, a, size, mod, size);
+        rc = noxtls_bn_mod(a_mod, a, size, mod, size);
     } else {
         /* MISRA 15.7: final else path */
         (void)noxtls_bn_copy(a_mod, a, size);
     }
-    if (noxtls_bn_is_zero(a_mod, size) != 0) {
-        return NOXTLS_RETURN_FAILED;
+    if ((rc == NOXTLS_RETURN_SUCCESS) && (noxtls_bn_is_zero(a_mod, size) != 0)) {
+        rc = NOXTLS_RETURN_FAILED;
     }
 
-    /* mod_minus_2 = p - 2 */
-    two[size - 1U] = 0x02U;
-    one[size - 1U] = 0x01U;
-    (void)noxtls_bn_copy(mod_minus_2, mod, size);
-    (void)noxtls_bn_sub(mod_minus_2, mod_minus_2, two, size);
+    if (rc == NOXTLS_RETURN_SUCCESS) {
+        /* mod_minus_2 = p - 2 */
+        two[size - 1U] = 0x02U;
+        one[size - 1U] = 0x01U;
+        (void)noxtls_bn_copy(mod_minus_2, mod, size);
+        (void)noxtls_bn_sub(mod_minus_2, mod_minus_2, two, size);
 
-    /* Fast path: use generic modular inverse first. */
-    if (noxtls_bn_mod_inv(result, a_mod, size, mod, size) == NOXTLS_RETURN_SUCCESS) {
-        (void)noxtls_bn_mul(prod, a_mod, size, result, size);
-        (void)noxtls_bn_mod(check, prod, size * 2U, mod, size);
-        if (noxtls_bn_cmp(check, one, size) == 0) {
-            return NOXTLS_RETURN_SUCCESS;
+        /* Fast path: use generic modular inverse first. */
+        if (noxtls_bn_mod_inv(result, a_mod, size, mod, size) == NOXTLS_RETURN_SUCCESS) {
+            rc = ecdsa_inverse_check(prod, check, a_mod, result, one, mod, size, &verified);
         }
     }
 
-    /* Fallback path: Fermat inverse for odd-prime orders. */
-    (void)noxtls_bn_mod_exp(result, a_mod, mod_minus_2, size, mod, size);
-    (void)noxtls_bn_mul(prod, a_mod, size, result, size);
-    (void)noxtls_bn_mod(check, prod, size * 2U, mod, size);
-    if (noxtls_bn_cmp(check, one, size) != 0) {
-        noxtls_return_t rc = noxtls_bn_mod_inv(result, a_mod, size, mod, size);
-        if (rc != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
-        }
-        (void)noxtls_bn_mul(prod, a_mod, size, result, size);
-        (void)noxtls_bn_mod(check, prod, size * 2U, mod, size);
-        if (noxtls_bn_cmp(check, one, size) != 0) {
-            return NOXTLS_RETURN_FAILED;
+    if ((rc == NOXTLS_RETURN_SUCCESS) && (verified == 0)) {
+        /* Fallback path: Fermat inverse for odd-prime orders. */
+        rc = noxtls_bn_mod_exp(result, a_mod, mod_minus_2, size, mod, size);
+        if (rc == NOXTLS_RETURN_SUCCESS) {
+            rc = ecdsa_inverse_check(prod, check, a_mod, result, one, mod, size, &verified);
         }
     }
-    return NOXTLS_RETURN_SUCCESS;
+
+    if ((rc == NOXTLS_RETURN_SUCCESS) && (verified == 0)) {
+        rc = noxtls_bn_mod_inv(result, a_mod, size, mod, size);
+        if (rc == NOXTLS_RETURN_SUCCESS) {
+            rc = ecdsa_inverse_check(prod, check, a_mod, result, one, mod, size, &verified);
+        }
+        if ((rc == NOXTLS_RETURN_SUCCESS) && (verified == 0)) {
+            rc = NOXTLS_RETURN_FAILED;
+        }
+    }
+
+    noxtls_secure_zero(a_mod, sizeof(a_mod));
+    noxtls_secure_zero(prod, sizeof(prod));
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(result, (size_t)size);
+        if (rc != NOXTLS_RETURN_NOT_ENOUGH_MEMORY) {
+            rc = NOXTLS_RETURN_FAILED;
+        }
+    }
+    return rc;
 }
 
 /**
@@ -1197,10 +1232,11 @@ static uint32_t ecdsa_bit_length(const uint8_t *a, uint32_t len)
  * @param[in] nlen Length of @p n in bytes
  */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
-static void ecdsa_digest_to_scalar(uint8_t *e, const uint8_t *digest, uint32_t digest_len,
-                                   const uint8_t *n, uint32_t nlen)
+static noxtls_return_t ecdsa_digest_to_scalar(uint8_t *e, const uint8_t *digest, uint32_t digest_len,
+                                              const uint8_t *n, uint32_t nlen)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
+    noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
     const uint32_t n_bits = ecdsa_bit_length(n, nlen);
     uint32_t take = digest_len;
     uint32_t shift = 0U;
@@ -1222,10 +1258,14 @@ static void ecdsa_digest_to_scalar(uint8_t *e, const uint8_t *digest, uint32_t d
     if (ecdsa_order_is_p256(n, nlen) != 0) {
         p256_scalar_reduce32(e, e);
     } else if (noxtls_bn_cmp(e, n, nlen) >= 0) {
-        (void)noxtls_bn_mod(e, e, nlen, n, nlen);
+        rc = noxtls_bn_mod(e, e, nlen, n, nlen);
     } else {
         /* MISRA 15.7: already reduced */
     }
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(e, (size_t)nlen);
+    }
+    return rc;
 }
 
 /**
@@ -1381,7 +1421,10 @@ noxtls_return_t noxtls_ecdsa_sign(const ecc_key_t *key, const uint8_t *noxtls_me
         noxtls_ecdsa_sign_last_rc = (int32_t)rc;
         return rc;
     }
-    ecdsa_digest_to_scalar(h_fast, hash_fast, hash_fast_len, key->curve->n, nlen);
+    rc = ecdsa_digest_to_scalar(h_fast, hash_fast, hash_fast_len, key->curve->n, nlen);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return ecdsa_sign_finish(NULL, 0U, signature, rc, sign_t0);
+    }
 
     /* Fast backend path (platform hook) before software math hot loop. */
     step_t0 = ecdsa_profile_now_us();
@@ -1457,7 +1500,11 @@ noxtls_return_t noxtls_ecdsa_sign(const ecc_key_t *key, const uint8_t *noxtls_me
                  * coordinate-sized scalar taken by noxtls_ecc_point_multiply(). */
                 noxtls_copy_u8(&k[extra], (size_t)size, random_bytes, (size_t)size);
             } else {
-                (void)noxtls_bn_mod(k, random_bytes, size, key->curve->n, nlen);
+                rc = noxtls_bn_mod(k, random_bytes, size, key->curve->n, nlen);
+                if (rc != NOXTLS_RETURN_SUCCESS) {
+                    noxtls_ecdsa_sign_last_stage = 3U;
+                    return ecdsa_sign_finish(scratch, scratch_len, signature, rc, sign_t0);
+                }
             }
             s_ecdsa_last_sign_timing.nonce_generate_us += ecdsa_profile_elapsed_us(step_t0);
 
@@ -1478,7 +1525,11 @@ noxtls_return_t noxtls_ecdsa_sign(const ecc_key_t *key, const uint8_t *noxtls_me
         if (is_p256 != 0) {
             p256_scalar_reduce32(r_w, kG.x);
         } else {
-            (void)noxtls_bn_mod(r_w, kG.x, size, key->curve->n, nlen);
+            rc = noxtls_bn_mod(r_w, kG.x, size, key->curve->n, nlen);
+            if (rc != NOXTLS_RETURN_SUCCESS) {
+                noxtls_ecdsa_sign_last_stage = 4U;
+                return ecdsa_sign_finish(scratch, scratch_len, signature, rc, sign_t0);
+            }
         }
         s_ecdsa_last_sign_timing.r_reduce_us += ecdsa_profile_elapsed_us(step_t0);
 
@@ -1497,6 +1548,9 @@ noxtls_return_t noxtls_ecdsa_sign(const ecc_key_t *key, const uint8_t *noxtls_me
         if(rc != NOXTLS_RETURN_SUCCESS) {
             noxtls_ecdsa_sign_last_stage = 5U;
             noxtls_ecdsa_sign_last_rc = (int32_t)rc;
+            if (rc == NOXTLS_RETURN_NOT_ENOUGH_MEMORY) {
+                return ecdsa_sign_finish(scratch, scratch_len, signature, rc, sign_t0);
+            }
             continue;
         }
 
@@ -1507,8 +1561,12 @@ noxtls_return_t noxtls_ecdsa_sign(const ecc_key_t *key, const uint8_t *noxtls_me
             p256_scalar_add_mod(h_plus_rd, h, r_times_d);
             (void)p256_scalar_mul_mod(s_w, k_inv, h_plus_rd);
         } else {
-            (void)noxtls_bn_mul(r_times_d, r_w, nlen, key->d, size);
-            (void)noxtls_bn_mod(r_times_d, r_times_d, nlen + size, key->curve->n, nlen);
+            /* Each bignum step can fail (allocation): a wrong s must never be
+             * released, so any failure aborts the signature. */
+            rc = noxtls_bn_mul(r_times_d, r_w, nlen, key->d, size);
+            if (rc == NOXTLS_RETURN_SUCCESS) {
+                rc = noxtls_bn_mod(r_times_d, r_times_d, nlen + size, key->curve->n, nlen);
+            }
 
             /* Compute h + r * d with carry (can be nlen + 1U bytes); then reduce mod n */
             {
@@ -1526,16 +1584,24 @@ noxtls_return_t noxtls_ecdsa_sign(const ecc_key_t *key, const uint8_t *noxtls_me
                     }
                 }
                 sum_tmp[0U] = (uint8_t)carry;
-                {
+                if (rc == NOXTLS_RETURN_SUCCESS) {
                     uint32_t len = (carry != 0U) ? (nlen + 1U) : nlen;
                     const uint8_t *src = (carry != 0U) ? sum_tmp : (&sum_tmp[1U]);
-                    (void)noxtls_bn_mod(h_plus_rd, src, len, key->curve->n, nlen);
+                    rc = noxtls_bn_mod(h_plus_rd, src, len, key->curve->n, nlen);
                 }
             }
 
             /* Compute s = k^-1U * (h + r * d) mod n (product is 2*nlen bytes) */
-            (void)noxtls_bn_mul(s_product, k_inv, nlen, h_plus_rd, nlen);
-            (void)noxtls_bn_mod(s_w, s_product, nlen * 2U, key->curve->n, nlen);
+            if (rc == NOXTLS_RETURN_SUCCESS) {
+                rc = noxtls_bn_mul(s_product, k_inv, nlen, h_plus_rd, nlen);
+            }
+            if (rc == NOXTLS_RETURN_SUCCESS) {
+                rc = noxtls_bn_mod(s_w, s_product, nlen * 2U, key->curve->n, nlen);
+            }
+            if (rc != NOXTLS_RETURN_SUCCESS) {
+                noxtls_ecdsa_sign_last_stage = 6U;
+                return ecdsa_sign_finish(scratch, scratch_len, signature, rc, sign_t0);
+            }
         }
         s_ecdsa_last_sign_timing.s_compute_us += ecdsa_profile_elapsed_us(step_t0);
 
@@ -1668,7 +1734,10 @@ noxtls_return_t noxtls_ecdsa_verify(const ecc_key_t *key, const uint8_t *noxtls_
     if (rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    ecdsa_digest_to_scalar(h_fast, hash_fast, hash_fast_len, key->curve->n, nlen);
+    rc = ecdsa_digest_to_scalar(h_fast, hash_fast, hash_fast_len, key->curve->n, nlen);
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
 
     /* Fast backend path (platform hook) before software verification math. */
     rc = noxtls_ecdsa_verify_accel_port(key, h_fast, nlen, signature);
@@ -1739,15 +1808,27 @@ noxtls_return_t noxtls_ecdsa_verify(const ecc_key_t *key, const uint8_t *noxtls_
         (void)p256_scalar_mul_mod(u1, s_inv, h);
         (void)p256_scalar_mul_mod(u2, s_inv, r_w);
     } else {
-        /* Mod into v (not in-place on the 2*nlen product) to match reference verify paths. */
-        (void)noxtls_bn_mul(u1, s_inv, nlen, h, nlen);
-        (void)noxtls_bn_mod(v, u1, nlen * 2U, key->curve->n, nlen);
+        /* Mod into v (not in-place on the 2*nlen product) to match reference verify paths.
+         * Every status is checked: a failed step yields an error, never a verdict
+         * computed from garbage scalars. */
+        rc = noxtls_bn_mul(u1, s_inv, nlen, h, nlen);
+        if (rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_bn_mod(v, u1, nlen * 2U, key->curve->n, nlen);
+        }
         noxtls_copy_u8(u1, (size_t)nlen, v, (size_t)(nlen));
 
         /* Step 4: u2 = s^-1 * r mod n */
-        (void)noxtls_bn_mul(u2, s_inv, nlen, r_w, nlen);
-        (void)noxtls_bn_mod(v, u2, nlen * 2U, key->curve->n, nlen);
+        if (rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_bn_mul(u2, s_inv, nlen, r_w, nlen);
+        }
+        if (rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_bn_mod(v, u2, nlen * 2U, key->curve->n, nlen);
+        }
         noxtls_copy_u8(u2, (size_t)nlen, v, (size_t)(nlen));
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            (void)noxtls_free(scratch);
+            return rc;
+        }
     }
 #ifdef NOXTLS_ECDSA_VERIFY_DEBUG
     (void)ecdsa_debug_hex("s_inv", s_inv, size);
@@ -1838,7 +1919,11 @@ noxtls_return_t noxtls_ecdsa_verify(const ecc_key_t *key, const uint8_t *noxtls_
     if (is_p256 != 0) {
         p256_scalar_reduce32(v, result.x);
     } else {
-        (void)noxtls_bn_mod(v, result.x, size, key->curve->n, nlen);
+        rc = noxtls_bn_mod(v, result.x, size, key->curve->n, nlen);
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            (void)noxtls_free(scratch);
+            return rc;
+        }
     }
 #ifdef NOXTLS_ECDSA_VERIFY_DEBUG
     (void)ecdsa_debug_hex("result.x (before mod n)", result.x, size);

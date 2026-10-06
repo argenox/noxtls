@@ -200,9 +200,9 @@ static noxtls_return_t fe448_inv_be(uint8_t *result, const uint8_t *a)
  */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 /* Montgomery ladder: intermediate field-op RCs historically unchecked for CT; accept 17.7. */
-static noxtls_return_t x448_scalar_mult(const uint8_t *k,
-                                        const uint8_t *u,
-                                        uint8_t *result)
+static noxtls_return_t x448_scalar_mult_core(const uint8_t *k,
+                                             const uint8_t *u,
+                                             uint8_t *result)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     static const uint8_t x448_s_bit8[8] = {
@@ -301,6 +301,28 @@ static noxtls_return_t x448_scalar_mult(const uint8_t *k,
 }
 
 /**
+ * @brief X448 scalar multiplication with a fail-closed output.
+ * @param k Little-endian scalar (`NOXTLS_X448_KEY_SIZE` bytes).
+ * @param u Little-endian u-coordinate of input point.
+ * @param result Little-endian u-coordinate of k*P; wiped when the ladder fails
+ *        (e.g. a bignum allocation failure), so a stale or partial value is
+ *        never left behind next to an error.
+ * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on failure.
+ */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
+static noxtls_return_t x448_scalar_mult(const uint8_t *k,
+                                        const uint8_t *u,
+                                        uint8_t *result)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
+{
+    noxtls_return_t rc = x448_scalar_mult_core(k, u, result);
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(result, (size_t)NOXTLS_X448_KEY_SIZE);
+    }
+    return rc;
+}
+
+/**
  * @brief Applies RFC 7748 clamping to a 56-byte X448 scalar in place.
  * @param[in,out] k Little-endian scalar (`NOXTLS_X448_KEY_SIZE` bytes); no-op if NULL.
  * @return None.
@@ -369,15 +391,32 @@ noxtls_return_t noxtls_x448_generate_key(uint8_t *private_key,
     if (drbg_initialized == 0U) {
         uint8_t seed[NOXTLS_X448_DRBG_ENTROPY_SEED_BYTES];
         rc = noxtls_drbg_get_entropy(seed, sizeof(seed));
-        if (rc != NOXTLS_RETURN_SUCCESS) { return rc; }
-        rc = drbg_instantiate(&drbg_state, DRBG_AES256, seed, sizeof(seed), NULL, 0, NULL, 0);
-        if (rc != NOXTLS_RETURN_SUCCESS) { return rc; }
+        if (rc == NOXTLS_RETURN_SUCCESS) {
+            rc = drbg_instantiate(&drbg_state, DRBG_AES256, seed, sizeof(seed), NULL, 0, NULL, 0);
+        }
+        noxtls_secure_zero(seed, sizeof(seed));
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            (void)noxtls_drbg_uninstantiate(&drbg_state);
+            return rc;
+        }
         drbg_initialized = 1U;
     }
 
     rc = drbg_generate(&drbg_state, private_key, NOXTLS_X448_DRBG_SEED_BITS, NULL, 0);
-    if (rc != NOXTLS_RETURN_SUCCESS) { return rc; }
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        /* Fail closed for this call and drop the instance: a failed generate
+         * may have wiped the state, so the next call re-instantiates from
+         * fresh entropy instead of failing forever. */
+        (void)noxtls_drbg_uninstantiate(&drbg_state);
+        drbg_initialized = 0U;
+        noxtls_secure_zero(private_key, (size_t)NOXTLS_X448_KEY_SIZE);
+        return rc;
+    }
 
     (void)noxtls_x448_clamp_scalar(private_key);
-    return noxtls_x448_public_key(private_key, public_key);
+    rc = noxtls_x448_public_key(private_key, public_key);
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(private_key, (size_t)NOXTLS_X448_KEY_SIZE);
+    }
+    return rc;
 }
