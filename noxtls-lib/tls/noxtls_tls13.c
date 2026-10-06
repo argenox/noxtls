@@ -5672,6 +5672,7 @@ static noxtls_return_t tls13_recv_handshake_message(tls13_context_t *ctx, uint8_
             uint8_t *decrypted = (uint8_t*)NOXTLS_MALLOC(record.length);
             uint32_t decrypted_len = record.length;
             uint32_t inner_plaintext_len = 0U;
+            uint8_t record_starts_msg = 0U;
             if(decrypted == NULL) {
                 (void)noxtls_free(record.data);
                 return NOXTLS_RETURN_FAILED;
@@ -5771,14 +5772,21 @@ static noxtls_return_t tls13_recv_handshake_message(tls13_context_t *ctx, uint8_
                 (void)noxtls_free(decrypted);
                 return NOXTLS_RETURN_TLS_ERROR;
             }
-            if((decrypted_len >= 1U) && (decrypted[0] == TLS_HANDSHAKE_KEY_UPDATE)) {
+            /*
+             * RFC 8446 5.1: a handshake message may span records. The first byte of this
+             * record is a HandshakeType only when no partial message is buffered; otherwise
+             * it is a continuation byte of the buffered message (e.g. part of a Finished
+             * verify_data) and must not be classified as KeyUpdate / EndOfEarlyData.
+             */
+            record_starts_msg = (ctx->handshake_buffer_len > ctx->handshake_buffer_pos) ? 0U : 1U;
+            if((record_starts_msg != 0U) && (decrypted_len >= 1U) && (decrypted[0] == TLS_HANDSHAKE_KEY_UPDATE)) {
                 (void)noxtls_free(decrypted);
                 tls13_send_fatal_alert(ctx, TLS_ALERT_UNEXPECTED_MESSAGE);
                 ctx->base.base.state = TLS_STATE_CLOSED;
                 return NOXTLS_RETURN_TLS_ERROR;
             }
             /* EndOfEarlyData is handshake type 5 */
-            if((decrypted_len >= 1U) && (decrypted[0] == TLS_HANDSHAKE_END_OF_EARLY_DATA)) {
+            if((record_starts_msg != 0U) && (decrypted_len >= 1U) && (decrypted[0] == TLS_HANDSHAKE_END_OF_EARLY_DATA)) {
                 if(ctx->base.base.role == TLS_ROLE_CLIENT) {
                     (void)noxtls_free(decrypted);
                     tls13_send_fatal_alert(ctx, TLS_ALERT_UNEXPECTED_MESSAGE);
