@@ -82,6 +82,15 @@ extern "C" {
 /* RFC 8446 CertificateVerify signature field capacity (scheme-specific; not always SLH-DSA max). */
 #define TLS13_CV_STACK_SIGNATURE_MAX  512U
 
+/* RFC 8446 4.4.3 CertificateVerify signed content: 64 x 0x20 || context string || 0x00 || Transcript-Hash. */
+#define TLS13_CV_PAD_LEN                     64U
+/* Longest context string the builder accepts ("TLS 1.3, server CertificateVerify" is 33 bytes). */
+#define TLS13_CV_CONTEXT_STRING_MAX_LEN      64U
+/* Largest transcript hash (SHA-512) that can appear in the signed content. */
+#define TLS13_CV_TRANSCRIPT_HASH_MAX_LEN     64U
+/* Output capacity that always suffices for noxtls_tls13_certificate_verify_build_signed_content(). */
+#define NOXTLS_TLS13_CV_SIGNED_CONTENT_MAX_LEN (TLS13_CV_PAD_LEN + 33U + 1U + TLS13_CV_TRANSCRIPT_HASH_MAX_LEN)
+
 #include "certs/noxtls_x509_crl_fwd.h"
 
 /* TLS 1.3 Key Share Entry */
@@ -664,8 +673,12 @@ noxtls_return_t noxtls_tls13_certificate_verify_transcript_hash_length(uint16_t 
  * @param[in] signature_scheme SignatureScheme used for CertificateVerify.
  * @param[in] role TLS_ROLE_SERVER or TLS_ROLE_CLIENT (selects context string).
  * @param[out] out Output buffer for signed content.
- * @param[in,out] out_len On input: out capacity; on success: bytes written.
- * @return NOXTLS_RETURN_SUCCESS on success.
+ * @param[in,out] out_len On input: out capacity; on success: bytes written. When the capacity is too
+ *                        small nothing is written, *out_len is set to the required length and
+ *                        NOXTLS_RETURN_INVALID_PARAM is returned. NOXTLS_TLS13_CV_SIGNED_CONTENT_MAX_LEN
+ *                        bytes always suffice.
+ * @return NOXTLS_RETURN_SUCCESS on success; NOXTLS_RETURN_NULL on NULL pointers;
+ *         NOXTLS_RETURN_INVALID_PARAM on an invalid role or too-small output buffer.
  */
 noxtls_return_t noxtls_tls13_certificate_verify_build_signed_content(const uint8_t *handshake_messages,
                                                                      uint32_t handshake_messages_len,
