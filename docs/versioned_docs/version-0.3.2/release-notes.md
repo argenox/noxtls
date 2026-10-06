@@ -19,7 +19,7 @@ Use the **version dropdown** in the navbar to view docs (and release notes) for 
 
 ### Changes
 
-- Patch release on top of 0.3.0. No API, ABI, configuration, or wire-format changes; 0.3.2 is a drop-in replacement for 0.3.0. See the 0.3.0 notes below for the MISRA C:2025 conversion, security fixes, and upgrade notes from 0.2.x.
+- Patch release on top of 0.3.0. No API, ABI, configuration, or wire-format changes; 0.3.2 is a drop-in replacement for 0.3.0. For the MISRA C:2025 conversion, the security fixes, and upgrade notes from 0.2.x, read the 0.3.0 release notes (select **0.3.0** in the version dropdown) and [Security fixes in 0.3.0](./security-fixes-0.3.0.md).
 
 ### Fixed / Resolved
 
