@@ -23,6 +23,7 @@ const sidebars = {
         'start-here/port-to-platform',
       ],
     },
+    'misra-c',
     {
       type: 'category',
       label: 'Demos',
@@ -114,6 +115,7 @@ const sidebars = {
             'api/aes_ccm',
             'api/aes_xts',
             'api/aes_shared',
+            'api/aes_keywrap',
             'api/aria_ecb',
             'api/aria_cbc',
             'api/aria_ctr',
@@ -150,6 +152,8 @@ const sidebars = {
           ],
         },
         'api/drbg',
+        'api/kdf',
+        'api/spake2p',
         'api/pkc',
         {
           type: 'category',
