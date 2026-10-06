@@ -226,6 +226,16 @@ noxtls_return_t noxtls_tls_ecdhe_context_init(tls_ecdhe_context_t *ctx, uint16_t
     noxtls_secure_zero((ctx), sizeof(tls_ecdhe_context_t));
     ctx->named_group = named_group;
     
+#if !NOXTLS_FEATURE_X25519
+    if (named_group == TLS_NAMED_GROUP_X25519) {
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+    }
+#endif
+#if !NOXTLS_FEATURE_X448
+    if (named_group == TLS_NAMED_GROUP_X448) {
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+    }
+#endif
     if ((named_group == TLS_NAMED_GROUP_X25519) || (named_group == TLS_NAMED_GROUP_X448)) {
         /* RFC 7748 Montgomery groups: no ECC key; curve_type unused. */
         return NOXTLS_RETURN_SUCCESS;
@@ -299,8 +309,16 @@ noxtls_return_t noxtls_tls_ecdhe_generate_ephemeral_key(tls_ecdhe_context_t *ctx
         return NOXTLS_RETURN_NULL;
     }
     
+#if NOXTLS_FEATURE_X25519
     if (ctx->named_group == TLS_NAMED_GROUP_X25519) { return noxtls_x25519_generate_key(ctx->x25519_private_key, ctx->x25519_public_key); }
+#else
+    if (ctx->named_group == TLS_NAMED_GROUP_X25519) { return NOXTLS_RETURN_NOT_SUPPORTED; }
+#endif
+#if NOXTLS_FEATURE_X448
     if (ctx->named_group == TLS_NAMED_GROUP_X448) { return noxtls_x448_generate_key(ctx->x448_private_key, ctx->x448_public_key); }
+#else
+    if (ctx->named_group == TLS_NAMED_GROUP_X448) { return NOXTLS_RETURN_NOT_SUPPORTED; }
+#endif
     
     if (ctx->ephemeral_key.curve == NULL) {
         return NOXTLS_RETURN_FAILED;
@@ -449,7 +467,11 @@ noxtls_return_t noxtls_tls_ecdhe_compute_shared_secret_x25519(tls_ecdhe_context_
         return NOXTLS_RETURN_FAILED;
     }
     
+#if NOXTLS_FEATURE_X25519
     rc = noxtls_x25519_shared_secret(ctx->x25519_private_key, peer_public_key, secret_buffer);
+#else
+    rc = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     if (rc != NOXTLS_RETURN_SUCCESS) {
         (void)noxtls_free(secret_buffer);
         return rc;
@@ -494,7 +516,11 @@ noxtls_return_t noxtls_tls_ecdhe_compute_shared_secret_x448(tls_ecdhe_context_t 
         return NOXTLS_RETURN_FAILED;
     }
 
+#if NOXTLS_FEATURE_X448
     rc = noxtls_x448_shared_secret(ctx->x448_private_key, peer_public_key, secret_buffer);
+#else
+    rc = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     if (rc != NOXTLS_RETURN_SUCCESS) {
         (void)noxtls_free(secret_buffer);
         return rc;
@@ -635,8 +661,12 @@ noxtls_return_t noxtls_tls12_ecdhe_send_server_key_exchange(tls12_context_t *ctx
         noxtls_copy_u8(&to_sign[((size_t)TLS_RANDOM_SIZE * 2U)], (size_t)320U - (size_t)(((size_t)TLS_RANDOM_SIZE * 2U)), &server_key_exchange[params_start], (size_t)(params_len));
         to_sign_len = TLS_RANDOM_SIZE + TLS_RANDOM_SIZE + params_len;
         sig_len = 512U;
+#if NOXTLS_FEATURE_RSA
         rc = noxtls_rsa_sign((const rsa_key_t *)ctx->server_private_rsa, to_sign, to_sign_len,
                              sig_buf, &sig_len, NOXTLS_HASH_SHA_256);
+#else
+        rc = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
         if (rc != NOXTLS_RETURN_SUCCESS) {
             if (server_key_exchange != ctx->handshake_workspace) { NOXTLS_SECURE_FREE(server_key_exchange, 1024U + 320U + 512U); } else if (ctx->handshake_workspace != NULL) { noxtls_secure_zero((ctx->handshake_workspace), (size_t)(TLS_HANDSHAKE_WORKSPACE_SIZE)); }
                         else {
@@ -1023,6 +1053,7 @@ noxtls_return_t noxtls_tls12_ecdhe_recv_client_key_exchange(tls12_context_t *ctx
  */
 noxtls_return_t noxtls_tls_dhe_context_init(tls_dhe_context_t *ctx, uint16_t named_group)
 {
+#if NOXTLS_FEATURE_DH
     const uint8_t *p = NULL;
     const uint8_t *g = NULL;
     uint32_t p_len = 0U;
@@ -1050,6 +1081,14 @@ noxtls_return_t noxtls_tls_dhe_context_init(tls_dhe_context_t *ctx, uint16_t nam
         return NOXTLS_RETURN_FAILED;
     }
     return NOXTLS_RETURN_SUCCESS;
+#else
+    if (ctx == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    noxtls_secure_zero((ctx), sizeof(tls_dhe_context_t));
+    (void)named_group;
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
 }
 
 /**
@@ -1103,26 +1142,34 @@ noxtls_return_t noxtls_tls12_pick_rsa_pkcs1_skx_sig_hash(const tls12_context_t *
                 continue;
             }
             switch (hb) {
+#if NOXTLS_FEATURE_SHA1
             case 2U:
                 *hash_byte_out = 2U;
                 *hash_out = NOXTLS_HASH_SHA1;
                 return NOXTLS_RETURN_SUCCESS;
+#endif
+#if NOXTLS_FEATURE_SHA224
             case 3U:
                 *hash_byte_out = 3U;
                 *hash_out = NOXTLS_HASH_SHA_224;
                 return NOXTLS_RETURN_SUCCESS;
+#endif
             case 4U:
                 *hash_byte_out = 4U;
                 *hash_out = NOXTLS_HASH_SHA_256;
                 return NOXTLS_RETURN_SUCCESS;
+#if NOXTLS_FEATURE_SHA384
             case 5U:
                 *hash_byte_out = 5U;
                 *hash_out = NOXTLS_HASH_SHA_384;
                 return NOXTLS_RETURN_SUCCESS;
+#endif
+#if NOXTLS_FEATURE_SHA512
             case 6U:
                 *hash_byte_out = 6U;
                 *hash_out = NOXTLS_HASH_SHA_512;
                 return NOXTLS_RETURN_SUCCESS;
+#endif
             default:
                 /* Intentional: no additional handling. */
                 (void)0;
@@ -1136,9 +1183,13 @@ noxtls_return_t noxtls_tls12_pick_rsa_pkcs1_skx_sig_hash(const tls12_context_t *
      * No signature_algorithms extension (RFC 5246): tlslite/tlsfuzzer default SKE verify
      * list is rsa_pkcs1_sha1 only (hash=2, sig=1).
      */
+#if NOXTLS_FEATURE_SHA1
     *hash_byte_out = 2U;
     *hash_out = NOXTLS_HASH_SHA1;
     return NOXTLS_RETURN_SUCCESS;
+#else
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
 }
 
 /**
@@ -1237,11 +1288,15 @@ noxtls_return_t noxtls_tls12_prepare_rsa_server_key_exchange_scheme(tls12_contex
     leaf_parsed = (const x509_certificate_t *)ctx->server_cert_parsed;
     sa = ctx->client_extensions.signature_algorithms;
     if ((sa == NULL) || (sa->algorithms == NULL) || (sa->count == 0U)) {
+#if NOXTLS_FEATURE_SHA1
         ctx->tls12_rsa_skx_wire_scheme = 0x0201U;
         ctx->tls12_rsa_skx_sign_hash = NOXTLS_HASH_SHA1;
         ctx->tls12_rsa_skx_sign_use_pss = 0U;
         ctx->tls12_rsa_skx_scheme_prepared = 1U;
         return NOXTLS_RETURN_SUCCESS;
+#else
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     }
 
     for (i = 0U; i < sa->count; i += 1U) {
@@ -1253,6 +1308,11 @@ noxtls_return_t noxtls_tls12_prepare_rsa_server_key_exchange_scheme(tls12_contex
         if (pair == 0x0101U) {
             continue;
         }
+#if NOXTLS_TLS_ALGORITHM_FILTER
+        if (noxtls_tls_signature_scheme_is_available(pair) == 0) {
+            continue;
+        }
+#endif
 
         /* rsa_pss_rsae_sha{256,384,512} */
         if ((pair == 0x0804U) || (pair == 0x0805U) || (pair == 0x0806U)) {
@@ -1312,6 +1372,7 @@ noxtls_return_t noxtls_tls12_prepare_rsa_server_key_exchange_scheme(tls12_contex
                 }
             }
             switch (hb) {
+#if NOXTLS_FEATURE_SHA1
             case 2U:
                 ctx->tls12_rsa_skx_wire_scheme = 0x0201U;
                 ctx->tls12_rsa_skx_sign_hash = NOXTLS_HASH_SHA1;
@@ -1319,6 +1380,8 @@ noxtls_return_t noxtls_tls12_prepare_rsa_server_key_exchange_scheme(tls12_contex
                 ctx->tls12_rsa_skx_use_pss_leaf_identity = 0U;
                 ctx->tls12_rsa_skx_scheme_prepared = 1U;
                 return NOXTLS_RETURN_SUCCESS;
+#endif
+#if NOXTLS_FEATURE_SHA224
             case 3U:
                 ctx->tls12_rsa_skx_wire_scheme = 0x0301U;
                 ctx->tls12_rsa_skx_sign_hash = NOXTLS_HASH_SHA_224;
@@ -1326,6 +1389,7 @@ noxtls_return_t noxtls_tls12_prepare_rsa_server_key_exchange_scheme(tls12_contex
                 ctx->tls12_rsa_skx_use_pss_leaf_identity = 0U;
                 ctx->tls12_rsa_skx_scheme_prepared = 1U;
                 return NOXTLS_RETURN_SUCCESS;
+#endif
             case 4U:
                 ctx->tls12_rsa_skx_wire_scheme = 0x0401U;
                 ctx->tls12_rsa_skx_sign_hash = NOXTLS_HASH_SHA_256;
@@ -1333,6 +1397,7 @@ noxtls_return_t noxtls_tls12_prepare_rsa_server_key_exchange_scheme(tls12_contex
                 ctx->tls12_rsa_skx_use_pss_leaf_identity = 0U;
                 ctx->tls12_rsa_skx_scheme_prepared = 1U;
                 return NOXTLS_RETURN_SUCCESS;
+#if NOXTLS_FEATURE_SHA384
             case 5U:
                 ctx->tls12_rsa_skx_wire_scheme = 0x0501U;
                 ctx->tls12_rsa_skx_sign_hash = NOXTLS_HASH_SHA_384;
@@ -1340,6 +1405,8 @@ noxtls_return_t noxtls_tls12_prepare_rsa_server_key_exchange_scheme(tls12_contex
                 ctx->tls12_rsa_skx_use_pss_leaf_identity = 0U;
                 ctx->tls12_rsa_skx_scheme_prepared = 1U;
                 return NOXTLS_RETURN_SUCCESS;
+#endif
+#if NOXTLS_FEATURE_SHA512
             case 6U:
                 ctx->tls12_rsa_skx_wire_scheme = 0x0601U;
                 ctx->tls12_rsa_skx_sign_hash = NOXTLS_HASH_SHA_512;
@@ -1347,6 +1414,7 @@ noxtls_return_t noxtls_tls12_prepare_rsa_server_key_exchange_scheme(tls12_contex
                 ctx->tls12_rsa_skx_use_pss_leaf_identity = 0U;
                 ctx->tls12_rsa_skx_scheme_prepared = 1U;
                 return NOXTLS_RETURN_SUCCESS;
+#endif
             default:
                 /* Intentional: no additional handling. */
                 (void)0;
@@ -1411,26 +1479,34 @@ noxtls_return_t noxtls_tls12_pick_ecdsa_skx_sig_hash(const tls12_context_t *ctx,
                 continue;
             }
             switch (hb) {
+#if NOXTLS_FEATURE_SHA1
             case 2U:
                 *hash_byte_out = 2U;
                 *hash_out = NOXTLS_HASH_SHA1;
                 return NOXTLS_RETURN_SUCCESS;
+#endif
+#if NOXTLS_FEATURE_SHA224
             case 3U:
                 *hash_byte_out = 3U;
                 *hash_out = NOXTLS_HASH_SHA_224;
                 return NOXTLS_RETURN_SUCCESS;
+#endif
             case 4U:
                 *hash_byte_out = 4U;
                 *hash_out = NOXTLS_HASH_SHA_256;
                 return NOXTLS_RETURN_SUCCESS;
+#if NOXTLS_FEATURE_SHA384
             case 5U:
                 *hash_byte_out = 5U;
                 *hash_out = NOXTLS_HASH_SHA_384;
                 return NOXTLS_RETURN_SUCCESS;
+#endif
+#if NOXTLS_FEATURE_SHA512
             case 6U:
                 *hash_byte_out = 6U;
                 *hash_out = NOXTLS_HASH_SHA_512;
                 return NOXTLS_RETURN_SUCCESS;
+#endif
             default:
                 /* Intentional: no additional handling. */
                 (void)0;
@@ -1441,11 +1517,19 @@ noxtls_return_t noxtls_tls12_pick_ecdsa_skx_sig_hash(const tls12_context_t *ctx,
     }
 
     if (ctx->cipher_suite == TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CBC_SHA) {
+#if NOXTLS_FEATURE_SHA1
         *hash_byte_out = 2U;
         *hash_out = NOXTLS_HASH_SHA1;
+#else
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     } else if (ctx->cipher_suite == TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384) {
+#if NOXTLS_FEATURE_SHA384
         *hash_byte_out = 5U;
         *hash_out = NOXTLS_HASH_SHA_384;
+#else
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     } else {
         /* MISRA 15.7: final else path */
         *hash_byte_out = 4U;
@@ -1465,6 +1549,7 @@ noxtls_return_t noxtls_tls12_pick_ecdsa_skx_sig_hash(const tls12_context_t *ctx,
  */
 noxtls_return_t noxtls_tls12_dhe_send_server_key_exchange(tls12_context_t *ctx, tls_dhe_context_t *dhe_ctx, uint8_t *msg_out, uint32_t msg_out_size, uint32_t *msg_out_len)
 {
+#if NOXTLS_FEATURE_DH
     const uint8_t *p = NULL;
     const uint8_t *g = NULL;
     uint32_t p_len = 0U;
@@ -1618,11 +1703,17 @@ noxtls_return_t noxtls_tls12_dhe_send_server_key_exchange(tls12_context_t *ctx, 
         noxtls_copy_u8(&to_sign[((size_t)TLS_RANDOM_SIZE * 2U)], (size_t)DHE_TO_SIGN_SIZE - (size_t)(((size_t)TLS_RANDOM_SIZE * 2U)), &server_key_exchange[params_start], (size_t)(params_len));
         uint32_t to_sign_len = (uint32_t)(TLS_RANDOM_SIZE + TLS_RANDOM_SIZE + params_len);
         sig_len = DHE_SIG_BUF_SIZE;
+#if NOXTLS_FEATURE_RSA
         if ((ctx->tls12_rsa_skx_scheme_prepared != 0U) && (ctx->tls12_rsa_skx_sign_use_pss != 0U)) {
             rc = noxtls_rsa_sign_pss(dhe_rsa_key, to_sign, to_sign_len, sig_buf, &sig_len, dhe_ske_sign_hash);
         } else {
             rc = noxtls_rsa_sign(dhe_rsa_key, to_sign, to_sign_len, sig_buf, &sig_len, dhe_ske_sign_hash);
         }
+#else
+        (void)dhe_rsa_key;
+        (void)to_sign_len;
+        rc = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
         if (rc != NOXTLS_RETURN_SUCCESS) {
             if (alloc_aux != NULL) { NOXTLS_SECURE_FREE(alloc_aux, DHE_TO_SIGN_SIZE + DHE_SIG_BUF_SIZE); }
             if (server_key_exchange != ctx->handshake_workspace) {
@@ -1671,8 +1762,17 @@ noxtls_return_t noxtls_tls12_dhe_send_server_key_exchange(tls12_context_t *ctx, 
         NOXTLS_SECURE_FREE(server_key_exchange, NOXTLS_TLS12_DHE_SKX_MSG_MAX + DHE_TO_SIGN_SIZE + DHE_SIG_BUF_SIZE);
     }
     return rc;
+#else
+    (void)ctx;
+    (void)dhe_ctx;
+    (void)msg_out;
+    (void)msg_out_size;
+    (void)msg_out_len;
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
 }
 
+#if NOXTLS_FEATURE_DH
 /**
  * @brief Skip leading zero octets of a big-endian unsigned integer.
  * @param[in,out] v Pointer to the integer; advanced past leading zeros.
@@ -1721,6 +1821,7 @@ static int tls_dhe_generator_in_range(const uint8_t *g, uint32_t g_len, const ui
     }
     return (cmp < 0) ? 1 : 0;
 }
+#endif /* NOXTLS_FEATURE_DH */
 
 /**
  * @brief TLS 1.2 client: parse DHE ServerKeyExchange from caller-supplied handshake bytes.
@@ -1740,6 +1841,7 @@ static int tls_dhe_generator_in_range(const uint8_t *g, uint32_t g_len, const ui
  */
 noxtls_return_t noxtls_tls12_dhe_recv_server_key_exchange(tls12_context_t *ctx, tls_dhe_context_t *dhe_ctx, const uint8_t *record_data, uint32_t record_len)
 {
+#if NOXTLS_FEATURE_DH
     const uint8_t *p = NULL;
     const uint8_t *g = NULL;
     const uint8_t *srv_p = NULL;
@@ -1850,6 +1952,13 @@ noxtls_return_t noxtls_tls12_dhe_recv_server_key_exchange(tls12_context_t *ctx, 
     }
     dhe_ctx->premaster_secret_len = p_len;
     return NOXTLS_RETURN_SUCCESS;
+#else
+    (void)ctx;
+    (void)dhe_ctx;
+    (void)record_data;
+    (void)record_len;
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
 }
 
 /**
@@ -1919,6 +2028,7 @@ noxtls_return_t noxtls_tls12_dhe_send_client_key_exchange(tls12_context_t *ctx, 
  */
 noxtls_return_t noxtls_tls12_dhe_recv_client_key_exchange(const tls12_context_t *ctx, tls_dhe_context_t *dhe_ctx, const uint8_t *record_data, uint32_t record_len)
 {
+#if NOXTLS_FEATURE_DH
     const uint8_t *p = NULL;
     const uint8_t *g = NULL;
     uint32_t p_len = 0U;
@@ -1978,6 +2088,13 @@ noxtls_return_t noxtls_tls12_dhe_recv_client_key_exchange(const tls12_context_t 
                               (dhe_ctx->premaster_secret_len > 2U) ? dhe_ctx->premaster_secret[2] : 0U,
                               (dhe_ctx->premaster_secret_len > 3U) ? dhe_ctx->premaster_secret[3] : 0U);
     return NOXTLS_RETURN_SUCCESS;
+#else
+    (void)ctx;
+    (void)dhe_ctx;
+    (void)record_data;
+    (void)record_len;
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
 }
 
 /**

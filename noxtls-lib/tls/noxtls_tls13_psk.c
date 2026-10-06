@@ -74,6 +74,7 @@ static noxtls_return_t psk_hash_messages(noxtls_hash_algos_t hash_algo,
         *hash_len = 32U;
         return noxtls_sha256_finish(&sha_ctx, hash);
     }
+#if NOXTLS_FEATURE_SHA384
     if (hash_algo == NOXTLS_HASH_SHA_384) {
         noxtls_sha512_ctx_t sha_ctx;
         rc = noxtls_sha512_init(&sha_ctx, hash_algo);
@@ -89,6 +90,7 @@ static noxtls_return_t psk_hash_messages(noxtls_hash_algos_t hash_algo,
         *hash_len = 48U;
         return noxtls_sha512_finish(&sha_ctx, hash);
     }
+#endif
     return NOXTLS_RETURN_INVALID_ALGORITHM;
 }
 
@@ -529,8 +531,10 @@ noxtls_return_t tls13_psk_compute_resumption_binder(noxtls_hash_algos_t hash_alg
     }
     if (hash_algo == NOXTLS_HASH_SHA_256) {
         hash_len = 32U;
+#if NOXTLS_FEATURE_SHA384
     } else if (hash_algo == NOXTLS_HASH_SHA_384) {
         hash_len = 48U;
+#endif
     } else {
         /* MISRA 15.7: final else path */
         return NOXTLS_RETURN_INVALID_ALGORITHM;
@@ -644,8 +648,10 @@ noxtls_return_t tls13_psk_compute_external_binder(noxtls_hash_algos_t hash_algo,
     }
     if (hash_algo == NOXTLS_HASH_SHA_256) {
         hash_len = 32U;
+#if NOXTLS_FEATURE_SHA384
     } else if (hash_algo == NOXTLS_HASH_SHA_384) {
         hash_len = 48U;
+#endif
     } else {
         /* MISRA 15.7: final else path */
         if (fail_step_out != NULL) {

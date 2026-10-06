@@ -24,11 +24,14 @@ static void noxtls_tls_misra_api_refs(void)
 {
     NOXTLS_MISRA_REF_FN(&noxtls_tls13_send_client_certificate);
 
+#if NOXTLS_FEATURE_DTLS
     NOXTLS_MISRA_REF_FN(&dtls_set_retransmit);
+#endif
     NOXTLS_MISRA_REF_FN(&noxtls_dtls12_context_init);
     NOXTLS_MISRA_REF_FN(&noxtls_dtls13_context_init);
     NOXTLS_MISRA_REF_FN(&noxtls_dtls13_context_init_with_workspaces);
     NOXTLS_MISRA_REF_FN(&noxtls_dtls13_send_new_connection_id);
+#if NOXTLS_FEATURE_DTLS
     NOXTLS_MISRA_REF_FN(&noxtls_dtls_check_replay);
     NOXTLS_MISRA_REF_FN(&noxtls_dtls_recv_handshake_fragment);
     NOXTLS_MISRA_REF_FN(&noxtls_dtls_set_ack_range_limit);
@@ -36,6 +39,7 @@ static void noxtls_tls_misra_api_refs(void)
     NOXTLS_MISRA_REF_FN(&noxtls_dtls_set_flight_buffer);
     NOXTLS_MISRA_REF_FN(&noxtls_dtls_set_mtu);
     NOXTLS_MISRA_REF_FN(&noxtls_dtls_update_replay_window);
+#endif
     NOXTLS_MISRA_REF_FN(&noxtls_tls12_dhe_send_client_key_exchange);
     NOXTLS_MISRA_REF_FN(&noxtls_tls12_ecdhe_recv_client_key_exchange);
     NOXTLS_MISRA_REF_FN(&noxtls_tls12_ecdhe_recv_server_key_exchange);
