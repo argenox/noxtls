@@ -34,7 +34,6 @@
 /* On-target operation diagnostics. */
 extern volatile int32_t noxtls_ecdsa_sign_last_rc;
 extern volatile uint32_t noxtls_ecdsa_sign_last_stage;
-extern volatile uint8_t noxtls_ecdsa_sign_last_nonce[ECC_MAX_KEY_SIZE];
 
 #ifdef __cplusplus
 extern "C" {
