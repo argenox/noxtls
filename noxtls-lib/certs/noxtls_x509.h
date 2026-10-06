@@ -193,7 +193,9 @@ typedef struct
     /* Extensions (v3) */
     uint8_t *extensions;
     uint32_t extensions_len;
-    /* Parsed: Subject Alternative Name */
+    /* Parsed: Subject Alternative Name. A dNSName containing a NUL octet is stored as an empty
+     * string: it counts as present (disables the CN fallback in
+     * noxtls_x509_certificate_matches_hostname) but never matches a hostname. */
     uint8_t san_dns_count;
     uint8_t san_dns_names[X509_SAN_DNS_MAX][X509_SAN_DNS_LEN];
     uint8_t san_email_count;
@@ -336,14 +338,19 @@ noxtls_return_t noxtls_x509_certificate_chain_add(x509_certificate_chain_t *chai
 noxtls_return_t noxtls_x509_certificate_chain_verify(const x509_certificate_chain_t *chain);
 /**
  * Replace global trust store with a deep copy of provided trust anchors. Pass NULL or empty chain to clear.
- * @note Snapshot lifetime: a published snapshot is never freed, because verifications running on other
- *       threads may still be walking it and the library has no reader synchronization. Each successful
- *       call therefore retains one copy of the anchors for the life of the process; configure the trust
- *       store at start-up (or rarely), not per connection. Per-call anchors can instead be passed through
+ * The caller keeps ownership of @p trust_anchors and may free it right after the call.
+ * @note Snapshot lifetime: the store owns exactly one heap copy of the anchors. Each call (and
+ *       noxtls_x509_trust_store_clear()) frees the previous copy before installing the new one, so
+ *       repeated calls do not grow the heap. Verification functions that use the global store read it
+ *       only for the duration of the call (TLS contexts do not cache it); the library has no internal
+ *       locking, so do not call set/clear while another thread is inside
+ *       noxtls_x509_verify_server_cert_trust*() / noxtls_x509_verify_client_cert_trust*() or a TLS
+ *       handshake that verifies against the global store. Per-call anchors can instead be passed through
  *       noxtls_x509_verify_cert_with_policy(), whose lifetime the caller controls.
+ *       On allocation failure the store is left empty (fail closed).
  */
 noxtls_return_t noxtls_x509_trust_store_set(const x509_certificate_chain_t *trust_anchors);
-/** Clear global trust store used by noxtls_x509_verify_server_cert_trust (the previous snapshot is retained, see noxtls_x509_trust_store_set()). */
+/** Clear global trust store used by noxtls_x509_verify_server_cert_trust and free its snapshot (see noxtls_x509_trust_store_set()). */
 void noxtls_x509_trust_store_clear(void);
 /** Return 1 when the global trust store has at least one configured trust anchor, 0 otherwise. */
 int noxtls_x509_trust_store_has_anchors(void);
@@ -403,7 +410,7 @@ typedef struct noxtls_x509_verify_policy
     uint16_t required_key_usage;
     /** 1 = reject a leaf without a Key Usage extension. */
     uint8_t require_key_usage_extension;
-    /** Validity time source. */
+    /** Time source for certificate validity and CRL thisUpdate/nextUpdate freshness checks. */
     noxtls_x509_time_mode_t time_mode;
     /** Seconds since the Unix epoch used when time_mode is NOXTLS_X509_TIME_EXPLICIT. */
     int64_t verify_time;

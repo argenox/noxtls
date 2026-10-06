@@ -344,27 +344,16 @@ noxtls_return_t noxtls_x509_certificate_write_der(const x509_certificate_t *cert
  */
 noxtls_return_t noxtls_x509_certificate_write_pem(const x509_certificate_t *cert, uint8_t *out, uint32_t out_max, uint32_t *out_len)
 {
-    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
-    uint8_t *der_buf = NULL;
-    uint32_t der_len = 0U;
-
     if((cert == NULL) || (out == NULL) || (out_len == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
-
-    der_buf = (uint8_t *)NOXTLS_MALLOC(X509_MAX_CERT_SIZE);
-    if(der_buf == NULL) {
-        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+    if((cert->raw_data == NULL) || (cert->raw_data_len == 0U)) {
+        return NOXTLS_RETURN_FAILED;
     }
 
-    rc = noxtls_x509_certificate_write_der(cert, der_buf, X509_MAX_CERT_SIZE, &der_len);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        (void)noxtls_free(der_buf);
-        return rc;
-    }
-    rc = noxtls_certificate_der_to_pem(der_buf, der_len, out, out_len);
-    (void)noxtls_free(der_buf);
-    return rc;
+    /* Encode straight from the parsed DER (no X509_MAX_CERT_SIZE heap copy); the bounded
+     * encoder rejects an @p out_max that cannot hold the PEM text plus its NUL. */
+    return noxtls_certificate_der_to_pem_ex(cert->raw_data, cert->raw_data_len, out, out_max, out_len);
 }
 
 /**
@@ -471,7 +460,7 @@ noxtls_return_t noxtls_x509_certificate_generate_self_signed_ex(
         uint8_t validity_content[64];
         uint32_t vbl = noxtls_asn1_put_utc_time(vb, sizeof(vb), not_before_utc);
         uint32_t val = noxtls_asn1_put_utc_time(va, sizeof(va), not_after_utc);
-        if((vbl == 0U) || (val == 0U)) {
+        if((vbl == 0U) || (val == 0U) || ((vbl + val) > (uint32_t)sizeof(validity_content))) {
             (void)noxtls_free(ws);
             return ret;
         }
@@ -497,7 +486,7 @@ noxtls_return_t noxtls_x509_certificate_generate_self_signed_ex(
             return ret;
         }
         bs_len = noxtls_asn1_put_bit_string(ws->bitstr, sizeof(ws->bitstr), subject_pk, subject_pk_len);
-        if(bs_len == 0U) {
+        if((bs_len == 0U) || ((alg_seq_len + bs_len) > (uint32_t)sizeof(ws->spki_content))) {
             (void)noxtls_free(ws);
             return ret;
         }
@@ -512,49 +501,49 @@ noxtls_return_t noxtls_x509_certificate_generate_self_signed_ex(
 
     /* TBS content: version + serial + sigAlg + issuer + validity + subject + spki */
     off = 0U;
-    if((off + version_len) > sizeof(ws->tbs_buf)) {
+    if(version_len > (uint32_t)(sizeof(ws->tbs_buf) - off)) {
         (void)noxtls_free(ws);
         return ret;
     }
     noxtls_copy_u8(&ws->tbs_buf[off], sizeof(ws->tbs_buf) - (size_t)(off), version_buf, (size_t)(version_len));
     off += version_len;
 
-    if((off + serial_enc_len) > sizeof(ws->tbs_buf)) {
+    if(serial_enc_len > (uint32_t)(sizeof(ws->tbs_buf) - off)) {
         (void)noxtls_free(ws);
         return ret;
     }
     noxtls_copy_u8(&ws->tbs_buf[off], sizeof(ws->tbs_buf) - (size_t)(off), serial_enc, (size_t)(serial_enc_len));
     off += serial_enc_len;
 
-    if((off + sig_alg_seq_len) > sizeof(ws->tbs_buf)) {
+    if(sig_alg_seq_len > (uint32_t)(sizeof(ws->tbs_buf) - off)) {
         (void)noxtls_free(ws);
         return ret;
     }
     noxtls_copy_u8(&ws->tbs_buf[off], sizeof(ws->tbs_buf) - (size_t)(off), sig_alg_seq, (size_t)(sig_alg_seq_len));
     off += sig_alg_seq_len;
 
-    if((off + issuer_len) > sizeof(ws->tbs_buf)) {
+    if(issuer_len > (uint32_t)(sizeof(ws->tbs_buf) - off)) {
         (void)noxtls_free(ws);
         return ret;
     }
     noxtls_copy_u8(&ws->tbs_buf[off], sizeof(ws->tbs_buf) - (size_t)(off), issuer_der, (size_t)(issuer_len));
     off += issuer_len;
 
-    if((off + validity_len) > sizeof(ws->tbs_buf)) {
+    if(validity_len > (uint32_t)(sizeof(ws->tbs_buf) - off)) {
         (void)noxtls_free(ws);
         return ret;
     }
     noxtls_copy_u8(&ws->tbs_buf[off], sizeof(ws->tbs_buf) - (size_t)(off), validity_seq, (size_t)(validity_len));
     off += validity_len;
 
-    if((off + subject_len) > sizeof(ws->tbs_buf)) {
+    if(subject_len > (uint32_t)(sizeof(ws->tbs_buf) - off)) {
         (void)noxtls_free(ws);
         return ret;
     }
     noxtls_copy_u8(&ws->tbs_buf[off], sizeof(ws->tbs_buf) - (size_t)(off), subject_der, (size_t)(subject_len));
     off += subject_len;
 
-    if((off + spki_len) > sizeof(ws->tbs_buf)) {
+    if(spki_len > (uint32_t)(sizeof(ws->tbs_buf) - off)) {
         (void)noxtls_free(ws);
         return ret;
     }
@@ -842,10 +831,17 @@ static noxtls_return_t build_extensions(
             bc_len = 3U;
         }
         if(basic_constraints_path_len >= 0) {
+            /* pathLenConstraint INTEGER (0..MAX): encode every byte of the value; put_integer
+             * strips leading zero bytes and adds the sign octet when needed. */
             uint8_t path_enc[8];
+            uint8_t path_be[4];
             uint32_t path_u = (uint32_t)basic_constraints_path_len;
-            uint8_t path_byte = (uint8_t)(path_u & 0xFFU);
-            uint32_t path_enc_len = (uint32_t)(noxtls_asn1_put_integer(path_enc, sizeof(path_enc), &path_byte, 1));
+            uint32_t path_enc_len = 0U;
+            path_be[0] = (uint8_t)(path_u >> 24U);
+            path_be[1] = (uint8_t)(path_u >> 16U);
+            path_be[2] = (uint8_t)(path_u >> 8U);
+            path_be[3] = (uint8_t)path_u;
+            path_enc_len = (uint32_t)(noxtls_asn1_put_integer(path_enc, sizeof(path_enc), path_be, (uint32_t)sizeof(path_be)));
             if(path_enc_len == 0U) { return x509_ext_build_fail(ws); }
             if((bc_len + path_enc_len) > sizeof(bc_content)) { return x509_ext_build_fail(ws); }
             noxtls_copy_u8(&bc_content[bc_len], sizeof(bc_content) - (size_t)(bc_len), path_enc, (size_t)(path_enc_len));
@@ -1161,7 +1157,7 @@ noxtls_return_t noxtls_x509_certificate_generate_self_signed_with_extensions_ex(
           uint8_t validity_content[64];
           uint32_t vbl = noxtls_asn1_put_utc_time(vb, sizeof(vb), not_before_utc);
           uint32_t val = noxtls_asn1_put_utc_time(va, sizeof(va), not_after_utc);
-          if((vbl == 0U) || (val == 0U)) { 
+          if((vbl == 0U) || (val == 0U) || ((vbl + val) > (uint32_t)sizeof(validity_content))) { 
               (void)noxtls_free(ws);
               (void)noxtls_free(ext_ws);
               return ret;
@@ -1179,7 +1175,7 @@ noxtls_return_t noxtls_x509_certificate_generate_self_signed_with_extensions_ex(
                                                           subject_pk_oid, subject_pk_oid_len,
                                                           NULL, 0);
           uint32_t bs_len = (uint32_t)(noxtls_asn1_put_bit_string(ws->bitstr, sizeof(ws->bitstr), subject_pk, subject_pk_len));
-          if((alg_seq_len == 0U) || (bs_len == 0U)) { 
+          if((alg_seq_len == 0U) || (bs_len == 0U) || ((alg_seq_len + bs_len) > (uint32_t)sizeof(ws->spki_content))) { 
               (void)noxtls_free(ws);
               (void)noxtls_free(ext_ws);
               return ret;
@@ -1194,50 +1190,50 @@ noxtls_return_t noxtls_x509_certificate_generate_self_signed_with_extensions_ex(
         }
 
         off = 0U;
-        if((off + version_len) > sizeof(ws->tbs_buf)) { 
+        if(version_len > (uint32_t)(sizeof(ws->tbs_buf) - off)) { 
             (void)noxtls_free(ws);
             (void)noxtls_free(ext_ws);
             return ret;
         }
         noxtls_copy_u8(&ws->tbs_buf[off], sizeof(ws->tbs_buf) - (size_t)(off), version_buf, (size_t)(version_len)); off += version_len;
-        if((off + serial_enc_len) > sizeof(ws->tbs_buf)) { 
+        if(serial_enc_len > (uint32_t)(sizeof(ws->tbs_buf) - off)) { 
             (void)noxtls_free(ws);
             (void)noxtls_free(ext_ws);
             return ret;
         }
         noxtls_copy_u8(&ws->tbs_buf[off], sizeof(ws->tbs_buf) - (size_t)(off), serial_enc, (size_t)(serial_enc_len)); off += serial_enc_len;
-        if((off + sig_alg_seq_len) > sizeof(ws->tbs_buf)) { 
+        if(sig_alg_seq_len > (uint32_t)(sizeof(ws->tbs_buf) - off)) { 
             (void)noxtls_free(ws);
             (void)noxtls_free(ext_ws);
             return ret;
         }
         noxtls_copy_u8(&ws->tbs_buf[off], sizeof(ws->tbs_buf) - (size_t)(off), sig_alg_seq, (size_t)(sig_alg_seq_len)); off += sig_alg_seq_len;
-        if((off + issuer_len) > sizeof(ws->tbs_buf)) { 
+        if(issuer_len > (uint32_t)(sizeof(ws->tbs_buf) - off)) { 
             (void)noxtls_free(ws);
             (void)noxtls_free(ext_ws);
             return ret;
         }
         noxtls_copy_u8(&ws->tbs_buf[off], sizeof(ws->tbs_buf) - (size_t)(off), issuer_der, (size_t)(issuer_len)); off += issuer_len;
-        if((off + validity_len) > sizeof(ws->tbs_buf)) { 
+        if(validity_len > (uint32_t)(sizeof(ws->tbs_buf) - off)) { 
             (void)noxtls_free(ws);
             (void)noxtls_free(ext_ws);
             return ret;
         }
         noxtls_copy_u8(&ws->tbs_buf[off], sizeof(ws->tbs_buf) - (size_t)(off), validity_seq, (size_t)(validity_len)); off += validity_len;
-        if((off + subject_len) > sizeof(ws->tbs_buf)) { 
+        if(subject_len > (uint32_t)(sizeof(ws->tbs_buf) - off)) { 
             (void)noxtls_free(ws);
             (void)noxtls_free(ext_ws);
             return ret;
         }
         noxtls_copy_u8(&ws->tbs_buf[off], sizeof(ws->tbs_buf) - (size_t)(off), subject_der, (size_t)(subject_len)); off += subject_len;
-        if((off + spki_len) > sizeof(ws->tbs_buf)) { 
+        if(spki_len > (uint32_t)(sizeof(ws->tbs_buf) - off)) { 
             (void)noxtls_free(ws);
             (void)noxtls_free(ext_ws);
             return ret;
         }
         noxtls_copy_u8(&ws->tbs_buf[off], sizeof(ws->tbs_buf) - (size_t)(off), ws->spki_buf, (size_t)(spki_len)); off += spki_len;
         if(ext_len > 0U) {
-            if((off + ext_len) > sizeof(ws->tbs_buf)) { 
+            if(ext_len > (uint32_t)(sizeof(ws->tbs_buf) - off)) { 
                 (void)noxtls_free(ws);
                 (void)noxtls_free(ext_ws);
                 return ret;
@@ -1260,7 +1256,8 @@ noxtls_return_t noxtls_x509_certificate_generate_self_signed_with_extensions_ex(
         }
         {
           uint32_t sig_bs_len = (uint32_t)(noxtls_asn1_put_bit_string(ws->sig_bitstr, sizeof(ws->sig_bitstr), ws->sig_der, sig_len));
-          if(sig_bs_len == 0U) { 
+          if((sig_bs_len == 0U) ||
+             ((tbs_full_len + (sig_alg_seq_len + sig_bs_len)) > (uint32_t)sizeof(ws->cert_seq_buf))) {
               (void)noxtls_free(ws);
               (void)noxtls_free(ext_ws);
               return ret;
@@ -1360,7 +1357,7 @@ noxtls_return_t noxtls_x509_csr_create_der(
     noxtls_copy_u8((uint8_t *)(&ws->cri_buf[off]), sizeof(version_int), (const uint8_t *)(version_int), sizeof(version_int));
     off += sizeof(version_int);
 
-    if((off + subject_len) > sizeof(ws->cri_buf)) {
+    if(subject_len > (uint32_t)(sizeof(ws->cri_buf) - off)) {
         (void)noxtls_free(ws);
         return ret;
     }
@@ -1373,7 +1370,7 @@ noxtls_return_t noxtls_x509_csr_create_der(
         return ret;
     }
     bs_len = noxtls_asn1_put_bit_string(ws->bitstr, sizeof(ws->bitstr), subject_pk, subject_pk_len);
-    if(bs_len == 0U) {
+    if((bs_len == 0U) || ((alg_seq_len + bs_len) > (uint32_t)sizeof(ws->spki_content))) {
         (void)noxtls_free(ws);
         return ret;
     }
@@ -1488,7 +1485,7 @@ noxtls_return_t noxtls_x509_csr_create_pem(
         (void)noxtls_free(der_buf);
         return NOXTLS_RETURN_FAILED;
     }
-    rc = noxtls_csr_der_to_pem(der_buf, der_len, out_pem, out_len);
+    rc = noxtls_csr_der_to_pem_ex(der_buf, der_len, out_pem, out_max, out_len);
     (void)noxtls_free(der_buf);
     return rc;
 }

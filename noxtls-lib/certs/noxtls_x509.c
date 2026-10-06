@@ -148,10 +148,16 @@ static FILE *noxtls_x509_fopen(const uint8_t *filename, const uint8_t *mode)
 static noxtls_cert_verify_failure_info_t s_cert_fail_info;
 /*
  * Global trust anchors for TLS certificate verification.
- * Published snapshots are treated as immutable and are never freed in-place,
- * so concurrent verification cannot race a trust-store clear/set into a UAF.
+ *
+ * Ownership: the store owns exactly one heap snapshot (a deep copy made by
+ * noxtls_x509_trust_store_set()). Verification reads the pointer once per
+ * noxtls_x509_verify_*_cert_trust*() call and never keeps it after returning;
+ * TLS contexts do not cache it. noxtls_x509_trust_store_set()/_clear() free the
+ * previous snapshot, so they must not run concurrently with a verification that
+ * uses the global store (the library has no internal locking; serialize like any
+ * other global configuration call).
  */
-static const x509_certificate_chain_t *s_x509_trust_anchors;
+static x509_certificate_chain_t *s_x509_trust_anchors;
 static int s_x509_trust_anchors_initialized;
 
 
@@ -202,6 +208,23 @@ static void x509_copy_bytes_to_chars(uint8_t *dst, const uint8_t *src, uint32_t 
     for(i = 0U; i < len; i += 1U) {
         dst[i] = (uint8_t)src[i];
     }
+}
+
+/**
+ * @brief Return 1 when @p len bytes at @p src contain a NUL octet, 0 otherwise.
+ *
+ * Names are stored and compared as C strings: a value with an embedded NUL would be
+ * silently truncated to its prefix ("victim.example<NUL>.evil.example" -> "victim.example").
+ */
+static int x509_bytes_have_nul(const uint8_t *src, uint32_t len)
+{
+    uint32_t i = 0U;
+    for(i = 0U; i < len; i += 1U) {
+        if(src[i] == 0U) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 
@@ -976,8 +999,17 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
                                 if(dlen > (uint32_t)((uintptr_t)gn_end - (uintptr_t)gn_ptr)) { gn_done = 1U; }
                                 else {
                                     if((cert->san_dns_count < X509_SAN_DNS_MAX) && (dlen > 0U) && (dlen < X509_SAN_DNS_LEN)) {
-                                        x509_copy_bytes_to_chars(cert->san_dns_names[cert->san_dns_count], gn_ptr, dlen);
-                                        cert->san_dns_names[cert->san_dns_count][dlen] = 0U;
+                                        if(x509_bytes_have_nul(gn_ptr, dlen) == 0) {
+                                            x509_copy_bytes_to_chars(cert->san_dns_names[cert->san_dns_count], gn_ptr, dlen);
+                                            cert->san_dns_names[cert->san_dns_count][dlen] = 0U;
+                                        } else {
+                                            /* SECURITY: a dNSName with an embedded NUL cannot be stored as a
+                                             * C string without turning "victim.example<NUL>.evil.example"
+                                             * into "victim.example". Keep it as an empty entry: it never
+                                             * matches a hostname and the SAN still counts as present, so the
+                                             * subject CN fallback stays disabled (RFC 6125 Section 6.4.4). */
+                                            cert->san_dns_names[cert->san_dns_count][0] = 0U;
+                                        }
                                         cert->san_dns_count += 1U;
                                     }
                                     gn_ptr = &gn_ptr[dlen];
@@ -1089,6 +1121,12 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
                                 uint32_t path_buf_len = (uint32_t)sizeof(path_buf);
                                 if((asn1_get_integer(&p, pe, path_buf, &path_buf_len) == NOXTLS_RETURN_SUCCESS) && (path_buf_len > 0U) && (path_buf_len <= 4U)) {
                                     uint32_t path_len = 0U;
+                                    if((path_buf[0] & 0x80U) != 0U) {
+                                        /* pathLenConstraint is INTEGER (0..MAX) (RFC 5280 4.2.1.9): a negative
+                                         * value would otherwise read back as X509_BC_PATH_LEN_ABSENT (-1) or a
+                                         * huge depth and silently lift the constraint. */
+                                        return NOXTLS_RETURN_BAD_DATA;
+                                    }
                                     uint32_t j = 0U;
                                     for(j = 0U; j < path_buf_len; j += 1U) { path_len = (path_len << 8U) | (uint32_t)(path_buf[j]); }
                                     cert->basic_constraints_path_len = (int)path_len;
@@ -1309,62 +1347,110 @@ static int noxtls_x509_dns_name_equal(const uint8_t *hostname, uint32_t hostname
 
 
 /**
- * @brief Extract first CN= value from subject_dn string (e.g. "CN=host.example.com, O=Org" -> "host.example.com").
+ * @brief Return 1 when an AttributeValue tag is a string type usable as a DNS name.
  *
- * This function extracts the first CN= value from the subject_dn string (e.g. "CN=host.example.com, O=Org" -> "host.example.com").
- *
- * @param[in] subject_dn The subject DN to extract the CN from.
- * @param[out] cn_out The buffer to receive the CN.
- * @param[in] cn_out_size The size of the buffer to receive the CN.
- *
- * @return void
+ * PrintableString, UTF8String, IA5String and TeletexString carry one octet per ASCII
+ * character; BMPString/UniversalString (multi-octet) are never compared as host names.
  */
-static void noxtls_x509_get_cn_from_subject_dn(const uint8_t *subject_dn, uint8_t *cn_out, uint32_t cn_out_size)
+static int x509_cn_value_tag_ok(uint8_t tag)
 {
-    const uint8_t *p = NULL;
-    uint32_t i = 0U;
-    if((subject_dn == NULL) || (cn_out == NULL) || (cn_out_size == 0U)) {
-        if((cn_out != NULL) && (cn_out_size > 0U)) { cn_out[0] = 0U; }
-        return;
-    }
+    return ((tag == 0x13U) || (tag == 0x0CU) || (tag == 0x16U) || (tag == 0x14U)) ? 1 : 0;
+}
 
-    cn_out[0] = 0U;
-    p = NULL;
-    {
-        uint32_t si = 0U;
-        while((subject_dn[si] != 0U) && (subject_dn[si + 1U] != 0U) && (subject_dn[si + 2U] != 0U)) {
-            if((subject_dn[si] == (uint8_t)'C') &&
-               (subject_dn[si + 1U] == (uint8_t)'N') &&
-               (subject_dn[si + 2U] == (uint8_t)'=')) {
-                p = &subject_dn[si];
+/**
+ * @brief Match @p hostname against the subject commonName attributes (OID 2.5.4.3).
+ *
+ * Walks the DER RDNSequence kept in cert->subject (every AttributeTypeAndValue of every RDN,
+ * including multi-valued RDNs) instead of searching the formatted subject_dn text, where an
+ * attribute such as O="CN=victim.example" would otherwise be taken for a CN. CN values that
+ * are not a single-octet string type, contain a NUL, or do not fit @p cn_buf are ignored;
+ * leading/trailing spaces of a value are not compared.
+ *
+ * @param[in] cert          Parsed certificate.
+ * @param[in] hostname      Expected hostname.
+ * @param[in] host_len      Length of @p hostname.
+ * @param[in] cn_buf        Scratch buffer for one NUL-terminated CN value.
+ * @param[in] cn_buf_size   Size of @p cn_buf.
+ *
+ * @return 1 when a commonName attribute matches, 0 otherwise.
+ */
+static int x509_subject_cn_matches(const x509_certificate_t *cert, const uint8_t *hostname, uint32_t host_len,
+                                   uint8_t *cn_buf, uint32_t cn_buf_size)
+{
+    static const uint8_t x509_oid_common_name[] = { 0x55U, 0x04U, 0x03U };
+    const uint8_t *dn_ptr = cert->subject;
+    const uint8_t *dn_end = NULL;
+    int matched = 0;
+
+    if((cert->subject_len == 0U) || (cert->subject_len > (uint32_t)sizeof(cert->subject)) || (cn_buf_size < 2U)) {
+        return 0;
+    }
+    dn_end = &cert->subject[cert->subject_len];
+
+    while(((uintptr_t)dn_ptr < (uintptr_t)dn_end) && (matched == 0)) {
+        const uint8_t *set_ptr = NULL;
+        const uint8_t *set_end = NULL;
+        uint32_t set_len = 0U;
+
+        /* RelativeDistinguishedName ::= SET OF AttributeTypeAndValue */
+        if((asn1_get_tag(&dn_ptr, dn_end, 0x31U) != NOXTLS_RETURN_SUCCESS) ||
+           (asn1_get_bounded_length(&dn_ptr, dn_end, &set_len) != NOXTLS_RETURN_SUCCESS)) {
+            break;
+        }
+        set_ptr = dn_ptr;
+        set_end = &dn_ptr[set_len];
+        dn_ptr = set_end;
+
+        while(((uintptr_t)set_ptr < (uintptr_t)set_end) && (matched == 0)) {
+            const uint8_t *atv = NULL;
+            const uint8_t *atv_end = NULL;
+            uint32_t atv_len = 0U;
+            uint8_t attr_oid[32];
+            uint32_t attr_oid_len = 0U;
+            uint8_t value_tag = 0U;
+            uint32_t value_len = 0U;
+
+            if(asn1_get_sequence(&set_ptr, set_end, &atv, &atv_len) != NOXTLS_RETURN_SUCCESS) {
                 break;
             }
-            si += 1U;
+            atv_end = &atv[atv_len];
+            if((asn1_get_oid(&atv, atv_end, attr_oid, &attr_oid_len) != NOXTLS_RETURN_SUCCESS) ||
+               (oid_equal(attr_oid, attr_oid_len, x509_oid_common_name, (uint32_t)sizeof(x509_oid_common_name)) == 0) ||
+               (x509_bytes_remaining(atv, atv_end) < 2U)) {
+                continue;
+            }
+            value_tag = atv[0];
+            atv = &atv[1];
+            if((x509_cn_value_tag_ok(value_tag) == 0) ||
+               (asn1_get_bounded_length(&atv, atv_end, &value_len) != NOXTLS_RETURN_SUCCESS) ||
+               (value_len == 0U) || (value_len >= cn_buf_size) || (x509_bytes_have_nul(atv, value_len) != 0)) {
+                continue;
+            }
+            /* Surrounding spaces are not part of a host name (legacy CN values sometimes carry them). */
+            while((value_len > 0U) && (atv[0] == (uint8_t)' ')) {
+                atv = &atv[1];
+                value_len -= 1U;
+            }
+            while((value_len > 0U) && (atv[value_len - 1U] == (uint8_t)' ')) {
+                value_len -= 1U;
+            }
+            if(value_len == 0U) {
+                continue;
+            }
+            x509_copy_bytes_to_chars(cn_buf, atv, value_len);
+            cn_buf[value_len] = 0U;
+            if(noxtls_x509_dns_name_equal(hostname, host_len, cn_buf) != 0) {
+                matched = 1;
+            }
         }
     }
-    if(p == NULL) {
-        return;
-    }
-
-    p = &p[3];
-    while(*p == (uint8_t)' ') { p = &p[1]; }
-    while((*p != 0U) && (*p != (uint8_t)',') && (i < (cn_out_size - 1U))) {
-        cn_out[i] = *p;
-        i += 1U;
-        p = &p[1];
-    }
-
-    cn_out[i] = 0U;
-    /* Trim trailing spaces */
-    while((i > 0U) && (cn_out[i - 1U] == (uint8_t)' ')) {
-        i -= 1U;
-        cn_out[i] = 0U;
-    }
+    return matched;
 }
 
 /**
  * @brief Check whether the certificate is valid for the given hostname (RFC 6125 style).
- * Prefer SAN dNSName; if none, fall back to subject CN. Comparison is case-insensitive for DNS.
+ * Prefer SAN dNSName; if none, fall back to the subject commonName attribute(s) of the DER subject
+ * Name (never the formatted subject_dn text). Comparison is case-insensitive for DNS.
  *
  * @param cert Parsed certificate (must have been parsed so subject_dn and optionally san_dns_* are set).
  * @param hostname Expected hostname (need not be null-terminated).
@@ -1409,8 +1495,7 @@ noxtls_return_t noxtls_x509_certificate_matches_hostname(const x509_certificate_
         return NOXTLS_RETURN_FAILED;
     }
 
-    (void)noxtls_x509_get_cn_from_subject_dn(cert->subject_dn, cn_buf, cn_buf_size);
-    if((cn_buf[0] != 0U) && (noxtls_x509_dns_name_equal(hostname, host_len, cn_buf) != 0)) {
+    if(x509_subject_cn_matches(cert, hostname, host_len, cn_buf, cn_buf_size) != 0) {
         (void)noxtls_free(cn_buf);
         return NOXTLS_RETURN_SUCCESS;
     }
@@ -4797,7 +4882,9 @@ int noxtls_x509_crl_serial_is_revoked(const noxtls_x509_crl_t *crl, const x509_c
  *
  * @return The return code of the function.
  */
-static noxtls_return_t noxtls_x509_crl_check_times(const noxtls_x509_crl_t *crl, noxtls_x509_verify_flags_t *flags_out)
+static noxtls_return_t noxtls_x509_crl_check_times(const noxtls_x509_crl_t *crl,
+                                                   const noxtls_x509_verify_policy_t *policy,
+                                                   noxtls_x509_verify_flags_t *flags_out)
 {
     noxtls_unix_time_t now;
     noxtls_unix_time_t tu = 0;
@@ -4809,7 +4896,16 @@ static noxtls_return_t noxtls_x509_crl_check_times(const noxtls_x509_crl_t *crl,
         return NOXTLS_RETURN_NULL;
     }
 
-    now = noxtls_time_unix_seconds();
+    /* Judge CRL freshness at the same instant as certificate validity: the explicit
+     * verification time when the policy sets one, the system clock otherwise. */
+    if((policy != NULL) && (policy->time_mode == NOXTLS_X509_TIME_EXPLICIT)) {
+        if(policy->verify_time < 0) {
+            return NOXTLS_RETURN_INVALID_PARAM;
+        }
+        now = (noxtls_unix_time_t)policy->verify_time;
+    } else {
+        now = noxtls_time_unix_seconds();
+    }
 
     this_len = 0U;
     while((this_len < 15U) && (crl->this_update[this_len] != 0U)) {
@@ -4857,9 +4953,12 @@ static noxtls_return_t noxtls_x509_crl_check_times(const noxtls_x509_crl_t *crl,
  *
  * @return The return code of the function.
  */
-static noxtls_return_t noxtls_x509_crl_check_times(const noxtls_x509_crl_t *crl, const noxtls_x509_verify_flags_t *flags_out)
+static noxtls_return_t noxtls_x509_crl_check_times(const noxtls_x509_crl_t *crl,
+                                                   const noxtls_x509_verify_policy_t *policy,
+                                                   const noxtls_x509_verify_flags_t *flags_out)
 {
     (void)crl;
+    (void)policy;
     (void)flags_out;
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -5105,7 +5204,9 @@ static noxtls_return_t noxtls_x509_crl_verify_signature(const noxtls_x509_crl_t 
  * @return The return code of the function.
  */
 static noxtls_return_t x509_apply_crl_for_cert(const x509_certificate_t *cert, const x509_certificate_t *issuer,
-                                               const noxtls_x509_crl_t *crl_chain, noxtls_x509_verify_flags_t *flags_out)
+                                               const noxtls_x509_crl_t *crl_chain,
+                                               const noxtls_x509_verify_policy_t *policy,
+                                               noxtls_x509_verify_flags_t *flags_out)
 {
     const noxtls_x509_crl_t *c;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
@@ -5132,7 +5233,7 @@ static noxtls_return_t x509_apply_crl_for_cert(const x509_certificate_t *cert, c
             return NOXTLS_RETURN_CRL_VERIFY_FAILED;
         }
 
-        rc = noxtls_x509_crl_check_times(c, flags_out);
+        rc = noxtls_x509_crl_check_times(c, policy, flags_out);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             cert_fail_set(NOXTLS_RETURN_CRL_EXPIRED, cert, NULL, 0, 0);
             return NOXTLS_RETURN_CRL_EXPIRED;
@@ -5161,12 +5262,15 @@ static noxtls_return_t x509_apply_crl_for_cert(const x509_certificate_t *cert, c
  */
 void noxtls_x509_trust_store_clear(void)
 {
-    /*
-     * Do not free published snapshots in-place: concurrent verifiers may still
-     * be walking them. New verification calls will observe the cleared store.
-     */
+    x509_certificate_chain_t *old = s_x509_trust_anchors;
+
+    /* Unpublish first, then release the snapshot this store owns (see ownership note above). */
     s_x509_trust_anchors = NULL;
     s_x509_trust_anchors_initialized = 0;
+    if(old != NULL) {
+        (void)noxtls_x509_certificate_chain_free(old);
+        (void)noxtls_free(old);
+    }
 }
 
 /**
@@ -5416,7 +5520,7 @@ static noxtls_return_t x509_verify_cert_trust_internal(const x509_certificate_t 
         }
 
         if(crl != NULL) {
-            rc = x509_apply_crl_for_cert(current, issuer, crl, flags_out);
+            rc = x509_apply_crl_for_cert(current, issuer, crl, policy, flags_out);
             if(rc != NOXTLS_RETURN_SUCCESS) {
                 return rc;
             }
@@ -7392,6 +7496,44 @@ noxtls_return_t noxtls_x509_private_key_to_rsa_key(const x509_private_key_t *key
 }
 
 /**
+ * @brief Check 1 <= d <= n - 1 for an EC private scalar (both big-endian).
+ *
+ * Runs over every byte without data-dependent branches on d. @p n may be longer than @p d
+ * (secp224k1: 29-byte order, 28-byte field), in which case its extra leading bytes are part
+ * of the comparison.
+ *
+ * @param[in] d      Private scalar, @p d_len bytes.
+ * @param[in] d_len  Length of @p d.
+ * @param[in] n      Group order, @p n_len bytes.
+ * @param[in] n_len  Length of @p n (>= @p d_len).
+ *
+ * @return 1 when d is in [1, n - 1], 0 otherwise (also for invalid arguments).
+ */
+static int x509_ecc_scalar_in_range(const uint8_t *d, uint32_t d_len, const uint8_t *n, uint32_t n_len)
+{
+    uint32_t i = 0U;
+    uint32_t nonzero = 0U;
+    uint32_t lt = 0U;  /* 1 once d < n is decided */
+    uint32_t gt = 0U;  /* 1 once d > n is decided */
+
+    if((d == NULL) || (n == NULL) || (d_len == 0U) || (n_len < d_len)) {
+        return 0;
+    }
+    for(i = 0U; i < n_len; i += 1U) {
+        /* Align d to the low-order end of n; missing high-order bytes of d are zero. */
+        uint32_t a = (i < (n_len - d_len)) ? 0U : (uint32_t)d[i - (n_len - d_len)];
+        uint32_t b = (uint32_t)n[i];
+        uint32_t undecided = 1U ^ (lt | gt);
+        uint32_t a_lt_b = ((a - b) >> 31U) & 1U;
+        uint32_t b_lt_a = ((b - a) >> 31U) & 1U;
+        lt |= undecided & a_lt_b;
+        gt |= undecided & b_lt_a;
+        nonzero |= a;
+    }
+    return ((nonzero != 0U) && (lt != 0U)) ? 1 : 0;
+}
+
+/**
  * @brief Convert X.509 private key to ecc_key_t (noxtls_ namespace)
  * Caller provides ecc_key; it is filled and must be freed with noxtls_ecc_key_free.
  *
@@ -7439,6 +7581,11 @@ noxtls_return_t noxtls_x509_private_key_to_ecc_key(const x509_private_key_t *key
         return NOXTLS_RETURN_BAD_DATA;
     }
     noxtls_copy_u8((uint8_t *)(void *)(&ecc_key->d[(size - key->ecc_private_key_len)]), (size_t)key->ecc_private_key_len, (const uint8_t *)(const void *)(key->ecc_private_key), (size_t)key->ecc_private_key_len);
+    /* SEC 1 v2 Section 3.2.1 / RFC 5915: the private key d must satisfy 1 <= d <= n - 1. */
+    if(x509_ecc_scalar_in_range(ecc_key->d, size, ecc_key->curve->n, noxtls_ecc_curve_order_size(ecc_key->curve)) == 0) {
+        (void)noxtls_ecc_key_free(ecc_key);
+        return NOXTLS_RETURN_BAD_DATA;
+    }
 
     if((key->ecc_public_key != NULL) && (key->ecc_public_key_len > 0U)) {
         if((key->ecc_public_key[0] != 0x04U) || (key->ecc_public_key_len != (1U + (2U * size)))) {
