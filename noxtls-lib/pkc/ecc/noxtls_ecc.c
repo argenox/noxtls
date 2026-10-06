@@ -399,11 +399,19 @@ noxtls_return_t noxtls_ecc_curve_init(ecc_curve_params_t *curve, ecc_curve_t cur
     }
     }
 
+    /* The group order normally has the same byte length as the field. secp224k1 is
+     * the exception: n = 0x01 00..00 01DCE8D2 EC6184CA F0A97176 9FB1F7 (SEC 2 v2,
+     * section 2.7.1) is 225 bits, so it needs one more byte than a coordinate. */
+    curve->n_size = curve->size;
+    if((uint32_t)curve_type == (uint32_t)NOXTLS_ECC_SECP224K1) {
+        curve->n_size = curve->size + 1U;
+    }
+
     /* Allocate memory for curve parameters */
     curve->p = (uint8_t*)NOXTLS_CALLOC(curve->size, 1);
     curve->a = (uint8_t*)NOXTLS_CALLOC(curve->size, 1);
     curve->b = (uint8_t*)NOXTLS_CALLOC(curve->size, 1);
-    curve->n = (uint8_t*)NOXTLS_CALLOC(curve->size, 1);
+    curve->n = (uint8_t*)NOXTLS_CALLOC(curve->n_size, 1);
 
     if((curve->p == NULL) || (curve->a == NULL) || (curve->b == NULL) || (curve->n == NULL)) {
         (void)noxtls_ecc_curve_free(curve);
@@ -917,10 +925,11 @@ noxtls_return_t noxtls_ecc_curve_init(ecc_curve_params_t *curve, ecc_curve_t cur
                     0xF7U, 0xE3U, 0x19U, 0xF7U, 0xC0U, 0xB0U, 0xBDU, 0x59U, 0xE2U, 0xCAU, 0x4BU, 0xDBU,
                     0x55U, 0x6DU, 0x61U, 0xA5U
                 };
-                static const uint8_t n_secp224k1[28] = {
-                    0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
-                    0x00U, 0x01U, 0xDCU, 0xE8U, 0xD2U, 0xECU, 0x61U, 0x84U, 0xCAU, 0xF0U, 0xA9U, 0x71U,
-                    0x76U, 0x9FU, 0xB1U, 0xF7U
+                /* 225-bit order (29 bytes): see curve->n_size above. */
+                static const uint8_t n_secp224k1[29] = {
+                    0x01U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+                    0x00U, 0x00U, 0x01U, 0xDCU, 0xE8U, 0xD2U, 0xECU, 0x61U, 0x84U, 0xCAU, 0xF0U, 0xA9U,
+                    0x71U, 0x76U, 0x9FU, 0xB1U, 0xF7U
                 };
                 noxtls_copy_u8(curve->p, (size_t)size, p_secp224k1, (size_t)size);
                 noxtls_copy_u8(curve->a, (size_t)size, a_secp224k1, (size_t)size);
@@ -928,7 +937,7 @@ noxtls_return_t noxtls_ecc_curve_init(ecc_curve_params_t *curve, ecc_curve_t cur
                 noxtls_copy_u8(curve->G.x, sizeof(curve->G.x), gx_secp224k1, (size_t)size);
                 noxtls_copy_u8(curve->G.y, sizeof(curve->G.y), gy_secp224k1, (size_t)size);
                 curve->G.size = size;
-                noxtls_copy_u8(curve->n, (size_t)size, n_secp224k1, (size_t)size);
+                noxtls_copy_u8(curve->n, (size_t)curve->n_size, n_secp224k1, sizeof(n_secp224k1));
             }
             break;
         case (uint32_t)NOXTLS_ECC_SECP256K1:
@@ -1033,6 +1042,25 @@ noxtls_return_t noxtls_ecc_curve_free(ecc_curve_params_t *curve)
     noxtls_fill_u8((uint8_t *)(void *)(curve), sizeof(ecc_curve_params_t), 0U, sizeof(ecc_curve_params_t));
 
     return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
+ * @brief Length of the group order n in bytes.
+ *
+ * @param curve ECC curve parameters
+ * @return uint32_t curve->n_size when set, otherwise curve->size (0 if curve is NULL)
+ */
+uint32_t noxtls_ecc_curve_order_size(const ecc_curve_params_t *curve)
+{
+    uint32_t n_size = 0U;
+
+    if(curve != NULL) {
+        n_size = curve->size;
+        if((curve->n_size >= curve->size) && (curve->n_size <= ECC_MAX_KEY_SIZE)) {
+            n_size = curve->n_size;
+        }
+    }
+    return n_size;
 }
 
 /**
@@ -1141,20 +1169,21 @@ static void ecc_jpoint_select_affine_table(ecc_jpoint_t *out,
                                            uint32_t size,
                                            uint32_t idx)
 {
-    uint8_t z_one[ECC_MAX_KEY_SIZE];
     uint32_t j = 0U;
 
     (void)noxtls_bn_zero(out->X, size);
     (void)noxtls_bn_zero(out->Y, size);
     (void)noxtls_bn_zero(out->Z, size);
-    (void)noxtls_bn_zero(z_one, size);
-    z_one[size - 1U] = 0x01U;
 
+    /* Entries are affine-normalized (Z == 1) except identity entries, which keep
+     * Z == 0. Selecting Z from the table (instead of forcing Z = 1 for idx != 0)
+     * keeps an identity entry, e.g. a*P1 + b*P2 == O in a joint table when
+     * P2 == -(a/b)*P1, from turning into the bogus affine point (0, 0). */
     for(j = 1U; j < table_len; j += 1U) {
         ecc_cond_select(out->X, table[j].X, out->X, size, ((idx == j) ? 1U : 0U));
         ecc_cond_select(out->Y, table[j].Y, out->Y, size, ((idx == j) ? 1U : 0U));
+        ecc_cond_select(out->Z, table[j].Z, out->Z, size, ((idx == j) ? 1U : 0U));
     }
-    ecc_cond_select(out->Z, z_one, out->Z, size, ((idx != 0U) ? 1U : 0U));
 }
 
 #if NOXTLS_ECC_P256_FLASH_PRECOMPUTE
@@ -2192,7 +2221,7 @@ static noxtls_return_t ecc_jpoint_double(ecc_jpoint_t *out, const ecc_jpoint_t *
     return NOXTLS_RETURN_SUCCESS;
 }
 
-/* Jacobian add: out = P + Q. No inversion. Handles identity and P==Q is invalid (use double). */
+/* Jacobian add: out = P + Q. No inversion. Handles identity, P == Q (doubles) and P == -Q (identity). */
 /**
  * @brief Add two Jacobian points
  *
@@ -2272,9 +2301,14 @@ static noxtls_return_t ecc_jpoint_add(ecc_jpoint_t *out, const ecc_jpoint_t *P, 
     ecc_mod_sub(R, S2, S1, p, size);
 
     if(noxtls_bn_is_zero(H, size) != 0) {
-        /* P == Q or P == -Q. Caller must not use add for doubling. */
+        /* Same x coordinate: P == Q (R == 0) or P == -Q (R != 0). Precompute
+         * tables and joint (Shamir) tables legitimately hit P == Q, e.g. when one
+         * muladd operand is a small multiple of the other, so double here
+         * instead of failing. P is copied first so out may alias it. */
         if(noxtls_bn_is_zero(R, size) != 0) {
-            return NOXTLS_RETURN_FAILED; /* would be doubling */
+            ecc_jpoint_t P_copy;
+            noxtls_copy_u8((uint8_t *)(void *)(&P_copy), sizeof(P_copy), (const uint8_t *)(const void *)(P), sizeof(ecc_jpoint_t));
+            return ecc_jpoint_double(out, &P_copy, curve);
         }
         (void)noxtls_bn_zero(out->X, size);
         (void)noxtls_bn_zero(out->Y, size);
@@ -3066,7 +3100,6 @@ static noxtls_return_t p256_build_joint_precompute_table(ecc_jpoint_t *joint_tab
 
     rc = ecc_precompute_table_to_affine(joint_table, joint_len, curve);
 
-cleanup_joint_table:
 if(table1 != NULL) {
         (void)noxtls_free(table1);
     }
@@ -3587,6 +3620,11 @@ noxtls_return_t noxtls_ecc_point_multiply(ecc_point_t *result, const uint8_t *sc
     if(noxtls_bn_is_zero(scalar, size) != 0) {
         return NOXTLS_RETURN_SUCCESS;
     }
+    /* k*O = O. The affine encoding of the identity, (0, 0), must never reach the
+     * precompute/ladder code, which would treat it as the Jacobian point (0, 0, 1). */
+    if((size != 0U) && (size <= ECC_MAX_KEY_SIZE) && (ecc_point_is_infinity(point, size) != 0)) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
     /* 1*P = P: avoid full scalar loop for key gen and any 1*point case */
     if(noxtls_bn_is_one(scalar, size) != 0) {
         noxtls_copy_u8(result->x, sizeof(result->x), point->x, (size_t)size);
@@ -3915,14 +3953,22 @@ noxtls_return_t noxtls_ecc_point_muladd(ecc_point_t *result,
     (void)noxtls_bn_zero(result->y, size);
     result->size = size;
 
-    if((noxtls_bn_is_zero(scalar1, size) != 0) && (noxtls_bn_is_zero(scalar2, size) != 0)) {
-        return NOXTLS_RETURN_SUCCESS;
-    }
-    if(noxtls_bn_is_zero(scalar1, size) != 0) {
-        return noxtls_ecc_point_multiply(result, scalar2, point2, curve);
-    }
-    if(noxtls_bn_is_zero(scalar2, size) != 0) {
-        return noxtls_ecc_point_multiply(result, scalar1, point1, curve);
+    {
+        /* A term whose scalar is zero or whose point is the identity (affine
+         * (0, 0)) contributes nothing. Strip it here: the joint-table (size 32)
+         * path would otherwise treat (0, 0) as a real affine point. */
+        const int term1_zero = ((noxtls_bn_is_zero(scalar1, size) != 0) || (ecc_point_is_infinity(point1, size) != 0)) ? 1 : 0;
+        const int term2_zero = ((noxtls_bn_is_zero(scalar2, size) != 0) || (ecc_point_is_infinity(point2, size) != 0)) ? 1 : 0;
+
+        if((term1_zero != 0) && (term2_zero != 0)) {
+            return NOXTLS_RETURN_SUCCESS;
+        }
+        if(term1_zero != 0) {
+            return noxtls_ecc_point_multiply(result, scalar2, point2, curve);
+        }
+        if(term2_zero != 0) {
+            return noxtls_ecc_point_multiply(result, scalar1, point1, curve);
+        }
     }
 
     noxtls_fill_u8((uint8_t *)(void *)(&R), sizeof(R), 0U, sizeof(R));
@@ -4318,7 +4364,13 @@ noxtls_return_t noxtls_ecc_key_generate(ecc_key_t *key, ecc_curve_t curve_type)
 
             /* Ensure d is in range [1, n-1] by reducing mod (n-1) and adding 1 */
             /* First, reduce mod n (which gives [0, n-1]) */
-            (void)noxtls_bn_mod(key->d, random_bytes, size, key->curve->n, size);
+            if(noxtls_ecc_curve_order_size(key->curve) > size) {
+                /* Order longer than the field (secp224k1): every size-byte value is
+                 * already below n, so no reduction is needed. */
+                noxtls_copy_u8(key->d, (size_t)size, random_bytes, (size_t)size);
+            } else {
+                (void)noxtls_bn_mod(key->d, random_bytes, size, key->curve->n, size);
+            }
 
             /* If d is zero, set to 1 */
             if(noxtls_bn_is_zero(key->d, size) != 0) {
@@ -4326,7 +4378,9 @@ noxtls_return_t noxtls_ecc_key_generate(ecc_key_t *key, ecc_curve_t curve_type)
             }
 
             /* Ensure d < n (should already be true after mod, but check anyway) */
-        } while(noxtls_bn_cmp(key->d, key->curve->n, size) >= 0 || (noxtls_bn_is_zero(key->d, size) != 0));
+        } while(((noxtls_ecc_curve_order_size(key->curve) == size) &&
+                 (noxtls_bn_cmp(key->d, key->curve->n, size) >= 0)) ||
+                (noxtls_bn_is_zero(key->d, size) != 0));
 #if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
         noxtls_ecc_keygen_last_private_us =
             noxtls_ecc_diagnostic_elapsed_us(phase_start_us);

@@ -106,8 +106,12 @@ typedef struct
     uint8_t *a;     /* Curve parameter a */
     uint8_t *b;     /* Curve parameter b */
     ecc_point_t G;  /* Generator point */
-    uint8_t *n;     /* Order of generator */
-    uint32_t size;  /* Size in bytes */
+    uint8_t *n;     /* Order of generator (n_size bytes, big-endian) */
+    uint32_t size;  /* Coordinate (field element) size in bytes */
+    /** Length of n in bytes. Equals size for every curve except secp224k1, whose
+     *  225-bit order is one byte longer than its 224-bit field. 0 is treated as size
+     *  (structures not created by noxtls_ecc_curve_init). */
+    uint32_t n_size;
 } ecc_curve_params_t;
 
 typedef struct
@@ -148,6 +152,8 @@ typedef struct {
 /* Curve Operations */
 noxtls_return_t noxtls_ecc_curve_init(ecc_curve_params_t *curve, ecc_curve_t curve_type);
 noxtls_return_t noxtls_ecc_curve_free(ecc_curve_params_t *curve);
+/** Length in bytes of the group order n (curve->n_size, or curve->size when unset). */
+uint32_t noxtls_ecc_curve_order_size(const ecc_curve_params_t *curve);
 
 /* Point Operations */
 noxtls_return_t noxtls_ecc_point_init(ecc_point_t *point, uint32_t size);
