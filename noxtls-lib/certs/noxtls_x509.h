@@ -334,9 +334,16 @@ noxtls_return_t noxtls_x509_certificate_chain_init(x509_certificate_chain_t *cha
 noxtls_return_t noxtls_x509_certificate_chain_free(x509_certificate_chain_t *chain);
 noxtls_return_t noxtls_x509_certificate_chain_add(x509_certificate_chain_t *chain, const x509_certificate_t *cert);
 noxtls_return_t noxtls_x509_certificate_chain_verify(const x509_certificate_chain_t *chain);
-/** Replace global trust store with a deep copy of provided trust anchors. Pass NULL or empty chain to clear. */
+/**
+ * Replace global trust store with a deep copy of provided trust anchors. Pass NULL or empty chain to clear.
+ * @note Snapshot lifetime: a published snapshot is never freed, because verifications running on other
+ *       threads may still be walking it and the library has no reader synchronization. Each successful
+ *       call therefore retains one copy of the anchors for the life of the process; configure the trust
+ *       store at start-up (or rarely), not per connection. Per-call anchors can instead be passed through
+ *       noxtls_x509_verify_cert_with_policy(), whose lifetime the caller controls.
+ */
 noxtls_return_t noxtls_x509_trust_store_set(const x509_certificate_chain_t *trust_anchors);
-/** Clear global trust store used by noxtls_x509_verify_server_cert_trust. */
+/** Clear global trust store used by noxtls_x509_verify_server_cert_trust (the previous snapshot is retained, see noxtls_x509_trust_store_set()). */
 void noxtls_x509_trust_store_clear(void);
 /** Return 1 when the global trust store has at least one configured trust anchor, 0 otherwise. */
 int noxtls_x509_trust_store_has_anchors(void);
