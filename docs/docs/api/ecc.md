@@ -32,6 +32,11 @@ ECC uses arithmetic on elliptic curves over finite fields to provide public-key 
 - Good default for key exchange and signatures in network protocols.
 - Prefer well-known curves and vetted parameter sets.
 
+## Performance notes
+
+- **P-521 (secp521r1).** Since 0.3.0, P-521 field multiplication uses a dedicated reduction modulo the Mersenne prime 2^521 - 1, on the stack and with no heap use, instead of generic bignum division. Measured with GCC -O2 on a host machine, ECDSA P-521 signing went from 378 ms to 13 ms (about 29 times faster) and verification from 1,020 ms to 26 ms (about 39 times faster). Define `NOXTLS_P521_GENERIC_ARITHMETIC=1` to use the generic path instead.
+- **brainpoolP512r1** still uses generic bignum division for each field multiplication, about 0.2 to 0.5 s per scalar multiplication at -O2 on a host machine and much longer on small cores. P-521 and brainpoolP512r1 scalar multiplication also uses a plain ladder without windowing. Prefer P-256 or P-384 on constrained targets.
+
 ## Types
 
 ### ecc_curve_params_t

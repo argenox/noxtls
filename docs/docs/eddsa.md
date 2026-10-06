@@ -6,7 +6,7 @@ description: "NoxTLS documentation: EdDSA."
 
 # EdDSA in NoxTLS
 
-This library implements **Ed25519** and **Ed448** (RFC 8032) with **PureEdDSA**, **Ed25519ctx / Ed448ctx**, and **Ed25519ph / Ed448ph** variants where applicable. Ed448 requires SHA-3 (SHAKE256) support (`NOXTLS_FEATURE_SHA3`).
+This library implements **Ed25519** and **Ed448** (RFC 8032) with **PureEdDSA**, **Ed25519ctx / Ed448ctx**, and **Ed25519ph / Ed448ph** variants where applicable. Ed448 requires SHA-3 (SHAKE256) support (`NOXTLS_FEATURE_SHA3`) and is off by default (`NOXTLS_CFG_FEATURE_ED448`). The Ed448 implementation was rewritten in 0.3.0 to follow RFC 8032; see [Ed448](./api/ed448.md).
 
 ## C APIs
 

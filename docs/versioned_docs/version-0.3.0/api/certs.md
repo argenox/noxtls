@@ -135,30 +135,100 @@ Decodes object identifier
 - `output` — is a pointer to a buffer to place the DER data
 - `out_len` — is the length of data placed in output
 
-### `noxtls_certificate_der_to_pem`
+### `noxtls_certificate_der_to_pem_ex`
 
 ```c
-noxtls_return_t noxtls_certificate_der_to_pem(uint8_t * data, uint32_t length, uint8_t * output, uint32_t * out_len);
+noxtls_return_t noxtls_certificate_der_to_pem_ex(const uint8_t *data, uint32_t length, uint8_t *output,
+                                                 uint32_t out_max, uint32_t *out_len);
 ```
 
-Converts DER certificate to PEM
+New in 0.3.0. Converts a DER certificate to PEM (`-----BEGIN CERTIFICATE-----` banners, 64-character Base64 lines) without writing past `output`. Header: `certs/certificates.h`.
+
+The function computes the exact output size before it writes anything. If the PEM text plus its NUL terminator does not fit in `out_max` bytes, it returns `NOXTLS_RETURN_FAILED` and leaves `output` and `*out_len` unchanged.
 
 **Parameters:**
 
-- `data` — is a pointer to the DER data to convert
-- `length` — is the length of the DER data
-- `output` — is a pointer to a buffer to place the PEM data
-- `out_len` — is the length of data placed in output
+- `data` — DER data to convert
+- `length` — length of the DER data in bytes; must not be 0
+- `output` — buffer that receives the NUL-terminated PEM text
+- `out_max` — capacity of `output` in bytes, including the NUL terminator
+- `out_len` — receives the length of the PEM text, not counting the NUL
+
+**Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success; [NOXTLS_RETURN_INVALID_PARAM](/docs/api/return_codes) when `data`, `output`, or `out_len` is NULL or `length` is 0; [NOXTLS_RETURN_FAILED](/docs/api/return_codes) when `out_max` is too small (nothing is written) or encoding fails.
+
+### `noxtls_csr_der_to_pem_ex`
+
+```c
+noxtls_return_t noxtls_csr_der_to_pem_ex(const uint8_t *data, uint32_t length, uint8_t *output,
+                                         uint32_t out_max, uint32_t *out_len);
+```
+
+New in 0.3.0. Converts a DER Certificate Signing Request (PKCS#10) to PEM with `-----BEGIN CERTIFICATE REQUEST-----` banners. Same parameters, bounds check, and return codes as [`noxtls_certificate_der_to_pem_ex()`](#noxtls_certificate_der_to_pem_ex).
+
+### `noxtls_certificate_der_to_pem`
+
+```c
+noxtls_return_t noxtls_certificate_der_to_pem(const uint8_t * data, uint32_t length, uint8_t * output, uint32_t * out_len);
+```
+
+Converts a DER certificate to PEM. This legacy form has no capacity parameter: `output` must hold the complete PEM text plus its NUL terminator, about 4/3 × `length` + `length`/48 + 60 bytes. Prefer [`noxtls_certificate_der_to_pem_ex()`](#noxtls_certificate_der_to_pem_ex).
+
+**Parameters:**
+
+- `data` — DER data to convert
+- `length` — length of the DER data in bytes
+- `output` — buffer that receives the NUL-terminated PEM text; sized by the caller as above
+- `out_len` — receives the length of the PEM text, not counting the NUL
+
+**Returns:** [noxtls_return_t](/docs/api/return_codes): same as [`noxtls_certificate_der_to_pem_ex()`](#noxtls_certificate_der_to_pem_ex).
 
 ### `noxtls_csr_der_to_pem`
 
 ```c
-noxtls_return_t noxtls_csr_der_to_pem(uint8_t *data, uint32_t length, uint8_t *output, uint32_t *out_len);
+noxtls_return_t noxtls_csr_der_to_pem(const uint8_t *data, uint32_t length, uint8_t *output, uint32_t *out_len);
 ```
 
-Converts DER Certificate Signing Request (PKCS#10) to PEM.
+Converts a DER Certificate Signing Request (PKCS#10) to PEM. Legacy form with no capacity parameter; the caller must size `output` as for [`noxtls_certificate_der_to_pem()`](#noxtls_certificate_der_to_pem). Prefer [`noxtls_csr_der_to_pem_ex()`](#noxtls_csr_der_to_pem_ex).
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success.
+**Returns:** [noxtls_return_t](/docs/api/return_codes): same as [`noxtls_certificate_der_to_pem_ex()`](#noxtls_certificate_der_to_pem_ex).
+
+### `noxtls_x509_certificate_write_pem`
+
+```c
+noxtls_return_t noxtls_x509_certificate_write_pem(const x509_certificate_t *cert, uint8_t *out, uint32_t out_max, uint32_t *out_len);
+```
+
+Writes a parsed or generated certificate as PEM. Requires certificate writing (`NOXTLS_HAVE_CERT_WRITE`). The certificate is encoded directly from its DER (`cert->raw_data`), with no temporary heap copy.
+
+**Changed in 0.3.0:** earlier releases ignored `out_max` and could write past `out`. The function now returns `NOXTLS_RETURN_FAILED` without writing anything when `out_max` cannot hold the PEM text plus its NUL terminator.
+
+**Parameters:**
+
+- `cert` — [x509_certificate_t](#x509_certificate_t) with its DER encoding
+- `out` — buffer that receives the NUL-terminated PEM text
+- `out_max` — capacity of `out` in bytes, including the NUL terminator
+- `out_len` — receives the length of the PEM text, not counting the NUL
+
+**Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success; [NOXTLS_RETURN_NULL](/docs/api/return_codes) when `cert`, `out`, or `out_len` is NULL; [NOXTLS_RETURN_FAILED](/docs/api/return_codes) when the certificate has no DER data or `out_max` is too small.
+
+### `noxtls_x509_csr_create_pem`
+
+```c
+noxtls_return_t noxtls_x509_csr_create_pem(
+    const uint8_t *subject_der, uint32_t subject_len,
+    const uint8_t *subject_pk_oid, uint32_t subject_pk_oid_len,
+    const uint8_t *subject_pk, uint32_t subject_pk_len,
+    const uint8_t *sig_oid, uint32_t sig_oid_len,
+    const uint8_t *sign_key, uint32_t sign_key_len,
+    noxtls_hash_algos_t hash_algo,
+    uint8_t *out_pem, uint32_t out_max, uint32_t *out_len);
+```
+
+Creates a PKCS#10 certificate signing request, as `noxtls_x509_csr_create_der()` does, and encodes it as PEM. Requires certificate writing (`NOXTLS_HAVE_CERT_WRITE`). The signing key must be an ECC key.
+
+**Changed in 0.3.0:** earlier releases ignored `out_max` when writing the PEM text. The function now returns `NOXTLS_RETURN_FAILED` without writing the PEM text when `out_max` cannot hold it plus its NUL terminator.
+
+**Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success; [NOXTLS_RETURN_NULL](/docs/api/return_codes) when `out_pem` or `out_len` is NULL; [NOXTLS_RETURN_NOT_ENOUGH_MEMORY](/docs/api/return_codes) when the DER work buffer cannot be allocated; [NOXTLS_RETURN_FAILED](/docs/api/return_codes) when the request cannot be built or `out_max` is too small.
 
 ### `noxtls_certificate_pem_to_der`
 
@@ -185,9 +255,14 @@ noxtls_return_t noxtls_x509_certificate_matches_hostname(const x509_certificate_
 
 Check whether the certificate is valid for the given hostname (RFC 6125 style). Prefer SAN dNSName; if none, fall back to subject CN. Comparison is case-insensitive for DNS.
 
+**Changed in 0.3.0:**
+
+- A SAN dNSName that contains a NUL byte is stored as an empty entry that never matches. It still counts as a SAN, so the subject-CN fallback stays disabled (RFC 6125 section 6.4.4). Earlier releases matched the part of the name before the NUL.
+- The subject-CN fallback walks the DER subject and compares the hostname with every commonName attribute, including those in multi-valued RDNs. A value is used only if it is a PrintableString, UTF8String, IA5String, or TeletexString, contains no NUL, and is shorter than 256 bytes. Earlier releases searched the formatted `subject_dn` string for `CN=`, so another attribute whose value contained `CN=` could act as the common name.
+
 **Parameters:**
 
-- `cert` — [x509_certificate_t](#x509_certificate_t) (must have been parsed so subject_dn and optionally san_dns_ are set)
+- `cert` — [x509_certificate_t](#x509_certificate_t), normally from the parser. The CN fallback reads the DER subject (`cert->subject`), not `subject_dn`; code that fills in a certificate structure by hand must set the DER subject.
 - `hostname` — Expected hostname as `uint8_t` text (need not be null-terminated). Since 0.3.0 this is `const uint8_t *`; cast string literals, e.g. `(const uint8_t *)"device.example.com"`.
 - `hostname_len` — Length of hostname; 0 uses `noxtls_u8_strlen(hostname)`
 
@@ -285,6 +360,24 @@ When `flags_out` is non-NULL, `_ex` APIs clear it then OR in bits:
 - `noxtls_x509_crl_init` / `noxtls_x509_crl_free` — `noxtls_x509_crl_free` also frees CRLs linked through `next`.
 - `noxtls_x509_crl_parse_der`, `noxtls_x509_crl_parse_pem` (`-----BEGIN X509 CRL-----`), `noxtls_x509_crl_load_file`.
 
+### Global trust store
+
+```c
+noxtls_return_t noxtls_x509_trust_store_set(const x509_certificate_chain_t *trust_anchors);
+void noxtls_x509_trust_store_clear(void);
+int noxtls_x509_trust_store_has_anchors(void);
+```
+
+`noxtls_x509_trust_store_set()` replaces the process-wide trust store, used by `noxtls_x509_verify_server_cert_trust*()`, `noxtls_x509_verify_client_cert_trust*()`, and TLS handshakes that verify against the global store, with a deep copy of `trust_anchors`. Pass NULL or an empty chain to clear it. The caller keeps ownership of `trust_anchors` and may free it right after the call. `noxtls_x509_trust_store_clear()` empties the store, and `noxtls_x509_trust_store_has_anchors()` returns 1 when at least one anchor is configured.
+
+**Changed in 0.3.0:** the store owns exactly one copy of the anchors. Each `set` or `clear` frees the previous copy before a new one is allocated, so repeated calls no longer grow the heap. Earlier releases leaked every replaced copy. If the new copy cannot be allocated, the store is left empty (fail closed).
+
+:::warning Threading
+
+The library has no internal locking. Verification functions read the global store only for the duration of the call, and TLS contexts do not keep a pointer to it, but `set` and `clear` free the copy that a concurrent verification may be reading. Do not call `noxtls_x509_trust_store_set()` or `noxtls_x509_trust_store_clear()` while another thread verifies a certificate against the global store or runs a TLS handshake that does. Configure the store at start-up, serialize updates with your own lock, or pass anchors per call with [`noxtls_x509_verify_cert_with_policy()`](#explicit-verification-policy), whose anchor lifetime you control.
+
+:::
+
 ### `noxtls_x509_verify_server_cert_trust_ex` / `noxtls_x509_verify_client_cert_trust_ex`
 
 Optional `crl` and `flags_out` parameters; same trust path as `noxtls_x509_verify_server_cert_trust` / `noxtls_x509_verify_client_cert_trust` when `crl` is NULL.
@@ -342,6 +435,7 @@ noxtls_return_t noxtls_x509_verify_cert_with_policy(const x509_certificate_t *le
 - `presented_chain` holds the intermediates the peer presented, excluding the leaf. It may be empty.
 - If the policy has no anchors, verification **fails closed** with `NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED`.
 - `flags_out` is optional. It is cleared and then ORed with `NOXTLS_X509_VERIFY_FLAG_*` bits, as described in [Verification flags](#verification-flags-noxtls_x509_verify_flags_t).
+- With `NOXTLS_X509_TIME_EXPLICIT`, CRL thisUpdate and nextUpdate are checked against `verify_time` as well, and a negative `verify_time` is rejected. Before the 0.3.0 fixes, CRL freshness used the system clock even in explicit mode.
 - The TLS 1.2 server API [`noxtls_tls12_set_client_verify_policy()`](./tls12.md#noxtls_tls12_set_client_verify_policy) applies the same policy to client certificates.
 
 ### Raw extension lookup (`noxtls_x509_ext.h`)
@@ -588,7 +682,9 @@ noxtls_return_t noxtls_x509_private_key_to_ecc_key(const x509_private_key_t *key
 
 Convert X.509 private key to [ecc_key_t](/docs/api/ecc#ecc_key_t) (noxtls_ namespace). `key` is [x509_private_key_t](#x509_private_key_t). Caller provides ecc_key; it is filled and must be freed with noxtls_ecc_key_free.
 
-**Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success.
+The private scalar d must be in the range [1, n - 1] for the curve order n; this is checked in constant time. Earlier releases accepted d = 0 and d ≥ n, which `noxtls_x509_private_key_sign_data()` then used for signing.
+
+**Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success; [NOXTLS_RETURN_BAD_DATA](/docs/api/return_codes) when the scalar is out of range.
 
 ### `noxtls_x509_private_key_sign_data`
 

@@ -26,6 +26,8 @@ Use [noxtls_dtls12_context_init](#noxtls_dtls12_context_init) to initialize a [t
 | DoS mitigation | HelloVerifyRequest cookie generation and verification |
 | Transport | Callback-based datagram I/O using the TLS common callback API |
 
+**RFC 6347 conformance (0.3.0).** The handshake transcript uses 12-byte DTLS handshake headers, Finished is a DTLS handshake message, the MAC and AEAD sequence number include the epoch, read and write epochs are separate, every record in a datagram is processed, records from another epoch and replays are discarded silently, and retransmissions use new record sequence numbers. DTLS 1.2 interoperates with OpenSSL; earlier NoxTLS builds used a NoxTLS-only wire format and cannot complete a handshake with 0.3.0. Not supported: several handshake messages in one record, cookies longer than 32 bytes, and max_fragment_length applied to DTLS fragmentation.
+
 ## API
 
 ### `noxtls_dtls12_context_init`
