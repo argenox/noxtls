@@ -1223,7 +1223,7 @@ static noxtls_return_t bn_div_remainder_limb(uint8_t *rem_out, uint32_t mod_len,
         if(mod_limbs != NULL) { (void)noxtls_free(mod_limbs); }
         if(rem_limbs != NULL) { (void)noxtls_free(rem_limbs); }
         noxtls_secure_zero((rem_out), (size_t)(mod_len));
-        return NOXTLS_RETURN_FAILED;
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
 
     bn_bytes_to_limbs_le(mod_limbs, limb_len, b_sig, b_sig_len);
@@ -2098,11 +2098,13 @@ static void bn_add_at(uint8_t *a, uint32_t n, uint32_t lsb_offset, const uint8_t
  * @param[in] a_len Dividend length in bytes
  * @param[in] b Divisor (big-endian)
  * @param[in] b_len Divisor length in bytes
- * @return void
+ * @return NOXTLS_RETURN_SUCCESS on success; NOXTLS_RETURN_NOT_ENOUGH_MEMORY when scratch
+ *         allocation fails; NOXTLS_RETURN_NULL, NOXTLS_RETURN_INVALID_PARAM or
+ *         NOXTLS_RETURN_FAILED otherwise. @p rem_out is zeroed on every failure.
  */
-static void bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
-                             const uint8_t *a, uint32_t a_len,
-                             const uint8_t *b, uint32_t b_len)
+static noxtls_return_t bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
+                                        const uint8_t *a, uint32_t a_len,
+                                        const uint8_t *b, uint32_t b_len)
 {
     static int g_bn_debug_div_first = 1;
     int do_debug = g_bn_debug_div_first;
@@ -2111,7 +2113,7 @@ static void bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
         if((rem_out != NULL) && (mod_len > 0U)) {
             noxtls_secure_zero((rem_out), (size_t)(mod_len));
         }
-        return;
+        return NOXTLS_RETURN_NULL;
     }
     if(g_bn_debug_div_first != 0) { g_bn_debug_div_first = 0; }
     if(g_bn_debug_div_trace != 0) {
@@ -2129,7 +2131,7 @@ static void bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
             noxtls_copy_u8(&rem_out[(mod_len - a_len)], (size_t)mod_len, a, (size_t)a_len);
         }
         if(do_debug != 0) { bn_debug_print(NULL, rem_out, mod_len); }
-        return;
+        return NOXTLS_RETURN_SUCCESS;
     }
 
     /* Compare |A| < |B| -> R = A */
@@ -2138,7 +2140,7 @@ static void bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
             noxtls_secure_zero((rem_out), (size_t)(mod_len));
             noxtls_copy_u8(&rem_out[(mod_len - a_len)], (size_t)mod_len, a, (size_t)a_len);
             if(do_debug != 0) { bn_debug_print(NULL, rem_out, mod_len); }
-            return;
+            return NOXTLS_RETURN_SUCCESS;
         }
     }
 
@@ -2147,7 +2149,7 @@ static void bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
     uint32_t y_cap = 0U;
     if((a_len == UINT32_MAX) || (b_len == UINT32_MAX)) {
         noxtls_secure_zero((rem_out), (size_t)(mod_len));
-        return;
+        return NOXTLS_RETURN_INVALID_PARAM;
     }
     x_cap = a_len + 1U;
     y_cap = b_len + 1U;
@@ -2163,7 +2165,7 @@ static void bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
         if(Y != NULL) { (void)noxtls_free(Y); }
         if(Y_shifted != NULL) { (void)noxtls_free(Y_shifted); }
         noxtls_secure_zero((rem_out), (size_t)(mod_len));
-        return;
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
 
     noxtls_copy_u8(X, (size_t)x_cap, a, (size_t)(a_len));
@@ -2179,7 +2181,7 @@ static void bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
         (void)noxtls_free(X);
         (void)noxtls_free(Y);
         (void)noxtls_free(Y_shifted);
-        return;
+        return NOXTLS_RETURN_SUCCESS;
     }
     if(x_len < y_len) {
         /* Dividend < divisor: remainder is dividend, aligned to mod_len (x_len > 0U when x_len < y_len and y_len > 0U) */
@@ -2188,7 +2190,7 @@ static void bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
         (void)noxtls_free(X);
         (void)noxtls_free(Y);
         (void)noxtls_free(Y_shifted);
-        return;
+        return NOXTLS_RETURN_SUCCESS;
     }
 
     if(do_debug != 0) {
@@ -2238,7 +2240,7 @@ static void bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
         (void)noxtls_free(Y);
         (void)noxtls_free(Y_shifted);
         noxtls_secure_zero((rem_out), (size_t)(mod_len));
-        return;
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
     uint32_t reduce_rounds = 0U;
     /* One quotient digit is 0..255, so we need at most 256 rounds when subtracting 1*Y_shifted each time */
@@ -2249,7 +2251,7 @@ static void bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
         (void)noxtls_free(Y_shifted);
         (void)noxtls_free(qY);
         noxtls_secure_zero((rem_out), (size_t)(mod_len));
-        return;
+        return NOXTLS_RETURN_INVALID_PARAM;
     }
     max_reduce_rounds = (x_len + 1U) * 32U;
     if(max_reduce_rounds < 256U) { max_reduce_rounds = 256U; }
@@ -2314,7 +2316,7 @@ static void bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
             (void)noxtls_free(Y);
             (void)noxtls_free(Y_shifted);
             noxtls_secure_zero((rem_out), (size_t)(mod_len));
-            return;
+            return NOXTLS_RETURN_FAILED;
         }
     }
 
@@ -2366,7 +2368,7 @@ static void bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
                     (void)noxtls_free(Y);
                     (void)noxtls_free(Y_shifted);
                     noxtls_secure_zero((rem_out), (size_t)(mod_len));
-                    return;
+                    return NOXTLS_RETURN_FAILED;
                 }
             }
         }
@@ -2385,7 +2387,7 @@ static void bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
                 (void)noxtls_free(Y);
                 (void)noxtls_free(Y_shifted);
                 noxtls_secure_zero((rem_out), (size_t)(mod_len));
-                return;
+                return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
             }
             for(int32_t j = (int32_t)y_len - 1; j >= 0; j -= 1) {
                 uint16_t prod = (uint16_t)(((uint16_t)Y[j] * (uint16_t)(uint8_t)q) + carry);
@@ -2432,6 +2434,24 @@ static void bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
     if(g_bn_debug_div_trace != 0) {
         (void)noxtls_debug_printf((const uint8_t *)"[bn_div_remainder] done\n");
     }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
+ * @brief Classify a platform accelerator return code.
+ * @internal
+ *
+ * The software implementation is used only when the accelerator declined the
+ * request (NOXTLS_RETURN_NOT_SUPPORTED, or NOXTLS_RETURN_FAILED for an operand
+ * shape/state the hardware rejects); the software path recomputes the whole
+ * result. Allocation failures and argument errors are never masked.
+ *
+ * @param[in] rc Return code from noxtls_bn_platform_try_mod / _mod_exp.
+ * @return 1U when the portable implementation may be used, 0U otherwise.
+ */
+static uint32_t bn_platform_declined(noxtls_return_t rc)
+{
+    return ((rc == NOXTLS_RETURN_NOT_SUPPORTED) || (rc == NOXTLS_RETURN_FAILED)) ? 1U : 0U;
 }
 
 /**
@@ -2520,7 +2540,13 @@ noxtls_return_t noxtls_bn_mod(uint8_t *result, const uint8_t *a, uint32_t a_len,
         }
         /* Fixup: result may still be >= mod (e.g. 10 mod 10, 20 mod 10) */
         if(noxtls_bn_cmp(result, mod, mod_len) >= 0) {
-            bn_div_remainder(result, mod_len, result, mod_len, mod, mod_len);
+            noxtls_return_t fix_rc = bn_div_remainder(result, mod_len, result, mod_len, mod, mod_len);
+            if(fix_rc != NOXTLS_RETURN_SUCCESS) {
+                /* Never report SUCCESS with an unreduced/zeroed value (e.g. on OOM). */
+                noxtls_secure_zero((result), (size_t)(mod_len));
+                if(a_copy != NULL) { (void)noxtls_free(a_copy); }
+                return fix_rc;
+            }
         }
         if(a_copy != NULL) { (void)noxtls_free(a_copy); }
         if(do_debug != 0) { bn_debug_print(NULL, result, mod_len); }
@@ -2572,20 +2598,28 @@ noxtls_return_t noxtls_bn_mod(uint8_t *result, const uint8_t *a, uint32_t a_len,
             }
             return NOXTLS_RETURN_SUCCESS;
         }
+        if(bn_platform_declined(hw_rc) == 0U) {
+            noxtls_secure_zero((result), (size_t)(mod_len));
+            if(a_copy != NULL) { (void)noxtls_free(a_copy); }
+            return hw_rc;
+        }
     }
 
-    /* Fast path: 2n-by-n limb reducer for ECDSA (P-256/P-384), RSA, and RFC 7919 FFDHE moduli. */
+    /* Fast path: 2n-by-n limb reducer for ECDSA (P-256/P-384), RSA, and RFC 7919 FFDHE moduli.
+     * NOXTLS_RETURN_FAILED from the reducer means "shape not handled" (e.g. padded modulus):
+     * only then is the general path used; any other error is propagated. */
     if((mod_len == 32U || mod_len == 48U || mod_len == 64U || mod_len == 128U || mod_len == 256U ||
         mod_len == 384U || mod_len == 512U || mod_len == 768U || mod_len == 1024U) &&
        a_nbytes == mod_len * 2U) {
         noxtls_return_t fast_rc = bn_mod_2n_by_n_limb(result, mod_len, a_src, a_nbytes, mod);
         if(fast_rc == NOXTLS_RETURN_SUCCESS) {
             if(do_debug != 0) { bn_debug_print(NULL, result, mod_len); }
-            if(a_copy != NULL) { noxtls_free(a_copy); }
+            if(a_copy != NULL) { (void)noxtls_free(a_copy); }
             return NOXTLS_RETURN_SUCCESS;
         }
-        if(fast_rc == NOXTLS_RETURN_NOT_ENOUGH_MEMORY) {
-            if(a_copy != NULL) { noxtls_free(a_copy); }
+        if(fast_rc != NOXTLS_RETURN_FAILED) {
+            noxtls_secure_zero((result), (size_t)(mod_len));
+            if(a_copy != NULL) { (void)noxtls_free(a_copy); }
             return fast_rc;
         }
     }
@@ -2602,31 +2636,25 @@ noxtls_return_t noxtls_bn_mod(uint8_t *result, const uint8_t *a, uint32_t a_len,
             }
             return NOXTLS_RETURN_SUCCESS;
         }
+        if(bn_platform_declined(hw_rc) == 0U) {
+            noxtls_secure_zero((result), (size_t)(mod_len));
+            if(a_copy != NULL) { (void)noxtls_free(a_copy); }
+            return hw_rc;
+        }
     }
 
-    /* General limb path (bit-by-bit) for other operand sizes. */
+    /* General limb path (bit-by-bit) handles every remaining operand shape. Its errors
+     * (allocation failure in particular) are propagated: there is no further fallback,
+     * so a failure can never be reported as SUCCESS with a zeroed/wrong remainder. */
     {
         noxtls_return_t limb_rc = bn_div_remainder_limb(result, mod_len, a_src, a_nbytes, mod, mod_len);
-        if(limb_rc == NOXTLS_RETURN_SUCCESS) {
-            if(do_debug != 0) { bn_debug_print(NULL, result, mod_len); }
-            if(a_copy != NULL) { noxtls_free(a_copy); }
-            return NOXTLS_RETURN_SUCCESS;
-        }
-        if(limb_rc == NOXTLS_RETURN_NOT_ENOUGH_MEMORY) {
-            if(a_copy != NULL) { noxtls_free(a_copy); }
+        if(limb_rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_secure_zero((result), (size_t)(mod_len));
+            if(a_copy != NULL) { (void)noxtls_free(a_copy); }
             return limb_rc;
         }
     }
 
-    /* In-house bn_div_remainder. */
-    bn_div_remainder(result, mod_len, a_src, a_nbytes, mod, mod_len);
-    
-    /* at most one conditional subtract so result in [0, mod). */
-    if(noxtls_bn_cmp(result, mod, mod_len) >= 0) {
-        if(bn_sub_inplace(result, mod, mod_len) != NOXTLS_RETURN_SUCCESS) {
-            noxtls_secure_zero((result), (size_t)(mod_len));
-        }
-    }
     if(a_copy != NULL) { (void)noxtls_free(a_copy); }
     if(do_debug != 0) { bn_debug_print(NULL, result, mod_len); }
     return NOXTLS_RETURN_SUCCESS;
@@ -2842,7 +2870,9 @@ static void bn_mont_RR(bn_limb_t *RR, const bn_limb_t *m, uint32_t n, bn_limb_t 
 /*
  * Constant-time Montgomery + fixed-window modular exponentiation for ODD modulus.
  * Returns NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NOT_SUPPORTED if the modulus
- * is even or scratch allocation fails (caller then uses the ladder fallback).
+ * is even (caller then uses the ladder fallback), NOXTLS_RETURN_NOT_ENOUGH_MEMORY when
+ * scratch allocation fails, or the error of the base reduction. Only NOT_SUPPORTED may
+ * be answered with the ladder: allocation and reduction errors are propagated.
  */
 static noxtls_return_t bn_mod_exp_mont(uint8_t *result, const uint8_t *base,
                                        const uint8_t *exp, uint32_t exp_len,
@@ -2883,7 +2913,7 @@ static noxtls_return_t bn_mod_exp_mont(uint8_t *result, const uint8_t *base,
     base_red = (uint8_t*)NOXTLS_CALLOC(mod_len, 1);
 
     if((m_l == NULL) || (RR == NULL) || (aR == NULL) || (acc == NULL) || (sel == NULL) || (one_l == NULL) || (t == NULL) || (tmp == NULL) || (table == NULL) || (base_red == NULL)) {
-        rc = NOXTLS_RETURN_NOT_SUPPORTED;  /* fall back to ladder */
+        rc = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;  /* propagate: never mask OOM with the ladder */
         if(m_l != NULL) {   NOXTLS_SECURE_FREE(m_l,   (size_t)n * sizeof(bn_limb_t)); }
             if(RR != NULL) {    NOXTLS_SECURE_FREE(RR,    (size_t)n * sizeof(bn_limb_t)); }
             if(aR != NULL) {    NOXTLS_SECURE_FREE(aR,    (size_t)n * sizeof(bn_limb_t)); }
@@ -2920,8 +2950,9 @@ static noxtls_return_t bn_mod_exp_mont(uint8_t *result, const uint8_t *base,
     one_l[0] = 1U;
 
     /* a = base mod m  ->  aR = a * R mod m */
-    if(noxtls_bn_mod(base_red, base, mod_len, mod, mod_len) != NOXTLS_RETURN_SUCCESS) {
-        rc = NOXTLS_RETURN_NOT_SUPPORTED;
+    rc = noxtls_bn_mod(base_red, base, mod_len, mod, mod_len);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        /* propagate the reduction error (e.g. NOT_ENOUGH_MEMORY) */
         if(m_l != NULL) {   NOXTLS_SECURE_FREE(m_l,   (size_t)n * sizeof(bn_limb_t)); }
     if(RR != NULL) {    NOXTLS_SECURE_FREE(RR,    (size_t)n * sizeof(bn_limb_t)); }
     if(aR != NULL) {    NOXTLS_SECURE_FREE(aR,    (size_t)n * sizeof(bn_limb_t)); }
@@ -2959,8 +2990,7 @@ static noxtls_return_t bn_mod_exp_mont(uint8_t *result, const uint8_t *base,
     nb = (exp_len - e_skip) * 8U;
     if(nb == 0U) {
         /* exponent == 0: x^0 mod m = 1 */
-        (void)noxtls_bn_one(result, mod_len);
-        rc = NOXTLS_RETURN_SUCCESS;
+        rc = noxtls_bn_one(result, mod_len);
         if(m_l != NULL) {   NOXTLS_SECURE_FREE(m_l,   (size_t)n * sizeof(bn_limb_t)); }
     if(RR != NULL) {    NOXTLS_SECURE_FREE(RR,    (size_t)n * sizeof(bn_limb_t)); }
     if(aR != NULL) {    NOXTLS_SECURE_FREE(aR,    (size_t)n * sizeof(bn_limb_t)); }
@@ -3072,12 +3102,22 @@ noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const ui
         if(hw_rc == NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_SUCCESS;
         }
+        if(bn_platform_declined(hw_rc) == 0U) {
+            noxtls_secure_zero((result), (size_t)(mod_len));
+            return hw_rc;
+        }
     }
 
     {
+        /* The ladder is used only when Montgomery declines (even modulus); allocation
+         * or reduction failures inside Montgomery are propagated, never masked. */
         noxtls_return_t mont_rc = bn_mod_exp_mont(result, base, exp, exp_len, mod, mod_len);
         if(mont_rc == NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_SUCCESS;
+        }
+        if(mont_rc != NOXTLS_RETURN_NOT_SUPPORTED) {
+            noxtls_secure_zero((result), (size_t)(mod_len));
+            return mont_rc;
         }
     }
 
@@ -3098,7 +3138,9 @@ noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const ui
         if(temp_base != NULL) { (void)noxtls_free(temp_base); }
         if(exp_copy != NULL) { (void)noxtls_free(exp_copy); }
         if(temp != NULL) { (void)noxtls_free(temp); }
-        (void)noxtls_bn_one(result, mod_len);
+        g_bn_debug_modexp_active = 0;
+        /* Zero (not one) on failure: a stale "1" could be mistaken for a valid power. */
+        noxtls_secure_zero((result), (size_t)(mod_len));
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
 
@@ -3507,7 +3549,8 @@ static noxtls_return_t bn_inv_odd(const bn_limb_t *a, const bn_limb_t *m, uint32
  * @param[in] m Modulus (m_len bytes, big-endian; leading zero bytes allowed).
  * @param[in] m_len Length of @p m in bytes; must be positive.
  * @return NOXTLS_RETURN_SUCCESS when the inverse exists.
- * @return NOXTLS_RETURN_NULL for NULL pointers; NOXTLS_RETURN_INVALID_PARAM when m_len is zero.
+ * @return NOXTLS_RETURN_NULL for NULL pointers; NOXTLS_RETURN_INVALID_PARAM when m_len is zero or a length
+ *         exceeds UINT32_MAX / 8 (@p result is left untouched in these cases).
  * @return NOXTLS_RETURN_FAILED when m <= 1 or gcd(a, m) != 1.
  * @return NOXTLS_RETURN_NOT_ENOUGH_MEMORY when scratch allocation fails.
  */
@@ -3525,8 +3568,9 @@ noxtls_return_t noxtls_bn_mod_inv(uint8_t *result, const uint8_t *a, uint32_t a_
     if(m_len == 0U) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
+    /* Validate lengths before touching @p result: an implausible m_len must not be
+     * used to size a write into the caller's buffer. */
     if((m_len > (UINT32_MAX / 8U)) || (a_len > (UINT32_MAX / 8U))) {
-        noxtls_secure_zero(result, (size_t)m_len);
         return NOXTLS_RETURN_INVALID_PARAM;
     }
     /* Fast path for the secp256r1 prime field: a^(p-2) mod p (constant-time ladder). */
@@ -3554,9 +3598,13 @@ noxtls_return_t noxtls_bn_mod_inv(uint8_t *result, const uint8_t *a, uint32_t a_
             rc = noxtls_bn_mod(a_mod_m_p256, a, a_len, m, m_len);
             if((rc == NOXTLS_RETURN_SUCCESS) && (noxtls_bn_is_zero(a_mod_m_p256, m_len) == 0)) {
                 two_buf[31] = 2U;
-                (void)noxtls_bn_copy(m_minus_2, m, m_len);
-                (void)noxtls_bn_sub(m_minus_2, m_minus_2, two_buf, m_len);
-                rc = noxtls_bn_mod_exp(result, a_mod_m_p256, m_minus_2, m_len, m, m_len);
+                rc = noxtls_bn_copy(m_minus_2, m, m_len);
+                if(rc == NOXTLS_RETURN_SUCCESS) {
+                    rc = noxtls_bn_sub(m_minus_2, m_minus_2, two_buf, m_len);
+                }
+                if(rc == NOXTLS_RETURN_SUCCESS) {
+                    rc = noxtls_bn_mod_exp(result, a_mod_m_p256, m_minus_2, m_len, m, m_len);
+                }
             } else if(rc == NOXTLS_RETURN_SUCCESS) {
                 rc = NOXTLS_RETURN_FAILED;
             } else {
