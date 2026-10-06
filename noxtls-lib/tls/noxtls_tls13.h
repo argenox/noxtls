@@ -188,6 +188,7 @@ struct tls13_context_s
     uint8_t awaiting_hrr_client_hello; /* Server sent HRR and expects second ClientHello */
     uint8_t sent_hrr;                /* HRR was sent in this handshake */
     uint8_t received_hrr;            /* Client received HRR and must resend ClientHello with preserved random */
+    uint16_t hrr_selected_group;     /* RFC 8446 §4.2.8: NamedGroup selected by the HRR key_share (0 = none) */
     /** RFC 8446 §4.1.2: second ClientHello must use the same extension order as the first; wire types in order (TLS server HRR path). */
     uint16_t *hrr_first_clienthello_ext_order;
     uint32_t hrr_first_clienthello_ext_order_count;
@@ -374,6 +375,7 @@ struct tls13_context_s
     uint8_t early_data_sent;            /* 1 if noxtls_tls13_send_early_data was used */
     uint8_t client_offered_early_data;  /* Server: 1 if ClientHello contained early_data extension */
     uint8_t end_of_early_data_seen;     /* Server: 1 after receiving EndOfEarlyData from client */
+    uint8_t end_of_early_data_appended; /* Server: EndOfEarlyData added to the transcript */
 
     /* RFC 9147 Connection ID: CID sent by peer (included in records we send); our CID (expected in records we receive) */
 #define DTLS13_MAX_CID_POOL 4U

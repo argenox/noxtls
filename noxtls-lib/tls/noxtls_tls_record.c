@@ -590,7 +590,8 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
         aad[11] = (uint8_t)(((uint32_t)plaintext_len) >> 8U);
         aad[12] = (uint8_t)plaintext_len;
 
-        encrypted_data = (uint8_t*)NOXTLS_MALLOC(plaintext_len);
+        /* A zero-length fragment is legal (RFC 5246 6.2.1); never request a 0-byte allocation. */
+        encrypted_data = (uint8_t*)NOXTLS_MALLOC((plaintext_len == 0U) ? 1U : plaintext_len);
         if(encrypted_data == NULL) {
             return NOXTLS_RETURN_FAILED;
         }
@@ -1794,8 +1795,8 @@ noxtls_return_t noxtls_tls13_encrypt_record(tls13_context_t *ctx,
  * @brief RFC 9147: Send one DTLS 1.3 encrypted record (DTLSCiphertext with unified header + record number encryption).
  * inner_plaintext is the DTLSInnerPlaintext (content || content_type || padding).
  */
-/* Unified header worst case: 1 flags + 2 seq + 2 length + 32 CID = 37 bytes. */
-#define DTLS13_MAX_HEADER_LEN  (1 + 2 + 2 + 32)
+/* Unified header worst case: 1 flags + 2 seq + 2 length + 255 CID (RFC 9146/9147 CID length is 0..255). */
+#define DTLS13_MAX_HEADER_LEN  (1U + 2U + 2U + 255U)
 
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 /**
@@ -1903,6 +1904,13 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
     len_offset = seq_offset + seq_len;
     cid_offset = len_offset + ((omit_length != 0) ? 0U : 2U);
     header_len = cid_offset + (uint32_t)ctx->peer_connection_id_len;
+    if((header_len > (uint32_t)sizeof(header)) ||
+       ((uint32_t)ctx->peer_connection_id_len > (uint32_t)sizeof(ctx->peer_connection_id))) {
+        if(padded_inner != NULL) {
+            (void)noxtls_free(padded_inner);
+        }
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
     header[0] = (uint8_t)(DTLS13_UNIFIED_FIXED_BITS | (epoch & DTLS13_UNIFIED_EPOCH_MASK));
     if(seq_len == 2U) {
         header[0] |= DTLS13_UNIFIED_S_BIT;
@@ -2127,7 +2135,8 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
     seq_offset = 1U;
     len_offset = seq_offset + seq_len;
     {
-        uint32_t cid_len = (uint32_t)(((raw[0U] & DTLS13_UNIFIED_CID_BIT) != 0U) ? ((ctx->own_connection_id_len != 0U) ? 1U : 0U) : 0U);
+        /* RFC 9147 4: the CID field carries the full negotiated connection ID (0..255 bytes). */
+        uint32_t cid_len = (uint32_t)(((raw[0U] & DTLS13_UNIFIED_CID_BIT) != 0U) ? (uint32_t)ctx->own_connection_id_len : 0U);
         uint32_t cid_offset = (uint32_t)(len_offset + (((raw[0U] & DTLS13_UNIFIED_L_BIT) != 0U) ? 2U : 0U));
         aad_len = cid_offset + cid_len;
         if(aad_len > (sizeof(aad)) ){

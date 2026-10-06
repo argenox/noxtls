@@ -396,14 +396,18 @@ noxtls_return_t tls13_psk_find_clienthello_binder(const uint8_t *client_hello,
                     return NOXTLS_RETURN_BAD_DATA;
                 }
                 identities_end = p + identities_len;
-                while ((p < identities_end) && (idx <= identity_index)) {
+                /*
+                 * RFC 8446 4.2.11: walk the whole identities vector (not just up to the
+                 * selected index) so the binders vector that follows is located correctly.
+                 */
+                while (p < identities_end) {
                     uint16_t id_len = 0U;
                     if ((p + 2U) > identities_end) {
                         return NOXTLS_RETURN_BAD_DATA;
                     }
                     id_len = psk_read_uint16(&client_hello[p]);
                     p += 2U;
-                    if (((uint32_t)id_len + 4U) > (uint32_t)(identities_end - p)) {
+                    if ((id_len == 0U) || (((uint32_t)id_len + 4U) > (uint32_t)(identities_end - p))) {
                         return NOXTLS_RETURN_BAD_DATA;
                     }
                     if (idx == identity_index) {
@@ -412,12 +416,14 @@ noxtls_return_t tls13_psk_find_clienthello_binder(const uint8_t *client_hello,
                             *identity_out_len = id_len;
                         } else if (identity_out_len != NULL) {
                             *identity_out_len = id_len;
+                        } else {
+                            /* MISRA 15.7: no remaining alternative */
                         }
-                         else {
-                             /* MISRA 15.7: no remaining alternative */
-                         }
                     }
                     p += (uint32_t)id_len + 4U;
+                    if (idx == 0xFFFFU) {
+                        return NOXTLS_RETURN_BAD_DATA;
+                    }
                     idx += 1U;
                 }
                 if (identity_index >= idx) {
@@ -428,22 +434,37 @@ noxtls_return_t tls13_psk_find_clienthello_binder(const uint8_t *client_hello,
                 }
                 binders_len = psk_read_uint16(&client_hello[p]);
                 p += 2U;
-                if ((p + binders_len) != (offset + ext_len)) {
+                if ((binders_len < (1U + 32U)) || ((p + binders_len) != (offset + ext_len))) {
                     return NOXTLS_RETURN_BAD_DATA;
                 }
-                for (idx = 0U; (idx < identity_index) && ((p + 1U) <= (offset + ext_len)); idx += 1U) {
-                    uint16_t bl = (uint16_t)(client_hello[p]);
-                    p += 1U + (uint32_t)bl;
+                {
+                    /* RFC 8446 4.2.11: one PskBinderEntry<32..255> per identity, same order. */
+                    const uint32_t binders_end = p + (uint32_t)binders_len;
+                    uint32_t selected_off = 0U;
+                    uint16_t selected_len = 0U;
+                    uint16_t bidx = 0U;
+                    while (p < binders_end) {
+                        uint16_t bl = (uint16_t)(client_hello[p]);
+                        p += 1U;
+                        if ((bl < 32U) || (((uint32_t)p + (uint32_t)bl) > binders_end)) {
+                            return NOXTLS_RETURN_BAD_DATA;
+                        }
+                        if (bidx == identity_index) {
+                            selected_off = p;
+                            selected_len = bl;
+                        }
+                        p += (uint32_t)bl;
+                        bidx += 1U;
+                        if (bidx > idx) {
+                            return NOXTLS_RETURN_BAD_DATA;
+                        }
+                    }
+                    if (bidx != idx) {
+                        return NOXTLS_RETURN_BAD_DATA;
+                    }
+                    *binder_len = selected_len;
+                    *binder_offset = selected_off;
                 }
-                if ((binders_len < 1U) || ((p + 1U) > (offset + ext_len))) {
-                    return NOXTLS_RETURN_BAD_DATA;
-                }
-                *binder_len = client_hello[p];
-                p += 1U;
-                if ((p + *binder_len) > (offset + ext_len)) {
-                    return NOXTLS_RETURN_BAD_DATA;
-                }
-                *binder_offset = p;
                 *selected_identity = identity_index;
                 return NOXTLS_RETURN_SUCCESS;
             }

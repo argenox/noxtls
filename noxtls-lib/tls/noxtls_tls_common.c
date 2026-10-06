@@ -713,8 +713,9 @@ noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
                (fragment.msg_type > TLS_HANDSHAKE_FINISHED)) {
                 valid_fragment = 0;
             }
-            if ((fragment.length == 0U) ||
-               (fragment.fragment_length > fragment.length) ||
+            /* Zero-length messages (e.g. ServerHelloDone) arrive as one fragment
+             * with offset 0 and length 0 (RFC 6347 section 4.2.3). */
+            if ((fragment.fragment_length > fragment.length) ||
                ((fragment.fragment_offset + fragment.fragment_length) > fragment.length)) {
                 valid_fragment = 0;
             }

@@ -250,6 +250,7 @@ typedef struct
     uint64_t *last_ack_ranges_min; /* Last ACKed ranges start */
     uint64_t *last_ack_ranges_max; /* Last ACKed ranges end */
     uint8_t last_ack_range_count;  /* Last ACKed range count */
+    uint8_t last_ack_valid;        /* 1 once an ACK has been received (last_ack_* fields meaningful) */
     uint64_t flight_epoch;      /* Epoch for current flight */
     uint64_t flight_min_seq;    /* First seq in current flight */
     uint64_t flight_max_seq;    /* Last seq in current flight */

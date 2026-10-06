@@ -553,6 +553,7 @@ static noxtls_return_t dtls_flight_retransmit(dtls_context_t *ctx)
     }
 
     if((ctx->flight_has_range != 0U) &&
+       (ctx->last_ack_valid != 0U) &&
        (ctx->last_ack_epoch == ctx->flight_epoch) &&
        (ctx->last_ack_range_min <= ctx->flight_min_seq) &&
        (ctx->last_ack_range_max >= ctx->flight_max_seq)) {
@@ -705,7 +706,8 @@ static uint64_t dtls_read_uint48(const uint8_t *buf)
  */
 static int dtls_record_acked_by_last_ack(const dtls_context_t *ctx, uint16_t epoch, uint64_t seq)
 {
-    if((ctx == NULL) || (ctx->last_ack_epoch != epoch)) {
+    /* Before any ACK arrives nothing is acknowledged (epoch 0 / seq 0 is a real record). */
+    if((ctx == NULL) || (ctx->last_ack_valid == 0U) || (ctx->last_ack_epoch != epoch)) {
         return 0;
     }
     if((ctx->last_ack_ranges_min != NULL) && (ctx->last_ack_ranges_max != NULL) && (ctx->last_ack_range_count > 0U)) {
@@ -735,10 +737,12 @@ static int dtls_parse_record_epoch_seq(const uint8_t *record, uint16_t record_le
         return 0;
     }
     if((record[0] & 0xE0U) == DTLS13_UNIFIED_FIXED_BITS) {
+        /* DTLS 1.3 ciphertext: the record number is encrypted, so it cannot be matched
+         * against ACK ranges here; report it as unknown so it is retransmitted. */
         uint8_t epoch_bits = (uint8_t)(record[0] & DTLS13_UNIFIED_EPOCH_MASK);
         *epoch = (uint16_t)epoch_bits;
         *seq = 0;
-        return 1;
+        return 0;
     }
     *epoch = dtls_read_uint16(&record[DTLS_RECORD_EPOCH_OFFSET]);
     *seq = dtls_read_uint48(&record[DTLS_RECORD_SEQUENCE_OFFSET]);
@@ -819,6 +823,7 @@ noxtls_return_t noxtls_dtls_context_init(dtls_context_t *ctx, tls_role_t role, u
     ctx->last_ack_ranges_min = NULL;
     ctx->last_ack_ranges_max = NULL;
     ctx->last_ack_range_count = 0U;
+    ctx->last_ack_valid = 0U;
     ctx->flight_epoch = 0U;
     ctx->flight_min_seq = 0U;
     ctx->flight_max_seq = 0U;
@@ -1281,6 +1286,10 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
            (record->epoch == DTLS_EPOCH_UNENCRYPTED)) {
             (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] dtls_recv_record: allowing DTLS1.3 compat CCS at epoch 0 while ctx epoch=%u\n",
                                 ctx->epoch);
+        } else if((ctx->base.version == DTLS_VERSION_1_3) && (record->type == TLS_RECORD_ACK)) {
+            /* ACKs carry the peer's write epoch, which differs from ours after a KeyUpdate. */
+            (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] dtls_recv_record: accepting DTLS1.3 ACK at epoch %u\n",
+                                (uint32_t)record->epoch);
         } else {
         /* MISRA 15.7: final else path */
         (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] dtls_recv_record: epoch mismatch record=%u ctx=%u type=0x%02X version=0x%04X\n",
@@ -1314,7 +1323,12 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
         }
     }
 
-    rc = noxtls_dtls_check_replay(ctx, record->sequence_number);
+    if((ctx->base.version == DTLS_VERSION_1_3) && (record->type == TLS_RECORD_ACK)) {
+        /* ACK records are idempotent and use per-epoch sequence numbers: no replay window. */
+        rc = NOXTLS_RETURN_SUCCESS;
+    } else {
+        rc = noxtls_dtls_check_replay(ctx, record->sequence_number);
+    }
     if(rc != NOXTLS_RETURN_SUCCESS) {
         /*
          * DTLS handshakes legitimately retransmit whole flights, so duplicates are expected on
@@ -1338,7 +1352,9 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
         noxtls_copy_u8(record->data, (size_t)length, &packet[payload_offset], (size_t)length);
     }
 
-    (void)noxtls_dtls_update_replay_window(ctx, record->sequence_number);
+    if((ctx->base.version != DTLS_VERSION_1_3) || (record->type != TLS_RECORD_ACK)) {
+        (void)noxtls_dtls_update_replay_window(ctx, record->sequence_number);
+    }
     if(record->type == TLS_RECORD_HANDSHAKE) {
         dtls_flight_clear(ctx);
         ctx->flight_has_range = 0U;
@@ -1400,7 +1416,12 @@ noxtls_return_t dtls_send_handshake_fragment(dtls_context_t *ctx,
         buffer = allocated_buffer;
     }
 
-    while(offset < len) {
+    /*
+     * RFC 6347 4.2.3: a zero-length handshake message (e.g. ServerHelloDone) is sent as a
+     * single fragment with fragment_offset 0 and fragment_length 0, so the loop body runs
+     * at least once.
+     */
+    do {
         noxtls_return_t rc = NOXTLS_RETURN_FAILED;
         uint32_t fragment_len = (uint32_t)(len - offset);
         if(fragment_len > max_fragment) {
@@ -1427,7 +1448,7 @@ noxtls_return_t dtls_send_handshake_fragment(dtls_context_t *ctx,
         }
 
         offset += fragment_len;
-    }
+    } while(offset < len);
 
     if(allocated_buffer != NULL) {
         (void)noxtls_free(allocated_buffer);
