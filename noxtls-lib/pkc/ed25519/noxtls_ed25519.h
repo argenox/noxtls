@@ -197,6 +197,23 @@ noxtls_return_t noxtls_ed25519_verify_stream_update(noxtls_ed25519_verify_stream
 noxtls_return_t noxtls_ed25519_verify_stream_final(noxtls_ed25519_verify_stream_ctx_t *ctx);
 
 /**
+ * @brief Optional platform hook: verify an Ed25519 signature from k = SHA-512(dom || R || A || M).
+ *
+ * Implemented by the selected accelerator port when NOXTLS_PORT_ED25519_ACCEL is
+ * set (common/noxtls_accel_port.h). Called after the S < L check (RFC 8032 §5.1.7).
+ *
+ * @param[in] public_key Public key A (32 bytes).
+ * @param[in] signature  Signature R || S (64 bytes).
+ * @param[in] k_digest   SHA-512 digest k (64 bytes, not reduced).
+ *
+ * @return NOXTLS_RETURN_SUCCESS (valid), NOXTLS_RETURN_FAILED (invalid), or
+ *         NOXTLS_RETURN_NOT_SUPPORTED to verify in software.
+ */
+noxtls_return_t noxtls_ed25519_verify_accel_port(const uint8_t public_key[NOXTLS_ED25519_PUBLIC_KEY_SIZE],
+                                                 const uint8_t signature[NOXTLS_ED25519_SIGNATURE_SIZE],
+                                                 const uint8_t k_digest[NOXTLS_ED25519_SHA512_DIGEST_BYTES]);
+
+/**
  * @brief Verify an Ed25519 signature over two concatenated message parts.
  * @param public_key Input 32-byte public key encoding.
  * @param message_part_a First message segment bytes.

@@ -49,6 +49,9 @@ extern "C"
 #ifndef NOXTLS_FEATURE_NRF52_HW_AES_ONLY
 #define NOXTLS_FEATURE_NRF52_HW_AES_ONLY 0
 #endif
+#ifndef NOXTLS_AES_ROM_TABLES
+#define NOXTLS_AES_ROM_TABLES 0
+#endif
 
 #if NOXTLS_FEATURE_STM32_HW_AES_ONLY || NOXTLS_FEATURE_NRF52_HW_AES_ONLY
 #define NOXTLS_FEATURE_AES_SOFTWARE_FALLBACK 0
@@ -100,11 +103,15 @@ static const uint8_t aes_inv_sub_box[16][16] =
     {0x17, 0x2b, 0x04, 0x7e, 0xba, 0x77, 0xd6, 0x26, 0xe1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0c, 0x7d}
 };
 
+#if NOXTLS_AES_ROM_TABLES
+#include "noxtls_aes_rom_tables.h"
+#else
 static uint32_t aes_enc_te0[256];
 static uint32_t aes_enc_te1[256];
 static uint32_t aes_enc_te2[256];
 static uint32_t aes_enc_te3[256];
 static uint8_t aes_enc_tables_ready = 0U;
+#endif
 
 static uint32_t aes_rotword(uint32_t w);;
 static uint32_t aes_subword(uint32_t w);
@@ -218,6 +225,7 @@ static void aes_store_be32(uint8_t *dst, uint32_t word)
  */
 static void aes_software_init_encrypt_tables(void)
 {
+#if !NOXTLS_AES_ROM_TABLES
     uint32_t x;
 
     if(aes_enc_tables_ready != 0U) {
@@ -240,6 +248,7 @@ static void aes_software_init_encrypt_tables(void)
     }
 
     aes_enc_tables_ready = 1U;
+#endif
 }
 
 /* Mode entry points (ECB/CBC/CTR/CFB/OFB/XTS) are declared in noxtls_aes.h. */

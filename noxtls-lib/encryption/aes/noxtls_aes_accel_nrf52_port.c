@@ -32,6 +32,44 @@ typedef struct
     uint8_t ciphertext[16];
 } noxtls_nrf52_ecb_data_t;
 
+#if NOXTLS_FEATURE_NRF52_HW_ACCEL
+/* ECBDATAPTR is a single global peripheral register.  AES is used from both
+ * thread and interrupt-side Bluetooth paths, so a preempting operation can
+ * otherwise replace the outer call's stack-local DMA buffer.  The outer call
+ * then observes the inner ENDECB event and silently returns an incorrect
+ * block.  One nRF52 ECB block takes only a few microseconds; preserve and
+ * restore PRIMASK around that indivisible hardware transaction. */
+static uint32_t noxtls_nrf52_ecb_irq_lock(void)
+{
+    uint32_t primask;
+
+    __asm volatile("mrs %0, primask\n"
+                   "cpsid i"
+                   : "=r"(primask)
+                   :
+                   : "memory");
+    return primask;
+}
+
+static void noxtls_nrf52_ecb_irq_unlock(uint32_t primask)
+{
+    __asm volatile("msr primask, %0"
+                   :
+                   : "r"(primask)
+                   : "memory");
+}
+#else
+static uint32_t noxtls_nrf52_ecb_irq_lock(void)
+{
+    return 0U;
+}
+
+static void noxtls_nrf52_ecb_irq_unlock(uint32_t primask)
+{
+    (void)primask;
+}
+#endif
+
 static volatile uint32_t *noxtls_nrf52_reg(uint32_t offset)
 {
     return (volatile uint32_t *)(NOXTLS_NRF52_ECB_BASE_ADDR + (uintptr_t)offset);
@@ -47,7 +85,9 @@ static noxtls_return_t noxtls_nrf52_ecb_encrypt_128(const uint8_t *key,
     volatile uint32_t *event_end = noxtls_nrf52_reg(NOXTLS_NRF52_EVENTS_ENDECB_OFF);
     volatile uint32_t *event_error = noxtls_nrf52_reg(NOXTLS_NRF52_EVENTS_ERRORECB_OFF);
     volatile uint32_t *ecb_ptr = noxtls_nrf52_reg(NOXTLS_NRF52_ECBDATAPTR_OFF);
+    uint32_t irq_state;
     uint32_t spins;
+    noxtls_return_t result = NOXTLS_RETURN_TIMEOUT;
 
     if(key == NULL || data == NULL || output == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -57,6 +97,7 @@ static noxtls_return_t noxtls_nrf52_ecb_encrypt_128(const uint8_t *key,
     memcpy(ecb_data.cleartext, data, sizeof(ecb_data.cleartext));
     memset(ecb_data.ciphertext, 0, sizeof(ecb_data.ciphertext));
 
+    irq_state = noxtls_nrf52_ecb_irq_lock();
     *event_end = 0U;
     *event_error = 0U;
     *ecb_ptr = (uint32_t)(uintptr_t)&ecb_data;
@@ -66,18 +107,23 @@ static noxtls_return_t noxtls_nrf52_ecb_encrypt_128(const uint8_t *key,
         if(*event_end != 0U) {
             memcpy(output, ecb_data.ciphertext, sizeof(ecb_data.ciphertext));
             *event_end = 0U;
-            return NOXTLS_RETURN_SUCCESS;
+            result = NOXTLS_RETURN_SUCCESS;
+            break;
         }
 
         if(*event_error != 0U) {
             *task_stop = 1U;
             *event_error = 0U;
-            return NOXTLS_RETURN_FAILED;
+            result = NOXTLS_RETURN_FAILED;
+            break;
         }
     }
 
-    *task_stop = 1U;
-    return NOXTLS_RETURN_TIMEOUT;
+    if(result == NOXTLS_RETURN_TIMEOUT) {
+        *task_stop = 1U;
+    }
+    noxtls_nrf52_ecb_irq_unlock(irq_state);
+    return result;
 }
 
 noxtls_return_t noxtls_aes_accel_port_encrypt_block(const uint8_t *key,

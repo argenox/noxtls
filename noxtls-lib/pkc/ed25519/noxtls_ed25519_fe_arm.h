@@ -45,7 +45,7 @@ extern "C" {
 /**
  * @brief Pack native limbs to eight little-endian 32-bit words (bit 255 clear).
  *
- * Uses the same carry chain and packing as @ref fe25519_native_to_le.
+ * Canonical encoding from @ref fe25519_native_to_le (value below p).
  *
  * @param[out] out Eight LE limbs.
  * @param[in] in Native field element.
@@ -55,10 +55,11 @@ void fe25519_limbs_to_u32(uint32_t out[8], const fe25519_native_t *in);
 /**
  * @brief Unpack eight little-endian 32-bit words into native limbs.
  *
- * Equivalent to @ref fe25519_native_from_le on the 32 bytes of @p in.
+ * Equivalent to @ref fe25519_native_from_le on the 32 bytes of @p in, after
+ * folding bit 255 (2^255 = 19 mod p).
  *
  * @param[out] out Native field element.
- * @param[in] in Eight LE limbs (bit 255 ignored / cleared).
+ * @param[in] in Eight LE limbs, any value below 2^256 (bit 255 is folded as 19).
  */
 void fe25519_u32_to_limbs(fe25519_native_t *out, const uint32_t in[8]);
 

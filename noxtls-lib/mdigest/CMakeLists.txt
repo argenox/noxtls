@@ -25,6 +25,8 @@ if(NOXTLS_CFG_FEATURE_SHA224 OR NOXTLS_CFG_FEATURE_SHA256)
         else()
             list(APPEND NOXTLS_HASH_SOURCES sha256/noxtls_sha256_accel_port.c)
         endif()
+    elseif(NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL)
+        # nRF54L CRACEN: SHA-224/256 and SHA-384/512 block ports (added once below).
     else()
         list(APPEND NOXTLS_HASH_SOURCES sha256/noxtls_sha256_accel_port.c)
         if(NOXTLS_CFG_FEATURE_STM32_HW_ACCEL)
@@ -37,6 +39,12 @@ if(NOXTLS_CFG_FEATURE_SHA224 OR NOXTLS_CFG_FEATURE_SHA256)
 endif()
 if(NOXTLS_CFG_FEATURE_SHA384 OR NOXTLS_CFG_FEATURE_SHA512)
     list(APPEND NOXTLS_HASH_SOURCES sha512/noxtls_sha512.c)
+endif()
+if(NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL AND NOT ESP_PLATFORM AND
+   (NOXTLS_CFG_FEATURE_SHA224 OR NOXTLS_CFG_FEATURE_SHA256 OR NOXTLS_CFG_FEATURE_SHA384 OR NOXTLS_CFG_FEATURE_SHA512))
+    include(${NOXTLS_LIB_ROOT}/vendor/nordic/nrf54x/noxtls_nrf54_sources.cmake)
+    list(APPEND NOXTLS_HASH_SOURCES ${NOXTLS_NRF54_PORT_HASH_SOURCES})
+    set(_noxtls_hash_nrf54 ON)
 endif()
 if(NOXTLS_CFG_FEATURE_SHA3)
     list(APPEND NOXTLS_HASH_SOURCES sha3/noxtls_sha3.c)
@@ -67,6 +75,9 @@ target_include_directories(noxtls_hash PUBLIC
 target_link_libraries(noxtls_hash
     noxtls_common
 )
+if(_noxtls_hash_nrf54)
+    target_link_libraries(noxtls_hash noxtls_nrf54)
+endif()
 
 if(MSVC)
     # Suppress Spectre mitigation notice for mdigest on MSVC.
