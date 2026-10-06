@@ -688,13 +688,13 @@ static uint32_t x509_append_eku_oid(uint8_t *eku_oids, uint32_t eku_oids_cap, ui
 }
 
 
-static uint32_t x509_ext_build_fail(x509_ext_build_ws_t *ws)
+static noxtls_return_t x509_ext_build_fail(x509_ext_build_ws_t *ws)
 {
     (void)noxtls_free(ws);
-    return 0U;
+    return NOXTLS_RETURN_INVALID_PARAM;
 }
 
-/* Build extension list into ext_list (eoff updated). Returns 0 on error. */
+/* Build extension list into ext_list (eoff updated). Returns an error when any requested extension cannot be encoded. */
 /**
  * @brief Builds a list of extensions into a buffer.
  *
@@ -713,9 +713,10 @@ static uint32_t x509_ext_build_fail(x509_ext_build_ws_t *ws)
  * @param[in] custom_ext_count Number of custom extensions.
  * @param[out] eoff Pointer to the offset in the extension list buffer.
  *
- * @return The length of the extension list on success, 0 on error.
+ * @return NOXTLS_RETURN_SUCCESS, NOXTLS_RETURN_NOT_ENOUGH_MEMORY, or NOXTLS_RETURN_INVALID_PARAM when a
+ *         requested extension cannot be encoded (unknown EKU bits, oversized SAN list or custom extension).
  */
-static uint32_t build_extensions(
+static noxtls_return_t build_extensions(
     uint8_t *ext_list, uint32_t ext_list_max,
     const uint8_t * const *san_dns, uint32_t san_dns_count,
     uint16_t key_usage_bits,
@@ -742,7 +743,7 @@ static uint32_t build_extensions(
     ws = (x509_ext_build_ws_t *)NOXTLS_MALLOC(sizeof(x509_ext_build_ws_t));
 
     if(ws == NULL) {
-        return 0U;
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
 
     if(key_usage_bits != 0U) {
@@ -801,7 +802,7 @@ static uint32_t build_extensions(
             uint32_t ia5_len = 0U;
             /* dNSName [2] IMPLICT IA5String: encode as IA5 then retag to context-specific 0x82. */
             ia5_len = noxtls_asn1_put_ia5_string(ia5_tmp, (uint32_t)sizeof(ia5_tmp), san_dns[i]);
-            if(ia5_len < 2U) { continue; }
+            if(ia5_len < 2U) { return x509_ext_build_fail(ws); }
             ia5_tmp[0] = 0x82U;
             if((san_items_len + ia5_len) > sizeof(ws->san_items)) { return x509_ext_build_fail(ws); }
             noxtls_copy_u8(&ws->san_items[san_items_len], sizeof(ws->san_items) - (size_t)(san_items_len), ia5_tmp, (size_t)(ia5_len));
@@ -863,6 +864,9 @@ static uint32_t build_extensions(
     }
 
     if(ext_key_usage_bits != 0U) {
+        const uint32_t eku_known = X509_EKU_SERVER_AUTH | X509_EKU_CLIENT_AUTH | X509_EKU_CODE_SIGNING |
+                                   X509_EKU_EMAIL_PROTECTION | X509_EKU_TIME_STAMPING | X509_EKU_OCSP_SIGNING |
+                                   X509_EKU_ANY;
         uint32_t eku_oids_len = 0U;
         uint32_t eku_seq_len = 0U;
         uint32_t eku_oct_len = 0U;
@@ -870,7 +874,8 @@ static uint32_t build_extensions(
         uint8_t oid_enc[20];
         uint32_t oid_enc_len = 0U;
 
-if((ext_key_usage_bits & X509_EKU_SERVER_AUTH) != 0U) {
+        if((ext_key_usage_bits & ~eku_known) != 0U) { return x509_ext_build_fail(ws); }
+        if((ext_key_usage_bits & X509_EKU_SERVER_AUTH) != 0U) {
             eku_oids_len = x509_append_eku_oid(ws->eku_oids, (uint32_t)sizeof(ws->eku_oids), eku_oids_len,
                                                x509w_oid_kp_server_auth, (uint32_t)sizeof(x509w_oid_kp_server_auth));
         }
@@ -947,7 +952,7 @@ if((ext_key_usage_bits & X509_EKU_SERVER_AUTH) != 0U) {
 
     *eoff = eoff_local;
     (void)noxtls_free(ws);
-    return 1U;
+    return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
@@ -1088,9 +1093,18 @@ noxtls_return_t noxtls_x509_certificate_generate_self_signed_with_extensions_ex(
 
     {
         uint32_t eoff = 0U;
-        if(build_extensions(ext_ws->ext_list, sizeof(ext_ws->ext_list), san_dns, san_dns_count, key_usage_bits,
-                             basic_constraints_ca, basic_constraints_path_len, ext_key_usage_bits,
-                             custom_exts, custom_ext_count, &eoff) != 0U) {
+        noxtls_return_t ext_rc;
+        /* A requested extension that cannot be encoded must fail the call: issuing the
+         * certificate without it would silently drop constraints the caller asked for. */
+        ext_rc = build_extensions(ext_ws->ext_list, sizeof(ext_ws->ext_list), san_dns, san_dns_count, key_usage_bits,
+                                  basic_constraints_ca, basic_constraints_path_len, ext_key_usage_bits,
+                                  custom_exts, custom_ext_count, &eoff);
+        if(ext_rc != NOXTLS_RETURN_SUCCESS) {
+            (void)noxtls_free(ws);
+            (void)noxtls_free(ext_ws);
+            return ext_rc;
+        }
+        {
             if(eoff > 0U) {
                 uint32_t ext_seq_len = (uint32_t)(noxtls_asn1_put_sequence(ext_ws->ext_seq, sizeof(ext_ws->ext_seq), ext_ws->ext_list, eoff));
                 if(ext_seq_len == 0U) { 

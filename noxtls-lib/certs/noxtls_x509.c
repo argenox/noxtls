@@ -533,12 +533,6 @@ static noxtls_return_t asn1_get_boolean(const uint8_t **data, const uint8_t *end
     return NOXTLS_RETURN_SUCCESS;
 }
 
-#if NOXTLS_FEATURE_AES_CBC
-/* OIDs for EncryptedPrivateKeyInfo (RFC 5208) and PBES2/PBKDF2 (RFC 8018). DER-encoded. */
-
-#define SHA1_OUT_LEN 20U
-#define NOXTLS_AES_BLOCK_LEN 16
-
 /**
  * @brief Check if two OIDs are equal
  * 
@@ -557,6 +551,12 @@ static int oid_equal(const uint8_t *a, uint32_t a_len, const uint8_t *b, uint32_
     return equal;
 }
 
+#if NOXTLS_FEATURE_AES_CBC
+/* OIDs for EncryptedPrivateKeyInfo (RFC 5208) and PBES2/PBKDF2 (RFC 8018). DER-encoded. */
+
+#define SHA1_OUT_LEN 20U
+#define NOXTLS_AES_BLOCK_LEN 16
+#endif
 #if NOXTLS_FEATURE_SLH_DSA
 /**
  * @brief Map a FIPS 205 SLH-DSA OID to the public API parameter set.
@@ -591,31 +591,8 @@ static noxtls_return_t noxtls_x509_slhdsa_param_from_oid(const uint8_t *oid,
 }
 #endif
 
-#if NOXTLS_FEATURE_PBKDF2
-/**
- * @brief Derives the key using PBKDF2-HMAC-SHA1 (RFC 8018 §5.2).
- *
- * Thin adapter over the shared noxtls_pbkdf2_hmac() primitive.
- *
- * @param[in] password The password to use for the derivation.
- * @param[in] password_len The length of the password.
- * @param[in] salt The salt to use for the derivation.
- * @param[in] params The parameters for the derivation.
- * @param[out] out The buffer to receive the derived key.
- *
- * @return The return code of the function.
- */
-static noxtls_return_t pbkdf2_hmac_sha1(const uint8_t *password, uint32_t password_len,
-                                         const uint8_t *salt, const pbkdf2_sha1_params_t *params, uint8_t *out)
-{
-    if(password == NULL || salt == NULL || params == NULL || out == NULL || params->iterations == 0U) {
-        return NOXTLS_RETURN_NULL;
-    }
-    return noxtls_pbkdf2_hmac(NOXTLS_HASH_SHA1, password, password_len,
-                              salt, params->salt_len, params->iterations,
-                              out, params->key_len);
-}
-#else
+#if NOXTLS_FEATURE_AES_CBC
+#if !NOXTLS_FEATURE_PBKDF2
 /* Builds without NOXTLS_FEATURE_HMAC keep a private PBKDF2-HMAC-SHA1. */
 /**
  * @brief Computes the HMAC-SHA1 of a message.
@@ -749,7 +726,42 @@ static noxtls_return_t pbkdf2_hmac_sha1(const uint8_t *password, uint32_t passwo
     (void)noxtls_free(block_input);
     return NOXTLS_RETURN_SUCCESS;
 }
-#endif /* NOXTLS_FEATURE_PBKDF2 */
+#endif /* !NOXTLS_FEATURE_PBKDF2 */
+
+/**
+ * @brief PBES2 key derivation: PBKDF2 with the PRF selected by PBKDF2-params (RFC 8018 5.2, A.2).
+ * @internal
+ *
+ * @param[in] prf_hash HMAC hash named by the prf AlgorithmIdentifier (default SHA-1).
+ * @param[in] password Password bytes.
+ * @param[in] password_len Password length.
+ * @param[in] salt Salt bytes.
+ * @param[in] salt_len Salt length.
+ * @param[in] iterations Iteration count.
+ * @param[out] out Derived key buffer of @p out_len bytes.
+ * @param[in] out_len Derived key length.
+ *
+ * @return NOXTLS_RETURN_SUCCESS, or an error when the PRF is unsupported or derivation fails.
+ */
+static noxtls_return_t x509_pbes2_kdf(noxtls_hash_algos_t prf_hash,
+                                      const uint8_t *password, uint32_t password_len,
+                                      const uint8_t *salt, uint32_t salt_len, uint32_t iterations,
+                                      uint8_t *out, uint32_t out_len)
+{
+#if NOXTLS_FEATURE_PBKDF2
+    return noxtls_pbkdf2_hmac(prf_hash, password, password_len, salt, salt_len, iterations, out, out_len);
+#else
+    pbkdf2_sha1_params_t params;
+
+    if(prf_hash != NOXTLS_HASH_SHA1) {
+        return NOXTLS_RETURN_INVALID_ALGORITHM;
+    }
+    params.salt_len = salt_len;
+    params.iterations = iterations;
+    params.key_len = out_len;
+    return pbkdf2_hmac_sha1(password, password_len, salt, &params, out);
+#endif
+}
 #endif
 
 /**
@@ -1075,27 +1087,30 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
                 const uint8_t *aki_seq = NULL;
                 uint32_t aki_seq_len = 0U;
                 if(asn1_get_sequence(&aki_ptr, aki_end, &aki_seq, &aki_seq_len) == NOXTLS_RETURN_SUCCESS) {
+                    /* AuthorityKeyIdentifier ::= SEQUENCE { keyIdentifier [0] IMPLICIT OCTET STRING OPTIONAL, ... }:
+                     * the [0] primitive tag (0x80) carries the key identifier bytes directly. */
                     const uint8_t *r = aki_seq;
                     const uint8_t *re = &aki_seq[aki_seq_len];
                     if(((uintptr_t)r < (uintptr_t)re) && (*r == 0x80U)) {
+                        uint32_t kid_len = 0U;
                         r = &r[1];
-                        uint32_t wrap_len = (uint32_t)(asn1_get_length(&r, re));
-                        if(((uintptr_t)(&r[wrap_len]) <= (uintptr_t)re) && (wrap_len >= 2U)) {
-                            const uint8_t *oct = NULL;
-                            uint32_t oct_len = 0U;
-                            const uint8_t *r2 = r;
-                            if((asn1_get_octet_string(&r2, &r[wrap_len], &oct, &oct_len) == NOXTLS_RETURN_SUCCESS) &&
-                               (oct_len > 0U) && (oct_len <= X509_KEY_ID_MAX_LEN)) {
-                                cert->authority_key_id_len = (uint8_t)oct_len;
-                                noxtls_copy_u8((uint8_t *)(void *)(cert->authority_key_id), (size_t)oct_len, (const uint8_t *)(const void *)(oct), (size_t)oct_len);
-                            }
+                        kid_len = (uint32_t)(asn1_get_length(&r, re));
+                        if((kid_len > 0U) && (kid_len <= X509_KEY_ID_MAX_LEN) &&
+                           (x509_bytes_remaining(r, re) >= (size_t)kid_len)) {
+                            cert->authority_key_id_len = (uint8_t)kid_len;
+                            noxtls_copy_u8((uint8_t *)(void *)(cert->authority_key_id), (size_t)kid_len, (const uint8_t *)(const void *)(r), (size_t)kid_len);
                         }
                     }
                 }
             } else if(oid_equal(oid_buf, ext_oid_len, x509p_oid_subject_key_id, sizeof(x509p_oid_subject_key_id)) != 0) {
-                if(val_len <= X509_KEY_ID_MAX_LEN) {
-                    cert->subject_key_id_len = (uint8_t)val_len;
-                    noxtls_copy_u8((uint8_t *)(void *)(cert->subject_key_id), (size_t)val_len, (const uint8_t *)(const void *)(val_data), (size_t)val_len);
+                /* extnValue holds the DER SubjectKeyIdentifier (an OCTET STRING); store only its contents. */
+                const uint8_t *ski_ptr = val_data;
+                const uint8_t *ski_data = NULL;
+                uint32_t ski_len = 0U;
+                if((asn1_get_octet_string(&ski_ptr, &val_data[val_len], &ski_data, &ski_len) == NOXTLS_RETURN_SUCCESS) &&
+                   (ski_len > 0U) && (ski_len <= X509_KEY_ID_MAX_LEN)) {
+                    cert->subject_key_id_len = (uint8_t)ski_len;
+                    noxtls_copy_u8((uint8_t *)(void *)(cert->subject_key_id), (size_t)ski_len, (const uint8_t *)(const void *)(ski_data), (size_t)ski_len);
                 }
             } else if((oid_equal(oid_buf, ext_oid_len, x509p_oid_certificate_policies, sizeof(x509p_oid_certificate_policies)) != 0) || (oid_equal(oid_buf, ext_oid_len, x509p_oid_crl_distribution_points, sizeof(x509p_oid_crl_distribution_points)) != 0) || (oid_equal(oid_buf, ext_oid_len, x509p_oid_name_constraints, sizeof(x509p_oid_name_constraints)) != 0) || (oid_equal(oid_buf, ext_oid_len, x509p_oid_policy_constraints, sizeof(x509p_oid_policy_constraints)) != 0) || (oid_equal(oid_buf, ext_oid_len, x509p_oid_inhibit_any_policy, sizeof(x509p_oid_inhibit_any_policy)) != 0)) {
                 /*
@@ -1441,6 +1456,11 @@ static noxtls_return_t x509_certificate_parse_der_body(x509_certificate_t *cert,
     /* EdDSA algorithm OIDs local to this function (Rule 8.9). */
     static const uint8_t s_oid_ed25519[] = { 0x2BU, 0x65U, 0x70U };
     static const uint8_t s_oid_ed448[] = { 0x2BU, 0x65U, 0x71U };
+    /* id-ecPublicKey 1.2.840.10045.2.1 (RFC 5480). */
+    static const uint8_t s_oid_ec_public_key[] = { 0x2AU, 0x86U, 0x48U, 0xCEU, 0x3DU, 0x02U, 0x01U };
+    /* rsaEncryption 1.2.840.113549.1.1.1 and id-RSASSA-PSS 1.2.840.113549.1.1.10 (RFC 3279, RFC 4055). */
+    static const uint8_t s_oid_rsa_encryption[] = { 0x2AU, 0x86U, 0x48U, 0x86U, 0xF7U, 0x0DU, 0x01U, 0x01U, 0x01U };
+    static const uint8_t s_oid_rsassa_pss[] = { 0x2AU, 0x86U, 0x48U, 0x86U, 0xF7U, 0x0DU, 0x01U, 0x01U, 0x0AU };
 
     const uint8_t *ptr = data;
     const uint8_t *end = &data[len];
@@ -1610,6 +1630,15 @@ static noxtls_return_t x509_certificate_parse_der_body(x509_certificate_t *cert,
             return rc;
         }
 
+    /* id-ecPublicKey parameters: namedCurve OID (RFC 5480 2.1.1). Other forms leave the curve unset. */
+    if((oid_equal(cert->public_key_algorithm_oid, cert->public_key_algorithm_oid_len,
+                  s_oid_ec_public_key, (uint32_t)sizeof(s_oid_ec_public_key)) != 0) &&
+       ((uintptr_t)spki_alg_ptr < (uintptr_t)spki_alg_end) && (*spki_alg_ptr == 0x06U)) {
+        const uint8_t *curve_ptr = spki_alg_ptr;
+        if(asn1_get_oid(&curve_ptr, spki_alg_end, cert->ecc_curve_oid, &cert->ecc_curve_oid_len) != NOXTLS_RETURN_SUCCESS) {
+            cert->ecc_curve_oid_len = 0U;
+        }
+    }
     if(((uintptr_t)spki_alg_ptr < (uintptr_t)spki_alg_end)) {
         spki_alg_ptr = spki_alg_end;
     }
@@ -1619,18 +1648,24 @@ static noxtls_return_t x509_certificate_parse_der_body(x509_certificate_t *cert,
             return rc;
         }
     uint32_t public_key_len = (uint32_t)(asn1_get_length(&spki_ptr, spki_end));
-    if((public_key_len > 0U) && ((uintptr_t)(&spki_ptr[public_key_len]) <= (uintptr_t)spki_end)) {
+    if((public_key_len > 0U) && (x509_bytes_remaining(spki_ptr, spki_end) >= (size_t)public_key_len)) {
         /* Skip unused bits byte */
         spki_ptr = &spki_ptr[1];
         public_key_len -= 1U;
 
         if(public_key_len <= X509_MAX_PUBLIC_KEY_SIZE) {
+            const uint8_t *pkalg = cert->public_key_algorithm_oid;
+            uint32_t pkalg_len = cert->public_key_algorithm_oid_len;
+
             noxtls_copy_u8((uint8_t *)(void *)(cert->public_key), (size_t)public_key_len, (const uint8_t *)(const void *)(spki_ptr), (size_t)public_key_len);
             cert->public_key_len = public_key_len;
 
-            const uint8_t *pk_ptr = spki_ptr;
-            const uint8_t *pk_end = &spki_ptr[public_key_len];
-            if(asn1_get_sequence(&pk_ptr, pk_end, &seq_data, &seq_len) == NOXTLS_RETURN_SUCCESS) {
+            /* Dispatch on the SubjectPublicKeyInfo algorithm OID, never on the key's first byte. */
+            if((oid_equal(pkalg, pkalg_len, s_oid_rsa_encryption, (uint32_t)sizeof(s_oid_rsa_encryption)) != 0) ||
+               (oid_equal(pkalg, pkalg_len, s_oid_rsassa_pss, (uint32_t)sizeof(s_oid_rsassa_pss)) != 0)) {
+                const uint8_t *pk_ptr = spki_ptr;
+                const uint8_t *pk_end = &spki_ptr[public_key_len];
+                if(asn1_get_sequence(&pk_ptr, pk_end, &seq_data, &seq_len) == NOXTLS_RETURN_SUCCESS) {
                 /* RSA public key: SEQUENCE { modulus INTEGER, exponent INTEGER } */
                 const uint8_t *rsa_seq_end = &seq_data[seq_len];
                 const uint8_t *rsa_seq_ptr = seq_data;
@@ -1662,37 +1697,40 @@ static noxtls_return_t x509_certificate_parse_der_body(x509_certificate_t *cert,
                         }
                     }
                 }
-            } else if((public_key_len > 0U) && (spki_ptr[0] == 0x04U)) {
-                /* ECC public key: uncompressed point 0x04 || x || y. */
-                rc = noxtls_x509_validate_ecc_public_key_bytes(spki_ptr,
-                                                               public_key_len,
-                                                               cert->ecc_curve_oid,
-                                                               cert->ecc_curve_oid_len);
-                if(rc != NOXTLS_RETURN_SUCCESS) {
-                    CERT_DEBUG_PRINT("x509_certificate_parse_der: invalid ECC public key\n");
-                    return NOXTLS_RETURN_BAD_DATA;
                 }
-                cert->ecc_public_key_len = public_key_len;
-                cert->ecc_public_key = (uint8_t*)NOXTLS_MALLOC(public_key_len);
-                if(cert->ecc_public_key != NULL) {
+            } else if(oid_equal(pkalg, pkalg_len, s_oid_ec_public_key, (uint32_t)sizeof(s_oid_ec_public_key)) != 0) {
+                if((public_key_len > 0U) && (spki_ptr[0] == 0x04U)) {
+                    /* ECC public key: uncompressed point 0x04 || x || y. */
+                    rc = noxtls_x509_validate_ecc_public_key_bytes(spki_ptr,
+                                                                   public_key_len,
+                                                                   cert->ecc_curve_oid,
+                                                                   cert->ecc_curve_oid_len);
+                    if(rc != NOXTLS_RETURN_SUCCESS) {
+                        CERT_DEBUG_PRINT("x509_certificate_parse_der: invalid ECC public key\n");
+                        return NOXTLS_RETURN_BAD_DATA;
+                    }
+                    cert->ecc_public_key = (uint8_t*)NOXTLS_MALLOC(public_key_len);
+                    if(cert->ecc_public_key == NULL) {
+                        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+                    }
+                    cert->ecc_public_key_len = public_key_len;
                     noxtls_copy_u8((uint8_t *)(void *)(cert->ecc_public_key), (size_t)public_key_len, (const uint8_t *)(const void *)(spki_ptr), (size_t)public_key_len);
                 }
-            } else if((public_key_len == 32U) && (cert->public_key_algorithm_oid_len == 3U)) {
-                if(noxtls_ct_memcmp(cert->public_key_algorithm_oid, s_oid_ed25519, sizeof(s_oid_ed25519)) == 0) {
+            } else if(oid_equal(pkalg, pkalg_len, s_oid_ed25519, (uint32_t)sizeof(s_oid_ed25519)) != 0) {
+                if(public_key_len == 32U) {
                     /* Ed25519 public key (OID 1.3.101.112 id-Ed25519): 32-byte raw key */
                     cert->has_ed25519 = 1U;
                     noxtls_copy_u8((uint8_t *)(void *)(cert->ed25519_public_key), (size_t)32, (const uint8_t *)(const void *)(spki_ptr), (size_t)32);
                 }
-            } else if((public_key_len == 57U) && (cert->public_key_algorithm_oid_len == 3U)) {
-                if(noxtls_ct_memcmp(cert->public_key_algorithm_oid, s_oid_ed448, sizeof(s_oid_ed448)) == 0) {
+            } else if(oid_equal(pkalg, pkalg_len, s_oid_ed448, (uint32_t)sizeof(s_oid_ed448)) != 0) {
+                if(public_key_len == 57U) {
                     /* Ed448 public key (OID 1.3.101.113 id-Ed448): 57-byte raw key (RFC 8410) */
                     cert->has_ed448 = 1U;
                     noxtls_copy_u8((uint8_t *)(void *)(cert->ed448_public_key), (size_t)57, (const uint8_t *)(const void *)(spki_ptr), (size_t)57);
                 }
+            } else {
+                /* MISRA 15.7: other algorithms (PQC below, X25519/X448, unknown) */
             }
-             else {
-                 /* MISRA 15.7: no remaining alternative */
-             }
 #if NOXTLS_FEATURE_ML_DSA
             if((cert->has_ed25519 == 0U) && (cert->has_ed448 == 0U)) {
                 uint32_t mldsa_pk_len_44 = noxtls_mldsa_public_key_len(NOXTLS_MLDSA_44);
@@ -2403,6 +2441,58 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(const x509_certificate_
         cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED, cert, NULL, 0, 0);
         return NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED;
     }
+
+#if NOXTLS_FEATURE_ED25519 || (NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3)
+    {
+        /* PureEdDSA over the DER TBSCertificate (RFC 8410 Section 6). */
+        static const uint8_t oid_sig_ed25519[] = { 0x2BU, 0x65U, 0x70U };
+        static const uint8_t oid_sig_ed448[] = { 0x2BU, 0x65U, 0x71U };
+        int eddsa = 0;
+
+        if(oid_equal(cert->signature_algorithm_oid, cert->signature_algorithm_oid_len,
+                     oid_sig_ed25519, (uint32_t)sizeof(oid_sig_ed25519)) != 0) {
+            eddsa = 1;
+        } else if(oid_equal(cert->signature_algorithm_oid, cert->signature_algorithm_oid_len,
+                            oid_sig_ed448, (uint32_t)sizeof(oid_sig_ed448)) != 0) {
+            eddsa = 2;
+        } else {
+            /* MISRA 15.7: not an EdDSA signature */
+        }
+#if NOXTLS_FEATURE_ED25519
+        if(eddsa == 1) {
+            if((issuer->has_ed25519 == 0U) || (cert->signature_len != NOXTLS_ED25519_SIGNATURE_SIZE)) {
+                cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED, cert, NULL, 0, 0);
+                return NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED;
+            }
+            rc = noxtls_ed25519_verify(issuer->ed25519_public_key, cert->tbs_certificate,
+                                       cert->tbs_certificate_len, cert->signature);
+            if(rc != NOXTLS_RETURN_SUCCESS) {
+                cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED, cert, NULL, 0, 0);
+                return NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED;
+            }
+            return NOXTLS_RETURN_SUCCESS;
+        }
+#endif
+#if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+        if(eddsa == 2) {
+            if((issuer->has_ed448 == 0U) || (cert->signature_len != NOXTLS_ED448_SIGNATURE_SIZE)) {
+                cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED, cert, NULL, 0, 0);
+                return NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED;
+            }
+            rc = noxtls_ed448_verify(issuer->ed448_public_key, cert->tbs_certificate,
+                                     cert->tbs_certificate_len, cert->signature);
+            if(rc != NOXTLS_RETURN_SUCCESS) {
+                cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED, cert, NULL, 0, 0);
+                return NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED;
+            }
+            return NOXTLS_RETURN_SUCCESS;
+        }
+#endif
+        if(eddsa != 0) {
+            return NOXTLS_RETURN_INVALID_ALGORITHM;
+        }
+    }
+#endif
 
     /* Map signature algorithm OID to hash algorithm and signature type */
     rc = noxtls_x509_map_signature_algorithm(cert->signature_algorithm_oid, cert->signature_algorithm_oid_len,
@@ -3772,55 +3862,45 @@ static int x509_dn_equal(const uint8_t *lhs, uint32_t lhs_len, const uint8_t *rh
 }
 
 /**
- * @brief Compare two certificates
+ * @brief Check whether two parsed certificates are the same certificate.
+ * @internal
  *
- * This function compares two certificates.
+ * Identity is decided by the full DER TBSCertificate plus the signature value, never by
+ * subject, serial number or public key alone: an attacker can copy any of those fields
+ * into a certificate signed with their own key.
  *
  * @param[in] lhs The left-hand side certificate.
  * @param[in] rhs The right-hand side certificate.
  *
- * @return The return code of the function.
+ * @return 1 when both certificates are byte-identical, 0 otherwise.
  */
-static int x509_is_same_cert(const x509_certificate_t *lhs, const x509_certificate_t *rhs)
+static int x509_cert_identical(const x509_certificate_t *lhs, const x509_certificate_t *rhs)
 {
-    if(lhs == NULL) {
+    int same = 0;
+
+    if((lhs == NULL) || (rhs == NULL)) {
         return 0;
     }
-    if(rhs == NULL) {
+    if(lhs == rhs) {
+        return 1;
+    }
+    if((lhs->tbs_certificate == NULL) || (rhs->tbs_certificate == NULL) ||
+       (lhs->tbs_certificate_len == 0U) ||
+       (lhs->tbs_certificate_len != rhs->tbs_certificate_len) ||
+       (lhs->signature_len != rhs->signature_len)) {
         return 0;
     }
-    if((lhs->raw_data != NULL) && (rhs->raw_data != NULL) &&
-       (lhs->raw_data_len == rhs->raw_data_len) &&
-       (lhs->raw_data_len > 0U)) {
-        if(noxtls_ct_memcmp(lhs->raw_data, rhs->raw_data, (size_t)lhs->raw_data_len) == 0) {
-            return 1;
+    if(noxtls_ct_memcmp(lhs->tbs_certificate, rhs->tbs_certificate, (size_t)lhs->tbs_certificate_len) == 0) {
+        if(lhs->signature_len == 0U) {
+            same = 1;
+        } else if((lhs->signature != NULL) && (rhs->signature != NULL) &&
+                  (noxtls_ct_memcmp(lhs->signature, rhs->signature, (size_t)lhs->signature_len) == 0)) {
+            same = 1;
+        } else {
+            /* MISRA 15.7: signatures differ */
         }
     }
-    if((lhs->subject_len == rhs->subject_len) && (lhs->serial_number_len == rhs->serial_number_len) &&
-       (lhs->subject_len > 0U) && (lhs->serial_number_len > 0U)) {
-        if(noxtls_ct_memcmp(lhs->subject, rhs->subject, (size_t)lhs->subject_len) == 0) {
-            if(noxtls_ct_memcmp(lhs->serial_number, rhs->serial_number, (size_t)lhs->serial_number_len) == 0) {
-                return 1;
-            }
-        }
-    }
-    if((lhs->subject_len == rhs->subject_len) &&
-       (lhs->subject_len > 0U)) {
-        if(noxtls_ct_memcmp(lhs->subject, rhs->subject, (size_t)lhs->subject_len) == 0) {
-            if((lhs->public_key_algorithm_oid_len == rhs->public_key_algorithm_oid_len) &&
-               (lhs->public_key_algorithm_oid_len > 0U)) {
-                if(noxtls_ct_memcmp(lhs->public_key_algorithm_oid, rhs->public_key_algorithm_oid, (size_t)lhs->public_key_algorithm_oid_len) == 0) {
-                    if((lhs->public_key_len == rhs->public_key_len) &&
-                       (lhs->public_key_len > 0U)) {
-                        if(noxtls_ct_memcmp(lhs->public_key, rhs->public_key, (size_t)lhs->public_key_len) == 0) {
-                            return 1;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    return 0;
+    return same;
 }
 
 /**
@@ -3901,87 +3981,107 @@ static noxtls_return_t x509_leaf_policy_check(const x509_certificate_t *leaf, ui
 }
 
 /**
- * @brief Find issuer in chain
+ * @brief Check whether a candidate's subject name matches a certificate's issuer name.
+ * @internal
  *
- * This function finds an issuer in a certificate chain.
+ * Name matching only selects candidates; it never establishes trust on its own.
+ *
+ * @param[in] subject_cert Certificate whose issuer is being looked up.
+ * @param[in] candidate Candidate issuer certificate.
+ *
+ * @return 1 when the names match, 0 otherwise.
+ */
+static int x509_issuer_name_matches(const x509_certificate_t *subject_cert, const x509_certificate_t *candidate)
+{
+    int dn_match = x509_dn_equal(subject_cert->issuer, subject_cert->issuer_len,
+                                 candidate->subject, candidate->subject_len);
+
+    if((dn_match == 0) && (subject_cert->issuer_dn[0] != 0U) && (candidate->subject_dn[0] != 0U)) {
+        dn_match = (noxtls_u8_strcmp(subject_cert->issuer_dn, candidate->subject_dn) == 0) ? 1 : 0;
+    }
+    return dn_match;
+}
+
+/**
+ * @brief Check AuthorityKeyIdentifier / SubjectKeyIdentifier consistency (RFC 5280 4.2.1.1, 4.2.1.2).
+ * @internal
+ *
+ * @param[in] subject_cert Certificate whose issuer is being looked up.
+ * @param[in] candidate Candidate issuer certificate.
+ *
+ * @return 1 when either identifier is absent or both are equal, 0 when they differ.
+ */
+static int x509_key_id_matches(const x509_certificate_t *subject_cert, const x509_certificate_t *candidate)
+{
+    int match = 1;
+
+    if((subject_cert->authority_key_id_len > 0U) && (candidate->subject_key_id_len > 0U)) {
+        if(subject_cert->authority_key_id_len != candidate->subject_key_id_len) {
+            match = 0;
+        } else if(noxtls_ct_memcmp(subject_cert->authority_key_id, candidate->subject_key_id,
+                                   (size_t)subject_cert->authority_key_id_len) != 0) {
+            match = 0;
+        } else {
+            /* MISRA 15.7: identifiers are equal */
+        }
+    }
+    return match;
+}
+
+/**
+ * @brief Find the issuer of a certificate in a chain.
+ * @internal
+ *
+ * Returns only a candidate whose subject name matches the certificate's issuer name, that
+ * is not the certificate itself, and whose public key verifies the certificate's signature.
+ * Candidates whose SubjectKeyIdentifier matches the AuthorityKeyIdentifier (or that lack
+ * one of the identifiers) are tried first; others are tried afterwards so that a stale key
+ * identifier does not break an otherwise valid, signature-verified path.
  *
  * @param[in] subject_cert The subject certificate to find the issuer of.
  * @param[in] chain The certificate chain to search in.
  *
- * @return The issuer certificate.
+ * @return The signature-verified issuer certificate, or NULL when none verifies.
  */
 static const x509_certificate_t *x509_find_issuer_in_chain(const x509_certificate_t *subject_cert,
                                                             const x509_certificate_chain_t *chain)
 {
+    uint32_t pass = 0U;
     uint32_t i = 0U;
-    const x509_certificate_t *fallback = NULL;
-    const x509_certificate_t *fallback_sig = NULL;
-    int have_aki = 0;
-    int saw_dn_candidate = 0;
-    int saw_aki_candidate_with_ski = 0;
+
     if((subject_cert == NULL) || (chain == NULL) || (chain->certs == NULL)) {
         return NULL;
     }
-    have_aki = (subject_cert->authority_key_id_len > 0U) ? 1 : 0;
-    saw_dn_candidate = 0;
-    saw_aki_candidate_with_ski = 0;
-    for(i = 0U; i < chain->count; i += 1U) {
-        int dn_match = 0;
-        int dn_strcmp_ok = 0;
-
-        dn_match = x509_dn_equal(subject_cert->issuer, subject_cert->issuer_len,
-                                 chain->certs[i].subject, chain->certs[i].subject_len);
-        if((subject_cert->issuer_dn[0] != 0U) &&
-           (chain->certs[i].subject_dn[0] != 0U)) {
-            dn_strcmp_ok = (noxtls_u8_strcmp(subject_cert->issuer_dn, chain->certs[i].subject_dn) == 0) ? 1 : 0;
-        }
-        if((dn_match == 0) && (dn_strcmp_ok != 0)) {
-            dn_match = 1;
-        }
-        if(dn_match != 0) {
-            saw_dn_candidate = 1;
-            if(fallback == NULL) {
-                fallback = &chain->certs[i];
+    for(pass = 0U; pass < 2U; pass += 1U) {
+        int want_key_id_match = (pass == 0U) ? 1 : 0;
+        for(i = 0U; i < chain->count; i += 1U) {
+            const x509_certificate_t *candidate = &chain->certs[i];
+            if(x509_cert_identical(subject_cert, candidate) != 0) {
+                continue;
             }
-            if((x509_is_same_cert(subject_cert, &chain->certs[i]) == 0)) {
-                noxtls_return_t sig_rc_any = noxtls_x509_certificate_verify_signature(subject_cert,
-                                                                                       &chain->certs[i]);
-                if((sig_rc_any == NOXTLS_RETURN_SUCCESS) && (fallback_sig == NULL)) {
-                    fallback_sig = &chain->certs[i];
-                }
+            if(x509_issuer_name_matches(subject_cert, candidate) == 0) {
+                continue;
             }
-            if(have_aki != 0) {
-                if(chain->certs[i].subject_key_id_len > 0U) {
-                    saw_aki_candidate_with_ski = 1;
-                    if((chain->certs[i].subject_key_id_len != subject_cert->authority_key_id_len) ||
-                       (noxtls_ct_memcmp(chain->certs[i].subject_key_id, subject_cert->authority_key_id, (size_t)(subject_cert->authority_key_id_len)) != 0)) {
-                        continue;
-                    }
-                }
+            if(x509_key_id_matches(subject_cert, candidate) != want_key_id_match) {
+                continue;
             }
-            if(fallback_sig == &chain->certs[i]) {
-                return &chain->certs[i];
+            if(noxtls_x509_certificate_verify_signature(subject_cert, candidate) == NOXTLS_RETURN_SUCCESS) {
+                return candidate;
             }
         }
     }
-    if(fallback_sig != NULL) {
-        return fallback_sig;
-    }
-    if((have_aki != 0) && (saw_dn_candidate != 0) && (saw_aki_candidate_with_ski != 0)) {
-        return NULL;
-    }
-    return fallback;
+    return NULL;
 }
 
 /**
  * @brief Check if a certificate chain contains a certificate
  *
- * This function checks if a certificate chain contains a certificate.
+ * Membership requires a byte-identical certificate (see x509_cert_identical()).
  *
  * @param[in] chain The certificate chain to check.
  * @param[in] cert The certificate to check for.
  *
- * @return The return code of the function.
+ * @return 1 when @p chain contains @p cert, 0 otherwise.
  */
 static int x509_chain_contains_cert(const x509_certificate_chain_t *chain, const x509_certificate_t *cert)
 {
@@ -3990,7 +4090,7 @@ static int x509_chain_contains_cert(const x509_certificate_chain_t *chain, const
         return 0;
     }
     for(i = 0U; i < chain->count; i += 1U) {
-        if(x509_is_same_cert(&chain->certs[i], cert) != 0) {
+        if(x509_cert_identical(&chain->certs[i], cert) != 0) {
             return 1;
         }
     }
@@ -5202,8 +5302,15 @@ static noxtls_return_t x509_verify_cert_trust_internal(const x509_certificate_t 
 
     current = leaf;
 
+    /*
+     * RFC 5280 Section 6.1: trust is established only when a trust anchor's public key
+     * verifies the signature of the last certificate in the path. A presented certificate
+     * terminates the path by itself only when it is byte-identical (TBSCertificate and
+     * signature) to a configured anchor; names and serial numbers are never sufficient.
+     */
     while(depth < max_depth) {
         const x509_certificate_t *issuer = NULL;
+        int issuer_is_anchor = 0;
         noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
         if(x509_chain_contains_cert(trust_anchors, current) != 0) {
@@ -5211,29 +5318,16 @@ static noxtls_return_t x509_verify_cert_trust_internal(const x509_certificate_t 
             return NOXTLS_RETURN_SUCCESS;
         }
 
-        if(presented_chain != NULL) {
+        /* Prefer an anchor whose key verifies current's signature; else a presented issuer. */
+        issuer = x509_find_issuer_in_chain(current, trust_anchors);
+        if(issuer != NULL) {
+            issuer_is_anchor = 1;
+        } else if(presented_chain != NULL) {
             issuer = x509_find_issuer_in_chain(current, presented_chain);
+        } else {
+            /* MISRA 15.7: no presented chain to search */
         }
         if(issuer == NULL) {
-            issuer = x509_find_issuer_in_chain(current, trust_anchors);
-        }
-        if((issuer == NULL) || (x509_is_same_cert(issuer, current) != 0)) {
-            cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, current, NULL, 0, depth);
-            return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
-        }
-
-        rc = noxtls_x509_certificate_verify_signature(current, issuer);
-        if((rc != NOXTLS_RETURN_SUCCESS) && (presented_chain != NULL)) {
-            const x509_certificate_t *trust_issuer = x509_find_issuer_in_chain(current, trust_anchors);
-            if((trust_issuer != NULL) && (x509_is_same_cert(trust_issuer, current) == 0)) {
-                noxtls_return_t trust_rc = noxtls_x509_certificate_verify_signature(current, trust_issuer);
-                if(trust_rc == NOXTLS_RETURN_SUCCESS) {
-                    issuer = trust_issuer;
-                    rc = NOXTLS_RETURN_SUCCESS;
-                }
-            }
-        }
-        if(rc != NOXTLS_RETURN_SUCCESS) {
             cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, current, NULL, 0, depth);
             return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
         }
@@ -5251,16 +5345,14 @@ static noxtls_return_t x509_verify_cert_trust_internal(const x509_certificate_t 
             return rc;
         }
 
-        if((x509_chain_contains_cert(trust_anchors, issuer) == 0)) {
-            rc = x509_issuer_policy_check(issuer, depth);
-            if(rc != NOXTLS_RETURN_SUCCESS) {
-                return rc;
-            }
-        }
-
-        if(x509_chain_contains_cert(trust_anchors, issuer) != 0) {
+        if(issuer_is_anchor != 0) {
             x509_verify_crl_note_no_match_if_needed(crl, flags_out);
             return NOXTLS_RETURN_SUCCESS;
+        }
+
+        rc = x509_issuer_policy_check(issuer, depth);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
         }
 
         current = issuer;
@@ -5827,9 +5919,14 @@ static noxtls_return_t noxtls_x509_parse_pkcs8_private_key(x509_private_key_t *k
     const uint8_t *end = &data[len];
     const uint8_t *seq_data = NULL;
     uint32_t seq_len = 0U;
+    uint8_t version_buf[1] = { 0U };
+    uint32_t version_len = (uint32_t)sizeof(version_buf);
     uint8_t version = 0U;
     uint8_t pkcs8_algorithm_oid[32];
     uint32_t pkcs8_algorithm_oid_len = 0U;
+    /* id-ecPublicKey namedCurve from the AlgorithmIdentifier (RFC 5915 Section 3 / RFC 5480). */
+    uint8_t alg_curve_oid[32];
+    uint32_t alg_curve_oid_len = 0U;
 
     /* Parse PrivateKeyInfo SEQUENCE */
     if(asn1_get_sequence(&ptr, end, &seq_data, &seq_len) != NOXTLS_RETURN_SUCCESS) {
@@ -5839,14 +5936,23 @@ static noxtls_return_t noxtls_x509_parse_pkcs8_private_key(x509_private_key_t *k
     const uint8_t *info_end = &seq_data[seq_len];
     const uint8_t *info_ptr = seq_data;
 
-    /* Parse version */
-    if(asn1_get_integer(&info_ptr, info_end, &version, &seq_len) != NOXTLS_RETURN_SUCCESS) {
+    /* Parse version: a one-byte INTEGER; capacity is the size of version_buf, never the input length. */
+    if(asn1_get_integer(&info_ptr, info_end, version_buf, &version_len) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
+    if(version_len != 1U) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    version = version_buf[0];
 
     /* RFC 5208: version 0. Some exporters use version 1 for OneAsymmetricKey. Accept both. */
     if((version != 0U) && (version != 1U)) {
         key->encrypted = 1;
+        return NOXTLS_RETURN_FAILED;
+    }
+
+    /* version 1 followed directly by an OCTET STRING is an RFC 5915 ECPrivateKey (SEC1), not PKCS#8. */
+    if((version == 1U) && ((uintptr_t)info_ptr < (uintptr_t)info_end) && (*info_ptr == 0x04U)) {
         return NOXTLS_RETURN_FAILED;
     }
 
@@ -5882,6 +5988,12 @@ static noxtls_return_t noxtls_x509_parse_pkcs8_private_key(x509_private_key_t *k
         alg_ptr = seq_data;
         if(asn1_get_oid(&alg_ptr, alg_end, pkcs8_algorithm_oid, &pkcs8_algorithm_oid_len) != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_FAILED;
+        }
+        if(((uintptr_t)alg_ptr < (uintptr_t)alg_end) && (*alg_ptr == 0x06U)) {
+            const uint8_t *curve_ptr = alg_ptr;
+            if(asn1_get_oid(&curve_ptr, alg_end, alg_curve_oid, &alg_curve_oid_len) != NOXTLS_RETURN_SUCCESS) {
+                alg_curve_oid_len = 0U;
+            }
         }
         if(asn1_get_tag(&info_ptr, info_end, 0x04U) != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_FAILED;
@@ -6110,6 +6222,11 @@ static noxtls_return_t noxtls_x509_parse_pkcs8_private_key(x509_private_key_t *k
         rc = noxtls_x509_parse_sec1_ecc_private_key(key, info_ptr, private_key_len);
         if(rc == NOXTLS_RETURN_SUCCESS) {
             key->format = X509_PRIVATE_KEY_FORMAT_PKCS8;
+            /* RFC 5915 Section 3: the inner parameters are usually omitted inside PKCS#8. */
+            if((key->ecc_curve_oid_len == 0U) && (alg_curve_oid_len > 0U)) {
+                noxtls_copy_u8(key->ecc_curve_oid, sizeof(key->ecc_curve_oid), alg_curve_oid, (size_t)alg_curve_oid_len);
+                key->ecc_curve_oid_len = alg_curve_oid_len;
+            }
             CERT_DEBUG_PRINT("x509_parse_pkcs8: parsed as SEC1 ECC\n");
             return NOXTLS_RETURN_SUCCESS;
         }
@@ -6167,10 +6284,19 @@ static noxtls_return_t noxtls_x509_parse_pkcs8_private_key(x509_private_key_t *k
  */
 static noxtls_return_t noxtls_x509_parse_sec1_ecc_private_key(x509_private_key_t *key, const uint8_t *data, uint32_t len)
 {
+    /*
+     * RFC 5915 Section 3:
+     * ECPrivateKey ::= SEQUENCE { version INTEGER { ecPrivkeyVer1(1) }, privateKey OCTET STRING,
+     *                             parameters [0] ECParameters OPTIONAL, publicKey [1] BIT STRING OPTIONAL }
+     * Malformed optional fields are ignored; the private scalar is mandatory.
+     */
     const uint8_t *ptr = data;
     const uint8_t *end = &data[len];
     const uint8_t *seq_data = NULL;
     uint32_t seq_len = 0U;
+    uint8_t version_buf[1] = { 0U };
+    uint32_t version_len = (uint32_t)sizeof(version_buf);
+    uint32_t private_key_len = 0U;
 
     /* Parse ECPrivateKey SEQUENCE */
     if(asn1_get_sequence(&ptr, end, &seq_data, &seq_len) != NOXTLS_RETURN_SUCCESS) {
@@ -6183,8 +6309,11 @@ static noxtls_return_t noxtls_x509_parse_sec1_ecc_private_key(x509_private_key_t
     key->key_type = X509_PRIVATE_KEY_ECC;
     key->format = X509_PRIVATE_KEY_FORMAT_SEC1;
 
-    /* Parse version (should be 1) */
-    if(asn1_get_integer(&seq_ptr, seq_end, NULL, &seq_len) != NOXTLS_RETURN_SUCCESS) {
+    /* Parse version (must be ecPrivkeyVer1) */
+    if(asn1_get_integer(&seq_ptr, seq_end, version_buf, &version_len) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    if((version_len != 1U) || (version_buf[0] != 1U)) {
         return NOXTLS_RETURN_FAILED;
     }
 
@@ -6193,44 +6322,54 @@ static noxtls_return_t noxtls_x509_parse_sec1_ecc_private_key(x509_private_key_t
         return NOXTLS_RETURN_FAILED;
     }
 
-    uint32_t private_key_len = (uint32_t)(asn1_get_length(&seq_ptr, seq_end));
-    if((private_key_len == 0U) || ((uintptr_t)(&seq_ptr[private_key_len]) > (uintptr_t)seq_end)) {
+    private_key_len = (uint32_t)(asn1_get_length(&seq_ptr, seq_end));
+    if((private_key_len == 0U) || (x509_bytes_remaining(seq_ptr, seq_end) < (size_t)private_key_len)) {
         return NOXTLS_RETURN_FAILED;
     }
 
-    key->ecc_private_key_len = private_key_len;
     key->ecc_private_key = (uint8_t*)NOXTLS_MALLOC(private_key_len);
-    if(key->ecc_private_key != NULL) {
-        noxtls_copy_u8((uint8_t *)(void *)(key->ecc_private_key), (size_t)private_key_len, (const uint8_t *)(const void *)(seq_ptr), (size_t)private_key_len);
+    if(key->ecc_private_key == NULL) {
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
+    key->ecc_private_key_len = private_key_len;
+    noxtls_copy_u8((uint8_t *)(void *)(key->ecc_private_key), (size_t)private_key_len, (const uint8_t *)(const void *)(seq_ptr), (size_t)private_key_len);
     seq_ptr = &seq_ptr[private_key_len];
 
-    /* Parse parameters (optional) - [0] IMPLICIT ECParameters */
-    if((((uintptr_t)seq_ptr < (uintptr_t)seq_end)) && ((*seq_ptr & 0xE0U) == 0xA0U)) {
+    /* parameters [0] EXPLICIT ECParameters (namedCurve OID). */
+    if(((uintptr_t)seq_ptr < (uintptr_t)seq_end) && (*seq_ptr == 0xA0U)) {
+        uint32_t params_len = 0U;
         seq_ptr = &seq_ptr[1];
-        uint32_t params_len = (uint32_t)(asn1_get_length(&seq_ptr, seq_end));
-        if((params_len > 0U) && ((uintptr_t)(&seq_ptr[params_len]) <= (uintptr_t)seq_end)) {
-            /* Parse curve OID */
-            const uint8_t *params_ptr = seq_ptr;
-            if(asn1_get_oid(&params_ptr, &seq_ptr[params_len], key->ecc_curve_oid, &key->ecc_curve_oid_len) == NOXTLS_RETURN_SUCCESS) {
-                /* Curve OID parsed */
-            }
-            seq_ptr = &seq_ptr[params_len];
+        params_len = (uint32_t)(asn1_get_length(&seq_ptr, seq_end));
+        if((params_len == 0U) || (x509_bytes_remaining(seq_ptr, seq_end) < (size_t)params_len)) {
+            return NOXTLS_RETURN_SUCCESS;  /* malformed optional tail ignored */
         }
+        {
+            const uint8_t *params_ptr = seq_ptr;
+            if(asn1_get_oid(&params_ptr, &seq_ptr[params_len], key->ecc_curve_oid, &key->ecc_curve_oid_len) != NOXTLS_RETURN_SUCCESS) {
+                key->ecc_curve_oid_len = 0U;
+            }
+        }
+        seq_ptr = &seq_ptr[params_len];
     }
 
-    /* Parse public key (optional) - [1] IMPLICIT BIT STRING */
-    if((((uintptr_t)seq_ptr < (uintptr_t)seq_end)) && ((*seq_ptr & 0xE0U) == 0xA0U) && ((*seq_ptr & 0x1FU) == 0x01U)) {
+    /* publicKey [1] EXPLICIT BIT STRING: 0x00 unused-bits octet followed by the encoded point. */
+    if(((uintptr_t)seq_ptr < (uintptr_t)seq_end) && (*seq_ptr == 0xA1U)) {
+        uint32_t wrap_len = 0U;
         seq_ptr = &seq_ptr[1];
-        if(asn1_get_tag(&seq_ptr, seq_end, 0x03U) == NOXTLS_RETURN_SUCCESS) {
-            uint32_t public_key_len = (uint32_t)(asn1_get_length(&seq_ptr, seq_end));
-            if((public_key_len > 0U) && ((uintptr_t)(&seq_ptr[public_key_len]) <= (uintptr_t)seq_end)) {
-                seq_ptr = &seq_ptr[1];  /* Skip unused bits */
-                public_key_len -= 1U;
-                key->ecc_public_key_len = public_key_len;
-                key->ecc_public_key = (uint8_t*)NOXTLS_MALLOC(public_key_len);
-                if(key->ecc_public_key != NULL) {
-                    noxtls_copy_u8((uint8_t *)(void *)(key->ecc_public_key), (size_t)public_key_len, (const uint8_t *)(const void *)(seq_ptr), (size_t)public_key_len);
+        wrap_len = (uint32_t)(asn1_get_length(&seq_ptr, seq_end));
+        if((wrap_len > 0U) && (x509_bytes_remaining(seq_ptr, seq_end) >= (size_t)wrap_len)) {
+            const uint8_t *bs_ptr = seq_ptr;
+            const uint8_t *bs_end = &seq_ptr[wrap_len];
+            if(asn1_get_tag(&bs_ptr, bs_end, 0x03U) == NOXTLS_RETURN_SUCCESS) {
+                uint32_t bs_len = (uint32_t)(asn1_get_length(&bs_ptr, bs_end));
+                if((bs_len >= 2U) && (x509_bytes_remaining(bs_ptr, bs_end) >= (size_t)bs_len) && (bs_ptr[0] == 0x00U)) {
+                    uint32_t public_key_len = bs_len - 1U;
+                    key->ecc_public_key = (uint8_t*)NOXTLS_MALLOC(public_key_len);
+                    if(key->ecc_public_key == NULL) {
+                        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+                    }
+                    key->ecc_public_key_len = public_key_len;
+                    noxtls_copy_u8((uint8_t *)(void *)(key->ecc_public_key), (size_t)public_key_len, (const uint8_t *)(const void *)(&bs_ptr[1]), (size_t)public_key_len);
                 }
             }
         }
@@ -6240,10 +6379,90 @@ static noxtls_return_t noxtls_x509_parse_sec1_ecc_private_key(x509_private_key_t
 }
 
 #if NOXTLS_FEATURE_AES_CBC
+/** Upper bound accepted for the PBKDF2 iteration count (limits CPU spent on hostile input). */
+#define X509_PBES2_MAX_ITERATIONS 10000000U
+/** AES-CBC IV length (RFC 3565 Section 4.1 AES-IV). */
+#define X509_PBES2_AES_IV_LEN 16U
+
 /**
- * @brief Parse EncryptedPrivateKeyInfo (RFC 5208), decrypt with password using PBES2/PBKDF2/AES-CBC, then parse inner key.
+ * @brief Map a PBKDF2 prf AlgorithmIdentifier OID to an HMAC hash (RFC 8018 Appendix B.1).
+ * @internal
  *
- * This function parses a EncryptedPrivateKeyInfo (RFC 5208), decrypt with password using PBES2/PBKDF2/AES-CBC, then parse inner key.
+ * @param[in] oid DER OID body.
+ * @param[in] oid_len OID length.
+ * @param[out] hash_algo Hash for HMAC.
+ *
+ * @return NOXTLS_RETURN_SUCCESS or NOXTLS_RETURN_INVALID_ALGORITHM.
+ */
+static noxtls_return_t x509_pbkdf2_prf_from_oid(const uint8_t *oid, uint32_t oid_len, noxtls_hash_algos_t *hash_algo)
+{
+    /* 1.2.840.113549.2.{7,8,9,10,11}: hmacWithSHA1/SHA224/SHA256/SHA384/SHA512 */
+    static const uint8_t prf_prefix[] = { 0x2AU, 0x86U, 0x48U, 0x86U, 0xF7U, 0x0DU, 0x02U };
+    noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
+
+    if(((size_t)oid_len != (sizeof(prf_prefix) + 1U)) ||
+       (noxtls_ct_memcmp(oid, prf_prefix, sizeof(prf_prefix)) != 0)) {
+        return NOXTLS_RETURN_INVALID_ALGORITHM;
+    }
+    switch(oid[sizeof(prf_prefix)]) {
+        case 0x07U:
+            *hash_algo = NOXTLS_HASH_SHA1;
+            break;
+        case 0x08U:
+            *hash_algo = NOXTLS_HASH_SHA_224;
+            break;
+        case 0x09U:
+            *hash_algo = NOXTLS_HASH_SHA_256;
+            break;
+        case 0x0AU:
+            *hash_algo = NOXTLS_HASH_SHA_384;
+            break;
+        case 0x0BU:
+            *hash_algo = NOXTLS_HASH_SHA_512;
+            break;
+        default:
+            rc = NOXTLS_RETURN_INVALID_ALGORITHM;
+            break;
+    }
+    return rc;
+}
+
+/**
+ * @brief Read a small non-negative DER INTEGER (at most 4 content octets).
+ * @internal
+ *
+ * @param[in,out] ptr Cursor, advanced past the INTEGER on success.
+ * @param[in] end One past the end of the enclosing element.
+ * @param[out] value Decoded value.
+ *
+ * @return NOXTLS_RETURN_SUCCESS or NOXTLS_RETURN_FAILED.
+ */
+static noxtls_return_t x509_asn1_get_small_uint(const uint8_t **ptr, const uint8_t *end, uint32_t *value)
+{
+    uint8_t int_buf[4];
+    uint32_t int_len = (uint32_t)sizeof(int_buf);
+    uint32_t v = 0U;
+    uint32_t i = 0U;
+
+    if(asn1_get_integer(ptr, end, int_buf, &int_len) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    if((int_buf[0] & 0x80U) != 0U) {
+        return NOXTLS_RETURN_FAILED;  /* negative */
+    }
+    for(i = 0U; i < int_len; i += 1U) {
+        v = (v << 8U) | (uint32_t)int_buf[i];
+    }
+    *value = v;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
+ * @brief Parse EncryptedPrivateKeyInfo (RFC 5958 Section 3), decrypt it with PBES2 and parse the inner key.
+ *
+ * Supported: PBES2 (RFC 8018 Section 6.2) with PBKDF2 (prf hmacWithSHA1 (default), SHA224,
+ * SHA256, SHA384 or SHA512, subject to the PBKDF2 module) and encryptionScheme aes128-CBC,
+ * aes192-CBC or aes256-CBC with the IV taken from the scheme parameters (RFC 3565).
  *
  * @param[in] key The X.509 private key structure to parse.
  * @param[in] data The DER data to parse.
@@ -6251,7 +6470,8 @@ static noxtls_return_t noxtls_x509_parse_sec1_ecc_private_key(x509_private_key_t
  * @param[in] password The password to decrypt the key.
  * @param[in] password_len The length of the password.
  *
- * Returns NOXTLS_RETURN_SUCCESS and fills key on success.
+ * @return NOXTLS_RETURN_SUCCESS and fills key on success; an error code otherwise
+ *         (including a wrong password, detected by the padding or inner key parse).
  */
 static noxtls_return_t noxtls_x509_parse_encrypted_pkcs8(x509_private_key_t *key, const uint8_t *data, uint32_t len,
                                                          const uint8_t *password, uint32_t password_len)
@@ -6261,134 +6481,204 @@ static noxtls_return_t noxtls_x509_parse_encrypted_pkcs8(x509_private_key_t *key
     static const uint8_t oid_pbes2[] = { 0x2AU, 0x86U, 0x48U, 0x86U, 0xF7U, 0x0DU, 0x01U, 0x05U, 0x0DU };
     /* id-PBKDF2 1.2.840.113549.1.5.12 */
     static const uint8_t oid_pbkdf2[] = { 0x2AU, 0x86U, 0x48U, 0x86U, 0xF7U, 0x0DU, 0x01U, 0x05U, 0x0CU };
-    /* id-aes128-CBC 2.16.840.1.101.3.4.1.2 */
-    static const uint8_t oid_aes128_cbc[] = { 0x60U, 0x86U, 0x48U, 0x01U, 0x65U, 0x03U, 0x04U, 0x01U, 0x02U };
-    /* id-aes256-CBC 2.16.840.1.101.3.4.1.42 */
-    static const uint8_t oid_aes256_cbc[] = { 0x60U, 0x86U, 0x48U, 0x01U, 0x65U, 0x03U, 0x04U, 0x01U, 0x2AU };
+    /* aes 2.16.840.1.101.3.4.1: .2 aes128-CBC, .22 aes192-CBC, .42 aes256-CBC */
+    static const uint8_t oid_aes_prefix[] = { 0x60U, 0x86U, 0x48U, 0x01U, 0x65U, 0x03U, 0x04U, 0x01U };
 
     const uint8_t *ptr = data;
     const uint8_t *end = &data[len];
-    const uint8_t *seq_data = NULL;
-    uint32_t seq_len = 0U;
-    const uint8_t *alg_seq = NULL;
+    const uint8_t *epki = NULL;
+    uint32_t epki_len = 0U;
+    const uint8_t *alg = NULL;
     uint32_t alg_len = 0U;
-    uint8_t oid_buf[32];
-    uint32_t p8_oid_len = 0U;
-    const uint8_t *pbes2_seq = NULL;
+    const uint8_t *pbes2 = NULL;
     uint32_t pbes2_len = 0U;
-    const uint8_t *kdf_seq = NULL;
+    const uint8_t *kdf = NULL;
     uint32_t kdf_len = 0U;
+    const uint8_t *kdf_params = NULL;
+    uint32_t kdf_params_len = 0U;
+    const uint8_t *enc_scheme = NULL;
+    uint32_t enc_scheme_len = 0U;
     const uint8_t *salt = NULL;
     uint32_t salt_len = 0U;
-    uint8_t iter_buf[4];
-    uint32_t iter_len = 0U;
-    uint32_t iterations = 0U;
-    const uint8_t *enc_seq = NULL;
-    uint32_t enc_len = 0U;
+    const uint8_t *iv = NULL;
+    uint32_t iv_len = 0U;
     const uint8_t *enc_data = NULL;
     uint32_t enc_data_len = 0U;
-    uint32_t key_bits = 0U;
+    uint8_t oid_buf[32];
+    uint32_t oid_len = 0U;
+    uint32_t iterations = 0U;
+    uint32_t key_len_param = 0U;
+    uint32_t key_bytes = 0U;
+    uint32_t i = 0U;
+    noxtls_hash_algos_t prf_hash = NOXTLS_HASH_SHA1;
     noxtls_aes_type_t aes_type = NOXTLS_AES_128_BIT;
     uint8_t derived_key[32];
     uint8_t *decrypted = NULL;
+    uint32_t plain_len = 0U;
+    uint32_t pad_bad = 0U;
+    uint8_t pad = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
-    uint32_t i = 0U;
 
-    if(asn1_get_sequence(&ptr, end, &seq_data, &seq_len) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
+    if((key == NULL) || (data == NULL) || (password == NULL) || (password_len == 0U)) {
+        return NOXTLS_RETURN_NULL;
     }
-    const uint8_t *seq_end = &seq_data[seq_len];
-    if(seq_data[0] != 0x30U) { return NOXTLS_RETURN_FAILED; }  /* first element must be AlgorithmIdentifier SEQUENCE */
 
-    if(asn1_get_sequence(&ptr, seq_end, &alg_seq, &alg_len) != NOXTLS_RETURN_SUCCESS) {
+    /* EncryptedPrivateKeyInfo ::= SEQUENCE { encryptionAlgorithm AlgorithmIdentifier, encryptedData OCTET STRING } */
+    if(asn1_get_sequence(&ptr, end, &epki, &epki_len) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
-    if(asn1_get_oid(&ptr, &alg_seq[alg_len], oid_buf, &p8_oid_len) != NOXTLS_RETURN_SUCCESS) {
+    ptr = epki;
+    end = &epki[epki_len];
+    if(asn1_get_sequence(&ptr, end, &alg, &alg_len) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
-    if((oid_equal(oid_buf, p8_oid_len, oid_pbes2, sizeof(oid_pbes2)) == 0)) {
-        return NOXTLS_RETURN_FAILED;  /* only PBES2 supported */
-    }
-    /* PBES2-params */
-    if(asn1_get_sequence(&ptr, seq_end, &pbes2_seq, &pbes2_len) != NOXTLS_RETURN_SUCCESS) {
+    if(asn1_get_octet_string(&ptr, end, &enc_data, &enc_data_len) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
-    const uint8_t *pbes2_end = &pbes2_seq[pbes2_len];
-    /* keyDerivationFunc */
-    if(asn1_get_sequence(&ptr, pbes2_end, &kdf_seq, &kdf_len) != NOXTLS_RETURN_SUCCESS) {
+
+    /* encryptionAlgorithm ::= { id-PBES2, PBES2-params } */
+    ptr = alg;
+    end = &alg[alg_len];
+    if(asn1_get_oid(&ptr, end, oid_buf, &oid_len) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
-    if(asn1_get_oid(&ptr, &kdf_seq[kdf_len], oid_buf, &p8_oid_len) != NOXTLS_RETURN_SUCCESS) {
+    if(oid_equal(oid_buf, oid_len, oid_pbes2, (uint32_t)sizeof(oid_pbes2)) == 0) {
+        return NOXTLS_RETURN_INVALID_ALGORITHM;  /* only PBES2 is supported */
+    }
+    if(asn1_get_sequence(&ptr, end, &pbes2, &pbes2_len) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
-    if((oid_equal(oid_buf, p8_oid_len, oid_pbkdf2, sizeof(oid_pbkdf2)) == 0)) {
-        return NOXTLS_RETURN_FAILED;  /* only PBKDF2 */
-    }
-    /* PBKDF2-params: salt, iterationCount */
-    if(asn1_get_octet_string(&ptr, pbes2_end, &salt, &salt_len) != NOXTLS_RETURN_SUCCESS) {
+
+    /* PBES2-params ::= SEQUENCE { keyDerivationFunc AlgorithmIdentifier, encryptionScheme AlgorithmIdentifier } */
+    ptr = pbes2;
+    end = &pbes2[pbes2_len];
+    if((asn1_get_sequence(&ptr, end, &kdf, &kdf_len) != NOXTLS_RETURN_SUCCESS) ||
+       (asn1_get_sequence(&ptr, end, &enc_scheme, &enc_scheme_len) != NOXTLS_RETURN_SUCCESS)) {
         return NOXTLS_RETURN_FAILED;
     }
-    iter_len = 4U;
-    if(asn1_get_integer(&ptr, pbes2_end, iter_buf, &iter_len) != NOXTLS_RETURN_SUCCESS) {
+
+    /* keyDerivationFunc ::= { id-PBKDF2, PBKDF2-params } */
+    ptr = kdf;
+    end = &kdf[kdf_len];
+    if(asn1_get_oid(&ptr, end, oid_buf, &oid_len) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
-    for(i = 0U; (i < iter_len) && (i < 4U); i += 1U) {
-        iterations = (iterations << 8U) | (uint32_t)(iter_buf[i]);
+    if(oid_equal(oid_buf, oid_len, oid_pbkdf2, (uint32_t)sizeof(oid_pbkdf2)) == 0) {
+        return NOXTLS_RETURN_INVALID_ALGORITHM;  /* only PBKDF2 is supported */
     }
-    if((iterations == 0U) || (iterations > 10000000U)) {
+    if(asn1_get_sequence(&ptr, end, &kdf_params, &kdf_params_len) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
-    /* encryptionScheme */
-    if(asn1_get_sequence(&ptr, pbes2_end, &enc_seq, &enc_len) != NOXTLS_RETURN_SUCCESS) {
+
+    /* PBKDF2-params ::= SEQUENCE { salt OCTET STRING, iterationCount INTEGER,
+     *                              keyLength INTEGER OPTIONAL, prf AlgorithmIdentifier DEFAULT hmacWithSHA1 } */
+    ptr = kdf_params;
+    end = &kdf_params[kdf_params_len];
+    if((asn1_get_octet_string(&ptr, end, &salt, &salt_len) != NOXTLS_RETURN_SUCCESS) || (salt_len == 0U)) {
         return NOXTLS_RETURN_FAILED;
     }
-    if(asn1_get_oid(&ptr, &enc_seq[enc_len], oid_buf, &p8_oid_len) != NOXTLS_RETURN_SUCCESS) {
+    if(x509_asn1_get_small_uint(&ptr, end, &iterations) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
-    if(oid_equal(oid_buf, p8_oid_len, oid_aes128_cbc, sizeof(oid_aes128_cbc)) != 0) {
-        key_bits = 16;
-        aes_type = NOXTLS_AES_128_BIT;
-    } else if(oid_equal(oid_buf, p8_oid_len, oid_aes256_cbc, sizeof(oid_aes256_cbc)) != 0) {
-        key_bits = 32;
-        aes_type = NOXTLS_AES_256_BIT;
-    } else {
-        return NOXTLS_RETURN_FAILED;  /* only AES-128-CBC and AES-256-CBC */
-    }
-    /* encryptedData */
-    if(asn1_get_octet_string(&ptr, seq_end, &enc_data, &enc_data_len) != NOXTLS_RETURN_SUCCESS) {
+    if((iterations == 0U) || (iterations > X509_PBES2_MAX_ITERATIONS)) {
         return NOXTLS_RETURN_FAILED;
     }
-    if((enc_data_len < (uint32_t)NOXTLS_AES_BLOCK_LEN) || ((((enc_data_len - (uint32_t)NOXTLS_AES_BLOCK_LEN) % (uint32_t)NOXTLS_AES_BLOCK_LEN) != 0U))) {
-        return NOXTLS_RETURN_FAILED;
-    }
-    {
-        pbkdf2_sha1_params_t p = {salt_len, iterations, key_bits};
-        {
-            uint8_t *pw_bytes = (uint8_t*)NOXTLS_MALLOC(password_len);
-            uint32_t pi = 0U;
-            noxtls_return_t pbrc = NOXTLS_RETURN_FAILED;
-            if(pw_bytes == NULL) {
-                return NOXTLS_RETURN_FAILED;
-            }
-            for(pi = 0U; pi < password_len; pi += 1U) {
-                pw_bytes[pi] = (uint8_t)password[pi];
-            }
-            pbrc = pbkdf2_hmac_sha1(pw_bytes, password_len, salt, &p, derived_key);
-            (void)noxtls_free(pw_bytes);
-            if(pbrc != NOXTLS_RETURN_SUCCESS) {
-                return NOXTLS_RETURN_FAILED;
-            }
+    if(((uintptr_t)ptr < (uintptr_t)end) && (*ptr == 0x02U)) {
+        if(x509_asn1_get_small_uint(&ptr, end, &key_len_param) != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_FAILED;
         }
     }
-    decrypted = (uint8_t*)NOXTLS_MALLOC((size_t)(enc_data_len - (uint32_t)NOXTLS_AES_BLOCK_LEN));
-    if(decrypted == NULL) { return NOXTLS_RETURN_FAILED; }
-    if(noxtls_aes_decrypt_cbc(derived_key, &enc_data[(uint32_t)NOXTLS_AES_BLOCK_LEN], (uint32_t)(enc_data_len - (uint32_t)NOXTLS_AES_BLOCK_LEN), enc_data, decrypted, aes_type) != NOXTLS_RETURN_SUCCESS) {
+    if(((uintptr_t)ptr < (uintptr_t)end) && (*ptr == 0x30U)) {
+        const uint8_t *prf_alg = NULL;
+        uint32_t prf_alg_len = 0U;
+        const uint8_t *prf_ptr = NULL;
+        if(asn1_get_sequence(&ptr, end, &prf_alg, &prf_alg_len) != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_FAILED;
+        }
+        prf_ptr = prf_alg;
+        if(asn1_get_oid(&prf_ptr, &prf_alg[prf_alg_len], oid_buf, &oid_len) != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_FAILED;
+        }
+        rc = x509_pbkdf2_prf_from_oid(oid_buf, oid_len, &prf_hash);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
+    }
+    if((uintptr_t)ptr != (uintptr_t)end) {
+        return NOXTLS_RETURN_FAILED;  /* trailing or misordered PBKDF2 parameters */
+    }
+
+    /* encryptionScheme ::= { aesNNN-CBC, AES-IV OCTET STRING (SIZE(16)) } */
+    ptr = enc_scheme;
+    end = &enc_scheme[enc_scheme_len];
+    if(asn1_get_oid(&ptr, end, oid_buf, &oid_len) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    if(((size_t)oid_len != (sizeof(oid_aes_prefix) + 1U)) ||
+       (noxtls_ct_memcmp(oid_buf, oid_aes_prefix, sizeof(oid_aes_prefix)) != 0)) {
+        return NOXTLS_RETURN_INVALID_ALGORITHM;
+    }
+    if(oid_buf[sizeof(oid_aes_prefix)] == 0x02U) {
+        key_bytes = 16U;
+        aes_type = NOXTLS_AES_128_BIT;
+    } else if(oid_buf[sizeof(oid_aes_prefix)] == 0x16U) {
+        key_bytes = 24U;
+        aes_type = NOXTLS_AES_192_BIT;
+    } else if(oid_buf[sizeof(oid_aes_prefix)] == 0x2AU) {
+        key_bytes = 32U;
+        aes_type = NOXTLS_AES_256_BIT;
+    } else {
+        return NOXTLS_RETURN_INVALID_ALGORITHM;  /* only AES-CBC schemes are supported */
+    }
+    if((asn1_get_octet_string(&ptr, end, &iv, &iv_len) != NOXTLS_RETURN_SUCCESS) ||
+       (iv_len != X509_PBES2_AES_IV_LEN)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    if((key_len_param != 0U) && (key_len_param != key_bytes)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    if((enc_data_len == 0U) || ((enc_data_len % (uint32_t)NOXTLS_AES_BLOCK_LEN) != 0U)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+
+    rc = x509_pbes2_kdf(prf_hash, password, password_len, salt, salt_len, iterations, derived_key, key_bytes);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(derived_key, sizeof(derived_key));
+        return rc;
+    }
+
+    decrypted = (uint8_t*)NOXTLS_MALLOC((size_t)enc_data_len);
+    if(decrypted == NULL) {
+        noxtls_secure_zero(derived_key, sizeof(derived_key));
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+    }
+    rc = noxtls_aes_decrypt_cbc(derived_key, enc_data, enc_data_len, iv, decrypted, aes_type);
+    noxtls_secure_zero(derived_key, sizeof(derived_key));
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(decrypted, (size_t)enc_data_len);
         (void)noxtls_free(decrypted);
         return NOXTLS_RETURN_FAILED;
     }
+
+    /* RFC 8018 Section 6.1.1 step 4 padding: 1..16 octets, each equal to the padding length. */
+    pad = decrypted[enc_data_len - 1U];
+    if((pad == 0U) || (pad > (uint8_t)NOXTLS_AES_BLOCK_LEN)) {
+        pad_bad = 1U;
+    } else {
+        for(i = 0U; i < (uint32_t)pad; i += 1U) {
+            pad_bad |= (decrypted[(enc_data_len - 1U) - i] != pad) ? 1U : 0U;
+        }
+    }
+    if(pad_bad != 0U) {
+        noxtls_secure_zero(decrypted, (size_t)enc_data_len);
+        (void)noxtls_free(decrypted);
+        return NOXTLS_RETURN_FAILED;  /* wrong password or corrupt data */
+    }
+    plain_len = enc_data_len - (uint32_t)pad;
+
     (void)noxtls_x509_private_key_free(key);
-    rc = noxtls_x509_private_key_parse_der(key, decrypted, (uint32_t)(enc_data_len - (uint32_t)NOXTLS_AES_BLOCK_LEN));
-    noxtls_secure_zero((derived_key), sizeof(derived_key));
+    rc = (plain_len > 0U) ? noxtls_x509_private_key_parse_der(key, decrypted, plain_len) : NOXTLS_RETURN_FAILED;
+    noxtls_secure_zero(decrypted, (size_t)enc_data_len);
     (void)noxtls_free(decrypted);
     return rc;
 }
@@ -7050,6 +7340,22 @@ noxtls_return_t noxtls_x509_private_key_to_ecc_key(const x509_private_key_t *key
         if(rc != NOXTLS_RETURN_SUCCESS) {
             (void)noxtls_ecc_key_free(ecc_key);
             return rc;
+        }
+        /* The embedded SEC1 publicKey must belong to the private scalar (Q == d*G). */
+        {
+            ecc_point_t derived;
+            noxtls_secure_zero(&derived, sizeof(derived));
+            rc = noxtls_ecc_point_multiply(&derived, ecc_key->d, &ecc_key->curve->G, ecc_key->curve);
+            if((rc == NOXTLS_RETURN_SUCCESS) &&
+               ((noxtls_ct_memcmp(derived.x, ecc_key->Q.x, (size_t)size) != 0) ||
+                (noxtls_ct_memcmp(derived.y, ecc_key->Q.y, (size_t)size) != 0))) {
+                rc = NOXTLS_RETURN_BAD_DATA;
+            }
+            noxtls_secure_zero(&derived, sizeof(derived));
+            if(rc != NOXTLS_RETURN_SUCCESS) {
+                (void)noxtls_ecc_key_free(ecc_key);
+                return rc;
+            }
         }
     } else {
         /* MISRA 15.7: final else path */
