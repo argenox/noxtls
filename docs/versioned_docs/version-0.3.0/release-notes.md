@@ -15,7 +15,7 @@ Use the **version dropdown** in the navbar to view docs (and release notes) for 
 
 ## 0.3.0
 
-**Release date:** TBD
+**Release date:** 10/6/2026
 
 ### Changes
 
@@ -223,6 +223,7 @@ Use the **version dropdown** in the navbar to view docs (and release notes) for 
 
 ### Known issues / Open
 
+- **Fixed in 0.3.2:** a TLS 1.3 client or server could abort the handshake with unexpected_message when the peer split a handshake message (for example Certificate or Finished) across records and the continuation record started with byte 0x18 or 0x05 (about 1 in 128 such splits). Upgrade to 0.3.2.
 - This repository has no MISRA C:2025 scan result for the final merged 0.3.0 tree. Modules merged on the release branch after the recorded scans have no separate MISRA result: SPAKE2+/Matter PASE, the raw X.509 extension walker, and the CC13xx, nRF54 CRACEN, and NoxV ports.
 - The 24 Required MISRA findings reported by the integration scan have draft technical dispositions that still need project sign-off. Advisory findings are not addressed in this release.
 - nRF54 CRACEN P-256 hardware validation remains open.
