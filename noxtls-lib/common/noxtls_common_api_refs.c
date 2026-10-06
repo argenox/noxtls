@@ -30,7 +30,7 @@ static void noxtls_common_misra_api_refs(void)
 }
 
 /* Keep refs TU live for analyzers without exporting linkage (Rule 8.7). */
-__attribute__((used)) static void noxtls_common_misra_api_refs_keep(void)
+NOXTLS_MISRA_KEEP static void noxtls_common_misra_api_refs_keep(void)
 {
     noxtls_common_misra_api_refs();
 }

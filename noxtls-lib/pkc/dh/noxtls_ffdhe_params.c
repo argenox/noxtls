@@ -245,7 +245,7 @@ const uint8_t noxtls_ffdhe_g_4096[512] = {
 
 
 /* Same-TU references for public FFDHE generator tables (Rule 8.9). */
-__attribute__((used)) static void noxtls_ffdhe_misra_keep(void)
+NOXTLS_MISRA_KEEP static void noxtls_ffdhe_misra_keep(void)
 {
     NOXTLS_MISRA_REF_OBJ(noxtls_ffdhe_g_2048);
     NOXTLS_MISRA_REF_OBJ(noxtls_ffdhe_g_3072);

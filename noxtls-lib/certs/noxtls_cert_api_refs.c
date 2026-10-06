@@ -82,7 +82,7 @@ static void noxtls_cert_misra_api_refs(void)
 }
 
 /* Keep refs TU live for analyzers without exporting linkage (Rule 8.7). */
-__attribute__((used)) static void noxtls_cert_misra_api_refs_keep(void)
+NOXTLS_MISRA_KEEP static void noxtls_cert_misra_api_refs_keep(void)
 {
     noxtls_cert_misra_api_refs();
     (void)(NOXTLS_X509_VERIFY_FLAG_CRL_EXPIRED);

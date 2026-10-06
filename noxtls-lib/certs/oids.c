@@ -346,7 +346,7 @@ const oid_item_t base_oids[3] = {
 
 
 /* Same-TU reference so Rule 8.9 does not force block-scope for public OID table. */
-__attribute__((used)) static void noxtls_oids_misra_keep(void)
+NOXTLS_MISRA_KEEP static void noxtls_oids_misra_keep(void)
 {
     NOXTLS_MISRA_REF_OBJ(base_oids);
 }
