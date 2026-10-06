@@ -61,6 +61,7 @@ const sidebars = {
     'configuration-guide',
     'memory-usage',
     'release-notes',
+    'security-fixes-0.3.0',
     'documentation-parity-matrix',
     'project',
     'security-reporting',
