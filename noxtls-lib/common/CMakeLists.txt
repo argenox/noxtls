@@ -8,6 +8,9 @@ set(COMMON_SOURCES
 if(WIN32)
     list(APPEND COMMON_SOURCES getopt_win.c)
 endif()
+if(NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL)
+    list(APPEND COMMON_SOURCES noxtls_cc13xx_crypto.c)
+endif()
 add_library(noxtls_common STATIC ${COMMON_SOURCES})
 
 if(MSVC)

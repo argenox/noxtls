@@ -1446,4 +1446,12 @@
 #define NOXTLS_CFG_ENABLE_NOXSIGHT 0
 #endif
 
+/* Original injected CC13xx P-256 accelerator callbacks, disabled by default.
+ * No TI SDK or OS dependency. Bind only while all crypto callers are idle.
+ * Build knob: NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL. Synced from NoxTLS ca4b558.
+ */
+#ifndef NOXTLS_FEATURE_CC13XX_HW_ACCEL
+#define NOXTLS_FEATURE_CC13XX_HW_ACCEL 0
+#endif
+
 #endif /* _NOXTLS_CONFIG_H_ */
