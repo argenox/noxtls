@@ -22,8 +22,8 @@
 *
 */
 
-#ifndef _NOXTLS_CONFIG_H_
-#define _NOXTLS_CONFIG_H_
+#ifndef NOXTLS_CONFIG_H_
+#define NOXTLS_CONFIG_H_
 
 /* ============================================================================
  * Application-local configuration for: tls_test
@@ -1096,7 +1096,7 @@
  * 
  * Default: 50000 attempts
  */
-#define NOXTLS_RSA_MAX_PRIME_ATTEMPTS 50000
+#define NOXTLS_RSA_MAX_PRIME_ATTEMPTS 50000U
 
 /* NOXTLS_RSA_MILLER_RABIN_ITERATIONS_SMALL
  * 
@@ -1106,7 +1106,7 @@
  * 
  * Default: 2 iterations
  */
-#define NOXTLS_RSA_MILLER_RABIN_ITERATIONS_SMALL 2
+#define NOXTLS_RSA_MILLER_RABIN_ITERATIONS_SMALL 2U
 
 /* NOXTLS_RSA_MILLER_RABIN_ITERATIONS_LARGE
  * 
@@ -1116,7 +1116,7 @@
  * 
  * Default: 3 iterations
  */
-#define NOXTLS_RSA_MILLER_RABIN_ITERATIONS_LARGE 3
+#define NOXTLS_RSA_MILLER_RABIN_ITERATIONS_LARGE 3U
 
 /* NOXTLS_RSA_MILLER_RABIN_SMALL_THRESHOLD_BITS
  * 
@@ -1126,7 +1126,7 @@
  * 
  * Default: 512 bits
  */
-#define NOXTLS_RSA_MILLER_RABIN_SMALL_THRESHOLD_BITS 512
+#define NOXTLS_RSA_MILLER_RABIN_SMALL_THRESHOLD_BITS 512U
 
 /* NOXTLS_RSA_ENABLE_QUICK_DIVISIBILITY_TEST
  * 
@@ -1148,7 +1148,7 @@
  * 
  * Default: 100 (print every 100 attempts)
  */
-#define NOXTLS_RSA_DEBUG_PROGRESS_INTERVAL 100
+#define NOXTLS_RSA_DEBUG_PROGRESS_INTERVAL 100U
 
 /* NOXTLS_RSA_DEBUG_PRIMALITY_CHECK_INTERVAL
  * 
@@ -1158,7 +1158,7 @@
  * 
  * Default: 50 (print every 50 attempts)
  */
-#define NOXTLS_RSA_DEBUG_PRIMALITY_CHECK_INTERVAL 50
+#define NOXTLS_RSA_DEBUG_PRIMALITY_CHECK_INTERVAL 50U
 
 /* NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_INTERVAL
  * 
@@ -1168,7 +1168,7 @@
  * 
  * Default: 100 (print every 100 attempts, up to 500 attempts)
  */
-#define NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_INTERVAL 100
+#define NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_INTERVAL 100U
 
 /* NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_MAX_ATTEMPTS
  * 
@@ -1177,7 +1177,7 @@
  * 
  * Default: 500 attempts
  */
-#define NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_MAX_ATTEMPTS 500
+#define NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_MAX_ATTEMPTS 500U
 
 /* ============================================================================
  * ECC Point Multiplication Configuration
@@ -1215,4 +1215,4 @@
 #define NOXTLS_CFG_ENABLE_NOXSIGHT 0
 #endif
 
-#endif /* _NOXTLS_CONFIG_H_ */
+#endif /* NOXTLS_CONFIG_H_ */

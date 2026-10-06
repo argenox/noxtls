@@ -27,6 +27,7 @@
 #include "noxtls_aes_accel.h"
 #include "noxtls_common.h"
 #include "common/noxtls_ct.h"
+#include "noxtls_ct.h"
 
 #if NOXTLS_FEATURE_AES_GCM
 
@@ -37,65 +38,47 @@
  *
  * @return None.
  */
-static void gcm_inc32(uint8_t counter[16])
+static void gcm_inc32(uint8_t *counter)
 {
-    uint32_t n = ((uint32_t)counter[12] << 24) |
-                 ((uint32_t)counter[13] << 16) |
-                 ((uint32_t)counter[14] << 8) |
-                 (uint32_t)counter[15];
-    n++;
-    counter[12] = (uint8_t)(n >> 24);
-    counter[13] = (uint8_t)(n >> 16);
-    counter[14] = (uint8_t)(n >> 8);
+    uint32_t n = (((uint32_t)counter[12]) << 24U)
+               | (((uint32_t)counter[13]) << 16U)
+               | (((uint32_t)counter[14]) << 8U)
+               | ((uint32_t)counter[15]);
+    n += 1U;
+    counter[12] = (uint8_t)(n >> 24U);
+    counter[13] = (uint8_t)(n >> 16U);
+    counter[14] = (uint8_t)(n >> 8U);
     counter[15] = (uint8_t)n;
 }
 
-static uint32_t gcm_load_ne32(const uint8_t *p)
+static void gcm_xor(uint8_t *out, const uint8_t *a, const uint8_t *b)
 {
-    uint32_t v;
-    memcpy(&v, p, sizeof(v));
-    return v;
+    uint32_t i = 0U;
+    for (i = 0U; i < 16U; i += 1U) {
+        out[i] = (uint8_t)(a[i] ^ b[i]);
+    }
 }
 
-static void gcm_store_ne32(uint8_t *p, uint32_t v)
+static void gcm_xor_inplace(uint8_t *out, const uint8_t *in)
 {
-    memcpy(p, &v, sizeof(v));
+    uint32_t i = 0U;
+    for (i = 0U; i < 16U; i += 1U) {
+        out[i] = (uint8_t)(out[i] ^ in[i]);
+    }
 }
 
-/**
- * @brief XOR two 16-byte GCM blocks.
- * @param out Output block that receives a XOR b.
- * @param a First input block.
- * @param b Second input block.
- * @return None.
- */
-static void gcm_xor(uint8_t out[16], const uint8_t a[16], const uint8_t b[16])
+static void gcm_xor_stream_block(uint8_t *out, const uint8_t *in, const uint8_t *stream)
 {
-    gcm_store_ne32(out + 0U,  gcm_load_ne32(a + 0U)  ^ gcm_load_ne32(b + 0U));
-    gcm_store_ne32(out + 4U,  gcm_load_ne32(a + 4U)  ^ gcm_load_ne32(b + 4U));
-    gcm_store_ne32(out + 8U,  gcm_load_ne32(a + 8U)  ^ gcm_load_ne32(b + 8U));
-    gcm_store_ne32(out + 12U, gcm_load_ne32(a + 12U) ^ gcm_load_ne32(b + 12U));
+    uint32_t i = 0U;
+    for (i = 0U; i < 16U; i += 1U) {
+        out[i] = (uint8_t)(in[i] ^ stream[i]);
+    }
 }
 
-static void gcm_xor_inplace(uint8_t out[16], const uint8_t in[16])
+static void gcm_xor_stream_partial(uint8_t *out, const uint8_t *in, const uint8_t *stream, uint32_t len)
 {
-    gcm_store_ne32(out + 0U,  gcm_load_ne32(out + 0U)  ^ gcm_load_ne32(in + 0U));
-    gcm_store_ne32(out + 4U,  gcm_load_ne32(out + 4U)  ^ gcm_load_ne32(in + 4U));
-    gcm_store_ne32(out + 8U,  gcm_load_ne32(out + 8U)  ^ gcm_load_ne32(in + 8U));
-    gcm_store_ne32(out + 12U, gcm_load_ne32(out + 12U) ^ gcm_load_ne32(in + 12U));
-}
-
-static void gcm_xor_stream_block(uint8_t *out, const uint8_t *in, const uint8_t stream[16])
-{
-    gcm_store_ne32(out + 0U,  gcm_load_ne32(in + 0U)  ^ gcm_load_ne32(stream + 0U));
-    gcm_store_ne32(out + 4U,  gcm_load_ne32(in + 4U)  ^ gcm_load_ne32(stream + 4U));
-    gcm_store_ne32(out + 8U,  gcm_load_ne32(in + 8U)  ^ gcm_load_ne32(stream + 8U));
-    gcm_store_ne32(out + 12U, gcm_load_ne32(in + 12U) ^ gcm_load_ne32(stream + 12U));
-}
-
-static void gcm_xor_stream_partial(uint8_t *out, const uint8_t *in, const uint8_t stream[16], uint32_t len)
-{
-    for(uint32_t i = 0; i < len; i++) {
+    uint32_t i = 0U;
+    for (i = 0U; i < len; i += 1U) {
         out[i] = (uint8_t)(in[i] ^ stream[i]);
     }
 }
@@ -191,7 +174,7 @@ static void gcm_gen_table_rightshift(uint64_t dst[2], const uint64_t src[2])
  * @param v Block to shift in place.
  * @return None.
  */
-static void gcm_shift_right(uint8_t v[NOXTLS_GCM_BLOCK_BYTES])
+static void gcm_shift_right(uint8_t *v)
 {
     uint8_t carry = 0;
     for(int i = 0; i < (int)NOXTLS_GCM_BLOCK_BYTES; i++) {
@@ -207,15 +190,15 @@ static void gcm_shift_right(uint8_t v[NOXTLS_GCM_BLOCK_BYTES])
  * @param y Multiplier (H).
  * @return None.
  */
-static void gcm_mul_bitserial(uint8_t x[NOXTLS_GCM_BLOCK_BYTES],
-                             const uint8_t y[NOXTLS_GCM_BLOCK_BYTES])
+static void gcm_mul_bitserial(uint8_t *x,
+                             const uint8_t *y)
 {
     uint8_t z[NOXTLS_GCM_BLOCK_BYTES];
     uint8_t v[NOXTLS_GCM_BLOCK_BYTES];
     int i;
 
-    memset(z, 0, sizeof(z));
-    memcpy(v, y, NOXTLS_GCM_BLOCK_BYTES);
+    noxtls_secure_zero(z, (size_t)(sizeof(z)));
+    noxtls_copy_u8((uint8_t *)(void *)(v), (size_t)(NOXTLS_GCM_BLOCK_BYTES), (const uint8_t *)(const void *)(y), (size_t)(NOXTLS_GCM_BLOCK_BYTES));
 
     for(i = 0; i < 128; i++) {
         int byte_idx = i >> 3;
@@ -231,7 +214,7 @@ static void gcm_mul_bitserial(uint8_t x[NOXTLS_GCM_BLOCK_BYTES],
             }
         }
     }
-    memcpy(x, z, NOXTLS_GCM_BLOCK_BYTES);
+    noxtls_copy_u8((uint8_t *)(void *)(x), (size_t)(NOXTLS_GCM_BLOCK_BYTES), (const uint8_t *)(const void *)(z), (size_t)(NOXTLS_GCM_BLOCK_BYTES));
 }
 #endif /* NOXTLS_GCM_GHASH_SELFCHECK */
 
@@ -246,13 +229,13 @@ static void gcm_mul_bitserial(uint8_t x[NOXTLS_GCM_BLOCK_BYTES],
  * @param h Hash subkey (AES-ECB(K, 0^128)).
  * @return None.
  */
-static void gcm_gen_table(uint64_t H[NOXTLS_GCM_HTABLE_SIZE][2], const uint8_t h[NOXTLS_GCM_BLOCK_BYTES])
+static void gcm_gen_table(uint64_t H[NOXTLS_GCM_HTABLE_SIZE][2], const uint8_t *h)
 {
     unsigned int i;
     unsigned int j;
 
     H[NOXTLS_GCM_HTABLE_H1_INDEX][0] = gcm_load_be64(h);
-    H[NOXTLS_GCM_HTABLE_H1_INDEX][1] = gcm_load_be64(h + 8U);
+    H[NOXTLS_GCM_HTABLE_H1_INDEX][1] = gcm_load_be64(&h[8U]);
 
     H[0][0] = 0U;
     H[0][1] = 0U;
@@ -274,20 +257,22 @@ static void gcm_gen_table(uint64_t H[NOXTLS_GCM_HTABLE_SIZE][2], const uint8_t h
  * @param h Hash subkey.
  * @return Pointer to H[NOXTLS_GCM_HTABLE_SIZE][2].
  */
-static const uint64_t (*gcm_precompute_tables(const uint8_t h[NOXTLS_GCM_BLOCK_BYTES]))[2]
+static const uint64_t (*gcm_precompute_tables(const uint8_t *h))[2]
 {
     static uint8_t cache_valid;
     static uint8_t cache_h[NOXTLS_GCM_BLOCK_BYTES];
     static uint64_t table[NOXTLS_GCM_HTABLE_SIZE][2];
 
-    if(cache_valid != 0U && memcmp(cache_h, h, NOXTLS_GCM_BLOCK_BYTES) == 0) {
-        return table;
+    if(cache_valid != 0U) {
+        if(noxtls_ct_memcmp(cache_h, h, NOXTLS_GCM_BLOCK_BYTES) == 0) {
+            return (const uint64_t (*)[2])(const void *)table;
+        }
     }
 
     gcm_gen_table(table, h);
-    memcpy(cache_h, h, sizeof(cache_h));
+    noxtls_copy_u8((uint8_t *)(void *)(cache_h), (size_t)(sizeof(cache_h)), (const uint8_t *)(const void *)(h), (size_t)(sizeof(cache_h)));
     cache_valid = 1U;
-    return table;
+    return (const uint64_t (*)[2])(const void *)table;
 }
 
 /**
@@ -301,8 +286,8 @@ static const uint64_t (*gcm_precompute_tables(const uint8_t h[NOXTLS_GCM_BLOCK_B
  * @param H Precomputed Shoup table.
  * @return None.
  */
-static void gcm_mult_smalltable(uint8_t x[NOXTLS_GCM_BLOCK_BYTES],
-                               const uint64_t H[NOXTLS_GCM_HTABLE_SIZE][2])
+static void gcm_mult_smalltable(uint8_t *x,
+                               const uint64_t (*H)[2])
 {
     int i;
     uint8_t lo;
@@ -312,7 +297,7 @@ static void gcm_mult_smalltable(uint8_t x[NOXTLS_GCM_BLOCK_BYTES],
     const uint64_t *pu64z;
 
     lo = (uint8_t)(x[15] & NOXTLS_GCM_NIBBLE_MASK);
-    hi = (uint8_t)((x[15] >> NOXTLS_GCM_NIBBLE_BITS) & NOXTLS_GCM_NIBBLE_MASK);
+    hi = (uint8_t)(((uint32_t)x[15] >> NOXTLS_GCM_NIBBLE_BITS) & NOXTLS_GCM_NIBBLE_MASK);
 
     pu64z = H[lo];
     rem = (uint8_t)(pu64z[1] & NOXTLS_GCM_NIBBLE_MASK);
@@ -324,7 +309,7 @@ static void gcm_mult_smalltable(uint8_t x[NOXTLS_GCM_BLOCK_BYTES],
 
     for(i = 14; i >= 0; i--) {
         lo = (uint8_t)(x[i] & NOXTLS_GCM_NIBBLE_MASK);
-        hi = (uint8_t)((x[i] >> NOXTLS_GCM_NIBBLE_BITS) & NOXTLS_GCM_NIBBLE_MASK);
+        hi = (uint8_t)(((uint32_t)x[i] >> NOXTLS_GCM_NIBBLE_BITS) & NOXTLS_GCM_NIBBLE_MASK);
 
         rem = (uint8_t)(u64z[1] & NOXTLS_GCM_NIBBLE_MASK);
         u64z[1] = (u64z[0] << 60) | (u64z[1] >> NOXTLS_GCM_NIBBLE_BITS);
@@ -341,8 +326,8 @@ static void gcm_mult_smalltable(uint8_t x[NOXTLS_GCM_BLOCK_BYTES],
         u64z[1] ^= H[hi][1];
     }
 
-    gcm_store_be64(x + 0U, u64z[0]);
-    gcm_store_be64(x + 8U, u64z[1]);
+    gcm_store_be64(&x[0U], u64z[0]);
+    gcm_store_be64(&x[8U], u64z[1]);
 }
 
 /**
@@ -351,21 +336,21 @@ static void gcm_mult_smalltable(uint8_t x[NOXTLS_GCM_BLOCK_BYTES],
  * @param H Precomputed table.
  * @return None.
  */
-static void gcm_mul(uint8_t x[NOXTLS_GCM_BLOCK_BYTES],
-                    const uint64_t H[NOXTLS_GCM_HTABLE_SIZE][2])
+static void gcm_mul(uint8_t *x,
+                    const uint64_t (*H)[2])
 {
 #if defined(NOXTLS_GCM_GHASH_SELFCHECK)
     {
         uint8_t ref[NOXTLS_GCM_BLOCK_BYTES];
         uint8_t h_bytes[NOXTLS_GCM_BLOCK_BYTES];
-        memcpy(ref, x, NOXTLS_GCM_BLOCK_BYTES);
+        noxtls_copy_u8((uint8_t *)(void *)(ref), (size_t)(NOXTLS_GCM_BLOCK_BYTES), (const uint8_t *)(const void *)(x), (size_t)(NOXTLS_GCM_BLOCK_BYTES));
         gcm_store_be64(h_bytes + 0U, H[NOXTLS_GCM_HTABLE_H1_INDEX][0]);
         gcm_store_be64(h_bytes + 8U, H[NOXTLS_GCM_HTABLE_H1_INDEX][1]);
         gcm_mul_bitserial(ref, h_bytes);
         gcm_mult_smalltable(x, H);
         if(memcmp(ref, x, NOXTLS_GCM_BLOCK_BYTES) != 0) {
             /* Keep bitserial result if smalltable diverges (debug builds). */
-            memcpy(x, ref, NOXTLS_GCM_BLOCK_BYTES);
+            noxtls_copy_u8((uint8_t *)(void *)(x), (size_t)(NOXTLS_GCM_BLOCK_BYTES), (const uint8_t *)(const void *)(ref), (size_t)(NOXTLS_GCM_BLOCK_BYTES));
         }
         return;
     }
@@ -383,8 +368,8 @@ static void gcm_mul(uint8_t x[NOXTLS_GCM_BLOCK_BYTES],
  * @return None.
  */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
-static void ghash_update(uint8_t x[NOXTLS_GCM_BLOCK_BYTES],
-                         const uint64_t H[NOXTLS_GCM_HTABLE_SIZE][2],
+static void ghash_update(uint8_t *x,
+                         const uint64_t (*H)[2],
                          const uint8_t *data,
                          uint32_t len)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
@@ -393,15 +378,15 @@ static void ghash_update(uint8_t x[NOXTLS_GCM_BLOCK_BYTES],
     uint32_t offset = 0;
 
     while((len - offset) >= NOXTLS_GCM_BLOCK_BYTES) {
-        gcm_xor_inplace(x, data + offset);
+        gcm_xor_inplace(x, &data[offset]);
         gcm_mul(x, H);
         offset += NOXTLS_GCM_BLOCK_BYTES;
     }
 
     if(offset < len) {
         uint32_t take = len - offset;
-        memset(block, 0, sizeof(block));
-        memcpy(block, data + offset, take);
+        noxtls_secure_zero(block, (size_t)(sizeof(block)));
+        noxtls_copy_u8((uint8_t *)(void *)(block), (size_t)(take), (const uint8_t *)(const void *)(&data[offset]), (size_t)(take));
         gcm_xor_inplace(x, block);
         gcm_mul(x, H);
     }
@@ -416,31 +401,31 @@ static void ghash_update(uint8_t x[NOXTLS_GCM_BLOCK_BYTES],
  * @return None.
  */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
-static void ghash_finalize(uint8_t x[NOXTLS_GCM_BLOCK_BYTES],
-                           const uint64_t H[NOXTLS_GCM_HTABLE_SIZE][2],
+static void ghash_finalize(uint8_t *x,
+                           const uint64_t (*H)[2],
                            uint64_t aad_bits,
                            uint64_t data_bits)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     uint8_t len_block[NOXTLS_GCM_BLOCK_BYTES];
-    memset(len_block, 0, sizeof(len_block));
+    noxtls_secure_zero(len_block, (size_t)(sizeof(len_block)));
 
-    len_block[0] = (uint8_t)(aad_bits >> 56);
-    len_block[1] = (uint8_t)(aad_bits >> 48);
-    len_block[2] = (uint8_t)(aad_bits >> 40);
-    len_block[3] = (uint8_t)(aad_bits >> 32);
-    len_block[4] = (uint8_t)(aad_bits >> 24);
-    len_block[5] = (uint8_t)(aad_bits >> 16);
-    len_block[6] = (uint8_t)(aad_bits >> 8);
+    len_block[0] = (uint8_t)(aad_bits >> 56U);
+    len_block[1] = (uint8_t)(aad_bits >> 48U);
+    len_block[2] = (uint8_t)(aad_bits >> 40U);
+    len_block[3] = (uint8_t)(aad_bits >> 32U);
+    len_block[4] = (uint8_t)(aad_bits >> 24U);
+    len_block[5] = (uint8_t)(aad_bits >> 16U);
+    len_block[6] = (uint8_t)(aad_bits >> 8U);
     len_block[7] = (uint8_t)aad_bits;
 
-    len_block[8] = (uint8_t)(data_bits >> 56);
-    len_block[9] = (uint8_t)(data_bits >> 48);
-    len_block[10] = (uint8_t)(data_bits >> 40);
-    len_block[11] = (uint8_t)(data_bits >> 32);
-    len_block[12] = (uint8_t)(data_bits >> 24);
-    len_block[13] = (uint8_t)(data_bits >> 16);
-    len_block[14] = (uint8_t)(data_bits >> 8);
+    len_block[8] = (uint8_t)(data_bits >> 56U);
+    len_block[9] = (uint8_t)(data_bits >> 48U);
+    len_block[10] = (uint8_t)(data_bits >> 40U);
+    len_block[11] = (uint8_t)(data_bits >> 32U);
+    len_block[12] = (uint8_t)(data_bits >> 24U);
+    len_block[13] = (uint8_t)(data_bits >> 16U);
+    len_block[14] = (uint8_t)(data_bits >> 8U);
     len_block[15] = (uint8_t)data_bits;
 
     gcm_xor_inplace(x, len_block);
@@ -457,7 +442,7 @@ static void ghash_finalize(uint8_t x[NOXTLS_GCM_BLOCK_BYTES],
  *
  * @return None.
  */
-static noxtls_return_t aes_block(const noxtls_aes_context_t *ctx, const uint8_t in[16], uint8_t out[16])
+static noxtls_return_t aes_block(const noxtls_aes_context_t *ctx, const uint8_t *in, uint8_t *out)
 {
     /* Prefer the configured block backend (STM32/nRF port, AES-NI, …) so
      * HW builds accelerate GCM CTR/GHASH keystream, not only H7 full-AEAD. */
@@ -481,11 +466,11 @@ static noxtls_return_t aes_block(const noxtls_aes_context_t *ctx, const uint8_t 
  */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 noxtls_return_t noxtls_aes_gcm_encrypt(const uint8_t *key, noxtls_aes_type_t type,
-                    const uint8_t nonce[12],
+                    const uint8_t *nonce,
                     const uint8_t *aad, uint32_t aad_len,
                     const uint8_t *plaintext, uint32_t plaintext_len,
                     uint8_t *ciphertext,
-                    uint8_t tag[16])
+                    uint8_t *tag)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     noxtls_aes_context_t aes_ctx;
@@ -497,7 +482,7 @@ noxtls_return_t noxtls_aes_gcm_encrypt(const uint8_t *key, noxtls_aes_type_t typ
     const uint64_t (*ghash_table)[2];
     uint32_t offset = 0;
 
-    if(key == NULL || nonce == NULL || plaintext == NULL || ciphertext == NULL || tag == NULL) {
+    if ((key == NULL) || (nonce == NULL) || (plaintext == NULL) || (ciphertext == NULL) || (tag == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
@@ -516,65 +501,59 @@ noxtls_return_t noxtls_aes_gcm_encrypt(const uint8_t *key, noxtls_aes_type_t typ
     }
 
     {
-        noxtls_return_t rc;
-        memset(&aes_ctx, 0, sizeof(aes_ctx));
+        noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+        noxtls_secure_zero(&aes_ctx, sizeof(aes_ctx));
         rc = noxtls_aes_prepare_context(&aes_ctx, key, type);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
+        if (rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
     }
 
-    memset(h, 0, sizeof(h));
-
+    noxtls_secure_zero((h), sizeof(h));
     NOXTLS_AES_CHECK(aes_block(&aes_ctx, h, h), ciphertext, plaintext_len, tag, 16U);
-
     ghash_table = gcm_precompute_tables(h);
 
-    memcpy(j0, nonce, 12);
-    j0[12] = 0x00;
-    j0[13] = 0x00;
-    j0[14] = 0x00;
-    j0[15] = 0x01;
+    noxtls_copy_u8(j0, sizeof(j0), nonce, 12U);
+    j0[12] = 0x00U;
+    j0[13] = 0x00U;
+    j0[14] = 0x00U;
+    j0[15] = 0x01U;
 
-    memcpy(ctr, j0, 16);
-    gcm_inc32(ctr);
+    noxtls_copy_u8(ctr, sizeof(ctr), j0, 16U);
+    (void)gcm_inc32(ctr);
 
-    memset(x, 0, sizeof(x));
-    if(aad != NULL && aad_len > 0) {
+    noxtls_secure_zero((x), sizeof(x));
+    if ((aad != NULL) && (aad_len > 0U)) {
         ghash_update(x, ghash_table, aad, aad_len);
     }
 
-    while(offset < plaintext_len) {
-        uint32_t take = (plaintext_len - offset >= 16) ? 16 : (plaintext_len - offset);
-
+    while (offset < plaintext_len) {
+        uint32_t remain = (uint32_t)(plaintext_len - offset);
+        uint32_t take = (uint32_t)((remain >= 16U) ? 16U : remain);
         NOXTLS_AES_CHECK(aes_block(&aes_ctx, ctr, s), ciphertext, plaintext_len, tag, 16U);
-
-        if(take == 16U) {
-            gcm_xor_stream_block(ciphertext + offset, plaintext + offset, s);
-        } else {
-            gcm_xor_stream_partial(ciphertext + offset, plaintext + offset, s, take);
-        }
-        if(take == 16U) {
-            gcm_xor_inplace(x, ciphertext + offset);
-            gcm_mul(x, ghash_table);
+        if (take == 16U) {
+            uint8_t in_blk[16];
+            uint8_t out_blk[16];
+            noxtls_copy_u8(in_blk, sizeof(in_blk), &plaintext[offset], 16U);
+            (void)gcm_xor_stream_block(out_blk, in_blk, s);
+            noxtls_copy_u8(&ciphertext[offset], 16U, out_blk, 16U);
+            (void)gcm_xor_inplace(x, out_blk);
+            (void)gcm_mul(x, ghash_table);
         } else {
             uint8_t block[16] = {0};
-            memcpy(block, ciphertext + offset, take);
-            gcm_xor_inplace(x, block);
-            gcm_mul(x, ghash_table);
+            (void)gcm_xor_stream_partial(&ciphertext[offset], &plaintext[offset], s, take);
+            noxtls_copy_u8(block, sizeof(block), &ciphertext[offset], (size_t)take);
+            (void)gcm_xor_inplace(x, block);
+            (void)gcm_mul(x, ghash_table);
         }
         offset += take;
-        gcm_inc32(ctr);
+        (void)gcm_inc32(ctr);
     }
 
-    ghash_finalize(x, ghash_table, (uint64_t)aad_len * 8U, (uint64_t)plaintext_len * 8U);
-
-
+    (void)ghash_finalize(x, ghash_table, ((uint64_t)aad_len) * 8U, ((uint64_t)plaintext_len) * 8U);
 
     NOXTLS_AES_CHECK(aes_block(&aes_ctx, j0, s), ciphertext, plaintext_len, tag, 16U);
-
-
-    gcm_xor(tag, x, s);
+    (void)gcm_xor(tag, x, s);
 
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -596,10 +575,10 @@ noxtls_return_t noxtls_aes_gcm_encrypt(const uint8_t *key, noxtls_aes_type_t typ
  */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 noxtls_return_t noxtls_aes_gcm_decrypt(const uint8_t *key, noxtls_aes_type_t type,
-                    const uint8_t nonce[12],
+                    const uint8_t *nonce,
                     const uint8_t *aad, uint32_t aad_len,
                     const uint8_t *ciphertext, uint32_t ciphertext_len,
-                    const uint8_t tag[16],
+                    const uint8_t *tag,
                     uint8_t *plaintext)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
@@ -613,7 +592,7 @@ noxtls_return_t noxtls_aes_gcm_decrypt(const uint8_t *key, noxtls_aes_type_t typ
     const uint64_t (*ghash_table)[2];
     uint32_t offset = 0;
 
-    if(key == NULL || nonce == NULL || ciphertext == NULL || plaintext == NULL || tag == NULL) {
+    if ((key == NULL) || (nonce == NULL) || (ciphertext == NULL) || (plaintext == NULL) || (tag == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
@@ -631,60 +610,57 @@ noxtls_return_t noxtls_aes_gcm_decrypt(const uint8_t *key, noxtls_aes_type_t typ
     }
 
     {
-        noxtls_return_t rc;
-        memset(&aes_ctx, 0, sizeof(aes_ctx));
+        noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+        noxtls_secure_zero(&aes_ctx, sizeof(aes_ctx));
         rc = noxtls_aes_prepare_context(&aes_ctx, key, type);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
+        if (rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
     }
 
-    memset(h, 0, sizeof(h));
-
+    noxtls_secure_zero((h), sizeof(h));
     NOXTLS_AES_CHECK(aes_block(&aes_ctx, h, h), plaintext, ciphertext_len, NULL, 0U);
-
     ghash_table = gcm_precompute_tables(h);
 
-    memcpy(j0, nonce, 12);
-    j0[12] = 0x00;
-    j0[13] = 0x00;
-    j0[14] = 0x00;
-    j0[15] = 0x01;
+    noxtls_copy_u8(j0, sizeof(j0), nonce, 12U);
+    j0[12] = 0x00U;
+    j0[13] = 0x00U;
+    j0[14] = 0x00U;
+    j0[15] = 0x01U;
 
-    memset(x, 0, sizeof(x));
-    if(aad != NULL && aad_len > 0) {
+    noxtls_secure_zero((x), sizeof(x));
+    if ((aad != NULL) && (aad_len > 0U)) {
         ghash_update(x, ghash_table, aad, aad_len);
     }
     ghash_update(x, ghash_table, ciphertext, ciphertext_len);
-    ghash_finalize(x, ghash_table, (uint64_t)aad_len * 8U, (uint64_t)ciphertext_len * 8U);
-
-
+    (void)ghash_finalize(x, ghash_table, ((uint64_t)aad_len) * 8U, ((uint64_t)ciphertext_len) * 8U);
 
     NOXTLS_AES_CHECK(aes_block(&aes_ctx, j0, s), plaintext, ciphertext_len, NULL, 0U);
+    (void)gcm_xor(expected_tag, x, s);
 
-
-    gcm_xor(expected_tag, x, s);
-
-    if(noxtls_secret_memcmp(expected_tag, tag, 16) != 0) {
+    if (noxtls_secret_memcmp(expected_tag, tag, (size_t)(16)) != 0) {
         noxtls_secure_zero(plaintext, ciphertext_len);
         return NOXTLS_RETURN_BAD_DATA;
     }
 
-    memcpy(ctr, j0, 16);
-    gcm_inc32(ctr);
+    noxtls_copy_u8(ctr, sizeof(ctr), j0, 16U);
+    (void)gcm_inc32(ctr);
 
-    while(offset < ciphertext_len) {
-        uint32_t take = (ciphertext_len - offset >= 16) ? 16 : (ciphertext_len - offset);
-
+    while (offset < ciphertext_len) {
+        uint32_t remain = (uint32_t)(ciphertext_len - offset);
+        uint32_t take = (uint32_t)((remain >= 16U) ? 16U : remain);
         NOXTLS_AES_CHECK(aes_block(&aes_ctx, ctr, s), plaintext, ciphertext_len, NULL, 0U);
-
-        if(take == 16U) {
-            gcm_xor_stream_block(plaintext + offset, ciphertext + offset, s);
+        if (take == 16U) {
+            uint8_t in_blk[16];
+            uint8_t out_blk[16];
+            noxtls_copy_u8(in_blk, sizeof(in_blk), &ciphertext[offset], 16U);
+            (void)gcm_xor_stream_block(out_blk, in_blk, s);
+            noxtls_copy_u8(&plaintext[offset], 16U, out_blk, 16U);
         } else {
-            gcm_xor_stream_partial(plaintext + offset, ciphertext + offset, s, take);
+            (void)gcm_xor_stream_partial(&plaintext[offset], &ciphertext[offset], s, take);
         }
         offset += take;
-        gcm_inc32(ctr);
+        (void)gcm_inc32(ctr);
     }
 
     return NOXTLS_RETURN_SUCCESS;

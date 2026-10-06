@@ -20,11 +20,12 @@
 *
 *****************************************************************************/
 
-#ifndef _NOXTLS_CHECK_CONFIG_H_
-#define _NOXTLS_CHECK_CONFIG_H_
+#ifndef NOXTLS_CHECK_CONFIG_H_
+#define NOXTLS_CHECK_CONFIG_H_
 
 /* Boolean sanity checks for 0/1 style feature toggles. */
-#define NOXTLS_CFG_BOOL_OK(v) ((v) == 0 || (v) == 1)
+/* Dir 4.9: must be a macro for use in #if expressions. */
+#define NOXTLS_CFG_BOOL_OK(v) (((v) == 0) || ((v) == 1))
 
 #if !NOXTLS_CFG_BOOL_OK(NOXTLS_CT_COMPARE)
 #error "NOXTLS_CT_COMPARE must be 0 or 1."
@@ -457,6 +458,7 @@
 #error "NOXTLS_SIDECHANNEL_PROFILE_CONSTANT_TIME_STRICT requires NOXTLS_CT_COMPARE=1."
 #endif
 
+/* Local helper macro scope ends here; undefine to avoid leaking into TUs. */
 #undef NOXTLS_CFG_BOOL_OK
 
-#endif /* _NOXTLS_CHECK_CONFIG_H_ */
+#endif /* NOXTLS_CHECK_CONFIG_H_ */

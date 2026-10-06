@@ -31,11 +31,18 @@
  * here ensures _NOXTLS_CONFIG_H_ is set from THIS file. */
 #include "noxtls_config.h"
 
+static const uint8_t s_app_cert_pub_key_begin[] = { (uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'B',(uint8_t)'E',(uint8_t)'G',(uint8_t)'I',(uint8_t)'N',(uint8_t)' ',(uint8_t)'P',(uint8_t)'U',(uint8_t)'B',(uint8_t)'L',(uint8_t)'I',(uint8_t)'C',(uint8_t)' ',(uint8_t)'K',(uint8_t)'E',(uint8_t)'Y',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',0 };
+static const uint8_t s_app_cert_pub_key_end[] = { (uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'E',(uint8_t)'N',(uint8_t)'D',(uint8_t)' ',(uint8_t)'P',(uint8_t)'U',(uint8_t)'B',(uint8_t)'L',(uint8_t)'I',(uint8_t)'C',(uint8_t)' ',(uint8_t)'K',(uint8_t)'E',(uint8_t)'Y',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',0 };
+static const uint8_t s_app_cert_begin[] = { (uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'B',(uint8_t)'E',(uint8_t)'G',(uint8_t)'I',(uint8_t)'N',(uint8_t)' ',(uint8_t)'C',(uint8_t)'E',(uint8_t)'R',(uint8_t)'T',(uint8_t)'I',(uint8_t)'F',(uint8_t)'I',(uint8_t)'C',(uint8_t)'A',(uint8_t)'T',(uint8_t)'E',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',0 };
+static const uint8_t s_app_cert_end[] = { (uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'E',(uint8_t)'N',(uint8_t)'D',(uint8_t)' ',(uint8_t)'C',(uint8_t)'E',(uint8_t)'R',(uint8_t)'T',(uint8_t)'I',(uint8_t)'F',(uint8_t)'I',(uint8_t)'C',(uint8_t)'A',(uint8_t)'T',(uint8_t)'E',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',0 };
+
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include "noxtls_ct.h"
 
 /* The application-local noxtls_config.h MUST be included before any NoxTLS
  * library header so that NOXTLS_APP_STATIC_BUFFER_SIZE and feature-flag
@@ -187,7 +194,7 @@ static const uint8_t oid_secp256k1[] = {0x2B, 0x81, 0x04, 0x00, 0x0A};
  * @param[in] mode The mode to open the file in
  * @return The file pointer
  */
-static FILE *noxtls_fopen(const char *filename, const char *mode)
+static FILE *noxtls_fopen(const uint8_t *filename, const uint8_t *mode)
 {
 #ifdef _MSC_VER
     FILE *fp = NULL;
@@ -206,7 +213,7 @@ static FILE *noxtls_fopen(const char *filename, const char *mode)
  * @param[in] prog The name of the application
  * @return void
  */
-static void print_usage(const char *prog)
+static void print_usage(const uint8_t *prog)
 {
     printf("Usage: %s <command> [options]\n\n", prog);
     printf("Commands (OpenSSL-like):\n");
@@ -560,7 +567,7 @@ static uint32_t encode_eddsa_spki_der(const uint8_t *alg_oid, uint32_t alg_oid_l
  * @param[in] s The string to check
  * @return 1 if s (lowercase) equals "key", "pub", "pem", or "der", 0 otherwise
  */
-static int is_known_ext(const char *s)
+static int is_known_ext(const uint8_t *s)
 {
     if (s[0] == 'k' && s[1] == 'e' && s[2] == 'y' && s[3] == '\0') return 1;
     if (s[0] == 'p' && s[1] == 'u' && s[2] == 'b' && s[3] == '\0') return 1;
@@ -579,7 +586,7 @@ static int is_known_ext(const char *s)
  * @param[in] path_max The maximum length of the path
  * @return void
  */
-static void build_key_pub_paths(const char *out_file, char *key_path, char *pub_path, size_t path_max)
+static void build_key_pub_paths(const uint8_t *out_file, uint8_t *key_path, uint8_t *pub_path, size_t path_max)
 {
     if (out_file == NULL || key_path == NULL || pub_path == NULL || path_max == 0) {
         return;
@@ -594,21 +601,21 @@ static void build_key_pub_paths(const char *out_file, char *key_path, char *pub_
         pub_path[0] = '\0';
         return;
     }
-    const char *last_slash = strrchr(out_file, '/');
+    const uint8_t *last_slash = strrchr(out_file, '/');
 #ifdef _WIN32
-    const char *last_back = strrchr(out_file, '\\');
+    const uint8_t *last_back = strrchr(out_file, '\\');
     if (last_back != NULL && (last_slash == NULL || last_back > last_slash)) {
         last_slash = last_back;
     }
 #endif
-    const char *last_dot = strrchr(out_file, '.');
-    char base_buf[CERTGEN_KEYPUB_BASE_MAX + 1U];
+    const uint8_t *last_dot = strrchr(out_file, '.');
+    uint8_t base_buf[CERTGEN_KEYPUB_BASE_MAX + 1U];
     if (last_dot != NULL && last_dot > last_slash && last_dot[1] != '\0') {
-        const char *suf = last_dot + 1;
-        char suf_lower[8];
+        const uint8_t *suf = last_dot + 1;
+        uint8_t suf_lower[8];
         size_t j = 0;
         while (j < sizeof(suf_lower) - 1 && suf[j] != '\0') {
-            suf_lower[j] = (char)((suf[j] >= 'A' && suf[j] <= 'Z') ? suf[j] + 32 : suf[j]);
+            suf_lower[j] = (uint8_t)((suf[j] >= 'A' && suf[j] <= 'Z') ? suf[j] + 32 : suf[j]);
             j++;
         }
         suf_lower[j] = '\0';
@@ -624,7 +631,7 @@ static void build_key_pub_paths(const char *out_file, char *key_path, char *pub_
         }
     }
     {
-        size_t ol = strlen(out_file);
+        size_t ol = noxtls_u8_strlen(out_file);
         if (ol > max_base) ol = max_base;
         if (ol >= sizeof(base_buf)) ol = sizeof(base_buf) - 1;
         memcpy(base_buf, out_file, ol);
@@ -645,14 +652,14 @@ static void build_key_pub_paths(const char *out_file, char *key_path, char *pub_
  * @param[in] end The end of the PEM markers
  * @return 0 on success, -1 on failure
  */
-static int write_der_as_pem(FILE *fp, const uint8_t *der_buf, uint32_t der_len, const char *begin, const char *end)
+static int write_der_as_pem(FILE *fp, const uint8_t *der_buf, uint32_t der_len, const uint8_t *begin, const uint8_t *end)
 {
     if (fp == NULL || der_buf == NULL || begin == NULL || end == NULL) {
         return -1;
     }
     fputs(begin, fp);
     size_t b64_size = ((size_t)der_len + 2) / 3 * 4 + 4;
-    char *b64 = (char *)malloc(b64_size);
+    uint8_t *b64 = (uint8_t *)malloc(b64_size);
     if (b64 == NULL) return -1;
     int b64_len = noxtls_base64_encode(der_buf, der_len, b64);
     if (b64_len > 0) {
@@ -679,64 +686,64 @@ static int write_der_as_pem(FILE *fp, const uint8_t *der_buf, uint32_t der_len, 
  * @param[in] prog The name of the program
  * @return 0 on success, -1 on failure
  */
-static int cmd_genec(int argc, char **argv, const char *prog)
+static int cmd_genec(int argc, uint8_t **argv, const uint8_t *prog)
 {
     (void)prog;
-    const char *out_file = NULL;
-    const char *outform = "PEM";
+    const uint8_t *out_file = NULL;
+    const uint8_t *outform = "PEM";
     ecc_curve_t curve_type = NOXTLS_ECC_SECP256R1;
     const uint8_t *curve_oid = oid_secp256r1;
     uint32_t curve_oid_len = sizeof(oid_secp256r1);
     int i;
 
     for (i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-out") == 0 && i + 1 < argc) {
+        if (noxtls_u8_strcmp(argv[i], "-out") == 0 && i + 1 < argc) {
             out_file = argv[++i];
-        } else if (strcmp(argv[i], "-outform") == 0 && i + 1 < argc) {
+        } else if (noxtls_u8_strcmp(argv[i], "-outform") == 0 && i + 1 < argc) {
             outform = argv[++i];
-        } else if (strcmp(argv[i], "-curve") == 0 && i + 1 < argc) {
-            const char *curve = argv[++i];
-            if (strcmp(curve, "secp192r1") == 0 || strcmp(curve, "prime192v1") == 0 || strcmp(curve, "P-192") == 0) {
+        } else if (noxtls_u8_strcmp(argv[i], "-curve") == 0 && i + 1 < argc) {
+            const uint8_t *curve = argv[++i];
+            if (noxtls_u8_strcmp(curve, "secp192r1") == 0 || noxtls_u8_strcmp(curve, "prime192v1") == 0 || noxtls_u8_strcmp(curve, "P-192") == 0) {
                 curve_type = NOXTLS_ECC_SECP192R1;
                 curve_oid = oid_secp192r1;
                 curve_oid_len = sizeof(oid_secp192r1);
-            } else if (strcmp(curve, "secp224r1") == 0 || strcmp(curve, "P-224") == 0) {
+            } else if (noxtls_u8_strcmp(curve, "secp224r1") == 0 || noxtls_u8_strcmp(curve, "P-224") == 0) {
                 curve_type = NOXTLS_ECC_SECP224R1;
                 curve_oid = oid_secp224r1;
                 curve_oid_len = sizeof(oid_secp224r1);
-            } else if (strcmp(curve, "prime256v1") == 0 || strcmp(curve, "secp256r1") == 0 || strcmp(curve, "P-256") == 0) {
+            } else if (noxtls_u8_strcmp(curve, "prime256v1") == 0 || noxtls_u8_strcmp(curve, "secp256r1") == 0 || noxtls_u8_strcmp(curve, "P-256") == 0) {
                 curve_type = NOXTLS_ECC_SECP256R1;
                 curve_oid = oid_secp256r1;
                 curve_oid_len = sizeof(oid_secp256r1);
-            } else if (strcmp(curve, "secp384r1") == 0 || strcmp(curve, "P-384") == 0) {
+            } else if (noxtls_u8_strcmp(curve, "secp384r1") == 0 || noxtls_u8_strcmp(curve, "P-384") == 0) {
                 curve_type = NOXTLS_ECC_SECP384R1;
                 curve_oid = oid_secp384r1;
                 curve_oid_len = sizeof(oid_secp384r1);
-            } else if (strcmp(curve, "secp521r1") == 0 || strcmp(curve, "P-521") == 0) {
+            } else if (noxtls_u8_strcmp(curve, "secp521r1") == 0 || noxtls_u8_strcmp(curve, "P-521") == 0) {
                 curve_type = NOXTLS_ECC_SECP521R1;
                 curve_oid = oid_secp521r1;
                 curve_oid_len = sizeof(oid_secp521r1);
-            } else if (strcmp(curve, "brainpoolP256r1") == 0 || strcmp(curve, "bp256r1") == 0) {
+            } else if (noxtls_u8_strcmp(curve, "brainpoolP256r1") == 0 || noxtls_u8_strcmp(curve, "bp256r1") == 0) {
                 curve_type = NOXTLS_ECC_BP256R1;
                 curve_oid = oid_bp256r1;
                 curve_oid_len = sizeof(oid_bp256r1);
-            } else if (strcmp(curve, "brainpoolP384r1") == 0 || strcmp(curve, "bp384r1") == 0) {
+            } else if (noxtls_u8_strcmp(curve, "brainpoolP384r1") == 0 || noxtls_u8_strcmp(curve, "bp384r1") == 0) {
                 curve_type = NOXTLS_ECC_BP384R1;
                 curve_oid = oid_bp384r1;
                 curve_oid_len = sizeof(oid_bp384r1);
-            } else if (strcmp(curve, "brainpoolP512r1") == 0 || strcmp(curve, "bp512r1") == 0) {
+            } else if (noxtls_u8_strcmp(curve, "brainpoolP512r1") == 0 || noxtls_u8_strcmp(curve, "bp512r1") == 0) {
                 curve_type = NOXTLS_ECC_BP512R1;
                 curve_oid = oid_bp512r1;
                 curve_oid_len = sizeof(oid_bp512r1);
-            } else if (strcmp(curve, "secp192k1") == 0) {
+            } else if (noxtls_u8_strcmp(curve, "secp192k1") == 0) {
                 curve_type = NOXTLS_ECC_SECP192K1;
                 curve_oid = oid_secp192k1;
                 curve_oid_len = sizeof(oid_secp192k1);
-            } else if (strcmp(curve, "secp224k1") == 0) {
+            } else if (noxtls_u8_strcmp(curve, "secp224k1") == 0) {
                 curve_type = NOXTLS_ECC_SECP224K1;
                 curve_oid = oid_secp224k1;
                 curve_oid_len = sizeof(oid_secp224k1);
-            } else if (strcmp(curve, "secp256k1") == 0) {
+            } else if (noxtls_u8_strcmp(curve, "secp256k1") == 0) {
                 curve_type = NOXTLS_ECC_SECP256K1;
                 curve_oid = oid_secp256k1;
                 curve_oid_len = sizeof(oid_secp256k1);
@@ -753,7 +760,7 @@ static int cmd_genec(int argc, char **argv, const char *prog)
         return 1;
     }
     {
-        const char *curve_name = "prime256v1";
+        const uint8_t *curve_name = "prime256v1";
         switch (curve_type) {
             case NOXTLS_ECC_SECP192R1: curve_name = "secp192r1"; break;
             case NOXTLS_ECC_SECP224R1: curve_name = "secp224r1"; break;
@@ -788,7 +795,7 @@ static int cmd_genec(int argc, char **argv, const char *prog)
 
     if (out_file == NULL) {
         FILE *fp = stdout;
-        if (strcmp(outform, "DER") == 0 || strcmp(outform, "der") == 0) {
+        if (noxtls_u8_strcmp(outform, "DER") == 0 || noxtls_u8_strcmp(outform, "der") == 0) {
             if (fwrite(der_buf, 1, der_len, fp) != der_len) {
                 fprintf(stderr, "Error: Write failed\n");
                 return 1;
@@ -802,8 +809,8 @@ static int cmd_genec(int argc, char **argv, const char *prog)
         return 0;
     }
 
-    char key_path[CERTGEN_PATH_MAX];
-    char pub_path[CERTGEN_PATH_MAX];
+    uint8_t key_path[CERTGEN_PATH_MAX];
+    uint8_t pub_path[CERTGEN_PATH_MAX];
     build_key_pub_paths(out_file, key_path, pub_path, sizeof(key_path));
 
     FILE *fp_key = noxtls_fopen(key_path, "wb");
@@ -811,7 +818,7 @@ static int cmd_genec(int argc, char **argv, const char *prog)
         fprintf(stderr, "Error: Cannot open %s for writing\n", key_path);
         return 1;
     }
-    if (strcmp(outform, "DER") == 0 || strcmp(outform, "der") == 0) {
+    if (noxtls_u8_strcmp(outform, "DER") == 0 || noxtls_u8_strcmp(outform, "der") == 0) {
         if (fwrite(der_buf, 1, der_len, fp_key) != der_len) {
             fprintf(stderr, "Error: Write failed for %s\n", key_path);
             fclose(fp_key);
@@ -833,7 +840,7 @@ static int cmd_genec(int argc, char **argv, const char *prog)
             fprintf(stderr, "Error: Cannot open %s for writing\n", pub_path);
             return 1;
         }
-        if (write_der_as_pem(fp_pub, pub_der_buf, pub_der_len, CERT_PUB_KEY_STR "\n", CERT_PUB_KEY_END "\n") != 0) {
+        if (write_der_as_pem(fp_pub, pub_der_buf, pub_der_len, s_app_cert_pub_key_begin, s_app_cert_pub_key_end) != 0) {
             fclose(fp_pub);
             return 1;
         }
@@ -851,16 +858,16 @@ static int cmd_genec(int argc, char **argv, const char *prog)
  * @param[in] prog The program name
  * @return 0 on success, -1 on failure
  */
-static int cmd_gened25519(int argc, char **argv, const char *prog)
+static int cmd_gened25519(int argc, uint8_t **argv, const uint8_t *prog)
 {
     (void)prog;
-    const char *out_file = NULL;
-    const char *outform = "PEM";
+    const uint8_t *out_file = NULL;
+    const uint8_t *outform = "PEM";
     int i;
     for (i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-out") == 0 && i + 1 < argc) {
+        if (noxtls_u8_strcmp(argv[i], "-out") == 0 && i + 1 < argc) {
             out_file = argv[++i];
-        } else if (strcmp(argv[i], "-outform") == 0 && i + 1 < argc) {
+        } else if (noxtls_u8_strcmp(argv[i], "-outform") == 0 && i + 1 < argc) {
             outform = argv[++i];
         }
     }
@@ -881,7 +888,7 @@ static int cmd_gened25519(int argc, char **argv, const char *prog)
     printf("Generating Ed25519 key pair\n");
     if (out_file == NULL) {
         FILE *fp = stdout;
-        if (strcmp(outform, "DER") == 0 || strcmp(outform, "der") == 0) {
+        if (noxtls_u8_strcmp(outform, "DER") == 0 || noxtls_u8_strcmp(outform, "der") == 0) {
             fwrite(pkcs8, 1, pkcs8_len, fp);
         } else if (write_der_as_pem(fp, pkcs8, pkcs8_len, "-----BEGIN PRIVATE KEY-----\n", "-----END PRIVATE KEY-----\n") != 0) {
             return 1;
@@ -889,15 +896,15 @@ static int cmd_gened25519(int argc, char **argv, const char *prog)
         printf("Wrote Ed25519 private key to stdout\n");
         return 0;
     }
-    char key_path[CERTGEN_PATH_MAX];
-    char pub_path[CERTGEN_PATH_MAX];
+    uint8_t key_path[CERTGEN_PATH_MAX];
+    uint8_t pub_path[CERTGEN_PATH_MAX];
     build_key_pub_paths(out_file, key_path, pub_path, sizeof(key_path));
     FILE *fp_key = noxtls_fopen(key_path, "wb");
     if (fp_key == NULL) {
         fprintf(stderr, "Error: Cannot open %s for writing\n", key_path);
         return 1;
     }
-    if (strcmp(outform, "DER") == 0 || strcmp(outform, "der") == 0) {
+    if (noxtls_u8_strcmp(outform, "DER") == 0 || noxtls_u8_strcmp(outform, "der") == 0) {
         if (fwrite(pkcs8, 1, pkcs8_len, fp_key) != pkcs8_len) {
             fclose(fp_key);
             return 1;
@@ -916,7 +923,7 @@ static int cmd_gened25519(int argc, char **argv, const char *prog)
         fprintf(stderr, "Error: Cannot open %s for writing\n", pub_path);
         return 1;
     }
-    if (write_der_as_pem(fp_pub, spki, spki_len, CERT_PUB_KEY_STR "\n", CERT_PUB_KEY_END "\n") != 0) {
+    if (write_der_as_pem(fp_pub, spki, spki_len, s_app_cert_pub_key_begin, s_app_cert_pub_key_end) != 0) {
         fclose(fp_pub);
         return 1;
     }
@@ -934,16 +941,16 @@ static int cmd_gened25519(int argc, char **argv, const char *prog)
  * @param[in] prog The program name
  * @return 0 on success, 1 on failure
  */
-static int cmd_gened448(int argc, char **argv, const char *prog)
+static int cmd_gened448(int argc, uint8_t **argv, const uint8_t *prog)
 {
     (void)prog;
-    const char *out_file = NULL;
-    const char *outform = "PEM";
+    const uint8_t *out_file = NULL;
+    const uint8_t *outform = "PEM";
     int i;
     for (i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-out") == 0 && i + 1 < argc) {
+        if (noxtls_u8_strcmp(argv[i], "-out") == 0 && i + 1 < argc) {
             out_file = argv[++i];
-        } else if (strcmp(argv[i], "-outform") == 0 && i + 1 < argc) {
+        } else if (noxtls_u8_strcmp(argv[i], "-outform") == 0 && i + 1 < argc) {
             outform = argv[++i];
         }
     }
@@ -964,7 +971,7 @@ static int cmd_gened448(int argc, char **argv, const char *prog)
     printf("Generating Ed448 key pair\n");
     if (out_file == NULL) {
         FILE *fp = stdout;
-        if (strcmp(outform, "DER") == 0 || strcmp(outform, "der") == 0) {
+        if (noxtls_u8_strcmp(outform, "DER") == 0 || noxtls_u8_strcmp(outform, "der") == 0) {
             fwrite(pkcs8, 1, pkcs8_len, fp);
         } else if (write_der_as_pem(fp, pkcs8, pkcs8_len, "-----BEGIN PRIVATE KEY-----\n", "-----END PRIVATE KEY-----\n") != 0) {
             return 1;
@@ -972,15 +979,15 @@ static int cmd_gened448(int argc, char **argv, const char *prog)
         printf("Wrote Ed448 private key to stdout\n");
         return 0;
     }
-    char key_path[CERTGEN_PATH_MAX];
-    char pub_path[CERTGEN_PATH_MAX];
+    uint8_t key_path[CERTGEN_PATH_MAX];
+    uint8_t pub_path[CERTGEN_PATH_MAX];
     build_key_pub_paths(out_file, key_path, pub_path, sizeof(key_path));
     FILE *fp_key = noxtls_fopen(key_path, "wb");
     if (fp_key == NULL) {
         fprintf(stderr, "Error: Cannot open %s for writing\n", key_path);
         return 1;
     }
-    if (strcmp(outform, "DER") == 0 || strcmp(outform, "der") == 0) {
+    if (noxtls_u8_strcmp(outform, "DER") == 0 || noxtls_u8_strcmp(outform, "der") == 0) {
         if (fwrite(pkcs8, 1, pkcs8_len, fp_key) != pkcs8_len) {
             fclose(fp_key);
             return 1;
@@ -999,7 +1006,7 @@ static int cmd_gened448(int argc, char **argv, const char *prog)
         fprintf(stderr, "Error: Cannot open %s for writing\n", pub_path);
         return 1;
     }
-    if (write_der_as_pem(fp_pub, spki, spki_len, CERT_PUB_KEY_STR "\n", CERT_PUB_KEY_END "\n") != 0) {
+    if (write_der_as_pem(fp_pub, spki, spki_len, s_app_cert_pub_key_begin, s_app_cert_pub_key_end) != 0) {
         fclose(fp_pub);
         return 1;
     }
@@ -1019,16 +1026,16 @@ static int cmd_gened448(int argc, char **argv, const char *prog)
  * @param[out] out_oid_len Length of the OID in bytes.
  * @return 0 on success, -1 if @p name is not recognized
  */
-static int mldsa_param_from_name(const char *name, noxtls_mldsa_param_t *out_param,
+static int mldsa_param_from_name(const uint8_t *name, noxtls_mldsa_param_t *out_param,
                                  const uint8_t **out_oid, uint32_t *out_oid_len)
 {
-    if(strcmp(name, "ml-dsa-44") == 0 || strcmp(name, "mldsa44") == 0) {
+    if(noxtls_u8_strcmp(name, "ml-dsa-44") == 0 || noxtls_u8_strcmp(name, "mldsa44") == 0) {
         *out_param = NOXTLS_MLDSA_44; *out_oid = oid_ml_dsa_44; *out_oid_len = sizeof(oid_ml_dsa_44); return 0;
     }
-    if(strcmp(name, "ml-dsa-65") == 0 || strcmp(name, "mldsa65") == 0) {
+    if(noxtls_u8_strcmp(name, "ml-dsa-65") == 0 || noxtls_u8_strcmp(name, "mldsa65") == 0) {
         *out_param = NOXTLS_MLDSA_65; *out_oid = oid_ml_dsa_65; *out_oid_len = sizeof(oid_ml_dsa_65); return 0;
     }
-    if(strcmp(name, "ml-dsa-87") == 0 || strcmp(name, "mldsa87") == 0) {
+    if(noxtls_u8_strcmp(name, "ml-dsa-87") == 0 || noxtls_u8_strcmp(name, "mldsa87") == 0) {
         *out_param = NOXTLS_MLDSA_87; *out_oid = oid_ml_dsa_87; *out_oid_len = sizeof(oid_ml_dsa_87); return 0;
     }
     return -1;
@@ -1042,11 +1049,11 @@ static int mldsa_param_from_name(const char *name, noxtls_mldsa_param_t *out_par
  * @param[in] prog The program name
  * @return 0 on success, 1 on failure
  */
-static int cmd_genmldsa(int argc, char **argv, const char *prog)
+static int cmd_genmldsa(int argc, uint8_t **argv, const uint8_t *prog)
 {
     (void)prog;
-    const char *out_file = NULL;
-    const char *outform = "PEM";
+    const uint8_t *out_file = NULL;
+    const uint8_t *outform = "PEM";
     noxtls_mldsa_param_t param = NOXTLS_MLDSA_65;
     const uint8_t *param_oid = oid_ml_dsa_65;
     uint32_t param_oid_len = sizeof(oid_ml_dsa_65);
@@ -1064,11 +1071,11 @@ static int cmd_genmldsa(int argc, char **argv, const char *prog)
     int i;
 
     for(i = 1; i < argc; i++) {
-        if(strcmp(argv[i], "-out") == 0 && i + 1 < argc) {
+        if(noxtls_u8_strcmp(argv[i], "-out") == 0 && i + 1 < argc) {
             out_file = argv[++i];
-        } else if(strcmp(argv[i], "-outform") == 0 && i + 1 < argc) {
+        } else if(noxtls_u8_strcmp(argv[i], "-outform") == 0 && i + 1 < argc) {
             outform = argv[++i];
-        } else if(strcmp(argv[i], "-param") == 0 && i + 1 < argc) {
+        } else if(noxtls_u8_strcmp(argv[i], "-param") == 0 && i + 1 < argc) {
             if(mldsa_param_from_name(argv[++i], &param, &param_oid, &param_oid_len) != 0) {
                 fprintf(stderr, "Error: unsupported -param value '%s'\n", argv[i]);
                 return 1;
@@ -1110,7 +1117,7 @@ static int cmd_genmldsa(int argc, char **argv, const char *prog)
 
     if(out_file == NULL) {
         FILE *fp = stdout;
-        if(strcmp(outform, "DER") == 0 || strcmp(outform, "der") == 0) {
+        if(noxtls_u8_strcmp(outform, "DER") == 0 || noxtls_u8_strcmp(outform, "der") == 0) {
             fwrite(pkcs8, 1, pkcs8_len, fp);
         } else if(write_der_as_pem(fp, pkcs8, pkcs8_len, "-----BEGIN PRIVATE KEY-----\n", "-----END PRIVATE KEY-----\n") != 0) {
             goto done;
@@ -1121,8 +1128,8 @@ static int cmd_genmldsa(int argc, char **argv, const char *prog)
     }
 
     {
-        char key_path[CERTGEN_PATH_MAX];
-        char pub_path[CERTGEN_PATH_MAX];
+        uint8_t key_path[CERTGEN_PATH_MAX];
+        uint8_t pub_path[CERTGEN_PATH_MAX];
         FILE *fp_key;
         FILE *fp_pub;
         build_key_pub_paths(out_file, key_path, pub_path, sizeof(key_path));
@@ -1131,7 +1138,7 @@ static int cmd_genmldsa(int argc, char **argv, const char *prog)
             fprintf(stderr, "Error: Cannot open %s for writing\n", key_path);
             goto done;
         }
-        if(strcmp(outform, "DER") == 0 || strcmp(outform, "der") == 0) {
+        if(noxtls_u8_strcmp(outform, "DER") == 0 || noxtls_u8_strcmp(outform, "der") == 0) {
             fwrite(pkcs8, 1, pkcs8_len, fp_key);
             printf("Wrote %s (%u bytes DER PKCS#8)\n", key_path, (unsigned)pkcs8_len);
         } else if(write_der_as_pem(fp_key, pkcs8, pkcs8_len, "-----BEGIN PRIVATE KEY-----\n", "-----END PRIVATE KEY-----\n") != 0) {
@@ -1146,7 +1153,7 @@ static int cmd_genmldsa(int argc, char **argv, const char *prog)
             fprintf(stderr, "Error: Cannot open %s for writing\n", pub_path);
             goto done;
         }
-        if(write_der_as_pem(fp_pub, spki, spki_len, CERT_PUB_KEY_STR "\n", CERT_PUB_KEY_END "\n") != 0) {
+        if(write_der_as_pem(fp_pub, spki, spki_len, s_app_cert_pub_key_begin, s_app_cert_pub_key_end) != 0) {
             fclose(fp_pub);
             goto done;
         }
@@ -1174,11 +1181,11 @@ done:
  * @param[out] out_oid_len Length of the OID in bytes.
  * @return 0 on success, -1 if @p name is not recognized
  */
-static int slhdsa_param_from_name(const char *name, noxtls_slhdsa_param_t *out_param,
+static int slhdsa_param_from_name(const uint8_t *name, noxtls_slhdsa_param_t *out_param,
                                   const uint8_t **out_oid, uint32_t *out_oid_len)
 {
 #define MATCH_SLH(n, e, oid_arr) \
-    if(strcmp(name, (n)) == 0) { *out_param = (e); *out_oid = (oid_arr); *out_oid_len = sizeof(oid_arr); return 0; }
+    if(noxtls_u8_strcmp(name, (n)) == 0) { *out_param = (e); *out_oid = (oid_arr); *out_oid_len = sizeof(oid_arr); return 0; }
     MATCH_SLH("slh-dsa-sha2-128s", NOXTLS_SLHDSA_SHA2_128S, oid_slh_dsa_sha2_128s)
     MATCH_SLH("slh-dsa-sha2-128f", NOXTLS_SLHDSA_SHA2_128F, oid_slh_dsa_sha2_128f)
     MATCH_SLH("slh-dsa-sha2-192s", NOXTLS_SLHDSA_SHA2_192S, oid_slh_dsa_sha2_192s)
@@ -1203,11 +1210,11 @@ static int slhdsa_param_from_name(const char *name, noxtls_slhdsa_param_t *out_p
  * @param[in] prog The program name
  * @return 0 on success, 1 on failure
  */
-static int cmd_genslhdsa(int argc, char **argv, const char *prog)
+static int cmd_genslhdsa(int argc, uint8_t **argv, const uint8_t *prog)
 {
     (void)prog;
-    const char *out_file = NULL;
-    const char *outform = "PEM";
+    const uint8_t *out_file = NULL;
+    const uint8_t *outform = "PEM";
     noxtls_slhdsa_param_t param = NOXTLS_SLHDSA_SHA2_128S;
     const uint8_t *param_oid = oid_slh_dsa_sha2_128s;
     uint32_t param_oid_len = sizeof(oid_slh_dsa_sha2_128s);
@@ -1225,11 +1232,11 @@ static int cmd_genslhdsa(int argc, char **argv, const char *prog)
     int i;
 
     for(i = 1; i < argc; i++) {
-        if(strcmp(argv[i], "-out") == 0 && i + 1 < argc) {
+        if(noxtls_u8_strcmp(argv[i], "-out") == 0 && i + 1 < argc) {
             out_file = argv[++i];
-        } else if(strcmp(argv[i], "-outform") == 0 && i + 1 < argc) {
+        } else if(noxtls_u8_strcmp(argv[i], "-outform") == 0 && i + 1 < argc) {
             outform = argv[++i];
-        } else if(strcmp(argv[i], "-param") == 0 && i + 1 < argc) {
+        } else if(noxtls_u8_strcmp(argv[i], "-param") == 0 && i + 1 < argc) {
             if(slhdsa_param_from_name(argv[++i], &param, &param_oid, &param_oid_len) != 0) {
                 fprintf(stderr, "Error: unsupported -param value '%s'\n", argv[i]);
                 return 1;
@@ -1269,7 +1276,7 @@ static int cmd_genslhdsa(int argc, char **argv, const char *prog)
 
     if(out_file == NULL) {
         FILE *fp = stdout;
-        if(strcmp(outform, "DER") == 0 || strcmp(outform, "der") == 0) {
+        if(noxtls_u8_strcmp(outform, "DER") == 0 || noxtls_u8_strcmp(outform, "der") == 0) {
             fwrite(pkcs8, 1, pkcs8_len, fp);
         } else if(write_der_as_pem(fp, pkcs8, pkcs8_len, "-----BEGIN PRIVATE KEY-----\n", "-----END PRIVATE KEY-----\n") != 0) {
             goto done;
@@ -1280,8 +1287,8 @@ static int cmd_genslhdsa(int argc, char **argv, const char *prog)
     }
 
     {
-        char key_path[CERTGEN_PATH_MAX];
-        char pub_path[CERTGEN_PATH_MAX];
+        uint8_t key_path[CERTGEN_PATH_MAX];
+        uint8_t pub_path[CERTGEN_PATH_MAX];
         FILE *fp_key;
         FILE *fp_pub;
         build_key_pub_paths(out_file, key_path, pub_path, sizeof(key_path));
@@ -1290,7 +1297,7 @@ static int cmd_genslhdsa(int argc, char **argv, const char *prog)
             fprintf(stderr, "Error: Cannot open %s for writing\n", key_path);
             goto done;
         }
-        if(strcmp(outform, "DER") == 0 || strcmp(outform, "der") == 0) {
+        if(noxtls_u8_strcmp(outform, "DER") == 0 || noxtls_u8_strcmp(outform, "der") == 0) {
             fwrite(pkcs8, 1, pkcs8_len, fp_key);
             printf("Wrote %s (%u bytes DER PKCS#8)\n", key_path, (unsigned)pkcs8_len);
         } else if(write_der_as_pem(fp_key, pkcs8, pkcs8_len, "-----BEGIN PRIVATE KEY-----\n", "-----END PRIVATE KEY-----\n") != 0) {
@@ -1305,7 +1312,7 @@ static int cmd_genslhdsa(int argc, char **argv, const char *prog)
             fprintf(stderr, "Error: Cannot open %s for writing\n", pub_path);
             goto done;
         }
-        if(write_der_as_pem(fp_pub, spki, spki_len, CERT_PUB_KEY_STR "\n", CERT_PUB_KEY_END "\n") != 0) {
+        if(write_der_as_pem(fp_pub, spki, spki_len, s_app_cert_pub_key_begin, s_app_cert_pub_key_end) != 0) {
             fclose(fp_pub);
             goto done;
         }
@@ -1331,20 +1338,20 @@ done:
  * @param[in] prog The program name
  * @return 0 on success, 1 on failure
  */
-static int cmd_genrsa(int argc, char **argv, const char *prog)
+static int cmd_genrsa(int argc, uint8_t **argv, const uint8_t *prog)
 {
     (void)prog;
-    const char *out_file = NULL;
-    const char *outform = "PEM";
+    const uint8_t *out_file = NULL;
+    const uint8_t *outform = "PEM";
     rsa_key_size_t bits = RSA_2048_BIT;
     int i;
 
     for (i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-out") == 0 && i + 1 < argc) {
+        if (noxtls_u8_strcmp(argv[i], "-out") == 0 && i + 1 < argc) {
             out_file = argv[++i];
-        } else if (strcmp(argv[i], "-outform") == 0 && i + 1 < argc) {
+        } else if (noxtls_u8_strcmp(argv[i], "-outform") == 0 && i + 1 < argc) {
             outform = argv[++i];
-        } else if (strcmp(argv[i], "-bits") == 0 && i + 1 < argc) {
+        } else if (noxtls_u8_strcmp(argv[i], "-bits") == 0 && i + 1 < argc) {
             int b = atoi(argv[++i]);
             if (b == 1024) bits = RSA_1024_BIT;
             else if (b == 2048) bits = RSA_2048_BIT;
@@ -1381,7 +1388,7 @@ static int cmd_genrsa(int argc, char **argv, const char *prog)
 
     if (out_file == NULL) {
         FILE *fp = stdout;
-        if (strcmp(outform, "DER") == 0 || strcmp(outform, "der") == 0) {
+        if (noxtls_u8_strcmp(outform, "DER") == 0 || noxtls_u8_strcmp(outform, "der") == 0) {
             if (fwrite(der_buf, 1, der_len, fp) != der_len) {
                 fprintf(stderr, "Error: Write failed\n");
                 return 1;
@@ -1395,8 +1402,8 @@ static int cmd_genrsa(int argc, char **argv, const char *prog)
         return 0;
     }
 
-    char key_path[CERTGEN_PATH_MAX];
-    char pub_path[CERTGEN_PATH_MAX];
+    uint8_t key_path[CERTGEN_PATH_MAX];
+    uint8_t pub_path[CERTGEN_PATH_MAX];
     build_key_pub_paths(out_file, key_path, pub_path, sizeof(key_path));
 
     FILE *fp_key = noxtls_fopen(key_path, "wb");
@@ -1404,7 +1411,7 @@ static int cmd_genrsa(int argc, char **argv, const char *prog)
         fprintf(stderr, "Error: Cannot open %s for writing\n", key_path);
         return 1;
     }
-    if (strcmp(outform, "DER") == 0 || strcmp(outform, "der") == 0) {
+    if (noxtls_u8_strcmp(outform, "DER") == 0 || noxtls_u8_strcmp(outform, "der") == 0) {
         if (fwrite(der_buf, 1, der_len, fp_key) != der_len) {
             fprintf(stderr, "Error: Write failed for %s\n", key_path);
             fclose(fp_key);
@@ -1426,7 +1433,7 @@ static int cmd_genrsa(int argc, char **argv, const char *prog)
             fprintf(stderr, "Error: Cannot open %s for writing\n", pub_path);
             return 1;
         }
-        if (write_der_as_pem(fp_pub, pub_der_buf, pub_der_len, CERT_PUB_KEY_STR "\n", CERT_PUB_KEY_END "\n") != 0) {
+        if (write_der_as_pem(fp_pub, pub_der_buf, pub_der_len, s_app_cert_pub_key_begin, s_app_cert_pub_key_end) != 0) {
             fclose(fp_pub);
             return 1;
         }
@@ -1447,9 +1454,9 @@ static int cmd_genrsa(int argc, char **argv, const char *prog)
  * @param[in] cn_size The size of the CN value
  * @return void
  */
-static void extract_cn_from_subj(const char *subj, char *cn_out, size_t cn_size)
+static void extract_cn_from_subj(const uint8_t *subj, uint8_t *cn_out, size_t cn_size)
 {
-    const char *p = subj;
+    const uint8_t *p = subj;
     if (cn_out == NULL || cn_size == 0) return;
     cn_out[0] = '\0';
     while (*p == '/' || *p == ' ') p++;
@@ -1502,7 +1509,7 @@ static const uint8_t oid_ecdsa_sha256[]     = { 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x
  * @return 0 on success, -1 on failure
  */
 static int certgen_self_signed_x509_common(
-    const char *cn_buf,
+    const uint8_t *cn_buf,
     int days,
     const uint8_t *subject_pk_oid, uint32_t subject_pk_oid_len,
     const uint8_t *subject_pk_params, uint32_t subject_pk_params_len,
@@ -1510,8 +1517,8 @@ static int certgen_self_signed_x509_common(
     const uint8_t *sig_oid, uint32_t sig_oid_len,
     const uint8_t *sign_key_der, uint32_t sign_key_der_len,
     noxtls_hash_algos_t hash_algo,
-    const char *out_file,
-    const char *outform)
+    const uint8_t *out_file,
+    const uint8_t *outform)
 {
     uint8_t issuer_der[256];
     uint8_t subject_der[256];
@@ -1528,8 +1535,8 @@ static int certgen_self_signed_x509_common(
         return 1;
     }
 
-    char not_before[16];
-    char not_after[16];
+    uint8_t not_before[16];
+    uint8_t not_after[16];
     time_t now = time(NULL);
     if (now == (time_t)-1) {
         fprintf(stderr, "Error: time() failed\n");
@@ -1608,7 +1615,7 @@ static int certgen_self_signed_x509_common(
         fprintf(stderr, "Error: Cannot open %s for writing\n", out_file);
         goto done;
     }
-    if (strcmp(outform, "DER") == 0 || strcmp(outform, "der") == 0) {
+    if (noxtls_u8_strcmp(outform, "DER") == 0 || noxtls_u8_strcmp(outform, "der") == 0) {
         if (fwrite(cert_der, 1, cert_der_len, fp) != (size_t)cert_der_len) {
             fprintf(stderr, "Error: Write failed\n");
             goto done;
@@ -1654,7 +1661,7 @@ done:
  * @param[out] out_len The length of the DER or PEM
  * @return 0 on success, -1 on failure
  */
-static int load_der_or_pem_file(const char *path, uint8_t **out, uint32_t *out_len)
+static int load_der_or_pem_file(const uint8_t *path, uint8_t **out, uint32_t *out_len)
 {
     FILE *fp;
     long flen;
@@ -1684,10 +1691,10 @@ static int load_der_or_pem_file(const char *path, uint8_t **out, uint32_t *out_l
 
     /* Detect PEM by header substring. */
     {
-        char *begin = strstr((char *)raw, "-----BEGIN");
+        uint8_t *begin = strstr((uint8_t *)raw, "-----BEGIN");
         if (begin != NULL) {
-            char *body = strchr(begin, '\n');
-            char *end = strstr(body != NULL ? body : begin, "-----END");
+            uint8_t *body = strchr(begin, '\n');
+            uint8_t *end = strstr(body != NULL ? body : begin, "-----END");
             if (body == NULL || end == NULL) {
                 free(raw);
                 return -1;
@@ -1699,7 +1706,7 @@ static int load_der_or_pem_file(const char *path, uint8_t **out, uint32_t *out_l
                 uint8_t *dec = (uint8_t *)malloc(b64_in_len);
                 int dec_len;
                 if (dec == NULL) { free(raw); return -1; }
-                dec_len = noxtls_base64_decode((const char *)body, (int)b64_in_len, dec);
+                dec_len = noxtls_base64_decode((const uint8_t *)body, (int)b64_in_len, dec);
                 if (dec_len <= 0) {
                     free(dec);
                     free(raw);
@@ -1848,14 +1855,14 @@ static int spki_extract_raw_pubkey(const uint8_t *der, uint32_t der_len,
  * @param[in] out_max The maximum length of the path
  * @return void
  */
-static void derive_pub_path(const char *key_path, char *out, size_t out_max)
+static void derive_pub_path(const uint8_t *key_path, uint8_t *out, size_t out_max)
 {
-    const char *dot;
+    const uint8_t *dot;
     size_t base_len;
     if (out_max == 0) return;
     out[0] = '\0';
     dot = strrchr(key_path, '.');
-    base_len = (dot != NULL) ? (size_t)(dot - key_path) : strlen(key_path);
+    base_len = (dot != NULL) ? (size_t)(dot - key_path) : noxtls_u8_strlen(key_path);
     if (base_len + 5U >= out_max) {
         base_len = (out_max > 5U) ? out_max - 5U : 0;
     }
@@ -1877,7 +1884,7 @@ static void derive_pub_path(const char *key_path, char *out, size_t out_max)
  * @param[out] pk_len The length of the raw subjectPublicKey bytes
  * @return 0 on success, -1 on failure
  */
-static int load_raw_pubkey_from_file(const char *path,
+static int load_raw_pubkey_from_file(const uint8_t *path,
                                      uint8_t **owned_der, uint32_t *owned_der_len,
                                      const uint8_t **pk_ptr, uint32_t *pk_len)
 {
@@ -1904,38 +1911,38 @@ static int load_raw_pubkey_from_file(const char *path,
  * @param[in] prog The name of the program
  * @return 0 on success, -1 on failure
  */
-static int cmd_req(int argc, char **argv, const char *prog)
+static int cmd_req(int argc, uint8_t **argv, const uint8_t *prog)
 {
     (void)prog;
-    const char *key_file = NULL;
-    const char *out_file = NULL;
+    const uint8_t *key_file = NULL;
+    const uint8_t *out_file = NULL;
 #if NOXTLS_HAVE_CERT_WRITE
-    const char *pub_file = NULL;
-    const char *outform = "PEM";
+    const uint8_t *pub_file = NULL;
+    const uint8_t *outform = "PEM";
     int days = 365;
-    const char *subj = "/CN=localhost";
+    const uint8_t *subj = "/CN=localhost";
 #endif
     int new_x509 = 0;
     int i;
 
     for (i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-key") == 0 && i + 1 < argc) {
+        if (noxtls_u8_strcmp(argv[i], "-key") == 0 && i + 1 < argc) {
             key_file = argv[++i];
-        } else if (strcmp(argv[i], "-out") == 0 && i + 1 < argc) {
+        } else if (noxtls_u8_strcmp(argv[i], "-out") == 0 && i + 1 < argc) {
             out_file = argv[++i];
 #if NOXTLS_HAVE_CERT_WRITE
-        } else if (strcmp(argv[i], "-outform") == 0 && i + 1 < argc) {
+        } else if (noxtls_u8_strcmp(argv[i], "-outform") == 0 && i + 1 < argc) {
             outform = argv[++i];
-        } else if (strcmp(argv[i], "-days") == 0 && i + 1 < argc) {
+        } else if (noxtls_u8_strcmp(argv[i], "-days") == 0 && i + 1 < argc) {
             days = atoi(argv[++i]);
-        } else if (strcmp(argv[i], "-subj") == 0 && i + 1 < argc) {
+        } else if (noxtls_u8_strcmp(argv[i], "-subj") == 0 && i + 1 < argc) {
             subj = argv[++i];
-        } else if (strcmp(argv[i], "-pub") == 0 && i + 1 < argc) {
+        } else if (noxtls_u8_strcmp(argv[i], "-pub") == 0 && i + 1 < argc) {
             pub_file = argv[++i];
 #endif
-        } else if (strcmp(argv[i], "-new") == 0) {
+        } else if (noxtls_u8_strcmp(argv[i], "-new") == 0) {
             /* next should be -x509 */
-        } else if (strcmp(argv[i], "-x509") == 0) {
+        } else if (noxtls_u8_strcmp(argv[i], "-x509") == 0) {
             new_x509 = 1;
         }
     }
@@ -1959,7 +1966,7 @@ static int cmd_req(int argc, char **argv, const char *prog)
 
 #if NOXTLS_HAVE_CERT_WRITE
     {
-        char cn_buf[256];
+        uint8_t cn_buf[256];
         extract_cn_from_subj(subj, cn_buf, sizeof(cn_buf));
         if (cn_buf[0] == '\0') {
             strncpy(cn_buf, "localhost", sizeof(cn_buf) - 1);
@@ -2181,8 +2188,8 @@ static int cmd_req(int argc, char **argv, const char *prog)
 #if NOXTLS_FEATURE_ML_DSA
         if (priv.key_type == X509_PRIVATE_KEY_ML_DSA) {
             /* ML-DSA needs the public key from the companion .pub file (cannot derive cheaply). */
-            char auto_pub[CERTGEN_PATH_MAX];
-            const char *pub_path = pub_file;
+            uint8_t auto_pub[CERTGEN_PATH_MAX];
+            const uint8_t *pub_path = pub_file;
             uint8_t *pub_der = NULL;
             uint32_t pub_der_len = 0;
             const uint8_t *pk_ptr = NULL;
@@ -2232,8 +2239,8 @@ static int cmd_req(int argc, char **argv, const char *prog)
 #endif
 #if NOXTLS_FEATURE_SLH_DSA
         if (priv.key_type == X509_PRIVATE_KEY_SLH_DSA) {
-            char auto_pub[CERTGEN_PATH_MAX];
-            const char *pub_path = pub_file;
+            uint8_t auto_pub[CERTGEN_PATH_MAX];
+            const uint8_t *pub_path = pub_file;
             uint8_t *pub_der = NULL;
             uint32_t pub_der_len = 0;
             const uint8_t *pk_ptr = NULL;
@@ -2313,44 +2320,44 @@ static int cmd_req(int argc, char **argv, const char *prog)
  */
 int main(int argc, char **argv)
 {
-    const char *prog = argv[0];
+    const uint8_t *prog = argv[0];
     if (argc < 2) {
         print_usage(prog);
         return 1;
     }
-    if (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
+    if (noxtls_u8_strcmp(argv[1], "-h") == 0 || noxtls_u8_strcmp(argv[1], "--help") == 0) {
         print_usage(prog);
         return 0;
     }
-    if (strcmp(argv[1], "-version") == 0 || strcmp(argv[1], "-v") == 0) {
+    if (noxtls_u8_strcmp(argv[1], "-version") == 0 || noxtls_u8_strcmp(argv[1], "-v") == 0) {
         printf("certgen %s (NoxTLS)\n", CERTGEN_VERSION);
         return 0;
     }
-    if (strcmp(argv[1], "genrsa") == 0) {
+    if (noxtls_u8_strcmp(argv[1], "genrsa") == 0) {
         return cmd_genrsa(argc - 1, argv + 1, prog);
     }
-    if (strcmp(argv[1], "genec") == 0) {
+    if (noxtls_u8_strcmp(argv[1], "genec") == 0) {
         return cmd_genec(argc - 1, argv + 1, prog);
     }
-    if (strcmp(argv[1], "gened25519") == 0) {
+    if (noxtls_u8_strcmp(argv[1], "gened25519") == 0) {
         return cmd_gened25519(argc - 1, argv + 1, prog);
     }
 #if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
-    if (strcmp(argv[1], "gened448") == 0) {
+    if (noxtls_u8_strcmp(argv[1], "gened448") == 0) {
         return cmd_gened448(argc - 1, argv + 1, prog);
     }
 #endif
 #if NOXTLS_FEATURE_ML_DSA
-    if (strcmp(argv[1], "genmldsa") == 0) {
+    if (noxtls_u8_strcmp(argv[1], "genmldsa") == 0) {
         return cmd_genmldsa(argc - 1, argv + 1, prog);
     }
 #endif
 #if NOXTLS_FEATURE_SLH_DSA
-    if (strcmp(argv[1], "genslhdsa") == 0) {
+    if (noxtls_u8_strcmp(argv[1], "genslhdsa") == 0) {
         return cmd_genslhdsa(argc - 1, argv + 1, prog);
     }
 #endif
-    if (strcmp(argv[1], "req") == 0) {
+    if (noxtls_u8_strcmp(argv[1], "req") == 0) {
         return cmd_req(argc - 1, argv + 1, prog);
     }
     fprintf(stderr, "Unknown command: %s\n", argv[1]);

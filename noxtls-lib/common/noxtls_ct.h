@@ -19,8 +19,8 @@
 *
 *****************************************************************************/
 
-#ifndef _NOXTLS_CT_H_
-#define _NOXTLS_CT_H_
+#ifndef NOXTLS_CT_H_
+#define NOXTLS_CT_H_
 
 #include <stddef.h>
 #include <stdint.h>
@@ -51,8 +51,33 @@ int noxtls_secret_memcmp(const void *a, const void *b, size_t len);
  */
 void noxtls_secure_zero(void *ptr, size_t len);
 
+/*
+ * Non-overlapping byte copy (string.h-free) for Mandatory Rule 21.18 remaps.
+ * Copies min(n, dst_cap) bytes.
+ */
+void noxtls_copy_u8(uint8_t *dst, size_t dst_cap, const uint8_t *src, size_t n);
+
+/*
+ * Bounded byte fill (string.h-free) for Mandatory Rule 21.18 remaps.
+ * Writes value to min(n, dst_cap) bytes of dst.
+ */
+void noxtls_fill_u8(uint8_t *dst, size_t dst_cap, uint8_t fill_byte, size_t n);
+
+/*
+ * Overlap-safe byte move (memmove semantics, string.h-free).
+ * Moves min(n, dst_cap) bytes.
+ */
+void noxtls_move_u8(uint8_t *dst, size_t dst_cap, const uint8_t *src, size_t n);
+
+/*
+ * NUL-terminated uint8_t text helpers (avoid plain char / libc string APIs in MISRA TUs).
+ */
+size_t noxtls_u8_strlen(const uint8_t *s);
+int noxtls_u8_strcmp(const uint8_t *a, const uint8_t *b);
+int noxtls_u8_strncmp(const uint8_t *a, const uint8_t *b, size_t n);
+
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _NOXTLS_CT_H_ */
+#endif /* NOXTLS_CT_H_ */

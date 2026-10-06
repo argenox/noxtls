@@ -24,8 +24,8 @@
 *
 *****************************************************************************/
 
-#ifndef _NOXTLS_CONFIG_H_
-#define _NOXTLS_CONFIG_H_
+#ifndef NOXTLS_CONFIG_H_
+#define NOXTLS_CONFIG_H_
 
 /* ============================================================================
  * Profile selection
@@ -1189,16 +1189,50 @@
  * 
  * Default: 1 (enabled) - assumes standard systems have time support
  */
+#ifndef NOXTLS_HAVE_TIME
 #if defined(NOXTLS_PROFILE_UT_ALL_FEATURES)
 #define NOXTLS_HAVE_TIME 0
 #else
 #define NOXTLS_HAVE_TIME 1
+#endif
+#endif
+
+/* NOXTLS_HAVE_FILE_IO
+ *
+ * Define to 1 when stdio file helpers (fopen/fread/load_file) are available.
+ * Define to 0 for embedded/MISRA scan profiles that must not pull in stdio.
+ *
+ * File-load APIs return NOXTLS_RETURN_FAILED when disabled.
+ */
+#ifndef NOXTLS_HAVE_FILE_IO
+#define NOXTLS_HAVE_FILE_IO 1
 #endif
 
 /* ============================================================================
  * Memory Management Configuration
  * ============================================================================
  */
+
+/* NOXTLS_HMAC_SHA256_SHARED_STATE
+ * Use one fixed SHA-256 HMAC hash context instead of an allocator block per
+ * live context. A second live context fails with NOXTLS_RETURN_FAILED.
+ * Callers MUST serialize all SHA-256 HMAC access, including interrupts, and
+ * may not interleave streaming contexts. The slot is wiped on final/free.
+ * Default: 0 (private context state, permits independent live contexts).
+ */
+#ifndef NOXTLS_HMAC_SHA256_SHARED_STATE
+#define NOXTLS_HMAC_SHA256_SHARED_STATE 0
+#endif
+
+/* NOXTLS_ECC_SHARED_SCRATCH
+ * Move ECC inversion and the P-256 bignum inversion fast-path scratch from
+ * the call stack to fixed shared storage. Callers MUST serialize operations
+ * that use this scratch, including interrupts; this mode is not reentrant.
+ * Default: 0 (private per-call scratch).
+ */
+#ifndef NOXTLS_ECC_SHARED_SCRATCH
+#define NOXTLS_ECC_SHARED_SCRATCH 0
+#endif
 
 /* NOXTLS_USE_STATIC_BUFFERS
  * 
@@ -1295,7 +1329,7 @@
  *  reduce it for constrained stack. Ensure peer supports smaller fragment
  *  size if below 16384. */
 #ifndef NOXTLS_TLS_MAX_RECORD_SIZE
-#define NOXTLS_TLS_MAX_RECORD_SIZE 16384
+#define NOXTLS_TLS_MAX_RECORD_SIZE 16384U
 #endif
 
 /** Maximum TLS record-layer fragment length from the 2-byte length field (encrypted payload).
@@ -1314,7 +1348,7 @@
  *  chain size). Default 65536 for compatibility; set to NOXTLS_TLS_MAX_RECORD_SIZE
  *  or your max cert chain size to avoid accepting oversized messages. */
 #ifndef NOXTLS_TLS_MAX_HANDSHAKE_SIZE
-#define NOXTLS_TLS_MAX_HANDSHAKE_SIZE 65536
+#define NOXTLS_TLS_MAX_HANDSHAKE_SIZE 65536U
 #endif
 
 /** Maximum single certificate size in bytes accepted by X.509 parse APIs.
@@ -1324,13 +1358,13 @@
 #if NOXTLS_FEATURE_SLH_DSA
 /* SLH-DSA signatures are large (up to ~50 KB). Allow 64 KB certs by default
  * when SLH-DSA is enabled so the cert+TBS+signature comfortably fits. */
-#define NOXTLS_MAX_CERT_SIZE 65536
+#define NOXTLS_MAX_CERT_SIZE 65536U
 #elif NOXTLS_FEATURE_ML_DSA
 /* ML-DSA-87 signatures are ~4.6 KB; combined with public-key (~2.6 KB) and TBS
  * fields, 32 KB headroom is plenty. */
-#define NOXTLS_MAX_CERT_SIZE 32768
+#define NOXTLS_MAX_CERT_SIZE 32768U
 #else
-#define NOXTLS_MAX_CERT_SIZE 16384
+#define NOXTLS_MAX_CERT_SIZE 16384U
 #endif
 #endif
 
@@ -1358,7 +1392,7 @@
  * 
  * Default: 50000 attempts
  */
-#define NOXTLS_RSA_MAX_PRIME_ATTEMPTS 50000
+#define NOXTLS_RSA_MAX_PRIME_ATTEMPTS 50000U
 
 /* NOXTLS_RSA_MILLER_RABIN_ITERATIONS_SMALL
  * 
@@ -1368,7 +1402,7 @@
  * 
  * Default: 2 iterations
  */
-#define NOXTLS_RSA_MILLER_RABIN_ITERATIONS_SMALL 2
+#define NOXTLS_RSA_MILLER_RABIN_ITERATIONS_SMALL 2U
 
 /* NOXTLS_RSA_MILLER_RABIN_ITERATIONS_LARGE
  * 
@@ -1378,7 +1412,7 @@
  * 
  * Default: 3 iterations
  */
-#define NOXTLS_RSA_MILLER_RABIN_ITERATIONS_LARGE 3
+#define NOXTLS_RSA_MILLER_RABIN_ITERATIONS_LARGE 3U
 
 /* NOXTLS_RSA_MILLER_RABIN_SMALL_THRESHOLD_BITS
  * 
@@ -1388,7 +1422,7 @@
  * 
  * Default: 512 bits
  */
-#define NOXTLS_RSA_MILLER_RABIN_SMALL_THRESHOLD_BITS 512
+#define NOXTLS_RSA_MILLER_RABIN_SMALL_THRESHOLD_BITS 512U
 
 /* NOXTLS_RSA_ENABLE_QUICK_DIVISIBILITY_TEST
  * 
@@ -1410,7 +1444,7 @@
  * 
  * Default: 100 (print every 100 attempts)
  */
-#define NOXTLS_RSA_DEBUG_PROGRESS_INTERVAL 100
+#define NOXTLS_RSA_DEBUG_PROGRESS_INTERVAL 100U
 
 /* NOXTLS_RSA_DEBUG_PRIMALITY_CHECK_INTERVAL
  * 
@@ -1420,7 +1454,7 @@
  * 
  * Default: 50 (print every 50 attempts)
  */
-#define NOXTLS_RSA_DEBUG_PRIMALITY_CHECK_INTERVAL 50
+#define NOXTLS_RSA_DEBUG_PRIMALITY_CHECK_INTERVAL 50U
 
 /* NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_INTERVAL
  * 
@@ -1430,7 +1464,7 @@
  * 
  * Default: 100 (print every 100 attempts, up to 500 attempts)
  */
-#define NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_INTERVAL 100
+#define NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_INTERVAL 100U
 
 /* NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_MAX_ATTEMPTS
  * 
@@ -1439,7 +1473,7 @@
  * 
  * Default: 500 attempts
  */
-#define NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_MAX_ATTEMPTS 500
+#define NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_MAX_ATTEMPTS 500U
 
 /* ============================================================================
  * ECC Point Multiplication Configuration
@@ -1538,4 +1572,4 @@
 #define NOXTLS_CFG_ENABLE_NOXSIGHT 0
 #endif
 
-#endif /* _NOXTLS_CONFIG_H_ */
+#endif /* NOXTLS_CONFIG_H_ */

@@ -9,22 +9,22 @@
 // Derived from a register-allocating code generator; do not edit by hand.
 
 
-	
+
 	.file	"cortex_m4_mpy_fe25519.S"
-	
+
 	.text
 	.align	2
 
 // ****************************************************
 // Implementation of 256x256 bit bit multiply with partial reduction.
 // uses packed non-redundant representation.
-// 
-// 
+//
+//
 // implements the interface
 //
 // void
 // fe25519_mul_asm (fe25519 *pResult, const fe25519 *pVal1, const fe25519 *pVal2);
-//	
+//
 // in:
 //    r0 == ptr to Result word
 //    r1, r2 == prts to values to multiply

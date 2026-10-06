@@ -22,6 +22,7 @@
 /** @addtogroup noxtls_encryption */
 
 #include <stdint.h>
+#include "common/noxtls_ct.h"
 #include <string.h>
 #include "noxtls_aes.h"
 #include "noxtls_aes_internal.h"
@@ -44,47 +45,47 @@
  * @param type is the AES variant, 128, 192, 256
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_* on failure
  */
-/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
+/* Block-indexed OFB walk; extents follow caller data_len / AES block size. */
 noxtls_return_t noxtls_aes_encrypt_ofb(const uint8_t* key,
                     const uint8_t* data,
                     uint32_t data_len,
                     const uint8_t * iv,
                     uint8_t* output,
                     noxtls_aes_type_t type)
-/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     if ((key == NULL) || (data == NULL) || (output == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
-    uint32_t cur_block = 0;
+    uint32_t cur_block = 0U;
     uint8_t keystream[NOXTLS_AES_BLOCK_LENGTH];
     uint8_t feedback_block[NOXTLS_AES_BLOCK_LENGTH];
-    
+    const uint32_t block_sz = (uint32_t)NOXTLS_AES_BLOCK_LENGTH;
+
     /* OFB Mode requires IV */
-    if(iv == NULL) {
+    if (iv == NULL) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
-    
-    for(cur_block = 0; cur_block < data_len; cur_block += NOXTLS_AES_BLOCK_LENGTH)
+
+    for (cur_block = 0U; cur_block < data_len; cur_block += block_sz)
     {
-        uint32_t block_len = (data_len - cur_block < NOXTLS_AES_BLOCK_LENGTH) ?
-                             (data_len - cur_block) : NOXTLS_AES_BLOCK_LENGTH;
-        
-        if(cur_block == 0) {
+        uint32_t remain = (uint32_t)(data_len - cur_block);
+        uint32_t block_len = (uint32_t)((remain < block_sz) ? remain : block_sz);
+
+        if (cur_block == 0U) {
             /* Encrypt IV for first block */
             NOXTLS_AES_CHECK(noxtls_aes_encrypt_block_internal(key, iv, keystream, type), output, data_len, NULL, 0U);
-            memcpy(feedback_block, keystream, NOXTLS_AES_BLOCK_LENGTH);
+            noxtls_copy_u8(feedback_block, sizeof(feedback_block), keystream, (size_t)NOXTLS_AES_BLOCK_LENGTH);
         }
         else {
             /* Encrypt previous keystream */
             NOXTLS_AES_CHECK(noxtls_aes_encrypt_block_internal(key, feedback_block, keystream, type), output, data_len, NULL, 0U);
-            memcpy(feedback_block, keystream, NOXTLS_AES_BLOCK_LENGTH);
+            noxtls_copy_u8(feedback_block, sizeof(feedback_block), keystream, (size_t)NOXTLS_AES_BLOCK_LENGTH);
         }
-        
+
         /* XOR keystream with plaintext */
-        for(uint32_t byte_index = 0; byte_index < block_len; byte_index++) {
-            output[cur_block + byte_index] = data[cur_block + byte_index] ^ keystream[byte_index];
+        for (uint32_t byte_index = 0U; byte_index < block_len; byte_index += 1U) {
+            output[cur_block + byte_index] = (uint8_t)(data[cur_block + byte_index] ^ keystream[byte_index]);
         }
     }
 
@@ -92,4 +93,3 @@ noxtls_return_t noxtls_aes_encrypt_ofb(const uint8_t* key,
 }
 
 #endif /* NOXTLS_FEATURE_AES_OFB */
-

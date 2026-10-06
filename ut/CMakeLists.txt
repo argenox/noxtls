@@ -110,9 +110,10 @@ target_include_directories(cmac_streaming_test PRIVATE
 add_test(NAME cmac_streaming_test COMMAND cmac_streaming_test)
 endif()
 
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_test(
     NAME allocator_policy_check
-    COMMAND python "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/check_allocator_policy.py"
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/check_allocator_policy.py"
 )
 add_test(NAME allocator_policy_checker_self_test
     COMMAND python "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/check_allocator_policy.py" --self-test)

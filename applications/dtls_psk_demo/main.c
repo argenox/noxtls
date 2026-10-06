@@ -81,6 +81,7 @@
 #include "noxtls-lib/mdigest/sha256/noxtls_sha256.h"
 #include "noxtls-lib/mdigest/noxtls_hash.h"
 #include "noxtls-lib/drbg/noxtls_drbg.h"
+#include "noxtls_ct.h"
 
 /* ============================================================================
  * Application-private static workspace (per project policy)
@@ -206,7 +207,6 @@ static void udp_buffer_init(udp_buffer_t *buf)
     buf->len = 0;
     buf->capacity = 0;
 }
-
 
 /**
  * @brief Append data to UDP buffer
@@ -524,7 +524,7 @@ static int32_t server_recv_ts_callback(void *user_data, uint8_t *data, uint32_t 
  * @param[in] key_len The length of the key
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the identity is NULL, or NOXTLS_RETURN_FAILED if the key cannot be generated
  */
-static noxtls_return_t dtls_psk_get_key(const char *identity, uint8_t *key, uint32_t *key_len)
+static noxtls_return_t dtls_psk_get_key(const uint8_t *identity, uint8_t *key, uint32_t *key_len)
 {
     if(identity == NULL || key == NULL || key_len == NULL)
     {
@@ -532,7 +532,7 @@ static noxtls_return_t dtls_psk_get_key(const char *identity, uint8_t *key, uint
     }
     
     /* For demo: use fixed PSK key */
-    if(strcmp(identity, DTLS_PSK_IDENTITY) == 0)
+    if(noxtls_u8_strcmp(identity, DTLS_PSK_IDENTITY) == 0)
     {
         if(*key_len < DTLS_PSK_KEY_LEN)
         {
@@ -582,7 +582,7 @@ static noxtls_return_t dtls_roundtrip_record(dtls_context_t *sender,
                                              uint8_t type,
                                              const uint8_t *payload,
                                              uint32_t payload_len,
-                                             const char *label)
+                                             const uint8_t *label)
 {
     dtls_record_t record;
     noxtls_return_t rc;
@@ -635,7 +635,7 @@ static noxtls_return_t dtls_handshake_exchange(dtls_context_t *client,
                                                uint16_t message_seq,
                                                const uint8_t *payload,
                                                uint32_t payload_len,
-                                               const char *label)
+                                               const uint8_t *label)
 {
     dtls_handshake_fragment_t fragment;
     uint8_t *complete_msg = NULL;
@@ -713,7 +713,7 @@ static void *dtls12_client_thread_fn(void *arg)
     thread_safe_udp_t *ts = args->ts;
     ts_io_user_data_t client_io = { ts, 1 };
     tls12_context_t ctx;
-    const char *msg = "Hello from DTLS 1.2 client";
+    const uint8_t *msg = "Hello from DTLS 1.2 client";
     uint8_t recv_buf[256];
     uint32_t recv_len;
     noxtls_return_t rc;
@@ -746,7 +746,7 @@ static void *dtls12_client_thread_fn(void *arg)
 #endif
     }
     printf("[Client] DTLS 1.2 handshake complete (ClientHello -> ... -> Finished).\n");
-    rc = noxtls_tls12_send(&ctx, (const uint8_t*)msg, (uint32_t)strlen(msg));
+    rc = noxtls_tls12_send(&ctx, (const uint8_t*)msg, (uint32_t)noxtls_u8_strlen(msg));
     if(rc != NOXTLS_RETURN_SUCCESS) {
         noxtls_tls12_context_free(&ctx);
         args->rc = rc;
@@ -767,7 +767,7 @@ static void *dtls12_client_thread_fn(void *arg)
         return NULL;
 #endif
     }
-    printf("[Client] Received encrypted app data: %.*s\n", (int)recv_len, (char*)recv_buf);
+    printf("[Client] Received encrypted app data: %.*s\n", (int)recv_len, (uint8_t *)recv_buf);
     args->rc = NOXTLS_RETURN_SUCCESS;
 #if defined(_WIN32) || defined(_WIN64)
     return 0;
@@ -801,7 +801,7 @@ static void *dtls12_server_thread_fn(void *arg)
     tls12_context_t ctx;
     uint8_t recv_buf[256];
     uint32_t recv_len;
-    const char *reply = "Hello from DTLS 1.2 server";
+    const uint8_t *reply = "Hello from DTLS 1.2 server";
     noxtls_return_t rc;
 
     args->rc = noxtls_dtls12_context_init(&ctx, TLS_ROLE_SERVER);
@@ -845,8 +845,8 @@ static void *dtls12_server_thread_fn(void *arg)
         return NULL;
 #endif
     }
-    printf("[Server] Received encrypted app data: %.*s\n", (int)recv_len, (char*)recv_buf);
-    rc = noxtls_tls12_send(&ctx, (const uint8_t*)reply, (uint32_t)strlen(reply));
+    printf("[Server] Received encrypted app data: %.*s\n", (int)recv_len, (uint8_t *)recv_buf);
+    rc = noxtls_tls12_send(&ctx, (const uint8_t*)reply, (uint32_t)noxtls_u8_strlen(reply));
     noxtls_tls12_context_free(&ctx);
     args->rc = rc;
 #if defined(_WIN32) || defined(_WIN64)
@@ -1114,13 +1114,13 @@ int main(int argc, char **argv)
 
     /* Parse command line arguments: [--chacha|--aes] [1.2|1.3] */
     for(int i = 1; i < argc; i++) {
-        if(strcmp(argv[i], "--chacha") == 0) {
+        if(noxtls_u8_strcmp(argv[i], "--chacha") == 0) {
             prefer_chacha20 = 1;
-        } else if(strcmp(argv[i], "--aes") == 0) {
+        } else if(noxtls_u8_strcmp(argv[i], "--aes") == 0) {
             prefer_chacha20 = 0;
-        } else if(strcmp(argv[i], "1.2") == 0 || strcmp(argv[i], "12") == 0) {
+        } else if(noxtls_u8_strcmp(argv[i], "1.2") == 0 || noxtls_u8_strcmp(argv[i], "12") == 0) {
             demo_version = 1;
-        } else if(strcmp(argv[i], "1.3") == 0 || strcmp(argv[i], "13") == 0) {
+        } else if(noxtls_u8_strcmp(argv[i], "1.3") == 0 || noxtls_u8_strcmp(argv[i], "13") == 0) {
             demo_version = 2;
         } else {
             printf("Usage: %s [--chacha|--aes] [1.2|1.3]\n", argv[0]);

@@ -203,3 +203,31 @@ noxtls_return_t noxtls_pbkdf2_hmac(noxtls_hash_algos_t hash_algo,
 
     return rc;
 }
+
+noxtls_return_t noxtls_pbkdf2_self_test(void)
+{
+    /* RFC 6070 §2: P = "password", S = "salt", dkLen = 20. */
+    static const uint8_t pw[] = { 112U, 97U, 115U, 115U, 119U, 111U, 114U, 100U };
+    static const uint8_t salt[] = { 115U, 97U, 108U, 116U };
+    static const uint8_t c1[20] = {
+        0x0c, 0x60, 0xc8, 0x0f, 0x96, 0x1f, 0x0e, 0x71, 0xf3, 0xa9,
+        0xb5, 0x24, 0xaf, 0x60, 0x12, 0x06, 0x2f, 0xe0, 0x37, 0xa6
+    };
+    static const uint8_t c2[20] = {
+        0xea, 0x6c, 0x01, 0x4d, 0xc7, 0x2d, 0x6f, 0x8c, 0xcd, 0x1e,
+        0xd9, 0x2a, 0xce, 0x1d, 0x41, 0xf0, 0xd8, 0xde, 0x89, 0x57
+    };
+    uint8_t dk[20];
+
+    if((noxtls_pbkdf2_hmac(NOXTLS_HASH_SHA1, pw, sizeof(pw), salt, sizeof(salt),
+                           1U, dk, sizeof(dk)) != NOXTLS_RETURN_SUCCESS) ||
+       (noxtls_ct_memcmp(dk, c1, sizeof(dk)) != 0)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    if((noxtls_pbkdf2_hmac(NOXTLS_HASH_SHA1, pw, sizeof(pw), salt, sizeof(salt),
+                           2U, dk, sizeof(dk)) != NOXTLS_RETURN_SUCCESS) ||
+       (noxtls_ct_memcmp(dk, c2, sizeof(dk)) != 0)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    return NOXTLS_RETURN_SUCCESS;
+}

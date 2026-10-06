@@ -24,8 +24,8 @@
 /** @addtogroup noxtls_encryption */
 /** @{ */
 
-#ifndef _NOXTLS_CHACHA20_H_
-#define _NOXTLS_CHACHA20_H_
+#ifndef NOXTLS_CHACHA20_H_
+#define NOXTLS_CHACHA20_H_
 
 /* Standard Includes */
 #include <stdint.h>
@@ -137,6 +137,5 @@ noxtls_return_t noxtls_chacha20_self_test(void);
 }
 #endif
 
-#endif /* _NOXTLS_CHACHA20_H_ */
-
+#endif /* NOXTLS_CHACHA20_H_ */
 

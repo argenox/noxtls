@@ -22,8 +22,8 @@
 *
 */
 
-#ifndef _NOXTLS_CONFIG_H_
-#define _NOXTLS_CONFIG_H_
+#ifndef NOXTLS_CONFIG_H_
+#define NOXTLS_CONFIG_H_
 
 /* ============================================================================
  * Application-local configuration for: pkc
@@ -1215,4 +1215,4 @@
 #define NOXTLS_CFG_ENABLE_NOXSIGHT 0
 #endif
 
-#endif /* _NOXTLS_CONFIG_H_ */
+#endif /* NOXTLS_CONFIG_H_ */

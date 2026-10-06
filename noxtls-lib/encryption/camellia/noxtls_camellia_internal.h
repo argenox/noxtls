@@ -22,8 +22,8 @@
 /** @addtogroup noxtls_encryption */
 /** @{ */
 
-#ifndef _NOXTLS_CAMELLIA_INTERNAL_H_
-#define _NOXTLS_CAMELLIA_INTERNAL_H_
+#ifndef NOXTLS_CAMELLIA_INTERNAL_H_
+#define NOXTLS_CAMELLIA_INTERNAL_H_
 
 #include <stdint.h>
 #include "noxtls_camellia.h"
@@ -36,4 +36,4 @@ noxtls_return_t noxtls_camellia_key_schedule(const uint8_t* key, uint64_t* kw, u
 noxtls_return_t noxtls_camellia_encrypt_block_internal(const uint8_t* key, const uint8_t* data, uint8_t* output, noxtls_camellia_type_t type);
 noxtls_return_t noxtls_camellia_decrypt_block_internal(const uint8_t* key, const uint8_t* data, uint8_t* output, noxtls_camellia_type_t type);
 
-#endif /* _NOXTLS_CAMELLIA_INTERNAL_H_ */
+#endif /* NOXTLS_CAMELLIA_INTERNAL_H_ */

@@ -23,8 +23,8 @@
 /** @addtogroup noxtls_pkc */
 /** @{ */
 
-#ifndef _NOXTLS_DH_H_
-#define _NOXTLS_DH_H_
+#ifndef NOXTLS_DH_H_
+#define NOXTLS_DH_H_
 
 #include <stdint.h>
 #include "noxtls_common.h"
@@ -100,4 +100,4 @@ noxtls_return_t noxtls_dh_shared_secret(const uint8_t *private_key,
 }
 #endif
 
-#endif /* _NOXTLS_DH_H_ */
+#endif /* NOXTLS_DH_H_ */

@@ -31,9 +31,9 @@
 #define NOXTLS_NOXV_AES_BLOCK_IN_OFF    (0x18u)
 #define NOXTLS_NOXV_AES_BLOCK_OUT_OFF   (0x28u)
 
-#define NOXTLS_NOXV_AES_CTRL_START      (1u << 1)
-#define NOXTLS_NOXV_AES_CTRL_CLEAR      (1u << 2)
-#define NOXTLS_NOXV_AES_STATUS_DONE     (1u << 1)
+#define NOXTLS_NOXV_AES_CTRL_START      (1u << 1U)
+#define NOXTLS_NOXV_AES_CTRL_CLEAR      (1u << 2U)
+#define NOXTLS_NOXV_AES_STATUS_DONE     (1u << 1U)
 
 #if defined(__GNUC__) || defined(__clang__)
 #define NOXTLS_NOXV_WEAK __attribute__((weak))
@@ -63,7 +63,7 @@ NOXTLS_NOXV_WEAK void noxtls_noxv_aes_mmio_write(uint32_t offset, uint32_t value
 
 NOXTLS_NOXV_WEAK uintptr_t noxtls_noxv_aes_irq_save(void)
 {
-    return 0u;
+    return 0U;
 }
 
 NOXTLS_NOXV_WEAK void noxtls_noxv_aes_irq_restore(uintptr_t state)
@@ -73,17 +73,17 @@ NOXTLS_NOXV_WEAK void noxtls_noxv_aes_irq_restore(uintptr_t state)
 
 static uint32_t noxtls_noxv_pack_be32(const uint8_t *bytes)
 {
-    return ((uint32_t)bytes[0] << 24) |
-           ((uint32_t)bytes[1] << 16) |
-           ((uint32_t)bytes[2] << 8) |
+    return ((uint32_t)bytes[0] <<24U) |
+           ((uint32_t)bytes[1] <<16U) |
+           ((uint32_t)bytes[2] <<8U) |
            (uint32_t)bytes[3];
 }
 
 static void noxtls_noxv_unpack_be32(uint32_t word, uint8_t *bytes)
 {
-    bytes[0] = (uint8_t)(word >> 24);
-    bytes[1] = (uint8_t)(word >> 16);
-    bytes[2] = (uint8_t)(word >> 8);
+    bytes[0] = (uint8_t)(word >>24U);
+    bytes[1] = (uint8_t)(word >>16U);
+    bytes[2] = (uint8_t)(word >>8U);
     bytes[3] = (uint8_t)word;
 }
 
@@ -99,30 +99,30 @@ static noxtls_return_t noxtls_noxv_aes_encrypt_128(const uint8_t *key,
     noxtls_noxv_aes_mmio_write(NOXTLS_NOXV_AES_CTRL_OFF,
                                NOXTLS_NOXV_AES_CTRL_CLEAR);
 
-    for(word = 0u; word < 4u; ++word) {
-        noxtls_noxv_aes_mmio_write(NOXTLS_NOXV_AES_KEY_OFF + (word * 4u),
-                                   noxtls_noxv_pack_be32(key + (word * 4u)));
-        noxtls_noxv_aes_mmio_write(NOXTLS_NOXV_AES_BLOCK_IN_OFF + (word * 4u),
-                                   noxtls_noxv_pack_be32(data + (word * 4u)));
+    for(word = 0U; word < 4U; word += 1U) {
+        noxtls_noxv_aes_mmio_write(NOXTLS_NOXV_AES_KEY_OFF + (word * 4U),
+                                   noxtls_noxv_pack_be32(&key[(word * 4U)]));
+        noxtls_noxv_aes_mmio_write(NOXTLS_NOXV_AES_BLOCK_IN_OFF + (word * 4U),
+                                   noxtls_noxv_pack_be32(&data[(word * 4U)]));
     }
 
     noxtls_noxv_aes_mmio_write(NOXTLS_NOXV_AES_CTRL_OFF,
                                NOXTLS_NOXV_AES_CTRL_START);
-    for(spins = 0u; spins < NOXTLS_NOXV_AES_TIMEOUT_SPINS; ++spins) {
+    for(spins = 0U; spins < NOXTLS_NOXV_AES_TIMEOUT_SPINS; spins += 1U) {
         if((noxtls_noxv_aes_mmio_read(NOXTLS_NOXV_AES_STATUS_OFF) &
-            NOXTLS_NOXV_AES_STATUS_DONE) != 0u) {
-            for(word = 0u; word < 4u; ++word) {
+            NOXTLS_NOXV_AES_STATUS_DONE) != 0U) {
+            for(word = 0U; word < 4U; word += 1U) {
                 noxtls_noxv_unpack_be32(
                     noxtls_noxv_aes_mmio_read(NOXTLS_NOXV_AES_BLOCK_OUT_OFF +
-                                              (word * 4u)),
-                    output + (word * 4u));
+                                              (word * 4U)),
+                    &output[(word * 4U)]);
             }
-            noxtls_noxv_aes_irq_restore(irq_state);
+            (void)noxtls_noxv_aes_irq_restore(irq_state);
             return NOXTLS_RETURN_SUCCESS;
         }
     }
 
-    noxtls_noxv_aes_irq_restore(irq_state);
+    (void)noxtls_noxv_aes_irq_restore(irq_state);
     return NOXTLS_RETURN_TIMEOUT;
 }
 
@@ -167,9 +167,9 @@ noxtls_return_t noxtls_aes_accel_port_encrypt_blocks(const uint8_t *key,
     if(key == NULL || input == NULL || output == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    for(i = 0u; i < block_count; ++i) {
+    for(i = 0U; i < block_count; i += 1U) {
         noxtls_return_t result = noxtls_aes_accel_port_encrypt_block(
-            key, input + (i * 16u), output + (i * 16u), type);
+            key, &input[(i * 16U)], &output[(i * 16U)], type);
         if(result != NOXTLS_RETURN_SUCCESS) {
             return result;
         }

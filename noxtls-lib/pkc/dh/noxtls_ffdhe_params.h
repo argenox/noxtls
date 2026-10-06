@@ -20,16 +20,16 @@
 *
 *****************************************************************************/
 
-#ifndef _NOXTLS_FFDHE_PARAMS_H_
-#define _NOXTLS_FFDHE_PARAMS_H_
+#ifndef NOXTLS_FFDHE_PARAMS_H_
+#define NOXTLS_FFDHE_PARAMS_H_
 
 #include <stdint.h>
 
-#define NOXTLS_FFDHE2048_P_BYTES 256
-#define NOXTLS_FFDHE3072_P_BYTES 384
-#define NOXTLS_FFDHE4096_P_BYTES 512
-#define NOXTLS_FFDHE6144_P_BYTES 768
-#define NOXTLS_FFDHE8192_P_BYTES 1024
+#define NOXTLS_FFDHE2048_P_BYTES 256U
+#define NOXTLS_FFDHE3072_P_BYTES 384U
+#define NOXTLS_FFDHE4096_P_BYTES 512U
+#define NOXTLS_FFDHE6144_P_BYTES 768U
+#define NOXTLS_FFDHE8192_P_BYTES 1024U
 
 /* Largest built-in FFDHE modulus (FFDHE8192); shared secrets and stack buffers sized to this. */
 #define NOXTLS_FFDHE_MAX_P_BYTES NOXTLS_FFDHE8192_P_BYTES
@@ -54,4 +54,4 @@ extern const uint8_t noxtls_ffdhe_g_4096[NOXTLS_FFDHE4096_P_BYTES];
 extern const uint8_t noxtls_ffdhe_g_6144[NOXTLS_FFDHE6144_P_BYTES];
 extern const uint8_t noxtls_ffdhe_g_8192[NOXTLS_FFDHE8192_P_BYTES];
 
-#endif /* _NOXTLS_FFDHE_PARAMS_H_ */
+#endif /* NOXTLS_FFDHE_PARAMS_H_ */

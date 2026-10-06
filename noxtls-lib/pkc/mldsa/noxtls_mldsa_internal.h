@@ -20,8 +20,8 @@
 *
 *****************************************************************************/
 
-#ifndef _NOXTLS_MLDSA_INTERNAL_H_
-#define _NOXTLS_MLDSA_INTERNAL_H_
+#ifndef NOXTLS_MLDSA_INTERNAL_H_
+#define NOXTLS_MLDSA_INTERNAL_H_
 
 #include <stdint.h>
 #include <stddef.h>
@@ -189,4 +189,4 @@ noxtls_return_t noxtls_mldsa_backend_verify(noxtls_mldsa_param_t param,
 }
 #endif
 
-#endif /* _NOXTLS_MLDSA_INTERNAL_H_ */
+#endif /* NOXTLS_MLDSA_INTERNAL_H_ */

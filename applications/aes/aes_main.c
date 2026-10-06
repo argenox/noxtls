@@ -70,6 +70,7 @@
 #include "noxtls-lib/mdigest/noxtls_hash.h"
 #include "noxtls-lib/encryption/aes/noxtls_aes.h"
 #include "noxtls-lib/encryption/aes/noxtls_aes_gcm.h"
+#include "noxtls_ct.h"
 
 /* ============================================================================
  * Application-private static workspace (per project policy)
@@ -144,16 +145,14 @@ static void app_workspace_reset(void)
 #define NOXTLS_AES_GCM_IV_LENGTH 12
 #define NOXTLS_AES_GCM_TAG_LENGTH 16
 
-
 int aes_128_handler(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t key_len, noxtls_aes_mode_t mode, uint8_t * iv);
 int aes_256_handler(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t key_len, noxtls_aes_mode_t mode, uint8_t * iv);
 int aes_192_handler(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t key_len, noxtls_aes_mode_t mode, uint8_t * iv);
 
-
-void print_usage(const char * name);
-static int parse_offset_value(const char * value, size_t * offset);
-static int read_binary_file(const char * path, uint8_t ** buffer, size_t * length);
-static int write_binary_file(const char * path, const uint8_t * buffer, size_t length);
+void print_usage(const uint8_t * name);
+static int parse_offset_value(const uint8_t * value, size_t * offset);
+static int read_binary_file(const uint8_t * path, uint8_t ** buffer, size_t * length);
+static int write_binary_file(const uint8_t * path, const uint8_t * buffer, size_t length);
 static int aes_encrypt_buffer(
     const uint8_t * data,
     uint32_t len,
@@ -172,7 +171,7 @@ uint8_t debug_lvl = 0;
 typedef int (*aes_handler_func_t)(const uint8_t * data, uint32_t len, uint8_t * key, uint32_t key_len, noxtls_aes_mode_t mode, uint8_t * iv);
 
 typedef struct {
-    char algo[32];
+    uint8_t algo[32];
     aes_handler_func_t handler;
 } aes_handlers_t;
 
@@ -188,7 +187,7 @@ aes_handlers_t aes_handlers[] = {
  * @param[in] name The name of the program
  * @return void
  */
-void print_usage(const char * name)
+void print_usage(const uint8_t * name)
 {
     printf( "usage: %s [command] <parameters>\n", name);
     printf("\nSupported Commands\n\n");
@@ -239,9 +238,9 @@ void print_usage(const char * name)
  * @param[out] offset The offset to parse the offset value into
  * @return The return code
  */
-static int parse_offset_value(const char * value, size_t * offset)
+static int parse_offset_value(const uint8_t * value, size_t * offset)
 {
-    char * endptr = NULL;
+    uint8_t * endptr = NULL;
     unsigned long long parsed = 0;
 
     if(value == NULL || offset == NULL || value[0] == '\0') {
@@ -266,7 +265,7 @@ static int parse_offset_value(const char * value, size_t * offset)
  * @param[out] length The length of the buffer to read the binary file into
  * @return The return code
  */
-static int read_binary_file(const char * path, uint8_t ** buffer, size_t * length)
+static int read_binary_file(const uint8_t * path, uint8_t ** buffer, size_t * length)
 {
     FILE * file = NULL;
     long file_size = 0;
@@ -326,7 +325,7 @@ static int read_binary_file(const char * path, uint8_t ** buffer, size_t * lengt
  * @param[in] length The length of the buffer to write the binary file to
  * @return The return code
  */
-static int write_binary_file(const char * path, const uint8_t * buffer, size_t length)
+static int write_binary_file(const uint8_t * path, const uint8_t * buffer, size_t length)
 {
     FILE * file = NULL;
 
@@ -470,16 +469,15 @@ void print_version(void)
  * @param[in] argv The arguments
  * @return The exit status
  */
-int main(int argc, char ** argv)
+int main(int argc, char **argv)
 {
     size_t i = 0;
     uint32_t data_length = 0;
     uint8_t * data_buffer = NULL;
     int argc_skip = 0;
-    const char * input_file_path = NULL;
-    const char * output_file_path = NULL;
+    const uint8_t * input_file_path = NULL;
+    const uint8_t * output_file_path = NULL;
     size_t file_offset = 0;
-
 
     input_data_type_t type = INPUT_DATA_TYPE_STRING;
     uint8_t * key_buffer = NULL;
@@ -502,7 +500,7 @@ int main(int argc, char ** argv)
     
     for(i = 0; i < sizeof(aes_handlers) / sizeof(aes_handlers[0]); i++)
     {
-        if(strncasecmp(argv[1], aes_handlers[i].algo, strlen(aes_handlers[i].algo)) == 0)
+        if(strncasecmp(argv[1], aes_handlers[i].algo, noxtls_u8_strlen(aes_handlers[i].algo)) == 0)
         {
             function_handler = aes_handlers[i].handler;
             break;
@@ -524,14 +522,14 @@ int main(int argc, char ** argv)
     {
         if (argv[arg_idx][0] == '-')
         {
-            if (strcmp(argv[arg_idx], "-d") == 0)
+            if (noxtls_u8_strcmp(argv[arg_idx], "-d") == 0)
             {
                 debug_lvl = 1;
                 printf("Debug LVL = %d\n", debug_lvl);
                 argc_skip++;
                 arg_idx++;
             }
-            else if (strcmp(argv[arg_idx], "-h") == 0)
+            else if (noxtls_u8_strcmp(argv[arg_idx], "-h") == 0)
             {
                 type = INPUT_DATA_TYPE_HEX;
                 argc_skip++;
@@ -539,7 +537,7 @@ int main(int argc, char ** argv)
                 /* -h expects a value, but we'll use the next argument as hex data */
                 break;
             }
-            else if (strcmp(argv[arg_idx], "-k") == 0)
+            else if (noxtls_u8_strcmp(argv[arg_idx], "-k") == 0)
             {
                 /* -k expects a hex key as the next argument */
                 if (arg_idx + 1 >= argc)
@@ -551,7 +549,7 @@ int main(int argc, char ** argv)
                 argc_skip += 2;  /* Skip both -k and the key value */
                 
                 /* Parse hex key */
-                size_t key_hex_len = strlen(argv[arg_idx]);
+                size_t key_hex_len = noxtls_u8_strlen(argv[arg_idx]);
                 int parsed_len;
                 key_buffer = malloc(key_hex_len * sizeof(uint8_t));
                 if(key_buffer == NULL) {
@@ -573,7 +571,7 @@ int main(int argc, char ** argv)
                 }
                 arg_idx++;
             }
-            else if (strcmp(argv[arg_idx], "-m") == 0)
+            else if (noxtls_u8_strcmp(argv[arg_idx], "-m") == 0)
             {
                 /* -m expects a mode name as the next argument */
                 if (arg_idx + 1 >= argc)
@@ -616,7 +614,7 @@ int main(int argc, char ** argv)
                 }
                 arg_idx++;
             }
-            else if (strcmp(argv[arg_idx], "-i") == 0)
+            else if (noxtls_u8_strcmp(argv[arg_idx], "-i") == 0)
             {
                 /* -i expects a hex IV as the next argument */
                 if (arg_idx + 1 >= argc)
@@ -628,7 +626,7 @@ int main(int argc, char ** argv)
                 argc_skip += 2;  /* Skip both -i and the IV value */
                 
                 /* Parse hex IV */
-                size_t iv_hex_len = strlen(argv[arg_idx]);
+                size_t iv_hex_len = noxtls_u8_strlen(argv[arg_idx]);
                 int parsed_len;
                 iv_buffer = malloc(iv_hex_len * sizeof(uint8_t));
                 if(iv_buffer == NULL) {
@@ -651,7 +649,7 @@ int main(int argc, char ** argv)
                 }
                 arg_idx++;
             }
-            else if (strcmp(argv[arg_idx], "-f") == 0)
+            else if (noxtls_u8_strcmp(argv[arg_idx], "-f") == 0)
             {
                 if (arg_idx + 1 >= argc)
                 {
@@ -662,7 +660,7 @@ int main(int argc, char ** argv)
                 argc_skip += 2;
                 arg_idx += 2;
             }
-            else if (strcmp(argv[arg_idx], "-o") == 0)
+            else if (noxtls_u8_strcmp(argv[arg_idx], "-o") == 0)
             {
                 if (arg_idx + 1 >= argc)
                 {
@@ -673,7 +671,7 @@ int main(int argc, char ** argv)
                 argc_skip += 2;
                 arg_idx += 2;
             }
-            else if (strcmp(argv[arg_idx], "-s") == 0)
+            else if (noxtls_u8_strcmp(argv[arg_idx], "-s") == 0)
             {
                 if (arg_idx + 1 >= argc)
                 {
@@ -720,7 +718,7 @@ int main(int argc, char ** argv)
 
         for(j = argc_skip; j <= (argc - 1); j++)
         {
-            size_t str_len = strlen(argv[j]); /* Space */
+            size_t str_len = noxtls_u8_strlen(argv[j]); /* Space */
             if(debug_lvl > 0) {
                 printf("j=%d  %s\n", j, argv[j]);
             }
@@ -749,13 +747,13 @@ int main(int argc, char ** argv)
             printf("Error: missing hex input\n");
             return -1;
         }
-        size_t hex_len = strlen(argv[argc_skip]);
+        size_t hex_len = noxtls_u8_strlen(argv[argc_skip]);
         int parsed_len;
         
         if(debug_lvl > 0) {
             printf("Hex\n");
             printf("Expected hex string: %s\n",argv[argc_skip]);
-            printf("Hex string length: %zu\n", strlen(argv[argc_skip]));
+            printf("Hex string length: %zu\n", noxtls_u8_strlen(argv[argc_skip]));
         }
 
         data_buffer = malloc(hex_len * sizeof(uint8_t));
@@ -782,13 +780,13 @@ int main(int argc, char ** argv)
     /* Validate key if specified */
     if(key_specified) {
         uint32_t expected_key_len = 0;
-        if(strcmp(argv[1], "128") == 0) {
+        if(noxtls_u8_strcmp(argv[1], "128") == 0) {
             expected_key_len = 16;  /* AES-128: 16 bytes */
         }
-        else if(strcmp(argv[1], "192") == 0) {
+        else if(noxtls_u8_strcmp(argv[1], "192") == 0) {
             expected_key_len = 24;  /* AES-192: 24 bytes */
         }
-        else if(strcmp(argv[1], "256") == 0) {
+        else if(noxtls_u8_strcmp(argv[1], "256") == 0) {
             expected_key_len = 32;  /* AES-256: 32 bytes */
         }
         
@@ -950,7 +948,6 @@ int main(int argc, char ** argv)
 
     return 0;
 }
-
 
 /**
  * @brief AES-128 handler

@@ -157,6 +157,14 @@
         "NOXTLS_PROFILE_UT_ALL_FEATURES": "0"
       }
     },
+    "NOXTLS_HMAC_SHA256_SHARED_STATE": {
+      "name": "Shared SHA-256 HMAC State (Serialized)",
+      "category": "memory"
+    },
+    "NOXTLS_ECC_SHARED_SCRATCH": {
+      "name": "Shared ECC Inversion Scratch (Serialized)",
+      "category": "memory"
+    },
     "NOXTLS_ECC_P256_FLASH_PRECOMPUTE": {
       "name": "P-256 Generator Table in Flash"
     },

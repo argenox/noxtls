@@ -25,50 +25,38 @@
 #include <string.h>
 #include "noxtls_camellia.h"
 #include "noxtls_camellia_internal.h"
+#include "noxtls_common.h"
+#include "noxtls_ct.h"
 
 #if NOXTLS_FEATURE_CAMELLIA
 
 /**
  * @brief Camellia Encrypt in CBC Mode
- *
- * Cipher Block Chaining mode: Each block is XORed with the previous
- * ciphertext (or IV for the first block) before encryption.
- *
- * @param key is a pointer to the encryption key
- * @param data is a pointer to the plaintext to be encrypted
- * @param data_len is the length of the plaintext in bytes
- * @param iv is the Initialization Vector (16 bytes). If NULL, zero IV is used.
- * @param output is the output buffer where the encrypted plaintext will be placed
- * @param type is the Camellia variant, 128, 192, 256  @see noxtls_camellia_type_t
- *
- * @return NOXTLS_RETURN_SUCCESS on success
  */
-/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
+/* Block-indexed CBC encrypt; extents follow caller data_len / Camellia block size. */
 noxtls_return_t noxtls_camellia_encrypt_cbc(const uint8_t* key, 
                          const uint8_t* data, 
                          uint32_t data_len,
                          const uint8_t * iv,
                          uint8_t* output, 
                          noxtls_camellia_type_t type)
-/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    int i;
-    uint32_t cur_block = 0;
+    uint32_t i;
+    uint32_t cur_block = 0U;
     const uint8_t * iv_src = NULL;
     uint8_t temp_block[NOXTLS_CAMELLIA_BLOCK_LENGTH];
     uint8_t zero_iv[NOXTLS_CAMELLIA_BLOCK_LENGTH];
-    
-    for(cur_block = 0; cur_block < data_len; cur_block += NOXTLS_CAMELLIA_BLOCK_LENGTH)
+    const uint32_t block_sz = (uint32_t)NOXTLS_CAMELLIA_BLOCK_LENGTH;
+
+    for (cur_block = 0U; cur_block < data_len; cur_block += block_sz)
     {
-        uint32_t block_len = (data_len - cur_block < NOXTLS_CAMELLIA_BLOCK_LENGTH) ? 
-                             (data_len - cur_block) : NOXTLS_CAMELLIA_BLOCK_LENGTH;
-        
+        uint32_t remain = (uint32_t)(data_len - cur_block);
+        uint32_t block_len = (uint32_t)((remain < block_sz) ? remain : block_sz);
+
         /* Cipher Block Chaining: XOR with previous ciphertext (or IV) */
-        if(cur_block == 0) {
-            /* Use IV for first block */
-            if(iv == NULL) {
-                /* Zero IV if not provided */
-                memset(zero_iv, 0, NOXTLS_CAMELLIA_BLOCK_LENGTH);
+        if (cur_block == 0U) {
+            if (iv == NULL) {
+                noxtls_secure_zero((zero_iv), (size_t)(block_sz));
                 iv_src = zero_iv;
             }
             else {
@@ -76,36 +64,25 @@ noxtls_return_t noxtls_camellia_encrypt_cbc(const uint8_t* key,
             }
         }
         else {
-            /* Previous Block Output */
-            iv_src = &output[cur_block - NOXTLS_CAMELLIA_BLOCK_LENGTH];
+            iv_src = &output[cur_block - block_sz];
         }
-        
-        /* XOR the input data with IV/previous ciphertext */
-        memcpy(temp_block, &data[cur_block], block_len);
-        if(block_len < NOXTLS_CAMELLIA_BLOCK_LENGTH) {
-            memset(&temp_block[block_len], 0, NOXTLS_CAMELLIA_BLOCK_LENGTH - block_len);
+
+        noxtls_copy_u8(temp_block, sizeof(temp_block), &data[cur_block], (size_t)block_len);
+        if (block_len < block_sz) {
+            noxtls_secure_zero((&temp_block[block_len]), ((size_t)(block_sz - block_len)));
         }
-        for(i = 0; i < NOXTLS_CAMELLIA_BLOCK_LENGTH; i++) {
-            temp_block[i] ^= iv_src[i];
+        for (i = 0U; i < block_sz; i += 1U) {
+            temp_block[i] = (uint8_t)(temp_block[i] ^ iv_src[i]);
         }
-        
-        noxtls_camellia_encrypt_block_internal(key, temp_block, &output[cur_block], type);
+
+        (void)noxtls_camellia_encrypt_block_internal(key, temp_block, &output[cur_block], type);
     }
 
-    return 0;
+    return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
  * @brief Camellia Decrypt in CBC Mode
- *
- * @param key is a pointer to the decryption key
- * @param data is a pointer to the ciphertext to be decrypted
- * @param data_len is the length of the ciphertext in bytes
- * @param iv is not used (can be NULL)
- * @param output is the output buffer where the decrypted ciphertext will be placed
- * @param type is the Camellia variant, 128, 192, 256
- *
- * @return NOXTLS_RETURN_SUCCESS on success
  */
 noxtls_return_t noxtls_camellia_decrypt_cbc(const uint8_t* key,
                          const uint8_t* data,
@@ -119,30 +96,31 @@ noxtls_return_t noxtls_camellia_decrypt_cbc(const uint8_t* key,
     uint8_t temp_block[NOXTLS_CAMELLIA_BLOCK_LENGTH];
     uint8_t zero_iv[NOXTLS_CAMELLIA_BLOCK_LENGTH];
     const uint8_t * iv_src;
+    const uint32_t block_sz = (uint32_t)NOXTLS_CAMELLIA_BLOCK_LENGTH;
 
-    for(cur_block = 0; cur_block < data_len; cur_block += NOXTLS_CAMELLIA_BLOCK_LENGTH)
+    for (cur_block = 0U; cur_block < data_len; cur_block += block_sz)
     {
-        uint32_t block_len = (data_len - cur_block < NOXTLS_CAMELLIA_BLOCK_LENGTH) ?
-                             (data_len - cur_block) : NOXTLS_CAMELLIA_BLOCK_LENGTH;
+        uint32_t remain = (uint32_t)(data_len - cur_block);
+        uint32_t block_len = (uint32_t)((remain < block_sz) ? remain : block_sz);
 
-        noxtls_camellia_decrypt_block_internal(key, &data[cur_block], temp_block, type);
+        (void)noxtls_camellia_decrypt_block_internal(key, &data[cur_block], temp_block, type);
 
-        if(cur_block == 0) {
-            if(iv == NULL) {
-                memset(zero_iv, 0, NOXTLS_CAMELLIA_BLOCK_LENGTH);
+        if (cur_block == 0U) {
+            if (iv == NULL) {
+                noxtls_secure_zero((zero_iv), (size_t)(block_sz));
                 iv_src = zero_iv;
             } else {
                 iv_src = iv;
             }
         } else {
-            iv_src = &data[cur_block - NOXTLS_CAMELLIA_BLOCK_LENGTH];
+            iv_src = &data[cur_block - block_sz];
         }
 
-        for(i = 0; i < block_len; i++) {
-            output[cur_block + i] = temp_block[i] ^ iv_src[i];
+        for (i = 0U; i < block_len; i += 1U) {
+            output[cur_block + i] = (uint8_t)(temp_block[i] ^ iv_src[i]);
         }
-        if(block_len < NOXTLS_CAMELLIA_BLOCK_LENGTH) {
-            memset(&output[cur_block + block_len], 0, NOXTLS_CAMELLIA_BLOCK_LENGTH - block_len);
+        if (block_len < block_sz) {
+            noxtls_secure_zero((&output[cur_block + block_len]), ((size_t)(block_sz - block_len)));
         }
     }
     return NOXTLS_RETURN_SUCCESS;

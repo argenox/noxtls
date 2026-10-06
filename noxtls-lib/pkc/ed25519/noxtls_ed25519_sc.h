@@ -30,8 +30,8 @@
  * Inputs and outputs use little-endian wire encoding at the API edge.
  */
 
-#ifndef _NOXTLS_ED25519_SC_H_
-#define _NOXTLS_ED25519_SC_H_
+#ifndef NOXTLS_ED25519_SC_H_
+#define NOXTLS_ED25519_SC_H_
 
 #include <stdint.h>
 
@@ -47,8 +47,8 @@ extern "C" {
  * @param[out] out_le Reduced 32-byte little-endian scalar.
  * @param[in] in_le 64-byte little-endian input.
  */
-void sc25519_reduce(uint8_t out_le[NOXTLS_ED25519_FE25519_BYTES],
-                    const uint8_t in_le[NOXTLS_ED25519_SHA512_DIGEST_BYTES]);
+void sc25519_reduce(uint8_t *out_le,
+                    const uint8_t *in_le);
 
 /**
  * @brief Compute out = (a*b + c) mod L (ref10 sc_muladd).
@@ -58,13 +58,13 @@ void sc25519_reduce(uint8_t out_le[NOXTLS_ED25519_FE25519_BYTES],
  * @param[in] b_le Second factor (32-byte LE).
  * @param[in] c_le Addend (32-byte LE).
  */
-void sc25519_muladd(uint8_t out_le[NOXTLS_ED25519_FE25519_BYTES],
-                    const uint8_t a_le[NOXTLS_ED25519_FE25519_BYTES],
-                    const uint8_t b_le[NOXTLS_ED25519_FE25519_BYTES],
-                    const uint8_t c_le[NOXTLS_ED25519_FE25519_BYTES]);
+void sc25519_muladd(uint8_t *out_le,
+                    const uint8_t *a_le,
+                    const uint8_t *b_le,
+                    const uint8_t *c_le);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _NOXTLS_ED25519_SC_H_ */
+#endif /* NOXTLS_ED25519_SC_H_ */

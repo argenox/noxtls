@@ -47,7 +47,7 @@
  */
 static noxtls_return_t noxtls_aes_accel_apple_get_rounds_and_nk(noxtls_aes_type_t type, int *rounds, int *nk)
 {
-    if(rounds == NULL || nk == NULL) {
+    if((rounds == NULL) || (nk == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
@@ -90,10 +90,10 @@ static noxtls_return_t noxtls_aes_accel_apple_get_rounds_and_nk(noxtls_aes_type_
  */
 static void noxtls_aes_accel_apple_word_to_bytes_be(uint32_t word, uint8_t out[4])
 {
-    out[0] = (uint8_t)((word >> 24) & 0xFFu);
-    out[1] = (uint8_t)((word >> 16) & 0xFFu);
-    out[2] = (uint8_t)((word >> 8) & 0xFFu);
-    out[3] = (uint8_t)(word & 0xFFu);
+    out[0] = (uint8_t)((word >>24U) & 0xFFU);
+    out[1] = (uint8_t)((word >>16U) & 0xFFU);
+    out[2] = (uint8_t)((word >>8U) & 0xFFU);
+    out[3] = (uint8_t)(word & 0xFFU);
 }
 
 /**
@@ -118,7 +118,7 @@ static noxtls_return_t noxtls_aes_accel_apple_build_round_keys(const uint8_t *ke
     uint8_t round_key_bytes[16];
     int rounds;
     int nk;
-    int round;
+    uint32_t round;
     noxtls_return_t rc;
 
     if(key == NULL || enc_rks == NULL || dec_rks == NULL || rounds_out == NULL) {
@@ -135,16 +135,16 @@ static noxtls_return_t noxtls_aes_accel_apple_build_round_keys(const uint8_t *ke
         return rc;
     }
 
-    for(round = 0; round <= rounds; round++) {
-        int col;
-        for(col = 0; col < 4; col++) {
-            noxtls_aes_accel_apple_word_to_bytes_be(words[(round * 4) + col], &round_key_bytes[col * 4]);
+    for(round = 0U; round <= rounds; round += 1U) {
+        uint32_t col;
+        for (col = 0U; col < 4U; col += 1U) {
+            (void)noxtls_aes_accel_apple_word_to_bytes_be(words[(round * 4) + col], &round_key_bytes[col * 4]);
         }
         enc_rks[round] = vld1q_u8(round_key_bytes);
     }
 
     dec_rks[0] = enc_rks[rounds];
-    for(round = 1; round < rounds; round++) {
+    for(round = 1U; round < rounds; round += 1U) {
         dec_rks[round] = vaesimcq_u8(enc_rks[rounds - round]);
     }
     dec_rks[rounds] = enc_rks[0];
@@ -173,7 +173,7 @@ noxtls_return_t noxtls_aes_accel_apple_encrypt_block(const uint8_t *key,
     uint8x16_t dec_rks[15];
     uint8x16_t state;
     int rounds;
-    int round;
+    uint32_t round;
     noxtls_return_t rc;
 
     if(key == NULL || data == NULL || output == NULL) {
@@ -187,7 +187,7 @@ noxtls_return_t noxtls_aes_accel_apple_encrypt_block(const uint8_t *key,
 
     state = vld1q_u8(data);
     state = veorq_u8(state, enc_rks[0]);
-    for(round = 1; round < rounds; round++) {
+    for(round = 1U; round < rounds; round += 1U) {
         state = vaeseq_u8(state, enc_rks[round]);
         state = vaesmcq_u8(state);
     }
@@ -224,7 +224,7 @@ noxtls_return_t noxtls_aes_accel_apple_decrypt_block(const uint8_t *key,
     uint8x16_t dec_rks[15];
     uint8x16_t state;
     int rounds;
-    int round;
+    uint32_t round;
     noxtls_return_t rc;
 
     if(key == NULL || data == NULL || output == NULL) {
@@ -238,7 +238,7 @@ noxtls_return_t noxtls_aes_accel_apple_decrypt_block(const uint8_t *key,
 
     state = vld1q_u8(data);
     state = veorq_u8(state, dec_rks[0]);
-    for(round = 1; round < rounds; round++) {
+    for(round = 1U; round < rounds; round += 1U) {
         state = vaesdq_u8(state, dec_rks[round]);
         state = vaesimcq_u8(state);
     }

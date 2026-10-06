@@ -26,8 +26,8 @@
  */
 /** @{ */
 
-#ifndef _NOXTLS_UTILITY_H
-#define _NOXTLS_UTILITY_H
+#ifndef NOXTLS_UTILITY_H
+#define NOXTLS_UTILITY_H
 
 #include <stdint.h>
 
@@ -35,10 +35,12 @@
 extern "C" {
 #endif
 
-extern int noxtls_load_file(const char * filename, uint8_t ** buffer);
-extern int noxtls_load_text_file(const char * filename, uint8_t ** buffer);
-extern int noxtls_write_text_file(const char * filename, const uint8_t * buffer, uint32_t len);
-extern int noxtls_write_file(const char * filename, const uint8_t * buffer, uint32_t len);
+/** @note On success, *buffer is allocated with noxtls_malloc; free with noxtls_free. */
+extern int noxtls_load_file(const uint8_t * filename, uint8_t ** buffer);
+/** @note On success, *buffer is allocated with noxtls_malloc; free with noxtls_free. */
+extern int noxtls_load_text_file(const uint8_t * filename, uint8_t ** buffer);
+extern int noxtls_write_text_file(const uint8_t * filename, const uint8_t * buffer, uint32_t len);
+extern int noxtls_write_file(const uint8_t * filename, const uint8_t * buffer, uint32_t len);
 
 #ifdef __cplusplus
 }

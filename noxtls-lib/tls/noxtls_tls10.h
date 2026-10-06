@@ -22,9 +22,8 @@
 *
 *****************************************************************************/
 
-
-#ifndef _NOXTLS_TLS10_H_
-#define _NOXTLS_TLS10_H_
+#ifndef NOXTLS_TLS10_H_
+#define NOXTLS_TLS10_H_
 
 #include <stdint.h>
 
@@ -35,6 +34,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#if NOXTLS_FEATURE_TLS10
 
 /* TLS 1.0 Context: same as TLS 1.2 context (use noxtls_tls12_context_init_with_version for TLS 1.0) */
 typedef tls12_context_t tls10_context_t;
@@ -72,10 +73,11 @@ noxtls_return_t noxtls_tls10_recv_finished_client(tls10_context_t *ctx);
 noxtls_return_t noxtls_tls10_send_change_cipher_spec_server(tls10_context_t *ctx);
 noxtls_return_t noxtls_tls10_send_finished_server(tls10_context_t *ctx);
 
+#endif /* NOXTLS_FEATURE_TLS10 */
+
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _NOXTLS_TLS10_H_ */
-
+#endif /* NOXTLS_TLS10_H_ */
 

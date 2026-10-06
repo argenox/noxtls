@@ -31,7 +31,7 @@ typedef noxtls_return_t (*bench_fn_t)(uint32_t iterations, uint32_t *bytes_per_i
 
 typedef struct
 {
-    const char *name;
+    const uint8_t *name;
     bench_fn_t fn;
     uint32_t iterations;
 } bench_case_t;
@@ -39,7 +39,7 @@ typedef struct
 static const uint8_t g_data_1k[1024] = {0xA5u};
 static const uint8_t g_data_64[64] = {0x5Au};
 
-static void bench_print_result(const char *name, uint64_t ns_total, uint32_t iterations, uint32_t bytes_per_iter)
+static void bench_print_result(const uint8_t *name, uint64_t ns_total, uint32_t iterations, uint32_t bytes_per_iter)
 {
     uint64_t ns_per_op = (iterations == 0u) ? 0u : (ns_total / (uint64_t)iterations);
     uint64_t throughput_bps = 0u;

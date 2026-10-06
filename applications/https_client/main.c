@@ -43,6 +43,7 @@ typedef SOCKET socket_t;
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
+#include "noxtls_ct.h"
 typedef int socket_t;
 #define INVALID_SOCKET (-1)
 #define CLOSESOCK close
@@ -129,7 +130,7 @@ typedef struct {
  * @param[in] prog Program name (argv[0])
  * @return void
  */
-static void print_usage(const char *prog)
+static void print_usage(const uint8_t *prog)
 {
     printf("Usage: %s <https://host[:port]/path> [port] [tls12|tls13|auto] [--ca <ca_cert.pem|der>] [keylog=<path>|--keylog <path>] [tlsdump=<path>|--tlsdump <path>]\n", prog);
     printf("Example: %s https://example.com/\n", prog);
@@ -146,7 +147,7 @@ static void print_usage(const char *prog)
  * @param ca_file Path to DER/PEM certificate file.
  * @return NOXTLS_RETURN_SUCCESS on success, failure code otherwise.
  */
-static noxtls_return_t https_configure_trust_store(const char *ca_file)
+static noxtls_return_t https_configure_trust_store(const uint8_t *ca_file)
 {
     noxtls_return_t rc;
     x509_certificate_t ca_cert;
@@ -185,7 +186,7 @@ static noxtls_return_t https_configure_trust_store(const char *ca_file)
  * @param[in] s String to test
  * @return 1 if @p s is non-empty and all digits, 0 otherwise
  */
-static int is_number(const char *s)
+static int is_number(const uint8_t *s)
 {
     if(s == NULL || *s == '\0') {
         return 0;
@@ -219,21 +220,21 @@ typedef enum {
  * @param[out] port Parsed or default port number
  * @return 0 on success, -1 on parse error
  */
-static int parse_url(const char *url, char *host, size_t host_len,
-                     char *path, size_t path_len, uint16_t *port)
+static int parse_url(const uint8_t *url, uint8_t *host, size_t host_len,
+                     uint8_t *path, size_t path_len, uint16_t *port)
 {
-    const char *p = url;
-    const char *host_start;
-    const char *host_end;
-    const char *path_start;
+    const uint8_t *p = url;
+    const uint8_t *host_start;
+    const uint8_t *host_end;
+    const uint8_t *path_start;
 
     if(url == NULL || host == NULL || path == NULL || port == NULL) {
         return -1;
     }
 
-    if(strncmp(p, "https://", 8) == 0) {
+    if(noxtls_u8_strncmp(p, "https://", 8) == 0) {
         p += 8;
-    } else if(strncmp(p, "http://", 7) == 0) {
+    } else if(noxtls_u8_strncmp(p, "http://", 7) == 0) {
         /* Force HTTPS even if http:// is provided */
         p += 7;
     }
@@ -256,7 +257,7 @@ static int parse_url(const char *url, char *host, size_t host_len,
 
     *port = 443;
     if(*p == ':') {
-        const char *colon;
+        const uint8_t *colon;
         p++;
         colon = p;
         while(*p && *p != '/') {
@@ -278,7 +279,7 @@ static int parse_url(const char *url, char *host, size_t host_len,
     }
 
     {
-        size_t path_start_len = strlen(path_start);
+        size_t path_start_len = noxtls_u8_strlen(path_start);
         if(path_start_len >= path_len) {
             return -1;
         }
@@ -297,9 +298,9 @@ static int parse_url(const char *url, char *host, size_t host_len,
  * @param[out] out_sock Connected socket on success
  * @return 0 on success, -1 on failure
  */
-static int connect_tcp(const char *host, uint16_t port, socket_t *out_sock)
+static int connect_tcp(const uint8_t *host, uint16_t port, socket_t *out_sock)
 {
-    char port_str[8];
+    uint8_t port_str[8];
     struct addrinfo hints;
     struct addrinfo *res = NULL;
     struct addrinfo *it;
@@ -360,7 +361,7 @@ static int32_t https_send_cb(void *user_data, const uint8_t *data, uint32_t len)
 
     while(sent_total < len) {
         int chunk = (int)(len - sent_total);
-        int sent = (int)send(conn->sock, (const char*)data + sent_total, chunk, 0);
+        int sent = (int)send(conn->sock, (const uint8_t *)data + sent_total, chunk, 0);
         if(sent <= 0) {
             return -1;
         }
@@ -389,7 +390,7 @@ static int32_t https_recv_cb(void *user_data, uint8_t *data, uint32_t len)
 
     while(recv_total < len) {
         int chunk = (int)(len - recv_total);
-        int received = (int)recv(conn->sock, (char*)data + recv_total, chunk, 0);
+        int received = (int)recv(conn->sock, (uint8_t *)data + recv_total, chunk, 0);
         if(received <= 0) {
             return -1;
         }
@@ -408,8 +409,8 @@ static int32_t https_recv_cb(void *user_data, uint8_t *data, uint32_t len)
  */
 int main(int argc, char **argv)
 {
-    char host[256];
-    char path[512];
+    uint8_t host[256];
+    uint8_t path[512];
     uint16_t port = 443;
     socket_t sock = INVALID_SOCKET;
     https_conn_t conn;
@@ -417,7 +418,7 @@ int main(int argc, char **argv)
     tls13_context_t tls13_ctx;
     tls_mode_t tls_mode = TLS_MODE_1_2;
     tls_mode_t active_mode = TLS_MODE_1_2;
-    const char *ca_file = NULL;
+    const uint8_t *ca_file = NULL;
     int trust_store_configured = 0;
     noxtls_return_t rc;
 
@@ -457,11 +458,11 @@ int main(int argc, char **argv)
             }
             port = override_port;
             if(argc >= 4) {
-                if(strcmp(argv[3], "tls13") == 0) {
+                if(noxtls_u8_strcmp(argv[3], "tls13") == 0) {
                     tls_mode = TLS_MODE_1_3;
-                } else if(strcmp(argv[3], "auto") == 0) {
+                } else if(noxtls_u8_strcmp(argv[3], "auto") == 0) {
                     tls_mode = TLS_MODE_AUTO;
-                } else if(strcmp(argv[3], "tls12") == 0) {
+                } else if(noxtls_u8_strcmp(argv[3], "tls12") == 0) {
                     tls_mode = TLS_MODE_1_2;
                 } else {
                     printf("ERROR: Invalid TLS mode (use tls12|tls13|auto)\n");
@@ -472,11 +473,11 @@ int main(int argc, char **argv)
                 }
             }
         } else {
-            if(strcmp(argv[2], "tls13") == 0) {
+            if(noxtls_u8_strcmp(argv[2], "tls13") == 0) {
                 tls_mode = TLS_MODE_1_3;
-            } else if(strcmp(argv[2], "auto") == 0) {
+            } else if(noxtls_u8_strcmp(argv[2], "auto") == 0) {
                 tls_mode = TLS_MODE_AUTO;
-            } else if(strcmp(argv[2], "tls12") == 0) {
+            } else if(noxtls_u8_strcmp(argv[2], "tls12") == 0) {
                 tls_mode = TLS_MODE_1_2;
             } else {
                 printf("ERROR: Invalid TLS mode (use tls12|tls13|auto)\n");
@@ -489,24 +490,24 @@ int main(int argc, char **argv)
     }
 
     for(int i = 2; i < argc; i++) {
-        if(strcmp(argv[i], "--ca") == 0 && i + 1 < argc) {
+        if(noxtls_u8_strcmp(argv[i], "--ca") == 0 && i + 1 < argc) {
             ca_file = argv[i + 1];
             i++;
-        } else if(strncmp(argv[i], "keylog=", 7) == 0) {
+        } else if(noxtls_u8_strncmp(argv[i], "keylog=", 7) == 0) {
             noxtls_tls13_set_keylog_file(argv[i] + 7);
-        } else if(strcmp(argv[i], "--keylog") == 0 && i + 1 < argc) {
+        } else if(noxtls_u8_strcmp(argv[i], "--keylog") == 0 && i + 1 < argc) {
             noxtls_tls13_set_keylog_file(argv[i + 1]);
             i++;
-        } else if(strncmp(argv[i], "tlsdump=", 8) == 0) {
+        } else if(noxtls_u8_strncmp(argv[i], "tlsdump=", 8) == 0) {
             noxtls_tls_set_record_dump_file(argv[i] + 8);
-        } else if(strcmp(argv[i], "--tlsdump") == 0 && i + 1 < argc) {
+        } else if(noxtls_u8_strcmp(argv[i], "--tlsdump") == 0 && i + 1 < argc) {
             noxtls_tls_set_record_dump_file(argv[i + 1]);
             i++;
         }
     }
 
     if(ca_file == NULL) {
-        if(strcmp(host, "localhost") == 0 || strcmp(host, "127.0.0.1") == 0) {
+        if(noxtls_u8_strcmp(host, "localhost") == 0 || noxtls_u8_strcmp(host, "127.0.0.1") == 0) {
             ca_file = "server.crt";
         }
     }
@@ -558,7 +559,7 @@ int main(int argc, char **argv)
         }
 
         tls13_ctx.server_name = host;
-        tls13_ctx.server_name_len = (uint16_t)strlen(host);
+        tls13_ctx.server_name_len = (uint16_t)noxtls_u8_strlen(host);
 
         rc = noxtls_tls_set_io_callbacks(&tls13_ctx.base.base, https_send_cb, https_recv_cb, &conn);
         if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -612,7 +613,7 @@ int main(int argc, char **argv)
         }
 
         tls12_ctx.server_name = host;
-        tls12_ctx.server_name_len = (uint16_t)strlen(host);
+        tls12_ctx.server_name_len = (uint16_t)noxtls_u8_strlen(host);
 
         rc = noxtls_tls_set_io_callbacks(&tls12_ctx.base.base, https_send_cb, https_recv_cb, &conn);
         if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -645,7 +646,7 @@ int main(int argc, char **argv)
     printf("TLS handshake complete\n");
 
     /* Send HTTP GET */
-    char request[1024];
+    uint8_t request[1024];
     if(port != 443) {
         snprintf(request, sizeof(request),
                  "GET %s HTTP/1.1\r\n"
@@ -669,9 +670,9 @@ int main(int argc, char **argv)
     }
 
     if(active_mode == TLS_MODE_1_3) {
-        rc = noxtls_tls13_send(&tls13_ctx, (const uint8_t*)request, (uint32_t)strlen(request));
+        rc = noxtls_tls13_send(&tls13_ctx, (const uint8_t*)request, (uint32_t)noxtls_u8_strlen(request));
     } else {
-        rc = noxtls_tls12_send(&tls12_ctx, (const uint8_t*)request, (uint32_t)strlen(request));
+        rc = noxtls_tls12_send(&tls12_ctx, (const uint8_t*)request, (uint32_t)noxtls_u8_strlen(request));
     }
     if(rc != NOXTLS_RETURN_SUCCESS) {
         printf("ERROR: Failed to send HTTP request: %d\n", rc);

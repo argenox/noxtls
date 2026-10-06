@@ -21,6 +21,12 @@
  * here ensures _NOXTLS_CONFIG_H_ is set from THIS file. */
 #include "noxtls_config.h"
 
+static const uint8_t s_app_cert_pub_key_begin[] = { (uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'B',(uint8_t)'E',(uint8_t)'G',(uint8_t)'I',(uint8_t)'N',(uint8_t)' ',(uint8_t)'P',(uint8_t)'U',(uint8_t)'B',(uint8_t)'L',(uint8_t)'I',(uint8_t)'C',(uint8_t)' ',(uint8_t)'K',(uint8_t)'E',(uint8_t)'Y',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',0 };
+static const uint8_t s_app_cert_pub_key_end[] = { (uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'E',(uint8_t)'N',(uint8_t)'D',(uint8_t)' ',(uint8_t)'P',(uint8_t)'U',(uint8_t)'B',(uint8_t)'L',(uint8_t)'I',(uint8_t)'C',(uint8_t)' ',(uint8_t)'K',(uint8_t)'E',(uint8_t)'Y',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',0 };
+static const uint8_t s_app_cert_begin[] = { (uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'B',(uint8_t)'E',(uint8_t)'G',(uint8_t)'I',(uint8_t)'N',(uint8_t)' ',(uint8_t)'C',(uint8_t)'E',(uint8_t)'R',(uint8_t)'T',(uint8_t)'I',(uint8_t)'F',(uint8_t)'I',(uint8_t)'C',(uint8_t)'A',(uint8_t)'T',(uint8_t)'E',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',0 };
+static const uint8_t s_app_cert_end[] = { (uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'E',(uint8_t)'N',(uint8_t)'D',(uint8_t)' ',(uint8_t)'C',(uint8_t)'E',(uint8_t)'R',(uint8_t)'T',(uint8_t)'I',(uint8_t)'F',(uint8_t)'I',(uint8_t)'C',(uint8_t)'A',(uint8_t)'T',(uint8_t)'E',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',0 };
+
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -34,6 +40,7 @@
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include "noxtls_ct.h"
 typedef SOCKET socket_t;
 #define CLOSESOCK closesocket
 #define TLSCURL_SOCKERR() ((int)WSAGetLastError())
@@ -94,7 +101,6 @@ static void *app_workspace_alloc(size_t n)
     return &g_app_workspace[off];
 }
 
-
 /**
  * @brief Free the workspace
  * 
@@ -145,7 +151,7 @@ typedef enum {
 } tlscurl_active_tls_t;
 
 typedef struct {
-    char line[TLSCURL_HEADER_LINE_MAX];
+    uint8_t line[TLSCURL_HEADER_LINE_MAX];
 } tlscurl_header_entry_t;
 
 typedef struct {
@@ -154,16 +160,16 @@ typedef struct {
 } tlscurl_headers_t;
 
 typedef struct {
-    const char *url;
-    const char *ca_file;
-    const char *crl_file;
-    const char *pin_sha256;
-    const char *method;
-    const char *data_arg;
-    const char *data_file;
-    const char *output_path;
-    const char *tlsdump_path;
-    const char *keylog_path;
+    const uint8_t *url;
+    const uint8_t *ca_file;
+    const uint8_t *crl_file;
+    const uint8_t *pin_sha256;
+    const uint8_t *method;
+    const uint8_t *data_arg;
+    const uint8_t *data_file;
+    const uint8_t *output_path;
+    const uint8_t *tlsdump_path;
+    const uint8_t *keylog_path;
     tlscurl_headers_t headers;
     tls_mode_t tls_mode;
     uint8_t prefer_chacha;
@@ -194,9 +200,9 @@ static int tlscurl_sockerr_is_retryable(int err)
  * @brief Print usage text for tlscurl.
  * @param prog Program name (argv[0]).
  */
-static void tlscurl_print_usage(const char *prog)
+static void tlscurl_print_usage(const uint8_t *prog)
 {
-    const char *p;
+    const uint8_t *p;
 
     p = (prog != NULL) ? prog : "tlscurl";
     printf("Usage: %s <https://host[:port]/path> [options]\n", p);
@@ -225,7 +231,7 @@ static void tlscurl_print_usage(const char *prog)
  * @param prefix ASCII prefix (e.g. "host:").
  * @return 1 if line starts with prefix ignoring case, else 0.
  */
-static int tlscurl_header_has_prefix_ci(const char *line, const char *prefix)
+static int tlscurl_header_has_prefix_ci(const uint8_t *line, const uint8_t *prefix)
 {
     size_t i;
 
@@ -233,16 +239,16 @@ static int tlscurl_header_has_prefix_ci(const char *line, const char *prefix)
         return 0;
     }
     for(i = 0; prefix[i] != '\0'; i++) {
-        char a;
-        char b;
+        uint8_t a;
+        uint8_t b;
 
         a = line[i];
         b = prefix[i];
         if(a >= 'A' && a <= 'Z') {
-            a = (char)(a - 'A' + 'a');
+            a = (uint8_t)(a - 'A' + 'a');
         }
         if(b >= 'A' && b <= 'Z') {
-            b = (char)(b - 'A' + 'a');
+            b = (uint8_t)(b - 'A' + 'a');
         }
         if(a != b) {
             return 0;
@@ -256,7 +262,7 @@ static int tlscurl_header_has_prefix_ci(const char *line, const char *prefix)
  * @param st TLS state enum.
  * @return Static string name.
  */
-static const char *tlscurl_tls_state_name(tls_state_t st)
+static const uint8_t *tlscurl_tls_state_name(tls_state_t st)
 {
     switch(st) {
     case TLS_STATE_INIT:
@@ -281,7 +287,7 @@ static const char *tlscurl_tls_state_name(tls_state_t st)
  * @param rc Return code from NoxTLS.
  * @return Static label or NULL if none.
  */
-static const char *tlscurl_cert_rc_label(noxtls_return_t rc)
+static const uint8_t *tlscurl_cert_rc_label(noxtls_return_t rc)
 {
     if(rc == NOXTLS_RETURN_CERT_PARSE_FAILED) {
         return "CERT_PARSE_FAILED";
@@ -318,7 +324,7 @@ static const char *tlscurl_cert_rc_label(noxtls_return_t rc)
  * @param op Operation label for context.
  * @param rc Return code from the failed operation.
  */
-static void tlscurl_print_cert_failure_details(const char *op, noxtls_return_t rc)
+static void tlscurl_print_cert_failure_details(const uint8_t *op, noxtls_return_t rc)
 {
     noxtls_cert_verify_failure_info_t info;
 
@@ -349,9 +355,9 @@ static void tlscurl_print_cert_failure_details(const char *op, noxtls_return_t r
  * @param phase Human-readable phase (e.g. handshake, send).
  * @param rc NoxTLS return code.
  */
-static void tlscurl_print_tls_error(const char *phase, noxtls_return_t rc)
+static void tlscurl_print_tls_error(const uint8_t *phase, noxtls_return_t rc)
 {
-    const char *lab;
+    const uint8_t *lab;
 
     lab = tlscurl_cert_rc_label(rc);
     if(lab != NULL) {
@@ -403,7 +409,7 @@ static void tlscurl_print_platform(void)
  * @param out_len Receives byte length excluding added NUL.
  * @return NOXTLS_RETURN_SUCCESS or error code.
  */
-static noxtls_return_t tlscurl_read_ca_file_raw(const char *ca_file, uint8_t **out_buf, uint32_t *out_len)
+static noxtls_return_t tlscurl_read_ca_file_raw(const uint8_t *ca_file, uint8_t **out_buf, uint32_t *out_len)
 {
     FILE *fp;
     long sz;
@@ -501,34 +507,34 @@ static noxtls_return_t tlscurl_trust_store_from_pem_blocks(const uint8_t *data, 
 {
     noxtls_return_t rc;
     x509_certificate_chain_t trust_chain;
-    const char *begin_mark;
-    const char *end_mark;
+    const uint8_t *begin_mark;
+    const uint8_t *end_mark;
     size_t begin_len;
     size_t end_len;
     uint32_t added;
-    char *scan;
-    char *end_scan;
+    uint8_t *scan;
+    uint8_t *end_scan;
 
     if(data == NULL || len == 0U) {
         return NOXTLS_RETURN_NULL;
     }
-    begin_mark = CERT_BEGIN_STR;
-    end_mark = CERT_END_STR;
-    begin_len = strlen(begin_mark);
-    end_len = strlen(end_mark);
+    begin_mark = s_app_cert_begin;
+    end_mark = s_app_cert_end;
+    begin_len = noxtls_u8_strlen(begin_mark);
+    end_len = noxtls_u8_strlen(end_mark);
     rc = noxtls_x509_certificate_chain_init(&trust_chain);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
     added = 0U;
-    scan = (char *)(void *)data;
+    scan = (uint8_t *)(void *)data;
     if(len >= 3U && (uint8_t)data[0] == 0xEFu && (uint8_t)data[1] == 0xBBu && (uint8_t)data[2] == 0xBFu) {
         scan += 3;
     }
-    end_scan = (char *)(void *)data + (size_t)len;
+    end_scan = (uint8_t *)(void *)data + (size_t)len;
     while(scan < end_scan) {
-        char *b;
-        char *e;
+        uint8_t *b;
+        uint8_t *e;
         uint32_t block_len;
         x509_certificate_t one;
 
@@ -586,7 +592,7 @@ static noxtls_return_t tlscurl_trust_store_from_pem_blocks(const uint8_t *data, 
  * @param ca_file Path to PEM/DER CA or bundle (e.g. cacert.pem).
  * @return NOXTLS_RETURN_SUCCESS or error code.
  */
-static noxtls_return_t tlscurl_configure_trust_store(const char *ca_file)
+static noxtls_return_t tlscurl_configure_trust_store(const uint8_t *ca_file)
 {
     noxtls_return_t rc;
     x509_certificate_t ca_cert;
@@ -657,21 +663,21 @@ static noxtls_return_t tlscurl_configure_trust_store(const char *ca_file)
  * @param port Output port (network default 443 if omitted).
  * @return 0 on success, -1 on parse error.
  */
-static int tlscurl_parse_url(const char *url, char *host, size_t host_len,
-                                      char *path, size_t path_len, uint16_t *port)
+static int tlscurl_parse_url(const uint8_t *url, uint8_t *host, size_t host_len,
+                                      uint8_t *path, size_t path_len, uint16_t *port)
 {
-    const char *p;
-    const char *host_start;
-    const char *host_end;
-    const char *path_start;
+    const uint8_t *p;
+    const uint8_t *host_start;
+    const uint8_t *host_end;
+    const uint8_t *path_start;
 
     if(url == NULL || host == NULL || path == NULL || port == NULL) {
         return -1;
     }
     p = url;
-    if(strncmp(p, "https://", 8) == 0) {
+    if(noxtls_u8_strncmp(p, "https://", 8) == 0) {
         p += 8;
-    } else if(strncmp(p, "http://", 7) == 0) {
+    } else if(noxtls_u8_strncmp(p, "http://", 7) == 0) {
         p += 7;
     }
     host_start = p;
@@ -689,7 +695,7 @@ static int tlscurl_parse_url(const char *url, char *host, size_t host_len,
     host[host_end - host_start] = '\0';
     *port = (uint16_t)TLSCURL_DEFAULT_HTTPS_PORT;
     if(*p == ':') {
-        const char *colon;
+        const uint8_t *colon;
 
         p++;
         colon = p;
@@ -712,7 +718,7 @@ static int tlscurl_parse_url(const char *url, char *host, size_t host_len,
     {
         size_t plen;
 
-        plen = strlen(path_start);
+        plen = noxtls_u8_strlen(path_start);
         if(plen >= path_len) {
             return -1;
         }
@@ -897,12 +903,12 @@ static noxtls_return_t tlscurl_extract_leaf_spki_der(const x509_certificate_t *c
  * @param pin_raw User-supplied pin string.
  * @return Base64 segment pointer, or NULL if invalid/empty.
  */
-static const char *tlscurl_pin_value_b64(const char *pin_raw)
+static const uint8_t *tlscurl_pin_value_b64(const uint8_t *pin_raw)
 {
     if(pin_raw == NULL || pin_raw[0] == '\0') {
         return NULL;
     }
-    if(strncmp(pin_raw, TLSCURL_PIN_SHA256_PREFIX, TLSCURL_PIN_SHA256_PREFIX_LEN) == 0) {
+    if(noxtls_u8_strncmp(pin_raw, TLSCURL_PIN_SHA256_PREFIX, TLSCURL_PIN_SHA256_PREFIX_LEN) == 0) {
         return pin_raw + TLSCURL_PIN_SHA256_PREFIX_LEN;
     }
     return pin_raw;
@@ -920,15 +926,15 @@ static const char *tlscurl_pin_value_b64(const char *pin_raw)
 static noxtls_return_t tlscurl_verify_spki_pin(tlscurl_active_tls_t active,
                                                const tls12_context_t *tls12,
                                                const tls13_context_t *tls13,
-                                               const char *pin_raw,
+                                               const uint8_t *pin_raw,
                                                int verbose)
 {
-    const char *expected_b64;
+    const uint8_t *expected_b64;
     const x509_certificate_t *leaf;
     const uint8_t *spki_tlv;
     uint32_t spki_tlv_len;
     uint8_t digest[TLSCURL_PIN_SHA256_LEN];
-    char actual_b64[TLSCURL_PIN_SHA256_B64_BUF_LEN];
+    uint8_t actual_b64[TLSCURL_PIN_SHA256_B64_BUF_LEN];
     noxtls_sha_ctx_t sha_ctx;
     noxtls_return_t rc;
     int encoded_len;
@@ -941,7 +947,7 @@ static noxtls_return_t tlscurl_verify_spki_pin(tlscurl_active_tls_t active,
         printf("[tlscurl] ERROR: invalid --pin-sha256 (empty)\n");
         return NOXTLS_RETURN_INVALID_PARAM;
     }
-    if(strlen(expected_b64) != TLSCURL_PIN_SHA256_B64_LEN) {
+    if(noxtls_u8_strlen(expected_b64) != TLSCURL_PIN_SHA256_B64_LEN) {
         printf("[tlscurl] ERROR: --pin-sha256 must be %u base64 chars (SHA-256)\n",
                (unsigned)TLSCURL_PIN_SHA256_B64_LEN);
         return NOXTLS_RETURN_INVALID_PARAM;
@@ -978,7 +984,7 @@ static noxtls_return_t tlscurl_verify_spki_pin(tlscurl_active_tls_t active,
     if(encoded_len != (int)TLSCURL_PIN_SHA256_B64_LEN) {
         return NOXTLS_RETURN_FAILED;
     }
-    if(strcmp(actual_b64, expected_b64) != 0) {
+    if(noxtls_u8_strcmp(actual_b64, expected_b64) != 0) {
         printf("[tlscurl] ERROR: SPKI pin mismatch\n");
         printf("  expected: sha256/%s\n", expected_b64);
         printf("  actual:   sha256/%s\n", actual_b64);
@@ -997,9 +1003,9 @@ static noxtls_return_t tlscurl_verify_spki_pin(tlscurl_active_tls_t active,
  * @param out_sock Connected socket on success.
  * @return 0 on success, -1 on failure.
  */
-static int tlscurl_connect_tcp(const char *host, uint16_t port, socket_t *out_sock)
+static int tlscurl_connect_tcp(const uint8_t *host, uint16_t port, socket_t *out_sock)
 {
-    char port_str[TLSCURL_PORT_STR_MAX];
+    uint8_t port_str[TLSCURL_PORT_STR_MAX];
     struct addrinfo hints;
     struct addrinfo *res;
     struct addrinfo *it;
@@ -1055,7 +1061,7 @@ static int32_t tlscurl_send_cb(void *user_data, const uint8_t *data, uint32_t le
         int sent;
 
         chunk = (int)(len - sent_total);
-        sent = (int)send(conn->sock, (const char *)data + sent_total, (size_t)chunk, 0);
+        sent = (int)send(conn->sock, (const uint8_t *)data + sent_total, (size_t)chunk, 0);
         if(sent <= 0) {
             int err = TLSCURL_SOCKERR();
             if(tlscurl_sockerr_is_retryable(err)) {
@@ -1089,7 +1095,7 @@ static int32_t tlscurl_recv_cb(void *user_data, uint8_t *data, uint32_t len)
         int received;
 
         chunk = (int)(len - recv_total);
-        received = (int)recv(conn->sock, (char *)data + recv_total, (size_t)chunk, 0);
+        received = (int)recv(conn->sock, (uint8_t *)data + recv_total, (size_t)chunk, 0);
         if(received <= 0) {
             int err = TLSCURL_SOCKERR();
             if(tlscurl_sockerr_is_retryable(err)) {
@@ -1111,9 +1117,9 @@ static int32_t tlscurl_recv_cb(void *user_data, uint8_t *data, uint32_t len)
  * @param line Full "Name: value" line.
  * @return 0 on success, -1 if invalid or full.
  */
-static int tlscurl_headers_add(tlscurl_headers_t *hdr, const char *line)
+static int tlscurl_headers_add(tlscurl_headers_t *hdr, const uint8_t *line)
 {
-    const char *colon;
+    const uint8_t *colon;
     size_t n;
 
     if(hdr == NULL || line == NULL) {
@@ -1126,7 +1132,7 @@ static int tlscurl_headers_add(tlscurl_headers_t *hdr, const char *line)
     if(hdr->count >= TLSCURL_MAX_CUSTOM_HEADERS) {
         return -1;
     }
-    n = strlen(line);
+    n = noxtls_u8_strlen(line);
     if(n >= TLSCURL_HEADER_LINE_MAX) {
         return -1;
     }
@@ -1161,7 +1167,7 @@ static int tlscurl_headers_has_host(const tlscurl_headers_t *hdr)
  * @param out_len Output byte length.
  * @return Allocated buffer or NULL on error.
  */
-static uint8_t *tlscurl_read_file_binary(const char *path, uint32_t *out_len)
+static uint8_t *tlscurl_read_file_binary(const uint8_t *path, uint32_t *out_len)
 {
     FILE *fp;
     long sz;
@@ -1221,13 +1227,13 @@ static uint8_t *tlscurl_read_file_binary(const char *path, uint32_t *out_len)
  * @param out_fp Receives opened FILE* (caller may fclose except stdout).
  * @return 0 on success, -1 on error.
  */
-static int tlscurl_open_output(const char *output_path, FILE **out_fp)
+static int tlscurl_open_output(const uint8_t *output_path, FILE **out_fp)
 {
     if(out_fp == NULL) {
         return -1;
     }
     *out_fp = stdout;
-    if(output_path == NULL || strcmp(output_path, "-") == 0) {
+    if(output_path == NULL || noxtls_u8_strcmp(output_path, "-") == 0) {
         return 0;
     }
 #ifdef _MSC_VER
@@ -1291,7 +1297,7 @@ static void tlscurl_print_negotiated(tlscurl_active_tls_t active, const tls12_co
  * @param cfg Output configuration.
  * @return 1 on success, 0 on usage error.
  */
-static int tlscurl_parse_cli(int argc, char **argv, tlscurl_config_t *cfg)
+static int tlscurl_parse_cli(int argc, uint8_t **argv, tlscurl_config_t *cfg)
 {
     int i;
 
@@ -1302,131 +1308,131 @@ static int tlscurl_parse_cli(int argc, char **argv, tlscurl_config_t *cfg)
     cfg->tls_mode = TLS_MODE_1_2;
     cfg->method = "GET";
     for(i = 1; i < argc; i++) {
-        const char *a;
+        const uint8_t *a;
 
         a = argv[i];
-        if(strcmp(a, "-h") == 0 || strcmp(a, "--help") == 0) {
+        if(noxtls_u8_strcmp(a, "-h") == 0 || noxtls_u8_strcmp(a, "--help") == 0) {
             return 0;
         }
-        if(strcmp(a, "-v") == 0 || strcmp(a, "--verbose") == 0) {
+        if(noxtls_u8_strcmp(a, "-v") == 0 || noxtls_u8_strcmp(a, "--verbose") == 0) {
             cfg->verbose++;
             continue;
         }
-        if(strcmp(a, "-vv") == 0) {
+        if(noxtls_u8_strcmp(a, "-vv") == 0) {
             cfg->verbose += 2;
             continue;
         }
-        if((strcmp(a, "-X") == 0 || strcmp(a, "--method") == 0) && i + 1 < argc) {
+        if((noxtls_u8_strcmp(a, "-X") == 0 || noxtls_u8_strcmp(a, "--method") == 0) && i + 1 < argc) {
             cfg->method = argv[i + 1];
             i++;
             continue;
         }
-        if(strncmp(a, "--method=", 9) == 0) {
+        if(noxtls_u8_strncmp(a, "--method=", 9) == 0) {
             cfg->method = a + 9;
             continue;
         }
-        if((strcmp(a, "-H") == 0 || strcmp(a, "--header") == 0) && i + 1 < argc) {
+        if((noxtls_u8_strcmp(a, "-H") == 0 || noxtls_u8_strcmp(a, "--header") == 0) && i + 1 < argc) {
             if(tlscurl_headers_add(&cfg->headers, argv[i + 1]) != 0) {
                 return 0;
             }
             i++;
             continue;
         }
-        if(strncmp(a, "--header=", 9) == 0) {
+        if(noxtls_u8_strncmp(a, "--header=", 9) == 0) {
             if(tlscurl_headers_add(&cfg->headers, a + 9) != 0) {
                 return 0;
             }
             continue;
         }
-        if((strcmp(a, "-d") == 0 || strcmp(a, "--data") == 0) && i + 1 < argc) {
+        if((noxtls_u8_strcmp(a, "-d") == 0 || noxtls_u8_strcmp(a, "--data") == 0) && i + 1 < argc) {
             cfg->data_arg = argv[i + 1];
             i++;
             continue;
         }
-        if(strncmp(a, "--data=", 7) == 0) {
+        if(noxtls_u8_strncmp(a, "--data=", 7) == 0) {
             cfg->data_arg = a + 7;
             continue;
         }
-        if(strcmp(a, "--data-file") == 0 && i + 1 < argc) {
+        if(noxtls_u8_strcmp(a, "--data-file") == 0 && i + 1 < argc) {
             cfg->data_file = argv[i + 1];
             i++;
             continue;
         }
-        if(strncmp(a, "--data-file=", 12) == 0) {
+        if(noxtls_u8_strncmp(a, "--data-file=", 12) == 0) {
             cfg->data_file = a + 12;
             continue;
         }
-        if((strcmp(a, "-o") == 0 || strcmp(a, "--output") == 0) && i + 1 < argc) {
+        if((noxtls_u8_strcmp(a, "-o") == 0 || noxtls_u8_strcmp(a, "--output") == 0) && i + 1 < argc) {
             cfg->output_path = argv[i + 1];
             i++;
             continue;
         }
-        if(strncmp(a, "--output=", 9) == 0) {
+        if(noxtls_u8_strncmp(a, "--output=", 9) == 0) {
             cfg->output_path = a + 9;
             continue;
         }
-        if(strcmp(a, "--ca") == 0 && i + 1 < argc) {
+        if(noxtls_u8_strcmp(a, "--ca") == 0 && i + 1 < argc) {
             cfg->ca_file = argv[i + 1];
             i++;
             continue;
         }
-        if(strncmp(a, "--ca=", 5) == 0) {
+        if(noxtls_u8_strncmp(a, "--ca=", 5) == 0) {
             cfg->ca_file = a + 5;
             continue;
         }
-        if(strcmp(a, "--crl") == 0 && i + 1 < argc) {
+        if(noxtls_u8_strcmp(a, "--crl") == 0 && i + 1 < argc) {
             cfg->crl_file = argv[i + 1];
             i++;
             continue;
         }
-        if(strncmp(a, "--crl=", 6) == 0) {
+        if(noxtls_u8_strncmp(a, "--crl=", 6) == 0) {
             cfg->crl_file = a + 6;
             continue;
         }
-        if(strcmp(a, "--pin-sha256") == 0 && i + 1 < argc) {
+        if(noxtls_u8_strcmp(a, "--pin-sha256") == 0 && i + 1 < argc) {
             cfg->pin_sha256 = argv[i + 1];
             i++;
             continue;
         }
-        if(strncmp(a, "--pin-sha256=", 13) == 0) {
+        if(noxtls_u8_strncmp(a, "--pin-sha256=", 13) == 0) {
             cfg->pin_sha256 = a + 13;
             continue;
         }
-        if(strcmp(a, "--keylog") == 0 && i + 1 < argc) {
+        if(noxtls_u8_strcmp(a, "--keylog") == 0 && i + 1 < argc) {
             cfg->keylog_path = argv[i + 1];
             i++;
             continue;
         }
-        if(strncmp(a, "--keylog=", 9) == 0) {
+        if(noxtls_u8_strncmp(a, "--keylog=", 9) == 0) {
             cfg->keylog_path = a + 9;
             continue;
         }
-        if(strcmp(a, "--tlsdump") == 0 && i + 1 < argc) {
+        if(noxtls_u8_strcmp(a, "--tlsdump") == 0 && i + 1 < argc) {
             cfg->tlsdump_path = argv[i + 1];
             i++;
             continue;
         }
-        if(strncmp(a, "--tlsdump=", 10) == 0) {
+        if(noxtls_u8_strncmp(a, "--tlsdump=", 10) == 0) {
             cfg->tlsdump_path = a + 10;
             continue;
         }
-        if(strcmp(a, "--tls12") == 0) {
+        if(noxtls_u8_strcmp(a, "--tls12") == 0) {
             cfg->tls_mode = TLS_MODE_1_2;
             continue;
         }
-        if(strcmp(a, "--tls13") == 0) {
+        if(noxtls_u8_strcmp(a, "--tls13") == 0) {
             cfg->tls_mode = TLS_MODE_1_3;
             continue;
         }
-        if(strcmp(a, "--auto") == 0) {
+        if(noxtls_u8_strcmp(a, "--auto") == 0) {
             cfg->tls_mode = TLS_MODE_AUTO;
             continue;
         }
-        if(strcmp(a, "--prefer-chacha") == 0) {
+        if(noxtls_u8_strcmp(a, "--prefer-chacha") == 0) {
             cfg->prefer_chacha = 1U;
             continue;
         }
-        if(strcmp(a, "--strict-hostname") == 0) {
+        if(noxtls_u8_strcmp(a, "--strict-hostname") == 0) {
             cfg->strict_hostname = 1U;
             continue;
         }
@@ -1462,11 +1468,11 @@ static int tlscurl_parse_cli(int argc, char **argv, tlscurl_config_t *cfg)
  * @return NOXTLS_RETURN_SUCCESS or error from send.
  */
 static noxtls_return_t tlscurl_send_http(tlscurl_active_tls_t active, tls12_context_t *tls12,
-                                         tls13_context_t *tls13, const char *method, const char *path,
-                                         const char *host, uint16_t port, const tlscurl_headers_t *hdr,
+                                         tls13_context_t *tls13, const uint8_t *method, const uint8_t *path,
+                                         const uint8_t *host, uint16_t port, const tlscurl_headers_t *hdr,
                                          const uint8_t *body, uint32_t body_len)
 {
-    char *req;
+    uint8_t *req;
     size_t cap;
     size_t pos;
     uint32_t hi;
@@ -1480,7 +1486,7 @@ static noxtls_return_t tlscurl_send_http(tlscurl_active_tls_t active, tls12_cont
     if(body_len > (uint32_t)(cap / 2U)) {
         cap = (size_t)body_len + (size_t)TLSCURL_REQUEST_BUILD_MAX;
     }
-    req = (char *)malloc(cap);
+    req = (uint8_t *)malloc(cap);
     if(req == NULL) {
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
@@ -1516,7 +1522,7 @@ static noxtls_return_t tlscurl_send_http(tlscurl_active_tls_t active, tls12_cont
     for(hi = 0; hi < hdr->count; hi++) {
         size_t ln;
 
-        ln = strlen(hdr->entries[hi].line);
+        ln = noxtls_u8_strlen(hdr->entries[hi].line);
         if(pos + ln + 2U >= cap) {
             free(req);
             return NOXTLS_RETURN_FAILED;
@@ -1568,8 +1574,8 @@ static noxtls_return_t tlscurl_send_http(tlscurl_active_tls_t active, tls12_cont
 int main(int argc, char **argv)
 {
     tlscurl_config_t cfg;
-    char host[TLSCURL_HOST_MAX];
-    char path[TLSCURL_PATH_MAX];
+    uint8_t host[TLSCURL_HOST_MAX];
+    uint8_t path[TLSCURL_PATH_MAX];
     uint16_t port;
     socket_t sock;
     tlscurl_conn_t conn;
@@ -1581,7 +1587,7 @@ int main(int argc, char **argv)
     FILE *out_fp;
     uint8_t *body_buf;
     uint32_t body_len;
-    const char *ca_use;
+    const uint8_t *ca_use;
     noxtls_x509_crl_t verify_crl;
     int verify_crl_loaded;
 
@@ -1607,7 +1613,7 @@ int main(int argc, char **argv)
     verify_crl_loaded = 0;
 
     if(argc >= 2 && argv[1] != NULL &&
-       (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0)) {
+       (noxtls_u8_strcmp(argv[1], "-h") == 0 || noxtls_u8_strcmp(argv[1], "--help") == 0)) {
         tlscurl_print_usage((argc > 0 && argv[0] != NULL) ? argv[0] : "tlscurl");
 #ifdef _WIN32
         WSACleanup();
@@ -1649,7 +1655,7 @@ int main(int argc, char **argv)
     }
     ca_use = cfg.ca_file;
     if(ca_use == NULL) {
-        if(strcmp(host, "localhost") == 0 || strcmp(host, "127.0.0.1") == 0) {
+        if(noxtls_u8_strcmp(host, "localhost") == 0 || noxtls_u8_strcmp(host, "127.0.0.1") == 0) {
             ca_use = "server.crt";
         }
     }
@@ -1689,7 +1695,7 @@ int main(int argc, char **argv)
     } else if(cfg.data_arg != NULL) {
         size_t dl;
 
-        dl = strlen(cfg.data_arg);
+        dl = noxtls_u8_strlen(cfg.data_arg);
         if(dl > (size_t)TLSCURL_DATA_ARG_MAX) {
             printf("[tlscurl] ERROR: --data string too long (max %u)\n", (unsigned)TLSCURL_DATA_ARG_MAX);
             if(trust_configured != 0) {
@@ -1786,7 +1792,7 @@ int main(int argc, char **argv)
             return 1;
         }
         tls13_ctx.server_name = host;
-        tls13_ctx.server_name_len = (uint16_t)strlen(host);
+        tls13_ctx.server_name_len = (uint16_t)noxtls_u8_strlen(host);
         noxtls_tls13_set_verify_crl(&tls13_ctx, verify_crl_loaded ? &verify_crl : NULL);
         if(cfg.prefer_chacha != 0U) {
             tls13_ctx.prefer_chacha20 = 1U;
@@ -1860,7 +1866,7 @@ int main(int argc, char **argv)
             return 1;
         }
         tls12_ctx.server_name = host;
-        tls12_ctx.server_name_len = (uint16_t)strlen(host);
+        tls12_ctx.server_name_len = (uint16_t)noxtls_u8_strlen(host);
         noxtls_tls12_set_verify_crl(&tls12_ctx, verify_crl_loaded ? &verify_crl : NULL);
         rc = noxtls_tls_set_io_callbacks(&tls12_ctx.base.base, tlscurl_send_cb, tlscurl_recv_cb, &conn);
         if(rc != NOXTLS_RETURN_SUCCESS) {

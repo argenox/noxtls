@@ -19,14 +19,25 @@
 *
 *****************************************************************************/
 
-#ifndef _NOXTLS_AES_ACCEL_H_
-#define _NOXTLS_AES_ACCEL_H_
+#ifndef NOXTLS_AES_ACCEL_H_
+#define NOXTLS_AES_ACCEL_H_
 
 #include <stdint.h>
 
 #include "noxtls_aes.h"
 #include "noxtls_common.h"
 
+#ifndef NOXTLS_FEATURE_AES_ACCEL_NI
+#define NOXTLS_FEATURE_AES_ACCEL_NI 0
+#endif
+#ifndef NOXTLS_FEATURE_AES_ACCEL_APPLE
+#define NOXTLS_FEATURE_AES_ACCEL_APPLE 0
+#endif
+#ifndef NOXTLS_FEATURE_STM32_HW_AES_ONLY
+#define NOXTLS_FEATURE_STM32_HW_AES_ONLY 0
+#endif
+
+#if NOXTLS_FEATURE_AES_ACCEL_NI
 /**
  * @brief Encrypt one AES block with the AES-NI backend.
  * @param key AES key bytes for the selected key size.
@@ -53,6 +64,9 @@ noxtls_return_t noxtls_aes_accel_ni_decrypt_block(const uint8_t *key,
                                                    const uint8_t *data,
                                                    uint8_t *output,
                                                    noxtls_aes_type_t type);
+#endif /* NOXTLS_FEATURE_AES_ACCEL_NI */
+
+#if NOXTLS_FEATURE_AES_ACCEL_APPLE
 /**
  * @brief Encrypt one AES block with the Apple Silicon ARMv8 AES backend.
  * @param key AES key bytes for the selected key size.
@@ -79,6 +93,9 @@ noxtls_return_t noxtls_aes_accel_apple_decrypt_block(const uint8_t *key,
                                                       const uint8_t *data,
                                                       uint8_t *output,
                                                       noxtls_aes_type_t type);
+#endif /* NOXTLS_FEATURE_AES_ACCEL_APPLE */
+
+#if NOXTLS_FEATURE_STM32_HW_AES_ONLY
 noxtls_return_t noxtls_aes_accel_stm32_encrypt_block(const uint8_t *key,
                                                       const uint8_t *data,
                                                       uint8_t *output,
@@ -87,6 +104,8 @@ noxtls_return_t noxtls_aes_accel_stm32_decrypt_block(const uint8_t *key,
                                                       const uint8_t *data,
                                                       uint8_t *output,
                                                       noxtls_aes_type_t type);
+
+#endif /* NOXTLS_FEATURE_STM32_HW_AES_ONLY */
 
 /**
  * @brief Encrypt one AES block with the active platform acceleration hook.
@@ -140,13 +159,13 @@ noxtls_return_t noxtls_aes_accel_port_encrypt_blocks(const uint8_t *key,
  */
 noxtls_return_t noxtls_aes_gcm_encrypt_accel_port(const uint8_t *key,
                                                    noxtls_aes_type_t type,
-                                                   const uint8_t nonce[12],
+                                                   const uint8_t *nonce,
                                                    const uint8_t *aad,
                                                    uint32_t aad_len,
                                                    const uint8_t *plaintext,
                                                    uint32_t plaintext_len,
                                                    uint8_t *ciphertext,
-                                                   uint8_t tag[16]);
+                                                   uint8_t *tag);
 
 /**
  * @brief Platform hook for AES-GCM decryption.
@@ -155,12 +174,12 @@ noxtls_return_t noxtls_aes_gcm_encrypt_accel_port(const uint8_t *key,
  */
 noxtls_return_t noxtls_aes_gcm_decrypt_accel_port(const uint8_t *key,
                                                    noxtls_aes_type_t type,
-                                                   const uint8_t nonce[12],
+                                                   const uint8_t *nonce,
                                                    const uint8_t *aad,
                                                    uint32_t aad_len,
                                                    const uint8_t *ciphertext,
                                                    uint32_t ciphertext_len,
-                                                   const uint8_t tag[16],
+                                                   const uint8_t *tag,
                                                    uint8_t *plaintext);
 
 /** Cipher modes routed through noxtls_aes_mode_accel_port(). */
@@ -227,26 +246,4 @@ noxtls_return_t noxtls_aes_ccm_decrypt_accel_port(const uint8_t *key, noxtls_aes
                                                   const uint8_t *tag, uint32_t tag_len,
                                                   uint8_t *plaintext);
 
-/**
- * @brief Encrypt one AES block with the STM32 hardware AES backend.
- * @param key AES key bytes for the selected key size.
- * @param data Input plaintext block of NOXTLS_AES_BLOCK_LENGTH bytes.
- * @param output Output ciphertext block of NOXTLS_AES_BLOCK_LENGTH bytes.
- * @param type AES key size selector.
- * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL for null inputs,
- *         or NOXTLS_RETURN_NOT_SUPPORTED when STM32 AES HAL is unavailable.
- */
-noxtls_return_t noxtls_aes_accel_stm32_encrypt_block(const uint8_t *key, const uint8_t *data, uint8_t *output, noxtls_aes_type_t type);
-
-/**
- * @brief Decrypt one AES block with the STM32 hardware AES backend.
-* @param key AES key bytes for the selected key size.
- * @param data Input ciphertext block of NOXTLS_AES_BLOCK_LENGTH bytes.
- * @param output Output plaintext block of NOXTLS_AES_BLOCK_LENGTH bytes.
- * @param type AES key size selector.
- * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL for null inputs,
- *         or NOXTLS_RETURN_NOT_SUPPORTED when STM32 AES HAL is unavailable.
- */
-noxtls_return_t noxtls_aes_accel_stm32_decrypt_block(const uint8_t *key, const uint8_t *data, uint8_t *output, noxtls_aes_type_t type);
-
-#endif /* _NOXTLS_AES_ACCEL_H_ */
+#endif /* NOXTLS_AES_ACCEL_H_ */

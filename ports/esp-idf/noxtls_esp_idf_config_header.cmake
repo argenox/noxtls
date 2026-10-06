@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-06T02:26:05Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-06T02:37:00Z)
 
 function(noxtls_esp_idf_write_config_features_header out_file)
   if(NOT out_file)
@@ -55,6 +55,12 @@ else()
 endif()
 
 string(APPEND _noxtls_hdr "#define NOXTLS_ECC_POINT_MUL_WINDOW_SIZE ${CONFIG_NOXTLS_ECC_POINT_MUL_WINDOW_SIZE}\n")
+
+if(CONFIG_NOXTLS_ECC_SHARED_SCRATCH)
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_SHARED_SCRATCH 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_SHARED_SCRATCH 0\n")
+endif()
 
 if(CONFIG_NOXTLS_ECDSA_SIGN_SELF_VERIFY)
   string(APPEND _noxtls_hdr "#define NOXTLS_ECDSA_SIGN_SELF_VERIFY 1\n")
@@ -482,10 +488,22 @@ else()
   string(APPEND _noxtls_hdr "#define NOXTLS_HAVE_CERT_WRITE 0\n")
 endif()
 
+if(CONFIG_NOXTLS_HAVE_FILE_IO)
+  string(APPEND _noxtls_hdr "#define NOXTLS_HAVE_FILE_IO 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_HAVE_FILE_IO 0\n")
+endif()
+
 if(CONFIG_NOXTLS_HAVE_TIME)
   string(APPEND _noxtls_hdr "#define NOXTLS_HAVE_TIME 1\n")
 else()
   string(APPEND _noxtls_hdr "#define NOXTLS_HAVE_TIME 0\n")
+endif()
+
+if(CONFIG_NOXTLS_HMAC_SHA256_SHARED_STATE)
+  string(APPEND _noxtls_hdr "#define NOXTLS_HMAC_SHA256_SHARED_STATE 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_HMAC_SHA256_SHARED_STATE 0\n")
 endif()
 
 string(APPEND _noxtls_hdr "#define NOXTLS_MAX_CERT_CHAIN_DEPTH ${CONFIG_NOXTLS_MAX_CERT_CHAIN_DEPTH}\n")

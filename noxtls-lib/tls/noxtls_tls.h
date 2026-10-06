@@ -20,15 +20,19 @@
 *
 *****************************************************************************/
 
-#ifndef _NOXTLS_TLS_H_
-#define _NOXTLS_TLS_H_
+#ifndef NOXTLS_TLS_H_
+#define NOXTLS_TLS_H_
 
 #include <stdint.h>
 
 #include "noxtls_common.h"
 #include "noxtls_tls_common.h"
+#if NOXTLS_FEATURE_TLS10
 #include "noxtls_tls10.h"
+#endif
+#if NOXTLS_FEATURE_TLS11
 #include "noxtls_tls11.h"
+#endif
 #include "noxtls_tls12.h"
 #include "noxtls_tls13.h"
 
@@ -41,8 +45,8 @@ extern "C" {
 /* The caller must provide tls12_ctx; tls10_ctx and tls11_ctx are optional (can be NULL). */
 /* tls13_ctx may be NULL to disable TLS 1.3: clients that offer TLS 1.2 in supported_versions negotiate TLS 1.2. */
 noxtls_return_t tls_accept_auto(tls_context_t *base_ctx,
-                                   void *tls10_ctx,
-                                   void *tls11_ctx,
+                                   const void *tls10_ctx,
+                                   const void *tls11_ctx,
                                    tls12_context_t *tls12_ctx, 
                                    tls13_context_t *tls13_ctx,
                                    uint16_t *negotiated_version);
@@ -51,5 +55,5 @@ noxtls_return_t tls_accept_auto(tls_context_t *base_ctx,
 }
 #endif
 
-#endif /* _NOXTLS_TLS_H_ */
+#endif /* NOXTLS_TLS_H_ */
 

@@ -27,6 +27,7 @@
 #include "mdigest/sha3/noxtls_sha3.h"
 #include "pkc/rsa/noxtls_bignum.h"
 #include "noxtls_falcon_internal.h"
+#include "noxtls_ct.h"
 
 /** Falcon inverse-sigma constants indexed by `log2(n)`. */
 static const double falcon_inv_sigma_by_logn[] = {
@@ -76,10 +77,10 @@ static noxtls_return_t falcon_bit_writer_init(falcon_bit_writer_t *bw,
                                               uint8_t *buf,
                                               uint32_t buf_len)
 {
-    if(bw == NULL || buf == NULL) {
+    if((bw == NULL) || (buf == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
-    memset(buf, 0, buf_len);
+    noxtls_secure_zero((buf), (size_t)((buf_len)));
     bw->buf = buf;
     bw->bit_len = buf_len * 8U;
     bw->bit_pos = 0U;
@@ -107,10 +108,10 @@ static uint8_t falcon_is_supported_power_of_two(uint16_t n)
 static uint16_t falcon_bit_reverse_u16(uint16_t x, uint8_t logn)
 {
     uint16_t r = 0U;
-    uint8_t i;
+    uint8_t i = 0U;
 
-    for(i = 0U; i < logn; i++) {
-        r = (uint16_t)((r << 1) | (x & 1U));
+    for(i = 0U; i < logn; i += 1U) {
+        r = (uint16_t)((r << 1U) | (x & 1U));
         x >>= 1;
     }
     return r;
@@ -232,7 +233,7 @@ static noxtls_return_t falcon_fft_radix2(noxtls_falcon_complex_t *vec,
 static noxtls_return_t falcon_get_logn(uint16_t n, uint8_t *logn)
 {
     uint8_t out = 0U;
-    uint16_t t;
+    uint16_t t = 0U;
 
     if(logn == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -241,11 +242,11 @@ static noxtls_return_t falcon_get_logn(uint16_t n, uint8_t *logn)
         *logn = 0U;
         return NOXTLS_RETURN_SUCCESS;
     }
-    if(!falcon_is_supported_power_of_two(n)) {
+    if((falcon_is_supported_power_of_two(n) == 0)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
     for(t = n; t > 1U; t >>= 1) {
-        out++;
+        out = &out[1U];
     }
     *logn = out;
     return NOXTLS_RETURN_SUCCESS;
@@ -261,7 +262,7 @@ static noxtls_return_t falcon_get_logn(uint16_t n, uint8_t *logn)
 static noxtls_return_t falcon_sampler_get_u8(noxtls_falcon_sampler_ctx_t *ctx,
                                              uint8_t *value)
 {
-    if(ctx == NULL || value == NULL) {
+    if((ctx == NULL) || (value == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
     return noxtls_shake256_squeeze(&ctx->shake, value, 1U);
@@ -279,17 +280,17 @@ static noxtls_return_t falcon_sampler_get_u64(noxtls_falcon_sampler_ctx_t *ctx,
 {
     uint8_t buf[8];
     uint64_t out = 0U;
-    uint32_t i;
-    noxtls_return_t rc;
+    uint32_t i = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(ctx == NULL || value == NULL) {
+    if((ctx == NULL) || (value == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
     rc = noxtls_shake256_squeeze(&ctx->shake, buf, sizeof(buf));
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    for(i = 0U; i < sizeof(buf); i++) {
+    for(i = 0U; i < sizeof(buf); i += 1U) {
         out |= (uint64_t)buf[i] << (8U * i);
     }
     *value = out;
@@ -309,10 +310,10 @@ static noxtls_return_t falcon_poly_forward_fft_real(const double *poly,
                                                     uint16_t n,
                                                     noxtls_falcon_complex_t *fft)
 {
-    uint16_t i;
-    noxtls_return_t rc;
+    uint16_t i = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(poly == NULL || fft == NULL) {
+    if((poly == NULL) || (fft == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
     if(n == 1U) {
@@ -320,11 +321,11 @@ static noxtls_return_t falcon_poly_forward_fft_real(const double *poly,
         fft[0].im = 0.0;
         return NOXTLS_RETURN_SUCCESS;
     }
-    if(!falcon_is_supported_power_of_two(n)) {
+    if((falcon_is_supported_power_of_two(n) == 0)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    for(i = 0U; i < n; i++) {
+    for(i = 0U; i < n; i += 1U) {
         double angle = NOXTLS_FALCON_PI * (double)i / (double)n;
         double c = cos(angle);
         double s = sin(angle);
@@ -350,27 +351,27 @@ static noxtls_return_t falcon_poly_inverse_fft_real(const noxtls_falcon_complex_
                                                     double *poly)
 {
     noxtls_falcon_complex_t tmp[NOXTLS_FALCON_MAX_N];
-    uint16_t i;
-    noxtls_return_t rc;
+    uint16_t i = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(fft == NULL || poly == NULL) {
+    if((fft == NULL) || (poly == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
     if(n == 1U) {
         poly[0] = fft[0].re;
         return NOXTLS_RETURN_SUCCESS;
     }
-    if(!falcon_is_supported_power_of_two(n)) {
+    if((falcon_is_supported_power_of_two(n) == 0)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    memcpy(tmp, fft, (size_t)n * sizeof(*fft));
+    (void)memcpy(tmp, fft, (size_t)n * sizeof(*fft));
     rc = falcon_fft_radix2(tmp, n, 1U);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 
-    for(i = 0U; i < n; i++) {
+    for(i = 0U; i < n; i += 1U) {
         double angle = NOXTLS_FALCON_PI * (double)i / (double)n;
         double c = cos(angle);
         double s = sin(angle);
@@ -393,21 +394,21 @@ static noxtls_return_t falcon_poly_forward_fft_complex(const noxtls_falcon_compl
                                                        uint16_t n,
                                                        noxtls_falcon_complex_t *fft)
 {
-    uint16_t i;
-    noxtls_return_t rc;
+    uint16_t i = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(poly == NULL || fft == NULL) {
+    if((poly == NULL) || (fft == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
     if(n == 1U) {
         fft[0] = poly[0];
         return NOXTLS_RETURN_SUCCESS;
     }
-    if(!falcon_is_supported_power_of_two(n)) {
+    if((falcon_is_supported_power_of_two(n) == 0)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    for(i = 0U; i < n; i++) {
+    for(i = 0U; i < n; i += 1U) {
         noxtls_falcon_complex_t twist;
         double angle = NOXTLS_FALCON_PI * (double)i / (double)n;
 
@@ -434,27 +435,27 @@ static noxtls_return_t falcon_poly_inverse_fft_complex(const noxtls_falcon_compl
                                                        noxtls_falcon_complex_t *poly)
 {
     noxtls_falcon_complex_t tmp[NOXTLS_FALCON_MAX_N];
-    uint16_t i;
-    noxtls_return_t rc;
+    uint16_t i = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(fft == NULL || poly == NULL) {
+    if((fft == NULL) || (poly == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
     if(n == 1U) {
         poly[0] = fft[0];
         return NOXTLS_RETURN_SUCCESS;
     }
-    if(!falcon_is_supported_power_of_two(n)) {
+    if((falcon_is_supported_power_of_two(n) == 0)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    memcpy(tmp, fft, (size_t)n * sizeof(*fft));
+    (void)memcpy(tmp, fft, (size_t)n * sizeof(*fft));
     rc = falcon_fft_radix2(tmp, n, 1U);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 
-    for(i = 0U; i < n; i++) {
+    for(i = 0U; i < n; i += 1U) {
         noxtls_falcon_complex_t untwist;
         double angle = NOXTLS_FALCON_PI * (double)i / (double)n;
 
@@ -480,21 +481,21 @@ static noxtls_return_t falcon_fft_radix2(noxtls_falcon_complex_t *vec,
                                          uint8_t inverse)
 {
     uint8_t logn = 0U;
-    uint16_t i;
-    uint16_t len;
+    uint16_t i = 0U;
+    uint16_t len = 0U;
 
     if(vec == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(!falcon_is_supported_power_of_two(n)) {
+    if((falcon_is_supported_power_of_two(n) == 0)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
     for(len = n; len > 1U; len >>= 1) {
-        logn++;
+        logn = &logn[1];
     }
 
-    for(i = 0U; i < n; i++) {
+    for(i = 0U; i < n; i += 1U) {
         uint16_t j = falcon_bit_reverse_u16(i, logn);
         if(j > i) {
             noxtls_falcon_complex_t tmp = vec[i];
@@ -504,19 +505,19 @@ static noxtls_return_t falcon_fft_radix2(noxtls_falcon_complex_t *vec,
     }
 
     for(len = 2U; len <= n; len <<= 1) {
-        uint16_t half = (uint16_t)(len >> 1);
+        uint16_t half = (uint16_t)(len >> 1U);
         double angle = (inverse != 0U ? 2.0 : -2.0) * NOXTLS_FALCON_PI / (double)len;
         noxtls_falcon_complex_t wlen;
         wlen.re = cos(angle);
         wlen.im = sin(angle);
 
         for(i = 0U; i < n; i = (uint16_t)(i + len)) {
-            uint16_t j;
+            uint16_t j = 0U;
             noxtls_falcon_complex_t w;
             w.re = 1.0;
             w.im = 0.0;
 
-            for(j = 0U; j < half; j++) {
+            for(j = 0U; j < half; j += 1U) {
                 noxtls_falcon_complex_t u = vec[i + j];
                 noxtls_falcon_complex_t v = falcon_complex_mul(vec[i + j + half], w);
                 vec[i + j].re = u.re + v.re;
@@ -530,7 +531,7 @@ static noxtls_return_t falcon_fft_radix2(noxtls_falcon_complex_t *vec,
 
     if(inverse != 0U) {
         double scale = 1.0 / (double)n;
-        for(i = 0U; i < n; i++) {
+        for(i = 0U; i < n; i += 1U) {
             vec[i].re *= scale;
             vec[i].im *= scale;
         }
@@ -560,7 +561,7 @@ static int32_t falcon_round_to_i32(double x)
  */
 static noxtls_return_t falcon_bit_write(falcon_bit_writer_t *bw, uint32_t value, uint8_t bits)
 {
-    uint8_t i;
+    uint8_t i = 0U;
 
     if(bw == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -572,16 +573,16 @@ static noxtls_return_t falcon_bit_write(falcon_bit_writer_t *bw, uint32_t value,
         return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
     }
 
-    for(i = 0U; i < bits; i++) {
+    for(i = 0U; i < bits; i += 1U) {
         uint8_t shift = (uint8_t)(bits - 1U - i);
-        uint32_t bit = (value >> shift) & 1U;
-        uint32_t byte_index = bw->bit_pos >> 3;
+        uint32_t bit = (uint32_t)((value >> shift) & 1U);
+        uint32_t byte_index = (uint32_t)(bw->bit_pos >> 3U);
         uint8_t bit_index = (uint8_t)(bw->bit_pos & 7U);
 
         if(bit != 0U) {
             bw->buf[byte_index] = (uint8_t)(bw->buf[byte_index] | (uint8_t)(0x80u >> bit_index));
         }
-        bw->bit_pos++;
+        bw->bit_pos += 1U;
     }
 
     return NOXTLS_RETURN_SUCCESS;
@@ -614,7 +615,7 @@ static noxtls_return_t falcon_bit_reader_init(falcon_bit_reader_t *br,
                                               const uint8_t *buf,
                                               uint32_t buf_len)
 {
-    if(br == NULL || buf == NULL) {
+    if((br == NULL) || (buf == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
     br->buf = buf;
@@ -633,10 +634,10 @@ static noxtls_return_t falcon_bit_reader_init(falcon_bit_reader_t *br,
  */
 static noxtls_return_t falcon_bit_read(falcon_bit_reader_t *br, uint8_t bits, uint32_t *value)
 {
-    uint8_t i;
+    uint8_t i = 0U;
     uint32_t acc = 0U;
 
-    if(br == NULL || value == NULL) {
+    if((br == NULL) || (value == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
     if(bits > 24U) {
@@ -646,12 +647,12 @@ static noxtls_return_t falcon_bit_read(falcon_bit_reader_t *br, uint8_t bits, ui
         return NOXTLS_RETURN_BAD_DATA;
     }
 
-    for(i = 0U; i < bits; i++) {
-        uint32_t byte_index = br->bit_pos >> 3;
+    for(i = 0U; i < bits; i += 1U) {
+        uint32_t byte_index = (uint32_t)(br->bit_pos >> 3U);
         uint8_t bit_index = (uint8_t)(br->bit_pos & 7U);
-        uint32_t bit = (uint32_t)((br->buf[byte_index] >> (7U - bit_index)) & 1U);
-        acc = (acc << 1) | bit;
-        br->bit_pos++;
+        uint32_t bit = (uint32_t)((br->buf[byte_index] >> ((7U - bit_index) & 7U)) & 1U);
+        acc = (acc << 1U) | bit;
+        br->bit_pos += 1U;
     }
 
     *value = acc;
@@ -666,16 +667,16 @@ static noxtls_return_t falcon_bit_read(falcon_bit_reader_t *br, uint8_t bits, ui
  */
 static noxtls_return_t falcon_bit_reader_check_tail_zero(const falcon_bit_reader_t *br)
 {
-    uint32_t bit_pos;
+    uint32_t bit_pos = 0U;
 
     if(br == NULL) {
         return NOXTLS_RETURN_NULL;
     }
 
-    for(bit_pos = br->bit_pos; bit_pos < br->bit_len; bit_pos++) {
-        uint32_t byte_index = bit_pos >> 3;
+    for(bit_pos = br->bit_pos; bit_pos < br->bit_len; bit_pos += 1U) {
+        uint32_t byte_index = (uint32_t)(bit_pos >> 3U);
         uint8_t bit_index = (uint8_t)(bit_pos & 7U);
-        if(((br->buf[byte_index] >> (7U - bit_index)) & 1U) != 0U) {
+        if(((br->buf[byte_index] >> ((7U - bit_index) & 7U)) & 1U) != 0U) {
             return NOXTLS_RETURN_BAD_DATA;
         }
     }
@@ -695,10 +696,10 @@ static noxtls_return_t falcon_decode_signed_bits(falcon_bit_reader_t *br,
                                                  uint8_t bits,
                                                  int16_t *value)
 {
-    uint32_t raw;
-    uint32_t sign_mask;
-    int32_t decoded;
-    noxtls_return_t rc;
+    uint32_t raw = 0U;
+    uint32_t sign_mask = 0U;
+    int32_t decoded = 0;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(value == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -736,7 +737,7 @@ static noxtls_return_t falcon_encode_signed_bits(falcon_bit_writer_t *bw, int16_
 {
     int32_t min_allowed = -((int32_t)(1U << (bits - 1U)) - 1);
     int32_t max_allowed = (int32_t)((1U << (bits - 1U)) - 1U);
-    uint32_t raw;
+    uint32_t raw = 0U;
 
     if(value < min_allowed || value > max_allowed) {
         return NOXTLS_RETURN_INVALID_PARAM;
@@ -745,6 +746,7 @@ static noxtls_return_t falcon_encode_signed_bits(falcon_bit_writer_t *bw, int16_
     if(value < 0) {
         raw = (uint32_t)((1U << bits) + value);
     } else {
+        /* MISRA 15.7: final else path */
         raw = (uint32_t)value;
     }
     return falcon_bit_write(bw, raw, bits);
@@ -765,7 +767,7 @@ noxtls_return_t noxtls_falcon_internal_get_param_spec(noxtls_falcon_param_t para
         return NOXTLS_RETURN_NULL;
     }
 
-    memset(spec, 0, sizeof(*spec));
+    noxtls_secure_zero((spec), sizeof(*(spec)));
 
     switch(param) {
         case NOXTLS_FALCON_NONE:
@@ -878,8 +880,8 @@ int16_t noxtls_falcon_mod_q_center(uint16_t value)
  */
 static uint16_t falcon_mod_q_inv(uint16_t value)
 {
-    int32_t t = 0;
-    int32_t new_t = 1;
+    int32_t t = 0U;
+    int32_t new_t = 1U;
     int32_t r = (int32_t)NOXTLS_FALCON_Q;
     int32_t new_r = (int32_t)value;
 
@@ -916,13 +918,13 @@ static uint16_t falcon_mod_q_inv(uint16_t value)
  */
 static int32_t falcon_poly_degree(const uint16_t *poly, uint16_t len)
 {
-    int32_t i;
+    int32_t i = 0;
 
     if(poly == NULL) {
         return -1;
     }
 
-    for(i = (int32_t)len - 1; i >= 0; i--) {
+    for(i = (int32_t)len - 1; i >= 0; i -= 1) {
         if(poly[i] != 0U) {
             return i;
         }
@@ -942,7 +944,7 @@ static void falcon_poly_zero(uint16_t *poly, uint16_t len)
     if(poly == NULL) {
         return;
     }
-    memset(poly, 0, (size_t)len * sizeof(*poly));
+    noxtls_secure_zero((poly), ((size_t)len * sizeof(*poly)));
 }
 
 /**
@@ -954,10 +956,10 @@ static void falcon_poly_zero(uint16_t *poly, uint16_t len)
  */
 static void falcon_poly_copy(uint16_t *dst, const uint16_t *src, uint16_t len)
 {
-    if(dst == NULL || src == NULL) {
+    if((dst == NULL) || (src == NULL)) {
         return;
     }
-    memcpy(dst, src, (size_t)len * sizeof(*dst));
+    (void)memcpy(dst, src, (size_t)len * sizeof(*dst));
 }
 
 /**
@@ -973,14 +975,14 @@ static void falcon_poly_reduce_xn1_mod_q(uint16_t *out,
                                          uint16_t in_len,
                                          uint16_t n)
 {
-    uint16_t i;
+    uint16_t i = 0U;
 
-    if(out == NULL || in == NULL) {
+    if((out == NULL) || (in == NULL)) {
         return;
     }
     falcon_poly_zero(out, n);
 
-    for(i = 0U; i < in_len; i++) {
+    for(i = 0U; i < in_len; i += 1U) {
         if(i < n) {
             out[i] = noxtls_falcon_mod_q_add(out[i], in[i]);
         } else {
@@ -1007,22 +1009,22 @@ static void falcon_poly_mul_xn1_mod_q(uint16_t *out,
                                       uint16_t n)
 {
     int64_t raw[2U * NOXTLS_FALCON_MAX_N] = {0};
-    uint16_t i;
-    uint16_t j;
-    uint16_t raw_len;
+    uint16_t i = 0U;
+    uint16_t j = 0U;
+    uint16_t raw_len = 0U;
 
     if(out == NULL || a == NULL || b == NULL || n == 0U || n > NOXTLS_FALCON_MAX_N) {
         return;
     }
 
     raw_len = (uint16_t)(a_len + b_len - 1U);
-    for(i = 0U; i < a_len; i++) {
-        for(j = 0U; j < b_len; j++) {
+    for(i = 0U; i < a_len; i += 1U) {
+        for(j = 0U; j < b_len; j += 1U) {
             raw[i + j] += (int64_t)a[i] * (int64_t)b[j];
         }
     }
 
-    for(i = 0U; i < n; i++) {
+    for(i = 0U; i < n; i += 1U) {
         int64_t folded = raw[i];
         if((uint16_t)(i + n) < raw_len) {
             folded -= raw[i + n];
@@ -1044,17 +1046,17 @@ static void falcon_poly_mul_xn1_i32(int32_t *out,
                                     const int16_t *b,
                                     uint16_t n)
 {
-    uint16_t i;
-    uint16_t j;
+    uint16_t i = 0U;
+    uint16_t j = 0U;
 
     if(out == NULL || a == NULL || b == NULL || n == 0U || n > NOXTLS_FALCON_MAX_N) {
         return;
     }
 
-    memset(out, 0, (size_t)n * sizeof(*out));
-    for(i = 0U; i < n; i++) {
+    noxtls_secure_zero((out), ((size_t)n * sizeof(*out)));
+    for(i = 0U; i < n; i += 1U) {
         int32_t ai = (int32_t)a[i];
-        for(j = 0U; j < n; j++) {
+        for(j = 0U; j < n; j += 1U) {
             uint16_t idx = (uint16_t)(i + j);
             int32_t term = ai * (int32_t)b[j];
             if(idx < n) {
@@ -1082,8 +1084,8 @@ static noxtls_return_t falcon_poly_divmod(uint16_t *quotient,
                                           const uint16_t *divisor,
                                           uint16_t len)
 {
-    int32_t divisor_deg;
-    uint16_t divisor_lead_inv;
+    int32_t divisor_deg = 0;
+    uint16_t divisor_lead_inv = 0U;
 
     if(quotient == NULL || remainder == NULL || dividend == NULL || divisor == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -1103,9 +1105,9 @@ static noxtls_return_t falcon_poly_divmod(uint16_t *quotient,
 
     for(;;) {
         int32_t remainder_deg = falcon_poly_degree(remainder, len);
-        uint16_t scale;
-        uint16_t shift;
-        uint16_t i;
+        uint16_t scale = 0U;
+        uint16_t shift = 0U;
+        uint16_t i = 0U;
 
         if(remainder_deg < divisor_deg) {
             break;
@@ -1114,7 +1116,7 @@ static noxtls_return_t falcon_poly_divmod(uint16_t *quotient,
         shift = (uint16_t)(remainder_deg - divisor_deg);
         scale = noxtls_falcon_mod_q_mul(remainder[remainder_deg], divisor_lead_inv);
         quotient[shift] = noxtls_falcon_mod_q_add(quotient[shift], scale);
-        for(i = 0U; i <= (uint16_t)divisor_deg; i++) {
+        for(i = 0U; i <= (uint16_t)divisor_deg; i += 1U) {
             uint16_t product = noxtls_falcon_mod_q_mul(scale, divisor[i]);
             remainder[i + shift] = noxtls_falcon_mod_q_sub(remainder[i + shift], product);
         }
@@ -1144,10 +1146,10 @@ static noxtls_return_t falcon_poly_invert_xn1_mod_q(uint16_t *inverse,
     uint16_t t1[NOXTLS_FALCON_MAX_N];
     uint16_t t2[NOXTLS_FALCON_MAX_N];
     uint16_t product[NOXTLS_FALCON_MAX_N];
-    uint16_t i;
-    noxtls_return_t rc;
+    uint16_t i = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(inverse == NULL || f == NULL) {
+    if((inverse == NULL) || (f == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
     if(n == 0U || n > NOXTLS_FALCON_MAX_N) {
@@ -1160,7 +1162,7 @@ static noxtls_return_t falcon_poly_invert_xn1_mod_q(uint16_t *inverse,
     falcon_poly_zero(t1, n);
     r0[0] = 1U;
     r0[n] = 1U;
-    for(i = 0U; i < n; i++) {
+    for(i = 0U; i < n; i += 1U) {
         r1[i] = f[i];
     }
     t1[0] = 1U;
@@ -1173,7 +1175,7 @@ static noxtls_return_t falcon_poly_invert_xn1_mod_q(uint16_t *inverse,
 
         falcon_poly_reduce_xn1_mod_q(qring, qpoly, (uint16_t)(n + 1U), n);
         falcon_poly_mul_xn1_mod_q(product, qring, n, t1, n, n);
-        for(i = 0U; i < n; i++) {
+        for(i = 0U; i < n; i += 1U) {
             t2[i] = noxtls_falcon_mod_q_sub(t0[i], product[i]);
         }
 
@@ -1192,7 +1194,7 @@ static noxtls_return_t falcon_poly_invert_xn1_mod_q(uint16_t *inverse,
         if(scalar_inv == 0U) {
             return NOXTLS_RETURN_FAILED;
         }
-        for(i = 0U; i < n; i++) {
+        for(i = 0U; i < n; i += 1U) {
             inverse[i] = noxtls_falcon_mod_q_mul(t1[i], scalar_inv);
         }
     }
@@ -1218,14 +1220,14 @@ noxtls_return_t noxtls_falcon_hash_to_point(const uint8_t *input,
     noxtls_sha3_ctx_t shake;
     uint8_t block[2];
     uint32_t i = 0U;
-    uint32_t k;
-    uint32_t limit;
-    noxtls_return_t rc;
+    uint32_t k = 0U;
+    uint32_t limit = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(coeffs == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(input == NULL && input_len != 0U) {
+    if((input == NULL) && (input_len != 0U)) {
         return NOXTLS_RETURN_NULL;
     }
 
@@ -1246,16 +1248,17 @@ noxtls_return_t noxtls_falcon_hash_to_point(const uint8_t *input,
     }
 
     while(i < coeff_count) {
-        uint32_t t;
+        uint32_t t = 0U;
 
         rc = noxtls_shake256_squeeze(&shake, block, sizeof(block));
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
 
-        t = ((uint32_t)block[0] << 8) | (uint32_t)block[1];
+        t = ((uint32_t)block[0] << 8U) | (uint32_t)block[1];
         if(t < limit) {
-            coeffs[i++] = (uint16_t)(t % NOXTLS_FALCON_Q);
+            coeffs[i] = (uint16_t)(t % NOXTLS_FALCON_Q);
+            i += 1U;
         }
     }
 
@@ -1292,9 +1295,9 @@ noxtls_return_t noxtls_falcon_complete_private_key(noxtls_falcon_param_t param,
     noxtls_falcon_complex_t g_fft[NOXTLS_FALCON_MAX_N];
     int32_t fG[NOXTLS_FALCON_MAX_N];
     int32_t gF[NOXTLS_FALCON_MAX_N];
-    int32_t rounded;
-    uint16_t i;
-    noxtls_return_t rc;
+    int32_t rounded = 0;
+    uint16_t i = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(f == NULL || g == NULL || F == NULL || G == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -1306,7 +1309,7 @@ noxtls_return_t noxtls_falcon_complete_private_key(noxtls_falcon_param_t param,
     }
 
     falcon_poly_mul_xn1_i32(gF, g, F, spec.n);
-    for(i = 0U; i < spec.n; i++) {
+    for(i = 0U; i < spec.n; i += 1U) {
         rhs_real[i] = (double)gF[i];
         if(i == 0U) {
             rhs_real[i] += (double)NOXTLS_FALCON_Q;
@@ -1323,7 +1326,7 @@ noxtls_return_t noxtls_falcon_complete_private_key(noxtls_falcon_param_t param,
         return rc;
     }
 
-    for(i = 0U; i < spec.n; i++) {
+    for(i = 0U; i < spec.n; i += 1U) {
         double denom = falcon_complex_norm_sq(f_fft[i]);
 
         if(denom <= 1e-18) {
@@ -1339,7 +1342,7 @@ noxtls_return_t noxtls_falcon_complete_private_key(noxtls_falcon_param_t param,
         return rc;
     }
 
-    for(i = 0U; i < spec.n; i++) {
+    for(i = 0U; i < spec.n; i += 1U) {
         rounded = falcon_round_to_i32(g_real[i]);
         if(falcon_abs_double(g_real[i] - (double)rounded) > 1e-6) {
             return NOXTLS_RETURN_FAILED;
@@ -1351,7 +1354,7 @@ noxtls_return_t noxtls_falcon_complete_private_key(noxtls_falcon_param_t param,
     }
 
     falcon_poly_mul_xn1_i32(fG, f, G, spec.n);
-    for(i = 0U; i < spec.n; i++) {
+    for(i = 0U; i < spec.n; i += 1U) {
         int32_t expected = (i == 0U) ? (int32_t)NOXTLS_FALCON_Q : 0;
         if((fG[i] - gF[i]) != expected) {
             return NOXTLS_RETURN_FAILED;
@@ -1382,8 +1385,8 @@ noxtls_return_t noxtls_falcon_expand_complete_private_key(noxtls_falcon_param_t 
                                                           const int16_t *F,
                                                           noxtls_falcon_expanded_key_t *expanded)
 {
-    uint16_t i;
-    noxtls_return_t rc;
+    uint16_t i = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(f == NULL || g == NULL || F == NULL || expanded == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -1394,9 +1397,9 @@ noxtls_return_t noxtls_falcon_expand_complete_private_key(noxtls_falcon_param_t 
         return rc;
     }
 
-    memcpy(expanded->f, f, (size_t)expanded->spec.n * sizeof(*f));
-    memcpy(expanded->g, g, (size_t)expanded->spec.n * sizeof(*g));
-    memcpy(expanded->F, F, (size_t)expanded->spec.n * sizeof(*F));
+    (void)memcpy(expanded->f, f, (size_t)expanded->spec.n * sizeof(*f));
+    (void)memcpy(expanded->g, g, (size_t)expanded->spec.n * sizeof(*g));
+    (void)memcpy(expanded->F, F, (size_t)expanded->spec.n * sizeof(*F));
 
     rc = noxtls_falcon_complete_private_key(param, f, g, F, expanded->G);
     if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -1407,7 +1410,7 @@ noxtls_return_t noxtls_falcon_expand_complete_private_key(noxtls_falcon_param_t 
         return rc;
     }
 
-    for(i = 0U; i < expanded->spec.n; i++) {
+    for(i = 0U; i < expanded->spec.n; i += 1U) {
         expanded->b00[i] = expanded->g[i];
         expanded->b01[i] = (int16_t)(-expanded->f[i]);
         expanded->b10[i] = expanded->G[i];
@@ -1436,9 +1439,9 @@ noxtls_return_t noxtls_falcon_expand_private_key(noxtls_falcon_param_t param,
     int16_t f[NOXTLS_FALCON_MAX_N];
     int16_t g[NOXTLS_FALCON_MAX_N];
     int16_t F[NOXTLS_FALCON_MAX_N];
-    noxtls_return_t rc;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(secret_key == NULL || expanded == NULL) {
+    if((secret_key == NULL) || (expanded == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
@@ -1467,16 +1470,16 @@ noxtls_return_t noxtls_falcon_poly_forward_fft(const int16_t *poly,
                                                noxtls_falcon_complex_t *fft)
 {
     double real_poly[NOXTLS_FALCON_MAX_N];
-    uint16_t i;
+    uint16_t i = 0U;
 
-    if(poly == NULL || fft == NULL) {
+    if((poly == NULL) || (fft == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
-    if(!falcon_is_supported_power_of_two(n)) {
+    if((falcon_is_supported_power_of_two(n) == 0)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    for(i = 0U; i < n; i++) {
+    for(i = 0U; i < n; i += 1U) {
         real_poly[i] = (double)poly[i];
     }
     return falcon_poly_forward_fft_real(real_poly, n, fft);
@@ -1497,13 +1500,13 @@ noxtls_return_t noxtls_falcon_poly_inverse_fft(const noxtls_falcon_complex_t *ff
                                                int16_t *poly)
 {
     double real_poly[NOXTLS_FALCON_MAX_N];
-    uint16_t i;
-    noxtls_return_t rc;
+    uint16_t i = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(fft == NULL || poly == NULL) {
+    if((fft == NULL) || (poly == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
-    if(!falcon_is_supported_power_of_two(n)) {
+    if((falcon_is_supported_power_of_two(n) == 0)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
@@ -1512,7 +1515,7 @@ noxtls_return_t noxtls_falcon_poly_inverse_fft(const noxtls_falcon_complex_t *ff
         return rc;
     }
 
-    for(i = 0U; i < n; i++) {
+    for(i = 0U; i < n; i += 1U) {
         int32_t rounded = falcon_round_to_i32(real_poly[i]);
         if(rounded < -32768 || rounded > 32767) {
             return NOXTLS_RETURN_FAILED;
@@ -1538,16 +1541,16 @@ noxtls_return_t noxtls_falcon_fft_pointwise_mul(const noxtls_falcon_complex_t *a
                                                 uint16_t n,
                                                 noxtls_falcon_complex_t *out)
 {
-    uint16_t i;
+    uint16_t i = 0U;
 
     if(a == NULL || b == NULL || out == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(!falcon_is_supported_power_of_two(n)) {
+    if((falcon_is_supported_power_of_two(n) == 0)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    for(i = 0U; i < n; i++) {
+    for(i = 0U; i < n; i += 1U) {
         out[i] = falcon_complex_mul(a[i], b[i]);
     }
 
@@ -1573,7 +1576,7 @@ noxtls_return_t noxtls_falcon_expand_basis_fft(const noxtls_falcon_expanded_key_
                                                noxtls_falcon_complex_t *b10_fft,
                                                noxtls_falcon_complex_t *b11_fft)
 {
-    noxtls_return_t rc;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(expanded == NULL || b00_fft == NULL || b01_fft == NULL || b10_fft == NULL || b11_fft == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -1622,17 +1625,17 @@ noxtls_return_t noxtls_falcon_compute_gram_fft(const noxtls_falcon_complex_t *b0
                                                noxtls_falcon_complex_t *g10_fft,
                                                noxtls_falcon_complex_t *g11_fft)
 {
-    uint16_t i;
+    uint16_t i = 0U;
 
     if(b00_fft == NULL || b01_fft == NULL || b10_fft == NULL || b11_fft == NULL ||
        g00_fft == NULL || g01_fft == NULL || g10_fft == NULL || g11_fft == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(!falcon_is_supported_power_of_two(n)) {
+    if((falcon_is_supported_power_of_two(n) == 0)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    for(i = 0U; i < n; i++) {
+    for(i = 0U; i < n; i += 1U) {
         g00_fft[i] = falcon_complex_add(falcon_complex_mul(b00_fft[i], falcon_complex_conj(b00_fft[i])),
                                         falcon_complex_mul(b01_fft[i], falcon_complex_conj(b01_fft[i])));
         g01_fft[i] = falcon_complex_add(falcon_complex_mul(b00_fft[i], falcon_complex_conj(b10_fft[i])),
@@ -1674,17 +1677,17 @@ noxtls_return_t noxtls_falcon_ldl_decompose_fft(const noxtls_falcon_complex_t *g
                                                 noxtls_falcon_complex_t *l10_fft,
                                                 noxtls_falcon_complex_t *d11_fft)
 {
-    uint16_t i;
+    uint16_t i = 0U;
 
     if(g00_fft == NULL || g01_fft == NULL || g10_fft == NULL || g11_fft == NULL ||
        d00_fft == NULL || l10_fft == NULL || d11_fft == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(!falcon_is_supported_power_of_two(n)) {
+    if((falcon_is_supported_power_of_two(n) == 0)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    for(i = 0U; i < n; i++) {
+    for(i = 0U; i < n; i += 1U) {
         double d00 = g00_fft[i].re;
         double d11;
 
@@ -1734,26 +1737,26 @@ noxtls_return_t noxtls_falcon_split_fft_real(const noxtls_falcon_complex_t *fft,
     double coeffs[NOXTLS_FALCON_MAX_N];
     double coeff0[NOXTLS_FALCON_MAX_N / 2U];
     double coeff1[NOXTLS_FALCON_MAX_N / 2U];
-    uint16_t i;
-    uint16_t half;
-    noxtls_return_t rc;
+    uint16_t i = 0U;
+    uint16_t half = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(fft == NULL || fft0 == NULL || fft1 == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(!falcon_is_supported_power_of_two(n) || n < 2U) {
+    if((falcon_is_supported_power_of_two(n) == 0) || n < 2U) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    half = (uint16_t)(n >> 1);
+    half = (uint16_t)(n >> 1U);
     rc = falcon_poly_inverse_fft_real(fft, n, coeffs);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 
-    for(i = 0U; i < half; i++) {
-        coeff0[i] = coeffs[(uint16_t)(i << 1)];
-        coeff1[i] = coeffs[(uint16_t)((i << 1) + 1U)];
+    for(i = 0U; i < half; i += 1U) {
+        coeff0[i] = coeffs[(uint16_t)(i << 1U)];
+        coeff1[i] = coeffs[(uint16_t)((i << 1U) + 1U)];
     }
 
     rc = falcon_poly_forward_fft_real(coeff0, half, fft0);
@@ -1784,18 +1787,18 @@ noxtls_return_t noxtls_falcon_merge_fft_real(const noxtls_falcon_complex_t *fft0
     double coeffs[NOXTLS_FALCON_MAX_N];
     double coeff0[NOXTLS_FALCON_MAX_N / 2U];
     double coeff1[NOXTLS_FALCON_MAX_N / 2U];
-    uint16_t i;
-    uint16_t half;
-    noxtls_return_t rc;
+    uint16_t i = 0U;
+    uint16_t half = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(fft0 == NULL || fft1 == NULL || fft == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(!falcon_is_supported_power_of_two(n) || n < 2U) {
+    if((falcon_is_supported_power_of_two(n) == 0) || n < 2U) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    half = (uint16_t)(n >> 1);
+    half = (uint16_t)(n >> 1U);
     rc = falcon_poly_inverse_fft_real(fft0, half, coeff0);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
@@ -1805,9 +1808,9 @@ noxtls_return_t noxtls_falcon_merge_fft_real(const noxtls_falcon_complex_t *fft0
         return rc;
     }
 
-    for(i = 0U; i < half; i++) {
-        coeffs[(uint16_t)(i << 1)] = coeff0[i];
-        coeffs[(uint16_t)((i << 1) + 1U)] = coeff1[i];
+    for(i = 0U; i < half; i += 1U) {
+        coeffs[(uint16_t)(i << 1U)] = coeff0[i];
+        coeffs[(uint16_t)((i << 1U) + 1U)] = coeff1[i];
     }
     return falcon_poly_forward_fft_real(coeffs, n, fft);
 }
@@ -1834,26 +1837,26 @@ static noxtls_return_t falcon_split_fft_complex(const noxtls_falcon_complex_t *f
     noxtls_falcon_complex_t coeffs[NOXTLS_FALCON_MAX_N];
     noxtls_falcon_complex_t coeff0[NOXTLS_FALCON_MAX_N / 2U];
     noxtls_falcon_complex_t coeff1[NOXTLS_FALCON_MAX_N / 2U];
-    uint16_t i;
-    uint16_t half;
-    noxtls_return_t rc;
+    uint16_t i = 0U;
+    uint16_t half = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(fft == NULL || fft0 == NULL || fft1 == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(!falcon_is_supported_power_of_two(n) || n < 2U) {
+    if((falcon_is_supported_power_of_two(n) == 0) || n < 2U) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    half = (uint16_t)(n >> 1);
+    half = (uint16_t)(n >> 1U);
     rc = falcon_poly_inverse_fft_complex(fft, n, coeffs);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 
-    for(i = 0U; i < half; i++) {
-        coeff0[i] = coeffs[(uint16_t)(i << 1)];
-        coeff1[i] = coeffs[(uint16_t)((i << 1) + 1U)];
+    for(i = 0U; i < half; i += 1U) {
+        coeff0[i] = coeffs[(uint16_t)(i << 1U)];
+        coeff1[i] = coeffs[(uint16_t)((i << 1U) + 1U)];
     }
 
     rc = falcon_poly_forward_fft_complex(coeff0, half, fft0);
@@ -1885,18 +1888,18 @@ static noxtls_return_t falcon_merge_fft_complex(const noxtls_falcon_complex_t *f
     noxtls_falcon_complex_t coeffs[NOXTLS_FALCON_MAX_N];
     noxtls_falcon_complex_t coeff0[NOXTLS_FALCON_MAX_N / 2U];
     noxtls_falcon_complex_t coeff1[NOXTLS_FALCON_MAX_N / 2U];
-    uint16_t i;
-    uint16_t half;
-    noxtls_return_t rc;
+    uint16_t i = 0U;
+    uint16_t half = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(fft0 == NULL || fft1 == NULL || fft == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(!falcon_is_supported_power_of_two(n) || n < 2U) {
+    if((falcon_is_supported_power_of_two(n) == 0) || n < 2U) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    half = (uint16_t)(n >> 1);
+    half = (uint16_t)(n >> 1U);
     rc = falcon_poly_inverse_fft_complex(fft0, half, coeff0);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
@@ -1906,9 +1909,9 @@ static noxtls_return_t falcon_merge_fft_complex(const noxtls_falcon_complex_t *f
         return rc;
     }
 
-    for(i = 0U; i < half; i++) {
-        coeffs[(uint16_t)(i << 1)] = coeff0[i];
-        coeffs[(uint16_t)((i << 1) + 1U)] = coeff1[i];
+    for(i = 0U; i < half; i += 1U) {
+        coeffs[(uint16_t)(i << 1U)] = coeff0[i];
+        coeffs[(uint16_t)((i << 1U) + 1U)] = coeff1[i];
     }
     return falcon_poly_forward_fft_complex(coeffs, n, fft);
 }
@@ -1925,17 +1928,17 @@ static noxtls_return_t falcon_merge_fft_complex(const noxtls_falcon_complex_t *f
 uint32_t noxtls_falcon_ldl_tree_complex_len(uint16_t n)
 {
     uint32_t logn = 0U;
-    uint16_t t;
+    uint16_t t = 0U;
 
     if(n == 1U) {
         return 1U;
     }
-    if(!falcon_is_supported_power_of_two(n)) {
+    if((falcon_is_supported_power_of_two(n) == 0)) {
         return 0U;
     }
 
     for(t = n; t > 1U; t >>= 1) {
-        logn++;
+        logn = &logn[1];
     }
     return (uint32_t)n * (logn + 1U);
 }
@@ -1960,9 +1963,9 @@ static noxtls_return_t falcon_build_ldl_tree_selfadjoint(const noxtls_falcon_com
 {
     noxtls_falcon_complex_t *g0 = (noxtls_falcon_complex_t *)g0_fft;
     noxtls_falcon_complex_t *g1 = (noxtls_falcon_complex_t *)g1_fft;
-    uint16_t half;
-    uint16_t i;
-    uint32_t child_len;
+    uint16_t half = 0U;
+    uint16_t i = 0U;
+    uint32_t child_len = 0U;
 
     if(g0_fft == NULL || g1_fft == NULL || tree == NULL || tmp == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -1975,13 +1978,13 @@ static noxtls_return_t falcon_build_ldl_tree_selfadjoint(const noxtls_falcon_com
         tree[0].im = 0.0;
         return NOXTLS_RETURN_SUCCESS;
     }
-    if(!falcon_is_supported_power_of_two(n)) {
+    if((falcon_is_supported_power_of_two(n) == 0)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    half = (uint16_t)(n >> 1);
+    half = (uint16_t)(n >> 1U);
     child_len = noxtls_falcon_ldl_tree_complex_len(half);
-    for(i = 0U; i < n; i++) {
+    for(i = 0U; i < n; i += 1U) {
         double d00 = g0[i].re;
 
         if(d00 <= 0.0 || falcon_abs_double(g0[i].im) > 1e-7) {
@@ -2041,8 +2044,8 @@ noxtls_return_t noxtls_falcon_build_ldl_tree_fft(const noxtls_falcon_complex_t *
     noxtls_falcon_complex_t *d00_fft;
     noxtls_falcon_complex_t *d11_fft;
     noxtls_falcon_complex_t *tmp;
-    uint16_t half;
-    uint32_t child_len;
+    uint16_t half = 0U;
+    uint32_t child_len = 0U;
 
     if(g00_fft == NULL || g01_fft == NULL || g10_fft == NULL || g11_fft == NULL || tree == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -2058,27 +2061,27 @@ noxtls_return_t noxtls_falcon_build_ldl_tree_fft(const noxtls_falcon_complex_t *
         tree[0].im = 0.0;
         return NOXTLS_RETURN_SUCCESS;
     }
-    if(!falcon_is_supported_power_of_two(n) || tree_len < noxtls_falcon_ldl_tree_complex_len(n)) {
+    if((falcon_is_supported_power_of_two(n) == 0) || tree_len < noxtls_falcon_ldl_tree_complex_len(n)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
     d00_fft = tmp0;
     d11_fft = tmp1;
     tmp = tmp2;
-    half = (uint16_t)(n >> 1);
+    half = (uint16_t)(n >> 1U);
     child_len = noxtls_falcon_ldl_tree_complex_len(half);
-    memcpy(d00_fft, g00_fft, (size_t)n * sizeof(*d00_fft));
+    (void)memcpy(d00_fft, g00_fft, (size_t)n * sizeof(*d00_fft));
     if(noxtls_falcon_ldl_decompose_fft(g00_fft, g01_fft, g10_fft, g11_fft, n, d00_fft, tree, d11_fft)
        != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
-    if(noxtls_falcon_split_fft_real(d00_fft, n, tmp, tmp + half) != NOXTLS_RETURN_SUCCESS) {
+    if(noxtls_falcon_split_fft_real(d00_fft, n, tmp, &tmp[half]) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
     if(noxtls_falcon_split_fft_real(d11_fft, n, d00_fft, d00_fft + half) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
-    memcpy(d11_fft, tmp, (size_t)n * sizeof(*tmp));
+    (void)memcpy(d11_fft, tmp, (size_t)n * sizeof(*tmp));
 
     if(falcon_build_ldl_tree_selfadjoint(d11_fft, d11_fft + half, half, tree + n, tmp)
        != NOXTLS_RETURN_SUCCESS) {
@@ -2112,9 +2115,9 @@ noxtls_return_t noxtls_falcon_build_expanded_key_ldl_tree(const noxtls_falcon_ex
     noxtls_falcon_complex_t g01_fft[NOXTLS_FALCON_MAX_N];
     noxtls_falcon_complex_t g10_fft[NOXTLS_FALCON_MAX_N];
     noxtls_falcon_complex_t g11_fft[NOXTLS_FALCON_MAX_N];
-    noxtls_return_t rc;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(expanded == NULL || tree == NULL) {
+    if((expanded == NULL) || (tree == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
     if(tree_len < noxtls_falcon_ldl_tree_complex_len(expanded->spec.n)) {
@@ -2147,7 +2150,7 @@ static noxtls_return_t falcon_normalize_ldl_tree_inner(noxtls_falcon_complex_t *
                                                        uint8_t logn)
 {
     uint16_t n = (uint16_t)(1U << logn);
-    uint32_t child_len;
+    uint32_t child_len = 0U;
 
     if(tree == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -2161,7 +2164,7 @@ static noxtls_return_t falcon_normalize_ldl_tree_inner(noxtls_falcon_complex_t *
         return NOXTLS_RETURN_SUCCESS;
     }
 
-    child_len = noxtls_falcon_ldl_tree_complex_len((uint16_t)(n >> 1));
+    child_len = noxtls_falcon_ldl_tree_complex_len((uint16_t)(n >> 1U));
     if(falcon_normalize_ldl_tree_inner(tree + n, orig_logn, (uint8_t)(logn - 1U)) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -2184,8 +2187,8 @@ static noxtls_return_t falcon_normalize_ldl_tree_inner(noxtls_falcon_complex_t *
 noxtls_return_t noxtls_falcon_normalize_ldl_tree(noxtls_falcon_complex_t *tree,
                                                  uint16_t n)
 {
-    uint8_t logn;
-    noxtls_return_t rc;
+    uint8_t logn = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(tree == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -2217,9 +2220,9 @@ noxtls_return_t noxtls_falcon_build_normalized_expanded_key_ldl_tree(const noxtl
                                                                      noxtls_falcon_complex_t *tree,
                                                                      uint32_t tree_len)
 {
-    noxtls_return_t rc;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(expanded == NULL || tree == NULL) {
+    if((expanded == NULL) || (tree == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
     rc = noxtls_falcon_build_expanded_key_ldl_tree(expanded, tree, tree_len);
@@ -2248,12 +2251,12 @@ noxtls_return_t noxtls_falcon_sampler_init(noxtls_falcon_sampler_ctx_t *ctx,
                                            uint32_t seed_len)
 {
     noxtls_falcon_param_spec_t spec;
-    noxtls_return_t rc;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(seed == NULL && seed_len != 0U) {
+    if((seed == NULL) && (seed_len != 0U)) {
         return NOXTLS_RETURN_NULL;
     }
     rc = noxtls_falcon_internal_get_param_spec(param, &spec);
@@ -2310,19 +2313,19 @@ int noxtls_falcon_gaussian0_sample_from_u72(uint32_t v0,
                0U,        0U,      198u,
                0U,        0U,        1U
     };
-    size_t u;
+    size_t u = 0U;
     int z = 0;
 
     v0 &= 0xFFFFFFu;
     v1 &= 0xFFFFFFu;
     v2 &= 0xFFFFFFu;
     for(u = 0U; u < (sizeof(dist) / sizeof(dist[0])); u += 3U) {
-        uint32_t w0 = dist[u + 2U];
-        uint32_t w1 = dist[u + 1U];
-        uint32_t w2 = dist[u + 0U];
-        uint32_t cc = (v0 - w0) >> 31;
-        cc = (v1 - w1 - cc) >> 31;
-        cc = (v2 - w2 - cc) >> 31;
+        uint32_t w0 = (uint32_t)(dist[u + 2U]);
+        uint32_t w1 = (uint32_t)(dist[u + 1U]);
+        uint32_t w2 = (uint32_t)(dist[u + 0U]);
+        uint32_t cc = (uint32_t)((v0 - w0) >> 31U);
+        cc = (v1 - w1 - cc) >> 31U;
+        cc = (v2 - w2 - cc) >> 31U;
         z += (int)cc;
     }
     return z;
@@ -2338,11 +2341,11 @@ int noxtls_falcon_gaussian0_sample_from_u72(uint32_t v0,
 noxtls_return_t noxtls_falcon_sampler_gaussian0(noxtls_falcon_sampler_ctx_t *ctx,
                                                 int *sample)
 {
-    uint64_t lo;
-    uint8_t hi;
-    noxtls_return_t rc;
+    uint64_t lo = 0U;
+    uint8_t hi = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(ctx == NULL || sample == NULL) {
+    if((ctx == NULL) || (sample == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
     rc = falcon_sampler_get_u64(ctx, &lo);
@@ -2354,8 +2357,8 @@ noxtls_return_t noxtls_falcon_sampler_gaussian0(noxtls_falcon_sampler_ctx_t *ctx
         return rc;
     }
     *sample = noxtls_falcon_gaussian0_sample_from_u72((uint32_t)lo & 0xFFFFFFu,
-                                                      (uint32_t)(lo >> 24) & 0xFFFFFFu,
-                                                      ((uint32_t)(lo >> 48) | ((uint32_t)hi << 16)) & 0xFFFFFFu);
+                                                      (uint32_t)(lo >> 24U) & 0xFFFFFFu,
+                                                      ((uint32_t)(lo >> 48U) | ((uint32_t)hi << 16U)) & 0xFFFFFFu);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -2379,14 +2382,14 @@ noxtls_return_t noxtls_falcon_sampler_ber_exp(noxtls_falcon_sampler_ctx_t *ctx,
 {
     double s_real;
     double r;
-    uint64_t z;
-    uint32_t sw;
-    int s;
-    int i;
+    uint64_t z = 0U;
+    uint32_t sw = 0U;
+    int s = 0;
+    int i = 0;
     uint32_t w = 0U;
-    noxtls_return_t rc;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(ctx == NULL || bit == NULL) {
+    if((ctx == NULL) || (bit == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
     if(ccs <= 0.0) {
@@ -2405,10 +2408,10 @@ noxtls_return_t noxtls_falcon_sampler_ber_exp(noxtls_falcon_sampler_ctx_t *ctx,
     }
     s = (int)sw;
 
-    z = ((((uint64_t)(exp(-r) * ccs * 9223372036854775808.0)) << 1) - 1U) >> s;
+    z = ((((uint64_t)(exp(-r) * ccs * 9223372036854775808.0)) << 1U) - 1U) >> s;
     i = 64;
     do {
-        uint8_t rb;
+        uint8_t rb = 0U;
         rc = falcon_sampler_get_u8(ctx, &rb);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
@@ -2417,7 +2420,7 @@ noxtls_return_t noxtls_falcon_sampler_ber_exp(noxtls_falcon_sampler_ctx_t *ctx,
         w = (uint32_t)rb - ((uint32_t)(z >> i) & 0xFFu);
     } while(w == 0U && i > 0);
 
-    *bit = (int)(w >> 31);
+    *bit = (int)(w >> 31U);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -2439,12 +2442,12 @@ noxtls_return_t noxtls_falcon_sampler_z(noxtls_falcon_sampler_ctx_t *ctx,
                                         double isigma,
                                         int32_t *sample)
 {
-    int s;
+    int s = 0;
     double r;
     double dss;
     double ccs;
 
-    if(ctx == NULL || sample == NULL) {
+    if((ctx == NULL) || (sample == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
     if(isigma <= 0.0 || isigma > 1.0) {
@@ -2456,13 +2459,13 @@ noxtls_return_t noxtls_falcon_sampler_z(noxtls_falcon_sampler_ctx_t *ctx,
     dss = 0.5 * isigma * isigma;
     ccs = ctx->sigma_min * isigma;
     for(;;) {
-        int z0;
-        uint8_t rb;
-        int b;
-        int z;
+        int z0 = 0;
+        uint8_t rb = 0U;
+        int b = 0;
+        int z = 0;
         double x;
-        int keep;
-        noxtls_return_t rc;
+        int keep = 0;
+        noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
         rc = noxtls_falcon_sampler_gaussian0(ctx, &z0);
         if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -2473,7 +2476,7 @@ noxtls_return_t noxtls_falcon_sampler_z(noxtls_falcon_sampler_ctx_t *ctx,
             return rc;
         }
         b = (int)(rb & 1U);
-        z = b + ((b << 1) - 1) * z0;
+        z = b + ((b << 1U) - 1) * z0;
         x = ((double)z - r);
         x = (x * x) * dss;
         x -= ((double)(z0 * z0)) * falcon_inv_2sqrsigma0;
@@ -2506,11 +2509,11 @@ noxtls_return_t noxtls_falcon_keygen_sample_short_poly(noxtls_falcon_sampler_ctx
                                                        int16_t *poly)
 {
     noxtls_falcon_param_spec_t spec;
-    int32_t limit;
-    uint16_t i;
-    noxtls_return_t rc;
+    int32_t limit = 0;
+    uint16_t i = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(ctx == NULL || poly == NULL) {
+    if((ctx == NULL) || (poly == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
@@ -2520,11 +2523,11 @@ noxtls_return_t noxtls_falcon_keygen_sample_short_poly(noxtls_falcon_sampler_ctx
     }
     limit = falcon_fg_limit_from_spec(&spec);
 
-    for(i = 0U; i < spec.n; i++) {
+    for(i = 0U; i < spec.n; i += 1U) {
         for(;;) {
-            int sample;
-            uint8_t rb;
-            int32_t value;
+            int sample = 0;
+            uint8_t rb = 0U;
+            int32_t value = 0;
 
             rc = noxtls_falcon_sampler_gaussian0(ctx, &sample);
             if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -2566,14 +2569,14 @@ noxtls_return_t noxtls_falcon_keygen_check_fg(noxtls_falcon_param_t param,
                                               const int16_t *g)
 {
     noxtls_falcon_param_spec_t spec;
-    int32_t limit;
+    int32_t limit = 0;
     uint32_t parity_f = 0U;
     uint32_t parity_g = 0U;
     uint16_t h[NOXTLS_FALCON_MAX_N];
-    uint16_t i;
-    noxtls_return_t rc;
+    uint16_t i = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(f == NULL || g == NULL) {
+    if((f == NULL) || (g == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
@@ -2583,7 +2586,7 @@ noxtls_return_t noxtls_falcon_keygen_check_fg(noxtls_falcon_param_t param,
     }
     limit = falcon_fg_limit_from_spec(&spec);
 
-    for(i = 0U; i < spec.n; i++) {
+    for(i = 0U; i < spec.n; i += 1U) {
         if(f[i] < -limit || f[i] > limit || g[i] < -limit || g[i] > limit) {
             return NOXTLS_RETURN_INVALID_PARAM;
         }
@@ -2622,14 +2625,14 @@ noxtls_return_t noxtls_falcon_keygen_sample_prechecked_fg(noxtls_falcon_sampler_
                                                           int16_t *f,
                                                           int16_t *g)
 {
-    uint32_t attempt;
-    noxtls_return_t rc;
+    uint32_t attempt = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(ctx == NULL || f == NULL || g == NULL) {
         return NOXTLS_RETURN_NULL;
     }
 
-    for(attempt = 0U; attempt < NOXTLS_FALCON_KEYGEN_MAX_FG_ATTEMPTS; attempt++) {
+    for(attempt = 0U; attempt < NOXTLS_FALCON_KEYGEN_MAX_FG_ATTEMPTS; attempt += 1U) {
         rc = noxtls_falcon_keygen_sample_short_poly(ctx, param, f);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
@@ -2663,12 +2666,12 @@ static void falcon_poly_split_i16(const int16_t *src,
                                   int16_t *even,
                                   int16_t *odd)
 {
-    uint16_t i;
-    uint16_t half = (uint16_t)(n >> 1);
+    uint16_t i = 0U;
+    uint16_t half = (uint16_t)(n >> 1U);
 
-    for(i = 0U; i < half; i++) {
-        even[i] = src[(uint16_t)(i << 1)];
-        odd[i] = src[(uint16_t)((i << 1) + 1U)];
+    for(i = 0U; i < half; i += 1U) {
+        even[i] = src[(uint16_t)(i << 1U)];
+        odd[i] = src[(uint16_t)((i << 1U) + 1U)];
     }
 }
 
@@ -2688,14 +2691,14 @@ static int32_t falcon_i32_xgcd(int32_t a,
 {
     int64_t old_r = a;
     int64_t r = b;
-    int64_t old_s = 1;
+    int64_t old_s = 1U;
     int64_t s = 0;
     int64_t old_t = 0;
-    int64_t t = 1;
+    int64_t t = 1U;
 
     while(r != 0) {
         int64_t q = old_r / r;
-        int64_t tmp;
+        int64_t tmp = 0;
 
         tmp = old_r - q * r;
         old_r = r;
@@ -2748,32 +2751,32 @@ static int falcon_i64_xgcd(int64_t a,
 {
     int64_t old_r = a;
     int64_t r = b;
-    int64_t old_s = 1;
+    int64_t old_s = 1U;
     int64_t s = 0;
     int64_t old_t = 0;
-    int64_t t = 1;
+    int64_t t = 1U;
 
     while(r != 0) {
         int64_t q = old_r / r;
-        int64_t prod;
-        int64_t tmp;
+        int64_t prod = 0;
+        int64_t tmp = 0;
 
-        if(!falcon_checked_mul_i64(q, r, &prod) ||
-           !falcon_checked_sub_i64(old_r, prod, &tmp)) {
+        if((falcon_checked_mul_i64(q, r, &prod) == 0) ||
+           (falcon_checked_sub_i64(old_r, prod, &tmp) == 0)) {
             return 0;
         }
         old_r = r;
         r = tmp;
 
-        if(!falcon_checked_mul_i64(q, s, &prod) ||
-           !falcon_checked_sub_i64(old_s, prod, &tmp)) {
+        if((falcon_checked_mul_i64(q, s, &prod) == 0) ||
+           (falcon_checked_sub_i64(old_s, prod, &tmp) == 0)) {
             return 0;
         }
         old_s = s;
         s = tmp;
 
-        if(!falcon_checked_mul_i64(q, t, &prod) ||
-           !falcon_checked_sub_i64(old_t, prod, &tmp)) {
+        if((falcon_checked_mul_i64(q, t, &prod) == 0) ||
+           (falcon_checked_sub_i64(old_t, prod, &tmp) == 0)) {
             return 0;
         }
         old_t = t;
@@ -2807,13 +2810,13 @@ static noxtls_return_t falcon_bn_store_small(uint8_t *out,
                                              uint32_t len,
                                              uint32_t value)
 {
-    uint32_t i;
+    uint32_t i = 0U;
 
     if(out == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    memset(out, 0, len);
-    for(i = 0U; i < len && value != 0U; i++) {
+    noxtls_secure_zero((out), (size_t)((len)));
+    for(i = 0U; i < len && value != 0U; i += 1U) {
         out[len - 1U - i] = (uint8_t)(value & 0xFFu);
         value >>= 8;
     }
@@ -2832,14 +2835,14 @@ static uint8_t falcon_bn_get_bit(const uint8_t *a,
                                  uint32_t len,
                                  uint32_t bit_index)
 {
-    uint32_t byte_from_end;
-    uint32_t byte_index;
-    uint32_t bit_in_byte;
+    uint32_t byte_from_end = 0U;
+    uint32_t byte_index = 0U;
+    uint32_t bit_in_byte = 0U;
 
-    if(a == NULL || bit_index >= (len << 3)) {
+    if(a == NULL || bit_index >= (len << 3U)) {
         return 0U;
     }
-    byte_from_end = (uint32_t)(bit_index >> 3);
+    byte_from_end = (uint32_t)(bit_index >> 3U);
     byte_index = (uint32_t)(len - 1U - byte_from_end);
     bit_in_byte = bit_index & 7U;
     return (uint8_t)((a[byte_index] >> bit_in_byte) & 1U);
@@ -2858,17 +2861,17 @@ static noxtls_return_t falcon_bn_set_bit(uint8_t *a,
                                          uint32_t len,
                                          uint32_t bit_index)
 {
-    uint32_t byte_from_end;
-    uint32_t byte_index;
-    uint32_t bit_in_byte;
+    uint32_t byte_from_end = 0U;
+    uint32_t byte_index = 0U;
+    uint32_t bit_in_byte = 0U;
 
     if(a == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(bit_index >= (len << 3)) {
+    if(bit_index >= (len << 3U)) {
         return NOXTLS_RETURN_FAILED;
     }
-    byte_from_end = (uint32_t)(bit_index >> 3);
+    byte_from_end = (uint32_t)(bit_index >> 3U);
     byte_index = (uint32_t)(len - 1U - byte_from_end);
     bit_in_byte = bit_index & 7U;
     a[byte_index] = (uint8_t)(a[byte_index] | (uint8_t)(1U << bit_in_byte));
@@ -2885,21 +2888,21 @@ static noxtls_return_t falcon_bn_set_bit(uint8_t *a,
 static uint32_t falcon_bn_bit_length(const uint8_t *a,
                                      uint32_t len)
 {
-    uint32_t i;
+    uint32_t i = 0U;
 
     if(a == NULL) {
         return 0U;
     }
-    for(i = 0U; i < len; i++) {
+    for(i = 0U; i < len; i += 1U) {
         if(a[i] != 0U) {
             uint8_t byte = a[i];
             uint32_t bits = 0U;
 
             while(byte != 0U) {
-                bits++;
+                bits += 1U;
                 byte >>= 1;
             }
-            return (uint32_t)(((len - 1U - i) << 3) + bits);
+            return (uint32_t)(((len - 1U - i) << 3U) + bits);
         }
     }
     return 0U;
@@ -2930,9 +2933,9 @@ static double falcon_bn_signed_to_double_approx(const uint8_t *mag,
                                                 uint32_t len,
                                                 uint32_t shift_bits)
 {
-    uint32_t bits;
-    uint32_t kept_bits;
-    uint32_t j;
+    uint32_t bits = 0U;
+    uint32_t kept_bits = 0U;
+    uint32_t j = 0U;
     uint64_t mant = 0U;
     double value;
 
@@ -2945,10 +2948,10 @@ static double falcon_bn_signed_to_double_approx(const uint8_t *mag,
     }
     bits -= shift_bits;
     kept_bits = (bits > 55u) ? 55u : bits;
-    for(j = 0U; j < kept_bits; j++) {
+    for(j = 0U; j < kept_bits; j += 1U) {
         uint32_t source_bit = (uint32_t)(shift_bits + bits - 1U - j);
 
-        mant = (mant << 1) | (uint64_t)falcon_bn_get_bit(mag, len, source_bit);
+        mant = (mant << 1U) | (uint64_t)falcon_bn_get_bit(mag, len, source_bit);
     }
     value = ldexp((double)mant, (int)(bits - kept_bits));
     return (negative != 0U) ? -value : value;
@@ -2971,7 +2974,7 @@ static noxtls_return_t falcon_bn_poly_from_i16(const int16_t *src,
                                                uint8_t *negative,
                                                uint32_t coeff_len)
 {
-    uint16_t i;
+    uint16_t i = 0U;
 
     if(src == NULL || mag == NULL || negative == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -2980,9 +2983,9 @@ static noxtls_return_t falcon_bn_poly_from_i16(const int16_t *src,
         return NOXTLS_RETURN_FAILED;
     }
 
-    memset(mag, 0, (size_t)n * coeff_len);
-    memset(negative, 0, n);
-    for(i = 0U; i < n; i++) {
+    noxtls_secure_zero((mag), ((size_t)n * coeff_len));
+    noxtls_secure_zero((negative), (size_t)((n)));
+    for(i = 0U; i < n; i += 1U) {
         int32_t value = src[i];
         uint32_t base = (uint32_t)i * coeff_len;
 
@@ -2990,7 +2993,7 @@ static noxtls_return_t falcon_bn_poly_from_i16(const int16_t *src,
             negative[i] = 1U;
             value = -value;
         }
-        mag[base + coeff_len - 2U] = (uint8_t)(((uint32_t)value >> 8) & 0xFFu);
+        mag[base + coeff_len - 2U] = (uint8_t)(((uint32_t)(uint32_t)value >> 8U) & 0xFFu);
         mag[base + coeff_len - 1U] = (uint8_t)((uint32_t)value & 0xFFu);
     }
     return NOXTLS_RETURN_SUCCESS;
@@ -3013,7 +3016,7 @@ static noxtls_return_t falcon_bn_poly_from_i64(const int64_t *src,
                                                uint8_t *negative,
                                                uint32_t coeff_len)
 {
-    uint16_t i;
+    uint16_t i = 0U;
 
     if(src == NULL || mag == NULL || negative == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -3022,12 +3025,12 @@ static noxtls_return_t falcon_bn_poly_from_i64(const int64_t *src,
         return NOXTLS_RETURN_FAILED;
     }
 
-    memset(mag, 0, (size_t)n * coeff_len);
-    memset(negative, 0, n);
-    for(i = 0U; i < n; i++) {
-        uint64_t value;
+    noxtls_secure_zero((mag), ((size_t)n * coeff_len));
+    noxtls_secure_zero((negative), (size_t)((n)));
+    for(i = 0U; i < n; i += 1U) {
+        uint64_t value = 0U;
         uint32_t base = (uint32_t)i * coeff_len;
-        uint32_t j;
+        uint32_t j = 0U;
 
         if(src[i] < 0) {
             negative[i] = 1U;
@@ -3035,7 +3038,7 @@ static noxtls_return_t falcon_bn_poly_from_i64(const int64_t *src,
         } else {
             value = (uint64_t)src[i];
         }
-        for(j = 0U; j < 8U; j++) {
+        for(j = 0U; j < 8U; j += 1U) {
             mag[base + coeff_len - 1U - j] = (uint8_t)(value & 0xFFu);
             value >>= 8;
         }
@@ -3062,9 +3065,9 @@ static noxtls_return_t falcon_bn_poly_from_i64_shifted(const int64_t *src,
                                                        uint32_t coeff_len,
                                                        uint32_t shift_bits)
 {
-    uint16_t i;
-    uint32_t byte_shift;
-    uint32_t bit_shift;
+    uint16_t i = 0U;
+    uint32_t byte_shift = 0U;
+    uint32_t bit_shift = 0U;
 
     if(src == NULL || mag == NULL || negative == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -3073,14 +3076,14 @@ static noxtls_return_t falcon_bn_poly_from_i64_shifted(const int64_t *src,
         return NOXTLS_RETURN_FAILED;
     }
 
-    byte_shift = (uint32_t)(shift_bits >> 3);
+    byte_shift = (uint32_t)(shift_bits >> 3U);
     bit_shift = shift_bits & 7U;
-    memset(mag, 0, (size_t)n * coeff_len);
-    memset(negative, 0, n);
-    for(i = 0U; i < n; i++) {
-        uint8_t *dst = mag + ((uint32_t)i * coeff_len);
-        uint64_t value;
-        uint32_t j;
+    noxtls_secure_zero((mag), ((size_t)n * coeff_len));
+    noxtls_secure_zero((negative), (size_t)((n)));
+    for(i = 0U; i < n; i += 1U) {
+        uint8_t *dst = &mag[((uint32_t)i * coeff_len)];
+        uint64_t value = 0U;
+        uint32_t j = 0U;
 
         if(src[i] < 0) {
             negative[i] = 1U;
@@ -3094,7 +3097,7 @@ static noxtls_return_t falcon_bn_poly_from_i64_shifted(const int64_t *src,
         if(byte_shift >= coeff_len) {
             return NOXTLS_RETURN_FAILED;
         }
-        for(j = 0U; j < 8U && value != 0U; j++) {
+        for(j = 0U; j < 8U && value != 0U; j += 1U) {
             uint8_t byte = (uint8_t)(value & 0xFFu);
             int64_t dst_index = (int64_t)coeff_len - 1ll - (int64_t)byte_shift - (int64_t)j;
 
@@ -3107,7 +3110,7 @@ static noxtls_return_t falcon_bn_poly_from_i64_shifted(const int64_t *src,
             }
             dst[(uint32_t)dst_index] = (uint8_t)(dst[(uint32_t)dst_index] | (uint8_t)(byte << bit_shift));
             if(bit_shift != 0U) {
-                uint8_t carry = (uint8_t)(byte >> (8U - bit_shift));
+                uint8_t carry = (uint8_t)(byte >> ((8U - bit_shift) & 7U));
 
                 if(carry != 0U) {
                     if(dst_index == 0ll) {
@@ -3138,8 +3141,8 @@ static noxtls_return_t falcon_bn_poly_pair_maxabs_copy(const uint8_t *A_mag,
                                                        uint32_t coeff_len,
                                                        uint8_t *out_mag)
 {
-    const uint8_t *max_ptr;
-    uint16_t i;
+    const uint8_t *max_ptr = NULL;
+    uint16_t i = 0U;
 
     if(A_mag == NULL || B_mag == NULL || out_mag == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -3149,9 +3152,9 @@ static noxtls_return_t falcon_bn_poly_pair_maxabs_copy(const uint8_t *A_mag,
     if(noxtls_bn_cmp(B_mag, max_ptr, coeff_len) > 0) {
         max_ptr = B_mag;
     }
-    for(i = 1U; i < n; i++) {
-        const uint8_t *a_ptr = A_mag + ((uint32_t)i * coeff_len);
-        const uint8_t *b_ptr = B_mag + ((uint32_t)i * coeff_len);
+    for(i = 1U; i < n; i += 1U) {
+        const uint8_t *a_ptr = &A_mag[((uint32_t)i * coeff_len)];
+        const uint8_t *b_ptr = &B_mag[((uint32_t)i * coeff_len)];
 
         if(noxtls_bn_cmp(a_ptr, max_ptr, coeff_len) > 0) {
             max_ptr = a_ptr;
@@ -3182,14 +3185,14 @@ static uint64_t falcon_bn_poly_pair_abs_score(const uint8_t *A_mag,
                                               uint32_t coeff_len)
 {
     uint64_t score = 0U;
-    uint16_t i;
+    uint16_t i = 0U;
 
-    if(A_mag == NULL || B_mag == NULL) {
+    if((A_mag == NULL) || (B_mag == NULL)) {
         return 0U;
     }
-    for(i = 0U; i < n; i++) {
-        score += (uint64_t)falcon_bn_bit_length(A_mag + ((uint32_t)i * coeff_len), coeff_len);
-        score += (uint64_t)falcon_bn_bit_length(B_mag + ((uint32_t)i * coeff_len), coeff_len);
+    for(i = 0U; i < n; i += 1U) {
+        score += (uint64_t)falcon_bn_bit_length(&A_mag[((uint32_t)i * coeff_len)], coeff_len);
+        score += (uint64_t)falcon_bn_bit_length(&B_mag[((uint32_t)i * coeff_len)], coeff_len);
     }
     return score;
 }
@@ -3211,7 +3214,7 @@ static noxtls_return_t falcon_bn_poly_to_i32_checked(const uint8_t *mag,
                                                      uint32_t coeff_len,
                                                      int32_t *out)
 {
-    uint16_t i;
+    uint16_t i = 0U;
 
     if(mag == NULL || negative == NULL || out == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -3220,19 +3223,19 @@ static noxtls_return_t falcon_bn_poly_to_i32_checked(const uint8_t *mag,
         return NOXTLS_RETURN_FAILED;
     }
 
-    for(i = 0U; i < n; i++) {
-        const uint8_t *coeff = mag + ((uint32_t)i * coeff_len);
-        uint32_t j;
-        uint32_t value;
+    for(i = 0U; i < n; i += 1U) {
+        const uint8_t *coeff = &mag[((uint32_t)i * coeff_len)];
+        uint32_t j = 0U;
+        uint32_t value = 0U;
 
-        for(j = 0U; j < (coeff_len - 4U); j++) {
+        for(j = 0U; j < (coeff_len - 4U); j += 1U) {
             if(coeff[j] != 0U) {
                 return NOXTLS_RETURN_FAILED;
             }
         }
-        value = ((uint32_t)coeff[coeff_len - 4U] << 24) |
-                ((uint32_t)coeff[coeff_len - 3U] << 16) |
-                ((uint32_t)coeff[coeff_len - 2U] << 8) |
+        value = ((uint32_t)coeff[coeff_len - 4U] << 24U) |
+                ((uint32_t)coeff[coeff_len - 3U] << 16U) |
+                ((uint32_t)coeff[coeff_len - 2U] << 8U) |
                 (uint32_t)coeff[coeff_len - 1U];
         if(negative[i] != 0U) {
             if(value > 0x80000000u) {
@@ -3240,6 +3243,7 @@ static noxtls_return_t falcon_bn_poly_to_i32_checked(const uint8_t *mag,
             }
             out[i] = (value == 0x80000000u) ? INT32_MIN : -(int32_t)value;
         } else {
+            /* MISRA 15.7: final else path */
             if(value > 0x7FFFFFFFu) {
                 return NOXTLS_RETURN_FAILED;
             }
@@ -3265,20 +3269,20 @@ static noxtls_return_t falcon_bn_shift_left_bits(uint8_t *dst,
                                                  uint32_t src_len,
                                                  uint32_t shift)
 {
-    uint32_t src_bits;
-    uint32_t i;
+    uint32_t src_bits = 0U;
+    uint32_t i = 0U;
 
-    if(dst == NULL || src == NULL) {
+    if((dst == NULL) || (src == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
-    memset(dst, 0, dst_len);
+    noxtls_secure_zero((dst), (size_t)((dst_len)));
     src_bits = falcon_bn_bit_length(src, src_len);
-    for(i = 0U; i < src_bits; i++) {
+    for(i = 0U; i < src_bits; i += 1U) {
         if(falcon_bn_get_bit(src, src_len, i) != 0U) {
-            uint32_t dst_bit = i + shift;
+            uint32_t dst_bit = (uint32_t)(i + shift);
 
-            if(dst_bit < (dst_len << 3)) {
-                falcon_bn_set_bit(dst, dst_len, dst_bit);
+            if(dst_bit < (dst_len << 3U)) {
+                (void)falcon_bn_set_bit(dst, dst_len, dst_bit);
             }
         }
     }
@@ -3305,68 +3309,129 @@ static noxtls_return_t falcon_bn_exact_div_positive(uint8_t *quotient,
                                                     const uint8_t *denominator,
                                                     uint32_t denominator_len)
 {
-    uint8_t *remainder;
-    uint8_t *shifted;
-    uint8_t *qwide;
-    uint32_t num_bits;
-    uint32_t den_bits;
+    uint8_t *remainder = NULL;
+    uint8_t *shifted = NULL;
+    uint8_t *qwide = NULL;
+    uint32_t num_bits = 0U;
+    uint32_t den_bits = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
-    int64_t shift;
+    int64_t shift = 0;
 
     if(quotient == NULL || numerator == NULL || denominator == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(denominator_len == 0U || noxtls_bn_is_zero(denominator, denominator_len)) {
+    {
+        int32_t den_zero = 0;
+        if(denominator_len == 0U) {
+            den_zero = 1;
+        } else if(noxtls_bn_is_zero(denominator, denominator_len) != 0) {
+            den_zero = 1;
+        }
+        if(den_zero != 0) {
         return NOXTLS_RETURN_FAILED;
     }
-
-    remainder = (uint8_t*)noxtls_calloc(numerator_len, 1U);
-    shifted = (uint8_t*)noxtls_calloc(numerator_len, 1U);
-    qwide = (uint8_t*)noxtls_calloc(numerator_len, 1U);
-    if(remainder == NULL || shifted == NULL || qwide == NULL) {
-        goto cleanup;
     }
 
-    noxtls_bn_copy(remainder, numerator, numerator_len);
+    remainder = (uint8_t*)NOXTLS_CALLOC(numerator_len, 1U);
+    shifted = (uint8_t*)NOXTLS_CALLOC(numerator_len, 1U);
+    qwide = (uint8_t*)NOXTLS_CALLOC(numerator_len, 1U);
+    if(remainder == NULL || shifted == NULL || qwide == NULL) {
+        if(remainder != NULL) {
+        (void)noxtls_free(remainder);
+        }
+        if(shifted != NULL) {
+        (void)noxtls_free(shifted);
+        }
+        if(qwide != NULL) {
+        (void)noxtls_free(qwide);
+        }
+        return rc;
+    }
+
+    (void)noxtls_bn_copy(remainder, numerator, numerator_len);
     num_bits = falcon_bn_bit_length(numerator, numerator_len);
     den_bits = falcon_bn_bit_length(denominator, denominator_len);
     if(num_bits == 0U) {
-        noxtls_bn_zero(quotient, quotient_len);
+        (void)noxtls_bn_zero(quotient, quotient_len);
         rc = NOXTLS_RETURN_SUCCESS;
-        goto cleanup;
+        if(remainder != NULL) {
+        (void)noxtls_free(remainder);
+        }
+        if(shifted != NULL) {
+        (void)noxtls_free(shifted);
+        }
+        if(qwide != NULL) {
+        (void)noxtls_free(qwide);
+        }
+        return rc;
     }
     if(den_bits == 0U || num_bits < den_bits) {
-        goto cleanup;
+        if(remainder != NULL) {
+        (void)noxtls_free(remainder);
+        }
+        if(shifted != NULL) {
+        (void)noxtls_free(shifted);
+        }
+        if(qwide != NULL) {
+        (void)noxtls_free(qwide);
+        }
+        return rc;
     }
 
-    for(shift = (int64_t)(num_bits - den_bits); shift >= 0; shift--) {
-        falcon_bn_shift_left_bits(shifted, numerator_len, denominator, denominator_len, (uint32_t)shift);
+    for(shift = (int64_t)(num_bits - den_bits); shift >= 0; shift -= 1) {
+        (void)falcon_bn_shift_left_bits(shifted, numerator_len, denominator, denominator_len, (uint32_t)shift);
         if(noxtls_bn_cmp(remainder, shifted, numerator_len) >= 0) {
-            noxtls_bn_sub(remainder, remainder, shifted, numerator_len);
-            falcon_bn_set_bit(qwide, numerator_len, (uint32_t)shift);
+            (void)noxtls_bn_sub(remainder, remainder, shifted, numerator_len);
+            (void)falcon_bn_set_bit(qwide, numerator_len, (uint32_t)shift);
         }
     }
-    if(!noxtls_bn_is_zero(remainder, numerator_len)) {
-        goto cleanup;
+    if((noxtls_bn_is_zero(remainder, numerator_len) == 0)) {
+        if(remainder != NULL) {
+        (void)noxtls_free(remainder);
+        }
+        if(shifted != NULL) {
+        (void)noxtls_free(shifted);
+        }
+        if(qwide != NULL) {
+        (void)noxtls_free(qwide);
+        }
+        return rc;
     }
     if(quotient_len > numerator_len) {
-        goto cleanup;
+        if(remainder != NULL) {
+        (void)noxtls_free(remainder);
+        }
+        if(shifted != NULL) {
+        (void)noxtls_free(shifted);
+        }
+        if(qwide != NULL) {
+        (void)noxtls_free(qwide);
+        }
+        return rc;
     }
-    if(!noxtls_bn_is_zero(qwide, numerator_len - quotient_len)) {
-        goto cleanup;
+    if((noxtls_bn_is_zero(qwide, numerator_len - quotient_len) == 0)) {
+        if(remainder != NULL) {
+        (void)noxtls_free(remainder);
+        }
+        if(shifted != NULL) {
+        (void)noxtls_free(shifted);
+        }
+        if(qwide != NULL) {
+        (void)noxtls_free(qwide);
+        }
+        return rc;
     }
-    noxtls_bn_copy(quotient, qwide + (numerator_len - quotient_len), quotient_len);
+    (void)noxtls_bn_copy(quotient, &qwide[(numerator_len - quotient_len)], quotient_len);
     rc = NOXTLS_RETURN_SUCCESS;
 
-cleanup:
     if(remainder != NULL) {
-        noxtls_free(remainder);
+        (void)noxtls_free(remainder);
     }
     if(shifted != NULL) {
-        noxtls_free(shifted);
+        (void)noxtls_free(shifted);
     }
     if(qwide != NULL) {
-        noxtls_free(qwide);
+        (void)noxtls_free(qwide);
     }
     return rc;
 }
@@ -3392,15 +3457,15 @@ static noxtls_return_t falcon_bn_add_wide(uint8_t *out,
                                           const uint8_t *b,
                                           uint32_t b_len)
 {
-    int64_t out_idx;
-    int64_t a_idx;
-    int64_t b_idx;
+    int64_t out_idx = 0;
+    int64_t a_idx = 0;
+    int64_t b_idx = 0;
     uint16_t carry = 0U;
 
     if(out == NULL || a == NULL || b == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    memset(out, 0, out_len);
+    noxtls_secure_zero((out), (size_t)((out_len)));
 
     out_idx = (int64_t)out_len - 1;
     a_idx = (int64_t)a_len - 1;
@@ -3410,15 +3475,15 @@ static noxtls_return_t falcon_bn_add_wide(uint8_t *out,
 
         if(a_idx >= 0) {
             sum = (uint16_t)(sum + a[a_idx]);
-            a_idx--;
+            a_idx -= 1;
         }
         if(b_idx >= 0) {
             sum = (uint16_t)(sum + b[b_idx]);
-            b_idx--;
+            b_idx -= 1;
         }
         out[out_idx] = (uint8_t)(sum & 0xFFu);
-        carry = (uint16_t)(sum >> 8);
-        out_idx--;
+        carry = (uint16_t)(sum >> 8U);
+        out_idx -= 1;
     }
     if(carry != 0U || a_idx >= 0 || b_idx >= 0) {
         return NOXTLS_RETURN_FAILED;
@@ -3445,30 +3510,35 @@ static noxtls_return_t falcon_bn_mul_to_len(uint8_t *out,
                                             const uint8_t *b,
                                             uint32_t b_len)
 {
-    uint8_t *prod;
+    uint8_t *prod = NULL;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(out == NULL || a == NULL || b == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    prod = (uint8_t*)noxtls_calloc(a_len + b_len, 1U);
+    prod = (uint8_t*)NOXTLS_CALLOC(a_len + b_len, 1U);
     if(prod == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
     rc = noxtls_bn_mul(prod, a, a_len, b, b_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(prod != NULL) {
+        (void)noxtls_free(prod);
+        }
+        return rc;
     }
     if(out_len < (a_len + b_len)) {
-        goto cleanup;
+        if(prod != NULL) {
+        (void)noxtls_free(prod);
+        }
+        return rc;
     }
-    memset(out, 0, out_len);
-    noxtls_bn_copy(out + (out_len - (a_len + b_len)), prod, a_len + b_len);
+    noxtls_secure_zero((out), (size_t)((out_len)));
+    (void)noxtls_bn_copy(&out[(out_len - (a_len + b_len))], prod, a_len + b_len);
     rc = NOXTLS_RETURN_SUCCESS;
 
-cleanup:
     if(prod != NULL) {
-        noxtls_free(prod);
+        (void)noxtls_free(prod);
     }
     return rc;
 }
@@ -3500,8 +3570,8 @@ static noxtls_return_t falcon_bn_signed_mul_to_len(const uint8_t *a_mag,
                                                    uint8_t *out_negative,
                                                    uint32_t out_len)
 {
-    noxtls_return_t rc;
-    uint8_t neg;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+    uint8_t neg = 0U;
 
     if(a_mag == NULL || b_mag == NULL || out_mag == NULL || out_negative == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -3511,7 +3581,10 @@ static noxtls_return_t falcon_bn_signed_mul_to_len(const uint8_t *a_mag,
         return rc;
     }
     neg = (uint8_t)(((a_negative != 0U) ^ (b_negative != 0U) ^ (extra_negative != 0U)) != 0U);
-    *out_negative = (uint8_t)(neg != 0U && !noxtls_bn_is_zero(out_mag, out_len));
+    {
+        int32_t mag_nonzero = (noxtls_bn_is_zero(out_mag, out_len) == 0) ? 1 : 0;
+        *out_negative = (uint8_t)(((neg != 0U) && (mag_nonzero != 0)) ? 1U : 0U);
+    }
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -3558,10 +3631,10 @@ static noxtls_return_t falcon_bn_signed_add_to_len(const uint8_t *a_mag,
                                                    uint8_t *out_negative,
                                                    uint32_t out_len)
 {
-    uint8_t *awide;
-    uint8_t *bwide;
+    uint8_t *awide = NULL;
+    uint8_t *bwide = NULL;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
-    int cmp;
+    int cmp = 0;
 
     if(a_mag == NULL || b_mag == NULL || out_mag == NULL || out_negative == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -3570,61 +3643,117 @@ static noxtls_return_t falcon_bn_signed_add_to_len(const uint8_t *a_mag,
         return NOXTLS_RETURN_FAILED;
     }
 
-    awide = (uint8_t*)noxtls_calloc(out_len, 1U);
-    bwide = (uint8_t*)noxtls_calloc(out_len, 1U);
-    if(awide == NULL || bwide == NULL) {
-        goto cleanup;
+    awide = (uint8_t*)NOXTLS_CALLOC(out_len, 1U);
+    bwide = (uint8_t*)NOXTLS_CALLOC(out_len, 1U);
+    if((awide == NULL) || (bwide == NULL)) {
+        if(awide != NULL) {
+        (void)noxtls_free(awide);
+        }
+        if(bwide != NULL) {
+        (void)noxtls_free(bwide);
+        }
+        return rc;
     }
 
-    rc = noxtls_bn_copy(awide + (out_len - a_len), a_mag, a_len);
+    rc = noxtls_bn_copy(&awide[(out_len - a_len)], a_mag, a_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(awide != NULL) {
+        (void)noxtls_free(awide);
+        }
+        if(bwide != NULL) {
+        (void)noxtls_free(bwide);
+        }
+        return rc;
     }
-    rc = noxtls_bn_copy(bwide + (out_len - b_len), b_mag, b_len);
+    rc = noxtls_bn_copy(&bwide[(out_len - b_len)], b_mag, b_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(awide != NULL) {
+        (void)noxtls_free(awide);
+        }
+        if(bwide != NULL) {
+        (void)noxtls_free(bwide);
+        }
+        return rc;
     }
 
     if((a_negative != 0U) == (b_negative != 0U)) {
         rc = falcon_bn_add_wide(out_mag, out_len, awide, out_len, bwide, out_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(awide != NULL) {
+            (void)noxtls_free(awide);
+            }
+            if(bwide != NULL) {
+            (void)noxtls_free(bwide);
+            }
+            return rc;
         }
-        *out_negative = (uint8_t)((a_negative != 0U) && !noxtls_bn_is_zero(out_mag, out_len));
+        {
+            int32_t mag_nonzero = (noxtls_bn_is_zero(out_mag, out_len) == 0) ? 1 : 0;
+            *out_negative = (uint8_t)((a_negative != 0U) && (mag_nonzero != 0)) ? 1U : 0U);
+        }
         rc = NOXTLS_RETURN_SUCCESS;
-        goto cleanup;
+        if(awide != NULL) {
+        (void)noxtls_free(awide);
+        }
+        if(bwide != NULL) {
+        (void)noxtls_free(bwide);
+        }
+        return rc;
     }
 
     cmp = noxtls_bn_cmp(awide, bwide, out_len);
     if(cmp == 0) {
-        noxtls_bn_zero(out_mag, out_len);
+        (void)noxtls_bn_zero(out_mag, out_len);
         *out_negative = 0U;
         rc = NOXTLS_RETURN_SUCCESS;
-        goto cleanup;
+        if(awide != NULL) {
+        (void)noxtls_free(awide);
+        }
+        if(bwide != NULL) {
+        (void)noxtls_free(bwide);
+        }
+        return rc;
     }
     if(cmp > 0) {
         rc = noxtls_bn_copy(out_mag, awide, out_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(awide != NULL) {
+            (void)noxtls_free(awide);
+            }
+            if(bwide != NULL) {
+            (void)noxtls_free(bwide);
+            }
+            return rc;
         }
-        noxtls_bn_sub(out_mag, out_mag, bwide, out_len);
-        *out_negative = (uint8_t)((a_negative != 0U) && !noxtls_bn_is_zero(out_mag, out_len));
+        (void)noxtls_bn_sub(out_mag, out_mag, bwide, out_len);
+        {
+            int32_t mag_nonzero = (noxtls_bn_is_zero(out_mag, out_len) == 0) ? 1 : 0;
+            *out_negative = (uint8_t)((a_negative != 0U) && (mag_nonzero != 0)) ? 1U : 0U);
+        }
     } else {
         rc = noxtls_bn_copy(out_mag, bwide, out_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(awide != NULL) {
+            (void)noxtls_free(awide);
+            }
+            if(bwide != NULL) {
+            (void)noxtls_free(bwide);
+            }
+            return rc;
         }
-        noxtls_bn_sub(out_mag, out_mag, awide, out_len);
-        *out_negative = (uint8_t)((b_negative != 0U) && !noxtls_bn_is_zero(out_mag, out_len));
+        (void)noxtls_bn_sub(out_mag, out_mag, awide, out_len);
+        {
+            int32_t mag_nonzero = (noxtls_bn_is_zero(out_mag, out_len) == 0) ? 1 : 0;
+            *out_negative = (uint8_t)((b_negative != 0U) && (mag_nonzero != 0)) ? 1U : 0U);
+        }
     }
     rc = NOXTLS_RETURN_SUCCESS;
 
-cleanup:
     if(awide != NULL) {
-        noxtls_free(awide);
+        (void)noxtls_free(awide);
     }
     if(bwide != NULL) {
-        noxtls_free(bwide);
+        (void)noxtls_free(bwide);
     }
     return rc;
 }
@@ -3632,7 +3761,7 @@ cleanup:
 /**
  * @brief Compute the Falcon keygen field norm for a degree-2 signed polynomial on big-endian magnitudes.
  *
- * For `f(x) = a0 + a1*x` in `Z[x]/(x^2 + 1)`, the field norm is `a0^2 + a1^2`.
+ * For `f(x) = a0 + (a1 * x)` in `Z[x]/(x^2 + 1)`, the field norm is `a0^2 + a1^2`.
  *
  * @param[in] a0_mag Magnitude of coefficient `a0`.
  * @param[in] a1_mag Magnitude of coefficient `a1`.
@@ -3648,39 +3777,56 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n2(const uint8_t *a0_mag,
                                                       uint8_t *norm_mag,
                                                       uint32_t norm_len)
 {
-    uint8_t *sq0;
-    uint8_t *sq1;
+    uint8_t *sq0 = NULL;
+    uint8_t *sq1 = NULL;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(a0_mag == NULL || a1_mag == NULL || norm_mag == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(norm_len < ((len << 1) + 1U)) {
+    if(norm_len < ((len << 1U) + 1U)) {
         return NOXTLS_RETURN_FAILED;
     }
 
-    sq0 = (uint8_t*)noxtls_calloc(len << 1, 1U);
-    sq1 = (uint8_t*)noxtls_calloc(len << 1, 1U);
-    if(sq0 == NULL || sq1 == NULL) {
-        goto cleanup;
+    sq0 = (uint8_t*)NOXTLS_CALLOC(len << 1U, 1U);
+    sq1 = (uint8_t*)NOXTLS_CALLOC(len << 1U, 1U);
+    if((sq0 == NULL) || (sq1 == NULL)) {
+        if(sq0 != NULL) {
+        (void)noxtls_free(sq0);
+        }
+        if(sq1 != NULL) {
+        (void)noxtls_free(sq1);
+        }
+        return rc;
     }
 
     rc = noxtls_bn_mul(sq0, a0_mag, len, a0_mag, len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(sq0 != NULL) {
+        (void)noxtls_free(sq0);
+        }
+        if(sq1 != NULL) {
+        (void)noxtls_free(sq1);
+        }
+        return rc;
     }
     rc = noxtls_bn_mul(sq1, a1_mag, len, a1_mag, len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(sq0 != NULL) {
+        (void)noxtls_free(sq0);
+        }
+        if(sq1 != NULL) {
+        (void)noxtls_free(sq1);
+        }
+        return rc;
     }
-    rc = falcon_bn_add_wide(norm_mag, norm_len, sq0, len << 1, sq1, len << 1);
+    rc = falcon_bn_add_wide(norm_mag, norm_len, sq0, len << 1U, sq1, len << 1U);
 
-cleanup:
     if(sq0 != NULL) {
-        noxtls_free(sq0);
+        (void)noxtls_free(sq0);
     }
     if(sq1 != NULL) {
-        noxtls_free(sq1);
+        (void)noxtls_free(sq1);
     }
     return rc;
 }
@@ -3688,7 +3834,7 @@ cleanup:
 /**
  * @brief Compute the Falcon keygen field norm for a degree-4 signed polynomial on big-endian coefficients.
  *
- * For `f(x) = a0 + a1*x + a2*x^2 + a3*x^3`, this returns the degree-2 signed
+ * For `f(x) = a0 + (a1 * x) + a2*x^2 + a3*x^3`, this returns the degree-2 signed
  * norm polynomial `N(f)` such that `N(f)(x^2) = f(x) * f(-x) mod (x^4 + 1)`.
  *
  * @param[in] a_mag Input coefficient magnitudes `[a0 || a1 || a2 || a3]`.
@@ -3707,19 +3853,19 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n4(const uint8_t *a_mag,
                                                       uint8_t *norm_negative,
                                                       uint32_t norm_len)
 {
-    uint32_t prod_len;
-    const uint8_t *a0_mag;
-    const uint8_t *a1_mag;
-    const uint8_t *a2_mag;
-    const uint8_t *a3_mag;
-    uint8_t *sq0;
-    uint8_t *sq1;
-    uint8_t *sq2;
-    uint8_t *sq3;
-    uint8_t *p02;
-    uint8_t *p13;
-    uint8_t *term0;
-    uint8_t *term1;
+    uint32_t prod_len = 0U;
+    const uint8_t *a0_mag = NULL;
+    const uint8_t *a1_mag = NULL;
+    const uint8_t *a2_mag = NULL;
+    const uint8_t *a3_mag = NULL;
+    uint8_t *sq0 = NULL;
+    uint8_t *sq1 = NULL;
+    uint8_t *sq2 = NULL;
+    uint8_t *sq3 = NULL;
+    uint8_t *p02 = NULL;
+    uint8_t *p13 = NULL;
+    uint8_t *term0 = NULL;
+    uint8_t *term1 = NULL;
     uint8_t term0_neg = 0U;
     uint8_t term1_neg = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
@@ -3727,60 +3873,276 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n4(const uint8_t *a_mag,
     if(a_mag == NULL || a_negative == NULL || norm_mag == NULL || norm_negative == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(coeff_len == 0U || norm_len < ((coeff_len << 1) + 1U)) {
+    if(coeff_len == 0U || norm_len < ((coeff_len << 1U) + 1U)) {
         return NOXTLS_RETURN_FAILED;
     }
 
-    prod_len = coeff_len << 1;
+    prod_len = coeff_len << 1U;
     a0_mag = a_mag;
-    a1_mag = a_mag + coeff_len;
-    a2_mag = a_mag + (coeff_len << 1);
-    a3_mag = a_mag + (coeff_len * 3U);
-    sq0 = (uint8_t*)noxtls_calloc(prod_len, 1U);
-    sq1 = (uint8_t*)noxtls_calloc(prod_len, 1U);
-    sq2 = (uint8_t*)noxtls_calloc(prod_len, 1U);
-    sq3 = (uint8_t*)noxtls_calloc(prod_len, 1U);
-    p02 = (uint8_t*)noxtls_calloc(prod_len, 1U);
-    p13 = (uint8_t*)noxtls_calloc(prod_len, 1U);
-    term0 = (uint8_t*)noxtls_calloc(norm_len, 1U);
-    term1 = (uint8_t*)noxtls_calloc(norm_len, 1U);
+    a1_mag = &a_mag[coeff_len];
+    a2_mag = &a_mag[coeff_len << 1U];
+    a3_mag = &a_mag[coeff_len * 3U];
+    sq0 = (uint8_t*)NOXTLS_CALLOC(prod_len, 1U);
+    sq1 = (uint8_t*)NOXTLS_CALLOC(prod_len, 1U);
+    sq2 = (uint8_t*)NOXTLS_CALLOC(prod_len, 1U);
+    sq3 = (uint8_t*)NOXTLS_CALLOC(prod_len, 1U);
+    p02 = (uint8_t*)NOXTLS_CALLOC(prod_len, 1U);
+    p13 = (uint8_t*)NOXTLS_CALLOC(prod_len, 1U);
+    term0 = (uint8_t*)NOXTLS_CALLOC(norm_len, 1U);
+    term1 = (uint8_t*)NOXTLS_CALLOC(norm_len, 1U);
     if(sq0 == NULL || sq1 == NULL || sq2 == NULL || sq3 == NULL ||
        p02 == NULL || p13 == NULL || term0 == NULL || term1 == NULL) {
-        goto cleanup;
+        if(sq0 != NULL) {
+        (void)noxtls_free(sq0);
+        }
+        if(sq1 != NULL) {
+        (void)noxtls_free(sq1);
+        }
+        if(sq2 != NULL) {
+        (void)noxtls_free(sq2);
+        }
+        if(sq3 != NULL) {
+        (void)noxtls_free(sq3);
+        }
+        if(p02 != NULL) {
+        (void)noxtls_free(p02);
+        }
+        if(p13 != NULL) {
+        (void)noxtls_free(p13);
+        }
+        if(term0 != NULL) {
+        (void)noxtls_free(term0);
+        }
+        if(term1 != NULL) {
+        (void)noxtls_free(term1);
+        }
+        return rc;
     }
 
     rc = noxtls_bn_mul(sq0, a0_mag, coeff_len, a0_mag, coeff_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(sq0 != NULL) {
+        (void)noxtls_free(sq0);
+        }
+        if(sq1 != NULL) {
+        (void)noxtls_free(sq1);
+        }
+        if(sq2 != NULL) {
+        (void)noxtls_free(sq2);
+        }
+        if(sq3 != NULL) {
+        (void)noxtls_free(sq3);
+        }
+        if(p02 != NULL) {
+        (void)noxtls_free(p02);
+        }
+        if(p13 != NULL) {
+        (void)noxtls_free(p13);
+        }
+        if(term0 != NULL) {
+        (void)noxtls_free(term0);
+        }
+        if(term1 != NULL) {
+        (void)noxtls_free(term1);
+        }
+        return rc;
     }
     rc = noxtls_bn_mul(sq1, a1_mag, coeff_len, a1_mag, coeff_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(sq0 != NULL) {
+        (void)noxtls_free(sq0);
+        }
+        if(sq1 != NULL) {
+        (void)noxtls_free(sq1);
+        }
+        if(sq2 != NULL) {
+        (void)noxtls_free(sq2);
+        }
+        if(sq3 != NULL) {
+        (void)noxtls_free(sq3);
+        }
+        if(p02 != NULL) {
+        (void)noxtls_free(p02);
+        }
+        if(p13 != NULL) {
+        (void)noxtls_free(p13);
+        }
+        if(term0 != NULL) {
+        (void)noxtls_free(term0);
+        }
+        if(term1 != NULL) {
+        (void)noxtls_free(term1);
+        }
+        return rc;
     }
     rc = noxtls_bn_mul(sq2, a2_mag, coeff_len, a2_mag, coeff_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(sq0 != NULL) {
+        (void)noxtls_free(sq0);
+        }
+        if(sq1 != NULL) {
+        (void)noxtls_free(sq1);
+        }
+        if(sq2 != NULL) {
+        (void)noxtls_free(sq2);
+        }
+        if(sq3 != NULL) {
+        (void)noxtls_free(sq3);
+        }
+        if(p02 != NULL) {
+        (void)noxtls_free(p02);
+        }
+        if(p13 != NULL) {
+        (void)noxtls_free(p13);
+        }
+        if(term0 != NULL) {
+        (void)noxtls_free(term0);
+        }
+        if(term1 != NULL) {
+        (void)noxtls_free(term1);
+        }
+        return rc;
     }
     rc = noxtls_bn_mul(sq3, a3_mag, coeff_len, a3_mag, coeff_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(sq0 != NULL) {
+        (void)noxtls_free(sq0);
+        }
+        if(sq1 != NULL) {
+        (void)noxtls_free(sq1);
+        }
+        if(sq2 != NULL) {
+        (void)noxtls_free(sq2);
+        }
+        if(sq3 != NULL) {
+        (void)noxtls_free(sq3);
+        }
+        if(p02 != NULL) {
+        (void)noxtls_free(p02);
+        }
+        if(p13 != NULL) {
+        (void)noxtls_free(p13);
+        }
+        if(term0 != NULL) {
+        (void)noxtls_free(term0);
+        }
+        if(term1 != NULL) {
+        (void)noxtls_free(term1);
+        }
+        return rc;
     }
     rc = noxtls_bn_mul(p02, a0_mag, coeff_len, a2_mag, coeff_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(sq0 != NULL) {
+        (void)noxtls_free(sq0);
+        }
+        if(sq1 != NULL) {
+        (void)noxtls_free(sq1);
+        }
+        if(sq2 != NULL) {
+        (void)noxtls_free(sq2);
+        }
+        if(sq3 != NULL) {
+        (void)noxtls_free(sq3);
+        }
+        if(p02 != NULL) {
+        (void)noxtls_free(p02);
+        }
+        if(p13 != NULL) {
+        (void)noxtls_free(p13);
+        }
+        if(term0 != NULL) {
+        (void)noxtls_free(term0);
+        }
+        if(term1 != NULL) {
+        (void)noxtls_free(term1);
+        }
+        return rc;
     }
     rc = noxtls_bn_mul(p13, a1_mag, coeff_len, a3_mag, coeff_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(sq0 != NULL) {
+        (void)noxtls_free(sq0);
+        }
+        if(sq1 != NULL) {
+        (void)noxtls_free(sq1);
+        }
+        if(sq2 != NULL) {
+        (void)noxtls_free(sq2);
+        }
+        if(sq3 != NULL) {
+        (void)noxtls_free(sq3);
+        }
+        if(p02 != NULL) {
+        (void)noxtls_free(p02);
+        }
+        if(p13 != NULL) {
+        (void)noxtls_free(p13);
+        }
+        if(term0 != NULL) {
+        (void)noxtls_free(term0);
+        }
+        if(term1 != NULL) {
+        (void)noxtls_free(term1);
+        }
+        return rc;
     }
 
     rc = falcon_bn_signed_add_to_len(sq0, 0U, prod_len, sq2, 1U, prod_len, term0, &term0_neg, norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(sq0 != NULL) {
+        (void)noxtls_free(sq0);
+        }
+        if(sq1 != NULL) {
+        (void)noxtls_free(sq1);
+        }
+        if(sq2 != NULL) {
+        (void)noxtls_free(sq2);
+        }
+        if(sq3 != NULL) {
+        (void)noxtls_free(sq3);
+        }
+        if(p02 != NULL) {
+        (void)noxtls_free(p02);
+        }
+        if(p13 != NULL) {
+        (void)noxtls_free(p13);
+        }
+        if(term0 != NULL) {
+        (void)noxtls_free(term0);
+        }
+        if(term1 != NULL) {
+        (void)noxtls_free(term1);
+        }
+        return rc;
     }
     rc = falcon_bn_shift_left_bits(term1, norm_len, p13, prod_len, 1U);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(sq0 != NULL) {
+        (void)noxtls_free(sq0);
+        }
+        if(sq1 != NULL) {
+        (void)noxtls_free(sq1);
+        }
+        if(sq2 != NULL) {
+        (void)noxtls_free(sq2);
+        }
+        if(sq3 != NULL) {
+        (void)noxtls_free(sq3);
+        }
+        if(p02 != NULL) {
+        (void)noxtls_free(p02);
+        }
+        if(p13 != NULL) {
+        (void)noxtls_free(p13);
+        }
+        if(term0 != NULL) {
+        (void)noxtls_free(term0);
+        }
+        if(term1 != NULL) {
+        (void)noxtls_free(term1);
+        }
+        return rc;
     }
     term1_neg = (uint8_t)((a_negative[1] != 0U) ^ (a_negative[3] != 0U));
     rc = falcon_bn_signed_add_to_len(term0,
@@ -3793,17 +4155,89 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n4(const uint8_t *a_mag,
                                      &norm_negative[0],
                                      norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(sq0 != NULL) {
+        (void)noxtls_free(sq0);
+        }
+        if(sq1 != NULL) {
+        (void)noxtls_free(sq1);
+        }
+        if(sq2 != NULL) {
+        (void)noxtls_free(sq2);
+        }
+        if(sq3 != NULL) {
+        (void)noxtls_free(sq3);
+        }
+        if(p02 != NULL) {
+        (void)noxtls_free(p02);
+        }
+        if(p13 != NULL) {
+        (void)noxtls_free(p13);
+        }
+        if(term0 != NULL) {
+        (void)noxtls_free(term0);
+        }
+        if(term1 != NULL) {
+        (void)noxtls_free(term1);
+        }
+        return rc;
     }
 
     rc = falcon_bn_shift_left_bits(term0, norm_len, p02, prod_len, 1U);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(sq0 != NULL) {
+        (void)noxtls_free(sq0);
+        }
+        if(sq1 != NULL) {
+        (void)noxtls_free(sq1);
+        }
+        if(sq2 != NULL) {
+        (void)noxtls_free(sq2);
+        }
+        if(sq3 != NULL) {
+        (void)noxtls_free(sq3);
+        }
+        if(p02 != NULL) {
+        (void)noxtls_free(p02);
+        }
+        if(p13 != NULL) {
+        (void)noxtls_free(p13);
+        }
+        if(term0 != NULL) {
+        (void)noxtls_free(term0);
+        }
+        if(term1 != NULL) {
+        (void)noxtls_free(term1);
+        }
+        return rc;
     }
     term0_neg = (uint8_t)((a_negative[0] != 0U) ^ (a_negative[2] != 0U));
     rc = falcon_bn_signed_add_to_len(sq3, 0U, prod_len, sq1, 1U, prod_len, term1, &term1_neg, norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(sq0 != NULL) {
+        (void)noxtls_free(sq0);
+        }
+        if(sq1 != NULL) {
+        (void)noxtls_free(sq1);
+        }
+        if(sq2 != NULL) {
+        (void)noxtls_free(sq2);
+        }
+        if(sq3 != NULL) {
+        (void)noxtls_free(sq3);
+        }
+        if(p02 != NULL) {
+        (void)noxtls_free(p02);
+        }
+        if(p13 != NULL) {
+        (void)noxtls_free(p13);
+        }
+        if(term0 != NULL) {
+        (void)noxtls_free(term0);
+        }
+        if(term1 != NULL) {
+        (void)noxtls_free(term1);
+        }
+        return rc;
     }
     rc = falcon_bn_signed_add_to_len(term0,
                                      term0_neg,
@@ -3811,34 +4245,33 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n4(const uint8_t *a_mag,
                                      term1,
                                      term1_neg,
                                      norm_len,
-                                     norm_mag + norm_len,
+                                     &norm_mag[norm_len],
                                      &norm_negative[1],
                                      norm_len);
 
-cleanup:
     if(sq0 != NULL) {
-        noxtls_free(sq0);
+        (void)noxtls_free(sq0);
     }
     if(sq1 != NULL) {
-        noxtls_free(sq1);
+        (void)noxtls_free(sq1);
     }
     if(sq2 != NULL) {
-        noxtls_free(sq2);
+        (void)noxtls_free(sq2);
     }
     if(sq3 != NULL) {
-        noxtls_free(sq3);
+        (void)noxtls_free(sq3);
     }
     if(p02 != NULL) {
-        noxtls_free(p02);
+        (void)noxtls_free(p02);
     }
     if(p13 != NULL) {
-        noxtls_free(p13);
+        (void)noxtls_free(p13);
     }
     if(term0 != NULL) {
-        noxtls_free(term0);
+        (void)noxtls_free(term0);
     }
     if(term1 != NULL) {
-        noxtls_free(term1);
+        (void)noxtls_free(term1);
     }
     return rc;
 }
@@ -3865,52 +4298,88 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n8(const uint8_t *a_mag,
                                                       uint8_t *norm_negative,
                                                       uint32_t norm_len)
 {
-    uint8_t *even_mag;
-    uint8_t *odd_mag;
+    uint8_t *even_mag = NULL;
+    uint8_t *odd_mag = NULL;
     uint8_t even_negative[4];
     uint8_t odd_negative[4];
-    uint8_t *ee_mag;
-    uint8_t *oo_mag;
+    uint8_t *ee_mag = NULL;
+    uint8_t *oo_mag = NULL;
     uint8_t ee_negative[4];
     uint8_t oo_negative[4];
-    uint16_t i;
+    uint16_t i = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(a_mag == NULL || a_negative == NULL || norm_mag == NULL || norm_negative == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(coeff_len == 0U || norm_len < ((coeff_len << 1) + 1U)) {
+    if(coeff_len == 0U || norm_len < ((coeff_len << 1U) + 1U)) {
         return NOXTLS_RETURN_FAILED;
     }
 
-    even_mag = (uint8_t*)noxtls_calloc(coeff_len * 4U, 1U);
-    odd_mag = (uint8_t*)noxtls_calloc(coeff_len * 4U, 1U);
-    ee_mag = (uint8_t*)noxtls_calloc(norm_len * 4U, 1U);
-    oo_mag = (uint8_t*)noxtls_calloc(norm_len * 4U, 1U);
+    even_mag = (uint8_t*)NOXTLS_CALLOC(coeff_len * 4U, 1U);
+    odd_mag = (uint8_t*)NOXTLS_CALLOC(coeff_len * 4U, 1U);
+    ee_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 4U, 1U);
+    oo_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 4U, 1U);
     if(even_mag == NULL || odd_mag == NULL || ee_mag == NULL || oo_mag == NULL) {
-        goto cleanup;
+        if(even_mag != NULL) {
+        (void)noxtls_free(even_mag);
+        }
+        if(odd_mag != NULL) {
+        (void)noxtls_free(odd_mag);
+        }
+        if(ee_mag != NULL) {
+        (void)noxtls_free(ee_mag);
+        }
+        if(oo_mag != NULL) {
+        (void)noxtls_free(oo_mag);
+        }
+        return rc;
     }
 
-    memset(even_negative, 0, sizeof(even_negative));
-    memset(odd_negative, 0, sizeof(odd_negative));
-    memset(ee_negative, 0, sizeof(ee_negative));
-    memset(oo_negative, 0, sizeof(oo_negative));
+    noxtls_secure_zero((even_negative), sizeof(even_negative));
+    noxtls_secure_zero((odd_negative), sizeof(odd_negative));
+    noxtls_secure_zero((ee_negative), sizeof(ee_negative));
+    noxtls_secure_zero((oo_negative), sizeof(oo_negative));
 
-    for(i = 0U; i < 4U; i++) {
-        rc = noxtls_bn_copy(even_mag + ((uint32_t)i * coeff_len),
-                            a_mag + ((uint32_t)(i << 1) * coeff_len),
+    for(i = 0U; i < 4U; i += 1U) {
+        rc = noxtls_bn_copy(&even_mag[((uint32_t)i * coeff_len)],
+                            &a_mag[((uint32_t)(i << 1U) * coeff_len)],
                             coeff_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(even_mag != NULL) {
+            (void)noxtls_free(even_mag);
+            }
+            if(odd_mag != NULL) {
+            (void)noxtls_free(odd_mag);
+            }
+            if(ee_mag != NULL) {
+            (void)noxtls_free(ee_mag);
+            }
+            if(oo_mag != NULL) {
+            (void)noxtls_free(oo_mag);
+            }
+            return rc;
         }
-        rc = noxtls_bn_copy(odd_mag + ((uint32_t)i * coeff_len),
-                            a_mag + ((uint32_t)(((i << 1) + 1U) * coeff_len)),
+        rc = noxtls_bn_copy(&odd_mag[((uint32_t)i * coeff_len)],
+                            &a_mag[((uint32_t)(((i << 1U) + 1U) * coeff_len))],
                             coeff_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(even_mag != NULL) {
+            (void)noxtls_free(even_mag);
+            }
+            if(odd_mag != NULL) {
+            (void)noxtls_free(odd_mag);
+            }
+            if(ee_mag != NULL) {
+            (void)noxtls_free(ee_mag);
+            }
+            if(oo_mag != NULL) {
+            (void)noxtls_free(oo_mag);
+            }
+            return rc;
         }
-        even_negative[i] = a_negative[(uint16_t)(i << 1)];
-        odd_negative[i] = a_negative[(uint16_t)((i << 1) + 1U)];
+        even_negative[i] = a_negative[(uint16_t)(i << 1U)];
+        odd_negative[i] = a_negative[(uint16_t)((i << 1U) + 1U)];
     }
 
     rc = falcon_bn_poly_mul_xn1_signed_to_len(even_mag,
@@ -3924,7 +4393,19 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n8(const uint8_t *a_mag,
                                               ee_negative,
                                               norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(even_mag != NULL) {
+        (void)noxtls_free(even_mag);
+        }
+        if(odd_mag != NULL) {
+        (void)noxtls_free(odd_mag);
+        }
+        if(ee_mag != NULL) {
+        (void)noxtls_free(ee_mag);
+        }
+        if(oo_mag != NULL) {
+        (void)noxtls_free(oo_mag);
+        }
+        return rc;
     }
     rc = falcon_bn_poly_mul_xn1_signed_to_len(odd_mag,
                                               odd_negative,
@@ -3937,49 +4418,84 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n8(const uint8_t *a_mag,
                                               oo_negative,
                                               norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(even_mag != NULL) {
+        (void)noxtls_free(even_mag);
+        }
+        if(odd_mag != NULL) {
+        (void)noxtls_free(odd_mag);
+        }
+        if(ee_mag != NULL) {
+        (void)noxtls_free(ee_mag);
+        }
+        if(oo_mag != NULL) {
+        (void)noxtls_free(oo_mag);
+        }
+        return rc;
     }
 
     rc = falcon_bn_signed_add_to_len(ee_mag,
                                      ee_negative[0],
                                      norm_len,
-                                     oo_mag + (norm_len * 3U),
+                                     &oo_mag[norm_len * 3U],
                                      oo_negative[3],
                                      norm_len,
                                      norm_mag,
                                      &norm_negative[0],
                                      norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(even_mag != NULL) {
+        (void)noxtls_free(even_mag);
+        }
+        if(odd_mag != NULL) {
+        (void)noxtls_free(odd_mag);
+        }
+        if(ee_mag != NULL) {
+        (void)noxtls_free(ee_mag);
+        }
+        if(oo_mag != NULL) {
+        (void)noxtls_free(oo_mag);
+        }
+        return rc;
     }
-    for(i = 1U; i < 4U; i++) {
-        rc = falcon_bn_signed_add_to_len(ee_mag + ((uint32_t)i * norm_len),
+    for(i = 1U; i < 4U; i += 1U) {
+        rc = falcon_bn_signed_add_to_len(&ee_mag[((uint32_t)i * norm_len)],
                                          ee_negative[i],
                                          norm_len,
-                                         oo_mag + ((uint32_t)(i - 1U) * norm_len),
+                                         &oo_mag[((uint32_t)(i - 1U) * norm_len)],
                                          (uint8_t)(oo_negative[i - 1U] == 0U),
                                          norm_len,
-                                         norm_mag + ((uint32_t)i * norm_len),
+                                         &norm_mag[((uint32_t)i * norm_len)],
                                          &norm_negative[i],
                                          norm_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(even_mag != NULL) {
+            (void)noxtls_free(even_mag);
+            }
+            if(odd_mag != NULL) {
+            (void)noxtls_free(odd_mag);
+            }
+            if(ee_mag != NULL) {
+            (void)noxtls_free(ee_mag);
+            }
+            if(oo_mag != NULL) {
+            (void)noxtls_free(oo_mag);
+            }
+            return rc;
         }
     }
     rc = NOXTLS_RETURN_SUCCESS;
 
-cleanup:
     if(even_mag != NULL) {
-        noxtls_free(even_mag);
+        (void)noxtls_free(even_mag);
     }
     if(odd_mag != NULL) {
-        noxtls_free(odd_mag);
+        (void)noxtls_free(odd_mag);
     }
     if(ee_mag != NULL) {
-        noxtls_free(ee_mag);
+        (void)noxtls_free(ee_mag);
     }
     if(oo_mag != NULL) {
-        noxtls_free(oo_mag);
+        (void)noxtls_free(oo_mag);
     }
     return rc;
 }
@@ -4006,52 +4522,88 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n16(const uint8_t *a_mag,
                                                        uint8_t *norm_negative,
                                                        uint32_t norm_len)
 {
-    uint8_t *even_mag;
-    uint8_t *odd_mag;
+    uint8_t *even_mag = NULL;
+    uint8_t *odd_mag = NULL;
     uint8_t even_negative[8];
     uint8_t odd_negative[8];
-    uint8_t *ee_mag;
-    uint8_t *oo_mag;
+    uint8_t *ee_mag = NULL;
+    uint8_t *oo_mag = NULL;
     uint8_t ee_negative[8];
     uint8_t oo_negative[8];
-    uint16_t i;
+    uint16_t i = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(a_mag == NULL || a_negative == NULL || norm_mag == NULL || norm_negative == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(coeff_len == 0U || norm_len < ((coeff_len << 1) + 1U)) {
+    if(coeff_len == 0U || norm_len < ((coeff_len << 1U) + 1U)) {
         return NOXTLS_RETURN_FAILED;
     }
 
-    even_mag = (uint8_t*)noxtls_calloc(coeff_len * 8U, 1U);
-    odd_mag = (uint8_t*)noxtls_calloc(coeff_len * 8U, 1U);
-    ee_mag = (uint8_t*)noxtls_calloc(norm_len * 8U, 1U);
-    oo_mag = (uint8_t*)noxtls_calloc(norm_len * 8U, 1U);
+    even_mag = (uint8_t*)NOXTLS_CALLOC(coeff_len * 8U, 1U);
+    odd_mag = (uint8_t*)NOXTLS_CALLOC(coeff_len * 8U, 1U);
+    ee_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 8U, 1U);
+    oo_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 8U, 1U);
     if(even_mag == NULL || odd_mag == NULL || ee_mag == NULL || oo_mag == NULL) {
-        goto cleanup;
+        if(even_mag != NULL) {
+        (void)noxtls_free(even_mag);
+        }
+        if(odd_mag != NULL) {
+        (void)noxtls_free(odd_mag);
+        }
+        if(ee_mag != NULL) {
+        (void)noxtls_free(ee_mag);
+        }
+        if(oo_mag != NULL) {
+        (void)noxtls_free(oo_mag);
+        }
+        return rc;
     }
 
-    memset(even_negative, 0, sizeof(even_negative));
-    memset(odd_negative, 0, sizeof(odd_negative));
-    memset(ee_negative, 0, sizeof(ee_negative));
-    memset(oo_negative, 0, sizeof(oo_negative));
+    noxtls_secure_zero((even_negative), sizeof(even_negative));
+    noxtls_secure_zero((odd_negative), sizeof(odd_negative));
+    noxtls_secure_zero((ee_negative), sizeof(ee_negative));
+    noxtls_secure_zero((oo_negative), sizeof(oo_negative));
 
-    for(i = 0U; i < 8U; i++) {
-        rc = noxtls_bn_copy(even_mag + ((uint32_t)i * coeff_len),
-                            a_mag + ((uint32_t)(i << 1) * coeff_len),
+    for(i = 0U; i < 8U; i += 1U) {
+        rc = noxtls_bn_copy(&even_mag[((uint32_t)i * coeff_len)],
+                            &a_mag[((uint32_t)(i << 1U) * coeff_len)],
                             coeff_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(even_mag != NULL) {
+            (void)noxtls_free(even_mag);
+            }
+            if(odd_mag != NULL) {
+            (void)noxtls_free(odd_mag);
+            }
+            if(ee_mag != NULL) {
+            (void)noxtls_free(ee_mag);
+            }
+            if(oo_mag != NULL) {
+            (void)noxtls_free(oo_mag);
+            }
+            return rc;
         }
-        rc = noxtls_bn_copy(odd_mag + ((uint32_t)i * coeff_len),
-                            a_mag + ((uint32_t)(((i << 1) + 1U) * coeff_len)),
+        rc = noxtls_bn_copy(&odd_mag[((uint32_t)i * coeff_len)],
+                            &a_mag[((uint32_t)(((i << 1U) + 1U) * coeff_len))],
                             coeff_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(even_mag != NULL) {
+            (void)noxtls_free(even_mag);
+            }
+            if(odd_mag != NULL) {
+            (void)noxtls_free(odd_mag);
+            }
+            if(ee_mag != NULL) {
+            (void)noxtls_free(ee_mag);
+            }
+            if(oo_mag != NULL) {
+            (void)noxtls_free(oo_mag);
+            }
+            return rc;
         }
-        even_negative[i] = a_negative[(uint16_t)(i << 1)];
-        odd_negative[i] = a_negative[(uint16_t)((i << 1) + 1U)];
+        even_negative[i] = a_negative[(uint16_t)(i << 1U)];
+        odd_negative[i] = a_negative[(uint16_t)((i << 1U) + 1U)];
     }
 
     rc = falcon_bn_poly_mul_xn1_signed_to_len(even_mag,
@@ -4065,7 +4617,19 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n16(const uint8_t *a_mag,
                                               ee_negative,
                                               norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(even_mag != NULL) {
+        (void)noxtls_free(even_mag);
+        }
+        if(odd_mag != NULL) {
+        (void)noxtls_free(odd_mag);
+        }
+        if(ee_mag != NULL) {
+        (void)noxtls_free(ee_mag);
+        }
+        if(oo_mag != NULL) {
+        (void)noxtls_free(oo_mag);
+        }
+        return rc;
     }
     rc = falcon_bn_poly_mul_xn1_signed_to_len(odd_mag,
                                               odd_negative,
@@ -4078,49 +4642,84 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n16(const uint8_t *a_mag,
                                               oo_negative,
                                               norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(even_mag != NULL) {
+        (void)noxtls_free(even_mag);
+        }
+        if(odd_mag != NULL) {
+        (void)noxtls_free(odd_mag);
+        }
+        if(ee_mag != NULL) {
+        (void)noxtls_free(ee_mag);
+        }
+        if(oo_mag != NULL) {
+        (void)noxtls_free(oo_mag);
+        }
+        return rc;
     }
 
     rc = falcon_bn_signed_add_to_len(ee_mag,
                                      ee_negative[0],
                                      norm_len,
-                                     oo_mag + (norm_len * 7U),
+                                     &oo_mag[norm_len * 7U],
                                      oo_negative[7],
                                      norm_len,
                                      norm_mag,
                                      &norm_negative[0],
                                      norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(even_mag != NULL) {
+        (void)noxtls_free(even_mag);
+        }
+        if(odd_mag != NULL) {
+        (void)noxtls_free(odd_mag);
+        }
+        if(ee_mag != NULL) {
+        (void)noxtls_free(ee_mag);
+        }
+        if(oo_mag != NULL) {
+        (void)noxtls_free(oo_mag);
+        }
+        return rc;
     }
-    for(i = 1U; i < 8U; i++) {
-        rc = falcon_bn_signed_add_to_len(ee_mag + ((uint32_t)i * norm_len),
+    for(i = 1U; i < 8U; i += 1U) {
+        rc = falcon_bn_signed_add_to_len(&ee_mag[((uint32_t)i * norm_len)],
                                          ee_negative[i],
                                          norm_len,
-                                         oo_mag + ((uint32_t)(i - 1U) * norm_len),
+                                         &oo_mag[((uint32_t)(i - 1U) * norm_len)],
                                          (uint8_t)(oo_negative[i - 1U] == 0U),
                                          norm_len,
-                                         norm_mag + ((uint32_t)i * norm_len),
+                                         &norm_mag[((uint32_t)i * norm_len)],
                                          &norm_negative[i],
                                          norm_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(even_mag != NULL) {
+            (void)noxtls_free(even_mag);
+            }
+            if(odd_mag != NULL) {
+            (void)noxtls_free(odd_mag);
+            }
+            if(ee_mag != NULL) {
+            (void)noxtls_free(ee_mag);
+            }
+            if(oo_mag != NULL) {
+            (void)noxtls_free(oo_mag);
+            }
+            return rc;
         }
     }
     rc = NOXTLS_RETURN_SUCCESS;
 
-cleanup:
     if(even_mag != NULL) {
-        noxtls_free(even_mag);
+        (void)noxtls_free(even_mag);
     }
     if(odd_mag != NULL) {
-        noxtls_free(odd_mag);
+        (void)noxtls_free(odd_mag);
     }
     if(ee_mag != NULL) {
-        noxtls_free(ee_mag);
+        (void)noxtls_free(ee_mag);
     }
     if(oo_mag != NULL) {
-        noxtls_free(oo_mag);
+        (void)noxtls_free(oo_mag);
     }
     return rc;
 }
@@ -4147,52 +4746,88 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n32(const uint8_t *a_mag,
                                                        uint8_t *norm_negative,
                                                        uint32_t norm_len)
 {
-    uint8_t *even_mag;
-    uint8_t *odd_mag;
+    uint8_t *even_mag = NULL;
+    uint8_t *odd_mag = NULL;
     uint8_t even_negative[16];
     uint8_t odd_negative[16];
-    uint8_t *ee_mag;
-    uint8_t *oo_mag;
+    uint8_t *ee_mag = NULL;
+    uint8_t *oo_mag = NULL;
     uint8_t ee_negative[16];
     uint8_t oo_negative[16];
-    uint16_t i;
+    uint16_t i = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(a_mag == NULL || a_negative == NULL || norm_mag == NULL || norm_negative == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(coeff_len == 0U || norm_len < ((coeff_len << 1) + 1U)) {
+    if(coeff_len == 0U || norm_len < ((coeff_len << 1U) + 1U)) {
         return NOXTLS_RETURN_FAILED;
     }
 
-    even_mag = (uint8_t*)noxtls_calloc(coeff_len * 16U, 1U);
-    odd_mag = (uint8_t*)noxtls_calloc(coeff_len * 16U, 1U);
-    ee_mag = (uint8_t*)noxtls_calloc(norm_len * 16U, 1U);
-    oo_mag = (uint8_t*)noxtls_calloc(norm_len * 16U, 1U);
+    even_mag = (uint8_t*)NOXTLS_CALLOC(coeff_len * 16U, 1U);
+    odd_mag = (uint8_t*)NOXTLS_CALLOC(coeff_len * 16U, 1U);
+    ee_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 16U, 1U);
+    oo_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 16U, 1U);
     if(even_mag == NULL || odd_mag == NULL || ee_mag == NULL || oo_mag == NULL) {
-        goto cleanup;
+        if(even_mag != NULL) {
+        (void)noxtls_free(even_mag);
+        }
+        if(odd_mag != NULL) {
+        (void)noxtls_free(odd_mag);
+        }
+        if(ee_mag != NULL) {
+        (void)noxtls_free(ee_mag);
+        }
+        if(oo_mag != NULL) {
+        (void)noxtls_free(oo_mag);
+        }
+        return rc;
     }
 
-    memset(even_negative, 0, sizeof(even_negative));
-    memset(odd_negative, 0, sizeof(odd_negative));
-    memset(ee_negative, 0, sizeof(ee_negative));
-    memset(oo_negative, 0, sizeof(oo_negative));
+    noxtls_secure_zero((even_negative), sizeof(even_negative));
+    noxtls_secure_zero((odd_negative), sizeof(odd_negative));
+    noxtls_secure_zero((ee_negative), sizeof(ee_negative));
+    noxtls_secure_zero((oo_negative), sizeof(oo_negative));
 
-    for(i = 0U; i < 16U; i++) {
-        rc = noxtls_bn_copy(even_mag + ((uint32_t)i * coeff_len),
-                            a_mag + ((uint32_t)(i << 1) * coeff_len),
+    for(i = 0U; i < 16U; i += 1U) {
+        rc = noxtls_bn_copy(&even_mag[((uint32_t)i * coeff_len)],
+                            &a_mag[((uint32_t)(i << 1U) * coeff_len)],
                             coeff_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(even_mag != NULL) {
+            (void)noxtls_free(even_mag);
+            }
+            if(odd_mag != NULL) {
+            (void)noxtls_free(odd_mag);
+            }
+            if(ee_mag != NULL) {
+            (void)noxtls_free(ee_mag);
+            }
+            if(oo_mag != NULL) {
+            (void)noxtls_free(oo_mag);
+            }
+            return rc;
         }
-        rc = noxtls_bn_copy(odd_mag + ((uint32_t)i * coeff_len),
-                            a_mag + ((uint32_t)(((i << 1) + 1U) * coeff_len)),
+        rc = noxtls_bn_copy(&odd_mag[((uint32_t)i * coeff_len)],
+                            &a_mag[((uint32_t)(((i << 1U) + 1U) * coeff_len))],
                             coeff_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(even_mag != NULL) {
+            (void)noxtls_free(even_mag);
+            }
+            if(odd_mag != NULL) {
+            (void)noxtls_free(odd_mag);
+            }
+            if(ee_mag != NULL) {
+            (void)noxtls_free(ee_mag);
+            }
+            if(oo_mag != NULL) {
+            (void)noxtls_free(oo_mag);
+            }
+            return rc;
         }
-        even_negative[i] = a_negative[(uint16_t)(i << 1)];
-        odd_negative[i] = a_negative[(uint16_t)((i << 1) + 1U)];
+        even_negative[i] = a_negative[(uint16_t)(i << 1U)];
+        odd_negative[i] = a_negative[(uint16_t)((i << 1U) + 1U)];
     }
 
     rc = falcon_bn_poly_mul_xn1_signed_to_len(even_mag,
@@ -4206,7 +4841,19 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n32(const uint8_t *a_mag,
                                               ee_negative,
                                               norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(even_mag != NULL) {
+        (void)noxtls_free(even_mag);
+        }
+        if(odd_mag != NULL) {
+        (void)noxtls_free(odd_mag);
+        }
+        if(ee_mag != NULL) {
+        (void)noxtls_free(ee_mag);
+        }
+        if(oo_mag != NULL) {
+        (void)noxtls_free(oo_mag);
+        }
+        return rc;
     }
     rc = falcon_bn_poly_mul_xn1_signed_to_len(odd_mag,
                                               odd_negative,
@@ -4219,49 +4866,84 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n32(const uint8_t *a_mag,
                                               oo_negative,
                                               norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(even_mag != NULL) {
+        (void)noxtls_free(even_mag);
+        }
+        if(odd_mag != NULL) {
+        (void)noxtls_free(odd_mag);
+        }
+        if(ee_mag != NULL) {
+        (void)noxtls_free(ee_mag);
+        }
+        if(oo_mag != NULL) {
+        (void)noxtls_free(oo_mag);
+        }
+        return rc;
     }
 
     rc = falcon_bn_signed_add_to_len(ee_mag,
                                      ee_negative[0],
                                      norm_len,
-                                     oo_mag + (norm_len * 15U),
+                                     &oo_mag[norm_len * 15U],
                                      oo_negative[15],
                                      norm_len,
                                      norm_mag,
                                      &norm_negative[0],
                                      norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(even_mag != NULL) {
+        (void)noxtls_free(even_mag);
+        }
+        if(odd_mag != NULL) {
+        (void)noxtls_free(odd_mag);
+        }
+        if(ee_mag != NULL) {
+        (void)noxtls_free(ee_mag);
+        }
+        if(oo_mag != NULL) {
+        (void)noxtls_free(oo_mag);
+        }
+        return rc;
     }
-    for(i = 1U; i < 16U; i++) {
-        rc = falcon_bn_signed_add_to_len(ee_mag + ((uint32_t)i * norm_len),
+    for(i = 1U; i < 16U; i += 1U) {
+        rc = falcon_bn_signed_add_to_len(&ee_mag[((uint32_t)i * norm_len)],
                                          ee_negative[i],
                                          norm_len,
-                                         oo_mag + ((uint32_t)(i - 1U) * norm_len),
+                                         &oo_mag[((uint32_t)(i - 1U) * norm_len)],
                                          (uint8_t)(oo_negative[i - 1U] == 0U),
                                          norm_len,
-                                         norm_mag + ((uint32_t)i * norm_len),
+                                         &norm_mag[((uint32_t)i * norm_len)],
                                          &norm_negative[i],
                                          norm_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(even_mag != NULL) {
+            (void)noxtls_free(even_mag);
+            }
+            if(odd_mag != NULL) {
+            (void)noxtls_free(odd_mag);
+            }
+            if(ee_mag != NULL) {
+            (void)noxtls_free(ee_mag);
+            }
+            if(oo_mag != NULL) {
+            (void)noxtls_free(oo_mag);
+            }
+            return rc;
         }
     }
     rc = NOXTLS_RETURN_SUCCESS;
 
-cleanup:
     if(even_mag != NULL) {
-        noxtls_free(even_mag);
+        (void)noxtls_free(even_mag);
     }
     if(odd_mag != NULL) {
-        noxtls_free(odd_mag);
+        (void)noxtls_free(odd_mag);
     }
     if(ee_mag != NULL) {
-        noxtls_free(ee_mag);
+        (void)noxtls_free(ee_mag);
     }
     if(oo_mag != NULL) {
-        noxtls_free(oo_mag);
+        (void)noxtls_free(oo_mag);
     }
     return rc;
 }
@@ -4288,52 +4970,88 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n64(const uint8_t *a_mag,
                                                        uint8_t *norm_negative,
                                                        uint32_t norm_len)
 {
-    uint8_t *even_mag;
-    uint8_t *odd_mag;
+    uint8_t *even_mag = NULL;
+    uint8_t *odd_mag = NULL;
     uint8_t even_negative[32];
     uint8_t odd_negative[32];
-    uint8_t *ee_mag;
-    uint8_t *oo_mag;
+    uint8_t *ee_mag = NULL;
+    uint8_t *oo_mag = NULL;
     uint8_t ee_negative[32];
     uint8_t oo_negative[32];
-    uint16_t i;
+    uint16_t i = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(a_mag == NULL || a_negative == NULL || norm_mag == NULL || norm_negative == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(coeff_len == 0U || norm_len < ((coeff_len << 1) + 1U)) {
+    if(coeff_len == 0U || norm_len < ((coeff_len << 1U) + 1U)) {
         return NOXTLS_RETURN_FAILED;
     }
 
-    even_mag = (uint8_t*)noxtls_calloc(coeff_len * 32U, 1U);
-    odd_mag = (uint8_t*)noxtls_calloc(coeff_len * 32U, 1U);
-    ee_mag = (uint8_t*)noxtls_calloc(norm_len * 32U, 1U);
-    oo_mag = (uint8_t*)noxtls_calloc(norm_len * 32U, 1U);
+    even_mag = (uint8_t*)NOXTLS_CALLOC(coeff_len * 32U, 1U);
+    odd_mag = (uint8_t*)NOXTLS_CALLOC(coeff_len * 32U, 1U);
+    ee_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 32U, 1U);
+    oo_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 32U, 1U);
     if(even_mag == NULL || odd_mag == NULL || ee_mag == NULL || oo_mag == NULL) {
-        goto cleanup;
+        if(even_mag != NULL) {
+        (void)noxtls_free(even_mag);
+        }
+        if(odd_mag != NULL) {
+        (void)noxtls_free(odd_mag);
+        }
+        if(ee_mag != NULL) {
+        (void)noxtls_free(ee_mag);
+        }
+        if(oo_mag != NULL) {
+        (void)noxtls_free(oo_mag);
+        }
+        return rc;
     }
 
-    memset(even_negative, 0, sizeof(even_negative));
-    memset(odd_negative, 0, sizeof(odd_negative));
-    memset(ee_negative, 0, sizeof(ee_negative));
-    memset(oo_negative, 0, sizeof(oo_negative));
+    noxtls_secure_zero((even_negative), sizeof(even_negative));
+    noxtls_secure_zero((odd_negative), sizeof(odd_negative));
+    noxtls_secure_zero((ee_negative), sizeof(ee_negative));
+    noxtls_secure_zero((oo_negative), sizeof(oo_negative));
 
-    for(i = 0U; i < 32U; i++) {
-        rc = noxtls_bn_copy(even_mag + ((uint32_t)i * coeff_len),
-                            a_mag + ((uint32_t)(i << 1) * coeff_len),
+    for(i = 0U; i < 32U; i += 1U) {
+        rc = noxtls_bn_copy(&even_mag[((uint32_t)i * coeff_len)],
+                            &a_mag[((uint32_t)(i << 1U) * coeff_len)],
                             coeff_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(even_mag != NULL) {
+            (void)noxtls_free(even_mag);
+            }
+            if(odd_mag != NULL) {
+            (void)noxtls_free(odd_mag);
+            }
+            if(ee_mag != NULL) {
+            (void)noxtls_free(ee_mag);
+            }
+            if(oo_mag != NULL) {
+            (void)noxtls_free(oo_mag);
+            }
+            return rc;
         }
-        rc = noxtls_bn_copy(odd_mag + ((uint32_t)i * coeff_len),
-                            a_mag + ((uint32_t)(((i << 1) + 1U) * coeff_len)),
+        rc = noxtls_bn_copy(&odd_mag[((uint32_t)i * coeff_len)],
+                            &a_mag[((uint32_t)(((i << 1U) + 1U) * coeff_len))],
                             coeff_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(even_mag != NULL) {
+            (void)noxtls_free(even_mag);
+            }
+            if(odd_mag != NULL) {
+            (void)noxtls_free(odd_mag);
+            }
+            if(ee_mag != NULL) {
+            (void)noxtls_free(ee_mag);
+            }
+            if(oo_mag != NULL) {
+            (void)noxtls_free(oo_mag);
+            }
+            return rc;
         }
-        even_negative[i] = a_negative[(uint16_t)(i << 1)];
-        odd_negative[i] = a_negative[(uint16_t)((i << 1) + 1U)];
+        even_negative[i] = a_negative[(uint16_t)(i << 1U)];
+        odd_negative[i] = a_negative[(uint16_t)((i << 1U) + 1U)];
     }
 
     rc = falcon_bn_poly_mul_xn1_signed_to_len(even_mag,
@@ -4347,7 +5065,19 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n64(const uint8_t *a_mag,
                                               ee_negative,
                                               norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(even_mag != NULL) {
+        (void)noxtls_free(even_mag);
+        }
+        if(odd_mag != NULL) {
+        (void)noxtls_free(odd_mag);
+        }
+        if(ee_mag != NULL) {
+        (void)noxtls_free(ee_mag);
+        }
+        if(oo_mag != NULL) {
+        (void)noxtls_free(oo_mag);
+        }
+        return rc;
     }
     rc = falcon_bn_poly_mul_xn1_signed_to_len(odd_mag,
                                               odd_negative,
@@ -4360,49 +5090,84 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n64(const uint8_t *a_mag,
                                               oo_negative,
                                               norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(even_mag != NULL) {
+        (void)noxtls_free(even_mag);
+        }
+        if(odd_mag != NULL) {
+        (void)noxtls_free(odd_mag);
+        }
+        if(ee_mag != NULL) {
+        (void)noxtls_free(ee_mag);
+        }
+        if(oo_mag != NULL) {
+        (void)noxtls_free(oo_mag);
+        }
+        return rc;
     }
 
     rc = falcon_bn_signed_add_to_len(ee_mag,
                                      ee_negative[0],
                                      norm_len,
-                                     oo_mag + (norm_len * 31U),
+                                     &oo_mag[norm_len * 31U],
                                      oo_negative[31],
                                      norm_len,
                                      norm_mag,
                                      &norm_negative[0],
                                      norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(even_mag != NULL) {
+        (void)noxtls_free(even_mag);
+        }
+        if(odd_mag != NULL) {
+        (void)noxtls_free(odd_mag);
+        }
+        if(ee_mag != NULL) {
+        (void)noxtls_free(ee_mag);
+        }
+        if(oo_mag != NULL) {
+        (void)noxtls_free(oo_mag);
+        }
+        return rc;
     }
-    for(i = 1U; i < 32U; i++) {
-        rc = falcon_bn_signed_add_to_len(ee_mag + ((uint32_t)i * norm_len),
+    for(i = 1U; i < 32U; i += 1U) {
+        rc = falcon_bn_signed_add_to_len(&ee_mag[((uint32_t)i * norm_len)],
                                          ee_negative[i],
                                          norm_len,
-                                         oo_mag + ((uint32_t)(i - 1U) * norm_len),
+                                         &oo_mag[((uint32_t)(i - 1U) * norm_len)],
                                          (uint8_t)(oo_negative[i - 1U] == 0U),
                                          norm_len,
-                                         norm_mag + ((uint32_t)i * norm_len),
+                                         &norm_mag[((uint32_t)i * norm_len)],
                                          &norm_negative[i],
                                          norm_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(even_mag != NULL) {
+            (void)noxtls_free(even_mag);
+            }
+            if(odd_mag != NULL) {
+            (void)noxtls_free(odd_mag);
+            }
+            if(ee_mag != NULL) {
+            (void)noxtls_free(ee_mag);
+            }
+            if(oo_mag != NULL) {
+            (void)noxtls_free(oo_mag);
+            }
+            return rc;
         }
     }
     rc = NOXTLS_RETURN_SUCCESS;
 
-cleanup:
     if(even_mag != NULL) {
-        noxtls_free(even_mag);
+        (void)noxtls_free(even_mag);
     }
     if(odd_mag != NULL) {
-        noxtls_free(odd_mag);
+        (void)noxtls_free(odd_mag);
     }
     if(ee_mag != NULL) {
-        noxtls_free(ee_mag);
+        (void)noxtls_free(ee_mag);
     }
     if(oo_mag != NULL) {
-        noxtls_free(oo_mag);
+        (void)noxtls_free(oo_mag);
     }
     return rc;
 }
@@ -4429,52 +5194,88 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n128(const uint8_t *a_mag,
                                                         uint8_t *norm_negative,
                                                         uint32_t norm_len)
 {
-    uint8_t *even_mag;
-    uint8_t *odd_mag;
+    uint8_t *even_mag = NULL;
+    uint8_t *odd_mag = NULL;
     uint8_t even_negative[64];
     uint8_t odd_negative[64];
-    uint8_t *ee_mag;
-    uint8_t *oo_mag;
+    uint8_t *ee_mag = NULL;
+    uint8_t *oo_mag = NULL;
     uint8_t ee_negative[64];
     uint8_t oo_negative[64];
-    uint16_t i;
+    uint16_t i = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(a_mag == NULL || a_negative == NULL || norm_mag == NULL || norm_negative == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(coeff_len == 0U || norm_len < ((coeff_len << 1) + 1U)) {
+    if(coeff_len == 0U || norm_len < ((coeff_len << 1U) + 1U)) {
         return NOXTLS_RETURN_FAILED;
     }
 
-    even_mag = (uint8_t*)noxtls_calloc(coeff_len * 64U, 1U);
-    odd_mag = (uint8_t*)noxtls_calloc(coeff_len * 64U, 1U);
-    ee_mag = (uint8_t*)noxtls_calloc(norm_len * 64U, 1U);
-    oo_mag = (uint8_t*)noxtls_calloc(norm_len * 64U, 1U);
+    even_mag = (uint8_t*)NOXTLS_CALLOC(coeff_len * 64U, 1U);
+    odd_mag = (uint8_t*)NOXTLS_CALLOC(coeff_len * 64U, 1U);
+    ee_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 64U, 1U);
+    oo_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 64U, 1U);
     if(even_mag == NULL || odd_mag == NULL || ee_mag == NULL || oo_mag == NULL) {
-        goto cleanup;
+        if(even_mag != NULL) {
+        (void)noxtls_free(even_mag);
+        }
+        if(odd_mag != NULL) {
+        (void)noxtls_free(odd_mag);
+        }
+        if(ee_mag != NULL) {
+        (void)noxtls_free(ee_mag);
+        }
+        if(oo_mag != NULL) {
+        (void)noxtls_free(oo_mag);
+        }
+        return rc;
     }
 
-    memset(even_negative, 0, sizeof(even_negative));
-    memset(odd_negative, 0, sizeof(odd_negative));
-    memset(ee_negative, 0, sizeof(ee_negative));
-    memset(oo_negative, 0, sizeof(oo_negative));
+    noxtls_secure_zero((even_negative), sizeof(even_negative));
+    noxtls_secure_zero((odd_negative), sizeof(odd_negative));
+    noxtls_secure_zero((ee_negative), sizeof(ee_negative));
+    noxtls_secure_zero((oo_negative), sizeof(oo_negative));
 
-    for(i = 0U; i < 64U; i++) {
-        rc = noxtls_bn_copy(even_mag + ((uint32_t)i * coeff_len),
-                            a_mag + ((uint32_t)(i << 1) * coeff_len),
+    for(i = 0U; i < 64U; i += 1U) {
+        rc = noxtls_bn_copy(&even_mag[((uint32_t)i * coeff_len)],
+                            &a_mag[((uint32_t)(i << 1U) * coeff_len)],
                             coeff_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(even_mag != NULL) {
+            (void)noxtls_free(even_mag);
+            }
+            if(odd_mag != NULL) {
+            (void)noxtls_free(odd_mag);
+            }
+            if(ee_mag != NULL) {
+            (void)noxtls_free(ee_mag);
+            }
+            if(oo_mag != NULL) {
+            (void)noxtls_free(oo_mag);
+            }
+            return rc;
         }
-        rc = noxtls_bn_copy(odd_mag + ((uint32_t)i * coeff_len),
-                            a_mag + ((uint32_t)(((i << 1) + 1U) * coeff_len)),
+        rc = noxtls_bn_copy(&odd_mag[((uint32_t)i * coeff_len)],
+                            &a_mag[((uint32_t)(((i << 1U) + 1U) * coeff_len))],
                             coeff_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(even_mag != NULL) {
+            (void)noxtls_free(even_mag);
+            }
+            if(odd_mag != NULL) {
+            (void)noxtls_free(odd_mag);
+            }
+            if(ee_mag != NULL) {
+            (void)noxtls_free(ee_mag);
+            }
+            if(oo_mag != NULL) {
+            (void)noxtls_free(oo_mag);
+            }
+            return rc;
         }
-        even_negative[i] = a_negative[(uint16_t)(i << 1)];
-        odd_negative[i] = a_negative[(uint16_t)((i << 1) + 1U)];
+        even_negative[i] = a_negative[(uint16_t)(i << 1U)];
+        odd_negative[i] = a_negative[(uint16_t)((i << 1U) + 1U)];
     }
 
     rc = falcon_bn_poly_mul_xn1_signed_to_len(even_mag,
@@ -4488,7 +5289,19 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n128(const uint8_t *a_mag,
                                               ee_negative,
                                               norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(even_mag != NULL) {
+        (void)noxtls_free(even_mag);
+        }
+        if(odd_mag != NULL) {
+        (void)noxtls_free(odd_mag);
+        }
+        if(ee_mag != NULL) {
+        (void)noxtls_free(ee_mag);
+        }
+        if(oo_mag != NULL) {
+        (void)noxtls_free(oo_mag);
+        }
+        return rc;
     }
     rc = falcon_bn_poly_mul_xn1_signed_to_len(odd_mag,
                                               odd_negative,
@@ -4501,49 +5314,84 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n128(const uint8_t *a_mag,
                                               oo_negative,
                                               norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(even_mag != NULL) {
+        (void)noxtls_free(even_mag);
+        }
+        if(odd_mag != NULL) {
+        (void)noxtls_free(odd_mag);
+        }
+        if(ee_mag != NULL) {
+        (void)noxtls_free(ee_mag);
+        }
+        if(oo_mag != NULL) {
+        (void)noxtls_free(oo_mag);
+        }
+        return rc;
     }
 
     rc = falcon_bn_signed_add_to_len(ee_mag,
                                      ee_negative[0],
                                      norm_len,
-                                     oo_mag + (norm_len * 63u),
+                                     &oo_mag[norm_len * 63u],
                                      oo_negative[63],
                                      norm_len,
                                      norm_mag,
                                      &norm_negative[0],
                                      norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(even_mag != NULL) {
+        (void)noxtls_free(even_mag);
+        }
+        if(odd_mag != NULL) {
+        (void)noxtls_free(odd_mag);
+        }
+        if(ee_mag != NULL) {
+        (void)noxtls_free(ee_mag);
+        }
+        if(oo_mag != NULL) {
+        (void)noxtls_free(oo_mag);
+        }
+        return rc;
     }
-    for(i = 1U; i < 64U; i++) {
-        rc = falcon_bn_signed_add_to_len(ee_mag + ((uint32_t)i * norm_len),
+    for(i = 1U; i < 64U; i += 1U) {
+        rc = falcon_bn_signed_add_to_len(&ee_mag[((uint32_t)i * norm_len)],
                                          ee_negative[i],
                                          norm_len,
-                                         oo_mag + ((uint32_t)(i - 1U) * norm_len),
+                                         &oo_mag[((uint32_t)(i - 1U) * norm_len)],
                                          (uint8_t)(oo_negative[i - 1U] == 0U),
                                          norm_len,
-                                         norm_mag + ((uint32_t)i * norm_len),
+                                         &norm_mag[((uint32_t)i * norm_len)],
                                          &norm_negative[i],
                                          norm_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(even_mag != NULL) {
+            (void)noxtls_free(even_mag);
+            }
+            if(odd_mag != NULL) {
+            (void)noxtls_free(odd_mag);
+            }
+            if(ee_mag != NULL) {
+            (void)noxtls_free(ee_mag);
+            }
+            if(oo_mag != NULL) {
+            (void)noxtls_free(oo_mag);
+            }
+            return rc;
         }
     }
     rc = NOXTLS_RETURN_SUCCESS;
 
-cleanup:
     if(even_mag != NULL) {
-        noxtls_free(even_mag);
+        (void)noxtls_free(even_mag);
     }
     if(odd_mag != NULL) {
-        noxtls_free(odd_mag);
+        (void)noxtls_free(odd_mag);
     }
     if(ee_mag != NULL) {
-        noxtls_free(ee_mag);
+        (void)noxtls_free(ee_mag);
     }
     if(oo_mag != NULL) {
-        noxtls_free(oo_mag);
+        (void)noxtls_free(oo_mag);
     }
     return rc;
 }
@@ -4570,52 +5418,88 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n256(const uint8_t *a_mag,
                                                         uint8_t *norm_negative,
                                                         uint32_t norm_len)
 {
-    uint8_t *even_mag;
-    uint8_t *odd_mag;
+    uint8_t *even_mag = NULL;
+    uint8_t *odd_mag = NULL;
     uint8_t even_negative[128];
     uint8_t odd_negative[128];
-    uint8_t *ee_mag;
-    uint8_t *oo_mag;
+    uint8_t *ee_mag = NULL;
+    uint8_t *oo_mag = NULL;
     uint8_t ee_negative[128];
     uint8_t oo_negative[128];
-    uint16_t i;
+    uint16_t i = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(a_mag == NULL || a_negative == NULL || norm_mag == NULL || norm_negative == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(coeff_len == 0U || norm_len < ((coeff_len << 1) + 1U)) {
+    if(coeff_len == 0U || norm_len < ((coeff_len << 1U) + 1U)) {
         return NOXTLS_RETURN_FAILED;
     }
 
-    even_mag = (uint8_t*)noxtls_calloc(coeff_len * 128U, 1U);
-    odd_mag = (uint8_t*)noxtls_calloc(coeff_len * 128U, 1U);
-    ee_mag = (uint8_t*)noxtls_calloc(norm_len * 128U, 1U);
-    oo_mag = (uint8_t*)noxtls_calloc(norm_len * 128U, 1U);
+    even_mag = (uint8_t*)NOXTLS_CALLOC(coeff_len * 128U, 1U);
+    odd_mag = (uint8_t*)NOXTLS_CALLOC(coeff_len * 128U, 1U);
+    ee_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 128U, 1U);
+    oo_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 128U, 1U);
     if(even_mag == NULL || odd_mag == NULL || ee_mag == NULL || oo_mag == NULL) {
-        goto cleanup;
+        if(even_mag != NULL) {
+        (void)noxtls_free(even_mag);
+        }
+        if(odd_mag != NULL) {
+        (void)noxtls_free(odd_mag);
+        }
+        if(ee_mag != NULL) {
+        (void)noxtls_free(ee_mag);
+        }
+        if(oo_mag != NULL) {
+        (void)noxtls_free(oo_mag);
+        }
+        return rc;
     }
 
-    memset(even_negative, 0, sizeof(even_negative));
-    memset(odd_negative, 0, sizeof(odd_negative));
-    memset(ee_negative, 0, sizeof(ee_negative));
-    memset(oo_negative, 0, sizeof(oo_negative));
+    noxtls_secure_zero((even_negative), sizeof(even_negative));
+    noxtls_secure_zero((odd_negative), sizeof(odd_negative));
+    noxtls_secure_zero((ee_negative), sizeof(ee_negative));
+    noxtls_secure_zero((oo_negative), sizeof(oo_negative));
 
-    for(i = 0U; i < 128U; i++) {
-        rc = noxtls_bn_copy(even_mag + ((uint32_t)i * coeff_len),
-                            a_mag + ((uint32_t)(i << 1) * coeff_len),
+    for(i = 0U; i < 128U; i += 1U) {
+        rc = noxtls_bn_copy(&even_mag[((uint32_t)i * coeff_len)],
+                            &a_mag[((uint32_t)(i << 1U) * coeff_len)],
                             coeff_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(even_mag != NULL) {
+            (void)noxtls_free(even_mag);
+            }
+            if(odd_mag != NULL) {
+            (void)noxtls_free(odd_mag);
+            }
+            if(ee_mag != NULL) {
+            (void)noxtls_free(ee_mag);
+            }
+            if(oo_mag != NULL) {
+            (void)noxtls_free(oo_mag);
+            }
+            return rc;
         }
-        rc = noxtls_bn_copy(odd_mag + ((uint32_t)i * coeff_len),
-                            a_mag + ((uint32_t)(((i << 1) + 1U) * coeff_len)),
+        rc = noxtls_bn_copy(&odd_mag[((uint32_t)i * coeff_len)],
+                            &a_mag[((uint32_t)(((i << 1U) + 1U) * coeff_len))],
                             coeff_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(even_mag != NULL) {
+            (void)noxtls_free(even_mag);
+            }
+            if(odd_mag != NULL) {
+            (void)noxtls_free(odd_mag);
+            }
+            if(ee_mag != NULL) {
+            (void)noxtls_free(ee_mag);
+            }
+            if(oo_mag != NULL) {
+            (void)noxtls_free(oo_mag);
+            }
+            return rc;
         }
-        even_negative[i] = a_negative[(uint16_t)(i << 1)];
-        odd_negative[i] = a_negative[(uint16_t)((i << 1) + 1U)];
+        even_negative[i] = a_negative[(uint16_t)(i << 1U)];
+        odd_negative[i] = a_negative[(uint16_t)((i << 1U) + 1U)];
     }
 
     rc = falcon_bn_poly_mul_xn1_signed_to_len(even_mag,
@@ -4629,7 +5513,19 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n256(const uint8_t *a_mag,
                                               ee_negative,
                                               norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(even_mag != NULL) {
+        (void)noxtls_free(even_mag);
+        }
+        if(odd_mag != NULL) {
+        (void)noxtls_free(odd_mag);
+        }
+        if(ee_mag != NULL) {
+        (void)noxtls_free(ee_mag);
+        }
+        if(oo_mag != NULL) {
+        (void)noxtls_free(oo_mag);
+        }
+        return rc;
     }
     rc = falcon_bn_poly_mul_xn1_signed_to_len(odd_mag,
                                               odd_negative,
@@ -4642,49 +5538,84 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n256(const uint8_t *a_mag,
                                               oo_negative,
                                               norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(even_mag != NULL) {
+        (void)noxtls_free(even_mag);
+        }
+        if(odd_mag != NULL) {
+        (void)noxtls_free(odd_mag);
+        }
+        if(ee_mag != NULL) {
+        (void)noxtls_free(ee_mag);
+        }
+        if(oo_mag != NULL) {
+        (void)noxtls_free(oo_mag);
+        }
+        return rc;
     }
 
     rc = falcon_bn_signed_add_to_len(ee_mag,
                                      ee_negative[0],
                                      norm_len,
-                                     oo_mag + (norm_len * 127u),
+                                     &oo_mag[norm_len * 127u],
                                      oo_negative[127],
                                      norm_len,
                                      norm_mag,
                                      &norm_negative[0],
                                      norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(even_mag != NULL) {
+        (void)noxtls_free(even_mag);
+        }
+        if(odd_mag != NULL) {
+        (void)noxtls_free(odd_mag);
+        }
+        if(ee_mag != NULL) {
+        (void)noxtls_free(ee_mag);
+        }
+        if(oo_mag != NULL) {
+        (void)noxtls_free(oo_mag);
+        }
+        return rc;
     }
-    for(i = 1U; i < 128U; i++) {
-        rc = falcon_bn_signed_add_to_len(ee_mag + ((uint32_t)i * norm_len),
+    for(i = 1U; i < 128U; i += 1U) {
+        rc = falcon_bn_signed_add_to_len(&ee_mag[((uint32_t)i * norm_len)],
                                          ee_negative[i],
                                          norm_len,
-                                         oo_mag + ((uint32_t)(i - 1U) * norm_len),
+                                         &oo_mag[((uint32_t)(i - 1U) * norm_len)],
                                          (uint8_t)(oo_negative[i - 1U] == 0U),
                                          norm_len,
-                                         norm_mag + ((uint32_t)i * norm_len),
+                                         &norm_mag[((uint32_t)i * norm_len)],
                                          &norm_negative[i],
                                          norm_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(even_mag != NULL) {
+            (void)noxtls_free(even_mag);
+            }
+            if(odd_mag != NULL) {
+            (void)noxtls_free(odd_mag);
+            }
+            if(ee_mag != NULL) {
+            (void)noxtls_free(ee_mag);
+            }
+            if(oo_mag != NULL) {
+            (void)noxtls_free(oo_mag);
+            }
+            return rc;
         }
     }
     rc = NOXTLS_RETURN_SUCCESS;
 
-cleanup:
     if(even_mag != NULL) {
-        noxtls_free(even_mag);
+        (void)noxtls_free(even_mag);
     }
     if(odd_mag != NULL) {
-        noxtls_free(odd_mag);
+        (void)noxtls_free(odd_mag);
     }
     if(ee_mag != NULL) {
-        noxtls_free(ee_mag);
+        (void)noxtls_free(ee_mag);
     }
     if(oo_mag != NULL) {
-        noxtls_free(oo_mag);
+        (void)noxtls_free(oo_mag);
     }
     return rc;
 }
@@ -4711,52 +5642,88 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n512(const uint8_t *a_mag,
                                                         uint8_t *norm_negative,
                                                         uint32_t norm_len)
 {
-    uint8_t *even_mag;
-    uint8_t *odd_mag;
+    uint8_t *even_mag = NULL;
+    uint8_t *odd_mag = NULL;
     uint8_t even_negative[256];
     uint8_t odd_negative[256];
-    uint8_t *ee_mag;
-    uint8_t *oo_mag;
+    uint8_t *ee_mag = NULL;
+    uint8_t *oo_mag = NULL;
     uint8_t ee_negative[256];
     uint8_t oo_negative[256];
-    uint16_t i;
+    uint16_t i = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(a_mag == NULL || a_negative == NULL || norm_mag == NULL || norm_negative == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(coeff_len == 0U || norm_len < ((coeff_len << 1) + 1U)) {
+    if(coeff_len == 0U || norm_len < ((coeff_len << 1U) + 1U)) {
         return NOXTLS_RETURN_FAILED;
     }
 
-    even_mag = (uint8_t*)noxtls_calloc(coeff_len * 256u, 1U);
-    odd_mag = (uint8_t*)noxtls_calloc(coeff_len * 256u, 1U);
-    ee_mag = (uint8_t*)noxtls_calloc(norm_len * 256u, 1U);
-    oo_mag = (uint8_t*)noxtls_calloc(norm_len * 256u, 1U);
+    even_mag = (uint8_t*)NOXTLS_CALLOC(coeff_len * 256u, 1U);
+    odd_mag = (uint8_t*)NOXTLS_CALLOC(coeff_len * 256u, 1U);
+    ee_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 256u, 1U);
+    oo_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 256u, 1U);
     if(even_mag == NULL || odd_mag == NULL || ee_mag == NULL || oo_mag == NULL) {
-        goto cleanup;
+        if(even_mag != NULL) {
+        (void)noxtls_free(even_mag);
+        }
+        if(odd_mag != NULL) {
+        (void)noxtls_free(odd_mag);
+        }
+        if(ee_mag != NULL) {
+        (void)noxtls_free(ee_mag);
+        }
+        if(oo_mag != NULL) {
+        (void)noxtls_free(oo_mag);
+        }
+        return rc;
     }
 
-    memset(even_negative, 0, sizeof(even_negative));
-    memset(odd_negative, 0, sizeof(odd_negative));
-    memset(ee_negative, 0, sizeof(ee_negative));
-    memset(oo_negative, 0, sizeof(oo_negative));
+    noxtls_secure_zero((even_negative), sizeof(even_negative));
+    noxtls_secure_zero((odd_negative), sizeof(odd_negative));
+    noxtls_secure_zero((ee_negative), sizeof(ee_negative));
+    noxtls_secure_zero((oo_negative), sizeof(oo_negative));
 
-    for(i = 0U; i < 256u; i++) {
-        rc = noxtls_bn_copy(even_mag + ((uint32_t)i * coeff_len),
-                            a_mag + ((uint32_t)(i << 1) * coeff_len),
+    for(i = 0U; i < 256u; i += 1U) {
+        rc = noxtls_bn_copy(&even_mag[((uint32_t)i * coeff_len)],
+                            &a_mag[((uint32_t)(i << 1U) * coeff_len)],
                             coeff_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(even_mag != NULL) {
+            (void)noxtls_free(even_mag);
+            }
+            if(odd_mag != NULL) {
+            (void)noxtls_free(odd_mag);
+            }
+            if(ee_mag != NULL) {
+            (void)noxtls_free(ee_mag);
+            }
+            if(oo_mag != NULL) {
+            (void)noxtls_free(oo_mag);
+            }
+            return rc;
         }
-        rc = noxtls_bn_copy(odd_mag + ((uint32_t)i * coeff_len),
-                            a_mag + ((uint32_t)(((i << 1) + 1U) * coeff_len)),
+        rc = noxtls_bn_copy(&odd_mag[((uint32_t)i * coeff_len)],
+                            &a_mag[((uint32_t)(((i << 1U) + 1U) * coeff_len))],
                             coeff_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(even_mag != NULL) {
+            (void)noxtls_free(even_mag);
+            }
+            if(odd_mag != NULL) {
+            (void)noxtls_free(odd_mag);
+            }
+            if(ee_mag != NULL) {
+            (void)noxtls_free(ee_mag);
+            }
+            if(oo_mag != NULL) {
+            (void)noxtls_free(oo_mag);
+            }
+            return rc;
         }
-        even_negative[i] = a_negative[(uint16_t)(i << 1)];
-        odd_negative[i] = a_negative[(uint16_t)((i << 1) + 1U)];
+        even_negative[i] = a_negative[(uint16_t)(i << 1U)];
+        odd_negative[i] = a_negative[(uint16_t)((i << 1U) + 1U)];
     }
 
     rc = falcon_bn_poly_mul_xn1_signed_to_len(even_mag,
@@ -4770,7 +5737,19 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n512(const uint8_t *a_mag,
                                               ee_negative,
                                               norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(even_mag != NULL) {
+        (void)noxtls_free(even_mag);
+        }
+        if(odd_mag != NULL) {
+        (void)noxtls_free(odd_mag);
+        }
+        if(ee_mag != NULL) {
+        (void)noxtls_free(ee_mag);
+        }
+        if(oo_mag != NULL) {
+        (void)noxtls_free(oo_mag);
+        }
+        return rc;
     }
     rc = falcon_bn_poly_mul_xn1_signed_to_len(odd_mag,
                                               odd_negative,
@@ -4783,49 +5762,84 @@ noxtls_return_t noxtls_falcon_keygen_field_norm_bn_n512(const uint8_t *a_mag,
                                               oo_negative,
                                               norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(even_mag != NULL) {
+        (void)noxtls_free(even_mag);
+        }
+        if(odd_mag != NULL) {
+        (void)noxtls_free(odd_mag);
+        }
+        if(ee_mag != NULL) {
+        (void)noxtls_free(ee_mag);
+        }
+        if(oo_mag != NULL) {
+        (void)noxtls_free(oo_mag);
+        }
+        return rc;
     }
 
     rc = falcon_bn_signed_add_to_len(ee_mag,
                                      ee_negative[0],
                                      norm_len,
-                                     oo_mag + (norm_len * 255u),
+                                     &oo_mag[norm_len * 255u],
                                      oo_negative[255],
                                      norm_len,
                                      norm_mag,
                                      &norm_negative[0],
                                      norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(even_mag != NULL) {
+        (void)noxtls_free(even_mag);
+        }
+        if(odd_mag != NULL) {
+        (void)noxtls_free(odd_mag);
+        }
+        if(ee_mag != NULL) {
+        (void)noxtls_free(ee_mag);
+        }
+        if(oo_mag != NULL) {
+        (void)noxtls_free(oo_mag);
+        }
+        return rc;
     }
-    for(i = 1U; i < 256u; i++) {
-        rc = falcon_bn_signed_add_to_len(ee_mag + ((uint32_t)i * norm_len),
+    for(i = 1U; i < 256u; i += 1U) {
+        rc = falcon_bn_signed_add_to_len(&ee_mag[((uint32_t)i * norm_len)],
                                          ee_negative[i],
                                          norm_len,
-                                         oo_mag + ((uint32_t)(i - 1U) * norm_len),
+                                         &oo_mag[((uint32_t)(i - 1U) * norm_len)],
                                          (uint8_t)(oo_negative[i - 1U] == 0U),
                                          norm_len,
-                                         norm_mag + ((uint32_t)i * norm_len),
+                                         &norm_mag[((uint32_t)i * norm_len)],
                                          &norm_negative[i],
                                          norm_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(even_mag != NULL) {
+            (void)noxtls_free(even_mag);
+            }
+            if(odd_mag != NULL) {
+            (void)noxtls_free(odd_mag);
+            }
+            if(ee_mag != NULL) {
+            (void)noxtls_free(ee_mag);
+            }
+            if(oo_mag != NULL) {
+            (void)noxtls_free(oo_mag);
+            }
+            return rc;
         }
     }
     rc = NOXTLS_RETURN_SUCCESS;
 
-cleanup:
     if(even_mag != NULL) {
-        noxtls_free(even_mag);
+        (void)noxtls_free(even_mag);
     }
     if(odd_mag != NULL) {
-        noxtls_free(odd_mag);
+        (void)noxtls_free(odd_mag);
     }
     if(ee_mag != NULL) {
-        noxtls_free(ee_mag);
+        (void)noxtls_free(ee_mag);
     }
     if(oo_mag != NULL) {
-        noxtls_free(oo_mag);
+        (void)noxtls_free(oo_mag);
     }
     return rc;
 }
@@ -4862,12 +5876,12 @@ static noxtls_return_t falcon_bn_poly_mul_xn1_signed_to_len(const uint8_t *a_mag
                                                             uint8_t *out_negative,
                                                             uint32_t out_coeff_len)
 {
-    uint8_t *term_mag;
-    uint8_t *sum_mag;
+    uint8_t *term_mag = NULL;
+    uint8_t *sum_mag = NULL;
     uint8_t term_negative = 0U;
     uint8_t sum_negative = 0U;
-    uint16_t i;
-    uint16_t j;
+    uint16_t i = 0U;
+    uint16_t j = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(a_mag == NULL || a_negative == NULL || b_mag == NULL || b_negative == NULL ||
@@ -4878,19 +5892,25 @@ static noxtls_return_t falcon_bn_poly_mul_xn1_signed_to_len(const uint8_t *a_mag
         return NOXTLS_RETURN_FAILED;
     }
 
-    memset(out_mag, 0, (size_t)n * out_coeff_len);
-    memset(out_negative, 0, n);
-    term_mag = (uint8_t*)noxtls_calloc(out_coeff_len, 1U);
-    sum_mag = (uint8_t*)noxtls_calloc(out_coeff_len, 1U);
-    if(term_mag == NULL || sum_mag == NULL) {
-        goto cleanup;
+    noxtls_secure_zero((out_mag), ((size_t)n * out_coeff_len));
+    noxtls_secure_zero((out_negative), (size_t)((n)));
+    term_mag = (uint8_t*)NOXTLS_CALLOC(out_coeff_len, 1U);
+    sum_mag = (uint8_t*)NOXTLS_CALLOC(out_coeff_len, 1U);
+    if((term_mag == NULL) || (sum_mag == NULL)) {
+        if(term_mag != NULL) {
+        (void)noxtls_free(term_mag);
+        }
+        if(sum_mag != NULL) {
+        (void)noxtls_free(sum_mag);
+        }
+        return rc;
     }
 
-    for(i = 0U; i < n; i++) {
-        for(j = 0U; j < n; j++) {
+    for(i = 0U; i < n; i += 1U) {
+        for(j = 0U; j < n; j += 1U) {
             uint16_t idx = (uint16_t)(i + j);
-            uint16_t dst_idx;
-            uint8_t extra_negative;
+            uint16_t dst_idx = 0U;
+            uint8_t extra_negative = 0U;
 
             if(idx < n) {
                 dst_idx = idx;
@@ -4900,10 +5920,10 @@ static noxtls_return_t falcon_bn_poly_mul_xn1_signed_to_len(const uint8_t *a_mag
                 extra_negative = 1U;
             }
 
-            rc = falcon_bn_signed_mul_to_len(a_mag + ((uint32_t)i * a_coeff_len),
+            rc = falcon_bn_signed_mul_to_len(&a_mag[((uint32_t)i * a_coeff_len)],
                                              a_negative[i],
                                              a_coeff_len,
-                                             b_mag + ((uint32_t)j * b_coeff_len),
+                                             &b_mag[((uint32_t)j * b_coeff_len)],
                                              b_negative[j],
                                              b_coeff_len,
                                              extra_negative,
@@ -4911,9 +5931,15 @@ static noxtls_return_t falcon_bn_poly_mul_xn1_signed_to_len(const uint8_t *a_mag
                                              &term_negative,
                                              out_coeff_len);
             if(rc != NOXTLS_RETURN_SUCCESS) {
-                goto cleanup;
+                if(term_mag != NULL) {
+                (void)noxtls_free(term_mag);
+                }
+                if(sum_mag != NULL) {
+                (void)noxtls_free(sum_mag);
+                }
+                return rc;
             }
-            rc = falcon_bn_signed_add_to_len(out_mag + ((uint32_t)dst_idx * out_coeff_len),
+            rc = falcon_bn_signed_add_to_len(&out_mag[((uint32_t)dst_idx * out_coeff_len)],
                                              out_negative[dst_idx],
                                              out_coeff_len,
                                              term_mag,
@@ -4923,23 +5949,34 @@ static noxtls_return_t falcon_bn_poly_mul_xn1_signed_to_len(const uint8_t *a_mag
                                              &sum_negative,
                                              out_coeff_len);
             if(rc != NOXTLS_RETURN_SUCCESS) {
-                goto cleanup;
+                if(term_mag != NULL) {
+                (void)noxtls_free(term_mag);
+                }
+                if(sum_mag != NULL) {
+                (void)noxtls_free(sum_mag);
+                }
+                return rc;
             }
-            rc = noxtls_bn_copy(out_mag + ((uint32_t)dst_idx * out_coeff_len), sum_mag, out_coeff_len);
+            rc = noxtls_bn_copy(&out_mag[((uint32_t)dst_idx * out_coeff_len)], sum_mag, out_coeff_len);
             if(rc != NOXTLS_RETURN_SUCCESS) {
-                goto cleanup;
+                if(term_mag != NULL) {
+                (void)noxtls_free(term_mag);
+                }
+                if(sum_mag != NULL) {
+                (void)noxtls_free(sum_mag);
+                }
+                return rc;
             }
             out_negative[dst_idx] = sum_negative;
         }
     }
     rc = NOXTLS_RETURN_SUCCESS;
 
-cleanup:
     if(term_mag != NULL) {
-        noxtls_free(term_mag);
+        (void)noxtls_free(term_mag);
     }
     if(sum_mag != NULL) {
-        noxtls_free(sum_mag);
+        (void)noxtls_free(sum_mag);
     }
     return rc;
 }
@@ -4977,11 +6014,11 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n2(const uint8_t *f_mag,
                                                       uint8_t *G_negative,
                                                       uint32_t result_len)
 {
-    uint32_t norm_len;
-    uint8_t *f_norm;
-    uint8_t *g_norm;
-    uint8_t *Fp_mag;
-    uint8_t *Gp_mag;
+    uint32_t norm_len = 0U;
+    uint8_t *f_norm = NULL;
+    uint8_t *g_norm = NULL;
+    uint8_t *Fp_mag = NULL;
+    uint8_t *Gp_mag = NULL;
     uint8_t Fp_negative = 0U;
     uint8_t Gp_negative = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
@@ -4994,22 +6031,58 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n2(const uint8_t *f_mag,
         return NOXTLS_RETURN_FAILED;
     }
 
-    norm_len = (uint32_t)((coeff_len << 1) + 1U);
-    f_norm = (uint8_t*)noxtls_calloc(norm_len, 1U);
-    g_norm = (uint8_t*)noxtls_calloc(norm_len, 1U);
-    Fp_mag = (uint8_t*)noxtls_calloc(norm_len, 1U);
-    Gp_mag = (uint8_t*)noxtls_calloc(norm_len, 1U);
+    norm_len = (uint32_t)((coeff_len << 1U) + 1U);
+    f_norm = (uint8_t*)NOXTLS_CALLOC(norm_len, 1U);
+    g_norm = (uint8_t*)NOXTLS_CALLOC(norm_len, 1U);
+    Fp_mag = (uint8_t*)NOXTLS_CALLOC(norm_len, 1U);
+    Gp_mag = (uint8_t*)NOXTLS_CALLOC(norm_len, 1U);
     if(f_norm == NULL || g_norm == NULL || Fp_mag == NULL || Gp_mag == NULL) {
-        goto cleanup;
+        if(f_norm != NULL) {
+        (void)noxtls_free(f_norm);
+        }
+        if(g_norm != NULL) {
+        (void)noxtls_free(g_norm);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        return rc;
     }
 
-    rc = noxtls_falcon_keygen_field_norm_bn_n2(f_mag, f_mag + coeff_len, coeff_len, f_norm, norm_len);
+    rc = noxtls_falcon_keygen_field_norm_bn_n2(f_mag, &f_mag[coeff_len], coeff_len, f_norm, norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm != NULL) {
+        (void)noxtls_free(f_norm);
+        }
+        if(g_norm != NULL) {
+        (void)noxtls_free(g_norm);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        return rc;
     }
-    rc = noxtls_falcon_keygen_field_norm_bn_n2(g_mag, g_mag + coeff_len, coeff_len, g_norm, norm_len);
+    rc = noxtls_falcon_keygen_field_norm_bn_n2(g_mag, &g_mag[coeff_len], coeff_len, g_norm, norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm != NULL) {
+        (void)noxtls_free(f_norm);
+        }
+        if(g_norm != NULL) {
+        (void)noxtls_free(g_norm);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        return rc;
     }
     rc = noxtls_falcon_keygen_solve_ntru_base_bn(f_norm,
                                                  0U,
@@ -5021,7 +6094,19 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n2(const uint8_t *f_mag,
                                                  Gp_mag,
                                                  &Gp_negative);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm != NULL) {
+        (void)noxtls_free(f_norm);
+        }
+        if(g_norm != NULL) {
+        (void)noxtls_free(g_norm);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        return rc;
     }
 
     rc = falcon_bn_signed_mul_to_len(Fp_mag,
@@ -5035,20 +6120,44 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n2(const uint8_t *f_mag,
                                      &F_negative[0],
                                      result_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm != NULL) {
+        (void)noxtls_free(f_norm);
+        }
+        if(g_norm != NULL) {
+        (void)noxtls_free(g_norm);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        return rc;
     }
     rc = falcon_bn_signed_mul_to_len(Fp_mag,
                                      Fp_negative,
                                      norm_len,
-                                     g_mag + coeff_len,
+                                     &g_mag[coeff_len],
                                      g_negative[1],
                                      coeff_len,
                                      1U,
-                                     F_mag + result_len,
+                                     &F_mag[result_len],
                                      &F_negative[1],
                                      result_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm != NULL) {
+        (void)noxtls_free(f_norm);
+        }
+        if(g_norm != NULL) {
+        (void)noxtls_free(g_norm);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        return rc;
     }
     rc = falcon_bn_signed_mul_to_len(Gp_mag,
                                      Gp_negative,
@@ -5061,31 +6170,42 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n2(const uint8_t *f_mag,
                                      &G_negative[0],
                                      result_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm != NULL) {
+        (void)noxtls_free(f_norm);
+        }
+        if(g_norm != NULL) {
+        (void)noxtls_free(g_norm);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        return rc;
     }
     rc = falcon_bn_signed_mul_to_len(Gp_mag,
                                      Gp_negative,
                                      norm_len,
-                                     f_mag + coeff_len,
+                                     &f_mag[coeff_len],
                                      f_negative[1],
                                      coeff_len,
                                      1U,
-                                     G_mag + result_len,
+                                     &G_mag[result_len],
                                      &G_negative[1],
                                      result_len);
 
-cleanup:
     if(f_norm != NULL) {
-        noxtls_free(f_norm);
+        (void)noxtls_free(f_norm);
     }
     if(g_norm != NULL) {
-        noxtls_free(g_norm);
+        (void)noxtls_free(g_norm);
     }
     if(Fp_mag != NULL) {
-        noxtls_free(Fp_mag);
+        (void)noxtls_free(Fp_mag);
     }
     if(Gp_mag != NULL) {
-        noxtls_free(Gp_mag);
+        (void)noxtls_free(Gp_mag);
     }
     return rc;
 }
@@ -5123,23 +6243,23 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n4(const uint8_t *f_mag,
                                                       uint8_t *G_negative,
                                                       uint32_t result_len)
 {
-    uint32_t norm_len;
-    uint32_t child_len;
-    uint8_t *f_norm_mag;
-    uint8_t *g_norm_mag;
+    uint32_t norm_len = 0U;
+    uint32_t child_len = 0U;
+    uint8_t *f_norm_mag = NULL;
+    uint8_t *g_norm_mag = NULL;
     uint8_t f_norm_negative[2];
     uint8_t g_norm_negative[2];
-    uint8_t *Fp_mag;
-    uint8_t *Gp_mag;
+    uint8_t *Fp_mag = NULL;
+    uint8_t *Gp_mag = NULL;
     uint8_t Fp_negative[2];
     uint8_t Gp_negative[2];
-    uint8_t *Fp_lift_mag;
-    uint8_t *Gp_lift_mag;
+    uint8_t *Fp_lift_mag = NULL;
+    uint8_t *Gp_lift_mag = NULL;
     uint8_t Fp_lift_negative[4];
     uint8_t Gp_lift_negative[4];
     uint8_t g_negx_negative[4];
     uint8_t f_negx_negative[4];
-    uint32_t i;
+    uint32_t i = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(f_mag == NULL || f_negative == NULL || g_mag == NULL || g_negative == NULL ||
@@ -5150,35 +6270,89 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n4(const uint8_t *f_mag,
         return NOXTLS_RETURN_FAILED;
     }
 
-    norm_len = (uint32_t)((coeff_len << 1) + 1U);
+    norm_len = (uint32_t)((coeff_len << 1U) + 1U);
     child_len = (uint32_t)((norm_len * 3U) + 1U);
-    f_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 2U, 1U);
-    g_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 2U, 1U);
-    Fp_mag = (uint8_t*)noxtls_calloc(child_len * 2U, 1U);
-    Gp_mag = (uint8_t*)noxtls_calloc(child_len * 2U, 1U);
-    Fp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 4U, 1U);
-    Gp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 4U, 1U);
+    f_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 2U, 1U);
+    g_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 2U, 1U);
+    Fp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 2U, 1U);
+    Gp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 2U, 1U);
+    Fp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 4U, 1U);
+    Gp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 4U, 1U);
     if(f_norm_mag == NULL || g_norm_mag == NULL || Fp_mag == NULL || Gp_mag == NULL ||
        Fp_lift_mag == NULL || Gp_lift_mag == NULL) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
 
-    memset(f_norm_negative, 0, sizeof(f_norm_negative));
-    memset(g_norm_negative, 0, sizeof(g_norm_negative));
-    memset(Fp_negative, 0, sizeof(Fp_negative));
-    memset(Gp_negative, 0, sizeof(Gp_negative));
-    memset(Fp_lift_negative, 0, sizeof(Fp_lift_negative));
-    memset(Gp_lift_negative, 0, sizeof(Gp_lift_negative));
-    memset(g_negx_negative, 0, sizeof(g_negx_negative));
-    memset(f_negx_negative, 0, sizeof(f_negx_negative));
+    noxtls_secure_zero((f_norm_negative), sizeof(f_norm_negative));
+    noxtls_secure_zero((g_norm_negative), sizeof(g_norm_negative));
+    noxtls_secure_zero((Fp_negative), sizeof(Fp_negative));
+    noxtls_secure_zero((Gp_negative), sizeof(Gp_negative));
+    noxtls_secure_zero((Fp_lift_negative), sizeof(Fp_lift_negative));
+    noxtls_secure_zero((Gp_lift_negative), sizeof(Gp_lift_negative));
+    noxtls_secure_zero((g_negx_negative), sizeof(g_negx_negative));
+    noxtls_secure_zero((f_negx_negative), sizeof(f_negx_negative));
 
     rc = noxtls_falcon_keygen_field_norm_bn_n4(f_mag, f_negative, coeff_len, f_norm_mag, f_norm_negative, norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
     rc = noxtls_falcon_keygen_field_norm_bn_n4(g_mag, g_negative, coeff_len, g_norm_mag, g_norm_negative, norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
     rc = noxtls_falcon_keygen_solve_ntru_bn_n2(f_norm_mag,
                                                f_norm_negative,
@@ -5191,31 +6365,121 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n4(const uint8_t *f_mag,
                                                Gp_negative,
                                                child_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
 
     rc = noxtls_bn_copy(Fp_lift_mag, Fp_mag, child_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
-    rc = noxtls_bn_copy(Fp_lift_mag + (child_len << 1), Fp_mag + child_len, child_len);
+    rc = noxtls_bn_copy(&Fp_lift_mag[(child_len << 1U)], &Fp_mag[child_len], child_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
     rc = noxtls_bn_copy(Gp_lift_mag, Gp_mag, child_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
-    rc = noxtls_bn_copy(Gp_lift_mag + (child_len << 1), Gp_mag + child_len, child_len);
+    rc = noxtls_bn_copy(&Gp_lift_mag[(child_len << 1U)], &Gp_mag[child_len], child_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
     Fp_lift_negative[0] = Fp_negative[0];
     Fp_lift_negative[2] = Fp_negative[1];
     Gp_lift_negative[0] = Gp_negative[0];
     Gp_lift_negative[2] = Gp_negative[1];
 
-    for(i = 0U; i < 4U; i++) {
+    for(i = 0U; i < 4U; i += 1U) {
         g_negx_negative[i] = (uint8_t)(((g_negative[i] != 0U) ^ ((i & 1U) != 0U)) != 0U);
         f_negx_negative[i] = (uint8_t)(((f_negative[i] != 0U) ^ ((i & 1U) != 0U)) != 0U);
     }
@@ -5231,7 +6495,25 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n4(const uint8_t *f_mag,
                                               F_negative,
                                               result_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
     rc = falcon_bn_poly_mul_xn1_signed_to_len(Gp_lift_mag,
                                               Gp_lift_negative,
@@ -5244,24 +6526,23 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n4(const uint8_t *f_mag,
                                               G_negative,
                                               result_len);
 
-cleanup:
     if(f_norm_mag != NULL) {
-        noxtls_free(f_norm_mag);
+        (void)noxtls_free(f_norm_mag);
     }
     if(g_norm_mag != NULL) {
-        noxtls_free(g_norm_mag);
+        (void)noxtls_free(g_norm_mag);
     }
     if(Fp_mag != NULL) {
-        noxtls_free(Fp_mag);
+        (void)noxtls_free(Fp_mag);
     }
     if(Gp_mag != NULL) {
-        noxtls_free(Gp_mag);
+        (void)noxtls_free(Gp_mag);
     }
     if(Fp_lift_mag != NULL) {
-        noxtls_free(Fp_lift_mag);
+        (void)noxtls_free(Fp_lift_mag);
     }
     if(Gp_lift_mag != NULL) {
-        noxtls_free(Gp_lift_mag);
+        (void)noxtls_free(Gp_lift_mag);
     }
     return rc;
 }
@@ -5299,23 +6580,23 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n8(const uint8_t *f_mag,
                                                       uint8_t *G_negative,
                                                       uint32_t result_len)
 {
-    uint32_t norm_len;
-    uint32_t child_len;
-    uint8_t *f_norm_mag;
-    uint8_t *g_norm_mag;
+    uint32_t norm_len = 0U;
+    uint32_t child_len = 0U;
+    uint8_t *f_norm_mag = NULL;
+    uint8_t *g_norm_mag = NULL;
     uint8_t f_norm_negative[4];
     uint8_t g_norm_negative[4];
-    uint8_t *Fp_mag;
-    uint8_t *Gp_mag;
+    uint8_t *Fp_mag = NULL;
+    uint8_t *Gp_mag = NULL;
     uint8_t Fp_negative[4];
     uint8_t Gp_negative[4];
-    uint8_t *Fp_lift_mag;
-    uint8_t *Gp_lift_mag;
+    uint8_t *Fp_lift_mag = NULL;
+    uint8_t *Gp_lift_mag = NULL;
     uint8_t Fp_lift_negative[8];
     uint8_t Gp_lift_negative[8];
     uint8_t g_negx_negative[8];
     uint8_t f_negx_negative[8];
-    uint32_t i;
+    uint32_t i = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(f_mag == NULL || f_negative == NULL || g_mag == NULL || g_negative == NULL ||
@@ -5326,35 +6607,89 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n8(const uint8_t *f_mag,
         return NOXTLS_RETURN_FAILED;
     }
 
-    norm_len = (uint32_t)((coeff_len << 1) + 1U);
+    norm_len = (uint32_t)((coeff_len << 1U) + 1U);
     child_len = (uint32_t)((norm_len * 7U) + 4U);
-    f_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 4U, 1U);
-    g_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 4U, 1U);
-    Fp_mag = (uint8_t*)noxtls_calloc(child_len * 4U, 1U);
-    Gp_mag = (uint8_t*)noxtls_calloc(child_len * 4U, 1U);
-    Fp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 8U, 1U);
-    Gp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 8U, 1U);
+    f_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 4U, 1U);
+    g_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 4U, 1U);
+    Fp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 4U, 1U);
+    Gp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 4U, 1U);
+    Fp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 8U, 1U);
+    Gp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 8U, 1U);
     if(f_norm_mag == NULL || g_norm_mag == NULL || Fp_mag == NULL || Gp_mag == NULL ||
        Fp_lift_mag == NULL || Gp_lift_mag == NULL) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
 
-    memset(f_norm_negative, 0, sizeof(f_norm_negative));
-    memset(g_norm_negative, 0, sizeof(g_norm_negative));
-    memset(Fp_negative, 0, sizeof(Fp_negative));
-    memset(Gp_negative, 0, sizeof(Gp_negative));
-    memset(Fp_lift_negative, 0, sizeof(Fp_lift_negative));
-    memset(Gp_lift_negative, 0, sizeof(Gp_lift_negative));
-    memset(g_negx_negative, 0, sizeof(g_negx_negative));
-    memset(f_negx_negative, 0, sizeof(f_negx_negative));
+    noxtls_secure_zero((f_norm_negative), sizeof(f_norm_negative));
+    noxtls_secure_zero((g_norm_negative), sizeof(g_norm_negative));
+    noxtls_secure_zero((Fp_negative), sizeof(Fp_negative));
+    noxtls_secure_zero((Gp_negative), sizeof(Gp_negative));
+    noxtls_secure_zero((Fp_lift_negative), sizeof(Fp_lift_negative));
+    noxtls_secure_zero((Gp_lift_negative), sizeof(Gp_lift_negative));
+    noxtls_secure_zero((g_negx_negative), sizeof(g_negx_negative));
+    noxtls_secure_zero((f_negx_negative), sizeof(f_negx_negative));
 
     rc = noxtls_falcon_keygen_field_norm_bn_n8(f_mag, f_negative, coeff_len, f_norm_mag, f_norm_negative, norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
     rc = noxtls_falcon_keygen_field_norm_bn_n8(g_mag, g_negative, coeff_len, g_norm_mag, g_norm_negative, norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
     rc = noxtls_falcon_keygen_solve_ntru_bn_n4(f_norm_mag,
                                                f_norm_negative,
@@ -5367,27 +6702,81 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n8(const uint8_t *f_mag,
                                                Gp_negative,
                                                child_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
 
-    for(i = 0U; i < 4U; i++) {
-        rc = noxtls_bn_copy(Fp_lift_mag + (((uint32_t)(i << 1)) * child_len),
-                            Fp_mag + (i * child_len),
+    for(i = 0U; i < 4U; i += 1U) {
+        rc = noxtls_bn_copy(&Fp_lift_mag[((uint32_t](i << 1U)) * child_len),
+                            &Fp_mag[(i * child_len)],
                             child_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(f_norm_mag != NULL) {
+            (void)noxtls_free(f_norm_mag);
+            }
+            if(g_norm_mag != NULL) {
+            (void)noxtls_free(g_norm_mag);
+            }
+            if(Fp_mag != NULL) {
+            (void)noxtls_free(Fp_mag);
+            }
+            if(Gp_mag != NULL) {
+            (void)noxtls_free(Gp_mag);
+            }
+            if(Fp_lift_mag != NULL) {
+            (void)noxtls_free(Fp_lift_mag);
+            }
+            if(Gp_lift_mag != NULL) {
+            (void)noxtls_free(Gp_lift_mag);
+            }
+            return rc;
         }
-        rc = noxtls_bn_copy(Gp_lift_mag + (((uint32_t)(i << 1)) * child_len),
-                            Gp_mag + (i * child_len),
+        rc = noxtls_bn_copy(&Gp_lift_mag[((uint32_t](i << 1U)) * child_len),
+                            &Gp_mag[(i * child_len)],
                             child_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(f_norm_mag != NULL) {
+            (void)noxtls_free(f_norm_mag);
+            }
+            if(g_norm_mag != NULL) {
+            (void)noxtls_free(g_norm_mag);
+            }
+            if(Fp_mag != NULL) {
+            (void)noxtls_free(Fp_mag);
+            }
+            if(Gp_mag != NULL) {
+            (void)noxtls_free(Gp_mag);
+            }
+            if(Fp_lift_mag != NULL) {
+            (void)noxtls_free(Fp_lift_mag);
+            }
+            if(Gp_lift_mag != NULL) {
+            (void)noxtls_free(Gp_lift_mag);
+            }
+            return rc;
         }
-        Fp_lift_negative[(uint16_t)(i << 1)] = Fp_negative[i];
-        Gp_lift_negative[(uint16_t)(i << 1)] = Gp_negative[i];
+        Fp_lift_negative[(uint16_t)(i << 1U)] = Fp_negative[i];
+        Gp_lift_negative[(uint16_t)(i << 1U)] = Gp_negative[i];
     }
 
-    for(i = 0U; i < 8U; i++) {
+    for(i = 0U; i < 8U; i += 1U) {
         g_negx_negative[i] = (uint8_t)(((g_negative[i] != 0U) ^ ((i & 1U) != 0U)) != 0U);
         f_negx_negative[i] = (uint8_t)(((f_negative[i] != 0U) ^ ((i & 1U) != 0U)) != 0U);
     }
@@ -5403,7 +6792,25 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n8(const uint8_t *f_mag,
                                               F_negative,
                                               result_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
     rc = falcon_bn_poly_mul_xn1_signed_to_len(Gp_lift_mag,
                                               Gp_lift_negative,
@@ -5416,24 +6823,23 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n8(const uint8_t *f_mag,
                                               G_negative,
                                               result_len);
 
-cleanup:
     if(f_norm_mag != NULL) {
-        noxtls_free(f_norm_mag);
+        (void)noxtls_free(f_norm_mag);
     }
     if(g_norm_mag != NULL) {
-        noxtls_free(g_norm_mag);
+        (void)noxtls_free(g_norm_mag);
     }
     if(Fp_mag != NULL) {
-        noxtls_free(Fp_mag);
+        (void)noxtls_free(Fp_mag);
     }
     if(Gp_mag != NULL) {
-        noxtls_free(Gp_mag);
+        (void)noxtls_free(Gp_mag);
     }
     if(Fp_lift_mag != NULL) {
-        noxtls_free(Fp_lift_mag);
+        (void)noxtls_free(Fp_lift_mag);
     }
     if(Gp_lift_mag != NULL) {
-        noxtls_free(Gp_lift_mag);
+        (void)noxtls_free(Gp_lift_mag);
     }
     return rc;
 }
@@ -5471,23 +6877,23 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n16(const uint8_t *f_mag,
                                                        uint8_t *G_negative,
                                                        uint32_t result_len)
 {
-    uint32_t norm_len;
-    uint32_t child_len;
-    uint8_t *f_norm_mag;
-    uint8_t *g_norm_mag;
+    uint32_t norm_len = 0U;
+    uint32_t child_len = 0U;
+    uint8_t *f_norm_mag = NULL;
+    uint8_t *g_norm_mag = NULL;
     uint8_t f_norm_negative[8];
     uint8_t g_norm_negative[8];
-    uint8_t *Fp_mag;
-    uint8_t *Gp_mag;
+    uint8_t *Fp_mag = NULL;
+    uint8_t *Gp_mag = NULL;
     uint8_t Fp_negative[8];
     uint8_t Gp_negative[8];
-    uint8_t *Fp_lift_mag;
-    uint8_t *Gp_lift_mag;
+    uint8_t *Fp_lift_mag = NULL;
+    uint8_t *Gp_lift_mag = NULL;
     uint8_t Fp_lift_negative[16];
     uint8_t Gp_lift_negative[16];
     uint8_t g_negx_negative[16];
     uint8_t f_negx_negative[16];
-    uint32_t i;
+    uint32_t i = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(f_mag == NULL || f_negative == NULL || g_mag == NULL || g_negative == NULL ||
@@ -5498,35 +6904,89 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n16(const uint8_t *f_mag,
         return NOXTLS_RETURN_FAILED;
     }
 
-    norm_len = (uint32_t)((coeff_len << 1) + 1U);
+    norm_len = (uint32_t)((coeff_len << 1U) + 1U);
     child_len = (uint32_t)((norm_len * 15U) + 11U);
-    f_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 8U, 1U);
-    g_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 8U, 1U);
-    Fp_mag = (uint8_t*)noxtls_calloc(child_len * 8U, 1U);
-    Gp_mag = (uint8_t*)noxtls_calloc(child_len * 8U, 1U);
-    Fp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 16U, 1U);
-    Gp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 16U, 1U);
+    f_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 8U, 1U);
+    g_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 8U, 1U);
+    Fp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 8U, 1U);
+    Gp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 8U, 1U);
+    Fp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 16U, 1U);
+    Gp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 16U, 1U);
     if(f_norm_mag == NULL || g_norm_mag == NULL || Fp_mag == NULL || Gp_mag == NULL ||
        Fp_lift_mag == NULL || Gp_lift_mag == NULL) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
 
-    memset(f_norm_negative, 0, sizeof(f_norm_negative));
-    memset(g_norm_negative, 0, sizeof(g_norm_negative));
-    memset(Fp_negative, 0, sizeof(Fp_negative));
-    memset(Gp_negative, 0, sizeof(Gp_negative));
-    memset(Fp_lift_negative, 0, sizeof(Fp_lift_negative));
-    memset(Gp_lift_negative, 0, sizeof(Gp_lift_negative));
-    memset(g_negx_negative, 0, sizeof(g_negx_negative));
-    memset(f_negx_negative, 0, sizeof(f_negx_negative));
+    noxtls_secure_zero((f_norm_negative), sizeof(f_norm_negative));
+    noxtls_secure_zero((g_norm_negative), sizeof(g_norm_negative));
+    noxtls_secure_zero((Fp_negative), sizeof(Fp_negative));
+    noxtls_secure_zero((Gp_negative), sizeof(Gp_negative));
+    noxtls_secure_zero((Fp_lift_negative), sizeof(Fp_lift_negative));
+    noxtls_secure_zero((Gp_lift_negative), sizeof(Gp_lift_negative));
+    noxtls_secure_zero((g_negx_negative), sizeof(g_negx_negative));
+    noxtls_secure_zero((f_negx_negative), sizeof(f_negx_negative));
 
     rc = noxtls_falcon_keygen_field_norm_bn_n16(f_mag, f_negative, coeff_len, f_norm_mag, f_norm_negative, norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
     rc = noxtls_falcon_keygen_field_norm_bn_n16(g_mag, g_negative, coeff_len, g_norm_mag, g_norm_negative, norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
     rc = noxtls_falcon_keygen_solve_ntru_bn_n8(f_norm_mag,
                                                f_norm_negative,
@@ -5539,27 +6999,81 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n16(const uint8_t *f_mag,
                                                Gp_negative,
                                                child_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
 
-    for(i = 0U; i < 8U; i++) {
-        rc = noxtls_bn_copy(Fp_lift_mag + (((uint32_t)(i << 1)) * child_len),
-                            Fp_mag + (i * child_len),
+    for(i = 0U; i < 8U; i += 1U) {
+        rc = noxtls_bn_copy(&Fp_lift_mag[((uint32_t](i << 1U)) * child_len),
+                            &Fp_mag[(i * child_len)],
                             child_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(f_norm_mag != NULL) {
+            (void)noxtls_free(f_norm_mag);
+            }
+            if(g_norm_mag != NULL) {
+            (void)noxtls_free(g_norm_mag);
+            }
+            if(Fp_mag != NULL) {
+            (void)noxtls_free(Fp_mag);
+            }
+            if(Gp_mag != NULL) {
+            (void)noxtls_free(Gp_mag);
+            }
+            if(Fp_lift_mag != NULL) {
+            (void)noxtls_free(Fp_lift_mag);
+            }
+            if(Gp_lift_mag != NULL) {
+            (void)noxtls_free(Gp_lift_mag);
+            }
+            return rc;
         }
-        rc = noxtls_bn_copy(Gp_lift_mag + (((uint32_t)(i << 1)) * child_len),
-                            Gp_mag + (i * child_len),
+        rc = noxtls_bn_copy(&Gp_lift_mag[((uint32_t](i << 1U)) * child_len),
+                            &Gp_mag[(i * child_len)],
                             child_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(f_norm_mag != NULL) {
+            (void)noxtls_free(f_norm_mag);
+            }
+            if(g_norm_mag != NULL) {
+            (void)noxtls_free(g_norm_mag);
+            }
+            if(Fp_mag != NULL) {
+            (void)noxtls_free(Fp_mag);
+            }
+            if(Gp_mag != NULL) {
+            (void)noxtls_free(Gp_mag);
+            }
+            if(Fp_lift_mag != NULL) {
+            (void)noxtls_free(Fp_lift_mag);
+            }
+            if(Gp_lift_mag != NULL) {
+            (void)noxtls_free(Gp_lift_mag);
+            }
+            return rc;
         }
-        Fp_lift_negative[(uint16_t)(i << 1)] = Fp_negative[i];
-        Gp_lift_negative[(uint16_t)(i << 1)] = Gp_negative[i];
+        Fp_lift_negative[(uint16_t)(i << 1U)] = Fp_negative[i];
+        Gp_lift_negative[(uint16_t)(i << 1U)] = Gp_negative[i];
     }
 
-    for(i = 0U; i < 16U; i++) {
+    for(i = 0U; i < 16U; i += 1U) {
         g_negx_negative[i] = (uint8_t)(((g_negative[i] != 0U) ^ ((i & 1U) != 0U)) != 0U);
         f_negx_negative[i] = (uint8_t)(((f_negative[i] != 0U) ^ ((i & 1U) != 0U)) != 0U);
     }
@@ -5575,7 +7089,25 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n16(const uint8_t *f_mag,
                                               F_negative,
                                               result_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
     rc = falcon_bn_poly_mul_xn1_signed_to_len(Gp_lift_mag,
                                               Gp_lift_negative,
@@ -5588,24 +7120,23 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n16(const uint8_t *f_mag,
                                               G_negative,
                                               result_len);
 
-cleanup:
     if(f_norm_mag != NULL) {
-        noxtls_free(f_norm_mag);
+        (void)noxtls_free(f_norm_mag);
     }
     if(g_norm_mag != NULL) {
-        noxtls_free(g_norm_mag);
+        (void)noxtls_free(g_norm_mag);
     }
     if(Fp_mag != NULL) {
-        noxtls_free(Fp_mag);
+        (void)noxtls_free(Fp_mag);
     }
     if(Gp_mag != NULL) {
-        noxtls_free(Gp_mag);
+        (void)noxtls_free(Gp_mag);
     }
     if(Fp_lift_mag != NULL) {
-        noxtls_free(Fp_lift_mag);
+        (void)noxtls_free(Fp_lift_mag);
     }
     if(Gp_lift_mag != NULL) {
-        noxtls_free(Gp_lift_mag);
+        (void)noxtls_free(Gp_lift_mag);
     }
     return rc;
 }
@@ -5643,23 +7174,23 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n32(const uint8_t *f_mag,
                                                        uint8_t *G_negative,
                                                        uint32_t result_len)
 {
-    uint32_t norm_len;
-    uint32_t child_len;
-    uint8_t *f_norm_mag;
-    uint8_t *g_norm_mag;
+    uint32_t norm_len = 0U;
+    uint32_t child_len = 0U;
+    uint8_t *f_norm_mag = NULL;
+    uint8_t *g_norm_mag = NULL;
     uint8_t f_norm_negative[16];
     uint8_t g_norm_negative[16];
-    uint8_t *Fp_mag;
-    uint8_t *Gp_mag;
+    uint8_t *Fp_mag = NULL;
+    uint8_t *Gp_mag = NULL;
     uint8_t Fp_negative[16];
     uint8_t Gp_negative[16];
-    uint8_t *Fp_lift_mag;
-    uint8_t *Gp_lift_mag;
+    uint8_t *Fp_lift_mag = NULL;
+    uint8_t *Gp_lift_mag = NULL;
     uint8_t Fp_lift_negative[32];
     uint8_t Gp_lift_negative[32];
     uint8_t g_negx_negative[32];
     uint8_t f_negx_negative[32];
-    uint32_t i;
+    uint32_t i = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(f_mag == NULL || f_negative == NULL || g_mag == NULL || g_negative == NULL ||
@@ -5670,35 +7201,89 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n32(const uint8_t *f_mag,
         return NOXTLS_RETURN_FAILED;
     }
 
-    norm_len = (uint32_t)((coeff_len << 1) + 1U);
+    norm_len = (uint32_t)((coeff_len << 1U) + 1U);
     child_len = (uint32_t)((norm_len * 31U) + 26U);
-    f_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 16U, 1U);
-    g_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 16U, 1U);
-    Fp_mag = (uint8_t*)noxtls_calloc(child_len * 16U, 1U);
-    Gp_mag = (uint8_t*)noxtls_calloc(child_len * 16U, 1U);
-    Fp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 32U, 1U);
-    Gp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 32U, 1U);
+    f_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 16U, 1U);
+    g_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 16U, 1U);
+    Fp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 16U, 1U);
+    Gp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 16U, 1U);
+    Fp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 32U, 1U);
+    Gp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 32U, 1U);
     if(f_norm_mag == NULL || g_norm_mag == NULL || Fp_mag == NULL || Gp_mag == NULL ||
        Fp_lift_mag == NULL || Gp_lift_mag == NULL) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
 
-    memset(f_norm_negative, 0, sizeof(f_norm_negative));
-    memset(g_norm_negative, 0, sizeof(g_norm_negative));
-    memset(Fp_negative, 0, sizeof(Fp_negative));
-    memset(Gp_negative, 0, sizeof(Gp_negative));
-    memset(Fp_lift_negative, 0, sizeof(Fp_lift_negative));
-    memset(Gp_lift_negative, 0, sizeof(Gp_lift_negative));
-    memset(g_negx_negative, 0, sizeof(g_negx_negative));
-    memset(f_negx_negative, 0, sizeof(f_negx_negative));
+    noxtls_secure_zero((f_norm_negative), sizeof(f_norm_negative));
+    noxtls_secure_zero((g_norm_negative), sizeof(g_norm_negative));
+    noxtls_secure_zero((Fp_negative), sizeof(Fp_negative));
+    noxtls_secure_zero((Gp_negative), sizeof(Gp_negative));
+    noxtls_secure_zero((Fp_lift_negative), sizeof(Fp_lift_negative));
+    noxtls_secure_zero((Gp_lift_negative), sizeof(Gp_lift_negative));
+    noxtls_secure_zero((g_negx_negative), sizeof(g_negx_negative));
+    noxtls_secure_zero((f_negx_negative), sizeof(f_negx_negative));
 
     rc = noxtls_falcon_keygen_field_norm_bn_n32(f_mag, f_negative, coeff_len, f_norm_mag, f_norm_negative, norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
     rc = noxtls_falcon_keygen_field_norm_bn_n32(g_mag, g_negative, coeff_len, g_norm_mag, g_norm_negative, norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
     rc = noxtls_falcon_keygen_solve_ntru_bn_n16(f_norm_mag,
                                                 f_norm_negative,
@@ -5711,27 +7296,81 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n32(const uint8_t *f_mag,
                                                 Gp_negative,
                                                 child_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
 
-    for(i = 0U; i < 16U; i++) {
-        rc = noxtls_bn_copy(Fp_lift_mag + (((uint32_t)(i << 1)) * child_len),
-                            Fp_mag + (i * child_len),
+    for(i = 0U; i < 16U; i += 1U) {
+        rc = noxtls_bn_copy(&Fp_lift_mag[((uint32_t](i << 1U)) * child_len),
+                            &Fp_mag[(i * child_len)],
                             child_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(f_norm_mag != NULL) {
+            (void)noxtls_free(f_norm_mag);
+            }
+            if(g_norm_mag != NULL) {
+            (void)noxtls_free(g_norm_mag);
+            }
+            if(Fp_mag != NULL) {
+            (void)noxtls_free(Fp_mag);
+            }
+            if(Gp_mag != NULL) {
+            (void)noxtls_free(Gp_mag);
+            }
+            if(Fp_lift_mag != NULL) {
+            (void)noxtls_free(Fp_lift_mag);
+            }
+            if(Gp_lift_mag != NULL) {
+            (void)noxtls_free(Gp_lift_mag);
+            }
+            return rc;
         }
-        rc = noxtls_bn_copy(Gp_lift_mag + (((uint32_t)(i << 1)) * child_len),
-                            Gp_mag + (i * child_len),
+        rc = noxtls_bn_copy(&Gp_lift_mag[((uint32_t](i << 1U)) * child_len),
+                            &Gp_mag[(i * child_len)],
                             child_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(f_norm_mag != NULL) {
+            (void)noxtls_free(f_norm_mag);
+            }
+            if(g_norm_mag != NULL) {
+            (void)noxtls_free(g_norm_mag);
+            }
+            if(Fp_mag != NULL) {
+            (void)noxtls_free(Fp_mag);
+            }
+            if(Gp_mag != NULL) {
+            (void)noxtls_free(Gp_mag);
+            }
+            if(Fp_lift_mag != NULL) {
+            (void)noxtls_free(Fp_lift_mag);
+            }
+            if(Gp_lift_mag != NULL) {
+            (void)noxtls_free(Gp_lift_mag);
+            }
+            return rc;
         }
-        Fp_lift_negative[(uint16_t)(i << 1)] = Fp_negative[i];
-        Gp_lift_negative[(uint16_t)(i << 1)] = Gp_negative[i];
+        Fp_lift_negative[(uint16_t)(i << 1U)] = Fp_negative[i];
+        Gp_lift_negative[(uint16_t)(i << 1U)] = Gp_negative[i];
     }
 
-    for(i = 0U; i < 32U; i++) {
+    for(i = 0U; i < 32U; i += 1U) {
         g_negx_negative[i] = (uint8_t)(((g_negative[i] != 0U) ^ ((i & 1U) != 0U)) != 0U);
         f_negx_negative[i] = (uint8_t)(((f_negative[i] != 0U) ^ ((i & 1U) != 0U)) != 0U);
     }
@@ -5747,7 +7386,25 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n32(const uint8_t *f_mag,
                                               F_negative,
                                               result_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
     rc = falcon_bn_poly_mul_xn1_signed_to_len(Gp_lift_mag,
                                               Gp_lift_negative,
@@ -5760,24 +7417,23 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n32(const uint8_t *f_mag,
                                               G_negative,
                                               result_len);
 
-cleanup:
     if(f_norm_mag != NULL) {
-        noxtls_free(f_norm_mag);
+        (void)noxtls_free(f_norm_mag);
     }
     if(g_norm_mag != NULL) {
-        noxtls_free(g_norm_mag);
+        (void)noxtls_free(g_norm_mag);
     }
     if(Fp_mag != NULL) {
-        noxtls_free(Fp_mag);
+        (void)noxtls_free(Fp_mag);
     }
     if(Gp_mag != NULL) {
-        noxtls_free(Gp_mag);
+        (void)noxtls_free(Gp_mag);
     }
     if(Fp_lift_mag != NULL) {
-        noxtls_free(Fp_lift_mag);
+        (void)noxtls_free(Fp_lift_mag);
     }
     if(Gp_lift_mag != NULL) {
-        noxtls_free(Gp_lift_mag);
+        (void)noxtls_free(Gp_lift_mag);
     }
     return rc;
 }
@@ -5815,23 +7471,23 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n64(const uint8_t *f_mag,
                                                        uint8_t *G_negative,
                                                        uint32_t result_len)
 {
-    uint32_t norm_len;
-    uint32_t child_len;
-    uint8_t *f_norm_mag;
-    uint8_t *g_norm_mag;
+    uint32_t norm_len = 0U;
+    uint32_t child_len = 0U;
+    uint8_t *f_norm_mag = NULL;
+    uint8_t *g_norm_mag = NULL;
     uint8_t f_norm_negative[32];
     uint8_t g_norm_negative[32];
-    uint8_t *Fp_mag;
-    uint8_t *Gp_mag;
+    uint8_t *Fp_mag = NULL;
+    uint8_t *Gp_mag = NULL;
     uint8_t Fp_negative[32];
     uint8_t Gp_negative[32];
-    uint8_t *Fp_lift_mag;
-    uint8_t *Gp_lift_mag;
+    uint8_t *Fp_lift_mag = NULL;
+    uint8_t *Gp_lift_mag = NULL;
     uint8_t Fp_lift_negative[64];
     uint8_t Gp_lift_negative[64];
     uint8_t g_negx_negative[64];
     uint8_t f_negx_negative[64];
-    uint32_t i;
+    uint32_t i = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(f_mag == NULL || f_negative == NULL || g_mag == NULL || g_negative == NULL ||
@@ -5842,35 +7498,89 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n64(const uint8_t *f_mag,
         return NOXTLS_RETURN_FAILED;
     }
 
-    norm_len = (uint32_t)((coeff_len << 1) + 1U);
+    norm_len = (uint32_t)((coeff_len << 1U) + 1U);
     child_len = (uint32_t)((norm_len * 63u) + 57u);
-    f_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 32U, 1U);
-    g_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 32U, 1U);
-    Fp_mag = (uint8_t*)noxtls_calloc(child_len * 32U, 1U);
-    Gp_mag = (uint8_t*)noxtls_calloc(child_len * 32U, 1U);
-    Fp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 64U, 1U);
-    Gp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 64U, 1U);
+    f_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 32U, 1U);
+    g_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 32U, 1U);
+    Fp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 32U, 1U);
+    Gp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 32U, 1U);
+    Fp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 64U, 1U);
+    Gp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 64U, 1U);
     if(f_norm_mag == NULL || g_norm_mag == NULL || Fp_mag == NULL || Gp_mag == NULL ||
        Fp_lift_mag == NULL || Gp_lift_mag == NULL) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
 
-    memset(f_norm_negative, 0, sizeof(f_norm_negative));
-    memset(g_norm_negative, 0, sizeof(g_norm_negative));
-    memset(Fp_negative, 0, sizeof(Fp_negative));
-    memset(Gp_negative, 0, sizeof(Gp_negative));
-    memset(Fp_lift_negative, 0, sizeof(Fp_lift_negative));
-    memset(Gp_lift_negative, 0, sizeof(Gp_lift_negative));
-    memset(g_negx_negative, 0, sizeof(g_negx_negative));
-    memset(f_negx_negative, 0, sizeof(f_negx_negative));
+    noxtls_secure_zero((f_norm_negative), sizeof(f_norm_negative));
+    noxtls_secure_zero((g_norm_negative), sizeof(g_norm_negative));
+    noxtls_secure_zero((Fp_negative), sizeof(Fp_negative));
+    noxtls_secure_zero((Gp_negative), sizeof(Gp_negative));
+    noxtls_secure_zero((Fp_lift_negative), sizeof(Fp_lift_negative));
+    noxtls_secure_zero((Gp_lift_negative), sizeof(Gp_lift_negative));
+    noxtls_secure_zero((g_negx_negative), sizeof(g_negx_negative));
+    noxtls_secure_zero((f_negx_negative), sizeof(f_negx_negative));
 
     rc = noxtls_falcon_keygen_field_norm_bn_n64(f_mag, f_negative, coeff_len, f_norm_mag, f_norm_negative, norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
     rc = noxtls_falcon_keygen_field_norm_bn_n64(g_mag, g_negative, coeff_len, g_norm_mag, g_norm_negative, norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
     rc = noxtls_falcon_keygen_solve_ntru_bn_n32(f_norm_mag,
                                                 f_norm_negative,
@@ -5883,27 +7593,81 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n64(const uint8_t *f_mag,
                                                 Gp_negative,
                                                 child_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
 
-    for(i = 0U; i < 32U; i++) {
-        rc = noxtls_bn_copy(Fp_lift_mag + (((uint32_t)(i << 1)) * child_len),
-                            Fp_mag + (i * child_len),
+    for(i = 0U; i < 32U; i += 1U) {
+        rc = noxtls_bn_copy(&Fp_lift_mag[((uint32_t](i << 1U)) * child_len),
+                            &Fp_mag[(i * child_len)],
                             child_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(f_norm_mag != NULL) {
+            (void)noxtls_free(f_norm_mag);
+            }
+            if(g_norm_mag != NULL) {
+            (void)noxtls_free(g_norm_mag);
+            }
+            if(Fp_mag != NULL) {
+            (void)noxtls_free(Fp_mag);
+            }
+            if(Gp_mag != NULL) {
+            (void)noxtls_free(Gp_mag);
+            }
+            if(Fp_lift_mag != NULL) {
+            (void)noxtls_free(Fp_lift_mag);
+            }
+            if(Gp_lift_mag != NULL) {
+            (void)noxtls_free(Gp_lift_mag);
+            }
+            return rc;
         }
-        rc = noxtls_bn_copy(Gp_lift_mag + (((uint32_t)(i << 1)) * child_len),
-                            Gp_mag + (i * child_len),
+        rc = noxtls_bn_copy(&Gp_lift_mag[((uint32_t](i << 1U)) * child_len),
+                            &Gp_mag[(i * child_len)],
                             child_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(f_norm_mag != NULL) {
+            (void)noxtls_free(f_norm_mag);
+            }
+            if(g_norm_mag != NULL) {
+            (void)noxtls_free(g_norm_mag);
+            }
+            if(Fp_mag != NULL) {
+            (void)noxtls_free(Fp_mag);
+            }
+            if(Gp_mag != NULL) {
+            (void)noxtls_free(Gp_mag);
+            }
+            if(Fp_lift_mag != NULL) {
+            (void)noxtls_free(Fp_lift_mag);
+            }
+            if(Gp_lift_mag != NULL) {
+            (void)noxtls_free(Gp_lift_mag);
+            }
+            return rc;
         }
-        Fp_lift_negative[(uint16_t)(i << 1)] = Fp_negative[i];
-        Gp_lift_negative[(uint16_t)(i << 1)] = Gp_negative[i];
+        Fp_lift_negative[(uint16_t)(i << 1U)] = Fp_negative[i];
+        Gp_lift_negative[(uint16_t)(i << 1U)] = Gp_negative[i];
     }
 
-    for(i = 0U; i < 64U; i++) {
+    for(i = 0U; i < 64U; i += 1U) {
         g_negx_negative[i] = (uint8_t)(((g_negative[i] != 0U) ^ ((i & 1U) != 0U)) != 0U);
         f_negx_negative[i] = (uint8_t)(((f_negative[i] != 0U) ^ ((i & 1U) != 0U)) != 0U);
     }
@@ -5919,7 +7683,25 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n64(const uint8_t *f_mag,
                                               F_negative,
                                               result_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
     rc = falcon_bn_poly_mul_xn1_signed_to_len(Gp_lift_mag,
                                               Gp_lift_negative,
@@ -5932,24 +7714,23 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n64(const uint8_t *f_mag,
                                               G_negative,
                                               result_len);
 
-cleanup:
     if(f_norm_mag != NULL) {
-        noxtls_free(f_norm_mag);
+        (void)noxtls_free(f_norm_mag);
     }
     if(g_norm_mag != NULL) {
-        noxtls_free(g_norm_mag);
+        (void)noxtls_free(g_norm_mag);
     }
     if(Fp_mag != NULL) {
-        noxtls_free(Fp_mag);
+        (void)noxtls_free(Fp_mag);
     }
     if(Gp_mag != NULL) {
-        noxtls_free(Gp_mag);
+        (void)noxtls_free(Gp_mag);
     }
     if(Fp_lift_mag != NULL) {
-        noxtls_free(Fp_lift_mag);
+        (void)noxtls_free(Fp_lift_mag);
     }
     if(Gp_lift_mag != NULL) {
-        noxtls_free(Gp_lift_mag);
+        (void)noxtls_free(Gp_lift_mag);
     }
     return rc;
 }
@@ -5987,23 +7768,23 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n128(const uint8_t *f_mag,
                                                         uint8_t *G_negative,
                                                         uint32_t result_len)
 {
-    uint32_t norm_len;
-    uint32_t child_len;
-    uint8_t *f_norm_mag;
-    uint8_t *g_norm_mag;
+    uint32_t norm_len = 0U;
+    uint32_t child_len = 0U;
+    uint8_t *f_norm_mag = NULL;
+    uint8_t *g_norm_mag = NULL;
     uint8_t f_norm_negative[64];
     uint8_t g_norm_negative[64];
-    uint8_t *Fp_mag;
-    uint8_t *Gp_mag;
+    uint8_t *Fp_mag = NULL;
+    uint8_t *Gp_mag = NULL;
     uint8_t Fp_negative[64];
     uint8_t Gp_negative[64];
-    uint8_t *Fp_lift_mag;
-    uint8_t *Gp_lift_mag;
+    uint8_t *Fp_lift_mag = NULL;
+    uint8_t *Gp_lift_mag = NULL;
     uint8_t Fp_lift_negative[128];
     uint8_t Gp_lift_negative[128];
     uint8_t g_negx_negative[128];
     uint8_t f_negx_negative[128];
-    uint32_t i;
+    uint32_t i = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(f_mag == NULL || f_negative == NULL || g_mag == NULL || g_negative == NULL ||
@@ -6014,35 +7795,89 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n128(const uint8_t *f_mag,
         return NOXTLS_RETURN_FAILED;
     }
 
-    norm_len = (uint32_t)((coeff_len << 1) + 1U);
+    norm_len = (uint32_t)((coeff_len << 1U) + 1U);
     child_len = (uint32_t)((norm_len * 127u) + 120u);
-    f_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 64U, 1U);
-    g_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 64U, 1U);
-    Fp_mag = (uint8_t*)noxtls_calloc(child_len * 64U, 1U);
-    Gp_mag = (uint8_t*)noxtls_calloc(child_len * 64U, 1U);
-    Fp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 128U, 1U);
-    Gp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 128U, 1U);
+    f_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 64U, 1U);
+    g_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 64U, 1U);
+    Fp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 64U, 1U);
+    Gp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 64U, 1U);
+    Fp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 128U, 1U);
+    Gp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 128U, 1U);
     if(f_norm_mag == NULL || g_norm_mag == NULL || Fp_mag == NULL || Gp_mag == NULL ||
        Fp_lift_mag == NULL || Gp_lift_mag == NULL) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
 
-    memset(f_norm_negative, 0, sizeof(f_norm_negative));
-    memset(g_norm_negative, 0, sizeof(g_norm_negative));
-    memset(Fp_negative, 0, sizeof(Fp_negative));
-    memset(Gp_negative, 0, sizeof(Gp_negative));
-    memset(Fp_lift_negative, 0, sizeof(Fp_lift_negative));
-    memset(Gp_lift_negative, 0, sizeof(Gp_lift_negative));
-    memset(g_negx_negative, 0, sizeof(g_negx_negative));
-    memset(f_negx_negative, 0, sizeof(f_negx_negative));
+    noxtls_secure_zero((f_norm_negative), sizeof(f_norm_negative));
+    noxtls_secure_zero((g_norm_negative), sizeof(g_norm_negative));
+    noxtls_secure_zero((Fp_negative), sizeof(Fp_negative));
+    noxtls_secure_zero((Gp_negative), sizeof(Gp_negative));
+    noxtls_secure_zero((Fp_lift_negative), sizeof(Fp_lift_negative));
+    noxtls_secure_zero((Gp_lift_negative), sizeof(Gp_lift_negative));
+    noxtls_secure_zero((g_negx_negative), sizeof(g_negx_negative));
+    noxtls_secure_zero((f_negx_negative), sizeof(f_negx_negative));
 
     rc = noxtls_falcon_keygen_field_norm_bn_n128(f_mag, f_negative, coeff_len, f_norm_mag, f_norm_negative, norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
     rc = noxtls_falcon_keygen_field_norm_bn_n128(g_mag, g_negative, coeff_len, g_norm_mag, g_norm_negative, norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
     rc = noxtls_falcon_keygen_solve_ntru_bn_n64(f_norm_mag,
                                                 f_norm_negative,
@@ -6055,27 +7890,81 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n128(const uint8_t *f_mag,
                                                 Gp_negative,
                                                 child_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
 
-    for(i = 0U; i < 64U; i++) {
-        rc = noxtls_bn_copy(Fp_lift_mag + (((uint32_t)(i << 1)) * child_len),
-                            Fp_mag + (i * child_len),
+    for(i = 0U; i < 64U; i += 1U) {
+        rc = noxtls_bn_copy(&Fp_lift_mag[((uint32_t](i << 1U)) * child_len),
+                            &Fp_mag[(i * child_len)],
                             child_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(f_norm_mag != NULL) {
+            (void)noxtls_free(f_norm_mag);
+            }
+            if(g_norm_mag != NULL) {
+            (void)noxtls_free(g_norm_mag);
+            }
+            if(Fp_mag != NULL) {
+            (void)noxtls_free(Fp_mag);
+            }
+            if(Gp_mag != NULL) {
+            (void)noxtls_free(Gp_mag);
+            }
+            if(Fp_lift_mag != NULL) {
+            (void)noxtls_free(Fp_lift_mag);
+            }
+            if(Gp_lift_mag != NULL) {
+            (void)noxtls_free(Gp_lift_mag);
+            }
+            return rc;
         }
-        rc = noxtls_bn_copy(Gp_lift_mag + (((uint32_t)(i << 1)) * child_len),
-                            Gp_mag + (i * child_len),
+        rc = noxtls_bn_copy(&Gp_lift_mag[((uint32_t](i << 1U)) * child_len),
+                            &Gp_mag[(i * child_len)],
                             child_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(f_norm_mag != NULL) {
+            (void)noxtls_free(f_norm_mag);
+            }
+            if(g_norm_mag != NULL) {
+            (void)noxtls_free(g_norm_mag);
+            }
+            if(Fp_mag != NULL) {
+            (void)noxtls_free(Fp_mag);
+            }
+            if(Gp_mag != NULL) {
+            (void)noxtls_free(Gp_mag);
+            }
+            if(Fp_lift_mag != NULL) {
+            (void)noxtls_free(Fp_lift_mag);
+            }
+            if(Gp_lift_mag != NULL) {
+            (void)noxtls_free(Gp_lift_mag);
+            }
+            return rc;
         }
-        Fp_lift_negative[(uint16_t)(i << 1)] = Fp_negative[i];
-        Gp_lift_negative[(uint16_t)(i << 1)] = Gp_negative[i];
+        Fp_lift_negative[(uint16_t)(i << 1U)] = Fp_negative[i];
+        Gp_lift_negative[(uint16_t)(i << 1U)] = Gp_negative[i];
     }
 
-    for(i = 0U; i < 128U; i++) {
+    for(i = 0U; i < 128U; i += 1U) {
         g_negx_negative[i] = (uint8_t)(((g_negative[i] != 0U) ^ ((i & 1U) != 0U)) != 0U);
         f_negx_negative[i] = (uint8_t)(((f_negative[i] != 0U) ^ ((i & 1U) != 0U)) != 0U);
     }
@@ -6091,7 +7980,25 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n128(const uint8_t *f_mag,
                                               F_negative,
                                               result_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
     rc = falcon_bn_poly_mul_xn1_signed_to_len(Gp_lift_mag,
                                               Gp_lift_negative,
@@ -6104,24 +8011,23 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n128(const uint8_t *f_mag,
                                               G_negative,
                                               result_len);
 
-cleanup:
     if(f_norm_mag != NULL) {
-        noxtls_free(f_norm_mag);
+        (void)noxtls_free(f_norm_mag);
     }
     if(g_norm_mag != NULL) {
-        noxtls_free(g_norm_mag);
+        (void)noxtls_free(g_norm_mag);
     }
     if(Fp_mag != NULL) {
-        noxtls_free(Fp_mag);
+        (void)noxtls_free(Fp_mag);
     }
     if(Gp_mag != NULL) {
-        noxtls_free(Gp_mag);
+        (void)noxtls_free(Gp_mag);
     }
     if(Fp_lift_mag != NULL) {
-        noxtls_free(Fp_lift_mag);
+        (void)noxtls_free(Fp_lift_mag);
     }
     if(Gp_lift_mag != NULL) {
-        noxtls_free(Gp_lift_mag);
+        (void)noxtls_free(Gp_lift_mag);
     }
     return rc;
 }
@@ -6159,23 +8065,23 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n256(const uint8_t *f_mag,
                                                         uint8_t *G_negative,
                                                         uint32_t result_len)
 {
-    uint32_t norm_len;
-    uint32_t child_len;
-    uint8_t *f_norm_mag;
-    uint8_t *g_norm_mag;
+    uint32_t norm_len = 0U;
+    uint32_t child_len = 0U;
+    uint8_t *f_norm_mag = NULL;
+    uint8_t *g_norm_mag = NULL;
     uint8_t f_norm_negative[128];
     uint8_t g_norm_negative[128];
-    uint8_t *Fp_mag;
-    uint8_t *Gp_mag;
+    uint8_t *Fp_mag = NULL;
+    uint8_t *Gp_mag = NULL;
     uint8_t Fp_negative[128];
     uint8_t Gp_negative[128];
-    uint8_t *Fp_lift_mag;
-    uint8_t *Gp_lift_mag;
+    uint8_t *Fp_lift_mag = NULL;
+    uint8_t *Gp_lift_mag = NULL;
     uint8_t Fp_lift_negative[256];
     uint8_t Gp_lift_negative[256];
     uint8_t g_negx_negative[256];
     uint8_t f_negx_negative[256];
-    uint16_t i;
+    uint16_t i = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(f_mag == NULL || f_negative == NULL || g_mag == NULL || g_negative == NULL ||
@@ -6186,35 +8092,89 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n256(const uint8_t *f_mag,
         return NOXTLS_RETURN_FAILED;
     }
 
-    norm_len = (uint32_t)((coeff_len << 1) + 1U);
+    norm_len = (uint32_t)((coeff_len << 1U) + 1U);
     child_len = (uint32_t)((norm_len * 255u) + 247u);
-    f_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 128U, 1U);
-    g_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 128U, 1U);
-    Fp_mag = (uint8_t*)noxtls_calloc(child_len * 128U, 1U);
-    Gp_mag = (uint8_t*)noxtls_calloc(child_len * 128U, 1U);
-    Fp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 256u, 1U);
-    Gp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 256u, 1U);
+    f_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 128U, 1U);
+    g_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 128U, 1U);
+    Fp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 128U, 1U);
+    Gp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 128U, 1U);
+    Fp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 256u, 1U);
+    Gp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 256u, 1U);
     if(f_norm_mag == NULL || g_norm_mag == NULL || Fp_mag == NULL || Gp_mag == NULL ||
        Fp_lift_mag == NULL || Gp_lift_mag == NULL) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
 
-    memset(f_norm_negative, 0, sizeof(f_norm_negative));
-    memset(g_norm_negative, 0, sizeof(g_norm_negative));
-    memset(Fp_negative, 0, sizeof(Fp_negative));
-    memset(Gp_negative, 0, sizeof(Gp_negative));
-    memset(Fp_lift_negative, 0, sizeof(Fp_lift_negative));
-    memset(Gp_lift_negative, 0, sizeof(Gp_lift_negative));
-    memset(g_negx_negative, 0, sizeof(g_negx_negative));
-    memset(f_negx_negative, 0, sizeof(f_negx_negative));
+    noxtls_secure_zero((f_norm_negative), sizeof(f_norm_negative));
+    noxtls_secure_zero((g_norm_negative), sizeof(g_norm_negative));
+    noxtls_secure_zero((Fp_negative), sizeof(Fp_negative));
+    noxtls_secure_zero((Gp_negative), sizeof(Gp_negative));
+    noxtls_secure_zero((Fp_lift_negative), sizeof(Fp_lift_negative));
+    noxtls_secure_zero((Gp_lift_negative), sizeof(Gp_lift_negative));
+    noxtls_secure_zero((g_negx_negative), sizeof(g_negx_negative));
+    noxtls_secure_zero((f_negx_negative), sizeof(f_negx_negative));
 
     rc = noxtls_falcon_keygen_field_norm_bn_n256(f_mag, f_negative, coeff_len, f_norm_mag, f_norm_negative, norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
     rc = noxtls_falcon_keygen_field_norm_bn_n256(g_mag, g_negative, coeff_len, g_norm_mag, g_norm_negative, norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
     rc = noxtls_falcon_keygen_solve_ntru_bn_n128(f_norm_mag,
                                                  f_norm_negative,
@@ -6227,27 +8187,81 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n256(const uint8_t *f_mag,
                                                  Gp_negative,
                                                  child_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
 
-    for(i = 0U; i < 128U; i++) {
-        rc = noxtls_bn_copy(Fp_lift_mag + (((uint32_t)(i << 1)) * child_len),
-                            Fp_mag + ((uint32_t)i * child_len),
+    for(i = 0U; i < 128U; i += 1U) {
+        rc = noxtls_bn_copy(&Fp_lift_mag[((uint32_t](i << 1U)) * child_len),
+                            &Fp_mag[((uint32_t)i * child_len)],
                             child_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(f_norm_mag != NULL) {
+            (void)noxtls_free(f_norm_mag);
+            }
+            if(g_norm_mag != NULL) {
+            (void)noxtls_free(g_norm_mag);
+            }
+            if(Fp_mag != NULL) {
+            (void)noxtls_free(Fp_mag);
+            }
+            if(Gp_mag != NULL) {
+            (void)noxtls_free(Gp_mag);
+            }
+            if(Fp_lift_mag != NULL) {
+            (void)noxtls_free(Fp_lift_mag);
+            }
+            if(Gp_lift_mag != NULL) {
+            (void)noxtls_free(Gp_lift_mag);
+            }
+            return rc;
         }
-        rc = noxtls_bn_copy(Gp_lift_mag + (((uint32_t)(i << 1)) * child_len),
-                            Gp_mag + ((uint32_t)i * child_len),
+        rc = noxtls_bn_copy(&Gp_lift_mag[((uint32_t](i << 1U)) * child_len),
+                            &Gp_mag[((uint32_t)i * child_len)],
                             child_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(f_norm_mag != NULL) {
+            (void)noxtls_free(f_norm_mag);
+            }
+            if(g_norm_mag != NULL) {
+            (void)noxtls_free(g_norm_mag);
+            }
+            if(Fp_mag != NULL) {
+            (void)noxtls_free(Fp_mag);
+            }
+            if(Gp_mag != NULL) {
+            (void)noxtls_free(Gp_mag);
+            }
+            if(Fp_lift_mag != NULL) {
+            (void)noxtls_free(Fp_lift_mag);
+            }
+            if(Gp_lift_mag != NULL) {
+            (void)noxtls_free(Gp_lift_mag);
+            }
+            return rc;
         }
-        Fp_lift_negative[(uint16_t)(i << 1)] = Fp_negative[i];
-        Gp_lift_negative[(uint16_t)(i << 1)] = Gp_negative[i];
+        Fp_lift_negative[(uint16_t)(i << 1U)] = Fp_negative[i];
+        Gp_lift_negative[(uint16_t)(i << 1U)] = Gp_negative[i];
     }
 
-    for(i = 0U; i < 256u; i++) {
+    for(i = 0U; i < 256u; i += 1U) {
         g_negx_negative[i] = (uint8_t)(((g_negative[i] != 0U) ^ ((i & 1U) != 0U)) != 0U);
         f_negx_negative[i] = (uint8_t)(((f_negative[i] != 0U) ^ ((i & 1U) != 0U)) != 0U);
     }
@@ -6263,7 +8277,25 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n256(const uint8_t *f_mag,
                                               F_negative,
                                               result_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
     rc = falcon_bn_poly_mul_xn1_signed_to_len(Gp_lift_mag,
                                               Gp_lift_negative,
@@ -6276,24 +8308,23 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n256(const uint8_t *f_mag,
                                               G_negative,
                                               result_len);
 
-cleanup:
     if(f_norm_mag != NULL) {
-        noxtls_free(f_norm_mag);
+        (void)noxtls_free(f_norm_mag);
     }
     if(g_norm_mag != NULL) {
-        noxtls_free(g_norm_mag);
+        (void)noxtls_free(g_norm_mag);
     }
     if(Fp_mag != NULL) {
-        noxtls_free(Fp_mag);
+        (void)noxtls_free(Fp_mag);
     }
     if(Gp_mag != NULL) {
-        noxtls_free(Gp_mag);
+        (void)noxtls_free(Gp_mag);
     }
     if(Fp_lift_mag != NULL) {
-        noxtls_free(Fp_lift_mag);
+        (void)noxtls_free(Fp_lift_mag);
     }
     if(Gp_lift_mag != NULL) {
-        noxtls_free(Gp_lift_mag);
+        (void)noxtls_free(Gp_lift_mag);
     }
     return rc;
 }
@@ -6331,23 +8362,23 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n512(const uint8_t *f_mag,
                                                         uint8_t *G_negative,
                                                         uint32_t result_len)
 {
-    uint32_t norm_len;
-    uint32_t child_len;
-    uint8_t *f_norm_mag;
-    uint8_t *g_norm_mag;
+    uint32_t norm_len = 0U;
+    uint32_t child_len = 0U;
+    uint8_t *f_norm_mag = NULL;
+    uint8_t *g_norm_mag = NULL;
     uint8_t f_norm_negative[256];
     uint8_t g_norm_negative[256];
-    uint8_t *Fp_mag;
-    uint8_t *Gp_mag;
+    uint8_t *Fp_mag = NULL;
+    uint8_t *Gp_mag = NULL;
     uint8_t Fp_negative[256];
     uint8_t Gp_negative[256];
-    uint8_t *Fp_lift_mag;
-    uint8_t *Gp_lift_mag;
+    uint8_t *Fp_lift_mag = NULL;
+    uint8_t *Gp_lift_mag = NULL;
     uint8_t Fp_lift_negative[512];
     uint8_t Gp_lift_negative[512];
     uint8_t g_negx_negative[512];
     uint8_t f_negx_negative[512];
-    uint16_t i;
+    uint16_t i = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(f_mag == NULL || f_negative == NULL || g_mag == NULL || g_negative == NULL ||
@@ -6358,35 +8389,89 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n512(const uint8_t *f_mag,
         return NOXTLS_RETURN_FAILED;
     }
 
-    norm_len = (uint32_t)((coeff_len << 1) + 1U);
+    norm_len = (uint32_t)((coeff_len << 1U) + 1U);
     child_len = (uint32_t)((norm_len * 511u) + 502u);
-    f_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 256u, 1U);
-    g_norm_mag = (uint8_t*)noxtls_calloc(norm_len * 256u, 1U);
-    Fp_mag = (uint8_t*)noxtls_calloc(child_len * 256u, 1U);
-    Gp_mag = (uint8_t*)noxtls_calloc(child_len * 256u, 1U);
-    Fp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 512U, 1U);
-    Gp_lift_mag = (uint8_t*)noxtls_calloc(child_len * 512U, 1U);
+    f_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 256u, 1U);
+    g_norm_mag = (uint8_t*)NOXTLS_CALLOC(norm_len * 256u, 1U);
+    Fp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 256u, 1U);
+    Gp_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 256u, 1U);
+    Fp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 512U, 1U);
+    Gp_lift_mag = (uint8_t*)NOXTLS_CALLOC(child_len * 512U, 1U);
     if(f_norm_mag == NULL || g_norm_mag == NULL || Fp_mag == NULL || Gp_mag == NULL ||
        Fp_lift_mag == NULL || Gp_lift_mag == NULL) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
 
-    memset(f_norm_negative, 0, sizeof(f_norm_negative));
-    memset(g_norm_negative, 0, sizeof(g_norm_negative));
-    memset(Fp_negative, 0, sizeof(Fp_negative));
-    memset(Gp_negative, 0, sizeof(Gp_negative));
-    memset(Fp_lift_negative, 0, sizeof(Fp_lift_negative));
-    memset(Gp_lift_negative, 0, sizeof(Gp_lift_negative));
-    memset(g_negx_negative, 0, sizeof(g_negx_negative));
-    memset(f_negx_negative, 0, sizeof(f_negx_negative));
+    noxtls_secure_zero((f_norm_negative), sizeof(f_norm_negative));
+    noxtls_secure_zero((g_norm_negative), sizeof(g_norm_negative));
+    noxtls_secure_zero((Fp_negative), sizeof(Fp_negative));
+    noxtls_secure_zero((Gp_negative), sizeof(Gp_negative));
+    noxtls_secure_zero((Fp_lift_negative), sizeof(Fp_lift_negative));
+    noxtls_secure_zero((Gp_lift_negative), sizeof(Gp_lift_negative));
+    noxtls_secure_zero((g_negx_negative), sizeof(g_negx_negative));
+    noxtls_secure_zero((f_negx_negative), sizeof(f_negx_negative));
 
     rc = noxtls_falcon_keygen_field_norm_bn_n512(f_mag, f_negative, coeff_len, f_norm_mag, f_norm_negative, norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
     rc = noxtls_falcon_keygen_field_norm_bn_n512(g_mag, g_negative, coeff_len, g_norm_mag, g_norm_negative, norm_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
     rc = noxtls_falcon_keygen_solve_ntru_bn_n256(f_norm_mag,
                                                  f_norm_negative,
@@ -6399,27 +8484,81 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n512(const uint8_t *f_mag,
                                                  Gp_negative,
                                                  child_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
 
-    for(i = 0U; i < 256u; i++) {
-        rc = noxtls_bn_copy(Fp_lift_mag + (((uint32_t)(i << 1)) * child_len),
-                            Fp_mag + ((uint32_t)i * child_len),
+    for(i = 0U; i < 256u; i += 1U) {
+        rc = noxtls_bn_copy(&Fp_lift_mag[((uint32_t](i << 1U)) * child_len),
+                            &Fp_mag[((uint32_t)i * child_len)],
                             child_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(f_norm_mag != NULL) {
+            (void)noxtls_free(f_norm_mag);
+            }
+            if(g_norm_mag != NULL) {
+            (void)noxtls_free(g_norm_mag);
+            }
+            if(Fp_mag != NULL) {
+            (void)noxtls_free(Fp_mag);
+            }
+            if(Gp_mag != NULL) {
+            (void)noxtls_free(Gp_mag);
+            }
+            if(Fp_lift_mag != NULL) {
+            (void)noxtls_free(Fp_lift_mag);
+            }
+            if(Gp_lift_mag != NULL) {
+            (void)noxtls_free(Gp_lift_mag);
+            }
+            return rc;
         }
-        rc = noxtls_bn_copy(Gp_lift_mag + (((uint32_t)(i << 1)) * child_len),
-                            Gp_mag + ((uint32_t)i * child_len),
+        rc = noxtls_bn_copy(&Gp_lift_mag[((uint32_t](i << 1U)) * child_len),
+                            &Gp_mag[((uint32_t)i * child_len)],
                             child_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(f_norm_mag != NULL) {
+            (void)noxtls_free(f_norm_mag);
+            }
+            if(g_norm_mag != NULL) {
+            (void)noxtls_free(g_norm_mag);
+            }
+            if(Fp_mag != NULL) {
+            (void)noxtls_free(Fp_mag);
+            }
+            if(Gp_mag != NULL) {
+            (void)noxtls_free(Gp_mag);
+            }
+            if(Fp_lift_mag != NULL) {
+            (void)noxtls_free(Fp_lift_mag);
+            }
+            if(Gp_lift_mag != NULL) {
+            (void)noxtls_free(Gp_lift_mag);
+            }
+            return rc;
         }
-        Fp_lift_negative[(uint16_t)(i << 1)] = Fp_negative[i];
-        Gp_lift_negative[(uint16_t)(i << 1)] = Gp_negative[i];
+        Fp_lift_negative[(uint16_t)(i << 1U)] = Fp_negative[i];
+        Gp_lift_negative[(uint16_t)(i << 1U)] = Gp_negative[i];
     }
 
-    for(i = 0U; i < 512U; i++) {
+    for(i = 0U; i < 512U; i += 1U) {
         g_negx_negative[i] = (uint8_t)(((g_negative[i] != 0U) ^ ((i & 1U) != 0U)) != 0U);
         f_negx_negative[i] = (uint8_t)(((f_negative[i] != 0U) ^ ((i & 1U) != 0U)) != 0U);
     }
@@ -6435,7 +8574,25 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n512(const uint8_t *f_mag,
                                               F_negative,
                                               result_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_norm_mag != NULL) {
+        (void)noxtls_free(f_norm_mag);
+        }
+        if(g_norm_mag != NULL) {
+        (void)noxtls_free(g_norm_mag);
+        }
+        if(Fp_mag != NULL) {
+        (void)noxtls_free(Fp_mag);
+        }
+        if(Gp_mag != NULL) {
+        (void)noxtls_free(Gp_mag);
+        }
+        if(Fp_lift_mag != NULL) {
+        (void)noxtls_free(Fp_lift_mag);
+        }
+        if(Gp_lift_mag != NULL) {
+        (void)noxtls_free(Gp_lift_mag);
+        }
+        return rc;
     }
     rc = falcon_bn_poly_mul_xn1_signed_to_len(Gp_lift_mag,
                                               Gp_lift_negative,
@@ -6448,24 +8605,23 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_bn_n512(const uint8_t *f_mag,
                                               G_negative,
                                               result_len);
 
-cleanup:
     if(f_norm_mag != NULL) {
-        noxtls_free(f_norm_mag);
+        (void)noxtls_free(f_norm_mag);
     }
     if(g_norm_mag != NULL) {
-        noxtls_free(g_norm_mag);
+        (void)noxtls_free(g_norm_mag);
     }
     if(Fp_mag != NULL) {
-        noxtls_free(Fp_mag);
+        (void)noxtls_free(Fp_mag);
     }
     if(Gp_mag != NULL) {
-        noxtls_free(Gp_mag);
+        (void)noxtls_free(Gp_mag);
     }
     if(Fp_lift_mag != NULL) {
-        noxtls_free(Fp_lift_mag);
+        (void)noxtls_free(Fp_lift_mag);
     }
     if(Gp_lift_mag != NULL) {
-        noxtls_free(Gp_lift_mag);
+        (void)noxtls_free(Gp_lift_mag);
     }
     return rc;
 }
@@ -6490,23 +8646,23 @@ noxtls_return_t noxtls_falcon_keygen_field_norm(const int16_t *src,
     int16_t odd[NOXTLS_FALCON_MAX_N];
     int32_t ee[NOXTLS_FALCON_MAX_N];
     int32_t oo[NOXTLS_FALCON_MAX_N];
-    uint16_t half;
-    uint16_t i;
+    uint16_t half = 0U;
+    uint16_t i = 0U;
 
-    if(src == NULL || norm == NULL) {
+    if((src == NULL) || (norm == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
-    if(!falcon_is_supported_power_of_two(n) || n < 2U) {
+    if((falcon_is_supported_power_of_two(n) == 0) || n < 2U) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    half = (uint16_t)(n >> 1);
+    half = (uint16_t)(n >> 1U);
     falcon_poly_split_i16(src, n, even, odd);
     falcon_poly_mul_xn1_i32(ee, even, even, half);
     falcon_poly_mul_xn1_i32(oo, odd, odd, half);
 
     norm[0] = ee[0] + oo[half - 1U];
-    for(i = 1U; i < half; i++) {
+    for(i = 1U; i < half; i += 1U) {
         norm[i] = ee[i] - oo[i - 1U];
     }
     return NOXTLS_RETURN_SUCCESS;
@@ -6529,10 +8685,10 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_base(int32_t f,
                                                      int32_t *F,
                                                      int32_t *G)
 {
-    int32_t u;
-    int32_t v;
+    int32_t u = 0;
+    int32_t v = 0;
 
-    if(F == NULL || G == NULL) {
+    if((F == NULL) || (G == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
     if(falcon_i32_xgcd(f, g, &u, &v) != 1) {
@@ -6573,13 +8729,13 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_base_bn(const uint8_t *f_mag,
                                                         uint8_t *G_mag,
                                                         uint8_t *G_negative)
 {
-    uint8_t *q_buf;
-    uint8_t *inv_f;
-    uint8_t *prod;
-    uint8_t *g_abs;
-    uint8_t *g_term;
-    uint8_t *numerator;
-    uint8_t *numerator_abs;
+    uint8_t *q_buf = NULL;
+    uint8_t *inv_f = NULL;
+    uint8_t *prod = NULL;
+    uint8_t *g_abs = NULL;
+    uint8_t *g_term = NULL;
+    uint8_t *numerator = NULL;
+    uint8_t *numerator_abs = NULL;
     uint8_t Fneg_local = 0U;
     uint8_t Gneg_local = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
@@ -6587,34 +8743,129 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_base_bn(const uint8_t *f_mag,
     if(f_mag == NULL || g_mag == NULL || F_mag == NULL || F_negative == NULL || G_mag == NULL || G_negative == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(len == 0U || noxtls_bn_is_zero(f_mag, len) || noxtls_bn_is_zero(g_mag, len)) {
+    {
+        int32_t f_zero = 0;
+        int32_t g_zero = 0;
+        if(len == 0U) {
+            f_zero = 1;
+            g_zero = 1;
+        } else {
+            f_zero = noxtls_bn_is_zero(f_mag, len);
+            g_zero = noxtls_bn_is_zero(g_mag, len);
+        }
+        if((f_zero != 0) || (g_zero != 0)) {
         return NOXTLS_RETURN_FAILED;
+        }
     }
 
-    q_buf = (uint8_t*)noxtls_calloc(len, 1U);
-    inv_f = (uint8_t*)noxtls_calloc(len, 1U);
-    prod = (uint8_t*)noxtls_calloc(len * 2U, 1U);
-    g_abs = (uint8_t*)noxtls_calloc(len, 1U);
-    g_term = (uint8_t*)noxtls_calloc(len * 2U, 1U);
-    numerator = (uint8_t*)noxtls_calloc(len * 2U, 1U);
-    numerator_abs = (uint8_t*)noxtls_calloc(len * 2U, 1U);
+    q_buf = (uint8_t*)NOXTLS_CALLOC(len, 1U);
+    inv_f = (uint8_t*)NOXTLS_CALLOC(len, 1U);
+    prod = (uint8_t*)NOXTLS_CALLOC(len * 2U, 1U);
+    g_abs = (uint8_t*)NOXTLS_CALLOC(len, 1U);
+    g_term = (uint8_t*)NOXTLS_CALLOC(len * 2U, 1U);
+    numerator = (uint8_t*)NOXTLS_CALLOC(len * 2U, 1U);
+    numerator_abs = (uint8_t*)NOXTLS_CALLOC(len * 2U, 1U);
     if(q_buf == NULL || inv_f == NULL || prod == NULL || g_abs == NULL ||
        g_term == NULL || numerator == NULL || numerator_abs == NULL) {
-        goto cleanup;
+        if(q_buf != NULL) {
+        (void)noxtls_free(q_buf);
+        }
+        if(inv_f != NULL) {
+        (void)noxtls_free(inv_f);
+        }
+        if(prod != NULL) {
+        (void)noxtls_free(prod);
+        }
+        if(g_abs != NULL) {
+        (void)noxtls_free(g_abs);
+        }
+        if(g_term != NULL) {
+        (void)noxtls_free(g_term);
+        }
+        if(numerator != NULL) {
+        (void)noxtls_free(numerator);
+        }
+        if(numerator_abs != NULL) {
+        (void)noxtls_free(numerator_abs);
+        }
+        return rc;
     }
 
     rc = falcon_bn_store_small(q_buf, len, NOXTLS_FALCON_Q);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(q_buf != NULL) {
+        (void)noxtls_free(q_buf);
+        }
+        if(inv_f != NULL) {
+        (void)noxtls_free(inv_f);
+        }
+        if(prod != NULL) {
+        (void)noxtls_free(prod);
+        }
+        if(g_abs != NULL) {
+        (void)noxtls_free(g_abs);
+        }
+        if(g_term != NULL) {
+        (void)noxtls_free(g_term);
+        }
+        if(numerator != NULL) {
+        (void)noxtls_free(numerator);
+        }
+        if(numerator_abs != NULL) {
+        (void)noxtls_free(numerator_abs);
+        }
+        return rc;
     }
-    if(noxtls_bn_is_one(g_mag, len)) {
+    if(noxtls_bn_is_one(g_mag, len) != 0) {
         rc = noxtls_bn_copy(F_mag, q_buf, len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(q_buf != NULL) {
+            (void)noxtls_free(q_buf);
+            }
+            if(inv_f != NULL) {
+            (void)noxtls_free(inv_f);
+            }
+            if(prod != NULL) {
+            (void)noxtls_free(prod);
+            }
+            if(g_abs != NULL) {
+            (void)noxtls_free(g_abs);
+            }
+            if(g_term != NULL) {
+            (void)noxtls_free(g_term);
+            }
+            if(numerator != NULL) {
+            (void)noxtls_free(numerator);
+            }
+            if(numerator_abs != NULL) {
+            (void)noxtls_free(numerator_abs);
+            }
+            return rc;
         }
         rc = noxtls_bn_zero(G_mag, len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(q_buf != NULL) {
+            (void)noxtls_free(q_buf);
+            }
+            if(inv_f != NULL) {
+            (void)noxtls_free(inv_f);
+            }
+            if(prod != NULL) {
+            (void)noxtls_free(prod);
+            }
+            if(g_abs != NULL) {
+            (void)noxtls_free(g_abs);
+            }
+            if(g_term != NULL) {
+            (void)noxtls_free(g_term);
+            }
+            if(numerator != NULL) {
+            (void)noxtls_free(numerator);
+            }
+            if(numerator_abs != NULL) {
+            (void)noxtls_free(numerator_abs);
+            }
+            return rc;
         }
         *F_negative = (uint8_t)(1U ^ (g_negative != 0U));
         *G_negative = 0U;
@@ -6622,67 +8873,180 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_base_bn(const uint8_t *f_mag,
     }
 
     rc = noxtls_bn_mod_inv(inv_f, f_mag, len, g_mag, len);
-    if(rc != NOXTLS_RETURN_SUCCESS || noxtls_bn_is_zero(inv_f, len)) {
+    {
+        int32_t inv_zero = noxtls_bn_is_zero(inv_f, len);
+        if((rc != NOXTLS_RETURN_SUCCESS) || (inv_zero != 0)) {
         rc = NOXTLS_RETURN_FAILED;
-        goto cleanup;
+        if(q_buf != NULL) {
+        (void)noxtls_free(q_buf);
+        }
+    }
+        if(inv_f != NULL) {
+        (void)noxtls_free(inv_f);
+        }
+        if(prod != NULL) {
+        (void)noxtls_free(prod);
+        }
+        if(g_abs != NULL) {
+        (void)noxtls_free(g_abs);
+        }
+        if(g_term != NULL) {
+        (void)noxtls_free(g_term);
+        }
+        if(numerator != NULL) {
+        (void)noxtls_free(numerator);
+        }
+        if(numerator_abs != NULL) {
+        (void)noxtls_free(numerator_abs);
+        }
+        return rc;
     }
 
     rc = noxtls_bn_mul(prod, q_buf, len, inv_f, len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(q_buf != NULL) {
+        (void)noxtls_free(q_buf);
+        }
+        if(inv_f != NULL) {
+        (void)noxtls_free(inv_f);
+        }
+        if(prod != NULL) {
+        (void)noxtls_free(prod);
+        }
+        if(g_abs != NULL) {
+        (void)noxtls_free(g_abs);
+        }
+        if(g_term != NULL) {
+        (void)noxtls_free(g_term);
+        }
+        if(numerator != NULL) {
+        (void)noxtls_free(numerator);
+        }
+        if(numerator_abs != NULL) {
+        (void)noxtls_free(numerator_abs);
+        }
+        return rc;
     }
     rc = noxtls_bn_mod(G_mag, prod, len * 2U, g_mag, len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(q_buf != NULL) {
+        (void)noxtls_free(q_buf);
+        }
+        if(inv_f != NULL) {
+        (void)noxtls_free(inv_f);
+        }
+        if(prod != NULL) {
+        (void)noxtls_free(prod);
+        }
+        if(g_abs != NULL) {
+        (void)noxtls_free(g_abs);
+        }
+        if(g_term != NULL) {
+        (void)noxtls_free(g_term);
+        }
+        if(numerator != NULL) {
+        (void)noxtls_free(numerator);
+        }
+        if(numerator_abs != NULL) {
+        (void)noxtls_free(numerator_abs);
+        }
+        return rc;
     }
 
     rc = noxtls_bn_mul(g_term, f_mag, len, G_mag, len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(q_buf != NULL) {
+        (void)noxtls_free(q_buf);
+        }
+        if(inv_f != NULL) {
+        (void)noxtls_free(inv_f);
+        }
+        if(prod != NULL) {
+        (void)noxtls_free(prod);
+        }
+        if(g_abs != NULL) {
+        (void)noxtls_free(g_abs);
+        }
+        if(g_term != NULL) {
+        (void)noxtls_free(g_term);
+        }
+        if(numerator != NULL) {
+        (void)noxtls_free(numerator);
+        }
+        if(numerator_abs != NULL) {
+        (void)noxtls_free(numerator_abs);
+        }
+        return rc;
     }
-    memset(numerator, 0, len * 2U);
-    noxtls_bn_copy(numerator + len, q_buf, len);
+    noxtls_secure_zero((numerator), ((size_t)(len * 2U)));
+    (void)noxtls_bn_copy(&numerator[len], q_buf, len);
     if(noxtls_bn_cmp(g_term, numerator, len * 2U) >= 0) {
-        noxtls_bn_copy(numerator_abs, g_term, len * 2U);
-        noxtls_bn_sub(numerator_abs, numerator_abs, numerator, len * 2U);
+        (void)noxtls_bn_copy(numerator_abs, g_term, len * 2U);
+        (void)noxtls_bn_sub(numerator_abs, numerator_abs, numerator, len * 2U);
     } else {
-        noxtls_bn_copy(numerator_abs, numerator, len * 2U);
-        noxtls_bn_sub(numerator_abs, numerator_abs, g_term, len * 2U);
+        (void)noxtls_bn_copy(numerator_abs, numerator, len * 2U);
+        (void)noxtls_bn_sub(numerator_abs, numerator_abs, g_term, len * 2U);
         Fneg_local = 1U;
     }
 
-    noxtls_bn_copy(g_abs, g_mag, len);
+    (void)noxtls_bn_copy(g_abs, g_mag, len);
     rc = falcon_bn_exact_div_positive(F_mag, len, numerator_abs, len * 2U, g_abs, len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(q_buf != NULL) {
+        (void)noxtls_free(q_buf);
+        }
+        if(inv_f != NULL) {
+        (void)noxtls_free(inv_f);
+        }
+        if(prod != NULL) {
+        (void)noxtls_free(prod);
+        }
+        if(g_abs != NULL) {
+        (void)noxtls_free(g_abs);
+        }
+        if(g_term != NULL) {
+        (void)noxtls_free(g_term);
+        }
+        if(numerator != NULL) {
+        (void)noxtls_free(numerator);
+        }
+        if(numerator_abs != NULL) {
+        (void)noxtls_free(numerator_abs);
+        }
+        return rc;
     }
 
     Gneg_local = 0U;
-    *F_negative = (uint8_t)((Fneg_local ^ (g_negative != 0U)) != 0U && !noxtls_bn_is_zero(F_mag, len));
-    *G_negative = (uint8_t)((Gneg_local ^ (f_negative != 0U)) != 0U && !noxtls_bn_is_zero(G_mag, len));
+    {
+        int32_t mag_nonzero = (noxtls_bn_is_zero(F_mag, len) == 0) ? 1 : 0;
+        *F_negative = (uint8_t)((((Fneg_local ^ (g_negative != 0U)) != 0U) && (mag_nonzero != 0)) ? 1U : 0U);
+    }
+    {
+        int32_t mag_nonzero = (noxtls_bn_is_zero(G_mag, len) == 0) ? 1 : 0;
+        *G_negative = (uint8_t)((((Gneg_local ^ (f_negative != 0U)) != 0U) && (mag_nonzero != 0)) ? 1U : 0U);
+    }
     rc = NOXTLS_RETURN_SUCCESS;
 
-cleanup:
     if(q_buf != NULL) {
-        noxtls_free(q_buf);
+        (void)noxtls_free(q_buf);
     }
     if(inv_f != NULL) {
-        noxtls_free(inv_f);
+        (void)noxtls_free(inv_f);
     }
     if(prod != NULL) {
-        noxtls_free(prod);
+        (void)noxtls_free(prod);
     }
     if(g_abs != NULL) {
-        noxtls_free(g_abs);
+        (void)noxtls_free(g_abs);
     }
     if(g_term != NULL) {
-        noxtls_free(g_term);
+        (void)noxtls_free(g_term);
     }
     if(numerator != NULL) {
-        noxtls_free(numerator);
+        (void)noxtls_free(numerator);
     }
     if(numerator_abs != NULL) {
-        noxtls_free(numerator_abs);
+        (void)noxtls_free(numerator_abs);
     }
     return rc;
 }
@@ -6706,21 +9070,21 @@ static noxtls_return_t falcon_keygen_solve_ntru_base_i64(int64_t f,
                                                          int64_t *F,
                                                          int64_t *G)
 {
-    int64_t u;
-    int64_t v;
-    int64_t value;
+    int64_t u = 0;
+    int64_t v = 0;
+    int64_t value = 0;
 
-    if(F == NULL || G == NULL) {
+    if((F == NULL) || (G == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
-    if(!falcon_i64_xgcd(f, g, &u, &v) || (u == 0 && v == 0)) {
+    if((falcon_i64_xgcd(f, g, &u, &v) == 0) || (u == 0 && v == 0)) {
         return NOXTLS_RETURN_FAILED;
     }
-    if(!falcon_checked_mul_i64(-v, (int64_t)NOXTLS_FALCON_Q, &value)) {
+    if((falcon_checked_mul_i64(-v, (int64_t)NOXTLS_FALCON_Q, &value) == 0)) {
         return NOXTLS_RETURN_FAILED;
     }
     *F = value;
-    if(!falcon_checked_mul_i64(u, (int64_t)NOXTLS_FALCON_Q, &value)) {
+    if((falcon_checked_mul_i64(u, (int64_t)NOXTLS_FALCON_Q, &value) == 0)) {
         return NOXTLS_RETURN_FAILED;
     }
     *G = value;
@@ -6740,17 +9104,17 @@ static void falcon_poly_mul_xn1_i32x32(int32_t *out,
                                        const int32_t *b,
                                        uint16_t n)
 {
-    uint16_t i;
-    uint16_t j;
+    uint16_t i = 0U;
+    uint16_t j = 0U;
 
     if(out == NULL || a == NULL || b == NULL || n == 0U || n > NOXTLS_FALCON_MAX_N) {
         return;
     }
 
-    memset(out, 0, (size_t)n * sizeof(*out));
-    for(i = 0U; i < n; i++) {
+    noxtls_secure_zero((out), ((size_t)n * sizeof(*out)));
+    for(i = 0U; i < n; i += 1U) {
         int64_t ai = (int64_t)a[i];
-        for(j = 0U; j < n; j++) {
+        for(j = 0U; j < n; j += 1U) {
             uint16_t idx = (uint16_t)(i + j);
             int64_t term = ai * (int64_t)b[j];
             if(idx < n) {
@@ -6779,8 +9143,8 @@ static noxtls_return_t falcon_poly_mul_xn1_i32x32_checked(int32_t *out,
                                                           uint16_t n)
 {
     int64_t accum[NOXTLS_FALCON_MAX_N];
-    uint16_t i;
-    uint16_t j;
+    uint16_t i = 0U;
+    uint16_t j = 0U;
 
     if(out == NULL || a == NULL || b == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -6789,10 +9153,10 @@ static noxtls_return_t falcon_poly_mul_xn1_i32x32_checked(int32_t *out,
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    memset(accum, 0, sizeof(accum));
-    for(i = 0U; i < n; i++) {
+    noxtls_secure_zero((accum), sizeof(accum));
+    for(i = 0U; i < n; i += 1U) {
         int64_t ai = (int64_t)a[i];
-        for(j = 0U; j < n; j++) {
+        for(j = 0U; j < n; j += 1U) {
             uint16_t idx = (uint16_t)(i + j);
             int64_t term = ai * (int64_t)b[j];
             if(idx < n) {
@@ -6802,7 +9166,7 @@ static noxtls_return_t falcon_poly_mul_xn1_i32x32_checked(int32_t *out,
             }
         }
     }
-    for(i = 0U; i < n; i++) {
+    for(i = 0U; i < n; i += 1U) {
         if(accum[i] < (int64_t)INT32_MIN || accum[i] > (int64_t)INT32_MAX) {
             return NOXTLS_RETURN_FAILED;
         }
@@ -6824,17 +9188,17 @@ static void falcon_poly_mul_xn1_i32x32_i64(int64_t *out,
                                            const int32_t *b,
                                            uint16_t n)
 {
-    uint16_t i;
-    uint16_t j;
+    uint16_t i = 0U;
+    uint16_t j = 0U;
 
     if(out == NULL || a == NULL || b == NULL || n == 0U || n > NOXTLS_FALCON_MAX_N) {
         return;
     }
 
-    memset(out, 0, (size_t)n * sizeof(*out));
-    for(i = 0U; i < n; i++) {
+    noxtls_secure_zero((out), ((size_t)n * sizeof(*out)));
+    for(i = 0U; i < n; i += 1U) {
         int64_t ai = (int64_t)a[i];
-        for(j = 0U; j < n; j++) {
+        for(j = 0U; j < n; j += 1U) {
             uint16_t idx = (uint16_t)(i + j);
             int64_t term = ai * (int64_t)b[j];
             if(idx < n) {
@@ -6859,16 +9223,16 @@ noxtls_return_t noxtls_falcon_keygen_apply_negx(const int16_t *src,
                                                 uint16_t n,
                                                 int32_t *out)
 {
-    uint16_t i;
+    uint16_t i = 0U;
 
-    if(src == NULL || out == NULL) {
+    if((src == NULL) || (out == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
-    if(!falcon_is_supported_power_of_two(n)) {
+    if((falcon_is_supported_power_of_two(n) == 0)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    for(i = 0U; i < n; i++) {
+    for(i = 0U; i < n; i += 1U) {
         out[i] = ((i & 1U) != 0U) ? -(int32_t)src[i] : (int32_t)src[i];
     }
     return NOXTLS_RETURN_SUCCESS;
@@ -6887,20 +9251,20 @@ noxtls_return_t noxtls_falcon_keygen_lift_x2(const int32_t *src,
                                              uint16_t n,
                                              int32_t *out)
 {
-    uint16_t i;
-    uint16_t half;
+    uint16_t i = 0U;
+    uint16_t half = 0U;
 
-    if(src == NULL || out == NULL) {
+    if((src == NULL) || (out == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
-    if(!falcon_is_supported_power_of_two(n) || n < 2U) {
+    if((falcon_is_supported_power_of_two(n) == 0) || n < 2U) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    half = (uint16_t)(n >> 1);
-    memset(out, 0, (size_t)n * sizeof(*out));
-    for(i = 0U; i < half; i++) {
-        out[(uint16_t)(i << 1)] = src[i];
+    half = (uint16_t)(n >> 1U);
+    noxtls_secure_zero((out), ((size_t)n * sizeof(*out)));
+    for(i = 0U; i < half; i += 1U) {
+        out[(uint16_t)(i << 1U)] = src[i];
     }
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -6934,12 +9298,12 @@ noxtls_return_t noxtls_falcon_keygen_combine_from_child(const int16_t *f,
     int32_t Gp_lift[NOXTLS_FALCON_MAX_N];
     int32_t f_neg[NOXTLS_FALCON_MAX_N];
     int32_t g_neg[NOXTLS_FALCON_MAX_N];
-    noxtls_return_t rc;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(f == NULL || g == NULL || Fp == NULL || Gp == NULL || F == NULL || G == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(!falcon_is_supported_power_of_two(n) || n < 2U) {
+    if((falcon_is_supported_power_of_two(n) == 0) || n < 2U) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
@@ -6978,12 +9342,12 @@ static void falcon_poly_split_i32(const int32_t *src,
                                   int32_t *even,
                                   int32_t *odd)
 {
-    uint16_t i;
-    uint16_t half = (uint16_t)(n >> 1);
+    uint16_t i = 0U;
+    uint16_t half = (uint16_t)(n >> 1U);
 
-    for(i = 0U; i < half; i++) {
-        even[i] = src[(uint16_t)(i << 1)];
-        odd[i] = src[(uint16_t)((i << 1) + 1U)];
+    for(i = 0U; i < half; i += 1U) {
+        even[i] = src[(uint16_t)(i << 1U)];
+        odd[i] = src[(uint16_t)((i << 1U) + 1U)];
     }
 }
 
@@ -7003,20 +9367,20 @@ static noxtls_return_t falcon_keygen_field_norm_i32(const int32_t *src,
     int32_t odd[NOXTLS_FALCON_MAX_N];
     int32_t ee[NOXTLS_FALCON_MAX_N];
     int32_t oo[NOXTLS_FALCON_MAX_N];
-    uint16_t half;
-    uint16_t i;
+    uint16_t half = 0U;
+    uint16_t i = 0U;
 
-    if(!falcon_is_supported_power_of_two(n) || n < 2U) {
+    if((falcon_is_supported_power_of_two(n) == 0) || n < 2U) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    half = (uint16_t)(n >> 1);
+    half = (uint16_t)(n >> 1U);
     falcon_poly_split_i32(src, n, even, odd);
     falcon_poly_mul_xn1_i32x32(ee, even, even, half);
     falcon_poly_mul_xn1_i32x32(oo, odd, odd, half);
 
     norm[0] = ee[0] + oo[half - 1U];
-    for(i = 1U; i < half; i++) {
+    for(i = 1U; i < half; i += 1U) {
         norm[i] = ee[i] - oo[i - 1U];
     }
     return NOXTLS_RETURN_SUCCESS;
@@ -7033,9 +9397,9 @@ static void falcon_keygen_apply_negx_i32(const int32_t *src,
                                          uint16_t n,
                                          int32_t *out)
 {
-    uint16_t i;
+    uint16_t i = 0U;
 
-    for(i = 0U; i < n; i++) {
+    for(i = 0U; i < n; i += 1U) {
         out[i] = ((i & 1U) != 0U) ? -src[i] : src[i];
     }
 }
@@ -7051,12 +9415,12 @@ static void falcon_keygen_lift_x2_i32(const int32_t *src,
                                       uint16_t n,
                                       int32_t *out)
 {
-    uint16_t i;
-    uint16_t half = (uint16_t)(n >> 1);
+    uint16_t i = 0U;
+    uint16_t half = (uint16_t)(n >> 1U);
 
-    memset(out, 0, (size_t)n * sizeof(*out));
-    for(i = 0U; i < half; i++) {
-        out[(uint16_t)(i << 1)] = src[i];
+    noxtls_secure_zero((out), ((size_t)n * sizeof(*out)));
+    for(i = 0U; i < half; i += 1U) {
+        out[(uint16_t)(i << 1U)] = src[i];
     }
 }
 
@@ -7104,9 +9468,9 @@ static int32_t falcon_poly_maxabs_i32(const int32_t *poly,
                                       uint16_t n)
 {
     int32_t maxv = 0;
-    uint16_t i;
+    uint16_t i = 0U;
 
-    for(i = 0U; i < n; i++) {
+    for(i = 0U; i < n; i += 1U) {
         int32_t v = poly[i] < 0 ? -poly[i] : poly[i];
         if(v > maxv) {
             maxv = v;
@@ -7126,9 +9490,9 @@ static int64_t falcon_poly_maxabs_i64(const int64_t *poly,
                                       uint16_t n)
 {
     int64_t maxv = 0;
-    uint16_t i;
+    uint16_t i = 0U;
 
-    for(i = 0U; i < n; i++) {
+    for(i = 0U; i < n; i += 1U) {
         int64_t v = poly[i] < 0 ? -poly[i] : poly[i];
         if(v > maxv) {
             maxv = v;
@@ -7150,13 +9514,13 @@ static noxtls_return_t falcon_poly_cast_i64_to_i32_checked(const int64_t *src,
                                                            uint16_t n,
                                                            int32_t *dst)
 {
-    uint16_t i;
+    uint16_t i = 0U;
 
-    if(src == NULL || dst == NULL) {
+    if((src == NULL) || (dst == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
-    for(i = 0U; i < n; i++) {
+    for(i = 0U; i < n; i += 1U) {
         if(src[i] < (int64_t)INT32_MIN || src[i] > (int64_t)INT32_MAX) {
             return NOXTLS_RETURN_FAILED;
         }
@@ -7173,7 +9537,7 @@ static noxtls_return_t falcon_poly_cast_i64_to_i32_checked(const int64_t *src,
  */
 static uint64_t falcon_abs_i64_to_u64(int64_t x)
 {
-    return (x < 0) ? ((uint64_t)(-(x + 1)) + 1U) : (uint64_t)x;
+    return (x < 0) ? ((uint64_t)(-(x + 1U)) + 1U) : (uint64_t)x;
 }
 
 /**
@@ -7188,16 +9552,16 @@ static int falcon_checked_mul_i64(int64_t a,
                                   int64_t b,
                                   int64_t *out)
 {
-    uint64_t abs_a;
-    uint64_t abs_b;
-    uint64_t limit;
-    uint64_t prod;
-    int negative;
+    uint64_t abs_a = 0U;
+    uint64_t abs_b = 0U;
+    uint64_t limit = 0U;
+    uint64_t prod = 0U;
+    int negative = 0;
 
     if(out == NULL) {
         return 0;
     }
-    if(a == 0 || b == 0) {
+    if((a == 0) || (b == 0)) {
         *out = 0;
         return 1;
     }
@@ -7205,19 +9569,20 @@ static int falcon_checked_mul_i64(int64_t a,
     negative = ((a < 0) != (b < 0));
     abs_a = falcon_abs_i64_to_u64(a);
     abs_b = falcon_abs_i64_to_u64(b);
-    limit = negative ? (UINT64_C(1) << 63) : (uint64_t)INT64_MAX;
+    limit = negative ? (UINT64_C(1) << 63U) : (uint64_t)INT64_MAX;
     if(abs_a > (limit / abs_b)) {
         return 0;
     }
 
     prod = abs_a * abs_b;
-    if(negative) {
-        if(prod == (UINT64_C(1) << 63)) {
+    if(negative != 0) {
+        if(prod == (UINT64_C(1) << 63U)) {
             *out = INT64_MIN;
         } else {
             *out = -(int64_t)prod;
         }
     } else {
+        /* MISRA 15.7: final else path */
         *out = (int64_t)prod;
     }
     return 1;
@@ -7282,12 +9647,12 @@ static void falcon_poly_split_i64(const int64_t *src,
                                   int64_t *even,
                                   int64_t *odd)
 {
-    uint16_t i;
-    uint16_t half = (uint16_t)(n >> 1);
+    uint16_t i = 0U;
+    uint16_t half = (uint16_t)(n >> 1U);
 
-    for(i = 0U; i < half; i++) {
-        even[i] = src[(uint16_t)(i << 1)];
-        odd[i] = src[(uint16_t)((i << 1) + 1U)];
+    for(i = 0U; i < half; i += 1U) {
+        even[i] = src[(uint16_t)(i << 1U)];
+        odd[i] = src[(uint16_t)((i << 1U) + 1U)];
     }
 }
 
@@ -7307,8 +9672,8 @@ static noxtls_return_t falcon_poly_mul_xn1_i64x64_checked(int64_t *out,
                                                           const int64_t *b,
                                                           uint16_t n)
 {
-    uint16_t i;
-    uint16_t j;
+    uint16_t i = 0U;
+    uint16_t j = 0U;
 
     if(out == NULL || a == NULL || b == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -7317,21 +9682,22 @@ static noxtls_return_t falcon_poly_mul_xn1_i64x64_checked(int64_t *out,
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    memset(out, 0, (size_t)n * sizeof(*out));
-    for(i = 0U; i < n; i++) {
-        for(j = 0U; j < n; j++) {
+    noxtls_secure_zero((out), ((size_t)n * sizeof(*out)));
+    for(i = 0U; i < n; i += 1U) {
+        for(j = 0U; j < n; j += 1U) {
             uint16_t idx = (uint16_t)(i + j);
-            int64_t term;
+            int64_t term = 0;
 
-            if(!falcon_checked_mul_i64(a[i], b[j], &term)) {
+            if((falcon_checked_mul_i64(a[i], b[j], &term) == 0)) {
                 return NOXTLS_RETURN_FAILED;
             }
             if(idx < n) {
-                if(!falcon_checked_add_i64(out[idx], term, &out[idx])) {
+                if((falcon_checked_add_i64(out[idx], term, &out[idx]) == 0)) {
                     return NOXTLS_RETURN_FAILED;
                 }
             } else {
-                if(!falcon_checked_sub_i64(out[idx - n], term, &out[idx - n])) {
+                /* MISRA 15.7: final else path */
+                if((falcon_checked_sub_i64(out[idx - n], term, &out[idx - n]) == 0)) {
                     return NOXTLS_RETURN_FAILED;
                 }
             }
@@ -7355,28 +9721,29 @@ static noxtls_return_t falcon_poly_mul_xn1_i32x64_checked(int64_t *out,
                                                           const int64_t *b,
                                                           uint16_t n)
 {
-    uint16_t i;
-    uint16_t j;
+    uint16_t i = 0U;
+    uint16_t j = 0U;
 
     if(out == NULL || a == NULL || b == NULL || n == 0U || n > NOXTLS_FALCON_MAX_N) {
         return NOXTLS_RETURN_NULL;
     }
 
-    memset(out, 0, (size_t)n * sizeof(*out));
-    for(i = 0U; i < n; i++) {
-        for(j = 0U; j < n; j++) {
+    noxtls_secure_zero((out), ((size_t)n * sizeof(*out)));
+    for(i = 0U; i < n; i += 1U) {
+        for(j = 0U; j < n; j += 1U) {
             uint16_t idx = (uint16_t)(i + j);
-            int64_t term;
+            int64_t term = 0;
 
-            if(!falcon_checked_mul_i64((int64_t)a[i], b[j], &term)) {
+            if((falcon_checked_mul_i64((int64_t)a[i], b[j], &term) == 0)) {
                 return NOXTLS_RETURN_FAILED;
             }
             if(idx < n) {
-                if(!falcon_checked_add_i64(out[idx], term, &out[idx])) {
+                if((falcon_checked_add_i64(out[idx], term, &out[idx]) == 0)) {
                     return NOXTLS_RETURN_FAILED;
                 }
             } else {
-                if(!falcon_checked_sub_i64(out[idx - n], term, &out[idx - n])) {
+                /* MISRA 15.7: final else path */
+                if((falcon_checked_sub_i64(out[idx - n], term, &out[idx - n]) == 0)) {
                     return NOXTLS_RETURN_FAILED;
                 }
             }
@@ -7396,9 +9763,9 @@ static void falcon_keygen_apply_negx_i64(const int64_t *src,
                                          uint16_t n,
                                          int64_t *out)
 {
-    uint16_t i;
+    uint16_t i = 0U;
 
-    for(i = 0U; i < n; i++) {
+    for(i = 0U; i < n; i += 1U) {
         out[i] = ((i & 1U) != 0U) ? -src[i] : src[i];
     }
 }
@@ -7414,12 +9781,12 @@ static void falcon_keygen_lift_x2_i64(const int64_t *src,
                                       uint16_t n,
                                       int64_t *out)
 {
-    uint16_t i;
-    uint16_t half = (uint16_t)(n >> 1);
+    uint16_t i = 0U;
+    uint16_t half = (uint16_t)(n >> 1U);
 
-    memset(out, 0, (size_t)n * sizeof(*out));
-    for(i = 0U; i < half; i++) {
-        out[(uint16_t)(i << 1)] = src[i];
+    noxtls_secure_zero((out), ((size_t)n * sizeof(*out)));
+    for(i = 0U; i < half; i += 1U) {
+        out[(uint16_t)(i << 1U)] = src[i];
     }
 }
 
@@ -7440,18 +9807,18 @@ static noxtls_return_t falcon_keygen_field_norm_i64(const int64_t *src,
     int64_t odd[NOXTLS_FALCON_MAX_N];
     int64_t ee[NOXTLS_FALCON_MAX_N];
     int64_t oo[NOXTLS_FALCON_MAX_N];
-    uint16_t half;
-    uint16_t i;
-    noxtls_return_t rc;
+    uint16_t half = 0U;
+    uint16_t i = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(src == NULL || norm == NULL) {
+    if((src == NULL) || (norm == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
-    if(!falcon_is_supported_power_of_two(n) || n < 2U) {
+    if((falcon_is_supported_power_of_two(n) == 0) || n < 2U) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    half = (uint16_t)(n >> 1);
+    half = (uint16_t)(n >> 1U);
     falcon_poly_split_i64(src, n, even, odd);
     rc = falcon_poly_mul_xn1_i64x64_checked(ee, even, even, half);
     if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -7462,11 +9829,11 @@ static noxtls_return_t falcon_keygen_field_norm_i64(const int64_t *src,
         return rc;
     }
 
-    if(!falcon_checked_add_i64(ee[0], oo[half - 1U], &norm[0])) {
+    if((falcon_checked_add_i64(ee[0], oo[half - 1U], &norm[0]) == 0)) {
         return NOXTLS_RETURN_FAILED;
     }
-    for(i = 1U; i < half; i++) {
-        if(!falcon_checked_sub_i64(ee[i], oo[i - 1U], &norm[i])) {
+    for(i = 1U; i < half; i += 1U) {
+        if((falcon_checked_sub_i64(ee[i], oo[i - 1U], &norm[i]) == 0)) {
             return NOXTLS_RETURN_FAILED;
         }
     }
@@ -7498,7 +9865,7 @@ static noxtls_return_t falcon_keygen_combine_from_child_i64_full(const int64_t *
     int64_t Gp_lift[NOXTLS_FALCON_MAX_N];
     int64_t f_neg[NOXTLS_FALCON_MAX_N];
     int64_t g_neg[NOXTLS_FALCON_MAX_N];
-    noxtls_return_t rc;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     falcon_keygen_lift_x2_i64(Fp, n, Fp_lift);
     falcon_keygen_lift_x2_i64(Gp, n, Gp_lift);
@@ -7545,28 +9912,28 @@ static noxtls_return_t falcon_keygen_reduce_solution_i32(const int32_t *f,
     int32_t kg[NOXTLS_FALCON_MAX_N];
     int32_t F_try[NOXTLS_FALCON_MAX_N];
     int32_t G_try[NOXTLS_FALCON_MAX_N];
-    uint32_t iter;
-    uint16_t i;
+    uint32_t iter = 0U;
+    uint16_t i = 0U;
 
     if(f == NULL || g == NULL || F == NULL || G == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(n == 0U || (n != 1U && !falcon_is_supported_power_of_two(n)) || n > NOXTLS_FALCON_MAX_N) {
+    if(n == 0U || (n != 1U && (falcon_is_supported_power_of_two(n) == 0)) || n > NOXTLS_FALCON_MAX_N) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
     if(n == 1U) {
         return NOXTLS_RETURN_SUCCESS;
     }
 
-    for(iter = 0U; iter < 1024U; iter++) {
-        int32_t before;
+    for(iter = 0U; iter < 1024U; iter += 1U) {
+        int32_t before = 0;
         int any_nonzero = 0;
 
         before = falcon_poly_maxabs_i32(F, n);
         if(falcon_poly_maxabs_i32(G, n) > before) {
             before = falcon_poly_maxabs_i32(G, n);
         }
-        for(i = 0U; i < n; i++) {
+        for(i = 0U; i < n; i += 1U) {
             f_real[i] = (double)f[i];
             g_real[i] = (double)g[i];
             F_real[i] = (double)F[i];
@@ -7579,7 +9946,7 @@ static noxtls_return_t falcon_keygen_reduce_solution_i32(const int32_t *f,
             return NOXTLS_RETURN_INVALID_PARAM;
         }
 
-        for(i = 0U; i < n; i++) {
+        for(i = 0U; i < n; i += 1U) {
             noxtls_falcon_complex_t num = falcon_complex_add(
                 falcon_complex_mul(F_fft[i], falcon_complex_conj(f_fft[i])),
                 falcon_complex_mul(G_fft[i], falcon_complex_conj(g_fft[i])));
@@ -7595,37 +9962,37 @@ static noxtls_return_t falcon_keygen_reduce_solution_i32(const int32_t *f,
             return NOXTLS_RETURN_INVALID_PARAM;
         }
 
-        for(i = 0U; i < n; i++) {
+        for(i = 0U; i < n; i += 1U) {
             k_poly[i] = falcon_round_to_i32(k_real[i]);
             if(k_poly[i] != 0) {
                 any_nonzero = 1;
             }
         }
-        if(!any_nonzero) {
+        if(any_nonzero == 0) {
             return NOXTLS_RETURN_SUCCESS;
         }
 
         {
-            uint32_t shift;
+            uint32_t shift = 0U;
             int improved = 0;
 
-            for(shift = 0U; shift < 8U; shift++) {
+            for(shift = 0U; shift < 8U; shift += 1U) {
                 int step_nonzero = 0;
-                int32_t after;
+                int32_t after = 0;
 
-                for(i = 0U; i < n; i++) {
+                for(i = 0U; i < n; i += 1U) {
                     step_poly[i] = k_poly[i] / (int32_t)(1U << shift);
                     if(step_poly[i] != 0) {
                         step_nonzero = 1;
                     }
                 }
-                if(!step_nonzero) {
+                if(step_nonzero == 0) {
                     break;
                 }
 
                 falcon_poly_mul_xn1_i32x32(kf, step_poly, f, n);
                 falcon_poly_mul_xn1_i32x32(kg, step_poly, g, n);
-                for(i = 0U; i < n; i++) {
+                for(i = 0U; i < n; i += 1U) {
                     F_try[i] = F[i] - kf[i];
                     G_try[i] = G[i] - kg[i];
                 }
@@ -7635,14 +10002,14 @@ static noxtls_return_t falcon_keygen_reduce_solution_i32(const int32_t *f,
                     after = falcon_poly_maxabs_i32(G_try, n);
                 }
                 if(after < before) {
-                    memcpy(F, F_try, (size_t)n * sizeof(*F));
-                    memcpy(G, G_try, (size_t)n * sizeof(*G));
+                    (void)memcpy(F, F_try, (size_t)n * sizeof(*F));
+                    (void)memcpy(G, G_try, (size_t)n * sizeof(*G));
                     improved = 1;
                     break;
                 }
             }
 
-            if(!improved) {
+            if(improved == 0) {
                 return NOXTLS_RETURN_SUCCESS;
             }
         }
@@ -7693,13 +10060,13 @@ static noxtls_return_t falcon_keygen_reduce_solution_i64_to_i32(const int32_t *f
     int64_t kg[NOXTLS_FALCON_MAX_N];
     int64_t F_try[NOXTLS_FALCON_MAX_N];
     int64_t G_try[NOXTLS_FALCON_MAX_N];
-    uint32_t iter;
-    uint16_t i;
+    uint32_t iter = 0U;
+    uint16_t i = 0U;
 
     if(f == NULL || g == NULL || F64 == NULL || G64 == NULL || F == NULL || G == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(n == 0U || (n != 1U && !falcon_is_supported_power_of_two(n)) || n > NOXTLS_FALCON_MAX_N) {
+    if(n == 0U || (n != 1U && (falcon_is_supported_power_of_two(n) == 0)) || n > NOXTLS_FALCON_MAX_N) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
     if(n == 1U) {
@@ -7712,15 +10079,15 @@ static noxtls_return_t falcon_keygen_reduce_solution_i64_to_i32(const int32_t *f
         return NOXTLS_RETURN_SUCCESS;
     }
 
-    for(iter = 0U; iter < 1024U; iter++) {
-        int64_t before;
+    for(iter = 0U; iter < 1024U; iter += 1U) {
+        int64_t before = 0;
         int any_nonzero = 0;
 
         before = falcon_poly_maxabs_i64(F64, n);
         if(falcon_poly_maxabs_i64(G64, n) > before) {
             before = falcon_poly_maxabs_i64(G64, n);
         }
-        for(i = 0U; i < n; i++) {
+        for(i = 0U; i < n; i += 1U) {
             f_real[i] = (double)f[i];
             g_real[i] = (double)g[i];
             F_real[i] = (double)F64[i];
@@ -7732,7 +10099,7 @@ static noxtls_return_t falcon_keygen_reduce_solution_i64_to_i32(const int32_t *f
            falcon_poly_forward_fft_real(G_real, n, G_fft) != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_INVALID_PARAM;
         }
-        for(i = 0U; i < n; i++) {
+        for(i = 0U; i < n; i += 1U) {
             noxtls_falcon_complex_t num = falcon_complex_add(
                 falcon_complex_mul(F_fft[i], falcon_complex_conj(f_fft[i])),
                 falcon_complex_mul(G_fft[i], falcon_complex_conj(g_fft[i])));
@@ -7747,37 +10114,37 @@ static noxtls_return_t falcon_keygen_reduce_solution_i64_to_i32(const int32_t *f
         if(falcon_poly_inverse_fft_real(k_fft, n, k_real) != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_INVALID_PARAM;
         }
-        for(i = 0U; i < n; i++) {
+        for(i = 0U; i < n; i += 1U) {
             k_poly[i] = falcon_round_to_i32(k_real[i]);
             if(k_poly[i] != 0) {
                 any_nonzero = 1;
             }
         }
-        if(!any_nonzero) {
+        if(any_nonzero == 0) {
             break;
         }
 
         {
-            uint32_t shift;
+            uint32_t shift = 0U;
             int improved = 0;
 
-            for(shift = 0U; shift < 8U; shift++) {
+            for(shift = 0U; shift < 8U; shift += 1U) {
                 int step_nonzero = 0;
-                int64_t after;
+                int64_t after = 0;
 
-                for(i = 0U; i < n; i++) {
+                for(i = 0U; i < n; i += 1U) {
                     step_poly[i] = k_poly[i] / (int32_t)(1U << shift);
                     if(step_poly[i] != 0) {
                         step_nonzero = 1;
                     }
                 }
-                if(!step_nonzero) {
+                if(step_nonzero == 0) {
                     break;
                 }
 
                 falcon_poly_mul_xn1_i32x32_i64(kf, step_poly, f, n);
                 falcon_poly_mul_xn1_i32x32_i64(kg, step_poly, g, n);
-                for(i = 0U; i < n; i++) {
+                for(i = 0U; i < n; i += 1U) {
                     F_try[i] = F64[i] - kf[i];
                     G_try[i] = G64[i] - kg[i];
                 }
@@ -7787,14 +10154,14 @@ static noxtls_return_t falcon_keygen_reduce_solution_i64_to_i32(const int32_t *f
                     after = falcon_poly_maxabs_i64(G_try, n);
                 }
                 if(after < before) {
-                    memcpy(F64, F_try, (size_t)n * sizeof(*F64));
-                    memcpy(G64, G_try, (size_t)n * sizeof(*G64));
+                    (void)memcpy(F64, F_try, (size_t)n * sizeof(*F64));
+                    (void)memcpy(G64, G_try, (size_t)n * sizeof(*G64));
                     improved = 1;
                     break;
                 }
             }
 
-            if(!improved) {
+            if(improved == 0) {
                 break;
             }
         }
@@ -7803,7 +10170,7 @@ static noxtls_return_t falcon_keygen_reduce_solution_i64_to_i32(const int32_t *f
         }
     }
 
-    for(i = 0U; i < n; i++) {
+    for(i = 0U; i < n; i += 1U) {
         if(F64[i] < (int64_t)INT32_MIN || F64[i] > (int64_t)INT32_MAX ||
            G64[i] < (int64_t)INT32_MIN || G64[i] > (int64_t)INT32_MAX) {
             return NOXTLS_RETURN_FAILED;
@@ -7848,29 +10215,29 @@ static noxtls_return_t falcon_keygen_reduce_solution_i64(const int64_t *f,
     int64_t kg[NOXTLS_FALCON_MAX_N];
     int64_t F_try[NOXTLS_FALCON_MAX_N];
     int64_t G_try[NOXTLS_FALCON_MAX_N];
-    uint32_t iter;
-    uint16_t i;
+    uint32_t iter = 0U;
+    uint16_t i = 0U;
 
     if(f == NULL || g == NULL || F == NULL || G == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(n == 0U || (n != 1U && !falcon_is_supported_power_of_two(n)) || n > NOXTLS_FALCON_MAX_N) {
+    if(n == 0U || (n != 1U && (falcon_is_supported_power_of_two(n) == 0)) || n > NOXTLS_FALCON_MAX_N) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
     if(n == 1U) {
         return NOXTLS_RETURN_SUCCESS;
     }
 
-    for(iter = 0U; iter < 1024U; iter++) {
-        int64_t before;
+    for(iter = 0U; iter < 1024U; iter += 1U) {
+        int64_t before = 0;
         int any_nonzero = 0;
-        noxtls_return_t rc;
+        noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
         before = falcon_poly_maxabs_i64(F, n);
         if(falcon_poly_maxabs_i64(G, n) > before) {
             before = falcon_poly_maxabs_i64(G, n);
         }
-        for(i = 0U; i < n; i++) {
+        for(i = 0U; i < n; i += 1U) {
             f_real[i] = (double)f[i];
             g_real[i] = (double)g[i];
             F_real[i] = (double)F[i];
@@ -7882,7 +10249,7 @@ static noxtls_return_t falcon_keygen_reduce_solution_i64(const int64_t *f,
            falcon_poly_forward_fft_real(G_real, n, G_fft) != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_INVALID_PARAM;
         }
-        for(i = 0U; i < n; i++) {
+        for(i = 0U; i < n; i += 1U) {
             noxtls_falcon_complex_t num = falcon_complex_add(
                 falcon_complex_mul(F_fft[i], falcon_complex_conj(f_fft[i])),
                 falcon_complex_mul(G_fft[i], falcon_complex_conj(g_fft[i])));
@@ -7897,31 +10264,31 @@ static noxtls_return_t falcon_keygen_reduce_solution_i64(const int64_t *f,
         if(falcon_poly_inverse_fft_real(k_fft, n, k_real) != NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_INVALID_PARAM;
         }
-        for(i = 0U; i < n; i++) {
+        for(i = 0U; i < n; i += 1U) {
             k_poly[i] = falcon_round_to_i32(k_real[i]);
             if(k_poly[i] != 0) {
                 any_nonzero = 1;
             }
         }
-        if(!any_nonzero) {
+        if(any_nonzero == 0) {
             return NOXTLS_RETURN_SUCCESS;
         }
 
         {
-            uint32_t shift;
+            uint32_t shift = 0U;
             int improved = 0;
 
-            for(shift = 0U; shift < 8U; shift++) {
+            for(shift = 0U; shift < 8U; shift += 1U) {
                 int step_nonzero = 0;
-                int64_t after;
+                int64_t after = 0;
 
-                for(i = 0U; i < n; i++) {
+                for(i = 0U; i < n; i += 1U) {
                     step_poly[i] = k_poly[i] / (int32_t)(1U << shift);
                     if(step_poly[i] != 0) {
                         step_nonzero = 1;
                     }
                 }
-                if(!step_nonzero) {
+                if(step_nonzero == 0) {
                     break;
                 }
 
@@ -7933,9 +10300,9 @@ static noxtls_return_t falcon_keygen_reduce_solution_i64(const int64_t *f,
                 if(rc != NOXTLS_RETURN_SUCCESS) {
                     return rc;
                 }
-                for(i = 0U; i < n; i++) {
-                    if(!falcon_checked_sub_i64(F[i], kf[i], &F_try[i]) ||
-                       !falcon_checked_sub_i64(G[i], kg[i], &G_try[i])) {
+                for(i = 0U; i < n; i += 1U) {
+                    if((falcon_checked_sub_i64(F[i], kf[i], &F_try[i]) == 0) ||
+                       (falcon_checked_sub_i64(G[i], kg[i], &G_try[i]) == 0)) {
                         return NOXTLS_RETURN_FAILED;
                     }
                 }
@@ -7945,14 +10312,14 @@ static noxtls_return_t falcon_keygen_reduce_solution_i64(const int64_t *f,
                     after = falcon_poly_maxabs_i64(G_try, n);
                 }
                 if(after < before) {
-                    memcpy(F, F_try, (size_t)n * sizeof(*F));
-                    memcpy(G, G_try, (size_t)n * sizeof(*G));
+                    (void)memcpy(F, F_try, (size_t)n * sizeof(*F));
+                    (void)memcpy(G, G_try, (size_t)n * sizeof(*G));
                     improved = 1;
                     break;
                 }
             }
 
-            if(!improved) {
+            if(improved == 0) {
                 return NOXTLS_RETURN_SUCCESS;
             }
         }
@@ -7984,12 +10351,12 @@ static noxtls_return_t falcon_keygen_solve_ntru_reduced_i64(const int64_t *f,
     if(n == 1U) {
         return falcon_keygen_solve_ntru_base_i64(f[0], g[0], F, G);
     } else {
-        uint16_t half = (uint16_t)(n >> 1);
+        uint16_t half = (uint16_t)(n >> 1U);
         int64_t fp[NOXTLS_FALCON_MAX_N];
         int64_t gp[NOXTLS_FALCON_MAX_N];
         int64_t Fp[NOXTLS_FALCON_MAX_N];
         int64_t Gp[NOXTLS_FALCON_MAX_N];
-        noxtls_return_t rc;
+        noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
         rc = falcon_keygen_field_norm_i64(f, n, fp);
         if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -8055,88 +10422,280 @@ static noxtls_return_t falcon_keygen_reduce_solution_bn_to_i32(const int16_t *f,
     noxtls_falcon_complex_t k_fft[NOXTLS_FALCON_MAX_N];
     int64_t k_poly[NOXTLS_FALCON_MAX_N];
     int64_t step_poly[NOXTLS_FALCON_MAX_N];
-    uint8_t *f_mag;
-    uint8_t *g_mag;
-    uint8_t *f_negative;
-    uint8_t *g_negative;
-    uint8_t *k_mag;
-    uint8_t *k_negative;
-    uint8_t *kf_mag;
-    uint8_t *kg_mag;
-    uint8_t *kf_negative;
-    uint8_t *kg_negative;
-    uint8_t *F_try_mag;
-    uint8_t *G_try_mag;
-    uint8_t *F_try_negative;
-    uint8_t *G_try_negative;
-    uint8_t *before_max;
-    uint8_t *after_max;
-    uint32_t approx_shift_bits;
-    uint32_t iter;
-    uint16_t i;
+    uint8_t *f_mag = NULL;
+    uint8_t *g_mag = NULL;
+    uint8_t *f_negative = NULL;
+    uint8_t *g_negative = NULL;
+    uint8_t *k_mag = NULL;
+    uint8_t *k_negative = NULL;
+    uint8_t *kf_mag = NULL;
+    uint8_t *kg_mag = NULL;
+    uint8_t *kf_negative = NULL;
+    uint8_t *kg_negative = NULL;
+    uint8_t *F_try_mag = NULL;
+    uint8_t *G_try_mag = NULL;
+    uint8_t *F_try_negative = NULL;
+    uint8_t *G_try_negative = NULL;
+    uint8_t *before_max = NULL;
+    uint8_t *after_max = NULL;
+    uint32_t approx_shift_bits = 0U;
+    uint32_t iter = 0U;
+    uint16_t i = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(f == NULL || g == NULL || F_mag == NULL || F_negative == NULL ||
        G_mag == NULL || G_negative == NULL || F == NULL || G == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(n == 0U || !falcon_is_supported_power_of_two(n) || n > NOXTLS_FALCON_MAX_N || coeff_len < 4U) {
+    if(n == 0U || (falcon_is_supported_power_of_two(n) == 0) || n > NOXTLS_FALCON_MAX_N || coeff_len < 4U) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    f_mag = (uint8_t*)noxtls_calloc((size_t)n * 2U, 1U);
-    g_mag = (uint8_t*)noxtls_calloc((size_t)n * 2U, 1U);
-    f_negative = (uint8_t*)noxtls_calloc(n, 1U);
-    g_negative = (uint8_t*)noxtls_calloc(n, 1U);
-    k_mag = (uint8_t*)noxtls_calloc((size_t)n * coeff_len, 1U);
-    k_negative = (uint8_t*)noxtls_calloc(n, 1U);
-    kf_mag = (uint8_t*)noxtls_calloc((size_t)n * coeff_len, 1U);
-    kg_mag = (uint8_t*)noxtls_calloc((size_t)n * coeff_len, 1U);
-    kf_negative = (uint8_t*)noxtls_calloc(n, 1U);
-    kg_negative = (uint8_t*)noxtls_calloc(n, 1U);
-    F_try_mag = (uint8_t*)noxtls_calloc((size_t)n * coeff_len, 1U);
-    G_try_mag = (uint8_t*)noxtls_calloc((size_t)n * coeff_len, 1U);
-    F_try_negative = (uint8_t*)noxtls_calloc(n, 1U);
-    G_try_negative = (uint8_t*)noxtls_calloc(n, 1U);
-    before_max = (uint8_t*)noxtls_calloc(coeff_len, 1U);
-    after_max = (uint8_t*)noxtls_calloc(coeff_len, 1U);
+    f_mag = (uint8_t*)NOXTLS_CALLOC((size_t)n * 2U, 1U);
+    g_mag = (uint8_t*)NOXTLS_CALLOC((size_t)n * 2U, 1U);
+    f_negative = (uint8_t*)NOXTLS_CALLOC(n, 1U);
+    g_negative = (uint8_t*)NOXTLS_CALLOC(n, 1U);
+    k_mag = (uint8_t*)NOXTLS_CALLOC((size_t)n * coeff_len, 1U);
+    k_negative = (uint8_t*)NOXTLS_CALLOC(n, 1U);
+    kf_mag = (uint8_t*)NOXTLS_CALLOC((size_t)n * coeff_len, 1U);
+    kg_mag = (uint8_t*)NOXTLS_CALLOC((size_t)n * coeff_len, 1U);
+    kf_negative = (uint8_t*)NOXTLS_CALLOC(n, 1U);
+    kg_negative = (uint8_t*)NOXTLS_CALLOC(n, 1U);
+    F_try_mag = (uint8_t*)NOXTLS_CALLOC((size_t)n * coeff_len, 1U);
+    G_try_mag = (uint8_t*)NOXTLS_CALLOC((size_t)n * coeff_len, 1U);
+    F_try_negative = (uint8_t*)NOXTLS_CALLOC(n, 1U);
+    G_try_negative = (uint8_t*)NOXTLS_CALLOC(n, 1U);
+    before_max = (uint8_t*)NOXTLS_CALLOC(coeff_len, 1U);
+    after_max = (uint8_t*)NOXTLS_CALLOC(coeff_len, 1U);
     if(f_mag == NULL || g_mag == NULL || f_negative == NULL || g_negative == NULL ||
        k_mag == NULL || k_negative == NULL || kf_mag == NULL || kg_mag == NULL ||
        kf_negative == NULL || kg_negative == NULL || F_try_mag == NULL || G_try_mag == NULL ||
        F_try_negative == NULL || G_try_negative == NULL || before_max == NULL || after_max == NULL) {
-        goto cleanup;
+        if(f_mag != NULL) {
+        (void)noxtls_free(f_mag);
+        }
+        if(g_mag != NULL) {
+        (void)noxtls_free(g_mag);
+        }
+        if(f_negative != NULL) {
+        (void)noxtls_free(f_negative);
+        }
+        if(g_negative != NULL) {
+        (void)noxtls_free(g_negative);
+        }
+        if(k_mag != NULL) {
+        (void)noxtls_free(k_mag);
+        }
+        if(k_negative != NULL) {
+        (void)noxtls_free(k_negative);
+        }
+        if(kf_mag != NULL) {
+        (void)noxtls_free(kf_mag);
+        }
+        if(kg_mag != NULL) {
+        (void)noxtls_free(kg_mag);
+        }
+        if(kf_negative != NULL) {
+        (void)noxtls_free(kf_negative);
+        }
+        if(kg_negative != NULL) {
+        (void)noxtls_free(kg_negative);
+        }
+        if(F_try_mag != NULL) {
+        (void)noxtls_free(F_try_mag);
+        }
+        if(G_try_mag != NULL) {
+        (void)noxtls_free(G_try_mag);
+        }
+        if(F_try_negative != NULL) {
+        (void)noxtls_free(F_try_negative);
+        }
+        if(G_try_negative != NULL) {
+        (void)noxtls_free(G_try_negative);
+        }
+        if(before_max != NULL) {
+        (void)noxtls_free(before_max);
+        }
+        if(after_max != NULL) {
+        (void)noxtls_free(after_max);
+        }
+        return rc;
     }
 
     rc = falcon_bn_poly_from_i16(f, n, f_mag, f_negative, 2U);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_mag != NULL) {
+        (void)noxtls_free(f_mag);
+        }
+        if(g_mag != NULL) {
+        (void)noxtls_free(g_mag);
+        }
+        if(f_negative != NULL) {
+        (void)noxtls_free(f_negative);
+        }
+        if(g_negative != NULL) {
+        (void)noxtls_free(g_negative);
+        }
+        if(k_mag != NULL) {
+        (void)noxtls_free(k_mag);
+        }
+        if(k_negative != NULL) {
+        (void)noxtls_free(k_negative);
+        }
+        if(kf_mag != NULL) {
+        (void)noxtls_free(kf_mag);
+        }
+        if(kg_mag != NULL) {
+        (void)noxtls_free(kg_mag);
+        }
+        if(kf_negative != NULL) {
+        (void)noxtls_free(kf_negative);
+        }
+        if(kg_negative != NULL) {
+        (void)noxtls_free(kg_negative);
+        }
+        if(F_try_mag != NULL) {
+        (void)noxtls_free(F_try_mag);
+        }
+        if(G_try_mag != NULL) {
+        (void)noxtls_free(G_try_mag);
+        }
+        if(F_try_negative != NULL) {
+        (void)noxtls_free(F_try_negative);
+        }
+        if(G_try_negative != NULL) {
+        (void)noxtls_free(G_try_negative);
+        }
+        if(before_max != NULL) {
+        (void)noxtls_free(before_max);
+        }
+        if(after_max != NULL) {
+        (void)noxtls_free(after_max);
+        }
+        return rc;
     }
     rc = falcon_bn_poly_from_i16(g, n, g_mag, g_negative, 2U);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_mag != NULL) {
+        (void)noxtls_free(f_mag);
+        }
+        if(g_mag != NULL) {
+        (void)noxtls_free(g_mag);
+        }
+        if(f_negative != NULL) {
+        (void)noxtls_free(f_negative);
+        }
+        if(g_negative != NULL) {
+        (void)noxtls_free(g_negative);
+        }
+        if(k_mag != NULL) {
+        (void)noxtls_free(k_mag);
+        }
+        if(k_negative != NULL) {
+        (void)noxtls_free(k_negative);
+        }
+        if(kf_mag != NULL) {
+        (void)noxtls_free(kf_mag);
+        }
+        if(kg_mag != NULL) {
+        (void)noxtls_free(kg_mag);
+        }
+        if(kf_negative != NULL) {
+        (void)noxtls_free(kf_negative);
+        }
+        if(kg_negative != NULL) {
+        (void)noxtls_free(kg_negative);
+        }
+        if(F_try_mag != NULL) {
+        (void)noxtls_free(F_try_mag);
+        }
+        if(G_try_mag != NULL) {
+        (void)noxtls_free(G_try_mag);
+        }
+        if(F_try_negative != NULL) {
+        (void)noxtls_free(F_try_negative);
+        }
+        if(G_try_negative != NULL) {
+        (void)noxtls_free(G_try_negative);
+        }
+        if(before_max != NULL) {
+        (void)noxtls_free(before_max);
+        }
+        if(after_max != NULL) {
+        (void)noxtls_free(after_max);
+        }
+        return rc;
     }
 
-    for(iter = 0U; iter < 1024U; iter++) {
+    for(iter = 0U; iter < 1024U; iter += 1U) {
         int any_nonzero = 0;
-        uint64_t before_score;
+        uint64_t before_score = 0U;
 
         rc = falcon_bn_poly_pair_maxabs_copy(F_mag, G_mag, n, coeff_len, before_max);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            goto cleanup;
+            if(f_mag != NULL) {
+            (void)noxtls_free(f_mag);
+            }
+            if(g_mag != NULL) {
+            (void)noxtls_free(g_mag);
+            }
+            if(f_negative != NULL) {
+            (void)noxtls_free(f_negative);
+            }
+            if(g_negative != NULL) {
+            (void)noxtls_free(g_negative);
+            }
+            if(k_mag != NULL) {
+            (void)noxtls_free(k_mag);
+            }
+            if(k_negative != NULL) {
+            (void)noxtls_free(k_negative);
+            }
+            if(kf_mag != NULL) {
+            (void)noxtls_free(kf_mag);
+            }
+            if(kg_mag != NULL) {
+            (void)noxtls_free(kg_mag);
+            }
+            if(kf_negative != NULL) {
+            (void)noxtls_free(kf_negative);
+            }
+            if(kg_negative != NULL) {
+            (void)noxtls_free(kg_negative);
+            }
+            if(F_try_mag != NULL) {
+            (void)noxtls_free(F_try_mag);
+            }
+            if(G_try_mag != NULL) {
+            (void)noxtls_free(G_try_mag);
+            }
+            if(F_try_negative != NULL) {
+            (void)noxtls_free(F_try_negative);
+            }
+            if(G_try_negative != NULL) {
+            (void)noxtls_free(G_try_negative);
+            }
+            if(before_max != NULL) {
+            (void)noxtls_free(before_max);
+            }
+            if(after_max != NULL) {
+            (void)noxtls_free(after_max);
+            }
+            return rc;
         }
         approx_shift_bits = 0U;
         if(falcon_bn_bit_length(before_max, coeff_len) > 55u) {
             approx_shift_bits = (uint32_t)(falcon_bn_bit_length(before_max, coeff_len) - 55u);
         }
         before_score = falcon_bn_poly_pair_abs_score(F_mag, G_mag, n, coeff_len);
-        for(i = 0U; i < n; i++) {
+        for(i = 0U; i < n; i += 1U) {
             f_real[i] = (double)f[i];
             g_real[i] = (double)g[i];
-            F_real[i] = falcon_bn_signed_to_double_approx(F_mag + ((uint32_t)i * coeff_len),
+            F_real[i] = falcon_bn_signed_to_double_approx(&F_mag[((uint32_t)i * coeff_len)],
                                                           F_negative[i],
                                                           coeff_len,
                                                           approx_shift_bits);
-            G_real[i] = falcon_bn_signed_to_double_approx(G_mag + ((uint32_t)i * coeff_len),
+            G_real[i] = falcon_bn_signed_to_double_approx(&G_mag[((uint32_t)i * coeff_len)],
                                                           G_negative[i],
                                                           coeff_len,
                                                           approx_shift_bits);
@@ -8146,9 +10705,57 @@ static noxtls_return_t falcon_keygen_reduce_solution_bn_to_i32(const int16_t *f,
            falcon_poly_forward_fft_real(F_real, n, F_fft) != NOXTLS_RETURN_SUCCESS ||
            falcon_poly_forward_fft_real(G_real, n, G_fft) != NOXTLS_RETURN_SUCCESS) {
             rc = NOXTLS_RETURN_INVALID_PARAM;
-            goto cleanup;
+            if(f_mag != NULL) {
+            (void)noxtls_free(f_mag);
+            }
+            if(g_mag != NULL) {
+            (void)noxtls_free(g_mag);
+            }
+            if(f_negative != NULL) {
+            (void)noxtls_free(f_negative);
+            }
+            if(g_negative != NULL) {
+            (void)noxtls_free(g_negative);
+            }
+            if(k_mag != NULL) {
+            (void)noxtls_free(k_mag);
+            }
+            if(k_negative != NULL) {
+            (void)noxtls_free(k_negative);
+            }
+            if(kf_mag != NULL) {
+            (void)noxtls_free(kf_mag);
+            }
+            if(kg_mag != NULL) {
+            (void)noxtls_free(kg_mag);
+            }
+            if(kf_negative != NULL) {
+            (void)noxtls_free(kf_negative);
+            }
+            if(kg_negative != NULL) {
+            (void)noxtls_free(kg_negative);
+            }
+            if(F_try_mag != NULL) {
+            (void)noxtls_free(F_try_mag);
+            }
+            if(G_try_mag != NULL) {
+            (void)noxtls_free(G_try_mag);
+            }
+            if(F_try_negative != NULL) {
+            (void)noxtls_free(F_try_negative);
+            }
+            if(G_try_negative != NULL) {
+            (void)noxtls_free(G_try_negative);
+            }
+            if(before_max != NULL) {
+            (void)noxtls_free(before_max);
+            }
+            if(after_max != NULL) {
+            (void)noxtls_free(after_max);
+            }
+            return rc;
         }
-        for(i = 0U; i < n; i++) {
+        for(i = 0U; i < n; i += 1U) {
             noxtls_falcon_complex_t num = falcon_complex_add(
                 falcon_complex_mul(F_fft[i], falcon_complex_conj(f_fft[i])),
                 falcon_complex_mul(G_fft[i], falcon_complex_conj(g_fft[i])));
@@ -8156,45 +10763,189 @@ static noxtls_return_t falcon_keygen_reduce_solution_bn_to_i32(const int16_t *f,
 
             if(den <= 1e-18) {
                 rc = NOXTLS_RETURN_INVALID_PARAM;
-                goto cleanup;
+                if(f_mag != NULL) {
+                (void)noxtls_free(f_mag);
+                }
+                if(g_mag != NULL) {
+                (void)noxtls_free(g_mag);
+                }
+                if(f_negative != NULL) {
+                (void)noxtls_free(f_negative);
+                }
+                if(g_negative != NULL) {
+                (void)noxtls_free(g_negative);
+                }
+                if(k_mag != NULL) {
+                (void)noxtls_free(k_mag);
+                }
+                if(k_negative != NULL) {
+                (void)noxtls_free(k_negative);
+                }
+                if(kf_mag != NULL) {
+                (void)noxtls_free(kf_mag);
+                }
+                if(kg_mag != NULL) {
+                (void)noxtls_free(kg_mag);
+                }
+                if(kf_negative != NULL) {
+                (void)noxtls_free(kf_negative);
+                }
+                if(kg_negative != NULL) {
+                (void)noxtls_free(kg_negative);
+                }
+                if(F_try_mag != NULL) {
+                (void)noxtls_free(F_try_mag);
+                }
+                if(G_try_mag != NULL) {
+                (void)noxtls_free(G_try_mag);
+                }
+                if(F_try_negative != NULL) {
+                (void)noxtls_free(F_try_negative);
+                }
+                if(G_try_negative != NULL) {
+                (void)noxtls_free(G_try_negative);
+                }
+                if(before_max != NULL) {
+                (void)noxtls_free(before_max);
+                }
+                if(after_max != NULL) {
+                (void)noxtls_free(after_max);
+                }
+                return rc;
             }
             k_fft[i].re = num.re / den;
             k_fft[i].im = num.im / den;
         }
         if(falcon_poly_inverse_fft_real(k_fft, n, k_real) != NOXTLS_RETURN_SUCCESS) {
             rc = NOXTLS_RETURN_INVALID_PARAM;
-            goto cleanup;
+            if(f_mag != NULL) {
+            (void)noxtls_free(f_mag);
+            }
+            if(g_mag != NULL) {
+            (void)noxtls_free(g_mag);
+            }
+            if(f_negative != NULL) {
+            (void)noxtls_free(f_negative);
+            }
+            if(g_negative != NULL) {
+            (void)noxtls_free(g_negative);
+            }
+            if(k_mag != NULL) {
+            (void)noxtls_free(k_mag);
+            }
+            if(k_negative != NULL) {
+            (void)noxtls_free(k_negative);
+            }
+            if(kf_mag != NULL) {
+            (void)noxtls_free(kf_mag);
+            }
+            if(kg_mag != NULL) {
+            (void)noxtls_free(kg_mag);
+            }
+            if(kf_negative != NULL) {
+            (void)noxtls_free(kf_negative);
+            }
+            if(kg_negative != NULL) {
+            (void)noxtls_free(kg_negative);
+            }
+            if(F_try_mag != NULL) {
+            (void)noxtls_free(F_try_mag);
+            }
+            if(G_try_mag != NULL) {
+            (void)noxtls_free(G_try_mag);
+            }
+            if(F_try_negative != NULL) {
+            (void)noxtls_free(F_try_negative);
+            }
+            if(G_try_negative != NULL) {
+            (void)noxtls_free(G_try_negative);
+            }
+            if(before_max != NULL) {
+            (void)noxtls_free(before_max);
+            }
+            if(after_max != NULL) {
+            (void)noxtls_free(after_max);
+            }
+            return rc;
         }
-        for(i = 0U; i < n; i++) {
+        for(i = 0U; i < n; i += 1U) {
             double rounded = nearbyint(k_real[i]);
 
             if(rounded < (double)INT64_MIN || rounded > (double)INT64_MAX) {
                 rc = NOXTLS_RETURN_FAILED;
-                goto cleanup;
+                if(f_mag != NULL) {
+                (void)noxtls_free(f_mag);
+                }
+                if(g_mag != NULL) {
+                (void)noxtls_free(g_mag);
+                }
+                if(f_negative != NULL) {
+                (void)noxtls_free(f_negative);
+                }
+                if(g_negative != NULL) {
+                (void)noxtls_free(g_negative);
+                }
+                if(k_mag != NULL) {
+                (void)noxtls_free(k_mag);
+                }
+                if(k_negative != NULL) {
+                (void)noxtls_free(k_negative);
+                }
+                if(kf_mag != NULL) {
+                (void)noxtls_free(kf_mag);
+                }
+                if(kg_mag != NULL) {
+                (void)noxtls_free(kg_mag);
+                }
+                if(kf_negative != NULL) {
+                (void)noxtls_free(kf_negative);
+                }
+                if(kg_negative != NULL) {
+                (void)noxtls_free(kg_negative);
+                }
+                if(F_try_mag != NULL) {
+                (void)noxtls_free(F_try_mag);
+                }
+                if(G_try_mag != NULL) {
+                (void)noxtls_free(G_try_mag);
+                }
+                if(F_try_negative != NULL) {
+                (void)noxtls_free(F_try_negative);
+                }
+                if(G_try_negative != NULL) {
+                (void)noxtls_free(G_try_negative);
+                }
+                if(before_max != NULL) {
+                (void)noxtls_free(before_max);
+                }
+                if(after_max != NULL) {
+                (void)noxtls_free(after_max);
+                }
+                return rc;
             }
             k_poly[i] = (int64_t)rounded;
             if(k_poly[i] != 0) {
                 any_nonzero = 1;
             }
         }
-        if(!any_nonzero) {
+        if(any_nonzero == 0) {
             break;
         }
 
         {
-            uint32_t shift;
+            uint32_t shift = 0U;
             int improved = 0;
 
-            for(shift = 0U; shift < 16U; shift++) {
+            for(shift = 0U; shift < 16U; shift += 1U) {
                 int step_nonzero = 0;
 
-                for(i = 0U; i < n; i++) {
+                for(i = 0U; i < n; i += 1U) {
                     step_poly[i] = k_poly[i] / (int64_t)(1U << shift);
                     if(step_poly[i] != 0) {
                         step_nonzero = 1;
                     }
                 }
-                if(!step_nonzero) {
+                if(step_nonzero == 0) {
                     break;
                 }
 
@@ -8205,7 +10956,55 @@ static noxtls_return_t falcon_keygen_reduce_solution_bn_to_i32(const int16_t *f,
                                                      coeff_len,
                                                      approx_shift_bits);
                 if(rc != NOXTLS_RETURN_SUCCESS) {
-                    goto cleanup;
+                    if(f_mag != NULL) {
+                    (void)noxtls_free(f_mag);
+                    }
+                    if(g_mag != NULL) {
+                    (void)noxtls_free(g_mag);
+                    }
+                    if(f_negative != NULL) {
+                    (void)noxtls_free(f_negative);
+                    }
+                    if(g_negative != NULL) {
+                    (void)noxtls_free(g_negative);
+                    }
+                    if(k_mag != NULL) {
+                    (void)noxtls_free(k_mag);
+                    }
+                    if(k_negative != NULL) {
+                    (void)noxtls_free(k_negative);
+                    }
+                    if(kf_mag != NULL) {
+                    (void)noxtls_free(kf_mag);
+                    }
+                    if(kg_mag != NULL) {
+                    (void)noxtls_free(kg_mag);
+                    }
+                    if(kf_negative != NULL) {
+                    (void)noxtls_free(kf_negative);
+                    }
+                    if(kg_negative != NULL) {
+                    (void)noxtls_free(kg_negative);
+                    }
+                    if(F_try_mag != NULL) {
+                    (void)noxtls_free(F_try_mag);
+                    }
+                    if(G_try_mag != NULL) {
+                    (void)noxtls_free(G_try_mag);
+                    }
+                    if(F_try_negative != NULL) {
+                    (void)noxtls_free(F_try_negative);
+                    }
+                    if(G_try_negative != NULL) {
+                    (void)noxtls_free(G_try_negative);
+                    }
+                    if(before_max != NULL) {
+                    (void)noxtls_free(before_max);
+                    }
+                    if(after_max != NULL) {
+                    (void)noxtls_free(after_max);
+                    }
+                    return rc;
                 }
                 rc = falcon_bn_poly_mul_xn1_signed_to_len(k_mag,
                                                           k_negative,
@@ -8218,7 +11017,55 @@ static noxtls_return_t falcon_keygen_reduce_solution_bn_to_i32(const int16_t *f,
                                                           kf_negative,
                                                           coeff_len);
                 if(rc != NOXTLS_RETURN_SUCCESS) {
-                    goto cleanup;
+                    if(f_mag != NULL) {
+                    (void)noxtls_free(f_mag);
+                    }
+                    if(g_mag != NULL) {
+                    (void)noxtls_free(g_mag);
+                    }
+                    if(f_negative != NULL) {
+                    (void)noxtls_free(f_negative);
+                    }
+                    if(g_negative != NULL) {
+                    (void)noxtls_free(g_negative);
+                    }
+                    if(k_mag != NULL) {
+                    (void)noxtls_free(k_mag);
+                    }
+                    if(k_negative != NULL) {
+                    (void)noxtls_free(k_negative);
+                    }
+                    if(kf_mag != NULL) {
+                    (void)noxtls_free(kf_mag);
+                    }
+                    if(kg_mag != NULL) {
+                    (void)noxtls_free(kg_mag);
+                    }
+                    if(kf_negative != NULL) {
+                    (void)noxtls_free(kf_negative);
+                    }
+                    if(kg_negative != NULL) {
+                    (void)noxtls_free(kg_negative);
+                    }
+                    if(F_try_mag != NULL) {
+                    (void)noxtls_free(F_try_mag);
+                    }
+                    if(G_try_mag != NULL) {
+                    (void)noxtls_free(G_try_mag);
+                    }
+                    if(F_try_negative != NULL) {
+                    (void)noxtls_free(F_try_negative);
+                    }
+                    if(G_try_negative != NULL) {
+                    (void)noxtls_free(G_try_negative);
+                    }
+                    if(before_max != NULL) {
+                    (void)noxtls_free(before_max);
+                    }
+                    if(after_max != NULL) {
+                    (void)noxtls_free(after_max);
+                    }
+                    return rc;
                 }
                 rc = falcon_bn_poly_mul_xn1_signed_to_len(k_mag,
                                                           k_negative,
@@ -8231,37 +11078,229 @@ static noxtls_return_t falcon_keygen_reduce_solution_bn_to_i32(const int16_t *f,
                                                           kg_negative,
                                                           coeff_len);
                 if(rc != NOXTLS_RETURN_SUCCESS) {
-                    goto cleanup;
+                    if(f_mag != NULL) {
+                    (void)noxtls_free(f_mag);
+                    }
+                    if(g_mag != NULL) {
+                    (void)noxtls_free(g_mag);
+                    }
+                    if(f_negative != NULL) {
+                    (void)noxtls_free(f_negative);
+                    }
+                    if(g_negative != NULL) {
+                    (void)noxtls_free(g_negative);
+                    }
+                    if(k_mag != NULL) {
+                    (void)noxtls_free(k_mag);
+                    }
+                    if(k_negative != NULL) {
+                    (void)noxtls_free(k_negative);
+                    }
+                    if(kf_mag != NULL) {
+                    (void)noxtls_free(kf_mag);
+                    }
+                    if(kg_mag != NULL) {
+                    (void)noxtls_free(kg_mag);
+                    }
+                    if(kf_negative != NULL) {
+                    (void)noxtls_free(kf_negative);
+                    }
+                    if(kg_negative != NULL) {
+                    (void)noxtls_free(kg_negative);
+                    }
+                    if(F_try_mag != NULL) {
+                    (void)noxtls_free(F_try_mag);
+                    }
+                    if(G_try_mag != NULL) {
+                    (void)noxtls_free(G_try_mag);
+                    }
+                    if(F_try_negative != NULL) {
+                    (void)noxtls_free(F_try_negative);
+                    }
+                    if(G_try_negative != NULL) {
+                    (void)noxtls_free(G_try_negative);
+                    }
+                    if(before_max != NULL) {
+                    (void)noxtls_free(before_max);
+                    }
+                    if(after_max != NULL) {
+                    (void)noxtls_free(after_max);
+                    }
+                    return rc;
                 }
-                for(i = 0U; i < n; i++) {
-                    rc = falcon_bn_signed_add_to_len(F_mag + ((uint32_t)i * coeff_len),
+                for(i = 0U; i < n; i += 1U) {
+                    rc = falcon_bn_signed_add_to_len(&F_mag[((uint32_t)i * coeff_len)],
                                                      F_negative[i],
                                                      coeff_len,
-                                                     kf_mag + ((uint32_t)i * coeff_len),
+                                                     &kf_mag[((uint32_t)i * coeff_len)],
                                                      (uint8_t)(kf_negative[i] == 0U),
                                                      coeff_len,
-                                                     F_try_mag + ((uint32_t)i * coeff_len),
+                                                     &F_try_mag[((uint32_t)i * coeff_len)],
                                                      &F_try_negative[i],
                                                      coeff_len);
                     if(rc != NOXTLS_RETURN_SUCCESS) {
-                        goto cleanup;
+                        if(f_mag != NULL) {
+                        (void)noxtls_free(f_mag);
+                        }
+                        if(g_mag != NULL) {
+                        (void)noxtls_free(g_mag);
+                        }
+                        if(f_negative != NULL) {
+                        (void)noxtls_free(f_negative);
+                        }
+                        if(g_negative != NULL) {
+                        (void)noxtls_free(g_negative);
+                        }
+                        if(k_mag != NULL) {
+                        (void)noxtls_free(k_mag);
+                        }
+                        if(k_negative != NULL) {
+                        (void)noxtls_free(k_negative);
+                        }
+                        if(kf_mag != NULL) {
+                        (void)noxtls_free(kf_mag);
+                        }
+                        if(kg_mag != NULL) {
+                        (void)noxtls_free(kg_mag);
+                        }
+                        if(kf_negative != NULL) {
+                        (void)noxtls_free(kf_negative);
+                        }
+                        if(kg_negative != NULL) {
+                        (void)noxtls_free(kg_negative);
+                        }
+                        if(F_try_mag != NULL) {
+                        (void)noxtls_free(F_try_mag);
+                        }
+                        if(G_try_mag != NULL) {
+                        (void)noxtls_free(G_try_mag);
+                        }
+                        if(F_try_negative != NULL) {
+                        (void)noxtls_free(F_try_negative);
+                        }
+                        if(G_try_negative != NULL) {
+                        (void)noxtls_free(G_try_negative);
+                        }
+                        if(before_max != NULL) {
+                        (void)noxtls_free(before_max);
+                        }
+                        if(after_max != NULL) {
+                        (void)noxtls_free(after_max);
+                        }
+                        return rc;
                     }
-                    rc = falcon_bn_signed_add_to_len(G_mag + ((uint32_t)i * coeff_len),
+                    rc = falcon_bn_signed_add_to_len(&G_mag[((uint32_t)i * coeff_len)],
                                                      G_negative[i],
                                                      coeff_len,
-                                                     kg_mag + ((uint32_t)i * coeff_len),
+                                                     &kg_mag[((uint32_t)i * coeff_len)],
                                                      (uint8_t)(kg_negative[i] == 0U),
                                                      coeff_len,
-                                                     G_try_mag + ((uint32_t)i * coeff_len),
+                                                     &G_try_mag[((uint32_t)i * coeff_len)],
                                                      &G_try_negative[i],
                                                      coeff_len);
                     if(rc != NOXTLS_RETURN_SUCCESS) {
-                        goto cleanup;
+                        if(f_mag != NULL) {
+                        (void)noxtls_free(f_mag);
+                        }
+                        if(g_mag != NULL) {
+                        (void)noxtls_free(g_mag);
+                        }
+                        if(f_negative != NULL) {
+                        (void)noxtls_free(f_negative);
+                        }
+                        if(g_negative != NULL) {
+                        (void)noxtls_free(g_negative);
+                        }
+                        if(k_mag != NULL) {
+                        (void)noxtls_free(k_mag);
+                        }
+                        if(k_negative != NULL) {
+                        (void)noxtls_free(k_negative);
+                        }
+                        if(kf_mag != NULL) {
+                        (void)noxtls_free(kf_mag);
+                        }
+                        if(kg_mag != NULL) {
+                        (void)noxtls_free(kg_mag);
+                        }
+                        if(kf_negative != NULL) {
+                        (void)noxtls_free(kf_negative);
+                        }
+                        if(kg_negative != NULL) {
+                        (void)noxtls_free(kg_negative);
+                        }
+                        if(F_try_mag != NULL) {
+                        (void)noxtls_free(F_try_mag);
+                        }
+                        if(G_try_mag != NULL) {
+                        (void)noxtls_free(G_try_mag);
+                        }
+                        if(F_try_negative != NULL) {
+                        (void)noxtls_free(F_try_negative);
+                        }
+                        if(G_try_negative != NULL) {
+                        (void)noxtls_free(G_try_negative);
+                        }
+                        if(before_max != NULL) {
+                        (void)noxtls_free(before_max);
+                        }
+                        if(after_max != NULL) {
+                        (void)noxtls_free(after_max);
+                        }
+                        return rc;
                     }
                 }
                 rc = falcon_bn_poly_pair_maxabs_copy(F_try_mag, G_try_mag, n, coeff_len, after_max);
                 if(rc != NOXTLS_RETURN_SUCCESS) {
-                    goto cleanup;
+                    if(f_mag != NULL) {
+                    (void)noxtls_free(f_mag);
+                    }
+                    if(g_mag != NULL) {
+                    (void)noxtls_free(g_mag);
+                    }
+                    if(f_negative != NULL) {
+                    (void)noxtls_free(f_negative);
+                    }
+                    if(g_negative != NULL) {
+                    (void)noxtls_free(g_negative);
+                    }
+                    if(k_mag != NULL) {
+                    (void)noxtls_free(k_mag);
+                    }
+                    if(k_negative != NULL) {
+                    (void)noxtls_free(k_negative);
+                    }
+                    if(kf_mag != NULL) {
+                    (void)noxtls_free(kf_mag);
+                    }
+                    if(kg_mag != NULL) {
+                    (void)noxtls_free(kg_mag);
+                    }
+                    if(kf_negative != NULL) {
+                    (void)noxtls_free(kf_negative);
+                    }
+                    if(kg_negative != NULL) {
+                    (void)noxtls_free(kg_negative);
+                    }
+                    if(F_try_mag != NULL) {
+                    (void)noxtls_free(F_try_mag);
+                    }
+                    if(G_try_mag != NULL) {
+                    (void)noxtls_free(G_try_mag);
+                    }
+                    if(F_try_negative != NULL) {
+                    (void)noxtls_free(F_try_negative);
+                    }
+                    if(G_try_negative != NULL) {
+                    (void)noxtls_free(G_try_negative);
+                    }
+                    if(before_max != NULL) {
+                    (void)noxtls_free(before_max);
+                    }
+                    if(after_max != NULL) {
+                    (void)noxtls_free(after_max);
+                    }
+                    return rc;
                 }
                 {
                     int cmp = noxtls_bn_cmp(after_max, before_max, coeff_len);
@@ -8270,21 +11309,117 @@ static noxtls_return_t falcon_keygen_reduce_solution_bn_to_i32(const int16_t *f,
                     if(cmp < 0 || (cmp == 0 && after_score < before_score)) {
                         rc = noxtls_bn_copy(F_mag, F_try_mag, (uint32_t)n * coeff_len);
                         if(rc != NOXTLS_RETURN_SUCCESS) {
-                            goto cleanup;
+                            if(f_mag != NULL) {
+                            (void)noxtls_free(f_mag);
+                            }
+                            if(g_mag != NULL) {
+                            (void)noxtls_free(g_mag);
+                            }
+                            if(f_negative != NULL) {
+                            (void)noxtls_free(f_negative);
+                            }
+                            if(g_negative != NULL) {
+                            (void)noxtls_free(g_negative);
+                            }
+                            if(k_mag != NULL) {
+                            (void)noxtls_free(k_mag);
+                            }
+                            if(k_negative != NULL) {
+                            (void)noxtls_free(k_negative);
+                            }
+                            if(kf_mag != NULL) {
+                            (void)noxtls_free(kf_mag);
+                            }
+                            if(kg_mag != NULL) {
+                            (void)noxtls_free(kg_mag);
+                            }
+                            if(kf_negative != NULL) {
+                            (void)noxtls_free(kf_negative);
+                            }
+                            if(kg_negative != NULL) {
+                            (void)noxtls_free(kg_negative);
+                            }
+                            if(F_try_mag != NULL) {
+                            (void)noxtls_free(F_try_mag);
+                            }
+                            if(G_try_mag != NULL) {
+                            (void)noxtls_free(G_try_mag);
+                            }
+                            if(F_try_negative != NULL) {
+                            (void)noxtls_free(F_try_negative);
+                            }
+                            if(G_try_negative != NULL) {
+                            (void)noxtls_free(G_try_negative);
+                            }
+                            if(before_max != NULL) {
+                            (void)noxtls_free(before_max);
+                            }
+                            if(after_max != NULL) {
+                            (void)noxtls_free(after_max);
+                            }
+                            return rc;
                         }
                         rc = noxtls_bn_copy(G_mag, G_try_mag, (uint32_t)n * coeff_len);
                         if(rc != NOXTLS_RETURN_SUCCESS) {
-                            goto cleanup;
+                            if(f_mag != NULL) {
+                            (void)noxtls_free(f_mag);
+                            }
+                            if(g_mag != NULL) {
+                            (void)noxtls_free(g_mag);
+                            }
+                            if(f_negative != NULL) {
+                            (void)noxtls_free(f_negative);
+                            }
+                            if(g_negative != NULL) {
+                            (void)noxtls_free(g_negative);
+                            }
+                            if(k_mag != NULL) {
+                            (void)noxtls_free(k_mag);
+                            }
+                            if(k_negative != NULL) {
+                            (void)noxtls_free(k_negative);
+                            }
+                            if(kf_mag != NULL) {
+                            (void)noxtls_free(kf_mag);
+                            }
+                            if(kg_mag != NULL) {
+                            (void)noxtls_free(kg_mag);
+                            }
+                            if(kf_negative != NULL) {
+                            (void)noxtls_free(kf_negative);
+                            }
+                            if(kg_negative != NULL) {
+                            (void)noxtls_free(kg_negative);
+                            }
+                            if(F_try_mag != NULL) {
+                            (void)noxtls_free(F_try_mag);
+                            }
+                            if(G_try_mag != NULL) {
+                            (void)noxtls_free(G_try_mag);
+                            }
+                            if(F_try_negative != NULL) {
+                            (void)noxtls_free(F_try_negative);
+                            }
+                            if(G_try_negative != NULL) {
+                            (void)noxtls_free(G_try_negative);
+                            }
+                            if(before_max != NULL) {
+                            (void)noxtls_free(before_max);
+                            }
+                            if(after_max != NULL) {
+                            (void)noxtls_free(after_max);
+                            }
+                            return rc;
                         }
-                        memcpy(F_negative, F_try_negative, n);
-                        memcpy(G_negative, G_try_negative, n);
+                        (void)memcpy(F_negative, F_try_negative, (size_t)(n));
+                        (void)memcpy(G_negative, G_try_negative, (size_t)(n));
                         improved = 1;
                         break;
                     }
                 }
             }
 
-            if(!improved) {
+            if(improved == 0) {
                 break;
             }
         }
@@ -8292,58 +11427,105 @@ static noxtls_return_t falcon_keygen_reduce_solution_bn_to_i32(const int16_t *f,
 
     rc = falcon_bn_poly_to_i32_checked(F_mag, F_negative, n, coeff_len, F);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(f_mag != NULL) {
+        (void)noxtls_free(f_mag);
+        }
+        if(g_mag != NULL) {
+        (void)noxtls_free(g_mag);
+        }
+        if(f_negative != NULL) {
+        (void)noxtls_free(f_negative);
+        }
+        if(g_negative != NULL) {
+        (void)noxtls_free(g_negative);
+        }
+        if(k_mag != NULL) {
+        (void)noxtls_free(k_mag);
+        }
+        if(k_negative != NULL) {
+        (void)noxtls_free(k_negative);
+        }
+        if(kf_mag != NULL) {
+        (void)noxtls_free(kf_mag);
+        }
+        if(kg_mag != NULL) {
+        (void)noxtls_free(kg_mag);
+        }
+        if(kf_negative != NULL) {
+        (void)noxtls_free(kf_negative);
+        }
+        if(kg_negative != NULL) {
+        (void)noxtls_free(kg_negative);
+        }
+        if(F_try_mag != NULL) {
+        (void)noxtls_free(F_try_mag);
+        }
+        if(G_try_mag != NULL) {
+        (void)noxtls_free(G_try_mag);
+        }
+        if(F_try_negative != NULL) {
+        (void)noxtls_free(F_try_negative);
+        }
+        if(G_try_negative != NULL) {
+        (void)noxtls_free(G_try_negative);
+        }
+        if(before_max != NULL) {
+        (void)noxtls_free(before_max);
+        }
+        if(after_max != NULL) {
+        (void)noxtls_free(after_max);
+        }
+        return rc;
     }
     rc = falcon_bn_poly_to_i32_checked(G_mag, G_negative, n, coeff_len, G);
 
-cleanup:
     if(f_mag != NULL) {
-        noxtls_free(f_mag);
+        (void)noxtls_free(f_mag);
     }
     if(g_mag != NULL) {
-        noxtls_free(g_mag);
+        (void)noxtls_free(g_mag);
     }
     if(f_negative != NULL) {
-        noxtls_free(f_negative);
+        (void)noxtls_free(f_negative);
     }
     if(g_negative != NULL) {
-        noxtls_free(g_negative);
+        (void)noxtls_free(g_negative);
     }
     if(k_mag != NULL) {
-        noxtls_free(k_mag);
+        (void)noxtls_free(k_mag);
     }
     if(k_negative != NULL) {
-        noxtls_free(k_negative);
+        (void)noxtls_free(k_negative);
     }
     if(kf_mag != NULL) {
-        noxtls_free(kf_mag);
+        (void)noxtls_free(kf_mag);
     }
     if(kg_mag != NULL) {
-        noxtls_free(kg_mag);
+        (void)noxtls_free(kg_mag);
     }
     if(kf_negative != NULL) {
-        noxtls_free(kf_negative);
+        (void)noxtls_free(kf_negative);
     }
     if(kg_negative != NULL) {
-        noxtls_free(kg_negative);
+        (void)noxtls_free(kg_negative);
     }
     if(F_try_mag != NULL) {
-        noxtls_free(F_try_mag);
+        (void)noxtls_free(F_try_mag);
     }
     if(G_try_mag != NULL) {
-        noxtls_free(G_try_mag);
+        (void)noxtls_free(G_try_mag);
     }
     if(F_try_negative != NULL) {
-        noxtls_free(F_try_negative);
+        (void)noxtls_free(F_try_negative);
     }
     if(G_try_negative != NULL) {
-        noxtls_free(G_try_negative);
+        (void)noxtls_free(G_try_negative);
     }
     if(before_max != NULL) {
-        noxtls_free(before_max);
+        (void)noxtls_free(before_max);
     }
     if(after_max != NULL) {
-        noxtls_free(after_max);
+        (void)noxtls_free(after_max);
     }
     return rc;
 }
@@ -8367,12 +11549,12 @@ static noxtls_return_t falcon_keygen_solve_ntru_exact_small_i32(const int32_t *f
     if(n == 1U) {
         return noxtls_falcon_keygen_solve_ntru_base(f[0], g[0], F, G);
     } else {
-        uint16_t half = (uint16_t)(n >> 1);
+        uint16_t half = (uint16_t)(n >> 1U);
         int32_t fp[NOXTLS_FALCON_MAX_N];
         int32_t gp[NOXTLS_FALCON_MAX_N];
         int32_t Fp[NOXTLS_FALCON_MAX_N];
         int32_t Gp[NOXTLS_FALCON_MAX_N];
-        noxtls_return_t rc;
+        noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
         rc = falcon_keygen_field_norm_i32(f, n, fp);
         if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -8414,16 +11596,16 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_exact_small(const int16_t *f,
 {
     int32_t fi[NOXTLS_FALCON_MAX_N];
     int32_t gi[NOXTLS_FALCON_MAX_N];
-    uint16_t i;
+    uint16_t i = 0U;
 
     if(f == NULL || g == NULL || F == NULL || G == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(n == 0U || n > 16U || (n != 1U && !falcon_is_supported_power_of_two(n))) {
+    if(n == 0U || n > 16U || (n != 1U && (falcon_is_supported_power_of_two(n) == 0))) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    for(i = 0U; i < n; i++) {
+    for(i = 0U; i < n; i += 1U) {
         fi[i] = f[i];
         gi[i] = g[i];
     }
@@ -8450,12 +11632,12 @@ static noxtls_return_t falcon_keygen_solve_ntru_exact_i64(const int64_t *f,
     if(n == 1U) {
         return falcon_keygen_solve_ntru_base_i64(f[0], g[0], F, G);
     } else {
-        uint16_t half = (uint16_t)(n >> 1);
+        uint16_t half = (uint16_t)(n >> 1U);
         int64_t fp[NOXTLS_FALCON_MAX_N];
         int64_t gp[NOXTLS_FALCON_MAX_N];
         int64_t Fp[NOXTLS_FALCON_MAX_N];
         int64_t Gp[NOXTLS_FALCON_MAX_N];
-        noxtls_return_t rc;
+        noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
         rc = falcon_keygen_field_norm_i64(f, n, fp);
         if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -8498,12 +11680,12 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_exact_wide(const int16_t *f,
 {
     int64_t fi[NOXTLS_FALCON_MAX_N];
     int64_t gi[NOXTLS_FALCON_MAX_N];
-    uint16_t i;
+    uint16_t i = 0U;
 
     if(f == NULL || g == NULL || F == NULL || G == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(n == 0U || n > 512U || (n != 1U && !falcon_is_supported_power_of_two(n))) {
+    if(n == 0U || n > 512U || (n != 1U && (falcon_is_supported_power_of_two(n) == 0))) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
@@ -8515,14 +11697,14 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_exact_wide(const int16_t *f,
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
-        for(i = 0U; i < n; i++) {
+        for(i = 0U; i < n; i += 1U) {
             F[i] = F32[i];
             G[i] = G32[i];
         }
         return NOXTLS_RETURN_SUCCESS;
     }
 
-    for(i = 0U; i < n; i++) {
+    for(i = 0U; i < n; i += 1U) {
         fi[i] = f[i];
         gi[i] = g[i];
     }
@@ -8552,19 +11734,19 @@ noxtls_return_t noxtls_falcon_keygen_reduce_solution_small(const int16_t *f,
 {
     int32_t fi[NOXTLS_FALCON_MAX_N];
     int32_t gi[NOXTLS_FALCON_MAX_N];
-    uint16_t i;
+    uint16_t i = 0U;
 
     if(f == NULL || g == NULL || F == NULL || G == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(n == 0U || n > 16U || (n != 1U && !falcon_is_supported_power_of_two(n))) {
+    if(n == 0U || n > 16U || (n != 1U && (falcon_is_supported_power_of_two(n) == 0))) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
     if(n == 1U) {
         return NOXTLS_RETURN_SUCCESS;
     }
 
-    for(i = 0U; i < n; i++) {
+    for(i = 0U; i < n; i += 1U) {
         fi[i] = f[i];
         gi[i] = g[i];
     }
@@ -8594,7 +11776,7 @@ static noxtls_return_t falcon_keygen_solve_ntru_reduced_i32(const int32_t *f,
     if(n == 1U) {
         return noxtls_falcon_keygen_solve_ntru_base(f[0], g[0], F, G);
     } else {
-        uint16_t half = (uint16_t)(n >> 1);
+        uint16_t half = (uint16_t)(n >> 1U);
         int32_t fp[NOXTLS_FALCON_MAX_N];
         int32_t gp[NOXTLS_FALCON_MAX_N];
         int32_t Fp[NOXTLS_FALCON_MAX_N];
@@ -8605,7 +11787,7 @@ static noxtls_return_t falcon_keygen_solve_ntru_reduced_i32(const int32_t *f,
         int32_t g_neg[NOXTLS_FALCON_MAX_N];
         int64_t F64[NOXTLS_FALCON_MAX_N];
         int64_t G64[NOXTLS_FALCON_MAX_N];
-        noxtls_return_t rc;
+        noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
         rc = falcon_keygen_field_norm_i32(f, n, fp);
         if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -8667,14 +11849,14 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_reduced(const int16_t *f,
     int32_t gi[NOXTLS_FALCON_MAX_N];
     int64_t fi64[NOXTLS_FALCON_MAX_N];
     int64_t gi64[NOXTLS_FALCON_MAX_N];
-    uint32_t coeff_len;
-    noxtls_return_t rc;
-    uint16_t i;
+    uint32_t coeff_len = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+    uint16_t i = 0U;
 
     if(f == NULL || g == NULL || F == NULL || G == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(n == 0U || n > NOXTLS_FALCON_MAX_N || (n != 1U && !falcon_is_supported_power_of_two(n))) {
+    if(n == 0U || n > NOXTLS_FALCON_MAX_N || (n != 1U && (falcon_is_supported_power_of_two(n) == 0))) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
     if(n <= 16U) {
@@ -8685,7 +11867,7 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_reduced(const int16_t *f,
         return noxtls_falcon_keygen_reduce_solution_small(f, g, n, F, G);
     }
     if(n <= 128U) {
-        for(i = 0U; i < n; i++) {
+        for(i = 0U; i < n; i += 1U) {
             fi[i] = f[i];
             gi[i] = g[i];
             fi64[i] = f[i];
@@ -8698,39 +11880,63 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_reduced(const int16_t *f,
         return falcon_keygen_reduce_solution_i64_to_i32(fi, gi, n, F64, G64, F, G);
     }
     coeff_len = (n == 256u) ? 1524u : 3059u;
-    F_bn_mag = (uint8_t*)noxtls_calloc((size_t)n * coeff_len, 1U);
-    G_bn_mag = (uint8_t*)noxtls_calloc((size_t)n * coeff_len, 1U);
-    F_bn_negative = (uint8_t*)noxtls_calloc(n, 1U);
-    G_bn_negative = (uint8_t*)noxtls_calloc(n, 1U);
+    F_bn_mag = (uint8_t*)NOXTLS_CALLOC((size_t)n * coeff_len, 1U);
+    G_bn_mag = (uint8_t*)NOXTLS_CALLOC((size_t)n * coeff_len, 1U);
+    F_bn_negative = (uint8_t*)NOXTLS_CALLOC(n, 1U);
+    G_bn_negative = (uint8_t*)NOXTLS_CALLOC(n, 1U);
     if(F_bn_mag == NULL || G_bn_mag == NULL || F_bn_negative == NULL || G_bn_negative == NULL) {
         rc = NOXTLS_RETURN_FAILED;
-        goto cleanup;
+        if(F_bn_mag != NULL) {
+        (void)noxtls_free(F_bn_mag);
+        }
+        if(G_bn_mag != NULL) {
+        (void)noxtls_free(G_bn_mag);
+        }
+        if(F_bn_negative != NULL) {
+        (void)noxtls_free(F_bn_negative);
+        }
+        if(G_bn_negative != NULL) {
+        (void)noxtls_free(G_bn_negative);
+        }
+        return rc;
     }
     {
-        uint8_t *f_mag;
-        uint8_t *g_mag;
-        uint8_t *f_negative;
-        uint8_t *g_negative;
+        uint8_t *f_mag = NULL;
+        uint8_t *g_mag = NULL;
+        uint8_t *f_negative = NULL;
+        uint8_t *g_negative = NULL;
 
-        f_mag = (uint8_t*)noxtls_calloc((size_t)n * 2U, 1U);
-        g_mag = (uint8_t*)noxtls_calloc((size_t)n * 2U, 1U);
-        f_negative = (uint8_t*)noxtls_calloc(n, 1U);
-        g_negative = (uint8_t*)noxtls_calloc(n, 1U);
+        f_mag = (uint8_t*)NOXTLS_CALLOC((size_t)n * 2U, 1U);
+        g_mag = (uint8_t*)NOXTLS_CALLOC((size_t)n * 2U, 1U);
+        f_negative = (uint8_t*)NOXTLS_CALLOC(n, 1U);
+        g_negative = (uint8_t*)NOXTLS_CALLOC(n, 1U);
         if(f_mag == NULL || g_mag == NULL || f_negative == NULL || g_negative == NULL) {
             if(f_mag != NULL) {
-                noxtls_free(f_mag);
+                (void)noxtls_free(f_mag);
             }
             if(g_mag != NULL) {
-                noxtls_free(g_mag);
+                (void)noxtls_free(g_mag);
             }
             if(f_negative != NULL) {
-                noxtls_free(f_negative);
+                (void)noxtls_free(f_negative);
             }
             if(g_negative != NULL) {
-                noxtls_free(g_negative);
+                (void)noxtls_free(g_negative);
             }
             rc = NOXTLS_RETURN_FAILED;
-            goto cleanup;
+            if(F_bn_mag != NULL) {
+            (void)noxtls_free(F_bn_mag);
+            }
+            if(G_bn_mag != NULL) {
+            (void)noxtls_free(G_bn_mag);
+            }
+            if(F_bn_negative != NULL) {
+            (void)noxtls_free(F_bn_negative);
+            }
+            if(G_bn_negative != NULL) {
+            (void)noxtls_free(G_bn_negative);
+            }
+            return rc;
         }
         rc = falcon_bn_poly_from_i16(f, n, f_mag, f_negative, 2U);
         if(rc == NOXTLS_RETURN_SUCCESS) {
@@ -8761,13 +11967,25 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_reduced(const int16_t *f,
                                                              coeff_len);
             }
         }
-        noxtls_free(f_mag);
-        noxtls_free(g_mag);
-        noxtls_free(f_negative);
-        noxtls_free(g_negative);
+        (void)noxtls_free(f_mag);
+        (void)noxtls_free(g_mag);
+        (void)noxtls_free(f_negative);
+        (void)noxtls_free(g_negative);
     }
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        goto cleanup;
+        if(F_bn_mag != NULL) {
+        (void)noxtls_free(F_bn_mag);
+        }
+        if(G_bn_mag != NULL) {
+        (void)noxtls_free(G_bn_mag);
+        }
+        if(F_bn_negative != NULL) {
+        (void)noxtls_free(F_bn_negative);
+        }
+        if(G_bn_negative != NULL) {
+        (void)noxtls_free(G_bn_negative);
+        }
+        return rc;
     }
     rc = falcon_keygen_reduce_solution_bn_to_i32(f,
                                                  g,
@@ -8780,18 +11998,17 @@ noxtls_return_t noxtls_falcon_keygen_solve_ntru_reduced(const int16_t *f,
                                                  F,
                                                  G);
 
-cleanup:
     if(F_bn_mag != NULL) {
-        noxtls_free(F_bn_mag);
+        (void)noxtls_free(F_bn_mag);
     }
     if(G_bn_mag != NULL) {
-        noxtls_free(G_bn_mag);
+        (void)noxtls_free(G_bn_mag);
     }
     if(F_bn_negative != NULL) {
-        noxtls_free(F_bn_negative);
+        (void)noxtls_free(F_bn_negative);
     }
     if(G_bn_negative != NULL) {
-        noxtls_free(G_bn_negative);
+        (void)noxtls_free(G_bn_negative);
     }
     return rc;
 }
@@ -8878,20 +12095,20 @@ static noxtls_return_t falcon_sample_fft_tree_inner(noxtls_falcon_sampler_ctx_t 
                                                     noxtls_falcon_complex_t *scratch,
                                                     uint32_t scratch_len)
 {
-    uint16_t half;
-    uint16_t i;
-    uint32_t child_len;
+    uint16_t half = 0U;
+    uint16_t i = 0U;
+    uint32_t child_len = 0U;
     noxtls_falcon_complex_t *split0;
     noxtls_falcon_complex_t *split1;
     noxtls_falcon_complex_t *tb0;
-    noxtls_return_t rc;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(ctx == NULL || tree == NULL || t0 == NULL || t1 == NULL || z0 == NULL || z1 == NULL || scratch == NULL) {
         return NOXTLS_RETURN_NULL;
     }
     if(n == 1U) {
-        int32_t s0;
-        int32_t s1;
+        int32_t s0 = 0;
+        int32_t s1 = 0;
 
         if(falcon_abs_double(tree[0].im) > 1e-7 ||
            falcon_abs_double(t0[0].im) > 1e-7 ||
@@ -8912,25 +12129,24 @@ static noxtls_return_t falcon_sample_fft_tree_inner(noxtls_falcon_sampler_ctx_t 
         z1[0].im = 0.0;
         return NOXTLS_RETURN_SUCCESS;
     }
-    if(!falcon_is_supported_power_of_two(n)) {
+    if((falcon_is_supported_power_of_two(n) == 0)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
-    if(scratch_len < ((uint32_t)(n << 1))) {
+    if(scratch_len < ((uint32_t)(n << 1U))) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    half = (uint16_t)(n >> 1);
+    half = (uint16_t)(n >> 1U);
     child_len = noxtls_falcon_ldl_tree_complex_len(half);
     split0 = scratch;
-    split1 = scratch + half;
-    tb0 = scratch + n;
-
+    split1 = &scratch[half];
+    tb0 = &scratch[n];
     rc = falcon_split_fft_complex(t1, n, split0, split1);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
     rc = falcon_sample_fft_tree_inner(ctx, tree + n + child_len, split0, split1, half,
-                                      split0, split1, tb0, scratch_len - (uint32_t)(n << 1));
+                                      split0, split1, tb0, scratch_len - (uint32_t)(n << 1U));
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -8939,7 +12155,7 @@ static noxtls_return_t falcon_sample_fft_tree_inner(noxtls_falcon_sampler_ctx_t 
         return rc;
     }
 
-    for(i = 0U; i < n; i++) {
+    for(i = 0U; i < n; i += 1U) {
         tb0[i] = falcon_complex_add(t0[i], falcon_complex_mul(falcon_complex_sub(t1[i], z1[i]), tree[i]));
     }
 
@@ -8948,7 +12164,7 @@ static noxtls_return_t falcon_sample_fft_tree_inner(noxtls_falcon_sampler_ctx_t 
         return rc;
     }
     rc = falcon_sample_fft_tree_inner(ctx, tree + n, split0, split1, half,
-                                      split0, split1, tb0, scratch_len - (uint32_t)(n << 1));
+                                      split0, split1, tb0, scratch_len - (uint32_t)(n << 1U));
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -8984,11 +12200,11 @@ noxtls_return_t noxtls_falcon_sample_fft_tree(noxtls_falcon_sampler_ctx_t *ctx,
     if(ctx == NULL || tree == NULL || t0 == NULL || t1 == NULL || z0 == NULL || z1 == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(n != 1U && !falcon_is_supported_power_of_two(n)) {
+    if(n != 1U && (falcon_is_supported_power_of_two(n) == 0)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    return falcon_sample_fft_tree_inner(ctx, tree, t0, t1, n, z0, z1, scratch, (uint32_t)(n << 2));
+    return falcon_sample_fft_tree_inner(ctx, tree, t0, t1, n, z0, z1, scratch, (uint32_t)(n << 2U));
 }
 
 /**
@@ -9013,8 +12229,8 @@ noxtls_return_t noxtls_falcon_compute_public(noxtls_falcon_param_t param,
     uint16_t f_mod[NOXTLS_FALCON_MAX_N];
     uint16_t g_mod[NOXTLS_FALCON_MAX_N];
     uint16_t f_inv[NOXTLS_FALCON_MAX_N];
-    uint16_t i;
-    noxtls_return_t rc;
+    uint16_t i = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(f == NULL || g == NULL || h == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -9025,7 +12241,7 @@ noxtls_return_t noxtls_falcon_compute_public(noxtls_falcon_param_t param,
         return rc;
     }
 
-    for(i = 0U; i < spec.n; i++) {
+    for(i = 0U; i < spec.n; i += 1U) {
         f_mod[i] = noxtls_falcon_mod_q_reduce_i32(f[i]);
         g_mod[i] = noxtls_falcon_mod_q_reduce_i32(g[i]);
     }
@@ -9062,7 +12278,7 @@ noxtls_return_t noxtls_falcon_derive_public_key_from_secret_key(noxtls_falcon_pa
     int16_t F[NOXTLS_FALCON_MAX_N];
     int16_t G[NOXTLS_FALCON_MAX_N];
     uint16_t h[NOXTLS_FALCON_MAX_N];
-    noxtls_return_t rc;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     rc = noxtls_falcon_decode_private_key(param, secret_key, secret_key_len, f, g, F);
     if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -9120,7 +12336,7 @@ noxtls_return_t noxtls_falcon_build_keypair_from_secret_components(noxtls_falcon
     noxtls_falcon_param_spec_t spec;
     int16_t G[NOXTLS_FALCON_MAX_N];
     uint16_t h[NOXTLS_FALCON_MAX_N];
-    noxtls_return_t rc;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(f == NULL || g == NULL || F == NULL || secret_key == NULL || public_key == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -9173,10 +12389,10 @@ noxtls_return_t noxtls_falcon_encode_public_key(noxtls_falcon_param_t param,
 {
     noxtls_falcon_param_spec_t spec;
     falcon_bit_writer_t bw;
-    uint32_t i;
-    noxtls_return_t rc;
+    uint32_t i = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(h == NULL || encoded == NULL) {
+    if((h == NULL) || (encoded == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
@@ -9189,12 +12405,12 @@ noxtls_return_t noxtls_falcon_encode_public_key(noxtls_falcon_param_t param,
     }
 
     encoded[0] = (uint8_t)(NOXTLS_FALCON_PUBLIC_KEY_HDR | spec.logn);
-    rc = falcon_bit_writer_init(&bw, encoded + 1U, encoded_len - 1U);
+    rc = falcon_bit_writer_init(&bw, &encoded[1U], encoded_len - 1U);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 
-    for(i = 0U; i < spec.n; i++) {
+    for(i = 0U; i < spec.n; i += 1U) {
         if(h[i] >= NOXTLS_FALCON_Q) {
             return NOXTLS_RETURN_INVALID_PARAM;
         }
@@ -9223,11 +12439,11 @@ noxtls_return_t noxtls_falcon_decode_public_key(noxtls_falcon_param_t param,
 {
     noxtls_falcon_param_spec_t spec;
     falcon_bit_reader_t br;
-    uint32_t i;
-    uint32_t value;
-    noxtls_return_t rc;
+    uint32_t i = 0U;
+    uint32_t value = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(encoded == NULL || h == NULL) {
+    if((encoded == NULL) || (h == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
@@ -9242,12 +12458,12 @@ noxtls_return_t noxtls_falcon_decode_public_key(noxtls_falcon_param_t param,
         return NOXTLS_RETURN_BAD_DATA;
     }
 
-    rc = falcon_bit_reader_init(&br, encoded + 1U, encoded_len - 1U);
+    rc = falcon_bit_reader_init(&br, &encoded[1U], encoded_len - 1U);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 
-    for(i = 0U; i < spec.n; i++) {
+    for(i = 0U; i < spec.n; i += 1U) {
         rc = falcon_bit_read(&br, 14U, &value);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
@@ -9281,8 +12497,8 @@ noxtls_return_t noxtls_falcon_encode_private_key(noxtls_falcon_param_t param,
 {
     noxtls_falcon_param_spec_t spec;
     falcon_bit_writer_t bw;
-    uint32_t i;
-    noxtls_return_t rc;
+    uint32_t i = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(f == NULL || g == NULL || F == NULL || encoded == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -9297,24 +12513,24 @@ noxtls_return_t noxtls_falcon_encode_private_key(noxtls_falcon_param_t param,
     }
 
     encoded[0] = (uint8_t)(NOXTLS_FALCON_PRIVATE_KEY_HDR | spec.logn);
-    rc = falcon_bit_writer_init(&bw, encoded + 1U, encoded_len - 1U);
+    rc = falcon_bit_writer_init(&bw, &encoded[1U], encoded_len - 1U);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 
-    for(i = 0U; i < spec.n; i++) {
+    for(i = 0U; i < spec.n; i += 1U) {
         rc = falcon_encode_signed_bits(&bw, f[i], spec.fg_bits);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
     }
-    for(i = 0U; i < spec.n; i++) {
+    for(i = 0U; i < spec.n; i += 1U) {
         rc = falcon_encode_signed_bits(&bw, g[i], spec.fg_bits);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
     }
-    for(i = 0U; i < spec.n; i++) {
+    for(i = 0U; i < spec.n; i += 1U) {
         rc = falcon_encode_signed_bits(&bw, F[i], spec.F_bits);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
@@ -9344,8 +12560,8 @@ noxtls_return_t noxtls_falcon_decode_private_key(noxtls_falcon_param_t param,
 {
     noxtls_falcon_param_spec_t spec;
     falcon_bit_reader_t br;
-    uint32_t i;
-    noxtls_return_t rc;
+    uint32_t i = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(encoded == NULL || f == NULL || g == NULL || F == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -9362,24 +12578,24 @@ noxtls_return_t noxtls_falcon_decode_private_key(noxtls_falcon_param_t param,
         return NOXTLS_RETURN_BAD_DATA;
     }
 
-    rc = falcon_bit_reader_init(&br, encoded + 1U, encoded_len - 1U);
+    rc = falcon_bit_reader_init(&br, &encoded[1U], encoded_len - 1U);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 
-    for(i = 0U; i < spec.n; i++) {
+    for(i = 0U; i < spec.n; i += 1U) {
         rc = falcon_decode_signed_bits(&br, spec.fg_bits, &f[i]);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
     }
-    for(i = 0U; i < spec.n; i++) {
+    for(i = 0U; i < spec.n; i += 1U) {
         rc = falcon_decode_signed_bits(&br, spec.fg_bits, &g[i]);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
     }
-    for(i = 0U; i < spec.n; i++) {
+    for(i = 0U; i < spec.n; i += 1U) {
         rc = falcon_decode_signed_bits(&br, spec.F_bits, &F[i]);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
@@ -9404,10 +12620,10 @@ noxtls_return_t noxtls_falcon_comp_encode(const int16_t *s2,
                                           uint32_t encoded_len)
 {
     falcon_bit_writer_t bw;
-    uint32_t i;
-    noxtls_return_t rc;
+    uint32_t i = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(s2 == NULL || encoded == NULL) {
+    if((s2 == NULL) || (encoded == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
@@ -9416,10 +12632,10 @@ noxtls_return_t noxtls_falcon_comp_encode(const int16_t *s2,
         return rc;
     }
 
-    for(i = 0U; i < coeff_count; i++) {
+    for(i = 0U; i < coeff_count; i += 1U) {
         int32_t value = s2[i];
         uint32_t mag = (uint32_t)(value < 0 ? -value : value);
-        uint32_t unary_zeros;
+        uint32_t unary_zeros = 0U;
 
         rc = falcon_bit_write(&bw, (value < 0) ? 1U : 0U, 1U);
         if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -9429,13 +12645,13 @@ noxtls_return_t noxtls_falcon_comp_encode(const int16_t *s2,
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
-        unary_zeros = mag >> 7;
+        unary_zeros = (uint32_t)mag >> 7U;
         while(unary_zeros > 0U) {
             rc = falcon_bit_write(&bw, 0U, 1U);
             if(rc != NOXTLS_RETURN_SUCCESS) {
                 return rc;
             }
-            unary_zeros--;
+            unary_zeros -= 1U;
         }
         rc = falcon_bit_write(&bw, 1U, 1U);
         if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -9461,10 +12677,10 @@ noxtls_return_t noxtls_falcon_comp_decode(const uint8_t *encoded,
                                           uint32_t coeff_count)
 {
     falcon_bit_reader_t br;
-    uint32_t i;
-    noxtls_return_t rc;
+    uint32_t i = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(encoded == NULL || s2 == NULL) {
+    if((encoded == NULL) || (s2 == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
@@ -9473,12 +12689,12 @@ noxtls_return_t noxtls_falcon_comp_decode(const uint8_t *encoded,
         return rc;
     }
 
-    for(i = 0U; i < coeff_count; i++) {
-        uint32_t sign;
-        uint32_t low;
-        uint32_t stop;
+    for(i = 0U; i < coeff_count; i += 1U) {
+        uint32_t sign = 0U;
+        uint32_t low = 0U;
+        uint32_t stop = 0U;
         uint32_t high = 0U;
-        uint32_t mag;
+        uint32_t mag = 0U;
 
         rc = falcon_bit_read(&br, 1U, &sign);
         if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -9494,15 +12710,15 @@ noxtls_return_t noxtls_falcon_comp_decode(const uint8_t *encoded,
                 return rc;
             }
             if(stop == 0U) {
-                high++;
+                high += 1U;
             }
         } while(stop == 0U);
 
         if(high > 255u) {
             return NOXTLS_RETURN_BAD_DATA;
         }
-        mag = (high << 7) | low;
-        if(sign != 0U && mag == 0U) {
+        mag = (high << 7U) | low;
+        if((sign != 0U) && (mag == 0U)) {
             return NOXTLS_RETURN_BAD_DATA;
         }
         if(mag > 32767u) {

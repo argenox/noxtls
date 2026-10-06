@@ -26,12 +26,11 @@
  */
 /** @{ */
 
-#ifndef _AES_H_
-#define _AES_H_
+#ifndef AES_H_
+#define AES_H_
 
 /* Standard Includes */
 #include <stdint.h>
-#include <stdio.h>
 #include "noxtls_common.h"
 
 #ifdef __cplusplus
@@ -40,41 +39,36 @@ extern "C" {
 
 #define NOXTLS_AES_DEBUG (0)
 
-#define NOXTLS_AES_128_ROUNDS 10
-#define NOXTLS_AES_192_ROUNDS 12
-#define NOXTLS_AES_256_ROUNDS 14
+#define NOXTLS_AES_128_ROUNDS 10U
+#define NOXTLS_AES_192_ROUNDS 12U
+#define NOXTLS_AES_256_ROUNDS 14U
 
 /** Max key schedule size in 32-bit words (AES-256: (14+1)*4 = 60) */
-#define NOXTLS_AES_MAX_KEY_SCHEDULE_WORDS  (4 * (NOXTLS_AES_256_ROUNDS + 1))
+#define NOXTLS_AES_MAX_KEY_SCHEDULE_WORDS  (4U * (NOXTLS_AES_256_ROUNDS + 1U))
 
-#define NOXTLS_AES_BLOCK_LENGTH 16
+#define NOXTLS_AES_BLOCK_LENGTH 16U
 
-#define NOXTLS_AES_ROTR(X, N)      (((X) >> (N)) | ((X) << (32 - (N))))
-#define NOXTLS_AES_ROTL(X, N)      (((X) << (N)) | ((X) >> (32 - (N))))
+#define NOXTLS_AES_ROTR(X, N)      (((X) >> (N)) | ((X) << (32U - (N))))
+#define NOXTLS_AES_ROTL(X, N)      (((X) << ((uint32_t)(N) & 31U)) | ((X) >> ((32U - (uint32_t)(N)) & 31U)))
 
-typedef enum
-{
-	NOXTLS_AES_128_BIT = 0,
-	NOXTLS_AES_192_BIT = 1,
-	NOXTLS_AES_256_BIT = 2,
-} noxtls_aes_type_t;
+/* Unsigned identifiers (MISRA C:2025 Rule 10.3); values match historical enums. */
+typedef uint32_t noxtls_aes_type_t;
+#define NOXTLS_AES_128_BIT ((noxtls_aes_type_t)0U)
+#define NOXTLS_AES_192_BIT ((noxtls_aes_type_t)1U)
+#define NOXTLS_AES_256_BIT ((noxtls_aes_type_t)2U)
 
-typedef enum
-{
-	NOXTLS_AES_ECB = 0,
-	NOXTLS_AES_CBC = 1,
-	NOXTLS_AES_CTR = 2,
-	NOXTLS_AES_CFB = 3,
-	NOXTLS_AES_OFB = 4,
-	NOXTLS_AES_XTS = 5,
-	NOXTLS_AES_GCM = 6,
-} noxtls_aes_mode_t;
+typedef uint32_t noxtls_aes_mode_t;
+#define NOXTLS_AES_ECB ((noxtls_aes_mode_t)0U)
+#define NOXTLS_AES_CBC ((noxtls_aes_mode_t)1U)
+#define NOXTLS_AES_CTR ((noxtls_aes_mode_t)2U)
+#define NOXTLS_AES_CFB ((noxtls_aes_mode_t)3U)
+#define NOXTLS_AES_OFB ((noxtls_aes_mode_t)4U)
+#define NOXTLS_AES_XTS ((noxtls_aes_mode_t)5U)
+#define NOXTLS_AES_GCM ((noxtls_aes_mode_t)6U)
 
-typedef enum
-{
-    NOXTLS_AES_OP_ENCRYPT = 0,
-    NOXTLS_AES_OP_DECRYPT = 1,
-} noxtls_aes_operation_t;
+typedef uint32_t noxtls_aes_operation_t;
+#define NOXTLS_AES_OP_ENCRYPT ((noxtls_aes_operation_t)0U)
+#define NOXTLS_AES_OP_DECRYPT ((noxtls_aes_operation_t)1U)
 
 typedef struct
 {
@@ -112,11 +106,6 @@ noxtls_return_t noxtls_aes_encrypt_data(const uint8_t* key,
                      noxtls_aes_type_t type,
                      noxtls_aes_mode_t mode);
 
-/**
- * @brief Run AES implementation self-tests.
- * @return NOXTLS_RETURN_SUCCESS on success or a noxtls_return_t error code.
- */
-noxtls_return_t noxtls_aes_self_test(void);
 /**
  * @brief Apply the AES SubBytes transform to a state matrix.
  * @param state AES state matrix to update in place.
@@ -353,4 +342,4 @@ noxtls_return_t noxtls_aes_final(noxtls_aes_context_t *ctx,
 }
 #endif
 
-#endif /* _AES_H_ */
+#endif /* AES_H_ */

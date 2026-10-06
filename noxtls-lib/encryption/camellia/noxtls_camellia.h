@@ -22,12 +22,11 @@
 /** @addtogroup noxtls_encryption */
 /** @{ */
 
-#ifndef _NOXTLS_CAMELLIA_H_
-#define _NOXTLS_CAMELLIA_H_
+#ifndef NOXTLS_CAMELLIA_H_
+#define NOXTLS_CAMELLIA_H_
 
 /* Standard Includes */
 #include <stdint.h>
-#include <stdio.h>
 #include "noxtls_common.h"
 
 #ifdef __cplusplus
@@ -40,29 +39,24 @@ extern "C" {
 #define NOXTLS_CAMELLIA_192_ROUNDS 24
 #define NOXTLS_CAMELLIA_256_ROUNDS 24
 
-#define NOXTLS_CAMELLIA_BLOCK_LENGTH 16
+#define NOXTLS_CAMELLIA_BLOCK_LENGTH 16U
 
-typedef enum
-{
-	NOXTLS_CAMELLIA_128_BIT = 0,
-	NOXTLS_CAMELLIA_192_BIT = 1,
-	NOXTLS_CAMELLIA_256_BIT = 2,
-} noxtls_camellia_type_t;
+/* Unsigned identifiers (MISRA C:2025 Rule 10.3); values match historical enums. */
+typedef uint32_t noxtls_camellia_type_t;
+#define NOXTLS_CAMELLIA_128_BIT ((noxtls_camellia_type_t)0U)
+#define NOXTLS_CAMELLIA_192_BIT ((noxtls_camellia_type_t)1U)
+#define NOXTLS_CAMELLIA_256_BIT ((noxtls_camellia_type_t)2U)
 
-typedef enum
-{
-	NOXTLS_CAMELLIA_ECB = 0,
-	NOXTLS_CAMELLIA_CBC = 1,
-	NOXTLS_CAMELLIA_CTR = 2,
-	NOXTLS_CAMELLIA_CFB = 3,
-	NOXTLS_CAMELLIA_OFB = 4,
-} noxtls_camellia_mode_t;
+typedef uint32_t noxtls_camellia_mode_t;
+#define NOXTLS_CAMELLIA_ECB ((noxtls_camellia_mode_t)0U)
+#define NOXTLS_CAMELLIA_CBC ((noxtls_camellia_mode_t)1U)
+#define NOXTLS_CAMELLIA_CTR ((noxtls_camellia_mode_t)2U)
+#define NOXTLS_CAMELLIA_CFB ((noxtls_camellia_mode_t)3U)
+#define NOXTLS_CAMELLIA_OFB ((noxtls_camellia_mode_t)4U)
 
-typedef enum
-{
-    NOXTLS_CAMELLIA_OP_ENCRYPT = 0,
-    NOXTLS_CAMELLIA_OP_DECRYPT = 1,
-} noxtls_camellia_operation_t;
+typedef uint32_t noxtls_camellia_operation_t;
+#define NOXTLS_CAMELLIA_OP_ENCRYPT ((noxtls_camellia_operation_t)0U)
+#define NOXTLS_CAMELLIA_OP_DECRYPT ((noxtls_camellia_operation_t)1U)
 
 typedef struct
 {
@@ -93,6 +87,68 @@ noxtls_return_t noxtls_camellia_decrypt_data(const uint8_t* key,
                           noxtls_camellia_type_t type,
                           noxtls_camellia_mode_t mode);
 
+
+noxtls_return_t noxtls_camellia_encrypt_ecb(const uint8_t* key,
+                          const uint8_t* data,
+                          uint32_t data_len,
+                          const uint8_t * iv,
+                          uint8_t* output,
+                          noxtls_camellia_type_t type);
+noxtls_return_t noxtls_camellia_decrypt_ecb(const uint8_t* key,
+                          const uint8_t* data,
+                          uint32_t data_len,
+                          const uint8_t * iv,
+                          uint8_t* output,
+                          noxtls_camellia_type_t type);
+noxtls_return_t noxtls_camellia_encrypt_cbc(const uint8_t* key,
+                          const uint8_t* data,
+                          uint32_t data_len,
+                          const uint8_t * iv,
+                          uint8_t* output,
+                          noxtls_camellia_type_t type);
+noxtls_return_t noxtls_camellia_decrypt_cbc(const uint8_t* key,
+                          const uint8_t* data,
+                          uint32_t data_len,
+                          const uint8_t * iv,
+                          uint8_t* output,
+                          noxtls_camellia_type_t type);
+noxtls_return_t noxtls_camellia_encrypt_ctr(const uint8_t* key,
+                          const uint8_t* data,
+                          uint32_t data_len,
+                          const uint8_t * iv,
+                          uint8_t* output,
+                          noxtls_camellia_type_t type);
+noxtls_return_t noxtls_camellia_decrypt_ctr(const uint8_t* key,
+                          const uint8_t* data,
+                          uint32_t data_len,
+                          const uint8_t * iv,
+                          uint8_t* output,
+                          noxtls_camellia_type_t type);
+noxtls_return_t noxtls_camellia_encrypt_cfb(const uint8_t* key,
+                          const uint8_t* data,
+                          uint32_t data_len,
+                          const uint8_t * iv,
+                          uint8_t* output,
+                          noxtls_camellia_type_t type);
+noxtls_return_t noxtls_camellia_decrypt_cfb(const uint8_t* key,
+                          const uint8_t* data,
+                          uint32_t data_len,
+                          const uint8_t * iv,
+                          uint8_t* output,
+                          noxtls_camellia_type_t type);
+noxtls_return_t noxtls_camellia_encrypt_ofb(const uint8_t* key,
+                          const uint8_t* data,
+                          uint32_t data_len,
+                          const uint8_t * iv,
+                          uint8_t* output,
+                          noxtls_camellia_type_t type);
+noxtls_return_t noxtls_camellia_decrypt_ofb(const uint8_t* key,
+                          const uint8_t* data,
+                          uint32_t data_len,
+                          const uint8_t * iv,
+                          uint8_t* output,
+                          noxtls_camellia_type_t type);
+
 noxtls_return_t noxtls_camellia_self_test(void);
 
 noxtls_return_t noxtls_camellia_init(noxtls_camellia_context_t *ctx,
@@ -116,5 +172,5 @@ noxtls_return_t noxtls_camellia_final(noxtls_camellia_context_t *ctx,
 }
 #endif
 
-#endif /* _NOXTLS_CAMELLIA_H_ */
+#endif /* NOXTLS_CAMELLIA_H_ */
 

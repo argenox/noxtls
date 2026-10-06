@@ -49,6 +49,7 @@ extern "C"
 #include "noxtls-lib/mdigest/md5/noxtls_md5.h"
 #include "noxtls-lib/mdigest/sha1/noxtls_sha1.h"
 #include "noxtls-lib/mdigest/sha256/noxtls_sha256.h"
+#include "noxtls_ct.h"
     #include "noxtls-lib/mdigest/sha512/noxtls_sha512.h"
 
 int hash_md5_handler(const uint8_t * data, uint32_t len);
@@ -59,17 +60,16 @@ int hash_sha_384_handler(const uint8_t * data, uint32_t len);
 int hash_sha_512_handler(const uint8_t * data, uint32_t len);
 int hash_sha_512_224_handler(const uint8_t * data, uint32_t len);
 int hash_sha_512_256_handler(const uint8_t * data, uint32_t len);
-static int parse_offset_value(const char * value, size_t * offset);
-static int read_binary_file(const char * path, uint8_t ** buffer, size_t * length);
-static int write_text_file(const char * path, const char * text);
-static int bytes_to_hex(const uint8_t * bytes, uint32_t bytes_len, char ** hex_out);
+static int parse_offset_value(const uint8_t * value, size_t * offset);
+static int read_binary_file(const uint8_t * path, uint8_t ** buffer, size_t * length);
+static int write_text_file(const uint8_t * path, const uint8_t * text);
+static int bytes_to_hex(const uint8_t * bytes, uint32_t bytes_len, uint8_t ** hex_out);
 static int compute_digest_for_algorithm(
-    const char * algorithm,
+    const uint8_t * algorithm,
     const uint8_t * data,
     uint32_t len,
     uint8_t * digest,
     uint32_t * digest_len);
-
 
 uint8_t debug_lvl = 0;
 
@@ -109,14 +109,14 @@ void print_digest_usage()
  * @param[in] argv The argument vector
  * @return The return value
  */
-int message_digest(int argc, char ** argv)
+int message_digest(int argc, uint8_t ** argv)
 {
     uint32_t data_length = 0;
     uint8_t * data_buffer = NULL;
     int arg_idx = 1;
     int data_start_idx = -1;
-    const char * input_file_path = NULL;
-    const char * output_file_path = NULL;
+    const uint8_t * input_file_path = NULL;
+    const uint8_t * output_file_path = NULL;
     size_t file_offset = 0;
 
     input_data_type_t type = INPUT_DATA_TYPE_STRING;
@@ -126,7 +126,7 @@ int message_digest(int argc, char ** argv)
     int i = 0;
     for(i = 0; i < sizeof(md_handlers) / sizeof(md_handlers[0]); i++)
     {
-        if(strncasecmp(argv[0], md_handlers[i].algo, strlen(md_handlers[i].algo)) == 0)
+        if(strncasecmp(argv[0], md_handlers[i].algo, noxtls_u8_strlen(md_handlers[i].algo)) == 0)
         {
             function_handler = md_handlers[i].handler;
             break;
@@ -144,16 +144,16 @@ int message_digest(int argc, char ** argv)
             break;
         }
 
-        if(strcmp(argv[arg_idx], "-d") == 0) {
+        if(noxtls_u8_strcmp(argv[arg_idx], "-d") == 0) {
             debug_lvl = 1;
             printf("Debug LVL = %d\n", debug_lvl);
             arg_idx++;
         }
-        else if(strcmp(argv[arg_idx], "-h") == 0) {
+        else if(noxtls_u8_strcmp(argv[arg_idx], "-h") == 0) {
             type = INPUT_DATA_TYPE_HEX;
             arg_idx++;
         }
-        else if(strcmp(argv[arg_idx], "-f") == 0) {
+        else if(noxtls_u8_strcmp(argv[arg_idx], "-f") == 0) {
             if(arg_idx + 1 >= argc) {
                 printf("Error: -f option requires an input file path\n");
                 return -1;
@@ -161,7 +161,7 @@ int message_digest(int argc, char ** argv)
             input_file_path = argv[arg_idx + 1];
             arg_idx += 2;
         }
-        else if(strcmp(argv[arg_idx], "-o") == 0) {
+        else if(noxtls_u8_strcmp(argv[arg_idx], "-o") == 0) {
             if(arg_idx + 1 >= argc) {
                 printf("Error: -o option requires an output file path\n");
                 return -1;
@@ -169,7 +169,7 @@ int message_digest(int argc, char ** argv)
             output_file_path = argv[arg_idx + 1];
             arg_idx += 2;
         }
-        else if(strcmp(argv[arg_idx], "-s") == 0) {
+        else if(noxtls_u8_strcmp(argv[arg_idx], "-s") == 0) {
             if(arg_idx + 1 >= argc) {
                 printf("Error: -s option requires an offset value\n");
                 return -1;
@@ -223,7 +223,7 @@ int message_digest(int argc, char ** argv)
         }
 
         if(output_file_path != NULL) {
-            char * digest_hex = NULL;
+            uint8_t * digest_hex = NULL;
             if(bytes_to_hex(digest, digest_len, &digest_hex) != 0) {
                 printf("Error: failed to format digest output\n");
                 free(file_buffer);
@@ -264,7 +264,7 @@ int message_digest(int argc, char ** argv)
 
         for(j = data_start_idx; j <= (argc - 1); j++)
         {
-            size_t str_len = strlen(argv[j]); /* Space */
+            size_t str_len = noxtls_u8_strlen(argv[j]); /* Space */
 
             memcpy(&data_buffer[total_str_len], argv[j], str_len);
             total_str_len += str_len;
@@ -284,7 +284,7 @@ int message_digest(int argc, char ** argv)
     }
     else
     {
-        size_t hex_len = strlen(argv[data_start_idx]);
+        size_t hex_len = noxtls_u8_strlen(argv[data_start_idx]);
         int parsed_len;
 
         data_buffer = malloc(hex_len * sizeof(uint8_t));
@@ -320,9 +320,9 @@ int message_digest(int argc, char ** argv)
  * @param[out] offset The offset to parse the offset value into
  * @return The return value
  */
-static int parse_offset_value(const char * value, size_t * offset)
+static int parse_offset_value(const uint8_t * value, size_t * offset)
 {
-    char * endptr = NULL;
+    uint8_t * endptr = NULL;
     unsigned long long parsed = 0;
 
     if(value == NULL || offset == NULL || value[0] == '\0') {
@@ -347,7 +347,7 @@ static int parse_offset_value(const char * value, size_t * offset)
  * @param[out] length The length of the buffer to read the binary file into
  * @return The return value
  */
-static int read_binary_file(const char * path, uint8_t ** buffer, size_t * length)
+static int read_binary_file(const uint8_t * path, uint8_t ** buffer, size_t * length)
 {
     FILE * file = NULL;
     long file_size = 0;
@@ -406,7 +406,7 @@ static int read_binary_file(const char * path, uint8_t ** buffer, size_t * lengt
  * @param[in] text The text to write to the text file
  * @return The return value
  */
-static int write_text_file(const char * path, const char * text)
+static int write_text_file(const uint8_t * path, const uint8_t * text)
 {
     FILE * file = NULL;
 
@@ -436,11 +436,11 @@ static int write_text_file(const char * path, const char * text)
  * @param[out] hex_out The hex output
  * @return The return value
  */
-static int bytes_to_hex(const uint8_t * bytes, uint32_t bytes_len, char ** hex_out)
+static int bytes_to_hex(const uint8_t * bytes, uint32_t bytes_len, uint8_t ** hex_out)
 {
-    static const char hex_chars[] = "0123456789abcdef";
+    static const uint8_t hex_chars[] = "0123456789abcdef";
     size_t i = 0;
-    char * output = NULL;
+    uint8_t * output = NULL;
 
     if(bytes == NULL || hex_out == NULL) {
         return -1;
@@ -472,7 +472,7 @@ static int bytes_to_hex(const uint8_t * bytes, uint32_t bytes_len, char ** hex_o
  * @return The return value
  */
 static int compute_digest_for_algorithm(
-    const char * algorithm,
+    const uint8_t * algorithm,
     const uint8_t * data,
     uint32_t len,
     uint8_t * digest,
@@ -718,9 +718,6 @@ int hash_sha_512_256_handler(const uint8_t * data, uint32_t len)
         printf("%s - %u bytes\n", __func__, (unsigned int)len);
     return 0;
 }
-
-
-
 
 #ifdef __cplusplus
 }

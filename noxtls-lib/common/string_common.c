@@ -22,12 +22,13 @@
 /** @addtogroup noxtls_common */
 
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
 #include <string.h>
 #include <limits.h>
 #include "string_common.h"
 #include "noxtls_debug_printf.h"
+#include "noxtls_ct.h"
 
 #ifdef __cplusplus
 extern "C"
@@ -45,17 +46,31 @@ extern "C"
  * @param[out] out_buf   Buffer to receive the converted bytes.
  * @param[in]  out_length Maximum number of bytes that out_buf can hold.
  *
- * @note out_length must be at least (strlen(string) / 2) to avoid truncation.
+ * @note out_length must be at least (noxtls_u8_strlen(string) / 2) to avoid truncation.
  *
  * @return On success, the number of bytes written. On error: -1 if string or
  *         out_buf is NULL, -2 if out_buf is too small.
  */
-int noxtls_hex_string_to_bytes(const char * string, uint8_t * out_buf, size_t out_length)
+/* Public helper; arm DB may omit other TU callers. */
+static uint8_t noxtls_hex_nibble(uint8_t c)
 {
-    size_t i = 0;
-    size_t j = 0;
+    if((c >= (uint8_t)'0') && (c <= (uint8_t)'9')) {
+        return (uint8_t)(c - (uint8_t)'0');
+    }
+    if((c >= (uint8_t)'a') && (c <= (uint8_t)'f')) {
+        return (uint8_t)(10U + (uint8_t)(c - (uint8_t)'a'));
+    }
+    if((c >= (uint8_t)'A') && (c <= (uint8_t)'F')) {
+        return (uint8_t)(10U + (uint8_t)(c - (uint8_t)'A'));
+    }
+    return 0xFFU;
+}
+
+int noxtls_hex_string_to_bytes(const uint8_t * string, uint8_t * out_buf, size_t out_length)
+{
+    size_t i = 0U;
+    size_t j = 0U;
     size_t str_len;
-    char val[HEX_PAIR_BUFFER_LEN];
 
     if(string == NULL) {
         return -1;
@@ -65,7 +80,7 @@ int noxtls_hex_string_to_bytes(const char * string, uint8_t * out_buf, size_t ou
         return -1;
     }
 
-    str_len = strlen(string);
+    str_len = noxtls_u8_strlen(string);
     if((str_len & 1U) != 0U) {
         return -3;
     }
@@ -77,12 +92,17 @@ int noxtls_hex_string_to_bytes(const char * string, uint8_t * out_buf, size_t ou
     }
 
     /* Parse two hex chars at a time into one byte */
-    for(i = 0; i < str_len; i += HEX_STRING_STRIDE)
+    for(i = 0U; i < str_len; i += (size_t)HEX_STRING_STRIDE)
     {
-        val[0] = string[i];
-        val[1] = string[i + 1];
-        val[2] = 0;
-        out_buf[j++] = (uint8_t)strtoul(val, NULL, HEX_RADIX);
+        uint8_t hi = noxtls_hex_nibble(string[i]);
+        uint8_t lo = noxtls_hex_nibble(string[i + 1U]);
+        /* Historical behavior: invalid nibbles yield 0. */
+        if((hi > 0x0FU) || (lo > 0x0FU)) {
+            out_buf[j] = 0U;
+        } else {
+            out_buf[j] = (uint8_t)((hi << 4) | lo);
+        }
+        j += 1U;
     }
 
     if(j > (size_t)INT_MAX) {
@@ -92,22 +112,22 @@ int noxtls_hex_string_to_bytes(const char * string, uint8_t * out_buf, size_t ou
 }
 
 /**
- * @brief Wrapper around @ref noxtls_hex_string_to_bytes with output length `strlen(string) / 2`.
+ * @brief Wrapper around @ref noxtls_hex_string_to_bytes with output length `noxtls_u8_strlen(string) / 2`.
  * @param[in] string Hex string (even length, no separators).
  * @param[out] output Buffer sized for half the string length in bytes.
  * @return Same error codes as @ref noxtls_hex_string_to_bytes; -1 if @p string or @p output is NULL.
  */
-int noxtls_process_string_to_bytes(const char *string, uint8_t *output)
+int noxtls_process_string_to_bytes(const uint8_t *string, uint8_t *output)
 {
     size_t str_len;
     size_t out_len;
 
-    if(string == NULL || output == NULL) {
+    if((string == NULL) || (output == NULL)) {
         return -1;
     }
 
-    str_len = strlen(string);
-    out_len = str_len >> 1U;
+    str_len = (uint32_t)noxtls_u8_strlen(string);
+    out_len = (uint32_t)str_len >> 1U;
     return noxtls_hex_string_to_bytes(string, output, out_len);
 }
 
@@ -122,17 +142,17 @@ int noxtls_process_string_to_bytes(const char *string, uint8_t *output)
  */
 void noxtls_print_data(const uint8_t * data, size_t len)
 {
-    size_t i = 0;
+    size_t i = 0U;
 
-    if(data == NULL || len == 0) {
+    if((data == NULL) || (len == 0U)) {
         return;
     }
 
-    for(i = 0; i < len; i++)
+    for(i = 0U; i < len; i += 1U)
     {
-        noxtls_debug_printf("%X", data[i]);
+        (void)noxtls_debug_printf((const uint8_t *)"%X", data[i]);
     }
-    noxtls_debug_printf("\n");
+    (void)noxtls_debug_printf((const uint8_t *)"\n");
 }
 
     

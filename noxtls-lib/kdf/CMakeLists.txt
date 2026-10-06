@@ -12,6 +12,7 @@ endif()
 
 add_library(noxtls_kdf STATIC
     ${NOXTLS_KDF_SOURCES}
+    noxtls_kdf_api_refs.c
 )
 
 if(MSVC)

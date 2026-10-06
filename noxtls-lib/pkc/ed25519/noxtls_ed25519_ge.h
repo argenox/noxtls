@@ -26,8 +26,8 @@
  * @ingroup noxtls_ed25519
  */
 
-#ifndef _NOXTLS_ED25519_GE_H_
-#define _NOXTLS_ED25519_GE_H_
+#ifndef NOXTLS_ED25519_GE_H_
+#define NOXTLS_ED25519_GE_H_
 
 #include <stdint.h>
 
@@ -110,7 +110,7 @@ void ge25519_n_neg(ge25519_n_t *r, const ge25519_n_t *p);
  * @param[in] P Base point (BE ABI).
  */
 void ge25519_scalar_mult(ge25519_pt_t *R,
-                         const uint8_t s_le[NOXTLS_ED25519_FE25519_BYTES],
+                         const uint8_t *s_le,
                          const ge25519_pt_t *P);
 
 /**
@@ -120,7 +120,7 @@ void ge25519_scalar_mult(ge25519_pt_t *R,
  * @param[in] s_le Little-endian scalar.
  */
 void ge25519_scalarmult_base(ge25519_pt_t *R,
-                             const uint8_t s_le[NOXTLS_ED25519_FE25519_BYTES]);
+                             const uint8_t *s_le);
 
 /**
  * @brief Fixed-base scalar multiplication into native extended coordinates.
@@ -129,7 +129,7 @@ void ge25519_scalarmult_base(ge25519_pt_t *R,
  * @param[in] s_le Little-endian scalar.
  */
 void ge25519_scalarmult_base_n(ge25519_n_t *R,
-                               const uint8_t s_le[NOXTLS_ED25519_FE25519_BYTES]);
+                               const uint8_t *s_le);
 
 /**
  * @brief Double-scalar: R = [a]P + [b]B (sliding-window, variable-time for verify).
@@ -140,9 +140,9 @@ void ge25519_scalarmult_base_n(ge25519_n_t *R,
  * @param[in] b_le Little-endian scalar for the RFC 8032 base point B.
  */
 void ge25519_double_scalarmult(ge25519_pt_t *R,
-                               const uint8_t a_le[NOXTLS_ED25519_FE25519_BYTES],
+                               const uint8_t *a_le,
                                const ge25519_pt_t *P,
-                               const uint8_t b_le[NOXTLS_ED25519_FE25519_BYTES]);
+                               const uint8_t *b_le);
 
 /**
  * @brief Double-scalar into native coordinates (ref10 p2 accumulator).
@@ -153,9 +153,9 @@ void ge25519_double_scalarmult(ge25519_pt_t *R,
  * @param[in] b_le Little-endian scalar for base point B.
  */
 void ge25519_double_scalarmult_n(ge25519_n_t *R,
-                                 const uint8_t a_le[NOXTLS_ED25519_FE25519_BYTES],
+                                 const uint8_t *a_le,
                                  const ge25519_n_t *P,
-                                 const uint8_t b_le[NOXTLS_ED25519_FE25519_BYTES]);
+                                 const uint8_t *b_le);
 
 /**
  * @brief Decode a 32-byte compressed Edwards-y encoding (RFC 8032 §5.1.3).
@@ -166,7 +166,7 @@ void ge25519_double_scalarmult_n(ge25519_n_t *R,
  * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` if invalid.
  */
 noxtls_return_t ge25519_decode(ge25519_pt_t *p,
-                               const uint8_t enc[NOXTLS_ED25519_FE25519_BYTES]);
+                               const uint8_t *enc);
 
 /**
  * @brief Decode compressed point into native extended coordinates (RFC 8032 §5.1.3).
@@ -177,7 +177,7 @@ noxtls_return_t ge25519_decode(ge25519_pt_t *p,
  * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` if invalid.
  */
 noxtls_return_t ge25519_decode_n(ge25519_n_t *p,
-                                 const uint8_t enc[NOXTLS_ED25519_FE25519_BYTES]);
+                                 const uint8_t *enc);
 
 /**
  * @brief Encode an extended point to 32-byte compressed form (RFC 8032 §5.1.2).
@@ -185,7 +185,7 @@ noxtls_return_t ge25519_decode_n(ge25519_n_t *p,
  * @param[out] enc Compressed public encoding.
  * @param[in] p Point in BE extended coordinates.
  */
-void ge25519_encode(uint8_t enc[NOXTLS_ED25519_FE25519_BYTES], const ge25519_pt_t *p);
+void ge25519_encode(uint8_t *enc, const ge25519_pt_t *p);
 
 /**
  * @brief Encode a native point to 32-byte compressed form (RFC 8032 §5.1.2).
@@ -193,10 +193,10 @@ void ge25519_encode(uint8_t enc[NOXTLS_ED25519_FE25519_BYTES], const ge25519_pt_
  * @param[out] enc Compressed public encoding.
  * @param[in] p Native point (projective X:Y:Z is sufficient).
  */
-void ge25519_encode_n(uint8_t enc[NOXTLS_ED25519_FE25519_BYTES], const ge25519_n_t *p);
+void ge25519_encode_n(uint8_t *enc, const ge25519_n_t *p);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _NOXTLS_ED25519_GE_H_ */
+#endif /* NOXTLS_ED25519_GE_H_ */

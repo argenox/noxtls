@@ -45,11 +45,11 @@ noxtls_return_t noxtls_mldsa_poly_mul_challenge(const noxtls_mldsa_poly_t *a,
         return NOXTLS_RETURN_NULL;
     }
 
-    for(i = 0U; i < NOXTLS_MLDSA_N; ++i) {
-        acc[i] = 0;
+    for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
+        acc[i] = 0U;
     }
 
-    for(j = 0U; j < NOXTLS_MLDSA_N; ++j) {
+    for(j = 0U; j < NOXTLS_MLDSA_N; j += 1U) {
         int32_t cj = c->coeff[j];
         if(cj == 0) {
             continue;
@@ -57,8 +57,8 @@ noxtls_return_t noxtls_mldsa_poly_mul_challenge(const noxtls_mldsa_poly_t *a,
         if(cj != 1 && cj != -1) {
             return NOXTLS_RETURN_INVALID_PARAM;
         }
-        for(i = 0U; i < NOXTLS_MLDSA_N; ++i) {
-            uint32_t pos = i + j;
+        for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
+            uint32_t pos = (uint32_t)(i + j);
             int64_t term = (int64_t)a->coeff[i] * (int64_t)cj;
             if(pos >= NOXTLS_MLDSA_N) {
                 pos -= NOXTLS_MLDSA_N;
@@ -68,7 +68,7 @@ noxtls_return_t noxtls_mldsa_poly_mul_challenge(const noxtls_mldsa_poly_t *a,
         }
     }
 
-    for(i = 0U; i < NOXTLS_MLDSA_N; ++i) {
+    for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
         r->coeff[i] = (int32_t)acc[i];
     }
     return NOXTLS_RETURN_SUCCESS;
@@ -105,18 +105,18 @@ noxtls_return_t noxtls_mldsa_make_z(noxtls_mldsa_param_t param,
         return rc;
     }
 
-    for(j = 0U; j < spec.l; ++j) {
+    for(j = 0U; j < spec.l; j += 1U) {
         rc = noxtls_mldsa_poly_mul_challenge(&s1->v[j], c, &cs1);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
-        for(i = 0U; i < NOXTLS_MLDSA_N; ++i) {
+        for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
             z->v[j].coeff[i] = y->v[j].coeff[i] + cs1.coeff[i];
         }
     }
 
-    for(j = spec.l; j < NOXTLS_MLDSA_L_MAX; ++j) {
-        noxtls_mldsa_poly_zero(&z->v[j]);
+    for(j = spec.l; j < NOXTLS_MLDSA_L_MAX; j += 1U) {
+        (void)noxtls_mldsa_poly_zero(&z->v[j]);
     }
 
     return NOXTLS_RETURN_SUCCESS;

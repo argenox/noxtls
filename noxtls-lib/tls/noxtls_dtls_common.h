@@ -20,8 +20,8 @@
 *
 *****************************************************************************/
 
-#ifndef _NOXTLS_DTLS_COMMON_H_
-#define _NOXTLS_DTLS_COMMON_H_
+#ifndef NOXTLS_DTLS_COMMON_H_
+#define NOXTLS_DTLS_COMMON_H_
 
 #include <stdint.h>
 
@@ -33,30 +33,30 @@ extern "C" {
 #endif
 
 /* DTLS Versions */
-#define DTLS_VERSION_1_0           0xFEFF  /* DTLS 1.0 (based on TLS 1.1) */
-#define DTLS_VERSION_1_2           0xFEFD  /* DTLS 1.2 (based on TLS 1.2) */
-#define DTLS_VERSION_1_3           0xFEFC  /* DTLS 1.3 (based on TLS 1.3) */
+#define DTLS_VERSION_1_0           0xFEFFU  /* DTLS 1.0 (based on TLS 1.1) */
+#define DTLS_VERSION_1_2           0xFEFDU  /* DTLS 1.2 (based on TLS 1.2) */
+#define DTLS_VERSION_1_3           0xFEFCU  /* DTLS 1.3 (based on TLS 1.3) */
 /* RFC 9147: legacy_record_version in DTLS 1.3 record header (MUST be 0xFEFD; 0xFEFF allowed for initial ClientHello only) */
-#define DTLS_1_3_LEGACY_RECORD_VERSION  0xFEFD
+#define DTLS_1_3_LEGACY_RECORD_VERSION  0xFEFDU
 
 /* RFC 9147 Figure 3: DTLS 1.3 unified header (DTLSCiphertext) first-byte bits */
-#define DTLS13_UNIFIED_FIXED_BITS   0x20    /* bits 7-5 = 001 */
-#define DTLS13_UNIFIED_CID_BIT      0x10    /* C: Connection ID present */
-#define DTLS13_UNIFIED_S_BIT        0x08    /* S: 16-bit sequence number */
-#define DTLS13_UNIFIED_L_BIT        0x04    /* L: length present */
-#define DTLS13_UNIFIED_EPOCH_MASK   0x03    /* E: low 2 bits of epoch */
-#define DTLS13_UNIFIED_MIN_HEADER   2       /* minimal: 1 byte + 8-bit seq (no L) */
-#define DTLS13_UNIFIED_HEADER_WITH_LEN  4   /* 1 byte + 8-bit seq + 16-bit length */
-#define DTLS13_RECORD_NUMBER_ENC_LEN    16  /* mask length for record number encryption */
+#define DTLS13_UNIFIED_FIXED_BITS   0x20U    /* bits 7-5 = 001 */
+#define DTLS13_UNIFIED_CID_BIT      0x10U    /* C: Connection ID present */
+#define DTLS13_UNIFIED_S_BIT        0x08U    /* S: 16-bit sequence number */
+#define DTLS13_UNIFIED_L_BIT        0x04U    /* L: length present */
+#define DTLS13_UNIFIED_EPOCH_MASK   0x03U    /* E: low 2 bits of epoch */
+#define DTLS13_UNIFIED_MIN_HEADER   2U       /* minimal: 1 byte + 8-bit seq (no L) */
+#define DTLS13_UNIFIED_HEADER_WITH_LEN  4U   /* 1 byte + 8-bit seq + 16-bit length */
+#define DTLS13_RECORD_NUMBER_ENC_LEN    16U  /* mask length for record number encryption */
 
 /* DTLS Record Header Structure (13 bytes) */
 /* 
  * struct {
  *     ContentType type;
  *     ProtocolVersion version;
- *     uint16 epoch;           // DTLS epoch (0 for unencrypted, 1+ for encrypted)
- *     uint48 sequence_number; // DTLS sequence number (48 bits)
- *     uint16 length;          // Record length
+ *     uint16 epoch;            - DTLS epoch (0 for unencrypted, 1+ for encrypted)
+ *     uint48 sequence_number;  - DTLS sequence number (48 bits)
+ *     uint16 length;           - Record length
  *     opaque fragment[DTLSPlaintext.length];
  * } DTLSPlaintext;
  */
@@ -68,16 +68,16 @@ extern "C" {
 #define DTLS_RECORD_SEQUENCE_OFFSET    5
 #define DTLS_RECORD_LENGTH_OFFSET      11
 #define DTLS_RECORD_DATA_OFFSET        13
-#define DTLS_RECORD_HEADER_SIZE        13
+#define DTLS_RECORD_HEADER_SIZE        13U
 
 /* DTLS Handshake Message Structure */
 /*
  * struct {
  *     HandshakeType msg_type;
  *     uint24 length;
- *     uint16 message_seq;        // DTLS sequence number
- *     uint24 fragment_offset;    // Fragment offset
- *     uint24 fragment_length;    // Fragment length
+ *     uint16 message_seq;         - DTLS sequence number
+ *     uint24 fragment_offset;     - Fragment offset
+ *     uint24 fragment_length;     - Fragment length
  *     select (HandshakeType) {
  *         case hello_request:       HelloRequest;
  *         case client_hello:        ClientHello;
@@ -95,34 +95,34 @@ extern "C" {
  */
 
 /* DTLS Handshake Header Offsets */
-#define DTLS_HANDSHAKE_TYPE_OFFSET          0
-#define DTLS_HANDSHAKE_LENGTH_OFFSET        1
-#define DTLS_HANDSHAKE_MESSAGE_SEQ_OFFSET   4
-#define DTLS_HANDSHAKE_FRAGMENT_OFFSET      6
-#define DTLS_HANDSHAKE_FRAGMENT_LEN_OFFSET  9
-#define DTLS_HANDSHAKE_BODY_OFFSET          12
-#define DTLS_HANDSHAKE_HEADER_SIZE          12
+#define DTLS_HANDSHAKE_TYPE_OFFSET          0U
+#define DTLS_HANDSHAKE_LENGTH_OFFSET        1U
+#define DTLS_HANDSHAKE_MESSAGE_SEQ_OFFSET   4U
+#define DTLS_HANDSHAKE_FRAGMENT_OFFSET      6U
+#define DTLS_HANDSHAKE_FRAGMENT_LEN_OFFSET  9U
+#define DTLS_HANDSHAKE_BODY_OFFSET          12U
+#define DTLS_HANDSHAKE_HEADER_SIZE          12U
 
 /* DTLS Hello Verify Request (Cookie Exchange) */
-#define DTLS_HANDSHAKE_HELLO_VERIFY_REQUEST    3
+#define DTLS_HANDSHAKE_HELLO_VERIFY_REQUEST    3U
 
 /* DTLS Maximum Fragment Size */
-#define DTLS_MAX_FRAGMENT_SIZE          1500    /* Typical MTU size */
-#define DTLS_MIN_FRAGMENT_SIZE          256     /* Minimum fragment size */
+#define DTLS_MAX_FRAGMENT_SIZE          1500U    /* Typical MTU size */
+#define DTLS_MIN_FRAGMENT_SIZE          256U     /* Minimum fragment size */
 #define DTLS_MAX_HANDSHAKE_SIZE         TLS_MAX_HANDSHAKE_SIZE
 
 /* DTLS Replay Protection Window */
-#define DTLS_REPLAY_WINDOW_SIZE         64      /* Number of sequence numbers to track */
+#define DTLS_REPLAY_WINDOW_SIZE         64U      /* Number of sequence numbers to track */
 
 /* DTLS ACK Range Limits */
-#define DTLS_MAX_ACK_RANGES             32      /* Max ACK ranges to track */
+#define DTLS_MAX_ACK_RANGES             32U      /* Max ACK ranges to track */
 #define DTLS_FINAL_ACK_RETENTION_MS      120000u /* RFC 9147: retain final ACK for 2 MSL */
 #define DTLS_MAX_ACK_WIRE_LEN            (4U + 2U + 2U + (12U * DTLS_MAX_ACK_RANGES) + 2U)
-#define DTLS_REASSEMBLY_QUEUE_SIZE      4       /* Future handshake messages retained for reordering */
-#define DTLS_RETRANSMIT_RECORD_BURST    10      /* RFC 9147 Section 5.8.3 send burst cap */
+#define DTLS_REASSEMBLY_QUEUE_SIZE      4U       /* Future handshake messages retained for reordering */
+#define DTLS_RETRANSMIT_RECORD_BURST    10U      /* RFC 9147 Section 5.8.3 send burst cap */
 
 /* DTLS Epochs */
-#define DTLS_EPOCH_UNENCRYPTED          0       /* Unencrypted handshake */
+#define DTLS_EPOCH_UNENCRYPTED          0U      /* Unencrypted handshake */
 #define DTLS_EPOCH_ENCRYPTED            1       /* Encrypted handshake */
 #define DTLS_EPOCH_APPLICATION          2       /* Application data */
 
@@ -300,7 +300,7 @@ noxtls_return_t noxtls_dtls_recv_handshake_fragment(dtls_context_t *ctx, dtls_ha
 noxtls_return_t noxtls_dtls_reassemble_handshake(dtls_context_t *ctx, dtls_handshake_fragment_t *fragment, uint8_t **complete_msg, uint32_t *complete_len);
 
 /* DTLS Replay Protection */
-noxtls_return_t noxtls_dtls_check_replay(dtls_context_t *ctx, uint64_t sequence_number);
+noxtls_return_t noxtls_dtls_check_replay(const dtls_context_t *ctx, uint64_t sequence_number);
 noxtls_return_t noxtls_dtls_update_replay_window(dtls_context_t *ctx, uint64_t sequence_number);
 
 /* DTLS Cookie Functions */
@@ -312,4 +312,4 @@ void noxtls_dtls_mark_validated(dtls_context_t *ctx);
 }
 #endif
 
-#endif /* _NOXTLS_DTLS_COMMON_H_ */
+#endif /* NOXTLS_DTLS_COMMON_H_ */

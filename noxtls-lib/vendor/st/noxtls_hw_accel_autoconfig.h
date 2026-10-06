@@ -8,8 +8,8 @@
 *
 */
 
-#ifndef _NOXTLS_HW_ACCEL_AUTOCONFIG_H_
-#define _NOXTLS_HW_ACCEL_AUTOCONFIG_H_
+#ifndef NOXTLS_HW_ACCEL_AUTOCONFIG_H_
+#define NOXTLS_HW_ACCEL_AUTOCONFIG_H_
 
 #include "vendor/st/noxtls_target_detect.h"
 
@@ -55,4 +55,4 @@
 #endif
 #endif
 
-#endif /* _NOXTLS_HW_ACCEL_AUTOCONFIG_H_ */
+#endif /* NOXTLS_HW_ACCEL_AUTOCONFIG_H_ */

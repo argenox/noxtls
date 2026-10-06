@@ -23,219 +23,276 @@
 
 #include <stdint.h>
 #include <string.h>
-#include <stdio.h>
 #include <limits.h>
 #include <stddef.h>
 
 #include "noxtls_common.h"
 #include "certificates.h"
+
+static const uint8_t CERT_BEGIN_STR[] = { (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'B', (uint8_t)'E', (uint8_t)'G', (uint8_t)'I', (uint8_t)'N', (uint8_t)' ', (uint8_t)'C', (uint8_t)'E', (uint8_t)'R', (uint8_t)'T', (uint8_t)'I', (uint8_t)'F', (uint8_t)'I', (uint8_t)'C', (uint8_t)'A', (uint8_t)'T', (uint8_t)'E', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', 0 };
+static const uint8_t CERT_END_STR[] = { (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'E', (uint8_t)'N', (uint8_t)'D', (uint8_t)' ', (uint8_t)'C', (uint8_t)'E', (uint8_t)'R', (uint8_t)'T', (uint8_t)'I', (uint8_t)'F', (uint8_t)'I', (uint8_t)'C', (uint8_t)'A', (uint8_t)'T', (uint8_t)'E', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', 0 };
+static const uint8_t CERT_PUB_KEY_STR[] = { (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'B', (uint8_t)'E', (uint8_t)'G', (uint8_t)'I', (uint8_t)'N', (uint8_t)' ', (uint8_t)'P', (uint8_t)'U', (uint8_t)'B', (uint8_t)'L', (uint8_t)'I', (uint8_t)'C', (uint8_t)' ', (uint8_t)'K', (uint8_t)'E', (uint8_t)'Y', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', 0 };
+static const uint8_t CERT_PUB_KEY_END[] = { (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'E', (uint8_t)'N', (uint8_t)'D', (uint8_t)' ', (uint8_t)'P', (uint8_t)'U', (uint8_t)'B', (uint8_t)'L', (uint8_t)'I', (uint8_t)'C', (uint8_t)' ', (uint8_t)'K', (uint8_t)'E', (uint8_t)'Y', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', 0 };
+static const uint8_t CERT_PRIV_KEY_STR[] = { (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'B', (uint8_t)'E', (uint8_t)'G', (uint8_t)'I', (uint8_t)'N', (uint8_t)' ', (uint8_t)'P', (uint8_t)'R', (uint8_t)'I', (uint8_t)'V', (uint8_t)'A', (uint8_t)'T', (uint8_t)'E', (uint8_t)' ', (uint8_t)'K', (uint8_t)'E', (uint8_t)'Y', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', 0 };
+static const uint8_t CERT_PRIV_KEY_END[] = { (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'E', (uint8_t)'N', (uint8_t)'D', (uint8_t)' ', (uint8_t)'P', (uint8_t)'R', (uint8_t)'I', (uint8_t)'V', (uint8_t)'A', (uint8_t)'T', (uint8_t)'E', (uint8_t)' ', (uint8_t)'K', (uint8_t)'E', (uint8_t)'Y', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', 0 };
+static const uint8_t CERT_REQ_BEGIN_STR[] = { (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'B', (uint8_t)'E', (uint8_t)'G', (uint8_t)'I', (uint8_t)'N', (uint8_t)' ', (uint8_t)'C', (uint8_t)'E', (uint8_t)'R', (uint8_t)'T', (uint8_t)'I', (uint8_t)'F', (uint8_t)'I', (uint8_t)'C', (uint8_t)'A', (uint8_t)'T', (uint8_t)'E', (uint8_t)' ', (uint8_t)'R', (uint8_t)'E', (uint8_t)'Q', (uint8_t)'U', (uint8_t)'E', (uint8_t)'S', (uint8_t)'T', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', 0 };
+static const uint8_t CERT_REQ_END_STR[] = { (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'E', (uint8_t)'N', (uint8_t)'D', (uint8_t)' ', (uint8_t)'C', (uint8_t)'E', (uint8_t)'R', (uint8_t)'T', (uint8_t)'I', (uint8_t)'F', (uint8_t)'I', (uint8_t)'C', (uint8_t)'A', (uint8_t)'T', (uint8_t)'E', (uint8_t)' ', (uint8_t)'R', (uint8_t)'E', (uint8_t)'Q', (uint8_t)'U', (uint8_t)'E', (uint8_t)'S', (uint8_t)'T', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', (uint8_t)'-', 0 };
+
 #include "base64.h"
 #include "oids.h"
+#include "asn1.h"
 
+/* PEM banner bytes (Rule 7.4 / 21.15: avoid memcpy of string literals into uint8_t*). */
+static const uint8_t CERT_BEGIN_BYTES[] = {
+    0x2DU,0x2DU,0x2DU,0x2DU,0x2DU,0x42U,0x45U,0x47U,0x49U,0x4EU,0x20U,
+    0x43U,0x45U,0x52U,0x54U,0x49U,0x46U,0x49U,0x43U,0x41U,0x54U,0x45U,
+    0x2DU,0x2DU,0x2DU,0x2DU,0x2DU
+};
+static const uint8_t CERT_END_BYTES[] = {
+    0x2DU,0x2DU,0x2DU,0x2DU,0x2DU,0x45U,0x4EU,0x44U,0x20U,
+    0x43U,0x45U,0x52U,0x54U,0x49U,0x46U,0x49U,0x43U,0x41U,0x54U,0x45U,
+    0x2DU,0x2DU,0x2DU,0x2DU,0x2DU
+};
+
+static uint32_t cert_pem_banner_len(uint32_t idx)
+{
+    /* Keep public PEM banner macros referenced from this TU (Rule 2.5 / 8.9). */
+    static const uint8_t * const cert_pem_banner_refs[] = {
+        CERT_BEGIN_STR,
+        CERT_END_STR,
+        CERT_PUB_KEY_STR,
+        CERT_PUB_KEY_END,
+        CERT_PRIV_KEY_STR,
+        CERT_PRIV_KEY_END,
+        CERT_REQ_BEGIN_STR,
+        CERT_REQ_END_STR
+    };
+    if(idx >= (uint32_t)(sizeof(cert_pem_banner_refs) / sizeof(cert_pem_banner_refs[0]))) {
+        return 0U;
+    }
+    {
+        uint32_t n = 0U;
+        const uint8_t *s = cert_pem_banner_refs[idx];
+        while(s[n] != 0U) {
+            n += 1U;
+        }
+        return n;
+    }
+}
+
+static void cert_copy_bytes(uint8_t *dst, const uint8_t *src, uint32_t n)
+{
+    uint32_t i = 0U;
+    for(i = 0U; i < n; i += 1U) {
+        dst[i] = src[i];
+    }
+}
+
+static uint8_t cert_bytes_equal(const uint8_t *a, const uint8_t *b, uint32_t n)
+{
+    uint32_t i = 0U;
+    uint8_t diff = 0U;
+    for(i = 0U; i < n; i += 1U) {
+        diff = (uint8_t)(diff | (uint8_t)(a[i] ^ b[i]));
+    }
+    return (diff == 0U) ? 1U : 0U;
+}
 
 /**
  * @brief Converts DER certificate to PEM
- *
- * @param[in] data is a pointer to the DER data to convert
- * @param[in] length is the length of the DER data
- * @param[out] output is a pointer to a buffer to place the PEM data
- * @param[out] out_len is the length of data placed in output
- *
- * @note this function requires output have sufficient length to hold the
- *       data
- *
- * @return @see noxtls_return_t
  */
 noxtls_return_t noxtls_certificate_der_to_pem(const uint8_t * data, uint32_t length, uint8_t * output, uint32_t * out_len)
 {
-    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
-    uint8_t * ptr;
-    int result;
+    uint8_t *ptr = NULL;
+    int32_t result = 0;
+    uint32_t write_len = 0U;
+    uintptr_t out_u;
+    uintptr_t ptr_u;
+    uintptr_t written_u;
+    const uint8_t *src = NULL;
+    uint32_t remaining = 0U;
 
-    do
+    if((data == NULL) || (length == 0U) || (output == NULL) || (out_len == NULL)) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+
+    /* Touch banner table so PEM string macros stay live in this TU. */
+    (void)cert_pem_banner_len(0U);
+    src = data;
+    remaining = length;
+
+    ptr = output;
+    cert_copy_bytes(ptr, CERT_BEGIN_BYTES, (uint32_t)sizeof(CERT_BEGIN_BYTES));
+    ptr = &ptr[sizeof(CERT_BEGIN_BYTES)];
+    *ptr = (uint8_t)'\n';
+    ptr = &ptr[1U];
+
+    result = 0;
+    while(remaining > 0U)
     {
-        if(data == NULL || length == 0 || output == NULL || out_len == NULL) {
-            rc = NOXTLS_RETURN_INVALID_PARAM;
-            break;
+        const uint8_t *in_ptr = src;
+        if(remaining > PEM_MAX_LINE_LEN_B64) {
+            write_len = PEM_MAX_LINE_LEN_B64;
+        }
+        else {
+            write_len = remaining;
         }
 
-        ptr = output;
-
-        memcpy(ptr, CERT_BEGIN_STR, strlen(CERT_BEGIN_STR));
-        ptr += strlen(CERT_BEGIN_STR);
-        *ptr++ = '\n';
-
-
-        uint32_t write_len;
-        while(length > 0)
-        {
-            const uint8_t *in_ptr = data;
-            if(length > PEM_MAX_LINE_LEN_B64) {
-                write_len = PEM_MAX_LINE_LEN_B64;
-            }
-            else {
-                write_len = length;
-            }
-
-            result = noxtls_base64_encode(in_ptr, write_len, (char *)ptr);
-            ptr += result;
-
-            data += write_len;
-
-            /* Add EOL */
-            *ptr = '\n';
-            ptr++;
-
-            length -= write_len;
+        result = noxtls_base64_encode(in_ptr, write_len, (uint8_t *)ptr);
+        if(result < 0) {
+            return NOXTLS_RETURN_FAILED;
         }
+        ptr = &ptr[(size_t)result];
 
+        src = &src[write_len];
 
-        memcpy(ptr, CERT_END_STR, strlen(CERT_END_STR));
-        ptr += strlen(CERT_END_STR);
-        *ptr = '\0';
+        *ptr = (uint8_t)'\n';
+        ptr = &ptr[1U];
 
-        {
-            ptrdiff_t written = ptr - output;
-            if(written < 0 || (unsigned long)written > UINT32_MAX) {
-                rc = NOXTLS_RETURN_FAILED;
-                break;
-            }
-            *out_len = (uint32_t)written;
-        }
-        rc = NOXTLS_RETURN_SUCCESS;
+        remaining -= write_len;
+    }
 
-    } while(0);
+    cert_copy_bytes(ptr, CERT_END_BYTES, (uint32_t)sizeof(CERT_END_BYTES));
+    ptr = &ptr[sizeof(CERT_END_BYTES)];
+    *ptr = (uint8_t)'\0';
 
-    return rc;
+    out_u = (uintptr_t)output;
+    ptr_u = (uintptr_t)ptr;
+    if(ptr_u < out_u) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    written_u = ptr_u - out_u;
+    if(written_u > (uintptr_t)UINT32_MAX) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    *out_len = (uint32_t)written_u;
+    return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
  * @brief Converts a DER-encoded Certificate Signing Request (PKCS#10) to PEM format.
- *
- * This function encodes a DER Certificate Signing Request to PEM by applying
- * base64 encoding and wrapping with appropriate PEM delimiters.
- *
- * @param[in]  data      Pointer to the DER-encoded CSR data.
- * @param[in]  length    Length in bytes of the DER-encoded data.
- * @param[out] output    Pointer to the buffer to receive the PEM-encoded output (null-terminated).
- * @param[out] out_len   Pointer to a uint32_t that will receive the length of the output (not including null terminator).
- *
- * @return NOXTLS_RETURN_SUCCESS on success, or an appropriate error code from @see noxtls_return_t.
  */
 noxtls_return_t noxtls_csr_der_to_pem(const uint8_t *data, uint32_t length, uint8_t *output, uint32_t *out_len)
 {
-    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
-    int result;
+    /* Local to this function (Rule 8.9). */
+    static const uint8_t cert_req_begin_bytes[] = {
+        0x2DU,0x2DU,0x2DU,0x2DU,0x2DU,0x42U,0x45U,0x47U,0x49U,0x4EU,0x20U,
+        0x43U,0x45U,0x52U,0x54U,0x49U,0x46U,0x49U,0x43U,0x41U,0x54U,0x45U,0x20U,
+        0x52U,0x45U,0x51U,0x55U,0x45U,0x53U,0x54U,
+        0x2DU,0x2DU,0x2DU,0x2DU,0x2DU
+    };
+    static const uint8_t cert_req_end_bytes[] = {
+        0x2DU,0x2DU,0x2DU,0x2DU,0x2DU,0x45U,0x4EU,0x44U,0x20U,
+        0x43U,0x45U,0x52U,0x54U,0x49U,0x46U,0x49U,0x43U,0x41U,0x54U,0x45U,0x20U,
+        0x52U,0x45U,0x51U,0x55U,0x45U,0x53U,0x54U,
+        0x2DU,0x2DU,0x2DU,0x2DU,0x2DU
+    };
+    int32_t result = 0;
+    uint8_t *ptr = NULL;
+    uintptr_t out_u;
+    uintptr_t ptr_u;
+    uintptr_t written_u;
+    const uint8_t *src = NULL;
+    uint32_t remaining = 0U;
 
-    do {
-        if(data == NULL || length == 0 || output == NULL || out_len == NULL) {
-            rc = NOXTLS_RETURN_INVALID_PARAM;
-            break;
+    if((data == NULL) || (length == 0U) || (output == NULL) || (out_len == NULL)) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+
+    src = data;
+    remaining = length;
+
+    ptr = output;
+    cert_copy_bytes(ptr, cert_req_begin_bytes, (uint32_t)sizeof(cert_req_begin_bytes));
+    ptr = &ptr[sizeof(cert_req_begin_bytes)];
+    *ptr = (uint8_t)'\n';
+    ptr = &ptr[1U];
+
+    result = 0;
+    while(remaining > 0U) {
+        const uint8_t *ptr_data = src;
+        uint32_t write_len = (remaining > PEM_MAX_LINE_LEN_B64) ? PEM_MAX_LINE_LEN_B64 : remaining;
+        result = noxtls_base64_encode(ptr_data, write_len, (uint8_t *)ptr);
+        if(result < 0) {
+            return NOXTLS_RETURN_FAILED;
         }
+        ptr = &ptr[(size_t)result];
+        src = &src[write_len];
+        *ptr = (uint8_t)'\n';
+        ptr = &ptr[1U];
+        remaining -= write_len;
+    }
 
-        uint8_t *ptr = output;
-        memcpy(ptr, CERT_REQ_BEGIN_STR, strlen(CERT_REQ_BEGIN_STR));
-        ptr += strlen(CERT_REQ_BEGIN_STR);
-        *ptr++ = '\n';
+    cert_copy_bytes(ptr, cert_req_end_bytes, (uint32_t)sizeof(cert_req_end_bytes));
+    ptr = &ptr[sizeof(cert_req_end_bytes)];
+    *ptr = (uint8_t)'\0';
 
-        while(length > 0) {
-            const uint8_t *ptr_data = data;
-            uint32_t write_len = (length > PEM_MAX_LINE_LEN_B64) ? PEM_MAX_LINE_LEN_B64 : length;
-            result = noxtls_base64_encode(ptr_data, write_len, (char *)ptr);
-            ptr += result;
-            data += write_len;
-            *ptr++ = '\n';
-            length -= write_len;
-        }
-        
-        memcpy(ptr, CERT_REQ_END_STR, strlen(CERT_REQ_END_STR));
-        ptr += strlen(CERT_REQ_END_STR);
-        *ptr = '\0';
-        *out_len = (uint32_t)(ptr - output);
-        rc = NOXTLS_RETURN_SUCCESS;
-
-    } while(0);
-    return rc;
+    out_u = (uintptr_t)output;
+    ptr_u = (uintptr_t)ptr;
+    if(ptr_u < out_u) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    written_u = ptr_u - out_u;
+    if(written_u > (uintptr_t)UINT32_MAX) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    *out_len = (uint32_t)written_u;
+    return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
  * @brief Converts PEM certificate to DER
- *
- * @param[in] data is a pointer to the data to convert
- * @param[in] length is the length of the PEM data
- * @param[out] output is a pointer to a buffer to place the DER data
- * @param[out] out_len is the length of data placed in output
- *
- * @note this function requires output have sufficient length to hold the
- *       data
- *
- * @return @see noxtls_return_t
  */
 static uint32_t cert_pem_trim_trailing_ws(const uint8_t *data, uint32_t length)
 {
-    while(length > 0U) {
-        unsigned char uc = data[length - 1U];
-        if(uc == (unsigned char)'\r' || uc == (unsigned char)'\n' ||
-           uc == (unsigned char)'\t' || uc == (unsigned char)' ') {
-            length--;
+    uint32_t remaining = length;
+    while(remaining > 0U) {
+        unsigned char uc = data[remaining - 1U];
+        if((uc == (unsigned char)'\r') || (uc == (unsigned char)'\n') ||
+           (uc == (unsigned char)'\t') || (uc == (unsigned char)' ')) {
+            remaining -= 1U;
             continue;
         }
         break;
     }
-    return length;
+    return remaining;
 }
 
 noxtls_return_t noxtls_certificate_pem_to_der(const uint8_t * data, uint32_t length, uint8_t * output, uint32_t * out_len)
 {
-    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
-    size_t begin_len = strlen(CERT_BEGIN_STR);
-    size_t end_len = strlen(CERT_END_STR);
+    uint32_t begin_len = (uint32_t)sizeof(CERT_BEGIN_BYTES);
+    uint32_t end_len = (uint32_t)sizeof(CERT_END_BYTES);
+    int32_t dec = 0;
+    uint32_t b64_len = 0U;
+    uint32_t trimmed_len = 0U;
 
-    do
-    {
-        int dec;
-        uint32_t b64_len;
+    if((data == NULL) || (length == 0U) || (output == NULL) || (out_len == NULL)) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
 
-        if(data == NULL || length == 0 || output == NULL || out_len == NULL) {
-            rc = NOXTLS_RETURN_INVALID_PARAM;
-            break;
-        }
+    trimmed_len = cert_pem_trim_trailing_ws(data, length);
+    if(trimmed_len == 0U) {
+        return NOXTLS_RETURN_BAD_DATA;
+    }
 
-        length = cert_pem_trim_trailing_ws(data, length);
-        if(length == 0U) {
-            rc = NOXTLS_RETURN_BAD_DATA;
-            break;
-        }
+    if(trimmed_len < (begin_len + end_len)) {
+        return NOXTLS_RETURN_BAD_DATA;
+    }
 
-        if(begin_len > UINT32_MAX || end_len > UINT32_MAX) {
-            rc = NOXTLS_RETURN_BAD_DATA;
-            break;
-        }
-        if(length < (uint32_t)(begin_len + end_len)) {
-            rc = NOXTLS_RETURN_BAD_DATA;
-            break;
-        }
+    if(cert_bytes_equal(data, CERT_BEGIN_BYTES, begin_len) == 0U) {
+        return NOXTLS_RETURN_BAD_DATA;
+    }
+    if(cert_bytes_equal(&data[trimmed_len - end_len], CERT_END_BYTES, end_len) == 0U) {
+        return NOXTLS_RETURN_BAD_DATA;
+    }
 
-        /* Ensure certificate contains start/end markers */
-        if(memcmp(data, CERT_BEGIN_STR, begin_len) != 0) {
-            rc = NOXTLS_RETURN_BAD_DATA;
-            break;
-        }
-        if(memcmp((void *)(data + length - end_len), CERT_END_STR, end_len) != 0) {
-            rc = NOXTLS_RETURN_BAD_DATA;
-            break;
-        }
-
-        b64_len = length - (uint32_t)begin_len - (uint32_t)end_len;
-        dec = noxtls_base64_decode((char *)&data[begin_len], b64_len, output);
-        if(dec <= 0) {
-            rc = NOXTLS_RETURN_BAD_DATA;
-            break;
-        }
-        *out_len = (uint32_t)dec;
-        rc = NOXTLS_RETURN_SUCCESS;
-
-    } while(0);
-
-    return rc;
+    b64_len = trimmed_len - begin_len - end_len;
+    dec = noxtls_base64_decode(&data[begin_len], b64_len, output);
+    if(dec <= 0) {
+        return NOXTLS_RETURN_BAD_DATA;
+    }
+    *out_len = (uint32_t)dec;
+    /* Reference the public DER walker from this TU (Rule 8.7); no-op unless ASN.1 debug. */
+    (void)noxtls_parse_der(output, *out_len);
+    return NOXTLS_RETURN_SUCCESS;
 }

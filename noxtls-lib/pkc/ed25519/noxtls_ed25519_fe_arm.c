@@ -18,8 +18,7 @@
 * Summary: Packed 8×uint32 FE helpers; Cortex-M4/M7 packed UMAAL asm mul/sqr
 *
 * On ARMv7E-M / ARMv8-M Mainline, field mul/sq route through public-domain
-* packed UMAAL assembly after a fast limb→u32 pack (carry + bit pack, no
-* full canonical reduction). Portable schoolbook remains for host tests
+* packed UMAAL assembly after canonical limb-to-u32 packing. Portable schoolbook remains for host tests
 * and non-ARM targets.
 *
 *****************************************************************************/
@@ -30,6 +29,7 @@
  * @ingroup noxtls_ed25519
  */
 
+#include "common/noxtls_ct.h"
 #include <string.h>
 
 #include "noxtls_ed25519_config.h"
@@ -92,7 +92,7 @@ static void fe25519_u32_fold255(uint32_t x[8])
     }
 }
 
-void fe25519_limbs_to_u32(uint32_t out[8], const fe25519_native_t *in)
+void fe25519_limbs_to_u32(uint32_t *out, const fe25519_native_t *in)
 {
     uint8_t le[NOXTLS_ED25519_FE25519_BYTES];
     uint32_t i;
@@ -102,22 +102,22 @@ void fe25519_limbs_to_u32(uint32_t out[8], const fe25519_native_t *in)
      * wrong bytes. */
     fe25519_native_to_le(le, in);
     for(i = 0U; i < 8U; i++) {
-        out[i] = fe25519_arm_load32_le(le + (4U * i));
+        out[i] = fe25519_arm_load32_le(&le[4U * i]);
     }
 }
 
-void fe25519_u32_to_limbs(fe25519_native_t *out, const uint32_t in[8])
+void fe25519_u32_to_limbs(fe25519_native_t *out, const uint32_t *in)
 {
     uint8_t le[NOXTLS_ED25519_FE25519_BYTES];
     uint32_t tmp[8];
     uint32_t i;
 
-    memcpy(tmp, in, sizeof(tmp));
+    noxtls_copy_u8((uint8_t *)(void *)(tmp), (size_t)(sizeof(tmp)), (const uint8_t *)(const void *)(in), (size_t)(sizeof(tmp)));
     /* The packed asm returns a value below 2^256, not 2^255: fold bit 255
      * (2^255 = 19 mod p) instead of dropping it. */
     fe25519_u32_fold255(tmp);
     for(i = 0U; i < 8U; i++) {
-        fe25519_store32_le(le + (4U * i), tmp[i]);
+        fe25519_store32_le(&le[4U * i], tmp[i]);
     }
     fe25519_native_from_le(out, le);
 }
@@ -126,7 +126,7 @@ void fe25519_u32_to_limbs(fe25519_native_t *out, const uint32_t in[8])
  * @brief Weak-reduce a 512-bit product into 8 limbs with bit 255 clear.
  * @internal
  */
-static void fe25519_u32_reduce_512(uint32_t out[8], const uint32_t t[16])
+static void fe25519_u32_reduce_512(uint32_t *out, const uint32_t *t)
 {
     uint64_t c;
     uint32_t i;
@@ -178,9 +178,9 @@ static void fe25519_u32_reduce_512(uint32_t out[8], const uint32_t t[16])
  * @brief Portable schoolbook 8×8 → 16 limb multiply (uint64 accumulators).
  * @internal
  */
-static void fe25519_u32_mul_schoolbook(uint32_t t[16],
-                                       const uint32_t a[8],
-                                       const uint32_t b[8])
+static void fe25519_u32_mul_schoolbook(uint32_t *t,
+                                       const uint32_t *a,
+                                       const uint32_t *b)
 {
     uint64_t acc;
     uint32_t i;
@@ -200,24 +200,24 @@ static void fe25519_u32_mul_schoolbook(uint32_t t[16],
     }
 }
 
-void fe25519_u32_mul(uint32_t out[8], const uint32_t a[8], const uint32_t b[8])
+void fe25519_u32_mul(uint32_t *out, const uint32_t *a, const uint32_t *b)
 {
     uint32_t t[16];
     uint32_t aa[8];
     uint32_t bb[8];
 
-    memcpy(aa, a, sizeof(aa));
-    memcpy(bb, b, sizeof(bb));
+    noxtls_copy_u8((uint8_t *)(void *)(aa), (size_t)(sizeof(aa)), (const uint8_t *)(const void *)(a), (size_t)(sizeof(aa)));
+    noxtls_copy_u8((uint8_t *)(void *)(bb), (size_t)(sizeof(bb)), (const uint8_t *)(const void *)(b), (size_t)(sizeof(bb)));
     fe25519_u32_mul_schoolbook(t, aa, bb);
     fe25519_u32_reduce_512(out, t);
 }
 
-void fe25519_u32_sqr(uint32_t out[8], const uint32_t a[8])
+void fe25519_u32_sqr(uint32_t *out, const uint32_t *a)
 {
     uint32_t t[16];
     uint32_t aa[8];
 
-    memcpy(aa, a, sizeof(aa));
+    noxtls_copy_u8((uint8_t *)(void *)(aa), (size_t)(sizeof(aa)), (const uint8_t *)(const void *)(a), (size_t)(sizeof(aa)));
     fe25519_u32_mul_schoolbook(t, aa, aa);
     fe25519_u32_reduce_512(out, t);
 }
@@ -226,14 +226,14 @@ void fe25519_u32_sqr(uint32_t out[8], const uint32_t a[8])
     defined(NOXTLS_ED25519_FE_USE_PACKED_ASM)
 
 /* Public-domain Cortex-M4 packed mul/sqr (see asm/noxtls_fe25519_*_armv7em.S). */
-void fe25519_mul_asm(uint32_t out[8], const uint32_t a[8], const uint32_t b[8]);
-void fe25519_square_asm(uint32_t out[8], const uint32_t a[8]);
+void fe25519_mul_asm(uint32_t *out, const uint32_t *a, const uint32_t *b);
+void fe25519_square_asm(uint32_t *out, const uint32_t *a);
 
 /**
  * @brief Double a packed field element with weak reduction (bit 255 clear).
  * @internal
  */
-static void fe25519_u32_dbl_reduce(uint32_t x[8])
+static void fe25519_u32_dbl_reduce(uint32_t *x)
 {
     uint64_t c = 0U;
     uint32_t i;

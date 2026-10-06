@@ -20,8 +20,8 @@
 *
 *****************************************************************************/
 
-#ifndef _NOXTLS_ECDSA_ACCEL_PORT_H_
-#define _NOXTLS_ECDSA_ACCEL_PORT_H_
+#ifndef NOXTLS_ECDSA_ACCEL_PORT_H_
+#define NOXTLS_ECDSA_ACCEL_PORT_H_
 
 #include "noxtls_ecdsa.h"
 
@@ -43,5 +43,5 @@ noxtls_return_t noxtls_ecdsa_verify_accel_port(const ecc_key_t *key,
 }
 #endif
 
-#endif /* _NOXTLS_ECDSA_ACCEL_PORT_H_ */
+#endif /* NOXTLS_ECDSA_ACCEL_PORT_H_ */
 
