@@ -807,12 +807,15 @@ noxtls_return_t noxtls_camellia_check_oneshot_args(const uint8_t* key, const uin
 }
 
 /**
- * @brief Increment the counter.
+ * @brief Increment a 128-bit Camellia-CTR counter block (big-endian, mod 2^128).
  *
- * @param[in] counter The counter value.
+ * Shared by the one-shot (noxtls_camellia_encrypt_ctr) and streaming CTR paths
+ * so their keystreams are identical for every IV.
+ *
+ * @param[in,out] counter The counter block.
  * @return void
  */
-static void camellia_counter_inc(uint8_t counter[NOXTLS_CAMELLIA_BLOCK_LENGTH])
+void noxtls_camellia_counter_inc(uint8_t counter[NOXTLS_CAMELLIA_BLOCK_LENGTH])
 {
     int i = 0;
     for (i = (int)NOXTLS_CAMELLIA_BLOCK_LENGTH - 1; i >= 0; i -= 1) {
@@ -976,7 +979,7 @@ noxtls_return_t noxtls_camellia_update(noxtls_camellia_context_t *ctx,
                         if (noxtls_camellia_encrypt_block_internal(ctx->key, ctx->feedback, ctx->partial, ctx->type) != NOXTLS_RETURN_SUCCESS) {
                             return NOXTLS_RETURN_FAILED;
                         }
-                        camellia_counter_inc(ctx->feedback);
+                        noxtls_camellia_counter_inc(ctx->feedback);
                     } else if (ctx->mode == NOXTLS_CAMELLIA_CFB) {
                         if (noxtls_camellia_encrypt_block_internal(ctx->key, ctx->feedback, ctx->partial, ctx->type) != NOXTLS_RETURN_SUCCESS) {
                             return NOXTLS_RETURN_FAILED;

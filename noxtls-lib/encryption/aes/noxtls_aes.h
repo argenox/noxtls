@@ -278,8 +278,55 @@ noxtls_return_t noxtls_aes_encrypt_ofb(const uint8_t* key,
 
 #if NOXTLS_FEATURE_AES_XTS
 /**
- * @brief Encrypt data with AES-XTS.
- * @param key AES key bytes (data key || tweak key) for the selected key size.
+ * @brief Encrypt a data unit with XTS-AES (IEEE Std 1619-2007, NIST SP 800-38E).
+ *
+ * Lengths that are not a multiple of 16 use ciphertext stealing. A data unit
+ * must be at least 16 bytes; IEEE 1619 limits it to 2^20 blocks. NIST
+ * SP 800-38E requires @p data_key != @p tweak_key. @p data and @p output may
+ * be the same buffer.
+ *
+ * @param data_key Key1 (encrypts the data), one AES key of size @p type.
+ * @param tweak_key Key2 (encrypts the tweak), one AES key of size @p type.
+ * @param data Input plaintext buffer.
+ * @param data_len Input length in bytes (>= NOXTLS_AES_BLOCK_LENGTH).
+ * @param tweak 128-bit tweak (data unit sequence number, little-endian as in IEEE 1619).
+ * @param output Output ciphertext buffer of @p data_len bytes.
+ * @param type AES key size selector.
+ * @return NOXTLS_RETURN_SUCCESS; NOXTLS_RETURN_NULL for a NULL key/data/output;
+ *         NOXTLS_RETURN_INVALID_PARAM for a NULL tweak;
+ *         NOXTLS_RETURN_INVALID_BLOCK_SIZE when @p data_len < 16; or a
+ *         key-size / block cipher error (output is zeroed on failure).
+ */
+noxtls_return_t noxtls_aes_xts_encrypt(const uint8_t *data_key,
+                                       const uint8_t *tweak_key,
+                                       const uint8_t *data,
+                                       uint32_t data_len,
+                                       const uint8_t *tweak,
+                                       uint8_t *output,
+                                       noxtls_aes_type_t type);
+
+/**
+ * @brief Decrypt a data unit with XTS-AES (IEEE Std 1619-2007, NIST SP 800-38E).
+ *
+ * Inverse of noxtls_aes_xts_encrypt(); same parameters and return codes, with
+ * @p data holding the ciphertext and @p output receiving the plaintext.
+ */
+noxtls_return_t noxtls_aes_xts_decrypt(const uint8_t *data_key,
+                                       const uint8_t *tweak_key,
+                                       const uint8_t *data,
+                                       uint32_t data_len,
+                                       const uint8_t *tweak,
+                                       uint8_t *output,
+                                       noxtls_aes_type_t type);
+
+/**
+ * @brief Encrypt data with AES-XTS using one key as both Key1 and Key2.
+ *
+ * Equivalent to noxtls_aes_xts_encrypt(key, key, ...). Reads exactly one AES
+ * key of size @p type. Kept for compatibility: SP 800-38E (FIPS) requires
+ * distinct data and tweak keys, so new code should use noxtls_aes_xts_encrypt().
+ *
+ * @param key AES key bytes for the selected key size (used for data and tweak).
  * @param data Input plaintext buffer.
  * @param data_len Input length in bytes (at least one block).
  * @param iv Tweak value of NOXTLS_AES_BLOCK_LENGTH bytes.
@@ -288,6 +335,27 @@ noxtls_return_t noxtls_aes_encrypt_ofb(const uint8_t* key,
  * @return NOXTLS_RETURN_SUCCESS on success or a noxtls_return_t error code.
  */
 noxtls_return_t noxtls_aes_encrypt_xts(const uint8_t* key,
+                    const uint8_t* data,
+                    uint32_t data_len,
+                    const uint8_t * iv,
+                    uint8_t* output,
+                    noxtls_aes_type_t type);
+
+/**
+ * @brief Decrypt data with AES-XTS using one key as both Key1 and Key2.
+ *
+ * Inverse of noxtls_aes_encrypt_xts(); equivalent to
+ * noxtls_aes_xts_decrypt(key, key, ...).
+ *
+ * @param key AES key bytes for the selected key size (used for data and tweak).
+ * @param data Input ciphertext buffer.
+ * @param data_len Input length in bytes (at least one block).
+ * @param iv Tweak value of NOXTLS_AES_BLOCK_LENGTH bytes.
+ * @param output Output plaintext buffer.
+ * @param type AES key size selector.
+ * @return NOXTLS_RETURN_SUCCESS on success or a noxtls_return_t error code.
+ */
+noxtls_return_t noxtls_aes_decrypt_xts(const uint8_t* key,
                     const uint8_t* data,
                     uint32_t data_len,
                     const uint8_t * iv,

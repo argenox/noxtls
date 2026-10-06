@@ -40,8 +40,43 @@ static uint8_t sha3_debug_lvl = 0U;
 /* SHA-3 uses 64-bit lanes for Keccak-f[1600] */
 typedef uint64_t sha3_lane_t;
 
-/* Helper macro to access state as 5x5 array of 64-bit lanes */
-#define SHA3_LANE(x, y) (((sha3_lane_t *)(void *)(ctx)->state)[(SHA3_MAX_X_SIZE * (y)) + (x)])
+/* Number of 64-bit lanes in the Keccak-f[1600] state (5 x 5). */
+#define SHA3_LANE_COUNT (SHA3_MAX_X_SIZE * SHA3_MAX_Y_SIZE)
+
+/* Access lane (x, y) of a local lane array. The byte state in the context is
+ * never accessed through a wider type: it is only 4-byte aligned inside
+ * noxtls_sha3_ctx_t (8-byte loads fault on strict-alignment cores) and FIPS 202
+ * defines the lanes as little-endian byte strings, so keccak_f1600() converts
+ * with explicit byte loads/stores that are correct on any alignment/endianness. */
+#define SHA3_LANE(lanes, x, y) ((lanes)[(SHA3_MAX_X_SIZE * (y)) + (x)])
+
+/**
+ * @brief Load a little-endian 64-bit lane from bytes (any alignment).
+ *
+ * @param p Pointer to 8 bytes
+ * @return sha3_lane_t Lane value
+ */
+static sha3_lane_t sha3_load_le64(const uint8_t *p)
+{
+    return ((sha3_lane_t)p[0])         | ((sha3_lane_t)p[1] << 8U)  |
+           ((sha3_lane_t)p[2] << 16U)  | ((sha3_lane_t)p[3] << 24U) |
+           ((sha3_lane_t)p[4] << 32U)  | ((sha3_lane_t)p[5] << 40U) |
+           ((sha3_lane_t)p[6] << 48U)  | ((sha3_lane_t)p[7] << 56U);
+}
+
+/**
+ * @brief Store a 64-bit lane as little-endian bytes (any alignment).
+ *
+ * @param p Pointer to 8 bytes
+ * @param v Lane value
+ */
+static void sha3_store_le64(uint8_t *p, sha3_lane_t v)
+{
+    uint32_t i;
+    for (i = 0U; i < SHA3_LANE_BYTES; i += 1U) {
+        p[i] = (uint8_t)((v >> (8U * i)) & 0xFFU);
+    }
+}
 
 /**
  * @brief Rotate left for 64-bit values
@@ -86,9 +121,9 @@ static inline sha3_lane_t sha3_rotl64(sha3_lane_t x, uint8_t n)
 /**
  * @brief Theta step of Keccak-f permutation
  *
- * @param ctx SHA-3 context
+ * @param lanes Keccak state as 25 lanes
  */
-static void keccak_theta(noxtls_sha3_ctx_t * ctx)
+static void keccak_theta(sha3_lane_t lanes[SHA3_LANE_COUNT])
 {
     sha3_lane_t C[SHA3_MAX_X_SIZE];
     sha3_lane_t D[SHA3_MAX_X_SIZE];
@@ -97,8 +132,8 @@ static void keccak_theta(noxtls_sha3_ctx_t * ctx)
     
     /* Compute parity of columns */
     for (x = 0U; x < SHA3_MAX_X_SIZE; x += 1U) {
-        C[x] = SHA3_LANE(x, 0U) ^ SHA3_LANE(x, 1U) ^ SHA3_LANE(x, 2U) ^ 
-               SHA3_LANE(x, 3U) ^ SHA3_LANE(x, 4U);
+        C[x] = SHA3_LANE(lanes, x, 0U) ^ SHA3_LANE(lanes, x, 1U) ^ SHA3_LANE(lanes, x, 2U) ^ 
+               SHA3_LANE(lanes, x, 3U) ^ SHA3_LANE(lanes, x, 4U);
     }
     
     /* Compute D values */
@@ -109,7 +144,7 @@ static void keccak_theta(noxtls_sha3_ctx_t * ctx)
     /* XOR D into each lane */
     for (x = 0U; x < SHA3_MAX_X_SIZE; x += 1U) {
         for (y = 0U; y < SHA3_MAX_Y_SIZE; y += 1U) {
-            SHA3_LANE(x, y) ^= D[x];
+            SHA3_LANE(lanes, x, y) ^= D[x];
         }
     }
 }
@@ -117,9 +152,9 @@ static void keccak_theta(noxtls_sha3_ctx_t * ctx)
 /**
  * @brief Rho step of Keccak-f permutation
  *
- * @param ctx SHA-3 context
+ * @param lanes Keccak state as 25 lanes
  */
-static void keccak_rho(noxtls_sha3_ctx_t * ctx)
+static void keccak_rho(sha3_lane_t lanes[SHA3_LANE_COUNT])
 {
     /* Tables local to this function (Rule 8.9). */
     /* Rotation offsets for rho step (5x5 grid, indexed by [y][x]) */
@@ -139,24 +174,24 @@ static void keccak_rho(noxtls_sha3_ctx_t * ctx)
     /* Copy state */
     for (x = 0U; x < SHA3_MAX_X_SIZE; x += 1U) {
         for (y = 0U; y < SHA3_MAX_Y_SIZE; y += 1U) {
-            temp[x][y] = SHA3_LANE(x, y);
+            temp[x][y] = SHA3_LANE(lanes, x, y);
         }
     }
     
     /* Apply rotations using correct offsets */
     for (x = 0U; x < SHA3_MAX_X_SIZE; x += 1U) {
         for (y = 0U; y < SHA3_MAX_Y_SIZE; y += 1U) {
-            SHA3_LANE(x, y) = sha3_rotl64(temp[x][y], rho_offsets[y][x]);
+            SHA3_LANE(lanes, x, y) = sha3_rotl64(temp[x][y], rho_offsets[y][x]);
         }
     }
 }
 
 /**
- * @brief Pi step of Keccak-f permutation   
+ * @brief Pi step of Keccak-f permutation
  *
- * @param ctx SHA-3 context
+ * @param lanes Keccak state as 25 lanes
  */
-static void keccak_pi(noxtls_sha3_ctx_t * ctx)
+static void keccak_pi(sha3_lane_t lanes[SHA3_LANE_COUNT])
 {
     sha3_lane_t temp[SHA3_MAX_X_SIZE][SHA3_MAX_Y_SIZE];
     uint32_t x = 0U;
@@ -165,14 +200,14 @@ static void keccak_pi(noxtls_sha3_ctx_t * ctx)
     /* Copy state */
     for (x = 0U; x < SHA3_MAX_X_SIZE; x += 1U) {
         for (y = 0U; y < SHA3_MAX_Y_SIZE; y += 1U) {
-            temp[x][y] = SHA3_LANE(x, y);
+            temp[x][y] = SHA3_LANE(lanes, x, y);
         }
     }
     
     /* Permute lanes */
     for (x = 0U; x < SHA3_MAX_X_SIZE; x += 1U) {
         for (y = 0U; y < SHA3_MAX_Y_SIZE; y += 1U) {
-            SHA3_LANE(x, y) = temp[(x + (3U * y)) % SHA3_MAX_X_SIZE][x];
+            SHA3_LANE(lanes, x, y) = temp[(x + (3U * y)) % SHA3_MAX_X_SIZE][x];
         }
     }
 }
@@ -180,9 +215,9 @@ static void keccak_pi(noxtls_sha3_ctx_t * ctx)
 /**
  * @brief Chi step of Keccak-f permutation
  *
- * @param ctx SHA-3 context
+ * @param lanes Keccak state as 25 lanes
  */
-static void keccak_chi(noxtls_sha3_ctx_t * ctx)
+static void keccak_chi(sha3_lane_t lanes[SHA3_LANE_COUNT])
 {
     sha3_lane_t temp[SHA3_MAX_X_SIZE][SHA3_MAX_Y_SIZE];
     uint32_t x = 0U;
@@ -191,14 +226,14 @@ static void keccak_chi(noxtls_sha3_ctx_t * ctx)
     /* Copy state */
     for (x = 0U; x < SHA3_MAX_X_SIZE; x += 1U) {
         for (y = 0U; y < SHA3_MAX_Y_SIZE; y += 1U) {
-            temp[x][y] = SHA3_LANE(x, y);
+            temp[x][y] = SHA3_LANE(lanes, x, y);
         }
     }
     
     /* Apply chi transformation */
     for (x = 0U; x < SHA3_MAX_X_SIZE; x += 1U) {
         for (y = 0U; y < SHA3_MAX_Y_SIZE; y += 1U) {
-            SHA3_LANE(x, y) = temp[x][y] ^ ((~temp[(x +1U) % SHA3_MAX_X_SIZE][y]) & temp[(x +2U) % SHA3_MAX_X_SIZE][y]);
+            SHA3_LANE(lanes, x, y) = temp[x][y] ^ ((~temp[(x +1U) % SHA3_MAX_X_SIZE][y]) & temp[(x +2U) % SHA3_MAX_X_SIZE][y]);
         }
     }
 }
@@ -206,10 +241,10 @@ static void keccak_chi(noxtls_sha3_ctx_t * ctx)
 /**
  * @brief Iota step of Keccak-f permutation
  *
- * @param ctx SHA-3 context
+ * @param lanes Keccak state as 25 lanes
  * @param round Round number
  */
-static void keccak_iota(noxtls_sha3_ctx_t * ctx, uint32_t round)
+static void keccak_iota(sha3_lane_t lanes[SHA3_LANE_COUNT], uint32_t round)
 {
     /* Tables local to this function (Rule 8.9). */
     /* Round constants for iota step */
@@ -225,7 +260,7 @@ static void keccak_iota(noxtls_sha3_ctx_t * ctx, uint32_t round)
     };
 
 
-    SHA3_LANE(0U, 0U) ^= round_constants[round];
+    SHA3_LANE(lanes, 0U, 0U) ^= round_constants[round];
 }
 
 /**
@@ -235,15 +270,27 @@ static void keccak_iota(noxtls_sha3_ctx_t * ctx, uint32_t round)
  */
 static void keccak_f1600(noxtls_sha3_ctx_t * ctx)
 {
+    sha3_lane_t lanes[SHA3_LANE_COUNT];
     uint32_t round = 0U;
+    uint32_t i = 0U;
+
+    /* Byte state -> lanes (little-endian, alignment-independent). */
+    for (i = 0U; i < SHA3_LANE_COUNT; i += 1U) {
+        lanes[i] = sha3_load_le64(&ctx->state[i * SHA3_LANE_BYTES]);
+    }
 
     for (round = 0U; round < SHA3_KECCAK_ROUNDS; round += 1U) {
-        keccak_theta(ctx);
-        keccak_rho(ctx);
-        keccak_pi(ctx);
-        keccak_chi(ctx);
-        keccak_iota(ctx, round);
+        keccak_theta(lanes);
+        keccak_rho(lanes);
+        keccak_pi(lanes);
+        keccak_chi(lanes);
+        keccak_iota(lanes, round);
     }
+
+    for (i = 0U; i < SHA3_LANE_COUNT; i += 1U) {
+        sha3_store_le64(&ctx->state[i * SHA3_LANE_BYTES], lanes[i]);
+    }
+    noxtls_secure_zero(lanes, sizeof(lanes));
 }
 
 /**
