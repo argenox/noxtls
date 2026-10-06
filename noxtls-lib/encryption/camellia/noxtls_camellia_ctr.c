@@ -49,6 +49,13 @@ noxtls_return_t noxtls_camellia_encrypt_ctr(const uint8_t* key,
     const uint8_t * iv_src = NULL;
     const uint32_t block_sz = (uint32_t)NOXTLS_CAMELLIA_BLOCK_LENGTH;
 
+    {
+        noxtls_return_t rc = noxtls_camellia_check_oneshot_args(key, data, output, type);
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
+    }
+
     /* Initialize counter from IV */
     if (iv == NULL) {
         noxtls_secure_zero((zero_iv), (size_t)(block_sz));
@@ -67,7 +74,13 @@ noxtls_return_t noxtls_camellia_encrypt_ctr(const uint8_t* key,
         uint64_t counter_value;
 
         /* Encrypt counter to generate keystream */
-        (void)noxtls_camellia_encrypt_block_internal(key, counter, keystream, type);
+        {
+            noxtls_return_t rc = noxtls_camellia_encrypt_block_internal(key, counter, keystream, type);
+            if (rc != NOXTLS_RETURN_SUCCESS) {
+                noxtls_secure_zero(output, (size_t)data_len);
+                return rc;
+            }
+        }
 
         /* XOR keystream with plaintext */
         for (i = 0U; i < block_len; i += 1U) {

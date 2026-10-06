@@ -51,6 +51,10 @@ noxtls_return_t noxtls_aria_encrypt_cbc(const uint8_t* key,
     if ((key == NULL) || (data == NULL) || (output == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
+    /* Output is rounded up to a whole block; keep the block loop from wrapping. */
+    if (data_len > (UINT32_MAX - (block_sz - 1U))) {
+        return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
+    }
 
     {
         noxtls_return_t r = noxtls_aria_set_encrypt_key(key, type, &aria_key);
@@ -76,17 +80,14 @@ noxtls_return_t noxtls_aria_encrypt_cbc(const uint8_t* key,
             iv_src = &output[cur_block - block_sz];
         }
 
-        /* XOR input block with IV/previous ciphertext */
-        for (i = 0U; i < block_len; i += 1U) {
-            temp_block[i] = (uint8_t)(data[cur_block + i] ^ iv_src[i]);
-        }
-
-        /* Pad if necessary */
+        /* Zero-pad a partial final block (same contract as the AES-CBC
+         * one-shot), then XOR the whole block with IV/previous ciphertext. */
+        noxtls_copy_u8(temp_block, sizeof(temp_block), &data[cur_block], (size_t)block_len);
         if (block_len < block_sz) {
-            uint8_t pad_value = (uint8_t)(block_sz - block_len);
-            for (i = block_len; i < block_sz; i += 1U) {
-                temp_block[i] = pad_value;
-            }
+            noxtls_secure_zero((&temp_block[block_len]), ((size_t)(block_sz - block_len)));
+        }
+        for (i = 0U; i < block_sz; i += 1U) {
+            temp_block[i] = (uint8_t)(temp_block[i] ^ iv_src[i]);
         }
 
         /* Encrypt block */
@@ -116,6 +117,9 @@ noxtls_return_t noxtls_aria_decrypt_cbc(const uint8_t* key,
 
     if ((key == NULL) || (data == NULL) || (output == NULL)) {
         return NOXTLS_RETURN_NULL;
+    }
+    if ((data_len % block_sz) != 0U) {
+        return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
     }
 
     {
@@ -155,21 +159,8 @@ noxtls_return_t noxtls_aria_decrypt_cbc(const uint8_t* key,
         }
     }
 
-    /* Verify PKCS-style padding bytes (caller owns length trimming). */
-    if (data_len > 0U) {
-        uint8_t pad_value = (uint8_t)(output[data_len - 1U]);
-        if ((pad_value > 0U) && (pad_value <= (uint8_t)block_sz)) {
-            uint8_t valid_pad = 1U;
-            for (i = data_len - (uint32_t)pad_value; i < data_len; i += 1U) {
-                if (output[i] != pad_value) {
-                    valid_pad = 0U;
-                    break;
-                }
-            }
-            (void)valid_pad;
-        }
-    }
-
+    /* Zero padding from the encrypt side is returned as-is; callers own
+     * length trimming. */
     return NOXTLS_RETURN_SUCCESS;
 }
 

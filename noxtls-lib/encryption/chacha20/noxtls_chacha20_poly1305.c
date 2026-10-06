@@ -404,6 +404,11 @@ noxtls_return_t noxtls_chacha20_poly1305_encrypt(const uint8_t *key,
     if ((key == NULL) || (nonce == NULL) || (tag == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
+    /* A non-zero AAD length with no AAD buffer must not be silently
+     * authenticated as an empty/zero-padded AAD. */
+    if ((aad == NULL) && (aad_len > 0U)) {
+        return NOXTLS_RETURN_NULL;
+    }
     
     if ((plaintext == NULL) && (plaintext_len > 0U)) {
         return NOXTLS_RETURN_NULL;
@@ -526,6 +531,11 @@ noxtls_return_t noxtls_chacha20_poly1305_decrypt(const uint8_t *key,
     if ((key == NULL) || (nonce == NULL) || (tag == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
+    /* A non-zero AAD length with no AAD buffer must not be silently
+     * authenticated as an empty/zero-padded AAD. */
+    if ((aad == NULL) && (aad_len > 0U)) {
+        return NOXTLS_RETURN_NULL;
+    }
     
     if (((ciphertext == NULL) && (ciphertext_len > 0U)) || ((plaintext == NULL) && (ciphertext_len > 0U))) {
         return NOXTLS_RETURN_NULL;
@@ -604,12 +614,8 @@ noxtls_return_t noxtls_chacha20_poly1305_decrypt(const uint8_t *key,
     }
     
     /* Verify tag (constant-time comparison) */
-    tag_match = 1;
-    for (uint32_t i = 0U; i < POLY1305_TAG_SIZE; i += 1U) {
-        if (computed_tag[i] != tag[i]) {
-            tag_match = 0;
-        }
-    }
+    tag_match = (noxtls_ct_memcmp(computed_tag, tag, (size_t)POLY1305_TAG_SIZE) == 0) ? 1 : 0;
+    noxtls_secure_zero(computed_tag, sizeof(computed_tag));
     
     if (tag_match == 0) {
         /* Authentication failed - don't decrypt */

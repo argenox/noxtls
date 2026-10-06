@@ -48,6 +48,17 @@ noxtls_return_t noxtls_camellia_encrypt_cbc(const uint8_t* key,
     uint8_t zero_iv[NOXTLS_CAMELLIA_BLOCK_LENGTH];
     const uint32_t block_sz = (uint32_t)NOXTLS_CAMELLIA_BLOCK_LENGTH;
 
+    {
+        noxtls_return_t rc = noxtls_camellia_check_oneshot_args(key, data, output, type);
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
+    }
+    /* Output is rounded up to a whole block; keep the block loop from wrapping. */
+    if (data_len > (UINT32_MAX - (block_sz - 1U))) {
+        return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
+    }
+
     for (cur_block = 0U; cur_block < data_len; cur_block += block_sz)
     {
         uint32_t remain = (uint32_t)(data_len - cur_block);
@@ -75,7 +86,14 @@ noxtls_return_t noxtls_camellia_encrypt_cbc(const uint8_t* key,
             temp_block[i] = (uint8_t)(temp_block[i] ^ iv_src[i]);
         }
 
-        (void)noxtls_camellia_encrypt_block_internal(key, temp_block, &output[cur_block], type);
+        {
+            noxtls_return_t rc = noxtls_camellia_encrypt_block_internal(key, temp_block, &output[cur_block], type);
+            if (rc != NOXTLS_RETURN_SUCCESS) {
+                noxtls_secure_zero(temp_block, sizeof(temp_block));
+                noxtls_secure_zero(output, (size_t)(cur_block + block_sz));
+                return rc;
+            }
+        }
     }
 
     return NOXTLS_RETURN_SUCCESS;
@@ -98,12 +116,26 @@ noxtls_return_t noxtls_camellia_decrypt_cbc(const uint8_t* key,
     const uint8_t * iv_src;
     const uint32_t block_sz = (uint32_t)NOXTLS_CAMELLIA_BLOCK_LENGTH;
 
+    {
+        noxtls_return_t rc = noxtls_camellia_check_oneshot_args(key, data, output, type);
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
+    }
+    /* Ciphertext must be whole blocks: a partial tail would be over-read. */
+    if ((data_len % block_sz) != 0U) {
+        return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
+    }
+
     for (cur_block = 0U; cur_block < data_len; cur_block += block_sz)
     {
-        uint32_t remain = (uint32_t)(data_len - cur_block);
-        uint32_t block_len = (uint32_t)((remain < block_sz) ? remain : block_sz);
-
-        (void)noxtls_camellia_decrypt_block_internal(key, &data[cur_block], temp_block, type);
+        {
+            noxtls_return_t rc = noxtls_camellia_decrypt_block_internal(key, &data[cur_block], temp_block, type);
+            if (rc != NOXTLS_RETURN_SUCCESS) {
+                noxtls_secure_zero(output, (size_t)data_len);
+                return rc;
+            }
+        }
 
         if (cur_block == 0U) {
             if (iv == NULL) {
@@ -116,13 +148,11 @@ noxtls_return_t noxtls_camellia_decrypt_cbc(const uint8_t* key,
             iv_src = &data[cur_block - block_sz];
         }
 
-        for (i = 0U; i < block_len; i += 1U) {
+        for (i = 0U; i < block_sz; i += 1U) {
             output[cur_block + i] = (uint8_t)(temp_block[i] ^ iv_src[i]);
         }
-        if (block_len < block_sz) {
-            noxtls_secure_zero((&output[cur_block + block_len]), ((size_t)(block_sz - block_len)));
-        }
     }
+    noxtls_secure_zero(temp_block, sizeof(temp_block));
     return NOXTLS_RETURN_SUCCESS;
 }
 

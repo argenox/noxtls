@@ -781,6 +781,32 @@ static uint8_t camellia_key_size_bytes(noxtls_camellia_type_t type)
 }
 
 /**
+ * @brief Validate the arguments shared by every one-shot mode entry point.
+ *
+ * @param[in] key The key value.
+ * @param[in] data The input data.
+ * @param[in] output The output buffer.
+ * @param[in] type The key type value.
+ * @return NOXTLS_RETURN_NULL if a pointer is NULL,
+ *         NOXTLS_RETURN_INVALID_KEY_SIZE for an unsupported key type,
+ *         otherwise NOXTLS_RETURN_SUCCESS.
+ */
+noxtls_return_t noxtls_camellia_check_oneshot_args(const uint8_t* key, const uint8_t* data, const uint8_t* output, noxtls_camellia_type_t type)
+{
+    noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
+
+    if ((key == NULL) || (data == NULL) || (output == NULL)) {
+        rc = NOXTLS_RETURN_NULL;
+    } else if (camellia_key_size_bytes(type) == 0U) {
+        rc = NOXTLS_RETURN_INVALID_KEY_SIZE;
+    } else {
+        /* MISRA 15.7: final else path */
+        rc = NOXTLS_RETURN_SUCCESS;
+    }
+    return rc;
+}
+
+/**
  * @brief Increment the counter.
  *
  * @param[in] counter The counter value.
