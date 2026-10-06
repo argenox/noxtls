@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-06T02:23:48Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-06T02:26:05Z)
 
 if(NOT CONFIG_NOXTLS)
   return()

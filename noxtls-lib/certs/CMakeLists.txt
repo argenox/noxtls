@@ -76,3 +76,8 @@ target_link_libraries(noxtls_cert
     noxtls_encryption
     noxtls_common
 )
+
+# PKCS#8 PBES2 decryption uses the shared PBKDF2 primitive when available.
+if(NOXTLS_CFG_FEATURE_PBKDF2 AND TARGET noxtls_kdf)
+    target_link_libraries(noxtls_cert noxtls_kdf)
+endif()
