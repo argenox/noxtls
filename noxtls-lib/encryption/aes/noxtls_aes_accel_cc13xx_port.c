@@ -9,6 +9,10 @@
 /**
  * @file noxtls_aes_accel_cc13xx_port.c
  * @brief Stage AES block outputs and propagate native accelerator failures.
+ *
+ * Compiled when NOXTLS_FEATURE_CC13XX_AES_ACCEL (or the umbrella
+ * NOXTLS_FEATURE_CC13XX_HW_ACCEL) is enabled. A busy or unbound AES engine
+ * returns NOXTLS_RETURN_NOT_SUPPORTED so the AES core uses software.
  * @ingroup noxtls_cc13xx_crypto
  */
 #include "noxtls_aes_accel.h"
@@ -92,12 +96,12 @@ noxtls_return_t noxtls_aes_accel_port_decrypt_block(const uint8_t *key,
 noxtls_return_t noxtls_aes_accel_port_encrypt_blocks(const uint8_t *key,
     const uint8_t *input, uint8_t *output, uint32_t block_count, noxtls_aes_type_t type)
 {
-    uint32_t index;
+    const uint32_t key_length = cc13xx_key_length(type);
     if ((key == NULL) || (input == NULL) || (output == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
-    if (cc13xx_key_length(type) == 0U) {
+    if (key_length == 0U) {
         return NOXTLS_RETURN_INVALID_KEY_SIZE;
     }
 
@@ -105,22 +109,9 @@ noxtls_return_t noxtls_aes_accel_port_encrypt_blocks(const uint8_t *key,
         return NOXTLS_RETURN_NOT_SUPPORTED;
     }
 
-    for (index = 0U; index < block_count; ++index) {
-        const uint32_t offset = index * NOXTLS_CC13XX_AES_BLOCK_BYTES;
-        const noxtls_return_t result = cc13xx_block(false, key,
-            input + offset, output + offset, type);
-        if (result != NOXTLS_RETURN_SUCCESS) {
-            if ((result == NOXTLS_RETURN_NOT_SUPPORTED) && (index == 0U)) {
-                return result;
-            }
-
-            noxtls_secure_zero(output, block_count * NOXTLS_CC13XX_AES_BLOCK_BYTES);
-            /* In-place input may already have changed: never invite fallback. */
-            return result == NOXTLS_RETURN_NOT_SUPPORTED ? NOXTLS_RETURN_FAILED : result;
-        }
-    }
-
-    return NOXTLS_RETURN_SUCCESS;
+    /* The binding holds the AES engine for the whole batch, so a busy engine
+     * is reported only before progress, where software fallback is safe. */
+    return noxtls_cc13xx_aes_blocks(false, key, key_length, input, output, block_count);
 }
 
 /** @copydoc noxtls_aes_gcm_encrypt_accel_port */

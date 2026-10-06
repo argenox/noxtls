@@ -24,12 +24,13 @@
  * @brief Actual P-256 validation with synchronous hardware-boundary injection.
  * @ingroup noxtls_cc13xx_ecc
  * @note Inclusion exposes only diagnostic counters for UINT32_MAX saturation.
+ * Built for the umbrella, the P-256-only switch and both disabled variants.
  */
 #include "pkc/ecc/noxtls_ecc_accel_cc13xx_port.c"
 #include "runner.h"
 #include "test_assert.h"
 
-#if NOXTLS_FEATURE_CC13XX_HW_ACCEL
+#if NOXTLS_CC13XX_P256_ACCEL_ENABLED
 static ecc_curve_params_t s_curve;
 static ecc_point_t s_result;
 static uint8_t s_scalar[NOXTLS_CC13XX_P256_BYTES];
@@ -110,8 +111,8 @@ static noxtls_return_t setup(void)
     s_callback_rc = NOXTLS_RETURN_SUCCESS;
     s_nested_rc = NOXTLS_RETURN_SUCCESS;
     s_rebind_rc = NOXTLS_RETURN_SUCCESS;
-    s_operations = 0U;
-    s_fallbacks = 0U;
+    noxtls_cc13xx_counter_store(&s_operations, 0U);
+    noxtls_cc13xx_counter_store(&s_fallbacks, 0U);
     rc = noxtls_ecc_curve_init(&s_curve, NOXTLS_ECC_SECP256R1);
     return rc == NOXTLS_RETURN_SUCCESS ? noxtls_cc13xx_crypto_bind(&binding) : rc;
 }
@@ -148,7 +149,7 @@ REGISTER_TEST(test_cc13xx_p256_success_bytes_and_reentry)
     UTNOX_EQUALS(memcmp(s_result.x, s_twice_x, sizeof(s_twice_x)), 0);
     UTNOX_EQUALS(memcmp(s_result.y, s_twice_y, sizeof(s_twice_y)), 0);
     UTNOX_EQUALS(s_result.size, 32U);
-    UTNOX_EQUALS(s_nested_rc, NOXTLS_RETURN_NOT_INITIALIZED);
+    UTNOX_EQUALS(s_nested_rc, NOXTLS_RETURN_NOT_SUPPORTED); /* Busy PKA: software fallback. */
     UTNOX_EQUALS(s_rebind_rc, NOXTLS_RETURN_NOT_INITIALIZED);
     UTNOX_EQUALS(s_calls, 1U);
     UTNOX_EQUALS(noxtls_ecc_accel_operation_count(), 1U);
@@ -158,8 +159,8 @@ REGISTER_TEST(test_cc13xx_p256_success_bytes_and_reentry)
     UTNOX_EQUALS(noxtls_ecc_accel_input_echo_ok(), 0);
     noxtls_ecc_accel_note_fallback();
     UTNOX_EQUALS(noxtls_ecc_accel_fallback_count(), 1U);
-    s_operations = UINT32_MAX;
-    s_fallbacks = UINT32_MAX;
+    noxtls_cc13xx_counter_store(&s_operations, UINT32_MAX);
+    noxtls_cc13xx_counter_store(&s_fallbacks, UINT32_MAX);
     UTNOX_EQUALS(noxtls_ecc_point_multiply_accel_port(&s_result, s_scalar, &s_curve.G, &s_curve),
                  NOXTLS_RETURN_SUCCESS);
     noxtls_ecc_accel_note_fallback();
@@ -369,7 +370,7 @@ REGISTER_TEST(test_cc13xx_p256_disabled_default)
  * @return None. */
 void utnox_register_tests(void)
 {
-#if NOXTLS_FEATURE_CC13XX_HW_ACCEL
+#if NOXTLS_CC13XX_P256_ACCEL_ENABLED
     register_test("test_cc13xx_p256_success_bytes_and_reentry",
         test_cc13xx_p256_success_bytes_and_reentry);
     register_test("test_cc13xx_p256_pointers_and_exact_domain",
