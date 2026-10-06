@@ -65,11 +65,12 @@ noxtls_return_t noxtls_dh_ffdhe_validate_client_key_share(uint16_t named_group,
 
 /**
  * Generate ephemeral DH key pair.
- * private = random in [2, p-2], public = g^private mod p.
+ * private = random in [2, p-2] (bounded rejection sampling over bitlen(p) bits),
+ * public = g^private mod p. Fails for even p, p < 5, or g outside [2, p-2].
  * @param p prime modulus (big-endian)
  * @param p_len length of p in bytes
  * @param g generator (big-endian, typically 2)
- * @param g_len length of g in bytes (use p_len, g zero-padded)
+ * @param g_len length of g in bytes (may exceed p_len only with zero leading bytes)
  * @param private_out output: private exponent (p_len bytes)
  * @param public_out output: public value g^private mod p (p_len bytes)
  */
@@ -83,7 +84,8 @@ noxtls_return_t noxtls_dh_generate_key(const uint8_t *p, uint32_t p_len,
  * @param private_key our private exponent (p_len bytes)
  * @param private_len length of private key
  * @param peer_public peer's public value
- * @param peer_len length of peer public
+ * @param peer_len length of peer public; if greater than p_len the extra leading bytes
+ *        must be zero (the low p_len bytes are used), otherwise the value is rejected
  * @param p prime modulus
  * @param p_len length of p
  * @param secret_out output buffer (must be at least p_len bytes)
