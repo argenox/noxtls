@@ -1619,6 +1619,12 @@ noxtls_return_t noxtls_rsa_decrypt(const rsa_key_t *key, const uint8_t *cipherte
     if(ciphertext_len != key->key_bytes) {
         return NOXTLS_RETURN_FAILED;
     }
+
+    /* RSADP (RFC 8017 section 5.1.2) step 1: the ciphertext representative must be < n
+     * ("ciphertext representative out of range"). c and n are public: no oracle. */
+    if(noxtls_bn_cmp(ciphertext, key->n, key->key_bytes) >= 0) {
+        return NOXTLS_RETURN_FAILED;
+    }
     
     uint8_t *decrypted = (uint8_t*)NOXTLS_CALLOC(key->key_bytes, 1);
     if(decrypted == NULL) {
@@ -1693,6 +1699,10 @@ noxtls_return_t noxtls_rsa_decrypt_crt_only(const rsa_key_t *key, const uint8_t 
         return NOXTLS_RETURN_FAILED;
     }
     if((key->p == NULL) || (key->q == NULL) || (key->dp == NULL) || (key->dq == NULL) || (key->qi == NULL)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    /* RSADP step 1 (RFC 8017 section 5.1.2): ciphertext representative must be < n. */
+    if((key->n == NULL) || (noxtls_bn_cmp(ciphertext, key->n, key->key_bytes) >= 0)) {
         return NOXTLS_RETURN_FAILED;
     }
 
@@ -1946,15 +1956,52 @@ static noxtls_return_t mgf1(noxtls_hash_algos_t hash_algo, const uint8_t *seed, 
     return NOXTLS_RETURN_SUCCESS;
 }
 
-/** EMSA-PSS-ENCODE (RFC 8017). salt_len must equal h_len. */
+/**
+ * @brief Number of significant bits of a big-endian modulus (RFC 8017 modBits).
+ *
+ * @param[in] n   Modulus, big-endian.
+ * @param[in] len Length of @p n in bytes.
+ * @return Bit length of n (0 when n is zero).
+ */
+static uint32_t rsa_modulus_bits(const uint8_t *n, uint32_t len)
+{
+    uint32_t i = 0U;
+    uint32_t bits = 0U;
+
+    while((i < len) && (n[i] == 0U)) {
+        i += 1U;
+    }
+    if(i < len) {
+        uint32_t top = (uint32_t)n[i];
+        bits = (len - i - 1U) * 8U;
+        while(top != 0U) {
+            bits += 1U;
+            top >>= 1U;
+        }
+    }
+    return bits;
+}
+
+/**
+ * @brief Mask of the bits of EM's first octet that may be non-zero (RFC 8017 9.1.1 step 11,
+ *        9.1.2 step 6): the leftmost 8*emLen - emBits bits must be zero.
+ */
+static uint8_t rsa_pss_top_mask(uint32_t em_len, uint32_t em_bits)
+{
+    uint32_t unused = (uint32_t)((em_len * 8U) - em_bits); /* 0..7 */
+    return (uint8_t)(0xFFU >> unused);
+}
+
+/** EMSA-PSS-ENCODE (RFC 8017). salt_len must equal h_len; em_len == ceil(em_bits / 8). */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static noxtls_return_t emsa_pss_encode(const uint8_t *m_hash, uint32_t h_len,
-    uint32_t em_len, noxtls_hash_algos_t hash_algo, uint32_t salt_len,
+    uint32_t em_len, uint32_t em_bits, noxtls_hash_algos_t hash_algo, uint32_t salt_len,
     uint8_t *em)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     if((m_hash == NULL) || (em == NULL)) { return NOXTLS_RETURN_NULL; }
     if((h_len > 64U) || (salt_len > 64U)) { return NOXTLS_RETURN_INVALID_PARAM; }
+    if((em_len == 0U) || (em_len != ((em_bits + 7U) / 8U))) { return NOXTLS_RETURN_INVALID_PARAM; }
     if(h_len > (uint32_t)(UINT32_MAX - salt_len - 8U)) { return NOXTLS_RETURN_FAILED; }
     if(em_len < (h_len + salt_len + 2U)) { return NOXTLS_RETURN_FAILED; }
     uint32_t ps_len = (uint32_t)(em_len - salt_len - h_len - 2U);
@@ -1992,11 +2039,15 @@ static noxtls_return_t emsa_pss_encode(const uint8_t *m_hash, uint32_t h_len,
 
     uint8_t *db_mask = (uint8_t*)NOXTLS_CALLOC(db_len, 1);
     if(db_mask == NULL) { return NOXTLS_RETURN_FAILED; }
-    (void)mgf1(hash_algo, H, h_len, db_mask, db_len);
+    if(mgf1(hash_algo, H, h_len, db_mask, db_len) != NOXTLS_RETURN_SUCCESS) {
+        (void)noxtls_free(db_mask);
+        return NOXTLS_RETURN_FAILED;
+    }
     for(uint32_t i = 0U; i < db_len; i += 1U) { em[i] ^= db_mask[i]; }
     (void)noxtls_free(db_mask);
 
-    em[0] &= 0x7FU;
+    /* Step 11: clear the leftmost 8*emLen - emBits bits so that EM < 2^emBits <= n. */
+    em[0] &= rsa_pss_top_mask(em_len, em_bits);
     noxtls_copy_u8(&em[db_len], (size_t)h_len, H, (size_t)h_len);
     em[em_len - 1U] = 0xbcU;
     return NOXTLS_RETURN_SUCCESS;
@@ -2007,18 +2058,24 @@ static noxtls_return_t emsa_pss_encode(const uint8_t *m_hash, uint32_t h_len,
 #define NOXTLS_DEBUG_PSS_VERIFY 0
 #endif
 
-/** EMSA-PSS-VERIFY (RFC 8017). */
+/** EMSA-PSS-VERIFY (RFC 8017). em_len == ceil(em_bits / 8). */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static noxtls_return_t emsa_pss_verify(const uint8_t *m_hash, uint32_t h_len,
-    const uint8_t *em, uint32_t em_len, noxtls_hash_algos_t hash_algo, uint32_t salt_len)
+    const uint8_t *em, uint32_t em_len, uint32_t em_bits, noxtls_hash_algos_t hash_algo, uint32_t salt_len)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
+    uint8_t top_mask;
+
     if((m_hash == NULL) || (em == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
     if((h_len > 64U) || (salt_len > 64U)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
+    if((em_len == 0U) || (em_len != ((em_bits + 7U) / 8U))) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    top_mask = rsa_pss_top_mask(em_len, em_bits);
     if(h_len > (uint32_t)(UINT32_MAX - salt_len - 8U)) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -2038,26 +2095,28 @@ static noxtls_return_t emsa_pss_verify(const uint8_t *m_hash, uint32_t h_len,
     const uint8_t *masked_db = em;
     const uint8_t *H = &em[db_len];
 
+    /* Step 6: the leftmost 8*emLen - emBits bits of maskedDB must be zero (reject, never mask). */
+    if((masked_db[0] & (uint8_t)~top_mask) != 0U) {
+#if NOXTLS_DEBUG_PSS_VERIFY
+        (void)noxtls_debug_printf((const uint8_t *)"[PSS_VERIFY] fail: maskedDB[0]=0x%02x has bits outside 0x%02x\n",
+            (uint32_t)masked_db[0], (uint32_t)top_mask);
+#endif
+        return NOXTLS_RETURN_FAILED;
+    }
+
     uint8_t *db_mask = (uint8_t*)NOXTLS_CALLOC(db_len, 1);
     if(db_mask == NULL) { return NOXTLS_RETURN_FAILED; }
-    (void)mgf1(hash_algo, H, h_len, db_mask, db_len);
+    if(mgf1(hash_algo, H, h_len, db_mask, db_len) != NOXTLS_RETURN_SUCCESS) {
+        (void)noxtls_free(db_mask);
+        return NOXTLS_RETURN_FAILED;
+    }
     uint8_t *DB = (uint8_t*)NOXTLS_CALLOC(db_len, 1);
     if(DB == NULL) { (void)noxtls_free(db_mask); return NOXTLS_RETURN_FAILED; }
     for(uint32_t db_i = 0U; db_i < db_len; db_i += 1U) { DB[db_i] = masked_db[db_i] ^ db_mask[db_i]; }
     (void)noxtls_free(db_mask);
 
-    /* Encoding set the leftmost bit of the first octet of maskedDB to zero (em[0] &= 0x7F); match that when verifying. */
-    DB[0] &= 0x7FU;
-
-    if((DB[0] & 0x80U) != 0U) {
-#if NOXTLS_DEBUG_PSS_VERIFY
-        (void)noxtls_debug_printf((const uint8_t *)"[PSS_VERIFY] fail: DB[0] has high bit set (0x%02x)\n", (uint32_t)DB[0]);
-#endif
-        (void)noxtls_free(DB); return NOXTLS_RETURN_FAILED;
-    }
-#if NOXTLS_DEBUG_PSS_VERIFY
-    (void)noxtls_debug_printf((const uint8_t *)"[PSS_VERIFY] step: DB[0] high bit ok (0x%02x)\n", (uint32_t)DB[0]);
-#endif
+    /* Step 9: set the leftmost 8*emLen - emBits bits of DB to zero. */
+    DB[0] &= top_mask;
 
     /* Padding: ps_len_val zeros, then 0x01 (at index ps_len_val). */
     uint32_t i = 0U;
@@ -2138,14 +2197,23 @@ noxtls_return_t noxtls_rsa_sign_pss(const rsa_key_t *key, const uint8_t *noxtls_
     uint8_t m_hash[64];
     if(pss_hash_message(hash_algo, noxtls_message, message_len, m_hash, &h_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
 
+    /* RFC 8017 8.1.1: emBits = modBits - 1, emLen = ceil(emBits / 8). EM occupies the low emLen
+     * octets of the key_bytes-long representative (one leading zero octet when modBits = 8k + 1). */
+    uint32_t mod_bits = rsa_modulus_bits(key->n, key->key_bytes);
+    if(mod_bits < 2U) { return NOXTLS_RETURN_FAILED; }
+    uint32_t em_bits = mod_bits - 1U;
+    uint32_t em_len = (em_bits + 7U) / 8U;
+    uint32_t em_off = (uint32_t)(key->key_bytes - em_len);
+
     uint8_t *em = (uint8_t*)NOXTLS_CALLOC(key->key_bytes, 1);
     if(em == NULL) { return NOXTLS_RETURN_FAILED; }
 
-    /* RFC 8017: noxtls_message representative m = OS2IP(EM) must be < n; otherwise retry with new salt. */
+    /* RFC 8017: noxtls_message representative m = OS2IP(EM) must be < n (guaranteed by emBits < modBits;
+     * the retry is kept as a defensive check). */
     unsigned retries = 0;
     const unsigned max_retries = 16;
     do {
-        noxtls_return_t encode_rc = emsa_pss_encode(m_hash, h_len, key->key_bytes, hash_algo, h_len, em);
+        noxtls_return_t encode_rc = emsa_pss_encode(m_hash, h_len, em_len, em_bits, hash_algo, h_len, &em[em_off]);
         if(encode_rc != NOXTLS_RETURN_SUCCESS) { (void)noxtls_free(em); return encode_rc; }
         if(noxtls_bn_cmp(em, key->n, key->key_bytes) < 0) {
             break;
@@ -2187,16 +2255,33 @@ noxtls_return_t noxtls_rsa_verify_pss(const rsa_key_t *key, const uint8_t *noxtl
        (hash_algo != NOXTLS_HASH_SHA_384) &&
        (hash_algo != NOXTLS_HASH_SHA_512)) { return NOXTLS_RETURN_INVALID_ALGORITHM; }
 
+    /* RSAVP1 (RFC 8017 section 5.2.2) step 1: the signature representative must be < n,
+     * otherwise s + n would verify as well (signature malleability). */
+    if(noxtls_bn_cmp(signature, key->n, key->key_bytes) >= 0) { return NOXTLS_RETURN_FAILED; }
+
+    /* RFC 8017 8.1.2 step 2c: emBits = modBits - 1, emLen = ceil(emBits / 8). */
+    uint32_t mod_bits = rsa_modulus_bits(key->n, key->key_bytes);
+    if(mod_bits < 2U) { return NOXTLS_RETURN_FAILED; }
+    uint32_t em_bits = mod_bits - 1U;
+    uint32_t em_len = (em_bits + 7U) / 8U;
+    uint32_t em_off = (uint32_t)(key->key_bytes - em_len);
+
     uint8_t *em = (uint8_t*)NOXTLS_CALLOC(key->key_bytes, 1);
     if(em == NULL) { return NOXTLS_RETURN_FAILED; }
     noxtls_return_t rc = noxtls_bn_mod_exp(em, signature, key->e, key->key_bytes, key->n, key->key_bytes);
+    if(rc != NOXTLS_RETURN_SUCCESS) { (void)noxtls_free(em); return rc; }
+
+    /* I2OSP(m, emLen) fails ("invalid signature") when m does not fit in emLen octets. */
+    for(uint32_t i = 0U; i < em_off; i += 1U) {
+        if(em[i] != 0U) { rc = NOXTLS_RETURN_FAILED; }
+    }
     if(rc != NOXTLS_RETURN_SUCCESS) { (void)noxtls_free(em); return rc; }
 
     uint32_t h_len = (uint32_t)(rsa_pss_digest_len(hash_algo));
     uint8_t m_hash[64];
     if(pss_hash_message(hash_algo, noxtls_message, message_len, m_hash, &h_len) != NOXTLS_RETURN_SUCCESS) { (void)noxtls_free(em); return NOXTLS_RETURN_FAILED; }
 
-    rc = emsa_pss_verify(m_hash, h_len, em, key->key_bytes, hash_algo, h_len);
+    rc = emsa_pss_verify(m_hash, h_len, &em[em_off], em_len, em_bits, hash_algo, h_len);
     (void)noxtls_free(em);
     return rc;
 }

@@ -3097,6 +3097,12 @@ noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const ui
     }
     exp_alloc_len = exp_len;
 
+    /* Every residue modulo 1 is 0 (including x^0): the Montgomery and ladder paths below
+     * both start from the constant 1 and would return 1, which is not reduced mod 1. */
+    if(noxtls_bn_is_one(mod, mod_len) != 0) {
+        return noxtls_bn_zero(result, mod_len);
+    }
+
     {
         noxtls_return_t hw_rc = noxtls_bn_platform_try_mod_exp(result, base, exp, exp_len, mod, mod_len);
         if(hw_rc == NOXTLS_RETURN_SUCCESS) {
