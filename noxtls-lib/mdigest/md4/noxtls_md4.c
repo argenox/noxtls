@@ -304,86 +304,54 @@ noxtls_return_t noxtls_md4_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
 {
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
     uint32_t len = 0U;
-    uint8_t * data = NULL;
-    uint32_t total_length = 0U;
-    int i = 0;
-    int space_occupied = 0;
-    int space_left = 0;
+    uint64_t total_length = 0U;
+    uint32_t i = 0U;
     uint8_t temp[HASH_MD4_BLOCK_SIZE];
 
-    /* Process any pending data */
-    if(ctx->data_len > 0U)
-    {
-        len = ctx->data_len;
-        data = ctx->data;
-        noxtls_secure_zero((temp), sizeof(temp));
-        (void)memcpy(temp, ctx->data, (size_t)len);
-        total_length = ctx->length + ctx->data_len;
-    }
-    else
-    {
-        noxtls_secure_zero((ctx->data), (size_t)(HASH_MD4_BLOCK_SIZE));
-        data = ctx->data;
-        noxtls_secure_zero((temp), sizeof(temp));
+    if((ctx == NULL) || (hash == NULL)) {
+        return NOXTLS_RETURN_NULL;
     }
 
-    space_occupied = (len % HASH_MD4_BLOCK_SIZE);
-    space_left = HASH_MD4_BLOCK_SIZE - space_occupied;
+    /* Total message length must always include every block already
+     * compressed (ctx->length) plus the pending partial block. A non-empty
+     * message whose length is a multiple of 64 has data_len == 0 while
+     * ctx->length > 0, so the length must not depend on data_len. */
+    len = (uint32_t)ctx->data_len;
+    total_length = (uint64_t)ctx->length + (uint64_t)len;
 
-    if(len == 0U) {
-        space_occupied = 0;
-        space_left = HASH_MD4_BLOCK_SIZE;
+    noxtls_secure_zero((temp), sizeof(temp));
+    if(len > 0U) {
+        noxtls_copy_u8(temp, sizeof(temp), ctx->data, (size_t)len);
     }
 
-    if(space_left >= 1U) {
-        temp[space_occupied] = MD4_PAD_BYTE;
-    }
+    /* len < 64 always, so the 0x80 pad byte always fits in this block */
+    temp[len] = (uint8_t)MD4_PAD_BYTE;
 
-    if(space_left >= (HASH_MD4_LENGTH_LEN + 1U)) {
-        (void)noxtls_add_padding_length_little(temp, HASH_MD4_BLOCK_SIZE, total_length, HASH_MD4_LENGTH_LEN);
-    }
-
-    if(md4_debug_lvl > 0U) {
-        (void)noxtls_debug_printf((const uint8_t *)"%d %s \n", __LINE__, __func__);
-        for(i = 0U; i < HASH_MD4_BLOCK_SIZE; i += 1U) {
-            (void)noxtls_debug_printf((const uint8_t *)"%02x ", temp[i]);
-        }
-        (void)noxtls_debug_printf((const uint8_t *)"\n");
-    }
-
-    rc = noxtls_md4_round(ctx, temp);
-
-    if(space_left < (HASH_MD4_LENGTH_LEN + 1U))
-    {
-        noxtls_secure_zero((temp), (size_t)(HASH_MD4_BLOCK_SIZE));
-        if(space_left == 0) {
-            data[0] = MD4_PAD_BYTE;
-        }
-
-        (void)noxtls_add_padding_length_little(temp, HASH_MD4_BLOCK_SIZE, total_length, HASH_MD4_LENGTH_LEN);
-
-        if(md4_debug_lvl > 0U) {
-            for(i = 0U; i < HASH_MD4_BLOCK_SIZE; i += 1U) {
-                (void)noxtls_debug_printf((const uint8_t *)"%02x", temp[i]);
-            }
-            (void)noxtls_debug_printf((const uint8_t *)"\n");
-            (void)noxtls_debug_printf((const uint8_t *)"Process additional block since could not fit padding\n");
-        }
-
+    if(((uint32_t)HASH_MD4_BLOCK_SIZE - len) >= ((uint32_t)HASH_MD4_LENGTH_LEN + 1U)) {
+        /* Pad byte and 64-bit length fit in this block */
+        noxtls_add_padding_length_little(temp, (uint32_t)HASH_MD4_BLOCK_SIZE, total_length, (uint8_t)HASH_MD4_LENGTH_LEN);
         rc = noxtls_md4_round(ctx, temp);
+    } else {
+        /* Length does not fit: compress this block, then a zero block carrying the length */
+        rc = noxtls_md4_round(ctx, temp);
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            noxtls_secure_zero((temp), sizeof(temp));
+            noxtls_add_padding_length_little(temp, (uint32_t)HASH_MD4_BLOCK_SIZE, total_length, (uint8_t)HASH_MD4_LENGTH_LEN);
+            rc = noxtls_md4_round(ctx, temp);
+        }
     }
+    noxtls_secure_zero((temp), sizeof(temp));
 
-    for(i = 0U; i < HASH_MD4_STATE_WORDS; i += 1U)
+    for(i = 0U; i < (uint32_t)HASH_MD4_STATE_WORDS; i += 1U)
     {
-        hash[(i * 4) +3U] = (uint8_t)((ctx->h[i] &0xFF000000U) >>24U);
-        hash[(i * 4) +2U] = (uint8_t)((ctx->h[i] &0x00FF0000U) >>16U);
-        hash[(i * 4) + 1U] = (uint8_t)((ctx->h[i] &0x0000FF00U) >>8U);
-        hash[i * 4] = (uint8_t)(ctx->h[i] &0x000000FFU);
+        hash[(i * 4U) + 3U] = (uint8_t)((ctx->h[i] & 0xFF000000U) >> 24U);
+        hash[(i * 4U) + 2U] = (uint8_t)((ctx->h[i] & 0x00FF0000U) >> 16U);
+        hash[(i * 4U) + 1U] = (uint8_t)((ctx->h[i] & 0x0000FF00U) >> 8U);
+        hash[i * 4U] = (uint8_t)(ctx->h[i] & 0x000000FFU);
     }
 
     return rc;
 }
-
 /**
  * @brief Takes data and verifies it matches a MD4 Digest
  *

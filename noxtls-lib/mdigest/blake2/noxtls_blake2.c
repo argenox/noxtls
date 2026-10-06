@@ -160,8 +160,9 @@ static void blake2b_compress(noxtls_blake2_ctx_t * ctx, const uint8_t * block, i
         v[i + BLAKE2_CHAINING_WORDS] = blake2b_iv[i];
     }
     
-    v[BLAKE2_V_INDEX_T0] ^= (uint64_t)(ctx->total & 0xFFFFFFFFU);
-    v[BLAKE2_V_INDEX_T1] ^= (uint64_t)(ctx->total >>32U);
+    /* BLAKE2b counter t is 128 bits: t0 = low 64 bits of the byte count;
+     * t1 (high 64 bits) is always zero because total is a uint64_t. */
+    v[BLAKE2_V_INDEX_T0] ^= ctx->total;
     if (last != 0) {
         v[BLAKE2_V_INDEX_F] ^= UINT64_MAX;
     }
@@ -260,12 +261,24 @@ noxtls_return_t noxtls_blake2_update(noxtls_blake2_ctx_t * ctx, const uint8_t * 
     if (in_left == 0U) {
         return NOXTLS_RETURN_SUCCESS;
     }
+    if (ctx->buflen > block_bytes) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
 
-    ctx->total += in_left;
+    /*
+     * RFC 7693: the final block (which may be a full block) must be
+     * compressed with the last-block flag set. Therefore a block is only
+     * compressed here once more input is known to follow it; up to one full
+     * block always stays buffered for noxtls_blake2_finish. ctx->total
+     * counts only the bytes already fed to the compression function and is
+     * advanced before each compression (the counter t includes the block).
+     */
     fill = block_bytes - ctx->buflen;
-
-    if ((ctx->buflen > 0U) && (in_left >= fill)) {
-        noxtls_copy_u8(&ctx->buf[ctx->buflen], (size_t)((sizeof(ctx->buf) > ctx->buflen) ? (sizeof(ctx->buf) - ctx->buflen) : 0U), in_ptr, (size_t)fill);
+    if (in_left > fill) {
+        if (fill > 0U) {
+            noxtls_copy_u8(&ctx->buf[ctx->buflen], (size_t)(sizeof(ctx->buf) - (size_t)ctx->buflen), in_ptr, (size_t)fill);
+        }
+        ctx->total += (uint64_t)block_bytes;
         if (ctx->is_blake2b != 0U) {
             blake2b_compress(ctx, ctx->buf, 0);
         }
@@ -275,23 +288,24 @@ noxtls_return_t noxtls_blake2_update(noxtls_blake2_ctx_t * ctx, const uint8_t * 
         ctx->buflen = 0U;
         in_ptr = &in_ptr[fill];
         in_left -= fill;
-    }
 
-    while (in_left >= block_bytes) {
-        if (ctx->is_blake2b != 0U) {
-            blake2b_compress(ctx, in_ptr, 0);
+        while (in_left > block_bytes) {
+            ctx->total += (uint64_t)block_bytes;
+            if (ctx->is_blake2b != 0U) {
+                blake2b_compress(ctx, in_ptr, 0);
+            }
+            else {
+                blake2s_compress(ctx, in_ptr, 0);
+            }
+            in_ptr = &in_ptr[block_bytes];
+            in_left -= block_bytes;
         }
-        else {
-            blake2s_compress(ctx, in_ptr, 0);
-        }
-        in_ptr = &in_ptr[block_bytes];
-        in_left -= block_bytes;
     }
 
     if (in_left > 0U) {
-        noxtls_copy_u8(&ctx->buf[ctx->buflen], (size_t)((sizeof(ctx->buf) > ctx->buflen) ? (sizeof(ctx->buf) - ctx->buflen) : 0U), in_ptr, (size_t)in_left);
+        noxtls_copy_u8(&ctx->buf[ctx->buflen], (size_t)(sizeof(ctx->buf) - (size_t)ctx->buflen), in_ptr, (size_t)in_left);
+        ctx->buflen += in_left;
     }
-    ctx->buflen += in_left;
 
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -312,8 +326,16 @@ noxtls_return_t noxtls_blake2_finish(noxtls_blake2_ctx_t * ctx, uint8_t * hash)
     }
 
     block_bytes = (ctx->is_blake2b != 0U) ? BLAKE2B_BLOCK_BYTES : BLAKE2S_BLOCK_BYTES;
+    if (ctx->buflen > block_bytes) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
 
-    noxtls_secure_zero((&ctx->buf[ctx->buflen]), ((size_t)(block_bytes - ctx->buflen)));
+    /* Last block (possibly full, possibly empty for the empty message):
+     * counter = total message length, zero padded, f0 set. */
+    ctx->total += (uint64_t)ctx->buflen;
+    if (ctx->buflen < block_bytes) {
+        noxtls_secure_zero((&ctx->buf[ctx->buflen]), ((size_t)(block_bytes - ctx->buflen)));
+    }
 
     if (ctx->is_blake2b != 0U) {
         blake2b_compress(ctx, ctx->buf, 1);

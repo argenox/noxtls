@@ -86,62 +86,76 @@ noxtls_return_t noxtls_md5_init(noxtls_sha_ctx_t * ctx)
 /**
  * @brief Feed noxtls_message bytes into the MD5 context (RFC 1321).
  *
+ * @details May be called any number of times with arbitrary lengths. Bytes
+ *          are processed in order: a pending partial block is completed
+ *          first, then whole blocks are compressed directly from data, and
+ *          the remainder is buffered for the next update or finish.
+ *
  * @param[in,out] ctx MD5 context; must not be NULL.
  * @param[in] data Message bytes; must point to at least len bytes when len > 0.
  * @param[in] len Number of bytes from input to absorb.
  *
  * @return NOXTLS_RETURN_SUCCESS on success.
- * @return NOXTLS_RETURN_NULL if ctx is NULL.
- * @return NOXTLS_RETURN_INVALID_BLOCK_SIZE if a partial block is already buffered and this call
- *         supplies fewer than MD5_BLOCK_SIZE_BYTES bytes without completing a block (see implementation).
+ * @return NOXTLS_RETURN_NULL if ctx is NULL, or data is NULL with len non-zero.
  * @return Any error code propagated from noxtls_md5_round() if compression fails.
  */
 noxtls_return_t noxtls_md5_update(noxtls_sha_ctx_t * ctx, const uint8_t * data, uint32_t len)
 {
-	noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
+    noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
+    const uint8_t * in_ptr = data;
+    uint32_t in_left = len;
 
-	if (ctx == NULL) {
-		return NOXTLS_RETURN_NULL;
-	}
-
-    //uint32_t block_count = (len * 8) / MD5_BLOCK_SIZE_BITS;
-
-    if ((len * 8U) < MD5_BLOCK_SIZE_BITS)
-    {
-        if (ctx->data_len != 0U) {
-            /* A non 512-bit block already processed, so invalidate */            
-            return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
-        }
-
-        /* Store for later processing */
-        noxtls_copy_u8(&ctx->data[ctx->data_len], sizeof(ctx->data) - (size_t)(ctx->data_len), data, (size_t)len);
-        ctx->data_len = (uint8_t)len;
+    if (ctx == NULL) {
+        return NOXTLS_RETURN_NULL;
     }
-    else
-    {
-        uint32_t total = (uint32_t)(len);
-        uint32_t offset = 0U;
+    if (in_left == 0U) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    if (in_ptr == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if ((uint32_t)ctx->data_len >= (uint32_t)MD5_BLOCK_SIZE_BYTES) {
+        return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
+    }
 
-        while (total >= MD5_BLOCK_SIZE_BYTES) {
-            /* Use per-call input offset; ctx->length tracks global bytes across calls. */
-            rc = noxtls_md5_round(ctx, &data[offset]);
+    /* 1. Complete a pending partial block first (preserves byte order). */
+    if (ctx->data_len > 0U) {
+        uint32_t space = (uint32_t)MD5_BLOCK_SIZE_BYTES - (uint32_t)ctx->data_len;
+        uint32_t to_copy = (in_left < space) ? in_left : space;
+
+        noxtls_copy_u8(&ctx->data[ctx->data_len], sizeof(ctx->data) - (size_t)(ctx->data_len), in_ptr, (size_t)to_copy);
+        ctx->data_len = (uint8_t)((uint32_t)ctx->data_len + to_copy);
+        in_ptr = &in_ptr[to_copy];
+        in_left -= to_copy;
+
+        if ((uint32_t)ctx->data_len == (uint32_t)MD5_BLOCK_SIZE_BYTES) {
+            rc = noxtls_md5_round(ctx, ctx->data);
             if (rc != NOXTLS_RETURN_SUCCESS) {
-                break;
+                return rc;
             }
-            ctx->length += MD5_BLOCK_SIZE_BYTES;
-            offset += MD5_BLOCK_SIZE_BYTES;
-            total -= MD5_BLOCK_SIZE_BYTES;
-        }
-
-        if ((rc == NOXTLS_RETURN_SUCCESS) && (total > 0U)) {
-            /* Store remaining partial block for finish(). */
-            noxtls_secure_zero((ctx->data), (size_t)(MD5_BLOCK_SIZE_BYTES));
-            noxtls_copy_u8(ctx->data, sizeof(ctx->data), &data[offset], (size_t)total);
-            ctx->data_len = (uint8_t)total;
+            ctx->length += (uint32_t)MD5_BLOCK_SIZE_BYTES;
+            ctx->data_len = 0U;
         }
     }
 
-    return rc;    
+    /* 2. Whole blocks straight from the input. */
+    while (in_left >= (uint32_t)MD5_BLOCK_SIZE_BYTES) {
+        rc = noxtls_md5_round(ctx, in_ptr);
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
+        ctx->length += (uint32_t)MD5_BLOCK_SIZE_BYTES;
+        in_ptr = &in_ptr[MD5_BLOCK_SIZE_BYTES];
+        in_left -= (uint32_t)MD5_BLOCK_SIZE_BYTES;
+    }
+
+    /* 3. Buffer the remainder (data_len is 0 here whenever in_left > 0). */
+    if (in_left > 0U) {
+        noxtls_copy_u8(&ctx->data[ctx->data_len], sizeof(ctx->data) - (size_t)(ctx->data_len), in_ptr, (size_t)in_left);
+        ctx->data_len = (uint8_t)((uint32_t)ctx->data_len + in_left);
+    }
+
+    return rc;
 }
 
 /**
@@ -310,6 +324,10 @@ noxtls_return_t noxtls_md5_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
     uint32_t i = 0U;
     
     uint8_t temp[MD5_BLOCK_SIZE_BYTES] = {0};
+
+    if ((ctx == NULL) || (hash == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
     /* Process any pending data or */
     if (ctx->data_len > 0U)
     {

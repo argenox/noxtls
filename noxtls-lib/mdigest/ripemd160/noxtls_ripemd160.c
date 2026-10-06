@@ -80,7 +80,7 @@ static uint32_t ripemd160_rotl_amt(uint32_t x, uint32_t amt)
 /* f(j,x,y,z) for rounds 0-15, 16-31, 32-47, 48-63, 64-79 */
 #define F0(x, y, z) ((x) ^ (y) ^ (z))
 #define F1(x, y, z) (((x) & (y)) | ((~(x)) & (z)))
-#define F2(x, y, z) (((x) | ((~(y)) ^ (z))))
+#define F2(x, y, z) ((((x) | (~(y))) ^ (z)))
 #define F3(x, y, z) (((x) & (z)) | ((y) & (~(z))))
 #define F4(x, y, z) ((x) ^ ((y) | (~(z))))
 
@@ -306,8 +306,12 @@ noxtls_return_t noxtls_ripemd160_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
         return NOXTLS_RETURN_NULL;
     }
 
-    total_bits_lo = (ctx->length + ctx->data_len) <<3U;
-    total_bits_hi = 0U;
+    {
+        /* 64-bit bit count: (length + data_len) * 8 overflows 32 bits at 512 MiB. */
+        uint64_t total_bits = ((uint64_t)ctx->length + (uint64_t)ctx->data_len) << 3U;
+        total_bits_lo = (uint32_t)(total_bits & 0xFFFFFFFFU);
+        total_bits_hi = (uint32_t)(total_bits >> 32U);
+    }
 
     ctx->data[ctx->data_len] = 0x80U;
 
