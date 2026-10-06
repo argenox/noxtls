@@ -50,6 +50,10 @@ noxtls_return_t noxtls_aes_encrypt_ctr(const uint8_t* key,
                      uint8_t* output,
                      noxtls_aes_type_t type)
 {
+    if ((key == NULL) || (data == NULL) || (output == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+
     int i;
     uint32_t cur_block = 0;
     uint8_t counter_block[NOXTLS_AES_BLOCK_LENGTH];
@@ -69,7 +73,7 @@ noxtls_return_t noxtls_aes_encrypt_ctr(const uint8_t* key,
                              (data_len - cur_block) : NOXTLS_AES_BLOCK_LENGTH;
         
         /* Encrypt the counter to produce keystream */
-        noxtls_aes_encrypt_block_internal(key, counter_block, keystream, type);
+        NOXTLS_AES_CHECK(noxtls_aes_encrypt_block_internal(key, counter_block, keystream, type), output, data_len, NULL, 0U);
         
         /* XOR keystream with plaintext */
         for(uint32_t byte_index = 0; byte_index < block_len; byte_index++) {

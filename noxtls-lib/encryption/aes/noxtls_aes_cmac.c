@@ -121,6 +121,7 @@ noxtls_return_t noxtls_aes_cmac_init(noxtls_aes_cmac_context_t *ctx,
     ctx->type = type;
     rc = cmac_key_len_from_type(type, &ctx->key_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(ctx, sizeof(*ctx));
         return rc;
     }
     memcpy(ctx->key, key, ctx->key_len);
@@ -128,6 +129,7 @@ noxtls_return_t noxtls_aes_cmac_init(noxtls_aes_cmac_context_t *ctx,
     memset(l, 0, sizeof(l));
     rc = noxtls_aes_encrypt_block_internal(ctx->key, l, l, type);
     if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(ctx, sizeof(*ctx));
         return rc;
     }
 
@@ -182,6 +184,7 @@ noxtls_return_t noxtls_aes_cmac_update(noxtls_aes_cmac_context_t *ctx,
         {
             rc = cmac_absorb_block(ctx, ctx->partial);
             if(rc != NOXTLS_RETURN_SUCCESS) {
+                noxtls_secure_zero(ctx, sizeof(*ctx));
                 return rc;
             }
             ctx->partial_len = 0U;
@@ -192,6 +195,7 @@ noxtls_return_t noxtls_aes_cmac_update(noxtls_aes_cmac_context_t *ctx,
     {
         rc = cmac_absorb_block(ctx, &msg[offset]);
         if(rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_secure_zero(ctx, sizeof(*ctx));
             return rc;
         }
         offset += NOXTLS_AES_BLOCK_LENGTH;
@@ -242,6 +246,9 @@ noxtls_return_t noxtls_aes_cmac_final(noxtls_aes_cmac_context_t *ctx,
 
     rc = cmac_absorb_block(ctx, final_block);
     if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(final_block, sizeof(final_block));
+        noxtls_secure_zero(mac, NOXTLS_AES_BLOCK_LENGTH);
+        noxtls_secure_zero(ctx, sizeof(*ctx));
         return rc;
     }
 
@@ -272,14 +279,22 @@ noxtls_return_t noxtls_aes_cmac(const uint8_t *key,
     noxtls_return_t rc;
 
     rc = noxtls_aes_cmac_init(&ctx, key, type);
-    if(rc != NOXTLS_RETURN_SUCCESS)
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(mac, NOXTLS_AES_BLOCK_LENGTH);
+        noxtls_secure_zero(&ctx, sizeof(ctx));
         return rc;
+    }
 
     rc = noxtls_aes_cmac_update(&ctx, msg, msg_len);
-    if(rc != NOXTLS_RETURN_SUCCESS)
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(mac, NOXTLS_AES_BLOCK_LENGTH);
+        noxtls_secure_zero(&ctx, sizeof(ctx));
         return rc;
+    }
 
-    return noxtls_aes_cmac_final(&ctx, mac);
+    rc = noxtls_aes_cmac_final(&ctx, mac);
+    noxtls_secure_zero(&ctx, sizeof(ctx));
+    return rc;
 }
 
 #endif /* NOXTLS_FEATURE_AES_CMAC */

@@ -26,6 +26,7 @@
 #include <string.h>
 
 #include "common/noxtls_memory.h"
+#include "common/noxtls_ct.h"
 #include "common/noxtls_memory_compat.h"
 #include "noxtls_ecc.h"
 
@@ -3480,13 +3481,18 @@ noxtls_return_t noxtls_ecc_point_multiply(ecc_point_t *result, const uint8_t *sc
 #endif
         return rc;
     }
-    noxtls_ecc_accel_note_fallback();
-    /* HW failed or disabled: fall back to software path. */
+    /* Only an unavailable capability permits software fallback. Preserve
+     * actual accelerator failures and timeouts rather than reporting a
+     * successful software calculation after failed physical execution. */
     if(rc != NOXTLS_RETURN_NOT_SUPPORTED) {
-        noxtls_bn_zero(result->x, size);
-        noxtls_bn_zero(result->y, size);
+        noxtls_secure_zero(result->x, sizeof(result->x));
+        noxtls_secure_zero(result->y, sizeof(result->y));
+        result->size = 0U;
+        return rc;
     }
-    rc = NOXTLS_RETURN_SUCCESS;
+
+    noxtls_ecc_accel_note_fallback();
+    rc = (noxtls_return_t)NOXTLS_RETURN_SUCCESS;
 
 #if NOXTLS_ECC_POINT_MUL_WINDOW_SIZE >= 2
     /*

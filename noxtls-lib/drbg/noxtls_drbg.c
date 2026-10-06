@@ -242,6 +242,8 @@ static noxtls_return_t drbg_generate_keystream_blocks(const uint8_t *key,
     uint8_t ctr_blocks[DRBG_PORT_AES_BATCH_BLOCKS * DRBG_BLOCKLEN];
     uint8_t ks_blocks[DRBG_PORT_AES_BATCH_BLOCKS * DRBG_BLOCKLEN];
     uint32_t remaining = block_count;
+    uint8_t *const output_start = output;
+    uint8_t batch_counter[DRBG_BLOCKLEN];
 
     while(remaining > 0U) {
         uint32_t chunk_blocks = (remaining > DRBG_PORT_AES_BATCH_BLOCKS) ?
@@ -249,6 +251,7 @@ static noxtls_return_t drbg_generate_keystream_blocks(const uint8_t *key,
         uint32_t b;
         noxtls_return_t rc;
 
+        memcpy(batch_counter, counter, sizeof(batch_counter));
         for(b = 0U; b < chunk_blocks; b++) {
             memcpy(ctr_blocks + ((size_t)b * DRBG_BLOCKLEN), counter, DRBG_BLOCKLEN);
             drbg_increment_counter_be(counter);
@@ -266,6 +269,15 @@ static noxtls_return_t drbg_generate_keystream_blocks(const uint8_t *key,
             continue;
         }
 
+        if (rc != NOXTLS_RETURN_NOT_SUPPORTED) {
+            noxtls_secure_zero(output_start, (size_t)block_count * DRBG_BLOCKLEN);
+            noxtls_secure_zero(ks_blocks, sizeof(ks_blocks));
+            return rc;
+        }
+
+        /* Only this unprocessed batch may fall back. Restore its first counter. */
+        memcpy(counter, batch_counter, sizeof(batch_counter));
+        noxtls_secure_zero(ks_blocks, sizeof(ks_blocks));
         break;
     }
 
@@ -278,6 +290,7 @@ static noxtls_return_t drbg_generate_keystream_blocks(const uint8_t *key,
     for(block = 0U; block < remaining; block++) {
         noxtls_return_t rc = noxtls_aes_encrypt_block_internal(key, counter, output, aes_type);
         if(rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_secure_zero(output_start, (size_t)block_count * DRBG_BLOCKLEN);
             return rc;
         }
         output += DRBG_BLOCKLEN;
@@ -502,7 +515,7 @@ noxtls_return_t drbg_update(drbg_state_t *state,
         uint32_t block_len = (state->keylen - i < DRBG_BLOCKLEN) ? 
                              (state->keylen - i) : DRBG_BLOCKLEN;
         
-        noxtls_aes_encrypt_block_internal(state->Key, block, keystream, aes_type);
+        NOXTLS_AES_CHECK(noxtls_aes_encrypt_block_internal(state->Key, block, keystream, aes_type), state, sizeof(*state), temp, sizeof(temp));
         
         /* XOR with temp data */
         for(j = 0; j < block_len; j++) {
@@ -519,7 +532,7 @@ noxtls_return_t drbg_update(drbg_state_t *state,
     /* Step 3: V = df(Key || V, blocklen) */
     /* Generate new V using AES-CTR */
     memcpy(block, state->V, DRBG_BLOCKLEN);
-    noxtls_aes_encrypt_block_internal(state->Key, block, state->V, aes_type);
+    NOXTLS_AES_CHECK(noxtls_aes_encrypt_block_internal(state->Key, block, state->V, aes_type), state, sizeof(*state), temp, sizeof(temp));
     
     /* XOR with temp data */
     for(i = 0; i < DRBG_BLOCKLEN; i++) {
@@ -624,9 +637,7 @@ noxtls_return_t drbg_instantiate(drbg_state_t *state,
     memset(state->V, 0, DRBG_BLOCKLEN);
     
     /* Update state with seed material */
-    if(drbg_update(state, seed_material, seedlen) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
-    }
+    NOXTLS_AES_CHECK(drbg_update(state, seed_material, seedlen), seed_material, sizeof(seed_material), state, sizeof(*state));
     
     /* Initialize reseed counter */
     state->reseed_counter = 1;
@@ -695,9 +706,7 @@ noxtls_return_t drbg_generate(drbg_state_t *state,
     
     /* Step 1: If additional_input is provided, update state */
     if(additional_input != NULL && add_input_len > 0) {
-        if(drbg_update(state, additional_input, add_input_len) != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
-        }
+        NOXTLS_AES_CHECK(drbg_update(state, additional_input, add_input_len), output_buffer, requested_bytes, state, sizeof(*state));
     }
     
     /* Step 2: Generate output using AES-CTR */
@@ -707,27 +716,21 @@ noxtls_return_t drbg_generate(drbg_state_t *state,
     tail_bytes = requested_bytes % DRBG_BLOCKLEN;
 
     if(full_blocks > 0U) {
-        if(drbg_generate_keystream_blocks(state->Key,
+        NOXTLS_AES_CHECK(drbg_generate_keystream_blocks(state->Key,
                                           block,
                                           output_buffer,
                                           full_blocks,
-                                          aes_type) != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
-        }
+                                          aes_type), output_buffer, requested_bytes, state, sizeof(*state));
     }
 
     if(tail_bytes > 0U) {
-        if(noxtls_aes_encrypt_block_internal(state->Key, block, keystream, aes_type) != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
-        }
+        NOXTLS_AES_CHECK(noxtls_aes_encrypt_block_internal(state->Key, block, keystream, aes_type), output_buffer, requested_bytes, state, sizeof(*state));
         memcpy(output_buffer + ((size_t)full_blocks * DRBG_BLOCKLEN), keystream, tail_bytes);
         drbg_increment_counter_be(block);
     }
     
     /* Step 3: Update state */
-    if(drbg_update(state, additional_input, add_input_len) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
-    }
+    NOXTLS_AES_CHECK(drbg_update(state, additional_input, add_input_len), output_buffer, requested_bytes, state, sizeof(*state));
     
     /* Step 4: Increment reseed counter */
     state->reseed_counter++;
@@ -794,9 +797,7 @@ noxtls_return_t drbg_reseed(drbg_state_t *state,
     }
     
     /* Update state with seed material */
-    if(drbg_update(state, seed_material, seedlen) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
-    }
+    NOXTLS_AES_CHECK(drbg_update(state, seed_material, seedlen), seed_material, sizeof(seed_material), state, sizeof(*state));
     
     /* Reset reseed counter */
     state->reseed_counter = 1;

@@ -50,6 +50,14 @@ noxtls_return_t noxtls_aes_encrypt_ecb(const uint8_t* key,
                     uint8_t* output,
                     noxtls_aes_type_t type)
 {
+    if ((key == NULL) || (data == NULL) || (output == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    if ((data_len % NOXTLS_AES_BLOCK_LENGTH) != 0U) {
+        return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
+    }
+
     uint32_t cur_block = 0;
     
     (void)iv; /* IV not used in ECB mode */
@@ -57,7 +65,7 @@ noxtls_return_t noxtls_aes_encrypt_ecb(const uint8_t* key,
     for(cur_block = 0; cur_block < data_len; cur_block += NOXTLS_AES_BLOCK_LENGTH)
     {
         /* Electronic Codebook: Direct encryption of each block */
-        noxtls_aes_encrypt_block_internal(key, &data[cur_block], &output[cur_block], type);
+        NOXTLS_AES_CHECK(noxtls_aes_encrypt_block_internal(key, &data[cur_block], &output[cur_block], type), output, data_len, NULL, 0U);
     }
 
     return NOXTLS_RETURN_SUCCESS;
@@ -84,13 +92,21 @@ noxtls_return_t noxtls_aes_decrypt_ecb(const uint8_t* key,
                     uint8_t* output,
                     noxtls_aes_type_t type)
 {
+    if ((key == NULL) || (data == NULL) || (output == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    if ((data_len % NOXTLS_AES_BLOCK_LENGTH) != 0U) {
+        return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
+    }
+
     uint32_t cur_block = 0;
 
     (void)iv; /* IV not used in ECB mode */
 
     for(cur_block = 0; cur_block < data_len; cur_block += NOXTLS_AES_BLOCK_LENGTH)
     {
-        noxtls_aes_decrypt_block_internal(key, &data[cur_block], &output[cur_block], type);
+        NOXTLS_AES_CHECK(noxtls_aes_decrypt_block_internal(key, &data[cur_block], &output[cur_block], type), output, data_len, NULL, 0U);
     }
 
     return NOXTLS_RETURN_SUCCESS;
