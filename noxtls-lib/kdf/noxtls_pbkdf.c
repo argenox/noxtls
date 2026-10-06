@@ -48,22 +48,50 @@
  *
  * @param[in] hash_algo Hash algorithm identifier.
  *
- * @return hLen in bytes, or 0 when the hash is not supported.
+ * @return hLen in bytes, or 0 when the hash is not supported or is compiled out
+ *         of this build.
  */
 static uint32_t noxtls_pbkdf2_prf_size(noxtls_hash_algos_t hash_algo)
 {
     switch (hash_algo) {
+#if NOXTLS_FEATURE_SHA1
         case NOXTLS_HASH_SHA1:
             return 20U;
+#endif
+#if NOXTLS_FEATURE_SHA256
         case NOXTLS_HASH_SHA_256:
             return 32U;
+#endif
+#if NOXTLS_FEATURE_SHA384
         case NOXTLS_HASH_SHA_384:
             return 48U;
+#endif
+#if NOXTLS_FEATURE_SHA512
         case NOXTLS_HASH_SHA_512:
             return 64U;
+#endif
         default:
             return 0U;
     }
+}
+
+/**
+ * @brief Status for a hash PBKDF2 cannot use.
+ * @internal
+ *
+ * @param[in] hash_algo Hash algorithm identifier.
+ *
+ * @return NOXTLS_RETURN_NOT_SUPPORTED for a PBKDF2 hash compiled out of this
+ *         build, NOXTLS_RETURN_INVALID_ALGORITHM for any other hash.
+ */
+static noxtls_return_t noxtls_pbkdf2_unusable_algorithm(noxtls_hash_algos_t hash_algo)
+{
+    noxtls_return_t rc = NOXTLS_RETURN_INVALID_ALGORITHM;
+    if ((hash_algo == NOXTLS_HASH_SHA1) || (hash_algo == NOXTLS_HASH_SHA_256) ||
+        (hash_algo == NOXTLS_HASH_SHA_384) || (hash_algo == NOXTLS_HASH_SHA_512)) {
+        rc = NOXTLS_RETURN_NOT_SUPPORTED;
+    }
+    return rc;
 }
 
 /**
@@ -143,7 +171,7 @@ noxtls_return_t noxtls_pbkdf2_hmac(noxtls_hash_algos_t hash_algo,
     h_len = noxtls_pbkdf2_prf_size(hash_algo);
     if (h_len == 0U) {
         noxtls_secure_zero(dk, dk_len);
-        return NOXTLS_RETURN_INVALID_ALGORITHM;
+        return noxtls_pbkdf2_unusable_algorithm(hash_algo);
     }
 
     if ((iterations < NOXTLS_PBKDF2_MIN_ITERATIONS) || (dk_len == 0U)) {
@@ -210,9 +238,13 @@ noxtls_return_t noxtls_pbkdf2_hmac(noxtls_hash_algos_t hash_algo,
 
 noxtls_return_t noxtls_pbkdf2_self_test(void)
 {
-    /* RFC 6070 §2: P = "password", S = "salt", dkLen = 20. */
+#if NOXTLS_FEATURE_SHA1 || NOXTLS_FEATURE_SHA256
+    /* P = "password", S = "salt", c = 1 and c = 2, one PRF block each. */
     static const uint8_t pw[] = { 112U, 97U, 115U, 115U, 119U, 111U, 114U, 100U };
     static const uint8_t salt[] = { 115U, 97U, 108U, 116U };
+#if NOXTLS_FEATURE_SHA1
+    /* PBKDF2-HMAC-SHA1, RFC 6070 §2 (dkLen = 20). */
+    static const noxtls_hash_algos_t kat_hash = NOXTLS_HASH_SHA1;
     static const uint8_t c1[20] = {
         0x0c, 0x60, 0xc8, 0x0f, 0x96, 0x1f, 0x0e, 0x71, 0xf3, 0xa9,
         0xb5, 0x24, 0xaf, 0x60, 0x12, 0x06, 0x2f, 0xe0, 0x37, 0xa6
@@ -222,16 +254,33 @@ noxtls_return_t noxtls_pbkdf2_self_test(void)
         0xd9, 0x2a, 0xce, 0x1d, 0x41, 0xf0, 0xd8, 0xde, 0x89, 0x57
     };
     uint8_t dk[20];
+#else
+    /* SHA-1 compiled out: PBKDF2-HMAC-SHA256 with the same inputs (dkLen = 32). */
+    static const noxtls_hash_algos_t kat_hash = NOXTLS_HASH_SHA_256;
+    static const uint8_t c1[32] = {
+        0x12, 0x0f, 0xb6, 0xcf, 0xfc, 0xf8, 0xb3, 0x2c, 0x43, 0xe7, 0x22, 0x52, 0x56, 0xc4, 0xf8, 0x37,
+        0xa8, 0x65, 0x48, 0xc9, 0x2c, 0xcc, 0x35, 0x48, 0x08, 0x05, 0x98, 0x7c, 0xb7, 0x0b, 0xe1, 0x7b
+    };
+    static const uint8_t c2[32] = {
+        0xae, 0x4d, 0x0c, 0x95, 0xaf, 0x6b, 0x46, 0xd3, 0x2d, 0x0a, 0xdf, 0xf9, 0x28, 0xf0, 0x6d, 0xd0,
+        0x2a, 0x30, 0x3f, 0x8e, 0xf3, 0xc2, 0x51, 0xdf, 0xd6, 0xe2, 0xd8, 0x5a, 0x95, 0x47, 0x4c, 0x43
+    };
+    uint8_t dk[32];
+#endif
 
-    if((noxtls_pbkdf2_hmac(NOXTLS_HASH_SHA1, pw, sizeof(pw), salt, sizeof(salt),
+    if((noxtls_pbkdf2_hmac(kat_hash, pw, sizeof(pw), salt, sizeof(salt),
                            1U, dk, sizeof(dk)) != NOXTLS_RETURN_SUCCESS) ||
        (noxtls_ct_memcmp(dk, c1, sizeof(dk)) != 0)) {
         return NOXTLS_RETURN_FAILED;
     }
-    if((noxtls_pbkdf2_hmac(NOXTLS_HASH_SHA1, pw, sizeof(pw), salt, sizeof(salt),
+    if((noxtls_pbkdf2_hmac(kat_hash, pw, sizeof(pw), salt, sizeof(salt),
                            2U, dk, sizeof(dk)) != NOXTLS_RETURN_SUCCESS) ||
        (noxtls_ct_memcmp(dk, c2, sizeof(dk)) != 0)) {
         return NOXTLS_RETURN_FAILED;
     }
     return NOXTLS_RETURN_SUCCESS;
+#else
+    /* Neither SHA-1 nor SHA-256 is compiled into this build. */
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
 }

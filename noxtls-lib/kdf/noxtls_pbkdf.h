@@ -78,7 +78,8 @@ extern "C" {
  *
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL for a NULL
  *         required pointer, NOXTLS_RETURN_INVALID_ALGORITHM for an
- *         unsupported hash, NOXTLS_RETURN_INVALID_PARAM for a zero
+ *         unsupported hash, NOXTLS_RETURN_NOT_SUPPORTED for a hash compiled
+ *         out of this build, NOXTLS_RETURN_INVALID_PARAM for a zero
  *         iteration count or zero output length, or NOXTLS_RETURN_FAILED if
  *         the HMAC primitive fails.
  */
@@ -91,8 +92,11 @@ noxtls_return_t noxtls_pbkdf2_hmac(noxtls_hash_algos_t hash_algo,
 /**
  * @brief Run PBKDF2-HMAC-SHA1 known-answer tests (RFC 6070 section 2, c = 1, 2).
  *
- * @return NOXTLS_RETURN_SUCCESS when all vectors match, else
- *         NOXTLS_RETURN_FAILED.
+ * Builds without SHA-1 run the same two cases with PBKDF2-HMAC-SHA256.
+ *
+ * @return NOXTLS_RETURN_SUCCESS when all vectors match,
+ *         NOXTLS_RETURN_NOT_SUPPORTED when neither SHA-1 nor SHA-256 is
+ *         compiled in, else NOXTLS_RETURN_FAILED.
  */
 noxtls_return_t noxtls_pbkdf2_self_test(void);
 

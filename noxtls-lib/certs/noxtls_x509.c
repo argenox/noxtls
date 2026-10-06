@@ -659,8 +659,8 @@ static noxtls_return_t noxtls_x509_slhdsa_param_from_oid(const uint8_t *oid,
 #endif
 
 #if NOXTLS_FEATURE_AES_CBC
-#if !NOXTLS_FEATURE_PBKDF2
-/* Builds without NOXTLS_FEATURE_HMAC keep a private PBKDF2-HMAC-SHA1. */
+#if !NOXTLS_FEATURE_PBKDF2 && NOXTLS_FEATURE_SHA1
+/* Builds without NOXTLS_FEATURE_PBKDF2 keep a private PBKDF2-HMAC-SHA1 (when SHA-1 is compiled in). */
 /**
  * @brief Computes the HMAC-SHA1 of a message.
  *
@@ -793,7 +793,7 @@ static noxtls_return_t pbkdf2_hmac_sha1(const uint8_t *password, uint32_t passwo
     (void)noxtls_free(block_input);
     return NOXTLS_RETURN_SUCCESS;
 }
-#endif /* !NOXTLS_FEATURE_PBKDF2 */
+#endif /* !NOXTLS_FEATURE_PBKDF2 && NOXTLS_FEATURE_SHA1 */
 
 /**
  * @brief PBES2 key derivation: PBKDF2 with the PRF selected by PBKDF2-params (RFC 8018 5.2, A.2).
@@ -817,7 +817,7 @@ static noxtls_return_t x509_pbes2_kdf(noxtls_hash_algos_t prf_hash,
 {
 #if NOXTLS_FEATURE_PBKDF2
     return noxtls_pbkdf2_hmac(prf_hash, password, password_len, salt, salt_len, iterations, out, out_len);
-#else
+#elif NOXTLS_FEATURE_SHA1
     pbkdf2_sha1_params_t params;
 
     if(prf_hash != NOXTLS_HASH_SHA1) {
@@ -827,6 +827,17 @@ static noxtls_return_t x509_pbes2_kdf(noxtls_hash_algos_t prf_hash,
     params.iterations = iterations;
     params.key_len = out_len;
     return pbkdf2_hmac_sha1(password, password_len, salt, &params, out);
+#else
+    /* No PBKDF2 and no SHA-1 in this build: PBES2-encrypted keys cannot be decrypted. */
+    (void)prf_hash;
+    (void)password;
+    (void)password_len;
+    (void)salt;
+    (void)salt_len;
+    (void)iterations;
+    (void)out;
+    (void)out_len;
+    return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
 }
 #endif
@@ -2652,22 +2663,26 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(const x509_certificate_
         return NOXTLS_RETURN_INVALID_ALGORITHM;
     }
 
-    /* Hash the TBSCertificate */
+    /* Hash the TBSCertificate (digests compiled out of this build are rejected below). */
     if(hash_algo == NOXTLS_HASH_SHA_256) {
         noxtls_sha_ctx_t sha_ctx;
         (void)noxtls_sha256_init(&sha_ctx, hash_algo);
         (void)noxtls_sha256_update(&sha_ctx, cert->tbs_certificate, cert->tbs_certificate_len);
         rc = noxtls_sha256_finish(&sha_ctx, hash);
+#if NOXTLS_FEATURE_SHA384
     } else if(hash_algo == NOXTLS_HASH_SHA_384) {
         noxtls_sha512_ctx_t sha_ctx;
         (void)noxtls_sha512_init(&sha_ctx, hash_algo);
         (void)noxtls_sha512_update(&sha_ctx, cert->tbs_certificate, cert->tbs_certificate_len);
         rc = noxtls_sha512_finish(&sha_ctx, hash);
+#endif
+#if NOXTLS_FEATURE_SHA512
     } else if(hash_algo == NOXTLS_HASH_SHA_512) {
         noxtls_sha512_ctx_t sha_ctx;
         (void)noxtls_sha512_init(&sha_ctx, hash_algo);
         (void)noxtls_sha512_update(&sha_ctx, cert->tbs_certificate, cert->tbs_certificate_len);
         rc = noxtls_sha512_finish(&sha_ctx, hash);
+#endif
     } else {
         /* MISRA 15.7: final else path */
         CERT_DEBUG_PRINT("x509_certificate_verify_signature: unsupported hash algorithm\n");
@@ -2681,6 +2696,7 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(const x509_certificate_
 
     /* Verify signature using issuer's public key */
     if(is_rsa == 1) {
+#if NOXTLS_FEATURE_RSA
         /* RSA signature verification */
         if((issuer->rsa_modulus == NULL) || (issuer->rsa_exponent == NULL)) {
             CERT_DEBUG_PRINT("x509_certificate_verify_signature: issuer RSA public key not available\n");
@@ -2748,6 +2764,11 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(const x509_certificate_
             return ((rc == NOXTLS_RETURN_FAILED) ? NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED : rc);
         }
         return NOXTLS_RETURN_SUCCESS;
+#else
+        /* RSA is compiled out of this build. */
+        CERT_DEBUG_PRINT("x509_certificate_verify_signature: RSA not supported in this build\n");
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     }
     if(is_rsa == 2) {
 #if NOXTLS_FEATURE_ML_DSA
@@ -2832,6 +2853,7 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(const x509_certificate_
         return NOXTLS_RETURN_INVALID_ALGORITHM;
 #endif
     }
+#if NOXTLS_FEATURE_ECDSA
     {
         /* ECDSA signature verification */
         if((issuer->ecc_public_key == NULL) || (issuer->ecc_public_key_len == 0U)) {
@@ -2976,6 +2998,11 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(const x509_certificate_
         }
         return NOXTLS_RETURN_SUCCESS;
     }
+#else
+    /* ECDSA is compiled out of this build. */
+    CERT_DEBUG_PRINT("x509_certificate_verify_signature: ECDSA not supported in this build\n");
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
 }
 
 #if NOXTLS_HAVE_TIME
@@ -5007,6 +5034,7 @@ static noxtls_return_t noxtls_x509_crl_verify_signature(const noxtls_x509_crl_t 
     }
 
     if(is_rsa == 1) {
+#if NOXTLS_FEATURE_RSA
         if((issuer->rsa_modulus == NULL) || (issuer->rsa_exponent == NULL)) {
             if(flags_out != NULL) {
                 *flags_out |= NOXTLS_X509_VERIFY_FLAG_CRL_BAD_SIGNATURE;
@@ -5057,6 +5085,10 @@ static noxtls_return_t noxtls_x509_crl_verify_signature(const noxtls_x509_crl_t 
                                    crl->signature, crl->signature_len, hash_algo);
             (void)noxtls_rsa_key_free(&rsa_key);
         }
+#else
+        /* RSA is compiled out of this build: the CRL cannot be verified (reported below). */
+        rc = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     } else if(is_rsa == 2) {
 #if NOXTLS_FEATURE_ML_DSA
         if((issuer->has_mldsa == 0U) || (issuer->mldsa_public_key_len == 0U) || (issuer->mldsa_param == 0U)) {
@@ -5072,6 +5104,7 @@ static noxtls_return_t noxtls_x509_crl_verify_signature(const noxtls_x509_crl_t 
         return NOXTLS_RETURN_INVALID_ALGORITHM;
 #endif
     } else {
+#if NOXTLS_FEATURE_ECDSA
         ecc_curve_t curve_type = NOXTLS_ECC_SECP256R1;
         ecc_key_t ecc_key;
         const uint8_t *sig_ptr = crl->signature;
@@ -5180,6 +5213,10 @@ static noxtls_return_t noxtls_x509_crl_verify_signature(const noxtls_x509_crl_t 
 
         rc = noxtls_ecdsa_verify(&ecc_key, crl->tbs_crl, crl->tbs_crl_len, &ecdsa_sig, hash_algo);
         (void)noxtls_ecc_key_free(&ecc_key);
+#else
+        /* ECDSA is compiled out of this build: the CRL cannot be verified (reported below). */
+        rc = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     }
 
     if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -7406,6 +7443,7 @@ noxtls_return_t noxtls_x509_private_key_load_file(x509_private_key_t *key, const
  * @param[in] src_len The length of the source buffer.
  *
  */
+#if NOXTLS_FEATURE_RSA
 static void rsa_copy_component(uint8_t *dest, uint32_t dest_len,
                                const uint8_t *src, uint32_t src_len)
 {
@@ -7416,6 +7454,7 @@ static void rsa_copy_component(uint8_t *dest, uint32_t dest_len,
         noxtls_copy_u8((uint8_t *)(void *)(&dest[(dest_len - src_len)]), (size_t)src_len, (const uint8_t *)(const void *)(src), (size_t)src_len);
     }
 }
+#endif /* NOXTLS_FEATURE_RSA */
 
 /**
  * @brief Convert X.509 private key to RSA key structure
@@ -7429,6 +7468,13 @@ static void rsa_copy_component(uint8_t *dest, uint32_t dest_len,
  */
 noxtls_return_t noxtls_x509_private_key_to_rsa_key(const x509_private_key_t *key, void *rsa_key)
 {
+#if !NOXTLS_FEATURE_RSA
+    if((key == NULL) || (rsa_key == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+    /* RSA is compiled out of this build. */
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+#else
     rsa_key_t *rk = (rsa_key_t *)rsa_key;
     rsa_key_size_t key_size = RSA_2048_BIT;
     uint32_t key_bytes = 0U;
@@ -7493,6 +7539,7 @@ noxtls_return_t noxtls_x509_private_key_to_rsa_key(const x509_private_key_t *key
     rsa_copy_component(rk->qi, prime_len, key->rsa_coefficient, key->rsa_coefficient_len);
 
     return NOXTLS_RETURN_SUCCESS;
+#endif /* NOXTLS_FEATURE_RSA */
 }
 
 /**
@@ -7651,6 +7698,7 @@ noxtls_return_t noxtls_x509_private_key_sign_data(const uint8_t *key, uint32_t k
 {
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
     x509_private_key_t pk;
+#if NOXTLS_FEATURE_ECDSA
     ecc_key_t ecc_key;
     ecdsa_signature_t sig;
     uint8_t *der_buf = NULL;
@@ -7661,6 +7709,7 @@ noxtls_return_t noxtls_x509_private_key_sign_data(const uint8_t *key, uint32_t k
     uint32_t s_enc_len = 0U;
     uint32_t seq_len = 0U;
     uint32_t total = 0U;
+#endif
 
     if((key == NULL) || (data == NULL) || (out_der == NULL) || (out_len == NULL)) {
         return NOXTLS_RETURN_NULL;
@@ -7684,6 +7733,7 @@ noxtls_return_t noxtls_x509_private_key_sign_data(const uint8_t *key, uint32_t k
     }
 
     if(pk.key_type == X509_PRIVATE_KEY_ECC) {
+#if NOXTLS_FEATURE_ECDSA
         rc = noxtls_x509_private_key_to_ecc_key(&pk, &ecc_key);
         (void)noxtls_x509_private_key_free(&pk);
         if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -7723,9 +7773,17 @@ noxtls_return_t noxtls_x509_private_key_sign_data(const uint8_t *key, uint32_t k
         }
         *out_len = total;
         return NOXTLS_RETURN_SUCCESS;
+#else
+        /* ECDSA is compiled out of this build. */
+        (void)data_len;
+        (void)hash_algo;
+        (void)noxtls_x509_private_key_free(&pk);
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     }
 
     if(pk.key_type == X509_PRIVATE_KEY_RSA) {
+#if NOXTLS_FEATURE_RSA
         /*
          * RSA: PKCS#1 v1.5 signature. The signature is a single big-endian
          * integer of exactly key_bytes; X.509 wraps that raw value in a
@@ -7755,6 +7813,11 @@ noxtls_return_t noxtls_x509_private_key_sign_data(const uint8_t *key, uint32_t k
         }
         *out_len = sig_len;
         return NOXTLS_RETURN_SUCCESS;
+#else
+        /* RSA is compiled out of this build. */
+        (void)noxtls_x509_private_key_free(&pk);
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     }
 
 #if NOXTLS_FEATURE_ED25519
