@@ -377,7 +377,13 @@ noxtls_return_t noxtls_tls_send_record(tls_context_t *ctx, uint8_t type, const u
 #if NOXTLS_FEATURE_DTLS
     if (tls_is_dtls_version(ctx->version) != 0U) {
         dtls_context_t *dctx = (dtls_context_t *)(void *)ctx;
-        if (type == TLS_RECORD_HANDSHAKE) {
+        /*
+         * DTLS 1.2 handshake data of epoch >= 1 has already been protected by the TLS 1.2
+         * engine: send it as one record and never sniff the ciphertext for a handshake header
+         * (it could match one by chance and would then be fragmented as plaintext).
+         */
+        if ((type == TLS_RECORD_HANDSHAKE) &&
+            !((ctx->version == DTLS_VERSION_1_2) && (dctx->epoch != (uint16_t)DTLS_EPOCH_UNENCRYPTED))) {
             uint32_t msg_len = 0U;
             if (len < 4U) {
                 noxtls_return_t rc = noxtls_dtls_send_record(dctx, type, data, len);
@@ -388,9 +394,11 @@ noxtls_return_t noxtls_tls_send_record(tls_context_t *ctx, uint8_t type, const u
                 return rc;
             }
             msg_len = ((uint32_t)data[1] <<16U) | ((uint32_t)data[2] <<8U) | (uint16_t)data[3];
+            /* Complete handshake messages, CertificateStatus (22) included, get the 12-byte DTLS
+             * handshake header and the next message_seq (RFC 6347 4.2.2). */
             if((((msg_len + 4U) == len) &&
                (data[0] >= TLS_HANDSHAKE_CLIENT_HELLO) &&
-               (data[0] <= TLS_HANDSHAKE_FINISHED))) {
+               ((data[0] <= TLS_HANDSHAKE_FINISHED) || (data[0] == TLS_HANDSHAKE_CERTIFICATE_STATUS)))) {
                 noxtls_return_t rc = dtls_send_handshake_fragment(dctx, data[0], &data[4], msg_len,
                                                                  dctx->send_message_seq);
                 if (rc == NOXTLS_RETURN_SUCCESS) {
@@ -606,6 +614,54 @@ static noxtls_return_t tls_nonblocking_recv_record(tls_context_t *ctx,
     return NOXTLS_RETURN_SUCCESS;
 }
 
+#if NOXTLS_FEATURE_DTLS
+/**
+ * @brief Hand a reassembled DTLS handshake message to the caller with a 4-byte TLS header.
+ *
+ * The DTLS message_seq of the message is kept in dctx->last_rx_message_seq: the TLS 1.2
+ * engine needs it to add the message to the transcript with its 12-byte DTLS header.
+ *
+ * @param[in,out] ctx The TLS context.
+ * @param[in,out] dctx The DTLS context (same object as @p ctx).
+ * @param[out] record The record to fill.
+ * @param[in] msg_type The handshake type.
+ * @param[in] complete_msg The message body (consumed: always freed).
+ * @param[in] complete_len The body length.
+ * @return The return value.
+ */
+static noxtls_return_t tls_dtls_deliver_handshake(tls_context_t *ctx, dtls_context_t *dctx,
+                                                  tls_record_t *record, uint8_t msg_type,
+                                                  uint8_t *complete_msg, uint32_t complete_len)
+{
+    record->type = TLS_RECORD_HANDSHAKE;
+    record->version = ctx->version;
+    record->length = complete_len + 4U;
+    record->data = (uint8_t*)NOXTLS_MALLOC((size_t)record->length);
+    if (record->data == NULL) {
+        (void)noxtls_free(complete_msg);
+        record->length = 0U;
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+    }
+    record->data[0] = msg_type;
+    record->data[1] = (uint8_t)((((uint32_t)complete_len) >>16U) & 0xFFU);
+    record->data[2] = (uint8_t)((((uint32_t)complete_len) >>8U) & 0xFFU);
+    record->data[3] = (uint8_t)(complete_len & 0xFFU);
+    if (complete_len > 0U) {
+        noxtls_copy_u8(&record->data[4], (size_t)complete_len, complete_msg, (size_t)complete_len);
+    }
+    (void)noxtls_free(complete_msg);
+
+    /* Reassembly advanced expected_message_seq past the delivered message. */
+    dctx->last_rx_message_seq = (uint16_t)(dctx->expected_message_seq - 1U);
+    if (ctx->version != DTLS_VERSION_1_2) {
+        dctx->flight_buffer_len = 0U;
+    }
+    NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_RECORD, NOXSIGHT_SEVERITY_TRACE,
+                    NOXTLS_EVT_RECORD_RX, record->type, record->length);
+    return NOXTLS_RETURN_SUCCESS;
+}
+#endif /* NOXTLS_FEATURE_DTLS */
+
 /**
  * @brief Receive one TLS or DTLS record via the configured receive callback.
  *
@@ -639,16 +695,53 @@ noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
 #if NOXTLS_FEATURE_DTLS
     if (tls_is_dtls_version(ctx->version) != 0U) {
         dtls_context_t *dctx = (dtls_context_t *)(void *)ctx;
+        uint8_t v12 = (ctx->version == DTLS_VERSION_1_2) ? 1U : 0U;
 
         for (;;) {
             dtls_record_t drec;
-            noxtls_return_t rc = noxtls_dtls_recv_record(dctx, &drec);
+            noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+
+            /* A later message that arrived out of order may already be complete in the queue. */
+            {
+                uint8_t queued_type = 0U;
+                uint8_t *queued_msg = NULL;
+                uint32_t queued_len = 0U;
+                rc = noxtls_dtls_take_queued_handshake(dctx, &queued_type, &queued_msg, &queued_len);
+                if (rc == NOXTLS_RETURN_SUCCESS) {
+                    return tls_dtls_deliver_handshake(ctx, dctx, record, queued_type, queued_msg, queued_len);
+                }
+                if (rc == NOXTLS_RETURN_NOT_ENOUGH_MEMORY) {
+                    return rc;
+                }
+            }
+
+            rc = noxtls_dtls_recv_record(dctx, &drec);
             if (rc != NOXTLS_RETURN_SUCCESS) {
                 (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] tls_recv_record(dtls): dtls_recv_record rc=%d\n", rc);
                 return rc;
             }
             (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] tls_recv_record(dtls): drec.type=0x%02X len=%u version=0x%04X epoch=%u\n",
                                 drec.type, drec.length, drec.version, drec.epoch);
+
+            /*
+             * DTLS 1.2 handshake records of epoch >= 1 (Finished, HelloRequest) are protected:
+             * the fragment is ciphertext, not a DTLS handshake header, so it cannot be parsed
+             * or reassembled here. Hand it to the TLS 1.2 engine unchanged; the caller decrypts
+             * and authenticates it (noxtls_tls12_decrypt_record) and parses the DTLS handshake
+             * header itself. The TLS 1.2 engine also decides whether it ends our flight (a new
+             * Finished) or is a retransmission that asks for our last flight again.
+             */
+            if ((drec.type == TLS_RECORD_HANDSHAKE) &&
+                (v12 != 0U) &&
+                (drec.epoch != (uint16_t)DTLS_EPOCH_UNENCRYPTED)) {
+                record->type = drec.type;
+                record->version = drec.version;
+                record->length = drec.length;
+                record->data = drec.data;
+                NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_RECORD, NOXSIGHT_SEVERITY_TRACE,
+                                NOXTLS_EVT_RECORD_RX, record->type, record->length);
+                return NOXTLS_RETURN_SUCCESS;
+            }
 
             if (drec.type != TLS_RECORD_HANDSHAKE) {
                 record->type = drec.type;
@@ -710,7 +803,8 @@ noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
             }
             fragment_len = fragment.fragment_length;
             if ((fragment.msg_type < TLS_HANDSHAKE_CLIENT_HELLO) ||
-               (fragment.msg_type > TLS_HANDSHAKE_FINISHED)) {
+               ((fragment.msg_type > TLS_HANDSHAKE_FINISHED) &&
+                (fragment.msg_type != TLS_HANDSHAKE_CERTIFICATE_STATUS))) {
                 valid_fragment = 0;
             }
             /* Zero-length messages (e.g. ServerHelloDone) arrive as one fragment
@@ -727,10 +821,31 @@ noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
                 /* SECURITY (NX-11): a malformed handshake fragment must not be handed to
                  * the caller as a successfully received record. Drop it and report it. */
                 (void)noxtls_free(drec.data);
-                dctx->flight_buffer_len = 0U;
+                if (v12 == 0U) {
+                    dctx->flight_buffer_len = 0U;
+                }
                 return NOXTLS_RETURN_BAD_DATA;
             }
             fragment.data = &drec.data[DTLS_HANDSHAKE_BODY_OFFSET];
+
+            if (v12 != 0U) {
+                if (fragment.message_seq < dctx->expected_message_seq) {
+                    /*
+                     * RFC 6347 4.2.4: the peer retransmitted its previous flight, so our flight
+                     * (its answer) was lost. Resend it once per peer flight - on the fragment that
+                     * completes the last message of that flight - and drop the duplicate.
+                     */
+                    if ((((uint32_t)fragment.message_seq + 1U) == (uint32_t)dctx->expected_message_seq) &&
+                        ((fragment.fragment_offset + fragment.fragment_length) == fragment.length)) {
+                        (void)noxtls_dtls_retransmit_flight(dctx);
+                    }
+                    (void)noxtls_free(drec.data);
+                    continue;
+                }
+                /* The peer's next flight has started: our flight is released once theirs is
+                 * complete or when we start our next flight (it may still need resending). */
+                noxtls_dtls_flight_peer_progress(dctx);
+            }
 
             rc = noxtls_dtls_reassemble_handshake(dctx, &fragment, &complete_msg, &complete_len);
             (void)noxtls_free(drec.data);
@@ -740,26 +855,7 @@ noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
             if (complete_msg == NULL) {
                 continue;
             }
-
-            record->type = TLS_RECORD_HANDSHAKE;
-            record->version = ctx->version;
-            record->length = complete_len + 4U;
-            record->data = (uint8_t*)NOXTLS_MALLOC((size_t)record->length);
-            if (record->data == NULL) {
-                (void)noxtls_free(complete_msg);
-                return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
-            }
-            record->data[0] = fragment.msg_type;
-            record->data[1] = (uint8_t)((((uint32_t)complete_len) >>16U) & 0xFFU);
-            record->data[2] = (uint8_t)((((uint32_t)complete_len) >>8U) & 0xFFU);
-            record->data[3] = (uint8_t)(complete_len & 0xFFU);
-            noxtls_copy_u8(&record->data[4], (size_t)complete_len, complete_msg, (size_t)complete_len);
-            (void)noxtls_free(complete_msg);
-
-            dctx->flight_buffer_len = 0U;
-            NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_RECORD, NOXSIGHT_SEVERITY_TRACE,
-                            NOXTLS_EVT_RECORD_RX, record->type, record->length);
-            return NOXTLS_RETURN_SUCCESS;
+            return tls_dtls_deliver_handshake(ctx, dctx, record, fragment.msg_type, complete_msg, complete_len);
         }
     }
 #endif /* NOXTLS_FEATURE_DTLS */
