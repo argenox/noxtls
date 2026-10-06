@@ -8,7 +8,10 @@ set(COMMON_SOURCES
     noxtls_ct.c
     noxtls_time.c
 )
-if(NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL)
+# Shared CC13xx callback binding: needed by either per-engine port. The
+# umbrella is honored here too for consumers that add noxtls-lib directly.
+if(NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL OR NOXTLS_CFG_FEATURE_CC13XX_AES_ACCEL OR
+   NOXTLS_CFG_FEATURE_CC13XX_P256_ACCEL)
     list(APPEND COMMON_SOURCES noxtls_cc13xx_crypto.c)
 endif()
 if(NOXTLS_DEBUG_PRINTF_STDIO)

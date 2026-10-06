@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-06T16:26:39Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-06T22:12:04Z)
 
 if(NOT CONFIG_NOXTLS)
   return()
@@ -134,10 +134,22 @@ else()
   target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_ECDSA_SIGN_SELF_VERIFY=0)
 endif()
 
+if(CONFIG_NOXTLS_FEATURE_CC13XX_AES_ACCEL)
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_FEATURE_CC13XX_AES_ACCEL=1)
+else()
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_FEATURE_CC13XX_AES_ACCEL=0)
+endif()
+
 if(CONFIG_NOXTLS_FEATURE_CC13XX_HW_ACCEL)
   target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_FEATURE_CC13XX_HW_ACCEL=1)
 else()
   target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_FEATURE_CC13XX_HW_ACCEL=0)
+endif()
+
+if(CONFIG_NOXTLS_FEATURE_CC13XX_P256_ACCEL)
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_FEATURE_CC13XX_P256_ACCEL=1)
+else()
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_FEATURE_CC13XX_P256_ACCEL=0)
 endif()
 
 if(CONFIG_NOXTLS_FEATURE_FALCON)

@@ -33,7 +33,7 @@ endif()
 
 if(NOXTLS_CFG_FEATURE_SPAKE2P)
     noxtls_pake_add_ut(noxtls_spake2p_ut spake2p_ut.c noxtls_pake)
-    if(NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL)
+    if(NOXTLS_CFG_FEATURE_CC13XX_P256_ACCEL)
         noxtls_pake_add_ut(noxtls_spake2p_accel_ut spake2p_accel_ut.c noxtls_pake)
     endif()
 endif()

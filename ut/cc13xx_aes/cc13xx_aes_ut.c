@@ -20,14 +20,28 @@ static uint8_t s_key[32];
 static uint8_t s_input[NOXTLS_CC13XX_AES_MAX_BLOCKS * NOXTLS_CC13XX_AES_BLOCK_BYTES];
 static uint8_t s_output[sizeof(s_input) + 1U];
 
-#if NOXTLS_FEATURE_CC13XX_HW_ACCEL
-static uint32_t s_calls, s_key_length, s_fail_at;
-static bool s_decrypt, s_reenter;
+#if NOXTLS_CC13XX_AES_ACCEL_ENABLED
+static uint32_t s_calls, s_p256_calls, s_key_length, s_fail_at, s_depth;
+static bool s_decrypt, s_reenter, s_batch_probe;
 static noxtls_return_t s_failure;
-static noxtls_return_t s_nested_aes, s_nested_p256, s_nested_bind;
+static noxtls_return_t s_nested_aes, s_nested_p256, s_nested_bind, s_nested_batch;
 static unsigned s_context;
+static uint8_t s_probe_out[2U * NOXTLS_CC13XX_AES_BLOCK_BYTES];
 
-/** @brief Fill test staging, optionally fail or attempt forbidden reentry. */
+/** @brief Probe both engines and bind from inside an active callback. */
+static void reenter_from_callback(void)
+{
+    uint8_t nested[16];
+    uint8_t px[32];
+    uint8_t py[32];
+    ++s_depth;
+    s_nested_bind = noxtls_cc13xx_crypto_bind(NULL);
+    s_nested_aes = noxtls_cc13xx_aes_block(false, s_key, 16U, s_input, nested);
+    s_nested_p256 = noxtls_cc13xx_p256_multiply(s_key, s_key, s_key, px, py);
+    --s_depth;
+}
+
+/** @brief Fill test staging, optionally fail or probe reentry. */
 static noxtls_return_t aes_callback(void *context, bool decrypt,
     const uint8_t *key, uint32_t key_length, const uint8_t input[16], uint8_t output[16])
 {
@@ -39,10 +53,13 @@ static noxtls_return_t aes_callback(void *context, bool decrypt,
     ++s_calls;
     s_decrypt = decrypt;
     s_key_length = key_length;
-    if (s_reenter) {
-        s_nested_bind = noxtls_cc13xx_crypto_bind(NULL);
-        s_nested_aes = noxtls_cc13xx_aes_block(false, s_key, 16U, s_input, s_output);
-        s_nested_p256 = noxtls_cc13xx_p256_multiply(s_key, s_key, s_key, s_key, s_key);
+    if (s_reenter && (s_depth == 0U)) {
+        reenter_from_callback();
+    }
+    if (s_batch_probe && (s_calls == 2U)) {
+        /* The AES engine is still held: by the batch, or by this block. */
+        s_nested_batch = noxtls_cc13xx_aes_blocks(false, s_key, 16U, s_input, s_probe_out, 2U);
+        s_nested_aes = noxtls_cc13xx_aes_block(false, s_key, 16U, s_input, s_probe_out);
     }
     for (i = 0U; i < 16U; ++i) {
         output[i] = (uint8_t)(input[i] ^ 0x5AU);
@@ -56,10 +73,9 @@ static noxtls_return_t p256_callback(void *context, const uint8_t scalar[32],
 {
     (void)context;
     (void)scalar;
-    if (s_reenter) {
-        s_nested_bind = noxtls_cc13xx_crypto_bind(NULL);
-        s_nested_aes = noxtls_cc13xx_aes_block(false, s_key, 16U, s_input, s_output);
-        s_nested_p256 = noxtls_cc13xx_p256_multiply(s_key, s_key, s_key, s_key, s_key);
+    ++s_p256_calls;
+    if (s_reenter && (s_depth == 0U)) {
+        reenter_from_callback();
     }
     memcpy(result_x, x, 32U);
     memcpy(result_y, y, 32U);
@@ -71,9 +87,17 @@ static void reset_binding(void)
 {
     noxtls_cc13xx_crypto_binding_t binding = {&s_context, aes_callback, p256_callback};
     s_calls = 0U;
+    s_p256_calls = 0U;
     s_fail_at = 0U;
+    s_depth = 0U;
     s_failure = NOXTLS_RETURN_SUCCESS;
     s_reenter = false;
+    s_batch_probe = false;
+    s_nested_aes = NOXTLS_RETURN_FAILED;
+    s_nested_p256 = NOXTLS_RETURN_FAILED;
+    s_nested_bind = NOXTLS_RETURN_FAILED;
+    s_nested_batch = NOXTLS_RETURN_FAILED;
+    memset(s_probe_out, 0xA5, sizeof(s_probe_out));
     memset(s_input, 0x36, sizeof(s_input));
     memset(s_output, 0xA5, sizeof(s_output));
     (void)noxtls_cc13xx_crypto_bind(&binding);
@@ -162,26 +186,108 @@ REGISTER_TEST(test_exact_widths_staging_and_in_place)
 
 REGISTER_TEST(test_active_reentry_and_error_recovery)
 {
+    /* Inside the AES callback: AES is busy, the PKA is free, bind is refused. */
     reset_binding();
     s_reenter = true;
     s_fail_at = 1U;
     s_failure = NOXTLS_RETURN_TIMEOUT;
     UTNOX_EQUALS(noxtls_aes_accel_port_encrypt_block(s_key, s_input, s_output, NOXTLS_AES_128_BIT), NOXTLS_RETURN_TIMEOUT);
     UTNOX_EQUALS(s_nested_bind, NOXTLS_RETURN_NOT_INITIALIZED);
-    UTNOX_EQUALS(s_nested_aes, NOXTLS_RETURN_NOT_INITIALIZED);
-    UTNOX_EQUALS(s_nested_p256, NOXTLS_RETURN_NOT_INITIALIZED);
+    UTNOX_EQUALS(s_nested_aes, NOXTLS_RETURN_NOT_SUPPORTED);
+    UTNOX_EQUALS(s_calls, 1U); /* A busy engine never reenters its callback. */
+    UTNOX_EQUALS(s_nested_p256, NOXTLS_RETURN_TIMEOUT); /* The PKA ran: actual fixture status. */
+    UTNOX_EQUALS(s_p256_calls, 1U);
+    UTNOX_EQUALS(noxtls_cc13xx_crypto_has_p256(), true); /* Refused bind left the binding. */
     UTNOX_EQUALS(noxtls_cc13xx_crypto_bind(NULL), NOXTLS_RETURN_SUCCESS);
+    /* Inside the P-256 callback: the PKA is busy, the AES engine is free. */
     reset_binding();
     s_reenter = true;
     s_failure = NOXTLS_RETURN_BAD_DATA;
+    s_fail_at = 2U;
     UTNOX_EQUALS(noxtls_cc13xx_p256_multiply(s_key, s_key, s_key, s_input, s_output), NOXTLS_RETURN_BAD_DATA);
     UTNOX_EQUALS(s_nested_bind, NOXTLS_RETURN_NOT_INITIALIZED);
-    UTNOX_EQUALS(s_nested_aes, NOXTLS_RETURN_NOT_INITIALIZED);
-    UTNOX_EQUALS(s_nested_p256, NOXTLS_RETURN_NOT_INITIALIZED);
+    UTNOX_EQUALS(s_nested_aes, NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(s_calls, 1U);
+    UTNOX_EQUALS(s_nested_p256, NOXTLS_RETURN_NOT_SUPPORTED);
+    UTNOX_EQUALS(s_p256_calls, 1U);
+    /* Both guards were released on the error paths. */
     s_reenter = false;
     s_failure = NOXTLS_RETURN_SUCCESS;
     UTNOX_EQUALS(noxtls_cc13xx_p256_multiply(s_key, s_key, s_key, s_input, s_output), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(noxtls_cc13xx_aes_block(true, s_key, 32U, s_input, s_output), NOXTLS_RETURN_SUCCESS);
     UTNOX_EQUALS(noxtls_cc13xx_crypto_bind(NULL), NOXTLS_RETURN_SUCCESS);
+    return 0;
+}
+
+REGISTER_TEST(test_single_engine_bindings)
+{
+    noxtls_cc13xx_crypto_binding_t binding = {&s_context, aes_callback, NULL};
+    reset_binding();
+    /* AES only: the PKA reports fallback, also while an AES block is active. */
+    UTNOX_EQUALS(noxtls_cc13xx_crypto_bind(&binding), NOXTLS_RETURN_SUCCESS);
+    s_reenter = true;
+    UTNOX_EQUALS(noxtls_cc13xx_aes_block(false, s_key, 16U, s_input, s_output), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(s_nested_p256, NOXTLS_RETURN_NOT_SUPPORTED);
+    UTNOX_EQUALS(s_p256_calls, 0U);
+    UTNOX_EQUALS(noxtls_cc13xx_p256_multiply(s_key, s_key, s_key, s_input, s_output), NOXTLS_RETURN_NOT_SUPPORTED);
+    /* P-256 only: AES reports fallback, also while a multiply is active. */
+    binding.aes_block = NULL;
+    binding.p256_multiply = p256_callback;
+    s_reenter = false;
+    UTNOX_EQUALS(noxtls_cc13xx_crypto_bind(&binding), NOXTLS_RETURN_SUCCESS);
+    s_calls = 0U;
+    s_reenter = true;
+    UTNOX_EQUALS(noxtls_cc13xx_p256_multiply(s_key, s_key, s_key, s_input, s_output), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(s_nested_aes, NOXTLS_RETURN_NOT_SUPPORTED);
+    UTNOX_EQUALS(s_p256_calls, 1U);
+    UTNOX_EQUALS(noxtls_aes_accel_port_encrypt_block(s_key, s_input, s_output, NOXTLS_AES_128_BIT), NOXTLS_RETURN_NOT_SUPPORTED);
+    UTNOX_EQUALS(noxtls_aes_accel_port_encrypt_blocks(s_key, s_input, s_output, 2U, NOXTLS_AES_128_BIT), NOXTLS_RETURN_NOT_SUPPORTED);
+    UTNOX_EQUALS(s_calls, 0U);
+    UTNOX_EQUALS(noxtls_cc13xx_crypto_bind(NULL), NOXTLS_RETURN_SUCCESS);
+    return 0;
+}
+
+REGISTER_TEST(test_batch_holds_engine_and_busy_falls_back)
+{
+    /* Mid-batch requests find the engine still held by the batch. */
+    reset_binding();
+    s_batch_probe = true;
+    UTNOX_EQUALS(noxtls_aes_accel_port_encrypt_blocks(s_key, s_input, s_output, 3U, NOXTLS_AES_128_BIT), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(s_calls, 3U);
+    UTNOX_EQUALS(s_nested_batch, NOXTLS_RETURN_NOT_SUPPORTED);
+    UTNOX_EQUALS(s_nested_aes, NOXTLS_RETURN_NOT_SUPPORTED);
+    UTNOX_EQUALS(filled(s_output, 48U, 0x6CU), true);
+    UTNOX_EQUALS(filled(s_probe_out, sizeof(s_probe_out), 0xA5U), true);
+    /* A batch that finds the engine busy declines before any progress. */
+    reset_binding();
+    s_batch_probe = true;
+    s_calls = 1U; /* Probe from the first callback of a single-block request. */
+    UTNOX_EQUALS(noxtls_cc13xx_aes_block(false, s_key, 16U, s_input, s_output), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(s_nested_batch, NOXTLS_RETURN_NOT_SUPPORTED);
+    UTNOX_EQUALS(s_calls, 2U);
+    UTNOX_EQUALS(filled(s_probe_out, sizeof(s_probe_out), 0xA5U), true);
+    UTNOX_EQUALS(noxtls_cc13xx_crypto_bind(NULL), NOXTLS_RETURN_SUCCESS);
+    return 0;
+}
+
+REGISTER_TEST(test_direct_batch_api_contract)
+{
+    reset_binding();
+    UTNOX_EQUALS(noxtls_cc13xx_aes_blocks(true, NULL, 16U, s_input, s_output, 1U), NOXTLS_RETURN_NULL);
+    UTNOX_EQUALS(noxtls_cc13xx_aes_blocks(true, s_key, 16U, NULL, s_output, 1U), NOXTLS_RETURN_NULL);
+    UTNOX_EQUALS(noxtls_cc13xx_aes_blocks(true, s_key, 16U, s_input, NULL, 1U), NOXTLS_RETURN_NULL);
+    UTNOX_EQUALS(noxtls_cc13xx_aes_blocks(true, s_key, 20U, s_input, s_output, 1U), NOXTLS_RETURN_INVALID_KEY_SIZE);
+    UTNOX_EQUALS(noxtls_cc13xx_aes_blocks(true, s_key, 16U, s_input, s_output, 0U), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(noxtls_cc13xx_aes_blocks(true, s_key, 16U, s_input, s_output,
+        NOXTLS_CC13XX_AES_MAX_BLOCKS + 1U), NOXTLS_RETURN_NOT_SUPPORTED);
+    UTNOX_EQUALS(s_calls, 0U);
+    UTNOX_EQUALS(filled(s_output, sizeof(s_output), 0xA5U), true);
+    UTNOX_EQUALS(noxtls_cc13xx_aes_blocks(true, s_key, 24U, s_input, s_output, 2U), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(s_decrypt, true);
+    UTNOX_EQUALS(s_key_length, 24U);
+    UTNOX_EQUALS(filled(s_output, 32U, 0x6CU), true);
+    UTNOX_EQUALS(noxtls_cc13xx_crypto_bind(NULL), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(noxtls_cc13xx_aes_blocks(true, s_key, 16U, s_input, s_output, 1U), NOXTLS_RETURN_NOT_SUPPORTED);
     return 0;
 }
 
@@ -256,11 +362,14 @@ REGISTER_TEST(test_disabled_default_port_remains_unsupported)
 /** @brief Register the enabled fixture for MSVC-compatible C builds. */
 void utnox_register_tests(void)
 {
-#if NOXTLS_FEATURE_CC13XX_HW_ACCEL
+#if NOXTLS_CC13XX_AES_ACCEL_ENABLED
     register_test("test_idle_binding_and_missing_callbacks", test_idle_binding_and_missing_callbacks);
     register_test("test_pointer_and_key_admission", test_pointer_and_key_admission);
     register_test("test_exact_widths_staging_and_in_place", test_exact_widths_staging_and_in_place);
     register_test("test_active_reentry_and_error_recovery", test_active_reentry_and_error_recovery);
+    register_test("test_single_engine_bindings", test_single_engine_bindings);
+    register_test("test_batch_holds_engine_and_busy_falls_back", test_batch_holds_engine_and_busy_falls_back);
+    register_test("test_direct_batch_api_contract", test_direct_batch_api_contract);
     register_test("test_batch_bounds_and_actual_error_wipe", test_batch_bounds_and_actual_error_wipe);
     register_test("test_unsupported_is_only_safe_before_progress", test_unsupported_is_only_safe_before_progress);
     register_test("test_native_gcm_declines_without_output", test_native_gcm_declines_without_output);

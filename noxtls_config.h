@@ -379,12 +379,31 @@
 #define NOXTLS_FEATURE_NRF52_HW_ACCEL 0
 #endif
 
-/* Original injected CC13xx AES/P-256 accelerator callbacks, disabled by default.
- * No TI SDK or OS dependency. Bind only while all crypto callers are idle.
+/* Umbrella for the original injected CC13xx accelerator callbacks: when 1, enables
+ * both NOXTLS_FEATURE_CC13XX_AES_ACCEL and NOXTLS_FEATURE_CC13XX_P256_ACCEL.
+ * No vendor SDK or OS dependency. Disabled by default.
  * Build knob: NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL.
  */
 #ifndef NOXTLS_FEATURE_CC13XX_HW_ACCEL
 #define NOXTLS_FEATURE_CC13XX_HW_ACCEL 0
+#endif
+
+/* Injected CC13xx AES engine callback port (AES block and bounded batch); a busy or
+ * unbound engine falls back to software AES. Also enabled by NOXTLS_FEATURE_CC13XX_HW_ACCEL.
+ * Prereq: NOXTLS_FEATURE_AES=1.
+ * Build knob: NOXTLS_CFG_FEATURE_CC13XX_AES_ACCEL.
+ */
+#ifndef NOXTLS_FEATURE_CC13XX_AES_ACCEL
+#define NOXTLS_FEATURE_CC13XX_AES_ACCEL 0
+#endif
+
+/* Injected CC13xx PKA callback port for secp256r1 point multiplication; a busy or
+ * unbound PKA falls back to software ECC. Also enabled by NOXTLS_FEATURE_CC13XX_HW_ACCEL.
+ * Prereq: NOXTLS_FEATURE_ECC=1.
+ * Build knob: NOXTLS_CFG_FEATURE_CC13XX_P256_ACCEL.
+ */
+#ifndef NOXTLS_FEATURE_CC13XX_P256_ACCEL
+#define NOXTLS_FEATURE_CC13XX_P256_ACCEL 0
 #endif
 
 /* When enabled, require nRF52 hardware AES support and disable software AES fallback.

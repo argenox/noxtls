@@ -38,10 +38,12 @@
  * @param[in] point Finite on-curve input with 32-byte coordinates less than p.
  * @param[in] curve Exact SEC 2 v2.0 section 2.4.2 secp256r1 domain parameters.
  *
- * @return Actual callback status; NOT_SUPPORTED for disabled/missing backend
- * or another curve; NULL/INVALID_PARAM/BAD_DATA for malformed input/output.
- * @note Caller-serialized ownership includes the complete surrounding ECC
- * operation. No private scalar or point data is retained in diagnostics.
+ * @return Actual callback status; NOT_SUPPORTED for a disabled, unbound or
+ * busy PKA or another curve; NULL/INVALID_PARAM/BAD_DATA for malformed
+ * input/output.
+ * @note The PKA guard in noxtls_cc13xx_crypto.c serializes callback use; a
+ * concurrent or nested request falls back to software. No private scalar or
+ * point data is retained in diagnostics.
  */
 noxtls_return_t noxtls_ecc_point_multiply_accel_port(ecc_point_t *result,
     const uint8_t *scalar, const ecc_point_t *point, const ecc_curve_params_t *curve);

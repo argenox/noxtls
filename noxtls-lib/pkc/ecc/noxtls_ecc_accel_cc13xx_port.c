@@ -25,26 +25,35 @@
  * @ingroup noxtls_cc13xx_ecc
  * SEC 2 v2.0 section 2.4.2 fixes the domain; SEC 1 v2.0 section 3.2.2
  * requires finite, bounded, on-curve public points. Cofactor is one for P-256.
+ * Compiled when NOXTLS_FEATURE_CC13XX_P256_ACCEL (or the umbrella
+ * NOXTLS_FEATURE_CC13XX_HW_ACCEL) is enabled. A busy or unbound PKA returns
+ * NOXTLS_RETURN_NOT_SUPPORTED; the ECC core then multiplies in software and
+ * records the fallback through noxtls_ecc_accel_note_fallback().
  */
 #include "noxtls_ecc_accel_cc13xx_port.h"
 #include "common/noxtls_cc13xx_crypto.h"
+#include "common/noxtls_cc13xx_crypto_atomic.h"
 #include "common/noxtls_ct.h"
 #include <string.h>
 #include <limits.h>
-#if NOXTLS_FEATURE_CC13XX_HW_ACCEL
+#if NOXTLS_CC13XX_P256_ACCEL_ENABLED
 #include "noxtls_ecc_accel_cc13xx_config.h"
 #endif
 
-static uint32_t s_operations;
-static uint32_t s_fallbacks;
+/* Concurrent requests may complete or fall back together: update atomically. */
+static noxtls_cc13xx_counter_t s_operations;
+static noxtls_cc13xx_counter_t s_fallbacks;
 static noxtls_return_t s_last_rc = (noxtls_return_t)NOXTLS_RETURN_NOT_SUPPORTED;
 
 /** @brief Report only actual bound callback availability.
  *
+ * A bound PKA may still be busy for a given request; that request then falls
+ * back to software and is counted by noxtls_ecc_accel_fallback_count().
+ *
  * @return One for an enabled P-256 callback, zero otherwise. */
 int noxtls_ecc_accel_is_ready(void)
 {
-#if NOXTLS_FEATURE_CC13XX_HW_ACCEL
+#if NOXTLS_CC13XX_P256_ACCEL_ENABLED
     return noxtls_cc13xx_crypto_has_p256() ? 1 : 0;
 #else
     return 0;
@@ -56,15 +65,17 @@ int noxtls_ecc_accel_is_ready(void)
  * @return Number of accepted finite accelerator outputs. */
 uint32_t noxtls_ecc_accel_operation_count(void)
 {
-    return s_operations;
+    return noxtls_cc13xx_counter_read(&s_operations);
 }
 
 /** @brief Query saturating software fallback count.
  *
+ * Includes requests that found the PKA busy or unbound.
+ *
  * @return Actual caller-noted software fallbacks. */
 uint32_t noxtls_ecc_accel_fallback_count(void)
 {
-    return s_fallbacks;
+    return noxtls_cc13xx_counter_read(&s_fallbacks);
 }
 
 /** @brief Record one existing dispatcher fallback without wraparound.
@@ -72,9 +83,7 @@ uint32_t noxtls_ecc_accel_fallback_count(void)
  * @return None. */
 void noxtls_ecc_accel_note_fallback(void)
 {
-    if (s_fallbacks != UINT32_MAX) {
-        ++s_fallbacks;
-    }
+    noxtls_cc13xx_counter_increment(&s_fallbacks);
 }
 
 /** @brief Query last scalar result code without any key or point bytes.
@@ -126,7 +135,7 @@ static noxtls_return_t reject(ecc_point_t *result, noxtls_return_t rc)
     return rc;
 }
 
-#if NOXTLS_FEATURE_CC13XX_HW_ACCEL
+#if NOXTLS_CC13XX_P256_ACCEL_ENABLED
 /** @brief Compare fixed-width big-endian values in a constant iteration count.
  * @internal
  *
@@ -210,7 +219,7 @@ static bool valid_point(const ecc_point_t *point, const ecc_curve_params_t *curv
 noxtls_return_t noxtls_ecc_point_multiply_accel_port(ecc_point_t *result,
     const uint8_t *scalar, const ecc_point_t *point, const ecc_curve_params_t *curve)
 {
-#if NOXTLS_FEATURE_CC13XX_HW_ACCEL
+#if NOXTLS_CC13XX_P256_ACCEL_ENABLED
     ecc_point_t candidate = {{0U}, {0U}, NOXTLS_CC13XX_ECC_BYTES};
     noxtls_return_t rc;
     if (result == NULL || scalar == NULL || point == NULL || curve == NULL) {
@@ -246,9 +255,7 @@ noxtls_return_t noxtls_ecc_point_multiply_accel_port(ecc_point_t *result,
 
     *result = candidate;
     noxtls_secure_zero(&candidate, sizeof(candidate));
-    if (s_operations != UINT32_MAX) {
-        ++s_operations;
-    }
+    noxtls_cc13xx_counter_increment(&s_operations);
 
     s_last_rc = (noxtls_return_t)NOXTLS_RETURN_SUCCESS;
     return (noxtls_return_t)NOXTLS_RETURN_SUCCESS;
