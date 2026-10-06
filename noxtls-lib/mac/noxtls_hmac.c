@@ -16,6 +16,17 @@
 #include "noxtls_ct.h"
 #include "mdigest/noxtls_sha.h"
 
+/*
+ * Digests usable for HMAC in this build. A digest that is compiled out is
+ * rejected at runtime with NOXTLS_RETURN_NOT_SUPPORTED and never referenced.
+ */
+#define NOXTLS_HMAC_HAVE_SHA1    (NOXTLS_FEATURE_SHA1)
+#define NOXTLS_HMAC_HAVE_SHA256  (NOXTLS_FEATURE_SHA256)
+#define NOXTLS_HMAC_HAVE_SHA384  (NOXTLS_FEATURE_SHA384)
+#define NOXTLS_HMAC_HAVE_SHA512  (NOXTLS_FEATURE_SHA512)
+#define NOXTLS_HMAC_HAVE_SHA2_64 (NOXTLS_HMAC_HAVE_SHA384 || NOXTLS_HMAC_HAVE_SHA512)
+
+#if NOXTLS_HMAC_HAVE_SHA256
 #if NOXTLS_HMAC_SHA256_SHARED_STATE
 /* External serialization is required in this explicitly selected mode.
  * The busy flag rejects overlapping lifetimes; it is not a thread lock. */
@@ -48,6 +59,7 @@ static void noxtls_hmac_sha256_release(noxtls_sha_ctx_t *ctx)
 #endif
     }
 }
+#endif /* NOXTLS_HMAC_HAVE_SHA256 */
 
 /*
  * Release the streaming hash state of an HMAC context. The state is derived
@@ -59,7 +71,9 @@ static void noxtls_hmac_hash_ctx_release(noxtls_hash_algos_t hash_algo, void *ha
         return;
     }
     if(hash_algo == NOXTLS_HASH_SHA_256) {
+#if NOXTLS_HMAC_HAVE_SHA256
         noxtls_hmac_sha256_release((noxtls_sha_ctx_t *)hash_ctx);
+#endif
     } else if((hash_algo == NOXTLS_HASH_SHA_384) || (hash_algo == NOXTLS_HASH_SHA_512)) {
         noxtls_secure_zero(hash_ctx, sizeof(noxtls_sha512_ctx_t));
         (void)noxtls_free(hash_ctx);
@@ -78,15 +92,26 @@ static void noxtls_hmac_wipe_key_material(noxtls_hmac_context_t *ctx)
     ctx->key_len = 0U;
 }
 
+/* Both size helpers return 0 for unknown digests and for digests compiled out of this build. */
 static uint32_t noxtls_hmac_hash_block_size(noxtls_hash_algos_t hash_algo)
 {
     switch (hash_algo) {
+#if NOXTLS_HMAC_HAVE_SHA256
         case NOXTLS_HASH_SHA_256:
+            return 64U;
+#endif
+#if NOXTLS_HMAC_HAVE_SHA1
         case NOXTLS_HASH_SHA1:
             return 64U;
+#endif
+#if NOXTLS_HMAC_HAVE_SHA384
         case NOXTLS_HASH_SHA_384:
+            return 128U;
+#endif
+#if NOXTLS_HMAC_HAVE_SHA512
         case NOXTLS_HASH_SHA_512:
             return 128U;
+#endif
         default:
             return 0U;
     }
@@ -95,12 +120,34 @@ static uint32_t noxtls_hmac_hash_block_size(noxtls_hash_algos_t hash_algo)
 static uint32_t noxtls_hmac_hash_output_size(noxtls_hash_algos_t hash_algo)
 {
     switch (hash_algo) {
+#if NOXTLS_HMAC_HAVE_SHA1
         case NOXTLS_HASH_SHA1: return 20U;
+#endif
+#if NOXTLS_HMAC_HAVE_SHA256
         case NOXTLS_HASH_SHA_256: return 32U;
+#endif
+#if NOXTLS_HMAC_HAVE_SHA384
         case NOXTLS_HASH_SHA_384: return 48U;
+#endif
+#if NOXTLS_HMAC_HAVE_SHA512
         case NOXTLS_HASH_SHA_512: return 64U;
+#endif
         default: return 0U;
     }
+}
+
+/*
+ * Status for a digest HMAC cannot use: NOT_SUPPORTED for an HMAC digest that is
+ * compiled out of this build, INVALID_ALGORITHM for anything else.
+ */
+static noxtls_return_t noxtls_hmac_unusable_algorithm(noxtls_hash_algos_t hash_algo)
+{
+    noxtls_return_t rc = NOXTLS_RETURN_INVALID_ALGORITHM;
+    if((hash_algo == NOXTLS_HASH_SHA1) || (hash_algo == NOXTLS_HASH_SHA_256) ||
+       (hash_algo == NOXTLS_HASH_SHA_384) || (hash_algo == NOXTLS_HASH_SHA_512)) {
+        rc = NOXTLS_RETURN_NOT_SUPPORTED;
+    }
+    return rc;
 }
 
 /*
@@ -110,6 +157,7 @@ static noxtls_return_t noxtls_hmac_hash_once(noxtls_hash_algos_t hash_algo,
                                              const uint8_t *data, uint32_t len,
                                              uint8_t *out)
 {
+#if NOXTLS_HMAC_HAVE_SHA256
     if(hash_algo == NOXTLS_HASH_SHA_256) {
         noxtls_sha_ctx_t *scratch = noxtls_hmac_sha256_acquire();
         noxtls_return_t rc;
@@ -126,6 +174,8 @@ static noxtls_return_t noxtls_hmac_hash_once(noxtls_hash_algos_t hash_algo,
         noxtls_hmac_sha256_release(scratch);
         return rc;
     }
+#endif
+#if NOXTLS_HMAC_HAVE_SHA2_64
     if ((hash_algo == NOXTLS_HASH_SHA_384) || (hash_algo == NOXTLS_HASH_SHA_512)) {
         noxtls_sha512_ctx_t ctx;
         noxtls_return_t rc = noxtls_sha512_init(&ctx, hash_algo);
@@ -138,6 +188,8 @@ static noxtls_return_t noxtls_hmac_hash_once(noxtls_hash_algos_t hash_algo,
         noxtls_secure_zero(&ctx, sizeof(ctx));
         return rc;
     }
+#endif
+#if NOXTLS_HMAC_HAVE_SHA1
     if (hash_algo == NOXTLS_HASH_SHA1) {
         noxtls_sha_ctx_t ctx;
         noxtls_return_t rc = noxtls_sha1_init(&ctx, hash_algo);
@@ -150,7 +202,11 @@ static noxtls_return_t noxtls_hmac_hash_once(noxtls_hash_algos_t hash_algo,
         noxtls_secure_zero(&ctx, sizeof(ctx));
         return rc;
     }
-    return NOXTLS_RETURN_INVALID_ALGORITHM;
+#endif
+    (void)data;
+    (void)len;
+    (void)out;
+    return noxtls_hmac_unusable_algorithm(hash_algo);
 }
 
 /*
@@ -160,6 +216,7 @@ static noxtls_return_t noxtls_hmac_hash_once(noxtls_hash_algos_t hash_algo,
  */
 static noxtls_return_t noxtls_hmac_start_inner(noxtls_hmac_context_t *ctx, uint32_t block_size)
 {
+#if NOXTLS_HMAC_HAVE_SHA256
     if(ctx->hash_algo == NOXTLS_HASH_SHA_256) {
         noxtls_sha_ctx_t *sha_ctx = noxtls_hmac_sha256_acquire();
         noxtls_return_t rc;
@@ -177,6 +234,8 @@ static noxtls_return_t noxtls_hmac_start_inner(noxtls_hmac_context_t *ctx, uint3
         ctx->hash_ctx = sha_ctx;
         return NOXTLS_RETURN_SUCCESS;
     }
+#endif
+#if NOXTLS_HMAC_HAVE_SHA2_64
     if ((ctx->hash_algo == NOXTLS_HASH_SHA_384) || (ctx->hash_algo == NOXTLS_HASH_SHA_512)) {
         noxtls_sha512_ctx_t *sha_ctx = (noxtls_sha512_ctx_t *)NOXTLS_MALLOC(sizeof(noxtls_sha512_ctx_t));
         noxtls_return_t rc;
@@ -194,6 +253,8 @@ static noxtls_return_t noxtls_hmac_start_inner(noxtls_hmac_context_t *ctx, uint3
         ctx->hash_ctx = sha_ctx;
         return NOXTLS_RETURN_SUCCESS;
     }
+#endif
+#if NOXTLS_HMAC_HAVE_SHA1
     if (ctx->hash_algo == NOXTLS_HASH_SHA1) {
         noxtls_sha_ctx_t *sha_ctx = (noxtls_sha_ctx_t *)NOXTLS_MALLOC(sizeof(noxtls_sha_ctx_t));
         noxtls_return_t rc;
@@ -211,7 +272,9 @@ static noxtls_return_t noxtls_hmac_start_inner(noxtls_hmac_context_t *ctx, uint3
         ctx->hash_ctx = sha_ctx;
         return NOXTLS_RETURN_SUCCESS;
     }
-    return NOXTLS_RETURN_INVALID_ALGORITHM;
+#endif
+    (void)block_size;
+    return noxtls_hmac_unusable_algorithm(ctx->hash_algo);
 }
 
 noxtls_return_t noxtls_hmac_init(noxtls_hmac_context_t *ctx, noxtls_hash_algos_t hash_algo, const uint8_t *key, uint32_t key_len)
@@ -226,13 +289,15 @@ noxtls_return_t noxtls_hmac_init(noxtls_hmac_context_t *ctx, noxtls_hash_algos_t
         return NOXTLS_RETURN_NULL;
     }
 
+    /* Clear first: a context whose init failed is still safe to pass to noxtls_hmac_free(). */
+    noxtls_secure_zero((ctx), sizeof(*(ctx)));
+
     block_size = noxtls_hmac_hash_block_size(hash_algo);
     hash_size = noxtls_hmac_hash_output_size(hash_algo);
     if ((block_size == 0U) || (hash_size == 0U)) {
-        return NOXTLS_RETURN_INVALID_ALGORITHM;
+        return noxtls_hmac_unusable_algorithm(hash_algo);
     }
 
-    noxtls_secure_zero((ctx), sizeof(*(ctx)));
     ctx->hash_algo = hash_algo;
 
     if (key_len > block_size) {
@@ -272,10 +337,17 @@ noxtls_return_t noxtls_hmac_update(noxtls_hmac_context_t *ctx, const uint8_t *da
         return NOXTLS_RETURN_FAILED;
     }
 
+#if NOXTLS_HMAC_HAVE_SHA256
     if (ctx->hash_algo == NOXTLS_HASH_SHA_256) { return noxtls_sha256_update((noxtls_sha_ctx_t *)ctx->hash_ctx, data, data_len); }
+#endif
+#if NOXTLS_HMAC_HAVE_SHA2_64
     if ((ctx->hash_algo == NOXTLS_HASH_SHA_384) || (ctx->hash_algo == NOXTLS_HASH_SHA_512)) { return noxtls_sha512_update((noxtls_sha512_ctx_t *)ctx->hash_ctx, data, data_len); }
+#endif
+#if NOXTLS_HMAC_HAVE_SHA1
     if (ctx->hash_algo == NOXTLS_HASH_SHA1) { return noxtls_sha1_update((noxtls_sha_ctx_t *)ctx->hash_ctx, data, data_len); }
-    return NOXTLS_RETURN_INVALID_ALGORITHM;
+#endif
+    (void)data_len;
+    return noxtls_hmac_unusable_algorithm(ctx->hash_algo);
 }
 
 noxtls_return_t noxtls_hmac_final(noxtls_hmac_context_t *ctx, uint8_t *mac, uint32_t *mac_len)
@@ -295,14 +367,16 @@ noxtls_return_t noxtls_hmac_final(noxtls_hmac_context_t *ctx, uint8_t *mac, uint
     block_size = noxtls_hmac_hash_block_size(ctx->hash_algo);
     hash_size = noxtls_hmac_hash_output_size(ctx->hash_algo);
     if ((block_size == 0U) || (hash_size == 0U)) {
-        return NOXTLS_RETURN_INVALID_ALGORITHM;
+        return noxtls_hmac_unusable_algorithm(ctx->hash_algo);
     }
     if (*mac_len < hash_size) {
         *mac_len = hash_size;
         return NOXTLS_RETURN_FAILED;
     }
 
+    /* Only digests enabled in this build get past the size checks above. */
     if (ctx->hash_algo == NOXTLS_HASH_SHA_256) {
+#if NOXTLS_HMAC_HAVE_SHA256
         /* Reuse this HMAC's reserved state for the outer hash. */
         noxtls_sha_ctx_t *sha_ctx = (noxtls_sha_ctx_t *)ctx->hash_ctx;
         rc = noxtls_sha256_finish(sha_ctx, inner_hash);
@@ -320,7 +394,9 @@ noxtls_return_t noxtls_hmac_final(noxtls_hmac_context_t *ctx, uint8_t *mac, uint
         }
         noxtls_hmac_sha256_release(sha_ctx);
         ctx->hash_ctx = NULL;
+#endif
     } else if((ctx->hash_algo == NOXTLS_HASH_SHA_384) || (ctx->hash_algo == NOXTLS_HASH_SHA_512)) {
+#if NOXTLS_HMAC_HAVE_SHA2_64
         rc = noxtls_sha512_finish((noxtls_sha512_ctx_t *)ctx->hash_ctx, inner_hash);
         noxtls_hmac_hash_ctx_release(ctx->hash_algo, ctx->hash_ctx);
         ctx->hash_ctx = NULL;
@@ -338,7 +414,9 @@ noxtls_return_t noxtls_hmac_final(noxtls_hmac_context_t *ctx, uint8_t *mac, uint
             }
             noxtls_secure_zero(&outer, sizeof(outer));
         }
+#endif
     } else {
+#if NOXTLS_HMAC_HAVE_SHA1
         rc = noxtls_sha1_finish((noxtls_sha_ctx_t *)ctx->hash_ctx, inner_hash);
         noxtls_hmac_hash_ctx_release(ctx->hash_algo, ctx->hash_ctx);
         ctx->hash_ctx = NULL;
@@ -356,6 +434,7 @@ noxtls_return_t noxtls_hmac_final(noxtls_hmac_context_t *ctx, uint8_t *mac, uint
             }
             noxtls_secure_zero(&outer, sizeof(outer));
         }
+#endif
     }
 
     if (rc == NOXTLS_RETURN_SUCCESS) {

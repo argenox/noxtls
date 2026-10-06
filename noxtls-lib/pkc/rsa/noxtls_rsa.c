@@ -1048,6 +1048,7 @@ static noxtls_return_t rsa_pkcs1_v15_encode_digest(uint8_t *padded, uint32_t pad
  * @param hash_algo The hash algorithm value
  * @return The return value
  */
+#if NOXTLS_FEATURE_MD5
 static noxtls_return_t rsa_hash_run_md5(uint8_t *hash, const uint8_t *msg, uint32_t len)
 {
     noxtls_sha_ctx_t ctx;
@@ -1056,7 +1057,9 @@ static noxtls_return_t rsa_hash_run_md5(uint8_t *hash, const uint8_t *msg, uint3
     if(noxtls_md5_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     return NOXTLS_RETURN_SUCCESS;
 }
+#endif /* NOXTLS_FEATURE_MD5 */
 
+#if NOXTLS_FEATURE_SHA1
 static noxtls_return_t rsa_hash_run_sha1(uint8_t *hash, const uint8_t *msg, uint32_t len, noxtls_hash_algos_t hash_algo)
 {
     noxtls_sha_ctx_t ctx;
@@ -1065,7 +1068,9 @@ static noxtls_return_t rsa_hash_run_sha1(uint8_t *hash, const uint8_t *msg, uint
     if(noxtls_sha1_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     return NOXTLS_RETURN_SUCCESS;
 }
+#endif /* NOXTLS_FEATURE_SHA1 */
 
+#if (NOXTLS_FEATURE_SHA224 || NOXTLS_FEATURE_SHA256)
 static noxtls_return_t rsa_hash_run_sha256(uint8_t *hash, const uint8_t *msg, uint32_t len, noxtls_hash_algos_t hash_algo)
 {
     noxtls_sha_ctx_t ctx;
@@ -1074,7 +1079,9 @@ static noxtls_return_t rsa_hash_run_sha256(uint8_t *hash, const uint8_t *msg, ui
     if(noxtls_sha256_finish(&ctx, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     return NOXTLS_RETURN_SUCCESS;
 }
+#endif /* NOXTLS_FEATURE_SHA224 || NOXTLS_FEATURE_SHA256 */
 
+#if (NOXTLS_FEATURE_SHA384 || NOXTLS_FEATURE_SHA512)
 static noxtls_return_t rsa_hash_run_sha512(uint8_t *hash, const uint8_t *msg, uint32_t len, noxtls_hash_algos_t hash_algo)
 {
     noxtls_sha512_ctx_t ctx512;
@@ -1083,6 +1090,7 @@ static noxtls_return_t rsa_hash_run_sha512(uint8_t *hash, const uint8_t *msg, ui
     if(noxtls_sha512_finish(&ctx512, hash) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
     return NOXTLS_RETURN_SUCCESS;
 }
+#endif /* NOXTLS_FEATURE_SHA384 || NOXTLS_FEATURE_SHA512 */
 
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static noxtls_return_t rsa_hash_message(uint8_t *hash, uint32_t *hash_len, const uint8_t *noxtls_message, uint32_t message_len, noxtls_hash_algos_t hash_algo)
@@ -1093,36 +1101,61 @@ static noxtls_return_t rsa_hash_message(uint8_t *hash, uint32_t *hash_len, const
     {
         uint32_t hash_algo_u = (uint32_t)hash_algo;
         switch (hash_algo_u) {
+        /* Digests compiled out of this build are NOT_SUPPORTED. */
         case (uint32_t)NOXTLS_HASH_MD5:
+#if NOXTLS_FEATURE_MD5
             rc = rsa_hash_run_md5(hash, noxtls_message, message_len);
             if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
             *hash_len = 16U;
             break;
+#else
+            return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
         case (uint32_t)NOXTLS_HASH_SHA1:
+#if NOXTLS_FEATURE_SHA1
             rc = rsa_hash_run_sha1(hash, noxtls_message, message_len, hash_algo);
             if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
             *hash_len = 20U;
             break;
+#else
+            return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
         case (uint32_t)NOXTLS_HASH_SHA_224:
+#if NOXTLS_FEATURE_SHA224
             rc = rsa_hash_run_sha256(hash, noxtls_message, message_len, hash_algo);
             if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
             *hash_len = 28U;
             break;
+#else
+            return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
         case (uint32_t)NOXTLS_HASH_SHA_256:
+#if NOXTLS_FEATURE_SHA256
             rc = rsa_hash_run_sha256(hash, noxtls_message, message_len, hash_algo);
             if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
             *hash_len = 32U;
             break;
+#else
+            return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
         case (uint32_t)NOXTLS_HASH_SHA_384:
+#if NOXTLS_FEATURE_SHA384
             rc = rsa_hash_run_sha512(hash, noxtls_message, message_len, hash_algo);
             if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
             *hash_len = 48U;
             break;
+#else
+            return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
         case (uint32_t)NOXTLS_HASH_SHA_512:
+#if NOXTLS_FEATURE_SHA512
             rc = rsa_hash_run_sha512(hash, noxtls_message, message_len, hash_algo);
             if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
             *hash_len = 64U;
             break;
+#else
+            return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
         case (uint32_t)NOXTLS_HASH_MD4:
         case (uint32_t)NOXTLS_HASH_SHA_512_224:
         case (uint32_t)NOXTLS_HASH_SHA_512_256:
