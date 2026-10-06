@@ -111,13 +111,14 @@ int main(void)
     status_reads = 0u;
     before = noxtls_ecc_accel_fallback_count();
     rc = noxtls_ecc_point_multiply(&result, scalar, &curve.G, &curve);
-    ok &= check(rc == NOXTLS_RETURN_SUCCESS &&
-                memcmp(result.x, two_g_x, 32) == 0 &&
-                memcmp(result.y, two_g_y, 32) == 0,
-                "hardware timeout falls back to correct software 2G");
+    /* Only NOT_SUPPORTED may fall back to software; a hardware timeout is
+     * reported to the caller with the result wiped. */
+    ok &= check(rc == NOXTLS_RETURN_TIMEOUT && result.size == 0u &&
+                memcmp(result.x, two_g_x, 32) != 0,
+                "hardware timeout propagates and wipes the result");
     ok &= check(status_reads == 32u &&
-                noxtls_ecc_accel_fallback_count() == before + 1u,
-                "actual wrapper counts software fallback once");
+                noxtls_ecc_accel_fallback_count() == before,
+                "actual wrapper does not count a fallback after hardware failure");
     ok &= check(noxtls_ecc_accel_operation_count() == 1u,
                 "failed hardware never increments successful operations");
     (void)noxtls_ecc_curve_free(&curve);
