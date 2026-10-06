@@ -543,7 +543,9 @@ noxtls_return_t noxtls_sha256_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
         ctx->length += SHA256_BLOCK_SIZE_BYTES;
     }
     
-    if (space_left < (uint32_t)(SHA256_LENGTH_FIELD_BYTES + 1U))
+    /* A second padding block is only processed when the first compression
+     * succeeded, so its status can never mask an earlier failure. */
+    if ((rc == NOXTLS_RETURN_SUCCESS) && (space_left < (uint32_t)(SHA256_LENGTH_FIELD_BYTES + 1U)))
     {
         noxtls_secure_zero((temp), (size_t)(block_size));
         if (space_left == 0U) {
@@ -571,6 +573,13 @@ noxtls_return_t noxtls_sha256_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
     uint8_t alg_sz = (uint8_t)(SHA256_STATE_WORDS);
     if (ctx->algo == NOXTLS_HASH_SHA_224) {
         alg_sz = (uint8_t)SHA224_STATE_WORDS;
+    }
+    noxtls_secure_zero((temp), sizeof(temp));
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        /* Never release a partial digest: wipe the output and the state. */
+        noxtls_secure_zero(hash, (size_t)alg_sz * 4U);
+        noxtls_secure_zero(ctx, sizeof(*ctx));
+        return rc;
     }
     for (i = 0U; i < alg_sz; i += 1U)
     {
@@ -625,11 +634,16 @@ noxtls_return_t noxtls_sha256_verify(const uint8_t * data, uint32_t len, const u
     uint8_t hash[HASH_SHA256_OUT_LEN] = {0};
     noxtls_sha_ctx_t ctx;
     
-    (void)noxtls_sha256_init(&ctx, NOXTLS_HASH_SHA_256);
-    (void)noxtls_sha256_update(&ctx, data, len);
-    (void)noxtls_sha256_finish(&ctx, hash);
+    noxtls_return_t hrc = noxtls_sha256_init(&ctx, NOXTLS_HASH_SHA_256);
+    if (hrc == NOXTLS_RETURN_SUCCESS) {
+        hrc = noxtls_sha256_update(&ctx, data, len);
+    }
+    if (hrc == NOXTLS_RETURN_SUCCESS) {
+        hrc = noxtls_sha256_finish(&ctx, hash);
+    }
     
-    if (noxtls_ct_equal(hash, expected, sizeof(hash)) != 0) {
+    /* Fail closed: a hashing error is never reported as a match. */
+    if ((hrc == NOXTLS_RETURN_SUCCESS) && (noxtls_ct_equal(hash, expected, sizeof(hash)) != 0)) {
         rc = NOXTLS_RETURN_SUCCESS;
     }
 
@@ -651,11 +665,16 @@ noxtls_return_t noxtls_sha224_verify(const uint8_t * data, uint32_t len, const u
     uint8_t hash[HASH_SHA256_OUT_LEN] = {0};
     noxtls_sha_ctx_t ctx;
     
-    (void)noxtls_sha256_init(&ctx, NOXTLS_HASH_SHA_224);
-    (void)noxtls_sha256_update(&ctx, data, len);
-    (void)noxtls_sha256_finish(&ctx, hash);
+    noxtls_return_t hrc = noxtls_sha256_init(&ctx, NOXTLS_HASH_SHA_224);
+    if (hrc == NOXTLS_RETURN_SUCCESS) {
+        hrc = noxtls_sha256_update(&ctx, data, len);
+    }
+    if (hrc == NOXTLS_RETURN_SUCCESS) {
+        hrc = noxtls_sha256_finish(&ctx, hash);
+    }
     
-    if (noxtls_ct_equal(hash, expected, (size_t)HASH_SHA224_OUT_LEN) != 0) {
+    /* Fail closed: a hashing error is never reported as a match. */
+    if ((hrc == NOXTLS_RETURN_SUCCESS) && (noxtls_ct_equal(hash, expected, (size_t)HASH_SHA224_OUT_LEN) != 0)) {
         rc = NOXTLS_RETURN_SUCCESS;
     }
 

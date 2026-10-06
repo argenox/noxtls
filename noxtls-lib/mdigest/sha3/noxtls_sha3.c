@@ -260,6 +260,10 @@ static noxtls_return_t sha3_absorb(noxtls_sha3_ctx_t * ctx, const uint8_t * data
     uint32_t offset = 0U;
     uint32_t remaining = len;
 
+    if ((data == NULL) && (remaining != 0U)) {
+        return NOXTLS_RETURN_NULL;
+    }
+
     while (remaining > 0U) {
         uint32_t to_copy = (uint32_t)((remaining < (ctx->rate - ctx->buffer_len)) ? remaining : (ctx->rate - ctx->buffer_len));
         
@@ -674,8 +678,10 @@ noxtls_return_t noxtls_sha3_verify(const uint8_t * data, uint32_t len, const uin
             return NOXTLS_RETURN_FAILED;
     }
     
-    (void)noxtls_sha3_update(&ctx, data, len);
-    (void)noxtls_sha3_finish(&ctx, hash);
+    noxtls_return_t hrc = noxtls_sha3_update(&ctx, data, len);
+    if (hrc == NOXTLS_RETURN_SUCCESS) {
+        hrc = noxtls_sha3_finish(&ctx, hash);
+    }
     
     if (sha3_debug_lvl > 0U) {
         (void)noxtls_debug_printf((const uint8_t *)"Compare: \n");
@@ -683,7 +689,8 @@ noxtls_return_t noxtls_sha3_verify(const uint8_t * data, uint32_t len, const uin
         (void)noxtls_print_hash(expected, (uint16_t)hash_len);
     }
     
-    if (noxtls_ct_equal(hash, expected, (size_t)hash_len) != 0) {
+    /* Fail closed: a hashing error is never reported as a match. */
+    if ((hrc == NOXTLS_RETURN_SUCCESS) && (noxtls_ct_equal(hash, expected, (size_t)hash_len) != 0)) {
         rc = NOXTLS_RETURN_SUCCESS;
     }
     

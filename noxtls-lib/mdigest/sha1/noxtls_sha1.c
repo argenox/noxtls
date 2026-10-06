@@ -363,9 +363,6 @@ noxtls_return_t noxtls_sha1_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
         /* MISRA 15.7: final else path */
         rc = sha1_finish_one_block(ctx, space_for_padding, length_index, total_bits);
     }
-    if (rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
-    }
 
     alg_sz = SHA1_LENGTH_FIELD_BYTES;
     if (ctx->algo == NOXTLS_HASH_SHA_224) {
@@ -373,6 +370,12 @@ noxtls_return_t noxtls_sha1_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
     }
     if (ctx->algo == NOXTLS_HASH_SHA1) {
         alg_sz = SHA1_STATE_WORDS;
+    }
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        /* Never release a partial digest: wipe the output and the state. */
+        noxtls_secure_zero(hash, (size_t)alg_sz * 4U);
+        noxtls_secure_zero(ctx, sizeof(*ctx));
+        return rc;
     }
     for (i = 0U; i < alg_sz; i += 1U)
     {

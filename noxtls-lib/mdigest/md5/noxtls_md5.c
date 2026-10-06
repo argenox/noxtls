@@ -375,7 +375,9 @@ noxtls_return_t noxtls_md5_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
     
     rc = noxtls_md5_round(ctx, temp);
     
-    if (space_left < (uint32_t)(MD5_LENGTH_FIELD_BYTES + 1U))
+    /* A second padding block is only processed when the first compression
+     * succeeded, so its status can never mask an earlier failure. */
+    if ((rc == NOXTLS_RETURN_SUCCESS) && (space_left < (uint32_t)(MD5_LENGTH_FIELD_BYTES + 1U)))
     {
         noxtls_secure_zero((temp), (size_t)(block_size));
         if (space_left == 0U) {
@@ -400,6 +402,13 @@ noxtls_return_t noxtls_md5_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
     uint8_t alg_sz = 8U;
     if (ctx->algo == NOXTLS_HASH_MD5) {
         alg_sz = 4;
+    }
+    noxtls_secure_zero((temp), sizeof(temp));
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        /* Never release a partial digest: wipe the output and the state. */
+        noxtls_secure_zero(hash, (size_t)alg_sz * 4U);
+        noxtls_secure_zero(ctx, sizeof(*ctx));
+        return rc;
     }
     
     for (i = 0U; i < (uint32_t)alg_sz; i += 1U)
@@ -431,16 +440,21 @@ noxtls_return_t noxtls_md5_verify(const uint8_t * data, uint32_t len, const uint
     uint8_t hash[HASH_MD5_OUT_LEN] = {0};
     noxtls_sha_ctx_t ctx;
     
-    (void)noxtls_md5_init(&ctx);
-    (void)noxtls_md5_update(&ctx, data, len);
-    (void)noxtls_md5_finish(&ctx, hash);
+    noxtls_return_t hrc = noxtls_md5_init(&ctx);
+    if (hrc == NOXTLS_RETURN_SUCCESS) {
+        hrc = noxtls_md5_update(&ctx, data, len);
+    }
+    if (hrc == NOXTLS_RETURN_SUCCESS) {
+        hrc = noxtls_md5_finish(&ctx, hash);
+    }
     
     if (md5_debug_lvl > 0U) {
         (void)noxtls_debug_printf((const uint8_t *)"Compare: \n");
         (void)noxtls_print_data(hash, sizeof(hash));
         (void)noxtls_print_data(expected, 16);
     }
-    if (noxtls_ct_equal(hash, expected, sizeof(hash)) != 0) {
+    /* Fail closed: a hashing error is never reported as a match. */
+    if ((hrc == NOXTLS_RETURN_SUCCESS) && (noxtls_ct_equal(hash, expected, sizeof(hash)) != 0)) {
         rc = NOXTLS_RETURN_SUCCESS;
     }
 

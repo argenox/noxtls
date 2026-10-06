@@ -116,8 +116,14 @@ noxtls_return_t noxtls_hkdf_expand(noxtls_hash_algos_t hash_algo,
             rc = noxtls_hmac_final(&ctx, T, &t_len);
         }
         (void)noxtls_hmac_free(&ctx);
-        if(rc != NOXTLS_RETURN_SUCCESS || t_len != hash_size) {
-            return NOXTLS_RETURN_FAILED;
+        if((rc == NOXTLS_RETURN_SUCCESS) && (t_len != hash_size)) {
+            rc = NOXTLS_RETURN_FAILED;
+        }
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            /* Never release a partial OKM or the chaining block. */
+            noxtls_secure_zero(&T[0], sizeof(T));
+            noxtls_secure_zero(okm, (size_t)okm_len);
+            return rc;
         }
 
         {
@@ -130,6 +136,7 @@ noxtls_return_t noxtls_hkdf_expand(noxtls_hash_algos_t hash_algo,
         i += 1U;
     }
 
+    noxtls_secure_zero(&T[0], sizeof(T));
     return NOXTLS_RETURN_SUCCESS;
 }
 

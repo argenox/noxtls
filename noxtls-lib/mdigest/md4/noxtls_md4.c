@@ -341,6 +341,12 @@ noxtls_return_t noxtls_md4_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
         }
     }
     noxtls_secure_zero((temp), sizeof(temp));
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        /* Never release a partial digest: wipe the output and the state. */
+        noxtls_secure_zero(hash, (size_t)HASH_MD4_OUT_LEN);
+        noxtls_secure_zero(ctx, sizeof(*ctx));
+        return rc;
+    }
 
     for(i = 0U; i < (uint32_t)HASH_MD4_STATE_WORDS; i += 1U)
     {
@@ -369,16 +375,21 @@ noxtls_return_t noxtls_md4_verify(const uint8_t * data, uint32_t len, const uint
     uint8_t hash[HASH_MD4_OUT_LEN] = {0};
     noxtls_sha_ctx_t ctx;
     
-    (void)noxtls_md4_init(&ctx);
-    (void)noxtls_md4_update(&ctx, data, len);
-    (void)noxtls_md4_finish(&ctx, hash);
+    noxtls_return_t hrc = noxtls_md4_init(&ctx);
+    if(hrc == NOXTLS_RETURN_SUCCESS) {
+        hrc = noxtls_md4_update(&ctx, data, len);
+    }
+    if(hrc == NOXTLS_RETURN_SUCCESS) {
+        hrc = noxtls_md4_finish(&ctx, hash);
+    }
     
     if(md4_debug_lvl > 0U) {
         (void)noxtls_debug_printf((const uint8_t *)"Compare: \n");
         (void)noxtls_print_data(hash, sizeof(hash));
         (void)noxtls_print_data(expected, HASH_MD4_OUT_LEN);
     }
-    if(memcmp(hash, expected, sizeof(hash)) == 0) {
+    /* Fail closed: a hashing error is never reported as a match. */
+    if((hrc == NOXTLS_RETURN_SUCCESS) && (memcmp(hash, expected, sizeof(hash)) == 0)) {
         rc = NOXTLS_RETURN_SUCCESS;
     }
 

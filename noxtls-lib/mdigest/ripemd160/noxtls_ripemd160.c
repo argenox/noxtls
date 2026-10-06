@@ -249,6 +249,7 @@ noxtls_return_t noxtls_ripemd160_init(noxtls_sha_ctx_t * ctx)
  */
 noxtls_return_t noxtls_ripemd160_update(noxtls_sha_ctx_t * ctx, const uint8_t * data, uint32_t len)
 {
+    noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
     uint32_t fill = 0U;
     const uint8_t *in_ptr = data;
     uint32_t in_left = len;
@@ -268,7 +269,10 @@ noxtls_return_t noxtls_ripemd160_update(noxtls_sha_ctx_t * ctx, const uint8_t * 
 
     if ((ctx->data_len > 0U) && (in_left >= fill)) {
         noxtls_copy_u8(&ctx->data[ctx->data_len], sizeof(ctx->data) - (size_t)(ctx->data_len), in_ptr, (size_t)fill);
-        (void)noxtls_ripemd160_round(ctx, ctx->data);
+        rc = noxtls_ripemd160_round(ctx, ctx->data);
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
         ctx->length += RIPEMD160_BLOCK_SIZE_BYTES;
         ctx->data_len = 0U;
         in_ptr = &in_ptr[fill];
@@ -276,7 +280,10 @@ noxtls_return_t noxtls_ripemd160_update(noxtls_sha_ctx_t * ctx, const uint8_t * 
     }
 
     while (in_left >= RIPEMD160_BLOCK_SIZE_BYTES) {
-        (void)noxtls_ripemd160_round(ctx, in_ptr);
+        rc = noxtls_ripemd160_round(ctx, in_ptr);
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
         ctx->length += RIPEMD160_BLOCK_SIZE_BYTES;
         in_ptr = &in_ptr[RIPEMD160_BLOCK_SIZE_BYTES];
         in_left -= RIPEMD160_BLOCK_SIZE_BYTES;
@@ -298,6 +305,7 @@ noxtls_return_t noxtls_ripemd160_update(noxtls_sha_ctx_t * ctx, const uint8_t * 
  */
 noxtls_return_t noxtls_ripemd160_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
 {
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
     uint32_t total_bits_lo = 0U;
     uint32_t total_bits_hi = 0U;
     uint32_t i = 0U;
@@ -322,7 +330,13 @@ noxtls_return_t noxtls_ripemd160_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
             size_t pad_len = (size_t)(RIPEMD160_BLOCK_SIZE_BYTES - (uint32_t)ctx->data_len);
             noxtls_secure_zero((&ctx->data[ctx->data_len]), (pad_len));
         }
-        (void)noxtls_ripemd160_round(ctx, ctx->data);
+        rc = noxtls_ripemd160_round(ctx, ctx->data);
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            /* Never release a partial digest: wipe the output and the state. */
+            noxtls_secure_zero(hash, (size_t)HASH_RIPEMD160_OUT_LEN);
+            noxtls_secure_zero(ctx, sizeof(*ctx));
+            return rc;
+        }
         ctx->data_len = 0U;
     }
 
@@ -338,7 +352,13 @@ noxtls_return_t noxtls_ripemd160_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
     ctx->data[RIPEMD160_BLOCK_SIZE_BYTES - 3U] = (uint8_t)((total_bits_hi >>8U) & 0xFFU);
     ctx->data[RIPEMD160_BLOCK_SIZE_BYTES - 2U] = (uint8_t)((total_bits_hi >>16U) & 0xFFU);
     ctx->data[RIPEMD160_BLOCK_SIZE_BYTES - 1U] = (uint8_t)((total_bits_hi >>24U) & 0xFFU);
-    (void)noxtls_ripemd160_round(ctx, ctx->data);
+    rc = noxtls_ripemd160_round(ctx, ctx->data);
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        /* Never release a partial digest: wipe the output and the state. */
+        noxtls_secure_zero(hash, (size_t)HASH_RIPEMD160_OUT_LEN);
+        noxtls_secure_zero(ctx, sizeof(*ctx));
+        return rc;
+    }
 
     for (i = 0U; i < RIPEMD160_STATE_WORDS; i += 1U) {
         hash[(i * 4U) + 0U] = (uint8_t)(ctx->h[i] & 0xFFU);
