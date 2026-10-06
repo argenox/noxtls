@@ -558,6 +558,10 @@ void noxtls_x509_debug_print_oid(const uint8_t *label, const uint8_t *oid_bytes,
 
 /* Helper Functions */
 noxtls_return_t noxtls_x509_parse_distinguished_name(const uint8_t *dn_data, uint32_t dn_len, uint8_t *output, uint32_t output_size);
+/** Format an ASN.1 UTCTime/GeneralizedTime as "YYYY-MM-DD HH:MM:SS" (unrecognised forms are copied raw).
+ *  The output is NUL-terminated whenever output_size > 0. Returns NOXTLS_RETURN_INVALID_PARAM when
+ *  output_size is smaller than 20 bytes for a recognised time form, NOXTLS_RETURN_BAD_DATA for an
+ *  unrepresentable year; output is then the empty string. */
 noxtls_return_t noxtls_x509_parse_time(const uint8_t *time_data, uint32_t time_len, uint8_t *output, uint32_t output_size);
 /** Parse certificate extensions (SAN, Key Usage, EKU, Basic Constraints, AKI, SKI, etc.) from cert->extensions. */
 noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert);
