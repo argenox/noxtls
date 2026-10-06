@@ -1,0 +1,45 @@
+﻿[0/1] Re-running CMake...
+-- Configuring done (0.2s)
+-- Generating done (0.1s)
+-- Build files have been written to: C:/NoxADK_work/NoxADK_thread/.codex-tmp/noxtls-bt7-audit-constrained
+[1/4] Building C object noxtls-lib/certs/CMakeFiles/noxtls_cert.dir/noxtls_x509.c.obj
+[2/4] Linking C static library noxtls-lib\certs\libnoxtls_cert.a
+[3/4] Linking C executable ut\tls_nonblocking_io_test.exe
+[4/4] Linking C executable ut\noxtls_ecdh_diagnostic_test.exe
+Internal ctest changing into directory: C:/NoxADK_work/NoxADK_thread/.codex-tmp/noxtls-bt7-audit-constrained
+Test project C:/NoxADK_work/NoxADK_thread/.codex-tmp/noxtls-bt7-audit-constrained
+      Start  1: noxtls_ecc_p256_regression
+ 1/10 Test  #1: noxtls_ecc_p256_regression ...............   Passed    0.02 sec
+      Start  2: noxtls_noxv_ecc_adapter_test
+ 2/10 Test  #2: noxtls_noxv_ecc_adapter_test .............   Passed    0.02 sec
+      Start  3: noxtls_noxv_sha256_fallback_regression
+ 3/10 Test  #3: noxtls_noxv_sha256_fallback_regression ...   Passed    0.02 sec
+      Start  4: allocator_policy_check
+ 4/10 Test  #4: allocator_policy_check ...................   Passed    0.58 sec
+      Start  5: allocator_policy_checker_self_test
+ 5/10 Test  #5: allocator_policy_checker_self_test .......   Passed    0.10 sec
+      Start  6: tls_nonblocking_io_test
+ 6/10 Test  #6: tls_nonblocking_io_test ..................   Passed    0.61 sec
+      Start  7: noxtls_ecdh_diagnostic_test
+ 7/10 Test  #7: noxtls_ecdh_diagnostic_test ..............   Passed    0.76 sec
+      Start  8: ed25519_rfc8032_test
+ 8/10 Test  #8: ed25519_rfc8032_test .....................   Passed    0.02 sec
+      Start  9: aes_gcm_nist_test
+ 9/10 Test  #9: aes_gcm_nist_test ........................   Passed    0.02 sec
+      Start 10: cmac_rfc4493_test
+10/10 Test #10: cmac_rfc4493_test ........................   Passed    0.02 sec
+
+100% tests passed, 0 tests failed out of 10
+
+Total Test time (real) =   2.18 sec
+2026-10-05 05:07:53 -05:00
+Internal ctest changing into directory: C:/NoxADK_work/NoxADK_thread/.codex-tmp/noxtls-bt7-audit-constrained
+Test project C:/NoxADK_work/NoxADK_thread/.codex-tmp/noxtls-bt7-audit-constrained
+    Start 4: allocator_policy_check
+1/2 Test #4: allocator_policy_check ...............   Passed    0.35 sec
+    Start 5: allocator_policy_checker_self_test
+2/2 Test #5: allocator_policy_checker_self_test ...   Passed    0.07 sec
+
+100% tests passed, 0 tests failed out of 2
+
+Total Test time (real) =   0.43 sec

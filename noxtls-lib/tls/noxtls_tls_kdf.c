@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "common/noxtls_memory_compat.h"
 #include "noxtls_tls_kdf.h"
 #include "mac/noxtls_hmac.h"
 #include "kdf/noxtls_hkdf.h"
