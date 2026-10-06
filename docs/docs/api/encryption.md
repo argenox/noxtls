@@ -20,7 +20,7 @@ Acceleration is wired at AES block level and is reused by existing AES modes and
 
 Platform accelerator ports are selected the same way, and all are off by default. New in 0.3.0:
 
-- TI CC13xx callback ports: `NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL`
+- CC13xx callback ports: `NOXTLS_CFG_FEATURE_CC13XX_AES_ACCEL` and `NOXTLS_CFG_FEATURE_CC13XX_P256_ACCEL`, or both with `NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL` (see [CC13xx accelerator callbacks](../cc13xx-accelerator.md))
 - nRF54L CRACEN: `NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL`
 - NoxV: `NOXTLS_CFG_FEATURE_NOXV_HW_ACCEL`
 

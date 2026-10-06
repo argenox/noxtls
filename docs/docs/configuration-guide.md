@@ -32,6 +32,9 @@ When building with CMake, common knobs include:
 | `NOXTLS_CFG_FEATURE_ML_DSA` | Enable ML-DSA API and TLS/X.509 PQ signatures | `OFF` |
 | `NOXTLS_CFG_FEATURE_AES_ACCEL_NI` | Enable AES-NI block backend on x86/x64 targets | `OFF` |
 | `NOXTLS_CFG_FEATURE_AES_ACCEL_APPLE` | Enable ARMv8 AES block backend on Apple Silicon targets | `OFF` |
+| `NOXTLS_CFG_FEATURE_CC13XX_AES_ACCEL` | Enable the CC13xx AES engine callback port ([details](./cc13xx-accelerator.md)) | `OFF` |
+| `NOXTLS_CFG_FEATURE_CC13XX_P256_ACCEL` | Enable the CC13xx PKA (P-256) callback port | `OFF` |
+| `NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL` | Umbrella: enable both CC13xx callback ports | `OFF` |
 
 Run from the build directory:
 
@@ -93,6 +96,9 @@ Examples:
 - `NOXTLS_CFG_FEATURE_ML_DSA` -> `NOXTLS_FEATURE_ML_DSA`
 - `NOXTLS_CFG_FEATURE_AES_ACCEL_NI` -> `NOXTLS_FEATURE_AES_ACCEL_NI`
 - `NOXTLS_CFG_FEATURE_AES_ACCEL_APPLE` -> `NOXTLS_FEATURE_AES_ACCEL_APPLE`
+- `NOXTLS_CFG_FEATURE_CC13XX_AES_ACCEL` -> `NOXTLS_FEATURE_CC13XX_AES_ACCEL`
+- `NOXTLS_CFG_FEATURE_CC13XX_P256_ACCEL` -> `NOXTLS_FEATURE_CC13XX_P256_ACCEL`
+- `NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL` -> `NOXTLS_FEATURE_CC13XX_HW_ACCEL` (umbrella; enables both ports)
 
 Use [Build Configuration Checks](/docs/api/build_config) for dependency rules enforced by `noxtls_check_config.h`.
 

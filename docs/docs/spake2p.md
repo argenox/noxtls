@@ -119,7 +119,7 @@ Pake1 carries pA (shareP), Pake2 carries pB (shareV) and cB, and Pake3 carries c
 - Received shares must be uncompressed, have coordinates below p, lie on the curve and not be the identity. `T = peer - w0*{M|N}`, Z and V must not be the identity. Every failure aborts the exchange and erases the context.
 - Confirmations are compared in constant time, and a mismatch is final (no retry).
 - Secret scalars are range checked and reduced mod n in constant time. w0, w1, L and the ephemeral scalar are erased as soon as the keys are derived.
-- Every scalar multiplication goes through `noxtls_ecc_point_multiply()`, so a bound platform P-256 accelerator port (for example the CC13xx PKA callbacks, `NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL`) is used automatically. Accelerator errors other than "not supported" abort the exchange. Point addition uses the generic NoxTLS helpers, which are not constant-time.
+- Every scalar multiplication goes through `noxtls_ecc_point_multiply()`, so a bound platform P-256 accelerator port (for example the CC13xx PKA callbacks, `NOXTLS_CFG_FEATURE_CC13XX_P256_ACCEL` or the umbrella `NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL`) is used automatically. Accelerator errors other than "not supported" abort the exchange; a busy accelerator falls back to software. Point addition uses the generic NoxTLS helpers, which are not constant-time.
 - HMAC-SHA256 state is private per context by default (0.3.0), so SPAKE2+ and PBKDF2 may run alongside other HMAC computations. If you build with `NOXTLS_HMAC_SHA256_SHARED_STATE=1`, only one SHA-256 HMAC context can be live at a time: do not interleave SPAKE2+ or PBKDF2 calls with another HMAC-SHA256 computation, and serialize all access (see [Memory usage](./memory-usage.md#concurrent-crypto-scratch-storage)).
 
 ## Tests and vectors
@@ -131,6 +131,6 @@ Enable with `-D BUILD_TESTS=ON -D NOXTLS_BUILD_PAKE_TESTS=ON -D NOXTLS_ERROR_UTN
 - A cross-profile non-interchangeability check, random round trips, and wrong-password, invalid-point, identity, wrong-confirmation, state-machine, NULL-argument and zeroization checks.
 - Matter PASE (passcode 20202021, salt "SPAKE2P Key Salt", 1000 iterations).
 - RFC 7914 and RFC 6070 PBKDF2 vectors.
-- With `NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL=ON`, a test that routes every multiplication through a bound accelerator callback.
+- With `NOXTLS_CFG_FEATURE_CC13XX_P256_ACCEL=ON` (or the umbrella `NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL=ON`), a test that routes every multiplication through a bound accelerator callback.
 
 `ut/pake/spake2p_reference.py` is an independent Python model that regenerates `spake2p_test_vectors.h` and checks the transcribed published vectors for consistency (`--check` also runs under `ctest`).
