@@ -5,6 +5,9 @@ set(COMMON_SOURCES
     noxtls_ct.c
     noxtls_debug_printf.c
 )
+if(NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL)
+    list(APPEND COMMON_SOURCES noxtls_cc13xx_crypto.c)
+endif()
 if(WIN32)
     list(APPEND COMMON_SOURCES getopt_win.c)
 endif()

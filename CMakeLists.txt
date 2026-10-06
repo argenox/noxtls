@@ -91,6 +91,7 @@ noxtls_set_default(NOXTLS_CFG_FEATURE_STM32_HW_SHA256_ONLY OFF)
 noxtls_set_default(NOXTLS_CFG_FEATURE_NRF52_HW_ACCEL OFF)
 noxtls_set_default(NOXTLS_CFG_FEATURE_NRF52_HW_AES_ONLY OFF)
 noxtls_set_default(NOXTLS_CFG_FEATURE_NOXV_HW_ACCEL OFF)
+noxtls_set_default(NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL OFF)
 noxtls_set_default(NOXTLS_CFG_FEATURE_ARIA ON)
 noxtls_set_default(NOXTLS_CFG_FEATURE_CAMELLIA ON)
 noxtls_set_default(NOXTLS_CFG_FEATURE_CHACHA20_POLY1305 ON)
@@ -304,6 +305,7 @@ noxtls_define_bool(NOXTLS_FEATURE_STM32_HW_SHA256_ONLY NOXTLS_CFG_FEATURE_STM32_
 noxtls_define_bool(NOXTLS_FEATURE_NRF52_HW_ACCEL NOXTLS_CFG_FEATURE_NRF52_HW_ACCEL)
 noxtls_define_bool(NOXTLS_FEATURE_NRF52_HW_AES_ONLY NOXTLS_CFG_FEATURE_NRF52_HW_AES_ONLY)
 noxtls_define_bool(NOXTLS_FEATURE_NOXV_HW_ACCEL NOXTLS_CFG_FEATURE_NOXV_HW_ACCEL)
+noxtls_define_bool(NOXTLS_FEATURE_CC13XX_HW_ACCEL NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL)
 noxtls_define_bool(NOXTLS_FEATURE_ARIA NOXTLS_CFG_FEATURE_ARIA)
 noxtls_define_bool(NOXTLS_FEATURE_CAMELLIA NOXTLS_CFG_FEATURE_CAMELLIA)
 noxtls_define_bool(NOXTLS_FEATURE_CHACHA20_POLY1305 NOXTLS_CFG_FEATURE_CHACHA20_POLY1305)
@@ -409,6 +411,29 @@ if(NOXTLS_CFG_FEATURE_CERT)
 endif()
 if(NOXTLS_CFG_FEATURE_TLS)
   add_subdirectory(noxtls-lib/tls)
+endif()
+
+# NoxTLS is linked as a collection of static libraries into firmware images.
+# Keep its compilation granularity compatible with the embedded linker's
+# --gc-sections policy: selecting an AES service must not retain disabled AES
+# software, cipher, or PKC routines from the same translation unit.
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+  foreach(_noxtls_library
+      noxtls_common
+      noxtls_hash
+      noxtls_encryption
+      noxtls_pkc
+      noxtls_drbg
+      noxtls_mac
+      noxtls_kdf
+      noxtls_certs
+      noxtls_tls)
+    if(TARGET ${_noxtls_library})
+      target_compile_options(${_noxtls_library} PRIVATE
+        -ffunction-sections
+        -fdata-sections)
+    endif()
+  endforeach()
 endif()
 if(NOXTLS_BUILD_SIZE_BENCHMARKS)
   enable_language(ASM)
