@@ -99,11 +99,8 @@ uint32_t noxtls_parse_der(const uint8_t * data, uint32_t len)
     if((data == NULL) || (len == 0U)) {
         return 1U;
     }
-#if !NOXTLS_ASN1_DEBUG
-    (void)data;
-    (void)len;
-    return 0U;
-#else
+    /* Structural validation (tag/length/truncation) runs in every build;
+     * only the pretty-printing is gated by NOXTLS_ASN1_DEBUG. */
     const uint8_t * ptr = data;
     const uint8_t * end = &data[len];
 
@@ -115,7 +112,6 @@ uint32_t noxtls_parse_der(const uint8_t * data, uint32_t len)
     }
 
     return result;
-#endif
 }
 
 /**
