@@ -358,6 +358,59 @@ noxtls_return_t noxtls_x509_verify_client_cert_trust_ex(const x509_certificate_t
                                                          const noxtls_x509_crl_t *crl,
                                                          noxtls_x509_verify_flags_t *flags_out);
 
+/** Time source for validity checks in noxtls_x509_verify_cert_with_policy(). */
+typedef enum
+{
+    /** Use time(NULL) when NOXTLS_HAVE_TIME is 1; skip time checks when it is 0 (legacy behavior). */
+    NOXTLS_X509_TIME_SYSTEM = 0,
+    /** Check notBefore/notAfter against noxtls_x509_verify_policy_t::verify_time (needs NOXTLS_HAVE_TIME). */
+    NOXTLS_X509_TIME_EXPLICIT = 1
+} noxtls_x509_time_mode_t;
+
+/**
+ * Explicit, per-call certificate verification policy.
+ *
+ * Unlike noxtls_x509_verify_client_cert_trust(), the trust anchors are supplied
+ * by the caller instead of the global trust store, so several independent
+ * trust domains (for example a commissioning CA and a web PKI) can coexist.
+ * Chain building and issuer checks follow RFC 5280 Section 6.1 as implemented
+ * for the global store.
+ */
+typedef struct noxtls_x509_verify_policy
+{
+    /** Required, non-empty list of trust anchors (non-owning). */
+    const x509_certificate_chain_t *trust_anchors;
+    /** Optional CRL list (see noxtls_x509_verify_server_cert_trust_ex), or NULL. */
+    const noxtls_x509_crl_t *crl;
+    /** X509_EKU_* purpose the leaf must allow when it carries Extended Key Usage; 0 = no EKU constraint. */
+    uint32_t required_eku;
+    /** X509_KEY_USAGE_* bits that must all be set when the leaf carries Key Usage; 0 = purpose default (any-of). */
+    uint16_t required_key_usage;
+    /** 1 = reject a leaf without a Key Usage extension. */
+    uint8_t require_key_usage_extension;
+    /** Validity time source. */
+    noxtls_x509_time_mode_t time_mode;
+    /** Seconds since the Unix epoch used when time_mode is NOXTLS_X509_TIME_EXPLICIT. */
+    int64_t verify_time;
+} noxtls_x509_verify_policy_t;
+
+/**
+ * Check certificate validity at an explicit time (seconds since the Unix epoch).
+ * Returns NOXTLS_RETURN_NOT_SUPPORTED when NOXTLS_HAVE_TIME is 0.
+ */
+noxtls_return_t noxtls_x509_certificate_check_validity_at(const x509_certificate_t *cert, int64_t now);
+
+/**
+ * Verify a leaf (plus optional peer-presented intermediates, leaf excluded)
+ * against the trust anchors and leaf constraints in \p policy.
+ * Fails closed with NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED when the policy has no anchors.
+ * @param flags_out optional; cleared then ORed with NOXTLS_X509_VERIFY_FLAG_* bits.
+ */
+noxtls_return_t noxtls_x509_verify_cert_with_policy(const x509_certificate_t *leaf,
+                                                    const x509_certificate_chain_t *presented_chain,
+                                                    const noxtls_x509_verify_policy_t *policy,
+                                                    noxtls_x509_verify_flags_t *flags_out);
+
 /* Private Key Types */
 typedef enum
 {

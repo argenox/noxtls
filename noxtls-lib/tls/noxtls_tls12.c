@@ -285,6 +285,15 @@ static void tls12_dtls_on_send_ccs(tls12_context_t *ctx);
 static noxtls_return_t tls12_send_protected_alert(tls12_context_t *ctx, uint8_t level, uint8_t desc);
 static int tls12_cipher_suite_is_ecdhe_ecdsa(uint16_t cs);
 static int tls12_server_can_offer_cipher_suite(const tls12_context_t *ctx, uint16_t cs);
+
+/*
+ * Several builders lay messages out at fixed offsets (for example ClientHello
+ * extensions start TLS_CLIENT_HELLO_BASE_SIZE bytes in). Use the shared
+ * handshake workspace only when NOXTLS_TLS_HANDSHAKE_WORKSPACE_SIZE can hold
+ * that layout; otherwise return NULL so the caller allocates a dedicated
+ * buffer instead of writing past the workspace.
+ */
+#define TLS12_WORKSPACE_FOR(ctx, need)     (((uint32_t)TLS_HANDSHAKE_WORKSPACE_SIZE >= (uint32_t)(need)) ? (ctx)->handshake_workspace : NULL)
 static noxtls_return_t tls12_handle_heartbeat_record(tls12_context_t *ctx, const uint8_t *record_data, uint32_t record_len);
 static noxtls_return_t tls12_send_certificate_status(tls12_context_t *ctx);
 static noxtls_return_t tls12_recv_certificate_status(tls12_context_t *ctx);
@@ -451,6 +460,7 @@ noxtls_return_t noxtls_tls12_context_init_with_version(tls12_context_t *ctx, tls
     ctx->client_accept_server_rpk = 0;
     ctx->client_offer_client_rpk = 0;
     ctx->request_client_auth = 0;
+    ctx->client_verify_policy = NULL;
     ctx->client_auth_requested = 0;
     ctx->own_client_cert = NULL;
     ctx->own_client_cert_len = 0;
@@ -1575,7 +1585,25 @@ noxtls_return_t noxtls_tls12_context_free(tls12_context_t *ctx)
         ctx->handshake_workspace_owned = 0;
     }
     noxtls_dtls_context_free(&ctx->base);
-    
+
+    /* Erase in-context secrets: premaster/master secret (RFC 5246 Section 8.1),
+     * traffic keys and IVs (Section 6.3), Finished data and buffered plaintext. */
+    noxtls_secure_zero(ctx->premaster_secret, sizeof(ctx->premaster_secret));
+    ctx->premaster_secret_len = 0U;
+    noxtls_secure_zero(ctx->master_secret, sizeof(ctx->master_secret));
+    noxtls_secure_zero(ctx->client_write_key, sizeof(ctx->client_write_key));
+    noxtls_secure_zero(ctx->server_write_key, sizeof(ctx->server_write_key));
+    noxtls_secure_zero(ctx->client_write_iv, sizeof(ctx->client_write_iv));
+    noxtls_secure_zero(ctx->server_write_iv, sizeof(ctx->server_write_iv));
+    noxtls_secure_zero(ctx->client_write_mac_key, sizeof(ctx->client_write_mac_key));
+    noxtls_secure_zero(ctx->server_write_mac_key, sizeof(ctx->server_write_mac_key));
+    noxtls_secure_zero(ctx->previous_client_verify_data, sizeof(ctx->previous_client_verify_data));
+    noxtls_secure_zero(ctx->previous_server_verify_data, sizeof(ctx->previous_server_verify_data));
+    noxtls_secure_zero(ctx->client_last_cipher_block, sizeof(ctx->client_last_cipher_block));
+    noxtls_secure_zero(ctx->server_last_cipher_block, sizeof(ctx->server_last_cipher_block));
+    noxtls_secure_zero(ctx->pending_app_data, sizeof(ctx->pending_app_data));
+    ctx->pending_app_data_len = 0U;
+
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -1817,6 +1845,70 @@ void noxtls_tls12_require_client_auth(tls12_context_t *ctx, int require)
             ctx->request_client_auth = 1U;
         }
     }
+}
+
+/**
+ * @brief Server: verify client certificates against an explicit policy.
+ *
+ * @param[in,out] ctx The TLS 1.2 context.
+ * @param[in] policy Explicit policy (non-owning), or NULL for the global trust store.
+ */
+void noxtls_tls12_set_client_verify_policy(tls12_context_t *ctx,
+                                           const struct noxtls_x509_verify_policy *policy)
+{
+    if(ctx != NULL) {
+        ctx->client_verify_policy = policy;
+    }
+}
+
+/**
+ * @brief Return the library's sizeof(tls12_context_t) for configuration checks.
+ *
+ * @return Size in bytes of tls12_context_t in this build.
+ */
+uint32_t noxtls_tls12_context_size(void)
+{
+    return (uint32_t)sizeof(tls12_context_t);
+}
+
+/**
+ * @brief Server: return the accepted client leaf certificate.
+ *
+ * @param[in] ctx The TLS 1.2 context.
+ * @param[out] der Leaf certificate DER.
+ * @param[out] der_len Length of @p der.
+ * @param[out] parsed Optional parsed x509_certificate_t (opaque pointer), may be NULL.
+ *
+ * @return NOXTLS_RETURN_SUCCESS, NOXTLS_RETURN_NULL, or NOXTLS_RETURN_FAILED when no
+ *         client certificate was accepted.
+ */
+noxtls_return_t noxtls_tls12_get_client_certificate(const tls12_context_t *ctx,
+                                                    const uint8_t **der,
+                                                    uint32_t *der_len,
+                                                    const void **parsed)
+{
+    if((ctx == NULL) || (der == NULL) || (der_len == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    *der = NULL;
+    *der_len = 0U;
+    if(parsed != NULL) {
+        *parsed = NULL;
+    }
+
+    if((ctx->base.base.role != TLS_ROLE_SERVER) || (ctx->client_cert == NULL) ||
+       (ctx->client_cert_len == 0U) || (ctx->client_cert_parsed == NULL)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+
+    *der = ctx->client_cert;
+    *der_len = ctx->client_cert_len;
+    if(parsed != NULL) {
+        *parsed = ctx->client_cert_parsed;
+    }
+
+    return NOXTLS_RETURN_SUCCESS;
 }
 
 noxtls_return_t noxtls_tls12_set_client_cert_rsa(tls12_context_t *ctx, const uint8_t *cert_der,
@@ -2220,7 +2312,7 @@ noxtls_return_t tls12_derive_keys(tls12_context_t *ctx)
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    key_block = ctx->handshake_workspace;
+    key_block = TLS12_WORKSPACE_FOR(ctx, TLS_KEY_BLOCK_MAX_LEN);
     if(key_block == NULL) {
         key_block = (uint8_t*)noxtls_malloc(TLS_KEY_BLOCK_MAX_LEN);
         if(key_block == NULL) {
@@ -2666,7 +2758,7 @@ noxtls_return_t noxtls_tls12_send_client_hello(tls12_context_t *ctx)
         return NOXTLS_RETURN_NULL;
     }
 
-    client_hello = ctx->handshake_workspace;
+    client_hello = TLS12_WORKSPACE_FOR(ctx, TLS_CLIENT_HELLO_DEFAULT_SIZE);
     if(client_hello == NULL) {
         client_hello = (uint8_t*)noxtls_malloc(TLS_CLIENT_HELLO_DEFAULT_SIZE);
         if(client_hello == NULL) {
@@ -5987,6 +6079,22 @@ static int tls12_server_has_rsa_auth(const tls12_context_t *ctx)
  * Broad allowlists (e.g. tlsfuzzer) often advertise ECDHE_ECDSA ahead of ECDHE_RSA.
  * Selecting ECDHE_ECDSA with only an RSA leaf produces an empty/invalid SKE signature.
  */
+/**
+ * @brief Server: whether a session may be resumed for this context.
+ *
+ * Session and ticket caches keep only the master secret, not the peer
+ * certificate. A server bound to an explicit client-certificate policy must
+ * therefore run a full handshake so every connection re-authenticates the
+ * client (RFC 5246 Section 7.4.6; RFC 5077 Section 3.4 allows declining).
+ *
+ * @param[in] ctx The TLS 1.2 context.
+ * @return 1 when resumption may be attempted, 0 otherwise.
+ */
+static int tls12_server_resumption_allowed(const tls12_context_t *ctx)
+{
+    return (ctx->client_verify_policy == NULL) ? 1 : 0;
+}
+
 static int tls12_server_can_offer_cipher_suite(const tls12_context_t *ctx, uint16_t cs)
 {
     if(ctx == NULL) {
@@ -6297,7 +6405,7 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
     }
     client_session_id = record.data + offset;
     uint16_t resume_cached_cipher = 0;
-    if(session_id_len > 0 && !ctx->renegotiation_in_progress) {
+    if(session_id_len > 0 && !ctx->renegotiation_in_progress && tls12_server_resumption_allowed(ctx)) {
         tls12_session_cache_entry_t *entry = tls12_session_cache_find(client_session_id, session_id_len);
         if(entry != NULL) {
             ctx->session_resume = 1;
@@ -6785,7 +6893,8 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
                 tls12_maybe_upgrade_rsa_to_dhe_for_fs(ctx, record.data, record.length,
                                                         cipher_suites_offset, cipher_suites_count);
             }
-            if(!ctx->session_resume && !ctx->renegotiation_in_progress) {
+            if(!ctx->session_resume && !ctx->renegotiation_in_progress &&
+               tls12_server_resumption_allowed(ctx)) {
                 tls_extension_t *ext_st = NULL;
                 if(noxtls_tls_find_extension(&ctx->client_extensions, TLS_EXTENSION_SESSION_TICKET, &ext_st) == NOXTLS_RETURN_SUCCESS &&
                    ext_st != NULL && ext_st->data != NULL && ext_st->length > 0) {
@@ -6899,7 +7008,7 @@ noxtls_return_t noxtls_tls12_send_server_hello(tls12_context_t *ctx)
     if(ctx->base.base.role != TLS_ROLE_SERVER) {
         return NOXTLS_RETURN_FAILED;
     }
-    uint8_t *server_hello = ctx->handshake_workspace;
+    uint8_t *server_hello = TLS12_WORKSPACE_FOR(ctx, TLS_SERVER_HELLO_DEFAULT_SIZE);
     if(server_hello == NULL) {
         server_hello = (uint8_t*)noxtls_malloc(TLS_SERVER_HELLO_DEFAULT_SIZE);
         if(server_hello == NULL) {
@@ -7590,7 +7699,10 @@ noxtls_return_t noxtls_tls12_send_server_key_exchange(tls12_context_t *ctx)
     }
     if(is_dhe_kex) {
         uint16_t named_group;
-        uint8_t *skx_buf = (ctx->handshake_workspace != NULL) ? ctx->handshake_workspace : (uint8_t*)noxtls_malloc(NOXTLS_TLS12_DHE_SKX_MSG_MAX);
+        uint8_t *skx_buf = TLS12_WORKSPACE_FOR(ctx, NOXTLS_TLS12_DHE_SKX_MSG_MAX);
+        if(skx_buf == NULL) {
+            skx_buf = (uint8_t*)noxtls_malloc(NOXTLS_TLS12_DHE_SKX_MSG_MAX);
+        }
         uint32_t skx_len = 0;
         noxtls_return_t rc;
         if(skx_buf == NULL) {
@@ -7687,7 +7799,7 @@ noxtls_return_t noxtls_tls12_send_server_key_exchange(tls12_context_t *ctx)
         
         /* Build Server Key Exchange noxtls_message ourselves to have control over handshake noxtls_message accumulation */
         /* workspace layout: server_key_exchange 0..1023, to_sign 1024..1343, sig_buf 1344..1855 */
-        uint8_t *server_key_exchange = ctx->handshake_workspace;
+        uint8_t *server_key_exchange = TLS12_WORKSPACE_FOR(ctx, TLS_SERVER_KEY_EXCHANGE_WORKSPACE);
         uint8_t *to_sign = (ctx->handshake_workspace != NULL) ? (ctx->handshake_workspace + 1024) : NULL;
         uint8_t *sig_buf = (ctx->handshake_workspace != NULL) ? (ctx->handshake_workspace + 1344) : NULL;
         if(server_key_exchange == NULL) {
@@ -8182,7 +8294,15 @@ static noxtls_return_t tls12_recv_client_certificate(tls12_context_t *ctx, int *
             return NOXTLS_RETURN_BAD_DATA;
         }
 
-        if(noxtls_x509_trust_store_has_anchors()) {
+        if(ctx->client_verify_policy != NULL) {
+            /* Explicit per-context policy: never falls back to the global store and
+             * fails closed when no anchors are configured. */
+            noxtls_x509_verify_policy_t effective = *ctx->client_verify_policy;
+            if(effective.crl == NULL) {
+                effective.crl = ctx->verify_crl;
+            }
+            rc = noxtls_x509_verify_cert_with_policy(parsed, &presented_chain, &effective, NULL);
+        } else if(noxtls_x509_trust_store_has_anchors()) {
             rc = noxtls_x509_verify_client_cert_trust_ex(parsed, &presented_chain,
                                                          ctx->verify_crl, NULL);
         } else {
@@ -8193,6 +8313,9 @@ static noxtls_return_t tls12_recv_client_certificate(tls12_context_t *ctx, int *
             noxtls_x509_certificate_free(parsed);
             noxtls_free(parsed);
             noxtls_free(msg);
+            noxtls_free(ctx->client_cert);
+            ctx->client_cert = NULL;
+            ctx->client_cert_len = 0U;
             /* Structurally sized but unparsable DER → bad_certificate. */
             return NOXTLS_RETURN_FAILED;
         }

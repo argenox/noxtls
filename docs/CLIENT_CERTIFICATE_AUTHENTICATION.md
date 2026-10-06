@@ -72,10 +72,60 @@ NoxTLS implements this flow for TLS 1.3; the client automatically sends Certific
 
 ---
 
+## TLS 1.2 servers with an explicit client-certificate policy
+
+Use this when one device must trust a dedicated CA (for example a
+commissioning PKI such as Thread TCAT) without touching the process-wide trust
+store used by other TLS clients.
+
+```c
+#include "noxtls_tls12.h"
+#include "noxtls_x509.h"
+#include "noxtls_x509_ext.h"
+
+static noxtls_x509_verify_policy_t policy;   /* must outlive the handshake */
+
+memset(&policy, 0, sizeof(policy));
+policy.trust_anchors = &commissioning_ca_chain;           /* required, non-empty */
+policy.required_key_usage = X509_KEY_USAGE_DIGITAL_SIGNATURE; /* all-of when KU present */
+policy.required_eku = 0U;                                 /* or X509_EKU_CLIENT_AUTH */
+policy.time_mode = NOXTLS_X509_TIME_SYSTEM;               /* or EXPLICIT + verify_time */
+
+noxtls_tls12_require_client_auth(&server, 1);
+noxtls_tls12_set_client_verify_policy(&server, &policy);
+/* ... noxtls_tls12_accept_poll() until NOXTLS_RETURN_SUCCESS ... */
+
+const uint8_t *leaf; uint32_t leaf_len; const void *parsed;
+if(noxtls_tls12_get_client_certificate(&server, &leaf, &leaf_len, &parsed) == NOXTLS_RETURN_SUCCESS) {
+    noxtls_x509_extension_t ext; int found;
+    noxtls_x509_certificate_find_extension((const x509_certificate_t *)parsed,
+                                           oid, oid_len, &ext, &found);
+}
+```
+
+Behavior when a policy is set:
+
+- The client chain is verified only against `policy.trust_anchors`
+  (`noxtls_x509_verify_cert_with_policy()`); an empty anchor list fails closed.
+- `required_key_usage` bits must all be present when the leaf carries Key Usage;
+  `require_key_usage_extension = 1` also rejects leaves without it.
+- `NOXTLS_X509_TIME_EXPLICIT` checks validity against `verify_time`
+  (seconds since the Unix epoch) for devices without an RTC.
+- Session-ID and ticket resumption are declined, because the caches keep no
+  peer identity; each connection authenticates the client again.
+- `noxtls_tls12_get_client_certificate()` returns the accepted leaf only; a
+  rejected certificate is discarded.
+
+Raw extension access (`noxtls_x509_ext.h`) is strict DER: indefinite or
+non-minimal lengths, non-DER BOOLEANs, malformed OIDs, trailing bytes and
+duplicate extensions (RFC 5280 Section 4.2) return `NOXTLS_RETURN_BAD_DATA`.
+
+---
+
 ## Limitations
 
 - **RSA only**: Client CertificateVerify is implemented with RSA-PSS (0x0804). ECDSA/EdDSA client auth is not implemented.
-- **TLS 1.3**: This document and the described APIs apply to TLS 1.3. TLS 1.2 client auth may differ.
+- **TLS 1.3**: Most of this document applies to TLS 1.3; see the TLS 1.2 section above for explicit per-context policies.
 - **Verification**: The server receives and parses the client certificate and verifies the CertificateVerify signature. Additional checks (e.g. chain to a CA, revocation, subject name) are the application’s responsibility using NoxTLS X.509 APIs.
 
 ---

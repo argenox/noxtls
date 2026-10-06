@@ -2735,6 +2735,42 @@ static noxtls_return_t x509_check_time_bound(const x509_certificate_t *cert,
 }
 #endif /* NOXTLS_HAVE_TIME */
 
+#if NOXTLS_HAVE_TIME
+/**
+ * @brief Check notBefore/notAfter of a parsed certificate against a given time.
+ * @internal
+ *
+ * @param[in] cert Parsed certificate.
+ * @param[in] current_time Reference time.
+ *
+ * @return NOXTLS_RETURN_SUCCESS, NOXTLS_RETURN_CERT_EXPIRED, NOXTLS_RETURN_CERT_NOT_YET_VALID
+ *         or NOXTLS_RETURN_BAD_DATA.
+ */
+static noxtls_return_t x509_check_validity_window(const x509_certificate_t *cert, time_t current_time)
+{
+    time_t not_before_time = 0;
+    time_t not_after_time = 0;
+    noxtls_return_t rc;
+
+    rc = x509_check_time_bound(cert, cert->not_before, current_time, 1, &not_before_time);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+    rc = x509_check_time_bound(cert, cert->not_after, current_time, 0, &not_after_time);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+
+    if(not_before_time > 0 && not_after_time > 0 && not_before_time > not_after_time) {
+        CERT_DEBUG_PRINT("x509_certificate_check_validity: invalid validity period (not_before > not_after)\n");
+        return NOXTLS_RETURN_BAD_DATA;
+    }
+
+    CERT_DEBUG_PRINT("x509_certificate_check_validity: certificate is valid\n");
+    return NOXTLS_RETURN_SUCCESS;
+}
+#endif /* NOXTLS_HAVE_TIME */
+
 noxtls_return_t noxtls_x509_certificate_check_validity(const x509_certificate_t *cert)
 {
     if(cert == NULL) {
@@ -2747,37 +2783,53 @@ noxtls_return_t noxtls_x509_certificate_check_validity(const x509_certificate_t 
 
 #if NOXTLS_HAVE_TIME
     {
-        time_t current_time;
-        time_t not_before_time = 0;
-        time_t not_after_time = 0;
-        noxtls_return_t rc;
+        time_t current_time = time(NULL);
 
-        current_time = time(NULL);
         if(current_time == (time_t)-1) {
             CERT_DEBUG_PRINT("x509_certificate_check_validity: failed to get current time\n");
             return NOXTLS_RETURN_FAILED;
         }
 
-        rc = x509_check_time_bound(cert, cert->not_before, current_time, 1, &not_before_time);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            return rc;
-        }
-        rc = x509_check_time_bound(cert, cert->not_after, current_time, 0, &not_after_time);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            return rc;
-        }
-
-        if(not_before_time > 0 && not_after_time > 0 && not_before_time > not_after_time) {
-            CERT_DEBUG_PRINT("x509_certificate_check_validity: invalid validity period (not_before > not_after)\n");
-            return NOXTLS_RETURN_BAD_DATA;
-        }
-
-        CERT_DEBUG_PRINT("x509_certificate_check_validity: certificate is valid\n");
-        return NOXTLS_RETURN_SUCCESS;
+        return x509_check_validity_window(cert, current_time);
     }
 #else
     CERT_DEBUG_PRINT("x509_certificate_check_validity: time support not available, skipping time-based validation\n");
     return NOXTLS_RETURN_SUCCESS;
+#endif /* NOXTLS_HAVE_TIME */
+}
+
+/**
+ * @brief Check certificate validity at an explicit time.
+ *
+ * @param[in] cert Parsed certificate.
+ * @param[in] now Seconds since the Unix epoch.
+ *
+ * @return NOXTLS_RETURN_SUCCESS, a CERT_* validity code, NOXTLS_RETURN_INVALID_PARAM when
+ *         @p now does not fit time_t, or NOXTLS_RETURN_NOT_SUPPORTED without NOXTLS_HAVE_TIME.
+ */
+noxtls_return_t noxtls_x509_certificate_check_validity_at(const x509_certificate_t *cert, int64_t now)
+{
+    if(cert == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    if(!cert->parsed) {
+        return NOXTLS_RETURN_FAILED;
+    }
+
+#if NOXTLS_HAVE_TIME
+    {
+        time_t reference = (time_t)now;
+
+        if(((int64_t)reference != now) || (now < 0)) {
+            return NOXTLS_RETURN_INVALID_PARAM;
+        }
+
+        return x509_check_validity_window(cert, reference);
+    }
+#else
+    (void)now;
+    return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif /* NOXTLS_HAVE_TIME */
 }
 
@@ -4540,25 +4592,125 @@ static void x509_verify_crl_note_no_match_if_needed(const noxtls_x509_crl_t *crl
 
 
 /**
+ * @brief Return the published global trust anchors, or NULL when unset.
+ * @internal
+ *
+ * @return Global trust-anchor snapshot or NULL.
+ */
+static const x509_certificate_chain_t *x509_global_trust_anchors(void)
+{
+    return (s_x509_trust_anchors_initialized != 0) ? s_x509_trust_anchors : NULL;
+}
+
+/**
+ * @brief Check a certificate validity window using the policy time source.
+ * @internal
+ *
+ * @param[in] cert Parsed certificate.
+ * @param[in] policy Explicit policy, or NULL for the system clock.
+ *
+ * @return NOXTLS_RETURN_SUCCESS or the validity failure code.
+ */
+static noxtls_return_t x509_policy_check_validity(const x509_certificate_t *cert,
+                                                  const noxtls_x509_verify_policy_t *policy)
+{
+    noxtls_return_t rc;
+
+    if((policy != NULL) && (policy->time_mode == NOXTLS_X509_TIME_EXPLICIT)) {
+        rc = noxtls_x509_certificate_check_validity_at(cert, policy->verify_time);
+        if((rc == NOXTLS_RETURN_CERT_EXPIRED) || (rc == NOXTLS_RETURN_CERT_NOT_YET_VALID)) {
+            cert_fail_set(rc, cert, NULL, 0, 0);
+        }
+
+        return rc;
+    }
+
+    return noxtls_x509_certificate_check_validity(cert);
+}
+
+/**
+ * @brief Apply explicit leaf constraints from a verification policy.
+ * @internal
+ *
+ * RFC 5280 Section 4.2.1.3 (Key Usage), 4.2.1.9 (Basic Constraints) and
+ * 4.2.1.12 (Extended Key Usage).
+ *
+ * @param[in] leaf Parsed leaf certificate.
+ * @param[in] policy Explicit policy.
+ *
+ * @return NOXTLS_RETURN_SUCCESS or NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED.
+ */
+static noxtls_return_t x509_leaf_explicit_policy_check(const x509_certificate_t *leaf,
+                                                       const noxtls_x509_verify_policy_t *policy)
+{
+    uint32_t any_of_key_usage = X509_KEY_USAGE_DIGITAL_SIGNATURE;
+
+    if(leaf->basic_constraints_ca == 1) {
+        cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, leaf, NULL, 0, 0);
+        return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+    }
+
+    if((policy->required_eku != 0U) && (leaf->ext_key_usage_bits != 0U) &&
+       ((leaf->ext_key_usage_bits & (policy->required_eku | X509_EKU_ANY)) == 0U)) {
+        cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, leaf, NULL, 0, 0);
+        return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+    }
+
+    if(leaf->key_usage_bits == 0U) {
+        if(policy->require_key_usage_extension != 0U) {
+            cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, leaf, NULL, 0, 0);
+            return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+        }
+
+        return NOXTLS_RETURN_SUCCESS;
+    }
+
+    if(policy->required_key_usage != 0U) {
+        if((leaf->key_usage_bits & policy->required_key_usage) != policy->required_key_usage) {
+            cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, leaf, NULL, 0, 0);
+            return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+        }
+
+        return NOXTLS_RETURN_SUCCESS;
+    }
+
+    if(policy->required_eku == X509_EKU_SERVER_AUTH) {
+        any_of_key_usage |= X509_KEY_USAGE_KEY_ENCIPHERMENT | X509_KEY_USAGE_KEY_AGREEMENT;
+    } else if(policy->required_eku == X509_EKU_CLIENT_AUTH) {
+        any_of_key_usage |= X509_KEY_USAGE_KEY_AGREEMENT;
+    }
+
+    if((leaf->key_usage_bits & any_of_key_usage) == 0U) {
+        cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, leaf, NULL, 0, 0);
+        return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+    }
+
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
  * @brief Verify the trust of a certificate
  *
- * This function verifies the trust of a certificate.
+ * Walks from the leaf to a trust anchor (RFC 5280 Section 6.1 subset).
  *
  * @param[in] leaf The leaf certificate to verify.
  * @param[in] presented_chain The presented chain to verify.
- * @param[in] required_eku The required Extended Key Usage.
+ * @param[in] trust_anchors Anchors that terminate the path; NULL or empty fails closed.
+ * @param[in] policy Explicit leaf/time policy, or NULL for the purpose defaults.
+ * @param[in] required_eku The required Extended Key Usage (used when @p policy is NULL).
  * @param[in] crl The CRL to verify.
  * @param[in] flags_out The flags to verify.
- * 
+ *
  * @return The return code of the function.
  */
 static noxtls_return_t x509_verify_cert_trust_internal(const x509_certificate_t *leaf,
                                                        const x509_certificate_chain_t *presented_chain,
+                                                       const x509_certificate_chain_t *trust_anchors,
+                                                       const noxtls_x509_verify_policy_t *policy,
                                                        uint32_t required_eku,
                                                        const noxtls_x509_crl_t *crl,
                                                        noxtls_x509_verify_flags_t *flags_out)
 {
-    const x509_certificate_chain_t *trust_anchors = s_x509_trust_anchors;
     const x509_certificate_t *current;
     uint32_t depth = 0;
     const uint32_t max_depth = NOXTLS_MAX_CERT_CHAIN_DEPTH;
@@ -4575,18 +4727,22 @@ static noxtls_return_t x509_verify_cert_trust_internal(const x509_certificate_t 
         return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
     }
 
-    if(!s_x509_trust_anchors_initialized || trust_anchors == NULL || trust_anchors->count == 0U) {
+    if(trust_anchors == NULL || trust_anchors->count == 0U) {
         cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, leaf, NULL, 0, 0);
         return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
     }
 
     {
-        noxtls_return_t rc = noxtls_x509_certificate_check_validity(leaf);
+        noxtls_return_t rc = x509_policy_check_validity(leaf, policy);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
     }
-    if(x509_leaf_policy_check(leaf, required_eku) != NOXTLS_RETURN_SUCCESS) {
+    if(policy != NULL) {
+        if(x509_leaf_explicit_policy_check(leaf, policy) != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+        }
+    } else if(x509_leaf_policy_check(leaf, required_eku) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
     }
 
@@ -4635,7 +4791,7 @@ static noxtls_return_t x509_verify_cert_trust_internal(const x509_certificate_t 
             }
         }
 
-        rc = noxtls_x509_certificate_check_validity(issuer);
+        rc = x509_policy_check_validity(issuer, policy);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             s_cert_fail_info.cert_index = depth + 1U;
             return rc;
@@ -4674,7 +4830,8 @@ static noxtls_return_t x509_verify_cert_trust_internal(const x509_certificate_t 
 noxtls_return_t noxtls_x509_verify_server_cert_trust(const x509_certificate_t *leaf,
                                                      const x509_certificate_chain_t *presented_chain)
 {
-    return x509_verify_cert_trust_internal(leaf, presented_chain, X509_EKU_SERVER_AUTH, NULL, NULL);
+    return x509_verify_cert_trust_internal(leaf, presented_chain, x509_global_trust_anchors(), NULL,
+                                           X509_EKU_SERVER_AUTH, NULL, NULL);
 }
 
 /**
@@ -4694,7 +4851,8 @@ noxtls_return_t noxtls_x509_verify_server_cert_trust_ex(const x509_certificate_t
                                                         const noxtls_x509_crl_t *crl,
                                                         noxtls_x509_verify_flags_t *flags_out)
 {
-    return x509_verify_cert_trust_internal(leaf, presented_chain, X509_EKU_SERVER_AUTH, crl, flags_out);
+    return x509_verify_cert_trust_internal(leaf, presented_chain, x509_global_trust_anchors(), NULL,
+                                           X509_EKU_SERVER_AUTH, crl, flags_out);
 }
 
 /**
@@ -4710,7 +4868,8 @@ noxtls_return_t noxtls_x509_verify_server_cert_trust_ex(const x509_certificate_t
 noxtls_return_t noxtls_x509_verify_client_cert_trust(const x509_certificate_t *leaf,
                                                      const x509_certificate_chain_t *presented_chain)
 {
-    return x509_verify_cert_trust_internal(leaf, presented_chain, X509_EKU_CLIENT_AUTH, NULL, NULL);
+    return x509_verify_cert_trust_internal(leaf, presented_chain, x509_global_trust_anchors(), NULL,
+                                           X509_EKU_CLIENT_AUTH, NULL, NULL);
 }
 
 /**
@@ -4730,7 +4889,41 @@ noxtls_return_t noxtls_x509_verify_client_cert_trust_ex(const x509_certificate_t
                                                          const noxtls_x509_crl_t *crl,
                                                          noxtls_x509_verify_flags_t *flags_out)
 {
-    return x509_verify_cert_trust_internal(leaf, presented_chain, X509_EKU_CLIENT_AUTH, crl, flags_out);
+    return x509_verify_cert_trust_internal(leaf, presented_chain, x509_global_trust_anchors(), NULL,
+                                           X509_EKU_CLIENT_AUTH, crl, flags_out);
+}
+
+/**
+ * @brief Verify a certificate against an explicit per-call policy.
+ *
+ * @param[in] leaf The leaf certificate to verify.
+ * @param[in] presented_chain Peer-presented intermediates (leaf excluded), or NULL.
+ * @param[in] policy Trust anchors and leaf constraints; anchors are required.
+ * @param[out] flags_out Optional NOXTLS_X509_VERIFY_FLAG_* bits.
+ *
+ * @return NOXTLS_RETURN_SUCCESS, NOXTLS_RETURN_NULL, NOXTLS_RETURN_INVALID_PARAM for an
+ *         unknown time mode, or a CERT_* verification failure.
+ */
+noxtls_return_t noxtls_x509_verify_cert_with_policy(const x509_certificate_t *leaf,
+                                                    const x509_certificate_chain_t *presented_chain,
+                                                    const noxtls_x509_verify_policy_t *policy,
+                                                    noxtls_x509_verify_flags_t *flags_out)
+{
+    if(flags_out != NULL) {
+        *flags_out = 0;
+    }
+
+    if((leaf == NULL) || (policy == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    if((policy->time_mode != NOXTLS_X509_TIME_SYSTEM) &&
+       (policy->time_mode != NOXTLS_X509_TIME_EXPLICIT)) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+
+    return x509_verify_cert_trust_internal(leaf, presented_chain, policy->trust_anchors, policy,
+                                           policy->required_eku, policy->crl, flags_out);
 }
 
 /**
