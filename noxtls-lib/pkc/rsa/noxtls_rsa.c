@@ -910,7 +910,8 @@ static noxtls_return_t rsa_pkcs1_v15_encrypt_pad(uint8_t *padded, uint32_t padde
  * @param hash_algo The hash algorithm value
  */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
-static void rsa_pkcs1_v15_sign_pad(uint8_t *padded, uint32_t padded_len, const uint8_t *hash, uint32_t hash_len, noxtls_hash_algos_t hash_algo)
+static noxtls_return_t rsa_pkcs1_v15_encode_digest(uint8_t *padded, uint32_t padded_len, const uint8_t *hash, uint32_t hash_len,
+                                                   noxtls_hash_algos_t hash_algo, uint32_t omit_null_params)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     uint8_t hash_oid[20];
@@ -922,7 +923,7 @@ static void rsa_pkcs1_v15_sign_pad(uint8_t *padded, uint32_t padded_len, const u
        (hash_algo != NOXTLS_HASH_SHA_256) &&
        (hash_algo != NOXTLS_HASH_SHA_384) &&
        (hash_algo != NOXTLS_HASH_SHA_512)) {
-        return;
+        return NOXTLS_RETURN_INVALID_ALGORITHM;
     }
     
     /* ASN.1 DigestInfo structure */
@@ -983,12 +984,24 @@ static void rsa_pkcs1_v15_sign_pad(uint8_t *padded, uint32_t padded_len, const u
             oid_len = 19U;
             break;
         default:
-            return;
+            return NOXTLS_RETURN_INVALID_ALGORITHM;
     }
     }
-    
-    if((oid_len + (hash_len + 3U)) > padded_len) {
-        return;  /* Invalid */
+
+    if(omit_null_params != 0U) {
+        /* Alternative DigestInfo with absent AlgorithmIdentifier parameters
+         * (RFC 8017 section 9.2 note 1): drop the "05 00" NULL that precedes
+         * the "04 <hLen>" OCTET STRING header and shorten both SEQUENCEs. */
+        hash_oid[oid_len - 4U] = hash_oid[oid_len - 2U];
+        hash_oid[oid_len - 3U] = hash_oid[oid_len - 1U];
+        hash_oid[1] = (uint8_t)(hash_oid[1] - 2U);
+        hash_oid[3] = (uint8_t)(hash_oid[3] - 2U);
+        oid_len -= 2U;
+    }
+
+    /* EMSA-PKCS1-v1_5 (RFC 8017 section 9.2): emLen >= tLen + 11, i.e. PS >= 8 bytes. */
+    if((padded_len < 11U) || ((oid_len + hash_len) > (padded_len - 11U))) {
+        return NOXTLS_RETURN_FAILED;
     }
     
     padded[0] = 0x00U;
@@ -1006,6 +1019,7 @@ static void rsa_pkcs1_v15_sign_pad(uint8_t *padded, uint32_t padded_len, const u
     padded[2U + pad_len] = 0x00U;  /* Separator */
     noxtls_copy_u8(&padded[3U + pad_len], (size_t)(oid_len), hash_oid, (size_t)(oid_len));
     noxtls_copy_u8(&padded[3U + pad_len + oid_len], (size_t)(hash_len), hash, (size_t)(hash_len));
+    return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
@@ -1727,7 +1741,12 @@ noxtls_return_t noxtls_rsa_sign(const rsa_key_t *key, const uint8_t *noxtls_mess
         return NOXTLS_RETURN_FAILED;
     }
     
-    rsa_pkcs1_v15_sign_pad(padded, key->key_bytes, hash, hash_len, hash_algo);
+    rc = rsa_pkcs1_v15_encode_digest(padded, key->key_bytes, hash, hash_len, hash_algo, 0U);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(padded, key->key_bytes);
+        (void)noxtls_free(padded);
+        return rc;
+    }
     
     /* Sign (blinded, NX-15): s = hash^d mod n */
     rc = rsa_private_mod_exp_blinded(key, padded, signature);
@@ -1756,54 +1775,54 @@ noxtls_return_t noxtls_rsa_verify(const rsa_key_t *key, const uint8_t *noxtls_me
         return NOXTLS_RETURN_FAILED;
     }
     
-    /* Verify: hash' = signature^e mod n */
+    /* RSAVP1 (RFC 8017 section 5.2.2): the signature representative must be < n. */
+    if(noxtls_bn_cmp(signature, key->n, key->key_bytes) >= 0) {
+        return NOXTLS_RETURN_FAILED;
+    }
+
+    /* Verify: EM = signature^e mod n */
     uint8_t *decrypted = (uint8_t*)NOXTLS_CALLOC(key->key_bytes, 1);
     if(decrypted == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
-    
-    (void)noxtls_bn_mod_exp(decrypted, signature, key->e, key->key_bytes, key->n, key->key_bytes);
-    
+    uint8_t *expected = (uint8_t*)NOXTLS_CALLOC(key->key_bytes, 1);
+    if(expected == NULL) {
+        (void)noxtls_free(decrypted);
+        return NOXTLS_RETURN_FAILED;
+    }
+
+    noxtls_return_t rc = noxtls_bn_mod_exp(decrypted, signature, key->e, key->key_bytes, key->n, key->key_bytes);
+
     /* Hash the noxtls_message */
     uint8_t hash[64];
     uint32_t hash_len = 0U;
-    noxtls_return_t rc = rsa_hash_message(hash, &hash_len, noxtls_message, message_len, hash_algo);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        (void)noxtls_free(decrypted);
-        return rc;
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = rsa_hash_message(hash, &hash_len, noxtls_message, message_len, hash_algo);
     }
-    
-    /* Extract hash from PKCS#1 v1.5 padding and compare */
-    uint32_t i = 0U;
-    for(i = 0U; i < key->key_bytes; i += 1U) {
-        if((decrypted[i] == 0x00U) && ((i + 1U) < key->key_bytes) && (decrypted[i + 1U] == 0x01U)) {
-            /* Find separator after 0xFFU padding */
-            uint32_t j = 0U;
-            for(j = i + 2U; j < key->key_bytes; j += 1U) {
-                if(decrypted[j] == 0x00U) {
-                    /* Compare the expected digest against the trailing bytes of EMSA-PKCS1-v1_5.
-                     * DigestInfo encoding can differ in parameter encoding (e.g. NULL present/omitted). */
-                    uint32_t hash_offset = 0U;
-                    if(key->key_bytes < hash_len) {
-                        (void)noxtls_free(decrypted);
-                        return NOXTLS_RETURN_FAILED;
-                    }
-                    hash_offset = key->key_bytes - hash_len;
-                    if(hash_offset <= j) {
-                        (void)noxtls_free(decrypted);
-                        return NOXTLS_RETURN_FAILED;
-                    }
-                    if(noxtls_secret_memcmp(&decrypted[hash_offset], hash, (size_t)(hash_len)) == 0) {
-                        (void)noxtls_free(decrypted);
-                        return NOXTLS_RETURN_SUCCESS;
-                    }
-                }
+
+    /* RSASSA-PKCS1-v1_5-VERIFY (RFC 8017 section 8.2.2): re-encode the digest and
+     * compare the whole encoded message. Only the standard DigestInfo and the
+     * variant with absent NULL parameters are accepted; no lenient parsing. */
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = rsa_pkcs1_v15_encode_digest(expected, key->key_bytes, hash, hash_len, hash_algo, 0U);
+    }
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        if(noxtls_secret_memcmp(decrypted, expected, (size_t)key->key_bytes) != 0) {
+            rc = rsa_pkcs1_v15_encode_digest(expected, key->key_bytes, hash, hash_len, hash_algo, 1U);
+            if((rc == NOXTLS_RETURN_SUCCESS) &&
+               (noxtls_secret_memcmp(decrypted, expected, (size_t)key->key_bytes) != 0)) {
+                rc = NOXTLS_RETURN_FAILED;
             }
         }
     }
-    
+
+    noxtls_secure_zero(decrypted, key->key_bytes);
+    noxtls_secure_zero(expected, key->key_bytes);
     (void)noxtls_free(decrypted);
-    return NOXTLS_RETURN_FAILED;
+    (void)noxtls_free(expected);
+    /* Hash selection errors (NOT_SUPPORTED, INVALID_ALGORITHM) propagate; any
+     * encoding mismatch has already been mapped to NOXTLS_RETURN_FAILED. */
+    return rc;
 }
 
 /* --- RSA-PSS (RFC 8017) --- */
