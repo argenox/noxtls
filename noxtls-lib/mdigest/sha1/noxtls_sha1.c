@@ -402,9 +402,13 @@ noxtls_return_t noxtls_sha1_verify(const uint8_t * data, uint32_t len, const uin
 {
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
     
-    uint8_t hash[32] = {0};
+    uint8_t hash[HASH_SHA1_OUT_LEN] = {0};
     noxtls_sha_ctx_t ctx;
     
+    if (expected == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+
     rc = noxtls_sha1_init(&ctx, NOXTLS_HASH_SHA1);
     if (rc != NOXTLS_RETURN_SUCCESS) {
         (void)noxtls_debug_printf((const uint8_t *)"Failed to initialize SHA1 context\n");
@@ -421,9 +425,13 @@ noxtls_return_t noxtls_sha1_verify(const uint8_t * data, uint32_t len, const uin
         return rc;
     }
     
-    if (noxtls_ct_equal(hash, expected, sizeof(hash)) != 0) {
+    /* Compare exactly the 20-byte SHA-1 digest; mismatch is a failure. */
+    if (noxtls_ct_equal(hash, expected, (size_t)HASH_SHA1_OUT_LEN) != 0) {
         rc = NOXTLS_RETURN_SUCCESS;
+    } else {
+        rc = NOXTLS_RETURN_FAILED;
     }
+    noxtls_secure_zero((hash), sizeof(hash));
 
     return rc;
 }
