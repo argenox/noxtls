@@ -121,6 +121,9 @@ typedef struct
     ecc_curve_params_t *curve; /* Curve parameters */
     /** Populated by noxtls_ecc_key_init / noxtls_ecc_key_generate; used for TLS 1.3 signature scheme selection. */
     ecc_curve_t curve_kind;
+    /** Allocated length of @c d in bytes (set by noxtls_ecc_key_init). noxtls_ecc_key_free
+     *  wipes exactly this many bytes, independent of @c curve; 0 means unknown (no wipe). */
+    uint32_t d_size;
 } ecc_key_t;
 
 /* Jacobian point (X, Y, Z) with x = X/Z^2, y = Y/Z^3. Identity is Z=0. */

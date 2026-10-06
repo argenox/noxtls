@@ -111,6 +111,7 @@ noxtls_return_t noxtls_ecdh_compute_shared_secret_ex(
     
     rc = noxtls_ecc_point_multiply(&shared_point, private_key->d, peer_public_key, private_key->curve);
     if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(&shared_point, sizeof(shared_point));
         noxtls_ecdh_set_diagnostic(diagnostic, NOXTLS_ECDH_DIAGNOSTIC_SCALAR_MULTIPLY,
                                    rc);
         return NOXTLS_RETURN_ECDH_SCALAR_MULTIPLY_FAILED;
@@ -134,6 +135,7 @@ noxtls_return_t noxtls_ecdh_compute_shared_secret_ex(
     /* Extract x-coordinate as shared secret */
     noxtls_copy_u8(shared_secret, (size_t)required_len, shared_point.x, (size_t)required_len);
     *shared_secret_len = required_len;
+    noxtls_secure_zero(&shared_point, sizeof(shared_point));
     
     return NOXTLS_RETURN_SUCCESS;
 }

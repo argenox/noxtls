@@ -108,10 +108,13 @@ void ge25519_n_neg(ge25519_n_t *r, const ge25519_n_t *p);
  * @param[out] R Result point (BE ABI).
  * @param[in] s_le Little-endian scalar (`NOXTLS_ED25519_FE25519_BYTES` bytes).
  * @param[in] P Base point (BE ABI).
+ * @return NOXTLS_RETURN_SUCCESS, or NOXTLS_RETURN_NOT_ENOUGH_MEMORY when the
+ *         window table cannot be allocated (@p R is then the identity, which
+ *         must not be used as a result).
  */
-void ge25519_scalar_mult(ge25519_pt_t *R,
-                         const uint8_t *s_le,
-                         const ge25519_pt_t *P);
+noxtls_return_t ge25519_scalar_mult(ge25519_pt_t *R,
+                                    const uint8_t *s_le,
+                                    const ge25519_pt_t *P);
 
 /**
  * @brief Fixed-base scalar multiplication R = s * B using a lazy precomputed table.

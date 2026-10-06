@@ -67,7 +67,9 @@ static noxtls_return_t rsa_random_bytes(uint8_t *buf, uint32_t len)
         
         /* Instantiate DRBG */
         rc = drbg_instantiate(&drbg_state, DRBG_AES256, seed, sizeof(seed), NULL, 0, NULL, 0);
+        noxtls_secure_zero(seed, sizeof(seed));
         if(rc != NOXTLS_RETURN_SUCCESS) {
+            (void)noxtls_drbg_uninstantiate(&drbg_state);
             return NOXTLS_RETURN_FAILED;
         }
         
@@ -77,21 +79,13 @@ static noxtls_return_t rsa_random_bytes(uint8_t *buf, uint32_t len)
     /* Generate random bytes using existing DRBG instance */
     rc = drbg_generate(&drbg_state, buf, len * 8U, NULL, 0);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        /* If generation fails, reseed with new entropy from platform source */
-        rc = noxtls_drbg_get_entropy(seed, sizeof(seed));
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
-        }
-        
-        rc = drbg_reseed(&drbg_state, seed, sizeof(seed), NULL, 0);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
-        }
-        
-        rc = drbg_generate(&drbg_state, buf, len * 8U, NULL, 0);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
-        }
+        /* Fail closed for this call and drop the instance: a failed generate
+         * (AES failure) wipes the state, which drbg_reseed() then rejects, so
+         * the next call re-instantiates from fresh entropy instead. */
+        (void)noxtls_drbg_uninstantiate(&drbg_state);
+        drbg_initialized = 0;
+        noxtls_secure_zero(buf, (size_t)len);
+        return NOXTLS_RETURN_FAILED;
     }
 
     return NOXTLS_RETURN_SUCCESS;

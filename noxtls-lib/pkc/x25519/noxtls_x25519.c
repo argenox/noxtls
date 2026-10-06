@@ -1364,25 +1364,33 @@ noxtls_return_t noxtls_x25519_generate_key(uint8_t *private_key,
     if(drbg_initialized == 0) {
         uint8_t seed[NOXTLS_X25519_DRBG_ENTROPY_SEED_BYTES];
         rc = noxtls_drbg_get_entropy(seed, sizeof(seed));
-        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
-        rc = drbg_instantiate(&drbg_state, DRBG_AES256, seed, sizeof(seed), NULL, 0, NULL, 0);
-        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            rc = drbg_instantiate(&drbg_state, DRBG_AES256, seed, sizeof(seed), NULL, 0, NULL, 0);
+        }
+        noxtls_secure_zero(seed, sizeof(seed));
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            (void)noxtls_drbg_uninstantiate(&drbg_state);
+            return rc;
+        }
         drbg_initialized = 1;
     }
 
     rc = drbg_generate(&drbg_state, private_key, NOXTLS_X25519_DRBG_SEED_BITS, NULL, 0);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        /* SECURITY (NX-16): reseed with fresh entropy when the DRBG refuses to generate
-         * (e.g. reseed interval exceeded) instead of failing the keygen permanently. */
-        uint8_t seed[NOXTLS_X25519_DRBG_ENTROPY_SEED_BYTES];
-        rc = noxtls_drbg_get_entropy(seed, sizeof(seed));
-        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
-        rc = drbg_reseed(&drbg_state, seed, sizeof(seed), NULL, 0);
-        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
-        rc = drbg_generate(&drbg_state, private_key, NOXTLS_X25519_DRBG_SEED_BITS, NULL, 0);
-        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
+        /* SECURITY (NX-16): a failed generate (reseed interval exceeded, or an
+         * AES failure that wiped the state) fails this call closed and drops
+         * the instance, so the next call re-instantiates from fresh entropy.
+         * Reseeding in place cannot work: drbg_reseed() rejects a wiped state. */
+        (void)noxtls_drbg_uninstantiate(&drbg_state);
+        drbg_initialized = 0;
+        noxtls_secure_zero(private_key, (size_t)NOXTLS_X25519_KEY_SIZE);
+        return rc;
     }
 
     noxtls_x25519_clamp_scalar(private_key);
-    return noxtls_x25519_public_key(private_key, public_key);
+    rc = noxtls_x25519_public_key(private_key, public_key);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(private_key, (size_t)NOXTLS_X25519_KEY_SIZE);
+    }
+    return rc;
 }
