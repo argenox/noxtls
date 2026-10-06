@@ -33,6 +33,9 @@
 #include "common/noxtls_memory_compat.h"
 #include "common/noxtls_debug_printf.h"
 #include "noxtls_x509.h"
+#if NOXTLS_FEATURE_PBKDF2
+#include "kdf/noxtls_pbkdf.h"
+#endif
 #include "certificates.h"
 #include "asn1.h"
 #include "utility/base64.h"
@@ -590,6 +593,32 @@ static noxtls_return_t noxtls_x509_slhdsa_param_from_oid(const uint8_t *oid,
 }
 #endif
 
+#if NOXTLS_FEATURE_PBKDF2
+/**
+ * @brief Derives the key using PBKDF2-HMAC-SHA1 (RFC 8018 §5.2).
+ *
+ * Thin adapter over the shared noxtls_pbkdf2_hmac() primitive.
+ *
+ * @param[in] password The password to use for the derivation.
+ * @param[in] password_len The length of the password.
+ * @param[in] salt The salt to use for the derivation.
+ * @param[in] params The parameters for the derivation.
+ * @param[out] out The buffer to receive the derived key.
+ *
+ * @return The return code of the function.
+ */
+static noxtls_return_t pbkdf2_hmac_sha1(const uint8_t *password, uint32_t password_len,
+                                         const uint8_t *salt, const pbkdf2_sha1_params_t *params, uint8_t *out)
+{
+    if(password == NULL || salt == NULL || params == NULL || out == NULL || params->iterations == 0) {
+        return NOXTLS_RETURN_NULL;
+    }
+    return noxtls_pbkdf2_hmac(NOXTLS_HASH_SHA1, password, password_len,
+                              salt, params->salt_len, params->iterations,
+                              out, params->key_len);
+}
+#else
+/* Builds without NOXTLS_FEATURE_HMAC keep a private PBKDF2-HMAC-SHA1. */
 /**
  * @brief Computes the HMAC-SHA1 of a message.
  *
@@ -715,6 +744,7 @@ static noxtls_return_t pbkdf2_hmac_sha1(const uint8_t *password, uint32_t passwo
     free(block_input);
     return NOXTLS_RETURN_SUCCESS;
 }
+#endif /* NOXTLS_FEATURE_PBKDF2 */
 #endif
 
 /**

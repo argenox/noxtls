@@ -112,6 +112,8 @@
 /* Enables PBKDF2 (RFC 8018 section 5.2) password-based key derivation over HMAC.
  * Prereq: NOXTLS_FEATURE_HMAC=1.
  * Required by: NOXTLS_FEATURE_MATTER_PASE (Matter passcode verifier).
+ * Also used by: PKCS#8 PBES2 key decryption (falls back to a private
+ * PBKDF2-HMAC-SHA1 when disabled) and IEEE 802.11 PSK-to-PMK mapping.
  * Build knob: NOXTLS_CFG_FEATURE_PBKDF2. Default OFF.
  */
 #ifndef NOXTLS_FEATURE_PBKDF2
