@@ -80,7 +80,8 @@ static uint32_t noxtls_pbkdf2_prf_size(noxtls_hash_algos_t hash_algo)
  * @param[out] out PRF output of hLen bytes.
  * @param[in] out_len hLen.
  *
- * @return NOXTLS_RETURN_SUCCESS or NOXTLS_RETURN_FAILED.
+ * @return NOXTLS_RETURN_SUCCESS, the failing HMAC status, or NOXTLS_RETURN_FAILED
+ *         on an unexpected MAC length. @p out is wiped on failure.
  */
 static noxtls_return_t noxtls_pbkdf2_prf(noxtls_hash_algos_t hash_algo,
                                          const uint8_t *password, uint32_t password_len,
@@ -107,11 +108,14 @@ static noxtls_return_t noxtls_pbkdf2_prf(noxtls_hash_algos_t hash_algo,
 
     (void)noxtls_hmac_free(&hmac);
     noxtls_secure_zero(&hmac, sizeof(hmac));
-    if ((rc != NOXTLS_RETURN_SUCCESS) || (mac_len != out_len)) {
-        return NOXTLS_RETURN_FAILED;
+    if ((rc == NOXTLS_RETURN_SUCCESS) && (mac_len != out_len)) {
+        rc = NOXTLS_RETURN_FAILED;
+    }
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(out, (size_t)out_len);
     }
 
-    return NOXTLS_RETURN_SUCCESS;
+    return rc;
 }
 
 noxtls_return_t noxtls_pbkdf2_hmac(noxtls_hash_algos_t hash_algo,

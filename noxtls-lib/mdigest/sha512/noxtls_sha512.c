@@ -337,6 +337,10 @@ noxtls_return_t noxtls_sha512_finish(noxtls_sha512_ctx_t * ctx, uint8_t * hash)
 {
 	noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
+    if ((ctx == NULL) || (hash == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+
     uint32_t len = 0U;
     uint8_t * data = NULL;    
     uint32_t total_length = 0U;
@@ -391,7 +395,9 @@ noxtls_return_t noxtls_sha512_finish(noxtls_sha512_ctx_t * ctx, uint8_t * hash)
     
     rc = noxtls_sha512_round(ctx, temp);
     
-    if (space_left < ((uint32_t)length_size + 1U))
+    /* A second padding block is only processed when the first compression
+     * succeeded, so its status can never mask an earlier failure. */
+    if ((rc == NOXTLS_RETURN_SUCCESS) && (space_left < ((uint32_t)length_size + 1U)))
     {
         noxtls_secure_zero((temp), (size_t)(block_size));
         if (space_left == 0U) {
@@ -424,6 +430,13 @@ noxtls_return_t noxtls_sha512_finish(noxtls_sha512_ctx_t * ctx, uint8_t * hash)
      else {
          /* MISRA 15.7: no remaining alternative */
      }
+    noxtls_secure_zero((temp), sizeof(temp));
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        /* Never release a partial digest: wipe the output and the state. */
+        noxtls_secure_zero(hash, (size_t)digest_len);
+        noxtls_secure_zero(ctx, sizeof(*ctx));
+        return rc;
+    }
     for (i = 0U; i < digest_len; i += 1U)
     {
         uint8_t word_idx = (uint8_t)(i / SHA512_WORD_BYTES);
@@ -493,11 +506,16 @@ noxtls_return_t noxtls_sha512_verify(const uint8_t * data, uint32_t len, const u
     uint8_t hash[HASH_SHA512_OUT_LEN] = {0};
     noxtls_sha512_ctx_t ctx;
     
-    (void)noxtls_sha512_init(&ctx, NOXTLS_HASH_SHA_512);
-    (void)noxtls_sha512_update(&ctx, data, len);
-    (void)noxtls_sha512_finish(&ctx, hash);
+    noxtls_return_t hrc = noxtls_sha512_init(&ctx, NOXTLS_HASH_SHA_512);
+    if (hrc == NOXTLS_RETURN_SUCCESS) {
+        hrc = noxtls_sha512_update(&ctx, data, len);
+    }
+    if (hrc == NOXTLS_RETURN_SUCCESS) {
+        hrc = noxtls_sha512_finish(&ctx, hash);
+    }
     
-    if (noxtls_ct_equal(hash, expected, sizeof(hash)) != 0) {
+    /* Fail closed: a hashing error is never reported as a match. */
+    if ((hrc == NOXTLS_RETURN_SUCCESS) && (noxtls_ct_equal(hash, expected, sizeof(hash)) != 0)) {
         rc = NOXTLS_RETURN_SUCCESS;
     }
 

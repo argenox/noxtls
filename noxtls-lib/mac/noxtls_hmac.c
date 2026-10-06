@@ -49,6 +49,35 @@ static void noxtls_hmac_sha256_release(noxtls_sha_ctx_t *ctx)
     }
 }
 
+/*
+ * Release the streaming hash state of an HMAC context. The state is derived
+ * from the key pads, so it is always wiped before it is returned.
+ */
+static void noxtls_hmac_hash_ctx_release(noxtls_hash_algos_t hash_algo, void *hash_ctx)
+{
+    if(hash_ctx == NULL) {
+        return;
+    }
+    if(hash_algo == NOXTLS_HASH_SHA_256) {
+        noxtls_hmac_sha256_release((noxtls_sha_ctx_t *)hash_ctx);
+    } else if((hash_algo == NOXTLS_HASH_SHA_384) || (hash_algo == NOXTLS_HASH_SHA_512)) {
+        noxtls_secure_zero(hash_ctx, sizeof(noxtls_sha512_ctx_t));
+        (void)noxtls_free(hash_ctx);
+    } else {
+        noxtls_secure_zero(hash_ctx, sizeof(noxtls_sha_ctx_t));
+        (void)noxtls_free(hash_ctx);
+    }
+}
+
+/* Wipe every key-derived field of an HMAC context (key, ipad, opad). */
+static void noxtls_hmac_wipe_key_material(noxtls_hmac_context_t *ctx)
+{
+    noxtls_secure_zero(ctx->key, sizeof(ctx->key));
+    noxtls_secure_zero(ctx->i_key_pad, sizeof(ctx->i_key_pad));
+    noxtls_secure_zero(ctx->o_key_pad, sizeof(ctx->o_key_pad));
+    ctx->key_len = 0U;
+}
+
 static uint32_t noxtls_hmac_hash_block_size(noxtls_hash_algos_t hash_algo)
 {
     switch (hash_algo) {
@@ -99,23 +128,27 @@ static noxtls_return_t noxtls_hmac_hash_once(noxtls_hash_algos_t hash_algo,
     }
     if ((hash_algo == NOXTLS_HASH_SHA_384) || (hash_algo == NOXTLS_HASH_SHA_512)) {
         noxtls_sha512_ctx_t ctx;
-        if (noxtls_sha512_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
+        noxtls_return_t rc = noxtls_sha512_init(&ctx, hash_algo);
+        if (rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_sha512_update(&ctx, data, len);
         }
-        if (noxtls_sha512_update(&ctx, data, len) != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
+        if (rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_sha512_finish(&ctx, out);
         }
-        return noxtls_sha512_finish(&ctx, out);
+        noxtls_secure_zero(&ctx, sizeof(ctx));
+        return rc;
     }
     if (hash_algo == NOXTLS_HASH_SHA1) {
         noxtls_sha_ctx_t ctx;
-        if (noxtls_sha1_init(&ctx, hash_algo) != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
+        noxtls_return_t rc = noxtls_sha1_init(&ctx, hash_algo);
+        if (rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_sha1_update(&ctx, data, len);
         }
-        if (noxtls_sha1_update(&ctx, data, len) != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
+        if (rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_sha1_finish(&ctx, out);
         }
-        return noxtls_sha1_finish(&ctx, out);
+        noxtls_secure_zero(&ctx, sizeof(ctx));
+        return rc;
     }
     return NOXTLS_RETURN_INVALID_ALGORITHM;
 }
@@ -146,27 +179,35 @@ static noxtls_return_t noxtls_hmac_start_inner(noxtls_hmac_context_t *ctx, uint3
     }
     if ((ctx->hash_algo == NOXTLS_HASH_SHA_384) || (ctx->hash_algo == NOXTLS_HASH_SHA_512)) {
         noxtls_sha512_ctx_t *sha_ctx = (noxtls_sha512_ctx_t *)NOXTLS_MALLOC(sizeof(noxtls_sha512_ctx_t));
+        noxtls_return_t rc;
         if (sha_ctx == NULL) {
             return NOXTLS_RETURN_FAILED;
         }
-        if (noxtls_sha512_init(sha_ctx, ctx->hash_algo) != NOXTLS_RETURN_SUCCESS) {
-            (void)noxtls_free(sha_ctx);
-            return NOXTLS_RETURN_FAILED;
+        rc = noxtls_sha512_init(sha_ctx, ctx->hash_algo);
+        if (rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_sha512_update(sha_ctx, ctx->i_key_pad, block_size);
         }
-        (void)noxtls_sha512_update(sha_ctx, ctx->i_key_pad, block_size);
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_hmac_hash_ctx_release(ctx->hash_algo, sha_ctx);
+            return rc;
+        }
         ctx->hash_ctx = sha_ctx;
         return NOXTLS_RETURN_SUCCESS;
     }
     if (ctx->hash_algo == NOXTLS_HASH_SHA1) {
         noxtls_sha_ctx_t *sha_ctx = (noxtls_sha_ctx_t *)NOXTLS_MALLOC(sizeof(noxtls_sha_ctx_t));
+        noxtls_return_t rc;
         if (sha_ctx == NULL) {
             return NOXTLS_RETURN_FAILED;
         }
-        if (noxtls_sha1_init(sha_ctx, ctx->hash_algo) != NOXTLS_RETURN_SUCCESS) {
-            (void)noxtls_free(sha_ctx);
-            return NOXTLS_RETURN_FAILED;
+        rc = noxtls_sha1_init(sha_ctx, ctx->hash_algo);
+        if (rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_sha1_update(sha_ctx, ctx->i_key_pad, block_size);
         }
-        (void)noxtls_sha1_update(sha_ctx, ctx->i_key_pad, block_size);
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_hmac_hash_ctx_release(ctx->hash_algo, sha_ctx);
+            return rc;
+        }
         ctx->hash_ctx = sha_ctx;
         return NOXTLS_RETURN_SUCCESS;
     }
@@ -179,6 +220,7 @@ noxtls_return_t noxtls_hmac_init(noxtls_hmac_context_t *ctx, noxtls_hash_algos_t
     uint32_t hash_size = 0U;
     uint32_t i = 0U;
     uint8_t key_hash[64];
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if ((ctx == NULL) || (key == NULL)) {
         return NOXTLS_RETURN_NULL;
@@ -194,9 +236,10 @@ noxtls_return_t noxtls_hmac_init(noxtls_hmac_context_t *ctx, noxtls_hash_algos_t
     ctx->hash_algo = hash_algo;
 
     if (key_len > block_size) {
-        if (noxtls_hmac_hash_once(hash_algo, key, key_len, key_hash) != NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_hmac_hash_once(hash_algo, key, key_len, key_hash);
+        if (rc != NOXTLS_RETURN_SUCCESS) {
             noxtls_secure_zero(key_hash, sizeof(key_hash));
-            return NOXTLS_RETURN_FAILED;
+            return rc;
         }
         noxtls_copy_u8(ctx->key, sizeof(ctx->key), key_hash, (size_t)hash_size);
         noxtls_secure_zero(key_hash, sizeof(key_hash));
@@ -212,7 +255,12 @@ noxtls_return_t noxtls_hmac_init(noxtls_hmac_context_t *ctx, noxtls_hash_algos_t
         ctx->o_key_pad[i] = (uint8_t)(b ^ 0x5CU);
     }
 
-    return noxtls_hmac_start_inner(ctx, block_size);
+    rc = noxtls_hmac_start_inner(ctx, block_size);
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        /* No usable context: do not leave the key or its pads behind. */
+        noxtls_hmac_wipe_key_material(ctx);
+    }
+    return rc;
 }
 
 noxtls_return_t noxtls_hmac_update(noxtls_hmac_context_t *ctx, const uint8_t *data, uint32_t data_len)
@@ -274,38 +322,48 @@ noxtls_return_t noxtls_hmac_final(noxtls_hmac_context_t *ctx, uint8_t *mac, uint
         ctx->hash_ctx = NULL;
     } else if((ctx->hash_algo == NOXTLS_HASH_SHA_384) || (ctx->hash_algo == NOXTLS_HASH_SHA_512)) {
         rc = noxtls_sha512_finish((noxtls_sha512_ctx_t *)ctx->hash_ctx, inner_hash);
-        (void)noxtls_free(ctx->hash_ctx);
+        noxtls_hmac_hash_ctx_release(ctx->hash_algo, ctx->hash_ctx);
         ctx->hash_ctx = NULL;
-        if (rc != NOXTLS_RETURN_SUCCESS) {
-            noxtls_secure_zero(inner_hash, sizeof(inner_hash));
-            return rc;
-        }
-        {
+        if (rc == NOXTLS_RETURN_SUCCESS) {
             noxtls_sha512_ctx_t outer;
-            (void)noxtls_sha512_init(&outer, ctx->hash_algo);
-            (void)noxtls_sha512_update(&outer, ctx->o_key_pad, block_size);
-            (void)noxtls_sha512_update(&outer, inner_hash, hash_size);
-            rc = noxtls_sha512_finish(&outer, mac);
+            rc = noxtls_sha512_init(&outer, ctx->hash_algo);
+            if (rc == NOXTLS_RETURN_SUCCESS) {
+                rc = noxtls_sha512_update(&outer, ctx->o_key_pad, block_size);
+            }
+            if (rc == NOXTLS_RETURN_SUCCESS) {
+                rc = noxtls_sha512_update(&outer, inner_hash, hash_size);
+            }
+            if (rc == NOXTLS_RETURN_SUCCESS) {
+                rc = noxtls_sha512_finish(&outer, mac);
+            }
+            noxtls_secure_zero(&outer, sizeof(outer));
         }
     } else {
         rc = noxtls_sha1_finish((noxtls_sha_ctx_t *)ctx->hash_ctx, inner_hash);
-        (void)noxtls_free(ctx->hash_ctx);
+        noxtls_hmac_hash_ctx_release(ctx->hash_algo, ctx->hash_ctx);
         ctx->hash_ctx = NULL;
-        if (rc != NOXTLS_RETURN_SUCCESS) {
-            noxtls_secure_zero(inner_hash, sizeof(inner_hash));
-            return rc;
-        }
-        {
+        if (rc == NOXTLS_RETURN_SUCCESS) {
             noxtls_sha_ctx_t outer;
-            (void)noxtls_sha1_init(&outer, ctx->hash_algo);
-            (void)noxtls_sha1_update(&outer, ctx->o_key_pad, block_size);
-            (void)noxtls_sha1_update(&outer, inner_hash, hash_size);
-            rc = noxtls_sha1_finish(&outer, mac);
+            rc = noxtls_sha1_init(&outer, ctx->hash_algo);
+            if (rc == NOXTLS_RETURN_SUCCESS) {
+                rc = noxtls_sha1_update(&outer, ctx->o_key_pad, block_size);
+            }
+            if (rc == NOXTLS_RETURN_SUCCESS) {
+                rc = noxtls_sha1_update(&outer, inner_hash, hash_size);
+            }
+            if (rc == NOXTLS_RETURN_SUCCESS) {
+                rc = noxtls_sha1_finish(&outer, mac);
+            }
+            noxtls_secure_zero(&outer, sizeof(outer));
         }
     }
 
     if (rc == NOXTLS_RETURN_SUCCESS) {
         *mac_len = hash_size;
+    } else {
+        /* Never release a partial or wrong MAC; drop the key material too. */
+        noxtls_secure_zero(mac, (size_t)hash_size);
+        noxtls_hmac_wipe_key_material(ctx);
     }
     noxtls_secure_zero(inner_hash, sizeof(inner_hash));
     return rc;
@@ -317,11 +375,7 @@ noxtls_return_t noxtls_hmac_free(noxtls_hmac_context_t *ctx)
         return NOXTLS_RETURN_NULL;
     }
     if(ctx->hash_ctx != NULL) {
-        if(ctx->hash_algo == NOXTLS_HASH_SHA_256) {
-            noxtls_hmac_sha256_release((noxtls_sha_ctx_t *)ctx->hash_ctx);
-        } else {
-            (void)noxtls_free(ctx->hash_ctx);
-        }
+        noxtls_hmac_hash_ctx_release(ctx->hash_algo, ctx->hash_ctx);
         ctx->hash_ctx = NULL;
     }
     noxtls_secure_zero((ctx), sizeof(*(ctx)));
