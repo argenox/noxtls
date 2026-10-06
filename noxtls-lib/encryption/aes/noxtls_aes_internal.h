@@ -53,6 +53,10 @@ extern "C" {
 
 typedef uint32_t noxtls_aes_accel_backend_t;
 #define NOXTLS_AES_ACCEL_BACKEND_SOFTWARE ((noxtls_aes_accel_backend_t)0U) /**< Software AES implementation. */
+#define NOXTLS_AES_ACCEL_BACKEND_NI       ((noxtls_aes_accel_backend_t)1U) /**< AES-NI backend. */
+#define NOXTLS_AES_ACCEL_BACKEND_APPLE    ((noxtls_aes_accel_backend_t)2U) /**< Apple Silicon ARMv8 AES backend. */
+#define NOXTLS_AES_ACCEL_BACKEND_PORT     ((noxtls_aes_accel_backend_t)3U) /**< Platform-specific AES backend. */
+#define NOXTLS_AES_ACCEL_BACKEND_STM32    ((noxtls_aes_accel_backend_t)4U) /**< STM32 AES backend. */
 
 /**
  * @brief Encrypt one AES block through the configured block backend.

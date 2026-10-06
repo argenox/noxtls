@@ -238,7 +238,9 @@ def should_skip_setting(setting_id: str, setting_type: str) -> bool:
 
 
 def parse_int_default(raw: str) -> str:
-    raw = raw.strip()
+    # Catalog defaults may carry C integer suffixes (e.g. "100U" since the MISRA
+    # conversion); Kconfig needs a plain integer.
+    raw = re.sub(r"(?<=\d)[uUlL]+", "", raw.strip())
     m = EXPR_RE.fullmatch(raw)
     if m:
         return str(int(m.group(1)) * int(m.group(2)))

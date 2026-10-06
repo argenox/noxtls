@@ -1123,7 +1123,7 @@ static noxtls_return_t bn_mod_2n_by_n_limb(uint8_t *rem_out, uint32_t mod_len,
     if(do_trace != 0) {
         bn_debug_bytes(NULL, rem_out, mod_len, 0);
         (void)noxtls_debug_printf((const uint8_t *)"[bn_mod_2n_by_n] cmp(rem_out, mod) = %d (>=0 means rem_out >= mod)\n",
-                (void)noxtls_bn_cmp(rem_out, mod, mod_len));
+                noxtls_bn_cmp(rem_out, mod, mod_len));
     }
 
     if(use_stack == 0) {
@@ -2115,7 +2115,7 @@ static noxtls_return_t bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
         }
         return NOXTLS_RETURN_NULL;
     }
-    if(g_bn_debug_div_first != 0) { g_bn_debug_div_first = 0; }
+    g_bn_debug_div_first = 0;
     if(g_bn_debug_div_trace != 0) {
         (void)noxtls_debug_printf((const uint8_t *)"[bn_div_remainder] start: a_len=%u b_len=%u mod_len=%u\n",
                             a_len, b_len, mod_len);
@@ -2468,7 +2468,7 @@ noxtls_return_t noxtls_bn_mod(uint8_t *result, const uint8_t *a, uint32_t a_len,
 {
     static int g_bn_debug_mod_first = 1;
     int do_debug = g_bn_debug_mod_first;
-    if(g_bn_debug_mod_first != 0) { g_bn_debug_mod_first = 0; }
+    g_bn_debug_mod_first = 0;
     if(g_bn_debug_modexp_active != 0) {
         /* Always log during mod_exp for the first few calls. */
         if(g_bn_debug_mod_calls < 10U) {
@@ -3071,9 +3071,6 @@ static noxtls_return_t bn_mod_exp_mont(uint8_t *result, const uint8_t *base,
 
 noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const uint8_t *exp, uint32_t exp_len, const uint8_t *mod, uint32_t mod_len)
 {
-    int g_bn_debug_mod_compare_all = 0;
-    int g_bn_debug_mod_first_mismatch_only = 1;
-
     static int g_bn_debug_modexp_first = 1;
     int do_debug = g_bn_debug_modexp_first;
     uint8_t *temp_result = NULL;
@@ -3127,11 +3124,9 @@ noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const ui
         }
     }
 
-    if(g_bn_debug_modexp_first != 0) { g_bn_debug_modexp_first = 0; }
+    g_bn_debug_modexp_first = 0;
     g_bn_debug_modexp_active = 1;
     g_bn_debug_mod_calls = 0;
-    g_bn_debug_mod_compare_all = 1;
-    g_bn_debug_mod_first_mismatch_only = 1;
     temp_result = (uint8_t*)NOXTLS_CALLOC(mod_len, 1);
     temp_base = (uint8_t*)NOXTLS_CALLOC(mod_len, 1);
     exp_copy = (uint8_t*)NOXTLS_CALLOC(exp_len, 1);
@@ -3157,7 +3152,6 @@ noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const ui
             NOXTLS_SECURE_FREE(exp_copy, exp_alloc_len);
             NOXTLS_SECURE_FREE(temp, (size_t)mod_len * 2U);
             g_bn_debug_modexp_active = 0;
-            g_bn_debug_mod_compare_all = 0;
             if((result != NULL) && (mod_len > 0U)) {
                 noxtls_secure_zero((result), (size_t)(mod_len));
             }
@@ -3170,7 +3164,6 @@ noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const ui
             NOXTLS_SECURE_FREE(exp_copy, exp_alloc_len);
             NOXTLS_SECURE_FREE(temp, (size_t)mod_len * 2U);
             g_bn_debug_modexp_active = 0;
-            g_bn_debug_mod_compare_all = 0;
             if((result != NULL) && (mod_len > 0U)) {
                 noxtls_secure_zero((result), (size_t)(mod_len));
             }
@@ -3183,7 +3176,6 @@ noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const ui
             NOXTLS_SECURE_FREE(exp_copy, exp_alloc_len);
             NOXTLS_SECURE_FREE(temp, (size_t)mod_len * 2U);
             g_bn_debug_modexp_active = 0;
-            g_bn_debug_mod_compare_all = 0;
             if((result != NULL) && (mod_len > 0U)) {
                 noxtls_secure_zero((result), (size_t)(mod_len));
             }
@@ -3204,7 +3196,6 @@ noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const ui
         (void)noxtls_free(exp_copy);
         (void)noxtls_free(temp);
         g_bn_debug_modexp_active = 0;
-        g_bn_debug_mod_compare_all = 0;
         return (rc == NOXTLS_RETURN_SUCCESS) ? NOXTLS_RETURN_SUCCESS : rc;
     }
 
@@ -3254,7 +3245,6 @@ noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const ui
             NOXTLS_SECURE_FREE(exp_copy, exp_alloc_len);
             NOXTLS_SECURE_FREE(temp, (size_t)mod_len * 2U);
             g_bn_debug_modexp_active = 0;
-            g_bn_debug_mod_compare_all = 0;
             if((result != NULL) && (mod_len > 0U)) {
                 noxtls_secure_zero((result), (size_t)(mod_len));
             }
@@ -3267,7 +3257,6 @@ noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const ui
             NOXTLS_SECURE_FREE(exp_copy, exp_alloc_len);
             NOXTLS_SECURE_FREE(temp, (size_t)mod_len * 2U);
             g_bn_debug_modexp_active = 0;
-            g_bn_debug_mod_compare_all = 0;
             if((result != NULL) && (mod_len > 0U)) {
                 noxtls_secure_zero((result), (size_t)(mod_len));
             }
@@ -3282,7 +3271,6 @@ noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const ui
             NOXTLS_SECURE_FREE(exp_copy, exp_alloc_len);
             NOXTLS_SECURE_FREE(temp, (size_t)mod_len * 2U);
             g_bn_debug_modexp_active = 0;
-            g_bn_debug_mod_compare_all = 0;
             if((result != NULL) && (mod_len > 0U)) {
                 noxtls_secure_zero((result), (size_t)(mod_len));
             }
@@ -3295,7 +3283,6 @@ noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const ui
             NOXTLS_SECURE_FREE(exp_copy, exp_alloc_len);
             NOXTLS_SECURE_FREE(temp, (size_t)mod_len * 2U);
             g_bn_debug_modexp_active = 0;
-            g_bn_debug_mod_compare_all = 0;
             if((result != NULL) && (mod_len > 0U)) {
                 noxtls_secure_zero((result), (size_t)(mod_len));
             }
@@ -3314,7 +3301,6 @@ noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const ui
     NOXTLS_SECURE_FREE(exp_copy, exp_alloc_len);
     NOXTLS_SECURE_FREE(temp, (size_t)mod_len * 2U);
     g_bn_debug_modexp_active = 0;
-    g_bn_debug_mod_compare_all = 0;
     return NOXTLS_RETURN_SUCCESS;
 
 }

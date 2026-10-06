@@ -83,6 +83,7 @@ noxtls_return_t noxtls_ecc_point_multiply_accel_port(ecc_point_t *result,
                                                       const ecc_point_t *point,
                                                       const ecc_curve_params_t *curve)
 {
+    /* cppcheck-suppress selfAssignment ; MISRA 8.13: marks the non-const parameter as used */
     if(result != NULL) { result->size = result->size; }
     (void)scalar;
     (void)point;

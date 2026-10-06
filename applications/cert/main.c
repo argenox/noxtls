@@ -78,6 +78,16 @@
 #include "utility/base64.h"
 #include "noxtls_ct.h"
 
+/* noxtls_getopt() is POSIX getopt(int, char * const[], const char *) on
+ * non-Windows hosts and the uint8_t-based shim from getopt_win.h on Windows.
+ * The handlers keep argv as uint8_t text (like the NoxTLS API), so adapt the
+ * pointer type at the getopt boundary only. */
+#ifdef _WIN32
+#define APP_GETOPT_ARGV(v) ((uint8_t * const *)(v))
+#else
+#define APP_GETOPT_ARGV(v) ((char * const *)(v))
+#endif
+
 /* ============================================================================
  * Application-private static workspace (per project policy)
  * ============================================================================
@@ -661,7 +671,7 @@ noxtls_return_t read_certificate_handler(int argc, uint8_t **argv)
     noxtls_return_t rc;
     int c;
     
-    while((c = noxtls_getopt(argc, argv, "i:d")) != -1) {
+    while((c = noxtls_getopt(argc, APP_GETOPT_ARGV(argv), "i:d")) != -1) {
         switch(c) {
             case 'i':
                 input_file = optarg;
@@ -716,7 +726,7 @@ noxtls_return_t write_certificate_handler(int argc, uint8_t **argv)
     noxtls_return_t rc;
     int c;
     
-    while((c = noxtls_getopt(argc, argv, "i:o:f:I:O:d")) != -1) {
+    while((c = noxtls_getopt(argc, APP_GETOPT_ARGV(argv), "i:o:f:I:O:d")) != -1) {
         switch(c) {
             case 'i':
                 input_file = optarg;
@@ -850,7 +860,7 @@ noxtls_return_t verify_certificate_handler(int argc, uint8_t **argv)
     noxtls_return_t rc;
     int c;
     
-    while((c = noxtls_getopt(argc, argv, "i:d")) != -1) {
+    while((c = noxtls_getopt(argc, APP_GETOPT_ARGV(argv), "i:d")) != -1) {
         switch(c) {
             case 'i':
                 input_file = optarg;
@@ -909,7 +919,7 @@ noxtls_return_t keyinfo_handler(int argc, uint8_t **argv)
     noxtls_return_t rc;
     int c;
     
-    while((c = noxtls_getopt(argc, argv, "i:d")) != -1) {
+    while((c = noxtls_getopt(argc, APP_GETOPT_ARGV(argv), "i:d")) != -1) {
         switch(c) {
             case 'i':
                 input_file = optarg;
@@ -964,7 +974,7 @@ noxtls_return_t keywrite_handler(int argc, uint8_t **argv)
     noxtls_return_t rc;
     int c;
     
-    while((c = noxtls_getopt(argc, argv, "i:o:f:I:O:d")) != -1) {
+    while((c = noxtls_getopt(argc, APP_GETOPT_ARGV(argv), "i:o:f:I:O:d")) != -1) {
         switch(c) {
             case 'i':
                 input_file = optarg;
@@ -1143,7 +1153,7 @@ noxtls_return_t debug_certificate_handler(int argc, uint8_t **argv)
     uint8_t verbose = 0;
     int c;
     
-    while((c = noxtls_getopt(argc, argv, "i:vd")) != -1) {
+    while((c = noxtls_getopt(argc, APP_GETOPT_ARGV(argv), "i:vd")) != -1) {
         switch(c) {
             case 'i':
                 input_file = optarg;
@@ -1196,7 +1206,7 @@ noxtls_return_t debug_key_handler(int argc, uint8_t **argv)
     uint8_t verbose = 0;
     int c;
     
-    while((c = noxtls_getopt(argc, argv, "i:vd")) != -1) {
+    while((c = noxtls_getopt(argc, APP_GETOPT_ARGV(argv), "i:vd")) != -1) {
         switch(c) {
             case 'i':
                 input_file = optarg;
@@ -1245,6 +1255,7 @@ int main(int argc, char **argv)
 {
     cert_operation_t op = CERT_OP_READ;
     noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
+    uint8_t **op_argv = NULL;
     
     if(argc < 2) {
         print_usage(argv[0]);
@@ -1282,38 +1293,40 @@ int main(int argc, char **argv)
         return -1;
     }
     
-    /* Adjust argc/argv for noxtls_getopt */
+    /* Adjust argc/argv for noxtls_getopt. The C runtime passes char strings;
+     * the handlers work on uint8_t text like the NoxTLS API, so view argv as
+     * uint8_t once here (char and unsigned char share representation). */
     argc--;
-    argv++;
+    op_argv = (uint8_t **)&argv[1];
     
     /* Execute operation */
     switch(op) {
         case CERT_OP_READ:
-            rc = read_certificate_handler(argc, argv);
+            rc = read_certificate_handler(argc, op_argv);
             break;
         case CERT_OP_WRITE:
-            rc = write_certificate_handler(argc, argv);
+            rc = write_certificate_handler(argc, op_argv);
             break;
         case CERT_OP_INFO:
-            rc = info_certificate_handler(argc, argv);
+            rc = info_certificate_handler(argc, op_argv);
             break;
         case CERT_OP_CONVERT:
-            rc = convert_certificate_handler(argc, argv);
+            rc = convert_certificate_handler(argc, op_argv);
             break;
         case CERT_OP_VERIFY:
-            rc = verify_certificate_handler(argc, argv);
+            rc = verify_certificate_handler(argc, op_argv);
             break;
         case CERT_OP_KEY_INFO:
-            rc = keyinfo_handler(argc, argv);
+            rc = keyinfo_handler(argc, op_argv);
             break;
         case CERT_OP_KEY_WRITE:
-            rc = keywrite_handler(argc, argv);
+            rc = keywrite_handler(argc, op_argv);
             break;
         case CERT_OP_DEBUG:
-            rc = debug_certificate_handler(argc, argv);
+            rc = debug_certificate_handler(argc, op_argv);
             break;
         case CERT_OP_KEY_DEBUG:
-            rc = debug_key_handler(argc, argv);
+            rc = debug_key_handler(argc, op_argv);
             break;
         default:
             printf("Error: Unknown operation\n");

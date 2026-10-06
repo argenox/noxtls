@@ -76,7 +76,9 @@ static noxtls_return_t noxtls_sha256_pad(const uint8_t * data, uint32_t zero_pad
 static uint8_t s_sha256_cortexm7_enabled = 1U;
 #endif
 
+#if NOXTLS_SHA256_CORTEXM7_AVAILABLE
 static const uint8_t s_u8txt_sha256_sw_m7[] = { (uint8_t)'S', (uint8_t)'W', (uint8_t)'-', (uint8_t)'M', (uint8_t)'7', 0 };
+#endif
 
 const uint8_t *noxtls_sha256_backend_name(void)
 {

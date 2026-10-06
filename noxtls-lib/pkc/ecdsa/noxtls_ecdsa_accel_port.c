@@ -40,6 +40,7 @@ noxtls_return_t noxtls_ecdsa_sign_accel_port(const ecc_key_t *key,
     (void)key;
     (void)hash;
     (void)hash_len;
+    /* cppcheck-suppress selfAssignment ; MISRA 8.13: marks the non-const parameter as used */
     if(signature != NULL) { signature->size = signature->size; }
     return NOXTLS_RETURN_NOT_SUPPORTED;
 }

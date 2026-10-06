@@ -3609,7 +3609,7 @@ noxtls_return_t noxtls_tls12_send_client_hello(tls12_context_t *ctx)
 
     (void)noxtls_debug_printf((const uint8_t *)"[TLS12_DEBUG] client_hello: len=%u cipher_suites=%u sni=%s\n",
                           offset, num_cipher_suites,
-                          (ctx->server_name != NULL) ? ctx->server_name : "(none)");
+                          (ctx->server_name != NULL) ? ctx->server_name : (const uint8_t *)"(none)");
     for(uint32_t i = 0U; i < offset; i += 1U) {
         (void)noxtls_debug_printf((const uint8_t *)"%02X", client_hello[i]);
         if((((i + 1U) & 15U) == 0U) || ((i + 1U) == offset)) {
@@ -5974,6 +5974,7 @@ noxtls_return_t noxtls_tls12_recv_change_cipher_spec(tls12_context_t *ctx)
         return NOXTLS_RETURN_NULL;
     }
     
+    /* cppcheck-suppress duplicateExpression ; MISRA C:2025 Rule 14.3 infinite-loop idiom */
     while(1U == 1U) {
         uint32_t app_len = TLS_MAX_RECORD_SIZE;
         uint8_t *app_buf = NULL;
@@ -6097,8 +6098,8 @@ noxtls_return_t noxtls_tls12_recv_finished(tls12_context_t *ctx)
         return NOXTLS_RETURN_FAILED;
     }
 
-    uint8_t *finished_msg = record.data;
-    uint32_t finished_len = record.length;
+    uint8_t *finished_msg = NULL;   /* set to the decrypted Finished below */
+    uint32_t finished_len = 0U;
     uint32_t decrypted_len = (uint32_t)(TLS_MAX_RECORD_SIZE + TLS_MAX_SECRET_LEN);
 #if NOXTLS_FEATURE_DTLS
     uint8_t dtls_finished[TLS_HANDSHAKE_HEADER_LEN + TLS_FINISHED_VERIFY_DATA_LEN_12];
@@ -6418,6 +6419,7 @@ noxtls_return_t noxtls_tls12_connect_poll(tls12_context_t *ctx)
         NOXTLS_STATE_ENTER(ctx, NOXTLS_STATE_START);
     }
 
+    /* cppcheck-suppress duplicateExpression ; MISRA C:2025 Rule 14.3 infinite-loop idiom */
     while(1U == 1U) {
         switch(ctx->client_handshake_step) {
             case (uint8_t)TLS12_CLIENT_POLL_SEND_CH:
@@ -7600,10 +7602,12 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
     }
 
     (void)noxtls_debug_printf((const uint8_t *)"[TLS12_DEBUG] Client offered %u cipher suite(s):\n", (uint32_t)cipher_suites_count);
+#if NOXTLS_DEBUG_PRINTF_ENABLED
     for(uint32_t i = 0U; i < cipher_suites_count; i += 1U) {
         uint16_t offered_suite = (uint16_t)(((uint16_t)record.data[offset + (i*2U)] << 8U) | (uint16_t)record.data[offset + (i*2U) + 1U]);
         (void)noxtls_debug_printf((const uint8_t *)"  [TLS12_DEBUG] offered[%u] = 0x%04X\n", (uint32_t)i, (uint32_t)offered_suite);
     }
+#endif
     for(uint32_t j = 0U; j < num_supported; j += 1U) {
         uint16_t srv = supported_suites[j];
         if(tls12_cipher_suite_wire_is_tls13_range(srv) != 0) {
@@ -10196,6 +10200,7 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
             if(reasm != NULL) { (void)noxtls_free(reasm); }
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         }
+        /* cppcheck-suppress duplicateExpression ; MISRA C:2025 Rule 14.3 infinite-loop idiom */
         while(1U == 1U) {
             uint32_t frag_len = frag_cap;
             rc = noxtls_tls_recv_record(&ctx->base.base, &record);
@@ -10528,6 +10533,7 @@ noxtls_return_t noxtls_tls12_recv_change_cipher_spec_client(tls12_context_t *ctx
         return NOXTLS_RETURN_FAILED;
     }
     
+    /* cppcheck-suppress duplicateExpression ; MISRA C:2025 Rule 14.3 infinite-loop idiom */
     while(1U == 1U) {
         uint32_t app_len = TLS_MAX_RECORD_SIZE;
         uint8_t *app_buf = NULL;
@@ -10691,8 +10697,7 @@ noxtls_return_t noxtls_tls12_recv_finished_client(tls12_context_t *ctx)
                 return NOXTLS_RETURN_BAD_DATA;
             }
             assembled_len = TLS_HANDSHAKE_HEADER_LEN + (uint32_t)TLS_FINISHED_VERIFY_DATA_LEN_12;
-            want_len = assembled_len;
-            break;
+            break;  /* complete: the loop is left directly, want_len is not consulted again */
         }
 #endif
         if((piece_len == 0U) || ((assembled_len + piece_len) > sizeof(assembled))) {
@@ -11074,6 +11079,7 @@ noxtls_return_t noxtls_tls12_accept(tls12_context_t *ctx)
             return rc;
         }
         break;
+    /* cppcheck-suppress duplicateExpression ; MISRA C:2025 Rule 14.3 infinite-loop idiom */
     } while(1U == 1U);
     NOXTLS_STATE_EXIT(ctx, NOXTLS_STATE_ACCEPT_RECV_CH, rc);
     
@@ -11492,6 +11498,7 @@ noxtls_return_t noxtls_tls12_accept_poll(tls12_context_t *ctx)
         NOXTLS_STATE_ENTER(ctx, NOXTLS_STATE_START);
     }
 
+    /* cppcheck-suppress duplicateExpression ; MISRA C:2025 Rule 14.3 infinite-loop idiom */
     while(1U == 1U) {
         switch(ctx->server_handshake_step) {
             case (uint8_t)TLS12_SERVER_POLL_RECV_CH:
@@ -12070,6 +12077,7 @@ noxtls_return_t noxtls_tls12_recv(tls12_context_t *ctx, uint8_t *data, uint32_t 
         return NOXTLS_RETURN_SUCCESS;
     }
 
+    /* cppcheck-suppress duplicateExpression ; MISRA C:2025 Rule 14.3 infinite-loop idiom */
     while(1U == 1U) {
         noxtls_return_t rc = noxtls_tls_recv_record(&ctx->base.base, &record);
         if(rc != NOXTLS_RETURN_SUCCESS) {

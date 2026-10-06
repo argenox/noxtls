@@ -30,6 +30,7 @@
  * this app does, the top-level config wins. Hoisting our local one
  * here ensures _NOXTLS_CONFIG_H_ is set from THIS file. */
 #include "noxtls_config.h"
+#include <stdint.h>
 
 static const uint8_t s_app_cert_pub_key_begin[] = { (uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'B',(uint8_t)'E',(uint8_t)'G',(uint8_t)'I',(uint8_t)'N',(uint8_t)' ',(uint8_t)'P',(uint8_t)'U',(uint8_t)'B',(uint8_t)'L',(uint8_t)'I',(uint8_t)'C',(uint8_t)' ',(uint8_t)'K',(uint8_t)'E',(uint8_t)'Y',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',0 };
 static const uint8_t s_app_cert_pub_key_end[] = { (uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'E',(uint8_t)'N',(uint8_t)'D',(uint8_t)' ',(uint8_t)'P',(uint8_t)'U',(uint8_t)'B',(uint8_t)'L',(uint8_t)'I',(uint8_t)'C',(uint8_t)' ',(uint8_t)'K',(uint8_t)'E',(uint8_t)'Y',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',(uint8_t)'-',0 };
@@ -1561,11 +1562,16 @@ static int certgen_self_signed_x509_common(
         tm_after.tm_year % 100, tm_after.tm_mon + 1, tm_after.tm_mday,
         tm_after.tm_hour, tm_after.tm_min, tm_after.tm_sec);
 #else
+    /* gmtime() returns a pointer to one shared static buffer, so copy the first
+     * result before the second call overwrites it (otherwise Not Before == Not After). */
+    struct tm tm_before_copy;
     struct tm *tm_before = gmtime(&now);
     if (tm_before == NULL) {
         fprintf(stderr, "Error: gmtime failed\n");
         return 1;
     }
+    tm_before_copy = *tm_before;
+    tm_before = &tm_before_copy;
     time_t end = now + (time_t)days * 24 * 3600;
     struct tm *tm_after = gmtime(&end);
     if (tm_after == NULL) {
@@ -2320,7 +2326,10 @@ static int cmd_req(int argc, uint8_t **argv, const uint8_t *prog)
  */
 int main(int argc, char **argv)
 {
-    const uint8_t *prog = argv[0];
+    /* The C runtime passes char strings; the cmd_* handlers take uint8_t text
+     * like the NoxTLS API (same representation), so view argv as uint8_t once. */
+    uint8_t **u8_argv = (uint8_t **)argv;
+    const uint8_t *prog = u8_argv[0];
     if (argc < 2) {
         print_usage(prog);
         return 1;
@@ -2334,31 +2343,31 @@ int main(int argc, char **argv)
         return 0;
     }
     if (noxtls_u8_strcmp(argv[1], "genrsa") == 0) {
-        return cmd_genrsa(argc - 1, argv + 1, prog);
+        return cmd_genrsa(argc - 1, u8_argv + 1, prog);
     }
     if (noxtls_u8_strcmp(argv[1], "genec") == 0) {
-        return cmd_genec(argc - 1, argv + 1, prog);
+        return cmd_genec(argc - 1, u8_argv + 1, prog);
     }
     if (noxtls_u8_strcmp(argv[1], "gened25519") == 0) {
-        return cmd_gened25519(argc - 1, argv + 1, prog);
+        return cmd_gened25519(argc - 1, u8_argv + 1, prog);
     }
 #if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
     if (noxtls_u8_strcmp(argv[1], "gened448") == 0) {
-        return cmd_gened448(argc - 1, argv + 1, prog);
+        return cmd_gened448(argc - 1, u8_argv + 1, prog);
     }
 #endif
 #if NOXTLS_FEATURE_ML_DSA
     if (noxtls_u8_strcmp(argv[1], "genmldsa") == 0) {
-        return cmd_genmldsa(argc - 1, argv + 1, prog);
+        return cmd_genmldsa(argc - 1, u8_argv + 1, prog);
     }
 #endif
 #if NOXTLS_FEATURE_SLH_DSA
     if (noxtls_u8_strcmp(argv[1], "genslhdsa") == 0) {
-        return cmd_genslhdsa(argc - 1, argv + 1, prog);
+        return cmd_genslhdsa(argc - 1, u8_argv + 1, prog);
     }
 #endif
     if (noxtls_u8_strcmp(argv[1], "req") == 0) {
-        return cmd_req(argc - 1, argv + 1, prog);
+        return cmd_req(argc - 1, u8_argv + 1, prog);
     }
     fprintf(stderr, "Unknown command: %s\n", argv[1]);
     print_usage(prog);

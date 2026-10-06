@@ -1751,10 +1751,7 @@ noxtls_return_t noxtls_ecdsa_verify(const ecc_key_t *key, const uint8_t *noxtls_
         size_t off = 0U;
         scratch = (uint8_t *)NOXTLS_CALLOC(scratch_len, 1U);
         if (scratch == NULL) {
-            rc = NOXTLS_RETURN_FAILED;
-            if (scratch != NULL) { (void)noxtls_free(scratch); }
-
-            return rc;
+            return NOXTLS_RETURN_FAILED;
         }
         hash = &scratch[off];
         off += 64U;
