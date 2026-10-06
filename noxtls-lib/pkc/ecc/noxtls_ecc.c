@@ -1829,6 +1829,151 @@ static void ecc_mul_256_to_512(uint8_t *out64, const uint8_t *a32, const uint8_t
     }
 }
 
+/* ------------------------------------------------------------------------------------------
+ * P-521 field multiplication. p = 2^521 - 1 is a Mersenne prime, so with V = H * 2^521 + L,
+ * V == H + L (mod p): two folds and a constant-time final step replace the generic bignum
+ * division (about 25x faster per field multiply, no heap use).
+ * ------------------------------------------------------------------------------------------ */
+#define P521_FE_BYTES   66U
+#define P521_FE_LIMBS   17U   /* 17 x 32 = 544 bits >= 528-bit (66-octet) operands */
+#define P521_PROD_LIMBS 34U
+#define P521_TOP_MASK   0x1FFU /* bits 512..520 of limb 16 */
+
+/**
+ * @brief Check if the modulus is P-521 (2^521 - 1, 66 octets big-endian)
+ *
+ * @param p The modulus (public)
+ * @param size The size of the modulus
+ * @return 1 for P-521, 0 otherwise
+ */
+static int ecc_modulus_is_secp521r1(const uint8_t *p, uint32_t size)
+{
+#if defined(NOXTLS_P521_GENERIC_ARITHMETIC) && NOXTLS_P521_GENERIC_ARITHMETIC
+    (void)p;
+    (void)size;
+    return 0;
+#else
+    uint32_t i;
+
+    if((size != P521_FE_BYTES) || (p == NULL) || (p[0] != 0x01U)) {
+        return 0;
+    }
+    for(i = 1U; i < P521_FE_BYTES; i += 1U) {
+        if(p[i] != 0xFFU) {
+            return 0;
+        }
+    }
+    return 1;
+#endif
+}
+
+/**
+ * @brief Load a 66-octet big-endian value into 17 little-endian 32-bit limbs
+ */
+static void p521_limbs_from_be(uint32_t out[P521_FE_LIMBS], const uint8_t in[P521_FE_BYTES])
+{
+    uint32_t k;
+
+    for(k = 0U; k < P521_FE_LIMBS; k += 1U) {
+        out[k] = 0U;
+    }
+    for(k = 0U; k < P521_FE_BYTES; k += 1U) {
+        /* k is the little-endian byte index */
+        out[k >> 2U] |= (uint32_t)in[P521_FE_BYTES - 1U - k] << (8U * (k & 3U));
+    }
+}
+
+/**
+ * @brief out = a * b mod (2^521 - 1), canonical, for any 66-octet operands (also >= p).
+ *
+ * @param out Output, 66 octets big-endian (may alias @p a or @p b)
+ * @param a First operand, 66 octets big-endian
+ * @param b Second operand, 66 octets big-endian
+ */
+static void p521_fe_mul(uint8_t *out, const uint8_t *a, const uint8_t *b)
+{
+    uint32_t al[P521_FE_LIMBS];
+    uint32_t bl[P521_FE_LIMBS];
+    uint32_t prod[P521_PROD_LIMBS];
+    uint32_t s[P521_FE_LIMBS];
+    uint64_t t;
+    uint64_t carry;
+    uint32_t top;
+    uint32_t i;
+    uint32_t j;
+
+    p521_limbs_from_be(al, a);
+    p521_limbs_from_be(bl, b);
+    for(i = 0U; i < P521_PROD_LIMBS; i += 1U) {
+        prod[i] = 0U;
+    }
+    for(i = 0U; i < P521_FE_LIMBS; i += 1U) {
+        carry = 0U;
+        for(j = 0U; j < P521_FE_LIMBS; j += 1U) {
+            t = (uint64_t)prod[i + j] + ((uint64_t)al[i] * (uint64_t)bl[j]) + carry;
+            prod[i + j] = (uint32_t)(t & 0xFFFFFFFFU);
+            carry = t >> 32U;
+        }
+        prod[i + P521_FE_LIMBS] = (uint32_t)carry;
+    }
+
+    /* Fold 1: s = L + H with L = prod mod 2^521 and H = prod >> 521 (< 2^535 since
+     * prod < 2^1056). s < 2^536. */
+    carry = 0U;
+    for(i = 0U; i < P521_FE_LIMBS; i += 1U) {
+        uint32_t lo = (i < (P521_FE_LIMBS - 1U)) ? prod[i] : (prod[i] & P521_TOP_MASK);
+        uint32_t hi = (prod[16U + i] >> 9U) | (prod[17U + i] << 23U);
+        t = (uint64_t)lo + (uint64_t)hi + carry;
+        s[i] = (uint32_t)(t & 0xFFFFFFFFU);
+        carry = t >> 32U;
+    }
+    /* Fold 2: bits >= 521 of s (< 2^15, plus the limb carry) go back to bit 0. */
+    top = (s[P521_FE_LIMBS - 1U] >> 9U) | ((uint32_t)carry << 23U);
+    s[P521_FE_LIMBS - 1U] &= P521_TOP_MASK;
+    carry = (uint64_t)top;
+    for(i = 0U; i < P521_FE_LIMBS; i += 1U) {
+        t = (uint64_t)s[i] + carry;
+        s[i] = (uint32_t)(t & 0xFFFFFFFFU);
+        carry = t >> 32U;
+    }
+    /* Fold 3: s < 2^521 + 2^24, so at most one more bit 521. */
+    top = s[P521_FE_LIMBS - 1U] >> 9U;
+    s[P521_FE_LIMBS - 1U] &= P521_TOP_MASK;
+    carry = (uint64_t)top;
+    for(i = 0U; i < P521_FE_LIMBS; i += 1U) {
+        t = (uint64_t)s[i] + carry;
+        s[i] = (uint32_t)(t & 0xFFFFFFFFU);
+        carry = t >> 32U;
+    }
+    /* Now 0 <= s <= p. s == p (all ones) iff s + 1 carries into bit 521; then s + 1 masked
+     * to 521 bits is the canonical 0. Branch-free. */
+    {
+        uint32_t d[P521_FE_LIMBS];
+        uint32_t is_p;
+        carry = 1U;
+        for(i = 0U; i < P521_FE_LIMBS; i += 1U) {
+            t = (uint64_t)s[i] + carry;
+            d[i] = (uint32_t)(t & 0xFFFFFFFFU);
+            carry = t >> 32U;
+        }
+        is_p = (d[P521_FE_LIMBS - 1U] >> 9U) & 1U;
+        carry = (uint64_t)is_p;
+        for(i = 0U; i < P521_FE_LIMBS; i += 1U) {
+            t = (uint64_t)s[i] + carry;
+            s[i] = (uint32_t)(t & 0xFFFFFFFFU);
+            carry = t >> 32U;
+        }
+        s[P521_FE_LIMBS - 1U] &= P521_TOP_MASK;
+    }
+    for(i = 0U; i < P521_FE_BYTES; i += 1U) {
+        out[P521_FE_BYTES - 1U - i] = (uint8_t)(s[i >> 2U] >> (8U * (i & 3U)));
+    }
+    noxtls_secure_zero(al, sizeof(al));
+    noxtls_secure_zero(bl, sizeof(bl));
+    noxtls_secure_zero(prod, sizeof(prod));
+    noxtls_secure_zero(s, sizeof(s));
+}
+
 /**
  * @brief Merge a field/point operation status into a running status
  *
@@ -1865,6 +2010,9 @@ static noxtls_return_t ecc_mul_mod(uint8_t *out, const uint8_t *a, const uint8_t
     }
     if(ecc_modulus_is_secp256r1(p, size) != 0) {
         p256_fe_mul(out, a, b);
+    } else if(ecc_modulus_is_secp521r1(p, size) != 0) {
+        (void)tmp2n;
+        p521_fe_mul(out, a, b);
     } else if(size == 32U) {
         uint8_t prod64[64];
         ecc_mul_256_to_512(prod64, a, b);
@@ -1895,7 +2043,16 @@ static noxtls_return_t ecc_mul_mod(uint8_t *out, const uint8_t *a, const uint8_t
 static noxtls_return_t ecc_mul_small_mod(uint8_t *out, const uint8_t *a, const uint8_t *k,
                                          const uint8_t *p, uint32_t size, uint8_t *tmp)
 {
-    noxtls_return_t rc = noxtls_bn_mul(tmp, a, size, k, 1U);
+    noxtls_return_t rc;
+
+    if(ecc_modulus_is_secp521r1(p, size) != 0) {
+        uint8_t k_fe[P521_FE_BYTES];
+        (void)noxtls_bn_zero(k_fe, P521_FE_BYTES);
+        k_fe[P521_FE_BYTES - 1U] = k[0];
+        p521_fe_mul(out, a, k_fe);
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    rc = noxtls_bn_mul(tmp, a, size, k, 1U);
     if(rc == NOXTLS_RETURN_SUCCESS) {
         rc = noxtls_bn_mod(out, tmp, size + 1U, p, size);
     }

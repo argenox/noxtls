@@ -65,11 +65,11 @@ extern "C" {
 #define NOXTLS_ED448_PH_FLAG_PREHASH         1U
 /** Clamp low byte of expanded scalar (RFC 8032). */
 #define NOXTLS_ED448_SCALAR_CLAMP_BYTE0_MASK    0xFCU
-/** Clamp high byte of expanded scalar, AND mask (RFC 8032). */
-#define NOXTLS_ED448_SCALAR_CLAMP_BYTE55_AND    0x7FU
-/** Clamp high byte of expanded scalar, OR mask (RFC 8032). */
-#define NOXTLS_ED448_SCALAR_CLAMP_BYTE55_OR    0x40U
-/** Clear sign bit when decoding compressed Y (RFC 8032). */
+/** Clamp octet 55 of the expanded scalar, AND mask (RFC 8032 5.2.5: no bits cleared). */
+#define NOXTLS_ED448_SCALAR_CLAMP_BYTE55_AND    0xFFU
+/** Clamp octet 55 of the expanded scalar, OR mask (RFC 8032 5.2.5: highest bit set; octet 56 is cleared). */
+#define NOXTLS_ED448_SCALAR_CLAMP_BYTE55_OR    0x80U
+/** Reserved bits of the last encoded octet (must be zero, RFC 8032 5.2.3); bit 7 is the sign of x. */
 #define NOXTLS_ED448_COMPRESSED_Y_SIGN_MASK    0x7FU
 /** Cofactor ladder for verification (RFC 8032). */
 #define NOXTLS_ED448_VERIFY_COFACTOR            4U

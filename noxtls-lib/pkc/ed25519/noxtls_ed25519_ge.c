@@ -1396,6 +1396,12 @@ noxtls_return_t ge25519_decode_n(ge25519_n_t *p, const uint8_t *enc)
         fe25519_native_mul(&x, &x, &g_ed25519_sqrtm1);
     }
 
+    /* RFC 8032 5.1.3 step 4: x = 0 with x_0 = 1 is a non-canonical ("negative zero")
+     * encoding and must be rejected. */
+    if((fe25519_native_iszero(&x) != 0U) && (sign != 0U)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+
     if(fe25519_native_isnegative(&x) != sign) {
         fe25519_native_neg(&x, &x);
     }
