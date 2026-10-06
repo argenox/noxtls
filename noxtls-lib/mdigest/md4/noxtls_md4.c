@@ -203,7 +203,12 @@ noxtls_return_t noxtls_md4_round(noxtls_sha_ctx_t * ctx, const uint8_t * input)
     
     /* Copy the noxtls_message to the first 16 words (little-endian) */
     for(t = 0U; t < MD4_WORDS_PER_BLOCK; t += 1U) {
-        w[t] = (input[(t * MD4_WORD_BYTES) +3U] <<24U) | ((input[(t * MD4_WORD_BYTES) +2U]) <<16U) | ((uint16_t)input[(t * MD4_WORD_BYTES) + 1U] << 8U) | (uint16_t)input[(t * MD4_WORD_BYTES)];
+        /* Widen each byte to uint32_t before shifting: a promoted (signed) int
+         * byte << 24 overflows for bytes >= 0x80 (undefined behaviour). */
+        w[t] = ((uint32_t)input[(t * MD4_WORD_BYTES) + 3U] << 24U) |
+               ((uint32_t)input[(t * MD4_WORD_BYTES) + 2U] << 16U) |
+               ((uint32_t)input[(t * MD4_WORD_BYTES) + 1U] << 8U) |
+               (uint32_t)input[(t * MD4_WORD_BYTES)];
         if(md4_debug_lvl > 0U) {
             (void)noxtls_debug_printf((const uint8_t *)"w[%d] %u  0x%08x\n", t, w[t], w[t]);
         }

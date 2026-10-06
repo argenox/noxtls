@@ -41,4 +41,8 @@ noxtls_return_t noxtls_camellia_decrypt_block_internal(const uint8_t* key, const
  * for an unsupported key type, NOXTLS_RETURN_SUCCESS otherwise. */
 noxtls_return_t noxtls_camellia_check_oneshot_args(const uint8_t* key, const uint8_t* data, const uint8_t* output, noxtls_camellia_type_t type);
 
+/* Increment a 128-bit CTR counter block (big-endian, wraps mod 2^128). Used by
+ * both the one-shot and the streaming CTR implementations. */
+void noxtls_camellia_counter_inc(uint8_t counter[NOXTLS_CAMELLIA_BLOCK_LENGTH]);
+
 #endif /* NOXTLS_CAMELLIA_INTERNAL_H_ */
