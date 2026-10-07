@@ -7,6 +7,7 @@
 * Summary: STM32 AES acceleration port hook.
 *****************************************************************************/
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "noxtls_aes_accel.h"
