@@ -7,6 +7,8 @@
 * Summary: In-house SHA-256 block core used by STM32 hash acceleration hooks.
 *****************************************************************************/
 
+#include <stddef.h>
+
 #include "vendor/st/common/noxtls_stm32_hash_core.h"
 
 static const uint32_t s_sha256_k[NOXTLS_STM32_SHA256_ROUND_COUNT] = {

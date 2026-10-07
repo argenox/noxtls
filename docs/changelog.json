@@ -1,8 +1,21 @@
 {
   "releases": [
     {
-      "version": "0.3.3",
+      "version": "0.3.4",
       "date": "TBD",
+      "changes": [
+        "Patch release on top of 0.3.3. Build fix only; no API, ABI, configuration, or wire-format changes, and no change to generated code. 0.3.4 is a drop-in replacement for 0.3.3."
+      ],
+      "fixed": [
+        "**Cortex-M7 and STM32 accelerated builds failed with `'NULL' undeclared`.** `noxtls_sha256_cortexm7.c`, `noxtls_stm32_hash_core.c` and `noxtls_aes_accel_stm32_port.c` used `NULL` and `size_t` without including `<stddef.h>`. They used to get the definitions indirectly through `<stdio.h>` in other NoxTLS headers, which the 0.3.0 MISRA cleanup removed, so every build that compiles the Cortex-M7 SHA-256 core or the STM32 hash/AES ports failed (for example STM32F767 and STM32H7 targets). Each file now includes `<stddef.h>` itself."
+      ],
+      "known_issues": [
+        "The known issues listed for 0.3.0 still apply."
+      ]
+    },
+    {
+      "version": "0.3.3",
+      "date": "10/6/2026",
       "changes": [
         "Patch release on top of 0.3.2. CC13xx hardware-acceleration changes only; no API signature, ABI, or wire-format changes. Builds that do not enable a CC13xx accelerator port are unaffected.",
         "**Per-engine CC13xx accelerator switches.** `NOXTLS_CFG_FEATURE_CC13XX_AES_ACCEL` and `NOXTLS_CFG_FEATURE_CC13XX_P256_ACCEL` select the AES and P-256 callback ports separately. `NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL` remains an umbrella that enables both, so existing configurations behave as before. See [CC13xx hardware accelerator](./cc13xx-accelerator.md).",

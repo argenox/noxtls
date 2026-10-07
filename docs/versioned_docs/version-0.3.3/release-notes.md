@@ -15,7 +15,7 @@ Use the **version dropdown** in the navbar to view docs (and release notes) for 
 
 ## 0.3.3
 
-**Release date:** TBD
+**Release date:** 10/6/2026
 
 ### Changes
 
