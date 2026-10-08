@@ -48,19 +48,27 @@
  *   A wrong password is detected by the Finished check (handshake failure).
  *
  * Typical Thread use (Commissioner / Joiner as DTLS client, Border Agent /
- * Joiner Router as DTLS server):
+ * Joiner Router as DTLS server). The server calls noxtls_tls12_accept_poll()
+ * where the client calls noxtls_tls12_connect_poll(); the exported key block
+ * is the input of the Thread KEK:
  * @code
  *   tls12_context_t dtls;
- *   noxtls_dtls12_context_init(&dtls, TLS_ROLE_CLIENT);   // or TLS_ROLE_SERVER
+ *   noxtls_dtls12_context_init(&dtls, TLS_ROLE_CLIENT);
  *   noxtls_tls_set_io_callbacks(&dtls.base.base, send_cb, recv_cb, user);
  *   noxtls_tls_set_time_callback(&dtls.base.base, now_ms_cb);
  *   noxtls_tls12_set_ecjpake_password(&dtls, pskc_or_pskd, length);
- *   do { rc = noxtls_tls12_connect_poll(&dtls); }          // accept_poll on the server
+ *   do { rc = noxtls_tls12_connect_poll(&dtls); }
  *   while ((rc == NOXTLS_RETURN_WANT_READ) || (rc == NOXTLS_RETURN_WANT_WRITE));
- *   noxtls_tls12_ecjpake_export_key_block(&dtls, kb, sizeof(kb), &kb_len); // Thread KEK input
- *   noxtls_tls12_send(&dtls, data, len);  noxtls_tls12_recv(&dtls, buf, &len);
- *   noxtls_tls12_close(&dtls);  noxtls_tls12_context_free(&dtls);
+ *   noxtls_tls12_ecjpake_export_key_block(&dtls, kb, sizeof(kb), &kb_len);
+ *   noxtls_tls12_send(&dtls, data, len);
+ *   noxtls_tls12_recv(&dtls, buf, &len);
+ *   noxtls_tls12_close(&dtls);
+ *   noxtls_tls12_context_free(&dtls);
  * @endcode
+ * DTLS 1.2 polling is available for EC-JPAKE contexts: an empty receive
+ * (the transport returns 0) is reported as NOXTLS_RETURN_WANT_READ and the
+ * DTLS flight retransmission timer runs from the time callback (RFC 6347
+ * section 4.2.4).
  * The blocking noxtls_tls12_connect() / noxtls_tls12_accept() drive the
  * same handshake.
  */

@@ -47,6 +47,10 @@ if(NOXTLS_CFG_FEATURE_ECJPAKE)
     noxtls_pake_add_ut(noxtls_ecjpake_ut ecjpake_ut.c noxtls_pake)
 endif()
 
+if(NOXTLS_CFG_FEATURE_DTLS_ECJPAKE AND TARGET noxtls_tls)
+    noxtls_pake_add_ut(noxtls_dtls_ecjpake_ut dtls_ecjpake_ut.c noxtls_tls noxtls_pake)
+endif()
+
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
     if(NOXTLS_CFG_FEATURE_SPAKE2P)
