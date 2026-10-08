@@ -95,8 +95,8 @@
  *   small stacks.
  */
 
-#ifndef _NOXTLS_ECJPAKE_H_
-#define _NOXTLS_ECJPAKE_H_
+#ifndef NOXTLS_ECJPAKE_H_
+#define NOXTLS_ECJPAKE_H_
 
 #include <stdint.h>
 
@@ -107,27 +107,23 @@
 extern "C" {
 #endif
 
-/** @brief Protocol role; selects the local and peer user identities. */
-typedef enum
-{
-    /** TLS client ("client"; draft keys x1, x2). Thread: Joiner or Commissioner. */
-    NOXTLS_ECJPAKE_ROLE_CLIENT = 0,
-    /** TLS server ("server"; draft keys x3, x4). Thread: Joiner Router / Commissioner or Border Agent. */
-    NOXTLS_ECJPAKE_ROLE_SERVER = 1
-} noxtls_ecjpake_role_t;
+/** @brief Protocol role; selects the local and peer user identities (unsigned for MISRA C:2025 Rule 10.3). */
+typedef uint32_t noxtls_ecjpake_role_t;
+/** @brief TLS client ("client"; draft keys x1, x2). Thread: Joiner or Commissioner. */
+#define NOXTLS_ECJPAKE_ROLE_CLIENT ((noxtls_ecjpake_role_t)0U)
+/** @brief TLS server ("server"; draft keys x3, x4). Thread: Joiner Router / Commissioner or Border Agent. */
+#define NOXTLS_ECJPAKE_ROLE_SERVER ((noxtls_ecjpake_role_t)1U)
 
 /** @brief Context lifecycle state (exposed for diagnostics). */
-typedef enum
-{
-    /** Unused or freed context. */
-    NOXTLS_ECJPAKE_STATE_EMPTY = 0,
-    /** Initialized; rounds in progress (see progress flags). */
-    NOXTLS_ECJPAKE_STATE_ACTIVE,
-    /** Premaster secret derived; secrets erased. */
-    NOXTLS_ECJPAKE_STATE_DONE,
-    /** Aborted after a protocol or validation error; secrets erased. */
-    NOXTLS_ECJPAKE_STATE_FAILED
-} noxtls_ecjpake_state_t;
+typedef uint32_t noxtls_ecjpake_state_t;
+/** @brief Unused or freed context. */
+#define NOXTLS_ECJPAKE_STATE_EMPTY ((noxtls_ecjpake_state_t)0U)
+/** @brief Initialized; rounds in progress (see progress flags). */
+#define NOXTLS_ECJPAKE_STATE_ACTIVE ((noxtls_ecjpake_state_t)1U)
+/** @brief Premaster secret derived; secrets erased. */
+#define NOXTLS_ECJPAKE_STATE_DONE ((noxtls_ecjpake_state_t)2U)
+/** @brief Aborted after a protocol or validation error; secrets erased. */
+#define NOXTLS_ECJPAKE_STATE_FAILED ((noxtls_ecjpake_state_t)3U)
 
 /** @brief Progress flag: own round-one key pairs generated. */
 #define NOXTLS_ECJPAKE_FLAG_OWN_ROUND_ONE (0x01U)
@@ -298,4 +294,4 @@ void noxtls_ecjpake_free(noxtls_ecjpake_ctx_t *ctx);
 }
 #endif
 
-#endif /* _NOXTLS_ECJPAKE_H_ */
+#endif /* NOXTLS_ECJPAKE_H_ */

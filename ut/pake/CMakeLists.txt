@@ -2,8 +2,9 @@
 # PASE UTNox tests. Added from ut/CMakeLists.txt when NOXTLS_BUILD_PAKE_TESTS
 # is ON; links the library targets of the enclosing NoxTLS build, so enable the
 # matching NOXTLS_CFG_FEATURE_* knobs (PBKDF2, SPAKE2P, SPAKE2P_RFC9383,
-# SPAKE2P_MATTER, MATTER_PASE). Vectors: spake2p_test_vectors.h, generated and
-# checked by spake2p_reference.py.
+# SPAKE2P_MATTER, MATTER_PASE, ECJPAKE, DTLS_ECJPAKE). Vectors:
+# spake2p_test_vectors.h / ecjpake_test_vectors.h, generated and checked by
+# spake2p_reference.py / ecjpake_reference.py.
 
 if(NOT TARGET utnox)
     set(NOXTLS_ERROR_UTNOX "" CACHE PATH "Existing UTNox source checkout")
@@ -42,8 +43,18 @@ if(NOXTLS_CFG_FEATURE_MATTER_PASE)
     noxtls_pake_add_ut(noxtls_matter_pase_ut matter_pase_ut.c noxtls_pake)
 endif()
 
+if(NOXTLS_CFG_FEATURE_ECJPAKE)
+    noxtls_pake_add_ut(noxtls_ecjpake_ut ecjpake_ut.c noxtls_pake)
+endif()
+
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
-    add_test(NAME noxtls_spake2p_reference_vectors
-        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/spake2p_reference.py" --check)
+    if(NOXTLS_CFG_FEATURE_SPAKE2P)
+        add_test(NAME noxtls_spake2p_reference_vectors
+            COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/spake2p_reference.py" --check)
+    endif()
+    if(NOXTLS_CFG_FEATURE_ECJPAKE)
+        add_test(NAME noxtls_ecjpake_reference_vectors
+            COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/ecjpake_reference.py" --check)
+    endif()
 endif()

@@ -37,8 +37,8 @@
  * header is included; everything else is fixed by the specifications.
  */
 
-#ifndef _NOXTLS_ECJPAKE_CONFIG_H_
-#define _NOXTLS_ECJPAKE_CONFIG_H_
+#ifndef NOXTLS_ECJPAKE_CONFIG_H_
+#define NOXTLS_ECJPAKE_CONFIG_H_
 
 /** @brief P-256 scalar / field element size in bytes (SEC 2 v2.0 section 2.4.2). */
 #define NOXTLS_ECJPAKE_SCALAR_SIZE (32U)
@@ -139,4 +139,4 @@
 #define NOXTLS_ECJPAKE_MAX_RANDOM_RETRIES (8U)
 #endif
 
-#endif /* _NOXTLS_ECJPAKE_CONFIG_H_ */
+#endif /* NOXTLS_ECJPAKE_CONFIG_H_ */
