@@ -23,6 +23,9 @@ set(TLS_SOURCES
 if(NOXTLS_CFG_FEATURE_TLS12)
   list(APPEND TLS_SOURCES noxtls_tls12.c)
 endif()
+if(NOXTLS_CFG_FEATURE_TLS12 AND NOXTLS_CFG_FEATURE_DTLS_ECJPAKE)
+  list(APPEND TLS_SOURCES noxtls_tls12_ecjpake.c)
+endif()
 if(NOXTLS_CFG_FEATURE_TLS10)
   list(APPEND TLS_SOURCES noxtls_tls10.c)
 endif()
@@ -92,5 +95,9 @@ target_link_libraries(noxtls_tls
 
 if(TARGET noxtls_cert)
     target_link_libraries(noxtls_tls noxtls_cert)
+endif()
+if(NOXTLS_CFG_FEATURE_DTLS_ECJPAKE)
+    target_include_directories(noxtls_tls PUBLIC ${NOXTLS_LIB_ROOT}/pake)
+    target_link_libraries(noxtls_tls noxtls_pake)
 endif()
 

@@ -67,6 +67,7 @@ const sidebars = {
     'security-reporting',
     'eddsa',
     'spake2p',
+    'ecjpake',
     'cc13xx-accelerator',
     'tls',
     'dtls13',

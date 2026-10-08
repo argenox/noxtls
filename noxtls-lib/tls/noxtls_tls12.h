@@ -38,6 +38,10 @@ extern "C" {
 
 #include "certs/noxtls_x509_crl_fwd.h"
 struct noxtls_x509_verify_policy;
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+/* EC-JPAKE exchange state (pake/noxtls_ecjpake.h). */
+struct noxtls_ecjpake_ctx_s;
+#endif
 
 #define TLS12_SESSION_CACHE_SIZE   16U
 #define TLS12_SESSION_SNI_MAX      255u
@@ -251,6 +255,10 @@ struct tls12_context_s
 
     /** Server: optional explicit client-certificate policy (non-owning); overrides the global trust store. */
     const struct noxtls_x509_verify_policy *client_verify_policy;
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+    /** EC-JPAKE state (draft-cragie-tls-ecjpake-01); non-NULL after noxtls_tls12_set_ecjpake_password(). Owned. */
+    struct noxtls_ecjpake_ctx_s *ecjpake;
+#endif
 };
 #ifndef NOXTLS_TLS12_CONTEXT_T_DEFINED
 #define NOXTLS_TLS12_CONTEXT_T_DEFINED

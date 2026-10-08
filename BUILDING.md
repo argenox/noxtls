@@ -199,6 +199,17 @@ cmake -S . -B build -D NOXTLS_CFG_FEATURE_PBKDF2=ON -D NOXTLS_CFG_FEATURE_SPAKE2
 
 `NOXTLS_CFG_FEATURE_SPAKE2P_RFC9383` (ON) and `NOXTLS_CFG_FEATURE_SPAKE2P_MATTER` (OFF) select which key-schedule profiles are compiled; at least one is required. Unit tests: add `-D BUILD_TESTS=ON -D NOXTLS_BUILD_PAKE_TESTS=ON -D NOXTLS_ERROR_UTNOX=<utnox checkout>`. See `docs/docs/spake2p.md`.
 
+## EC-JPAKE and the DTLS 1.2 EC-JPAKE suite (optional)
+
+EC-JPAKE (RFC 8236 / RFC 8235 over P-256) and `TLS_ECJPAKE_WITH_AES_128_CCM_8` for TLS 1.2 / DTLS 1.2 (draft-cragie-tls-ecjpake-01, as used by Thread MeshCoP commissioning) are disabled by default:
+
+```bash
+cmake -S . -B build -D NOXTLS_CFG_FEATURE_ECJPAKE=ON                                        # primitive only
+cmake -S . -B build -D NOXTLS_CFG_FEATURE_ECJPAKE=ON -D NOXTLS_CFG_FEATURE_DTLS_ECJPAKE=ON   # + DTLS 1.2 suite
+```
+
+Unit tests: add `-D BUILD_TESTS=ON -D NOXTLS_BUILD_PAKE_TESTS=ON -D NOXTLS_ERROR_UTNOX=<utnox checkout>`. See `docs/docs/ecjpake.md`.
+
 ## Self-Signed Certificate Generation (certgen)
 
 The X.509 write/generate APIs in `noxtls-lib/certs/noxtls_x509_write.c` are gated by `NOXTLS_HAVE_CERT_WRITE`, which is now **ON by default** in the `default`, `tls_server_pki` and `fips_like_profile` profiles. They are required to use the `certgen req -new -x509` command. To explicitly toggle:

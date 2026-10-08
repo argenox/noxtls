@@ -592,6 +592,25 @@
 #define NOXTLS_FEATURE_MATTER_PASE 0
 #endif
 
+/* Enables EC-JPAKE over P-256 with SHA-256 Schnorr NIZK proofs (RFC 8236 section 3,
+ * RFC 8235 section 3, draft-cragie-tls-ecjpake-01 section 8).
+ * Prereq: NOXTLS_FEATURE_PKC=1 and NOXTLS_FEATURE_ECC=1 and NOXTLS_FEATURE_SHA256=1 and NOXTLS_FEATURE_DRBG=1.
+ * Build knob: NOXTLS_CFG_FEATURE_ECJPAKE. Default OFF.
+ */
+#ifndef NOXTLS_FEATURE_ECJPAKE
+#define NOXTLS_FEATURE_ECJPAKE 0
+#endif
+
+/* Enables TLS_ECJPAKE_WITH_AES_128_CCM_8 (0xC0FF) and the ecjpake_key_kp_pair extension (256)
+ * in the TLS 1.2 / DTLS 1.2 engine (draft-cragie-tls-ecjpake-01; Thread MeshCoP commissioning).
+ * Prereq: NOXTLS_FEATURE_ECJPAKE=1 and NOXTLS_FEATURE_TLS=1 and NOXTLS_FEATURE_TLS12=1 and
+ * NOXTLS_FEATURE_DTLS=1 and NOXTLS_FEATURE_AES_CCM=1.
+ * Build knob: NOXTLS_CFG_FEATURE_DTLS_ECJPAKE. Default OFF.
+ */
+#ifndef NOXTLS_FEATURE_DTLS_ECJPAKE
+#define NOXTLS_FEATURE_DTLS_ECJPAKE 0
+#endif
+
 /* TLS/cert granularity */
 /* Enables TLS 1.0 protocol implementation.
  * Prereq: NOXTLS_FEATURE_TLS=1.
