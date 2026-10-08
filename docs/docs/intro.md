@@ -31,6 +31,7 @@ NoxTLS is a C cryptography and TLS/DTLS library for embedded and systems softwar
 - **X.509 / certificates**: Parsing, verification (including explicit per-call trust policies), strict raw extension lookup, and TLS integration
 - **Key derivation and key transport**: HKDF, PBKDF2 (RFC 8018), AES key wrap (RFC 3394)
 - **PAKE**: SPAKE2+ (RFC 9383) and Matter PASE helpers (feature-gated). See [SPAKE2+ and Matter PASE](./spake2p.md)
+- **EC-JPAKE**: RFC 8236 EC-JPAKE and the DTLS 1.2 `TLS_ECJPAKE_WITH_AES_128_CCM_8` suite for Thread MeshCoP (feature-gated). See [EC-JPAKE and DTLS-ECJPAKE](./ecjpake.md)
 - **Coding standard**: MISRA C:2025. See [MISRA C:2025](./misra-c.md)
 
 ## TLS and DTLS at a glance

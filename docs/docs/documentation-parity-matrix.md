@@ -32,6 +32,7 @@ This matrix tracks documentation coverage for the `noxtls` surface area and pari
 | Key derivation (HKDF, PBKDF2) | `noxtls-lib/kdf/*` | `api/kdf.md` | Covered (0.3.0) |
 | AES key wrap (RFC 3394) | `noxtls-lib/encryption/aes/noxtls_aes_keywrap.*` | `api/aes_keywrap.md` | Covered (0.3.0) |
 | SPAKE2+ / Matter PASE | `noxtls-lib/pake/*` | `spake2p.md`, `api/spake2p.md` | Covered (0.3.0) |
+| EC-JPAKE / DTLS 1.2 EC-JPAKE suite | `noxtls-lib/pake/noxtls_ecjpake*`, `noxtls-lib/tls/noxtls_tls12_ecjpake*` | `ecjpake.md` | Covered (0.3.5) |
 | X.509 explicit policy and raw extensions | `noxtls-lib/certs/noxtls_x509.h`, `noxtls_x509_ext.*` | `api/certs.md`, `api/tls12.md` | Covered (0.3.0) |
 | MISRA C:2025 conventions and status | `noxtls-lib/common/noxtls_ct.h`, `noxtls_misra_refs.h`, `scripts/check_allocator_policy.py` | `misra-c.md` | Covered (0.3.0); no published scan report |
 

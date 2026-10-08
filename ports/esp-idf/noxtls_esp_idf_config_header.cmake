@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-07T00:30:57Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-08T16:15:57Z)
 
 function(noxtls_esp_idf_write_config_features_header out_file)
   if(NOT out_file)
@@ -236,6 +236,12 @@ else()
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_DTLS 0\n")
 endif()
 
+if(NOXTLS_CFG_FEATURE_DTLS_ECJPAKE)
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_DTLS_ECJPAKE 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_DTLS_ECJPAKE 0\n")
+endif()
+
 if(NOXTLS_CFG_FEATURE_ECC)
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_ECC 1\n")
 else()
@@ -252,6 +258,12 @@ if(NOXTLS_CFG_FEATURE_ECDSA)
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_ECDSA 1\n")
 else()
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_ECDSA 0\n")
+endif()
+
+if(NOXTLS_CFG_FEATURE_ECJPAKE)
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_ECJPAKE 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_ECJPAKE 0\n")
 endif()
 
 if(NOXTLS_CFG_FEATURE_ED25519)
