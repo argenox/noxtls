@@ -45,6 +45,14 @@ void noxtls_ecc_yield(void)
 #include "noxtls_p256_precomputed_g.h"
 #endif
 
+#if NOXTLS_FEATURE_AES_128 && !NOXTLS_FEATURE_AES_256
+#define NOXTLS_ECC_KEYGEN_DRBG_TYPE DRBG_AES128
+#define NOXTLS_ECC_KEYGEN_DRBG_SEEDLEN DRBG_SEEDLEN_AES128
+#else
+#define NOXTLS_ECC_KEYGEN_DRBG_TYPE DRBG_AES256
+#define NOXTLS_ECC_KEYGEN_DRBG_SEEDLEN DRBG_SEEDLEN_AES256
+#endif
+
 /* Disable verbose stderr debug prints in this file. */
 #define NOXTLS_ECC_TRACE(...) ((void)0)
 

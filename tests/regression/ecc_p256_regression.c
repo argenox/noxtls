@@ -95,6 +95,7 @@ int main(void)
     ecc_curve_params_t curve;
     ecc_point_t captured_invalid;
     ecc_key_t local_key;
+    ecc_key_t generated_key;
     ecc_point_t local_before;
     uint8_t dense_scalar[32];
     uint8_t shared_secret[32];
@@ -117,6 +118,21 @@ int main(void)
                              scalar_dense,
                              "f38659b4201fae0cafc60429e337794c4e4e10b07cd318847cb0ffad1b00d219",
                              "63d110d1580609fa6068e3e99db0b51d1ff4a3129eb74d664a0990fe9315f349");
+
+    memset(&generated_key, 0, sizeof(generated_key));
+    if(noxtls_ecc_key_generate(&generated_key, NOXTLS_ECC_SECP256R1) !=
+           NOXTLS_RETURN_SUCCESS ||
+       generated_key.d == NULL || generated_key.curve == NULL ||
+       generated_key.Q.size != 32U ||
+       noxtls_ecc_point_validate_public(&generated_key.Q,
+                                        generated_key.curve) !=
+           NOXTLS_RETURN_SUCCESS) {
+        printf("FAIL P-256 key generation\n");
+        passed = 0;
+    } else {
+        printf("PASS P-256 key generation\n");
+    }
+    (void)noxtls_ecc_key_free(&generated_key);
 
     memset(&local_key, 0, sizeof(local_key));
     memset(&local_before, 0, sizeof(local_before));
