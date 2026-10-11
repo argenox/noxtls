@@ -49,6 +49,9 @@
 #include "mdigest/sha1/noxtls_sha1.h"
 #include "mdigest/md5/noxtls_md5.h"
 #include "noxtls_tls_noxsight.h"
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+#include "noxtls_tls12_ecjpake_internal.h"
+#endif
 
 #ifndef NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES
 #define NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES 0
@@ -131,6 +134,12 @@ static noxtls_return_t tls12_sig_hash_to_noxtls(uint8_t hash_id, noxtls_hash_alg
 #endif
 static int tls12_client_offered_sig_scheme(uint16_t sig_scheme);
 static noxtls_return_t tls12_client_maybe_abbreviated_after_sh(tls12_context_t *ctx, int *did_abbreviated);
+static int tls12_ecjpake_is_active(const tls12_context_t *ctx);
+static int tls12_ecjpake_is_negotiated(const tls12_context_t *ctx);
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+static noxtls_return_t tls12_ecjpake_send_client_key_exchange(tls12_context_t *ctx);
+static noxtls_return_t tls12_ecjpake_send_server_key_exchange(tls12_context_t *ctx);
+#endif
 
 /*
  * TLS 1.2 client signature_algorithms offer (RFC 5246 §7.4.1.4.1; RSA-PSS rsae code points
@@ -477,6 +486,9 @@ noxtls_return_t noxtls_tls12_context_init_with_version(tls12_context_t *ctx, tls
     ctx->handshake_rx_buffer = NULL;
     ctx->handshake_rx_buffer_len = 0U;
     ctx->client_certificate_status_pending = 0U;
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+    ctx->ecjpake = NULL;
+#endif
     ctx->client_offered_session_ticket = 0U;
     ctx->session_ticket_negotiated = 0U;
     ctx->new_session_ticket_received = 0U;
@@ -1646,6 +1658,9 @@ noxtls_return_t noxtls_tls12_context_free(tls12_context_t *ctx)
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+    tls12_ecjpake_release(ctx);
+#endif
     
     /*
      * Ownership differs by role:
@@ -2634,6 +2649,16 @@ noxtls_return_t tls12_derive_keys(tls12_context_t *ctx)
                 key_block_len = (mac_key_len << 1U) + (enc_key_len << 1U) + (iv_len << 1U);
             }
             break;
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+        case TLS_CIPHER_SUITE_ECJPAKE_WITH_AES_128_CCM_8:
+            /* RFC 6655 section 3: AES-128-CCM-8, no MAC key, 4-octet implicit IV; SHA-256 PRF. */
+            hash_algo = NOXTLS_HASH_SHA_256;
+            mac_key_len = 0U;
+            enc_key_len = 16U;
+            iv_len = 4U;
+            key_block_len = (mac_key_len << 1U) + (enc_key_len << 1U) + (iv_len << 1U);
+            break;
+#endif
         default:
             /* Default to AES-256-CBC-SHA256 */
             hash_algo = NOXTLS_HASH_SHA_256;
@@ -3176,6 +3201,14 @@ noxtls_return_t noxtls_tls12_send_client_hello(tls12_context_t *ctx)
     num_cipher_suites = (ctx->base.base.version <= TLS_VERSION_1_1)
         ? (sizeof(tls12_client_suites_10_11) / sizeof(tls12_client_suites_10_11[0]))
         : (sizeof(tls12_client_suites_12) / sizeof(tls12_client_suites_12[0]));
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+    if(tls12_ecjpake_active(ctx) != 0) {
+        /* draft-cragie-tls-ecjpake-01 section 5: offer only TLS_ECJPAKE_WITH_AES_128_CCM_8. */
+        static const uint16_t tls12_ecjpake_suites[] = { TLS_CIPHER_SUITE_ECJPAKE_WITH_AES_128_CCM_8 };
+        cipher_suites = tls12_ecjpake_suites;
+        num_cipher_suites = (uint32_t)(sizeof(tls12_ecjpake_suites) / sizeof(tls12_ecjpake_suites[0]));
+    }
+#endif
 #if NOXTLS_TLS_ALGORITHM_FILTER
     /* No TLS 1.2 suite can run with the algorithms compiled into this build. */
     if(tls12_available_suite_count(cipher_suites, num_cipher_suites) == 0U) {
@@ -3591,6 +3624,30 @@ noxtls_return_t noxtls_tls12_send_client_hello(tls12_context_t *ctx)
             ext_len += ctx->previous_verify_data_len;
         }
 
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+        if(tls12_ecjpake_active(ctx) != 0) {
+            /* draft-cragie-tls-ecjpake-01 section 7.2: the EC-JPAKE ClientHello carries
+             * supported_groups (one curve), ec_point_formats and ecjpake_key_kp_pair only;
+             * no session resumption is offered. */
+            noxtls_return_t ecj_rc = tls12_ecjpake_write_client_hello_extensions(ctx, ext_buf,
+                                                                                 TLS_CLIENT_HELLO_EXTENSIONS_TAIL,
+                                                                                 &ext_len);
+            ctx->client_offered_session_ticket = 0U;
+            ctx->resumption_identity_len = 0U;
+            if(ecj_rc != NOXTLS_RETURN_SUCCESS) {
+                if(client_hello != ctx->handshake_workspace) {
+                    NOXTLS_SECURE_FREE(client_hello, TLS_CLIENT_HELLO_DEFAULT_SIZE);
+                }
+                else if(ctx->handshake_workspace != NULL) {
+                    (void)noxtls_secure_zero((ctx->handshake_workspace), (size_t)((size_t)TLS_HANDSHAKE_WORKSPACE_SIZE));
+                }
+                else {
+                    /* MISRA 15.7: no remaining alternative */
+                }
+                return ecj_rc;
+            }
+        }
+#endif
         if(ext_len > 0U) {
             client_hello[offset] = (uint8_t)(((uint32_t)ext_len) >> 8U);
             offset += 1U;
@@ -4139,6 +4196,12 @@ noxtls_return_t noxtls_tls12_recv_server_hello(tls12_context_t *ctx)
             found = 0U;
         }
 #endif
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+        if(tls12_ecjpake_active(ctx) != 0) {
+            /* The EC-JPAKE ClientHello offered exactly one suite. */
+            found = (ctx->cipher_suite == TLS_CIPHER_SUITE_ECJPAKE_WITH_AES_128_CCM_8) ? 1U : 0U;
+        }
+#endif
         /* Optional application allowlist further restricts what the client accepts. */
         if((found != 0U) && (ctx->server_cipher_suites != NULL) && (ctx->server_cipher_suites_count > 0U)) {
             found = 0U;
@@ -4178,6 +4241,9 @@ noxtls_return_t noxtls_tls12_recv_server_hello(tls12_context_t *ctx)
         return NOXTLS_RETURN_FAILED;
     }
     offset += 1U;
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+    noxtls_return_t ecjpake_rc = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
     /* RFC 7250: parse ServerHello extensions for server_certificate_type (20) and client_certificate_type (19) */
     if((offset + 2U) <= record.length) {
         uint16_t ext_len = (uint16_t)((uint16_t)(((uint16_t)record.data[offset] << 8U) | (uint16_t)record.data[offset + 1U]));
@@ -4238,6 +4304,14 @@ noxtls_return_t noxtls_tls12_recv_server_hello(tls12_context_t *ctx)
                         ctx->heartbeat_peer_mode = mode;
                     }
                 }
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+                else if((etype == TLS_EXTENSION_ECJPAKE_KEY_KP_PAIR) &&
+                        (noxtls_tls12_ecjpake_negotiated(ctx) != 0) &&
+                        (ecjpake_rc == NOXTLS_RETURN_NOT_SUPPORTED)) {
+                    /* draft-cragie-tls-ecjpake-01 section 7.2.2 / 8.4.3: server round one. */
+                    ecjpake_rc = tls12_ecjpake_client_read_server_hello_extension(ctx, &record.data[offset], elen);
+                }
+#endif
                  else {
                      /* MISRA 15.7: no remaining alternative */
                  }
@@ -4258,7 +4332,19 @@ noxtls_return_t noxtls_tls12_recv_server_hello(tls12_context_t *ctx)
         }
     }
     (void)offset;
-    
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+    if((noxtls_tls12_ecjpake_negotiated(ctx) != 0) && (ecjpake_rc != NOXTLS_RETURN_SUCCESS)) {
+        /* draft section 6: a missing extension or a failed ZKP aborts with a fatal alert. */
+        uint8_t ecj_alert = (ecjpake_rc == NOXTLS_RETURN_NOT_SUPPORTED) ? (uint8_t)TLS_ALERT_MISSING_EXTENSION
+                                                                       : tls12_ecjpake_alert_for(ecjpake_rc);
+        if(ctx->base.base.send_callback != NULL) {
+            (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, ecj_alert);
+        }
+        (void)noxtls_free(record.data);
+        return ecjpake_rc;
+    }
+#endif
+
     /* Append to handshake messages (for Finished verify_data computation) */
     (void)tls12_transcript_add_rx(ctx, record.data, record.length);
     (void)noxtls_debug_printf((const uint8_t *)"[TLS12_DEBUG] noxtls_tls12_recv_server_hello: Completed\n");
@@ -4443,6 +4529,11 @@ static noxtls_return_t tls12_client_maybe_abbreviated_after_sh(tls12_context_t *
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+    if(tls12_ecjpake_active(ctx) != 0) {
+        return NOXTLS_RETURN_FAILED; /* EC-JPAKE never resumes: full handshake */
+    }
+#endif
     if((noxtls_tls12_client_session_has_ticket() == 0)) {
         return NOXTLS_RETURN_FAILED; /* signal: do full handshake */
     }
@@ -4477,6 +4568,12 @@ noxtls_return_t noxtls_tls12_recv_certificate(tls12_context_t *ctx)
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+    if(noxtls_tls12_ecjpake_negotiated(ctx) != 0) {
+        /* draft-cragie-tls-ecjpake-01 section 5: no Certificate message. */
+        return NOXTLS_RETURN_SUCCESS;
+    }
+#endif
     hs_msg = NULL;
     hs_len = 0U;
     /* Re-entry after WANT_READ/WANT_WRITE while waiting for CertificateStatus: the
@@ -4988,7 +5085,27 @@ noxtls_return_t noxtls_tls12_recv_server_key_exchange(tls12_context_t *ctx)
         return NOXTLS_RETURN_FAILED;
     }
     tls12_inc_recv_seq(ctx);
-    
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+    if(noxtls_tls12_ecjpake_negotiated(ctx) != 0) {
+        /* draft-cragie-tls-ecjpake-01 section 7.3: ServerECJPAKEParams, no signature. */
+        uint32_t ske_body_len = ((uint32_t)record.data[1] << 16U) | ((uint32_t)record.data[2] << 8U) |
+                                (uint32_t)record.data[3];
+        rc = NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR;
+        if((record.length >= 4U) && ((4U + ske_body_len) == record.length)) {
+            rc = tls12_ecjpake_client_read_server_key_exchange(ctx, &record.data[4], ske_body_len);
+        }
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            (void)tls12_transcript_add_rx(ctx, record.data, record.length);
+        } else if(ctx->base.base.send_callback != NULL) {
+            (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, tls12_ecjpake_alert_for(rc));
+        } else {
+            /* MISRA 15.7: no transport to report the failure on */
+        }
+        (void)noxtls_free(record.data);
+        return rc;
+    }
+#endif
+
     /* Check key exchange type */
     int is_rsa_kex = ((((ctx->cipher_suite == TLS_CIPHER_SUITE_RSA_WITH_3DES_EDE_CBC_SHA) ||
                       (ctx->cipher_suite == TLS_CIPHER_SUITE_RSA_WITH_AES_128_CBC_SHA) ||
@@ -5532,6 +5649,11 @@ noxtls_return_t noxtls_tls12_send_client_key_exchange(tls12_context_t *ctx)
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+    if(noxtls_tls12_ecjpake_negotiated(ctx) != 0) {
+        return tls12_ecjpake_send_client_key_exchange(ctx);
+    }
+#endif
     uint8_t *client_key_exchange = ctx->handshake_workspace;
     if(client_key_exchange == NULL) {
         client_key_exchange = (uint8_t*)NOXTLS_MALLOC(TLS_CLIENT_KEY_EXCHANGE_MAX_LEN);
@@ -6400,7 +6522,7 @@ noxtls_return_t noxtls_tls12_connect(tls12_context_t *ctx)
  * accepted by the bounded record queue, so retrying after WANT_READ/WANT_WRITE
  * cannot duplicate transcript entries or wire records.
  */
-noxtls_return_t noxtls_tls12_connect_poll(tls12_context_t *ctx)
+static noxtls_return_t tls12_connect_poll_steps(tls12_context_t *ctx)
 {
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
@@ -6410,7 +6532,8 @@ noxtls_return_t noxtls_tls12_connect_poll(tls12_context_t *ctx)
     if(ctx->base.base.role != TLS_ROLE_CLIENT) {
         return NOXTLS_RETURN_FAILED;
     }
-    if((tls12_is_dtls(ctx) != 0) || (ctx->renegotiation_in_progress != 0U)) {
+    if(((tls12_is_dtls(ctx) != 0) && (tls12_ecjpake_is_active(ctx) == 0)) ||
+       (ctx->renegotiation_in_progress != 0U)) {
         return NOXTLS_RETURN_NOT_SUPPORTED;
     }
     if((ctx->client_handshake_step == (uint8_t)TLS12_CLIENT_POLL_NONE) || (ctx->base.base.state != TLS_STATE_HANDSHAKING)) {
@@ -6442,7 +6565,7 @@ noxtls_return_t noxtls_tls12_connect_poll(tls12_context_t *ctx)
                 break;
 
             case (uint8_t)TLS12_CLIENT_POLL_PEEK_RESUME:
-                if((noxtls_tls12_client_session_has_ticket() == 0)) {
+                if((noxtls_tls12_client_session_has_ticket() == 0) || (tls12_ecjpake_is_active(ctx) != 0)) {
                     ctx->client_handshake_step = (uint8_t)TLS12_CLIENT_POLL_RECV_CERTIFICATE;
                     break;
                 }
@@ -6658,6 +6781,35 @@ noxtls_return_t noxtls_tls12_connect_poll(tls12_context_t *ctx)
     }
 }
 
+/**
+ * @brief Map a DTLS "no datagram yet" result of a polled handshake to WANT_READ.
+ * @internal
+ *
+ * DTLS 1.2 polling is enabled for EC-JPAKE contexts (Thread MeshCoP). The DTLS
+ * record layer reports an empty receive as NOXTLS_RETURN_TIMEOUT after it has
+ * handled flight retransmission (RFC 6347 section 4.2.4); the handshake step
+ * is retained, so the caller simply polls again.
+ *
+ * @param[in] ctx TLS 1.2 context.
+ * @param[in] rc Result of the poll step machine.
+ *
+ * @return NOXTLS_RETURN_WANT_READ for a DTLS timeout, otherwise rc.
+ */
+static noxtls_return_t tls12_poll_map_dtls_timeout(const tls12_context_t *ctx, noxtls_return_t rc)
+{
+    if((rc == NOXTLS_RETURN_TIMEOUT) && (ctx != NULL) && (tls12_is_dtls(ctx) != 0) &&
+       (tls12_ecjpake_is_active(ctx) != 0)) {
+        return NOXTLS_RETURN_WANT_READ;
+    }
+    return rc;
+}
+
+/** Advance an initial TLS 1.2 (or EC-JPAKE DTLS 1.2) client handshake without blocking. */
+noxtls_return_t noxtls_tls12_connect_poll(tls12_context_t *ctx)
+{
+    return tls12_poll_map_dtls_timeout(ctx, tls12_connect_poll_steps(ctx));
+}
+
 /* Process ALPN after ClientHello extension parse; sends fatal alerts on failure. */
 /**
  * @brief Process ALPN after ClientHello extension parse; sends fatal alerts on failure.
@@ -6866,7 +7018,8 @@ static noxtls_return_t tls12_maybe_ecdhe_group_downgrade_cipher(
     if((ctx == NULL) || (ch_buf == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
-    if((ctx->session_resume != 0U) || (ctx->renegotiation_in_progress != 0U)) {
+    if((ctx->session_resume != 0U) || (ctx->renegotiation_in_progress != 0U) ||
+       (tls12_ecjpake_is_negotiated(ctx) != 0)) {
         return NOXTLS_RETURN_SUCCESS;
     }
     if((tls12_suite_is_pure_rsa_key_exchange(ctx->cipher_suite) != 0) ||
@@ -6956,7 +7109,7 @@ static int tls12_server_needs_rsa_skx_sig_prepare(const tls12_context_t *ctx)
         return 0;
     }
     cs = ctx->cipher_suite;
-    if(tls12_cipher_suite_is_ecdhe_ecdsa(cs) != 0) {
+    if((tls12_cipher_suite_is_ecdhe_ecdsa(cs) != 0) || (tls12_ecjpake_is_negotiated(ctx) != 0)) {
         return 0;
     }
     if(tls12_cs_is_rsa_key_exchange_suite(cs) != 0) {
@@ -7013,7 +7166,8 @@ static int tls12_server_resumption_allowed(const tls12_context_t *ctx)
 {
     return ((ctx->client_verify_policy == NULL) &&
             (ctx->request_client_auth == 0U) &&
-            (ctx->require_client_auth == 0U)) ? 1 : 0;
+            (ctx->require_client_auth == 0U) &&
+            (tls12_ecjpake_is_active(ctx) == 0)) ? 1 : 0;
 }
 
 /**
@@ -7075,6 +7229,12 @@ static int tls12_server_can_offer_cipher_suite(const tls12_context_t *ctx, uint1
     /* Never select a suite whose algorithms are compiled out of this build. */
     if(noxtls_tls_cipher_suite_is_available(cs) == 0) {
         return 0;
+    }
+#endif
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+    if((cs == TLS_CIPHER_SUITE_ECJPAKE_WITH_AES_128_CCM_8) || (tls12_ecjpake_active(ctx) != 0)) {
+        /* The password-only suite is offered exactly when a password is configured. */
+        return ((cs == TLS_CIPHER_SUITE_ECJPAKE_WITH_AES_128_CCM_8) && (tls12_ecjpake_active(ctx) != 0)) ? 1 : 0;
     }
 #endif
     if(tls12_cipher_suite_is_ecdhe_ecdsa(cs) != 0) {
@@ -7554,6 +7714,14 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
      else {
          /* MISRA 15.7: no remaining alternative */
      }
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+    if(tls12_ecjpake_active(ctx) != 0) {
+        /* draft-cragie-tls-ecjpake-01 section 2: select only TLS_ECJPAKE_WITH_AES_128_CCM_8. */
+        static const uint16_t tls12_ecjpake_server_suites[] = { TLS_CIPHER_SUITE_ECJPAKE_WITH_AES_128_CCM_8 };
+        supported_suites = tls12_ecjpake_server_suites;
+        num_supported = (uint32_t)(sizeof(tls12_ecjpake_server_suites) / sizeof(tls12_ecjpake_server_suites[0]));
+    }
+#endif
     uint32_t cipher_suites_count = (uint32_t)(uint32_t)cipher_suites_len >> 1U;
 
     {
@@ -7943,6 +8111,15 @@ noxtls_return_t noxtls_tls12_recv_client_hello(tls12_context_t *ctx)
         (void)noxtls_free(record.data);
         return NOXTLS_RETURN_NOT_SUPPORTED;
     }
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+    if(noxtls_tls12_ecjpake_negotiated(ctx) != 0) {
+        rc = tls12_ecjpake_server_process_client_hello(ctx);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            (void)noxtls_free(record.data);
+            return rc;
+        }
+    }
+#endif
     tls12_invalidate_resume_if_sni_mismatch(ctx, client_session_id, session_id_len);
     if(ctx->client_encrypt_then_mac_offered != 0U) {
         if(tls12_suite_supports_encrypt_then_mac(ctx->cipher_suite) != 0) {
@@ -8121,7 +8298,7 @@ noxtls_return_t noxtls_tls12_send_server_hello(tls12_context_t *ctx)
         {
             tls_extension_t *ext_st = NULL;
             if((noxtls_tls_find_extension(&ctx->client_extensions, TLS_EXTENSION_SESSION_TICKET, &ext_st) == NOXTLS_RETURN_SUCCESS) &&
-               (ext_st != NULL)) {
+               (ext_st != NULL) && (tls12_ecjpake_is_negotiated(ctx) == 0)) {
                 /* RFC 5077: echo empty session_ticket extension in ServerHello when accepted. */
                 have_session_ticket = 1;
             }
@@ -8136,7 +8313,8 @@ noxtls_return_t noxtls_tls12_send_server_hello(tls12_context_t *ctx)
             if((epf_rc == NOXTLS_RETURN_SUCCESS) && (epf != NULL)) {
                 curve_rc = tls12_cipher_suite_to_named_curve(ctx->cipher_suite, &ng_unused);
             }
-            if(curve_rc == NOXTLS_RETURN_SUCCESS) {
+            if((curve_rc == NOXTLS_RETURN_SUCCESS) ||
+               ((epf_rc == NOXTLS_RETURN_SUCCESS) && (epf != NULL) && (tls12_ecjpake_is_negotiated(ctx) != 0))) {
                 have_ec_point_formats = 1;
             }
         }
@@ -8200,6 +8378,9 @@ noxtls_return_t noxtls_tls12_send_server_hello(tls12_context_t *ctx)
         if(have_ec_point_formats != 0) {
             ext_block_len += 6U; /* type(2)+len(2)+1 list len + format(1) */
         }
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+        uint32_t ecjpake_ext_len_pos = offset;
+#endif
         if((ext_block_len > 0U) && ((offset + 2U + ext_block_len) <= TLS_SERVER_HELLO_DEFAULT_SIZE)) {
             server_hello[offset] = (uint8_t)(((uint32_t)(ext_block_len) >> 8U));
             offset += 1U;
@@ -8349,6 +8530,27 @@ noxtls_return_t noxtls_tls12_send_server_hello(tls12_context_t *ctx)
             ctx->heartbeat_peer_mode = 0U;
             ctx->status_request_negotiated = 0U;
         }
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+        if(noxtls_tls12_ecjpake_negotiated(ctx) != 0) {
+            /* draft-cragie-tls-ecjpake-01 section 7.2.2: append ecjpake_key_kp_pair (server
+             * round one) last and patch the extensions length written above. */
+            uint32_t ecj_len = 0U;
+            uint32_t total_ext = 0U;
+            rc = tls12_ecjpake_write_server_hello_extension(ctx, &server_hello[offset],
+                                                            TLS_SERVER_HELLO_DEFAULT_SIZE - offset, &ecj_len);
+            if(rc != NOXTLS_RETURN_SUCCESS) {
+                if(server_hello != ctx->handshake_workspace) { NOXTLS_SECURE_FREE(server_hello, TLS_SERVER_HELLO_DEFAULT_SIZE); } else if(ctx->handshake_workspace != NULL) { (void)noxtls_secure_zero((ctx->handshake_workspace), (size_t)((size_t)TLS_HANDSHAKE_WORKSPACE_SIZE)); }
+                       else {
+                           /* MISRA 15.7: no remaining alternative */
+                       }
+                return rc;
+            }
+            offset += ecj_len;
+            total_ext = offset - (ecjpake_ext_len_pos + 2U);
+            server_hello[ecjpake_ext_len_pos] = (uint8_t)((total_ext >> 8U) & 0xFFU);
+            server_hello[ecjpake_ext_len_pos + 1U] = (uint8_t)(total_ext & 0xFFU);
+        }
+#endif
     }
     /* Update handshake noxtls_message length */
     uint32_t handshake_len = (uint32_t)(offset - 4U);
@@ -8412,6 +8614,12 @@ noxtls_return_t noxtls_tls12_send_certificate(tls12_context_t *ctx)
     if(ctx->base.base.role != TLS_ROLE_SERVER) {
         return NOXTLS_RETURN_FAILED;
     }
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+    if(noxtls_tls12_ecjpake_negotiated(ctx) != 0) {
+        /* draft-cragie-tls-ecjpake-01 section 5: no Certificate message. */
+        return NOXTLS_RETURN_SUCCESS;
+    }
+#endif
     leaf_der = ctx->server_cert;
     leaf_len = ctx->server_cert_len;
     if((tls12_cipher_suite_is_ecdhe_ecdsa(ctx->cipher_suite) != 0) &&
@@ -8840,10 +9048,15 @@ noxtls_return_t noxtls_tls12_send_server_key_exchange(tls12_context_t *ctx)
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    
+
     if(ctx->base.base.role != TLS_ROLE_SERVER) {
         return NOXTLS_RETURN_FAILED;
     }
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+    if(noxtls_tls12_ecjpake_negotiated(ctx) != 0) {
+        return tls12_ecjpake_send_server_key_exchange(ctx);
+    }
+#endif
     
     /* Check key exchange type */
     int is_rsa_kex = ((((ctx->cipher_suite == TLS_CIPHER_SUITE_RSA_WITH_3DES_EDE_CBC_SHA) ||
@@ -10274,6 +10487,21 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
         cke_data = reasm;
     }
     
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+    if(noxtls_tls12_ecjpake_negotiated(ctx) != 0) {
+        /* draft-cragie-tls-ecjpake-01 section 7.4: ClientECJPAKEParams. */
+        rc = tls12_ecjpake_server_read_client_key_exchange(ctx, &cke_data[4], cke_len - 4U);
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            (void)tls12_transcript_add_rx(ctx, cke_data, cke_len);
+            if(ctx->extended_master_secret_negotiated != 0U) {
+                ctx->ems_session_transcript_len = ctx->handshake_messages_len;
+            }
+        }
+        (void)noxtls_free(record.data);
+        if(reasm != NULL) { (void)noxtls_free(reasm); }
+        return rc;
+    }
+#endif
     /* Parse Client Key Exchange noxtls_message */
     uint32_t msg_offset = 4U;  /* Skip handshake header */
     
@@ -10888,6 +11116,10 @@ static noxtls_return_t tls12_send_new_session_ticket(tls12_context_t *ctx)
     if(ctx->base.base.role != TLS_ROLE_SERVER) {
         return NOXTLS_RETURN_FAILED;
     }
+    if(tls12_ecjpake_is_negotiated(ctx) != 0) {
+        /* The session_ticket extension is not echoed for EC-JPAKE: no ticket. */
+        return NOXTLS_RETURN_SUCCESS;
+    }
 
     if(drbg_instantiate(&drbg_state, DRBG_AES256, NULL, 0, NULL, 0, NULL, 0U) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
@@ -11478,7 +11710,7 @@ static int tls12_poll_client_offered_ticket(tls12_context_t *ctx)
 }
 
 /** Advance an initial TLS 1.2 server handshake using caller-polled I/O. */
-noxtls_return_t noxtls_tls12_accept_poll(tls12_context_t *ctx)
+static noxtls_return_t tls12_accept_poll_steps(tls12_context_t *ctx)
 {
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
@@ -11488,7 +11720,8 @@ noxtls_return_t noxtls_tls12_accept_poll(tls12_context_t *ctx)
     if(ctx->base.base.role != TLS_ROLE_SERVER) {
         return NOXTLS_RETURN_FAILED;
     }
-    if((tls12_is_dtls(ctx) != 0) || (ctx->renegotiation_in_progress != 0U)) {
+    if(((tls12_is_dtls(ctx) != 0) && (tls12_ecjpake_is_active(ctx) == 0)) ||
+       (ctx->renegotiation_in_progress != 0U)) {
         return NOXTLS_RETURN_NOT_SUPPORTED;
     }
     if((ctx->server_handshake_step == (uint8_t)TLS12_SERVER_POLL_NONE) || (ctx->base.base.state != TLS_STATE_HANDSHAKING)) {
@@ -11770,6 +12003,22 @@ noxtls_return_t noxtls_tls12_accept_poll(tls12_context_t *ctx)
                 break;
         }
     }
+}
+
+/** Advance an initial TLS 1.2 (or EC-JPAKE DTLS 1.2) server handshake using caller-polled I/O. */
+noxtls_return_t noxtls_tls12_accept_poll(tls12_context_t *ctx)
+{
+    noxtls_return_t rc = tls12_accept_poll_steps(ctx);
+
+    if((ctx != NULL) && (ctx->server_handshake_step == (uint8_t)TLS12_SERVER_POLL_RECV_CLIENT_KEY_EXCHANGE) &&
+       (tls12_ecjpake_is_negotiated(ctx) != 0) && (ctx->base.base.send_callback != NULL) &&
+       ((rc == NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR) || (rc == NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER))) {
+        /* draft-cragie-tls-ecjpake-01 section 6: a bad ClientKeyExchange aborts with a fatal alert. */
+        (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL,
+                                    (rc == NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR) ? (uint8_t)TLS_ALERT_DECODE_ERROR
+                                                                                : (uint8_t)TLS_ALERT_ILLEGAL_PARAMETER);
+    }
+    return tls12_poll_map_dtls_timeout(ctx, rc);
 }
 
 /**
@@ -12590,3 +12839,115 @@ noxtls_return_t noxtls_tls12_close(tls12_context_t *ctx)
     
     return NOXTLS_RETURN_SUCCESS;
 }
+
+/**
+ * @brief Report whether EC-JPAKE is configured (0 when the suite is compiled out).
+ * @internal
+ *
+ * @param[in] ctx TLS 1.2 context.
+ *
+ * @return 1 when a password is configured, 0 otherwise.
+ */
+static int tls12_ecjpake_is_active(const tls12_context_t *ctx)
+{
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+    return tls12_ecjpake_active(ctx);
+#else
+    (void)ctx;
+    return 0;
+#endif
+}
+
+/**
+ * @brief Report whether the EC-JPAKE suite was selected (0 when compiled out).
+ * @internal
+ *
+ * @param[in] ctx TLS 1.2 context.
+ *
+ * @return 1 when TLS_ECJPAKE_WITH_AES_128_CCM_8 is the selected suite, 0 otherwise.
+ */
+static int tls12_ecjpake_is_negotiated(const tls12_context_t *ctx)
+{
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+    return noxtls_tls12_ecjpake_negotiated(ctx);
+#else
+    (void)ctx;
+    return 0;
+#endif
+}
+
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+/**
+ * @brief Build, hash and send an EC-JPAKE ServerKeyExchange or ClientKeyExchange.
+ * @internal
+ *
+ * draft-cragie-tls-ecjpake-01 sections 7.3 and 7.4; handshake header per
+ * RFC 5246 section 7.4.
+ *
+ * @param[in,out] ctx TLS 1.2 context that negotiated EC-JPAKE.
+ * @param[in] hs_type TLS_HANDSHAKE_SERVER_KEY_EXCHANGE or TLS_HANDSHAKE_CLIENT_KEY_EXCHANGE.
+ *
+ * @return NOXTLS_RETURN_SUCCESS or an error code.
+ */
+static noxtls_return_t tls12_ecjpake_send_key_exchange(tls12_context_t *ctx, uint8_t hs_type)
+{
+    const uint32_t cap = NOXTLS_TLS12_ECJPAKE_HS_HEADER_SIZE + NOXTLS_ECJPAKE_ROUND_TWO_MAX_SIZE;
+    uint8_t *msg = TLS12_WORKSPACE_FOR(ctx, cap);
+    uint32_t body_len = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+
+    /* TLS 1.2 / DTLS 1.2 contexts always own a handshake workspace (context init). */
+    if(msg == NULL) {
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+    }
+    if(hs_type == (uint8_t)TLS_HANDSHAKE_SERVER_KEY_EXCHANGE) {
+        rc = tls12_ecjpake_server_write_key_exchange(ctx, &msg[NOXTLS_TLS12_ECJPAKE_HS_HEADER_SIZE],
+                                                     cap - NOXTLS_TLS12_ECJPAKE_HS_HEADER_SIZE, &body_len);
+    } else {
+        rc = tls12_ecjpake_client_write_key_exchange(ctx, &msg[NOXTLS_TLS12_ECJPAKE_HS_HEADER_SIZE],
+                                                     cap - NOXTLS_TLS12_ECJPAKE_HS_HEADER_SIZE, &body_len);
+    }
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        uint32_t msg_len = NOXTLS_TLS12_ECJPAKE_HS_HEADER_SIZE + body_len;
+
+        msg[0] = hs_type;
+        msg[1] = (uint8_t)((body_len >> 16U) & 0xFFU);
+        msg[2] = (uint8_t)((body_len >> 8U) & 0xFFU);
+        msg[3] = (uint8_t)(body_len & 0xFFU);
+        (void)tls12_transcript_add_tx(ctx, msg, msg_len);
+        if((hs_type == (uint8_t)TLS_HANDSHAKE_CLIENT_KEY_EXCHANGE) && (ctx->extended_master_secret_negotiated != 0U)) {
+            /* RFC 7627 section 3: session_hash covers the handshake through ClientKeyExchange. */
+            ctx->ems_session_transcript_len = ctx->handshake_messages_len;
+        }
+        rc = tls12_send_handshake_record(ctx, msg, msg_len);
+    }
+    (void)noxtls_secure_zero(msg, (size_t)cap);
+    return rc;
+}
+
+/**
+ * @brief Client: send the EC-JPAKE ClientKeyExchange (draft section 7.4).
+ * @internal
+ *
+ * @param[in,out] ctx Client context.
+ *
+ * @return NOXTLS_RETURN_SUCCESS or an error code.
+ */
+static noxtls_return_t tls12_ecjpake_send_client_key_exchange(tls12_context_t *ctx)
+{
+    return tls12_ecjpake_send_key_exchange(ctx, (uint8_t)TLS_HANDSHAKE_CLIENT_KEY_EXCHANGE);
+}
+
+/**
+ * @brief Server: send the EC-JPAKE ServerKeyExchange (draft section 7.3).
+ * @internal
+ *
+ * @param[in,out] ctx Server context.
+ *
+ * @return NOXTLS_RETURN_SUCCESS or an error code.
+ */
+static noxtls_return_t tls12_ecjpake_send_server_key_exchange(tls12_context_t *ctx)
+{
+    return tls12_ecjpake_send_key_exchange(ctx, (uint8_t)TLS_HANDSHAKE_SERVER_KEY_EXCHANGE);
+}
+#endif

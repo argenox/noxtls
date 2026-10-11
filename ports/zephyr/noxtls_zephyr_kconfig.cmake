@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-07T00:30:57Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-08T16:15:57Z)
 
 if(NOT CONFIG_NOXTLS)
   return()
@@ -40,9 +40,11 @@ noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_DH NOXTLS_CFG_FEATURE_DH)
 noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_DRBG NOXTLS_CFG_FEATURE_DRBG)
 noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_DSA NOXTLS_CFG_FEATURE_DSA)
 noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_DTLS NOXTLS_CFG_FEATURE_DTLS)
+noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_DTLS_ECJPAKE NOXTLS_CFG_FEATURE_DTLS_ECJPAKE)
 noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_ECC NOXTLS_CFG_FEATURE_ECC)
 noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_ECDH NOXTLS_CFG_FEATURE_ECDH)
 noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_ECDSA NOXTLS_CFG_FEATURE_ECDSA)
+noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_ECJPAKE NOXTLS_CFG_FEATURE_ECJPAKE)
 noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_ED25519 NOXTLS_CFG_FEATURE_ED25519)
 noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_ED448 NOXTLS_CFG_FEATURE_ED448)
 noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_ENCRYPTION NOXTLS_CFG_FEATURE_ENCRYPTION)

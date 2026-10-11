@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-07T00:30:57Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-08T16:15:57Z)
 
 menu "NoxTLS library options (from noxtls_config.h)"
 
@@ -679,6 +679,27 @@ menu "NoxTLS library options (from noxtls_config.h)"
 			depends on NOXTLS_FEATURE_ECC
 			help
 			  Injected CC13xx PKA callback port for secp256r1 point multiplication; a busy or unbound PKA falls back to software ECC. Also enabled by NOXTLS_FEATURE_CC13XX_HW_ACCEL. Prereq: NOXTLS_FEATURE_ECC=1. Build knob: NOXTLS_CFG_FEATURE_CC13XX_P256_ACCEL.
+
+		config NOXTLS_FEATURE_ECJPAKE
+			bool "EC-JPAKE"
+			default n
+			depends on NOXTLS_FEATURE_PKC
+			depends on NOXTLS_FEATURE_ECC
+			depends on NOXTLS_FEATURE_SHA256
+			depends on NOXTLS_FEATURE_DRBG
+			help
+			  Enables EC-JPAKE over P-256 with SHA-256 Schnorr NIZK proofs (RFC 8236 section 3, RFC 8235 section 3, draft-cragie-tls-ecjpake-01 section 8). Prereq: NOXTLS_FEATURE_PKC=1 and NOXTLS_FEATURE_ECC=1 and NOXTLS_FEATURE_SHA256=1 and NOXTLS_FEATURE_DRBG=1. Build knob: NOXTLS_CFG_FEATURE_ECJPAKE. Default OFF.
+
+		config NOXTLS_FEATURE_DTLS_ECJPAKE
+			bool "DTLS 1.2 EC-JPAKE Cipher Suite"
+			default n
+			depends on NOXTLS_FEATURE_ECJPAKE
+			depends on NOXTLS_FEATURE_TLS
+			depends on NOXTLS_FEATURE_TLS12
+			depends on NOXTLS_FEATURE_DTLS
+			depends on NOXTLS_FEATURE_AES_CCM
+			help
+			  Enables TLS_ECJPAKE_WITH_AES_128_CCM_8 (0xC0FF) and the ecjpake_key_kp_pair extension (256) in the TLS 1.2 / DTLS 1.2 engine (draft-cragie-tls-ecjpake-01; Thread MeshCoP commissioning). Prereq: NOXTLS_FEATURE_ECJPAKE=1 and NOXTLS_FEATURE_TLS=1 and NOXTLS_FEATURE_TLS12=1 and NOXTLS_FEATURE_DTLS=1 and NOXTLS_FEATURE_AES_CCM=1. Build knob: NOXTLS_CFG_FEATURE_DTLS_ECJPAKE. Default OFF.
 
 		config NOXTLS_FEATURE_FALCON
 			bool "Falcon"

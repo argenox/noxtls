@@ -50,6 +50,9 @@ static int32_t tls13_is_dtls_context(const tls13_context_t *ctx);
 #include "mdigest/noxtls_hash.h"
 #include "drbg/noxtls_drbg.h"
 #include "noxtls_ct.h"
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+#include "noxtls_tls12_ecjpake.h"
+#endif
 
 static const uint64_t tls_record_s_u64_bit[64] = {
     0x0000000000000001ULL,
@@ -487,6 +490,9 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
             is_tls12_ccm = 1U;
             tls12_ccm_tag_len = 16U;
             break;
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+        case TLS_CIPHER_SUITE_ECJPAKE_WITH_AES_128_CCM_8: /* RFC 6655 section 3 / draft-cragie-tls-ecjpake-01 */
+#endif
         case TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CCM_8:
         case TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_CCM_8:
         case TLS_CIPHER_SUITE_RSA_WITH_AES_128_CCM_8:
@@ -1052,6 +1058,9 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
             is_tls12_ccm = 1U;
             tls12_ccm_tag_len = 16U;
             break;
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+        case TLS_CIPHER_SUITE_ECJPAKE_WITH_AES_128_CCM_8: /* RFC 6655 section 3 / draft-cragie-tls-ecjpake-01 */
+#endif
         case TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CCM_8:
         case TLS_CIPHER_SUITE_DHE_RSA_WITH_AES_128_CCM_8:
         case TLS_CIPHER_SUITE_RSA_WITH_AES_128_CCM_8:

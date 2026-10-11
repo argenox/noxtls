@@ -136,6 +136,11 @@
       "name": "Matter PASE",
       "parent": "NOXTLS_FEATURE_SPAKE2P"
     },
+    "NOXTLS_FEATURE_ECJPAKE": { "name": "EC-JPAKE" },
+    "NOXTLS_FEATURE_DTLS_ECJPAKE": {
+      "name": "DTLS 1.2 EC-JPAKE Cipher Suite",
+      "parent": "NOXTLS_FEATURE_ECJPAKE"
+    },
     "NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES": {
       "legacy": true,
       "name": "TLS 1.2 Legacy Cipher Suites",

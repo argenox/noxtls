@@ -182,7 +182,7 @@ if(NOXTLS_CFG_FEATURE_SLH_DSA AND _noxtls_have_root_ut)
     add_test(NAME slhdsa_sizes_test COMMAND slhdsa_sizes_test)
 endif()
 
-option(NOXTLS_BUILD_PAKE_TESTS "Build PBKDF2, SPAKE2+ and Matter PASE UTNox tests" OFF)
+option(NOXTLS_BUILD_PAKE_TESTS "Build PBKDF2, SPAKE2+, Matter PASE and EC-JPAKE UTNox tests" OFF)
 if(NOXTLS_BUILD_PAKE_TESTS)
     add_subdirectory(pake)
 endif()
