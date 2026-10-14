@@ -17,12 +17,13 @@ cmake -S . -B build/dtls13-recovery -G Ninja \
   -DBUILD_APPLICATIONS=OFF -DBUILD_TESTS=OFF \
   -DNOXTLS_BUILD_DTLS13_RECOVERY_TESTS=ON \
   -DNOXTLS_ERROR_UTNOX=/path/to/utnox/utnox
-cmake --build build/dtls13-recovery --target dtls13_recovery_ut key_share_memory_ut
+cmake --build build/dtls13-recovery --target tls13_link_ut dtls13_recovery_ut key_share_memory_ut
 ctest --test-dir build/dtls13-recovery --output-on-failure
 ```
 
-The focused option is off by default. It requires TLS 1.3, DTLS, X25519 and AES-GCM enabled. It builds two UTNox executables with nine cases in total:
+The focused option is off by default. With TLS 1.3, DTLS, X25519 and AES-GCM enabled it builds three UTNox executables with ten cases in total:
 
+- TLS 1.3 context initialization and linkage.
 - Normal PSK-DHE handshake and bidirectional authenticated application data.
 - Loss of the first encrypted server handshake record.
 - Loss of the client Finished.
@@ -34,6 +35,8 @@ The focused option is off by default. It requires TLS 1.3, DTLS, X25519 and AES-
 - Allocation failure cleanup and multiple key shares.
 
 The recovery tests use the real handshake, AEAD and retransmission timer. Transport queues and time are simulated. Cryptographic entropy uses the normal library provider. The tests also check that protected handshake retransmissions do not reuse record sequence numbers.
+
+Repeat the configuration in a separate build directory with `-DNOXTLS_CFG_FEATURE_DTLS=OFF`. Build `tls13_link_ut` and `key_share_memory_ut`, then run CTest. The loss tests are skipped and the TLS context check verifies that ordinary TLS users do not acquire an unresolved reference to the optional DTLS flight implementation. This check caught a missing compile guard during review and passed after it was added.
 
 Nonblocking callers must keep servicing DTLS receive and timers after the client becomes locally connected, until its final Finished is acknowledged. Losing that flight does not undo the client's local connected state. The application must allow recovery to finish before relying on application traffic.
 

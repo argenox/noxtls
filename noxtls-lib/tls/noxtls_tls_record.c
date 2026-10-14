@@ -2177,6 +2177,7 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
         noxtls_copy_u8(out, (size_t)header_len, header, (size_t)header_len);
         noxtls_copy_u8(&out[header_len], (size_t)record_len, ciphertext, (size_t)record_len);
         (void)noxtls_free(ciphertext);
+#if NOXTLS_FEATURE_DTLS
         if(content_type == TLS_RECORD_HANDSHAKE) {
             noxtls_return_t flight_rc = noxtls_dtls_buffer_handshake(&ctx->base,
                 inner_plaintext, inner_len);
@@ -2185,6 +2186,7 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
                 return flight_rc;
             }
         }
+#endif
 
         int32_t sent = ctx->base.base.send_callback(ctx->base.base.user_data, out, total);
         (void)noxtls_free(out);
