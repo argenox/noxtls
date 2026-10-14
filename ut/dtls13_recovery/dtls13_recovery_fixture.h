@@ -1,0 +1,57 @@
+/*****************************************************************************
+* Copyright (c) [2019] - [2026], Argenox Technologies LLC
+* All rights reserved.
+* SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
+*
+* This file is part of the NoxTLS Library.
+* Licensed under the GNU General Public License v2.0 or later,
+* or alternatively under a commercial license from Argenox Technologies LLC.
+* See the LICENSE file in the project root for full details.
+* CONTACT: info@argenox.com
+*
+* File:    dtls13_recovery_fixture.h
+* Summary: Bounded datagram fixtures for DTLS 1.3 recovery tests
+*****************************************************************************/
+/** @file dtls13_recovery_fixture.h
+ * @brief Test-only transport and loss configuration.
+ * @defgroup noxtls_dtls13_recovery DTLS 1.3 recovery tests
+ * @ingroup noxtls_dtls13_recovery
+ */
+#ifndef NOXTLS_DTLS13_RECOVERY_FIXTURE_H
+#define NOXTLS_DTLS13_RECOVERY_FIXTURE_H
+#include "tls/noxtls_tls13.h"
+#include <stdbool.h>
+
+#define RECOVERY_PACKET_BYTES 600U
+#define RECOVERY_QUEUE_DEPTH 16U
+#define RECOVERY_STEPS 15000U
+#define RECOVERY_DROP_SERVER 1U
+#define RECOVERY_DROP_FINISHED 2U
+#define RECOVERY_DROP_ACK 4U
+#define RECOVERY_DROP_ALL 7U
+#define RECOVERY_ENCRYPTED_MASK 0xe0U
+#define RECOVERY_ENCRYPTED_HEADER 0x20U
+
+/** @brief One complete UDP datagram. */
+typedef struct {
+    uint8_t bytes[RECOVERY_PACKET_BYTES];
+    uint32_t length;
+} recovery_packet_t;
+
+/** @brief One context, bounded receive queue and test-owned transport state. */
+typedef struct recovery_endpoint_s {
+    tls13_context_t tls;
+    struct recovery_endpoint_s *peer;
+    recovery_packet_t queue[RECOVERY_QUEUE_DEPTH];
+    uint32_t head;
+    uint32_t count;
+    uint32_t drop_mask;
+    uint32_t dropped;
+    uint32_t encrypted_sends;
+    uint64_t previous_sequence;
+    bool sequence_seen;
+    bool sequence_reused;
+    bool finished_forwarded;
+    bool initialized;
+} recovery_endpoint_t;
+#endif

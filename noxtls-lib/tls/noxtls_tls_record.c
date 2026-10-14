@@ -1961,7 +1961,6 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
                                        int32_t omit_length)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    (void)content_type;
     uint8_t header[DTLS13_MAX_HEADER_LEN];
     uint32_t header_len = 0U;
     uint32_t seq_offset = 0U;
@@ -2178,6 +2177,15 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
         noxtls_copy_u8(out, (size_t)header_len, header, (size_t)header_len);
         noxtls_copy_u8(&out[header_len], (size_t)record_len, ciphertext, (size_t)record_len);
         (void)noxtls_free(ciphertext);
+        if(content_type == TLS_RECORD_HANDSHAKE) {
+            noxtls_return_t flight_rc = noxtls_dtls_buffer_handshake(&ctx->base,
+                inner_plaintext, inner_len);
+            if(flight_rc != NOXTLS_RETURN_SUCCESS) {
+                (void)noxtls_free(out);
+                return flight_rc;
+            }
+        }
+
         int32_t sent = ctx->base.base.send_callback(ctx->base.base.user_data, out, total);
         (void)noxtls_free(out);
         if(sent != (int32_t)total) {
@@ -2188,6 +2196,9 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
     ctx->base.write_seq_num += 1U;
     ctx->base.bytes_sent += (uint64_t)header_len;
     ctx->base.bytes_sent += (uint64_t)record_len;
+    if(content_type == TLS_RECORD_HANDSHAKE && ctx->base.base.time_callback != NULL) {
+        ctx->base.last_flight_sent_ms = ctx->base.base.time_callback(ctx->base.base.user_data);
+    }
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -2435,6 +2446,35 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
         *out_plaintext_len = ciphertext_len - tag_len;
         return NOXTLS_RETURN_FAILED;
     }
+    uint8_t handshake_read_key[32];
+    uint8_t handshake_read_iv[12];
+    if(use_handshake != 0U && ctx->base.read_connection_epoch >= DTLS13_EPOCH_APPLICATION) {
+        /* RFC 9147 sections 5.8/6.1: a retransmitted handshake flight can
+         * arrive after application read keys have been installed. Re-derive
+         * its epoch-2 AEAD material without replacing application state. */
+        const uint8_t sha384 = (uint8_t)(ctx->cipher_suite == TLS_CIPHER_SUITE_AES_256_GCM_SHA384);
+        const noxtls_hash_algos_t hash = sha384 ? NOXTLS_HASH_SHA_384 : NOXTLS_HASH_SHA_256;
+        const uint32_t secret_len = sha384 ? 48U : 32U;
+        const uint32_t key_len = (sha384 || use_chacha != 0U) ? 32U : 16U;
+        const uint8_t *secret = ctx->base.base.role == TLS_ROLE_CLIENT ?
+            ctx->server_handshake_traffic_secret : ctx->client_handshake_traffic_secret;
+        noxtls_return_t derive_rc = dtls13_hkdf_expand_label(hash, secret, secret_len,
+            (const uint8_t *)"key", 3U, NULL, 0U, handshake_read_key, key_len);
+        if(derive_rc == NOXTLS_RETURN_SUCCESS) {
+            derive_rc = dtls13_hkdf_expand_label(hash, secret, secret_len,
+                (const uint8_t *)"iv", 2U, NULL, 0U, handshake_read_iv, sizeof(handshake_read_iv));
+        }
+
+        if(derive_rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_secure_zero(handshake_read_key, sizeof(handshake_read_key));
+            noxtls_secure_zero(handshake_read_iv, sizeof(handshake_read_iv));
+            return derive_rc;
+        }
+
+        read_key = handshake_read_key;
+        read_iv = handshake_read_iv;
+    }
+
     tls13_generate_nonce(nonce, read_iv, 12, full_seq);
     noxtls_copy_u8(aad, sizeof(aad), raw, (size_t)(aad_len));
     if(seq_len == 2U) {
@@ -2468,6 +2508,8 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
         rc_aead = NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
     }
+    noxtls_secure_zero(handshake_read_key, sizeof(handshake_read_key));
+    noxtls_secure_zero(handshake_read_iv, sizeof(handshake_read_iv));
     if(rc_aead != NOXTLS_RETURN_SUCCESS) {
         (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] decrypt_dtls13_record: AEAD decrypt failed rc=%d epoch=%u seq=%llu\n",
                             rc_aead, epoch, (unsigned long long)full_seq);

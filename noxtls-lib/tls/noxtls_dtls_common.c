@@ -664,6 +664,7 @@ static noxtls_return_t dtls_flight_retransmit(dtls_context_t *ctx)
 {
     uint32_t offset = 0U;
     uint32_t sent_records = 0U;
+    uint8_t protected_range_started = 0U;
     int v12 = 0;
 
     if(ctx == NULL) {
@@ -688,14 +689,9 @@ static noxtls_return_t dtls_flight_retransmit(dtls_context_t *ctx)
     while(((offset + DTLS_FLIGHT_ENTRY_HEADER_SIZE) <= ctx->flight_buffer_len) &&
           ((v12 != 0) || (sent_records < DTLS_RETRANSMIT_RECORD_BURST))) {
         uint16_t rec_word = (uint16_t)((uint16_t)(((uint16_t)ctx->flight_buffer[offset] << 8U) | (uint16_t)ctx->flight_buffer[offset + 1U]));
-        uint16_t rec_len = rec_word;
-        uint8_t rec_flags = 0U;
+        uint16_t rec_len = (uint16_t)(rec_word & DTLS_FLIGHT_ENTRY_LEN_MASK);
+        uint8_t rec_flags = (uint8_t)(((rec_word & DTLS_FLIGHT_ENTRY_FLAG_BIT) != 0U) ? DTLS_FLIGHT_ENTRY_PROTECT : 0U);
         uint32_t rec_offset = (uint32_t)(offset + DTLS_FLIGHT_ENTRY_HEADER_SIZE);
-        if(v12 != 0) {
-            /* DTLS 1.2 entries carry the "re-protect" flag in the top bit of the length. */
-            rec_len = (uint16_t)(rec_word & DTLS_FLIGHT_ENTRY_LEN_MASK);
-            rec_flags = (uint8_t)(((rec_word & DTLS_FLIGHT_ENTRY_FLAG_BIT) != 0U) ? DTLS_FLIGHT_ENTRY_PROTECT : 0U);
-        }
         uint16_t rec_epoch = 0U;
         uint64_t rec_seq = 0U;
         if((rec_offset + rec_len) > ctx->flight_buffer_len) {
@@ -711,6 +707,32 @@ static noxtls_return_t dtls_flight_retransmit(dtls_context_t *ctx)
             } else {
                 /* Stale epoch: the record cannot be resent any more; skip it. */
             }
+        } else if((rec_flags & DTLS_FLIGHT_ENTRY_PROTECT) != 0U) {
+            if((rec_len < DTLS_RECORD_HEADER_SIZE) || ctx->retransmit_handshake == NULL) {
+                return NOXTLS_RETURN_FAILED;
+            }
+
+            rec_epoch = dtls_read_uint16(&ctx->flight_buffer[rec_offset + DTLS_RECORD_EPOCH_OFFSET]);
+            noxtls_return_t rc = ctx->retransmit_handshake(ctx, rec_epoch,
+                &ctx->flight_buffer[rec_offset + DTLS_RECORD_HEADER_SIZE],
+                rec_len - DTLS_RECORD_HEADER_SIZE, &rec_seq);
+            if(rc != NOXTLS_RETURN_SUCCESS) {
+                return rc;
+            }
+
+            dtls_write_uint48(&ctx->flight_buffer[rec_offset + DTLS_RECORD_SEQUENCE_OFFSET], rec_seq);
+            if(ctx->flight_epoch != rec_epoch || protected_range_started == 0U) {
+                ctx->flight_epoch = rec_epoch;
+                ctx->flight_min_seq = rec_seq;
+                ctx->flight_max_seq = rec_seq;
+            } else {
+                if(rec_seq < ctx->flight_min_seq) { ctx->flight_min_seq = rec_seq; }
+                if(rec_seq > ctx->flight_max_seq) { ctx->flight_max_seq = rec_seq; }
+            }
+
+            ctx->flight_has_range = 1U;
+            protected_range_started = 1U;
+            sent_records += 1U;
         } else if((dtls_parse_record_epoch_seq(&ctx->flight_buffer[rec_offset], rec_len, &rec_epoch, &rec_seq) == 0) ||
                   (dtls_record_acked_by_last_ack(ctx, rec_epoch, rec_seq) == 0)) {
             if(ctx->base.send_callback(ctx->base.user_data,
@@ -1233,6 +1255,34 @@ static void dtls_flight_note_handshake_seq(dtls_context_t *ctx, uint64_t seq)
     if(seq > ctx->flight_max_seq) {
         ctx->flight_max_seq = seq;
     }
+}
+
+/** @copydoc noxtls_dtls_buffer_handshake */
+noxtls_return_t noxtls_dtls_buffer_handshake(dtls_context_t *ctx,
+    const uint8_t *inner, uint32_t length)
+{
+    uint8_t header[DTLS_RECORD_HEADER_SIZE] = {0U};
+    if(ctx == NULL || inner == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    if(ctx->base.version != DTLS_VERSION_1_3 || ctx->retransmit_handshake == NULL ||
+       length == 0U || length > DTLS_FLIGHT_ENTRY_LEN_MASK - DTLS_RECORD_HEADER_SIZE) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+
+    dtls_flight_begin_if_answered(ctx);
+    header[DTLS_RECORD_TYPE_OFFSET] = TLS_RECORD_HANDSHAKE;
+    dtls_write_uint16(&header[DTLS_RECORD_EPOCH_OFFSET], ctx->epoch);
+    dtls_write_uint48(&header[DTLS_RECORD_SEQUENCE_OFFSET], ctx->write_seq_num);
+    noxtls_return_t rc = dtls_flight_append(ctx, DTLS_FLIGHT_ENTRY_PROTECT,
+        header, sizeof(header), inner, length);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        if(ctx->flight_epoch != ctx->epoch) { ctx->flight_has_range = 0U; }
+        dtls_flight_note_handshake_seq(ctx, ctx->write_seq_num);
+    }
+
+    return rc;
 }
 
 noxtls_return_t noxtls_dtls_send_record(dtls_context_t *ctx, uint8_t type, const uint8_t *data, uint32_t len)
@@ -1797,6 +1847,12 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
 
     if(record->epoch != ctx->epoch) {
         if((ctx->base.version == DTLS_VERSION_1_3) &&
+           (record->type == TLS_RECORD_HANDSHAKE) &&
+           ((uint64_t)record->epoch < ctx->read_connection_epoch)) {
+            /* RFC 9147 sections 4.5.1/5.8: an old plaintext flight can be
+             * retransmitted after the receiver installed encrypted keys. */
+            continue;
+        } else if((ctx->base.version == DTLS_VERSION_1_3) &&
            (record->type == TLS_RECORD_CHANGE_CIPHER_SPEC) &&
            (record->epoch == DTLS_EPOCH_UNENCRYPTED)) {
             (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] dtls_recv_record: allowing DTLS1.3 compat CCS at epoch 0 while ctx epoch=%u\n",

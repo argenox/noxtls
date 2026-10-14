@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
+if(NOT NOXTLS_CFG_FEATURE_TLS13 OR NOT NOXTLS_CFG_FEATURE_DTLS OR
+   NOT NOXTLS_CFG_FEATURE_X25519 OR NOT NOXTLS_CFG_FEATURE_AES_GCM)
+    message(FATAL_ERROR "DTLS recovery tests require TLS13, DTLS, X25519 and AES_GCM")
+endif()
+if(NOT TARGET utnox)
+    set(NOXTLS_ERROR_UTNOX "" CACHE PATH "Existing UTNox checkout")
+    if(NOT EXISTS "${NOXTLS_ERROR_UTNOX}/CMakeLists.txt")
+        message(FATAL_ERROR "Set NOXTLS_ERROR_UTNOX to an existing UTNox checkout")
+    endif()
+    add_subdirectory("${NOXTLS_ERROR_UTNOX}" utnox)
+endif()
+add_executable(dtls13_recovery_ut dtls13_recovery_ut.c)
+target_link_libraries(dtls13_recovery_ut PRIVATE noxtls_tls utnox)
+set_target_properties(dtls13_recovery_ut PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
+add_test(NAME dtls13_recovery_ut COMMAND dtls13_recovery_ut RUN_ALL)
