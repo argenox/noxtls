@@ -7445,7 +7445,7 @@ noxtls_return_t noxtls_tls13_send_client_hello(tls13_context_t *ctx)
     const uint16_t *signature_algorithms_list = signature_algorithms;
     uint32_t supported_groups_count = 0U;
     uint32_t signature_algorithms_count = 0U;
-    uint8_t key_share_entries[4096];
+    uint8_t key_share_entries[TLS13_CLIENT_KEY_SHARE_VECTOR_CAPACITY];
     uint32_t key_share_entries_len = 0U;
     tls_ecdhe_context_t *ecdhe_ctx = NULL;
     uint8_t offer_psk = 0U;
@@ -7672,7 +7672,7 @@ noxtls_return_t noxtls_tls13_send_client_hello(tls13_context_t *ctx)
     
     tls13_free_client_key_shares(ctx);
     if(include_key_share != 0U) {
-        uint8_t encoded_entry[TLS_KEY_SHARE_ENTRY_MAX_LEN];
+        uint8_t encoded_entry[TLS13_CLIENT_KEY_SHARE_ENCODED_CAPACITY];
         uint32_t encoded_entry_len = (uint32_t)sizeof(encoded_entry);
 #if NOXTLS_FEATURE_ML_KEM
         uint32_t shares_capacity = 3U;

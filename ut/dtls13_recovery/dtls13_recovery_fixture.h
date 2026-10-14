@@ -31,6 +31,7 @@
 #define RECOVERY_DROP_ALL 7U
 #define RECOVERY_ENCRYPTED_MASK 0xe0U
 #define RECOVERY_ENCRYPTED_HEADER 0x20U
+#define RECOVERY_P521_SHARE_BYTES 137U
 
 /** @brief One complete UDP datagram. */
 typedef struct {

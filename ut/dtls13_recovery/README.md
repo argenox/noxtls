@@ -21,9 +21,10 @@ cmake --build build/dtls13-recovery --target tls13_link_ut dtls13_recovery_ut ke
 ctest --test-dir build/dtls13-recovery --output-on-failure
 ```
 
-The focused option is off by default. With TLS 1.3, DTLS, X25519 and AES-GCM enabled it builds three UTNox executables with ten cases in total:
+The focused option is off by default. With TLS 1.3, DTLS, X25519, AES-GCM and ECC enabled it builds three UTNox executables with eleven cases in total:
 
 - TLS 1.3 context initialization and linkage.
+- The largest classical share, a 137-byte P-521 KeyShareEntry, fits the client staging buffers.
 - Normal PSK-DHE handshake and bidirectional authenticated application data.
 - Loss of the first encrypted server handshake record.
 - Loss of the client Finished.
@@ -58,3 +59,28 @@ Loss was injected by a PC UDP relay before forwarding selected records. These te
 The application also contains separate fixes for entropy callback ownership when BLE and Thread share NoxTLS, and for driving pending DTLS timers. Those changes belong to the application and Thread integration, outside this library patch. The standalone regressions do not depend on them.
 
 This validation does not cover long-duration operation, BLE connection cycling, other cipher suites or DTLS 1.2 interoperability.
+
+## Outgoing embedded client stack
+
+Enabling node-to-leader button notifications exposed another memory issue in the same
+revision. ClientHello used 4096-byte vector staging and a 2048-byte encoded-entry
+scratch array even in a classical-only build that emits one X25519 share. Nested radio
+transmission from that function overflowed the CC1354 application's existing 16 KiB
+Thread task stack. The lower stack guard was overwritten and the overflow handler's
+breakpoint stopped the firmware.
+
+Classical-only ClientHello staging now uses the existing 160-byte inline share limit.
+The largest supported classical encoding is P-521 at 137 bytes including its header,
+covered by a real key-generation/encoding regression. ML-KEM-enabled builds retain
+their existing larger capacities. No heap or static context buffer is added.
+Arm GCC 14.2 Release stack-usage reports show `noxtls_tls13_send_client_hello` shrinking
+from 6608 to 1568 bytes, with the task stack unchanged.
+
+On board 2, a temporary 200 ms inversion of BTN-1 input sensing exercised the real
+GPIO polling, debounce, secure client and Sub1GHz path to the CC35x1 leader. The input
+configuration was restored after each test; the pin remained an input. Four consecutive
+notifications completed without reboot, with authenticated blink acknowledgements,
+released sessions, intact stack guards and clear fault registers. This is an injected
+logical input check, not validation of the mechanical button. The companion Thread
+deadline code also needed to accept a partial peer-flight receive wait after its local
+flight had been acknowledged; that integration fix is outside NoxTLS.

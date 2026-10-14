@@ -17,6 +17,7 @@
  * @ingroup noxtls_dtls13_recovery
  */
 #include "dtls13_recovery_fixture.h"
+#include "tls/noxtls_tls_key_exchange.h"
 #include "runner.h"
 #include "test_assert.h"
 #include <string.h>
@@ -24,6 +25,9 @@
 static recovery_endpoint_t s_client;
 static recovery_endpoint_t s_server;
 static uint64_t s_now;
+#if NOXTLS_FEATURE_ECC
+static tls_ecdhe_context_t s_classical_share;
+#endif
 
 /** @brief Supply a deterministic monotonic clock, not cryptographic entropy.
  * @internal
@@ -296,6 +300,23 @@ REGISTER_TEST(dtls13_recovery_buffer_boundaries)
     return 0;
 }
 
+#if NOXTLS_FEATURE_ECC
+/** @brief The largest supported classical KeyShareEntry fits the bounded client staging area.
+ * @return Zero on success. */
+REGISTER_TEST(dtls13_classical_share_capacity)
+{
+    uint8_t encoded[TLS13_CLIENT_KEY_SHARE_ENCODED_CAPACITY];
+    uint32_t length = sizeof(encoded);
+    UTNOX_EQUALS(noxtls_tls_ecdhe_context_init(&s_classical_share, TLS_NAMED_GROUP_SECP521R1), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(noxtls_tls_ecdhe_generate_ephemeral_key(&s_classical_share), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(noxtls_tls13_key_share_encode(&s_classical_share, encoded, &length), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(length, RECOVERY_P521_SHARE_BYTES);
+    UTNOX_EQUALS(length <= TLS13_CLIENT_KEY_SHARE_VECTOR_CAPACITY, true);
+    UTNOX_EQUALS(noxtls_tls_ecdhe_context_free(&s_classical_share), NOXTLS_RETURN_SUCCESS);
+    return 0;
+}
+#endif
+
 #if defined(_MSC_VER)
 /** @brief Register tests where compiler constructor registration is unavailable. */
 void utnox_register_tests(void)
@@ -306,5 +327,8 @@ void utnox_register_tests(void)
     register_test(__reg_dtls13_recovery_final_ack.name, __reg_dtls13_recovery_final_ack.func);
     register_test(__reg_dtls13_recovery_combined_loss.name, __reg_dtls13_recovery_combined_loss.func);
     register_test(__reg_dtls13_recovery_buffer_boundaries.name, __reg_dtls13_recovery_buffer_boundaries.func);
+#if NOXTLS_FEATURE_ECC
+    register_test(__reg_dtls13_classical_share_capacity.name, __reg_dtls13_classical_share_capacity.func);
+#endif
 }
 #endif
