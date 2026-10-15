@@ -14043,6 +14043,15 @@ noxtls_return_t noxtls_tls13_accept(tls13_context_t *ctx)
                     return rc;
                 }
                 NOXTLS_STATE_EXIT(ctx, NOXTLS_STATE_ACCEPT_RECV_FINISHED, rc);
+#if NOXTLS_FEATURE_DTLS
+                if(tls13_is_dtls(ctx) != 0) {
+                    /* RFC 9147 7.1/7.2: the verified client Finished implicitly
+                     * acknowledges our entire server flight. Stop its timer before
+                     * retaining the final ACK; a lost ACK still requires that ACK
+                     * to be resent in response to another client Finished. */
+                    noxtls_dtls_flight_reset(&ctx->base);
+                }
+#endif
                 ctx->server_handshake_step = (tls13_is_dtls(ctx) != 0) ?
                     (uint8_t)TLS13_SERVER_HS_STEP_FLUSH_ACK :
                     (uint8_t)TLS13_SERVER_HS_STEP_INSTALL_CLIENT_APP_READ_KEYS;

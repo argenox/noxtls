@@ -84,3 +84,24 @@ released sessions, intact stack guards and clear fault registers. This is an inj
 logical input check, not validation of the mechanical button. The companion Thread
 deadline code also needed to accept a partial peer-flight receive wait after its local
 flight had been acknowledged; that integration fix is outside NoxTLS.
+
+## Completed server flight
+
+After verifying the client's Finished, DTLS 1.3 now resets the server's outgoing
+handshake flight. RFC 9147 sections 7.1 and 7.2 define this response as an implicit
+acknowledgement of that entire flight. Previously the server kept its retransmission
+buffer and could resend ServerHello, EncryptedExtensions and Finished while receiving
+the first application request. The separately retained final ACK is preserved, so a
+lost final ACK still recovers when the client retransmits Finished.
+
+The normal and lossy handshake tests now require both flight buffers to be empty
+after completion. The normal case also advances virtual time past the retransmission
+timer and verifies that no extra server records appear. These checks fail before
+the cleanup and pass afterwards, including the lost-final-ACK case and DTLS-off build.
+
+On CC1354 board 2, the completed-flight fix removed three incoming datagrams and two
+outgoing ACKs per notification. Together with an application RX-slice change outside
+NoxTLS, five logical-input hardware trials took 2.453..2.656 seconds to authenticated
+acknowledgement, compared with 3.579..3.594 seconds in three baseline trials. All trials
+used a new PSK-DHE handshake and the existing single TLS context; the measurements
+are from a running-node debug probe with roughly 50 ms sampling resolution.

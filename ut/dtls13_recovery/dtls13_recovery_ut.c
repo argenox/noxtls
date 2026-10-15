@@ -209,8 +209,17 @@ static int round_trip(uint32_t drops)
     if(s_client.tls.base.base.state != TLS_STATE_CONNECTED ||
        s_server.tls.base.base.state != TLS_STATE_CONNECTED ||
        s_client.tls.base.flight_buffer_len != 0U ||
+       s_server.tls.base.flight_buffer_len != 0U ||
        (s_client.dropped | s_server.dropped) != drops ||
        s_client.sequence_reused || s_server.sequence_reused) { goto cleanup; }
+
+    if(drops == 0U) {
+        uint32_t pending = s_client.count;
+        uint32_t sent = s_server.encrypted_sends;
+        s_now += 2000U;
+        (void)pump(&s_server);
+        if(s_client.count != pending || s_server.encrypted_sends != sent) { goto cleanup; }
+    }
 
     if(noxtls_tls13_send(&s_client.tls, payload, sizeof(payload)) != NOXTLS_RETURN_SUCCESS) { goto cleanup; }
 
