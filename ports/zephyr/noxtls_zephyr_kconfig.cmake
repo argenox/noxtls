@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-15T09:33:10Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-15T18:28:15Z)
 
 if(NOT CONFIG_NOXTLS)
   return()
@@ -33,6 +33,10 @@ noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_AES_XTS NOXTLS_CFG_FEATURE_AES_XTS)
 noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_ARIA NOXTLS_CFG_FEATURE_ARIA)
 noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_BLAKE2 NOXTLS_CFG_FEATURE_BLAKE2)
 noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_CAMELLIA NOXTLS_CFG_FEATURE_CAMELLIA)
+noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_CC13XX_AES_ACCEL NOXTLS_CFG_FEATURE_CC13XX_AES_ACCEL)
+noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_CC13XX_HW_ACCEL NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL)
+noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_CC13XX_P256_ACCEL NOXTLS_CFG_FEATURE_CC13XX_P256_ACCEL)
+noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_CC13XX_X25519_ACCEL NOXTLS_CFG_FEATURE_CC13XX_X25519_ACCEL)
 noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_CERT NOXTLS_CFG_FEATURE_CERT)
 noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_CHACHA20_POLY1305 NOXTLS_CFG_FEATURE_CHACHA20_POLY1305)
 noxtls_zephyr_map_bool(CONFIG_NOXTLS_FEATURE_DES NOXTLS_CFG_FEATURE_DES)
@@ -134,24 +138,6 @@ if(CONFIG_NOXTLS_ECDSA_SIGN_SELF_VERIFY)
   zephyr_compile_definitions(NOXTLS_ECDSA_SIGN_SELF_VERIFY=1)
 else()
   zephyr_compile_definitions(NOXTLS_ECDSA_SIGN_SELF_VERIFY=0)
-endif()
-
-if(CONFIG_NOXTLS_FEATURE_CC13XX_AES_ACCEL)
-  zephyr_compile_definitions(NOXTLS_FEATURE_CC13XX_AES_ACCEL=1)
-else()
-  zephyr_compile_definitions(NOXTLS_FEATURE_CC13XX_AES_ACCEL=0)
-endif()
-
-if(CONFIG_NOXTLS_FEATURE_CC13XX_HW_ACCEL)
-  zephyr_compile_definitions(NOXTLS_FEATURE_CC13XX_HW_ACCEL=1)
-else()
-  zephyr_compile_definitions(NOXTLS_FEATURE_CC13XX_HW_ACCEL=0)
-endif()
-
-if(CONFIG_NOXTLS_FEATURE_CC13XX_P256_ACCEL)
-  zephyr_compile_definitions(NOXTLS_FEATURE_CC13XX_P256_ACCEL=1)
-else()
-  zephyr_compile_definitions(NOXTLS_FEATURE_CC13XX_P256_ACCEL=0)
 endif()
 
 if(CONFIG_NOXTLS_FEATURE_FALCON)

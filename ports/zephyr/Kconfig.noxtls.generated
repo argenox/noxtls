@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-15T09:33:10Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-15T18:28:15Z)
 
 menu "NoxTLS library options (from noxtls_config.h)"
 
@@ -671,6 +671,13 @@ menu "NoxTLS library options (from noxtls_config.h)"
 			depends on NOXTLS_FEATURE_ECC
 			help
 			  Injected CC13xx PKA callback port for secp256r1 point multiplication; a busy or unbound PKA falls back to software ECC. Also enabled by NOXTLS_FEATURE_CC13XX_HW_ACCEL. Prereq: NOXTLS_FEATURE_ECC=1. Build knob: NOXTLS_CFG_FEATURE_CC13XX_P256_ACCEL.
+
+		config NOXTLS_FEATURE_CC13XX_X25519_ACCEL
+			bool "CC13xx X25519 acceleration"
+			default n
+			depends on NOXTLS_FEATURE_X25519
+			help
+			  Injected CC13xx PKA callback port for X25519. Unbound or busy engines retain software fallback. Prereq: NOXTLS_FEATURE_X25519=1. Build knob: NOXTLS_CFG_FEATURE_CC13XX_X25519_ACCEL.
 
 		config NOXTLS_FEATURE_ECJPAKE
 			bool "EC-JPAKE"

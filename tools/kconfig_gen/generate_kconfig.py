@@ -43,6 +43,10 @@ SKIP_SETTING_IDS = frozenset(
 # Root CMake maps these via NOXTLS_CFG_* / noxtls_define_bool (see noxtls/CMakeLists.txt).
 CMAKE_BOOL_CACHE_VARS: frozenset[str] = frozenset(
     {
+        "NOXTLS_FEATURE_CC13XX_HW_ACCEL",
+        "NOXTLS_FEATURE_CC13XX_AES_ACCEL",
+        "NOXTLS_FEATURE_CC13XX_P256_ACCEL",
+        "NOXTLS_FEATURE_CC13XX_X25519_ACCEL",
         "NOXTLS_FEATURE_HASH",
         "NOXTLS_FEATURE_HMAC",
         "NOXTLS_FEATURE_HKDF",

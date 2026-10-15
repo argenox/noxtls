@@ -28,6 +28,17 @@ class ScalarConfigurationTest(unittest.TestCase):
         self.assertIn('range 0 2', text)
         self.assertEqual(generator.parse_int_default('NOXTLS_STATIC_ALLOCATOR_MODE_HYBRID'), '2')
 
+    def test_cc13xx_acceleration_controls_the_built_provider(self):
+        settings = generator.collect_all_settings(ET.parse(generator.CATALOG_XML).getroot())
+        text = generator.generate_cmake(settings, 'zephyr', 'test')
+        for suffix in ('HW_ACCEL', 'AES_ACCEL', 'P256_ACCEL', 'X25519_ACCEL'):
+            name = 'NOXTLS_FEATURE_CC13XX_' + suffix
+            with self.subTest(feature=name):
+                self.assertIn(name, {item.id for item in settings})
+                self.assertIn('noxtls_zephyr_map_bool(CONFIG_' + name +
+                              ' ' + name.replace('NOXTLS_', 'NOXTLS_CFG_', 1) + ')', text)
+                self.assertNotIn('zephyr_compile_definitions(' + name + '=', text)
+
 
 if __name__ == '__main__':
     unittest.main()
