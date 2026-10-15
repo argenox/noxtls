@@ -10,6 +10,30 @@ No fixed large buffer is added. The DTLS context gains one callback pointer, whi
 
 ## Run the tests
 
+### Ciphertext received before ServerHello
+
+On NoxTLS `2c5e141`, a DTLS 1.3 encrypted record received before the final
+ServerHello reaches the ServerHello parser and terminates the handshake. The
+Sub1GHz coexistence capture showed that order, and a native UDP proxy reproduced
+the same failure without radio hardware. In-order native delivery succeeded.
+
+The record layer now discards ciphertext while the receive epoch is still zero,
+before receive keys exist, as permitted by RFC 9147 sections 4.2.1 and 5.8. It does
+not acknowledge the discarded bytes or alter replay/flight state. Retransmission
+recovers the missing records. Any following record in the same datagram is kept
+through the existing datagram remainder mechanism. The existing 64-record limit
+bounds work per call. No context field or fixed buffer is added. Once receive
+keys are installed, ciphertext follows the existing authentication path.
+
+The focused suite adds nine cases: ServerHello loss and reordering, each combined
+with encrypted-flight/final-ACK loss; early-record state preservation; coalesced
+plaintext delivery; malformed length handling; delivery after key installation;
+and bounded work on an unending early-record stream. Both ServerHello-loss cases
+failed before the change. The native UDP proxy also changes from immediate failure
+to a successful authenticated request with retransmission.
+
+### Build commands
+
 Use an existing UTNox source checkout:
 
 ```sh
@@ -21,7 +45,7 @@ cmake --build build/dtls13-recovery --target tls13_link_ut dtls13_recovery_ut ke
 ctest --test-dir build/dtls13-recovery --output-on-failure
 ```
 
-The focused option is off by default. With TLS 1.3, DTLS, X25519, AES-GCM and ECC enabled it builds three UTNox executables with eleven cases in total:
+The focused option is off by default. With TLS 1.3, DTLS, X25519, AES-GCM and ECC enabled it builds three UTNox executables with twenty cases in total:
 
 - TLS 1.3 context initialization and linkage.
 - The largest classical share, a 137-byte P-521 KeyShareEntry, fits the client staging buffers.

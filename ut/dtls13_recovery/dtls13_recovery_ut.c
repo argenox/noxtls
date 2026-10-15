@@ -18,6 +18,7 @@
  */
 #include "dtls13_recovery_fixture.h"
 #include "tls/noxtls_tls_key_exchange.h"
+#include "common/noxtls_memory.h"
 #include "runner.h"
 #include "test_assert.h"
 #include <string.h>
@@ -25,6 +26,7 @@
 static recovery_endpoint_t s_client;
 static recovery_endpoint_t s_server;
 static uint64_t s_now;
+static uint32_t s_flood_reads;
 #if NOXTLS_FEATURE_ECC
 static tls_ecdhe_context_t s_classical_share;
 #endif
@@ -58,7 +60,12 @@ static int32_t send_packet(void *context, const uint8_t *data, uint32_t length)
     uint32_t drop = 0U;
     bool encrypted = length != 0U &&
         (data[0] & RECOVERY_ENCRYPTED_MASK) == RECOVERY_ENCRYPTED_HEADER;
-    if(encrypted && source->tls.base.epoch == DTLS13_EPOCH_HANDSHAKE) {
+    if(source == &s_server && length > DTLS_RECORD_HEADER_SIZE + DTLS_HANDSHAKE_HEADER_SIZE &&
+       data[0] == TLS_RECORD_HANDSHAKE && data[DTLS_RECORD_DATA_OFFSET] == TLS_HANDSHAKE_SERVER_HELLO &&
+       data[DTLS_RECORD_DATA_OFFSET + DTLS_HANDSHAKE_MESSAGE_SEQ_OFFSET] == 0U &&
+       data[DTLS_RECORD_DATA_OFFSET + DTLS_HANDSHAKE_MESSAGE_SEQ_OFFSET + 1U] == RECOVERY_FINAL_SERVER_HELLO_SEQ) {
+        drop = RECOVERY_DROP_SERVER_HELLO;
+    } else if(encrypted && source->tls.base.epoch == DTLS13_EPOCH_HANDSHAKE) {
         uint64_t sequence = source->tls.base.write_seq_num;
         if(source->sequence_seen && sequence <= source->previous_sequence) {
             source->sequence_reused = true;
@@ -169,6 +176,31 @@ static noxtls_return_t pump(recovery_endpoint_t *endpoint)
         noxtls_tls13_accept(&endpoint->tls);
 }
 
+/** @brief Move one encrypted record before the final ServerHello in the test queue.
+ * @return None; the injected condition is recorded in the server's observed mask. */
+static void reorder_server_hello(void)
+{
+    for(uint32_t i = 0U; i + 1U < s_client.count; ++i) {
+        recovery_packet_t *hello = &s_client.queue[(s_client.head + i) % RECOVERY_QUEUE_DEPTH];
+        if(hello->length <= DTLS_RECORD_HEADER_SIZE + DTLS_HANDSHAKE_HEADER_SIZE ||
+           hello->bytes[0] != TLS_RECORD_HANDSHAKE ||
+           hello->bytes[DTLS_RECORD_DATA_OFFSET] != TLS_HANDSHAKE_SERVER_HELLO ||
+           hello->bytes[DTLS_RECORD_DATA_OFFSET + DTLS_HANDSHAKE_MESSAGE_SEQ_OFFSET + 1U] != RECOVERY_FINAL_SERVER_HELLO_SEQ) {
+            continue;
+        }
+
+        recovery_packet_t *next = &s_client.queue[(s_client.head + i + 1U) % RECOVERY_QUEUE_DEPTH];
+        if(next->length != 0U &&
+           (next->bytes[0] & RECOVERY_ENCRYPTED_MASK) == RECOVERY_ENCRYPTED_HEADER) {
+            recovery_packet_t saved = *hello;
+            *hello = *next;
+            *next = saved;
+            s_server.dropped |= RECOVERY_REORDER_SERVER_HELLO;
+            return;
+        }
+    }
+}
+
 /** @brief Complete a lossy handshake and exchange authenticated application data.
  * @internal
  *
@@ -197,6 +229,10 @@ static int round_trip(uint32_t drops)
     for(uint32_t step = 0U; step < RECOVERY_STEPS; ++step) {
         client_rc = pump(&s_client);
         server_rc = pump(&s_server);
+        if((drops & RECOVERY_REORDER_SERVER_HELLO) != 0U &&
+           (s_server.dropped & RECOVERY_REORDER_SERVER_HELLO) == 0U) {
+            reorder_server_hello();
+        }
         ++s_now;
         if((client_rc != NOXTLS_RETURN_SUCCESS && client_rc != NOXTLS_RETURN_TIMEOUT) ||
            (server_rc != NOXTLS_RETURN_SUCCESS && server_rc != NOXTLS_RETURN_TIMEOUT)) { goto cleanup; }
@@ -281,6 +317,170 @@ REGISTER_TEST(dtls13_recovery_combined_loss)
     return round_trip(RECOVERY_DROP_ALL);
 }
 
+/** @brief Early encrypted records must not terminate a client missing ServerHello.
+ * @return Zero after retransmission and authenticated bidirectional data. */
+REGISTER_TEST(dtls13_recovery_missing_server_hello)
+{
+    return round_trip(RECOVERY_DROP_SERVER_HELLO);
+}
+
+/** @brief Recover a missing ServerHello together with encrypted-flight and ACK loss.
+ * @return Zero after retransmission and authenticated bidirectional data. */
+REGISTER_TEST(dtls13_recovery_missing_server_hello_and_flight)
+{
+    return round_trip(RECOVERY_DROP_SERVER_HELLO | RECOVERY_DROP_ALL);
+}
+
+/** @brief Deliver encrypted handshake bytes before ServerHello, as observed on hardware.
+ * @return Zero after retransmission and authenticated bidirectional data. */
+REGISTER_TEST(dtls13_recovery_reordered_server_hello)
+{
+    return round_trip(RECOVERY_REORDER_SERVER_HELLO);
+}
+
+/** @brief Recover reordering together with encrypted-flight and final-ACK loss.
+ * @return Zero after retransmission and authenticated bidirectional data. */
+REGISTER_TEST(dtls13_recovery_reordered_server_hello_and_loss)
+{
+    return round_trip(RECOVERY_REORDER_SERVER_HELLO | RECOVERY_DROP_ALL);
+}
+
+/** @brief Fill one synthetic protected record; authentication is intentionally unavailable.
+ * @param[out] bytes Record storage with at least RECOVERY_EARLY_PACKET_BYTES bytes.
+ * @return None. */
+static void early_record(uint8_t *bytes)
+{
+    memset(bytes, 0, RECOVERY_EARLY_PACKET_BYTES);
+    bytes[0] = DTLS13_UNIFIED_FIXED_BITS | DTLS13_UNIFIED_S_BIT |
+        DTLS13_UNIFIED_L_BIT | DTLS13_EPOCH_HANDSHAKE;
+    bytes[RECOVERY_UNIFIED_HEADER_BYTES - 1U] = RECOVERY_EARLY_CIPHERTEXT_BYTES;
+}
+
+/** @brief Fill a minimal epoch-zero record for record-layer delivery checks.
+ * @param[out] bytes Record storage with at least DTLS_RECORD_HEADER_SIZE + 1 bytes.
+ * @return None. */
+static void plaintext_record(uint8_t *bytes)
+{
+    memset(bytes, 0, DTLS_RECORD_HEADER_SIZE + 1U);
+    bytes[DTLS_RECORD_TYPE_OFFSET] = TLS_RECORD_HANDSHAKE;
+    bytes[DTLS_RECORD_VERSION_OFFSET] = (uint8_t)(DTLS_1_3_LEGACY_RECORD_VERSION >> 8U);
+    bytes[DTLS_RECORD_VERSION_OFFSET + 1U] = (uint8_t)DTLS_1_3_LEGACY_RECORD_VERSION;
+    bytes[DTLS_RECORD_LENGTH_OFFSET + 1U] = 1U;
+    bytes[DTLS_RECORD_DATA_OFFSET] = TLS_HANDSHAKE_SERVER_HELLO;
+}
+
+/** @brief Discard ciphertext before keys exist without ACK or replay mutation.
+ * @return Zero on success. */
+REGISTER_TEST(dtls13_early_ciphertext_preserves_state)
+{
+    dtls_record_t record;
+    memset(&s_client, 0, sizeof(s_client));
+    UTNOX_EQUALS(initialize(&s_client, TLS_ROLE_CLIENT), NOXTLS_RETURN_SUCCESS);
+    s_client.tls.base.read_seq_num = 17U;
+    dtls_replay_window_t replay = s_client.tls.base.replay_window;
+    early_record(s_client.queue[0].bytes);
+    s_client.queue[0].length = RECOVERY_EARLY_PACKET_BYTES;
+    s_client.count = 1U;
+    UTNOX_EQUALS(noxtls_dtls_recv_record(&s_client.tls.base, &record), NOXTLS_RETURN_TIMEOUT);
+    UTNOX_EQUALS(record.data == NULL, true);
+    UTNOX_EQUALS(s_client.tls.base.read_seq_num, 17U);
+    UTNOX_EQUALS(s_client.tls.base.read_connection_epoch, 0U);
+    UTNOX_EQUALS(s_client.tls.base.ack_pending, 0U);
+    UTNOX_EQUALS(s_client.tls.base.flight_buffer_len, 0U);
+    UTNOX_EQUALS(memcmp(&replay, &s_client.tls.base.replay_window, sizeof(replay)), 0);
+    UTNOX_EQUALS(noxtls_tls13_context_free(&s_client.tls), NOXTLS_RETURN_SUCCESS);
+    return 0;
+}
+
+/** @brief Keep plaintext that follows discarded ciphertext in the same datagram.
+ * @return Zero on success. */
+REGISTER_TEST(dtls13_early_ciphertext_coalesced_plaintext)
+{
+    dtls_record_t record;
+    memset(&s_client, 0, sizeof(s_client));
+    UTNOX_EQUALS(initialize(&s_client, TLS_ROLE_CLIENT), NOXTLS_RETURN_SUCCESS);
+    early_record(s_client.queue[0].bytes);
+    plaintext_record(&s_client.queue[0].bytes[RECOVERY_EARLY_PACKET_BYTES]);
+    s_client.queue[0].length = RECOVERY_EARLY_PACKET_BYTES + DTLS_RECORD_HEADER_SIZE + 1U;
+    s_client.count = 1U;
+    UTNOX_EQUALS(noxtls_dtls_recv_record(&s_client.tls.base, &record), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(record.type, TLS_RECORD_HANDSHAKE);
+    UTNOX_EQUALS(record.length, 1U);
+    UTNOX_EQUALS(record.data[0], TLS_HANDSHAKE_SERVER_HELLO);
+    (void)noxtls_free(record.data);
+    UTNOX_EQUALS(noxtls_tls13_context_free(&s_client.tls), NOXTLS_RETURN_SUCCESS);
+    return 0;
+}
+
+/** @brief A malformed early length cannot consume a subsequent datagram.
+ * @return Zero on success. */
+REGISTER_TEST(dtls13_early_ciphertext_bad_length)
+{
+    dtls_record_t record;
+    memset(&s_client, 0, sizeof(s_client));
+    UTNOX_EQUALS(initialize(&s_client, TLS_ROLE_CLIENT), NOXTLS_RETURN_SUCCESS);
+    early_record(s_client.queue[0].bytes);
+    s_client.queue[0].bytes[RECOVERY_UNIFIED_HEADER_BYTES - 1U] = UINT8_MAX;
+    s_client.queue[0].length = RECOVERY_EARLY_PACKET_BYTES;
+    plaintext_record(s_client.queue[1].bytes);
+    s_client.queue[1].length = DTLS_RECORD_HEADER_SIZE + 1U;
+    s_client.count = 2U;
+    UTNOX_EQUALS(noxtls_dtls_recv_record(&s_client.tls.base, &record), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(record.type, TLS_RECORD_HANDSHAKE);
+    (void)noxtls_free(record.data);
+    UTNOX_EQUALS(noxtls_tls13_context_free(&s_client.tls), NOXTLS_RETURN_SUCCESS);
+    return 0;
+}
+
+/** @brief Once keys are installed, protected records still reach authentication.
+ * @return Zero on success. */
+REGISTER_TEST(dtls13_ciphertext_after_key_install)
+{
+    dtls_record_t record;
+    memset(&s_client, 0, sizeof(s_client));
+    UTNOX_EQUALS(initialize(&s_client, TLS_ROLE_CLIENT), NOXTLS_RETURN_SUCCESS);
+    s_client.tls.base.read_connection_epoch = DTLS13_EPOCH_HANDSHAKE;
+    early_record(s_client.queue[0].bytes);
+    s_client.queue[0].length = RECOVERY_EARLY_PACKET_BYTES;
+    s_client.count = 1U;
+    UTNOX_EQUALS(noxtls_dtls_recv_record(&s_client.tls.base, &record), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(record.type, s_client.queue[0].bytes[0]);
+    UTNOX_EQUALS(record.length, RECOVERY_EARLY_PACKET_BYTES);
+    UTNOX_EQUALS(memcmp(record.data, s_client.queue[0].bytes, record.length), 0);
+    (void)noxtls_free(record.data);
+    UTNOX_EQUALS(noxtls_tls13_context_free(&s_client.tls), NOXTLS_RETURN_SUCCESS);
+    return 0;
+}
+
+/** @brief Produce an unbounded stream of early ciphertext for the work-limit check.
+ * @param[in] context Unused. @param[out] bytes Receive storage.
+ * @param[in] capacity Storage capacity.
+ * @return One datagram length or a capacity error. */
+static int32_t flood_records(void *context, uint8_t *bytes, uint32_t capacity)
+{
+    (void)context;
+    if(capacity < RECOVERY_EARLY_PACKET_BYTES) { return -1; }
+
+    early_record(bytes);
+    ++s_flood_reads;
+    return RECOVERY_EARLY_PACKET_BYTES;
+}
+
+/** @brief Repeated unauthenticated records cannot spin one receive call indefinitely.
+ * @return Zero on success. */
+REGISTER_TEST(dtls13_early_ciphertext_bounded_work)
+{
+    dtls_record_t record;
+    memset(&s_client, 0, sizeof(s_client));
+    UTNOX_EQUALS(initialize(&s_client, TLS_ROLE_CLIENT), NOXTLS_RETURN_SUCCESS);
+    s_client.tls.base.base.recv_callback = flood_records;
+    s_flood_reads = 0U;
+    UTNOX_EQUALS(noxtls_dtls_recv_record(&s_client.tls.base, &record), NOXTLS_RETURN_TIMEOUT);
+    UTNOX_EQUALS(s_flood_reads, DTLS12_MAX_RECORDS_PER_READ);
+    UTNOX_EQUALS(noxtls_tls13_context_free(&s_client.tls), NOXTLS_RETURN_SUCCESS);
+    return 0;
+}
+
 /** @brief Reject invalid bindings and oversized entries without modifying the flight.
  * @return Zero on success. */
 REGISTER_TEST(dtls13_recovery_buffer_boundaries)
@@ -335,6 +535,15 @@ void utnox_register_tests(void)
     register_test(__reg_dtls13_recovery_client_finished.name, __reg_dtls13_recovery_client_finished.func);
     register_test(__reg_dtls13_recovery_final_ack.name, __reg_dtls13_recovery_final_ack.func);
     register_test(__reg_dtls13_recovery_combined_loss.name, __reg_dtls13_recovery_combined_loss.func);
+    register_test(__reg_dtls13_recovery_missing_server_hello.name, __reg_dtls13_recovery_missing_server_hello.func);
+    register_test(__reg_dtls13_recovery_missing_server_hello_and_flight.name, __reg_dtls13_recovery_missing_server_hello_and_flight.func);
+    register_test(__reg_dtls13_recovery_reordered_server_hello.name, __reg_dtls13_recovery_reordered_server_hello.func);
+    register_test(__reg_dtls13_recovery_reordered_server_hello_and_loss.name, __reg_dtls13_recovery_reordered_server_hello_and_loss.func);
+    register_test(__reg_dtls13_early_ciphertext_preserves_state.name, __reg_dtls13_early_ciphertext_preserves_state.func);
+    register_test(__reg_dtls13_early_ciphertext_coalesced_plaintext.name, __reg_dtls13_early_ciphertext_coalesced_plaintext.func);
+    register_test(__reg_dtls13_early_ciphertext_bad_length.name, __reg_dtls13_early_ciphertext_bad_length.func);
+    register_test(__reg_dtls13_ciphertext_after_key_install.name, __reg_dtls13_ciphertext_after_key_install.func);
+    register_test(__reg_dtls13_early_ciphertext_bounded_work.name, __reg_dtls13_early_ciphertext_bounded_work.func);
     register_test(__reg_dtls13_recovery_buffer_boundaries.name, __reg_dtls13_recovery_buffer_boundaries.func);
 #if NOXTLS_FEATURE_ECC
     register_test(__reg_dtls13_classical_share_capacity.name, __reg_dtls13_classical_share_capacity.func);

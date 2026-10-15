@@ -26,6 +26,9 @@
 #include "common/noxtls_debug_printf.h"
 #include "noxtls_dtls_common.h"
 #include "noxtls_tls_common.h"
+#if NOXTLS_FEATURE_TLS13
+#include "noxtls_tls13.h"
+#endif
 #include "common/noxtls_ct.h"
 #include "drbg/noxtls_drbg.h"
 #include "mac/noxtls_hmac.h"
@@ -1754,6 +1757,22 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
 
     /* RFC 9147: DTLSCiphertext has first byte in 0x20-0x3F (unified header); pass to TLS 1.3 for decrypt */
     if((ctx->base.version == DTLS_VERSION_1_3) && (received >= 4) && ((packet[0] & 0xE0U) == 0x20U)) {
+#if NOXTLS_FEATURE_TLS13
+        if(ctx->read_connection_epoch == DTLS_EPOCH_UNENCRYPTED) {
+            /* RFC 9147 sections 4.2.1/5.8: ciphertext can overtake
+             * ServerHello before its receive keys exist. Discard without
+             * ACK, replay or flight updates; retransmission recovers it.
+             * Preserve any following record in this datagram. The existing
+             * per-read limit bounds work on an untrusted datagram stream. */
+            const tls13_context_t *tls13 = (const tls13_context_t *)(const void *)ctx;
+            uint32_t consumed = noxtls_tls13_dtls13_record_size(packet,
+                (uint32_t)received, tls13->own_connection_id_len);
+            if((consumed != 0U) && ((uint32_t)received > consumed)) {
+                dtls_rx_stash_remainder(ctx, &packet[consumed], (uint32_t)received - consumed);
+            }
+            continue;
+        }
+#endif
         (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] dtls_recv_record: dtls13 unified packet len=%ld first=0x%02X\n",
                             (long)received, packet[0]);
         record->type = packet[0];
