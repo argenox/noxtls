@@ -15,7 +15,7 @@ There are two independent ports:
 
 | Port | What it accelerates | Software path used when |
 |------|---------------------|-------------------------|
-| AES | AES block encrypt/decrypt (128/192/256-bit keys), and bounded batches used by CTR DRBG. AES modes (CBC, CTR, GCM, CCM, ...) run in software on top of it. | no AES callback is bound, the AES engine is busy, or the callback returns `NOXTLS_RETURN_NOT_SUPPORTED` |
+| AES | AES block encrypt/decrypt (128/192/256-bit keys), bounded batches used by CTR DRBG, and an optional whole-record GCM callback. Other modes and unbound GCM run in software on top of the block path. | no AES callback is bound, the AES engine is busy, or the callback returns `NOXTLS_RETURN_NOT_SUPPORTED` |
 | P-256 | secp256r1 scalar multiplication behind `noxtls_ecc_point_multiply()` (ECDH, ECDSA, SPAKE2+, BLE pairing, ...) | no P-256 callback is bound, the PKA is busy, the curve is not P-256, or the callback returns `NOXTLS_RETURN_NOT_SUPPORTED` |
 
 ## Selecting the ports
@@ -69,6 +69,28 @@ noxtls_return_t rc = noxtls_cc13xx_crypto_bind(&binding);
 
 `noxtls_cc13xx_crypto_bind()` copies the structure. Pass `NULL` to unbind. The
 `context` pointer must stay valid until you unbind.
+
+AES and PKA drivers with different owners can bind independently:
+
+```c
+noxtls_cc13xx_crypto_bind_aes(my_aes, &aes_driver);
+noxtls_cc13xx_crypto_bind_p256(my_p256, &pka_driver);
+```
+
+These functions replace only their selected callback/context and require only that
+engine to be idle. Passing a NULL callback unbinds just that callback. Existing
+`noxtls_cc13xx_crypto_bind()` behavior remains whole-binding replacement, including
+clearing any whole-record GCM binding after a successful replacement.
+
+`noxtls_cc13xx_crypto_bind_gcm()` installs an optional whole-record GCM callback
+with its own persistent context. It shares the AES guard with block and batch
+operations. The AES port passes 12-byte nonces and 16-byte tags in
+`noxtls_cc13xx_gcm_request_t`. A decrypt callback must verify `expected_tag` in
+constant time before returning success. Native failures and authentication errors
+clear output; encryption failures clear the output tag too. NOT_SUPPORTED is only
+permitted before modifying output, so the existing GCM implementation can safely
+handle an unbound, busy or deliberately declined request in software. NoxTLS adds
+no record or DMA buffers for this hook and has no vendor driver dependency.
 
 ## Binding contract
 

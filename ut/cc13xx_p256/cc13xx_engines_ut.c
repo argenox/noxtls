@@ -35,6 +35,7 @@
 #include "noxtls_config.h"
 #include "noxtls_cc13xx_crypto.h"
 #include "noxtls_aes.h"
+#include "noxtls_aes_gcm.h"
 #include "pkc/ecc/noxtls_ecc.h"
 #include "runner.h"
 #include "test_assert.h"
@@ -439,6 +440,180 @@ REGISTER_TEST(test_engines_bind_refused_while_active)
     UTNOX_EQUALS(noxtls_cc13xx_crypto_has_p256(), false);
     return 0;
 }
+
+/** @brief Independent owner identities for direct callback routing tests. */
+static uint32_t s_aes_owner;
+static uint32_t s_pka_owner;
+static bool s_owner_mismatch;
+static bool s_rebind_probe;
+static noxtls_return_t s_own_rebind;
+static noxtls_return_t s_other_rebind;
+
+/** @brief Check the AES owner and rebind without replacing the active engine.
+ * @internal
+ * @param[in,out] context AES owner identity.
+ * @param[in] decrypt Unused. @param[in] key Unused. @param[in] key_length Unused.
+ * @param[in] input One block. @param[out] output One block.
+ * @return SUCCESS after preserving the current callback context. */
+static noxtls_return_t owner_aes(void *context, bool decrypt, const uint8_t *key,
+    uint32_t key_length, const uint8_t *input, uint8_t *output)
+{
+    (void)decrypt; (void)key; (void)key_length;
+    s_owner_mismatch |= context != &s_aes_owner;
+    if (s_rebind_probe) {
+        s_own_rebind = noxtls_cc13xx_crypto_bind_aes(NULL, NULL);
+        s_other_rebind = noxtls_cc13xx_crypto_bind_p256(NULL, NULL);
+    }
+
+    memcpy(output, input, UT_AES_BLOCK);
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/** @brief Check PKA routing while AES has a different owner.
+ * @internal
+ * @param[in,out] context PKA owner identity.
+ * @param[in] scalar Unused. @param[in] x Input x. @param[in] y Input y.
+ * @param[out] result_x Output x. @param[out] result_y Output y.
+ * @return SUCCESS after checking the independent context. */
+static noxtls_return_t owner_p256(void *context, const uint8_t *scalar,
+    const uint8_t *x, const uint8_t *y, uint8_t *result_x, uint8_t *result_y)
+{
+    (void)scalar;
+    s_owner_mismatch |= context != &s_pka_owner;
+    if (s_rebind_probe) {
+        s_own_rebind = noxtls_cc13xx_crypto_bind_p256(NULL, NULL);
+        s_other_rebind = noxtls_cc13xx_crypto_bind_aes(NULL, NULL);
+    }
+
+    memcpy(result_x, x, UT_P256_BYTES);
+    memcpy(result_y, y, UT_P256_BYTES);
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/** @brief Rebinding one engine preserves the other engine and its own context. */
+REGISTER_TEST(test_engines_independent_bindings)
+{
+    uint8_t x[UT_P256_BYTES] = {0};
+    uint8_t y[UT_P256_BYTES] = {0};
+    uint8_t output[UT_P256_BYTES];
+    uint8_t other[UT_P256_BYTES];
+    const noxtls_cc13xx_crypto_binding_t legacy = {&s_aes_owner, owner_aes, NULL};
+    s_owner_mismatch = false;
+    s_rebind_probe = false;
+    UTNOX_EQUALS(noxtls_cc13xx_crypto_bind(NULL), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(noxtls_cc13xx_crypto_bind_aes(owner_aes, &s_aes_owner), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(noxtls_cc13xx_crypto_bind_p256(owner_p256, &s_pka_owner), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(noxtls_cc13xx_aes_block(false, s_kat_key, UT_AES_BLOCK, s_kat_pt, output),
+        NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(memcmp(output, s_kat_pt, UT_AES_BLOCK), 0);
+    UTNOX_EQUALS(noxtls_cc13xx_p256_multiply(x, x, y, output, other), NOXTLS_RETURN_SUCCESS);
+    UTNOX_IS_FALSE(s_owner_mismatch);
+    s_rebind_probe = true;
+    UTNOX_EQUALS(noxtls_cc13xx_aes_block(false, s_kat_key, UT_AES_BLOCK, s_kat_pt, output),
+        NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(s_own_rebind, NOXTLS_RETURN_NOT_INITIALIZED);
+    UTNOX_EQUALS(s_other_rebind, NOXTLS_RETURN_SUCCESS);
+    UTNOX_IS_FALSE(noxtls_cc13xx_crypto_has_p256());
+    UTNOX_EQUALS(noxtls_cc13xx_crypto_bind_p256(owner_p256, &s_pka_owner), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(noxtls_cc13xx_p256_multiply(x, x, y, output, other), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(s_own_rebind, NOXTLS_RETURN_NOT_INITIALIZED);
+    UTNOX_EQUALS(s_other_rebind, NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(noxtls_cc13xx_aes_block(false, s_kat_key, UT_AES_BLOCK, s_kat_pt, output),
+        NOXTLS_RETURN_NOT_SUPPORTED);
+    s_rebind_probe = false;
+    UTNOX_EQUALS(noxtls_cc13xx_crypto_bind(&legacy), NOXTLS_RETURN_SUCCESS);
+    UTNOX_IS_FALSE(noxtls_cc13xx_crypto_has_p256());
+    UTNOX_EQUALS(noxtls_cc13xx_aes_block(false, s_kat_key, UT_AES_BLOCK, s_kat_pt, output),
+        NOXTLS_RETURN_SUCCESS);
+    UTNOX_IS_FALSE(s_owner_mismatch);
+    UTNOX_EQUALS(noxtls_cc13xx_crypto_bind(NULL), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(noxtls_cc13xx_aes_block(false, s_kat_key, UT_AES_BLOCK, s_kat_pt, output),
+        NOXTLS_RETURN_NOT_SUPPORTED);
+    return 0;
+}
+
+static uint32_t s_gcm_calls;
+static noxtls_return_t s_gcm_failure;
+static noxtls_return_t s_gcm_rebind;
+static noxtls_return_t s_gcm_nested_block;
+
+/** @brief Model a yielding whole-record engine using guarded software recursion.
+ * @internal
+ * @param[in,out] context AES owner identity. @param[in] request Cipher operation.
+ * @return Actual software result or an injected hardware error. */
+static noxtls_return_t owner_gcm(void *context, const noxtls_cc13xx_gcm_request_t *request)
+{
+    uint8_t block[16];
+    ++s_gcm_calls;
+    s_owner_mismatch |= context != &s_aes_owner;
+    s_gcm_rebind = noxtls_cc13xx_crypto_bind_gcm(NULL, NULL);
+    s_gcm_nested_block = noxtls_cc13xx_aes_block(false, s_kat_key, UT_AES_BLOCK, s_kat_pt, block);
+    if (s_gcm_failure != NOXTLS_RETURN_SUCCESS) {
+        memset(request->output, 0xA5, request->length);
+        return s_gcm_failure;
+    }
+
+    const noxtls_aes_type_t type = request->key_length == 16U ? NOXTLS_AES_128_BIT :
+        (request->key_length == 24U ? NOXTLS_AES_192_BIT : NOXTLS_AES_256_BIT);
+    return request->decrypt ? noxtls_aes_gcm_decrypt(request->key, type, request->nonce,
+        request->aad, request->aad_length, request->input, request->length,
+        request->expected_tag, request->output) :
+        noxtls_aes_gcm_encrypt(request->key, type, request->nonce, request->aad,
+        request->aad_length, request->input, request->length, request->output, request->tag);
+}
+
+/** @brief GCM shares AES ownership, authenticates output and wipes hard failures. */
+REGISTER_TEST(test_engines_gcm_authentication_and_guard)
+{
+    const uint8_t key[16] = {0};
+    const uint8_t nonce[12] = {0};
+    const uint8_t plain[16] = {0};
+    uint8_t output[16];
+    uint8_t tag[16];
+    UTNOX_EQUALS(noxtls_cc13xx_crypto_bind(NULL), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(noxtls_cc13xx_crypto_bind_gcm(owner_gcm, &s_aes_owner), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(noxtls_cc13xx_crypto_bind_aes(owner_aes, &s_aes_owner), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(noxtls_cc13xx_crypto_bind_p256(owner_p256, &s_pka_owner), NOXTLS_RETURN_SUCCESS);
+    UTNOX_IS_TRUE(noxtls_cc13xx_crypto_has_p256());
+    s_gcm_calls = 0U; s_gcm_failure = NOXTLS_RETURN_SUCCESS; s_owner_mismatch = false;
+    UTNOX_EQUALS(noxtls_aes_gcm_encrypt(key, NOXTLS_AES_128_BIT, nonce, NULL, 0U,
+        plain, sizeof(plain), output, tag), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(s_gcm_calls, UT_AES_PORT);
+    if (UT_AES_PORT) {
+        UTNOX_EQUALS(s_gcm_rebind, NOXTLS_RETURN_NOT_INITIALIZED);
+        UTNOX_EQUALS(s_gcm_nested_block, NOXTLS_RETURN_NOT_SUPPORTED);
+    }
+
+    UTNOX_EQUALS(noxtls_aes_gcm_decrypt(key, NOXTLS_AES_128_BIT, nonce, NULL, 0U,
+        output, sizeof(output), tag, output), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(memcmp(output, plain, sizeof(output)), 0);
+    tag[0] ^= 1U;
+    UTNOX_EQUALS(noxtls_aes_gcm_decrypt(key, NOXTLS_AES_128_BIT, nonce, NULL, 0U,
+        output, sizeof(output), tag, output), NOXTLS_RETURN_BAD_DATA);
+    UTNOX_EQUALS(memcmp(output, plain, sizeof(output)), 0);
+    UTNOX_IS_FALSE(s_owner_mismatch);
+    if (UT_AES_PORT) {
+        s_gcm_failure = NOXTLS_RETURN_TIMEOUT;
+        memset(output, 0xA5, sizeof(output)); memset(tag, 0xA5, sizeof(tag));
+        UTNOX_EQUALS(noxtls_aes_gcm_encrypt(key, NOXTLS_AES_128_BIT, nonce, NULL, 0U,
+            plain, sizeof(plain), output, tag), NOXTLS_RETURN_TIMEOUT);
+        UTNOX_EQUALS(memcmp(output, plain, sizeof(output)), 0);
+        UTNOX_EQUALS(memcmp(tag, plain, sizeof(tag)), 0);
+    }
+
+    UTNOX_EQUALS(noxtls_cc13xx_crypto_bind(NULL), NOXTLS_RETURN_SUCCESS);
+    noxtls_cc13xx_gcm_request_t request = {key, 16U, nonce, NULL, 0U, plain,
+        output, sizeof(output), tag, NULL, false};
+    UTNOX_EQUALS(noxtls_cc13xx_aes_gcm(&request), NOXTLS_RETURN_NOT_SUPPORTED);
+    UTNOX_EQUALS(noxtls_cc13xx_aes_gcm(NULL), NOXTLS_RETURN_NULL);
+    request.key_length = 15U;
+    UTNOX_EQUALS(noxtls_cc13xx_aes_gcm(&request), NOXTLS_RETURN_INVALID_KEY_SIZE);
+    request.key_length = 16U; request.tag = NULL;
+    UTNOX_EQUALS(noxtls_cc13xx_aes_gcm(&request), NOXTLS_RETURN_NULL);
+    request.decrypt = true;
+    UTNOX_EQUALS(noxtls_cc13xx_aes_gcm(&request), NOXTLS_RETURN_NULL);
+    return 0;
+}
 #endif
 
 #if defined(_MSC_VER) && !defined(__cplusplus)
@@ -454,6 +629,8 @@ void utnox_register_tests(void)
     register_test("test_engines_single_engine_bound", test_engines_single_engine_bound);
     register_test("test_engines_callback_errors_propagate", test_engines_callback_errors_propagate);
     register_test("test_engines_bind_refused_while_active", test_engines_bind_refused_while_active);
+    register_test("test_engines_independent_bindings", test_engines_independent_bindings);
+    register_test("test_engines_gcm_authentication_and_guard", test_engines_gcm_authentication_and_guard);
 #endif
 }
 #endif
