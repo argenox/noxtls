@@ -141,3 +141,34 @@ noxtls_return_t noxtls_aes_gcm_decrypt_accel_port(const uint8_t *key,
         ciphertext, plaintext, ciphertext_len, NULL, tag, true};
     return noxtls_cc13xx_aes_gcm(&request);
 }
+
+/** @copydoc noxtls_aes_mode_accel_port */
+noxtls_return_t noxtls_aes_mode_accel_port(noxtls_aes_accel_mode_t mode, uint8_t decrypt,
+    const uint8_t *key, noxtls_aes_type_t type, const uint8_t *iv,
+    const uint8_t *input, uint32_t len, uint8_t *output)
+{
+    (void)mode; (void)decrypt; (void)key; (void)type; (void)iv;
+    (void)input; (void)len; (void)output;
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+}
+
+/** @copydoc noxtls_aes_ccm_encrypt_accel_port */
+noxtls_return_t noxtls_aes_ccm_encrypt_accel_port(const uint8_t *key, noxtls_aes_type_t type,
+    const uint8_t *nonce, uint32_t nonce_len, const uint8_t *aad, uint32_t aad_len,
+    const uint8_t *plaintext, uint32_t plaintext_len, uint8_t *ciphertext, uint8_t *tag, uint32_t tag_len)
+{
+    const noxtls_cc13xx_ccm_request_t request = {{key,cc13xx_key_length(type),nonce,aad,aad_len,
+        plaintext,ciphertext,plaintext_len,tag,NULL,false},nonce_len,tag_len};
+    return noxtls_cc13xx_aes_ccm(&request);
+}
+
+/** @copydoc noxtls_aes_ccm_decrypt_accel_port */
+noxtls_return_t noxtls_aes_ccm_decrypt_accel_port(const uint8_t *key, noxtls_aes_type_t type,
+    const uint8_t *nonce, uint32_t nonce_len, const uint8_t *aad, uint32_t aad_len,
+    const uint8_t *ciphertext, uint32_t ciphertext_len, const uint8_t *tag, uint32_t tag_len,
+    uint8_t *plaintext)
+{
+    const noxtls_cc13xx_ccm_request_t request = {{key,cc13xx_key_length(type),nonce,aad,aad_len,
+        ciphertext,plaintext,ciphertext_len,NULL,tag,true},nonce_len,tag_len};
+    return noxtls_cc13xx_aes_ccm(&request);
+}

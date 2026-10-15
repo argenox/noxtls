@@ -28,6 +28,9 @@
 #include "noxtls_common.h"
 #include "noxtls_x25519.h"
 #include "noxtls_ct.h"
+#if NOXTLS_FEATURE_CC13XX_X25519_ACCEL
+#include "common/noxtls_cc13xx_crypto.h"
+#endif
 
 /*
  * Keep the X25519 backend portable across the embedded targets we actually
@@ -1328,6 +1331,10 @@ noxtls_return_t noxtls_x25519_public_key(const uint8_t *private_key,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     };
     if((private_key == NULL) || (public_key == NULL)) { return NOXTLS_RETURN_NULL; }
+#if NOXTLS_FEATURE_CC13XX_X25519_ACCEL
+    const noxtls_return_t native = noxtls_cc13xx_x25519(private_key, base_point, public_key);
+    if (native != NOXTLS_RETURN_NOT_SUPPORTED) { return native; }
+#endif
     return x25519_scalar_mult(private_key, base_point, public_key);
 }
 
@@ -1343,6 +1350,10 @@ noxtls_return_t noxtls_x25519_shared_secret(const uint8_t *private_key,
                                             uint8_t *shared_secret)
 {
     if((private_key == NULL) || (peer_public_key == NULL) || (shared_secret == NULL)) { return NOXTLS_RETURN_NULL; }
+#if NOXTLS_FEATURE_CC13XX_X25519_ACCEL
+    const noxtls_return_t native = noxtls_cc13xx_x25519(private_key, peer_public_key, shared_secret);
+    if (native != NOXTLS_RETURN_NOT_SUPPORTED) { return native; }
+#endif
     return x25519_scalar_mult(private_key, peer_public_key, shared_secret);
 }
 

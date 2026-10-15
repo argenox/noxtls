@@ -25,6 +25,12 @@ static noxtls_cc13xx_crypto_binding_t s_binding;
 static void *s_aes_context;
 static noxtls_cc13xx_gcm_callback_t s_gcm_callback;
 static void *s_gcm_context;
+static noxtls_cc13xx_ccm_callback_t s_ccm_callback;
+static void *s_ccm_context;
+static noxtls_cc13xx_sha256_callback_t s_sha256_callback;
+static void *s_sha256_context;
+static noxtls_cc13xx_x25519_callback_t s_x25519_callback;
+static void *s_x25519_context;
 static noxtls_cc13xx_guard_t s_aes_guard = NOXTLS_CC13XX_GUARD_IDLE;
 static noxtls_cc13xx_guard_t s_pka_guard = NOXTLS_CC13XX_GUARD_IDLE;
 
@@ -76,6 +82,12 @@ noxtls_return_t noxtls_cc13xx_crypto_bind(const noxtls_cc13xx_crypto_binding_t *
     if (result == NOXTLS_RETURN_SUCCESS) {
         s_gcm_callback = NULL;
         s_gcm_context = NULL;
+        s_ccm_callback = NULL;
+        s_ccm_context = NULL;
+        s_sha256_callback = NULL;
+        s_sha256_context = NULL;
+        s_x25519_callback = NULL;
+        s_x25519_context = NULL;
     }
 
     noxtls_cc13xx_guard_release(&s_pka_guard);
@@ -155,6 +167,78 @@ noxtls_return_t noxtls_cc13xx_aes_gcm(const noxtls_cc13xx_gcm_request_t *request
         }
     }
 
+    noxtls_cc13xx_guard_release(&s_aes_guard);
+    return result;
+}
+
+/** @copydoc noxtls_cc13xx_crypto_bind_ccm */
+noxtls_return_t noxtls_cc13xx_crypto_bind_ccm(noxtls_cc13xx_ccm_callback_t callback, void *context)
+{
+    if (!noxtls_cc13xx_guard_try_acquire(&s_aes_guard)) {
+        return NOXTLS_RETURN_NOT_INITIALIZED;
+    }
+
+    s_ccm_callback = callback;
+    s_ccm_context = callback != NULL ? context : NULL;
+    noxtls_cc13xx_guard_release(&s_aes_guard);
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/** @copydoc noxtls_cc13xx_crypto_bind_sha256 */
+noxtls_return_t noxtls_cc13xx_crypto_bind_sha256(noxtls_cc13xx_sha256_callback_t callback, void *context)
+{
+    if (!noxtls_cc13xx_guard_try_acquire(&s_aes_guard)) {
+        return NOXTLS_RETURN_NOT_INITIALIZED;
+    }
+
+    s_sha256_callback = callback;
+    s_sha256_context = callback != NULL ? context : NULL;
+    noxtls_cc13xx_guard_release(&s_aes_guard);
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/** @copydoc noxtls_cc13xx_aes_ccm */
+noxtls_return_t noxtls_cc13xx_aes_ccm(const noxtls_cc13xx_ccm_request_t *request)
+{
+    if (request == NULL) { return NOXTLS_RETURN_NULL; }
+    const noxtls_cc13xx_gcm_request_t *data = &request->data;
+    if (data->key == NULL || data->nonce == NULL ||
+        (data->aad_length != 0U && data->aad == NULL) ||
+        (data->length != 0U && (data->input == NULL || data->output == NULL)) ||
+        (data->decrypt ? data->expected_tag == NULL : data->tag == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    if (!aes_key_length_ok(data->key_length)) { return NOXTLS_RETURN_INVALID_KEY_SIZE; }
+    if (request->nonce_length < 7U || request->nonce_length > 13U ||
+        request->tag_length < 4U || request->tag_length > 16U || (request->tag_length & 1U) != 0U) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+
+    if (!noxtls_cc13xx_guard_try_acquire(&s_aes_guard)) { return NOXTLS_RETURN_NOT_SUPPORTED; }
+    noxtls_return_t result = NOXTLS_RETURN_NOT_SUPPORTED;
+    if (s_ccm_callback != NULL) { result = s_ccm_callback(s_ccm_context, request); }
+    if (result != NOXTLS_RETURN_SUCCESS && result != NOXTLS_RETURN_NOT_SUPPORTED) {
+        noxtls_secure_zero(data->output, data->length);
+        if (!data->decrypt) { noxtls_secure_zero(data->tag, request->tag_length); }
+    }
+
+    noxtls_cc13xx_guard_release(&s_aes_guard);
+    return result;
+}
+
+/** @copydoc noxtls_cc13xx_sha256_blocks */
+noxtls_return_t noxtls_cc13xx_sha256_blocks(uint32_t state[8], const uint8_t *input, uint32_t blocks)
+{
+    if (state == NULL || input == NULL) { return NOXTLS_RETURN_NULL; }
+    if (blocks == 0U) { return NOXTLS_RETURN_INVALID_PARAM; }
+    if (!noxtls_cc13xx_guard_try_acquire(&s_aes_guard)) { return NOXTLS_RETURN_NOT_SUPPORTED; }
+    noxtls_return_t result = NOXTLS_RETURN_NOT_SUPPORTED;
+    uint32_t candidate[8];
+    memcpy(candidate, state, sizeof(candidate));
+    if (s_sha256_callback != NULL) { result = s_sha256_callback(s_sha256_context, candidate, input, blocks); }
+    if (result == NOXTLS_RETURN_SUCCESS) { memcpy(state, candidate, sizeof(candidate)); }
+    noxtls_secure_zero(candidate, sizeof(candidate));
     noxtls_cc13xx_guard_release(&s_aes_guard);
     return result;
 }
@@ -263,6 +347,31 @@ noxtls_return_t noxtls_cc13xx_p256_multiply(
         result = s_binding.p256_multiply(s_binding.context, scalar, x, y, result_x, result_y);
     }
 
+    noxtls_cc13xx_guard_release(&s_pka_guard);
+    return result;
+}
+
+/** @copydoc noxtls_cc13xx_crypto_bind_x25519 */
+noxtls_return_t noxtls_cc13xx_crypto_bind_x25519(noxtls_cc13xx_x25519_callback_t callback, void *context)
+{
+    if (!noxtls_cc13xx_guard_try_acquire(&s_pka_guard)) { return NOXTLS_RETURN_NOT_INITIALIZED; }
+    s_x25519_callback = callback;
+    s_x25519_context = callback != NULL ? context : NULL;
+    noxtls_cc13xx_guard_release(&s_pka_guard);
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/** @copydoc noxtls_cc13xx_x25519 */
+noxtls_return_t noxtls_cc13xx_x25519(const uint8_t scalar[32], const uint8_t u[32], uint8_t output[32])
+{
+    if (scalar == NULL || u == NULL || output == NULL) { return NOXTLS_RETURN_NULL; }
+    if (!noxtls_cc13xx_guard_try_acquire(&s_pka_guard)) { return NOXTLS_RETURN_NOT_SUPPORTED; }
+    noxtls_return_t result = NOXTLS_RETURN_NOT_SUPPORTED;
+    uint8_t candidate[32] = {0};
+    if (s_x25519_callback != NULL) { result = s_x25519_callback(s_x25519_context, scalar, u, candidate); }
+    if (result == NOXTLS_RETURN_SUCCESS) { memcpy(output, candidate, sizeof(candidate)); }
+    else if (result != NOXTLS_RETURN_NOT_SUPPORTED) { noxtls_secure_zero(output, sizeof(candidate)); }
+    noxtls_secure_zero(candidate, sizeof(candidate));
     noxtls_cc13xx_guard_release(&s_pka_guard);
     return result;
 }

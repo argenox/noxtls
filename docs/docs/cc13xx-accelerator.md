@@ -11,12 +11,13 @@ callbacks that your application supplies. NoxTLS has no vendor SDK, driver or
 scheduler dependency: your callbacks drive the hardware, and NoxTLS decides
 when to call them and what to do with the result.
 
-There are two independent ports:
+The callbacks share two independently guarded engines:
 
 | Port | What it accelerates | Software path used when |
 |------|---------------------|-------------------------|
-| AES | AES block encrypt/decrypt (128/192/256-bit keys), bounded batches used by CTR DRBG, and an optional whole-record GCM callback. Other modes and unbound GCM run in software on top of the block path. | no AES callback is bound, the AES engine is busy, or the callback returns `NOXTLS_RETURN_NOT_SUPPORTED` |
+| AES/SHA | AES block encrypt/decrypt (128/192/256-bit keys), bounded batches used by CTR DRBG, optional whole-record GCM/CCM, and SHA-224/256 compression. Other modes use block composition. | the selected callback is unbound, the shared engine is busy, or the callback returns `NOXTLS_RETURN_NOT_SUPPORTED` before progress |
 | P-256 | secp256r1 scalar multiplication behind `noxtls_ecc_point_multiply()` (ECDH, ECDSA, SPAKE2+, BLE pairing, ...) | no P-256 callback is bound, the PKA is busy, the curve is not P-256, or the callback returns `NOXTLS_RETURN_NOT_SUPPORTED` |
+| X25519 | RFC 7748 public-key/shared-secret operations, sharing the P-256 guard | no X25519 callback is bound, the PKA is busy, or the callback declines before progress |
 
 ## Selecting the ports
 
@@ -24,10 +25,11 @@ There are two independent ports:
 |--------------|--------------|--------|
 | `NOXTLS_CFG_FEATURE_CC13XX_AES_ACCEL` | `NOXTLS_FEATURE_CC13XX_AES_ACCEL` | Compiles the AES port. Needs `NOXTLS_CFG_FEATURE_AES`. |
 | `NOXTLS_CFG_FEATURE_CC13XX_P256_ACCEL` | `NOXTLS_FEATURE_CC13XX_P256_ACCEL` | Compiles the P-256 port. Needs `NOXTLS_CFG_FEATURE_ECC`. |
-| `NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL` | `NOXTLS_FEATURE_CC13XX_HW_ACCEL` | Umbrella: enables both ports. Existing builds that use it are unchanged. |
+| `NOXTLS_CFG_FEATURE_CC13XX_X25519_ACCEL` | `NOXTLS_FEATURE_CC13XX_X25519_ACCEL` | Selects the optional X25519 hook. Needs X25519 for algorithm calls. |
+| `NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL` | `NOXTLS_FEATURE_CC13XX_HW_ACCEL` | Umbrella: enables AES/SHA, P-256 and X25519 hooks. Unbound callbacks retain software behavior. |
 
-All three are `OFF` by default. The shared binding
-(`noxtls-lib/common/noxtls_cc13xx_crypto.c`) is compiled when either port is.
+All four are `OFF` by default. The shared binding
+(`noxtls-lib/common/noxtls_cc13xx_crypto.c`) is compiled when any port is.
 A port that is not selected is replaced by the default no-accelerator port, so
 its engine always uses software, even if your binding supplies a callback for
 it.
@@ -38,7 +40,7 @@ For example, an image that only wants the PKA for P-256:
 cmake -S noxtls -B build -DNOXTLS_CFG_FEATURE_CC13XX_P256_ACCEL=ON
 ```
 
-When the umbrella is `ON` it turns both ports on, overriding a per-engine
+When the umbrella is `ON` it turns all three selections on, overriding a per-engine
 option set to `OFF` at the same time. On the C side,
 `NOXTLS_FEATURE_CC13XX_HW_ACCEL=1` has the same effect for builds that define
 the macros directly (Kconfig, custom build systems).
@@ -80,7 +82,7 @@ noxtls_cc13xx_crypto_bind_p256(my_p256, &pka_driver);
 These functions replace only their selected callback/context and require only that
 engine to be idle. Passing a NULL callback unbinds just that callback. Existing
 `noxtls_cc13xx_crypto_bind()` behavior remains whole-binding replacement, including
-clearing any whole-record GCM binding after a successful replacement.
+clearing the GCM, CCM, SHA and X25519 bindings after a successful replacement.
 
 `noxtls_cc13xx_crypto_bind_gcm()` installs an optional whole-record GCM callback
 with its own persistent context. It shares the AES guard with block and batch
@@ -91,6 +93,24 @@ clear output; encryption failures clear the output tag too. NOT_SUPPORTED is onl
 permitted before modifying output, so the existing GCM implementation can safely
 handle an unbound, busy or deliberately declined request in software. NoxTLS adds
 no record or DMA buffers for this hook and has no vendor driver dependency.
+
+`noxtls_cc13xx_crypto_bind_ccm()` adds a separate whole-record CCM callback and
+context. Its request carries nonce and tag lengths alongside the input, output
+and authentication fields. The callback must verify the received tag before
+reporting decryption success and erase unauthenticated plaintext. It shares the
+AES guard and adds no record workspace.
+
+`noxtls_cc13xx_crypto_bind_sha256()` binds compression of eight numeric chaining
+words and complete 64-byte blocks. NoxTLS handles SHA-224/256 initial values and
+padding. Candidate chaining words are published only on success; an admitted
+hardware error propagates through the SHA core. Unbound or declined requests use
+software. The callback shares the AES guard.
+
+`noxtls_cc13xx_crypto_bind_x25519()` installs an independent callback/context
+under the PKA guard. It receives 32-byte little-endian scalar and u values and
+must implement RFC 7748 decoding, clamping and low-order rejection. Output is
+staged until success and erased on hard error. The hook adds no persistent
+arithmetic buffers and leaves the P-256 binding intact.
 
 ## Binding contract
 
@@ -153,7 +173,9 @@ unbound. Both are updated atomically and saturate at `UINT32_MAX`.
 
 ## Upgrading from 0.3.2
 
-- Builds that set `NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL` get both ports, as before.
+- Builds that set `NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL` get the existing AES and
+  P-256 ports plus the optional X25519 hook. New callbacks remain unbound until
+  the application installs them; existing applications retain software behavior.
 - A request that finds its engine busy now returns `NOXTLS_RETURN_NOT_SUPPORTED`
   (software fallback) instead of `NOXTLS_RETURN_NOT_INITIALIZED`, and AES and
   P-256 no longer block each other. Code that called

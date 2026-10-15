@@ -117,6 +117,75 @@ typedef struct
 typedef noxtls_return_t (*noxtls_cc13xx_gcm_callback_t)(void *context,
     const noxtls_cc13xx_gcm_request_t *request);
 
+/** @brief CCM buffers plus nonce and tag sizes, sharing the AES/SHA guard. */
+typedef struct
+{
+    noxtls_cc13xx_gcm_request_t data; /**< Common synchronous authenticated buffers. */
+    uint32_t nonce_length; /**< CCM nonce bytes. */
+    uint32_t tag_length; /**< CCM tag bytes. */
+} noxtls_cc13xx_ccm_request_t;
+
+/** @brief Native CCM callback; verify the peer tag before success. */
+typedef noxtls_return_t (*noxtls_cc13xx_ccm_callback_t)(void *context,
+    const noxtls_cc13xx_ccm_request_t *request);
+
+/** @brief SHA-224/256 compression; state changes only on success. */
+typedef noxtls_return_t (*noxtls_cc13xx_sha256_callback_t)(void *context,
+    uint32_t state[8], const uint8_t *input, uint32_t blocks);
+
+/**
+ * @brief Replace CCM while shared AES/SHA is idle, preserving other callbacks.
+ * @param[in] callback Native operation or NULL to unbind.
+ * @param[in,out] context Persistent application binding.
+ * @return SUCCESS, or NOT_INITIALIZED without mutation while busy.
+ */
+noxtls_return_t noxtls_cc13xx_crypto_bind_ccm(noxtls_cc13xx_ccm_callback_t callback, void *context);
+
+/**
+ * @brief Replace SHA while shared AES/SHA is idle, preserving other callbacks.
+ * @param[in] callback Native compression or NULL to unbind.
+ * @param[in,out] context Persistent application binding.
+ * @return SUCCESS, or NOT_INITIALIZED without mutation while busy.
+ */
+noxtls_return_t noxtls_cc13xx_crypto_bind_sha256(noxtls_cc13xx_sha256_callback_t callback, void *context);
+
+/**
+ * @brief Authenticate a whole CCM record under the shared AES/SHA guard.
+ * @param[in] request Valid input and direction-specific tag.
+ * @return Actual callback result; hard errors erase output and encryption tag.
+ */
+noxtls_return_t noxtls_cc13xx_aes_ccm(const noxtls_cc13xx_ccm_request_t *request);
+
+/**
+ * @brief Compress full SHA blocks under the shared AES/SHA guard.
+ * @param[in,out] state Eight SHA chaining words, preserved on error.
+ * @param[in] input Full blocks.
+ * @param[in] blocks Nonzero block count.
+ * @return Actual callback result; NOT_SUPPORTED starts no work.
+ */
+noxtls_return_t noxtls_cc13xx_sha256_blocks(uint32_t state[8], const uint8_t *input, uint32_t blocks);
+
+/** @brief RFC7748 little-endian scalar multiplication, using the shared PKA guard. */
+typedef noxtls_return_t (*noxtls_cc13xx_x25519_callback_t)(void *context,
+    const uint8_t scalar[32], const uint8_t u[32], uint8_t output[32]);
+
+/**
+ * @brief Replace X25519 while PKA is idle, preserving P-256 and AES/SHA.
+ * @param[in] callback Synchronous operation or NULL to unbind.
+ * @param[in,out] context Persistent X25519-specific binding.
+ * @return SUCCESS, or NOT_INITIALIZED without mutation while PKA is busy.
+ */
+noxtls_return_t noxtls_cc13xx_crypto_bind_x25519(noxtls_cc13xx_x25519_callback_t callback, void *context);
+
+/**
+ * @brief Run native X25519 under the same PKA guard as P-256.
+ * @param[in] scalar Thirty-two little-endian bytes, clamped by callback.
+ * @param[in] u Thirty-two little-endian bytes, high bit masked by callback.
+ * @param[out] output Thirty-two result bytes, erased on hard failure.
+ * @return Checked callback result; NOT_SUPPORTED starts no work.
+ */
+noxtls_return_t noxtls_cc13xx_x25519(const uint8_t scalar[32], const uint8_t u[32], uint8_t output[32]);
+
 /** @brief Copied callback values; context lifetime remains with the caller. */
 typedef struct
 {
