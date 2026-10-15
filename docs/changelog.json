@@ -1,6 +1,25 @@
 {
   "releases": [
     {
+      "version": "0.3.6",
+      "date": "TBD",
+      "changes": [
+        "Patch update to 0.3.5 for DTLS 1.3 recovery, embedded memory use and optional CC13xx accelerator bindings. Rebuild the library and callers together: the DTLS context gains one callback pointer for encrypted-flight retransmission.",
+        "Optional CC13xx CCM, SHA-224/256 and X25519 callbacks complement AES/GCM/P-256. AES and PKA engines bind independently, with software fallback for unbound or busy engines before admission. No vendor SDK driver dependency or new fixed record buffer is added."
+      ],
+      "fixed": [
+        "DTLS 1.3 clients aborted when an encrypted handshake record arrived before final ServerHello. Undecryptable pre-key records are now discarded without acknowledging them or changing replay state, allowing retransmission to recover. Existing trailing-record handling and the bounded receive loop are preserved.",
+        "DTLS 1.3 encrypted handshake flights were not retained for retransmission. Lost server records, client Finished or final ACK could leave a half-open session and cause Secure CoAP timeouts. Flights now retransmit with fresh record sequence numbers; verified client Finished releases the completed server flight.",
+        "The TLS 1.3 key-share parser allocated 512 descriptors for a single X25519 share. It now validates the vector and allocates only the actual entry count.",
+        "Classical-only ClientHello staging used large post-quantum-sized stack arrays, causing a measured embedded task stack overflow. Classical builds now use bounded 160-byte staging; ML-KEM builds retain their existing capacities.",
+        "TLS-only builds with DTLS disabled now retain the compile guards needed by the recovery code."
+      ],
+      "known_issues": [
+        "Earlier release limitations still apply except where explicitly fixed above. DTLS 1.2 EC-JPAKE interoperability remains unqualified.",
+        "Recovery is covered by native loss/reordering tests and bounded CC1354/CC35x1 Secure CoAP hardware runs. These tests do not qualify every cipher suite or long-duration operation."
+      ]
+    },
+    {
       "version": "0.3.5",
       "date": "TBD",
       "changes": [

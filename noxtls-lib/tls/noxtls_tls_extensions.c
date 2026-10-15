@@ -548,7 +548,7 @@ noxtls_return_t noxtls_tls_parse_extension_key_share(const uint8_t *data, uint32
 {
     uint32_t offset = 0U;
     uint16_t key_share_list_len = 0U;
-    uint32_t max_entries = 512U;
+    uint32_t max_entries = 0U;
     
     if ((data == NULL) || (key_share == NULL)) {
         return NOXTLS_RETURN_NULL;
@@ -564,7 +564,7 @@ noxtls_return_t noxtls_tls_parse_extension_key_share(const uint8_t *data, uint32
     key_share_list_len = ((uint16_t)data[offset] << 8U) | (uint16_t)data[offset + 1U];
     offset += 2U;
 
-    if(((offset + key_share_list_len) > data_len)) {
+    if(((offset + key_share_list_len) != data_len)) {
         return NOXTLS_RETURN_BAD_DATA;
     }
 
@@ -575,7 +575,30 @@ noxtls_return_t noxtls_tls_parse_extension_key_share(const uint8_t *data, uint32
         return NOXTLS_RETURN_SUCCESS;
     }
     
-    /* Allocate entries array */
+    /* RFC 8446 section 4.2.8: count complete KeyShareEntry values before
+     * allocating. A single X25519 share needs one descriptor, rather than
+     * a speculative 512-descriptor allocation on a constrained endpoint.
+     * Validate the complete vector first, including every entry boundary. */
+    {
+        uint32_t scan = offset;
+        while (scan < data_len) {
+            if ((data_len - scan) < 4U) {
+                return NOXTLS_RETURN_BAD_DATA;
+            }
+
+            const uint32_t exchange_len = ((uint32_t)data[scan + 2U] << 8U) |
+                (uint32_t)data[scan + 3U];
+            scan += 4U;
+            if (exchange_len > data_len - scan) {
+                return NOXTLS_RETURN_BAD_DATA;
+            }
+
+            scan += exchange_len;
+            ++max_entries;
+        }
+    }
+
+    /* The uint16 wire length bounds count to at most 16383 entries. */
     key_share->entries = (tls_key_share_extension_t*)NOXTLS_CALLOC(max_entries, sizeof(tls_key_share_extension_t));
     if (key_share->entries == NULL) {
         return NOXTLS_RETURN_FAILED;

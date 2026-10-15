@@ -223,6 +223,9 @@ noxtls_return_t noxtls_sha256_update(noxtls_sha_ctx_t * ctx, const uint8_t * dat
             offset += full_bytes;
             in_left -= full_bytes;
         } else
+#if (NOXTLS_FEATURE_CC13XX_HW_ACCEL || NOXTLS_FEATURE_CC13XX_AES_ACCEL)
+        if (rc != NOXTLS_RETURN_NOT_SUPPORTED) { return rc; } else
+#endif
 #endif
         {
 #if NOXTLS_FEATURE_STM32_HW_SHA256_ONLY
@@ -265,12 +268,18 @@ static noxtls_return_t noxtls_sha256_round(noxtls_sha_ctx_t * ctx, const uint8_t
 #if (defined(NOXTLS_FEATURE_HASH_ACCEL_STM32) && (NOXTLS_FEATURE_HASH_ACCEL_STM32)) || NOXTLS_PORT_SHA256_ACCEL || NOXTLS_FEATURE_NOXV_HW_ACCEL
     {
         noxtls_return_t rc = noxtls_sha256_blocks_accel_port(ctx, input, 1U);
+#if (NOXTLS_FEATURE_CC13XX_HW_ACCEL || NOXTLS_FEATURE_CC13XX_AES_ACCEL)
+        if (rc != NOXTLS_RETURN_SUCCESS && rc != NOXTLS_RETURN_NOT_SUPPORTED) { return rc; }
+#endif
         if (rc != NOXTLS_RETURN_SUCCESS) {
             rc = noxtls_sha256_round_accel_port(ctx, input);
         }
         if (rc == NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
+#if (NOXTLS_FEATURE_CC13XX_HW_ACCEL || NOXTLS_FEATURE_CC13XX_AES_ACCEL)
+        if (rc != NOXTLS_RETURN_NOT_SUPPORTED) { return rc; }
+#endif
 #if NOXTLS_FEATURE_STM32_HW_SHA256_ONLY
         return rc;
 #endif

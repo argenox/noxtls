@@ -402,6 +402,11 @@
  * Prereq: NOXTLS_FEATURE_ECC=1.
  * Build knob: NOXTLS_CFG_FEATURE_CC13XX_P256_ACCEL.
  */
+/** @brief Optional in-house CC13xx X25519 callback; disabled by default. */
+#ifndef NOXTLS_FEATURE_CC13XX_X25519_ACCEL
+#define NOXTLS_FEATURE_CC13XX_X25519_ACCEL 0
+#endif
+
 #ifndef NOXTLS_FEATURE_CC13XX_P256_ACCEL
 #define NOXTLS_FEATURE_CC13XX_P256_ACCEL 0
 #endif

@@ -76,6 +76,16 @@ extern "C" {
 #define TLS13_CLIENTHELLO_EXT_ORDER_MAX 16384u
 #define TLS13_RECORD_WORKSPACE_HALF  (TLS_MAX_RECORD_SIZE + 32U)
 #define TLS13_INLINE_KEY_SHARE_MAX_LEN 160U
+/* RFC 8446 section 4.2.8: the classical client emits one share, at most
+ * 4 header bytes + the 133-byte P-521 public point. PQ builds retain the
+ * larger vector and encoder capacities used by ML-KEM/hybrid shares. */
+#if NOXTLS_FEATURE_ML_KEM
+#define TLS13_CLIENT_KEY_SHARE_VECTOR_CAPACITY 4096U
+#define TLS13_CLIENT_KEY_SHARE_ENCODED_CAPACITY TLS_KEY_SHARE_ENTRY_MAX_LEN
+#else
+#define TLS13_CLIENT_KEY_SHARE_VECTOR_CAPACITY TLS13_INLINE_KEY_SHARE_MAX_LEN
+#define TLS13_CLIENT_KEY_SHARE_ENCODED_CAPACITY TLS13_INLINE_KEY_SHARE_MAX_LEN
+#endif
 /* RFC 9147 4.2.3: largest DTLS 1.3 record-number key (AES-256 / ChaCha20 key length). */
 #define TLS13_DTLS_SN_KEY_MAX_LEN 32U
 

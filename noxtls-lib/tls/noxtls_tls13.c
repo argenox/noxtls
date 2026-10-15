@@ -3929,6 +3929,8 @@ static noxtls_return_t tls13_derive_handshake_keys(tls13_context_t *ctx, const u
     ctx->handshake_encrypted = 1U;
     if(tls13_is_dtls(ctx) != 0) {
         ctx->base.epoch = DTLS13_EPOCH_HANDSHAKE;
+        ctx->base.connection_epoch = DTLS13_EPOCH_HANDSHAKE;
+        ctx->base.read_connection_epoch = DTLS13_EPOCH_HANDSHAKE;
         ctx->base.write_seq_num = 0U;
         ctx->base.read_seq_num = 0U;
         ctx->base.replay_window.window_bitmap = 0U;
@@ -4082,6 +4084,7 @@ static noxtls_return_t tls13_install_application_keys(tls13_context_t *ctx)
     ctx->server_seq_num = 0U;
     if(tls13_is_dtls(ctx) != 0) {
         uint8_t epoch_low = (uint8_t)(DTLS13_EPOCH_APPLICATION & DTLS13_UNIFIED_EPOCH_MASK);
+        ctx->base.prev_write_seq_num = ctx->base.write_seq_num;
         ctx->base.epoch = DTLS13_EPOCH_APPLICATION;
         ctx->base.connection_epoch = DTLS13_EPOCH_APPLICATION;
         ctx->base.read_connection_epoch = DTLS13_EPOCH_APPLICATION;
@@ -4142,6 +4145,7 @@ static noxtls_return_t tls13_install_server_application_write_keys(tls13_context
             return rc;
         }
         ctx->base.connection_epoch = DTLS13_EPOCH_APPLICATION;
+        ctx->base.prev_write_seq_num = ctx->base.write_seq_num;
         ctx->base.epoch = DTLS13_EPOCH_APPLICATION;
         ctx->base.write_seq_num = 0U;
     }
@@ -5028,6 +5032,13 @@ static noxtls_return_t tls13_dtls_append_inner_handshake_fragments(tls13_context
                                 (uint32_t)inner[pos + DTLS_HANDSHAKE_FRAGMENT_LEN_OFFSET + 2U];
         frag_len = frag.fragment_length;
 
+        /* RFC 9147 section 5.2 permits discarding future messages. Keep the
+         * authenticated DTLS 1.3 path out of the plaintext reassembly queue;
+         * its retransmitted flight supplies this message after the gap. */
+        if(frag.message_seq > dctx->expected_message_seq) {
+            return NOXTLS_RETURN_TIMEOUT;
+        }
+
         if(((frag.msg_type < TLS_HANDSHAKE_CLIENT_HELLO) || (frag.msg_type > TLS_HANDSHAKE_FINISHED)) &&
            (frag.msg_type != TLS_HANDSHAKE_KEY_UPDATE)) {
             return NOXTLS_RETURN_BAD_DATA;
@@ -5110,6 +5121,12 @@ static noxtls_return_t tls13_dtls_recv_post_handshake(tls13_context_t *ctx,
                                                       uint16_t epoch,
                                                       uint64_t seq)
 {
+    if(inner_len >= DTLS_HANDSHAKE_HEADER_SIZE &&
+       tls13_read_uint16(&inner[DTLS_HANDSHAKE_MESSAGE_SEQ_OFFSET]) > ctx->base.expected_message_seq) {
+        /* Discarded future messages must remain unacknowledged. */
+        return NOXTLS_RETURN_SUCCESS;
+    }
+
     noxtls_return_t rc = tls13_dtls_append_inner_handshake_fragments(ctx, inner, inner_len);
     if(rc == NOXTLS_RETURN_TIMEOUT) {
         /* Retransmission of an already processed message: drop it but acknowledge again. */
@@ -5579,6 +5596,12 @@ static noxtls_return_t tls13_recv_handshake_message(tls13_context_t *ctx, uint8_
                             (void)noxtls_free(record.data);
                             return rc;
                         }
+                        /* ACK retained messages using their record epoch;
+                         * discarded future messages leave above without ACK. */
+                        tls13_dtls_ack_range_add(&ctx->base,
+                            (uint16_t)(record.data[offset] & DTLS13_UNIFIED_EPOCH_MASK),
+                            ctx->base.read_seq_num - 1U);
+                        ctx->base.ack_pending = 1U;
                         rc = tls13_handshake_buffer_get(ctx, out_msg, out_len);
                         if(rc == NOXTLS_RETURN_SUCCESS) {
                             if(tls13_is_ack_message(*out_msg, *out_len) != 0) {
@@ -5827,12 +5850,90 @@ static noxtls_return_t tls13_recv_handshake_message(tls13_context_t *ctx, uint8_
     }
 }
 
+#if NOXTLS_FEATURE_DTLS
+/**
+ * @brief Re-encrypt a retained handshake fragment with a fresh record number.
+ * @internal
+ *
+ * RFC 9147 sections 5.2/5.8: retain message bytes, not protected wire records.
+ * The final Finished can outlive the switch to application write keys. Derive
+ * its handshake write keys from retained secrets, then restore application state.
+ *
+ * @param[in,out] base Sole-owner DTLS base, first member of TLS 1.3 context.
+ * @param[in] epoch Original handshake write epoch.
+ * @param[in] inner Saved inner plaintext.
+ * @param[in] length Saved bytes.
+ * @param[out] sequence Fresh record number actually used.
+ *
+ * @return SUCCESS or the checked key derivation/send error.
+ */
+static noxtls_return_t tls13_retransmit_handshake(dtls_context_t *base, uint16_t epoch,
+    const uint8_t *inner, uint32_t length, uint64_t *sequence)
+{
+    tls13_context_t *ctx = (tls13_context_t *)(void *)base;
+    if(epoch == base->epoch) {
+        *sequence = base->write_seq_num;
+        /* content_type zero prevents adding a second copy to this flight. */
+        return noxtls_tls13_send_dtls13_encrypted_record(ctx,
+            epoch == DTLS13_EPOCH_HANDSHAKE, 0U, inner, length, 1);
+    }
+
+    if(epoch != DTLS13_EPOCH_HANDSHAKE || base->epoch != DTLS13_EPOCH_APPLICATION) {
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+    }
+
+    uint8_t saved_key[sizeof(ctx->client_write_key)];
+    uint8_t saved_iv[sizeof(ctx->client_write_iv)];
+    uint8_t *key = base->base.role == TLS_ROLE_CLIENT ? ctx->client_write_key : ctx->server_write_key;
+    uint8_t *iv = base->base.role == TLS_ROLE_CLIENT ? ctx->client_write_iv : ctx->server_write_iv;
+    const uint8_t *secret = base->base.role == TLS_ROLE_CLIENT ?
+        ctx->client_handshake_traffic_secret : ctx->server_handshake_traffic_secret;
+    noxtls_hash_algos_t hash_algo = NOXTLS_HASH_SHA_256;
+    uint32_t hash_len = 0U;
+    uint32_t key_len = 0U;
+    noxtls_return_t rc = tls13_get_cipher_params(ctx->cipher_suite, &hash_algo, &hash_len, &key_len);
+    if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
+
+    noxtls_copy_u8(saved_key, sizeof(saved_key), key, sizeof(saved_key));
+    noxtls_copy_u8(saved_iv, sizeof(saved_iv), iv, sizeof(saved_iv));
+    rc = tls13_ctx_hkdf_expand_label(ctx, hash_algo, secret, hash_len,
+        s_tls13_label_key, sizeof(s_tls13_label_key) - 1U, NULL, 0U, key, key_len);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = tls13_ctx_hkdf_expand_label(ctx, hash_algo, secret, hash_len,
+            s_tls13_label_iv, sizeof(s_tls13_label_iv) - 1U, NULL, 0U, iv, sizeof(saved_iv));
+    }
+
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        const uint16_t current_epoch = base->epoch;
+        const uint64_t current_sequence = base->write_seq_num;
+        base->epoch = epoch;
+        base->write_seq_num = base->prev_write_seq_num;
+        *sequence = base->write_seq_num;
+        rc = noxtls_tls13_send_dtls13_encrypted_record(ctx, 1, 0U, inner, length, 1);
+        base->prev_write_seq_num = base->write_seq_num;
+        base->write_seq_num = current_sequence;
+        base->epoch = current_epoch;
+    }
+
+    noxtls_copy_u8(key, sizeof(saved_key), saved_key, sizeof(saved_key));
+    noxtls_copy_u8(iv, sizeof(saved_iv), saved_iv, sizeof(saved_iv));
+    noxtls_secure_zero(saved_key, sizeof(saved_key));
+    noxtls_secure_zero(saved_iv, sizeof(saved_iv));
+    return rc;
+}
+#endif
+
 /**
  * @brief Initialize a TLS 1.3 context for client or server role.
- * @param[in,out] ctx  Context structure to zero and initialize.
- * @param[in] role     `TLS_ROLE_CLIENT` or `TLS_ROLE_SERVER`.
- * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` if @p ctx is NULL;
- *         `NOXTLS_RETURN_FAILED` or `NOXTLS_RETURN_NOT_ENOUGH_MEMORY` on setup failure.
+ *
+ * @param[in,out] ctx Context structure to initialize.
+ * @param[in] role Client or server role.
+ * @param[in] record_workspace Optional caller-owned record workspace.
+ * @param[in] record_workspace_len Record workspace capacity.
+ * @param[in] handshake_workspace Optional caller-owned handshake workspace.
+ * @param[in] handshake_workspace_len Handshake workspace capacity.
+ *
+ * @return SUCCESS or a checked binding, workspace or allocation error.
  */
 static noxtls_return_t tls13_context_init_internal(tls13_context_t *ctx,
                                                    tls_role_t role,
@@ -5864,6 +5965,10 @@ static noxtls_return_t tls13_context_init_internal(tls13_context_t *ctx,
         return rc;
     }
     
+#if NOXTLS_FEATURE_DTLS
+    ctx->base.retransmit_handshake = tls13_retransmit_handshake;
+#endif
+
     noxtls_secure_zero((ctx->client_random), sizeof(ctx->client_random));
     noxtls_secure_zero((ctx->server_random), sizeof(ctx->server_random));
     noxtls_secure_zero((ctx->client_legacy_session_id), sizeof(ctx->client_legacy_session_id));
@@ -7340,7 +7445,7 @@ noxtls_return_t noxtls_tls13_send_client_hello(tls13_context_t *ctx)
     const uint16_t *signature_algorithms_list = signature_algorithms;
     uint32_t supported_groups_count = 0U;
     uint32_t signature_algorithms_count = 0U;
-    uint8_t key_share_entries[4096];
+    uint8_t key_share_entries[TLS13_CLIENT_KEY_SHARE_VECTOR_CAPACITY];
     uint32_t key_share_entries_len = 0U;
     tls_ecdhe_context_t *ecdhe_ctx = NULL;
     uint8_t offer_psk = 0U;
@@ -7567,7 +7672,7 @@ noxtls_return_t noxtls_tls13_send_client_hello(tls13_context_t *ctx)
     
     tls13_free_client_key_shares(ctx);
     if(include_key_share != 0U) {
-        uint8_t encoded_entry[TLS_KEY_SHARE_ENTRY_MAX_LEN];
+        uint8_t encoded_entry[TLS13_CLIENT_KEY_SHARE_ENCODED_CAPACITY];
         uint32_t encoded_entry_len = (uint32_t)sizeof(encoded_entry);
 #if NOXTLS_FEATURE_ML_KEM
         uint32_t shares_capacity = 3U;
@@ -13938,6 +14043,15 @@ noxtls_return_t noxtls_tls13_accept(tls13_context_t *ctx)
                     return rc;
                 }
                 NOXTLS_STATE_EXIT(ctx, NOXTLS_STATE_ACCEPT_RECV_FINISHED, rc);
+#if NOXTLS_FEATURE_DTLS
+                if(tls13_is_dtls(ctx) != 0) {
+                    /* RFC 9147 7.1/7.2: the verified client Finished implicitly
+                     * acknowledges our entire server flight. Stop its timer before
+                     * retaining the final ACK; a lost ACK still requires that ACK
+                     * to be resent in response to another client Finished. */
+                    noxtls_dtls_flight_reset(&ctx->base);
+                }
+#endif
                 ctx->server_handshake_step = (tls13_is_dtls(ctx) != 0) ?
                     (uint8_t)TLS13_SERVER_HS_STEP_FLUSH_ACK :
                     (uint8_t)TLS13_SERVER_HS_STEP_INSTALL_CLIENT_APP_READ_KEYS;
@@ -14494,6 +14608,7 @@ noxtls_return_t noxtls_tls13_recv(tls13_context_t *ctx, uint8_t *data, uint32_t 
                     plain = owned_plain;
                 }
             }
+            const uint16_t received_epoch_low = (uint16_t)(record.data[0] & DTLS13_UNIFIED_EPOCH_MASK);
             rc = noxtls_tls13_decrypt_dtls13_record(ctx, record.data, record.length, &content_type, plain, &plain_len);
             (void)noxtls_free(record.data);
             if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -14512,7 +14627,11 @@ noxtls_return_t noxtls_tls13_recv(tls13_context_t *ctx, uint8_t *data, uint32_t 
                 return rc;
             }
             /* Record number of this record (for ACKs of post-handshake messages). */
-            rec_epoch = (uint16_t)ctx->base.read_connection_epoch;
+            rec_epoch = (uint16_t)((ctx->base.read_connection_epoch &
+                ~(uint64_t)DTLS13_UNIFIED_EPOCH_MASK) | received_epoch_low);
+            if((uint64_t)rec_epoch > ctx->base.read_connection_epoch) {
+                rec_epoch = (uint16_t)(rec_epoch - (DTLS13_UNIFIED_EPOCH_MASK + 1U));
+            }
             rec_seq = (ctx->base.read_seq_num > 0U) ? (ctx->base.read_seq_num - 1U) : 0U;
             *len = plain_len;
             if(content_type == TLS_RECORD_APPLICATION_DATA) {

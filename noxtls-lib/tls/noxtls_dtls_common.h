@@ -221,8 +221,11 @@ typedef struct dtls_context_s
     uint16_t read_epoch;        /* DTLS 1.2: epoch of records accepted for reading (RFC 6347 4.1) */
     uint64_t read_seq_num;      /* Read sequence number (48-bit record sequence of the last record) */
     uint64_t write_seq_num;     /* Write sequence number (next record of the current write epoch) */
-    uint64_t prev_write_seq_num; /* DTLS 1.2: next sequence number of the previous write epoch */
+    uint64_t prev_write_seq_num; /* Next sequence number of the retained previous write epoch */
     dtls_protect_record_fn protect_record; /* DTLS 1.2: protects records of the current write epoch */
+    /** DTLS 1.3: resend a saved inner plaintext with fresh record sequence/AEAD. */
+    noxtls_return_t (*retransmit_handshake)(struct dtls_context_s *ctx, uint16_t epoch,
+        const uint8_t *inner, uint32_t length, uint64_t *sequence);
     uint16_t last_rx_message_seq;  /* message_seq of the last handshake message delivered */
     uint8_t flight_final;       /* DTLS 1.2: buffered flight is our last flight (no retransmit timer) */
     uint8_t flight_peer_next;   /* DTLS 1.2: the peer's next flight started; ours is released when we send again */
@@ -335,6 +338,17 @@ void noxtls_dtls_next_read_epoch(dtls_context_t *ctx);
 noxtls_return_t noxtls_dtls_retransmit_flight(dtls_context_t *ctx);
 /* Forget the buffered flight (the peer's next flight has arrived). */
 void noxtls_dtls_flight_reset(dtls_context_t *ctx);
+/**
+ * @brief Retain a DTLS 1.3 encrypted handshake inner plaintext in the existing flight.
+ *
+ * @param[in,out] ctx Owning DTLS 1.3 context, current write epoch/sequence.
+ * @param[in] inner DTLSInnerPlaintext before encryption.
+ * @param[in] length Inner plaintext bytes.
+ *
+ * @return SUCCESS or a binding, length or allocation failure.
+ */
+noxtls_return_t noxtls_dtls_buffer_handshake(dtls_context_t *ctx,
+    const uint8_t *inner, uint32_t length);
 /* A message of the peer's next flight arrived: the buffered flight is kept (and retransmitted on
  * timeout) until the peer's flight is complete, and is replaced when our next flight starts. */
 void noxtls_dtls_flight_peer_progress(dtls_context_t *ctx);
