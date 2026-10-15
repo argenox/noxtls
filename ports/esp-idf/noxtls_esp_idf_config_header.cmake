@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-08T16:15:57Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-15T09:33:10Z)
 
 function(noxtls_esp_idf_write_config_features_header out_file)
   if(NOT out_file)
@@ -538,10 +538,6 @@ string(APPEND _noxtls_hdr "#define NOXTLS_MEM_BUCKET_ALIGNMENT ${CONFIG_NOXTLS_M
 
 string(APPEND _noxtls_hdr "#define NOXTLS_MEM_BUCKET_COUNT ${CONFIG_NOXTLS_MEM_BUCKET_COUNT}\n")
 
-string(APPEND _noxtls_hdr "#define NOXTLS_MEM_BUCKET_COUNTS ${CONFIG_NOXTLS_MEM_BUCKET_COUNTS}\n")
-
-string(APPEND _noxtls_hdr "#define NOXTLS_MEM_BUCKET_SIZES ${CONFIG_NOXTLS_MEM_BUCKET_SIZES}\n")
-
 string(APPEND _noxtls_hdr "#define NOXTLS_RSA_DEBUG_PRIMALITY_CHECK_INTERVAL ${CONFIG_NOXTLS_RSA_DEBUG_PRIMALITY_CHECK_INTERVAL}\n")
 
 string(APPEND _noxtls_hdr "#define NOXTLS_RSA_DEBUG_PROGRESS_INTERVAL ${CONFIG_NOXTLS_RSA_DEBUG_PROGRESS_INTERVAL}\n")
@@ -571,20 +567,6 @@ else()
 endif()
 
 string(APPEND _noxtls_hdr "#define NOXTLS_STATIC_ALLOCATOR_MODE ${CONFIG_NOXTLS_STATIC_ALLOCATOR_MODE}\n")
-
-if(CONFIG_NOXTLS_STATIC_ALLOCATOR_MODE_BUCKETS)
-  string(APPEND _noxtls_hdr "#define NOXTLS_STATIC_ALLOCATOR_MODE_BUCKETS 1\n")
-else()
-  string(APPEND _noxtls_hdr "#define NOXTLS_STATIC_ALLOCATOR_MODE_BUCKETS 0\n")
-endif()
-
-string(APPEND _noxtls_hdr "#define NOXTLS_STATIC_ALLOCATOR_MODE_HYBRID ${CONFIG_NOXTLS_STATIC_ALLOCATOR_MODE_HYBRID}\n")
-
-if(CONFIG_NOXTLS_STATIC_ALLOCATOR_MODE_LEGACY)
-  string(APPEND _noxtls_hdr "#define NOXTLS_STATIC_ALLOCATOR_MODE_LEGACY 1\n")
-else()
-  string(APPEND _noxtls_hdr "#define NOXTLS_STATIC_ALLOCATOR_MODE_LEGACY 0\n")
-endif()
 
 string(APPEND _noxtls_hdr "#define NOXTLS_STATIC_BUFFER_SIZE ${CONFIG_NOXTLS_STATIC_BUFFER_SIZE}\n")
 

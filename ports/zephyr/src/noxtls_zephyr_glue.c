@@ -34,6 +34,7 @@
  * @param entropy_len Number of bytes to fill.
  * @return NOXTLS_RETURN_SUCCESS on success.
  */
+#if IS_ENABLED(CONFIG_NOXTLS_USE_ZEPHYR_ENTROPY)
 static noxtls_return_t zephyr_entropy_cb(uint8_t *entropy_buffer, uint32_t entropy_len)
 {
 	int rc;
@@ -49,6 +50,7 @@ static noxtls_return_t zephyr_entropy_cb(uint8_t *entropy_buffer, uint32_t entro
 
 	return NOXTLS_RETURN_SUCCESS;
 }
+#endif
 
 /**
  * @brief Register Zephyr entropy with NoxTLS during kernel init.
