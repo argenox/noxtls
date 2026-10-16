@@ -54,6 +54,12 @@ noxtls_return_t noxtls_bn_rshift1(uint8_t *a, uint32_t len);
 
 /* Modular arithmetic operations */
 noxtls_return_t noxtls_bn_mod(uint8_t *result, const uint8_t *a, uint32_t a_len, const uint8_t *mod, uint32_t mod_len);
+/* Optional per-call software service callback. Preserve all operand buffers;
+ * callback lifetime ends before return. Hardware port calls are not sliced. */
+typedef void (*noxtls_bn_service_fn)(void);
+noxtls_return_t noxtls_bn_mod_exp_service(uint8_t *result, const uint8_t *base,
+    const uint8_t *exp, uint32_t exp_len, const uint8_t *mod, uint32_t mod_len,
+    noxtls_bn_service_fn service);
 noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const uint8_t *exp, uint32_t exp_len, const uint8_t *mod, uint32_t mod_len);
 noxtls_return_t noxtls_bn_mod_inv(uint8_t *result, const uint8_t *a, uint32_t a_len, const uint8_t *m, uint32_t m_len);
 

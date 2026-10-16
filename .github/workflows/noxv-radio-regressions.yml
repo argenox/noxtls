@@ -1,0 +1,56 @@
+name: NoxV radio crypto regressions
+on:
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: noxv-radio-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  native-crypto:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [default, private]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and validate software crypto plus mocked accelerator ownership
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (Test-Path 'C:\msys64\mingw64\bin\gcc.exe') {
+            $env:PATH = 'C:\msys64\mingw64\bin;' + $env:PATH
+          }
+          foreach ($tool in @('gcc', 'cmake', 'ninja', 'ctest')) {
+            if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { throw "Missing $tool on self-hosted runner" }
+          }
+          $build = 'build/noxv-radio-${{ matrix.profile }}'
+          $configure = @('-S', '.', '-B', $build, '-G', 'Ninja',
+            '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_C_COMPILER=gcc',
+            '-DNOXTLS_PROFILE=crypto_only', '-DNOXTLS_BUILD_REGRESSION_TESTS=ON',
+            '-DNOXTLS_BUILD_TESTS=OFF', '-DNOXTLS_BUILD_APPLICATIONS=OFF',
+            '-DNOXTLS_CFG_FEATURE_NOXV_HW_ACCEL=OFF')
+          if ('${{ matrix.profile }}' -eq 'private') {
+            $configure += '-DCMAKE_C_FLAGS=-DNOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE=0 -DNOXTLS_ECC_SHARED_SCRATCH=0'
+          }
+          & cmake @configure
+          if ($LASTEXITCODE) { throw 'Native configure failed' }
+          & cmake --build $build --parallel 4 --target noxtls_ecc_p256_regression noxtls_noxv_ecc_adapter_test noxtls_noxv_sha256_fallback_regression noxtls_noxv_ccm_gate0_test noxtls_noxv_ccm_gate1_test
+          if ($LASTEXITCODE) { throw 'Native build failed' }
+          $registered = (& ctest --test-dir $build -N | Out-String)
+          if ($LASTEXITCODE -or $registered -notmatch 'Total Tests:\s+5\b') { throw 'Expected five native crypto regressions' }
+          & ctest --test-dir $build --output-on-failure
+          if ($LASTEXITCODE) { throw 'Native crypto regressions failed' }
+      - name: Retain test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: noxv-radio-crypto-${{ matrix.profile }}
+          path: |
+            build/noxv-radio-${{ matrix.profile }}/Testing/Temporary/LastTest.log
+            build/noxv-radio-${{ matrix.profile }}/CMakeCache.txt
+          if-no-files-found: warn

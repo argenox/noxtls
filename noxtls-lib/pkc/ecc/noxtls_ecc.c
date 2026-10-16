@@ -30,12 +30,21 @@
 #include "common/noxtls_memory_compat.h"
 #include "noxtls_ecc.h"
 
+#if defined(_MSC_VER)
+/* MSVC has no weak function attribute. Keep the fallback separately named
+ * so a port or regression can supply the strong service hook. */
+void noxtls_ecc_default_yield(void) { }
+#if defined(_M_IX86)
+#pragma comment(linker, "/alternatename:_noxtls_ecc_yield=_noxtls_ecc_default_yield")
+#else
+#pragma comment(linker, "/alternatename:noxtls_ecc_yield=noxtls_ecc_default_yield")
+#endif
+#else
 #if defined(__GNUC__) || defined(__clang__)
 void noxtls_ecc_yield(void) __attribute__((weak));
 #endif
-void noxtls_ecc_yield(void)
-{
-}
+void noxtls_ecc_yield(void) { }
+#endif
 #include "pkc/rsa/noxtls_bignum.h"
 #include "drbg/noxtls_drbg.h"
 #include "noxtls_common.h"
@@ -239,8 +248,18 @@ static noxtls_return_t ecc_mod_inv_prime(uint8_t *result,
         (void)noxtls_bn_copy(scratch.p_minus_2, p, size);
         (void)noxtls_bn_sub(scratch.p_minus_2, scratch.p_minus_2, scratch.two, size);
 
-        /* Fast path: use generic modular inverse first. */
-        if(noxtls_bn_mod_inv(result, scratch.a_mod, size, p, size) == NOXTLS_RETURN_SUCCESS) {
+        /* The P-256 inverse is already Fermat exponentiation in the bignum
+         * backend. Pass the per-call service hook through its public loop
+         * boundaries instead of blocking a cooperative worker for the whole
+         * power. Other prime fields retain their generic inverse fast path. */
+        noxtls_return_t inverse_rc;
+        if(ecc_modulus_is_secp256r1(p, size) != 0) {
+            inverse_rc = noxtls_bn_mod_exp_service(result, scratch.a_mod,
+                scratch.p_minus_2, size, p, size, noxtls_ecc_yield);
+        } else {
+            inverse_rc = noxtls_bn_mod_inv(result, scratch.a_mod, size, p, size);
+        }
+        if(inverse_rc == NOXTLS_RETURN_SUCCESS) {
             rc = noxtls_bn_mul(scratch.prod, scratch.a_mod, size, result, size);
             if(rc == NOXTLS_RETURN_SUCCESS) {
                 rc = noxtls_bn_mod(scratch.check, scratch.prod, size * 2U, p, size);
@@ -253,7 +272,7 @@ static noxtls_return_t ecc_mod_inv_prime(uint8_t *result,
 
     if((rc == NOXTLS_RETURN_SUCCESS) && (verified == 0)) {
         /* Fallback for edge cases: Fermat inverse. */
-        rc = noxtls_bn_mod_exp(result, scratch.a_mod, scratch.p_minus_2, size, p, size);
+        rc = noxtls_bn_mod_exp_service(result, scratch.a_mod, scratch.p_minus_2, size, p, size, noxtls_ecc_yield);
         if(rc == NOXTLS_RETURN_SUCCESS) {
             rc = noxtls_bn_mul(scratch.prod, scratch.a_mod, size, result, size);
         }
@@ -1692,6 +1711,10 @@ static void p256_fe_sub(uint8_t *out, const uint8_t *a, const uint8_t *b)
  */
 static void p256_fe_mul(uint8_t *out, const uint8_t *a, const uint8_t *b)
 {
+    /* Point formulas can themselves exceed a radio queue budget on a small
+     * CPU. Service between complete field multiplies, with per-call scratch
+     * still owned by the suspended arithmetic invocation. */
+    noxtls_ecc_yield();
     uint32_t aw[8];
     uint32_t bw[8];
     uint32_t prod[16];
@@ -2815,6 +2838,7 @@ static noxtls_return_t ecc_precompute_table_to_affine(ecc_jpoint_t *T, uint32_t 
     noxtls_fill_u8((uint8_t *)(void *)(tmp2n), sizeof(tmp2n), 0U, sizeof(tmp2n));
 
     for(i = 1U; i < table_len; i += 1U) {
+        noxtls_ecc_yield();
         uint8_t *prefix_i = NULL;
 
         if((ecc_jpoint_is_infinity(&T[i], size) != 0)) {
@@ -2848,6 +2872,7 @@ static noxtls_return_t ecc_precompute_table_to_affine(ecc_jpoint_t *T, uint32_t 
     }
 
     for(i = count; (i > 0U) && (rc == NOXTLS_RETURN_SUCCESS); i -= 1U) {
+        noxtls_ecc_yield();
         uint32_t pos = (uint32_t)(i - 1U);
         uint32_t point_idx = active_idx[pos];
 
@@ -2911,6 +2936,7 @@ static noxtls_return_t ecc_build_precompute_table(ecc_jpoint_t *T, uint32_t tabl
     if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
 
     for(i = 3U; i < table_len; i += 1U) {
+        noxtls_ecc_yield();
         rc = ecc_jpoint_add(&T[i], &T[i - 1U], &T[1], curve);
         if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
     }
@@ -3079,7 +3105,9 @@ static noxtls_return_t p256_build_comb_precompute_table(ecc_jpoint_t *table,
     cur.Z[31] = 0x01U;
 
     for(i = 1U; i < w; i += 1U) {
+        noxtls_ecc_yield();
         for(j = 0U; j < d; j += 1U) {
+            noxtls_ecc_yield();
                 (void)p256_jpoint_double(&tmp, &cur);
             noxtls_copy_u8((uint8_t *)(void *)(&cur), sizeof(cur), (const uint8_t *)(const void *)(&tmp), sizeof(cur));
         }
@@ -3094,7 +3122,9 @@ static noxtls_return_t p256_build_comb_precompute_table(ecc_jpoint_t *table,
     }
 
     for(i = 1U; i < table_len; i <<= 1U) {
+        noxtls_ecc_yield();
         for(j = 0U; j < i; j += 1U) {
+            noxtls_ecc_yield();
             rc = ecc_jpoint_add(&table[i + j], &table[j], &table[i], curve);
             if(rc != NOXTLS_RETURN_SUCCESS) {
                 return rc;
@@ -3148,6 +3178,7 @@ static noxtls_return_t p256_ecc_jpoint_mul_comb(ecc_jpoint_t *result,
     p256_comb_recode_core(digits, d, w, reduced);
 
     for(i = d; i > 0U; i -= 1U) {
+        noxtls_ecc_yield();
         (void)p256_jpoint_double(&Tdbl, &R);
         noxtls_copy_u8((uint8_t *)(void *)(&R), sizeof(R), (const uint8_t *)(const void *)(&Tdbl), sizeof(R));
 
@@ -3191,6 +3222,7 @@ static noxtls_return_t p256_ecc_jpoint_mul_comb_flash(
     p256_comb_recode_core(digits, d, w, reduced);
 
     for(i = d; i > 0U; i--) {
+        noxtls_ecc_yield();
         rc = p256_jpoint_double(&doubled, &R);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
