@@ -10,6 +10,7 @@
 
 #include "noxtls_ecc.h"
 #include "noxtls_ecdh.h"
+#include "pkc/rsa/noxtls_bignum.h"
 
 /* A port may service runnable work here, without inspecting scalar values. */
 static unsigned yield_calls;
@@ -119,6 +120,47 @@ static int check_multiply(const ecc_curve_params_t *curve,
     return 1;
 }
 
+static unsigned bn_service_calls, bn_nested_pending, bn_nested_failed;
+static void counted_bn_service(void)
+{
+    bn_service_calls++;
+    if(bn_nested_pending != 0U) {
+        uint8_t base = 7U, exponent = 13U, modulus = 97U, result = 0U;
+        bn_nested_pending = 0U;
+        if(noxtls_bn_mod_exp(&result, &base, &exponent, 1U, &modulus, 1U) !=
+           NOXTLS_RETURN_SUCCESS || result != 38U) bn_nested_failed = 1U;
+    }
+}
+static int check_modexp_service(void)
+{
+    const uint8_t moduli[2] = {97U, 100U};
+    const uint8_t expected[2] = {38U, 7U};
+    unsigned i;
+    for(i = 0U; i < 2U; i++) {
+        uint8_t base = 7U, exponent = 13U, result = 0U;
+        bn_service_calls = 0U;
+        bn_nested_pending = 1U;
+        bn_nested_failed = 0U;
+        if(noxtls_bn_mod_exp_service(&result, &base, &exponent, 1U, &moduli[i],
+              1U, counted_bn_service) != NOXTLS_RETURN_SUCCESS ||
+           result != expected[i] || bn_service_calls == 0U ||
+           bn_nested_pending != 0U || bn_nested_failed != 0U) return 0;
+        bn_service_calls = 0U;
+        /* Legacy and NULL-service calls retain aliasing and no callback. */
+        if(noxtls_bn_mod_exp(&base, &base, &exponent, 1U, &moduli[i], 1U) !=
+           NOXTLS_RETURN_SUCCESS || base != expected[i]) return 0;
+        base = 7U;
+        if(noxtls_bn_mod_exp_service(&result, &base, &exponent, 1U, &moduli[i],
+              1U, NULL) != NOXTLS_RETURN_SUCCESS || result != expected[i] ||
+           bn_service_calls != 0U) return 0;
+        result = 0xa5U;
+        if(noxtls_bn_mod_exp_service(&result, &base, &exponent, 1U, &moduli[i],
+              0U, counted_bn_service) != NOXTLS_RETURN_INVALID_PARAM ||
+           result != 0xa5U || bn_service_calls != 0U) return 0;
+    }
+    return 1;
+}
+
 int main(void)
 {
     static const char scalar_two[] =
@@ -133,11 +175,30 @@ int main(void)
     uint8_t shared_secret[32];
     uint32_t shared_secret_len = sizeof(shared_secret);
     int passed = 1;
+    if(!check_modexp_service()) {
+        printf("FAIL per-call exponentiation service, nested, alias/error controls\n");
+        passed = 0;
+    } else printf("PASS per-call exponentiation service, nested, alias/error controls\n");
 
     memset(&curve, 0, sizeof(curve));
     if(noxtls_ecc_curve_init(&curve, NOXTLS_ECC_SECP256R1) != NOXTLS_RETURN_SUCCESS) {
         printf("FAIL curve initialization\n");
         return 1;
+    }
+
+    /* A complete affine add isolates the formerly unsliced field inverse. */
+    {
+        ecc_point_t actual, expected;
+        yield_calls = 0U;
+        if(!load_point(&expected,
+                       "7cf27b188d034f7e8a52380304b51ac3c08969e277f21b35a60b48fc47669978",
+                       "07775510db8ed040293d9ac69f7430dbba7dade63ce982299e04b79d227873d1") ||
+           noxtls_ecc_point_add(&actual, &curve.G, &curve.G, &curve) != NOXTLS_RETURN_SUCCESS ||
+           memcmp(actual.x, expected.x, 32U) != 0 ||
+           memcmp(actual.y, expected.y, 32U) != 0 || yield_calls == 0U) {
+            printf("FAIL affine inverse cooperative service\n");
+            passed = 0;
+        } else printf("PASS affine inverse cooperative service\n");
     }
 
     passed &= check_multiply(&curve,

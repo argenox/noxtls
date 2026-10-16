@@ -248,8 +248,18 @@ static noxtls_return_t ecc_mod_inv_prime(uint8_t *result,
         (void)noxtls_bn_copy(scratch.p_minus_2, p, size);
         (void)noxtls_bn_sub(scratch.p_minus_2, scratch.p_minus_2, scratch.two, size);
 
-        /* Fast path: use generic modular inverse first. */
-        if(noxtls_bn_mod_inv(result, scratch.a_mod, size, p, size) == NOXTLS_RETURN_SUCCESS) {
+        /* The P-256 inverse is already Fermat exponentiation in the bignum
+         * backend. Pass the per-call service hook through its public loop
+         * boundaries instead of blocking a cooperative worker for the whole
+         * power. Other prime fields retain their generic inverse fast path. */
+        noxtls_return_t inverse_rc;
+        if(ecc_modulus_is_secp256r1(p, size) != 0) {
+            inverse_rc = noxtls_bn_mod_exp_service(result, scratch.a_mod,
+                scratch.p_minus_2, size, p, size, noxtls_ecc_yield);
+        } else {
+            inverse_rc = noxtls_bn_mod_inv(result, scratch.a_mod, size, p, size);
+        }
+        if(inverse_rc == NOXTLS_RETURN_SUCCESS) {
             rc = noxtls_bn_mul(scratch.prod, scratch.a_mod, size, result, size);
             if(rc == NOXTLS_RETURN_SUCCESS) {
                 rc = noxtls_bn_mod(scratch.check, scratch.prod, size * 2U, p, size);
@@ -262,7 +272,7 @@ static noxtls_return_t ecc_mod_inv_prime(uint8_t *result,
 
     if((rc == NOXTLS_RETURN_SUCCESS) && (verified == 0)) {
         /* Fallback for edge cases: Fermat inverse. */
-        rc = noxtls_bn_mod_exp(result, scratch.a_mod, scratch.p_minus_2, size, p, size);
+        rc = noxtls_bn_mod_exp_service(result, scratch.a_mod, scratch.p_minus_2, size, p, size, noxtls_ecc_yield);
         if(rc == NOXTLS_RETURN_SUCCESS) {
             rc = noxtls_bn_mul(scratch.prod, scratch.a_mod, size, result, size);
         }
