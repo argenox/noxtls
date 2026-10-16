@@ -99,7 +99,7 @@ if(NOXTLS_CFG_FEATURE_ECC)
     elseif(_noxtls_pkc_nrf54)
         # nRF54L CRACEN BA414EP port (added once below).
     else()
-        if(NOXTLS_CFG_FEATURE_NOXV_HW_ACCEL)
+        if(NOXTLS_CFG_FEATURE_NOXV_HW_ACCEL AND NOXTLS_CFG_FEATURE_NOXV_P256_ACCEL)
             list(APPEND PKC_SOURCES ecc/noxtls_ecc_accel_noxv_port.c)
         else()
             list(APPEND PKC_SOURCES ecc/noxtls_ecc_accel_port.c)
