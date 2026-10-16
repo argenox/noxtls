@@ -1711,6 +1711,10 @@ static void p256_fe_sub(uint8_t *out, const uint8_t *a, const uint8_t *b)
  */
 static void p256_fe_mul(uint8_t *out, const uint8_t *a, const uint8_t *b)
 {
+    /* Point formulas can themselves exceed a radio queue budget on a small
+     * CPU. Service between complete field multiplies, with per-call scratch
+     * still owned by the suspended arithmetic invocation. */
+    noxtls_ecc_yield();
     uint32_t aw[8];
     uint32_t bw[8];
     uint32_t prod[16];

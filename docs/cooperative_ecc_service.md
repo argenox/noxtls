@@ -2,12 +2,12 @@
 
 A low-priority worker does not make long P-256 operations preemptible on a
 cooperative RTOS. The embedding firmware can override `noxtls_ecc_yield()`
-and yield from its active worker at bounded public loop boundaries. The
+and yield from its active worker at software arithmetic boundaries. The
 portable default does nothing; GNU/Clang weak linkage and MSVC fallback
 aliases permit a strong port implementation.
 
-`NOXTLS_ECC_COOPERATIVE_SERVICE_VERSION == 2` includes optimized point
-precomputation/comb loops and P-256 field inversion. Inversion uses the same
+`NOXTLS_ECC_COOPERATIVE_SERVICE_VERSION == 3` includes optimized point
+precomputation/comb loops, field-multiply boundaries and P-256 field inversion. Inversion uses the same
 Fermat power as the existing bignum fast path, with an explicit per-call
 `noxtls_bn_mod_exp_service()` callback through software Montgomery setup,
 precomputation, squaring and multiply steps, or the even-modulus ladder.
