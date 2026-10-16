@@ -30,12 +30,21 @@
 #include "common/noxtls_memory_compat.h"
 #include "noxtls_ecc.h"
 
+#if defined(_MSC_VER)
+/* MSVC has no weak function attribute. Keep the fallback separately named
+ * so a port or regression can supply the strong service hook. */
+void noxtls_ecc_default_yield(void) { }
+#if defined(_M_IX86)
+#pragma comment(linker, "/alternatename:_noxtls_ecc_yield=_noxtls_ecc_default_yield")
+#else
+#pragma comment(linker, "/alternatename:noxtls_ecc_yield=noxtls_ecc_default_yield")
+#endif
+#else
 #if defined(__GNUC__) || defined(__clang__)
 void noxtls_ecc_yield(void) __attribute__((weak));
 #endif
-void noxtls_ecc_yield(void)
-{
-}
+void noxtls_ecc_yield(void) { }
+#endif
 #include "pkc/rsa/noxtls_bignum.h"
 #include "drbg/noxtls_drbg.h"
 #include "noxtls_common.h"
