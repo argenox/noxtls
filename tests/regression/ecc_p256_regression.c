@@ -11,6 +11,34 @@
 #include "noxtls_ecc.h"
 #include "noxtls_ecdh.h"
 
+/* A port may service runnable work here, without inspecting scalar values. */
+static unsigned yield_calls;
+#if !NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE && !NOXTLS_ECC_SHARED_SCRATCH
+static const ecc_curve_params_t *yield_curve;
+static ecc_point_t nested_expected;
+static unsigned nested_pending, nested_done, nested_failed;
+#endif
+void noxtls_ecc_yield(void)
+{
+    yield_calls++;
+#if !NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE && !NOXTLS_ECC_SHARED_SCRATCH
+    if(nested_pending != 0U) {
+        ecc_point_t actual;
+        uint8_t scalar[32] = {0};
+        /* Clear before calling ECC again: model another serviced task. */
+        nested_pending = 0U;
+        scalar[31] = 2U;
+        memset(&actual, 0, sizeof(actual));
+        if(noxtls_ecc_point_multiply(&actual, scalar, &yield_curve->G,
+                                     yield_curve) != NOXTLS_RETURN_SUCCESS ||
+           actual.size != 32U ||
+           memcmp(actual.x, nested_expected.x, 32U) != 0 ||
+           memcmp(actual.y, nested_expected.y, 32U) != 0) nested_failed = 1U;
+        nested_done++;
+    }
+#endif
+}
+
 static int hex_nibble(char value)
 {
     if(value >= '0' && value <= '9') {
@@ -68,6 +96,7 @@ static int check_multiply(const ecc_curve_params_t *curve,
         return 0;
     }
 
+    yield_calls = 0U;
     rc = noxtls_ecc_point_multiply(&actual, scalar, &curve->G, curve);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         printf("FAIL %s: multiply returned %d\n", name, (int)rc);
@@ -82,7 +111,11 @@ static int check_multiply(const ecc_curve_params_t *curve,
         printf("FAIL %s: known-good result was rejected\n", name);
         return 0;
     }
-    printf("PASS %s\n", name);
+    if(yield_calls == 0U) {
+        printf("FAIL %s: software multiply never services yield hook\n", name);
+        return 0;
+    }
+    printf("PASS %s (cooperative hook serviced)\n", name);
     return 1;
 }
 
@@ -112,11 +145,25 @@ int main(void)
                              scalar_two,
                              "7cf27b188d034f7e8a52380304b51ac3c08969e277f21b35a60b48fc47669978",
                              "07775510db8ed040293d9ac69f7430dbba7dade63ce982299e04b79d227873d1");
+#if !NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE && !NOXTLS_ECC_SHARED_SCRATCH
+    yield_curve = &curve;
+    if(!load_point(&nested_expected,
+                   "7cf27b188d034f7e8a52380304b51ac3c08969e277f21b35a60b48fc47669978",
+                   "07775510db8ed040293d9ac69f7430dbba7dade63ce982299e04b79d227873d1")) return 1;
+    nested_pending = 1U;
+#endif
     passed &= check_multiply(&curve,
                              "P-256 dense scalar",
                              scalar_dense,
                              "f38659b4201fae0cafc60429e337794c4e4e10b07cd318847cb0ffad1b00d219",
                              "63d110d1580609fa6068e3e99db0b51d1ff4a3129eb74d664a0990fe9315f349");
+
+#if !NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE && !NOXTLS_ECC_SHARED_SCRATCH
+    if(nested_done != 1U || nested_failed != 0U) {
+        printf("FAIL cooperative nested ECC known-answer\n");
+        passed = 0;
+    } else printf("PASS cooperative nested ECC known-answer\n");
+#endif
 
     memset(&local_key, 0, sizeof(local_key));
     memset(&local_before, 0, sizeof(local_before));

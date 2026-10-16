@@ -2815,6 +2815,7 @@ static noxtls_return_t ecc_precompute_table_to_affine(ecc_jpoint_t *T, uint32_t 
     noxtls_fill_u8((uint8_t *)(void *)(tmp2n), sizeof(tmp2n), 0U, sizeof(tmp2n));
 
     for(i = 1U; i < table_len; i += 1U) {
+        noxtls_ecc_yield();
         uint8_t *prefix_i = NULL;
 
         if((ecc_jpoint_is_infinity(&T[i], size) != 0)) {
@@ -2848,6 +2849,7 @@ static noxtls_return_t ecc_precompute_table_to_affine(ecc_jpoint_t *T, uint32_t 
     }
 
     for(i = count; (i > 0U) && (rc == NOXTLS_RETURN_SUCCESS); i -= 1U) {
+        noxtls_ecc_yield();
         uint32_t pos = (uint32_t)(i - 1U);
         uint32_t point_idx = active_idx[pos];
 
@@ -2911,6 +2913,7 @@ static noxtls_return_t ecc_build_precompute_table(ecc_jpoint_t *T, uint32_t tabl
     if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
 
     for(i = 3U; i < table_len; i += 1U) {
+        noxtls_ecc_yield();
         rc = ecc_jpoint_add(&T[i], &T[i - 1U], &T[1], curve);
         if(rc != NOXTLS_RETURN_SUCCESS) { return rc; }
     }
@@ -3079,7 +3082,9 @@ static noxtls_return_t p256_build_comb_precompute_table(ecc_jpoint_t *table,
     cur.Z[31] = 0x01U;
 
     for(i = 1U; i < w; i += 1U) {
+        noxtls_ecc_yield();
         for(j = 0U; j < d; j += 1U) {
+            noxtls_ecc_yield();
                 (void)p256_jpoint_double(&tmp, &cur);
             noxtls_copy_u8((uint8_t *)(void *)(&cur), sizeof(cur), (const uint8_t *)(const void *)(&tmp), sizeof(cur));
         }
@@ -3094,7 +3099,9 @@ static noxtls_return_t p256_build_comb_precompute_table(ecc_jpoint_t *table,
     }
 
     for(i = 1U; i < table_len; i <<= 1U) {
+        noxtls_ecc_yield();
         for(j = 0U; j < i; j += 1U) {
+            noxtls_ecc_yield();
             rc = ecc_jpoint_add(&table[i + j], &table[j], &table[i], curve);
             if(rc != NOXTLS_RETURN_SUCCESS) {
                 return rc;
@@ -3148,6 +3155,7 @@ static noxtls_return_t p256_ecc_jpoint_mul_comb(ecc_jpoint_t *result,
     p256_comb_recode_core(digits, d, w, reduced);
 
     for(i = d; i > 0U; i -= 1U) {
+        noxtls_ecc_yield();
         (void)p256_jpoint_double(&Tdbl, &R);
         noxtls_copy_u8((uint8_t *)(void *)(&R), sizeof(R), (const uint8_t *)(const void *)(&Tdbl), sizeof(R));
 
@@ -3191,6 +3199,7 @@ static noxtls_return_t p256_ecc_jpoint_mul_comb_flash(
     p256_comb_recode_core(digits, d, w, reduced);
 
     for(i = d; i > 0U; i--) {
+        noxtls_ecc_yield();
         rc = p256_jpoint_double(&doubled, &R);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;

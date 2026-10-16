@@ -162,6 +162,14 @@ uint32_t noxtls_ecc_curve_order_size(const ecc_curve_params_t *curve);
 noxtls_return_t noxtls_ecc_point_init(ecc_point_t *point, uint32_t size);
 noxtls_return_t noxtls_ecc_point_add(ecc_point_t *result, const ecc_point_t *p1, const ecc_point_t *p2, const ecc_curve_params_t *curve);
 noxtls_return_t noxtls_ecc_point_double(ecc_point_t *result, const ecc_point_t *p, const ecc_curve_params_t *curve);
+/** Optional cooperative service hook; the portable implementation is a no-op.
+ * Called at public loop boundaries, never with secret scalar bits as arguments.
+ * Overrides must preserve inputs, run in task context, and either serialize
+ * other ECC callers or disable global precompute caches and shared scratch.
+ * Hardware accelerator execution and a single field operation are not sliced.
+ */
+void noxtls_ecc_yield(void);
+
 noxtls_return_t noxtls_ecc_point_multiply(ecc_point_t *result, const uint8_t *scalar, const ecc_point_t *point, const ecc_curve_params_t *curve);
 /* Joint scalar multiplication: result = scalar1*point1 + scalar2*point2. */
 noxtls_return_t noxtls_ecc_point_muladd(ecc_point_t *result,
