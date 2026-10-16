@@ -371,6 +371,12 @@
 #define NOXTLS_FEATURE_AES_ACCEL_APPLE 0
 #endif
 
+/* Bounded NoxV CCM: AES-128, nonce 13, AAD 1, MIC 4, payload 0..16.
+ * Explicit opt-in; larger/different requests retain the generic CCM path. */
+#ifndef NOXTLS_FEATURE_NOXV_CCM_ACCEL
+#define NOXTLS_FEATURE_NOXV_CCM_ACCEL 0
+#endif
+
 /* Enables nRF52 ECB peripheral accelerated AES-128 block encrypt path.
  * Prereq: NOXTLS_FEATURE_AES=1.
  * Build knob: NOXTLS_CFG_FEATURE_NRF52_HW_ACCEL.
@@ -1401,7 +1407,7 @@
 
 /** Maximum handshake message size (bytes). Used only as a bounds check:
  *  handshake messages that claim a length above this are rejected. No buffer
- *  of this size is allocated—DTLS reassembly allocates only the actual
+ *  of this size is allocatedâ€”DTLS reassembly allocates only the actual
  *  message length (from the wire). So this can be set to a small value
  *  (e.g. 16384 or 8192) on embedded without reserving 64KB. It must be
  *  >= the largest handshake message you need (typically Certificate =

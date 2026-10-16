@@ -166,7 +166,7 @@ noxtls_return_t noxtls_aes_ccm_encrypt(const uint8_t *key, noxtls_aes_type_t typ
              /* MISRA 15.7: no remaining alternative */
          }
     }
-#if NOXTLS_PORT_AES_MODE_ACCEL
+#if NOXTLS_PORT_AES_CCM_ACCEL
     {
         noxtls_return_t port_rc = noxtls_aes_ccm_encrypt_accel_port(key, type, nonce, nonce_len, aad, aad_len,
                                                                      plaintext, plaintext_len, ciphertext,
@@ -381,7 +381,7 @@ noxtls_return_t noxtls_aes_ccm_decrypt(const uint8_t *key, noxtls_aes_type_t typ
      else {
          /* MISRA 15.7: no remaining alternative */
      }
-#if NOXTLS_PORT_AES_MODE_ACCEL
+#if NOXTLS_PORT_AES_CCM_ACCEL
     {
         noxtls_return_t port_rc = noxtls_aes_ccm_decrypt_accel_port(key, type, nonce, nonce_len, aad, aad_len,
                                                                      ciphertext, ciphertext_len, tag, tag_len,

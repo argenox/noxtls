@@ -53,6 +53,11 @@
 #define NOXTLS_PORT_AES_MODE_ACCEL   NOXTLS_FEATURE_NRF54_HW_ACCEL
 #endif
 
+/** @brief CCM-only hook, independent of ECB/CBC/CTR mode hooks. */
+#ifndef NOXTLS_PORT_AES_CCM_ACCEL
+#define NOXTLS_PORT_AES_CCM_ACCEL (NOXTLS_PORT_AES_MODE_ACCEL || NOXTLS_FEATURE_NOXV_CCM_ACCEL)
+#endif
+
 /**
  * @brief SHA-224/256 block hooks are provided by a port other than the STM32
  *        HASH backend (which keeps its own NOXTLS_FEATURE_HASH_ACCEL_STM32 switch).
