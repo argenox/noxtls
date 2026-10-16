@@ -91,6 +91,8 @@ noxtls_set_default(NOXTLS_CFG_FEATURE_STM32_HW_SHA256_ONLY OFF)
 noxtls_set_default(NOXTLS_CFG_FEATURE_NRF52_HW_ACCEL OFF)
 noxtls_set_default(NOXTLS_CFG_FEATURE_NRF52_HW_AES_ONLY OFF)
 noxtls_set_default(NOXTLS_CFG_FEATURE_NOXV_HW_ACCEL OFF)
+# Some FPGA profiles provide AES/SHA without a reachable P-256 peripheral.
+noxtls_set_default(NOXTLS_CFG_FEATURE_NOXV_P256_ACCEL ON)
 # CC13xx injected callbacks: NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL is an umbrella
 # that enables both per-engine ports below; each port can also be selected alone.
 noxtls_set_default(NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL OFF)

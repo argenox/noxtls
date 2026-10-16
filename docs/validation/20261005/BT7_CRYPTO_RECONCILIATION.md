@@ -99,3 +99,13 @@ cmake --build ../noxtls-bt7-audit-pq --parallel 8
 ```
 
 Do not run ordinary NoxV-enabled native applications against the default physical MMIO addresses. The adapter fixtures deliberately override the real ports' MMIO hooks; production-library compilation is a separate check.
+
+
+### FPGA profiles without a reachable P-256 engine
+
+`NOXTLS_CFG_FEATURE_NOXV_P256_ACCEL` defaults to `ON`, preserving the
+existing NoxV umbrella selection. Set it to `OFF` when the FPGA profile
+provides AES/SHA acceleration but does not map the P-256 registers. This
+selects the existing software ECC fallback port without changing AES/SHA.
+It does not turn an accelerator execution error into a software success: an
+enabled P-256 port still propagates physical failures and timeouts.
