@@ -168,6 +168,7 @@ noxtls_return_t noxtls_ecc_point_double(ecc_point_t *result, const ecc_point_t *
  * other ECC callers or disable global precompute caches and shared scratch.
  * Hardware accelerator execution and a single field operation are not sliced.
  */
+#define NOXTLS_ECC_COOPERATIVE_SERVICE_VERSION 1
 void noxtls_ecc_yield(void);
 
 noxtls_return_t noxtls_ecc_point_multiply(ecc_point_t *result, const uint8_t *scalar, const ecc_point_t *point, const ecc_curve_params_t *curve);
