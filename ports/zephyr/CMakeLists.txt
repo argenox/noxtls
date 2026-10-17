@@ -21,6 +21,24 @@ add_subdirectory(${ZEPHYR_NOXTLS_MODULE_DIR} noxtls_build)
 
 zephyr_interface_library_named(noxtls)
 
+# Consumers and the standalone archives must use the same target ABI and
+# feature definitions. Plain add_subdirectory() targets do not automatically
+# inherit Zephyr's Cortex-M CPU flags or generated configuration includes.
+add_library(noxtls_zephyr_config INTERFACE)
+target_link_libraries(noxtls_zephyr_config INTERFACE zephyr_interface)
+get_directory_property(_noxtls_definitions
+  DIRECTORY ${ZEPHYR_NOXTLS_MODULE_DIR} COMPILE_DEFINITIONS)
+target_compile_definitions(noxtls_zephyr_config INTERFACE ${_noxtls_definitions})
+get_directory_property(_noxtls_includes
+  DIRECTORY ${ZEPHYR_NOXTLS_MODULE_DIR} INCLUDE_DIRECTORIES)
+target_include_directories(noxtls_zephyr_config BEFORE INTERFACE ${_noxtls_includes})
+set_property(TARGET noxtls_common PROPERTY NOXTLS_SOURCE_ROOT ${ZEPHYR_NOXTLS_MODULE_DIR})
+if(NOXTLS_EXTERNAL_CONFIG_INCLUDE_DIR)
+  set_property(TARGET noxtls_common PROPERTY NOXTLS_CONFIG_INCLUDE_DIR ${NOXTLS_EXTERNAL_CONFIG_INCLUDE_DIR})
+else()
+  set_property(TARGET noxtls_common PROPERTY NOXTLS_CONFIG_INCLUDE_DIR ${ZEPHYR_NOXTLS_MODULE_DIR})
+endif()
+
 set(NOXTLS_ZEPHYR_LIBS
   noxtls_common
   noxtls_hash
@@ -32,6 +50,9 @@ set(NOXTLS_ZEPHYR_LIBS
 
 if(TARGET noxtls_certificates)
   list(APPEND NOXTLS_ZEPHYR_LIBS noxtls_certificates)
+endif()
+if(TARGET noxtls_sha3)
+  list(APPEND NOXTLS_ZEPHYR_LIBS noxtls_sha3)
 endif()
 
 if(TARGET noxtls_mac)
@@ -55,6 +76,14 @@ if(TARGET noxtls_tls)
 endif()
 
 target_link_libraries(noxtls INTERFACE ${NOXTLS_ZEPHYR_LIBS})
+target_link_libraries(noxtls INTERFACE noxtls_zephyr_config)
+foreach(_lib IN LISTS NOXTLS_ZEPHYR_LIBS)
+  add_dependencies(${_lib} zephyr_generated_headers)
+  # The standalone library uses both CMake link signatures across targets.
+  # Appending properties works with either without changing native builds.
+  set_property(TARGET ${_lib} APPEND PROPERTY LINK_LIBRARIES noxtls_zephyr_config)
+  set_property(TARGET ${_lib} APPEND PROPERTY INTERFACE_LINK_LIBRARIES noxtls_zephyr_config)
+endforeach()
 
 zephyr_include_directories(${ZEPHYR_NOXTLS_MODULE_DIR})
 zephyr_include_directories(${ZEPHYR_NOXTLS_MODULE_DIR}/utility)

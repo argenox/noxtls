@@ -1007,6 +1007,14 @@
           </allOf>
         </dependencies>
       </setting>
+      <setting id="NOXTLS_FEATURE_CC13XX_X25519_ACCEL" name="CC13xx X25519 acceleration" type="boolean" default="disabled" default-value="0" legacy="false">
+        <description>Injected CC13xx PKA callback port for X25519. Unbound or busy engines retain software fallback. Prereq: NOXTLS_FEATURE_X25519=1. Build knob: NOXTLS_CFG_FEATURE_CC13XX_X25519_ACCEL.</description>
+        <dependencies>
+          <allOf>
+            <dependency ref="NOXTLS_FEATURE_X25519" value="1"/>
+          </allOf>
+        </dependencies>
+      </setting>
       <setting id="NOXTLS_FEATURE_ECJPAKE" name="EC-JPAKE" type="boolean" default="disabled" default-value="0" legacy="false" source-line="601">
         <description>Enables EC-JPAKE over P-256 with SHA-256 Schnorr NIZK proofs (RFC 8236 section 3, RFC 8235 section 3, draft-cragie-tls-ecjpake-01 section 8). Prereq: NOXTLS_FEATURE_PKC=1 and NOXTLS_FEATURE_ECC=1 and NOXTLS_FEATURE_SHA256=1 and NOXTLS_FEATURE_DRBG=1. Build knob: NOXTLS_CFG_FEATURE_ECJPAKE. Default OFF.</description>
         <dependencies>

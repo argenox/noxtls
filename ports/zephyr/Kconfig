@@ -3,6 +3,7 @@
 
 menuconfig NOXTLS
 	bool "NoxTLS cryptography and TLS library"
+	select REQUIRES_FULL_LIBC
 	help
 	  Enable the NoxTLS library from Argenox. Add this module to your west
 	  manifest at modules/crypto/noxtls (see ports/zephyr/README.md).

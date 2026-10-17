@@ -29,12 +29,24 @@ SKIP_CATEGORY_IDS = frozenset({"profiles", "sidechannel"})
 SKIP_SETTING_IDS = frozenset(
     {
         "NOXTLS_CT_COMPARE",
+        # These are C initializer lists and fixed enum constants, not scalar
+        # configuration options. Emitting empty int defaults breaks a second
+        # Zephyr configure and emits invalid assembler configuration symbols.
+        "NOXTLS_MEM_BUCKET_COUNTS",
+        "NOXTLS_MEM_BUCKET_SIZES",
+        "NOXTLS_STATIC_ALLOCATOR_MODE_LEGACY",
+        "NOXTLS_STATIC_ALLOCATOR_MODE_BUCKETS",
+        "NOXTLS_STATIC_ALLOCATOR_MODE_HYBRID",
     }
 )
 
 # Root CMake maps these via NOXTLS_CFG_* / noxtls_define_bool (see noxtls/CMakeLists.txt).
 CMAKE_BOOL_CACHE_VARS: frozenset[str] = frozenset(
     {
+        "NOXTLS_FEATURE_CC13XX_HW_ACCEL",
+        "NOXTLS_FEATURE_CC13XX_AES_ACCEL",
+        "NOXTLS_FEATURE_CC13XX_P256_ACCEL",
+        "NOXTLS_FEATURE_CC13XX_X25519_ACCEL",
         "NOXTLS_FEATURE_HASH",
         "NOXTLS_FEATURE_HMAC",
         "NOXTLS_FEATURE_HKDF",
@@ -115,6 +127,10 @@ BUFFER_SETTING_IDS: tuple[str, ...] = (
 )
 
 INT_METADATA: dict[str, dict[str, object]] = {
+    "NOXTLS_STATIC_ALLOCATOR_MODE": {
+        "prompt": "Static allocator mode (0=legacy, 1=buckets, 2=hybrid)",
+        "range": (0, 2),
+    },
     "NOXTLS_TLS_MAX_RECORD_SIZE": {
         "prompt": "Max TLS record payload size (bytes)",
         "range": (256, 16384),
@@ -242,6 +258,8 @@ def should_skip_setting(setting_id: str, setting_type: str) -> bool:
 def parse_int_default(raw: str) -> str:
     # Catalog defaults may carry C integer suffixes (e.g. "100U" since the MISRA
     # conversion); Kconfig needs a plain integer.
+    if raw.strip() == "NOXTLS_STATIC_ALLOCATOR_MODE_HYBRID":
+        return "2"
     raw = re.sub(r"(?<=\d)[uUlL]+", "", raw.strip())
     m = EXPR_RE.fullmatch(raw)
     if m:
