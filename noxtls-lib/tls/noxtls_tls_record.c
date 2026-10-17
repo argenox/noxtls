@@ -1636,7 +1636,8 @@ static int tls13_dtls_cid_matches_or_promotes(tls13_context_t *ctx, const uint8_
  *
  * @param[in] window The replay window
  * @param[in] sequence_number The sequence number
- * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_FAILED on failure
+ * @return SUCCESS for an admissible sequence, DTLS_RECORD_REPLAYED for a stale
+ * or duplicate record, or NULL for an invalid window.
  */
 static noxtls_return_t dtls13_replay_check_window(const dtls_replay_window_t *window, uint64_t sequence_number)
 {
@@ -1654,10 +1655,10 @@ static noxtls_return_t dtls13_replay_check_window(const dtls_replay_window_t *wi
 
     diff = last_seq - sequence_number;
     if(diff >= DTLS_REPLAY_WINDOW_SIZE) {
-        return NOXTLS_RETURN_FAILED;
+        return NOXTLS_RETURN_DTLS_RECORD_REPLAYED;
     }
     if((window->window_bitmap & tls_record_s_u64_bit[diff & 63U]) != 0U) {
-        return NOXTLS_RETURN_FAILED;
+        return NOXTLS_RETURN_DTLS_RECORD_REPLAYED;
     }
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -2301,6 +2302,7 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
     uint8_t use_chacha = 0U;
     noxtls_aes_type_t aes_type = NOXTLS_AES_128_BIT;
     noxtls_return_t rc_aead = NOXTLS_RETURN_FAILED;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
     uint32_t i = 0U;
 #if NOXTLS_FEATURE_CHACHA20_POLY1305
     noxtls_chacha20_context_t chacha_ctx;
@@ -2438,10 +2440,11 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
                         seq_len,
                         (uint32_t)seq_truncated,
                         (unsigned long long)full_seq);
-    if(dtls13_replay_check_window(&ctx->base.replay_windows[epoch & DTLS13_UNIFIED_EPOCH_MASK], full_seq) != NOXTLS_RETURN_SUCCESS) {
+    rc = dtls13_replay_check_window(&ctx->base.replay_windows[epoch & DTLS13_UNIFIED_EPOCH_MASK], full_seq);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
         (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] decrypt_dtls13_record: replay reject epoch=%u seq=%llu\n",
                             epoch, (unsigned long long)full_seq);
-        return NOXTLS_RETURN_FAILED;
+        return rc;
     }
 
     if(*out_plaintext_len < (ciphertext_len - tag_len)) {

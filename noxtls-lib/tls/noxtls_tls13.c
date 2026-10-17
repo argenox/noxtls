@@ -5461,6 +5461,7 @@ static noxtls_return_t tls13_recv_handshake_message(tls13_context_t *ctx, uint8_
     tls_record_t record;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
     uint8_t content_type = 0U;
+    uint32_t replay_discards = 0U;
 
     if((ctx == NULL) || (out_msg == NULL) || (out_len == NULL)) {
         return NOXTLS_RETURN_NULL;
@@ -5561,11 +5562,17 @@ static noxtls_return_t tls13_recv_handshake_message(tls13_context_t *ctx, uint8_
                         (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] recv_handshake_message: decrypt_dtls13_record rc=%d rec_size=%u offset=%u\n",
                                             rc, rec_size, offset);
                         (void)noxtls_free(inner_buf);
-                        if(rc == NOXTLS_RETURN_FAILED) {
-                            if(tls13_dtls_resend_retained_final_ack(ctx) == NOXTLS_RETURN_SUCCESS) {
-                                offset += rec_size;
-                                continue;
+                        if(rc == NOXTLS_RETURN_DTLS_RECORD_REPLAYED) {
+                            /* RFC 9147 section 4.5.1: discard duplicates without
+                             * failing the handshake or delivering plaintext. */
+                            (void)tls13_dtls_resend_retained_final_ack(ctx);
+                            ++replay_discards;
+                            if(replay_discards >= DTLS12_MAX_RECORDS_PER_READ) {
+                                (void)noxtls_free(record.data);
+                                return NOXTLS_RETURN_TIMEOUT;
                             }
+                            offset += rec_size;
+                            continue;
                         }
                         (void)noxtls_free(record.data);
                         return rc;
@@ -14495,6 +14502,7 @@ noxtls_return_t noxtls_tls13_recv(tls13_context_t *ctx, uint8_t *data, uint32_t 
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
     uint8_t content_type = 0U;
     uint32_t out_capacity = 0U;
+    uint32_t replay_discards = 0U;
     
     if((ctx == NULL) || (data == NULL) || (len == NULL)) {
         return NOXTLS_RETURN_NULL;
@@ -14611,6 +14619,19 @@ noxtls_return_t noxtls_tls13_recv(tls13_context_t *ctx, uint8_t *data, uint32_t 
             const uint16_t received_epoch_low = (uint16_t)(record.data[0] & DTLS13_UNIFIED_EPOCH_MASK);
             rc = noxtls_tls13_decrypt_dtls13_record(ctx, record.data, record.length, &content_type, plain, &plain_len);
             (void)noxtls_free(record.data);
+            if(rc == NOXTLS_RETURN_DTLS_RECORD_REPLAYED) {
+                /* A repeated UDP datagram is not a connection failure. Never
+                 * expose its plaintext or send an alert in response. */
+                if(owned_plain != NULL) {
+                    (void)noxtls_free(owned_plain);
+                }
+                *len = 0U;
+                ++replay_discards;
+                if(replay_discards >= DTLS12_MAX_RECORDS_PER_READ) {
+                    return NOXTLS_RETURN_TIMEOUT;
+                }
+                continue;
+            }
             if(rc != NOXTLS_RETURN_SUCCESS) {
                 NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_CRYPTO, NOXSIGHT_SEVERITY_ERROR,
                                 NOXTLS_EVT_DECRYPT_FAIL, rc, record.length);

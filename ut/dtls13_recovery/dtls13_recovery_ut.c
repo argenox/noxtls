@@ -18,6 +18,7 @@
  */
 #include "dtls13_recovery_fixture.h"
 #include "tls/noxtls_tls_key_exchange.h"
+#include "tls/noxtls_tls_common.h"
 #include "common/noxtls_memory.h"
 #include "runner.h"
 #include "test_assert.h"
@@ -201,6 +202,104 @@ static void reorder_server_hello(void)
     }
 }
 
+/** @brief Replay one saved protected datagram without changing its ciphertext.
+ * @param[in,out] context Receiving endpoint.
+ * @param[out] data Caller storage. @param[in] capacity Storage size.
+ * @return Complete saved datagram length or an error. */
+static int32_t replay_forever(void *context, uint8_t *data, uint32_t capacity)
+{
+    recovery_endpoint_t *endpoint = context;
+    const recovery_packet_t *packet = &endpoint->queue[endpoint->head];
+    if(capacity < packet->length) { return -1; }
+    memcpy(data, packet->bytes, packet->length);
+    ++s_flood_reads;
+    return (int32_t)packet->length;
+}
+
+/** @brief Exercise authenticated record replay, ordering and authentication boundaries.
+ * @param[in] mode One selects duplicate, two stale, three coalesced, four tamper,
+ * five an unlimited duplicate stream.
+ * @return Zero on success. */
+static int replay_application_records(uint32_t mode)
+{
+    static const uint8_t payload[] = "replay-test";
+    uint8_t buffer[RECOVERY_PACKET_BYTES];
+    recovery_packet_t saved;
+    uint32_t length = sizeof(buffer);
+    noxtls_return_t rc;
+    /* Drain post-handshake ACKs before capturing an application record. */
+    (void)pump(&s_client);
+    (void)pump(&s_server);
+    if(mode == 3U) {
+        uint8_t inner[sizeof(payload) + 1U];
+        memcpy(inner, payload, sizeof(payload));
+        inner[sizeof(payload)] = TLS_RECORD_APPLICATION_DATA;
+        if(noxtls_tls13_send_dtls13_encrypted_record(&s_client.tls, 0,
+            TLS_RECORD_APPLICATION_DATA, inner, sizeof(inner), 0) != NOXTLS_RETURN_SUCCESS) { return 1; }
+    } else if(noxtls_tls13_send(&s_client.tls, payload, sizeof(payload)) != NOXTLS_RETURN_SUCCESS) { return 1; }
+    saved = s_server.queue[(s_server.head + s_server.count - 1U) % RECOVERY_QUEUE_DEPTH];
+    if(noxtls_tls13_recv(&s_server.tls, buffer, &length) != NOXTLS_RETURN_SUCCESS ||
+       length != sizeof(payload) || memcmp(buffer, payload, length) != 0) { return 2; }
+
+    if(mode == 2U) {
+        for(uint32_t i = 0U; i <= DTLS_REPLAY_WINDOW_SIZE; ++i) {
+            length = sizeof(buffer);
+            if(noxtls_tls13_send(&s_client.tls, payload, sizeof(payload)) != NOXTLS_RETURN_SUCCESS ||
+               noxtls_tls13_recv(&s_server.tls, buffer, &length) != NOXTLS_RETURN_SUCCESS) { return 3; }
+        }
+    }
+    if(mode == 4U) {
+        if(noxtls_tls13_send(&s_client.tls, payload, sizeof(payload)) != NOXTLS_RETURN_SUCCESS) { return 4; }
+        recovery_packet_t *packet = &s_server.queue[(s_server.head + s_server.count - 1U) % RECOVERY_QUEUE_DEPTH];
+        packet->bytes[packet->length - 1U] ^= 1U;
+        dtls_replay_window_t window = s_server.tls.base.replay_windows[
+            DTLS13_EPOCH_APPLICATION & DTLS13_UNIFIED_EPOCH_MASK];
+        uint64_t next_sequence = s_server.tls.base.read_seq_num;
+        length = sizeof(buffer);
+        rc = noxtls_tls13_recv(&s_server.tls, buffer, &length);
+        return (rc != NOXTLS_RETURN_SUCCESS && rc != NOXTLS_RETURN_TIMEOUT &&
+                rc != NOXTLS_RETURN_DTLS_RECORD_REPLAYED &&
+                s_server.tls.base.base.state == TLS_STATE_CLOSED &&
+                s_server.tls.base.read_seq_num == next_sequence &&
+                memcmp(&window, &s_server.tls.base.replay_windows[
+                    DTLS13_EPOCH_APPLICATION & DTLS13_UNIFIED_EPOCH_MASK], sizeof(window)) == 0) ? 0 : 5;
+    }
+
+    s_server.queue[s_server.head] = saved;
+    s_server.count = 1U;
+    if(mode == 5U) {
+        s_server.tls.base.base.recv_callback = replay_forever;
+        s_flood_reads = 0U;
+    }
+    if(mode == 3U) {
+        if(noxtls_tls13_send(&s_client.tls, payload, sizeof(payload)) != NOXTLS_RETURN_SUCCESS) { return 6; }
+        recovery_packet_t *first = &s_server.queue[s_server.head];
+        recovery_packet_t *next = &s_server.queue[(s_server.head + 1U) % RECOVERY_QUEUE_DEPTH];
+        if(first->length + next->length > sizeof(first->bytes)) { return 7; }
+        memcpy(&first->bytes[first->length], next->bytes, next->length);
+        first->length += next->length;
+        s_server.count = 1U;
+    }
+    length = sizeof(buffer);
+    rc = noxtls_tls13_recv(&s_server.tls, buffer, &length);
+    if(s_server.tls.base.base.state != TLS_STATE_CONNECTED) { return 8; }
+    if(mode == 3U) {
+        if(rc != NOXTLS_RETURN_SUCCESS || length != sizeof(payload) ||
+           memcmp(buffer, payload, length) != 0) { return 9; }
+    } else if(rc != NOXTLS_RETURN_TIMEOUT || length != 0U) { return 10; }
+    if(mode == 5U) {
+        if(s_flood_reads != DTLS12_MAX_RECORDS_PER_READ) { return 11; }
+        s_server.tls.base.base.recv_callback = receive_packet;
+        s_server.count = 0U;
+    }
+    /* The next fresh record must still authenticate and be delivered once. */
+    length = sizeof(buffer);
+    if(noxtls_tls13_send(&s_client.tls, payload, sizeof(payload)) != NOXTLS_RETURN_SUCCESS ||
+       noxtls_tls13_recv(&s_server.tls, buffer, &length) != NOXTLS_RETURN_SUCCESS ||
+       length != sizeof(payload) || memcmp(buffer, payload, length) != 0) { return 12; }
+    return 0;
+}
+
 /** @brief Complete a lossy handshake and exchange authenticated application data.
  * @internal
  *
@@ -208,7 +307,7 @@ static void reorder_server_hello(void)
  *
  * @return Zero on success.
  */
-static int round_trip(uint32_t drops)
+static int run_round_trip(uint32_t drops, uint32_t replay_mode)
 {
     static const uint8_t payload[] = "led=1";
     uint8_t buffer[RECOVERY_PACKET_BYTES];
@@ -269,6 +368,8 @@ static int round_trip(uint32_t drops)
     if(noxtls_tls13_recv(&s_client.tls, buffer, &length) != NOXTLS_RETURN_SUCCESS ||
        length != sizeof(payload) || memcmp(buffer, payload, length) != 0) { goto cleanup; }
 
+    if(replay_mode != 0U && replay_application_records(replay_mode) != 0) { goto cleanup; }
+
     result = 0;
 cleanup:
     if(result != 0) {
@@ -280,6 +381,48 @@ cleanup:
     if(s_client.initialized) { (void)noxtls_tls13_context_free(&s_client.tls); }
     if(s_server.initialized) { (void)noxtls_tls13_context_free(&s_server.tls); }
     return result;
+}
+
+/** @brief Run the existing datagram-loss regression without injected application replay.
+ * @param[in] drops Records to lose. @return Zero on success. */
+static int round_trip(uint32_t drops)
+{
+    return run_round_trip(drops, 0U);
+}
+
+/** @brief A duplicate encrypted application record does not close the connection.
+ * @return Zero on success. */
+REGISTER_TEST(dtls13_application_duplicate_nonfatal)
+{
+    return run_round_trip(0U, 1U);
+}
+
+/** @brief Records older than the replay window are silently discarded.
+ * @return Zero on success. */
+REGISTER_TEST(dtls13_application_stale_nonfatal)
+{
+    return run_round_trip(0U, 2U);
+}
+
+/** @brief A replay coalesced before fresh ciphertext cannot hide the fresh data.
+ * @return Zero on success. */
+REGISTER_TEST(dtls13_application_replay_coalesced)
+{
+    return run_round_trip(0U, 3U);
+}
+
+/** @brief Tampering with a new record remains an authentication failure.
+ * @return Zero on success. */
+REGISTER_TEST(dtls13_application_tamper_fatal)
+{
+    return run_round_trip(0U, 4U);
+}
+
+/** @brief An unlimited replay source cannot monopolize a receive call.
+ * @return Zero on success. */
+REGISTER_TEST(dtls13_application_replay_bounded)
+{
+    return run_round_trip(0U, 5U);
 }
 
 /** @brief Loss-free baseline succeeds with the same protocol and cipher suite.
@@ -530,6 +673,11 @@ REGISTER_TEST(dtls13_classical_share_capacity)
 /** @brief Register tests where compiler constructor registration is unavailable. */
 void utnox_register_tests(void)
 {
+    register_test(__reg_dtls13_application_duplicate_nonfatal.name, __reg_dtls13_application_duplicate_nonfatal.func);
+    register_test(__reg_dtls13_application_stale_nonfatal.name, __reg_dtls13_application_stale_nonfatal.func);
+    register_test(__reg_dtls13_application_replay_coalesced.name, __reg_dtls13_application_replay_coalesced.func);
+    register_test(__reg_dtls13_application_tamper_fatal.name, __reg_dtls13_application_tamper_fatal.func);
+    register_test(__reg_dtls13_application_replay_bounded.name, __reg_dtls13_application_replay_bounded.func);
     register_test(__reg_dtls13_recovery_baseline.name, __reg_dtls13_recovery_baseline.func);
     register_test(__reg_dtls13_recovery_server_record.name, __reg_dtls13_recovery_server_record.func);
     register_test(__reg_dtls13_recovery_client_finished.name, __reg_dtls13_recovery_client_finished.func);

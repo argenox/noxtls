@@ -1782,6 +1782,19 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
             record->epoch = (uint16_t)ep;
         }
         record->sequence_number = 0U;
+#if NOXTLS_FEATURE_TLS13
+        {
+            /* Return one record and preserve any following ciphertext for the
+             * next receive. A discarded replay must not consume fresh data. */
+            const tls13_context_t *tls13 = (const tls13_context_t *)(const void *)ctx;
+            uint32_t consumed = noxtls_tls13_dtls13_record_size(packet,
+                (uint32_t)received, tls13->own_connection_id_len);
+            if((consumed != 0U) && (consumed < (uint32_t)received)) {
+                dtls_rx_stash_remainder(ctx, &packet[consumed], (uint32_t)received - consumed);
+                received = (int32_t)consumed;
+            }
+        }
+#endif
         record->length = (uint16_t)(uint32_t)received;
         record->data = (uint8_t*)NOXTLS_MALLOC((uint32_t)received);
         if(record->data == NULL) {

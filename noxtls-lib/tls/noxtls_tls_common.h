@@ -612,7 +612,8 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
                                        const uint8_t *inner_plaintext,
                                        uint32_t inner_len,
                                        int32_t omit_length);
-/* RFC 9147: decrypt one DTLS 1.3 DTLSCiphertext (unified header + record number decryption + AEAD). raw = full packet. */
+/* RFC 9147: decrypt one DTLS 1.3 DTLSCiphertext (unified header + record number decryption + AEAD).
+ * raw = full packet. DTLS_RECORD_REPLAYED means discard without application delivery or a fatal alert. */
 noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
                                        const uint8_t *raw, uint32_t raw_len,
                                        uint8_t *out_content_type, uint8_t *out_plaintext, uint32_t *out_plaintext_len);
