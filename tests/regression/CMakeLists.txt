@@ -15,7 +15,7 @@ if(NOXTLS_CFG_FEATURE_ECC)
     noxv_ecc_adapter_test.c
     ../../noxtls-lib/pkc/ecc/noxtls_ecc_accel_noxv_port.c)
   target_compile_definitions(noxtls_noxv_ecc_adapter_test PRIVATE
-    NOXTLS_NOXV_ECC_P256_TIMEOUT_SPINS=32)
+    NOXTLS_NOXV_ECC_P256_TIMEOUT_SPINS=32 NOXTLS_NOXV_ECC_EXTERNAL_IO=1)
   target_link_libraries(noxtls_noxv_ecc_adapter_test PRIVATE noxtls_pkc noxtls_common)
   add_test(NAME noxtls_noxv_ecc_adapter_test COMMAND noxtls_noxv_ecc_adapter_test)
 endif()
@@ -25,7 +25,7 @@ if(NOXTLS_CFG_FEATURE_SHA256)
     noxv_sha256_fallback_regression.c
     ../../noxtls-lib/mdigest/sha256/noxtls_sha256_accel_noxv_port.c)
   target_compile_definitions(noxtls_noxv_sha256_fallback_regression PRIVATE
-    NOXTLS_NOXV_SHA256_TIMEOUT_SPINS=8)
+    NOXTLS_NOXV_SHA256_TIMEOUT_SPINS=8 NOXTLS_NOXV_SHA256_EXTERNAL_IO=1)
   target_link_libraries(noxtls_noxv_sha256_fallback_regression PRIVATE
     noxtls_hash noxtls_common)
   add_test(NAME noxtls_noxv_sha256_fallback_regression
