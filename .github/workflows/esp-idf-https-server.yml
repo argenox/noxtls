@@ -38,7 +38,7 @@ env:
 jobs:
   build-https-server:
     name: https_server (${{ matrix.label }})
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:

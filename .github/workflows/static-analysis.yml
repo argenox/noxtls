@@ -9,7 +9,7 @@ on:
 
 jobs:
   cppcheck:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -38,7 +38,7 @@ jobs:
           --error-exitcode=1
 
   clang-tidy:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -58,7 +58,7 @@ jobs:
         run: run-clang-tidy -p build-static-analysis -quiet
 
   scan-build:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -76,7 +76,7 @@ jobs:
           && scan-build --status-bugs cmake --build build-scan --parallel
 
   semgrep:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-latest
     container:
       image: semgrep/semgrep:latest
     steps:
