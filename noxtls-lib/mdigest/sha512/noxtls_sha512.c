@@ -177,7 +177,11 @@ noxtls_return_t noxtls_sha512_update(noxtls_sha512_ctx_t * ctx, const uint8_t * 
         uint32_t full_bytes = full_blocks * HASH_SHA512_BLOCK_SIZE;
 
         /* Platform block hook: all whole blocks in one request (software on NOT_SUPPORTED). */
-        if (noxtls_sha512_blocks_accel_port(ctx, &data[offset], full_blocks) == NOXTLS_RETURN_SUCCESS) {
+        noxtls_return_t accelerated = noxtls_sha512_blocks_accel_port(ctx, &data[offset], full_blocks);
+#if (NOXTLS_FEATURE_CC13XX_HW_ACCEL || NOXTLS_FEATURE_CC13XX_AES_ACCEL)
+        if (accelerated != NOXTLS_RETURN_SUCCESS && accelerated != NOXTLS_RETURN_NOT_SUPPORTED) { return accelerated; }
+#endif
+        if (accelerated == NOXTLS_RETURN_SUCCESS) {
             ctx->length += full_bytes;
             offset += full_bytes;
             in_left -= full_bytes;
@@ -258,8 +262,12 @@ static noxtls_return_t noxtls_sha512_round(noxtls_sha512_ctx_t * ctx, const uint
 	}    
     
 #if NOXTLS_PORT_SHA512_ACCEL
-    if((input != NULL) && (noxtls_sha512_blocks_accel_port(ctx, input, 1U) == NOXTLS_RETURN_SUCCESS)) {
-        return NOXTLS_RETURN_SUCCESS;
+    if (input != NULL) {
+        noxtls_return_t accelerated = noxtls_sha512_blocks_accel_port(ctx,input,1U);
+        if (accelerated == NOXTLS_RETURN_SUCCESS) { return accelerated; }
+#if (NOXTLS_FEATURE_CC13XX_HW_ACCEL || NOXTLS_FEATURE_CC13XX_AES_ACCEL)
+        if (accelerated != NOXTLS_RETURN_NOT_SUPPORTED) { return accelerated; }
+#endif
     }
 #endif
 

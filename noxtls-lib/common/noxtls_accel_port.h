@@ -63,7 +63,7 @@
 
 /** @brief SHA-384/512 block hook is provided. */
 #ifndef NOXTLS_PORT_SHA512_ACCEL
-#define NOXTLS_PORT_SHA512_ACCEL     NOXTLS_FEATURE_NRF54_HW_ACCEL
+#define NOXTLS_PORT_SHA512_ACCEL     (NOXTLS_FEATURE_NRF54_HW_ACCEL || NOXTLS_FEATURE_CC13XX_HW_ACCEL || NOXTLS_FEATURE_CC13XX_AES_ACCEL)
 #endif
 
 /** @brief Ed25519 verification hook is provided. */
