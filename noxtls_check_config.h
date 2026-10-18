@@ -27,6 +27,13 @@
 /* Dir 4.9: must be a macro for use in #if expressions. */
 #define NOXTLS_CFG_BOOL_OK(v) (((v) == 0) || ((v) == 1))
 
+#if !NOXTLS_CFG_BOOL_OK(NOXTLS_FEATURE_NOXV_CCM_ACCEL)
+#error "NOXTLS_FEATURE_NOXV_CCM_ACCEL must be 0 or 1."
+#endif
+#if NOXTLS_FEATURE_NOXV_CCM_ACCEL && (!NOXTLS_FEATURE_NOXV_HW_ACCEL || !NOXTLS_FEATURE_AES_128 || !NOXTLS_FEATURE_AES_CCM)
+#error "NoxV bounded CCM requires the NoxV AES-128 and CCM selections."
+#endif
+
 #if !NOXTLS_CFG_BOOL_OK(NOXTLS_CT_COMPARE)
 #error "NOXTLS_CT_COMPARE must be 0 or 1."
 #endif
