@@ -7,6 +7,11 @@
 #include "encryption/aes/noxtls_aes_accel.h"
 #include "noxv_ccm_vectors.h"
 
+#if NOXTLS_FEATURE_NOXV_HW_ACCEL != 1 || \
+    NOXTLS_FEATURE_NOXV_CCM_ACCEL != CCM_TEST_GATE_ON
+#error "The CCM fixture must exercise the selected mocked accelerator profile"
+#endif
+
 static uint32_t regs[0x40/4];
 static unsigned checks, errors, model_faults, starts, key_writes, mmio, status_reads;
 static unsigned irq_depth, irq_entries, timeout_at, reject_at, force_busy;

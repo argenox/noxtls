@@ -43,16 +43,15 @@ if(NOXTLS_CFG_FEATURE_AES_128 AND NOXTLS_CFG_FEATURE_AES_CCM)
       NOXTLS_NOXV_AES_TIMEOUT_SPINS=8 NOXTLS_NOXV_AES_EXTERNAL_IO=1
       CCM_TEST_GATE_ON=${_ccm_gate})
     set_target_properties(${_ccm_target} PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
-    # Override the linked software reference profile only in this mocked port
-    # executable; never enable physical MMIO in the other native regressions.
+    # Apply the fixture profile after inherited definitions on both compilers.
+    # MSVC generators merge /D options before usage requirements, so /U /D
+    # ordering alone does not reliably override the linked software profile.
     if(MSVC)
       target_compile_options(${_ccm_target} PRIVATE
-        /UNOXTLS_FEATURE_NOXV_HW_ACCEL /DNOXTLS_FEATURE_NOXV_HW_ACCEL=1
-        /UNOXTLS_FEATURE_NOXV_CCM_ACCEL /DNOXTLS_FEATURE_NOXV_CCM_ACCEL=${_ccm_gate})
+        "/FI${CMAKE_CURRENT_SOURCE_DIR}/noxv_ccm_test_config.h")
     else()
       target_compile_options(${_ccm_target} PRIVATE
-        -UNOXTLS_FEATURE_NOXV_HW_ACCEL -DNOXTLS_FEATURE_NOXV_HW_ACCEL=1
-        -UNOXTLS_FEATURE_NOXV_CCM_ACCEL -DNOXTLS_FEATURE_NOXV_CCM_ACCEL=${_ccm_gate})
+        -include "${CMAKE_CURRENT_SOURCE_DIR}/noxv_ccm_test_config.h")
     endif()
     add_test(NAME ${_ccm_target} COMMAND ${_ccm_target})
   endforeach()
