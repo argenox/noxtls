@@ -32,7 +32,7 @@ jobs:
           $configure = @('-S', '.', '-B', $build, '-G', 'Ninja',
             '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_C_COMPILER=gcc',
             '-DNOXTLS_PROFILE=crypto_only', '-DNOXTLS_BUILD_REGRESSION_TESTS=ON',
-            '-DNOXTLS_BUILD_TESTS=OFF', '-DNOXTLS_BUILD_APPLICATIONS=OFF',
+            '-DBUILD_TESTS=OFF', '-DBUILD_APPLICATIONS=OFF',
             '-DNOXTLS_CFG_FEATURE_NOXV_HW_ACCEL=OFF')
           if ('${{ matrix.profile }}' -eq 'private') {
             $configure += '-DCMAKE_C_FLAGS=-DNOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE=0 -DNOXTLS_ECC_SHARED_SCRATCH=0'
