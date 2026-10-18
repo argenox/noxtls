@@ -29,6 +29,8 @@ static noxtls_cc13xx_ccm_callback_t s_ccm_callback;
 static void *s_ccm_context;
 static noxtls_cc13xx_sha256_callback_t s_sha256_callback;
 static void *s_sha256_context;
+static noxtls_cc13xx_sha512_callback_t s_sha512_callback;
+static void *s_sha512_context;
 static noxtls_cc13xx_x25519_callback_t s_x25519_callback;
 static void *s_x25519_context;
 static noxtls_cc13xx_guard_t s_aes_guard = NOXTLS_CC13XX_GUARD_IDLE;
@@ -86,6 +88,8 @@ noxtls_return_t noxtls_cc13xx_crypto_bind(const noxtls_cc13xx_crypto_binding_t *
         s_ccm_context = NULL;
         s_sha256_callback = NULL;
         s_sha256_context = NULL;
+        s_sha512_callback = NULL;
+        s_sha512_context = NULL;
         s_x25519_callback = NULL;
         s_x25519_context = NULL;
     }
@@ -195,6 +199,32 @@ noxtls_return_t noxtls_cc13xx_crypto_bind_sha256(noxtls_cc13xx_sha256_callback_t
     s_sha256_context = callback != NULL ? context : NULL;
     noxtls_cc13xx_guard_release(&s_aes_guard);
     return NOXTLS_RETURN_SUCCESS;
+}
+
+/** @copydoc noxtls_cc13xx_crypto_bind_sha512 */
+noxtls_return_t noxtls_cc13xx_crypto_bind_sha512(noxtls_cc13xx_sha512_callback_t callback, void *context)
+{
+    if (!noxtls_cc13xx_guard_try_acquire(&s_aes_guard)) { return NOXTLS_RETURN_NOT_INITIALIZED; }
+    s_sha512_callback = callback;
+    s_sha512_context = callback != NULL ? context : NULL;
+    noxtls_cc13xx_guard_release(&s_aes_guard);
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/** @copydoc noxtls_cc13xx_sha512_blocks */
+noxtls_return_t noxtls_cc13xx_sha512_blocks(uint64_t state[8], const uint8_t *input, uint32_t blocks)
+{
+    if (state == NULL || input == NULL) { return NOXTLS_RETURN_NULL; }
+    if (blocks == 0U || blocks > UINT32_MAX / 128U) { return NOXTLS_RETURN_INVALID_PARAM; }
+    if (!noxtls_cc13xx_guard_try_acquire(&s_aes_guard)) { return NOXTLS_RETURN_NOT_SUPPORTED; }
+    noxtls_return_t result = NOXTLS_RETURN_NOT_SUPPORTED;
+    uint64_t candidate[8];
+    memcpy(candidate, state, sizeof(candidate));
+    if (s_sha512_callback != NULL) { result = s_sha512_callback(s_sha512_context, candidate, input, blocks); }
+    if (result == NOXTLS_RETURN_SUCCESS) { memcpy(state, candidate, sizeof(candidate)); }
+    noxtls_secure_zero(candidate, sizeof(candidate));
+    noxtls_cc13xx_guard_release(&s_aes_guard);
+    return result;
 }
 
 /** @copydoc noxtls_cc13xx_aes_ccm */

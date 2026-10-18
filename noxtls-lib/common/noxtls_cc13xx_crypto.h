@@ -133,6 +133,27 @@ typedef noxtls_return_t (*noxtls_cc13xx_ccm_callback_t)(void *context,
 typedef noxtls_return_t (*noxtls_cc13xx_sha256_callback_t)(void *context,
     uint32_t state[8], const uint8_t *input, uint32_t blocks);
 
+/** @brief SHA-384/512 compression; state changes only on success. */
+typedef noxtls_return_t (*noxtls_cc13xx_sha512_callback_t)(void *context,
+    uint64_t state[8], const uint8_t *input, uint32_t blocks);
+
+/**
+ * @brief Replace SHA-384/512 while shared AES/SHA is idle.
+ * @param[in] callback Native compression or NULL to unbind.
+ * @param[in,out] context Persistent application binding.
+ * @return SUCCESS, or NOT_INITIALIZED without mutation while busy.
+ */
+noxtls_return_t noxtls_cc13xx_crypto_bind_sha512(noxtls_cc13xx_sha512_callback_t callback, void *context);
+
+/**
+ * @brief Compress full 128-byte blocks under the shared AES/SHA guard.
+ * @param[in,out] state Eight numerical chaining words, preserved on error.
+ * @param[in] input Complete blocks; padding belongs to the algorithm core.
+ * @param[in] blocks Nonzero count whose byte span fits uint32_t.
+ * @return Callback result; NOT_SUPPORTED only before admission.
+ */
+noxtls_return_t noxtls_cc13xx_sha512_blocks(uint64_t state[8], const uint8_t *input, uint32_t blocks);
+
 /**
  * @brief Replace CCM while shared AES/SHA is idle, preserving other callbacks.
  * @param[in] callback Native operation or NULL to unbind.

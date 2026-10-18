@@ -37,7 +37,14 @@ extern "C" {
 
 /* Ticket/session store constants */
 #define TLS13_PSK_TICKET_ID_LEN    16U
+/** Bound the process-global cache to the application's actual session budget.
+ * Every provider/consumer must use the same build-wide configuration. */
+#ifndef TLS13_PSK_TICKET_STORE_MAX
 #define TLS13_PSK_TICKET_STORE_MAX 64U
+#endif
+#if TLS13_PSK_TICKET_STORE_MAX < 1U || TLS13_PSK_TICKET_STORE_MAX > 64U
+#error "TLS13 PSK ticket store requires 1..64 entries"
+#endif
 #define TLS13_PSK_TICKET_NONCE_MAX 32U
 
 /* Ticket store (server-side session cache for resumption) */

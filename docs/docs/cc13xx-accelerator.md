@@ -15,7 +15,7 @@ The callbacks share two independently guarded engines:
 
 | Port | What it accelerates | Software path used when |
 |------|---------------------|-------------------------|
-| AES/SHA | AES block encrypt/decrypt (128/192/256-bit keys), bounded batches used by CTR DRBG, optional whole-record GCM/CCM, and SHA-224/256 compression. Other modes use block composition. | the selected callback is unbound, the shared engine is busy, or the callback returns `NOXTLS_RETURN_NOT_SUPPORTED` before progress |
+| AES/SHA | AES block encrypt/decrypt (128/192/256-bit keys), bounded batches used by CTR DRBG, optional whole-record GCM/CCM, and SHA-224/256 and SHA-384/512 compression. Other modes use block composition. | the selected callback is unbound, the shared engine is busy, or the callback returns `NOXTLS_RETURN_NOT_SUPPORTED` before progress |
 | P-256 | secp256r1 scalar multiplication behind `noxtls_ecc_point_multiply()` (ECDH, ECDSA, SPAKE2+, BLE pairing, ...) | no P-256 callback is bound, the PKA is busy, the curve is not P-256, or the callback returns `NOXTLS_RETURN_NOT_SUPPORTED` |
 | X25519 | RFC 7748 public-key/shared-secret operations, sharing the P-256 guard | no X25519 callback is bound, the PKA is busy, or the callback declines before progress |
 
@@ -186,3 +186,22 @@ unbound. Both are updated atomically and saturate at `UINT32_MAX`.
   its build: select `NOXTLS_CFG_FEATURE_CC13XX_P256_ACCEL` alone.
 - `noxtls_cc13xx_aes_blocks()` is new; it runs a batch while holding the AES
   engine.
+
+## Optional SHA-384/512 callback
+
+Select the CC13xx AES/SHA port and bind `noxtls_cc13xx_crypto_bind_sha512()`
+with a synchronous raw-block callback. It receives eight numerical 64-bit
+chaining words and complete 128-byte blocks. NoxTLS supplies padding and
+retains the buffered bytes and message length. The same hook supports SHA-384,
+SHA-512, SHA-512/224 and SHA-512/256 through their different initial states.
+
+SHA-512 shares the existing AES/SHA guard. The binding stages 64 bytes of
+chaining state on the stack and publishes them only on success. An unbound or
+busy callback uses software. An admitted failure is returned without software
+substitution; finalization erases the failed digest. Whole-binding unbind also
+clears the SHA-512 callback. No driver or DMA buffer is allocated by NoxTLS.
+
+The CC1354 driver was checked on silicon with single-block, multi-block,
+batch-boundary and resumed SHA-512 known answers. A separate SRAM test using
+the application adapter and its actual NoxTLS libraries covers startup and all
+four hash variants. This does not accelerate Ed25519 point arithmetic.
