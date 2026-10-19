@@ -74,6 +74,11 @@ static const uint8_t s_p256_a_be[32] = {
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfc
 };
 
+uint32_t noxtls_noxv_ecc_p256_mmio_read(uint32_t offset);
+void noxtls_noxv_ecc_p256_mmio_write(uint32_t offset, uint32_t value);
+
+/* Explicit injection also supports toolchains without weak interposition. */
+#if !defined(NOXTLS_NOXV_ECC_EXTERNAL_IO) || !NOXTLS_NOXV_ECC_EXTERNAL_IO
 NOXTLS_NOXV_WEAK uint32_t noxtls_noxv_ecc_p256_mmio_read(uint32_t offset)
 {
     volatile uint32_t *reg =
@@ -88,6 +93,7 @@ NOXTLS_NOXV_WEAK void noxtls_noxv_ecc_p256_mmio_write(uint32_t offset,
         (volatile uint32_t *)(NOXTLS_NOXV_ECC_P256_BASE_ADDR + (uintptr_t)offset);
     *reg = value;
 }
+#endif
 
 static uint32_t load_be32(const uint8_t *bytes)
 {

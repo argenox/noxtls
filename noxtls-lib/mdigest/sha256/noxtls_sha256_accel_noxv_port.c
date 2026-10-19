@@ -45,6 +45,13 @@ static const uint32_t s_sha256_iv[8] = {
 static const noxtls_sha_ctx_t *s_active_ctx;
 static uint32_t s_active_digest[8];
 
+uint32_t noxtls_noxv_sha256_mmio_read(uint32_t offset);
+void noxtls_noxv_sha256_mmio_write(uint32_t offset, uint32_t value);
+uintptr_t noxtls_noxv_sha256_irq_save(void);
+void noxtls_noxv_sha256_irq_restore(uintptr_t state);
+
+/* Explicit injection also supports toolchains without weak interposition. */
+#if !defined(NOXTLS_NOXV_SHA256_EXTERNAL_IO) || !NOXTLS_NOXV_SHA256_EXTERNAL_IO
 NOXTLS_NOXV_WEAK uint32_t noxtls_noxv_sha256_mmio_read(uint32_t offset)
 {
     volatile uint32_t *reg =
@@ -69,6 +76,7 @@ NOXTLS_NOXV_WEAK void noxtls_noxv_sha256_irq_restore(uintptr_t state)
 {
     (void)state;
 }
+#endif
 
 static uint32_t load_be32(const uint8_t *bytes)
 {

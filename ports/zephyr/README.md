@@ -4,6 +4,35 @@ This directory contains the Zephyr RTOS port for [NoxTLS](https://github.com/arg
 
 Other RTOS ports live alongside this one under `ports/` (for example [`ports/esp-idf`](../esp-idf/README.md)).
 
+## Shared NoxADK libraries on Zephyr
+
+Use one instance of this module for NoxThread, NetNox and application TLS.
+Do not also register their bundled NoxTLS copies as Zephyr modules. The
+`noxtls` interface and each component archive inherit `zephyr_interface`, so
+the CPU ABI, generated configuration and feature definitions agree without
+application-wide `CMAKE_C_FLAGS` overrides. The `noxtls_zephyr_config` target
+exports the same configuration to consumers. `noxtls_common` publishes the
+`NOXTLS_SOURCE_ROOT` and `NOXTLS_CONFIG_INCLUDE_DIR` CMake target properties
+for consumers that include public NoxTLS structures.
+
+NoxThread's shared-module integration checks the crypto features it requires;
+enable its requested AES/CCM/CMAC, DRBG, SHA and P-256 features in the shared
+configuration. Secure CoAP additionally requires DTLS. NetNox can use its own
+socket callbacks with NoxTLS; Zephyr sockets are not required. Keep hardware
+crypto accelerator access serialized when sessions run in different threads.
+
+The port supports a native board TRNG callback by setting
+`CONFIG_NOXTLS_USE_ZEPHYR_ENTROPY=n` and installing the application entropy
+callback before any DRBG use. Otherwise the board must provide a working
+Zephyr CSPRNG. Test entropy generators are only suitable for simulator tests.
+
+The module selects Zephyr's full-libc requirement because the existing
+utility archive uses standard file APIs; those functions do not require a
+filesystem unless the application calls them. Use pristine build directories
+when switching from a bundled/private NoxTLS build to the shared module or
+changing profiles. Disable global ECC precomputation/shared scratch for
+concurrent sessions, or serialize those operations in an application owner.
+
 ## West manifest
 
 Add NoxTLS to your Zephyr workspace `west.yml`:
