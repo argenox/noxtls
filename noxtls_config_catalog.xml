@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<noxtls-config-catalog version="0.3.7">
+<noxtls-config-catalog version="0.3.8">
   <metadata>
-    <noxtls-version>0.3.7</noxtls-version>
+    <noxtls-version>0.3.8</noxtls-version>
     <source-header>noxtls/noxtls_config.h</source-header>
     <version-header>noxtls/noxtls_version.h</version-header>
     <generated-at>2026-10-08T16:15:49Z</generated-at>
@@ -1087,6 +1087,9 @@
           <override profile="NOXTLS_PROFILE_MINIMAL_TLS_CLIENT" value="disabled" default-value="0"/>
           <override profile="NOXTLS_PROFILE_TLS_SERVER_PKI" value="disabled" default-value="0"/>
         </profile-overrides>
+      </setting>
+      <setting id="NOXTLS_FEATURE_NOXV_CCM_ACCEL" name="Noxv Ccm Accel" type="boolean" default="disabled" default-value="0" legacy="false" source-line="377">
+        <description>Bounded NoxV CCM: AES-128, nonce 13, AAD 1, MIC 4, payload 0..16. Explicit opt-in; larger/different requests retain the generic CCM path.</description>
       </setting>
       <setting id="NOXTLS_FEATURE_NRF52_HW_ACCEL" name="Nrf52 Hw Accel" type="boolean" default="disabled" default-value="0" legacy="false" source-line="379">
         <description>Enables nRF52 ECB peripheral accelerated AES-128 block encrypt path. Prereq: NOXTLS_FEATURE_AES=1. Build knob: NOXTLS_CFG_FEATURE_NRF52_HW_ACCEL.</description>
