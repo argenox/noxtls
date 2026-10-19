@@ -75,7 +75,8 @@ noxtls_return_t noxtls_sha512_verify(const uint8_t * data, uint32_t len, const u
  * @param[in]     input       Whole blocks.
  * @param[in]     block_count Number of 128-byte blocks.
  *
- * @return NOXTLS_RETURN_SUCCESS, or NOXTLS_RETURN_NOT_SUPPORTED to process the blocks in software.
+ * @return SUCCESS, NOT_SUPPORTED for software, or an admitted hardware error.
+ * CC13xx preserves chaining state on error and propagates admitted failures.
  */
 noxtls_return_t noxtls_sha512_blocks_accel_port(noxtls_sha512_ctx_t * ctx, const uint8_t * input, uint32_t block_count);
 void noxtls_sha512_set_debug(uint8_t lvl);

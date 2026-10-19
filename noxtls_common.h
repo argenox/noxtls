@@ -131,6 +131,7 @@ typedef uint32_t noxtls_return_t;
 #define NOXTLS_RETURN_ECDH_PEER_PUBLIC_KEY_INVALID    ((noxtls_return_t)38U) /**< ECDH peer public key invalid. */
 #define NOXTLS_RETURN_ECDH_SCALAR_MULTIPLY_FAILED     ((noxtls_return_t)39U) /**< ECDH scalar multiplication failed. */
 #define NOXTLS_RETURN_ECDH_SHARED_POINT_INFINITY      ((noxtls_return_t)40U) /**< ECDH result was the point at infinity. */
+#define NOXTLS_RETURN_DTLS_RECORD_REPLAYED           ((noxtls_return_t)41U) /**< DTLS record is duplicate or older than the replay window; discard without closing. */
 
 /** @} */
 

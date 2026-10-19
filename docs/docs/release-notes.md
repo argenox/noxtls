@@ -5,11 +5,36 @@ title: Release Notes
 
 # Release Notes
 
-This page describes changes, fixes, and known issues for **NoxTLS 0.3.6**.
+This page describes changes, fixes, and known issues for **NoxTLS 0.3.7**.
 
 For source and binary artifacts, see [Releases on GitHub](https://github.com/argenox/noxtls/releases).
 
 Use the **version dropdown** in the navbar to view docs (and release notes) for other versions.
+
+---
+
+## 0.3.7
+
+**Release date:** TBD
+
+### Changes
+
+- Patch release on top of 0.3.6 combining shared Zephyr integration, cooperative crypto service hooks and embedded DTLS/DFU support. Rebuild the library and callers together with the same configuration.
+- Zephyr consumers share one NoxTLS configuration and CPU ABI across archives. Kernel monotonic time is used without a Newlib _times shim.
+- Software P-256 arithmetic calls the cooperative ECC service hook between bounded operations, including field inversion. The default hook does nothing; ports can provide their task-aware implementation.
+- NoxV CCM acceleration is opt-in and checks engine ownership, input limits and completion. Platforms can use NoxV AES/SHA without enabling P-256 acceleration.
+- Embedded profiles can select the TLS 1.3 ticket-store capacity. Optional CC13xx SHA-512 block callbacks support SHA-384, SHA-512, SHA-512/224 and SHA-512/256 under the existing AES/SHA guard.
+
+### Fixed / Resolved
+
+- DTLS 1.3 discards duplicate or stale records without failing the connection or delivering their plaintext. Fresh records following a duplicate in the same datagram are preserved; duplicate-discard loops remain bounded.
+- Zephyr and ESP-IDF configuration generation handles initializer lists and enum constants without exposing them as scalar Kconfig settings.
+- Mocked NoxV ECC, SHA-256 and CCM regression tests use explicit test I/O bindings and consistent accelerator profiles on GCC and MSVC.
+
+### Known issues / Open
+
+- Earlier release limitations still apply except where explicitly fixed above. DTLS 1.2 EC-JPAKE interoperability remains unqualified.
+- The combined revision passes local crypto/DTLS tests, shared and secure-feature Zephyr QEMU tests, and CC1354/CC35x1 application builds. Hardware was not reflashed for this consolidation.
 
 ---
 

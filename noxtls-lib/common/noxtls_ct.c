@@ -235,6 +235,9 @@ int noxtls_u8_strncmp(const uint8_t *a, const uint8_t *b, size_t n)
 #if defined(ESP_PLATFORM)
 #include "esp_timer.h"
 #endif
+#if defined(__ZEPHYR__)
+#include <zephyr/kernel.h>
+#endif
 
 noxtls_unix_time_t noxtls_time_unix_seconds(void)
 {
@@ -253,6 +256,9 @@ uint64_t noxtls_time_mono_us(void)
 {
 #if defined(ESP_PLATFORM)
     return (uint64_t)esp_timer_get_time();
+#elif defined(__ZEPHYR__)
+    /* RTOS monotonic time, including tickless idle; no Newlib _times stub. */
+    return k_ticks_to_us_floor64(k_uptime_ticks());
 #elif NOXTLS_HAVE_TIME
     {
         clock_t now = clock();

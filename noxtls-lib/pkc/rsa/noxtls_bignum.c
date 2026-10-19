@@ -2839,7 +2839,7 @@ static void bn_mont_mul(bn_limb_t *out, const bn_limb_t *a, const bn_limb_t *b,
 }
 
 /* RR = R^2 mod m = 2^(2*32*n) mod m, by repeated doubling. One-time per call. */
-static void bn_mont_RR(bn_limb_t *RR, const bn_limb_t *m, uint32_t n, bn_limb_t *tmp)
+static void bn_mont_RR(bn_limb_t *RR, const bn_limb_t *m, uint32_t n, bn_limb_t *tmp, noxtls_bn_service_fn service)
 {
     uint32_t total = (uint32_t)(2U * BN_LIMB_BITS * n);
     uint32_t k = 0U;
@@ -2849,6 +2849,7 @@ static void bn_mont_RR(bn_limb_t *RR, const bn_limb_t *m, uint32_t n, bn_limb_t 
     RR[0] = 1U;
 
     for(k = 0U; k < total; k += 1U) {
+        if(service != NULL) { service(); }
         bn_limb_t carry = 0U;
         bn_limb_t borrow;
         bn_limb_t condsub;
@@ -2876,7 +2877,8 @@ static void bn_mont_RR(bn_limb_t *RR, const bn_limb_t *m, uint32_t n, bn_limb_t 
  */
 static noxtls_return_t bn_mod_exp_mont(uint8_t *result, const uint8_t *base,
                                        const uint8_t *exp, uint32_t exp_len,
-                                       const uint8_t *mod, uint32_t mod_len)
+                                       const uint8_t *mod, uint32_t mod_len,
+                                       noxtls_bn_service_fn service)
 {
     uint32_t n = (uint32_t)((mod_len + 3U) / 4U);
     uint32_t e_skip = 0U;
@@ -2944,7 +2946,7 @@ static noxtls_return_t bn_mod_exp_mont(uint8_t *result, const uint8_t *base,
     }
 
     n0inv = bn_mont_n0inv(m_l[0]);
-    bn_mont_RR(RR, m_l, n, tmp);
+    bn_mont_RR(RR, m_l, n, tmp, service);
 
     /* one_l = 1 */
     one_l[0] = 1U;
@@ -2974,6 +2976,7 @@ static noxtls_return_t bn_mod_exp_mont(uint8_t *result, const uint8_t *base,
     {
         uint32_t idx = 0U;
         for(idx = 2U; idx < BN_MONT_TABLE; idx += 1U) {
+            if(service != NULL) { service(); }
             bn_mont_mul(&table[(size_t)idx * n], &table[(size_t)(idx - 1U) * n], aR,
                         m_l, n, n0inv, t, tmp);
         }
@@ -3013,6 +3016,7 @@ static noxtls_return_t bn_mod_exp_mont(uint8_t *result, const uint8_t *base,
 
         /* w squarings */
         for(b = 0U; b < BN_MONT_WINDOW; b += 1U) {
+            if(service != NULL) { service(); }
             bn_mont_mul(acc, acc, acc, m_l, n, n0inv, t, tmp);
         }
 
@@ -3048,6 +3052,7 @@ static noxtls_return_t bn_mod_exp_mont(uint8_t *result, const uint8_t *base,
             }
         }
 
+        if(service != NULL) { service(); }
         bn_mont_mul(acc, acc, sel, m_l, n, n0inv, t, tmp);
     }
 
@@ -3070,6 +3075,13 @@ static noxtls_return_t bn_mod_exp_mont(uint8_t *result, const uint8_t *base,
 }
 
 noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const uint8_t *exp, uint32_t exp_len, const uint8_t *mod, uint32_t mod_len)
+{
+    return noxtls_bn_mod_exp_service(result, base, exp, exp_len, mod, mod_len, NULL);
+}
+
+noxtls_return_t noxtls_bn_mod_exp_service(uint8_t *result, const uint8_t *base,
+    const uint8_t *exp, uint32_t exp_len, const uint8_t *mod, uint32_t mod_len,
+    noxtls_bn_service_fn service)
 {
     static int g_bn_debug_modexp_first = 1;
     int do_debug = g_bn_debug_modexp_first;
@@ -3114,7 +3126,7 @@ noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const ui
     {
         /* The ladder is used only when Montgomery declines (even modulus); allocation
          * or reduction failures inside Montgomery are propagated, never masked. */
-        noxtls_return_t mont_rc = bn_mod_exp_mont(result, base, exp, exp_len, mod, mod_len);
+        noxtls_return_t mont_rc = bn_mod_exp_mont(result, base, exp, exp_len, mod, mod_len, service);
         if(mont_rc == NOXTLS_RETURN_SUCCESS) {
             return NOXTLS_RETURN_SUCCESS;
         }
@@ -3232,6 +3244,7 @@ noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const ui
     {
         uint32_t i = 0U;
         for(i = total_bits; i > 0U; i -= 1U) {
+            if(service != NULL) { service(); }
             uint32_t bitpos = (uint32_t)(i - 1U);
             uint8_t bit = (uint8_t)bn_u8_bit(exp_ptr[exp_bytes - 1U - (bitpos >> 3U)], bitpos);
 

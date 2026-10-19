@@ -25,7 +25,7 @@ jobs:
             macos_arch: arm64
             use_msys2: false
             sidechannel_profile: balanced
-          - os: macos-latest
+          - os: macos-15-intel
             artifact_suffix: macos-x64
             binary_dir: binary-x86_64
             macos_arch: x86_64

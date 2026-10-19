@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<noxtls-config-catalog version="0.3.6">
+<noxtls-config-catalog version="0.3.7">
   <metadata>
-    <noxtls-version>0.3.6</noxtls-version>
+    <noxtls-version>0.3.7</noxtls-version>
     <source-header>noxtls/noxtls_config.h</source-header>
     <version-header>noxtls/noxtls_version.h</version-header>
     <generated-at>2026-10-08T16:15:49Z</generated-at>
@@ -1004,6 +1004,14 @@
         <dependencies>
           <allOf>
             <dependency ref="NOXTLS_FEATURE_ECC" value="1"/>
+          </allOf>
+        </dependencies>
+      </setting>
+      <setting id="NOXTLS_FEATURE_CC13XX_X25519_ACCEL" name="CC13xx X25519 acceleration" type="boolean" default="disabled" default-value="0" legacy="false">
+        <description>Injected CC13xx PKA callback port for X25519. Unbound or busy engines retain software fallback. Prereq: NOXTLS_FEATURE_X25519=1. Build knob: NOXTLS_CFG_FEATURE_CC13XX_X25519_ACCEL.</description>
+        <dependencies>
+          <allOf>
+            <dependency ref="NOXTLS_FEATURE_X25519" value="1"/>
           </allOf>
         </dependencies>
       </setting>
