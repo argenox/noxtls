@@ -1,6 +1,7 @@
 # DRBG (Deterministic Random Bit Generator) library
 # Implements AES-CTR-DRBG per NIST SP 800-90A
 
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/nox_noxtls_sections.cmake")
 set(NOXTLS_DRBG_SOURCES noxtls_drbg.c)
 if(NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL)
     # nRF54L CRACEN TRNG as the NOXTLS_ENTROPY_SOURCE_AUTO entropy source.
@@ -11,6 +12,7 @@ add_library(noxtls_drbg STATIC
     ${NOXTLS_DRBG_SOURCES}
     noxtls_drbg_api_refs.c
 )
+nox_noxtls_enable_sections("noxtls_drbg")
 
 if(MSVC)
     # Disable Spectre mitigation warning C5045 for embedded targets.

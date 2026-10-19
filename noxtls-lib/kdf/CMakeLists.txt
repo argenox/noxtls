@@ -1,5 +1,6 @@
 # Key derivation function library (HKDF RFC 5869, PBKDF2 RFC 8018)
 
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/nox_noxtls_sections.cmake")
 set(NOXTLS_KDF_SOURCES)
 # Builds that add this directory directly (e.g. the OEM unit-test tree) may not
 # define the HKDF knob; keep HKDF compiled unless it is explicitly disabled.
@@ -14,6 +15,7 @@ add_library(noxtls_kdf STATIC
     ${NOXTLS_KDF_SOURCES}
     noxtls_kdf_api_refs.c
 )
+nox_noxtls_enable_sections("noxtls_kdf")
 
 if(MSVC)
     target_compile_options(noxtls_kdf PRIVATE /wd5045)

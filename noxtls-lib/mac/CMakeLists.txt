@@ -1,10 +1,12 @@
 # Message authentication code (HMAC) library
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/nox_noxtls_sections.cmake")
 option(NOXTLS_HMAC_SHA256_SHARED_STATE "Use one externally serialized shared SHA-256 HMAC context" OFF)
 
 add_library(noxtls_mac STATIC
     noxtls_hmac.c
     noxtls_mac_api_refs.c
 )
+nox_noxtls_enable_sections("noxtls_mac")
 
 if(MSVC)
     target_compile_options(noxtls_mac PRIVATE /wd5045)

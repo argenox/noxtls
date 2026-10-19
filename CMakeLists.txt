@@ -493,28 +493,8 @@ if(NOXTLS_CFG_FEATURE_TLS)
   add_subdirectory(noxtls-lib/tls)
 endif()
 
-# NoxTLS is linked as a collection of static libraries into firmware images.
-# Keep its compilation granularity compatible with the embedded linker's
-# --gc-sections policy: selecting an AES service must not retain disabled AES
-# software, cipher, or PKC routines from the same translation unit.
-if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-  foreach(_noxtls_library
-      noxtls_common
-      noxtls_hash
-      noxtls_encryption
-      noxtls_pkc
-      noxtls_drbg
-      noxtls_mac
-      noxtls_kdf
-      noxtls_certs
-      noxtls_tls)
-    if(TARGET ${_noxtls_library})
-      target_compile_options(${_noxtls_library} PRIVATE
-        -ffunction-sections
-        -fdata-sections)
-    endif()
-  endforeach()
-endif()
+# Each library applies native section flags at its own definition, including
+# direct subdirectory consumers and optional backends.
 if(NOXTLS_BUILD_SIZE_BENCHMARKS)
   enable_language(ASM)
   add_subdirectory(benchmarks)

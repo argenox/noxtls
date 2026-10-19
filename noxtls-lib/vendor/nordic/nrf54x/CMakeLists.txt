@@ -6,10 +6,12 @@
 #
 # NOXTLS_NRF54_EXTRA_DEFINITIONS: optional list of NOXTLS_NRF54_CONFIG_* overrides
 # (for example NOXTLS_NRF54_CONFIG_CHIP_L15=1 or the small budgets of the host tests).
+include("${CMAKE_CURRENT_LIST_DIR}/../../../../cmake/nox_noxtls_sections.cmake")
 set(NOXTLS_NRF54_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 include(${NOXTLS_NRF54_DIR}/noxtls_nrf54_sources.cmake)
 
 add_library(noxtls_nrf54 STATIC ${NOXTLS_NRF54_DRIVER_SOURCES})
+nox_noxtls_enable_sections("noxtls_nrf54")
 get_filename_component(_noxtls_nrf54_project_root "${NOXTLS_LIB_ROOT}/.." ABSOLUTE)
 target_include_directories(noxtls_nrf54 PUBLIC
   ${NOXTLS_NRF54_DIR}

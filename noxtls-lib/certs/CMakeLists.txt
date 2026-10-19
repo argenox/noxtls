@@ -1,4 +1,5 @@
 # Certificates library
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/nox_noxtls_sections.cmake")
 option(NOXTLS_SILENCE_ASN1_PRINTF "Disable asn1.c debug printf (recommended for libFuzzer / CI noise)" OFF)
 
 add_library(noxtls_certificates STATIC
@@ -6,6 +7,7 @@ add_library(noxtls_certificates STATIC
     certificates.c
     oids.c
 )
+nox_noxtls_enable_sections("noxtls_certificates")
 
 if(NOXTLS_SILENCE_ASN1_PRINTF)
     target_compile_definitions(noxtls_certificates PRIVATE NOXTLS_NO_ASN1_PRINTF=1)
@@ -41,6 +43,7 @@ endif()
 add_library(noxtls_cert STATIC
     ${NOXTLS_CERT_SOURCES}
 )
+nox_noxtls_enable_sections("noxtls_cert")
 
 if(NOT NOXTLS_HAVE_TIME)
     target_compile_definitions(noxtls_cert PRIVATE NOXTLS_HAVE_TIME=0)
