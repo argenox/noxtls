@@ -2,6 +2,7 @@
 # optional Matter (draft-bar-cfrg-spake2plus-01) profile and Matter PASE helpers,
 # and EC-JPAKE (RFC 8236 / RFC 8235, draft-cragie-tls-ecjpake-01).
 
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/nox_noxtls_sections.cmake")
 set(NOXTLS_PAKE_SOURCES)
 if(NOXTLS_CFG_FEATURE_SPAKE2P)
     list(APPEND NOXTLS_PAKE_SOURCES
@@ -29,6 +30,7 @@ if(NOXTLS_CFG_FEATURE_MATTER_PASE)
 endif()
 
 add_library(noxtls_pake STATIC ${NOXTLS_PAKE_SOURCES})
+nox_noxtls_enable_sections("noxtls_pake")
 
 if(MSVC)
     target_compile_options(noxtls_pake PRIVATE /wd5045)

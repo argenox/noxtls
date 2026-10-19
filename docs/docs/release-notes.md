@@ -5,11 +5,30 @@ title: Release Notes
 
 # Release Notes
 
-This page describes changes, fixes, and known issues for **NoxTLS 0.3.7**.
+This page describes changes, fixes, and known issues for **NoxTLS 0.3.8**.
 
 For source and binary artifacts, see [Releases on GitHub](https://github.com/argenox/noxtls/releases).
 
 Use the **version dropdown** in the navbar to view docs (and release notes) for other versions.
+
+---
+
+## 0.3.8
+
+**Release date:** TBD
+
+### Changes
+
+- Patch release on top of 0.3.7 for native library section granularity. GNU and Clang C/C++ builds use private function/data section flags on supported platforms; applications control final linker garbage collection.
+- No API, ABI, protocol or optimization-level changes. Apple and MSVC-compatible builds keep their existing compiler options.
+
+### Fixed / Resolved
+
+- Certificate, utility, SHA-3, PAKE and optional nRF54 libraries now receive section flags alongside the core libraries. Direct subdirectory builds no longer depend on the root target list.
+
+### Known issues / Open
+
+- Earlier release limitations still apply. Applications must enable linker garbage collection to discard unused sections.
 
 ---
 

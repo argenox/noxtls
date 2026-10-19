@@ -1,4 +1,5 @@
 # Encryption library (when NOXTLS_OMIT_UT_SOURCES=ON, exclude unit-test sources for embedded build)
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/nox_noxtls_sections.cmake")
 set(ENC_SOURCES
 )
 # The root CMakeLists expands the CC13xx umbrella; repeat it for consumers
@@ -150,6 +151,7 @@ list(APPEND ENC_SOURCES noxtls_encryption_api_refs.c)
 add_library(noxtls_encryption STATIC
     ${ENC_SOURCES}
 )
+nox_noxtls_enable_sections("noxtls_encryption")
 
 if(NOXTLS_PORT_AES_ACCEL_ENABLED)
   target_compile_definitions(noxtls_encryption PRIVATE NOXTLS_PORT_AES_ACCEL=1)

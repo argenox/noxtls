@@ -1,4 +1,5 @@
 # Message Digest library
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/nox_noxtls_sections.cmake")
 set(NOXTLS_HASH_SOURCES
     noxtls_hash.c
     noxtls_sha.c
@@ -66,6 +67,7 @@ endif()
 
 list(APPEND NOXTLS_HASH_SOURCES noxtls_hash_api_refs.c)
 add_library(noxtls_hash STATIC ${NOXTLS_HASH_SOURCES})
+nox_noxtls_enable_sections("noxtls_hash")
 
 # Use CURRENT_SOURCE_DIR so this works when mdigest is built as a subdirectory (e.g. from ut/)
 target_include_directories(noxtls_hash PUBLIC

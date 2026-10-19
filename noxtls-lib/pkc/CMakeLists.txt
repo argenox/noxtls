@@ -2,6 +2,7 @@
 # This library contains implementations of public key cryptography algorithms
 # including RSA, ECC (Elliptic Curve Cryptography), ECDSA, ECDH, etc.
 #
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/nox_noxtls_sections.cmake")
 option(USE_REF_ECC_POINT_MUL "Use reference ECC point multiply for tests" OFF)
 option(NOXTLS_ECDSA_VERIFY_DEBUG "Enable ECDSA verify debug prints (hex dumps of h, r, s, u1, u2, v)" OFF)
 option(NOXTLS_ECDSA_SIGN_SELF_VERIFY "Re-verify signatures inside noxtls_ecdsa_sign (safety check)" OFF)
@@ -208,6 +209,7 @@ endif()
 
 list(APPEND PKC_SOURCES noxtls_pkc_api_refs.c)
 add_library(noxtls_pkc STATIC ${PKC_SOURCES})
+nox_noxtls_enable_sections("noxtls_pkc")
 
 if(MSVC)
     # Disable Spectre mitigation warning C5045 for embedded targets.

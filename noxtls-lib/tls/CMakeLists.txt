@@ -1,6 +1,7 @@
 # TLS (Transport Layer Security) library
 # Implements TLS 1.2 and TLS 1.3
 
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/nox_noxtls_sections.cmake")
 option(BUILD_DTLS "Build DTLS-related code (in progress)" ON)
 option(TLS13_PREFER_CHACHA "Prefer ChaCha20-Poly1305 over AES-GCM for TLS 1.3 / DTLS 1.3" OFF)
 
@@ -54,6 +55,7 @@ else()
 endif()
 
 add_library(noxtls_tls STATIC ${TLS_SOURCES})
+nox_noxtls_enable_sections("noxtls_tls")
 
 if(MSVC)
     # Disable Spectre mitigation warning C5045 for embedded targets.
