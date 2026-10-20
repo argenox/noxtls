@@ -277,6 +277,7 @@ static void print_usage(const uint8_t *prog)
     printf("  %s genslhdsa -out pq -param slh-dsa-sha2-128s\n", prog);
 #endif
     printf("  %s req -new -x509 -key server.key -out cert.pem -days 365 -subj /CN=localhost\n", prog);
+    printf("  %s req -new -key client.key -out client.csr -subj /CN=gateway\n", prog);
 }
 
 /* Encode PKCS#1 RSAPrivateKey (DER) from rsa_key_t. Returns length or 0 on error. */
@@ -1917,6 +1918,56 @@ static int load_raw_pubkey_from_file(const uint8_t *path,
  * @param[in] prog The name of the program
  * @return 0 on success, -1 on failure
  */
+#if NOXTLS_HAVE_CERT_WRITE
+static int certgen_csr_common(const uint8_t *cn,
+    const uint8_t *pk_oid, uint32_t pk_oid_len,
+    const uint8_t *pub, uint32_t pub_len,
+    const uint8_t *sig_oid, uint32_t sig_oid_len,
+    const uint8_t *key, uint32_t key_len, noxtls_hash_algos_t hash,
+    const uint8_t *path, const uint8_t *format)
+{
+    uint8_t subject[256];
+    uint32_t subject_len = 0U, output_len = 0U;
+    uint8_t *output = NULL;
+    FILE *fp = NULL;
+    int result = 1;
+    noxtls_return_t rc;
+    int der = noxtls_u8_strcmp(format, "DER") == 0 || noxtls_u8_strcmp(format, "der") == 0;
+    if(!der && noxtls_u8_strcmp(format, "PEM") != 0 && noxtls_u8_strcmp(format, "pem") != 0) {
+        fprintf(stderr, "Error: -outform must be DER or PEM\n");
+        return 1;
+    }
+    rc = noxtls_x509_dn_from_cn(cn, subject, sizeof(subject), &subject_len);
+    if(rc != NOXTLS_RETURN_SUCCESS) return 1;
+    output = (uint8_t *)malloc(CERTGEN_PEM_MAX);
+    if(output == NULL) return 1;
+    if(der) {
+        rc = noxtls_x509_csr_create_der(subject, subject_len, pk_oid, pk_oid_len,
+            pub, pub_len, sig_oid, sig_oid_len, key, key_len, hash,
+            output, CERTGEN_PEM_MAX, &output_len);
+    } else {
+        rc = noxtls_x509_csr_create_pem(subject, subject_len, pk_oid, pk_oid_len,
+            pub, pub_len, sig_oid, sig_oid_len, key, key_len, hash,
+            output, CERTGEN_PEM_MAX, &output_len);
+    }
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        fprintf(stderr, "Error: CSR generation failed (%d)\n", (int)rc);
+        goto done;
+    }
+    fp = noxtls_fopen(path, "wb");
+    if(fp == NULL || fwrite(output, 1, output_len, fp) != (size_t)output_len) {
+        fprintf(stderr, "Error: Cannot write CSR\n");
+        goto done;
+    }
+    result = 0;
+    printf("Wrote %s (%u bytes %s CSR)\n", path, (unsigned)output_len, der ? "DER" : "PEM");
+done:
+    if(fp != NULL && fclose(fp) != 0) result = 1;
+    free(output);
+    return result;
+}
+#endif
+
 static int cmd_req(int argc, uint8_t **argv, const uint8_t *prog)
 {
     (void)prog;
@@ -1929,6 +1980,7 @@ static int cmd_req(int argc, uint8_t **argv, const uint8_t *prog)
     const uint8_t *subj = "/CN=localhost";
 #endif
     int new_x509 = 0;
+    int new_request = 0;
     int i;
 
     for (i = 1; i < argc; i++) {
@@ -1947,18 +1999,18 @@ static int cmd_req(int argc, uint8_t **argv, const uint8_t *prog)
             pub_file = argv[++i];
 #endif
         } else if (noxtls_u8_strcmp(argv[i], "-new") == 0) {
-            /* next should be -x509 */
+            new_request = 1;
         } else if (noxtls_u8_strcmp(argv[i], "-x509") == 0) {
             new_x509 = 1;
         }
     }
 
-    if (!new_x509) {
-        fprintf(stderr, "Only -new -x509 (self-signed certificate) is supported.\n");
+    if (!new_x509 && !new_request) {
+        fprintf(stderr, "Error: req requires -new (CSR) or -x509 (self-signed certificate)\n");
         return 1;
     }
     if (key_file == NULL || out_file == NULL) {
-        fprintf(stderr, "Error: -key and -out are required for req -new -x509\n");
+        fprintf(stderr, "Error: -key and -out are required for req\n");
         return 1;
     }
 
@@ -1971,6 +2023,11 @@ static int cmd_req(int argc, uint8_t **argv, const uint8_t *prog)
     }
 
 #if NOXTLS_HAVE_CERT_WRITE
+    if(!new_x509 && priv.key_type != X509_PRIVATE_KEY_ECC) {
+        fprintf(stderr, "Error: CSR generation currently supports ECC keys only\n");
+        noxtls_x509_private_key_free(&priv);
+        return 1;
+    }
     {
         uint8_t cn_buf[256];
         extract_cn_from_subj(subj, cn_buf, sizeof(cn_buf));
@@ -2125,15 +2182,22 @@ static int cmd_req(int argc, uint8_t **argv, const uint8_t *prog)
                 }
             }
 
-            out = certgen_self_signed_x509_common(
-                cn_buf, days,
-                oid_id_ec_public_key, (uint32_t)sizeof(oid_id_ec_public_key),
-                curve_oid_der, curve_oid_der_len,
-                pub_key_buf, pub_key_len,
-                sig_oid_ptr, sig_oid_len,
-                key_raw, key_raw_len,
-                sig_hash,
-                out_file, outform);
+            if(new_x509) {
+                out = certgen_self_signed_x509_common(
+                    cn_buf, days,
+                    oid_id_ec_public_key, (uint32_t)sizeof(oid_id_ec_public_key),
+                    curve_oid_der, curve_oid_der_len,
+                    pub_key_buf, pub_key_len,
+                    sig_oid_ptr, sig_oid_len,
+                    key_raw, key_raw_len,
+                    sig_hash,
+                    out_file, outform);
+            } else {
+                out = certgen_csr_common(cn_buf,
+                    oid_id_ec_public_key, sizeof(oid_id_ec_public_key),
+                    pub_key_buf, pub_key_len, sig_oid_ptr, sig_oid_len,
+                    key_raw, key_raw_len, sig_hash, out_file, outform);
+            }
             noxtls_x509_private_key_free(&priv);
             return out;
         }

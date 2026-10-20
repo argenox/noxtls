@@ -1348,7 +1348,8 @@ noxtls_return_t noxtls_x509_csr_create_der(
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
 
-    /* CertificationRequestInfo content: version + subject + subjectPKInfo */
+    /* CertificationRequestInfo includes the mandatory attributes field,
+     * even when no attributes are requested (RFC 2986 section 4). */
     off = 0U;
     if((off + sizeof(version_int)) > sizeof(ws->cri_buf)) {
         (void)noxtls_free(ws);
@@ -1364,7 +1365,37 @@ noxtls_return_t noxtls_x509_csr_create_der(
     noxtls_copy_u8(&ws->cri_buf[off], sizeof(ws->cri_buf) - (size_t)(off), subject_der, (size_t)(subject_len));
     off += subject_len;
 
-    alg_seq_len = put_algorithm_identifier(alg_seq, sizeof(alg_seq), subject_pk_oid, subject_pk_oid_len, NULL, 0);
+    {
+        static const uint8_t ec_public_key_oid[] = { 0x2AU, 0x86U, 0x48U, 0xCEU, 0x3DU, 0x02U, 0x01U };
+        uint8_t curve_der[40];
+        uint32_t curve_der_len = 0U;
+        /* The existing CSR API has no separate parameters argument. For EC,
+         * obtain namedCurve from the signing key rather than omit it from SPKI. */
+        if((subject_pk_oid_len == sizeof(ec_public_key_oid)) &&
+            (memcmp(subject_pk_oid, ec_public_key_oid, sizeof(ec_public_key_oid)) == 0)) {
+            x509_private_key_t key;
+            noxtls_return_t key_rc;
+            (void)noxtls_x509_private_key_init(&key);
+            key_rc = noxtls_x509_private_key_parse_der(&key, sign_key, sign_key_len);
+            if(key_rc != NOXTLS_RETURN_SUCCESS) {
+                (void)noxtls_x509_private_key_free(&key);
+                (void)noxtls_x509_private_key_init(&key);
+                key_rc = noxtls_x509_private_key_parse_pem(&key, sign_key, sign_key_len);
+            }
+            if((key_rc == NOXTLS_RETURN_SUCCESS) && (key.key_type == X509_PRIVATE_KEY_ECC) &&
+                (key.ecc_curve_oid_len > 0U) && (key.ecc_curve_oid_len <= sizeof(key.ecc_curve_oid))) {
+                curve_der_len = noxtls_asn1_put_oid_raw(curve_der, sizeof(curve_der),
+                    key.ecc_curve_oid, key.ecc_curve_oid_len);
+            }
+            (void)noxtls_x509_private_key_free(&key);
+            if(curve_der_len == 0U) {
+                (void)noxtls_free(ws);
+                return ret;
+            }
+        }
+        alg_seq_len = put_algorithm_identifier(alg_seq, sizeof(alg_seq), subject_pk_oid,
+            subject_pk_oid_len, curve_der_len != 0U ? curve_der : NULL, curve_der_len);
+    }
     if(alg_seq_len == 0U) {
         (void)noxtls_free(ws);
         return ret;
@@ -1382,6 +1413,12 @@ noxtls_return_t noxtls_x509_csr_create_der(
         return ret;
     }
     off += spki_len;
+    if((sizeof(ws->cri_buf) - off) < 2U) {
+        (void)noxtls_free(ws);
+        return ret;
+    }
+    ws->cri_buf[off++] = 0xA0U; /* [0] IMPLICIT SET OF Attribute */
+    ws->cri_buf[off++] = 0x00U;
     cri_len = off;
 
     /* CRI as SEQUENCE (this is the data to be signed) */

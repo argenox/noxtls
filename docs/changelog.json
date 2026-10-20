@@ -1,6 +1,19 @@
 {
   "releases": [
     {
+      "version": "0.3.9",
+      "date": "TBD",
+      "changes": [
+        "certgen req -new creates ECC PKCS#10 certificate requests in PEM or DER format, with the public key derived from the private key."
+      ],
+      "fixed": [
+        "EC certificate requests include namedCurve parameters and the mandatory attributes field."
+      ],
+      "known_issues": [
+        "The certgen CSR command currently supports ECC keys and a common-name subject only. Other key types, requested extensions and AWS enrollment are not implemented by that command."
+      ]
+    },
+    {
       "version": "0.3.8",
       "date": "TBD",
       "changes": [
