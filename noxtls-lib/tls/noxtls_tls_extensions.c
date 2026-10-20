@@ -32,11 +32,13 @@
  * @param[in] data The data to parse the extensions from
  * @param[in] data_len The length of the data to parse the extensions from
  * @param[out] extensions The extensions to parse the extensions into
+ * @param[in] server_response Nonzero for the server acknowledgment format.
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the data or extensions is NULL, NOXTLS_RETURN_BAD_DATA if the data is not a valid length for a TLS extension, NOXTLS_RETURN_BAD_DATA if the extensions is not a valid length for a TLS extension, NOXTLS_RETURN_FAILED if the extensions is not a valid extension for a TLS extension
  * @return NOXTLS_RETURN_FAILED if the extensions is not a valid extension for a TLS extension
  * @return NOXTLS_RETURN_RECORD_OVERFLOW if the extensions is not a valid extension for a TLS extension
  */
-noxtls_return_t noxtls_tls_parse_extensions(const uint8_t *data, uint32_t data_len, tls_extensions_t *extensions)
+static noxtls_return_t tls_parse_extensions_for_peer(const uint8_t *data, uint32_t data_len,
+    tls_extensions_t *extensions, uint8_t server_response)
 {
     uint32_t offset = 0U;
     uint32_t extensions_len = 0U;
@@ -137,7 +139,11 @@ noxtls_return_t noxtls_tls_parse_extensions(const uint8_t *data, uint32_t data_l
         
         /* Parse known extensions */
         if (ext->type == TLS_EXTENSION_SERVER_NAME) {
-                if (ext->length == 0U) {
+                /* RFC 6066 Section 3: ClientHello contains ServerNameList;
+                 * the server's acknowledgment has empty extension_data.
+                 * RFC 8446 Section 4.2 carries that acknowledgment in EE. */
+                if (((server_response == 0U) && (ext->length == 0U)) ||
+                    ((server_response != 0U) && (ext->length != 0U))) {
                     (void)noxtls_tls_extensions_free(extensions);
                     return NOXTLS_RETURN_BAD_DATA;
                 }
@@ -242,6 +248,20 @@ noxtls_return_t noxtls_tls_parse_extensions(const uint8_t *data, uint32_t data_l
     }
 
     return NOXTLS_RETURN_SUCCESS;
+}
+
+/** @copydoc noxtls_tls_parse_extensions */
+noxtls_return_t noxtls_tls_parse_extensions(const uint8_t *data, uint32_t data_len,
+    tls_extensions_t *extensions)
+{
+    return tls_parse_extensions_for_peer(data, data_len, extensions, 0U);
+}
+
+/** @copydoc noxtls_tls_parse_server_extensions */
+noxtls_return_t noxtls_tls_parse_server_extensions(const uint8_t *data, uint32_t data_len,
+    tls_extensions_t *extensions)
+{
+    return tls_parse_extensions_for_peer(data, data_len, extensions, 1U);
 }
 
 /**

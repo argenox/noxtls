@@ -9002,7 +9002,7 @@ noxtls_return_t noxtls_tls13_recv_encrypted_extensions(tls13_context_t *ctx)
             noxtls_return_t ext_rc;
             (void)noxtls_tls_extensions_free(&ctx->server_extensions);
             noxtls_secure_zero((&ctx->server_extensions), (sizeof(ctx->server_extensions)));
-            ext_rc = noxtls_tls_parse_extensions(&msg[4], msg_len - 4U, &ctx->server_extensions);
+            ext_rc = noxtls_tls_parse_server_extensions(&msg[4], msg_len - 4U, &ctx->server_extensions);
             if(ext_rc != NOXTLS_RETURN_SUCCESS) {
                 (void)noxtls_free(msg);
                 (void)noxtls_tls_extensions_free(&ctx->server_extensions);
@@ -9012,6 +9012,19 @@ noxtls_return_t noxtls_tls13_recv_encrypted_extensions(tls13_context_t *ctx)
                     ext_rc = NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR;
                 }
                 return ext_rc;
+            }
+            /* RFC 8446 Section 4.2: a server cannot acknowledge unoffered SNI. */
+            {
+                tls_extension_t *server_name_ack = NULL;
+                if ((noxtls_tls_find_extension(&ctx->server_extensions, TLS_EXTENSION_SERVER_NAME,
+                        &server_name_ack) == NOXTLS_RETURN_SUCCESS) &&
+                    (server_name_ack != NULL) &&
+                    ((ctx->server_name == NULL) || (ctx->server_name_len == 0U))) {
+                    (void)noxtls_free(msg);
+                    (void)noxtls_tls_extensions_free(&ctx->server_extensions);
+                    noxtls_secure_zero((&ctx->server_extensions), (sizeof(ctx->server_extensions)));
+                    return NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER;
+                }
             }
             /* If server sent early_data extension, 0-RTT was accepted */
             {
