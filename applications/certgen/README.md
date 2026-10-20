@@ -1,6 +1,6 @@
 # certgen – Key and Certificate Generation Utility
 
-OpenSSL-like utility for generating keys and self-signed certificates using the
+Utility for generating keys, certificate requests and self-signed certificates using the
 NoxTLS library. Self-signed certificate generation uses the certificate write
 APIs which are now compiled in by default (`NOXTLS_HAVE_CERT_WRITE=ON`).
 
@@ -76,7 +76,22 @@ certgen genmldsa  -out pq  -param ml-dsa-65
 certgen genslhdsa -out pq2 -param slh-dsa-sha2-128s
 ```
 
-### req – Self-signed X.509 certificate
+### req – EC certificate request or self-signed X.509 certificate
+
+`req -new` creates a signed PKCS#10 request from an ECC SEC1 or PKCS#8
+private key. The request includes its named curve and an empty attributes set.
+PEM is the default; `-outform DER` selects binary output. The subject currently
+uses the `/CN=...` common name only. CSR generation for other key types and
+requested certificate extensions is not implemented.
+
+```bash
+certgen genec -out gateway -curve prime256v1
+certgen req -new -key gateway.key -out gateway.csr -subj /CN=gateway
+```
+
+The private key stays on the provisioning host. Submit only `gateway.csr` to
+the certificate issuer. Store production keys in a protected directory outside
+the repository. These commands do not enroll or activate an AWS IoT certificate.
 
 `req -new -x509` produces a self-signed v3 certificate using the supplied
 private key. Supported key types (the public key is derived from the private
