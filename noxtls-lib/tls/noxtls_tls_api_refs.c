@@ -173,6 +173,7 @@ static void noxtls_tls_misra_api_refs(void)
 #endif
     NOXTLS_MISRA_REF_FN(&noxtls_tls13_set_server_private_rsa);
     NOXTLS_MISRA_REF_FN(&noxtls_tls13_set_verify_crl);
+    NOXTLS_MISRA_REF_FN(&noxtls_tls13_set_server_verify_policy);
     NOXTLS_MISRA_REF_FN(&noxtls_tls13_add_server_ecdsa_identity);
     NOXTLS_MISRA_REF_FN(&noxtls_tls13_session_import);
     #if NOXTLS_FEATURE_SLH_DSA

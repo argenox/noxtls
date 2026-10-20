@@ -3278,6 +3278,7 @@ static noxtls_return_t x509_check_time_bound(const x509_certificate_t *cert,
                                               const uint8_t *asn1_time,
                                               noxtls_unix_time_t current_time,
                                               int is_not_before,
+                                              int check_time,
                                               noxtls_unix_time_t *out_bound)
 {
     uint32_t time_len = 0U;
@@ -3306,6 +3307,9 @@ static noxtls_return_t x509_check_time_bound(const x509_certificate_t *cert,
         *out_bound = bound;
     }
 
+    if(check_time == 0) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
     if(is_not_before != 0) {
         if(current_time < bound) {
             CERT_DEBUG_PRINT("x509_certificate_check_validity: certificate not yet valid\n");
@@ -3332,21 +3336,24 @@ static noxtls_return_t x509_check_time_bound(const x509_certificate_t *cert,
  *
  * @param[in] cert Parsed certificate.
  * @param[in] current_time Reference time.
+ * @param[in] check_time Nonzero compares the parsed bounds with UTC; zero only
+ *                      validates their encoding and chronological order.
  *
  * @return NOXTLS_RETURN_SUCCESS, NOXTLS_RETURN_CERT_EXPIRED, NOXTLS_RETURN_CERT_NOT_YET_VALID
  *         or NOXTLS_RETURN_BAD_DATA.
  */
-static noxtls_return_t x509_check_validity_window(const x509_certificate_t *cert, noxtls_unix_time_t current_time)
+static noxtls_return_t x509_check_validity_window(const x509_certificate_t *cert,
+                                                   noxtls_unix_time_t current_time, int check_time)
 {
     noxtls_unix_time_t not_before_time = 0;
     noxtls_unix_time_t not_after_time = 0;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    rc = x509_check_time_bound(cert, cert->not_before, current_time, 1, &not_before_time);
+    rc = x509_check_time_bound(cert, cert->not_before, current_time, 1, check_time, &not_before_time);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    rc = x509_check_time_bound(cert, cert->not_after, current_time, 0, &not_after_time);
+    rc = x509_check_time_bound(cert, cert->not_after, current_time, 0, check_time, &not_after_time);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -3380,7 +3387,7 @@ noxtls_return_t noxtls_x509_certificate_check_validity(const x509_certificate_t 
             return NOXTLS_RETURN_FAILED;
         }
 
-        return x509_check_validity_window(cert, current_time);
+        return x509_check_validity_window(cert, current_time, 1);
     }
 #else
     CERT_DEBUG_PRINT("x509_certificate_check_validity: time support not available, skipping time-based validation\n");
@@ -3415,7 +3422,7 @@ noxtls_return_t noxtls_x509_certificate_check_validity_at(const x509_certificate
             return NOXTLS_RETURN_INVALID_PARAM;
         }
 
-        return x509_check_validity_window(cert, reference);
+        return x509_check_validity_window(cert, reference, 1);
     }
 #else
     (void)now;
@@ -5395,6 +5402,14 @@ static noxtls_return_t x509_policy_check_validity(const x509_certificate_t *cert
 {
     noxtls_return_t rc;
 
+    if((policy != NULL) && (policy->time_mode == NOXTLS_X509_TIME_DEFERRED)) {
+#if NOXTLS_HAVE_TIME
+        return x509_check_validity_window(cert, 0, 0);
+#else
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+    }
+
     if((policy != NULL) && (policy->time_mode == NOXTLS_X509_TIME_EXPLICIT)) {
         rc = noxtls_x509_certificate_check_validity_at(cert, policy->verify_time);
         if((rc == NOXTLS_RETURN_CERT_EXPIRED) || (rc == NOXTLS_RETURN_CERT_NOT_YET_VALID)) {
@@ -5689,7 +5704,12 @@ noxtls_return_t noxtls_x509_verify_cert_with_policy(const x509_certificate_t *le
     }
 
     if((policy->time_mode != NOXTLS_X509_TIME_SYSTEM) &&
-       (policy->time_mode != NOXTLS_X509_TIME_EXPLICIT)) {
+       (policy->time_mode != NOXTLS_X509_TIME_EXPLICIT) &&
+       (policy->time_mode != NOXTLS_X509_TIME_DEFERRED)) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+
+    if((policy->time_mode == NOXTLS_X509_TIME_DEFERRED) && (policy->crl != NULL)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 

@@ -386,7 +386,12 @@ typedef enum
     /** Use time(NULL) when NOXTLS_HAVE_TIME is 1; skip time checks when it is 0 (legacy behavior). */
     NOXTLS_X509_TIME_SYSTEM = 0,
     /** Check notBefore/notAfter against noxtls_x509_verify_policy_t::verify_time (needs NOXTLS_HAVE_TIME). */
-    NOXTLS_X509_TIME_EXPLICIT = 1
+    NOXTLS_X509_TIME_EXPLICIT = 1,
+    /** Explicit clockless bootstrap: parse validity bounds but defer their
+     * comparison with UTC. All signature, path and purpose checks still apply.
+     * The application must reverify after obtaining UTC. CRLs are refused in
+     * this mode because their freshness cannot be established. Never default. */
+    NOXTLS_X509_TIME_DEFERRED = 2
 } noxtls_x509_time_mode_t;
 
 /**

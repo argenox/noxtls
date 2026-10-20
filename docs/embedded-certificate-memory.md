@@ -20,6 +20,23 @@ certificates, independent DER copies after freeing the source, allocation failur
 and cleanup without leaked pool bytes. The existing server-name acknowledgment
 regression also passes. Hosted Linux/macOS/Windows application checks run both.
 
-The actual CC35x1 reached `recv_certificate` and failed before this correction;
-its corrected hardware qualification is still pending. This document does not
-claim a completed physical MQTT connection or firmware upgrade.
+The actual CC35x1 reached `recv_certificate` and failed before this correction.
+Firmware 0.1.91, built with NoxTLS `acd4a20`, subsequently completed mutual TLS,
+received the AWS IoT MQTT CONNACK and accepted a boot-correlated backend control
+session. That run used full certificate date checks and a volatile development
+credential adapter. It is not an OTA qualification or a live telemetry result.
+
+The optional TLS 1.3 server verification policy now permits an application to
+borrow its own trust chain, avoiding a redundant global-store snapshot. It also
+offers explicit `NOXTLS_X509_TIME_DEFERRED` for clockless bootstrap. This mode
+parses validity bounds but cannot reject expired or not-yet-valid certificates
+until UTC is known. It retains path signatures, issuer and purpose checks; TLS
+hostname and CertificateVerify processing are unchanged. Deferred mode refuses
+CRLs because their freshness needs UTC. Existing default callers still use the
+global trust store and system-time checks. Applications that choose deferral
+must reverify the complete chain when time becomes available.
+
+The server-time regression drives the actual TLS 1.3 Certificate receive path.
+It covers explicit dates, clockless opt-in, tampered signatures, wrong anchors,
+wrong EKU, malformed dates, invalid policies and CRL refusal. Gateway policy and
+its reconnect on UTC acquisition are covered in NoxADK PR #12.

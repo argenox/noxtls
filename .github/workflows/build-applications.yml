@@ -133,12 +133,12 @@ jobs:
       - name: Verify TLS name and bounded certificate-chain regressions (Unix)
         if: matrix.use_msys2 == false
         shell: bash
-        run: ctest --test-dir build -R '^(server_name_ack_test|x509_chain_memory_test)$' --output-on-failure
+        run: ctest --test-dir build -R '^(server_name_ack_test|server_time_policy_test|x509_chain_memory_test)$' --output-on-failure
 
       - name: Verify TLS name and bounded certificate-chain regressions (Windows)
         if: matrix.use_msys2
         shell: msys2 {0}
-        run: ctest --test-dir build -R '^(server_name_ack_test|x509_chain_memory_test)$' --output-on-failure
+        run: ctest --test-dir build -R '^(server_name_ack_test|server_time_policy_test|x509_chain_memory_test)$' --output-on-failure
 
       - name: Verify EC certificate requests independently
         if: matrix.use_msys2 == false
