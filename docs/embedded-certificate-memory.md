@@ -38,5 +38,5 @@ must reverify the complete chain when time becomes available.
 
 The server-time regression drives the actual TLS 1.3 Certificate receive path.
 It covers explicit dates, clockless opt-in, tampered signatures, wrong anchors,
-wrong EKU, malformed dates, invalid policies and CRL refusal. Gateway policy and
-its reconnect on UTC acquisition are covered in NoxADK PR #12.
+wrong EKU, malformed dates, invalid policies and CRL refusal. The application
+owns the time-acquisition policy and reconnects to recheck dates after UTC arrives.

@@ -145,8 +145,8 @@
 #define NOXTLS_STM32_H7_HAS_CRYP_HASH 1
 #endif
 
-/* STM32H745/H747 do not expose CRYP/HASH in the ST CMSIS device headers used by
- * NoxADK. Keep the direct-register crypto backend disabled by default so these
+/* STM32H745/H747 do not expose CRYP/HASH in the ST CMSIS device headers.
+ * Keep the direct-register crypto backend disabled by default so these
  * parts fall back to software instead of touching nonexistent peripheral space.
  */
 #if defined(STM32H745xx) || defined(STM32H747xx)

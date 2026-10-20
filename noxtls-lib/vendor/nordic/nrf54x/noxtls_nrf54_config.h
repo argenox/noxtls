@@ -26,8 +26,8 @@
  *
  * Every setting may be overridden by defining it before this header is
  * included (for example with a compiler -D option). The chip is selected with
- * NOXTLS_NRF54_CONFIG_CHIP_L15 (defaults from NOXADK_NRF54_CHIPSET_NRF54L15 or
- * NRF54L15_XXAA); otherwise the nRF54LM20 values are used. The chip can also be
+ * NOXTLS_NRF54_CONFIG_CHIP_L15 (defaults from NRF54L15_XXAA); otherwise the
+ * nRF54LM20 values are used. The chip can also be
  * changed at run time with noxtls_nrf54_cracen_set_hw() (used by the host tests).
  */
 
@@ -38,7 +38,7 @@
 
 /** @brief Non-zero for the nRF54L15 (CRACEN with loadable PKE microcode), zero for the nRF54LM20 (CRACEN Lite). */
 #ifndef NOXTLS_NRF54_CONFIG_CHIP_L15
-#if defined(NOXADK_NRF54_CHIPSET_NRF54L15) || defined(NRF54L15_XXAA)
+#if defined(NRF54L15_XXAA)
 #define NOXTLS_NRF54_CONFIG_CHIP_L15        1
 #else
 #define NOXTLS_NRF54_CONFIG_CHIP_L15        0

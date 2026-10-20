@@ -10,7 +10,7 @@
 #   cmake --build build/noxtls_nrf54_ut && ctest --test-dir build/noxtls_nrf54_ut --output-on-failure
 #   gcovr -r components/noxtls --filter '.*vendor/nordic/nrf54x/.*' build/noxtls_nrf54_ut
 # UTNOX_DIR selects the UTNox checkout (default: ../../../utnox/utnox, then the
-# BlueNox copy in a NoxADK workspace).
+# BlueNox copy in a shared component workspace).
 cmake_minimum_required(VERSION 3.16)
 
 if(NOT TARGET noxtls_nrf54)
