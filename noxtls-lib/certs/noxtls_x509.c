@@ -3891,7 +3891,7 @@ noxtls_return_t noxtls_x509_certificate_chain_init(x509_certificate_chain_t *cha
     }
 
     noxtls_secure_zero((chain), sizeof(x509_certificate_chain_t));
-    chain->capacity = 8;
+    chain->capacity = NOXTLS_X509_CHAIN_INITIAL_CAPACITY;
     chain->certs = (x509_certificate_t*)NOXTLS_CALLOC(chain->capacity, sizeof(x509_certificate_t));
     if(chain->certs == NULL) {
         return NOXTLS_RETURN_FAILED;

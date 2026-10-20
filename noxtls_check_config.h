@@ -27,6 +27,10 @@
 /* Dir 4.9: must be a macro for use in #if expressions. */
 #define NOXTLS_CFG_BOOL_OK(v) (((v) == 0) || ((v) == 1))
 
+#if (NOXTLS_X509_CHAIN_INITIAL_CAPACITY < 1U) || (NOXTLS_X509_CHAIN_INITIAL_CAPACITY > 0xffffffffUL)
+#error "NOXTLS_X509_CHAIN_INITIAL_CAPACITY must fit a nonzero uint32_t."
+#endif
+
 #if !NOXTLS_CFG_BOOL_OK(NOXTLS_FEATURE_NOXV_CCM_ACCEL)
 #error "NOXTLS_FEATURE_NOXV_CCM_ACCEL must be 0 or 1."
 #endif

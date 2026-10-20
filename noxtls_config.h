@@ -1448,6 +1448,14 @@
 #define NOXTLS_MAX_CERT_CHAIN_DEPTH 16
 #endif
 
+/** Initial owned certificate slots per chain. Chains grow when more are added.
+ * Start with one so small trust/presented chains do not reserve eight large
+ * parsed-certificate objects. This does not limit verification depth.
+ */
+#ifndef NOXTLS_X509_CHAIN_INITIAL_CAPACITY
+#define NOXTLS_X509_CHAIN_INITIAL_CAPACITY 1U
+#endif
+
 /* ============================================================================
  * RSA Key Generation Configuration
  * ============================================================================

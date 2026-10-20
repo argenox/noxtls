@@ -117,6 +117,7 @@ jobs:
             -D BUILD_TESTS=OFF \
             -D BUILD_APPLICATIONS=ON \
             -D NOXTLS_BUILD_SERVER_NAME_ACK_TESTS=ON \
+            -D NOXTLS_BUILD_X509_CHAIN_MEMORY_TESTS=ON \
             -D CMAKE_BUILD_TYPE=Release \
             -D NOXTLS_SIDECHANNEL_PROFILE=${{ matrix.sidechannel_profile }} \
             "${arch_args[@]}"
@@ -126,18 +127,18 @@ jobs:
         if: matrix.use_msys2
         shell: msys2 {0}
         run: |
-          cmake -S . -B build -G Ninja -D BUILD_SHARED_LIBS=OFF -D BUILD_TESTS=OFF -D BUILD_APPLICATIONS=ON -D NOXTLS_BUILD_SERVER_NAME_ACK_TESTS=ON -D CMAKE_BUILD_TYPE=Release -D NOXTLS_SIDECHANNEL_PROFILE=${{ matrix.sidechannel_profile }}
+          cmake -S . -B build -G Ninja -D BUILD_SHARED_LIBS=OFF -D BUILD_TESTS=OFF -D BUILD_APPLICATIONS=ON -D NOXTLS_BUILD_SERVER_NAME_ACK_TESTS=ON -D NOXTLS_BUILD_X509_CHAIN_MEMORY_TESTS=ON -D CMAKE_BUILD_TYPE=Release -D NOXTLS_SIDECHANNEL_PROFILE=${{ matrix.sidechannel_profile }}
           cmake --build build --parallel
 
-      - name: Verify server-name acknowledgment parsing (Unix)
+      - name: Verify TLS name and bounded certificate-chain regressions (Unix)
         if: matrix.use_msys2 == false
         shell: bash
-        run: ctest --test-dir build -R '^server_name_ack_test$' --output-on-failure
+        run: ctest --test-dir build -R '^(server_name_ack_test|x509_chain_memory_test)$' --output-on-failure
 
-      - name: Verify server-name acknowledgment parsing (Windows)
+      - name: Verify TLS name and bounded certificate-chain regressions (Windows)
         if: matrix.use_msys2
         shell: msys2 {0}
-        run: ctest --test-dir build -R '^server_name_ack_test$' --output-on-failure
+        run: ctest --test-dir build -R '^(server_name_ack_test|x509_chain_memory_test)$' --output-on-failure
 
       - name: Verify EC certificate requests independently
         if: matrix.use_msys2 == false
