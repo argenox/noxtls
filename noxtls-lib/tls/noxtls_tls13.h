@@ -72,6 +72,8 @@ typedef uint32_t noxtls_mlkem_param_t;
 extern "C" {
 #endif
 
+struct noxtls_x509_verify_policy;
+
 /* Max extension entries in one ClientHello extensions block (65535 bytes / 4 bytes min per ext). */
 #define TLS13_CLIENTHELLO_EXT_ORDER_MAX 16384u
 #define TLS13_RECORD_WORKSPACE_HALF  (TLS_MAX_RECORD_SIZE + 32U)
@@ -258,6 +260,8 @@ struct tls13_context_s
     /** Server: with \a server_expect_client_sni, send fatal unrecognized_name when set; else warning then continue. */
     uint8_t server_expect_sni_fatal;
     const noxtls_x509_crl_t *verify_crl; /* Optional CRL list for server cert verification (non-owning). */
+    /** Client-only, borrowed explicit server trust/time policy; NULL preserves defaults. */
+    const struct noxtls_x509_verify_policy *server_verify_policy;
 
     /* Runtime cipher preference: 0 = prefer AES-GCM (default), 1 = prefer ChaCha20-Poly1305 */
     uint8_t prefer_chacha20;
@@ -573,6 +577,13 @@ noxtls_return_t noxtls_tls13_set_server_private_falcon(tls13_context_t *ctx,
 void noxtls_tls13_set_crypto_provider_server(tls13_context_t *ctx, const noxtls_crypto_provider_t *provider, noxtls_crypto_key_handle_t server_key_handle);
 /** Set optional CRL chain for certificate revocation checks during peer cert verification. */
 void noxtls_tls13_set_verify_crl(tls13_context_t *ctx, const noxtls_x509_crl_t *crl);
+/** @brief Set a client context's explicit server-certificate policy before connect.
+ * @param[in,out] ctx TLS context, or NULL (ignored).
+ * @param[in] policy Borrowed until context free; NULL restores global trust/system time.
+ * @return None. Server-auth EKU and TLS hostname/CertificateVerify checks remain mandatory.
+ * If a context CRL is also configured it is retained; conflicting CRLs are refused. */
+void noxtls_tls13_set_server_verify_policy(tls13_context_t *ctx,
+    const struct noxtls_x509_verify_policy *policy);
 
 /** Server: request client certificate (mutual TLS). Call before noxtls_tls13_accept. */
 void noxtls_tls13_request_client_auth(tls13_context_t *ctx, int request);

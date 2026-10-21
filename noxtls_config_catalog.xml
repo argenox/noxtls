@@ -905,6 +905,9 @@
           <setting id="NOXTLS_MAX_CERT_CHAIN_DEPTH" name="Max Cert Chain Depth" type="integer" default="16" legacy="false" source-line="1437">
             <description>Maximum certificate-chain traversal depth for trust verification. Used by X.509 trust-chain walking to cap issuer hops and prevent unbounded loops in malformed or adversarial chains. Default: 16.</description>
           </setting>
+          <setting id="NOXTLS_X509_CHAIN_INITIAL_CAPACITY" name="Initial Certificate Chain Capacity" type="integer" default="1U" legacy="false" source-line="1456">
+            <description>Initial owned certificate slots per chain. Chains grow when more are added; this does not limit verification depth. Start with one to avoid reserving eight large parsed-certificate objects for each small trust or presented chain.</description>
+          </setting>
           <setting id="NOXTLS_MAX_CERT_SIZE" name="Max Cert Size" type="integer" default="65536U" legacy="false" source-line="1421">
             <description>Maximum single certificate size in bytes accepted by X.509 parse APIs. Default: 16384. SLH-DSA signatures are large (up to ~50 KB). Allow 64 KB certs by default when SLH-DSA is enabled so the cert+TBS+signature comfortably fits.</description>
           </setting>

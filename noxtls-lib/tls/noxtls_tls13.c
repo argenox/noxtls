@@ -5993,6 +5993,7 @@ static noxtls_return_t tls13_context_init_internal(tls13_context_t *ctx,
     ctx->server_cert_chain_count = 0U;
     ctx->server_cert_parsed = NULL;
     ctx->handshake_messages = NULL;
+    ctx->server_verify_policy = NULL;
     ctx->handshake_messages_len = 0U;
     ctx->client_tls12_downgrade_server_hello = NULL;
     ctx->client_tls12_downgrade_server_hello_len = 0U;
@@ -6609,6 +6610,15 @@ void noxtls_tls13_set_verify_crl(tls13_context_t *ctx, const noxtls_x509_crl_t *
 {
     if(ctx != NULL) {
         ctx->verify_crl = crl;
+    }
+}
+
+/** @copydoc noxtls_tls13_set_server_verify_policy */
+void noxtls_tls13_set_server_verify_policy(tls13_context_t *ctx,
+    const struct noxtls_x509_verify_policy *policy)
+{
+    if(ctx != NULL) {
+        ctx->server_verify_policy = policy;
     }
 }
 
@@ -7259,6 +7269,7 @@ noxtls_return_t noxtls_tls13_context_free(tls13_context_t *ctx)
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
+    ctx->server_verify_policy = NULL;
     
     if(ctx->server_cert != NULL) {
         if(ctx->base.base.role == TLS_ROLE_CLIENT) {
@@ -9002,7 +9013,7 @@ noxtls_return_t noxtls_tls13_recv_encrypted_extensions(tls13_context_t *ctx)
             noxtls_return_t ext_rc;
             (void)noxtls_tls_extensions_free(&ctx->server_extensions);
             noxtls_secure_zero((&ctx->server_extensions), (sizeof(ctx->server_extensions)));
-            ext_rc = noxtls_tls_parse_extensions(&msg[4], msg_len - 4U, &ctx->server_extensions);
+            ext_rc = noxtls_tls_parse_server_extensions(&msg[4], msg_len - 4U, &ctx->server_extensions);
             if(ext_rc != NOXTLS_RETURN_SUCCESS) {
                 (void)noxtls_free(msg);
                 (void)noxtls_tls_extensions_free(&ctx->server_extensions);
@@ -9012,6 +9023,19 @@ noxtls_return_t noxtls_tls13_recv_encrypted_extensions(tls13_context_t *ctx)
                     ext_rc = NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR;
                 }
                 return ext_rc;
+            }
+            /* RFC 8446 Section 4.2: a server cannot acknowledge unoffered SNI. */
+            {
+                tls_extension_t *server_name_ack = NULL;
+                if ((noxtls_tls_find_extension(&ctx->server_extensions, TLS_EXTENSION_SERVER_NAME,
+                        &server_name_ack) == NOXTLS_RETURN_SUCCESS) &&
+                    (server_name_ack != NULL) &&
+                    ((ctx->server_name == NULL) || (ctx->server_name_len == 0U))) {
+                    (void)noxtls_free(msg);
+                    (void)noxtls_tls_extensions_free(&ctx->server_extensions);
+                    noxtls_secure_zero((&ctx->server_extensions), (sizeof(ctx->server_extensions)));
+                    return NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER;
+                }
             }
             /* If server sent early_data extension, 0-RTT was accepted */
             {
@@ -9292,10 +9316,28 @@ noxtls_return_t noxtls_tls13_recv_certificate(tls13_context_t *ctx)
                 return NOXTLS_RETURN_FAILED;
             }
 
-            rc = noxtls_x509_verify_server_cert_trust_ex((x509_certificate_t*)ctx->server_cert_parsed,
+            if(ctx->server_verify_policy != NULL) {
+                noxtls_x509_verify_policy_t effective = *ctx->server_verify_policy;
+                /* A TLS server leaf must allow serverAuth even if the caller
+                 * accidentally selects a different or unrestricted purpose. */
+                effective.required_eku |= X509_EKU_SERVER_AUTH;
+                if((effective.required_eku != X509_EKU_SERVER_AUTH) ||
+                   ((ctx->verify_crl != NULL) && (effective.crl != NULL) &&
+                    (ctx->verify_crl != effective.crl))) {
+                    rc = NOXTLS_RETURN_INVALID_PARAM;
+                } else {
+                    if(effective.crl == NULL) {
+                        effective.crl = ctx->verify_crl;
+                    }
+                    rc = noxtls_x509_verify_cert_with_policy(parsed_cert, &presented_chain,
+                                                               &effective, NULL);
+                }
+            } else {
+                rc = noxtls_x509_verify_server_cert_trust_ex((x509_certificate_t*)ctx->server_cert_parsed,
                                                          &presented_chain,
                                                          ctx->verify_crl,
                                                          NULL);
+            }
             (void)noxtls_x509_certificate_chain_free(&presented_chain);
             if(ctx->force_cert_verify_fail != 0U) {
                 rc = NOXTLS_RETURN_CERT_VERIFY_FAILED;

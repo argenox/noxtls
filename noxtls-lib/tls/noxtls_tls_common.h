@@ -734,6 +734,21 @@ NOXTLS_MSVC_WARNING_POP
 
 /* Extension Parsing Functions */
 noxtls_return_t noxtls_tls_parse_extensions(const uint8_t *data, uint32_t data_len, tls_extensions_t *extensions);
+/**
+ * @brief Parse a server extension list, accepting only empty server-name acknowledgments.
+ *
+ * RFC 6066 Section 3 and RFC 8446 Section 4.2 distinguish the empty server
+ * acknowledgment from the nonempty ClientHello ServerNameList. ClientHello
+ * callers must continue using noxtls_tls_parse_extensions().
+ *
+ * @param[in] data Complete length-prefixed extension list.
+ * @param[in] data_len Number of bytes available.
+ * @param[out] extensions Parsed list; release with noxtls_tls_extensions_free().
+ *
+ * @return Success, allocation failure or a rejected malformed/duplicate list.
+ */
+noxtls_return_t noxtls_tls_parse_server_extensions(const uint8_t *data, uint32_t data_len,
+    tls_extensions_t *extensions);
 noxtls_return_t noxtls_tls_extensions_free(tls_extensions_t *extensions);
 noxtls_return_t noxtls_tls_parse_extension_sni(const uint8_t *data, uint32_t data_len, tls_sni_extension_t *sni);
 noxtls_return_t noxtls_tls_parse_extension_supported_groups(const uint8_t *data, uint32_t data_len, tls_supported_groups_extension_t *groups);

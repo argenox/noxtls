@@ -4,7 +4,7 @@ This directory contains the Zephyr RTOS port for [NoxTLS](https://github.com/arg
 
 Other RTOS ports live alongside this one under `ports/` (for example [`ports/esp-idf`](../esp-idf/README.md)).
 
-## Shared NoxADK libraries on Zephyr
+## Shared Libraries on Zephyr
 
 Use one instance of this module for NoxThread, NetNox and application TLS.
 Do not also register their bundled NoxTLS copies as Zephyr modules. The

@@ -1,4 +1,7 @@
 set(NOXTLS_ROOT_UT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../ut")
+if(TARGET noxtls_tls AND NOT TARGET server_name_ack_test)
+    add_subdirectory(server_name_ack)
+endif()
 option(NOXTLS_BUILD_ACCEL_ERROR_TESTS "Build focused accelerator error-contract UTNox tests" OFF)
 if(NOXTLS_BUILD_ACCEL_ERROR_TESTS)
     add_subdirectory(accel_errors_aes)
