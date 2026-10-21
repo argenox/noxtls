@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "0.3.12",
+      "date": "2026-10-21",
+      "changes": [],
+      "fixed": [
+        "Fix MSVC C test registration and compiler-specific preprocessing in the read-only Ed25519 regression suite."
+      ],
+      "known_issues": [
+        "Physical hardware timing and firmware-update qualification remain pending."
+      ]
+    },
+    {
       "version": "0.3.11",
       "date": "2026-10-21",
       "changes": [

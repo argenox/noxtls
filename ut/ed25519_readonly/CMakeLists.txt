@@ -38,4 +38,5 @@ target_include_directories(ed25519_readonly_generator PRIVATE "${_root}"
     "${_root}/noxtls-lib" "${_root}/noxtls-lib/common" "${_root}/noxtls-lib/mdigest")
 add_test(NAME ed25519_readonly_regeneration
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/check_regeneration.py"
-        "$<TARGET_FILE:ed25519_readonly_generator>" "${CMAKE_C_COMPILER}" "${_root}")
+        "$<TARGET_FILE:ed25519_readonly_generator>" "${CMAKE_C_COMPILER}" "${_root}"
+        "${CMAKE_C_COMPILER_ID}" "${CMAKE_C_COMPILER_FRONTEND_VARIANT}")

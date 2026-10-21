@@ -180,3 +180,22 @@ REGISTER_TEST(ed25519_readonly_public_abi_and_rejection)
     UTNOX_EQUALS(ge25519_decode(&base, invalid), NOXTLS_RETURN_FAILED);
     return 0;
 }
+
+#if defined(_MSC_VER) && !defined(__cplusplus)
+/**
+ * @brief Register all cases when the MSVC C runner has no constructors.
+ * @ingroup noxtls_ed25519
+ * @internal
+ */
+void utnox_register_tests(void)
+{
+    register_test("ed25519_readonly_all_generated_entries",
+        ed25519_readonly_all_generated_entries);
+    register_test("ed25519_readonly_full_width_fixed_base",
+        ed25519_readonly_full_width_fixed_base);
+    register_test("ed25519_readonly_double_scalar_verify_path",
+        ed25519_readonly_double_scalar_verify_path);
+    register_test("ed25519_readonly_public_abi_and_rejection",
+        ed25519_readonly_public_abi_and_rejection);
+}
+#endif
