@@ -9,6 +9,7 @@ option(NOXTLS_ECDSA_SIGN_SELF_VERIFY "Re-verify signatures inside noxtls_ecdsa_s
 option(NOXTLS_ECDSA_SIGN_SKIP_SELF_VERIFY_P256 "Skip sign-time self-verify for 32-byte curves (P-256 class) to improve performance" ON)
 # Force Montgomery ladder only (disable windowed scalar mult). Use to isolate windowed-path bugs.
 option(NOXTLS_ECC_LADDER_ONLY "Use Montgomery ladder only for ECC point multiply (set NOXTLS_ECC_POINT_MUL_WINDOW_SIZE=0)" OFF)
+option(NOXTLS_ED25519_READONLY_SMALL_BASE "Store compact Ed25519 base tables in read-only flash/ROM" OFF)
 option(NOXTLS_ECC_P256_FLASH_PRECOMPUTE "Store the compact P-256 generator precompute table in flash/ROM" OFF)
 option(NOXTLS_ECC_SHARED_SCRATCH "Use externally serialized shared ECC/P-256 inversion scratch" OFF)
 option(NOXTLS_ECC_P256_LOW_RAM_VERIFY "Use flash G precompute plus a compact runtime Q table for P-256 verification" OFF)
@@ -279,6 +280,10 @@ if(NOXTLS_ECC_LADDER_ONLY)
 endif()
 if(NOXTLS_ECC_P256_LOW_RAM_VERIFY AND NOT NOXTLS_ECC_P256_FLASH_PRECOMPUTE)
     message(FATAL_ERROR "NOXTLS_ECC_P256_LOW_RAM_VERIFY requires NOXTLS_ECC_P256_FLASH_PRECOMPUTE=ON")
+endif()
+if(NOXTLS_ED25519_READONLY_SMALL_BASE)
+    target_compile_definitions(noxtls_pkc PRIVATE
+        NOXTLS_ED25519_SMALL_BASE=1 NOXTLS_ED25519_READONLY_SMALL_BASE=1)
 endif()
 if(NOXTLS_ECC_P256_FLASH_PRECOMPUTE)
     target_compile_definitions(noxtls_pkc PUBLIC NOXTLS_ECC_P256_FLASH_PRECOMPUTE=1)

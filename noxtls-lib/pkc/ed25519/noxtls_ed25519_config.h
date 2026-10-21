@@ -161,4 +161,21 @@
 #define NOXTLS_ED25519_SLIDE_MAX_ABS 31
 #endif
 
+/**
+ * Store compact fixed-base and sliding-verify tables in read-only memory.
+ * Default zero preserves lazy RAM initialization and the existing ABI.
+ */
+#ifndef NOXTLS_ED25519_READONLY_SMALL_BASE
+#define NOXTLS_ED25519_READONLY_SMALL_BASE 0
+#endif
+#if NOXTLS_ED25519_READONLY_SMALL_BASE
+#if !defined(NOXTLS_ED25519_SMALL_BASE) || defined(NOXTLS_ED25519_DUMP_BASE)
+#error "Read-only small tables require SMALL_BASE and exclude DUMP_BASE"
+#endif
+#if NOXTLS_ED25519_SCALAR_WINDOW_BITS != 4U || NOXTLS_ED25519_SLIDE_ODD_COUNT != 16U || \
+    NOXTLS_ED25519_SLIDE_MAX_ABS != 31
+#error "Read-only Ed25519 table geometry differs; regenerate and review first"
+#endif
+#endif
+
 #endif /* NOXTLS_ED25519_CONFIG_H_ */
