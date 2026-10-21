@@ -97,13 +97,15 @@ static const uint8_t ed25519_sqrt_minus1[NOXTLS_ED25519_FE25519_BYTES] = {
     0xc4, 0xee, 0x1b, 0x27, 0x4a, 0x0e, 0xa0, 0xb0
 };
 
-/* Base point B encoding (32 bytes LE) per RFC 8032. */
+#if !NOXTLS_ED25519_READONLY_SMALL_BASE
+/* Base point B encoding (32 bytes LE) used by mutable-table initialization. */
 static const uint8_t ed25519_B_encoded[NOXTLS_ED25519_FE25519_BYTES] = {
     0x58, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
     0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
     0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
     0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66
 };
+#endif
 
 /** Completed (p1p1) intermediate: X:Y:Z:T before conversion to extended. */
 typedef struct
@@ -155,6 +157,8 @@ static ge25519_precomp_t g_base_odd[NOXTLS_ED25519_SLIDE_ODD_COUNT];
 static int g_base_odd_ready;
 static ge25519_precomp_t g_base_comb[NOXTLS_ED25519_COMB_BLOCKS][NOXTLS_ED25519_COMB_POINTS];
 static int g_base_comb_ready;
+#elif NOXTLS_ED25519_READONLY_SMALL_BASE
+#include "noxtls_ed25519_small_readonly.inc"
 #elif defined(NOXTLS_ED25519_SMALL_BASE)
 static ge25519_n_t g_base_table_small[NOXTLS_ED25519_SCALAR_TABLE_ENTRIES];
 static int g_base_table_small_ready;
@@ -757,6 +761,9 @@ static void ge25519_n_to_affine(ge25519_n_t *p)
  */
 static noxtls_return_t ge25519_base_odd_init(void)
 {
+#if NOXTLS_ED25519_READONLY_SMALL_BASE
+    return NOXTLS_RETURN_SUCCESS;
+#else
     ge25519_pt_t B_pt;
     ge25519_n_t B;
     ge25519_n_t B2;
@@ -784,6 +791,7 @@ static noxtls_return_t ge25519_base_odd_init(void)
     }
     g_base_odd_ready = 1;
     return NOXTLS_RETURN_SUCCESS;
+#endif
 }
 
 #if defined(NOXTLS_ED25519_DUMP_BASE)
@@ -1124,6 +1132,9 @@ static void ge25519_n_scalarmult_base_comb(ge25519_n_t *r,
 #if defined(NOXTLS_ED25519_SMALL_BASE)
 static noxtls_return_t ge25519_base_table_small_init(void)
 {
+#if NOXTLS_ED25519_READONLY_SMALL_BASE
+    return NOXTLS_RETURN_SUCCESS;
+#else
     ge25519_pt_t B_pt;
     ge25519_n_t B_n;
 
@@ -1137,6 +1148,7 @@ static noxtls_return_t ge25519_base_table_small_init(void)
     ge25519_n_precompute_table(g_base_table_small, &B_n);
     g_base_table_small_ready = 1;
     return NOXTLS_RETURN_SUCCESS;
+#endif
 }
 #endif /* NOXTLS_ED25519_SMALL_BASE */
 

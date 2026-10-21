@@ -1,6 +1,31 @@
 {
   "releases": [
     {
+      "version": "0.3.12",
+      "date": "2026-10-21",
+      "changes": [],
+      "fixed": [
+        "Fix MSVC C test registration and compiler-specific preprocessing in the read-only Ed25519 regression suite."
+      ],
+      "known_issues": [
+        "Physical hardware timing and firmware-update qualification remain pending."
+      ]
+    },
+    {
+      "version": "0.3.11",
+      "date": "2026-10-21",
+      "changes": [
+        "Optional read-only compact Ed25519 base tables eliminate 4,488 bytes of static RAM in the measured Cortex-M33 profile. NOXTLS_ED25519_READONLY_SMALL_BASE defaults to OFF; enabling it selects the existing compact-base algorithm.",
+        "Tables are generated from the in-house implementation and checked byte-for-byte. Default comb and lazy compact paths remain unchanged; all callers must use the same configuration."
+      ],
+      "fixed": [
+        "Unsupported compact-table geometry is rejected at compile time rather than using a mismatched table."
+      ],
+      "known_issues": [
+        "The change has host vector/differential and Cortex-M33 compilation/resource validation. Physical hardware timing and firmware-update qualification are separate application gates."
+      ]
+    },
+    {
       "version": "0.3.9",
       "date": "TBD",
       "changes": [

@@ -117,7 +117,7 @@ noxtls_return_t ge25519_scalar_mult(ge25519_pt_t *R,
                                     const ge25519_pt_t *P);
 
 /**
- * @brief Fixed-base scalar multiplication R = s * B using a lazy precomputed table.
+ * @brief Fixed-base scalar multiplication R = s * B using the selected base table.
  *
  * @param[out] R Result point (BE ABI).
  * @param[in] s_le Little-endian scalar.
