@@ -183,6 +183,19 @@ Generate ECC key pair  Generates a random private key d in range [1, n-1] using 
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success, [NOXTLS_RETURN_NULL](/docs/api/return_codes) if key is NULL
 
+### `noxtls_ecc_key_import_private`
+
+```c
+noxtls_return_t noxtls_ecc_key_import_private(ecc_key_t *key, ecc_curve_t curve_type,
+                                               const uint8_t *private_scalar, uint32_t private_scalar_len);
+```
+
+Import an unsigned big-endian ECC private scalar and derive its public point.
+The scalar must be in `[1, n-1]` and no longer than the curve coordinate size;
+shorter inputs are left-padded with zeroes. `key` must be uninitialized on
+entry. If import fails after initialization, free it with
+`noxtls_ecc_key_free`.
+
 ### `noxtls_ecc_key_free`
 
 ```c

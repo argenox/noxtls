@@ -4793,6 +4793,72 @@ cleanup_keygen:
 }
 
 /**
+ * @brief Import an ECC private scalar and derive its public key.
+ *
+ * The input is an unsigned, big-endian scalar. Values shorter than the curve
+ * coordinate size are left-padded with zeroes. Scalars outside [1, n-1] are
+ * rejected. The key is initialized by this function and must be uninitialized
+ * on entry; if an error occurs after initialization, the caller must free it.
+ *
+ * @param key ECC key to initialize
+ * @param curve_type Curve type
+ * @param private_scalar Big-endian private scalar
+ * @param private_scalar_len Length of private_scalar in bytes
+ * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL for null
+ *         pointers, NOXTLS_RETURN_INVALID_KEY_SIZE for an invalid length,
+ *         NOXTLS_RETURN_INVALID_PARAM for a scalar outside [1, n-1], or an
+ *         error from key initialization or public-key derivation.
+ */
+noxtls_return_t noxtls_ecc_key_import_private(ecc_key_t *key, ecc_curve_t curve_type,
+                                               const uint8_t *private_scalar, uint32_t private_scalar_len)
+{
+    noxtls_return_t rc;
+    uint32_t size;
+
+    if((key == NULL) || (private_scalar == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(private_scalar_len == 0U) {
+        return NOXTLS_RETURN_INVALID_KEY_SIZE;
+    }
+
+    rc = noxtls_ecc_key_init(key, curve_type);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+
+    size = key->curve->size;
+    if((size == 0U) || (size > ECC_MAX_KEY_SIZE) || (private_scalar_len > size)) {
+        rc = NOXTLS_RETURN_INVALID_KEY_SIZE;
+    } else {
+        noxtls_secure_zero(key->d, (size_t)key->d_size);
+        noxtls_copy_u8(key->d + (size - private_scalar_len), (size_t)private_scalar_len,
+                       private_scalar, (size_t)private_scalar_len);
+
+        if(noxtls_bn_is_zero(key->d, size) != 0) {
+            rc = NOXTLS_RETURN_INVALID_PARAM;
+        } else if((noxtls_ecc_curve_order_size(key->curve) == size) &&
+                  (noxtls_bn_cmp(key->d, key->curve->n, size) >= 0)) {
+            rc = NOXTLS_RETURN_INVALID_PARAM;
+        }
+    }
+
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_ecc_point_multiply(&key->Q, key->d, &key->curve->G, key->curve);
+    }
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_ecc_point_validate_public(&key->Q, key->curve);
+    }
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(key->d, (size_t)key->d_size);
+        noxtls_secure_zero(key->Q.x, sizeof(key->Q.x));
+        noxtls_secure_zero(key->Q.y, sizeof(key->Q.y));
+    }
+
+    return rc;
+}
+
+/**
  * @brief Free ECC key
  *
  * @param key ECC key

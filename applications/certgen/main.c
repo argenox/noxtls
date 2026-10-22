@@ -14,6 +14,7 @@
  * Commands: genrsa (generate RSA key), genec (generate EC key), req (certificate request / self-signed cert).
  * genrsa options: -out &lt;name&gt; (writes &lt;name&gt;.key and &lt;name&gt;.pub), -outform DER|PEM, -bits 1024|2048|3072|4096.
  * genec options: -out &lt;name&gt; (writes &lt;name&gt;.key and &lt;name&gt;.pub), -outform DER|PEM,
+ *                -scalar &lt;hex&gt; (import an EC private scalar),
  *                -curve secp192r1|secp224r1|prime256v1|secp384r1|secp521r1|
  *                       brainpoolP256r1|brainpoolP384r1|brainpoolP512r1|
  *                       secp192k1|secp224k1|secp256k1.
@@ -240,7 +241,8 @@ static void print_usage(const uint8_t *prog)
     printf("  -outform DER|PEM Output format for .key (default: PEM). .pub is always PEM.\n");
     printf("  -curve <name>    secp192r1|secp224r1|prime256v1|secp384r1|secp521r1|\n");
     printf("                    brainpoolP256r1|brainpoolP384r1|brainpoolP512r1|\n");
-    printf("                    secp192k1|secp224k1|secp256k1 (default: prime256v1)\n\n");
+    printf("                    secp192k1|secp224k1|secp256k1 (default: prime256v1)\n");
+    printf("  -scalar <hex>    Import a big-endian private scalar (optional 0x prefix; range 1..n-1)\n\n");
 #if NOXTLS_FEATURE_ML_DSA
     printf("genmldsa options:\n");
     printf("  -out <name>      Base name for <name>.key (PKCS#8) and <name>.pub (SPKI). Default: stdout.\n");
@@ -266,6 +268,7 @@ static void print_usage(const uint8_t *prog)
     printf("Examples:\n");
     printf("  %s genrsa -out server -bits 2048     # writes server.key and server.pub\n", prog);
     printf("  %s genec -out client -curve prime256v1   # writes client.key and client.pub\n", prog);
+    printf("  %s genec -out client -curve prime256v1 -scalar 1\n", prog);
     printf("  %s gened25519 -out ed25519key\n", prog);
 #if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
     printf("  %s gened448 -out ed448key\n", prog);
@@ -680,19 +683,67 @@ static int write_der_as_pem(FILE *fp, const uint8_t *der_buf, uint32_t der_len, 
     return 0;
 }
 
+static int certgen_hex_nibble(uint8_t c)
+{
+    if((c >= (uint8_t)'0') && (c <= (uint8_t)'9')) return (int)(c - (uint8_t)'0');
+    if((c >= (uint8_t)'a') && (c <= (uint8_t)'f')) return 10 + (int)(c - (uint8_t)'a');
+    if((c >= (uint8_t)'A') && (c <= (uint8_t)'F')) return 10 + (int)(c - (uint8_t)'A');
+    return -1;
+}
+
+static int certgen_parse_scalar_hex(const uint8_t *text, uint8_t *out, uint32_t out_max, uint32_t *out_len)
+{
+    size_t text_len;
+    size_t i;
+    size_t out_pos = 0U;
+
+    if((text == NULL) || (out == NULL) || (out_len == NULL)) return 0;
+    *out_len = 0U;
+    text_len = strlen((const char *)text);
+    if((text_len >= 2U) && (text[0] == (uint8_t)'0') &&
+       ((text[1] == (uint8_t)'x') || (text[1] == (uint8_t)'X'))) {
+        text += 2;
+        text_len -= 2U;
+    }
+    if((text_len == 0U) || (((text_len + 1U) / 2U) > (size_t)out_max)) return 0;
+
+    if((text_len & 1U) != 0U) {
+        int nibble = certgen_hex_nibble(text[0]);
+        if(nibble < 0) return 0;
+        out[out_pos] = (uint8_t)nibble;
+        out_pos += 1U;
+        i = 1U;
+    } else {
+        i = 0U;
+    }
+    for(; i < text_len; i += 2U) {
+        int hi = certgen_hex_nibble(text[i]);
+        int lo = certgen_hex_nibble(text[i + 1U]);
+        if((hi < 0) || (lo < 0)) {
+            noxtls_secure_zero(out, (size_t)out_max);
+            return 0;
+        }
+        out[out_pos] = (uint8_t)(((uint32_t)hi << 4U) | (uint32_t)lo);
+        out_pos += 1U;
+    }
+    *out_len = (uint32_t)out_pos;
+    return 1;
+}
+
 /**
- * @brief Generate an ECC key
+ * @brief Generate an ECC key or import a private scalar.
  *
  * @param[in] argc The number of arguments
  * @param[in] argv The arguments
  * @param[in] prog The name of the program
- * @return 0 on success, -1 on failure
+ * @return 0 on success, non-zero on failure
  */
 static int cmd_genec(int argc, uint8_t **argv, const uint8_t *prog)
 {
     (void)prog;
     const uint8_t *out_file = NULL;
     const uint8_t *outform = "PEM";
+    const uint8_t *scalar_hex = NULL;
     ecc_curve_t curve_type = NOXTLS_ECC_SECP256R1;
     const uint8_t *curve_oid = oid_secp256r1;
     uint32_t curve_oid_len = sizeof(oid_secp256r1);
@@ -753,14 +804,12 @@ static int cmd_genec(int argc, uint8_t **argv, const uint8_t *prog)
                 fprintf(stderr, "Error: unsupported -curve value '%s'\n", curve);
                 return 1;
             }
+        } else if (noxtls_u8_strcmp(argv[i], "-scalar") == 0 && i + 1 < argc) {
+            scalar_hex = argv[++i];
         }
     }
 
     ecc_key_t key;
-    if (noxtls_ecc_key_init(&key, curve_type) != NOXTLS_RETURN_SUCCESS) {
-        fprintf(stderr, "Error: Failed to init ECC key\n");
-        return 1;
-    }
     {
         const uint8_t *curve_name = "prime256v1";
         switch (curve_type) {
@@ -777,10 +826,30 @@ static int cmd_genec(int argc, uint8_t **argv, const uint8_t *prog)
             case NOXTLS_ECC_SECP256K1: curve_name = "secp256k1"; break;
             default: break;
         }
-        printf("Generating EC private key (%s)\n", curve_name);
+        printf("%s EC private key (%s)\n", (scalar_hex != NULL) ? "Importing" : "Generating", curve_name);
     }
-    if (noxtls_ecc_key_generate(&key, curve_type) != NOXTLS_RETURN_SUCCESS) {
-        fprintf(stderr, "Error: EC key generation failed\n");
+    uint8_t scalar[ECC_MAX_KEY_SIZE];
+    uint32_t scalar_len = 0U;
+    noxtls_return_t key_rc;
+    if(scalar_hex != NULL) {
+        if(!certgen_parse_scalar_hex(scalar_hex, scalar, sizeof(scalar), &scalar_len)) {
+            fprintf(stderr, "Error: -scalar must be non-empty hexadecimal (optionally prefixed with 0x)\n");
+            noxtls_secure_zero(scalar, sizeof(scalar));
+            return 1;
+        }
+        key_rc = noxtls_ecc_key_import_private(&key, curve_type, scalar, scalar_len);
+        noxtls_secure_zero(scalar, sizeof(scalar));
+    } else {
+        key_rc = noxtls_ecc_key_generate(&key, curve_type);
+    }
+    if(key_rc != NOXTLS_RETURN_SUCCESS) {
+        if((scalar_hex != NULL) && (key_rc == NOXTLS_RETURN_INVALID_KEY_SIZE)) {
+            fprintf(stderr, "Error: scalar is too large for the selected curve\n");
+        } else if((scalar_hex != NULL) && (key_rc == NOXTLS_RETURN_INVALID_PARAM)) {
+            fprintf(stderr, "Error: scalar must be in the range 1..n-1 for the selected curve\n");
+        } else {
+            fprintf(stderr, "Error: EC private key import/generation failed (code %u)\n", (unsigned)key_rc);
+        }
         noxtls_ecc_key_free(&key);
         return 1;
     }
