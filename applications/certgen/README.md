@@ -42,12 +42,16 @@ secp-K1 curves and writes the private key to `<name>.key` and the public key
   `secp192r1`, `secp224r1`, `prime256v1` (P-256), `secp384r1`, `secp521r1`,
   `brainpoolP256r1`, `brainpoolP384r1`, `brainpoolP512r1`,
   `secp192k1`, `secp224k1`, `secp256k1`. Default: `prime256v1`.
+- `-scalar <hex>` - Import a big-endian private scalar instead of generating a
+  random one. Hex may include a `0x` prefix and omit leading zero bytes. The
+  scalar must be in the range `1..n-1` for the selected curve.
 
 **Examples:**
 
 ```bash
 certgen genec -out client -curve prime256v1
 certgen genec -out eckey -outform DER -curve secp384r1
+certgen genec -out imported -curve prime256v1 -scalar 1
 ```
 
 ### gened25519 / gened448 – Generate EdDSA key pairs

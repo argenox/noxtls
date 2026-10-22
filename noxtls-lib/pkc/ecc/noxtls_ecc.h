@@ -119,7 +119,7 @@ typedef struct
     uint8_t *d;              /* Private key (scalar) */
     ecc_point_t Q;           /* Public key (point) */
     ecc_curve_params_t *curve; /* Curve parameters */
-    /** Populated by noxtls_ecc_key_init / noxtls_ecc_key_generate; used for TLS 1.3 signature scheme selection. */
+    /** Populated by ECC key initialization, generation, or private-scalar import; used for TLS 1.3 signature scheme selection. */
     ecc_curve_t curve_kind;
     /** Allocated length of @c d in bytes (set by noxtls_ecc_key_init). noxtls_ecc_key_free
      *  wipes exactly this many bytes, independent of @c curve; 0 means unknown (no wipe). */
@@ -200,6 +200,12 @@ int noxtls_ecc_accel_input_echo_ok(void);
 /* Key Management */
 noxtls_return_t noxtls_ecc_key_init(ecc_key_t *key, ecc_curve_t curve_type);
 noxtls_return_t noxtls_ecc_key_generate(ecc_key_t *key, ecc_curve_t curve_type);
+/** Import a big-endian private scalar and derive its public point. The scalar
+ *  must be 1..n-1 and at most the coordinate size in bytes; shorter values are
+ *  left-padded with zeroes. Like key_generate, this initializes @p key, which
+ *  must be uninitialized. If import fails after initialization, free @p key. */
+noxtls_return_t noxtls_ecc_key_import_private(ecc_key_t *key, ecc_curve_t curve_type,
+                                               const uint8_t *private_scalar, uint32_t private_scalar_len);
 noxtls_return_t noxtls_ecc_key_free(ecc_key_t *key);
 
 #ifdef __cplusplus

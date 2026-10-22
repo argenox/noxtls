@@ -71,6 +71,7 @@ static void noxtls_pkc_misra_api_refs(void)
     NOXTLS_MISRA_REF_FN(&noxtls_dsa_verify);
 #endif
 #if NOXTLS_FEATURE_ECC
+    NOXTLS_MISRA_REF_FN(&noxtls_ecc_key_import_private);
     NOXTLS_MISRA_REF_FN(&noxtls_ecc_point_mul_window_size);
     NOXTLS_MISRA_REF_FN(&noxtls_ecc_point_multiply_uses_ref);
 #endif
