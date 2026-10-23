@@ -42,7 +42,7 @@
  * @brief X.509 certificate parsing and verification utility.
  * @defgroup noxtls_app_cert Cert utility
  * @details
- * Operations: read, write, info, convert, verify, keyinfo, keywrite, debug, keydebug.
+ * Operations: read, write, info, convert, verify, keyinfo, keymatch, keywrite, debug, keydebug.
  * Parameters: operation name then options. Options: -i &lt;file&gt; input, -o &lt;file&gt; output,
  * -I der|pem input format, -O der|pem output format, -f der|pem output format,
  * -d debug, -v version/verbose, -h help.
@@ -52,6 +52,7 @@
  * cert convert -i cert.der -I der -o cert.pem -O pem
  * cert verify -i cert.der
  * cert keyinfo -i key.pem
+ * cert keymatch -i cert.pem -k key.pem
  * cert keywrite -i key.der -o key_out.pem -f pem
  * cert -h
  */
@@ -75,6 +76,13 @@
 #include "noxtls_common.h"
 #include "noxtls-lib/certs/noxtls_x509.h"
 #include "noxtls-lib/certs/certificates.h"
+#include "noxtls-lib/pkc/rsa/noxtls_rsa.h"
+#if NOXTLS_FEATURE_ED25519
+#include "noxtls-lib/pkc/ed25519/noxtls_ed25519.h"
+#endif
+#if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+#include "noxtls-lib/pkc/ed448/noxtls_ed448.h"
+#endif
 #include "utility/base64.h"
 #include "noxtls_ct.h"
 
@@ -167,6 +175,7 @@ typedef enum {
     CERT_OP_CONVERT,
     CERT_OP_VERIFY,
     CERT_OP_KEY_INFO,
+    CERT_OP_KEY_MATCH,
     CERT_OP_KEY_WRITE,
     CERT_OP_DEBUG,
     CERT_OP_KEY_DEBUG,
@@ -439,12 +448,14 @@ void print_usage(const uint8_t *name)
     printf("  convert    - Convert certificate between DER and PEM formats\n");
     printf("  verify     - Verify certificate validity\n");
     printf("  keyinfo    - Read and display private key information\n");
+    printf("  keymatch   - Check whether a private key matches a certificate\n");
     printf("  keywrite   - Write private key to file (convert format)\n");
     printf("  debug      - Print detailed debug information about certificate\n");
     printf("  keydebug   - Print detailed debug information about private key\n");
     
     printf("\nCommandline Switches:\n\n");
     printf("  -i <file>      Input file (certificate or private key)\n");
+    printf("  -k <file>      Private key input for keymatch\n");
     printf("  -o <file>      Output file\n");
     printf("  -I <format>    Input format: der, pem, or auto (default: auto)\n");
     printf("  -O <format>    Output format: der or pem\n");
@@ -461,6 +472,7 @@ void print_usage(const uint8_t *name)
     printf("  %s convert -i cert.pem -I pem -o cert.der -O der\n", name);
     printf("  %s verify -i cert.der\n", name);
     printf("  %s keyinfo -i key.pem\n", name);
+    printf("  %s keymatch -i cert.pem -k private.key\n", name);
     printf("  %s keywrite -i key.der -o key_out.pem -f pem\n", name);
     printf("  %s debug -i cert.der\n", name);
     printf("  %s debug -i cert.der -v (verbose with raw data)\n", name);
@@ -954,6 +966,410 @@ noxtls_return_t keyinfo_handler(int argc, uint8_t **argv)
     return NOXTLS_RETURN_SUCCESS;
 }
 
+static void keymatch_trim_integer(const uint8_t **value, uint32_t *value_len)
+{
+    if((value == NULL) || (value_len == NULL) || (*value == NULL)) {
+        return;
+    }
+    while((*value_len > 1U) && ((*value)[0] == 0U)) {
+        *value = &(*value)[1];
+        (*value_len)--;
+    }
+}
+
+static int keymatch_integer_equal(const uint8_t *left, uint32_t left_len,
+                                  const uint8_t *right, uint32_t right_len)
+{
+    keymatch_trim_integer(&left, &left_len);
+    keymatch_trim_integer(&right, &right_len);
+    if((left == NULL) || (right == NULL) || (left_len == 0U) || (right_len == 0U)) {
+        return 0;
+    }
+    return (left_len == right_len) &&
+           (noxtls_ct_memcmp(left, right, (size_t)left_len) == 0);
+}
+
+static const uint8_t s_keymatch_challenge[] = "NoxTLS certificate/private-key match check v1";
+
+static noxtls_return_t keymatch_rsa_signature(const x509_certificate_t *cert,
+                                               const x509_private_key_t *key,
+                                               int *matches)
+{
+    const uint8_t *modulus = cert->rsa_modulus;
+    const uint8_t *exponent = cert->rsa_exponent;
+    uint32_t modulus_len = cert->rsa_modulus_len;
+    uint32_t exponent_len = cert->rsa_exponent_len;
+    rsa_key_size_t rsa_size;
+    rsa_key_t private_rsa;
+    rsa_key_t certificate_rsa;
+    uint8_t signature[RSA_MAX_KEY_SIZE / 8U];
+    uint32_t signature_len = sizeof(signature);
+    noxtls_return_t rc;
+    int private_rsa_ready = 0;
+    int certificate_rsa_ready = 0;
+
+    if((cert->rsa_modulus == NULL) || (cert->rsa_exponent == NULL) ||
+       (key->rsa_modulus == NULL) || (key->rsa_public_exponent == NULL)) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    if(!keymatch_integer_equal(cert->rsa_modulus, cert->rsa_modulus_len,
+                               key->rsa_modulus, key->rsa_modulus_len) ||
+       !keymatch_integer_equal(cert->rsa_exponent, cert->rsa_exponent_len,
+                               key->rsa_public_exponent, key->rsa_public_exponent_len)) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
+
+    keymatch_trim_integer(&modulus, &modulus_len);
+    keymatch_trim_integer(&exponent, &exponent_len);
+    if((modulus_len == 128U)) {
+        rsa_size = RSA_1024_BIT;
+    } else if(modulus_len == 256U) {
+        rsa_size = RSA_2048_BIT;
+    } else if(modulus_len == 384U) {
+        rsa_size = RSA_3072_BIT;
+    } else if(modulus_len == 512U) {
+        rsa_size = RSA_4096_BIT;
+    } else {
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+    }
+
+    rc = noxtls_x509_private_key_to_rsa_key(key, &private_rsa);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+    private_rsa_ready = 1;
+    rc = noxtls_rsa_key_init(&certificate_rsa, rsa_size);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        certificate_rsa_ready = 1;
+        if((modulus_len > certificate_rsa.key_bytes) ||
+           (exponent_len > certificate_rsa.key_bytes)) {
+            rc = NOXTLS_RETURN_BAD_DATA;
+        } else {
+            memcpy(&certificate_rsa.n[certificate_rsa.key_bytes - modulus_len], modulus, modulus_len);
+            memcpy(&certificate_rsa.e[certificate_rsa.key_bytes - exponent_len], exponent, exponent_len);
+            rc = noxtls_rsa_sign(&private_rsa, s_keymatch_challenge,
+                                 (uint32_t)(sizeof(s_keymatch_challenge) - 1U),
+                                 signature, &signature_len, NOXTLS_HASH_SHA_256);
+            if(rc == NOXTLS_RETURN_SUCCESS) {
+                rc = noxtls_rsa_verify(&certificate_rsa, s_keymatch_challenge,
+                                       (uint32_t)(sizeof(s_keymatch_challenge) - 1U),
+                                       signature, signature_len, NOXTLS_HASH_SHA_256);
+                if(rc == NOXTLS_RETURN_SUCCESS) {
+                    *matches = 1;
+                } else if((rc == NOXTLS_RETURN_FAILED) || (rc == NOXTLS_RETURN_BAD_DATA)) {
+                    *matches = 0;
+                    rc = NOXTLS_RETURN_SUCCESS;
+                }
+            }
+        }
+    }
+
+    noxtls_secure_zero(signature, sizeof(signature));
+    if(certificate_rsa_ready != 0) {
+        (void)noxtls_rsa_key_free(&certificate_rsa);
+    }
+    if(private_rsa_ready != 0) {
+        (void)noxtls_rsa_key_free(&private_rsa);
+    }
+    return rc;
+}
+
+#if NOXTLS_FEATURE_ML_DSA || NOXTLS_FEATURE_SLH_DSA || NOXTLS_FEATURE_FALCON
+static noxtls_return_t keymatch_pqc_signature(const x509_certificate_t *cert,
+                                               const x509_private_key_t *key,
+                                               int *matches)
+{
+    noxtls_return_t rc = NOXTLS_RETURN_NOT_SUPPORTED;
+    uint32_t signature_max = 0U;
+    uint32_t signature_len = 0U;
+    uint8_t *signature = NULL;
+
+    if((cert == NULL) || (key == NULL) || (matches == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    if(key->key_type == X509_PRIVATE_KEY_ML_DSA) {
+#if NOXTLS_FEATURE_ML_DSA
+        if((cert->has_mldsa == 0U) || (cert->mldsa_param != (noxtls_mldsa_param_t)key->pqc_param)) {
+            return NOXTLS_RETURN_SUCCESS;
+        }
+        signature_max = noxtls_mldsa_signature_len((noxtls_mldsa_param_t)key->pqc_param);
+#else
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+    } else if(key->key_type == X509_PRIVATE_KEY_SLH_DSA) {
+#if NOXTLS_FEATURE_SLH_DSA
+        if((cert->has_slhdsa == 0U) || (cert->slhdsa_param != (noxtls_slhdsa_param_t)key->pqc_param)) {
+            return NOXTLS_RETURN_SUCCESS;
+        }
+        signature_max = noxtls_slhdsa_signature_len((noxtls_slhdsa_param_t)key->pqc_param);
+#else
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+    } else if(key->key_type == X509_PRIVATE_KEY_FALCON) {
+#if NOXTLS_FEATURE_FALCON
+        if((cert->has_falcon == 0U) || (cert->falcon_param != (noxtls_falcon_param_t)key->pqc_param)) {
+            return NOXTLS_RETURN_SUCCESS;
+        }
+        signature_max = noxtls_falcon_signature_len((noxtls_falcon_param_t)key->pqc_param);
+#else
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+    } else {
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+    }
+
+    if((signature_max == 0U) || (key->raw_data == NULL) || (key->raw_data_len == 0U)) {
+        return NOXTLS_RETURN_BAD_DATA;
+    }
+    signature = (uint8_t *)malloc((size_t)signature_max);
+    if(signature == NULL) {
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+    }
+
+    rc = noxtls_x509_private_key_sign_data(key->raw_data, key->raw_data_len,
+                                           s_keymatch_challenge, (uint32_t)(sizeof(s_keymatch_challenge) - 1U),
+                                           NOXTLS_HASH_SHA_256, signature, signature_max,
+                                           &signature_len);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        if(key->key_type == X509_PRIVATE_KEY_ML_DSA) {
+#if NOXTLS_FEATURE_ML_DSA
+            rc = noxtls_mldsa_verify((noxtls_mldsa_param_t)key->pqc_param,
+                                     cert->mldsa_public_key, s_keymatch_challenge,
+                                     (uint32_t)(sizeof(s_keymatch_challenge) - 1U),
+                                     signature, signature_len);
+#else
+            rc = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+        } else if(key->key_type == X509_PRIVATE_KEY_SLH_DSA) {
+#if NOXTLS_FEATURE_SLH_DSA
+            rc = noxtls_slhdsa_verify((noxtls_slhdsa_param_t)key->pqc_param,
+                                      cert->slhdsa_public_key, s_keymatch_challenge,
+                                      (uint32_t)(sizeof(s_keymatch_challenge) - 1U),
+                                      signature, signature_len);
+#else
+            rc = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+        } else {
+#if NOXTLS_FEATURE_FALCON
+            rc = noxtls_falcon_verify((noxtls_falcon_param_t)key->pqc_param,
+                                      cert->falcon_public_key, s_keymatch_challenge,
+                                      (uint32_t)(sizeof(s_keymatch_challenge) - 1U),
+                                      signature, signature_len);
+#else
+            rc = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+        }
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            *matches = 1;
+        } else if((rc == NOXTLS_RETURN_FAILED) || (rc == NOXTLS_RETURN_BAD_DATA)) {
+            /* A validly parsed but unrelated certificate key fails verification. */
+            *matches = 0;
+            rc = NOXTLS_RETURN_SUCCESS;
+        }
+    }
+
+    noxtls_secure_zero(signature, (size_t)signature_max);
+    free(signature);
+    return rc;
+}
+#endif
+
+static noxtls_return_t certificate_matches_private_key(const x509_certificate_t *cert,
+                                                        const x509_private_key_t *key,
+                                                        int *matches)
+{
+    if((cert == NULL) || (key == NULL) || (matches == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+    *matches = 0;
+
+    if(key->key_type == X509_PRIVATE_KEY_RSA) {
+        return keymatch_rsa_signature(cert, key, matches);
+    }
+
+    if(key->key_type == X509_PRIVATE_KEY_ECC) {
+        noxtls_return_t rc;
+        void *cert_key = NULL;
+        uint32_t cert_key_type = 0U;
+        ecc_key_t private_key_ec;
+        ecc_key_t derived_key;
+        ecc_key_t *cert_key_ec;
+
+        if((cert->ecc_public_key == NULL) || (cert->ecc_public_key_len == 0U)) {
+            return NOXTLS_RETURN_SUCCESS;
+        }
+        rc = noxtls_x509_certificate_get_public_key(cert, &cert_key, &cert_key_type);
+        if((rc != NOXTLS_RETURN_SUCCESS) || (cert_key == NULL) || (cert_key_type != 2U)) {
+            if(cert_key != NULL) {
+                cert_key_ec = (ecc_key_t *)cert_key;
+                (void)noxtls_ecc_key_free(cert_key_ec);
+                (void)noxtls_free(cert_key_ec);
+            }
+            return (rc == NOXTLS_RETURN_SUCCESS) ? NOXTLS_RETURN_BAD_DATA : rc;
+        }
+        cert_key_ec = (ecc_key_t *)cert_key;
+
+        rc = noxtls_x509_private_key_to_ecc_key(key, &private_key_ec);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            (void)noxtls_ecc_key_free(cert_key_ec);
+            (void)noxtls_free(cert_key_ec);
+            return rc;
+        }
+
+        if(private_key_ec.curve_kind == cert_key_ec->curve_kind) {
+            if((private_key_ec.Q.size == cert_key_ec->Q.size) && (private_key_ec.Q.size > 0U)) {
+                *matches = (noxtls_ct_memcmp(private_key_ec.Q.x, cert_key_ec->Q.x,
+                                              (size_t)private_key_ec.Q.size) == 0) &&
+                           (noxtls_ct_memcmp(private_key_ec.Q.y, cert_key_ec->Q.y,
+                                             (size_t)private_key_ec.Q.size) == 0);
+            } else {
+                memset(&derived_key, 0, sizeof(derived_key));
+                rc = noxtls_ecc_key_import_private(&derived_key, private_key_ec.curve_kind,
+                                                    key->ecc_private_key,
+                                                    key->ecc_private_key_len);
+                if(rc == NOXTLS_RETURN_SUCCESS) {
+                    *matches = (derived_key.Q.size == cert_key_ec->Q.size) &&
+                               (noxtls_ct_memcmp(derived_key.Q.x, cert_key_ec->Q.x,
+                                                 (size_t)derived_key.Q.size) == 0) &&
+                               (noxtls_ct_memcmp(derived_key.Q.y, cert_key_ec->Q.y,
+                                                 (size_t)derived_key.Q.size) == 0);
+                }
+                (void)noxtls_ecc_key_free(&derived_key);
+            }
+        }
+
+        (void)noxtls_ecc_key_free(&private_key_ec);
+        (void)noxtls_ecc_key_free(cert_key_ec);
+        (void)noxtls_free(cert_key_ec);
+        return rc;
+    }
+
+    if(key->key_type == X509_PRIVATE_KEY_ED25519) {
+#if NOXTLS_FEATURE_ED25519
+        const uint8_t *seed;
+        uint32_t seed_len = 0U;
+        uint8_t derived_public[NOXTLS_ED25519_PUBLIC_KEY_SIZE];
+        noxtls_return_t rc;
+        if(cert->has_ed25519 == 0U) {
+            return NOXTLS_RETURN_SUCCESS;
+        }
+        seed = noxtls_x509_private_key_get_eddsa_seed(key, &seed_len);
+        if((seed == NULL) || (seed_len != NOXTLS_ED25519_PRIVATE_KEY_SIZE)) {
+            return NOXTLS_RETURN_BAD_DATA;
+        }
+        rc = noxtls_ed25519_public_key(seed, derived_public);
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            *matches = noxtls_ct_memcmp(derived_public, cert->ed25519_public_key,
+                                        sizeof(derived_public)) == 0;
+        }
+        noxtls_secure_zero(derived_public, sizeof(derived_public));
+        return rc;
+#else
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+    }
+
+    if(key->key_type == X509_PRIVATE_KEY_ED448) {
+#if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
+        const uint8_t *seed;
+        uint32_t seed_len = 0U;
+        uint8_t derived_public[NOXTLS_ED448_PUBLIC_KEY_SIZE];
+        noxtls_return_t rc;
+        if(cert->has_ed448 == 0U) {
+            return NOXTLS_RETURN_SUCCESS;
+        }
+        seed = noxtls_x509_private_key_get_eddsa_seed(key, &seed_len);
+        if((seed == NULL) || (seed_len != NOXTLS_ED448_PRIVATE_KEY_SIZE)) {
+            return NOXTLS_RETURN_BAD_DATA;
+        }
+        rc = noxtls_ed448_public_key(seed, derived_public);
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            *matches = noxtls_ct_memcmp(derived_public, cert->ed448_public_key,
+                                        sizeof(derived_public)) == 0;
+        }
+        noxtls_secure_zero(derived_public, sizeof(derived_public));
+        return rc;
+#else
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+    }
+
+#if NOXTLS_FEATURE_ML_DSA || NOXTLS_FEATURE_SLH_DSA || NOXTLS_FEATURE_FALCON
+    if((key->key_type == X509_PRIVATE_KEY_ML_DSA) ||
+       (key->key_type == X509_PRIVATE_KEY_SLH_DSA) ||
+       (key->key_type == X509_PRIVATE_KEY_FALCON)) {
+        return keymatch_pqc_signature(cert, key, matches);
+    }
+#endif
+
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+}
+
+static noxtls_return_t keymatch_handler(int argc, uint8_t **argv)
+{
+    const uint8_t *cert_file = NULL;
+    const uint8_t *key_file = NULL;
+    x509_certificate_t cert;
+    x509_private_key_t key;
+    noxtls_return_t rc;
+    int matches = 0;
+    int c;
+
+    while((c = noxtls_getopt(argc, APP_GETOPT_ARGV(argv), "i:k:")) != -1) {
+        switch(c) {
+            case 'i':
+                cert_file = optarg;
+                break;
+            case 'k':
+                key_file = optarg;
+                break;
+            default:
+                return NOXTLS_RETURN_INVALID_PARAM;
+        }
+    }
+    if((cert_file == NULL) || (key_file == NULL)) {
+        printf("Error: certificate (-i) and private key (-k) are required\n");
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+
+    (void)noxtls_x509_certificate_init(&cert);
+    (void)noxtls_x509_private_key_init(&key);
+    rc = noxtls_x509_certificate_load_file(&cert, cert_file);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        printf("Error: Cannot load certificate from %s\n", cert_file);
+        print_return_reason(rc, "Invalid certificate data");
+        (void)noxtls_x509_certificate_free(&cert);
+        (void)noxtls_x509_private_key_free(&key);
+        return rc;
+    }
+    rc = noxtls_x509_private_key_load_file(&key, key_file);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        printf("Error: Cannot load private key from %s\n", key_file);
+        print_return_reason(rc, "Invalid private key data");
+        (void)noxtls_x509_certificate_free(&cert);
+        (void)noxtls_x509_private_key_free(&key);
+        return rc;
+    }
+
+    rc = certificate_matches_private_key(&cert, &key, &matches);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        if(matches != 0) {
+            printf("Private key matches the certificate public key.\n");
+        } else {
+            printf("Private key does not match the certificate public key.\n");
+            rc = NOXTLS_RETURN_FAILED;
+        }
+    } else {
+        printf("Error: NoxTLS could not compare this private key and certificate\n");
+        print_return_reason(rc, "Key match operation failed");
+    }
+
+    (void)noxtls_x509_certificate_free(&cert);
+    (void)noxtls_x509_private_key_free(&key);
+    return rc;
+}
+
 /**
  * @brief Write the private key handler
  *
@@ -1275,6 +1691,8 @@ int main(int argc, char **argv)
         op = CERT_OP_VERIFY;
     } else if(noxtls_u8_strcmp(argv[1], "keyinfo") == 0) {
         op = CERT_OP_KEY_INFO;
+    } else if(noxtls_u8_strcmp(argv[1], "keymatch") == 0) {
+        op = CERT_OP_KEY_MATCH;
     } else if(noxtls_u8_strcmp(argv[1], "keywrite") == 0) {
         op = CERT_OP_KEY_WRITE;
     } else if(noxtls_u8_strcmp(argv[1], "debug") == 0) {
@@ -1319,6 +1737,9 @@ int main(int argc, char **argv)
         case CERT_OP_KEY_INFO:
             rc = keyinfo_handler(argc, op_argv);
             break;
+        case CERT_OP_KEY_MATCH:
+            rc = keymatch_handler(argc, op_argv);
+            break;
         case CERT_OP_KEY_WRITE:
             rc = keywrite_handler(argc, op_argv);
             break;
@@ -1333,9 +1754,6 @@ int main(int argc, char **argv)
             return -1;
     }
     
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return -1;
-    }
-    
-    return 0;
+    app_workspace_reset();
+    return (rc != NOXTLS_RETURN_SUCCESS) ? -1 : 0;
 }

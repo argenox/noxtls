@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.3.14",
+      "date": "2026-10-22",
+      "changes": [
+        "The cert utility can verify that a parsed RSA, ECC, EdDSA, or enabled post-quantum private key matches the public key in an X.509 certificate using NoxTLS.",
+        "certgen genec warns when importing a caller-supplied EC scalar, showing its bit length and cautioning that small or predictable values can be brute-forced."
+      ],
+      "fixed": [],
+      "known_issues": []
+    },
+    {
       "version": "0.3.13",
       "date": "2026-10-22",
       "changes": [

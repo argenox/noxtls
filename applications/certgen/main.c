@@ -242,7 +242,8 @@ static void print_usage(const uint8_t *prog)
     printf("  -curve <name>    secp192r1|secp224r1|prime256v1|secp384r1|secp521r1|\n");
     printf("                    brainpoolP256r1|brainpoolP384r1|brainpoolP512r1|\n");
     printf("                    secp192k1|secp224k1|secp256k1 (default: prime256v1)\n");
-    printf("  -scalar <hex>    Import a big-endian private scalar (optional 0x prefix; range 1..n-1)\n\n");
+    printf("  -scalar <hex>    Import a big-endian scalar (optional 0x prefix; range 1..n-1)\n");
+    printf("                   Imported scalars are not randomized; small or predictable values create weak keys.\n\n");
 #if NOXTLS_FEATURE_ML_DSA
     printf("genmldsa options:\n");
     printf("  -out <name>      Base name for <name>.key (PKCS#8) and <name>.pub (SPKI). Default: stdout.\n");
@@ -268,7 +269,6 @@ static void print_usage(const uint8_t *prog)
     printf("Examples:\n");
     printf("  %s genrsa -out server -bits 2048     # writes server.key and server.pub\n", prog);
     printf("  %s genec -out client -curve prime256v1   # writes client.key and client.pub\n", prog);
-    printf("  %s genec -out client -curve prime256v1 -scalar 1\n", prog);
     printf("  %s gened25519 -out ed25519key\n", prog);
 #if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
     printf("  %s gened448 -out ed448key\n", prog);
@@ -730,6 +730,31 @@ static int certgen_parse_scalar_hex(const uint8_t *text, uint8_t *out, uint32_t 
     return 1;
 }
 
+static uint32_t certgen_scalar_bit_length(const uint8_t *value, uint32_t value_len)
+{
+    uint32_t bits;
+    uint8_t first;
+
+    if(value == NULL) {
+        return 0U;
+    }
+    while((value_len > 0U) && (value[0] == 0U)) {
+        value++;
+        value_len--;
+    }
+    if(value_len == 0U) {
+        return 0U;
+    }
+
+    bits = value_len * 8U;
+    first = value[0];
+    while((first & 0x80U) == 0U) {
+        first = (uint8_t)(first << 1U);
+        bits--;
+    }
+    return bits;
+}
+
 /**
  * @brief Generate an ECC key or import a private scalar.
  *
@@ -852,6 +877,19 @@ static int cmd_genec(int argc, uint8_t **argv, const uint8_t *prog)
         }
         noxtls_ecc_key_free(&key);
         return 1;
+    }
+
+    if(scalar_hex != NULL) {
+        uint32_t scalar_bits = certgen_scalar_bit_length(key.d, key.d_size);
+        uint32_t order_bits = 0U;
+        if((key.curve != NULL) && (key.curve->n != NULL)) {
+            order_bits = certgen_scalar_bit_length(key.curve->n,
+                                                   noxtls_ecc_curve_order_size(key.curve));
+        }
+        fprintf(stderr, "WARNING: Imported EC scalar is %u bit%s for a %u-bit curve order.\n",
+                (unsigned)scalar_bits, (scalar_bits == 1U) ? "" : "s", (unsigned)order_bits);
+        fprintf(stderr, "NoxTLS uses the supplied value as-is. Small or predictable scalars can be brute-forced.\n");
+        fprintf(stderr, "Use NoxTLS-generated keys for production.\n");
     }
 
     uint8_t der_buf[SEC1_ECC_MAX_BYTES];
