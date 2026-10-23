@@ -84,6 +84,7 @@ typedef uint32_t tls13_server_handshake_step_t;
 #include "common/noxtls_ct.h"
 #include "noxtls_tls13.h"
 #include "noxtls_tls13_psk.h"
+#include "noxtls_dtls13_epoch_policy.h"
 #include "drbg/noxtls_drbg.h"
 #include "certs/noxtls_x509.h"
 #include "noxtls_tls_kdf.h"
@@ -5548,6 +5549,24 @@ static noxtls_return_t tls13_recv_handshake_message(tls13_context_t *ctx, uint8_
                     (void)noxtls_free(record.data);
                     return NOXTLS_RETURN_BAD_DATA;
                 }
+
+                /* RFC 9147 Section 5.8.1: discard initial application-epoch
+                 * records until peer Finished installs their read keys. Do not
+                 * attempt AEAD with handshake keys or advance replay state. */
+                if(noxtls_dtls13_application_epoch_pending(
+                       ctx->base.base.state == TLS_STATE_HANDSHAKING,
+                       ctx->base.read_connection_epoch,
+                       (uint8_t)(record.data[offset] & DTLS13_UNIFIED_EPOCH_MASK))) {
+                    offset += rec_size;
+                    ++replay_discards;
+                    if(replay_discards >= DTLS12_MAX_RECORDS_PER_READ) {
+                        (void)noxtls_free(record.data);
+                        return NOXTLS_RETURN_TIMEOUT;
+                    }
+
+                    continue;
+                }
+
                 {
                     uint8_t inner_type = 0U;
                     uint32_t inner_len = rec_size;
