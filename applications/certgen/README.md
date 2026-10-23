@@ -46,12 +46,16 @@ secp-K1 curves and writes the private key to `<name>.key` and the public key
   random one. Hex may include a `0x` prefix and omit leading zero bytes. The
   scalar must be in the range `1..n-1` for the selected curve.
 
+When `-scalar` is used, `certgen` prints a warning to stderr with the scalar's
+significant bit length and the curve order size. NoxTLS uses the supplied value
+as-is and does not add entropy; small or predictable values can be brute-forced.
+For production keys, omit `-scalar` and let NoxTLS generate a random key.
+
 **Examples:**
 
 ```bash
 certgen genec -out client -curve prime256v1
 certgen genec -out eckey -outform DER -curve secp384r1
-certgen genec -out imported -curve prime256v1 -scalar 1
 ```
 
 ### gened25519 / gened448 – Generate EdDSA key pairs
