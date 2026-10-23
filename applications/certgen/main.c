@@ -886,8 +886,8 @@ static int cmd_genec(int argc, uint8_t **argv, const uint8_t *prog)
             order_bits = certgen_scalar_bit_length(key.curve->n,
                                                    noxtls_ecc_curve_order_size(key.curve));
         }
-        fprintf(stderr, "WARNING: Imported EC scalar is %u bits for a %u-bit curve order.\n",
-                (unsigned)scalar_bits, (unsigned)order_bits);
+        fprintf(stderr, "WARNING: Imported EC scalar is %u bit%s for a %u-bit curve order.\n",
+                (unsigned)scalar_bits, (scalar_bits == 1U) ? "" : "s", (unsigned)order_bits);
         fprintf(stderr, "NoxTLS uses the supplied value as-is. Small or predictable scalars can be brute-forced.\n");
         fprintf(stderr, "Use NoxTLS-generated keys for production.\n");
     }
