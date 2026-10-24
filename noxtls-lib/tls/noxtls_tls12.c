@@ -4703,7 +4703,7 @@ noxtls_return_t noxtls_tls12_recv_certificate(tls12_context_t *ctx)
                     uint32_t issuer_len = ((uint32_t)hs_msg[chain_pos] << 16U) |
                                           ((uint32_t)hs_msg[chain_pos + 1U] << 8U) |
                                           (uint32_t)hs_msg[chain_pos + 2U];
-                    x509_certificate_t issuer_cert;
+                    x509_certificate_t *issuer_cert = NULL;
                     chain_pos += 3U;
                     if((issuer_len == 0U) || ((chain_pos + issuer_len) > chain_end)) {
                         (void)noxtls_x509_certificate_chain_free(&presented_chain);
@@ -4711,17 +4711,26 @@ noxtls_return_t noxtls_tls12_recv_certificate(tls12_context_t *ctx)
                         return NOXTLS_RETURN_FAILED;
                     }
 
-                    (void)noxtls_x509_certificate_init(&issuer_cert);
-                    rc = noxtls_x509_certificate_parse_der(&issuer_cert, &hs_msg[chain_pos], issuer_len);
+                    /* Heap, not stack: an x509_certificate_t is several KiB. */
+                    issuer_cert = (x509_certificate_t *)NOXTLS_MALLOC(sizeof(x509_certificate_t));
+                    if(issuer_cert == NULL) {
+                        (void)noxtls_x509_certificate_chain_free(&presented_chain);
+                        (void)noxtls_free(hs_msg);
+                        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+                    }
+                    (void)noxtls_x509_certificate_init(issuer_cert);
+                    rc = noxtls_x509_certificate_parse_der(issuer_cert, &hs_msg[chain_pos], issuer_len);
                     if(rc != NOXTLS_RETURN_SUCCESS) {
-                        (void)noxtls_x509_certificate_free(&issuer_cert);
+                        (void)noxtls_x509_certificate_free(issuer_cert);
+                        (void)noxtls_free(issuer_cert);
                         (void)noxtls_x509_certificate_chain_free(&presented_chain);
                         (void)noxtls_free(hs_msg);
                         return rc;
                     }
 
-                    rc = noxtls_x509_certificate_chain_add(&presented_chain, &issuer_cert);
-                    (void)noxtls_x509_certificate_free(&issuer_cert);
+                    rc = noxtls_x509_certificate_chain_add(&presented_chain, issuer_cert);
+                    (void)noxtls_x509_certificate_free(issuer_cert);
+                    (void)noxtls_free(issuer_cert);
                     if(rc != NOXTLS_RETURN_SUCCESS) {
                         (void)noxtls_x509_certificate_chain_free(&presented_chain);
                         (void)noxtls_free(hs_msg);
@@ -9713,7 +9722,7 @@ static noxtls_return_t tls12_recv_client_certificate(tls12_context_t *ctx, int *
             uint32_t issuer_len = ((uint32_t)msg[chain_pos] << 16U) |
                                   ((uint32_t)msg[chain_pos + 1U] << 8U) |
                                   (uint32_t)msg[chain_pos + 2U];
-            x509_certificate_t issuer_cert;
+            x509_certificate_t *issuer_cert = NULL;
             chain_pos += 3U;
             if((issuer_len == 0U) || ((chain_pos + issuer_len) > chain_end)) {
                 (void)noxtls_x509_certificate_free(parsed);
@@ -9722,12 +9731,22 @@ static noxtls_return_t tls12_recv_client_certificate(tls12_context_t *ctx, int *
                 (void)noxtls_free(msg);
                 return NOXTLS_RETURN_BAD_DATA;
             }
-            (void)noxtls_x509_certificate_init(&issuer_cert);
-            rc = noxtls_x509_certificate_parse_der(&issuer_cert, &msg[chain_pos], issuer_len);
-            if(rc == NOXTLS_RETURN_SUCCESS) {
-                rc = noxtls_x509_certificate_chain_add(&presented_chain, &issuer_cert);
+            /* Heap, not stack: an x509_certificate_t is several KiB. */
+            issuer_cert = (x509_certificate_t *)NOXTLS_MALLOC(sizeof(x509_certificate_t));
+            if(issuer_cert == NULL) {
+                (void)noxtls_x509_certificate_free(parsed);
+                (void)noxtls_free(parsed);
+                (void)noxtls_x509_certificate_chain_free(&presented_chain);
+                (void)noxtls_free(msg);
+                return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
             }
-            (void)noxtls_x509_certificate_free(&issuer_cert);
+            (void)noxtls_x509_certificate_init(issuer_cert);
+            rc = noxtls_x509_certificate_parse_der(issuer_cert, &msg[chain_pos], issuer_len);
+            if(rc == NOXTLS_RETURN_SUCCESS) {
+                rc = noxtls_x509_certificate_chain_add(&presented_chain, issuer_cert);
+            }
+            (void)noxtls_x509_certificate_free(issuer_cert);
+            (void)noxtls_free(issuer_cert);
             if(rc != NOXTLS_RETURN_SUCCESS) {
                 (void)noxtls_x509_certificate_free(parsed);
                 (void)noxtls_free(parsed);

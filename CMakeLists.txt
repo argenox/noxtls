@@ -22,6 +22,7 @@ option(NOXTLS_BUILD_REGRESSION_TESTS "Build focused cryptographic regression tes
 option(NOXTLS_BUILD_SERVER_NAME_ACK_TESTS "Build direction-specific TLS server-name acknowledgment tests" OFF)
 option(NOXTLS_BUILD_X509_CHAIN_MEMORY_TESTS "Build bounded X.509 chain allocation tests" OFF)
 option(NOXTLS_BUILD_DTLS13_RECOVERY_TESTS "Build focused DTLS 1.3 loss and allocation tests" OFF)
+option(NOXTLS_BUILD_TLS13_PEER_CERT_TESTS "Build TLS 1.3 PSK-versus-certificate peer authentication tests" OFF)
 option(NOXTLS_BUILD_MACOS_APPLICATION_SLICES
   "macOS only: build applications for arm64 and x86_64 (target noxtls_macos_application_slices; outputs under binary-<arch>/)"
   OFF)
@@ -523,6 +524,10 @@ if(NOXTLS_BUILD_DTLS13_RECOVERY_TESTS)
   enable_testing()
   add_subdirectory(ut/dtls13_recovery)
   add_subdirectory(ut/key_share_memory)
+endif()
+if(NOXTLS_BUILD_TLS13_PEER_CERT_TESTS)
+  enable_testing()
+  add_subdirectory(ut/tls13_peer_cert)
 endif()
 if(BUILD_TESTS)
   enable_testing()

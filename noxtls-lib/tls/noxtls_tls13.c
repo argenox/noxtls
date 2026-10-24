@@ -83,6 +83,7 @@ typedef uint32_t tls13_server_handshake_step_t;
 #include "common/noxtls_debug_printf.h"
 #include "common/noxtls_ct.h"
 #include "noxtls_tls13.h"
+#include "noxtls_tls13_config.h"
 #include "noxtls_tls13_psk.h"
 #include "noxtls_dtls13_epoch_policy.h"
 #include "drbg/noxtls_drbg.h"
@@ -6815,12 +6816,21 @@ noxtls_return_t noxtls_tls13_set_server_private_falcon(tls13_context_t *ctx,
  */
 void noxtls_tls13_request_client_auth(tls13_context_t *ctx, int request)
 {
+#if !NOXTLS_TLS13_PEER_CERTIFICATES
+    /* PSK-only build: never send CertificateRequest. */
+    (void)request;
+    if(ctx != NULL) {
+        ctx->request_client_auth = 0U;
+        ctx->require_client_auth = 0U;
+    }
+#else
     if(ctx != NULL) {
         ctx->request_client_auth = (request != 0) ? 1U : 0U;
         if(request == 0) {
             ctx->require_client_auth = 0U;
         }
     }
+#endif
 }
 
 /**
@@ -6830,6 +6840,14 @@ void noxtls_tls13_request_client_auth(tls13_context_t *ctx, int request)
  */
 void noxtls_tls13_require_client_auth(tls13_context_t *ctx, int require)
 {
+#if !NOXTLS_TLS13_PEER_CERTIFICATES
+    /* PSK-only build: never send CertificateRequest. */
+    (void)require;
+    if(ctx != NULL) {
+        ctx->request_client_auth = 0U;
+        ctx->require_client_auth = 0U;
+    }
+#else
     if(ctx != NULL) {
         ctx->require_client_auth = (require != 0) ? 1U : 0U;
         if(require != 0) {
@@ -6837,6 +6855,7 @@ void noxtls_tls13_require_client_auth(tls13_context_t *ctx, int require)
             ctx->request_client_auth = 1U;
         }
     }
+#endif
 }
 
 void noxtls_tls13_set_force_cert_verify_fail(tls13_context_t *ctx, int enable)
@@ -9168,6 +9187,11 @@ noxtls_return_t noxtls_tls13_recv_certificate_request(tls13_context_t *ctx)
  */
 noxtls_return_t noxtls_tls13_recv_certificate(tls13_context_t *ctx)
 {
+#if !NOXTLS_TLS13_PEER_CERTIFICATES
+    /* PSK-only build: a server Certificate is never parsed. */
+    (void)ctx;
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+#else
     uint8_t *msg = NULL;
     uint32_t msg_len = 0U;
     uint32_t cert_list_len = 0U;
@@ -9278,7 +9302,7 @@ noxtls_return_t noxtls_tls13_recv_certificate(tls13_context_t *ctx)
                 uint32_t issuer_len = ((uint32_t)msg[offset] << 16U) |
                                       ((uint32_t)msg[offset + 1U] << 8U) |
                                       (uint32_t)msg[offset + 2U];
-                x509_certificate_t issuer_cert;
+                x509_certificate_t *issuer_cert = NULL;
                 uint16_t issuer_ext_len = 0U;
                 offset += 3U;
                 if((issuer_len == 0U) || ((offset + (issuer_len + 2U)) > cert_list_end)) {
@@ -9290,10 +9314,22 @@ noxtls_return_t noxtls_tls13_recv_certificate(tls13_context_t *ctx)
                     return NOXTLS_RETURN_FAILED;
                 }
 
-                (void)noxtls_x509_certificate_init(&issuer_cert);
-                rc = noxtls_x509_certificate_parse_der(&issuer_cert, &msg[offset], issuer_len);
+                /* An x509_certificate_t is several KiB: never place it on the
+                 * caller stack, which a peer chain would otherwise exhaust. */
+                issuer_cert = (x509_certificate_t *)NOXTLS_MALLOC(sizeof(x509_certificate_t));
+                if(issuer_cert == NULL) {
+                    (void)noxtls_x509_certificate_chain_free(&presented_chain);
+                    (void)noxtls_x509_certificate_free(parsed_cert);
+                    (void)noxtls_free(parsed_cert);
+                    ctx->server_cert_parsed = NULL;
+                    (void)noxtls_free(msg);
+                    return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+                }
+                (void)noxtls_x509_certificate_init(issuer_cert);
+                rc = noxtls_x509_certificate_parse_der(issuer_cert, &msg[offset], issuer_len);
                 if(rc != NOXTLS_RETURN_SUCCESS) {
-                    (void)noxtls_x509_certificate_free(&issuer_cert);
+                    (void)noxtls_x509_certificate_free(issuer_cert);
+                    (void)noxtls_free(issuer_cert);
                     (void)noxtls_x509_certificate_chain_free(&presented_chain);
                     (void)noxtls_x509_certificate_free(parsed_cert);
                     (void)noxtls_free(parsed_cert);
@@ -9302,8 +9338,10 @@ noxtls_return_t noxtls_tls13_recv_certificate(tls13_context_t *ctx)
                     return rc;
                 }
 
-                rc = noxtls_x509_certificate_chain_add(&presented_chain, &issuer_cert);
-                (void)noxtls_x509_certificate_free(&issuer_cert);
+                rc = noxtls_x509_certificate_chain_add(&presented_chain, issuer_cert);
+                (void)noxtls_x509_certificate_free(issuer_cert);
+                (void)noxtls_free(issuer_cert);
+                issuer_cert = NULL;
                 if(rc != NOXTLS_RETURN_SUCCESS) {
                     (void)noxtls_x509_certificate_chain_free(&presented_chain);
                     (void)noxtls_x509_certificate_free(parsed_cert);
@@ -9387,6 +9425,7 @@ noxtls_return_t noxtls_tls13_recv_certificate(tls13_context_t *ctx)
                     NOXTLS_EVT_CERTIFICATE_RECV, ctx->server_cert_len, 0U);
     (void)noxtls_free(msg);
     return NOXTLS_RETURN_SUCCESS;
+#endif
 }
 
 /**
@@ -9396,6 +9435,11 @@ noxtls_return_t noxtls_tls13_recv_certificate(tls13_context_t *ctx)
  */
 noxtls_return_t noxtls_tls13_recv_certificate_verify(tls13_context_t *ctx)
 {
+#if !NOXTLS_TLS13_PEER_CERTIFICATES
+    /* PSK-only build: there is no server certificate to verify. */
+    (void)ctx;
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+#else
     uint8_t *msg = NULL;
     uint32_t msg_len = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
@@ -9675,6 +9719,7 @@ noxtls_return_t noxtls_tls13_recv_certificate_verify(tls13_context_t *ctx)
     (void)tls13_append_handshake_message(ctx, msg, msg_len);
     (void)noxtls_free(msg);
     return NOXTLS_RETURN_SUCCESS;
+#endif
 }
 
 /**
@@ -10563,6 +10608,19 @@ noxtls_return_t noxtls_tls13_connect(tls13_context_t *ctx)
                     }
                     return rc;
                 }
+#if !NOXTLS_TLS13_PEER_CERTIFICATES
+                /* RFC 8446 (August 2018), Section 4.1.1: a server that did not
+                 * select the offered PSK authenticates with a certificate. A
+                 * PSK-only build has no certificate path, so abort with
+                 * handshake_failure before reading the server Certificate. */
+                if(ctx->psk_in_use == 0U) {
+                    rc = NOXTLS_RETURN_NOT_SUPPORTED;
+                    tls13_connect_log_fail(ctx, (const uint8_t[]){ (uint8_t)'p', (uint8_t)'s', (uint8_t)'k', (uint8_t)'_', (uint8_t)'n', (uint8_t)'o', (uint8_t)'t', (uint8_t)'_', (uint8_t)'s', (uint8_t)'e', (uint8_t)'l', (uint8_t)'e', (uint8_t)'c', (uint8_t)'t', (uint8_t)'e', (uint8_t)'d', 0 }, rc);
+                    tls13_send_handshake_alert_for_error(ctx, rc);
+                    ctx->base.base.state = TLS_STATE_CLOSED;
+                    return rc;
+                }
+#endif
                 ctx->client_handshake_step = (uint8_t)TLS13_CLIENT_HS_STEP_RECV_CERT_REQ;
                 break;
 
@@ -13052,6 +13110,11 @@ noxtls_return_t noxtls_tls13_send_finished_server(tls13_context_t *ctx)
  */
 static noxtls_return_t tls13_recv_client_certificate(tls13_context_t *ctx)
 {
+#if !NOXTLS_TLS13_PEER_CERTIFICATES
+    /* PSK-only build: client authentication is never requested. */
+    (void)ctx;
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+#else
     uint8_t *msg = NULL;
     uint32_t msg_len = 0U;
     uint32_t offset = 0U;
@@ -13154,7 +13217,7 @@ static noxtls_return_t tls13_recv_client_certificate(tls13_context_t *ctx)
                     uint32_t issuer_len = ((uint32_t)msg[offset] << 16U) |
                                           ((uint32_t)msg[offset + 1U] << 8U) |
                                           (uint32_t)msg[offset + 2U];
-                    x509_certificate_t issuer_cert;
+                    x509_certificate_t *issuer_cert = NULL;
                     uint16_t issuer_ext_len = 0U;
                     offset += 3U;
                     if((issuer_len == 0U) || ((offset + (issuer_len + 2U)) > cert_list_end)) {
@@ -13164,18 +13227,31 @@ static noxtls_return_t tls13_recv_client_certificate(tls13_context_t *ctx)
                         (void)noxtls_free(msg);
                         return NOXTLS_RETURN_FAILED;
                     }
-                    (void)noxtls_x509_certificate_init(&issuer_cert);
-                    rc = noxtls_x509_certificate_parse_der(&issuer_cert, &msg[offset], issuer_len);
+                    /* An x509_certificate_t is several KiB: never place it on the
+                     * caller stack, which a peer chain would otherwise exhaust. */
+                    issuer_cert = (x509_certificate_t *)NOXTLS_MALLOC(sizeof(x509_certificate_t));
+                    if(issuer_cert == NULL) {
+                        (void)noxtls_x509_certificate_chain_free(&presented_chain);
+                        (void)noxtls_x509_certificate_free(parsed);
+                        (void)noxtls_free(parsed);
+                        (void)noxtls_free(msg);
+                        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+                    }
+                    (void)noxtls_x509_certificate_init(issuer_cert);
+                    rc = noxtls_x509_certificate_parse_der(issuer_cert, &msg[offset], issuer_len);
                     if(rc != NOXTLS_RETURN_SUCCESS) {
-                        (void)noxtls_x509_certificate_free(&issuer_cert);
+                        (void)noxtls_x509_certificate_free(issuer_cert);
+                        (void)noxtls_free(issuer_cert);
                         (void)noxtls_x509_certificate_chain_free(&presented_chain);
                         (void)noxtls_x509_certificate_free(parsed);
                         (void)noxtls_free(parsed);
                         (void)noxtls_free(msg);
                         return rc;
                     }
-                    rc = noxtls_x509_certificate_chain_add(&presented_chain, &issuer_cert);
-                    (void)noxtls_x509_certificate_free(&issuer_cert);
+                    rc = noxtls_x509_certificate_chain_add(&presented_chain, issuer_cert);
+                    (void)noxtls_x509_certificate_free(issuer_cert);
+                    (void)noxtls_free(issuer_cert);
+                    issuer_cert = NULL;
                     if(rc != NOXTLS_RETURN_SUCCESS) {
                         (void)noxtls_x509_certificate_chain_free(&presented_chain);
                         (void)noxtls_x509_certificate_free(parsed);
@@ -13239,6 +13315,7 @@ static noxtls_return_t tls13_recv_client_certificate(tls13_context_t *ctx)
     }
     (void)noxtls_free(msg);
     return NOXTLS_RETURN_SUCCESS;
+#endif
 }
 
 /**
@@ -13248,6 +13325,11 @@ static noxtls_return_t tls13_recv_client_certificate(tls13_context_t *ctx)
  */
 static noxtls_return_t tls13_recv_client_certificate_verify(tls13_context_t *ctx)
 {
+#if !NOXTLS_TLS13_PEER_CERTIFICATES
+    /* PSK-only build: client authentication is never requested. */
+    (void)ctx;
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+#else
     static const uint8_t ctx_str[] = "TLS 1.3, client CertificateVerify";
     uint8_t *msg = NULL;
     uint32_t msg_len = 0U;
@@ -13519,6 +13601,7 @@ static noxtls_return_t tls13_recv_client_certificate_verify(tls13_context_t *ctx
     (void)tls13_append_handshake_message(ctx, msg, msg_len);
     (void)noxtls_free(msg);
     return NOXTLS_RETURN_SUCCESS;
+#endif
 }
 
 /**
