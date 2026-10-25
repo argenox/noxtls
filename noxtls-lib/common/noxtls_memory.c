@@ -60,6 +60,7 @@ static void noxtls_mem_record_failure(noxtls_mem_operation_t operation,
     g_noxtls_last_mem_error.source_file = file;
     g_noxtls_last_mem_error.source_function = function;
     g_noxtls_last_mem_error.source_line = line;
+    g_noxtls_last_mem_error.region_name = NULL;
     g_noxtls_last_mem_error_valid = 1U;
 }
 
@@ -147,6 +148,7 @@ static int noxtls_mem_test_should_fail(void)
 #define noxtls_mem_test_record_result(size, ptr) ((void)(size), (void)(ptr))
 #endif
 
+#if !NOXTLS_CONFIG_STATIC_MEMORY && !NOXTLS_USE_STATIC_BUFFERS
 static void noxtls_mem_record_system_failure(noxtls_mem_operation_t operation,
                                              noxtls_mem_failure_reason_t reason,
                                              size_t requested_bytes,
@@ -162,7 +164,506 @@ static void noxtls_mem_record_system_failure(noxtls_mem_operation_t operation,
                               file, line, function);
 }
 
-#if NOXTLS_USE_STATIC_BUFFERS
+#endif /* !NOXTLS_CONFIG_STATIC_MEMORY && !NOXTLS_USE_STATIC_BUFFERS */
+
+#if NOXTLS_CONFIG_STATIC_MEMORY
+
+/*
+ * Static memory: region allocator (see noxtls_memory.h). No C library allocator is
+ * referenced in this configuration; <stdlib.h> is not included.
+ *
+ * Arena block: a 16-byte header followed by the payload rounded up to
+ * NOXTLS_MEM_REGION_ALIGN. Blocks are carved at the top of the arena and chained
+ * downwards through prev, so the arena can return trailing freed blocks.
+ */
+typedef struct
+{
+    uint32_t magic;     /* NOXTLS_REGION_LIVE or NOXTLS_REGION_FREE */
+    uint32_t size;      /* requested payload bytes */
+    uint32_t span;      /* aligned payload bytes */
+    uint32_t prev;      /* region->last before this block (offset + 1, 0: none) */
+} noxtls_region_block_t;
+
+NOXTLS_STATIC_ASSERT(sizeof(noxtls_region_block_t) == NOXTLS_MEM_REGION_BLOCK_HEADER, region_block_header);
+
+#define NOXTLS_REGION_LIVE 0x4E58524CUL   /* "NXRL" */
+#define NOXTLS_REGION_FREE 0x4E585246UL   /* "NXRF" */
+/** Allocator mode reported in diagnostics for the region allocator. */
+#define NOXTLS_MEM_ALLOCATOR_MODE_STATIC_REGION 4U
+
+/* Global arena storage; uint64_t elements give the region its alignment. */
+static uint64_t g_noxtls_global_storage[(NOXTLS_STATIC_GLOBAL_POOL_SIZE + 7U) / 8U];
+static noxtls_mem_region_t g_noxtls_global_region;
+static noxtls_mem_region_t *g_noxtls_regions[NOXTLS_STATIC_MAX_REGIONS];
+static size_t g_noxtls_static_allocations;
+static NOXTLS_STATIC_MEMORY_THREAD_LOCAL noxtls_mem_scope_t *g_noxtls_active_scope;
+
+static void noxtls_region_record_failure(noxtls_mem_operation_t operation,
+                                         noxtls_mem_failure_reason_t reason,
+                                         const noxtls_mem_region_t *region,
+                                         size_t requested,
+                                         const char *file, uint32_t line, const char *function)
+{
+    size_t capacity = 0U;
+    size_t used = 0U;
+    size_t largest = 0U;
+
+    if(region != NULL) {
+        capacity = region->capacity;
+        used = region->top;
+        if((region->released == 0U) && (region->kind == NOXTLS_MEM_REGION_ARENA) &&
+           ((region->capacity - region->top) > NOXTLS_MEM_REGION_BLOCK_HEADER)) {
+            largest = (region->capacity - region->top) - NOXTLS_MEM_REGION_BLOCK_HEADER;
+        }
+    }
+    noxtls_mem_record_failure(operation, reason, requested, largest, capacity, used,
+                              NOXTLS_MEM_ALLOCATOR_MODE_STATIC_REGION, file, line, function);
+    g_noxtls_last_mem_error.region_name = (region != NULL) ? region->name : NULL;
+}
+
+static void noxtls_region_register_global(void)
+{
+    if(g_noxtls_global_region.registered == 0U) {
+        (void)noxtls_mem_region_init(&g_noxtls_global_region, (uint8_t *)(void *)g_noxtls_global_storage,
+                                     (size_t)sizeof(g_noxtls_global_storage), NOXTLS_MEM_REGION_ARENA, "global");
+    }
+}
+
+static noxtls_mem_region_t *noxtls_region_of(const void *ptr)
+{
+    size_t i;
+
+    noxtls_region_register_global();
+    for(i = 0U; i < (size_t)NOXTLS_STATIC_MAX_REGIONS; ++i) {
+        if((g_noxtls_regions[i] != NULL) && (noxtls_mem_region_contains(g_noxtls_regions[i], ptr) != 0)) {
+            return g_noxtls_regions[i];
+        }
+    }
+    return NULL;
+}
+
+static noxtls_mem_region_t *noxtls_region_active(void)
+{
+    noxtls_region_register_global();
+    if((g_noxtls_active_scope != NULL) && (g_noxtls_active_scope->current != NULL)) {
+        return g_noxtls_active_scope->current;
+    }
+    return &g_noxtls_global_region;
+}
+
+static noxtls_region_block_t *noxtls_region_block(const noxtls_mem_region_t *region, const void *ptr)
+{
+    uintptr_t base = (uintptr_t)region->base;
+    uintptr_t at = (uintptr_t)ptr;
+    size_t offset;
+    noxtls_region_block_t *block;
+
+    if((region->kind != NOXTLS_MEM_REGION_ARENA) || (at < (base + NOXTLS_MEM_REGION_BLOCK_HEADER))) {
+        return NULL;
+    }
+    offset = (size_t)(at - base) - NOXTLS_MEM_REGION_BLOCK_HEADER;
+    if(((offset % NOXTLS_MEM_REGION_ALIGN) != 0U) || (offset >= region->top)) {
+        return NULL;
+    }
+    block = (noxtls_region_block_t *)(void *)&region->base[offset];
+    if((block->magic != NOXTLS_REGION_LIVE) ||
+       ((offset + NOXTLS_MEM_REGION_BLOCK_HEADER + (size_t)block->span) > region->top)) {
+        return NULL;
+    }
+    return block;
+}
+
+static void *noxtls_region_alloc(noxtls_mem_region_t *region, size_t size, noxtls_mem_operation_t operation,
+                                 const char *file, uint32_t line, const char *function)
+{
+    size_t span;
+    noxtls_region_block_t *block;
+
+    if((region->released != 0U) || (region->kind != NOXTLS_MEM_REGION_ARENA) || (size > (size_t)UINT32_MAX) ||
+       (size > region->capacity)) {
+        noxtls_region_record_failure(operation, (noxtls_mem_failure_reason_t)NOXTLS_MEM_FAILURE_POOL_EXHAUSTED,
+                                     region, size, file, line, function);
+        return NULL;
+    }
+    span = NOXTLS_MEM_REGION_ALIGN_UP(size);
+    if((region->capacity - region->top) < (span + NOXTLS_MEM_REGION_BLOCK_HEADER)) {
+        noxtls_region_record_failure(operation, (noxtls_mem_failure_reason_t)NOXTLS_MEM_FAILURE_POOL_EXHAUSTED,
+                                     region, size, file, line, function);
+        return NULL;
+    }
+    block = (noxtls_region_block_t *)(void *)&region->base[region->top];
+    block->magic = NOXTLS_REGION_LIVE;
+    block->size = (uint32_t)size;
+    block->span = (uint32_t)span;
+    block->prev = (uint32_t)region->last;
+    region->last = region->top + 1U;
+    region->top += span + NOXTLS_MEM_REGION_BLOCK_HEADER;
+    if(region->top > region->peak) {
+        region->peak = region->top;
+    }
+    region->live_bytes += size;
+    region->live_blocks += 1U;
+    region->allocations += 1U;
+    g_noxtls_static_allocations += 1U;
+    /* Free space is always wiped (initialization, free and release), so the payload is zero. */
+    return &region->base[(region->last - 1U) + NOXTLS_MEM_REGION_BLOCK_HEADER];
+}
+
+static void noxtls_region_free_block(noxtls_mem_region_t *region, noxtls_region_block_t *block)
+{
+    uint8_t *payload = (uint8_t *)(void *)block + NOXTLS_MEM_REGION_BLOCK_HEADER;
+
+    noxtls_secure_zero(payload, (size_t)block->span);
+    block->magic = NOXTLS_REGION_FREE;
+    region->live_bytes -= (size_t)block->size;
+    region->live_blocks -= 1U;
+    /* Return freed blocks at the top of the arena (LIFO reclamation). */
+    while(region->last != 0U) {
+        noxtls_region_block_t *top_block = (noxtls_region_block_t *)(void *)&region->base[region->last - 1U];
+        size_t prev;
+        if(top_block->magic != NOXTLS_REGION_FREE) {
+            break;
+        }
+        prev = (size_t)top_block->prev;
+        region->top = region->last - 1U;
+        noxtls_secure_zero(top_block, sizeof(*top_block));
+        region->last = prev;
+    }
+}
+
+static void *noxtls_static_allocate(size_t size, noxtls_mem_operation_t operation,
+                                    const char *file, uint32_t line, const char *function)
+{
+    void *ptr;
+    noxtls_mem_region_t *region;
+
+    if(size == 0U) {
+        return NULL;
+    }
+    region = noxtls_region_active();
+    noxtls_mem_test_record_attempt(size);
+    if(noxtls_mem_test_should_fail() != 0) {
+        noxtls_mem_test_record_result(size, NULL);
+        noxtls_region_record_failure(operation, (noxtls_mem_failure_reason_t)NOXTLS_MEM_FAILURE_INJECTED,
+                                     region, size, file, line, function);
+        return NULL;
+    }
+    ptr = noxtls_region_alloc(region, size, operation, file, line, function);
+    noxtls_mem_test_record_result(size, ptr);
+    return ptr;
+}
+
+void *noxtls_malloc_at(size_t size, const char *file, uint32_t line, const char *function)
+{
+    return noxtls_static_allocate(size, (noxtls_mem_operation_t)NOXTLS_MEM_OPERATION_MALLOC, file, line, function);
+}
+
+void *noxtls_malloc(size_t size)
+{
+    return noxtls_malloc_at(size, NULL, 0U, NULL);
+}
+
+void *noxtls_calloc_at(size_t nmemb, size_t size, const char *file, uint32_t line, const char *function)
+{
+    void *ptr;
+
+    if((nmemb != 0U) && (size > (SIZE_MAX / nmemb))) {
+        noxtls_region_record_failure((noxtls_mem_operation_t)NOXTLS_MEM_OPERATION_CALLOC,
+                                     (noxtls_mem_failure_reason_t)NOXTLS_MEM_FAILURE_SIZE_OVERFLOW,
+                                     NULL, SIZE_MAX, file, line, function);
+        return NULL;
+    }
+    ptr = noxtls_static_allocate(nmemb * size, (noxtls_mem_operation_t)NOXTLS_MEM_OPERATION_CALLOC,
+                                 file, line, function);
+    if(ptr != NULL) {
+        noxtls_secure_zero(ptr, nmemb * size);
+    }
+    return ptr;
+}
+
+void *noxtls_calloc(size_t nmemb, size_t size)
+{
+    return noxtls_calloc_at(nmemb, size, NULL, 0U, NULL);
+}
+
+void noxtls_free(void *ptr)
+{
+    noxtls_mem_region_t *region;
+    noxtls_region_block_t *block;
+
+    if(ptr == NULL) {
+        return;
+    }
+    region = noxtls_region_of(ptr);
+    if(region == NULL) {
+        /* Not NoxTLS storage: never touch it. */
+        noxtls_region_record_failure((noxtls_mem_operation_t)NOXTLS_MEM_OPERATION_NONE,
+                                     (noxtls_mem_failure_reason_t)NOXTLS_MEM_FAILURE_INITIALIZATION,
+                                     NULL, 0U, NULL, 0U, NULL);
+        return;
+    }
+    if((region->kind == NOXTLS_MEM_REGION_FIXED) || (region->released != 0U)) {
+        /* Slot storage is owned by its connection; a released region was already wiped. */
+        return;
+    }
+    block = noxtls_region_block(region, ptr);
+    if(block == NULL) {
+        noxtls_region_record_failure((noxtls_mem_operation_t)NOXTLS_MEM_OPERATION_NONE,
+                                     (noxtls_mem_failure_reason_t)NOXTLS_MEM_FAILURE_INITIALIZATION,
+                                     region, 0U, NULL, 0U, NULL);
+        return;
+    }
+    noxtls_region_free_block(region, block);
+}
+
+void *noxtls_realloc_at(void *ptr, size_t size, const char *file, uint32_t line, const char *function)
+{
+    noxtls_mem_region_t *region;
+    noxtls_region_block_t *block;
+    void *fresh;
+    size_t span;
+    size_t offset;
+
+    if(ptr == NULL) {
+        return noxtls_static_allocate(size, (noxtls_mem_operation_t)NOXTLS_MEM_OPERATION_REALLOC,
+                                      file, line, function);
+    }
+    if(size == 0U) {
+        noxtls_free(ptr);
+        return NULL;
+    }
+    region = noxtls_region_of(ptr);
+    block = (region != NULL) ? noxtls_region_block(region, ptr) : NULL;
+    if((block == NULL) || (region->released != 0U)) {
+        noxtls_region_record_failure((noxtls_mem_operation_t)NOXTLS_MEM_OPERATION_REALLOC,
+                                     (noxtls_mem_failure_reason_t)NOXTLS_MEM_FAILURE_INITIALIZATION,
+                                     region, size, file, line, function);
+        return NULL;
+    }
+    noxtls_mem_test_record_attempt(size);
+    if(noxtls_mem_test_should_fail() != 0) {
+        noxtls_mem_test_record_result(size, NULL);
+        noxtls_region_record_failure((noxtls_mem_operation_t)NOXTLS_MEM_OPERATION_REALLOC,
+                                     (noxtls_mem_failure_reason_t)NOXTLS_MEM_FAILURE_INJECTED,
+                                     region, size, file, line, function);
+        return NULL;
+    }
+    offset = (size_t)((uintptr_t)block - (uintptr_t)region->base);
+    span = NOXTLS_MEM_REGION_ALIGN_UP(size);
+    if(((offset + 1U) == region->last) && (size <= (size_t)UINT32_MAX) &&
+       ((region->capacity - (offset + NOXTLS_MEM_REGION_BLOCK_HEADER)) >= span)) {
+        /* Top block: resize in place. */
+        uint8_t *payload = (uint8_t *)ptr;
+        if(size < (size_t)block->size) {
+            noxtls_secure_zero(&payload[size], (size_t)block->size - size);
+        }
+        if(span < (size_t)block->span) {
+            noxtls_secure_zero(&payload[span], (size_t)block->span - span);
+        }
+        region->live_bytes = (region->live_bytes - (size_t)block->size) + size;
+        block->size = (uint32_t)size;
+        block->span = (uint32_t)span;
+        region->top = offset + NOXTLS_MEM_REGION_BLOCK_HEADER + span;
+        if(region->top > region->peak) {
+            region->peak = region->top;
+        }
+        noxtls_mem_test_record_result(size, ptr);
+        return ptr;
+    }
+    /* The new block comes from the region that owns the old one. */
+    fresh = noxtls_region_alloc(region, size, (noxtls_mem_operation_t)NOXTLS_MEM_OPERATION_REALLOC,
+                                file, line, function);
+    noxtls_mem_test_record_result(size, fresh);
+    if(fresh == NULL) {
+        return NULL;
+    }
+    noxtls_copy_u8((uint8_t *)fresh, size, (const uint8_t *)ptr,
+                   ((size_t)block->size < size) ? (size_t)block->size : size);
+    noxtls_region_free_block(region, block);
+    return fresh;
+}
+
+void *noxtls_realloc(void *ptr, size_t size)
+{
+    return noxtls_realloc_at(ptr, size, NULL, 0U, NULL);
+}
+
+noxtls_return_t noxtls_mem_region_init(noxtls_mem_region_t *region, uint8_t *base, size_t capacity,
+                                       uint8_t kind, const char *name)
+{
+    size_t i;
+    size_t slot = (size_t)NOXTLS_STATIC_MAX_REGIONS;
+
+    if((region == NULL) || (base == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if((((uintptr_t)base % NOXTLS_MEM_REGION_ALIGN) != 0U) || (capacity == 0U) ||
+       ((kind != NOXTLS_MEM_REGION_ARENA) && (kind != NOXTLS_MEM_REGION_FIXED)) ||
+       ((kind == NOXTLS_MEM_REGION_ARENA) && (capacity > (size_t)UINT32_MAX))) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    for(i = 0U; i < (size_t)NOXTLS_STATIC_MAX_REGIONS; ++i) {
+        if(g_noxtls_regions[i] == region) {
+            slot = i;
+            break;
+        }
+        if((g_noxtls_regions[i] == NULL) && (slot == (size_t)NOXTLS_STATIC_MAX_REGIONS)) {
+            slot = i;
+        }
+    }
+    if(slot == (size_t)NOXTLS_STATIC_MAX_REGIONS) {
+        noxtls_region_record_failure((noxtls_mem_operation_t)NOXTLS_MEM_OPERATION_INITIALIZE,
+                                     (noxtls_mem_failure_reason_t)NOXTLS_MEM_FAILURE_POOL_EXHAUSTED,
+                                     NULL, capacity, NULL, 0U, name);
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+    }
+    noxtls_secure_zero(base, capacity);
+    noxtls_secure_zero(region, sizeof(*region));
+    region->base = base;
+    region->capacity = capacity;
+    region->kind = kind;
+    region->name = name;
+    region->registered = 1U;
+    g_noxtls_regions[slot] = region;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+void noxtls_mem_region_release(noxtls_mem_region_t *region)
+{
+    if((region == NULL) || (region->base == NULL)) {
+        return;
+    }
+    noxtls_secure_zero(region->base, region->capacity);
+    region->top = 0U;
+    region->last = 0U;
+    region->live_bytes = 0U;
+    region->live_blocks = 0U;
+    region->released = 1U;
+}
+
+void noxtls_mem_region_deinit(noxtls_mem_region_t *region)
+{
+    size_t i;
+
+    if(region == NULL) {
+        return;
+    }
+    if(region->base != NULL) {
+        noxtls_secure_zero(region->base, region->capacity);
+    }
+    for(i = 0U; i < (size_t)NOXTLS_STATIC_MAX_REGIONS; ++i) {
+        if(g_noxtls_regions[i] == region) {
+            g_noxtls_regions[i] = NULL;
+        }
+    }
+    noxtls_secure_zero(region, sizeof(*region));
+}
+
+noxtls_return_t noxtls_mem_region_get_stats(const noxtls_mem_region_t *region, noxtls_mem_region_stats_t *stats)
+{
+    if((region == NULL) || (stats == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+    stats->capacity = region->capacity;
+    stats->used = region->top;
+    stats->peak = region->peak;
+    stats->live_bytes = region->live_bytes;
+    stats->live_blocks = region->live_blocks;
+    stats->allocations = region->allocations;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+int noxtls_mem_region_contains(const noxtls_mem_region_t *region, const void *ptr)
+{
+    uintptr_t at = (uintptr_t)ptr;
+    uintptr_t base;
+
+    if((region == NULL) || (region->base == NULL) || (ptr == NULL)) {
+        return 0;
+    }
+    base = (uintptr_t)region->base;
+    return ((at >= base) && ((at - base) < region->capacity)) ? 1 : 0;
+}
+
+noxtls_mem_scope_t *noxtls_mem_scope_enter(noxtls_mem_scope_t *scope)
+{
+    noxtls_mem_scope_t *previous = g_noxtls_active_scope;
+    g_noxtls_active_scope = scope;
+    return previous;
+}
+
+void noxtls_mem_scope_exit(noxtls_mem_scope_t *previous)
+{
+    g_noxtls_active_scope = previous;
+}
+
+noxtls_mem_region_t *noxtls_mem_global_region(void)
+{
+    noxtls_region_register_global();
+    return &g_noxtls_global_region;
+}
+
+size_t noxtls_mem_static_live_bytes(void)
+{
+    size_t i;
+    size_t live = 0U;
+
+    noxtls_region_register_global();
+    for(i = 0U; i < (size_t)NOXTLS_STATIC_MAX_REGIONS; ++i) {
+        if((g_noxtls_regions[i] != NULL) && (g_noxtls_regions[i]->kind == NOXTLS_MEM_REGION_ARENA)) {
+            live += g_noxtls_regions[i]->live_bytes;
+        }
+    }
+    return live;
+}
+
+size_t noxtls_mem_static_allocation_count(void)
+{
+    return g_noxtls_static_allocations;
+}
+
+noxtls_return_t noxtls_mem_init(uint8_t *buffer, size_t buffer_size)
+{
+    noxtls_region_register_global();
+    if(g_noxtls_global_region.live_blocks != 0U) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    noxtls_mem_region_deinit(&g_noxtls_global_region);
+    if(buffer == NULL) {
+        return noxtls_mem_region_init(&g_noxtls_global_region, (uint8_t *)(void *)g_noxtls_global_storage,
+                                      (size_t)sizeof(g_noxtls_global_storage), NOXTLS_MEM_REGION_ARENA, "global");
+    }
+    return noxtls_mem_region_init(&g_noxtls_global_region, buffer, buffer_size, NOXTLS_MEM_REGION_ARENA, "global");
+}
+
+noxtls_return_t noxtls_mem_cleanup(void)
+{
+    noxtls_region_register_global();
+    if(g_noxtls_global_region.live_blocks != 0U) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_mem_get_stats(size_t *total_allocated, size_t *total_used, size_t *max_used)
+{
+    noxtls_region_register_global();
+    if(total_allocated != NULL) { *total_allocated = g_noxtls_global_region.capacity; }
+    if(total_used != NULL) { *total_used = g_noxtls_global_region.top; }
+    if(max_used != NULL) { *max_used = g_noxtls_global_region.peak; }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_mem_get_bucket_stats(noxtls_mem_bucket_stats_t *stats)
+{
+    if(stats != NULL) {
+        noxtls_secure_zero(stats, sizeof(*stats));
+        stats->allocator_mode = NOXTLS_MEM_ALLOCATOR_MODE_STATIC_REGION;
+    }
+    return NOXTLS_RETURN_FAILED;
+}
+
+#elif NOXTLS_USE_STATIC_BUFFERS
 
 #include "noxtls_ct.h"
 
@@ -995,4 +1496,4 @@ noxtls_return_t noxtls_mem_get_bucket_stats(noxtls_mem_bucket_stats_t *stats)
     return NOXTLS_RETURN_FAILED;
 }
 
-#endif /* NOXTLS_USE_STATIC_BUFFERS */
+#endif /* NOXTLS_CONFIG_STATIC_MEMORY / NOXTLS_USE_STATIC_BUFFERS */

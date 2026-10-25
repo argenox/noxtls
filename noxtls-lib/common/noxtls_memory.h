@@ -160,6 +160,8 @@ typedef struct
     size_t pool_used;
     const char *source_file;
     const char *source_function;
+    /** Static memory: name of the region that could not satisfy the request (NULL otherwise). */
+    const char *region_name;
 } noxtls_mem_error_info_t;
 
 /* Memory pool structure */
@@ -278,6 +280,173 @@ noxtls_return_t noxtls_mem_cleanup(void);
 noxtls_return_t noxtls_mem_get_stats(size_t *total_allocated, size_t *total_used, size_t *max_used);
 
 noxtls_return_t noxtls_mem_get_bucket_stats(noxtls_mem_bucket_stats_t *stats);
+
+#if NOXTLS_CONFIG_STATIC_MEMORY
+#if NOXTLS_USE_STATIC_BUFFERS
+#error "NOXTLS_CONFIG_STATIC_MEMORY and NOXTLS_USE_STATIC_BUFFERS are mutually exclusive"
+#endif
+
+/*
+ * Static memory (NOXTLS_CONFIG_STATIC_MEMORY=1)
+ *
+ * Every library allocation is served by a region: a byte array whose size is fixed
+ * at build time. An arena region is a bump allocator with LIFO reclamation: a block
+ * is carved at the top, a freed block is wiped, and freed blocks at the top return to
+ * the free space. A fixed region holds slots that the library places explicitly
+ * (record buffers, handshake state); noxtls_free() on a slot pointer does nothing.
+ * Allocation uses the region of the active scope (a connection, while one of its API
+ * calls runs) or, outside any scope, the global arena (trust store, keys and other
+ * process-wide state). An arena that cannot hold a request returns NULL and records
+ * NOXTLS_MEM_FAILURE_POOL_EXHAUSTED with the region name. Nothing falls back to
+ * another region or to the C library.
+ */
+
+/** Region kinds. */
+#define NOXTLS_MEM_REGION_ARENA 1U
+#define NOXTLS_MEM_REGION_FIXED 2U
+
+/** Bytes of bookkeeping in front of each arena block. */
+#define NOXTLS_MEM_REGION_BLOCK_HEADER 16U
+/** Arena block payload alignment. */
+#define NOXTLS_MEM_REGION_ALIGN 8U
+/** Round a byte count up to the region alignment. */
+#define NOXTLS_MEM_REGION_ALIGN_UP(n) \
+    (((size_t)(n) + ((size_t)NOXTLS_MEM_REGION_ALIGN - 1U)) & ~((size_t)NOXTLS_MEM_REGION_ALIGN - 1U))
+/** Arena bytes that one request of @p n payload bytes consumes. */
+#define NOXTLS_MEM_REGION_COST(n) (NOXTLS_MEM_REGION_ALIGN_UP(n) + (size_t)NOXTLS_MEM_REGION_BLOCK_HEADER)
+
+/** Connections that can hold static memory at once (caller blocks and pool blocks). */
+#ifndef NOXTLS_STATIC_MAX_CONNECTIONS
+#define NOXTLS_STATIC_MAX_CONNECTIONS 4U
+#endif
+
+/** Regions registered at once: the global arena plus four per connection. */
+#ifndef NOXTLS_STATIC_MAX_REGIONS
+#define NOXTLS_STATIC_MAX_REGIONS (1U + (4U * NOXTLS_STATIC_MAX_CONNECTIONS))
+#endif
+
+/** Certificate pools. Trust anchors installed with noxtls_x509_trust_store_set*(). */
+#ifndef NOXTLS_STATIC_TRUST_ANCHORS_MAX
+#define NOXTLS_STATIC_TRUST_ANCHORS_MAX 4U
+#endif
+/** Largest DER certificate accepted anywhere (trust anchor, peer chain, own chain).
+ *  Larger certificates are refused with NOXTLS_RETURN_NOT_ENOUGH_MEMORY before any
+ *  storage is used. */
+#ifndef NOXTLS_STATIC_CERT_DER_MAX
+#define NOXTLS_STATIC_CERT_DER_MAX 2048U
+#endif
+/** Most certificates in a received Certificate message (leaf plus intermediates). */
+#ifndef NOXTLS_STATIC_CERT_CHAIN_DEPTH_MAX
+#define NOXTLS_STATIC_CERT_CHAIN_DEPTH_MAX 4U
+#endif
+/** Bytes reserved per parsed certificate structure (checked against
+ *  sizeof(x509_certificate_t) at build time). */
+#ifndef NOXTLS_STATIC_X509_CERT_STRUCT_BYTES
+#define NOXTLS_STATIC_X509_CERT_STRUCT_BYTES 512U
+#endif
+/** Global arena bytes beyond the trust store: keys and certificates the application
+ *  parses outside a connection (for example its client key and certificate). */
+#ifndef NOXTLS_STATIC_GLOBAL_EXTRA
+#define NOXTLS_STATIC_GLOBAL_EXTRA 4096U
+#endif
+
+/** Certificates one chain holds (received chain or trust store). A static-memory chain
+ *  allocates this capacity once; one more certificate fails with
+ *  NOXTLS_RETURN_NOT_ENOUGH_MEMORY. */
+#define NOXTLS_STATIC_CHAIN_CAPACITY \
+    ((NOXTLS_STATIC_CERT_CHAIN_DEPTH_MAX > NOXTLS_STATIC_TRUST_ANCHORS_MAX) ? \
+     NOXTLS_STATIC_CERT_CHAIN_DEPTH_MAX : NOXTLS_STATIC_TRUST_ANCHORS_MAX)
+
+/** Trust store: the application's chain and the store's copy coexist while
+ *  noxtls_x509_trust_store_set() runs (each anchor: DER copy + parsed structure). */
+#define NOXTLS_STATIC_TRUST_STORE_BYTES \
+    ((2U * ((NOXTLS_STATIC_TRUST_ANCHORS_MAX * NOXTLS_MEM_REGION_COST(NOXTLS_STATIC_CERT_DER_MAX)) + \
+            NOXTLS_MEM_REGION_COST(NOXTLS_STATIC_CHAIN_CAPACITY * NOXTLS_STATIC_X509_CERT_STRUCT_BYTES))) + \
+     NOXTLS_MEM_REGION_COST(NOXTLS_STATIC_X509_CERT_STRUCT_BYTES))
+
+/** Process-wide arena used outside connection scopes. noxtls_mem_init() may replace
+ *  it with a caller buffer while it is empty. */
+#ifndef NOXTLS_STATIC_GLOBAL_POOL_SIZE
+#define NOXTLS_STATIC_GLOBAL_POOL_SIZE (NOXTLS_STATIC_TRUST_STORE_BYTES + NOXTLS_STATIC_GLOBAL_EXTRA)
+#endif
+
+/** Storage class of the active-scope pointer. Empty: one scope for the process, so
+ *  NoxTLS calls on different connections must be serialized. Define it as the
+ *  compiler's thread-local keyword (_Thread_local, __thread) to give each thread its
+ *  own scope. */
+#ifndef NOXTLS_STATIC_MEMORY_THREAD_LOCAL
+#define NOXTLS_STATIC_MEMORY_THREAD_LOCAL
+#endif
+
+/** Compile-time assertion (C99): a false condition gives a negative array size. */
+#define NOXTLS_STATIC_ASSERT(cond, name) typedef char noxtls_static_assert_##name[(cond) ? 1 : -1]
+
+/** One region. Fields are read by the statistics API; callers treat it as opaque. */
+typedef struct noxtls_mem_region_s
+{
+    uint8_t *base;          /**< First byte (8-byte aligned). */
+    size_t capacity;        /**< Bytes in the region. */
+    size_t top;             /**< Arena: first unused byte offset. */
+    size_t last;            /**< Arena: offset of the top block header + 1 (0: empty). */
+    size_t live_bytes;      /**< Arena: payload bytes allocated. */
+    size_t live_blocks;     /**< Arena: blocks allocated. */
+    size_t peak;            /**< Arena: high-water mark of top (headers included). */
+    size_t allocations;     /**< Arena: successful allocations since initialization. */
+    const char *name;       /**< Diagnostic name. */
+    uint8_t kind;           /**< NOXTLS_MEM_REGION_ARENA or NOXTLS_MEM_REGION_FIXED. */
+    uint8_t registered;     /**< 1 while in the registry. */
+    uint8_t released;       /**< 1 after noxtls_mem_region_release(). */
+    uint8_t reserved;
+} noxtls_mem_region_t;
+
+/** Allocation scope: allocations made while it is active use @c current. */
+typedef struct noxtls_mem_scope_s
+{
+    noxtls_mem_region_t *current;
+} noxtls_mem_scope_t;
+
+/** Statistics of one region. */
+typedef struct
+{
+    size_t capacity;
+    size_t used;            /**< Arena: bytes between base and top (headers included). */
+    size_t peak;            /**< Arena: high-water mark of used. */
+    size_t live_bytes;
+    size_t live_blocks;
+    size_t allocations;
+} noxtls_mem_region_stats_t;
+
+/**
+ * Prepare and register a region over @p base, which is wiped. @p base must be aligned
+ * to NOXTLS_MEM_REGION_ALIGN.
+ * @return NOXTLS_RETURN_SUCCESS, NOXTLS_RETURN_NULL, NOXTLS_RETURN_INVALID_PARAM, or
+ *         NOXTLS_RETURN_NOT_ENOUGH_MEMORY when NOXTLS_STATIC_MAX_REGIONS are registered.
+ */
+noxtls_return_t noxtls_mem_region_init(noxtls_mem_region_t *region, uint8_t *base, size_t capacity,
+                                       uint8_t kind, const char *name);
+/** Wipe the whole region with noxtls_secure_zero() and mark it released. Frees of
+ *  pointers into it become no-ops and an arena no longer allocates. */
+void noxtls_mem_region_release(noxtls_mem_region_t *region);
+/** Wipe the region and remove it from the registry. */
+void noxtls_mem_region_deinit(noxtls_mem_region_t *region);
+/** Copy a region's counters. */
+noxtls_return_t noxtls_mem_region_get_stats(const noxtls_mem_region_t *region,
+                                            noxtls_mem_region_stats_t *stats);
+/** 1 when @p ptr lies inside @p region. */
+int noxtls_mem_region_contains(const noxtls_mem_region_t *region, const void *ptr);
+
+/** Make @p scope active; returns the previously active scope (NULL: global arena). */
+noxtls_mem_scope_t *noxtls_mem_scope_enter(noxtls_mem_scope_t *scope);
+/** Restore the scope returned by noxtls_mem_scope_enter(). */
+void noxtls_mem_scope_exit(noxtls_mem_scope_t *previous);
+
+/** The global arena used outside any scope. */
+noxtls_mem_region_t *noxtls_mem_global_region(void);
+/** Payload bytes live in every registered arena (leak checks). */
+size_t noxtls_mem_static_live_bytes(void);
+/** Successful arena allocations since start-up, all regions. */
+size_t noxtls_mem_static_allocation_count(void);
+#endif /* NOXTLS_CONFIG_STATIC_MEMORY */
 
 #if !defined(NOXTLS_MEMORY_IMPLEMENTATION) && !defined(NOXTLS_DISABLE_MEMORY_LOCATION_TRACKING)
 #if defined(_MSC_VER)

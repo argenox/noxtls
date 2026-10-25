@@ -415,6 +415,20 @@ noxtls_define_bool(NOXTLS_CT_COMPARE NOXTLS_CFG_CT_COMPARE)
 noxtls_define_bool(NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES NOXTLS_CFG_TLS12_ENABLE_LEGACY_CIPHER_SUITES)
 noxtls_define_bool(NOXTLS_TLS12_ENABLE_SHA1_SIGNATURES NOXTLS_CFG_TLS12_ENABLE_SHA1_SIGNATURES)
 
+# Static memory (docs/static-memory.md): every byte sized at build time, no heap.
+option(NOXTLS_CONFIG_STATIC_MEMORY "Build-time sized memory: no malloc, caller-provided connection memory" OFF)
+set(NOXTLS_STATIC_MEMORY_PROFILE "" CACHE STRING
+    "Optional static-memory profile header (path relative to the include paths, e.g. profiles/static_memory/noxtls_static_profile_node.h)")
+set(NOXTLS_STATIC_CONNECTION_POOL_COUNT "0" CACHE STRING
+    "Static memory: library-owned connection blocks for the plain context init functions")
+if(NOXTLS_CONFIG_STATIC_MEMORY)
+  add_compile_definitions(NOXTLS_CONFIG_STATIC_MEMORY=1
+                          NOXTLS_STATIC_CONNECTION_POOL_COUNT=${NOXTLS_STATIC_CONNECTION_POOL_COUNT}U)
+endif()
+if(NOXTLS_STATIC_MEMORY_PROFILE)
+  add_compile_definitions(NOXTLS_STATIC_MEMORY_PROFILE="${NOXTLS_STATIC_MEMORY_PROFILE}")
+endif()
+
 # Compiler flags
 if(MSVC)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /W4 /wd4711 /wd5045 /wd4668")

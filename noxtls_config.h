@@ -27,6 +27,18 @@
 #ifndef NOXTLS_CONFIG_H_
 #define NOXTLS_CONFIG_H_
 
+/* NOXTLS_STATIC_MEMORY_PROFILE
+ *
+ * Optional header (quoted path, for example
+ * -DNOXTLS_STATIC_MEMORY_PROFILE="profiles/static_memory/noxtls_static_profile_node.h")
+ * included before every other setting. The static-memory profiles under
+ * profiles/static_memory/ set feature switches and size limits for one device
+ * role; every value they define can still be overridden with -D.
+ */
+#ifdef NOXTLS_STATIC_MEMORY_PROFILE
+#include NOXTLS_STATIC_MEMORY_PROFILE
+#endif
+
 /* ============================================================================
  * Profile selection
  * ============================================================================
@@ -1772,6 +1784,24 @@
  */
 #ifndef NOXTLS_PKC_RNG_RESEED_INTERVAL
 #define NOXTLS_PKC_RNG_RESEED_INTERVAL 1024
+#endif
+
+/* NOXTLS_CONFIG_STATIC_MEMORY
+ *
+ * 1: every byte NoxTLS uses is sized at build time and nothing reaches malloc()
+ * or a general-purpose heap. NOXTLS_MALLOC/CALLOC/REALLOC resolve to a region
+ * allocator over storage that is either supplied by the caller per connection
+ * (noxtls_tls13_context_init_static / noxtls_dtls13_context_init_static) or
+ * reserved statically by the library (global pool, connection pool). A full
+ * region returns a deterministic NOXTLS_RETURN_NOT_ENOUGH_MEMORY; there is no
+ * fallback. Handshake-only storage is wiped and released when the handshake
+ * completes. Sizing macros and profiles: noxtls-lib/common/noxtls_static_memory.h
+ * and docs/static-memory.md. Mutually exclusive with NOXTLS_USE_STATIC_BUFFERS.
+ *
+ * Default: 0 (allocation through noxtls_malloc() and the system allocator).
+ */
+#ifndef NOXTLS_CONFIG_STATIC_MEMORY
+#define NOXTLS_CONFIG_STATIC_MEMORY 0
 #endif
 
 /* NOXTLS_USE_STATIC_BUFFERS
