@@ -512,17 +512,17 @@ static void conn_release(noxtls_connection_memory_t *conn, tls13_context_t *ctx)
 #if NOXTLS_FEATURE_DTLS
     if(ctx->base.base.version == DTLS_VERSION_1_3) {
         uint32_t i;
-        if(conn_in_handshake_part(conn, ctx->base.flight_buffer) != 0) {
-            ctx->base.flight_buffer = NULL;
-            ctx->base.flight_buffer_len = 0U;
-            ctx->base.flight_buffer_capacity = 0U;
+        if((ctx->base.flight_buffer_storage == NULL) ||
+           (conn_in_handshake_part(conn, ctx->base.flight_buffer_storage) != 0)) {
+            /* Post-handshake flights (KeyUpdate, connection IDs) use a steady slot. A
+             * flight buffer the application installed with noxtls_dtls_set_flight_buffer()
+             * is its own storage and stays. */
+            ctx->base.flight_buffer_storage = conn->post_hs_flight;
+            ctx->base.flight_buffer_storage_capacity = conn->post_hs_flight_size;
         }
-        /* Post-handshake flights (KeyUpdate, connection IDs) use a steady slot. */
-        ctx->base.flight_buffer_storage = conn->post_hs_flight;
-        ctx->base.flight_buffer_storage_capacity = conn->post_hs_flight_size;
-        if(ctx->base.flight_buffer == NULL) {
-            ctx->base.flight_buffer = conn->post_hs_flight;
-            ctx->base.flight_buffer_capacity = conn->post_hs_flight_size;
+        if((ctx->base.flight_buffer == NULL) || (conn_in_handshake_part(conn, ctx->base.flight_buffer) != 0)) {
+            ctx->base.flight_buffer = ctx->base.flight_buffer_storage;
+            ctx->base.flight_buffer_capacity = ctx->base.flight_buffer_storage_capacity;
             ctx->base.flight_buffer_len = 0U;
         }
         conn_drop(conn, &ctx->base.hrr_cookie);

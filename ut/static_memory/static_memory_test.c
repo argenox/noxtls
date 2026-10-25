@@ -311,6 +311,26 @@ static int t_release_timing(void)
     return lb_expect_no_leak(base, "release timing");
 }
 
+/** A flight buffer the application installs is kept across the release. */
+static int t_application_flight_buffer(void)
+{
+    static uint8_t app_flight[2048];
+    lb_pair_t pair;
+    size_t base = lb_alloc_live_bytes();
+
+    LB_RUN(st_pair_init(&pair, LB_PROTO_DTLS13, LB_AUTH_NONE, LB_AUTH_NONE));
+    LB_CHECK_OK(noxtls_dtls_set_flight_buffer(&pair.server.t13->base, app_flight, sizeof(app_flight)));
+    LB_RUN(lb_pair_handshake(&pair));
+    LB_RUN(st_exchange(&pair, 4U));
+    LB_RUN(st_check_released(&pair.server, 1));
+    LB_CHECK(pair.server.t13->base.flight_buffer_storage == app_flight);
+    LB_CHECK_OK(noxtls_tls13_send_key_update(pair.server.t13, 1U));
+    LB_RUN(st_exchange(&pair, 5U));
+    (void)lb_end_close(&pair.server);
+    lb_pair_free(&pair);
+    return lb_expect_no_leak(base, "application flight buffer");
+}
+
 /** Every pool returns the same deterministic error when it is full. */
 static int t_pool_exhaustion(void)
 {
@@ -471,6 +491,7 @@ static const lb_test_case_t k_cases[] = {
     { "static_tls13_mtls_ecdsa_client", t_tls13_mtls_ecdsa_client },
     { "static_dtls13_cert_ecdsa", t_dtls13_cert_ecdsa },
     { "static_release_timing", t_release_timing },
+    { "static_application_flight_buffer", t_application_flight_buffer },
     { "static_pool_exhaustion", t_pool_exhaustion },
     { "static_peer_chain_too_deep", t_peer_chain_too_deep },
     { "static_footprint_report", t_footprint_report },

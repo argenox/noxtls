@@ -144,8 +144,8 @@ static tls13_context_t s_dtls;
 rc = noxtls_dtls13_context_init_static(&s_dtls, TLS_ROLE_SERVER, NOXTLS_CONN_PROFILE_DTLS13_PSK,
                                        s_dtls_mem, sizeof(s_dtls_mem));
 /* then, as before: I/O and time callbacks, noxtls_dtls_set_mtu(), retransmission,
- * tls13_set_external_psk(), groups and suites. Do not call
- * noxtls_dtls_set_flight_buffer(): the flight is part of the block. */
+ * tls13_set_external_psk(), groups and suites. The flight is part of the block:
+ * noxtls_dtls_set_flight_buffer() is not needed (a buffer it installs is kept). */
 ```
 
 The block must be 8-byte aligned and stay valid until `noxtls_tls13_context_free()`.

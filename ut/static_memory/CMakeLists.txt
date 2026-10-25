@@ -22,6 +22,7 @@ set(_noxtls_static_cases
     static_tls13_mtls_ecdsa_client
     static_dtls13_cert_ecdsa
     static_release_timing
+    static_application_flight_buffer
     static_pool_exhaustion
     static_peer_chain_too_deep
     static_footprint_report
