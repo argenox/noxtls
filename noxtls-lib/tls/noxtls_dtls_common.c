@@ -107,6 +107,26 @@ static const uint64_t dtls_s_u64_bit[64] = {
 };
 
 
+/* RFC 9147 5.8.2: the backed-off timer is capped; NoxTLS uses 60 seconds. */
+#define DTLS_RETRANSMIT_TIMEOUT_MAX_MS  60000U
+
+/**
+ * @brief Restore the retransmission timer and attempt budget for a new flight.
+ *
+ * RFC 9147 5.8: the timer backs off after every retransmission of a flight and
+ * the implementation gives up after a bounded number of them. Only the start of
+ * a new flight restores the base value, never a received datagram: duplicates of
+ * the peer's previous flight would otherwise hold the timer at its base value.
+ *
+ * @param[in,out] ctx The context value.
+ */
+static void dtls_flight_timer_restart(dtls_context_t *ctx)
+{
+    ctx->retransmit_attempts = 0U;
+    ctx->retransmit_exhausted = 0U;
+    ctx->retransmit_timeout_ms = (ctx->retransmit_base_timeout_ms == 0U) ? 1000U : ctx->retransmit_base_timeout_ms;
+}
+
 /**
  * @brief Clear the flight buffer.
  *
@@ -119,6 +139,7 @@ static void dtls_flight_clear(dtls_context_t *ctx)
     }
 
     ctx->flight_buffer_len = 0U;
+    dtls_flight_timer_restart(ctx);
 }
 
 /** Flight buffer growth granularity (power of two). */
@@ -608,6 +629,10 @@ static noxtls_return_t dtls_flight_append(dtls_context_t *ctx, uint8_t flags,
     if(reserve_rc != NOXTLS_RETURN_SUCCESS) {
         return reserve_rc;
     }
+    if(ctx->flight_buffer_len == 0U) {
+        /* First record of a new flight (the previous one was cleared or ACKed). */
+        dtls_flight_timer_restart(ctx);
+    }
 
     {
         uint32_t word = record_len;
@@ -1045,6 +1070,8 @@ noxtls_return_t noxtls_dtls_context_init(dtls_context_t *ctx, tls_role_t role, u
     ctx->flight_buffer_storage = NULL;
     ctx->flight_buffer_storage_capacity = 0U;
     ctx->retransmit_max_attempts = 4;
+    ctx->retransmit_attempts = 0U;
+    ctx->retransmit_exhausted = 0U;
     ctx->bytes_received = 0U;
     ctx->bytes_sent = 0U;
     ctx->validated = 0U;
@@ -1221,6 +1248,8 @@ noxtls_return_t dtls_set_retransmit(dtls_context_t *ctx, uint32_t timeout_ms,
     ctx->rtt_estimator_valid = 0U;
     ctx->retransmit_backoff_ms = backoff_ms;
     ctx->retransmit_max_attempts = max_attempts;
+    ctx->retransmit_attempts = 0U;
+    ctx->retransmit_exhausted = 0U;
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -1705,8 +1734,6 @@ static void dtls_rx_stash_remainder(dtls_context_t *ctx, const uint8_t *rest, ui
 static noxtls_return_t dtls_read_datagram(dtls_context_t *ctx, uint8_t *packet, uint32_t packet_capacity,
                                           int32_t *received, int *from_stash)
 {
-    uint32_t attempts = 0U;
-
     *from_stash = 0;
     if(ctx->rx_datagram != NULL) {
         uint32_t n = ctx->rx_datagram_len;
@@ -1730,10 +1757,10 @@ static noxtls_return_t dtls_read_datagram(dtls_context_t *ctx, uint8_t *packet, 
              * The last flight of a DTLS 1.2 handshake is never retransmitted on a timer: it is
              * resent only when the peer retransmits its previous flight (RFC 6347 4.2.4).
              */
-            if((ctx->flight_buffer_len > 0U) && (ctx->flight_final == 0U) &&
-               (attempts < ctx->retransmit_max_attempts)) {
+            if((ctx->flight_buffer_len > 0U) && (ctx->flight_final == 0U)) {
+                uint64_t now = 0U;
                 if(ctx->base.time_callback != NULL) {
-                    uint64_t now = (uint64_t)(ctx->base.time_callback(ctx->base.user_data));
+                    now = (uint64_t)(ctx->base.time_callback(ctx->base.user_data));
                     if(ctx->last_flight_sent_ms == 0U) {
                         ctx->last_flight_sent_ms = now;
                     }
@@ -1741,16 +1768,30 @@ static noxtls_return_t dtls_read_datagram(dtls_context_t *ctx, uint8_t *packet, 
                         return NOXTLS_RETURN_TIMEOUT;
                     }
                 }
+                if(ctx->retransmit_attempts >= ctx->retransmit_max_attempts) {
+                    /*
+                     * RFC 9147 5.8: the flight was retransmitted the allowed number of times and
+                     * the last timeout expired unanswered. Stop retransmitting. The timer is
+                     * parked at the ceiling so a deadline-driven owner is not woken continuously;
+                     * the owner's own handshake deadline ends the association.
+                     */
+                    ctx->retransmit_exhausted = 1U;
+                    ctx->retransmit_timeout_ms = DTLS_RETRANSMIT_TIMEOUT_MAX_MS;
+                    if(ctx->base.time_callback != NULL) {
+                        ctx->last_flight_sent_ms = now;
+                    }
+                    return NOXTLS_RETURN_TIMEOUT;
+                }
                 (void)dtls_flight_retransmit(ctx);
-                attempts += 1U;
-                /* RFC 9147 5.8: timer value SHOULD be backed off after each retransmission. */
+                ctx->retransmit_attempts += 1U;
+                /* RFC 9147 5.8.2: timer value SHOULD be backed off after each retransmission. */
                 ctx->retransmit_timeout_ms =
                     (uint32_t)(((uint64_t)ctx->retransmit_timeout_ms * ctx->retransmit_backoff_ms) / 1000U);
                 if(ctx->retransmit_timeout_ms == 0U) {
                     ctx->retransmit_timeout_ms = 1U;
                 }
-                if(ctx->retransmit_timeout_ms > 60000U) {
-                    ctx->retransmit_timeout_ms = 60000;  /* cap at 60 seconds */
+                if(ctx->retransmit_timeout_ms > DTLS_RETRANSMIT_TIMEOUT_MAX_MS) {
+                    ctx->retransmit_timeout_ms = DTLS_RETRANSMIT_TIMEOUT_MAX_MS;
                 }
                 continue;
             }
@@ -1763,7 +1804,7 @@ static noxtls_return_t dtls_read_datagram(dtls_context_t *ctx, uint8_t *packet, 
         }
         break;
     }
-    ctx->retransmit_timeout_ms = (ctx->retransmit_base_timeout_ms == 0U) ? 1000U : ctx->retransmit_base_timeout_ms;
+    /* RFC 9147 5.8: a received datagram does not restore the timer; only a new flight does. */
     ctx->bytes_received += (uint64_t)*received;
     return NOXTLS_RETURN_SUCCESS;
 }

@@ -28,6 +28,11 @@ static recovery_endpoint_t s_client;
 static recovery_endpoint_t s_server;
 static uint64_t s_now;
 static uint32_t s_flood_reads;
+/* Server output is discarded and its bursts timed (retransmission backoff case). */
+static bool s_sink_server;
+static uint64_t s_bursts[RECOVERY_MAX_BURSTS];
+static uint32_t s_burst_count;
+static recovery_packet_t s_client_hello;
 #if NOXTLS_FEATURE_ECC
 static tls_ecdhe_context_t s_classical_share;
 #endif
@@ -79,6 +84,23 @@ static int32_t send_packet(void *context, const uint8_t *data, uint32_t length)
     } else if(length != 0U && data[0] == TLS_RECORD_ACK &&
               source == &s_server && s_client.finished_forwarded) {
         drop = RECOVERY_DROP_ACK;
+    }
+
+    if(source == &s_client && length <= RECOVERY_PACKET_BYTES &&
+       length > DTLS_RECORD_DATA_OFFSET && data[0] == TLS_RECORD_HANDSHAKE &&
+       data[DTLS_RECORD_DATA_OFFSET] == TLS_HANDSHAKE_CLIENT_HELLO) {
+        memcpy(s_client_hello.bytes, data, length);
+        s_client_hello.length = length;
+    }
+
+    if(source == &s_server && s_sink_server) {
+        /* One burst is every record sent at the same virtual millisecond. */
+        if((s_burst_count == 0U || s_bursts[s_burst_count - 1U] != s_now) &&
+           s_burst_count < RECOVERY_MAX_BURSTS) {
+            s_bursts[s_burst_count] = s_now;
+            ++s_burst_count;
+        }
+        return (int32_t)length;
     }
 
     if((drop & source->drop_mask) != 0U && (drop & source->dropped) == 0U) {
@@ -488,6 +510,121 @@ REGISTER_TEST(dtls13_recovery_reordered_server_hello_and_loss)
     return round_trip(RECOVERY_REORDER_SERVER_HELLO | RECOVERY_DROP_ALL);
 }
 
+/** @brief Bring a real handshake to the point where the server flight awaits client Finished.
+ * @return True once the server's encrypted flight is buffered for retransmission. */
+static bool backoff_setup(void)
+{
+    memset(&s_client, 0, sizeof(s_client));
+    memset(&s_server, 0, sizeof(s_server));
+    memset(&s_client_hello, 0, sizeof(s_client_hello));
+    s_client.peer = &s_server;
+    s_server.peer = &s_client;
+    s_sink_server = false;
+    s_burst_count = 0U;
+    s_now = 1U;
+    if(initialize(&s_client, TLS_ROLE_CLIENT) != NOXTLS_RETURN_SUCCESS ||
+       initialize(&s_server, TLS_ROLE_SERVER) != NOXTLS_RETURN_SUCCESS ||
+       dtls_set_retransmit(&s_server.tls.base, RECOVERY_BACKOFF_BASE_MS, 2000U,
+           RECOVERY_BACKOFF_MAX_ATTEMPTS) != NOXTLS_RETURN_SUCCESS) { return false; }
+
+    for(uint32_t step = 0U; step < RECOVERY_STEPS && s_server.encrypted_sends == 0U; ++step) {
+        (void)pump(&s_client);
+        (void)pump(&s_server);
+        ++s_now;
+    }
+
+    return s_server.encrypted_sends != 0U && s_server.tls.base.flight_buffer_len != 0U &&
+        s_client_hello.length != 0U && s_server.tls.base.retransmit_attempts == 0U &&
+        s_server.tls.base.retransmit_exhausted == 0U;
+}
+
+/** @brief Duplicate ClientHellos neither reset the backed-off timer nor lift the attempt cap.
+ *
+ * RFC 9147 section 5.8: the server flight is lost and the client keeps resending
+ * its ClientHello every 300 ms. Each datagram used to restore the base timeout,
+ * so the server retransmitted about every 0.6 s for as long as the duplicates
+ * continued, and the per-call attempt counter never reached its limit.
+ *
+ * @return Zero on success. */
+REGISTER_TEST(dtls13_recovery_retransmit_backoff)
+{
+    static const uint64_t expected[RECOVERY_BACKOFF_MAX_ATTEMPTS] = {500U, 1500U, 3500U, 7500U};
+    UTNOX_IS_TRUE(backoff_setup());
+    /* Drop every later server datagram; the client stays silent except for the
+     * injected duplicates, as on a path that loses the server flight. */
+    s_sink_server = true;
+    s_client.count = 0U;
+    uint64_t origin = s_server.tls.base.last_flight_sent_ms;
+    uint64_t exhausted_at = 0U;
+    for(uint64_t elapsed = 1U; elapsed <= RECOVERY_BACKOFF_WINDOW_MS; ++elapsed) {
+        s_now = origin + elapsed;
+        if((elapsed % RECOVERY_DUPLICATE_PERIOD_MS) == RECOVERY_DUPLICATE_PHASE_MS &&
+           s_server.count < RECOVERY_QUEUE_DEPTH) {
+            uint32_t index = (s_server.head + s_server.count) % RECOVERY_QUEUE_DEPTH;
+            s_server.queue[index] = s_client_hello;
+            ++s_server.count;
+        }
+
+        noxtls_return_t rc = pump(&s_server);
+        UTNOX_IS_TRUE(rc == NOXTLS_RETURN_TIMEOUT || rc == NOXTLS_RETURN_SUCCESS);
+        if(exhausted_at == 0U && s_server.tls.base.retransmit_exhausted != 0U) { exhausted_at = elapsed; }
+    }
+
+    UTNOX_EQUALS(s_burst_count, RECOVERY_BACKOFF_MAX_ATTEMPTS);
+    for(uint32_t i = 0U; i < RECOVERY_BACKOFF_MAX_ATTEMPTS; ++i) {
+        UTNOX_EQUALS(s_bursts[i] - origin, expected[i]);
+    }
+
+    /* The fourth retransmission waits its own 8 s timeout before giving up. */
+    UTNOX_EQUALS(exhausted_at, 15500U);
+    UTNOX_EQUALS(s_server.tls.base.retransmit_attempts, RECOVERY_BACKOFF_MAX_ATTEMPTS);
+    UTNOX_EQUALS(s_server.tls.base.base.state, TLS_STATE_HANDSHAKING);
+    UTNOX_IS_TRUE(s_server.tls.base.flight_buffer_len != 0U);
+    /* The exhausted timer is parked, so a deadline-driven owner does not spin. */
+    UTNOX_IS_TRUE(s_server.tls.base.last_flight_sent_ms == origin + exhausted_at);
+    UTNOX_IS_TRUE(s_server.tls.base.retransmit_timeout_ms > RECOVERY_BACKOFF_WINDOW_MS);
+    UTNOX_EQUALS(noxtls_tls13_context_free(&s_client.tls), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(noxtls_tls13_context_free(&s_server.tls), NOXTLS_RETURN_SUCCESS);
+    return 0;
+}
+
+/** @brief Only a new flight restores the base timer and the attempt budget.
+ * @return Zero on success. */
+REGISTER_TEST(dtls13_recovery_retransmit_budget_per_flight)
+{
+    uint8_t inner[8] = {0U};
+    uint8_t storage[64];
+    memset(&s_client, 0, sizeof(s_client));
+    UTNOX_EQUALS(initialize(&s_client, TLS_ROLE_CLIENT), NOXTLS_RETURN_SUCCESS);
+    dtls_context_t *base = &s_client.tls.base;
+    UTNOX_EQUALS(dtls_set_retransmit(base, RECOVERY_BACKOFF_BASE_MS, 2000U, 2U), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(noxtls_dtls_set_flight_buffer(base, storage, sizeof(storage)), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(noxtls_dtls_buffer_handshake(base, inner, sizeof(inner)), NOXTLS_RETURN_SUCCESS);
+    base->retransmit_attempts = 2U;
+    base->retransmit_exhausted = 1U;
+    base->retransmit_timeout_ms = 4U * RECOVERY_BACKOFF_BASE_MS;
+    /* Appending to a non-empty flight keeps its timer state. */
+    UTNOX_EQUALS(noxtls_dtls_buffer_handshake(base, inner, sizeof(inner)), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(base->retransmit_attempts, 2U);
+    UTNOX_EQUALS(base->retransmit_exhausted, 1U);
+    UTNOX_EQUALS(base->retransmit_timeout_ms, 4U * RECOVERY_BACKOFF_BASE_MS);
+    noxtls_dtls_flight_reset(base);
+    UTNOX_EQUALS(base->retransmit_attempts, 0U);
+    UTNOX_EQUALS(base->retransmit_exhausted, 0U);
+    UTNOX_EQUALS(base->retransmit_timeout_ms, RECOVERY_BACKOFF_BASE_MS);
+    /* A flight emptied by an ACK restarts when the next one begins. */
+    base->retransmit_attempts = 2U;
+    base->retransmit_exhausted = 1U;
+    base->retransmit_timeout_ms = 4U * RECOVERY_BACKOFF_BASE_MS;
+    base->flight_buffer_len = 0U;
+    UTNOX_EQUALS(noxtls_dtls_buffer_handshake(base, inner, sizeof(inner)), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(base->retransmit_attempts, 0U);
+    UTNOX_EQUALS(base->retransmit_exhausted, 0U);
+    UTNOX_EQUALS(base->retransmit_timeout_ms, RECOVERY_BACKOFF_BASE_MS);
+    UTNOX_EQUALS(noxtls_tls13_context_free(&s_client.tls), NOXTLS_RETURN_SUCCESS);
+    return 0;
+}
+
 /** @brief Fill one synthetic protected record; authentication is intentionally unavailable.
  * @param[out] bytes Record storage with at least RECOVERY_EARLY_PACKET_BYTES bytes.
  * @return None. */
@@ -687,6 +824,8 @@ void utnox_register_tests(void)
     register_test(__reg_dtls13_recovery_missing_server_hello_and_flight.name, __reg_dtls13_recovery_missing_server_hello_and_flight.func);
     register_test(__reg_dtls13_recovery_reordered_server_hello.name, __reg_dtls13_recovery_reordered_server_hello.func);
     register_test(__reg_dtls13_recovery_reordered_server_hello_and_loss.name, __reg_dtls13_recovery_reordered_server_hello_and_loss.func);
+    register_test(__reg_dtls13_recovery_retransmit_backoff.name, __reg_dtls13_recovery_retransmit_backoff.func);
+    register_test(__reg_dtls13_recovery_retransmit_budget_per_flight.name, __reg_dtls13_recovery_retransmit_budget_per_flight.func);
     register_test(__reg_dtls13_early_ciphertext_preserves_state.name, __reg_dtls13_early_ciphertext_preserves_state.func);
     register_test(__reg_dtls13_early_ciphertext_coalesced_plaintext.name, __reg_dtls13_early_ciphertext_coalesced_plaintext.func);
     register_test(__reg_dtls13_early_ciphertext_bad_length.name, __reg_dtls13_early_ciphertext_bad_length.func);

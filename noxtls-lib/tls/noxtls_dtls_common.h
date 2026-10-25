@@ -260,7 +260,9 @@ typedef struct dtls_context_s
     uint32_t flight_buffer_capacity; /* Capacity of flight buffer */
     uint8_t *flight_buffer_storage; /* Optional caller-managed flight buffer storage */
     uint32_t flight_buffer_storage_capacity; /* Capacity of caller-managed flight buffer storage */
-    uint32_t retransmit_max_attempts; /* Max retransmission attempts per receive */
+    uint32_t retransmit_max_attempts; /* Max timer retransmissions of one flight (RFC 9147 5.8) */
+    uint32_t retransmit_attempts; /* Timer retransmissions of the current flight so far */
+    uint8_t retransmit_exhausted; /* 1 once the last allowed retransmission timed out unanswered */
     uint64_t bytes_received;    /* Bytes received (for anti-amplification) */
     uint64_t bytes_sent;        /* Bytes sent (for anti-amplification) */
     uint8_t validated;          /* Peer address validated */

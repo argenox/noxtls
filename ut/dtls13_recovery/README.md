@@ -129,3 +129,31 @@ NoxTLS, five logical-input hardware trials took 2.453..2.656 seconds to authenti
 acknowledgement, compared with 3.579..3.594 seconds in three baseline trials. All trials
 used a new PSK-DHE handshake and the existing single TLS context; the measurements
 are from a running-node debug probe with roughly 50 ms sampling resolution.
+
+## Retransmission backoff per flight
+
+A received datagram used to restore the base retransmission timeout, including
+duplicates of the peer's previous flight and records that were discarded. The
+attempt limit was a local variable of one receive call, so a nonblocking owner
+was never limited. When a cloud path lost the server flight, the client kept
+resending its ClientHello, and both peers retransmitted at their base rate (about
+every 0.6 s for 15 s in the capture).
+
+RFC 9147 section 5.8 backs the timer off after each retransmission and bounds the
+number of retransmissions. The timer and the new `retransmit_attempts` budget are
+now restored only when a flight starts: the first record appended to an empty
+flight buffer, or `noxtls_dtls_flight_reset()`. Received datagrams leave them
+unchanged. When the last allowed retransmission times out, retransmission stops
+and `retransmit_exhausted` is set. The timer is then parked at the 60 s ceiling
+so that an owner driven by `last_flight_sent_ms + retransmit_timeout_ms` is not
+woken continuously. The owner's handshake deadline ends the association. A
+parked timer gives no RTT sample. The DTLS context gains one `uint32_t` and one
+`uint8_t`, so code that embeds contexts must be rebuilt.
+
+Two cases cover it. `dtls13_recovery_retransmit_backoff` loses every server
+datagram after the first flight and injects the client's ClientHello every
+300 ms. With a 500 ms base, doubling and four attempts, the server retransmits
+at exactly 0.5, 1.5, 3.5 and 7.5 s and gives up at 15.5 s. Before the change it
+retransmitted at least 16 times in the same window. `dtls13_recovery_retransmit_budget_per_flight`
+checks that appending to a pending flight keeps the timer state, and that a reset
+or an emptied flight restores it.

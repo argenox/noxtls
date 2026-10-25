@@ -1479,7 +1479,9 @@ static void tls13_dtls_note_flight_acked(dtls_context_t *dctx)
     uint32_t sample = 0U;
     uint32_t rto = 0U;
 
-    if((dctx == NULL) || (dctx->base.time_callback == NULL) || (dctx->last_flight_sent_ms == 0U)) {
+    /* An exhausted flight's timer is parked (RFC 9147 5.8): it holds no send time to sample. */
+    if((dctx == NULL) || (dctx->base.time_callback == NULL) || (dctx->last_flight_sent_ms == 0U) ||
+       (dctx->retransmit_exhausted != 0U)) {
         return;
     }
 
