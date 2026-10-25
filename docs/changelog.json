@@ -332,6 +332,14 @@
           "refs": [
             "PR #58"
           ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.15-28",
+          "title": "TLS 1.3 / DTLS 1.3 server wrote its key share past a handshake workspace smaller than 4096 B",
+          "description": "noxtls_tls13_send_server_hello() staged the KeyShareEntry at handshake_workspace[TLS_SERVER_HELLO_DEFAULT_SIZE] (2048 bytes in) and gave noxtls_tls13_key_share_encode() TLS_KEY_SHARE_ENTRY_MAX_LEN (2048) as its capacity, without checking NOXTLS_TLS_HANDSHAKE_WORKSPACE_SIZE. With a 2048-byte workspace every server handshake wrote the 36-byte X25519 entry immediately past the end of the buffer. The ClientHello and ServerHello builders also bounded their writes by the default message sizes (4096 and 2048 bytes) instead of the configured workspace. The hello builders now use the workspace only when it is large enough for the message (TLS13_WORKSPACE_FOR) and allocate otherwise; the key share is staged in the workspace only when it holds both the ServerHello and the entry. Found by the loopback allocator's tail canary in a DTLS 1.3 PSK server test with a 2048-byte workspace and 512-byte records.",
+          "refs": [
+            "PR #58"
+          ]
         }
       ],
       "known_issues": [
@@ -597,6 +605,14 @@
           "description": "By default the TLS 1.2 client offered SHA-1 signature schemes (deprecated by RFC 9155) and CBC, static-RSA and 3DES suites, and the server negotiated them. The client also accepted a ServerHello suite or ServerKeyExchange scheme it had not offered after a TLS 1.3 to 1.2 downgrade. Fixed: only forward-secret AEAD suites and SHA-256 or stronger signatures by default; legacy behaviour needs NOXTLS_CFG_TLS12_ENABLE_LEGACY_CIPHER_SUITES and NOXTLS_CFG_TLS12_ENABLE_SHA1_SIGNATURES.",
           "affected_versions": "0.3.14 and earlier",
           "cve": null
+        },
+        {
+          "id": "NOXTLS-SA-0.3.15-16",
+          "severity": "high",
+          "title": "Out-of-bounds write in the TLS 1.3 / DTLS 1.3 ServerHello when the handshake workspace is below 4096 B",
+          "description": "In builds with NOXTLS_TLS_HANDSHAKE_WORKSPACE_SIZE smaller than 4096 bytes, a TLS 1.3 or DTLS 1.3 server writes its ServerHello KeyShareEntry past the end of the handshake workspace on every handshake (36 bytes for X25519 with a 2048-byte workspace; more for larger groups). Any client can trigger it by connecting. The bytes written are the server's own key share, not attacker-chosen, but they overwrite whatever follows the workspace, for example an application buffer placed after a caller-provided workspace. Builds with the default 8192-byte workspace are not affected. Fixed in 0.3.15 (NOXTLS-RI-0.3.15-28).",
+          "affected_versions": "0.3.14 and earlier, with NOXTLS_TLS_HANDSHAKE_WORKSPACE_SIZE below 4096",
+          "cve": null
         }
       ],
       "security_recommendations": [
@@ -607,7 +623,8 @@
         "Enable certificate validity checking (NOXTLS_HAVE_TIME=1 with a trusted clock) and hostname verification for every client connection.",
         "For LMS/HSS and XMSS signing keys, keep one monotonically updated copy, persist it with A/B slots and a checksum through the signer callback, and never restore it from a backup or snapshot.",
         "Use the PSK-only TLS 1.3 option (NOXTLS_TLS13_PEER_CERTIFICATES=0) only when every TLS 1.3 peer authenticates with an external PSK of at least 128 bits of entropy.",
-        "Rebuild applications against the 0.3.15 headers; public structure layouts changed and mixing headers and libraries from different versions is unsafe."
+        "Rebuild applications against the 0.3.15 headers; public structure layouts changed and mixing headers and libraries from different versions is unsafe.",
+        "If you build with NOXTLS_TLS_HANDSHAKE_WORKSPACE_SIZE below 4096 bytes and run a TLS 1.3 or DTLS 1.3 server, update to 0.3.15 (NOXTLS-SA-0.3.15-16). Until then, use a workspace of at least 4096 bytes."
       ]
     },
     {
