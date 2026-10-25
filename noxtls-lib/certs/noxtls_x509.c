@@ -115,6 +115,10 @@ static noxtls_return_t noxtls_x509_validate_ecc_public_key_bytes(const uint8_t *
                                                                  uint32_t pubkey_len,
                                                                  const uint8_t *curve_oid,
                                                                  uint32_t curve_oid_len);
+static noxtls_return_t x509_asn1_time_to_epoch(const uint8_t *time_data, uint32_t time_len, int64_t *time_out);
+static noxtls_return_t x509_cert_find_validity(const x509_certificate_t *cert,
+                                               const uint8_t **not_before, uint32_t *not_before_len,
+                                               const uint8_t **not_after, uint32_t *not_after_len);
 static int s_x509_hostname_wildcard_matching =
 #if NOXTLS_X509_HOSTNAME_ALLOW_WILDCARD
     1
@@ -145,70 +149,59 @@ static FILE *noxtls_x509_fopen(const uint8_t *filename, const uint8_t *mode)
 #define CERT_DEBUG_PRINT(...) ((void)0)
 
 /* Last certificate verification failure detail (single global; not thread-safe). */
+#if NOXTLS_X509_FAIL_INFO
 static noxtls_cert_verify_failure_info_t s_cert_fail_info;
+#else
+/* NOXTLS_X509_FAIL_INFO=0: only the code, index and populated flag are kept (12 bytes instead
+ * of sizeof(noxtls_cert_verify_failure_info_t)); the text fields read back empty. */
+typedef struct {
+    noxtls_return_t return_code;
+    uint32_t cert_index;
+    int populated;
+} x509_cert_fail_min_t;
+static x509_cert_fail_min_t s_cert_fail_info;
+#endif
 /*
  * Global trust anchors for TLS certificate verification.
  *
- * Ownership: the store owns exactly one heap snapshot (a deep copy made by
- * noxtls_x509_trust_store_set()). Verification reads the pointer once per
- * noxtls_x509_verify_*_cert_trust*() call and never keeps it after returning;
- * TLS contexts do not cache it. noxtls_x509_trust_store_set()/_clear() free the
- * previous snapshot, so they must not run concurrently with a verification that
- * uses the global store (the library has no internal locking; serialize like any
- * other global configuration call).
+ * s_x509_trust_anchors is the published view. It points either at
+ * s_x509_trust_store_owned (a copy made by noxtls_x509_trust_store_set(), a chain
+ * moved in by noxtls_x509_trust_store_set_move(), or anchors parsed in borrow mode
+ * by noxtls_x509_trust_store_set_der_nocopy()) or at an application chain
+ * registered with noxtls_x509_trust_store_set_borrowed() (not owned).
+ * Verification reads the pointer once per noxtls_x509_verify_*_cert_trust*() call
+ * and never keeps it after returning; TLS contexts do not cache it. set/clear
+ * release the previous owned anchors, so they must not run concurrently with a
+ * verification that uses the global store (the library has no internal locking;
+ * serialize like any other global configuration call).
  */
-static x509_certificate_chain_t *s_x509_trust_anchors;
+static const x509_certificate_chain_t *s_x509_trust_anchors;
+static x509_certificate_chain_t s_x509_trust_store_owned;
 static int s_x509_trust_anchors_initialized;
 
-
 /**
- * @brief Clones a trust store.
+ * @brief Copy every anchor of @p trust_anchors into @p snapshot (exact capacity, owned DER).
+ * @internal
  *
- * This function clones a trust store by creating a new trust store and adding the certificates from the original trust store.
- *
- * @param[in] trust_anchors The trust store to clone.
- * @return The cloned trust store.
+ * @param[out] snapshot Empty, initialized chain.
+ * @param[in] trust_anchors Source anchors.
+ * @return NOXTLS_RETURN_SUCCESS, or an error with @p snapshot freed.
  */
-static x509_certificate_chain_t *x509_trust_store_clone(const x509_certificate_chain_t *trust_anchors)
+static noxtls_return_t x509_trust_store_clone(x509_certificate_chain_t *snapshot,
+                                              const x509_certificate_chain_t *trust_anchors)
 {
     uint32_t i = 0U;
-    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
-    x509_certificate_chain_t *snapshot;
+    noxtls_return_t rc = noxtls_x509_certificate_chain_reserve(snapshot, trust_anchors->count);
 
-    if((trust_anchors == NULL) || (trust_anchors->count == 0U)) {
-        return NULL;
-    }
-
-    snapshot = (x509_certificate_chain_t *)NOXTLS_CALLOC(1, sizeof(x509_certificate_chain_t));
-    if(snapshot == NULL) {
-        return NULL;
-    }
-    rc = noxtls_x509_certificate_chain_init(snapshot);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        (void)noxtls_free(snapshot);
-        return NULL;
-    }
-
-    for(i = 0U; i < trust_anchors->count; i += 1U) {
+    for(i = 0U; (i < trust_anchors->count) && (rc == NOXTLS_RETURN_SUCCESS); i += 1U) {
         rc = noxtls_x509_certificate_chain_add(snapshot, &trust_anchors->certs[i]);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            (void)noxtls_x509_certificate_chain_free(snapshot);
-            (void)noxtls_free(snapshot);
-            return NULL;
-        }
     }
-
-    return snapshot;
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        (void)noxtls_x509_certificate_chain_free(snapshot);
+    }
+    return rc;
 }
 
-
-static void x509_copy_bytes_to_chars(uint8_t *dst, const uint8_t *src, uint32_t len)
-{
-    uint32_t i = 0U;
-    for(i = 0U; i < len; i += 1U) {
-        dst[i] = (uint8_t)src[i];
-    }
-}
 
 /**
  * @brief Return 1 when @p len bytes at @p src contain a NUL octet, 0 otherwise.
@@ -241,20 +234,7 @@ static int x509_bytes_have_nul(const uint8_t *src, uint32_t len)
  * @param[in] expected_hostname_len The length of the expected hostname.
  * @param[in] cert_index The index of the certificate in the chain.
  */
-static void cert_fail_copy_bytes(uint8_t *dst, uint32_t dst_max, const uint8_t *src)
-{
-    uint32_t n = 0U;
-
-    if((dst == NULL) || (dst_max == 0U) || (src == NULL)) {
-        return;
-    }
-    while((n < (dst_max - 1U)) && (src[n] != 0U)) {
-        dst[n] = (uint8_t)src[n];
-        n += 1U;
-    }
-    dst[n] = 0U;
-}
-
+#if NOXTLS_X509_FAIL_INFO
 static void cert_fail_copy_cstr(uint8_t *dst, uint32_t dst_max, const uint8_t *src, uint32_t src_len)
 {
     uint32_t n = 0U;
@@ -268,6 +248,7 @@ static void cert_fail_copy_cstr(uint8_t *dst, uint32_t dst_max, const uint8_t *s
     }
     dst[n] = 0U;
 }
+#endif
 
 static void cert_fail_set(noxtls_return_t return_code, const x509_certificate_t *cert, const uint8_t *expected_hostname, uint32_t expected_hostname_len, uint32_t cert_index)
 {
@@ -276,15 +257,25 @@ static void cert_fail_set(noxtls_return_t return_code, const x509_certificate_t 
     s_cert_fail_info.cert_index = cert_index;
     s_cert_fail_info.populated = 1;
 
-    if(cert != NULL) {
-        if(cert->not_before[0] != 0U) {
-            cert_fail_copy_bytes(s_cert_fail_info.not_before, NOXTLS_CERT_FAIL_TIME_MAX, cert->not_before);
+#if NOXTLS_X509_FAIL_INFO
+    if((cert != NULL) && (cert->parsed != 0U)) {
+        const uint8_t *nb = NULL;
+        const uint8_t *na = NULL;
+        uint32_t nb_len = 0U;
+        uint32_t na_len = 0U;
+        /* Raw ASN.1 times (at most 14 characters, as stored before) and the subject DN text are
+         * rendered from the DER only when a failure is recorded. */
+        if(x509_cert_find_validity(cert, &nb, &nb_len, &na, &na_len) == NOXTLS_RETURN_SUCCESS) {
+            if(nb != NULL) {
+                cert_fail_copy_cstr(s_cert_fail_info.not_before, NOXTLS_CERT_FAIL_TIME_MAX - 1U, nb, nb_len);
+            }
+            if(na != NULL) {
+                cert_fail_copy_cstr(s_cert_fail_info.not_after, NOXTLS_CERT_FAIL_TIME_MAX - 1U, na, na_len);
+            }
         }
-        if(cert->not_after[0] != 0U) {
-            cert_fail_copy_bytes(s_cert_fail_info.not_after, NOXTLS_CERT_FAIL_TIME_MAX, cert->not_after);
-        }
-        if(cert->subject_dn[0] != 0U) {
-            cert_fail_copy_cstr(s_cert_fail_info.subject_dn, NOXTLS_CERT_FAIL_DN_HOSTNAME_MAX, cert->subject_dn, 0U);
+        if((cert->subject != NULL) && (cert->subject_len > 0U)) {
+            (void)noxtls_x509_parse_distinguished_name(cert->subject, cert->subject_len, s_cert_fail_info.subject_dn,
+                                                       NOXTLS_CERT_FAIL_DN_HOSTNAME_MAX);
         }
     }
 
@@ -292,6 +283,11 @@ static void cert_fail_set(noxtls_return_t return_code, const x509_certificate_t 
         cert_fail_copy_cstr(s_cert_fail_info.expected_hostname, NOXTLS_CERT_FAIL_DN_HOSTNAME_MAX,
                             expected_hostname, expected_hostname_len);
     }
+#else
+    (void)cert;
+    (void)expected_hostname;
+    (void)expected_hostname_len;
+#endif
 }
 
 /**
@@ -316,7 +312,14 @@ void noxtls_cert_verify_failure_clear(void)
 void noxtls_cert_verify_failure_get(noxtls_cert_verify_failure_info_t *out)
 {
     if(out != NULL) {
+#if NOXTLS_X509_FAIL_INFO
         noxtls_copy_u8((uint8_t *)(void *)(out), sizeof(noxtls_cert_verify_failure_info_t), (const uint8_t *)(const void *)(&s_cert_fail_info), sizeof(noxtls_cert_verify_failure_info_t));
+#else
+        noxtls_secure_zero(out, sizeof(noxtls_cert_verify_failure_info_t));
+        out->return_code = s_cert_fail_info.return_code;
+        out->cert_index = s_cert_fail_info.cert_index;
+        out->populated = s_cert_fail_info.populated;
+#endif
     }
 }
 
@@ -349,10 +352,18 @@ static uint32_t asn1_get_length(const uint8_t **data, const uint8_t *end)
             return 0U;
         }
 
+        /* X.690 10.1 (DER): the long form is used only for lengths >= 128, in the fewest
+         * octets (no leading zero octet). */
+        if(*ptr == 0U) {
+            return 0U;
+        }
         uint32_t i = 0U;
         for(i = 0U; i < len_bytes; i += 1U) {
             length = (length << 8U) | (uint32_t)(*ptr);
             ptr = &ptr[1];
+        }
+        if(length < 0x80U) {
+            return 0U;
         }
     } else {
         /* Short form */
@@ -877,8 +888,185 @@ int noxtls_x509_get_hostname_wildcard_matching(void)
     return s_x509_hostname_wildcard_matching;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Zero-copy ASN.1 span helpers (all spans point into the certificate DER)     */
+/* -------------------------------------------------------------------------- */
+
 /**
- * Parse cert->extensions (SEQUENCE OF Extension) and fill SAN, Key Usage, EKU, Basic Constraints, AKI, SKI, etc.
+ * @brief Read one TLV with the expected single-octet tag and return its contents.
+ * @internal
+ *
+ * The length must be a valid definite DER length whose contents fit before @p end.
+ * On failure *data is left unchanged.
+ *
+ * @param[in,out] data Cursor at the tag; advanced past the TLV on success.
+ * @param[in] end One past the last readable byte.
+ * @param[in] expected_tag Required tag octet.
+ * @param[out] content Contents of the TLV.
+ * @param[out] content_len Length of @p content.
+ * @return NOXTLS_RETURN_SUCCESS or NOXTLS_RETURN_FAILED.
+ */
+static noxtls_return_t asn1_get_tlv_span(const uint8_t **data, const uint8_t *end, uint8_t expected_tag,
+                                         const uint8_t **content, uint32_t *content_len)
+{
+    const uint8_t *cur = *data;
+    uint32_t len = 0U;
+
+    if(asn1_get_tag(&cur, end, expected_tag) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    if(asn1_get_bounded_length(&cur, end, &len) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    *content = cur;
+    *content_len = len;
+    *data = &cur[len];
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
+ * @brief Read any TLV (single-octet tag) and return its tag and contents.
+ * @internal
+ *
+ * @param[in,out] data Cursor at the tag; advanced past the TLV on success (unchanged on failure).
+ * @param[in] end One past the last readable byte.
+ * @param[out] tag Tag octet.
+ * @param[out] content Contents of the TLV.
+ * @param[out] content_len Length of @p content.
+ * @return NOXTLS_RETURN_SUCCESS or NOXTLS_RETURN_FAILED.
+ */
+static noxtls_return_t asn1_get_any_tlv(const uint8_t **data, const uint8_t *end, uint8_t *tag,
+                                        const uint8_t **content, uint32_t *content_len)
+{
+    const uint8_t *cur = *data;
+
+    if(x509_bytes_remaining(cur, end) < 2U) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    *tag = cur[0];
+    return asn1_get_tlv_span(data, end, cur[0], content, content_len);
+}
+
+/**
+ * @brief Read an OBJECT IDENTIFIER (1..32 content octets) as a span.
+ * @internal
+ */
+static noxtls_return_t asn1_get_oid_span(const uint8_t **data, const uint8_t *end,
+                                         const uint8_t **oid, uint32_t *oid_len)
+{
+    const uint8_t *cur = *data;
+    const uint8_t *val = NULL;
+    uint32_t len = 0U;
+
+    if(asn1_get_tlv_span(&cur, end, 0x06U, &val, &len) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    if((len == 0U) || (len > 32U)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    *oid = val;
+    *oid_len = len;
+    *data = cur;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
+ * @brief Read a non-empty INTEGER as a span of its content octets.
+ * @internal
+ */
+static noxtls_return_t asn1_get_integer_span(const uint8_t **data, const uint8_t *end,
+                                             const uint8_t **value, uint32_t *value_len)
+{
+    const uint8_t *cur = *data;
+    const uint8_t *val = NULL;
+    uint32_t len = 0U;
+
+    if(asn1_get_tlv_span(&cur, end, 0x02U, &val, &len) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    if(len == 0U) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    *value = val;
+    *value_len = len;
+    *data = cur;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/** Result of x509_ext_list_next(). */
+#define X509_EXT_STEP_END   0U  /**< End of list (or unparsable Extension SEQUENCE): stop. */
+#define X509_EXT_STEP_SKIP  1U  /**< Extension without usable OID or value: ignore it. */
+#define X509_EXT_STEP_ITEM  2U  /**< Extension decoded into the outputs. */
+
+/**
+ * @brief Decode the next Extension of an Extensions SEQUENCE OF (lenient walker shared by the
+ *        extension parser and the SAN iterator).
+ * @internal
+ *
+ * @param[in,out] list_ptr Cursor inside the SEQUENCE OF contents.
+ * @param[in] list_end End of the SEQUENCE OF contents.
+ * @param[out] oid extnID contents.
+ * @param[out] oid_len Length of @p oid.
+ * @param[out] critical 1 when the critical flag is TRUE.
+ * @param[out] value extnValue OCTET STRING contents (NULL when absent).
+ * @param[out] value_len Length of @p value.
+ * @param[out] step X509_EXT_STEP_*.
+ * @return NOXTLS_RETURN_SUCCESS, or NOXTLS_RETURN_BAD_DATA for a malformed critical BOOLEAN.
+ */
+static noxtls_return_t x509_ext_list_next(const uint8_t **list_ptr, const uint8_t *list_end,
+                                          const uint8_t **oid, uint32_t *oid_len, int *critical,
+                                          const uint8_t **value, uint32_t *value_len, uint8_t *step)
+{
+    const uint8_t *ext_seq = NULL;
+    uint32_t ext_seq_len = 0U;
+    const uint8_t *eptr = NULL;
+    const uint8_t *eend = NULL;
+    uint8_t eptr_done = 0U;
+
+    *step = X509_EXT_STEP_END;
+    *critical = 0;
+    *value = NULL;
+    *value_len = 0U;
+    if(((uintptr_t)(*list_ptr) >= (uintptr_t)list_end) ||
+       (asn1_get_sequence(list_ptr, list_end, &ext_seq, &ext_seq_len) != NOXTLS_RETURN_SUCCESS)) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    *step = X509_EXT_STEP_SKIP;
+    eptr = ext_seq;
+    eend = &ext_seq[ext_seq_len];
+    *list_ptr = eend;
+    if(asn1_get_oid_span(&eptr, eend, oid, oid_len) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    while(((uintptr_t)eptr < (uintptr_t)eend) && (eptr_done == 0U)) {
+        if(*eptr == 0x01U) {
+            /* critical BOOLEAN: DER requires length 1 and value 0x00/0xFF. A malformed
+             * BOOLEAN rejects the certificate; the cursor is never moved past eend. */
+            if(asn1_get_boolean(&eptr, eend, critical) != NOXTLS_RETURN_SUCCESS) {
+                return NOXTLS_RETURN_BAD_DATA;
+            }
+        } else if(*eptr == 0x04U) {
+            if(asn1_get_octet_string(&eptr, eend, value, value_len) != NOXTLS_RETURN_SUCCESS) {
+                *value = NULL;
+                *value_len = 0U;
+            }
+            eptr_done = 1U;
+        } else {
+            eptr_done = 1U;
+        }
+    }
+    if((*value != NULL) && (*value_len > 0U)) {
+        *step = X509_EXT_STEP_ITEM;
+    }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/* id-ce-subjectAltName = 2.5.29.17 */
+static const uint8_t s_x509_oid_subject_alt_name[] = { 0x55U, 0x1DU, 0x11U };
+
+/**
+ * Parse cert->extensions (SEQUENCE OF Extension) and fill Key Usage, EKU, Basic Constraints,
+ * AKI, SKI (spans into the DER) and the SAN dNSName count.
  * Unknown critical extensions cause parse failure unless handled by noxtls_x509_set_unknown_extension_callback.
  *
  * @param[in] cert The certificate to parse the extensions from.
@@ -888,8 +1076,6 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
 {
     /* Extension OIDs local to this function (Rule 8.9). */
     /* RFC 5280 id-ce extension OIDs (DER) */
-    /* id-ce-subjectAltName = 2.5.29.17 */
-    static const uint8_t x509p_oid_subject_alt_name[] = { 0x55U, 0x1DU, 0x11U };
     /* id-ce-keyUsage = 2.5.29.15 */
     static const uint8_t x509p_oid_key_usage[] = { 0x55U, 0x1DU, 0x0FU };
     /* id-ce-basicConstraints = 2.5.29.19 */
@@ -929,14 +1115,13 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
         return NOXTLS_RETURN_SUCCESS;
     }
     cert->san_dns_count = 0U;
-    cert->san_email_count = 0U;
-    cert->san_uri_count = 0U;
-    cert->san_ip_count = 0U;
     cert->key_usage_bits = 0U;
     cert->ext_key_usage_bits = 0U;
     cert->basic_constraints_ca = -1;
     cert->basic_constraints_path_len = X509_BC_PATH_LEN_ABSENT;
+    cert->authority_key_id = NULL;
     cert->authority_key_id_len = 0U;
+    cert->subject_key_id = NULL;
     cert->subject_key_id_len = 0U;
     ext_ptr = cert->extensions;
     ext_end = &cert->extensions[cert->extensions_len];
@@ -948,53 +1133,26 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
     {
         const uint8_t *list_ptr = seq_data;
         const uint8_t *list_end = &seq_data[seq_len];
-        while((uintptr_t)list_ptr < (uintptr_t)list_end) {
-            const uint8_t *ext_seq = NULL;
-            uint32_t ext_seq_len = 0U;
-            uint8_t oid_buf[32];
+        uint8_t step = X509_EXT_STEP_SKIP;
+
+        while(step != X509_EXT_STEP_END) {
+            const uint8_t *ext_oid = NULL;
             uint32_t ext_oid_len = 0U;
             int ext_critical = 0;
             const uint8_t *val_data = NULL;
             uint32_t val_len = 0U;
 
-            if(asn1_get_sequence(&list_ptr, list_end, &ext_seq, &ext_seq_len) != NOXTLS_RETURN_SUCCESS) {
-                break;
+            if(x509_ext_list_next(&list_ptr, list_end, &ext_oid, &ext_oid_len, &ext_critical,
+                                  &val_data, &val_len, &step) != NOXTLS_RETURN_SUCCESS) {
+                return NOXTLS_RETURN_BAD_DATA;
             }
-            {
-                const uint8_t *eptr = ext_seq;
-                const uint8_t *eend = &ext_seq[ext_seq_len];
-                if(asn1_get_oid(&eptr, eend, oid_buf, &ext_oid_len) != NOXTLS_RETURN_SUCCESS) {
-                    list_ptr = &ext_seq[ext_seq_len];
-                    continue;
-                }
-                {
-                    uint8_t eptr_done = 0U;
-                    while(((uintptr_t)eptr < (uintptr_t)eend) && (eptr_done == 0U)) {
-                        if(*eptr == 0x01U) {
-                            /* critical BOOLEAN: DER requires length 1 and value 0x00/0xFF. A malformed
-                             * BOOLEAN rejects the certificate; the cursor is never moved past eend. */
-                            if(asn1_get_boolean(&eptr, eend, &ext_critical) != NOXTLS_RETURN_SUCCESS) {
-                                return NOXTLS_RETURN_BAD_DATA;
-                            }
-                        } else if(*eptr == 0x04U) {
-                            if(asn1_get_octet_string(&eptr, eend, &val_data, &val_len) != NOXTLS_RETURN_SUCCESS) {
-                                val_data = NULL;
-                                val_len = 0U;
-                            }
-                            eptr_done = 1U;
-                        } else {
-                            eptr_done = 1U;
-                        }
-                    }
-                }
-            }
-            if((val_data == NULL) || (val_len == 0U)) {
-                list_ptr = &ext_seq[ext_seq_len];
+            if(step != X509_EXT_STEP_ITEM) {
                 continue;
             }
 
-            if(oid_equal(oid_buf, ext_oid_len, x509p_oid_subject_alt_name, sizeof(x509p_oid_subject_alt_name)) != 0) {
-                /* SubjectAltName: GeneralNames; dNSName [2]=0x82, rfc822Name [1]=0x81, uniformResourceIdentifier [6]=0x86, iPAddress [7]=0x87 */
+            if(oid_equal(ext_oid, ext_oid_len, s_x509_oid_subject_alt_name, sizeof(s_x509_oid_subject_alt_name)) != 0) {
+                /* SubjectAltName: GeneralNames. Only the dNSName [2] count is kept; every entry is
+                 * read from the DER on demand (noxtls_x509_san_iter_next()). */
                 const uint8_t *san_ptr = val_data;
                 const uint8_t *san_end = &val_data[val_len];
                 const uint8_t *san_seq = NULL;
@@ -1002,80 +1160,21 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
                 if(asn1_get_sequence(&san_ptr, san_end, &san_seq, &san_seq_len) == NOXTLS_RETURN_SUCCESS) {
                     const uint8_t *gn_ptr = san_seq;
                     const uint8_t *gn_end = &san_seq[san_seq_len];
-                    {
-                        uint8_t gn_done = 0U;
-                        while(((uintptr_t)gn_ptr < (uintptr_t)gn_end) && (gn_done == 0U)) {
-                            if(*gn_ptr == 0x82U) {
-                                gn_ptr = &gn_ptr[1];
-                                { uint32_t dlen = (uint32_t)(asn1_get_length(&gn_ptr, gn_end));
-                                if(dlen > (uint32_t)((uintptr_t)gn_end - (uintptr_t)gn_ptr)) { gn_done = 1U; }
-                                else {
-                                    if((cert->san_dns_count < X509_SAN_DNS_MAX) && (dlen > 0U) && (dlen < X509_SAN_DNS_LEN)) {
-                                        if(x509_bytes_have_nul(gn_ptr, dlen) == 0) {
-                                            x509_copy_bytes_to_chars(cert->san_dns_names[cert->san_dns_count], gn_ptr, dlen);
-                                            cert->san_dns_names[cert->san_dns_count][dlen] = 0U;
-                                        } else {
-                                            /* SECURITY: a dNSName with an embedded NUL cannot be stored as a
-                                             * C string without turning "victim.example<NUL>.evil.example"
-                                             * into "victim.example". Keep it as an empty entry: it never
-                                             * matches a hostname and the SAN still counts as present, so the
-                                             * subject CN fallback stays disabled (RFC 6125 Section 6.4.4). */
-                                            cert->san_dns_names[cert->san_dns_count][0] = 0U;
-                                        }
-                                        cert->san_dns_count += 1U;
-                                    }
-                                    gn_ptr = &gn_ptr[dlen];
-                                } }
-                            } else if(*gn_ptr == 0x81U) {
-                                gn_ptr = &gn_ptr[1];
-                                { uint32_t elen = (uint32_t)(asn1_get_length(&gn_ptr, gn_end));
-                                if(elen > (uint32_t)((uintptr_t)gn_end - (uintptr_t)gn_ptr)) { gn_done = 1U; }
-                                else {
-                                    if((cert->san_email_count < X509_SAN_EMAIL_MAX) && (elen > 0U) && (elen < X509_SAN_EMAIL_LEN)) {
-                                        x509_copy_bytes_to_chars(cert->san_emails[cert->san_email_count], gn_ptr, elen);
-                                        cert->san_emails[cert->san_email_count][elen] = 0U;
-                                        cert->san_email_count += 1U;
-                                    }
-                                    gn_ptr = &gn_ptr[elen];
-                                } }
-                            } else if(*gn_ptr == 0x86U) {
-                                gn_ptr = &gn_ptr[1];
-                                { uint32_t ulen = (uint32_t)(asn1_get_length(&gn_ptr, gn_end));
-                                if(ulen > (uint32_t)((uintptr_t)gn_end - (uintptr_t)gn_ptr)) { gn_done = 1U; }
-                                else {
-                                    if((cert->san_uri_count < X509_SAN_URI_MAX) && (ulen > 0U) && (ulen < X509_SAN_URI_LEN)) {
-                                        x509_copy_bytes_to_chars(cert->san_uris[cert->san_uri_count], gn_ptr, ulen);
-                                        cert->san_uris[cert->san_uri_count][ulen] = 0U;
-                                        cert->san_uri_count += 1U;
-                                    }
-                                    gn_ptr = &gn_ptr[ulen];
-                                } }
-                            } else if(*gn_ptr == 0x87U) {
-                                gn_ptr = &gn_ptr[1];
-                                { uint32_t iplen = (uint32_t)(asn1_get_length(&gn_ptr, gn_end));
-                                if(iplen > (uint32_t)((uintptr_t)gn_end - (uintptr_t)gn_ptr)) { gn_done = 1U; }
-                                else {
-                                    if((cert->san_ip_count < X509_SAN_IP_MAX) && ((iplen == 4U) || (iplen == 16U))) {
-                                        cert->san_ip_len[cert->san_ip_count] = (uint8_t)iplen;
-                                        noxtls_copy_u8((uint8_t *)(void *)(cert->san_ips[cert->san_ip_count]), (size_t)iplen, (const uint8_t *)(const void *)(gn_ptr), (size_t)iplen);
-                                        cert->san_ip_count += 1U;
-                                    }
-                                    gn_ptr = &gn_ptr[iplen];
-                                } }
-                            } else {
-                                uint32_t skip = 0U;
-                                gn_ptr = &gn_ptr[1];
-                                /* Bound-check before advancing: never form a pointer past gn_end. */
-                                if(asn1_get_bounded_length(&gn_ptr, gn_end, &skip) == NOXTLS_RETURN_SUCCESS) {
-                                    gn_ptr = &gn_ptr[skip];
-                                } else {
-                                    gn_done = 1U;
-                                }
-                            }
+                    uint8_t gn_done = 0U;
+                    while(((uintptr_t)gn_ptr < (uintptr_t)gn_end) && (gn_done == 0U)) {
+                        uint8_t gn_tag = 0U;
+                        const uint8_t *gn_val = NULL;
+                        uint32_t gn_len = 0U;
+                        if(asn1_get_any_tlv(&gn_ptr, gn_end, &gn_tag, &gn_val, &gn_len) != NOXTLS_RETURN_SUCCESS) {
+                            gn_done = 1U;  /* never resume scanning from inside a malformed GeneralName */
+                        } else if((gn_tag == 0x82U) && (gn_len > 0U) && (cert->san_dns_count < 0xFFU)) {
+                            cert->san_dns_count += 1U;
+                        } else {
+                            /* MISRA 15.7: other GeneralName choices are read on demand */
                         }
                     }
                 }
-            } else if(oid_equal(oid_buf, ext_oid_len, x509p_oid_key_usage, sizeof(x509p_oid_key_usage)) != 0) {
+            } else if(oid_equal(ext_oid, ext_oid_len, x509p_oid_key_usage, sizeof(x509p_oid_key_usage)) != 0) {
                 const uint8_t *ku_ptr = val_data;
                 const uint8_t *ku_end = &val_data[val_len];
                 if(asn1_get_tag(&ku_ptr, ku_end, 0x03U) == NOXTLS_RETURN_SUCCESS) {
@@ -1109,7 +1208,7 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
                         cert->key_usage_bits = bits;
                     }
                 }
-            } else if(oid_equal(oid_buf, ext_oid_len, x509p_oid_basic_constraints, sizeof(x509p_oid_basic_constraints)) != 0) {
+            } else if(oid_equal(ext_oid, ext_oid_len, x509p_oid_basic_constraints, sizeof(x509p_oid_basic_constraints)) != 0) {
                 const uint8_t *bc_ptr = val_data;
                 const uint8_t *bc_end = &val_data[val_len];
                 const uint8_t *bc_seq = NULL;
@@ -1117,47 +1216,47 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
                 if(asn1_get_sequence(&bc_ptr, bc_end, &bc_seq, &bc_seq_len) == NOXTLS_RETURN_SUCCESS) {
                     const uint8_t *p = bc_seq;
                     const uint8_t *pe = &bc_seq[bc_seq_len];
+                    uint8_t pe_done = 0U;
                     cert->basic_constraints_ca = 0;
-                    {
-                        uint8_t pe_done = 0U;
-                        while(((uintptr_t)p < (uintptr_t)pe) && (pe_done == 0U)) {
-                            if(*p == 0x01U) {
-                                int ca_val = 0;
-                                /* cA BOOLEAN: a malformed BOOLEAN rejects the certificate (DER: length 1, 0x00/0xFF). */
-                                if(asn1_get_boolean(&p, pe, &ca_val) != NOXTLS_RETURN_SUCCESS) {
+                    while(((uintptr_t)p < (uintptr_t)pe) && (pe_done == 0U)) {
+                        if(*p == 0x01U) {
+                            int ca_val = 0;
+                            /* cA BOOLEAN: a malformed BOOLEAN rejects the certificate (DER: length 1, 0x00/0xFF). */
+                            if(asn1_get_boolean(&p, pe, &ca_val) != NOXTLS_RETURN_SUCCESS) {
+                                return NOXTLS_RETURN_BAD_DATA;
+                            }
+                            cert->basic_constraints_ca = (ca_val != 0) ? 1 : 0;
+                        } else if(*p == 0x02U) {
+                            const uint8_t *path_buf = NULL;
+                            uint32_t path_buf_len = 0U;
+                            if((asn1_get_integer_span(&p, pe, &path_buf, &path_buf_len) == NOXTLS_RETURN_SUCCESS) &&
+                               (path_buf_len <= 4U)) {
+                                uint32_t path_len = 0U;
+                                uint32_t j = 0U;
+                                if((path_buf[0] & 0x80U) != 0U) {
+                                    /* pathLenConstraint is INTEGER (0..MAX) (RFC 5280 4.2.1.9): a negative
+                                     * value would otherwise read back as X509_BC_PATH_LEN_ABSENT (-1) or a
+                                     * huge depth and silently lift the constraint. */
                                     return NOXTLS_RETURN_BAD_DATA;
                                 }
-                                cert->basic_constraints_ca = (ca_val != 0) ? 1 : 0;
-                            } else if(*p == 0x02U) {
-                                uint8_t path_buf[4];
-                                uint32_t path_buf_len = (uint32_t)sizeof(path_buf);
-                                if((asn1_get_integer(&p, pe, path_buf, &path_buf_len) == NOXTLS_RETURN_SUCCESS) && (path_buf_len > 0U) && (path_buf_len <= 4U)) {
-                                    uint32_t path_len = 0U;
-                                    if((path_buf[0] & 0x80U) != 0U) {
-                                        /* pathLenConstraint is INTEGER (0..MAX) (RFC 5280 4.2.1.9): a negative
-                                         * value would otherwise read back as X509_BC_PATH_LEN_ABSENT (-1) or a
-                                         * huge depth and silently lift the constraint. */
-                                        return NOXTLS_RETURN_BAD_DATA;
-                                    }
-                                    uint32_t j = 0U;
-                                    for(j = 0U; j < path_buf_len; j += 1U) { path_len = (path_len << 8U) | (uint32_t)(path_buf[j]); }
-                                    cert->basic_constraints_path_len = (int)path_len;
-                                } else {
-                                    pe_done = 1U;  /* do not resume scanning from inside a malformed INTEGER */
-                                }
+                                for(j = 0U; j < path_buf_len; j += 1U) { path_len = (path_len << 8U) | (uint32_t)(path_buf[j]); }
+                                /* Saturate: any value >= 32767 is far beyond NOXTLS_MAX_CERT_CHAIN_DEPTH. */
+                                cert->basic_constraints_path_len = (path_len > 0x7FFFU) ? (int16_t)0x7FFF : (int16_t)path_len;
                             } else {
-                                uint32_t L = 0U;
-                                p = &p[1];
-                                if(asn1_get_bounded_length(&p, pe, &L) == NOXTLS_RETURN_SUCCESS) {
-                                    p = &p[L];
-                                } else {
-                                    pe_done = 1U;
-                                }
+                                pe_done = 1U;  /* do not resume scanning from inside a malformed INTEGER */
+                            }
+                        } else {
+                            uint32_t L = 0U;
+                            p = &p[1];
+                            if(asn1_get_bounded_length(&p, pe, &L) == NOXTLS_RETURN_SUCCESS) {
+                                p = &p[L];
+                            } else {
+                                pe_done = 1U;
                             }
                         }
                     }
                 }
-            } else if(oid_equal(oid_buf, ext_oid_len, x509p_oid_ext_key_usage, sizeof(x509p_oid_ext_key_usage)) != 0) {
+            } else if(oid_equal(ext_oid, ext_oid_len, x509p_oid_ext_key_usage, sizeof(x509p_oid_ext_key_usage)) != 0) {
                 const uint8_t *eku_ptr = val_data;
                 const uint8_t *eku_end = &val_data[val_len];
                 const uint8_t *eku_seq = NULL;
@@ -1165,26 +1264,27 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
                 if(asn1_get_sequence(&eku_ptr, eku_end, &eku_seq, &eku_seq_len) == NOXTLS_RETURN_SUCCESS) {
                     const uint8_t *q = eku_seq;
                     const uint8_t *qe = &eku_seq[eku_seq_len];
-                    while((uintptr_t)q < (uintptr_t)qe) {
-                        uint8_t ko[32];
+                    uint8_t q_done = 0U;
+                    while(((uintptr_t)q < (uintptr_t)qe) && (q_done == 0U)) {
+                        const uint8_t *ko = NULL;
                         uint32_t ko_len = 0U;
-                        if(asn1_get_oid(&q, qe, ko, &ko_len) == NOXTLS_RETURN_SUCCESS) {
+                        if(asn1_get_oid_span(&q, qe, &ko, &ko_len) == NOXTLS_RETURN_SUCCESS) {
                             if(oid_equal(ko, ko_len, x509p_oid_kp_server_auth, sizeof(x509p_oid_kp_server_auth)) != 0) { cert->ext_key_usage_bits |= X509_EKU_SERVER_AUTH; }
                             else if(oid_equal(ko, ko_len, x509p_oid_kp_client_auth, sizeof(x509p_oid_kp_client_auth)) != 0) { cert->ext_key_usage_bits |= X509_EKU_CLIENT_AUTH; }
                             else if(oid_equal(ko, ko_len, x509p_oid_kp_code_signing, sizeof(x509p_oid_kp_code_signing)) != 0) { cert->ext_key_usage_bits |= X509_EKU_CODE_SIGNING; }
                             else if(oid_equal(ko, ko_len, x509p_oid_kp_email_protection, sizeof(x509p_oid_kp_email_protection)) != 0) { cert->ext_key_usage_bits |= X509_EKU_EMAIL_PROTECTION; }
-                            else if(oid_equal(
-                            ko, ko_len, x509p_oid_kp_time_stamping, sizeof(x509p_oid_kp_time_stamping)) != 0) { cert->ext_key_usage_bits |= X509_EKU_TIME_STAMPING; }
+                            else if(oid_equal(ko, ko_len, x509p_oid_kp_time_stamping, sizeof(x509p_oid_kp_time_stamping)) != 0) { cert->ext_key_usage_bits |= X509_EKU_TIME_STAMPING; }
                             else if(oid_equal(ko, ko_len, x509p_oid_kp_ocsp_signing, sizeof(x509p_oid_kp_ocsp_signing)) != 0) { cert->ext_key_usage_bits |= X509_EKU_OCSP_SIGNING; }
                             else if(oid_equal(ko, ko_len, x509p_oid_any_eku, sizeof(x509p_oid_any_eku)) != 0) { cert->ext_key_usage_bits |= X509_EKU_ANY; }
                             else {
                                 /* MISRA 15.7: no remaining alternative */
                             }
-                        } else { break; }
-                    /* MISRA 15.7: final else path */
+                        } else {
+                            q_done = 1U;
+                        }
                     }
                 }
-            } else if(oid_equal(oid_buf, ext_oid_len, x509p_oid_authority_key_id, sizeof(x509p_oid_authority_key_id)) != 0) {
+            } else if(oid_equal(ext_oid, ext_oid_len, x509p_oid_authority_key_id, sizeof(x509p_oid_authority_key_id)) != 0) {
                 const uint8_t *aki_ptr = val_data;
                 const uint8_t *aki_end = &val_data[val_len];
                 const uint8_t *aki_seq = NULL;
@@ -1200,22 +1300,22 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
                         kid_len = (uint32_t)(asn1_get_length(&r, re));
                         if((kid_len > 0U) && (kid_len <= X509_KEY_ID_MAX_LEN) &&
                            (x509_bytes_remaining(r, re) >= (size_t)kid_len)) {
+                            cert->authority_key_id = r;
                             cert->authority_key_id_len = (uint8_t)kid_len;
-                            noxtls_copy_u8((uint8_t *)(void *)(cert->authority_key_id), (size_t)kid_len, (const uint8_t *)(const void *)(r), (size_t)kid_len);
                         }
                     }
                 }
-            } else if(oid_equal(oid_buf, ext_oid_len, x509p_oid_subject_key_id, sizeof(x509p_oid_subject_key_id)) != 0) {
-                /* extnValue holds the DER SubjectKeyIdentifier (an OCTET STRING); store only its contents. */
+            } else if(oid_equal(ext_oid, ext_oid_len, x509p_oid_subject_key_id, sizeof(x509p_oid_subject_key_id)) != 0) {
+                /* extnValue holds the DER SubjectKeyIdentifier (an OCTET STRING); keep only its contents. */
                 const uint8_t *ski_ptr = val_data;
                 const uint8_t *ski_data = NULL;
                 uint32_t ski_len = 0U;
                 if((asn1_get_octet_string(&ski_ptr, &val_data[val_len], &ski_data, &ski_len) == NOXTLS_RETURN_SUCCESS) &&
                    (ski_len > 0U) && (ski_len <= X509_KEY_ID_MAX_LEN)) {
+                    cert->subject_key_id = ski_data;
                     cert->subject_key_id_len = (uint8_t)ski_len;
-                    noxtls_copy_u8((uint8_t *)(void *)(cert->subject_key_id), (size_t)ski_len, (const uint8_t *)(const void *)(ski_data), (size_t)ski_len);
                 }
-            } else if((oid_equal(oid_buf, ext_oid_len, x509p_oid_certificate_policies, sizeof(x509p_oid_certificate_policies)) != 0) || (oid_equal(oid_buf, ext_oid_len, x509p_oid_crl_distribution_points, sizeof(x509p_oid_crl_distribution_points)) != 0) || (oid_equal(oid_buf, ext_oid_len, x509p_oid_name_constraints, sizeof(x509p_oid_name_constraints)) != 0) || (oid_equal(oid_buf, ext_oid_len, x509p_oid_policy_constraints, sizeof(x509p_oid_policy_constraints)) != 0) || (oid_equal(oid_buf, ext_oid_len, x509p_oid_inhibit_any_policy, sizeof(x509p_oid_inhibit_any_policy)) != 0)) {
+            } else if((oid_equal(ext_oid, ext_oid_len, x509p_oid_certificate_policies, sizeof(x509p_oid_certificate_policies)) != 0) || (oid_equal(ext_oid, ext_oid_len, x509p_oid_crl_distribution_points, sizeof(x509p_oid_crl_distribution_points)) != 0) || (oid_equal(ext_oid, ext_oid_len, x509p_oid_name_constraints, sizeof(x509p_oid_name_constraints)) != 0) || (oid_equal(ext_oid, ext_oid_len, x509p_oid_policy_constraints, sizeof(x509p_oid_policy_constraints)) != 0) || (oid_equal(ext_oid, ext_oid_len, x509p_oid_inhibit_any_policy, sizeof(x509p_oid_inhibit_any_policy)) != 0)) {
                 /*
                  * These extensions are recognized, but their policy semantics are not
                  * enforced here. Critical instances must fail closed.
@@ -1227,7 +1327,7 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
                 /* Unknown or custom OID */
                 if(ext_critical != 0) {
                     if(noxtls_x509_unknown_ext_cb != NULL) {
-                        if(noxtls_x509_unknown_ext_cb(oid_buf, ext_oid_len, val_data, val_len, 1, noxtls_x509_unknown_ext_user_ctx) != NOXTLS_RETURN_SUCCESS) {
+                        if(noxtls_x509_unknown_ext_cb(ext_oid, ext_oid_len, val_data, val_len, 1, noxtls_x509_unknown_ext_user_ctx) != NOXTLS_RETURN_SUCCESS) {
                             return NOXTLS_RETURN_BAD_DATA;
                         }
                     } else {
@@ -1236,37 +1336,187 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
                     }
                 } else {
                     if(noxtls_x509_unknown_ext_cb != NULL) {
-                        (void)noxtls_x509_unknown_ext_cb(oid_buf, ext_oid_len, val_data, val_len, 0, noxtls_x509_unknown_ext_user_ctx);
+                        (void)noxtls_x509_unknown_ext_cb(ext_oid, ext_oid_len, val_data, val_len, 0, noxtls_x509_unknown_ext_user_ctx);
                     }
                 }
             }
-            list_ptr = &ext_seq[ext_seq_len];
         }
     }
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Subject Alternative Name iteration (reads the DER on demand)               */
+/* -------------------------------------------------------------------------- */
+
+noxtls_return_t noxtls_x509_san_iter_init(noxtls_x509_san_iter_t *iter, const x509_certificate_t *cert)
+{
+    const uint8_t *p = NULL;
+    const uint8_t *seq = NULL;
+    uint32_t seq_len = 0U;
+
+    if((iter == NULL) || (cert == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+    iter->ext_next = NULL;
+    iter->ext_end = NULL;
+    iter->gn_next = NULL;
+    iter->gn_end = NULL;
+    if(cert->parsed == 0U) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    if((cert->extensions == NULL) || (cert->extensions_len < 2U)) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    p = cert->extensions;
+    if(asn1_get_sequence(&p, &cert->extensions[cert->extensions_len], &seq, &seq_len) == NOXTLS_RETURN_SUCCESS) {
+        iter->ext_next = seq;
+        iter->ext_end = &seq[seq_len];
+    }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_x509_san_iter_next(noxtls_x509_san_iter_t *iter, uint8_t *type,
+                                          const uint8_t **value, uint32_t *value_len, int *has_entry)
+{
+    uint8_t done = 0U;
+
+    if((iter == NULL) || (type == NULL) || (value == NULL) || (value_len == NULL) || (has_entry == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+    *has_entry = 0;
+    *type = 0U;
+    *value = NULL;
+    *value_len = 0U;
+
+    while(done == 0U) {
+        if((iter->gn_next != NULL) && ((uintptr_t)iter->gn_next < (uintptr_t)iter->gn_end)) {
+            uint8_t tag = 0U;
+            const uint8_t *val = NULL;
+            uint32_t len = 0U;
+            if(asn1_get_any_tlv(&iter->gn_next, iter->gn_end, &tag, &val, &len) != NOXTLS_RETURN_SUCCESS) {
+                /* A malformed GeneralName ends the iteration (never resume inside it). */
+                iter->gn_next = NULL;
+                iter->ext_next = NULL;
+                done = 1U;
+            } else {
+                *type = (uint8_t)(tag & 0x1FU);
+                *value = val;
+                *value_len = len;
+                *has_entry = 1;
+                done = 1U;
+            }
+        } else if((iter->ext_next == NULL) || ((uintptr_t)iter->ext_next >= (uintptr_t)iter->ext_end)) {
+            iter->gn_next = NULL;
+            done = 1U;
+        } else {
+            const uint8_t *ext_oid = NULL;
+            uint32_t ext_oid_len = 0U;
+            int ext_critical = 0;
+            const uint8_t *val_data = NULL;
+            uint32_t val_len = 0U;
+            uint8_t step = X509_EXT_STEP_END;
+
+            iter->gn_next = NULL;
+            if((x509_ext_list_next(&iter->ext_next, iter->ext_end, &ext_oid, &ext_oid_len, &ext_critical,
+                                   &val_data, &val_len, &step) != NOXTLS_RETURN_SUCCESS) ||
+               (step == X509_EXT_STEP_END)) {
+                iter->ext_next = NULL;
+            } else if((step == X509_EXT_STEP_ITEM) &&
+                      (oid_equal(ext_oid, ext_oid_len, s_x509_oid_subject_alt_name, sizeof(s_x509_oid_subject_alt_name)) != 0)) {
+                const uint8_t *san_ptr = val_data;
+                const uint8_t *san_seq = NULL;
+                uint32_t san_seq_len = 0U;
+                if(asn1_get_sequence(&san_ptr, &val_data[val_len], &san_seq, &san_seq_len) == NOXTLS_RETURN_SUCCESS) {
+                    iter->gn_next = san_seq;
+                    iter->gn_end = &san_seq[san_seq_len];
+                }
+            } else {
+                /* MISRA 15.7: not a subjectAltName extension */
+            }
+        }
+    }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+uint32_t noxtls_x509_certificate_san_count(const x509_certificate_t *cert, uint8_t type)
+{
+    noxtls_x509_san_iter_t iter;
+    uint32_t count = 0U;
+    int has_entry = 1;
+
+    if(noxtls_x509_san_iter_init(&iter, cert) != NOXTLS_RETURN_SUCCESS) {
+        return 0U;
+    }
+    while(has_entry != 0) {
+        uint8_t t = 0U;
+        const uint8_t *v = NULL;
+        uint32_t v_len = 0U;
+        if(noxtls_x509_san_iter_next(&iter, &t, &v, &v_len, &has_entry) != NOXTLS_RETURN_SUCCESS) {
+            has_entry = 0;
+        } else if((has_entry != 0) && ((type == NOXTLS_X509_SAN_ANY) || (t == type))) {
+            count += 1U;
+        } else {
+            /* MISRA 15.7: other entry type or end of list */
+        }
+    }
+    return count;
+}
+
+noxtls_return_t noxtls_x509_certificate_get_san(const x509_certificate_t *cert, uint8_t type, uint32_t index,
+                                                const uint8_t **value, uint32_t *value_len)
+{
+    noxtls_x509_san_iter_t iter;
+    uint32_t seen = 0U;
+    int has_entry = 1;
+    noxtls_return_t rc;
+
+    if((value == NULL) || (value_len == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+    *value = NULL;
+    *value_len = 0U;
+    rc = noxtls_x509_san_iter_init(&iter, cert);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+    while(has_entry != 0) {
+        uint8_t t = 0U;
+        const uint8_t *v = NULL;
+        uint32_t v_len = 0U;
+        rc = noxtls_x509_san_iter_next(&iter, &t, &v, &v_len, &has_entry);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
+        if((has_entry != 0) && ((type == NOXTLS_X509_SAN_ANY) || (t == type))) {
+            if(seen == index) {
+                *value = v;
+                *value_len = v_len;
+                return NOXTLS_RETURN_SUCCESS;
+            }
+            seen += 1U;
+        }
+    }
+    return NOXTLS_RETURN_FAILED;
+}
+
 /**
- * @brief Compares two strings case-insensitively for DNS (ASCII); hostname_len = length of hostname (no null required).
+ * @brief Compare a hostname with one DNS name (ASCII, case-insensitive, optional left-most wildcard).
  *
- * This function compares two strings case-insensitively for DNS (ASCII); hostname_len = length of hostname (no null required).
- *
- * @param[in] hostname The hostname to compare.
+ * @param[in] hostname The hostname to compare (need not be NUL-terminated).
  * @param[in] hostname_len The length of the hostname.
- * @param[in] dns_name The DNS name to compare.
+ * @param[in] dns_name The DNS name from the certificate (not NUL-terminated).
+ * @param[in] dns_name_len Length of @p dns_name.
  *
- * @return The return code of the function.
+ * @return 1 when the names match, 0 otherwise. A DNS name containing a NUL octet never matches.
  */
-static int noxtls_x509_dns_name_equal(const uint8_t *hostname, uint32_t hostname_len, const uint8_t *dns_name)
+static int noxtls_x509_dns_name_equal(const uint8_t *hostname, uint32_t hostname_len,
+                                      const uint8_t *dns_name, uint32_t dns_name_len)
 {
     uint32_t i = 0U;
-    uint32_t dns_name_len = 0U;
-    if(dns_name == NULL) {
+    if((dns_name == NULL) || (dns_name_len == 0U) || (x509_bytes_have_nul(dns_name, dns_name_len) != 0)) {
+        /* SECURITY: "victim.example<NUL>.evil.example" must never match "victim.example". */
         return 0;
-    }
-
-    while(dns_name[dns_name_len] != 0U) {
-        dns_name_len += 1U;
     }
 
     if((s_x509_hostname_wildcard_matching != 0) &&
@@ -1276,17 +1526,12 @@ static int noxtls_x509_dns_name_equal(const uint8_t *hostname, uint32_t hostname
         uint32_t first_dot_index = 0U;
         uint32_t suffix_len = 0U;
         int has_first_dot = 0;
-        int has_second_wildcard = 0;
         uint32_t j = X509_HOSTNAME_WILDCARD_PREFIX_LEN;
         while(j < dns_name_len) {
             if(dns_name[j] == (uint8_t)'*') {
-                has_second_wildcard = 1;
-                break;
+                return 0;  /* a second wildcard is never accepted */
             }
             j += 1U;
-        }
-        if(has_second_wildcard != 0) {
-            return 0;
         }
 
         /* SECURITY (NX-18): the wildcard must not span a whole registry-level domain.
@@ -1342,19 +1587,20 @@ static int noxtls_x509_dns_name_equal(const uint8_t *hostname, uint32_t hostname
         return 1;
     }
 
-    while((i < hostname_len) && (hostname[i] != 0U) && (dns_name[i] != 0U)) {
+    if(dns_name_len != hostname_len) {
+        return 0;
+    }
+    for(i = 0U; i < hostname_len; i += 1U) {
         unsigned char a = (uint8_t)hostname[i];
         unsigned char b = (uint8_t)dns_name[i];
+        if(a == 0U) {
+            return 0;
+        }
         if((a >= (uint8_t)'A') && (a <= (uint8_t)'Z')) { a = (uint8_t)(a + 32U); }
         if((b >= (uint8_t)'A') && (b <= (uint8_t)'Z')) { b = (uint8_t)(b + 32U); }
         if(a != b) { return 0; }
-        i += 1U;
     }
-
-    if(i != hostname_len) {
-        return 0;
-    }
-    return (dns_name[i] == 0U) ? 1 : 0;
+    return 1;
 }
 
 
@@ -1369,32 +1615,32 @@ static int x509_cn_value_tag_ok(uint8_t tag)
     return ((tag == 0x13U) || (tag == 0x0CU) || (tag == 0x16U) || (tag == 0x14U)) ? 1 : 0;
 }
 
+/** Longest commonName value compared as a host name (longer values are ignored). */
+#define X509_CN_HOSTNAME_MAX 255U
+
 /**
  * @brief Match @p hostname against the subject commonName attributes (OID 2.5.4.3).
  *
- * Walks the DER RDNSequence kept in cert->subject (every AttributeTypeAndValue of every RDN,
- * including multi-valued RDNs) instead of searching the formatted subject_dn text, where an
- * attribute such as O="CN=victim.example" would otherwise be taken for a CN. CN values that
- * are not a single-octet string type, contain a NUL, or do not fit @p cn_buf are ignored;
- * leading/trailing spaces of a value are not compared.
+ * Walks the DER RDNSequence (every AttributeTypeAndValue of every RDN, including multi-valued
+ * RDNs) instead of searching formatted text, where an attribute such as O="CN=victim.example"
+ * would otherwise be taken for a CN. CN values that are not a single-octet string type, contain
+ * a NUL, or are longer than X509_CN_HOSTNAME_MAX are ignored; leading/trailing spaces of a value
+ * are not compared. Values are compared in place (no copy, no heap).
  *
  * @param[in] cert          Parsed certificate.
  * @param[in] hostname      Expected hostname.
  * @param[in] host_len      Length of @p hostname.
- * @param[in] cn_buf        Scratch buffer for one NUL-terminated CN value.
- * @param[in] cn_buf_size   Size of @p cn_buf.
  *
  * @return 1 when a commonName attribute matches, 0 otherwise.
  */
-static int x509_subject_cn_matches(const x509_certificate_t *cert, const uint8_t *hostname, uint32_t host_len,
-                                   uint8_t *cn_buf, uint32_t cn_buf_size)
+static int x509_subject_cn_matches(const x509_certificate_t *cert, const uint8_t *hostname, uint32_t host_len)
 {
     static const uint8_t x509_oid_common_name[] = { 0x55U, 0x04U, 0x03U };
     const uint8_t *dn_ptr = cert->subject;
     const uint8_t *dn_end = NULL;
     int matched = 0;
 
-    if((cert->subject_len == 0U) || (cert->subject_len > (uint32_t)sizeof(cert->subject)) || (cn_buf_size < 2U)) {
+    if((cert->subject == NULL) || (cert->subject_len == 0U)) {
         return 0;
     }
     dn_end = &cert->subject[cert->subject_len];
@@ -1417,7 +1663,7 @@ static int x509_subject_cn_matches(const x509_certificate_t *cert, const uint8_t
             const uint8_t *atv = NULL;
             const uint8_t *atv_end = NULL;
             uint32_t atv_len = 0U;
-            uint8_t attr_oid[32];
+            const uint8_t *attr_oid = NULL;
             uint32_t attr_oid_len = 0U;
             uint8_t value_tag = 0U;
             uint32_t value_len = 0U;
@@ -1426,7 +1672,7 @@ static int x509_subject_cn_matches(const x509_certificate_t *cert, const uint8_t
                 break;
             }
             atv_end = &atv[atv_len];
-            if((asn1_get_oid(&atv, atv_end, attr_oid, &attr_oid_len) != NOXTLS_RETURN_SUCCESS) ||
+            if((asn1_get_oid_span(&atv, atv_end, &attr_oid, &attr_oid_len) != NOXTLS_RETURN_SUCCESS) ||
                (oid_equal(attr_oid, attr_oid_len, x509_oid_common_name, (uint32_t)sizeof(x509_oid_common_name)) == 0) ||
                (x509_bytes_remaining(atv, atv_end) < 2U)) {
                 continue;
@@ -1435,7 +1681,7 @@ static int x509_subject_cn_matches(const x509_certificate_t *cert, const uint8_t
             atv = &atv[1];
             if((x509_cn_value_tag_ok(value_tag) == 0) ||
                (asn1_get_bounded_length(&atv, atv_end, &value_len) != NOXTLS_RETURN_SUCCESS) ||
-               (value_len == 0U) || (value_len >= cn_buf_size) || (x509_bytes_have_nul(atv, value_len) != 0)) {
+               (value_len == 0U) || (value_len > X509_CN_HOSTNAME_MAX) || (x509_bytes_have_nul(atv, value_len) != 0)) {
                 continue;
             }
             /* Surrounding spaces are not part of a host name (legacy CN values sometimes carry them). */
@@ -1449,9 +1695,7 @@ static int x509_subject_cn_matches(const x509_certificate_t *cert, const uint8_t
             if(value_len == 0U) {
                 continue;
             }
-            x509_copy_bytes_to_chars(cn_buf, atv, value_len);
-            cn_buf[value_len] = 0U;
-            if(noxtls_x509_dns_name_equal(hostname, host_len, cn_buf) != 0) {
+            if(noxtls_x509_dns_name_equal(hostname, host_len, atv, value_len) != 0) {
                 matched = 1;
             }
         }
@@ -1461,10 +1705,11 @@ static int x509_subject_cn_matches(const x509_certificate_t *cert, const uint8_t
 
 /**
  * @brief Check whether the certificate is valid for the given hostname (RFC 6125 style).
- * Prefer SAN dNSName; if none, fall back to the subject commonName attribute(s) of the DER subject
- * Name (never the formatted subject_dn text). Comparison is case-insensitive for DNS.
+ * Prefer SAN dNSName (every dNSName of every subjectAltName extension, read from the DER); if
+ * there is none, fall back to the subject commonName attribute(s) of the DER subject Name.
+ * Comparison is case-insensitive for DNS. No heap is used.
  *
- * @param cert Parsed certificate (must have been parsed so subject_dn and optionally san_dns_* are set).
+ * @param cert Parsed certificate.
  * @param hostname Expected hostname (need not be null-terminated).
  * @param hostname_len Length of hostname.
  *
@@ -1472,8 +1717,6 @@ static int x509_subject_cn_matches(const x509_certificate_t *cert, const uint8_t
  */
 noxtls_return_t noxtls_x509_certificate_matches_hostname(const x509_certificate_t *cert, const uint8_t *hostname, uint32_t hostname_len)
 {
-    uint8_t *cn_buf = NULL;
-    const uint32_t cn_buf_size = 256U;
     uint32_t host_len = hostname_len;
 
     if((cert == NULL) || (hostname == NULL)) {
@@ -1491,10 +1734,22 @@ noxtls_return_t noxtls_x509_certificate_matches_hostname(const x509_certificate_
 
     /* Prefer SAN dNSName */
     if(cert->san_dns_count > 0U) {
-        uint8_t i = 0U;
-        for(i = 0U; i < cert->san_dns_count; i += 1U) {
-            if(noxtls_x509_dns_name_equal(hostname, host_len, cert->san_dns_names[i]) != 0) {
+        noxtls_x509_san_iter_t iter;
+        int has_entry = 1;
+        if(noxtls_x509_san_iter_init(&iter, cert) != NOXTLS_RETURN_SUCCESS) {
+            has_entry = 0;
+        }
+        while(has_entry != 0) {
+            uint8_t type = 0U;
+            const uint8_t *name = NULL;
+            uint32_t name_len = 0U;
+            if(noxtls_x509_san_iter_next(&iter, &type, &name, &name_len, &has_entry) != NOXTLS_RETURN_SUCCESS) {
+                has_entry = 0;
+            } else if((has_entry != 0) && (type == NOXTLS_X509_SAN_DNS) &&
+                      (noxtls_x509_dns_name_equal(hostname, host_len, name, name_len) != 0)) {
                 return NOXTLS_RETURN_SUCCESS;
+            } else {
+                /* MISRA 15.7: keep scanning */
             }
         }
         cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_HOSTNAME_MISMATCH, cert, hostname, host_len, 0);
@@ -1502,17 +1757,10 @@ noxtls_return_t noxtls_x509_certificate_matches_hostname(const x509_certificate_
     }
 
     /* Fallback: subject CN */
-    cn_buf = (uint8_t *)NOXTLS_MALLOC(cn_buf_size);
-    if(cn_buf == NULL) {
-        return NOXTLS_RETURN_FAILED;
-    }
-
-    if(x509_subject_cn_matches(cert, hostname, host_len, cn_buf, cn_buf_size) != 0) {
-        (void)noxtls_free(cn_buf);
+    if(x509_subject_cn_matches(cert, hostname, host_len) != 0) {
         return NOXTLS_RETURN_SUCCESS;
     }
 
-    (void)noxtls_free(cn_buf);
     cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_HOSTNAME_MISMATCH, cert, hostname, hostname_len, 0);
     return NOXTLS_RETURN_CERT_VERIFY_HOSTNAME_MISMATCH;
 }
@@ -1532,7 +1780,7 @@ noxtls_return_t noxtls_x509_certificate_init(x509_certificate_t *cert)
     }
 
     noxtls_secure_zero((cert), sizeof(x509_certificate_t));
-    cert->parsed = 0;
+    cert->parsed = 0U;
 
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -1540,7 +1788,8 @@ noxtls_return_t noxtls_x509_certificate_init(x509_certificate_t *cert)
 /**
  * @brief Free X.509 certificate structure
  *
- * This function frees the X.509 certificate structure.
+ * Releases the owned DER copy (if any); a borrowed DER is left untouched. Every span into the
+ * DER is cleared.
  *
  * @param[in] cert The certificate to free.
  * @return The return code of the function.
@@ -1551,39 +1800,9 @@ noxtls_return_t noxtls_x509_certificate_free(x509_certificate_t *cert)
         return NOXTLS_RETURN_NULL;
     }
 
-    if(cert->rsa_modulus != NULL) {
-        (void)noxtls_free(cert->rsa_modulus);
-        cert->rsa_modulus = NULL;
-    }
-
-    if(cert->rsa_exponent != NULL) {
-        (void)noxtls_free(cert->rsa_exponent);
-        cert->rsa_exponent = NULL;
-    }
-
-    if(cert->ecc_public_key != NULL) {
-        (void)noxtls_free(cert->ecc_public_key);
-        cert->ecc_public_key = NULL;
-    }
-
-    if(cert->extensions != NULL) {
-        (void)noxtls_free(cert->extensions);
-        cert->extensions = NULL;
-    }
-
-    if(cert->signature != NULL) {
-        (void)noxtls_free(cert->signature);
-        cert->signature = NULL;
-    }
-
-    if(cert->raw_data != NULL) {
-        (void)noxtls_free(cert->raw_data);
-        cert->raw_data = NULL;
-    }
-
-    if(cert->tbs_certificate != NULL) {
-        (void)noxtls_free(cert->tbs_certificate);
-        cert->tbs_certificate = NULL;
+    if(cert->raw_data_owned != NULL) {
+        (void)noxtls_free(cert->raw_data_owned);
+        cert->raw_data_owned = NULL;
     }
 
     noxtls_secure_zero((cert), sizeof(x509_certificate_t));
@@ -1592,16 +1811,68 @@ noxtls_return_t noxtls_x509_certificate_free(x509_certificate_t *cert)
 }
 
 /**
- * @brief Parse X.509 certificate from DER format
+ * @brief Parse one notBefore / notAfter Time (UTCTime 0x17 or GeneralizedTime 0x18).
+ * @internal
  *
- * This function parses an X.509 certificate from a DER encoded buffer.
+ * The time is converted once to seconds since the Unix epoch. A malformed time does not fail the
+ * parse (as before); it is flagged and reported as NOXTLS_RETURN_BAD_DATA by validity checks. For
+ * GeneralizedTime only YYYYMMDDHHMMSS (the first 14 characters) is significant.
  *
- * @param[in] cert The certificate to parse.
- * @param[in] data The DER encoded buffer to parse.
- * @param[in] len The length of the DER encoded buffer.
- * @return The return code of the function.
+ * @param[in,out] cert Certificate being parsed.
+ * @param[in,out] vp Cursor inside the Validity SEQUENCE contents.
+ * @param[in] ve End of the Validity SEQUENCE contents.
+ * @param[in] is_not_before Nonzero for notBefore, zero for notAfter.
  */
-static noxtls_return_t x509_certificate_parse_der_body(x509_certificate_t *cert, const uint8_t *data, uint32_t len)
+static void x509_parse_validity_time(x509_certificate_t *cert, const uint8_t **vp, const uint8_t *ve, int is_not_before)
+{
+    const uint8_t *p = *vp;
+    uint8_t tag = 0U;
+    uint32_t time_len = 0U;
+
+    if(((uintptr_t)p >= (uintptr_t)ve) || ((*p != 0x17U) && (*p != 0x18U))) {
+        return;
+    }
+    tag = *p;
+    p = &p[1];  /* Skip tag */
+    time_len = (uint32_t)(asn1_get_length(&p, ve));
+    if((time_len == 0U) || (x509_bytes_remaining(p, ve) < (size_t)time_len)) {
+        *vp = p;
+        return;
+    }
+    {
+        uint32_t use_len = time_len;
+        int64_t seconds = 0;
+        uint8_t present = (is_not_before != 0) ? X509_VALIDITY_NOT_BEFORE_PRESENT : X509_VALIDITY_NOT_AFTER_PRESENT;
+        uint8_t bad = (is_not_before != 0) ? X509_VALIDITY_NOT_BEFORE_BAD : X509_VALIDITY_NOT_AFTER_BAD;
+
+        if((tag == 0x18U) && (use_len > 14U)) {
+            use_len = 14U;
+        }
+        cert->validity_flags = (uint8_t)(cert->validity_flags | present);
+        if(x509_asn1_time_to_epoch(p, use_len, &seconds) == NOXTLS_RETURN_SUCCESS) {
+            if(is_not_before != 0) {
+                cert->not_before_time = seconds;
+            } else {
+                cert->not_after_time = seconds;
+            }
+        } else {
+            cert->validity_flags = (uint8_t)(cert->validity_flags | bad);
+        }
+    }
+    *vp = &p[time_len];
+}
+
+/**
+ * @brief Decode SubjectPublicKeyInfo into spans of @p cert.
+ * @internal
+ *
+ * @param[in,out] cert Certificate being parsed.
+ * @param[in] spki SubjectPublicKeyInfo SEQUENCE contents.
+ * @param[in] spki_len Length of @p spki.
+ * @return NOXTLS_RETURN_SUCCESS, NOXTLS_RETURN_CERT_PARSE_FAILED, NOXTLS_RETURN_BAD_DATA (invalid
+ *         EC point) or NOXTLS_RETURN_NOT_ENOUGH_MEMORY.
+ */
+static noxtls_return_t x509_parse_spki(x509_certificate_t *cert, const uint8_t *spki, uint32_t spki_len)
 {
     /* EdDSA algorithm OIDs local to this function (Rule 8.9). */
     static const uint8_t s_oid_ed25519[] = { 0x2BU, 0x65U, 0x70U };
@@ -1612,41 +1883,209 @@ static noxtls_return_t x509_certificate_parse_der_body(x509_certificate_t *cert,
     static const uint8_t s_oid_rsa_encryption[] = { 0x2AU, 0x86U, 0x48U, 0x86U, 0xF7U, 0x0DU, 0x01U, 0x01U, 0x01U };
     static const uint8_t s_oid_rsassa_pss[] = { 0x2AU, 0x86U, 0x48U, 0x86U, 0xF7U, 0x0DU, 0x01U, 0x01U, 0x0AU };
 
+    const uint8_t *spki_ptr = spki;
+    const uint8_t *spki_end = &spki[spki_len];
+    const uint8_t *spki_alg_data = NULL;
+    uint32_t spki_alg_len = 0U;
+    const uint8_t *spki_alg_ptr = NULL;
+    const uint8_t *spki_alg_end = NULL;
+    const uint8_t *pkalg = NULL;
+    uint32_t pkalg_len = 0U;
+    uint32_t public_key_len = 0U;
+
+    if(asn1_get_sequence(&spki_ptr, spki_end, &spki_alg_data, &spki_alg_len) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_CERT_PARSE_FAILED;
+    }
+    spki_alg_end = &spki_alg_data[spki_alg_len];
+    spki_alg_ptr = spki_alg_data;
+
+    if(asn1_get_oid_span(&spki_alg_ptr, spki_alg_end, &pkalg, &pkalg_len) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_CERT_PARSE_FAILED;
+    }
+    cert->public_key_algorithm_oid = pkalg;
+    cert->public_key_algorithm_oid_len = (uint8_t)pkalg_len;
+
+    /* id-ecPublicKey parameters: namedCurve OID (RFC 5480 2.1.1). Other forms leave the curve unset. */
+    if((oid_equal(pkalg, pkalg_len, s_oid_ec_public_key, (uint32_t)sizeof(s_oid_ec_public_key)) != 0) &&
+       ((uintptr_t)spki_alg_ptr < (uintptr_t)spki_alg_end) && (*spki_alg_ptr == 0x06U)) {
+        const uint8_t *curve_ptr = spki_alg_ptr;
+        const uint8_t *curve = NULL;
+        uint32_t curve_len = 0U;
+        if(asn1_get_oid_span(&curve_ptr, spki_alg_end, &curve, &curve_len) == NOXTLS_RETURN_SUCCESS) {
+            cert->ecc_curve_oid = curve;
+            cert->ecc_curve_oid_len = (uint8_t)curve_len;
+        }
+    }
+
+    if(asn1_get_tag(&spki_ptr, spki_end, 0x03U) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_CERT_PARSE_FAILED;
+    }
+    public_key_len = (uint32_t)(asn1_get_length(&spki_ptr, spki_end));
+    if((public_key_len == 0U) || (x509_bytes_remaining(spki_ptr, spki_end) < (size_t)public_key_len)) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    /* Skip unused bits byte */
+    spki_ptr = &spki_ptr[1];
+    public_key_len -= 1U;
+    if(public_key_len == 0U) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    cert->public_key = spki_ptr;
+    cert->public_key_len = public_key_len;
+
+    /* Dispatch on the SubjectPublicKeyInfo algorithm OID, never on the key's first byte. */
+    if((oid_equal(pkalg, pkalg_len, s_oid_rsa_encryption, (uint32_t)sizeof(s_oid_rsa_encryption)) != 0) ||
+       (oid_equal(pkalg, pkalg_len, s_oid_rsassa_pss, (uint32_t)sizeof(s_oid_rsassa_pss)) != 0)) {
+        const uint8_t *pk_ptr = spki_ptr;
+        const uint8_t *seq_data = NULL;
+        uint32_t seq_len = 0U;
+        if(asn1_get_sequence(&pk_ptr, &spki_ptr[public_key_len], &seq_data, &seq_len) == NOXTLS_RETURN_SUCCESS) {
+            /* RSA public key: SEQUENCE { modulus INTEGER, exponent INTEGER } */
+            const uint8_t *rsa_seq_ptr = seq_data;
+            const uint8_t *rsa_seq_end = &seq_data[seq_len];
+            const uint8_t *v = NULL;
+            uint32_t v_len = 0U;
+            if(asn1_get_integer_span(&rsa_seq_ptr, rsa_seq_end, &v, &v_len) == NOXTLS_RETURN_SUCCESS) {
+                cert->rsa_modulus = v;
+                cert->rsa_modulus_len = v_len;
+            }
+            if(asn1_get_integer_span(&rsa_seq_ptr, rsa_seq_end, &v, &v_len) == NOXTLS_RETURN_SUCCESS) {
+                cert->rsa_exponent = v;
+                cert->rsa_exponent_len = v_len;
+            }
+        }
+    } else if(oid_equal(pkalg, pkalg_len, s_oid_ec_public_key, (uint32_t)sizeof(s_oid_ec_public_key)) != 0) {
+        if(spki_ptr[0] == 0x04U) {
+            /* ECC public key: uncompressed point 0x04 || x || y. */
+            noxtls_return_t rc = noxtls_x509_validate_ecc_public_key_bytes(spki_ptr,
+                                                                           public_key_len,
+                                                                           cert->ecc_curve_oid,
+                                                                           cert->ecc_curve_oid_len);
+            if(rc == NOXTLS_RETURN_NOT_ENOUGH_MEMORY) {
+                return rc;
+            }
+            if(rc != NOXTLS_RETURN_SUCCESS) {
+                CERT_DEBUG_PRINT("x509_certificate_parse_der: invalid ECC public key\n");
+                return NOXTLS_RETURN_BAD_DATA;
+            }
+            cert->ecc_public_key = spki_ptr;
+            cert->ecc_public_key_len = public_key_len;
+        }
+    } else if(oid_equal(pkalg, pkalg_len, s_oid_ed25519, (uint32_t)sizeof(s_oid_ed25519)) != 0) {
+        if(public_key_len == 32U) {
+            /* Ed25519 public key (OID 1.3.101.112 id-Ed25519): 32-byte raw key */
+            cert->has_ed25519 = 1U;
+            cert->ed25519_public_key = spki_ptr;
+        }
+    } else if(oid_equal(pkalg, pkalg_len, s_oid_ed448, (uint32_t)sizeof(s_oid_ed448)) != 0) {
+        if(public_key_len == 57U) {
+            /* Ed448 public key (OID 1.3.101.113 id-Ed448): 57-byte raw key (RFC 8410) */
+            cert->has_ed448 = 1U;
+            cert->ed448_public_key = spki_ptr;
+        }
+    } else {
+        /* MISRA 15.7: other algorithms (PQC below, X25519/X448, unknown) */
+    }
+#if NOXTLS_FEATURE_ML_DSA
+    if((cert->has_ed25519 == 0U) && (cert->has_ed448 == 0U)) {
+        uint32_t mldsa_pk_len_44 = noxtls_mldsa_public_key_len(NOXTLS_MLDSA_44);
+        uint32_t mldsa_pk_len_65 = noxtls_mldsa_public_key_len(NOXTLS_MLDSA_65);
+        uint32_t mldsa_pk_len_87 = noxtls_mldsa_public_key_len(NOXTLS_MLDSA_87);
+        int mldsa_len_ok = 0;
+        if((public_key_len == mldsa_pk_len_44) || (public_key_len == mldsa_pk_len_65) ||
+           (public_key_len == mldsa_pk_len_87)) {
+            mldsa_len_ok = 1;
+        }
+        if((mldsa_len_ok != 0) &&
+           (pkalg_len >= 7U) &&
+           (pkalg[0] == 0x60U) &&
+           (pkalg[1] == 0x86U) &&
+           (pkalg[2] == 0x48U) &&
+           (pkalg[3] == 0x01U) &&
+           (pkalg[4] == 0x65U)) {
+            cert->has_mldsa = 1U;
+            cert->mldsa_public_key = spki_ptr;
+            if(public_key_len == mldsa_pk_len_44) {
+                cert->mldsa_param = NOXTLS_MLDSA_44;
+            } else if(public_key_len == mldsa_pk_len_65) {
+                cert->mldsa_param = NOXTLS_MLDSA_65;
+            } else {
+                cert->mldsa_param = NOXTLS_MLDSA_87;
+            }
+        }
+    }
+#endif
+#if NOXTLS_FEATURE_SLH_DSA
+    if((cert->has_ed25519 == 0U) && (cert->has_ed448 == 0U) && (cert->has_mldsa == 0U)) {
+        noxtls_slhdsa_param_t slhdsa_param = NOXTLS_SLHDSA_NONE;
+        if(noxtls_x509_slhdsa_param_from_oid(pkalg, pkalg_len, &slhdsa_param) == NOXTLS_RETURN_SUCCESS) {
+            if(public_key_len == noxtls_slhdsa_public_key_len(slhdsa_param)) {
+                cert->has_slhdsa = 1U;
+                cert->slhdsa_public_key = spki_ptr;
+                cert->slhdsa_param = slhdsa_param;
+            }
+        }
+    }
+#endif
+#if NOXTLS_FEATURE_FALCON
+    if((cert->has_mldsa == 0U) && (cert->has_slhdsa == 0U)) {
+        int falcon_param = x509_oid_is_falcon(pkalg, pkalg_len);
+        if(falcon_param != 0) {
+            if(public_key_len == noxtls_falcon_public_key_len((noxtls_falcon_param_t)falcon_param)) {
+                cert->has_falcon = 1U;
+                cert->falcon_param = (noxtls_falcon_param_t)falcon_param;
+                cert->falcon_public_key = spki_ptr;
+            }
+        }
+    }
+#endif
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
+ * @brief Parse the certificate DER held in cert->raw_data into spans.
+ *
+ * Strict outer structure: the Certificate SEQUENCE must span the whole input and its contents
+ * must end exactly with the signature BIT STRING (no slack, no trailing bytes).
+ *
+ * @param[in,out] cert The certificate; raw_data / raw_data_len are set by the caller.
+ * @return The return code of the function.
+ */
+static noxtls_return_t x509_certificate_parse_der_body(x509_certificate_t *cert)
+{
+    const uint8_t *data = cert->raw_data;
+    const uint8_t *end = &data[cert->raw_data_len];
     const uint8_t *ptr = data;
-    const uint8_t *end = &data[len];
-    const uint8_t *tbs_cert = NULL;
-    uint32_t tbs_cert_len = 0U;
+    const uint8_t *cert_body = NULL;
+    uint32_t cert_body_len = 0U;
+    const uint8_t *cert_end = NULL;
+    const uint8_t *tbs_body = NULL;
+    uint32_t tbs_body_len = 0U;
+    const uint8_t *tbs_ptr = NULL;
+    const uint8_t *tbs_end = NULL;
     const uint8_t *seq_data = NULL;
     uint32_t seq_len = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
 
-        if(asn1_get_sequence(&ptr, end, &seq_data, &seq_len) != NOXTLS_RETURN_SUCCESS) {
-            rc = NOXTLS_RETURN_CERT_PARSE_FAILED;
-            return rc;
-        }
+    /* Certificate ::= SEQUENCE { tbsCertificate, signatureAlgorithm, signatureValue } */
+    if(asn1_get_tlv_span(&ptr, end, 0x30U, &cert_body, &cert_body_len) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_CERT_PARSE_FAILED;
+    }
+    if((uintptr_t)ptr != (uintptr_t)end) {
+        return NOXTLS_RETURN_CERT_PARSE_FAILED;  /* bytes after the Certificate SEQUENCE */
+    }
+    cert_end = &cert_body[cert_body_len];
+    ptr = cert_body;
 
-        const uint8_t *cert_end = &seq_data[seq_len];
-        ptr = seq_data;
-
-        {
-            const uint8_t *tbs_seq_start = ptr;
-            if(asn1_get_sequence(&ptr, cert_end, &tbs_cert, &tbs_cert_len) != NOXTLS_RETURN_SUCCESS) {
-                rc = NOXTLS_RETURN_CERT_PARSE_FAILED;
-                return rc;
-            }
-
-            /* Signature is computed over full DER TBSCertificate (&tag[length+value]), not value only. */
-            cert->tbs_certificate_len = (uint32_t)((uintptr_t)ptr - (uintptr_t)tbs_seq_start);
-            cert->tbs_certificate = (uint8_t*)NOXTLS_MALLOC(cert->tbs_certificate_len);
-            if(cert->tbs_certificate == NULL) {
-                rc = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
-                return rc;
-            }
-            noxtls_copy_u8((uint8_t *)(void *)(cert->tbs_certificate), (size_t)cert->tbs_certificate_len, (const uint8_t *)(const void *)(tbs_seq_start), (size_t)cert->tbs_certificate_len);
-        }
-
-    const uint8_t *tbs_end = &tbs_cert[tbs_cert_len];
-    const uint8_t *tbs_ptr = tbs_cert;
+    /* Signature is computed over full DER TBSCertificate (&tag[length+value]), not value only. */
+    cert->tbs_certificate = ptr;
+    if(asn1_get_tlv_span(&ptr, cert_end, 0x30U, &tbs_body, &tbs_body_len) != NOXTLS_RETURN_SUCCESS) {
+        cert->tbs_certificate = NULL;
+        return NOXTLS_RETURN_CERT_PARSE_FAILED;
+    }
+    cert->tbs_certificate_len = (uint32_t)((uintptr_t)ptr - (uintptr_t)cert->tbs_certificate);
+    tbs_end = &tbs_body[tbs_body_len];
+    tbs_ptr = tbs_body;
 
     /* Parse version (optional, v1 certificates don't have it) */
     if(((uintptr_t)tbs_ptr < (uintptr_t)tbs_end) && ((*tbs_ptr & 0xE0U) == 0xA0U) && ((*tbs_ptr & 0x1FU) == 0x00U)) {
@@ -1673,303 +2112,95 @@ static noxtls_return_t x509_certificate_parse_der_body(x509_certificate_t *cert,
         cert->version = 0U;  /* v1 */
     }
 
-        cert->serial_number_len = X509_MAX_SERIAL_SIZE;
-        if(asn1_get_integer(&tbs_ptr, tbs_end, cert->serial_number, &cert->serial_number_len) != NOXTLS_RETURN_SUCCESS) {
-            rc = NOXTLS_RETURN_CERT_PARSE_FAILED;
-            return rc;
+    {
+        const uint8_t *serial = NULL;
+        uint32_t serial_len = 0U;
+        if((asn1_get_integer_span(&tbs_ptr, tbs_end, &serial, &serial_len) != NOXTLS_RETURN_SUCCESS) ||
+           (serial_len > X509_MAX_SERIAL_SIZE)) {
+            return NOXTLS_RETURN_CERT_PARSE_FAILED;
         }
-
-        if(asn1_get_sequence(&tbs_ptr, tbs_end, &seq_data, &seq_len) != NOXTLS_RETURN_SUCCESS) {
-            rc = NOXTLS_RETURN_CERT_PARSE_FAILED;
-            return rc;
-        }
-        const uint8_t *alg_end = &seq_data[seq_len];
-        const uint8_t *alg_ptr = seq_data;
-
-        if(asn1_get_oid(&alg_ptr, alg_end, cert->signature_algorithm_oid, &cert->signature_algorithm_oid_len) != NOXTLS_RETURN_SUCCESS) {
-            rc = NOXTLS_RETURN_CERT_PARSE_FAILED;
-            return rc;
-        }
-
-    if((uintptr_t)alg_ptr < (uintptr_t)alg_end) {
-        alg_ptr = alg_end;
+        cert->serial_number = serial;
+        cert->serial_number_len = (uint8_t)serial_len;
     }
 
-        if(asn1_get_sequence(&tbs_ptr, tbs_end, &seq_data, &seq_len) != NOXTLS_RETURN_SUCCESS) {
-            rc = NOXTLS_RETURN_CERT_PARSE_FAILED;
-            return rc;
+    /* TBSCertificate signature AlgorithmIdentifier (replaced by the outer one below). */
+    if(asn1_get_sequence(&tbs_ptr, tbs_end, &seq_data, &seq_len) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_CERT_PARSE_FAILED;
+    }
+    {
+        const uint8_t *alg_ptr = seq_data;
+        const uint8_t *oid = NULL;
+        uint32_t oid_len = 0U;
+        if(asn1_get_oid_span(&alg_ptr, &seq_data[seq_len], &oid, &oid_len) != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_CERT_PARSE_FAILED;
         }
-        if(seq_len > X509_MAX_ISSUER_SIZE) {
-            rc = NOXTLS_RETURN_CERT_PARSE_FAILED;
-            return rc;
-        }
-    noxtls_copy_u8((uint8_t *)(void *)(cert->issuer), (size_t)seq_len, (const uint8_t *)(const void *)(seq_data), (size_t)seq_len);
-    cert->issuer_len = seq_len;
-    (void)noxtls_x509_parse_distinguished_name(seq_data, seq_len, cert->issuer_dn, sizeof(cert->issuer_dn));
+        cert->signature_algorithm_oid = oid;
+        cert->signature_algorithm_oid_len = (uint8_t)oid_len;
+    }
 
-        if(asn1_get_sequence(&tbs_ptr, tbs_end, &seq_data, &seq_len) != NOXTLS_RETURN_SUCCESS) {
-            rc = NOXTLS_RETURN_CERT_PARSE_FAILED;
-            return rc;
-        }
+    /* issuer Name */
+    if((asn1_get_sequence(&tbs_ptr, tbs_end, &seq_data, &seq_len) != NOXTLS_RETURN_SUCCESS) ||
+       (seq_len > 0xFFFFU)) {
+        return NOXTLS_RETURN_CERT_PARSE_FAILED;
+    }
+    cert->issuer = seq_data;
+    cert->issuer_len = (uint16_t)seq_len;
+
+    /* Validity */
+    if(asn1_get_sequence(&tbs_ptr, tbs_end, &seq_data, &seq_len) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_CERT_PARSE_FAILED;
+    }
     if(seq_len >= 13U) {
         const uint8_t *validity_ptr = seq_data;
         const uint8_t *validity_end = &seq_data[seq_len];
-        /* Parse notBefore */
-        if(((uintptr_t)validity_ptr < (uintptr_t)validity_end) && ((*validity_ptr == 0x17U) || (*validity_ptr == 0x18U))) {
-            validity_ptr = &validity_ptr[1];  /* Skip tag */
-            uint32_t time_len = (uint32_t)(asn1_get_length(&validity_ptr, validity_end));
-            if((time_len > 0U) && (x509_bytes_remaining(validity_ptr, validity_end) >= (size_t)time_len)) {
-                /* Clear the buffer first */
-                noxtls_secure_zero((cert->not_before), (size_t)15);
-                /* Copy up to 15 bytes; null-terminate */
-                uint32_t copy_len = (uint32_t)((time_len > 15U) ? 15U : time_len);
-                noxtls_copy_u8((uint8_t *)(void *)(cert->not_before), (size_t)copy_len, (const uint8_t *)(const void *)(validity_ptr), (size_t)copy_len);
-                cert->not_before[14] = 0;
-                validity_ptr = &validity_ptr[time_len];
-            }
-        }
-
-        /* Parse notAfter */
-        if(((uintptr_t)validity_ptr < (uintptr_t)validity_end) && ((*validity_ptr == 0x17U) || (*validity_ptr == 0x18U))) {
-            validity_ptr = &validity_ptr[1];  /* Skip tag */
-            uint32_t time_len = (uint32_t)(asn1_get_length(&validity_ptr, validity_end));
-            if((time_len > 0U) && (x509_bytes_remaining(validity_ptr, validity_end) >= (size_t)time_len)) {
-                /* Clear the buffer first */
-                noxtls_secure_zero((cert->not_after), (size_t)15);
-                /* Copy up to 15 bytes (e.g. YYYYMMDDHHMMSSZ or YYYYMMDDHHMMSS.); null-terminate */
-                uint32_t copy_len = (uint32_t)((time_len > 15U) ? 15U : time_len);
-                noxtls_copy_u8((uint8_t *)(void *)(cert->not_after), (size_t)copy_len, (const uint8_t *)(const void *)(validity_ptr), (size_t)copy_len);
-                cert->not_after[14] = 0;
-            }
-        }
+        x509_parse_validity_time(cert, &validity_ptr, validity_end, 1);
+        x509_parse_validity_time(cert, &validity_ptr, validity_end, 0);
     }
 
-        if(asn1_get_sequence(&tbs_ptr, tbs_end, &seq_data, &seq_len) != NOXTLS_RETURN_SUCCESS) {
-            rc = NOXTLS_RETURN_CERT_PARSE_FAILED;
-            return rc;
-        }
-        if(seq_len > X509_MAX_SUBJECT_SIZE) {
-            rc = NOXTLS_RETURN_CERT_PARSE_FAILED;
-            return rc;
-        }
-    noxtls_copy_u8((uint8_t *)(void *)(cert->subject), (size_t)seq_len, (const uint8_t *)(const void *)(seq_data), (size_t)seq_len);
-    cert->subject_len = seq_len;
-    (void)noxtls_x509_parse_distinguished_name(seq_data, seq_len, cert->subject_dn, sizeof(cert->subject_dn));
-
-        if(asn1_get_sequence(&tbs_ptr, tbs_end, &seq_data, &seq_len) != NOXTLS_RETURN_SUCCESS) {
-            rc = NOXTLS_RETURN_CERT_PARSE_FAILED;
-            return rc;
-        }
-    const uint8_t *spki_end = &seq_data[seq_len];
-    const uint8_t *spki_ptr = seq_data;
-
-        const uint8_t *spki_alg_data = NULL;
-        uint32_t spki_alg_len = 0U;
-        if(asn1_get_sequence(&spki_ptr, spki_end, &spki_alg_data, &spki_alg_len) != NOXTLS_RETURN_SUCCESS) {
-            rc = NOXTLS_RETURN_CERT_PARSE_FAILED;
-            return rc;
-        }
-        const uint8_t *spki_alg_end = &spki_alg_data[spki_alg_len];
-        const uint8_t *spki_alg_ptr = spki_alg_data;
-
-        if(asn1_get_oid(&spki_alg_ptr, spki_alg_end, cert->public_key_algorithm_oid, &cert->public_key_algorithm_oid_len) != NOXTLS_RETURN_SUCCESS) {
-            rc = NOXTLS_RETURN_CERT_PARSE_FAILED;
-            return rc;
-        }
-
-    /* id-ecPublicKey parameters: namedCurve OID (RFC 5480 2.1.1). Other forms leave the curve unset. */
-    if((oid_equal(cert->public_key_algorithm_oid, cert->public_key_algorithm_oid_len,
-                  s_oid_ec_public_key, (uint32_t)sizeof(s_oid_ec_public_key)) != 0) &&
-       ((uintptr_t)spki_alg_ptr < (uintptr_t)spki_alg_end) && (*spki_alg_ptr == 0x06U)) {
-        const uint8_t *curve_ptr = spki_alg_ptr;
-        if(asn1_get_oid(&curve_ptr, spki_alg_end, cert->ecc_curve_oid, &cert->ecc_curve_oid_len) != NOXTLS_RETURN_SUCCESS) {
-            cert->ecc_curve_oid_len = 0U;
-        }
+    /* subject Name */
+    if((asn1_get_sequence(&tbs_ptr, tbs_end, &seq_data, &seq_len) != NOXTLS_RETURN_SUCCESS) ||
+       (seq_len > 0xFFFFU)) {
+        return NOXTLS_RETURN_CERT_PARSE_FAILED;
     }
-    if(((uintptr_t)spki_alg_ptr < (uintptr_t)spki_alg_end)) {
-        spki_alg_ptr = spki_alg_end;
+    cert->subject = seq_data;
+    cert->subject_len = (uint16_t)seq_len;
+
+    /* SubjectPublicKeyInfo */
+    if(asn1_get_sequence(&tbs_ptr, tbs_end, &seq_data, &seq_len) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_CERT_PARSE_FAILED;
+    }
+    rc = x509_parse_spki(cert, seq_data, seq_len);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
     }
 
-        if(asn1_get_tag(&spki_ptr, spki_end, 0x03U) != NOXTLS_RETURN_SUCCESS) {
-            rc = NOXTLS_RETURN_CERT_PARSE_FAILED;
-            return rc;
-        }
-    uint32_t public_key_len = (uint32_t)(asn1_get_length(&spki_ptr, spki_end));
-    if((public_key_len > 0U) && (x509_bytes_remaining(spki_ptr, spki_end) >= (size_t)public_key_len)) {
-        /* Skip unused bits byte */
-        spki_ptr = &spki_ptr[1];
-        public_key_len -= 1U;
-
-        if(public_key_len <= X509_MAX_PUBLIC_KEY_SIZE) {
-            const uint8_t *pkalg = cert->public_key_algorithm_oid;
-            uint32_t pkalg_len = cert->public_key_algorithm_oid_len;
-
-            noxtls_copy_u8((uint8_t *)(void *)(cert->public_key), (size_t)public_key_len, (const uint8_t *)(const void *)(spki_ptr), (size_t)public_key_len);
-            cert->public_key_len = public_key_len;
-
-            /* Dispatch on the SubjectPublicKeyInfo algorithm OID, never on the key's first byte. */
-            if((oid_equal(pkalg, pkalg_len, s_oid_rsa_encryption, (uint32_t)sizeof(s_oid_rsa_encryption)) != 0) ||
-               (oid_equal(pkalg, pkalg_len, s_oid_rsassa_pss, (uint32_t)sizeof(s_oid_rsassa_pss)) != 0)) {
-                const uint8_t *pk_ptr = spki_ptr;
-                const uint8_t *pk_end = &spki_ptr[public_key_len];
-                if(asn1_get_sequence(&pk_ptr, pk_end, &seq_data, &seq_len) == NOXTLS_RETURN_SUCCESS) {
-                /* RSA public key: SEQUENCE { modulus INTEGER, exponent INTEGER } */
-                const uint8_t *rsa_seq_end = &seq_data[seq_len];
-                const uint8_t *rsa_seq_ptr = seq_data;
-                const uint8_t *mod_start = rsa_seq_ptr;
-                uint32_t mod_len = 0U;
-                if(asn1_get_integer(&rsa_seq_ptr, rsa_seq_end, NULL, &mod_len) == NOXTLS_RETURN_SUCCESS) {
-                    uint32_t mod_len2 = mod_len;
-                    cert->rsa_modulus = (uint8_t*)NOXTLS_MALLOC(mod_len);
-                    if(cert->rsa_modulus == NULL) {
-                        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
-                    }
-                    cert->rsa_modulus_len = mod_len;
-                    rsa_seq_ptr = mod_start;
-                    if(asn1_get_integer(&rsa_seq_ptr, rsa_seq_end, cert->rsa_modulus, &mod_len2) != NOXTLS_RETURN_SUCCESS) {
-                        (void)noxtls_free(cert->rsa_modulus);
-                        cert->rsa_modulus = NULL;
-                        cert->rsa_modulus_len = 0U;
-                    }
+    if(cert->version >= 1U) {
+        /* issuerUniqueID [1] / subjectUniqueID [2] (v2/v3) precede the extensions: skip them. */
+        uint8_t uid_done = 0U;
+        while(((uintptr_t)tbs_ptr < (uintptr_t)tbs_end) && (uid_done == 0U)) {
+            uint8_t uid_tag_number = (uint8_t)(*tbs_ptr & 0x1FU);
+            if(((*tbs_ptr & 0xC0U) == 0x80U) && ((uid_tag_number == 0x01U) || (uid_tag_number == 0x02U))) {
+                uint32_t uid_len = 0U;
+                const uint8_t *uid_ptr = &tbs_ptr[1];
+                if(asn1_get_bounded_length(&uid_ptr, tbs_end, &uid_len) != NOXTLS_RETURN_SUCCESS) {
+                    return NOXTLS_RETURN_CERT_PARSE_FAILED;
                 }
-                const uint8_t *exp_start = rsa_seq_ptr;
-                uint32_t exp_len = 0U;
-                if(asn1_get_integer(&rsa_seq_ptr, rsa_seq_end, NULL, &exp_len) == NOXTLS_RETURN_SUCCESS) {
-                    uint32_t exp_len2 = exp_len;
-                    cert->rsa_exponent = (uint8_t*)NOXTLS_MALLOC(exp_len);
-                    if(cert->rsa_exponent == NULL) {
-                        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
-                    }
-                    cert->rsa_exponent_len = exp_len;
-                    rsa_seq_ptr = exp_start;
-                    if(asn1_get_integer(&rsa_seq_ptr, rsa_seq_end, cert->rsa_exponent, &exp_len2) != NOXTLS_RETURN_SUCCESS) {
-                        (void)noxtls_free(cert->rsa_exponent);
-                        cert->rsa_exponent = NULL;
-                        cert->rsa_exponent_len = 0U;
-                    }
-                }
-                }
-            } else if(oid_equal(pkalg, pkalg_len, s_oid_ec_public_key, (uint32_t)sizeof(s_oid_ec_public_key)) != 0) {
-                if((public_key_len > 0U) && (spki_ptr[0] == 0x04U)) {
-                    /* ECC public key: uncompressed point 0x04 || x || y. */
-                    rc = noxtls_x509_validate_ecc_public_key_bytes(spki_ptr,
-                                                                   public_key_len,
-                                                                   cert->ecc_curve_oid,
-                                                                   cert->ecc_curve_oid_len);
-                    if(rc == NOXTLS_RETURN_NOT_ENOUGH_MEMORY) {
-                        return rc;
-                    }
-                    if(rc != NOXTLS_RETURN_SUCCESS) {
-                        CERT_DEBUG_PRINT("x509_certificate_parse_der: invalid ECC public key\n");
-                        return NOXTLS_RETURN_BAD_DATA;
-                    }
-                    cert->ecc_public_key = (uint8_t*)NOXTLS_MALLOC(public_key_len);
-                    if(cert->ecc_public_key == NULL) {
-                        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
-                    }
-                    cert->ecc_public_key_len = public_key_len;
-                    noxtls_copy_u8((uint8_t *)(void *)(cert->ecc_public_key), (size_t)public_key_len, (const uint8_t *)(const void *)(spki_ptr), (size_t)public_key_len);
-                }
-            } else if(oid_equal(pkalg, pkalg_len, s_oid_ed25519, (uint32_t)sizeof(s_oid_ed25519)) != 0) {
-                if(public_key_len == 32U) {
-                    /* Ed25519 public key (OID 1.3.101.112 id-Ed25519): 32-byte raw key */
-                    cert->has_ed25519 = 1U;
-                    noxtls_copy_u8((uint8_t *)(void *)(cert->ed25519_public_key), (size_t)32, (const uint8_t *)(const void *)(spki_ptr), (size_t)32);
-                }
-            } else if(oid_equal(pkalg, pkalg_len, s_oid_ed448, (uint32_t)sizeof(s_oid_ed448)) != 0) {
-                if(public_key_len == 57U) {
-                    /* Ed448 public key (OID 1.3.101.113 id-Ed448): 57-byte raw key (RFC 8410) */
-                    cert->has_ed448 = 1U;
-                    noxtls_copy_u8((uint8_t *)(void *)(cert->ed448_public_key), (size_t)57, (const uint8_t *)(const void *)(spki_ptr), (size_t)57);
-                }
+                tbs_ptr = &uid_ptr[uid_len];
             } else {
-                /* MISRA 15.7: other algorithms (PQC below, X25519/X448, unknown) */
+                uid_done = 1U;
             }
-#if NOXTLS_FEATURE_ML_DSA
-            if((cert->has_ed25519 == 0U) && (cert->has_ed448 == 0U)) {
-                uint32_t mldsa_pk_len_44 = noxtls_mldsa_public_key_len(NOXTLS_MLDSA_44);
-                uint32_t mldsa_pk_len_65 = noxtls_mldsa_public_key_len(NOXTLS_MLDSA_65);
-                uint32_t mldsa_pk_len_87 = noxtls_mldsa_public_key_len(NOXTLS_MLDSA_87);
-                int mldsa_len_ok = 0;
-                if(public_key_len == mldsa_pk_len_44) {
-                    mldsa_len_ok = 1;
-                } else if(public_key_len == mldsa_pk_len_65) {
-                    mldsa_len_ok = 1;
-                } else if(public_key_len == mldsa_pk_len_87) {
-                    mldsa_len_ok = 1;
-                }
-                 else {
-                     /* MISRA 15.7: no remaining alternative */
-                 }
-                if((mldsa_len_ok != 0) &&
-                   (cert->public_key_algorithm_oid_len >= 7U) &&
-                   (cert->public_key_algorithm_oid[0] == 0x60U) &&
-                   (cert->public_key_algorithm_oid[1] == 0x86U) &&
-                   (cert->public_key_algorithm_oid[2] == 0x48U) &&
-                   (cert->public_key_algorithm_oid[3] == 0x01U) &&
-                   (cert->public_key_algorithm_oid[4] == 0x65U)) {
-                    cert->has_mldsa = 1U;
-                    cert->mldsa_public_key_len = public_key_len;
-                    if(public_key_len == mldsa_pk_len_44) {
-                        cert->mldsa_param = NOXTLS_MLDSA_44;
-                    } else if(public_key_len == mldsa_pk_len_65) {
-                        cert->mldsa_param = NOXTLS_MLDSA_65;
-                    } else {
-                        cert->mldsa_param = NOXTLS_MLDSA_87;
-                    }
-                    noxtls_copy_u8((uint8_t *)(void *)(cert->mldsa_public_key), (size_t)public_key_len, (const uint8_t *)(const void *)(spki_ptr), (size_t)public_key_len);
-                }
-            }
-#endif
-#if NOXTLS_FEATURE_SLH_DSA
-            if((cert->has_ed25519 == 0U) && (cert->has_ed448 == 0U) && (cert->has_mldsa == 0U)) {
-                noxtls_slhdsa_param_t slhdsa_param = NOXTLS_SLHDSA_NONE;
-                uint32_t slhdsa_pk_len = 0U;
-                if(noxtls_x509_slhdsa_param_from_oid(cert->public_key_algorithm_oid,
-                                                     cert->public_key_algorithm_oid_len,
-                                                     &slhdsa_param) == NOXTLS_RETURN_SUCCESS) {
-                    slhdsa_pk_len = noxtls_slhdsa_public_key_len(slhdsa_param);
-                    if(public_key_len == slhdsa_pk_len) {
-                        cert->has_slhdsa = 1U;
-                        cert->slhdsa_public_key_len = public_key_len;
-                        cert->slhdsa_param = slhdsa_param;
-                        noxtls_copy_u8((uint8_t *)(void *)(cert->slhdsa_public_key), (size_t)public_key_len, (const uint8_t *)(const void *)(spki_ptr), (size_t)public_key_len);
-                    }
-                }
-            }
-#endif
-#if NOXTLS_FEATURE_FALCON
-            if((cert->has_mldsa == 0U) && (cert->has_slhdsa == 0U)) {
-                int falcon_param = x509_oid_is_falcon(cert->public_key_algorithm_oid,
-                                                      cert->public_key_algorithm_oid_len);
-                if(falcon_param != 0) {
-                    uint32_t falcon_pk_len = noxtls_falcon_public_key_len((noxtls_falcon_param_t)falcon_param);
-                    if(public_key_len == falcon_pk_len) {
-                        cert->has_falcon = 1U;
-                        cert->falcon_param = (noxtls_falcon_param_t)falcon_param;
-                        cert->falcon_public_key_len = public_key_len;
-                        noxtls_copy_u8((uint8_t *)(void *)(cert->falcon_public_key), (size_t)public_key_len, (const uint8_t *)(const void *)(spki_ptr), (size_t)public_key_len);
-                    }
-                }
-            }
-#endif
         }
     }
 
     if((cert->version >= 2U) && ((uintptr_t)tbs_ptr < (uintptr_t)tbs_end)) {
         if(((*tbs_ptr & 0xE0U) == 0xA0U) && ((*tbs_ptr & 0x1FU) == 0x03U)) {
+            uint32_t ext_len = 0U;
             tbs_ptr = &tbs_ptr[1];
-            uint32_t ext_len = (uint32_t)(asn1_get_length(&tbs_ptr, tbs_end));
+            ext_len = (uint32_t)(asn1_get_length(&tbs_ptr, tbs_end));
             if((ext_len > 0U) && (x509_bytes_remaining(tbs_ptr, tbs_end) >= (size_t)ext_len)) {
                 noxtls_return_t ext_rc = NOXTLS_RETURN_FAILED;
-                cert->extensions = (uint8_t*)NOXTLS_MALLOC(ext_len);
-                if(cert->extensions == NULL) {
-                    /* Never report success for a certificate whose extensions were not checked. */
-                    return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
-                }
-                noxtls_copy_u8((uint8_t *)(void *)(cert->extensions), (size_t)ext_len, (const uint8_t *)(const void *)(tbs_ptr), (size_t)ext_len);
+                cert->extensions = tbs_ptr;
                 cert->extensions_len = ext_len;
-                tbs_ptr = &tbs_ptr[ext_len];
                 ext_rc = noxtls_x509_parse_extensions(cert);
                 if(ext_rc != NOXTLS_RETURN_SUCCESS) {
                     rc = (ext_rc == NOXTLS_RETURN_FAILED) ? NOXTLS_RETURN_CERT_PARSE_FAILED : ext_rc;
@@ -1979,41 +2210,57 @@ static noxtls_return_t x509_certificate_parse_der_body(x509_certificate_t *cert,
         }
     }
 
+    /* Outer signatureAlgorithm */
+    {
         const uint8_t *sig_alg_data = NULL;
         uint32_t sig_alg_len = 0U;
+        const uint8_t *sig_alg_ptr = NULL;
+        const uint8_t *oid = NULL;
+        uint32_t oid_len = 0U;
         if(asn1_get_sequence(&ptr, cert_end, &sig_alg_data, &sig_alg_len) != NOXTLS_RETURN_SUCCESS) {
-            rc = NOXTLS_RETURN_CERT_PARSE_FAILED;
-            return rc;
+            return NOXTLS_RETURN_CERT_PARSE_FAILED;
         }
-    const uint8_t *sig_alg_end = &sig_alg_data[sig_alg_len];
-    const uint8_t *sig_alg_ptr = sig_alg_data;
-
-    (void)asn1_get_oid(&sig_alg_ptr, sig_alg_end, cert->signature_algorithm_oid, &cert->signature_algorithm_oid_len);
-
-        if(asn1_get_tag(&ptr, cert_end, 0x03U) != NOXTLS_RETURN_SUCCESS) {
-            rc = NOXTLS_RETURN_CERT_PARSE_FAILED;
-            return rc;
+        sig_alg_ptr = sig_alg_data;
+        if(asn1_get_oid_span(&sig_alg_ptr, &sig_alg_data[sig_alg_len], &oid, &oid_len) == NOXTLS_RETURN_SUCCESS) {
+            cert->signature_algorithm_oid = oid;
+            cert->signature_algorithm_oid_len = (uint8_t)oid_len;
         }
-        uint32_t sig_len = (uint32_t)(asn1_get_length(&ptr, cert_end));
-        if((sig_len > 0U) && (x509_bytes_remaining(ptr, cert_end) >= (size_t)sig_len)) {
-            ptr = &ptr[1];  /* Skip unused bits */
-            sig_len -= 1U;
-            if(sig_len > 0U) {
-                cert->signature = (uint8_t*)NOXTLS_MALLOC(sig_len);
-                if(cert->signature == NULL) {
-                    return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
-                }
-                noxtls_copy_u8((uint8_t *)(void *)(cert->signature), (size_t)sig_len, (const uint8_t *)(const void *)(ptr), (size_t)sig_len);
-                cert->signature_len = sig_len;
-            }
-        }
+    }
 
-        cert->parsed = 1;
+    /* signatureValue BIT STRING: must end the Certificate SEQUENCE exactly (strict DER). */
+    {
+        const uint8_t *sig = NULL;
+        uint32_t sig_len = 0U;
+        if((asn1_get_tlv_span(&ptr, cert_end, 0x03U, &sig, &sig_len) != NOXTLS_RETURN_SUCCESS) ||
+           (sig_len == 0U)) {
+            return NOXTLS_RETURN_CERT_PARSE_FAILED;
+        }
+        if(sig_len > 1U) {
+            cert->signature = &sig[1];  /* Skip unused bits */
+            cert->signature_len = sig_len - 1U;
+        }
+    }
+    if((uintptr_t)ptr != (uintptr_t)cert_end) {
+        return NOXTLS_RETURN_CERT_PARSE_FAILED;
+    }
+
+    cert->parsed = 1U;
 
     return rc;
 }
 
-noxtls_return_t noxtls_x509_certificate_parse_der(x509_certificate_t *cert, const uint8_t *data, uint32_t len)
+/**
+ * @brief Shared implementation of the copying and borrowing DER parsers.
+ * @internal
+ *
+ * @param[out] cert Certificate (previous contents are freed).
+ * @param[in] data DER certificate.
+ * @param[in] len Length of @p data (at most NOXTLS_MAX_CERT_SIZE).
+ * @param[in] copy Nonzero to keep a heap copy of @p data, zero to borrow it.
+ * @return The return code of the function.
+ */
+static noxtls_return_t x509_certificate_parse_der_common(x509_certificate_t *cert, const uint8_t *data,
+                                                         uint32_t len, int copy)
 {
     noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
 
@@ -2023,20 +2270,360 @@ noxtls_return_t noxtls_x509_certificate_parse_der(x509_certificate_t *cert, cons
 
     (void)noxtls_x509_certificate_free(cert);
 
-    cert->raw_data = (uint8_t*)NOXTLS_MALLOC(len);
-    if(cert->raw_data == NULL) {
-        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+    if(len > X509_MAX_CERT_SIZE) {
+        /* NOXTLS_MAX_CERT_SIZE bounds every certificate, not only files (peer certificates too). */
+        return NOXTLS_RETURN_CERT_PARSE_FAILED;
     }
-    noxtls_copy_u8((uint8_t *)(void *)(cert->raw_data), (size_t)len, (const uint8_t *)(const void *)(data), (size_t)len);
+
+    if(copy != 0) {
+        uint8_t *owned = (uint8_t*)NOXTLS_MALLOC(len);
+        if(owned == NULL) {
+            return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+        }
+        noxtls_copy_u8((uint8_t *)(void *)(owned), (size_t)len, (const uint8_t *)(const void *)(data), (size_t)len);
+        cert->raw_data_owned = owned;
+        cert->raw_data = owned;
+    } else {
+        cert->raw_data = data;
+    }
     cert->raw_data_len = len;
 
-    rc = x509_certificate_parse_der_body(cert, data, len);
+    rc = x509_certificate_parse_der_body(cert);
 
     if(rc != NOXTLS_RETURN_SUCCESS) {
         (void)noxtls_x509_certificate_free(cert);
     }
 
     return rc;
+}
+
+/**
+ * @brief Parse X.509 certificate from DER format (keeps one heap copy of the DER).
+ *
+ * @param[in] cert The certificate to parse.
+ * @param[in] data The DER encoded buffer to parse.
+ * @param[in] len The length of the DER encoded buffer (at most NOXTLS_MAX_CERT_SIZE).
+ * @return The return code of the function.
+ */
+noxtls_return_t noxtls_x509_certificate_parse_der(x509_certificate_t *cert, const uint8_t *data, uint32_t len)
+{
+    return x509_certificate_parse_der_common(cert, data, len, 1);
+}
+
+/**
+ * @brief Parse X.509 certificate from DER without copying it (borrow mode).
+ *
+ * @param[in] cert The certificate to parse.
+ * @param[in] data The DER buffer; must outlive @p cert and stay unchanged.
+ * @param[in] len The length of the DER buffer (at most NOXTLS_MAX_CERT_SIZE).
+ * @return The return code of the function.
+ */
+noxtls_return_t noxtls_x509_certificate_parse_der_nocopy(x509_certificate_t *cert, const uint8_t *data, uint32_t len)
+{
+    return x509_certificate_parse_der_common(cert, data, len, 0);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Accessors (views into the certificate DER)                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * @brief Return a span of a parsed certificate after the common argument checks.
+ * @internal
+ */
+static noxtls_return_t x509_cert_span_out(const x509_certificate_t *cert, const uint8_t *ptr, uint32_t len,
+                                          const uint8_t **out, uint32_t *out_len)
+{
+    if((cert == NULL) || (out == NULL) || (out_len == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+    *out = NULL;
+    *out_len = 0U;
+    if(cert->parsed == 0U) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    if(ptr == NULL) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    *out = ptr;
+    *out_len = len;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_x509_certificate_get_der(const x509_certificate_t *cert, const uint8_t **der, uint32_t *der_len)
+{
+    return x509_cert_span_out(cert, (cert != NULL) ? cert->raw_data : NULL,
+                              (cert != NULL) ? cert->raw_data_len : 0U, der, der_len);
+}
+
+noxtls_return_t noxtls_x509_certificate_get_tbs(const x509_certificate_t *cert, const uint8_t **tbs, uint32_t *tbs_len)
+{
+    return x509_cert_span_out(cert, (cert != NULL) ? cert->tbs_certificate : NULL,
+                              (cert != NULL) ? cert->tbs_certificate_len : 0U, tbs, tbs_len);
+}
+
+noxtls_return_t noxtls_x509_certificate_get_serial(const x509_certificate_t *cert, const uint8_t **serial, uint32_t *serial_len)
+{
+    return x509_cert_span_out(cert, (cert != NULL) ? cert->serial_number : NULL,
+                              (cert != NULL) ? (uint32_t)cert->serial_number_len : 0U, serial, serial_len);
+}
+
+noxtls_return_t noxtls_x509_certificate_get_issuer_der(const x509_certificate_t *cert, const uint8_t **name, uint32_t *name_len)
+{
+    return x509_cert_span_out(cert, (cert != NULL) ? cert->issuer : NULL,
+                              (cert != NULL) ? (uint32_t)cert->issuer_len : 0U, name, name_len);
+}
+
+noxtls_return_t noxtls_x509_certificate_get_subject_der(const x509_certificate_t *cert, const uint8_t **name, uint32_t *name_len)
+{
+    return x509_cert_span_out(cert, (cert != NULL) ? cert->subject : NULL,
+                              (cert != NULL) ? (uint32_t)cert->subject_len : 0U, name, name_len);
+}
+
+/**
+ * @brief Render a Name span as text, or "" when the certificate is not parsed.
+ * @internal
+ */
+static noxtls_return_t x509_cert_render_dn(const x509_certificate_t *cert, const uint8_t *name, uint32_t name_len,
+                                           uint8_t *out, uint32_t out_size)
+{
+    if((cert == NULL) || (out == NULL) || (out_size == 0U)) {
+        return NOXTLS_RETURN_NULL;
+    }
+    out[0] = 0U;
+    if((cert->parsed == 0U) || (name == NULL)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    if(name_len == 0U) {
+        return NOXTLS_RETURN_SUCCESS;  /* empty Name renders as the empty string */
+    }
+    return noxtls_x509_parse_distinguished_name(name, name_len, out, out_size);
+}
+
+noxtls_return_t noxtls_x509_certificate_get_issuer_dn(const x509_certificate_t *cert, uint8_t *out, uint32_t out_size)
+{
+    return x509_cert_render_dn(cert, (cert != NULL) ? cert->issuer : NULL,
+                               (cert != NULL) ? (uint32_t)cert->issuer_len : 0U, out, out_size);
+}
+
+noxtls_return_t noxtls_x509_certificate_get_subject_dn(const x509_certificate_t *cert, uint8_t *out, uint32_t out_size)
+{
+    return x509_cert_render_dn(cert, (cert != NULL) ? cert->subject : NULL,
+                               (cert != NULL) ? (uint32_t)cert->subject_len : 0U, out, out_size);
+}
+
+noxtls_return_t noxtls_x509_certificate_get_validity(const x509_certificate_t *cert, int64_t *not_before, int64_t *not_after)
+{
+    const uint8_t all = (uint8_t)(X509_VALIDITY_NOT_BEFORE_PRESENT | X509_VALIDITY_NOT_AFTER_PRESENT);
+
+    if((cert == NULL) || (not_before == NULL) || (not_after == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+    *not_before = 0;
+    *not_after = 0;
+    if((cert->parsed == 0U) || ((cert->validity_flags & all) != all)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    if((cert->validity_flags & (X509_VALIDITY_NOT_BEFORE_BAD | X509_VALIDITY_NOT_AFTER_BAD)) != 0U) {
+        return NOXTLS_RETURN_BAD_DATA;
+    }
+    *not_before = cert->not_before_time;
+    *not_after = cert->not_after_time;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
+ * @brief Locate the notBefore / notAfter Time contents in the TBSCertificate.
+ * @internal
+ *
+ * Walks version, serialNumber, signature, issuer to the Validity SEQUENCE. Absent or malformed
+ * times yield NULL / 0.
+ */
+static noxtls_return_t x509_cert_find_validity(const x509_certificate_t *cert,
+                                               const uint8_t **not_before, uint32_t *not_before_len,
+                                               const uint8_t **not_after, uint32_t *not_after_len)
+{
+    const uint8_t *p = NULL;
+    const uint8_t *tbs = NULL;
+    const uint8_t *tbs_end = NULL;
+    uint32_t tbs_len = 0U;
+    uint8_t tag = 0U;
+    const uint8_t *val = NULL;
+    uint32_t val_len = 0U;
+    uint32_t field = 0U;
+
+    *not_before = NULL;
+    *not_before_len = 0U;
+    *not_after = NULL;
+    *not_after_len = 0U;
+    if((cert->tbs_certificate == NULL) || (cert->tbs_certificate_len == 0U)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    p = cert->tbs_certificate;
+    if(asn1_get_tlv_span(&p, &cert->tbs_certificate[cert->tbs_certificate_len], 0x30U, &tbs, &tbs_len) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    tbs_end = &tbs[tbs_len];
+    p = tbs;
+    if(((uintptr_t)p < (uintptr_t)tbs_end) && (*p == 0xA0U)) {
+        if(asn1_get_any_tlv(&p, tbs_end, &tag, &val, &val_len) != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_FAILED;
+        }
+    }
+    /* serialNumber, signature, issuer */
+    for(field = 0U; field < 3U; field += 1U) {
+        if(asn1_get_any_tlv(&p, tbs_end, &tag, &val, &val_len) != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_FAILED;
+        }
+    }
+    if(asn1_get_tlv_span(&p, tbs_end, 0x30U, &val, &val_len) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    {
+        const uint8_t *vp = val;
+        const uint8_t *ve = &val[val_len];
+        const uint8_t *t = NULL;
+        uint32_t t_len = 0U;
+        if((asn1_get_any_tlv(&vp, ve, &tag, &t, &t_len) == NOXTLS_RETURN_SUCCESS) &&
+           ((tag == 0x17U) || (tag == 0x18U)) && (t_len > 0U)) {
+            *not_before = t;
+            *not_before_len = t_len;
+            if((asn1_get_any_tlv(&vp, ve, &tag, &t, &t_len) == NOXTLS_RETURN_SUCCESS) &&
+               ((tag == 0x17U) || (tag == 0x18U)) && (t_len > 0U)) {
+                *not_after = t;
+                *not_after_len = t_len;
+            }
+        }
+    }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_x509_certificate_get_validity_raw(const x509_certificate_t *cert,
+                                                         const uint8_t **not_before, uint32_t *not_before_len,
+                                                         const uint8_t **not_after, uint32_t *not_after_len)
+{
+    const uint8_t *nb = NULL;
+    const uint8_t *na = NULL;
+    uint32_t nb_len = 0U;
+    uint32_t na_len = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+
+    if(cert == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(cert->parsed != 0U) {
+        rc = x509_cert_find_validity(cert, &nb, &nb_len, &na, &na_len);
+    }
+    if((not_before != NULL) && (not_before_len != NULL)) {
+        *not_before = nb;
+        *not_before_len = nb_len;
+    }
+    if((not_after != NULL) && (not_after_len != NULL)) {
+        *not_after = na;
+        *not_after_len = na_len;
+    }
+    return rc;
+}
+
+noxtls_return_t noxtls_x509_certificate_get_signature_algorithm(const x509_certificate_t *cert, const uint8_t **oid, uint32_t *oid_len)
+{
+    return x509_cert_span_out(cert, (cert != NULL) ? cert->signature_algorithm_oid : NULL,
+                              (cert != NULL) ? (uint32_t)cert->signature_algorithm_oid_len : 0U, oid, oid_len);
+}
+
+noxtls_return_t noxtls_x509_certificate_get_signature(const x509_certificate_t *cert, const uint8_t **sig, uint32_t *sig_len)
+{
+    return x509_cert_span_out(cert, (cert != NULL) ? cert->signature : NULL,
+                              (cert != NULL) ? cert->signature_len : 0U, sig, sig_len);
+}
+
+noxtls_return_t noxtls_x509_certificate_get_public_key_info(const x509_certificate_t *cert,
+                                                            const uint8_t **alg_oid, uint32_t *alg_oid_len,
+                                                            const uint8_t **key, uint32_t *key_len)
+{
+    if(cert == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(cert->parsed == 0U) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    if((alg_oid != NULL) && (alg_oid_len != NULL)) {
+        *alg_oid = cert->public_key_algorithm_oid;
+        *alg_oid_len = cert->public_key_algorithm_oid_len;
+    }
+    if((key != NULL) && (key_len != NULL)) {
+        *key = cert->public_key;
+        *key_len = cert->public_key_len;
+    }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_x509_certificate_get_authority_key_id(const x509_certificate_t *cert, const uint8_t **kid, uint32_t *kid_len)
+{
+    return x509_cert_span_out(cert, (cert != NULL) ? cert->authority_key_id : NULL,
+                              (cert != NULL) ? (uint32_t)cert->authority_key_id_len : 0U, kid, kid_len);
+}
+
+noxtls_return_t noxtls_x509_certificate_get_subject_key_id(const x509_certificate_t *cert, const uint8_t **kid, uint32_t *kid_len)
+{
+    return x509_cert_span_out(cert, (cert != NULL) ? cert->subject_key_id : NULL,
+                              (cert != NULL) ? (uint32_t)cert->subject_key_id_len : 0U, kid, kid_len);
+}
+
+/**
+ * @brief Read the SubjectPublicKeyInfo algorithm OID from certificate DER without parsing it.
+ *
+ * Certificate -> TBSCertificate -> [version] serial signature issuer validity subject ->
+ * SubjectPublicKeyInfo -> AlgorithmIdentifier -> OID. Constant small stack, no heap.
+ *
+ * @param[in] der Certificate DER.
+ * @param[in] der_len Length of @p der.
+ * @param[out] oid OID contents (points into @p der).
+ * @param[out] oid_len Length of @p oid.
+ * @return NOXTLS_RETURN_SUCCESS, NOXTLS_RETURN_NULL or NOXTLS_RETURN_CERT_PARSE_FAILED.
+ */
+noxtls_return_t noxtls_x509_der_get_spki_algorithm(const uint8_t *der, uint32_t der_len,
+                                                   const uint8_t **oid, uint32_t *oid_len)
+{
+    const uint8_t *p = der;
+    const uint8_t *body = NULL;
+    uint32_t body_len = 0U;
+    const uint8_t *val = NULL;
+    uint32_t val_len = 0U;
+    const uint8_t *tbs_end = NULL;
+    uint8_t tag = 0U;
+    uint32_t field = 0U;
+
+    if((der == NULL) || (oid == NULL) || (oid_len == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+    *oid = NULL;
+    *oid_len = 0U;
+    if((asn1_get_tlv_span(&p, &der[der_len], 0x30U, &body, &body_len) != NOXTLS_RETURN_SUCCESS) ||
+       (asn1_get_tlv_span(&body, &body[body_len], 0x30U, &val, &val_len) != NOXTLS_RETURN_SUCCESS)) {
+        return NOXTLS_RETURN_CERT_PARSE_FAILED;
+    }
+    p = val;
+    tbs_end = &val[val_len];
+    if(((uintptr_t)p < (uintptr_t)tbs_end) && (*p == 0xA0U)) {
+        if(asn1_get_any_tlv(&p, tbs_end, &tag, &val, &val_len) != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_CERT_PARSE_FAILED;
+        }
+    }
+    /* serialNumber, signature, issuer, validity, subject */
+    for(field = 0U; field < 5U; field += 1U) {
+        if(asn1_get_any_tlv(&p, tbs_end, &tag, &val, &val_len) != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_CERT_PARSE_FAILED;
+        }
+    }
+    if((asn1_get_tlv_span(&p, tbs_end, 0x30U, &val, &val_len) != NOXTLS_RETURN_SUCCESS) ||
+       (asn1_get_tlv_span(&val, &val[val_len], 0x30U, &body, &body_len) != NOXTLS_RETURN_SUCCESS) ||
+       (asn1_get_oid_span(&body, &body[body_len], oid, oid_len) != NOXTLS_RETURN_SUCCESS)) {
+        *oid = NULL;
+        *oid_len = 0U;
+        return NOXTLS_RETURN_CERT_PARSE_FAILED;
+    }
+    return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
@@ -2340,13 +2927,13 @@ static noxtls_return_t noxtls_x509_map_signature_algorithm(const uint8_t *sig_oi
  *
  * @return The return code of the function.
  */
-noxtls_return_t noxtls_x509_get_channel_binding_hash_algo(const x509_certificate_t *cert, noxtls_hash_algos_t *hash_algo)
+static noxtls_hash_algos_t x509_channel_binding_hash_from_oid(const uint8_t *sig_oid, uint32_t sig_oid_len)
 {
     noxtls_hash_algos_t mapped = NOXTLS_HASH_SHA_256;
     int is_rsa = 0;
 
-    if((cert == NULL) || (hash_algo == NULL)) {
-        return NOXTLS_RETURN_NULL;
+    if(sig_oid == NULL) {
+        return NOXTLS_HASH_SHA_256;
     }
     /* RFC 5929 §4.1: if signature uses MD5 or SHA-1, use SHA-256 */
     /* md5WithRSAEncryption 1.2.840.113549.1.1.4 */
@@ -2358,41 +2945,66 @@ noxtls_return_t noxtls_x509_get_channel_binding_hash_algo(const x509_certificate
     /* ecdsa-with-SHA1 1.2.840.10045.4.1 */
     static const uint8_t oid_ecdsa_sha1[] = {0x2AU, 0x86U, 0x48U, 0xCEU, 0x3DU, 0x04U, 0x01U};
 
-    {
-        int oid_match = 0;
-        if((size_t)(cert->signature_algorithm_oid_len) == sizeof(oid_md5_rsa)) {
-            oid_match = (noxtls_ct_memcmp(cert->signature_algorithm_oid, oid_md5_rsa, sizeof(oid_md5_rsa)) == 0) ? 1 : 0;
-        }
-        if(oid_match != 0) {
-            *hash_algo = NOXTLS_HASH_SHA_256;
-            return NOXTLS_RETURN_SUCCESS;
-        }
+    if((oid_equal(sig_oid, sig_oid_len, oid_md5_rsa, (uint32_t)sizeof(oid_md5_rsa)) != 0) ||
+       (oid_equal(sig_oid, sig_oid_len, oid_sha1_rsa, (uint32_t)sizeof(oid_sha1_rsa)) != 0) ||
+       (oid_equal(sig_oid, sig_oid_len, oid_ecdsa_sha1, (uint32_t)sizeof(oid_ecdsa_sha1)) != 0)) {
+        return NOXTLS_HASH_SHA_256;
+    }
+    if(noxtls_x509_map_signature_algorithm(sig_oid, sig_oid_len, &mapped, &is_rsa) == NOXTLS_RETURN_SUCCESS) {
+        return mapped;
+    }
+    return NOXTLS_HASH_SHA_256;
+}
+
+noxtls_return_t noxtls_x509_get_channel_binding_hash_algo(const x509_certificate_t *cert, noxtls_hash_algos_t *hash_algo)
+{
+    if((cert == NULL) || (hash_algo == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+    *hash_algo = x509_channel_binding_hash_from_oid(cert->signature_algorithm_oid, cert->signature_algorithm_oid_len);
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
+ * @brief RFC 5929 tls-server-end-point hash algorithm straight from certificate DER.
+ *
+ * Reads the outer signatureAlgorithm OID with a small ASN.1 walk (no parse, no heap) so the
+ * channel binding stays available after the parsed peer certificate was released.
+ *
+ * @param[in] der Certificate DER.
+ * @param[in] der_len Length of @p der.
+ * @param[out] hash_algo Hash algorithm (same rules as noxtls_x509_get_channel_binding_hash_algo()).
+ * @return NOXTLS_RETURN_SUCCESS, NOXTLS_RETURN_NULL or NOXTLS_RETURN_CERT_PARSE_FAILED.
+ */
+noxtls_return_t noxtls_x509_der_get_channel_binding_hash_algo(const uint8_t *der, uint32_t der_len,
+                                                              noxtls_hash_algos_t *hash_algo)
+{
+    const uint8_t *p = der;
+    const uint8_t *body = NULL;
+    uint32_t body_len = 0U;
+    const uint8_t *val = NULL;
+    uint32_t val_len = 0U;
+    const uint8_t *oid = NULL;
+    uint32_t oid_len = 0U;
+    uint8_t tag = 0U;
+
+    if((der == NULL) || (hash_algo == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(asn1_get_tlv_span(&p, &der[der_len], 0x30U, &body, &body_len) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_CERT_PARSE_FAILED;
     }
     {
-        int oid_match = 0;
-        if((size_t)(cert->signature_algorithm_oid_len) == sizeof(oid_sha1_rsa)) {
-            oid_match = (noxtls_ct_memcmp(cert->signature_algorithm_oid, oid_sha1_rsa, sizeof(oid_sha1_rsa)) == 0) ? 1 : 0;
-        }
-        if(oid_match != 0) {
-            *hash_algo = NOXTLS_HASH_SHA_256;
-            return NOXTLS_RETURN_SUCCESS;
-        }
-    }
-    {
-        int oid_match = 0;
-        if((size_t)(cert->signature_algorithm_oid_len) == sizeof(oid_ecdsa_sha1)) {
-            oid_match = (noxtls_ct_memcmp(cert->signature_algorithm_oid, oid_ecdsa_sha1, sizeof(oid_ecdsa_sha1)) == 0) ? 1 : 0;
-        }
-        if(oid_match != 0) {
-            *hash_algo = NOXTLS_HASH_SHA_256;
-            return NOXTLS_RETURN_SUCCESS;
+        const uint8_t *body_end = &body[body_len];
+        /* Skip the TBSCertificate, then read signatureAlgorithm.algorithm. */
+        if((asn1_get_any_tlv(&body, body_end, &tag, &val, &val_len) != NOXTLS_RETURN_SUCCESS) ||
+           (tag != 0x30U) ||
+           (asn1_get_tlv_span(&body, body_end, 0x30U, &val, &val_len) != NOXTLS_RETURN_SUCCESS) ||
+           (asn1_get_oid_span(&val, &val[val_len], &oid, &oid_len) != NOXTLS_RETURN_SUCCESS)) {
+            return NOXTLS_RETURN_CERT_PARSE_FAILED;
         }
     }
-    if(noxtls_x509_map_signature_algorithm(cert->signature_algorithm_oid, cert->signature_algorithm_oid_len, &mapped, &is_rsa) == NOXTLS_RETURN_SUCCESS) {
-        *hash_algo = mapped;
-        return NOXTLS_RETURN_SUCCESS;
-    }
-    *hash_algo = NOXTLS_HASH_SHA_256;
+    *hash_algo = x509_channel_binding_hash_from_oid(oid, oid_len);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -2736,17 +3348,11 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(const x509_certificate_
         }
 
         rsa_key_t rsa_key;
-        rc = noxtls_rsa_key_init(&rsa_key, key_size);
+        /* Public-only key: no private buffers, e stored at its significant length. */
+        rc = noxtls_rsa_key_init_public(&rsa_key, key_size, mod_ptr, mod_len, exp_ptr, exp_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
-
-        if((mod_len == 0U) || (exp_len == 0U) || (mod_len > rsa_key.key_bytes) || (exp_len > rsa_key.key_bytes)) {
-            (void)noxtls_rsa_key_free(&rsa_key);
-            return NOXTLS_RETURN_INVALID_PARAM;
-        }
-        noxtls_copy_u8((uint8_t *)(void *)(&rsa_key.n[rsa_key.key_bytes - mod_len]), (size_t)mod_len, (const uint8_t *)(const void *)(mod_ptr), (size_t)mod_len);
-        noxtls_copy_u8((uint8_t *)(void *)(&rsa_key.e[(rsa_key.key_bytes - exp_len)]), (size_t)exp_len, (const uint8_t *)(const void *)(exp_ptr), (size_t)exp_len);
 
         /* noxtls_rsa_verify hashes the message internally (PKCS#1 v1.5 DigestInfo check). */
         rc = noxtls_rsa_verify(&rsa_key,
@@ -2774,7 +3380,7 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(const x509_certificate_
     if(is_rsa == 2) {
 #if NOXTLS_FEATURE_ML_DSA
         uint32_t hash_len = 0U;
-        if((issuer->has_mldsa == 0U) || (issuer->mldsa_public_key_len == 0U) || (issuer->mldsa_param == 0U)) {
+        if((issuer->has_mldsa == 0U) || (issuer->public_key_len == 0U) || (issuer->mldsa_param == 0U)) {
             cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED, cert, NULL, 0, 0);
             return NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED;
         }
@@ -2809,7 +3415,7 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(const x509_certificate_
                                              cert->signature_algorithm_oid_len,
                                              &sig_param) != NOXTLS_RETURN_SUCCESS ||
            (issuer->has_slhdsa == 0U) ||
-           issuer->slhdsa_public_key_len == 0U ||
+           issuer->public_key_len == 0U ||
            issuer->slhdsa_param != sig_param) {
             cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED, cert, NULL, 0, 0);
             return NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED;
@@ -2834,7 +3440,7 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(const x509_certificate_
         int falcon_param = x509_oid_is_falcon(cert->signature_algorithm_oid, cert->signature_algorithm_oid_len);
         if(falcon_param == 0 ||
            (issuer->has_falcon == 0U) ||
-           issuer->falcon_public_key_len == 0U ||
+           issuer->public_key_len == 0U ||
            issuer->falcon_param != (noxtls_falcon_param_t)falcon_param) {
             cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED, cert, NULL, 0, 0);
             return NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED;
@@ -2932,8 +3538,11 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(const x509_certificate_
         seq_data = sig_ptr;
         const uint8_t *seq_end = &seq_data[seq_len];
         /* Parse r */
-        uint8_t r[ECC_MAX_KEY_SIZE];
-        uint32_t r_len = ECC_MAX_KEY_SIZE;
+        /* DER INTEGERs carry a 0x00 sign octet when the top bit is set, so r/s can be one octet
+         * longer than the field (two for secp224k1, whose order exceeds its field); with
+         * ECC_MAX_KEY_SIZE derived from the enabled curves the buffers need that headroom. */
+        uint8_t r[ECC_MAX_KEY_SIZE + 2U];
+        uint32_t r_len = (uint32_t)sizeof(r);
         if(asn1_get_integer(&sig_ptr, seq_end, r, &r_len) != NOXTLS_RETURN_SUCCESS) {
             CERT_DEBUG_PRINT("x509_certificate_verify_signature: failed to parse ECDSA r\n");
             (void)noxtls_ecc_key_free(&ecc_key);
@@ -2941,8 +3550,8 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(const x509_certificate_
         }
 
         /* Parse s */
-        uint8_t s[ECC_MAX_KEY_SIZE];
-        uint32_t s_len = ECC_MAX_KEY_SIZE;
+        uint8_t s[ECC_MAX_KEY_SIZE + 2U];
+        uint32_t s_len = (uint32_t)sizeof(s);
         if(asn1_get_integer(&sig_ptr, seq_end, s, &s_len) != NOXTLS_RETURN_SUCCESS) {
             CERT_DEBUG_PRINT("x509_certificate_verify_signature: failed to parse ECDSA s\n");
             (void)noxtls_ecc_key_free(&ecc_key);
@@ -3006,7 +3615,7 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(const x509_certificate_
 #endif
 }
 
-#if NOXTLS_HAVE_TIME
+/* ASN.1 time decoding is always compiled: validity is parsed once at certificate parse time. */
 /**
  * @brief Decode two-digit UTC year (YY) to full year.
  *
@@ -3127,14 +3736,14 @@ static void x509_asn1_gt_load_mdhm(const uint8_t *time_data, int32_t *month, int
 }
 
 /**
- * @brief Convert ASN.1 time to noxtls_unix_time_t (Unix timestamp)
+ * @brief Convert ASN.1 time to seconds since the Unix epoch (64-bit, no time_t range check).
  *
  * @param time_data ASN.1 time data (UTCTime or GeneralizedTime)
  * @param time_len Length of time data
- * @param time_out Output noxtls_unix_time_t value
+ * @param time_out Output seconds since 1970-01-01T00:00:00Z
  * @return NOXTLS_RETURN_SUCCESS on success, error code otherwise
  */
-static noxtls_return_t noxtls_x509_asn1_noxtls_unix_time_to_timet(const uint8_t *time_data, uint32_t time_len, noxtls_unix_time_t *time_out)
+static noxtls_return_t x509_asn1_time_to_epoch(const uint8_t *time_data, uint32_t time_len, int64_t *time_out)
 {
     if((time_data == NULL) || (time_len == 0U) || (time_out == NULL)) {
         return NOXTLS_RETURN_NULL;
@@ -3239,6 +3848,22 @@ static noxtls_return_t noxtls_x509_asn1_noxtls_unix_time_to_timet(const uint8_t 
     seconds += minute * 60LL;
     seconds += second;
 
+    *time_out = seconds;
+
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+#if NOXTLS_HAVE_TIME
+/**
+ * @brief Reject epoch values that do not fit the platform noxtls_unix_time_t.
+ * @internal
+ *
+ * @param seconds Seconds since the Unix epoch.
+ * @return NOXTLS_RETURN_SUCCESS, or NOXTLS_RETURN_FAILED when noxtls_unix_time_t is 32-bit and
+ *         @p seconds exceeds its range.
+ */
+static noxtls_return_t x509_epoch_fits_time_t(int64_t seconds)
+{
     /* Check for overflow/underflow (noxtls_unix_time_t is typically 32-bit or 64-bit) */
     if((seconds < 0) || (seconds > (int64_t)INT32_MAX)) {
         /* For 64-bit noxtls_unix_time_t, we can handle larger values, but check reasonable bounds */
@@ -3258,11 +3883,9 @@ static noxtls_return_t noxtls_x509_asn1_noxtls_unix_time_to_timet(const uint8_t 
         }
 #endif
     }
-
-    *time_out = (noxtls_unix_time_t)seconds;
-
     return NOXTLS_RETURN_SUCCESS;
 }
+
 #endif /* NOXTLS_HAVE_TIME */
 
 /**
@@ -3275,34 +3898,29 @@ static noxtls_return_t noxtls_x509_asn1_noxtls_unix_time_to_timet(const uint8_t 
  */
 #if NOXTLS_HAVE_TIME
 static noxtls_return_t x509_check_time_bound(const x509_certificate_t *cert,
-                                              const uint8_t *asn1_time,
                                               noxtls_unix_time_t current_time,
                                               int is_not_before,
                                               int check_time,
                                               noxtls_unix_time_t *out_bound)
 {
-    uint32_t time_len = 0U;
     noxtls_unix_time_t bound = 0;
-    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+    uint8_t present = (is_not_before != 0) ? X509_VALIDITY_NOT_BEFORE_PRESENT : X509_VALIDITY_NOT_AFTER_PRESENT;
+    uint8_t bad = (is_not_before != 0) ? X509_VALIDITY_NOT_BEFORE_BAD : X509_VALIDITY_NOT_AFTER_BAD;
+    int64_t parsed_bound = (is_not_before != 0) ? cert->not_before_time : cert->not_after_time;
 
     if(out_bound != NULL) {
         *out_bound = 0;
     }
-    if(asn1_time[0] == 0U) {
-        return NOXTLS_RETURN_SUCCESS;
-    }
-    while((time_len < 15U) && (asn1_time[time_len] != 0U)) {
-        time_len += 1U;
-    }
-    if(time_len == 0U) {
+    if((cert->validity_flags & present) == 0U) {
         return NOXTLS_RETURN_SUCCESS;
     }
 
-    rc = noxtls_x509_asn1_noxtls_unix_time_to_timet(asn1_time, time_len, &bound);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
+    /* The time was decoded once at parse time; a malformed or out-of-range value fails here. */
+    if(((cert->validity_flags & bad) != 0U) || (x509_epoch_fits_time_t(parsed_bound) != NOXTLS_RETURN_SUCCESS)) {
         CERT_DEBUG_PRINT("x509_certificate_check_validity: failed to parse validity time\n");
         return NOXTLS_RETURN_BAD_DATA;
     }
+    bound = (noxtls_unix_time_t)parsed_bound;
     if(out_bound != NULL) {
         *out_bound = bound;
     }
@@ -3349,11 +3967,11 @@ static noxtls_return_t x509_check_validity_window(const x509_certificate_t *cert
     noxtls_unix_time_t not_after_time = 0;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    rc = x509_check_time_bound(cert, cert->not_before, current_time, 1, check_time, &not_before_time);
+    rc = x509_check_time_bound(cert, current_time, 1, check_time, &not_before_time);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    rc = x509_check_time_bound(cert, cert->not_after, current_time, 0, check_time, &not_after_time);
+    rc = x509_check_time_bound(cert, current_time, 0, check_time, &not_after_time);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -3681,8 +4299,29 @@ noxtls_return_t noxtls_x509_parse_distinguished_name(const uint8_t *dn_data, uin
             if((attr_value_len > 0U) && (x509_bytes_remaining(attr_ptr, attr_end) >= (size_t)attr_value_len) &&
                (output_pos < (output_size - 1U))) {
 
-                /* Format: "attr=value, " */
-                if((first == 0) && (output_pos < (output_size - 2U))) {
+                /* Format: "attr=value, ". A truncated rendering must be a prefix of the
+                 * full text: when the separator or "attr=" does not fit, stop here. */
+                size_t name_len = noxtls_u8_strlen(attr_name);
+                size_t need = name_len + 1U + ((first == 0) ? 2U : 0U);
+                size_t remaining = (size_t)((output_pos < output_size) ? (size_t)(output_size - output_pos) : 0U);
+                if((remaining <= 1U) || (need > (remaining - 1U))) {
+                    /* Fill the room left with the prefix of the separator / label, then stop. */
+                    static const uint8_t k_sep[] = ", ";
+                    uint32_t k = 0U;
+                    uint32_t room_left = (remaining > 0U) ? (uint32_t)(remaining - 1U) : 0U;
+                    for(k = 0U; (k < room_left) && (first == 0) && (k < 2U); k += 1U) {
+                        output[output_pos] = k_sep[k];
+                        output_pos += 1U;
+                    }
+                    room_left = (uint32_t)((output_size - output_pos) - 1U);
+                    for(k = 0U; (k < room_left) && (k < (uint32_t)name_len); k += 1U) {
+                        output[output_pos] = attr_name[k];
+                        output_pos += 1U;
+                    }
+                    dn_done = 1U;
+                    continue;
+                }
+                if(first == 0) {
                     output[output_pos] = (uint8_t)',';
                     output_pos += 1U;
                     output[output_pos] = (uint8_t)' ';
@@ -3691,14 +4330,10 @@ noxtls_return_t noxtls_x509_parse_distinguished_name(const uint8_t *dn_data, uin
                 first = 0;
 
                 /* Add attribute name */
-                size_t name_len = noxtls_u8_strlen(attr_name);
-                size_t remaining = (size_t)((output_pos < output_size) ? (size_t)(output_size - output_pos) : 0U);
-                if((remaining > 1U) && ((name_len + 1U) < remaining)) {
-                    noxtls_copy_u8((uint8_t *)(void *)(&output[output_pos]), (size_t)name_len, (const uint8_t *)(const void *)(attr_name), (size_t)name_len);
-                    output_pos += (uint32_t)name_len;
-                    output[output_pos] = (uint8_t)'=';
-                    output_pos += 1U;
-                }
+                noxtls_copy_u8((uint8_t *)(void *)(&output[output_pos]), (size_t)name_len, (const uint8_t *)(const void *)(attr_name), (size_t)name_len);
+                output_pos += (uint32_t)name_len;
+                output[output_pos] = (uint8_t)'=';
+                output_pos += 1U;
 
                 /* Add value (limit to printable characters and reasonable length) */
                 uint32_t i = 0U;
@@ -3897,13 +4532,72 @@ noxtls_return_t noxtls_x509_certificate_chain_init(x509_certificate_chain_t *cha
         return NOXTLS_RETURN_NULL;
     }
 
+    /* Nothing is allocated until the first certificate is added (an empty presented chain,
+     * e.g. a leaf-only peer, costs no heap). */
     noxtls_secure_zero((chain), sizeof(x509_certificate_chain_t));
-    chain->capacity = NOXTLS_X509_CHAIN_INITIAL_CAPACITY;
-    chain->certs = (x509_certificate_t*)NOXTLS_CALLOC(chain->capacity, sizeof(x509_certificate_t));
-    if(chain->certs == NULL) {
+
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
+ * @brief Make room for at least @p capacity certificates in @p chain.
+ *
+ * Grows the slot array to exactly @p capacity (never shrinks). Slots are small views
+ * (sizeof(x509_certificate_t)); each certificate's DER is a separate allocation, so the
+ * contiguous request is capacity * sizeof(x509_certificate_t) only.
+ *
+ * @param[in,out] chain Initialized chain.
+ * @param[in] capacity Required number of slots.
+ * @return NOXTLS_RETURN_SUCCESS, NOXTLS_RETURN_NULL, NOXTLS_RETURN_NOT_ENOUGH_MEMORY, or
+ *         NOXTLS_RETURN_FAILED on size overflow.
+ */
+noxtls_return_t noxtls_x509_certificate_chain_reserve(x509_certificate_chain_t *chain, uint32_t capacity)
+{
+    x509_certificate_t *new_certs = NULL;
+
+    if(chain == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(capacity <= chain->capacity) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    if(capacity > (UINT32_MAX / (uint32_t)sizeof(x509_certificate_t))) {
         return NOXTLS_RETURN_FAILED;
     }
+    if(chain->certs == NULL) {
+        new_certs = (x509_certificate_t*)NOXTLS_CALLOC((size_t)capacity, sizeof(x509_certificate_t));
+    } else {
+        new_certs = (x509_certificate_t*)NOXTLS_REALLOC(chain->certs, (size_t)capacity * sizeof(x509_certificate_t));
+    }
+    if(new_certs == NULL) {
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+    }
+    chain->certs = new_certs;
+    chain->capacity = capacity;
+    return NOXTLS_RETURN_SUCCESS;
+}
 
+/**
+ * @brief Return the next free slot of @p chain, growing it linearly when full.
+ * @internal
+ */
+static noxtls_return_t x509_chain_next_slot(x509_certificate_chain_t *chain, x509_certificate_t **slot)
+{
+    noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
+
+    if(chain->count >= chain->capacity) {
+        /* Linear growth by NOXTLS_X509_CHAIN_INITIAL_CAPACITY slots: no doubling, no reserve. */
+        uint32_t step = (NOXTLS_X509_CHAIN_INITIAL_CAPACITY > 0U) ? (uint32_t)NOXTLS_X509_CHAIN_INITIAL_CAPACITY : 1U;
+        if(chain->capacity > (UINT32_MAX - step)) {
+            return NOXTLS_RETURN_FAILED;
+        }
+        rc = noxtls_x509_certificate_chain_reserve(chain, chain->capacity + step);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            return (rc == NOXTLS_RETURN_NOT_ENOUGH_MEMORY) ? NOXTLS_RETURN_FAILED : rc;
+        }
+    }
+    *slot = &chain->certs[chain->count];
+    (void)noxtls_x509_certificate_init(*slot);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -3953,25 +4647,10 @@ noxtls_return_t noxtls_x509_certificate_chain_add(x509_certificate_chain_t *chai
         return NOXTLS_RETURN_NULL;
     }
 
-    if(chain->count >= chain->capacity) {
-        /* Expand capacity */
-        if((chain->capacity == 0U) || (chain->capacity > (UINT32_MAX / 2U))) {
-            return NOXTLS_RETURN_FAILED;
-        }
-        uint32_t new_capacity = (uint32_t)(chain->capacity * 2U);
-        if(new_capacity > (UINT32_MAX / (uint32_t)sizeof(x509_certificate_t))) {
-            return NOXTLS_RETURN_FAILED;
-        }
-        x509_certificate_t *new_certs = (x509_certificate_t*)NOXTLS_REALLOC(chain->certs, (size_t)new_capacity * sizeof(x509_certificate_t));
-        if(new_certs == NULL) {
-            return NOXTLS_RETURN_FAILED;
-        }
-        chain->certs = new_certs;
-        chain->capacity = new_capacity;
+    rc = x509_chain_next_slot(chain, &dst);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
     }
-
-    dst = &chain->certs[chain->count];
-    (void)noxtls_x509_certificate_init(dst);
 
     /* Allow adding an init-only cert (no raw_data) for empty slot / unit tests. */
     if((cert->raw_data == NULL) || (cert->raw_data_len == 0U)) {
@@ -3979,7 +4658,7 @@ noxtls_return_t noxtls_x509_certificate_chain_add(x509_certificate_chain_t *chai
         return NOXTLS_RETURN_SUCCESS;
     }
 
-    /* Deep-copy by reparsing source DER to avoid shared pointer ownership/double-free. */
+    /* Deep-copy by reparsing source DER (the copy owns its DER even when @p cert borrows). */
     rc = noxtls_x509_certificate_parse_der(dst, cert->raw_data, cert->raw_data_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         (void)noxtls_x509_certificate_free(dst);
@@ -3989,6 +4668,60 @@ noxtls_return_t noxtls_x509_certificate_chain_add(x509_certificate_chain_t *chai
     chain->count += 1U;
 
     return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
+ * @brief Parse a DER certificate directly into a new chain slot.
+ * @internal
+ */
+static noxtls_return_t x509_chain_add_der_common(x509_certificate_chain_t *chain, const uint8_t *der, uint32_t der_len,
+                                                 int copy)
+{
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+    x509_certificate_t *dst = NULL;
+
+    if((chain == NULL) || (der == NULL) || (der_len == 0U)) {
+        return NOXTLS_RETURN_NULL;
+    }
+    rc = x509_chain_next_slot(chain, &dst);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+    rc = (copy != 0) ? noxtls_x509_certificate_parse_der(dst, der, der_len)
+                     : noxtls_x509_certificate_parse_der_nocopy(dst, der, der_len);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        (void)noxtls_x509_certificate_free(dst);
+        return rc;
+    }
+    chain->count += 1U;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
+ * @brief Parse a DER certificate into the chain (one owned DER copy, no temporary certificate).
+ *
+ * @param[in,out] chain Initialized chain.
+ * @param[in] der Certificate DER.
+ * @param[in] der_len Length of @p der.
+ * @return NOXTLS_RETURN_SUCCESS or a parse / memory error (the chain is unchanged on error).
+ */
+noxtls_return_t noxtls_x509_certificate_chain_add_der(x509_certificate_chain_t *chain, const uint8_t *der, uint32_t der_len)
+{
+    return x509_chain_add_der_common(chain, der, der_len, 1);
+}
+
+/**
+ * @brief Parse a DER certificate into the chain without copying it (borrow mode).
+ *
+ * @param[in,out] chain Initialized chain.
+ * @param[in] der Certificate DER; must stay valid and unchanged until the chain is freed.
+ * @param[in] der_len Length of @p der.
+ * @return NOXTLS_RETURN_SUCCESS or a parse / memory error (the chain is unchanged on error).
+ */
+noxtls_return_t noxtls_x509_certificate_chain_add_der_nocopy(x509_certificate_chain_t *chain, const uint8_t *der,
+                                                             uint32_t der_len)
+{
+    return x509_chain_add_der_common(chain, der, der_len, 0);
 }
 
 /**
@@ -4184,6 +4917,137 @@ static noxtls_return_t x509_leaf_policy_check(const x509_certificate_t *leaf, ui
 }
 
 /**
+ * @brief Return 1 for DirectoryString types compared with RFC 4518 caseIgnoreMatch here.
+ * @internal
+ */
+static int x509_name_value_is_string(uint8_t tag)
+{
+    return ((tag == 0x13U) || (tag == 0x0CU)) ? 1 : 0;  /* PrintableString, UTF8String */
+}
+
+/**
+ * @brief Compare two attribute values after RFC 4518-style preparation.
+ * @internal
+ *
+ * Leading/trailing spaces are ignored, internal runs of spaces count as one, ASCII letters are
+ * compared case-insensitively; every other octet must match exactly (no Unicode folding).
+ *
+ * @return 1 when the prepared values are equal, 0 otherwise.
+ */
+static int x509_name_value_equal_prepared(const uint8_t *a, uint32_t a_len, const uint8_t *b, uint32_t b_len)
+{
+    uint32_t i = 0U;
+    uint32_t j = 0U;
+
+    while((i < a_len) && (a[i] == (uint8_t)' ')) { i += 1U; }
+    while((j < b_len) && (b[j] == (uint8_t)' ')) { j += 1U; }
+    while((a_len > i) && (a[a_len - 1U] == (uint8_t)' ')) { a_len -= 1U; }
+    while((b_len > j) && (b[b_len - 1U] == (uint8_t)' ')) { b_len -= 1U; }
+
+    while((i < a_len) && (j < b_len)) {
+        uint8_t ca = a[i];
+        uint8_t cb = b[j];
+        if((ca == (uint8_t)' ') && (cb == (uint8_t)' ')) {
+            while((i < a_len) && (a[i] == (uint8_t)' ')) { i += 1U; }
+            while((j < b_len) && (b[j] == (uint8_t)' ')) { j += 1U; }
+        } else {
+            if((ca >= (uint8_t)'A') && (ca <= (uint8_t)'Z')) { ca = (uint8_t)(ca + 32U); }
+            if((cb >= (uint8_t)'A') && (cb <= (uint8_t)'Z')) { cb = (uint8_t)(cb + 32U); }
+            if(ca != cb) {
+                return 0;
+            }
+            i += 1U;
+            j += 1U;
+        }
+    }
+    return ((i == a_len) && (j == b_len)) ? 1 : 0;
+}
+
+/**
+ * @brief Compare two DER Names (RDNSequence contents) per RFC 5280 Section 7.1.
+ * @internal
+ *
+ * Both names must have the same RDNs in the same order, each with the same attribute types in
+ * the same order. Values match when their DER is identical or, for PrintableString/UTF8String
+ * values, when they are equal after x509_name_value_equal_prepared(). Malformed names never match.
+ *
+ * @return 1 when the names match, 0 otherwise.
+ */
+static int x509_name_equal_normalized(const uint8_t *a, uint32_t a_len, const uint8_t *b, uint32_t b_len)
+{
+    const uint8_t *pa = a;
+    const uint8_t *pb = b;
+    const uint8_t *ea = NULL;
+    const uint8_t *eb = NULL;
+
+    if((a == NULL) || (b == NULL)) {
+        return 0;
+    }
+    ea = &a[a_len];
+    eb = &b[b_len];
+    while(((uintptr_t)pa < (uintptr_t)ea) && ((uintptr_t)pb < (uintptr_t)eb)) {
+        const uint8_t *set_a = NULL;
+        const uint8_t *set_b = NULL;
+        uint32_t set_a_len = 0U;
+        uint32_t set_b_len = 0U;
+        const uint8_t *set_a_end = NULL;
+        const uint8_t *set_b_end = NULL;
+
+        if((asn1_get_tlv_span(&pa, ea, 0x31U, &set_a, &set_a_len) != NOXTLS_RETURN_SUCCESS) ||
+           (asn1_get_tlv_span(&pb, eb, 0x31U, &set_b, &set_b_len) != NOXTLS_RETURN_SUCCESS)) {
+            return 0;
+        }
+        set_a_end = &set_a[set_a_len];
+        set_b_end = &set_b[set_b_len];
+        while(((uintptr_t)set_a < (uintptr_t)set_a_end) && ((uintptr_t)set_b < (uintptr_t)set_b_end)) {
+            const uint8_t *atv_a = NULL;
+            const uint8_t *atv_b = NULL;
+            uint32_t atv_a_len = 0U;
+            uint32_t atv_b_len = 0U;
+            const uint8_t *oid_a = NULL;
+            const uint8_t *oid_b = NULL;
+            uint32_t oid_a_len = 0U;
+            uint32_t oid_b_len = 0U;
+            uint8_t tag_a = 0U;
+            uint8_t tag_b = 0U;
+            const uint8_t *val_a = NULL;
+            const uint8_t *val_b = NULL;
+            uint32_t val_a_len = 0U;
+            uint32_t val_b_len = 0U;
+
+            if((asn1_get_tlv_span(&set_a, set_a_end, 0x30U, &atv_a, &atv_a_len) != NOXTLS_RETURN_SUCCESS) ||
+               (asn1_get_tlv_span(&set_b, set_b_end, 0x30U, &atv_b, &atv_b_len) != NOXTLS_RETURN_SUCCESS)) {
+                return 0;
+            }
+            {
+                const uint8_t *atv_a_end = &atv_a[atv_a_len];
+                const uint8_t *atv_b_end = &atv_b[atv_b_len];
+                if((asn1_get_oid_span(&atv_a, atv_a_end, &oid_a, &oid_a_len) != NOXTLS_RETURN_SUCCESS) ||
+                   (asn1_get_oid_span(&atv_b, atv_b_end, &oid_b, &oid_b_len) != NOXTLS_RETURN_SUCCESS) ||
+                   (oid_equal(oid_a, oid_a_len, oid_b, oid_b_len) == 0) ||
+                   (asn1_get_any_tlv(&atv_a, atv_a_end, &tag_a, &val_a, &val_a_len) != NOXTLS_RETURN_SUCCESS) ||
+                   (asn1_get_any_tlv(&atv_b, atv_b_end, &tag_b, &val_b, &val_b_len) != NOXTLS_RETURN_SUCCESS)) {
+                    return 0;
+                }
+            }
+            if((tag_a == tag_b) && (val_a_len == val_b_len) &&
+               (noxtls_ct_memcmp(val_a, val_b, (size_t)val_a_len) == 0)) {
+                /* identical encoding */
+            } else if((x509_name_value_is_string(tag_a) != 0) && (x509_name_value_is_string(tag_b) != 0) &&
+                      (x509_name_value_equal_prepared(val_a, val_a_len, val_b, val_b_len) != 0)) {
+                /* equal after string preparation */
+            } else {
+                return 0;
+            }
+        }
+        if(((uintptr_t)set_a != (uintptr_t)set_a_end) || ((uintptr_t)set_b != (uintptr_t)set_b_end)) {
+            return 0;  /* different number of attributes in this RDN */
+        }
+    }
+    return (((uintptr_t)pa == (uintptr_t)ea) && ((uintptr_t)pb == (uintptr_t)eb)) ? 1 : 0;
+}
+
+/**
  * @brief Check whether a candidate's subject name matches a certificate's issuer name.
  * @internal
  *
@@ -4199,8 +5063,12 @@ static int x509_issuer_name_matches(const x509_certificate_t *subject_cert, cons
     int dn_match = x509_dn_equal(subject_cert->issuer, subject_cert->issuer_len,
                                  candidate->subject, candidate->subject_len);
 
-    if((dn_match == 0) && (subject_cert->issuer_dn[0] != 0U) && (candidate->subject_dn[0] != 0U)) {
-        dn_match = (noxtls_u8_strcmp(subject_cert->issuer_dn, candidate->subject_dn) == 0) ? 1 : 0;
+    if(dn_match == 0) {
+        /* RFC 5280 Section 7.1: names that differ only in string type (PrintableString /
+         * UTF8String), letter case or insignificant spaces still match. Compared per RDN on the
+         * DER, never on the (lossy, truncated) rendered text. */
+        dn_match = x509_name_equal_normalized(subject_cert->issuer, subject_cert->issuer_len,
+                                              candidate->subject, candidate->subject_len);
     }
     return dn_match;
 }
@@ -4432,25 +5300,10 @@ void noxtls_x509_crl_free(noxtls_x509_crl_t *crl)
     while(cur != NULL) {
         noxtls_x509_crl_t *nxt = cur->next;
         cur->next = NULL;
-        if(cur->signature != NULL) {
-            (void)noxtls_free(cur->signature);
-            cur->signature = NULL;
-        }
-        if(cur->tbs_crl != NULL) {
-            (void)noxtls_free(cur->tbs_crl);
-            cur->tbs_crl = NULL;
-        }
-        if(cur->raw_data != NULL) {
-            (void)noxtls_free(cur->raw_data);
-            cur->raw_data = NULL;
-        }
-        if(cur->revoked_serials != NULL) {
-            (void)noxtls_free(cur->revoked_serials);
-            cur->revoked_serials = NULL;
-        }
-        if(cur->revoked_serial_lens != NULL) {
-            (void)noxtls_free(cur->revoked_serial_lens);
-            cur->revoked_serial_lens = NULL;
+        /* Every span points into raw_data; only the owned copy (if any) is released. */
+        if(cur->raw_data_owned != NULL) {
+            (void)noxtls_free(cur->raw_data_owned);
+            cur->raw_data_owned = NULL;
         }
         noxtls_secure_zero((cur), sizeof(noxtls_x509_crl_t));
         cur = nxt;
@@ -4458,14 +5311,41 @@ void noxtls_x509_crl_free(noxtls_x509_crl_t *crl)
 }
 
 /**
- * @brief Parse a CRL from DER
+ * @brief Decode a CRL thisUpdate / nextUpdate Time at @p *p (tag already checked by the caller).
+ * @internal
  *
- * This function parses a CRL from DER.
+ * @param[in,out] p Cursor at the Time tag; advanced past the Time on success.
+ * @param[in] end End of the TBSCertList contents.
+ * @param[out] seconds Epoch seconds (valid when *bad is 0).
+ * @param[out] bad 1 when the Time is present but not a valid UTCTime/GeneralizedTime.
+ * @return NOXTLS_RETURN_SUCCESS, or NOXTLS_RETURN_CRL_PARSE_FAILED for a malformed TLV.
+ */
+static noxtls_return_t x509_crl_parse_time(const uint8_t **p, const uint8_t *end, int64_t *seconds, uint8_t *bad)
+{
+    uint8_t tag = 0U;
+    const uint8_t *t = NULL;
+    uint32_t t_len = 0U;
+
+    if((asn1_get_any_tlv(p, end, &tag, &t, &t_len) != NOXTLS_RETURN_SUCCESS) || (t_len == 0U)) {
+        return NOXTLS_RETURN_CRL_PARSE_FAILED;
+    }
+    /* As for certificates (and the former 16-byte copies), only the first 14 characters of a
+     * GeneralizedTime are significant. */
+    if((tag == 0x18U) && (t_len > 14U)) {
+        t_len = 14U;
+    }
+    *bad = (x509_asn1_time_to_epoch(t, t_len, seconds) == NOXTLS_RETURN_SUCCESS) ? 0U : 1U;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
+ * @brief Parse the CRL DER held in crl->raw_data into spans (no further allocation).
  *
- * @param[in] crl The CRL to parse.
- * @param[in] data The DER data to parse.
- * @param[in] len The length of the DER data.
+ * revokedCertificates is validated here (every entry is a SEQUENCE starting with an INTEGER
+ * serial of at most X509_MAX_SERIAL_SIZE octets, at most NOXTLS_X509_CRL_MAX_REVOKED entries);
+ * lookups scan that list in place.
  *
+ * @param[in,out] crl The CRL; raw_data / raw_data_len are set by the caller.
  * @return The return code of the function.
  */
 static noxtls_return_t x509_crl_parse_der_body(noxtls_x509_crl_t *crl)
@@ -4474,264 +5354,194 @@ static noxtls_return_t x509_crl_parse_der_body(noxtls_x509_crl_t *crl)
     const uint8_t *end = &crl->raw_data[crl->raw_data_len];
     const uint8_t *seq_data = NULL;
     uint32_t seq_len = 0U;
-    noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
+    const uint8_t *cert_list_end = NULL;
+    const uint8_t *tbs_content = NULL;
+    uint32_t tbs_content_len = 0U;
+    const uint8_t *tbs_ptr = NULL;
+    const uint8_t *tbs_end = NULL;
+    uint8_t bad = 0U;
 
-        const uint8_t *cert_list_end = NULL;
-        const uint8_t *tbs_outer_start = NULL;
-        const uint8_t *tbs_content = NULL;
-        uint32_t tbs_content_len = 0U;
-        const uint8_t *tbs_ptr = NULL;
-        const uint8_t *tbs_end = NULL;
+    if(asn1_get_sequence(&ptr, end, &seq_data, &seq_len) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_CRL_PARSE_FAILED;
+    }
+    cert_list_end = &seq_data[seq_len];
+    /* DER: the CertificateList SEQUENCE must span the whole input (no trailing bytes),
+     * as for certificates. */
+    if((uintptr_t)cert_list_end != (uintptr_t)end) {
+        return NOXTLS_RETURN_CRL_PARSE_FAILED;
+    }
+    ptr = seq_data;
 
-        if(asn1_get_sequence(&ptr, end, &seq_data, &seq_len) != NOXTLS_RETURN_SUCCESS) {
-            rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
-            return rc;
+    crl->tbs_crl = ptr;
+    if(asn1_get_sequence(&ptr, cert_list_end, &tbs_content, &tbs_content_len) != NOXTLS_RETURN_SUCCESS) {
+        crl->tbs_crl = NULL;
+        return NOXTLS_RETURN_CRL_PARSE_FAILED;
+    }
+    crl->tbs_crl_len = (uint32_t)((uintptr_t)ptr - (uintptr_t)crl->tbs_crl);
+
+    tbs_ptr = tbs_content;
+    tbs_end = &tbs_content[tbs_content_len];
+
+    /* Optional version (INTEGER, usually v2 = 1). */
+    if(((uintptr_t)tbs_ptr < (uintptr_t)tbs_end) && (*tbs_ptr == (uint8_t)0x02U)) {
+        const uint8_t *version = NULL;
+        uint32_t version_len = 0U;
+        if((asn1_get_integer_span(&tbs_ptr, tbs_end, &version, &version_len) != NOXTLS_RETURN_SUCCESS) ||
+           (version_len > 4U)) {
+            return NOXTLS_RETURN_CRL_PARSE_FAILED;
         }
-        cert_list_end = &seq_data[seq_len];
-        ptr = seq_data;
-
-        tbs_outer_start = ptr;
-        if(asn1_get_sequence(&ptr, cert_list_end, &tbs_content, &tbs_content_len) != NOXTLS_RETURN_SUCCESS) {
-            rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
-            return rc;
-        }
-
-        crl->tbs_crl_len = (uint32_t)((uintptr_t)ptr - (uintptr_t)tbs_outer_start);
-        crl->tbs_crl = (uint8_t*)NOXTLS_MALLOC(crl->tbs_crl_len);
-        if(crl->tbs_crl == NULL) {
-            rc = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
-            return rc;
-        }
-        noxtls_copy_u8((uint8_t *)(void *)(crl->tbs_crl), (size_t)crl->tbs_crl_len, (const uint8_t *)(const void *)(tbs_outer_start), (size_t)crl->tbs_crl_len);
-
-        tbs_ptr = tbs_content;
-        tbs_end = &tbs_content[tbs_content_len];
-
-        /* Optional version (INTEGER, usually v2 = 1). */
-        if(((uintptr_t)tbs_ptr < (uintptr_t)tbs_end) && (*tbs_ptr == (uint8_t)0x02U)) {
-            uint8_t version_raw[4];
-            uint32_t version_raw_len = (uint32_t)sizeof(version_raw);
-            if(asn1_get_integer(&tbs_ptr, tbs_end, version_raw, &version_raw_len) != NOXTLS_RETURN_SUCCESS) {
-                rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
-                return rc;
-            }
-        } else if(((uintptr_t)tbs_ptr < (uintptr_t)tbs_end) && (*tbs_ptr == (uint8_t)0xA0U)) {
-            /* Backward compatibility for older parser behavior. */
-            tbs_ptr = &tbs_ptr[1];
-            {
-                uint32_t wrap_len = (uint32_t)(asn1_get_length(&tbs_ptr, tbs_end));
-                if(wrap_len > (uint32_t)((uintptr_t)tbs_end - (uintptr_t)tbs_ptr)) {
-                    rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
-                    return rc;
-                }
-                tbs_ptr = &tbs_ptr[wrap_len];
-            }
-        }
-         else {
-             /* MISRA 15.7: no remaining alternative */
-         }
-
-        /* signature AlgorithmIdentifier inside TBSCertList */
-        if(asn1_get_sequence(&tbs_ptr, tbs_end, &seq_data, &seq_len) != NOXTLS_RETURN_SUCCESS) {
-            rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
-            return rc;
-        }
+    } else if(((uintptr_t)tbs_ptr < (uintptr_t)tbs_end) && (*tbs_ptr == (uint8_t)0xA0U)) {
+        /* Backward compatibility for older parser behavior. */
+        tbs_ptr = &tbs_ptr[1];
         {
-            const uint8_t *alg_end = &seq_data[seq_len];
-            const uint8_t *alg_ptr = seq_data;
-            if(asn1_get_oid(&alg_ptr, alg_end, crl->signature_algorithm_oid, &crl->signature_algorithm_oid_len) != NOXTLS_RETURN_SUCCESS) {
-                rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
-                return rc;
+            uint32_t wrap_len = (uint32_t)(asn1_get_length(&tbs_ptr, tbs_end));
+            if(wrap_len > (uint32_t)((uintptr_t)tbs_end - (uintptr_t)tbs_ptr)) {
+                return NOXTLS_RETURN_CRL_PARSE_FAILED;
             }
+            tbs_ptr = &tbs_ptr[wrap_len];
         }
+    }
+     else {
+         /* MISRA 15.7: no remaining alternative */
+     }
 
-        /* issuer */
-        if(asn1_get_sequence(&tbs_ptr, tbs_end, &seq_data, &seq_len) != NOXTLS_RETURN_SUCCESS) {
-            rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
-            return rc;
+    /* signature AlgorithmIdentifier inside TBSCertList */
+    if(asn1_get_sequence(&tbs_ptr, tbs_end, &seq_data, &seq_len) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_CRL_PARSE_FAILED;
+    }
+    {
+        const uint8_t *alg_ptr = seq_data;
+        const uint8_t *oid = NULL;
+        uint32_t oid_len = 0U;
+        if(asn1_get_oid_span(&alg_ptr, &seq_data[seq_len], &oid, &oid_len) != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_CRL_PARSE_FAILED;
         }
-        if(seq_len > X509_MAX_ISSUER_SIZE) {
-            rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
-            return rc;
-        }
-        noxtls_copy_u8((uint8_t *)(void *)(crl->issuer), (size_t)seq_len, (const uint8_t *)(const void *)(seq_data), (size_t)seq_len);
-        crl->issuer_len = seq_len;
-        (void)noxtls_x509_parse_distinguished_name(seq_data, seq_len, crl->issuer_dn, sizeof(crl->issuer_dn));
+        crl->signature_algorithm_oid = oid;
+        crl->signature_algorithm_oid_len = oid_len;
+    }
 
-        /* thisUpdate */
-        if(((uintptr_t)tbs_ptr >= (uintptr_t)tbs_end) || ((*tbs_ptr != 0x17U) && (*tbs_ptr != 0x18U))) {
-            rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
-            return rc;
-        }
-        {
-            tbs_ptr = &tbs_ptr[1];
-            {
-                uint32_t time_len = (uint32_t)(asn1_get_length(&tbs_ptr, tbs_end));
-                if((time_len == 0U) || (x509_bytes_remaining(tbs_ptr, tbs_end) < (size_t)time_len)) {
-                    rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
-                    return rc;
-                }
-                noxtls_secure_zero((crl->this_update), sizeof(crl->this_update));
-                {
-                    uint32_t copy_len = (uint32_t)((time_len > 15U) ? 15U : time_len);
-                    noxtls_copy_u8((uint8_t *)(void *)(crl->this_update), (size_t)copy_len, (const uint8_t *)(const void *)(tbs_ptr), (size_t)copy_len);
-                    crl->this_update[14] = 0U;
-                }
-                tbs_ptr = &tbs_ptr[time_len];
-            }
-        }
+    /* issuer */
+    if(asn1_get_sequence(&tbs_ptr, tbs_end, &seq_data, &seq_len) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_CRL_PARSE_FAILED;
+    }
+    crl->issuer = seq_data;
+    crl->issuer_len = seq_len;
 
-        /* optional nextUpdate */
-        crl->has_next_update = 0U;
-        noxtls_secure_zero((crl->next_update), sizeof(crl->next_update));
-        if(((uintptr_t)tbs_ptr < (uintptr_t)tbs_end) && ((*tbs_ptr == 0x17U) || (*tbs_ptr == 0x18U))) {
-            tbs_ptr = &tbs_ptr[1];
-            {
-                uint32_t time_len = (uint32_t)(asn1_get_length(&tbs_ptr, tbs_end));
-                if((time_len == 0U) || (x509_bytes_remaining(tbs_ptr, tbs_end) < (size_t)time_len)) {
-                    rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
-                    return rc;
-                }
-                {
-                    uint32_t copy_len = (uint32_t)((time_len > 15U) ? 15U : time_len);
-                    noxtls_copy_u8((uint8_t *)(void *)(crl->next_update), (size_t)copy_len, (const uint8_t *)(const void *)(tbs_ptr), (size_t)copy_len);
-                    crl->next_update[14] = 0U;
-                }
-                crl->has_next_update = 1U;
-                tbs_ptr = &tbs_ptr[time_len];
-            }
-        }
+    /* thisUpdate */
+    if(((uintptr_t)tbs_ptr >= (uintptr_t)tbs_end) || ((*tbs_ptr != 0x17U) && (*tbs_ptr != 0x18U))) {
+        return NOXTLS_RETURN_CRL_PARSE_FAILED;
+    }
+    if(x509_crl_parse_time(&tbs_ptr, tbs_end, &crl->this_update_time, &bad) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_CRL_PARSE_FAILED;
+    }
+    crl->time_flags = (bad != 0U) ? X509_CRL_THIS_UPDATE_BAD : 0U;
 
-        /* revokedCertificates or crlExtensions */
-        if(((uintptr_t)tbs_ptr < (uintptr_t)tbs_end) && (*tbs_ptr == 0x30U)) {
-            const uint8_t *save = tbs_ptr;
-            const uint8_t *list_body = NULL;
-            uint32_t list_len = 0U;
-            const uint8_t *list_end = NULL;
-            if(asn1_get_sequence(&tbs_ptr, tbs_end, &list_body, &list_len) != NOXTLS_RETURN_SUCCESS) {
-                rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
-                return rc;
-            }
-            list_end = &list_body[list_len];
-            if(list_len == 0U) {
-                /* Empty revokedCertificates SEQUENCE */
-            } else if(list_body[0] == 0x30U) {
-                const uint8_t *probe = list_body;
-                const uint8_t *e0 = NULL;
-                uint32_t e0_len = 0U;
-                if((asn1_get_sequence(&probe, list_end, &e0, &e0_len) == NOXTLS_RETURN_SUCCESS) && (e0_len > 0U) && (*e0 == 0x02U)) {
-                    const uint8_t *walk = list_body;
-                    uint32_t cap = NOXTLS_X509_CRL_MAX_REVOKED;
-                    crl->revoked_serials = (uint8_t*)NOXTLS_MALLOC((size_t)cap * (size_t)X509_MAX_SERIAL_SIZE);
-                    crl->revoked_serial_lens = (uint32_t*)NOXTLS_MALLOC((size_t)cap * sizeof(uint32_t));
-                    if((crl->revoked_serials == NULL) || (crl->revoked_serial_lens == NULL)) {
-                        rc = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
-                        return rc;
+    /* optional nextUpdate */
+    crl->has_next_update = 0U;
+    if(((uintptr_t)tbs_ptr < (uintptr_t)tbs_end) && ((*tbs_ptr == 0x17U) || (*tbs_ptr == 0x18U))) {
+        if(x509_crl_parse_time(&tbs_ptr, tbs_end, &crl->next_update_time, &bad) != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_CRL_PARSE_FAILED;
+        }
+        if(bad != 0U) {
+            crl->time_flags = (uint8_t)(crl->time_flags | X509_CRL_NEXT_UPDATE_BAD);
+        }
+        crl->has_next_update = 1U;
+    }
+
+    /* revokedCertificates (validated, kept as a span) or crlExtensions */
+    if(((uintptr_t)tbs_ptr < (uintptr_t)tbs_end) && (*tbs_ptr == 0x30U)) {
+        const uint8_t *save = tbs_ptr;
+        const uint8_t *list_body = NULL;
+        uint32_t list_len = 0U;
+        const uint8_t *list_end = NULL;
+        if(asn1_get_sequence(&tbs_ptr, tbs_end, &list_body, &list_len) != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_CRL_PARSE_FAILED;
+        }
+        list_end = &list_body[list_len];
+        if(list_len == 0U) {
+            /* Empty revokedCertificates SEQUENCE */
+        } else if(list_body[0] == 0x30U) {
+            const uint8_t *probe = list_body;
+            const uint8_t *e0 = NULL;
+            uint32_t e0_len = 0U;
+            if((asn1_get_sequence(&probe, list_end, &e0, &e0_len) == NOXTLS_RETURN_SUCCESS) && (e0_len > 0U) && (*e0 == 0x02U)) {
+                const uint8_t *walk = list_body;
+                uint32_t count = 0U;
+                while((uintptr_t)walk < (uintptr_t)list_end) {
+                    const uint8_t *entry = NULL;
+                    uint32_t entry_len = 0U;
+                    const uint8_t *ep = NULL;
+                    const uint8_t *serial = NULL;
+                    uint32_t slen = 0U;
+                    if(asn1_get_sequence(&walk, list_end, &entry, &entry_len) != NOXTLS_RETURN_SUCCESS) {
+                        return NOXTLS_RETURN_CRL_PARSE_FAILED;
                     }
-                    {
-                        uint8_t walk_done = 0U;
-                        while(((uintptr_t)walk < (uintptr_t)list_end) && (walk_done == 0U)) {
-                            const uint8_t *entry = NULL;
-                            uint32_t entry_len = 0U;
-                            const uint8_t *entry_end = NULL;
-                            const uint8_t *ep = NULL;
-                            uint8_t serial[X509_MAX_SERIAL_SIZE];
-                            uint32_t slen = X509_MAX_SERIAL_SIZE;
-                            if(asn1_get_sequence(&walk, list_end, &entry, &entry_len) != NOXTLS_RETURN_SUCCESS) {
-                                rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
-                                walk_done = 1U;
-                            } else {
-                                entry_end = &entry[entry_len];
-                                ep = entry;
-                                slen = X509_MAX_SERIAL_SIZE;
-                                if(asn1_get_integer(&ep, entry_end, serial, &slen) != NOXTLS_RETURN_SUCCESS) {
-                                    rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
-                                    walk_done = 1U;
-                                } else if(crl->revoked_count >= cap) {
-                                    rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
-                                    walk_done = 1U;
-                                } else {
-                                    noxtls_copy_u8((uint8_t *)(void *)(&crl->revoked_serials[((size_t)crl->revoked_count * (size_t)X509_MAX_SERIAL_SIZE)]), (size_t)slen, (const uint8_t *)(const void *)(serial), (size_t)slen);
-                                    if(slen < X509_MAX_SERIAL_SIZE) {
-                                        noxtls_secure_zero((&crl->revoked_serials[((size_t)crl->revoked_count * (size_t)X509_MAX_SERIAL_SIZE) + slen]), (size_t)X509_MAX_SERIAL_SIZE - (size_t)slen);
-                                    }
-                                    crl->revoked_serial_lens[crl->revoked_count] = slen;
-                                    crl->revoked_count += 1U;
-                                }
-                            }
-                        }
+                    ep = entry;
+                    if((asn1_get_integer_span(&ep, &entry[entry_len], &serial, &slen) != NOXTLS_RETURN_SUCCESS) ||
+                       (slen > X509_MAX_SERIAL_SIZE) || (count >= NOXTLS_X509_CRL_MAX_REVOKED)) {
+                        return NOXTLS_RETURN_CRL_PARSE_FAILED;
                     }
-                    if(rc != NOXTLS_RETURN_SUCCESS) {
-                        return rc;
-                    }
-                } else {
-                    tbs_ptr = save;
+                    count += 1U;
                 }
+                crl->revoked_list = list_body;
+                crl->revoked_list_len = list_len;
+                crl->revoked_count = count;
             } else {
                 tbs_ptr = save;
             }
+        } else {
+            tbs_ptr = save;
         }
+    }
 
-        if(((uintptr_t)tbs_ptr < (uintptr_t)tbs_end) && (*tbs_ptr == (uint8_t)0xA0U)) {
-            /* crlExtensions [0] */
-            tbs_ptr = &tbs_ptr[1];
-            {
-                uint32_t ext_len = (uint32_t)(asn1_get_length(&tbs_ptr, tbs_end));
-                if(ext_len > (uint32_t)((uintptr_t)tbs_end - (uintptr_t)tbs_ptr)) {
-                    rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
-                    return rc;
-                }
-                tbs_ptr = &tbs_ptr[ext_len];
-            }
-        }
-
-        if(tbs_ptr != tbs_end) {
-            rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
-            return rc;
-        }
-
-        /* Outer signatureAlgorithm + signature */
+    if(((uintptr_t)tbs_ptr < (uintptr_t)tbs_end) && (*tbs_ptr == (uint8_t)0xA0U)) {
+        /* crlExtensions [0] */
+        tbs_ptr = &tbs_ptr[1];
         {
-            const uint8_t *sig_alg_data = NULL;
-            uint32_t sig_alg_len = 0U;
-            if(asn1_get_sequence(&ptr, cert_list_end, &sig_alg_data, &sig_alg_len) != NOXTLS_RETURN_SUCCESS) {
-                rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
-                return rc;
+            uint32_t ext_len = (uint32_t)(asn1_get_length(&tbs_ptr, tbs_end));
+            if(ext_len > (uint32_t)((uintptr_t)tbs_end - (uintptr_t)tbs_ptr)) {
+                return NOXTLS_RETURN_CRL_PARSE_FAILED;
             }
+            tbs_ptr = &tbs_ptr[ext_len];
         }
+    }
 
-        if(asn1_get_tag(&ptr, cert_list_end, 0x03U) != NOXTLS_RETURN_SUCCESS) {
-            rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
-            return rc;
-        }
-        {
-            uint32_t sig_len = (uint32_t)(asn1_get_length(&ptr, cert_list_end));
-            if((sig_len == 0U) || (x509_bytes_remaining(ptr, cert_list_end) < (size_t)sig_len)) {
-                rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
-                return rc;
-            }
-            ptr = &ptr[1];
-            sig_len -= 1U;
-            crl->signature = (uint8_t*)NOXTLS_MALLOC(sig_len);
-            if(crl->signature == NULL) {
-                rc = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
-                return rc;
-            }
-            noxtls_copy_u8((uint8_t *)(void *)(crl->signature), (size_t)sig_len, (const uint8_t *)(const void *)(ptr), (size_t)sig_len);
-            crl->signature_len = sig_len;
-            ptr = &ptr[sig_len];
-        }
+    if(tbs_ptr != tbs_end) {
+        return NOXTLS_RETURN_CRL_PARSE_FAILED;
+    }
 
-        if(ptr != cert_list_end) {
-            rc = NOXTLS_RETURN_CRL_PARSE_FAILED;
-            return rc;
+    /* Outer signatureAlgorithm + signature */
+    {
+        const uint8_t *sig_alg_data = NULL;
+        uint32_t sig_alg_len = 0U;
+        if(asn1_get_sequence(&ptr, cert_list_end, &sig_alg_data, &sig_alg_len) != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_CRL_PARSE_FAILED;
         }
+    }
+    {
+        const uint8_t *sig = NULL;
+        uint32_t sig_len = 0U;
+        if((asn1_get_tlv_span(&ptr, cert_list_end, 0x03U, &sig, &sig_len) != NOXTLS_RETURN_SUCCESS) ||
+           (sig_len == 0U)) {
+            return NOXTLS_RETURN_CRL_PARSE_FAILED;
+        }
+        crl->signature = &sig[1];
+        crl->signature_len = sig_len - 1U;
+    }
 
-        crl->parsed = 1;
-    return rc;
+    if(ptr != cert_list_end) {
+        return NOXTLS_RETURN_CRL_PARSE_FAILED;
+    }
+
+    crl->parsed = 1;
+    return NOXTLS_RETURN_SUCCESS;
 }
 
-noxtls_return_t noxtls_x509_crl_parse_der(noxtls_x509_crl_t *crl, const uint8_t *data, uint32_t len)
+/**
+ * @brief Shared implementation of the copying and borrowing CRL parsers.
+ * @internal
+ */
+static noxtls_return_t x509_crl_parse_der_common(noxtls_x509_crl_t *crl, const uint8_t *data, uint32_t len, int copy)
 {
     noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
 
@@ -4741,11 +5551,20 @@ noxtls_return_t noxtls_x509_crl_parse_der(noxtls_x509_crl_t *crl, const uint8_t 
 
     noxtls_x509_crl_free(crl);
 
-    crl->raw_data = (uint8_t*)NOXTLS_MALLOC(len);
-    if(crl->raw_data == NULL) {
-        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+    if(len > X509_MAX_CRL_SIZE) {
+        return NOXTLS_RETURN_CRL_PARSE_FAILED;
     }
-    noxtls_copy_u8((uint8_t *)(void *)(crl->raw_data), (size_t)len, (const uint8_t *)(const void *)(data), (size_t)len);
+    if(copy != 0) {
+        uint8_t *owned = (uint8_t*)NOXTLS_MALLOC(len);
+        if(owned == NULL) {
+            return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+        }
+        noxtls_copy_u8((uint8_t *)(void *)(owned), (size_t)len, (const uint8_t *)(const void *)(data), (size_t)len);
+        crl->raw_data_owned = owned;
+        crl->raw_data = owned;
+    } else {
+        crl->raw_data = data;
+    }
     crl->raw_data_len = len;
 
     rc = x509_crl_parse_der_body(crl);
@@ -4755,6 +5574,16 @@ noxtls_return_t noxtls_x509_crl_parse_der(noxtls_x509_crl_t *crl, const uint8_t 
     }
 
     return rc;
+}
+
+noxtls_return_t noxtls_x509_crl_parse_der(noxtls_x509_crl_t *crl, const uint8_t *data, uint32_t len)
+{
+    return x509_crl_parse_der_common(crl, data, len, 1);
+}
+
+noxtls_return_t noxtls_x509_crl_parse_der_nocopy(noxtls_x509_crl_t *crl, const uint8_t *data, uint32_t len)
+{
+    return x509_crl_parse_der_common(crl, data, len, 0);
 }
 
 /**
@@ -4889,16 +5718,63 @@ noxtls_return_t noxtls_x509_crl_load_file(noxtls_x509_crl_t *crl, const uint8_t 
  *
  * @return The return code of the function.
  */
+noxtls_return_t noxtls_x509_crl_get_revoked_serial(const noxtls_x509_crl_t *crl, uint32_t index,
+                                                   const uint8_t **serial, uint32_t *serial_len)
+{
+    const uint8_t *walk = NULL;
+    const uint8_t *list_end = NULL;
+    uint32_t i = 0U;
+
+    if((crl == NULL) || (serial == NULL) || (serial_len == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+    *serial = NULL;
+    *serial_len = 0U;
+    if((crl->parsed == 0) || (crl->revoked_list == NULL) || (index >= crl->revoked_count)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    walk = crl->revoked_list;
+    list_end = &crl->revoked_list[crl->revoked_list_len];
+    /* The list was validated at parse time; walk it in place (no table, no heap). */
+    while((uintptr_t)walk < (uintptr_t)list_end) {
+        const uint8_t *entry = NULL;
+        uint32_t entry_len = 0U;
+        const uint8_t *ep = NULL;
+        if(asn1_get_sequence(&walk, list_end, &entry, &entry_len) != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_FAILED;
+        }
+        ep = entry;
+        if(i == index) {
+            return (asn1_get_integer_span(&ep, &entry[entry_len], serial, serial_len) == NOXTLS_RETURN_SUCCESS) ?
+                   NOXTLS_RETURN_SUCCESS : NOXTLS_RETURN_FAILED;
+        }
+        i += 1U;
+    }
+    return NOXTLS_RETURN_FAILED;
+}
+
 int noxtls_x509_crl_serial_is_revoked(const noxtls_x509_crl_t *crl, const x509_certificate_t *cert)
 {
-    uint32_t i = 0U;
-    if((crl == NULL) || (cert == NULL) || (crl->parsed == 0) || (crl->revoked_serials == NULL) || (crl->revoked_serial_lens == NULL)) {
+    const uint8_t *walk = NULL;
+    const uint8_t *list_end = NULL;
+
+    if((crl == NULL) || (cert == NULL) || (crl->parsed == 0) || (crl->revoked_list == NULL)) {
         return 0;
     }
-    for(i = 0U; i < crl->revoked_count; i += 1U) {
-        const uint8_t *s = &crl->revoked_serials[((size_t)i * (size_t)X509_MAX_SERIAL_SIZE)];
-        uint32_t slen = (uint32_t)(crl->revoked_serial_lens[i]);
-        if(x509_serial_equal_normalized(s, slen, cert->serial_number, cert->serial_number_len) != 0) {
+    walk = crl->revoked_list;
+    list_end = &crl->revoked_list[crl->revoked_list_len];
+    while((uintptr_t)walk < (uintptr_t)list_end) {
+        const uint8_t *entry = NULL;
+        uint32_t entry_len = 0U;
+        const uint8_t *ep = NULL;
+        const uint8_t *s = NULL;
+        uint32_t slen = 0U;
+        if(asn1_get_sequence(&walk, list_end, &entry, &entry_len) != NOXTLS_RETURN_SUCCESS) {
+            return 0;
+        }
+        ep = entry;
+        if((asn1_get_integer_span(&ep, &entry[entry_len], &s, &slen) == NOXTLS_RETURN_SUCCESS) &&
+           (x509_serial_equal_normalized(s, slen, cert->serial_number, cert->serial_number_len) != 0)) {
             return 1;
         }
     }
@@ -4924,8 +5800,6 @@ static noxtls_return_t noxtls_x509_crl_check_times(const noxtls_x509_crl_t *crl,
     noxtls_unix_time_t now;
     noxtls_unix_time_t tu = 0;
     noxtls_unix_time_t nu = 0;
-    uint32_t this_len = 0U;
-    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(crl == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -4942,14 +5816,12 @@ static noxtls_return_t noxtls_x509_crl_check_times(const noxtls_x509_crl_t *crl,
         now = noxtls_time_unix_seconds();
     }
 
-    this_len = 0U;
-    while((this_len < 15U) && (crl->this_update[this_len] != 0U)) {
-        this_len += 1U;
-    }
-    rc = noxtls_x509_asn1_noxtls_unix_time_to_timet(crl->this_update, this_len, &tu);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
+    /* thisUpdate / nextUpdate were decoded once at parse time. */
+    if(((crl->time_flags & X509_CRL_THIS_UPDATE_BAD) != 0U) ||
+       (x509_epoch_fits_time_t(crl->this_update_time) != NOXTLS_RETURN_SUCCESS)) {
         return NOXTLS_RETURN_CRL_PARSE_FAILED;
     }
+    tu = (noxtls_unix_time_t)crl->this_update_time;
     if(now < tu) {
         if(flags_out != NULL) {
             *flags_out |= NOXTLS_X509_VERIFY_FLAG_CRL_EXPIRED;
@@ -4958,14 +5830,11 @@ static noxtls_return_t noxtls_x509_crl_check_times(const noxtls_x509_crl_t *crl,
     }
 
     if(crl->has_next_update != 0U) {
-        uint32_t next_len = 0U;
-        while((next_len < 15U) && (crl->next_update[next_len] != 0U)) {
-            next_len += 1U;
-        }
-        rc = noxtls_x509_asn1_noxtls_unix_time_to_timet(crl->next_update, next_len, &nu);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
+        if(((crl->time_flags & X509_CRL_NEXT_UPDATE_BAD) != 0U) ||
+           (x509_epoch_fits_time_t(crl->next_update_time) != NOXTLS_RETURN_SUCCESS)) {
             return NOXTLS_RETURN_CRL_PARSE_FAILED;
         }
+        nu = (noxtls_unix_time_t)crl->next_update_time;
         if(now > nu) {
             if(flags_out != NULL) {
                 *flags_out |= NOXTLS_X509_VERIFY_FLAG_CRL_EXPIRED;
@@ -5078,16 +5947,10 @@ static noxtls_return_t noxtls_x509_crl_verify_signature(const noxtls_x509_crl_t 
                 /* MISRA 15.7: final else path */
                 return NOXTLS_RETURN_INVALID_PARAM;
             }
-            rc = noxtls_rsa_key_init(&rsa_key, key_size);
+            rc = noxtls_rsa_key_init_public(&rsa_key, key_size, mod_ptr, mod_len, exp_ptr, exp_len);
             if(rc != NOXTLS_RETURN_SUCCESS) {
                 return rc;
             }
-            if((mod_len == 0U) || (exp_len == 0U) || (mod_len > rsa_key.key_bytes) || (exp_len > rsa_key.key_bytes)) {
-                (void)noxtls_rsa_key_free(&rsa_key);
-                return NOXTLS_RETURN_INVALID_PARAM;
-            }
-            noxtls_copy_u8((uint8_t *)(void *)(&rsa_key.n[rsa_key.key_bytes - mod_len]), (size_t)mod_len, (const uint8_t *)(const void *)(mod_ptr), (size_t)mod_len);
-            noxtls_copy_u8((uint8_t *)(void *)(&rsa_key.e[(rsa_key.key_bytes - exp_len)]), (size_t)exp_len, (const uint8_t *)(const void *)(exp_ptr), (size_t)exp_len);
             /* PKCS#1 v1.5 verification hashes its message argument internally. */
             rc = noxtls_rsa_verify(&rsa_key, crl->tbs_crl, crl->tbs_crl_len,
                                    crl->signature, crl->signature_len, hash_algo);
@@ -5099,7 +5962,7 @@ static noxtls_return_t noxtls_x509_crl_verify_signature(const noxtls_x509_crl_t 
 #endif
     } else if(is_rsa == 2) {
 #if NOXTLS_FEATURE_ML_DSA
-        if((issuer->has_mldsa == 0U) || (issuer->mldsa_public_key_len == 0U) || (issuer->mldsa_param == 0U)) {
+        if((issuer->has_mldsa == 0U) || (issuer->public_key_len == 0U) || (issuer->mldsa_param == 0U)) {
             if(flags_out != NULL) {
                 *flags_out |= NOXTLS_X509_VERIFY_FLAG_CRL_BAD_SIGNATURE;
             }
@@ -5119,10 +5982,13 @@ static noxtls_return_t noxtls_x509_crl_verify_signature(const noxtls_x509_crl_t 
         const uint8_t *sig_end = &crl->signature[crl->signature_len];
         const uint8_t *seq_data = NULL;
         uint32_t seq_len = 0U;
-        uint8_t r[ECC_MAX_KEY_SIZE];
-        uint8_t s[ECC_MAX_KEY_SIZE];
-        uint32_t r_len = ECC_MAX_KEY_SIZE;
-        uint32_t s_len = ECC_MAX_KEY_SIZE;
+        /* DER INTEGERs carry a 0x00 sign octet when the top bit is set, so r/s can be one octet
+         * longer than the field (two for secp224k1, whose order exceeds its field); with
+         * ECC_MAX_KEY_SIZE derived from the enabled curves the buffers need that headroom. */
+        uint8_t r[ECC_MAX_KEY_SIZE + 2U];
+        uint8_t s[ECC_MAX_KEY_SIZE + 2U];
+        uint32_t r_len = (uint32_t)sizeof(r);
+        uint32_t s_len = (uint32_t)sizeof(s);
         ecdsa_signature_t ecdsa_sig;
 
         if((issuer->ecc_public_key == NULL) || (issuer->ecc_public_key_len == 0U)) {
@@ -5307,15 +6173,11 @@ static noxtls_return_t x509_apply_crl_for_cert(const x509_certificate_t *cert, c
  */
 void noxtls_x509_trust_store_clear(void)
 {
-    x509_certificate_chain_t *old = s_x509_trust_anchors;
-
-    /* Unpublish first, then release the snapshot this store owns (see ownership note above). */
+    /* Unpublish first, then release the anchors this store owns (see ownership note above);
+     * a borrowed application chain is left untouched. */
     s_x509_trust_anchors = NULL;
     s_x509_trust_anchors_initialized = 0;
-    if(old != NULL) {
-        (void)noxtls_x509_certificate_chain_free(old);
-        (void)noxtls_free(old);
-    }
+    (void)noxtls_x509_certificate_chain_free(&s_x509_trust_store_owned);
 }
 
 /**
@@ -5342,20 +6204,104 @@ int noxtls_x509_trust_store_has_anchors(void)
  */
 noxtls_return_t noxtls_x509_trust_store_set(const x509_certificate_chain_t *trust_anchors)
 {
-    x509_certificate_chain_t *snapshot;
-
     noxtls_x509_trust_store_clear();
 
     if((trust_anchors == NULL) || (trust_anchors->count == 0U)) {
         return NOXTLS_RETURN_SUCCESS;
     }
-
-    snapshot = x509_trust_store_clone(trust_anchors);
-    if(snapshot == NULL) {
-        return NOXTLS_RETURN_FAILED;
+    if(trust_anchors == &s_x509_trust_store_owned) {
+        return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    s_x509_trust_anchors = snapshot;
+    if(x509_trust_store_clone(&s_x509_trust_store_owned, trust_anchors) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_FAILED;  /* fail closed: the store stays empty */
+    }
+
+    s_x509_trust_anchors = &s_x509_trust_store_owned;
+    s_x509_trust_anchors_initialized = 1;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
+ * @brief Use an application chain as the global trust store without copying it.
+ *
+ * @param[in] trust_anchors Anchors; must stay valid and unchanged until the next
+ *            set / set_borrowed / set_move / set_der_nocopy / clear call. NULL or empty clears.
+ * @return NOXTLS_RETURN_SUCCESS.
+ */
+noxtls_return_t noxtls_x509_trust_store_set_borrowed(const x509_certificate_chain_t *trust_anchors)
+{
+    noxtls_x509_trust_store_clear();
+
+    if((trust_anchors == NULL) || (trust_anchors->count == 0U)) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    s_x509_trust_anchors = trust_anchors;
+    s_x509_trust_anchors_initialized = 1;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
+ * @brief Move an application chain into the global trust store (no copy, no allocation).
+ *
+ * On return @p trust_anchors is empty (as after noxtls_x509_certificate_chain_init()) and the
+ * store owns its certificates; the caller must not free them.
+ *
+ * @param[in,out] trust_anchors Chain to move; NULL or empty clears the store.
+ * @return NOXTLS_RETURN_SUCCESS or NOXTLS_RETURN_INVALID_PARAM.
+ */
+noxtls_return_t noxtls_x509_trust_store_set_move(x509_certificate_chain_t *trust_anchors)
+{
+    if(trust_anchors == &s_x509_trust_store_owned) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    noxtls_x509_trust_store_clear();
+
+    if((trust_anchors == NULL) || (trust_anchors->count == 0U)) {
+        if(trust_anchors != NULL) {
+            (void)noxtls_x509_certificate_chain_free(trust_anchors);
+        }
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    s_x509_trust_store_owned = *trust_anchors;
+    noxtls_secure_zero(trust_anchors, sizeof(x509_certificate_chain_t));
+    s_x509_trust_anchors = &s_x509_trust_store_owned;
+    s_x509_trust_anchors_initialized = 1;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
+ * @brief Install trust anchors parsed in borrow mode from caller DER (e.g. flash-resident CAs).
+ *
+ * Uses one allocation of @p count * sizeof(x509_certificate_t); the DER buffers are referenced,
+ * not copied, and must stay valid until the store is cleared or replaced.
+ *
+ * @param[in] ders Array of @p count DER certificates.
+ * @param[in] lens Lengths of @p ders.
+ * @param[in] count Number of anchors (0 clears the store).
+ * @return NOXTLS_RETURN_SUCCESS or a parse / memory error (store left empty).
+ */
+noxtls_return_t noxtls_x509_trust_store_set_der_nocopy(const uint8_t *const *ders, const uint32_t *lens, uint32_t count)
+{
+    uint32_t i = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
+
+    noxtls_x509_trust_store_clear();
+    if(count == 0U) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    if((ders == NULL) || (lens == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+    rc = noxtls_x509_certificate_chain_reserve(&s_x509_trust_store_owned, count);
+    for(i = 0U; (i < count) && (rc == NOXTLS_RETURN_SUCCESS); i += 1U) {
+        rc = noxtls_x509_certificate_chain_add_der_nocopy(&s_x509_trust_store_owned, ders[i], lens[i]);
+    }
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        (void)noxtls_x509_certificate_chain_free(&s_x509_trust_store_owned);
+        return rc;
+    }
+    s_x509_trust_anchors = &s_x509_trust_store_owned;
     s_x509_trust_anchors_initialized = 1;
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -5746,63 +6692,61 @@ noxtls_return_t noxtls_x509_private_key_init(x509_private_key_t *key)
  * @param[in] key The X.509 private key structure to free.
  * @return The return code of the function.
  */
+/**
+ * @brief 1 when [p, p + n) lies inside the key's raw_data (a span, not a separate allocation).
+ * @internal
+ */
+static int x509_key_span_in_raw(const x509_private_key_t *key, const uint8_t *p, uint32_t n)
+{
+    uintptr_t base = (uintptr_t)key->raw_data;
+    uintptr_t at = (uintptr_t)p;
+
+    if((key->raw_data == NULL) || (p == NULL)) {
+        return 0;
+    }
+    return ((at >= base) && (n <= key->raw_data_len) && ((at - base) <= (uintptr_t)(key->raw_data_len - n))) ? 1 : 0;
+}
+
+/**
+ * @brief Wipe and release one private-key component: separately allocated components are freed,
+ *        spans into raw_data are only dropped (raw_data is wiped and freed last).
+ * @internal
+ */
+static void x509_key_release_component(const x509_private_key_t *key, uint8_t **buf, uint32_t *len)
+{
+    if(*buf != NULL) {
+        if(x509_key_span_in_raw(key, *buf, *len) == 0) {
+            noxtls_secure_zero(*buf, (size_t)(*len));
+            (void)noxtls_free(*buf);
+        }
+        *buf = NULL;
+    }
+    *len = 0U;
+}
+
 noxtls_return_t noxtls_x509_private_key_free(x509_private_key_t *key)
 {
     if(key == NULL) {
         return NOXTLS_RETURN_NULL;
     }
 
-    if(key->rsa_modulus != NULL) {
-        (void)noxtls_free(key->rsa_modulus);
-        key->rsa_modulus = NULL;
-    }
-    if(key->rsa_public_exponent != NULL) {
-        (void)noxtls_free(key->rsa_public_exponent);
-        key->rsa_public_exponent = NULL;
-    }
-    if(key->rsa_private_exponent != NULL) {
-        (void)noxtls_free(key->rsa_private_exponent);
-        key->rsa_private_exponent = NULL;
-    }
-    if(key->rsa_prime1 != NULL) {
-        (void)noxtls_free(key->rsa_prime1);
-        key->rsa_prime1 = NULL;
-    }
-    if(key->rsa_prime2 != NULL) {
-        (void)noxtls_free(key->rsa_prime2);
-        key->rsa_prime2 = NULL;
-    }
-    if(key->rsa_exponent1 != NULL) {
-        (void)noxtls_free(key->rsa_exponent1);
-        key->rsa_exponent1 = NULL;
-    }
-    if(key->rsa_exponent2 != NULL) {
-        (void)noxtls_free(key->rsa_exponent2);
-        key->rsa_exponent2 = NULL;
-    }
-    if(key->rsa_coefficient != NULL) {
-        (void)noxtls_free(key->rsa_coefficient);
-        key->rsa_coefficient = NULL;
-    }
-    if(key->ecc_private_key != NULL) {
-        (void)noxtls_free(key->ecc_private_key);
-        key->ecc_private_key = NULL;
-    }
-    if(key->ecc_public_key != NULL) {
-        (void)noxtls_free(key->ecc_public_key);
-        key->ecc_public_key = NULL;
-    }
-    if(key->eddsa_seed != NULL) {
-        (void)noxtls_free(key->eddsa_seed);
-        key->eddsa_seed = NULL;
-    }
-    if(key->pqc_secret_key != NULL) {
-        /* Wipe before free - secret material from FIPS 204 / 205. */
-        noxtls_secure_zero((key->pqc_secret_key), (size_t)key->pqc_secret_key_len);
-        (void)noxtls_free(key->pqc_secret_key);
-        key->pqc_secret_key = NULL;
-    }
+    /* Every component and the raw DER (which contains the whole private key) are wiped before
+     * they are released. */
+    x509_key_release_component(key, &key->rsa_modulus, &key->rsa_modulus_len);
+    x509_key_release_component(key, &key->rsa_public_exponent, &key->rsa_public_exponent_len);
+    x509_key_release_component(key, &key->rsa_private_exponent, &key->rsa_private_exponent_len);
+    x509_key_release_component(key, &key->rsa_prime1, &key->rsa_prime1_len);
+    x509_key_release_component(key, &key->rsa_prime2, &key->rsa_prime2_len);
+    x509_key_release_component(key, &key->rsa_exponent1, &key->rsa_exponent1_len);
+    x509_key_release_component(key, &key->rsa_exponent2, &key->rsa_exponent2_len);
+    x509_key_release_component(key, &key->rsa_coefficient, &key->rsa_coefficient_len);
+    x509_key_release_component(key, &key->ecc_private_key, &key->ecc_private_key_len);
+    x509_key_release_component(key, &key->ecc_public_key, &key->ecc_public_key_len);
+    x509_key_release_component(key, &key->eddsa_seed, &key->eddsa_seed_len);
+    /* Secret material from FIPS 204 / 205. */
+    x509_key_release_component(key, &key->pqc_secret_key, &key->pqc_secret_key_len);
     if(key->raw_data != NULL) {
+        noxtls_secure_zero((key->raw_data), (size_t)key->raw_data_len);
         (void)noxtls_free(key->raw_data);
         key->raw_data = NULL;
     }
@@ -5852,12 +6796,7 @@ static void x509_pkcs1_release_components(x509_private_key_t *key)
 
     x509_pkcs1_component_slots(key, bufs, lens);
     for(i = 0U; i < X509_PKCS1_COMPONENT_COUNT; i += 1U) {
-        if(*bufs[i] != NULL) {
-            noxtls_secure_zero(*bufs[i], (size_t)(*lens[i]));
-            (void)noxtls_free(*bufs[i]);
-            *bufs[i] = NULL;
-        }
-        *lens[i] = 0U;
+        x509_key_release_component(key, bufs[i], lens[i]);
     }
 }
 
@@ -5873,6 +6812,7 @@ static void x509_pkcs1_release_components(x509_private_key_t *key)
  *         INTEGER, or NOXTLS_RETURN_NOT_ENOUGH_MEMORY when the allocation fails.
  */
 static noxtls_return_t x509_pkcs1_read_component(const uint8_t **cursor, const uint8_t *end,
+                                                 uint8_t *span_base, const uint8_t *span_src,
                                                  uint8_t **out, uint32_t *out_len)
 {
     const uint8_t *probe = *cursor;
@@ -5880,6 +6820,17 @@ static noxtls_return_t x509_pkcs1_read_component(const uint8_t **cursor, const u
     uint32_t got = 0U;
     uint8_t *buf = NULL;
 
+    if(span_base != NULL) {
+        /* Span mode: the component stays in the key's raw_data copy (same bytes as span_src). */
+        const uint8_t *v = NULL;
+        if(asn1_get_integer_span(&probe, end, &v, &len) != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_FAILED;
+        }
+        *cursor = probe;
+        *out = &span_base[(uintptr_t)v - (uintptr_t)span_src];
+        *out_len = len;
+        return NOXTLS_RETURN_SUCCESS;
+    }
     if(asn1_get_integer(&probe, end, NULL, &len) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -5914,6 +6865,10 @@ static noxtls_return_t x509_pkcs1_read_component(const uint8_t **cursor, const u
  */
 static noxtls_return_t noxtls_x509_parse_pkcs1_rsa_private_key(x509_private_key_t *key, const uint8_t *data, uint32_t len)
 {
+    /* When @p data is the DER held in key->raw_data (top-level PKCS#1), the components are spans
+     * into raw_data instead of separate heap copies. */
+    uint8_t *span_base = ((key->raw_data != NULL) && (key->raw_data_len == len) &&
+                          (noxtls_ct_memcmp(key->raw_data, data, (size_t)len) == 0)) ? key->raw_data : NULL;
     const uint8_t *ptr = data;
     const uint8_t *end = &data[len];
     const uint8_t *seq_data = NULL;
@@ -5942,7 +6897,7 @@ static noxtls_return_t noxtls_x509_parse_pkcs1_rsa_private_key(x509_private_key_
     /* Each component is probed before allocation, so a non-RSA structure (e.g. PKCS#8 EC whose next
      * tag is an OCTET STRING) is rejected without touching the allocator. */
     for(i = 0U; i < X509_PKCS1_COMPONENT_COUNT; i += 1U) {
-        rc = x509_pkcs1_read_component(&seq_ptr, seq_end, bufs[i], lens[i]);
+        rc = x509_pkcs1_read_component(&seq_ptr, seq_end, span_base, data, bufs[i], lens[i]);
         if(rc == NOXTLS_RETURN_NOT_ENOUGH_MEMORY) {
             break;
         }
@@ -8136,6 +9091,11 @@ void noxtls_x509_debug_print_hex(const uint8_t *label, const uint8_t *data, uint
 noxtls_return_t noxtls_x509_certificate_debug_print(x509_certificate_t *cert, uint8_t verbose)
 {
     uint32_t i = 0U;
+    uint8_t dn_text[256];  /* debug-only rendering buffer (DN text is not stored in the certificate) */
+    const uint8_t *nb = NULL;
+    const uint8_t *na = NULL;
+    uint32_t nb_len = 0U;
+    uint32_t na_len = 0U;
 
     if(cert == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -8186,28 +9146,37 @@ noxtls_return_t noxtls_x509_certificate_debug_print(x509_certificate_t *cert, ui
 
     /* Issuer */
     (void)noxtls_debug_printf((const uint8_t *)"--- Issuer ---\n");
-    (void)noxtls_debug_printf((const uint8_t *)"Distinguished Name: %s\n", (cert->issuer_dn[0] != 0U) ? cert->issuer_dn : (const uint8_t *)"(not parsed)");
+    if((noxtls_x509_certificate_get_issuer_dn(cert, dn_text, (uint32_t)sizeof(dn_text)) != NOXTLS_RETURN_SUCCESS) ||
+       (dn_text[0] == 0U)) {
+        noxtls_copy_u8(dn_text, sizeof(dn_text), (const uint8_t *)"(not parsed)", 13U);
+    }
+    (void)noxtls_debug_printf((const uint8_t *)"Distinguished Name: %s\n", dn_text);
     noxtls_x509_debug_print_hex(NULL, cert->issuer, cert->issuer_len, verbose);
     (void)noxtls_debug_printf((const uint8_t *)"\n");
 
     /* Validity */
     (void)noxtls_debug_printf((const uint8_t *)"--- Validity ---\n");
+    (void)noxtls_x509_certificate_get_validity_raw(cert, &nb, &nb_len, &na, &na_len);
     (void)noxtls_debug_printf((const uint8_t *)"Not Before: ");
-    for(i = 0U; (i < 15U) && (cert->not_before[i] != 0U); i += 1U) {
-        (void)noxtls_debug_printf((const uint8_t *)"%c", cert->not_before[i]);
+    for(i = 0U; i < nb_len; i += 1U) {
+        (void)noxtls_debug_printf((const uint8_t *)"%c", nb[i]);
     }
     (void)noxtls_debug_printf((const uint8_t *)"\n");
 
     (void)noxtls_debug_printf((const uint8_t *)"Not After: ");
-    for(i = 0U; (i < 15U) && (cert->not_after[i] != 0U); i += 1U) {
-        (void)noxtls_debug_printf((const uint8_t *)"%c", cert->not_after[i]);
+    for(i = 0U; i < na_len; i += 1U) {
+        (void)noxtls_debug_printf((const uint8_t *)"%c", na[i]);
     }
     (void)noxtls_debug_printf((const uint8_t *)"\n");
     (void)noxtls_debug_printf((const uint8_t *)"\n");
 
     /* Subject */
     (void)noxtls_debug_printf((const uint8_t *)"--- Subject ---\n");
-    (void)noxtls_debug_printf((const uint8_t *)"Distinguished Name: %s\n", (cert->subject_dn[0] != 0U) ? cert->subject_dn : (const uint8_t *)"(not parsed)");
+    if((noxtls_x509_certificate_get_subject_dn(cert, dn_text, (uint32_t)sizeof(dn_text)) != NOXTLS_RETURN_SUCCESS) ||
+       (dn_text[0] == 0U)) {
+        noxtls_copy_u8(dn_text, sizeof(dn_text), (const uint8_t *)"(not parsed)", 13U);
+    }
+    (void)noxtls_debug_printf((const uint8_t *)"Distinguished Name: %s\n", dn_text);
     noxtls_x509_debug_print_hex(NULL, cert->subject, cert->subject_len, verbose);
     (void)noxtls_debug_printf((const uint8_t *)"\n");
 

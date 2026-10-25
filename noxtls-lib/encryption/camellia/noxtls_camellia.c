@@ -60,31 +60,18 @@ static const uint8_t camellia_sbox1[256] = {
     0x40U, 0x28U, 0xd3U, 0x7bU, 0xbbU, 0xc9U, 0x43U, 0xc1U, 0x15U, 0xe3U, 0xadU, 0xf4U, 0x77U, 0xc7U, 0x80U, 0x9eU
 };
 
-/* RFC 3713: SBOX2[x] = SBOX1[x] <<<1U, SBOX3[x] = SBOX1[x] <<<7U, SBOX4[x] = SBOX1[x <<<1U] */
-static uint8_t camellia_sbox2[256];
-static uint8_t camellia_sbox3[256];
-static uint8_t camellia_sbox4[256];
-
-/**
- * @brief Initialize the Camellia S-boxes.
- *
- * @return void
- */
-static void camellia_init_sboxes(void)
+/* RFC 3713: SBOX2[x] = SBOX1[x] <<< 1, SBOX3[x] = SBOX1[x] <<< 7,
+ * SBOX4[x] = SBOX1[x <<< 1]. Derived on lookup by 8-bit rotation of SBOX1, so
+ * no 768-byte RAM (or flash) tables and no runtime initialisation. */
+static uint8_t camellia_rotl8(uint8_t v, uint32_t n)
 {
-    static int camellia_sboxes_initialized = 0;
-    uint32_t i = 0U;
-    if (camellia_sboxes_initialized != 0) { return; }
-    for (i = 0U; i < 256U; i += 1U) {
-        {
-            uint32_t s = (uint32_t)camellia_sbox1[i];
-            camellia_sbox2[i] = (uint8_t)(((s << 1U) | (s >> 7U)) & 0xFFU);
-            camellia_sbox3[i] = (uint8_t)(((s << 7U) | (s >> 1U)) & 0xFFU);
-            camellia_sbox4[i] = camellia_sbox1[(uint8_t)(((i << 1U) | (i >> 7U)) & 0xFFU)];
-        }
-    }
-    camellia_sboxes_initialized = 1;
+    uint32_t x = (uint32_t)v;
+    return (uint8_t)(((x << n) | (x >> (8U - n))) & 0xFFU);
 }
+
+static uint8_t camellia_sbox2(uint8_t x) { return camellia_rotl8(camellia_sbox1[x], 1U); }
+static uint8_t camellia_sbox3(uint8_t x) { return camellia_rotl8(camellia_sbox1[x], 7U); }
+static uint8_t camellia_sbox4(uint8_t x) { return camellia_sbox1[camellia_rotl8(x, 1U)]; }
 
 /* RFC 3713 F-function: 64-bit input, 64-bit subkey, 64-bit output */
 /**
@@ -124,12 +111,12 @@ static uint64_t camellia_f64(uint64_t F_IN, uint64_t KE)
     t8 = (uint8_t)x;
 
     t1 = camellia_sbox1[t1];
-    t2 = camellia_sbox2[t2];
-    t3 = camellia_sbox3[t3];
-    t4 = camellia_sbox4[t4];
-    t5 = camellia_sbox2[t5];
-    t6 = camellia_sbox3[t6];
-    t7 = camellia_sbox4[t7];
+    t2 = camellia_sbox2(t2);
+    t3 = camellia_sbox3(t3);
+    t4 = camellia_sbox4(t4);
+    t5 = camellia_sbox2(t5);
+    t6 = camellia_sbox3(t6);
+    t7 = camellia_sbox4(t7);
     t8 = camellia_sbox1[t8];
 
     y1 = t1 ^ t3 ^ t4 ^ t6 ^ t7 ^ t8;
@@ -257,7 +244,6 @@ noxtls_return_t noxtls_camellia_key_schedule(const uint8_t* key, uint64_t* kw, u
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    camellia_init_sboxes();
 
     /* Load KL (left 128 bits of key), big-endian */
     kl_hi = (((uint64_t)key[0]) << 56U) | (((uint64_t)key[1]) << 48U) | (((uint64_t)key[2]) << 40U) | (((uint64_t)key[3]) << 32U)
@@ -488,6 +474,9 @@ noxtls_return_t noxtls_camellia_encrypt_block_internal(const uint8_t* key, const
 
     rc = noxtls_camellia_key_schedule(key, kw, ke, k, type);
     if (rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(kw, sizeof(kw));
+        noxtls_secure_zero(ke, sizeof(ke));
+        noxtls_secure_zero(k, sizeof(k));
         return rc;
     }
     (void)load_block_be(data, &D1, &D2);
@@ -554,6 +543,9 @@ noxtls_return_t noxtls_camellia_encrypt_block_internal(const uint8_t* key, const
     D2 ^= kw[2];
     D1 ^= kw[3];
     (void)store_block_be(output, D1, D2);
+    noxtls_secure_zero(kw, sizeof(kw));
+    noxtls_secure_zero(ke, sizeof(ke));
+    noxtls_secure_zero(k, sizeof(k));
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -588,6 +580,9 @@ noxtls_return_t noxtls_camellia_decrypt_block_internal(const uint8_t* key, const
 
     rc = noxtls_camellia_key_schedule(key, kw, ke, k, type);
     if (rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(kw, sizeof(kw));
+        noxtls_secure_zero(ke, sizeof(ke));
+        noxtls_secure_zero(k, sizeof(k));
         return rc;
     }
 
@@ -676,6 +671,9 @@ noxtls_return_t noxtls_camellia_decrypt_block_internal(const uint8_t* key, const
     D1 ^= kw_dec[3];
     (void)store_block_be(output, D1, D2);
     
+    noxtls_secure_zero(kw, sizeof(kw));
+    noxtls_secure_zero(ke, sizeof(ke));
+    noxtls_secure_zero(k, sizeof(k));
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -998,7 +996,8 @@ noxtls_return_t noxtls_camellia_update(noxtls_camellia_context_t *ctx,
                     uint32_t available = (uint32_t)NOXTLS_CAMELLIA_BLOCK_LENGTH - ctx->partial_len;
                     uint32_t take = (uint32_t)((in_left < available) ? in_left : available);
                     for (i = 0U; i < take; i += 1U) {
-                        uint8_t out_byte = (uint8_t)(in_ptr[i] ^ ctx->partial[ctx->partial_len + i]);
+                        uint8_t in_byte = in_ptr[i]; /* read before output may overwrite it (in-place) */
+                        uint8_t out_byte = (uint8_t)(in_byte ^ ctx->partial[ctx->partial_len + i]);
                         output[produced + i] = out_byte;
                         if (ctx->mode == NOXTLS_CAMELLIA_CFB) {
                             {
@@ -1006,7 +1005,7 @@ noxtls_return_t noxtls_camellia_update(noxtls_camellia_context_t *ctx,
             noxtls_copy_u8(fb_tmp, sizeof(fb_tmp), &ctx->feedback[1], (size_t)(NOXTLS_CAMELLIA_BLOCK_LENGTH - 1U));
             noxtls_copy_u8(ctx->feedback, sizeof(ctx->feedback), fb_tmp, (size_t)(NOXTLS_CAMELLIA_BLOCK_LENGTH - 1U));
         }
-                            ctx->feedback[NOXTLS_CAMELLIA_BLOCK_LENGTH - 1U] = (ctx->op == NOXTLS_CAMELLIA_OP_ENCRYPT) ? out_byte : in_ptr[i];
+                            ctx->feedback[NOXTLS_CAMELLIA_BLOCK_LENGTH - 1U] = (ctx->op == NOXTLS_CAMELLIA_OP_ENCRYPT) ? out_byte : in_byte;
                         }
                     }
                     in_ptr = &in_ptr[take];
@@ -1046,7 +1045,7 @@ noxtls_return_t noxtls_camellia_final(noxtls_camellia_context_t *ctx,
     }
 
     if ((ctx->mode == NOXTLS_CAMELLIA_CTR) || (ctx->mode == NOXTLS_CAMELLIA_CFB) || (ctx->mode == NOXTLS_CAMELLIA_OFB)) {
-        ctx->initialized = 0U;
+        noxtls_secure_zero(ctx, sizeof(*ctx)); /* done: drop key material */
         return NOXTLS_RETURN_SUCCESS;
     }
 
@@ -1054,7 +1053,7 @@ noxtls_return_t noxtls_camellia_final(noxtls_camellia_context_t *ctx,
         if (ctx->partial_len != 0U) {
             return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
         }
-        ctx->initialized = 0U;
+        noxtls_secure_zero(ctx, sizeof(*ctx)); /* done: drop key material */
         return NOXTLS_RETURN_SUCCESS;
     }
 
@@ -1088,7 +1087,7 @@ noxtls_return_t noxtls_camellia_final(noxtls_camellia_context_t *ctx,
         *output_len = NOXTLS_CAMELLIA_BLOCK_LENGTH;
     }
 
-    ctx->initialized = 0U;
+    noxtls_secure_zero(ctx, sizeof(*ctx)); /* done: drop key material */
     return NOXTLS_RETURN_SUCCESS;
 }
 

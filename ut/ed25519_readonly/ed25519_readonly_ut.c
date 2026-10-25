@@ -4,7 +4,8 @@
  * Summary: Compare complete generated tables and independent scalar ladders.
  */
 /** @file ed25519_readonly_ut.c
- * @brief Exercise actual group arithmetic under lazy and read-only profiles.
+ * @brief Exercise actual group arithmetic under lazy and read-only profiles
+ *        (small and comb fixed-base layouts).
  */
 #include <stdbool.h>
 #include "runner.h"
@@ -57,15 +58,19 @@ REGISTER_TEST(ed25519_readonly_all_generated_entries)
 {
     ge25519_pt_t decoded;
     ge25519_n_t base, twice, odd;
+#if defined(NOXTLS_ED25519_SMALL_BASE)
     ge25519_n_t compact[NOXTLS_ED25519_SCALAR_TABLE_ENTRIES];
+#endif
     ge25519_precomp_t expected;
     uint32_t i;
     UTNOX_EQUALS(ge25519_decode(&decoded, s_test_base_point), NOXTLS_RETURN_SUCCESS);
     ge25519_n_from_pt(&base, &decoded);
+#if defined(NOXTLS_ED25519_SMALL_BASE)
     ge25519_n_precompute_table(compact, &base);
     UTNOX_EQUALS(ge25519_base_table_small_init(), NOXTLS_RETURN_SUCCESS);
-    UTNOX_EQUALS(ge25519_base_odd_init(), NOXTLS_RETURN_SUCCESS);
     UTNOX_EQUALS(memcmp(compact, g_base_table_small, sizeof(compact)), 0);
+#endif
+    UTNOX_EQUALS(ge25519_base_odd_init(), NOXTLS_RETURN_SUCCESS);
     ge25519_n_to_affine(&base);
     ge25519_n_dbl(&twice, &base);
     ge25519_n_to_affine(&twice);
@@ -81,6 +86,86 @@ REGISTER_TEST(ed25519_readonly_all_generated_entries)
 
     return 0;
 }
+
+/** @brief Native curve constants equal the RFC 8032 byte encodings.
+ * @return Zero on success.
+ */
+REGISTER_TEST(ed25519_readonly_curve_constants)
+{
+    static const uint8_t d_be[ED_READONLY_TEST_SCALAR_BYTES] = ED_READONLY_TEST_D_BE;
+    static const uint8_t sqrtm1_be[ED_READONLY_TEST_SCALAR_BYTES] = ED_READONLY_TEST_SQRTM1_BE;
+    fe25519_native_t d, d2, sqrtm1;
+    fe25519_native_from_be(&d, d_be);
+    fe25519_native_add(&d2, &d, &d);
+    fe25519_native_from_be(&sqrtm1, sqrtm1_be);
+    UTNOX_EQUALS(memcmp(&d, &g_ed25519_d, sizeof(d)), 0);
+    UTNOX_EQUALS(memcmp(&d2, &g_ed25519_d2, sizeof(d2)), 0);
+    UTNOX_EQUALS(memcmp(&sqrtm1, &g_ed25519_sqrtm1, sizeof(sqrtm1)), 0);
+    return 0;
+}
+
+#if !defined(NOXTLS_ED25519_SMALL_BASE)
+/** @brief Compare two field elements by canonical encoding.
+ * @param[in] a First element.
+ * @param[in] b Second element.
+ * @return Zero when both encode to the same canonical bytes.
+ */
+static int test_field_cmp(const fe25519_native_t *a, const fe25519_native_t *b)
+{
+    uint8_t ea[ED_READONLY_TEST_SCALAR_BYTES];
+    uint8_t eb[ED_READONLY_TEST_SCALAR_BYTES];
+    fe25519_native_to_le(ea, a);
+    fe25519_native_to_le(eb, b);
+    return memcmp(ea, eb, sizeof(ea));
+}
+
+/** @brief Every comb entry equals an independently built signed tooth sum.
+ *
+ * Entry j of block b is sum_{t<T-1} (+/-1) 2^(bTS+tS) B - 2^(bTS+(T-1)S) B,
+ * with the sign of tooth t taken from bit t of j (Hamburg signed comb).
+ * Powers of B come from the binary ladder, not from the comb builder.
+ * @return Zero on success.
+ */
+REGISTER_TEST(ed25519_readonly_comb_entries)
+{
+    uint8_t scalar[ED_READONLY_TEST_SCALAR_BYTES];
+    ge25519_pt_t decoded;
+    ge25519_n_t base, power, entry;
+    ge25519_precomp_t expected;
+    uint32_t block, j, tooth, bit;
+    UTNOX_EQUALS(ge25519_decode(&decoded, s_test_base_point), NOXTLS_RETURN_SUCCESS);
+    ge25519_n_from_pt(&base, &decoded);
+#if !NOXTLS_ED25519_READONLY_COMB
+    UTNOX_EQUALS(ge25519_comb_init(), NOXTLS_RETURN_SUCCESS);
+#endif
+    for(block = 0U; block < NOXTLS_ED25519_COMB_BLOCKS; block++) {
+        for(j = 0U; j < NOXTLS_ED25519_COMB_POINTS; j++) {
+            ge25519_n_zero(&entry);
+            for(tooth = 0U; tooth < NOXTLS_ED25519_COMB_TEETH; tooth++) {
+                bit = (block * NOXTLS_ED25519_COMB_TEETH * NOXTLS_ED25519_COMB_SPACING) +
+                      (tooth * NOXTLS_ED25519_COMB_SPACING);
+                (void)memset(scalar, 0, sizeof(scalar));
+                scalar[bit / ED_READONLY_TEST_BYTE_BITS] =
+                    (uint8_t)(1U << (bit % ED_READONLY_TEST_BYTE_BITS));
+                test_binary_multiply(&power, &base, scalar);
+                if((tooth + 1U == NOXTLS_ED25519_COMB_TEETH) || (((j >> tooth) & 1U) == 0U)) {
+                    ge25519_n_neg(&power, &power);
+                }
+
+                ge25519_n_add(&entry, &entry, &power);
+            }
+
+            ge25519_n_to_affine(&entry);
+            ge25519_n_to_precomp(&expected, &entry);
+            UTNOX_EQUALS(test_field_cmp(&expected.yplusx, &g_base_comb[block][j].yplusx), 0);
+            UTNOX_EQUALS(test_field_cmp(&expected.yminusx, &g_base_comb[block][j].yminusx), 0);
+            UTNOX_EQUALS(test_field_cmp(&expected.xy2d, &g_base_comb[block][j].xy2d), 0);
+        }
+    }
+
+    return 0;
+}
+#endif
 
 /** @brief Zero, maximum and deterministic full-width scalars match a binary ladder.
  * @return Zero on success.
@@ -100,6 +185,11 @@ REGISTER_TEST(ed25519_readonly_full_width_fixed_base)
         if(i < 2U) {
             (void)memset(scalar, i == 0U ? 0 : 0xff, sizeof(scalar));
         }
+#if !defined(NOXTLS_ED25519_SMALL_BASE)
+        /* The comb recoding (s or s + L) needs s < 2^256 - L; every Ed25519
+         * caller passes a clamped (< 2^255) or reduced (< L) scalar. */
+        scalar[ED_READONLY_TEST_SCALAR_BYTES - 1U] &= ED_READONLY_TEST_COMB_TOP_MASK;
+#endif
 
         ge25519_scalarmult_base_n(&actual, scalar);
         test_binary_multiply(&expected, &base, scalar);
@@ -191,6 +281,12 @@ void utnox_register_tests(void)
 {
     register_test("ed25519_readonly_all_generated_entries",
         ed25519_readonly_all_generated_entries);
+    register_test("ed25519_readonly_curve_constants",
+        ed25519_readonly_curve_constants);
+#if !defined(NOXTLS_ED25519_SMALL_BASE)
+    register_test("ed25519_readonly_comb_entries",
+        ed25519_readonly_comb_entries);
+#endif
     register_test("ed25519_readonly_full_width_fixed_base",
         ed25519_readonly_full_width_fixed_base);
     register_test("ed25519_readonly_double_scalar_verify_path",

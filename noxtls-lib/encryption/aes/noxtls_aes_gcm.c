@@ -67,14 +67,6 @@ static void gcm_xor_inplace(uint8_t *out, const uint8_t *in)
     }
 }
 
-static void gcm_xor_stream_block(uint8_t *out, const uint8_t *in, const uint8_t *stream)
-{
-    uint32_t i = 0U;
-    for (i = 0U; i < 16U; i += 1U) {
-        out[i] = (uint8_t)(in[i] ^ stream[i]);
-    }
-}
-
 static void gcm_xor_stream_partial(uint8_t *out, const uint8_t *in, const uint8_t *stream, uint32_t len)
 {
     uint32_t i = 0U;
@@ -100,6 +92,29 @@ static void gcm_xor_stream_partial(uint8_t *out, const uint8_t *in, const uint8_
 /** Bytes in a GCM/GHASH block. */
 #define NOXTLS_GCM_BLOCK_BYTES          16U
 
+#ifndef NOXTLS_GCM_TABLE_BITS
+#define NOXTLS_GCM_TABLE_BITS 4
+#endif
+#if (NOXTLS_GCM_TABLE_BITS != 0) && (NOXTLS_GCM_TABLE_BITS != 4)
+#error "NOXTLS_GCM_TABLE_BITS must be 0 (bit-serial) or 4 (Shoup 4-bit table)"
+#endif
+
+/**
+ * GHASH key material for one GCM operation. It lives on the caller's stack
+ * for the duration of one encrypt/decrypt call and is wiped before return:
+ * there is no static cache, so the code is reentrant and a hash subkey never
+ * outlives the operation that derived it.
+ */
+typedef struct
+{
+#if NOXTLS_GCM_TABLE_BITS == 4
+    uint64_t table[NOXTLS_GCM_HTABLE_SIZE][2];  /* Shoup table, H[i] = i * H */
+#else
+    uint64_t h[2];                              /* H as two big-endian halves */
+#endif
+} gcm_ghash_key_t;
+
+#if NOXTLS_GCM_TABLE_BITS == 4
 /**
  * last4[x] = x * P^128 in GF(2^128) (Shoup / MGV 4-bit method).
  * Public field arithmetic constants.
@@ -110,6 +125,7 @@ static const uint16_t gcm_last4[NOXTLS_GCM_LAST4_SIZE] = {
     0xe100U, 0xfd20U, 0xd940U, 0xc560U,
     0x9180U, 0x8da0U, 0xa9c0U, 0xb5e0U
 };
+#endif
 
 /**
  * @brief Load a big-endian uint64 from a byte buffer.
@@ -146,6 +162,45 @@ static void gcm_store_be64(uint8_t *p, uint64_t v)
     p[7] = (uint8_t)v;
 }
 
+#if (NOXTLS_GCM_TABLE_BITS == 0) || defined(NOXTLS_GCM_GHASH_SELFCHECK)
+/**
+ * @brief Constant-time bit-serial GF(2^128) multiply (SP 800-38D Algorithm 1).
+ *
+ * No table and no secret-dependent branches or memory indices: each of the
+ * 128 steps conditionally accumulates V with a mask derived from one bit of
+ * x and shifts V right with reduction.
+ *
+ * @param x Field element; replaced with x * H.
+ * @param hkey H as two big-endian halves.
+ * @return None.
+ */
+static void gcm_mul_bitserial(uint8_t *x, const uint64_t hkey[2])
+{
+    uint64_t z0 = 0U;
+    uint64_t z1 = 0U;
+    uint64_t v0 = hkey[0];
+    uint64_t v1 = hkey[1];
+    uint64_t x0 = gcm_load_be64(x);
+    uint64_t x1 = gcm_load_be64(&x[8U]);
+    uint32_t i;
+
+    for (i = 0U; i < 128U; i += 1U) {
+        uint64_t bit = (i < 64U) ? ((x0 >> (63U - i)) & 1U) : ((x1 >> (127U - i)) & 1U);
+        uint64_t mask = (uint64_t)0U - bit;
+        uint64_t lsb = v1 & 1U;
+
+        z0 ^= (v0 & mask);
+        z1 ^= (v1 & mask);
+        v1 = (v1 >> 1) | (v0 << 63);
+        v0 = (v0 >> 1) ^ (((uint64_t)0U - lsb) & ((uint64_t)NOXTLS_GCM_POLY_R_BYTE << 56));
+    }
+
+    gcm_store_be64(&x[0U], z0);
+    gcm_store_be64(&x[8U], z1);
+}
+#endif
+
+#if NOXTLS_GCM_TABLE_BITS == 4
 /**
  * @brief One-bit right shift of a BE-packed GHASH element with reduction.
  *
@@ -166,113 +221,6 @@ static void gcm_gen_table_rightshift(uint64_t dst[2], const uint64_t src[2])
     if((lo & 1U) != 0U) {
         dst[0] ^= ((uint64_t)NOXTLS_GCM_POLY_R_BYTE << 56);
     }
-}
-
-#if defined(NOXTLS_GCM_GHASH_SELFCHECK)
-/**
- * @brief Shift a 16-byte GHASH block one bit toward the LSB (byte form).
- * @param v Block to shift in place.
- * @return None.
- */
-static void gcm_shift_right(uint8_t *v)
-{
-    uint8_t carry = 0;
-    for(int i = 0; i < (int)NOXTLS_GCM_BLOCK_BYTES; i++) {
-        uint8_t new_carry = (uint8_t)(v[i] & 0x01U);
-        v[i] = (uint8_t)((v[i] >> 1) | (carry << 7));
-        carry = new_carry;
-    }
-}
-
-/**
- * @brief Bit-serial GF(2^128) multiply (debug / self-check only).
- * @param x Multiplicand; replaced with x * y.
- * @param y Multiplier (H).
- * @return None.
- */
-static void gcm_mul_bitserial(uint8_t *x,
-                             const uint8_t *y)
-{
-    uint8_t z[NOXTLS_GCM_BLOCK_BYTES];
-    uint8_t v[NOXTLS_GCM_BLOCK_BYTES];
-    int i;
-
-    noxtls_secure_zero(z, (size_t)(sizeof(z)));
-    noxtls_copy_u8((uint8_t *)(void *)(v), (size_t)(NOXTLS_GCM_BLOCK_BYTES), (const uint8_t *)(const void *)(y), (size_t)(NOXTLS_GCM_BLOCK_BYTES));
-
-    for(i = 0; i < 128; i++) {
-        int byte_idx = i >> 3;
-        int bit_idx = 7 - (i & 7);
-        if(((x[byte_idx] >> bit_idx) & 1) != 0) {
-            gcm_xor(z, z, v);
-        }
-        {
-            uint8_t lsb = (uint8_t)(v[15] & 1U);
-            gcm_shift_right(v);
-            if(lsb != 0U) {
-                v[0] ^= (uint8_t)NOXTLS_GCM_POLY_R_BYTE;
-            }
-        }
-    }
-    noxtls_copy_u8((uint8_t *)(void *)(x), (size_t)(NOXTLS_GCM_BLOCK_BYTES), (const uint8_t *)(const void *)(z), (size_t)(NOXTLS_GCM_BLOCK_BYTES));
-}
-#endif /* NOXTLS_GCM_GHASH_SELFCHECK */
-
-/**
- * @brief Build Shoup 4-bit H-table from hash subkey H.
- *
- * H[NOXTLS_GCM_HTABLE_H1_INDEX] = H; successive right-shifts fill powers
- * of two; remaining indices are XOR combinations (H[i] = i * H).
- * Entries are stored as big-endian uint64 pairs.
- *
- * @param H Destination table.
- * @param h Hash subkey (AES-ECB(K, 0^128)).
- * @return None.
- */
-static void gcm_gen_table(uint64_t H[NOXTLS_GCM_HTABLE_SIZE][2], const uint8_t *h)
-{
-    unsigned int i;
-    unsigned int j;
-
-    H[NOXTLS_GCM_HTABLE_H1_INDEX][0] = gcm_load_be64(h);
-    H[NOXTLS_GCM_HTABLE_H1_INDEX][1] = gcm_load_be64(&h[8U]);
-
-    H[0][0] = 0U;
-    H[0][1] = 0U;
-
-    for(i = NOXTLS_GCM_HTABLE_SIZE / 4U; i > 0U; i >>= 1) {
-        gcm_gen_table_rightshift(H[i], H[i * 2U]);
-    }
-
-    for(i = 2U; i < NOXTLS_GCM_HTABLE_SIZE; i <<= 1) {
-        for(j = 1U; j < i; j++) {
-            H[i + j][0] = H[i][0] ^ H[j][0];
-            H[i + j][1] = H[i][1] ^ H[j][1];
-        }
-    }
-}
-
-/**
- * @brief Return a cached Shoup H-table for hash subkey h.
- * @param h Hash subkey.
- * @return Pointer to H[NOXTLS_GCM_HTABLE_SIZE][2].
- */
-static const uint64_t (*gcm_precompute_tables(const uint8_t *h))[2]
-{
-    static uint8_t cache_valid;
-    static uint8_t cache_h[NOXTLS_GCM_BLOCK_BYTES];
-    static uint64_t table[NOXTLS_GCM_HTABLE_SIZE][2];
-
-    if(cache_valid != 0U) {
-        if(noxtls_ct_memcmp(cache_h, h, NOXTLS_GCM_BLOCK_BYTES) == 0) {
-            return (const uint64_t (*)[2])(const void *)table;
-        }
-    }
-
-    gcm_gen_table(table, h);
-    noxtls_copy_u8((uint8_t *)(void *)(cache_h), (size_t)(sizeof(cache_h)), (const uint8_t *)(const void *)(h), (size_t)(sizeof(cache_h)));
-    cache_valid = 1U;
-    return (const uint64_t (*)[2])(const void *)table;
 }
 
 /**
@@ -328,48 +276,89 @@ static void gcm_mult_smalltable(uint8_t *x,
 
     gcm_store_be64(&x[0U], u64z[0]);
     gcm_store_be64(&x[8U], u64z[1]);
+    noxtls_secure_zero(u64z, sizeof(u64z));
+}
+#endif /* NOXTLS_GCM_TABLE_BITS == 4 */
+
+/**
+ * @brief Derive the per-operation GHASH key from the hash subkey H.
+ *
+ * Table mode: H[NOXTLS_GCM_HTABLE_H1_INDEX] = H; successive right-shifts fill
+ * powers of two; remaining indices are XOR combinations (H[i] = i * H).
+ *
+ * @param key Destination GHASH key.
+ * @param h Hash subkey (AES-ECB(K, 0^128)).
+ * @return None.
+ */
+static void gcm_ghash_key_init(gcm_ghash_key_t *key, const uint8_t *h)
+{
+#if NOXTLS_GCM_TABLE_BITS == 4
+    uint64_t (*H)[2] = key->table;
+    unsigned int i;
+    unsigned int j;
+
+    H[NOXTLS_GCM_HTABLE_H1_INDEX][0] = gcm_load_be64(h);
+    H[NOXTLS_GCM_HTABLE_H1_INDEX][1] = gcm_load_be64(&h[8U]);
+
+    H[0][0] = 0U;
+    H[0][1] = 0U;
+
+    for(i = NOXTLS_GCM_HTABLE_SIZE / 4U; i > 0U; i >>= 1) {
+        gcm_gen_table_rightshift(H[i], H[i * 2U]);
+    }
+
+    for(i = 2U; i < NOXTLS_GCM_HTABLE_SIZE; i <<= 1) {
+        for(j = 1U; j < i; j++) {
+            H[i + j][0] = H[i][0] ^ H[j][0];
+            H[i + j][1] = H[i][1] ^ H[j][1];
+        }
+    }
+#else
+    key->h[0] = gcm_load_be64(h);
+    key->h[1] = gcm_load_be64(&h[8U]);
+#endif
 }
 
 /**
- * @brief Multiply x by H using the Shoup H-table.
+ * @brief Multiply x by H with the configured GHASH implementation.
  * @param x Field element; replaced with x * H.
- * @param H Precomputed table.
+ * @param key Per-operation GHASH key.
  * @return None.
  */
-static void gcm_mul(uint8_t *x,
-                    const uint64_t (*H)[2])
+static void gcm_mul(uint8_t *x, const gcm_ghash_key_t *key)
 {
+#if NOXTLS_GCM_TABLE_BITS == 4
 #if defined(NOXTLS_GCM_GHASH_SELFCHECK)
     {
         uint8_t ref[NOXTLS_GCM_BLOCK_BYTES];
-        uint8_t h_bytes[NOXTLS_GCM_BLOCK_BYTES];
-        noxtls_copy_u8((uint8_t *)(void *)(ref), (size_t)(NOXTLS_GCM_BLOCK_BYTES), (const uint8_t *)(const void *)(x), (size_t)(NOXTLS_GCM_BLOCK_BYTES));
-        gcm_store_be64(h_bytes + 0U, H[NOXTLS_GCM_HTABLE_H1_INDEX][0]);
-        gcm_store_be64(h_bytes + 8U, H[NOXTLS_GCM_HTABLE_H1_INDEX][1]);
-        gcm_mul_bitserial(ref, h_bytes);
-        gcm_mult_smalltable(x, H);
+        noxtls_copy_u8(ref, sizeof(ref), x, (size_t)(NOXTLS_GCM_BLOCK_BYTES));
+        gcm_mul_bitserial(ref, key->table[NOXTLS_GCM_HTABLE_H1_INDEX]);
+        gcm_mult_smalltable(x, (const uint64_t (*)[2])key->table);
         if(memcmp(ref, x, NOXTLS_GCM_BLOCK_BYTES) != 0) {
             /* Keep bitserial result if smalltable diverges (debug builds). */
-            noxtls_copy_u8((uint8_t *)(void *)(x), (size_t)(NOXTLS_GCM_BLOCK_BYTES), (const uint8_t *)(const void *)(ref), (size_t)(NOXTLS_GCM_BLOCK_BYTES));
+            noxtls_copy_u8(x, (size_t)(NOXTLS_GCM_BLOCK_BYTES), ref, (size_t)(NOXTLS_GCM_BLOCK_BYTES));
         }
-        return;
+        noxtls_secure_zero(ref, sizeof(ref));
     }
 #else
-    gcm_mult_smalltable(x, H);
+    gcm_mult_smalltable(x, (const uint64_t (*)[2])key->table);
+#endif
+#else
+    gcm_mul_bitserial(x, key->h);
 #endif
 }
 
 /**
  * @brief Update GHASH state with additional authenticated data or ciphertext.
  * @param x Running GHASH state.
- * @param H Precomputed Shoup H-table.
+ * @param key Per-operation GHASH key.
  * @param data Input bytes.
  * @param len Input length in bytes.
  * @return None.
  */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static void ghash_update(uint8_t *x,
-                         const uint64_t (*H)[2],
+                         const gcm_ghash_key_t *key,
                          const uint8_t *data,
                          uint32_t len)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
@@ -379,7 +368,7 @@ static void ghash_update(uint8_t *x,
 
     while((len - offset) >= NOXTLS_GCM_BLOCK_BYTES) {
         gcm_xor_inplace(x, &data[offset]);
-        gcm_mul(x, H);
+        gcm_mul(x, key);
         offset += NOXTLS_GCM_BLOCK_BYTES;
     }
 
@@ -388,65 +377,127 @@ static void ghash_update(uint8_t *x,
         noxtls_secure_zero(block, (size_t)(sizeof(block)));
         noxtls_copy_u8((uint8_t *)(void *)(block), (size_t)(take), (const uint8_t *)(const void *)(&data[offset]), (size_t)(take));
         gcm_xor_inplace(x, block);
-        gcm_mul(x, H);
+        gcm_mul(x, key);
+        noxtls_secure_zero(block, (size_t)(sizeof(block)));
     }
 }
 
 /**
  * @brief Finalize GHASH with AAD and ciphertext bit lengths.
  * @param x Running GHASH state.
- * @param H Precomputed Shoup H-table.
+ * @param key Per-operation GHASH key.
  * @param aad_bits AAD length in bits.
  * @param data_bits Ciphertext/plaintext length in bits.
  * @return None.
  */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 static void ghash_finalize(uint8_t *x,
-                           const uint64_t (*H)[2],
+                           const gcm_ghash_key_t *key,
                            uint64_t aad_bits,
                            uint64_t data_bits)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     uint8_t len_block[NOXTLS_GCM_BLOCK_BYTES];
-    noxtls_secure_zero(len_block, (size_t)(sizeof(len_block)));
 
-    len_block[0] = (uint8_t)(aad_bits >> 56U);
-    len_block[1] = (uint8_t)(aad_bits >> 48U);
-    len_block[2] = (uint8_t)(aad_bits >> 40U);
-    len_block[3] = (uint8_t)(aad_bits >> 32U);
-    len_block[4] = (uint8_t)(aad_bits >> 24U);
-    len_block[5] = (uint8_t)(aad_bits >> 16U);
-    len_block[6] = (uint8_t)(aad_bits >> 8U);
-    len_block[7] = (uint8_t)aad_bits;
-
-    len_block[8] = (uint8_t)(data_bits >> 56U);
-    len_block[9] = (uint8_t)(data_bits >> 48U);
-    len_block[10] = (uint8_t)(data_bits >> 40U);
-    len_block[11] = (uint8_t)(data_bits >> 32U);
-    len_block[12] = (uint8_t)(data_bits >> 24U);
-    len_block[13] = (uint8_t)(data_bits >> 16U);
-    len_block[14] = (uint8_t)(data_bits >> 8U);
-    len_block[15] = (uint8_t)data_bits;
-
+    gcm_store_be64(&len_block[0U], aad_bits);
+    gcm_store_be64(&len_block[8U], data_bits);
     gcm_xor_inplace(x, len_block);
-    gcm_mul(x, H);
+    gcm_mul(x, key);
 }
 
 /**
- * @brief Encrypt the block
+ * @brief Encrypt one block with the prepared AES context.
  *
- * @param key is the key to use
- * @param type is the type of the key
- * @param in is the input to encrypt
- * @param out is the output to encrypt
+ * @param ctx Prepared AES context
+ * @param in is the input block
+ * @param out is the output block
  *
- * @return None.
+ * @return NOXTLS_RETURN_SUCCESS or the block backend error.
  */
 static noxtls_return_t aes_block(const noxtls_aes_context_t *ctx, const uint8_t *in, uint8_t *out)
 {
-    /* Prefer the configured block backend (STM32/nRF port, AES-NI, …) so
+    /* Prefer the configured block backend (STM32/nRF port, AES-NI, â€¦) so
      * HW builds accelerate GCM CTR/GHASH keystream, not only H7 full-AEAD. */
     return noxtls_aes_encrypt_block_ctx_internal(ctx, in, out);
+}
+
+/**
+ * @brief Per-call GCM working state, kept together so one wipe clears it all.
+ */
+typedef struct
+{
+    noxtls_aes_context_t aes;   /* expanded key schedule */
+    gcm_ghash_key_t ghash;      /* GHASH key (table or H) */
+    uint8_t j0[16];             /* pre-counter block */
+    uint8_t ctr[16];            /* running counter block */
+    uint8_t s[16];              /* keystream / tag mask */
+    uint8_t x[16];              /* GHASH accumulator */
+} gcm_work_t;
+
+/**
+ * @brief Derive H and the GHASH key, set up J0, the counter and X (absorbing AAD).
+ *
+ * @param w Work area with a prepared AES context (wiped by the caller on every exit path).
+ * @param nonce 96-bit IV
+ * @param aad Additional data (may be NULL when aad_len is 0)
+ * @param aad_len Additional data length
+ * @return NOXTLS_RETURN_SUCCESS or an error code.
+ */
+static noxtls_return_t gcm_setup(gcm_work_t *w, const uint8_t *nonce, const uint8_t *aad, uint32_t aad_len)
+{
+    noxtls_return_t rc;
+
+    /* H = E(K, 0^128); s doubles as the H buffer and is wiped below. */
+    noxtls_secure_zero(w->s, sizeof(w->s));
+    rc = aes_block(&w->aes, w->s, w->s);
+    if (rc == NOXTLS_RETURN_SUCCESS) {
+        gcm_ghash_key_init(&w->ghash, w->s);
+        noxtls_secure_zero(w->s, sizeof(w->s));
+
+        noxtls_copy_u8(w->j0, sizeof(w->j0), nonce, 12U);
+        w->j0[12] = 0x00U;
+        w->j0[13] = 0x00U;
+        w->j0[14] = 0x00U;
+        w->j0[15] = 0x01U;
+        noxtls_copy_u8(w->ctr, sizeof(w->ctr), w->j0, 16U);
+        (void)gcm_inc32(w->ctr);
+
+        noxtls_secure_zero(w->x, sizeof(w->x));
+        if ((aad != NULL) && (aad_len > 0U)) {
+            ghash_update(w->x, &w->ghash, aad, aad_len);
+        }
+    }
+    return rc;
+}
+
+/**
+ * @brief CTR-encrypt/decrypt @p len bytes from @p in to @p out.
+ *
+ * Exact aliasing (out == in) is safe: every output byte is written only after
+ * the input byte at the same position has been read. When @p ghash_out is
+ * non-zero the produced bytes (ciphertext) are absorbed into GHASH.
+ */
+static noxtls_return_t gcm_ctr_crypt(gcm_work_t *w, const uint8_t *in, uint8_t *out, uint32_t len,
+                                     uint8_t ghash_out)
+{
+    uint32_t offset = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
+
+    while ((rc == NOXTLS_RETURN_SUCCESS) && (offset < len)) {
+        uint32_t remain = (uint32_t)(len - offset);
+        uint32_t take = (uint32_t)((remain >= 16U) ? 16U : remain);
+
+        rc = aes_block(&w->aes, w->ctr, w->s);
+        if (rc == NOXTLS_RETURN_SUCCESS) {
+            gcm_xor_stream_partial(&out[offset], &in[offset], w->s, take);
+            if (ghash_out != 0U) {
+                ghash_update(w->x, &w->ghash, &out[offset], take);
+            }
+            offset += take;
+            (void)gcm_inc32(w->ctr);
+        }
+    }
+    return rc;
 }
 
 /**
@@ -473,14 +524,8 @@ noxtls_return_t noxtls_aes_gcm_encrypt(const uint8_t *key, noxtls_aes_type_t typ
                     uint8_t *tag)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    noxtls_aes_context_t aes_ctx;
-    uint8_t h[16];
-    uint8_t j0[16];
-    uint8_t ctr[16];
-    uint8_t s[16];
-    uint8_t x[16];
-    const uint64_t (*ghash_table)[2];
-    uint32_t offset = 0;
+    gcm_work_t w;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if ((key == NULL) || (nonce == NULL) || (plaintext == NULL) || (ciphertext == NULL) || (tag == NULL)) {
         return NOXTLS_RETURN_NULL;
@@ -500,62 +545,30 @@ noxtls_return_t noxtls_aes_gcm_encrypt(const uint8_t *key, noxtls_aes_type_t typ
         }
     }
 
-    {
-        noxtls_return_t rc = NOXTLS_RETURN_FAILED;
-        noxtls_secure_zero(&aes_ctx, sizeof(aes_ctx));
-        rc = noxtls_aes_prepare_context(&aes_ctx, key, type);
-        if (rc != NOXTLS_RETURN_SUCCESS) {
-            return rc;
-        }
+    noxtls_secure_zero(&w, sizeof(w));
+    rc = noxtls_aes_prepare_context(&w.aes, key, type);
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        /* Key-size errors return before any output is written. */
+        noxtls_secure_zero(&w, sizeof(w));
+        return rc;
     }
-
-    noxtls_secure_zero((h), sizeof(h));
-    NOXTLS_AES_CHECK(aes_block(&aes_ctx, h, h), ciphertext, plaintext_len, tag, 16U);
-    ghash_table = gcm_precompute_tables(h);
-
-    noxtls_copy_u8(j0, sizeof(j0), nonce, 12U);
-    j0[12] = 0x00U;
-    j0[13] = 0x00U;
-    j0[14] = 0x00U;
-    j0[15] = 0x01U;
-
-    noxtls_copy_u8(ctr, sizeof(ctr), j0, 16U);
-    (void)gcm_inc32(ctr);
-
-    noxtls_secure_zero((x), sizeof(x));
-    if ((aad != NULL) && (aad_len > 0U)) {
-        ghash_update(x, ghash_table, aad, aad_len);
+    rc = gcm_setup(&w, nonce, aad, aad_len);
+    if (rc == NOXTLS_RETURN_SUCCESS) {
+        rc = gcm_ctr_crypt(&w, plaintext, ciphertext, plaintext_len, 1U);
     }
-
-    while (offset < plaintext_len) {
-        uint32_t remain = (uint32_t)(plaintext_len - offset);
-        uint32_t take = (uint32_t)((remain >= 16U) ? 16U : remain);
-        NOXTLS_AES_CHECK(aes_block(&aes_ctx, ctr, s), ciphertext, plaintext_len, tag, 16U);
-        if (take == 16U) {
-            uint8_t in_blk[16];
-            uint8_t out_blk[16];
-            noxtls_copy_u8(in_blk, sizeof(in_blk), &plaintext[offset], 16U);
-            (void)gcm_xor_stream_block(out_blk, in_blk, s);
-            noxtls_copy_u8(&ciphertext[offset], 16U, out_blk, 16U);
-            (void)gcm_xor_inplace(x, out_blk);
-            (void)gcm_mul(x, ghash_table);
-        } else {
-            uint8_t block[16] = {0};
-            (void)gcm_xor_stream_partial(&ciphertext[offset], &plaintext[offset], s, take);
-            noxtls_copy_u8(block, sizeof(block), &ciphertext[offset], (size_t)take);
-            (void)gcm_xor_inplace(x, block);
-            (void)gcm_mul(x, ghash_table);
-        }
-        offset += take;
-        (void)gcm_inc32(ctr);
+    if (rc == NOXTLS_RETURN_SUCCESS) {
+        (void)ghash_finalize(w.x, &w.ghash, ((uint64_t)aad_len) * 8U, ((uint64_t)plaintext_len) * 8U);
+        rc = aes_block(&w.aes, w.j0, w.s);
     }
-
-    (void)ghash_finalize(x, ghash_table, ((uint64_t)aad_len) * 8U, ((uint64_t)plaintext_len) * 8U);
-
-    NOXTLS_AES_CHECK(aes_block(&aes_ctx, j0, s), ciphertext, plaintext_len, tag, 16U);
-    (void)gcm_xor(tag, x, s);
-
-    return NOXTLS_RETURN_SUCCESS;
+    if (rc == NOXTLS_RETURN_SUCCESS) {
+        (void)gcm_xor(tag, w.x, w.s);
+    } else {
+        /* Never leave partial ciphertext or a tag behind. */
+        noxtls_secure_zero(ciphertext, plaintext_len);
+        noxtls_secure_zero(tag, 16U);
+    }
+    noxtls_secure_zero(&w, sizeof(w));
+    return rc;
 }
 
 /**
@@ -582,15 +595,9 @@ noxtls_return_t noxtls_aes_gcm_decrypt(const uint8_t *key, noxtls_aes_type_t typ
                     uint8_t *plaintext)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
-    noxtls_aes_context_t aes_ctx;
-    uint8_t h[16];
-    uint8_t j0[16];
-    uint8_t ctr[16];
-    uint8_t s[16];
-    uint8_t x[16];
+    gcm_work_t w;
     uint8_t expected_tag[16];
-    const uint64_t (*ghash_table)[2];
-    uint32_t offset = 0;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if ((key == NULL) || (nonce == NULL) || (ciphertext == NULL) || (plaintext == NULL) || (tag == NULL)) {
         return NOXTLS_RETURN_NULL;
@@ -609,61 +616,37 @@ noxtls_return_t noxtls_aes_gcm_decrypt(const uint8_t *key, noxtls_aes_type_t typ
         }
     }
 
-    {
-        noxtls_return_t rc = NOXTLS_RETURN_FAILED;
-        noxtls_secure_zero(&aes_ctx, sizeof(aes_ctx));
-        rc = noxtls_aes_prepare_context(&aes_ctx, key, type);
-        if (rc != NOXTLS_RETURN_SUCCESS) {
-            return rc;
+    noxtls_secure_zero(&w, sizeof(w));
+    noxtls_secure_zero(expected_tag, sizeof(expected_tag));
+    rc = noxtls_aes_prepare_context(&w.aes, key, type);
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        /* Key-size errors return before any output is written. */
+        noxtls_secure_zero(&w, sizeof(w));
+        return rc;
+    }
+    rc = gcm_setup(&w, nonce, aad, aad_len);
+    if (rc == NOXTLS_RETURN_SUCCESS) {
+        /* Authenticate the whole ciphertext before releasing any plaintext. */
+        ghash_update(w.x, &w.ghash, ciphertext, ciphertext_len);
+        (void)ghash_finalize(w.x, &w.ghash, ((uint64_t)aad_len) * 8U, ((uint64_t)ciphertext_len) * 8U);
+        rc = aes_block(&w.aes, w.j0, w.s);
+    }
+    if (rc == NOXTLS_RETURN_SUCCESS) {
+        (void)gcm_xor(expected_tag, w.x, w.s);
+        if (noxtls_secret_memcmp(expected_tag, tag, (size_t)(16)) != 0) {
+            rc = NOXTLS_RETURN_BAD_DATA;
         }
     }
-
-    noxtls_secure_zero((h), sizeof(h));
-    NOXTLS_AES_CHECK(aes_block(&aes_ctx, h, h), plaintext, ciphertext_len, NULL, 0U);
-    ghash_table = gcm_precompute_tables(h);
-
-    noxtls_copy_u8(j0, sizeof(j0), nonce, 12U);
-    j0[12] = 0x00U;
-    j0[13] = 0x00U;
-    j0[14] = 0x00U;
-    j0[15] = 0x01U;
-
-    noxtls_secure_zero((x), sizeof(x));
-    if ((aad != NULL) && (aad_len > 0U)) {
-        ghash_update(x, ghash_table, aad, aad_len);
+    if (rc == NOXTLS_RETURN_SUCCESS) {
+        rc = gcm_ctr_crypt(&w, ciphertext, plaintext, ciphertext_len, 0U);
     }
-    ghash_update(x, ghash_table, ciphertext, ciphertext_len);
-    (void)ghash_finalize(x, ghash_table, ((uint64_t)aad_len) * 8U, ((uint64_t)ciphertext_len) * 8U);
-
-    NOXTLS_AES_CHECK(aes_block(&aes_ctx, j0, s), plaintext, ciphertext_len, NULL, 0U);
-    (void)gcm_xor(expected_tag, x, s);
-
-    if (noxtls_secret_memcmp(expected_tag, tag, (size_t)(16)) != 0) {
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        /* Authentication or block failure: release no plaintext. */
         noxtls_secure_zero(plaintext, ciphertext_len);
-        return NOXTLS_RETURN_BAD_DATA;
     }
-
-    noxtls_copy_u8(ctr, sizeof(ctr), j0, 16U);
-    (void)gcm_inc32(ctr);
-
-    while (offset < ciphertext_len) {
-        uint32_t remain = (uint32_t)(ciphertext_len - offset);
-        uint32_t take = (uint32_t)((remain >= 16U) ? 16U : remain);
-        NOXTLS_AES_CHECK(aes_block(&aes_ctx, ctr, s), plaintext, ciphertext_len, NULL, 0U);
-        if (take == 16U) {
-            uint8_t in_blk[16];
-            uint8_t out_blk[16];
-            noxtls_copy_u8(in_blk, sizeof(in_blk), &ciphertext[offset], 16U);
-            (void)gcm_xor_stream_block(out_blk, in_blk, s);
-            noxtls_copy_u8(&plaintext[offset], 16U, out_blk, 16U);
-        } else {
-            (void)gcm_xor_stream_partial(&plaintext[offset], &ciphertext[offset], s, take);
-        }
-        offset += take;
-        (void)gcm_inc32(ctr);
-    }
-
-    return NOXTLS_RETURN_SUCCESS;
+    noxtls_secure_zero(&w, sizeof(w));
+    noxtls_secure_zero(expected_tag, sizeof(expected_tag));
+    return rc;
 }
 
 #endif /* NOXTLS_FEATURE_AES_GCM */

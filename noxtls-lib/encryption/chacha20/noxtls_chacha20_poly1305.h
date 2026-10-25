@@ -110,7 +110,11 @@ noxtls_return_t noxtls_poly1305_mac(const uint8_t *key, const uint8_t *data, uin
  * @param aad_len Length of AAD in bytes
  * @param plaintext Plaintext to encrypt (can be NULL if plaintext_len is 0)
  * @param plaintext_len Length of plaintext in bytes
- * @param ciphertext Output buffer for ciphertext (must be at least plaintext_len bytes)
+ * @param ciphertext Output buffer for ciphertext (must be at least plaintext_len bytes).
+ *                   May be exactly the plaintext buffer (in-place encryption,
+ *                   ciphertext == plaintext); partially overlapping buffers are
+ *                   not supported. The tag is computed over the ciphertext after
+ *                   it has been written.
  * @param tag Output buffer for authentication tag (must be at least 16 bytes)
  * @return NOXTLS_RETURN_SUCCESS on success
  */
@@ -133,7 +137,11 @@ noxtls_return_t noxtls_chacha20_poly1305_encrypt(const uint8_t *key,
  * @param ciphertext Ciphertext to decrypt (can be NULL if ciphertext_len is 0)
  * @param ciphertext_len Length of ciphertext in bytes
  * @param tag Authentication tag to verify (16 bytes)
- * @param plaintext Output buffer for plaintext (must be at least ciphertext_len bytes)
+ * @param plaintext Output buffer for plaintext (must be at least ciphertext_len bytes).
+ *                  May be exactly the ciphertext buffer (in-place decryption,
+ *                  plaintext == ciphertext); partially overlapping buffers are not
+ *                  supported. The tag is verified over the ciphertext before any
+ *                  byte is decrypted; on mismatch the buffer is left untouched.
  * @return NOXTLS_RETURN_SUCCESS on success (authentication verified), NOXTLS_RETURN_BAD_DATA on auth failure
  */
 noxtls_return_t noxtls_chacha20_poly1305_decrypt(const uint8_t *key,

@@ -41,6 +41,10 @@ static const uint8_t s_u8txt_noxtls_tls_common_869[] = { (uint8_t)'u', (uint8_t)
 #include "mdigest/sha256/noxtls_sha256.h"
 #include "mdigest/noxtls_hash.h"
 
+/* Records up to this many payload bytes (alerts, ChangeCipherSpec, HelloRequest, ...) are
+ * framed on the stack so they never force allocation of the record TX buffer. */
+#define TLS_SEND_RECORD_STACK_MAX 64U
+
 /* Optional TLS record hex dump to a file (stdio); off by default for MISRA 21.6. */
 #ifndef NOXTLS_TLS_RECORD_DUMP
 #define NOXTLS_TLS_RECORD_DUMP 0
@@ -138,6 +142,10 @@ noxtls_return_t noxtls_tls_context_init(tls_context_t *ctx, tls_role_t role, uin
     if (ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
+    /* Roles compiled out of this build (NOXTLS_FEATURE_TLS_CLIENT / _SERVER) are refused. */
+    if (NOXTLS_TLS_ROLE_BUILT(role) == 0) {
+        return NOXTLS_RETURN_NOT_SUPPORTED;
+    }
     
     noxtls_secure_zero((ctx), sizeof(tls_context_t));
     ctx->role = role;
@@ -180,6 +188,12 @@ noxtls_return_t noxtls_tls_context_free(tls_context_t *ctx)
     if (ctx->io_rx_payload != NULL) {
         (void)noxtls_free(ctx->io_rx_payload);
         ctx->io_rx_payload = NULL;
+    }
+    if (ctx->record_send_buf != NULL) {
+        /* Records are protected in place: wipe any plaintext left by a failed send. */
+        noxtls_secure_zero(ctx->record_send_buf, (size_t)TLS_RECORD_TX_BUFFER_SIZE);
+        (void)noxtls_free(ctx->record_send_buf);
+        ctx->record_send_buf = NULL;
     }
 
     noxtls_secure_zero((ctx), sizeof(tls_context_t));
@@ -363,6 +377,9 @@ static noxtls_return_t tls_nonblocking_send_record(tls_context_t *ctx,
 noxtls_return_t noxtls_tls_send_record(tls_context_t *ctx, uint8_t type, const uint8_t *data, uint32_t len)
 {
     uint8_t *record = NULL;
+    uint8_t small_record[TLS_RECORD_HEADER_LEN + TLS_SEND_RECORD_STACK_MAX];
+    uint8_t owned = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
     int32_t sent = 0;
     
     if ((ctx == NULL) || (data == NULL)) {
@@ -431,14 +448,26 @@ noxtls_return_t noxtls_tls_send_record(tls_context_t *ctx, uint8_t type, const u
     }
 #endif /* NOXTLS_FEATURE_DTLS */
     
-    record = ctx->record_send_buf;
-    if (record == NULL) {
-        record = (uint8_t*)NOXTLS_MALLOC(5U + TLS_MAX_PROTECTED_RECORD_FRAGMENT);
-        if (record == NULL) {
-            return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+    if ((ctx->record_send_buf != NULL) && (data == &ctx->record_send_buf[TLS_RECORD_HEADER_LEN])) {
+        /* Prebuilt in the TX buffer (e.g. protected in place): no copy. */
+        record = ctx->record_send_buf;
+    } else if (len <= TLS_SEND_RECORD_STACK_MAX) {
+        /* Alerts, ChangeCipherSpec and similar short records never need the TX buffer. */
+        record = small_record;
+    } else {
+        uint32_t capacity = 0U;
+        record = noxtls_tls_record_tx_buffer(ctx, &capacity);
+        if ((record == NULL) || (len > capacity)) {
+            /* Larger than any record this endpoint protects (e.g. a plaintext handshake
+             * message above TLS_MAX_RECORD_SIZE): use a one-off buffer. */
+            record = (uint8_t*)NOXTLS_MALLOC(TLS_RECORD_HEADER_LEN + len);
+            if (record == NULL) {
+                return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+            }
+            owned = 1U;
         }
     }
-    
+
     /* Build TLS record header */
     tls_record_header_t header;
     header.type = type;
@@ -452,64 +481,72 @@ noxtls_return_t noxtls_tls_send_record(tls_context_t *ctx, uint8_t type, const u
     record[3U] = header.length[0U];
     record[4U] = header.length[1U];
     
-    /* Copy record data */
+    /* Copy record data (overlap-safe; skipped when the payload was built in place). */
     if (len > 0U) {
-        noxtls_copy_u8(&record[5], (size_t)len, data, (size_t)len);
+        noxtls_move_u8(&record[TLS_RECORD_HEADER_LEN], (size_t)len, data, (size_t)len);
     }
 
-    if ((type == TLS_RECORD_HANDSHAKE) && (len >= 4U) && (data[0] == TLS_HANDSHAKE_CLIENT_HELLO)) {
-        noxtls_sha_ctx_t sha_ctx;
-        uint8_t digest[32];
-        (void)noxtls_sha256_init(&sha_ctx, NOXTLS_HASH_SHA_256);
-        (void)noxtls_sha256_update(&sha_ctx, data, len);
-        if (noxtls_sha256_finish(&sha_ctx, digest) == NOXTLS_RETURN_SUCCESS) {
-            (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] sent_client_hello_sha256=");
-            for (uint32_t i = 0U; i < 32U; i += 1U) {
-                (void)noxtls_debug_printf((const uint8_t *)"%02X", digest[i]);
-            }
-            (void)noxtls_debug_printf((const uint8_t *)"\n");
-        }
-        (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] sent_client_hello head=%02X%02X%02X%02X tail=%02X%02X%02X%02X\n",
-                              data[0], data[1], data[2], data[3],
-                              data[len - 4U], data[len - 3U], data[len - 2U], data[len - 1U]);
-    }
-    
-    tls_dump_record(NULL, record, 5U + len);
+    tls_dump_record(NULL, record, TLS_RECORD_HEADER_LEN + len);
 
     /* Send via callback. Nonblocking streams atomically accept the record into
      * the bounded context queue, even when the carrier only writes a prefix. */
     if (ctx->io_mode == TLS_IO_MODE_NON_BLOCKING) {
-        noxtls_return_t rc = tls_nonblocking_send_record(ctx, record, 5U + len);
-        if (record != ctx->record_send_buf) {
-            (void)noxtls_free(record);
+        rc = tls_nonblocking_send_record(ctx, record, TLS_RECORD_HEADER_LEN + len);
+    } else {
+        sent = ctx->send_callback(ctx->user_data, record, TLS_RECORD_HEADER_LEN + len);
+        if ((sent < 0) || ((uint32_t)sent != (TLS_RECORD_HEADER_LEN + len))) {
+            rc = NOXTLS_RETURN_FAILED;
         }
-        if (rc != NOXTLS_RETURN_SUCCESS) {
-            NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_IO, NOXSIGHT_SEVERITY_ERROR,
-                            NOXTLS_EVT_INTERNAL_ERROR, (uint32_t)type, (uint32_t)rc);
-            return rc;
-        }
-        NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_RECORD, NOXSIGHT_SEVERITY_TRACE,
-                        NOXTLS_EVT_RECORD_TX, type, len);
-        return NOXTLS_RETURN_SUCCESS;
     }
-
-    sent = ctx->send_callback(ctx->user_data, record, 5U + len);
-    if ((sent < 0) || ((uint32_t)sent != (5U + len))) {
-        NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_IO, NOXSIGHT_SEVERITY_ERROR,
-                        NOXTLS_EVT_INTERNAL_ERROR, (uint32_t)type, (uint32_t)sent);
-        if (record != ctx->record_send_buf) {
-            (void)noxtls_free(record);
-        }
-        return NOXTLS_RETURN_FAILED;
-    }
-    if (record != ctx->record_send_buf) {
+    if (owned != 0U) {
+        noxtls_secure_zero(record, (size_t)(TLS_RECORD_HEADER_LEN + len));
         (void)noxtls_free(record);
+    } else if (record == small_record) {
+        noxtls_secure_zero(small_record, sizeof(small_record));
+    } else {
+        /* MISRA 15.7: the TX buffer stays allocated for the next record. */
+    }
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_IO, NOXSIGHT_SEVERITY_ERROR,
+                        NOXTLS_EVT_INTERNAL_ERROR, (uint32_t)type, (uint32_t)rc);
+        return rc;
     }
 
     NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_RECORD, NOXSIGHT_SEVERITY_TRACE,
                     NOXTLS_EVT_RECORD_TX, type, len);
-    
+
     return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
+ * @brief Return the record TX buffer, allocating it on first use.
+ *
+ * The buffer holds one record: TLS_RECORD_TX_HEADROOM header bytes followed by up to
+ * TLS_MAX_RECORD_SIZE + TLS_TX_RECORD_EXPANSION protected payload bytes. It is kept for
+ * the connection lifetime and released (wiped) by noxtls_tls_context_free().
+ *
+ * @param[in,out] ctx               TLS context.
+ * @param[out] payload_capacity     Optional: bytes available at &buf[TLS_RECORD_HEADER_LEN].
+ * @return The buffer, or NULL if @p ctx is NULL or the allocation failed.
+ */
+uint8_t *noxtls_tls_record_tx_buffer(tls_context_t *ctx, uint32_t *payload_capacity)
+{
+    if (payload_capacity != NULL) {
+        *payload_capacity = 0U;
+    }
+    if (ctx == NULL) {
+        return NULL;
+    }
+    if (ctx->record_send_buf == NULL) {
+        ctx->record_send_buf = (uint8_t *)NOXTLS_MALLOC((size_t)TLS_RECORD_TX_BUFFER_SIZE);
+        if (ctx->record_send_buf == NULL) {
+            return NULL;
+        }
+    }
+    if (payload_capacity != NULL) {
+        *payload_capacity = (uint32_t)(TLS_RECORD_TX_BUFFER_SIZE - TLS_RECORD_HEADER_LEN);
+    }
+    return ctx->record_send_buf;
 }
 
 static noxtls_return_t tls_nonblocking_read(tls_context_t *ctx,

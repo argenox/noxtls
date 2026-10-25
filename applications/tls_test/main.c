@@ -928,6 +928,13 @@ int main(int argc, char **argv)
     printf("TLS Test Application\n");
     printf("========================================\n\n");
 
+    /* The cleanup path below frees server_key unconditionally; zero it first so a
+     * failed key load (e.g. testdata not found from the working directory) does
+     * not hand uninitialized stack pointers to noxtls_rsa_key_free(). That was
+     * the root cause of the 0xc0000374 heap-corruption exit of
+     * tls12_ocsp_stapling_regression. */
+    memset(&server_key, 0, sizeof(server_key));
+
     for(int argi = 1; argi < argc; argi++) {
         if(argv[argi] != NULL && noxtls_u8_strcmp(argv[argi], "--ocsp-only") == 0) {
             ocsp_only = 1;
@@ -1004,6 +1011,9 @@ int main(int argc, char **argv)
             break;
         }
         printf("RSA key loaded from testdata.\n");
+        /* ECDHE-RSA ServerKeyExchange must be signed: without the private key the
+         * server rejects every RSA-authenticated suite in recv_client_hello. */
+        noxtls_tls12_set_server_private_rsa(&server_ctx, &server_key);
         
         /* Load deterministic test certificate */
         printf("[4/8] Loading deterministic test certificate...\n");

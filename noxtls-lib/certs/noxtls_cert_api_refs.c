@@ -40,6 +40,8 @@ static void noxtls_cert_misra_api_refs(void)
     NOXTLS_MISRA_REF_FN(&noxtls_x509_crl_parse_der);
     NOXTLS_MISRA_REF_FN(&noxtls_x509_crl_parse_pem);
     NOXTLS_MISRA_REF_FN(&noxtls_x509_crl_serial_is_revoked);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_crl_parse_der_nocopy);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_crl_get_revoked_serial);
     NOXTLS_MISRA_REF_FN(&noxtls_x509_parse_distinguished_name);
     NOXTLS_MISRA_REF_FN(&noxtls_x509_parse_time);
     NOXTLS_MISRA_REF_FN(&noxtls_x509_private_key_free);
@@ -71,6 +73,33 @@ static void noxtls_cert_misra_api_refs(void)
     NOXTLS_MISRA_REF_FN(&noxtls_x509_private_key_parse_der_with_password);
     NOXTLS_MISRA_REF_FN(&noxtls_x509_private_key_parse_pem_with_password);
     NOXTLS_MISRA_REF_FN(&noxtls_x509_private_key_debug_print);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_certificate_parse_der_nocopy);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_certificate_get_der);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_certificate_get_tbs);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_certificate_get_serial);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_certificate_get_issuer_der);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_certificate_get_subject_der);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_certificate_get_issuer_dn);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_certificate_get_subject_dn);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_certificate_get_validity);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_certificate_get_validity_raw);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_certificate_get_signature_algorithm);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_certificate_get_signature);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_certificate_get_public_key_info);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_certificate_get_authority_key_id);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_certificate_get_subject_key_id);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_der_get_spki_algorithm);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_der_get_channel_binding_hash_algo);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_certificate_chain_reserve);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_certificate_chain_add_der);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_certificate_chain_add_der_nocopy);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_trust_store_set_borrowed);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_trust_store_set_move);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_trust_store_set_der_nocopy);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_san_iter_init);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_san_iter_next);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_certificate_san_count);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_certificate_get_san);
     { uint32_t v = (uint32_t)GET_TAG_NUM(0x30U); (void)v; }
     { uint32_t v = (uint32_t)GET_LENGTH(0x82U); (void)v; }
     { uint32_t v = (uint32_t)X509_SAN_IP_IS_V6_BIT; (void)v; }

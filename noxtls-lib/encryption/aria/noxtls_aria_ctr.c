@@ -54,6 +54,7 @@ noxtls_return_t noxtls_aria_encrypt_ctr(const uint8_t* key,
     {
         noxtls_return_t r = noxtls_aria_set_encrypt_key(key, type, &aria_key);
         if (r != NOXTLS_RETURN_SUCCESS) {
+            noxtls_secure_zero(&aria_key, sizeof(aria_key));
             return r;
         }
     }
@@ -83,6 +84,7 @@ noxtls_return_t noxtls_aria_encrypt_ctr(const uint8_t* key,
         }
     }
 
+    noxtls_secure_zero(&aria_key, sizeof(aria_key));
     return NOXTLS_RETURN_SUCCESS;
 }
 

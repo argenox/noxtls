@@ -59,6 +59,7 @@ noxtls_return_t noxtls_aria_encrypt_cbc(const uint8_t* key,
     {
         noxtls_return_t r = noxtls_aria_set_encrypt_key(key, type, &aria_key);
         if (r != NOXTLS_RETURN_SUCCESS) {
+            noxtls_secure_zero(&aria_key, sizeof(aria_key));
             return r;
         }
     }
@@ -94,6 +95,7 @@ noxtls_return_t noxtls_aria_encrypt_cbc(const uint8_t* key,
         (void)noxtls_aria_encrypt_block(&aria_key, temp_block, &output[cur_block]);
     }
 
+    noxtls_secure_zero(&aria_key, sizeof(aria_key));
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -109,9 +111,8 @@ noxtls_return_t noxtls_aria_decrypt_cbc(const uint8_t* key,
 {
     uint32_t i;
     uint32_t cur_block = 0U;
-    const uint8_t * iv_src = NULL;
     uint8_t temp_block[NOXTLS_ARIA_BLOCK_LENGTH];
-    uint8_t zero_iv[NOXTLS_ARIA_BLOCK_LENGTH];
+    uint8_t chain[NOXTLS_ARIA_BLOCK_LENGTH];
     noxtls_aria_key_t aria_key;
     const uint32_t block_sz = (uint32_t)NOXTLS_ARIA_BLOCK_LENGTH;
 
@@ -125,6 +126,7 @@ noxtls_return_t noxtls_aria_decrypt_cbc(const uint8_t* key,
     {
         noxtls_return_t r = noxtls_aria_set_decrypt_key(key, type, &aria_key);
         if (r != NOXTLS_RETURN_SUCCESS) {
+            noxtls_secure_zero(&aria_key, sizeof(aria_key));
             return r;
         }
     }
@@ -135,6 +137,7 @@ noxtls_return_t noxtls_aria_decrypt_cbc(const uint8_t* key,
         uint32_t block_len = (uint32_t)((remain < block_sz) ? remain : block_sz);
 
         if (block_len != block_sz) {
+            noxtls_secure_zero(&aria_key, sizeof(aria_key));
             return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
         }
 
@@ -142,25 +145,26 @@ noxtls_return_t noxtls_aria_decrypt_cbc(const uint8_t* key,
         (void)noxtls_aria_decrypt_block(&aria_key, &data[cur_block], temp_block);
 
         /* Cipher Block Chaining: XOR with previous ciphertext (or IV) */
+        /* chain holds the previous ciphertext block (the IV for the first one).
+         * Each ciphertext byte is saved before the output byte at the same
+         * position is written, so exact in-place use (output == data) is safe. */
         if (cur_block == 0U) {
             if (iv == NULL) {
-                noxtls_secure_zero((zero_iv), (size_t)(block_sz));
-                iv_src = zero_iv;
+                noxtls_secure_zero((chain), (size_t)(block_sz));
             } else {
-                iv_src = iv;
+                noxtls_copy_u8(chain, sizeof(chain), iv, (size_t)block_sz);
             }
-        } else {
-            iv_src = &data[cur_block - block_sz];
         }
-
-        /* XOR decrypted block with IV/previous ciphertext */
         for (i = 0U; i < block_sz; i += 1U) {
-            output[cur_block + i] = (uint8_t)(temp_block[i] ^ iv_src[i]);
+            uint8_t ct = data[cur_block + i];
+            output[cur_block + i] = (uint8_t)(temp_block[i] ^ chain[i]);
+            chain[i] = ct;
         }
     }
 
     /* Zero padding from the encrypt side is returned as-is; callers own
      * length trimming. */
+    noxtls_secure_zero(&aria_key, sizeof(aria_key));
     return NOXTLS_RETURN_SUCCESS;
 }
 

@@ -1,0 +1,65 @@
+name: Install the RISC-V bare-metal toolchain
+description: >
+  Installs the xPack GNU RISC-V Embedded GCC (riscv-none-elf, with newlib and
+  newlib-nano multilibs for RV32 and RV64), adds it to PATH and sets
+  RISCV_GNU_TOOLCHAIN_ROOT. Optionally installs CMake, Ninja and the RISC-V
+  QEMU system emulators. Ubuntu's gcc-riscv64-unknown-elf has no newlib, so
+  the xPack build is used here and on developer machines.
+
+inputs:
+  version:
+    description: xPack release (GCC version and xPack build number)
+    default: "15.2.0-1"
+  sha256:
+    description: >
+      Expected SHA-256 of the Linux x64 archive. When empty, the archive is
+      checked against the .sha file published with the release and its hash is
+      printed so it can be pinned here.
+    default: ""
+  qemu:
+    description: Also install qemu-system-riscv32 / qemu-system-riscv64
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Install CMake, Ninja and QEMU
+      shell: bash
+      run: |
+        sudo apt-get update
+        pkgs="cmake ninja-build"
+        if [ "${{ inputs.qemu }}" = "true" ]; then pkgs="$pkgs qemu-system-misc"; fi
+        sudo apt-get install -y --no-install-recommends $pkgs
+
+    - name: Download and verify the xPack toolchain
+      shell: bash
+      env:
+        XPACK_VERSION: ${{ inputs.version }}
+        XPACK_SHA256: ${{ inputs.sha256 }}
+      run: |
+        set -euo pipefail
+        name="xpack-riscv-none-elf-gcc-${XPACK_VERSION}-linux-x64.tar.gz"
+        base="https://github.com/xpack-dev-tools/riscv-none-elf-gcc-xpack/releases/download/v${XPACK_VERSION}"
+        dest="$RUNNER_TEMP/riscv-toolchain"
+        mkdir -p "$dest"
+        cd "$dest"
+        curl -fsSL --retry 3 -o "$name" "$base/$name"
+        if [ -n "$XPACK_SHA256" ]; then
+          echo "$XPACK_SHA256  $name" | sha256sum -c -
+        else
+          curl -fsSL --retry 3 -o "$name.sha" "$base/$name.sha"
+          sha256sum -c "$name.sha"
+          echo "::notice::$name sha256 $(sha256sum "$name" | cut -d' ' -f1) (pin it in the sha256 input)"
+        fi
+        tar -xzf "$name"
+        root="$dest/xpack-riscv-none-elf-gcc-${XPACK_VERSION}"
+        echo "$root/bin" >> "$GITHUB_PATH"
+        echo "RISCV_GNU_TOOLCHAIN_ROOT=$root" >> "$GITHUB_ENV"
+        "$root/bin/riscv-none-elf-gcc" --version | head -1
+
+    - name: Show QEMU version
+      if: ${{ inputs.qemu == 'true' }}
+      shell: bash
+      run: |
+        qemu-system-riscv32 --version | head -1
+        qemu-system-riscv64 --version | head -1

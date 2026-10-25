@@ -58,6 +58,7 @@ noxtls_return_t noxtls_aria_encrypt_ecb(const uint8_t* key,
     {
         noxtls_return_t r = noxtls_aria_set_encrypt_key(key, type, &aria_key);
         if (r != NOXTLS_RETURN_SUCCESS) {
+            noxtls_secure_zero(&aria_key, sizeof(aria_key));
             return r;
         }
     }
@@ -84,6 +85,7 @@ noxtls_return_t noxtls_aria_encrypt_ecb(const uint8_t* key,
         (void)noxtls_aria_encrypt_block(&aria_key, temp_block, &output[cur_block]);
     }
 
+    noxtls_secure_zero(&aria_key, sizeof(aria_key));
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -114,6 +116,7 @@ noxtls_return_t noxtls_aria_decrypt_ecb(const uint8_t* key,
     {
         noxtls_return_t r = noxtls_aria_set_decrypt_key(key, type, &aria_key);
         if (r != NOXTLS_RETURN_SUCCESS) {
+            noxtls_secure_zero(&aria_key, sizeof(aria_key));
             return r;
         }
     }
@@ -124,6 +127,7 @@ noxtls_return_t noxtls_aria_decrypt_ecb(const uint8_t* key,
         uint32_t block_len = (uint32_t)((remain < block_sz) ? remain : block_sz);
 
         if (block_len != block_sz) {
+            noxtls_secure_zero(&aria_key, sizeof(aria_key));
             return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
         }
 
@@ -132,6 +136,7 @@ noxtls_return_t noxtls_aria_decrypt_ecb(const uint8_t* key,
         noxtls_copy_u8(&output[cur_block], (size_t)block_sz, temp_block, (size_t)block_sz);
     }
 
+    noxtls_secure_zero(&aria_key, sizeof(aria_key));
     return NOXTLS_RETURN_SUCCESS;
 }
 

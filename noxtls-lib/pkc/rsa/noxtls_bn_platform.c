@@ -23,6 +23,9 @@
 #include <stddef.h>
 
 #include "noxtls_bn_platform.h"
+#include "noxtls_bignum.h"
+
+#if NOXTLS_BIGNUM_ENABLED
 
 static const noxtls_bn_platform_ops_t *s_bn_platform_ops;
 
@@ -67,3 +70,5 @@ noxtls_return_t noxtls_bn_platform_try_mod_exp(uint8_t *out,
     }
     return s_bn_platform_ops->mod_exp(out, base, exponent, exponent_len, modulus, modulus_len);
 }
+
+#endif /* NOXTLS_BIGNUM_ENABLED */

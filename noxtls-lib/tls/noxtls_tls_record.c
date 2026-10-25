@@ -35,8 +35,10 @@
 #include "encryption/aes/noxtls_aes_internal.h"
 
 static int32_t tls12_is_dtls_context(const tls12_context_t *ctx);
+#if NOXTLS_FEATURE_DTLS
 static uint64_t tls12_dtls_write_seq64(const tls12_context_t *ctx);
 static uint64_t tls12_dtls_read_seq64(const tls12_context_t *ctx);
+#endif /* NOXTLS_FEATURE_DTLS */
 static int32_t tls13_is_dtls_context(const tls13_context_t *ctx);
 #include "encryption/aes/noxtls_aes_gcm.h"
 #include "encryption/aes/noxtls_aes_ccm.h"
@@ -54,6 +56,7 @@ static int32_t tls13_is_dtls_context(const tls13_context_t *ctx);
 #include "noxtls_tls12_ecjpake.h"
 #endif
 
+#if NOXTLS_FEATURE_DTLS
 static const uint64_t tls_record_s_u64_bit[64] = {
     0x0000000000000001ULL,
     0x0000000000000002ULL,
@@ -120,34 +123,8 @@ static const uint64_t tls_record_s_u64_bit[64] = {
     0x4000000000000000ULL,
     0x8000000000000000ULL
 };
+#endif /* NOXTLS_FEATURE_DTLS */
 
-
-/**
- * @brief Generate TLS 1.2 record IV from sequence number and write IV
- *
- * @param[out] iv The IV to generate
- * @param[in] write_iv The write IV
- * @param[in] iv_len The length of the IV
- * @param[in] seq_num The sequence number
- * @return void
- */
-static void tls12_generate_iv(uint8_t *iv, const uint8_t *write_iv, uint32_t iv_len, uint64_t seq_num)
-{
-    /* Copy write IV */
-    noxtls_copy_u8(iv, (size_t)(iv_len), write_iv, (size_t)(iv_len));
-    
-    /* XOR sequence number into last 8 bytes of IV */
-    if(iv_len >= 8U) {
-        iv[iv_len - 8U + 0U] ^= (uint8_t)((((uint64_t)seq_num) >> 56U) & 0xFFU);
-        iv[iv_len - 8U + 1U] ^= (uint8_t)((((uint64_t)seq_num) >> 48U) & 0xFFU);
-        iv[iv_len - 8U + 2U] ^= (uint8_t)((((uint64_t)seq_num) >> 40U) & 0xFFU);
-        iv[iv_len - 8U + 3U] ^= (uint8_t)((((uint64_t)seq_num) >> 32U) & 0xFFU);
-        iv[iv_len - 8U + 4U] ^= (uint8_t)((((uint64_t)seq_num) >> 24U) & 0xFFU);
-        iv[iv_len - 8U + 5U] ^= (uint8_t)((((uint64_t)seq_num) >> 16U) & 0xFFU);
-        iv[iv_len - 8U + 6U] ^= (uint8_t)((((uint64_t)seq_num) >> 8U) & 0xFFU);
-        iv[iv_len - 8U + 7U] ^= (uint8_t)(seq_num & 0xFFU);
-    }
-}
 
 #if NOXTLS_FEATURE_CHACHA20_POLY1305
 /**
@@ -325,6 +302,95 @@ static int32_t tls12_should_use_encrypt_then_mac(const tls12_context_t *ctx,
            (is_tls12_chacha == 0U)) ? 1 : 0;
 }
 
+/* Bytes of ciphertext processed per call by tls12_cbc_crypt_in_place(). */
+#define TLS12_CBC_CHUNK_LEN 64U
+
+/**
+ * @brief CBC-encrypt or -decrypt @p buf in place.
+ *
+ * The data is staged through a small stack chunk, so the result does not depend on whether
+ * the block-cipher CBC helper supports aliased input/output: TLS 1.0-1.2 CBC records are
+ * protected and opened inside the record buffer without a second record-sized allocation.
+ *
+ * @param[in] decrypt     0 = encrypt, 1 = decrypt.
+ * @param[in] is_3des     3DES-EDE (8-byte blocks).
+ * @param[in] is_aria     ARIA (else AES).
+ * @param[in] aes_type    AES key size.
+ * @param[in] aria_type   ARIA key size.
+ * @param[in] key         Cipher key.
+ * @param[in] iv          IV (block_size bytes).
+ * @param[in] block_size  8 (3DES) or 16.
+ * @param[in,out] buf     Data, a multiple of block_size bytes.
+ * @param[in] len         Data length.
+ * @return SUCCESS, NOT_SUPPORTED (cipher compiled out) or FAILED.
+ */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
+static noxtls_return_t tls12_cbc_crypt_in_place(uint8_t decrypt, uint8_t is_3des, uint8_t is_aria,
+                                                noxtls_aes_type_t aes_type, noxtls_aria_type_t aria_type,
+                                                const uint8_t *key, const uint8_t *iv,
+                                                uint32_t block_size, uint8_t *buf, uint32_t len)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
+{
+    uint8_t chunk[TLS12_CBC_CHUNK_LEN];
+    uint8_t chain[16];
+    uint8_t next_chain[16];
+    uint32_t off = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
+
+    if((block_size == 0U) || (block_size > 16U) || ((len % block_size) != 0U)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    noxtls_copy_u8(chain, sizeof(chain), iv, (size_t)block_size);
+    while((off < len) && (rc == NOXTLS_RETURN_SUCCESS)) {
+        uint32_t n = (uint32_t)(len - off);
+        if(n > TLS12_CBC_CHUNK_LEN) {
+            n = TLS12_CBC_CHUNK_LEN;
+        }
+        noxtls_copy_u8(chunk, sizeof(chunk), &buf[off], (size_t)n);
+        if(decrypt != 0U) {
+            /* The last ciphertext block of this chunk chains into the next one. */
+            noxtls_copy_u8(next_chain, sizeof(next_chain), &chunk[n - block_size], (size_t)block_size);
+        }
+        if(is_3des != 0U) {
+#if NOXTLS_FEATURE_DES
+            rc = (decrypt != 0U) ? des3_decrypt_cbc(key, 24U, chunk, n, chain, &buf[off])
+                                 : des3_encrypt_cbc(key, 24U, chunk, n, chain, &buf[off]);
+#else
+            rc = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+        } else if(is_aria != 0U) {
+#if NOXTLS_FEATURE_ARIA
+            rc = (decrypt != 0U) ? noxtls_aria_decrypt_cbc(key, chunk, n, chain, &buf[off], aria_type)
+                                 : noxtls_aria_encrypt_cbc(key, chunk, n, chain, &buf[off], aria_type);
+#else
+            rc = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+        } else {
+#if NOXTLS_FEATURE_AES_CBC
+            rc = (decrypt != 0U) ? noxtls_aes_decrypt_cbc(key, chunk, n, chain, &buf[off], aes_type)
+                                 : noxtls_aes_encrypt_cbc(key, chunk, n, chain, &buf[off], aes_type);
+#else
+            rc = NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+        }
+        if(decrypt == 0U) {
+            noxtls_copy_u8(next_chain, sizeof(next_chain), &buf[off + n - block_size], (size_t)block_size);
+        }
+        noxtls_copy_u8(chain, sizeof(chain), next_chain, (size_t)block_size);
+        off += n;
+    }
+#if !NOXTLS_FEATURE_ARIA
+    (void)aria_type;
+#endif
+#if !NOXTLS_FEATURE_AES_CBC
+    (void)aes_type;
+#endif
+    noxtls_secure_zero(chunk, sizeof(chunk));
+    noxtls_secure_zero(chain, sizeof(chain));
+    noxtls_secure_zero(next_chain, sizeof(next_chain));
+    return rc;
+}
+
 /**
  * @brief Encrypt TLS 1.2 application data record (AES-CBC with HMAC)
  *
@@ -355,14 +421,11 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
     uint8_t iv_enc[16];
     uint8_t mac[64];  /* Max MAC size (SHA-512) */
     uint32_t mac_len = 0U;
-    uint8_t *padded_plaintext = NULL;
     uint32_t padded_len = 0U;
-    uint8_t *encrypted_data = NULL;
-    uint32_t encrypted_data_len = 0U;
     uint32_t record_len = 0U;
     uint32_t offset = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
-    
+
     if((ctx == NULL) || (plaintext == NULL) || (encrypted_record == NULL) || (encrypted_record_len == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
@@ -373,13 +436,21 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
         enc_key = ctx->client_write_key;
         write_iv = ctx->client_write_iv;
         iv_len = 16U;
+#if NOXTLS_FEATURE_DTLS
         seq_num = (tls12_is_dtls_context(ctx) != 0) ? tls12_dtls_write_seq64(ctx) : ctx->client_seq_num;
+#else
+        seq_num = ctx->client_seq_num;
+#endif
     } else {
         mac_key = ctx->server_write_mac_key;
         enc_key = ctx->server_write_key;
         write_iv = ctx->server_write_iv;
         iv_len = 16U;
+#if NOXTLS_FEATURE_DTLS
         seq_num = (tls12_is_dtls_context(ctx) != 0) ? tls12_dtls_write_seq64(ctx) : ctx->server_seq_num;
+#else
+        seq_num = ctx->server_seq_num;
+#endif
     }
 
     /* Determine hash algorithm, MAC length, and cipher type from cipher suite */
@@ -579,10 +650,19 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
         uint8_t tag[16];
         uint8_t aad[13];
         uint32_t aad_len = 13U;
+        const uint32_t tag_len = ((is_gcm != 0U) || (is_tls12_chacha != 0U)) ? 16U : tls12_ccm_tag_len;
+        const uint32_t nonce_len = (is_tls12_chacha != 0U) ? 0U : 8U;
 
         /* SECURITY (NX-09): refuse to encrypt when the sequence number would wrap,
          * which would reuse an AEAD nonce with the same key. */
         if(seq_num == UINT64_MAX) {
+            return NOXTLS_RETURN_FAILED;
+        }
+        /* Output: [explicit nonce (GCM/CCM)] || ciphertext || tag, written directly (the
+         * plaintext may already sit at the ciphertext position: in-place sealing). */
+        record_len = nonce_len + plaintext_len + tag_len;
+        if(*encrypted_record_len < record_len) {
+            *encrypted_record_len = record_len;
             return NOXTLS_RETURN_FAILED;
         }
 
@@ -600,40 +680,18 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
         aad[11] = (uint8_t)(((uint32_t)plaintext_len) >> 8U);
         aad[12] = (uint8_t)plaintext_len;
 
-        /* A zero-length fragment is legal (RFC 5246 6.2.1); never request a 0-byte allocation. */
-        encrypted_data = (uint8_t*)NOXTLS_MALLOC((plaintext_len == 0U) ? 1U : plaintext_len);
-        if(encrypted_data == NULL) {
-            return NOXTLS_RETURN_FAILED;
-        }
-
         if(is_tls12_chacha != 0U) {
 #if NOXTLS_FEATURE_CHACHA20_POLY1305
-            const uint32_t tag_len = 16U;
             tls12_chacha20_poly1305_record_nonce(nonce, write_iv, seq_num);
             if(noxtls_chacha20_poly1305_encrypt(enc_key, nonce, aad, aad_len,
-                                                plaintext, plaintext_len, encrypted_data, tag) != NOXTLS_RETURN_SUCCESS) {
-                (void)noxtls_free(encrypted_data);
+                                                plaintext, plaintext_len, encrypted_record, tag) != NOXTLS_RETURN_SUCCESS) {
                 return NOXTLS_RETURN_FAILED;
             }
-            encrypted_data_len = plaintext_len;
-            record_len = encrypted_data_len + tag_len;
-            if(*encrypted_record_len < record_len) {
-                (void)noxtls_free(encrypted_data);
-                *encrypted_record_len = record_len;
-                return NOXTLS_RETURN_FAILED;
-            }
-            noxtls_copy_u8(&encrypted_record[offset], (size_t)(*encrypted_record_len), encrypted_data, (size_t)(encrypted_data_len));
-            offset += encrypted_data_len;
-            noxtls_copy_u8(&encrypted_record[offset], (size_t)(*encrypted_record_len), tag, (size_t)(tag_len));
-            offset += tag_len;
 #else
-            (void)noxtls_free(encrypted_data);
             return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
         } else {
-            uint8_t fixed_iv[4];
             uint8_t explicit_nonce[8];
-            const uint32_t tag_len = (is_gcm != 0U) ? 16U : tls12_ccm_tag_len;
             explicit_nonce[0] = (uint8_t)((((uint64_t)seq_num) >> 56U) & 0xFFU);
             explicit_nonce[1] = (uint8_t)((((uint64_t)seq_num) >> 48U) & 0xFFU);
             explicit_nonce[2] = (uint8_t)((((uint64_t)seq_num) >> 40U) & 0xFFU);
@@ -642,52 +700,34 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
             explicit_nonce[5] = (uint8_t)((((uint64_t)seq_num) >> 16U) & 0xFFU);
             explicit_nonce[6] = (uint8_t)((((uint64_t)seq_num) >> 8U) & 0xFFU);
             explicit_nonce[7] = (uint8_t)(seq_num & 0xFFU);
-            noxtls_copy_u8(fixed_iv, sizeof(fixed_iv), write_iv, (size_t)(4U));
-            noxtls_copy_u8(nonce, sizeof(nonce), fixed_iv, (size_t)(4U));
+            noxtls_copy_u8(nonce, sizeof(nonce), write_iv, (size_t)(4U));
             noxtls_copy_u8(&nonce[4], sizeof(nonce) - (size_t)(4), explicit_nonce, (size_t)(8U));
             if(is_gcm != 0U) {
 #if NOXTLS_FEATURE_AES_GCM
                 if(noxtls_aes_gcm_encrypt(enc_key, aes_type, nonce, aad, aad_len,
-                                   plaintext, plaintext_len, encrypted_data, tag) != NOXTLS_RETURN_SUCCESS) {
-                    (void)noxtls_free(encrypted_data);
+                                   plaintext, plaintext_len, &encrypted_record[nonce_len], tag) != NOXTLS_RETURN_SUCCESS) {
                     return NOXTLS_RETURN_FAILED;
                 }
 #else
-                (void)noxtls_free(encrypted_data);
                 return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
             } else {
                 /* MISRA 15.7: final else path */
 #if NOXTLS_FEATURE_AES_CCM
                 if(noxtls_aes_ccm_encrypt(enc_key, aes_type, nonce, 12U, aad, aad_len,
-                                   plaintext, plaintext_len, encrypted_data, tag, tag_len) != NOXTLS_RETURN_SUCCESS) {
-                    (void)noxtls_free(encrypted_data);
+                                   plaintext, plaintext_len, &encrypted_record[nonce_len], tag, tag_len) != NOXTLS_RETURN_SUCCESS) {
                     return NOXTLS_RETURN_FAILED;
                 }
 #else
-                (void)noxtls_free(encrypted_data);
                 return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
             }
-            encrypted_data_len = plaintext_len;
-
-            record_len = 8U + encrypted_data_len + tag_len;
-            if(*encrypted_record_len < record_len) {
-                (void)noxtls_free(encrypted_data);
-                *encrypted_record_len = record_len;
-                return NOXTLS_RETURN_FAILED;
-            }
-            noxtls_copy_u8(&encrypted_record[offset], (size_t)(*encrypted_record_len), explicit_nonce, (size_t)(8U));
-            offset += 8U;
-            noxtls_copy_u8(&encrypted_record[offset], (size_t)(*encrypted_record_len), encrypted_data, (size_t)(encrypted_data_len));
-            offset += encrypted_data_len;
-            noxtls_copy_u8(&encrypted_record[offset], (size_t)(*encrypted_record_len), tag, (size_t)(tag_len));
-            offset += tag_len;
+            /* The nonce goes in front only now: the plaintext may have occupied that area. */
+            noxtls_copy_u8(encrypted_record, (size_t)(*encrypted_record_len), explicit_nonce, (size_t)(8U));
         }
-        (void)offset;
+        noxtls_copy_u8(&encrypted_record[nonce_len + plaintext_len], (size_t)tag_len, tag, (size_t)(tag_len));
+        noxtls_secure_zero(tag, sizeof(tag));
         *encrypted_record_len = record_len;
-
-        (void)noxtls_free(encrypted_data);
 
         if((tls12_is_dtls_context(ctx) == 0)) {
             if(ctx->base.base.role == TLS_ROLE_CLIENT) {
@@ -708,41 +748,46 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
     int32_t use_encrypt_then_mac = tls12_should_use_encrypt_then_mac(ctx, is_gcm, is_tls12_ccm, is_tls12_chacha);
     uint32_t mac_input_len = (uint32_t)((use_encrypt_then_mac != 0) ? 0U : mac_len);
     uint8_t padding_len = (uint8_t)(block_size - ((plaintext_len + mac_input_len) % block_size) - 1U);
-    
+    /* TLS 1.0: record = ciphertext only (implicit IV). TLS 1.1/1.2: record = IV || ciphertext */
+    uint32_t iv_off = (ctx->base.base.version == TLS_VERSION_1_0) ? 0U : iv_len;
+    uint8_t *body = NULL;
+
     padded_len = plaintext_len + mac_input_len + padding_len + 1U;
-    padded_plaintext = (uint8_t*)NOXTLS_MALLOC(padded_len);
-    if(padded_plaintext == NULL) {
+    if((padded_len % block_size) != 0U) {
         return NOXTLS_RETURN_FAILED;
     }
-    
-    /* Copy plaintext */
-    noxtls_copy_u8(padded_plaintext, (size_t)(padded_len), plaintext, (size_t)(plaintext_len));
+    record_len = iv_off + padded_len + ((use_encrypt_then_mac != 0) ? mac_len : 0U);
+    if(*encrypted_record_len < record_len) {
+        *encrypted_record_len = record_len;
+        return NOXTLS_RETURN_FAILED;
+    }
+    /* Build plaintext || MAC || padding directly in the output and encrypt it in place. */
+    body = &encrypted_record[iv_off];
+    noxtls_move_u8(body, (size_t)padded_len, plaintext, (size_t)plaintext_len);
     if(use_encrypt_then_mac == 0) {
         /* MAC-then-encrypt: MAC plaintext before CBC encryption. */
         rc = tls12_compute_mac(mac_key, mac_key_len, hash_algo, seq_num, type,
                               ctx->base.base.version, (uint16_t)plaintext_len,
-                              plaintext, plaintext_len, mac, &mac_len);
+                              body, plaintext_len, mac, &mac_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            (void)noxtls_free(padded_plaintext);
+            noxtls_secure_zero(body, (size_t)plaintext_len);
             return rc;
         }
-        noxtls_copy_u8(&padded_plaintext[plaintext_len], (size_t)(padded_len - plaintext_len), mac, (size_t)(mac_len));
+        noxtls_copy_u8(&body[plaintext_len], (size_t)(padded_len - plaintext_len), mac, (size_t)(mac_len));
     }
-    
+
     /* Append padding (pad length byte is the padding length) */
     {
             uint32_t pi = 0U;
             uint32_t plen = (uint32_t)padding_len + 1U;
             for(pi = 0U; pi < plen; pi += 1U) {
-                padded_plaintext[plaintext_len + mac_input_len + pi] = (uint8_t)padding_len;
+                body[plaintext_len + mac_input_len + pi] = (uint8_t)padding_len;
             }
         }
-    if((padded_len % block_size) != 0U) {
-        (void)noxtls_free(padded_plaintext);
-        return NOXTLS_RETURN_FAILED;
-    }
-    
-    /* Generate IV: TLS 1.0 = implicit (last block or write_iv); TLS 1.1 = random; TLS 1.2 = generated from &write_iv[seq] */
+
+    /* Generate IV: TLS 1.0 = implicit (last block or write_iv); TLS 1.1 / 1.2 / DTLS = random.
+     * RFC 4346 6.2.3.2 / RFC 5246 6.2.3.2: the explicit CBC IV MUST be unpredictable. It was
+     * write_IV XOR seq_num for TLS 1.2, which an attacker can predict (BEAST-style). */
     {
         uint16_t ver = (uint16_t)(ctx->base.base.version);
         if(ver == TLS_VERSION_1_0) {
@@ -752,113 +797,45 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
             } else {
                 noxtls_copy_u8(iv_enc, sizeof(iv_enc), last_block, (size_t)(iv_len));
             }
-        } else if(ver == TLS_VERSION_1_1) {
-            drbg_state_t drbg;
-            if(drbg_instantiate(&drbg, DRBG_AES256, NULL, 0, NULL, 0, NULL, 0) != NOXTLS_RETURN_SUCCESS) {
-                (void)noxtls_free(padded_plaintext);
-                return NOXTLS_RETURN_FAILED;
-            }
-            if(drbg_generate(&drbg, iv_enc, iv_len * 8U, NULL, 0U) != NOXTLS_RETURN_SUCCESS) {
-                (void)noxtls_free(padded_plaintext);
-                return NOXTLS_RETURN_FAILED;
-            }
         } else {
-            uint8_t iv[16];
-            tls12_generate_iv(iv, write_iv, iv_len, seq_num);
-            noxtls_copy_u8(iv_enc, sizeof(iv_enc), iv, (size_t)(iv_len));
+            drbg_state_t drbg;
+            noxtls_return_t drbg_rc = drbg_instantiate(&drbg, DRBG_AES256, NULL, 0, NULL, 0, NULL, 0);
+            if(drbg_rc == NOXTLS_RETURN_SUCCESS) {
+                drbg_rc = drbg_generate(&drbg, iv_enc, iv_len * 8U, NULL, 0U);
+                (void)noxtls_drbg_uninstantiate(&drbg);
+            }
+            if(drbg_rc != NOXTLS_RETURN_SUCCESS) {
+                noxtls_secure_zero(body, (size_t)padded_len);
+                return NOXTLS_RETURN_FAILED;
+            }
         }
     }
-    
-    /* Encrypt */
-    encrypted_data = (uint8_t*)NOXTLS_MALLOC(padded_len);
-    if(encrypted_data == NULL) {
-        (void)noxtls_free(padded_plaintext);
-        return NOXTLS_RETURN_FAILED;
+
+    /* Encrypt using 3DES-CBC, AES-CBC, or ARIA-CBC, in place */
+    rc = tls12_cbc_crypt_in_place(0U, is_3des, is_aria, aes_type, aria_type, enc_key, iv_enc,
+                                  block_size, body, padded_len);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(body, (size_t)padded_len);
+        return (rc == NOXTLS_RETURN_NOT_SUPPORTED) ? rc : NOXTLS_RETURN_FAILED;
     }
-    
-    /* Encrypt using 3DES-CBC, AES-CBC, or ARIA-CBC */
-    if(is_3des != 0U) {
-#if NOXTLS_FEATURE_DES
-        if(des3_encrypt_cbc(enc_key, 24, padded_plaintext, padded_len, iv_enc, encrypted_data) != NOXTLS_RETURN_SUCCESS) {
-            (void)noxtls_free(padded_plaintext);
-            (void)noxtls_free(encrypted_data);
-            return NOXTLS_RETURN_FAILED;
-        }
-#else
-        (void)noxtls_free(padded_plaintext);
-        (void)noxtls_free(encrypted_data);
-        return NOXTLS_RETURN_NOT_SUPPORTED;
-#endif
-    } else if(is_aria != 0U) {
-#if NOXTLS_FEATURE_ARIA
-        if(noxtls_aria_encrypt_cbc(enc_key, padded_plaintext, padded_len, iv_enc, encrypted_data, aria_type) != NOXTLS_RETURN_SUCCESS) {
-            (void)noxtls_free(padded_plaintext);
-            (void)noxtls_free(encrypted_data);
-            return NOXTLS_RETURN_FAILED;
-        }
-#else
-        (void)aria_type;
-        (void)noxtls_free(padded_plaintext);
-        (void)noxtls_free(encrypted_data);
-        return NOXTLS_RETURN_NOT_SUPPORTED;
-#endif
-    } else {
-        /* MISRA 15.7: final else path */
-#if NOXTLS_FEATURE_AES_CBC
-        if(noxtls_aes_encrypt_cbc(enc_key, padded_plaintext, padded_len, iv_enc, encrypted_data, aes_type) != NOXTLS_RETURN_SUCCESS) {
-            (void)noxtls_free(padded_plaintext);
-            (void)noxtls_free(encrypted_data);
-            return NOXTLS_RETURN_FAILED;
-        }
-#else
-        (void)noxtls_free(padded_plaintext);
-        (void)noxtls_free(encrypted_data);
-        return NOXTLS_RETURN_NOT_SUPPORTED;
-#endif
-    }
-    
-    encrypted_data_len = padded_len;
-    
-    /* TLS 1.0: record = ciphertext only (implicit IV). TLS 1.1/1.2: record = IV || ciphertext */
+
     if(ctx->base.base.version == TLS_VERSION_1_0) {
-        record_len = encrypted_data_len;
-        if(*encrypted_record_len < record_len) {
-            (void)noxtls_free(padded_plaintext);
-            (void)noxtls_free(encrypted_data);
-            *encrypted_record_len = record_len;
-            return NOXTLS_RETURN_FAILED;
-        }
-        noxtls_copy_u8(&encrypted_record[offset], (size_t)(*encrypted_record_len), encrypted_data, (size_t)(encrypted_data_len));
         /* Save last cipher block for next record */
-        {
-            uint8_t *last_block = (ctx->base.base.role == TLS_ROLE_CLIENT) ? ctx->client_last_cipher_block : ctx->server_last_cipher_block;
-            noxtls_copy_u8(last_block, (size_t)iv_len, &encrypted_data[encrypted_data_len - iv_len], (size_t)iv_len);
-        }
+        uint8_t *last_block = (ctx->base.base.role == TLS_ROLE_CLIENT) ? ctx->client_last_cipher_block : ctx->server_last_cipher_block;
+        noxtls_copy_u8(last_block, (size_t)iv_len, &body[padded_len - iv_len], (size_t)iv_len);
     } else {
-        record_len = iv_len + encrypted_data_len;
-        if(*encrypted_record_len < record_len) {
-            (void)noxtls_free(padded_plaintext);
-            (void)noxtls_free(encrypted_data);
-            *encrypted_record_len = record_len;
-            return NOXTLS_RETURN_FAILED;
-        }
-        noxtls_copy_u8(&encrypted_record[offset], (size_t)(*encrypted_record_len), iv_enc, (size_t)(iv_len));
-        offset += iv_len;
-        noxtls_copy_u8(&encrypted_record[offset], (size_t)(*encrypted_record_len), encrypted_data, (size_t)(encrypted_data_len));
+        noxtls_copy_u8(encrypted_record, (size_t)iv_off, iv_enc, (size_t)(iv_len));
     }
+    record_len = iv_off + padded_len;
     if(use_encrypt_then_mac != 0) {
         uint32_t mac_out_len = (uint32_t)(mac_len);
         rc = tls12_compute_mac(mac_key, mac_key_len, hash_algo, seq_num, type,
                               ctx->base.base.version, (uint16_t)record_len,
                               encrypted_record, record_len, mac, &mac_out_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            (void)noxtls_free(padded_plaintext);
-            (void)noxtls_free(encrypted_data);
             return rc;
         }
         if((record_len + mac_out_len) > *encrypted_record_len) {
-            (void)noxtls_free(padded_plaintext);
-            (void)noxtls_free(encrypted_data);
             *encrypted_record_len = record_len + mac_out_len;
             return NOXTLS_RETURN_FAILED;
         }
@@ -874,9 +851,10 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
         record_len += mac_out_len;
     }
     (void)offset;
-    
+    noxtls_secure_zero(mac, sizeof(mac));
+
     *encrypted_record_len = record_len;
-    
+
     if((tls12_is_dtls_context(ctx) == 0)) {
         if(ctx->base.base.role == TLS_ROLE_CLIENT) {
             ctx->client_seq_num += 1U;
@@ -884,10 +862,7 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
             ctx->server_seq_num += 1U;
         }
     }
-    
-    (void)noxtls_free(padded_plaintext);
-    (void)noxtls_free(encrypted_data);
-    
+
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -902,12 +877,15 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
  * @param[out] plaintext_len The length of the plaintext
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_FAILED on failure
  */
-noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
-                                       uint8_t type,
-                                       const uint8_t *encrypted_record,
-                                       uint32_t encrypted_record_len,
-                                       uint8_t *plaintext,
-                                       uint32_t *plaintext_len)
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
+noxtls_return_t noxtls_tls12_open_record(tls12_context_t *ctx,
+                                         uint8_t type,
+                                         uint8_t *encrypted_record,
+                                         uint32_t encrypted_record_len,
+                                         uint32_t plaintext_cap,
+                                         uint32_t *plaintext_off,
+                                         uint32_t *plaintext_len)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     const uint8_t *mac_key = NULL;
     uint32_t mac_key_len = 0U;
@@ -933,10 +911,11 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
     uint8_t is_tls12_chacha = 0U;
     uint32_t tls12_ccm_tag_len = 16U;
     uint8_t is_3des = 0U;
-    
-    if((ctx == NULL) || (encrypted_record == NULL) || (plaintext == NULL) || (plaintext_len == NULL)) {
+
+    if((ctx == NULL) || (encrypted_record == NULL) || (plaintext_off == NULL) || (plaintext_len == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
+    *plaintext_off = 0U;
     
     /* Determine keys based on role */
     if(ctx->base.base.role == TLS_ROLE_CLIENT) {
@@ -944,13 +923,21 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
         enc_key = ctx->server_write_key;
         write_iv = ctx->server_write_iv;
         iv_len = 16U;
+#if NOXTLS_FEATURE_DTLS
         seq_num = (tls12_is_dtls_context(ctx) != 0) ? tls12_dtls_read_seq64(ctx) : ctx->server_seq_num;
+#else
+        seq_num = ctx->server_seq_num;
+#endif
     } else {
         mac_key = ctx->client_write_mac_key;  /* Receive from client */
         enc_key = ctx->client_write_key;
         write_iv = ctx->client_write_iv;
         iv_len = 16U;
+#if NOXTLS_FEATURE_DTLS
         seq_num = (tls12_is_dtls_context(ctx) != 0) ? tls12_dtls_read_seq64(ctx) : ctx->client_seq_num;
+#else
+        seq_num = ctx->client_seq_num;
+#endif
     }
 
     /* Determine hash algorithm, MAC length, and cipher type from cipher suite */
@@ -1147,7 +1134,7 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
         uint8_t tag[16];
         uint32_t aad_len = 13U;
         uint32_t ciphertext_len = 0U;
-        const uint8_t *ciphertext = NULL;
+        uint8_t *ciphertext = NULL;
         const uint8_t *tag_in = NULL;
         uint32_t tag_len = 0U;
         if((is_tls12_chacha != 0U) || (is_gcm != 0U)) {
@@ -1207,14 +1194,15 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
                 return NOXTLS_RETURN_RECORD_OVERFLOW;
             }
         }
-        if(*plaintext_len < ciphertext_len) {
+        if(plaintext_cap < ciphertext_len) {
             *plaintext_len = ciphertext_len;
             return NOXTLS_RETURN_FAILED;
         }
+        /* Opened in place: the plaintext replaces the ciphertext. */
         if(is_tls12_chacha != 0U) {
 #if NOXTLS_FEATURE_CHACHA20_POLY1305
             if(noxtls_chacha20_poly1305_decrypt(enc_key, nonce, aad, aad_len,
-                                                ciphertext, ciphertext_len, tag, plaintext) != NOXTLS_RETURN_SUCCESS) {
+                                                ciphertext, ciphertext_len, tag, ciphertext) != NOXTLS_RETURN_SUCCESS) {
                 return NOXTLS_RETURN_BAD_DATA;
             }
 #else
@@ -1223,7 +1211,7 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
         } else if(is_gcm != 0U) {
 #if NOXTLS_FEATURE_AES_GCM
             if(noxtls_aes_gcm_decrypt(enc_key, aes_type, nonce, aad, aad_len,
-                               ciphertext, ciphertext_len, tag, plaintext) != NOXTLS_RETURN_SUCCESS) {
+                               ciphertext, ciphertext_len, tag, ciphertext) != NOXTLS_RETURN_SUCCESS) {
                 return NOXTLS_RETURN_BAD_DATA;
             }
 #else
@@ -1233,13 +1221,14 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
             /* MISRA 15.7: final else path */
 #if NOXTLS_FEATURE_AES_CCM
             if(noxtls_aes_ccm_decrypt(enc_key, aes_type, nonce, 12U, aad, aad_len,
-                               ciphertext, ciphertext_len, tag, tag_len, plaintext) != NOXTLS_RETURN_SUCCESS) {
+                               ciphertext, ciphertext_len, tag, tag_len, ciphertext) != NOXTLS_RETURN_SUCCESS) {
                 return NOXTLS_RETURN_BAD_DATA;
             }
 #else
             return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
         }
+        *plaintext_off = (is_tls12_chacha != 0U) ? 0U : 8U;
         *plaintext_len = ciphertext_len;
 
         if((tls12_is_dtls_context(ctx) == 0)) {
@@ -1310,56 +1299,23 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
         return NOXTLS_RETURN_BAD_DATA;
     }
     
-    /* Allocate buffer for decrypted data */
-    decrypted_data = (uint8_t*)NOXTLS_MALLOC(encrypted_data_len);
-    if(decrypted_data == NULL) {
-        return NOXTLS_RETURN_FAILED;
-    }
-    
-    /* Decrypt using AES-CBC or ARIA-CBC */
-    if(is_3des != 0U) {
-#if NOXTLS_FEATURE_DES
-        if(des3_decrypt_cbc(enc_key, 24U, &encrypted_record[offset], encrypted_data_len, iv, decrypted_data) != NOXTLS_RETURN_SUCCESS) {
-            (void)noxtls_free(decrypted_data);
-            return NOXTLS_RETURN_BAD_DATA;
-        }
-#else
-        (void)noxtls_free(decrypted_data);
-        return NOXTLS_RETURN_NOT_SUPPORTED;
-#endif
-    } else if(is_aria != 0U) {
-#if NOXTLS_FEATURE_ARIA
-        if(noxtls_aria_decrypt_cbc(enc_key, &encrypted_record[offset], encrypted_data_len, iv, decrypted_data, aria_type) != NOXTLS_RETURN_SUCCESS) {
-            (void)noxtls_free(decrypted_data);
-            return NOXTLS_RETURN_BAD_DATA;
-        }
-#else
-        (void)aria_type;
-        (void)noxtls_free(decrypted_data);
-        return NOXTLS_RETURN_NOT_SUPPORTED;
-#endif
-    } else {
-        /* MISRA 15.7: final else path */
-#if NOXTLS_FEATURE_AES_CBC
-        if(noxtls_aes_decrypt_cbc(enc_key, &encrypted_record[offset], encrypted_data_len, iv, decrypted_data, aes_type) != NOXTLS_RETURN_SUCCESS) {
-            (void)noxtls_free(decrypted_data);
-            return NOXTLS_RETURN_BAD_DATA;
-        }
-#else
-        (void)noxtls_free(decrypted_data);
-        return NOXTLS_RETURN_NOT_SUPPORTED;
-#endif
-    }
-    
-    decrypted_data_len = encrypted_data_len;
-    
-    /* TLS 1.0: save last cipher block for next record's IV */
+    /* TLS 1.0: save last cipher block for next record's IV (before it is decrypted in place) */
     if((ctx->base.base.version == TLS_VERSION_1_0) && (encrypted_data_len >= iv_len)) {
         uint8_t *save_block = (ctx->base.base.role == TLS_ROLE_CLIENT) ? ctx->server_last_cipher_block : ctx->client_last_cipher_block;
-        const uint8_t *ct = (offset > 0U) ? (&encrypted_record[offset]) : encrypted_record;
-        noxtls_copy_u8(save_block, (size_t)iv_len, &ct[encrypted_data_len - iv_len], (size_t)iv_len);
+        noxtls_copy_u8(save_block, (size_t)iv_len, &encrypted_record[offset + encrypted_data_len - iv_len], (size_t)iv_len);
     }
-    
+
+    /* Decrypt using 3DES-CBC, AES-CBC or ARIA-CBC, in place */
+    decrypted_data = &encrypted_record[offset];
+    rc = tls12_cbc_crypt_in_place(1U, is_3des, is_aria, aes_type, aria_type, enc_key, iv,
+                                  block_size, decrypted_data, encrypted_data_len);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(decrypted_data, (size_t)encrypted_data_len);
+        return (rc == NOXTLS_RETURN_NOT_SUPPORTED) ? rc : NOXTLS_RETURN_BAD_DATA;
+    }
+
+    decrypted_data_len = encrypted_data_len;
+
     /* Validate and remove padding with a unified bad-record path. */
     uint32_t bad_record = 0U;
     uint32_t pad_bytes = 0U;
@@ -1486,7 +1442,7 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
                             (uint32_t)padding_len,
                             (uint32_t)body_len,
                             (uint32_t)mac_len);
-        (void)noxtls_free(decrypted_data);
+        noxtls_secure_zero(decrypted_data, (size_t)decrypted_data_len);
         return NOXTLS_RETURN_BAD_DATA;
     }
     if(type == TLS_RECORD_APPLICATION_DATA) {
@@ -1494,23 +1450,22 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
             ? (uint32_t)ctx->max_record_payload
             : (uint32_t)TLS_MAX_RECORD_SIZE);
         if(plaintext_data_len > max_pl) {
-            (void)noxtls_free(decrypted_data);
+            noxtls_secure_zero(decrypted_data, (size_t)decrypted_data_len);
             return NOXTLS_RETURN_RECORD_OVERFLOW;
         }
     }
 
-    /* Copy plaintext to output */
-    if(*plaintext_len < plaintext_data_len) {
-        (void)noxtls_free(decrypted_data);
+    /* The plaintext stays in place behind the explicit IV. */
+    if(plaintext_cap < plaintext_data_len) {
+        noxtls_secure_zero(decrypted_data, (size_t)decrypted_data_len);
         *plaintext_len = plaintext_data_len;
         return NOXTLS_RETURN_FAILED;
     }
-    
-    noxtls_copy_u8(plaintext, (size_t)plaintext_data_len, decrypted_data, (size_t)plaintext_data_len);
+    *plaintext_off = offset;
     *plaintext_len = plaintext_data_len;
-    
-    (void)noxtls_free(decrypted_data);
-    
+    noxtls_secure_zero(mac, sizeof(mac));
+    noxtls_secure_zero(computed_mac, sizeof(computed_mac));
+        
     /* Update sequence number */
     if((tls12_is_dtls_context(ctx) == 0)) {
         if(ctx->base.base.role == TLS_ROLE_CLIENT) {
@@ -1521,6 +1476,50 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
     }
     
     return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
+ * @brief Decrypt a TLS 1.2 record into a separate output buffer (compatibility wrapper).
+ *
+ * The record is copied into @p plaintext when it is large enough (else into a temporary
+ * buffer), opened there with noxtls_tls12_open_record() and the plaintext moved to the front.
+ */
+noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
+                                      uint8_t type,
+                                      const uint8_t *encrypted_record,
+                                      uint32_t encrypted_record_len,
+                                      uint8_t *plaintext,
+                                      uint32_t *plaintext_len)
+{
+    uint8_t *work = NULL;
+    uint8_t owned = 0U;
+    uint32_t off = 0U;
+    uint32_t len = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+
+    if((ctx == NULL) || (encrypted_record == NULL) || (plaintext == NULL) || (plaintext_len == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(*plaintext_len >= encrypted_record_len) {
+        work = plaintext;
+    } else {
+        work = (uint8_t *)NOXTLS_MALLOC((encrypted_record_len == 0U) ? 1U : encrypted_record_len);
+        if(work == NULL) {
+            return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+        }
+        owned = 1U;
+    }
+    noxtls_move_u8(work, (size_t)encrypted_record_len, encrypted_record, (size_t)encrypted_record_len);
+    rc = noxtls_tls12_open_record(ctx, type, work, encrypted_record_len, *plaintext_len, &off, &len);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        noxtls_move_u8(plaintext, (size_t)len, &work[off], (size_t)len);
+    }
+    *plaintext_len = len;
+    if(owned != 0U) {
+        noxtls_secure_zero(work, (size_t)encrypted_record_len);
+        (void)noxtls_free(work);
+    }
+    return rc;
 }
 
 /**
@@ -1559,6 +1558,7 @@ static void tls13_generate_nonce(uint8_t *nonce, const uint8_t *write_iv, uint32
  */
 static int32_t tls12_is_dtls_context(const tls12_context_t *ctx) { return (((ctx != NULL) && (ctx->base.base.version == DTLS_VERSION_1_2)) ? 1 : 0); }
 
+#if NOXTLS_FEATURE_DTLS
 /**
  * @brief DTLS 1.2 write sequence number for the MAC / AEAD input.
  *
@@ -1585,6 +1585,7 @@ static uint64_t tls12_dtls_read_seq64(const tls12_context_t *ctx)
 {
     return (((uint64_t)ctx->base.read_epoch) << 48U) | (ctx->base.read_seq_num & DTLS_SEQ_NUM_MASK);
 }
+#endif /* NOXTLS_FEATURE_DTLS */
 
 /**
  * @brief Check if the context is a DTLS 1.3 context
@@ -1594,6 +1595,7 @@ static uint64_t tls12_dtls_read_seq64(const tls12_context_t *ctx)
  */
 static int32_t tls13_is_dtls_context(const tls13_context_t *ctx) { return (((ctx != NULL) && (ctx->base.base.version == DTLS_VERSION_1_3)) ? 1 : 0); }
 
+#if NOXTLS_FEATURE_DTLS
 /**
  * @brief Check if the connection ID matches or promotes the context
  *
@@ -1732,6 +1734,7 @@ static uint64_t dtls13_reconstruct_record_number(const dtls_context_t *ctx, uint
      }
     return candidate;
 }
+#endif /* NOXTLS_FEATURE_DTLS */
 
 /**
  * @brief Get the record cipher parameters
@@ -1842,12 +1845,20 @@ noxtls_return_t noxtls_tls13_encrypt_record(tls13_context_t *ctx,
         write_key = ctx->client_write_key;
         write_iv = ctx->client_write_iv;
         iv_len = 12U;
+#if NOXTLS_FEATURE_DTLS
         seq_num = (tls13_is_dtls_context(ctx) != 0) ? ctx->base.write_seq_num : ctx->client_seq_num;
+#else
+        seq_num = ctx->client_seq_num;
+#endif
     } else {
         write_key = ctx->server_write_key;
         write_iv = ctx->server_write_iv;
         iv_len = 12U;
+#if NOXTLS_FEATURE_DTLS
         seq_num = (tls13_is_dtls_context(ctx) != 0) ? ctx->base.write_seq_num : ctx->server_seq_num;
+#else
+        seq_num = ctx->server_seq_num;
+#endif
     }
 
     /* SECURITY (NX-09): refuse to encrypt once the record sequence number is
@@ -1942,6 +1953,7 @@ noxtls_return_t noxtls_tls13_encrypt_record(tls13_context_t *ctx,
 /* Unified header worst case: 1 flags + 2 seq + 2 length + 255 CID (RFC 9146/9147 CID length is 0..255). */
 #define DTLS13_MAX_HEADER_LEN  (1U + 2U + 2U + 255U)
 
+#if NOXTLS_FEATURE_DTLS
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 /**
  * @brief Send one DTLS 1.3 encrypted record (DTLSCiphertext with unified header + record number encryption).
@@ -2042,7 +2054,7 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
     write_key = (ctx->base.base.role == TLS_ROLE_CLIENT) ? ctx->client_write_key : ctx->server_write_key;
     write_iv  = (ctx->base.base.role == TLS_ROLE_CLIENT) ? ctx->client_write_iv  : ctx->server_write_iv;
     if(epoch == (uint16_t)DTLS13_EPOCH_HANDSHAKE) {
-        sn_key = (ctx->base.base.role == TLS_ROLE_CLIENT) ? ctx->client_handshake_sn_key : ctx->server_handshake_sn_key;
+        sn_key = (ctx->base.base.role == TLS_ROLE_CLIENT) ? ctx->hs->client_handshake_sn_key : ctx->hs->server_handshake_sn_key;
     } else {
         sn_key = (ctx->base.base.role == TLS_ROLE_CLIENT) ? ctx->client_sn_key : ctx->server_sn_key;
     }
@@ -2204,6 +2216,7 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
     }
     return NOXTLS_RETURN_SUCCESS;
 }
+#endif /* NOXTLS_FEATURE_DTLS */
 
 /**
  * @brief RFC 9147: Return byte length of the first DTLSCiphertext record in raw (for multiple records per datagram).
@@ -2273,6 +2286,7 @@ uint32_t noxtls_tls13_dtls13_record_size(const uint8_t *raw, uint32_t raw_len, u
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_FAILED on failure
  */
 
+#if NOXTLS_FEATURE_DTLS
 noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
                                        const uint8_t *raw, uint32_t raw_len,
                                        uint8_t *out_content_type, uint8_t *out_plaintext, uint32_t *out_plaintext_len)
@@ -2389,11 +2403,11 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
     if(ctx->base.base.role == TLS_ROLE_CLIENT) {
         read_key = ctx->server_write_key;
         read_iv  = ctx->server_write_iv;
-        sn_key   = (use_handshake != 0U) ? ctx->server_handshake_sn_key : ctx->server_sn_key;
+        sn_key   = (use_handshake != 0U) ? ctx->hs->server_handshake_sn_key : ctx->server_sn_key;
     } else {
         read_key = ctx->client_write_key;
         read_iv  = ctx->client_write_iv;
-        sn_key   = (use_handshake != 0U) ? ctx->client_handshake_sn_key : ctx->client_sn_key;
+        sn_key   = (use_handshake != 0U) ? ctx->hs->client_handshake_sn_key : ctx->client_sn_key;
     }
 
     if(tls13_get_record_cipher_params(ctx->cipher_suite, &use_aes_gcm, &use_aes_ccm, &use_chacha, &aes_type, &tag_len) != NOXTLS_RETURN_SUCCESS) {
@@ -2462,7 +2476,7 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
         const uint32_t secret_len = sha384 ? 48U : 32U;
         const uint32_t key_len = (sha384 || use_chacha != 0U) ? 32U : 16U;
         const uint8_t *secret = ctx->base.base.role == TLS_ROLE_CLIENT ?
-            ctx->server_handshake_traffic_secret : ctx->client_handshake_traffic_secret;
+            ctx->hs->server_handshake_traffic_secret : ctx->hs->client_handshake_traffic_secret;
         noxtls_return_t derive_rc = dtls13_hkdf_expand_label(hash, secret, secret_len,
             (const uint8_t *)"key", 3U, NULL, 0U, handshake_read_key, key_len);
         if(derive_rc == NOXTLS_RETURN_SUCCESS) {
@@ -2542,6 +2556,7 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
     ctx->base.read_seq_num = full_seq + 1U;
     return NOXTLS_RETURN_SUCCESS;
 }
+#endif /* NOXTLS_FEATURE_DTLS */
 
 /**
  * @brief Encrypt TLS 1.3 0-RTT (early data) record using early_write_key/iv/seq.
@@ -2574,10 +2589,13 @@ noxtls_return_t noxtls_tls13_encrypt_record_early(tls13_context_t *ctx,
     if((ctx == NULL) || (plaintext == NULL) || (encrypted_record == NULL) || (encrypted_record_len == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
+    if(ctx->hs == NULL) {
+        return NOXTLS_RETURN_FAILED;  /* Early traffic keys exist only during the handshake. */
+    }
 
-    write_key = ctx->early_write_key;
-    write_iv = ctx->early_write_iv;
-    seq_num = ctx->early_seq_num;
+    write_key = ctx->hs->early_write_key;
+    write_iv = ctx->hs->early_write_iv;
+    seq_num = ctx->hs->early_seq_num;
     tls13_generate_nonce(nonce, write_iv, 12U, seq_num);
 
     if(tls13_get_record_cipher_params(cipher_suite, &use_aes_gcm, &use_aes_ccm, &use_chacha, &aes_type, &tag_len) != NOXTLS_RETURN_SUCCESS) {
@@ -2635,7 +2653,7 @@ noxtls_return_t noxtls_tls13_encrypt_record_early(tls13_context_t *ctx,
 
     noxtls_copy_u8(&encrypted_record[plaintext_len], (size_t)(*encrypted_record_len), tag, (size_t)(tag_len));
     *encrypted_record_len = record_len;
-    ctx->early_seq_num += 1U;
+    ctx->hs->early_seq_num += 1U;
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -2669,9 +2687,12 @@ noxtls_return_t noxtls_tls13_decrypt_record_early(tls13_context_t *ctx,
     if(encrypted_record_len < 8U) {
         return NOXTLS_RETURN_BAD_DATA;
     }
-    write_key = ctx->early_write_key;
-    write_iv = ctx->early_write_iv;
-    seq_num = ctx->early_seq_num;
+    if(ctx->hs == NULL) {
+        return NOXTLS_RETURN_FAILED;  /* Early traffic keys exist only during the handshake. */
+    }
+    write_key = ctx->hs->early_write_key;
+    write_iv = ctx->hs->early_write_iv;
+    seq_num = ctx->hs->early_seq_num;
     tls13_generate_nonce(nonce, write_iv, 12U, seq_num);
     aad[0] = TLS_RECORD_APPLICATION_DATA;
     aad[1] = (uint8_t)(((uint32_t)ctx->base.base.version >> 8U) & 0xFFU);
@@ -2722,7 +2743,7 @@ noxtls_return_t noxtls_tls13_decrypt_record_early(tls13_context_t *ctx,
         return NOXTLS_RETURN_BAD_DATA;
     }
     *plaintext_len = ciphertext_len;
-    ctx->early_seq_num += 1U;
+    ctx->hs->early_seq_num += 1U;
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -2772,12 +2793,20 @@ noxtls_return_t noxtls_tls13_decrypt_record(tls13_context_t *ctx,
         write_key = ctx->server_write_key;  /* Receive from server */
         write_iv = ctx->server_write_iv;
         iv_len = 12U;
+#if NOXTLS_FEATURE_DTLS
         seq_num = (tls13_is_dtls_context(ctx) != 0) ? ctx->base.read_seq_num : ctx->server_seq_num;
+#else
+        seq_num = ctx->server_seq_num;
+#endif
     } else {
         write_key = ctx->client_write_key;  /* Receive from client */
         write_iv = ctx->client_write_iv;
         iv_len = 12U;
+#if NOXTLS_FEATURE_DTLS
         seq_num = (tls13_is_dtls_context(ctx) != 0) ? ctx->base.read_seq_num : ctx->client_seq_num;
+#else
+        seq_num = ctx->client_seq_num;
+#endif
     }
     
     if(tls13_get_record_cipher_params(ctx->cipher_suite, &use_aes_gcm, &use_aes_ccm, &use_chacha, &aes_type, &tag_len) != NOXTLS_RETURN_SUCCESS) {

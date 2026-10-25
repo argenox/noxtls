@@ -1,0 +1,154 @@
+name: ARM + post-quantum tests
+
+# Cross-builds NoxTLS for Cortex-M and RISC-V (static libraries), runs the PQ
+# and classic known-answer suites as semihosting images under QEMU (Cortex-M3,
+# M4, M7 and M33 on the mps2 boards; RV32 and RV64 on "virt"), checks that the
+# PQ sources compile warning-free for several cores, and runs the host PQ
+# suites with clang source-based coverage.
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  arm-qemu:
+    name: QEMU ${{ matrix.cpu }} (${{ matrix.features }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - cpu: m4
+            features: pq
+          - cpu: m4
+            features: default
+          - cpu: m33
+            features: pq
+          - cpu: m7
+            features: pq
+          - cpu: m3
+            features: default
+          - cpu: rv32
+            features: pq
+          - cpu: rv32
+            features: default
+          - cpu: rv64
+            features: pq
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install RISC-V toolchain and QEMU
+        if: ${{ startsWith(matrix.cpu, 'rv') }}
+        uses: ./.github/actions/riscv-toolchain
+        with:
+          qemu: true
+
+      - name: Install Arm toolchain and QEMU
+        if: ${{ !startsWith(matrix.cpu, 'rv') }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-arm-none-eabi libnewlib-arm-none-eabi qemu-system-arm cmake ninja-build
+          arm-none-eabi-gcc --version | head -1
+          qemu-system-arm --version | head -1
+
+      - name: Cross-build and run under QEMU
+        run: |
+          bash scripts/run_arm_tests.sh --cpu "${{ matrix.cpu }}" --features "${{ matrix.features }}" \
+            --build-dir "build-arm-${{ matrix.cpu }}-${{ matrix.features }}" --jobs 4
+
+      - name: Upload test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arm-qemu-${{ matrix.cpu }}-${{ matrix.features }}
+          path: |
+            build-arm-${{ matrix.cpu }}-${{ matrix.features }}/arm-test.log
+            build-arm-${{ matrix.cpu }}-${{ matrix.features }}/*.map
+          if-no-files-found: ignore
+
+  arm-pq-warnings:
+    name: PQ -Wall -Wextra (${{ matrix.toolchain }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [arm-none-eabi-cortex-m0plus, arm-none-eabi-cortex-m4, arm-none-eabi-cortex-m33,
+                    riscv-none-elf-rv32imac, riscv-none-elf-rv64imac]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install RISC-V toolchain
+        if: ${{ startsWith(matrix.toolchain, 'riscv') }}
+        uses: ./.github/actions/riscv-toolchain
+
+      - name: Install Arm toolchain
+        if: ${{ startsWith(matrix.toolchain, 'arm') }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi libnewlib-arm-none-eabi cmake ninja-build
+
+      - name: Cross-build the library with PQ enabled
+        run: |
+          cmake -S . -B build-lib -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/${{ matrix.toolchain }}.cmake \
+            -DCMAKE_BUILD_TYPE=MinSizeRel -DBUILD_TESTS=OFF -DBUILD_APPLICATIONS=OFF \
+            "-DCMAKE_C_FLAGS=-Wall -Wextra -fstack-usage" \
+            -DNOXTLS_CFG_FEATURE_ML_KEM=ON -DNOXTLS_CFG_FEATURE_ML_DSA=ON -DNOXTLS_CFG_FEATURE_FALCON=ON \
+            -DNOXTLS_CFG_FEATURE_SLH_DSA=ON -DNOXTLS_CFG_FEATURE_LMS_HSS=ON -DNOXTLS_CFG_FEATURE_XMSS=ON
+          cmake --build build-lib -j 4 2>&1 | tee build-lib.log
+
+      - name: Require zero warnings in the PQ sources
+        run: |
+          if grep -E 'pkc/(mlkem|mldsa|falcon|slhdsa|lms|xmss)/[^:]*:[0-9]+:[0-9]+: warning:' build-lib.log; then
+            echo "::error::warnings in post-quantum sources"
+            exit 1
+          fi
+
+      - name: Largest PQ stack frames
+        run: |
+          find build-lib -name '*.su' -path '*pkc*' | xargs cat \
+            | grep -E 'mlkem|mldsa|falcon|slhdsa|lms|xmss' | sort -t$'\t' -k2 -rn | head -20
+
+  host-pq-coverage:
+    name: Host PQ tests + coverage
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install clang/LLVM
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang llvm cmake ninja-build python3
+
+      - name: Host build with PQ ON and ctest (pq label)
+        run: |
+          cmake -S . -B build-host-pq -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTS=ON -DBUILD_APPLICATIONS=OFF \
+            -DNOXTLS_CFG_FEATURE_ML_KEM=ON -DNOXTLS_CFG_FEATURE_ML_DSA=ON -DNOXTLS_CFG_FEATURE_FALCON=ON \
+            -DNOXTLS_CFG_FEATURE_SLH_DSA=ON -DNOXTLS_CFG_FEATURE_LMS_HSS=ON -DNOXTLS_CFG_FEATURE_XMSS=ON
+          cmake --build build-host-pq -j 4
+          ctest --test-dir build-host-pq -L pq --output-on-failure
+
+      - name: Coverage (pkc/mlkem, pkc/mldsa, pkc/falcon, pkc/lms, pkc/xmss >= 85% lines)
+        run: |
+          CC=clang bash scripts/pq_coverage.sh --build-dir build-pq-coverage --all --min-lines 85 --html pq-coverage-html
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pq-coverage
+          path: |
+            pq-coverage-html
+            build-pq-coverage/profiles/report.txt
+          if-no-files-found: ignore

@@ -62,7 +62,9 @@ extern "C" {
 #define X509_RSA_MODULUS_BYTES_2048  256U
 #define X509_RSA_MODULUS_BYTES_3072  384U
 #define X509_RSA_MODULUS_BYTES_4096  512U
-/* Parsed extensions: Subject Alternative Name (SAN) */
+/* Legacy SAN table limits. The parser no longer stores SAN tables (entries are read from the DER
+ * with noxtls_x509_san_iter_next() / noxtls_x509_certificate_get_san(), without a count or length
+ * cap); these values are kept only for source compatibility. */
 #define X509_SAN_DNS_MAX          8U
 #define X509_SAN_DNS_LEN          256U
 #define X509_SAN_EMAIL_MAX        4U
@@ -116,123 +118,142 @@ typedef uint32_t noxtls_x509_verify_flags_t;
 /** At least one supplied CRL matched an issuer DN and was evaluated (signature/time/revocation). */
 #define NOXTLS_X509_VERIFY_FLAG_CRL_USED           (1U << 4)
 
-/* X.509 Certificate Structure */
+/** Bits of x509_certificate_t::validity_flags. */
+#define X509_VALIDITY_NOT_BEFORE_PRESENT  0x01U  /**< notBefore was found (not_before_time is meaningful unless _BAD). */
+#define X509_VALIDITY_NOT_AFTER_PRESENT   0x02U  /**< notAfter was found. */
+#define X509_VALIDITY_NOT_BEFORE_BAD      0x04U  /**< notBefore is present but not a valid UTCTime/GeneralizedTime. */
+#define X509_VALIDITY_NOT_AFTER_BAD       0x08U  /**< notAfter is present but not a valid UTCTime/GeneralizedTime. */
+
+/**
+ * X.509 certificate (zero-copy view).
+ *
+ * Every pointer member points into the certificate DER held in @ref raw_data; nothing else is
+ * allocated. After noxtls_x509_certificate_parse_der() / _pem() / _load_file() the DER is a heap
+ * copy owned by the structure (@ref raw_data_owned != NULL) and released by
+ * noxtls_x509_certificate_free(). After noxtls_x509_certificate_parse_der_nocopy() the DER is
+ * borrowed: the caller must keep it unchanged and alive until the certificate is freed (flash
+ * resident CAs, TLS message buffers during verification).
+ *
+ * Lengths of the variable-size fields are given by the matching *_len member. The structure is
+ * read-only for applications: prefer the noxtls_x509_certificate_get_*() accessors, which keep
+ * working when the layout changes. Do not copy the structure by value and free both copies.
+ *
+ * Layout change (memory reduction): the former fixed arrays (serial, OIDs, issuer/subject DER,
+ * issuer_dn/subject_dn text, public_key[2048], Ed25519/Ed448/PQ key copies, SAN name tables) are
+ * now pointers into @ref raw_data; issuer_dn/subject_dn text is rendered on demand with
+ * noxtls_x509_certificate_get_issuer_dn() / _get_subject_dn(); notBefore/notAfter are parsed
+ * once into seconds since the Unix epoch (not_before_time / not_after_time, raw strings via
+ * noxtls_x509_certificate_get_validity_raw()); SAN entries are read with the noxtls_x509_san_iter_*()
+ * iterator or noxtls_x509_certificate_get_san().
+ */
 NOXTLS_MSVC_WARNING_PUSH
 NOXTLS_MSVC_DISABLE_PADDING
 typedef struct
 {
-    /* Certificate version */
-    uint8_t version;  /* 0 = v1, 1 = v2, 2 = v3 */
+    /* Validity, seconds since the Unix epoch (see validity_flags). First for alignment. */
+    int64_t not_before_time;
+    int64_t not_after_time;
 
-    /* Serial number */
-    uint8_t serial_number[X509_MAX_SERIAL_SIZE];
-    uint32_t serial_number_len;
-
-    /* Signature algorithm OID */
-    uint8_t signature_algorithm_oid[32];
-    uint32_t signature_algorithm_oid_len;
-
-    /* Issuer */
-    uint8_t issuer[X509_MAX_ISSUER_SIZE];
-    uint32_t issuer_len;
-    uint8_t issuer_dn[256];  /* Human-readable Distinguished Name */
-
-    /* Validity */
-    uint8_t not_before[15];  /* ASN.1 GeneralizedTime or UTCTime */
-    uint8_t not_after[15];
-
-    /* Subject */
-    uint8_t subject[X509_MAX_SUBJECT_SIZE];
-    uint32_t subject_len;
-    uint8_t subject_dn[256];  /* Human-readable Distinguished Name */
-
-    /* Subject Public Key Info */
-    uint8_t public_key_algorithm_oid[32];
-    uint32_t public_key_algorithm_oid_len;
-    uint8_t public_key[X509_MAX_PUBLIC_KEY_SIZE];
-    uint32_t public_key_len;
-
-    /* RSA Public Key (if RSA) */
-    uint8_t *rsa_modulus;
-    uint32_t rsa_modulus_len;
-    uint8_t *rsa_exponent;
-    uint32_t rsa_exponent_len;
-
-    /* ECC Public Key (if ECC) */
-    uint8_t *ecc_public_key;
-    uint32_t ecc_public_key_len;
-    uint8_t ecc_curve_oid[32];
-    uint32_t ecc_curve_oid_len;
-
-    /* Ed25519 Public Key (if Ed25519, OID 1.3.101.112) */
-    uint8_t ed25519_public_key[32];
-    uint8_t has_ed25519;  /* 1 if subject public key is Ed25519 */
-
-    /* Ed448 Public Key (if Ed448, OID 1.3.101.113 id-Ed448) */
-    uint8_t ed448_public_key[57];
-    uint8_t has_ed448;
-
-    /* ML-DSA public key (if present; private-use parser support for PQ cert experiments). */
-    uint8_t mldsa_public_key[NOXTLS_MLDSA_MAX_PUBLIC_KEY_LEN];
-    uint32_t mldsa_public_key_len;
-    noxtls_mldsa_param_t mldsa_param;
-    uint8_t has_mldsa;
-
-    /* SLH-DSA public key (if present; private-use parser support for PQ cert experiments). */
-    uint8_t slhdsa_public_key[NOXTLS_SLHDSA_MAX_PUBLIC_KEY_LEN];
-    uint32_t slhdsa_public_key_len;
-    noxtls_slhdsa_param_t slhdsa_param;
-    uint8_t has_slhdsa;
-
-    /* FALCON public key (if present; private-use parser support for PQ cert experiments). */
-    uint8_t falcon_public_key[NOXTLS_FALCON_MAX_PUBLIC_KEY_LEN];
-    uint32_t falcon_public_key_len;
-    noxtls_falcon_param_t falcon_param;
-    uint8_t has_falcon;
-
-    /* Extensions (v3) */
-    uint8_t *extensions;
-    uint32_t extensions_len;
-    /* Parsed: Subject Alternative Name. A dNSName containing a NUL octet is stored as an empty
-     * string: it counts as present (disables the CN fallback in
-     * noxtls_x509_certificate_matches_hostname) but never matches a hostname. */
-    uint8_t san_dns_count;
-    uint8_t san_dns_names[X509_SAN_DNS_MAX][X509_SAN_DNS_LEN];
-    uint8_t san_email_count;
-    uint8_t san_emails[X509_SAN_EMAIL_MAX][X509_SAN_EMAIL_LEN];
-    uint8_t san_uri_count;
-    uint8_t san_uris[X509_SAN_URI_MAX][X509_SAN_URI_LEN];
-    uint8_t san_ip_count;
-    uint8_t san_ip_len[X509_SAN_IP_MAX];  /* 4 or 16 */
-    uint8_t san_ips[X509_SAN_IP_MAX][X509_SAN_IP_BYTES];
-    /* Parsed: Key Usage (bitmask, X509_KEY_USAGE_*); 0 = not present */
-    uint16_t key_usage_bits;
-    /* Parsed: Extended Key Usage (X509_EKU_*); 0 = not present */
-    uint32_t ext_key_usage_bits;
-    /* Parsed: Basic Constraints */
-    int basic_constraints_ca;           /* 0 = not CA, 1 = CA, -1 = extension absent */
-    int basic_constraints_path_len;     /* pathLenConstraint or X509_BC_PATH_LEN_ABSENT */
-    /* Parsed: Authority Key Identifier (keyIdentifier octets) */
-    uint8_t authority_key_id[X509_KEY_ID_MAX_LEN];
-    uint8_t authority_key_id_len;       /* 0 = absent */
-    /* Parsed: Subject Key Identifier */
-    uint8_t subject_key_id[X509_KEY_ID_MAX_LEN];
-    uint8_t subject_key_id_len;        /* 0 = absent */
-
-    /* Signature */
-    uint8_t *signature;
-    uint32_t signature_len;
-
-    /* Raw certificate data */
-    uint8_t *raw_data;
+    /* Raw certificate data (complete Certificate SEQUENCE TLV). */
+    const uint8_t *raw_data;
     uint32_t raw_data_len;
+    /** Heap buffer owned by this structure (== raw_data), or NULL when raw_data is borrowed. */
+    uint8_t *raw_data_owned;
 
-    /* TBSCertificate (the part that's signed) */
-    uint8_t *tbs_certificate;
+    /* TBSCertificate TLV (the signed bytes). */
+    const uint8_t *tbs_certificate;
     uint32_t tbs_certificate_len;
 
+    /* Serial number INTEGER contents (serial_number_len octets, at most X509_MAX_SERIAL_SIZE). */
+    const uint8_t *serial_number;
+    /* Outer signatureAlgorithm OID contents. */
+    const uint8_t *signature_algorithm_oid;
+    /* Issuer / subject Name: SEQUENCE contents (RDNSequence without the outer tag/length). */
+    const uint8_t *issuer;
+    const uint8_t *subject;
+
+    /* Subject Public Key Info */
+    const uint8_t *public_key_algorithm_oid;  /* AlgorithmIdentifier OID contents */
+    const uint8_t *ecc_curve_oid;             /* id-ecPublicKey namedCurve OID contents, or NULL */
+    const uint8_t *public_key;                /* subjectPublicKey BIT STRING contents after the unused-bits octet */
+    uint32_t public_key_len;
+
+    /* RSA public key (if RSA): INTEGER contents (may carry a leading 0x00). */
+    const uint8_t *rsa_modulus;
+    uint32_t rsa_modulus_len;
+    const uint8_t *rsa_exponent;
+    uint32_t rsa_exponent_len;
+
+    /* ECC public key (if id-ecPublicKey): uncompressed point 0x04 || X || Y, validated at parse. */
+    const uint8_t *ecc_public_key;
+    uint32_t ecc_public_key_len;
+
+    /* Ed25519 (32 bytes, OID 1.3.101.112) / Ed448 (57 bytes, OID 1.3.101.113) raw public key. */
+    const uint8_t *ed25519_public_key;
+    const uint8_t *ed448_public_key;
+
+#if NOXTLS_FEATURE_ML_DSA
+    /* ML-DSA public key (public_key_len bytes; private-use parser support for PQ cert experiments). */
+    const uint8_t *mldsa_public_key;
+    noxtls_mldsa_param_t mldsa_param;
+#endif
+#if NOXTLS_FEATURE_SLH_DSA
+    /* SLH-DSA public key (public_key_len bytes). */
+    const uint8_t *slhdsa_public_key;
+    noxtls_slhdsa_param_t slhdsa_param;
+#endif
+#if NOXTLS_FEATURE_FALCON
+    /* FALCON public key (public_key_len bytes). */
+    const uint8_t *falcon_public_key;
+    noxtls_falcon_param_t falcon_param;
+#endif
+
+    /* Extensions (v3): Extensions SEQUENCE TLV inside the [3] wrapper, or NULL. */
+    const uint8_t *extensions;
+    uint32_t extensions_len;
+    /* Parsed: Authority / Subject Key Identifier octets (at most X509_KEY_ID_MAX_LEN), or NULL. */
+    const uint8_t *authority_key_id;
+    const uint8_t *subject_key_id;
+
+    /* Signature value (BIT STRING contents after the unused-bits octet). */
+    const uint8_t *signature;
+    uint32_t signature_len;
+
+    /* Parsed: Extended Key Usage (X509_EKU_*); 0 = not present */
+    uint32_t ext_key_usage_bits;
+    /* Parsed: Basic Constraints pathLenConstraint (values above 32767 are stored as 32767, which
+     * exceeds any verifiable depth) or X509_BC_PATH_LEN_ABSENT */
+    int16_t basic_constraints_path_len;
+
+    uint16_t issuer_len;
+    uint16_t subject_len;
+    /* Parsed: Key Usage (bitmask, X509_KEY_USAGE_*); 0 = not present */
+    uint16_t key_usage_bits;
+    uint8_t serial_number_len;
+    uint8_t signature_algorithm_oid_len;
+    uint8_t public_key_algorithm_oid_len;
+    uint8_t ecc_curve_oid_len;
+    uint8_t authority_key_id_len;       /* 0 = absent */
+    uint8_t subject_key_id_len;         /* 0 = absent */
+
+    /* Certificate version: 0 = v1, 1 = v2, 2 = v3 */
+    uint8_t version;
+    /* Parsed: Basic Constraints cA: 0 = not CA, 1 = CA, -1 = extension absent */
+    int8_t basic_constraints_ca;
+    /* Number of non-empty SAN dNSName entries (saturates at 255). A dNSName containing a NUL
+     * octet counts as present (disables the CN fallback in noxtls_x509_certificate_matches_hostname)
+     * but never matches a hostname. */
+    uint8_t san_dns_count;
+    /* X509_VALIDITY_* bits */
+    uint8_t validity_flags;
+    uint8_t has_ed25519;  /* 1 if subject public key is Ed25519 */
+    uint8_t has_ed448;    /* 1 if subject public key is Ed448 */
+    uint8_t has_mldsa;
+    uint8_t has_slhdsa;
+    uint8_t has_falcon;
+
     /* Parsed flag */
-    int parsed;
+    uint8_t parsed;
 } x509_certificate_t;
 NOXTLS_MSVC_WARNING_POP
 
@@ -253,25 +274,40 @@ NOXTLS_MSVC_WARNING_POP
 #include "certs/noxtls_x509_crl_fwd.h"
 NOXTLS_MSVC_WARNING_PUSH
 NOXTLS_MSVC_DISABLE_PADDING
+/** Bits of noxtls_x509_crl_t::time_flags. */
+#define X509_CRL_THIS_UPDATE_BAD  0x01U  /**< thisUpdate is not a valid UTCTime/GeneralizedTime. */
+#define X509_CRL_NEXT_UPDATE_BAD  0x02U  /**< nextUpdate is present but not valid. */
+
+/*
+ * Zero-copy CRL: every pointer refers into raw_data (owned copy after
+ * noxtls_x509_crl_parse_der(), borrowed after noxtls_x509_crl_parse_der_nocopy()).
+ * The revoked serial numbers are not copied into a table: revokedCertificates is
+ * validated at parse time and scanned in place by noxtls_x509_crl_serial_is_revoked()
+ * / noxtls_x509_crl_get_revoked_serial(). Removed members: issuer_dn (render with
+ * noxtls_x509_parse_distinguished_name(issuer, issuer_len, ...)), this_update /
+ * next_update strings (now this_update_time / next_update_time), revoked_serials /
+ * revoked_serial_lens (use noxtls_x509_crl_get_revoked_serial()).
+ */
 struct noxtls_x509_crl
 {
-    uint8_t issuer[X509_MAX_ISSUER_SIZE];
-    uint32_t issuer_len;
-    uint8_t issuer_dn[256];
-    uint8_t this_update[16];
-    uint8_t next_update[16];
-    uint8_t has_next_update;
-    uint8_t signature_algorithm_oid[32];
-    uint32_t signature_algorithm_oid_len;
-    uint8_t *signature;
-    uint32_t signature_len;
-    uint8_t *tbs_crl;
-    uint32_t tbs_crl_len;
-    uint8_t *raw_data;
+    int64_t this_update_time;               /**< thisUpdate, seconds since the Unix epoch */
+    int64_t next_update_time;               /**< nextUpdate (valid when has_next_update) */
+    const uint8_t *raw_data;                /**< Complete CertificateList DER */
     uint32_t raw_data_len;
-    uint8_t *revoked_serials;
-    uint32_t *revoked_serial_lens;
+    uint8_t *raw_data_owned;                /**< Heap copy owned by the CRL, or NULL when borrowed */
+    const uint8_t *issuer;                  /**< Issuer Name SEQUENCE contents */
+    uint32_t issuer_len;
+    const uint8_t *signature_algorithm_oid; /**< TBSCertList signature OID contents */
+    uint32_t signature_algorithm_oid_len;
+    const uint8_t *signature;               /**< Signature BIT STRING contents after the unused-bits octet */
+    uint32_t signature_len;
+    const uint8_t *tbs_crl;                 /**< TBSCertList TLV (signed bytes) */
+    uint32_t tbs_crl_len;
+    const uint8_t *revoked_list;            /**< revokedCertificates SEQUENCE contents, or NULL */
+    uint32_t revoked_list_len;
     uint32_t revoked_count;
+    uint8_t has_next_update;
+    uint8_t time_flags;                     /**< X509_CRL_*_BAD bits */
     int parsed;
     struct noxtls_x509_crl *next;
 };
@@ -280,7 +316,13 @@ NOXTLS_MSVC_WARNING_POP
 noxtls_return_t noxtls_x509_crl_init(noxtls_x509_crl_t *crl);
 /** Free this CRL and any linked CRLs in \p next. */
 void noxtls_x509_crl_free(noxtls_x509_crl_t *crl);
+/** Parse a DER CRL (one heap copy of the DER, at most X509_MAX_CRL_SIZE bytes; no other allocation). */
 noxtls_return_t noxtls_x509_crl_parse_der(noxtls_x509_crl_t *crl, const uint8_t *data, uint32_t len);
+/** Parse a DER CRL without copying it: @p data must outlive the CRL (no heap). */
+noxtls_return_t noxtls_x509_crl_parse_der_nocopy(noxtls_x509_crl_t *crl, const uint8_t *data, uint32_t len);
+/** The @p index-th revoked serial number (INTEGER contents, in CRL order). */
+noxtls_return_t noxtls_x509_crl_get_revoked_serial(const noxtls_x509_crl_t *crl, uint32_t index,
+                                                   const uint8_t **serial, uint32_t *serial_len);
 noxtls_return_t noxtls_x509_crl_parse_pem(noxtls_x509_crl_t *crl, const uint8_t *data, uint32_t len);
 noxtls_return_t noxtls_x509_crl_load_file(noxtls_x509_crl_t *crl, const uint8_t *filename);
 
@@ -331,15 +373,125 @@ noxtls_return_t noxtls_x509_certificate_check_validity(const x509_certificate_t 
 noxtls_return_t noxtls_x509_certificate_get_public_key(const x509_certificate_t *cert, void **key, uint32_t *key_type);
 noxtls_return_t x509_certificate_get_public_key(const x509_certificate_t *cert, void **key, uint32_t *key_type);
 
+/**
+ * Parse a DER certificate without copying it (borrow mode).
+ * Same checks as noxtls_x509_certificate_parse_der(), but @p data is referenced instead of copied:
+ * it must stay valid and unchanged until noxtls_x509_certificate_free() (flash-resident CAs, TLS
+ * handshake buffers). No heap is used.
+ */
+noxtls_return_t noxtls_x509_certificate_parse_der_nocopy(x509_certificate_t *cert, const uint8_t *data, uint32_t len);
+
+/* ---- Accessors (zero-copy views into the certificate DER; valid while the certificate is) ---- */
+/** Complete certificate DER. */
+noxtls_return_t noxtls_x509_certificate_get_der(const x509_certificate_t *cert, const uint8_t **der, uint32_t *der_len);
+/** TBSCertificate TLV (the signed bytes). */
+noxtls_return_t noxtls_x509_certificate_get_tbs(const x509_certificate_t *cert, const uint8_t **tbs, uint32_t *tbs_len);
+/** Serial number INTEGER contents. */
+noxtls_return_t noxtls_x509_certificate_get_serial(const x509_certificate_t *cert, const uint8_t **serial, uint32_t *serial_len);
+/** Issuer Name as DER RDNSequence contents (no outer SEQUENCE header). */
+noxtls_return_t noxtls_x509_certificate_get_issuer_der(const x509_certificate_t *cert, const uint8_t **name, uint32_t *name_len);
+/** Subject Name as DER RDNSequence contents (no outer SEQUENCE header). */
+noxtls_return_t noxtls_x509_certificate_get_subject_der(const x509_certificate_t *cert, const uint8_t **name, uint32_t *name_len);
+/**
+ * Render the issuer / subject Name as text ("CN=..., O=...") into @p out (NUL-terminated,
+ * truncated to @p out_size). Formerly the issuer_dn / subject_dn members (256 bytes each).
+ */
+noxtls_return_t noxtls_x509_certificate_get_issuer_dn(const x509_certificate_t *cert, uint8_t *out, uint32_t out_size);
+noxtls_return_t noxtls_x509_certificate_get_subject_dn(const x509_certificate_t *cert, uint8_t *out, uint32_t out_size);
+/**
+ * notBefore / notAfter in seconds since the Unix epoch. Returns NOXTLS_RETURN_BAD_DATA when a time
+ * is present but malformed, NOXTLS_RETURN_FAILED when the certificate has no validity.
+ */
+noxtls_return_t noxtls_x509_certificate_get_validity(const x509_certificate_t *cert, int64_t *not_before, int64_t *not_after);
+/**
+ * notBefore / notAfter raw ASN.1 time contents (UTCTime / GeneralizedTime, not NUL-terminated),
+ * for noxtls_x509_parse_time(). Outputs may be NULL; an absent time yields NULL / 0.
+ */
+noxtls_return_t noxtls_x509_certificate_get_validity_raw(const x509_certificate_t *cert,
+                                                         const uint8_t **not_before, uint32_t *not_before_len,
+                                                         const uint8_t **not_after, uint32_t *not_after_len);
+/** Outer signatureAlgorithm OID contents. */
+noxtls_return_t noxtls_x509_certificate_get_signature_algorithm(const x509_certificate_t *cert, const uint8_t **oid, uint32_t *oid_len);
+/** Signature value (BIT STRING contents after the unused-bits octet). */
+noxtls_return_t noxtls_x509_certificate_get_signature(const x509_certificate_t *cert, const uint8_t **sig, uint32_t *sig_len);
+/**
+ * SubjectPublicKeyInfo: algorithm OID contents and subjectPublicKey bytes (after the
+ * unused-bits octet). Either output pair may be NULL.
+ */
+noxtls_return_t noxtls_x509_certificate_get_public_key_info(const x509_certificate_t *cert,
+                                                            const uint8_t **alg_oid, uint32_t *alg_oid_len,
+                                                            const uint8_t **key, uint32_t *key_len);
+/** Authority / Subject Key Identifier octets; NOXTLS_RETURN_FAILED when absent. */
+noxtls_return_t noxtls_x509_certificate_get_authority_key_id(const x509_certificate_t *cert, const uint8_t **kid, uint32_t *kid_len);
+noxtls_return_t noxtls_x509_certificate_get_subject_key_id(const x509_certificate_t *cert, const uint8_t **kid, uint32_t *kid_len);
+
+/**
+ * Read the SubjectPublicKeyInfo algorithm OID straight from certificate DER with a small ASN.1
+ * walk (no parse, no heap, < 100 bytes of stack). @p oid points into @p der.
+ */
+noxtls_return_t noxtls_x509_der_get_spki_algorithm(const uint8_t *der, uint32_t der_len,
+                                                   const uint8_t **oid, uint32_t *oid_len);
+
+/* ---- Subject Alternative Name iteration (GeneralName choice = context tag number) ---- */
+#define NOXTLS_X509_SAN_OTHER_NAME   0U  /**< otherName [0] (value = constructed contents) */
+#define NOXTLS_X509_SAN_EMAIL        1U  /**< rfc822Name [1] (IA5String bytes) */
+#define NOXTLS_X509_SAN_DNS          2U  /**< dNSName [2] (IA5String bytes) */
+#define NOXTLS_X509_SAN_DIRECTORY    4U  /**< directoryName [4] */
+#define NOXTLS_X509_SAN_URI          6U  /**< uniformResourceIdentifier [6] */
+#define NOXTLS_X509_SAN_IP           7U  /**< iPAddress [7] (4 or 16 octets) */
+#define NOXTLS_X509_SAN_ANY          0xFFU /**< Filter value for noxtls_x509_certificate_san_count() / _get_san(): any type */
+
+/** Iterator over every GeneralName of every subjectAltName extension; never owns memory. */
+typedef struct
+{
+    const uint8_t *ext_next;   /**< Next unread Extension in the Extensions SEQUENCE. */
+    const uint8_t *ext_end;    /**< End of the Extensions SEQUENCE contents. */
+    const uint8_t *gn_next;    /**< Next unread GeneralName of the current SAN extension. */
+    const uint8_t *gn_end;     /**< End of the current GeneralNames SEQUENCE. */
+} noxtls_x509_san_iter_t;
+
+/** Start iterating the SAN entries of a parsed certificate (empty when there is no SAN). */
+noxtls_return_t noxtls_x509_san_iter_init(noxtls_x509_san_iter_t *iter, const x509_certificate_t *cert);
+/**
+ * Return the next GeneralName: @p type is the context tag number (NOXTLS_X509_SAN_*), @p value /
+ * @p value_len the raw contents (not NUL-terminated, may contain any octet). *has_entry is 0 at
+ * the end; a malformed entry ends the iteration.
+ */
+noxtls_return_t noxtls_x509_san_iter_next(noxtls_x509_san_iter_t *iter, uint8_t *type,
+                                          const uint8_t **value, uint32_t *value_len, int *has_entry);
+/** Number of SAN entries of @p type (NOXTLS_X509_SAN_ANY counts all). */
+uint32_t noxtls_x509_certificate_san_count(const x509_certificate_t *cert, uint8_t type);
+/** The @p index-th (0-based) SAN entry of @p type; NOXTLS_RETURN_FAILED when out of range. */
+noxtls_return_t noxtls_x509_certificate_get_san(const x509_certificate_t *cert, uint8_t type, uint32_t index,
+                                                const uint8_t **value, uint32_t *value_len);
+
 /* X.509 Certificate Chain Functions */
+/** Initialize an empty chain. Allocates nothing: slots are allocated by the first add. */
 noxtls_return_t noxtls_x509_certificate_chain_init(x509_certificate_chain_t *chain);
 noxtls_return_t noxtls_x509_certificate_chain_free(x509_certificate_chain_t *chain);
+/**
+ * Append a deep copy of @p cert (re-parsed from its DER into one owned DER copy). The slot array
+ * grows linearly by NOXTLS_X509_CHAIN_INITIAL_CAPACITY slots; a capacity-0 (just initialized)
+ * chain is valid.
+ */
 noxtls_return_t noxtls_x509_certificate_chain_add(x509_certificate_chain_t *chain, const x509_certificate_t *cert);
+/** Grow the slot array to at least @p capacity slots (exact size; use before adding a known count). */
+noxtls_return_t noxtls_x509_certificate_chain_reserve(x509_certificate_chain_t *chain, uint32_t capacity);
+/** Parse DER straight into a new chain slot (one owned DER copy, no temporary certificate). */
+noxtls_return_t noxtls_x509_certificate_chain_add_der(x509_certificate_chain_t *chain, const uint8_t *der, uint32_t der_len);
+/**
+ * Parse DER into a new chain slot in borrow mode (no copy): @p der must outlive the chain
+ * (TLS Certificate message during verification, flash-resident CAs).
+ */
+noxtls_return_t noxtls_x509_certificate_chain_add_der_nocopy(x509_certificate_chain_t *chain, const uint8_t *der, uint32_t der_len);
 noxtls_return_t noxtls_x509_certificate_chain_verify(const x509_certificate_chain_t *chain);
 /**
  * Replace global trust store with a deep copy of provided trust anchors. Pass NULL or empty chain to clear.
  * The caller keeps ownership of @p trust_anchors and may free it right after the call.
- * @note Snapshot lifetime: the store owns exactly one heap copy of the anchors. Each call (and
+ * The copy has exactly trust_anchors->count slots (one allocation of count * sizeof(x509_certificate_t))
+ * plus one owned DER copy per anchor. To avoid the copy see noxtls_x509_trust_store_set_borrowed(),
+ * noxtls_x509_trust_store_set_move() and noxtls_x509_trust_store_set_der_nocopy().
+ * @note Snapshot lifetime: the store owns exactly one copy of the anchors. Each call (and
  *       noxtls_x509_trust_store_clear()) frees the previous copy before installing the new one, so
  *       repeated calls do not grow the heap. Verification functions that use the global store read it
  *       only for the duration of the call (TLS contexts do not cache it); the library has no internal
@@ -350,6 +502,22 @@ noxtls_return_t noxtls_x509_certificate_chain_verify(const x509_certificate_chai
  *       On allocation failure the store is left empty (fail closed).
  */
 noxtls_return_t noxtls_x509_trust_store_set(const x509_certificate_chain_t *trust_anchors);
+/**
+ * Use @p trust_anchors as the global trust store without copying it (0 bytes of heap). The chain
+ * must stay valid and unchanged until the store is cleared or replaced. NULL or empty clears.
+ */
+noxtls_return_t noxtls_x509_trust_store_set_borrowed(const x509_certificate_chain_t *trust_anchors);
+/**
+ * Move @p trust_anchors into the global trust store (no copy, no allocation). On return the
+ * caller's chain is empty; the store frees the certificates on clear/replace.
+ */
+noxtls_return_t noxtls_x509_trust_store_set_move(x509_certificate_chain_t *trust_anchors);
+/**
+ * Lightweight trust anchors over const DER (e.g. flash): parses @p count certificates in borrow
+ * mode into one allocation of count * sizeof(x509_certificate_t); the DER is not copied and must
+ * outlive the store.
+ */
+noxtls_return_t noxtls_x509_trust_store_set_der_nocopy(const uint8_t *const *ders, const uint32_t *lens, uint32_t count);
 /** Clear global trust store used by noxtls_x509_verify_server_cert_trust and free its snapshot (see noxtls_x509_trust_store_set()). */
 void noxtls_x509_trust_store_clear(void);
 /** Return 1 when the global trust store has at least one configured trust anchor, 0 otherwise. */
@@ -592,6 +760,9 @@ noxtls_return_t noxtls_x509_certificate_matches_hostname(const x509_certificate_
 
 /** RFC 5929 tls-server-end-point: get hash algorithm for hashing the server certificate. MD5/SHA-1 → SHA-256; else cert's signature hash. */
 noxtls_return_t noxtls_x509_get_channel_binding_hash_algo(const x509_certificate_t *cert, noxtls_hash_algos_t *hash_algo);
+/** Same as noxtls_x509_get_channel_binding_hash_algo() but read from certificate DER (ASN.1 walk, no parse). */
+noxtls_return_t noxtls_x509_der_get_channel_binding_hash_algo(const uint8_t *der, uint32_t der_len,
+                                                              noxtls_hash_algos_t *hash_algo);
 
 /**
  * Callback for unknown/custom certificate extension OIDs during parsing.
@@ -602,8 +773,10 @@ typedef noxtls_return_t (*noxtls_x509_unknown_ext_cb_t)(const uint8_t *ext_oid_b
 /** Set global callback for unknown extension OIDs. Pass NULL to clear. */
 void noxtls_x509_set_unknown_extension_callback(noxtls_x509_unknown_ext_cb_t cb, void *ext_user_ctx);
 
-#ifdef NOXTLS_HAVE_CERT_WRITE
-/* Certificate writing and generation (optional; enable with NOXTLS_HAVE_CERT_WRITE) */
+#if NOXTLS_HAVE_CERT_WRITE
+/* Certificate writing and generation (optional; enabled when NOXTLS_HAVE_CERT_WRITE is nonzero).
+ * The generators encode straight into the caller's buffer (no heap workspace); out_max must cover
+ * the result plus 32 bytes of encoding slack. */
 noxtls_return_t noxtls_x509_certificate_write_der(const x509_certificate_t *cert, uint8_t *out, uint32_t out_max, uint32_t *out_len);
 noxtls_return_t noxtls_x509_certificate_write_pem(const x509_certificate_t *cert, uint8_t *out, uint32_t out_max, uint32_t *out_len);
 noxtls_return_t noxtls_x509_dn_from_cn(const uint8_t *cn, uint8_t *out, uint32_t out_max, uint32_t *out_len);

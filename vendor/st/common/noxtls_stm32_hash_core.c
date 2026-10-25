@@ -44,8 +44,8 @@ noxtls_return_t noxtls_stm32_hash_core_sha256_round(noxtls_sha_ctx_t *ctx,
                NOXTLS_STM32_SHA_SIGMA_FROM_0(w[t - 15u]) + w[t - 16u];
     }
 
-    a = ctx->h[0]; b = ctx->h[1]; c = ctx->h[2]; d = ctx->h[3];
-    e = ctx->h[4]; f = ctx->h[5]; g = ctx->h[6]; h = ctx->h[7];
+    a = ctx->u.md32.h[0]; b = ctx->u.md32.h[1]; c = ctx->u.md32.h[2]; d = ctx->u.md32.h[3];
+    e = ctx->u.md32.h[4]; f = ctx->u.md32.h[5]; g = ctx->u.md32.h[6]; h = ctx->u.md32.h[7];
 
     for(t = 0u; t < NOXTLS_STM32_SHA256_ROUND_COUNT; t++) {
         uint32_t t1 = h + NOXTLS_STM32_SHA_SUM_FROM_1(e) + NOXTLS_STM32_SHA_CH(e, f, g) +
@@ -54,8 +54,8 @@ noxtls_return_t noxtls_stm32_hash_core_sha256_round(noxtls_sha_ctx_t *ctx,
         h = g; g = f; f = e; e = d + t1; d = c; c = b; b = a; a = t1 + t2;
     }
 
-    ctx->h[0] += a; ctx->h[1] += b; ctx->h[2] += c; ctx->h[3] += d;
-    ctx->h[4] += e; ctx->h[5] += f; ctx->h[6] += g; ctx->h[7] += h;
+    ctx->u.md32.h[0] += a; ctx->u.md32.h[1] += b; ctx->u.md32.h[2] += c; ctx->u.md32.h[3] += d;
+    ctx->u.md32.h[4] += e; ctx->u.md32.h[5] += f; ctx->u.md32.h[6] += g; ctx->u.md32.h[7] += h;
     return NOXTLS_RETURN_SUCCESS;
 }
 

@@ -63,6 +63,8 @@ Before 0.3.0, `noxtls_return_t` was a C `enum`. It became a `uint32_t` typedef s
 | **NOXTLS_RETURN_ECDH_PEER_PUBLIC_KEY_INVALID** | 38 | ECDH peer public key invalid. |
 | **NOXTLS_RETURN_ECDH_SCALAR_MULTIPLY_FAILED** | 39 | ECDH scalar multiplication failed. |
 | **NOXTLS_RETURN_ECDH_SHARED_POINT_INFINITY** | 40 | ECDH result was the point at infinity. |
+| **NOXTLS_RETURN_DTLS_RECORD_REPLAYED** | 41 | DTLS record is a duplicate or older than the replay window; discard it without closing the connection. |
+| **NOXTLS_RETURN_KEY_EXHAUSTED** | 42 | Stateful signature key (LMS/HSS, XMSS) has no one-time keys left. |
 
 ## Usage
 

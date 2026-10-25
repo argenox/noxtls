@@ -80,6 +80,850 @@
 #endif
 
 /* ============================================================================
+ * Profile presets (applied before the per-feature defaults below)
+ * ============================================================================
+ * Notes:
+ * - A profile only supplies values for settings that are not already defined.
+ *   A -D compiler option or a #define placed before this header always wins,
+ *   so a profile can be used as a base and adjusted per setting (for example
+ *   -DNOXTLS_PROFILE_MINIMAL_TLS_CLIENT -DNOXTLS_FEATURE_RSA=1).
+ * - CMake builds pass every NOXTLS_FEATURE_* explicitly (from the NOXTLS_CFG_*
+ *   options and the NOXTLS_PROFILE tables in CMakeLists.txt), so for those
+ *   settings the CMake values are the effective ones.
+ * - For behavior, prerequisites, and security notes, refer to the feature
+ *   documentation above at the primary NOXTLS_FEATURE_* definitions.
+ */
+
+#if defined(NOXTLS_PROFILE_MINIMAL_TLS_CLIENT)
+#ifndef NOXTLS_FEATURE_HASH
+#define NOXTLS_FEATURE_HASH 1
+#endif
+#ifndef NOXTLS_FEATURE_HMAC
+#define NOXTLS_FEATURE_HMAC 1
+#endif
+#ifndef NOXTLS_FEATURE_HKDF
+#define NOXTLS_FEATURE_HKDF 1
+#endif
+#ifndef NOXTLS_FEATURE_ENCRYPTION
+#define NOXTLS_FEATURE_ENCRYPTION 1
+#endif
+#ifndef NOXTLS_FEATURE_DRBG
+#define NOXTLS_FEATURE_DRBG 1
+#endif
+#ifndef NOXTLS_FEATURE_PKC
+#define NOXTLS_FEATURE_PKC 1
+#endif
+#ifndef NOXTLS_FEATURE_CERT
+#define NOXTLS_FEATURE_CERT 1
+#endif
+#ifndef NOXTLS_FEATURE_TLS
+#define NOXTLS_FEATURE_TLS 1
+#endif
+
+#ifndef NOXTLS_FEATURE_TLS10
+#define NOXTLS_FEATURE_TLS10 0
+#endif
+#ifndef NOXTLS_FEATURE_TLS11
+#define NOXTLS_FEATURE_TLS11 0
+#endif
+#ifndef NOXTLS_FEATURE_MD4
+#define NOXTLS_FEATURE_MD4 0
+#endif
+#ifndef NOXTLS_FEATURE_MD5
+#define NOXTLS_FEATURE_MD5 0
+#endif
+#ifndef NOXTLS_FEATURE_SHA1
+#define NOXTLS_FEATURE_SHA1 0
+#endif
+#ifndef NOXTLS_FEATURE_SHA224
+#define NOXTLS_FEATURE_SHA224 1
+#endif
+#ifndef NOXTLS_FEATURE_SHA256
+#define NOXTLS_FEATURE_SHA256 1
+#endif
+#ifndef NOXTLS_FEATURE_SHA384
+#define NOXTLS_FEATURE_SHA384 0
+#endif
+#ifndef NOXTLS_FEATURE_SHA512
+#define NOXTLS_FEATURE_SHA512 0
+#endif
+#ifndef NOXTLS_FEATURE_SHA3
+#define NOXTLS_FEATURE_SHA3 0
+#endif
+#ifndef NOXTLS_FEATURE_RIPEMD160
+#define NOXTLS_FEATURE_RIPEMD160 0
+#endif
+#ifndef NOXTLS_FEATURE_BLAKE2
+#define NOXTLS_FEATURE_BLAKE2 0
+#endif
+
+#ifndef NOXTLS_FEATURE_AES
+#define NOXTLS_FEATURE_AES 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_128
+#define NOXTLS_FEATURE_AES_128 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_192
+#define NOXTLS_FEATURE_AES_192 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_256
+#define NOXTLS_FEATURE_AES_256 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_ECB
+#define NOXTLS_FEATURE_AES_ECB 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_CBC
+#define NOXTLS_FEATURE_AES_CBC 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_CTR
+#define NOXTLS_FEATURE_AES_CTR 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_CFB
+#define NOXTLS_FEATURE_AES_CFB 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_OFB
+#define NOXTLS_FEATURE_AES_OFB 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_XTS
+#define NOXTLS_FEATURE_AES_XTS 0
+#endif
+#ifndef NOXTLS_FEATURE_AES_GCM
+#define NOXTLS_FEATURE_AES_GCM 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_CCM
+#define NOXTLS_FEATURE_AES_CCM 0
+#endif
+#ifndef NOXTLS_FEATURE_AES_CMAC
+#define NOXTLS_FEATURE_AES_CMAC 0
+#endif
+#ifndef NOXTLS_FEATURE_ARIA
+#define NOXTLS_FEATURE_ARIA 0
+#endif
+#ifndef NOXTLS_FEATURE_CAMELLIA
+#define NOXTLS_FEATURE_CAMELLIA 0
+#endif
+#ifndef NOXTLS_FEATURE_CHACHA20_POLY1305
+#define NOXTLS_FEATURE_CHACHA20_POLY1305 0
+#endif
+#ifndef NOXTLS_FEATURE_DES
+#define NOXTLS_FEATURE_DES 0
+#endif
+#ifndef NOXTLS_FEATURE_RC4
+#define NOXTLS_FEATURE_RC4 0
+#endif
+
+#ifndef NOXTLS_FEATURE_RSA
+#define NOXTLS_FEATURE_RSA 0
+#endif
+#ifndef NOXTLS_FEATURE_ECC
+#define NOXTLS_FEATURE_ECC 1
+#endif
+#ifndef NOXTLS_FEATURE_ECDSA
+#define NOXTLS_FEATURE_ECDSA 1
+#endif
+#ifndef NOXTLS_FEATURE_ECDH
+#define NOXTLS_FEATURE_ECDH 1
+#endif
+#ifndef NOXTLS_FEATURE_DH
+#define NOXTLS_FEATURE_DH 0
+#endif
+#ifndef NOXTLS_FEATURE_X25519
+#define NOXTLS_FEATURE_X25519 1
+#endif
+#ifndef NOXTLS_FEATURE_X448
+#define NOXTLS_FEATURE_X448 0
+#endif
+#ifndef NOXTLS_FEATURE_ED25519
+#define NOXTLS_FEATURE_ED25519 0
+#endif
+#ifndef NOXTLS_FEATURE_ED448
+#define NOXTLS_FEATURE_ED448 0
+#endif
+#ifndef NOXTLS_FEATURE_DSA
+#define NOXTLS_FEATURE_DSA 0
+#endif
+#ifndef NOXTLS_FEATURE_ML_KEM
+#define NOXTLS_FEATURE_ML_KEM 0
+#endif
+#ifndef NOXTLS_FEATURE_ML_DSA
+#define NOXTLS_FEATURE_ML_DSA 0
+#endif
+#ifndef NOXTLS_FEATURE_SLH_DSA
+#define NOXTLS_FEATURE_SLH_DSA 0
+#endif
+#ifndef NOXTLS_FEATURE_FALCON
+#define NOXTLS_FEATURE_FALCON 0
+#endif
+#ifndef NOXTLS_FEATURE_LMS_HSS
+#define NOXTLS_FEATURE_LMS_HSS 0
+#endif
+#ifndef NOXTLS_FEATURE_XMSS
+#define NOXTLS_FEATURE_XMSS 0
+#endif
+
+#ifndef NOXTLS_FEATURE_TLS12
+#define NOXTLS_FEATURE_TLS12 1
+#endif
+#ifndef NOXTLS_FEATURE_TLS13
+#define NOXTLS_FEATURE_TLS13 1
+#endif
+#ifndef NOXTLS_FEATURE_DTLS
+#define NOXTLS_FEATURE_DTLS 0
+#endif
+#ifndef NOXTLS_HAVE_CERT_WRITE
+#define NOXTLS_HAVE_CERT_WRITE 0
+#endif
+
+/* Minimal client: ECDSA P-256 server authentication only (enable more curves,
+ * RSA or SHA-384 with -D for chains that need them), client role only, no
+ * stdio and no detailed certificate failure strings. */
+#ifndef NOXTLS_FEATURE_TLS_SERVER
+#define NOXTLS_FEATURE_TLS_SERVER 0
+#endif
+#ifndef NOXTLS_HAVE_FILE_IO
+#define NOXTLS_HAVE_FILE_IO 0
+#endif
+#ifndef NOXTLS_X509_FAIL_INFO
+#define NOXTLS_X509_FAIL_INFO 0
+#endif
+#ifndef NOXTLS_ECC_ENABLE_SECP192R1
+#define NOXTLS_ECC_ENABLE_SECP192R1 0
+#endif
+#ifndef NOXTLS_ECC_ENABLE_SECP224R1
+#define NOXTLS_ECC_ENABLE_SECP224R1 0
+#endif
+#ifndef NOXTLS_ECC_ENABLE_SECP384R1
+#define NOXTLS_ECC_ENABLE_SECP384R1 0
+#endif
+#ifndef NOXTLS_ECC_ENABLE_SECP521R1
+#define NOXTLS_ECC_ENABLE_SECP521R1 0
+#endif
+#ifndef NOXTLS_ECC_ENABLE_SECP192K1
+#define NOXTLS_ECC_ENABLE_SECP192K1 0
+#endif
+#ifndef NOXTLS_ECC_ENABLE_SECP224K1
+#define NOXTLS_ECC_ENABLE_SECP224K1 0
+#endif
+#ifndef NOXTLS_ECC_ENABLE_SECP256K1
+#define NOXTLS_ECC_ENABLE_SECP256K1 0
+#endif
+#ifndef NOXTLS_ECC_ENABLE_BP256R1
+#define NOXTLS_ECC_ENABLE_BP256R1 0
+#endif
+#ifndef NOXTLS_ECC_ENABLE_BP384R1
+#define NOXTLS_ECC_ENABLE_BP384R1 0
+#endif
+#ifndef NOXTLS_ECC_ENABLE_BP512R1
+#define NOXTLS_ECC_ENABLE_BP512R1 0
+#endif
+#endif
+
+#if defined(NOXTLS_PROFILE_TLS_SERVER_PKI)
+#ifndef NOXTLS_FEATURE_HASH
+#define NOXTLS_FEATURE_HASH 1
+#endif
+#ifndef NOXTLS_FEATURE_HMAC
+#define NOXTLS_FEATURE_HMAC 1
+#endif
+#ifndef NOXTLS_FEATURE_HKDF
+#define NOXTLS_FEATURE_HKDF 1
+#endif
+#ifndef NOXTLS_FEATURE_ENCRYPTION
+#define NOXTLS_FEATURE_ENCRYPTION 1
+#endif
+#ifndef NOXTLS_FEATURE_DRBG
+#define NOXTLS_FEATURE_DRBG 1
+#endif
+#ifndef NOXTLS_FEATURE_PKC
+#define NOXTLS_FEATURE_PKC 1
+#endif
+#ifndef NOXTLS_FEATURE_CERT
+#define NOXTLS_FEATURE_CERT 1
+#endif
+#ifndef NOXTLS_FEATURE_TLS
+#define NOXTLS_FEATURE_TLS 1
+#endif
+
+#ifndef NOXTLS_FEATURE_TLS10
+#define NOXTLS_FEATURE_TLS10 0
+#endif
+#ifndef NOXTLS_FEATURE_TLS11
+#define NOXTLS_FEATURE_TLS11 0
+#endif
+#ifndef NOXTLS_FEATURE_MD4
+#define NOXTLS_FEATURE_MD4 0
+#endif
+#ifndef NOXTLS_FEATURE_MD5
+#define NOXTLS_FEATURE_MD5 0
+#endif
+#ifndef NOXTLS_FEATURE_SHA1
+#define NOXTLS_FEATURE_SHA1 0
+#endif
+#ifndef NOXTLS_FEATURE_SHA224
+#define NOXTLS_FEATURE_SHA224 1
+#endif
+#ifndef NOXTLS_FEATURE_SHA256
+#define NOXTLS_FEATURE_SHA256 1
+#endif
+#ifndef NOXTLS_FEATURE_SHA384
+#define NOXTLS_FEATURE_SHA384 1
+#endif
+#ifndef NOXTLS_FEATURE_SHA512
+#define NOXTLS_FEATURE_SHA512 1
+#endif
+#ifndef NOXTLS_FEATURE_SHA3
+#define NOXTLS_FEATURE_SHA3 0
+#endif
+#ifndef NOXTLS_FEATURE_RIPEMD160
+#define NOXTLS_FEATURE_RIPEMD160 0
+#endif
+#ifndef NOXTLS_FEATURE_BLAKE2
+#define NOXTLS_FEATURE_BLAKE2 0
+#endif
+
+#ifndef NOXTLS_FEATURE_AES
+#define NOXTLS_FEATURE_AES 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_128
+#define NOXTLS_FEATURE_AES_128 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_192
+#define NOXTLS_FEATURE_AES_192 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_256
+#define NOXTLS_FEATURE_AES_256 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_ECB
+#define NOXTLS_FEATURE_AES_ECB 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_CBC
+#define NOXTLS_FEATURE_AES_CBC 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_CTR
+#define NOXTLS_FEATURE_AES_CTR 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_CFB
+#define NOXTLS_FEATURE_AES_CFB 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_OFB
+#define NOXTLS_FEATURE_AES_OFB 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_XTS
+#define NOXTLS_FEATURE_AES_XTS 0
+#endif
+#ifndef NOXTLS_FEATURE_AES_GCM
+#define NOXTLS_FEATURE_AES_GCM 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_CCM
+#define NOXTLS_FEATURE_AES_CCM 0
+#endif
+#ifndef NOXTLS_FEATURE_ARIA
+#define NOXTLS_FEATURE_ARIA 0
+#endif
+#ifndef NOXTLS_FEATURE_CAMELLIA
+#define NOXTLS_FEATURE_CAMELLIA 0
+#endif
+#ifndef NOXTLS_FEATURE_CHACHA20_POLY1305
+#define NOXTLS_FEATURE_CHACHA20_POLY1305 1
+#endif
+#ifndef NOXTLS_FEATURE_DES
+#define NOXTLS_FEATURE_DES 0
+#endif
+#ifndef NOXTLS_FEATURE_RC4
+#define NOXTLS_FEATURE_RC4 0
+#endif
+
+#ifndef NOXTLS_FEATURE_RSA
+#define NOXTLS_FEATURE_RSA 1
+#endif
+#ifndef NOXTLS_FEATURE_ECC
+#define NOXTLS_FEATURE_ECC 1
+#endif
+#ifndef NOXTLS_FEATURE_ECDSA
+#define NOXTLS_FEATURE_ECDSA 1
+#endif
+#ifndef NOXTLS_FEATURE_ECDH
+#define NOXTLS_FEATURE_ECDH 1
+#endif
+#ifndef NOXTLS_FEATURE_DH
+#define NOXTLS_FEATURE_DH 0
+#endif
+#ifndef NOXTLS_FEATURE_X25519
+#define NOXTLS_FEATURE_X25519 1
+#endif
+#ifndef NOXTLS_FEATURE_X448
+#define NOXTLS_FEATURE_X448 1
+#endif
+#ifndef NOXTLS_FEATURE_ED25519
+#define NOXTLS_FEATURE_ED25519 1
+#endif
+#ifndef NOXTLS_FEATURE_ED448
+#define NOXTLS_FEATURE_ED448 0
+#endif
+#ifndef NOXTLS_FEATURE_DSA
+#define NOXTLS_FEATURE_DSA 1
+#endif
+#ifndef NOXTLS_FEATURE_ML_KEM
+#define NOXTLS_FEATURE_ML_KEM 0
+#endif
+#ifndef NOXTLS_FEATURE_ML_DSA
+#define NOXTLS_FEATURE_ML_DSA 0
+#endif
+#ifndef NOXTLS_FEATURE_SLH_DSA
+#define NOXTLS_FEATURE_SLH_DSA 0
+#endif
+#ifndef NOXTLS_FEATURE_FALCON
+#define NOXTLS_FEATURE_FALCON 0
+#endif
+#ifndef NOXTLS_FEATURE_LMS_HSS
+#define NOXTLS_FEATURE_LMS_HSS 0
+#endif
+#ifndef NOXTLS_FEATURE_XMSS
+#define NOXTLS_FEATURE_XMSS 0
+#endif
+
+#ifndef NOXTLS_FEATURE_TLS12
+#define NOXTLS_FEATURE_TLS12 1
+#endif
+#ifndef NOXTLS_FEATURE_TLS13
+#define NOXTLS_FEATURE_TLS13 1
+#endif
+#ifndef NOXTLS_FEATURE_DTLS
+#define NOXTLS_FEATURE_DTLS 1
+#endif
+#ifndef NOXTLS_HAVE_CERT_WRITE
+#define NOXTLS_HAVE_CERT_WRITE 1
+#endif
+#endif
+
+#if defined(NOXTLS_PROFILE_CRYPTO_ONLY)
+#ifndef NOXTLS_FEATURE_HASH
+#define NOXTLS_FEATURE_HASH 1
+#endif
+#ifndef NOXTLS_FEATURE_HMAC
+#define NOXTLS_FEATURE_HMAC 1
+#endif
+#ifndef NOXTLS_FEATURE_HKDF
+#define NOXTLS_FEATURE_HKDF 1
+#endif
+#ifndef NOXTLS_FEATURE_ENCRYPTION
+#define NOXTLS_FEATURE_ENCRYPTION 1
+#endif
+#ifndef NOXTLS_FEATURE_DRBG
+#define NOXTLS_FEATURE_DRBG 1
+#endif
+#ifndef NOXTLS_FEATURE_PKC
+#define NOXTLS_FEATURE_PKC 1
+#endif
+#ifndef NOXTLS_FEATURE_CERT
+#define NOXTLS_FEATURE_CERT 0
+#endif
+#ifndef NOXTLS_FEATURE_TLS
+#define NOXTLS_FEATURE_TLS 0
+#endif
+
+#ifndef NOXTLS_FEATURE_FALCON
+#define NOXTLS_FEATURE_FALCON 0
+#endif
+#ifndef NOXTLS_FEATURE_LMS_HSS
+#define NOXTLS_FEATURE_LMS_HSS 0
+#endif
+#ifndef NOXTLS_FEATURE_XMSS
+#define NOXTLS_FEATURE_XMSS 0
+#endif
+
+#ifndef NOXTLS_FEATURE_TLS10
+#define NOXTLS_FEATURE_TLS10 0
+#endif
+#ifndef NOXTLS_FEATURE_TLS11
+#define NOXTLS_FEATURE_TLS11 0
+#endif
+#ifndef NOXTLS_FEATURE_MD4
+#define NOXTLS_FEATURE_MD4 0
+#endif
+#ifndef NOXTLS_FEATURE_TLS12
+#define NOXTLS_FEATURE_TLS12 0
+#endif
+#ifndef NOXTLS_FEATURE_TLS13
+#define NOXTLS_FEATURE_TLS13 0
+#endif
+#ifndef NOXTLS_FEATURE_DTLS
+#define NOXTLS_FEATURE_DTLS 0
+#endif
+#ifndef NOXTLS_HAVE_CERT_WRITE
+#define NOXTLS_HAVE_CERT_WRITE 0
+#endif
+#ifndef NOXTLS_FEATURE_AES_XTS
+#define NOXTLS_FEATURE_AES_XTS 0
+#endif
+#ifndef NOXTLS_FEATURE_ML_KEM
+#define NOXTLS_FEATURE_ML_KEM 0
+#endif
+#ifndef NOXTLS_FEATURE_ML_DSA
+#define NOXTLS_FEATURE_ML_DSA 0
+#endif
+#ifndef NOXTLS_FEATURE_SLH_DSA
+#define NOXTLS_FEATURE_SLH_DSA 0
+#endif
+#endif
+
+#if defined(NOXTLS_PROFILE_FIPS_LIKE)
+#ifndef NOXTLS_FEATURE_HASH
+#define NOXTLS_FEATURE_HASH 1
+#endif
+#ifndef NOXTLS_FEATURE_HMAC
+#define NOXTLS_FEATURE_HMAC 1
+#endif
+#ifndef NOXTLS_FEATURE_HKDF
+#define NOXTLS_FEATURE_HKDF 1
+#endif
+#ifndef NOXTLS_FEATURE_ENCRYPTION
+#define NOXTLS_FEATURE_ENCRYPTION 1
+#endif
+#ifndef NOXTLS_FEATURE_DRBG
+#define NOXTLS_FEATURE_DRBG 1
+#endif
+#ifndef NOXTLS_FEATURE_PKC
+#define NOXTLS_FEATURE_PKC 1
+#endif
+#ifndef NOXTLS_FEATURE_CERT
+#define NOXTLS_FEATURE_CERT 1
+#endif
+#ifndef NOXTLS_FEATURE_TLS
+#define NOXTLS_FEATURE_TLS 1
+#endif
+
+#ifndef NOXTLS_FEATURE_TLS10
+#define NOXTLS_FEATURE_TLS10 0
+#endif
+#ifndef NOXTLS_FEATURE_TLS11
+#define NOXTLS_FEATURE_TLS11 0
+#endif
+#ifndef NOXTLS_FEATURE_MD4
+#define NOXTLS_FEATURE_MD4 0
+#endif
+#ifndef NOXTLS_FEATURE_MD5
+#define NOXTLS_FEATURE_MD5 0
+#endif
+#ifndef NOXTLS_FEATURE_SHA1
+#define NOXTLS_FEATURE_SHA1 0
+#endif
+#ifndef NOXTLS_FEATURE_SHA224
+#define NOXTLS_FEATURE_SHA224 1
+#endif
+#ifndef NOXTLS_FEATURE_SHA256
+#define NOXTLS_FEATURE_SHA256 1
+#endif
+#ifndef NOXTLS_FEATURE_SHA384
+#define NOXTLS_FEATURE_SHA384 1
+#endif
+#ifndef NOXTLS_FEATURE_SHA512
+#define NOXTLS_FEATURE_SHA512 1
+#endif
+#ifndef NOXTLS_FEATURE_SHA3
+#define NOXTLS_FEATURE_SHA3 0
+#endif
+#ifndef NOXTLS_FEATURE_RIPEMD160
+#define NOXTLS_FEATURE_RIPEMD160 0
+#endif
+#ifndef NOXTLS_FEATURE_BLAKE2
+#define NOXTLS_FEATURE_BLAKE2 0
+#endif
+
+#ifndef NOXTLS_FEATURE_AES
+#define NOXTLS_FEATURE_AES 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_128
+#define NOXTLS_FEATURE_AES_128 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_192
+#define NOXTLS_FEATURE_AES_192 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_256
+#define NOXTLS_FEATURE_AES_256 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_ECB
+#define NOXTLS_FEATURE_AES_ECB 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_CBC
+#define NOXTLS_FEATURE_AES_CBC 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_CTR
+#define NOXTLS_FEATURE_AES_CTR 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_CFB
+#define NOXTLS_FEATURE_AES_CFB 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_OFB
+#define NOXTLS_FEATURE_AES_OFB 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_XTS
+#define NOXTLS_FEATURE_AES_XTS 0
+#endif
+#ifndef NOXTLS_FEATURE_AES_GCM
+#define NOXTLS_FEATURE_AES_GCM 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_CCM
+#define NOXTLS_FEATURE_AES_CCM 0
+#endif
+#ifndef NOXTLS_FEATURE_AES_CMAC
+#define NOXTLS_FEATURE_AES_CMAC 0
+#endif
+#ifndef NOXTLS_FEATURE_ARIA
+#define NOXTLS_FEATURE_ARIA 0
+#endif
+#ifndef NOXTLS_FEATURE_CAMELLIA
+#define NOXTLS_FEATURE_CAMELLIA 0
+#endif
+#ifndef NOXTLS_FEATURE_CHACHA20_POLY1305
+#define NOXTLS_FEATURE_CHACHA20_POLY1305 0
+#endif
+#ifndef NOXTLS_FEATURE_DES
+#define NOXTLS_FEATURE_DES 0
+#endif
+#ifndef NOXTLS_FEATURE_RC4
+#define NOXTLS_FEATURE_RC4 0
+#endif
+
+#ifndef NOXTLS_FEATURE_RSA
+#define NOXTLS_FEATURE_RSA 1
+#endif
+#ifndef NOXTLS_FEATURE_ECC
+#define NOXTLS_FEATURE_ECC 1
+#endif
+#ifndef NOXTLS_FEATURE_ECDSA
+#define NOXTLS_FEATURE_ECDSA 1
+#endif
+#ifndef NOXTLS_FEATURE_ECDH
+#define NOXTLS_FEATURE_ECDH 1
+#endif
+#ifndef NOXTLS_FEATURE_DH
+#define NOXTLS_FEATURE_DH 0
+#endif
+#ifndef NOXTLS_FEATURE_X25519
+#define NOXTLS_FEATURE_X25519 0
+#endif
+#ifndef NOXTLS_FEATURE_X448
+#define NOXTLS_FEATURE_X448 0
+#endif
+#ifndef NOXTLS_FEATURE_ED25519
+#define NOXTLS_FEATURE_ED25519 0
+#endif
+#ifndef NOXTLS_FEATURE_ED448
+#define NOXTLS_FEATURE_ED448 0
+#endif
+#ifndef NOXTLS_FEATURE_DSA
+#define NOXTLS_FEATURE_DSA 1
+#endif
+#ifndef NOXTLS_FEATURE_ML_KEM
+#define NOXTLS_FEATURE_ML_KEM 0
+#endif
+#ifndef NOXTLS_FEATURE_ML_DSA
+#define NOXTLS_FEATURE_ML_DSA 0
+#endif
+#ifndef NOXTLS_FEATURE_SLH_DSA
+#define NOXTLS_FEATURE_SLH_DSA 0
+#endif
+#ifndef NOXTLS_FEATURE_FALCON
+#define NOXTLS_FEATURE_FALCON 0
+#endif
+#ifndef NOXTLS_FEATURE_LMS_HSS
+#define NOXTLS_FEATURE_LMS_HSS 0
+#endif
+#ifndef NOXTLS_FEATURE_XMSS
+#define NOXTLS_FEATURE_XMSS 0
+#endif
+
+#ifndef NOXTLS_FEATURE_TLS12
+#define NOXTLS_FEATURE_TLS12 1
+#endif
+#ifndef NOXTLS_FEATURE_TLS13
+#define NOXTLS_FEATURE_TLS13 1
+#endif
+#ifndef NOXTLS_FEATURE_DTLS
+#define NOXTLS_FEATURE_DTLS 0
+#endif
+#ifndef NOXTLS_HAVE_CERT_WRITE
+#define NOXTLS_HAVE_CERT_WRITE 0
+#endif
+#endif
+
+#if defined(NOXTLS_PROFILE_UT_ALL_FEATURES)
+#ifndef NOXTLS_FEATURE_HASH
+#define NOXTLS_FEATURE_HASH 1
+#endif
+#ifndef NOXTLS_FEATURE_HMAC
+#define NOXTLS_FEATURE_HMAC 1
+#endif
+#ifndef NOXTLS_FEATURE_HKDF
+#define NOXTLS_FEATURE_HKDF 1
+#endif
+#ifndef NOXTLS_FEATURE_ENCRYPTION
+#define NOXTLS_FEATURE_ENCRYPTION 1
+#endif
+#ifndef NOXTLS_FEATURE_DRBG
+#define NOXTLS_FEATURE_DRBG 1
+#endif
+#ifndef NOXTLS_FEATURE_PKC
+#define NOXTLS_FEATURE_PKC 1
+#endif
+#ifndef NOXTLS_FEATURE_CERT
+#define NOXTLS_FEATURE_CERT 1
+#endif
+#ifndef NOXTLS_FEATURE_TLS
+#define NOXTLS_FEATURE_TLS 1
+#endif
+
+#ifndef NOXTLS_FEATURE_MD4
+#define NOXTLS_FEATURE_MD4 1
+#endif
+#ifndef NOXTLS_FEATURE_MD5
+#define NOXTLS_FEATURE_MD5 1
+#endif
+#ifndef NOXTLS_FEATURE_SHA1
+#define NOXTLS_FEATURE_SHA1 1
+#endif
+#ifndef NOXTLS_FEATURE_SHA224
+#define NOXTLS_FEATURE_SHA224 1
+#endif
+#ifndef NOXTLS_FEATURE_SHA256
+#define NOXTLS_FEATURE_SHA256 1
+#endif
+#ifndef NOXTLS_FEATURE_SHA384
+#define NOXTLS_FEATURE_SHA384 1
+#endif
+#ifndef NOXTLS_FEATURE_SHA512
+#define NOXTLS_FEATURE_SHA512 1
+#endif
+#ifndef NOXTLS_FEATURE_SHA3
+#define NOXTLS_FEATURE_SHA3 1
+#endif
+#ifndef NOXTLS_FEATURE_RIPEMD160
+#define NOXTLS_FEATURE_RIPEMD160 1
+#endif
+#ifndef NOXTLS_FEATURE_BLAKE2
+#define NOXTLS_FEATURE_BLAKE2 1
+#endif
+
+#ifndef NOXTLS_FEATURE_AES
+#define NOXTLS_FEATURE_AES 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_128
+#define NOXTLS_FEATURE_AES_128 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_192
+#define NOXTLS_FEATURE_AES_192 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_256
+#define NOXTLS_FEATURE_AES_256 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_ECB
+#define NOXTLS_FEATURE_AES_ECB 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_CBC
+#define NOXTLS_FEATURE_AES_CBC 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_CTR
+#define NOXTLS_FEATURE_AES_CTR 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_CFB
+#define NOXTLS_FEATURE_AES_CFB 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_OFB
+#define NOXTLS_FEATURE_AES_OFB 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_XTS
+#define NOXTLS_FEATURE_AES_XTS 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_GCM
+#define NOXTLS_FEATURE_AES_GCM 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_CCM
+#define NOXTLS_FEATURE_AES_CCM 1
+#endif
+#ifndef NOXTLS_FEATURE_AES_CMAC
+#define NOXTLS_FEATURE_AES_CMAC 1
+#endif
+#ifndef NOXTLS_FEATURE_ARIA
+#define NOXTLS_FEATURE_ARIA 1
+#endif
+#ifndef NOXTLS_FEATURE_CAMELLIA
+#define NOXTLS_FEATURE_CAMELLIA 1
+#endif
+#ifndef NOXTLS_FEATURE_CHACHA20_POLY1305
+#define NOXTLS_FEATURE_CHACHA20_POLY1305 1
+#endif
+#ifndef NOXTLS_FEATURE_DES
+#define NOXTLS_FEATURE_DES 1
+#endif
+#ifndef NOXTLS_FEATURE_RC4
+#define NOXTLS_FEATURE_RC4 1
+#endif
+
+#ifndef NOXTLS_FEATURE_RSA
+#define NOXTLS_FEATURE_RSA 1
+#endif
+#ifndef NOXTLS_FEATURE_ECC
+#define NOXTLS_FEATURE_ECC 1
+#endif
+#ifndef NOXTLS_FEATURE_ECDSA
+#define NOXTLS_FEATURE_ECDSA 1
+#endif
+#ifndef NOXTLS_FEATURE_ECDH
+#define NOXTLS_FEATURE_ECDH 1
+#endif
+#ifndef NOXTLS_FEATURE_DH
+#define NOXTLS_FEATURE_DH 1
+#endif
+#ifndef NOXTLS_FEATURE_X25519
+#define NOXTLS_FEATURE_X25519 1
+#endif
+#ifndef NOXTLS_FEATURE_X448
+#define NOXTLS_FEATURE_X448 1
+#endif
+#ifndef NOXTLS_FEATURE_ED25519
+#define NOXTLS_FEATURE_ED25519 1
+#endif
+#ifndef NOXTLS_FEATURE_ED448
+#define NOXTLS_FEATURE_ED448 1
+#endif
+#ifndef NOXTLS_FEATURE_DSA
+#define NOXTLS_FEATURE_DSA 1
+#endif
+#ifndef NOXTLS_FEATURE_ML_KEM
+#define NOXTLS_FEATURE_ML_KEM 0
+#endif
+#ifndef NOXTLS_FEATURE_ML_DSA
+#define NOXTLS_FEATURE_ML_DSA 0
+#endif
+#ifndef NOXTLS_FEATURE_SLH_DSA
+#define NOXTLS_FEATURE_SLH_DSA 0
+#endif
+
+#ifndef NOXTLS_FEATURE_TLS10
+#define NOXTLS_FEATURE_TLS10 1
+#endif
+#ifndef NOXTLS_FEATURE_TLS11
+#define NOXTLS_FEATURE_TLS11 1
+#endif
+#ifndef NOXTLS_FEATURE_TLS12
+#define NOXTLS_FEATURE_TLS12 1
+#endif
+#ifndef NOXTLS_FEATURE_TLS13
+#define NOXTLS_FEATURE_TLS13 1
+#endif
+#ifndef NOXTLS_FEATURE_DTLS
+#define NOXTLS_FEATURE_DTLS 1
+#endif
+#ifndef NOXTLS_HAVE_CERT_WRITE
+#define NOXTLS_HAVE_CERT_WRITE 1
+#endif
+#ifndef NOXTLS_HAVE_TIME
+#define NOXTLS_HAVE_TIME 0
+#endif
+#endif
+
+/* ============================================================================
  * Feature Configuration (defaults)
  * ============================================================================
  */
@@ -158,6 +1002,16 @@
  */
 #ifndef NOXTLS_X509_HOSTNAME_ALLOW_WILDCARD
 #define NOXTLS_X509_HOSTNAME_ALLOW_WILDCARD 1
+#endif
+
+/* Detailed certificate failure information (noxtls_cert_verify_failure_get()).
+ * When 1, the last failure keeps the subject DN, expected hostname and validity
+ * strings (one static noxtls_cert_verify_failure_info_t, 556 bytes on Cortex-M4).
+ * When 0, only return_code, cert_index and populated are kept (12 bytes of .bss);
+ * the text fields read back empty. Size-constrained profiles may set 0.
+ */
+#ifndef NOXTLS_X509_FAIL_INFO
+#define NOXTLS_X509_FAIL_INFO 1
 #endif
 
 /* Enables TLS protocol implementation.
@@ -341,6 +1195,17 @@
 #define NOXTLS_FEATURE_AES_GCM 1
 #endif
 
+/* Software GHASH multiplier for AES-GCM.
+ * 4 (default): Shoup 4-bit table, 256 B built on the stack per GCM call and
+ *              wiped on return (no static cache; reentrant).
+ * 0: constant-time bit-serial multiply, no table (16 B key, ~8x slower GHASH);
+ *    for the smallest stacks or when table-lookup timing is a concern.
+ * Prereq: NOXTLS_FEATURE_AES_GCM=1.
+ */
+#ifndef NOXTLS_GCM_TABLE_BITS
+#define NOXTLS_GCM_TABLE_BITS 4
+#endif
+
 /* Enables AES-CCM AEAD mode.
  * Prereq: NOXTLS_FEATURE_AES=1.
  */
@@ -353,6 +1218,39 @@
  */
 #ifndef NOXTLS_FEATURE_AES_CMAC
 #define NOXTLS_FEATURE_AES_CMAC 1
+#endif
+
+/* Placement of the software AES encryption T-tables (Te0..Te3).
+ * 1 (default): const tables in flash/ROM (+4 KB .rodata, 0 B RAM, no runtime init).
+ * 0: tables built in RAM on first use (4 KB .bss + 1 B flag, ~4 KB less flash).
+ * Use 0 only on parts where flash is scarcer than RAM or flash wait states make
+ * table lookups slow. See also NOXTLS_AES_COMPACT_TABLES.
+ * Prereq: NOXTLS_FEATURE_AES=1 (software AES path).
+ */
+#ifndef NOXTLS_AES_ROM_TABLES
+#define NOXTLS_AES_ROM_TABLES 1
+#endif
+
+/* Keep a copy of the raw AES key in noxtls_aes_context_t (32 B per context).
+ * Needed by block backends that take key bytes: platform accelerator ports
+ * (including ports linked in through the noxtls_aes_accel_port_* hooks),
+ * AES-NI and ARMv8 Apple. Builds that use only the software AES core may set
+ * 0 to save 32 B in every AES context (and in GCM/CCM/XTS/CTR... call frames);
+ * the port hooks are then not consulted for context-based operations.
+ * Prereq: NOXTLS_FEATURE_AES=1.
+ */
+#ifndef NOXTLS_AES_CTX_RAW_KEY
+#define NOXTLS_AES_CTX_RAW_KEY 1
+#endif
+
+/* Compact software AES encryption tables: keep only Te0 (1 KB) and derive
+ * Te1..Te3 by 8/16/24-bit rotations at lookup time. Cuts the table footprint
+ * from 4 KB to 1 KB (flash with NOXTLS_AES_ROM_TABLES=1, RAM otherwise) at a
+ * small per-round cost (three extra rotates per column).
+ * Prereq: NOXTLS_FEATURE_AES=1.
+ */
+#ifndef NOXTLS_AES_COMPACT_TABLES
+#define NOXTLS_AES_COMPACT_TABLES 0
 #endif
 
 /* Enables AES-NI accelerated AES block path on x86/x64 builds that compile with AES intrinsics.
@@ -568,6 +1466,38 @@
 #ifndef NOXTLS_FEATURE_XMSS
 #define NOXTLS_FEATURE_XMSS 0
 #endif
+/** XMSS/XMSS^MT: SHA-256 parameter sets (RFC 8391 n = 32 and SP 800-208 SHA-256/192).
+ *  Default: 1. */
+#ifndef NOXTLS_XMSS_ENABLE_SHA2
+#define NOXTLS_XMSS_ENABLE_SHA2 1
+#endif
+/** XMSS/XMSS^MT: SHAKE parameter sets (SP 800-208 SHAKE256/256 and SHAKE256/192, RFC 8391
+ *  SHAKE128 n = 32). Effective only with NOXTLS_FEATURE_SHA3. Default: 1. */
+#ifndef NOXTLS_XMSS_ENABLE_SHAKE
+#define NOXTLS_XMSS_ENABLE_SHAKE 1
+#endif
+/** XMSS/XMSS^MT: RFC 8391 n = 64 sets (SHA2_*_512 only with NOXTLS_FEATURE_SHA512, SHAKE_*_512).
+ *  Not SP 800-208 approved; doubles node buffers (verify stack, traversal state).
+ *  Default: 0. */
+#ifndef NOXTLS_XMSS_ENABLE_N64
+#define NOXTLS_XMSS_ENABLE_N64 0
+#endif
+/** XMSS/XMSS^MT: largest total tree height h accepted (10..60); sets above it are refused and
+ *  NOXTLS_XMSS_MAX_SIGNATURE_LEN shrinks (h <= 20: 9251 bytes). Default: 60. */
+#ifndef NOXTLS_XMSS_MAX_HEIGHT
+#define NOXTLS_XMSS_MAX_HEIGHT 60
+#endif
+/** XMSS/XMSS^MT: key generation and stateful signing. 0 builds a verification-only module
+ *  (firmware verifiers). Default: 1. */
+#ifndef NOXTLS_XMSS_ENABLE_SIGN
+#define NOXTLS_XMSS_ENABLE_SIGN 1
+#endif
+/** XMSS/XMSS^MT: verify every signature before it is released (fault countermeasure for
+ *  reused XMSS^MT upper-layer one-time keys; about one verification per signature).
+ *  Default: 1. */
+#ifndef NOXTLS_XMSS_SIGN_SELF_CHECK
+#define NOXTLS_XMSS_SIGN_SELF_CHECK 1
+#endif
 
 /* Enables SPAKE2+ augmented PAKE over P-256 with SHA-256, HKDF-SHA256 and HMAC-SHA256.
  * Prereq: NOXTLS_FEATURE_PKC=1 and NOXTLS_FEATURE_ECC=1 and NOXTLS_FEATURE_SHA256=1 and NOXTLS_FEATURE_HMAC=1 and NOXTLS_FEATURE_HKDF=1 and NOXTLS_FEATURE_DRBG=1.
@@ -653,6 +1583,18 @@
 #define NOXTLS_FEATURE_TLS13 1
 #endif
 
+/* TLS roles built into the library. A client-only build (NOXTLS_FEATURE_TLS_SERVER=0) drops
+ * the server handshakes, the server session/ticket caches and server-only context fields;
+ * a server-only build (NOXTLS_FEATURE_TLS_CLIENT=0) drops the client handshakes and the
+ * client session store. At least one must be 1. Default: both 1.
+ */
+#ifndef NOXTLS_FEATURE_TLS_CLIENT
+#define NOXTLS_FEATURE_TLS_CLIENT 1
+#endif
+#ifndef NOXTLS_FEATURE_TLS_SERVER
+#define NOXTLS_FEATURE_TLS_SERVER 1
+#endif
+
 /*
  * TLS 1.3 (RFC 8446): RSA PKCS#1 v1.5 CertificateVerify schemes (e.g. rsa_pkcs1_sha256,
  * wire 0x0401) are deprecated for TLS 1.3 handshake signatures. NoxTLS does not implement
@@ -662,6 +1604,19 @@
  */
 #ifndef NOXTLS_CFG_TLS13_ALLOW_RSA_PKCS1_CERTVERIFY
 #define NOXTLS_CFG_TLS13_ALLOW_RSA_PKCS1_CERTVERIFY 0
+#endif
+
+/*
+ * TLS 1.3 / DTLS 1.3 certificate-based peer authentication.
+ * 1 (default): full RFC 8446 Section 4.4.2 Certificate and 4.4.3 CertificateVerify
+ * receive paths. 0: PSK-only profile. A client aborts with handshake_failure when the
+ * server did not select its PSK (before any Certificate is read), a server never sends
+ * CertificateRequest, and the peer Certificate/CertificateVerify receivers are not
+ * built. Set 0 only when every TLS 1.3 context authenticates with an external PSK.
+ * Also settable with the CMake option NOXTLS_TLS13_PEER_CERTIFICATES=OFF.
+ */
+#ifndef NOXTLS_TLS13_PEER_CERTIFICATES
+#define NOXTLS_TLS13_PEER_CERTIFICATES 1
 #endif
 
 /*
@@ -681,12 +1636,41 @@
 #define NOXTLS_FEATURE_DTLS 1
 #endif
 
-/* Enables legacy TLS 1.2 cipher suites (CBC-mode and RSA key exchange suites).
- * Security note: keep disabled for oracle/timing hardening unless strict
- * backwards compatibility is required.
+/* Enables legacy TLS 1.2 / DTLS 1.2 cipher suites: every CBC-mode suite (AES-CBC, ARIA-CBC
+ * and 3DES; 3DES additionally needs NOXTLS_FEATURE_DES=1) and every static-RSA key exchange
+ * suite (TLS_RSA_WITH_*, including the AES-GCM and AES-CCM ones). When 0, TLS 1.2
+ * offers and negotiates only forward-secret AEAD suites (ECDHE-ECDSA, ECDHE-RSA, DHE-RSA with
+ * AES-GCM, ChaCha20-Poly1305, AES-CCM, AES-CCM_8). TLS 1.0 / 1.1 connections
+ * (NOXTLS_FEATURE_TLS10 / NOXTLS_FEATURE_TLS11) always use their CBC suites.
+ * Security note: CBC suites need careful padding-oracle / timing handling and static RSA has
+ * no forward secrecy; keep disabled unless strict backwards compatibility is required.
  */
 #ifndef NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES
 #define NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES 0
+#endif
+
+/* Enables SHA-1 signatures in TLS 1.2 / DTLS 1.2 handshakes (rsa_pkcs1_sha1 0x0201,
+ * ecdsa_sha1 0x0203): the client offers them in signature_algorithms and accepts them in
+ * ServerKeyExchange, and the server signs ServerKeyExchange with SHA-1 when the client asks
+ * for it or omits signature_algorithms (RFC 5246 7.4.1.4.1 implicit SHA-1 default). When 0, a
+ * server facing a client without signature_algorithms fails with handshake_failure.
+ * MD5 signatures are never negotiated. TLS 1.0 / 1.1 use their fixed MD5 / SHA-1 signatures.
+ * Prereq: NOXTLS_FEATURE_SHA1=1 (no effect without it).
+ * Security note: SHA-1 signatures are deprecated (RFC 9155); keep disabled unless a peer
+ * cannot sign with SHA-256 or better.
+ */
+#ifndef NOXTLS_TLS12_ENABLE_SHA1_SIGNATURES
+#define NOXTLS_TLS12_ENABLE_SHA1_SIGNATURES 0
+#endif
+
+/* Enables the NSS key log (SSLKEYLOGFILE format) writer for TLS 1.3 traffic secrets
+ * (noxtls_tls13_set_keylog_file() / SSLKEYLOGFILE environment variable).
+ * Prereq: NOXTLS_HAVE_FILE_IO=1.
+ * Security note: writes handshake secrets to a file; debugging aid only. When 0 the
+ * setter is a no-op and no getenv/fopen code or path buffer is linked.
+ */
+#ifndef NOXTLS_FEATURE_KEYLOG
+#define NOXTLS_FEATURE_KEYLOG 0
 #endif
 
 /* Enables X.509 certificate writing/generation helpers.
@@ -698,550 +1682,6 @@
  */
 #ifndef NOXTLS_HAVE_CERT_WRITE
 #define NOXTLS_HAVE_CERT_WRITE 1
-#endif
-
-/* ============================================================================
- * Profile presets (override defaults above)
- * ============================================================================
- * Notes:
- * - Definitions in these blocks only override default values.
- * - For behavior, prerequisites, and security notes, refer to the feature
- *   documentation above at the primary NOXTLS_FEATURE_* definitions.
- */
-
-#if defined(NOXTLS_PROFILE_MINIMAL_TLS_CLIENT)
-#undef NOXTLS_FEATURE_HASH
-#define NOXTLS_FEATURE_HASH 1
-#undef NOXTLS_FEATURE_HMAC
-#define NOXTLS_FEATURE_HMAC 1
-#undef NOXTLS_FEATURE_HKDF
-#define NOXTLS_FEATURE_HKDF 1
-#undef NOXTLS_FEATURE_ENCRYPTION
-#define NOXTLS_FEATURE_ENCRYPTION 1
-#undef NOXTLS_FEATURE_DRBG
-#define NOXTLS_FEATURE_DRBG 1
-#undef NOXTLS_FEATURE_PKC
-#define NOXTLS_FEATURE_PKC 1
-#undef NOXTLS_FEATURE_CERT
-#define NOXTLS_FEATURE_CERT 1
-#undef NOXTLS_FEATURE_TLS
-#define NOXTLS_FEATURE_TLS 1
-
-#undef NOXTLS_FEATURE_TLS10
-#define NOXTLS_FEATURE_TLS10 0
-#undef NOXTLS_FEATURE_TLS11
-#define NOXTLS_FEATURE_TLS11 0
-#undef NOXTLS_FEATURE_MD4
-#define NOXTLS_FEATURE_MD4 0
-#undef NOXTLS_FEATURE_MD5
-#define NOXTLS_FEATURE_MD5 0
-#undef NOXTLS_FEATURE_SHA1
-#define NOXTLS_FEATURE_SHA1 0
-#undef NOXTLS_FEATURE_SHA224
-#define NOXTLS_FEATURE_SHA224 1
-#undef NOXTLS_FEATURE_SHA256
-#define NOXTLS_FEATURE_SHA256 1
-#undef NOXTLS_FEATURE_SHA384
-#define NOXTLS_FEATURE_SHA384 0
-#undef NOXTLS_FEATURE_SHA512
-#define NOXTLS_FEATURE_SHA512 0
-#undef NOXTLS_FEATURE_SHA3
-#define NOXTLS_FEATURE_SHA3 0
-#undef NOXTLS_FEATURE_RIPEMD160
-#define NOXTLS_FEATURE_RIPEMD160 0
-#undef NOXTLS_FEATURE_BLAKE2
-#define NOXTLS_FEATURE_BLAKE2 0
-
-#undef NOXTLS_FEATURE_AES
-#define NOXTLS_FEATURE_AES 1
-#undef NOXTLS_FEATURE_AES_128
-#define NOXTLS_FEATURE_AES_128 1
-#undef NOXTLS_FEATURE_AES_192
-#define NOXTLS_FEATURE_AES_192 1
-#undef NOXTLS_FEATURE_AES_256
-#define NOXTLS_FEATURE_AES_256 1
-#undef NOXTLS_FEATURE_AES_ECB
-#define NOXTLS_FEATURE_AES_ECB 1
-#undef NOXTLS_FEATURE_AES_CBC
-#define NOXTLS_FEATURE_AES_CBC 1
-#undef NOXTLS_FEATURE_AES_CTR
-#define NOXTLS_FEATURE_AES_CTR 1
-#undef NOXTLS_FEATURE_AES_CFB
-#define NOXTLS_FEATURE_AES_CFB 1
-#undef NOXTLS_FEATURE_AES_OFB
-#define NOXTLS_FEATURE_AES_OFB 1
-#undef NOXTLS_FEATURE_AES_XTS
-#define NOXTLS_FEATURE_AES_XTS 0
-#undef NOXTLS_FEATURE_AES_GCM
-#define NOXTLS_FEATURE_AES_GCM 1
-#undef NOXTLS_FEATURE_AES_CCM
-#define NOXTLS_FEATURE_AES_CCM 0
-#undef NOXTLS_FEATURE_AES_CMAC
-#define NOXTLS_FEATURE_AES_CMAC 0
-#undef NOXTLS_FEATURE_ARIA
-#define NOXTLS_FEATURE_ARIA 0
-#undef NOXTLS_FEATURE_CAMELLIA
-#define NOXTLS_FEATURE_CAMELLIA 0
-#undef NOXTLS_FEATURE_CHACHA20_POLY1305
-#define NOXTLS_FEATURE_CHACHA20_POLY1305 0
-#undef NOXTLS_FEATURE_DES
-#define NOXTLS_FEATURE_DES 0
-#undef NOXTLS_FEATURE_RC4
-#define NOXTLS_FEATURE_RC4 0
-
-#undef NOXTLS_FEATURE_RSA
-#define NOXTLS_FEATURE_RSA 0
-#undef NOXTLS_FEATURE_ECC
-#define NOXTLS_FEATURE_ECC 1
-#undef NOXTLS_FEATURE_ECDSA
-#define NOXTLS_FEATURE_ECDSA 0
-#undef NOXTLS_FEATURE_ECDH
-#define NOXTLS_FEATURE_ECDH 1
-#undef NOXTLS_FEATURE_DH
-#define NOXTLS_FEATURE_DH 0
-#undef NOXTLS_FEATURE_X25519
-#define NOXTLS_FEATURE_X25519 1
-#undef NOXTLS_FEATURE_X448
-#define NOXTLS_FEATURE_X448 1
-#undef NOXTLS_FEATURE_ED25519
-#define NOXTLS_FEATURE_ED25519 0
-#undef NOXTLS_FEATURE_ED448
-#define NOXTLS_FEATURE_ED448 0
-#undef NOXTLS_FEATURE_DSA
-#define NOXTLS_FEATURE_DSA 0
-#undef NOXTLS_FEATURE_ML_KEM
-#define NOXTLS_FEATURE_ML_KEM 0
-#undef NOXTLS_FEATURE_ML_DSA
-#define NOXTLS_FEATURE_ML_DSA 0
-#undef NOXTLS_FEATURE_SLH_DSA
-#define NOXTLS_FEATURE_SLH_DSA 0
-#undef NOXTLS_FEATURE_FALCON
-#define NOXTLS_FEATURE_FALCON 0
-#undef NOXTLS_FEATURE_LMS_HSS
-#define NOXTLS_FEATURE_LMS_HSS 0
-#undef NOXTLS_FEATURE_XMSS
-#define NOXTLS_FEATURE_XMSS 0
-
-#undef NOXTLS_FEATURE_TLS12
-#define NOXTLS_FEATURE_TLS12 1
-#undef NOXTLS_FEATURE_TLS13
-#define NOXTLS_FEATURE_TLS13 1
-#undef NOXTLS_FEATURE_DTLS
-#define NOXTLS_FEATURE_DTLS 0
-#undef NOXTLS_HAVE_CERT_WRITE
-#define NOXTLS_HAVE_CERT_WRITE 0
-#endif
-
-#if defined(NOXTLS_PROFILE_TLS_SERVER_PKI)
-#undef NOXTLS_FEATURE_HASH
-#define NOXTLS_FEATURE_HASH 1
-#undef NOXTLS_FEATURE_HMAC
-#define NOXTLS_FEATURE_HMAC 1
-#undef NOXTLS_FEATURE_HKDF
-#define NOXTLS_FEATURE_HKDF 1
-#undef NOXTLS_FEATURE_ENCRYPTION
-#define NOXTLS_FEATURE_ENCRYPTION 1
-#undef NOXTLS_FEATURE_DRBG
-#define NOXTLS_FEATURE_DRBG 1
-#undef NOXTLS_FEATURE_PKC
-#define NOXTLS_FEATURE_PKC 1
-#undef NOXTLS_FEATURE_CERT
-#define NOXTLS_FEATURE_CERT 1
-#undef NOXTLS_FEATURE_TLS
-#define NOXTLS_FEATURE_TLS 1
-
-#undef NOXTLS_FEATURE_TLS10
-#define NOXTLS_FEATURE_TLS10 0
-#undef NOXTLS_FEATURE_TLS11
-#define NOXTLS_FEATURE_TLS11 0
-#undef NOXTLS_FEATURE_MD4
-#define NOXTLS_FEATURE_MD4 0
-#undef NOXTLS_FEATURE_MD5
-#define NOXTLS_FEATURE_MD5 0
-#undef NOXTLS_FEATURE_SHA1
-#define NOXTLS_FEATURE_SHA1 0
-#undef NOXTLS_FEATURE_SHA224
-#define NOXTLS_FEATURE_SHA224 1
-#undef NOXTLS_FEATURE_SHA256
-#define NOXTLS_FEATURE_SHA256 1
-#undef NOXTLS_FEATURE_SHA384
-#define NOXTLS_FEATURE_SHA384 1
-#undef NOXTLS_FEATURE_SHA512
-#define NOXTLS_FEATURE_SHA512 1
-#undef NOXTLS_FEATURE_SHA3
-#define NOXTLS_FEATURE_SHA3 0
-#undef NOXTLS_FEATURE_RIPEMD160
-#define NOXTLS_FEATURE_RIPEMD160 0
-#undef NOXTLS_FEATURE_BLAKE2
-#define NOXTLS_FEATURE_BLAKE2 0
-
-#undef NOXTLS_FEATURE_AES
-#define NOXTLS_FEATURE_AES 1
-#undef NOXTLS_FEATURE_AES_128
-#define NOXTLS_FEATURE_AES_128 1
-#undef NOXTLS_FEATURE_AES_192
-#define NOXTLS_FEATURE_AES_192 1
-#undef NOXTLS_FEATURE_AES_256
-#define NOXTLS_FEATURE_AES_256 1
-#undef NOXTLS_FEATURE_AES_ECB
-#define NOXTLS_FEATURE_AES_ECB 1
-#undef NOXTLS_FEATURE_AES_CBC
-#define NOXTLS_FEATURE_AES_CBC 1
-#undef NOXTLS_FEATURE_AES_CTR
-#define NOXTLS_FEATURE_AES_CTR 1
-#undef NOXTLS_FEATURE_AES_CFB
-#define NOXTLS_FEATURE_AES_CFB 1
-#undef NOXTLS_FEATURE_AES_OFB
-#define NOXTLS_FEATURE_AES_OFB 1
-#undef NOXTLS_FEATURE_AES_XTS
-#define NOXTLS_FEATURE_AES_XTS 0
-#undef NOXTLS_FEATURE_AES_GCM
-#define NOXTLS_FEATURE_AES_GCM 1
-#undef NOXTLS_FEATURE_AES_CCM
-#define NOXTLS_FEATURE_AES_CCM 0
-#undef NOXTLS_FEATURE_ARIA
-#define NOXTLS_FEATURE_ARIA 0
-#undef NOXTLS_FEATURE_CAMELLIA
-#define NOXTLS_FEATURE_CAMELLIA 0
-#undef NOXTLS_FEATURE_CHACHA20_POLY1305
-#define NOXTLS_FEATURE_CHACHA20_POLY1305 1
-#undef NOXTLS_FEATURE_DES
-#define NOXTLS_FEATURE_DES 0
-#undef NOXTLS_FEATURE_RC4
-#define NOXTLS_FEATURE_RC4 0
-
-#undef NOXTLS_FEATURE_RSA
-#define NOXTLS_FEATURE_RSA 1
-#undef NOXTLS_FEATURE_ECC
-#define NOXTLS_FEATURE_ECC 1
-#undef NOXTLS_FEATURE_ECDSA
-#define NOXTLS_FEATURE_ECDSA 1
-#undef NOXTLS_FEATURE_ECDH
-#define NOXTLS_FEATURE_ECDH 1
-#undef NOXTLS_FEATURE_DH
-#define NOXTLS_FEATURE_DH 0
-#undef NOXTLS_FEATURE_X25519
-#define NOXTLS_FEATURE_X25519 1
-#undef NOXTLS_FEATURE_X448
-#define NOXTLS_FEATURE_X448 1
-#undef NOXTLS_FEATURE_ED25519
-#define NOXTLS_FEATURE_ED25519 1
-#undef NOXTLS_FEATURE_ED448
-#define NOXTLS_FEATURE_ED448 0
-#undef NOXTLS_FEATURE_DSA
-#define NOXTLS_FEATURE_DSA 1
-#undef NOXTLS_FEATURE_ML_KEM
-#define NOXTLS_FEATURE_ML_KEM 0
-#undef NOXTLS_FEATURE_ML_DSA
-#define NOXTLS_FEATURE_ML_DSA 0
-#undef NOXTLS_FEATURE_SLH_DSA
-#define NOXTLS_FEATURE_SLH_DSA 0
-#undef NOXTLS_FEATURE_FALCON
-#define NOXTLS_FEATURE_FALCON 0
-#undef NOXTLS_FEATURE_LMS_HSS
-#define NOXTLS_FEATURE_LMS_HSS 0
-#undef NOXTLS_FEATURE_XMSS
-#define NOXTLS_FEATURE_XMSS 0
-
-#undef NOXTLS_FEATURE_TLS12
-#define NOXTLS_FEATURE_TLS12 1
-#undef NOXTLS_FEATURE_TLS13
-#define NOXTLS_FEATURE_TLS13 1
-#undef NOXTLS_FEATURE_DTLS
-#define NOXTLS_FEATURE_DTLS 1
-#undef NOXTLS_HAVE_CERT_WRITE
-#define NOXTLS_HAVE_CERT_WRITE 1
-#endif
-
-#if defined(NOXTLS_PROFILE_CRYPTO_ONLY)
-#undef NOXTLS_FEATURE_HASH
-#define NOXTLS_FEATURE_HASH 1
-#undef NOXTLS_FEATURE_HMAC
-#define NOXTLS_FEATURE_HMAC 1
-#undef NOXTLS_FEATURE_HKDF
-#define NOXTLS_FEATURE_HKDF 1
-#undef NOXTLS_FEATURE_ENCRYPTION
-#define NOXTLS_FEATURE_ENCRYPTION 1
-#undef NOXTLS_FEATURE_DRBG
-#define NOXTLS_FEATURE_DRBG 1
-#undef NOXTLS_FEATURE_PKC
-#define NOXTLS_FEATURE_PKC 1
-#undef NOXTLS_FEATURE_CERT
-#define NOXTLS_FEATURE_CERT 0
-#undef NOXTLS_FEATURE_TLS
-#define NOXTLS_FEATURE_TLS 0
-
-#undef NOXTLS_FEATURE_FALCON
-#define NOXTLS_FEATURE_FALCON 0
-#undef NOXTLS_FEATURE_LMS_HSS
-#define NOXTLS_FEATURE_LMS_HSS 0
-#undef NOXTLS_FEATURE_XMSS
-#define NOXTLS_FEATURE_XMSS 0
-
-#undef NOXTLS_FEATURE_TLS10
-#define NOXTLS_FEATURE_TLS10 0
-#undef NOXTLS_FEATURE_TLS11
-#define NOXTLS_FEATURE_TLS11 0
-#undef NOXTLS_FEATURE_MD4
-#define NOXTLS_FEATURE_MD4 0
-#undef NOXTLS_FEATURE_TLS12
-#define NOXTLS_FEATURE_TLS12 0
-#undef NOXTLS_FEATURE_TLS13
-#define NOXTLS_FEATURE_TLS13 0
-#undef NOXTLS_FEATURE_DTLS
-#define NOXTLS_FEATURE_DTLS 0
-#undef NOXTLS_HAVE_CERT_WRITE
-#define NOXTLS_HAVE_CERT_WRITE 0
-#undef NOXTLS_FEATURE_AES_XTS
-#define NOXTLS_FEATURE_AES_XTS 0
-#undef NOXTLS_FEATURE_ML_KEM
-#define NOXTLS_FEATURE_ML_KEM 0
-#undef NOXTLS_FEATURE_ML_DSA
-#define NOXTLS_FEATURE_ML_DSA 0
-#undef NOXTLS_FEATURE_SLH_DSA
-#define NOXTLS_FEATURE_SLH_DSA 0
-#endif
-
-#if defined(NOXTLS_PROFILE_FIPS_LIKE)
-#undef NOXTLS_FEATURE_HASH
-#define NOXTLS_FEATURE_HASH 1
-#undef NOXTLS_FEATURE_HMAC
-#define NOXTLS_FEATURE_HMAC 1
-#undef NOXTLS_FEATURE_HKDF
-#define NOXTLS_FEATURE_HKDF 1
-#undef NOXTLS_FEATURE_ENCRYPTION
-#define NOXTLS_FEATURE_ENCRYPTION 1
-#undef NOXTLS_FEATURE_DRBG
-#define NOXTLS_FEATURE_DRBG 1
-#undef NOXTLS_FEATURE_PKC
-#define NOXTLS_FEATURE_PKC 1
-#undef NOXTLS_FEATURE_CERT
-#define NOXTLS_FEATURE_CERT 1
-#undef NOXTLS_FEATURE_TLS
-#define NOXTLS_FEATURE_TLS 1
-
-#undef NOXTLS_FEATURE_TLS10
-#define NOXTLS_FEATURE_TLS10 0
-#undef NOXTLS_FEATURE_TLS11
-#define NOXTLS_FEATURE_TLS11 0
-#undef NOXTLS_FEATURE_MD4
-#define NOXTLS_FEATURE_MD4 0
-#undef NOXTLS_FEATURE_MD5
-#define NOXTLS_FEATURE_MD5 0
-#undef NOXTLS_FEATURE_SHA1
-#define NOXTLS_FEATURE_SHA1 0
-#undef NOXTLS_FEATURE_SHA224
-#define NOXTLS_FEATURE_SHA224 1
-#undef NOXTLS_FEATURE_SHA256
-#define NOXTLS_FEATURE_SHA256 1
-#undef NOXTLS_FEATURE_SHA384
-#define NOXTLS_FEATURE_SHA384 1
-#undef NOXTLS_FEATURE_SHA512
-#define NOXTLS_FEATURE_SHA512 1
-#undef NOXTLS_FEATURE_SHA3
-#define NOXTLS_FEATURE_SHA3 0
-#undef NOXTLS_FEATURE_RIPEMD160
-#define NOXTLS_FEATURE_RIPEMD160 0
-#undef NOXTLS_FEATURE_BLAKE2
-#define NOXTLS_FEATURE_BLAKE2 0
-
-#undef NOXTLS_FEATURE_AES
-#define NOXTLS_FEATURE_AES 1
-#undef NOXTLS_FEATURE_AES_128
-#define NOXTLS_FEATURE_AES_128 1
-#undef NOXTLS_FEATURE_AES_192
-#define NOXTLS_FEATURE_AES_192 1
-#undef NOXTLS_FEATURE_AES_256
-#define NOXTLS_FEATURE_AES_256 1
-#undef NOXTLS_FEATURE_AES_ECB
-#define NOXTLS_FEATURE_AES_ECB 1
-#undef NOXTLS_FEATURE_AES_CBC
-#define NOXTLS_FEATURE_AES_CBC 1
-#undef NOXTLS_FEATURE_AES_CTR
-#define NOXTLS_FEATURE_AES_CTR 1
-#undef NOXTLS_FEATURE_AES_CFB
-#define NOXTLS_FEATURE_AES_CFB 1
-#undef NOXTLS_FEATURE_AES_OFB
-#define NOXTLS_FEATURE_AES_OFB 1
-#undef NOXTLS_FEATURE_AES_XTS
-#define NOXTLS_FEATURE_AES_XTS 0
-#undef NOXTLS_FEATURE_AES_GCM
-#define NOXTLS_FEATURE_AES_GCM 1
-#undef NOXTLS_FEATURE_AES_CCM
-#define NOXTLS_FEATURE_AES_CCM 0
-#undef NOXTLS_FEATURE_AES_CMAC
-#define NOXTLS_FEATURE_AES_CMAC 0
-#undef NOXTLS_FEATURE_ARIA
-#define NOXTLS_FEATURE_ARIA 0
-#undef NOXTLS_FEATURE_CAMELLIA
-#define NOXTLS_FEATURE_CAMELLIA 0
-#undef NOXTLS_FEATURE_CHACHA20_POLY1305
-#define NOXTLS_FEATURE_CHACHA20_POLY1305 0
-#undef NOXTLS_FEATURE_DES
-#define NOXTLS_FEATURE_DES 0
-#undef NOXTLS_FEATURE_RC4
-#define NOXTLS_FEATURE_RC4 0
-
-#undef NOXTLS_FEATURE_RSA
-#define NOXTLS_FEATURE_RSA 1
-#undef NOXTLS_FEATURE_ECC
-#define NOXTLS_FEATURE_ECC 1
-#undef NOXTLS_FEATURE_ECDSA
-#define NOXTLS_FEATURE_ECDSA 1
-#undef NOXTLS_FEATURE_ECDH
-#define NOXTLS_FEATURE_ECDH 1
-#undef NOXTLS_FEATURE_DH
-#define NOXTLS_FEATURE_DH 0
-#undef NOXTLS_FEATURE_X25519
-#define NOXTLS_FEATURE_X25519 0
-#undef NOXTLS_FEATURE_X448
-#define NOXTLS_FEATURE_X448 0
-#undef NOXTLS_FEATURE_ED25519
-#define NOXTLS_FEATURE_ED25519 0
-#undef NOXTLS_FEATURE_ED448
-#define NOXTLS_FEATURE_ED448 0
-#undef NOXTLS_FEATURE_DSA
-#define NOXTLS_FEATURE_DSA 1
-#undef NOXTLS_FEATURE_ML_KEM
-#define NOXTLS_FEATURE_ML_KEM 0
-#undef NOXTLS_FEATURE_ML_DSA
-#define NOXTLS_FEATURE_ML_DSA 0
-#undef NOXTLS_FEATURE_SLH_DSA
-#define NOXTLS_FEATURE_SLH_DSA 0
-#undef NOXTLS_FEATURE_FALCON
-#define NOXTLS_FEATURE_FALCON 0
-#undef NOXTLS_FEATURE_LMS_HSS
-#define NOXTLS_FEATURE_LMS_HSS 0
-#undef NOXTLS_FEATURE_XMSS
-#define NOXTLS_FEATURE_XMSS 0
-
-#undef NOXTLS_FEATURE_TLS12
-#define NOXTLS_FEATURE_TLS12 1
-#undef NOXTLS_FEATURE_TLS13
-#define NOXTLS_FEATURE_TLS13 1
-#undef NOXTLS_FEATURE_DTLS
-#define NOXTLS_FEATURE_DTLS 0
-#undef NOXTLS_HAVE_CERT_WRITE
-#define NOXTLS_HAVE_CERT_WRITE 0
-#endif
-
-#if defined(NOXTLS_PROFILE_UT_ALL_FEATURES)
-#undef NOXTLS_FEATURE_HASH
-#define NOXTLS_FEATURE_HASH 1
-#undef NOXTLS_FEATURE_HMAC
-#define NOXTLS_FEATURE_HMAC 1
-#undef NOXTLS_FEATURE_HKDF
-#define NOXTLS_FEATURE_HKDF 1
-#undef NOXTLS_FEATURE_ENCRYPTION
-#define NOXTLS_FEATURE_ENCRYPTION 1
-#undef NOXTLS_FEATURE_DRBG
-#define NOXTLS_FEATURE_DRBG 1
-#undef NOXTLS_FEATURE_PKC
-#define NOXTLS_FEATURE_PKC 1
-#undef NOXTLS_FEATURE_CERT
-#define NOXTLS_FEATURE_CERT 1
-#undef NOXTLS_FEATURE_TLS
-#define NOXTLS_FEATURE_TLS 1
-
-#undef NOXTLS_FEATURE_MD4
-#define NOXTLS_FEATURE_MD4 1
-#undef NOXTLS_FEATURE_MD5
-#define NOXTLS_FEATURE_MD5 1
-#undef NOXTLS_FEATURE_SHA1
-#define NOXTLS_FEATURE_SHA1 1
-#undef NOXTLS_FEATURE_SHA224
-#define NOXTLS_FEATURE_SHA224 1
-#undef NOXTLS_FEATURE_SHA256
-#define NOXTLS_FEATURE_SHA256 1
-#undef NOXTLS_FEATURE_SHA384
-#define NOXTLS_FEATURE_SHA384 1
-#undef NOXTLS_FEATURE_SHA512
-#define NOXTLS_FEATURE_SHA512 1
-#undef NOXTLS_FEATURE_SHA3
-#define NOXTLS_FEATURE_SHA3 1
-#undef NOXTLS_FEATURE_RIPEMD160
-#define NOXTLS_FEATURE_RIPEMD160 1
-#undef NOXTLS_FEATURE_BLAKE2
-#define NOXTLS_FEATURE_BLAKE2 1
-
-#undef NOXTLS_FEATURE_AES
-#define NOXTLS_FEATURE_AES 1
-#undef NOXTLS_FEATURE_AES_128
-#define NOXTLS_FEATURE_AES_128 1
-#undef NOXTLS_FEATURE_AES_192
-#define NOXTLS_FEATURE_AES_192 1
-#undef NOXTLS_FEATURE_AES_256
-#define NOXTLS_FEATURE_AES_256 1
-#undef NOXTLS_FEATURE_AES_ECB
-#define NOXTLS_FEATURE_AES_ECB 1
-#undef NOXTLS_FEATURE_AES_CBC
-#define NOXTLS_FEATURE_AES_CBC 1
-#undef NOXTLS_FEATURE_AES_CTR
-#define NOXTLS_FEATURE_AES_CTR 1
-#undef NOXTLS_FEATURE_AES_CFB
-#define NOXTLS_FEATURE_AES_CFB 1
-#undef NOXTLS_FEATURE_AES_OFB
-#define NOXTLS_FEATURE_AES_OFB 1
-#undef NOXTLS_FEATURE_AES_XTS
-#define NOXTLS_FEATURE_AES_XTS 1
-#undef NOXTLS_FEATURE_AES_GCM
-#define NOXTLS_FEATURE_AES_GCM 1
-#undef NOXTLS_FEATURE_AES_CCM
-#define NOXTLS_FEATURE_AES_CCM 1
-#undef NOXTLS_FEATURE_AES_CMAC
-#define NOXTLS_FEATURE_AES_CMAC 1
-#undef NOXTLS_FEATURE_ARIA
-#define NOXTLS_FEATURE_ARIA 1
-#undef NOXTLS_FEATURE_CAMELLIA
-#define NOXTLS_FEATURE_CAMELLIA 1
-#undef NOXTLS_FEATURE_CHACHA20_POLY1305
-#define NOXTLS_FEATURE_CHACHA20_POLY1305 1
-#undef NOXTLS_FEATURE_DES
-#define NOXTLS_FEATURE_DES 1
-#undef NOXTLS_FEATURE_RC4
-#define NOXTLS_FEATURE_RC4 1
-
-#undef NOXTLS_FEATURE_RSA
-#define NOXTLS_FEATURE_RSA 1
-#undef NOXTLS_FEATURE_ECC
-#define NOXTLS_FEATURE_ECC 1
-#undef NOXTLS_FEATURE_ECDSA
-#define NOXTLS_FEATURE_ECDSA 1
-#undef NOXTLS_FEATURE_ECDH
-#define NOXTLS_FEATURE_ECDH 1
-#undef NOXTLS_FEATURE_DH
-#define NOXTLS_FEATURE_DH 1
-#undef NOXTLS_FEATURE_X25519
-#define NOXTLS_FEATURE_X25519 1
-#undef NOXTLS_FEATURE_X448
-#define NOXTLS_FEATURE_X448 1
-#undef NOXTLS_FEATURE_ED25519
-#define NOXTLS_FEATURE_ED25519 1
-#undef NOXTLS_FEATURE_ED448
-#define NOXTLS_FEATURE_ED448 1
-#undef NOXTLS_FEATURE_DSA
-#define NOXTLS_FEATURE_DSA 1
-#undef NOXTLS_FEATURE_ML_KEM
-#define NOXTLS_FEATURE_ML_KEM 0
-#undef NOXTLS_FEATURE_ML_DSA
-#define NOXTLS_FEATURE_ML_DSA 0
-#undef NOXTLS_FEATURE_SLH_DSA
-#define NOXTLS_FEATURE_SLH_DSA 0
-
-#undef NOXTLS_FEATURE_TLS10
-#define NOXTLS_FEATURE_TLS10 1
-#undef NOXTLS_FEATURE_TLS11
-#define NOXTLS_FEATURE_TLS11 1
-#undef NOXTLS_FEATURE_TLS12
-#define NOXTLS_FEATURE_TLS12 1
-#undef NOXTLS_FEATURE_TLS13
-#define NOXTLS_FEATURE_TLS13 1
-#undef NOXTLS_FEATURE_DTLS
-#define NOXTLS_FEATURE_DTLS 1
-#undef NOXTLS_HAVE_CERT_WRITE
-#define NOXTLS_HAVE_CERT_WRITE 1
-#undef NOXTLS_HAVE_TIME
-#define NOXTLS_HAVE_TIME 0
 #endif
 
 /* NOXTLS_HAVE_TIME
@@ -1285,11 +1725,10 @@
  */
 
 /* NOXTLS_HMAC_SHA256_SHARED_STATE
- * Use one fixed SHA-256 HMAC hash context instead of an allocator block per
- * live context. A second live context fails with NOXTLS_RETURN_FAILED.
- * Callers MUST serialize all SHA-256 HMAC access, including interrupts, and
- * may not interleave streaming contexts. The slot is wiped on final/free.
- * Default: 0 (private context state, permits independent live contexts).
+ * Deprecated, no effect (kept so existing configurations still build).
+ * noxtls_hmac_context_t now embeds its hash state and the precomputed
+ * key-pad chaining values, so HMAC never allocates and never uses a shared
+ * static slot; independent live contexts are always permitted.
  */
 #ifndef NOXTLS_HMAC_SHA256_SHARED_STATE
 #define NOXTLS_HMAC_SHA256_SHARED_STATE 0
@@ -1303,6 +1742,36 @@
  */
 #ifndef NOXTLS_ECC_SHARED_SCRATCH
 #define NOXTLS_ECC_SHARED_SCRATCH 0
+#endif
+
+/* NOXTLS_PKC_SHARED_DRBG
+ * When 1, ECC key generation, ECDSA nonces, RSA (keygen, padding, blinding),
+ * X25519/X448 and Ed25519/Ed448 key generation draw from ONE internal
+ * CTR-DRBG state instead of seven per-module static drbg_state_t (saves
+ * about 6 x sizeof(drbg_state_t) of .bss). The state is reseeded every
+ * NOXTLS_PKC_RNG_RESEED_INTERVAL requests; a generate that invalidates the
+ * state (AES failure) fails that call and the next call re-instantiates from
+ * fresh entropy. The state is not locked: callers
+ * that generate PKC randomness from several threads must serialize those
+ * calls (with 0, only calls into the same module need serializing).
+ * Default: 1 (shared state).
+ */
+#ifndef NOXTLS_PKC_SHARED_DRBG
+#define NOXTLS_PKC_SHARED_DRBG 1
+#endif
+
+/* NOXTLS_PKC_RNG_RESEED_INTERVAL
+ * Number of generate requests after which the long-lived PKC CTR-DRBG (see
+ * NOXTLS_PKC_SHARED_DRBG) reseeds from the entropy source before the next
+ * request, so that a compromise of its state exposes at most that many future
+ * outputs. 0 = reseed only at the SP 800-90A limit (DRBG_RESEED_INTERVAL,
+ * 2^48 requests). Each reseed reads security-strength bits (32 bytes for
+ * AES-256) from the entropy source. If the reseed cannot get entropy the
+ * request fails and the next request retries.
+ * Default: 1024.
+ */
+#ifndef NOXTLS_PKC_RNG_RESEED_INTERVAL
+#define NOXTLS_PKC_RNG_RESEED_INTERVAL 1024
 #endif
 
 /* NOXTLS_USE_STATIC_BUFFERS
@@ -1422,6 +1891,57 @@
 #define NOXTLS_TLS_MAX_HANDSHAKE_SIZE 65536U
 #endif
 
+/** DTLS: most bytes held for handshake reassembly per connection (the in-progress message
+ *  plus the out-of-order future messages, buffers and received bitmaps). A future message that
+ *  does not fit is dropped (the peer retransmits it); the in-progress message evicts future
+ *  messages first and is rejected (NOT_ENOUGH_MEMORY) if it still does not fit. Must be
+ *  >= NOXTLS_TLS_MAX_HANDSHAKE_SIZE plus 1/8 of it for the bitmap to accept every message.
+ *  Default: 2 * NOXTLS_TLS_MAX_HANDSHAKE_SIZE. */
+#ifndef NOXTLS_DTLS_REASSEMBLY_MAX_BYTES
+#define NOXTLS_DTLS_REASSEMBLY_MAX_BYTES (2U * NOXTLS_TLS_MAX_HANDSHAKE_SIZE)
+#endif
+
+/** TLS 1.3 server: most 0-RTT (early data) plaintext bytes buffered for the application
+ *  before the handshake completes; more is rejected with unexpected_message
+ *  (RFC 8446 4.2.10). Default: 16384. */
+#ifndef NOXTLS_TLS13_SERVER_MAX_EARLY_DATA
+#define NOXTLS_TLS13_SERVER_MAX_EARLY_DATA 16384U
+#endif
+
+/** TLS 1.2 server: entries of the process-global session-ID resumption cache (about 150 B
+ *  each, server role only). 0 compiles the cache out (no session-ID resumption).
+ *  Default: 16. */
+#ifndef NOXTLS_TLS12_SESSION_CACHE_SIZE
+#define NOXTLS_TLS12_SESSION_CACHE_SIZE 16U
+#endif
+
+/** TLS 1.2 server: entries of the process-global session-ticket cache (about 210 B each,
+ *  server role only). 0 compiles the cache out: the server neither accepts nor issues
+ *  RFC 5077 tickets. Default: 32. */
+#ifndef NOXTLS_TLS12_TICKET_CACHE_SIZE
+#define NOXTLS_TLS12_TICKET_CACHE_SIZE 32U
+#endif
+
+/** TLS 1.2 client: largest NewSessionTicket ticket stored for resumption (larger tickets
+ *  are ignored, the next connection does a full handshake). Default: 256. */
+#ifndef NOXTLS_TLS12_TICKET_MAX_LEN
+#define NOXTLS_TLS12_TICKET_MAX_LEN 256U
+#endif
+
+/** TLS 1.3 server: entries of the process-global resumption ticket store (about 120 B
+ *  each, server role only), 0..64. 0 compiles the store out: no NewSessionTicket is sent
+ *  and resumption PSKs are not accepted. Default: 64. */
+#ifndef NOXTLS_TLS13_PSK_TICKET_STORE_MAX
+#define NOXTLS_TLS13_PSK_TICKET_STORE_MAX 64U
+#endif
+
+/** TLS 1.3 server diagnostics: record a per-step timing breakdown of every accept in
+ *  tls13_context_t::last_accept_timing (232 bytes per context, monotonic clock reads).
+ *  Default: 0 (field and clock reads compiled out). */
+#ifndef NOXTLS_TLS13_ACCEPT_TIMING
+#define NOXTLS_TLS13_ACCEPT_TIMING 0
+#endif
+
 /** Maximum single certificate size in bytes accepted by X.509 parse APIs.
  *  Default: 16384.
  */
@@ -1448,12 +1968,30 @@
 #define NOXTLS_MAX_CERT_CHAIN_DEPTH 16
 #endif
 
-/** Initial owned certificate slots per chain. Chains grow when more are added.
- * Start with one so small trust/presented chains do not reserve eight large
- * parsed-certificate objects. This does not limit verification depth.
+/** Certificate slots added per chain growth step. A chain allocates nothing at
+ * init; the first add allocates this many slots and later adds grow the slot
+ * array linearly by the same step (each slot is sizeof(x509_certificate_t),
+ * ~152 bytes on Cortex-M4; certificate DER is allocated separately). Use
+ * noxtls_x509_certificate_chain_reserve() for a known count. This does not
+ * limit verification depth.
  */
 #ifndef NOXTLS_X509_CHAIN_INITIAL_CAPACITY
 #define NOXTLS_X509_CHAIN_INITIAL_CAPACITY 1U
+#endif
+
+/** Keep the parsed peer certificate (x509_certificate_t) for the whole connection.
+ *  0 (default): the parsed view of the peer leaf is released as soon as the
+ *    handshake no longer needs it (TLS 1.3 client: after CertificateVerify and the
+ *    hostname check; TLS 1.2 client: after ClientKeyExchange; TLS 1.2/1.3 server:
+ *    after the client CertificateVerify). The peer DER stays available
+ *    (noxtls_tls_connection_get_peer_certificate(), tls-server-end-point channel
+ *    binding); noxtls_tls12_get_client_certificate() returns
+ *    NOXTLS_RETURN_NOT_SUPPORTED (DER still returned) when the parsed certificate
+ *    is requested - parse the DER with noxtls_x509_certificate_parse_der_nocopy().
+ *  1: retain the parsed certificate until the context is freed (previous behaviour).
+ */
+#ifndef NOXTLS_TLS_RETAIN_PEER_CERT
+#define NOXTLS_TLS_RETAIN_PEER_CERT 0
 #endif
 
 /* ============================================================================
@@ -1572,6 +2110,22 @@
 #define NOXTLS_RSA_DEBUG_REJECTED_CANDIDATE_MAX_ATTEMPTS 500U
 #endif
 
+/* NOXTLS_BN_MONT_WINDOW_BITS
+ *
+ * Window width W (bits) of the constant-time Montgomery exponentiation used for
+ * secret exponents (RSA private key / CRT halves, DH, DSA signing). Its table
+ * holds 2^W residues of the modulus size: 2^W * 128 B for an RSA-2048 CRT half,
+ * 2^W * 256 B for DH-2048 or non-CRT RSA-2048. Smaller W saves RAM, larger W
+ * saves multiplications (1024-bit exponent: W=2 +19%, W=3 +6%, W=5 -3% vs W=4).
+ * Public exponents (RSA e) use a table-free path and are not affected.
+ * Range: 1..6.
+ *
+ * Default: 4 (16-entry table)
+ */
+#ifndef NOXTLS_BN_MONT_WINDOW_BITS
+#define NOXTLS_BN_MONT_WINDOW_BITS 4U
+#endif
+
 /* ============================================================================
  * ECC Point Multiplication Configuration
  * ============================================================================
@@ -1602,47 +2156,110 @@
 
 /* NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE
  *
- * When 1, keep process-global precompute tables for repeated ECC scalar
- * multiplication patterns. This materially improves P-256 ECDSA sign/verify
- * throughput on embedded targets because generator and verify joint tables are
- * reused across operations.
+ * When 1, keep a process-global precompute table for repeated fixed-base ECC
+ * scalar multiplication (generator G of curves without a read-only table) and
+ * the last P-256 joint verification table, keyed by curve id. This speeds up
+ * repeated operations at the cost of retained heap.
  *
  * Tradeoffs:
- * - Retains several KB of allocator-backed tables after first use.
+ * - Retains allocator-backed tables (1-4 KB per curve) after first use.
  * - Shared mutable cache state is not internally locked; multi-threaded users
- *   must serialize ECC use externally or set this to 0.
+ *   must serialize ECC use externally.
  *
- * Default: 1 (performance-oriented embedded default)
+ * Default: 0 (no retained tables; P-256 uses NOXTLS_ECC_P256_FLASH_PRECOMPUTE)
  */
 #ifndef NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE
-#define NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE 1
+#define NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE 0
 #endif
 
 /* NOXTLS_ECC_P256_FLASH_PRECOMPUTE
  *
  * When 1, use a compact, compile-time P-256 generator comb table from
- * read-only storage instead of allocating the fixed-base table from the heap.
+ * read-only storage instead of building the fixed-base table on the heap.
  * Embedded linkers normally place the const table in flash/ROM. This adds
- * approximately 2 KiB of read-only data and saves 6528 bytes of heap whenever
- * the P-256 fixed-base table would otherwise be cached.
+ * approximately 2 KiB of read-only data, removes the per-operation table
+ * build and its heap, and is as fast as or faster than the heap table.
  *
- * Default: 0 (preserve the existing flash-size/RAM tradeoff)
+ * Default: 1 (read-only generator table)
  */
 #ifndef NOXTLS_ECC_P256_FLASH_PRECOMPUTE
-#define NOXTLS_ECC_P256_FLASH_PRECOMPUTE 0
+#define NOXTLS_ECC_P256_FLASH_PRECOMPUTE 1
 #endif
 
 /* NOXTLS_ECC_P256_LOW_RAM_VERIFY
  *
- * When 1, P-256 two-scalar multiplication with G as the first point uses the
+ * When 1, P-256 two-scalar multiplication with G as one point uses the
  * flash generator table plus a compact 8-entry runtime table for the public
- * point. This replaces the 13056-byte joint verification table. Requires
+ * point instead of the 64-entry joint verification table. Requires
  * NOXTLS_ECC_P256_FLASH_PRECOMPUTE.
  *
- * Default: 0 (retain the faster joint-table verification path)
+ * Default: NOXTLS_ECC_P256_FLASH_PRECOMPUTE (1: low-RAM verification, measured
+ * as fast as the joint table)
  */
 #ifndef NOXTLS_ECC_P256_LOW_RAM_VERIFY
-#define NOXTLS_ECC_P256_LOW_RAM_VERIFY 0
+#define NOXTLS_ECC_P256_LOW_RAM_VERIFY NOXTLS_ECC_P256_FLASH_PRECOMPUTE
+#endif
+
+/* NOXTLS_ECC_ENABLE_<curve>
+ *
+ * Per-curve enables for the short Weierstrass curves (ECC, ECDSA, ECDH).
+ * A disabled curve is rejected by noxtls_ecc_curve_init()/noxtls_ecc_key_init()
+ * (NOXTLS_RETURN_FAILED) and its constants are not linked. ECC_MAX_KEY_SIZE,
+ * the coordinate array size of ecc_point_t / ecc_jpoint_t / ecdsa_signature_t,
+ * is derived from the largest enabled curve: 66 with P-521, 64 with
+ * brainpoolP512r1, 48 with P-384/brainpoolP384r1, 32 for 256-bit curves only.
+ * A P-256-only build (all others 0) shrinks ecc_point_t 136 -> 68 bytes and
+ * the ECC stack/heap accordingly. All translation units must see the same
+ * values (set them here or with -D for the whole build).
+ *
+ * Default: 1 for every curve (unchanged curve support)
+ */
+#ifndef NOXTLS_ECC_ENABLE_SECP192R1
+#define NOXTLS_ECC_ENABLE_SECP192R1 1
+#endif
+#ifndef NOXTLS_ECC_ENABLE_SECP224R1
+#define NOXTLS_ECC_ENABLE_SECP224R1 1
+#endif
+#ifndef NOXTLS_ECC_ENABLE_SECP256R1
+#define NOXTLS_ECC_ENABLE_SECP256R1 1
+#endif
+#ifndef NOXTLS_ECC_ENABLE_SECP384R1
+#define NOXTLS_ECC_ENABLE_SECP384R1 1
+#endif
+#ifndef NOXTLS_ECC_ENABLE_SECP521R1
+#define NOXTLS_ECC_ENABLE_SECP521R1 1
+#endif
+#ifndef NOXTLS_ECC_ENABLE_BP256R1
+#define NOXTLS_ECC_ENABLE_BP256R1 1
+#endif
+#ifndef NOXTLS_ECC_ENABLE_BP384R1
+#define NOXTLS_ECC_ENABLE_BP384R1 1
+#endif
+#ifndef NOXTLS_ECC_ENABLE_BP512R1
+#define NOXTLS_ECC_ENABLE_BP512R1 1
+#endif
+#ifndef NOXTLS_ECC_ENABLE_SECP192K1
+#define NOXTLS_ECC_ENABLE_SECP192K1 1
+#endif
+#ifndef NOXTLS_ECC_ENABLE_SECP224K1
+#define NOXTLS_ECC_ENABLE_SECP224K1 1
+#endif
+#ifndef NOXTLS_ECC_ENABLE_SECP256K1
+#define NOXTLS_ECC_ENABLE_SECP256K1 1
+#endif
+
+/* NOXTLS_ECC_STATUS_WORDS
+ *
+ * When 1, ECC key generation/initialization and ECDSA signing record their last
+ * return code and stage in the volatile PTS status words
+ * (noxtls_ecc_keygen_last_*, noxtls_ecc_keyinit_last_*, noxtls_ecdsa_sign_last_*;
+ * control flow only, never key material). 0 removes the words (36 bytes of
+ * RAM); code that reads them must then not be built.
+ *
+ * Default: 1 (status words kept for existing integrations)
+ */
+#ifndef NOXTLS_ECC_STATUS_WORDS
+#define NOXTLS_ECC_STATUS_WORDS 1
 #endif
 
 /* NOXTLS_ECDSA_SIGN_SELF_VERIFY

@@ -35,6 +35,10 @@
 #include "mdigest/sha256/noxtls_sha256.h"
 #include "noxtls_ct.h"
 
+/* DTLS builds only; noxtls_dtls_stub.c provides the API without DTLS (sources may be compiled
+ * unconditionally by globbing build systems). */
+#if NOXTLS_FEATURE_DTLS
+
 static const uint64_t dtls_s_u64_bit[64] = {
     0x0000000000000001ULL,
     0x0000000000000002ULL,
@@ -117,6 +121,50 @@ static void dtls_flight_clear(dtls_context_t *ctx)
     ctx->flight_buffer_len = 0U;
 }
 
+/** Flight buffer growth granularity (power of two). */
+#define DTLS_FLIGHT_GROW_STEP 256U
+
+/** Bytes of a received-bitmap covering len message bytes. */
+#define DTLS_RX_MAP_BYTES(len) (((((len) == 0U) ? 1U : (len)) + 7U) / 8U)
+
+/**
+ * @brief Test whether byte idx is marked received in a bitmap.
+ */
+static uint32_t dtls_rx_map_test(const uint8_t *map, uint32_t idx)
+{
+    return (uint32_t)(((uint32_t)map[idx >> 3U] >> (idx & 7U)) & 1U);
+}
+
+/**
+ * @brief Mark byte idx received in a bitmap.
+ */
+static void dtls_rx_map_set(uint8_t *map, uint32_t idx)
+{
+    map[idx >> 3U] = (uint8_t)(map[idx >> 3U] | (uint8_t)(1U << (idx & 7U)));
+}
+
+/**
+ * @brief Bytes held for reassembly (in-progress message + queued future messages).
+ */
+static uint32_t dtls_reassembly_bytes_held(const dtls_context_t *ctx, const dtls_reassembly_slot_t *skip)
+{
+    uint32_t total = 0U;
+
+    if(ctx->handshake_buffer != NULL) {
+        total += ctx->handshake_buffer_capacity;
+    }
+    if(ctx->handshake_received != NULL) {
+        total += ctx->handshake_received_len;
+    }
+    for(uint32_t i = 0U; i < DTLS_REASSEMBLY_QUEUE_SIZE; i += 1U) {
+        const dtls_reassembly_slot_t *s = &ctx->reassembly_queue[i];
+        if((s != skip) && (s->active != 0U)) {
+            total += s->capacity + DTLS_RX_MAP_BYTES(s->capacity);
+        }
+    }
+    return total;
+}
+
 static noxtls_return_t dtls_flight_reserve(dtls_context_t *ctx, uint32_t needed)
 {
     uint8_t *new_buf = NULL;
@@ -142,14 +190,16 @@ static noxtls_return_t dtls_flight_reserve(dtls_context_t *ctx, uint32_t needed)
     }
 
     {
-        uint32_t new_capacity = (uint32_t)((ctx->flight_buffer_capacity == 0U) ? 1024U : (ctx->flight_buffer_capacity << 1U));
+        /* Grow to the bytes needed rounded up to DTLS_FLIGHT_GROW_STEP (not to the next power
+         * of two, which wastes up to half the buffer for a large Certificate flight). */
+        uint32_t new_capacity = needed;
 
-        while(new_capacity < needed) {
-            if(new_capacity > (UINT32_MAX / 2U)) {
-                new_capacity = needed;
-                break;
-            }
-            new_capacity <<= 1U;
+        if(needed > (UINT32_MAX - DTLS_FLIGHT_GROW_STEP)) {
+            return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+        }
+        new_capacity = (needed + (DTLS_FLIGHT_GROW_STEP - 1U)) & ~(DTLS_FLIGHT_GROW_STEP - 1U);
+        if(new_capacity < 1024U) {
+            new_capacity = 1024U;
         }
         new_buf = (uint8_t*)NOXTLS_REALLOC(ctx->flight_buffer, new_capacity);
         if(new_buf == NULL) {
@@ -173,6 +223,7 @@ static void dtls_reassembly_slot_clear(dtls_reassembly_slot_t *slot)
         return;
     }
     if(slot->buffer != NULL) {
+        noxtls_secure_zero(slot->buffer, (size_t)((slot->capacity == 0U) ? 1U : slot->capacity));
         (void)noxtls_free(slot->buffer);
     }
     if(slot->received != NULL) {
@@ -229,7 +280,7 @@ static dtls_reassembly_slot_t *dtls_reassembly_slot_alloc(dtls_context_t *ctx)
         return NULL;
     }
     for(uint32_t i = 0U; i < DTLS_REASSEMBLY_QUEUE_SIZE; i += 1U) {
-        if((ctx->reassembly_queue[i].active == 0U)) {
+        if(ctx->reassembly_queue[i].active == 0U) {
             return &ctx->reassembly_queue[i];
         }
         if((oldest == NULL) || (ctx->reassembly_queue[i].message_seq < oldest->message_seq)) {
@@ -253,22 +304,22 @@ static noxtls_return_t dtls_reassembly_slot_reset(dtls_reassembly_slot_t *slot,
                                                    const dtls_handshake_fragment_t *fragment)
 {
     uint32_t alloc_len = (uint32_t)((fragment->length == 0U) ? 1U : fragment->length);
+    uint32_t map_len = DTLS_RX_MAP_BYTES(fragment->length);
 
     dtls_reassembly_slot_clear(slot);
     slot->buffer = (uint8_t*)NOXTLS_MALLOC(alloc_len);
-    slot->received = (uint8_t*)NOXTLS_MALLOC(alloc_len);
+    slot->received = (uint8_t*)NOXTLS_MALLOC(map_len);
     if((slot->buffer == NULL) || (slot->received == NULL)) {
         dtls_reassembly_slot_clear(slot);
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
     noxtls_secure_zero((slot->buffer), (size_t)(alloc_len));
-    noxtls_secure_zero((slot->received), (size_t)(alloc_len));
+    noxtls_secure_zero((slot->received), (size_t)(map_len));
     slot->active = 1U;
     slot->msg_type = fragment->msg_type;
     slot->message_seq = fragment->message_seq;
     slot->length = fragment->length;
     slot->capacity = fragment->length;
-    slot->received_len = fragment->length;
     slot->received_count = 0U;
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -279,20 +330,21 @@ static noxtls_return_t dtls_reassembly_slot_apply_bytes(dtls_reassembly_slot_t *
     uint32_t i = 0U;
     for(i = 0U; i < fragment->fragment_length; i += 1U) {
         uint32_t idx = (uint32_t)(fragment->fragment_offset + i);
-        if(slot->received[idx] != 0U) {
+        if(dtls_rx_map_test(slot->received, idx) != 0U) {
             if(slot->buffer[idx] != fragment->data[i]) {
                 return NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER;
             }
         } else {
             slot->buffer[idx] = fragment->data[i];
-            slot->received[idx] = 1U;
+            dtls_rx_map_set(slot->received, idx);
             slot->received_count += 1U;
         }
     }
     return NOXTLS_RETURN_SUCCESS;
 }
 
-static noxtls_return_t dtls_reassembly_slot_store(dtls_reassembly_slot_t *slot,
+static noxtls_return_t dtls_reassembly_slot_store(const dtls_context_t *cap_ctx,
+                                                   dtls_reassembly_slot_t *slot,
                                                    const dtls_handshake_fragment_t *fragment)
 {
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
@@ -308,6 +360,17 @@ static noxtls_return_t dtls_reassembly_slot_store(dtls_reassembly_slot_t *slot,
         return NOXTLS_RETURN_NULL;
     }
     if((slot->active == 0U) || (slot->message_seq != fragment->message_seq) || (slot->length != fragment->length)) {
+        if(cap_ctx != NULL) {
+            uint32_t held = dtls_reassembly_bytes_held(cap_ctx, slot);
+            uint32_t want = fragment->length + DTLS_RX_MAP_BYTES(fragment->length);
+            if((held > (uint32_t)NOXTLS_DTLS_REASSEMBLY_MAX_BYTES) ||
+               (want > ((uint32_t)NOXTLS_DTLS_REASSEMBLY_MAX_BYTES - held))) {
+                /* Over the reassembly budget: drop this future message; the peer
+                 * retransmits it once it is the next expected one. */
+                dtls_reassembly_slot_clear(slot);
+                return NOXTLS_RETURN_SUCCESS;
+            }
+        }
         rc = dtls_reassembly_slot_reset(slot, fragment);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
@@ -627,8 +690,8 @@ static noxtls_return_t dtls12_flight_resend_record(dtls_context_t *ctx, uint8_t 
     }
 
     if((flags & DTLS_FLIGHT_ENTRY_PROTECT) != 0U) {
-        uint8_t *out = ctx->base.record_send_buf;
-        uint32_t out_len = (uint32_t)(5U + TLS_MAX_PROTECTED_RECORD_FRAGMENT) - DTLS_RECORD_HEADER_SIZE;
+        uint8_t *out = noxtls_tls_record_tx_buffer(&ctx->base, NULL);
+        uint32_t out_len = (uint32_t)TLS_RECORD_TX_BUFFER_SIZE - DTLS_RECORD_HEADER_SIZE;
         noxtls_return_t rc = NOXTLS_RETURN_FAILED;
         if((rec_epoch != ctx->epoch) || (ctx->protect_record == NULL) || (out == NULL)) {
             return NOXTLS_RETURN_NOT_SUPPORTED;
@@ -933,8 +996,12 @@ noxtls_return_t noxtls_dtls_context_init(dtls_context_t *ctx, tls_role_t role, u
     }
 
     noxtls_secure_zero((ctx), sizeof(dtls_context_t));
-    if(noxtls_tls_context_init(&ctx->base, role, version) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
+    {
+        /* Keep the base error (e.g. NOT_SUPPORTED for a role compiled out). */
+        noxtls_return_t base_rc = noxtls_tls_context_init(&ctx->base, role, version);
+        if(base_rc != NOXTLS_RETURN_SUCCESS) {
+            return base_rc;
+        }
     }
 
     ctx->epoch = DTLS_EPOCH_UNENCRYPTED;
@@ -1022,12 +1089,7 @@ noxtls_return_t noxtls_dtls_context_init(dtls_context_t *ctx, tls_role_t role, u
     ctx->cookie_secret_valid = 1U;
     ctx->hrr_cookie = NULL;
     ctx->hrr_cookie_len = 0U;
-
-        ctx->base.record_send_buf = (uint8_t*)NOXTLS_MALLOC(5U + TLS_MAX_PROTECTED_RECORD_FRAGMENT);
-    if(ctx->base.record_send_buf == NULL) {
-        (void)noxtls_tls_context_free(&ctx->base);
-        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
-    }
+    /* The record TX buffer is allocated on first send (noxtls_tls_record_tx_buffer). */
 
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -1044,7 +1106,10 @@ noxtls_return_t noxtls_dtls_context_free(dtls_context_t *ctx)
         return NOXTLS_RETURN_NULL;
     }
 
+    /* Reassembled handshake messages and the retransmission flight hold handshake plaintext
+     * (DTLS 1.3: the encrypted flight's inner plaintext): wipe before freeing. */
     if(ctx->handshake_buffer != NULL) {
+        noxtls_secure_zero(ctx->handshake_buffer, (size_t)ctx->handshake_buffer_capacity);
         (void)noxtls_free(ctx->handshake_buffer);
         ctx->handshake_buffer = NULL;
     }
@@ -1053,6 +1118,9 @@ noxtls_return_t noxtls_dtls_context_free(dtls_context_t *ctx)
         ctx->handshake_received = NULL;
     }
     dtls_reassembly_queue_clear(ctx);
+    if(ctx->flight_buffer != NULL) {
+        noxtls_secure_zero(ctx->flight_buffer, (size_t)ctx->flight_buffer_capacity);
+    }
     if((ctx->flight_buffer != NULL) && (ctx->flight_buffer != ctx->flight_buffer_storage)) {
         (void)noxtls_free(ctx->flight_buffer);
     }
@@ -1074,10 +1142,6 @@ noxtls_return_t noxtls_dtls_context_free(dtls_context_t *ctx)
     if(ctx->last_ack_ranges_max != NULL) {
         (void)noxtls_free(ctx->last_ack_ranges_max);
         ctx->last_ack_ranges_max = NULL;
-    }
-    if(ctx->base.record_send_buf != NULL) {
-        (void)noxtls_free(ctx->base.record_send_buf);
-        ctx->base.record_send_buf = NULL;
     }
     if(ctx->hrr_cookie != NULL) {
         (void)noxtls_free(ctx->hrr_cookie);
@@ -1322,8 +1386,8 @@ noxtls_return_t noxtls_dtls_send_record(dtls_context_t *ctx, uint8_t type, const
             return NOXTLS_RETURN_TIMEOUT;
         }
     }
-    record = ctx->base.record_send_buf;
-    if(record == NULL) {
+    record = noxtls_tls_record_tx_buffer(&ctx->base, NULL);
+    if((record == NULL) || (record_len > (uint32_t)TLS_RECORD_TX_BUFFER_SIZE)) {
         record = (uint8_t*)NOXTLS_MALLOC(record_len);
         if(record == NULL) {
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
@@ -1533,7 +1597,7 @@ noxtls_return_t noxtls_dtls_send_protected_record(dtls_context_t *ctx, uint8_t t
                                                   const uint8_t *plaintext, uint32_t len)
 {
     uint8_t *record = NULL;
-    uint32_t out_len = (uint32_t)(5U + TLS_MAX_PROTECTED_RECORD_FRAGMENT) - DTLS_RECORD_HEADER_SIZE;
+    uint32_t out_len = (uint32_t)TLS_RECORD_TX_BUFFER_SIZE - DTLS_RECORD_HEADER_SIZE;
     uint32_t record_len = 0U;
     int32_t sent = 0;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
@@ -1541,9 +1605,11 @@ noxtls_return_t noxtls_dtls_send_protected_record(dtls_context_t *ctx, uint8_t t
     if((ctx == NULL) || ((plaintext == NULL) && (len > 0U))) {
         return NOXTLS_RETURN_NULL;
     }
-    if((ctx->protect_record == NULL) || (ctx->base.send_callback == NULL) ||
-       (ctx->base.record_send_buf == NULL)) {
+    if((ctx->protect_record == NULL) || (ctx->base.send_callback == NULL)) {
         return NOXTLS_RETURN_FAILED;
+    }
+    if(noxtls_tls_record_tx_buffer(&ctx->base, NULL) == NULL) {
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
     if(len > TLS_MAX_RECORD_SIZE) {
         return NOXTLS_RETURN_INVALID_PARAM;
@@ -2008,7 +2074,8 @@ noxtls_return_t dtls_send_handshake_fragment(dtls_context_t *ctx,
         max_fragment = DTLS_MIN_FRAGMENT_SIZE;
     }
     buffer_len = DTLS_HANDSHAKE_HEADER_SIZE + max_fragment;
-    if(ctx->base.record_send_buf != NULL) {
+    if((noxtls_tls_record_tx_buffer(&ctx->base, NULL) != NULL) &&
+       ((DTLS_RECORD_DATA_OFFSET + buffer_len) <= (uint32_t)TLS_RECORD_TX_BUFFER_SIZE)) {
         buffer = &ctx->base.record_send_buf[DTLS_RECORD_DATA_OFFSET];
     } else {
         /* MISRA 15.7: final else path */
@@ -2145,6 +2212,44 @@ noxtls_return_t noxtls_dtls_take_queued_handshake(dtls_context_t *ctx, uint8_t *
 }
 
 /**
+ * @brief Make room within NOXTLS_DTLS_REASSEMBLY_MAX_BYTES for the in-progress message.
+ *
+ * The in-progress buffers are counted at their grown size; queued future messages are
+ * evicted (highest message_seq first) until the in-progress message fits.
+ *
+ * @param[in,out] ctx The context.
+ * @param[in] alloc_len Message buffer bytes needed.
+ * @param[in] map_len Received-bitmap bytes needed.
+ * @return SUCCESS, or NOT_ENOUGH_MEMORY when the message alone exceeds the budget.
+ */
+static noxtls_return_t dtls_reassembly_make_room(dtls_context_t *ctx, uint32_t alloc_len, uint32_t map_len)
+{
+    for(;;) {
+        uint32_t buf_cap = (ctx->handshake_buffer_capacity > alloc_len) ? ctx->handshake_buffer_capacity : alloc_len;
+        uint32_t map_cap = (ctx->handshake_received_len > map_len) ? ctx->handshake_received_len : map_len;
+        uint32_t queued = 0U;
+        dtls_reassembly_slot_t *victim = NULL;
+
+        for(uint32_t i = 0U; i < DTLS_REASSEMBLY_QUEUE_SIZE; i += 1U) {
+            dtls_reassembly_slot_t *s = &ctx->reassembly_queue[i];
+            if(s->active != 0U) {
+                queued += s->capacity + DTLS_RX_MAP_BYTES(s->capacity);
+                if((victim == NULL) || (s->message_seq > victim->message_seq)) {
+                    victim = s;
+                }
+            }
+        }
+        if(((uint64_t)buf_cap + (uint64_t)map_cap + (uint64_t)queued) <= (uint64_t)NOXTLS_DTLS_REASSEMBLY_MAX_BYTES) {
+            return NOXTLS_RETURN_SUCCESS;
+        }
+        if(victim == NULL) {
+            return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+        }
+        dtls_reassembly_slot_clear(victim);
+    }
+}
+
+/**
  * @brief Reassemble the handshake.
  *
  * @param[in] ctx The context value.
@@ -2193,7 +2298,7 @@ noxtls_return_t noxtls_dtls_reassemble_handshake(dtls_context_t *ctx,
         if(slot == NULL) {
             slot = dtls_reassembly_slot_alloc(ctx);
         }
-        return dtls_reassembly_slot_store(slot, fragment);
+        return dtls_reassembly_slot_store(ctx, slot, fragment);
     }
 
     if((fragment->fragment_offset == 0U) && (fragment->fragment_length == total_len)) {
@@ -2215,6 +2320,7 @@ noxtls_return_t noxtls_dtls_reassemble_handshake(dtls_context_t *ctx,
     if((ctx->handshake_buffer == NULL) || (ctx->handshake_received == NULL) ||
        (ctx->handshake_buffer_len != total_len)) {
         uint32_t alloc_len = (total_len == 0U) ? 1U : total_len;
+        uint32_t map_len = DTLS_RX_MAP_BYTES(total_len);
         /*
          * Invalidate the in-progress reassembly first, then (re)allocate. The new message
          * length is committed only once both the buffer and the received map are large
@@ -2224,6 +2330,10 @@ noxtls_return_t noxtls_dtls_reassemble_handshake(dtls_context_t *ctx,
         ctx->handshake_buffer_len = 0U;
         ctx->handshake_received_count = 0U;
         ctx->expected_fragment_offset = 0U;
+        rc = dtls_reassembly_make_room(ctx, alloc_len, map_len);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
         if((ctx->handshake_buffer == NULL) || (ctx->handshake_buffer_capacity < alloc_len)) {
             uint8_t *new_buf = (uint8_t*)NOXTLS_REALLOC(ctx->handshake_buffer, alloc_len);
             if(new_buf == NULL) {
@@ -2232,29 +2342,29 @@ noxtls_return_t noxtls_dtls_reassemble_handshake(dtls_context_t *ctx,
             ctx->handshake_buffer = new_buf;
             ctx->handshake_buffer_capacity = alloc_len;
         }
-        if((ctx->handshake_received == NULL) || (ctx->handshake_received_len < alloc_len)) {
-            uint8_t *new_map = (uint8_t*)NOXTLS_REALLOC(ctx->handshake_received, alloc_len);
+        if((ctx->handshake_received == NULL) || (ctx->handshake_received_len < map_len)) {
+            uint8_t *new_map = (uint8_t*)NOXTLS_REALLOC(ctx->handshake_received, map_len);
             if(new_map == NULL) {
                 return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
             }
             ctx->handshake_received = new_map;
-            ctx->handshake_received_len = alloc_len;
+            ctx->handshake_received_len = map_len;
         }
         noxtls_secure_zero((ctx->handshake_buffer), (size_t)(alloc_len));
-        noxtls_secure_zero((ctx->handshake_received), (size_t)(alloc_len));
+        noxtls_secure_zero((ctx->handshake_received), (size_t)(map_len));
         ctx->handshake_buffer_len = total_len;
     }
 
     if(fragment->fragment_length > 0U) {
         for(uint32_t i = 0U; i < fragment->fragment_length; i += 1U) {
             uint32_t idx = (uint32_t)(fragment->fragment_offset + i);
-            if(ctx->handshake_received[idx] != 0U) {
+            if(dtls_rx_map_test(ctx->handshake_received, idx) != 0U) {
                 if(ctx->handshake_buffer[idx] != fragment->data[i]) {
                     return NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER;
                 }
             } else {
                 ctx->handshake_buffer[idx] = fragment->data[i];
-                ctx->handshake_received[idx] = 1U;
+                dtls_rx_map_set(ctx->handshake_received, idx);
                 ctx->handshake_received_count += 1U;
             }
         }
@@ -2440,3 +2550,4 @@ void noxtls_dtls_mark_validated(dtls_context_t *ctx)
     }
     ctx->validated = 1U;
 }
+#endif /* NOXTLS_FEATURE_DTLS */

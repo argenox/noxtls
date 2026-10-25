@@ -31,6 +31,8 @@
 #include "common/noxtls_memory.h"
 #include "noxtls_ct.h"
 
+#if NOXTLS_FEATURE_DH
+
 /**
  * @brief Returns 1 if modulus matches a built-in RFC 7919 safe-prime group.
  *
@@ -630,3 +632,5 @@ noxtls_return_t noxtls_dh_shared_secret(const uint8_t *private_key,
     (void)noxtls_free(peer_mod);
     return rc;
 }
+
+#endif /* NOXTLS_FEATURE_DH */

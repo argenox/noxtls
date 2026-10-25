@@ -42,12 +42,45 @@ struct noxtls_x509_verify_policy;
 /* EC-JPAKE exchange state (pake/noxtls_ecjpake.h). */
 struct noxtls_ecjpake_ctx_s;
 #endif
+/* Running handshake transcript hashes (private to noxtls_tls12.c). */
+struct tls12_transcript_s;
 
-#define TLS12_SESSION_CACHE_SIZE   16U
+#if NOXTLS_FEATURE_TLS_SERVER
+#define TLS12_SESSION_CACHE_SIZE   NOXTLS_TLS12_SESSION_CACHE_SIZE
+#define TLS12_TICKET_CACHE_SIZE    NOXTLS_TLS12_TICKET_CACHE_SIZE
+#else
+/* Client-only build: no server caches. */
+#define TLS12_SESSION_CACHE_SIZE   0U
+#define TLS12_TICKET_CACHE_SIZE    0U
+#endif
 #define TLS12_SESSION_SNI_MAX      255u
-#define TLS12_TICKET_CACHE_SIZE    32U
-#define TLS12_TICKET_MAX_LEN       256u
+/** Largest ticket a client stores (NewSessionTicket). */
+#define TLS12_TICKET_MAX_LEN       NOXTLS_TLS12_TICKET_MAX_LEN
+/** Length of the opaque tickets this server issues (random cache lookup keys). */
+#define TLS12_SERVER_TICKET_LEN    48U
 #define TLS12_TICKET_LIFETIME_HINT 86400u
+#if TLS12_TICKET_MAX_LEN < TLS12_SERVER_TICKET_LEN
+#error "NOXTLS_TLS12_TICKET_MAX_LEN must be >= 48"
+#endif
+
+/*
+ * TLS 1.2 / DTLS 1.2 legacy opt-ins (noxtls_config.h). Both default to 0: a TLS 1.2
+ * handshake then negotiates only forward-secret AEAD suites and never signs or accepts a
+ * SHA-1 signature. TLS 1.0 / 1.1 connections (NOXTLS_FEATURE_TLS10 / _TLS11) have only
+ * CBC suites and MD5 / SHA-1 signatures and are not affected by these switches.
+ */
+#ifndef NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES
+#define NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES 0
+#endif
+#ifndef NOXTLS_TLS12_ENABLE_SHA1_SIGNATURES
+#define NOXTLS_TLS12_ENABLE_SHA1_SIGNATURES 0
+#endif
+/** 1 when TLS 1.2 may offer, sign with or accept rsa_pkcs1_sha1 / ecdsa_sha1 (needs SHA-1). */
+#if (NOXTLS_TLS12_ENABLE_SHA1_SIGNATURES != 0) && (NOXTLS_FEATURE_SHA1 != 0)
+#define NOXTLS_TLS12_SHA1_SIGNATURES 1
+#else
+#define NOXTLS_TLS12_SHA1_SIGNATURES 0
+#endif
 
 /* TLS 1.2 Context */
 NOXTLS_MSVC_WARNING_PUSH
@@ -85,10 +118,10 @@ struct tls12_context_s
     const uint8_t **server_cert_chain;      /* Optional intermediate certificates (DER, non-owning) */
     const uint32_t *server_cert_chain_len;  /* Lengths for server_cert_chain entries */
     uint32_t server_cert_chain_count;       /* Number of intermediate certs */
-    void *server_cert_parsed;       /* Parsed X.509 certificate (x509_certificate_t*) */
+    void *server_cert_parsed;       /* Parsed X.509 view borrowing server_cert (x509_certificate_t*); released after the handshake unless NOXTLS_TLS_RETAIN_PEER_CERT */
     uint8_t *client_cert;           /* Server: received client certificate (DER, leaf only) */
     uint32_t client_cert_len;       /* Server: received client certificate length */
-    void *client_cert_parsed;       /* Server: parsed client certificate (x509_certificate_t*) */
+    void *client_cert_parsed;       /* Server: parsed view borrowing client_cert (x509_certificate_t*); released after CertificateVerify unless NOXTLS_TLS_RETAIN_PEER_CERT */
 
     /** Optional server RSA private key (rsa_key_t*) for Server Key Exchange signature. If set, SKX is signed. */
     void *server_private_rsa;
@@ -137,11 +170,15 @@ struct tls12_context_s
     void *ecdhe_ctx;                  /* ECDHE context (tls_ecdhe_context_t*) - for ECDHE key exchange */
     void *dhe_ctx;                     /* DHE context (tls_dhe_context_t*) - for DHE-RSA (FFDHE) key exchange */
     
-    /* Handshake messages */
-    uint8_t *handshake_messages;     /* Accumulated handshake messages */
-    uint32_t handshake_messages_len; /* Length of handshake messages */
-    uint8_t pending_app_data[TLS_MAX_RECORD_SIZE]; /* Buffered app-data seen during renegotiation handshake */
-    uint32_t pending_app_data_len;   /* Length of pending_app_data */
+    /* Handshake transcript: running hash states only (no raw copy of the messages), heap,
+     * allocated for the handshake and released when it completes (noxtls_tls12.c). */
+    struct tls12_transcript_s *transcript;
+    uint32_t handshake_messages_len; /* Handshake bytes absorbed into the transcript (diagnostics) */
+    /** Decrypted application data not yet returned by noxtls_tls12_recv (unread remainder of a
+     *  record opened in place, or app data seen during a renegotiation handshake). Owned, on demand. */
+    uint8_t *pending_app_data;
+    uint32_t pending_app_data_off;   /* Read offset into pending_app_data */
+    uint32_t pending_app_data_len;   /* Unread bytes at pending_app_data_off */
     
     /* Extensions */
     tls_extensions_t client_extensions;  /* Client Hello extensions */
@@ -176,10 +213,10 @@ struct tls12_context_s
     uint8_t use_encrypt_then_mac;                /* RFC 7366 negotiated for current handshake */
     /** RFC 7627: ClientHello included valid (empty) extended_master_secret extension. */
     uint8_t extended_master_secret_offered;
-    /** RFC 7627: ServerHello echoed EMS; master secret uses session hash through ServerHelloDone. */
+    /** RFC 7627: ServerHello echoed EMS; master secret uses the session hash through ClientKeyExchange. */
     uint8_t extended_master_secret_negotiated;
-    /** Bytes of ctx->handshake_messages through ServerHelloDone (for EMS session hash). */
-    uint32_t ems_session_transcript_len;
+    /** Client (RFC 7627): offer extended_master_secret in the TLS 1.2 ClientHello (default 1). */
+    uint8_t client_offer_ems;
     /** When session_resume: EMS flag from session/ticket cache entry (for resume policy). */
     uint8_t session_resume_ems;
 
@@ -187,7 +224,8 @@ struct tls12_context_s
     uint8_t client_last_cipher_block[16];
     uint8_t server_last_cipher_block[16];
 
-    /* Reusable record workspace: encrypted/decrypted/handshake buffer (one at a time). Size TLS_MAX_RECORD_SIZE+256. */
+    /* Optional caller-supplied record workspace (tls12_set_workspaces). Records are protected in
+     * the record TX buffer and opened in place in their receive buffer, so none is allocated. */
     uint8_t *record_workspace;
     uint8_t record_workspace_owned;    /* 1 if allocated by context init, 0 if supplied by caller */
     /* Reusable handshake workspace: build/parse client_hello, certificate, server_key_exchange, etc. (one at a time). Size TLS_HANDSHAKE_WORKSPACE_SIZE. */
@@ -204,6 +242,7 @@ struct tls12_context_s
     uint8_t request_client_auth;         /* Server: 1 = send CertificateRequest and process client Certificate/CertificateVerify */
     uint8_t require_client_auth;         /* Server: fail when the client sends an empty Certificate */
     uint8_t client_auth_requested;       /* Client: 1 after CertificateRequest received */
+    uint16_t client_cv_scheme;           /* Client: CertificateVerify scheme chosen from CertificateRequest (0 = none) */
     const uint8_t *own_client_cert;      /* Client: DER leaf to send (non-owning); NULL = empty Certificate */
     uint32_t own_client_cert_len;
     void *client_private_rsa;            /* Client: rsa_key_t* for CertificateVerify */
@@ -238,11 +277,11 @@ struct tls12_context_s
     uint32_t handshake_rx_buffer_len;
     /* Client: 1 if ClientHello included session_ticket (empty or with ticket). */
     uint8_t client_offered_session_ticket;
-    /** Opaque ticket used to resume this handshake (cache lookup key). */
-    uint8_t resumption_identity[TLS12_TICKET_MAX_LEN];
+    /** Opaque ticket used to resume this handshake (cache lookup key); owned, exact length. */
+    uint8_t *resumption_identity;
     uint16_t resumption_identity_len;
-    /** Most recently issued/received ticket for a future connection. */
-    uint8_t next_session_identity[TLS12_TICKET_MAX_LEN];
+    /** Most recently issued/received ticket for a future connection; owned, exact length. */
+    uint8_t *next_session_identity;
     uint16_t next_session_identity_len;
     /** Client: ServerHello echoed session_ticket; expect NewSessionTicket before CCS. */
     uint8_t session_ticket_negotiated;
@@ -266,29 +305,29 @@ typedef struct tls12_context_s tls12_context_t;
 #endif
 NOXTLS_MSVC_WARNING_POP
 
+/* Server resumption cache entries. The ClientHello host_name and the negotiated ALPN protocol
+ * are only compared on resumption, so they are kept as SHA-256 digests. */
 typedef struct {
     uint8_t id[TLS_SESSION_ID_MAX_LEN];
     uint8_t id_len;
     uint8_t master_secret[48];
     uint16_t cipher_suite;
-    uint8_t alpn[NOXTLS_TLS_ALPN_MAX_PROTOCOL_LEN + 1U];
-    uint16_t alpn_len;
-    uint16_t sni_len;
-    uint8_t sni[255];
+    uint8_t sni_digest[32];         /* SHA-256 of the ClientHello host_name (sni_present != 0) */
+    uint8_t sni_present;
     uint8_t extended_master_secret; /* RFC 7627: session established with EMS */
     uint8_t server_binding[32];     /* SHA-256 of issuing server config (leaf certs, version, cert type) */
     uint8_t in_use;
 } tls12_session_cache_entry_t;
 
 typedef struct {
-    uint8_t ticket[TLS12_TICKET_MAX_LEN];
+    uint8_t ticket[TLS12_SERVER_TICKET_LEN];
     uint16_t ticket_len;
     uint8_t master_secret[48];
     uint16_t cipher_suite;
-    uint8_t alpn[NOXTLS_TLS_ALPN_MAX_PROTOCOL_LEN + 1U];
-    uint16_t alpn_len;
-    uint16_t sni_len;
-    uint8_t sni[255];
+    uint8_t alpn_digest[32];        /* SHA-256 of the negotiated ALPN protocol (alpn_present != 0) */
+    uint8_t alpn_present;
+    uint8_t sni_digest[32];         /* SHA-256 of the ClientHello host_name (sni_present != 0) */
+    uint8_t sni_present;
     uint8_t extended_master_secret;
     uint32_t issued_at;
     uint32_t lifetime_hint;
@@ -393,6 +432,8 @@ void noxtls_tls12_set_client_accept_server_rpk(tls12_context_t *ctx, int accept)
 /** RFC 7250: Client can send RPK for client auth (sends client_certificate_type extension). Call before connect. */
 void noxtls_tls12_set_client_offer_client_rpk(tls12_context_t *ctx, int offer);
 void noxtls_tls12_set_client_fallback_scsv(tls12_context_t *ctx, int enable);
+/** Client (RFC 7627): offer extended_master_secret in the TLS 1.2 ClientHello (on by default). Call before connect. */
+void noxtls_tls12_set_client_extended_master_secret(tls12_context_t *ctx, int enable);
 /** Server: request client certificate authentication (TLS 1.2 CertificateRequest). Call before accept. */
 void noxtls_tls12_request_client_auth(tls12_context_t *ctx, int request);
 /** Server: require a non-empty client certificate (implies request). */
@@ -406,17 +447,22 @@ void noxtls_tls12_require_client_auth(tls12_context_t *ctx, int require);
 void noxtls_tls12_set_client_verify_policy(tls12_context_t *ctx,
                                            const struct noxtls_x509_verify_policy *policy);
 /**
- * Server: return the verified client leaf certificate after the handshake.
- * \p parsed (optional) receives the parsed x509_certificate_t as an opaque pointer.
- * Pointers stay valid until the context is freed. Returns NOXTLS_RETURN_FAILED when
- * no client certificate was accepted.
- */
-/**
  * Return sizeof(tls12_context_t) as compiled into the library. Consumers compare
  * it with their own sizeof to detect a noxtls_config.h mismatch (for example a
  * different NOXTLS_TLS_MAX_RECORD_SIZE) before using a context.
  */
 uint32_t noxtls_tls12_context_size(void);
+/**
+ * Server: return the verified client leaf certificate after the handshake.
+ * \p der / \p der_len receive the leaf DER; it stays valid until the context is freed
+ * (or a renegotiation replaces it). \p parsed (optional) receives the parsed
+ * x509_certificate_t as an opaque pointer. With NOXTLS_TLS_RETAIN_PEER_CERT=0 (default)
+ * the parsed view is released after the client CertificateVerify: *parsed is then NULL
+ * and the call returns NOXTLS_RETURN_NOT_SUPPORTED ("not retained") although \p der is
+ * filled; parse the DER with noxtls_x509_certificate_parse_der_nocopy() instead. With
+ * NOXTLS_TLS_RETAIN_PEER_CERT=1 the parsed pointer stays valid until the context is freed.
+ * Returns NOXTLS_RETURN_FAILED when no client certificate was accepted.
+ */
 noxtls_return_t noxtls_tls12_get_client_certificate(const tls12_context_t *ctx,
                                                     const uint8_t **der,
                                                     uint32_t *der_len,

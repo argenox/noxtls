@@ -46,8 +46,8 @@ static noxtls_return_t receive_certificate(const noxtls_x509_verify_policy_t *po
     put24(msg+5U,length+5U);
     put24(msg+8U,length);
     memcpy(msg+11U,der,length);
-    client.pending_handshake_msg=msg;
-    client.pending_handshake_len=bytes;
+    client.hs->pending_handshake_msg=msg;
+    client.hs->pending_handshake_len=bytes;
     rc=noxtls_tls13_recv_certificate(&client);
     (void)noxtls_tls13_context_free(&client);
     return rc;
@@ -99,7 +99,8 @@ int main(void)
     policy.required_eku=X509_EKU_CLIENT_AUTH;
     CHECK(receive_certificate(&policy,mtls_server_cert,sizeof(mtls_server_cert),NULL)==NOXTLS_RETURN_INVALID_PARAM);
     policy.required_eku=X509_EKU_SERVER_AUTH;
-    memcpy(leaf.not_before,"bad-time",9U);
+    /* Simulate a malformed notBefore (validity is decoded once at parse time). */
+    leaf.validity_flags=(uint8_t)(leaf.validity_flags|X509_VALIDITY_NOT_BEFORE_BAD);
     CHECK(noxtls_x509_verify_cert_with_policy(&leaf,NULL,&policy,NULL)==NOXTLS_RETURN_BAD_DATA);
     policy.time_mode=(noxtls_x509_time_mode_t)99;
     CHECK(receive_certificate(&policy,mtls_server_cert,sizeof(mtls_server_cert),NULL)==NOXTLS_RETURN_INVALID_PARAM);

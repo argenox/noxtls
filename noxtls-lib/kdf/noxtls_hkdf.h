@@ -26,6 +26,25 @@ noxtls_return_t noxtls_hkdf_expand(noxtls_hash_algos_t hash_algo,
                                    const uint8_t *info, uint32_t info_len,
                                    uint8_t *okm, uint32_t okm_len);
 
+/** One contiguous piece of an HKDF info string (see noxtls_hkdf_expand_parts()). */
+typedef struct
+{
+    const uint8_t *data;  /* may be NULL only when len is 0 */
+    uint32_t len;
+} noxtls_hkdf_info_part_t;
+
+/**
+ * @brief HKDF-Expand (RFC 5869) with info given as the concatenation of
+ *        @p part_count pieces, so callers never assemble info in a buffer.
+ *
+ * Same result and limits as noxtls_hkdf_expand() over the concatenated
+ * info. The PRK is keyed into one HMAC context once for all output blocks.
+ */
+noxtls_return_t noxtls_hkdf_expand_parts(noxtls_hash_algos_t hash_algo,
+                                         const uint8_t *prk, uint32_t prk_len,
+                                         const noxtls_hkdf_info_part_t *parts, uint32_t part_count,
+                                         uint8_t *okm, uint32_t okm_len);
+
 /* Backward-compatible aliases. */
 noxtls_return_t hkdf_extract(noxtls_hash_algos_t hash_algo,
                              const uint8_t *salt, uint32_t salt_len,

@@ -823,7 +823,8 @@ static noxtls_return_t tlscurl_der_read_tlv(const uint8_t **p, const uint8_t *en
  * @param spki_tlv_len Output SPKI DER TLV length in bytes.
  * @return NOXTLS_RETURN_SUCCESS on success, error code on malformed certificate data.
  */
-static noxtls_return_t tlscurl_extract_leaf_spki_der(const x509_certificate_t *cert,
+static noxtls_return_t tlscurl_extract_leaf_spki_der(const uint8_t *leaf_der,
+                                                     uint32_t leaf_der_len,
                                                      const uint8_t **spki_tlv,
                                                      uint32_t *spki_tlv_len)
 {
@@ -839,11 +840,11 @@ static noxtls_return_t tlscurl_extract_leaf_spki_der(const x509_certificate_t *c
     uint32_t unused_val_len;
     noxtls_return_t rc;
 
-    if(cert == NULL || cert->raw_data == NULL || cert->raw_data_len == 0U || spki_tlv == NULL || spki_tlv_len == NULL) {
+    if(leaf_der == NULL || leaf_der_len == 0U || spki_tlv == NULL || spki_tlv_len == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    p = cert->raw_data;
-    end = cert->raw_data + cert->raw_data_len;
+    p = leaf_der;
+    end = leaf_der + leaf_der_len;
 
     rc = tlscurl_der_read_tlv(&p, end, TLSCURL_DER_TAG_SEQUENCE, &unused_tlv, &unused_tlv_len, &cert_val, &cert_val_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -931,7 +932,8 @@ static noxtls_return_t tlscurl_verify_spki_pin(tlscurl_active_tls_t active,
                                                int verbose)
 {
     const uint8_t *expected_b64;
-    const x509_certificate_t *leaf;
+    const uint8_t *leaf_der;
+    uint32_t leaf_der_len;
     const uint8_t *spki_tlv;
     uint32_t spki_tlv_len;
     uint8_t digest[TLSCURL_PIN_SHA256_LEN];
@@ -953,17 +955,21 @@ static noxtls_return_t tlscurl_verify_spki_pin(tlscurl_active_tls_t active,
                (unsigned)TLSCURL_PIN_SHA256_B64_LEN);
         return NOXTLS_RETURN_INVALID_PARAM;
     }
+    /* The verified leaf DER stays in the context after the handshake (the parsed view is
+     * released unless NOXTLS_TLS_RETAIN_PEER_CERT is set). */
     if(active == TLSCURL_ACTIVE_TLS12 && tls12 != NULL) {
-        leaf = (const x509_certificate_t *)tls12->server_cert_parsed;
+        leaf_der = tls12->server_cert;
+        leaf_der_len = tls12->server_cert_len;
     } else if(active == TLSCURL_ACTIVE_TLS13 && tls13 != NULL) {
-        leaf = (const x509_certificate_t *)tls13->server_cert_parsed;
+        leaf_der = tls13->server_cert;
+        leaf_der_len = tls13->server_cert_len;
     } else {
         return NOXTLS_RETURN_FAILED;
     }
-    if(leaf == NULL) {
+    if(leaf_der == NULL || leaf_der_len == 0U) {
         return NOXTLS_RETURN_FAILED;
     }
-    rc = tlscurl_extract_leaf_spki_der(leaf, &spki_tlv, &spki_tlv_len);
+    rc = tlscurl_extract_leaf_spki_der(leaf_der, leaf_der_len, &spki_tlv, &spki_tlv_len);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         printf("[tlscurl] ERROR: unable to extract leaf SPKI DER rc=%d\n", (int)rc);
         return rc;

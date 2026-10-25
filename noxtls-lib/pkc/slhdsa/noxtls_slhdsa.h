@@ -86,6 +86,54 @@ noxtls_return_t noxtls_slhdsa_verify(noxtls_slhdsa_param_t param,
                                      const uint8_t *signature,
                                      uint32_t signature_len);
 
+/*
+ * FIPS 205 interface notes:
+ *  - noxtls_slhdsa_sign / noxtls_slhdsa_verify implement the pure external
+ *    interface (slh_sign / slh_verify) with an empty context string, i.e. the
+ *    signed message is M' = 0x00 || 0x00 || M.  Signing is hedged (fresh
+ *    DRBG randomness for opt_rand).
+ *  - The *_ctx variants take a context string of at most 255 bytes.
+ *  - The *_internal variants operate on a caller-formatted M' (FIPS 205
+ *    slh_sign_internal / slh_verify_internal); addrnd == NULL selects the
+ *    deterministic variant (opt_rand = PK.seed).
+ *  - noxtls_slhdsa_keygen_from_seed is slh_keygen_internal(SK.seed, SK.prf, PK.seed);
+ *    each seed is n bytes (16/24/32 for the 128/192/256 sets).
+ */
+noxtls_return_t noxtls_slhdsa_keygen_from_seed(noxtls_slhdsa_param_t param,
+                                               const uint8_t *sk_seed,
+                                               const uint8_t *sk_prf,
+                                               const uint8_t *pk_seed,
+                                               uint8_t *public_key,
+                                               uint8_t *secret_key);
+noxtls_return_t noxtls_slhdsa_sign_ctx(noxtls_slhdsa_param_t param,
+                                       const uint8_t *secret_key,
+                                       const uint8_t *noxtls_message,
+                                       uint32_t message_len,
+                                       const uint8_t *ctx,
+                                       uint32_t ctx_len,
+                                       uint8_t *signature,
+                                       uint32_t *signature_len);
+noxtls_return_t noxtls_slhdsa_verify_ctx(noxtls_slhdsa_param_t param,
+                                         const uint8_t *public_key,
+                                         const uint8_t *noxtls_message,
+                                         uint32_t message_len,
+                                         const uint8_t *ctx,
+                                         uint32_t ctx_len,
+                                         const uint8_t *signature,
+                                         uint32_t signature_len);
+noxtls_return_t noxtls_slhdsa_sign_internal(noxtls_slhdsa_param_t param,
+                                            const uint8_t *secret_key,
+                                            const uint8_t *noxtls_message,
+                                            uint32_t message_len,
+                                            const uint8_t *addrnd,
+                                            uint8_t *signature,
+                                            uint32_t *signature_len);
+noxtls_return_t noxtls_slhdsa_verify_internal(noxtls_slhdsa_param_t param,
+                                              const uint8_t *public_key,
+                                              const uint8_t *noxtls_message,
+                                              uint32_t message_len,
+                                              const uint8_t *signature,
+                                              uint32_t signature_len);
 
 #endif /* NOXTLS_FEATURE_SLH_DSA */
 #ifdef __cplusplus

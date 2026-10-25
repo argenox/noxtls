@@ -98,9 +98,7 @@ static noxtls_return_t noxtls_pbkdf2_unusable_algorithm(noxtls_hash_algos_t hash
  * @brief Compute one PRF invocation HMAC(P, part1 || part2).
  * @internal
  *
- * @param[in] hash_algo HMAC hash.
- * @param[in] password HMAC key P (non-NULL; may be a dummy when password_len is 0).
- * @param[in] password_len Length of P.
+ * @param[in,out] hmac HMAC context keyed once with P (reset for every call).
  * @param[in] part1 First message part (may be NULL when part1_len is 0).
  * @param[in] part1_len Length of part1.
  * @param[in] part2 Second message part (may be NULL when part2_len is 0).
@@ -111,31 +109,28 @@ static noxtls_return_t noxtls_pbkdf2_unusable_algorithm(noxtls_hash_algos_t hash
  * @return NOXTLS_RETURN_SUCCESS, the failing HMAC status, or NOXTLS_RETURN_FAILED
  *         on an unexpected MAC length. @p out is wiped on failure.
  */
-static noxtls_return_t noxtls_pbkdf2_prf(noxtls_hash_algos_t hash_algo,
-                                         const uint8_t *password, uint32_t password_len,
+static noxtls_return_t noxtls_pbkdf2_prf(noxtls_hmac_context_t *hmac,
                                          const uint8_t *part1, uint32_t part1_len,
                                          const uint8_t *part2, uint32_t part2_len,
                                          uint8_t *out, uint32_t out_len)
 {
-    noxtls_hmac_context_t hmac;
     uint32_t mac_len = out_len;
     noxtls_return_t rc;
 
-    rc = noxtls_hmac_init(&hmac, hash_algo, password, password_len);
+    /* The context is keyed with P once; each PRF call restarts from its midstate. */
+    rc = noxtls_hmac_reset(hmac);
     if ((rc == NOXTLS_RETURN_SUCCESS) && (part1_len > 0U)) {
-        rc = noxtls_hmac_update(&hmac, part1, part1_len);
+        rc = noxtls_hmac_update(hmac, part1, part1_len);
     }
 
     if ((rc == NOXTLS_RETURN_SUCCESS) && (part2_len > 0U)) {
-        rc = noxtls_hmac_update(&hmac, part2, part2_len);
+        rc = noxtls_hmac_update(hmac, part2, part2_len);
     }
 
     if (rc == NOXTLS_RETURN_SUCCESS) {
-        rc = noxtls_hmac_final(&hmac, out, &mac_len);
+        rc = noxtls_hmac_final(hmac, out, &mac_len);
     }
 
-    (void)noxtls_hmac_free(&hmac);
-    noxtls_secure_zero(&hmac, sizeof(hmac));
     if ((rc == NOXTLS_RETURN_SUCCESS) && (mac_len != out_len)) {
         rc = NOXTLS_RETURN_FAILED;
     }
@@ -153,6 +148,7 @@ noxtls_return_t noxtls_pbkdf2_hmac(noxtls_hash_algos_t hash_algo,
                                    uint8_t *dk, uint32_t dk_len)
 {
     static const uint8_t empty_key = 0U;
+    noxtls_hmac_context_t hmac;
     uint8_t u_block[NOXTLS_PBKDF2_MAX_PRF_SIZE];
     uint8_t t_block[NOXTLS_PBKDF2_MAX_PRF_SIZE];
     uint8_t block_index[NOXTLS_PBKDF2_BLOCK_INDEX_SIZE];
@@ -183,6 +179,8 @@ noxtls_return_t noxtls_pbkdf2_hmac(noxtls_hash_algos_t hash_algo,
         key = &empty_key;
     }
 
+    rc = noxtls_hmac_init(&hmac, hash_algo, key, password_len);
+
     /* RFC 8018 section 5.2 step 3: T_i for i = 1..l, last block truncated (step 4). */
     while ((offset < dk_len) && (rc == NOXTLS_RETURN_SUCCESS)) {
         uint32_t iteration;
@@ -195,7 +193,7 @@ noxtls_return_t noxtls_pbkdf2_hmac(noxtls_hash_algos_t hash_algo,
         block_index[3] = (uint8_t)(block & NOXTLS_PBKDF2_BYTE_MASK);
 
         /* U_1 = PRF(P, S || INT(i)). */
-        rc = noxtls_pbkdf2_prf(hash_algo, key, password_len, salt, salt_len,
+        rc = noxtls_pbkdf2_prf(&hmac, salt, salt_len,
                                block_index, NOXTLS_PBKDF2_BLOCK_INDEX_SIZE, u_block, h_len);
         if (rc != NOXTLS_RETURN_SUCCESS) {
             break;
@@ -205,7 +203,7 @@ noxtls_return_t noxtls_pbkdf2_hmac(noxtls_hash_algos_t hash_algo,
 
         /* U_j = PRF(P, U_{j-1}), T_i ^= U_j for j = 2..c. */
         for (iteration = 1U; iteration < iterations; ++iteration) {
-            rc = noxtls_pbkdf2_prf(hash_algo, key, password_len, u_block, h_len,
+            rc = noxtls_pbkdf2_prf(&hmac, u_block, h_len,
                                    NULL, 0U, u_block, h_len);
             if (rc != NOXTLS_RETURN_SUCCESS) {
                 break;
@@ -226,6 +224,7 @@ noxtls_return_t noxtls_pbkdf2_hmac(noxtls_hash_algos_t hash_algo,
         ++block;
     }
 
+    (void)noxtls_hmac_free(&hmac);
     noxtls_secure_zero(u_block, sizeof(u_block));
     noxtls_secure_zero(t_block, sizeof(t_block));
     noxtls_secure_zero(block_index, sizeof(block_index));

@@ -40,15 +40,19 @@ static uint8_t sha3_debug_lvl = 0U;
 /* SHA-3 uses 64-bit lanes for Keccak-f[1600] */
 typedef uint64_t sha3_lane_t;
 
-/* Number of 64-bit lanes in the Keccak-f[1600] state (5 x 5). */
+/* Lane count, kept for the local permutation helpers. */
 #define SHA3_LANE_COUNT (SHA3_MAX_X_SIZE * SHA3_MAX_Y_SIZE)
 
-/* Access lane (x, y) of a local lane array. The byte state in the context is
- * never accessed through a wider type: it is only 4-byte aligned inside
- * noxtls_sha3_ctx_t (8-byte loads fault on strict-alignment cores) and FIPS 202
- * defines the lanes as little-endian byte strings, so keccak_f1600() converts
- * with explicit byte loads/stores that are correct on any alignment/endianness. */
-#define SHA3_LANE(lanes, x, y) ((lanes)[(SHA3_MAX_X_SIZE * (y)) + (x)])
+/* Rotate a lane left by a public constant 1..63. */
+#define SHA3_ROTL64(x, n) ((sha3_lane_t)(((x) << (n)) | ((x) >> (64U - (n)))))
+
+/*
+ * The context keeps the state as 25 native 64-bit lanes: lane x + 5y holds
+ * the FIPS 202 state bytes 8(x + 5y) .. 8(x + 5y) + 7 in little-endian
+ * order. Bytes are XORed in and read out with shifts, so the code is
+ * independent of host endianness and of the context's alignment beyond the
+ * natural uint64_t alignment that the compiler guarantees.
+ */
 
 /**
  * @brief Load a little-endian 64-bit lane from bytes (any alignment).
@@ -79,175 +83,33 @@ static void sha3_store_le64(uint8_t *p, sha3_lane_t v)
 }
 
 /**
- * @brief Rotate left for 64-bit values
- *
- * @param x Value to rotate
- * @param n Number of bits to rotate
- * @return sha3_lane_t Rotated value
+ * @brief XOR one byte into the state at byte offset @p pos.
  */
-static inline sha3_lane_t sha3_rotl64(sha3_lane_t x, uint8_t n)
+static void sha3_xor_byte(sha3_lane_t *state, uint32_t pos, uint8_t b)
 {
-    switch(n) {
-    case 0U: return x;
-    case 1U: return (sha3_lane_t)((x << 1U) | (x >> 63U));
-    case 2U: return (sha3_lane_t)((x << 2U) | (x >> 62U));
-    case 3U: return (sha3_lane_t)((x << 3U) | (x >> 61U));
-    case 6U: return (sha3_lane_t)((x << 6U) | (x >> 58U));
-    case 8U: return (sha3_lane_t)((x << 8U) | (x >> 56U));
-    case 10U: return (sha3_lane_t)((x << 10U) | (x >> 54U));
-    case 14U: return (sha3_lane_t)((x << 14U) | (x >> 50U));
-    case 15U: return (sha3_lane_t)((x << 15U) | (x >> 49U));
-    case 18U: return (sha3_lane_t)((x << 18U) | (x >> 46U));
-    case 20U: return (sha3_lane_t)((x << 20U) | (x >> 44U));
-    case 21U: return (sha3_lane_t)((x << 21U) | (x >> 43U));
-    case 25U: return (sha3_lane_t)((x << 25U) | (x >> 39U));
-    case 27U: return (sha3_lane_t)((x << 27U) | (x >> 37U));
-    case 28U: return (sha3_lane_t)((x << 28U) | (x >> 36U));
-    case 36U: return (sha3_lane_t)((x << 36U) | (x >> 28U));
-    case 39U: return (sha3_lane_t)((x << 39U) | (x >> 25U));
-    case 41U: return (sha3_lane_t)((x << 41U) | (x >> 23U));
-    case 43U: return (sha3_lane_t)((x << 43U) | (x >> 21U));
-    case 44U: return (sha3_lane_t)((x << 44U) | (x >> 20U));
-    case 45U: return (sha3_lane_t)((x << 45U) | (x >> 19U));
-    case 55U: return (sha3_lane_t)((x << 55U) | (x >> 9U));
-    case 56U: return (sha3_lane_t)((x << 56U) | (x >> 8U));
-    case 61U: return (sha3_lane_t)((x << 61U) | (x >> 3U));
-    case 62U: return (sha3_lane_t)((x << 62U) | (x >> 2U));
-    default:
-        return x;
-    }
+    state[pos >> 3U] ^= ((sha3_lane_t)b << (8U * (pos & 7U)));
 }
 
 /**
- * @brief Theta step of Keccak-f permutation
- *
- * @param lanes Keccak state as 25 lanes
+ * @brief Read the state byte at byte offset @p pos.
  */
-static void keccak_theta(sha3_lane_t lanes[SHA3_LANE_COUNT])
+static uint8_t sha3_get_byte(const sha3_lane_t *state, uint32_t pos)
 {
-    sha3_lane_t C[SHA3_MAX_X_SIZE];
-    sha3_lane_t D[SHA3_MAX_X_SIZE];
-    uint32_t x = 0U;
-    uint32_t y = 0U;
-    
-    /* Compute parity of columns */
-    for (x = 0U; x < SHA3_MAX_X_SIZE; x += 1U) {
-        C[x] = SHA3_LANE(lanes, x, 0U) ^ SHA3_LANE(lanes, x, 1U) ^ SHA3_LANE(lanes, x, 2U) ^ 
-               SHA3_LANE(lanes, x, 3U) ^ SHA3_LANE(lanes, x, 4U);
-    }
-    
-    /* Compute D values */
-    for (x = 0U; x < SHA3_MAX_X_SIZE; x += 1U) {
-        D[x] = C[(x +4U) % SHA3_MAX_X_SIZE] ^ sha3_rotl64(C[(x +1U) % SHA3_MAX_X_SIZE], 1U);
-    }
-    
-    /* XOR D into each lane */
-    for (x = 0U; x < SHA3_MAX_X_SIZE; x += 1U) {
-        for (y = 0U; y < SHA3_MAX_Y_SIZE; y += 1U) {
-            SHA3_LANE(lanes, x, y) ^= D[x];
-        }
-    }
+    return (uint8_t)((state[pos >> 3U] >> (8U * (pos & 7U))) & 0xFFU);
 }
 
 /**
- * @brief Rho step of Keccak-f permutation
+ * @brief Keccak-f[1600] permutation (24 rounds), in place on the lanes.
  *
- * @param lanes Keccak state as 25 lanes
+ * Compact formulation: theta with a 5-lane column parity, rho and pi fused
+ * along the pi cycle (one carried lane), chi row by row. Only 6 lanes of
+ * scratch are used instead of a full copy of the state per step.
+ *
+ * @param st Keccak state as 25 lanes (lane x + 5y)
  */
-static void keccak_rho(sha3_lane_t lanes[SHA3_LANE_COUNT])
+static void keccak_f1600(sha3_lane_t st[SHA3_LANE_COUNT])
 {
     /* Tables local to this function (Rule 8.9). */
-    /* Rotation offsets for rho step (5x5 grid, indexed by [y][x]) */
-    static const uint8_t rho_offsets[SHA3_MAX_Y_SIZE][SHA3_MAX_X_SIZE] = {
-        { 0,  1, 62, 28, 27},
-        {36, 44,  6, 55, 20},
-        { 3, 10, 43, 25, 39},
-        {41, 45, 15, 21,  8},
-        {18,  2, 61, 56, 14}
-    };
-
-
-    sha3_lane_t temp[SHA3_MAX_X_SIZE][SHA3_MAX_Y_SIZE];
-    uint32_t x = 0U;
-    uint32_t y = 0U;
-    
-    /* Copy state */
-    for (x = 0U; x < SHA3_MAX_X_SIZE; x += 1U) {
-        for (y = 0U; y < SHA3_MAX_Y_SIZE; y += 1U) {
-            temp[x][y] = SHA3_LANE(lanes, x, y);
-        }
-    }
-    
-    /* Apply rotations using correct offsets */
-    for (x = 0U; x < SHA3_MAX_X_SIZE; x += 1U) {
-        for (y = 0U; y < SHA3_MAX_Y_SIZE; y += 1U) {
-            SHA3_LANE(lanes, x, y) = sha3_rotl64(temp[x][y], rho_offsets[y][x]);
-        }
-    }
-}
-
-/**
- * @brief Pi step of Keccak-f permutation
- *
- * @param lanes Keccak state as 25 lanes
- */
-static void keccak_pi(sha3_lane_t lanes[SHA3_LANE_COUNT])
-{
-    sha3_lane_t temp[SHA3_MAX_X_SIZE][SHA3_MAX_Y_SIZE];
-    uint32_t x = 0U;
-    uint32_t y = 0U;
-    
-    /* Copy state */
-    for (x = 0U; x < SHA3_MAX_X_SIZE; x += 1U) {
-        for (y = 0U; y < SHA3_MAX_Y_SIZE; y += 1U) {
-            temp[x][y] = SHA3_LANE(lanes, x, y);
-        }
-    }
-    
-    /* Permute lanes */
-    for (x = 0U; x < SHA3_MAX_X_SIZE; x += 1U) {
-        for (y = 0U; y < SHA3_MAX_Y_SIZE; y += 1U) {
-            SHA3_LANE(lanes, x, y) = temp[(x + (3U * y)) % SHA3_MAX_X_SIZE][x];
-        }
-    }
-}
-
-/**
- * @brief Chi step of Keccak-f permutation
- *
- * @param lanes Keccak state as 25 lanes
- */
-static void keccak_chi(sha3_lane_t lanes[SHA3_LANE_COUNT])
-{
-    sha3_lane_t temp[SHA3_MAX_X_SIZE][SHA3_MAX_Y_SIZE];
-    uint32_t x = 0U;
-    uint32_t y = 0U;
-    
-    /* Copy state */
-    for (x = 0U; x < SHA3_MAX_X_SIZE; x += 1U) {
-        for (y = 0U; y < SHA3_MAX_Y_SIZE; y += 1U) {
-            temp[x][y] = SHA3_LANE(lanes, x, y);
-        }
-    }
-    
-    /* Apply chi transformation */
-    for (x = 0U; x < SHA3_MAX_X_SIZE; x += 1U) {
-        for (y = 0U; y < SHA3_MAX_Y_SIZE; y += 1U) {
-            SHA3_LANE(lanes, x, y) = temp[x][y] ^ ((~temp[(x +1U) % SHA3_MAX_X_SIZE][y]) & temp[(x +2U) % SHA3_MAX_X_SIZE][y]);
-        }
-    }
-}
-
-/**
- * @brief Iota step of Keccak-f permutation
- *
- * @param lanes Keccak state as 25 lanes
- * @param round Round number
- */
-static void keccak_iota(sha3_lane_t lanes[SHA3_LANE_COUNT], uint32_t round)
-{
-    /* Tables local to this function (Rule 8.9). */
-    /* Round constants for iota step */
     static const sha3_lane_t round_constants[SHA3_KECCAK_ROUNDS] = {
         0x0000000000000001ULL, 0x0000000000008082ULL, 0x800000000000808aULL,
         0x8000000080008000ULL, 0x000000000000808bULL, 0x0000000080000001ULL,
@@ -258,39 +120,59 @@ static void keccak_iota(sha3_lane_t lanes[SHA3_LANE_COUNT], uint32_t round)
         0x000000000000800aULL, 0x800000008000000aULL, 0x8000000080008081ULL,
         0x8000000000008080ULL, 0x0000000080000001ULL, 0x8000000080008008ULL
     };
-
-
-    SHA3_LANE(lanes, 0U, 0U) ^= round_constants[round];
-}
-
-/**
- * @brief Keccak-f[1600] permutation (24 rounds)
- *
- * @param ctx SHA-3 context
- */
-static void keccak_f1600(noxtls_sha3_ctx_t * ctx)
-{
-    sha3_lane_t lanes[SHA3_LANE_COUNT];
+    /* rho rotation offsets along the pi cycle starting at lane 1. */
+    static const uint8_t rho_rot[SHA3_KECCAK_ROUNDS] = {
+        1U, 3U, 6U, 10U, 15U, 21U, 28U, 36U, 45U, 55U, 2U, 14U,
+        27U, 41U, 56U, 8U, 25U, 43U, 62U, 18U, 39U, 61U, 20U, 44U
+    };
+    /* pi destination lanes along the same cycle. */
+    static const uint8_t pi_lane[SHA3_KECCAK_ROUNDS] = {
+        10U, 7U, 11U, 17U, 18U, 3U, 5U, 16U, 8U, 21U, 24U, 4U,
+        15U, 23U, 19U, 13U, 12U, 2U, 20U, 14U, 22U, 9U, 6U, 1U
+    };
+    sha3_lane_t bc[SHA3_MAX_X_SIZE];
+    sha3_lane_t t = 0U;
     uint32_t round = 0U;
     uint32_t i = 0U;
-
-    /* Byte state -> lanes (little-endian, alignment-independent). */
-    for (i = 0U; i < SHA3_LANE_COUNT; i += 1U) {
-        lanes[i] = sha3_load_le64(&ctx->state[i * SHA3_LANE_BYTES]);
-    }
+    uint32_t j = 0U;
 
     for (round = 0U; round < SHA3_KECCAK_ROUNDS; round += 1U) {
-        keccak_theta(lanes);
-        keccak_rho(lanes);
-        keccak_pi(lanes);
-        keccak_chi(lanes);
-        keccak_iota(lanes, round);
+        /* theta */
+        for (i = 0U; i < SHA3_MAX_X_SIZE; i += 1U) {
+            bc[i] = st[i] ^ st[i + 5U] ^ st[i + 10U] ^ st[i + 15U] ^ st[i + 20U];
+        }
+        for (i = 0U; i < SHA3_MAX_X_SIZE; i += 1U) {
+            t = bc[(i + 4U) % SHA3_MAX_X_SIZE] ^ SHA3_ROTL64(bc[(i + 1U) % SHA3_MAX_X_SIZE], 1U);
+            for (j = 0U; j < SHA3_LANE_COUNT; j += SHA3_MAX_X_SIZE) {
+                st[j + i] ^= t;
+            }
+        }
+
+        /* rho and pi */
+        t = st[1];
+        for (i = 0U; i < SHA3_KECCAK_ROUNDS; i += 1U) {
+            j = (uint32_t)pi_lane[i];
+            bc[0] = st[j];
+            st[j] = SHA3_ROTL64(t, (uint32_t)rho_rot[i]);
+            t = bc[0];
+        }
+
+        /* chi */
+        for (j = 0U; j < SHA3_LANE_COUNT; j += SHA3_MAX_X_SIZE) {
+            for (i = 0U; i < SHA3_MAX_X_SIZE; i += 1U) {
+                bc[i] = st[j + i];
+            }
+            for (i = 0U; i < SHA3_MAX_X_SIZE; i += 1U) {
+                st[j + i] ^= (~bc[(i + 1U) % SHA3_MAX_X_SIZE]) & bc[(i + 2U) % SHA3_MAX_X_SIZE];
+            }
+        }
+
+        /* iota */
+        st[0] ^= round_constants[round];
     }
 
-    for (i = 0U; i < SHA3_LANE_COUNT; i += 1U) {
-        sha3_store_le64(&ctx->state[i * SHA3_LANE_BYTES], lanes[i]);
-    }
-    noxtls_secure_zero(lanes, sizeof(lanes));
+    noxtls_secure_zero(bc, sizeof(bc));
+    noxtls_secure_zero(&t, sizeof(t));
 }
 
 /**
@@ -299,37 +181,117 @@ static void keccak_f1600(noxtls_sha3_ctx_t * ctx)
  * @param ctx SHA-3 context
  * @param data Data to absorb
  * @param len Length of data to absorb
- * @return noxtls_return_t NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if ctx is NULL
+ * @return noxtls_return_t NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if data is NULL with len > 0
  */
 static noxtls_return_t sha3_absorb(noxtls_sha3_ctx_t * ctx, const uint8_t * data, uint32_t len)
 {
-    uint32_t i = 0U;
     uint32_t offset = 0U;
     uint32_t remaining = len;
+    uint32_t pos = (uint32_t)ctx->buffer_len;
+    uint32_t rate = (uint32_t)ctx->rate;
 
     if ((data == NULL) && (remaining != 0U)) {
         return NOXTLS_RETURN_NULL;
     }
+    if ((rate == 0U) || (rate > SHA3_STATE_SIZE) || (pos >= rate)) {
+        return NOXTLS_RETURN_FAILED;
+    }
 
     while (remaining > 0U) {
-        uint32_t to_copy = (uint32_t)((remaining < (ctx->rate - ctx->buffer_len)) ? remaining : (ctx->rate - ctx->buffer_len));
-        
-        /* XOR data into state (first rate bytes) */
-        for (i = 0U; i < to_copy; i += 1U) {
-            ctx->state[ctx->buffer_len + i] ^= data[offset + i];
+        if (((pos & 7U) == 0U) && (remaining >= SHA3_LANE_BYTES)) {
+            /* Whole-lane fast path (rates are multiples of 8 bytes). */
+            ctx->state[pos >> 3U] ^= sha3_load_le64(&data[offset]);
+            pos += SHA3_LANE_BYTES;
+            offset += SHA3_LANE_BYTES;
+            remaining -= SHA3_LANE_BYTES;
+        } else {
+            sha3_xor_byte(ctx->state, pos, data[offset]);
+            pos += 1U;
+            offset += 1U;
+            remaining -= 1U;
         }
-        
-        ctx->buffer_len += to_copy;
-        offset += to_copy;
-        remaining -= to_copy;
-        
+
         /* If we've filled a rate block, apply permutation */
-        if (ctx->buffer_len == ctx->rate) {
-            keccak_f1600(ctx);
-            ctx->buffer_len = 0U;
+        if (pos == rate) {
+            keccak_f1600(ctx->state);
+            pos = 0U;
         }
     }
-    
+
+    ctx->buffer_len = (uint8_t)pos;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
+ * @brief Apply the pad10*1 padding with the domain suffix and permute.
+ *
+ * @param ctx SHA-3 context
+ */
+static void sha3_pad_and_permute(noxtls_sha3_ctx_t * ctx)
+{
+    sha3_xor_byte(ctx->state, (uint32_t)ctx->buffer_len, ctx->domain_sep);
+    sha3_xor_byte(ctx->state, (uint32_t)ctx->rate - 1U, (uint8_t)SHA3_PAD_FINAL_BYTE);
+    keccak_f1600(ctx->state);
+    ctx->buffer_len = 0U;
+}
+
+/**
+ * @brief Squeeze output bytes from a finalized sponge.
+ *
+ * @param ctx SHA-3 context (finalized)
+ * @param out Output buffer
+ * @param out_len Bytes to produce
+ */
+static void sha3_squeeze(noxtls_sha3_ctx_t * ctx, uint8_t * out, uint32_t out_len)
+{
+    uint32_t copied = 0U;
+    uint32_t pos = (uint32_t)ctx->buffer_len;
+    uint32_t rate = (uint32_t)ctx->rate;
+
+    while (copied < out_len) {
+        if (pos >= rate) {
+            keccak_f1600(ctx->state);
+            pos = 0U;
+        }
+        if (((pos & 7U) == 0U) && ((out_len - copied) >= SHA3_LANE_BYTES)) {
+            sha3_store_le64(&out[copied], ctx->state[pos >> 3U]);
+            pos += SHA3_LANE_BYTES;
+            copied += SHA3_LANE_BYTES;
+        } else {
+            out[copied] = sha3_get_byte(ctx->state, pos);
+            pos += 1U;
+            copied += 1U;
+        }
+    }
+    /* Leave a full block for the next call to trigger the permutation lazily. */
+    ctx->buffer_len = (uint8_t)pos;
+}
+
+/**
+ * @brief Common sponge initialisation.
+ *
+ * @param ctx SHA-3 context
+ * @param algo Hash identifier stored in the context (0 for SHAKE)
+ * @param rate Rate in bytes
+ * @param output_len Digest length in bytes (0 for SHAKE)
+ * @param domain_sep Domain separation suffix
+ * @return noxtls_return_t NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if ctx is NULL
+ */
+static noxtls_return_t sha3_init_common(noxtls_sha3_ctx_t * ctx, noxtls_hash_algos_t algo,
+                                        uint32_t rate, uint32_t output_len, uint8_t domain_sep)
+{
+    if (ctx == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    noxtls_secure_zero(ctx, sizeof(*ctx));
+    ctx->algo = (uint8_t)algo;
+    ctx->rate = (uint8_t)rate;
+    ctx->output_len = (uint8_t)output_len;
+    ctx->domain_sep = domain_sep;
+    ctx->buffer_len = 0U;
+    ctx->finalized = 0U;
+
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -341,22 +303,9 @@ static noxtls_return_t sha3_absorb(noxtls_sha3_ctx_t * ctx, const uint8_t * data
  */
 noxtls_return_t noxtls_sha3_224_init(noxtls_sha3_ctx_t * ctx)
 {
-    if (ctx == NULL) {
-        return NOXTLS_RETURN_NULL;
-    }
-    
-    noxtls_secure_zero((ctx->state), (size_t)(SHA3_STATE_SIZE));
-    noxtls_secure_zero((ctx->buffer), sizeof(ctx->buffer));
-    ctx->algo = NOXTLS_HASH_SHA3_224;
-    ctx->rate = SHA3_RATE_224_BYTES;        /* 1152 bits / 8 = 144 bytes */
-    ctx->capacity = SHA3_CAPACITY_224_BYTES;     /* 448 bits / 8 = 56 bytes */
-    ctx->output_len = HASH_SHA3_224_OUT_LEN;
-    ctx->domain_sep = SHA3_DOMAIN_SEP; /* SHA-3 domain separation suffix */
-    ctx->buffer_len = 0U;
-    ctx->total_length = 0U;
-    ctx->finalized = 0U;
-    
-    return NOXTLS_RETURN_SUCCESS;
+    /* rate 1152 bits / 8 = 144 bytes, capacity 56 bytes */
+    return sha3_init_common(ctx, NOXTLS_HASH_SHA3_224, SHA3_RATE_224_BYTES,
+                            (uint32_t)HASH_SHA3_224_OUT_LEN, SHA3_DOMAIN_SEP);
 }
 
 /**
@@ -367,22 +316,9 @@ noxtls_return_t noxtls_sha3_224_init(noxtls_sha3_ctx_t * ctx)
  */
 noxtls_return_t noxtls_sha3_256_init(noxtls_sha3_ctx_t * ctx)
 {
-    if (ctx == NULL) {
-        return NOXTLS_RETURN_NULL;
-    }
-    
-    noxtls_secure_zero((ctx->state), (size_t)(SHA3_STATE_SIZE));
-    noxtls_secure_zero((ctx->buffer), sizeof(ctx->buffer));
-    ctx->algo = NOXTLS_HASH_SHA3_256;
-    ctx->rate = SHA3_RATE_256_BYTES;        /* 1088 bits / 8 = 136 bytes */
-    ctx->capacity = SHA3_CAPACITY_256_BYTES;     /* 512 bits / 8 = 64 bytes */
-    ctx->output_len = HASH_SHA3_256_OUT_LEN;
-    ctx->domain_sep = SHA3_DOMAIN_SEP;
-    ctx->buffer_len = 0U;
-    ctx->total_length = 0U;
-    ctx->finalized = 0U;
-    
-    return NOXTLS_RETURN_SUCCESS;
+    /* rate 1088 bits / 8 = 136 bytes, capacity 64 bytes */
+    return sha3_init_common(ctx, NOXTLS_HASH_SHA3_256, SHA3_RATE_256_BYTES,
+                            (uint32_t)HASH_SHA3_256_OUT_LEN, SHA3_DOMAIN_SEP);
 }
 
 /**
@@ -393,22 +329,9 @@ noxtls_return_t noxtls_sha3_256_init(noxtls_sha3_ctx_t * ctx)
  */
 noxtls_return_t noxtls_sha3_384_init(noxtls_sha3_ctx_t * ctx)
 {
-    if (ctx == NULL) {
-        return NOXTLS_RETURN_NULL;
-    }
-    
-    noxtls_secure_zero((ctx->state), (size_t)(SHA3_STATE_SIZE));
-    noxtls_secure_zero((ctx->buffer), sizeof(ctx->buffer));
-    ctx->algo = NOXTLS_HASH_SHA3_384;
-    ctx->rate = SHA3_RATE_384_BYTES;        /* 832 bits / 8 = 104 bytes */
-    ctx->capacity = SHA3_CAPACITY_384_BYTES;     /* 768 bits / 8 = 96 bytes */
-    ctx->output_len = HASH_SHA3_384_OUT_LEN;
-    ctx->domain_sep = SHA3_DOMAIN_SEP;
-    ctx->buffer_len = 0U;
-    ctx->total_length = 0U;
-    ctx->finalized = 0U;
-    
-    return NOXTLS_RETURN_SUCCESS;
+    /* rate 832 bits / 8 = 104 bytes, capacity 96 bytes */
+    return sha3_init_common(ctx, NOXTLS_HASH_SHA3_384, SHA3_RATE_384_BYTES,
+                            (uint32_t)HASH_SHA3_384_OUT_LEN, SHA3_DOMAIN_SEP);
 }
 
 /**
@@ -418,22 +341,9 @@ noxtls_return_t noxtls_sha3_384_init(noxtls_sha3_ctx_t * ctx)
  */
 noxtls_return_t noxtls_sha3_512_init(noxtls_sha3_ctx_t * ctx)
 {
-    if (ctx == NULL) {
-        return NOXTLS_RETURN_NULL;
-    }
-    
-    noxtls_secure_zero((ctx->state), (size_t)(SHA3_STATE_SIZE));
-    noxtls_secure_zero((ctx->buffer), sizeof(ctx->buffer));
-    ctx->algo = NOXTLS_HASH_SHA3_512;
-    ctx->rate = SHA3_RATE_512_BYTES;         /* 576 bits / 8 = 72 bytes */
-    ctx->capacity = SHA3_CAPACITY_512_BYTES;    /* 1024 bits / 8 = 128 bytes */
-    ctx->output_len = HASH_SHA3_512_OUT_LEN;
-    ctx->domain_sep = SHA3_DOMAIN_SEP;
-    ctx->buffer_len = 0U;
-    ctx->total_length = 0U;
-    ctx->finalized = 0U;
-    
-    return NOXTLS_RETURN_SUCCESS;
+    /* rate 576 bits / 8 = 72 bytes, capacity 128 bytes */
+    return sha3_init_common(ctx, NOXTLS_HASH_SHA3_512, SHA3_RATE_512_BYTES,
+                            (uint32_t)HASH_SHA3_512_OUT_LEN, SHA3_DOMAIN_SEP);
 }
 
 /**
@@ -446,90 +356,61 @@ noxtls_return_t noxtls_sha3_512_init(noxtls_sha3_ctx_t * ctx)
  */
 noxtls_return_t noxtls_sha3_update(noxtls_sha3_ctx_t * ctx, const uint8_t * data, uint32_t len)
 {
-    uint32_t in_left = len;
     if (ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    
+
     if (ctx->finalized != 0U) {
         return NOXTLS_RETURN_FAILED; /* Cannot update after finalization */
     }
-    
-    ctx->total_length += in_left;
-    
-    return sha3_absorb(ctx, data, in_left);
+
+    return sha3_absorb(ctx, data, len);
 }
 
 /**
  * @brief Finalize SHA-3 and produce hash
- *  
+ *
+ * Padding is pad10*1 with the domain separation suffix: the suffix (0x06,
+ * i.e. bits 01 followed by the first pad bit) is XORed at the current
+ * position and 0x80 into the last byte of the rate block.
+ *
  * @param ctx SHA-3 context
  * @param hash Hash to produce
  * @return noxtls_return_t NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if ctx is NULL, NOXTLS_RETURN_FAILED if SHA-3 is finalized
  */
 noxtls_return_t noxtls_sha3_finish(noxtls_sha3_ctx_t * ctx, uint8_t * hash)
 {
-    uint32_t i = 0U;
-    
     if ((ctx == NULL) || (hash == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
-    
+
     if (ctx->finalized != 0U) {
         return NOXTLS_RETURN_FAILED;
     }
-    
-    /* Apply padding: pad10*1 with domain separation suffix */
-    /* SHA-3 padding specification:
-     * 1. XOR domain separation suffix (0x06u = bits 01) at current position
-     * 2. Pad with zeros (already zero from initialization)
-     * 3. Set final bit to 1 (0x80u in last byte of rate block) */
-    
-    /* XOR domain separation suffix into the current position */
-    /* 0x06u = 00000110 in binary = bits 01 (domain sep) + 1 (start of pad10*1) */
-    ctx->state[ctx->buffer_len] ^= ctx->domain_sep;
-    
-    /* Set the last byte of the rate block to 0x80u (pad10*1: final 1 bit) */
-    ctx->state[ctx->rate - 1U] ^= SHA3_PAD_FINAL_BYTE;
-    
-    /* Process the padded block */
-    keccak_f1600(ctx);
-    
-    /* Squeeze: extract output */
-    for (i = 0U; i < ctx->output_len; i += 1U) {
-        hash[i] = ctx->state[i];
-    }
-    
+
+    sha3_pad_and_permute(ctx);
+    sha3_squeeze(ctx, hash, (uint32_t)ctx->output_len);
     ctx->finalized = 1U;
-    
+
     return NOXTLS_RETURN_SUCCESS;
 }
 
-/* SHAKE256 (FIPS 202): extendable-output function. Domain sep 0x1fu, rate 136 bytes. */
+/* SHAKE128/SHAKE256 (FIPS 202): extendable-output functions, domain sep 0x1F. */
 /**
  * @brief Initialize SHAKE128
- * 
+ *
  * @param ctx The SHAKE128 context
  * @return The return value
  */
 noxtls_return_t noxtls_shake128_init(noxtls_sha3_ctx_t * ctx)
 {
-    if (ctx == NULL) { return NOXTLS_RETURN_NULL; }
-    noxtls_secure_zero((ctx->state), (size_t)(SHA3_STATE_SIZE));
-    noxtls_secure_zero((ctx->buffer), sizeof(ctx->buffer));
-    ctx->rate = SHA3_SHAKE128_RATE_BYTES;
-    ctx->capacity = SHA3_SHAKE128_CAPACITY_BYTES;
-    ctx->domain_sep = SHA3_SHAKE128_DOMAIN_SEP;
-    ctx->output_len = 0U;
-    ctx->buffer_len = 0U;
-    ctx->total_length = 0U;
-    ctx->finalized = 0U;
-    return NOXTLS_RETURN_SUCCESS;
+    return sha3_init_common(ctx, (noxtls_hash_algos_t)0U, SHA3_SHAKE128_RATE_BYTES, 0U,
+                            (uint8_t)SHA3_SHAKE128_DOMAIN_SEP);
 }
 
 /**
  * @brief Update SHAKE128
- * 
+ *
  * @param ctx The SHAKE128 context
  * @param data The input data
  * @param len The length of the input data
@@ -539,13 +420,12 @@ noxtls_return_t noxtls_shake128_update(noxtls_sha3_ctx_t * ctx, const uint8_t * 
 {
     if (ctx == NULL) { return NOXTLS_RETURN_NULL; }
     if (ctx->finalized != 0U) { return NOXTLS_RETURN_FAILED; }
-    ctx->total_length += len;
     return sha3_absorb(ctx, data, len);
 }
 
 /**
  * @brief Finalize SHAKE128
- * 
+ *
  * @param ctx The SHAKE128 context
  * @return The return value
  */
@@ -553,17 +433,14 @@ noxtls_return_t noxtls_shake128_final(noxtls_sha3_ctx_t * ctx)
 {
     if (ctx == NULL) { return NOXTLS_RETURN_NULL; }
     if (ctx->finalized != 0U) { return NOXTLS_RETURN_SUCCESS; }
-    ctx->state[ctx->buffer_len] ^= ctx->domain_sep;
-    ctx->state[ctx->rate - 1U] ^= SHA3_PAD_FINAL_BYTE;
-    keccak_f1600(ctx);
-    ctx->buffer_len = 0U;
+    sha3_pad_and_permute(ctx);
     ctx->finalized = 1U;
     return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
  * @brief Squeeze SHAKE128
- * 
+ *
  * @param ctx The SHAKE128 context
  * @param out The output data
  * @param out_len The length of the output data
@@ -571,50 +448,27 @@ noxtls_return_t noxtls_shake128_final(noxtls_sha3_ctx_t * ctx)
  */
 noxtls_return_t noxtls_shake128_squeeze(noxtls_sha3_ctx_t * ctx, uint8_t * out, uint32_t out_len)
 {
-    uint32_t copied = 0U;
     if ((ctx == NULL) || ((out == NULL) && (out_len != 0U))) { return NOXTLS_RETURN_NULL; }
     if (ctx->finalized == 0U) { return NOXTLS_RETURN_FAILED; }
-    while (copied < out_len) {
-        uint32_t from_state = (uint32_t)(ctx->rate - ctx->buffer_len);
-        uint32_t remain = out_len - copied;
-        uint32_t to_copy = (remain < from_state) ? remain : from_state;
-        if (to_copy > 0U) {
-            noxtls_copy_u8(&out[copied], (size_t)to_copy, &ctx->state[ctx->buffer_len], (size_t)to_copy);
-            copied += to_copy;
-            ctx->buffer_len += to_copy;
-        }
-        if (ctx->buffer_len >= ctx->rate) {
-            keccak_f1600(ctx);
-            ctx->buffer_len = 0U;
-        }
-    }
+    sha3_squeeze(ctx, out, out_len);
     return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
  * @brief Initialize SHAKE256
- * 
+ *
  * @param ctx The SHAKE256 context
  * @return The return value
  */
 noxtls_return_t noxtls_shake256_init(noxtls_sha3_ctx_t * ctx)
 {
-    if (ctx == NULL) { return NOXTLS_RETURN_NULL; }
-    noxtls_secure_zero((ctx->state), (size_t)(SHA3_STATE_SIZE));
-    noxtls_secure_zero((ctx->buffer), sizeof(ctx->buffer));
-    ctx->rate = SHA3_SHAKE256_RATE_BYTES;
-    ctx->capacity = SHA3_SHAKE256_CAPACITY_BYTES;
-    ctx->domain_sep = SHA3_SHAKE256_DOMAIN_SEP;
-    ctx->output_len = 0U;
-    ctx->buffer_len = 0U;
-    ctx->total_length = 0U;
-    ctx->finalized = 0U;
-    return NOXTLS_RETURN_SUCCESS;
+    return sha3_init_common(ctx, (noxtls_hash_algos_t)0U, SHA3_SHAKE256_RATE_BYTES, 0U,
+                            (uint8_t)SHA3_SHAKE256_DOMAIN_SEP);
 }
 
 /**
  * @brief Update SHAKE256
- * 
+ *
  * @param ctx The SHAKE256 context
  * @param data The input data
  * @param len The length of the input data
@@ -624,13 +478,12 @@ noxtls_return_t noxtls_shake256_update(noxtls_sha3_ctx_t * ctx, const uint8_t * 
 {
     if (ctx == NULL) { return NOXTLS_RETURN_NULL; }
     if (ctx->finalized != 0U) { return NOXTLS_RETURN_FAILED; }
-    ctx->total_length += len;
     return sha3_absorb(ctx, data, len);
 }
 
 /**
  * @brief Finalize SHAKE256
- * 
+ *
  * @param ctx The SHAKE256 context
  * @return The return value
  */
@@ -638,17 +491,14 @@ noxtls_return_t noxtls_shake256_final(noxtls_sha3_ctx_t * ctx)
 {
     if (ctx == NULL) { return NOXTLS_RETURN_NULL; }
     if (ctx->finalized != 0U) { return NOXTLS_RETURN_SUCCESS; }
-    ctx->state[ctx->buffer_len] ^= ctx->domain_sep;
-    ctx->state[ctx->rate - 1U] ^= SHA3_PAD_FINAL_BYTE;
-    keccak_f1600(ctx);
-    ctx->buffer_len = 0U;
+    sha3_pad_and_permute(ctx);
     ctx->finalized = 1U;
     return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
  * @brief Squeeze SHAKE256
- * 
+ *
  * @param ctx The SHAKE256 context
  * @param out The output data
  * @param out_len The length of the output data
@@ -656,23 +506,9 @@ noxtls_return_t noxtls_shake256_final(noxtls_sha3_ctx_t * ctx)
  */
 noxtls_return_t noxtls_shake256_squeeze(noxtls_sha3_ctx_t * ctx, uint8_t * out, uint32_t out_len)
 {
-    uint32_t copied = 0U;
     if ((ctx == NULL) || ((out == NULL) && (out_len != 0U))) { return NOXTLS_RETURN_NULL; }
     if (ctx->finalized == 0U) { return NOXTLS_RETURN_FAILED; }
-    while (copied < out_len) {
-        uint32_t from_state = (uint32_t)(ctx->rate - ctx->buffer_len);
-        uint32_t remain = out_len - copied;
-        uint32_t to_copy = (remain < from_state) ? remain : from_state;
-        if (to_copy > 0U) {
-            noxtls_copy_u8(&out[copied], (size_t)to_copy, &ctx->state[ctx->buffer_len], (size_t)to_copy);
-            copied += to_copy;
-            ctx->buffer_len += to_copy;
-        }
-        if (ctx->buffer_len >= ctx->rate) {
-            keccak_f1600(ctx);
-            ctx->buffer_len = 0U;
-        }
-    }
+    sha3_squeeze(ctx, out, out_len);
     return NOXTLS_RETURN_SUCCESS;
 }
 

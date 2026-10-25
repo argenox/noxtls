@@ -89,13 +89,13 @@ noxtls_return_t noxtls_sha256_round_accel_port(noxtls_sha_ctx_t *ctx, const uint
         return NOXTLS_RETURN_NOT_SUPPORTED;
     }
 
-    is_first_block = (ctx->length == 0U);
+    is_first_block = (ctx->u.md32.length == 0U);
 
     esp_sha_acquire_hardware();
     esp_sha_set_mode(sha_type);
     if(!is_first_block) {
         for(i = 0; i < SHA256_STATE_WORDS; i++) {
-            hw_state[i] = noxtls_sha_bswap32(ctx->h[i]);
+            hw_state[i] = noxtls_sha_bswap32(ctx->u.md32.h[i]);
         }
         esp_sha_write_digest_state(sha_type, hw_state);
     }
@@ -104,7 +104,7 @@ noxtls_return_t noxtls_sha256_round_accel_port(noxtls_sha_ctx_t *ctx, const uint
     esp_sha_release_hardware();
 
     for(i = 0; i < SHA256_STATE_WORDS; i++) {
-        ctx->h[i] = noxtls_sha_bswap32(hw_state[i]);
+        ctx->u.md32.h[i] = noxtls_sha_bswap32(hw_state[i]);
     }
 
     return NOXTLS_RETURN_SUCCESS;
@@ -150,13 +150,13 @@ noxtls_return_t noxtls_sha256_blocks_accel_port(noxtls_sha_ctx_t *ctx, const uin
         return NOXTLS_RETURN_NOT_SUPPORTED;
     }
 
-    is_first_block = (ctx->length == 0U);
+    is_first_block = (ctx->u.md32.length == 0U);
 
     esp_sha_acquire_hardware();
     esp_sha_set_mode(sha_type);
     if(!is_first_block) {
         for(i = 0; i < SHA256_STATE_WORDS; i++) {
-            hw_state[i] = noxtls_sha_bswap32(ctx->h[i]);
+            hw_state[i] = noxtls_sha_bswap32(ctx->u.md32.h[i]);
         }
         esp_sha_write_digest_state(sha_type, hw_state);
     }
@@ -183,7 +183,7 @@ noxtls_return_t noxtls_sha256_blocks_accel_port(noxtls_sha_ctx_t *ctx, const uin
     esp_sha_release_hardware();
 
     for(i = 0; i < SHA256_STATE_WORDS; i++) {
-        ctx->h[i] = noxtls_sha_bswap32(hw_state[i]);
+        ctx->u.md32.h[i] = noxtls_sha_bswap32(hw_state[i]);
     }
 
     return NOXTLS_RETURN_SUCCESS;

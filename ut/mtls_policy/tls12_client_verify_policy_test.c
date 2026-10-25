@@ -396,10 +396,17 @@ static int test_tls12_mutual_auth(void)
     CHECK(s_session.client_rc == NOXTLS_RETURN_SUCCESS);
     CHECK(s_session.server_rc == NOXTLS_RETURN_SUCCESS);
     CHECK(s_session.server.cipher_suite == TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256);
+#if NOXTLS_TLS_RETAIN_PEER_CERT
     CHECK(noxtls_tls12_get_client_certificate(&s_session.server, &der, &der_len, &parsed) ==
           NOXTLS_RETURN_SUCCESS);
-    CHECK((der_len == sizeof(mtls_client_direct_cert)) && (memcmp(der, mtls_client_direct_cert, der_len) == 0));
     CHECK(parsed != NULL);
+#else
+    /* The parsed view is released after CertificateVerify: "not retained", DER still returned. */
+    CHECK(noxtls_tls12_get_client_certificate(&s_session.server, &der, &der_len, &parsed) ==
+          NOXTLS_RETURN_NOT_SUPPORTED);
+    CHECK(parsed == NULL);
+#endif
+    CHECK((der_len == sizeof(mtls_client_direct_cert)) && (memcmp(der, mtls_client_direct_cert, der_len) == 0));
     CHECK(noxtls_tls12_get_client_certificate(&s_session.server, &der, &der_len, NULL) == NOXTLS_RETURN_SUCCESS);
     CHECK(noxtls_tls12_get_client_certificate(&s_session.client, &der, &der_len, NULL) == NOXTLS_RETURN_FAILED);
     CHECK(noxtls_tls12_get_client_certificate(NULL, &der, &der_len, NULL) == NOXTLS_RETURN_NULL);

@@ -83,10 +83,36 @@ extern "C" {
 #define TLS_SERVER_KEY_EXCHANGE_WORKSPACE   (1024 + 320 + 512)  /* DHE/ECDHE params + sig buffer */
 /*
  * RFC 5246 TLSCiphertext expansion is up to 2048 octets beyond 2^14 plaintext.
- * TLS 1.3 encrypted records are tighter (2^14+256) and enforced in decrypt.
+ * TLS 1.3 encrypted records are tighter (2^14+256) and enforced in decrypt, so a
+ * build without TLS 1.0-1.2 accepts at most the TLS 1.3 bound.
  */
+#if (NOXTLS_FEATURE_TLS12 || NOXTLS_FEATURE_TLS11 || NOXTLS_FEATURE_TLS10)
 #define TLS_RECORD_WORKSPACE_OVERHEAD        2048U
+#else
+#define TLS_RECORD_WORKSPACE_OVERHEAD        256U
+#endif
 #define TLS13_MAX_ENCRYPTED_RECORD_OVERHEAD  256U
+/*
+ * Largest expansion this endpoint adds when it protects one record of at most
+ * TLS_MAX_RECORD_SIZE plaintext bytes (send side only; padding is minimal):
+ * TLS 1.3 = inner content type + 16-byte AEAD tag; TLS 1.2 AEAD = 8-byte explicit
+ * nonce + 16-byte tag; TLS 1.0-1.2 CBC = 16-byte IV + 48-byte MAC + 16-byte padding.
+ */
+#if (NOXTLS_FEATURE_TLS12 || NOXTLS_FEATURE_TLS11 || NOXTLS_FEATURE_TLS10)
+#define TLS_TX_RECORD_EXPANSION              80U
+#else
+#define TLS_TX_RECORD_EXPANSION              17U
+#endif
+/** TLS record header length (type, version, length). */
+#define TLS_RECORD_HEADER_LEN                5U
+/** Headroom kept in front of a record payload in the record TX buffer (DTLS header is 13 bytes). */
+#if NOXTLS_FEATURE_DTLS
+#define TLS_RECORD_TX_HEADROOM               13U
+#else
+#define TLS_RECORD_TX_HEADROOM               TLS_RECORD_HEADER_LEN
+#endif
+/** Size of the per-connection record TX buffer (header + largest protected record we send). */
+#define TLS_RECORD_TX_BUFFER_SIZE (TLS_RECORD_TX_HEADROOM + TLS_MAX_RECORD_SIZE + TLS_TX_RECORD_EXPANSION)
 #define TLS13_RECORD_WORKSPACE_SIZE         ((TLS_MAX_RECORD_SIZE + 32U) * 2U) /* TLS 1.3 record workspace size */
 #define TLS_KEY_SHARE_ENTRY_MAX_LEN          2048 /* Encoded key share entry buffer */
 #define TLS_SESSION_ID_MAX_LEN               32U
@@ -407,6 +433,11 @@ typedef uint32_t tls_state_t;
 typedef uint32_t tls_role_t;
 #define TLS_ROLE_CLIENT ((tls_role_t)0U)
 #define TLS_ROLE_SERVER ((tls_role_t)1U)
+/** 1 when this build includes @p role (NOXTLS_FEATURE_TLS_CLIENT / NOXTLS_FEATURE_TLS_SERVER). */
+#define NOXTLS_TLS_ROLE_BUILT(role)     ((((role) == TLS_ROLE_SERVER) ? (NOXTLS_FEATURE_TLS_SERVER) : (NOXTLS_FEATURE_TLS_CLIENT)) != 0)
+#if (NOXTLS_FEATURE_TLS_CLIENT == 0) && (NOXTLS_FEATURE_TLS_SERVER == 0)
+#error "At least one of NOXTLS_FEATURE_TLS_CLIENT and NOXTLS_FEATURE_TLS_SERVER must be 1"
+#endif
 
 /* Wire-format headers (packed, byte-addressed fields) */
 NOXTLS_PACK_BEGIN
@@ -510,6 +541,14 @@ noxtls_return_t noxtls_tls_flush(tls_context_t *ctx);
 /** Return nonzero while encrypted output remains queued. */
 int noxtls_tls_has_pending_output(const tls_context_t *ctx);
 noxtls_return_t noxtls_tls_send_record(tls_context_t *ctx, uint8_t type, const uint8_t *data, uint32_t len);
+/**
+ * Internal: return the context's record TX buffer (allocated on first use, released by
+ * noxtls_tls_context_free) and the payload capacity after the TLS record header.
+ * A protected record built at &buf[TLS_RECORD_HEADER_LEN] is passed to
+ * noxtls_tls_send_record() with that pointer and sent without another copy.
+ * Returns NULL on allocation failure.
+ */
+uint8_t *noxtls_tls_record_tx_buffer(tls_context_t *ctx, uint32_t *payload_capacity);
 noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record);
 noxtls_return_t noxtls_tls_send_alert(tls_context_t *ctx, uint8_t level, uint8_t description);
 void noxtls_tls_set_record_dump_file(const uint8_t *path);
@@ -591,6 +630,19 @@ noxtls_return_t noxtls_tls12_decrypt_record(tls12_context_t *ctx,
                                       uint32_t encrypted_record_len,
                                       uint8_t *plaintext,
                                       uint32_t *plaintext_len);
+/**
+ * Internal: authenticate and decrypt a TLS 1.0-1.2 record in place. On success the plaintext
+ * is at &encrypted_record[*plaintext_off] (*plaintext_len bytes); plaintexts longer than
+ * @p plaintext_cap fail with NOXTLS_RETURN_FAILED (needed length in *plaintext_len) without
+ * consuming a sequence number. On authentication failure the buffer is wiped.
+ */
+noxtls_return_t noxtls_tls12_open_record(tls12_context_t *ctx,
+                                         uint8_t type,
+                                         uint8_t *encrypted_record,
+                                         uint32_t encrypted_record_len,
+                                         uint32_t plaintext_cap,
+                                         uint32_t *plaintext_off,
+                                         uint32_t *plaintext_len);
 noxtls_return_t noxtls_tls13_encrypt_record(tls13_context_t *ctx,
                                        uint8_t type,
                                        const uint8_t *plaintext,

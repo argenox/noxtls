@@ -51,10 +51,18 @@ extern "C" {
  * @param aad_len     Length of AAD in bytes
  * @param plaintext   Plaintext to encrypt
  * @param plaintext_len Length of plaintext (max 2^(8*L)-1 bytes for L = 15 - nonce_len)
- * @param ciphertext  Output ciphertext (same length as plaintext)
+ * @param ciphertext  Output ciphertext (same length as plaintext; may equal plaintext)
  * @param tag         Authentication tag (4, 6, 8, 10, 12, 14, or 16 bytes)
  * @param tag_len     Tag length in bytes
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_* on invalid parameters or failure
+ *
+ * In-place operation: the output buffer may be exactly the input buffer
+ * (output == input, e.g. TLS records encrypted/decrypted in place). Partially
+ * overlapping buffers (output != input but overlapping) are not supported.
+ * On any failure the output is wiped, so with in-place use a rejected record's
+ * ciphertext is destroyed; no unauthenticated plaintext is ever returned.
+ * Accelerator ports selected through the *_accel_port hooks must preserve
+ * this exact-aliasing guarantee.
  */
 noxtls_return_t noxtls_aes_ccm_encrypt(const uint8_t *key, noxtls_aes_type_t type,
                     const uint8_t *nonce, uint32_t nonce_len,
@@ -76,7 +84,17 @@ noxtls_return_t noxtls_aes_ccm_encrypt(const uint8_t *key, noxtls_aes_type_t typ
  * @param ciphertext_len Length of ciphertext
  * @param tag         Expected authentication tag
  * @param tag_len     Tag length in bytes
- * @param plaintext   Output plaintext (same length as ciphertext)
+ * @param plaintext   Output plaintext (same length as ciphertext; may equal ciphertext).
+ *
+ * In-place operation: the output buffer may be exactly the input buffer
+ * (output == input, e.g. TLS records encrypted/decrypted in place). Partially
+ * overlapping buffers (output != input but overlapping) are not supported.
+ * On any failure the output is wiped, so with in-place use a rejected record's
+ * ciphertext is destroyed; no unauthenticated plaintext is ever returned.
+ * Accelerator ports selected through the *_accel_port hooks must preserve
+ * this exact-aliasing guarantee.
+ *                    The tag is checked after the in-place CTR pass; on mismatch
+ *                    the buffer is wiped before returning NOXTLS_RETURN_BAD_DATA.
  * @return NOXTLS_RETURN_SUCCESS on success (tag verified), NOXTLS_RETURN_BAD_DATA on auth failure
  */
 noxtls_return_t noxtls_aes_ccm_decrypt(const uint8_t *key, noxtls_aes_type_t type,

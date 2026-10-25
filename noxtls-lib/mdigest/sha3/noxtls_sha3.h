@@ -67,18 +67,23 @@ extern "C" {
 
 NOXTLS_MSVC_WARNING_PUSH
 NOXTLS_MSVC_DISABLE_PADDING
+/* Number of 64-bit lanes in the Keccak-f[1600] state (5 x 5). */
+#define SHA3_STATE_LANES (SHA3_STATE_SIZE / SHA3_LANE_BYTES)
+
+/*
+ * Input is XORed straight into the lanes and output is read straight from
+ * them (lane i holds state bytes 8i..8i+7, little-endian per FIPS 202), so
+ * no separate rate buffer is kept. All fields other than state are small.
+ */
 typedef struct
 {
-    noxtls_hash_algos_t algo;
-    uint8_t state[SHA3_STATE_SIZE];  /* 1600-bit state (5x5x64 bits) */
-    uint8_t buffer[SHA3_MAX_RATE_BYTES];              /* Buffer for rate bytes (max 136 for SHA3-224) */
-    uint32_t buffer_len;              /* Current bytes in buffer */
-    uint32_t rate;                    /* Rate in bytes (r/8) */
-    uint32_t capacity;                /* Capacity in bytes (c/8) */
-    uint32_t output_len;              /* Output length in bytes */
-    uint8_t domain_sep;               /* Domain separation suffix (0x06 for SHA-3) */
-    uint64_t total_length;            /* Total noxtls_message length in bits */
-    uint8_t finalized;                /* Flag to indicate if hash is finalized */
+    uint64_t state[SHA3_STATE_LANES]; /* 1600-bit Keccak state as 25 lanes */
+    uint8_t rate;                     /* Rate in bytes (r/8, at most 168) */
+    uint8_t buffer_len;               /* Absorb/squeeze position within the rate block */
+    uint8_t output_len;               /* Digest length in bytes (0 for SHAKE) */
+    uint8_t domain_sep;               /* Domain separation suffix (0x06 SHA-3, 0x1F SHAKE) */
+    uint8_t finalized;                /* Non-zero once padding has been applied */
+    uint8_t algo;                     /* noxtls_hash_algos_t value, 0 for SHAKE */
 } noxtls_sha3_ctx_t;
 NOXTLS_MSVC_WARNING_POP
 

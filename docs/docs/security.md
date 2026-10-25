@@ -38,18 +38,19 @@ Core cryptographic expectations:
 
 NoxTLS uses a secure-by-default TLS 1.2 cipher-suite posture:
 
-- Legacy TLS 1.2 CBC-mode and RSA key-exchange suites are disabled by default.
-- Default TLS 1.2 negotiation favors modern AEAD suites.
+- TLS 1.2 / DTLS 1.2 offer and negotiate only forward-secret AEAD suites (ECDHE-ECDSA, ECDHE-RSA, DHE-RSA with AES-GCM, ChaCha20-Poly1305, AES-CCM, AES-CCM_8). CBC-mode, static-RSA key exchange and 3DES suites are refused, also when an application allowlist names them.
+- SHA-1 signatures are neither offered, accepted nor produced in TLS 1.2. A client that omits signature_algorithms (RFC 5246 implicit SHA-1) fails with `handshake_failure`.
 
-Enable legacy TLS 1.2 suites only when interoperability with older peers is required, and scope that exception tightly:
+Enable the legacy algorithms only when interoperability with older peers is required, and scope that exception tightly:
 
 ```bash
 cmake -S noxtls -B noxtls/build-legacy \
-  -DNOXTLS_CFG_TLS12_ENABLE_LEGACY_CIPHER_SUITES=ON
+  -DNOXTLS_CFG_TLS12_ENABLE_LEGACY_CIPHER_SUITES=ON \
+  -DNOXTLS_CFG_TLS12_ENABLE_SHA1_SIGNATURES=ON
 cmake --build noxtls/build-legacy
 ```
 
-For non-CMake builds, set `NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES=1` in `noxtls_config.h` (or equivalent compiler defines).
+For non-CMake builds, set `NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES=1` and/or `NOXTLS_TLS12_ENABLE_SHA1_SIGNATURES=1` in `noxtls_config.h` (or equivalent compiler defines). TLS 1.0 / 1.1, when built, keep their CBC suites and MD5/SHA-1 signatures for connections of those versions only.
 
 For full build-time configuration options and profile guidance, see the [Configuration Guide](/docs/configuration-guide).
 

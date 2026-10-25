@@ -228,30 +228,67 @@ compiler stack-frame usage is not included in the heap cap.
 
 ### P-256 flash and low-RAM modes
 
-Two optional settings move the reusable P-256 generator data out of RAM and
-avoid the large ECDSA verification joint table:
+The P-256 generator table lives in flash and ECDSA verification uses the
+low-RAM path by default:
 
 ```cmake
--DNOXTLS_ECC_P256_FLASH_PRECOMPUTE=ON
--DNOXTLS_ECC_P256_LOW_RAM_VERIFY=ON
+-DNOXTLS_ECC_P256_FLASH_PRECOMPUTE=ON      # default
+-DNOXTLS_ECC_P256_LOW_RAM_VERIFY=ON        # default (requires the flash table)
+-DNOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE=OFF   # default
 ```
 
-`NOXTLS_ECC_P256_FLASH_PRECOMPUTE` adds a 2048-byte constant affine generator
-comb table. Embedded linkers place this read-only data in flash/ROM. It replaces
-the 6528-byte allocator-backed P-256 fixed-base table.
+`NOXTLS_ECC_P256_FLASH_PRECOMPUTE` stores a 2048-byte constant affine generator
+comb table in flash. `NOXTLS_ECC_P256_LOW_RAM_VERIFY` computes the generator side
+from that table and builds only a small compact table for the runtime public key,
+released after each operation. All precompute tables store affine X||Y entries
+(64 bytes per P-256 point) with constant-time selection.
 
-`NOXTLS_ECC_P256_LOW_RAM_VERIFY` requires the flash table. It computes the
-generator side from flash and builds only a compact 512-byte table for the
-runtime public key. This replaces the 13056-byte joint table used by the
-speed-oriented verification path. The compact table is selected with a
-constant-time scan and is released after each operation.
+Measured heap peaks (host, default configuration): P-256 ECDSA verify 2,056 bytes
+(was 20,056), an ECDHE key kept alive while two certificates are verified 2,792
+bytes (was 30,184), and 32 bytes held per P-256 key (was 6,864). Host timing for
+sign, verify and ECDH is equal or faster than the previous cache-based defaults.
+`NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE=1` keeps a per-curve cache for workloads that
+sign repeatedly with one long-lived key.
 
-In the 32 KiB MSVC embedded profile, enabling both settings reduced the complete
-P-256 key-generation, ECDH, ECDSA-sign, and ECDSA-verify workflow from a
-26920-byte heap peak to 4200 bytes. The largest single allocation fell from
-13056 bytes to 1632 bytes. Low-RAM verification performs more point operations
-and rebuilds the runtime public-key table, so it trades verification throughput
-for RAM.
+## RAM tuning reference
+
+The defaults below favour embedded targets. Profile presets
+(`NOXTLS_PROFILE_*`) only supply values that are not already defined, so any
+setting can be adjusted on top of a profile with `-D`.
+
+| Setting | Default | Effect |
+|---|---|---|
+| `NOXTLS_FEATURE_TLS_CLIENT` / `NOXTLS_FEATURE_TLS_SERVER` | 1 / 1 | Compile out the unused TLS role, including the server caches. |
+| `NOXTLS_TLS12_SESSION_CACHE_SIZE` | 16 | TLS 1.2 server session-ID cache entries (0 compiles it out). |
+| `NOXTLS_TLS12_TICKET_CACHE_SIZE` / `NOXTLS_TLS12_TICKET_MAX_LEN` | 32 / 256 | TLS 1.2 server ticket cache entries and ticket length. |
+| `NOXTLS_TLS13_PSK_TICKET_STORE_MAX` | 64 | TLS 1.3 server ticket store entries (0..64). |
+| `NOXTLS_TLS_MAX_RECORD_SIZE` | 16384 | Record payload limit; sizes the single lazily allocated transmit buffer. |
+| `NOXTLS_TLS13_SERVER_MAX_EARLY_DATA` | 16384 | 0-RTT data a TLS 1.3 server buffers. |
+| `NOXTLS_DTLS_REASSEMBLY_MAX_BYTES` | 2 x `NOXTLS_TLS_MAX_HANDSHAKE_SIZE` | Total DTLS handshake reassembly memory a peer can pin. |
+| `NOXTLS_TLS_RETAIN_PEER_CERT` | 0 | Keep the parsed peer certificate after the handshake (the DER is always kept). |
+| `NOXTLS_X509_FAIL_INFO` | 1 | Detailed certificate failure strings (556 bytes of static RAM when on). |
+| `NOXTLS_X509_CHAIN_INITIAL_CAPACITY` | 1 | Linear growth step for certificate chains (chains allocate lazily). |
+| `NOXTLS_ECC_ENABLE_<curve>` | 1 | Per-curve switches; `ECC_MAX_KEY_SIZE` follows the largest enabled curve (P-256 only: 32 bytes, halving every ECC point and table). |
+| `NOXTLS_PKC_SHARED_DRBG` | 1 | One CTR-DRBG instance for all public-key modules (serialize PKC randomness across threads). |
+| `NOXTLS_BN_MONT_WINDOW_BITS` | 4 | Window width of the private-key Montgomery exponentiation (1..6). |
+| `NOXTLS_AES_ROM_TABLES` | 1 | AES T-tables in flash (4 KB); 0 builds them in RAM at first use. |
+| `NOXTLS_AES_COMPACT_TABLES` | 0 | Keep one 1 KB T-table and derive the others by rotation. |
+| `NOXTLS_GCM_TABLE_BITS` | 4 | 0 selects a table-free, constant-time GHASH. |
+| `NOXTLS_AES_CTX_RAW_KEY` | 1 | 0 drops the raw key copy from AES contexts in software-only builds. |
+| `NOXTLS_ED25519_READONLY_COMB` | 1 | Ed25519 base tables as constant data in flash (9.6 KB moved out of RAM). |
+| `NOXTLS_FEATURE_KEYLOG` | 0 | SSLKEYLOGFILE support (debug builds only). |
+
+`NOXTLS_PROFILE_MINIMAL_TLS_CLIENT` selects TLS 1.2/1.3 client-only with
+ECDHE (X25519, P-256), ECDSA P-256 server authentication, AES-GCM and SHA-256,
+no stdio and no certificate failure strings. Enable RSA, SHA-384 or more curves
+with `-D` when the servers you connect to need them.
+
+Measured on the host (`ut/ram_budget`, default configuration, 16 KB records), a
+TLS 1.3 client uses about 33 KB of heap at the handshake peak and about 17 KB
+after the handshake, of which about 16.5 KB is the record transmit buffer; with
+`NOXTLS_TLS_MAX_RECORD_SIZE=4096` the steady state is about 4.7 KB. The
+connection object is 2,816 bytes on Cortex-M4 (1,488 bytes in the minimal
+client profile).
 
 ## Notes
 
@@ -265,16 +302,16 @@ for RAM.
 
 ### Concurrent crypto scratch storage
 
-By default, each SHA-256 HMAC context owns its hash state through the configured NoxTLS allocator. Independent streaming contexts may be interleaved; key shortening and finalization no longer use shared SHA-256 scratch. Hash-state storage is wiped before release. Budget one `sizeof(noxtls_sha_ctx_t)` allocator block per live SHA-256 HMAC (944 bytes in the recorded Cortex-M4 validation configuration, excluding allocator metadata).
+HMAC contexts embed their hash state and the precomputed key-pad chaining values, so HMAC never allocates and independent streaming contexts may be interleaved; contexts are wiped on final or free. `NOXTLS_HMAC_SHA256_SHARED_STATE` is deprecated and has no effect.
 
 ECC inversion and the P-256 bignum inversion fast path use private, bounded scratch arrays. With ARM GNU 16.1, Cortex-M4 and `-O2`, the measured function frames were 512 and 232 bytes respectively; callers and callees require additional stack. Check the complete call-chain budget on each embedded target. These changes do not make the shared static allocator or module-wide diagnostics thread-safe; applications using those facilities concurrently must provide synchronization.
 
-For externally serialized builds, select either or both of these independent CMake options (both default to `OFF`):
+For externally serialized builds, the ECC scratch can be shared (default `OFF`):
 
 ```sh
--DNOXTLS_HMAC_SHA256_SHARED_STATE=ON -DNOXTLS_ECC_SHARED_SCRATCH=ON
+-DNOXTLS_ECC_SHARED_SCRATCH=ON
 ```
 
-Equivalent preprocessor settings use `1`; both switches are also exposed by the generated ESP-IDF and Zephyr configuration. The HMAC option replaces per-context allocation with one fixed SHA-256 slot. A second live context returns `NOXTLS_RETURN_FAILED`; finalization or explicit free wipes and releases the slot. A finalization call that only reports an undersized output buffer keeps the slot reserved for retry. This occupancy check is **not a thread lock**: serialize all SHA-256 HMAC access, and hold external ownership across each complete `init`–`update`–`final/free` lifetime. Do not interleave streams in shared mode.
+The equivalent preprocessor setting is `NOXTLS_ECC_SHARED_SCRATCH=1`; it is also exposed by the generated ESP-IDF and Zephyr configuration.
 
 The ECC option moves the inversion scratch to fixed storage, reducing stack use. All access to the affected ECC and P-256 bignum inversion paths must be externally serialized, including interrupt callers. Shared mode does not support reentrant calls. Keep private mode for concurrent handshakes unless the integration supplies suitable serialization at the crypto-operation boundaries.

@@ -114,14 +114,41 @@ static noxtls_return_t cmac_absorb_block(noxtls_aes_cmac_context_t *ctx,
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Derive subkey K1 (complete last block) or K2 (padded last block),
+ *        RFC 4493 section 2.3, from L = E_K(0^128).
+ */
+static noxtls_return_t cmac_subkey(const noxtls_aes_cmac_context_t *ctx, uint8_t want_k2,
+                                   uint8_t subkey[NOXTLS_AES_BLOCK_LENGTH])
+{
+    const uint32_t block_sz = (uint32_t)NOXTLS_AES_BLOCK_LENGTH;
+    uint8_t msb = 0U;
+    noxtls_return_t rc;
+
+    noxtls_secure_zero(subkey, (size_t)block_sz);
+    rc = noxtls_aes_encrypt_block_internal(ctx->key, subkey, subkey, ctx->type);
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(subkey, (size_t)block_sz);
+        return rc;
+    }
+    /* K1 = L << 1 (^ Rb), K2 = K1 << 1 (^ Rb); masks keep it branch-free. */
+    msb = (uint8_t)(subkey[0] >> 7U);
+    cmac_shift_left(subkey);
+    subkey[block_sz - 1U] ^= (uint8_t)((uint8_t)(0U - msb) & (uint8_t)NOXTLS_AES_CMAC_RB);
+    if (want_k2 != 0U) {
+        msb = (uint8_t)(subkey[0] >> 7U);
+        cmac_shift_left(subkey);
+        subkey[block_sz - 1U] ^= (uint8_t)((uint8_t)(0U - msb) & (uint8_t)NOXTLS_AES_CMAC_RB);
+    }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
 /* Streaming CMAC API; extents follow AES block size and caller lengths. */
 noxtls_return_t noxtls_aes_cmac_init(noxtls_aes_cmac_context_t *ctx,
                                      const uint8_t *key,
                                      noxtls_aes_type_t type)
 {
-    uint8_t l[NOXTLS_AES_BLOCK_LENGTH];
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
-    const uint32_t block_sz = (uint32_t)NOXTLS_AES_BLOCK_LENGTH;
 
     if ((ctx == NULL) || (key == NULL)) {
         return NOXTLS_RETURN_NULL;
@@ -135,25 +162,6 @@ noxtls_return_t noxtls_aes_cmac_init(noxtls_aes_cmac_context_t *ctx,
         return rc;
     }
     noxtls_copy_u8(ctx->key, sizeof(ctx->key), key, (size_t)(ctx->key_len));
-
-    noxtls_secure_zero((l), sizeof(l));
-    rc = noxtls_aes_encrypt_block_internal(ctx->key, l, l, type);
-    if (rc != NOXTLS_RETURN_SUCCESS) {
-        noxtls_secure_zero(ctx, sizeof(*ctx));
-        return rc;
-    }
-
-    noxtls_copy_u8(ctx->subkey1, sizeof(ctx->subkey1), l, (size_t)(block_sz));
-    cmac_shift_left(ctx->subkey1);
-    if ((l[0] & 0x80U) != 0U) {
-        ctx->subkey1[block_sz - 1U] ^= (uint8_t)NOXTLS_AES_CMAC_RB;
-    }
-
-    noxtls_copy_u8(ctx->subkey2, sizeof(ctx->subkey2), ctx->subkey1, (size_t)(block_sz));
-    cmac_shift_left(ctx->subkey2);
-    if ((ctx->subkey1[0] & 0x80U) != 0U) {
-        ctx->subkey2[block_sz - 1U] ^= (uint8_t)NOXTLS_AES_CMAC_RB;
-    }
 
     ctx->initialized = 1U;
     return NOXTLS_RETURN_SUCCESS;
@@ -233,6 +241,7 @@ noxtls_return_t noxtls_aes_cmac_final(noxtls_aes_cmac_context_t *ctx,
                                       uint8_t *mac)
 {
     uint8_t final_block[NOXTLS_AES_BLOCK_LENGTH];
+    uint8_t subkey[NOXTLS_AES_BLOCK_LENGTH];
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
     const uint32_t block_sz = (uint32_t)NOXTLS_AES_BLOCK_LENGTH;
 
@@ -245,33 +254,38 @@ noxtls_return_t noxtls_aes_cmac_final(noxtls_aes_cmac_context_t *ctx,
 
     noxtls_secure_zero((final_block), sizeof(final_block));
 
-    if (ctx->total_len == 0U)
+    if ((ctx->total_len != 0U) && (ctx->partial_len == (uint8_t)block_sz))
     {
-        final_block[0] = 0x80U;
-        cmac_xor_block(final_block, final_block, ctx->subkey2);
-    }
-    else if (ctx->partial_len == (uint8_t)block_sz)
-    {
+        /* Complete last block: M_last = M_n ^ K1. */
         noxtls_copy_u8(final_block, sizeof(final_block), ctx->partial, (size_t)(block_sz));
-        cmac_xor_block(final_block, final_block, ctx->subkey1);
+        rc = cmac_subkey(ctx, 0U, subkey);
     }
     else
     {
-        noxtls_copy_u8(final_block, sizeof(final_block), ctx->partial, (size_t)(ctx->partial_len));
-        final_block[ctx->partial_len] = 0x80U;
-        cmac_xor_block(final_block, final_block, ctx->subkey2);
+        /* Empty message or partial last block: M_last = pad(M_n) ^ K2. */
+        if (ctx->total_len != 0U) {
+            noxtls_copy_u8(final_block, sizeof(final_block), ctx->partial, (size_t)(ctx->partial_len));
+            final_block[ctx->partial_len] = 0x80U;
+        } else {
+            final_block[0] = 0x80U;
+        }
+        rc = cmac_subkey(ctx, 1U, subkey);
     }
-
-    rc = cmac_absorb_block(ctx, final_block);
+    if (rc == NOXTLS_RETURN_SUCCESS) {
+        cmac_xor_block(final_block, final_block, subkey);
+        rc = cmac_absorb_block(ctx, final_block);
+    }
+    noxtls_secure_zero(subkey, sizeof(subkey));
+    noxtls_secure_zero(final_block, sizeof(final_block));
     if (rc != NOXTLS_RETURN_SUCCESS) {
-        noxtls_secure_zero(final_block, sizeof(final_block));
         noxtls_secure_zero(mac, NOXTLS_AES_BLOCK_LENGTH);
         noxtls_secure_zero(ctx, sizeof(*ctx));
         return rc;
     }
 
     noxtls_copy_u8(mac, (size_t)block_sz, ctx->state, (size_t)(block_sz));
-    ctx->initialized = 0U;
+    /* Done: wipe the key and chaining state (initialized becomes 0). */
+    noxtls_secure_zero(ctx, sizeof(*ctx));
     return NOXTLS_RETURN_SUCCESS;
 }
 

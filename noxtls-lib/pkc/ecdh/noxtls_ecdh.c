@@ -28,6 +28,8 @@
 #include "common/noxtls_memory.h"
 #include "noxtls_ecdh.h"
 
+#if NOXTLS_FEATURE_ECDH
+
 
 
 /**
@@ -151,3 +153,4 @@ noxtls_return_t noxtls_ecdh_compute_shared_secret(
                                                 NULL);
 }
 
+#endif /* NOXTLS_FEATURE_ECDH */

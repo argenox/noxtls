@@ -47,6 +47,17 @@
         } \
     } while (0)
 
+/* Like NOXTLS_AES_CHECK, but also wipes a prepared AES context (key schedule). */
+#define NOXTLS_AES_CHECK_CTX(operation, aes_ctx, output, length) \
+    do { \
+        const noxtls_return_t noxtls_block_status = (operation); \
+        if (noxtls_block_status != NOXTLS_RETURN_SUCCESS) { \
+            noxtls_secure_zero((aes_ctx), sizeof(*(aes_ctx))); \
+            noxtls_secure_zero((output), (length)); \
+            return noxtls_block_status; \
+        } \
+    } while (0)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -104,6 +115,12 @@ noxtls_return_t noxtls_aes_encrypt_block_ctx_internal(const noxtls_aes_context_t
  * @return NOXTLS_RETURN_SUCCESS on success or a noxtls_return_t error code.
  */
 noxtls_return_t noxtls_aes_encrypt_block_ctx_software_internal(const noxtls_aes_context_t *ctx, const uint8_t *data, uint8_t *output);
+
+/**
+ * @brief Decrypt one AES block using a prepared AES context (same backend
+ *        order as noxtls_aes_encrypt_block_ctx_internal()).
+ */
+noxtls_return_t noxtls_aes_decrypt_block_ctx_internal(const noxtls_aes_context_t *ctx, const uint8_t *data, uint8_t *output);
 
 /**
  * @brief Report which AES block backend is compiled as active for this target.

@@ -35,6 +35,11 @@
 #include <string.h>
 
 #include "noxtls_ed25519_sc.h"
+#include "noxtls_common.h"
+
+/* Field / group / scalar code is used only by Ed25519 (X25519 has its own field
+ * arithmetic), so the whole unit compiles to nothing when Ed25519 is disabled. */
+#if NOXTLS_FEATURE_ED25519
 
 /** Mask for a 21-bit scalar limb (ref10 radix 2^21). */
 #define NOXTLS_ED25519_SC_LIMB_MASK 2097151ULL
@@ -737,6 +742,8 @@ void sc25519_reduce(uint8_t *out_le,
     noxtls_copy_u8((uint8_t *)(void *)(tmp), (size_t)(NOXTLS_ED25519_SHA512_DIGEST_BYTES), (const uint8_t *)(const void *)(in_le), (size_t)(NOXTLS_ED25519_SHA512_DIGEST_BYTES));
     sc25519_reduce_inplace(tmp);
     noxtls_copy_u8((uint8_t *)(void *)(out_le), (size_t)(NOXTLS_ED25519_FE25519_BYTES), (const uint8_t *)(const void *)(tmp), (size_t)(NOXTLS_ED25519_FE25519_BYTES));
+    /* The input is the secret nonce digest when signing. */
+    noxtls_secure_zero(tmp, sizeof(tmp));
 }
 
 /**
@@ -754,3 +761,5 @@ void sc25519_muladd(uint8_t *out_le,
 {
     sc25519_muladd_inplace(out_le, a_le, b_le, c_le);
 }
+
+#endif /* NOXTLS_FEATURE_ED25519 */

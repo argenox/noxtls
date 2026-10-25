@@ -15,198 +15,204 @@
 *
 *
 * File:    noxtls_mldsa_sampling.c
-* Summary: ML-DSA sampling and seed-expansion helpers.
+* Summary: ML-DSA samplers: RejNTTPoly (ExpandA entry), RejBoundedPoly
+*          (ExpandS entry) and ExpandMask entry (FIPS 204 Alg. 30-34).
 *
 *
 *****************************************************************************/
 
 #include <stdint.h>
 #include <stddef.h>
-#include <string.h>
 
 #include "noxtls_mldsa_internal.h"
-#include "mdigest/sha3/noxtls_sha3.h"
+
+#if NOXTLS_FEATURE_ML_DSA
+
+#include "noxtls_ct.h"
+
+/** SHAKE128 rate in bytes. */
+#define MLDSA_SHAKE128_RATE 168U
+/** SHAKE256 rate in bytes. */
+#define MLDSA_SHAKE256_RATE 136U
+/** Chunk used when streaming ExpandMask output. */
+#define MLDSA_MASK_CHUNK 64U
 
 /**
- * @brief Expand a seed into an XOF output using SHAKE256.
+ * @brief Sample A[row][col] = RejNTTPoly(rho || col || row) (already NTT domain).
  *
- * @param[in] seed The input seed.
- * @param[in] seed_len The length of the input seed.
- * @param[in] domain_tag The domain tag for the XOF.
- * @param[in] nonce The nonce for the XOF.
- * @param[out] out The output buffer.
- * @param[in] out_len The length of the output buffer.
- * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the input or output is NULL, or another NOXTLS_RETURN_t on failure.
+ * @param[out] a Output polynomial, coefficients in [0, q).
+ * @param[in] rho Public seed.
+ * @param[in] row Row index r.
+ * @param[in] col Column index s.
+ * @return NOXTLS_RETURN_SUCCESS or a SHAKE error.
  */
-noxtls_return_t noxtls_mldsa_expand_xof(const uint8_t *seed,
-                                        uint32_t seed_len,
-                                        uint8_t domain_tag,
-                                        uint16_t nonce,
-                                        uint8_t *out,
-                                        uint32_t out_len)
+noxtls_return_t noxtls_mldsa_poly_uniform(noxtls_mldsa_poly_t *a,
+                                          const uint8_t rho[NOXTLS_MLDSA_SEEDBYTES],
+                                          uint32_t row, uint32_t col)
 {
-    noxtls_sha3_ctx_t shake;
-    uint8_t meta[3];
-    noxtls_return_t rc;
+    noxtls_sha3_ctx_t ctx;
+    uint8_t buf[MLDSA_SHAKE128_RATE];
+    uint8_t idx[2];
+    uint32_t ctr = 0U;
+    noxtls_return_t rc = noxtls_shake128_init(&ctx);
 
-    if((seed == NULL) || (out == NULL)) {
-        return NOXTLS_RETURN_NULL;
+    idx[0] = (uint8_t)col;
+    idx[1] = (uint8_t)row;
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_shake128_update(&ctx, rho, NOXTLS_MLDSA_SEEDBYTES);
     }
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_shake128_update(&ctx, idx, 2U);
+    }
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_shake128_final(&ctx);
+    }
+    while((rc == NOXTLS_RETURN_SUCCESS) && (ctr < NOXTLS_MLDSA_N)) {
+        uint32_t pos = 0U;
 
-    meta[0] = domain_tag;
-    meta[1] = (uint8_t)(nonce & 0xFFU);
-    meta[2] = (uint8_t)((nonce >>8U) & 0xFFU);
+        rc = noxtls_shake128_squeeze(&ctx, buf, MLDSA_SHAKE128_RATE);
+        while((rc == NOXTLS_RETURN_SUCCESS) && (ctr < NOXTLS_MLDSA_N) &&
+              ((pos + 3U) <= MLDSA_SHAKE128_RATE)) {
+            uint32_t t = (uint32_t)buf[pos] |
+                         ((uint32_t)buf[pos + 1U] << 8U) |
+                         (((uint32_t)buf[pos + 2U] & 0x7FU) << 16U);
 
-    rc = noxtls_shake256_init(&shake);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
+            pos += 3U;
+            if(t < (uint32_t)NOXTLS_MLDSA_Q) {
+                a->coeff[ctr] = (int32_t)t;
+                ctr += 1U;
+            }
+        }
     }
-    rc = noxtls_shake256_update(&shake, meta, (uint32_t)sizeof(meta));
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
-    }
-    rc = noxtls_shake256_update(&shake, seed, seed_len);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
-    }
-    rc = noxtls_shake256_final(&shake);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
-    }
-    return noxtls_shake256_squeeze(&shake, out, out_len);
+    noxtls_secure_zero(&ctx, sizeof(ctx));
+    return rc;
 }
 
 /**
- * @brief Derive the rho, k, and tr seeds from the master seed.
+ * @brief Sample a polynomial with coefficients in [-eta, eta]:
+ *        RejBoundedPoly(rho' || IntegerToBytes(nonce, 2)).
  *
- * @param[in] master_seed The master seed.
- * @param[out] rho The rho seed.
- * @param[out] k The k seed.
- * @param[out] tr The tr seed.
- * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the input or output is NULL, or another NOXTLS_RETURN_t on failure.
+ * @param[in] spec Parameter set (selects eta).
+ * @param[out] a Output polynomial.
+ * @param[in] rhoprime 64-byte private seed.
+ * @param[in] nonce Polynomial index (r for s1, l + r for s2).
+ * @return NOXTLS_RETURN_SUCCESS or a SHAKE error.
  */
-noxtls_return_t noxtls_mldsa_derive_seeds(const uint8_t master_seed[NOXTLS_MLDSA_INTERNAL_SEED_BYTES],
-                                          uint8_t rho[NOXTLS_MLDSA_INTERNAL_SEED_BYTES],
-                                          uint8_t k[NOXTLS_MLDSA_INTERNAL_SEED_BYTES],
-                                          uint8_t tr[NOXTLS_MLDSA_INTERNAL_SEED_BYTES])
+noxtls_return_t noxtls_mldsa_poly_uniform_eta(const noxtls_mldsa_param_spec_t *spec,
+                                              noxtls_mldsa_poly_t *a,
+                                              const uint8_t rhoprime[NOXTLS_MLDSA_CRHBYTES],
+                                              uint32_t nonce)
 {
-    uint8_t block[3U * NOXTLS_MLDSA_INTERNAL_SEED_BYTES];
-    noxtls_return_t rc;
+    noxtls_sha3_ctx_t ctx;
+    uint8_t buf[MLDSA_SHAKE256_RATE];
+    uint8_t idx[2];
+    uint32_t ctr = 0U;
+    noxtls_return_t rc = noxtls_shake256_init(&ctx);
 
-    if(master_seed == NULL || rho == NULL || k == 0U || tr == NULL) {
-        return NOXTLS_RETURN_NULL;
+    idx[0] = (uint8_t)(nonce & 0xFFU);
+    idx[1] = (uint8_t)((nonce >> 8U) & 0xFFU);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_shake256_update(&ctx, rhoprime, NOXTLS_MLDSA_CRHBYTES);
     }
-
-    rc = noxtls_mldsa_expand_xof(master_seed,
-                                 NOXTLS_MLDSA_INTERNAL_SEED_BYTES,
-                                 0xA1U,
-                                 0U,
-                                 block,
-                                 (uint32_t)sizeof(block));
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_shake256_update(&ctx, idx, 2U);
     }
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_shake256_final(&ctx);
+    }
+    while((rc == NOXTLS_RETURN_SUCCESS) && (ctr < NOXTLS_MLDSA_N)) {
+        uint32_t pos = 0U;
 
-    (void)memcpy(rho, block, (size_t)NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
-    (void)memcpy(k, &block[NOXTLS_MLDSA_INTERNAL_SEED_BYTES], (size_t)NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
-    (void)memcpy(tr, &block[(2U * NOXTLS_MLDSA_INTERNAL_SEED_BYTES)], (size_t)NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
-    return NOXTLS_RETURN_SUCCESS;
+        rc = noxtls_shake256_squeeze(&ctx, buf, MLDSA_SHAKE256_RATE);
+        while((rc == NOXTLS_RETURN_SUCCESS) && (ctr < NOXTLS_MLDSA_N) && (pos < MLDSA_SHAKE256_RATE)) {
+            uint32_t half[2];
+            uint32_t h = 0U;
+
+            half[0] = (uint32_t)buf[pos] & 0x0FU;
+            half[1] = (uint32_t)buf[pos] >> 4U;
+            pos += 1U;
+            for(h = 0U; (h < 2U) && (ctr < NOXTLS_MLDSA_N); h += 1U) {
+                uint32_t t = half[h];
+
+                if(spec->eta == 2U) {
+                    if(t < 15U) {
+                        t = t - (((205U * t) >> 10U) * 5U); /* t mod 5 */
+                        a->coeff[ctr] = 2 - (int32_t)t;
+                        ctr += 1U;
+                    }
+                } else {
+                    if(t < 9U) {
+                        a->coeff[ctr] = 4 - (int32_t)t;
+                        ctr += 1U;
+                    }
+                }
+            }
+        }
+    }
+    noxtls_secure_zero(buf, sizeof(buf));
+    noxtls_secure_zero(&ctx, sizeof(ctx));
+    return rc;
 }
 
 /**
- * @brief Sample a uniform polynomial from the seed.
+ * @brief ExpandMask entry: y = BitUnpack(H(rho'' || IntegerToBytes(nonce, 2)), gamma1 - 1, gamma1).
  *
- * @param[in] param The parameter set.
- * @param[in] seed The seed.
- * @param[in] nonce The nonce.
- * @param[out] poly The polynomial.
- * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the input or output is NULL, or another NOXTLS_RETURN_t on failure.
+ * @param[in] spec Parameter set (selects gamma1).
+ * @param[out] a Output polynomial with coefficients in [-gamma1 + 1, gamma1].
+ * @param[in] rhoprime 64-byte seed rho''.
+ * @param[in] nonce kappa + r.
+ * @return NOXTLS_RETURN_SUCCESS or a SHAKE error.
  */
-noxtls_return_t noxtls_mldsa_sample_uniform_q(noxtls_mldsa_param_t param,
-                                              const uint8_t seed[NOXTLS_MLDSA_INTERNAL_SEED_BYTES],
-                                              uint16_t nonce,
-                                              noxtls_mldsa_poly_t *poly)
+noxtls_return_t noxtls_mldsa_poly_uniform_gamma1(const noxtls_mldsa_param_spec_t *spec,
+                                                 noxtls_mldsa_poly_t *a,
+                                                 const uint8_t rhoprime[NOXTLS_MLDSA_CRHBYTES],
+                                                 uint32_t nonce)
 {
-    uint8_t buf[NOXTLS_MLDSA_N * 4U];
-    noxtls_mldsa_param_spec_t spec;
-    noxtls_return_t rc;
-    uint32_t i;
+    noxtls_sha3_ctx_t ctx;
+    uint8_t buf[MLDSA_MASK_CHUNK];
+    uint8_t idx[2];
+    uint32_t remaining = spec->poly_z_bytes;
+    uint32_t avail = 0U;
+    uint32_t pos = 0U;
+    uint32_t acc = 0U;
+    uint32_t nbits = 0U;
+    uint32_t bits = spec->gamma1_bits;
+    uint32_t mask = (1U << bits) - 1U;
+    uint32_t i = 0U;
+    noxtls_return_t rc = noxtls_shake256_init(&ctx);
 
-    if((seed == NULL) || (poly == NULL)) {
-        return NOXTLS_RETURN_NULL;
+    idx[0] = (uint8_t)(nonce & 0xFFU);
+    idx[1] = (uint8_t)((nonce >> 8U) & 0xFFU);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_shake256_update(&ctx, rhoprime, NOXTLS_MLDSA_CRHBYTES);
     }
-
-    rc = noxtls_mldsa_internal_get_param_spec(param, &spec);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_shake256_update(&ctx, idx, 2U);
     }
-
-    rc = noxtls_mldsa_expand_xof(seed,
-                                 NOXTLS_MLDSA_INTERNAL_SEED_BYTES,
-                                 (uint8_t)(0xB0U + spec.k),
-                                 nonce,
-                                 buf,
-                                 (uint32_t)sizeof(buf));
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_shake256_final(&ctx);
     }
-
-    for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
-        uint32_t off = (uint32_t)(i * 4U);
-        uint32_t v = (uint32_t)buf[off]
-                   | ((uint32_t)buf[off + 1U] <<8U)
-                   | ((uint32_t)buf[off + 2U] <<16U)
-                   | ((uint32_t)buf[off + 3U] <<24U);
-        poly->coeff[i] = (int32_t)(v % NOXTLS_MLDSA_Q);
+    for(i = 0U; (rc == NOXTLS_RETURN_SUCCESS) && (i < NOXTLS_MLDSA_N); i += 1U) {
+        while((rc == NOXTLS_RETURN_SUCCESS) && (nbits < bits)) {
+            if(pos == avail) {
+                avail = (remaining < MLDSA_MASK_CHUNK) ? remaining : MLDSA_MASK_CHUNK;
+                remaining -= avail;
+                pos = 0U;
+                rc = noxtls_shake256_squeeze(&ctx, buf, avail);
+            }
+            if(rc == NOXTLS_RETURN_SUCCESS) {
+                acc |= (uint32_t)buf[pos] << nbits;
+                pos += 1U;
+                nbits += 8U;
+            }
+        }
+        a->coeff[i] = spec->gamma1 - (int32_t)(acc & mask);
+        acc >>= bits;
+        nbits -= bits;
     }
-
-    return NOXTLS_RETURN_SUCCESS;
+    noxtls_secure_zero(buf, sizeof(buf));
+    noxtls_secure_zero(&ctx, sizeof(ctx));
+    return rc;
 }
 
-/**
- * @brief Sample a small eta polynomial from the seed.
- *
- * @param[in] param The parameter set.
- * @param[in] seed The seed.
- * @param[in] nonce The nonce.
- * @param[out] poly The polynomial.
- * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_NULL if the input or output is NULL, or another NOXTLS_RETURN_t on failure.
- */
-noxtls_return_t noxtls_mldsa_sample_small_eta(noxtls_mldsa_param_t param,
-                                              const uint8_t seed[NOXTLS_MLDSA_INTERNAL_SEED_BYTES],
-                                              uint16_t nonce,
-                                              noxtls_mldsa_poly_t *poly)
-{
-    uint8_t buf[NOXTLS_MLDSA_N];
-    noxtls_mldsa_param_spec_t spec;
-    noxtls_return_t rc;
-    uint32_t i;
-
-    if((seed == NULL) || (poly == NULL)) {
-        return NOXTLS_RETURN_NULL;
-    }
-
-    rc = noxtls_mldsa_internal_get_param_spec(param, &spec);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
-    }
-
-    rc = noxtls_mldsa_expand_xof(seed,
-                                 NOXTLS_MLDSA_INTERNAL_SEED_BYTES,
-                                 (uint8_t)(0xC0U + spec.l),
-                                 nonce,
-                                 buf,
-                                 (uint32_t)sizeof(buf));
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
-    }
-
-    for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
-        uint8_t span = (uint8_t)((2U * spec.eta) + 1U);
-        int32_t centered = (int32_t)(buf[i] % span) - (int32_t)spec.eta;
-        poly->coeff[i] = centered;
-    }
-
-    return NOXTLS_RETURN_SUCCESS;
-}
-
+#endif /* NOXTLS_FEATURE_ML_DSA */

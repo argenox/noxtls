@@ -40,7 +40,7 @@ uint32_t noxtls_noxv_sha256_mmio_read(uint32_t offset)
         return 6u;
     }
     CHECK(offset >= 72u && offset < 104u);
-    return hardware.h[(offset - 72u) / 4u];
+    return hardware.u.md32.h[(offset - 72u) / 4u];
 }
 static void digest_matches(const uint8_t *data, unsigned length, const char *expected)
 {

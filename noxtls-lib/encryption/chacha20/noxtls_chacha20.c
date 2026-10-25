@@ -120,6 +120,7 @@ static void chacha20_block(const uint32_t state[NOXTLS_CHACHA20_STATE_WORDS], ui
         output[(i * 4U) + 2U] = (uint8_t)(w >> 16U);
         output[(i * 4U) + 3U] = (uint8_t)(w >> 24U);
     }
+    noxtls_secure_zero(working_state, sizeof(working_state));
 }
 
 /**
@@ -171,10 +172,7 @@ noxtls_return_t noxtls_chacha20_init(noxtls_chacha20_context_t *ctx,
     ctx->state[14] = ((uint32_t)nonce[4]) | (((uint32_t)nonce[5]) << 8U) | (((uint32_t)nonce[6]) << 16U) | (((uint32_t)nonce[7]) << 24U);
     ctx->state[15] = ((uint32_t)nonce[8]) | (((uint32_t)nonce[9]) << 8U) | (((uint32_t)nonce[10]) << 16U) | (((uint32_t)nonce[11]) << 24U);
 
-    /* Store key and nonce for potential reuse */
-    noxtls_copy_u8(ctx->key, sizeof(ctx->key), key, (size_t)NOXTLS_CHACHA20_KEY_SIZE);
-    noxtls_copy_u8(ctx->nonce, sizeof(ctx->nonce), nonce, (size_t)NOXTLS_CHACHA20_NONCE_SIZE);
-    ctx->counter = counter;
+    /* Key, counter and nonce live only in state[]; no separate copies are kept. */
     ctx->keystream_pos = NOXTLS_CHACHA20_BLOCK_SIZE; /* Force generation of first block */
 
     return NOXTLS_RETURN_SUCCESS;
@@ -243,11 +241,12 @@ noxtls_return_t noxtls_chacha20_encrypt(const uint8_t *key,
     }
 
     r = noxtls_chacha20_init(&ctx, key, nonce, counter);
-    if (r != NOXTLS_RETURN_SUCCESS) {
-        return r;
+    if (r == NOXTLS_RETURN_SUCCESS) {
+        r = noxtls_chacha20_process(&ctx, input, output, input_len);
     }
-
-    return noxtls_chacha20_process(&ctx, input, output, input_len);
+    /* The state holds the key and the keystream block: never leave them behind. */
+    noxtls_secure_zero(&ctx, sizeof(ctx));
+    return r;
 }
 
 /**

@@ -41,8 +41,8 @@ REQUIRED_BY_RE = re.compile(
 DEP_MACRO_RE = re.compile(r"(NOXTLS_[A-Z0-9_]+)\s*=\s*([01])")
 LEGACY_NOTE_RE = re.compile(r"legacy", re.IGNORECASE)
 
-# End of canonical defaults (before profile preset overrides section).
-DEFAULTS_SECTION_END_MARKER = "Profile presets (override defaults above)"
+# Profile presets precede the per-feature defaults and use #ifndef guards, so
+# overrides are collected while scanning and applied once all settings are known.
 
 
 @dataclass
@@ -205,6 +205,7 @@ def infer_parent(macro_id: str) -> str:
         return "NOXTLS_FEATURE_AES"
     if macro_id in (
         "NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES",
+        "NOXTLS_TLS12_ENABLE_SHA1_SIGNATURES",
         "NOXTLS_CFG_TLS13_ALLOW_RSA_PKCS1_CERTVERIFY",
     ):
         return "NOXTLS_FEATURE_TLS"
@@ -250,12 +251,13 @@ def parse_config_header(path: Path) -> tuple[dict[str, Setting], list[str]]:
     profiles: list[str] = []
 
     in_defaults = False
-    past_defaults = False
     in_profile_block = False
     comment_buf: list[str] = []
     current_profile: str | None = None
     ifndef_depth = 0
-    profile_if_depth = 0
+    # Stack of open conditionals: "profile", "ifndef" or "other".
+    cond_stack: list[str] = []
+    pending_overrides: list[tuple[str, str, str]] = []
 
     def add_setting(
         macro_id: str,
@@ -279,33 +281,28 @@ def parse_config_header(path: Path) -> tuple[dict[str, Setting], list[str]]:
     for i, line in enumerate(lines, start=1):
         stripped = line.strip()
 
-        if DEFAULTS_SECTION_END_MARKER in line:
-            past_defaults = True
-            current_profile = None
-            in_profile_block = False
-
         pm = PROFILE_BLOCK_START.match(stripped)
         if pm:
             current_profile = f"NOXTLS_PROFILE_{pm.group(1)}"
             in_profile_block = True
-            profile_if_depth = 1
+            cond_stack.append("profile")
             if current_profile not in profiles:
                 profiles.append(current_profile)
             continue
 
-        if stripped.startswith("#if defined(NOXTLS_PROFILE_"):
-            in_profile_block = True
-            profile_if_depth += 1
+        if stripped.startswith("#endif"):
+            kind = cond_stack.pop() if cond_stack else "other"
+            if kind == "profile":
+                in_profile_block = "profile" in cond_stack
+                if not in_profile_block:
+                    current_profile = None
+            elif kind == "ifndef":
+                ifndef_depth = max(0, ifndef_depth - 1)
             continue
 
-        if stripped.startswith("#endif"):
-            if profile_if_depth > 0:
-                profile_if_depth -= 1
-                if profile_if_depth == 0:
-                    in_profile_block = False
-                    current_profile = None
-            ifndef_depth = max(0, ifndef_depth - 1)
-            continue
+        if (stripped.startswith("#if ") or stripped.startswith("#if(")
+                or stripped.startswith("#ifdef ")):
+            cond_stack.append("other")
 
         if stripped.startswith("/*") or stripped.startswith("*"):
             if "====" in stripped:
@@ -318,6 +315,7 @@ def parse_config_header(path: Path) -> tuple[dict[str, Setting], list[str]]:
 
         if stripped.startswith("#ifndef "):
             ifndef_depth += 1
+            cond_stack.append("ifndef")
             continue
 
         if not in_defaults and "Feature Configuration (defaults)" in line:
@@ -338,20 +336,7 @@ def parse_config_header(path: Path) -> tuple[dict[str, Setting], list[str]]:
             required_by_text = req_m.group(1).strip() if req_m else ""
 
             if in_profile_block and current_profile:
-                if macro_id in settings:
-                    settings[macro_id].profile_overrides[current_profile] = raw_val
-                comment_buf.clear()
-                continue
-
-            # Post-profile tunables (memory, TLS limits, RSA, ECC, etc.)
-            if past_defaults and not in_profile_block:
-                add_setting(
-                    macro_id, raw_val, desc, prereq_text, required_by_text, i
-                )
-                comment_buf.clear()
-                continue
-
-            if past_defaults:
+                pending_overrides.append((macro_id, current_profile, raw_val))
                 comment_buf.clear()
                 continue
 
@@ -364,6 +349,10 @@ def parse_config_header(path: Path) -> tuple[dict[str, Setting], list[str]]:
         if stripped.startswith("#") and not stripped.startswith("#define"):
             if not stripped.startswith("#if"):
                 comment_buf.clear()
+
+    for macro_id, profile, raw_val in pending_overrides:
+        if macro_id in settings:
+            settings[macro_id].profile_overrides[profile] = raw_val
 
     # Side-channel default profile is defined without value in some cases — capture profiles
     for ln in lines:

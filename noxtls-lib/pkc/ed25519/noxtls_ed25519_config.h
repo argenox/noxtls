@@ -70,8 +70,11 @@
 
 /**
  * Define `NOXTLS_ED25519_SMALL_BASE` to use a compact 16-entry extended base
- * table (~2.5 KiB RAM) instead of the Hamburg signed multi-comb fixed-base tables.
+ * table (2.5 KiB) instead of the Hamburg signed multi-comb fixed-base tables
+ * (7.5 KiB). The small table makes keygen/sign about 3x slower.
  * Default (undefined): signed multi-comb (Mike Hamburg ePrint 2012/309).
+ * Storage of either table is selected by `NOXTLS_ED25519_READONLY_COMB` /
+ * `NOXTLS_ED25519_READONLY_SMALL_BASE` below.
  */
 /* #define NOXTLS_ED25519_SMALL_BASE */
 
@@ -148,22 +151,56 @@
  */
 
 /**
- * Sliding-window max odd multiple index for verify double-scalar.
- * Digits in [-31,31]; table holds A,3A,...,31A (16 entries). Wider than
- * classic ref10 ([-15,15]/8) to cut Hamming weight on the verify ladder.
+ * Sliding-window odd-multiple count of the base-point (B) verify table.
+ * Digits of the [S]B scalar are in [-31,31]; the table holds B,3B,...,31B
+ * (16 entries, const data by default). Wider than classic ref10
+ * ([-15,15]/8) to cut Hamming weight on the verify ladder.
  */
 #ifndef NOXTLS_ED25519_SLIDE_ODD_COUNT
 #define NOXTLS_ED25519_SLIDE_ODD_COUNT 16U
 #endif
 
-/** Maximum absolute slide digit (inclusive). */
+/** Maximum absolute slide digit (inclusive) for the base-point scalar. */
 #ifndef NOXTLS_ED25519_SLIDE_MAX_ABS
 #define NOXTLS_ED25519_SLIDE_MAX_ABS 31
 #endif
 
 /**
+ * Odd-multiple count of the per-verify variable-base (public key A) table
+ * built on the stack by the verify double-scalar multiplication:
+ * A,3A,...,(2N-1)A, 160 bytes per entry; [k]A digits are in [-(2N-1),2N-1].
+ * The count trades verify stack against additions: 8 (default, 1280 B)
+ * verifies as fast as 16 (2560 B; measured ~1.5% faster) because the 8 fewer
+ * table additions offset the extra ladder additions; 4 (640 B) costs ~2%
+ * verify time against 8. Range 1..16. Verify-only (public data).
+ */
+#ifndef NOXTLS_ED25519_VERIFY_A_ODD_COUNT
+#define NOXTLS_ED25519_VERIFY_A_ODD_COUNT 8U
+#endif
+#if (NOXTLS_ED25519_VERIFY_A_ODD_COUNT < 1U) || (NOXTLS_ED25519_VERIFY_A_ODD_COUNT > 16U)
+#error "NOXTLS_ED25519_VERIFY_A_ODD_COUNT must be in 1..16"
+#endif
+
+/**
+ * Keep a helper out of line so its temporaries are not merged into the
+ * (already large) frame of its caller: the helper's frame is only live while
+ * it runs instead of for the caller's whole call chain. No speed effect: used
+ * on helpers that run a handful of times per operation.
+ */
+#if defined(__GNUC__) || defined(__clang__)
+#define NOXTLS_ED25519_NOINLINE __attribute__((noinline))
+#else
+#define NOXTLS_ED25519_NOINLINE
+#endif
+
+/** Maximum absolute slide digit (inclusive) for the public-key scalar. */
+#define NOXTLS_ED25519_VERIFY_A_MAX_ABS \
+    ((int32_t)(2U * NOXTLS_ED25519_VERIFY_A_ODD_COUNT) - 1)
+
+/**
  * Store compact fixed-base and sliding-verify tables in read-only memory.
- * Default zero preserves lazy RAM initialization and the existing ABI.
+ * Only used with `NOXTLS_ED25519_SMALL_BASE` (2.5 KiB + 1.9 KiB flash, no
+ * .bss). Zero keeps the small tables in lazily initialized RAM.
  */
 #ifndef NOXTLS_ED25519_READONLY_SMALL_BASE
 #define NOXTLS_ED25519_READONLY_SMALL_BASE 0
@@ -176,6 +213,41 @@
     NOXTLS_ED25519_SLIDE_MAX_ABS != 31
 #error "Read-only Ed25519 table geometry differs; regenerate and review first"
 #endif
+#endif
+
+/**
+ * Store the default signed multi-comb fixed-base table (7.5 KiB) and the
+ * sliding-verify odd-B table (1.9 KiB) as const data generated offline
+ * (noxtls_ed25519_comb_readonly.inc, tools/generate_ed25519_comb_base.c).
+ * 1 (default): no Ed25519 table RAM and no first-use table build; same
+ * sign/verify speed as the RAM tables. 0: legacy lazily built .bss tables
+ * (9.6 KiB RAM; the first sign/keygen runs the 2.6 KiB-stack table builder).
+ * Defaults to 0 with `NOXTLS_ED25519_SMALL_BASE` or `NOXTLS_ED25519_DUMP_BASE`,
+ * which select other table layouts.
+ */
+#ifndef NOXTLS_ED25519_READONLY_COMB
+#if defined(NOXTLS_ED25519_SMALL_BASE) || defined(NOXTLS_ED25519_DUMP_BASE)
+#define NOXTLS_ED25519_READONLY_COMB 0
+#else
+#define NOXTLS_ED25519_READONLY_COMB 1
+#endif
+#endif
+#if NOXTLS_ED25519_READONLY_COMB
+#if defined(NOXTLS_ED25519_SMALL_BASE) || defined(NOXTLS_ED25519_DUMP_BASE)
+#error "Read-only comb tables exclude SMALL_BASE and DUMP_BASE"
+#endif
+#if NOXTLS_ED25519_COMB_BLOCKS != 8U || NOXTLS_ED25519_COMB_TEETH != 4U || \
+    NOXTLS_ED25519_COMB_SPACING != 8U || NOXTLS_ED25519_SLIDE_ODD_COUNT != 16U || \
+    NOXTLS_ED25519_SLIDE_MAX_ABS != 31
+#error "Read-only Ed25519 comb geometry differs; regenerate and review first"
+#endif
+#endif
+
+/** Non-zero when every Ed25519 base table is const data (nothing built at run time). */
+#if NOXTLS_ED25519_READONLY_SMALL_BASE || NOXTLS_ED25519_READONLY_COMB
+#define NOXTLS_ED25519_READONLY_TABLES 1
+#else
+#define NOXTLS_ED25519_READONLY_TABLES 0
 #endif
 
 #endif /* NOXTLS_ED25519_CONFIG_H_ */

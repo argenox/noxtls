@@ -4,6 +4,7 @@
 include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/nox_noxtls_sections.cmake")
 option(BUILD_DTLS "Build DTLS-related code (in progress)" ON)
 option(TLS13_PREFER_CHACHA "Prefer ChaCha20-Poly1305 over AES-GCM for TLS 1.3 / DTLS 1.3" OFF)
+option(NOXTLS_TLS13_PEER_CERTIFICATES "Accept certificate-based TLS 1.3 / DTLS 1.3 peer authentication (OFF: PSK-only)" ON)
 
 if(NOXTLS_CFG_FEATURE_DTLS)
   set(BUILD_DTLS ON CACHE BOOL "Build DTLS-related code (in progress)" FORCE)
@@ -60,6 +61,9 @@ nox_noxtls_enable_sections("noxtls_tls")
 if(MSVC)
     # Disable Spectre mitigation warning C5045 for embedded targets.
     target_compile_options(noxtls_tls PRIVATE /wd5045)
+endif()
+if(NOT NOXTLS_TLS13_PEER_CERTIFICATES)
+    target_compile_definitions(noxtls_tls PUBLIC NOXTLS_TLS13_PEER_CERTIFICATES=0)
 endif()
 if(TLS13_PREFER_CHACHA)
     target_compile_definitions(noxtls_tls PRIVATE NOXTLS_TLS13_PREFER_CHACHA=1)

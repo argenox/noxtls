@@ -24,279 +24,404 @@
 #include <string.h>
 
 #include "common/noxtls_memory.h"
-#include "drbg/noxtls_drbg.h"
 #include "noxtls_common.h"
 #include "noxtls_x448.h"
-#include "pkc/rsa/noxtls_bignum.h"
+#include "pkc/noxtls_pkc_rng.h"
 #include "common/noxtls_ct.h"
 
+#if NOXTLS_FEATURE_X448
 
 
-/* Curve448 prime p = 2^448 - 2^224 - 1 (big-endian). */
-static const uint8_t x448_p[NOXTLS_X448_FE_BYTES] = {
-    0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU,
-    0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU,
-    0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU,
-    0xFFU, 0xFFU, 0xFFU, 0xFEU, 0xFFU, 0xFFU, 0xFFU, 0xFFU,
-    0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU,
-    0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU,
-    0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU
-};
+
+/* ------------------------------------------------------------------------- */
+/* Field GF(p), p = 2^448 - 2^224 - 1: 16 little-endian limbs of 28 bits      */
+/* (same representation and arithmetic as noxtls_ed448.c). All operations   */
+/* run in constant time: no secret-dependent branches or memory indexing.   */
+/* ------------------------------------------------------------------------- */
+
+#define X448_FE_LIMBS       16U
+#define X448_FE_LIMB_BITS   28U
+#define X448_FE_LIMB_MASK   0x0FFFFFFFU
+/** Limb index holding weight 2^224 (2^448 == 2^224 + 1 mod p). */
+#define X448_FE_MID_LIMB    8U
+/** Number of product columns (2 * 16) used by the multiplier. */
+#define X448_FE_WIDE_LIMBS  32U
+/** RFC 7748 a24 = (156326 - 2) / 4 for the X448 ladder. */
+#define X448_A24            39081U
+
+/** Field element: value = sum v[i] * 2^(28 i). Limbs are < 2^28 + 16 after every operation. */
+typedef struct {
+    uint32_t v[X448_FE_LIMBS];
+} fe448_t;
+
+/* p in limbs. */
+static const fe448_t x448_fe_p = { {
+    0x0FFFFFFFU, 0x0FFFFFFFU, 0x0FFFFFFFU, 0x0FFFFFFFU, 0x0FFFFFFFU, 0x0FFFFFFFU, 0x0FFFFFFFU, 0x0FFFFFFFU,
+    0x0FFFFFFEU, 0x0FFFFFFFU, 0x0FFFFFFFU, 0x0FFFFFFFU, 0x0FFFFFFFU, 0x0FFFFFFFU, 0x0FFFFFFFU, 0x0FFFFFFFU
+} };
+
+/* Keep the inversion out of line so its temporaries never share the ladder frame. */
+#if defined(__GNUC__) || defined(__clang__)
+#define X448_NOINLINE __attribute__((noinline))
+#else
+#define X448_NOINLINE
+#endif
 
 /**
- * @brief Converts a 448-bit field element from little-endian wire order to big-endian for bignum.
- * @param[out] be Big-endian output (`NOXTLS_X448_FE_BYTES` bytes).
- * @param[in]  le Little-endian input (`NOXTLS_X448_FE_BYTES` bytes).
- * @return None.
+ * @brief Weak reduction: fold carries so every limb is < 2^28 + 16 (value unchanged mod p).
+ * @param[in,out] a Field element.
  */
-/* Fixed-size field element endian convert. */
-static void le56_to_be56(uint8_t *be, const uint8_t *le)
+static void fe448_weak_reduce(fe448_t *a)
 {
-    uint32_t i = 0U;
-    const uint32_t n = (uint32_t)NOXTLS_X448_FE_BYTES;
-    for (i = 0U; i < n; i += 1U) {
-        be[i] = le[(n - 1U) - i];
+    uint32_t i;
+    uint32_t top = a->v[X448_FE_LIMBS - 1U] >> X448_FE_LIMB_BITS;
+
+    a->v[X448_FE_MID_LIMB] += top;
+    for(i = X448_FE_LIMBS - 1U; i > 0U; i -= 1U) {
+        a->v[i] = (a->v[i] & X448_FE_LIMB_MASK) + (a->v[i - 1U] >> X448_FE_LIMB_BITS);
     }
+    a->v[0] = (a->v[0] & X448_FE_LIMB_MASK) + top;
 }
 
 /**
- * @brief Converts a 448-bit field element from big-endian to little-endian wire order.
- * @param[out] le Little-endian output (`NOXTLS_X448_FE_BYTES` bytes).
- * @param[in]  be Big-endian input (`NOXTLS_X448_FE_BYTES` bytes).
- * @return None.
+ * @brief Strong reduction to the canonical representative in [0, p) with limbs < 2^28.
+ * @param[in,out] a Field element.
  */
-static void be56_to_le56(uint8_t *le, const uint8_t *be)
+static void fe448_strong_reduce(fe448_t *a)
 {
-    uint32_t i = 0U;
-    const uint32_t n = (uint32_t)NOXTLS_X448_FE_BYTES;
-    for (i = 0U; i < n; i += 1U) {
-        le[i] = be[(n - 1U) - i];
+    uint32_t i;
+    uint32_t borrow = 0U;
+    uint32_t carry = 0U;
+    uint32_t mask;
+
+    /* After two weak reductions the value is < 2^448 + 2^425 < 2p: one conditional subtraction. */
+    fe448_weak_reduce(a);
+    fe448_weak_reduce(a);
+    for(i = 0U; i < X448_FE_LIMBS; i += 1U) {
+        /* a->v[i] - p[i] - borrow lies in [-2^28, 17]: bias by 2^28 to stay unsigned. */
+        uint32_t t = (a->v[i] + 0x10000000U) - x448_fe_p.v[i] - borrow;
+        a->v[i] = t & X448_FE_LIMB_MASK;
+        borrow = 1U - (t >> X448_FE_LIMB_BITS);
+    }
+    /* borrow == 1: the subtraction went negative, add p back (masked, no branch). */
+    mask = 0U - borrow;
+    for(i = 0U; i < X448_FE_LIMBS; i += 1U) {
+        uint32_t t = a->v[i] + (x448_fe_p.v[i] & mask) + carry;
+        a->v[i] = t & X448_FE_LIMB_MASK;
+        carry = t >> X448_FE_LIMB_BITS;
     }
 }
 
-/**
- * @brief Constant-time conditional swap of two field buffers (Montgomery ladder).
- * @param[in]     swap When LSB is set, swap @p a and @p b; otherwise leave unchanged.
- * @param[in,out] a First buffer (`NOXTLS_X448_FE_BYTES` bytes).
- * @param[in,out] b Second buffer (`NOXTLS_X448_FE_BYTES` bytes).
- * @return None.
- */
-static void cswap56(uint8_t swap, uint8_t *a, uint8_t *b)
+/** @brief r = 0. */
+static void fe448_zero(fe448_t *r)
 {
-    uint32_t swap_u = (uint32_t)swap;
-    uint32_t swap_bit = swap_u & 1U;
-    uint32_t mask = 0U - swap_bit;
-    uint32_t i = 0U;
-    const uint32_t n = (uint32_t)NOXTLS_X448_FE_BYTES;
-    for (i = 0U; i < n; i += 1U) {
-        uint32_t ai = (uint32_t)a[i];
-        uint32_t bi = (uint32_t)b[i];
-        uint32_t xored = ai ^ bi;
-        uint32_t d = mask & xored;
-        uint8_t dummy = (uint8_t)d;
-        a[i] ^= dummy;
-        b[i] ^= dummy;
+    uint32_t i;
+    for(i = 0U; i < X448_FE_LIMBS; i += 1U) {
+        r->v[i] = 0U;
     }
 }
 
-/**
- * @brief Field addition in GF(p), p = Curve448 prime; operands and result are big-endian.
- * @param[out] result Sum (a + b) mod p (`NOXTLS_X448_FE_BYTES` bytes).
- * @param[in]  a First operand (`NOXTLS_X448_FE_BYTES` bytes).
- * @param[in]  b Second operand (`NOXTLS_X448_FE_BYTES` bytes).
- * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on failure.
- */
-static noxtls_return_t fe448_add_be(uint8_t *result,
-                                      const uint8_t *a,
-                                      const uint8_t *b)
+/** @brief r = 1. */
+static void fe448_one(fe448_t *r)
 {
-    uint8_t sum[NOXTLS_X448_BN_SUM_BYTES];
-    uint8_t low[NOXTLS_X448_FE_BYTES];
-    noxtls_secure_zero((sum), sizeof(sum));
-    if (noxtls_bn_add(low, a, b, NOXTLS_X448_FE_BYTES) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
-    }
-    noxtls_copy_u8(&sum[NOXTLS_X448_FE_BYTES], (size_t)NOXTLS_X448_FE_BYTES, low, (size_t)NOXTLS_X448_FE_BYTES);
-    /*
-     * noxtls_bn_add() returns only the low limb and drops the carry-out.
-     * For 448-bit field addition we must preserve that carry into bit 448
-     * before modular reduction.
-     */
-    if (noxtls_bn_cmp(low, a, NOXTLS_X448_FE_BYTES) < 0) {
-        sum[NOXTLS_X448_FE_BYTES - 1U] = 1U;
-    }
-    return noxtls_bn_mod(result, sum, NOXTLS_X448_BN_PRODUCT_BYTES, x448_p, NOXTLS_X448_FE_BYTES);
+    fe448_zero(r);
+    r->v[0] = 1U;
 }
 
-/**
- * @brief Field subtraction in GF(p): r = (a - b) mod p (big-endian limbs).
- * @param[out] result Difference mod p (`NOXTLS_X448_FE_BYTES` bytes).
- * @param[in]  a Minuend (`NOXTLS_X448_FE_BYTES` bytes).
- * @param[in]  b Subtrahend (`NOXTLS_X448_FE_BYTES` bytes).
- * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on failure.
- */
-static noxtls_return_t fe448_sub_be(uint8_t *result,
-                                     const uint8_t *a,
-                                     const uint8_t *b)
+/** @brief r = a + b mod p. */
+static void fe448_add(fe448_t *r, const fe448_t *a, const fe448_t *b)
 {
-    uint8_t diff[NOXTLS_X448_FE_BYTES];
-    if (noxtls_bn_sub(diff, a, b, NOXTLS_X448_FE_BYTES) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if (noxtls_bn_cmp(a, b, NOXTLS_X448_FE_BYTES) < 0) {
-        if (noxtls_bn_add(diff, diff, x448_p, NOXTLS_X448_FE_BYTES) != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
+    uint32_t i;
+    for(i = 0U; i < X448_FE_LIMBS; i += 1U) {
+        r->v[i] = a->v[i] + b->v[i];
+    }
+    fe448_weak_reduce(r);
+}
+
+/** @brief r = a - b mod p (computed as a + 2p - b so limbs never go negative). */
+static void fe448_sub(fe448_t *r, const fe448_t *a, const fe448_t *b)
+{
+    uint32_t i;
+    for(i = 0U; i < X448_FE_LIMBS; i += 1U) {
+        r->v[i] = (a->v[i] + (2U * x448_fe_p.v[i])) - b->v[i];
+    }
+    fe448_weak_reduce(r);
+}
+
+/** @brief r = a * b mod p (schoolbook 16x16 limbs, Solinas folding 2^448 = 2^224 + 1). */
+static void fe448_mul(fe448_t *r, const fe448_t *a, const fe448_t *b)
+{
+    uint64_t c[X448_FE_WIDE_LIMBS];
+    uint32_t i;
+    uint32_t j;
+
+    for(i = 0U; i < X448_FE_WIDE_LIMBS; i += 1U) {
+        c[i] = 0U;
+    }
+    /* Inputs have limbs < 2^28 + 16: every column sum is < 2^61. */
+    for(i = 0U; i < X448_FE_LIMBS; i += 1U) {
+        for(j = 0U; j < X448_FE_LIMBS; j += 1U) {
+            c[i + j] += (uint64_t)a->v[i] * (uint64_t)b->v[j];
         }
     }
-    if (noxtls_bn_cmp(diff, x448_p, NOXTLS_X448_FE_BYTES) >= 0) { return noxtls_bn_mod(result, diff, NOXTLS_X448_FE_BYTES, x448_p, NOXTLS_X448_FE_BYTES); }
-    noxtls_copy_u8(result, (size_t)NOXTLS_X448_FE_BYTES, diff, (size_t)NOXTLS_X448_FE_BYTES);
-    return NOXTLS_RETURN_SUCCESS;
-}
-
-/**
- * @brief Field multiplication in GF(p): r = (a * b) mod p (big-endian limbs).
- * @param[out] result Product mod p (`NOXTLS_X448_FE_BYTES` bytes).
- * @param[in]  a First factor (`NOXTLS_X448_FE_BYTES` bytes).
- * @param[in]  b Second factor (`NOXTLS_X448_FE_BYTES` bytes).
- * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on failure.
- */
-static noxtls_return_t fe448_mul_be(uint8_t *result,
-                                    const uint8_t *a,
-                                    const uint8_t *b)
-{
-    uint8_t product[NOXTLS_X448_BN_PRODUCT_BYTES];
-    noxtls_return_t rc = noxtls_bn_mul(product, a, NOXTLS_X448_FE_BYTES,
-                                       b, NOXTLS_X448_FE_BYTES);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
+    /* Normalise the 32 columns to 28-bit digits. */
+    for(i = 0U; i < (X448_FE_WIDE_LIMBS - 1U); i += 1U) {
+        c[i + 1U] += c[i] >> X448_FE_LIMB_BITS;
+        c[i] &= (uint64_t)X448_FE_LIMB_MASK;
     }
-    return noxtls_bn_mod(result, product, NOXTLS_X448_BN_PRODUCT_BYTES, x448_p, NOXTLS_X448_FE_BYTES);
-}
-
-/**
- * @brief Multiplicative inverse in GF(p) via Fermat: r = a^(p-2) mod p (big-endian).
- * @param[out] result Inverse of @p a mod p (`NOXTLS_X448_FE_BYTES` bytes).
- * @param[in]  a Non-zero field element (`NOXTLS_X448_FE_BYTES` bytes).
- * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on failure.
- */
-static noxtls_return_t fe448_inv_be(uint8_t *result, const uint8_t *a)
-{
-    uint8_t p_minus_2[NOXTLS_X448_FE_BYTES];
-    uint8_t two[NOXTLS_X448_FE_BYTES];
-
-    noxtls_copy_u8(p_minus_2, sizeof(p_minus_2), x448_p, (size_t)NOXTLS_X448_FE_BYTES);
-    noxtls_secure_zero((two), (size_t)(NOXTLS_X448_FE_BYTES));
-    two[NOXTLS_X448_FE_BYTES - 1U] = 2U;
-    if (noxtls_bn_sub(p_minus_2, p_minus_2, two, NOXTLS_X448_FE_BYTES) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
+    /* Fold weights >= 2^448 from the top: 2^(28k) = 2^(28(k-16)) + 2^(28(k-8)). */
+    for(i = X448_FE_WIDE_LIMBS - 1U; i >= X448_FE_LIMBS; i -= 1U) {
+        c[i - X448_FE_LIMBS] += c[i];
+        c[i - X448_FE_MID_LIMB] += c[i];
+        c[i] = 0U;
     }
-    return noxtls_bn_mod_exp(result, a, p_minus_2, NOXTLS_X448_FE_BYTES, x448_p, NOXTLS_X448_FE_BYTES);
+    /* All columns are now < 2^31: carry into 28-bit limbs, folding the final carry. */
+    {
+        uint64_t carry = 0U;
+        for(i = 0U; i < X448_FE_LIMBS; i += 1U) {
+            uint64_t t = c[i] + carry;
+            r->v[i] = (uint32_t)(t & (uint64_t)X448_FE_LIMB_MASK);
+            carry = t >> X448_FE_LIMB_BITS;
+        }
+        r->v[0] += (uint32_t)carry;
+        r->v[X448_FE_MID_LIMB] += (uint32_t)carry;
+    }
+    fe448_weak_reduce(r);
+}
+
+/** @brief r = a^2 mod p. */
+static void fe448_sqr(fe448_t *r, const fe448_t *a)
+{
+    fe448_mul(r, a, a);
+}
+
+/** @brief r = a * c mod p for a small constant c < 2^17 (RFC 7748 a24). */
+static void fe448_mul_small(fe448_t *r, const fe448_t *a, uint32_t c)
+{
+    uint64_t carry = 0U;
+    uint32_t i;
+
+    /* Limbs < 2^28 + 16 times c < 2^17: every product plus carry is < 2^46. */
+    for(i = 0U; i < X448_FE_LIMBS; i += 1U) {
+        uint64_t t = ((uint64_t)a->v[i] * (uint64_t)c) + carry;
+        r->v[i] = (uint32_t)(t & (uint64_t)X448_FE_LIMB_MASK);
+        carry = t >> X448_FE_LIMB_BITS;
+    }
+    /* carry < 2^18 has weight 2^448 = 2^224 + 1. */
+    r->v[0] += (uint32_t)carry;
+    r->v[X448_FE_MID_LIMB] += (uint32_t)carry;
+    fe448_weak_reduce(r);
+}
+
+/** @brief r = a^(2^n) mod p (n >= 1 squarings). */
+static void fe448_sqr_n(fe448_t *r, const fe448_t *a, uint32_t n)
+{
+    uint32_t i;
+    fe448_sqr(r, a);
+    for(i = 1U; i < n; i += 1U) {
+        fe448_sqr(r, r);
+    }
 }
 
 /**
- * @brief X448 scalar multiplication (RFC 7748).
- * @param k Little-endian scalar (`NOXTLS_X448_KEY_SIZE` bytes).
+ * @brief r = a^(p-2) = a^-1 mod p (Fermat; 0 maps to 0).
+ *
+ * Fixed addition chain (453 squarings, 13 multiplications) for
+ * p - 2 = 2^448 - 2^224 - 3 = ((2^223-1) * 2^223 + 2^222 - 1) * 4 + 1,
+ * with x_k = a^(2^k - 1). The exponent is public; the sequence of operations
+ * does not depend on @p a. Temporaries are wiped (secret ladder state).
+ */
+static X448_NOINLINE void fe448_inv(fe448_t *r, const fe448_t *a)
+{
+    fe448_t t1;
+    fe448_t t2;
+    fe448_t t3;
+
+    fe448_sqr(&t1, a);
+    fe448_mul(&t1, &t1, a);          /* x2 */
+    fe448_sqr(&t1, &t1);
+    fe448_mul(&t1, &t1, a);          /* x3 */
+    fe448_sqr_n(&t2, &t1, 3U);
+    fe448_mul(&t2, &t2, &t1);        /* x6 */
+    fe448_sqr_n(&t1, &t2, 6U);
+    fe448_mul(&t1, &t1, &t2);        /* x12 */
+    fe448_sqr_n(&t3, &t1, 12U);
+    fe448_mul(&t3, &t3, &t1);        /* x24 */
+    fe448_sqr_n(&t1, &t3, 6U);
+    fe448_mul(&t1, &t1, &t2);        /* x30 */
+    fe448_sqr_n(&t2, &t3, 24U);
+    fe448_mul(&t2, &t2, &t3);        /* x48 */
+    fe448_sqr_n(&t3, &t2, 48U);
+    fe448_mul(&t3, &t3, &t2);        /* x96 */
+    fe448_sqr_n(&t2, &t3, 96U);
+    fe448_mul(&t2, &t2, &t3);        /* x192 */
+    fe448_sqr_n(&t2, &t2, 30U);
+    fe448_mul(&t2, &t2, &t1);        /* x222 */
+    fe448_sqr(&t1, &t2);
+    fe448_mul(&t1, &t1, a);          /* x223 */
+    fe448_sqr_n(&t1, &t1, 223U);
+    fe448_mul(&t1, &t1, &t2);        /* a^(2^446 - 2^222 - 1) */
+    fe448_sqr_n(&t1, &t1, 2U);
+    fe448_mul(r, &t1, a);            /* a^(2^448 - 2^224 - 3) */
+
+    noxtls_secure_zero(&t1, sizeof(t1));
+    noxtls_secure_zero(&t2, sizeof(t2));
+    noxtls_secure_zero(&t3, sizeof(t3));
+}
+
+/** @brief Canonical 56-byte little-endian encoding of a. */
+static void fe448_to_bytes(uint8_t out[NOXTLS_X448_FE_BYTES], const fe448_t *a)
+{
+    fe448_t t = *a;
+    uint32_t i;
+    uint32_t pos = 0U;
+    uint64_t acc = 0U;
+    uint32_t acc_bits = 0U;
+
+    fe448_strong_reduce(&t);
+    for(i = 0U; i < X448_FE_LIMBS; i += 1U) {
+        acc |= (uint64_t)t.v[i] << acc_bits;
+        acc_bits += X448_FE_LIMB_BITS;
+        while(acc_bits >= 8U) {
+            out[pos] = (uint8_t)(acc & 0xFFU);
+            pos += 1U;
+            acc >>= 8U;
+            acc_bits -= 8U;
+        }
+    }
+    noxtls_secure_zero(&t, sizeof(t));
+}
+
+/** @brief Load a 56-byte little-endian value (any value < 2^448; reduced lazily). */
+static void fe448_from_bytes(fe448_t *r, const uint8_t in[NOXTLS_X448_FE_BYTES])
+{
+    uint32_t i;
+    uint32_t pos = 0U;
+    uint64_t acc = 0U;
+    uint32_t acc_bits = 0U;
+
+    for(i = 0U; i < X448_FE_LIMBS; i += 1U) {
+        while(acc_bits < X448_FE_LIMB_BITS) {
+            acc |= (uint64_t)in[pos] << acc_bits;
+            pos += 1U;
+            acc_bits += 8U;
+        }
+        r->v[i] = (uint32_t)(acc & (uint64_t)X448_FE_LIMB_MASK);
+        acc >>= X448_FE_LIMB_BITS;
+        acc_bits -= X448_FE_LIMB_BITS;
+    }
+}
+
+/**
+ * @brief Constant-time conditional swap of two field elements (Montgomery ladder).
+ * @param[in]     swap When 1, swap @p a and @p b; when 0, leave them unchanged.
+ * @param[in,out] a First element.
+ * @param[in,out] b Second element.
+ */
+static void fe448_cswap(uint32_t swap, fe448_t *a, fe448_t *b)
+{
+    uint32_t mask = 0U - (swap & 1U);
+    uint32_t i;
+    for(i = 0U; i < X448_FE_LIMBS; i += 1U) {
+        uint32_t d = mask & (a->v[i] ^ b->v[i]);
+        a->v[i] ^= d;
+        b->v[i] ^= d;
+    }
+}
+
+/**
+ * @brief X448 scalar multiplication (RFC 7748 section 5 Montgomery ladder).
+ *
+ * Dedicated constant-time GF(2^448 - 2^224 - 1) arithmetic on the stack (no
+ * heap, no bignum). Same ladder formulas as RFC 7748 with a24 = 39081.
+ *
+ * @param k Little-endian scalar (`NOXTLS_X448_KEY_SIZE` bytes, clamped here).
  * @param u Little-endian u-coordinate of input point.
  * @param result Little-endian u-coordinate of k*P.
- * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on failure.
+ * @return `NOXTLS_RETURN_SUCCESS`.
  */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
-/* Montgomery ladder: intermediate field-op RCs historically unchecked for CT; accept 17.7. */
 static noxtls_return_t x448_scalar_mult_core(const uint8_t *k,
                                              const uint8_t *u,
                                              uint8_t *result)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
     static const uint8_t x448_s_bit8[8] = {
-    0x01U, 0x02U, 0x04U, 0x08U, 0x10U, 0x20U, 0x40U, 0x80U
-};
-
-    /* X448 a24 (Rule 8.9). */
-    /* a24 = (A-2)/4 = (156326-2)/4 = 39081 = 0x98A9U (big-endian). */
-    static const uint8_t x448_a24_be[NOXTLS_X448_FE_BYTES] = {
-        0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
-        0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
-        0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
-        0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x98U, 0xA9U
+        0x01U, 0x02U, 0x04U, 0x08U, 0x10U, 0x20U, 0x40U, 0x80U
     };
-
-
     uint8_t k_clamped[NOXTLS_X448_KEY_SIZE];
-    uint8_t k_be[NOXTLS_X448_FE_BYTES];
-    uint8_t u_be[NOXTLS_X448_FE_BYTES];
-    uint8_t x_1[NOXTLS_X448_FE_BYTES];
-    uint8_t x_2[NOXTLS_X448_FE_BYTES];
-    uint8_t z_2[NOXTLS_X448_FE_BYTES];
-    uint8_t x_3[NOXTLS_X448_FE_BYTES];
-    uint8_t z_3[NOXTLS_X448_FE_BYTES];
-    uint8_t A[NOXTLS_X448_FE_BYTES];
-    uint8_t AA[NOXTLS_X448_FE_BYTES];
-    uint8_t B[NOXTLS_X448_FE_BYTES];
-    uint8_t BB[NOXTLS_X448_FE_BYTES];
-    uint8_t E[NOXTLS_X448_FE_BYTES];
-    uint8_t C[NOXTLS_X448_FE_BYTES];
-    uint8_t D[NOXTLS_X448_FE_BYTES];
-    uint8_t DA[NOXTLS_X448_FE_BYTES];
-    uint8_t CB[NOXTLS_X448_FE_BYTES];
-    uint8_t DA_plus_CB[NOXTLS_X448_FE_BYTES];
-    uint8_t DA_minus_CB[NOXTLS_X448_FE_BYTES];
-    uint8_t t1[NOXTLS_X448_FE_BYTES];
-    uint8_t t2[NOXTLS_X448_FE_BYTES];
-    uint8_t z_2_inv[NOXTLS_X448_FE_BYTES];
-    noxtls_return_t rc;
-    int32_t t = 0;
-
-#define X448_TRY(operation) do { \
-        rc = (operation); \
-        if(rc != NOXTLS_RETURN_SUCCESS) { return rc; } \
-    } while(0 == 1)
+    fe448_t x1;
+    fe448_t x2;
+    fe448_t z2;
+    fe448_t x3;
+    fe448_t z3;
+    fe448_t ta;
+    fe448_t tb;
+    fe448_t tc;
+    fe448_t td;
+    uint32_t swap = 0U;
+    int32_t t;
 
     noxtls_copy_u8(k_clamped, sizeof(k_clamped), k, NOXTLS_X448_KEY_SIZE);
     k_clamped[0] &= (uint8_t)NOXTLS_X448_CLAMP_BYTE0_MASK;
     k_clamped[NOXTLS_X448_FE_BYTES - 1U] |= (uint8_t)NOXTLS_X448_CLAMP_HIGH_OR;
 
-    le56_to_be56(k_be, k_clamped);
-    le56_to_be56(u_be, u);
+    fe448_from_bytes(&x1, u);
+    fe448_one(&x2);
+    fe448_zero(&z2);
+    x3 = x1;
+    fe448_one(&z3);
 
-    noxtls_copy_u8(x_1, sizeof(x_1), u_be, (size_t)NOXTLS_X448_FE_BYTES);
-    (void)noxtls_bn_one(x_2, NOXTLS_X448_FE_BYTES);
-    (void)noxtls_bn_zero(z_2, NOXTLS_X448_FE_BYTES);
-    noxtls_copy_u8(x_3, sizeof(x_3), u_be, (size_t)NOXTLS_X448_FE_BYTES);
-    (void)noxtls_bn_one(z_3, NOXTLS_X448_FE_BYTES);
-
-    for (t = (int32_t)NOXTLS_X448_SCALAR_LOOP_TOP; t >= 0; t -= 1) {
-        /* Bit extract from BE scalar: index/shift within fixed FE bytes. */
+    for(t = (int32_t)NOXTLS_X448_SCALAR_LOOP_TOP; t >= 0; t -= 1) {
         const uint32_t bit = (uint32_t)t;
-        const uint32_t byte_ix = ((uint32_t)NOXTLS_X448_FE_BYTES - 1U) - (bit >> 3U);
-        uint8_t k_t = ((k_be[byte_ix] & x448_s_bit8[bit & 7U]) != 0U) ? 1U : 0U;
-        cswap56(k_t, x_2, x_3);
-        cswap56(k_t, z_2, z_3);
+        const uint32_t k_t = ((k_clamped[bit >> 3U] & x448_s_bit8[bit & 7U]) != 0U) ? 1U : 0U;
+        swap ^= k_t;
+        fe448_cswap(swap, &x2, &x3);
+        fe448_cswap(swap, &z2, &z3);
+        swap = k_t;
 
-        X448_TRY(fe448_add_be(A, x_2, z_2));
-        X448_TRY(fe448_mul_be(AA, A, A));
-        X448_TRY(fe448_sub_be(B, x_2, z_2));
-        X448_TRY(fe448_mul_be(BB, B, B));
-        X448_TRY(fe448_sub_be(E, AA, BB));
-        X448_TRY(fe448_add_be(C, x_3, z_3));
-        X448_TRY(fe448_sub_be(D, x_3, z_3));
-        X448_TRY(fe448_mul_be(DA, D, A));
-        X448_TRY(fe448_mul_be(CB, C, B));
-        X448_TRY(fe448_add_be(DA_plus_CB, DA, CB));
-        X448_TRY(fe448_sub_be(DA_minus_CB, DA, CB));
-        X448_TRY(fe448_mul_be(x_3, DA_plus_CB, DA_plus_CB));
-        X448_TRY(fe448_mul_be(t1, DA_minus_CB, DA_minus_CB));
-        X448_TRY(fe448_mul_be(z_3, x_1, t1));
-        X448_TRY(fe448_mul_be(x_2, AA, BB));
-        X448_TRY(fe448_mul_be(t2, x448_a24_be, E));
-        X448_TRY(fe448_add_be(t1, AA, t2));
-        X448_TRY(fe448_mul_be(z_2, E, t1));
-
-        cswap56(k_t, x_2, x_3);
-        cswap56(k_t, z_2, z_3);
+        /*
+         * A = x2+z2, B = x2-z2, C = x3+z3, D = x3-z3, DA = D*A, CB = C*B,
+         * AA = A^2 (x2), BB = B^2 (z2), x3 = (DA+CB)^2, z3 = x1*(DA-CB)^2,
+         * E = AA-BB, x2 = AA*BB, z2 = E*(AA + a24*E).
+         */
+        fe448_add(&ta, &x2, &z2);
+        fe448_sub(&tb, &x2, &z2);
+        fe448_add(&tc, &x3, &z3);
+        fe448_sub(&td, &x3, &z3);
+        fe448_sqr(&x2, &ta);
+        fe448_sqr(&z2, &tb);
+        fe448_mul(&td, &td, &ta);
+        fe448_mul(&tc, &tc, &tb);
+        fe448_add(&ta, &td, &tc);
+        fe448_sub(&tb, &td, &tc);
+        fe448_sqr(&x3, &ta);
+        fe448_sqr(&ta, &tb);
+        fe448_mul(&z3, &x1, &ta);
+        fe448_sub(&tc, &x2, &z2);
+        fe448_mul_small(&ta, &tc, X448_A24);
+        fe448_add(&ta, &x2, &ta);
+        fe448_mul(&x2, &x2, &z2);
+        fe448_mul(&z2, &tc, &ta);
     }
 
-    X448_TRY(fe448_inv_be(z_2_inv, z_2));
-    X448_TRY(fe448_mul_be(x_2, x_2, z_2_inv));
-    be56_to_le56(result, x_2);
-#undef X448_TRY
+    fe448_cswap(swap, &x2, &x3);
+    fe448_cswap(swap, &z2, &z3);
+
+    fe448_inv(&ta, &z2);
+    fe448_mul(&x2, &x2, &ta);
+    fe448_to_bytes(result, &x2);
+
+    /* Wipe the scalar and the secret-dependent ladder state. */
+    noxtls_secure_zero(k_clamped, sizeof(k_clamped));
+    noxtls_secure_zero(&x2, sizeof(x2));
+    noxtls_secure_zero(&z2, sizeof(z2));
+    noxtls_secure_zero(&x3, sizeof(x3));
+    noxtls_secure_zero(&z3, sizeof(z3));
+    noxtls_secure_zero(&ta, sizeof(ta));
+    noxtls_secure_zero(&tb, sizeof(tb));
+    noxtls_secure_zero(&tc, sizeof(tc));
+    noxtls_secure_zero(&td, sizeof(td));
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -304,9 +429,9 @@ static noxtls_return_t x448_scalar_mult_core(const uint8_t *k,
  * @brief X448 scalar multiplication with a fail-closed output.
  * @param k Little-endian scalar (`NOXTLS_X448_KEY_SIZE` bytes).
  * @param u Little-endian u-coordinate of input point.
- * @param result Little-endian u-coordinate of k*P; wiped when the ladder fails
- *        (e.g. a bignum allocation failure), so a stale or partial value is
- *        never left behind next to an error.
+ * @param result Little-endian u-coordinate of k*P; wiped if the ladder ever
+ *        reports a failure, so a stale or partial value is never left behind
+ *        next to an error.
  * @return `NOXTLS_RETURN_SUCCESS` on success, or another `noxtls_return_t` on failure.
  */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
@@ -382,34 +507,15 @@ noxtls_return_t noxtls_x448_shared_secret(const uint8_t *private_key,
 noxtls_return_t noxtls_x448_generate_key(uint8_t *private_key,
                                          uint8_t *public_key)
 {
-    static drbg_state_t drbg_state;
-    static uint8_t drbg_initialized = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if ((private_key == NULL) || (public_key == NULL)) { return NOXTLS_RETURN_NULL; }
 
-    if (drbg_initialized == 0U) {
-        uint8_t seed[NOXTLS_X448_DRBG_ENTROPY_SEED_BYTES];
-        rc = noxtls_drbg_get_entropy(seed, sizeof(seed));
-        if (rc == NOXTLS_RETURN_SUCCESS) {
-            rc = drbg_instantiate(&drbg_state, DRBG_AES256, seed, sizeof(seed), NULL, 0, NULL, 0);
-        }
-        noxtls_secure_zero(seed, sizeof(seed));
-        if (rc != NOXTLS_RETURN_SUCCESS) {
-            (void)noxtls_drbg_uninstantiate(&drbg_state);
-            return rc;
-        }
-        drbg_initialized = 1U;
-    }
-
-    rc = drbg_generate(&drbg_state, private_key, NOXTLS_X448_DRBG_SEED_BITS, NULL, 0);
+    /* Shared PKC CTR-DRBG (instantiated from noxtls_drbg_get_entropy() on first
+     * use; a failed generate fails this call closed, wipes the output and drops
+     * the instance so the next call re-instantiates from fresh entropy). */
+    rc = noxtls_pkc_rng_generate(NOXTLS_PKC_RNG_SLOT_X448, private_key, NOXTLS_X448_DRBG_SEED_BITS);
     if (rc != NOXTLS_RETURN_SUCCESS) {
-        /* Fail closed for this call and drop the instance: a failed generate
-         * may have wiped the state, so the next call re-instantiates from
-         * fresh entropy instead of failing forever. */
-        (void)noxtls_drbg_uninstantiate(&drbg_state);
-        drbg_initialized = 0U;
-        noxtls_secure_zero(private_key, (size_t)NOXTLS_X448_KEY_SIZE);
         return rc;
     }
 
@@ -420,3 +526,5 @@ noxtls_return_t noxtls_x448_generate_key(uint8_t *private_key,
     }
     return rc;
 }
+
+#endif /* NOXTLS_FEATURE_X448 */

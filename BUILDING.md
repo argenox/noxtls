@@ -127,6 +127,46 @@ cmake -S . -B build\windows-mingw -G "MinGW Makefiles" -D BUILD_TESTS=OFF
 cmake --build build\windows-mingw --config Release
 ```
 
+## Embedded targets (Cortex-M and RISC-V)
+
+Toolchain files in `cmake/toolchains/` cross-build the static libraries:
+
+| Target | Toolchain file | Compiler |
+|---|---|---|
+| Cortex-M0+ | `arm-none-eabi-cortex-m0plus.cmake` | `arm-none-eabi-gcc` |
+| Cortex-M4 (M3, M7 with `-DNOXTLS_ARM_CPU_FLAGS=...`) | `arm-none-eabi-cortex-m4.cmake` | `arm-none-eabi-gcc` |
+| Cortex-M33 | `arm-none-eabi-cortex-m33.cmake` | `arm-none-eabi-gcc` |
+| RV32IMAC (ilp32) | `riscv-none-elf-rv32imac.cmake` | `riscv-none-elf-gcc` |
+| RV64IMAC (lp64) | `riscv-none-elf-rv64imac.cmake` | `riscv-none-elf-gcc` |
+
+For RISC-V, use a `riscv-none-elf` GCC with newlib, such as the [xPack GNU RISC-V Embedded GCC](https://xpack-dev-tools.github.io/riscv-none-elf-gcc-xpack/). Put it on `PATH` or set `RISCV_GNU_TOOLCHAIN_ROOT` to its install folder. Override the RISC-V flags with `-DNOXTLS_RISCV_CPU_FLAGS=...`, for example `-march=rv32imc_zicsr -mabi=ilp32` for an ESP32-C3.
+
+```sh
+cmake -S . -B build-rv32 -G Ninja \
+  -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/riscv-none-elf-rv32imac.cmake \
+  -DCMAKE_BUILD_TYPE=MinSizeRel -DBUILD_TESTS=OFF -DBUILD_APPLICATIONS=OFF
+cmake --build build-rv32
+```
+
+### Running the known-answer tests under QEMU
+
+`scripts/run_arm_tests.sh` builds bare-metal semihosting test images and runs them under QEMU. The images cover the post-quantum KATs and the freestanding classic KATs (Ed25519, AES-GCM, CMAC). Each one reports its stack and heap high-water marks.
+
+| `--cpu` | Core | QEMU machine |
+|---|---|---|
+| `m3` | Cortex-M3 | `qemu-system-arm -M mps2-an385` |
+| `m4` (default) | Cortex-M4 | `qemu-system-arm -M mps2-an386` |
+| `m7` | Cortex-M7 | `qemu-system-arm -M mps2-an500` |
+| `m33` | Cortex-M33 | `qemu-system-arm -M mps2-an505` |
+| `rv32` | RV32IMAC | `qemu-system-riscv32 -M virt -bios none` |
+| `rv64` | RV64IMAC | `qemu-system-riscv64 -M virt -bios none` |
+
+```sh
+scripts/run_arm_tests.sh --cpu rv32 --features pq   # pq (default) or default
+```
+
+QEMU is found on `PATH`, through `QEMU_SYSTEM_ARM` / `QEMU_SYSTEM_RISCV`, or in `C:/Program Files/qemu`. `--no-run` builds without QEMU. The `arm-pq.yml` workflow runs this matrix in CI.
+
 ## Optional CMake Build Profiles
 
 Set `NOXTLS_PROFILE` to tune enabled features:
@@ -148,7 +188,7 @@ Set `NOXTLS_SIDECHANNEL_PROFILE` to tune timing-side-channel behavior:
 
 - `performance`: keeps legacy comparison behavior (opt-in).
 - `balanced` (default): enables constant-time secret comparisons for protocol verification/tag checks.
-- `constant_time_strict`: keeps balanced behavior and enables strict hardening gates intended for higher assurance builds.
+- `constant_time_strict`: currently the same as `balanced`. The additional strict hardening it is meant to add is not implemented yet (known anomaly NOXTLS-KA-0.3.15-14).
 
 Example:
 
@@ -157,25 +197,32 @@ cmake -S . -B build -D NOXTLS_SIDECHANNEL_PROFILE=constant_time_strict -D BUILD_
 cmake --build build --config Release
 ```
 
-## TLS 1.2 legacy cipher suites (opt-in)
+## TLS 1.2 legacy cipher suites and SHA-1 signatures (opt-in)
 
-NoxTLS is secure by default for TLS 1.2 cipher-suite negotiation:
+By default TLS 1.2 and DTLS 1.2 (plain `noxtls_tls12_*` contexts, the TLS 1.2 path of the unified connection API and DTLS 1.2) use only forward-secret AEAD cipher suites and never use SHA-1 signatures:
 
-- Legacy TLS 1.2 CBC-mode and RSA key-exchange suites are disabled by default.
-- Default TLS 1.2 client/server negotiation focuses on modern AEAD suites.
+- Client offer and server selection: ECDHE-ECDSA with AES-128/256-GCM, ChaCha20-Poly1305, AES-128/256-CCM and AES-128/256-CCM_8; ECDHE-RSA with AES-128/256-GCM and ChaCha20-Poly1305; DHE-RSA with AES-128/256-GCM, ChaCha20-Poly1305, AES-128/256-CCM and AES-128/256-CCM_8.
+- A server never negotiates a CBC-mode, static-RSA or 3DES suite, even when an application allowlist (`noxtls_tls12_set_server_cipher_suites()`, `--cipher-suites`) names one. A ClientHello that offers nothing else fails with `handshake_failure`.
+- signature_algorithms offered by the client: rsa_pkcs1_sha256/384/512, ecdsa_secp256r1_sha256, ecdsa_secp384r1_sha384, ecdsa_secp521r1_sha512, rsa_pss_rsae_sha256/384/512. A ServerKeyExchange signed with any other scheme (SHA-1, MD5) is rejected with `illegal_parameter`; so is a ServerHello that selects a suite the client did not offer.
+- The server signs ServerKeyExchange only with a SHA-256 or stronger scheme the client listed. Behaviour change: a client that omits signature_algorithms (RFC 5246 7.4.1.4.1 then implies SHA-1) now gets `handshake_failure` instead of a SHA-1 (RSA) signature. CertificateRequest lists only SHA-256 / SHA-384 schemes and MD5 is never negotiated, as before.
 
-To explicitly enable legacy TLS 1.2 suites (for compatibility with older peers):
+Two switches, both `OFF` by default, restore the earlier behaviour (with both on, offers and acceptance are the same as in 0.3.15):
+
+| CMake option | `noxtls_config.h` macro | Enables |
+|--------------|-------------------------|---------|
+| `NOXTLS_CFG_TLS12_ENABLE_LEGACY_CIPHER_SUITES` | `NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES` | Every CBC-mode suite (AES-CBC, ARIA-CBC, 3DES), every static-RSA key exchange suite (`TLS_RSA_WITH_*`, including the AES-GCM and AES-CCM ones). 3DES also needs `NOXTLS_FEATURE_DES=1`. |
+| `NOXTLS_CFG_TLS12_ENABLE_SHA1_SIGNATURES` | `NOXTLS_TLS12_ENABLE_SHA1_SIGNATURES` | rsa_pkcs1_sha1 (0x0201) and ecdsa_sha1 (0x0203): offered and accepted by the client; used by the server when the client lists them or omits signature_algorithms. Needs `NOXTLS_FEATURE_SHA1=1`. |
 
 ```bash
-cmake -S . -B build -D NOXTLS_CFG_TLS12_ENABLE_LEGACY_CIPHER_SUITES=ON
+cmake -S . -B build -D NOXTLS_CFG_TLS12_ENABLE_LEGACY_CIPHER_SUITES=ON -D NOXTLS_CFG_TLS12_ENABLE_SHA1_SIGNATURES=ON
 cmake --build build --config Release
 ```
 
-For non-CMake integrations, set:
+For non-CMake integrations set `NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES=1` and/or `NOXTLS_TLS12_ENABLE_SHA1_SIGNATURES=1` in `noxtls_config.h` (or as compiler defines).
 
-- `NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES=1` in `noxtls_config.h` (or compiler defines).
+TLS 1.0 and TLS 1.1 (`NOXTLS_CFG_FEATURE_TLS10` / `NOXTLS_CFG_FEATURE_TLS11`, off by default) have nothing but CBC suites with RSA key exchange and fixed MD5/SHA-1 signatures. A connection that runs TLS 1.0 or 1.1 keeps them whatever these switches say; enabling TLS 1.0/1.1 does not turn the legacy algorithms on for TLS 1.2 connections in the same build.
 
-Keep this setting `OFF` unless required for legacy interoperability.
+Keep both switches `OFF` unless a peer cannot do better.
 
 ## Ed448 / EdDSA (optional)
 

@@ -27,6 +27,9 @@
 #include "noxtls_dtls_common.h"
 #include "noxtls_ct.h"
 
+/* Builds without DTLS only; noxtls_dtls_common.c implements DTLS. */
+#if !NOXTLS_FEATURE_DTLS
+
 /**
  * @brief Initialize the DTLS context.
  *
@@ -62,3 +65,4 @@ noxtls_return_t noxtls_dtls_context_free(dtls_context_t *ctx)
     noxtls_secure_zero((ctx), sizeof(dtls_context_t));
     return NOXTLS_RETURN_SUCCESS;
 }
+#endif /* !NOXTLS_FEATURE_DTLS */

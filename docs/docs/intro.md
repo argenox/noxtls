@@ -39,7 +39,7 @@ NoxTLS is a C cryptography and TLS/DTLS library for embedded and systems softwar
 | Layer | What NoxTLS provides |
 |-------|----------------------|
 | **TLS 1.3** | 1-RTT handshake, resumption, 0-RTT, PSK, mTLS, ALPN, record size limit |
-| **TLS 1.2** | ECDHE/DHE suites, secure renegotiation, ETM, EMS, session tickets, OCSP stapling |
+| **TLS 1.2** | ECDHE/DHE forward-secret AEAD suites (CBC / static-RSA / SHA-1 opt-in), secure renegotiation, ETM, EMS, session tickets, OCSP stapling |
 | **DTLS 1.2** | Datagram records, cookies, retransmission, replay protection |
 | **DTLS 1.3** | RFC 9147 unified header, CID, ACK flights, `dtls13` key schedule — [feature guide](./dtls13) |
 

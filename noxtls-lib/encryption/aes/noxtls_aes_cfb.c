@@ -65,6 +65,20 @@ noxtls_return_t noxtls_aes_encrypt_cfb(const uint8_t* key,
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
+    /* Expand the key once for the whole buffer (wiped on every exit). */
+    if (data_len == 0U) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    noxtls_aes_context_t actx;
+    {
+        noxtls_return_t prep_rc = noxtls_aes_prepare_context(&actx, key, type);
+        if (prep_rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_secure_zero(&actx, sizeof(actx));
+            noxtls_secure_zero(output, (size_t)data_len);
+            return prep_rc;
+        }
+    }
+
     for (cur_block = 0U; cur_block < data_len; cur_block += block_sz)
     {
         uint32_t remain = (uint32_t)(data_len - cur_block);
@@ -72,11 +86,11 @@ noxtls_return_t noxtls_aes_encrypt_cfb(const uint8_t* key,
 
         if (cur_block == 0U) {
             /* Encrypt IV for first block */
-            NOXTLS_AES_CHECK(noxtls_aes_encrypt_block_internal(key, iv, keystream, type), output, data_len, NULL, 0U);
+            NOXTLS_AES_CHECK_CTX(noxtls_aes_encrypt_block_ctx_internal(&actx, iv, keystream), &actx, output, data_len);
         }
         else {
             /* Encrypt previous ciphertext block */
-            NOXTLS_AES_CHECK(noxtls_aes_encrypt_block_internal(key, &output[cur_block - NOXTLS_AES_BLOCK_LENGTH], keystream, type), output, data_len, NULL, 0U);
+            NOXTLS_AES_CHECK_CTX(noxtls_aes_encrypt_block_ctx_internal(&actx, &output[cur_block - NOXTLS_AES_BLOCK_LENGTH], keystream), &actx, output, data_len);
         }
 
         /* XOR keystream with plaintext */
@@ -85,6 +99,8 @@ noxtls_return_t noxtls_aes_encrypt_cfb(const uint8_t* key,
         }
     }
 
+    noxtls_secure_zero(&actx, sizeof(actx));
+    noxtls_secure_zero(keystream, sizeof(keystream));
     return NOXTLS_RETURN_SUCCESS;
 }
 

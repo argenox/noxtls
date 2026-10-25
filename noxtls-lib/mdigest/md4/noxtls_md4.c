@@ -89,21 +89,21 @@ noxtls_return_t noxtls_md4_init(noxtls_sha_ctx_t * ctx)
     
     ctx->algo = NOXTLS_HASH_MD4;
     
-    noxtls_secure_zero((ctx->h), sizeof(ctx->h));
+    noxtls_secure_zero((ctx->u.md32.h), sizeof(ctx->u.md32.h));
         
     /* MD4 initial hash values */
-    ctx->h[0] = 0x67452301U;
-    ctx->h[1] = 0xefcdab89U;
-    ctx->h[2] = 0x98badcfeU;
-    ctx->h[3] = 0x10325476U;
+    ctx->u.md32.h[0] = 0x67452301U;
+    ctx->u.md32.h[1] = 0xefcdab89U;
+    ctx->u.md32.h[2] = 0x98badcfeU;
+    ctx->u.md32.h[3] = 0x10325476U;
 
     if(md4_debug_lvl > 0U) {
-        (void)noxtls_debug_printf((const uint8_t *)"ctx->h[0] = %x\n", ctx->h[0]);
+        (void)noxtls_debug_printf((const uint8_t *)"ctx->u.md32.h[0] = %x\n", ctx->u.md32.h[0]);
     }
 
-    noxtls_secure_zero((&ctx->data), (size_t)(HASH_MD4_BLOCK_SIZE));
-    ctx->data_len = 0U;
-    ctx->length = 0U;
+    noxtls_secure_zero((&ctx->u.md32.data), (size_t)(HASH_MD4_BLOCK_SIZE));
+    ctx->u.md32.data_len = 0U;
+    ctx->u.md32.length = 0U;
     
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -113,7 +113,7 @@ noxtls_return_t noxtls_md4_init(noxtls_sha_ctx_t * ctx)
  * 
  * @details Runs on every block of 512 bits.
  * Caller must ensure input points to at least len bytes of valid memory.
- * len is rejected if it would cause ctx->length to overflow (uint32_t).
+ * len is rejected if it would cause ctx->u.md32.length to overflow (uint32_t).
  * 
  * @param[in] ctx The context.
  * @param[in] input The input.
@@ -133,27 +133,27 @@ noxtls_return_t noxtls_md4_update(noxtls_sha_ctx_t * ctx, const uint8_t * input,
         return NOXTLS_RETURN_SUCCESS;
     }
     /* Reject lengths that would overflow total length or are commonly misused (e.g. UINT32_MAX). */
-    if(in_left > (uint32_t)MD4_MAX_UPDATE_LEN || ((ctx->length + in_left) < ctx->length)) {
+    if(in_left > (uint32_t)MD4_MAX_UPDATE_LEN || ((ctx->u.md32.length + in_left) < ctx->u.md32.length)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
     /* Fill existing buffer if present */
-    if(ctx->data_len > 0U) {
-        uint32_t to_copy = (uint32_t)(HASH_MD4_BLOCK_SIZE - ctx->data_len);
+    if(ctx->u.md32.data_len > 0U) {
+        uint32_t to_copy = (uint32_t)(HASH_MD4_BLOCK_SIZE - ctx->u.md32.data_len);
         if(to_copy > in_left) {
             to_copy = in_left;
         }
-        (void)memcpy(&ctx->data[ctx->data_len], input, (size_t)to_copy);
-        ctx->data_len += (uint8_t)to_copy; /* Due to 64 subtraction, will always be less than 64 */
+        (void)memcpy(&ctx->u.md32.data[ctx->u.md32.data_len], input, (size_t)to_copy);
+        ctx->u.md32.data_len += (uint8_t)to_copy; /* Due to 64 subtraction, will always be less than 64 */
         offset += to_copy;
         in_left -= to_copy;
-        if(ctx->data_len == HASH_MD4_BLOCK_SIZE) {
-            rc = noxtls_md4_round(ctx, ctx->data);
+        if(ctx->u.md32.data_len == HASH_MD4_BLOCK_SIZE) {
+            rc = noxtls_md4_round(ctx, ctx->u.md32.data);
             if(rc != NOXTLS_RETURN_SUCCESS) {
                 return rc;
             }
-            ctx->length += HASH_MD4_BLOCK_SIZE;
-            ctx->data_len = 0U;
+            ctx->u.md32.length += HASH_MD4_BLOCK_SIZE;
+            ctx->u.md32.data_len = 0U;
         }
     }
 
@@ -163,15 +163,15 @@ noxtls_return_t noxtls_md4_update(noxtls_sha_ctx_t * ctx, const uint8_t * input,
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
-        ctx->length += HASH_MD4_BLOCK_SIZE;
+        ctx->u.md32.length += HASH_MD4_BLOCK_SIZE;
         offset += HASH_MD4_BLOCK_SIZE;
         in_left -= HASH_MD4_BLOCK_SIZE;
     }
 
     /* Store remainder */
     if(in_left > 0U) {
-        (void)memcpy(ctx->data, &input[offset], (size_t)in_left);
-        ctx->data_len = (uint8_t)in_left;
+        (void)memcpy(ctx->u.md32.data, &input[offset], (size_t)in_left);
+        ctx->u.md32.data_len = (uint8_t)in_left;
     }
 
     return rc;
@@ -214,10 +214,10 @@ noxtls_return_t noxtls_md4_round(noxtls_sha_ctx_t * ctx, const uint8_t * input)
         }
     }
 
-    A = ctx->h[0];
-    B = ctx->h[1];
-    C = ctx->h[2];
-    D = ctx->h[3];
+    A = ctx->u.md32.h[0];
+    B = ctx->u.md32.h[1];
+    C = ctx->u.md32.h[2];
+    D = ctx->u.md32.h[3];
     
     if(md4_debug_lvl > 0U) {
         (void)noxtls_debug_printf((const uint8_t *)"A\t\t\tB\t\t\tC\t\t\tD\t\t\tF\n");
@@ -286,10 +286,10 @@ noxtls_return_t noxtls_md4_round(noxtls_sha_ctx_t * ctx, const uint8_t * input)
     }
     
     /* Compute the intermediate hash value H(i) */
-    ctx->h[0] += A;
-    ctx->h[1] += B;
-    ctx->h[2] += C;
-    ctx->h[3] += D;
+    ctx->u.md32.h[0] += A;
+    ctx->u.md32.h[1] += B;
+    ctx->u.md32.h[2] += C;
+    ctx->u.md32.h[3] += D;
     
     return rc;    
 }
@@ -318,15 +318,15 @@ noxtls_return_t noxtls_md4_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
     }
 
     /* Total message length must always include every block already
-     * compressed (ctx->length) plus the pending partial block. A non-empty
+     * compressed (ctx->u.md32.length) plus the pending partial block. A non-empty
      * message whose length is a multiple of 64 has data_len == 0 while
-     * ctx->length > 0, so the length must not depend on data_len. */
-    len = (uint32_t)ctx->data_len;
-    total_length = (uint64_t)ctx->length + (uint64_t)len;
+     * ctx->u.md32.length > 0, so the length must not depend on data_len. */
+    len = (uint32_t)ctx->u.md32.data_len;
+    total_length = (uint64_t)ctx->u.md32.length + (uint64_t)len;
 
     noxtls_secure_zero((temp), sizeof(temp));
     if(len > 0U) {
-        noxtls_copy_u8(temp, sizeof(temp), ctx->data, (size_t)len);
+        noxtls_copy_u8(temp, sizeof(temp), ctx->u.md32.data, (size_t)len);
     }
 
     /* len < 64 always, so the 0x80 pad byte always fits in this block */
@@ -355,10 +355,10 @@ noxtls_return_t noxtls_md4_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
 
     for(i = 0U; i < (uint32_t)HASH_MD4_STATE_WORDS; i += 1U)
     {
-        hash[(i * 4U) + 3U] = (uint8_t)((ctx->h[i] & 0xFF000000U) >> 24U);
-        hash[(i * 4U) + 2U] = (uint8_t)((ctx->h[i] & 0x00FF0000U) >> 16U);
-        hash[(i * 4U) + 1U] = (uint8_t)((ctx->h[i] & 0x0000FF00U) >> 8U);
-        hash[i * 4U] = (uint8_t)(ctx->h[i] & 0x000000FFU);
+        hash[(i * 4U) + 3U] = (uint8_t)((ctx->u.md32.h[i] & 0xFF000000U) >> 24U);
+        hash[(i * 4U) + 2U] = (uint8_t)((ctx->u.md32.h[i] & 0x00FF0000U) >> 16U);
+        hash[(i * 4U) + 1U] = (uint8_t)((ctx->u.md32.h[i] & 0x0000FF00U) >> 8U);
+        hash[i * 4U] = (uint8_t)(ctx->u.md32.h[i] & 0x000000FFU);
     }
 
     return rc;

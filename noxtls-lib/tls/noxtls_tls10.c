@@ -31,6 +31,9 @@
 #include "noxtls_tls12.h"
 #include "noxtls_tls_common.h"
 
+/* Built only with NOXTLS_FEATURE_TLS10 (sources may be compiled unconditionally by globbing build systems). */
+#if NOXTLS_FEATURE_TLS10
+
 /**
  * @brief Initialize a TLS 1.0 context
  *
@@ -113,6 +116,7 @@ noxtls_return_t noxtls_tls10_recv(tls10_context_t *ctx, uint8_t *data, uint32_t 
  */
 noxtls_return_t noxtls_tls10_close(tls10_context_t *ctx) { return noxtls_tls12_close((tls12_context_t*)ctx); }
 
+#if NOXTLS_FEATURE_TLS_CLIENT
 /* Client handshake */
 /**
  * @brief Send a client hello over a TLS 1.0 context
@@ -203,7 +207,9 @@ noxtls_return_t noxtls_tls10_recv_change_cipher_spec(tls10_context_t *ctx) { ret
  *         NOXTLS_RETURN_NULL if the context is NULL
  */
 noxtls_return_t noxtls_tls10_recv_finished(tls10_context_t *ctx) { return noxtls_tls12_recv_finished((tls12_context_t*)ctx); }
+#endif /* NOXTLS_FEATURE_TLS_CLIENT */
 
+#if NOXTLS_FEATURE_TLS_SERVER
 /* Server handshake */
 /**
  * @brief Receive a client hello over a TLS 1.0 context
@@ -294,3 +300,5 @@ noxtls_return_t noxtls_tls10_send_change_cipher_spec_server(tls10_context_t *ctx
  *         NOXTLS_RETURN_NULL if the context is NULL
  */
 noxtls_return_t noxtls_tls10_send_finished_server(tls10_context_t *ctx) { return noxtls_tls12_send_finished_server((tls12_context_t*)ctx); }
+#endif /* NOXTLS_FEATURE_TLS_SERVER */
+#endif /* NOXTLS_FEATURE_TLS10 */

@@ -146,6 +146,11 @@
       "name": "TLS 1.2 Legacy Cipher Suites",
       "parent": "NOXTLS_FEATURE_TLS12"
     },
+    "NOXTLS_TLS12_ENABLE_SHA1_SIGNATURES": {
+      "legacy": true,
+      "name": "TLS 1.2 SHA-1 Signatures",
+      "parent": "NOXTLS_FEATURE_TLS12"
+    },
     "NOXTLS_CFG_TLS13_ALLOW_RSA_PKCS1_CERTVERIFY": {
       "parent": "NOXTLS_FEATURE_TLS13"
     },
@@ -175,9 +180,15 @@
     },
     "NOXTLS_ECC_P256_LOW_RAM_VERIFY": {
       "name": "P-256 Low-RAM Verification",
+      "type": "boolean",
+      "default": "1",
       "dependencies_all": [
         { "ref": "NOXTLS_ECC_P256_FLASH_PRECOMPUTE", "value": "1" }
       ]
+    },
+    "NOXTLS_DTLS_REASSEMBLY_MAX_BYTES": {
+      "name": "DTLS Reassembly Memory Cap (bytes)",
+      "default": "131072"
     },
     "NOXTLS_FEATURE_ECDSA": {
       "dependencies_all": [

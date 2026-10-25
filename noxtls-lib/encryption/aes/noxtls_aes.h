@@ -70,20 +70,40 @@ typedef uint32_t noxtls_aes_operation_t;
 #define NOXTLS_AES_OP_ENCRYPT ((noxtls_aes_operation_t)0U)
 #define NOXTLS_AES_OP_DECRYPT ((noxtls_aes_operation_t)1U)
 
+/*
+ * Context layout switches (every translation unit must see the same values):
+ * NOXTLS_AES_CTX_SOFTWARE_SCHEDULE: keep the expanded key schedule (240 B);
+ *   derived: 0 only for hardware-only builds without a software AES fallback.
+ * NOXTLS_AES_CTX_RAW_KEY: keep a copy of the raw key (32 B) for block backends
+ *   that take key bytes; see noxtls_config.h (default 1).
+ */
+#ifndef NOXTLS_AES_CTX_SOFTWARE_SCHEDULE
+#if (NOXTLS_FEATURE_STM32_HW_AES_ONLY || NOXTLS_FEATURE_NRF52_HW_AES_ONLY)
+#define NOXTLS_AES_CTX_SOFTWARE_SCHEDULE 0
+#else
+#define NOXTLS_AES_CTX_SOFTWARE_SCHEDULE 1
+#endif
+#endif
+#ifndef NOXTLS_AES_CTX_RAW_KEY
+#define NOXTLS_AES_CTX_RAW_KEY 1
+#endif
+
 typedef struct
 {
-    uint8_t key[32];
-    uint32_t round_keys[NOXTLS_AES_MAX_KEY_SCHEDULE_WORDS];
+#if NOXTLS_AES_CTX_SOFTWARE_SCHEDULE
+    uint32_t round_keys[NOXTLS_AES_MAX_KEY_SCHEDULE_WORDS]; /* expanded encryption schedule */
+#endif
+#if NOXTLS_AES_CTX_RAW_KEY
+    uint8_t key[32];                                       /* raw key for key-taking backends */
+#endif
     uint8_t feedback[NOXTLS_AES_BLOCK_LENGTH];
     uint8_t partial[NOXTLS_AES_BLOCK_LENGTH];
-    uint8_t key_len;
     uint8_t partial_len;
     uint8_t rounds;
-    uint8_t key_words;
     uint8_t round_keys_ready;
-    noxtls_aes_type_t type;
-    noxtls_aes_mode_t mode;
-    noxtls_aes_operation_t op;
+    uint8_t type;         /* noxtls_aes_type_t value */
+    uint8_t mode;         /* noxtls_aes_mode_t value */
+    uint8_t op;           /* noxtls_aes_operation_t value */
     uint8_t initialized;
 } noxtls_aes_context_t;
 
@@ -210,7 +230,10 @@ noxtls_return_t noxtls_aes_encrypt_cbc(const uint8_t* key,
  * @param data Input ciphertext buffer.
  * @param data_len Input length in bytes.
  * @param iv Initialization vector of NOXTLS_AES_BLOCK_LENGTH bytes.
- * @param output Output plaintext buffer.
+ * @param output Output plaintext buffer; may be exactly @p data (in-place
+ *               decryption, e.g. TLS 1.2 CBC records). Partially overlapping
+ *               buffers are not supported. The same exact-aliasing guarantee
+ *               holds for every one-shot and streaming AES mode.
  * @param type AES key size selector.
  * @return NOXTLS_RETURN_SUCCESS on success or a noxtls_return_t error code.
  */
@@ -385,7 +408,10 @@ noxtls_return_t noxtls_aes_init(noxtls_aes_context_t *ctx,
  * @param ctx Initialized AES context.
  * @param input Input buffer.
  * @param input_len Input length in bytes.
- * @param output Output buffer.
+ * @param output Output buffer. CTR/CFB/OFB: may be exactly @p input. ECB/CBC:
+ *               may be exactly @p input only while no partial block is
+ *               buffered (feed multiples of 16 bytes), because a buffered
+ *               block makes the output run ahead of the input.
  * @param output_len Output length in bytes.
  * @return NOXTLS_RETURN_SUCCESS on success or a noxtls_return_t error code.
  */
@@ -396,7 +422,9 @@ noxtls_return_t noxtls_aes_update(noxtls_aes_context_t *ctx,
                uint32_t *output_len);
 
 /**
- * @brief Finalize a streaming AES operation.
+ * @brief Finalize a streaming AES operation. On success the whole context
+ *        (key schedule, raw key, feedback) is wiped; call noxtls_aes_init()
+ *        again before reuse.
  * @param ctx Initialized AES context.
  * @param output Output buffer for any final bytes.
  * @param output_len Output length in bytes.

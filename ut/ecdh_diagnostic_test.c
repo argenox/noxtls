@@ -199,7 +199,7 @@ int main(void)
     key.d[31] = 1u;
 
     {
-        ecc_curve_params_t *saved_curve = key.curve;
+        const ecc_curve_params_t *saved_curve = key.curve;
         key.curve = NULL;
         secret_len = sizeof(secret);
         rc = noxtls_ecdh_compute_shared_secret_ex(&key, &saved_curve->G,

@@ -181,8 +181,9 @@ REGISTER_TEST(test_cc13xx_p256_success_bytes_and_reentry)
  * @return Zero after each null and domain-shape boundary assertion. */
 REGISTER_TEST(test_cc13xx_p256_pointers_and_exact_domain)
 {
-    uint8_t *saved;
-    uint8_t *parameters[4U];
+    const uint8_t *saved;
+    uint8_t parameters[4U][32U];
+    const uint8_t *originals[4U];
     size_t index;
     UTNOX_EQUALS(setup(), NOXTLS_RETURN_SUCCESS);
     UTNOX_EQUALS(noxtls_ecc_point_multiply_accel_port(NULL, s_scalar, &s_curve.G, &s_curve),
@@ -221,16 +222,27 @@ REGISTER_TEST(test_cc13xx_p256_pointers_and_exact_domain)
     UTNOX_EQUALS(noxtls_ecc_point_multiply_accel_port(&s_result, s_scalar, &s_curve.G, &s_curve),
                  NOXTLS_RETURN_NOT_SUPPORTED);
     s_curve.G.size = 32U;
-    parameters[0] = s_curve.p;
-    parameters[1] = s_curve.a;
-    parameters[2] = s_curve.b;
-    parameters[3] = s_curve.n;
+    /* Curve parameters are read-only constants: perturb private copies. */
+    originals[0] = s_curve.p;
+    originals[1] = s_curve.a;
+    originals[2] = s_curve.b;
+    originals[3] = s_curve.n;
     for (index = 0U; index < sizeof(parameters) / sizeof(parameters[0]); ++index) {
+        memcpy(parameters[index], originals[index], sizeof(parameters[index]));
         parameters[index][0] ^= 1U;
+    }
+    for (index = 0U; index < sizeof(parameters) / sizeof(parameters[0]); ++index) {
+        if (index == 0U) { s_curve.p = parameters[0]; }
+        if (index == 1U) { s_curve.a = parameters[1]; }
+        if (index == 2U) { s_curve.b = parameters[2]; }
+        if (index == 3U) { s_curve.n = parameters[3]; }
         UTNOX_EQUALS(
             noxtls_ecc_point_multiply_accel_port(&s_result, s_scalar, &s_curve.G, &s_curve),
             NOXTLS_RETURN_NOT_SUPPORTED);
-        parameters[index][0] ^= 1U;
+        s_curve.p = originals[0];
+        s_curve.a = originals[1];
+        s_curve.b = originals[2];
+        s_curve.n = originals[3];
     }
 
     s_curve.G.x[0] ^= 1U;

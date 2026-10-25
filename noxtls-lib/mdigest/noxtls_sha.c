@@ -106,42 +106,42 @@ noxtls_return_t noxtls_sha_init(noxtls_sha_ctx_t * ctx, noxtls_hash_algos_t algo
         (ctx->algo == NOXTLS_HASH_SHA_512_256)) {
 #if NOXTLS_FEATURE_SHA384
         if (algo == NOXTLS_HASH_SHA_384) {
-            return noxtls_sha512_init(&ctx->sha512_ctx, algo);
+            return noxtls_sha512_init(&ctx->u.sha512_ctx, algo);
         }
 #endif
 #if NOXTLS_FEATURE_SHA512
         if ((algo == NOXTLS_HASH_SHA_512) ||
             (algo == NOXTLS_HASH_SHA_512_224) ||
             (algo == NOXTLS_HASH_SHA_512_256)) {
-            return noxtls_sha512_init(&ctx->sha512_ctx, algo);
+            return noxtls_sha512_init(&ctx->u.sha512_ctx, algo);
         }
 #endif
         return NOXTLS_RETURN_NOT_SUPPORTED;
     }
     if (ctx->algo == NOXTLS_HASH_SHA3_224) {
 #if NOXTLS_FEATURE_SHA3
-        return noxtls_sha3_224_init(&ctx->sha3_ctx);
+        return noxtls_sha3_224_init(&ctx->u.sha3_ctx);
 #else
         return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
     }
     if (ctx->algo == NOXTLS_HASH_SHA3_256) {
 #if NOXTLS_FEATURE_SHA3
-        return noxtls_sha3_256_init(&ctx->sha3_ctx);
+        return noxtls_sha3_256_init(&ctx->u.sha3_ctx);
 #else
         return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
     }
     if (ctx->algo == NOXTLS_HASH_SHA3_384) {
 #if NOXTLS_FEATURE_SHA3
-        return noxtls_sha3_384_init(&ctx->sha3_ctx);
+        return noxtls_sha3_384_init(&ctx->u.sha3_ctx);
 #else
         return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
     }
     if (ctx->algo == NOXTLS_HASH_SHA3_512) {
 #if NOXTLS_FEATURE_SHA3
-        return noxtls_sha3_512_init(&ctx->sha3_ctx);
+        return noxtls_sha3_512_init(&ctx->u.sha3_ctx);
 #else
         return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
@@ -155,14 +155,14 @@ noxtls_return_t noxtls_sha_init(noxtls_sha_ctx_t * ctx, noxtls_hash_algos_t algo
     }
     if (ctx->algo == NOXTLS_HASH_BLAKE2S_256) {
 #if NOXTLS_FEATURE_BLAKE2
-        return noxtls_blake2s_256_init(&ctx->blake2_ctx);
+        return noxtls_blake2s_256_init(&ctx->u.blake2_ctx);
 #else
         return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
     }
     if (ctx->algo == NOXTLS_HASH_BLAKE2B_512) {
 #if NOXTLS_FEATURE_BLAKE2
-        return noxtls_blake2b_512_init(&ctx->blake2_ctx);
+        return noxtls_blake2b_512_init(&ctx->u.blake2_ctx);
 #else
         return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
@@ -211,7 +211,7 @@ noxtls_return_t noxtls_sha_update(noxtls_sha_ctx_t * ctx, const uint8_t * data, 
         (ctx->algo == NOXTLS_HASH_SHA_512_224) ||
         (ctx->algo == NOXTLS_HASH_SHA_512_256)) {
 #if (NOXTLS_FEATURE_SHA384 || NOXTLS_FEATURE_SHA512)
-        return noxtls_sha512_update(&ctx->sha512_ctx, data, len);
+        return noxtls_sha512_update(&ctx->u.sha512_ctx, data, len);
 #else
         return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
@@ -221,7 +221,7 @@ noxtls_return_t noxtls_sha_update(noxtls_sha_ctx_t * ctx, const uint8_t * data, 
         (ctx->algo == NOXTLS_HASH_SHA3_384) ||
         (ctx->algo == NOXTLS_HASH_SHA3_512)) {
 #if NOXTLS_FEATURE_SHA3
-        return noxtls_sha3_update(&ctx->sha3_ctx, data, len);
+        return noxtls_sha3_update(&ctx->u.sha3_ctx, data, len);
 #else
         return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
@@ -235,7 +235,7 @@ noxtls_return_t noxtls_sha_update(noxtls_sha_ctx_t * ctx, const uint8_t * data, 
     }
     if ((ctx->algo == NOXTLS_HASH_BLAKE2S_256) || (ctx->algo == NOXTLS_HASH_BLAKE2B_512)) {
 #if NOXTLS_FEATURE_BLAKE2
-        return noxtls_blake2_update(&ctx->blake2_ctx, data, len);
+        return noxtls_blake2_update(&ctx->u.blake2_ctx, data, len);
 #else
         return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
@@ -285,7 +285,7 @@ noxtls_return_t noxtls_sha_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
         (ctx->algo == NOXTLS_HASH_SHA_512_224) ||
         (ctx->algo == NOXTLS_HASH_SHA_512_256)) {
 #if (NOXTLS_FEATURE_SHA384 || NOXTLS_FEATURE_SHA512)
-        return noxtls_sha512_finish(&ctx->sha512_ctx, hash);
+        return noxtls_sha512_finish(&ctx->u.sha512_ctx, hash);
 #else
         return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
@@ -295,7 +295,7 @@ noxtls_return_t noxtls_sha_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
         (ctx->algo == NOXTLS_HASH_SHA3_384) ||
         (ctx->algo == NOXTLS_HASH_SHA3_512)) {
 #if NOXTLS_FEATURE_SHA3
-        return noxtls_sha3_finish(&ctx->sha3_ctx, hash);
+        return noxtls_sha3_finish(&ctx->u.sha3_ctx, hash);
 #else
         return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
@@ -309,7 +309,7 @@ noxtls_return_t noxtls_sha_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
     }
     if ((ctx->algo == NOXTLS_HASH_BLAKE2S_256) || (ctx->algo == NOXTLS_HASH_BLAKE2B_512)) {
 #if NOXTLS_FEATURE_BLAKE2
-        return noxtls_blake2_finish(&ctx->blake2_ctx, hash);
+        return noxtls_blake2_finish(&ctx->u.blake2_ctx, hash);
 #else
         return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif

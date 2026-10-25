@@ -66,19 +66,23 @@ typedef struct
 	noxtls_aria_type_t key_type;        /* Key size type */
 } noxtls_aria_key_t;
 
+/*
+ * Streaming context. Only the key schedule the selected mode/operation needs
+ * is kept: the decryption schedule for ECB/CBC decryption, the encryption
+ * schedule otherwise (CTR/CFB/OFB decrypt with the forward cipher). The raw
+ * key is not stored.
+ */
 typedef struct
 {
-    uint8_t key[32];
+    noxtls_aria_key_t sched;
     uint8_t feedback[NOXTLS_ARIA_BLOCK_LENGTH];
     uint8_t partial[NOXTLS_ARIA_BLOCK_LENGTH];
-    uint8_t key_len;
-    uint8_t partial_len;
     noxtls_aria_type_t type;
     noxtls_aria_mode_t mode;
     noxtls_aria_operation_t op;
+    uint8_t key_len;
+    uint8_t partial_len;
     uint8_t initialized;
-    noxtls_aria_key_t enc_key;
-    noxtls_aria_key_t dec_key;
 } noxtls_aria_context_t;
 
 /* Core ARIA Functions */

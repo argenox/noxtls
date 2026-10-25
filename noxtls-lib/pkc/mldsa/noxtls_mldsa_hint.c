@@ -15,7 +15,8 @@
 *
 *
 * File:    noxtls_mldsa_hint.c
-* Summary: ML-DSA decomposition and hint primitives.
+* Summary: ML-DSA Power2Round, Decompose, MakeHint and UseHint
+*          (FIPS 204 Alg. 35-40), constant-time arithmetic forms.
 *
 *
 *****************************************************************************/
@@ -25,211 +26,86 @@
 
 #include "noxtls_mldsa_internal.h"
 
+#if NOXTLS_FEATURE_ML_DSA
+
 /**
- * @brief Absolute value of an integer.
- *
- * @param[in] x The x value.
- * @return The return value.
+ * @brief Power2Round: a = a1 * 2^d + a0 with -2^(d-1) < a0 <= 2^(d-1).
+ * @param[in] a Standard representative in [0, q).
+ * @param[out] a0 Low part.
+ * @return High part a1.
  */
-static int32_t mldsa_abs_i32(int32_t x)
+int32_t noxtls_mldsa_power2round(int32_t a, int32_t *a0)
 {
-    return (x < 0) ? -x : x;
+    int32_t a1 = (a + ((int32_t)1 << (NOXTLS_MLDSA_D - 1U)) - 1) >> NOXTLS_MLDSA_D;
+
+    *a0 = a - (int32_t)((uint32_t)a1 << NOXTLS_MLDSA_D);
+    return a1;
 }
 
 /**
- * @brief Center modulo q.
- *
- * @param[in] x The x value.
- * @return The return value.
+ * @brief Decompose: a = a1 * 2 * gamma2 + a0 with -gamma2 < a0 <= gamma2, except
+ *        a1 = 0, a0 = a - q when a - a0 = q - 1.
+ * @param[in] a Standard representative in [0, q).
+ * @param[in] gamma2 (q-1)/88 or (q-1)/32.
+ * @param[out] a0 Low part.
+ * @return High part a1.
  */
-static int32_t mldsa_center_mod_q(int32_t x)
+int32_t noxtls_mldsa_decompose(int32_t a, int32_t gamma2, int32_t *a0)
 {
-    int32_t r = noxtls_mldsa_coeff_normalize(x);
-    if(r > (NOXTLS_MLDSA_Q / 2)) {
-        r -= NOXTLS_MLDSA_Q;
+    int32_t a1 = (a + 127) >> 7U;
+
+    if(gamma2 == ((NOXTLS_MLDSA_Q - 1) / 32)) {
+        a1 = ((a1 * 1025) + ((int32_t)1 << 21)) >> 22U;
+        a1 &= 15;
+    } else {
+        a1 = ((a1 * 11275) + ((int32_t)1 << 23)) >> 24U;
+        a1 ^= ((43 - a1) >> 31U) & a1;
     }
-    return r;
+    *a0 = a - (a1 * 2 * gamma2);
+    *a0 -= ((((NOXTLS_MLDSA_Q - 1) / 2) - *a0) >> 31U) & NOXTLS_MLDSA_Q;
+    return a1;
 }
 
 /**
- * @brief W1 modulus.
- *
- * @param[in] gamma2 The gamma2 value.
- * @return The return value.
+ * @brief MakeHint: 1 when adding the (negated) low part changes the high bits.
+ * @param[in] a0 Low part (w0 - cs2 + ct0).
+ * @param[in] a1 High part of w.
+ * @param[in] gamma2 Rounding parameter.
+ * @return Hint bit.
  */
-static int32_t mldsa_w1_modulus(int32_t gamma2)
+uint32_t noxtls_mldsa_make_hint(int32_t a0, int32_t a1, int32_t gamma2)
 {
-    int32_t two_gamma = gamma2 * 2;
-    if(two_gamma <= 0) {
-        return 0;
+    if((a0 > gamma2) || (a0 < -gamma2) || ((a0 == -gamma2) && (a1 != 0))) {
+        return 1U;
     }
-    return (NOXTLS_MLDSA_Q + (two_gamma - 1)) / two_gamma;
+    return 0U;
 }
 
 /**
- * @brief Modular centered integer.
- *
- * @param[in] x The x value.
- * @param[in] mod The mod value.
- * @return The return value.
+ * @brief UseHint: recover the corrected high bits.
+ * @param[in] a Standard representative in [0, q).
+ * @param[in] hint Hint bit.
+ * @param[in] gamma2 Rounding parameter.
+ * @return Corrected high bits.
  */
-static int32_t mldsa_mod_centered_int(int32_t x, int32_t mod)
+int32_t noxtls_mldsa_use_hint(int32_t a, uint32_t hint, int32_t gamma2)
 {
-    int32_t r = 0;
+    int32_t a0 = 0;
+    int32_t a1 = noxtls_mldsa_decompose(a, gamma2, &a0);
 
-    if(mod <= 0) {
-        return x;
+    if(hint == 0U) {
+        return a1;
     }
-    r = x % mod;
-    if(r < 0) {
-        r += mod;
-    }
-    return r;
-}
-
-/**
- * @brief Decompose a polynomial.
- *
- * @param[in] w The w value.
- * @param[in] gamma2 The gamma2 value.
- * @param[out] w1 The w1 value.
- * @param[out] w0 The w0 value.
- * @return The return value.
- */
-noxtls_return_t noxtls_mldsa_decompose_poly(const noxtls_mldsa_poly_t *w,
-                                            int32_t gamma2,
-                                            noxtls_mldsa_poly_t *w1,
-                                            noxtls_mldsa_poly_t *w0)
-{
-    int32_t two_gamma = 0;
-    int32_t a1_mod = 0;
-    uint32_t i = 0U;
-
-    if(w == NULL || w1 == NULL || w0 == NULL) {
-        return NOXTLS_RETURN_NULL;
-    }
-    if(gamma2 <= 0) {
-        return NOXTLS_RETURN_INVALID_PARAM;
-    }
-
-    two_gamma = gamma2 * 2;
-    a1_mod = mldsa_w1_modulus(gamma2);
-    if(a1_mod <= 0) {
-        return NOXTLS_RETURN_INVALID_PARAM;
-    }
-
-    for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
-        int32_t a = mldsa_center_mod_q(w->coeff[i]);
-        int32_t a1 = a / two_gamma;
-        int32_t a0 = a - (a1 * two_gamma);
-
-        if(a0 > gamma2) {
-            a0 -= two_gamma;
-            a1 += 1;
-        } else if(a0 <= -gamma2) {
-            a0 += two_gamma;
-            a1 -= 1;
+    if(gamma2 == ((NOXTLS_MLDSA_Q - 1) / 32)) {
+        if(a0 > 0) {
+            return (a1 + 1) & 15;
         }
-
-        w1->coeff[i] = mldsa_mod_centered_int(a1, a1_mod);
-        w0->coeff[i] = a0;
+        return (a1 - 1) & 15;
     }
-
-    return NOXTLS_RETURN_SUCCESS;
+    if(a0 > 0) {
+        return (a1 == 43) ? 0 : (a1 + 1);
+    }
+    return (a1 == 0) ? 43 : (a1 - 1);
 }
 
-/**
- * @brief Make a hint polynomial.
- *
- * @param[in] w0 The w0 value.
- * @param[in] gamma2 The gamma2 value.
- * @param[out] h The h value.
- * @param[out] weight The weight value.
- * @return The return value.
- */
-noxtls_return_t noxtls_mldsa_make_hint_poly(const noxtls_mldsa_poly_t *w0,
-                                            int32_t gamma2,
-                                            noxtls_mldsa_poly_t *h,
-                                            uint32_t *weight)
-{
-    uint32_t i = 0U;
-    uint32_t local_weight = 0U;
-    int32_t threshold = 0;
-
-    if(w0 == NULL || h == NULL || weight == NULL) {
-        return NOXTLS_RETURN_NULL;
-    }
-    if(gamma2 <= 0) {
-        return NOXTLS_RETURN_INVALID_PARAM;
-    }
-
-    threshold = gamma2 / 2;
-    for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
-        if(mldsa_abs_i32(w0->coeff[i]) > threshold) {
-            h->coeff[i] = 1U;
-            local_weight += 1U;
-        } else {
-            h->coeff[i] = 0U;
-        }
-    }
-
-    *weight = local_weight;
-    return NOXTLS_RETURN_SUCCESS;
-}
-
-/**
- * @brief Use a hint polynomial.
- *
- * @param[in] w The w value.
- * @param[in] h The h value.
- * @param[in] gamma2 The gamma2 value.
- * @param[out] w1_adj The w1_adj value.
- * @return The return value.
- */
-noxtls_return_t noxtls_mldsa_use_hint_poly(const noxtls_mldsa_poly_t *w,
-                                           const noxtls_mldsa_poly_t *h,
-                                           int32_t gamma2,
-                                           noxtls_mldsa_poly_t *w1_adj)
-{
-    noxtls_mldsa_poly_t w1;
-    noxtls_mldsa_poly_t w0;
-    int32_t mod = 0;
-    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
-    uint32_t i = 0U;
-
-    if(w == NULL || h == NULL || w1_adj == NULL) {
-        return NOXTLS_RETURN_NULL;
-    }
-    if(gamma2 <= 0) {
-        return NOXTLS_RETURN_INVALID_PARAM;
-    }
-
-    rc = noxtls_mldsa_decompose_poly(w, gamma2, &w1, &w0);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
-    }
-
-    mod = mldsa_w1_modulus(gamma2);
-    if(mod <= 0) {
-        return NOXTLS_RETURN_INVALID_PARAM;
-    }
-
-    for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
-        int32_t hint = h->coeff[i];
-        int32_t out = w1.coeff[i];
-
-        if(hint != 0 && hint != 1) {
-            return NOXTLS_RETURN_INVALID_PARAM;
-        }
-        if(hint == 1) {
-            out += (w0.coeff[i] >= 0) ? 1 : -1;
-        }
-        out %= mod;
-        if(out < 0) {
-            out = &out[mod];
-        }
-        w1_adj->coeff[i] = out;
-    }
-
-    return NOXTLS_RETURN_SUCCESS;
-}
+#endif /* NOXTLS_FEATURE_ML_DSA */
