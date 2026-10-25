@@ -263,6 +263,8 @@ typedef struct dtls_context_s
     uint32_t retransmit_max_attempts; /* Max timer retransmissions of one flight (RFC 9147 5.8) */
     uint32_t retransmit_attempts; /* Timer retransmissions of the current flight so far */
     uint8_t retransmit_exhausted; /* 1 once the last allowed retransmission timed out unanswered */
+    uint32_t peer_retransmits; /* Resends of the current flight answering a repeated peer flight (RFC 9147 5.8.1) */
+    uint64_t peer_retransmit_ms; /* Start of the current flight or its last such resend (rate limit) */
     uint64_t bytes_received;    /* Bytes received (for anti-amplification) */
     uint64_t bytes_sent;        /* Bytes sent (for anti-amplification) */
     uint8_t validated;          /* Peer address validated */
@@ -348,6 +350,17 @@ void noxtls_dtls_next_write_epoch(dtls_context_t *ctx);
 void noxtls_dtls_next_read_epoch(dtls_context_t *ctx);
 /* Retransmit the buffered flight now (peer retransmitted its previous flight). */
 noxtls_return_t noxtls_dtls_retransmit_flight(dtls_context_t *ctx);
+/**
+ * @brief DTLS 1.3: answer a retransmission of the peer's previous flight (RFC 9147 5.8.1).
+ *
+ * Resends the pending flight at most once per base timeout, backs off and re-arms its timer,
+ * and does not use the timer's attempt budget.
+ *
+ * @param[in,out] ctx The context value.
+ *
+ * @return NOXTLS_RETURN_SUCCESS when resent or nothing had to be sent, or a failure.
+ */
+noxtls_return_t noxtls_dtls_answer_repeated_flight(dtls_context_t *ctx);
 /* Forget the buffered flight (the peer's next flight has arrived). */
 void noxtls_dtls_flight_reset(dtls_context_t *ctx);
 /**

@@ -110,6 +110,49 @@ static const uint64_t dtls_s_u64_bit[64] = {
 /* RFC 9147 5.8.2: the backed-off timer is capped; NoxTLS uses 60 seconds. */
 #define DTLS_RETRANSMIT_TIMEOUT_MAX_MS  60000U
 
+/* RFC 9147 5.8.2: initial timer value used when no base timeout is configured. */
+#define DTLS_RETRANSMIT_TIMEOUT_DEFAULT_MS  1000U
+
+/* Per-mille scale of retransmit_backoff_ms (2000 doubles the timer). */
+#define DTLS_RETRANSMIT_BACKOFF_SCALE  1000U
+
+/**
+ * @brief Base retransmission timeout of the current flight.
+ * @internal
+ *
+ * @param[in] ctx The context value.
+ *
+ * @return The configured base timeout, or the RFC 9147 5.8.2 default of 1000 ms.
+ */
+static uint32_t dtls_retransmit_base_ms(const dtls_context_t *ctx)
+{
+    return (ctx->retransmit_base_timeout_ms == 0U) ? DTLS_RETRANSMIT_TIMEOUT_DEFAULT_MS :
+        ctx->retransmit_base_timeout_ms;
+}
+
+/**
+ * @brief Back off the retransmission timer after a retransmission.
+ * @internal
+ *
+ * RFC 9147 5.8.2: the timer value is doubled (here multiplied by the configured
+ * backoff) at each retransmission, up to the 60 second ceiling.
+ *
+ * @param[in,out] ctx The context value.
+ */
+static void dtls_flight_timer_backoff(dtls_context_t *ctx)
+{
+    ctx->retransmit_timeout_ms =
+        (uint32_t)(((uint64_t)ctx->retransmit_timeout_ms * ctx->retransmit_backoff_ms) /
+                   DTLS_RETRANSMIT_BACKOFF_SCALE);
+    if(ctx->retransmit_timeout_ms == 0U) {
+        ctx->retransmit_timeout_ms = 1U;
+    }
+
+    if(ctx->retransmit_timeout_ms > DTLS_RETRANSMIT_TIMEOUT_MAX_MS) {
+        ctx->retransmit_timeout_ms = DTLS_RETRANSMIT_TIMEOUT_MAX_MS;
+    }
+}
+
 /**
  * @brief Restore the retransmission timer and attempt budget for a new flight.
  *
@@ -117,6 +160,9 @@ static const uint64_t dtls_s_u64_bit[64] = {
  * the implementation gives up after a bounded number of them. Only the start of
  * a new flight restores the base value, never a received datagram: duplicates of
  * the peer's previous flight would otherwise hold the timer at its base value.
+ * The rate limit of retransmissions answering a repeated peer flight (RFC 9147
+ * 5.8.1) starts at the flight's first transmission: a repeat that arrives sooner
+ * most likely crossed that transmission.
  *
  * @param[in,out] ctx The context value.
  */
@@ -124,7 +170,13 @@ static void dtls_flight_timer_restart(dtls_context_t *ctx)
 {
     ctx->retransmit_attempts = 0U;
     ctx->retransmit_exhausted = 0U;
-    ctx->retransmit_timeout_ms = (ctx->retransmit_base_timeout_ms == 0U) ? 1000U : ctx->retransmit_base_timeout_ms;
+    ctx->peer_retransmits = 0U;
+    ctx->peer_retransmit_ms = 0U;
+    if(ctx->base.time_callback != NULL) {
+        ctx->peer_retransmit_ms = ctx->base.time_callback(ctx->base.user_data);
+    }
+
+    ctx->retransmit_timeout_ms = dtls_retransmit_base_ms(ctx);
 }
 
 /**
@@ -746,6 +798,26 @@ static noxtls_return_t dtls12_flight_resend_record(dtls_context_t *ctx, uint8_t 
 }
 
 /**
+ * @brief Check whether the peer's last ACK covers the whole protected flight.
+ * @internal
+ *
+ * RFC 9147 7.1: an ACK for a complete flight cancels its retransmission.
+ *
+ * @param[in] ctx The context value.
+ *
+ * @return 1U when a DTLS 1.3 ACK acknowledged every record of the flight, 0U otherwise.
+ */
+static uint8_t dtls_flight_acked(const dtls_context_t *ctx)
+{
+    return ((dtls_is_v12_record_layer(ctx->base.version) == 0) &&
+            (ctx->flight_has_range != 0U) &&
+            (ctx->last_ack_valid != 0U) &&
+            (ctx->last_ack_epoch == ctx->flight_epoch) &&
+            (ctx->last_ack_range_min <= ctx->flight_min_seq) &&
+            (ctx->last_ack_range_max >= ctx->flight_max_seq)) ? 1U : 0U;
+}
+
+/**
  * @brief Retransmit the flight buffer.
  *
  * @param[in] ctx The context value.
@@ -767,12 +839,7 @@ static noxtls_return_t dtls_flight_retransmit(dtls_context_t *ctx)
     }
     v12 = dtls_is_v12_record_layer(ctx->base.version);
 
-    if((v12 == 0) &&
-       (ctx->flight_has_range != 0U) &&
-       (ctx->last_ack_valid != 0U) &&
-       (ctx->last_ack_epoch == ctx->flight_epoch) &&
-       (ctx->last_ack_range_min <= ctx->flight_min_seq) &&
-       (ctx->last_ack_range_max >= ctx->flight_max_seq)) {
+    if(dtls_flight_acked(ctx) != 0U) {
         return NOXTLS_RETURN_SUCCESS;
     }
 
@@ -1610,6 +1677,73 @@ noxtls_return_t noxtls_dtls_retransmit_flight(dtls_context_t *ctx)
 }
 
 /**
+ * @brief DTLS 1.3: answer a retransmission of the peer's previous flight.
+ *
+ * RFC 9147 (April 2022) 5.8.1, WAITING state exit 3: reading a retransmitted flight from
+ * the peer while none of the messages sent in response to it were acknowledged means part
+ * of our flight was probably lost. The flight is retransmitted at once and the timer is
+ * adjusted (backed off as in 5.8.2) and re-armed.
+ *
+ * - At most one such retransmission happens per base timeout, counted from the flight's
+ *   first transmission or the previous one, so a burst of repeats (or repeats that crossed
+ *   our transmission) sends the flight once. Without a clock every repeat is answered, as
+ *   the timer cannot run either.
+ * - It is solicited by a live peer and clocked by the peer's own backed-off timer, so it
+ *   does not use the retransmit_max_attempts budget, which bounds unsolicited timer
+ *   retransmissions toward a silent peer. An exhausted flight is still resent but its timer
+ *   stays parked. The owner's handshake deadline bounds the exchange.
+ * - Nothing is sent when no flight is pending or a DTLS 1.3 ACK covered all of it.
+ *
+ * @param[in,out] ctx The context value.
+ *
+ * @return NOXTLS_RETURN_SUCCESS when the flight was resent or nothing had to be sent,
+ *         NOXTLS_RETURN_NULL for a NULL context, or the retransmission failure.
+ */
+noxtls_return_t noxtls_dtls_answer_repeated_flight(dtls_context_t *ctx)
+{
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+    uint64_t now = 0U;
+    uint8_t clocked = 0U;
+
+    if(ctx == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+
+    if((ctx->flight_buffer_len == 0U) || (dtls_flight_acked(ctx) != 0U)) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
+
+    if(ctx->base.time_callback != NULL) {
+        now = ctx->base.time_callback(ctx->base.user_data);
+        clocked = 1U;
+        if((now >= ctx->peer_retransmit_ms) &&
+           ((now - ctx->peer_retransmit_ms) < (uint64_t)dtls_retransmit_base_ms(ctx))) {
+            return NOXTLS_RETURN_SUCCESS;
+        }
+    }
+
+    rc = dtls_flight_retransmit(ctx);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+
+    if(ctx->peer_retransmits != UINT32_MAX) {
+        ctx->peer_retransmits += 1U;
+    }
+
+    if(clocked != 0U) {
+        ctx->peer_retransmit_ms = now;
+        ctx->last_flight_sent_ms = now;
+    }
+
+    if(ctx->retransmit_exhausted == 0U) {
+        dtls_flight_timer_backoff(ctx);
+    }
+
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
  * @brief DTLS 1.2: protect a record under the current write epoch and send it.
  *
  * The record is protected with ctx->protect_record (sequence number ctx->write_seq_num of
@@ -1785,14 +1919,7 @@ static noxtls_return_t dtls_read_datagram(dtls_context_t *ctx, uint8_t *packet, 
                 (void)dtls_flight_retransmit(ctx);
                 ctx->retransmit_attempts += 1U;
                 /* RFC 9147 5.8.2: timer value SHOULD be backed off after each retransmission. */
-                ctx->retransmit_timeout_ms =
-                    (uint32_t)(((uint64_t)ctx->retransmit_timeout_ms * ctx->retransmit_backoff_ms) / 1000U);
-                if(ctx->retransmit_timeout_ms == 0U) {
-                    ctx->retransmit_timeout_ms = 1U;
-                }
-                if(ctx->retransmit_timeout_ms > DTLS_RETRANSMIT_TIMEOUT_MAX_MS) {
-                    ctx->retransmit_timeout_ms = DTLS_RETRANSMIT_TIMEOUT_MAX_MS;
-                }
+                dtls_flight_timer_backoff(ctx);
                 continue;
             }
             return NOXTLS_RETURN_TIMEOUT;
@@ -1989,7 +2116,11 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
            (record->type == TLS_RECORD_HANDSHAKE) &&
            ((uint64_t)record->epoch < ctx->read_connection_epoch)) {
             /* RFC 9147 sections 4.5.1/5.8: an old plaintext flight can be
-             * retransmitted after the receiver installed encrypted keys. */
+             * retransmitted after the receiver installed encrypted keys. It is
+             * discarded, and RFC 9147 5.8.1 (WAITING exit 3) answers it with our
+             * pending flight, rate limited. A failed send is a lost
+             * retransmission, as for the timer. */
+            (void)noxtls_dtls_answer_repeated_flight(ctx);
             continue;
         } else if((ctx->base.version == DTLS_VERSION_1_3) &&
            (record->type == TLS_RECORD_CHANGE_CIPHER_SPEC) &&
@@ -2043,8 +2174,15 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
          * DTLS handshakes legitimately retransmit whole flights, so duplicates are expected on
          * a healthy link. Treat replay-window rejects here as ignorable noise and keep waiting
          * for the next fresh record instead of turning normal retransmission into a fatal error.
+         * A plaintext handshake record is resent verbatim, record number included, so in DTLS
+         * 1.3 a repeated one is the peer's retransmitted flight (e.g. a first ClientHello whose
+         * HelloRetryRequest was lost): RFC 9147 5.8.1 (WAITING exit 3) answers it, rate limited.
          */
         (void)noxtls_free(packet);
+        if((ctx->base.version == DTLS_VERSION_1_3) && (record->type == TLS_RECORD_HANDSHAKE)) {
+            (void)noxtls_dtls_answer_repeated_flight(ctx);
+        }
+
         if(rc == NOXTLS_RETURN_FAILED) {
             return NOXTLS_RETURN_TIMEOUT;
         }
@@ -2331,6 +2469,10 @@ noxtls_return_t noxtls_dtls_reassemble_handshake(dtls_context_t *ctx,
     }
 
     if(fragment->message_seq < ctx->expected_message_seq) {
+        /* RFC 9147 5.2: an already processed message is a retransmission and is discarded.
+         * RFC 9147 5.8.1 (WAITING exit 3): it is answered with our pending flight, rate
+         * limited. A failed send is a lost retransmission, as for the timer. */
+        (void)noxtls_dtls_answer_repeated_flight(ctx);
         return NOXTLS_RETURN_TIMEOUT;
     }
 

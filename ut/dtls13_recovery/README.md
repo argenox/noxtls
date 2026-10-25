@@ -151,9 +151,63 @@ parked timer gives no RTT sample. The DTLS context gains one `uint32_t` and one
 `uint8_t`, so code that embeds contexts must be rebuilt.
 
 Two cases cover it. `dtls13_recovery_retransmit_backoff` loses every server
-datagram after the first flight and injects the client's ClientHello every
-300 ms. With a 500 ms base, doubling and four attempts, the server retransmits
-at exactly 0.5, 1.5, 3.5 and 7.5 s and gives up at 15.5 s. Before the change it
-retransmitted at least 16 times in the same window. `dtls13_recovery_retransmit_budget_per_flight`
+datagram after the first flight while the client stays silent. With a 500 ms
+base, doubling and four attempts, the server retransmits at exactly 0.5, 1.5,
+3.5 and 7.5 s and gives up at 15.5 s. Before the change it retransmitted at
+least 16 times in the same window. `dtls13_recovery_retransmit_budget_per_flight`
 checks that appending to a pending flight keeps the timer state, and that a reset
 or an emptied flight restores it.
+
+## Answering a repeated peer flight
+
+With the timer no longer reset by every datagram, a repeated ClientHello did
+nothing at all: DTLS 1.3 discarded the old plaintext record, and a lost server
+flight waited for the server's own backed-off timer (0.5, 1.5, 3.5, 7.5 s). On a
+lossy Thread path, NoxMgmt sessions to one node timed out 9 times out of 10.
+
+RFC 9147 section 5.8.1, WAITING state exit 3: an endpoint that reads a
+retransmitted flight from the peer, while none of its answer was acknowledged,
+retransmits its flight and adjusts and re-arms the timer. The DTLS common code now
+does this in `noxtls_dtls_answer_repeated_flight()`. It is called for a plaintext
+handshake record of an epoch older than the read epoch (a repeated ClientHello at
+the server, or a repeated ServerHello at a locally connected client whose Finished
+was lost), for a plaintext handshake record the replay window rejects, and for a
+handshake message older than the next expected message_seq. NoxTLS resends
+plaintext records verbatim, record number included, so a repeated first
+ClientHello whose HelloRetryRequest was lost reaches the server as a replay.
+
+- At most one such retransmission happens per base timeout, counted from the
+  flight's first transmission or from the previous one. A repeat that arrives
+  sooner most likely crossed our transmission, and a storm sends the flight once
+  per base timeout.
+- The timer is backed off and re-armed as for a timer retransmission, so the timer
+  does not fire again while the peer drives recovery.
+- It does not use `retransmit_max_attempts`. That budget bounds unsolicited
+  retransmissions toward a silent peer. These are clocked by the peer's own
+  backed-off timer and by the rate limit, and the owner's handshake deadline ends
+  the exchange. An exhausted flight is still resent and its timer stays parked.
+- Nothing is sent when no flight is pending or a DTLS 1.3 ACK covered all of it.
+- Without a clock there is no timer either, and every repeat is answered.
+- Replayed protected records (the same record number) are not retransmissions, since
+  protected retransmissions are re-encrypted under a new record number, and do not
+  trigger it.
+
+The context gains `peer_retransmits` (a per-flight count of these resends, for
+owner diagnostics) and `peer_retransmit_ms`. Code that embeds contexts must be
+rebuilt.
+
+Five cases cover it. `dtls13_recovery_repeated_hello_resends_flight` repeats the
+ClientHello on the native helper's 250 ms doubling schedule and loses the first
+server flight and its 0.5 s retransmission: the 0.25 s repeat is not answered,
+the 0.75 s repeat resends the flight at once instead of at 1.5 s, and the
+handshake completes. `dtls13_recovery_repeated_hello_rate_limit` sends a repeat
+every 10 ms for 5 s and gets exactly one retransmission every 500 ms, with the
+timer budget untouched. `dtls13_recovery_repeated_flight_no_ping_pong` loses every
+client Finished: the client answers each server retransmission at most once, the
+server never answers, gives up after its budget and stays silent. `dtls13_recovery_repeated_first_hello_resends_retry` loses the
+HelloRetryRequest and its 0.5 s retransmission; the verbatim first ClientHello at
+0.75 s resends it at once. The backoff case also checks that an exhausted flight
+still answers a repeat.
+`dtls13_recovery_repeated_flight_boundaries` covers the NULL, empty, acknowledged,
+rate-limited, clock-reversal, clockless and failed-send paths. Without the change
+the first four cases and the backoff case fail.
