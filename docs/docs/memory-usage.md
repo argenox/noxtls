@@ -15,6 +15,11 @@ The NoxTLS library provides a configurable memory management system that can use
 - **System malloc/free** (default) — Standard system memory allocation
 - **Static buffer pool** — Pre-allocated buffer managed by the library
 
+For devices that must not use a heap at all, `NOXTLS_CONFIG_STATIC_MEMORY` sizes
+every byte at build time instead: per-connection blocks supplied by the caller,
+handshake storage released after the handshake, and fixed certificate pools. See
+[Static Memory](./static-memory.md).
+
 When static buffers are enabled, the pool can use one of three allocator strategies:
 
 | Mode | `NOXTLS_STATIC_ALLOCATOR_MODE` | Behavior |
