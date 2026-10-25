@@ -223,6 +223,11 @@ static noxtls_return_t tls13_derive_handshake_keys(tls13_context_t *ctx,
                                                    const uint8_t *shared_secret,
                                                    uint32_t shared_secret_len);
 static int tls13_is_dtls(const tls13_context_t *ctx);
+
+/* Handshake workspace for a builder that may write up to @p need bytes, or NULL when
+ * NOXTLS_TLS_HANDSHAKE_WORKSPACE_SIZE is configured smaller (the builder then allocates). */
+#define TLS13_WORKSPACE_FOR(ctx, need) \
+    (((uint32_t)TLS_HANDSHAKE_WORKSPACE_SIZE >= (uint32_t)(need)) ? (ctx)->handshake_workspace : NULL)
 #if NOXTLS_FEATURE_TLS_SERVER
 static int tls13_group_is_ffdhe(uint16_t group);
 #endif /* NOXTLS_FEATURE_TLS_SERVER */
@@ -8059,7 +8064,9 @@ noxtls_return_t noxtls_tls13_send_client_hello(tls13_context_t *ctx)
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    uint8_t *client_hello = ctx->handshake_workspace;
+    /* The ClientHello is bounded by TLS_CLIENT_HELLO_DEFAULT_SIZE: build it in the
+     * handshake workspace only when the workspace is at least that large. */
+    uint8_t *client_hello = TLS13_WORKSPACE_FOR(ctx, TLS_CLIENT_HELLO_DEFAULT_SIZE);
     if(client_hello == NULL) {
         client_hello = (uint8_t*)NOXTLS_MALLOC(TLS_CLIENT_HELLO_DEFAULT_SIZE);
         if(client_hello == NULL) {
@@ -12459,7 +12466,8 @@ noxtls_return_t noxtls_tls13_send_server_hello(tls13_context_t *ctx)
     if(ctx->base.base.role != TLS_ROLE_SERVER) {
         return NOXTLS_RETURN_FAILED;
     }
-    uint8_t *server_hello = ctx->handshake_workspace;
+    /* ServerHello is bounded by TLS_SERVER_HELLO_DEFAULT_SIZE (see TLS13_WORKSPACE_FOR). */
+    uint8_t *server_hello = TLS13_WORKSPACE_FOR(ctx, TLS_SERVER_HELLO_DEFAULT_SIZE);
     if(server_hello == NULL) {
         server_hello = (uint8_t*)NOXTLS_MALLOC(TLS_SERVER_HELLO_DEFAULT_SIZE);
         if(server_hello == NULL) {
@@ -12565,7 +12573,11 @@ noxtls_return_t noxtls_tls13_send_server_hello(tls13_context_t *ctx)
     if((ctx->psk_in_use == 0U) || (ctx->psk_use_ecdhe != 0U)) {
         tls_ecdhe_context_t *ecdhe_ctx = (tls_ecdhe_context_t*)ctx->hs->ecdhe_ctx;
         uint16_t selected_group = tls13_select_server_group(ctx);
-        uint8_t *key_share_entry = (ctx->handshake_workspace != NULL) ? (&ctx->handshake_workspace[TLS_SERVER_HELLO_DEFAULT_SIZE]) : (uint8_t*)NOXTLS_MALLOC(TLS_KEY_SHARE_ENTRY_MAX_LEN);
+        /* The key share entry is staged behind the ServerHello only when the workspace holds
+         * both; a smaller NOXTLS_TLS_HANDSHAKE_WORKSPACE_SIZE must not be written past. */
+        uint8_t key_share_owned = ((server_hello != ctx->handshake_workspace) ||
+            (TLS13_WORKSPACE_FOR(ctx, (uint32_t)TLS_SERVER_HELLO_DEFAULT_SIZE + (uint32_t)TLS_KEY_SHARE_ENTRY_MAX_LEN) == NULL)) ? 1U : 0U;
+        uint8_t *key_share_entry = (key_share_owned == 0U) ? (&ctx->handshake_workspace[TLS_SERVER_HELLO_DEFAULT_SIZE]) : (uint8_t*)NOXTLS_MALLOC(TLS_KEY_SHARE_ENTRY_MAX_LEN);
         uint32_t key_share_entry_len = TLS_KEY_SHARE_ENTRY_MAX_LEN;
         const tls13_key_share_entry_t *client_share = NULL;
         uint32_t i = 0U;
@@ -12600,7 +12612,7 @@ noxtls_return_t noxtls_tls13_send_server_hello(tls13_context_t *ctx)
             uint8_t pq_ct[NOXTLS_MLKEM_MAX_CIPHERTEXT_LEN];
             uint32_t pq_ct_len = noxtls_mlkem_ciphertext_len(mlkem_param);
             if((mlkem_param == 0) || (pq_ct_len == 0U)) {
-                if(ctx->handshake_workspace == NULL) {
+                if(key_share_owned != 0U) {
                     NOXTLS_SECURE_FREE(key_share_entry, TLS_KEY_SHARE_ENTRY_MAX_LEN);
                 }
                 if(server_hello != ctx->handshake_workspace) {
@@ -12616,7 +12628,7 @@ noxtls_return_t noxtls_tls13_send_server_hello(tls13_context_t *ctx)
             if(tls13_group_is_mlkem(selected_group) != 0) {
                 if(noxtls_mlkem_encaps(mlkem_param, client_share->key_exchange, pq_ct, pq_ss) != NOXTLS_RETURN_SUCCESS ||
                    (4U + pq_ct_len) > key_share_entry_len) {
-                    if(ctx->handshake_workspace == NULL) {
+                    if(key_share_owned != 0U) {
                         NOXTLS_SECURE_FREE(key_share_entry, TLS_KEY_SHARE_ENTRY_MAX_LEN);
                     }
                     if(server_hello != ctx->handshake_workspace) {
@@ -12645,7 +12657,7 @@ noxtls_return_t noxtls_tls13_send_server_hello(tls13_context_t *ctx)
                 if(selected_group == TLS_NAMED_GROUP_X25519_MLKEM768) {
                     uint32_t pk_expected_len = noxtls_mlkem_public_key_len(mlkem_param);
                     if((pk_expected_len == 0U) || (client_share->key_exchange_len != (uint16_t)(NOXTLS_X25519_KEY_SIZE + pk_expected_len))) {
-                        if(ctx->handshake_workspace == NULL) {
+                        if(key_share_owned != 0U) {
                             NOXTLS_SECURE_FREE(key_share_entry, TLS_KEY_SHARE_ENTRY_MAX_LEN);
                         }
                         if(server_hello != ctx->handshake_workspace) {
@@ -12664,7 +12676,7 @@ noxtls_return_t noxtls_tls13_send_server_hello(tls13_context_t *ctx)
                     x_pub = &client_share->key_exchange[pk_expected_len];
                 } else {
                     if(client_share->key_exchange_len < 4U) {
-                        if(ctx->handshake_workspace == NULL) {
+                        if(key_share_owned != 0U) {
                             NOXTLS_SECURE_FREE(key_share_entry, TLS_KEY_SHARE_ENTRY_MAX_LEN);
                         }
                         if(server_hello != ctx->handshake_workspace) {
@@ -12679,7 +12691,7 @@ noxtls_return_t noxtls_tls13_send_server_hello(tls13_context_t *ctx)
                     }
                     x_len = tls13_read_uint16(client_share->key_exchange);
                     if(client_share->key_exchange_len < 2U + x_len + 2U) {
-                        if(ctx->handshake_workspace == NULL) {
+                        if(key_share_owned != 0U) {
                             NOXTLS_SECURE_FREE(key_share_entry, TLS_KEY_SHARE_ENTRY_MAX_LEN);
                         }
                         if(server_hello != ctx->handshake_workspace) {
@@ -12695,7 +12707,7 @@ noxtls_return_t noxtls_tls13_send_server_hello(tls13_context_t *ctx)
                     x_pub = &client_share->key_exchange[2U];
                     pk_len = tls13_read_uint16(&client_share->key_exchange[2U + x_len]);
                     if(client_share->key_exchange_len < 2U + x_len + 2U + pk_len) {
-                        if(ctx->handshake_workspace == NULL) {
+                        if(key_share_owned != 0U) {
                             NOXTLS_SECURE_FREE(key_share_entry, TLS_KEY_SHARE_ENTRY_MAX_LEN);
                         }
                         if(server_hello != ctx->handshake_workspace) {
@@ -12713,7 +12725,7 @@ noxtls_return_t noxtls_tls13_send_server_hello(tls13_context_t *ctx)
                 if(ecdhe_ctx == NULL) {
                     ecdhe_ctx = (tls_ecdhe_context_t*)NOXTLS_MALLOC(sizeof(tls_ecdhe_context_t));
                     if(ecdhe_ctx == NULL) {
-                        if(ctx->handshake_workspace == NULL) {
+                        if(key_share_owned != 0U) {
                             NOXTLS_SECURE_FREE(key_share_entry, TLS_KEY_SHARE_ENTRY_MAX_LEN);
                         }
                         if(server_hello != ctx->handshake_workspace) {
@@ -12747,7 +12759,7 @@ noxtls_return_t noxtls_tls13_send_server_hello(tls13_context_t *ctx)
                         hybrid_rc = noxtls_mlkem_encaps(mlkem_param, pk_pub, pq_ct, pq_ss);
                     }
                     if(hybrid_rc != NOXTLS_RETURN_SUCCESS) {
-                    if(ctx->handshake_workspace == NULL) {
+                    if(key_share_owned != 0U) {
                         NOXTLS_SECURE_FREE(key_share_entry, TLS_KEY_SHARE_ENTRY_MAX_LEN);
                     }
                     if(server_hello != ctx->handshake_workspace) {
@@ -12763,7 +12775,7 @@ noxtls_return_t noxtls_tls13_send_server_hello(tls13_context_t *ctx)
                 }
                 noxtls_copy_u8(classical_secret, sizeof(classical_secret), ecdhe_ctx->shared_secret, (size_t)(ecdhe_ctx->shared_secret_len));
                 if(tls13_combine_hybrid_secrets(ctx, classical_secret, ecdhe_ctx->shared_secret_len, pq_ss, NOXTLS_MLKEM_SHARED_SECRET_LEN) != NOXTLS_RETURN_SUCCESS) {
-                    if(ctx->handshake_workspace == NULL) {
+                    if(key_share_owned != 0U) {
                         NOXTLS_SECURE_FREE(key_share_entry, TLS_KEY_SHARE_ENTRY_MAX_LEN);
                     }
                     if(server_hello != ctx->handshake_workspace) {
@@ -12782,7 +12794,7 @@ noxtls_return_t noxtls_tls13_send_server_hello(tls13_context_t *ctx)
                     body_len = (uint32_t)(2U + NOXTLS_X25519_KEY_SIZE + 2U + pq_ct_len);
                 }
                 if((4U + body_len) > key_share_entry_len) {
-                    if(ctx->handshake_workspace == NULL) {
+                    if(key_share_owned != 0U) {
                         NOXTLS_SECURE_FREE(key_share_entry, TLS_KEY_SHARE_ENTRY_MAX_LEN);
                     }
                     if(server_hello != ctx->handshake_workspace) {
@@ -12809,7 +12821,7 @@ noxtls_return_t noxtls_tls13_send_server_hello(tls13_context_t *ctx)
                 key_share_entry_len = 4U + body_len;
             }
 #else
-            if(ctx->handshake_workspace == NULL) { NOXTLS_SECURE_FREE(key_share_entry, TLS_KEY_SHARE_ENTRY_MAX_LEN); }
+            if(key_share_owned != 0U) { NOXTLS_SECURE_FREE(key_share_entry, TLS_KEY_SHARE_ENTRY_MAX_LEN); }
             if(server_hello != ctx->handshake_workspace) { NOXTLS_SECURE_FREE(server_hello, TLS_SERVER_HELLO_DEFAULT_SIZE); } else if(ctx->handshake_workspace != NULL) { noxtls_secure_zero((ctx->handshake_workspace), (size_t)(TLS_HANDSHAKE_WORKSPACE_SIZE)); }
                    else {
                        /* MISRA 15.7: no remaining alternative */
@@ -12836,7 +12848,7 @@ noxtls_return_t noxtls_tls13_send_server_hello(tls13_context_t *ctx)
                 if((ffdhe_params_rc != NOXTLS_RETURN_SUCCESS) ||
                    (p_len == 0U) || (p_len > NOXTLS_FFDHE8192_P_BYTES) ||
                    (client_share->key_exchange_len > p_len)) {
-                    if(ctx->handshake_workspace == NULL) { NOXTLS_SECURE_FREE(key_share_entry, TLS_KEY_SHARE_ENTRY_MAX_LEN); }
+                    if(key_share_owned != 0U) { NOXTLS_SECURE_FREE(key_share_entry, TLS_KEY_SHARE_ENTRY_MAX_LEN); }
                     if(server_hello != ctx->handshake_workspace) { NOXTLS_SECURE_FREE(server_hello, TLS_SERVER_HELLO_DEFAULT_SIZE); } else if(ctx->handshake_workspace != NULL) { noxtls_secure_zero((ctx->handshake_workspace), (size_t)(TLS_HANDSHAKE_WORKSPACE_SIZE)); }
                            else {
                                /* MISRA 15.7: no remaining alternative */
@@ -12846,7 +12858,7 @@ noxtls_return_t noxtls_tls13_send_server_hello(tls13_context_t *ctx)
             }
             ffdhe_buf = (uint8_t *)NOXTLS_CALLOC(3U, (size_t)p_len);
             if(ffdhe_buf == NULL) {
-                if(ctx->handshake_workspace == NULL) { NOXTLS_SECURE_FREE(key_share_entry, TLS_KEY_SHARE_ENTRY_MAX_LEN); }
+                if(key_share_owned != 0U) { NOXTLS_SECURE_FREE(key_share_entry, TLS_KEY_SHARE_ENTRY_MAX_LEN); }
                 if(server_hello != ctx->handshake_workspace) { NOXTLS_SECURE_FREE(server_hello, TLS_SERVER_HELLO_DEFAULT_SIZE); } else if(ctx->handshake_workspace != NULL) { noxtls_secure_zero((ctx->handshake_workspace), (size_t)(TLS_HANDSHAKE_WORKSPACE_SIZE)); }
                        else {
                            /* MISRA 15.7: no remaining alternative */
@@ -12868,7 +12880,7 @@ noxtls_return_t noxtls_tls13_send_server_hello(tls13_context_t *ctx)
                 }
                 if((ffdhe_ss_rc != NOXTLS_RETURN_SUCCESS) || ((4U + p_len) > key_share_entry_len)) {
                     NOXTLS_SECURE_FREE(ffdhe_buf, 3U * p_len);
-                    if(ctx->handshake_workspace == NULL) { NOXTLS_SECURE_FREE(key_share_entry, TLS_KEY_SHARE_ENTRY_MAX_LEN); }
+                    if(key_share_owned != 0U) { NOXTLS_SECURE_FREE(key_share_entry, TLS_KEY_SHARE_ENTRY_MAX_LEN); }
                     if(server_hello != ctx->handshake_workspace) { NOXTLS_SECURE_FREE(server_hello, TLS_SERVER_HELLO_DEFAULT_SIZE); } else if(ctx->handshake_workspace != NULL) { noxtls_secure_zero((ctx->handshake_workspace), (size_t)(TLS_HANDSHAKE_WORKSPACE_SIZE)); }
                            else {
                                /* MISRA 15.7: no remaining alternative */
@@ -12893,7 +12905,7 @@ noxtls_return_t noxtls_tls13_send_server_hello(tls13_context_t *ctx)
                 }
                 ecdhe_ctx = (tls_ecdhe_context_t*)NOXTLS_MALLOC(sizeof(tls_ecdhe_context_t));
                 if(ecdhe_ctx == NULL) {
-                    if(ctx->handshake_workspace == NULL) { NOXTLS_SECURE_FREE(key_share_entry, TLS_KEY_SHARE_ENTRY_MAX_LEN); }
+                    if(key_share_owned != 0U) { NOXTLS_SECURE_FREE(key_share_entry, TLS_KEY_SHARE_ENTRY_MAX_LEN); }
                     if(server_hello != ctx->handshake_workspace) { NOXTLS_SECURE_FREE(server_hello, TLS_SERVER_HELLO_DEFAULT_SIZE); } else if(ctx->handshake_workspace != NULL) { noxtls_secure_zero((ctx->handshake_workspace), (size_t)(TLS_HANDSHAKE_WORKSPACE_SIZE)); }
                            else {
                                /* MISRA 15.7: no remaining alternative */
@@ -12908,7 +12920,7 @@ noxtls_return_t noxtls_tls13_send_server_hello(tls13_context_t *ctx)
                     if(ecdhe_setup_rc != NOXTLS_RETURN_SUCCESS) {
                     (void)noxtls_tls_ecdhe_context_free(ecdhe_ctx);
                     (void)noxtls_free(ecdhe_ctx);
-                    if(ctx->handshake_workspace == NULL) { NOXTLS_SECURE_FREE(key_share_entry, TLS_KEY_SHARE_ENTRY_MAX_LEN); }
+                    if(key_share_owned != 0U) { NOXTLS_SECURE_FREE(key_share_entry, TLS_KEY_SHARE_ENTRY_MAX_LEN); }
                     if(server_hello != ctx->handshake_workspace) { NOXTLS_SECURE_FREE(server_hello, TLS_SERVER_HELLO_DEFAULT_SIZE); } else if(ctx->handshake_workspace != NULL) { noxtls_secure_zero((ctx->handshake_workspace), (size_t)(TLS_HANDSHAKE_WORKSPACE_SIZE)); }
                            else {
                                /* MISRA 15.7: no remaining alternative */
@@ -12920,7 +12932,7 @@ noxtls_return_t noxtls_tls13_send_server_hello(tls13_context_t *ctx)
             }
             key_share_entry_len = TLS_KEY_SHARE_ENTRY_MAX_LEN;
             if(noxtls_tls13_key_share_encode(ecdhe_ctx, key_share_entry, &key_share_entry_len) != NOXTLS_RETURN_SUCCESS) {
-                if(ctx->handshake_workspace == NULL) { NOXTLS_SECURE_FREE(key_share_entry, TLS_KEY_SHARE_ENTRY_MAX_LEN); }
+                if(key_share_owned != 0U) { NOXTLS_SECURE_FREE(key_share_entry, TLS_KEY_SHARE_ENTRY_MAX_LEN); }
                 if(server_hello != ctx->handshake_workspace) { NOXTLS_SECURE_FREE(server_hello, TLS_SERVER_HELLO_DEFAULT_SIZE); } else if(ctx->handshake_workspace != NULL) { noxtls_secure_zero((ctx->handshake_workspace), (size_t)(TLS_HANDSHAKE_WORKSPACE_SIZE)); }
                        else {
                            /* MISRA 15.7: no remaining alternative */
@@ -12941,7 +12953,7 @@ noxtls_return_t noxtls_tls13_send_server_hello(tls13_context_t *ctx)
         offset += 1U;
         noxtls_copy_u8(&server_hello[offset], (size_t)TLS_SERVER_HELLO_DEFAULT_SIZE - (size_t)(offset), key_share_entry, (size_t)(key_share_entry_len));
         offset += key_share_entry_len;
-        if(ctx->handshake_workspace == NULL) { NOXTLS_SECURE_FREE(key_share_entry, TLS_KEY_SHARE_ENTRY_MAX_LEN); }
+        if(key_share_owned != 0U) { NOXTLS_SECURE_FREE(key_share_entry, TLS_KEY_SHARE_ENTRY_MAX_LEN); }
     }
 
     if(ctx->psk_in_use != 0U) {
