@@ -25,6 +25,7 @@
 #include "common/noxtls_memory.h"
 #include "common/noxtls_debug_printf.h"
 #include "noxtls_tls_common.h"
+#include "noxtls_connection_memory.h"
 
 #if NOXTLS_DEBUG_PRINTF_ENABLED
 /* Alert level names; only referenced by the tls_recv_record debug trace. */
@@ -322,6 +323,35 @@ static noxtls_return_t tls_queue_pending_output(tls_context_t *ctx,
     if ((len > ctx->io_tx_queue_limit) || (pending > (ctx->io_tx_queue_limit - len))) {
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
+#if NOXTLS_CONN_MEMORY
+    {
+        /* Static memory: the queue is a fixed slot; compact it and append in place. */
+        uint32_t capacity = 0U;
+        uint8_t *slot = noxtls_conn_mem_tx_queue(ctx, &capacity);
+        if (slot != NULL) {
+            uint32_t i;
+            if ((pending + len) > capacity) {
+                return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+            }
+            if ((ctx->io_tx_pending == slot) && (ctx->io_tx_pending_offset > 0U)) {
+                /* Forward copy: the destination precedes the source. */
+                for (i = 0U; i < pending; i++) {
+                    slot[i] = slot[ctx->io_tx_pending_offset + i];
+                }
+            } else if ((ctx->io_tx_pending != NULL) && (ctx->io_tx_pending != slot)) {
+                noxtls_copy_u8(slot, (size_t)capacity, &ctx->io_tx_pending[ctx->io_tx_pending_offset], (size_t)pending);
+                (void)noxtls_free(ctx->io_tx_pending);
+            } else {
+                /* Empty queue or already compact. */
+            }
+            noxtls_copy_u8(&slot[pending], (size_t)(capacity - pending), data, (size_t)len);
+            ctx->io_tx_pending = slot;
+            ctx->io_tx_pending_len = pending + len;
+            ctx->io_tx_pending_offset = 0U;
+            return NOXTLS_RETURN_SUCCESS;
+        }
+    }
+#endif
     next = (uint8_t *)NOXTLS_MALLOC(pending + len);
     if (next == NULL) {
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;

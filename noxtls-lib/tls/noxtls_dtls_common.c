@@ -28,6 +28,7 @@
 #include "noxtls_tls_common.h"
 #if NOXTLS_FEATURE_TLS13
 #include "noxtls_tls13.h"
+#include "noxtls_connection_memory.h"
 #endif
 #include "common/noxtls_ct.h"
 #include "drbg/noxtls_drbg.h"
@@ -1357,6 +1358,16 @@ static void dtls_shrink_ack_ranges(dtls_context_t *ctx, uint8_t max_ranges)
     if(ctx->ack_range_capacity <= max_ranges) {
         return;
     }
+#if NOXTLS_CONN_MEMORY
+    if(noxtls_conn_mem_of(&ctx->base) != NULL) {
+        /* Static memory: the ranges are fixed slots; use fewer of them. */
+        ctx->ack_range_capacity = max_ranges;
+        if(ctx->ack_range_count > max_ranges) {
+            ctx->ack_range_count = max_ranges;
+        }
+        return;
+    }
+#endif
 
     new_bytes = sizeof(uint64_t) * max_ranges;
     keep_count = (ctx->ack_range_count > max_ranges) ? max_ranges : ctx->ack_range_count;
@@ -1389,6 +1400,20 @@ noxtls_return_t noxtls_dtls_set_ack_range_limit(dtls_context_t *ctx, uint8_t max
     if(limit > DTLS_MAX_ACK_RANGES) {
         limit = DTLS_MAX_ACK_RANGES;
     }
+#if NOXTLS_CONN_MEMORY
+    if(noxtls_conn_mem_of(&ctx->base) != NULL) {
+        /* Static memory: the ranges are fixed slots of NOXTLS_STATIC_DTLS_ACK_RANGES. */
+        if(limit > (uint8_t)NOXTLS_STATIC_DTLS_ACK_RANGES) {
+            limit = (uint8_t)NOXTLS_STATIC_DTLS_ACK_RANGES;
+        }
+        ctx->ack_range_limit = limit;
+        ctx->ack_range_capacity = limit;
+        if(ctx->ack_range_count > limit) {
+            ctx->ack_range_count = limit;
+        }
+        return NOXTLS_RETURN_SUCCESS;
+    }
+#endif
     ctx->ack_range_limit = limit;
     dtls_shrink_ack_ranges(ctx, limit);
     return NOXTLS_RETURN_SUCCESS;
@@ -1845,6 +1870,21 @@ static void dtls_rx_stash_remainder(dtls_context_t *ctx, const uint8_t *rest, ui
     if(rest_len < DTLS_RECORD_HEADER_SIZE) {
         return;
     }
+#if NOXTLS_CONN_MEMORY
+    {
+        /* Static memory: the stash is a fixed slot of one datagram. */
+        uint32_t capacity = 0U;
+        uint8_t *slot = noxtls_conn_mem_rx_stash(&ctx->base, &capacity);
+        if(slot != NULL) {
+            if(rest_len <= capacity) {
+                noxtls_copy_u8(slot, (size_t)capacity, rest, (size_t)rest_len);
+                ctx->rx_datagram = slot;
+                ctx->rx_datagram_len = rest_len;
+            }
+            return;
+        }
+    }
+#endif
     ctx->rx_datagram = (uint8_t*)NOXTLS_MALLOC(rest_len);
     if(ctx->rx_datagram == NULL) {
         return; /* Out of memory: the remaining records are lost (the peer retransmits). */

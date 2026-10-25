@@ -52,6 +52,7 @@ static int32_t tls13_is_dtls_context(const tls13_context_t *ctx);
 #include "mdigest/noxtls_hash.h"
 #include "drbg/noxtls_drbg.h"
 #include "noxtls_ct.h"
+#include "noxtls_connection_memory.h"
 #if NOXTLS_FEATURE_DTLS_ECJPAKE
 #include "noxtls_tls12_ecjpake.h"
 #endif
@@ -2053,7 +2054,13 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
      */
     write_key = (ctx->base.base.role == TLS_ROLE_CLIENT) ? ctx->client_write_key : ctx->server_write_key;
     write_iv  = (ctx->base.base.role == TLS_ROLE_CLIENT) ? ctx->client_write_iv  : ctx->server_write_iv;
-    if(epoch == (uint16_t)DTLS13_EPOCH_HANDSHAKE) {
+    if((epoch == (uint16_t)DTLS13_EPOCH_HANDSHAKE) && (ctx->hs == NULL)) {
+        /* Handshake keys were released (static memory): nothing is sent in epoch 2 any more. */
+        if(padded_inner != NULL) {
+            (void)noxtls_free(padded_inner);
+        }
+        return NOXTLS_RETURN_FAILED;
+    } else if(epoch == (uint16_t)DTLS13_EPOCH_HANDSHAKE) {
         sn_key = (ctx->base.base.role == TLS_ROLE_CLIENT) ? ctx->hs->client_handshake_sn_key : ctx->hs->server_handshake_sn_key;
     } else {
         sn_key = (ctx->base.base.role == TLS_ROLE_CLIENT) ? ctx->client_sn_key : ctx->server_sn_key;
@@ -2311,6 +2318,8 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
     uint8_t mask[DTLS13_RECORD_NUMBER_ENC_LEN];
     uint8_t tag[16];
     uint8_t use_handshake = 0U;
+    const uint8_t *epoch2_secret = NULL;
+    const uint8_t *epoch2_sn_key = NULL;
     uint8_t use_aes_gcm = 0U;
     uint8_t use_aes_ccm = 0U;
     uint8_t use_chacha = 0U;
@@ -2344,6 +2353,19 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
      */
     use_handshake = ((epoch == DTLS13_EPOCH_HANDSHAKE) &&
                      (ctx->base.read_connection_epoch < (uint64_t)(DTLS13_EPOCH_HANDSHAKE + 4U))) ? 1U : 0U;
+    if((use_handshake != 0U) && (ctx->hs == NULL)) {
+        /*
+         * Static memory released the handshake state. A DTLS 1.3 server keeps the client
+         * epoch-2 read secret to acknowledge a retransmitted Finished again; any other
+         * late epoch-2 record (RFC 9147 Section 5.8) is discarded like a duplicate.
+         */
+#if NOXTLS_CONN_MEMORY
+        epoch2_secret = noxtls_conn_mem_epoch2_secret(ctx, &epoch2_sn_key);
+#endif
+        if(epoch2_secret == NULL) {
+            return NOXTLS_RETURN_DTLS_RECORD_REPLAYED;
+        }
+    }
     seq_len = ((raw[0] & DTLS13_UNIFIED_S_BIT) != 0U) ? 2U : 1U;
     {
         /*
@@ -2403,11 +2425,13 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
     if(ctx->base.base.role == TLS_ROLE_CLIENT) {
         read_key = ctx->server_write_key;
         read_iv  = ctx->server_write_iv;
-        sn_key   = (use_handshake != 0U) ? ctx->hs->server_handshake_sn_key : ctx->server_sn_key;
+        sn_key   = (use_handshake != 0U) ?
+            ((epoch2_sn_key != NULL) ? epoch2_sn_key : ctx->hs->server_handshake_sn_key) : ctx->server_sn_key;
     } else {
         read_key = ctx->client_write_key;
         read_iv  = ctx->client_write_iv;
-        sn_key   = (use_handshake != 0U) ? ctx->hs->client_handshake_sn_key : ctx->client_sn_key;
+        sn_key   = (use_handshake != 0U) ?
+            ((epoch2_sn_key != NULL) ? epoch2_sn_key : ctx->hs->client_handshake_sn_key) : ctx->client_sn_key;
     }
 
     if(tls13_get_record_cipher_params(ctx->cipher_suite, &use_aes_gcm, &use_aes_ccm, &use_chacha, &aes_type, &tag_len) != NOXTLS_RETURN_SUCCESS) {
@@ -2475,8 +2499,9 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
         const noxtls_hash_algos_t hash = sha384 ? NOXTLS_HASH_SHA_384 : NOXTLS_HASH_SHA_256;
         const uint32_t secret_len = sha384 ? 48U : 32U;
         const uint32_t key_len = (sha384 || use_chacha != 0U) ? 32U : 16U;
-        const uint8_t *secret = ctx->base.base.role == TLS_ROLE_CLIENT ?
-            ctx->hs->server_handshake_traffic_secret : ctx->hs->client_handshake_traffic_secret;
+        const uint8_t *secret = (epoch2_secret != NULL) ? epoch2_secret :
+            ((ctx->base.base.role == TLS_ROLE_CLIENT) ?
+             ctx->hs->server_handshake_traffic_secret : ctx->hs->client_handshake_traffic_secret);
         noxtls_return_t derive_rc = dtls13_hkdf_expand_label(hash, secret, secret_len,
             (const uint8_t *)"key", 3U, NULL, 0U, handshake_read_key, key_len);
         if(derive_rc == NOXTLS_RETURN_SUCCESS) {

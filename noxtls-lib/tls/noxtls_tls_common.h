@@ -508,6 +508,10 @@ typedef struct
     uint8_t *io_rx_payload;
     uint32_t io_rx_payload_len;
     uint32_t io_rx_payload_offset;
+#if NOXTLS_CONFIG_STATIC_MEMORY
+    /** Static memory: the connection's memory block (noxtls_connection_memory_t), or NULL. */
+    void *static_mem;
+#endif
 } tls_context_t;
 NOXTLS_MSVC_WARNING_POP
 
