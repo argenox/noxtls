@@ -731,6 +731,44 @@ const uint8_t *lb_field_cert_der(const x509_certificate_t *cert, uint32_t *len)
 
 static lb_link_t s_link;
 static tls13_context_t s_t13[2];
+
+#if NOXTLS_CONFIG_STATIC_MEMORY
+#include "tls/noxtls_connection_memory.h"
+/* Caller blocks for the next pair (index 0: client, 1: server). */
+static void *s_static_mem[2];
+static size_t s_static_len[2];
+static uint32_t s_static_profile[2];
+static int s_static_armed;
+
+void lb_static_memory_set(void *client_mem, size_t client_len, uint32_t client_profile,
+                          void *server_mem, size_t server_len, uint32_t server_profile)
+{
+    s_static_mem[0] = client_mem;
+    s_static_len[0] = client_len;
+    s_static_profile[0] = client_profile;
+    s_static_mem[1] = server_mem;
+    s_static_len[1] = server_len;
+    s_static_profile[1] = server_profile;
+    s_static_armed = 1;
+}
+
+static noxtls_return_t lb_tls13_init(tls13_context_t *ctx, tls_role_t role, int dtls, int is_client)
+{
+    int i = is_client ? 0 : 1;
+    if((s_static_armed != 0) && (s_static_mem[i] != NULL)) {
+        return (dtls != 0) ?
+            noxtls_dtls13_context_init_static(ctx, role, s_static_profile[i], s_static_mem[i], s_static_len[i]) :
+            noxtls_tls13_context_init_static(ctx, role, s_static_profile[i], s_static_mem[i], s_static_len[i]);
+    }
+    return (dtls != 0) ? noxtls_dtls13_context_init(ctx, role) : noxtls_tls13_context_init(ctx, role);
+}
+#else
+static noxtls_return_t lb_tls13_init(tls13_context_t *ctx, tls_role_t role, int dtls, int is_client)
+{
+    (void)is_client;
+    return (dtls != 0) ? noxtls_dtls13_context_init(ctx, role) : noxtls_tls13_context_init(ctx, role);
+}
+#endif
 static tls12_context_t s_t12[2];
 static noxtls_tls_connection_t s_uni[2];
 static const uint8_t *s_chain_ders[1];
@@ -796,8 +834,7 @@ static int lb_setup_tls13(lb_pair_t *pair, lb_end_t *end, int is_client)
     noxtls_return_t rc;
 
     end->t13 = ctx;
-    rc = (end->proto == LB_PROTO_DTLS13) ? noxtls_dtls13_context_init(ctx, role) :
-                                            noxtls_tls13_context_init(ctx, role);
+    rc = lb_tls13_init(ctx, role, (end->proto == LB_PROTO_DTLS13) ? 1 : 0, is_client);
     LB_CHECK_OK(rc);
     end->initialized = 1;
     LB_CHECK_OK(noxtls_tls_set_io_callbacks(&ctx->base.base, lb_io_send, lb_io_recv, port));
@@ -1031,8 +1068,16 @@ int lb_pair_init(lb_pair_t *pair, const lb_cfg_t *cfg)
         lb_keys_free();
         return 1;
     }
-    LB_RUN(lb_setup_end(pair, &pair->client, 1));
-    LB_RUN(lb_setup_end(pair, &pair->server, 0));
+    {
+        int rc = lb_setup_end(pair, &pair->client, 1);
+        if(rc == 0) {
+            rc = lb_setup_end(pair, &pair->server, 0);
+        }
+#if NOXTLS_CONFIG_STATIC_MEMORY
+        s_static_armed = 0;
+#endif
+        LB_RUN(rc);
+    }
     return 0;
 }
 

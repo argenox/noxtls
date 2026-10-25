@@ -20,6 +20,118 @@
 #define NOXTLS_TEST_ALLOCATOR_FAULT_INJECTION 1
 #endif
 
+#include "noxtls_config.h"
+
+#if NOXTLS_CONFIG_STATIC_MEMORY
+/*
+ * Static memory builds: the library's own region allocator is the allocator under
+ * test. It is compiled into the test executable (with the fault-injection hooks)
+ * and lb_alloc.h reports its accounting: live bytes of every registered arena,
+ * allocation counts, injected failures. Owners are not tracked.
+ */
+#include "lb_alloc.h"
+#include <stdio.h>
+#include "../../noxtls-lib/common/noxtls_memory.c"
+
+static unsigned s_lb_owner = LB_OWNER_FIXTURE;
+static size_t s_lb_count_base;
+static size_t s_lb_peak_base;
+
+static size_t lb_static_live_blocks(void)
+{
+    size_t i;
+    size_t blocks = 0U;
+    for(i = 0U; i < (size_t)NOXTLS_STATIC_MAX_REGIONS; i++) {
+        if((g_noxtls_regions[i] != NULL) && (g_noxtls_regions[i]->kind == NOXTLS_MEM_REGION_ARENA)) {
+            blocks += g_noxtls_regions[i]->live_blocks;
+        }
+    }
+    return blocks;
+}
+
+unsigned lb_alloc_set_owner(unsigned owner)
+{
+    unsigned previous = s_lb_owner;
+    s_lb_owner = (owner < LB_OWNER_MAX) ? owner : LB_OWNER_FIXTURE;
+    return previous;
+}
+
+void lb_alloc_get_owner_stats(unsigned owner, lb_alloc_owner_stats_t *stats)
+{
+    (void)owner;
+    if(stats != NULL) {
+        memset(stats, 0, sizeof(*stats));
+    }
+}
+
+void lb_alloc_get_stats(lb_alloc_stats_t *stats)
+{
+    noxtls_mem_test_stats_t test;
+    if(stats == NULL) {
+        return;
+    }
+    noxtls_mem_test_get_stats(&test);
+    memset(stats, 0, sizeof(*stats));
+    stats->live_bytes = noxtls_mem_static_live_bytes();
+    stats->live_blocks = lb_static_live_blocks();
+    stats->peak_bytes = (stats->live_bytes > s_lb_peak_base) ? stats->live_bytes : s_lb_peak_base;
+    stats->alloc_calls = noxtls_mem_static_allocation_count() - s_lb_count_base;
+    stats->alloc_bytes = test.successful_bytes;
+    stats->largest_block = test.largest_request;
+}
+
+void lb_alloc_reset_peak(void)
+{
+    s_lb_peak_base = noxtls_mem_static_live_bytes();
+}
+
+void lb_alloc_reset_counters(void)
+{
+    s_lb_count_base = noxtls_mem_static_allocation_count();
+    noxtls_mem_test_stats_reset();
+}
+
+size_t lb_alloc_live_bytes(void)
+{
+    return noxtls_mem_static_live_bytes();
+}
+
+size_t lb_alloc_live_blocks(void)
+{
+    return lb_static_live_blocks();
+}
+
+size_t lb_alloc_dump_live(void)
+{
+    size_t i;
+    for(i = 0U; i < (size_t)NOXTLS_STATIC_MAX_REGIONS; i++) {
+        const noxtls_mem_region_t *r = g_noxtls_regions[i];
+        if((r != NULL) && (r->kind == NOXTLS_MEM_REGION_ARENA) && (r->live_blocks != 0U)) {
+            fprintf(stderr, "  live region %s: %lu bytes in %lu blocks\n", r->name,
+                    (unsigned long)r->live_bytes, (unsigned long)r->live_blocks);
+        }
+    }
+    return lb_static_live_blocks();
+}
+
+void lb_alloc_fail_after(size_t allocations_before_failure)
+{
+    if(allocations_before_failure == SIZE_MAX) {
+        noxtls_mem_test_fail_reset();
+    } else {
+        noxtls_mem_test_fail_after(allocations_before_failure);
+    }
+}
+
+size_t lb_alloc_failed_calls(void)
+{
+    noxtls_mem_test_stats_t test;
+    noxtls_mem_test_get_stats(&test);
+    return test.failed_allocations;
+}
+
+#else /* !NOXTLS_CONFIG_STATIC_MEMORY */
+
 #include "lb_alloc.h"
 
 #include <stdio.h>
@@ -44,8 +156,12 @@ typedef struct lb_block
     struct lb_block *next;
     size_t size;
     size_t seq;
+    const char *file;
+    const char *function;
+    uint32_t line;
     uint32_t magic;
     uint32_t pad;
+    uint32_t reserved;
 } lb_block_t;
 
 /* Payload follows the header; keep it 16-byte aligned. */
@@ -134,13 +250,32 @@ static int lb_should_fail(void)
 
 static size_t s_trace_seq = SIZE_MAX;
 static int s_trace_init;
+static int s_trace_all;
+
+/* LB_TRACE_ALL=1: print every allocation and free with its source location (audits). */
+static void lb_trace_all(char what, const lb_block_t *block)
+{
+    if((s_trace_all != 0) && (block != NULL)) {
+        const char *file = (block->file != NULL) ? block->file : "?";
+        const char *slash = strrchr(file, '/');
+        const char *bslash = strrchr(file, '\\');
+        if((bslash != NULL) && ((slash == NULL) || (bslash > slash))) {
+            slash = bslash;
+        }
+        fprintf(stderr, "lb_trace %c %lu %lu %s:%u %s owner=%u\n", what, (unsigned long)block->seq,
+                (unsigned long)block->size, (slash != NULL) ? slash + 1 : file, (unsigned)block->line,
+                (block->function != NULL) ? block->function : "?", (unsigned)block->pad);
+    }
+}
 
 /* LB_TRACE_SEQ=<n>: report the caller addresses that allocate and free allocation #n. */
 static void lb_trace(const char *what, const lb_block_t *block, void *caller)
 {
     if(s_trace_init == 0) {
         const char *env = getenv("LB_TRACE_SEQ");
+        const char *all = getenv("LB_TRACE_ALL");
         s_trace_init = 1;
+        s_trace_all = (all != NULL) && (all[0] == '1');
         if(env != NULL) {
             s_trace_seq = (size_t)strtoul(env, NULL, 10);
         }
@@ -185,6 +320,9 @@ static void *lb_alloc(size_t size, noxtls_mem_operation_t op, const char *file, 
     }
     block->size = size;
     block->seq = ++s_seq;
+    block->file = file;
+    block->function = function;
+    block->line = line;
     block->magic = LB_HEAD_MAGIC;
     block->pad = s_owner;
     {
@@ -240,8 +378,11 @@ static lb_block_t *lb_validate(void *ptr)
     return block;
 }
 
+static void lb_trace_all(char what, const lb_block_t *block);
+
 static void lb_release(lb_block_t *block)
 {
+    lb_trace_all('-', block);
     if(block->prev != NULL) {
         block->prev->next = block->next;
     } else {
@@ -270,6 +411,7 @@ static void *lb_traced(void *ptr, void *caller)
 {
     if(ptr != NULL) {
         lb_trace("allocation", lb_block_of(ptr), caller);
+        lb_trace_all('+', lb_block_of(ptr));
     }
     return ptr;
 }
@@ -506,3 +648,5 @@ size_t lb_alloc_failed_calls(void)
 {
     return s_failed_calls;
 }
+
+#endif /* NOXTLS_CONFIG_STATIC_MEMORY */

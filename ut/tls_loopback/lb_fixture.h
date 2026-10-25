@@ -239,6 +239,17 @@ typedef struct
     lb_end_t server;
 } lb_pair_t;
 
+#if NOXTLS_CONFIG_STATIC_MEMORY
+/**
+ * Static memory: initialize the contexts of the next lb_pair_init() in these caller
+ * blocks with noxtls_tls13/dtls13_context_init_static() and the given
+ * NOXTLS_CONN_PROFILE_* (NULL keeps the plain init and its library pool block).
+ * The setting applies to one pair and is cleared by lb_pair_init().
+ */
+void lb_static_memory_set(void *client_mem, size_t client_len, uint32_t client_profile,
+                          void *server_mem, size_t server_len, uint32_t server_profile);
+#endif
+
 /** Create both endpoints according to cfg (link storage is static, one pair at a time). */
 int lb_pair_init(lb_pair_t *pair, const lb_cfg_t *cfg);
 /** Drive both handshakes until done/failed/stalled. Returns 0 if both succeeded. */

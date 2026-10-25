@@ -67,7 +67,7 @@ if(NOXTLS_CFG_FEATURE_TLS13)
     )
 endif()
 
-if(NOXTLS_CFG_FEATURE_TLS12)
+if(NOXTLS_CFG_FEATURE_TLS12 AND NOT NOXTLS_CONFIG_STATIC_MEMORY)
     noxtls_lb_add_suite(tls12_loopback_test tls12_loopback_test.c
         tls12_ecdhe_ecdsa_aes128gcm
         tls12_ecdhe_ecdsa_aes256gcm
@@ -118,15 +118,23 @@ if(NOXTLS_CFG_FEATURE_TLS12)
 endif()
 
 if(NOXTLS_CFG_FEATURE_DTLS AND NOXTLS_CFG_FEATURE_TLS12 AND NOXTLS_CFG_FEATURE_TLS13)
-    noxtls_lb_add_suite(dtls_loopback_test dtls_loopback_test.c
-        dtls13_ecdsa_handshake_data
-        dtls13_chacha20_handshake_data
-        dtls12_ecdsa_gcm_handshake_data
-        dtls12_mtls_sha384_handshake_data
-    )
+    if(NOXTLS_CONFIG_STATIC_MEMORY)
+        # Static memory covers the DTLS 1.3 connection; DTLS 1.2 stays a heap-configuration test.
+        noxtls_lb_add_suite(dtls_loopback_test dtls_loopback_test.c
+            dtls13_ecdsa_handshake_data
+            dtls13_chacha20_handshake_data
+        )
+    else()
+        noxtls_lb_add_suite(dtls_loopback_test dtls_loopback_test.c
+            dtls13_ecdsa_handshake_data
+            dtls13_chacha20_handshake_data
+            dtls12_ecdsa_gcm_handshake_data
+            dtls12_mtls_sha384_handshake_data
+        )
+    endif()
 endif()
 
-if(NOXTLS_CFG_FEATURE_TLS12 AND NOXTLS_CFG_FEATURE_TLS13)
+if(NOXTLS_CFG_FEATURE_TLS12 AND NOXTLS_CFG_FEATURE_TLS13 AND NOT NOXTLS_CONFIG_STATIC_MEMORY)
     noxtls_lb_add_suite(unified_loopback_test unified_loopback_test.c
         unified_tls13_negotiation
         unified_downgrade_to_tls12_server
@@ -208,7 +216,7 @@ function(noxtls_lb_register_interop src_dir bin_dir python openssl)
     endforeach()
 endfunction()
 
-if(NOXTLS_OPENSSL_EXECUTABLE AND Python3_Interpreter_FOUND AND BUILD_APPLICATIONS AND
+if(NOXTLS_OPENSSL_EXECUTABLE AND Python3_Interpreter_FOUND AND BUILD_APPLICATIONS AND NOT NOXTLS_CONFIG_STATIC_MEMORY AND
    NOT (CMAKE_VERSION VERSION_LESS 3.19))
     # DEFER evaluates its arguments when the call runs: bake the current values in.
     cmake_language(EVAL CODE "cmake_language(DEFER DIRECTORY [[${CMAKE_SOURCE_DIR}]] CALL noxtls_lb_register_interop [[${CMAKE_CURRENT_SOURCE_DIR}]] [[${CMAKE_CURRENT_BINARY_DIR}]] [[${Python3_EXECUTABLE}]] [[${NOXTLS_OPENSSL_EXECUTABLE}]])")

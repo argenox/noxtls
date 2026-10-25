@@ -16,7 +16,12 @@ add_executable(key_share_memory_ut key_share_memory_ut.c
     "${_root}/noxtls-lib/common/noxtls_ct.c")
 target_include_directories(key_share_memory_ut PRIVATE "${_root}" "${_root}/noxtls-lib"
     "${_root}/noxtls-lib/tls" "${_root}/noxtls-lib/common")
-target_compile_definitions(key_share_memory_ut PRIVATE NOXTLS_USE_STATIC_BUFFERS=1
-    NOXTLS_STATIC_ALLOCATOR_MODE=0 NOXTLS_TEST_ALLOCATOR_FAULT_INJECTION=1)
+if(NOXTLS_CONFIG_STATIC_MEMORY)
+    # Static memory: the 1 KB pool is the global arena installed by noxtls_mem_init().
+    target_compile_definitions(key_share_memory_ut PRIVATE NOXTLS_TEST_ALLOCATOR_FAULT_INJECTION=1)
+else()
+    target_compile_definitions(key_share_memory_ut PRIVATE NOXTLS_USE_STATIC_BUFFERS=1
+        NOXTLS_STATIC_ALLOCATOR_MODE=0 NOXTLS_TEST_ALLOCATOR_FAULT_INJECTION=1)
+endif()
 target_link_libraries(key_share_memory_ut PRIVATE utnox)
 add_test(NAME key_share_memory_ut COMMAND key_share_memory_ut RUN_ALL)

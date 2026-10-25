@@ -1,4 +1,20 @@
 set(NOXTLS_ROOT_UT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../ut")
+if(NOXTLS_CONFIG_STATIC_MEMORY)
+    # Static memory (docs/static-memory.md): the second CTest configuration. Only the
+    # TLS 1.3 / DTLS 1.3 handshake suites and the static-memory tests are registered;
+    # the heap configuration runs everything else.
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    add_test(NAME allocator_policy_check
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/check_allocator_policy.py")
+    if(TARGET noxtls_tls AND TARGET noxtls_cert AND TARGET noxtls_pkc AND
+       NOXTLS_CFG_FEATURE_TLS12 AND NOXTLS_CFG_FEATURE_TLS13)
+        add_subdirectory(tls_loopback)
+    endif()
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/static_memory/CMakeLists.txt")
+        add_subdirectory(static_memory)
+    endif()
+    return()
+endif()
 if(TARGET noxtls_tls AND NOT TARGET server_name_ack_test)
     add_subdirectory(server_name_ack)
 endif()
@@ -186,6 +202,7 @@ if(TARGET noxtls_tls AND TARGET noxtls_cert AND TARGET noxtls_pkc AND
     add_subdirectory(tls_loopback)
     add_subdirectory(x509_parse)
     add_subdirectory(ram_budget)
+    add_subdirectory(static_memory)
 endif()
 
 if(NOXTLS_CFG_FEATURE_ED25519)
