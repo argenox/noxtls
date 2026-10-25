@@ -177,6 +177,10 @@ static x509_cert_fail_min_t s_cert_fail_info;
  */
 static const x509_certificate_chain_t *s_x509_trust_anchors;
 static x509_certificate_chain_t s_x509_trust_store_owned;
+#if NOXTLS_CONFIG_STATIC_MEMORY
+/* Static memory pools reserve NOXTLS_STATIC_X509_CERT_STRUCT_BYTES per parsed certificate. */
+NOXTLS_STATIC_ASSERT(sizeof(x509_certificate_t) <= NOXTLS_STATIC_X509_CERT_STRUCT_BYTES, x509_cert_struct_bytes);
+#endif
 static int s_x509_trust_anchors_initialized;
 
 /**
@@ -2275,6 +2279,12 @@ static noxtls_return_t x509_certificate_parse_der_common(x509_certificate_t *cer
         return NOXTLS_RETURN_CERT_PARSE_FAILED;
     }
 
+#if NOXTLS_CONFIG_STATIC_MEMORY
+    if((copy != 0) && (len > (uint32_t)NOXTLS_STATIC_CERT_DER_MAX)) {
+        /* Static memory: certificate copies are sized by NOXTLS_STATIC_CERT_DER_MAX. */
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+    }
+#endif
     if(copy != 0) {
         uint8_t *owned = (uint8_t*)NOXTLS_MALLOC(len);
         if(owned == NULL) {
@@ -4564,6 +4574,13 @@ noxtls_return_t noxtls_x509_certificate_chain_reserve(x509_certificate_chain_t *
     if(capacity > (UINT32_MAX / (uint32_t)sizeof(x509_certificate_t))) {
         return NOXTLS_RETURN_FAILED;
     }
+#if NOXTLS_CONFIG_STATIC_MEMORY
+    /* Static memory: one allocation of NOXTLS_STATIC_CHAIN_CAPACITY certificates, never grown. */
+    if(capacity > (uint32_t)NOXTLS_STATIC_CHAIN_CAPACITY) {
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+    }
+    capacity = (uint32_t)NOXTLS_STATIC_CHAIN_CAPACITY;
+#endif
     if(chain->certs == NULL) {
         new_certs = (x509_certificate_t*)NOXTLS_CALLOC((size_t)capacity, sizeof(x509_certificate_t));
     } else {
@@ -6209,6 +6226,11 @@ noxtls_return_t noxtls_x509_trust_store_set(const x509_certificate_chain_t *trus
     if((trust_anchors == NULL) || (trust_anchors->count == 0U)) {
         return NOXTLS_RETURN_SUCCESS;
     }
+#if NOXTLS_CONFIG_STATIC_MEMORY
+    if(trust_anchors->count > (uint32_t)NOXTLS_STATIC_TRUST_ANCHORS_MAX) {
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;  /* fail closed: the store stays empty */
+    }
+#endif
     if(trust_anchors == &s_x509_trust_store_owned) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
@@ -6263,6 +6285,12 @@ noxtls_return_t noxtls_x509_trust_store_set_move(x509_certificate_chain_t *trust
         }
         return NOXTLS_RETURN_SUCCESS;
     }
+#if NOXTLS_CONFIG_STATIC_MEMORY
+    if(trust_anchors->count > (uint32_t)NOXTLS_STATIC_TRUST_ANCHORS_MAX) {
+        (void)noxtls_x509_certificate_chain_free(trust_anchors);
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;  /* fail closed: the store stays empty */
+    }
+#endif
     s_x509_trust_store_owned = *trust_anchors;
     noxtls_secure_zero(trust_anchors, sizeof(x509_certificate_chain_t));
     s_x509_trust_anchors = &s_x509_trust_store_owned;
@@ -6293,6 +6321,11 @@ noxtls_return_t noxtls_x509_trust_store_set_der_nocopy(const uint8_t *const *der
     if((ders == NULL) || (lens == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
+#if NOXTLS_CONFIG_STATIC_MEMORY
+    if(count > (uint32_t)NOXTLS_STATIC_TRUST_ANCHORS_MAX) {
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;  /* fail closed: the store stays empty */
+    }
+#endif
     rc = noxtls_x509_certificate_chain_reserve(&s_x509_trust_store_owned, count);
     for(i = 0U; (i < count) && (rc == NOXTLS_RETURN_SUCCESS); i += 1U) {
         rc = noxtls_x509_certificate_chain_add_der_nocopy(&s_x509_trust_store_owned, ders[i], lens[i]);
