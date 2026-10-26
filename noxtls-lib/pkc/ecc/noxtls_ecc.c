@@ -2943,6 +2943,12 @@ typedef struct {
     uint32_t size;
 } ecc_ctable_t;
 
+#if (NOXTLS_ECC_FIXED_POINT_OPTIM) && (NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE) && NOXTLS_CONFIG_STATIC_MEMORY
+/* The cached tables are allocated by whichever call fills the cache, which in a static
+ * memory build is a connection's call: they would live in that connection's handshake
+ * arena and dangle once it is released, and another connection would read them. */
+#error "NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE is not supported with NOXTLS_CONFIG_STATIC_MEMORY"
+#endif
 #if (NOXTLS_ECC_FIXED_POINT_OPTIM) && (NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE)
 /* Opt-in process-global caches, keyed by curve id (curve_tag), never by the address of a
  * parameter structure. Shared mutable state: callers must serialize ECC use. */

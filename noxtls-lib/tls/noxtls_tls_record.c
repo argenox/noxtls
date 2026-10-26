@@ -1967,7 +1967,7 @@ noxtls_return_t noxtls_tls13_encrypt_record(tls13_context_t *ctx,
  * @param[in] omit_length Whether to omit the length
  * @return NOXTLS_RETURN_SUCCESS on success, NOXTLS_RETURN_FAILED on failure
  */
-noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
+static noxtls_return_t tls13_send_dtls13_encrypted_record_body(tls13_context_t *ctx,
                                        int32_t use_handshake_keys,
                                        uint8_t content_type,
                                        const uint8_t *inner_plaintext,
@@ -2222,6 +2222,26 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
         ctx->base.last_flight_sent_ms = ctx->base.base.time_callback(ctx->base.base.user_data);
     }
     return NOXTLS_RETURN_SUCCESS;
+}
+
+/* Public entry point: runs in the connection's allocation scope (static memory). */
+noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
+                                       int32_t use_handshake_keys,
+                                       uint8_t content_type,
+                                       const uint8_t *inner_plaintext,
+                                       uint32_t inner_len,
+                                       int32_t omit_length) /* NOLINT(bugprone-easily-swappable-parameters) */
+{
+    noxtls_return_t rc;
+#if NOXTLS_CONN_MEMORY
+    noxtls_mem_scope_t *previous = noxtls_conn_mem_enter((ctx != NULL) ? &ctx->base.base : NULL);
+#endif
+    rc = tls13_send_dtls13_encrypted_record_body(ctx, use_handshake_keys, content_type, inner_plaintext, inner_len,
+                                                 omit_length);
+#if NOXTLS_CONN_MEMORY
+    noxtls_conn_mem_leave(ctx, previous);
+#endif
+    return rc;
 }
 #endif /* NOXTLS_FEATURE_DTLS */
 

@@ -140,15 +140,21 @@ noxtls_connection_memory_t *noxtls_conn_mem_of(const tls_context_t *base)
 }
 
 /**
- * @brief Carve @p memory for @p profile and register its regions.
+ * @brief Carve the steady block (header first) and the handshake block for @p profile
+ *        and register their regions.
+ *
+ * @param[in] handshake NULL: the handshake part follows the steady part in @p memory
+ *            (one block of fp.total bytes). Otherwise a separate block that other
+ *            connections may use in turn (fp.handshake bytes).
  * @return The header, or NULL with @p rc set.
  */
 static noxtls_connection_memory_t *conn_carve(uint32_t profile, void *memory, size_t memory_len,
-                                              noxtls_return_t *rc)
+                                              void *handshake, size_t handshake_len, noxtls_return_t *rc)
 {
     noxtls_connection_footprint_t fp;
     noxtls_connection_memory_t *conn = (noxtls_connection_memory_t *)memory;
     uint8_t *base = (uint8_t *)memory;
+    uint8_t external = (handshake != NULL) ? 1U : 0U;
     size_t steady_fixed;
     size_t hs_fixed;
 
@@ -160,19 +166,44 @@ static noxtls_connection_memory_t *conn_carve(uint32_t profile, void *memory, si
         *rc = NOXTLS_RETURN_NULL;
         return NULL;
     }
-    if((((uintptr_t)memory % NOXTLS_MEM_REGION_ALIGN) != 0U) || (memory_len < fp.total)) {
-        *rc = NOXTLS_RETURN_INVALID_PARAM;
-        return NULL;
+    if(external == 0U) {
+        if((((uintptr_t)memory % NOXTLS_MEM_REGION_ALIGN) != 0U) || (memory_len < fp.total)) {
+            *rc = NOXTLS_RETURN_INVALID_PARAM;
+            return NULL;
+        }
+    } else {
+        uintptr_t s = (uintptr_t)memory;
+        uintptr_t h = (uintptr_t)handshake;
+        if(((s % NOXTLS_MEM_REGION_ALIGN) != 0U) || ((h % NOXTLS_MEM_REGION_ALIGN) != 0U) ||
+           (memory_len < fp.steady) || (handshake_len < fp.handshake) ||
+           ((s < (h + fp.handshake)) && (h < (s + fp.steady)))) {
+            *rc = NOXTLS_RETURN_INVALID_PARAM;
+            return NULL;
+        }
+        /* A block still held by a live connection (a handshake part not released yet,
+         * or another context's steady part) is refused before anything is written. */
+        if((noxtls_mem_region_overlaps_live(memory, fp.steady) != 0) ||
+           (noxtls_mem_region_overlaps_live(handshake, fp.handshake) != 0)) {
+            *rc = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+            return NULL;
+        }
     }
-    noxtls_secure_zero(memory, fp.total);
+    if(external == 0U) {
+        noxtls_secure_zero(memory, fp.total);
+        handshake = &base[fp.steady];
+    } else {
+        noxtls_secure_zero(memory, fp.steady);
+        noxtls_secure_zero(handshake, fp.handshake);
+    }
     steady_fixed = fp.tx_record + fp.record_workspace + fp.steady_fixed_other;
     hs_fixed = fp.hs_state + fp.handshake_workspace + fp.flight;
     conn->magic = NOXTLS_CONN_MAGIC;
     conn->profile = (uint8_t)profile;
+    conn->handshake_external = external;
     conn->block_size = memory_len;
     conn->steady_bytes = fp.steady;
     conn->handshake_bytes = fp.handshake;
-    conn->handshake_base = &base[fp.steady];
+    conn->handshake_base = (uint8_t *)handshake;
     *rc = noxtls_mem_region_init(&conn->steady_fixed, &base[fp.header], steady_fixed,
                                  NOXTLS_MEM_REGION_FIXED, "connection steady slots");
     if(*rc == NOXTLS_RETURN_SUCCESS) {
@@ -196,6 +227,10 @@ static noxtls_connection_memory_t *conn_carve(uint32_t profile, void *memory, si
         return NULL;
     }
     conn->scope.current = &conn->hs_arena;
+    conn->scope.owned[0] = &conn->hs_arena;
+    conn->scope.owned[1] = &conn->steady_arena;
+    conn->scope.owned[2] = &conn->hs_fixed;
+    conn->scope.owned[3] = &conn->steady_fixed;
     return conn;
 }
 
@@ -261,12 +296,29 @@ noxtls_return_t noxtls_conn_mem_bind(tls13_context_t *ctx, uint32_t profile, voi
                                      uint8_t pool_index)
 {
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
-    noxtls_connection_memory_t *conn = conn_carve(profile, memory, memory_len, &rc);
+    noxtls_connection_memory_t *conn = conn_carve(profile, memory, memory_len, NULL, 0U, &rc);
 
     if(conn == NULL) {
         return rc;
     }
     conn->pool_index = pool_index;
+    conn_attach(ctx, conn, (uint8_t)(profile & 1U));
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_conn_mem_bind_split(tls13_context_t *ctx, uint32_t profile, void *steady, size_t steady_len,
+                                           void *handshake, size_t handshake_len)
+{
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+    noxtls_connection_memory_t *conn;
+
+    if(handshake == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    conn = conn_carve(profile, steady, steady_len, handshake, handshake_len, &rc);
+    if(conn == NULL) {
+        return rc;
+    }
     conn_attach(ctx, conn, (uint8_t)(profile & 1U));
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -307,13 +359,23 @@ noxtls_mem_scope_t *noxtls_conn_mem_enter(const tls_context_t *base)
     noxtls_mem_scope_t *previous;
 
     if(conn == NULL) {
-        /* No connection memory (or a freed one): keep the caller's scope. */
-        previous = noxtls_mem_scope_enter(NULL);
-        noxtls_mem_scope_exit(previous);
-        return previous;
+        /* No connection memory (a freed context, TLS 1.2): the global arena, never the
+         * scope of a connection whose call is running further up the stack. */
+        return noxtls_mem_scope_enter(NULL);
     }
     conn->depth += 1U;
-    return noxtls_mem_scope_enter(&conn->scope);
+    previous = noxtls_mem_scope_enter(&conn->scope);
+    return previous;
+}
+
+void noxtls_conn_mem_leave_base(const tls_context_t *base, noxtls_mem_scope_t *previous)
+{
+    noxtls_connection_memory_t *conn = noxtls_conn_mem_of(base);
+
+    if((conn != NULL) && (conn->depth > 0U)) {
+        conn->depth -= 1U;
+    }
+    noxtls_mem_scope_exit(previous);
 }
 
 /**
@@ -634,8 +696,15 @@ void noxtls_conn_mem_free(tls13_context_t *ctx, noxtls_connection_memory_t *conn
     pool_index = conn->pool_index;
     noxtls_mem_region_deinit(&conn->steady_fixed);
     noxtls_mem_region_deinit(&conn->steady_arena);
-    noxtls_mem_region_deinit(&conn->hs_fixed);
-    noxtls_mem_region_deinit(&conn->hs_arena);
+    if((conn->handshake_external != 0U) && (conn->released != 0U)) {
+        /* A separate handshake block was wiped at the release and may belong to
+         * another connection now: forget it without touching it. */
+        noxtls_mem_region_unregister(&conn->hs_fixed);
+        noxtls_mem_region_unregister(&conn->hs_arena);
+    } else {
+        noxtls_mem_region_deinit(&conn->hs_fixed);
+        noxtls_mem_region_deinit(&conn->hs_arena);
+    }
     conn_wipe_epoch2(conn);
     noxtls_secure_zero(conn, sizeof(*conn));
 #if NOXTLS_STATIC_CONNECTION_POOL_COUNT > 0U
@@ -684,6 +753,13 @@ noxtls_return_t noxtls_connection_memory_handshake_region(tls13_context_t *ctx, 
         *region = NULL;
         *len = 0U;
         return NOXTLS_RETURN_NOT_INITIALIZED;
+    }
+    if((conn->handshake_external != 0U) &&
+       (noxtls_mem_region_overlaps_live(conn->handshake_base, conn->handshake_bytes) != 0)) {
+        /* Another connection holds the shared handshake block now. */
+        *region = NULL;
+        *len = 0U;
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
     *region = conn->handshake_base;
     *len = conn->handshake_bytes;

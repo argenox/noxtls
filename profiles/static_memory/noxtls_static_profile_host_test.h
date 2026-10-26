@@ -39,6 +39,10 @@
 #ifndef NOXTLS_STATIC_GLOBAL_EXTRA
 #define NOXTLS_STATIC_GLOBAL_EXTRA (320U * 1024U)
 #endif
+/* ut/multi_context holds eight associations (16 connections) at once. */
+#ifndef NOXTLS_STATIC_MAX_CONNECTIONS
+#define NOXTLS_STATIC_MAX_CONNECTIONS 16U
+#endif
 #ifndef NOXTLS_STATIC_TLS_TX_QUEUE_SIZE
 #define NOXTLS_STATIC_TLS_TX_QUEUE_SIZE (64U * 1024U)
 #endif

@@ -1684,7 +1684,7 @@ static void dtls_flight_begin_if_answered(dtls_context_t *ctx)
  * @param[in,out] ctx The context value.
  * @return The return value.
  */
-noxtls_return_t noxtls_dtls_retransmit_flight(dtls_context_t *ctx)
+static noxtls_return_t dtls_retransmit_flight_body(dtls_context_t *ctx)
 {
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
@@ -1698,6 +1698,15 @@ noxtls_return_t noxtls_dtls_retransmit_flight(dtls_context_t *ctx)
     if((rc == NOXTLS_RETURN_SUCCESS) && (ctx->base.time_callback != NULL)) {
         ctx->last_flight_sent_ms = ctx->base.time_callback(ctx->base.user_data);
     }
+    return rc;
+}
+
+noxtls_return_t noxtls_dtls_retransmit_flight(dtls_context_t *ctx)
+{
+    noxtls_return_t rc;
+    NOXTLS_CONN_SCOPE_BEGIN(((ctx != NULL) ? &ctx->base : NULL));
+    rc = dtls_retransmit_flight_body(ctx);
+    NOXTLS_CONN_SCOPE_END(((ctx != NULL) ? &ctx->base : NULL));
     return rc;
 }
 
@@ -1724,7 +1733,7 @@ noxtls_return_t noxtls_dtls_retransmit_flight(dtls_context_t *ctx)
  * @return NOXTLS_RETURN_SUCCESS when the flight was resent or nothing had to be sent,
  *         NOXTLS_RETURN_NULL for a NULL context, or the retransmission failure.
  */
-noxtls_return_t noxtls_dtls_answer_repeated_flight(dtls_context_t *ctx)
+static noxtls_return_t dtls_answer_repeated_flight_body(dtls_context_t *ctx)
 {
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
     uint64_t now = 0U;
@@ -1766,6 +1775,15 @@ noxtls_return_t noxtls_dtls_answer_repeated_flight(dtls_context_t *ctx)
     }
 
     return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_dtls_answer_repeated_flight(dtls_context_t *ctx)
+{
+    noxtls_return_t rc;
+    NOXTLS_CONN_SCOPE_BEGIN(((ctx != NULL) ? &ctx->base : NULL));
+    rc = dtls_answer_repeated_flight_body(ctx);
+    NOXTLS_CONN_SCOPE_END(((ctx != NULL) ? &ctx->base : NULL));
+    return rc;
 }
 
 /**

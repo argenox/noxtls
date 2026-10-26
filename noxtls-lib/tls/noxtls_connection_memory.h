@@ -269,6 +269,7 @@ typedef struct noxtls_connection_memory_s
     uint8_t pool_index;          /**< Pool block index + 1 (0: caller block). */
     uint8_t release_pending;     /**< Handshake completed: release at the end of the call. */
     uint8_t released;            /**< Handshake part wiped and released. */
+    uint8_t handshake_external;  /**< The handshake part is a separate caller block (_split init). */
     noxtls_mem_scope_t scope;
     noxtls_mem_region_t steady_fixed;
     noxtls_mem_region_t steady_arena;
@@ -416,6 +417,36 @@ noxtls_return_t noxtls_tls13_context_init_static(tls13_context_t *ctx, tls_role_
 noxtls_return_t noxtls_dtls13_context_init_static(tls13_context_t *ctx, tls_role_t role, uint32_t profile,
                                                   void *memory, size_t memory_len);
 
+/**
+ * Initialize a TLS 1.3 context whose steady part and handshake part are two caller
+ * blocks, so that several connections can take turns with one handshake block.
+ *
+ * - @p steady: at least NOXTLS_CONNECTION_MEMORY_STEADY_SIZE(role, profile) bytes,
+ *   8-byte aligned, owned by the context until noxtls_tls13_context_free(), which wipes it.
+ * - @p handshake: at least NOXTLS_CONNECTION_MEMORY_HANDSHAKE_SIZE(role, profile) bytes,
+ *   8-byte aligned. The context holds it from this call until its handshake part is
+ *   released (stats.released, see the release rules) or the context is freed. It is
+ *   wiped at the release, after which another context may be initialized with it.
+ *
+ * Handshakes that share one handshake block are serialized: while a context holds it,
+ * an init with the same block (or any overlapping storage still held by a connection)
+ * fails with NOXTLS_RETURN_NOT_ENOUGH_MEMORY and changes nothing, so the caller can
+ * defer the new connection (a DTLS peer retransmits its ClientHello). Freeing a context
+ * that already released the block does not touch it.
+ *
+ * @return NOXTLS_RETURN_SUCCESS; NOXTLS_RETURN_NULL; NOXTLS_RETURN_INVALID_PARAM for a
+ *         wrong profile, a short or misaligned block, or blocks that overlap each other;
+ *         NOXTLS_RETURN_NOT_ENOUGH_MEMORY when a block is in use or the region registry
+ *         is full (NOXTLS_STATIC_MAX_CONNECTIONS).
+ */
+noxtls_return_t noxtls_tls13_context_init_static_split(tls13_context_t *ctx, tls_role_t role, uint32_t profile,
+                                                       void *steady, size_t steady_len,
+                                                       void *handshake, size_t handshake_len);
+/** DTLS 1.3 variant of noxtls_tls13_context_init_static_split(). */
+noxtls_return_t noxtls_dtls13_context_init_static_split(tls13_context_t *ctx, tls_role_t role, uint32_t profile,
+                                                        void *steady, size_t steady_len,
+                                                        void *handshake, size_t handshake_len);
+
 /** Copy the memory statistics of a context initialized with static memory. */
 noxtls_return_t noxtls_connection_memory_get_stats(const tls13_context_t *ctx,
                                                    noxtls_connection_memory_stats_t *stats);
@@ -423,7 +454,8 @@ noxtls_return_t noxtls_connection_memory_get_stats(const tls13_context_t *ctx,
 /**
  * After release, return the handshake part of the block, which the application may
  * use until it frees the context. It is wiped. NOXTLS_RETURN_NOT_INITIALIZED while
- * the handshake still owns it.
+ * the handshake still owns it; NOXTLS_RETURN_NOT_ENOUGH_MEMORY (and NULL) for a
+ * separate handshake block (_split init) that another connection holds now.
  */
 noxtls_return_t noxtls_connection_memory_handshake_region(tls13_context_t *ctx, uint8_t **region, size_t *len);
 
@@ -431,10 +463,18 @@ noxtls_return_t noxtls_connection_memory_handshake_region(tls13_context_t *ctx, 
 
 /** Connection memory bound to a context, or NULL. */
 noxtls_connection_memory_t *noxtls_conn_mem_of(const tls_context_t *base);
-/** Enter the connection's allocation scope (no-op when @p base has none). */
+/** Enter the connection's allocation scope. A context without connection memory (a
+ *  freed one, TLS 1.2) enters the global arena's scope, so that nothing it allocates
+ *  lands in the connection whose call is running (for example from an I/O callback). */
 noxtls_mem_scope_t *noxtls_conn_mem_enter(const tls_context_t *base);
 /** Leave the scope; at the outermost level, release the handshake part when due. */
 void noxtls_conn_mem_leave(tls13_context_t *ctx, noxtls_mem_scope_t *previous);
+/** Leave a scope entered by a record-layer entry point (no tls13_context_t at hand);
+ *  the release, when due, happens at the end of the next TLS 1.3 call. */
+void noxtls_conn_mem_leave_base(const tls_context_t *base, noxtls_mem_scope_t *previous);
+/** Carve a split block pair (noxtls_*_context_init_static_split()). */
+noxtls_return_t noxtls_conn_mem_bind_split(tls13_context_t *ctx, uint32_t profile, void *steady, size_t steady_len,
+                                           void *handshake, size_t handshake_len);
 /** Called by the TLS 1.3 module at handshake completion. */
 void noxtls_conn_mem_handshake_done(tls13_context_t *ctx);
 /** DTLS 1.3 server after release: epoch-2 read secret and sn_key, or NULL. */
@@ -454,6 +494,15 @@ uint8_t *noxtls_conn_mem_rx_stash(const tls_context_t *base, uint32_t *capacity)
 uint64_t *noxtls_conn_mem_last_ack_ranges(const tls_context_t *base, uint64_t **max_ranges);
 
 #endif /* NOXTLS_CONN_MEMORY */
+
+/* Record-layer entry points that can allocate for a connection run in its scope. */
+#if NOXTLS_CONN_MEMORY
+#define NOXTLS_CONN_SCOPE_BEGIN(base) noxtls_mem_scope_t *noxtls_conn_scope_prev = noxtls_conn_mem_enter(base)
+#define NOXTLS_CONN_SCOPE_END(base) noxtls_conn_mem_leave_base((base), noxtls_conn_scope_prev)
+#else
+#define NOXTLS_CONN_SCOPE_BEGIN(base) (void)(base)
+#define NOXTLS_CONN_SCOPE_END(base) (void)(base)
+#endif
 
 #ifdef __cplusplus
 }

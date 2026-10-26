@@ -6219,7 +6219,7 @@ int noxtls_x509_trust_store_has_anchors(void)
  *
  * @return The return code of the function.
  */
-noxtls_return_t noxtls_x509_trust_store_set(const x509_certificate_chain_t *trust_anchors)
+static noxtls_return_t x509_trust_store_set_body(const x509_certificate_chain_t *trust_anchors)
 {
     noxtls_x509_trust_store_clear();
 
@@ -6242,6 +6242,21 @@ noxtls_return_t noxtls_x509_trust_store_set(const x509_certificate_chain_t *trus
     s_x509_trust_anchors = &s_x509_trust_store_owned;
     s_x509_trust_anchors_initialized = 1;
     return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_x509_trust_store_set(const x509_certificate_chain_t *trust_anchors)
+{
+    noxtls_return_t rc;
+#if NOXTLS_CONFIG_STATIC_MEMORY
+    /* The store outlives any connection: its storage always comes from the global
+     * arena, also when this runs inside a connection's call (a callback). */
+    noxtls_mem_scope_t *previous = noxtls_mem_scope_enter(NULL);
+#endif
+    rc = x509_trust_store_set_body(trust_anchors);
+#if NOXTLS_CONFIG_STATIC_MEMORY
+    noxtls_mem_scope_exit(previous);
+#endif
+    return rc;
 }
 
 /**
@@ -6309,7 +6324,7 @@ noxtls_return_t noxtls_x509_trust_store_set_move(x509_certificate_chain_t *trust
  * @param[in] count Number of anchors (0 clears the store).
  * @return NOXTLS_RETURN_SUCCESS or a parse / memory error (store left empty).
  */
-noxtls_return_t noxtls_x509_trust_store_set_der_nocopy(const uint8_t *const *ders, const uint32_t *lens, uint32_t count)
+static noxtls_return_t x509_trust_store_set_der_nocopy_body(const uint8_t *const *ders, const uint32_t *lens, uint32_t count)
 {
     uint32_t i = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
@@ -6337,6 +6352,21 @@ noxtls_return_t noxtls_x509_trust_store_set_der_nocopy(const uint8_t *const *der
     s_x509_trust_anchors = &s_x509_trust_store_owned;
     s_x509_trust_anchors_initialized = 1;
     return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_x509_trust_store_set_der_nocopy(const uint8_t *const *ders, const uint32_t *lens, uint32_t count)
+{
+    noxtls_return_t rc;
+#if NOXTLS_CONFIG_STATIC_MEMORY
+    /* The store outlives any connection: its storage always comes from the global
+     * arena, also when this runs inside a connection's call (a callback). */
+    noxtls_mem_scope_t *previous = noxtls_mem_scope_enter(NULL);
+#endif
+    rc = x509_trust_store_set_der_nocopy_body(ders, lens, count);
+#if NOXTLS_CONFIG_STATIC_MEMORY
+    noxtls_mem_scope_exit(previous);
+#endif
+    return rc;
 }
 
 /**

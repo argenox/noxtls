@@ -371,9 +371,11 @@ noxtls_return_t noxtls_mem_get_bucket_stats(noxtls_mem_bucket_stats_t *stats);
 #endif
 
 /** Storage class of the active-scope pointer. Empty: one scope for the process, so
- *  NoxTLS calls on different connections must be serialized. Define it as the
- *  compiler's thread-local keyword (_Thread_local, __thread) to give each thread its
- *  own scope. */
+ *  NoxTLS calls on different connections must be serialized (one owner task). Defining
+ *  it as the compiler's thread-local keyword (_Thread_local, __thread) only routes each
+ *  thread's allocations to its own scope: the region registry, the global arena and the
+ *  other process-wide state (docs/static-memory.md, "Several connections") are not
+ *  locked, so calls must still be serialized. */
 #ifndef NOXTLS_STATIC_MEMORY_THREAD_LOCAL
 #define NOXTLS_STATIC_MEMORY_THREAD_LOCAL
 #endif
@@ -399,10 +401,17 @@ typedef struct noxtls_mem_region_s
     uint8_t reserved;
 } noxtls_mem_region_t;
 
+/** Regions a scope names as its own (a connection's four regions). */
+#define NOXTLS_MEM_SCOPE_OWNED 4U
+
 /** Allocation scope: allocations made while it is active use @c current. */
 typedef struct noxtls_mem_scope_s
 {
     noxtls_mem_region_t *current;
+    /** The scope's own regions (NULL entries unused). noxtls_free() and noxtls_realloc()
+     *  look a pointer up in them first, so the cost of a free does not grow with the
+     *  number of connections in the registry. */
+    noxtls_mem_region_t *owned[NOXTLS_MEM_SCOPE_OWNED];
 } noxtls_mem_scope_t;
 
 /** Statistics of one region. */
@@ -429,6 +438,13 @@ noxtls_return_t noxtls_mem_region_init(noxtls_mem_region_t *region, uint8_t *bas
 void noxtls_mem_region_release(noxtls_mem_region_t *region);
 /** Wipe the region and remove it from the registry. */
 void noxtls_mem_region_deinit(noxtls_mem_region_t *region);
+/** Remove a released region from the registry without touching its storage, which
+ *  release already wiped and which another region may use now (a handshake part shared
+ *  by several connections). An unreleased region is wiped as noxtls_mem_region_deinit()
+ *  does. */
+void noxtls_mem_region_unregister(noxtls_mem_region_t *region);
+/** 1 when [@p base, @p base + @p len) overlaps a registered region that is not released. */
+int noxtls_mem_region_overlaps_live(const void *base, size_t len);
 /** Copy a region's counters. */
 noxtls_return_t noxtls_mem_region_get_stats(const noxtls_mem_region_t *region,
                                             noxtls_mem_region_stats_t *stats);

@@ -273,7 +273,7 @@ int noxtls_tls_has_pending_output(const tls_context_t *ctx)
     return ((ctx != NULL) && (ctx->io_tx_pending_len > ctx->io_tx_pending_offset)) ? 1 : 0;
 }
 
-noxtls_return_t noxtls_tls_flush(tls_context_t *ctx)
+static noxtls_return_t tls_flush_body(tls_context_t *ctx)
 {
     int32_t sent = 0;
     uint32_t remaining = 0U;
@@ -307,6 +307,15 @@ noxtls_return_t noxtls_tls_flush(tls_context_t *ctx)
         return NOXTLS_RETURN_SUCCESS;
     }
     return NOXTLS_RETURN_WANT_WRITE;
+}
+
+noxtls_return_t noxtls_tls_flush(tls_context_t *ctx)
+{
+    noxtls_return_t rc;
+    NOXTLS_CONN_SCOPE_BEGIN(ctx);
+    rc = tls_flush_body(ctx);
+    NOXTLS_CONN_SCOPE_END(ctx);
+    return rc;
 }
 
 static noxtls_return_t tls_queue_pending_output(tls_context_t *ctx,
@@ -404,7 +413,7 @@ static noxtls_return_t tls_nonblocking_send_record(tls_context_t *ctx,
  * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` if @p ctx or @p data is NULL;
  *         `NOXTLS_RETURN_FAILED` if no callback or partial send; `NOXTLS_RETURN_INVALID_PARAM` if @p len is too large.
  */
-noxtls_return_t noxtls_tls_send_record(tls_context_t *ctx, uint8_t type, const uint8_t *data, uint32_t len)
+static noxtls_return_t tls_send_record_body(tls_context_t *ctx, uint8_t type, const uint8_t *data, uint32_t len)
 {
     uint8_t *record = NULL;
     uint8_t small_record[TLS_RECORD_HEADER_LEN + TLS_SEND_RECORD_STACK_MAX];
@@ -546,6 +555,15 @@ noxtls_return_t noxtls_tls_send_record(tls_context_t *ctx, uint8_t type, const u
                     NOXTLS_EVT_RECORD_TX, type, len);
 
     return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_tls_send_record(tls_context_t *ctx, uint8_t type, const uint8_t *data, uint32_t len)
+{
+    noxtls_return_t rc;
+    NOXTLS_CONN_SCOPE_BEGIN(ctx);
+    rc = tls_send_record_body(ctx, type, data, len);
+    NOXTLS_CONN_SCOPE_END(ctx);
+    return rc;
 }
 
 /**

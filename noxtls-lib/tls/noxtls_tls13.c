@@ -217,6 +217,8 @@ typedef struct
     uint32_t profile;       /* NOXTLS_CONN_PROFILE_* */
     void *memory;           /* Caller block, or NULL for a library pool block */
     size_t memory_len;
+    void *handshake;        /* Separate handshake block (_split init), or NULL */
+    size_t handshake_len;
     uint8_t is_dtls;
 } tls13_memory_bind_t;
 static noxtls_return_t tls13_context_init_internal(tls13_context_t *ctx,
@@ -259,6 +261,23 @@ NOXTLS_STATIC_ASSERT(NOXTLS_STATIC_CERT_CHAIN_DEPTH_MAX >= 1U, tls13_chain_depth
     (((chain)->count >= (uint32_t)(NOXTLS_STATIC_CERT_CHAIN_DEPTH_MAX - 1U)) ? 1 : 0)
 #else
 #define TLS13_STATIC_CHAIN_FULL(chain) 0
+#endif
+
+/*
+ * Public entry points. Static memory builds run each call in the connection's
+ * allocation scope; at the end of the outermost call the handshake part of the
+ * connection memory is released once the handshake no longer needs it. Every entry
+ * point that can allocate for a connection uses them, so a call on one connection made
+ * while another connection's call is running (an I/O callback that drives a second
+ * connection) never allocates in the other connection's memory.
+ */
+#if NOXTLS_CONN_MEMORY
+#define TLS13_SCOPE_BEGIN(ctx) \
+    noxtls_mem_scope_t *scope_previous = noxtls_conn_mem_enter(((ctx) != NULL) ? &(ctx)->base.base : NULL)
+#define TLS13_SCOPE_END(ctx) noxtls_conn_mem_leave((ctx), scope_previous)
+#else
+#define TLS13_SCOPE_BEGIN(ctx) (void)(ctx)
+#define TLS13_SCOPE_END(ctx) (void)(ctx)
 #endif
 
 /**
@@ -6653,9 +6672,14 @@ static noxtls_return_t tls13_context_init_internal(tls13_context_t *ctx,
         (void)NOXTLS_DTLS_BASE_FREE(&ctx->base);
         return NOXTLS_RETURN_NOT_SUPPORTED;
     }
-    rc = (bind->memory != NULL) ?
-        noxtls_conn_mem_bind(ctx, bind->profile, bind->memory, bind->memory_len, 0U) :
-        noxtls_conn_mem_pool_bind(ctx, role, bind->is_dtls);
+    if(bind->handshake != NULL) {
+        rc = noxtls_conn_mem_bind_split(ctx, bind->profile, bind->memory, bind->memory_len,
+                                        bind->handshake, bind->handshake_len);
+    } else if(bind->memory != NULL) {
+        rc = noxtls_conn_mem_bind(ctx, bind->profile, bind->memory, bind->memory_len, 0U);
+    } else {
+        rc = noxtls_conn_mem_pool_bind(ctx, role, bind->is_dtls);
+    }
     if(rc != NOXTLS_RETURN_SUCCESS) {
         (void)NOXTLS_DTLS_BASE_FREE(&ctx->base);
         return rc;
@@ -6884,6 +6908,8 @@ static noxtls_return_t tls13_context_init_bound(tls13_context_t *ctx, tls_role_t
     bind.profile = profile;
     bind.memory = memory;
     bind.memory_len = memory_len;
+    bind.handshake = NULL;
+    bind.handshake_len = 0U;
     bind.is_dtls = is_dtls;
 #if !NOXTLS_CONN_MEMORY
     if(memory != NULL) {
@@ -6933,6 +6959,63 @@ noxtls_return_t noxtls_dtls13_context_init_static(tls13_context_t *ctx, tls_role
     (void)role;
     (void)profile;
     (void)memory_len;
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
+}
+
+/** Shared body of the _split init functions (profile already checked). */
+static noxtls_return_t tls13_context_init_split(tls13_context_t *ctx, tls_role_t role, uint32_t profile,
+                                                uint8_t is_dtls, void *steady, size_t steady_len,
+                                                void *handshake, size_t handshake_len)
+{
+    noxtls_return_t rc;
+    tls13_memory_bind_t bind;
+
+    if((ctx == NULL) || (steady == NULL) || (handshake == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+    bind.profile = profile;
+    bind.memory = steady;
+    bind.memory_len = steady_len;
+    bind.handshake = handshake;
+    bind.handshake_len = handshake_len;
+    bind.is_dtls = is_dtls;
+    rc = tls13_context_init_internal(ctx, role, NULL, 0U, NULL, 0U, &bind);
+#if NOXTLS_FEATURE_DTLS
+    if((rc == NOXTLS_RETURN_SUCCESS) && (is_dtls != 0U)) {
+        ctx->base.base.version = DTLS_VERSION_1_3;
+    }
+#endif
+    return rc;
+}
+
+noxtls_return_t noxtls_tls13_context_init_static_split(tls13_context_t *ctx, tls_role_t role, uint32_t profile,
+                                                       void *steady, size_t steady_len,
+                                                       void *handshake, size_t handshake_len)
+{
+    if((profile != NOXTLS_CONN_PROFILE_TLS13_PSK) && (profile != NOXTLS_CONN_PROFILE_TLS13_CERT)) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    return tls13_context_init_split(ctx, role, profile, 0U, steady, steady_len, handshake, handshake_len);
+}
+
+noxtls_return_t noxtls_dtls13_context_init_static_split(tls13_context_t *ctx, tls_role_t role, uint32_t profile,
+                                                        void *steady, size_t steady_len,
+                                                        void *handshake, size_t handshake_len)
+{
+#if NOXTLS_FEATURE_DTLS
+    if((profile != NOXTLS_CONN_PROFILE_DTLS13_PSK) && (profile != NOXTLS_CONN_PROFILE_DTLS13_CERT)) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    return tls13_context_init_split(ctx, role, profile, 1U, steady, steady_len, handshake, handshake_len);
+#else
+    (void)ctx;
+    (void)role;
+    (void)profile;
+    (void)steady;
+    (void)steady_len;
+    (void)handshake;
+    (void)handshake_len;
     return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
 }
@@ -15209,7 +15292,7 @@ static noxtls_return_t tls13_send_body(tls13_context_t *ctx, const uint8_t *data
  * @param[in] num_cids      Number of connection IDs requested from the peer.
  * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL`, `NOXTLS_RETURN_FAILED`, or `NOXTLS_RETURN_TLS_ERROR`.
  */
-noxtls_return_t noxtls_dtls13_send_request_connection_id(tls13_context_t *ctx, uint8_t num_cids)
+static noxtls_return_t tls13_dtls13_send_request_connection_id_body(tls13_context_t *ctx, uint8_t num_cids)
 {
     uint8_t msg[5];
 
@@ -15232,6 +15315,15 @@ noxtls_return_t noxtls_dtls13_send_request_connection_id(tls13_context_t *ctx, u
     return tls13_send_encrypted_handshake(ctx, msg, sizeof(msg));
 }
 
+noxtls_return_t noxtls_dtls13_send_request_connection_id(tls13_context_t *ctx, uint8_t num_cids)
+{
+    noxtls_return_t rc;
+    TLS13_SCOPE_BEGIN(ctx);
+    rc = tls13_dtls13_send_request_connection_id_body(ctx, num_cids);
+    TLS13_SCOPE_END(ctx);
+    return rc;
+}
+
 /**
  * @brief DTLS 1.3: send NewConnectionId with one connection ID (RFC 9147).
  * @param[in,out] ctx       Connected DTLS 1.3 context.
@@ -15240,7 +15332,7 @@ noxtls_return_t noxtls_dtls13_send_request_connection_id(tls13_context_t *ctx, u
  * @param[in] usage         0 = replace active CID; 1 = add spare CID.
  * @return `NOXTLS_RETURN_SUCCESS` on success; error codes for invalid state, parameters, or send failure.
  */
-noxtls_return_t noxtls_dtls13_send_new_connection_id(tls13_context_t *ctx, const uint8_t *cid, uint8_t cid_len, uint8_t usage)
+static noxtls_return_t tls13_dtls13_send_new_connection_id_body(tls13_context_t *ctx, const uint8_t *cid, uint8_t cid_len, uint8_t usage)
 {
     uint8_t msg[4U + 2U + 1U + 32U + 1U];
     uint32_t body_len = 0U;
@@ -15299,6 +15391,15 @@ noxtls_return_t noxtls_dtls13_send_new_connection_id(tls13_context_t *ctx, const
     return NOXTLS_RETURN_SUCCESS;
 }
 
+noxtls_return_t noxtls_dtls13_send_new_connection_id(tls13_context_t *ctx, const uint8_t *cid, uint8_t cid_len, uint8_t usage)
+{
+    noxtls_return_t rc;
+    TLS13_SCOPE_BEGIN(ctx);
+    rc = tls13_dtls13_send_new_connection_id_body(ctx, cid, cid_len, usage);
+    TLS13_SCOPE_END(ctx);
+    return rc;
+}
+
 /**
  * @brief DTLS 1.3: generate and send multiple NewConnectionId values (RFC 9147).
  * @param[in,out] ctx       Connected DTLS 1.3 context.
@@ -15306,7 +15407,7 @@ noxtls_return_t noxtls_dtls13_send_new_connection_id(tls13_context_t *ctx, const
  * @param[in] usage         0 = replace active CID; 1 = add spare CIDs.
  * @return `NOXTLS_RETURN_SUCCESS` on success; error codes for invalid state or crypto/send failure.
  */
-noxtls_return_t noxtls_dtls13_send_new_connection_ids(tls13_context_t *ctx, uint8_t num_cids, uint8_t usage)
+static noxtls_return_t tls13_dtls13_send_new_connection_ids_body(tls13_context_t *ctx, uint8_t num_cids, uint8_t usage)
 {
     uint8_t msg[4U + 2U + (DTLS13_MAX_CID_POOL * (1U + 32U)) + 1U];
     uint8_t generated[DTLS13_MAX_CID_POOL][32];
@@ -15387,6 +15488,15 @@ noxtls_return_t noxtls_dtls13_send_new_connection_ids(tls13_context_t *ctx, uint
 
     ctx->cid_new_outstanding = 1U;
     return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_dtls13_send_new_connection_ids(tls13_context_t *ctx, uint8_t num_cids, uint8_t usage)
+{
+    noxtls_return_t rc;
+    TLS13_SCOPE_BEGIN(ctx);
+    rc = tls13_dtls13_send_new_connection_ids_body(ctx, num_cids, usage);
+    TLS13_SCOPE_END(ctx);
+    return rc;
 }
 
 /**
@@ -15979,19 +16089,7 @@ static noxtls_return_t tls13_close_body(tls13_context_t *ctx)
     return NOXTLS_RETURN_SUCCESS;
 }
 
-/*
- * Public entry points. Static memory builds run each call in the connection's
- * allocation scope; at the end of the outermost call the handshake part of the
- * connection memory is released once the handshake no longer needs it.
- */
-#if NOXTLS_CONN_MEMORY
-#define TLS13_SCOPE_BEGIN(ctx) \
-    noxtls_mem_scope_t *scope_previous = noxtls_conn_mem_enter(((ctx) != NULL) ? &(ctx)->base.base : NULL)
-#define TLS13_SCOPE_END(ctx) noxtls_conn_mem_leave((ctx), scope_previous)
-#else
-#define TLS13_SCOPE_BEGIN(ctx) (void)(ctx)
-#define TLS13_SCOPE_END(ctx) (void)(ctx)
-#endif
+/* Public entry points (TLS13_SCOPE_BEGIN / TLS13_SCOPE_END, defined at the top). */
 
 noxtls_return_t noxtls_tls13_connect(tls13_context_t *ctx)
 {

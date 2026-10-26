@@ -229,17 +229,42 @@ static void noxtls_region_register_global(void)
     }
 }
 
+/**
+ * Region that owns @p ptr.
+ *
+ * The active scope's own regions are checked first, then the global arena, then the
+ * registry. Storage that several connections use in turn (a shared handshake part) can
+ * lie in a released region of one connection and a live region of another; the live
+ * one owns it, so a released region is only returned when no live region contains
+ * @p ptr (its frees are no-ops).
+ */
 static noxtls_mem_region_t *noxtls_region_of(const void *ptr)
 {
     size_t i;
+    noxtls_mem_region_t *released = NULL;
 
     noxtls_region_register_global();
-    for(i = 0U; i < (size_t)NOXTLS_STATIC_MAX_REGIONS; ++i) {
-        if((g_noxtls_regions[i] != NULL) && (noxtls_mem_region_contains(g_noxtls_regions[i], ptr) != 0)) {
-            return g_noxtls_regions[i];
+    if(g_noxtls_active_scope != NULL) {
+        for(i = 0U; i < (size_t)NOXTLS_MEM_SCOPE_OWNED; ++i) {
+            noxtls_mem_region_t *own = g_noxtls_active_scope->owned[i];
+            if((own != NULL) && (own->released == 0U) && (noxtls_mem_region_contains(own, ptr) != 0)) {
+                return own;
+            }
         }
     }
-    return NULL;
+    if(noxtls_mem_region_contains(&g_noxtls_global_region, ptr) != 0) {
+        return &g_noxtls_global_region;
+    }
+    for(i = 0U; i < (size_t)NOXTLS_STATIC_MAX_REGIONS; ++i) {
+        noxtls_mem_region_t *region = g_noxtls_regions[i];
+        if((region != NULL) && (noxtls_mem_region_contains(region, ptr) != 0)) {
+            if(region->released == 0U) {
+                return region;
+            }
+            released = region;
+        }
+    }
+    return released;
 }
 
 static noxtls_mem_region_t *noxtls_region_active(void)
@@ -557,6 +582,47 @@ void noxtls_mem_region_deinit(noxtls_mem_region_t *region)
         }
     }
     noxtls_secure_zero(region, sizeof(*region));
+}
+
+void noxtls_mem_region_unregister(noxtls_mem_region_t *region)
+{
+    size_t i;
+
+    if(region == NULL) {
+        return;
+    }
+    if(region->released == 0U) {
+        noxtls_mem_region_deinit(region);
+        return;
+    }
+    for(i = 0U; i < (size_t)NOXTLS_STATIC_MAX_REGIONS; ++i) {
+        if(g_noxtls_regions[i] == region) {
+            g_noxtls_regions[i] = NULL;
+        }
+    }
+    noxtls_secure_zero(region, sizeof(*region));
+}
+
+int noxtls_mem_region_overlaps_live(const void *base, size_t len)
+{
+    uintptr_t start = (uintptr_t)base;
+    size_t i;
+
+    if((base == NULL) || (len == 0U)) {
+        return 0;
+    }
+    noxtls_region_register_global();
+    for(i = 0U; i < (size_t)NOXTLS_STATIC_MAX_REGIONS; ++i) {
+        const noxtls_mem_region_t *region = g_noxtls_regions[i];
+        if((region != NULL) && (region->released == 0U) && (region->base != NULL)) {
+            uintptr_t rstart = (uintptr_t)region->base;
+            /* [start, start + len) and [rstart, rstart + capacity) intersect. */
+            if((start < (rstart + region->capacity)) && (rstart < (start + len))) {
+                return 1;
+            }
+        }
+    }
+    return 0;
 }
 
 noxtls_return_t noxtls_mem_region_get_stats(const noxtls_mem_region_t *region, noxtls_mem_region_stats_t *stats)
