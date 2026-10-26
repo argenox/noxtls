@@ -5444,7 +5444,8 @@ static noxtls_return_t tls13_handshake_buffer_append(tls13_context_t *ctx, const
     }
     uint8_t *new_buffer = (uint8_t*)NOXTLS_REALLOC(ctx->handshake_buffer, new_len);
     if(new_buffer == NULL) {
-        return NOXTLS_RETURN_FAILED;
+        /* The buffer is unchanged (compacted); the caller reports the exhaustion. */
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
     noxtls_copy_u8(&new_buffer[remaining], (size_t)len, data, (size_t)len);
     ctx->handshake_buffer = new_buffer;
@@ -13641,132 +13642,106 @@ noxtls_return_t noxtls_tls13_send_certificate_request(tls13_context_t *ctx)
 }
 
 /**
+ * @brief Server: append one CertificateEntry (RFC 8446 Section 4.4.2: 24-bit length, DER,
+ *        empty extensions) at @p *offset of @p msg.
+ * @internal
+ */
+static void tls13_put_certificate_entry(uint8_t *msg, uint32_t *offset, const uint8_t *der, uint32_t der_len)
+{
+    uint32_t o = *offset;
+
+    msg[o] = (uint8_t)((der_len >> 16U) & 0xFFU);
+    msg[o + 1U] = (uint8_t)((der_len >> 8U) & 0xFFU);
+    msg[o + 2U] = (uint8_t)(der_len & 0xFFU);
+    o += 3U;
+    noxtls_copy_u8(&msg[o], (size_t)der_len, der, (size_t)der_len);
+    o += der_len;
+    msg[o] = 0x00U;
+    msg[o + 1U] = 0x00U;
+    *offset = o + 2U;
+}
+
+/**
  * @brief Server: send Certificate message from the configured server chain.
+ *
+ * The message is built in the handshake workspace when it fits, otherwise in a buffer
+ * of its own size (a chain above TLS_HANDSHAKE_WORKSPACE_SIZE, for example four 1 to 2 KB
+ * certificates; in static memory it comes from the handshake arena, whose budget holds
+ * a Certificate message of NOXTLS_STATIC_CERT_MSG_MAX).
  * @param[in,out] ctx Server context with server certificate configured.
  * @return `NOXTLS_RETURN_SUCCESS` on success; error if no certificate or send failure.
  */
 noxtls_return_t noxtls_tls13_send_certificate(tls13_context_t *ctx)
 {
     uint32_t cert_list_len = 0U;
+    uint32_t msg_len = 0U;
+    uint32_t offset = 0U;
     uint32_t i = 0U;
+    uint8_t *certificate = NULL;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+
     if(ctx == NULL) {
         return NOXTLS_RETURN_NULL;
     }
     if(ctx->base.base.role != TLS_ROLE_SERVER) {
         return NOXTLS_RETURN_FAILED;
     }
-    if((ctx->server_cert == NULL) || (ctx->server_cert_len == 0U)) {
+    if((ctx->server_cert == NULL) || (ctx->server_cert_len == 0U) ||
+       (ctx->server_cert_len > (uint32_t)TLS_MAX_HANDSHAKE_SIZE)) {
         return NOXTLS_RETURN_FAILED;
     }
-    uint8_t *certificate = ctx->handshake_workspace;
-    if(certificate == NULL) {
-        certificate = (uint8_t*)NOXTLS_MALLOC(TLS_HANDSHAKE_WORKSPACE_SIZE);
+    if((ctx->server_cert_chain_count > 0U) &&
+       ((ctx->server_cert_chain == NULL) || (ctx->server_cert_chain_len == NULL))) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    /* certificate_list: leaf + intermediates, each 3-byte length + DER + 2-byte extensions. */
+    cert_list_len = ctx->server_cert_len + 5U;
+    for(i = 0U; i < ctx->server_cert_chain_count; i += 1U) {
+        uint32_t chain_len = ctx->server_cert_chain_len[i];
+        if((ctx->server_cert_chain[i] == NULL) || (chain_len == 0U) ||
+           (chain_len > ((uint32_t)TLS_MAX_HANDSHAKE_SIZE - cert_list_len))) {
+            return NOXTLS_RETURN_FAILED;
+        }
+        cert_list_len += 5U + chain_len;
+    }
+    /* Header (4) + empty certificate_request_context (1) + list length (3). */
+    if(cert_list_len > ((uint32_t)TLS_MAX_HANDSHAKE_SIZE - 8U)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    msg_len = 8U + cert_list_len;
+    if((ctx->handshake_workspace != NULL) && (msg_len <= (uint32_t)TLS_HANDSHAKE_WORKSPACE_SIZE)) {
+        certificate = ctx->handshake_workspace;
+    } else {
+        certificate = (uint8_t *)NOXTLS_MALLOC(msg_len);
         if(certificate == NULL) {
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         }
     }
-    uint32_t offset = 0U;
-    
-    /* Build Certificate noxtls_message */
-    certificate[offset] = TLS_HANDSHAKE_CERTIFICATE;
-    offset += 1U;
-    certificate[offset] = 0x00U; /* Length (3 bytes) - placeholder */
-    offset += 1U;
-    certificate[offset] = 0x00U;
-    offset += 1U;
-    certificate[offset] = 0x00U;
-    offset += 1U;
-    
-    /* Certificate request context (1 byte) - empty for server */
-    certificate[offset] = 0x00U;
-    offset += 1U;
-    
-    if(ctx->server_cert_len > (uint32_t)(UINT32_MAX - 3U)) {
-        tls13_release_handshake_cert_buffer(ctx, certificate);
-        return NOXTLS_RETURN_FAILED;
-    }
-    /* Certificate list length (3 bytes): leaf + optional intermediates */
-    cert_list_len = ctx->server_cert_len + 5U;  /* +3 entry length +2 entry extensions length */
-    for(i = 0U; i < ctx->server_cert_chain_count; i += 1U) {
-        if((ctx->server_cert_chain == NULL) || (ctx->server_cert_chain_len == NULL)) {
-            tls13_release_handshake_cert_buffer(ctx, certificate);
-            return NOXTLS_RETURN_FAILED;
-        }
-        if((ctx->server_cert_chain[i] == NULL) || (ctx->server_cert_chain_len[i] == 0U)) {
-            tls13_release_handshake_cert_buffer(ctx, certificate);
-            return NOXTLS_RETURN_FAILED;
-        }
-        cert_list_len += 5U + ctx->server_cert_chain_len[i];
-    }
-    certificate[offset] = (uint8_t)((((uint32_t)cert_list_len) >> 16U) & 0xFFU);
-    offset += 1U;
-    certificate[offset] = (uint8_t)((((uint32_t)cert_list_len) >> 8U) & 0xFFU);
-    offset += 1U;
-    certificate[offset] = (uint8_t)(cert_list_len & 0xFFU);
-    offset += 1U;
-    
-    /* Certificate entry length (3 bytes) */
-    certificate[offset] = (uint8_t)((ctx->server_cert_len >> 16U) & 0xFFU);
-    offset += 1U;
-    certificate[offset] = (uint8_t)((ctx->server_cert_len >> 8U) & 0xFFU);
-    offset += 1U;
-    certificate[offset] = (uint8_t)(ctx->server_cert_len & 0xFFU);
-    offset += 1U;
-    
-    /* Certificate &data[trailing] extensions length (2 bytes) */
-    if((offset > TLS_HANDSHAKE_WORKSPACE_SIZE) ||
-       ((TLS_HANDSHAKE_WORKSPACE_SIZE - offset) < 2U) ||
-       (ctx->server_cert_len > (TLS_HANDSHAKE_WORKSPACE_SIZE - offset - 2U))) {
-        tls13_release_handshake_cert_buffer(ctx, certificate);
-        return NOXTLS_RETURN_FAILED;
-    }
-    noxtls_copy_u8(&certificate[offset], (size_t)(TLS_HANDSHAKE_WORKSPACE_SIZE), ctx->server_cert, (size_t)(ctx->server_cert_len));
-    offset += ctx->server_cert_len;
-    
-    /* Extensions length (2 bytes) - no extensions */
-    certificate[offset] = 0x00U;
-    offset += 1U;
-    certificate[offset] = 0x00U;
-    offset += 1U;
 
+    certificate[0] = TLS_HANDSHAKE_CERTIFICATE;
+    certificate[1] = (uint8_t)(((msg_len - 4U) >> 16U) & 0xFFU);
+    certificate[2] = (uint8_t)(((msg_len - 4U) >> 8U) & 0xFFU);
+    certificate[3] = (uint8_t)((msg_len - 4U) & 0xFFU);
+    certificate[4] = 0x00U; /* certificate_request_context: empty for a server */
+    certificate[5] = (uint8_t)((cert_list_len >> 16U) & 0xFFU);
+    certificate[6] = (uint8_t)((cert_list_len >> 8U) & 0xFFU);
+    certificate[7] = (uint8_t)(cert_list_len & 0xFFU);
+    offset = 8U;
+    tls13_put_certificate_entry(certificate, &offset, ctx->server_cert, ctx->server_cert_len);
     for(i = 0U; i < ctx->server_cert_chain_count; i += 1U) {
-        uint32_t chain_len = (uint32_t)(ctx->server_cert_chain_len[i]);
-        certificate[offset] = (uint8_t)((((uint32_t)chain_len) >> 16U) & 0xFFU);
-        offset += 1U;
-        certificate[offset] = (uint8_t)((((uint32_t)chain_len) >> 8U) & 0xFFU);
-        offset += 1U;
-        certificate[offset] = (uint8_t)(chain_len & 0xFFU);
-        offset += 1U;
-        if((offset > TLS_HANDSHAKE_WORKSPACE_SIZE) ||
-           ((TLS_HANDSHAKE_WORKSPACE_SIZE - offset) < 2U) ||
-           (chain_len > (TLS_HANDSHAKE_WORKSPACE_SIZE - offset - 2U))) {
-            tls13_release_handshake_cert_buffer(ctx, certificate);
-            return NOXTLS_RETURN_FAILED;
-        }
-        noxtls_copy_u8(&certificate[offset], (size_t)(TLS_HANDSHAKE_WORKSPACE_SIZE), ctx->server_cert_chain[i], (size_t)(chain_len));
-        offset += chain_len;
-        certificate[offset] = 0x00U;
-        offset += 1U;
-        certificate[offset] = 0x00U;
-        offset += 1U;
+        tls13_put_certificate_entry(certificate, &offset, ctx->server_cert_chain[i], ctx->server_cert_chain_len[i]);
     }
-    
-    /* Update handshake noxtls_message length */
-    uint32_t handshake_len = (uint32_t)(offset - 4U);
-    certificate[1] = (uint8_t)((((uint32_t)handshake_len) >> 16U) & 0xFFU);
-    certificate[2] = (uint8_t)((((uint32_t)handshake_len) >> 8U) & 0xFFU);
-    certificate[3] = (uint8_t)(handshake_len & 0xFFU);
-    
-    {
-        noxtls_return_t rc = tls13_send_handshake_message(ctx, certificate, offset);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            tls13_release_handshake_cert_buffer(ctx, certificate);
-            return rc;
-        }
+
+    rc = tls13_send_handshake_message(ctx, certificate, offset);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        (void)tls13_append_handshake_message(ctx, certificate, offset);
     }
-    (void)tls13_append_handshake_message(ctx, certificate, offset);
-    tls13_release_handshake_cert_buffer(ctx, certificate);
-    return NOXTLS_RETURN_SUCCESS;
+    if(certificate == ctx->handshake_workspace) {
+        noxtls_secure_zero(ctx->handshake_workspace, (size_t)TLS_HANDSHAKE_WORKSPACE_SIZE);
+    } else {
+        NOXTLS_SECURE_FREE(certificate, msg_len);
+    }
+    return rc;
 }
 
 /**
