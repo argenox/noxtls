@@ -12921,6 +12921,7 @@ static noxtls_return_t tls12_send_protected_alert(tls12_context_t *ctx, uint8_t 
     uint8_t plain[2];
     plain[0] = level;
     plain[1] = desc;
+    noxtls_tls_note_alert_sent(&ctx->base.base, level, desc);
     return tls12_seal_and_send(ctx, TLS_RECORD_ALERT, plain, (uint32_t)sizeof(plain));
 }
 
@@ -13132,6 +13133,9 @@ noxtls_return_t noxtls_tls12_recv(tls12_context_t *ctx, uint8_t *data, uint32_t 
                 ctx->base.base.state = TLS_STATE_CLOSED;
                 return NOXTLS_RETURN_FAILED;
             }
+
+            /* RFC 5246 7.2: keep the peer's alert for noxtls_tls_get_last_alert_received(). */
+            noxtls_tls_note_alert_received(&ctx->base.base, alert[0], alert[1]);
             if(alert[0] == TLS_ALERT_LEVEL_WARNING) {
                 if(alert[1] == TLS_ALERT_CLOSE_NOTIFY) {
                     ctx->base.base.state = TLS_STATE_CLOSING;
@@ -13549,6 +13553,7 @@ noxtls_return_t noxtls_tls12_close(tls12_context_t *ctx)
      * we still owe a reciprocal alert on the write side.
      */
     if((ctx->base.base.state == TLS_STATE_CONNECTED) || (ctx->base.base.state == TLS_STATE_CLOSING)) {
+        noxtls_tls_note_alert_sent(&ctx->base.base, TLS_ALERT_LEVEL_WARNING, TLS_ALERT_CLOSE_NOTIFY);
         rc = tls12_seal_and_send(ctx, TLS_RECORD_ALERT, alert, (uint32_t)sizeof(alert));
         if(rc == NOXTLS_RETURN_NOT_ENOUGH_MEMORY) {
             (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_WARNING, TLS_ALERT_CLOSE_NOTIFY);

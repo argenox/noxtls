@@ -258,7 +258,7 @@ static int32_t replay_forever(void *context, uint8_t *data, uint32_t capacity)
 }
 
 /** @brief Exercise authenticated record replay, ordering and authentication boundaries.
- * @param[in] mode One selects duplicate, two stale, three coalesced, four tamper,
+ * @param[in] mode One selects duplicate, two stale, three coalesced, four tamper (discarded),
  * five an unlimited duplicate stream.
  * @return Zero on success. */
 static int replay_application_records(uint32_t mode)
@@ -298,12 +298,18 @@ static int replay_application_records(uint32_t mode)
         uint64_t next_sequence = s_server.tls.base.read_seq_num;
         length = sizeof(buffer);
         rc = noxtls_tls13_recv(&s_server.tls, buffer, &length);
-        return (rc != NOXTLS_RETURN_SUCCESS && rc != NOXTLS_RETURN_TIMEOUT &&
-                rc != NOXTLS_RETURN_DTLS_RECORD_REPLAYED &&
-                s_server.tls.base.base.state == TLS_STATE_CLOSED &&
-                s_server.tls.base.read_seq_num == next_sequence &&
-                memcmp(&window, &s_server.tls.base.replay_windows[
-                    DTLS13_EPOCH_APPLICATION & DTLS13_UNIFIED_EPOCH_MASK], sizeof(window)) == 0) ? 0 : 5;
+        /* RFC 9147 4.5.2: the record is discarded and the association kept; 4.5.3 counts it. */
+        if(rc != NOXTLS_RETURN_TIMEOUT || length != 0U ||
+           s_server.tls.base.base.state != TLS_STATE_CONNECTED ||
+           s_server.tls.base.read_seq_num != next_sequence ||
+           s_server.tls.base.integrity_failures != 1U ||
+           memcmp(&window, &s_server.tls.base.replay_windows[
+               DTLS13_EPOCH_APPLICATION & DTLS13_UNIFIED_EPOCH_MASK], sizeof(window)) != 0) { return 5; }
+
+        length = sizeof(buffer);
+        return (noxtls_tls13_send(&s_client.tls, payload, sizeof(payload)) == NOXTLS_RETURN_SUCCESS &&
+                noxtls_tls13_recv(&s_server.tls, buffer, &length) == NOXTLS_RETURN_SUCCESS &&
+                length == sizeof(payload) && memcmp(buffer, payload, length) == 0) ? 0 : 13;
     }
 
     s_server.queue[s_server.head] = saved;
@@ -452,9 +458,9 @@ REGISTER_TEST(dtls13_application_replay_coalesced)
     return run_round_trip(0U, 3U);
 }
 
-/** @brief Tampering with a new record remains an authentication failure.
+/** @brief A tampered record is discarded without closing (RFC 9147 4.5.2); data continues.
  * @return Zero on success. */
-REGISTER_TEST(dtls13_application_tamper_fatal)
+REGISTER_TEST(dtls13_application_tamper_discarded)
 {
     return run_round_trip(0U, 4U);
 }
@@ -1108,7 +1114,7 @@ void utnox_register_tests(void)
     register_test(__reg_dtls13_application_duplicate_nonfatal.name, __reg_dtls13_application_duplicate_nonfatal.func);
     register_test(__reg_dtls13_application_stale_nonfatal.name, __reg_dtls13_application_stale_nonfatal.func);
     register_test(__reg_dtls13_application_replay_coalesced.name, __reg_dtls13_application_replay_coalesced.func);
-    register_test(__reg_dtls13_application_tamper_fatal.name, __reg_dtls13_application_tamper_fatal.func);
+    register_test(__reg_dtls13_application_tamper_discarded.name, __reg_dtls13_application_tamper_discarded.func);
     register_test(__reg_dtls13_application_replay_bounded.name, __reg_dtls13_application_replay_bounded.func);
     register_test(__reg_dtls13_recovery_baseline.name, __reg_dtls13_recovery_baseline.func);
     register_test(__reg_dtls13_recovery_server_record.name, __reg_dtls13_recovery_server_record.func);

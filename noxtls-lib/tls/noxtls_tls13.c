@@ -3809,6 +3809,24 @@ static noxtls_return_t tls13_pending_app_data_put(tls13_context_t *ctx, uint8_t 
 }
 
 /**
+ * @brief Record an Alert message received from the peer for the application.
+ * @internal
+ *
+ * RFC 8446 Section 6: the first two bytes are AlertLevel and AlertDescription. A shorter
+ * message is not an alert and is not recorded (it is answered with unexpected_message).
+ *
+ * @param[in,out] ctx The context that received the alert
+ * @param[in] alert The alert message bytes
+ * @param[in] alert_len The number of bytes in @p alert
+ */
+static void tls13_note_peer_alert(tls13_context_t *ctx, const uint8_t *alert, uint32_t alert_len)
+{
+    if((ctx != NULL) && (alert != NULL) && (alert_len >= TLS_ALERT_MESSAGE_LEN)) {
+        noxtls_tls_note_alert_received(&ctx->base.base, alert[0], alert[1]);
+    }
+}
+
+/**
  * @brief Send a fatal alert
  *
  * @param[in] ctx The context to send the fatal alert from
@@ -3828,6 +3846,7 @@ static void tls13_send_fatal_alert(tls13_context_t *ctx, uint8_t alert_desc)
 
     alert_bytes[0] = TLS_ALERT_LEVEL_FATAL;
     alert_bytes[1] = alert_desc;
+    noxtls_tls_note_alert_sent(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, alert_desc);
 
     /*
      * In TLS 1.3 once handshake traffic keys are active, alerts must be sent
@@ -6160,6 +6179,7 @@ static noxtls_return_t tls13_recv_handshake_message(tls13_context_t *ctx, uint8_
             continue;
         }
         if(record.type == TLS_RECORD_ALERT) {
+            tls13_note_peer_alert(ctx, record.data, record.length);
             (void)noxtls_free(record.data);
             ctx->peer_alert_received = 1U;
             ctx->base.base.state = TLS_STATE_CLOSED;
@@ -6224,10 +6244,17 @@ static noxtls_return_t tls13_recv_handshake_message(tls13_context_t *ctx, uint8_
                         (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] recv_handshake_message: decrypt_dtls13_record rc=%d rec_size=%u offset=%u\n",
                                             rc, rec_size, offset);
                         (void)noxtls_free(inner_buf);
-                        if(rc == NOXTLS_RETURN_DTLS_RECORD_REPLAYED) {
-                            /* RFC 9147 section 4.5.1: discard duplicates without
-                             * failing the handshake or delivering plaintext. */
-                            (void)tls13_dtls_resend_retained_final_ack(ctx);
+                        if((rc == NOXTLS_RETURN_DTLS_RECORD_REPLAYED) || (rc == NOXTLS_RETURN_BAD_DATA)) {
+                            /* RFC 9147 section 4.5.1: discard authentic duplicates without
+                             * failing the handshake or delivering plaintext; the peer may
+                             * have lost our final ACK. RFC 9147 section 4.5.2: an invalid
+                             * record (including one that fails deprotection) is silently
+                             * discarded, the handshake and its retransmission timer are
+                             * unaffected, and retransmission recovers the lost record. */
+                            if(rc == NOXTLS_RETURN_DTLS_RECORD_REPLAYED) {
+                                (void)tls13_dtls_resend_retained_final_ack(ctx);
+                            }
+
                             ++replay_discards;
                             if(replay_discards >= DTLS12_MAX_RECORDS_PER_READ) {
                                 (void)noxtls_free(record.data);
@@ -6236,6 +6263,10 @@ static noxtls_return_t tls13_recv_handshake_message(tls13_context_t *ctx, uint8_
                             offset += rec_size;
                             continue;
                         }
+
+                        /* RFC 9147 4.5.3 limit exceeded (bad_record_mac) or an authentic record
+                         * without a content type (RFC 8446 5.4, unexpected_message): the
+                         * caller sends the fatal alert for rc and the handshake ends. */
                         (void)noxtls_free(record.data);
                         return rc;
                     }
@@ -6298,6 +6329,20 @@ static noxtls_return_t tls13_recv_handshake_message(tls13_context_t *ctx, uint8_
                         *out_msg = inner_buf;
                         *out_len = inner_len;
                         return NOXTLS_RETURN_SUCCESS;
+                    } else if(inner_type == TLS_RECORD_ALERT) {
+                        /* RFC 8446 6: an authenticated alert during the handshake ends it; a
+                         * message too short to be an alert is unexpected_message. */
+                        uint8_t alert_ok = (inner_len >= TLS_ALERT_MESSAGE_LEN) ? 1U : 0U;
+                        tls13_note_peer_alert(ctx, inner_buf, inner_len);
+                        (void)noxtls_free(inner_buf);
+                        (void)noxtls_free(record.data);
+                        if(alert_ok == 0U) {
+                            tls13_send_fatal_alert(ctx, TLS_ALERT_UNEXPECTED_MESSAGE);
+                        }
+
+                        ctx->peer_alert_received = 1U;
+                        ctx->base.base.state = TLS_STATE_CLOSED;
+                        return NOXTLS_RETURN_FAILED;
                     } else {
                         (void)noxtls_free(inner_buf);
                     }
@@ -6479,6 +6524,7 @@ static noxtls_return_t tls13_recv_handshake_message(tls13_context_t *ctx, uint8_
                     ctx->base.base.state = TLS_STATE_CLOSED;
                     return NOXTLS_RETURN_FAILED;
                 }
+                tls13_note_peer_alert(ctx, decrypted, decrypted_len);
                 (void)noxtls_free(decrypted);
                 ctx->peer_alert_received = 1U;
                 ctx->base.base.state = TLS_STATE_CLOSED;
@@ -9453,6 +9499,7 @@ noxtls_return_t noxtls_tls13_recv_server_hello(tls13_context_t *ctx)
         }
 #endif
         if(record.type == TLS_RECORD_ALERT) {
+            tls13_note_peer_alert(ctx, record.data, record.length);
             (void)noxtls_free(record.data);
             ctx->peer_alert_received = 1U;
             ctx->base.base.state = TLS_STATE_CLOSED;
@@ -15626,6 +15673,8 @@ static noxtls_return_t tls13_recv_body(tls13_context_t *ctx, uint8_t *data, uint
         uint64_t rec_seq = 0U;
         rc = noxtls_tls_recv_record(&ctx->base.base, &record);
         if(rc != NOXTLS_RETURN_SUCCESS) {
+            /* No data is returned, whether or not the record layer discarded invalid records. */
+            *len = 0U;
             if(rc == NOXTLS_RETURN_RECORD_OVERFLOW) {
                 tls13_send_handshake_alert_for_error(ctx, rc);
                 ctx->base.base.state = TLS_STATE_CLOSED;
@@ -15635,8 +15684,30 @@ static noxtls_return_t tls13_recv_body(tls13_context_t *ctx, uint8_t *data, uint
         if((record.length > 0U) && (record.data == NULL)) {
             return NOXTLS_RETURN_FAILED;
         }
-        /* RFC 8446: encrypted record length MUST NOT exceed 2^14 + 256. */
-        if(record.length > (uint32_t)TLS13_MAX_ENCRYPTED_RECORD_SIZE) {
+#if NOXTLS_FEATURE_DTLS
+        if((tls13_is_dtls(ctx) != 0) && (record.type != TLS_RECORD_ACK) &&
+           ((record.type < DTLS13_UNIFIED_FIRST_BYTE_MIN) || (record.type > DTLS13_UNIFIED_FIRST_BYTE_MAX))) {
+            /*
+             * RFC 9147 4.5.2: once the handshake is complete every DTLS 1.3 record other than
+             * an ACK is a DTLSCiphertext. An unprotected alert, handshake, application-data or
+             * ChangeCipherSpec record cannot be authenticated, so it is an invalid record:
+             * discard it silently, exactly like a record that fails deprotection, so a forged
+             * or corrupted datagram cannot end the association.
+             */
+            (void)noxtls_free(record.data);
+            *len = 0U;
+            ++replay_discards;
+            if(replay_discards >= DTLS12_MAX_RECORDS_PER_READ) {
+                return NOXTLS_RETURN_TIMEOUT;
+            }
+
+            continue;
+        }
+#endif
+
+        /* RFC 8446: encrypted record length MUST NOT exceed 2^14 + 256. DTLS 1.3 checks the
+         * DTLSCiphertext length when it opens the record (RFC 9147 4.5.2 discard). */
+        if((tls13_is_dtls(ctx) == 0) && (record.length > (uint32_t)TLS13_MAX_ENCRYPTED_RECORD_SIZE)) {
             (void)noxtls_free(record.data);
             tls13_send_handshake_alert_for_error(ctx, NOXTLS_RETURN_RECORD_OVERFLOW);
             ctx->base.base.state = TLS_STATE_CLOSED;
@@ -15671,6 +15742,7 @@ static noxtls_return_t tls13_recv_body(tls13_context_t *ctx, uint8_t *data, uint
                 ctx->base.base.state = TLS_STATE_CLOSED;
                 return NOXTLS_RETURN_FAILED;
             }
+            tls13_note_peer_alert(ctx, record.data, record.length);
             (void)noxtls_free(record.data);
             ctx->peer_alert_received = 1U;
             ctx->base.base.state = TLS_STATE_CLOSED;
@@ -15692,9 +15764,16 @@ static noxtls_return_t tls13_recv_body(tls13_context_t *ctx, uint8_t *data, uint
             const uint16_t received_epoch_low = (uint16_t)(record.data[0] & DTLS13_UNIFIED_EPOCH_MASK);
             rc = noxtls_tls13_decrypt_dtls13_record(ctx, record.data, record.length, &content_type, plain, &plain_len);
             (void)noxtls_free(record.data);
-            if(rc == NOXTLS_RETURN_DTLS_RECORD_REPLAYED) {
-                /* A repeated UDP datagram is not a connection failure. Never
-                 * expose its plaintext or send an alert in response. */
+            if((rc == NOXTLS_RETURN_DTLS_RECORD_REPLAYED) || (rc == NOXTLS_RETURN_BAD_DATA)) {
+                /* RFC 9147 4.5.1 / 4.5.2: a repeated datagram or an invalid record (malformed,
+                 * or failing deprotection within the 4.5.3 limit) is not a connection failure.
+                 * Both are discarded the same way: no plaintext, no alert, no state change.
+                 * An invalid record is logged locally only (RFC 9147 4.5.2 MAY log). */
+                if(rc == NOXTLS_RETURN_BAD_DATA) {
+                    NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_CRYPTO, NOXSIGHT_SEVERITY_WARN,
+                                    NOXTLS_EVT_DECRYPT_FAIL, rc, record.length);
+                }
+
                 if(owned_plain != NULL) {
                     (void)noxtls_free(owned_plain);
                 }
@@ -15711,12 +15790,9 @@ static noxtls_return_t tls13_recv_body(tls13_context_t *ctx, uint8_t *data, uint
                 if(owned_plain != NULL) {
                     (void)noxtls_free(owned_plain);
                 }
-                if(rc == NOXTLS_RETURN_BAD_DATA) {
-                    tls13_send_fatal_alert(ctx, TLS_ALERT_BAD_RECORD_MAC);
-                } else {
-                    /* MISRA 15.7: final else path */
-                    tls13_send_handshake_alert_for_error(ctx, rc);
-                }
+                /* RFC 9147 4.5.3 limit exceeded: bad_record_mac; an authentic record without a
+                 * content type: unexpected_message (RFC 8446 5.4); local failures as mapped. */
+                tls13_send_handshake_alert_for_error(ctx, rc);
                 ctx->base.base.state = TLS_STATE_CLOSED;
                 return rc;
             }
@@ -15988,6 +16064,8 @@ static noxtls_return_t tls13_recv_body(tls13_context_t *ctx, uint8_t *data, uint
                 alert_level = msg[0];
                 alert_desc = msg[1];
             }
+
+            tls13_note_peer_alert(ctx, msg, msg_len);
             if(msg_owned != NULL) {
                 (void)noxtls_free(msg_owned);
                 msg_owned = NULL;
@@ -16074,7 +16152,25 @@ static noxtls_return_t tls13_close_body(tls13_context_t *ctx)
 
     alert[0] = TLS_ALERT_LEVEL_WARNING;
     alert[1] = TLS_ALERT_CLOSE_NOTIFY;
+    noxtls_tls_note_alert_sent(&ctx->base.base, TLS_ALERT_LEVEL_WARNING, TLS_ALERT_CLOSE_NOTIFY);
 
+#if NOXTLS_FEATURE_DTLS
+    if((tls13_is_dtls(ctx) != 0) && (ctx->handshake_encrypted != 0U)) {
+        /*
+         * RFC 8446 6 / RFC 9147 4: close_notify is protected with the current write keys. The
+         * peer discards an unprotected alert after the handshake (RFC 9147 4.5.2), so there is
+         * no plaintext fallback.
+         */
+        uint8_t inner[TLS_ALERT_MESSAGE_LEN + 1U];
+        uint32_t inner_len = (uint32_t)sizeof(inner);
+        rc = tls13_build_inner_plaintext(alert, sizeof(alert), TLS_RECORD_ALERT, inner, &inner_len);
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            int32_t use_hs_keys = (ctx->base.epoch < (uint16_t)DTLS13_EPOCH_APPLICATION) ? 1 : 0;
+            (void)noxtls_tls13_send_dtls13_encrypted_record(ctx, use_hs_keys, TLS_RECORD_ALERT,
+                                                            inner, inner_len, 1);
+        }
+    } else
+#endif
     if((tls13_is_dtls(ctx) == 0) && (ctx->handshake_encrypted != 0U)) {
         rc = tls13_seal_and_send(ctx, TLS_RECORD_ALERT, alert, (uint32_t)sizeof(alert), 0U);
         if(rc == NOXTLS_RETURN_NOT_ENOUGH_MEMORY) {

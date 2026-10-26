@@ -53,7 +53,7 @@ Before 0.3.0, `noxtls_return_t` was a C `enum`. It became a `uint32_t` typedef s
 | **NOXTLS_RETURN_CERT_REQUIRED** | 28 | A client certificate was required but the peer did not present one. |
 | **NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR** | 29 | Malformed handshake message (decode_error). |
 | **NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER** | 30 | Invalid handshake field (illegal_parameter). |
-| **NOXTLS_RETURN_TLS_RECORD_AUTH_FAILED** | 31 | AEAD record open failed (bad_record_mac). |
+| **NOXTLS_RETURN_TLS_RECORD_AUTH_FAILED** | 31 | AEAD record open failed (bad_record_mac). In DTLS 1.3, returned only once the RFC 9147 Section 4.5.3 integrity limit is exceeded; failures below the limit are discarded. |
 | **NOXTLS_RETURN_TLS_FINISHED_VERIFY_FAILED** | 32 | Finished verify_data mismatch. |
 | **NOXTLS_RETURN_NEGOTIATED_TLS12** | 33 | Downgrade path: continue as TLS 1.2. |
 | **NOXTLS_RETURN_WANT_READ** | 34 | Nonblocking I/O: more input bytes are needed; call again when readable. |

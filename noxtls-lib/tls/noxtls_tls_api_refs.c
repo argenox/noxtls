@@ -23,6 +23,8 @@
 static void noxtls_tls_misra_api_refs(void)
 {
     NOXTLS_MISRA_REF_FN(&noxtls_tls_parse_server_extensions);
+    NOXTLS_MISRA_REF_FN(&noxtls_tls_get_last_alert_received);
+    NOXTLS_MISRA_REF_FN(&noxtls_tls_get_last_alert_sent);
     NOXTLS_MISRA_REF_FN(&noxtls_tls13_send_client_certificate);
 
 #if NOXTLS_FEATURE_DTLS

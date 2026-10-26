@@ -32,6 +32,31 @@ and bounded work on an unending early-record stream. Both ServerHello-loss cases
 failed before the change. The native UDP proxy also changes from immediate failure
 to a successful authenticated request with retransmission.
 
+### Invalid records and alerts
+
+RFC 9147 section 4.5.2 says invalid DTLS records SHOULD be silently discarded and the
+association kept. NoxTLS used to close a DTLS 1.3 connection with bad_record_mac when one
+record failed deprotection, so one corrupted radio datagram ended the session. A record
+that fails deprotection, a malformed unified header or length, a DTLSPlaintext of an
+unexpected epoch, and any unprotected record other than ACK after the handshake are now
+discarded identically: no alert, no plaintext and no replay or record-number change. The
+replay window is acted on only after a record authenticates, so a forged duplicate is not
+told apart from any other invalid record.
+
+Deprotection failures are counted per read key (section 4.5.3). The connection closes with
+bad_record_mac once the count exceeds 2^36 (AES-GCM, ChaCha20-Poly1305), 2^23.5 (AES-128-CCM)
+or 2^7 (AES-128-CCM-8). An authentic record with no content type still closes with
+unexpected_message (RFC 8446 section 5.4), as does invalid handshake content. close_notify
+is now protected, and `noxtls_tls_get_last_alert_received()` / `noxtls_tls_get_last_alert_sent()`
+report the level and description of the last alert in each direction.
+
+`dtls13_record_discard_ut` adds thirteen cases: a tampered record mid-session, eight
+corruption kinds with one observable result, the limit boundary and close, per-key counting,
+the limit values, close_notify and fatal alert reporting, unprotected alerts, a tampered
+handshake record recovered by retransmission, authentic invalid handshake content, a peer
+alert during the handshake, a short alert, and the accessor boundaries. The former
+`dtls13_application_tamper_fatal` case is now `dtls13_application_tamper_discarded`.
+
 ### Build commands
 
 Use an existing UTNox source checkout:

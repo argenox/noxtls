@@ -29,6 +29,7 @@
 #include "noxtls_tls_common.h"
 #include "noxtls_tls12.h"
 #include "noxtls_tls13.h"
+#include "noxtls_tls13_config.h"
 #include "noxtls_tls_kdf.h"
 #include "mac/noxtls_hmac.h"
 #include "encryption/aes/noxtls_aes.h"
@@ -1802,6 +1803,77 @@ static noxtls_return_t tls13_get_record_cipher_params(uint16_t cipher_suite,
     }
 }
 
+#if NOXTLS_FEATURE_DTLS
+/** AEAD tag length of AEAD_AES_128_CCM_8 (RFC 8446 Appendix B.4). */
+#define DTLS13_CCM_8_TAG_LEN 8U
+
+/**
+ * @brief RFC 9147 (DTLS 1.3, April 2022) Section 4.5.3 integrity limit of a cipher suite.
+ *
+ * AEAD_AES_128_GCM, AEAD_AES_256_GCM and AEAD_CHACHA20_POLY1305 allow 2^36 records that
+ * fail authentication per key, AEAD_AES_128_CCM 2^23.5 (Appendix B.2) and
+ * AEAD_AES_128_CCM_8 2^7 (Appendix B.3). The values come from noxtls_tls13_config.h.
+ *
+ * @param[in] cipher_suite TLS 1.3 cipher suite.
+ *
+ * @return The limit, or 0 when this build does not support @p cipher_suite.
+ */
+uint64_t noxtls_dtls13_integrity_limit(uint16_t cipher_suite)
+{
+    uint8_t use_aes_gcm = 0U;
+    uint8_t use_aes_ccm = 0U;
+    uint8_t use_chacha = 0U;
+    noxtls_aes_type_t aes_type = NOXTLS_AES_128_BIT;
+    uint32_t tag_len = 0U;
+    uint64_t limit = 0U;
+
+    if(tls13_get_record_cipher_params(cipher_suite, &use_aes_gcm, &use_aes_ccm, &use_chacha,
+                                      &aes_type, &tag_len) != NOXTLS_RETURN_SUCCESS) {
+        return 0U;
+    }
+
+    if(use_aes_ccm != 0U) {
+        limit = (tag_len == DTLS13_CCM_8_TAG_LEN) ? NOXTLS_DTLS13_INTEGRITY_LIMIT_CCM_8 :
+                                                    NOXTLS_DTLS13_INTEGRITY_LIMIT_CCM;
+    } else {
+        limit = NOXTLS_DTLS13_INTEGRITY_LIMIT_GCM_CHACHA;
+    }
+
+    return limit;
+}
+
+/**
+ * @brief Count one DTLS 1.3 record that failed AEAD authentication.
+ * @internal
+ *
+ * RFC 9147 Section 4.5.3: implementations MUST count the received records that fail
+ * authentication with each key and SHOULD close the connection once the count exceeds the
+ * AEAD's limit. The count belongs to the current read key: it restarts when the read epoch
+ * changes. Failures of late records from an older epoch are counted against the current
+ * key too, which can only close earlier than the RFC requires, never later.
+ *
+ * @param[in,out] ctx DTLS 1.3 context.
+ *
+ * @return 1 when the count now exceeds the limit (the connection must close), else 0.
+ */
+static int32_t dtls13_count_integrity_failure(tls13_context_t *ctx)
+{
+    dtls_context_t *dctx = &ctx->base;
+    uint64_t limit = noxtls_dtls13_integrity_limit(ctx->cipher_suite);
+
+    if(dctx->integrity_failure_epoch != dctx->read_connection_epoch) {
+        dctx->integrity_failures = 0U;
+        dctx->integrity_failure_epoch = dctx->read_connection_epoch;
+    }
+
+    if(dctx->integrity_failures < UINT64_MAX) {
+        dctx->integrity_failures += 1U;
+    }
+
+    return (dctx->integrity_failures > limit) ? 1 : 0;
+}
+#endif /* NOXTLS_FEATURE_DTLS */
+
 /**
  * @brief Encrypt TLS 1.3 application data record (AEAD)
  *
@@ -2426,6 +2498,11 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
         if(ciphertext_len < DTLS13_RECORD_NUMBER_ENC_LEN) {
             return NOXTLS_RETURN_BAD_DATA;
         }
+
+        /* RFC 8446 5.2 / RFC 9147 4.5.2: an over-long encrypted record is invalid. */
+        if(ciphertext_len > (uint32_t)TLS13_MAX_ENCRYPTED_RECORD_SIZE) {
+            return NOXTLS_RETURN_BAD_DATA;
+        }
         ciphertext = &raw[aad_len];
         if(cid_len > 0U) {
             uint8_t cid_ok = 1U;
@@ -2498,12 +2575,12 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
                         seq_len,
                         (uint32_t)seq_truncated,
                         (unsigned long long)full_seq);
+    /*
+     * RFC 9147 4.5.1: the replay window is consulted here but acted on only after the record
+     * authenticates, so a forged copy of a duplicate is handled exactly like any other
+     * invalid record (4.5.2) instead of triggering the duplicate handling.
+     */
     rc = dtls13_replay_check_window(&ctx->base.replay_windows[epoch & DTLS13_UNIFIED_EPOCH_MASK], full_seq);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] decrypt_dtls13_record: replay reject epoch=%u seq=%llu\n",
-                            epoch, (unsigned long long)full_seq);
-        return rc;
-    }
 
     if(*out_plaintext_len < (ciphertext_len - tag_len)) {
         *out_plaintext_len = ciphertext_len - tag_len;
@@ -2575,9 +2652,27 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
     noxtls_secure_zero(handshake_read_key, sizeof(handshake_read_key));
     noxtls_secure_zero(handshake_read_iv, sizeof(handshake_read_iv));
     if(rc_aead != NOXTLS_RETURN_SUCCESS) {
+        /*
+         * RFC 9147 4.5.2: a record that fails deprotection is discarded and the association
+         * kept. No plaintext, replay or record-number state survives, so every invalid record
+         * leaves the context in the same state; only the 4.5.3 failure count changes.
+         */
         (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] decrypt_dtls13_record: AEAD decrypt failed rc=%d epoch=%u seq=%llu\n",
                             rc_aead, epoch, (unsigned long long)full_seq);
+        noxtls_secure_zero(out_plaintext, (size_t)inner_len);
+        if(dtls13_count_integrity_failure(ctx) != 0) {
+            return NOXTLS_RETURN_TLS_RECORD_AUTH_FAILED;
+        }
+
         return NOXTLS_RETURN_BAD_DATA;
+    }
+
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        /* RFC 9147 4.5.1: an authentic duplicate or stale record is discarded. */
+        (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] decrypt_dtls13_record: replay reject epoch=%u seq=%llu\n",
+                            epoch, (unsigned long long)full_seq);
+        noxtls_secure_zero(out_plaintext, (size_t)inner_len);
+        return rc;
     }
 
     /* Inner plaintext: content || content_type || zero padding. */
@@ -2585,8 +2680,9 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
         /* skip padding */
     }
     if(i == UINT32_MAX) {
+        /* RFC 8446 5.4: an authentic record without a content type is unexpected_message. */
         (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] decrypt_dtls13_record: all-padding inner plaintext\n");
-        return NOXTLS_RETURN_BAD_DATA;
+        return NOXTLS_RETURN_TLS_ERROR;
     }
     *out_content_type = out_plaintext[i];
     *out_plaintext_len = i;

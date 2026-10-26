@@ -45,6 +45,8 @@ extern "C" {
 #define DTLS13_UNIFIED_S_BIT        0x08U    /* S: 16-bit sequence number */
 #define DTLS13_UNIFIED_L_BIT        0x04U    /* L: length present */
 #define DTLS13_UNIFIED_EPOCH_MASK   0x03U    /* E: low 2 bits of epoch */
+#define DTLS13_UNIFIED_FIRST_BYTE_MIN 0x20U  /* first byte range 001xxxxx of a DTLSCiphertext */
+#define DTLS13_UNIFIED_FIRST_BYTE_MAX 0x3FU
 #define DTLS13_UNIFIED_MIN_HEADER   2U       /* minimal: 1 byte + 8-bit seq (no L) */
 #define DTLS13_UNIFIED_HEADER_WITH_LEN  4U   /* 1 byte + 8-bit seq + 16-bit length */
 #define DTLS13_RECORD_NUMBER_ENC_LEN    16U  /* mask length for record number encryption */
@@ -250,6 +252,10 @@ typedef struct dtls_context_s
     uint8_t highest_recv_seq_valid[4];  /* DTLS 1.3 reconstruction state */
     uint64_t connection_epoch;          /* Full DTLS 1.3 write epoch */
     uint64_t read_connection_epoch;     /* Full DTLS 1.3 read epoch */
+    /** DTLS 1.3: records that failed AEAD authentication under the current read key (RFC 9147 4.5.3). */
+    uint64_t integrity_failures;
+    /** DTLS 1.3: read_connection_epoch whose key integrity_failures counts for. */
+    uint64_t integrity_failure_epoch;
     
     /* Handshake fragmentation */
     uint8_t *handshake_buffer;  /* Buffer for reassembling fragmented handshake */

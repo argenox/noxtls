@@ -2167,8 +2167,6 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
         return NOXTLS_RETURN_SUCCESS;
     }
 
-    ctx->read_seq_num = record->sequence_number;
-
     if(record->epoch != ctx->epoch) {
         if((ctx->base.version == DTLS_VERSION_1_3) &&
            (record->type == TLS_RECORD_HANDSHAKE) &&
@@ -2190,17 +2188,19 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
             (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] dtls_recv_record: accepting DTLS1.3 ACK at epoch %u\n",
                                 (uint32_t)record->epoch);
         } else {
-        /* MISRA 15.7: final else path */
-        (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] dtls_recv_record: epoch mismatch record=%u ctx=%u type=0x%02X version=0x%04X\n",
-                            record->epoch, ctx->epoch, record->type, record->version);
-        (void)noxtls_free(packet);
-        return NOXTLS_RETURN_FAILED;
+            /*
+             * RFC 9147 4.5.2: a DTLSPlaintext record of an unexpected epoch is an invalid
+             * record (a corrupted or forged datagram): discard it and keep the association.
+             */
+            (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] dtls_recv_record: discard epoch mismatch record=%u ctx=%u type=0x%02X version=0x%04X\n",
+                                record->epoch, ctx->epoch, record->type, record->version);
+            continue;
         }
     }
 
     if(length > TLS_MAX_RECORD_SIZE) {
-        (void)noxtls_free(packet);
-        return NOXTLS_RETURN_INVALID_PARAM;
+        /* RFC 9147 4.5.2: an invalid length is discarded, not fatal. */
+        continue;
     }
 
     {
@@ -2214,12 +2214,14 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
                     return NOXTLS_RETURN_FAILED;
                 }
             } else {
-                /* MISRA 15.7: final else path */
-                (void)noxtls_free(packet);
-                return NOXTLS_RETURN_FAILED;
+                /* RFC 9147 4.5.2: a length that overruns the datagram is discarded. */
+                continue;
             }
         }
     }
+
+    /* Only a record that passed the epoch and length checks updates the read state. */
+    ctx->read_seq_num = record->sequence_number;
 
     if((ctx->base.version == DTLS_VERSION_1_3) && (record->type == TLS_RECORD_ACK)) {
         /* ACK records are idempotent and use per-epoch sequence numbers: no replay window. */

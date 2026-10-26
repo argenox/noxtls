@@ -35,4 +35,34 @@
 #define NOXTLS_TLS13_PEER_CERTIFICATES 1
 #endif
 
+/**
+ * @brief DTLS 1.3 integrity limit for AEAD_AES_128_GCM, AEAD_AES_256_GCM and
+ * AEAD_CHACHA20_POLY1305.
+ *
+ * RFC 9147 (DTLS 1.3, April 2022) Section 4.5.3: records that fail authentication are
+ * counted per key, and the connection is closed once the count exceeds 2^36. An
+ * application may lower the value; raising it above the RFC figure is not allowed.
+ */
+#ifndef NOXTLS_DTLS13_INTEGRITY_LIMIT_GCM_CHACHA
+#define NOXTLS_DTLS13_INTEGRITY_LIMIT_GCM_CHACHA ((uint64_t)1U << 36U)
+#endif
+
+/**
+ * @brief DTLS 1.3 integrity limit for AEAD_AES_128_CCM.
+ *
+ * RFC 9147 Section 4.5.3 and Appendix B.2: 2^23.5 records, rounded down to 11863283.
+ */
+#ifndef NOXTLS_DTLS13_INTEGRITY_LIMIT_CCM
+#define NOXTLS_DTLS13_INTEGRITY_LIMIT_CCM ((uint64_t)11863283U)
+#endif
+
+/**
+ * @brief DTLS 1.3 integrity limit for AEAD_AES_128_CCM_8.
+ *
+ * RFC 9147 Section 4.5.3 requires a usage limit for CCM_8; Appendix B.3 derives 2^7.
+ */
+#ifndef NOXTLS_DTLS13_INTEGRITY_LIMIT_CCM_8
+#define NOXTLS_DTLS13_INTEGRITY_LIMIT_CCM_8 ((uint64_t)1U << 7U)
+#endif
+
 #endif /* NOXTLS_TLS13_CONFIG_H_ */
