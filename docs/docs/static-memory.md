@@ -446,6 +446,29 @@ The seven DTLS contexts can share one handshake block only if the leader seriali
 all their handshakes; with one block for NoxLink and one for the nodes, add one
 handshake block (25,208 or 20,208).
 
+Measured with the leader's use cases (`mc_leader_*`, x86-64 with this profile, so
+the blocks are larger than the Cortex-M33 ones above; the arena peaks are what the
+handshakes and the connection actually used):
+
+| Context | Handshake arena peak / budget | Steady arena peak / budget |
+| --- | ---: | ---: |
+| MQTT client, RSA-2048 broker chain of 3 certificates (1,893 + 1,083 + 1,082 bytes), RSA-2048 device certificate | 25,416 / 56,856 | 552 / 12,744 |
+| MQTT client, ECDSA P-256 broker chain of 2 certificates, P-256 device certificate | 15,848 / 56,856 | 552 / 12,744 |
+| NoxLink server (split, shared handshake block), 1,399-byte frames | 10,360 / 15,776 | 2,912 / 8,760 |
+| Node client, 1,399-byte records | 9,880 / 15,776 | 2,912 / 8,760 |
+
+Global arena: the three anchors (borrowed DER) take 1,024 bytes and the RSA-2048
+device key 1,408 (P-256: 32), well within `NOXTLS_STATIC_GLOBAL_EXTRA` 8,192. The
+budgets keep the profile's reserve (chains of four 2 KB certificates, RSA-2048
+signing, NewSessionTickets up to 2 KB); none of the measured peaks needed a change.
+
+`NOXTLS_STATIC_MAX_CONNECTIONS` 8 counts the leader's own contexts. An in-process
+test holds both ends of each association, so with 8 it runs four associations
+(the NoxLink servers and one node association; `mc_concurrent_server_client` and
+`mc_many_psk_clients` run four), and with `-DNOXTLS_STATIC_MAX_CONNECTIONS=16U`
+(region registry only, 32 more entries) the whole set of eight leader connections
+at once.
+
 Heap mode reports what the test handshakes used; static mode reserves the
 configured worst case once, at build time, and reports the part that is free again
 after each handshake. Between sessions a node can keep its block allocated and
@@ -574,7 +597,35 @@ Everything in (b), plus:
   - `mc_many_psk_clients`: eight PSK client associations, closed one by one and
     reopened while the others carry data;
   - `mc_noxlink_frame_records`: a 1,400-byte frame takes two records with
-    `record_size_limit` 1,400 and one with 1,401.
+    `record_size_limit` 1,400 and one with 1,401;
+  - `mc_leader_mqtt_rsa`, `mc_leader_mqtt_ecdsa`: the leader's MQTT connection
+    (TLS 1.3 client, certificate profile) to a broker presenting a cloud broker's
+    chain (`ut/multi_context/gen_leader_pki.py`: RSA-2048 leaf with ten SAN names,
+    AIA, CRL distribution point, policies and embedded SCTs, its intermediate and
+    the root cross-signed by an untrusted legacy root; or a P-256 leaf and
+    intermediate), wildcard hostname, mutual authentication with an RSA-2048 or
+    P-256 device certificate issued by the broker's device CA, record_size_limit
+    513 honored by the broker, release after the handshake with the peer leaf kept
+    for channel binding, and 256 KeyUpdates with data (steady arena idle after every
+    exchange, its high-water mark constant);
+  - `mc_leader_topology`: the NoxLink fleet and local servers created when their
+    peers' ClientHellos arrive, taking turns with one handshake block (a refused
+    ClientHello is dropped and retransmitted), next to concurrent node associations
+    (a lost node flight, a duplicated ClientHello) and, with 16 connections, the
+    MQTT connection; a re-handshake of the fleet peer while the old association
+    carries data; the ACK of its Finished lost, the handshake block reused and
+    wiped by another re-handshake, and the released server still answering the
+    retransmitted Finished (epoch-2 read key kept in its steady part); then
+    1,399-byte frames and KeyUpdates on every association (600 on one).
+
+Profile-dependent cases: with no server ticket store
+(`NOXTLS_TLS13_PSK_TICKET_STORE_MAX` 0, the leader profiles) the four resumption and
+0-RTT cases are skipped, since the loopback server issues no ticket;
+`dtls_reassembly_ut` sizes its reference message to
+`NOXTLS_DTLS_REASSEMBLY_MAX_BYTES`; `static_pool_exhaustion` expects
+`NOXTLS_RETURN_CERT_PARSE_FAILED` when `NOXTLS_MAX_CERT_SIZE` equals
+`NOXTLS_STATIC_CERT_DER_MAX`, because the build-wide certificate bound is checked
+first.
 
 ## Limitations
 

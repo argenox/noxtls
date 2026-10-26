@@ -16,8 +16,14 @@ set(_noxtls_mc_cases
     mc_foreign_scope_isolation
     mc_many_psk_clients
     mc_noxlink_frame_records
+    mc_leader_mqtt_rsa
+    mc_leader_mqtt_ecdsa
+    mc_leader_topology
 )
 noxtls_lb_add_suite(multi_context_test "${CMAKE_CURRENT_SOURCE_DIR}/multi_context_test.c" ${_noxtls_mc_cases})
+# Broker and device PKI of the leader cases (gen_leader_pki.py).
+target_sources(multi_context_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/leader_pki.c")
+target_include_directories(multi_context_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 set_tests_properties(${_noxtls_mc_cases} PROPERTIES LABELS "multi_context")
 if(NOXTLS_CONFIG_STATIC_MEMORY AND NOT MSVC AND NOT APPLE)
     target_compile_definitions(multi_context_test PRIVATE MC_WRAP_HEAP=1)

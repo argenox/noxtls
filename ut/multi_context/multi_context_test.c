@@ -30,6 +30,7 @@
  * a deadline expires. Nothing waits.
  */
 #include "lb_fixture.h"
+#include "leader_pki.h"
 #include "tls/noxtls_connection_memory.h"
 
 #include <string.h>
@@ -1080,6 +1081,702 @@ static int t_noxlink_frame_records(void)
     return lb_expect_no_leak(base, "NoxLink frame records");
 }
 
+/* ---- Leader use cases (docs/static-memory.md, profile (iv)) ---------------- */
+
+/*
+ * The leader's connections, by association slot: NoxLink fleet and local servers and
+ * the replacement server of a re-handshake (DTLS 1.3 PSK, lazy split contexts on one
+ * handshake block), node-facing DTLS 1.3 PSK clients, and the MQTT connection (TLS 1.3
+ * client with certificates and mutual authentication). In each association the
+ * leader's context is the server (NoxLink) or the client (nodes, MQTT); the other end
+ * stands for the peer.
+ */
+#define MC_L_FLEET 0U
+#define MC_L_LOCAL 1U
+#define MC_L_REPL  2U
+#define MC_L_NODE0 3U
+#define MC_L_NODES 4U
+#define MC_L_MQTT  7U
+/** The leader limits the broker's records to 512 bytes (RFC 8449). */
+#define MC_MQTT_RSL 513U
+/** A NoxLink frame of 1,400 bytes in one MQTT publish, split into broker records. */
+#define MC_MQTT_FRAME 1400U
+
+#if NOXTLS_CONN_MEMORY
+#define MC_CERT_BYTES \
+    MC_MAX2(NOXTLS_CONNECTION_MEMORY_SIZE(TLS_ROLE_CLIENT, TLS13_CERT), \
+            NOXTLS_CONNECTION_MEMORY_SIZE(TLS_ROLE_SERVER, TLS13_CERT))
+/* [0] the leader's MQTT client, [1] the broker. */
+static uint64_t s_cert_blocks[2][MC_CERT_BYTES / 8U];
+#endif
+
+/** Broker and device keys, and what they cost the global arena. */
+typedef struct
+{
+    int rsa;
+    rsa_key_t device_rsa;
+    rsa_key_t broker_rsa;
+    ecc_key_t device_ec;
+    ecc_key_t broker_ec;
+    int loaded;
+    const uint8_t *chain[2];
+    uint32_t chain_lens[2];
+    size_t device_key_global;
+    size_t trust_store_global;
+} mc_broker_t;
+
+static mc_broker_t s_broker;
+
+#if NOXTLS_CONN_MEMORY
+/** Highest arena use seen per leader context kind (printed by the cases). */
+typedef struct
+{
+    size_t hs_peak;
+    size_t hs_budget;
+    size_t steady_peak;
+    size_t steady_budget;
+    size_t block;
+} mc_usage_t;
+#endif
+
+static size_t mc_global_used(void)
+{
+#if NOXTLS_CONN_MEMORY
+    noxtls_mem_region_stats_t g;
+    if(noxtls_mem_region_get_stats(noxtls_mem_global_region(), &g) != NOXTLS_RETURN_SUCCESS) {
+        return 0U;
+    }
+    return g.live_bytes;
+#else
+    return lb_alloc_live_bytes();
+#endif
+}
+
+static int mc_load_rsa(rsa_key_t *key, const uint8_t *der, uint32_t len)
+{
+    x509_private_key_t pk;
+    (void)noxtls_x509_private_key_init(&pk);
+    LB_CHECK_OK(noxtls_x509_private_key_parse_der(&pk, der, len));
+    LB_CHECK_OK(noxtls_x509_private_key_to_rsa_key(&pk, key));
+    (void)noxtls_x509_private_key_free(&pk);
+    return 0;
+}
+
+static int mc_load_ecc(ecc_key_t *key, const uint8_t *der, uint32_t len)
+{
+    x509_private_key_t pk;
+    (void)noxtls_x509_private_key_init(&pk);
+    LB_CHECK_OK(noxtls_x509_private_key_parse_der(&pk, der, len));
+    LB_CHECK_OK(noxtls_x509_private_key_to_ecc_key(&pk, key));
+    (void)noxtls_x509_private_key_free(&pk);
+    return 0;
+}
+
+/**
+ * The leader's trust store (Test Root CA 1 and 3) next to the broker's device CA (the
+ * trust store is one per process), and the device and broker keys, all in the global
+ * arena as an application loads them at start-up.
+ */
+static int mc_broker_load(int rsa)
+{
+    static const uint8_t *const roots[3] = { lp_root1_cert, lp_root3_cert, lp_device_ca_cert };
+    const uint32_t lens[3] = { lp_root1_cert_len, lp_root3_cert_len, lp_device_ca_cert_len };
+    size_t before;
+
+    memset(&s_broker, 0, sizeof(s_broker));
+    s_broker.rsa = rsa;
+    before = mc_global_used();
+    LB_CHECK_OK(noxtls_x509_trust_store_set_der_nocopy(roots, lens, 3U));
+    s_broker.trust_store_global = mc_global_used() - before;
+    before = mc_global_used();
+    if(rsa != 0) {
+        LB_RUN(mc_load_rsa(&s_broker.device_rsa, lp_device_rsa_key, lp_device_rsa_key_len));
+    } else {
+        LB_RUN(mc_load_ecc(&s_broker.device_ec, lp_device_ec_key, lp_device_ec_key_len));
+    }
+    s_broker.device_key_global = mc_global_used() - before;
+    if(rsa != 0) {
+        LB_RUN(mc_load_rsa(&s_broker.broker_rsa, lp_rsa_leaf_key, lp_rsa_leaf_key_len));
+        /* Leaf + intermediate + Test Root CA 1 cross-signed by an untrusted legacy root. */
+        s_broker.chain[0] = lp_rsa_int_cert;
+        s_broker.chain_lens[0] = lp_rsa_int_cert_len;
+        s_broker.chain[1] = lp_root1_cross_cert;
+        s_broker.chain_lens[1] = lp_root1_cross_cert_len;
+    } else {
+        LB_RUN(mc_load_ecc(&s_broker.broker_ec, lp_ec_leaf_key, lp_ec_leaf_key_len));
+        s_broker.chain[0] = lp_ec_int_cert;
+        s_broker.chain_lens[0] = lp_ec_int_cert_len;
+    }
+    s_broker.loaded = 1;
+    return 0;
+}
+
+static void mc_broker_unload(void)
+{
+    if(s_broker.loaded != 0) {
+        if(s_broker.rsa != 0) {
+            (void)noxtls_rsa_key_free(&s_broker.device_rsa);
+            (void)noxtls_rsa_key_free(&s_broker.broker_rsa);
+        } else {
+            (void)noxtls_ecc_key_free(&s_broker.device_ec);
+            (void)noxtls_ecc_key_free(&s_broker.broker_ec);
+        }
+        s_broker.loaded = 0;
+    }
+    noxtls_x509_trust_store_clear();
+}
+
+static void mc_end_ready(mc_end_t *e, int is_client, int dtls)
+{
+    e->is_client = is_client;
+    e->dtls = dtls;
+    e->initialized = 1;
+    e->done = 0;
+    e->last_rc = NOXTLS_RETURN_WANT_READ;
+}
+
+static void mc_link_reset(mc_assoc_t *a, int datagram)
+{
+    memset(a, 0, sizeof(*a));
+    a->link.datagram = datagram;
+    a->link.cport.link = &a->link;
+    a->link.cport.is_client = 1;
+    a->link.sport.link = &a->link;
+    a->link.sport.is_client = 0;
+}
+
+/**
+ * The MQTT association: the leader's TLS 1.3 client (SNI, record_size_limit 513, the
+ * device certificate) and the broker, which presents its chain and requires a client
+ * certificate.
+ */
+static int mc_mqtt_open(void)
+{
+    mc_assoc_t *a = &s_assoc[MC_L_MQTT];
+    tls13_context_t *c = &a->c.ctx;
+    tls13_context_t *s = &a->s.ctx;
+
+    mc_link_reset(a, 0);
+#if NOXTLS_CONN_MEMORY
+    LB_CHECK_OK(noxtls_tls13_context_init_static(c, TLS_ROLE_CLIENT, NOXTLS_CONN_PROFILE_TLS13_CERT,
+                                                 s_cert_blocks[0], sizeof(s_cert_blocks[0])));
+    mc_end_ready(&a->c, 1, 0);
+    LB_CHECK_OK(noxtls_tls13_context_init_static(s, TLS_ROLE_SERVER, NOXTLS_CONN_PROFILE_TLS13_CERT,
+                                                 s_cert_blocks[1], sizeof(s_cert_blocks[1])));
+#else
+    LB_CHECK_OK(noxtls_tls13_context_init(c, TLS_ROLE_CLIENT));
+    mc_end_ready(&a->c, 1, 0);
+    LB_CHECK_OK(noxtls_tls13_context_init(s, TLS_ROLE_SERVER));
+#endif
+    mc_end_ready(&a->s, 0, 0);
+    LB_CHECK_OK(noxtls_tls_set_io_callbacks(&c->base.base, mc_send, mc_recv, &a->link.cport));
+    LB_CHECK_OK(noxtls_tls_set_io_callbacks(&s->base.base, mc_send, mc_recv, &a->link.sport));
+    LB_CHECK_OK(noxtls_tls_set_io_mode(&c->base.base, TLS_IO_MODE_NON_BLOCKING));
+    LB_CHECK_OK(noxtls_tls_set_io_mode(&s->base.base, TLS_IO_MODE_NON_BLOCKING));
+
+    lb_field_tls13_set_sni(c, LP_BROKER_HOST);
+    noxtls_tls13_set_record_size_limit(c, (uint16_t)MC_MQTT_RSL);
+    if(s_broker.rsa != 0) {
+        LB_CHECK_OK(noxtls_tls13_set_client_cert(c, lp_device_rsa_cert, lp_device_rsa_cert_len, &s_broker.device_rsa));
+        lb_field_tls13_set_server_cert(s, lp_rsa_leaf_cert, lp_rsa_leaf_cert_len);
+        noxtls_tls13_set_server_certificate_chain(s, s_broker.chain, s_broker.chain_lens, 2U);
+        noxtls_tls13_set_server_private_rsa(s, &s_broker.broker_rsa);
+    } else {
+        LB_CHECK_OK(noxtls_tls13_set_client_cert_ecdsa(c, lp_device_ec_cert, lp_device_ec_cert_len,
+                                                       &s_broker.device_ec));
+        lb_field_tls13_set_server_cert(s, lp_ec_leaf_cert, lp_ec_leaf_cert_len);
+        noxtls_tls13_set_server_certificate_chain(s, s_broker.chain, s_broker.chain_lens, 1U);
+        noxtls_tls13_set_server_private_ecdsa(s, &s_broker.broker_ec);
+    }
+    noxtls_tls13_require_client_auth(s, 1);
+    return 0;
+}
+
+/** TLS records queued toward the leader's MQTT client: count, and the largest. */
+static void mc_mqtt_records(uint32_t *count, uint32_t *largest)
+{
+    const mc_queue_t *q = &s_assoc[MC_L_MQTT].link.to_client;
+    uint32_t off = q->rd;
+
+    *count = 0U;
+    *largest = 0U;
+    while((off + 5U) <= q->wr) {
+        uint32_t len = ((uint32_t)q->stream[off + 3U] << 8) | (uint32_t)q->stream[off + 4U];
+        *count += 1U;
+        if(len > *largest) {
+            *largest = len;
+        }
+        off += 5U + len;
+    }
+}
+
+#if NOXTLS_CONN_MEMORY
+static void mc_usage_note(mc_usage_t *u, const mc_end_t *e)
+{
+    noxtls_connection_memory_stats_t st;
+    if(noxtls_connection_memory_get_stats(&e->ctx, &st) == NOXTLS_RETURN_SUCCESS) {
+        if(st.hs_arena_peak_at_release > u->hs_peak) {
+            u->hs_peak = st.hs_arena_peak_at_release;
+        }
+        if(st.steady_arena.peak > u->steady_peak) {
+            u->steady_peak = st.steady_arena.peak;
+        }
+        u->hs_budget = st.layout.hs_arena;
+        u->steady_budget = st.layout.steady_arena;
+        u->block = st.layout.total;
+    }
+}
+
+static void mc_usage_print(const char *what, const mc_usage_t *u)
+{
+    printf("%s: block %lu, handshake arena peak %lu of %lu, steady arena peak %lu of %lu\n", what,
+           (unsigned long)u->block, (unsigned long)u->hs_peak, (unsigned long)u->hs_budget,
+           (unsigned long)u->steady_peak, (unsigned long)u->steady_budget);
+}
+#endif
+
+/**
+ * Long-running KeyUpdate on association @p i: @p rounds updates, alternately requested by
+ * each end, each followed by data both ways (@p len bytes). The steady arena is idle
+ * after every exchange and its high-water mark stops growing after the first rounds.
+ */
+static int mc_key_update_run(uint32_t i, uint32_t rounds, uint32_t len)
+{
+    mc_assoc_t *a = &s_assoc[i];
+    uint32_t r;
+#if NOXTLS_CONN_MEMORY
+    noxtls_connection_memory_stats_t st;
+    size_t early_peak[2] = { 0U, 0U };
+#endif
+
+    for(r = 0U; r < rounds; r++) {
+        mc_end_t *from = ((r & 1U) == 0U) ? &a->c : &a->s;
+        LB_CHECK_OK(noxtls_tls13_send_key_update(&from->ctx, 1U));
+        if(from->dtls == 0) {
+            (void)noxtls_tls_flush(&from->ctx.base.base);
+        }
+        LB_RUN(mc_exchange(i, 1, len, 1000U + r));
+        LB_RUN(mc_exchange(i, 0, len, 2000U + r));
+#if NOXTLS_CONN_MEMORY
+        LB_CHECK_OK(noxtls_connection_memory_get_stats(&a->c.ctx, &st));
+        LB_CHECK_EQ(st.steady_arena.live_blocks, 0U);
+        if(r == 7U) {
+            early_peak[0] = st.steady_arena.peak;
+        }
+        if((r > 7U) && (st.steady_arena.peak != early_peak[0])) {
+            lb_log("association %u: client steady peak grew to %lu at round %u", (unsigned)i,
+                   (unsigned long)st.steady_arena.peak, (unsigned)r);
+            return 1;
+        }
+        LB_CHECK_OK(noxtls_connection_memory_get_stats(&a->s.ctx, &st));
+        LB_CHECK_EQ(st.steady_arena.live_blocks, 0U);
+        if(r == 7U) {
+            early_peak[1] = st.steady_arena.peak;
+        }
+        if((r > 7U) && (st.steady_arena.peak != early_peak[1])) {
+            lb_log("association %u: server steady peak grew to %lu at round %u", (unsigned)i,
+                   (unsigned long)st.steady_arena.peak, (unsigned)r);
+            return 1;
+        }
+#endif
+    }
+    return 0;
+}
+
+/**
+ * MQTT to the broker with the broker's chain: handshake (chain verification through the
+ * intermediate, the cross-signed root ignored, hostname by wildcard SAN, mutual
+ * authentication with the device key), release after the handshake (peer leaf DER kept
+ * for channel binding), broker records within record_size_limit 513, 1,400-byte
+ * publishes both ways, and 256 KeyUpdates with data.
+ */
+static int mc_leader_mqtt(int rsa)
+{
+    static const uint32_t mqtt[1] = { MC_L_MQTT };
+    mc_assoc_t *a = &s_assoc[MC_L_MQTT];
+    size_t base = lb_alloc_live_bytes();
+    size_t heap_before;
+    uint32_t records = 0U;
+    uint32_t largest = 0U;
+    uint8_t cb[64];
+    uint32_t cb_len = sizeof(cb);
+#if NOXTLS_CONN_MEMORY
+    mc_usage_t client_use;
+    memset(&client_use, 0, sizeof(client_use));
+#endif
+
+    LB_RUN(mc_broker_load(rsa));
+    LB_RUN(mc_mqtt_open());
+    heap_before = MC_HEAP_CALLS();
+    LB_RUN(mc_drive(mqtt, 1U, 0, 0U, 0U));
+    LB_CHECK_EQ(a->c.ctx.base.base.state, TLS_STATE_CONNECTED);
+    LB_CHECK_EQ(a->s.ctx.base.base.state, TLS_STATE_CONNECTED);
+    /* The broker's leaf stays available (tls-server-end-point channel binding). */
+    LB_CHECK(a->c.ctx.server_cert != NULL);
+    LB_CHECK_EQ(a->c.ctx.server_cert_len, (rsa != 0) ? lp_rsa_leaf_cert_len : lp_ec_leaf_cert_len);
+    LB_CHECK_OK(noxtls_tls13_get_channel_binding(&a->c.ctx, NOXTLS_TLS_CHANNEL_BINDING_TLS_SERVER_END_POINT,
+                                                 cb, &cb_len));
+#if NOXTLS_CONN_MEMORY
+    LB_RUN(mc_check_released(&a->c));
+    mc_usage_note(&client_use, &a->c);
+#endif
+
+    /* A NoxLink frame published to the leader: broker records of at most 512 bytes. */
+    lb_fill_pattern(s_buf, MC_MQTT_FRAME, 41U);
+    LB_CHECK_OK(noxtls_tls13_send(&a->s.ctx, s_buf, MC_MQTT_FRAME));
+    (void)noxtls_tls_flush(&a->s.ctx.base.base);
+    mc_mqtt_records(&records, &largest);
+    LB_CHECK(records >= 3U);
+    LB_CHECK(largest <= (MC_MQTT_RSL + 16U));   /* inner plaintext + AEAD tag */
+    LB_RUN(mc_recv_exact(&a->c, s_rx, MC_MQTT_FRAME));
+    LB_CHECK(memcmp(s_rx, s_buf, MC_MQTT_FRAME) == 0);
+    LB_RUN(mc_exchange(MC_L_MQTT, 1, MC_MQTT_FRAME, 42U));
+    LB_RUN(mc_key_update_run(MC_L_MQTT, 256U, 512U));
+#if NOXTLS_CONN_MEMORY
+    mc_usage_note(&client_use, &a->c);
+    LB_RUN(mc_check_released(&a->c));
+    mc_usage_print((rsa != 0) ? "MQTT client, RSA-2048 chain (3 certificates), mutual TLS" :
+                                "MQTT client, ECDSA P-256 chain (2 certificates), mutual TLS", &client_use);
+    printf("trust store (3 anchors): %lu, device key: %lu bytes of global arena\n",
+           (unsigned long)s_broker.trust_store_global, (unsigned long)s_broker.device_key_global);
+    LB_CHECK(s_broker.device_key_global <= (size_t)NOXTLS_STATIC_GLOBAL_EXTRA);
+#endif
+    LB_CHECK_EQ(MC_HEAP_CALLS() - heap_before, 0U);
+    (void)noxtls_tls13_close(&a->c.ctx);
+    (void)noxtls_tls_flush(&a->c.ctx.base.base);
+    mc_assoc_free(MC_L_MQTT);
+#if NOXTLS_CONN_MEMORY
+    LB_CHECK(mc_all_zero(s_cert_blocks[0], sizeof(s_cert_blocks[0]) / 8U) != 0);
+#endif
+    mc_broker_unload();
+    return lb_expect_no_leak(base, "leader MQTT");
+}
+
+static int t_leader_mqtt_rsa(void) { return mc_leader_mqtt(1); }
+static int t_leader_mqtt_ecdsa(void) { return mc_leader_mqtt(0); }
+
+/* ---- NoxLink servers created when their first datagram arrives -------------- */
+
+/** Association @p i as a client using association @p keys's identity and key. */
+static int mc_open_client_as(uint32_t i, uint32_t keys)
+{
+    mc_assoc_t *a = &s_assoc[i];
+#if NOXTLS_CONN_MEMORY
+    void *mem = s_blocks[i][0];
+    size_t mem_len = sizeof(s_blocks[i][0]);
+#else
+    void *mem = NULL;
+    size_t mem_len = 0U;
+#endif
+    mc_link_reset(a, 1);
+    mc_assoc_keys(a, keys);
+    LB_RUN(mc_end_init(&a->c, 1, 1, mem, mem_len));
+    LB_RUN(mc_end_config(a, &a->c));
+    return 0;
+}
+
+/** The leader's server context of association @p i: steady block @p steady, shared handshake block. */
+static noxtls_return_t mc_lazy_server_init(uint32_t i, uint32_t steady)
+{
+#if NOXTLS_CONN_MEMORY
+    return mc_split_server(i, steady, s_shared_hs, sizeof(s_shared_hs));
+#else
+    mc_assoc_t *a = &s_assoc[i];
+    (void)steady;
+    if((mc_end_init(&a->s, 0, 1, NULL, 0U) != 0) || (mc_end_config(a, &a->s) != 0)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    return NOXTLS_RETURN_SUCCESS;
+#endif
+}
+
+/**
+ * The leader's turn for a NoxLink association: with no server context yet, a queued
+ * datagram creates one; while another server holds the handshake block the init is
+ * refused and the datagram dropped (the peer retransmits its ClientHello).
+ */
+static int mc_lazy_server_turn(uint32_t i, uint32_t steady, uint32_t *refused)
+{
+    mc_assoc_t *a = &s_assoc[i];
+    mc_queue_t *q = &a->link.to_server;
+
+    if(a->s.initialized == 0) {
+        noxtls_return_t rc;
+        if(q->count == 0U) {
+            return 0;
+        }
+        rc = mc_lazy_server_init(i, steady);
+        if(rc == NOXTLS_RETURN_NOT_ENOUGH_MEMORY) {
+            q->head = (q->head + 1U) % MC_SLOTS;
+            q->count--;
+            *refused += 1U;
+            return 0;
+        }
+        LB_CHECK_OK(rc);
+    }
+    mc_step(&a->s);
+    return 0;
+}
+
+typedef struct
+{
+    uint32_t nox[3];        /* NoxLink associations being opened */
+    uint32_t nox_steady[3]; /* their steady blocks */
+    uint32_t n_nox;
+    uint32_t nodes[MC_L_NODES];
+    uint32_t n_nodes;
+    int mqtt;
+    uint32_t refused;
+} mc_leader_plan_t;
+
+static int mc_end_failed(const mc_end_t *e)
+{
+    return ((e->initialized != 0) && (e->done == 0) && (mc_is_progress(e->last_rc) == 0)) ? 1 : 0;
+}
+
+/** The owner loop of the leader: one turn per endpoint per round, until all are connected. */
+static int mc_leader_drive(mc_leader_plan_t *p)
+{
+    uint32_t round;
+    uint32_t k;
+
+    for(round = 0U; round < 8000U; round++) {
+        int all = 1;
+        for(k = 0U; k < p->n_nox; k++) {
+            mc_assoc_t *a = &s_assoc[p->nox[k]];
+            mc_step(&a->c);
+            LB_RUN(mc_lazy_server_turn(p->nox[k], p->nox_steady[k], &p->refused));
+            all &= mc_assoc_done(a);
+            if((mc_end_failed(&a->c) != 0) || (mc_end_failed(&a->s) != 0)) {
+                lb_log("NoxLink association %u failed: client rc=%d server rc=%d", (unsigned)p->nox[k],
+                       (int)a->c.last_rc, (int)a->s.last_rc);
+                return 1;
+            }
+        }
+        for(k = 0U; k < p->n_nodes; k++) {
+            mc_assoc_t *a = &s_assoc[p->nodes[k]];
+            mc_step(&a->c);
+            mc_step(&a->s);
+            all &= mc_assoc_done(a);
+            if((mc_end_failed(&a->c) != 0) || (mc_end_failed(&a->s) != 0)) {
+                lb_log("node association %u failed: client rc=%d server rc=%d", (unsigned)p->nodes[k],
+                       (int)a->c.last_rc, (int)a->s.last_rc);
+                return 1;
+            }
+        }
+        if(p->mqtt != 0) {
+            mc_assoc_t *a = &s_assoc[MC_L_MQTT];
+            mc_step(&a->c);
+            mc_step(&a->s);
+            all &= mc_assoc_done(a);
+            if((mc_end_failed(&a->c) != 0) || (mc_end_failed(&a->s) != 0)) {
+                lb_log("MQTT association failed: client rc=%d server rc=%d", (int)a->c.last_rc, (int)a->s.last_rc);
+                return 1;
+            }
+        }
+        if(all != 0) {
+            return 0;
+        }
+        s_now_ms += 25U;
+    }
+    lb_log("leader handshakes did not complete");
+    return 1;
+}
+
+/** Turns of the owner loop on association @p i alone (reads on both ends), no data. */
+static int mc_idle_turns(uint32_t i, uint32_t turns, uint32_t step_ms)
+{
+    uint32_t t;
+    for(t = 0U; t < turns; t++) {
+        uint32_t n = (uint32_t)sizeof(s_rx);
+        s_now_ms += step_ms;
+        LB_CHECK_EQ(noxtls_tls13_recv(&s_assoc[i].c.ctx, s_rx, &n), NOXTLS_RETURN_TIMEOUT);
+        n = (uint32_t)sizeof(s_rx);
+        LB_CHECK_EQ(noxtls_tls13_recv(&s_assoc[i].s.ctx, s_rx, &n), NOXTLS_RETURN_TIMEOUT);
+    }
+    return 0;
+}
+
+/**
+ * The leader's whole set of connections: the NoxLink fleet and local servers, created
+ * when their peers' ClientHellos arrive and taking turns with one handshake block
+ * (refused ClientHellos are dropped and retransmitted), next to concurrent node
+ * associations (one losing the node's first flight, one with a duplicated ClientHello)
+ * and, when the build holds both ends of eight associations, the MQTT connection.
+ * Then a re-handshake of the fleet peer: the replacement server takes the handshake
+ * block while the old fleet association carries data; the ACK of the replacement
+ * client's Finished is lost, the block passes to another re-handshake (local) and is
+ * wiped, and the replacement server, already released, still answers the retransmitted
+ * Finished (its epoch-2 read key is kept in its steady part). Every association then
+ * carries 1,399-byte NoxLink frames and runs KeyUpdates (600 on the fleet association).
+ */
+static int t_leader_topology(void)
+{
+    mc_leader_plan_t plan;
+    size_t base = lb_alloc_live_bytes();
+    size_t heap_before;
+    uint32_t k;
+    uint32_t n_live;
+    uint32_t n_nodes;
+    uint32_t before_tx;
+    uint32_t live[MC_ASSOC_MAX];
+#if NOXTLS_CONN_MEMORY
+    mc_usage_t server_use;
+    mc_usage_t node_use;
+    memset(&server_use, 0, sizeof(server_use));
+    memset(&node_use, 0, sizeof(node_use));
+#endif
+
+    /* Three NoxLink servers, one node association at least. */
+    if(MC_FIT < 4U) {
+        return LB_SKIP;
+    }
+    memset(&plan, 0, sizeof(plan));
+    plan.mqtt = (MC_FIT >= 8U) ? 1 : 0;
+    plan.n_nodes = MC_FIT - 3U - ((plan.mqtt != 0) ? 1U : 0U);
+    if(plan.n_nodes > MC_L_NODES) {
+        plan.n_nodes = MC_L_NODES;
+    }
+    n_nodes = plan.n_nodes;
+    if(plan.mqtt != 0) {
+        LB_RUN(mc_broker_load(0));
+        LB_RUN(mc_mqtt_open());
+    }
+    heap_before = MC_HEAP_CALLS();
+
+    /* Phase 1: fleet and local peers start at once; the nodes connect concurrently. */
+    LB_RUN(mc_open_client_as(MC_L_FLEET, MC_L_FLEET));
+    LB_RUN(mc_open_client_as(MC_L_LOCAL, MC_L_LOCAL));
+    plan.nox[0] = MC_L_FLEET;
+    plan.nox_steady[0] = 0U;
+    plan.nox[1] = MC_L_LOCAL;
+    plan.nox_steady[1] = 1U;
+    plan.n_nox = 2U;
+    for(k = 0U; k < plan.n_nodes; k++) {
+        plan.nodes[k] = MC_L_NODE0 + k;
+        LB_RUN(mc_assoc_open(MC_L_NODE0 + k, 1, 1));
+    }
+    s_assoc[MC_L_NODE0].link.to_client.drop_next = 1U;
+    if(plan.n_nodes > 1U) {
+        s_assoc[MC_L_NODE0 + 1U].link.to_server.dup_next = 1U;
+    }
+    LB_RUN(mc_leader_drive(&plan));
+#if NOXTLS_CONN_MEMORY
+    /* The second server could only start once the first had released the block. */
+    LB_CHECK(plan.refused > 0U);
+#endif
+    LB_CHECK(s_assoc[MC_L_NODE0].link.to_client.datagrams > 1U);
+    for(k = 0U; k < plan.n_nodes; k++) {
+        LB_RUN(mc_exchange(plan.nodes[k], 1, 300U + k, 10U + k));
+        LB_RUN(mc_exchange(plan.nodes[k], 0, 500U + k, 20U + k));
+#if NOXTLS_CONN_MEMORY
+        LB_RUN(mc_check_released(&s_assoc[plan.nodes[k]].c));
+        mc_usage_note(&node_use, &s_assoc[plan.nodes[k]].c);
+#endif
+    }
+    LB_RUN(mc_exchange(MC_L_FLEET, 0, MC_RSL - 1U, 30U));
+    LB_RUN(mc_exchange(MC_L_LOCAL, 1, MC_RSL - 1U, 31U));
+    if(plan.mqtt != 0) {
+        LB_RUN(mc_exchange(MC_L_MQTT, 1, MC_MQTT_FRAME, 32U));
+        LB_RUN(mc_exchange(MC_L_MQTT, 0, MC_MQTT_FRAME, 33U));
+    }
+
+    /* Phase 2: the fleet peer re-handshakes; the old fleet association keeps working. */
+    LB_RUN(mc_open_client_as(MC_L_REPL, MC_L_FLEET));
+    plan.nox[0] = MC_L_REPL;
+    plan.nox_steady[0] = 2U;
+    plan.n_nox = 1U;
+    plan.n_nodes = 0U;
+    plan.mqtt = 0;
+    for(k = 0U; k < 3U; k++) {
+        mc_step(&s_assoc[MC_L_REPL].c);
+        LB_RUN(mc_lazy_server_turn(MC_L_REPL, 2U, &plan.refused));
+        LB_RUN(mc_exchange(MC_L_FLEET, 0, 700U + k, 40U + k));
+    }
+    LB_RUN(mc_leader_drive(&plan));
+    /* The ACK of the replacement client's Finished is lost. */
+    s_assoc[MC_L_REPL].link.to_client.count = 0U;
+    s_assoc[MC_L_REPL].link.to_client.head = 0U;
+#if NOXTLS_CONN_MEMORY
+    LB_CHECK_EQ(mc_released(&s_assoc[MC_L_REPL].s), 1);
+    LB_CHECK_EQ(mc_released(&s_assoc[MC_L_REPL].c), 0);
+#endif
+    /* The old fleet association goes; its steady block hosts a re-handshake of local. */
+    (void)noxtls_tls13_close(&s_assoc[MC_L_FLEET].s.ctx);
+    mc_assoc_free(MC_L_FLEET);
+#if NOXTLS_CONN_MEMORY
+    LB_CHECK(mc_all_zero(s_steady[0], sizeof(s_steady[0]) / 8U) != 0);
+#endif
+    LB_RUN(mc_open_client_as(MC_L_FLEET, MC_L_LOCAL));
+    plan.nox[0] = MC_L_FLEET;
+    plan.nox_steady[0] = 0U;
+    LB_RUN(mc_leader_drive(&plan));
+#if NOXTLS_CONN_MEMORY
+    LB_RUN(mc_check_released(&s_assoc[MC_L_FLEET].s));
+    LB_CHECK(mc_all_zero(s_shared_hs, sizeof(s_shared_hs) / 8U) != 0);
+#endif
+    /* The replacement client retransmits its Finished; the released server ACKs it. */
+    before_tx = s_assoc[MC_L_REPL].link.to_server.datagrams;
+    LB_RUN(mc_idle_turns(MC_L_REPL, 40U, 250U));
+    LB_CHECK(s_assoc[MC_L_REPL].link.to_server.datagrams > before_tx);
+#if NOXTLS_CONN_MEMORY
+    LB_CHECK_EQ(mc_released(&s_assoc[MC_L_REPL].c), 1);
+#endif
+
+    /* Phase 3: data and KeyUpdates on every live association. */
+    n_live = 0U;
+    live[n_live++] = MC_L_REPL;
+    live[n_live++] = MC_L_LOCAL;
+    live[n_live++] = MC_L_FLEET;   /* now the local re-handshake */
+    for(k = 0U; k < n_nodes; k++) {
+        live[n_live++] = MC_L_NODE0 + k;
+    }
+    if(MC_FIT >= 8U) {
+        live[n_live++] = MC_L_MQTT;
+    }
+    for(k = 0U; k < n_live; k++) {
+        uint32_t len = (live[k] == MC_L_MQTT) ? 512U : (MC_RSL - 1U);
+        LB_RUN(mc_key_update_run(live[k], 24U, len));
+    }
+    LB_RUN(mc_key_update_run(MC_L_REPL, 600U, 64U));
+#if NOXTLS_CONN_MEMORY
+    for(k = 0U; k < n_live; k++) {
+        mc_assoc_t *a = &s_assoc[live[k]];
+        LB_RUN(mc_check_released(&a->c));
+        LB_RUN(mc_check_released(&a->s));
+        if(live[k] < MC_L_NODE0) {
+            mc_usage_note(&server_use, &a->s);
+        } else if(live[k] != MC_L_MQTT) {
+            mc_usage_note(&node_use, &a->c);
+        } else {
+            /* the MQTT client is measured by mc_leader_mqtt_* */
+        }
+    }
+    mc_usage_print("NoxLink DTLS 1.3 PSK server (split, shared handshake block)", &server_use);
+    mc_usage_print("node DTLS 1.3 PSK client", &node_use);
+    printf("leader connections live at once: %u (MQTT %s), refused ClientHellos while the block was held: %u\n",
+           (unsigned)n_live, (MC_FIT >= 8U) ? "included" : "not included: 8 connections hold both ends of 4",
+           (unsigned)plan.refused);
+#endif
+    LB_CHECK_EQ(MC_HEAP_CALLS() - heap_before, 0U);
+    for(k = 0U; k < MC_ASSOC_MAX; k++) {
+        if(s_assoc[k].c.initialized != 0) {
+            (void)noxtls_tls13_close(&s_assoc[k].c.ctx);
+        }
+        mc_assoc_free(k);
+    }
+#if NOXTLS_CONN_MEMORY
+    for(k = 0U; k < 3U; k++) {
+        LB_CHECK(mc_all_zero(s_steady[k], sizeof(s_steady[k]) / 8U) != 0);
+    }
+    LB_CHECK(mc_all_zero(s_shared_hs, sizeof(s_shared_hs) / 8U) != 0);
+#endif
+    if(MC_FIT >= 8U) {
+        mc_broker_unload();
+    }
+    return lb_expect_no_leak(base, "leader topology");
+}
+
 static const lb_test_case_t k_cases[] = {
     { "mc_concurrent_server_client", t_concurrent_server_client },
     { "mc_cross_identity_refused", t_cross_identity_refused },
@@ -1089,6 +1786,9 @@ static const lb_test_case_t k_cases[] = {
     { "mc_foreign_scope_isolation", t_foreign_scope_isolation },
     { "mc_many_psk_clients", t_many_psk_clients },
     { "mc_noxlink_frame_records", t_noxlink_frame_records },
+    { "mc_leader_mqtt_rsa", t_leader_mqtt_rsa },
+    { "mc_leader_mqtt_ecdsa", t_leader_mqtt_ecdsa },
+    { "mc_leader_topology", t_leader_topology },
 };
 
 int main(int argc, char **argv)
