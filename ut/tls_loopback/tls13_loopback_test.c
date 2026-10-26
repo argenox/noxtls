@@ -324,6 +324,11 @@ static int t_mtls_untrusted_client(void)
 
 /* ---- Resumption, 0-RTT, KeyUpdate -------------------------------------- */
 
+/* Resumption needs a NoxTLS server that issues tickets: with no server ticket store
+ * (NOXTLS_TLS13_PSK_TICKET_STORE_MAX 0, as in the leader profiles, whose only servers are
+ * DTLS 1.3 PSK servers that issue none) the server sends no NewSessionTicket. */
+#define LB_SERVER_TICKETS (NOXTLS_TLS13_PSK_TICKET_STORE_MAX > 0U)
+
 /** Full handshake that leaves a resumption ticket in *session. */
 static int first_connection(noxtls_tls13_session_t *session, const uint16_t *suite)
 {
@@ -357,6 +362,10 @@ static int t_resumption_ticket(void)
     uint32_t round;
     size_t base = lb_alloc_live_bytes();
 
+#if !LB_SERVER_TICKETS
+    return LB_SKIP;
+#endif
+
     LB_RUN(lb_trust_ec_root());
     LB_RUN(first_connection(&session, NULL));
     /* Resume twice: tickets may be reused within their lifetime or replaced by a new one. */
@@ -386,6 +395,10 @@ static int t_resumption_wrong_session(void)
     lb_cfg_t cfg;
     size_t base = lb_alloc_live_bytes();
 
+#if !LB_SERVER_TICKETS
+    return LB_SKIP;
+#endif
+
     LB_RUN(lb_trust_ec_root());
     LB_RUN(first_connection(&session, NULL));
     /* A corrupted ticket identity cannot be resumed: the server falls back to a full handshake. */
@@ -411,6 +424,10 @@ static int t_early_data(void)
     uint32_t len = sizeof(buf);
     noxtls_return_t rc;
     size_t base = lb_alloc_live_bytes();
+
+#if !LB_SERVER_TICKETS
+    return LB_SKIP;
+#endif
 
     LB_RUN(lb_trust_ec_root());
     LB_RUN(first_connection(&session, NULL));
@@ -458,6 +475,10 @@ static int t_early_data_multi_record(void)
     noxtls_return_t rc;
     size_t base = lb_alloc_live_bytes();
 
+#if !LB_SERVER_TICKETS
+    return LB_SKIP;
+#endif
+
     lb_fill_pattern(early, (uint32_t)sizeof(early), 77U);
     LB_RUN(lb_trust_ec_root());
     LB_RUN(first_connection(&session, NULL));
@@ -466,9 +487,15 @@ static int t_early_data_multi_record(void)
     LB_RUN(lb_pair_init(&pair, &cfg));
     rc = lb_end_step(&pair.client);
     LB_CHECK((rc == NOXTLS_RETURN_WANT_READ) || (rc == NOXTLS_RETURN_WANT_WRITE));
+    /* One record per call: parts above the build's record size go in several calls. */
     for(i = 0U; i < 3U; i++) {
-        LB_CHECK_OK(noxtls_tls13_send_early_data(pair.client.t13, &early[off], parts[i]));
-        off += parts[i];
+        uint32_t left = parts[i];
+        while(left > 0U) {
+            uint32_t n = (left < (uint32_t)TLS_MAX_RECORD_SIZE) ? left : (uint32_t)TLS_MAX_RECORD_SIZE;
+            LB_CHECK_OK(noxtls_tls13_send_early_data(pair.client.t13, &early[off], n));
+            off += n;
+            left -= n;
+        }
     }
     (void)lb_end_flush(&pair.client);
     pair.client.last_rc = NOXTLS_RETURN_SUCCESS;

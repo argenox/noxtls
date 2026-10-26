@@ -83,6 +83,15 @@ void __wrap_free(void *ptr)
 /** NoxLink records: record_size_limit 1,400 (BACKEND_LEADER_CHANNEL.md C2). */
 #define MC_RSL         1400U
 #define MC_MTU         1500U
+/* Associations that can be live at once: both ends of an association are contexts of
+ * this process, so a static build holds NOXTLS_STATIC_MAX_CONNECTIONS / 2 of them
+ * (4 with the leader profile's 8 connections, which counts only the leader's side). */
+#if NOXTLS_CONFIG_STATIC_MEMORY
+#define MC_FIT ((((uint32_t)NOXTLS_STATIC_MAX_CONNECTIONS / 2U) < MC_ASSOC_MAX) ? \
+                ((uint32_t)NOXTLS_STATIC_MAX_CONNECTIONS / 2U) : MC_ASSOC_MAX)
+#else
+#define MC_FIT MC_ASSOC_MAX
+#endif
 
 typedef struct
 {
@@ -142,10 +151,11 @@ static int32_t mc_send(void *user, const uint8_t *data, uint32_t len)
     }
     if(link->datagram == 0) {
         if((MC_STREAM_CAP - q->wr) < len) {
-            if(q->rd == q->wr) {
-                q->rd = 0U;
-                q->wr = 0U;
-            }
+            /* Move the unread bytes to the front (long-running connections). */
+            uint32_t unread = q->wr - q->rd;
+            memmove(q->stream, &q->stream[q->rd], unread);
+            q->rd = 0U;
+            q->wr = unread;
             if((MC_STREAM_CAP - q->wr) < len) {
                 return TLS_IO_WOULD_BLOCK;
             }
@@ -510,40 +520,48 @@ static int mc_check_released(const mc_end_t *e)
 /**
  * Two DTLS 1.3 PSK server associations (NoxLink fleet and local), two node-facing
  * DTLS 1.3 PSK associations and one TLS 1.3 PSK stream association, all live at once.
+ * With room for four associations only (MC_FIT), the second node association is left
+ * out.
  */
 static int t_concurrent_server_client(void)
 {
-    static const uint32_t order[5] = { 0U, 1U, 2U, 3U, 4U };
+    static const uint32_t all[5] = { 0U, 1U, 2U, 3U, 4U };
+    static const uint32_t fit4[4] = { 0U, 1U, 2U, 4U };
+    const uint32_t *order = (MC_FIT >= 5U) ? all : fit4;
+    uint32_t n = (MC_FIT >= 5U) ? 5U : 4U;
     size_t base = lb_alloc_live_bytes();
     size_t heap_before;
-    uint32_t i;
+    uint32_t k;
 
-    for(i = 0U; i < 5U; i++) {
-        LB_RUN(mc_assoc_open(i, (i < 4U) ? 1 : 0, 1));
+    if(MC_FIT < 4U) {
+        return LB_SKIP;
+    }
+    for(k = 0U; k < n; k++) {
+        LB_RUN(mc_assoc_open(order[k], (order[k] < 4U) ? 1 : 0, 1));
     }
     heap_before = MC_HEAP_CALLS();
-    LB_RUN(mc_drive(order, 5U, 0, 0U, 0U));
-    LB_RUN(mc_exchange_all(order, 5U, 1U));
+    LB_RUN(mc_drive(order, n, 0, 0U, 0U));
+    LB_RUN(mc_exchange_all(order, n, 1U));
     /* KeyUpdate on every association, interleaved, then data again. */
-    for(i = 0U; i < 5U; i++) {
-        LB_CHECK_OK(noxtls_tls13_send_key_update(&s_assoc[i].s.ctx, 1U));
-        if(i == 4U) {
-            (void)noxtls_tls_flush(&s_assoc[i].s.ctx.base.base);
+    for(k = 0U; k < n; k++) {
+        LB_CHECK_OK(noxtls_tls13_send_key_update(&s_assoc[order[k]].s.ctx, 1U));
+        if(order[k] == 4U) {
+            (void)noxtls_tls_flush(&s_assoc[order[k]].s.ctx.base.base);
         }
     }
-    LB_RUN(mc_exchange_all(order, 5U, 50U));
+    LB_RUN(mc_exchange_all(order, n, 50U));
     /* A full NoxLink frame budget in one record on the fleet association. */
     LB_RUN(mc_exchange(0U, 0, MC_RSL - 1U, 77U));
 #if NOXTLS_CONN_MEMORY
-    for(i = 0U; i < 5U; i++) {
-        LB_RUN(mc_check_released(&s_assoc[i].c));
-        LB_RUN(mc_check_released(&s_assoc[i].s));
+    for(k = 0U; k < n; k++) {
+        LB_RUN(mc_check_released(&s_assoc[order[k]].c));
+        LB_RUN(mc_check_released(&s_assoc[order[k]].s));
     }
 #endif
     LB_CHECK_EQ(MC_HEAP_CALLS() - heap_before, 0U);
-    for(i = 0U; i < 5U; i++) {
-        (void)noxtls_tls13_close(&s_assoc[i].c.ctx);
-        mc_assoc_free(i);
+    for(k = 0U; k < n; k++) {
+        (void)noxtls_tls13_close(&s_assoc[order[k]].c.ctx);
+        mc_assoc_free(order[k]);
     }
     return lb_expect_no_leak(base, "concurrent server and client");
 }
@@ -967,22 +985,37 @@ static int t_foreign_scope_isolation(void)
  * A host helper holding many PSK client associations: eight associations handshake
  * interleaved, all carry data, then associations close one by one (the others keep
  * working after each close) and new associations reuse the freed slots while the rest
- * are live.
+ * are live. With room for fewer than eight associations (MC_FIT), four run: two close,
+ * one reopens.
  */
 static int t_many_psk_clients(void)
 {
-    static const uint32_t all[MC_ASSOC_MAX] = { 7U, 1U, 5U, 3U, 0U, 6U, 2U, 4U };
-    static const uint32_t close_order[4] = { 2U, 5U, 0U, 7U };
+    static const uint32_t all8[8] = { 7U, 1U, 5U, 3U, 0U, 6U, 2U, 4U };
+    static const uint32_t close8[4] = { 2U, 5U, 0U, 7U };
+    static const uint32_t reopen8[2] = { 5U, 2U };
+    static const uint32_t all4[4] = { 7U, 1U, 5U, 3U };
+    static const uint32_t close4[2] = { 5U, 7U };
+    static const uint32_t reopen4[1] = { 5U };
+    const int full = (MC_FIT >= 8U) ? 1 : 0;
+    const uint32_t *all = (full != 0) ? all8 : all4;
+    const uint32_t *close_order = (full != 0) ? close8 : close4;
+    const uint32_t *reopened = (full != 0) ? reopen8 : reopen4;
+    uint32_t n = (full != 0) ? 8U : 4U;
+    uint32_t n_close = n / 2U;
+    uint32_t n_reopen = n / 4U;
     size_t base = lb_alloc_live_bytes();
     uint32_t i;
     uint32_t k;
 
-    for(i = 0U; i < MC_ASSOC_MAX; i++) {
-        LB_RUN(mc_assoc_open(i, 1, 1));
+    if(MC_FIT < 4U) {
+        return LB_SKIP;
     }
-    LB_RUN(mc_drive(all, MC_ASSOC_MAX, 1, 4U, 3U));
-    LB_RUN(mc_exchange_all(all, MC_ASSOC_MAX, 200U));
-    for(k = 0U; k < 4U; k++) {
+    for(k = 0U; k < n; k++) {
+        LB_RUN(mc_assoc_open(all[k], 1, 1));
+    }
+    LB_RUN(mc_drive(all, n, 1, n / 2U, 3U));
+    LB_RUN(mc_exchange_all(all, n, 200U));
+    for(k = 0U; k < n_close; k++) {
         uint32_t gone = close_order[k];
         (void)noxtls_tls13_close(&s_assoc[gone].c.ctx);
         mc_assoc_free(gone);
@@ -992,13 +1025,11 @@ static int t_many_psk_clients(void)
             }
         }
     }
-    /* Reopen the closed slots (new handshakes next to the live associations). */
-    LB_RUN(mc_assoc_open(2U, 1, 1));
-    LB_RUN(mc_assoc_open(5U, 1, 1));
-    {
-        static const uint32_t reopened[2] = { 5U, 2U };
-        LB_RUN(mc_drive(reopened, 2U, 1, 0U, 0U));
+    /* Reopen closed slots (new handshakes next to the live associations). */
+    for(k = 0U; k < n_reopen; k++) {
+        LB_RUN(mc_assoc_open(reopened[k], 1, 1));
     }
+    LB_RUN(mc_drive(reopened, n_reopen, 1, 0U, 0U));
     for(i = 0U; i < MC_ASSOC_MAX; i++) {
         if(s_assoc[i].c.initialized != 0) {
             LB_RUN(mc_exchange(i, 0, 256U, 400U + i));

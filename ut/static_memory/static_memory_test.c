@@ -365,11 +365,14 @@ static int t_pool_exhaustion(void)
         LB_CHECK_EQ(chain.count, NOXTLS_STATIC_CHAIN_CAPACITY);
         (void)noxtls_x509_certificate_chain_free(&chain);
 
-        /* A certificate copy larger than NOXTLS_STATIC_CERT_DER_MAX. */
+        /* A certificate copy larger than NOXTLS_STATIC_CERT_DER_MAX. When the profile sets
+         * NOXTLS_MAX_CERT_SIZE to the same size (the leader profiles), the certificate is
+         * above the build's certificate bound as well, which is checked first. */
         memset(big, 0x30, sizeof(big));
         (void)noxtls_x509_certificate_init(&cert);
         LB_CHECK_EQ(noxtls_x509_certificate_parse_der(&cert, big, (uint32_t)sizeof(big)),
-                    NOXTLS_RETURN_NOT_ENOUGH_MEMORY);
+                    (NOXTLS_STATIC_CERT_DER_MAX < NOXTLS_MAX_CERT_SIZE) ? NOXTLS_RETURN_NOT_ENOUGH_MEMORY :
+                                                                          NOXTLS_RETURN_CERT_PARSE_FAILED);
         (void)noxtls_x509_certificate_free(&cert);
 
         /* The global arena: no fallback, the failure names the region. */

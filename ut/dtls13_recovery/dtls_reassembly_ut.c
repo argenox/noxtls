@@ -15,7 +15,18 @@
 #include "runner.h"
 #include "test_assert.h"
 
-#define REASM_MSG_LEN 3000U
+/*
+ * Reference message length: 3,000 bytes, or less when the profile's reassembly budget
+ * (NOXTLS_DTLS_REASSEMBLY_MAX_BYTES, message plus 1-bit-per-byte map) cannot hold two
+ * such messages at once (the in-progress one and a queued future one). The NoxLink
+ * leader profile budgets its 1 KB PSK messages (1,224 bytes), which holds 544-byte
+ * messages twice.
+ */
+#define REASM_FIT_LEN ((((uint32_t)NOXTLS_DTLS_REASSEMBLY_MAX_BYTES / 2U) / 9U) * 8U)
+#define REASM_MSG_LEN ((REASM_FIT_LEN < 3000U) ? REASM_FIT_LEN : 3000U)
+/* Piece boundaries (unaligned to the map bytes). */
+#define REASM_A ((REASM_MSG_LEN / 3U) + 1U)
+#define REASM_B (((2U * REASM_MSG_LEN) / 3U) - 5U)
 
 static uint8_t g_msg[REASM_MSG_LEN];
 
@@ -65,13 +76,15 @@ REGISTER_TEST(dtls_reassembly_out_of_order_bitmap)
     UTNOX_EQUALS(noxtls_dtls_context_init(&ctx, TLS_ROLE_CLIENT, DTLS_VERSION_1_2), NOXTLS_RETURN_SUCCESS);
 
     /* Unaligned pieces (bit boundaries), out of order, overlapping. */
-    UTNOX_EQUALS(reasm_feed(&ctx, g_msg, 0U, REASM_MSG_LEN, 1001U, 999U, &out, &out_len), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(reasm_feed(&ctx, g_msg, 0U, REASM_MSG_LEN, REASM_A, REASM_B + 4U - REASM_A, &out, &out_len),
+                 NOXTLS_RETURN_SUCCESS);
     UTNOX_IS_NULL(out);
-    UTNOX_EQUALS(reasm_feed(&ctx, g_msg, 0U, REASM_MSG_LEN, 3U, 1005U, &out, &out_len), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(reasm_feed(&ctx, g_msg, 0U, REASM_MSG_LEN, 3U, REASM_A + 4U - 3U, &out, &out_len), NOXTLS_RETURN_SUCCESS);
     UTNOX_IS_NULL(out);
-    UTNOX_EQUALS(reasm_feed(&ctx, g_msg, 0U, REASM_MSG_LEN, 3U, 1005U, &out, &out_len), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(reasm_feed(&ctx, g_msg, 0U, REASM_MSG_LEN, 3U, REASM_A + 4U - 3U, &out, &out_len), NOXTLS_RETURN_SUCCESS);
     UTNOX_IS_NULL(out);
-    UTNOX_EQUALS(reasm_feed(&ctx, g_msg, 0U, REASM_MSG_LEN, 1995U, 1005U, &out, &out_len), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(reasm_feed(&ctx, g_msg, 0U, REASM_MSG_LEN, REASM_B, REASM_MSG_LEN - REASM_B, &out, &out_len),
+                 NOXTLS_RETURN_SUCCESS);
     UTNOX_IS_NULL(out);
 
     /* A conflicting retransmission of received bytes is rejected. */
@@ -103,8 +116,10 @@ REGISTER_TEST(dtls_reassembly_out_of_order_bitmap)
 
     /* A future message (seq 2) is queued, then delivered after seq 1. */
     reasm_fill(9U);
-    UTNOX_EQUALS(reasm_feed(&ctx, g_msg, 2U, REASM_MSG_LEN, 0U, 1500U, &out, &out_len), NOXTLS_RETURN_SUCCESS);
-    UTNOX_EQUALS(reasm_feed(&ctx, g_msg, 2U, REASM_MSG_LEN, 1500U, 1500U, &out, &out_len), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(reasm_feed(&ctx, g_msg, 2U, REASM_MSG_LEN, 0U, REASM_MSG_LEN / 2U, &out, &out_len),
+                 NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(reasm_feed(&ctx, g_msg, 2U, REASM_MSG_LEN, REASM_MSG_LEN / 2U, REASM_MSG_LEN - (REASM_MSG_LEN / 2U),
+                            &out, &out_len), NOXTLS_RETURN_SUCCESS);
     UTNOX_IS_NULL(out);
     UTNOX_EQUALS(reasm_feed(&ctx, g_msg, 1U, 100U, 0U, 100U, &out, &out_len), NOXTLS_RETURN_SUCCESS);
     UTNOX_IS_NOT_NULL(out);
