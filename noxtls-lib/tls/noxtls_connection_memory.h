@@ -136,8 +136,11 @@ extern "C" {
  * add those terms; ut/static_memory measures every profile against them.
  */
 /** Stream: one received record (protected payload, at most
- *  TLS_MAX_PROTECTED_RECORD_FRAGMENT) and the copy passed up. */
-#define NOXTLS_STATIC_RX_TRANSIENT_TLS (2U * NOXTLS_MEM_REGION_COST(TLS_MAX_PROTECTED_RECORD_FRAGMENT))
+ *  TLS_MAX_RECV_PROTECTED_RECORD_FRAGMENT) and the copy passed up. Records are
+ *  opened in place, so a copy is at most a record this endpoint could send. */
+#define NOXTLS_STATIC_RX_TRANSIENT_TLS \
+    (NOXTLS_MEM_REGION_COST(TLS_MAX_RECV_PROTECTED_RECORD_FRAGMENT) + \
+     NOXTLS_MEM_REGION_COST(TLS_MAX_PROTECTED_RECORD_FRAGMENT))
 /** DTLS: one datagram buffer (DTLS_MAX_RECORD_DATAGRAM) and the record copied out of it. */
 #define NOXTLS_STATIC_RX_TRANSIENT_DTLS \
     (2U * NOXTLS_MEM_REGION_COST(DTLS_MAX_RECORD_DATAGRAM))

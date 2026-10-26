@@ -681,3 +681,11 @@ first.
 - The record size (`NOXTLS_TLS_MAX_RECORD_SIZE`) is one build setting for every
   connection: a device with one connection that needs large records sizes the buffers
   of all its connections for them; `record_size_limit` still limits each peer.
+- RFC 8449 makes `record_size_limit` optional: a server that does not acknowledge it
+  in EncryptedExtensions may send TLS records of 2^14 bytes. A build that sends small
+  records but must accept them sets `NOXTLS_TLS_MAX_RECV_RECORD_SIZE` (up to 16384,
+  default `NOXTLS_TLS_MAX_RECORD_SIZE`). It sizes only the stream (TLS) receive
+  record in the arenas, not the send buffer or DTLS. Once the peer acknowledges the
+  limit, the connection refuses larger records again. `noxtls_tls13_last_handshake_diag()`
+  reports the record lengths, the acknowledgement and the certificate sizes of the
+  last TLS client handshake.

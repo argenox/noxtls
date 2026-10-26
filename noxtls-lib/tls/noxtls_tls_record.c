@@ -2916,7 +2916,7 @@ noxtls_return_t noxtls_tls13_decrypt_record(tls13_context_t *ctx,
         return NOXTLS_RETURN_NULL;
     }
     
-    if(encrypted_record_len > TLS13_MAX_ENCRYPTED_RECORD_SIZE) {
+    if(encrypted_record_len > TLS13_MAX_RECV_ENCRYPTED_RECORD_SIZE) {
         return NOXTLS_RETURN_RECORD_OVERFLOW;
     }
     if(encrypted_record_len < 8U) {
@@ -2959,7 +2959,7 @@ noxtls_return_t noxtls_tls13_decrypt_record(tls13_context_t *ctx,
 
     /* Extract tag */
     ciphertext_len = encrypted_record_len - tag_len;
-    if(ciphertext_len > (uint32_t)(TLS_MAX_RECORD_SIZE + 1U)) {
+    if(ciphertext_len > (uint32_t)(TLS_MAX_RECV_RECORD_SIZE + 1U)) {
         return NOXTLS_RETURN_RECORD_OVERFLOW;
     }
     noxtls_copy_u8(tag, sizeof(tag), &encrypted_record[ciphertext_len], (size_t)(tag_len));

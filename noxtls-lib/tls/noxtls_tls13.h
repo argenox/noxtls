@@ -484,6 +484,8 @@ struct tls13_context_s
     /* RFC 8449 Record Size Limit: max plaintext we may send (peer's limit); max we accept (our advertised limit). 0 = use TLS_MAX_RECORD_SIZE. */
     uint16_t record_size_limit_send;   /* Do not send records larger than this (0 = TLS_MAX_RECORD_SIZE). */
     uint16_t record_size_limit_recv;   /* We advertised this as max we accept; peer must not send larger (0 = use default). */
+    uint8_t record_size_limit_acked;   /* The peer acknowledged our record_size_limit (RFC 8449). */
+    uint8_t record_size_limit_off;     /* Do not negotiate record_size_limit (neither offer nor acknowledge). */
     /** Client (RFC 7507): include TLS_FALLBACK_SCSV in ClientHello cipher suites. */
     uint8_t client_send_fallback_scsv;
 
@@ -558,6 +560,47 @@ noxtls_return_t noxtls_tls13_accept(tls13_context_t *ctx);
 const uint8_t *noxtls_tls13_last_accept_fail_step(void);
 /** Last connect step that failed (empty if none); for embedded logging after a failed connect. */
 const uint8_t *noxtls_tls13_last_connect_fail_step(void);
+
+/** Records of a handshake kept by noxtls_tls13_last_handshake_diag(). */
+#define NOXTLS_TLS13_DIAG_RECORDS 16U
+/** Certificates of a server Certificate message kept by noxtls_tls13_last_handshake_diag(). */
+#define NOXTLS_TLS13_DIAG_CERTS 8U
+
+/**
+ * Sizes seen by the last TLS (stream) client handshake, for logs. No record or
+ * certificate contents are kept: types, lengths and counts only.
+ */
+typedef struct
+{
+    uint16_t records;                                  /**< Records received, the refused one included. */
+    uint8_t record_type[NOXTLS_TLS13_DIAG_RECORDS];    /**< Outer content type of the first records. */
+    uint16_t record_length[NOXTLS_TLS13_DIAG_RECORDS]; /**< Their TLSCiphertext lengths. */
+    uint16_t max_record_length;                        /**< Largest TLSCiphertext length. */
+    uint8_t record_refused;                            /**< The last record exceeded the receive ceiling. */
+    uint8_t rsl_acknowledged;                          /**< EncryptedExtensions carried record_size_limit. */
+    uint16_t rsl_offered;                              /**< record_size_limit sent in ClientHello (0: none). */
+    uint16_t rsl_value;                                /**< The server's record_size_limit. */
+    uint32_t rx_record_limit;                          /**< TLSCiphertext ceiling in force. */
+    uint8_t certificates;                              /**< Entries in the server Certificate. */
+    uint16_t certificate_der[NOXTLS_TLS13_DIAG_CERTS]; /**< DER size of the first entries. */
+    uint32_t certificate_message;                      /**< Certificate message length, header included. */
+    noxtls_return_t result;                            /**< Failing return code, or NOXTLS_RETURN_SUCCESS. */
+    uint32_t arena_peak;                               /**< Handshake arena high-water mark (static memory). */
+    uint32_t arena_capacity;                           /**< Handshake arena capacity (static memory). */
+} noxtls_tls13_handshake_diag_t;
+
+/** Sizes of the last TLS (stream) client handshake; reset when one starts. */
+const noxtls_tls13_handshake_diag_t *noxtls_tls13_last_handshake_diag(void);
+
+/**
+ * Negotiate RFC 8449 record_size_limit (default) or not. With @p enabled 0 a client
+ * does not offer it and a server neither acknowledges nor honours a client's offer,
+ * like an implementation without the extension.
+ */
+void noxtls_tls13_set_record_size_limit_negotiation(tls13_context_t *ctx, uint8_t enabled);
+
+/** 1 when the peer acknowledged this endpoint's record_size_limit (RFC 8449), else 0. */
+uint8_t noxtls_tls13_record_size_limit_acknowledged(const tls13_context_t *ctx);
 noxtls_return_t noxtls_tls13_send(tls13_context_t *ctx, const uint8_t *data, uint32_t len);
 noxtls_return_t noxtls_tls13_recv(tls13_context_t *ctx, uint8_t *data, uint32_t *len);
 noxtls_return_t noxtls_tls13_close(tls13_context_t *ctx);

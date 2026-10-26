@@ -188,6 +188,8 @@ static noxtls_return_t tls13_dtls_store_hrr_cookie(tls13_context_t *ctx, const u
 
 static uint8_t s_tls13_last_accept_fail_step[48];
 static uint8_t s_tls13_last_connect_fail_step[48];
+/** Sizes of the last TLS (stream) client handshake (noxtls_tls13_last_handshake_diag()). */
+static noxtls_tls13_handshake_diag_t s_tls13_handshake_diag;
 #if NOXTLS_FEATURE_KEYLOG && NOXTLS_HAVE_FILE_IO
 static uint8_t tls13_keylog_path[512] = {0};
 #endif
@@ -239,6 +241,13 @@ static noxtls_return_t tls13_derive_handshake_keys(tls13_context_t *ctx,
                                                    const uint8_t *shared_secret,
                                                    uint32_t shared_secret_len);
 static int tls13_is_dtls(const tls13_context_t *ctx);
+static uint32_t tls13_rx_inner_limit(const tls13_context_t *ctx);
+static uint8_t tls13_diag_applies(const tls13_context_t *ctx);
+static void tls13_diag_note_record(const tls13_context_t *ctx, noxtls_return_t rc, const tls_record_t *record);
+#if NOXTLS_TLS13_PEER_CERTIFICATES
+static void tls13_diag_note_certificate(const tls13_context_t *ctx, const uint8_t *msg, uint32_t msg_len);
+#endif
+static void tls13_diag_note_failure(const tls13_context_t *ctx, noxtls_return_t rc);
 
 /* Handshake workspace for a builder that may write up to @p need bytes, or NULL when
  * NOXTLS_TLS_HANDSHAKE_WORKSPACE_SIZE is configured smaller (the builder then allocates). */
@@ -5852,8 +5861,13 @@ static noxtls_return_t tls13_send_encrypted_handshake(tls13_context_t *ctx, cons
 
     {
         uint32_t offset = 0U;
-        /* RFC 8446 5.1: TLSInnerPlaintext content is at most 2^14 bytes per record. */
+        /* RFC 8446 5.1: TLSInnerPlaintext content is at most 2^14 bytes per record.
+         * RFC 8449 4: within the peer's record_size_limit, which in TLS 1.3 counts the
+         * inner content type octet too. */
         uint32_t max_fragment = (uint32_t)TLS_MAX_RECORD_SIZE;
+        if((ctx->record_size_limit_send > 1U) && (((uint32_t)ctx->record_size_limit_send - 1U) < max_fragment)) {
+            max_fragment = (uint32_t)ctx->record_size_limit_send - 1U;
+        }
 
         while(offset < msg_len) {
             uint32_t fragment_len = (uint32_t)(msg_len - offset);
@@ -6159,6 +6173,7 @@ static noxtls_return_t tls13_recv_handshake_message(tls13_context_t *ctx, uint8_
     /* cppcheck-suppress duplicateExpression ; MISRA C:2025 Rule 14.3 infinite-loop idiom */
     while(1U == 1U) {
         rc = noxtls_tls_recv_record(&ctx->base.base, &record);
+        tls13_diag_note_record(ctx, rc, &record);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] recv_handshake_message: recv_record rc=%d\n", rc);
             return rc;
@@ -6479,7 +6494,7 @@ static noxtls_return_t tls13_recv_handshake_message(tls13_context_t *ctx, uint8_
                 return NOXTLS_RETURN_TLS_ERROR;
             }
             inner_plaintext_len = decrypted_len;
-            if(inner_plaintext_len > (uint32_t)(TLS_MAX_RECORD_SIZE + 1U)) {
+            if(inner_plaintext_len > tls13_rx_inner_limit(ctx)) {
                 (void)noxtls_free(decrypted);
                 return NOXTLS_RETURN_RECORD_OVERFLOW;
             }
@@ -9086,7 +9101,7 @@ noxtls_return_t noxtls_tls13_send_client_hello(tls13_context_t *ctx)
     }
 
     /* RFC 8449 Record Size Limit: max plaintext we are willing to receive */
-    if(ctx->record_size_limit_recv > 0U) {
+    if((ctx->record_size_limit_recv > 0U) && (ctx->record_size_limit_off == 0U)) {
         uint16_t rsl = (uint16_t)(ctx->record_size_limit_recv);
         client_hello[offset] = (uint8_t)(((uint32_t)(uint32_t)TLS_EXTENSION_RECORD_SIZE_LIMIT >> 8U) & 0xFFU);
         offset += 1U;
@@ -10064,9 +10079,24 @@ noxtls_return_t noxtls_tls13_recv_encrypted_extensions(tls13_context_t *ctx)
             /* RFC 8449: record_size_limit = max plaintext we may send to server */
             {
                 tls_extension_t *ext_rsl = NULL;
-                if((noxtls_tls_find_extension(&ctx->hs->server_extensions, TLS_EXTENSION_RECORD_SIZE_LIMIT, &ext_rsl) == NOXTLS_RETURN_SUCCESS) &&
+                if((ctx->record_size_limit_off == 0U) &&
+                   (noxtls_tls_find_extension(&ctx->hs->server_extensions, TLS_EXTENSION_RECORD_SIZE_LIMIT, &ext_rsl) == NOXTLS_RETURN_SUCCESS) &&
                    (ext_rsl != NULL) && (ext_rsl->data != NULL) && (ext_rsl->length >= 2U)) {
                     ctx->record_size_limit_send = (uint16_t)((uint16_t)(((uint16_t)ext_rsl->data[0U] << 8U) | (uint16_t)ext_rsl->data[1U]));
+                    /* RFC 8449 4: the server acknowledged ours, so it sends no larger records. */
+                    ctx->record_size_limit_acked = 1U;
+                    if((tls13_is_dtls(ctx) == 0) && (ctx->record_size_limit_recv > 0U)) {
+                        ctx->base.base.rx_protected_limit = (uint32_t)ctx->record_size_limit_recv +
+                                                            (uint32_t)TLS13_MAX_ENCRYPTED_RECORD_OVERHEAD;
+                    }
+                    if(tls13_diag_applies(ctx) != 0U) {
+                        s_tls13_handshake_diag.rsl_acknowledged = 1U;
+                        s_tls13_handshake_diag.rsl_value = ctx->record_size_limit_send;
+                    }
+                }
+                if(tls13_diag_applies(ctx) != 0U) {
+                    s_tls13_handshake_diag.rx_record_limit = (ctx->base.base.rx_protected_limit != 0U)
+                        ? ctx->base.base.rx_protected_limit : (uint32_t)TLS_MAX_RECV_PROTECTED_RECORD_FRAGMENT;
                 }
             }
         }
@@ -10197,6 +10227,7 @@ noxtls_return_t noxtls_tls13_recv_certificate(tls13_context_t *ctx)
         return NOXTLS_RETURN_FAILED;
     }
 
+    tls13_diag_note_certificate(ctx, msg, msg_len);
     /* Append to transcript */
     (void)tls13_append_handshake_message(ctx, msg, msg_len);
     /* Parse Certificate noxtls_message (TLS 1.3 format); need at least 4 bytes handshake header + 1 byte cert_request_context_len */
@@ -11482,6 +11513,13 @@ static noxtls_return_t tls13_connect_body(tls13_context_t *ctx)
 
     if((ctx->client_handshake_step == (uint8_t)TLS13_CLIENT_HS_STEP_NONE) || (ctx->base.base.state != TLS_STATE_HANDSHAKING)) {
         s_tls13_last_connect_fail_step[0] = (uint8_t)'\0';
+        if(tls13_diag_applies(ctx) != 0U) {
+            noxtls_secure_zero(&s_tls13_handshake_diag, sizeof(s_tls13_handshake_diag));
+            s_tls13_handshake_diag.rsl_offered = (ctx->record_size_limit_off == 0U) ? ctx->record_size_limit_recv : 0U;
+            s_tls13_handshake_diag.rx_record_limit = (uint32_t)TLS_MAX_RECV_PROTECTED_RECORD_FRAGMENT;
+            ctx->record_size_limit_acked = 0U;
+            ctx->base.base.rx_protected_limit = 0U;
+        }
         ctx->base.base.state = TLS_STATE_HANDSHAKING;
         ctx->hs->peer_compat_ccs_seen = 0U;
         ctx->received_hrr = 0U;
@@ -12432,7 +12470,8 @@ noxtls_return_t noxtls_tls13_recv_client_hello(tls13_context_t *ctx)
     /* RFC 8449: client's record_size_limit = max plaintext we may send to client */
     {
         tls_extension_t *ext_rsl = NULL;
-        if((noxtls_tls_find_extension(&ctx->hs->client_extensions, TLS_EXTENSION_RECORD_SIZE_LIMIT, &ext_rsl) == NOXTLS_RETURN_SUCCESS) &&
+        if((ctx->record_size_limit_off == 0U) &&
+           (noxtls_tls_find_extension(&ctx->hs->client_extensions, TLS_EXTENSION_RECORD_SIZE_LIMIT, &ext_rsl) == NOXTLS_RETURN_SUCCESS) &&
            (ext_rsl != NULL) && (ext_rsl->data != NULL) && (ext_rsl->length >= 2U)) {
             ctx->record_size_limit_send = (uint16_t)((uint16_t)(((uint16_t)ext_rsl->data[0U] << 8U) | (uint16_t)ext_rsl->data[1U]));
         }
@@ -13437,7 +13476,8 @@ noxtls_return_t noxtls_tls13_send_encrypted_extensions(tls13_context_t *ctx)
         ext_len += 8U;  /* type(2) + length(2) + max_early_data_size(4) */
     }
     tls_extension_t *ext_rsl_client = NULL;
-    if((noxtls_tls_find_extension(&ctx->hs->client_extensions, TLS_EXTENSION_RECORD_SIZE_LIMIT, &ext_rsl_client) == NOXTLS_RETURN_SUCCESS) &&
+    if((ctx->record_size_limit_off == 0U) &&
+       (noxtls_tls_find_extension(&ctx->hs->client_extensions, TLS_EXTENSION_RECORD_SIZE_LIMIT, &ext_rsl_client) == NOXTLS_RETURN_SUCCESS) &&
        (ext_rsl_client != NULL)) {
         /* RFC 8449: record_size_limit = max plaintext we are willing to receive from client */
         ext_len += 6U;  /* type(2) + length(2) + limit(2) */
@@ -13467,7 +13507,7 @@ noxtls_return_t noxtls_tls13_send_encrypted_extensions(tls13_context_t *ctx)
         encrypted_extensions[offset] = 0xFFU;
         offset += 1U;
     }
-    if(ext_rsl_client != NULL) {
+    if((ctx->record_size_limit_off == 0U) && (ext_rsl_client != NULL)) {
         /*
          * RFC 8449: TLS 1.3 RecordSizeLimit includes the ContentType octet and
          * padding. Default max plaintext TLS_MAX_RECORD_SIZE (16384) is
@@ -14733,12 +14773,175 @@ const uint8_t *noxtls_tls13_last_connect_fail_step(void)
     return s_tls13_last_connect_fail_step;
 }
 
+/**
+ * @brief Largest TLSInnerPlaintext this endpoint accepts now (RFC 8449 section 4).
+ *
+ * A stream connection accepts TLS_MAX_RECV_RECORD_SIZE plus the content type until the
+ * peer acknowledges record_size_limit, then the limit it advertised. DTLS keeps
+ * TLS_MAX_RECORD_SIZE.
+ *
+ * @param[in] ctx Context.
+ * @return Byte limit.
+ */
+static uint32_t tls13_rx_inner_limit(const tls13_context_t *ctx)
+{
+    uint32_t limit = (uint32_t)TLS_MAX_RECORD_SIZE + 1U;
+
+    if(tls13_is_dtls(ctx) == 0) {
+        limit = (uint32_t)TLS_MAX_RECV_RECORD_SIZE + 1U;
+        if((ctx->record_size_limit_acked != 0U) && (ctx->record_size_limit_recv > 0U) &&
+           ((uint32_t)ctx->record_size_limit_recv < limit)) {
+            limit = (uint32_t)ctx->record_size_limit_recv;
+        }
+    }
+    return limit;
+}
+
+/**
+ * @brief The handshake diagnostics cover this context: a TLS (stream) client.
+ *
+ * @param[in] ctx Context.
+ * @return 1 when they do.
+ */
+static uint8_t tls13_diag_applies(const tls13_context_t *ctx)
+{
+    return ((ctx != NULL) && (ctx->base.base.role == TLS_ROLE_CLIENT) && (tls13_is_dtls(ctx) == 0)) ? 1U : 0U;
+}
+
+/**
+ * @brief Note one received handshake-phase record, or the one refused for its length.
+ *
+ * @param[in] ctx Context.
+ * @param[in] rc Record receive result.
+ * @param[in] record The record when @p rc is success.
+ */
+static void tls13_diag_note_record(const tls13_context_t *ctx, noxtls_return_t rc, const tls_record_t *record)
+{
+    uint8_t type = 0U;
+    uint32_t length = 0U;
+
+    if(tls13_diag_applies(ctx) == 0U) {
+        return;
+    }
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        type = record->type;
+        length = record->length;
+    } else if((rc == NOXTLS_RETURN_RECORD_OVERFLOW) && (ctx->base.base.io_mode == TLS_IO_MODE_NON_BLOCKING)) {
+        /* The header of the refused record is still in the stream header buffer. */
+        type = ctx->base.base.io_rx_header[0];
+        length = ((uint32_t)ctx->base.base.io_rx_header[3] << 8U) | (uint32_t)ctx->base.base.io_rx_header[4];
+        s_tls13_handshake_diag.record_refused = 1U;
+    } else {
+        return;
+    }
+    if(s_tls13_handshake_diag.records < NOXTLS_TLS13_DIAG_RECORDS) {
+        s_tls13_handshake_diag.record_type[s_tls13_handshake_diag.records] = type;
+        s_tls13_handshake_diag.record_length[s_tls13_handshake_diag.records] = (uint16_t)length;
+    }
+    if(s_tls13_handshake_diag.records < UINT16_MAX) {
+        s_tls13_handshake_diag.records += 1U;
+    }
+    if(length > (uint32_t)s_tls13_handshake_diag.max_record_length) {
+        s_tls13_handshake_diag.max_record_length = (uint16_t)length;
+    }
+}
+
+#if NOXTLS_TLS13_PEER_CERTIFICATES
+/**
+ * @brief Note the size of each entry of a server Certificate message (RFC 8446 4.4.2).
+ *
+ * @param[in] ctx Context.
+ * @param[in] msg Certificate message, handshake header included.
+ * @param[in] msg_len Its length.
+ */
+static void tls13_diag_note_certificate(const tls13_context_t *ctx, const uint8_t *msg, uint32_t msg_len)
+{
+    uint32_t pos = 4U;
+    uint32_t end = 0U;
+
+    if((tls13_diag_applies(ctx) == 0U) || (msg == NULL) || (msg_len < 8U)) {
+        return;
+    }
+    s_tls13_handshake_diag.certificate_message = msg_len;
+    pos += 1U + (uint32_t)msg[pos];
+    if((pos + 3U) > msg_len) {
+        return;
+    }
+    end = pos + 3U + (((uint32_t)msg[pos] << 16U) | ((uint32_t)msg[pos + 1U] << 8U) | (uint32_t)msg[pos + 2U]);
+    pos += 3U;
+    if(end > msg_len) {
+        end = msg_len;
+    }
+    while((pos + 3U) <= end) {
+        uint32_t der = ((uint32_t)msg[pos] << 16U) | ((uint32_t)msg[pos + 1U] << 8U) | (uint32_t)msg[pos + 2U];
+        if(s_tls13_handshake_diag.certificates < NOXTLS_TLS13_DIAG_CERTS) {
+            s_tls13_handshake_diag.certificate_der[s_tls13_handshake_diag.certificates] =
+                (uint16_t)((der > UINT16_MAX) ? UINT16_MAX : der);
+        }
+        if(s_tls13_handshake_diag.certificates < UINT8_MAX) {
+            s_tls13_handshake_diag.certificates += 1U;
+        }
+        pos += 3U + der;
+        if((pos + 2U) > end) {
+            break;
+        }
+        pos += 2U + (((uint32_t)msg[pos] << 8U) | (uint32_t)msg[pos + 1U]);
+    }
+}
+#endif
+
+/**
+ * @brief Note a failed client handshake and the handshake arena use at that point.
+ *
+ * @param[in] ctx Context.
+ * @param[in] rc Failing return code.
+ */
+static void tls13_diag_note_failure(const tls13_context_t *ctx, noxtls_return_t rc)
+{
+    /* A nonblocking step that waits for I/O has not failed. */
+    if((tls13_diag_applies(ctx) == 0U) || (rc == NOXTLS_RETURN_WANT_READ) || (rc == NOXTLS_RETURN_WANT_WRITE)) {
+        return;
+    }
+    s_tls13_handshake_diag.result = rc;
+#if NOXTLS_CONFIG_STATIC_MEMORY
+    {
+        const noxtls_connection_memory_t *conn = noxtls_conn_mem_of(&ctx->base.base);
+        noxtls_mem_region_stats_t stats;
+        if((conn != NULL) && (noxtls_mem_region_get_stats(&conn->hs_arena, &stats) == NOXTLS_RETURN_SUCCESS)) {
+            s_tls13_handshake_diag.arena_peak = (uint32_t)stats.peak;
+            s_tls13_handshake_diag.arena_capacity = (uint32_t)stats.capacity;
+        }
+    }
+#endif
+}
+
+/** @copydoc noxtls_tls13_last_handshake_diag */
+const noxtls_tls13_handshake_diag_t *noxtls_tls13_last_handshake_diag(void)
+{
+    return &s_tls13_handshake_diag;
+}
+
+/** @copydoc noxtls_tls13_record_size_limit_acknowledged */
+uint8_t noxtls_tls13_record_size_limit_acknowledged(const tls13_context_t *ctx)
+{
+    return ((ctx != NULL) && (ctx->record_size_limit_acked != 0U)) ? 1U : 0U;
+}
+
+/** @copydoc noxtls_tls13_set_record_size_limit_negotiation */
+void noxtls_tls13_set_record_size_limit_negotiation(tls13_context_t *ctx, uint8_t enabled)
+{
+    if(ctx != NULL) {
+        ctx->record_size_limit_off = (enabled != 0U) ? 0U : 1U;
+    }
+}
+
 #if NOXTLS_FEATURE_TLS_CLIENT
 static void tls13_connect_log_fail(const tls13_context_t *ctx, const uint8_t *step, noxtls_return_t rc)
 {
     if((ctx == NULL) || (step == NULL) || (rc == NOXTLS_RETURN_SUCCESS) || (rc == NOXTLS_RETURN_TIMEOUT)) {
         return;
     }
+    tls13_diag_note_failure(ctx, rc);
     if((noxtls_u8_strcmp(step, (const uint8_t[]){ (uint8_t)'s', (uint8_t)'e', (uint8_t)'n', (uint8_t)'d', (uint8_t)'_', (uint8_t)'c', (uint8_t)'l', (uint8_t)'i', (uint8_t)'e', (uint8_t)'n', (uint8_t)'t', (uint8_t)'_', (uint8_t)'h', (uint8_t)'e', (uint8_t)'l', (uint8_t)'l', (uint8_t)'o', 0 }) == 0) &&
        (s_tls13_last_connect_fail_step[0] != 0U)) {
         return;
@@ -15693,7 +15896,7 @@ static noxtls_return_t tls13_recv_body(tls13_context_t *ctx, uint8_t *data, uint
 
         /* RFC 8446: encrypted record length MUST NOT exceed 2^14 + 256. DTLS 1.3 checks the
          * DTLSCiphertext length when it opens the record (RFC 9147 4.5.2 discard). */
-        if((tls13_is_dtls(ctx) == 0) && (record.length > (uint32_t)TLS13_MAX_ENCRYPTED_RECORD_SIZE)) {
+        if((tls13_is_dtls(ctx) == 0) && (record.length > (uint32_t)TLS13_MAX_RECV_ENCRYPTED_RECORD_SIZE)) {
             (void)noxtls_free(record.data);
             tls13_send_handshake_alert_for_error(ctx, NOXTLS_RETURN_RECORD_OVERFLOW);
             ctx->base.base.state = TLS_STATE_CLOSED;
@@ -15850,7 +16053,7 @@ static noxtls_return_t tls13_recv_body(tls13_context_t *ctx, uint8_t *data, uint
             /* A read buffer that can hold a full record receives the plaintext directly;
              * otherwise the record is opened in place in its receive buffer, which then
              * holds any unread remainder (no second record-sized buffer). */
-            if((out_capacity < (uint32_t)(TLS_MAX_RECORD_SIZE + 1U)) && (record.data != NULL)) {
+            if((out_capacity < (uint32_t)(TLS_MAX_RECV_RECORD_SIZE + 1U)) && (record.data != NULL)) {
                 plain = record.data;
                 plain_len = record.length;
                 owned_plain = record.data;
@@ -15877,7 +16080,7 @@ static noxtls_return_t tls13_recv_body(tls13_context_t *ctx, uint8_t *data, uint
                 return rc;
             }
             inner_plaintext_len = plain_len;
-            if(inner_plaintext_len > (uint32_t)(TLS_MAX_RECORD_SIZE + 1U)) {
+            if(inner_plaintext_len > tls13_rx_inner_limit(ctx)) {
                 if(owned_plain != NULL) {
                     (void)noxtls_free(owned_plain);
                 }
@@ -15910,7 +16113,7 @@ static noxtls_return_t tls13_recv_body(tls13_context_t *ctx, uint8_t *data, uint
                     }
                     continue;
                 }
-                if(plain_len > (uint32_t)TLS_MAX_RECORD_SIZE) {
+                if(plain_len > (uint32_t)TLS_MAX_RECV_RECORD_SIZE) {
                     if(owned_plain != NULL) {
                         (void)noxtls_free(owned_plain);
                     }

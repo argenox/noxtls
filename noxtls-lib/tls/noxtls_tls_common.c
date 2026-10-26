@@ -624,6 +624,164 @@ static void tls_nonblocking_reset_rx(tls_context_t *ctx)
     ctx->io_rx_payload_offset = 0U;
 }
 
+/** @copydoc noxtls_tls_return_name */
+const char *noxtls_tls_return_name(noxtls_return_t rc)
+{
+    const char *name = "UNKNOWN";
+
+    switch (rc) {
+        case NOXTLS_RETURN_SUCCESS:
+            name = "SUCCESS";
+            break;
+        case NOXTLS_RETURN_FAILED:
+            name = "FAILED";
+            break;
+        case NOXTLS_RETURN_NULL:
+            name = "NULL";
+            break;
+        case NOXTLS_RETURN_INVALID_PARAM:
+            name = "INVALID_PARAM";
+            break;
+        case NOXTLS_RETURN_INVALID_BLOCK_SIZE:
+            name = "INVALID_BLOCK_SIZE";
+            break;
+        case NOXTLS_RETURN_INVALID_KEY_SIZE:
+            name = "INVALID_KEY_SIZE";
+            break;
+        case NOXTLS_RETURN_INVALID_MODE:
+            name = "INVALID_MODE";
+            break;
+        case NOXTLS_RETURN_INVALID_ALGORITHM:
+            name = "INVALID_ALGORITHM";
+            break;
+        case NOXTLS_RETURN_BAD_DATA:
+            name = "BAD_DATA";
+            break;
+        case NOXTLS_RETURN_TIMEOUT:
+            name = "TIMEOUT";
+            break;
+        case NOXTLS_RETURN_NOT_SUPPORTED:
+            name = "NOT_SUPPORTED";
+            break;
+        case NOXTLS_RETURN_NOT_INITIALIZED:
+            name = "NOT_INITIALIZED";
+            break;
+        case NOXTLS_RETURN_NOT_ENOUGH_MEMORY:
+            name = "NOT_ENOUGH_MEMORY";
+            break;
+        case NOXTLS_RETURN_NOT_ENOUGH_ENTROPY:
+            name = "NOT_ENOUGH_ENTROPY";
+            break;
+        case NOXTLS_RETURN_CERT_PARSE_FAILED:
+            name = "CERT_PARSE_FAILED";
+            break;
+        case NOXTLS_RETURN_CERT_VERIFY_FAILED:
+            name = "CERT_VERIFY_FAILED";
+            break;
+        case NOXTLS_RETURN_TLS_ERROR:
+            name = "TLS_ERROR";
+            break;
+        case NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED:
+            name = "CERT_VERIFY_SIGNATURE_FAILED";
+            break;
+        case NOXTLS_RETURN_CERT_VERIFY_HOSTNAME_MISMATCH:
+            name = "CERT_VERIFY_HOSTNAME_MISMATCH";
+            break;
+        case NOXTLS_RETURN_CERT_EXPIRED:
+            name = "CERT_EXPIRED";
+            break;
+        case NOXTLS_RETURN_CERT_NOT_YET_VALID:
+            name = "CERT_NOT_YET_VALID";
+            break;
+        case NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED:
+            name = "CERT_VERIFY_CHAIN_FAILED";
+            break;
+        case NOXTLS_RETURN_CERT_REVOKED:
+            name = "CERT_REVOKED";
+            break;
+        case NOXTLS_RETURN_CRL_PARSE_FAILED:
+            name = "CRL_PARSE_FAILED";
+            break;
+        case NOXTLS_RETURN_CRL_VERIFY_FAILED:
+            name = "CRL_VERIFY_FAILED";
+            break;
+        case NOXTLS_RETURN_CRL_EXPIRED:
+            name = "CRL_EXPIRED";
+            break;
+        case NOXTLS_RETURN_TLS_WEAK_DHE_PARAMS:
+            name = "TLS_WEAK_DHE_PARAMS";
+            break;
+        case NOXTLS_RETURN_RECORD_OVERFLOW:
+            name = "RECORD_OVERFLOW";
+            break;
+        case NOXTLS_RETURN_CERT_REQUIRED:
+            name = "CERT_REQUIRED";
+            break;
+        case NOXTLS_RETURN_TLS_ALERT_DECODE_ERROR:
+            name = "TLS_ALERT_DECODE_ERROR";
+            break;
+        case NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER:
+            name = "TLS_ALERT_ILLEGAL_PARAMETER";
+            break;
+        case NOXTLS_RETURN_TLS_RECORD_AUTH_FAILED:
+            name = "TLS_RECORD_AUTH_FAILED";
+            break;
+        case NOXTLS_RETURN_TLS_FINISHED_VERIFY_FAILED:
+            name = "TLS_FINISHED_VERIFY_FAILED";
+            break;
+        case NOXTLS_RETURN_NEGOTIATED_TLS12:
+            name = "NEGOTIATED_TLS12";
+            break;
+        case NOXTLS_RETURN_WANT_READ:
+            name = "WANT_READ";
+            break;
+        case NOXTLS_RETURN_WANT_WRITE:
+            name = "WANT_WRITE";
+            break;
+        case NOXTLS_RETURN_ECDH_PRIVATE_KEY_INVALID:
+            name = "ECDH_PRIVATE_KEY_INVALID";
+            break;
+        case NOXTLS_RETURN_ECDH_OUTPUT_TOO_SMALL:
+            name = "ECDH_OUTPUT_TOO_SMALL";
+            break;
+        case NOXTLS_RETURN_ECDH_PEER_PUBLIC_KEY_INVALID:
+            name = "ECDH_PEER_PUBLIC_KEY_INVALID";
+            break;
+        case NOXTLS_RETURN_ECDH_SCALAR_MULTIPLY_FAILED:
+            name = "ECDH_SCALAR_MULTIPLY_FAILED";
+            break;
+        case NOXTLS_RETURN_ECDH_SHARED_POINT_INFINITY:
+            name = "ECDH_SHARED_POINT_INFINITY";
+            break;
+        case NOXTLS_RETURN_DTLS_RECORD_REPLAYED:
+            name = "DTLS_RECORD_REPLAYED";
+            break;
+        case NOXTLS_RETURN_KEY_EXHAUSTED:
+            name = "KEY_EXHAUSTED";
+            break;
+        default:
+            name = "UNKNOWN";
+            break;
+    }
+    return name;
+}
+
+/**
+ * @brief Largest TLSCiphertext length the stream accepts now.
+ *
+ * @param[in] ctx Context.
+ * @return The acknowledged RFC 8449 limit plus expansion, else TLS_MAX_RECV_PROTECTED_RECORD_FRAGMENT.
+ */
+static uint32_t tls_rx_protected_limit(const tls_context_t *ctx)
+{
+    uint32_t limit = (uint32_t)TLS_MAX_RECV_PROTECTED_RECORD_FRAGMENT;
+
+    if ((ctx->rx_protected_limit != 0U) && (ctx->rx_protected_limit < limit)) {
+        limit = ctx->rx_protected_limit;
+    }
+    return limit;
+}
+
 static noxtls_return_t tls_nonblocking_recv_record(tls_context_t *ctx,
                                                     tls_record_t *record)
 {
@@ -649,7 +807,7 @@ static noxtls_return_t tls_nonblocking_recv_record(tls_context_t *ctx,
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 #endif
-    if (length > TLS_MAX_PROTECTED_RECORD_FRAGMENT) {
+    if ((uint32_t)length > tls_rx_protected_limit(ctx)) {
         ctx->io_rx_header_len = 0U;
         return NOXTLS_RETURN_RECORD_OVERFLOW;
     }
@@ -988,9 +1146,9 @@ noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
     }
 #endif
     /* Absolute ciphertext ceiling (RFC 5246 TLSCiphertext / RFC 8446 encrypted). */
-    if (length > TLS_MAX_PROTECTED_RECORD_FRAGMENT) {
+    if ((uint32_t)length > tls_rx_protected_limit(ctx)) {
         (void)noxtls_debug_printf((const uint8_t *)"[TLS_DEBUG] tls_recv_record: Record length %u exceeds protected max %u\n",
-                            length, (uint32_t)TLS_MAX_PROTECTED_RECORD_FRAGMENT);
+                            length, tls_rx_protected_limit(ctx));
         /* Drain so the stream stays aligned; caller sends record_overflow. */
         uint8_t *drain = (uint8_t*)NOXTLS_MALLOC(length);
         if (drain != NULL) {
