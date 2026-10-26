@@ -24,6 +24,7 @@ set(_noxtls_static_cases
     static_release_timing
     static_application_flight_buffer
     static_pool_exhaustion
+    static_reinit_live_block
     static_peer_chain_too_deep
     static_footprint_report
 )

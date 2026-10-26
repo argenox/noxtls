@@ -6704,6 +6704,17 @@ static noxtls_return_t tls13_context_init_internal(tls13_context_t *ctx,
         (handshake_workspace_len < TLS_HANDSHAKE_WORKSPACE_SIZE))) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
+#if NOXTLS_CONN_MEMORY
+    /* Caller memory that a live connection still uses (for example a context initialized
+     * again without noxtls_tls13_context_free()) is refused before the context is zeroed,
+     * so that connection and its registration stay intact. */
+    if((bind != NULL) && (bind->memory != NULL)) {
+        rc = noxtls_conn_mem_check_unused(bind->profile, bind->memory, bind->handshake);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
+    }
+#endif
     /* Start from a fully zeroed context: not every field is assigned below, and the storage
      * may be reused. */
     noxtls_secure_zero(ctx, sizeof(*ctx));

@@ -406,6 +406,45 @@ static int t_pool_exhaustion(void)
     return lb_expect_no_leak(base, "pool exhaustion");
 }
 
+/**
+ * A full block that a live context still uses is refused before anything is written,
+ * whether another context or the same one (initialized again without a free) asks for
+ * it; the live context keeps working, and after its free the block carries a new one.
+ */
+static int t_reinit_live_block(void)
+{
+    tls13_context_t live;
+    tls13_context_t other;
+    noxtls_connection_memory_stats_t st;
+    uint64_t marker;
+
+    LB_CHECK_OK(noxtls_dtls13_context_init_static(&live, TLS_ROLE_SERVER, NOXTLS_CONN_PROFILE_DTLS13_PSK,
+                                                  s_server_mem, sizeof(s_server_mem)));
+    marker = s_server_mem[(sizeof(s_server_mem) / 8U) - 1U] = 0x5A5A5A5A5A5A5A5AULL;
+    memset(&other, 0xA5, sizeof(other));
+    LB_CHECK_EQ(noxtls_dtls13_context_init_static(&other, TLS_ROLE_SERVER, NOXTLS_CONN_PROFILE_DTLS13_PSK,
+                                                  s_server_mem, sizeof(s_server_mem)),
+                NOXTLS_RETURN_NOT_ENOUGH_MEMORY);
+    LB_CHECK_EQ(noxtls_tls13_context_init_static(&other, TLS_ROLE_CLIENT, NOXTLS_CONN_PROFILE_TLS13_PSK,
+                                                 s_server_mem, sizeof(s_server_mem)),
+                NOXTLS_RETURN_NOT_ENOUGH_MEMORY);
+    /* An overlapping block that starts inside the live one is refused too. */
+    LB_CHECK_EQ(noxtls_dtls13_context_init_static(&other, TLS_ROLE_SERVER, NOXTLS_CONN_PROFILE_DTLS13_PSK,
+                                                  &s_server_mem[8], sizeof(s_server_mem) - 64U),
+                NOXTLS_RETURN_NOT_ENOUGH_MEMORY);
+    LB_CHECK_EQ(noxtls_dtls13_context_init_static(&live, TLS_ROLE_SERVER, NOXTLS_CONN_PROFILE_DTLS13_PSK,
+                                                  s_server_mem, sizeof(s_server_mem)),
+                NOXTLS_RETURN_NOT_ENOUGH_MEMORY);
+    LB_CHECK_EQ(s_server_mem[(sizeof(s_server_mem) / 8U) - 1U], marker);
+    LB_CHECK_OK(noxtls_connection_memory_get_stats(&live, &st));
+    LB_CHECK_EQ(st.released, 0U);
+    LB_CHECK_OK(noxtls_tls13_context_free(&live));
+    LB_CHECK_OK(noxtls_dtls13_context_init_static(&other, TLS_ROLE_SERVER, NOXTLS_CONN_PROFILE_DTLS13_PSK,
+                                                  s_server_mem, sizeof(s_server_mem)));
+    LB_CHECK_OK(noxtls_tls13_context_free(&other));
+    return 0;
+}
+
 /** A received chain deeper than NOXTLS_STATIC_CERT_CHAIN_DEPTH_MAX fails the same way twice. */
 static int t_peer_chain_too_deep(void)
 {
@@ -500,6 +539,7 @@ static const lb_test_case_t k_cases[] = {
     { "static_release_timing", t_release_timing },
     { "static_application_flight_buffer", t_application_flight_buffer },
     { "static_pool_exhaustion", t_pool_exhaustion },
+    { "static_reinit_live_block", t_reinit_live_block },
     { "static_peer_chain_too_deep", t_peer_chain_too_deep },
     { "static_footprint_report", t_footprint_report },
 };

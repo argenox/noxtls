@@ -478,6 +478,10 @@ noxtls_return_t noxtls_conn_mem_bind_split(tls13_context_t *ctx, uint32_t profil
 void noxtls_conn_mem_handshake_done(tls13_context_t *ctx);
 /** DTLS 1.3 server after release: epoch-2 read secret and sn_key, or NULL. */
 const uint8_t *noxtls_conn_mem_epoch2_secret(const tls13_context_t *ctx, const uint8_t **sn_key);
+/** Refuse caller memory that a live connection still uses, before the context is
+ *  touched: NOXTLS_RETURN_NOT_ENOUGH_MEMORY when @p memory (the whole block, or the
+ *  steady part when @p handshake is not NULL) or @p handshake overlaps a live region. */
+noxtls_return_t noxtls_conn_mem_check_unused(uint32_t profile, const void *memory, const void *handshake);
 /** Carve @p memory for @p profile and attach it to @p ctx (after its base init). */
 noxtls_return_t noxtls_conn_mem_bind(tls13_context_t *ctx, uint32_t profile, void *memory, size_t memory_len,
                                      uint8_t pool_index);

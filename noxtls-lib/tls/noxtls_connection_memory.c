@@ -171,6 +171,13 @@ static noxtls_connection_memory_t *conn_carve(uint32_t profile, void *memory, si
             *rc = NOXTLS_RETURN_INVALID_PARAM;
             return NULL;
         }
+        /* A block that a live connection still uses (a context initialized on it and
+         * not freed) is refused before anything is written, as for split blocks:
+         * wiping it would corrupt that connection and leave its regions registered. */
+        if(noxtls_mem_region_overlaps_live(memory, fp.total) != 0) {
+            *rc = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+            return NULL;
+        }
     } else {
         uintptr_t s = (uintptr_t)memory;
         uintptr_t h = (uintptr_t)handshake;
@@ -290,6 +297,23 @@ static void conn_attach(tls13_context_t *ctx, noxtls_connection_memory_t *conn, 
     if((conn->profile >= NOXTLS_CONN_PROFILE_TLS13_CERT) && (NOXTLS_CONN_PEER_CERT_BYTES != 0U)) {
         conn->peer_cert = steady;
     }
+}
+
+noxtls_return_t noxtls_conn_mem_check_unused(uint32_t profile, const void *memory, const void *handshake)
+{
+    noxtls_connection_footprint_t fp;
+
+    if((memory == NULL) || (conn_layout(profile, &fp) != NOXTLS_RETURN_SUCCESS)) {
+        /* conn_carve() reports the argument error itself. */
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    if(handshake == NULL) {
+        return (noxtls_mem_region_overlaps_live(memory, fp.total) != 0) ? NOXTLS_RETURN_NOT_ENOUGH_MEMORY :
+                                                                            NOXTLS_RETURN_SUCCESS;
+    }
+    return ((noxtls_mem_region_overlaps_live(memory, fp.steady) != 0) ||
+            (noxtls_mem_region_overlaps_live(handshake, fp.handshake) != 0)) ? NOXTLS_RETURN_NOT_ENOUGH_MEMORY :
+                                                                               NOXTLS_RETURN_SUCCESS;
 }
 
 noxtls_return_t noxtls_conn_mem_bind(tls13_context_t *ctx, uint32_t profile, void *memory, size_t memory_len,
