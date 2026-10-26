@@ -18,7 +18,10 @@ set(_noxtls_mc_cases
     mc_noxlink_frame_records
     mc_leader_mqtt_rsa
     mc_leader_mqtt_ecdsa
+    mc_leader_mqtt_rsa_rotated
+    mc_leader_mqtt_rsa_max_chain
     mc_leader_topology
+    mc_leader_budget_limits
 )
 noxtls_lb_add_suite(multi_context_test "${CMAKE_CURRENT_SOURCE_DIR}/multi_context_test.c" ${_noxtls_mc_cases})
 # Broker and device PKI of the leader cases (gen_leader_pki.py).

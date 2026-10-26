@@ -48,6 +48,45 @@
 #define NOXTLS_STATIC_MAX_CONNECTIONS 8U
 #endif
 
+/*
+ * Budgets set from measured peaks (docs/static-memory.md, profile (iv)). The peaks are
+ * the highest of every test under this profile (ut/multi_context mc_leader_*, the 28
+ * DTLS 1.3 recovery cases and the record-discard cases in DTLS13_PSK blocks,
+ * ut/static_memory), measured on x86-64, whose structures are larger than on the
+ * Cortex-M33, plus 25%. Beyond a budget a connection fails with
+ * NOXTLS_RETURN_NOT_ENOUGH_MEMORY (mc_leader_budget_limits).
+ */
+#if (NOXTLS_TLS_MAX_RECORD_SIZE == 1400U)
+/* Measured with 1,400-byte records; another record size keeps the derived budgets. */
+/* DTLS 1.3 PSK handshake: peak 11,248 (no MTU set: 1.5 KB fragment buffer, loss and
+ * reorder cases); NoxLink servers and node clients measure 10,776 at most. */
+#ifndef NOXTLS_STATIC_HS_ARENA_DTLS_PSK
+#define NOXTLS_STATIC_HS_ARENA_DTLS_PSK 14080U
+#endif
+/* DTLS 1.3 steady state: peak 2,912 (a 1,429-byte datagram and its 1,399-byte record,
+ * also with records read in 100-byte pieces); 25% holds a further post-handshake
+ * message of 256 bytes (KeyUpdate, NewConnectionId). DTLS 1.3 servers issue no
+ * NewSessionTicket. */
+#ifndef NOXTLS_STATIC_STEADY_ARENA_DTLS
+#define NOXTLS_STATIC_STEADY_ARENA_DTLS 3648U
+#endif
+#endif
+/* Unchanged: the TLS 1.3 certificate handshake arena (the largest chain the profile
+ * accepts, four certificates of 2,040 bytes, measures 54,816 of the 56,856 budgeted on
+ * x86-64) and the TLS steady arena (it holds a broker NewSessionTicket of up to
+ * NOXTLS_STATIC_POST_HANDSHAKE_MSG_MAX, which no test can send at that size). */
+/* The MQTT client verifies the broker with its own anchors (verify policy), so the
+ * process trust store holds at most the two roots of a broker's RSA and ECC endpoints. */
+#ifndef NOXTLS_STATIC_TRUST_ANCHORS_MAX
+#define NOXTLS_STATIC_TRUST_ANCHORS_MAX 2U
+#endif
+/* The leader's identity: its root parsed with a copy into the verify policy's chain and
+ * its P-256 device key, 2,992 bytes with an 859-byte root, 4,181 with a root of
+ * NOXTLS_STATIC_CERT_DER_MAX; plus 25%. An RSA-2048 device key needs about 7 KB. */
+#ifndef NOXTLS_STATIC_GLOBAL_EXTRA
+#define NOXTLS_STATIC_GLOBAL_EXTRA 5376U
+#endif
+
 #include "noxtls_static_profile_leader.h"
 
 #endif /* NOXTLS_STATIC_PROFILE_LEADER_NOXLINK_H_ */

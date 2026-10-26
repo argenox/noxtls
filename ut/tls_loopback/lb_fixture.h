@@ -55,6 +55,10 @@ extern "C" {
 /** Result of a test function: 0 pass, LB_SKIP when the feature is unavailable, else fail. */
 #define LB_SKIP 77
 
+/** Static memory: global arena bytes the test harness adds to the profile's for the test
+ *  peers' keys and certificates (lb_main installs the arena). */
+#define LB_HARNESS_GLOBAL_BYTES (16U * 1024U)
+
 /** Non-zero suppresses CHECK failure messages (used by allocation-failure sweeps). */
 extern int g_lb_quiet;
 /** Non-zero disables the unified WANT_WRITE re-entry workaround in lb_pair_handshake(). */

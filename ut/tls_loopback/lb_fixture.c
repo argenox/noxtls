@@ -224,6 +224,19 @@ int lb_main(int argc, char **argv, const char *suite, const lb_test_case_t *case
         only = argv[1];
     }
 
+#if NOXTLS_CONFIG_STATIC_MEMORY
+    {
+        /* The global arena of the profile plus what the test harness itself parses
+         * there and a device does not: the test peers' keys (two RSA-2048 and two P-256
+         * keys per pair) and certificates. Cases that check the profile's own global
+         * budget measure their use against NOXTLS_STATIC_GLOBAL_EXTRA. */
+        static uint64_t s_lb_global[(NOXTLS_STATIC_GLOBAL_POOL_SIZE + LB_HARNESS_GLOBAL_BYTES + 7U) / 8U];
+        if(noxtls_mem_init((uint8_t *)(void *)s_lb_global, sizeof(s_lb_global)) != NOXTLS_RETURN_SUCCESS) {
+            fprintf(stderr, "cannot install the test global arena\n");
+            return 2;
+        }
+    }
+#endif
     noxtls_drbg_set_entropy_callback(lb_entropy);
     noxtls_drbg_set_entropy_source(NOXTLS_ENTROPY_SOURCE_CUSTOM);
     baseline_total = lb_alloc_live_bytes();

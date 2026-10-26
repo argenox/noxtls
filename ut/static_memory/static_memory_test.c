@@ -339,6 +339,7 @@ static int t_pool_exhaustion(void)
     x509_certificate_chain_t chain;
     x509_certificate_t cert;
     noxtls_mem_error_info_t err;
+    noxtls_mem_region_stats_t global;
     tls13_context_t extra[NOXTLS_STATIC_CONNECTION_POOL_COUNT + 1U];
     uint8_t big[NOXTLS_STATIC_CERT_DER_MAX + 1U];
     uint32_t i;
@@ -375,13 +376,16 @@ static int t_pool_exhaustion(void)
                                                                           NOXTLS_RETURN_CERT_PARSE_FAILED);
         (void)noxtls_x509_certificate_free(&cert);
 
-        /* The global arena: no fallback, the failure names the region. */
+        /* The global arena (the profile's, with the test harness's share, lb_main):
+         * no fallback, the failure names the region. */
+        LB_CHECK_OK(noxtls_mem_region_get_stats(noxtls_mem_global_region(), &global));
+        LB_CHECK(global.capacity >= NOXTLS_STATIC_GLOBAL_POOL_SIZE);
         noxtls_mem_clear_last_error();
-        LB_CHECK(NOXTLS_MALLOC(NOXTLS_STATIC_GLOBAL_POOL_SIZE + 1U) == NULL);
+        LB_CHECK(NOXTLS_MALLOC(global.capacity + 1U) == NULL);
         LB_CHECK_OK(noxtls_mem_get_last_error(&err));
         LB_CHECK_EQ(err.reason, NOXTLS_MEM_FAILURE_POOL_EXHAUSTED);
         LB_CHECK((err.region_name != NULL) && (strcmp(err.region_name, "global") == 0));
-        LB_CHECK_EQ(err.requested_bytes, NOXTLS_STATIC_GLOBAL_POOL_SIZE + 1U);
+        LB_CHECK_EQ(err.requested_bytes, global.capacity + 1U);
 
         /* Library connection pool: NOXTLS_STATIC_CONNECTION_POOL_COUNT blocks. */
         for(i = 0U; i < NOXTLS_STATIC_CONNECTION_POOL_COUNT; i++) {

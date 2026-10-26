@@ -430,37 +430,65 @@ of up to 1,400 bytes travel in one record, so the records are 1,400 bytes
 (`CONFIG_NOXTLS_TLS_MAX_RECORD_SIZE=1400`) and the NoxLink contexts advertise
 `record_size_limit` 1,401; the MQTT and node contexts keep 513 with
 `noxtls_tls13_set_record_size_limit()`. The record size is one build setting, so every
-context's buffers follow it. Cortex-M33, the leader's `prj.conf` features:
+context's buffers follow it. The DTLS 1.3 PSK arenas, the trust store and the global
+arena are set from measured peaks (below). Cortex-M33, the leader's `prj.conf` features:
 
 | | 1,400-byte records | 512-byte records |
 | --- | ---: | ---: |
 | MQTT block (TLS13_CERT), steady / released | 74,736 (15,856 / 58,880) | 66,184 (10,528 / 55,656) |
-| DTLS13_PSK block, steady / handshake | 40,904 (15,696 / 25,208) | 29,688 (9,480 / 20,208) |
-| NoxLink fleet + local, separate blocks | 81,808 | 59,376 |
-| NoxLink fleet + local, one shared handshake block | 56,600 | 39,168 |
-| ... plus the replacement association | 72,296 | 48,648 |
-| Four node associations, one shared handshake block | 87,992 | 58,128 |
-| All seven DTLS contexts on one handshake block, MQTT, global arena 29,360, eight contexts (8 x 2,664) | 260,488 | 203,424 |
+| DTLS13_PSK block, steady / handshake | 34,096 (10,584 / 23,512) | 29,688 (9,480 / 20,208) |
+| NoxLink fleet + local, separate blocks | 68,192 | 59,376 |
+| NoxLink fleet + local, one shared handshake block | 44,680 | 39,168 |
+| ... plus the replacement association | 55,264 | 48,648 |
+| Four node associations, one shared handshake block | 65,848 | 58,128 |
+| Global arena (trust store of 2 anchors 12,912 + identity 5,376) | 18,288 | 18,288 |
+| All seven DTLS contexts on one handshake block, MQTT, global arena, eight contexts (8 x 2,664) | 211,936 | 192,352 |
 
 The seven DTLS contexts can share one handshake block only if the leader serializes
 all their handshakes; with one block for NoxLink and one for the nodes, add one
-handshake block (25,208 or 20,208).
+handshake block (23,512 or 20,208).
 
-Measured with the leader's use cases (`mc_leader_*`, x86-64 with this profile, so
-the blocks are larger than the Cortex-M33 ones above; the arena peaks are what the
-handshakes and the connection actually used):
+Budgets before the measurements (0.3.15 profile): DTLS13_PSK block 40,904 (steady
+15,696, handshake 25,208: steady arena 8,760, handshake arena 15,776), global arena
+29,360 (4 anchors, 8,192 extra). For the leader's NoxLink servers (2), node clients (4),
+MQTT client and global arena: 349,520 bytes before, 297,600 after (51,920 less).
+
+Measured peaks (x86-64 with this profile, whose structures are larger than on the
+Cortex-M33; the highest of every test under the profile, including the 28 DTLS 1.3
+recovery cases and the record-discard cases run in DTLS13_PSK blocks with
+`NOXTLS_STATIC_CONNECTION_POOL_CERT=0`) and the budgets (x86-64 / Cortex-M33):
 
 | Context | Handshake arena peak / budget | Steady arena peak / budget |
 | --- | ---: | ---: |
-| MQTT client, RSA-2048 broker chain of 3 certificates (1,893 + 1,083 + 1,082 bytes), RSA-2048 device certificate | 25,416 / 56,856 | 552 / 12,744 |
-| MQTT client, ECDSA P-256 broker chain of 2 certificates, P-256 device certificate | 15,848 / 56,856 | 552 / 12,744 |
-| NoxLink server (split, shared handshake block), 1,399-byte frames | 10,360 / 15,776 | 2,912 / 8,760 |
-| Node client, 1,399-byte records | 9,880 / 15,776 | 2,912 / 8,760 |
+| MQTT client, RSA-2048 chain of 3 (1,893 + 1,083 + 1,082 bytes), RSA-2048 device certificate, record_size_limit 513 | 25,416 / 56,856, 52,376 | 552 / 12,744, 9,160 |
+| MQTT client, RSA-2048 chain of 4 after a rotation (5,127 bytes), full records | 32,888 / 56,856, 52,376 | 1,432 |
+| MQTT client, four RSA certificates of 2,040 bytes (the profile's limit) | 54,816 / 56,856, 52,376 | 1,432 |
+| MQTT client, ECDSA P-256 chain of 2, P-256 device certificate, full records | 15,848 | 1,432 |
+| NoxLink server (split, shared handshake block), 1,399-byte frames | 10,360 / 14,080 | 2,912 / 3,648 |
+| Node client, 1,399-byte records, also read in 100-byte pieces | 9,880 / 14,080 | 2,912 / 3,648 |
+| DTLS 1.3 PSK, recovery and record-discard cases (no MTU: fragment buffer) | 11,248 / 14,080 | 1,552 / 3,648 |
 
-Global arena: the three anchors (borrowed DER) take 1,024 bytes and the RSA-2048
-device key 1,408 (P-256: 32), well within `NOXTLS_STATIC_GLOBAL_EXTRA` 8,192. The
-budgets keep the profile's reserve (chains of four 2 KB certificates, RSA-2048
-signing, NewSessionTickets up to 2 KB); none of the measured peaks needed a change.
+- DTLS 1.3 PSK handshake arena: 11,248 + 25% = 14,080 (was 15,776).
+- DTLS 1.3 steady arena: 2,912 + 25% = 3,648 (was 8,760); the margin also holds a
+  256-byte post-handshake message (KeyUpdate, NewConnectionId) on top of a full
+  datagram and its record. DTLS 1.3 servers issue no NewSessionTicket.
+- Trust store: 2 anchors (was 4). The MQTT client verifies the broker with its own
+  anchors (`noxtls_tls13_set_server_verify_policy()`, as `fleet_mqtt.c` does), so the
+  process store needs at most a broker's RSA and ECC roots.
+- `NOXTLS_STATIC_GLOBAL_EXTRA` 5,376 (was 8,192): the leader's identity (gateway root
+  parsed with a copy into the verify policy's chain, P-256 device key) takes 2,992 with
+  an 859-byte root, 4,181 with a 2,048-byte root, plus 25%. An RSA-2048 device key
+  would need about 7 KB.
+- Unchanged: the TLS 1.3 certificate handshake arena (the largest chain the profile
+  accepts uses 96% of it on x86-64) and the TLS steady arena (a broker NewSessionTicket
+  of up to 2 KB; the loopback broker's tickets are small).
+
+The measured budgets apply with 1,400-byte records; a build with another record size
+keeps the derived DTLS budgets. Beyond a budget a connection fails with
+`NOXTLS_RETURN_NOT_ENOUGH_MEMORY` and names the region (`mc_leader_budget_limits`).
+The test harness installs a global arena of the profile's size plus 16 KB for the
+test peers' keys (`lb_main()`); the leader cases check their own use against
+`NOXTLS_STATIC_GLOBAL_EXTRA`.
 
 `NOXTLS_STATIC_MAX_CONNECTIONS` 8 counts the leader's own contexts. An in-process
 test holds both ends of each association, so with 8 it runs four associations
@@ -598,12 +626,15 @@ Everything in (b), plus:
     reopened while the others carry data;
   - `mc_noxlink_frame_records`: a 1,400-byte frame takes two records with
     `record_size_limit` 1,400 and one with 1,401;
-  - `mc_leader_mqtt_rsa`, `mc_leader_mqtt_ecdsa`: the leader's MQTT connection
+  - `mc_leader_mqtt_rsa`, `mc_leader_mqtt_ecdsa`, `mc_leader_mqtt_rsa_rotated` (four
+    certificates after an intermediate rotation), `mc_leader_mqtt_rsa_max_chain` (four
+    2,040-byte certificates): the leader's MQTT connection
     (TLS 1.3 client, certificate profile) to a broker presenting a cloud broker's
     chain (`ut/multi_context/gen_leader_pki.py`: RSA-2048 leaf with ten SAN names,
     AIA, CRL distribution point, policies and embedded SCTs, its intermediate and
     the root cross-signed by an untrusted legacy root; or a P-256 leaf and
-    intermediate), wildcard hostname, mutual authentication with an RSA-2048 or
+    intermediate), the anchors in the connection's verify policy, wildcard hostname,
+    mutual authentication with an RSA-2048 or
     P-256 device certificate issued by the broker's device CA, record_size_limit
     513 honored by the broker, release after the handshake with the peer leaf kept
     for channel binding, and 256 KeyUpdates with data (steady arena idle after every
@@ -616,7 +647,13 @@ Everything in (b), plus:
     carries data; the ACK of its Finished lost, the handshake block reused and
     wiped by another re-handshake, and the released server still answering the
     retransmitted Finished (epoch-2 read key kept in its steady part); then
-    1,399-byte frames and KeyUpdates on every association (600 on one).
+    1,399-byte frames and KeyUpdates on every association (600 on one);
+  - `mc_leader_budget_limits` (static): a node client reads three full records in
+    100-byte pieces (the steady arena's peak); with its steady arena taken but for 256
+    bytes a full record, and with its handshake arena taken but for 4 KB the handshake,
+    fail with `NOXTLS_RETURN_NOT_ENOUGH_MEMORY` (twice the same, region named, guard
+    words around the block intact, block wiped by the free); the MQTT client's
+    handshake fails the same way with its handshake arena taken but for 12 KB.
 
 Profile-dependent cases: with no server ticket store
 (`NOXTLS_TLS13_PSK_TICKET_STORE_MAX` 0, the leader profiles) the four resumption and

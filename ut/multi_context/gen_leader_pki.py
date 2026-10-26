@@ -18,6 +18,10 @@
 #          three embedded SCTs) <- RSA intermediate <- Test Root CA 1 (trusted).
 #          The broker also sends Test Root CA 1 cross-signed by an untrusted legacy root,
 #          as such brokers do: leaf + intermediate + cross-signed root (3 certificates).
+#          After an intermediate rotation: leaf4 <- M03 <- bridge CA <- Test Root CA 1,
+#          sent with the cross-signed root (4 certificates, the profile's chain limit).
+#          The same structure with every certificate padded to 2,040 bytes: the largest
+#          chain the profile accepts (NOXTLS_STATIC_CERT_CHAIN_DEPTH_MAX x CERT_DER_MAX).
 #   ECDSA: broker leaf (P-256, same extensions) <- P-256 intermediate <- Test Root CA 3.
 #   Device: RSA-2048 and P-256 device certificates issued by the RSA device CA
 #          (CN "Test IoT Certificate"), as a broker issues them (the P-256 one from a CSR).
@@ -113,6 +117,22 @@ def build(subject, subject_key, issuer, issuer_key, serial, ca=False, path_len=N
     return builder.sign(issuer_key, hashes.SHA256())
 
 
+PAD_OID = "1.3.6.1.4.1.55555.2"
+
+
+def padded(target, make):
+    """Rebuild a certificate with an opaque extension until its DER is target-8..target bytes."""
+    pad = 0
+    for _ in range(8):
+        value = bytes([0x04, 0x82]) + pad.to_bytes(2, "big") + bytes([0x5A]) * pad
+        cert = make(((PAD_OID, value),))
+        size = len(der(cert))
+        if target - 8 <= size <= target:
+            return cert
+        pad += target - 4 - size
+    raise RuntimeError("cannot pad to %d bytes" % target)
+
+
 def c_array(label, data):
     lines = ["const uint8_t %s[] = {" % label]
     for i in range(0, len(data), 12):
@@ -133,7 +153,7 @@ def trad_key_der(key):
                              serialization.NoEncryption())
 
 
-def broker_leaf(key, issuer, issuer_key, serial, ku, tag):
+def broker_leaf(key, issuer, issuer_key, serial, ku, tag, pad=()):
     san = ["*." + REGION, REGION, "*.ats." + REGION, "*.jobs." + REGION,
            "*.credentials." + REGION, "*.data." + REGION, "*.data-ats." + REGION,
            "*.device-advisor." + REGION, "*.tunneling." + REGION, "*.fleethub." + REGION]
@@ -142,11 +162,11 @@ def broker_leaf(key, issuer, issuer_key, serial, ku, tag):
                  eku=[ExtendedKeyUsageOID.SERVER_AUTH, ExtendedKeyUsageOID.CLIENT_AUTH], san=san,
                  aia=("http://ocsp.%s.trust.test" % tag, "http://crt.%s.trust.test/%s.cer" % (tag, tag)),
                  crl="http://crl.%s.trust.test/%s.crl" % (tag, tag), policies=["2.23.140.1.2.1"],
-                 extra=((SCT_LIST_OID, sct_list()),))
+                 extra=((SCT_LIST_OID, sct_list()),) + tuple(pad))
 
 
-def intermediate(cn, key, root_name, root_key, serial, tag):
-    return build(name(cn), key, root_name, root_key, serial, ca=True, path_len=0,
+def intermediate(cn, key, root_name, root_key, serial, tag, pad=(), path_len=0):
+    return build(name(cn), key, root_name, root_key, serial, ca=True, path_len=path_len, extra=pad,
                  ku=key_usage(digital_signature=True, cert_sign=True),
                  eku=[ExtendedKeyUsageOID.SERVER_AUTH, ExtendedKeyUsageOID.CLIENT_AUTH],
                  aia=("http://ocsp.root.trust.test", "http://crt.root.trust.test/%s.cer" % tag),
@@ -186,6 +206,29 @@ def main():
     rsa_leaf = broker_leaf(rsa_leaf_key, rsa_int.subject, rsa_int_key, 0x7A01,
                            key_usage(digital_signature=True, key_encipherment=True), "r2m01")
 
+    # A rotated chain of four: leaf4 <- new intermediate <- bridge CA <- Test Root CA 1.
+    bridge_key = rsa2048()
+    rsa_int2_key = rsa2048()
+    bridge = build(name("Test RSA 2048 Bridge CA"), bridge_key, n_root1, root1_key, 0x0104, ca=True,
+                   path_len=1, ku=ca_ku,
+                   aia=("http://ocsp.root.trust.test", "http://crt.root.trust.test/bridge.cer"),
+                   crl="http://crl.root.trust.test/bridge.crl", policies=["2.23.140.1.2.1"])
+    rsa_int2 = intermediate("Test RSA 2048 M03", rsa_int2_key, bridge.subject, bridge_key, 0x0105, "r2m03")
+    rsa_leaf4 = broker_leaf(rsa_leaf_key, rsa_int2.subject, rsa_int2_key, 0x7A03,
+                            key_usage(digital_signature=True, key_encipherment=True), "r2m03")
+
+    # The profile's limit: four certificates of nearly NOXTLS_STATIC_CERT_DER_MAX (2,048).
+    MAX_DER = 2040
+    maxb = padded(MAX_DER, lambda pad: intermediate("Test RSA 2048 Bridge CA", bridge_key, n_root1,
+                                                    root1_key, 0x0106, "bridge", pad=pad, path_len=1))
+    maxi = padded(MAX_DER, lambda pad: intermediate("Test RSA 2048 M03", rsa_int2_key, maxb.subject,
+                                                    bridge_key, 0x0107, "r2m03", pad=pad))
+    maxl = padded(MAX_DER, lambda pad: broker_leaf(rsa_leaf_key, maxi.subject, rsa_int2_key, 0x7A04,
+                                                   key_usage(digital_signature=True, key_encipherment=True),
+                                                   "r2m03", pad=pad))
+    maxc = padded(MAX_DER, lambda pad: build(n_root1, root1_key, n_legacy, legacy_key, 0x0108, ca=True,
+                                             ku=ca_ku, extra=pad))
+
     root3 = build(n_root3, root3_key, n_root3, root3_key, 0x0301, ca=True, ku=ca_ku)
     ec_int = intermediate("Test ECDSA 256 M02", ec_int_key, n_root3, root3_key, 0x0302, "e2m02")
     ec_leaf = broker_leaf(ec_leaf_key, ec_int.subject, ec_int_key, 0x7A02,
@@ -202,6 +245,10 @@ def main():
         ("lp_root1_cert", der(root1)), ("lp_root1_cross_cert", der(root1_cross)),
         ("lp_rsa_int_cert", der(rsa_int)), ("lp_rsa_leaf_cert", der(rsa_leaf)),
         ("lp_rsa_leaf_key", trad_key_der(rsa_leaf_key)),
+        ("lp_rsa_bridge_cert", der(bridge)), ("lp_rsa_int2_cert", der(rsa_int2)),
+        ("lp_rsa_leaf4_cert", der(rsa_leaf4)),
+        ("lp_max_leaf_cert", der(maxl)), ("lp_max_int_cert", der(maxi)),
+        ("lp_max_bridge_cert", der(maxb)), ("lp_max_cross_cert", der(maxc)),
         ("lp_root3_cert", der(root3)), ("lp_ec_int_cert", der(ec_int)),
         ("lp_ec_leaf_cert", der(ec_leaf)), ("lp_ec_leaf_key", trad_key_der(ec_leaf_key)),
         ("lp_device_ca_cert", der(device_ca)),
