@@ -129,6 +129,13 @@ noxtls_return_t noxtls_tls13_context_init_static(tls13_context_t *ctx, tls_role_
                                                  uint32_t profile, void *memory, size_t memory_len);
 noxtls_return_t noxtls_dtls13_context_init_static(tls13_context_t *ctx, tls_role_t role,
                                                   uint32_t profile, void *memory, size_t memory_len);
+/* Steady part and handshake part in two blocks (a handshake block shared in turn). */
+noxtls_return_t noxtls_tls13_context_init_static_split(tls13_context_t *ctx, tls_role_t role,
+                                                       uint32_t profile, void *steady, size_t steady_len,
+                                                       void *handshake, size_t handshake_len);
+noxtls_return_t noxtls_dtls13_context_init_static_split(tls13_context_t *ctx, tls_role_t role,
+                                                        uint32_t profile, void *steady, size_t steady_len,
+                                                        void *handshake, size_t handshake_len);
 noxtls_return_t noxtls_connection_memory_get_stats(const tls13_context_t *ctx,
                                                    noxtls_connection_memory_stats_t *stats);
 noxtls_return_t noxtls_connection_memory_handshake_region(tls13_context_t *ctx,
@@ -160,11 +167,98 @@ and handshake workspaces instead of the block's.
 
 ### Threads
 
-The active scope is one pointer. By default NoxTLS calls on different connections
-must be serialized (the usual case: one network task). Define
-`NOXTLS_STATIC_MEMORY_THREAD_LOCAL` as the compiler's thread-local keyword
-(`_Thread_local`, `__thread`) to give each thread its own scope. The global
-arena is shared and is not locked.
+The active scope is one pointer, and NoxTLS calls on different connections must be
+serialized: one owner task drives every connection (the usual case, and the only one
+the tests cover). Defining `NOXTLS_STATIC_MEMORY_THREAD_LOCAL` as the compiler's
+thread-local keyword (`_Thread_local`, `__thread`) gives each thread its own scope, so
+allocations follow the calling thread, but it does not make the library thread-safe:
+the region registry, the global arena, the PKC DRBG and the other process-wide state
+listed in [Several connections](#several-connections) are not locked.
+
+## Several connections
+
+A device or a host process can hold many connections at once: a leader keeps its MQTT
+connection (TLS 1.3 client), the NoxLink associations (DTLS 1.3 PSK servers) and its
+node associations (DTLS 1.3 PSK clients); a host helper keeps many DTLS 1.3 PSK
+clients. `ut/multi_context` runs these combinations in both configurations.
+
+### Each call allocates in its own connection
+
+Every entry point that can allocate for a connection enters that connection's scope:
+the TLS 1.3 calls listed above, the DTLS 1.3 connection-ID messages
+(`noxtls_dtls13_send_request_connection_id`, `_send_new_connection_id(s)`), and the
+record-layer calls an application may make directly (`noxtls_tls_send_record`,
+`noxtls_tls_flush`, `noxtls_tls13_send_dtls13_encrypted_record`,
+`noxtls_dtls_retransmit_flight`, `noxtls_dtls_answer_repeated_flight`). Scopes nest,
+so the owner may drive connection B from inside a callback of connection A (a leader
+publishes a NoxLink datagram through its MQTT connection from the NoxLink send
+callback): B's allocations stay in B's memory and A's release still happens at the end
+of A's outermost call. A context without connection memory (a freed one, TLS 1.2)
+allocates from the global arena, never from the connection whose call is running.
+
+The trust store setters (`noxtls_x509_trust_store_set`, `_set_der_nocopy`) always use
+the global arena, also from inside a callback. Other objects the application parses
+(keys, certificates) come from the active scope: create long-lived objects outside
+NoxTLS callbacks.
+
+`noxtls_free()` looks a pointer up in the active connection's four regions first, then
+in the global arena, then in the registry, so a free costs the same with 2 or 2,000
+connections registered.
+
+### Release per connection
+
+The release after the handshake is per connection: each connection releases its own
+handshake part at the end of its own outermost call, whatever the other connections
+are doing. A connection in the middle of its handshake keeps its handshake state, arena
+and flight untouched while another one releases, carries data or is freed.
+
+### One handshake block for several connections
+
+The handshake part is most of a block (for example 25,208 of 40,904 bytes for a
+DTLS 1.3 PSK context with 1,400-byte records on Cortex-M33). Connections whose
+handshakes the application serializes can take turns with one handshake block:
+
+```c
+static uint64_t s_fleet_steady[NOXTLS_CONNECTION_MEMORY_STEADY_SIZE(TLS_ROLE_SERVER, DTLS13_PSK) / 8U];
+static uint64_t s_local_steady[NOXTLS_CONNECTION_MEMORY_STEADY_SIZE(TLS_ROLE_SERVER, DTLS13_PSK) / 8U];
+static uint64_t s_handshake[NOXTLS_CONNECTION_MEMORY_HANDSHAKE_SIZE(TLS_ROLE_SERVER, DTLS13_PSK) / 8U];
+
+rc = noxtls_dtls13_context_init_static_split(&s_fleet, TLS_ROLE_SERVER, NOXTLS_CONN_PROFILE_DTLS13_PSK,
+                                             s_fleet_steady, sizeof(s_fleet_steady),
+                                             s_handshake, sizeof(s_handshake));
+/* While s_fleet holds the block, the same call for s_local returns
+ * NOXTLS_RETURN_NOT_ENOUGH_MEMORY and changes nothing: drop that ClientHello, the
+ * peer retransmits it. Once s_fleet is released (stats.released), s_local can start. */
+```
+
+- A context holds the handshake block from its init until its release (or its free).
+  The PSK, key shares and transcript live there, so a server context that waits for a
+  ClientHello holds the block: create it when the ClientHello arrives.
+- An init whose blocks overlap storage that a live connection still uses fails with
+  `NOXTLS_RETURN_NOT_ENOUGH_MEMORY` before anything is written.
+- The release wipes the block. Freeing a context that already released it does not
+  touch it (another connection may use it now); freeing a context in the middle of
+  its handshake wipes it.
+- `noxtls_connection_memory_handshake_region()` returns the block to the application
+  only while no connection holds it.
+
+### Process-wide state
+
+Audit of the state that all connections of a process share (TLS 1.3 / DTLS 1.3 paths):
+
+| State | Where | With several connections |
+| --- | --- | --- |
+| Active scope | `noxtls_memory.c` `g_noxtls_active_scope` | One pointer, saved and restored by every entry point (nesting is safe). Not locked: calls are serialized. |
+| Region registry, global arena | `noxtls_memory.c` | Sized by `NOXTLS_STATIC_MAX_CONNECTIONS` (4 regions each). Not locked. |
+| Library connection pool | `noxtls_connection_memory.c` | `NOXTLS_STATIC_CONNECTION_POOL_COUNT` blocks for the plain init functions; caller blocks do not use it. |
+| Handshake randomness | `tls13.c` (ClientHello/ServerHello random, ticket nonces, connection IDs) | A DRBG instantiated on the stack for each use from the entropy source; nothing shared between connections. |
+| PKC DRBG | `noxtls_pkc_rng.c` `s_pkc_rng_state` | One CTR_DRBG (SP 800-90A) for key generation of all connections (X25519 shares, signatures); one instance may serve many consumers. Not locked. |
+| Entropy source | `noxtls_drbg.c` `g_entropy_cb`, `g_entropy_source` | Set once at start-up. |
+| DTLS cookie secret | `dtls_context_t.cookie_secret` | Per connection. |
+| Trust store | `noxtls_x509.c` `s_x509_trust_anchors` | One set for the process, used only by certificate verification (PSK handshakes never read it). Per-connection anchors: `noxtls_tls13_set_server_verify_policy()` (client side). Replacing or clearing it affects every connection that verifies certificates afterwards. |
+| TLS 1.3 server ticket store | `noxtls_tls13_psk.c` `psk_ticket_store` | Shared by all server contexts of the process: a ticket issued by one server is accepted by another. DTLS 1.3 servers issue none. Set `NOXTLS_TLS13_PSK_TICKET_STORE_MAX=0` (the leader profiles do) when no server resumes sessions. Client tickets are per context. |
+| ECC precompute caches | `noxtls_ecc.c` | Opt-in (`NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE`); refused at build time with static memory, since a cached table would live in one connection's memory. |
+| Diagnostics | `noxtls_tls13_last_accept_fail_step()`, `_last_connect_fail_step()`, `noxtls_mem_get_last_error()`, certificate failure info | Last event of any connection. |
 
 ## Configuration
 
@@ -275,9 +369,9 @@ handshake workspace, PSK messages up to 1 KB, one connection, no ticket store.
 
 | | Bytes |
 | --- | --- |
-| Block `NOXTLS_CONNECTION_MEMORY_SIZE(TLS_ROLE_SERVER, DTLS13_PSK)` (peak) | 24,424 |
-| Steady part (header 328, TX 608, record workspace 1,088, ACK/stash/post-HS flight 1,360, steady arena 2,208) | 5,592 |
-| Released after the handshake (hs 2,408, workspace 4,096, flight 1,152, handshake arena 11,176) | 18,832 |
+| Block `NOXTLS_CONNECTION_MEMORY_SIZE(TLS_ROLE_SERVER, DTLS13_PSK)` (peak) | 24,664 |
+| Steady part (header 352, TX 608, record workspace 1,088, ACK/stash/post-HS flight 1,400, steady arena 2,288) | 5,736 |
+| Released after the handshake (hs 2,408, workspace 4,096, flight 1,152, handshake arena 11,272) | 18,928 |
 | Caller `tls13_context_t` | 2,648 |
 | Global arena (unused by a PSK server; minimum) | 3,664 |
 | Measured handshake arena peak: cookie exchange with MTU 512 / worst of the 28 DTLS 1.3 recovery cases (no MTU, 1.5 KB fragment buffer) | 7,936 / 9,392 |
@@ -294,9 +388,9 @@ the helper never sends what the node refuses. x86-64, default features.
 
 | | Bytes |
 | --- | --- |
-| Block `NOXTLS_CONNECTION_MEMORY_SIZE(TLS_ROLE_CLIENT, DTLS13_PSK)` | 25,840 |
-| Steady part | 5,824 |
-| Released after the handshake | 20,016 |
+| Block `NOXTLS_CONNECTION_MEMORY_SIZE(TLS_ROLE_CLIENT, DTLS13_PSK)` | 26,096 |
+| Steady part | 5,984 |
+| Released after the handshake | 20,112 |
 | Caller `tls13_context_t` | 3,024 |
 | Measured handshake / steady arena peak | 4,200 / 984 |
 | 0.3.15 heap mode, same sizing: client heap peak / held during the connection | 11,758 / 10,814 |
@@ -310,13 +404,13 @@ certificates, NewSessionTicket up to 2 KB, RSA-2048 or ECDSA P-256.
 
 | | Bytes |
 | --- | --- |
-| MQTT block `NOXTLS_CONNECTION_MEMORY_SIZE(TLS_ROLE_CLIENT, TLS13_CERT)` | 66,160 |
-| of which steady (peer leaf DER 2,048 included) / released | 10,504 / 55,656 |
-| Node-channel block `NOXTLS_CONNECTION_MEMORY_SIZE(TLS_ROLE_CLIENT, DTLS13_PSK)` | 29,448 |
-| of which steady / released | 9,336 / 20,112 |
+| MQTT block `NOXTLS_CONNECTION_MEMORY_SIZE(TLS_ROLE_CLIENT, TLS13_CERT)` | 66,184 |
+| of which steady (peer leaf DER 2,048 included) / released | 10,528 / 55,656 |
+| Node-channel block `NOXTLS_CONNECTION_MEMORY_SIZE(TLS_ROLE_CLIENT, DTLS13_PSK)` | 29,688 |
+| of which steady / released | 9,480 / 20,208 |
 | Global arena (trust store 21,168 + device key/certificate 8,192) | 29,360 |
 | Two caller contexts | 5,296 |
-| Total peak / steady (both connections after their handshakes) | 130,264 / 54,496 |
+| Total peak / steady (both connections after their handshakes) | 130,528 / 54,664 |
 | Measured TLS handshake arena peak over RSA-2048 and ECDSA P-256 mutual authentication, client / server (budget 49,152 on Cortex-M33) | 10,128 / 9,624 |
 | 0.3.15 heap mode, same sizing: TLS client heap peak / held, ECDSA and RSA mutual authentication | 13,217 / 1,626 and 14,231 / 2,401 |
 
@@ -325,6 +419,32 @@ signing; with the broker's actual chain (leaf and one intermediate) the measured
 peak is a fifth of it. Lower `NOXTLS_STATIC_CERT_CHAIN_DEPTH_MAX`,
 `NOXTLS_STATIC_CERT_DER_MAX` and `NOXTLS_STATIC_PKC_SCRATCH_BYTES` to the
 deployment's chain to reclaim it.
+
+### (iv) Leader with NoxLink: MQTT, NoxLink servers and node clients
+
+`noxtls_static_profile_leader_noxlink.h` (on top of the leader profile): one TLS 1.3
+certificate client (MQTT), three DTLS 1.3 PSK servers (NoxLink `nlk1-fleet`,
+`nlk1-local` and a replacement association during a re-handshake) and four DTLS 1.3
+PSK clients (node associations), `NOXTLS_STATIC_MAX_CONNECTIONS` 8. NoxLink frames
+of up to 1,400 bytes travel in one record, so the records are 1,400 bytes
+(`CONFIG_NOXTLS_TLS_MAX_RECORD_SIZE=1400`) and the NoxLink contexts advertise
+`record_size_limit` 1,401; the MQTT and node contexts keep 513 with
+`noxtls_tls13_set_record_size_limit()`. The record size is one build setting, so every
+context's buffers follow it. Cortex-M33, the leader's `prj.conf` features:
+
+| | 1,400-byte records | 512-byte records |
+| --- | ---: | ---: |
+| MQTT block (TLS13_CERT), steady / released | 74,736 (15,856 / 58,880) | 66,184 (10,528 / 55,656) |
+| DTLS13_PSK block, steady / handshake | 40,904 (15,696 / 25,208) | 29,688 (9,480 / 20,208) |
+| NoxLink fleet + local, separate blocks | 81,808 | 59,376 |
+| NoxLink fleet + local, one shared handshake block | 56,600 | 39,168 |
+| ... plus the replacement association | 72,296 | 48,648 |
+| Four node associations, one shared handshake block | 87,992 | 58,128 |
+| All seven DTLS contexts on one handshake block, MQTT, global arena 29,360, eight contexts (8 x 2,664) | 260,488 | 203,424 |
+
+The seven DTLS contexts can share one handshake block only if the leader serializes
+all their handshakes; with one block for NoxLink and one for the nodes, add one
+handshake block (25,208 or 20,208).
 
 Heap mode reports what the test handshakes used; static mode reserves the
 configured worst case once, at build time, and reports the part that is free again
@@ -434,6 +554,27 @@ Everything in (b), plus:
     `static_peer_chain_too_deep` (same error twice);
   - `static_memory_symbols`: `nm` finds no C heap symbol in any NoxTLS library;
   - `static_footprint_report`.
+- Both configurations run `ut/multi_context` (`mc_*`, several associations in one
+  process, each with its own link and PSK; static builds check every connection's
+  memory and, with GNU ld, zero C allocator calls):
+  - `mc_concurrent_server_client`: two DTLS 1.3 PSK server associations (NoxLink
+    fleet and local), two node-facing DTLS 1.3 associations and a TLS 1.3 stream
+    association live at once; data, KeyUpdate and a 1,399-byte record on each;
+  - `mc_cross_identity_refused`: a server refuses another association's identity
+    while that association keeps working;
+  - `mc_interleaved_handshakes`: four handshakes one flight per turn in a changing
+    order, with a late start, a lost server flight and a duplicated ClientHello;
+  - `mc_release_per_context`: one association releases while another is in the middle
+    of its handshake, whose state and arena stay unchanged;
+  - `mc_shared_handshake_region` (static): two servers and a replacement take turns
+    with one handshake block (refusal while held, free without wipe, errors);
+  - `mc_foreign_scope_isolation`: connection B driven from connection A's send
+    callback (send, encrypted record, flush, trust store): B allocates in its own
+    memory, the trust store in the global arena, A sees only its own send;
+  - `mc_many_psk_clients`: eight PSK client associations, closed one by one and
+    reopened while the others carry data;
+  - `mc_noxlink_frame_records`: a 1,400-byte frame takes two records with
+    `record_size_limit` 1,400 and one with 1,401.
 
 ## Limitations
 
@@ -449,3 +590,6 @@ Everything in (b), plus:
   connection fails deterministically.
 - The parsed peer certificate (`NOXTLS_TLS_RETAIN_PEER_CERT`) is released with the
   handshake part; its DER is kept.
+- The record size (`NOXTLS_TLS_MAX_RECORD_SIZE`) is one build setting for every
+  connection: a device with one connection that needs large records sizes the buffers
+  of all its connections for them; `record_size_limit` still limits each peer.
