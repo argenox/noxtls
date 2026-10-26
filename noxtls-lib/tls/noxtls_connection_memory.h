@@ -138,10 +138,9 @@ extern "C" {
 /** Stream: one received record (protected payload, at most
  *  TLS_MAX_PROTECTED_RECORD_FRAGMENT) and the copy passed up. */
 #define NOXTLS_STATIC_RX_TRANSIENT_TLS (2U * NOXTLS_MEM_REGION_COST(TLS_MAX_PROTECTED_RECORD_FRAGMENT))
-/** DTLS: one datagram buffer (DTLS_RECORD_HEADER_SIZE + TLS_MAX_RECORD_SIZE) and the
- *  record copied out of it. */
+/** DTLS: one datagram buffer (DTLS_MAX_RECORD_DATAGRAM) and the record copied out of it. */
 #define NOXTLS_STATIC_RX_TRANSIENT_DTLS \
-    (2U * NOXTLS_MEM_REGION_COST(DTLS_RECORD_HEADER_SIZE + TLS_MAX_RECORD_SIZE))
+    (2U * NOXTLS_MEM_REGION_COST(DTLS_MAX_RECORD_DATAGRAM))
 /** Largest handshake message, its reassembly bitmap and the copy handed to the parser. */
 #define NOXTLS_STATIC_HS_MESSAGE_COST(max_msg) \
     ((2U * NOXTLS_MEM_REGION_COST(max_msg)) + NOXTLS_MEM_REGION_COST(((max_msg) + 7U) / 8U))
@@ -313,7 +312,7 @@ NOXTLS_MSVC_WARNING_POP
     (NOXTLS_CONN_A(TLS13_RECORD_WORKSPACE_SIZE) + \
      NOXTLS_CONN_A(2U * sizeof(uint64_t) * NOXTLS_STATIC_DTLS_ACK_RANGES) + \
      NOXTLS_CONN_A(2U * sizeof(uint64_t) * DTLS_MAX_ACK_RANGES) + \
-     NOXTLS_CONN_A(DTLS_RECORD_HEADER_SIZE + TLS_MAX_RECORD_SIZE) + \
+     NOXTLS_CONN_A(DTLS_MAX_RECORD_DATAGRAM) + \
      NOXTLS_CONN_A(NOXTLS_STATIC_DTLS_POST_HS_FLIGHT_SIZE))
 #define NOXTLS_CONN_TLS_FIXED_BYTES NOXTLS_CONN_A(NOXTLS_STATIC_TLS_TX_QUEUE_SIZE)
 

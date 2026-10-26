@@ -269,8 +269,8 @@ static void conn_attach(tls13_context_t *ctx, noxtls_connection_memory_t *conn, 
         conn->last_ack_max = &conn->last_ack_min[DTLS_MAX_ACK_RANGES];
         steady = &steady[NOXTLS_CONN_A(2U * sizeof(uint64_t) * DTLS_MAX_ACK_RANGES)];
         conn->rx_stash = steady;
-        conn->rx_stash_size = (uint32_t)(DTLS_RECORD_HEADER_SIZE + TLS_MAX_RECORD_SIZE);
-        steady = &steady[NOXTLS_CONN_A(DTLS_RECORD_HEADER_SIZE + TLS_MAX_RECORD_SIZE)];
+        conn->rx_stash_size = (uint32_t)DTLS_MAX_RECORD_DATAGRAM;
+        steady = &steady[NOXTLS_CONN_A(DTLS_MAX_RECORD_DATAGRAM)];
         conn->post_hs_flight = steady;
         conn->post_hs_flight_size = (uint32_t)NOXTLS_STATIC_DTLS_POST_HS_FLIGHT_SIZE;
         steady = &steady[NOXTLS_CONN_A(NOXTLS_STATIC_DTLS_POST_HS_FLIGHT_SIZE)];

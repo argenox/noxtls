@@ -69,6 +69,14 @@ extern "C" {
 #define DTLS_RECORD_LENGTH_OFFSET      11
 #define DTLS_RECORD_DATA_OFFSET        13
 #define DTLS_RECORD_HEADER_SIZE        13U
+/** Most bytes a protected DTLS record adds to its content: a DTLS 1.3 unified header
+ *  with a 32-byte connection ID (37), the inner content type (1) and the AEAD tag (16)
+ *  (RFC 9147 Section 4). It also covers DTLS 1.2 (header 13, explicit nonce 8, tag 16). */
+#define DTLS_MAX_RECORD_EXPANSION      54U
+/** Datagram buffer for one record of the largest size this endpoint accepts: content of
+ *  TLS_MAX_RECORD_SIZE bytes (record_size_limit TLS_MAX_RECORD_SIZE + 1, RFC 8449) plus
+ *  its protection. */
+#define DTLS_MAX_RECORD_DATAGRAM       (TLS_MAX_RECORD_SIZE + DTLS_MAX_RECORD_EXPANSION)
 
 /* DTLS Handshake Message Structure */
 /*

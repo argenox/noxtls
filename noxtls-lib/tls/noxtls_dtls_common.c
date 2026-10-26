@@ -2008,7 +2008,7 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
 {
     uint8_t *packet = NULL;
     int32_t received = 0;
-    uint32_t packet_capacity = (uint32_t)(DTLS_RECORD_HEADER_SIZE + TLS_MAX_RECORD_SIZE);
+    uint32_t packet_capacity = (uint32_t)DTLS_MAX_RECORD_DATAGRAM;
     uint16_t length = 0U;
     uint32_t payload_offset = DTLS_RECORD_DATA_OFFSET;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
