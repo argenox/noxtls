@@ -8,6 +8,7 @@ set(COMMON_SOURCES
     noxtls_memory_stdlib.c
     noxtls_ct.c
     noxtls_time.c
+    noxtls_abi.c
 )
 # Shared CC13xx callback binding: needed by either per-engine port. The
 # umbrella is honored here too for consumers that add noxtls-lib directly.
@@ -26,6 +27,9 @@ endif()
 list(APPEND COMMON_SOURCES noxtls_common_api_refs.c)
 add_library(noxtls_common STATIC ${COMMON_SOURCES})
 nox_noxtls_enable_sections("noxtls_common")
+# Every NoxTLS library links this one, so it defines the ABI fingerprint that
+# their translation units reference, and hands consumers the layout hash.
+target_compile_definitions(noxtls_common INTERFACE NOXTLS_ABI_LAYOUT_HASH=0x${NOXTLS_ABI_LAYOUT_HASH_VALUE}U)
 
 if(NOXTLS_DEBUG_PRINTF_STDIO)
     target_compile_definitions(noxtls_common PUBLIC NOXTLS_DEBUG_PRINTF_STDIO=1)

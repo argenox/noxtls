@@ -919,5 +919,9 @@ uint32_t noxtls_tls_alpn_write_selected_extension(const uint8_t *protocol,
 }
 #endif
 
+/* Every translation unit that sees the TLS contexts requires this layout's
+ * fingerprint symbol; a stale or misconfigured one fails to link. */
+#include "noxtls_abi.h"
+
 #endif /* NOXTLS_TLS_COMMON_H_ */
 

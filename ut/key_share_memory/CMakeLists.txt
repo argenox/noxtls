@@ -13,7 +13,8 @@ endif()
 add_executable(key_share_memory_ut key_share_memory_ut.c
     "${_root}/noxtls-lib/tls/noxtls_tls_extensions.c"
     "${_root}/noxtls-lib/common/noxtls_memory.c"
-    "${_root}/noxtls-lib/common/noxtls_ct.c")
+    "${_root}/noxtls-lib/common/noxtls_ct.c"
+    "${_root}/noxtls-lib/common/noxtls_abi.c")
 target_include_directories(key_share_memory_ut PRIVATE "${_root}" "${_root}/noxtls-lib"
     "${_root}/noxtls-lib/tls" "${_root}/noxtls-lib/common")
 if(NOXTLS_CONFIG_STATIC_MEMORY)
