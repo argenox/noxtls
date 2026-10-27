@@ -375,6 +375,9 @@ noxtls_return_t noxtls_dtls_retransmit_flight(dtls_context_t *ctx);
  * @return NOXTLS_RETURN_SUCCESS when resent or nothing had to be sent, or a failure.
  */
 noxtls_return_t noxtls_dtls_answer_repeated_flight(dtls_context_t *ctx);
+/** Largest datagram @p ctx reads: its record budget plus DTLS_MAX_RECORD_EXPANSION
+ *  (DTLS_MAX_RECORD_DATAGRAM without a budget). */
+uint32_t noxtls_dtls_datagram_max(const dtls_context_t *ctx);
 /** Queue a datagram the application already received; the next receive reads it first. */
 noxtls_return_t noxtls_dtls_inject_datagram(dtls_context_t *ctx, const uint8_t *dgram, uint32_t len);
 /* Forget the buffered flight (the peer's next flight has arrived). */

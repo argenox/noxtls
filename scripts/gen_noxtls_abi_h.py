@@ -62,6 +62,7 @@ KNOBS = [
     ("NOXTLS_FEATURE_SLH_DSA", "flag"),
     ("NOXTLS_FEATURE_FALCON", "flag"),
     ("NOXTLS_TLS13_SELECTED_PSK_IDENTITY_MAX", "value"),
+    ("NOXTLS_STATIC_HS_WORKSPACE_IN_ARENA", "flag"),
 ]
 
 BANNER = """/*****************************************************************************
@@ -163,7 +164,7 @@ def main():
     lines = [BANNER, "#ifndef NOXTLS_ABI_H_", "#define NOXTLS_ABI_H_", "", "#include <stdint.h>", "", DOC]
     lines += [
         "/** Revision of the public context layout; raise it with any change to one. */",
-        "#define NOXTLS_ABI_REVISION 2U",
+        "#define NOXTLS_ABI_REVISION 3U",
         "",
         "/* The knob fingerprint is a weighted sum of terms, which #if evaluates in",
         " * uintmax_t without overflow. */",

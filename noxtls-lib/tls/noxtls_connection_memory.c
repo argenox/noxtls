@@ -26,6 +26,11 @@
 #define NOXTLS_CONN_MAGIC 0x4E58434DUL /* "NXCM" */
 
 NOXTLS_STATIC_ASSERT((NOXTLS_CONNECTION_MEMORY_SIZE(TLS_ROLE_CLIENT, DTLS13_PSK) % 8U) == 0U, conn_size_aligned);
+/* The record-budget formulas equal the build-wide sizes at TLS_MAX_RECORD_SIZE. */
+NOXTLS_STATIC_ASSERT(NOXTLS_CONNECTION_MEMORY_SIZE_RECORD(TLS_ROLE_CLIENT, DTLS13_PSK, TLS_MAX_RECORD_SIZE) ==
+                     NOXTLS_CONNECTION_MEMORY_SIZE(TLS_ROLE_CLIENT, DTLS13_PSK), conn_record_psk_identity);
+NOXTLS_STATIC_ASSERT(NOXTLS_CONNECTION_MEMORY_SIZE_RECORD(TLS_ROLE_CLIENT, DTLS13_CERT, TLS_MAX_RECORD_SIZE) ==
+                     NOXTLS_CONNECTION_MEMORY_SIZE(TLS_ROLE_CLIENT, DTLS13_CERT), conn_record_cert_identity);
 NOXTLS_STATIC_ASSERT(NOXTLS_STATIC_MAX_REGIONS >= (1U + (4U * NOXTLS_STATIC_MAX_CONNECTIONS)), conn_region_registry);
 NOXTLS_STATIC_ASSERT(NOXTLS_STATIC_HS_ARENA_PSK <= 0xFFFFFFFFUL, conn_arena_offsets_fit);
 NOXTLS_STATIC_ASSERT(NOXTLS_STATIC_DTLS_ACK_RANGES <= DTLS_MAX_ACK_RANGES, conn_ack_ranges);
@@ -34,8 +39,15 @@ NOXTLS_STATIC_ASSERT(NOXTLS_TLS_MAX_HANDSHAKE_SIZE >= NOXTLS_STATIC_CERT_MSG_MAX
 NOXTLS_STATIC_ASSERT(NOXTLS_STATIC_CERT_DER_MAX <= NOXTLS_MAX_CERT_SIZE, conn_cert_der_limit);
 NOXTLS_STATIC_ASSERT(NOXTLS_CONN_EPOCH2_SN_KEY_MAX >= TLS13_DTLS_SN_KEY_MAX_LEN, conn_epoch2_sn_key);
 NOXTLS_STATIC_ASSERT(NOXTLS_STATIC_DTLS_FLIGHT_SIZE <= 0xFFFFFFFFUL, conn_flight_fits);
+/* A profile that sets its arena for given ServerHello builder buffers
+ * (noxtls_static_profile_node_compact.h) must see the features those buffers follow. */
+#if defined(NOXTLS_STATIC_COMPACT_BUILDERS_BUDGET)
+NOXTLS_STATIC_ASSERT(NOXTLS_STATIC_HS_BUILDER_COST <= (size_t)NOXTLS_STATIC_COMPACT_BUILDERS_BUDGET,
+                     conn_compact_builders);
+#endif
 /* The hello builders write into the handshake workspace; a smaller workspace makes them
- * allocate 4 KB from the handshake arena, which the budgets do not include. */
+ * allocate 4 KB from the handshake arena, which the derived budgets do not include. (A
+ * server with NOXTLS_STATIC_HS_WORKSPACE_IN_ARENA has none and budgets its builders.) */
 NOXTLS_STATIC_ASSERT(TLS_HANDSHAKE_WORKSPACE_SIZE >= TLS_CLIENT_HELLO_DEFAULT_SIZE, conn_workspace_client_hello);
 NOXTLS_STATIC_ASSERT(TLS_HANDSHAKE_WORKSPACE_SIZE >= (TLS_SERVER_HELLO_DEFAULT_SIZE + TLS_KEY_SHARE_ENTRY_MAX_LEN),
                      conn_workspace_server_hello);
@@ -62,37 +74,82 @@ static uint8_t s_conn_pool_used[NOXTLS_STATIC_CONNECTION_POOL_COUNT];
  * @param[out] fp Footprint.
  * @return NOXTLS_RETURN_SUCCESS or NOXTLS_RETURN_INVALID_PARAM for an unknown profile.
  */
-static noxtls_return_t conn_layout(uint32_t profile, noxtls_connection_footprint_t *fp)
+/** Profile of a profile word (NOXTLS_CONN_PROFILE_RECORD()). */
+static uint32_t conn_profile_of(uint32_t profile_word)
+{
+    return profile_word & 0xFFU;
+}
+
+/**
+ * @brief Record budget of a profile word.
+ * @return The budget in plaintext bytes (TLS_MAX_RECORD_SIZE when none is given), or 0 for
+ *         an invalid word: a budget out of range, on a TLS profile, or other bits set.
+ */
+static uint32_t conn_record_of(uint32_t profile_word)
+{
+    uint32_t record = profile_word >> 16U;
+
+    if((profile_word & 0xFF00U) != 0U) {
+        return 0U;
+    }
+    if((record == 0U) || (record == (uint32_t)TLS_MAX_RECORD_SIZE)) {
+        return (uint32_t)TLS_MAX_RECORD_SIZE;
+    }
+    if(((conn_profile_of(profile_word) & 1U) == 0U) || (record < NOXTLS_CONN_RECORD_MIN) ||
+       (record > (uint32_t)TLS_MAX_RECORD_SIZE)) {
+        return 0U;
+    }
+    return record;
+}
+
+static noxtls_return_t conn_layout(tls_role_t role, uint32_t profile_word, noxtls_connection_footprint_t *fp)
 {
     uint8_t is_dtls;
     uint8_t is_cert;
+    const uint32_t profile = conn_profile_of(profile_word);
+    const uint32_t record = conn_record_of(profile_word);
 
-    if(profile >= NOXTLS_CONN_PROFILE_COUNT) {
+    if((profile >= NOXTLS_CONN_PROFILE_COUNT) || (record == 0U)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
     is_dtls = (uint8_t)(profile & 1U);
     is_cert = (uint8_t)((profile >= NOXTLS_CONN_PROFILE_TLS13_CERT) ? 1U : 0U);
-    noxtls_secure_zero(fp, sizeof(*fp));
-    fp->header = NOXTLS_CONN_HEADER_BYTES;
-    fp->tx_record = NOXTLS_CONN_TX_BYTES;
     if(is_dtls != 0U) {
-        fp->record_workspace = NOXTLS_CONN_A(TLS13_RECORD_WORKSPACE_SIZE);
-        fp->steady_fixed_other = NOXTLS_CONN_DTLS_FIXED_BYTES - fp->record_workspace;
-        fp->flight = (is_cert != 0U) ? NOXTLS_CONN_A(NOXTLS_STATIC_DTLS_CERT_FLIGHT_SIZE) :
-                                       NOXTLS_CONN_A(NOXTLS_STATIC_DTLS_FLIGHT_SIZE);
+        /* The budget reduces the arenas by their record-dependent terms: an arena that
+         * cannot give them up (an override below them) refuses the budget. */
+        const uint32_t steady_saving = NOXTLS_CONN_R_RX_SAVING(record);
+        const uint32_t hs_saving = NOXTLS_CONN_R_RX_SAVING(record) + NOXTLS_CONN_R_MSG_SAVING(record);
+        const uint32_t hs_arena = (is_cert != 0U) ? (uint32_t)NOXTLS_STATIC_HS_ARENA_DTLS_CERT :
+                                                    (uint32_t)NOXTLS_STATIC_HS_ARENA_DTLS_PSK;
+        const uint32_t flight = (is_cert != 0U) ? (uint32_t)NOXTLS_STATIC_DTLS_CERT_FLIGHT_SIZE :
+                                                  (uint32_t)NOXTLS_STATIC_DTLS_FLIGHT_SIZE;
+        if((steady_saving >= (uint32_t)NOXTLS_STATIC_STEADY_ARENA_DTLS) || (hs_saving >= hs_arena) ||
+           ((2U * ((uint32_t)TLS_MAX_RECORD_SIZE - record)) >= flight)) {
+            return NOXTLS_RETURN_INVALID_PARAM;
+        }
+    }
+    noxtls_secure_zero(fp, sizeof(*fp));
+    fp->record = record;
+    fp->header = NOXTLS_CONN_HEADER_BYTES;
+    fp->tx_record = (is_dtls != 0U) ? NOXTLS_CONN_R_TX_BYTES(record) : NOXTLS_CONN_TX_BYTES;
+    if(is_dtls != 0U) {
+        fp->record_workspace = NOXTLS_CONN_A((record + 32U) * 2U);
+        fp->steady_fixed_other = NOXTLS_CONN_R_DTLS_FIXED_BYTES(record) - fp->record_workspace;
+        fp->flight = (is_cert != 0U) ? NOXTLS_CONN_R_FLIGHT_DTLS13_CERT(record) :
+                                       NOXTLS_CONN_R_FLIGHT_DTLS13_PSK(record);
     } else {
         fp->steady_fixed_other = NOXTLS_CONN_TLS_FIXED_BYTES;
     }
     if(is_cert != 0U) {
         fp->steady_fixed_other += NOXTLS_CONN_PEER_CERT_BYTES;
     }
-    fp->steady_arena = (is_dtls != 0U) ? NOXTLS_CONN_A(NOXTLS_STATIC_STEADY_ARENA_DTLS) :
+    fp->steady_arena = (is_dtls != 0U) ? NOXTLS_CONN_R_STEADY_ARENA_DTLS(record) :
                                          NOXTLS_CONN_A(NOXTLS_STATIC_STEADY_ARENA);
     fp->hs_state = NOXTLS_CONN_A(sizeof(tls13_hs_state_t));
-    fp->handshake_workspace = NOXTLS_CONN_A(TLS_HANDSHAKE_WORKSPACE_SIZE);
+    fp->handshake_workspace = NOXTLS_CONN_A(TLS_HANDSHAKE_WORKSPACE_SIZE) - NOXTLS_CONN_ROLE_WS_SAVING(role);
     if(is_dtls != 0U) {
-        fp->hs_arena = (is_cert != 0U) ? NOXTLS_CONN_A(NOXTLS_STATIC_HS_ARENA_DTLS_CERT) :
-                                         NOXTLS_CONN_A(NOXTLS_STATIC_HS_ARENA_DTLS_PSK);
+        fp->hs_arena = (is_cert != 0U) ? NOXTLS_CONN_R_HS_ARENA_DTLS13_CERT(record) :
+                                         NOXTLS_CONN_R_HS_ARENA_DTLS13_PSK(record);
     } else {
         fp->hs_arena = (is_cert != 0U) ? NOXTLS_CONN_A(NOXTLS_STATIC_HS_ARENA_CERT) :
                                          NOXTLS_CONN_A(NOXTLS_STATIC_HS_ARENA_PSK);
@@ -108,8 +165,7 @@ size_t noxtls_connection_memory_size(tls_role_t role, uint32_t profile)
 {
     noxtls_connection_footprint_t fp;
 
-    (void)role;
-    if(conn_layout(profile, &fp) != NOXTLS_RETURN_SUCCESS) {
+    if(conn_layout(role, profile, &fp) != NOXTLS_RETURN_SUCCESS) {
         return 0U;
     }
     return fp.total;
@@ -118,11 +174,10 @@ size_t noxtls_connection_memory_size(tls_role_t role, uint32_t profile)
 noxtls_return_t noxtls_connection_memory_footprint(tls_role_t role, uint32_t profile,
                                                    noxtls_connection_footprint_t *footprint)
 {
-    (void)role;
     if(footprint == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    return conn_layout(profile, footprint);
+    return conn_layout(role, profile, footprint);
 }
 
 noxtls_connection_memory_t *noxtls_conn_mem_of(const tls_context_t *base)
@@ -148,7 +203,7 @@ noxtls_connection_memory_t *noxtls_conn_mem_of(const tls_context_t *base)
  *            connections may use in turn (fp.handshake bytes).
  * @return The header, or NULL with @p rc set.
  */
-static noxtls_connection_memory_t *conn_carve(uint32_t profile, void *memory, size_t memory_len,
+static noxtls_connection_memory_t *conn_carve(tls_role_t role, uint32_t profile, void *memory, size_t memory_len,
                                               void *handshake, size_t handshake_len, noxtls_return_t *rc)
 {
     noxtls_connection_footprint_t fp;
@@ -158,7 +213,7 @@ static noxtls_connection_memory_t *conn_carve(uint32_t profile, void *memory, si
     size_t steady_fixed;
     size_t hs_fixed;
 
-    *rc = conn_layout(profile, &fp);
+    *rc = conn_layout(role, profile, &fp);
     if(*rc != NOXTLS_RETURN_SUCCESS) {
         return NULL;
     }
@@ -205,7 +260,9 @@ static noxtls_connection_memory_t *conn_carve(uint32_t profile, void *memory, si
     steady_fixed = fp.tx_record + fp.record_workspace + fp.steady_fixed_other;
     hs_fixed = fp.hs_state + fp.handshake_workspace + fp.flight;
     conn->magic = NOXTLS_CONN_MAGIC;
-    conn->profile = (uint8_t)profile;
+    conn->profile = (uint8_t)conn_profile_of(profile);
+    conn->record = (uint16_t)fp.record;
+    conn->role = (uint8_t)role;
     conn->handshake_external = external;
     conn->block_size = memory_len;
     conn->steady_bytes = fp.steady;
@@ -253,13 +310,15 @@ static void conn_attach(tls13_context_t *ctx, noxtls_connection_memory_t *conn, 
     uint8_t *steady = conn->steady_fixed.base;
     uint8_t *hs = conn->hs_fixed.base;
 
-    (void)conn_layout(conn->profile, &fp);
+    (void)conn_layout((tls_role_t)conn->role, NOXTLS_CONN_PROFILE_RECORD(conn->profile, conn->record), &fp);
     ctx->base.base.static_mem = conn;
     ctx->base.base.record_send_buf = steady;
+    ctx->base.base.record_budget = (fp.record < (size_t)TLS_MAX_RECORD_SIZE) ? (uint16_t)fp.record : 0U;
     steady = &steady[fp.tx_record];
     ctx->hs = (tls13_hs_state_t *)(void *)hs;
     hs = &hs[fp.hs_state];
-    ctx->handshake_workspace = hs;
+    /* No slot (NOXTLS_STATIC_HS_WORKSPACE_IN_ARENA): the builders allocate in the arena. */
+    ctx->handshake_workspace = (fp.handshake_workspace != 0U) ? hs : NULL;
     ctx->handshake_workspace_owned = 0U;
     hs = &hs[fp.handshake_workspace];
 #if NOXTLS_FEATURE_DTLS
@@ -276,8 +335,8 @@ static void conn_attach(tls13_context_t *ctx, noxtls_connection_memory_t *conn, 
         conn->last_ack_max = &conn->last_ack_min[DTLS_MAX_ACK_RANGES];
         steady = &steady[NOXTLS_CONN_A(2U * sizeof(uint64_t) * DTLS_MAX_ACK_RANGES)];
         conn->rx_stash = steady;
-        conn->rx_stash_size = (uint32_t)DTLS_MAX_RECORD_DATAGRAM;
-        steady = &steady[NOXTLS_CONN_A(DTLS_MAX_RECORD_DATAGRAM)];
+        conn->rx_stash_size = NOXTLS_CONN_R_DATAGRAM(fp.record);
+        steady = &steady[NOXTLS_CONN_A(NOXTLS_CONN_R_DATAGRAM(fp.record))];
         conn->post_hs_flight = steady;
         conn->post_hs_flight_size = (uint32_t)NOXTLS_STATIC_DTLS_POST_HS_FLIGHT_SIZE;
         steady = &steady[NOXTLS_CONN_A(NOXTLS_STATIC_DTLS_POST_HS_FLIGHT_SIZE)];
@@ -299,11 +358,12 @@ static void conn_attach(tls13_context_t *ctx, noxtls_connection_memory_t *conn, 
     }
 }
 
-noxtls_return_t noxtls_conn_mem_check_unused(uint32_t profile, const void *memory, const void *handshake)
+noxtls_return_t noxtls_conn_mem_check_unused(tls_role_t role, uint32_t profile, const void *memory,
+                                             const void *handshake)
 {
     noxtls_connection_footprint_t fp;
 
-    if((memory == NULL) || (conn_layout(profile, &fp) != NOXTLS_RETURN_SUCCESS)) {
+    if((memory == NULL) || (conn_layout(role, profile, &fp) != NOXTLS_RETURN_SUCCESS)) {
         /* conn_carve() reports the argument error itself. */
         return NOXTLS_RETURN_SUCCESS;
     }
@@ -320,13 +380,13 @@ noxtls_return_t noxtls_conn_mem_bind(tls13_context_t *ctx, uint32_t profile, voi
                                      uint8_t pool_index)
 {
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
-    noxtls_connection_memory_t *conn = conn_carve(profile, memory, memory_len, NULL, 0U, &rc);
+    noxtls_connection_memory_t *conn = conn_carve(ctx->base.base.role, profile, memory, memory_len, NULL, 0U, &rc);
 
     if(conn == NULL) {
         return rc;
     }
     conn->pool_index = pool_index;
-    conn_attach(ctx, conn, (uint8_t)(profile & 1U));
+    conn_attach(ctx, conn, (uint8_t)(conn_profile_of(profile) & 1U));
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -339,11 +399,11 @@ noxtls_return_t noxtls_conn_mem_bind_split(tls13_context_t *ctx, uint32_t profil
     if(handshake == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    conn = conn_carve(profile, steady, steady_len, handshake, handshake_len, &rc);
+    conn = conn_carve(ctx->base.base.role, profile, steady, steady_len, handshake, handshake_len, &rc);
     if(conn == NULL) {
         return rc;
     }
-    conn_attach(ctx, conn, (uint8_t)(profile & 1U));
+    conn_attach(ctx, conn, (uint8_t)(conn_profile_of(profile) & 1U));
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -753,7 +813,7 @@ noxtls_return_t noxtls_connection_memory_get_stats(const tls13_context_t *ctx,
         return NOXTLS_RETURN_NOT_INITIALIZED;
     }
     noxtls_secure_zero(stats, sizeof(*stats));
-    (void)conn_layout(conn->profile, &stats->layout);
+    (void)conn_layout((tls_role_t)conn->role, NOXTLS_CONN_PROFILE_RECORD(conn->profile, conn->record), &stats->layout);
     stats->released = conn->released;
     (void)noxtls_mem_region_get_stats(&conn->hs_arena, &stats->hs_arena);
     (void)noxtls_mem_region_get_stats(&conn->steady_arena, &stats->steady_arena);

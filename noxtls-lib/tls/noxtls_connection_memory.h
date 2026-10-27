@@ -91,6 +91,18 @@ extern "C" {
     (NOXTLS_STATIC_DTLS_FLIGHT_SIZE + (NOXTLS_STATIC_CERT_CHAIN_DEPTH_MAX * (NOXTLS_STATIC_CERT_DER_MAX + 64U)))
 #endif
 
+/** 1: a server connection has no fixed handshake workspace slot (TLS_HANDSHAKE_WORKSPACE_SIZE);
+ *  each handshake message builder takes the buffer it needs from the handshake arena and
+ *  returns it when the message is built (the ServerHello builder's buffers are sized to the
+ *  build, NOXTLS_TLS13_SERVER_HELLO_ALLOC), so the workspace exists only while the arena does
+ *  and the server's handshake part shrinks by the slot. Client connections keep the slot:
+ *  their ClientHello builder needs TLS_CLIENT_HELLO_DEFAULT_SIZE while the arena is busy.
+ *  A derived arena budget includes the builders; a measured one is measured with them.
+ *  0 (default): every connection has the slot. */
+#ifndef NOXTLS_STATIC_HS_WORKSPACE_IN_ARENA
+#define NOXTLS_STATIC_HS_WORKSPACE_IN_ARENA 0
+#endif
+
 /** DTLS: ACK ranges this endpoint sends (RFC 9147, Section 7). */
 #ifndef NOXTLS_STATIC_DTLS_ACK_RANGES
 #define NOXTLS_STATIC_DTLS_ACK_RANGES 8U
@@ -181,10 +193,20 @@ extern "C" {
 #endif
 #define NOXTLS_STATIC_MAX_(a, b) (((a) > (b)) ? (a) : (b))
 
+/** Handshake message builders without a workspace slot (NOXTLS_STATIC_HS_WORKSPACE_IN_ARENA):
+ *  the largest, the ServerHello with its staged key share. A derived budget includes it; a
+ *  profile that sets its arena from measurements measures it with the builders running. */
+#if NOXTLS_STATIC_HS_WORKSPACE_IN_ARENA
+#define NOXTLS_STATIC_HS_BUILDER_COST \
+    (NOXTLS_MEM_REGION_COST(NOXTLS_TLS13_SERVER_HELLO_ALLOC) + NOXTLS_MEM_REGION_COST(NOXTLS_TLS13_SERVER_KEY_SHARE_ALLOC))
+#else
+#define NOXTLS_STATIC_HS_BUILDER_COST 0U
+#endif
+
 /** Handshake terms common to both transports (PSK handshake). */
 #define NOXTLS_STATIC_HS_TERMS_PSK \
     (NOXTLS_STATIC_HS_MESSAGE_COST(NOXTLS_STATIC_MAX_(NOXTLS_STATIC_PSK_MSG_MAX, NOXTLS_TLS_MAX_RECORD_SIZE)) + \
-     NOXTLS_STATIC_TRANSCRIPT_BYTES + NOXTLS_STATIC_PARSE_BYTES)
+     NOXTLS_STATIC_TRANSCRIPT_BYTES + NOXTLS_STATIC_PARSE_BYTES + NOXTLS_STATIC_HS_BUILDER_COST)
 /** Additional handshake terms of certificate authentication. */
 #define NOXTLS_STATIC_HS_TERMS_CERT \
     (NOXTLS_STATIC_HS_MESSAGE_COST(NOXTLS_STATIC_CERT_MSG_MAX) + NOXTLS_STATIC_PEER_CHAIN_BYTES + \
@@ -272,6 +294,8 @@ typedef struct noxtls_connection_memory_s
     uint8_t release_pending;     /**< Handshake completed: release at the end of the call. */
     uint8_t released;            /**< Handshake part wiped and released. */
     uint8_t handshake_external;  /**< The handshake part is a separate caller block (_split init). */
+    uint16_t record;             /**< Record budget (plaintext bytes) the block is sized for. */
+    uint8_t role;                /**< tls_role_t the block is sized for. */
     noxtls_mem_scope_t scope;
     noxtls_mem_region_t steady_fixed;
     noxtls_mem_region_t steady_arena;
@@ -337,6 +361,10 @@ NOXTLS_MSVC_WARNING_POP
 /** Handshake part (released after the handshake) for a profile token. */
 #define NOXTLS_CONN_HS_COMMON \
     (NOXTLS_CONN_A(sizeof(tls13_hs_state_t)) + NOXTLS_CONN_A(TLS_HANDSHAKE_WORKSPACE_SIZE))
+/** Workspace slot a @p role leaves out (NOXTLS_STATIC_HS_WORKSPACE_IN_ARENA: servers). */
+#define NOXTLS_CONN_ROLE_WS_SAVING(role) \
+    ((((NOXTLS_STATIC_HS_WORKSPACE_IN_ARENA) != 0) && ((role) == TLS_ROLE_SERVER)) ? \
+     NOXTLS_CONN_A(TLS_HANDSHAKE_WORKSPACE_SIZE) : 0U)
 #define NOXTLS_CONN_HANDSHAKE_TLS13_PSK (NOXTLS_CONN_HS_COMMON + NOXTLS_CONN_A(NOXTLS_STATIC_HS_ARENA_PSK))
 #define NOXTLS_CONN_HANDSHAKE_TLS13_CERT (NOXTLS_CONN_HS_COMMON + NOXTLS_CONN_A(NOXTLS_STATIC_HS_ARENA_CERT))
 #define NOXTLS_CONN_HANDSHAKE_DTLS13_PSK \
@@ -356,22 +384,93 @@ NOXTLS_MSVC_WARNING_POP
  *  sizes of this version are the same for both roles. */
 #define NOXTLS_CONNECTION_MEMORY_STEADY_SIZE(role, profile) \
     (((role) == TLS_ROLE_SERVER) ? NOXTLS_CONN_STEADY_X(profile) : NOXTLS_CONN_STEADY_X(profile))
-/** Bytes released after the handshake. */
+/** Bytes released after the handshake (a server without the workspace slot with
+ *  NOXTLS_STATIC_HS_WORKSPACE_IN_ARENA). */
 #define NOXTLS_CONNECTION_MEMORY_HANDSHAKE_SIZE(role, profile) \
-    (((role) == TLS_ROLE_SERVER) ? NOXTLS_CONN_HANDSHAKE_X(profile) : NOXTLS_CONN_HANDSHAKE_X(profile))
+    (NOXTLS_CONN_HANDSHAKE_X(profile) - NOXTLS_CONN_ROLE_WS_SAVING(role))
 
 /**
  * Bytes a caller block needs for @p role (TLS_ROLE_CLIENT or TLS_ROLE_SERVER) and
  * @p profile (token: TLS13_PSK, DTLS13_PSK, TLS13_CERT, DTLS13_CERT). A constant
- * expression, a multiple of 8; the block must be 8-byte aligned. This version
- * budgets both roles alike; @p role is part of the contract so that a
- * role-specific budget does not change callers.
+ * expression, a multiple of 8; the block must be 8-byte aligned. Both roles are
+ * budgeted alike, except that a server has no workspace slot with
+ * NOXTLS_STATIC_HS_WORKSPACE_IN_ARENA.
  */
 #define NOXTLS_CONNECTION_MEMORY_SIZE(role, profile) \
     (NOXTLS_CONNECTION_MEMORY_STEADY_SIZE(role, profile) + NOXTLS_CONNECTION_MEMORY_HANDSHAKE_SIZE(role, profile))
 
 /** Peak bytes of one connection: the whole block. */
 #define NOXTLS_CONNECTION_MEMORY_PEAK_SIZE(role, profile) NOXTLS_CONNECTION_MEMORY_SIZE(role, profile)
+
+/* ------------------------------------------------------------------------- */
+/* Per-connection record budget (DTLS 1.3)                                    */
+/* ------------------------------------------------------------------------- */
+
+/** Smallest record budget of noxtls_dtls13_context_init_static_record(). */
+#define NOXTLS_CONN_RECORD_MIN 256U
+/** Profile word of a DTLS 1.3 profile with a record budget of @p record bytes of
+ *  plaintext (NOXTLS_CONN_RECORD_MIN..TLS_MAX_RECORD_SIZE); the init, size and footprint
+ *  calls take it in place of the profile. 0 bytes means TLS_MAX_RECORD_SIZE. */
+#define NOXTLS_CONN_PROFILE_RECORD(profile, record) ((uint32_t)(profile) | ((uint32_t)(record) << 16U))
+
+/*
+ * The record-dependent parts of a DTLS 1.3 block for a budget of r bytes: the TX record
+ * buffer, the record workspace, the datagram stash and the flight scale with r; the
+ * datagram and record terms of the steady and handshake arenas shrink by the same
+ * amounts as the derivation above, so an arena that a profile sets from measurements
+ * keeps its measured margin. At r = TLS_MAX_RECORD_SIZE every value equals the
+ * build-wide one.
+ */
+#define NOXTLS_CONN_R_DATAGRAM(r) ((uint32_t)(r) + DTLS_MAX_RECORD_EXPANSION)
+#define NOXTLS_CONN_R_TX_BYTES(r) NOXTLS_CONN_A(TLS_RECORD_TX_HEADROOM + (uint32_t)(r) + TLS_TX_RECORD_EXPANSION)
+#define NOXTLS_CONN_R_DTLS_FIXED_BYTES(r) \
+    (NOXTLS_CONN_A(((uint32_t)(r) + 32U) * 2U) + \
+     NOXTLS_CONN_A(2U * sizeof(uint64_t) * NOXTLS_STATIC_DTLS_ACK_RANGES) + \
+     NOXTLS_CONN_A(2U * sizeof(uint64_t) * DTLS_MAX_ACK_RANGES) + \
+     NOXTLS_CONN_A(NOXTLS_CONN_R_DATAGRAM(r)) + \
+     NOXTLS_CONN_A(NOXTLS_STATIC_DTLS_POST_HS_FLIGHT_SIZE))
+/** Datagram and record terms of the arenas that do not depend on a smaller budget. */
+#define NOXTLS_CONN_R_RX_SAVING(r) \
+    (NOXTLS_STATIC_RX_TRANSIENT_DTLS - (2U * NOXTLS_MEM_REGION_COST(NOXTLS_CONN_R_DATAGRAM(r))))
+#define NOXTLS_CONN_R_MSG_SAVING(r) \
+    (NOXTLS_STATIC_HS_MESSAGE_COST(NOXTLS_STATIC_MAX_(NOXTLS_STATIC_PSK_MSG_MAX, NOXTLS_TLS_MAX_RECORD_SIZE)) - \
+     NOXTLS_STATIC_HS_MESSAGE_COST(NOXTLS_STATIC_MAX_(NOXTLS_STATIC_PSK_MSG_MAX, (uint32_t)(r))))
+/* The steady arena gives up only its two datagram terms: a measured steady arena (a full
+ * datagram and the record copied out of it) shrinks by about that much, and the short-read
+ * term stays as a margin. */
+#define NOXTLS_CONN_R_STEADY_ARENA_DTLS(r) \
+    NOXTLS_CONN_A(NOXTLS_STATIC_STEADY_ARENA_DTLS - NOXTLS_CONN_R_RX_SAVING(r))
+#define NOXTLS_CONN_R_HS_ARENA_DTLS13_PSK(r) \
+    NOXTLS_CONN_A(NOXTLS_STATIC_HS_ARENA_DTLS_PSK - NOXTLS_CONN_R_RX_SAVING(r) - NOXTLS_CONN_R_MSG_SAVING(r))
+#define NOXTLS_CONN_R_HS_ARENA_DTLS13_CERT(r) \
+    NOXTLS_CONN_A(NOXTLS_STATIC_HS_ARENA_DTLS_CERT - NOXTLS_CONN_R_RX_SAVING(r) - NOXTLS_CONN_R_MSG_SAVING(r))
+#define NOXTLS_CONN_R_FLIGHT_DTLS13_PSK(r) \
+    NOXTLS_CONN_A(NOXTLS_STATIC_DTLS_FLIGHT_SIZE - (2U * (TLS_MAX_RECORD_SIZE - (uint32_t)(r))))
+#define NOXTLS_CONN_R_FLIGHT_DTLS13_CERT(r) \
+    NOXTLS_CONN_A(NOXTLS_STATIC_DTLS_CERT_FLIGHT_SIZE - (2U * (TLS_MAX_RECORD_SIZE - (uint32_t)(r))))
+#define NOXTLS_CONN_R_STEADY_DTLS13_PSK(r) \
+    (NOXTLS_CONN_HEADER_BYTES + NOXTLS_CONN_R_TX_BYTES(r) + NOXTLS_CONN_R_DTLS_FIXED_BYTES(r) + \
+     NOXTLS_CONN_R_STEADY_ARENA_DTLS(r))
+#define NOXTLS_CONN_R_STEADY_DTLS13_CERT(r) (NOXTLS_CONN_R_STEADY_DTLS13_PSK(r) + NOXTLS_CONN_PEER_CERT_BYTES)
+#define NOXTLS_CONN_R_HANDSHAKE_DTLS13_PSK(r) \
+    (NOXTLS_CONN_HS_COMMON + NOXTLS_CONN_R_FLIGHT_DTLS13_PSK(r) + NOXTLS_CONN_R_HS_ARENA_DTLS13_PSK(r))
+#define NOXTLS_CONN_R_HANDSHAKE_DTLS13_CERT(r) \
+    (NOXTLS_CONN_HS_COMMON + NOXTLS_CONN_R_FLIGHT_DTLS13_CERT(r) + NOXTLS_CONN_R_HS_ARENA_DTLS13_CERT(r))
+#define NOXTLS_CONN_R_STEADY_I(profile, r) NOXTLS_CONN_R_STEADY_##profile(r)
+#define NOXTLS_CONN_R_HANDSHAKE_I(profile, r) NOXTLS_CONN_R_HANDSHAKE_##profile(r)
+
+/** NOXTLS_CONNECTION_MEMORY_STEADY_SIZE() of a DTLS 1.3 profile token (DTLS13_PSK,
+ *  DTLS13_CERT) with a record budget of @p record bytes. A constant expression. */
+#define NOXTLS_CONNECTION_MEMORY_STEADY_SIZE_RECORD(role, profile, record) \
+    (((role) == TLS_ROLE_SERVER) ? NOXTLS_CONN_R_STEADY_I(profile, record) : NOXTLS_CONN_R_STEADY_I(profile, record))
+/** NOXTLS_CONNECTION_MEMORY_HANDSHAKE_SIZE() with a record budget. */
+#define NOXTLS_CONNECTION_MEMORY_HANDSHAKE_SIZE_RECORD(role, profile, record) \
+    (NOXTLS_CONN_R_HANDSHAKE_I(profile, record) - NOXTLS_CONN_ROLE_WS_SAVING(role))
+/** NOXTLS_CONNECTION_MEMORY_SIZE() with a record budget: the block of
+ *  noxtls_dtls13_context_init_static_record(). */
+#define NOXTLS_CONNECTION_MEMORY_SIZE_RECORD(role, profile, record) \
+    (NOXTLS_CONNECTION_MEMORY_STEADY_SIZE_RECORD(role, profile, record) + \
+     NOXTLS_CONNECTION_MEMORY_HANDSHAKE_SIZE_RECORD(role, profile, record))
 
 /** Footprint of a profile, all values in bytes. */
 typedef struct
@@ -389,6 +488,7 @@ typedef struct
     size_t steady_arena;
     size_t header;
     size_t context;          /**< sizeof(tls13_context_t), caller-owned and not included above. */
+    size_t record;           /**< Record budget the buffers are sized for (plaintext bytes). */
 } noxtls_connection_footprint_t;
 
 /** Runtime state of one connection's memory. */
@@ -418,6 +518,26 @@ noxtls_return_t noxtls_tls13_context_init_static(tls13_context_t *ctx, tls_role_
 /** DTLS 1.3 variant of noxtls_tls13_context_init_static(). */
 noxtls_return_t noxtls_dtls13_context_init_static(tls13_context_t *ctx, tls_role_t role, uint32_t profile,
                                                   void *memory, size_t memory_len);
+
+/**
+ * DTLS 1.3 context whose record buffers are sized for records of @p record_max plaintext
+ * bytes instead of TLS_MAX_RECORD_SIZE (NOXTLS_CONN_RECORD_MIN..TLS_MAX_RECORD_SIZE), in a
+ * block of NOXTLS_CONNECTION_MEMORY_SIZE_RECORD(role, profile token, record_max) bytes.
+ * The context sends records of at most @p record_max bytes, fragments handshake messages
+ * to fit them, advertises record_size_limit record_max + 1 (RFC 8449) unless a smaller
+ * limit is set, and reads datagrams of at most record_max + DTLS_MAX_RECORD_EXPANSION
+ * bytes; a larger datagram is discarded. Other contexts of the process keep their sizes.
+ * @return As noxtls_dtls13_context_init_static(); NOXTLS_RETURN_INVALID_PARAM for a
+ *         budget out of range or a block that is too small.
+ */
+noxtls_return_t noxtls_dtls13_context_init_static_record(tls13_context_t *ctx, tls_role_t role, uint32_t profile,
+                                                         uint16_t record_max, void *memory, size_t memory_len);
+/** noxtls_dtls13_context_init_static_split() with a record budget (blocks of
+ *  NOXTLS_CONNECTION_MEMORY_STEADY_SIZE_RECORD() and _HANDSHAKE_SIZE_RECORD()). */
+noxtls_return_t noxtls_dtls13_context_init_static_split_record(tls13_context_t *ctx, tls_role_t role,
+                                                               uint32_t profile, uint16_t record_max,
+                                                               void *steady, size_t steady_len,
+                                                               void *handshake, size_t handshake_len);
 
 /**
  * Initialize a TLS 1.3 context whose steady part and handshake part are two caller
@@ -484,7 +604,7 @@ const uint8_t *noxtls_conn_mem_epoch2_secret(const tls13_context_t *ctx, const u
 /** Refuse caller memory that a live connection still uses, before the context is
  *  touched: NOXTLS_RETURN_NOT_ENOUGH_MEMORY when @p memory (the whole block, or the
  *  steady part when @p handshake is not NULL) or @p handshake overlaps a live region. */
-noxtls_return_t noxtls_conn_mem_check_unused(uint32_t profile, const void *memory, const void *handshake);
+noxtls_return_t noxtls_conn_mem_check_unused(tls_role_t role, uint32_t profile, const void *memory, const void *handshake);
 /** Carve @p memory for @p profile and attach it to @p ctx (after its base init). */
 noxtls_return_t noxtls_conn_mem_bind(tls13_context_t *ctx, uint32_t profile, void *memory, size_t memory_len,
                                      uint8_t pool_index);

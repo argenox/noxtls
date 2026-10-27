@@ -74,6 +74,8 @@ allocates.
 | `noxtls_dtls13_set_hrr_observer()` | Client: see the cookie of a HelloRetryRequest before the second ClientHello is sent | RFC 9147 Section 5.1 |
 | `noxtls_tls13_release_handshake_state()` | Release the handshake state of a connected context now; traffic keys and `exporter_master_secret` stay | RFC 8446 Section 7.5 |
 | `noxtls_tls13_selected_psk_identity()` | The selected PSK identity, before and after the release | RFC 8446 Section 4.2.11 |
+| `noxtls_dtls13_set_legacy_psk_labels()` | Binders and resumption secrets with the pre-RFC 9147 `tls13 ` labels, for NoxTLS peers built before them (not for the stateless binder check) | RFC 9147 Section 5.9 |
+| `noxtls_dtls13_context_init_static_record()` | Static memory: record buffers sized for a smaller record budget than `NOXTLS_TLS_MAX_RECORD_SIZE` (see Static Memory) | RFC 8449 |
 
 The stateless HelloRetryRequest is a function of the echoed `legacy_session_id`, the
 cookie, the cipher suite (a SHA-256 TLS 1.3 suite) and the group (0 for none), so the

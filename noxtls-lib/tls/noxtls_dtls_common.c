@@ -769,7 +769,7 @@ static noxtls_return_t dtls12_flight_resend_record(dtls_context_t *ctx, uint8_t 
 
     if((flags & DTLS_FLIGHT_ENTRY_PROTECT) != 0U) {
         uint8_t *out = noxtls_tls_record_tx_buffer(&ctx->base, NULL);
-        uint32_t out_len = (uint32_t)TLS_RECORD_TX_BUFFER_SIZE - DTLS_RECORD_HEADER_SIZE;
+        uint32_t out_len = noxtls_tls_record_tx_buffer_size(&ctx->base) - DTLS_RECORD_HEADER_SIZE;
         noxtls_return_t rc = NOXTLS_RETURN_FAILED;
         if((rec_epoch != ctx->epoch) || (ctx->protect_record == NULL) || (out == NULL)) {
             return NOXTLS_RETURN_NOT_SUPPORTED;
@@ -1490,7 +1490,7 @@ noxtls_return_t noxtls_dtls_send_record(dtls_context_t *ctx, uint8_t type, const
         return NOXTLS_RETURN_FAILED;
     }
 
-    if(len > TLS_MAX_RECORD_SIZE) {
+    if(len > noxtls_tls_record_max(&ctx->base)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
     /* RFC 6347 4.1: the 48-bit sequence number must not wrap within an epoch. */
@@ -1508,7 +1508,7 @@ noxtls_return_t noxtls_dtls_send_record(dtls_context_t *ctx, uint8_t type, const
         }
     }
     record = noxtls_tls_record_tx_buffer(&ctx->base, NULL);
-    if((record == NULL) || (record_len > (uint32_t)TLS_RECORD_TX_BUFFER_SIZE)) {
+    if((record == NULL) || (record_len > noxtls_tls_record_tx_buffer_size(&ctx->base))) {
         record = (uint8_t*)NOXTLS_MALLOC(record_len);
         if(record == NULL) {
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
@@ -1803,7 +1803,7 @@ noxtls_return_t noxtls_dtls_send_protected_record(dtls_context_t *ctx, uint8_t t
                                                   const uint8_t *plaintext, uint32_t len)
 {
     uint8_t *record = NULL;
-    uint32_t out_len = (uint32_t)TLS_RECORD_TX_BUFFER_SIZE - DTLS_RECORD_HEADER_SIZE;
+    uint32_t out_len = 0U;
     uint32_t record_len = 0U;
     int32_t sent = 0;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
@@ -1811,13 +1811,14 @@ noxtls_return_t noxtls_dtls_send_protected_record(dtls_context_t *ctx, uint8_t t
     if((ctx == NULL) || ((plaintext == NULL) && (len > 0U))) {
         return NOXTLS_RETURN_NULL;
     }
+    out_len = noxtls_tls_record_tx_buffer_size(&ctx->base) - DTLS_RECORD_HEADER_SIZE;
     if((ctx->protect_record == NULL) || (ctx->base.send_callback == NULL)) {
         return NOXTLS_RETURN_FAILED;
     }
     if(noxtls_tls_record_tx_buffer(&ctx->base, NULL) == NULL) {
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
-    if(len > TLS_MAX_RECORD_SIZE) {
+    if(len > noxtls_tls_record_max(&ctx->base)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
     if(ctx->write_seq_num >= DTLS_SEQ_NUM_MASK) {
@@ -1911,6 +1912,11 @@ static void dtls_rx_stash_remainder(dtls_context_t *ctx, const uint8_t *rest, ui
     ctx->rx_datagram_len = rest_len;
 }
 
+uint32_t noxtls_dtls_datagram_max(const dtls_context_t *ctx)
+{
+    return noxtls_tls_record_max((ctx != NULL) ? &ctx->base : NULL) + (uint32_t)DTLS_MAX_RECORD_EXPANSION;
+}
+
 /**
  * @brief Queue a datagram that the application already received, to be read before the transport.
  *
@@ -1920,7 +1926,7 @@ static void dtls_rx_stash_remainder(dtls_context_t *ctx, const uint8_t *rest, ui
  *
  * @param[in,out] ctx The context value.
  * @param[in] dgram The datagram.
- * @param[in] len Its length (at most DTLS_MAX_RECORD_DATAGRAM).
+ * @param[in] len Its length (at most noxtls_dtls_datagram_max()).
  * @return NOXTLS_RETURN_SUCCESS; NOXTLS_RETURN_NULL; NOXTLS_RETURN_INVALID_PARAM for a length out
  *         of range; NOXTLS_RETURN_BAD_STATE when unread datagram bytes are pending;
  *         NOXTLS_RETURN_NOT_ENOUGH_MEMORY when the datagram cannot be kept.
@@ -1930,7 +1936,7 @@ noxtls_return_t noxtls_dtls_inject_datagram(dtls_context_t *ctx, const uint8_t *
     if((ctx == NULL) || (dgram == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
-    if((len < DTLS_RECORD_HEADER_SIZE) || (len > (uint32_t)DTLS_MAX_RECORD_DATAGRAM)) {
+    if((len < DTLS_RECORD_HEADER_SIZE) || (len > noxtls_dtls_datagram_max(ctx))) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
     if(ctx->rx_datagram != NULL) {
@@ -2037,7 +2043,7 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
 {
     uint8_t *packet = NULL;
     int32_t received = 0;
-    uint32_t packet_capacity = (uint32_t)DTLS_MAX_RECORD_DATAGRAM;
+    uint32_t packet_capacity = 0U;
     uint16_t length = 0U;
     uint32_t payload_offset = DTLS_RECORD_DATA_OFFSET;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
@@ -2055,6 +2061,9 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
 
     noxtls_secure_zero((record), sizeof(dtls_record_t));
 
+    /* The datagram buffer follows the context's record budget (a larger datagram than a
+     * peer within its record_size_limit sends is discarded by the transport read). */
+    packet_capacity = noxtls_dtls_datagram_max(ctx);
     packet = (uint8_t*)NOXTLS_MALLOC(packet_capacity);
     if(packet == NULL) {
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
@@ -2341,9 +2350,13 @@ noxtls_return_t dtls_send_handshake_fragment(dtls_context_t *ctx,
     if(max_fragment < DTLS_MIN_FRAGMENT_SIZE) {
         max_fragment = DTLS_MIN_FRAGMENT_SIZE;
     }
+    /* A record budget bounds the record that carries the fragment. */
+    if((DTLS_HANDSHAKE_HEADER_SIZE + max_fragment) > noxtls_tls_record_max(&ctx->base)) {
+        max_fragment = noxtls_tls_record_max(&ctx->base) - DTLS_HANDSHAKE_HEADER_SIZE;
+    }
     buffer_len = DTLS_HANDSHAKE_HEADER_SIZE + max_fragment;
     if((noxtls_tls_record_tx_buffer(&ctx->base, NULL) != NULL) &&
-       ((DTLS_RECORD_DATA_OFFSET + buffer_len) <= (uint32_t)TLS_RECORD_TX_BUFFER_SIZE)) {
+       (((uint32_t)DTLS_RECORD_DATA_OFFSET + buffer_len) <= noxtls_tls_record_tx_buffer_size(&ctx->base))) {
         buffer = &ctx->base.record_send_buf[DTLS_RECORD_DATA_OFFSET];
     } else {
         /* MISRA 15.7: final else path */

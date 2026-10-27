@@ -556,6 +556,9 @@ typedef struct
     /** Static memory: the connection's memory block (noxtls_connection_memory_t), or NULL. */
     void *static_mem;
 #endif
+    /** Largest record plaintext of this context and the size of its record buffers;
+     *  0 means TLS_MAX_RECORD_SIZE (static memory: noxtls_dtls13_context_init_static_record()). */
+    uint16_t record_budget;
 } tls_context_t;
 NOXTLS_MSVC_WARNING_POP
 
@@ -597,6 +600,10 @@ noxtls_return_t noxtls_tls_send_record(tls_context_t *ctx, uint8_t type, const u
  * Returns NULL on allocation failure.
  */
 uint8_t *noxtls_tls_record_tx_buffer(tls_context_t *ctx, uint32_t *payload_capacity);
+/** Largest record plaintext of @p ctx: its record budget, else TLS_MAX_RECORD_SIZE. */
+uint32_t noxtls_tls_record_max(const tls_context_t *ctx);
+/** Bytes of the record TX buffer of @p ctx (TLS_RECORD_TX_BUFFER_SIZE without a record budget). */
+uint32_t noxtls_tls_record_tx_buffer_size(const tls_context_t *ctx);
 noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record);
 noxtls_return_t noxtls_tls_send_alert(tls_context_t *ctx, uint8_t level, uint8_t description);
 /** Read the last alert received from the peer (RFC 8446 Section 6); alert->valid is 0 if none. */

@@ -510,6 +510,173 @@ static int test_legacy_labels_handshake(void)
     return 0;
 }
 
+#if NOXTLS_CONFIG_STATIC_MEMORY
+#define SA_BUDGET 512U
+static uint64_t s_budget_client[NOXTLS_CONNECTION_MEMORY_SIZE_RECORD(TLS_ROLE_CLIENT, DTLS13_PSK, SA_BUDGET) / 8U];
+static uint64_t s_budget_server[NOXTLS_CONNECTION_MEMORY_SIZE_RECORD(TLS_ROLE_SERVER, DTLS13_PSK, SA_BUDGET) / 8U];
+
+/** Re-initialize one end of a pair with a record budget (or the build-wide size for 0). */
+static int sa_reinit_budget(lb_pair_t *pair, int client, uint16_t budget)
+{
+    lb_end_t *end = (client != 0) ? &pair->client : &pair->server;
+    tls13_context_t *ctx = end->t13;
+    const tls_role_t role = (client != 0) ? TLS_ROLE_CLIENT : TLS_ROLE_SERVER;
+    lb_port_t *port = (client != 0) ? &pair->link->client_port : &pair->link->server_port;
+
+    (void)noxtls_tls13_context_free(ctx);
+    if(budget != 0U) {
+        void *mem = (client != 0) ? (void *)s_budget_client : (void *)s_budget_server;
+        size_t len = (client != 0) ? sizeof(s_budget_client) : sizeof(s_budget_server);
+        LB_CHECK_OK(noxtls_dtls13_context_init_static_record(ctx, role, NOXTLS_CONN_PROFILE_DTLS13_PSK, budget, mem, len));
+    } else {
+        void *mem = (client != 0) ? (void *)s_client_mem : (void *)s_server_mem;
+        size_t len = (client != 0) ? sizeof(s_client_mem) : sizeof(s_server_mem);
+        LB_CHECK_OK(noxtls_dtls13_context_init_static(ctx, role, NOXTLS_CONN_PROFILE_DTLS13_PSK, mem, len));
+    }
+    LB_CHECK_OK(noxtls_tls_set_io_callbacks(&ctx->base.base, lb_io_send, lb_io_recv, port));
+    LB_CHECK_OK(noxtls_tls_set_time_callback(&ctx->base.base, lb_io_now_ms));
+    LB_CHECK_OK(tls13_set_external_psk(ctx, k_identity, (uint16_t)(sizeof(k_identity) - 1U), k_psk,
+                                       (uint16_t)sizeof(k_psk), TLS13_PSK_KE_MODE_PSK_DHE_KE));
+    if(client != 0) {
+        noxtls_tls13_set_client_supported_groups(ctx, k_groups_x25519, 1U);
+    } else {
+        noxtls_tls13_set_server_cipher_suites(ctx, &k_suite, 1U);
+    }
+    /* The single-association MTU: datagrams of one budget-sized record. */
+    LB_CHECK_OK(noxtls_dtls_set_mtu(&ctx->base, (uint16_t)SA_BUDGET));
+    return 0;
+}
+
+/** Datagrams queued in one direction are all within the budget's datagram size. */
+static int sa_check_datagrams(lb_pair_t *pair, int to_client, uint32_t max_len)
+{
+    const lb_pipe_t *pipe = (to_client != 0) ? &pair->link->to_client : &pair->link->to_server;
+    uint32_t i;
+    for(i = 0U; i < pipe->dgram_count; i++) {
+        LB_CHECK(pipe->dgram_len[(pipe->dgram_head + i) % LB_DGRAM_SLOTS] <= max_len);
+    }
+    return 0;
+}
+
+/** Drive the handshake one step at a time, checking every datagram against the budget. */
+static int sa_handshake_checked(lb_pair_t *pair, uint32_t max_len)
+{
+    uint32_t round;
+    pair->client.last_rc = NOXTLS_RETURN_WANT_READ;
+    pair->server.last_rc = NOXTLS_RETURN_WANT_READ;
+    pair->client.done = 0;
+    pair->server.done = 0;
+    for(round = 0U; round < 200U; round++) {
+        if(pair->client.done == 0) {
+            pair->client.last_rc = lb_end_step(&pair->client);
+            pair->client.done = (pair->client.last_rc == NOXTLS_RETURN_SUCCESS) ? 1 : 0;
+        }
+        LB_RUN(sa_check_datagrams(pair, 0, max_len));
+        if(pair->server.done == 0) {
+            pair->server.last_rc = lb_end_step(&pair->server);
+            pair->server.done = (pair->server.last_rc == NOXTLS_RETURN_SUCCESS) ? 1 : 0;
+        }
+        LB_RUN(sa_check_datagrams(pair, 1, max_len));
+        if((pair->client.done != 0) && (pair->server.done != 0)) {
+            return 0;
+        }
+    }
+    lb_log("handshake: client rc %d, server rc %d", (int)pair->client.last_rc, (int)pair->server.last_rc);
+    return 1;
+}
+#endif
+
+/**
+ * Per-context record budget: a DTLS 1.3 context whose record buffers are sized for 512-byte
+ * records next to contexts with the build-wide size. It sends, fragments and advertises
+ * (record_size_limit 513, RFC 8449) within the budget, against a budget peer and against a
+ * peer with the build-wide record size, with no allocation outside its block.
+ */
+static int test_record_budget(void)
+{
+#if NOXTLS_CONFIG_STATIC_MEMORY
+    lb_pair_t pair;
+    noxtls_connection_footprint_t fp;
+    noxtls_connection_footprint_t full;
+    noxtls_connection_memory_stats_t st;
+    const uint32_t word = NOXTLS_CONN_PROFILE_RECORD(NOXTLS_CONN_PROFILE_DTLS13_PSK, SA_BUDGET);
+    const uint32_t max_dgram = SA_BUDGET + DTLS_MAX_RECORD_EXPANSION;
+    size_t heap_before = HEAP_CALLS();
+    int peer;
+
+    if(TLS_MAX_RECORD_SIZE <= SA_BUDGET) {
+        return LB_SKIP;
+    }
+    /* Sizes: the macro, the runtime query and the footprint agree; the block shrinks. */
+    LB_CHECK_EQ(noxtls_connection_memory_size(TLS_ROLE_CLIENT, word), sizeof(s_budget_client));
+    LB_CHECK_OK(noxtls_connection_memory_footprint(TLS_ROLE_CLIENT, word, &fp));
+    LB_CHECK_OK(noxtls_connection_memory_footprint(TLS_ROLE_CLIENT, NOXTLS_CONN_PROFILE_DTLS13_PSK, &full));
+    LB_CHECK_EQ(fp.record, SA_BUDGET);
+    LB_CHECK_EQ(full.record, TLS_MAX_RECORD_SIZE);
+    LB_CHECK(fp.total < full.total);
+    LB_CHECK_EQ(fp.total, NOXTLS_CONNECTION_MEMORY_SIZE_RECORD(TLS_ROLE_CLIENT, DTLS13_PSK, SA_BUDGET));
+    LB_CHECK_EQ(fp.steady, NOXTLS_CONNECTION_MEMORY_STEADY_SIZE_RECORD(TLS_ROLE_CLIENT, DTLS13_PSK, SA_BUDGET));
+    LB_CHECK_EQ(NOXTLS_CONNECTION_MEMORY_SIZE_RECORD(TLS_ROLE_CLIENT, DTLS13_PSK, TLS_MAX_RECORD_SIZE), full.total);
+    lb_log("DTLS13_PSK block %lu B, %u-byte budget %lu B (saves %lu B; steady %lu -> %lu, handshake %lu -> %lu)",
+           (unsigned long)full.total, (unsigned)SA_BUDGET, (unsigned long)fp.total, (unsigned long)(full.total - fp.total),
+           (unsigned long)full.steady, (unsigned long)fp.steady, (unsigned long)full.handshake,
+           (unsigned long)fp.handshake);
+
+    /* Budget-sized client against a budget-sized server (peer 0) and against a server with
+     * the build-wide record size (peer 1). */
+    for(peer = 0; peer < 2; peer++) {
+        LB_RUN(sa_pair_init(&pair, k_groups_x25519, 1U));
+        LB_RUN(sa_reinit_budget(&pair, 1, (uint16_t)SA_BUDGET));
+        LB_RUN(sa_reinit_budget(&pair, 0, (peer == 0) ? (uint16_t)SA_BUDGET : 0U));
+        LB_CHECK_EQ(pair.client.t13->base.base.record_budget, SA_BUDGET);
+        LB_RUN(sa_handshake_checked(&pair, max_dgram));
+        LB_CHECK_EQ(pair.server.t13->record_size_limit_send, SA_BUDGET + 1U);  /* the client's limit */
+        lb_fill_pattern(s_buf, 1500U, 31U + (uint32_t)peer);
+        LB_RUN(lb_transfer(&pair, 1, s_buf, 1500U, 500U, 1500U));
+        /* One send of more than the budget (and at most any build's record size) is split. */
+        LB_RUN(lb_transfer(&pair, 0, s_buf, 1500U, 1000U, 1500U));
+        LB_RUN(sa_check_datagrams(&pair, 0, max_dgram));
+        LB_RUN(sa_check_datagrams(&pair, 1, max_dgram));
+        LB_CHECK_OK(noxtls_tls13_send_key_update(pair.client.t13, 1U));
+        LB_RUN(sa_exchange(&pair, 32U + (uint32_t)peer));
+        LB_CHECK_OK(noxtls_tls13_release_handshake_state(pair.client.t13));
+        LB_RUN(sa_exchange(&pair, 34U + (uint32_t)peer));
+        LB_CHECK_OK(noxtls_connection_memory_get_stats(pair.client.t13, &st));
+        LB_CHECK_EQ(st.released, 1U);
+        LB_CHECK_EQ(st.dangling_pointers, 0U);
+        LB_CHECK_EQ(st.layout.record, SA_BUDGET);
+        LB_CHECK(st.hs_arena_peak_at_release <= st.layout.hs_arena);
+        LB_CHECK(st.steady_arena.peak <= st.layout.steady_arena);
+        lb_log("peer %d: client handshake arena peak %lu of %lu, steady arena peak %lu of %lu", peer,
+               (unsigned long)st.hs_arena_peak_at_release, (unsigned long)st.layout.hs_arena,
+               (unsigned long)st.steady_arena.peak, (unsigned long)st.layout.steady_arena);
+        lb_pair_free(&pair);
+    }
+    LB_CHECK_EQ(HEAP_CALLS(), heap_before);
+
+    /* Errors. */
+    LB_RUN(sa_pair_init(&pair, k_groups_x25519, 1U));
+    (void)noxtls_tls13_context_free(pair.client.t13);
+    LB_CHECK_EQ(noxtls_dtls13_context_init_static_record(pair.client.t13, TLS_ROLE_CLIENT, NOXTLS_CONN_PROFILE_DTLS13_PSK,
+                                                         (uint16_t)(NOXTLS_CONN_RECORD_MIN - 1U), s_budget_client,
+                                                         sizeof(s_budget_client)), NOXTLS_RETURN_INVALID_PARAM);
+    LB_CHECK_EQ(noxtls_dtls13_context_init_static_record(pair.client.t13, TLS_ROLE_CLIENT, NOXTLS_CONN_PROFILE_TLS13_PSK,
+                                                         (uint16_t)SA_BUDGET, s_budget_client, sizeof(s_budget_client)),
+                NOXTLS_RETURN_INVALID_PARAM);
+    LB_CHECK_EQ(noxtls_dtls13_context_init_static_record(pair.client.t13, TLS_ROLE_CLIENT, NOXTLS_CONN_PROFILE_DTLS13_PSK,
+                                                         (uint16_t)SA_BUDGET, s_budget_client, sizeof(s_budget_client) - 8U),
+                NOXTLS_RETURN_INVALID_PARAM);
+    LB_CHECK_EQ(noxtls_connection_memory_size(TLS_ROLE_CLIENT,
+                                              NOXTLS_CONN_PROFILE_RECORD(NOXTLS_CONN_PROFILE_TLS13_PSK, SA_BUDGET)), 0U);
+    LB_CHECK_OK(noxtls_dtls13_context_init_static(pair.client.t13, TLS_ROLE_CLIENT, NOXTLS_CONN_PROFILE_DTLS13_PSK,
+                                                  s_client_mem, sizeof(s_client_mem)));
+    lb_pair_free(&pair);
+    return 0;
+#else
+    return LB_SKIP;  /* the record budget sizes static connection memory */
+#endif
+}
+
 /* ---- N1: own connection ID ------------------------------------------------------ */
 
 /** RFC 9146 3 / RFC 9147 9.1: the ServerHello carries the server's CID; the client puts
@@ -1253,6 +1420,7 @@ static const lb_test_case_t s_cases[] = {
     { "sa_s0_binder_vector", test_s0_binder_vector },
     { "sa_legacy_labels_old_peer", test_legacy_labels_old_peer },
     { "sa_legacy_labels_handshake", test_legacy_labels_handshake },
+    { "sa_record_budget", test_record_budget },
 };
 
 int main(int argc, char **argv)

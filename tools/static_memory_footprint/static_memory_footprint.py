@@ -41,7 +41,10 @@ NAMES = ['magic',
          'record TX buffer', 'DTLS record workspace', 'handshake workspace', 'DTLS flight',
          'handshake arena TLS PSK', 'handshake arena DTLS PSK', 'handshake arena TLS cert',
          'steady arena TLS', 'steady arena DTLS', 'global arena', 'trust store',
-         'record size', 'pointer size']
+         'record size', 'pointer size',
+         'DTLS13_PSK server total', 'DTLS13_PSK server steady', 'DTLS13_PSK server released',
+         'DTLS13_PSK r512 total', 'DTLS13_PSK r512 steady', 'DTLS13_PSK r512 released',
+         'DTLS13_PSK r512 server total', 'DTLS13_PSK r512 server steady', 'DTLS13_PSK r512 server released']
 KCONFIG = re.compile(r'^CONFIG_(NOXTLS_(?:FEATURE_[A-Z0-9_]+|HAVE_CERT_WRITE|SHA256_UNROLL_8|TLS12_ENABLE_[A-Z0-9_]+))=([yn])\s*$')
 KCONFIG_VALUE = re.compile(r'^CONFIG_(NOXTLS_TLS_MAX_RECORD_SIZE)=(\d+)\s*$')
 

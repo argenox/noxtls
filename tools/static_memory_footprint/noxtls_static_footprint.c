@@ -61,6 +61,17 @@ const uint32_t noxtls_static_footprint[] = {
     (uint32_t)NOXTLS_STATIC_TRUST_STORE_BYTES,
     (uint32_t)NOXTLS_TLS_MAX_RECORD_SIZE,
     (uint32_t)sizeof(void *),
+    /* DTLS 1.3 PSK server (without a workspace slot with NOXTLS_STATIC_HS_WORKSPACE_IN_ARENA). */
+    (uint32_t)NOXTLS_CONNECTION_MEMORY_SIZE(TLS_ROLE_SERVER, DTLS13_PSK),
+    (uint32_t)NOXTLS_CONNECTION_MEMORY_STEADY_SIZE(TLS_ROLE_SERVER, DTLS13_PSK),
+    (uint32_t)NOXTLS_CONNECTION_MEMORY_HANDSHAKE_SIZE(TLS_ROLE_SERVER, DTLS13_PSK),
+    /* DTLS 1.3 PSK with a 512-byte record budget (noxtls_dtls13_context_init_static_record()). */
+    (uint32_t)NOXTLS_CONNECTION_MEMORY_SIZE_RECORD(TLS_ROLE_CLIENT, DTLS13_PSK, 512U),
+    (uint32_t)NOXTLS_CONNECTION_MEMORY_STEADY_SIZE_RECORD(TLS_ROLE_CLIENT, DTLS13_PSK, 512U),
+    (uint32_t)NOXTLS_CONNECTION_MEMORY_HANDSHAKE_SIZE_RECORD(TLS_ROLE_CLIENT, DTLS13_PSK, 512U),
+    (uint32_t)NOXTLS_CONNECTION_MEMORY_SIZE_RECORD(TLS_ROLE_SERVER, DTLS13_PSK, 512U),
+    (uint32_t)NOXTLS_CONNECTION_MEMORY_STEADY_SIZE_RECORD(TLS_ROLE_SERVER, DTLS13_PSK, 512U),
+    (uint32_t)NOXTLS_CONNECTION_MEMORY_HANDSHAKE_SIZE_RECORD(TLS_ROLE_SERVER, DTLS13_PSK, 512U),
 };
 
 #if defined(NOXTLS_FOOTPRINT_MAIN)
@@ -79,6 +90,9 @@ int main(void)
         "handshake arena TLS PSK", "handshake arena DTLS PSK", "handshake arena TLS cert",
         "steady arena TLS", "steady arena DTLS", "global arena", "trust store",
         "record size", "pointer size",
+        "DTLS13_PSK server total", "DTLS13_PSK server steady", "DTLS13_PSK server released",
+        "DTLS13_PSK r512 total", "DTLS13_PSK r512 steady", "DTLS13_PSK r512 released",
+        "DTLS13_PSK r512 server total", "DTLS13_PSK r512 server steady", "DTLS13_PSK r512 server released",
     };
     size_t i;
     for(i = 1U; i < (sizeof(noxtls_static_footprint) / sizeof(noxtls_static_footprint[0])); i++) {

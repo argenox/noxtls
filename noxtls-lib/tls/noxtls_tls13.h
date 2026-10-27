@@ -76,6 +76,35 @@ extern "C" {
 
 struct noxtls_x509_verify_policy;
 
+/*
+ * Buffers of the ServerHello builder: the message and its staged key share entry. They are
+ * the largest buffers a handshake message builder takes from the handshake arena when a
+ * static-memory connection has no workspace slot (NOXTLS_STATIC_HS_WORKSPACE_IN_ARENA).
+ * Without ML-KEM and FFDHE the largest key share entry is a P-521 point (4 + 133 bytes) and
+ * the largest ServerHello 129 bytes plus that entry (header, version, random, a 32-byte
+ * legacy_session_id, suite, compression, supported_versions, key_share, pre_shared_key and a
+ * 32-byte connection_id), so such builds use 512 and 256 bytes; others keep
+ * TLS_SERVER_HELLO_DEFAULT_SIZE and TLS_KEY_SHARE_ENTRY_MAX_LEN.
+ */
+#if defined(NOXTLS_STATIC_HS_WORKSPACE_IN_ARENA) && (NOXTLS_STATIC_HS_WORKSPACE_IN_ARENA != 0) && \
+    (NOXTLS_FEATURE_ML_KEM == 0) && (NOXTLS_FEATURE_DH == 0)
+#ifndef NOXTLS_TLS13_SERVER_HELLO_ALLOC
+#define NOXTLS_TLS13_SERVER_HELLO_ALLOC 512U
+#endif
+#ifndef NOXTLS_TLS13_SERVER_KEY_SHARE_ALLOC
+#define NOXTLS_TLS13_SERVER_KEY_SHARE_ALLOC 256U
+#endif
+#define NOXTLS_TLS13_SERVER_KEY_SHARE_MIN (4U + 133U)
+#define NOXTLS_TLS13_SERVER_HELLO_FIXED_MAX 129U
+#else
+#ifndef NOXTLS_TLS13_SERVER_HELLO_ALLOC
+#define NOXTLS_TLS13_SERVER_HELLO_ALLOC TLS_SERVER_HELLO_DEFAULT_SIZE
+#endif
+#ifndef NOXTLS_TLS13_SERVER_KEY_SHARE_ALLOC
+#define NOXTLS_TLS13_SERVER_KEY_SHARE_ALLOC TLS_KEY_SHARE_ENTRY_MAX_LEN
+#endif
+#endif
+
 /* Max extension entries in one ClientHello extensions block (65535 bytes / 4 bytes min per ext). */
 #define TLS13_CLIENTHELLO_EXT_ORDER_MAX 16384u
 #define TLS13_RECORD_WORKSPACE_HALF  (TLS_MAX_RECORD_SIZE + 32U)

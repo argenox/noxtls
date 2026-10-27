@@ -192,7 +192,7 @@ noxtls_return_t noxtls_tls_context_free(tls_context_t *ctx)
     }
     if (ctx->record_send_buf != NULL) {
         /* Records are protected in place: wipe any plaintext left by a failed send. */
-        noxtls_secure_zero(ctx->record_send_buf, (size_t)TLS_RECORD_TX_BUFFER_SIZE);
+        noxtls_secure_zero(ctx->record_send_buf, (size_t)noxtls_tls_record_tx_buffer_size(ctx));
         (void)noxtls_free(ctx->record_send_buf);
         ctx->record_send_buf = NULL;
     }
@@ -586,15 +586,28 @@ uint8_t *noxtls_tls_record_tx_buffer(tls_context_t *ctx, uint32_t *payload_capac
         return NULL;
     }
     if (ctx->record_send_buf == NULL) {
-        ctx->record_send_buf = (uint8_t *)NOXTLS_MALLOC((size_t)TLS_RECORD_TX_BUFFER_SIZE);
+        ctx->record_send_buf = (uint8_t *)NOXTLS_MALLOC((size_t)noxtls_tls_record_tx_buffer_size(ctx));
         if (ctx->record_send_buf == NULL) {
             return NULL;
         }
     }
     if (payload_capacity != NULL) {
-        *payload_capacity = (uint32_t)(TLS_RECORD_TX_BUFFER_SIZE - TLS_RECORD_HEADER_LEN);
+        *payload_capacity = noxtls_tls_record_tx_buffer_size(ctx) - (uint32_t)TLS_RECORD_HEADER_LEN;
     }
     return ctx->record_send_buf;
+}
+
+uint32_t noxtls_tls_record_max(const tls_context_t *ctx)
+{
+    if ((ctx != NULL) && (ctx->record_budget != 0U) && ((uint32_t)ctx->record_budget < (uint32_t)TLS_MAX_RECORD_SIZE)) {
+        return (uint32_t)ctx->record_budget;
+    }
+    return (uint32_t)TLS_MAX_RECORD_SIZE;
+}
+
+uint32_t noxtls_tls_record_tx_buffer_size(const tls_context_t *ctx)
+{
+    return (uint32_t)TLS_RECORD_TX_HEADROOM + noxtls_tls_record_max(ctx) + (uint32_t)TLS_TX_RECORD_EXPANSION;
 }
 
 static noxtls_return_t tls_nonblocking_read(tls_context_t *ctx,

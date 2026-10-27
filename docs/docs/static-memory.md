@@ -242,6 +242,60 @@ rc = noxtls_dtls13_context_init_static_split(&s_fleet, TLS_ROLE_SERVER, NOXTLS_C
 - `noxtls_connection_memory_handshake_region()` returns the block to the application
   only while no connection holds it.
 
+### Per-connection record budget (DTLS 1.3)
+
+`NOXTLS_TLS_MAX_RECORD_SIZE` sizes every connection's record buffers. A DTLS 1.3 connection
+that only needs smaller records (a single-association client on a 512-byte MTU next to
+1,400-byte NoxLink associations) can be sized for its own record size:
+
+```c
+static uint64_t s_node_mem[NOXTLS_CONNECTION_MEMORY_SIZE_RECORD(TLS_ROLE_CLIENT, DTLS13_PSK, 512U) / 8U];
+
+rc = noxtls_dtls13_context_init_static_record(&ctx, TLS_ROLE_CLIENT, NOXTLS_CONN_PROFILE_DTLS13_PSK, 512U,
+                                              s_node_mem, sizeof(s_node_mem));
+```
+
+- The TX record buffer, the record workspace, the datagram stash and the flight follow the
+  budget; the steady and handshake arenas give up their datagram terms (and the handshake
+  arena its largest-message term), so a measured arena keeps its margin. At
+  `NOXTLS_TLS_MAX_RECORD_SIZE` every size equals the build-wide one (checked at build time).
+- The connection sends records of at most the budget, fragments handshake messages to fit
+  them, advertises `record_size_limit` budget + 1 (RFC 8449; a smaller configured limit
+  wins) and reads datagrams of at most budget + `DTLS_MAX_RECORD_EXPANSION` bytes. Set the
+  MTU (`noxtls_dtls_set_mtu()`) to the budget on both ends.
+- `noxtls_dtls13_context_init_static_split_record()`, `NOXTLS_CONN_PROFILE_RECORD(profile,
+  record)` for `noxtls_connection_memory_size()` / `_footprint()`, and
+  `NOXTLS_CONNECTION_MEMORY_STEADY_SIZE_RECORD()` / `_HANDSHAKE_SIZE_RECORD()` complete the API.
+  Budgets: `NOXTLS_CONN_RECORD_MIN` (256) to `NOXTLS_TLS_MAX_RECORD_SIZE`, DTLS 1.3 only.
+
+Leader with NoxLink (1,400-byte records, Cortex-M33, footprint tool): a DTLS 1.3 PSK block is
+34,104 bytes (steady 10,584, handshake 23,520); with a 512-byte budget 24,424 (5,256 and
+19,168), 9,680 bytes less per connection. The node profile is already built for 512-byte
+records, so a 512-byte budget changes nothing there.
+
+### Server workspace in the handshake arena
+
+`NOXTLS_STATIC_HS_WORKSPACE_IN_ARENA=1` (default 0) leaves the 4 KB handshake workspace slot out
+of server connections: each message builder takes its buffer from the handshake arena while it
+builds the message (the ServerHello builder's buffers are sized to the build:
+`NOXTLS_TLS13_SERVER_HELLO_ALLOC` 512 and `NOXTLS_TLS13_SERVER_KEY_SHARE_ALLOC` 256 without
+ML-KEM and FFDHE). Clients keep the slot (their ClientHello builder needs 4 KB while the arena
+is busy). A derived arena budget includes the builders; `noxtls_static_profile_node_compact.h`
+sets the node's arena from measurements:
+
+| Node server (Cortex-M4F, node `prj.conf`) | Handshake part | Block |
+| --- | ---: | ---: |
+| `noxtls_static_profile_node.h` (hs state 2,416, workspace 4,096, flight 1,152, arena 11,272) | 18,936 | 24,672 |
+| `noxtls_static_profile_node_compact.h` (no workspace, the same arena) | 14,840 | 20,576 |
+
+Measured server handshake arena peaks under the node sizing (x86-64, node features; every
+static-memory, multi-context, recovery and single-association case): 8,048 bytes with the slot
+(8,080 with a HelloRetryRequest for P-256), 8,848 without it (9,016), within the 11,272-byte
+arena. A build of the compact profile with FFDHE or ML-KEM keeps the 2,048-byte ServerHello
+builder buffers and gets a 15,432-byte arena (the 3,328 extra builder bytes plus the reserve);
+`noxtls_connection_memory.c` refuses to build when the builders outgrow the profile's
+`NOXTLS_STATIC_COMPACT_BUILDERS_BUDGET`.
+
 ### Process-wide state
 
 Audit of the state that all connections of a process share (TLS 1.3 / DTLS 1.3 paths):
