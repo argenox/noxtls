@@ -440,6 +440,7 @@ static void aes_counter_inc(uint8_t counter[NOXTLS_AES_BLOCK_LENGTH])
     }
 }
 
+#if NOXTLS_FEATURE_AES_CTR || NOXTLS_FEATURE_AES_CFB || NOXTLS_FEATURE_AES_OFB
 /**
  * @brief Initialize AES feedback state with a required IV.
  *
@@ -456,6 +457,7 @@ static noxtls_return_t aes_init_iv_required(const uint8_t *iv, noxtls_aes_contex
     ctx->partial_len = NOXTLS_AES_BLOCK_LENGTH;
     return NOXTLS_RETURN_SUCCESS;
 }
+#endif
 
 /**
  * @brief Initialize an AES streaming context for the selected mode.

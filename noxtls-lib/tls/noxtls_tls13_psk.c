@@ -606,6 +606,8 @@ noxtls_return_t tls13_psk_compute_resumption_binder(noxtls_hash_algos_t hash_alg
  * @param[out] out_binder            Buffer for computed binder.
  * @param[in] transcript_prefix      Optional HRR transcript prefix.
  * @param[in] transcript_prefix_len  Length of @p transcript_prefix.
+ * @param[out] fail_step_out        Optional; on failure, the failing step as a static
+ *                                   NUL-terminated string that stays valid after return.
  * @return `NOXTLS_RETURN_SUCCESS` on success; error codes for invalid input or crypto failure.
  */
 noxtls_return_t tls13_psk_compute_external_binder(noxtls_hash_algos_t hash_algo,
@@ -640,13 +642,15 @@ noxtls_return_t tls13_psk_compute_external_binder(noxtls_hash_algos_t hash_algo,
 
     if ((psk == NULL) || (psk_len == 0U) || (client_hello == NULL) || (out_binder == NULL)) {
         if (fail_step_out != NULL) {
-            *fail_step_out = (const uint8_t[]){ (uint8_t)'n', (uint8_t)'u', (uint8_t)'l', (uint8_t)'l', 0 };
+            static const uint8_t s_step_null[] = { (uint8_t)'n', (uint8_t)'u', (uint8_t)'l', (uint8_t)'l', 0 };
+            *fail_step_out = s_step_null;
         }
         return NOXTLS_RETURN_NULL;
     }
     if ((binder_len == 0U) || (binder_offset > client_hello_len) || ((uint32_t)binder_len > (client_hello_len - binder_offset))) {
         if (fail_step_out != NULL) {
-            *fail_step_out = (const uint8_t[]){ (uint8_t)'b', (uint8_t)'i', (uint8_t)'n', (uint8_t)'d', (uint8_t)'e', (uint8_t)'r', (uint8_t)'_', (uint8_t)'b', (uint8_t)'o', (uint8_t)'u', (uint8_t)'n', (uint8_t)'d', (uint8_t)'s', 0 };
+            static const uint8_t s_step_binder_bounds[] = { (uint8_t)'b', (uint8_t)'i', (uint8_t)'n', (uint8_t)'d', (uint8_t)'e', (uint8_t)'r', (uint8_t)'_', (uint8_t)'b', (uint8_t)'o', (uint8_t)'u', (uint8_t)'n', (uint8_t)'d', (uint8_t)'s', 0 };
+            *fail_step_out = s_step_binder_bounds;
         }
         return NOXTLS_RETURN_INVALID_PARAM;
     }
@@ -659,13 +663,15 @@ noxtls_return_t tls13_psk_compute_external_binder(noxtls_hash_algos_t hash_algo,
     } else {
         /* MISRA 15.7: final else path */
         if (fail_step_out != NULL) {
-            *fail_step_out = (const uint8_t[]){ (uint8_t)'h', (uint8_t)'a', (uint8_t)'s', (uint8_t)'h', (uint8_t)'_', (uint8_t)'a', (uint8_t)'l', (uint8_t)'g', (uint8_t)'o', 0 };
+            static const uint8_t s_step_hash_algo[] = { (uint8_t)'h', (uint8_t)'a', (uint8_t)'s', (uint8_t)'h', (uint8_t)'_', (uint8_t)'a', (uint8_t)'l', (uint8_t)'g', (uint8_t)'o', 0 };
+            *fail_step_out = s_step_hash_algo;
         }
         return NOXTLS_RETURN_INVALID_ALGORITHM;
     }
     if (binder_len != hash_len) {
         if (fail_step_out != NULL) {
-            *fail_step_out = (const uint8_t[]){ (uint8_t)'b', (uint8_t)'i', (uint8_t)'n', (uint8_t)'d', (uint8_t)'e', (uint8_t)'r', (uint8_t)'_', (uint8_t)'l', (uint8_t)'e', (uint8_t)'n', 0 };
+            static const uint8_t s_step_binder_len[] = { (uint8_t)'b', (uint8_t)'i', (uint8_t)'n', (uint8_t)'d', (uint8_t)'e', (uint8_t)'r', (uint8_t)'_', (uint8_t)'l', (uint8_t)'e', (uint8_t)'n', 0 };
+            *fail_step_out = s_step_binder_len;
         }
         return NOXTLS_RETURN_INVALID_PARAM;
     }
@@ -673,13 +679,15 @@ noxtls_return_t tls13_psk_compute_external_binder(noxtls_hash_algos_t hash_algo,
     rc = psk_clienthello_binder_prefix_len(client_hello, client_hello_len, &binder_prefix_len);
     if (rc != NOXTLS_RETURN_SUCCESS) {
         if (fail_step_out != NULL) {
-            *fail_step_out = (const uint8_t[]){ (uint8_t)'b', (uint8_t)'i', (uint8_t)'n', (uint8_t)'d', (uint8_t)'e', (uint8_t)'r', (uint8_t)'_', (uint8_t)'p', (uint8_t)'r', (uint8_t)'e', (uint8_t)'f', (uint8_t)'i', (uint8_t)'x', 0 };
+            static const uint8_t s_step_binder_prefix[] = { (uint8_t)'b', (uint8_t)'i', (uint8_t)'n', (uint8_t)'d', (uint8_t)'e', (uint8_t)'r', (uint8_t)'_', (uint8_t)'p', (uint8_t)'r', (uint8_t)'e', (uint8_t)'f', (uint8_t)'i', (uint8_t)'x', 0 };
+            *fail_step_out = s_step_binder_prefix;
         }
         return rc;
     }
     if ((binder_offset < binder_prefix_len) || ((binder_offset + binder_len) > client_hello_len)) {
         if (fail_step_out != NULL) {
-            *fail_step_out = (const uint8_t[]){ (uint8_t)'b', (uint8_t)'i', (uint8_t)'n', (uint8_t)'d', (uint8_t)'e', (uint8_t)'r', (uint8_t)'_', (uint8_t)'r', (uint8_t)'a', (uint8_t)'n', (uint8_t)'g', (uint8_t)'e', 0 };
+            static const uint8_t s_step_binder_range[] = { (uint8_t)'b', (uint8_t)'i', (uint8_t)'n', (uint8_t)'d', (uint8_t)'e', (uint8_t)'r', (uint8_t)'_', (uint8_t)'r', (uint8_t)'a', (uint8_t)'n', (uint8_t)'g', (uint8_t)'e', 0 };
+            *fail_step_out = s_step_binder_range;
         }
         return NOXTLS_RETURN_BAD_DATA;
     }
@@ -687,7 +695,8 @@ noxtls_return_t tls13_psk_compute_external_binder(noxtls_hash_algos_t hash_algo,
                                client_hello, binder_prefix_len, transcript_hash, &transcript_len);
     if (rc != NOXTLS_RETURN_SUCCESS) {
         if (fail_step_out != NULL) {
-            *fail_step_out = (const uint8_t[]){ (uint8_t)'t', (uint8_t)'r', (uint8_t)'a', (uint8_t)'n', (uint8_t)'s', (uint8_t)'c', (uint8_t)'r', (uint8_t)'i', (uint8_t)'p', (uint8_t)'t', (uint8_t)'_', (uint8_t)'h', (uint8_t)'a', (uint8_t)'s', (uint8_t)'h', 0 };
+            static const uint8_t s_step_transcript_hash[] = { (uint8_t)'t', (uint8_t)'r', (uint8_t)'a', (uint8_t)'n', (uint8_t)'s', (uint8_t)'c', (uint8_t)'r', (uint8_t)'i', (uint8_t)'p', (uint8_t)'t', (uint8_t)'_', (uint8_t)'h', (uint8_t)'a', (uint8_t)'s', (uint8_t)'h', 0 };
+            *fail_step_out = s_step_transcript_hash;
         }
         return rc;
     }
@@ -696,14 +705,16 @@ noxtls_return_t tls13_psk_compute_external_binder(noxtls_hash_algos_t hash_algo,
     rc = noxtls_hkdf_extract(hash_algo, NULL, 0, psk, psk_len, early_secret, &prk_len);
     if (rc != NOXTLS_RETURN_SUCCESS) {
         if (fail_step_out != NULL) {
-            *fail_step_out = (const uint8_t[]){ (uint8_t)'h', (uint8_t)'k', (uint8_t)'d', (uint8_t)'f', (uint8_t)'_', (uint8_t)'e', (uint8_t)'x', (uint8_t)'t', (uint8_t)'r', (uint8_t)'a', (uint8_t)'c', (uint8_t)'t', 0 };
+            static const uint8_t s_step_hkdf_extract[] = { (uint8_t)'h', (uint8_t)'k', (uint8_t)'d', (uint8_t)'f', (uint8_t)'_', (uint8_t)'e', (uint8_t)'x', (uint8_t)'t', (uint8_t)'r', (uint8_t)'a', (uint8_t)'c', (uint8_t)'t', 0 };
+            *fail_step_out = s_step_hkdf_extract;
         }
         return rc;
     }
     rc = tls13_derive_secret(hash_algo, early_secret, hash_len, label, label_len, NULL, 0, binder_key, hash_len);
     if (rc != NOXTLS_RETURN_SUCCESS) {
         if (fail_step_out != NULL) {
-            *fail_step_out = (const uint8_t[]){ (uint8_t)'d', (uint8_t)'e', (uint8_t)'r', (uint8_t)'i', (uint8_t)'v', (uint8_t)'e', (uint8_t)'_', (uint8_t)'s', (uint8_t)'e', (uint8_t)'c', (uint8_t)'r', (uint8_t)'e', (uint8_t)'t', 0 };
+            static const uint8_t s_step_derive_secret[] = { (uint8_t)'d', (uint8_t)'e', (uint8_t)'r', (uint8_t)'i', (uint8_t)'v', (uint8_t)'e', (uint8_t)'_', (uint8_t)'s', (uint8_t)'e', (uint8_t)'c', (uint8_t)'r', (uint8_t)'e', (uint8_t)'t', 0 };
+            *fail_step_out = s_step_derive_secret;
         }
         return rc;
     }
@@ -716,7 +727,8 @@ noxtls_return_t tls13_psk_compute_external_binder(noxtls_hash_algos_t hash_algo,
     }
     if (rc != NOXTLS_RETURN_SUCCESS) {
         if (fail_step_out != NULL) {
-            *fail_step_out = (const uint8_t[]){ (uint8_t)'e', (uint8_t)'x', (uint8_t)'p', (uint8_t)'a', (uint8_t)'n', (uint8_t)'d', (uint8_t)'_', (uint8_t)'f', (uint8_t)'i', (uint8_t)'n', (uint8_t)'i', (uint8_t)'s', (uint8_t)'h', (uint8_t)'e', (uint8_t)'d', 0 };
+            static const uint8_t s_step_expand_finished[] = { (uint8_t)'e', (uint8_t)'x', (uint8_t)'p', (uint8_t)'a', (uint8_t)'n', (uint8_t)'d', (uint8_t)'_', (uint8_t)'f', (uint8_t)'i', (uint8_t)'n', (uint8_t)'i', (uint8_t)'s', (uint8_t)'h', (uint8_t)'e', (uint8_t)'d', 0 };
+            *fail_step_out = s_step_expand_finished;
         }
         return rc;
     }
@@ -724,13 +736,15 @@ noxtls_return_t tls13_psk_compute_external_binder(noxtls_hash_algos_t hash_algo,
                      computed_binder, &verify_len);
     if (rc != NOXTLS_RETURN_SUCCESS) {
         if (fail_step_out != NULL) {
-            *fail_step_out = (const uint8_t[]){ (uint8_t)'f', (uint8_t)'i', (uint8_t)'n', (uint8_t)'i', (uint8_t)'s', (uint8_t)'h', (uint8_t)'e', (uint8_t)'d', (uint8_t)'_', (uint8_t)'h', (uint8_t)'m', (uint8_t)'a', (uint8_t)'c', 0 };
+            static const uint8_t s_step_finished_hmac[] = { (uint8_t)'f', (uint8_t)'i', (uint8_t)'n', (uint8_t)'i', (uint8_t)'s', (uint8_t)'h', (uint8_t)'e', (uint8_t)'d', (uint8_t)'_', (uint8_t)'h', (uint8_t)'m', (uint8_t)'a', (uint8_t)'c', 0 };
+            *fail_step_out = s_step_finished_hmac;
         }
         return rc;
     }
     if (verify_len != hash_len) {
         if (fail_step_out != NULL) {
-            *fail_step_out = (const uint8_t[]){ (uint8_t)'v', (uint8_t)'e', (uint8_t)'r', (uint8_t)'i', (uint8_t)'f', (uint8_t)'y', (uint8_t)'_', (uint8_t)'l', (uint8_t)'e', (uint8_t)'n', 0 };
+            static const uint8_t s_step_verify_len[] = { (uint8_t)'v', (uint8_t)'e', (uint8_t)'r', (uint8_t)'i', (uint8_t)'f', (uint8_t)'y', (uint8_t)'_', (uint8_t)'l', (uint8_t)'e', (uint8_t)'n', 0 };
+            *fail_step_out = s_step_verify_len;
         }
         return NOXTLS_RETURN_FAILED;
     }

@@ -70,7 +70,6 @@ static uint8_t sha256_debug_lvl = 0U;
 static noxtls_return_t noxtls_sha256_round(noxtls_sha_ctx_t * ctx, const uint8_t * input);
 static noxtls_return_t noxtls_sha256_round_software(noxtls_sha_ctx_t * ctx, const uint8_t * input);
 static noxtls_return_t noxtls_sha256_blocks_software(noxtls_sha_ctx_t * ctx, const uint8_t * input, uint32_t block_count);
-static noxtls_return_t noxtls_sha256_pad(const uint8_t * data, uint32_t zero_pad, uint32_t len);
 
 #if NOXTLS_SHA256_CORTEXM7_AVAILABLE
 static uint8_t s_sha256_cortexm7_enabled = 1U;
@@ -564,32 +563,6 @@ noxtls_return_t noxtls_sha256_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
 	return rc;
 }
 
-/**
- * @brief Finish SHA-256 operation
- * 
- * @details this function must be called 
- * 
- *
- * @param[in] data is the HCI controller sink
- * @param[in] zero_pad is the Host Callback
- * @param[in] len is the BT HCI Callback
- *
- * @return NOXTLS_RETURN_SUCCESS on success, noxtls_return_t otherwise
- */
-/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
-static noxtls_return_t noxtls_sha256_pad(const uint8_t * data, uint32_t zero_pad, uint32_t len)
-/* NOLINTEND(bugprone-easily-swappable-parameters) */
-{
-    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
-
-    (void)data;
-    (void)zero_pad;
-    (void)len;
-    
-    
-
-    return rc;
-}
 
 /**
  * @brief Verify SHA-256

@@ -3,6 +3,9 @@ set(NOXTLS_ROOT_UT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../ut")
 if(TARGET noxtls_tls AND NOT TARGET noxtls_abi_match)
     add_subdirectory(abi_fingerprint)
 endif()
+if(TARGET noxtls_tls AND NOXTLS_CFG_FEATURE_TLS13 AND NOT TARGET psk_fail_step_test)
+    add_subdirectory(psk_fail_step)
+endif()
 if(NOXTLS_CONFIG_STATIC_MEMORY)
     # Static memory (docs/static-memory.md): the second CTest configuration. Only the
     # TLS 1.3 / DTLS 1.3 handshake suites and the static-memory tests are registered;
