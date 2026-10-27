@@ -30,6 +30,9 @@
 #include "tls/noxtls_connection_memory.h"
 #include "tls/noxtls_tls13_psk.h"
 #include "binder_vectors.h"
+#include "tls/noxtls_tls_kdf.h"
+#include "kdf/noxtls_hkdf.h"
+#include "mac/noxtls_hmac.h"
 
 #include <string.h>
 
@@ -360,6 +363,75 @@ static int test_binder_vectors(void)
                                                k_vec_identity, (uint16_t)sizeof(k_vec_identity),
                                                k_vec_psk, (uint16_t)sizeof(k_vec_psk), s_scratch, sizeof(s_scratch)),
                 NOXTLS_RETURN_AUTH_FAILED);
+    return 0;
+}
+
+/**
+ * The single-association S0 vectors, group binder (NoxADK docs/noxdfu/noxmux-v1-vectors.json,
+ * binder_dtls13_k_mgmt and the must-fail binder_tls13_prefix): every step of the external
+ * binder (RFC 8446 4.2.11.2) with the NoxTLS primitives of the binder path, "dtls13" labels
+ * (RFC 9147 5.9); the "tls13 " prefix gives the must-fail value.
+ */
+static int test_s0_binder_vector(void)
+{
+    static const uint8_t psk[32] = {
+        0x78U, 0x1CU, 0xF1U, 0xA1U, 0xAFU, 0xCDU, 0x0EU, 0xE9U, 0x3EU, 0x11U, 0xABU, 0x4FU, 0x16U, 0xA4U, 0x72U, 0xA0U,
+        0x68U, 0xB4U, 0xC9U, 0xDEU, 0xCDU, 0x08U, 0x7EU, 0x0CU, 0xD1U, 0x22U, 0xBCU, 0x89U, 0x36U, 0x25U, 0xD3U, 0x2EU
+    };
+    static const uint8_t transcript_hash[32] = {
+        0xE1U, 0xA3U, 0x2AU, 0x16U, 0x1DU, 0xDBU, 0xC9U, 0x79U, 0xB5U, 0x21U, 0x43U, 0xCDU, 0x66U, 0xACU, 0xAEU, 0x55U,
+        0x1EU, 0xE8U, 0x61U, 0x58U, 0xAAU, 0xF6U, 0x57U, 0x32U, 0xE2U, 0x96U, 0x15U, 0x05U, 0xA8U, 0x60U, 0x2AU, 0x86U
+    };
+    static const uint8_t expect_early[32] = {
+        0xB0U, 0x04U, 0xADU, 0xC2U, 0xF4U, 0xCCU, 0x5AU, 0xA1U, 0x98U, 0x67U, 0xB2U, 0x29U, 0xD2U, 0x9FU, 0x01U, 0x19U,
+        0xC0U, 0x8CU, 0xEEU, 0x8AU, 0x98U, 0xAFU, 0x0AU, 0x12U, 0xEAU, 0xC0U, 0x46U, 0x61U, 0x34U, 0x02U, 0x55U, 0xB3U
+    };
+    static const uint8_t expect_binder_key[32] = {
+        0x1EU, 0xDAU, 0x37U, 0xEFU, 0xD5U, 0x5AU, 0x2AU, 0xDBU, 0xC4U, 0xEAU, 0xA1U, 0x7AU, 0xDFU, 0x9DU, 0x83U, 0x3BU,
+        0x79U, 0xDCU, 0xA6U, 0x66U, 0x4BU, 0xB4U, 0x8FU, 0x7AU, 0xC8U, 0x05U, 0x3BU, 0x24U, 0x99U, 0x97U, 0x56U, 0x02U
+    };
+    static const uint8_t expect_finished_key[32] = {
+        0x0AU, 0x88U, 0x40U, 0xFCU, 0xB5U, 0xB3U, 0x5BU, 0x7BU, 0xABU, 0x1FU, 0x1EU, 0x62U, 0x1DU, 0x3AU, 0x24U, 0x6CU,
+        0x00U, 0x6AU, 0xAAU, 0x02U, 0xF7U, 0x77U, 0x7BU, 0xF3U, 0x3DU, 0x62U, 0x89U, 0x55U, 0x2EU, 0x95U, 0x26U, 0x53U
+    };
+    static const uint8_t expect_binder[32] = {
+        0x62U, 0x0CU, 0x64U, 0x43U, 0xB8U, 0xC0U, 0xA6U, 0x86U, 0xF2U, 0x23U, 0x48U, 0xADU, 0xDDU, 0xB3U, 0x38U, 0x4BU,
+        0x40U, 0x1EU, 0x49U, 0x31U, 0xCDU, 0xAEU, 0x88U, 0x43U, 0x32U, 0x6DU, 0x98U, 0x6FU, 0x76U, 0x02U, 0x88U, 0x6FU
+    };
+    static const uint8_t must_fail_tls13[32] = {
+        0xCCU, 0xF9U, 0x0AU, 0x2BU, 0x22U, 0x7BU, 0x6CU, 0x46U, 0xEBU, 0x1AU, 0x94U, 0xCAU, 0x4CU, 0x8AU, 0x05U, 0x86U,
+        0xBFU, 0xFBU, 0x1BU, 0x9AU, 0xFBU, 0x31U, 0x5BU, 0xEDU, 0xFCU, 0x2EU, 0x90U, 0xC8U, 0xA3U, 0x11U, 0x59U, 0x90U
+    };
+    static const uint8_t ext_binder[] = "ext binder";
+    static const uint8_t finished[] = "finished";
+    uint8_t early[32];
+    uint8_t binder_key[32];
+    uint8_t finished_key[32];
+    uint8_t out[32];
+    uint32_t len = sizeof(early);
+
+    LB_CHECK_OK(noxtls_hkdf_extract(NOXTLS_HASH_SHA_256, NULL, 0U, psk, sizeof(psk), early, &len));
+    LB_CHECK(memcmp(early, expect_early, sizeof(early)) == 0);
+    LB_CHECK_OK(dtls13_derive_secret(NOXTLS_HASH_SHA_256, early, 32U, ext_binder, (uint32_t)(sizeof(ext_binder) - 1U),
+                                     NULL, 0U, binder_key, 32U));
+    LB_CHECK(memcmp(binder_key, expect_binder_key, sizeof(binder_key)) == 0);
+    LB_CHECK_OK(dtls13_hkdf_expand_label(NOXTLS_HASH_SHA_256, binder_key, 32U, finished, (uint32_t)(sizeof(finished) - 1U),
+                                         NULL, 0U, finished_key, 32U));
+    LB_CHECK(memcmp(finished_key, expect_finished_key, sizeof(finished_key)) == 0);
+    len = sizeof(out);
+    LB_CHECK_OK(noxtls_hmac_compute(NOXTLS_HASH_SHA_256, finished_key, 32U, transcript_hash, sizeof(transcript_hash),
+                                    out, &len));
+    LB_CHECK(memcmp(out, expect_binder, sizeof(out)) == 0);
+    /* The "tls13 " prefix: the value a DTLS 1.3 server must refuse. */
+    LB_CHECK_OK(tls13_derive_secret(NOXTLS_HASH_SHA_256, early, 32U, ext_binder, (uint32_t)(sizeof(ext_binder) - 1U),
+                                    NULL, 0U, binder_key, 32U));
+    LB_CHECK_OK(tls13_hkdf_expand_label(NOXTLS_HASH_SHA_256, binder_key, 32U, finished, (uint32_t)(sizeof(finished) - 1U),
+                                        NULL, 0U, finished_key, 32U));
+    len = sizeof(out);
+    LB_CHECK_OK(noxtls_hmac_compute(NOXTLS_HASH_SHA_256, finished_key, 32U, transcript_hash, sizeof(transcript_hash),
+                                    out, &len));
+    LB_CHECK(memcmp(out, must_fail_tls13, sizeof(out)) == 0);
+    LB_CHECK(memcmp(out, expect_binder, sizeof(out)) != 0);
     return 0;
 }
 
@@ -1103,6 +1175,7 @@ static const lb_test_case_t s_cases[] = {
     { "sa_zero_allocation", test_zero_allocation },
     { "sa_ch1_hash_vector", test_ch1_hash_vector },
     { "sa_binder_vectors", test_binder_vectors },
+    { "sa_s0_binder_vector", test_s0_binder_vector },
 };
 
 int main(int argc, char **argv)
