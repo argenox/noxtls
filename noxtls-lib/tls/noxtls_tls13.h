@@ -22,6 +22,7 @@
 #ifndef NOXTLS_TLS13_H_
 #define NOXTLS_TLS13_H_
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "noxtls_common.h"
@@ -195,6 +196,8 @@ struct tls13_hs_state_s
     uint32_t client_tls12_downgrade_server_hello_len;
     uint8_t awaiting_hrr_client_hello; /* Server sent HRR and expects second ClientHello */
     uint16_t hrr_selected_group;     /* RFC 8446 §4.2.8: NamedGroup selected by the HRR key_share (0 = none) */
+    /** RFC 8446 §4.1.4: cipher_suite of a stateless HelloRetryRequest that the ServerHello must repeat (0 = none). */
+    uint16_t hrr_cipher_suite;
     /** RFC 8446 §4.1.2: second ClientHello must use the same extension order as the first; wire types in order (TLS server HRR path). */
     uint16_t *hrr_first_clienthello_ext_order;
     uint32_t hrr_first_clienthello_ext_order_count;
@@ -267,6 +270,9 @@ struct tls13_hs_state_s
 };
 NOXTLS_MSVC_WARNING_POP
 typedef struct tls13_hs_state_s tls13_hs_state_t;
+
+/** Client: callback that receives the cookie of a DTLS 1.3 HelloRetryRequest (noxtls_dtls13_set_hrr_observer()). */
+typedef void (*noxtls_dtls13_hrr_observer_fn)(void *arg, const uint8_t *cookie, uint16_t len);
 
 /* TLS 1.3 Context */
 NOXTLS_MSVC_WARNING_PUSH
@@ -467,6 +473,20 @@ struct tls13_context_s
     uint8_t own_spare_connection_id_count;
     uint8_t cid_request_outstanding;
     uint8_t cid_new_outstanding;
+    /** 1: the server sends own_connection_id (noxtls_dtls13_set_own_connection_id()) instead of echoing the client's. */
+    uint8_t own_connection_id_fixed;
+    /** RFC 9146 6: the last ciphertext record consumed by accept/recv, and whether it was the newest. */
+    uint8_t last_record_consumed;
+    uint8_t last_record_newest;
+    uint8_t newest_record_valid;
+    uint64_t newest_record_epoch;    /* Full epoch of the newest record accepted so far */
+    uint64_t newest_record_seq;      /* Its record number */
+    /** Client: noxtls_dtls13_set_hrr_observer() callback and argument. */
+    noxtls_dtls13_hrr_observer_fn hrr_observer;
+    void *hrr_observer_arg;
+    /** Server cookie exchange: 0 = NoxTLS cookie HelloRetryRequest (default), 1 = none
+     *  (noxtls_dtls13_set_cookie_exchange()), 2 = the caller verified a stateless cookie. */
+    uint8_t dtls_cookie_mode;
 #endif
 
     /* DTLS 1.3 record workspace (inner plaintext + DTLSCiphertext), allocated on first DTLS use.
@@ -492,6 +512,13 @@ struct tls13_context_s
     /* Consecutive empty app-data records / warning alerts (BoringSSL-compatible limits). */
     uint8_t empty_record_count;
     uint8_t warning_alert_count;
+
+    /** RFC 8446 4.2.11: identity of the PSK the handshake selected, kept after the
+     *  handshake state is released (noxtls_tls13_selected_psk_identity()). */
+    uint8_t selected_psk_identity[NOXTLS_TLS13_SELECTED_PSK_IDENTITY_MAX];
+    uint16_t selected_psk_identity_len;
+    /** 0: none selected, 1: kept, 2: longer than NOXTLS_TLS13_SELECTED_PSK_IDENTITY_MAX. */
+    uint8_t selected_psk_identity_state;
 };
 #ifndef NOXTLS_TLS13_CONTEXT_T_DEFINED
 #define NOXTLS_TLS13_CONTEXT_T_DEFINED
@@ -750,6 +777,160 @@ noxtls_return_t noxtls_tls13_export_keying_material(
 
 /** RFC 8449: Set record size limit we advertise (max plaintext we are willing to receive). 0 = use default (16384). Call before handshake. */
 void noxtls_tls13_set_record_size_limit(tls13_context_t *ctx, uint16_t limit);
+
+/* ---- Single-association support: DTLS 1.3 connection ID, stateless HelloRetryRequest
+ *      and handshake-state release.
+ *      Error codes: NOXTLS_RETURN_INVALID_PARAM (bad parameter), NOXTLS_RETURN_BAD_DATA
+ *      (malformed input), NOXTLS_RETURN_BUFFER_TOO_SMALL, NOXTLS_RETURN_AUTH_FAILED (binder),
+ *      NOXTLS_RETURN_BAD_STATE (connection state). */
+
+/** Largest cookie accepted by noxtls_dtls13_stateless_hrr() and the second-ClientHello calls. */
+#define NOXTLS_DTLS13_STATELESS_COOKIE_MAX 255U
+/** HelloRetryRequest handshake message without its cookie bytes: header, version, random,
+ *  longest legacy_session_id, suite, compression, extensions length and the
+ *  supported_versions, key_share and cookie extensions without the cookie. */
+#define NOXTLS_DTLS13_HRR_MESSAGE_FIXED_MAX 94U
+/** Bytes of a stateless HelloRetryRequest datagram (record and DTLS handshake headers). */
+#define NOXTLS_DTLS13_STATELESS_HRR_MAX(cookie_len) \
+    (13U + 8U + NOXTLS_DTLS13_HRR_MESSAGE_FIXED_MAX + (uint32_t)(cookie_len))
+/** Scratch that noxtls_dtls13_ch2_binder_check() needs for a second ClientHello datagram. */
+#define NOXTLS_DTLS13_CH2_BINDER_SCRATCH(ch2_len, cookie_len) \
+    ((uint32_t)(ch2_len) + 36U + NOXTLS_DTLS13_HRR_MESSAGE_FIXED_MAX + (uint32_t)(cookie_len))
+
+/**
+ * N1. Server: use @p cid as this endpoint's DTLS 1.3 connection ID (RFC 9146 Section 3;
+ * RFC 9147 Sections 4 and 9; the extension is carried in ClientHello and ServerHello,
+ * RFC 9146 Section 3 and RFC 9147 Section 9.1). Call after context init and before accept.
+ * The ServerHello connection_id extension then carries @p cid instead of an echo of the
+ * client's value, the CID the client offers (possibly empty) becomes peer_connection_id,
+ * and received unified headers with the C bit are parsed with the length of @p cid. When
+ * the client does not offer the extension no CID is negotiated (own_connection_id_len
+ * becomes 0). A client needs no call: it offers an empty CID and puts the server's CID in
+ * every ciphertext record it sends.
+ * @return NOXTLS_RETURN_SUCCESS; NOXTLS_RETURN_INVALID_PARAM for a NULL argument, a length
+ *         of 0 or above 32, a client or non-DTLS 1.3 context, or once the handshake started.
+ */
+noxtls_return_t noxtls_dtls13_set_own_connection_id(tls13_context_t *ctx, const uint8_t *cid, uint8_t cid_len);
+
+/**
+ * N2. true when the last ciphertext record that the latest noxtls_tls13_accept() or
+ * noxtls_tls13_recv() call consumed authenticated and is newer, in epoch and record number,
+ * than every record accepted before it (RFC 9146 Section 6; RFC 9147 Sections 4.2.2 and
+ * 4.5.1). false when that call consumed no ciphertext record (a replayed or invalid one is
+ * not consumed).
+ */
+bool noxtls_dtls13_last_record_is_newest(const tls13_context_t *ctx);
+
+/**
+ * N3a. Build a complete epoch-0 HelloRetryRequest datagram for the ClientHello datagram
+ * @p ch1 without any context (RFC 9147 Section 5.1; RFC 8446 Sections 4.1.4 and 4.2.2).
+ * The message echoes legacy_session_id, selects @p cipher_suite (a SHA-256 TLS 1.3 suite
+ * that CH1 offers), carries a key_share for @p group when it is not 0 (a group CH1 lists in
+ * supported_groups without a share, RFC 8446 Section 4.2.8) and the @p cookie extension.
+ * The record reuses CH1's record sequence number and the handshake message CH1's
+ * message_seq. noxtls_dtls13_ch2_binder_check() and noxtls_dtls13_accept_after_stateless_hrr()
+ * rebuild the same message from the second ClientHello with the same @p cipher_suite and
+ * @p group.
+ * @param[in] ch1 Datagram holding exactly one unfragmented ClientHello record.
+ * @param[out] out Datagram; NOXTLS_DTLS13_STATELESS_HRR_MAX(cookie_len) bytes always suffice.
+ * @return NOXTLS_RETURN_SUCCESS; NOXTLS_RETURN_INVALID_PARAM for a NULL pointer, an empty or
+ *         too long cookie, or a suite or group that CH1 does not allow; NOXTLS_RETURN_BAD_DATA
+ *         for a malformed CH1; NOXTLS_RETURN_BUFFER_TOO_SMALL when @p cap is short (*out_len
+ *         is then the size needed).
+ */
+noxtls_return_t noxtls_dtls13_stateless_hrr(const uint8_t *ch1, uint32_t ch1_len,
+                                            const uint8_t *cookie, uint16_t cookie_len,
+                                            uint16_t cipher_suite, uint16_t group,
+                                            uint8_t *out, uint32_t cap, uint32_t *out_len);
+
+/**
+ * N3b. Client: call @p fn synchronously with the cookie of every DTLS 1.3 HelloRetryRequest,
+ * before the second ClientHello is sent (NULL and 0 when the HelloRetryRequest carries no
+ * cookie). @p fn NULL removes the observer.
+ * @return NOXTLS_RETURN_SUCCESS; NOXTLS_RETURN_INVALID_PARAM for a NULL @p ctx or a server or
+ *         non-DTLS 1.3 context.
+ */
+noxtls_return_t noxtls_dtls13_set_hrr_observer(tls13_context_t *ctx, noxtls_dtls13_hrr_observer_fn fn, void *arg);
+
+/**
+ * SHA-256 over the msg_type, length and body of the ClientHello in a datagram, without
+ * message_seq and the fragment fields (the transcript form, RFC 9147 Section 5.2): the value
+ * of the synthetic message_hash (RFC 8446 Section 4.4.1) that noxtls_dtls13_ch2_binder_check()
+ * and noxtls_dtls13_accept_after_stateless_hrr() take as @p ch1_hash. Only the framing is
+ * checked: one epoch-0 record holding one unfragmented ClientHello.
+ * @return NOXTLS_RETURN_SUCCESS; NOXTLS_RETURN_INVALID_PARAM; NOXTLS_RETURN_BAD_DATA.
+ */
+noxtls_return_t noxtls_dtls13_client_hello_hash(const uint8_t *ch, uint32_t ch_len, uint8_t hash[32]);
+
+/**
+ * N4a. Verify the external PSK binder of the second ClientHello datagram @p ch2 for
+ * @p identity and @p psk over message_hash(CH1) || HelloRetryRequest || Truncate(CH2)
+ * (RFC 8446 Sections 4.2.11.2 and 4.4.1). The HelloRetryRequest is rebuilt from CH2
+ * (legacy_session_id, cookie) and the @p cipher_suite and @p group that were given to
+ * noxtls_dtls13_stateless_hrr(). No context is touched, nothing is allocated, and only
+ * @p scratch is written: NOXTLS_DTLS13_CH2_BINDER_SCRATCH(len, cookie length) bytes, wiped
+ * before the call returns.
+ * @return NOXTLS_RETURN_SUCCESS when the binder verifies; NOXTLS_RETURN_AUTH_FAILED for a
+ *         wrong binder or an identity CH2 does not offer; NOXTLS_RETURN_BAD_DATA for a
+ *         malformed CH2 (no cookie, or a suite or key_share that contradicts the
+ *         HelloRetryRequest); NOXTLS_RETURN_BUFFER_TOO_SMALL; NOXTLS_RETURN_INVALID_PARAM.
+ */
+noxtls_return_t noxtls_dtls13_ch2_binder_check(const uint8_t *ch2, uint32_t len,
+                                               const uint8_t ch1_hash[32],
+                                               uint16_t cipher_suite, uint16_t group,
+                                               const uint8_t *identity, uint16_t identity_len,
+                                               const uint8_t *psk, uint16_t psk_len,
+                                               uint8_t *scratch, uint32_t scratch_len);
+
+/**
+ * N4b. Server: on a freshly initialized DTLS 1.3 context with its external PSK installed,
+ * seed the transcript with message_hash(CH1) and the HelloRetryRequest that
+ * noxtls_dtls13_stateless_hrr() built (rebuilt from @p ch2 with @p cipher_suite and
+ * @p group), then process the second ClientHello datagram @p ch2 as noxtls_tls13_accept()
+ * does. The caller verified the cookie, so the peer counts as validated (RFC 9147 Section
+ * 5.1). The ServerHello repeats @p cipher_suite (RFC 8446 Section 4.1.4) and continues the
+ * record and message sequence numbers after the HelloRetryRequest. Later calls use
+ * noxtls_tls13_accept().
+ * @return As noxtls_tls13_accept(); NOXTLS_RETURN_INVALID_PARAM when @p ctx is not a fresh
+ *         DTLS 1.3 server context or a parameter is invalid; NOXTLS_RETURN_BAD_DATA for a
+ *         malformed @p ch2.
+ */
+noxtls_return_t noxtls_dtls13_accept_after_stateless_hrr(tls13_context_t *ctx, const uint8_t ch1_hash[32],
+                                                         uint16_t cipher_suite, uint16_t group,
+                                                         const uint8_t *ch2, uint32_t len);
+
+/**
+ * Server: run (@p enabled 1, the default) or skip (0) the NoxTLS DTLS 1.3 cookie exchange
+ * (RFC 9147 Section 5.1). With 0, a ClientHello that needs no other HelloRetryRequest is
+ * answered with the ServerHello at once; an application that admits clients itself (with
+ * noxtls_dtls13_stateless_hrr() when it needs a cookie) uses it. Call before accept.
+ * @return NOXTLS_RETURN_SUCCESS; NOXTLS_RETURN_INVALID_PARAM for a NULL, client or
+ *         non-DTLS 1.3 context, or once the handshake started.
+ */
+noxtls_return_t noxtls_dtls13_set_cookie_exchange(tls13_context_t *ctx, uint8_t enabled);
+
+/**
+ * N5a. After the handshake completed, release the handshake state now: the handshake
+ * secrets, transcript, key shares, PSK and handshake workspace are wiped and returned
+ * (static memory: the whole handshake part, see noxtls_connection_memory_handshake_region()).
+ * The application traffic keys, the selected PSK identity and exporter_master_secret stay,
+ * so recv, send, KeyUpdate, ACK and noxtls_tls13_export_keying_material() still work
+ * (RFC 8446 Section 7.5). A late epoch-2 record (a retransmitted Finished) is discarded
+ * afterwards, except by a static-memory DTLS server, which keeps its epoch-2 read key.
+ * Idempotent.
+ * @return NOXTLS_RETURN_SUCCESS; NOXTLS_RETURN_INVALID_PARAM for NULL; NOXTLS_RETURN_BAD_STATE
+ *         when not connected, or for a DTLS client whose final flight is not yet acknowledged.
+ */
+noxtls_return_t noxtls_tls13_release_handshake_state(tls13_context_t *ctx);
+
+/**
+ * N5b. Identity of the PSK the handshake selected (external PSK identity or ticket identity),
+ * valid before and after noxtls_tls13_release_handshake_state() until the context is freed.
+ * @return NOXTLS_RETURN_SUCCESS; NOXTLS_RETURN_INVALID_PARAM for NULL; NOXTLS_RETURN_BAD_STATE
+ *         when no PSK was selected; NOXTLS_RETURN_BUFFER_TOO_SMALL when the identity was longer
+ *         than NOXTLS_TLS13_SELECTED_PSK_IDENTITY_MAX and was not kept.
+ */
+noxtls_return_t noxtls_tls13_selected_psk_identity(const tls13_context_t *ctx, const uint8_t **id, uint16_t *len);
 
 /* TLS 1.3 Client Handshake Functions */
 noxtls_return_t noxtls_tls13_send_client_hello(tls13_context_t *ctx);

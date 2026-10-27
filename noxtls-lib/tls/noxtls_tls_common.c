@@ -759,6 +759,15 @@ const char *noxtls_tls_return_name(noxtls_return_t rc)
         case NOXTLS_RETURN_KEY_EXHAUSTED:
             name = "KEY_EXHAUSTED";
             break;
+        case NOXTLS_RETURN_BUFFER_TOO_SMALL:
+            name = "BUFFER_TOO_SMALL";
+            break;
+        case NOXTLS_RETURN_AUTH_FAILED:
+            name = "AUTH_FAILED";
+            break;
+        case NOXTLS_RETURN_BAD_STATE:
+            name = "BAD_STATE";
+            break;
         default:
             name = "UNKNOWN";
             break;

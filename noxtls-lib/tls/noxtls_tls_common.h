@@ -919,6 +919,12 @@ uint32_t noxtls_tls_alpn_write_selected_extension(const uint8_t *protocol,
 }
 #endif
 
+/** Longest selected PSK identity kept in the context after the handshake (noxtls_tls13_selected_psk_identity());
+ * defined before noxtls_abi.h, whose fingerprint covers it. */
+#ifndef NOXTLS_TLS13_SELECTED_PSK_IDENTITY_MAX
+#define NOXTLS_TLS13_SELECTED_PSK_IDENTITY_MAX 64U
+#endif
+
 /* Every translation unit that sees the TLS contexts requires this layout's
  * fingerprint symbol; a stale or misconfigured one fails to link. */
 #include "noxtls_abi.h"

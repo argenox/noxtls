@@ -1912,6 +1912,35 @@ static void dtls_rx_stash_remainder(dtls_context_t *ctx, const uint8_t *rest, ui
 }
 
 /**
+ * @brief Queue a datagram that the application already received, to be read before the transport.
+ *
+ * Used to hand the record layer a datagram the application inspected first (a second
+ * ClientHello after a stateless HelloRetryRequest). It is read by the next receive exactly
+ * as if the transport had returned it.
+ *
+ * @param[in,out] ctx The context value.
+ * @param[in] dgram The datagram.
+ * @param[in] len Its length (at most DTLS_MAX_RECORD_DATAGRAM).
+ * @return NOXTLS_RETURN_SUCCESS; NOXTLS_RETURN_NULL; NOXTLS_RETURN_INVALID_PARAM for a length out
+ *         of range; NOXTLS_RETURN_BAD_STATE when unread datagram bytes are pending;
+ *         NOXTLS_RETURN_NOT_ENOUGH_MEMORY when the datagram cannot be kept.
+ */
+noxtls_return_t noxtls_dtls_inject_datagram(dtls_context_t *ctx, const uint8_t *dgram, uint32_t len)
+{
+    if((ctx == NULL) || (dgram == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if((len < DTLS_RECORD_HEADER_SIZE) || (len > (uint32_t)DTLS_MAX_RECORD_DATAGRAM)) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    if(ctx->rx_datagram != NULL) {
+        return NOXTLS_RETURN_BAD_STATE;
+    }
+    dtls_rx_stash_remainder(ctx, dgram, len);
+    return (ctx->rx_datagram != NULL) ? NOXTLS_RETURN_SUCCESS : NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+}
+
+/**
  * @brief Read the next datagram (or the unread rest of the last one) into @p packet.
  *
  * Handles the retransmission timer while the transport has no data.

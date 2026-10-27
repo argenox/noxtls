@@ -55,7 +55,7 @@
  */
 
 /** Revision of the public context layout; raise it with any change to one. */
-#define NOXTLS_ABI_REVISION 1U
+#define NOXTLS_ABI_REVISION 2U
 
 /* The knob fingerprint is a weighted sum of terms, which #if evaluates in
  * uintmax_t without overflow. */
@@ -344,6 +344,11 @@
 #else
 #define NOXTLS_ABI_K_NOXTLS_FEATURE_FALCON 0U
 #endif
+#if defined(NOXTLS_TLS13_SELECTED_PSK_IDENTITY_MAX)
+#define NOXTLS_ABI_K_NOXTLS_TLS13_SELECTED_PSK_IDENTITY_MAX ((NOXTLS_TLS13_SELECTED_PSK_IDENTITY_MAX) + 1U)
+#else
+#define NOXTLS_ABI_K_NOXTLS_TLS13_SELECTED_PSK_IDENTITY_MAX 0U
+#endif
 
 /** Knob fingerprint as this translation unit sees it, 16 bits. */
 #define NOXTLS_ABI_KNOBS ((2166136261U + \
@@ -386,7 +391,8 @@
     ((NOXTLS_ABI_K_NOXTLS_FEATURE_ML_KEM) * 0xF936C5ABU) + \
     ((NOXTLS_ABI_K_NOXTLS_FEATURE_ML_DSA) * 0x314B2EFDU) + \
     ((NOXTLS_ABI_K_NOXTLS_FEATURE_SLH_DSA) * 0x55E2CE4FU) + \
-    ((NOXTLS_ABI_K_NOXTLS_FEATURE_FALCON) * 0x5043610FU)) & 0xFFFFU)
+    ((NOXTLS_ABI_K_NOXTLS_FEATURE_FALCON) * 0x5043610FU) + \
+    ((NOXTLS_ABI_K_NOXTLS_TLS13_SELECTED_PSK_IDENTITY_MAX) * 0x2E62AA45U)) & 0xFFFFU)
 
 /* Hexadecimal digits of the knob fingerprint, most significant first. */
 /** Hexadecimal digit of four bits, most significant first. */

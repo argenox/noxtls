@@ -55,6 +55,47 @@ NoxTLS keeps transport ownership with the caller. The DTLS stack calls the confi
 
 Before the peer is validated, servers can use [noxtls_dtls_set_anti_amplification_limit](./api/dtls#noxtls_dtls_set_anti_amplification_limit). A peer is considered validated after cookie validation or by explicitly calling [noxtls_dtls_mark_validated](./api/dtls#noxtls_dtls_mark_validated) when the application has out-of-band address validation.
 
+## Single-Association Servers
+
+A server that holds one association at a time and admits clients itself (for example a
+device that must not lose its current session to a stray ClientHello) can take the
+admission decision outside the context. The calls are in `noxtls_tls13.h`; none of them
+allocates.
+
+| Call | Purpose | Reference |
+|------|---------|-----------|
+| `noxtls_dtls13_set_own_connection_id()` | Server: send its own CID in the ServerHello instead of echoing the client's; incoming records are parsed with its length | RFC 9146 Section 3, RFC 9147 Sections 4 and 9 |
+| `noxtls_dtls13_last_record_is_newest()` | After `accept`/`recv`: the last record authenticated and is newer in epoch and record number than any before (the condition for a peer address update) | RFC 9146 Section 6 |
+| `noxtls_dtls13_set_cookie_exchange()` | Server: skip the NoxTLS cookie HelloRetryRequest, so a ClientHello is answered with the ServerHello at once | RFC 9147 Section 5.1 |
+| `noxtls_dtls13_client_hello_hash()` | SHA-256 of a ClientHello datagram as the transcript's `message_hash` holds it | RFC 8446 Section 4.4.1, RFC 9147 Section 5.2 |
+| `noxtls_dtls13_stateless_hrr()` | Build a HelloRetryRequest datagram with a cookie, without a context | RFC 9147 Section 5.1, RFC 8446 Sections 4.1.4 and 4.2.2 |
+| `noxtls_dtls13_ch2_binder_check()` | Verify the second ClientHello's PSK binder over `message_hash(CH1)`, the HelloRetryRequest and CH2, in caller scratch | RFC 8446 Sections 4.2.11.2 and 4.4.1 |
+| `noxtls_dtls13_accept_after_stateless_hrr()` | Continue a fresh server context from the second ClientHello | RFC 8446 Section 4.1.4 |
+| `noxtls_dtls13_set_hrr_observer()` | Client: see the cookie of a HelloRetryRequest before the second ClientHello is sent | RFC 9147 Section 5.1 |
+| `noxtls_tls13_release_handshake_state()` | Release the handshake state of a connected context now; traffic keys and `exporter_master_secret` stay | RFC 8446 Section 7.5 |
+| `noxtls_tls13_selected_psk_identity()` | The selected PSK identity, before and after the release | RFC 8446 Section 4.2.11 |
+
+The stateless HelloRetryRequest is a function of the echoed `legacy_session_id`, the
+cookie, the cipher suite (a SHA-256 TLS 1.3 suite) and the group (0 for none), so the
+binder check and the accept rebuild it from the second ClientHello: pass them the same
+suite and group as `noxtls_dtls13_stateless_hrr()`. The cookie format and its checks
+(expiry, address binding, single use) belong to the application.
+
+```c
+/* First ClientHello (no cookie): answer statelessly. */
+noxtls_dtls13_client_hello_hash(ch1, ch1_len, ch1_hash);
+/* ... build a cookie that carries ch1_hash and binds the peer address ... */
+noxtls_dtls13_stateless_hrr(ch1, ch1_len, cookie, cookie_len, suite, 0U, hrr, sizeof(hrr), &hrr_len);
+
+/* Second ClientHello: check the cookie, then the binder, then hand it to a fresh context. */
+if(noxtls_dtls13_ch2_binder_check(ch2, ch2_len, ch1_hash, suite, 0U, identity, identity_len,
+                                  psk, psk_len, scratch, sizeof(scratch)) == NOXTLS_RETURN_SUCCESS) {
+    noxtls_dtls13_set_own_connection_id(&ctx, cid, sizeof(cid));
+    rc = noxtls_dtls13_accept_after_stateless_hrr(&ctx, ch1_hash, suite, 0U, ch2, ch2_len);
+    /* then noxtls_tls13_accept(&ctx) until connected, as usual */
+}
+```
+
 ## API References
 
 - [DTLS common API](./api/dtls) — MTU, retransmission, ACK limits, cookies, replay helpers, and base context.

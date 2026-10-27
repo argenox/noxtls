@@ -2694,6 +2694,25 @@ noxtls_return_t noxtls_tls13_decrypt_dtls13_record(tls13_context_t *ctx,
         ctx->base.highest_recv_seq[(epoch & DTLS13_UNIFIED_EPOCH_MASK)] = full_seq;
         ctx->base.highest_recv_seq_valid[(epoch & DTLS13_UNIFIED_EPOCH_MASK)] = 1U;
     }
+    {
+        /*
+         * RFC 9146 6: a peer address may follow only a record that is newer, in epoch and
+         * record number, than every record received before (noxtls_dtls13_last_record_is_newest()).
+         * A late handshake-epoch record after the application keys is never the newest.
+         */
+        const uint64_t full_epoch = (use_handshake != 0U) ? (uint64_t)DTLS13_EPOCH_HANDSHAKE :
+                                                            ctx->base.read_connection_epoch;
+        const uint8_t newest = ((ctx->newest_record_valid == 0U) || (full_epoch > ctx->newest_record_epoch) ||
+                                ((full_epoch == ctx->newest_record_epoch) && (full_seq > ctx->newest_record_seq))) ?
+                               1U : 0U;
+        if(newest != 0U) {
+            ctx->newest_record_epoch = full_epoch;
+            ctx->newest_record_seq = full_seq;
+            ctx->newest_record_valid = 1U;
+        }
+        ctx->last_record_consumed = 1U;
+        ctx->last_record_newest = newest;
+    }
     ctx->base.read_seq_num = full_seq + 1U;
     return NOXTLS_RETURN_SUCCESS;
 }

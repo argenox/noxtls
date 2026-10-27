@@ -133,6 +133,9 @@ typedef uint32_t noxtls_return_t;
 #define NOXTLS_RETURN_ECDH_SHARED_POINT_INFINITY      ((noxtls_return_t)40U) /**< ECDH result was the point at infinity. */
 #define NOXTLS_RETURN_DTLS_RECORD_REPLAYED           ((noxtls_return_t)41U) /**< DTLS record is duplicate or older than the replay window; discard without closing. */
 #define NOXTLS_RETURN_KEY_EXHAUSTED                  ((noxtls_return_t)42U) /**< Stateful signature key (LMS/HSS, XMSS) has no one-time keys left. */
+#define NOXTLS_RETURN_BUFFER_TOO_SMALL               ((noxtls_return_t)43U) /**< An output or scratch buffer is smaller than the result needs. */
+#define NOXTLS_RETURN_AUTH_FAILED                    ((noxtls_return_t)44U) /**< An authentication check failed (for example a PSK binder). */
+#define NOXTLS_RETURN_BAD_STATE                      ((noxtls_return_t)45U) /**< The call is not valid in the current connection state. */
 
 /** @} */
 
