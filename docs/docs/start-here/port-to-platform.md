@@ -33,6 +33,15 @@ target_link_libraries(your_app PRIVATE noxtls_tls noxtls_pkc noxtls_common)
 # Link only the targets your app needs — see noxtls/CMakeLists.txt
 ```
 
+A target that links the NoxTLS targets compiles the NoxTLS headers with the library's
+configuration, whatever its own compile definitions say. The `NOXTLS_*` settings
+(features, static memory and its profile, the ABI layout id) are written to
+`noxtls_build_config/noxtls_build_config.h` in the build tree, and the NoxTLS targets
+pass `NOXTLS_BUILD_CONFIG=1` and that directory to every consumer outside the NoxTLS
+source tree; `noxtls_config.h` includes the header first. A source compiled without the
+NoxTLS targets (no `target_link_libraries`) does not get it and must use the same
+definitions itself, or it fails to link on the ABI fingerprint (`noxtls_abi_*`).
+
 For library-only firmware:
 
 ```bash

@@ -495,6 +495,10 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/noxtls_abi.cmake")
 noxtls_abi_layout_hash(NOXTLS_ABI_LAYOUT_HASH_VALUE)
 add_compile_definitions(NOXTLS_ABI_LAYOUT_ID=${NOXTLS_ABI_LAYOUT_HASH_VALUE})
 
+# The definitions above for consumers outside this tree (cmake/noxtls_build_config.cmake).
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/noxtls_build_config.cmake")
+noxtls_build_config_generate()
+
 # Library components
 add_subdirectory(noxtls-lib/common)
 # nRF54L CRACEN drivers: the full backend (NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL) or
@@ -629,6 +633,10 @@ if(_noxtls_build_applications_in_tree)
   add_subdirectory(applications/prime)
   add_subdirectory(applications/sha)
 endif()
+
+# Consumers outside this tree compile with the library's configuration.
+noxtls_build_config_export(noxtls_common noxtls_utility noxtls_hash noxtls_sha3 noxtls_mac noxtls_kdf
+  noxtls_encryption noxtls_drbg noxtls_pkc noxtls_pake noxtls_certificates noxtls_cert noxtls_tls)
 
 # Install SDK (libraries, headers, CLIs, CMake package, pkg-config)
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/NoxTLSInstall.cmake")

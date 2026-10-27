@@ -10,6 +10,9 @@ add_executable(noxtls_abi_match abi_consumer.c)
 target_link_libraries(noxtls_abi_match PRIVATE noxtls_tls)
 add_test(NAME noxtls_abi_match COMMAND noxtls_abi_match)
 
+# A consumer with mismatched directory definitions gets the library's configuration.
+add_subdirectory(outside_consumer)
+
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang" AND NOT CMAKE_CROSSCOMPILING)
   get_directory_property(_defs DIRECTORY "${NOXTLS_PROJECT_ROOT}" COMPILE_DEFINITIONS)
   get_directory_property(_incs DIRECTORY "${NOXTLS_PROJECT_ROOT}" INCLUDE_DIRECTORIES)

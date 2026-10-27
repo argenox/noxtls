@@ -55,6 +55,18 @@
 #define NOXTLS_APP_STATIC_BUFFER_SIZE (128U * 1024U)
 #endif
 
+/* NOXTLS_BUILD_CONFIG
+ *
+ * Defined to 1 by the NoxTLS CMake library targets for every consumer outside the
+ * NoxTLS source tree (cmake/noxtls_build_config.cmake). noxtls_build_config.h, generated
+ * in the build tree, repeats the NOXTLS_* settings the library is built with and
+ * replaces the consumer's own, so the consumer compiles these headers with the
+ * library's configuration.
+ */
+#if defined(NOXTLS_BUILD_CONFIG) && (NOXTLS_BUILD_CONFIG != 0)
+#include "noxtls_build_config.h"
+#endif
+
 /* NOXTLS_STATIC_MEMORY_PROFILE
  *
  * Optional header (quoted path, for example

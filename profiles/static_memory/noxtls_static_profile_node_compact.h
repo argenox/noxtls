@@ -55,6 +55,7 @@
 #endif
 #endif
 
-#include "profiles/static_memory/noxtls_static_profile_node.h"
+/* Relative to this header's directory: the NoxTLS root need not be on the include path. */
+#include "noxtls_static_profile_node.h"
 
 #endif /* NOXTLS_STATIC_PROFILE_NODE_COMPACT_H_ */
