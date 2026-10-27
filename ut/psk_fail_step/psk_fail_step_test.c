@@ -60,7 +60,7 @@ static void check_step(const char *name, noxtls_hash_algos_t hash, const uint8_t
 {
     uint8_t binder[64];
     const uint8_t *step = NULL;
-    noxtls_return_t rc = tls13_psk_compute_external_binder(hash, psk, (psk != NULL) ? 32U : 0U,
+    noxtls_return_t rc = tls13_psk_compute_external_binder(hash, 0U, psk, (psk != NULL) ? 32U : 0U,
                                                            hello, hello_len, binder_offset, binder_len,
                                                            binder, NULL, 0U, &step);
     (void)scribble_stack(0xA5U);

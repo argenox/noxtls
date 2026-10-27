@@ -268,6 +268,8 @@ static noxtls_return_t tls13_derive_handshake_keys(tls13_context_t *ctx,
                                                    const uint8_t *shared_secret,
                                                    uint32_t shared_secret_len);
 static int tls13_is_dtls(const tls13_context_t *ctx);
+/* 1 when the context uses the DTLS 1.3 HKDF label prefix "dtls13" (RFC 9147 Section 5.9). */
+#define TLS13_LABEL_DTLS(ctx) ((tls13_is_dtls(ctx) != 0) ? 1U : 0U)
 static uint32_t tls13_rx_inner_limit(const tls13_context_t *ctx);
 static uint8_t tls13_diag_applies(const tls13_context_t *ctx);
 static void tls13_diag_note_record(const tls13_context_t *ctx, noxtls_return_t rc, const tls_record_t *record);
@@ -2197,8 +2199,8 @@ static noxtls_return_t tls13_transcript_capture_resumption_secret(tls13_context_
     }
     rc = tls13_transcript_hash(ctx, hash_algo, transcript_hash, &transcript_len);
     if(rc == NOXTLS_RETURN_SUCCESS) {
-        /* RFC 8446 7.1: resumption PSKs always use the TLS 1.3 ("tls13 ") label prefix. */
-        rc = tls13_hkdf_expand_label(hash_algo, ctx->hs->master_secret, hash_len,
+        /* RFC 8446 7.1 resumption_master_secret; DTLS 1.3 uses the "dtls13" prefix (RFC 9147 5.9). */
+        rc = tls13_ctx_hkdf_expand_label(ctx, hash_algo, ctx->hs->master_secret, hash_len,
                                      s_tls13_label_res_master, (uint32_t)(sizeof(s_tls13_label_res_master) - 1U),
                                      transcript_hash, transcript_len,
                                      ctx->resumption_master_secret, hash_len);
@@ -5966,7 +5968,7 @@ static noxtls_return_t tls13_send_new_session_ticket(tls13_context_t *ctx)
     if((ctx->resumption_master_secret_len != (uint8_t)hash_len) || (hash_len > TLS13_PSK_RESUMPTION_PSK_MAX)) {
         return NOXTLS_RETURN_FAILED;
     }
-    rc = tls13_psk_derive_resumption_psk_from_rms(hash_algo, hash_len, ctx->resumption_master_secret,
+    rc = tls13_psk_derive_resumption_psk_from_rms(hash_algo, TLS13_LABEL_DTLS(ctx), hash_len, ctx->resumption_master_secret,
                                                   ticket_nonce, 16U, resumption_psk);
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
@@ -6085,7 +6087,7 @@ static void tls13_try_store_nst_from_handshake(tls13_context_t *ctx, const uint8
     if(ctx->resumption_master_secret_len != (uint8_t)hash_len) {
         return;
     }
-    rc = tls13_psk_derive_resumption_psk_from_rms(hash_algo, hash_len, ctx->resumption_master_secret,
+    rc = tls13_psk_derive_resumption_psk_from_rms(hash_algo, TLS13_LABEL_DTLS(ctx), hash_len, ctx->resumption_master_secret,
                                                   ctx->ticket_nonce, ctx->ticket_nonce_len,
                                                   ctx->resumption_psk);
     if(rc != NOXTLS_RETURN_SUCCESS) {
@@ -9395,7 +9397,7 @@ noxtls_return_t noxtls_tls13_send_client_hello(tls13_context_t *ctx)
         uint8_t binder[64];
         noxtls_return_t psk_rc = NOXTLS_RETURN_FAILED;
         if((offer_resumption != 0U) && (resumption_binder_offset > 0U)) {
-            psk_rc = tls13_psk_compute_resumption_binder(psk_hash_algo,
+            psk_rc = tls13_psk_compute_resumption_binder(psk_hash_algo, TLS13_LABEL_DTLS(ctx),
                                                          ctx->resumption_psk, ctx->resumption_psk_len,
                                                          ctx->ticket_nonce, ctx->ticket_nonce_len,
                                                          client_hello, offset,
@@ -9415,7 +9417,7 @@ noxtls_return_t noxtls_tls13_send_client_hello(tls13_context_t *ctx)
         }
         if((offer_external_psk != 0U) && (external_binder_offset > 0U)) {
             const uint8_t *psk_fail_step = NULL;
-            psk_rc = tls13_psk_compute_external_binder(psk_hash_algo,
+            psk_rc = tls13_psk_compute_external_binder(psk_hash_algo, TLS13_LABEL_DTLS(ctx),
                                                        ctx->hs->psk_key, ctx->hs->psk_key_len,
                                                        client_hello, offset,
                                                        external_binder_offset, psk_binder_len,
@@ -12600,7 +12602,7 @@ noxtls_return_t noxtls_tls13_recv_client_hello(tls13_context_t *ctx)
                                                             entry_nonce, (uint8_t)sizeof(entry_nonce), &entry_nonce_len) != NOXTLS_RETURN_SUCCESS) {
                             continue;
                         }
-                        rc_binder = tls13_psk_compute_resumption_binder(hash_algo,
+                        rc_binder = tls13_psk_compute_resumption_binder(hash_algo, TLS13_LABEL_DTLS(ctx),
                                                                         entry_psk, entry_psk_len,
                                                                         entry_nonce, entry_nonce_len,
                                                                         record.data, record.length,
@@ -12661,7 +12663,7 @@ noxtls_return_t noxtls_tls13_recv_client_hello(tls13_context_t *ctx)
                     if(binder_loc_len != hash_len) {
                         continue;
                     }
-                    if(tls13_psk_compute_external_binder(hash_algo,
+                    if(tls13_psk_compute_external_binder(hash_algo, TLS13_LABEL_DTLS(ctx),
                                                           ctx->hs->psk_key, ctx->hs->psk_key_len,
                                                           record.data, record.length,
                                                           binder_offset, binder_loc_len,

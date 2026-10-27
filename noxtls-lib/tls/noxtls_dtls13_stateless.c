@@ -625,7 +625,7 @@ noxtls_return_t noxtls_dtls13_ch2_binder_check(const uint8_t *ch2, uint32_t len,
     }
     if(rc == NOXTLS_RETURN_SUCCESS) {
         /* RFC 8446 Section 4.2.11.2: binder over Transcript-Hash(message_hash, HRR, Truncate(CH2)). */
-        rc = tls13_psk_compute_external_binder(NOXTLS_HASH_SHA_256, psk, psk_len, ch, ch_len,
+        rc = tls13_psk_compute_external_binder(NOXTLS_HASH_SHA_256, 1U, psk, psk_len, ch, ch_len,
                                                binder_offset, binder_len, expected,
                                                scratch, prefix_len, NULL);
         if(rc == NOXTLS_RETURN_SUCCESS) {

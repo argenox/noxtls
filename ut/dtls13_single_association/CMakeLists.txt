@@ -26,6 +26,7 @@ set(_noxtls_sa_cases
     sa_exporter_vector
     sa_zero_allocation
     sa_ch1_hash_vector
+    sa_binder_vectors
 )
 noxtls_lb_add_suite(dtls13_single_association_test
     "${CMAKE_CURRENT_SOURCE_DIR}/dtls13_single_association_test.c" ${_noxtls_sa_cases})

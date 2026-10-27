@@ -166,6 +166,42 @@ static noxtls_return_t psk_hash_binder_input(noxtls_hash_algos_t hash_algo,
 }
 
 /**
+ * @brief HKDF-Expand-Label with the label prefix of the protocol: "tls13 " for TLS 1.3,
+ *        "dtls13" for DTLS 1.3 (RFC 9147 Section 5.9).
+ */
+static noxtls_return_t psk_expand_label(noxtls_hash_algos_t hash_algo, uint8_t dtls,
+                                        const uint8_t *secret, uint32_t secret_len,
+                                        const uint8_t *label, uint32_t label_len,
+                                        const uint8_t *context, uint32_t context_len,
+                                        uint8_t *output, uint32_t output_len)
+{
+    if (dtls != 0U) {
+        return dtls13_hkdf_expand_label(hash_algo, secret, secret_len, label, label_len,
+                                        context, context_len, output, output_len);
+    }
+    return tls13_hkdf_expand_label(hash_algo, secret, secret_len, label, label_len,
+                                   context, context_len, output, output_len);
+}
+
+/**
+ * @brief Derive-Secret with the label prefix of the protocol (RFC 8446 Section 7.1,
+ *        RFC 9147 Section 5.9).
+ */
+static noxtls_return_t psk_derive_secret(noxtls_hash_algos_t hash_algo, uint8_t dtls,
+                                         const uint8_t *secret, uint32_t secret_len,
+                                         const uint8_t *label, uint32_t label_len,
+                                         const uint8_t *messages, uint32_t messages_len,
+                                         uint8_t *output, uint32_t output_len)
+{
+    if (dtls != 0U) {
+        return dtls13_derive_secret(hash_algo, secret, secret_len, label, label_len,
+                                    messages, messages_len, output, output_len);
+    }
+    return tls13_derive_secret(hash_algo, secret, secret_len, label, label_len,
+                               messages, messages_len, output, output_len);
+}
+
+/**
  * @brief Read a big-endian 16-bit value from two bytes.
  * @param[in] buf Pointer to at least two bytes.
  * @return The host-order uint16 value.
@@ -526,6 +562,7 @@ noxtls_return_t tls13_psk_find_clienthello_binder(const uint8_t *client_hello,
  * @return `NOXTLS_RETURN_SUCCESS` on success; error codes for null pointers, bad layout, or KDF/HMAC failure.
  */
 noxtls_return_t tls13_psk_compute_resumption_binder(noxtls_hash_algos_t hash_algo,
+                                                    uint8_t dtls,
                                                     const uint8_t *resumption_psk,
                                                     uint8_t psk_len,
                                                     const uint8_t *ticket_nonce,
@@ -590,8 +627,8 @@ noxtls_return_t tls13_psk_compute_resumption_binder(noxtls_hash_algos_t hash_alg
     if (rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    rc = tls13_derive_secret(hash_algo, early_secret, hash_len, label, label_len,
-                            NULL, 0, binder_key, hash_len);
+    rc = psk_derive_secret(hash_algo, dtls, early_secret, hash_len, label, label_len,
+                           NULL, 0U, binder_key, hash_len);
     if (rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -599,8 +636,8 @@ noxtls_return_t tls13_psk_compute_resumption_binder(noxtls_hash_algos_t hash_alg
         static const uint8_t finished_label[] = {
             (uint8_t)'f',(uint8_t)'i',(uint8_t)'n',(uint8_t)'i',(uint8_t)'s',(uint8_t)'h',(uint8_t)'e',(uint8_t)'d'
         };
-        rc = tls13_hkdf_expand_label(hash_algo, binder_key, hash_len, finished_label, 8U,
-                                     NULL, 0U, finished_key, hash_len);
+        rc = psk_expand_label(hash_algo, dtls, binder_key, hash_len, finished_label, 8U,
+                              NULL, 0U, finished_key, hash_len);
     }
     if (rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
@@ -636,6 +673,7 @@ noxtls_return_t tls13_psk_compute_resumption_binder(noxtls_hash_algos_t hash_alg
  * @return `NOXTLS_RETURN_SUCCESS` on success; error codes for invalid input or crypto failure.
  */
 noxtls_return_t tls13_psk_compute_external_binder(noxtls_hash_algos_t hash_algo,
+                                                  uint8_t dtls,
                                                   const uint8_t *psk,
                                                   uint16_t psk_len,
                                                   const uint8_t *client_hello,
@@ -735,7 +773,7 @@ noxtls_return_t tls13_psk_compute_external_binder(noxtls_hash_algos_t hash_algo,
         }
         return rc;
     }
-    rc = tls13_derive_secret(hash_algo, early_secret, hash_len, label, label_len, NULL, 0, binder_key, hash_len);
+    rc = psk_derive_secret(hash_algo, dtls, early_secret, hash_len, label, label_len, NULL, 0U, binder_key, hash_len);
     if (rc != NOXTLS_RETURN_SUCCESS) {
         if (fail_step_out != NULL) {
             static const uint8_t s_step_derive_secret[] = { (uint8_t)'d', (uint8_t)'e', (uint8_t)'r', (uint8_t)'i', (uint8_t)'v', (uint8_t)'e', (uint8_t)'_', (uint8_t)'s', (uint8_t)'e', (uint8_t)'c', (uint8_t)'r', (uint8_t)'e', (uint8_t)'t', 0 };
@@ -747,8 +785,8 @@ noxtls_return_t tls13_psk_compute_external_binder(noxtls_hash_algos_t hash_algo,
         static const uint8_t finished_label[] = {
             (uint8_t)'f',(uint8_t)'i',(uint8_t)'n',(uint8_t)'i',(uint8_t)'s',(uint8_t)'h',(uint8_t)'e',(uint8_t)'d'
         };
-        rc = tls13_hkdf_expand_label(hash_algo, binder_key, hash_len, finished_label, 8U,
-                                     NULL, 0U, finished_key, hash_len);
+        rc = psk_expand_label(hash_algo, dtls, binder_key, hash_len, finished_label, 8U,
+                              NULL, 0U, finished_key, hash_len);
     }
     if (rc != NOXTLS_RETURN_SUCCESS) {
         if (fail_step_out != NULL) {
@@ -928,6 +966,7 @@ uint16_t noxtls_tls13_psk_ticket_store_entry_cipher_suite(const void *entry)
  * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` or `NOXTLS_RETURN_INVALID_PARAM` on bad input.
  */
 noxtls_return_t tls13_psk_derive_resumption_psk(noxtls_hash_algos_t hash_algo,
+                                                uint8_t dtls,
                                                 uint32_t hash_len,
                                                 const uint8_t *master_secret,
                                                 const uint8_t *handshake_transcript,
@@ -954,20 +993,21 @@ noxtls_return_t tls13_psk_derive_resumption_psk(noxtls_hash_algos_t hash_algo,
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    rc = tls13_derive_secret(hash_algo, master_secret, hash_len, rms_label, rms_label_len,
-                             handshake_transcript, handshake_transcript_len,
-                             resumption_master_secret, hash_len);
+    rc = psk_derive_secret(hash_algo, dtls, master_secret, hash_len, rms_label, rms_label_len,
+                           handshake_transcript, handshake_transcript_len,
+                           resumption_master_secret, hash_len);
     if (rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    rc = tls13_hkdf_expand_label(hash_algo, resumption_master_secret, hash_len,
-                                 psk_label, psk_label_len, ticket_nonce, ticket_nonce_len,
-                                 resumption_psk, hash_len);
+    rc = psk_expand_label(hash_algo, dtls, resumption_master_secret, hash_len,
+                          psk_label, psk_label_len, ticket_nonce, ticket_nonce_len,
+                          resumption_psk, hash_len);
     noxtls_secure_zero((resumption_master_secret), sizeof(resumption_master_secret));
     return rc;
 }
 
 noxtls_return_t tls13_psk_derive_resumption_psk_from_rms(noxtls_hash_algos_t hash_algo,
+                                                         uint8_t dtls,
                                                          uint32_t hash_len,
                                                          const uint8_t *resumption_master_secret,
                                                          const uint8_t *ticket_nonce,
@@ -984,7 +1024,7 @@ noxtls_return_t tls13_psk_derive_resumption_psk_from_rms(noxtls_hash_algos_t has
     if ((hash_len == 0U) || (hash_len > 64U) || (ticket_nonce_len > 255U)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
-    return tls13_hkdf_expand_label(hash_algo, resumption_master_secret, hash_len,
-                                   psk_label, (uint32_t)sizeof(psk_label), ticket_nonce, ticket_nonce_len,
-                                   resumption_psk, hash_len);
+    return psk_expand_label(hash_algo, dtls, resumption_master_secret, hash_len,
+                            psk_label, (uint32_t)sizeof(psk_label), ticket_nonce, ticket_nonce_len,
+                            resumption_psk, hash_len);
 }

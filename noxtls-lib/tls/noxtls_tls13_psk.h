@@ -104,11 +104,18 @@ noxtls_return_t tls13_psk_find_clienthello_binder(const uint8_t *client_hello,
                                                   uint8_t *identity_out,
                                                   uint16_t *identity_out_len);
 
+/*
+ * The KDF calls below take @p dtls: 0 uses the TLS 1.3 HKDF label prefix "tls13 ", 1 the
+ * DTLS 1.3 prefix "dtls13" (RFC 9147 Section 5.9, which applies to every
+ * HKDF-Expand-Label of DTLS 1.3, binders and resumption included).
+ */
+
 /**
  * Compute resumption binder (RFC 8446 4.2.11.2).
- * early_secret = HKDF-Extract(0, resumption_psk); binder_key = Derive-Secret(early_secret, "resumption", ticket_nonce)
+ * early_secret = HKDF-Extract(0, resumption_psk); binder_key = Derive-Secret(early_secret, "res binder", "")
  */
 noxtls_return_t tls13_psk_compute_resumption_binder(noxtls_hash_algos_t hash_algo,
+                                                    uint8_t dtls,
                                                     const uint8_t *resumption_psk,
                                                     uint8_t psk_len,
                                                     const uint8_t *ticket_nonce,
@@ -125,6 +132,7 @@ noxtls_return_t tls13_psk_compute_resumption_binder(noxtls_hash_algos_t hash_alg
  * Compute external PSK binder (label "ext binder").
  */
 noxtls_return_t tls13_psk_compute_external_binder(noxtls_hash_algos_t hash_algo,
+                                                  uint8_t dtls,
                                                   const uint8_t *psk,
                                                   uint16_t psk_len,
                                                   const uint8_t *client_hello,
@@ -176,6 +184,7 @@ uint16_t noxtls_tls13_psk_ticket_store_entry_cipher_suite(const void *entry);
  * Derive resumption_psk from master_secret and ticket_nonce (RFC 8446 4.6.1).
  */
 noxtls_return_t tls13_psk_derive_resumption_psk(noxtls_hash_algos_t hash_algo,
+                                                uint8_t dtls,
                                                 uint32_t hash_len,
                                                 const uint8_t *master_secret,
                                                 const uint8_t *handshake_transcript,
@@ -189,6 +198,7 @@ noxtls_return_t tls13_psk_derive_resumption_psk(noxtls_hash_algos_t hash_algo,
  * HKDF-Expand-Label(resumption_master_secret, "resumption", ticket_nonce, Hash.length).
  */
 noxtls_return_t tls13_psk_derive_resumption_psk_from_rms(noxtls_hash_algos_t hash_algo,
+                                                         uint8_t dtls,
                                                          uint32_t hash_len,
                                                          const uint8_t *resumption_master_secret,
                                                          const uint8_t *ticket_nonce,

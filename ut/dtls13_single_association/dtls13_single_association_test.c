@@ -28,6 +28,8 @@
  */
 #include "lb_fixture.h"
 #include "tls/noxtls_connection_memory.h"
+#include "tls/noxtls_tls13_psk.h"
+#include "binder_vectors.h"
 
 #include <string.h>
 
@@ -291,6 +293,73 @@ static int test_ch1_hash_vector(void)
     /* The framing is checked: a fragment is refused. */
     dg[13U + 11U] = 0x3BU;
     LB_CHECK_EQ(noxtls_dtls13_client_hello_hash(dg, sizeof(dg), hash), NOXTLS_RETURN_BAD_DATA);
+    return 0;
+}
+
+/** Wrap a TLS-form handshake message (4-byte header) into an epoch-0 DTLS datagram. */
+static uint32_t sa_wrap_datagram(const uint8_t *msg, uint32_t msg_len, uint8_t *out)
+{
+    const uint32_t body_len = msg_len - 4U;
+    memset(out, 0, 25U);
+    out[0] = TLS_RECORD_HANDSHAKE;
+    out[1] = 0xFEU;
+    out[2] = 0xFDU;
+    out[11] = (uint8_t)(((body_len + 12U) >> 8U) & 0xFFU);
+    out[12] = (uint8_t)((body_len + 12U) & 0xFFU);
+    memcpy(&out[13], msg, 4U);                    /* msg_type, length */
+    memcpy(&out[22], &msg[1], 3U);                /* fragment_length */
+    memcpy(&out[25], &msg[4], body_len);
+    return 25U + body_len;
+}
+
+/**
+ * RFC 9147 5.9: DTLS 1.3 binders use the "dtls13" HKDF label prefix. Compared with
+ * gen_binder_vectors.py (Python hmac/hashlib, its key schedule checked against RFC 8448).
+ */
+static int test_binder_vectors(void)
+{
+    uint8_t out[32];
+    uint8_t dg[512];
+    uint32_t dg_len;
+    uint32_t hrr_len = 0U;
+    uint8_t hash[32];
+    const uint32_t off = (uint32_t)sizeof(k_vec_ch1) - 32U;
+
+    /* First ClientHello: "dtls13" binder, and the "tls13 " one for TLS 1.3. */
+    LB_CHECK_OK(tls13_psk_compute_external_binder(NOXTLS_HASH_SHA_256, 1U, k_vec_psk, (uint16_t)sizeof(k_vec_psk),
+                                                  k_vec_ch1, sizeof(k_vec_ch1), off, 32U, out, NULL, 0U, NULL));
+    LB_CHECK(memcmp(out, k_vec_ch1_binder_dtls13, sizeof(out)) == 0);
+    /* Compare a copy: MSYS2 GCC 16.1 folds memcmp() of two static const arrays, one at an
+     * offset, to a wrong constant (reported with the T2 work). */
+    memcpy(out, &k_vec_ch1[off], sizeof(out));
+    LB_CHECK(memcmp(out, k_vec_ch1_binder_dtls13, sizeof(out)) == 0);
+    LB_CHECK_OK(tls13_psk_compute_external_binder(NOXTLS_HASH_SHA_256, 0U, k_vec_psk, (uint16_t)sizeof(k_vec_psk),
+                                                  k_vec_ch1, sizeof(k_vec_ch1), off, 32U, out, NULL, 0U, NULL));
+    LB_CHECK(memcmp(out, k_vec_ch1_binder_tls13, sizeof(out)) == 0);
+    LB_CHECK(memcmp(out, k_vec_ch1_binder_dtls13, sizeof(out)) != 0);  /* the prefixes differ */
+
+    /* The same first ClientHello as a datagram: its ch1_hash, and the stateless
+     * HelloRetryRequest that answers it, byte for byte. */
+    dg_len = sa_wrap_datagram(k_vec_ch1, sizeof(k_vec_ch1), dg);
+    LB_CHECK_OK(noxtls_dtls13_client_hello_hash(dg, dg_len, hash));
+    LB_CHECK(memcmp(hash, k_vec_ch1_hash, sizeof(hash)) == 0);
+    LB_CHECK_OK(noxtls_dtls13_stateless_hrr(dg, dg_len, k_vec_cookie, (uint16_t)sizeof(k_vec_cookie),
+                                            TLS_CIPHER_SUITE_AES_128_GCM_SHA256, 0U, s_hrr, sizeof(s_hrr), &hrr_len));
+    LB_CHECK_EQ(hrr_len, 13U + 8U + sizeof(k_vec_hrr));
+    LB_CHECK_EQ(s_hrr[13], k_vec_hrr[0]);
+    LB_CHECK(memcmp(&s_hrr[14], &k_vec_hrr[1], 3U) == 0);
+    LB_CHECK(memcmp(&s_hrr[25], &k_vec_hrr[4], sizeof(k_vec_hrr) - 4U) == 0);
+
+    /* N4a over message_hash(CH1) || HelloRetryRequest || Truncate(CH2). */
+    LB_CHECK_OK(noxtls_dtls13_ch2_binder_check(k_vec_ch2_dtls13, sizeof(k_vec_ch2_dtls13), k_vec_ch1_hash,
+                                               TLS_CIPHER_SUITE_AES_128_GCM_SHA256, 0U,
+                                               k_vec_identity, (uint16_t)sizeof(k_vec_identity),
+                                               k_vec_psk, (uint16_t)sizeof(k_vec_psk), s_scratch, sizeof(s_scratch)));
+    LB_CHECK_EQ(noxtls_dtls13_ch2_binder_check(k_vec_ch2_tls13, sizeof(k_vec_ch2_tls13), k_vec_ch1_hash,
+                                               TLS_CIPHER_SUITE_AES_128_GCM_SHA256, 0U,
+                                               k_vec_identity, (uint16_t)sizeof(k_vec_identity),
+                                               k_vec_psk, (uint16_t)sizeof(k_vec_psk), s_scratch, sizeof(s_scratch)),
+                NOXTLS_RETURN_AUTH_FAILED);
     return 0;
 }
 
@@ -1033,6 +1102,7 @@ static const lb_test_case_t s_cases[] = {
     { "sa_exporter_vector", test_exporter_vector },
     { "sa_zero_allocation", test_zero_allocation },
     { "sa_ch1_hash_vector", test_ch1_hash_vector },
+    { "sa_binder_vectors", test_binder_vectors },
 };
 
 int main(int argc, char **argv)

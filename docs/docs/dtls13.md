@@ -21,7 +21,7 @@ Use [noxtls_dtls13_context_init](./api/dtls13#noxtls_dtls13_context_init) to ini
 | Area | Support |
 |------|---------|
 | Handshake | TLS 1.3 client and server handshake over datagram records |
-| Key schedule | DTLS 1.3 HKDF labels using the `dtls13` prefix |
+| Key schedule | DTLS 1.3 HKDF labels using the `dtls13` prefix (RFC 9147 Section 5.9), PSK binders and resumption secrets included; DTLS 1.3 peers that derived binders with `tls13 ` labels (NoxTLS before this change) cannot complete a PSK handshake with this version |
 | Record layer | RFC 9147 unified header with optional length and Connection ID fields |
 | Record number protection | Truncated wire sequence numbers with full number reconstruction |
 | AEAD protection | TLS 1.3 AEAD ciphers over DTLS epochs |
