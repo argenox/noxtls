@@ -24,6 +24,8 @@
 #ifndef NOXTLS_ABI_H_
 #define NOXTLS_ABI_H_
 
+#include <stdint.h>
+
 /**
  * @file noxtls_abi.h
  * @brief Link-time ABI fingerprint of the TLS context layout.
@@ -31,32 +33,32 @@
  * A translation unit that embeds a NoxTLS context must be compiled against the
  * same headers and layout configuration as the library, or the two disagree
  * about field offsets. Every translation unit that includes noxtls_tls_common.h
- * therefore references one symbol, noxtls_abi_<8 hex digits>, and the library
+ * therefore references one symbol, noxtls_abi_<layout>_<knobs>, and the library
  * defines it (common/noxtls_abi.c). A mismatched consumer fails to link with
- * "undefined reference to noxtls_abi_<digits>".
+ * "undefined reference to noxtls_abi_<layout>_<knobs>".
  *
- * The digits mix three inputs:
- * - NOXTLS_ABI_REVISION, raised when a public context changes outside CMake;
- * - NOXTLS_ABI_LAYOUT_HASH, which the NoxTLS CMake build computes from the
- *   content of the NoxTLS headers and the sizes of tls_context_t,
- *   dtls_context_t, tls13_context_t, tls12_context_t and
+ * - <layout> is NOXTLS_ABI_LAYOUT_ID, 8 hexadecimal digits that the NoxTLS CMake
+ *   build computes from the content of the NoxTLS headers and the sizes of
+ *   tls_context_t, dtls_context_t, tls13_context_t, tls12_context_t and
  *   noxtls_connection_memory_t under the library's own flags
- *   (cmake/noxtls_abi.cmake), and gives to its targets and their consumers;
- * - the layout knobs below as this translation unit sees them, which catch a
- *   consumer compiled with different record, workspace, feature or
- *   static-memory settings.
+ *   (cmake/noxtls_abi.cmake), and gives to its targets and their consumers.
+ * - <knobs> is 4 hexadecimal digits over NOXTLS_ABI_REVISION and the layout
+ *   knobs below as this translation unit sees them, which catch a consumer
+ *   compiled with different record, workspace, feature or static-memory
+ *   settings. Raise NOXTLS_ABI_REVISION with a public context change, for
+ *   builds without CMake.
  *
- * The library also defines the symbol a consumer without NOXTLS_ABI_LAYOUT_HASH
- * references, so a build outside CMake still links when its knobs match.
+ * The library also defines noxtls_abi_<knobs>, which a consumer without
+ * NOXTLS_ABI_LAYOUT_ID references, so a build outside CMake links when its
+ * knobs match.
  * NOXTLS_ABI_NO_REFERENCE omits the reference (a build-time probe uses it).
  */
 
 /** Revision of the public context layout; raise it with any change to one. */
 #define NOXTLS_ABI_REVISION 1U
 
-/** FNV-1a offset basis and one 32-bit FNV-1a step, evaluated by #if. */
-#define NOXTLS_ABI_SEED 2166136261U
-#define NOXTLS_ABI_MIX(h, v) (((((h) ^ ((v) & 0xFFFFFFFFU)) * 16777619U)) & 0xFFFFFFFFU)
+/* The knob fingerprint is a weighted sum of terms, which #if evaluates in
+ * uintmax_t without overflow. */
 
 /* Each knob as one number; an undefined knob counts as zero. */
 #if defined(TLS_MAX_RECORD_SIZE)
@@ -343,589 +345,168 @@
 #define NOXTLS_ABI_K_NOXTLS_FEATURE_FALCON 0U
 #endif
 
-/** Knob fingerprint as this translation unit sees it. */
-#define NOXTLS_ABI_KNOBS \
-    (NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_MIX(NOXTLS_ABI_SEED, NOXTLS_ABI_REVISION), NOXTLS_ABI_K_TLS_MAX_RECORD_SIZE), NOXTLS_ABI_K_TLS_MAX_RECV_RECORD_SIZE), NOXTLS_ABI_K_NOXTLS_TLS_HANDSHAKE_WORKSPACE_SIZE), NOXTLS_ABI_K_NOXTLS_TLS_MAX_HANDSHAKE_SIZE), NOXTLS_ABI_K_NOXTLS_TLS_IO_TX_QUEUE_LIMIT), NOXTLS_ABI_K_NOXTLS_CONFIG_STATIC_MEMORY), NOXTLS_ABI_K_NOXTLS_STATIC_RETAIN_PEER_CERT_DER), NOXTLS_ABI_K_NOXTLS_STATIC_HS_ARENA_CERT), NOXTLS_ABI_K_NOXTLS_STATIC_HS_ARENA_PSK), NOXTLS_ABI_K_NOXTLS_STATIC_HS_ARENA_DTLS_CERT), NOXTLS_ABI_K_NOXTLS_STATIC_HS_ARENA_DTLS_PSK), NOXTLS_ABI_K_NOXTLS_STATIC_STEADY_ARENA), NOXTLS_ABI_K_NOXTLS_STATIC_STEADY_ARENA_DTLS), NOXTLS_ABI_K_NOXTLS_STATIC_DTLS_FLIGHT_SIZE), NOXTLS_ABI_K_NOXTLS_STATIC_DTLS_CERT_FLIGHT_SIZE), NOXTLS_ABI_K_NOXTLS_STATIC_DTLS_POST_HS_FLIGHT_SIZE), NOXTLS_ABI_K_NOXTLS_STATIC_DTLS_ACK_RANGES), NOXTLS_ABI_K_NOXTLS_STATIC_TLS_TX_QUEUE_SIZE), NOXTLS_ABI_K_NOXTLS_STATIC_TRANSCRIPT_BYTES), NOXTLS_ABI_K_NOXTLS_TLS_RETAIN_PEER_CERT), NOXTLS_ABI_K_NOXTLS_TLS13_ACCEPT_TIMING), NOXTLS_ABI_K_NOXTLS_TLS_ALGORITHM_FILTER), NOXTLS_ABI_K_NOXTLS_TLS12_ENABLE_SHA1_SIGNATURES), NOXTLS_ABI_K_NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES), NOXTLS_ABI_K_NOXTLS_FEATURE_TLS10), NOXTLS_ABI_K_NOXTLS_FEATURE_TLS11), NOXTLS_ABI_K_NOXTLS_FEATURE_TLS12), NOXTLS_ABI_K_NOXTLS_FEATURE_TLS13), NOXTLS_ABI_K_NOXTLS_FEATURE_DTLS), NOXTLS_ABI_K_NOXTLS_FEATURE_DTLS_ECJPAKE), NOXTLS_ABI_K_NOXTLS_FEATURE_TLS_CLIENT), NOXTLS_ABI_K_NOXTLS_FEATURE_TLS_SERVER), NOXTLS_ABI_K_NOXTLS_FEATURE_SHA384), NOXTLS_ABI_K_NOXTLS_FEATURE_AES_CCM), NOXTLS_ABI_K_NOXTLS_FEATURE_CHACHA20_POLY1305), NOXTLS_ABI_K_NOXTLS_FEATURE_ML_KEM), NOXTLS_ABI_K_NOXTLS_FEATURE_ML_DSA), NOXTLS_ABI_K_NOXTLS_FEATURE_SLH_DSA), NOXTLS_ABI_K_NOXTLS_FEATURE_FALCON))
+/** Knob fingerprint as this translation unit sees it, 16 bits. */
+#define NOXTLS_ABI_KNOBS ((2166136261U + \
+    ((NOXTLS_ABI_REVISION) * 0xABC51F4BU) + \
+    ((NOXTLS_ABI_K_TLS_MAX_RECORD_SIZE) * 0xFD74EC9FU) + \
+    ((NOXTLS_ABI_K_TLS_MAX_RECV_RECORD_SIZE) * 0x31E16089U) + \
+    ((NOXTLS_ABI_K_NOXTLS_TLS_HANDSHAKE_WORKSPACE_SIZE) * 0xCBD8AC63U) + \
+    ((NOXTLS_ABI_K_NOXTLS_TLS_MAX_HANDSHAKE_SIZE) * 0xDDF3C94FU) + \
+    ((NOXTLS_ABI_K_NOXTLS_TLS_IO_TX_QUEUE_LIMIT) * 0xACA24EA7U) + \
+    ((NOXTLS_ABI_K_NOXTLS_CONFIG_STATIC_MEMORY) * 0x8063CF6DU) + \
+    ((NOXTLS_ABI_K_NOXTLS_STATIC_RETAIN_PEER_CERT_DER) * 0x26841A3BU) + \
+    ((NOXTLS_ABI_K_NOXTLS_STATIC_HS_ARENA_CERT) * 0xABD6AE45U) + \
+    ((NOXTLS_ABI_K_NOXTLS_STATIC_HS_ARENA_PSK) * 0xB7665983U) + \
+    ((NOXTLS_ABI_K_NOXTLS_STATIC_HS_ARENA_DTLS_CERT) * 0xDF6032F9U) + \
+    ((NOXTLS_ABI_K_NOXTLS_STATIC_HS_ARENA_DTLS_PSK) * 0x65C150BFU) + \
+    ((NOXTLS_ABI_K_NOXTLS_STATIC_STEADY_ARENA) * 0x41BD3F81U) + \
+    ((NOXTLS_ABI_K_NOXTLS_STATIC_STEADY_ARENA_DTLS) * 0x8084D7F3U) + \
+    ((NOXTLS_ABI_K_NOXTLS_STATIC_DTLS_FLIGHT_SIZE) * 0xF8C1A617U) + \
+    ((NOXTLS_ABI_K_NOXTLS_STATIC_DTLS_CERT_FLIGHT_SIZE) * 0xC437E3B1U) + \
+    ((NOXTLS_ABI_K_NOXTLS_STATIC_DTLS_POST_HS_FLIGHT_SIZE) * 0xD1023603U) + \
+    ((NOXTLS_ABI_K_NOXTLS_STATIC_DTLS_ACK_RANGES) * 0x88F1C403U) + \
+    ((NOXTLS_ABI_K_NOXTLS_STATIC_TLS_TX_QUEUE_SIZE) * 0xEC7C44CFU) + \
+    ((NOXTLS_ABI_K_NOXTLS_STATIC_TRANSCRIPT_BYTES) * 0xBE985D0DU) + \
+    ((NOXTLS_ABI_K_NOXTLS_TLS_RETAIN_PEER_CERT) * 0xDBC5300FU) + \
+    ((NOXTLS_ABI_K_NOXTLS_TLS13_ACCEPT_TIMING) * 0x071D2019U) + \
+    ((NOXTLS_ABI_K_NOXTLS_TLS_ALGORITHM_FILTER) * 0xCA4EC303U) + \
+    ((NOXTLS_ABI_K_NOXTLS_TLS12_ENABLE_SHA1_SIGNATURES) * 0x9FCAE0DBU) + \
+    ((NOXTLS_ABI_K_NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES) * 0x9A56CD81U) + \
+    ((NOXTLS_ABI_K_NOXTLS_FEATURE_TLS10) * 0xE81EC021U) + \
+    ((NOXTLS_ABI_K_NOXTLS_FEATURE_TLS11) * 0xE71EBE8FU) + \
+    ((NOXTLS_ABI_K_NOXTLS_FEATURE_TLS12) * 0xE61EBCFBU) + \
+    ((NOXTLS_ABI_K_NOXTLS_FEATURE_TLS13) * 0xE51EBB69U) + \
+    ((NOXTLS_ABI_K_NOXTLS_FEATURE_DTLS) * 0xDA2820ABU) + \
+    ((NOXTLS_ABI_K_NOXTLS_FEATURE_DTLS_ECJPAKE) * 0xDCDFED41U) + \
+    ((NOXTLS_ABI_K_NOXTLS_FEATURE_TLS_CLIENT) * 0xBB20005FU) + \
+    ((NOXTLS_ABI_K_NOXTLS_FEATURE_TLS_SERVER) * 0x70FF91D3U) + \
+    ((NOXTLS_ABI_K_NOXTLS_FEATURE_SHA384) * 0x0C9BCE2DU) + \
+    ((NOXTLS_ABI_K_NOXTLS_FEATURE_AES_CCM) * 0x672DA78DU) + \
+    ((NOXTLS_ABI_K_NOXTLS_FEATURE_CHACHA20_POLY1305) * 0x8965CD0BU) + \
+    ((NOXTLS_ABI_K_NOXTLS_FEATURE_ML_KEM) * 0xF936C5ABU) + \
+    ((NOXTLS_ABI_K_NOXTLS_FEATURE_ML_DSA) * 0x314B2EFDU) + \
+    ((NOXTLS_ABI_K_NOXTLS_FEATURE_SLH_DSA) * 0x55E2CE4FU) + \
+    ((NOXTLS_ABI_K_NOXTLS_FEATURE_FALCON) * 0x5043610FU)) & 0xFFFFU)
 
-/** Fingerprint of a consumer without NOXTLS_ABI_LAYOUT_HASH (layout term zero). */
-#define NOXTLS_ABI_BASE NOXTLS_ABI_MIX(NOXTLS_ABI_KNOBS, 0U)
-#if defined(NOXTLS_ABI_LAYOUT_HASH)
-/** Fingerprint with the CMake-computed header and size hash. */
-#define NOXTLS_ABI_FULL NOXTLS_ABI_MIX(NOXTLS_ABI_KNOBS, NOXTLS_ABI_LAYOUT_HASH)
+/* Hexadecimal digits of the knob fingerprint, most significant first. */
+/** Hexadecimal digit of four bits, most significant first. */
+#define NOXTLS_ABI_HEX2(a, b, c, d) NOXTLS_ABI_X_##a##b##c##d
+#define NOXTLS_ABI_HEX(a, b, c, d) NOXTLS_ABI_HEX2(a, b, c, d)
+#define NOXTLS_ABI_X_0000 0
+#define NOXTLS_ABI_X_0001 1
+#define NOXTLS_ABI_X_0010 2
+#define NOXTLS_ABI_X_0011 3
+#define NOXTLS_ABI_X_0100 4
+#define NOXTLS_ABI_X_0101 5
+#define NOXTLS_ABI_X_0110 6
+#define NOXTLS_ABI_X_0111 7
+#define NOXTLS_ABI_X_1000 8
+#define NOXTLS_ABI_X_1001 9
+#define NOXTLS_ABI_X_1010 a
+#define NOXTLS_ABI_X_1011 b
+#define NOXTLS_ABI_X_1100 c
+#define NOXTLS_ABI_X_1101 d
+#define NOXTLS_ABI_X_1110 e
+#define NOXTLS_ABI_X_1111 f
+#if (((NOXTLS_ABI_KNOBS) >> 15U) & 1U) != 0U
+#define NOXTLS_ABI_KBIT15 1
 #else
-#define NOXTLS_ABI_FULL NOXTLS_ABI_BASE
+#define NOXTLS_ABI_KBIT15 0
 #endif
+#if (((NOXTLS_ABI_KNOBS) >> 14U) & 1U) != 0U
+#define NOXTLS_ABI_KBIT14 1
+#else
+#define NOXTLS_ABI_KBIT14 0
+#endif
+#if (((NOXTLS_ABI_KNOBS) >> 13U) & 1U) != 0U
+#define NOXTLS_ABI_KBIT13 1
+#else
+#define NOXTLS_ABI_KBIT13 0
+#endif
+#if (((NOXTLS_ABI_KNOBS) >> 12U) & 1U) != 0U
+#define NOXTLS_ABI_KBIT12 1
+#else
+#define NOXTLS_ABI_KBIT12 0
+#endif
+#if (((NOXTLS_ABI_KNOBS) >> 11U) & 1U) != 0U
+#define NOXTLS_ABI_KBIT11 1
+#else
+#define NOXTLS_ABI_KBIT11 0
+#endif
+#if (((NOXTLS_ABI_KNOBS) >> 10U) & 1U) != 0U
+#define NOXTLS_ABI_KBIT10 1
+#else
+#define NOXTLS_ABI_KBIT10 0
+#endif
+#if (((NOXTLS_ABI_KNOBS) >> 9U) & 1U) != 0U
+#define NOXTLS_ABI_KBIT9 1
+#else
+#define NOXTLS_ABI_KBIT9 0
+#endif
+#if (((NOXTLS_ABI_KNOBS) >> 8U) & 1U) != 0U
+#define NOXTLS_ABI_KBIT8 1
+#else
+#define NOXTLS_ABI_KBIT8 0
+#endif
+#if (((NOXTLS_ABI_KNOBS) >> 7U) & 1U) != 0U
+#define NOXTLS_ABI_KBIT7 1
+#else
+#define NOXTLS_ABI_KBIT7 0
+#endif
+#if (((NOXTLS_ABI_KNOBS) >> 6U) & 1U) != 0U
+#define NOXTLS_ABI_KBIT6 1
+#else
+#define NOXTLS_ABI_KBIT6 0
+#endif
+#if (((NOXTLS_ABI_KNOBS) >> 5U) & 1U) != 0U
+#define NOXTLS_ABI_KBIT5 1
+#else
+#define NOXTLS_ABI_KBIT5 0
+#endif
+#if (((NOXTLS_ABI_KNOBS) >> 4U) & 1U) != 0U
+#define NOXTLS_ABI_KBIT4 1
+#else
+#define NOXTLS_ABI_KBIT4 0
+#endif
+#if (((NOXTLS_ABI_KNOBS) >> 3U) & 1U) != 0U
+#define NOXTLS_ABI_KBIT3 1
+#else
+#define NOXTLS_ABI_KBIT3 0
+#endif
+#if (((NOXTLS_ABI_KNOBS) >> 2U) & 1U) != 0U
+#define NOXTLS_ABI_KBIT2 1
+#else
+#define NOXTLS_ABI_KBIT2 0
+#endif
+#if (((NOXTLS_ABI_KNOBS) >> 1U) & 1U) != 0U
+#define NOXTLS_ABI_KBIT1 1
+#else
+#define NOXTLS_ABI_KBIT1 0
+#endif
+#if (((NOXTLS_ABI_KNOBS) >> 0U) & 1U) != 0U
+#define NOXTLS_ABI_KBIT0 1
+#else
+#define NOXTLS_ABI_KBIT0 0
+#endif
+#define NOXTLS_ABI_K3 NOXTLS_ABI_HEX(NOXTLS_ABI_KBIT15, NOXTLS_ABI_KBIT14, NOXTLS_ABI_KBIT13, NOXTLS_ABI_KBIT12)
+#define NOXTLS_ABI_K2 NOXTLS_ABI_HEX(NOXTLS_ABI_KBIT11, NOXTLS_ABI_KBIT10, NOXTLS_ABI_KBIT9, NOXTLS_ABI_KBIT8)
+#define NOXTLS_ABI_K1 NOXTLS_ABI_HEX(NOXTLS_ABI_KBIT7, NOXTLS_ABI_KBIT6, NOXTLS_ABI_KBIT5, NOXTLS_ABI_KBIT4)
+#define NOXTLS_ABI_K0 NOXTLS_ABI_HEX(NOXTLS_ABI_KBIT3, NOXTLS_ABI_KBIT2, NOXTLS_ABI_KBIT1, NOXTLS_ABI_KBIT0)
 
-/* Hexadecimal digits of both fingerprints, most significant first. */
-#if (((NOXTLS_ABI_FULL) >> 28U) & 0xFU) == 0U
-#define NOXTLS_ABI_F7 0
-#elif (((NOXTLS_ABI_FULL) >> 28U) & 0xFU) == 1U
-#define NOXTLS_ABI_F7 1
-#elif (((NOXTLS_ABI_FULL) >> 28U) & 0xFU) == 2U
-#define NOXTLS_ABI_F7 2
-#elif (((NOXTLS_ABI_FULL) >> 28U) & 0xFU) == 3U
-#define NOXTLS_ABI_F7 3
-#elif (((NOXTLS_ABI_FULL) >> 28U) & 0xFU) == 4U
-#define NOXTLS_ABI_F7 4
-#elif (((NOXTLS_ABI_FULL) >> 28U) & 0xFU) == 5U
-#define NOXTLS_ABI_F7 5
-#elif (((NOXTLS_ABI_FULL) >> 28U) & 0xFU) == 6U
-#define NOXTLS_ABI_F7 6
-#elif (((NOXTLS_ABI_FULL) >> 28U) & 0xFU) == 7U
-#define NOXTLS_ABI_F7 7
-#elif (((NOXTLS_ABI_FULL) >> 28U) & 0xFU) == 8U
-#define NOXTLS_ABI_F7 8
-#elif (((NOXTLS_ABI_FULL) >> 28U) & 0xFU) == 9U
-#define NOXTLS_ABI_F7 9
-#elif (((NOXTLS_ABI_FULL) >> 28U) & 0xFU) == 10U
-#define NOXTLS_ABI_F7 a
-#elif (((NOXTLS_ABI_FULL) >> 28U) & 0xFU) == 11U
-#define NOXTLS_ABI_F7 b
-#elif (((NOXTLS_ABI_FULL) >> 28U) & 0xFU) == 12U
-#define NOXTLS_ABI_F7 c
-#elif (((NOXTLS_ABI_FULL) >> 28U) & 0xFU) == 13U
-#define NOXTLS_ABI_F7 d
-#elif (((NOXTLS_ABI_FULL) >> 28U) & 0xFU) == 14U
-#define NOXTLS_ABI_F7 e
-#elif (((NOXTLS_ABI_FULL) >> 28U) & 0xFU) == 15U
-#define NOXTLS_ABI_F7 f
+#define NOXTLS_ABI_PASTE4(a, b, c, d) noxtls_abi_##a##b##c##d
+#define NOXTLS_ABI_NAME4(a, b, c, d) NOXTLS_ABI_PASTE4(a, b, c, d)
+#define NOXTLS_ABI_PASTE5(l, a, b, c, d) noxtls_abi_##l##_##a##b##c##d
+#define NOXTLS_ABI_NAME5(l, a, b, c, d) NOXTLS_ABI_PASTE5(l, a, b, c, d)
+/** The symbol of the knob fingerprint alone, which a consumer without
+ *  NOXTLS_ABI_LAYOUT_ID requires. */
+#define NOXTLS_ABI_BASE_SYMBOL NOXTLS_ABI_NAME4(NOXTLS_ABI_K3, NOXTLS_ABI_K2, NOXTLS_ABI_K1, NOXTLS_ABI_K0)
+#if defined(NOXTLS_ABI_LAYOUT_ID)
+/** The symbol this translation unit requires: layout id, then knobs. */
+#define NOXTLS_ABI_SYMBOL NOXTLS_ABI_NAME5(NOXTLS_ABI_LAYOUT_ID, NOXTLS_ABI_K3, NOXTLS_ABI_K2, \
+    NOXTLS_ABI_K1, NOXTLS_ABI_K0)
 #else
-#error "NoxTLS ABI fingerprint digit out of range"
+#define NOXTLS_ABI_SYMBOL NOXTLS_ABI_BASE_SYMBOL
 #endif
-#if (((NOXTLS_ABI_FULL) >> 24U) & 0xFU) == 0U
-#define NOXTLS_ABI_F6 0
-#elif (((NOXTLS_ABI_FULL) >> 24U) & 0xFU) == 1U
-#define NOXTLS_ABI_F6 1
-#elif (((NOXTLS_ABI_FULL) >> 24U) & 0xFU) == 2U
-#define NOXTLS_ABI_F6 2
-#elif (((NOXTLS_ABI_FULL) >> 24U) & 0xFU) == 3U
-#define NOXTLS_ABI_F6 3
-#elif (((NOXTLS_ABI_FULL) >> 24U) & 0xFU) == 4U
-#define NOXTLS_ABI_F6 4
-#elif (((NOXTLS_ABI_FULL) >> 24U) & 0xFU) == 5U
-#define NOXTLS_ABI_F6 5
-#elif (((NOXTLS_ABI_FULL) >> 24U) & 0xFU) == 6U
-#define NOXTLS_ABI_F6 6
-#elif (((NOXTLS_ABI_FULL) >> 24U) & 0xFU) == 7U
-#define NOXTLS_ABI_F6 7
-#elif (((NOXTLS_ABI_FULL) >> 24U) & 0xFU) == 8U
-#define NOXTLS_ABI_F6 8
-#elif (((NOXTLS_ABI_FULL) >> 24U) & 0xFU) == 9U
-#define NOXTLS_ABI_F6 9
-#elif (((NOXTLS_ABI_FULL) >> 24U) & 0xFU) == 10U
-#define NOXTLS_ABI_F6 a
-#elif (((NOXTLS_ABI_FULL) >> 24U) & 0xFU) == 11U
-#define NOXTLS_ABI_F6 b
-#elif (((NOXTLS_ABI_FULL) >> 24U) & 0xFU) == 12U
-#define NOXTLS_ABI_F6 c
-#elif (((NOXTLS_ABI_FULL) >> 24U) & 0xFU) == 13U
-#define NOXTLS_ABI_F6 d
-#elif (((NOXTLS_ABI_FULL) >> 24U) & 0xFU) == 14U
-#define NOXTLS_ABI_F6 e
-#elif (((NOXTLS_ABI_FULL) >> 24U) & 0xFU) == 15U
-#define NOXTLS_ABI_F6 f
-#else
-#error "NoxTLS ABI fingerprint digit out of range"
-#endif
-#if (((NOXTLS_ABI_FULL) >> 20U) & 0xFU) == 0U
-#define NOXTLS_ABI_F5 0
-#elif (((NOXTLS_ABI_FULL) >> 20U) & 0xFU) == 1U
-#define NOXTLS_ABI_F5 1
-#elif (((NOXTLS_ABI_FULL) >> 20U) & 0xFU) == 2U
-#define NOXTLS_ABI_F5 2
-#elif (((NOXTLS_ABI_FULL) >> 20U) & 0xFU) == 3U
-#define NOXTLS_ABI_F5 3
-#elif (((NOXTLS_ABI_FULL) >> 20U) & 0xFU) == 4U
-#define NOXTLS_ABI_F5 4
-#elif (((NOXTLS_ABI_FULL) >> 20U) & 0xFU) == 5U
-#define NOXTLS_ABI_F5 5
-#elif (((NOXTLS_ABI_FULL) >> 20U) & 0xFU) == 6U
-#define NOXTLS_ABI_F5 6
-#elif (((NOXTLS_ABI_FULL) >> 20U) & 0xFU) == 7U
-#define NOXTLS_ABI_F5 7
-#elif (((NOXTLS_ABI_FULL) >> 20U) & 0xFU) == 8U
-#define NOXTLS_ABI_F5 8
-#elif (((NOXTLS_ABI_FULL) >> 20U) & 0xFU) == 9U
-#define NOXTLS_ABI_F5 9
-#elif (((NOXTLS_ABI_FULL) >> 20U) & 0xFU) == 10U
-#define NOXTLS_ABI_F5 a
-#elif (((NOXTLS_ABI_FULL) >> 20U) & 0xFU) == 11U
-#define NOXTLS_ABI_F5 b
-#elif (((NOXTLS_ABI_FULL) >> 20U) & 0xFU) == 12U
-#define NOXTLS_ABI_F5 c
-#elif (((NOXTLS_ABI_FULL) >> 20U) & 0xFU) == 13U
-#define NOXTLS_ABI_F5 d
-#elif (((NOXTLS_ABI_FULL) >> 20U) & 0xFU) == 14U
-#define NOXTLS_ABI_F5 e
-#elif (((NOXTLS_ABI_FULL) >> 20U) & 0xFU) == 15U
-#define NOXTLS_ABI_F5 f
-#else
-#error "NoxTLS ABI fingerprint digit out of range"
-#endif
-#if (((NOXTLS_ABI_FULL) >> 16U) & 0xFU) == 0U
-#define NOXTLS_ABI_F4 0
-#elif (((NOXTLS_ABI_FULL) >> 16U) & 0xFU) == 1U
-#define NOXTLS_ABI_F4 1
-#elif (((NOXTLS_ABI_FULL) >> 16U) & 0xFU) == 2U
-#define NOXTLS_ABI_F4 2
-#elif (((NOXTLS_ABI_FULL) >> 16U) & 0xFU) == 3U
-#define NOXTLS_ABI_F4 3
-#elif (((NOXTLS_ABI_FULL) >> 16U) & 0xFU) == 4U
-#define NOXTLS_ABI_F4 4
-#elif (((NOXTLS_ABI_FULL) >> 16U) & 0xFU) == 5U
-#define NOXTLS_ABI_F4 5
-#elif (((NOXTLS_ABI_FULL) >> 16U) & 0xFU) == 6U
-#define NOXTLS_ABI_F4 6
-#elif (((NOXTLS_ABI_FULL) >> 16U) & 0xFU) == 7U
-#define NOXTLS_ABI_F4 7
-#elif (((NOXTLS_ABI_FULL) >> 16U) & 0xFU) == 8U
-#define NOXTLS_ABI_F4 8
-#elif (((NOXTLS_ABI_FULL) >> 16U) & 0xFU) == 9U
-#define NOXTLS_ABI_F4 9
-#elif (((NOXTLS_ABI_FULL) >> 16U) & 0xFU) == 10U
-#define NOXTLS_ABI_F4 a
-#elif (((NOXTLS_ABI_FULL) >> 16U) & 0xFU) == 11U
-#define NOXTLS_ABI_F4 b
-#elif (((NOXTLS_ABI_FULL) >> 16U) & 0xFU) == 12U
-#define NOXTLS_ABI_F4 c
-#elif (((NOXTLS_ABI_FULL) >> 16U) & 0xFU) == 13U
-#define NOXTLS_ABI_F4 d
-#elif (((NOXTLS_ABI_FULL) >> 16U) & 0xFU) == 14U
-#define NOXTLS_ABI_F4 e
-#elif (((NOXTLS_ABI_FULL) >> 16U) & 0xFU) == 15U
-#define NOXTLS_ABI_F4 f
-#else
-#error "NoxTLS ABI fingerprint digit out of range"
-#endif
-#if (((NOXTLS_ABI_FULL) >> 12U) & 0xFU) == 0U
-#define NOXTLS_ABI_F3 0
-#elif (((NOXTLS_ABI_FULL) >> 12U) & 0xFU) == 1U
-#define NOXTLS_ABI_F3 1
-#elif (((NOXTLS_ABI_FULL) >> 12U) & 0xFU) == 2U
-#define NOXTLS_ABI_F3 2
-#elif (((NOXTLS_ABI_FULL) >> 12U) & 0xFU) == 3U
-#define NOXTLS_ABI_F3 3
-#elif (((NOXTLS_ABI_FULL) >> 12U) & 0xFU) == 4U
-#define NOXTLS_ABI_F3 4
-#elif (((NOXTLS_ABI_FULL) >> 12U) & 0xFU) == 5U
-#define NOXTLS_ABI_F3 5
-#elif (((NOXTLS_ABI_FULL) >> 12U) & 0xFU) == 6U
-#define NOXTLS_ABI_F3 6
-#elif (((NOXTLS_ABI_FULL) >> 12U) & 0xFU) == 7U
-#define NOXTLS_ABI_F3 7
-#elif (((NOXTLS_ABI_FULL) >> 12U) & 0xFU) == 8U
-#define NOXTLS_ABI_F3 8
-#elif (((NOXTLS_ABI_FULL) >> 12U) & 0xFU) == 9U
-#define NOXTLS_ABI_F3 9
-#elif (((NOXTLS_ABI_FULL) >> 12U) & 0xFU) == 10U
-#define NOXTLS_ABI_F3 a
-#elif (((NOXTLS_ABI_FULL) >> 12U) & 0xFU) == 11U
-#define NOXTLS_ABI_F3 b
-#elif (((NOXTLS_ABI_FULL) >> 12U) & 0xFU) == 12U
-#define NOXTLS_ABI_F3 c
-#elif (((NOXTLS_ABI_FULL) >> 12U) & 0xFU) == 13U
-#define NOXTLS_ABI_F3 d
-#elif (((NOXTLS_ABI_FULL) >> 12U) & 0xFU) == 14U
-#define NOXTLS_ABI_F3 e
-#elif (((NOXTLS_ABI_FULL) >> 12U) & 0xFU) == 15U
-#define NOXTLS_ABI_F3 f
-#else
-#error "NoxTLS ABI fingerprint digit out of range"
-#endif
-#if (((NOXTLS_ABI_FULL) >> 8U) & 0xFU) == 0U
-#define NOXTLS_ABI_F2 0
-#elif (((NOXTLS_ABI_FULL) >> 8U) & 0xFU) == 1U
-#define NOXTLS_ABI_F2 1
-#elif (((NOXTLS_ABI_FULL) >> 8U) & 0xFU) == 2U
-#define NOXTLS_ABI_F2 2
-#elif (((NOXTLS_ABI_FULL) >> 8U) & 0xFU) == 3U
-#define NOXTLS_ABI_F2 3
-#elif (((NOXTLS_ABI_FULL) >> 8U) & 0xFU) == 4U
-#define NOXTLS_ABI_F2 4
-#elif (((NOXTLS_ABI_FULL) >> 8U) & 0xFU) == 5U
-#define NOXTLS_ABI_F2 5
-#elif (((NOXTLS_ABI_FULL) >> 8U) & 0xFU) == 6U
-#define NOXTLS_ABI_F2 6
-#elif (((NOXTLS_ABI_FULL) >> 8U) & 0xFU) == 7U
-#define NOXTLS_ABI_F2 7
-#elif (((NOXTLS_ABI_FULL) >> 8U) & 0xFU) == 8U
-#define NOXTLS_ABI_F2 8
-#elif (((NOXTLS_ABI_FULL) >> 8U) & 0xFU) == 9U
-#define NOXTLS_ABI_F2 9
-#elif (((NOXTLS_ABI_FULL) >> 8U) & 0xFU) == 10U
-#define NOXTLS_ABI_F2 a
-#elif (((NOXTLS_ABI_FULL) >> 8U) & 0xFU) == 11U
-#define NOXTLS_ABI_F2 b
-#elif (((NOXTLS_ABI_FULL) >> 8U) & 0xFU) == 12U
-#define NOXTLS_ABI_F2 c
-#elif (((NOXTLS_ABI_FULL) >> 8U) & 0xFU) == 13U
-#define NOXTLS_ABI_F2 d
-#elif (((NOXTLS_ABI_FULL) >> 8U) & 0xFU) == 14U
-#define NOXTLS_ABI_F2 e
-#elif (((NOXTLS_ABI_FULL) >> 8U) & 0xFU) == 15U
-#define NOXTLS_ABI_F2 f
-#else
-#error "NoxTLS ABI fingerprint digit out of range"
-#endif
-#if (((NOXTLS_ABI_FULL) >> 4U) & 0xFU) == 0U
-#define NOXTLS_ABI_F1 0
-#elif (((NOXTLS_ABI_FULL) >> 4U) & 0xFU) == 1U
-#define NOXTLS_ABI_F1 1
-#elif (((NOXTLS_ABI_FULL) >> 4U) & 0xFU) == 2U
-#define NOXTLS_ABI_F1 2
-#elif (((NOXTLS_ABI_FULL) >> 4U) & 0xFU) == 3U
-#define NOXTLS_ABI_F1 3
-#elif (((NOXTLS_ABI_FULL) >> 4U) & 0xFU) == 4U
-#define NOXTLS_ABI_F1 4
-#elif (((NOXTLS_ABI_FULL) >> 4U) & 0xFU) == 5U
-#define NOXTLS_ABI_F1 5
-#elif (((NOXTLS_ABI_FULL) >> 4U) & 0xFU) == 6U
-#define NOXTLS_ABI_F1 6
-#elif (((NOXTLS_ABI_FULL) >> 4U) & 0xFU) == 7U
-#define NOXTLS_ABI_F1 7
-#elif (((NOXTLS_ABI_FULL) >> 4U) & 0xFU) == 8U
-#define NOXTLS_ABI_F1 8
-#elif (((NOXTLS_ABI_FULL) >> 4U) & 0xFU) == 9U
-#define NOXTLS_ABI_F1 9
-#elif (((NOXTLS_ABI_FULL) >> 4U) & 0xFU) == 10U
-#define NOXTLS_ABI_F1 a
-#elif (((NOXTLS_ABI_FULL) >> 4U) & 0xFU) == 11U
-#define NOXTLS_ABI_F1 b
-#elif (((NOXTLS_ABI_FULL) >> 4U) & 0xFU) == 12U
-#define NOXTLS_ABI_F1 c
-#elif (((NOXTLS_ABI_FULL) >> 4U) & 0xFU) == 13U
-#define NOXTLS_ABI_F1 d
-#elif (((NOXTLS_ABI_FULL) >> 4U) & 0xFU) == 14U
-#define NOXTLS_ABI_F1 e
-#elif (((NOXTLS_ABI_FULL) >> 4U) & 0xFU) == 15U
-#define NOXTLS_ABI_F1 f
-#else
-#error "NoxTLS ABI fingerprint digit out of range"
-#endif
-#if (((NOXTLS_ABI_FULL) >> 0U) & 0xFU) == 0U
-#define NOXTLS_ABI_F0 0
-#elif (((NOXTLS_ABI_FULL) >> 0U) & 0xFU) == 1U
-#define NOXTLS_ABI_F0 1
-#elif (((NOXTLS_ABI_FULL) >> 0U) & 0xFU) == 2U
-#define NOXTLS_ABI_F0 2
-#elif (((NOXTLS_ABI_FULL) >> 0U) & 0xFU) == 3U
-#define NOXTLS_ABI_F0 3
-#elif (((NOXTLS_ABI_FULL) >> 0U) & 0xFU) == 4U
-#define NOXTLS_ABI_F0 4
-#elif (((NOXTLS_ABI_FULL) >> 0U) & 0xFU) == 5U
-#define NOXTLS_ABI_F0 5
-#elif (((NOXTLS_ABI_FULL) >> 0U) & 0xFU) == 6U
-#define NOXTLS_ABI_F0 6
-#elif (((NOXTLS_ABI_FULL) >> 0U) & 0xFU) == 7U
-#define NOXTLS_ABI_F0 7
-#elif (((NOXTLS_ABI_FULL) >> 0U) & 0xFU) == 8U
-#define NOXTLS_ABI_F0 8
-#elif (((NOXTLS_ABI_FULL) >> 0U) & 0xFU) == 9U
-#define NOXTLS_ABI_F0 9
-#elif (((NOXTLS_ABI_FULL) >> 0U) & 0xFU) == 10U
-#define NOXTLS_ABI_F0 a
-#elif (((NOXTLS_ABI_FULL) >> 0U) & 0xFU) == 11U
-#define NOXTLS_ABI_F0 b
-#elif (((NOXTLS_ABI_FULL) >> 0U) & 0xFU) == 12U
-#define NOXTLS_ABI_F0 c
-#elif (((NOXTLS_ABI_FULL) >> 0U) & 0xFU) == 13U
-#define NOXTLS_ABI_F0 d
-#elif (((NOXTLS_ABI_FULL) >> 0U) & 0xFU) == 14U
-#define NOXTLS_ABI_F0 e
-#elif (((NOXTLS_ABI_FULL) >> 0U) & 0xFU) == 15U
-#define NOXTLS_ABI_F0 f
-#else
-#error "NoxTLS ABI fingerprint digit out of range"
-#endif
-#if (((NOXTLS_ABI_BASE) >> 28U) & 0xFU) == 0U
-#define NOXTLS_ABI_B7 0
-#elif (((NOXTLS_ABI_BASE) >> 28U) & 0xFU) == 1U
-#define NOXTLS_ABI_B7 1
-#elif (((NOXTLS_ABI_BASE) >> 28U) & 0xFU) == 2U
-#define NOXTLS_ABI_B7 2
-#elif (((NOXTLS_ABI_BASE) >> 28U) & 0xFU) == 3U
-#define NOXTLS_ABI_B7 3
-#elif (((NOXTLS_ABI_BASE) >> 28U) & 0xFU) == 4U
-#define NOXTLS_ABI_B7 4
-#elif (((NOXTLS_ABI_BASE) >> 28U) & 0xFU) == 5U
-#define NOXTLS_ABI_B7 5
-#elif (((NOXTLS_ABI_BASE) >> 28U) & 0xFU) == 6U
-#define NOXTLS_ABI_B7 6
-#elif (((NOXTLS_ABI_BASE) >> 28U) & 0xFU) == 7U
-#define NOXTLS_ABI_B7 7
-#elif (((NOXTLS_ABI_BASE) >> 28U) & 0xFU) == 8U
-#define NOXTLS_ABI_B7 8
-#elif (((NOXTLS_ABI_BASE) >> 28U) & 0xFU) == 9U
-#define NOXTLS_ABI_B7 9
-#elif (((NOXTLS_ABI_BASE) >> 28U) & 0xFU) == 10U
-#define NOXTLS_ABI_B7 a
-#elif (((NOXTLS_ABI_BASE) >> 28U) & 0xFU) == 11U
-#define NOXTLS_ABI_B7 b
-#elif (((NOXTLS_ABI_BASE) >> 28U) & 0xFU) == 12U
-#define NOXTLS_ABI_B7 c
-#elif (((NOXTLS_ABI_BASE) >> 28U) & 0xFU) == 13U
-#define NOXTLS_ABI_B7 d
-#elif (((NOXTLS_ABI_BASE) >> 28U) & 0xFU) == 14U
-#define NOXTLS_ABI_B7 e
-#elif (((NOXTLS_ABI_BASE) >> 28U) & 0xFU) == 15U
-#define NOXTLS_ABI_B7 f
-#else
-#error "NoxTLS ABI fingerprint digit out of range"
-#endif
-#if (((NOXTLS_ABI_BASE) >> 24U) & 0xFU) == 0U
-#define NOXTLS_ABI_B6 0
-#elif (((NOXTLS_ABI_BASE) >> 24U) & 0xFU) == 1U
-#define NOXTLS_ABI_B6 1
-#elif (((NOXTLS_ABI_BASE) >> 24U) & 0xFU) == 2U
-#define NOXTLS_ABI_B6 2
-#elif (((NOXTLS_ABI_BASE) >> 24U) & 0xFU) == 3U
-#define NOXTLS_ABI_B6 3
-#elif (((NOXTLS_ABI_BASE) >> 24U) & 0xFU) == 4U
-#define NOXTLS_ABI_B6 4
-#elif (((NOXTLS_ABI_BASE) >> 24U) & 0xFU) == 5U
-#define NOXTLS_ABI_B6 5
-#elif (((NOXTLS_ABI_BASE) >> 24U) & 0xFU) == 6U
-#define NOXTLS_ABI_B6 6
-#elif (((NOXTLS_ABI_BASE) >> 24U) & 0xFU) == 7U
-#define NOXTLS_ABI_B6 7
-#elif (((NOXTLS_ABI_BASE) >> 24U) & 0xFU) == 8U
-#define NOXTLS_ABI_B6 8
-#elif (((NOXTLS_ABI_BASE) >> 24U) & 0xFU) == 9U
-#define NOXTLS_ABI_B6 9
-#elif (((NOXTLS_ABI_BASE) >> 24U) & 0xFU) == 10U
-#define NOXTLS_ABI_B6 a
-#elif (((NOXTLS_ABI_BASE) >> 24U) & 0xFU) == 11U
-#define NOXTLS_ABI_B6 b
-#elif (((NOXTLS_ABI_BASE) >> 24U) & 0xFU) == 12U
-#define NOXTLS_ABI_B6 c
-#elif (((NOXTLS_ABI_BASE) >> 24U) & 0xFU) == 13U
-#define NOXTLS_ABI_B6 d
-#elif (((NOXTLS_ABI_BASE) >> 24U) & 0xFU) == 14U
-#define NOXTLS_ABI_B6 e
-#elif (((NOXTLS_ABI_BASE) >> 24U) & 0xFU) == 15U
-#define NOXTLS_ABI_B6 f
-#else
-#error "NoxTLS ABI fingerprint digit out of range"
-#endif
-#if (((NOXTLS_ABI_BASE) >> 20U) & 0xFU) == 0U
-#define NOXTLS_ABI_B5 0
-#elif (((NOXTLS_ABI_BASE) >> 20U) & 0xFU) == 1U
-#define NOXTLS_ABI_B5 1
-#elif (((NOXTLS_ABI_BASE) >> 20U) & 0xFU) == 2U
-#define NOXTLS_ABI_B5 2
-#elif (((NOXTLS_ABI_BASE) >> 20U) & 0xFU) == 3U
-#define NOXTLS_ABI_B5 3
-#elif (((NOXTLS_ABI_BASE) >> 20U) & 0xFU) == 4U
-#define NOXTLS_ABI_B5 4
-#elif (((NOXTLS_ABI_BASE) >> 20U) & 0xFU) == 5U
-#define NOXTLS_ABI_B5 5
-#elif (((NOXTLS_ABI_BASE) >> 20U) & 0xFU) == 6U
-#define NOXTLS_ABI_B5 6
-#elif (((NOXTLS_ABI_BASE) >> 20U) & 0xFU) == 7U
-#define NOXTLS_ABI_B5 7
-#elif (((NOXTLS_ABI_BASE) >> 20U) & 0xFU) == 8U
-#define NOXTLS_ABI_B5 8
-#elif (((NOXTLS_ABI_BASE) >> 20U) & 0xFU) == 9U
-#define NOXTLS_ABI_B5 9
-#elif (((NOXTLS_ABI_BASE) >> 20U) & 0xFU) == 10U
-#define NOXTLS_ABI_B5 a
-#elif (((NOXTLS_ABI_BASE) >> 20U) & 0xFU) == 11U
-#define NOXTLS_ABI_B5 b
-#elif (((NOXTLS_ABI_BASE) >> 20U) & 0xFU) == 12U
-#define NOXTLS_ABI_B5 c
-#elif (((NOXTLS_ABI_BASE) >> 20U) & 0xFU) == 13U
-#define NOXTLS_ABI_B5 d
-#elif (((NOXTLS_ABI_BASE) >> 20U) & 0xFU) == 14U
-#define NOXTLS_ABI_B5 e
-#elif (((NOXTLS_ABI_BASE) >> 20U) & 0xFU) == 15U
-#define NOXTLS_ABI_B5 f
-#else
-#error "NoxTLS ABI fingerprint digit out of range"
-#endif
-#if (((NOXTLS_ABI_BASE) >> 16U) & 0xFU) == 0U
-#define NOXTLS_ABI_B4 0
-#elif (((NOXTLS_ABI_BASE) >> 16U) & 0xFU) == 1U
-#define NOXTLS_ABI_B4 1
-#elif (((NOXTLS_ABI_BASE) >> 16U) & 0xFU) == 2U
-#define NOXTLS_ABI_B4 2
-#elif (((NOXTLS_ABI_BASE) >> 16U) & 0xFU) == 3U
-#define NOXTLS_ABI_B4 3
-#elif (((NOXTLS_ABI_BASE) >> 16U) & 0xFU) == 4U
-#define NOXTLS_ABI_B4 4
-#elif (((NOXTLS_ABI_BASE) >> 16U) & 0xFU) == 5U
-#define NOXTLS_ABI_B4 5
-#elif (((NOXTLS_ABI_BASE) >> 16U) & 0xFU) == 6U
-#define NOXTLS_ABI_B4 6
-#elif (((NOXTLS_ABI_BASE) >> 16U) & 0xFU) == 7U
-#define NOXTLS_ABI_B4 7
-#elif (((NOXTLS_ABI_BASE) >> 16U) & 0xFU) == 8U
-#define NOXTLS_ABI_B4 8
-#elif (((NOXTLS_ABI_BASE) >> 16U) & 0xFU) == 9U
-#define NOXTLS_ABI_B4 9
-#elif (((NOXTLS_ABI_BASE) >> 16U) & 0xFU) == 10U
-#define NOXTLS_ABI_B4 a
-#elif (((NOXTLS_ABI_BASE) >> 16U) & 0xFU) == 11U
-#define NOXTLS_ABI_B4 b
-#elif (((NOXTLS_ABI_BASE) >> 16U) & 0xFU) == 12U
-#define NOXTLS_ABI_B4 c
-#elif (((NOXTLS_ABI_BASE) >> 16U) & 0xFU) == 13U
-#define NOXTLS_ABI_B4 d
-#elif (((NOXTLS_ABI_BASE) >> 16U) & 0xFU) == 14U
-#define NOXTLS_ABI_B4 e
-#elif (((NOXTLS_ABI_BASE) >> 16U) & 0xFU) == 15U
-#define NOXTLS_ABI_B4 f
-#else
-#error "NoxTLS ABI fingerprint digit out of range"
-#endif
-#if (((NOXTLS_ABI_BASE) >> 12U) & 0xFU) == 0U
-#define NOXTLS_ABI_B3 0
-#elif (((NOXTLS_ABI_BASE) >> 12U) & 0xFU) == 1U
-#define NOXTLS_ABI_B3 1
-#elif (((NOXTLS_ABI_BASE) >> 12U) & 0xFU) == 2U
-#define NOXTLS_ABI_B3 2
-#elif (((NOXTLS_ABI_BASE) >> 12U) & 0xFU) == 3U
-#define NOXTLS_ABI_B3 3
-#elif (((NOXTLS_ABI_BASE) >> 12U) & 0xFU) == 4U
-#define NOXTLS_ABI_B3 4
-#elif (((NOXTLS_ABI_BASE) >> 12U) & 0xFU) == 5U
-#define NOXTLS_ABI_B3 5
-#elif (((NOXTLS_ABI_BASE) >> 12U) & 0xFU) == 6U
-#define NOXTLS_ABI_B3 6
-#elif (((NOXTLS_ABI_BASE) >> 12U) & 0xFU) == 7U
-#define NOXTLS_ABI_B3 7
-#elif (((NOXTLS_ABI_BASE) >> 12U) & 0xFU) == 8U
-#define NOXTLS_ABI_B3 8
-#elif (((NOXTLS_ABI_BASE) >> 12U) & 0xFU) == 9U
-#define NOXTLS_ABI_B3 9
-#elif (((NOXTLS_ABI_BASE) >> 12U) & 0xFU) == 10U
-#define NOXTLS_ABI_B3 a
-#elif (((NOXTLS_ABI_BASE) >> 12U) & 0xFU) == 11U
-#define NOXTLS_ABI_B3 b
-#elif (((NOXTLS_ABI_BASE) >> 12U) & 0xFU) == 12U
-#define NOXTLS_ABI_B3 c
-#elif (((NOXTLS_ABI_BASE) >> 12U) & 0xFU) == 13U
-#define NOXTLS_ABI_B3 d
-#elif (((NOXTLS_ABI_BASE) >> 12U) & 0xFU) == 14U
-#define NOXTLS_ABI_B3 e
-#elif (((NOXTLS_ABI_BASE) >> 12U) & 0xFU) == 15U
-#define NOXTLS_ABI_B3 f
-#else
-#error "NoxTLS ABI fingerprint digit out of range"
-#endif
-#if (((NOXTLS_ABI_BASE) >> 8U) & 0xFU) == 0U
-#define NOXTLS_ABI_B2 0
-#elif (((NOXTLS_ABI_BASE) >> 8U) & 0xFU) == 1U
-#define NOXTLS_ABI_B2 1
-#elif (((NOXTLS_ABI_BASE) >> 8U) & 0xFU) == 2U
-#define NOXTLS_ABI_B2 2
-#elif (((NOXTLS_ABI_BASE) >> 8U) & 0xFU) == 3U
-#define NOXTLS_ABI_B2 3
-#elif (((NOXTLS_ABI_BASE) >> 8U) & 0xFU) == 4U
-#define NOXTLS_ABI_B2 4
-#elif (((NOXTLS_ABI_BASE) >> 8U) & 0xFU) == 5U
-#define NOXTLS_ABI_B2 5
-#elif (((NOXTLS_ABI_BASE) >> 8U) & 0xFU) == 6U
-#define NOXTLS_ABI_B2 6
-#elif (((NOXTLS_ABI_BASE) >> 8U) & 0xFU) == 7U
-#define NOXTLS_ABI_B2 7
-#elif (((NOXTLS_ABI_BASE) >> 8U) & 0xFU) == 8U
-#define NOXTLS_ABI_B2 8
-#elif (((NOXTLS_ABI_BASE) >> 8U) & 0xFU) == 9U
-#define NOXTLS_ABI_B2 9
-#elif (((NOXTLS_ABI_BASE) >> 8U) & 0xFU) == 10U
-#define NOXTLS_ABI_B2 a
-#elif (((NOXTLS_ABI_BASE) >> 8U) & 0xFU) == 11U
-#define NOXTLS_ABI_B2 b
-#elif (((NOXTLS_ABI_BASE) >> 8U) & 0xFU) == 12U
-#define NOXTLS_ABI_B2 c
-#elif (((NOXTLS_ABI_BASE) >> 8U) & 0xFU) == 13U
-#define NOXTLS_ABI_B2 d
-#elif (((NOXTLS_ABI_BASE) >> 8U) & 0xFU) == 14U
-#define NOXTLS_ABI_B2 e
-#elif (((NOXTLS_ABI_BASE) >> 8U) & 0xFU) == 15U
-#define NOXTLS_ABI_B2 f
-#else
-#error "NoxTLS ABI fingerprint digit out of range"
-#endif
-#if (((NOXTLS_ABI_BASE) >> 4U) & 0xFU) == 0U
-#define NOXTLS_ABI_B1 0
-#elif (((NOXTLS_ABI_BASE) >> 4U) & 0xFU) == 1U
-#define NOXTLS_ABI_B1 1
-#elif (((NOXTLS_ABI_BASE) >> 4U) & 0xFU) == 2U
-#define NOXTLS_ABI_B1 2
-#elif (((NOXTLS_ABI_BASE) >> 4U) & 0xFU) == 3U
-#define NOXTLS_ABI_B1 3
-#elif (((NOXTLS_ABI_BASE) >> 4U) & 0xFU) == 4U
-#define NOXTLS_ABI_B1 4
-#elif (((NOXTLS_ABI_BASE) >> 4U) & 0xFU) == 5U
-#define NOXTLS_ABI_B1 5
-#elif (((NOXTLS_ABI_BASE) >> 4U) & 0xFU) == 6U
-#define NOXTLS_ABI_B1 6
-#elif (((NOXTLS_ABI_BASE) >> 4U) & 0xFU) == 7U
-#define NOXTLS_ABI_B1 7
-#elif (((NOXTLS_ABI_BASE) >> 4U) & 0xFU) == 8U
-#define NOXTLS_ABI_B1 8
-#elif (((NOXTLS_ABI_BASE) >> 4U) & 0xFU) == 9U
-#define NOXTLS_ABI_B1 9
-#elif (((NOXTLS_ABI_BASE) >> 4U) & 0xFU) == 10U
-#define NOXTLS_ABI_B1 a
-#elif (((NOXTLS_ABI_BASE) >> 4U) & 0xFU) == 11U
-#define NOXTLS_ABI_B1 b
-#elif (((NOXTLS_ABI_BASE) >> 4U) & 0xFU) == 12U
-#define NOXTLS_ABI_B1 c
-#elif (((NOXTLS_ABI_BASE) >> 4U) & 0xFU) == 13U
-#define NOXTLS_ABI_B1 d
-#elif (((NOXTLS_ABI_BASE) >> 4U) & 0xFU) == 14U
-#define NOXTLS_ABI_B1 e
-#elif (((NOXTLS_ABI_BASE) >> 4U) & 0xFU) == 15U
-#define NOXTLS_ABI_B1 f
-#else
-#error "NoxTLS ABI fingerprint digit out of range"
-#endif
-#if (((NOXTLS_ABI_BASE) >> 0U) & 0xFU) == 0U
-#define NOXTLS_ABI_B0 0
-#elif (((NOXTLS_ABI_BASE) >> 0U) & 0xFU) == 1U
-#define NOXTLS_ABI_B0 1
-#elif (((NOXTLS_ABI_BASE) >> 0U) & 0xFU) == 2U
-#define NOXTLS_ABI_B0 2
-#elif (((NOXTLS_ABI_BASE) >> 0U) & 0xFU) == 3U
-#define NOXTLS_ABI_B0 3
-#elif (((NOXTLS_ABI_BASE) >> 0U) & 0xFU) == 4U
-#define NOXTLS_ABI_B0 4
-#elif (((NOXTLS_ABI_BASE) >> 0U) & 0xFU) == 5U
-#define NOXTLS_ABI_B0 5
-#elif (((NOXTLS_ABI_BASE) >> 0U) & 0xFU) == 6U
-#define NOXTLS_ABI_B0 6
-#elif (((NOXTLS_ABI_BASE) >> 0U) & 0xFU) == 7U
-#define NOXTLS_ABI_B0 7
-#elif (((NOXTLS_ABI_BASE) >> 0U) & 0xFU) == 8U
-#define NOXTLS_ABI_B0 8
-#elif (((NOXTLS_ABI_BASE) >> 0U) & 0xFU) == 9U
-#define NOXTLS_ABI_B0 9
-#elif (((NOXTLS_ABI_BASE) >> 0U) & 0xFU) == 10U
-#define NOXTLS_ABI_B0 a
-#elif (((NOXTLS_ABI_BASE) >> 0U) & 0xFU) == 11U
-#define NOXTLS_ABI_B0 b
-#elif (((NOXTLS_ABI_BASE) >> 0U) & 0xFU) == 12U
-#define NOXTLS_ABI_B0 c
-#elif (((NOXTLS_ABI_BASE) >> 0U) & 0xFU) == 13U
-#define NOXTLS_ABI_B0 d
-#elif (((NOXTLS_ABI_BASE) >> 0U) & 0xFU) == 14U
-#define NOXTLS_ABI_B0 e
-#elif (((NOXTLS_ABI_BASE) >> 0U) & 0xFU) == 15U
-#define NOXTLS_ABI_B0 f
-#else
-#error "NoxTLS ABI fingerprint digit out of range"
-#endif
-
-#define NOXTLS_ABI_NAME2(a, b, c, d, e, f, g, h) noxtls_abi_##a##b##c##d##e##f##g##h
-#define NOXTLS_ABI_NAME(a, b, c, d, e, f, g, h) NOXTLS_ABI_NAME2(a, b, c, d, e, f, g, h)
-/** The symbol this translation unit requires. */
-#define NOXTLS_ABI_SYMBOL NOXTLS_ABI_NAME(NOXTLS_ABI_F7, NOXTLS_ABI_F6, NOXTLS_ABI_F5, NOXTLS_ABI_F4, \
-    NOXTLS_ABI_F3, NOXTLS_ABI_F2, NOXTLS_ABI_F1, NOXTLS_ABI_F0)
-/** The symbol a consumer without NOXTLS_ABI_LAYOUT_HASH requires. */
-#define NOXTLS_ABI_BASE_SYMBOL NOXTLS_ABI_NAME(NOXTLS_ABI_B7, NOXTLS_ABI_B6, NOXTLS_ABI_B5, NOXTLS_ABI_B4, \
-    NOXTLS_ABI_B3, NOXTLS_ABI_B2, NOXTLS_ABI_B1, NOXTLS_ABI_B0)
 
 /* How this translation unit keeps its reference. Linker garbage collection
  * (--gc-sections) drops an unreferenced data section and its undefined
@@ -958,7 +539,7 @@ extern "C" {
 #endif
 
 /** Defined by the library for its own layout; see the file comment. */
-extern const unsigned char NOXTLS_ABI_SYMBOL;
+extern const uint8_t NOXTLS_ABI_SYMBOL;
 
 #ifdef __cplusplus
 }
@@ -968,14 +549,16 @@ extern const unsigned char NOXTLS_ABI_SYMBOL;
 #if defined(NOXTLS_ABI_NO_REFERENCE)
 /* A build-time probe: no reference. */
 #elif NOXTLS_ABI_RETAINED_SECTION
+/* MISRA C:2025 Dir 4.3 deviation: encapsulated assembler directives, the only way
+ * to emit a retained COMDAT section; they emit data, never instructions. */
 __asm__(".pushsection .rodata.noxtls_abi_ref,\"aRG\",%progbits," NOXTLS_ABI_STR(NOXTLS_ABI_SYMBOL) "_ref,comdat\n"
         ".balign 8\n"
         ".dc.a " NOXTLS_ABI_STR(NOXTLS_ABI_SYMBOL) "\n"
         ".popsection");
 #elif defined(__GNUC__) || defined(__clang__)
-__attribute__((used)) static const unsigned char *const noxtls_abi_reference = &NOXTLS_ABI_SYMBOL;
+__attribute__((used)) static const uint8_t *const noxtls_abi_reference = &NOXTLS_ABI_SYMBOL;
 #else
-static const unsigned char *const noxtls_abi_reference = &NOXTLS_ABI_SYMBOL;
+static const uint8_t *const noxtls_abi_reference = &NOXTLS_ABI_SYMBOL;
 #endif
 
 #endif /* NOXTLS_ABI_H_ */

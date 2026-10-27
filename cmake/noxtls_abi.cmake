@@ -7,7 +7,7 @@
 # consumer-owned configuration directory and static-memory profile, when set)
 # together with the sizes of the public TLS contexts under this directory's
 # compile definitions and include directories. The result is
-# NOXTLS_ABI_LAYOUT_HASH, which the caller hands to the NoxTLS targets and
+# NOXTLS_ABI_LAYOUT_ID, which the caller hands to the NoxTLS targets and
 # their consumers. Any header edit re-runs CMake, so the hash, and with it
 # every consumer's compile command, follows the headers.
 

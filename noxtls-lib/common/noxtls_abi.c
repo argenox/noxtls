@@ -28,13 +28,15 @@
  * other content, so the reference pulls nothing else from the archive.
  */
 
+#include <stdint.h>
+
 #include "noxtls_tls_common.h"
 
 /** Fingerprint of this build's layout (noxtls_abi.h). */
-const unsigned char NOXTLS_ABI_SYMBOL = 1U;
+const uint8_t NOXTLS_ABI_SYMBOL = 1U;
 
-#if defined(NOXTLS_ABI_LAYOUT_HASH)
-/** Fingerprint a consumer without NOXTLS_ABI_LAYOUT_HASH requires. */
-extern const unsigned char NOXTLS_ABI_BASE_SYMBOL;
-const unsigned char NOXTLS_ABI_BASE_SYMBOL = 1U;
+#if defined(NOXTLS_ABI_LAYOUT_ID)
+/** Fingerprint a consumer without NOXTLS_ABI_LAYOUT_ID requires. */
+extern const uint8_t NOXTLS_ABI_BASE_SYMBOL;
+const uint8_t NOXTLS_ABI_BASE_SYMBOL = 1U;
 #endif

@@ -493,7 +493,7 @@ include_directories(
 # built against other headers or another layout fails to link.
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/noxtls_abi.cmake")
 noxtls_abi_layout_hash(NOXTLS_ABI_LAYOUT_HASH_VALUE)
-add_compile_definitions(NOXTLS_ABI_LAYOUT_HASH=0x${NOXTLS_ABI_LAYOUT_HASH_VALUE}U)
+add_compile_definitions(NOXTLS_ABI_LAYOUT_ID=${NOXTLS_ABI_LAYOUT_HASH_VALUE})
 
 # Library components
 add_subdirectory(noxtls-lib/common)

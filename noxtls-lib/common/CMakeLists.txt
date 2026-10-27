@@ -29,7 +29,7 @@ add_library(noxtls_common STATIC ${COMMON_SOURCES})
 nox_noxtls_enable_sections("noxtls_common")
 # Every NoxTLS library links this one, so it defines the ABI fingerprint that
 # their translation units reference, and hands consumers the layout hash.
-target_compile_definitions(noxtls_common INTERFACE NOXTLS_ABI_LAYOUT_HASH=0x${NOXTLS_ABI_LAYOUT_HASH_VALUE}U)
+target_compile_definitions(noxtls_common INTERFACE NOXTLS_ABI_LAYOUT_ID=${NOXTLS_ABI_LAYOUT_HASH_VALUE})
 
 if(NOXTLS_DEBUG_PRINTF_STDIO)
     target_compile_definitions(noxtls_common PUBLIC NOXTLS_DEBUG_PRINTF_STDIO=1)

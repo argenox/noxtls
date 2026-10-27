@@ -94,59 +94,78 @@ DOC = """/**
  * A translation unit that embeds a NoxTLS context must be compiled against the
  * same headers and layout configuration as the library, or the two disagree
  * about field offsets. Every translation unit that includes noxtls_tls_common.h
- * therefore references one symbol, noxtls_abi_<8 hex digits>, and the library
+ * therefore references one symbol, noxtls_abi_<layout>_<knobs>, and the library
  * defines it (common/noxtls_abi.c). A mismatched consumer fails to link with
- * "undefined reference to noxtls_abi_<digits>".
+ * "undefined reference to noxtls_abi_<layout>_<knobs>".
  *
- * The digits mix three inputs:
- * - NOXTLS_ABI_REVISION, raised when a public context changes outside CMake;
- * - NOXTLS_ABI_LAYOUT_HASH, which the NoxTLS CMake build computes from the
- *   content of the NoxTLS headers and the sizes of tls_context_t,
- *   dtls_context_t, tls13_context_t, tls12_context_t and
+ * - <layout> is NOXTLS_ABI_LAYOUT_ID, 8 hexadecimal digits that the NoxTLS CMake
+ *   build computes from the content of the NoxTLS headers and the sizes of
+ *   tls_context_t, dtls_context_t, tls13_context_t, tls12_context_t and
  *   noxtls_connection_memory_t under the library's own flags
- *   (cmake/noxtls_abi.cmake), and gives to its targets and their consumers;
- * - the layout knobs below as this translation unit sees them, which catch a
- *   consumer compiled with different record, workspace, feature or
- *   static-memory settings.
+ *   (cmake/noxtls_abi.cmake), and gives to its targets and their consumers.
+ * - <knobs> is 4 hexadecimal digits over NOXTLS_ABI_REVISION and the layout
+ *   knobs below as this translation unit sees them, which catch a consumer
+ *   compiled with different record, workspace, feature or static-memory
+ *   settings. Raise NOXTLS_ABI_REVISION with a public context change, for
+ *   builds without CMake.
  *
- * The library also defines the symbol a consumer without NOXTLS_ABI_LAYOUT_HASH
- * references, so a build outside CMake still links when its knobs match.
+ * The library also defines noxtls_abi_<knobs>, which a consumer without
+ * NOXTLS_ABI_LAYOUT_ID references, so a build outside CMake links when its
+ * knobs match.
  * NOXTLS_ABI_NO_REFERENCE omits the reference (a build-time probe uses it).
  */
 """
 
 
-def mix_chain(names):
-    expr = "NOXTLS_ABI_SEED"
-    for name in names:
-        expr = "NOXTLS_ABI_MIX(%s, %s)" % (expr, name)
-    return expr
+def weight(name):
+    """An odd 32-bit multiplier for one term: FNV-1a of the name."""
+    value = 2166136261
+    for char in name.encode("ascii"):
+        value = ((value ^ char) * 16777619) & 0xFFFFFFFF
+    return value | 1
 
 
-def digits(prefix, hash_macro):
+def weighted_sum(names):
+    """One flat sum of weighted terms. A chained hash would nest the knobs as deep
+    as the list is long, and analyzers that track macro expansions slow down
+    sharply with nesting depth; a flat sum keeps every expansion one level deep."""
+    terms = ["((%s) * 0x%08XU)" % (name, weight(name)) for name in names]
+    return " + \\\n    ".join(terms)
+
+
+def digits(prefix, hash_macro, width):
+    """One #if per bit, then a hexadecimal digit per nibble by token pasting, so
+    the fingerprint is evaluated once per bit rather than once per digit value."""
     out = []
-    for nibble in range(7, -1, -1):
-        shift = nibble * 4
-        name = "%s%d" % (prefix, nibble)
-        for value in range(16):
-            keyword = "#if" if value == 0 else "#elif"
-            out.append("%s (((%s) >> %dU) & 0xFU) == %dU" % (keyword, hash_macro, shift, value))
-            out.append("#define %s %x" % (name, value))
+    for bit in range(width - 1, -1, -1):
+        out.append("#if (((%s) >> %dU) & 1U) != 0U" % (hash_macro, bit))
+        out.append("#define %sBIT%d 1" % (prefix, bit))
         out.append("#else")
-        out.append('#error "NoxTLS ABI fingerprint digit out of range"')
+        out.append("#define %sBIT%d 0" % (prefix, bit))
         out.append("#endif")
+    for nibble in range(width // 4 - 1, -1, -1):
+        bits = ", ".join("%sBIT%d" % (prefix, nibble * 4 + i) for i in (3, 2, 1, 0))
+        out.append("#define %s%d NOXTLS_ABI_HEX(%s)" % (prefix, nibble, bits))
+    return out
+
+
+def hex_table():
+    out = ["/** Hexadecimal digit of four bits, most significant first. */",
+           "#define NOXTLS_ABI_HEX2(a, b, c, d) NOXTLS_ABI_X_##a##b##c##d",
+           "#define NOXTLS_ABI_HEX(a, b, c, d) NOXTLS_ABI_HEX2(a, b, c, d)"]
+    for value in range(16):
+        out.append("#define NOXTLS_ABI_X_%s %x" % (format(value, "04b"), value))
     return out
 
 
 def main():
-    lines = [BANNER, "#ifndef NOXTLS_ABI_H_", "#define NOXTLS_ABI_H_", "", DOC]
+    lines = [BANNER, "#ifndef NOXTLS_ABI_H_", "#define NOXTLS_ABI_H_", "", "#include <stdint.h>", "", DOC]
     lines += [
         "/** Revision of the public context layout; raise it with any change to one. */",
         "#define NOXTLS_ABI_REVISION 1U",
         "",
-        "/** FNV-1a offset basis and one 32-bit FNV-1a step, evaluated by #if. */",
-        "#define NOXTLS_ABI_SEED 2166136261U",
-        "#define NOXTLS_ABI_MIX(h, v) (((((h) ^ ((v) & 0xFFFFFFFFU)) * 16777619U)) & 0xFFFFFFFFU)",
+        "/* The knob fingerprint is a weighted sum of terms, which #if evaluates in",
+        " * uintmax_t without overflow. */",
         "",
         "/* Each knob as one number; an undefined knob counts as zero. */",
     ]
@@ -168,33 +187,30 @@ def main():
         lines.append("#endif")
     lines += [
         "",
-        "/** Knob fingerprint as this translation unit sees it. */",
-        "#define NOXTLS_ABI_KNOBS \\",
-        "    (%s)" % mix_chain(["NOXTLS_ABI_REVISION"] + knob_macros),
+        "/** Knob fingerprint as this translation unit sees it, 16 bits. */",
+        "#define NOXTLS_ABI_KNOBS ((2166136261U + \\",
+        "    %s) & 0xFFFFU)" % weighted_sum(["NOXTLS_ABI_REVISION"] + knob_macros),
         "",
-        "/** Fingerprint of a consumer without NOXTLS_ABI_LAYOUT_HASH (layout term zero). */",
-        "#define NOXTLS_ABI_BASE NOXTLS_ABI_MIX(NOXTLS_ABI_KNOBS, 0U)",
-        "#if defined(NOXTLS_ABI_LAYOUT_HASH)",
-        "/** Fingerprint with the CMake-computed header and size hash. */",
-        "#define NOXTLS_ABI_FULL NOXTLS_ABI_MIX(NOXTLS_ABI_KNOBS, NOXTLS_ABI_LAYOUT_HASH)",
-        "#else",
-        "#define NOXTLS_ABI_FULL NOXTLS_ABI_BASE",
-        "#endif",
-        "",
-        "/* Hexadecimal digits of both fingerprints, most significant first. */",
+        "/* Hexadecimal digits of the knob fingerprint, most significant first. */",
     ]
-    lines += digits("NOXTLS_ABI_F", "NOXTLS_ABI_FULL")
-    lines += digits("NOXTLS_ABI_B", "NOXTLS_ABI_BASE")
+    lines += hex_table()
+    lines += digits("NOXTLS_ABI_K", "NOXTLS_ABI_KNOBS", 16)
     lines += [
         "",
-        "#define NOXTLS_ABI_NAME2(a, b, c, d, e, f, g, h) noxtls_abi_##a##b##c##d##e##f##g##h",
-        "#define NOXTLS_ABI_NAME(a, b, c, d, e, f, g, h) NOXTLS_ABI_NAME2(a, b, c, d, e, f, g, h)",
-        "/** The symbol this translation unit requires. */",
-        "#define NOXTLS_ABI_SYMBOL NOXTLS_ABI_NAME(NOXTLS_ABI_F7, NOXTLS_ABI_F6, NOXTLS_ABI_F5, NOXTLS_ABI_F4, \\",
-        "    NOXTLS_ABI_F3, NOXTLS_ABI_F2, NOXTLS_ABI_F1, NOXTLS_ABI_F0)",
-        "/** The symbol a consumer without NOXTLS_ABI_LAYOUT_HASH requires. */",
-        "#define NOXTLS_ABI_BASE_SYMBOL NOXTLS_ABI_NAME(NOXTLS_ABI_B7, NOXTLS_ABI_B6, NOXTLS_ABI_B5, NOXTLS_ABI_B4, \\",
-        "    NOXTLS_ABI_B3, NOXTLS_ABI_B2, NOXTLS_ABI_B1, NOXTLS_ABI_B0)",
+        "#define NOXTLS_ABI_PASTE4(a, b, c, d) noxtls_abi_##a##b##c##d",
+        "#define NOXTLS_ABI_NAME4(a, b, c, d) NOXTLS_ABI_PASTE4(a, b, c, d)",
+        "#define NOXTLS_ABI_PASTE5(l, a, b, c, d) noxtls_abi_##l##_##a##b##c##d",
+        "#define NOXTLS_ABI_NAME5(l, a, b, c, d) NOXTLS_ABI_PASTE5(l, a, b, c, d)",
+        "/** The symbol of the knob fingerprint alone, which a consumer without",
+        " *  NOXTLS_ABI_LAYOUT_ID requires. */",
+        "#define NOXTLS_ABI_BASE_SYMBOL NOXTLS_ABI_NAME4(NOXTLS_ABI_K3, NOXTLS_ABI_K2, NOXTLS_ABI_K1, NOXTLS_ABI_K0)",
+        "#if defined(NOXTLS_ABI_LAYOUT_ID)",
+        "/** The symbol this translation unit requires: layout id, then knobs. */",
+        "#define NOXTLS_ABI_SYMBOL NOXTLS_ABI_NAME5(NOXTLS_ABI_LAYOUT_ID, NOXTLS_ABI_K3, NOXTLS_ABI_K2, \\",
+        "    NOXTLS_ABI_K1, NOXTLS_ABI_K0)",
+        "#else",
+        "#define NOXTLS_ABI_SYMBOL NOXTLS_ABI_BASE_SYMBOL",
+        "#endif",
         "",
         "/* How this translation unit keeps its reference. Linker garbage collection",
         " * (--gc-sections) drops an unreferenced data section and its undefined",
@@ -227,7 +243,7 @@ def main():
         "#endif",
         "",
         "/** Defined by the library for its own layout; see the file comment. */",
-        "extern const unsigned char NOXTLS_ABI_SYMBOL;",
+        "extern const uint8_t NOXTLS_ABI_SYMBOL;",
         "",
         "#ifdef __cplusplus",
         "}",
@@ -237,14 +253,16 @@ def main():
         "#if defined(NOXTLS_ABI_NO_REFERENCE)",
         "/* A build-time probe: no reference. */",
         "#elif NOXTLS_ABI_RETAINED_SECTION",
+        "/* MISRA C:2025 Dir 4.3 deviation: encapsulated assembler directives, the only way",
+        " * to emit a retained COMDAT section; they emit data, never instructions. */",
         r'__asm__(".pushsection .rodata.noxtls_abi_ref,\"aRG\",%progbits," NOXTLS_ABI_STR(NOXTLS_ABI_SYMBOL) "_ref,comdat\n"',
         r'        ".balign 8\n"',
         r'        ".dc.a " NOXTLS_ABI_STR(NOXTLS_ABI_SYMBOL) "\n"',
         r'        ".popsection");',
         "#elif defined(__GNUC__) || defined(__clang__)",
-        "__attribute__((used)) static const unsigned char *const noxtls_abi_reference = &NOXTLS_ABI_SYMBOL;",
+        "__attribute__((used)) static const uint8_t *const noxtls_abi_reference = &NOXTLS_ABI_SYMBOL;",
         "#else",
-        "static const unsigned char *const noxtls_abi_reference = &NOXTLS_ABI_SYMBOL;",
+        "static const uint8_t *const noxtls_abi_reference = &NOXTLS_ABI_SYMBOL;",
         "#endif",
         "",
         "#endif /* NOXTLS_ABI_H_ */",

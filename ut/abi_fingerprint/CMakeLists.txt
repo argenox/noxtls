@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: GPL-2.0-or-later OR NoxTLS-Commercial
 #
 # Link-time ABI fingerprint (noxtls-lib/tls/noxtls_abi.h): a consumer built with
-# the library's layout links and runs; one built with another layout hash or
+# the library's layout links and runs; one built with another layout id or
 # another record size fails to link and names noxtls_abi_<digits>; one built
-# without the layout hash links on the knob fingerprint.
+# without the layout id links on the knob fingerprint.
 
 add_executable(noxtls_abi_match abi_consumer.c)
 target_link_libraries(noxtls_abi_match PRIVATE noxtls_tls)

@@ -58,7 +58,7 @@ endif()
 
 add_library(noxtls_tls STATIC ${TLS_SOURCES})
 # Consumers reference the fingerprint of this layout (noxtls_abi.h).
-target_compile_definitions(noxtls_tls INTERFACE NOXTLS_ABI_LAYOUT_HASH=0x${NOXTLS_ABI_LAYOUT_HASH_VALUE}U)
+target_compile_definitions(noxtls_tls INTERFACE NOXTLS_ABI_LAYOUT_ID=${NOXTLS_ABI_LAYOUT_HASH_VALUE})
 nox_noxtls_enable_sections("noxtls_tls")
 
 if(MSVC)

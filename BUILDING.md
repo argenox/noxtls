@@ -354,34 +354,32 @@ A translation unit that embeds a NoxTLS context must be compiled against the sam
 headers and layout configuration as the library. Otherwise the two disagree about
 field offsets and the program corrupts memory at run time. Every translation unit
 that includes `noxtls_tls_common.h` therefore requires a symbol named
-`noxtls_abi_<8 hex digits>`, and `noxtls_common` defines it. A mismatched object
-fails to link:
+`noxtls_abi_<layout>_<knobs>`, and `noxtls_common` defines it. A mismatched
+object fails to link:
 
 ```
-undefined reference to `noxtls_abi_0dfc781f'
+undefined reference to `noxtls_abi_12345678_9c41'
 ```
 
 Rebuild that object, or the whole consumer, in a fresh build directory against
 the NoxTLS it links. A stale object is the usual cause, for example a build
 directory reused after the NoxTLS checkout changed.
 
-The digits mix three inputs:
-
-- `NOXTLS_ABI_LAYOUT_HASH`, computed at configure time by `cmake/noxtls_abi.cmake`.
-  It covers the content of every NoxTLS header and the sizes of `tls_context_t`,
-  `dtls_context_t`, `tls13_context_t`, `tls12_context_t` and
-  `noxtls_connection_memory_t` under the library's flags. NoxTLS compiles with it,
-  and `noxtls_common` and `noxtls_tls` pass it to their consumers. A header edit
-  re-runs CMake.
-- The layout knobs as each translation unit sees them: record and handshake
-  sizes, static-memory sizes, and the TLS, DTLS and algorithm features
-  (`scripts/gen_noxtls_abi_h.py`). They catch a consumer compiled with other
-  definitions than the library.
-- `NOXTLS_ABI_REVISION`, raised with any public context change, for builds
+- `<layout>` is `NOXTLS_ABI_LAYOUT_ID`, 8 hexadecimal digits that
+  `cmake/noxtls_abi.cmake` computes at configure time. It covers the content of
+  every NoxTLS header and the sizes of `tls_context_t`, `dtls_context_t`,
+  `tls13_context_t`, `tls12_context_t` and `noxtls_connection_memory_t` under the
+  library's flags. NoxTLS compiles with it, and `noxtls_common` and `noxtls_tls`
+  pass it to their consumers. A header edit re-runs CMake.
+- `<knobs>` is 4 hexadecimal digits over the layout knobs as each translation
+  unit sees them: record and handshake sizes, static-memory sizes, and the TLS,
+  DTLS and algorithm features (`scripts/gen_noxtls_abi_h.py`). They catch a
+  consumer compiled with other definitions than the library. They also cover
+  `NOXTLS_ABI_REVISION`, raised with any public context change for builds
   without CMake.
 
-`noxtls_common` also defines the symbol that a consumer without
-`NOXTLS_ABI_LAYOUT_HASH` requires, so a build outside CMake still links when its
+`noxtls_common` also defines `noxtls_abi_<knobs>`, which a consumer without
+`NOXTLS_ABI_LAYOUT_ID` requires, so a build outside CMake still links when its
 knobs match. A build that compiles NoxTLS sources itself must add
 `noxtls-lib/common/noxtls_abi.c`. On ELF toolchains with `SHF_GNU_RETAIN` (GCC 11
 or Clang 13 and later), the reference sits in a retained section, so
