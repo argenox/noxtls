@@ -85,10 +85,12 @@ static void st_put_u16(uint8_t *p, uint32_t v)
 
 static void st_put_u48(uint8_t *p, uint64_t v)
 {
+    uint64_t rest = v;
     uint32_t i;
 
-    for(i = 0U; i < 6U; i += 1U) {
-        p[i] = (uint8_t)((v >> (8U * (5U - i))) & 0xFFU);
+    for(i = 6U; i > 0U; i -= 1U) {
+        p[i - 1U] = (uint8_t)(rest & 0xFFU);
+        rest >>= 8U;
     }
 }
 
@@ -107,7 +109,7 @@ uint8_t dtls13_suite_is_sha256(uint16_t cipher_suite)
             (cipher_suite == TLS_CIPHER_SUITE_AES_128_CCM_8_SHA256)) ? 1U : 0U;
 }
 
-void dtls13_message_hash(const uint8_t ch1_hash[32], uint8_t out[36])
+void dtls13_message_hash(const uint8_t *ch1_hash, uint8_t *out)
 {
     out[0] = TLS_HANDSHAKE_MESSAGE_HASH;
     st_put_u24(&out[1], 32U);
@@ -466,7 +468,8 @@ noxtls_return_t noxtls_dtls13_stateless_hrr(const uint8_t *ch1, uint32_t ch1_len
             return rc;
         }
         /* RFC 8446 Section 4.2.8: a group the client supports and sent no share for. */
-        if((has_group != 0U) || (st_ch_lists_group(&view, group) == 0U)) {
+        const uint8_t listed = st_ch_lists_group(&view, group);
+        if((has_group != 0U) || (listed == 0U)) {
             return NOXTLS_RETURN_INVALID_PARAM;
         }
     }

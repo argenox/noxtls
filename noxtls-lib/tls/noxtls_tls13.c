@@ -15946,7 +15946,7 @@ noxtls_return_t noxtls_dtls13_set_cookie_exchange(tls13_context_t *ctx, uint8_t 
  * message_seq, so the ServerHello takes the second ClientHello's; its record number
  * follows the HelloRetryRequest's (ClientHello1's), so the second ClientHello's is used.
  */
-static noxtls_return_t tls13_dtls13_accept_after_stateless_hrr_body(tls13_context_t *ctx, const uint8_t ch1_hash[32],
+static noxtls_return_t tls13_dtls13_accept_after_stateless_hrr_body(tls13_context_t *ctx, const uint8_t *ch1_hash,
                                                                     uint16_t cipher_suite, uint16_t group,
                                                                     const uint8_t *ch2, uint32_t len)
 {

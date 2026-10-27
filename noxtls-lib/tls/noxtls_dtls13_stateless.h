@@ -90,8 +90,9 @@ noxtls_return_t dtls13_build_hrr_message(const uint8_t *session_id, uint8_t sess
 /** 1 when @p cipher_suite is a TLS 1.3 suite whose hash is SHA-256 (RFC 8446 Appendix B.4). */
 uint8_t dtls13_suite_is_sha256(uint16_t cipher_suite);
 
-/** Write the synthetic message_hash handshake message for @p ch1_hash (36 bytes, RFC 8446 Section 4.4.1). */
-void dtls13_message_hash(const uint8_t ch1_hash[32], uint8_t out[36]);
+/** Write the synthetic message_hash handshake message for the 32-byte @p ch1_hash into the
+ *  36 bytes at @p out, RFC 8446 Section 4.4.1. */
+void dtls13_message_hash(const uint8_t *ch1_hash, uint8_t *out);
 
 #ifdef __cplusplus
 }
