@@ -533,7 +533,7 @@ arena).
 | `tls13_extract_clienthello_extension_type_order` (server) | 128 | handshake | arena |
 | `tls13_copy_client_key_shares` (server, x2) | 16 + 32 | handshake | arena |
 | `tls13_parse_raw_extension_list` (client, x2) | 256 + 36 | handshake | arena |
-| `psk_hash_binder_input` (`tls13_psk.c`) | 349 | call | arena |
+| `psk_hash_binder_input` (`tls13_psk.c`) | 0 (streamed into one running hash) | call | none |
 | `noxtls_tls_ecdhe_compute_shared_secret_x25519` | 32 | call | arena |
 | `noxtls_tls13_send_server_hello` key share entry | 2,048 (in workspace when it is 4 KB) | call | workspace / arena |
 | `tls13_dtls_flush_ack` | 22 | call | arena |
@@ -550,7 +550,7 @@ arena).
 | `tls13_append_handshake_message` | 386 | handshake | arena |
 | `tls13_handshake_buffer_append/_get` | message | call (NST/KeyUpdate after release) | arena / steady arena |
 | `tls13_parse_raw_extension_list` (x2) | 256 + 36 | handshake | arena |
-| `psk_hash_binder_input`, x25519 shared secret | 349, 32 | call | arena |
+| x25519 shared secret (`psk_hash_binder_input` streams, 0) | 32 | call | arena |
 
 ### (c) TLS 1.3 certificate client (chain, X.509, trust store)
 

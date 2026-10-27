@@ -101,7 +101,8 @@ static noxtls_return_t psk_hash_messages(noxtls_hash_algos_t hash_algo,
  *
  * When @p transcript_prefix_len is 0, hashes @p client_hello_prefix only (first ClientHello).
  * After HelloRetryRequest, @p transcript_prefix is the prior transcript (message_hash + HRR)
- * concatenated with the partial second ClientHello (RFC 8446 §4.2.11.2).
+ * followed by the partial second ClientHello (RFC 8446 §4.2.11.2). Both parts are fed to
+ * one running hash, so nothing is allocated.
  *
  * @param[in] hash_algo               Hash algorithm from the negotiated cipher suite.
  * @param[in] transcript_prefix       Optional prior transcript prefix (may be NULL if length is 0).
@@ -110,8 +111,8 @@ static noxtls_return_t psk_hash_messages(noxtls_hash_algos_t hash_algo,
  * @param[in] client_hello_prefix_len Length of @p client_hello_prefix.
  * @param[out] hash                   Output digest buffer.
  * @param[out] hash_len               On success, digest length in bytes.
- * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_INVALID_PARAM` on overflow;
- *         `NOXTLS_RETURN_NOT_ENOUGH_MEMORY` if the combined buffer cannot be allocated.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` for a missing input;
+ *         `NOXTLS_RETURN_INVALID_ALGORITHM` for an unsupported @p hash_algo.
  */
 static noxtls_return_t psk_hash_binder_input(noxtls_hash_algos_t hash_algo,
                                             const uint8_t *transcript_prefix,
@@ -121,23 +122,47 @@ static noxtls_return_t psk_hash_binder_input(noxtls_hash_algos_t hash_algo,
                                             uint8_t *hash,
                                             uint32_t *hash_len)
 {
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+
     if (transcript_prefix_len == 0U) { return psk_hash_messages(hash_algo, client_hello_prefix, client_hello_prefix_len, hash, hash_len); }
-    if (client_hello_prefix_len > (UINT32_MAX - transcript_prefix_len)) {
-        return NOXTLS_RETURN_INVALID_PARAM;
+    if ((transcript_prefix == NULL) || (client_hello_prefix == NULL) || (hash == NULL) || (hash_len == NULL)) {
+        return NOXTLS_RETURN_NULL;
     }
-    {
-        uint32_t combined_len = (uint32_t)(transcript_prefix_len + client_hello_prefix_len);
-        uint8_t *combined = (uint8_t *)NOXTLS_MALLOC(combined_len);
-        noxtls_return_t rc = NOXTLS_RETURN_FAILED;
-        if (combined == NULL) {
-            return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+    if (hash_algo == NOXTLS_HASH_SHA_256) {
+        noxtls_sha_ctx_t sha_ctx;
+        rc = noxtls_sha256_init(&sha_ctx, hash_algo);
+        if (rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_sha256_update(&sha_ctx, transcript_prefix, transcript_prefix_len);
         }
-        noxtls_copy_u8(combined, (size_t)combined_len, transcript_prefix, (size_t)transcript_prefix_len);
-        noxtls_copy_u8(&combined[transcript_prefix_len], (size_t)combined_len, client_hello_prefix, (size_t)client_hello_prefix_len);
-        rc = psk_hash_messages(hash_algo, combined, combined_len, hash, hash_len);
-        (void)noxtls_free(combined);
+        if ((rc == NOXTLS_RETURN_SUCCESS) && (client_hello_prefix_len > 0U)) {
+            rc = noxtls_sha256_update(&sha_ctx, client_hello_prefix, client_hello_prefix_len);
+        }
+        if (rc == NOXTLS_RETURN_SUCCESS) {
+            *hash_len = 32U;
+            rc = noxtls_sha256_finish(&sha_ctx, hash);
+        }
+        noxtls_secure_zero(&sha_ctx, sizeof(sha_ctx));
         return rc;
     }
+#if NOXTLS_FEATURE_SHA384
+    if (hash_algo == NOXTLS_HASH_SHA_384) {
+        noxtls_sha512_ctx_t sha_ctx;
+        rc = noxtls_sha512_init(&sha_ctx, hash_algo);
+        if (rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_sha512_update(&sha_ctx, transcript_prefix, transcript_prefix_len);
+        }
+        if ((rc == NOXTLS_RETURN_SUCCESS) && (client_hello_prefix_len > 0U)) {
+            rc = noxtls_sha512_update(&sha_ctx, client_hello_prefix, client_hello_prefix_len);
+        }
+        if (rc == NOXTLS_RETURN_SUCCESS) {
+            *hash_len = 48U;
+            rc = noxtls_sha512_finish(&sha_ctx, hash);
+        }
+        noxtls_secure_zero(&sha_ctx, sizeof(sha_ctx));
+        return rc;
+    }
+#endif
+    return NOXTLS_RETURN_INVALID_ALGORITHM;
 }
 
 /**
