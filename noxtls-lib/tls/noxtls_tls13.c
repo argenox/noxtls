@@ -268,8 +268,15 @@ static noxtls_return_t tls13_derive_handshake_keys(tls13_context_t *ctx,
                                                    const uint8_t *shared_secret,
                                                    uint32_t shared_secret_len);
 static int tls13_is_dtls(const tls13_context_t *ctx);
-/* 1 when the context uses the DTLS 1.3 HKDF label prefix "dtls13" (RFC 9147 Section 5.9). */
-#define TLS13_LABEL_DTLS(ctx) ((tls13_is_dtls(ctx) != 0) ? 1U : 0U)
+/* 1 when the PSK binders and resumption secrets of the context use the DTLS 1.3 HKDF label
+ * prefix "dtls13" (RFC 9147 Section 5.9); 0 for TLS 1.3 and for a DTLS 1.3 context set to
+ * the legacy labels (noxtls_dtls13_set_legacy_psk_labels()). */
+#if NOXTLS_FEATURE_DTLS
+#define TLS13_LABEL_DTLS(ctx) \
+    (((tls13_is_dtls(ctx) != 0) && ((ctx)->dtls_legacy_psk_labels == 0U)) ? 1U : 0U)
+#else
+#define TLS13_LABEL_DTLS(ctx) 0U
+#endif
 static uint32_t tls13_rx_inner_limit(const tls13_context_t *ctx);
 static uint8_t tls13_diag_applies(const tls13_context_t *ctx);
 static void tls13_diag_note_record(const tls13_context_t *ctx, noxtls_return_t rc, const tls_record_t *record);
@@ -2199,11 +2206,19 @@ static noxtls_return_t tls13_transcript_capture_resumption_secret(tls13_context_
     }
     rc = tls13_transcript_hash(ctx, hash_algo, transcript_hash, &transcript_len);
     if(rc == NOXTLS_RETURN_SUCCESS) {
-        /* RFC 8446 7.1 resumption_master_secret; DTLS 1.3 uses the "dtls13" prefix (RFC 9147 5.9). */
-        rc = tls13_ctx_hkdf_expand_label(ctx, hash_algo, ctx->hs->master_secret, hash_len,
-                                     s_tls13_label_res_master, (uint32_t)(sizeof(s_tls13_label_res_master) - 1U),
-                                     transcript_hash, transcript_len,
-                                     ctx->resumption_master_secret, hash_len);
+        /* RFC 8446 7.1 resumption_master_secret; DTLS 1.3 uses the "dtls13" prefix (RFC 9147 5.9)
+         * unless the context keeps the legacy PSK labels. */
+        if(TLS13_LABEL_DTLS(ctx) != 0U) {
+            rc = dtls13_hkdf_expand_label(hash_algo, ctx->hs->master_secret, hash_len,
+                                          s_tls13_label_res_master, (uint32_t)(sizeof(s_tls13_label_res_master) - 1U),
+                                          transcript_hash, transcript_len,
+                                          ctx->resumption_master_secret, hash_len);
+        } else {
+            rc = tls13_hkdf_expand_label(hash_algo, ctx->hs->master_secret, hash_len,
+                                         s_tls13_label_res_master, (uint32_t)(sizeof(s_tls13_label_res_master) - 1U),
+                                         transcript_hash, transcript_len,
+                                         ctx->resumption_master_secret, hash_len);
+        }
     }
     ctx->resumption_master_secret_len = (rc == NOXTLS_RETURN_SUCCESS) ? (uint8_t)hash_len : 0U;
     noxtls_secure_zero(transcript_hash, sizeof(transcript_hash));
@@ -15927,6 +15942,18 @@ noxtls_return_t noxtls_dtls13_set_hrr_observer(tls13_context_t *ctx, noxtls_dtls
     }
     ctx->hrr_observer = fn;
     ctx->hrr_observer_arg = (fn != NULL) ? arg : NULL;
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_dtls13_set_legacy_psk_labels(tls13_context_t *ctx, uint8_t legacy)
+{
+    if((ctx == NULL) || (legacy > 1U) || (tls13_is_dtls(ctx) == 0) || (ctx->hs == NULL) ||
+       (ctx->base.base.state != TLS_STATE_INIT) || (ctx->handshake_messages_len != 0U) ||
+       (ctx->server_handshake_step != (uint8_t)TLS13_SERVER_HS_STEP_NONE) ||
+       (ctx->client_handshake_step != (uint8_t)TLS13_CLIENT_HS_STEP_NONE)) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    ctx->dtls_legacy_psk_labels = legacy;
     return NOXTLS_RETURN_SUCCESS;
 }
 

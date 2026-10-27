@@ -487,6 +487,9 @@ struct tls13_context_s
     /** Server cookie exchange: 0 = NoxTLS cookie HelloRetryRequest (default), 1 = none
      *  (noxtls_dtls13_set_cookie_exchange()), 2 = the caller verified a stateless cookie. */
     uint8_t dtls_cookie_mode;
+    /** 1: PSK binders and resumption secrets use the TLS 1.3 "tls13 " labels, as NoxTLS
+     *  did before it followed RFC 9147 Section 5.9 (noxtls_dtls13_set_legacy_psk_labels()). */
+    uint8_t dtls_legacy_psk_labels;
 #endif
 
     /* DTLS 1.3 record workspace (inner plaintext + DTLSCiphertext), allocated on first DTLS use.
@@ -908,6 +911,19 @@ noxtls_return_t noxtls_dtls13_accept_after_stateless_hrr(tls13_context_t *ctx, c
  *         non-DTLS 1.3 context, or once the handshake started.
  */
 noxtls_return_t noxtls_dtls13_set_cookie_exchange(tls13_context_t *ctx, uint8_t enabled);
+
+/**
+ * DTLS 1.3: derive the PSK binders and the resumption secrets ("ext binder", "res binder",
+ * "finished" of the binder key, "res master", "resumption") with the TLS 1.3 label prefix
+ * "tls13 " (@p legacy 1), as NoxTLS before RFC 9147 Section 5.9 compliance did, so the
+ * context completes PSK handshakes with such peers. 0 (the default) uses the RFC 9147
+ * "dtls13" prefix. Every other derivation uses "dtls13" either way.
+ * noxtls_dtls13_ch2_binder_check() always uses "dtls13": a server that admits clients with
+ * it must leave this setting at 0. Call before the handshake starts (client or server).
+ * @return NOXTLS_RETURN_SUCCESS; NOXTLS_RETURN_INVALID_PARAM for a NULL or non-DTLS 1.3
+ *         context, a value other than 0 or 1, or once the handshake started.
+ */
+noxtls_return_t noxtls_dtls13_set_legacy_psk_labels(tls13_context_t *ctx, uint8_t legacy);
 
 /**
  * N5a. After the handshake completed, release the handshake state now: the handshake

@@ -131,6 +131,10 @@ def main():
 
     ch1, binder_dtls = finish_client_hello(b"dtls13", psk, identity, None, b"")
     ch1_tls_binder = binder(b"tls13 ", psk, ch1[:-35])
+    # The same first ClientHello as NoxTLS before RFC 9147 5.9 compliance (72d07e8) sends it:
+    # its binder uses the "tls13 " labels.
+    ch1_legacy, legacy_binder = finish_client_hello(b"tls13 ", psk, identity, None, b"")
+    assert legacy_binder == ch1_tls_binder and ch1_legacy[:-32] == ch1[:-32]
     ch1_hash = H(ch1).digest()                                       # RFC 9147 5.2 transcript form
 
     hrr = hello_retry_request(b"", 0x1301, cookie)
@@ -146,6 +150,8 @@ def main():
     out.append(c_array("k_vec_ch1", ch1))
     out.append(c_array("k_vec_ch1_binder_dtls13", binder_dtls))
     out.append(c_array("k_vec_ch1_binder_tls13", ch1_tls_binder))
+    out.append("/* k_vec_ch1 with the \"tls13 \" binder that NoxTLS 72d07e8 computes for it. */")
+    out.append(c_array("k_vec_ch1_legacy", ch1_legacy))
     out.append("/* SHA-256 of k_vec_ch1 (RFC 9147 5.2 transcript form). */")
     out.append(c_array("k_vec_ch1_hash", ch1_hash))
     out.append(c_array("k_vec_cookie", cookie))

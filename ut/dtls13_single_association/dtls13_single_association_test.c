@@ -435,6 +435,81 @@ static int test_s0_binder_vector(void)
     return 0;
 }
 
+/**
+ * A server takes the first ClientHello of a NoxTLS 72d07e8 peer, whose binder uses the
+ * "tls13 " labels (k_vec_ch1_legacy; C:/nxd/n15-legacy-proof/old_binder.c, built against
+ * 72d07e8, computes the same binder for it), only with noxtls_dtls13_set_legacy_psk_labels().
+ * With the cookie exchange off it answers that ClientHello with its ServerHello.
+ */
+static int sa_feed_old_peer_client_hello(uint8_t legacy, noxtls_return_t *rc_out)
+{
+    lb_pair_t pair;
+    uint8_t dg[512];
+    uint32_t dg_len;
+
+    LB_RUN(sa_pair_init(&pair, k_groups_x25519, 1U));
+    LB_CHECK_OK(noxtls_dtls13_set_cookie_exchange(pair.server.t13, 0U));
+    LB_CHECK_OK(noxtls_dtls13_set_legacy_psk_labels(pair.server.t13, legacy));
+    dg_len = sa_wrap_datagram(k_vec_ch1_legacy, sizeof(k_vec_ch1_legacy), dg);
+    LB_RUN(sa_push(&pair, 0, dg, dg_len));
+    *rc_out = lb_end_step(&pair.server);
+    if((*rc_out == NOXTLS_RETURN_TIMEOUT) || (*rc_out == NOXTLS_RETURN_SUCCESS)) {
+        LB_CHECK_EQ(lb_field_tls13_psk_in_use(pair.server.t13), 1);
+        LB_CHECK(sa_queued(&pair, 1) >= 1U);                       /* ServerHello flight */
+        LB_CHECK_EQ(lb_field_state(&pair.server), TLS_STATE_HANDSHAKING);
+    }
+    lb_pair_free(&pair);
+    return 0;
+}
+
+static int test_legacy_labels_old_peer(void)
+{
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+
+    LB_RUN(sa_feed_old_peer_client_hello(1U, &rc));
+    LB_CHECK(rc == NOXTLS_RETURN_TIMEOUT);                         /* accepted, waits for Finished */
+    LB_RUN(sa_feed_old_peer_client_hello(0U, &rc));
+    LB_CHECK((rc != NOXTLS_RETURN_TIMEOUT) && (rc != NOXTLS_RETURN_SUCCESS));  /* RFC labels: binder refused */
+    return 0;
+}
+
+/** Legacy labels on both ends work, a legacy client cannot reach an RFC server, and N4a
+ *  stays RFC-only. */
+static int test_legacy_labels_handshake(void)
+{
+    lb_pair_t pair;
+
+    LB_RUN(sa_pair_init(&pair, k_groups_x25519, 1U));
+    LB_CHECK_EQ(noxtls_dtls13_set_legacy_psk_labels(NULL, 1U), NOXTLS_RETURN_INVALID_PARAM);
+    LB_CHECK_EQ(noxtls_dtls13_set_legacy_psk_labels(pair.client.t13, 2U), NOXTLS_RETURN_INVALID_PARAM);
+    LB_CHECK_OK(noxtls_dtls13_set_legacy_psk_labels(pair.client.t13, 1U));
+    LB_CHECK_OK(noxtls_dtls13_set_legacy_psk_labels(pair.server.t13, 1U));
+    LB_RUN(lb_pair_handshake(&pair));
+    LB_CHECK_EQ(lb_field_tls13_psk_in_use(pair.server.t13), 1);
+    LB_RUN(sa_exchange(&pair, 21U));
+    LB_CHECK_EQ(noxtls_dtls13_set_legacy_psk_labels(pair.server.t13, 0U), NOXTLS_RETURN_INVALID_PARAM);
+    lb_pair_free(&pair);
+
+    /* A legacy client and an RFC server do not agree on the binder. */
+    LB_RUN(sa_pair_init(&pair, k_groups_x25519, 1U));
+    LB_CHECK_OK(noxtls_dtls13_set_legacy_psk_labels(pair.client.t13, 1U));
+    LB_CHECK(lb_pair_handshake(&pair) != 0);
+    LB_CHECK(lb_field_state(&pair.server) != TLS_STATE_CONNECTED);
+    lb_pair_free(&pair);
+
+    /* The stateless binder check never takes the legacy labels. */
+    LB_RUN(sa_pair_init(&pair, k_groups_x25519, 1U));
+    LB_CHECK_OK(noxtls_dtls13_set_legacy_psk_labels(pair.client.t13, 1U));
+    LB_RUN(sa_capture_ch1(&pair));
+    LB_RUN(sa_hrr_and_capture_ch2(&pair, 0U));
+    LB_CHECK_EQ(noxtls_dtls13_ch2_binder_check(s_ch2, s_ch2_len, s_ch1_hash, k_suite, 0U,
+                                               k_identity, (uint16_t)(sizeof(k_identity) - 1U),
+                                               k_psk, (uint16_t)sizeof(k_psk), s_scratch, sizeof(s_scratch)),
+                NOXTLS_RETURN_AUTH_FAILED);
+    lb_pair_free(&pair);
+    return 0;
+}
+
 /* ---- N1: own connection ID ------------------------------------------------------ */
 
 /** RFC 9146 3 / RFC 9147 9.1: the ServerHello carries the server's CID; the client puts
@@ -1176,6 +1251,8 @@ static const lb_test_case_t s_cases[] = {
     { "sa_ch1_hash_vector", test_ch1_hash_vector },
     { "sa_binder_vectors", test_binder_vectors },
     { "sa_s0_binder_vector", test_s0_binder_vector },
+    { "sa_legacy_labels_old_peer", test_legacy_labels_old_peer },
+    { "sa_legacy_labels_handshake", test_legacy_labels_handshake },
 };
 
 int main(int argc, char **argv)

@@ -28,6 +28,8 @@ set(_noxtls_sa_cases
     sa_ch1_hash_vector
     sa_binder_vectors
     sa_s0_binder_vector
+    sa_legacy_labels_old_peer
+    sa_legacy_labels_handshake
 )
 noxtls_lb_add_suite(dtls13_single_association_test
     "${CMAKE_CURRENT_SOURCE_DIR}/dtls13_single_association_test.c" ${_noxtls_sa_cases})
