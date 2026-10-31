@@ -2070,6 +2070,11 @@ static void ecc_fe_inv_fermat(uint8_t *out, const uint8_t *a, const uint8_t *p, 
     uint32_t i;
     uint32_t started = 0U;
 
+    /* Keep the local buffers and size - 1U indexing within bounds. */
+    if((size == 0U) || (size > ECC_MAX_KEY_SIZE)) {
+        return;
+    }
+
     /* e = p - 2 (p is odd and > 2, so only the last byte can borrow) */
     noxtls_copy_u8(e, sizeof(e), p, (size_t)size);
     {
