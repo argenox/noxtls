@@ -32,12 +32,16 @@ PARAMS = {
 }
 
 PREHASH = {
+    # Preserve the SHA2-224 prehash named by the ACVP test vector.
+    # nosemgrep: python.lang.security.audit.sha224-hash.sha224-hash
     "SHA2-224": ("NOXTLS_MLDSA_PH_SHA2_224", lambda m: hashlib.sha224(m).digest()),
     "SHA2-256": ("NOXTLS_MLDSA_PH_SHA2_256", lambda m: hashlib.sha256(m).digest()),
     "SHA2-384": ("NOXTLS_MLDSA_PH_SHA2_384", lambda m: hashlib.sha384(m).digest()),
     "SHA2-512": ("NOXTLS_MLDSA_PH_SHA2_512", lambda m: hashlib.sha512(m).digest()),
     "SHA2-512/224": ("NOXTLS_MLDSA_PH_SHA2_512_224", lambda m: hashlib.new("sha512_224", m).digest()),
     "SHA2-512/256": ("NOXTLS_MLDSA_PH_SHA2_512_256", lambda m: hashlib.new("sha512_256", m).digest()),
+    # Preserve the SHA3-224 prehash named by the ACVP test vector.
+    # nosemgrep: python.lang.security.audit.sha224-hash.sha224-hash
     "SHA3-224": ("NOXTLS_MLDSA_PH_SHA3_224", lambda m: hashlib.sha3_224(m).digest()),
     "SHA3-256": ("NOXTLS_MLDSA_PH_SHA3_256", lambda m: hashlib.sha3_256(m).digest()),
     "SHA3-384": ("NOXTLS_MLDSA_PH_SHA3_384", lambda m: hashlib.sha3_384(m).digest()),

@@ -178,12 +178,16 @@ HASH_ALGS = [
     ("md4", "NOXTLS_FEATURE_MD4", md4),
     ("md5", "NOXTLS_FEATURE_MD5", lambda m: hashlib.md5(m).digest()),
     ("sha1", "NOXTLS_FEATURE_SHA1", lambda m: hashlib.sha1(m).digest()),
+    # Intentional SHA-224 known-answer test coverage; no security decision is made here.
+    # nosemgrep: python.lang.security.audit.sha224-hash.sha224-hash
     ("sha224", "NOXTLS_FEATURE_SHA224", lambda m: hashlib.sha224(m).digest()),
     ("sha256", "NOXTLS_FEATURE_SHA256", lambda m: hashlib.sha256(m).digest()),
     ("sha384", "NOXTLS_FEATURE_SHA384", lambda m: hashlib.sha384(m).digest()),
     ("sha512", "NOXTLS_FEATURE_SHA512", lambda m: hashlib.sha512(m).digest()),
     ("sha512_224", "NOXTLS_FEATURE_SHA512", lambda m: hashlib.new("sha512_224", m).digest()),
     ("sha512_256", "NOXTLS_FEATURE_SHA512", lambda m: hashlib.new("sha512_256", m).digest()),
+    # Intentional SHA3-224 known-answer test coverage; no security decision is made here.
+    # nosemgrep: python.lang.security.audit.sha224-hash.sha224-hash
     ("sha3_224", "NOXTLS_FEATURE_SHA3", lambda m: hashlib.sha3_224(m).digest()),
     ("sha3_256", "NOXTLS_FEATURE_SHA3", lambda m: hashlib.sha3_256(m).digest()),
     ("sha3_384", "NOXTLS_FEATURE_SHA3", lambda m: hashlib.sha3_384(m).digest()),
