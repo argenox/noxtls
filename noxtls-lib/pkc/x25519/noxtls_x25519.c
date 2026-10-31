@@ -24,13 +24,15 @@
 #include <string.h>
 
 #include "common/noxtls_memory.h"
-#include "drbg/noxtls_drbg.h"
 #include "noxtls_common.h"
 #include "noxtls_x25519.h"
+#include "pkc/noxtls_pkc_rng.h"
 #include "noxtls_ct.h"
 #if NOXTLS_FEATURE_CC13XX_X25519_ACCEL
 #include "common/noxtls_cc13xx_crypto.h"
 #endif
+
+#if NOXTLS_FEATURE_X25519
 
 /*
  * Keep the X25519 backend portable across the embedded targets we actually
@@ -615,6 +617,13 @@ static noxtls_return_t x25519_scalar_mult(const uint8_t *k,
 
 #define X25519_FE_LIMBS 10U
 
+/* Keep the inversion out of line: its temporaries then never share the ladder frame. */
+#if defined(__GNUC__) || defined(__clang__)
+#define X25519_NOINLINE __attribute__((noinline))
+#else
+#define X25519_NOINLINE
+#endif
+
 typedef struct {
     int32_t v[X25519_FE_LIMBS];
 } fe25519_t;
@@ -1161,55 +1170,59 @@ static void fe25519_sq_times(fe25519_t *out, const fe25519_t *z, uint32_t count)
 }
 
 /**
- * @brief Inverse the fe25519_t.
+ * @brief Inverse the fe25519_t: out = z^(p-2) (ref10 fe_invert chain).
+ *
+ * Same square/multiply sequence as before with four temporaries instead of
+ * ten (t0 = z^11 is kept to the end); out of line so its temporaries are not
+ * part of the ladder frame. The temporaries are wiped (they derive from the
+ * secret ladder state).
  *
  * @param[out] out The output value.
  * @param[in] z The z value.
  */
-static void fe25519_inv(fe25519_t *out, const fe25519_t *z)
+static X25519_NOINLINE void fe25519_inv(fe25519_t *out, const fe25519_t *z)
 {
-    fe25519_t z2;
-    fe25519_t z9;
-    fe25519_t z11;
-    fe25519_t z2_5_0;
-    fe25519_t z2_10_0;
-    fe25519_t z2_20_0;
-    fe25519_t z2_50_0;
-    fe25519_t z2_100_0;
     fe25519_t t0;
     fe25519_t t1;
+    fe25519_t t2;
+    fe25519_t t3;
 
-    fe25519_sq(&z2, z);
-    fe25519_sq(&t0, &z2);
-    fe25519_sq(&t0, &t0);
-    fe25519_mul(&z9, &t0, z);
-    fe25519_mul(&z11, &z9, &z2);
-    fe25519_sq(&t0, &z11);
-    fe25519_mul(&z2_5_0, &t0, &z9);
+    fe25519_sq(&t0, z);                 /* z^2 */
+    fe25519_sq(&t1, &t0);
+    fe25519_sq(&t1, &t1);               /* z^8 */
+    fe25519_mul(&t1, &t1, z);           /* z^9 */
+    fe25519_mul(&t0, &t1, &t0);         /* z^11 */
+    fe25519_sq(&t2, &t0);               /* z^22 */
+    fe25519_mul(&t1, &t2, &t1);         /* z^(2^5 - 1) */
 
-    fe25519_sq_times(&t0, &z2_5_0, 5U);
-    fe25519_mul(&z2_10_0, &t0, &z2_5_0);
+    fe25519_sq_times(&t2, &t1, 5U);
+    fe25519_mul(&t1, &t2, &t1);         /* z^(2^10 - 1) */
 
-    fe25519_sq_times(&t0, &z2_10_0, 10U);
-    fe25519_mul(&z2_20_0, &t0, &z2_10_0);
+    fe25519_sq_times(&t2, &t1, 10U);
+    fe25519_mul(&t2, &t2, &t1);         /* z^(2^20 - 1) */
 
-    fe25519_sq_times(&t0, &z2_20_0, 20U);
-    fe25519_mul(&t0, &t0, &z2_20_0);
+    fe25519_sq_times(&t3, &t2, 20U);
+    fe25519_mul(&t3, &t3, &t2);         /* z^(2^40 - 1) */
 
-    fe25519_sq_times(&t0, &t0, 10U);
-    fe25519_mul(&z2_50_0, &t0, &z2_10_0);
+    fe25519_sq_times(&t3, &t3, 10U);
+    fe25519_mul(&t1, &t3, &t1);         /* z^(2^50 - 1) */
 
-    fe25519_sq_times(&t0, &z2_50_0, 50U);
-    fe25519_mul(&z2_100_0, &t0, &z2_50_0);
+    fe25519_sq_times(&t2, &t1, 50U);
+    fe25519_mul(&t2, &t2, &t1);         /* z^(2^100 - 1) */
 
-    fe25519_sq_times(&t1, &z2_100_0, 100U);
-    fe25519_mul(&t1, &t1, &z2_100_0);
+    fe25519_sq_times(&t3, &t2, 100U);
+    fe25519_mul(&t3, &t3, &t2);         /* z^(2^200 - 1) */
 
-    fe25519_sq_times(&t1, &t1, 50U);
-    fe25519_mul(&t1, &t1, &z2_50_0);
+    fe25519_sq_times(&t3, &t3, 50U);
+    fe25519_mul(&t3, &t3, &t1);         /* z^(2^250 - 1) */
 
-    fe25519_sq_times(&t1, &t1, 5U);
-    fe25519_mul(out, &t1, &z11);
+    fe25519_sq_times(&t3, &t3, 5U);
+    fe25519_mul(out, &t3, &t0);         /* z^(2^255 - 21) */
+
+    noxtls_secure_zero(&t0, sizeof(t0));
+    noxtls_secure_zero(&t1, sizeof(t1));
+    noxtls_secure_zero(&t2, sizeof(t2));
+    noxtls_secure_zero(&t3, sizeof(t3));
 }
 
 /**
@@ -1234,18 +1247,10 @@ static noxtls_return_t x25519_scalar_mult(const uint8_t *k,
     fe25519_t z2;
     fe25519_t x3;
     fe25519_t z3;
-    fe25519_t a;
-    fe25519_t aa;
-    fe25519_t b;
-    fe25519_t bb;
-    fe25519_t e;
-    fe25519_t c;
-    fe25519_t d;
-    fe25519_t da;
-    fe25519_t cb;
-    fe25519_t t0;
-    fe25519_t t1;
-    fe25519_t inv;
+    fe25519_t ta;
+    fe25519_t tb;
+    fe25519_t tc;
+    fe25519_t td;
     uint8_t swap = 0U;
     int t = 0;
 
@@ -1271,32 +1276,50 @@ static noxtls_return_t x25519_scalar_mult(const uint8_t *k,
         fe25519_cswap(swap, &z2, &z3);
         swap = k_t;
 
-        fe25519_add(&a, &x2, &z2);
-        fe25519_sq(&aa, &a);
-        fe25519_sub(&b, &x2, &z2);
-        fe25519_sq(&bb, &b);
-        fe25519_sub(&e, &aa, &bb);
-        fe25519_add(&c, &x3, &z3);
-        fe25519_sub(&d, &x3, &z3);
-        fe25519_mul(&da, &d, &a);
-        fe25519_mul(&cb, &c, &b);
-        fe25519_add(&t0, &da, &cb);
-        fe25519_sub(&t1, &da, &cb);
-        fe25519_sq(&x3, &t0);
-        fe25519_sq(&t0, &t1);
-        fe25519_mul(&z3, &x1, &t0);
-        fe25519_mul(&x2, &aa, &bb);
-        fe25519_mul_small(&t0, &e, 121665U);
-        fe25519_add(&t0, &aa, &t0);
-        fe25519_mul(&z2, &e, &t0);
+        /*
+         * RFC 7748 ladder step with the same field operations as before, on
+         * four temporaries (ta..td) instead of twelve:
+         * A = x2+z2, B = x2-z2, C = x3+z3, D = x3-z3, DA = D*A, CB = C*B,
+         * AA = A^2 (x2), BB = B^2 (z2), x3 = (DA+CB)^2, z3 = x1*(DA-CB)^2,
+         * E = AA-BB, x2 = AA*BB, z2 = E*(AA + a24*E).
+         */
+        fe25519_add(&ta, &x2, &z2);       /* A */
+        fe25519_sub(&tb, &x2, &z2);       /* B */
+        fe25519_add(&tc, &x3, &z3);       /* C */
+        fe25519_sub(&td, &x3, &z3);       /* D */
+        fe25519_sq(&x2, &ta);             /* AA */
+        fe25519_sq(&z2, &tb);             /* BB */
+        fe25519_mul(&td, &td, &ta);       /* DA */
+        fe25519_mul(&tc, &tc, &tb);       /* CB */
+        fe25519_add(&ta, &td, &tc);       /* DA + CB */
+        fe25519_sub(&tb, &td, &tc);       /* DA - CB */
+        fe25519_sq(&x3, &ta);
+        fe25519_sq(&ta, &tb);
+        fe25519_mul(&z3, &x1, &ta);
+        fe25519_sub(&tc, &x2, &z2);       /* E = AA - BB */
+        fe25519_mul_small(&ta, &tc, 121665U);
+        fe25519_add(&ta, &x2, &ta);       /* AA + a24*E */
+        fe25519_mul(&x2, &x2, &z2);       /* AA * BB */
+        fe25519_mul(&z2, &tc, &ta);
     }
 
     fe25519_cswap(swap, &x2, &x3);
     fe25519_cswap(swap, &z2, &z3);
 
-    fe25519_inv(&inv, &z2);
-    fe25519_mul(&x2, &x2, &inv);
+    fe25519_inv(&ta, &z2);
+    fe25519_mul(&x2, &x2, &ta);
     fe25519_to_le(result, &x2);
+
+    /* Wipe the scalar and the secret-dependent ladder state. */
+    noxtls_secure_zero(k_clamped, sizeof(k_clamped));
+    noxtls_secure_zero(&x2, sizeof(x2));
+    noxtls_secure_zero(&z2, sizeof(z2));
+    noxtls_secure_zero(&x3, sizeof(x3));
+    noxtls_secure_zero(&z3, sizeof(z3));
+    noxtls_secure_zero(&ta, sizeof(ta));
+    noxtls_secure_zero(&tb, sizeof(tb));
+    noxtls_secure_zero(&tc, sizeof(tc));
+    noxtls_secure_zero(&td, sizeof(td));
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -1366,35 +1389,15 @@ noxtls_return_t noxtls_x25519_shared_secret(const uint8_t *private_key,
 noxtls_return_t noxtls_x25519_generate_key(uint8_t *private_key,
                                            uint8_t *public_key)
 {
-    static drbg_state_t drbg_state;
-    static int drbg_initialized = 0;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if((private_key == NULL) || (public_key == NULL)) { return NOXTLS_RETURN_NULL; }
 
-    if(drbg_initialized == 0) {
-        uint8_t seed[NOXTLS_X25519_DRBG_ENTROPY_SEED_BYTES];
-        rc = noxtls_drbg_get_entropy(seed, sizeof(seed));
-        if(rc == NOXTLS_RETURN_SUCCESS) {
-            rc = drbg_instantiate(&drbg_state, DRBG_AES256, seed, sizeof(seed), NULL, 0, NULL, 0);
-        }
-        noxtls_secure_zero(seed, sizeof(seed));
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            (void)noxtls_drbg_uninstantiate(&drbg_state);
-            return rc;
-        }
-        drbg_initialized = 1;
-    }
-
-    rc = drbg_generate(&drbg_state, private_key, NOXTLS_X25519_DRBG_SEED_BITS, NULL, 0);
+    /* Shared PKC CTR-DRBG (instantiated from noxtls_drbg_get_entropy() on first
+     * use; a failed generate fails this call closed, wipes the output and drops
+     * the instance so the next call re-instantiates from fresh entropy). */
+    rc = noxtls_pkc_rng_generate(NOXTLS_PKC_RNG_SLOT_X25519, private_key, NOXTLS_X25519_DRBG_SEED_BITS);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        /* SECURITY (NX-16): a failed generate (reseed interval exceeded, or an
-         * AES failure that wiped the state) fails this call closed and drops
-         * the instance, so the next call re-instantiates from fresh entropy.
-         * Reseeding in place cannot work: drbg_reseed() rejects a wiped state. */
-        (void)noxtls_drbg_uninstantiate(&drbg_state);
-        drbg_initialized = 0;
-        noxtls_secure_zero(private_key, (size_t)NOXTLS_X25519_KEY_SIZE);
         return rc;
     }
 
@@ -1405,3 +1408,5 @@ noxtls_return_t noxtls_x25519_generate_key(uint8_t *private_key,
     }
     return rc;
 }
+
+#endif /* NOXTLS_FEATURE_X25519 */

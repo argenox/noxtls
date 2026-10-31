@@ -140,6 +140,93 @@ noxtls_return_t noxtls_falcon_verify(noxtls_falcon_param_t param,
                                      uint32_t signature_len);
 
 
+
+/**
+ * @brief Workspace size for noxtls_falcon_keygen_ex().
+ *
+ * Falcon working storage (NTRUSolve big integers, FFT buffers) lives in one
+ * workspace instead of the call stack.  The value includes alignment slack,
+ * so any byte buffer of this size can be passed.
+ *
+ * @param[in] param Falcon parameter selector.
+ * @return Workspace length in bytes (Falcon-512: 44,040; Falcon-1024: 88,072),
+ *         or `0` for an unsupported parameter.
+ */
+uint32_t noxtls_falcon_keygen_workspace_len(noxtls_falcon_param_t param);
+
+/**
+ * @brief Workspace size for noxtls_falcon_sign_ex() (`80 * n + 592` bytes).
+ *
+ * @param[in] param Falcon parameter selector.
+ * @return Workspace length in bytes (Falcon-512: 41,552; Falcon-1024: 82,512),
+ *         or `0` for an unsupported parameter.
+ */
+uint32_t noxtls_falcon_sign_workspace_len(noxtls_falcon_param_t param);
+
+/**
+ * @brief Workspace size for noxtls_falcon_verify_ex() (`6 * n + 8` bytes).
+ *
+ * @param[in] param Falcon parameter selector.
+ * @return Workspace length in bytes (Falcon-512: 3,080; Falcon-1024: 6,152),
+ *         or `0` for an unsupported parameter.
+ */
+uint32_t noxtls_falcon_verify_workspace_len(noxtls_falcon_param_t param);
+
+/**
+ * @brief noxtls_falcon_keygen() with optional caller-supplied workspace.
+ *
+ * @param[in] workspace Scratch buffer of at least noxtls_falcon_keygen_workspace_len()
+ *            bytes, or `NULL` to allocate it internally with `NOXTLS_MALLOC`.
+ *            The buffer is wiped before return.
+ * @param[in] workspace_len Size of `workspace` in bytes (ignored when `workspace` is `NULL`).
+ * @return As noxtls_falcon_keygen(); additionally `NOXTLS_RETURN_NOT_ENOUGH_MEMORY` when the
+ *         internal allocation fails and `NOXTLS_RETURN_INVALID_BLOCK_SIZE` when `workspace_len`
+ *         is too small.
+ */
+noxtls_return_t noxtls_falcon_keygen_ex(noxtls_falcon_param_t param,
+                                        uint8_t *public_key,
+                                        uint32_t public_key_len,
+                                        uint8_t *secret_key,
+                                        uint32_t secret_key_len,
+                                        void *workspace,
+                                        uint32_t workspace_len);
+
+/**
+ * @brief noxtls_falcon_sign() with optional caller-supplied workspace.
+ *
+ * @param[in] workspace Scratch buffer of at least noxtls_falcon_sign_workspace_len()
+ *            bytes, or `NULL` to allocate it internally.  Wiped before return.
+ * @param[in] workspace_len Size of `workspace` in bytes.
+ * @return As noxtls_falcon_sign(); additionally `NOXTLS_RETURN_NOT_ENOUGH_MEMORY` /
+ *         `NOXTLS_RETURN_INVALID_BLOCK_SIZE` for workspace problems.
+ */
+noxtls_return_t noxtls_falcon_sign_ex(noxtls_falcon_param_t param,
+                                      const uint8_t *secret_key,
+                                      const uint8_t *message,
+                                      uint32_t message_len,
+                                      uint8_t *signature,
+                                      uint32_t *signature_len,
+                                      void *workspace,
+                                      uint32_t workspace_len);
+
+/**
+ * @brief noxtls_falcon_verify() with optional caller-supplied workspace.
+ *
+ * @param[in] workspace Scratch buffer of at least noxtls_falcon_verify_workspace_len()
+ *            bytes, or `NULL` to allocate it internally.
+ * @param[in] workspace_len Size of `workspace` in bytes.
+ * @return As noxtls_falcon_verify(); additionally `NOXTLS_RETURN_NOT_ENOUGH_MEMORY` /
+ *         `NOXTLS_RETURN_INVALID_BLOCK_SIZE` for workspace problems.
+ */
+noxtls_return_t noxtls_falcon_verify_ex(noxtls_falcon_param_t param,
+                                        const uint8_t *public_key,
+                                        const uint8_t *message,
+                                        uint32_t message_len,
+                                        const uint8_t *signature,
+                                        uint32_t signature_len,
+                                        void *workspace,
+                                        uint32_t workspace_len);
+
 #endif /* NOXTLS_FEATURE_FALCON */
 #ifdef __cplusplus
 }

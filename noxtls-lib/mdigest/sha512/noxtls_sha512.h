@@ -50,12 +50,11 @@ NOXTLS_MSVC_WARNING_PUSH
 NOXTLS_MSVC_DISABLE_PADDING
 typedef struct
 {
-    noxtls_hash_algos_t algo;
-	uint8_t data[HASH_SHA512_BLOCK_SIZE];  /* Used for holding remainder data */
-	uint8_t data_len;  /* Counts data in data */
-	uint64_t h[8];      /* holds state */
+    uint64_t h[8];      /* holds state */
     uint32_t length;    /* Full data length */
- 
+    uint8_t data[HASH_SHA512_BLOCK_SIZE];  /* Used for holding remainder data */
+    uint8_t data_len;   /* Counts data in data */
+    uint8_t algo;       /* noxtls_hash_algos_t value (SHA-384/512/512-224/512-256) */
 } noxtls_sha512_ctx_t;
 NOXTLS_MSVC_WARNING_POP
 

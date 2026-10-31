@@ -135,25 +135,25 @@ noxtls_return_t noxtls_sha256_init(noxtls_sha_ctx_t * ctx, noxtls_hash_algos_t a
     ctx->algo = algo;
     
     if (ctx->algo == NOXTLS_HASH_SHA_256) {
-        ctx->h[0] = 0x6a09e667U;
-        ctx->h[1] = 0xbb67ae85U;
-        ctx->h[2] = 0x3c6ef372U;
-        ctx->h[3] = 0xa54ff53aU;
-        ctx->h[4] = 0x510e527fU;
-        ctx->h[5] = 0x9b05688cU;
-        ctx->h[6] = 0x1f83d9abU;
-        ctx->h[7] = 0x5be0cd19U;
+        ctx->u.md32.h[0] = 0x6a09e667U;
+        ctx->u.md32.h[1] = 0xbb67ae85U;
+        ctx->u.md32.h[2] = 0x3c6ef372U;
+        ctx->u.md32.h[3] = 0xa54ff53aU;
+        ctx->u.md32.h[4] = 0x510e527fU;
+        ctx->u.md32.h[5] = 0x9b05688cU;
+        ctx->u.md32.h[6] = 0x1f83d9abU;
+        ctx->u.md32.h[7] = 0x5be0cd19U;
     }
     else if (ctx->algo == NOXTLS_HASH_SHA_224)
     {
-        ctx->h[0] = 0xc1059ed8U;
-        ctx->h[1] = 0x367cd507U;
-        ctx->h[2] = 0x3070dd17U;
-        ctx->h[3] = 0xf70e5939U;
-        ctx->h[4] = 0xffc00b31U;
-        ctx->h[5] = 0x68581511U;
-        ctx->h[6] = 0x64f98fa7U;
-        ctx->h[7] = 0xbefa4fa4U;
+        ctx->u.md32.h[0] = 0xc1059ed8U;
+        ctx->u.md32.h[1] = 0x367cd507U;
+        ctx->u.md32.h[2] = 0x3070dd17U;
+        ctx->u.md32.h[3] = 0xf70e5939U;
+        ctx->u.md32.h[4] = 0xffc00b31U;
+        ctx->u.md32.h[5] = 0x68581511U;
+        ctx->u.md32.h[6] = 0x64f98fa7U;
+        ctx->u.md32.h[7] = 0xbefa4fa4U;
     }
     else
     {
@@ -161,9 +161,9 @@ noxtls_return_t noxtls_sha256_init(noxtls_sha_ctx_t * ctx, noxtls_hash_algos_t a
         return NOXTLS_RETURN_INVALID_ALGORITHM;
     }
 
-    noxtls_secure_zero((&ctx->data), (size_t)(SHA256_BLOCK_SIZE_BYTES));
-    ctx->data_len = 0U;
-    ctx->length = 0U;
+    noxtls_secure_zero((&ctx->u.md32.data), (size_t)(SHA256_BLOCK_SIZE_BYTES));
+    ctx->u.md32.data_len = 0U;
+    ctx->u.md32.length = 0U;
     
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -190,23 +190,23 @@ noxtls_return_t noxtls_sha256_update(noxtls_sha_ctx_t * ctx, const uint8_t * dat
     uint32_t in_left = len;
 
     /* Fill existing buffer if present */
-    if (ctx->data_len > 0U) {
+    if (ctx->u.md32.data_len > 0U) {
         uint32_t to_copy = SHA256_BLOCK_SIZE_BYTES;
-        to_copy -= (uint32_t)ctx->data_len;
+        to_copy -= (uint32_t)ctx->u.md32.data_len;
         if (to_copy > in_left) {
             to_copy = in_left;
         }
-        noxtls_copy_u8(&ctx->data[ctx->data_len], sizeof(ctx->data) - (size_t)(ctx->data_len), data, (size_t)to_copy);
-        ctx->data_len = (uint8_t)(ctx->data_len + to_copy);
+        noxtls_copy_u8(&ctx->u.md32.data[ctx->u.md32.data_len], sizeof(ctx->u.md32.data) - (size_t)(ctx->u.md32.data_len), data, (size_t)to_copy);
+        ctx->u.md32.data_len = (uint8_t)(ctx->u.md32.data_len + to_copy);
         offset += to_copy;
         in_left -= to_copy;
-        if (ctx->data_len == SHA256_BLOCK_SIZE_BYTES) {
-            noxtls_return_t rc = noxtls_sha256_round(ctx, ctx->data);
+        if (ctx->u.md32.data_len == SHA256_BLOCK_SIZE_BYTES) {
+            noxtls_return_t rc = noxtls_sha256_round(ctx, ctx->u.md32.data);
             if (rc != NOXTLS_RETURN_SUCCESS) {
                 return rc;
             }
-            ctx->length += SHA256_BLOCK_SIZE_BYTES;
-            ctx->data_len = 0U;
+            ctx->u.md32.length += SHA256_BLOCK_SIZE_BYTES;
+            ctx->u.md32.data_len = 0U;
         }
     }
 
@@ -219,7 +219,7 @@ noxtls_return_t noxtls_sha256_update(noxtls_sha_ctx_t * ctx, const uint8_t * dat
 #if (defined(NOXTLS_FEATURE_HASH_ACCEL_STM32) && (NOXTLS_FEATURE_HASH_ACCEL_STM32)) || NOXTLS_PORT_SHA256_ACCEL || NOXTLS_FEATURE_NOXV_HW_ACCEL
         rc = noxtls_sha256_blocks_accel_port(ctx, &data[offset], full_blocks);
         if (rc == NOXTLS_RETURN_SUCCESS) {
-            ctx->length += full_bytes;
+            ctx->u.md32.length += full_bytes;
             offset += full_bytes;
             in_left -= full_bytes;
         } else
@@ -235,7 +235,7 @@ noxtls_return_t noxtls_sha256_update(noxtls_sha_ctx_t * ctx, const uint8_t * dat
             if (rc != NOXTLS_RETURN_SUCCESS) {
                 return rc;
             }
-            ctx->length += full_bytes;
+            ctx->u.md32.length += full_bytes;
             offset += full_bytes;
             in_left -= full_bytes;
 #endif
@@ -244,8 +244,8 @@ noxtls_return_t noxtls_sha256_update(noxtls_sha_ctx_t * ctx, const uint8_t * dat
 
     /* Store remainder */
     if (in_left > 0U) {
-        noxtls_copy_u8(ctx->data, sizeof(ctx->data), &data[offset], (size_t)in_left);
-        ctx->data_len = (uint8_t)in_left;
+        noxtls_copy_u8(ctx->u.md32.data, sizeof(ctx->u.md32.data), &data[offset], (size_t)in_left);
+        ctx->u.md32.data_len = (uint8_t)in_left;
     }
 
     return NOXTLS_RETURN_SUCCESS;
@@ -337,14 +337,14 @@ static noxtls_return_t noxtls_sha256_round_software(noxtls_sha_ctx_t * ctx, cons
             ((uint32_t)input[in_off + 3U]);
     }
 
-    a = ctx->h[0];
-    b = ctx->h[1];
-    c = ctx->h[2];
-    d = ctx->h[3];
-    e = ctx->h[4];
-    f = ctx->h[5];
-    g = ctx->h[6];
-    h = ctx->h[7];
+    a = ctx->u.md32.h[0];
+    b = ctx->u.md32.h[1];
+    c = ctx->u.md32.h[2];
+    d = ctx->u.md32.h[3];
+    e = ctx->u.md32.h[4];
+    f = ctx->u.md32.h[5];
+    g = ctx->u.md32.h[6];
+    h = ctx->u.md32.h[7];
     
 #if NOXTLS_SHA256_UNROLL_8
     for (t = 0U; t < SHA256_ROUND_COUNT; t += 8U)
@@ -438,14 +438,14 @@ static noxtls_return_t noxtls_sha256_round_software(noxtls_sha_ctx_t * ctx, cons
 #endif
     
     /* Computer the ith internmediate hash value H(i) */
-    ctx->h[0] += a;
-    ctx->h[1] += b;
-    ctx->h[2] += c;
-    ctx->h[3] += d;
-    ctx->h[4] += e;
-    ctx->h[5] += f;
-    ctx->h[6] += g;
-    ctx->h[7] += h;
+    ctx->u.md32.h[0] += a;
+    ctx->u.md32.h[1] += b;
+    ctx->u.md32.h[2] += c;
+    ctx->u.md32.h[3] += d;
+    ctx->u.md32.h[4] += e;
+    ctx->u.md32.h[5] += f;
+    ctx->u.md32.h[6] += g;
+    ctx->u.md32.h[7] += h;
     
     
 	    return NOXTLS_RETURN_SUCCESS;
@@ -497,95 +497,56 @@ noxtls_return_t noxtls_sha256_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
         return NOXTLS_RETURN_NULL;
     }
 
-    uint32_t len = 0U;
-    uint8_t * data = NULL;    
+    uint32_t used = (uint32_t)ctx->u.md32.data_len;
     uint32_t total_length = 0U;
     uint32_t i = 0U;
-    
-    uint8_t temp[SHA256_BLOCK_SIZE_BYTES] = {0};
-    /* Process any pending data or */
-    if (ctx->data_len > 0U)
-    {
-        len = ctx->data_len;
-        data = ctx->data;
-        noxtls_secure_zero((temp), sizeof(temp));
-        noxtls_copy_u8(temp, sizeof(temp), ctx->data, (size_t)(len));
-        total_length = ctx->length + ctx->data_len;
-    }
-    else
-    {
-        noxtls_secure_zero((ctx->data), (size_t)(SHA256_BLOCK_SIZE_BYTES));
-        data = ctx->data;
-        total_length = ctx->length;
-    }
-    
     uint32_t block_size = (uint32_t)(SHA256_BLOCK_SIZE_BYTES);
-    uint8_t length_size = (uint8_t)(SHA256_LENGTH_FIELD_BYTES); /* Size of length in bytes 8 bytes / 64-bit */
-    
-    uint32_t space_occupied = (uint32_t)((len % block_size));
-    uint32_t space_left = (uint32_t)(block_size - space_occupied);
-    
-    
-    if (len == 0U) {
-        space_occupied = 0U;
-        space_left = block_size;
-    }
-        
-    if (space_left >= 1U) {
-        temp[space_occupied] = SHA256_PAD_BYTE;
-    }
-    
-    if (space_left >= (uint32_t)(SHA256_LENGTH_FIELD_BYTES + 1U)) {
-        (void)noxtls_add_padding_length(temp, block_size, total_length, length_size);
-    }
+    uint8_t length_size = (uint8_t)(SHA256_LENGTH_FIELD_BYTES); /* 64-bit length field */
 
-    if (sha256_debug_lvl > 0U){
-        
-        for (i = 0U; i < block_size; i += 1U) {
-            (void)noxtls_debug_printf((const uint8_t *)"%02x ", temp[i]);
+    if (used >= block_size) {
+        noxtls_secure_zero(hash, (size_t)HASH_SHA256_OUT_LEN);
+        noxtls_secure_zero(ctx, sizeof(*ctx));
+        return NOXTLS_RETURN_FAILED;
+    }
+    total_length = ctx->u.md32.length + used;
+
+    /* Pad in place in the context block buffer (no stack copy): 0x80, zeros,
+     * then the big-endian bit length in the last 8 bytes. */
+    ctx->u.md32.data[used] = SHA256_PAD_BYTE;
+    if ((used + 1U) < block_size) {
+        noxtls_secure_zero(&ctx->u.md32.data[used + 1U], (size_t)(block_size - (used + 1U)));
+    }
+    rc = NOXTLS_RETURN_SUCCESS;
+    if ((used + 1U) > (block_size - (uint32_t)length_size)) {
+        /* No room for the length: compress this block, length goes in a second one. */
+        rc = noxtls_sha256_round(ctx, ctx->u.md32.data);
+        if (rc == NOXTLS_RETURN_SUCCESS) {
+            ctx->u.md32.length += SHA256_BLOCK_SIZE_BYTES;
         }
-        (void)noxtls_debug_printf((const uint8_t *)"\n");
-        
-        (void)noxtls_debug_printf((const uint8_t *)"Process here the current block\n");
+        noxtls_secure_zero(ctx->u.md32.data, (size_t)block_size);
     }
-    
-    rc = noxtls_sha256_round(ctx, temp);
-    if (rc == NOXTLS_RETURN_SUCCESS) {
-        ctx->length += SHA256_BLOCK_SIZE_BYTES;
-    }
-    
     /* A second padding block is only processed when the first compression
      * succeeded, so its status can never mask an earlier failure. */
-    if ((rc == NOXTLS_RETURN_SUCCESS) && (space_left < (uint32_t)(SHA256_LENGTH_FIELD_BYTES + 1U)))
-    {
-        noxtls_secure_zero((temp), (size_t)(block_size));
-        if (space_left == 0U) {
-            /* not previously set */
-            data[0] = SHA256_PAD_BYTE;
-        }
-        
-        (void)noxtls_add_padding_length(temp, block_size, total_length, length_size);
-            
+    if (rc == NOXTLS_RETURN_SUCCESS) {
+        (void)noxtls_add_padding_length(ctx->u.md32.data, block_size, total_length, length_size);
         if (sha256_debug_lvl > 0U) {
             for (i = 0U; i < block_size; i += 1U) {
-                (void)noxtls_debug_printf((const uint8_t *)"%02x", temp[i]);
+                (void)noxtls_debug_printf((const uint8_t *)"%02x ", ctx->u.md32.data[i]);
             }
             (void)noxtls_debug_printf((const uint8_t *)"\n");
-            (void)noxtls_debug_printf((const uint8_t *)"Process additional block since could not fit padding\n");
         }
-        
-        rc = noxtls_sha256_round(ctx, temp);
+        rc = noxtls_sha256_round(ctx, ctx->u.md32.data);
         if (rc == NOXTLS_RETURN_SUCCESS) {
-            ctx->length += SHA256_BLOCK_SIZE_BYTES;
+            ctx->u.md32.length += SHA256_BLOCK_SIZE_BYTES;
         }
-        
     }
-    
+    noxtls_secure_zero(ctx->u.md32.data, (size_t)block_size);
+    ctx->u.md32.data_len = 0U;
+
     uint8_t alg_sz = (uint8_t)(SHA256_STATE_WORDS);
     if (ctx->algo == NOXTLS_HASH_SHA_224) {
         alg_sz = (uint8_t)SHA224_STATE_WORDS;
     }
-    noxtls_secure_zero((temp), sizeof(temp));
     if (rc != NOXTLS_RETURN_SUCCESS) {
         /* Never release a partial digest: wipe the output and the state. */
         noxtls_secure_zero(hash, (size_t)alg_sz * 4U);
@@ -594,10 +555,10 @@ noxtls_return_t noxtls_sha256_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
     }
     for (i = 0U; i < alg_sz; i += 1U)
     {
-        hash[(i << 2U)]       = (uint8_t)((ctx->h[i] & 0xFF000000U) >>24U);
-        hash[(i << 2U) + 1U] = (uint8_t)((ctx->h[i] & 0x00FF0000U) >>16U);
-        hash[(i * 4U) + 2U] = (uint8_t)((ctx->h[i] & 0x0000FF00U) >>8U);
-        hash[(i << 2U) + 3U] = (uint8_t)(ctx->h[i] & 0x000000FFU);
+        hash[(i << 2U)]       = (uint8_t)((ctx->u.md32.h[i] & 0xFF000000U) >>24U);
+        hash[(i << 2U) + 1U] = (uint8_t)((ctx->u.md32.h[i] & 0x00FF0000U) >>16U);
+        hash[(i * 4U) + 2U] = (uint8_t)((ctx->u.md32.h[i] & 0x0000FF00U) >>8U);
+        hash[(i << 2U) + 3U] = (uint8_t)(ctx->u.md32.h[i] & 0x000000FFU);
     }
 
 	return rc;

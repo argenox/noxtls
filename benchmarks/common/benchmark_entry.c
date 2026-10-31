@@ -72,10 +72,24 @@ int benchmark_entry(void)
     (void)noxtls_falcon_keygen(NOXTLS_FALCON_512, NULL, 0U, NULL, 0U);
 #endif
 #if defined(NOXTLS_BENCH_KEEP_LMS_HSS)
-    (void)noxtls_lms_keygen(NOXTLS_LMS_SHA256_M32_H5, NULL, 0U, NULL, 0U);
+    {
+        /* Stateless (streaming) verification plus stateful keygen / signing. */
+        noxtls_hss_key_t lms_key;
+        uint32_t lms_sig_len = 0U;
+
+        (void)noxtls_hss_verify(NOXTLS_LMS_FORMAT_HSS, NULL, 0U, NULL, 0U, NULL, 0U);
+        (void)noxtls_hss_keygen(NULL, NULL, NULL, NULL, 0U, NULL, 0U);
+        (void)noxtls_hss_key_load(&lms_key, NULL, 0U, NULL, 0U, 0U, 0U, NULL, NULL);
+        (void)noxtls_hss_sign(&lms_key, NULL, 0U, NULL, 0U, &lms_sig_len);
+        noxtls_hss_key_free(&lms_key);
+    }
 #endif
 #if defined(NOXTLS_BENCH_KEEP_XMSS)
+    /* Verification, key generation and stateful signing (with BDS traversal). */
+    (void)noxtls_xmss_verify(NOXTLS_XMSS_SHA2_10_256, NULL, NULL, 0U, NULL, 0U);
     (void)noxtls_xmss_keygen(NOXTLS_XMSS_SHA2_10_256, NULL, 0U, NULL, 0U);
+    (void)noxtls_xmss_signer_attach_traversal(NULL, NULL, 0U, 0U);
+    (void)noxtls_xmss_sign_stateful(NULL, NULL, 0U, NULL, NULL);
 #endif
     return 0;
 }

@@ -27,31 +27,29 @@
 #define NOXTLS_ECC_H_
 
 #include <stdint.h>
+/* The configuration must be seen before ECC_MAX_KEY_SIZE is derived below: every
+ * translation unit (whether it includes this header as "noxtls_ecc.h" or as
+ * "pkc/ecc/noxtls_ecc.h") must see the same curve set, or struct layouts differ. */
+#include "noxtls_config.h"
 #include "noxtls_common.h"
-
-#ifdef __has_include
-#  if __has_include("noxtls_config.h")
-#    include "noxtls_config.h"
-#  endif
-#endif
 #ifndef NOXTLS_ECC_POINT_MUL_WINDOW_SIZE
 #define NOXTLS_ECC_POINT_MUL_WINDOW_SIZE 4
 #endif
 #ifndef NOXTLS_ECC_FIXED_POINT_OPTIM
 #define NOXTLS_ECC_FIXED_POINT_OPTIM 1
 #endif
-/* Process-global ECC precompute caches materially improve P-256 ECDSA
- * sign/verify throughput by reusing generator and joint tables. The cache is
- * shared mutable state, so multi-threaded users must serialize ECC calls
- * externally or override this to 0 in noxtls_config.h. */
+/* Defaults favour RAM: P-256 uses the read-only generator table and the low-RAM
+ * verify path, and no process-global precompute tables are retained (see
+ * noxtls_config.h; the cache is shared mutable state that multi-threaded users
+ * must serialize externally when enabled). */
 #ifndef NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE
-#define NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE 1
+#define NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE 0
 #endif
 #ifndef NOXTLS_ECC_P256_FLASH_PRECOMPUTE
-#define NOXTLS_ECC_P256_FLASH_PRECOMPUTE 0
+#define NOXTLS_ECC_P256_FLASH_PRECOMPUTE 1
 #endif
 #ifndef NOXTLS_ECC_P256_LOW_RAM_VERIFY
-#define NOXTLS_ECC_P256_LOW_RAM_VERIFY 0
+#define NOXTLS_ECC_P256_LOW_RAM_VERIFY NOXTLS_ECC_P256_FLASH_PRECOMPUTE
 #endif
 #if NOXTLS_ECC_P256_LOW_RAM_VERIFY && !NOXTLS_ECC_P256_FLASH_PRECOMPUTE
 #error "NOXTLS_ECC_P256_LOW_RAM_VERIFY requires NOXTLS_ECC_P256_FLASH_PRECOMPUTE"
@@ -62,7 +60,13 @@
 #define NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS 0
 #endif
 
-/* On-target operation diagnostics. */
+/* On-target operation diagnostics (PTS status ABI: control flow only, never key
+ * material). NOXTLS_ECC_STATUS_WORDS=0 drops these words (and the ECDSA signer's
+ * noxtls_ecdsa_sign_last_rc/_stage), 36 bytes of RAM. */
+#ifndef NOXTLS_ECC_STATUS_WORDS
+#define NOXTLS_ECC_STATUS_WORDS 1
+#endif
+#if NOXTLS_ECC_STATUS_WORDS
 extern volatile int32_t noxtls_ecc_keygen_last_rc;
 extern volatile uint32_t noxtls_ecc_keygen_last_stage;
 extern volatile int32_t noxtls_ecc_keygen_last_entropy_rc;
@@ -70,12 +74,81 @@ extern volatile int32_t noxtls_ecc_keygen_last_multiply_rc;
 extern volatile uint32_t noxtls_ecc_keygen_last_drbg_type;
 extern volatile int32_t noxtls_ecc_keyinit_last_rc;
 extern volatile uint32_t noxtls_ecc_keyinit_last_stage;
+#define NOXTLS_ECC_STATUS_SET(word, value) ((word) = (value))
+#else
+#define NOXTLS_ECC_STATUS_SET(word, value) ((void)(value))
+#endif
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define ECC_MAX_KEY_SIZE 66U  /* 521 bits = 66 bytes */
+/* Per-curve enable knobs (see noxtls_config.h). A disabled curve is rejected by
+ * noxtls_ecc_curve_init()/noxtls_ecc_key_init() and its constants are not linked. */
+#ifndef NOXTLS_ECC_ENABLE_SECP192R1
+#define NOXTLS_ECC_ENABLE_SECP192R1 1
+#endif
+#ifndef NOXTLS_ECC_ENABLE_SECP224R1
+#define NOXTLS_ECC_ENABLE_SECP224R1 1
+#endif
+#ifndef NOXTLS_ECC_ENABLE_SECP256R1
+#define NOXTLS_ECC_ENABLE_SECP256R1 1
+#endif
+#ifndef NOXTLS_ECC_ENABLE_SECP384R1
+#define NOXTLS_ECC_ENABLE_SECP384R1 1
+#endif
+#ifndef NOXTLS_ECC_ENABLE_SECP521R1
+#define NOXTLS_ECC_ENABLE_SECP521R1 1
+#endif
+#ifndef NOXTLS_ECC_ENABLE_BP256R1
+#define NOXTLS_ECC_ENABLE_BP256R1 1
+#endif
+#ifndef NOXTLS_ECC_ENABLE_BP384R1
+#define NOXTLS_ECC_ENABLE_BP384R1 1
+#endif
+#ifndef NOXTLS_ECC_ENABLE_BP512R1
+#define NOXTLS_ECC_ENABLE_BP512R1 1
+#endif
+#ifndef NOXTLS_ECC_ENABLE_SECP192K1
+#define NOXTLS_ECC_ENABLE_SECP192K1 1
+#endif
+#ifndef NOXTLS_ECC_ENABLE_SECP224K1
+#define NOXTLS_ECC_ENABLE_SECP224K1 1
+#endif
+#ifndef NOXTLS_ECC_ENABLE_SECP256K1
+#define NOXTLS_ECC_ENABLE_SECP256K1 1
+#endif
+
+/* Largest coordinate / order length (bytes) over the enabled curves. secp224k1
+ * needs 29: its 225-bit group order is one byte longer than its field. */
+#if NOXTLS_ECC_ENABLE_SECP521R1
+#define NOXTLS_ECC_MAX_CURVE_BYTES 66U
+#elif NOXTLS_ECC_ENABLE_BP512R1
+#define NOXTLS_ECC_MAX_CURVE_BYTES 64U
+#elif NOXTLS_ECC_ENABLE_SECP384R1 || NOXTLS_ECC_ENABLE_BP384R1
+#define NOXTLS_ECC_MAX_CURVE_BYTES 48U
+#elif NOXTLS_ECC_ENABLE_SECP256R1 || NOXTLS_ECC_ENABLE_BP256R1 || NOXTLS_ECC_ENABLE_SECP256K1
+#define NOXTLS_ECC_MAX_CURVE_BYTES 32U
+#elif NOXTLS_ECC_ENABLE_SECP224K1
+#define NOXTLS_ECC_MAX_CURVE_BYTES 29U
+#elif NOXTLS_ECC_ENABLE_SECP224R1
+#define NOXTLS_ECC_MAX_CURVE_BYTES 28U
+#elif NOXTLS_ECC_ENABLE_SECP192R1 || NOXTLS_ECC_ENABLE_SECP192K1
+#define NOXTLS_ECC_MAX_CURVE_BYTES 24U
+#else
+/* No curve enabled: keep the types usable (every curve init fails). */
+#define NOXTLS_ECC_MAX_CURVE_BYTES 32U
+#endif
+
+/* Size of the coordinate arrays in ecc_point_t / ecc_jpoint_t / ecdsa_signature_t.
+ * Derived from the enabled curves (66 with every curve, 32 for a P-256-only build).
+ * It may be overridden only with a value that is at least the derived size. */
+#ifndef ECC_MAX_KEY_SIZE
+#define ECC_MAX_KEY_SIZE NOXTLS_ECC_MAX_CURVE_BYTES
+#endif
+#if ECC_MAX_KEY_SIZE < NOXTLS_ECC_MAX_CURVE_BYTES
+#error "ECC_MAX_KEY_SIZE is smaller than the largest enabled ECC curve"
+#endif
 
 /* Unsigned curve ids (MISRA C:2025 Rule 10.3); values match historical enum order. */
 typedef uint32_t ecc_curve_t;
@@ -90,6 +163,8 @@ typedef uint32_t ecc_curve_t;
 #define NOXTLS_ECC_SECP192K1 ((ecc_curve_t)8U)  /* secp192k1 */
 #define NOXTLS_ECC_SECP224K1 ((ecc_curve_t)9U)  /* secp224k1 */
 #define NOXTLS_ECC_SECP256K1 ((ecc_curve_t)10U) /* secp256k1 */
+/** ecc_curve_params_t.curve_tag value of library-initialized parameters (0 = caller-built). */
+#define NOXTLS_ECC_CURVE_TAG(curve_type) ((uint32_t)(curve_type) + 1U)
 
 NOXTLS_MSVC_WARNING_PUSH
 NOXTLS_MSVC_DISABLE_PADDING
@@ -100,25 +175,33 @@ typedef struct
     uint32_t size;  /* Size in bytes */
 } ecc_point_t;
 
+/* Curve parameters. Library-initialized parameters point at shared read-only
+ * constants (no allocation): never write through p, a, b or n. A caller that
+ * builds parameters itself owns the buffers it points at. */
 typedef struct
 {
-    uint8_t *p;     /* Prime modulus */
-    uint8_t *a;     /* Curve parameter a */
-    uint8_t *b;     /* Curve parameter b */
-    ecc_point_t G;  /* Generator point */
-    uint8_t *n;     /* Order of generator (n_size bytes, big-endian) */
-    uint32_t size;  /* Coordinate (field element) size in bytes */
+    const uint8_t *p;     /* Prime modulus */
+    const uint8_t *a;     /* Curve parameter a */
+    const uint8_t *b;     /* Curve parameter b */
+    ecc_point_t G;        /* Generator point */
+    const uint8_t *n;     /* Order of generator (n_size bytes, big-endian) */
+    uint32_t size;        /* Coordinate (field element) size in bytes */
     /** Length of n in bytes. Equals size for every curve except secp224k1, whose
      *  225-bit order is one byte longer than its 224-bit field. 0 is treated as size
      *  (structures not created by noxtls_ecc_curve_init). */
     uint32_t n_size;
+    /** Internal: curve id + 1 for parameters created by the library, 0 for
+     *  caller-built parameters (used to key precompute caches by curve, not by pointer). */
+    uint32_t curve_tag;
 } ecc_curve_params_t;
 
 typedef struct
 {
     uint8_t *d;              /* Private key (scalar) */
     ecc_point_t Q;           /* Public key (point) */
-    ecc_curve_params_t *curve; /* Curve parameters */
+    /** Curve parameters: the library's shared read-only descriptor for the curve
+     *  (set by noxtls_ecc_key_init; not owned by the key, nothing to free). */
+    const ecc_curve_params_t *curve;
     /** Populated by ECC key initialization, generation, or private-scalar import; used for TLS 1.3 signature scheme selection. */
     ecc_curve_t curve_kind;
     /** Allocated length of @c d in bytes (set by noxtls_ecc_key_init). noxtls_ecc_key_free
@@ -136,24 +219,17 @@ typedef struct {
 } ecc_jpoint_t;
 NOXTLS_MSVC_WARNING_POP
 
-#if (NOXTLS_ECC_POINT_MUL_WINDOW_SIZE > 0) && (NOXTLS_ECC_FIXED_POINT_OPTIM) && (NOXTLS_ECC_GLOBAL_PRECOMPUTE_CACHE)
-/**
- * Fixed-base point multiplication cache (windowed precompute for generator G).
- * Used only inside noxtls_ecc.c; not part of the public API surface.
- */
-typedef struct {
-    const ecc_curve_params_t *curve;
-    ecc_jpoint_t *table;
-    uint32_t w;
-    uint32_t size;
-    uint8_t gx[ECC_MAX_KEY_SIZE];
-    uint8_t gy[ECC_MAX_KEY_SIZE];
-    int valid;
-} ecc_fixed_base_cache_t;
-#endif
 
 /* Curve Operations */
+/** Shared read-only parameters of @p curve_type, or NULL when the curve is unknown
+ *  or disabled at build time (NOXTLS_ECC_ENABLE_<curve>=0). Never freed. */
+const ecc_curve_params_t *noxtls_ecc_curve_get(ecc_curve_t curve_type);
+/** Fill @p curve with the parameters of @p curve_type. p, a, b and n point at
+ *  shared read-only constants (no allocation); NOXTLS_RETURN_FAILED for an
+ *  unknown or disabled curve. */
 noxtls_return_t noxtls_ecc_curve_init(ecc_curve_params_t *curve, ecc_curve_t curve_type);
+/** Clear @p curve. Parameter buffers are not freed (library parameters are
+ *  read-only constants; caller-built buffers stay owned by the caller). */
 noxtls_return_t noxtls_ecc_curve_free(ecc_curve_params_t *curve);
 /** Length in bytes of the group order n (curve->n_size, or curve->size when unset). */
 uint32_t noxtls_ecc_curve_order_size(const ecc_curve_params_t *curve);

@@ -1142,7 +1142,7 @@ noxtls_return_t noxtls_tls12_pick_rsa_pkcs1_skx_sig_hash(const tls12_context_t *
                 continue;
             }
             switch (hb) {
-#if NOXTLS_FEATURE_SHA1
+#if NOXTLS_TLS12_SHA1_SIGNATURES
             case 2U:
                 *hash_byte_out = 2U;
                 *hash_out = NOXTLS_HASH_SHA1;
@@ -1180,10 +1180,11 @@ noxtls_return_t noxtls_tls12_pick_rsa_pkcs1_skx_sig_hash(const tls12_context_t *
     }
 
     /*
-     * No signature_algorithms extension (RFC 5246): tlslite/tlsfuzzer default SKE verify
-     * list is rsa_pkcs1_sha1 only (hash=2, sig=1).
+     * No signature_algorithms extension: RFC 5246 7.4.1.4.1 makes {sha1, rsa} the only pair
+     * the client accepts, so without SHA-1 signatures there is nothing to sign with
+     * (handshake_failure).
      */
-#if NOXTLS_FEATURE_SHA1
+#if NOXTLS_TLS12_SHA1_SIGNATURES
     *hash_byte_out = 2U;
     *hash_out = NOXTLS_HASH_SHA1;
     return NOXTLS_RETURN_SUCCESS;
@@ -1288,7 +1289,8 @@ noxtls_return_t noxtls_tls12_prepare_rsa_server_key_exchange_scheme(tls12_contex
     leaf_parsed = (const x509_certificate_t *)ctx->server_cert_parsed;
     sa = ctx->client_extensions.signature_algorithms;
     if ((sa == NULL) || (sa->algorithms == NULL) || (sa->count == 0U)) {
-#if NOXTLS_FEATURE_SHA1
+        /* RFC 5246 7.4.1.4.1 implicit {sha1, rsa}: only with SHA-1 signatures enabled. */
+#if NOXTLS_TLS12_SHA1_SIGNATURES
         ctx->tls12_rsa_skx_wire_scheme = 0x0201U;
         ctx->tls12_rsa_skx_sign_hash = NOXTLS_HASH_SHA1;
         ctx->tls12_rsa_skx_sign_use_pss = 0U;
@@ -1372,7 +1374,7 @@ noxtls_return_t noxtls_tls12_prepare_rsa_server_key_exchange_scheme(tls12_contex
                 }
             }
             switch (hb) {
-#if NOXTLS_FEATURE_SHA1
+#if NOXTLS_TLS12_SHA1_SIGNATURES
             case 2U:
                 ctx->tls12_rsa_skx_wire_scheme = 0x0201U;
                 ctx->tls12_rsa_skx_sign_hash = NOXTLS_HASH_SHA1;
@@ -1436,7 +1438,10 @@ noxtls_return_t noxtls_tls12_prepare_rsa_server_key_exchange_scheme(tls12_contex
 static int tls12_skx_ecdsa_sigalg_supported(uint16_t sigalg)
 {
     static const uint16_t supported[] = {
-        0x0603U, 0x0503U, 0x0403U, 0x0303U, 0x0203U,
+        0x0603U, 0x0503U, 0x0403U, 0x0303U,
+#if NOXTLS_TLS12_SHA1_SIGNATURES
+        0x0203U,
+#endif
     };
     uint32_t i = 0U;
     for (i = 0U; i < (uint32_t)(sizeof(supported) / sizeof(supported[0])); i += 1U) {
@@ -1479,7 +1484,7 @@ noxtls_return_t noxtls_tls12_pick_ecdsa_skx_sig_hash(const tls12_context_t *ctx,
                 continue;
             }
             switch (hb) {
-#if NOXTLS_FEATURE_SHA1
+#if NOXTLS_TLS12_SHA1_SIGNATURES
             case 2U:
                 *hash_byte_out = 2U;
                 *hash_out = NOXTLS_HASH_SHA1;
@@ -1516,13 +1521,16 @@ noxtls_return_t noxtls_tls12_pick_ecdsa_skx_sig_hash(const tls12_context_t *ctx,
         return NOXTLS_RETURN_NOT_SUPPORTED;
     }
 
+#if NOXTLS_TLS12_SHA1_SIGNATURES
+    /*
+     * No signature_algorithms extension. RFC 5246 7.4.1.4.1 implies {sha1, ecdsa}; this server
+     * keeps its earlier choice (SHA-1 for ECDHE_ECDSA_WITH_AES_128_CBC_SHA, otherwise the
+     * suite's hash). Without SHA-1 signatures nothing the client must accept can be signed
+     * (handshake_failure).
+     */
     if (ctx->cipher_suite == TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_CBC_SHA) {
-#if NOXTLS_FEATURE_SHA1
         *hash_byte_out = 2U;
         *hash_out = NOXTLS_HASH_SHA1;
-#else
-        return NOXTLS_RETURN_NOT_SUPPORTED;
-#endif
     } else if (ctx->cipher_suite == TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384) {
 #if NOXTLS_FEATURE_SHA384
         *hash_byte_out = 5U;
@@ -1536,6 +1544,9 @@ noxtls_return_t noxtls_tls12_pick_ecdsa_skx_sig_hash(const tls12_context_t *ctx,
         *hash_out = NOXTLS_HASH_SHA_256;
     }
     return NOXTLS_RETURN_SUCCESS;
+#else
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
 }
 
 /**
@@ -2232,16 +2243,16 @@ noxtls_return_t noxtls_tls13_process_client_key_share(tls13_context_t *ctx, tls_
         return NOXTLS_RETURN_FAILED;
     }
     
-    if ((ctx->client_key_shares == NULL) || (ctx->client_key_shares_count == 0U)) {
+    if ((ctx->hs->client_key_shares == NULL) || (ctx->hs->client_key_shares_count == 0U)) {
         return NOXTLS_RETURN_FAILED;
     }
     
     /* Find matching key share */
     uint32_t i = 0U;
     const tls13_key_share_entry_t *client_key_share = NULL;
-    for (i = 0U; i < ctx->client_key_shares_count; i += 1U) {
-        if (ctx->client_key_shares[i].group == ecdhe_ctx->named_group) {
-            client_key_share = &ctx->client_key_shares[i];
+    for (i = 0U; i < ctx->hs->client_key_shares_count; i += 1U) {
+        if (ctx->hs->client_key_shares[i].group == ecdhe_ctx->named_group) {
+            client_key_share = &ctx->hs->client_key_shares[i];
             break;
         }
     }
@@ -2300,26 +2311,26 @@ noxtls_return_t noxtls_tls13_process_server_key_share(const tls13_context_t *ctx
         return NOXTLS_RETURN_FAILED;
     }
     
-    if (ctx->server_key_share == NULL) {
+    if (ctx->hs->server_key_share == NULL) {
         return NOXTLS_RETURN_FAILED;
     }
     
     /* Verify group matches */
-    if (ctx->server_key_share->group != ecdhe_ctx->named_group) {
+    if (ctx->hs->server_key_share->group != ecdhe_ctx->named_group) {
         return NOXTLS_RETURN_FAILED;
     }
     
     if (ecdhe_ctx->named_group == TLS_NAMED_GROUP_X25519) {
-        if (ctx->server_key_share->key_exchange_len != NOXTLS_X25519_KEY_SIZE) {
+        if (ctx->hs->server_key_share->key_exchange_len != NOXTLS_X25519_KEY_SIZE) {
             return NOXTLS_RETURN_FAILED;
         }
-        return noxtls_tls_ecdhe_compute_shared_secret_x25519(ecdhe_ctx, ctx->server_key_share->key_exchange);
+        return noxtls_tls_ecdhe_compute_shared_secret_x25519(ecdhe_ctx, ctx->hs->server_key_share->key_exchange);
     }
     if (ecdhe_ctx->named_group == TLS_NAMED_GROUP_X448) {
-        if (ctx->server_key_share->key_exchange_len != NOXTLS_X448_KEY_SIZE) {
+        if (ctx->hs->server_key_share->key_exchange_len != NOXTLS_X448_KEY_SIZE) {
             return NOXTLS_RETURN_FAILED;
         }
-        return noxtls_tls_ecdhe_compute_shared_secret_x448(ecdhe_ctx, ctx->server_key_share->key_exchange);
+        return noxtls_tls_ecdhe_compute_shared_secret_x448(ecdhe_ctx, ctx->hs->server_key_share->key_exchange);
     }
     
     /* Decode server's public key (raw key_exchange bytes) */
@@ -2328,8 +2339,8 @@ noxtls_return_t noxtls_tls13_process_server_key_share(const tls13_context_t *ctx
     if (rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
-    rc = noxtls_tls_decode_ecc_point_uncompressed(ctx->server_key_share->key_exchange,
-                                           ctx->server_key_share->key_exchange_len,
+    rc = noxtls_tls_decode_ecc_point_uncompressed(ctx->hs->server_key_share->key_exchange,
+                                           ctx->hs->server_key_share->key_exchange_len,
                                            &peer_public_key,
                                            curve_type);
     if (rc != NOXTLS_RETURN_SUCCESS) {

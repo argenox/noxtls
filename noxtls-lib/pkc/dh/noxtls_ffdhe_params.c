@@ -24,6 +24,9 @@
 #include "noxtls_ffdhe_params.h"
 #include "noxtls_ffdhe_params_generated.h"
 #include "noxtls_misra_refs.h"
+#include "noxtls_common.h"
+
+#if NOXTLS_FEATURE_DH
 
 /* ffdhe2048 p: 256 bytes, RFC 7919 */
 const uint8_t noxtls_ffdhe2048_p[256] = {
@@ -253,3 +256,5 @@ NOXTLS_MISRA_KEEP static void noxtls_ffdhe_misra_keep(void)
     NOXTLS_MISRA_REF_OBJ(noxtls_ffdhe_g_6144);
     NOXTLS_MISRA_REF_OBJ(noxtls_ffdhe_g_8192);
 }
+
+#endif /* NOXTLS_FEATURE_DH */

@@ -26,6 +26,8 @@ static unsigned s_fail_at;
 static bool s_software;
 static noxtls_return_t s_failure;
 static noxtls_return_t s_batch;
+static bool s_batch_real;
+static uint32_t s_batch_blocks;
 static noxtls_return_t s_aead;
 static uint8_t s_first_input[NOXTLS_AES_BLOCK_LENGTH];
 static const uint8_t s_key[32] = {0};
@@ -39,6 +41,8 @@ static void reset_port(void)
     s_fail_at = 0U;
     s_failure = NOXTLS_RETURN_TIMEOUT;
     s_batch = NOXTLS_RETURN_NOT_SUPPORTED;
+    s_batch_real = false;
+    s_batch_blocks = 0U;
     s_aead = NOXTLS_RETURN_NOT_SUPPORTED;
     s_software = false;
     memset(s_first_input, 0, sizeof(s_first_input));
@@ -97,6 +101,19 @@ noxtls_return_t noxtls_aes_accel_port_decrypt_block(const uint8_t *key,
 noxtls_return_t noxtls_aes_accel_port_encrypt_blocks(const uint8_t *key,
     const uint8_t *input, uint8_t *output, uint32_t count, noxtls_aes_type_t type)
 {
+    if (s_batch_real) {
+        /* A working batch backend: real AES (library software) on every block. */
+        noxtls_return_t result = NOXTLS_RETURN_SUCCESS;
+        uint32_t i;
+        s_batch_blocks += count;
+        s_software = true;
+        for (i = 0U; (i < count) && (result == NOXTLS_RETURN_SUCCESS); ++i) {
+            result = noxtls_aes_encrypt_block_internal(key, &input[i * NOXTLS_AES_BLOCK_LENGTH],
+                &output[i * NOXTLS_AES_BLOCK_LENGTH], type);
+        }
+        s_software = false;
+        return result;
+    }
     (void)key; (void)input; (void)type;
     if (s_batch != NOXTLS_RETURN_NOT_SUPPORTED) {
         memset(output, 0xA6, (size_t)count * NOXTLS_AES_BLOCK_LENGTH);
@@ -272,7 +289,10 @@ REGISTER_TEST(test_drbg_batch_fallback_counter_and_errors)
     uint8_t output[32], expected_counter[16];
     reset_port();
     UTNOX_EQUALS(drbg_instantiate(&state, DRBG_AES128, seed, sizeof(seed), NULL, 0U, NULL, 0U), NOXTLS_RETURN_SUCCESS);
+    /* SP 800-90A 10.2.1.5.2 step 4.1: V = V + 1 before the first output block. */
     memcpy(expected_counter, state.V, sizeof(expected_counter));
+    expected_counter[15] = (uint8_t)(expected_counter[15] + 1U);
+    UTNOX_EQUALS(expected_counter[15] != 0U, true); /* no carry for this seed */
     reset_port();
     UTNOX_EQUALS(drbg_generate(&state, output, sizeof(output) * 8U, NULL, 0U), NOXTLS_RETURN_SUCCESS);
     UTNOX_EQUALS(memcmp(s_first_input, expected_counter, sizeof(expected_counter)), 0);
@@ -287,6 +307,75 @@ REGISTER_TEST(test_drbg_batch_fallback_counter_and_errors)
     reset_port(); s_fail_at = 1U;
     UTNOX_EQUALS(drbg_instantiate(&state, DRBG_AES128, seed, sizeof(seed), NULL, 0U, NULL, 0U), NOXTLS_RETURN_TIMEOUT);
     UTNOX_EQUALS(erased(&state, sizeof(state)), true);
+    return 0;
+}
+
+/** @brief Hex digit pairs to bytes (test vectors only). */
+static size_t ut_hex(const char *hex, uint8_t *out)
+{
+    size_t n = 0U;
+    while ((hex[0] != '\0') && (hex[1] != '\0')) {
+        unsigned v = 0U;
+        int i;
+        for (i = 0; i < 2; ++i) {
+            char c = hex[i];
+            v = (v << 4) | (unsigned)((c <= '9') ? (c - '0') : ((c | 0x20) - 'a' + 10));
+        }
+        out[n++] = (uint8_t)v;
+        hex += 2;
+    }
+    return n;
+}
+
+/** @brief One NIST CAVP flow (pr_false: instantiate, reseed, generate x2); returns the last output. */
+static int drbg_cavp_flow(uint8_t *output, size_t out_len, uint8_t *big, size_t big_len)
+{
+    /* NIST CAVP CTR_DRBG.rsp (CAVS 14.3) drbgvectors_pr_false [AES-256 use df], COUNT = 0. */
+    static const char *const k_hex[] = {
+        "174b46250051a9e3d80c56ae7163dafe7e54481a56cafd3b8625f99bbb29c442",
+        "98ffd99c466e0e94a45da7e0e82dbc6b",
+        "7095268e99938b3e042734b9176c9aa051f00a5f8d2a89ada214b89beef18ebf",
+        "e88be1967c5503f65d23867bbc891bd679db03b4878663f6c877592df25f0d9a",
+        "cdf6ad549e45b6aa5cd67d024931c33cd133d52d5ae500c3015020beb30da063",
+        "c7228e90c62f896a09e11684530102f926ec90a3255f6c21b857883c75800143",
+        "76a94f224178fe4cbf9e2b8acc53c9dc3e50bb613aac8936601453cda3293b17",
+    };
+    uint8_t v[7][32];
+    size_t l[7];
+    drbg_state_t state;
+    size_t i;
+    for (i = 0U; i < 7U; ++i) {
+        l[i] = ut_hex(k_hex[i], v[i]);
+    }
+    UTNOX_EQUALS(drbg_instantiate(&state, DRBG_AES256, v[0], (uint32_t)l[0], v[1], (uint32_t)l[1], v[2],
+        (uint32_t)l[2]), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(drbg_reseed(&state, v[3], (uint32_t)l[3], v[4], (uint32_t)l[4]), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(drbg_generate(&state, output, (uint32_t)out_len * 8U, v[5], (uint32_t)l[5]), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(drbg_generate(&state, output, (uint32_t)out_len * 8U, v[6], (uint32_t)l[6]), NOXTLS_RETURN_SUCCESS);
+    /* A long request with a partial last block (batch chunks + tail). */
+    UTNOX_EQUALS(drbg_generate(&state, big, (uint32_t)big_len * 8U, NULL, 0U), NOXTLS_RETURN_SUCCESS);
+    (void)noxtls_drbg_uninstantiate(&state);
+    return 0;
+}
+
+REGISTER_TEST(test_drbg_batch_hook_matches_block_path_and_cavp)
+{
+    static const char k_expected[] =
+        "1a6d8dbd642076d13916e5e23038b60b26061f13dd4e006277e0268698ffb2c87e453bae1251631ac90c701a9849d933"
+        "995e8b0221fe9aca1985c546c2079027";
+    uint8_t expected[64], batch_out[64], block_out[64];
+    static uint8_t batch_big[1000], block_big[1000];
+    (void)ut_hex(k_expected, expected);
+
+    reset_port(); s_batch_real = true;
+    UTNOX_EQUALS(drbg_cavp_flow(batch_out, sizeof(batch_out), batch_big, sizeof(batch_big)), 0);
+    UTNOX_EQUALS(s_batch_blocks > 60U, true);  /* the batch hook served the keystream */
+    reset_port();
+    UTNOX_EQUALS(drbg_cavp_flow(block_out, sizeof(block_out), block_big, sizeof(block_big)), 0);
+    UTNOX_EQUALS(s_batch_blocks, 0U);
+    UTNOX_EQUALS(memcmp(batch_out, expected, sizeof(expected)), 0);
+    UTNOX_EQUALS(memcmp(block_out, expected, sizeof(expected)), 0);
+    UTNOX_EQUALS(memcmp(batch_big, block_big, sizeof(batch_big)), 0);
     return 0;
 }
 

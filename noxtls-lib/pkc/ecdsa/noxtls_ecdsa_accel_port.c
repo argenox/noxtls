@@ -23,6 +23,8 @@
 #include <stddef.h>
 #include "noxtls_ecdsa_accel_port.h"
 
+#if NOXTLS_FEATURE_ECDSA
+
 /**
  * @brief Sign the message using the acceleration port
  *
@@ -66,3 +68,4 @@ noxtls_return_t noxtls_ecdsa_verify_accel_port(const ecc_key_t *key,
     return NOXTLS_RETURN_NOT_SUPPORTED;
 }
 
+#endif /* NOXTLS_FEATURE_ECDSA */

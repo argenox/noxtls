@@ -69,7 +69,9 @@ target_link_libraries(tls_test
 )
 
 if(BUILD_TESTS)
-    add_test(NAME tls12_ocsp_stapling_regression COMMAND tls_test --ocsp-only)
+    # main.c resolves testdata/ relative to the repository root.
+    add_test(NAME tls12_ocsp_stapling_regression COMMAND tls_test --ocsp-only
+             WORKING_DIRECTORY "${LIB_ROOT}")
 endif()
 
 

@@ -34,18 +34,17 @@ extern "C" {
 
 #if NOXTLS_FEATURE_AES_CMAC
 
+/* The subkeys K1/K2 are derived from L = E_K(0^128) in final, not stored. */
 typedef struct
 {
     uint8_t key[32];
     uint8_t state[NOXTLS_AES_BLOCK_LENGTH];
-    uint8_t subkey1[NOXTLS_AES_BLOCK_LENGTH];
-    uint8_t subkey2[NOXTLS_AES_BLOCK_LENGTH];
     uint8_t partial[NOXTLS_AES_BLOCK_LENGTH];
     uint64_t total_len;
+    noxtls_aes_type_t type;
     uint8_t key_len;
     uint8_t partial_len;
     uint8_t initialized;
-    noxtls_aes_type_t type;
 } noxtls_aes_cmac_context_t;
 
 /**

@@ -120,6 +120,36 @@ add_test(
 )
 add_test(NAME allocator_policy_checker_self_test
     COMMAND python "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/check_allocator_policy.py" --self-test)
+# docs/changelog.json is the source of release notes and quality records
+# (pulled into noxtls-oem release packages); keep it valid against its schema.
+add_test(
+    NAME changelog_check
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/check_changelog.py"
+)
+# MISRA C:2025 analysis with CodeNox (several minutes; needs CodeNox and the
+# Arm GNU toolchain). Gates on Mandatory/Required findings that are not in the
+# committed baseline misra/misra-baseline.json, see misra/README.md.
+option(NOXTLS_MISRA_CHECK "Register the CodeNox MISRA C:2025 analysis as a ctest (label: misra)" OFF)
+set(NOXTLS_MISRA_BASELINE "${CMAKE_CURRENT_SOURCE_DIR}/../misra/misra-baseline.json" CACHE FILEPATH
+    "MISRA findings baseline for the misra_codenox test (empty: gate on every finding)")
+if(NOXTLS_MISRA_CHECK)
+    set(_misra_args --out-dir "${CMAKE_BINARY_DIR}/misra")
+    if(NOXTLS_MISRA_BASELINE)
+        list(APPEND _misra_args --baseline "${NOXTLS_MISRA_BASELINE}")
+    else()
+        list(APPEND _misra_args --no-baseline)
+    endif()
+    add_test(NAME misra_codenox
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/misra/run_codenox.py" ${_misra_args})
+    set_tests_properties(misra_codenox PROPERTIES LABELS "misra" TIMEOUT 3600 SKIP_RETURN_CODE 5)
+endif()
+# Application configs are generated copies of the top-level config; a stale
+# copy builds application code against different struct layouts.
+add_test(
+    NAME app_config_sync_check
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../tools/app_config_sync/sync_app_configs.py"
+            --root "${CMAKE_CURRENT_SOURCE_DIR}/.." --check
+)
 
 if(_noxtls_have_root_ut AND EXISTS "${NOXTLS_ROOT_UT_DIR}/tls/tls_version_policy_test.c")
 add_executable(tls_version_policy_test "${NOXTLS_ROOT_UT_DIR}/tls/tls_version_policy_test.c")
@@ -149,6 +179,15 @@ if(TARGET noxtls_cert)
     add_subdirectory(mtls_policy)
 endif()
 
+# End-to-end TLS loopback, X.509 parsing and RAM budget regression suites. The shared
+# fixture drives TLS 1.3, TLS 1.2 and the unified API, so it needs both versions.
+if(TARGET noxtls_tls AND TARGET noxtls_cert AND TARGET noxtls_pkc AND
+   NOXTLS_CFG_FEATURE_TLS12 AND NOXTLS_CFG_FEATURE_TLS13)
+    add_subdirectory(tls_loopback)
+    add_subdirectory(x509_parse)
+    add_subdirectory(ram_budget)
+endif()
+
 if(NOXTLS_CFG_FEATURE_ED25519)
     add_executable(ed25519_rfc8032_test
         "${CMAKE_CURRENT_SOURCE_DIR}/ed25519_rfc8032_test.c")
@@ -157,6 +196,11 @@ if(NOXTLS_CFG_FEATURE_ED25519)
         noxtls_pkc
     )
     add_test(NAME ed25519_rfc8032_test COMMAND ed25519_rfc8032_test)
+endif()
+
+# PKC correctness + heap-peak gates (ut/pkc_mem); feature gating is inside the sources.
+if(TARGET noxtls_pkc)
+    add_subdirectory(pkc_mem)
 endif()
 
 if(NOXTLS_CFG_FEATURE_AES_GCM)
@@ -179,6 +223,10 @@ if(TARGET noxtls_encryption AND NOXTLS_CFG_FEATURE_AES_CMAC)
     add_test(NAME cmac_rfc4493_test COMMAND cmac_rfc4493_test)
 endif()
 
+if(TARGET noxtls_encryption)
+    add_subdirectory(crypto_sym)
+endif()
+
 if(NOXTLS_CFG_FEATURE_SLH_DSA AND _noxtls_have_root_ut)
     add_executable(slhdsa_sizes_test "${NOXTLS_ROOT_UT_DIR}/pkc/test_slhdsa_sizes.c")
     target_link_libraries(slhdsa_sizes_test PRIVATE noxtls_common noxtls_pkc)
@@ -195,3 +243,6 @@ if(NOXTLS_BUILD_CC13XX_PORT_TESTS)
     add_subdirectory(cc13xx_aes)
     add_subdirectory(cc13xx_p256)
 endif()
+
+# Post-quantum KAT suites (each gated on its NOXTLS_CFG_FEATURE_* option).
+add_subdirectory(pq)

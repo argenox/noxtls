@@ -49,7 +49,8 @@ The NoxTLS TLS component implements **Transport Layer Security (TLS)** and **Dat
 
 | Area | Support |
 |------|---------|
-| Cipher suites | ECDHE-RSA, ECDHE-ECDSA, DHE-RSA, RSA key transport, AES-GCM, AES-CBC, AES-CCM, ChaCha20-Poly1305, ARIA |
+| Cipher suites | Default: forward-secret AEAD only (ECDHE-ECDSA, ECDHE-RSA, DHE-RSA with AES-GCM, ChaCha20-Poly1305, AES-CCM). Opt-in (`NOXTLS_CFG_TLS12_ENABLE_LEGACY_CIPHER_SUITES`): AES-CBC, ARIA-CBC, 3DES and RSA key transport ([details](./configuration-guide#tls-12-secure-defaults-and-legacy-compatibility)) |
+| Signature schemes | SHA-256 or stronger RSA PKCS#1, RSA-PSS and ECDSA; SHA-1 only with `NOXTLS_CFG_TLS12_ENABLE_SHA1_SIGNATURES` (a client without signature_algorithms is refused by default) |
 | Secure renegotiation (RFC 5746) | `renegotiation_info` and fallback SCSV handling |
 | Encrypt-then-MAC (RFC 7366) | Negotiated and applied on record layer |
 | Extended Master Secret (RFC 7627) | Offer, negotiation, session/ticket binding |

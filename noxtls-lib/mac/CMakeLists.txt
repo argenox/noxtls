@@ -1,6 +1,6 @@
 # Message authentication code (HMAC) library
 include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/nox_noxtls_sections.cmake")
-option(NOXTLS_HMAC_SHA256_SHARED_STATE "Use one externally serialized shared SHA-256 HMAC context" OFF)
+option(NOXTLS_HMAC_SHA256_SHARED_STATE "Deprecated, no effect: HMAC contexts embed their hash state" OFF)
 
 add_library(noxtls_mac STATIC
     noxtls_hmac.c

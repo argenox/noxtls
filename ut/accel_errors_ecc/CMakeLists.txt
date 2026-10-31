@@ -23,6 +23,7 @@ foreach(diagnostics IN LISTS ECC_ERROR_DIAGNOSTICS)
         "${ECC_ERROR_TLS}/pkc/ecc/noxtls_ecc.c"
         "${ECC_ERROR_TLS}/pkc/rsa/noxtls_bignum.c"
         "${ECC_ERROR_TLS}/pkc/rsa/noxtls_bn_platform.c"
+        "${ECC_ERROR_TLS}/pkc/noxtls_pkc_rng.c"
         "${ECC_ERROR_TLS}/drbg/noxtls_drbg.c"
         "${ECC_ERROR_TLS}/common/noxtls_memory.c"
         "${ECC_ERROR_TLS}/common/noxtls_ct.c"

@@ -50,12 +50,9 @@ NOXTLS_MSVC_WARNING_PUSH
 NOXTLS_MSVC_DISABLE_PADDING
 typedef struct
 {
-    uint32_t state[NOXTLS_CHACHA20_STATE_WORDS]; /* Internal state (32-bit words) */
+    uint32_t state[NOXTLS_CHACHA20_STATE_WORDS]; /* constants, key, counter (word 12), nonce */
     uint8_t keystream[NOXTLS_CHACHA20_BLOCK_SIZE]; /* Current keystream block */
     uint32_t keystream_pos;  /* Position in current keystream block */
-    uint64_t counter;        /* Block counter */
-    uint8_t key[NOXTLS_CHACHA20_KEY_SIZE];   /* Encryption key */
-    uint8_t nonce[NOXTLS_CHACHA20_NONCE_SIZE]; /* Nonce */
 } noxtls_chacha20_context_t;
 NOXTLS_MSVC_WARNING_POP
 

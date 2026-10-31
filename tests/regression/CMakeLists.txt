@@ -9,6 +9,13 @@ target_link_libraries(noxtls_ecc_p256_regression PRIVATE
 
 add_test(NAME noxtls_ecc_p256_regression COMMAND noxtls_ecc_p256_regression)
 
+if(NOXTLS_CFG_FEATURE_TLS12)
+  add_executable(noxtls_tls12_legacy_record_policy_test tls12_legacy_record_policy_test.c)
+  target_link_libraries(noxtls_tls12_legacy_record_policy_test PRIVATE noxtls_tls)
+  add_test(NAME noxtls_tls12_legacy_record_policy_test COMMAND noxtls_tls12_legacy_record_policy_test)
+  set_tests_properties(noxtls_tls12_legacy_record_policy_test PROPERTIES SKIP_RETURN_CODE 77)
+endif()
+
 if(NOXTLS_CFG_FEATURE_ECC)
   # Exercise the real NoxV adapter without accessing host physical memory.
   add_executable(noxtls_noxv_ecc_adapter_test

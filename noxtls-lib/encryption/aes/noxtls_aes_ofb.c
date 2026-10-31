@@ -59,12 +59,26 @@ noxtls_return_t noxtls_aes_encrypt_ofb(const uint8_t* key,
 
     uint32_t cur_block = 0U;
     uint8_t keystream[NOXTLS_AES_BLOCK_LENGTH];
-    uint8_t feedback_block[NOXTLS_AES_BLOCK_LENGTH];
+    uint8_t feedback_block[NOXTLS_AES_BLOCK_LENGTH] = {0};
     const uint32_t block_sz = (uint32_t)NOXTLS_AES_BLOCK_LENGTH;
 
     /* OFB Mode requires IV */
     if (iv == NULL) {
         return NOXTLS_RETURN_INVALID_PARAM;
+    }
+
+    /* Expand the key once for the whole buffer (wiped on every exit). */
+    if (data_len == 0U) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    noxtls_aes_context_t actx;
+    {
+        noxtls_return_t prep_rc = noxtls_aes_prepare_context(&actx, key, type);
+        if (prep_rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_secure_zero(&actx, sizeof(actx));
+            noxtls_secure_zero(output, (size_t)data_len);
+            return prep_rc;
+        }
     }
 
     for (cur_block = 0U; cur_block < data_len; cur_block += block_sz)
@@ -74,12 +88,12 @@ noxtls_return_t noxtls_aes_encrypt_ofb(const uint8_t* key,
 
         if (cur_block == 0U) {
             /* Encrypt IV for first block */
-            NOXTLS_AES_CHECK(noxtls_aes_encrypt_block_internal(key, iv, keystream, type), output, data_len, NULL, 0U);
+            NOXTLS_AES_CHECK_CTX(noxtls_aes_encrypt_block_ctx_internal(&actx, iv, keystream), &actx, output, data_len);
             noxtls_copy_u8(feedback_block, sizeof(feedback_block), keystream, (size_t)NOXTLS_AES_BLOCK_LENGTH);
         }
         else {
             /* Encrypt previous keystream */
-            NOXTLS_AES_CHECK(noxtls_aes_encrypt_block_internal(key, feedback_block, keystream, type), output, data_len, NULL, 0U);
+            NOXTLS_AES_CHECK_CTX(noxtls_aes_encrypt_block_ctx_internal(&actx, feedback_block, keystream), &actx, output, data_len);
             noxtls_copy_u8(feedback_block, sizeof(feedback_block), keystream, (size_t)NOXTLS_AES_BLOCK_LENGTH);
         }
 
@@ -89,6 +103,9 @@ noxtls_return_t noxtls_aes_encrypt_ofb(const uint8_t* key,
         }
     }
 
+    noxtls_secure_zero(&actx, sizeof(actx));
+    noxtls_secure_zero(keystream, sizeof(keystream));
+    noxtls_secure_zero(feedback_block, sizeof(feedback_block));
     return NOXTLS_RETURN_SUCCESS;
 }
 

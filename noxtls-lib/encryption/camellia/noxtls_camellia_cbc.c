@@ -112,8 +112,7 @@ noxtls_return_t noxtls_camellia_decrypt_cbc(const uint8_t* key,
     uint32_t cur_block;
     uint32_t i;
     uint8_t temp_block[NOXTLS_CAMELLIA_BLOCK_LENGTH];
-    uint8_t zero_iv[NOXTLS_CAMELLIA_BLOCK_LENGTH];
-    const uint8_t * iv_src;
+    uint8_t chain[NOXTLS_CAMELLIA_BLOCK_LENGTH];
     const uint32_t block_sz = (uint32_t)NOXTLS_CAMELLIA_BLOCK_LENGTH;
 
     {
@@ -137,19 +136,20 @@ noxtls_return_t noxtls_camellia_decrypt_cbc(const uint8_t* key,
             }
         }
 
+        /* chain holds the previous ciphertext block (the IV for the first one).
+         * Each ciphertext byte is saved before the output byte at the same
+         * position is written, so exact in-place use (output == data) is safe. */
         if (cur_block == 0U) {
             if (iv == NULL) {
-                noxtls_secure_zero((zero_iv), (size_t)(block_sz));
-                iv_src = zero_iv;
+                noxtls_secure_zero((chain), (size_t)(block_sz));
             } else {
-                iv_src = iv;
+                noxtls_copy_u8(chain, sizeof(chain), iv, (size_t)block_sz);
             }
-        } else {
-            iv_src = &data[cur_block - block_sz];
         }
-
         for (i = 0U; i < block_sz; i += 1U) {
-            output[cur_block + i] = (uint8_t)(temp_block[i] ^ iv_src[i]);
+            uint8_t ct = data[cur_block + i];
+            output[cur_block + i] = (uint8_t)(temp_block[i] ^ chain[i]);
+            chain[i] = ct;
         }
     }
     noxtls_secure_zero(temp_block, sizeof(temp_block));

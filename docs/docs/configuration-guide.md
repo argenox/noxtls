@@ -27,7 +27,8 @@ When building with CMake, common knobs include:
 | `BUILD_TESTS` | Build unit/integration tests | `OFF` |
 | `NOXTLS_PROFILE` | Preset feature profile (`default`, `minimal_tls_client`, `tls_server_pki`, `crypto_only`, `fips_like_profile`) | `default` |
 | `NOXTLS_SIDECHANNEL_PROFILE` | Side-channel hardening profile (`performance`, `balanced`, `constant_time_strict`) | `balanced` |
-| `NOXTLS_CFG_TLS12_ENABLE_LEGACY_CIPHER_SUITES` | Enable legacy TLS 1.2 CBC/RSA key-exchange suites | `OFF` |
+| `NOXTLS_CFG_TLS12_ENABLE_LEGACY_CIPHER_SUITES` | Enable legacy TLS 1.2 / DTLS 1.2 suites: every CBC-mode (AES-CBC, ARIA-CBC, 3DES), static-RSA key exchange (`TLS_RSA_WITH_*`) and 3DES suite | `OFF` |
+| `NOXTLS_CFG_TLS12_ENABLE_SHA1_SIGNATURES` | Enable SHA-1 signatures (rsa_pkcs1_sha1, ecdsa_sha1) in TLS 1.2 / DTLS 1.2 handshakes | `OFF` |
 | `NOXTLS_CFG_FEATURE_ML_KEM` | Enable ML-KEM API and TLS PQ KEM paths | `OFF` |
 | `NOXTLS_CFG_FEATURE_ML_DSA` | Enable ML-DSA API and TLS/X.509 PQ signatures | `OFF` |
 | `NOXTLS_CFG_FEATURE_AES_ACCEL_NI` | Enable AES-NI block backend on x86/x64 targets | `OFF` |
@@ -114,20 +115,26 @@ Reducing enabled features and algorithms reduces footprint and attack surface.
 
 ## TLS 1.2 secure defaults and legacy compatibility
 
-NoxTLS ships with a secure-by-default TLS 1.2 cipher-suite policy:
+NoxTLS ships with a secure-by-default TLS 1.2 policy (TLS 1.2, DTLS 1.2 and the TLS 1.2 path of the unified connection API):
 
-- Legacy CBC-mode and RSA key-exchange TLS 1.2 suites are disabled by default.
-- Default TLS 1.2 negotiation prefers modern AEAD suites.
+- Only forward-secret AEAD suites are offered and negotiated: ECDHE-ECDSA (AES-GCM, ChaCha20-Poly1305, AES-CCM, AES-CCM_8), ECDHE-RSA (AES-GCM, ChaCha20-Poly1305) and DHE-RSA (AES-GCM, ChaCha20-Poly1305, AES-CCM, AES-CCM_8).
+- CBC-mode, static-RSA key exchange and 3DES suites are never negotiated, even when an application allowlist names them; a client offering only such suites gets `handshake_failure`.
+- No SHA-1 signatures: the client does not offer rsa_pkcs1_sha1 / ecdsa_sha1 and rejects a ServerKeyExchange signed with them (`illegal_parameter`); the server never signs with SHA-1. A client that sends no signature_algorithms extension (RFC 5246 implicit SHA-1 default) now gets `handshake_failure`.
 
-If you must interoperate with older endpoints, explicitly opt in to legacy suites:
+If you must interoperate with older endpoints, opt in explicitly (each switch independently):
 
 ```bash
 cmake -S noxtls -B noxtls/build-legacy \
-  -DNOXTLS_CFG_TLS12_ENABLE_LEGACY_CIPHER_SUITES=ON
+  -DNOXTLS_CFG_TLS12_ENABLE_LEGACY_CIPHER_SUITES=ON \
+  -DNOXTLS_CFG_TLS12_ENABLE_SHA1_SIGNATURES=ON
 cmake --build noxtls/build-legacy
 ```
 
-For custom/non-CMake builds, set `NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES=1` in `noxtls_config.h` (or via compiler define).
+`NOXTLS_CFG_TLS12_ENABLE_LEGACY_CIPHER_SUITES` enables every CBC-mode suite (AES-CBC, ARIA-CBC, 3DES; 3DES also needs `NOXTLS_FEATURE_DES=1`) and every static-RSA key exchange suite (including `TLS_RSA_WITH_AES_*_GCM_*` / `*_CCM*`). `NOXTLS_CFG_TLS12_ENABLE_SHA1_SIGNATURES` enables rsa_pkcs1_sha1 (0x0201) and ecdsa_sha1 (0x0203) in both directions, including the server's SHA-1 signature for a client without signature_algorithms (needs `NOXTLS_FEATURE_SHA1=1`). With both on, TLS 1.2 behaves as in 0.3.15.
+
+For custom/non-CMake builds, set `NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES=1` and/or `NOXTLS_TLS12_ENABLE_SHA1_SIGNATURES=1` in `noxtls_config.h` (or via compiler define).
+
+TLS 1.0 / 1.1 (`NOXTLS_CFG_FEATURE_TLS10` / `NOXTLS_CFG_FEATURE_TLS11`) only have CBC suites and MD5/SHA-1 signatures; connections that negotiate those versions keep them regardless of the two switches, and enabling them does not weaken TLS 1.2 connections.
 
 Use this only when compatibility requirements justify the additional risk surface.
 

@@ -99,19 +99,17 @@ static noxtls_return_t aes_xts_check_type(noxtls_aes_type_t type)
 /**
  * @brief Process one XTS block: out = E/D_K1(in ^ T) ^ T.
  *
- * @param key Data key (Key1).
+ * @param actx AES context prepared with the data key (Key1).
  * @param tweak Current tweak T.
  * @param in Input block (may alias @p out).
  * @param out Output block.
- * @param type AES key size selector.
  * @param dir AES_XTS_DIR_ENCRYPT or AES_XTS_DIR_DECRYPT.
  * @return NOXTLS_RETURN_SUCCESS or the block cipher error.
  */
-static noxtls_return_t aes_xts_block(const uint8_t *key,
+static noxtls_return_t aes_xts_block(const noxtls_aes_context_t *actx,
                                      const uint8_t tweak[NOXTLS_AES_BLOCK_LENGTH],
                                      const uint8_t *in,
                                      uint8_t *out,
-                                     noxtls_aes_type_t type,
                                      uint32_t dir)
 {
     noxtls_return_t rc;
@@ -122,9 +120,9 @@ static noxtls_return_t aes_xts_block(const uint8_t *key,
         x[i] = (uint8_t)(in[i] ^ tweak[i]);
     }
     if (dir == AES_XTS_DIR_DECRYPT) {
-        rc = noxtls_aes_decrypt_block_internal(key, x, x, type);
+        rc = noxtls_aes_decrypt_block_ctx_internal(actx, x, x);
     } else {
-        rc = noxtls_aes_encrypt_block_internal(key, x, x, type);
+        rc = noxtls_aes_encrypt_block_ctx_internal(actx, x, x);
     }
     if (rc == NOXTLS_RETURN_SUCCESS) {
         for (i = 0U; i < (uint32_t)NOXTLS_AES_BLOCK_LENGTH; i += 1U) {
@@ -157,6 +155,7 @@ static noxtls_return_t aes_xts_crypt(const uint8_t *data_key,
                                      uint32_t dir)
 {
     noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
+    noxtls_aes_context_t actx;
     uint8_t tweak[NOXTLS_AES_BLOCK_LENGTH];
     uint8_t prev_tweak[NOXTLS_AES_BLOCK_LENGTH];
     uint8_t steal[NOXTLS_AES_BLOCK_LENGTH];
@@ -191,12 +190,18 @@ static noxtls_return_t aes_xts_crypt(const uint8_t *data_key,
     tail_len = data_len % block_sz;
     full_blocks = (tail_len == 0U) ? num_blocks : (num_blocks - 1U);
 
-    /* T_0 = E_K2(i) */
-    rc = noxtls_aes_encrypt_block_internal(tweak_key, iv, tweak, type);
+    /* T_0 = E_K2(i); then re-key the same context with Key1 for the data. */
+    rc = noxtls_aes_prepare_context(&actx, tweak_key, type);
+    if (rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_aes_encrypt_block_ctx_internal(&actx, iv, tweak);
+    }
+    if (rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_aes_prepare_context(&actx, data_key, type);
+    }
 
     for (cur_block = 0U; (rc == NOXTLS_RETURN_SUCCESS) && (cur_block < full_blocks); cur_block += 1U) {
         uint32_t base = cur_block * block_sz;
-        rc = aes_xts_block(data_key, tweak, &data[base], &output[base], type, dir);
+        rc = aes_xts_block(&actx, tweak, &data[base], &output[base], dir);
         gf128_multiply_alpha(tweak);
     }
 
@@ -210,10 +215,10 @@ static noxtls_return_t aes_xts_crypt(const uint8_t *data_key,
 
         if (dir == AES_XTS_DIR_DECRYPT) {
             /* PP = XTS^-1(K1, C_{m-1}, T_m) */
-            rc = aes_xts_block(data_key, tweak, &data[prev_base], steal, type, dir);
+            rc = aes_xts_block(&actx, tweak, &data[prev_base], steal, dir);
         } else {
             /* CC = XTS(K1, P_{m-1}, T_{m-1}) */
-            rc = aes_xts_block(data_key, prev_tweak, &data[prev_base], steal, type, dir);
+            rc = aes_xts_block(&actx, prev_tweak, &data[prev_base], steal, dir);
         }
 
         if (rc == NOXTLS_RETURN_SUCCESS) {
@@ -230,10 +235,10 @@ static noxtls_return_t aes_xts_crypt(const uint8_t *data_key,
             }
             if (dir == AES_XTS_DIR_DECRYPT) {
                 /* P_{m-1} = XTS^-1(K1, C_m || PP[b..16), T_{m-1}) */
-                rc = aes_xts_block(data_key, prev_tweak, last, &output[prev_base], type, dir);
+                rc = aes_xts_block(&actx, prev_tweak, last, &output[prev_base], dir);
             } else {
                 /* C_{m-1} = XTS(K1, P_m || CC[b..16), T_m) */
-                rc = aes_xts_block(data_key, tweak, last, &output[prev_base], type, dir);
+                rc = aes_xts_block(&actx, tweak, last, &output[prev_base], dir);
             }
         }
     }
@@ -241,6 +246,7 @@ static noxtls_return_t aes_xts_crypt(const uint8_t *data_key,
     if (rc != NOXTLS_RETURN_SUCCESS) {
         noxtls_secure_zero(output, (size_t)data_len);
     }
+    noxtls_secure_zero(&actx, sizeof(actx));
     noxtls_secure_zero(tweak, sizeof(tweak));
     noxtls_secure_zero(prev_tweak, sizeof(prev_tweak));
     noxtls_secure_zero(steal, sizeof(steal));

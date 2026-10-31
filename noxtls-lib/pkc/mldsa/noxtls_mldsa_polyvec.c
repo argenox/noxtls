@@ -15,7 +15,8 @@
 *
 *
 * File:    noxtls_mldsa_polyvec.c
-* Summary: ML-DSA vector and matrix helpers.
+* Summary: Streaming matrix-vector helper: the public matrix A is never stored,
+*          each entry is regenerated from rho when it is consumed.
 *
 *
 *****************************************************************************/
@@ -25,142 +26,31 @@
 
 #include "noxtls_mldsa_internal.h"
 
-/**
- * @brief Sample a polynomial vector eta.
- *
- * @param[in] param The param value.
- * @param[in] seed The seed value.
- * @param[in] nonce_base The nonce base value.
- * @param[out] out The out value.
- * @return The return value.
- */
-noxtls_return_t noxtls_mldsa_sample_polyvecl_eta(noxtls_mldsa_param_t param,
-                                                  const uint8_t seed[NOXTLS_MLDSA_INTERNAL_SEED_BYTES],
-                                                  uint16_t nonce_base,
-                                                  noxtls_mldsa_polyvecl_t *out)
-{
-    noxtls_mldsa_param_spec_t spec;
-    noxtls_return_t rc;
-    uint8_t j;
-
-    if((seed == NULL) || (out == NULL)) {
-        return NOXTLS_RETURN_NULL;
-    }
-
-    rc = noxtls_mldsa_internal_get_param_spec(param, &spec);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
-    }
-
-    for(j = 0U; j < spec.l; j += 1U) {
-        rc = noxtls_mldsa_sample_small_eta(param, seed, (uint16_t)(nonce_base + j), &out->v[j]);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            return rc;
-        }
-    }
-
-    return NOXTLS_RETURN_SUCCESS;
-}
+#if NOXTLS_FEATURE_ML_DSA
 
 /**
- * @brief Expand a matrix row.
+ * @brief acc += A[row][col] o vhat (NTT domain, Montgomery product).
  *
- * @param[in] param The param value.
- * @param[in] rho The rho value.
- * @param[in] row_index The row index value.
- * @param[out] row_out The row out value.
- * @return The return value.
+ * @param[in,out] acc Accumulator polynomial.
+ * @param[out] a_tmp Scratch polynomial receiving A[row][col].
+ * @param[in] rho Public seed.
+ * @param[in] row Matrix row.
+ * @param[in] col Matrix column.
+ * @param[in] vhat NTT-domain vector element for column col.
+ * @return NOXTLS_RETURN_SUCCESS or a sampling error.
  */
-noxtls_return_t noxtls_mldsa_expand_matrix_row(noxtls_mldsa_param_t param,
-                                                const uint8_t rho[NOXTLS_MLDSA_INTERNAL_SEED_BYTES],
-                                                uint8_t row_index,
-                                                noxtls_mldsa_polyvecl_t *row_out)
+noxtls_return_t noxtls_mldsa_matrix_acc(noxtls_mldsa_poly_t *acc,
+                                        noxtls_mldsa_poly_t *a_tmp,
+                                        const uint8_t rho[NOXTLS_MLDSA_SEEDBYTES],
+                                        uint32_t row, uint32_t col,
+                                        const noxtls_mldsa_poly_t *vhat)
 {
-    noxtls_mldsa_param_spec_t spec;
-    noxtls_return_t rc;
-    uint8_t j;
+    noxtls_return_t rc = noxtls_mldsa_poly_uniform(a_tmp, rho, row, col);
 
-    if((rho == NULL) || (row_out == NULL)) {
-        return NOXTLS_RETURN_NULL;
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        noxtls_mldsa_poly_pointwise_acc_montgomery(acc, a_tmp, vhat);
     }
-
-    rc = noxtls_mldsa_internal_get_param_spec(param, &spec);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
-    }
-
-    if(row_index >= spec.k) {
-        return NOXTLS_RETURN_INVALID_PARAM;
-    }
-
-    for(j = 0U; j < spec.l; j += 1U) {
-        uint16_t nonce = (uint16_t)(((uint16_t)row_index << 8U) | (uint16_t)j);
-        rc = noxtls_mldsa_sample_uniform_q(param, rho, nonce, &row_out->v[j]);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            return rc;
-        }
-    }
-
-    return NOXTLS_RETURN_SUCCESS;
+    return rc;
 }
 
-/**
- * @brief Multiply a matrix by a vector.
- *
- * @param[in] param The param value.
- * @param[in] rho The rho value.
- * @param[in] s1 The s1 value.
- * @param[out] t_out The t out value.
- * @return The return value.
- */
-noxtls_return_t noxtls_mldsa_matrix_vector_mul(noxtls_mldsa_param_t param,
-                                                const uint8_t rho[NOXTLS_MLDSA_INTERNAL_SEED_BYTES],
-                                                const noxtls_mldsa_polyvecl_t *s1,
-                                                noxtls_mldsa_polyveck_t *t_out)
-{
-    noxtls_mldsa_param_spec_t spec;
-    noxtls_return_t rc;
-    uint8_t row;
-
-    if(rho == NULL || s1 == NULL || t_out == NULL) {
-        return NOXTLS_RETURN_NULL;
-    }
-
-    rc = noxtls_mldsa_internal_get_param_spec(param, &spec);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
-    }
-
-    for(row = 0U; row < spec.k; row += 1U) {
-        noxtls_mldsa_polyvecl_t arow;
-        noxtls_mldsa_poly_t acc;
-        uint8_t j;
-
-        rc = noxtls_mldsa_expand_matrix_row(param, rho, row, &arow);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            return rc;
-        }
-
-        (void)noxtls_mldsa_poly_zero(&acc);
-        for(j = 0U; j < spec.l; j += 1U) {
-            noxtls_mldsa_poly_t a = arow.v[j];
-            noxtls_mldsa_poly_t b = s1->v[j];
-            noxtls_mldsa_poly_t p;
-
-            (void)noxtls_mldsa_poly_ntt(&a);
-            (void)noxtls_mldsa_poly_ntt(&b);
-            (void)noxtls_mldsa_poly_pointwise_montgomery(&p, &a, &b);
-            (void)noxtls_mldsa_poly_invntt_to_mont(&p);
-            (void)noxtls_mldsa_poly_add(&acc, &acc, &p);
-        }
-        (void)noxtls_mldsa_poly_reduce(&acc);
-        t_out->v[row] = acc;
-    }
-
-    for(row = spec.k; row < NOXTLS_MLDSA_K_MAX; row += 1U) {
-        (void)noxtls_mldsa_poly_zero(&t_out->v[row]);
-    }
-
-    return NOXTLS_RETURN_SUCCESS;
-}
-
+#endif /* NOXTLS_FEATURE_ML_DSA */

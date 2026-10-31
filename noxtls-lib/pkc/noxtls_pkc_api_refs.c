@@ -71,6 +71,7 @@ static void noxtls_pkc_misra_api_refs(void)
     NOXTLS_MISRA_REF_FN(&noxtls_dsa_verify);
 #endif
 #if NOXTLS_FEATURE_ECC
+    NOXTLS_MISRA_REF_FN(&noxtls_ecc_curve_get);
     NOXTLS_MISRA_REF_FN(&noxtls_ecc_key_import_private);
     NOXTLS_MISRA_REF_FN(&noxtls_ecc_point_mul_window_size);
     NOXTLS_MISRA_REF_FN(&noxtls_ecc_point_multiply_uses_ref);
@@ -105,6 +106,7 @@ static void noxtls_pkc_misra_api_refs(void)
     NOXTLS_MISRA_REF_FN(&noxtls_rsa_decrypt);
     NOXTLS_MISRA_REF_FN(&noxtls_rsa_key_generate);
     NOXTLS_MISRA_REF_FN(&noxtls_rsa_key_init);
+    NOXTLS_MISRA_REF_FN(&noxtls_rsa_key_init_public);
     NOXTLS_MISRA_REF_FN(&noxtls_rsa_decrypt_crt_only);
 #endif
 #if NOXTLS_FEATURE_X448

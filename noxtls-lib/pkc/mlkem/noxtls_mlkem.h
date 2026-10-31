@@ -88,6 +88,30 @@ noxtls_return_t noxtls_mlkem_decaps(noxtls_mlkem_param_t param,
                                     const uint8_t *ciphertext,
                                     uint8_t *shared_secret_32);
 
+/**
+ * Deterministic ML-KEM.KeyGen_internal (FIPS 203 Alg. 16) from the 32-byte
+ * seeds d and z. Intended for known-answer tests and key derivation from an
+ * externally managed seed.
+ */
+noxtls_return_t noxtls_mlkem_keygen_derand(noxtls_mlkem_param_t param,
+                                           const uint8_t *d,
+                                           const uint8_t *z,
+                                           uint8_t *public_key,
+                                           uint8_t *secret_key);
+/**
+ * Deterministic ML-KEM.Encaps_internal (FIPS 203 Alg. 17) with the 32-byte
+ * message m; performs the encapsulation-key modulus check.
+ */
+noxtls_return_t noxtls_mlkem_encaps_derand(noxtls_mlkem_param_t param,
+                                           const uint8_t *public_key,
+                                           const uint8_t *m,
+                                           uint8_t *ciphertext,
+                                           uint8_t *shared_secret_32);
+/** FIPS 203 §7.2 encapsulation-key modulus check (NOXTLS_RETURN_BAD_DATA if invalid). */
+noxtls_return_t noxtls_mlkem_check_public_key(noxtls_mlkem_param_t param, const uint8_t *public_key);
+/** FIPS 203 §7.3 decapsulation-key hash check (NOXTLS_RETURN_BAD_DATA if invalid). */
+noxtls_return_t noxtls_mlkem_check_secret_key(noxtls_mlkem_param_t param, const uint8_t *secret_key);
+
 /* Test-only deterministic hook for vector conformance harnesses. */
 void noxtls_mlkem_set_test_random_sequence(const uint8_t *bytes, uint32_t byte_len);
 

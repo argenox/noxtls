@@ -15,71 +15,69 @@
 *
 *
 * File:    noxtls_mldsa_challenge.c
-* Summary: ML-DSA challenge polynomial generation.
+* Summary: ML-DSA SampleInBall (FIPS 204 Alg. 29).
 *
 *
 *****************************************************************************/
 
 #include <stdint.h>
 #include <stddef.h>
-#include <string.h>
 
 #include "noxtls_mldsa_internal.h"
 
-noxtls_return_t noxtls_mldsa_make_challenge(noxtls_mldsa_param_t param,
-                                            const uint8_t *mu,
-                                            uint32_t mu_len,
-                                            noxtls_mldsa_poly_t *c)
+#if NOXTLS_FEATURE_ML_DSA
+
+#include "noxtls_ct.h"
+
+/**
+ * @brief SampleInBall: derive the challenge c with tau coefficients in {-1, +1}
+ *        from the full commitment hash c~ (lambda/4 bytes).
+ *
+ * @param[in] spec Parameter set (tau, ctilde length).
+ * @param[out] c Output challenge polynomial.
+ * @param[in] ctilde Commitment hash.
+ * @return NOXTLS_RETURN_SUCCESS or a SHAKE error.
+ */
+noxtls_return_t noxtls_mldsa_poly_challenge(const noxtls_mldsa_param_spec_t *spec,
+                                            noxtls_mldsa_poly_t *c,
+                                            const uint8_t *ctilde)
 {
-    noxtls_mldsa_param_spec_t spec;
-    noxtls_return_t rc;
-    uint8_t stream[512];
-    uint16_t stream_nonce = 0U;
-    uint32_t off = 0U;
-    uint16_t picked = 0U;
+    noxtls_sha3_ctx_t ctx;
+    uint8_t buf[8] = { 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U };
+    uint64_t signs = 0U;
+    uint32_t i = 0U;
+    noxtls_return_t rc = noxtls_shake256_init(&ctx);
 
-    if((mu == NULL) || (c == NULL)) {
-        return NOXTLS_RETURN_NULL;
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_shake256_update(&ctx, ctilde, spec->ctilde_len);
     }
-
-    rc = noxtls_mldsa_internal_get_param_spec(param, &spec);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_shake256_final(&ctx);
     }
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_shake256_squeeze(&ctx, buf, 8U);
+    }
+    for(i = 0U; i < 8U; i += 1U) {
+        signs |= (uint64_t)buf[i] << (8U * i);
+    }
+    noxtls_mldsa_poly_zero(c);
+    for(i = NOXTLS_MLDSA_N - spec->tau; (rc == NOXTLS_RETURN_SUCCESS) && (i < NOXTLS_MLDSA_N); i += 1U) {
+        uint32_t j = 0xFFFFU;
 
-    (void)noxtls_mldsa_poly_zero(c);
+        while((rc == NOXTLS_RETURN_SUCCESS) && (j > i)) {
+            uint8_t b = 0U;
 
-    while(picked < spec.tau) {
-        uint8_t pos_byte;
-        uint8_t sign_byte;
-        uint16_t pos;
-        int32_t coeff;
-
-        if((off + 2U) > (uint32_t)sizeof(stream)) {
-            off = 0U;
+            rc = noxtls_shake256_squeeze(&ctx, &b, 1U);
+            j = (uint32_t)b;
         }
-        if(off == 0U) {
-            rc = noxtls_mldsa_expand_xof(mu, mu_len, 0xD0U, stream_nonce, stream, (uint32_t)sizeof(stream));
-            if(rc != NOXTLS_RETURN_SUCCESS) {
-                return rc;
-            }
-            stream_nonce += 1U;
-        }
-
-        pos_byte = stream[off];
-
-        off += 1U;
-        sign_byte = stream[off];
-        off += 1U;
-        pos = (uint16_t)(pos_byte % NOXTLS_MLDSA_N);
-        coeff = ((sign_byte & 1U) != 0) ? -1 : 1;
-
-        if(c->coeff[pos] == 0) {
-            c->coeff[pos] = coeff;
-            picked += 1U;
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            c->coeff[i] = c->coeff[j];
+            c->coeff[j] = 1 - (2 * (int32_t)(uint32_t)(signs & 1U));
+            signs >>= 1U;
         }
     }
-
-    return NOXTLS_RETURN_SUCCESS;
+    noxtls_secure_zero(&ctx, sizeof(ctx));
+    return rc;
 }
 
+#endif /* NOXTLS_FEATURE_ML_DSA */

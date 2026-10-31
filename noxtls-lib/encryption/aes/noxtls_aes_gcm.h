@@ -33,6 +33,18 @@
 extern "C" {
 #endif
 
+/**
+ * @brief AES-GCM authenticated encryption (SP 800-38D) with a 96-bit IV and a
+ *        16-byte tag.
+ *
+ * In-place operation: the output buffer may be exactly the input buffer
+ * (output == input, e.g. TLS records encrypted/decrypted in place). Partially
+ * overlapping buffers (output != input but overlapping) are not supported.
+ * On any failure the output is wiped, so with in-place use a rejected record's
+ * ciphertext is destroyed; no unauthenticated plaintext is ever returned.
+ * Accelerator ports selected through the *_accel_port hooks must preserve
+ * this exact-aliasing guarantee.
+ */
 noxtls_return_t noxtls_aes_gcm_encrypt(const uint8_t *key, noxtls_aes_type_t type,
                     const uint8_t *nonce,
                     const uint8_t *aad, uint32_t aad_len,
@@ -40,6 +52,19 @@ noxtls_return_t noxtls_aes_gcm_encrypt(const uint8_t *key, noxtls_aes_type_t typ
                     uint8_t *ciphertext,
                     uint8_t *tag);
 
+/**
+ * @brief AES-GCM authenticated decryption: the tag over AAD and the whole
+ *        ciphertext is verified before any plaintext is written.
+ *
+ * In-place operation: the output buffer may be exactly the input buffer
+ * (output == input, e.g. TLS records encrypted/decrypted in place). Partially
+ * overlapping buffers (output != input but overlapping) are not supported.
+ * On any failure the output is wiped, so with in-place use a rejected record's
+ * ciphertext is destroyed; no unauthenticated plaintext is ever returned.
+ * Accelerator ports selected through the *_accel_port hooks must preserve
+ * this exact-aliasing guarantee.
+ * @return NOXTLS_RETURN_SUCCESS, NOXTLS_RETURN_BAD_DATA on tag mismatch, or an error.
+ */
 noxtls_return_t noxtls_aes_gcm_decrypt(const uint8_t *key, noxtls_aes_type_t type,
                     const uint8_t *nonce,
                     const uint8_t *aad, uint32_t aad_len,

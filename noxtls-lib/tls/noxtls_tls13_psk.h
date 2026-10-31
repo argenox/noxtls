@@ -37,33 +37,44 @@ extern "C" {
 
 /* Ticket/session store constants */
 #define TLS13_PSK_TICKET_ID_LEN    16U
-/** Bound the process-global cache to the application's actual session budget.
+/** Bound the process-global cache to the application's actual session budget
+ * (NOXTLS_TLS13_PSK_TICKET_STORE_MAX; server role only, 0 = no store).
  * Every provider/consumer must use the same build-wide configuration. */
 #ifndef TLS13_PSK_TICKET_STORE_MAX
-#define TLS13_PSK_TICKET_STORE_MAX 64U
+#if NOXTLS_FEATURE_TLS_SERVER
+#define TLS13_PSK_TICKET_STORE_MAX NOXTLS_TLS13_PSK_TICKET_STORE_MAX
+#else
+#define TLS13_PSK_TICKET_STORE_MAX 0U
 #endif
-#if TLS13_PSK_TICKET_STORE_MAX < 1U || TLS13_PSK_TICKET_STORE_MAX > 64U
-#error "TLS13 PSK ticket store requires 1..64 entries"
+#endif
+#if TLS13_PSK_TICKET_STORE_MAX > 64U
+#error "TLS13 PSK ticket store supports 0..64 entries"
 #endif
 #define TLS13_PSK_TICKET_NONCE_MAX 32U
+/** Nonce length of the tickets this server issues. */
+#define TLS13_PSK_SERVER_NONCE_LEN 16U
+/** Largest resumption PSK (SHA-384 hash length). */
+#define TLS13_PSK_RESUMPTION_PSK_MAX 48U
 
 /* Ticket store (server-side session cache for resumption) */
 typedef struct
 {
     uint8_t ticket_id[TLS13_PSK_TICKET_ID_LEN];
-    uint8_t resumption_psk[64];
+    uint8_t resumption_psk[TLS13_PSK_RESUMPTION_PSK_MAX];
     uint8_t resumption_psk_len;
-    uint8_t ticket_nonce[TLS13_PSK_TICKET_NONCE_MAX];
+    uint8_t ticket_nonce[TLS13_PSK_SERVER_NONCE_LEN];
     uint8_t ticket_nonce_len;
     uint32_t ticket_age_add;
     uint16_t cipher_suite;
 } psk_ticket_entry_t;
 
+#if TLS13_PSK_TICKET_STORE_MAX > 0U
 typedef struct
 {
     psk_ticket_entry_t entries[TLS13_PSK_TICKET_STORE_MAX];
     uint32_t next_index;
 } psk_ticket_store_t;
+#endif
 
 /**
  * Check if a PSK key exchange mode is present in the extension data.
@@ -172,6 +183,17 @@ noxtls_return_t tls13_psk_derive_resumption_psk(noxtls_hash_algos_t hash_algo,
                                                 const uint8_t *ticket_nonce,
                                                 uint32_t ticket_nonce_len,
                                                 uint8_t *resumption_psk);
+
+/**
+ * Derive resumption_psk from resumption_master_secret and ticket_nonce (RFC 8446 4.6.1):
+ * HKDF-Expand-Label(resumption_master_secret, "resumption", ticket_nonce, Hash.length).
+ */
+noxtls_return_t tls13_psk_derive_resumption_psk_from_rms(noxtls_hash_algos_t hash_algo,
+                                                         uint32_t hash_len,
+                                                         const uint8_t *resumption_master_secret,
+                                                         const uint8_t *ticket_nonce,
+                                                         uint32_t ticket_nonce_len,
+                                                         uint8_t *resumption_psk);
 
 #ifdef __cplusplus
 }

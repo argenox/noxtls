@@ -73,12 +73,27 @@ noxtls_return_t noxtls_aes_encrypt_ecb(const uint8_t* key,
     }
 #endif
     
+    /* Expand the key once for the whole buffer (wiped on every exit). */
+    if (data_len == 0U) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    noxtls_aes_context_t actx;
+    {
+        noxtls_return_t prep_rc = noxtls_aes_prepare_context(&actx, key, type);
+        if (prep_rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_secure_zero(&actx, sizeof(actx));
+            noxtls_secure_zero(output, (size_t)data_len);
+            return prep_rc;
+        }
+    }
+
     for(cur_block = 0U; cur_block < data_len; cur_block += (uint32_t)NOXTLS_AES_BLOCK_LENGTH)
     {
         /* Electronic Codebook: Direct encryption of each block */
-        NOXTLS_AES_CHECK(noxtls_aes_encrypt_block_internal(key, &data[cur_block], &output[cur_block], type), output, data_len, NULL, 0U);
+        NOXTLS_AES_CHECK_CTX(noxtls_aes_encrypt_block_ctx_internal(&actx, &data[cur_block], &output[cur_block]), &actx, output, data_len);
     }
 
+    noxtls_secure_zero(&actx, sizeof(actx));
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -123,11 +138,26 @@ noxtls_return_t noxtls_aes_decrypt_ecb(const uint8_t* key,
     }
 #endif
 
-    for(cur_block = 0U; cur_block < data_len; cur_block += (uint32_t)NOXTLS_AES_BLOCK_LENGTH)
+    /* Expand the key once for the whole buffer (wiped on every exit). */
+    if (data_len == 0U) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    noxtls_aes_context_t actx;
     {
-        NOXTLS_AES_CHECK(noxtls_aes_decrypt_block_internal(key, &data[cur_block], &output[cur_block], type), output, data_len, NULL, 0U);
+        noxtls_return_t prep_rc = noxtls_aes_prepare_context(&actx, key, type);
+        if (prep_rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_secure_zero(&actx, sizeof(actx));
+            noxtls_secure_zero(output, (size_t)data_len);
+            return prep_rc;
+        }
     }
 
+    for(cur_block = 0U; cur_block < data_len; cur_block += (uint32_t)NOXTLS_AES_BLOCK_LENGTH)
+    {
+        NOXTLS_AES_CHECK_CTX(noxtls_aes_decrypt_block_ctx_internal(&actx, &data[cur_block], &output[cur_block]), &actx, output, data_len);
+    }
+
+    noxtls_secure_zero(&actx, sizeof(actx));
     return NOXTLS_RETURN_SUCCESS;
 }
 

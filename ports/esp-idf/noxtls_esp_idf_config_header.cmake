@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-15T18:28:15Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-24T20:55:02Z)
 
 function(noxtls_esp_idf_write_config_features_header out_file)
   if(NOT out_file)
@@ -11,6 +11,26 @@ function(noxtls_esp_idf_write_config_features_header out_file)
   string(APPEND _noxtls_hdr " * Do not edit; regenerate via tools/kconfig_gen/generate_kconfig.py. */\n\n")
   string(APPEND _noxtls_hdr "#ifndef _NOXTLS_CONFIG_FEATURES_H_\n")
   string(APPEND _noxtls_hdr "#define _NOXTLS_CONFIG_FEATURES_H_\n\n")
+
+if(CONFIG_NOXTLS_AES_COMPACT_TABLES)
+  string(APPEND _noxtls_hdr "#define NOXTLS_AES_COMPACT_TABLES 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_AES_COMPACT_TABLES 0\n")
+endif()
+
+if(CONFIG_NOXTLS_AES_CTX_RAW_KEY)
+  string(APPEND _noxtls_hdr "#define NOXTLS_AES_CTX_RAW_KEY 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_AES_CTX_RAW_KEY 0\n")
+endif()
+
+if(CONFIG_NOXTLS_AES_ROM_TABLES)
+  string(APPEND _noxtls_hdr "#define NOXTLS_AES_ROM_TABLES 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_AES_ROM_TABLES 0\n")
+endif()
+
+string(APPEND _noxtls_hdr "#define NOXTLS_BN_MONT_WINDOW_BITS ${CONFIG_NOXTLS_BN_MONT_WINDOW_BITS}\n")
 
 if(CONFIG_NOXTLS_CFG_ENABLE_NOXSIGHT)
   string(APPEND _noxtls_hdr "#define NOXTLS_CFG_ENABLE_NOXSIGHT 1\n")
@@ -28,6 +48,74 @@ if(CONFIG_NOXTLS_CFG_TLS13_PREFER_SECP256R1_OVER_X25519)
   string(APPEND _noxtls_hdr "#define NOXTLS_CFG_TLS13_PREFER_SECP256R1_OVER_X25519 1\n")
 else()
   string(APPEND _noxtls_hdr "#define NOXTLS_CFG_TLS13_PREFER_SECP256R1_OVER_X25519 0\n")
+endif()
+
+string(APPEND _noxtls_hdr "#define NOXTLS_DTLS_REASSEMBLY_MAX_BYTES ${CONFIG_NOXTLS_DTLS_REASSEMBLY_MAX_BYTES}\n")
+
+if(CONFIG_NOXTLS_ECC_ENABLE_BP256R1)
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_ENABLE_BP256R1 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_ENABLE_BP256R1 0\n")
+endif()
+
+if(CONFIG_NOXTLS_ECC_ENABLE_BP384R1)
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_ENABLE_BP384R1 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_ENABLE_BP384R1 0\n")
+endif()
+
+if(CONFIG_NOXTLS_ECC_ENABLE_BP512R1)
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_ENABLE_BP512R1 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_ENABLE_BP512R1 0\n")
+endif()
+
+if(CONFIG_NOXTLS_ECC_ENABLE_SECP192K1)
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_ENABLE_SECP192K1 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_ENABLE_SECP192K1 0\n")
+endif()
+
+if(CONFIG_NOXTLS_ECC_ENABLE_SECP192R1)
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_ENABLE_SECP192R1 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_ENABLE_SECP192R1 0\n")
+endif()
+
+if(CONFIG_NOXTLS_ECC_ENABLE_SECP224K1)
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_ENABLE_SECP224K1 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_ENABLE_SECP224K1 0\n")
+endif()
+
+if(CONFIG_NOXTLS_ECC_ENABLE_SECP224R1)
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_ENABLE_SECP224R1 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_ENABLE_SECP224R1 0\n")
+endif()
+
+if(CONFIG_NOXTLS_ECC_ENABLE_SECP256K1)
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_ENABLE_SECP256K1 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_ENABLE_SECP256K1 0\n")
+endif()
+
+if(CONFIG_NOXTLS_ECC_ENABLE_SECP256R1)
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_ENABLE_SECP256R1 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_ENABLE_SECP256R1 0\n")
+endif()
+
+if(CONFIG_NOXTLS_ECC_ENABLE_SECP384R1)
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_ENABLE_SECP384R1 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_ENABLE_SECP384R1 0\n")
+endif()
+
+if(CONFIG_NOXTLS_ECC_ENABLE_SECP521R1)
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_ENABLE_SECP521R1 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_ENABLE_SECP521R1 0\n")
 endif()
 
 if(CONFIG_NOXTLS_ECC_FIXED_POINT_OPTIM)
@@ -60,6 +148,12 @@ if(CONFIG_NOXTLS_ECC_SHARED_SCRATCH)
   string(APPEND _noxtls_hdr "#define NOXTLS_ECC_SHARED_SCRATCH 1\n")
 else()
   string(APPEND _noxtls_hdr "#define NOXTLS_ECC_SHARED_SCRATCH 0\n")
+endif()
+
+if(CONFIG_NOXTLS_ECC_STATUS_WORDS)
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_STATUS_WORDS 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_ECC_STATUS_WORDS 0\n")
 endif()
 
 if(CONFIG_NOXTLS_ECDSA_SIGN_SELF_VERIFY)
@@ -314,6 +408,12 @@ else()
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_HMAC 0\n")
 endif()
 
+if(CONFIG_NOXTLS_FEATURE_KEYLOG)
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_KEYLOG 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_KEYLOG 0\n")
+endif()
+
 if(CONFIG_NOXTLS_FEATURE_LMS_HSS)
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_LMS_HSS 1\n")
 else()
@@ -348,6 +448,12 @@ if(NOXTLS_CFG_FEATURE_ML_KEM)
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_ML_KEM 1\n")
 else()
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_ML_KEM 0\n")
+endif()
+
+if(CONFIG_NOXTLS_FEATURE_NOXV_CCM_ACCEL)
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_NOXV_CCM_ACCEL 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_NOXV_CCM_ACCEL 0\n")
 endif()
 
 if(CONFIG_NOXTLS_FEATURE_NRF52_HW_ACCEL)
@@ -494,6 +600,18 @@ else()
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_TLS13 0\n")
 endif()
 
+if(CONFIG_NOXTLS_FEATURE_TLS_CLIENT)
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_TLS_CLIENT 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_TLS_CLIENT 0\n")
+endif()
+
+if(CONFIG_NOXTLS_FEATURE_TLS_SERVER)
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_TLS_SERVER 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_TLS_SERVER 0\n")
+endif()
+
 if(NOXTLS_CFG_FEATURE_X25519)
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_X25519 1\n")
 else()
@@ -511,6 +629,8 @@ if(CONFIG_NOXTLS_FEATURE_XMSS)
 else()
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_XMSS 0\n")
 endif()
+
+string(APPEND _noxtls_hdr "#define NOXTLS_GCM_TABLE_BITS ${CONFIG_NOXTLS_GCM_TABLE_BITS}\n")
 
 if(NOXTLS_CFG_HAVE_CERT_WRITE)
   string(APPEND _noxtls_hdr "#define NOXTLS_HAVE_CERT_WRITE 1\n")
@@ -543,6 +663,14 @@ string(APPEND _noxtls_hdr "#define NOXTLS_MAX_CERT_SIZE ${CONFIG_NOXTLS_MAX_CERT
 string(APPEND _noxtls_hdr "#define NOXTLS_MEM_BUCKET_ALIGNMENT ${CONFIG_NOXTLS_MEM_BUCKET_ALIGNMENT}\n")
 
 string(APPEND _noxtls_hdr "#define NOXTLS_MEM_BUCKET_COUNT ${CONFIG_NOXTLS_MEM_BUCKET_COUNT}\n")
+
+string(APPEND _noxtls_hdr "#define NOXTLS_PKC_RNG_RESEED_INTERVAL ${CONFIG_NOXTLS_PKC_RNG_RESEED_INTERVAL}\n")
+
+if(CONFIG_NOXTLS_PKC_SHARED_DRBG)
+  string(APPEND _noxtls_hdr "#define NOXTLS_PKC_SHARED_DRBG 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_PKC_SHARED_DRBG 0\n")
+endif()
 
 string(APPEND _noxtls_hdr "#define NOXTLS_RSA_DEBUG_PRIMALITY_CHECK_INTERVAL ${CONFIG_NOXTLS_RSA_DEBUG_PRIMALITY_CHECK_INTERVAL}\n")
 
@@ -582,11 +710,45 @@ else()
   string(APPEND _noxtls_hdr "#define NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES 0\n")
 endif()
 
+if(NOXTLS_CFG_TLS12_ENABLE_SHA1_SIGNATURES)
+  string(APPEND _noxtls_hdr "#define NOXTLS_TLS12_ENABLE_SHA1_SIGNATURES 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_TLS12_ENABLE_SHA1_SIGNATURES 0\n")
+endif()
+
+string(APPEND _noxtls_hdr "#define NOXTLS_TLS12_SESSION_CACHE_SIZE ${CONFIG_NOXTLS_TLS12_SESSION_CACHE_SIZE}\n")
+
+string(APPEND _noxtls_hdr "#define NOXTLS_TLS12_TICKET_CACHE_SIZE ${CONFIG_NOXTLS_TLS12_TICKET_CACHE_SIZE}\n")
+
+string(APPEND _noxtls_hdr "#define NOXTLS_TLS12_TICKET_MAX_LEN ${CONFIG_NOXTLS_TLS12_TICKET_MAX_LEN}\n")
+
+if(CONFIG_NOXTLS_TLS13_ACCEPT_TIMING)
+  string(APPEND _noxtls_hdr "#define NOXTLS_TLS13_ACCEPT_TIMING 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_TLS13_ACCEPT_TIMING 0\n")
+endif()
+
+if(CONFIG_NOXTLS_TLS13_PEER_CERTIFICATES)
+  string(APPEND _noxtls_hdr "#define NOXTLS_TLS13_PEER_CERTIFICATES 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_TLS13_PEER_CERTIFICATES 0\n")
+endif()
+
+string(APPEND _noxtls_hdr "#define NOXTLS_TLS13_PSK_TICKET_STORE_MAX ${CONFIG_NOXTLS_TLS13_PSK_TICKET_STORE_MAX}\n")
+
+string(APPEND _noxtls_hdr "#define NOXTLS_TLS13_SERVER_MAX_EARLY_DATA ${CONFIG_NOXTLS_TLS13_SERVER_MAX_EARLY_DATA}\n")
+
 string(APPEND _noxtls_hdr "#define NOXTLS_TLS_MAX_HANDSHAKE_SIZE ${CONFIG_NOXTLS_TLS_MAX_HANDSHAKE_SIZE}\n")
 
 string(APPEND _noxtls_hdr "#define NOXTLS_TLS_MAX_RECORD_SIZE ${CONFIG_NOXTLS_TLS_MAX_RECORD_SIZE}\n")
 
 string(APPEND _noxtls_hdr "#define NOXTLS_TLS_MAX_WIRE_RECORD_LENGTH ${CONFIG_NOXTLS_TLS_MAX_WIRE_RECORD_LENGTH}\n")
+
+if(CONFIG_NOXTLS_TLS_RETAIN_PEER_CERT)
+  string(APPEND _noxtls_hdr "#define NOXTLS_TLS_RETAIN_PEER_CERT 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_TLS_RETAIN_PEER_CERT 0\n")
+endif()
 
 if(CONFIG_NOXTLS_USE_STATIC_BUFFERS)
   string(APPEND _noxtls_hdr "#define NOXTLS_USE_STATIC_BUFFERS 1\n")
@@ -594,10 +756,50 @@ else()
   string(APPEND _noxtls_hdr "#define NOXTLS_USE_STATIC_BUFFERS 0\n")
 endif()
 
+string(APPEND _noxtls_hdr "#define NOXTLS_X509_CHAIN_INITIAL_CAPACITY ${CONFIG_NOXTLS_X509_CHAIN_INITIAL_CAPACITY}\n")
+
+if(CONFIG_NOXTLS_X509_FAIL_INFO)
+  string(APPEND _noxtls_hdr "#define NOXTLS_X509_FAIL_INFO 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_X509_FAIL_INFO 0\n")
+endif()
+
 if(CONFIG_NOXTLS_X509_HOSTNAME_ALLOW_WILDCARD)
   string(APPEND _noxtls_hdr "#define NOXTLS_X509_HOSTNAME_ALLOW_WILDCARD 1\n")
 else()
   string(APPEND _noxtls_hdr "#define NOXTLS_X509_HOSTNAME_ALLOW_WILDCARD 0\n")
+endif()
+
+if(CONFIG_NOXTLS_XMSS_ENABLE_N64)
+  string(APPEND _noxtls_hdr "#define NOXTLS_XMSS_ENABLE_N64 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_XMSS_ENABLE_N64 0\n")
+endif()
+
+if(CONFIG_NOXTLS_XMSS_ENABLE_SHA2)
+  string(APPEND _noxtls_hdr "#define NOXTLS_XMSS_ENABLE_SHA2 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_XMSS_ENABLE_SHA2 0\n")
+endif()
+
+if(CONFIG_NOXTLS_XMSS_ENABLE_SHAKE)
+  string(APPEND _noxtls_hdr "#define NOXTLS_XMSS_ENABLE_SHAKE 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_XMSS_ENABLE_SHAKE 0\n")
+endif()
+
+if(CONFIG_NOXTLS_XMSS_ENABLE_SIGN)
+  string(APPEND _noxtls_hdr "#define NOXTLS_XMSS_ENABLE_SIGN 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_XMSS_ENABLE_SIGN 0\n")
+endif()
+
+string(APPEND _noxtls_hdr "#define NOXTLS_XMSS_MAX_HEIGHT ${CONFIG_NOXTLS_XMSS_MAX_HEIGHT}\n")
+
+if(CONFIG_NOXTLS_XMSS_SIGN_SELF_CHECK)
+  string(APPEND _noxtls_hdr "#define NOXTLS_XMSS_SIGN_SELF_CHECK 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_XMSS_SIGN_SELF_CHECK 0\n")
 endif()
 
 if(CONFIG_NOXTLS_SIDECHANNEL_PERFORMANCE)

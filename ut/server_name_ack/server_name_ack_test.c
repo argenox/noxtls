@@ -46,13 +46,13 @@ int main(void)
             client.server_name = (const uint8_t *)"iot";
             client.server_name_len = 3U;
         }
-        client.pending_handshake_msg = NOXTLS_MALLOC(sizeof(encrypted_extensions));
-        assert(client.pending_handshake_msg != NULL);
-        memcpy(client.pending_handshake_msg,encrypted_extensions,sizeof(encrypted_extensions));
-        client.pending_handshake_len = sizeof(encrypted_extensions);
+        client.hs->pending_handshake_msg = NOXTLS_MALLOC(sizeof(encrypted_extensions));
+        assert(client.hs->pending_handshake_msg != NULL);
+        memcpy(client.hs->pending_handshake_msg,encrypted_extensions,sizeof(encrypted_extensions));
+        client.hs->pending_handshake_len = sizeof(encrypted_extensions);
         assert(noxtls_tls13_recv_encrypted_extensions(&client) ==
             (offered != 0U ? NOXTLS_RETURN_SUCCESS : NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER));
-        assert(client.pending_handshake_msg == NULL);
+        assert(client.hs->pending_handshake_msg == NULL);
         (void)noxtls_tls13_context_free(&client);
     }
     assert(noxtls_tls_parse_extensions(acknowledgment,sizeof(acknowledgment),&extensions) == NOXTLS_RETURN_BAD_DATA);

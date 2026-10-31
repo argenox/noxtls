@@ -75,9 +75,9 @@ noxtls_return_t noxtls_sha512_init(noxtls_sha512_ctx_t * ctx, noxtls_hash_algos_
 		return NOXTLS_RETURN_NULL;
 	}
     
-    ctx->algo = algo;
+    ctx->algo = (uint8_t)algo;
     
-    if (ctx->algo == NOXTLS_HASH_SHA_512) {
+    if ((noxtls_hash_algos_t)ctx->algo == NOXTLS_HASH_SHA_512) {
         ctx->h[0] = 0x6a09e667f3bcc908ULL;
         ctx->h[1] = 0xbb67ae8584caa73bULL;
         ctx->h[2] = 0x3c6ef372fe94f82bULL;
@@ -86,7 +86,7 @@ noxtls_return_t noxtls_sha512_init(noxtls_sha512_ctx_t * ctx, noxtls_hash_algos_
         ctx->h[5] = 0x9b05688c2b3e6c1fULL;
         ctx->h[6] = 0x1f83d9abfb41bd6bULL;
         ctx->h[7] = 0x5be0cd19137e2179ULL;
-    } else if (ctx->algo == NOXTLS_HASH_SHA_384) {
+    } else if ((noxtls_hash_algos_t)ctx->algo == NOXTLS_HASH_SHA_384) {
         ctx->h[0] = 0xcbbb9d5dc1059ed8ULL;
         ctx->h[1] = 0x629a292a367cd507ULL;
         ctx->h[2] = 0x9159015a3070dd17ULL;
@@ -95,7 +95,7 @@ noxtls_return_t noxtls_sha512_init(noxtls_sha512_ctx_t * ctx, noxtls_hash_algos_
         ctx->h[5] = 0x8eb44a8768581511ULL;
         ctx->h[6] = 0xdb0c2e0d64f98fa7ULL;
         ctx->h[7] = 0x47b5481dbefa4fa4ULL;
-    } else if (ctx->algo == NOXTLS_HASH_SHA_512_224) {
+    } else if ((noxtls_hash_algos_t)ctx->algo == NOXTLS_HASH_SHA_512_224) {
         ctx->h[0] = 0x8c3d37c819544da2ULL;
         ctx->h[1] = 0x73e1996689dcd4d6ULL;
         ctx->h[2] = 0x1dfab7ae32ff9c82ULL;
@@ -104,7 +104,7 @@ noxtls_return_t noxtls_sha512_init(noxtls_sha512_ctx_t * ctx, noxtls_hash_algos_
         ctx->h[5] = 0x77e36f7304c48942ULL;
         ctx->h[6] = 0x3f9d85a86a1d36c8ULL;
         ctx->h[7] = 0x1112e6ad91d692a1ULL;
-    } else if (ctx->algo == NOXTLS_HASH_SHA_512_256) {
+    } else if ((noxtls_hash_algos_t)ctx->algo == NOXTLS_HASH_SHA_512_256) {
         ctx->h[0] = 0x22312194fc2bf72cULL;
         ctx->h[1] = 0x9f555fa3c84c64c2ULL;
         ctx->h[2] = 0x2393b86b6f53b151ULL;
@@ -246,7 +246,7 @@ static noxtls_return_t noxtls_sha512_round(noxtls_sha512_ctx_t * ctx, const uint
 
 	noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
 	uint32_t t = 0U;
-	uint64_t w[SHA512_ROUND_COUNT] = {0};
+	uint64_t w[SHA512_WORDS_PER_BLOCK]; /* 16-word message schedule ring */
 
     uint64_t a = 0U;
     uint64_t b = 0U;
@@ -285,13 +285,6 @@ static noxtls_return_t noxtls_sha512_round(noxtls_sha512_ctx_t * ctx, const uint
 
     }
 
-    for (t = SHA512_WORDS_PER_BLOCK; t < SHA512_ROUND_COUNT; t += 1U) {
-        {
-            uint64_t s1 = SHA_SIGMA_FROM_1(w[t - 2U]);
-            uint64_t s0 = SHA_SIGMA_FROM_0(w[t - 15U]);
-            w[t] = s1 + w[t - 7U] + s0 + w[t - 16U];
-        }
-    }
     
     a = ctx->h[0];
     b = ctx->h[1];
@@ -304,7 +297,17 @@ static noxtls_return_t noxtls_sha512_round(noxtls_sha512_ctx_t * ctx, const uint
     
     for (t = 0U; t < SHA512_ROUND_COUNT; t += 1U)
     {
-        uint64_t t1 = h + SHA_SUM_FROM_1(e) + SHA_CH(e, f, g) + sha512_k[t] + w[t];
+        uint64_t wt = 0U;
+        if (t < SHA512_WORDS_PER_BLOCK) {
+            wt = w[t];
+        } else {
+            uint32_t wi = (uint32_t)(t & 0x0FU);
+            uint64_t s1 = SHA_SIGMA_FROM_1(w[(t - 2U) & 0x0FU]);
+            uint64_t s0 = SHA_SIGMA_FROM_0(w[(t - 15U) & 0x0FU]);
+            wt = s1 + w[(t - 7U) & 0x0FU] + s0 + w[wi];
+            w[wi] = wt;
+        }
+        uint64_t t1 = h + SHA_SUM_FROM_1(e) + SHA_CH(e, f, g) + sha512_k[t] + wt;
         uint64_t t2 = SHA_SUM_FROM_0(a) + SHA_MAJ(a, b, c);
         h = g;
         g = f;
@@ -349,96 +352,56 @@ noxtls_return_t noxtls_sha512_finish(noxtls_sha512_ctx_t * ctx, uint8_t * hash)
         return NOXTLS_RETURN_NULL;
     }
 
-    uint32_t len = 0U;
-    uint8_t * data = NULL;    
+    uint32_t used = (uint32_t)ctx->data_len;
     uint32_t total_length = 0U;
     uint32_t i = 0U;
-    
-    uint8_t temp[HASH_SHA512_BLOCK_SIZE] = {0};
-    /* Process any pending data or */
-    if (ctx->data_len > 0U)
-    {
-        len = ctx->data_len;
-        data = ctx->data;
-        noxtls_secure_zero((temp), sizeof(temp));
-        noxtls_copy_u8(temp, sizeof(temp), ctx->data, (size_t)len);
-        total_length = ctx->length + ctx->data_len;
-    }
-    else
-    {
-        noxtls_secure_zero((ctx->data), (size_t)(HASH_SHA512_BLOCK_SIZE));
-        data = ctx->data;
-        total_length = ctx->length;
-    }
-    
     uint32_t block_size = (uint32_t)(HASH_SHA512_BLOCK_SIZE);
-    uint8_t length_size = (uint8_t)(HASH_SHA512_LENGTH_LEN); /* Size of length in bytes 8 bytes / 128-bit */
-    
-    uint32_t space_occupied = (uint32_t)((len % block_size));
-    uint32_t space_left = (uint32_t)(block_size - space_occupied);
-    
-    
-    if (len == 0U) {
-        space_occupied = 0U;
-        space_left = block_size;
-    }
-        
-    if (space_left >= 1U) {
-        temp[space_occupied] = SHA512_PAD_BYTE;
-    }
-    
-    if (space_left >= ((uint32_t)length_size + 1U)) {
-        (void)noxtls_add_padding_length(temp, block_size, total_length, length_size);
-    }
+    uint8_t length_size = (uint8_t)(HASH_SHA512_LENGTH_LEN); /* 128-bit length field */
 
-    if (sha512_debug_lvl > 0U){
-        
-        for (i = 0U; i < block_size; i += 1U) {
-            (void)noxtls_debug_printf((const uint8_t *)"%02x ", temp[i]);
-        }
-        (void)noxtls_debug_printf((const uint8_t *)"\n");
-        
-        (void)noxtls_debug_printf((const uint8_t *)"Process here the current block\n");
+    if (used >= block_size) {
+        noxtls_secure_zero(hash, (size_t)HASH_SHA512_OUT_LEN);
+        noxtls_secure_zero(ctx, sizeof(*ctx));
+        return NOXTLS_RETURN_FAILED;
     }
-    
-    rc = noxtls_sha512_round(ctx, temp);
-    
+    total_length = ctx->length + used;
+
+    /* Pad in place: 0x80, zeros, then the bit length in the last 16 bytes. */
+    ctx->data[used] = SHA512_PAD_BYTE;
+    if ((used + 1U) < block_size) {
+        noxtls_secure_zero(&ctx->data[used + 1U], (size_t)(block_size - (used + 1U)));
+    }
+    rc = NOXTLS_RETURN_SUCCESS;
+    if ((used + 1U) > (block_size - (uint32_t)length_size)) {
+        /* No room for the length: compress this block, length goes in a second one. */
+        rc = noxtls_sha512_round(ctx, ctx->data);
+        noxtls_secure_zero(ctx->data, (size_t)block_size);
+    }
     /* A second padding block is only processed when the first compression
      * succeeded, so its status can never mask an earlier failure. */
-    if ((rc == NOXTLS_RETURN_SUCCESS) && (space_left < ((uint32_t)length_size + 1U)))
-    {
-        noxtls_secure_zero((temp), (size_t)(block_size));
-        if (space_left == 0U) {
-            /* not previously set */
-            data[0] = SHA512_PAD_BYTE;
-        }
-        
-        (void)noxtls_add_padding_length(temp, block_size, total_length, length_size);
-            
+    if (rc == NOXTLS_RETURN_SUCCESS) {
+        (void)noxtls_add_padding_length(ctx->data, block_size, total_length, length_size);
         if (sha512_debug_lvl > 0U) {
             for (i = 0U; i < block_size; i += 1U) {
-                (void)noxtls_debug_printf((const uint8_t *)"%02x", temp[i]);
+                (void)noxtls_debug_printf((const uint8_t *)"%02x ", ctx->data[i]);
             }
             (void)noxtls_debug_printf((const uint8_t *)"\n");
-            (void)noxtls_debug_printf((const uint8_t *)"Process additional block since could not fit padding\n");
         }
-        
-        rc = noxtls_sha512_round(ctx, temp);
-        
+        rc = noxtls_sha512_round(ctx, ctx->data);
     }
-    
+    noxtls_secure_zero(ctx->data, (size_t)block_size);
+    ctx->data_len = 0U;
+
     uint8_t digest_len = (uint8_t)(HASH_SHA512_OUT_LEN);
-    if (ctx->algo == NOXTLS_HASH_SHA_384) {
+    if ((noxtls_hash_algos_t)ctx->algo == NOXTLS_HASH_SHA_384) {
         digest_len = 48U;
-    } else if (ctx->algo == NOXTLS_HASH_SHA_512_224) {
+    } else if ((noxtls_hash_algos_t)ctx->algo == NOXTLS_HASH_SHA_512_224) {
         digest_len = (uint8_t)HASH_SHA512_224_OUT_LEN;
-    } else if (ctx->algo == NOXTLS_HASH_SHA_512_256) {
+    } else if ((noxtls_hash_algos_t)ctx->algo == NOXTLS_HASH_SHA_512_256) {
         digest_len = (uint8_t)HASH_SHA512_256_OUT_LEN;
     }
      else {
          /* MISRA 15.7: no remaining alternative */
      }
-    noxtls_secure_zero((temp), sizeof(temp));
     if (rc != NOXTLS_RETURN_SUCCESS) {
         /* Never release a partial digest: wipe the output and the state. */
         noxtls_secure_zero(hash, (size_t)digest_len);

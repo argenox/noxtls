@@ -58,7 +58,7 @@ noxtls_return_t noxtls_sha256_blocks_accel_port(noxtls_sha_ctx_t *ctx, const uin
         for (i = 0U; i < NOXTLS_NRF54_PORT_SHA256_WORDS; i++) {
             for (b = 0U; b < NOXTLS_NRF54_PORT_W32_BYTES; b++) {
                 st[(i * NOXTLS_NRF54_PORT_W32_BYTES) + b] =
-                    (uint8_t)(ctx->h[i] >> ((NOXTLS_NRF54_PORT_W32_BYTES - 1U - b) * NOXTLS_NRF54_PORT_BITS_PER_BYTE));
+                    (uint8_t)(ctx->u.md32.h[i] >> ((NOXTLS_NRF54_PORT_W32_BYTES - 1U - b) * NOXTLS_NRF54_PORT_BITS_PER_BYTE));
             }
         }
         if (noxtls_nrf54_hash_blocks(NOXTLS_NRF54_SHA256, st, input, block_count) == NOXTLS_RETURN_SUCCESS) {
@@ -68,7 +68,7 @@ noxtls_return_t noxtls_sha256_blocks_accel_port(noxtls_sha_ctx_t *ctx, const uin
                 for (b = 0U; b < NOXTLS_NRF54_PORT_W32_BYTES; b++) {
                     w = (w << NOXTLS_NRF54_PORT_BITS_PER_BYTE) | (uint32_t)st[(i * NOXTLS_NRF54_PORT_W32_BYTES) + b];
                 }
-                ctx->h[i] = w;
+                ctx->u.md32.h[i] = w;
             }
             rc = NOXTLS_RETURN_SUCCESS;
         }

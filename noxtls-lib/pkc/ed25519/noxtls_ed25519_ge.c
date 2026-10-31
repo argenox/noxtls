@@ -31,6 +31,11 @@
 
 #include "common/noxtls_memory.h"
 #include "noxtls_ed25519_ge.h"
+#include "noxtls_common.h"
+
+/* Field / group / scalar code is used only by Ed25519 (X25519 has its own field
+ * arithmetic), so the whole unit compiles to nothing when Ed25519 is disabled. */
+#if NOXTLS_FEATURE_ED25519
 
 /* p = 2^255 - 19, big-endian (RFC 8032). */
 static uint32_t ge25519_shift_right(uint32_t value, uint32_t count)
@@ -81,23 +86,27 @@ static const uint8_t ed25519_p[NOXTLS_ED25519_FE25519_BYTES] = {
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xED
 };
 
-/* d = -121665/121666 mod p (twisted Edwards), big-endian (RFC 8032). */
-static const uint8_t ed25519_d[NOXTLS_ED25519_FE25519_BYTES] = {
-    0x52, 0x03, 0x6C, 0xEE, 0x2B, 0x6F, 0xFE, 0x73,
-    0x8C, 0xC7, 0x40, 0x79, 0x77, 0x79, 0xE8, 0x98,
-    0x00, 0x70, 0x0A, 0x4D, 0x41, 0x41, 0xD8, 0xAB,
-    0x75, 0xEB, 0x4D, 0xCA, 0x13, 0x59, 0x78, 0xA3
-};
+/*
+ * Curve constants in native limbs, exactly as fe25519_native_from_be() produces
+ * them from the RFC 8032 big-endian values (d2 = d + d without carry):
+ *   d      = -121665/121666 mod p
+ *            = 0x52036CEE2B6FFE738CC740797779E89800700A4D4141D8AB75EB4DCA135978A3
+ *   sqrtm1 = sqrt(-1) mod p (RFC 8032 5.1.3 twist case)
+ *            = 0x2B8324804FC1DF0B2B4D00993DFBD7A72F431806AD2FE478C4EE1B274A0EA0B0
+ * Const data: no .bss and no lazy first-use initialization (re-entrant).
+ * ut/ed25519_readonly checks them against fe25519_native_from_be().
+ */
+static const fe25519_native_t g_ed25519_d = {{
+    -10913610, 13857413, -15372611, 6949391, 114729,
+    -8787816, -6275908, -3247719, -18696448, -12055116 }};
+static const fe25519_native_t g_ed25519_d2 = {{
+    -21827220, 27714826, -30745222, 13898782, 229458,
+    -17575632, -12551816, -6495438, -37392896, -24110232 }};
+static const fe25519_native_t g_ed25519_sqrtm1 = {{
+    -32595792, -7943725, 9377950, 3500415, 12389472,
+    -272473, -25146209, -2005654, 326686, 11406482 }};
 
-/* sqrt(-1) mod p for the RFC 8032 §5.1.3 twist case, big-endian. */
-static const uint8_t ed25519_sqrt_minus1[NOXTLS_ED25519_FE25519_BYTES] = {
-    0x2b, 0x83, 0x24, 0x80, 0x4f, 0xc1, 0xdf, 0x0b,
-    0x2b, 0x4d, 0x00, 0x99, 0x3d, 0xfb, 0xd7, 0xa7,
-    0x2f, 0x43, 0x18, 0x06, 0xad, 0x2f, 0xe4, 0x78,
-    0xc4, 0xee, 0x1b, 0x27, 0x4a, 0x0e, 0xa0, 0xb0
-};
-
-#if !NOXTLS_ED25519_READONLY_SMALL_BASE
+#if !NOXTLS_ED25519_READONLY_TABLES
 /* Base point B encoding (32 bytes LE) used by mutable-table initialization. */
 static const uint8_t ed25519_B_encoded[NOXTLS_ED25519_FE25519_BYTES] = {
     0x58, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
@@ -125,6 +134,35 @@ typedef struct
 } ge25519_p2_t;
 
 static void ge25519_p2_dbl_p1p1(ge25519_p1p1_t *r, const ge25519_p2_t *p);
+
+/**
+ * @brief Double (X:Y:Z) into p1p1 (ref10 ge_p2_dbl); shared by p2 and extended points.
+ * @internal
+ *
+ * Reads the coordinates in place, so extended points need no p2 copy.
+ *
+ * @param[out] r Completed double (must not alias the inputs).
+ * @param[in] X Projective X.
+ * @param[in] Y Projective Y.
+ * @param[in] Z Projective Z.
+ */
+static void ge25519_dbl_xyz_p1p1(ge25519_p1p1_t *r,
+                                 const fe25519_native_t *X,
+                                 const fe25519_native_t *Y,
+                                 const fe25519_native_t *Z)
+{
+    fe25519_native_t t0;
+
+    fe25519_native_sq(&r->X, X);
+    fe25519_native_sq(&r->Z, Y);
+    fe25519_native_sq2(&r->T, Z);
+    fe25519_native_add(&r->Y, X, Y);
+    fe25519_native_sq(&t0, &r->Y);
+    fe25519_native_add(&r->Y, &r->Z, &r->X);
+    fe25519_native_sub(&r->Z, &r->Z, &r->X);
+    fe25519_native_sub(&r->X, &t0, &r->Y);
+    fe25519_native_sub(&r->T, &r->T, &r->Z);
+}
 static void ge25519_p1p1_to_p2(ge25519_p2_t *r, const ge25519_p1p1_t *p);
 
 /** Duif precomputed (affine-like): y+x, y-x, 2d*x*y (SUPERCOP/ref10 ge_precomp). */
@@ -144,11 +182,6 @@ typedef struct
     fe25519_native_t T2d;
 } ge25519_cached_t;
 
-static fe25519_native_t g_ed25519_d;
-static fe25519_native_t g_ed25519_d2;
-static fe25519_native_t g_ed25519_sqrtm1;
-static int g_ed25519_curve_ready;
-
 #if defined(NOXTLS_ED25519_DUMP_BASE)
 /* Mutable tables filled then dumped by host tool (NOXTLS_ED25519_DUMP_BASE). */
 static ge25519_precomp_t g_base_bi[NOXTLS_ED25519_BASE_POS_COUNT][NOXTLS_ED25519_BASE_ODD_COUNT];
@@ -164,8 +197,11 @@ static ge25519_n_t g_base_table_small[NOXTLS_ED25519_SCALAR_TABLE_ENTRIES];
 static int g_base_table_small_ready;
 static ge25519_precomp_t g_base_odd[NOXTLS_ED25519_SLIDE_ODD_COUNT];
 static int g_base_odd_ready;
+#elif NOXTLS_ED25519_READONLY_COMB
+/* Default: const comb + verify odd-B tables generated offline (no .bss). */
+#include "noxtls_ed25519_comb_readonly.inc"
 #else
-/* Comb + verify odd-B tables: lazy BSS (flash dump can replace later). */
+/* Legacy NOXTLS_ED25519_READONLY_COMB=0: comb + verify odd-B tables in lazily built BSS. */
 static ge25519_precomp_t g_base_comb[NOXTLS_ED25519_COMB_BLOCKS][NOXTLS_ED25519_COMB_POINTS];
 static int g_base_comb_ready;
 static ge25519_precomp_t g_base_odd[NOXTLS_ED25519_SLIDE_ODD_COUNT];
@@ -194,21 +230,6 @@ static int ed25519_cmp_be(const uint8_t *a, const uint8_t *b, uint32_t len)
 }
 
 /**
- * @brief Lazy-init curve constants d, 2d, and sqrt(-1) in native form.
- * @internal
- */
-static void ed25519_curve_constants_init(void)
-{
-    if(g_ed25519_curve_ready != 0) {
-        return;
-    }
-    fe25519_native_from_be(&g_ed25519_d, ed25519_d);
-    fe25519_native_add(&g_ed25519_d2, &g_ed25519_d, &g_ed25519_d);
-    fe25519_native_from_be(&g_ed25519_sqrtm1, ed25519_sqrt_minus1);
-    g_ed25519_curve_ready = 1;
-}
-
-/**
  * @brief Constant-time equality of unsigned indices (0 or 1 result).
  * @internal
  *
@@ -232,7 +253,7 @@ static unsigned int ge25519_ct_eq_u32(uint32_t x, uint32_t y)
  *
  * @return 1 if equal, else 0.
  */
-static unsigned int ge25519_ct_equal_u8(uint8_t b, uint8_t c)
+static NOXTLS_UNUSED_ATTR unsigned int ge25519_ct_equal_u8(uint8_t b, uint8_t c)
 {
     return ge25519_ct_eq_u32((uint32_t)b, (uint32_t)c);
 }
@@ -261,7 +282,7 @@ static void ge25519_n_cmov(ge25519_n_t *t, const ge25519_n_t *u, unsigned int b)
  * @param[in] u Source.
  * @param[in] b Selector (0 or 1).
  */
-static void ge25519_precomp_cmov(ge25519_precomp_t *t,
+static NOXTLS_UNUSED_ATTR void ge25519_precomp_cmov(ge25519_precomp_t *t,
                                  const ge25519_precomp_t *u,
                                  unsigned int b)
 {
@@ -276,7 +297,7 @@ static void ge25519_precomp_cmov(ge25519_precomp_t *t,
  *
  * @param[out] t Precomp to clear.
  */
-static void ge25519_precomp_0(ge25519_precomp_t *t)
+static NOXTLS_UNUSED_ATTR void ge25519_precomp_0(ge25519_precomp_t *t)
 {
     fe25519_native_one(&t->yplusx);
     fe25519_native_one(&t->yminusx);
@@ -290,13 +311,13 @@ static void ge25519_precomp_0(ge25519_precomp_t *t)
  * @param[out] t Precomp (y+x, y-x, 2dxy).
  * @param[in] p Extended point with Z preferably 1 (affine).
  */
-static void ge25519_n_to_precomp(ge25519_precomp_t *t, const ge25519_n_t *p)
+/* Table builders only (lazy RAM tables, offline generators, table tests). */
+static NOXTLS_UNUSED_ATTR void ge25519_n_to_precomp(ge25519_precomp_t *t, const ge25519_n_t *p)
 {
     fe25519_native_t x;
     fe25519_native_t y;
     fe25519_native_t xy;
 
-    ed25519_curve_constants_init();
     /* Assume projective with usable X,Y (caller uses Z=1 multiples of B). */
     fe25519_native_copy(&x, &p->X);
     fe25519_native_copy(&y, &p->Y);
@@ -315,7 +336,6 @@ static void ge25519_n_to_precomp(ge25519_precomp_t *t, const ge25519_n_t *p)
  */
 static void ge25519_n_to_cached(ge25519_cached_t *r, const ge25519_n_t *p)
 {
-    ed25519_curve_constants_init();
     fe25519_native_add(&r->YplusX, &p->Y, &p->X);
     fe25519_native_sub(&r->YminusX, &p->Y, &p->X);
     fe25519_native_copy(&r->Z, &p->Z);
@@ -375,17 +395,7 @@ static void ge25519_p2_0(ge25519_p2_t *h)
  */
 static void ge25519_p2_dbl_p1p1(ge25519_p1p1_t *r, const ge25519_p2_t *p)
 {
-    fe25519_native_t t0;
-
-    fe25519_native_sq(&r->X, &p->X);
-    fe25519_native_sq(&r->Z, &p->Y);
-    fe25519_native_sq2(&r->T, &p->Z);
-    fe25519_native_add(&r->Y, &p->X, &p->Y);
-    fe25519_native_sq(&t0, &r->Y);
-    fe25519_native_add(&r->Y, &r->Z, &r->X);
-    fe25519_native_sub(&r->Z, &r->Z, &r->X);
-    fe25519_native_sub(&r->X, &t0, &r->Y);
-    fe25519_native_sub(&r->T, &r->T, &r->Z);
+    ge25519_dbl_xyz_p1p1(r, &p->X, &p->Y, &p->Z);
 }
 
 /**
@@ -424,7 +434,7 @@ static void ge25519_madd(ge25519_p1p1_t *r,
  * @param[in] p Extended point.
  * @param[in] q Precomputed Duif point.
  */
-static void ge25519_msub(ge25519_p1p1_t *r,
+static NOXTLS_ED25519_NOINLINE void ge25519_msub(ge25519_p1p1_t *r,
                          const ge25519_n_t *p,
                          const ge25519_precomp_t *q)
 {
@@ -481,7 +491,7 @@ static void ge25519_add_cached(ge25519_p1p1_t *r,
  * @param[in] p Extended point.
  * @param[in] q Cached point.
  */
-static void ge25519_sub_cached(ge25519_p1p1_t *r,
+static NOXTLS_ED25519_NOINLINE void ge25519_sub_cached(ge25519_p1p1_t *r,
                                const ge25519_n_t *p,
                                const ge25519_cached_t *q)
 {
@@ -514,12 +524,7 @@ static void ge25519_sub_cached(ge25519_p1p1_t *r,
  */
 static void ge25519_n_dbl_p1p1(ge25519_p1p1_t *r, const ge25519_n_t *p)
 {
-    ge25519_p2_t q;
-
-    fe25519_native_copy(&q.X, &p->X);
-    fe25519_native_copy(&q.Y, &p->Y);
-    fe25519_native_copy(&q.Z, &p->Z);
-    ge25519_p2_dbl_p1p1(r, &q);
+    ge25519_dbl_xyz_p1p1(r, &p->X, &p->Y, &p->Z);
 }
 
 void ge25519_n_from_pt(ge25519_n_t *out, const ge25519_pt_t *in)
@@ -560,14 +565,8 @@ void ge25519_n_add(ge25519_n_t *r, const ge25519_n_t *p, const ge25519_n_t *q)
     fe25519_native_t B;
     fe25519_native_t C;
     fe25519_native_t D;
-    fe25519_native_t E;
-    fe25519_native_t F;
-    fe25519_native_t G;
-    fe25519_native_t H;
     fe25519_native_t t0;
     fe25519_native_t t1;
-
-    ed25519_curve_constants_init();
 
     fe25519_native_sub(&t0, &p->Y, &p->X);
     fe25519_native_sub(&t1, &q->Y, &q->X);
@@ -583,15 +582,16 @@ void ge25519_n_add(ge25519_n_t *r, const ge25519_n_t *p, const ge25519_n_t *q)
     fe25519_native_mul(&D, &p->Z, &q->Z);
     fe25519_native_add(&D, &D, &D);
 
-    fe25519_native_sub(&E, &B, &A);
-    fe25519_native_sub(&F, &D, &C);
-    fe25519_native_add(&G, &D, &C);
-    fe25519_native_add(&H, &B, &A);
+    /* E = t0, H = t1, F = A, G = B (temporaries reused; same arithmetic). */
+    fe25519_native_sub(&t0, &B, &A);
+    fe25519_native_add(&t1, &B, &A);
+    fe25519_native_sub(&A, &D, &C);
+    fe25519_native_add(&B, &D, &C);
 
-    fe25519_native_mul(&r->X, &E, &F);
-    fe25519_native_mul(&r->Y, &G, &H);
-    fe25519_native_mul(&r->T, &E, &H);
-    fe25519_native_mul(&r->Z, &F, &G);
+    fe25519_native_mul(&r->X, &t0, &A);
+    fe25519_native_mul(&r->Y, &B, &t1);
+    fe25519_native_mul(&r->T, &t0, &t1);
+    fe25519_native_mul(&r->Z, &A, &B);
 }
 
 void ge25519_n_dbl(ge25519_n_t *r, const ge25519_n_t *p)
@@ -740,8 +740,8 @@ static void ge25519_base_select(ge25519_precomp_t *t,
  *
  * @param[in,out] p Point to project to Z=1.
  */
-/* Always available for table builders (comb / odd-B / dump). */
-static void ge25519_n_to_affine(ge25519_n_t *p)
+/* Table builders only (comb / odd-B / dump / offline generators / table tests). */
+static NOXTLS_UNUSED_ATTR void ge25519_n_to_affine(ge25519_n_t *p)
 {
     fe25519_native_t zinv;
     fe25519_native_inv(&zinv, &p->Z);
@@ -761,7 +761,7 @@ static void ge25519_n_to_affine(ge25519_n_t *p)
  */
 static noxtls_return_t ge25519_base_odd_init(void)
 {
-#if NOXTLS_ED25519_READONLY_SMALL_BASE
+#if NOXTLS_ED25519_READONLY_TABLES
     return NOXTLS_RETURN_SUCCESS;
 #else
     ge25519_pt_t B_pt;
@@ -947,6 +947,28 @@ static void ge25519_group_comb_bits(uint32_t *n)
 #endif /* TEETH*SPACING == 32 */
 
 /**
+ * @brief Constant-time conditional negation of a Duif precomp entry.
+ * @internal
+ *
+ * For @p neg = 1 replaces (y+x, y-x, 2dxy) by (y-x, y+x, -2dxy), i.e. -P;
+ * for 0 leaves it unchanged. Same field operations for both values, with one
+ * field temporary instead of a full negated copy.
+ *
+ * @param[in,out] t Entry to negate conditionally.
+ * @param[in] neg Selector (0 or 1).
+ */
+static void ge25519_precomp_cneg(ge25519_precomp_t *t, unsigned int neg)
+{
+    fe25519_native_t tmp;
+
+    fe25519_native_copy(&tmp, &t->yplusx);
+    fe25519_native_cmov(&t->yplusx, &t->yminusx, neg);
+    fe25519_native_cmov(&t->yminusx, &tmp, neg);
+    fe25519_native_neg(&tmp, &t->xy2d);
+    fe25519_native_cmov(&t->xy2d, &tmp, neg);
+}
+
+/**
  * @brief Constant-time select comb table entry by absolute index.
  * @internal
  */
@@ -963,6 +985,7 @@ static void ge25519_comb_select(ge25519_precomp_t *t,
     }
 }
 
+#if !NOXTLS_ED25519_READONLY_COMB
 /**
  * @brief Build Hamburg signed multi-comb tables for base point B.
  * @internal
@@ -1037,6 +1060,7 @@ static noxtls_return_t ge25519_comb_init(void)
     g_base_comb_ready = 1;
     return NOXTLS_RETURN_SUCCESS;
 }
+#endif /* !NOXTLS_ED25519_READONLY_COMB */
 
 /**
  * @brief Fixed-base R = s*B using Hamburg signed multi-comb (ePrint 2012/309).
@@ -1053,7 +1077,6 @@ static void ge25519_n_scalarmult_base_comb(ge25519_n_t *r,
 {
     uint32_t n[9];
     ge25519_precomp_t t;
-    ge25519_precomp_t tneg;
     ge25519_p1p1_t p1;
     uint32_t block;
     unsigned int sign;
@@ -1076,10 +1099,7 @@ static void ge25519_n_scalarmult_base_comb(ge25519_n_t *r,
                 abs_index = (w ^ (0U - sign)) & NOXTLS_ED25519_COMB_MASK;
 
                 ge25519_comb_select(&t, g_base_comb[block], abs_index);
-                fe25519_native_copy(&tneg.yplusx, &t.yminusx);
-                fe25519_native_copy(&tneg.yminusx, &t.yplusx);
-                fe25519_native_neg(&tneg.xy2d, &t.xy2d);
-                ge25519_precomp_cmov(&t, &tneg, sign);
+                ge25519_precomp_cneg(&t, sign);
 
                 ge25519_madd(&p1, r, &t);
                 ge25519_p1p1_to_n(r, &p1);
@@ -1112,10 +1132,7 @@ static void ge25519_n_scalarmult_base_comb(ge25519_n_t *r,
                 abs_index = (teeth ^ (0U - sign)) & NOXTLS_ED25519_COMB_MASK;
 
                 ge25519_comb_select(&t, g_base_comb[block], abs_index);
-                fe25519_native_copy(&tneg.yplusx, &t.yminusx);
-                fe25519_native_copy(&tneg.yminusx, &t.yplusx);
-                fe25519_native_neg(&tneg.xy2d, &t.xy2d);
-                ge25519_precomp_cmov(&t, &tneg, sign);
+                ge25519_precomp_cneg(&t, sign);
 
                 ge25519_madd(&p1, r, &t);
                 ge25519_p1p1_to_n(r, &p1);
@@ -1153,14 +1170,16 @@ static noxtls_return_t ge25519_base_table_small_init(void)
 #endif /* NOXTLS_ED25519_SMALL_BASE */
 
 /**
- * @brief Build ref10 slide digits in [-15,15] (variable-time, for verify).
+ * @brief Build ref10-style slide digits in [-max_abs,max_abs] (variable-time, for verify).
  * @internal
  *
- * @param[out] r 256 signed slide digits.
+ * @param[out] r 256 signed slide digits (zero or odd).
  * @param[in] a Little-endian scalar.
+ * @param[in] max_abs Largest absolute digit (2 * table entries - 1).
  */
 static void ge25519_slide(int8_t r[NOXTLS_ED25519_SCALAR_BIT_LENGTH],
-                          const uint8_t *a)
+                          const uint8_t *a,
+                          int32_t max_abs)
 {
     int32_t i;
     int32_t b;
@@ -1181,10 +1200,10 @@ static void ge25519_slide(int8_t r[NOXTLS_ED25519_SCALAR_BIT_LENGTH],
             if(r[i + b] == 0) {
                 continue;
             }
-            if(r[i] + ((int32_t)r[i + b] * powers_of_two[b]) <= NOXTLS_ED25519_SLIDE_MAX_ABS) {
+            if(r[i] + ((int32_t)r[i + b] * powers_of_two[b]) <= max_abs) {
                 r[i] = (int8_t)(r[i] + ((int32_t)r[i + b] * powers_of_two[b]));
                 r[i + b] = 0;
-            } else if(r[i] - ((int32_t)r[i + b] * powers_of_two[b]) >= -NOXTLS_ED25519_SLIDE_MAX_ABS) {
+            } else if(r[i] - ((int32_t)r[i + b] * powers_of_two[b]) >= -max_abs) {
                 r[i] = (int8_t)(r[i] - ((int32_t)r[i + b] * powers_of_two[b]));
                 for(k = i + b; k < (int32_t)NOXTLS_ED25519_SCALAR_BIT_LENGTH; k++) {
                     if(r[k] == 0) {
@@ -1237,10 +1256,39 @@ void ge25519_scalarmult_base(ge25519_pt_t *R,
 }
 
 /**
+ * @brief Convert p1p1 straight to cached form (p1p1_to_n then n_to_cached).
+ * @internal
+ *
+ * Same field operations in the same order as the two-step conversion,
+ * without an extended-point temporary.
+ *
+ * @param[out] r Cached point.
+ * @param[in] p Completed intermediate.
+ */
+static NOXTLS_ED25519_NOINLINE void ge25519_p1p1_to_cached(ge25519_cached_t *r,
+                                                           const ge25519_p1p1_t *p)
+{
+    fe25519_native_t x;
+    fe25519_native_t y;
+    fe25519_native_t t;
+
+    fe25519_native_mul(&x, &p->X, &p->T);
+    fe25519_native_mul(&y, &p->Y, &p->Z);
+    fe25519_native_mul(&r->Z, &p->Z, &p->T);
+    fe25519_native_mul(&t, &p->X, &p->Y);
+    fe25519_native_add(&r->YplusX, &y, &x);
+    fe25519_native_sub(&r->YminusX, &y, &x);
+    fe25519_native_mul(&r->T2d, &t, &g_ed25519_d2);
+}
+
+/**
  * @brief Native double-scalar: R = [a]P + [b]B (ref10 ge_double_scalarmult_vartime).
  *
  * Uses a projective (p2) accumulator with p2_dbl + p1p1_to_p2 on the hot path.
  * Result X:Y:Z are projective; T is set to X*Y (valid once Z=1 after encode path).
+ * The [a]P digits use the stack table of NOXTLS_ED25519_VERIFY_A_ODD_COUNT
+ * odd multiples; the [b]B digits use the NOXTLS_ED25519_SLIDE_ODD_COUNT-entry
+ * odd-B table. Variable time: verify-only, all inputs public.
  *
  * @param[out] R Native result (projective X,Y,Z sufficient for encode).
  * @param[in] a_le Little-endian scalar for @p P.
@@ -1254,10 +1302,8 @@ void ge25519_double_scalarmult_n(ge25519_n_t *R,
 {
     int8_t aslide[NOXTLS_ED25519_SCALAR_BIT_LENGTH];
     int8_t bslide[NOXTLS_ED25519_SCALAR_BIT_LENGTH];
-    ge25519_cached_t Ai[NOXTLS_ED25519_SLIDE_ODD_COUNT];
-    ge25519_n_t A2;
+    ge25519_cached_t Ai[NOXTLS_ED25519_VERIFY_A_ODD_COUNT];
     ge25519_n_t u;
-    ge25519_n_t odd;
     ge25519_p2_t r;
     ge25519_p1p1_t t;
     int32_t i;
@@ -1268,16 +1314,16 @@ void ge25519_double_scalarmult_n(ge25519_n_t *R,
         return;
     }
 
-    ge25519_slide(aslide, a_le);
-    ge25519_slide(bslide, b_le);
+    ge25519_slide(aslide, a_le, NOXTLS_ED25519_VERIFY_A_MAX_ABS);
+    ge25519_slide(bslide, b_le, (int32_t)NOXTLS_ED25519_SLIDE_MAX_ABS);
 
+    /* Ai[j] = (2j+1)P; u holds 2P while the table is built. */
     ge25519_n_to_cached(&Ai[0], P);
-    ge25519_n_dbl(&A2, P);
-    odd = *P;
-    for(j = 1U; j < NOXTLS_ED25519_SLIDE_ODD_COUNT; j++) {
-        ge25519_add_cached(&t, &A2, &Ai[j - 1U]);
-        ge25519_p1p1_to_n(&odd, &t);
-        ge25519_n_to_cached(&Ai[j], &odd);
+    ge25519_n_dbl_p1p1(&t, P);
+    ge25519_p1p1_to_n(&u, &t);
+    for(j = 1U; j < NOXTLS_ED25519_VERIFY_A_ODD_COUNT; j++) {
+        ge25519_add_cached(&t, &u, &Ai[j - 1U]);
+        ge25519_p1p1_to_cached(&Ai[j], &t);
     }
 
     ge25519_p2_0(&r);
@@ -1357,7 +1403,6 @@ noxtls_return_t ge25519_decode_n(ge25519_n_t *p, const uint8_t *enc)
     fe25519_native_t x2;
     fe25519_native_t vx2;
     fe25519_native_t one;
-    fe25519_native_t d;
     fe25519_native_t neg_u;
     unsigned int sign;
 
@@ -1365,9 +1410,7 @@ noxtls_return_t ge25519_decode_n(ge25519_n_t *p, const uint8_t *enc)
         return NOXTLS_RETURN_NULL;
     }
 
-    ed25519_curve_constants_init();
     fe25519_native_one(&one);
-    fe25519_native_from_be(&d, ed25519_d);
 
     noxtls_copy_u8((uint8_t *)(void *)(y_le), (size_t)(NOXTLS_ED25519_FE25519_BYTES), (const uint8_t *)(const void *)(enc), (size_t)(NOXTLS_ED25519_FE25519_BYTES));
     sign = ((unsigned int)y_le[NOXTLS_ED25519_FE25519_BYTES - 1U] >> 7U);
@@ -1386,7 +1429,7 @@ noxtls_return_t ge25519_decode_n(ge25519_n_t *p, const uint8_t *enc)
     fe25519_native_from_le(&y, y_le);
     fe25519_native_sq(&y2, &y);
     fe25519_native_sub(&u, &y2, &one);
-    fe25519_native_mul(&v, &y2, &d);
+    fe25519_native_mul(&v, &y2, &g_ed25519_d);
     fe25519_native_add(&v, &v, &one);
 
     fe25519_native_sq(&v3, &v);
@@ -1474,10 +1517,12 @@ void ge25519_scalarmult_base_n(ge25519_n_t *R,
     }
     ge25519_n_scalarmult_windowed(R, s_le, g_base_table_small);
 #else
+#if !NOXTLS_ED25519_READONLY_COMB
     if(ge25519_comb_init() != NOXTLS_RETURN_SUCCESS) {
         ge25519_n_zero(R);
         return;
     }
+#endif
     ge25519_n_scalarmult_base_comb(R, s_le);
 #endif
 }
@@ -1561,3 +1606,5 @@ int main(void)
     return 0;
 }
 #endif /* NOXTLS_ED25519_DUMP_BASE */
+
+#endif /* NOXTLS_FEATURE_ED25519 */

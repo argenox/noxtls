@@ -34,6 +34,11 @@
 
 #include "noxtls_ed25519_config.h"
 #include "noxtls_ed25519_fe_arm.h"
+#include "noxtls_common.h"
+
+/* Field / group / scalar code is used only by Ed25519 (X25519 has its own field
+ * arithmetic), so the whole unit compiles to nothing when Ed25519 is disabled. */
+#if NOXTLS_FEATURE_ED25519
 
 /** Clear bit 255 when packing/unpacking 8×uint32 field elements. */
 #define FE25519_U32_BIT255_MASK 0x7FFFFFFFu
@@ -298,3 +303,5 @@ void fe25519_native_sq2(fe25519_native_t *out, const fe25519_native_t *a)
 }
 
 #endif /* ARM + NOXTLS_ED25519_FE_USE_PACKED_ASM */
+
+#endif /* NOXTLS_FEATURE_ED25519 */

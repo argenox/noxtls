@@ -161,11 +161,11 @@ static noxtls_return_t noxtls_ripemd160_round(noxtls_sha_ctx_t * ctx, const uint
                ((uint32_t)block[off + 3U] <<24U);
     }
 
-    h[0] = ctx->h[0];
-    h[1] = ctx->h[1];
-    h[2] = ctx->h[2];
-    h[3] = ctx->h[3];
-    h[4] = ctx->h[4];
+    h[0] = ctx->u.md32.h[0];
+    h[1] = ctx->u.md32.h[1];
+    h[2] = ctx->u.md32.h[2];
+    h[3] = ctx->u.md32.h[3];
+    h[4] = ctx->u.md32.h[4];
     al = h[0];
     bl = h[1];
     cl = h[2];
@@ -207,12 +207,12 @@ static noxtls_return_t noxtls_ripemd160_round(noxtls_sha_ctx_t * ctx, const uint
         ar = er; er = dr; dr = RIPEMD160_ROTL(cr, 10U); cr = br; br = tr;
     }
 
-    tl = ctx->h[1] + cl + dr;
-    ctx->h[1] = ctx->h[2] + dl + er;
-    ctx->h[2] = ctx->h[3] + el + ar;
-    ctx->h[3] = ctx->h[4] + al + br;
-    ctx->h[4] = ctx->h[0] + bl + cr;
-    ctx->h[0] = tl;
+    tl = ctx->u.md32.h[1] + cl + dr;
+    ctx->u.md32.h[1] = ctx->u.md32.h[2] + dl + er;
+    ctx->u.md32.h[2] = ctx->u.md32.h[3] + el + ar;
+    ctx->u.md32.h[3] = ctx->u.md32.h[4] + al + br;
+    ctx->u.md32.h[4] = ctx->u.md32.h[0] + bl + cr;
+    ctx->u.md32.h[0] = tl;
 
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -229,14 +229,14 @@ noxtls_return_t noxtls_ripemd160_init(noxtls_sha_ctx_t * ctx)
     }
 
     ctx->algo = NOXTLS_HASH_RIPEMD160;
-    ctx->h[0] = RIPEMD160_IV0;
-    ctx->h[1] = RIPEMD160_IV1;
-    ctx->h[2] = RIPEMD160_IV2;
-    ctx->h[3] = RIPEMD160_IV3;
-    ctx->h[4] = RIPEMD160_IV4;
-    noxtls_secure_zero((ctx->data), (size_t)(RIPEMD160_BLOCK_SIZE_BYTES));
-    ctx->data_len = 0U;
-    ctx->length = 0U;
+    ctx->u.md32.h[0] = RIPEMD160_IV0;
+    ctx->u.md32.h[1] = RIPEMD160_IV1;
+    ctx->u.md32.h[2] = RIPEMD160_IV2;
+    ctx->u.md32.h[3] = RIPEMD160_IV3;
+    ctx->u.md32.h[4] = RIPEMD160_IV4;
+    noxtls_secure_zero((ctx->u.md32.data), (size_t)(RIPEMD160_BLOCK_SIZE_BYTES));
+    ctx->u.md32.data_len = 0U;
+    ctx->u.md32.length = 0U;
   return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -265,16 +265,16 @@ noxtls_return_t noxtls_ripemd160_update(noxtls_sha_ctx_t * ctx, const uint8_t * 
         return NOXTLS_RETURN_SUCCESS;
     }
 
-    fill = (uint32_t)(RIPEMD160_BLOCK_SIZE_BYTES - (uint32_t)ctx->data_len);
+    fill = (uint32_t)(RIPEMD160_BLOCK_SIZE_BYTES - (uint32_t)ctx->u.md32.data_len);
 
-    if ((ctx->data_len > 0U) && (in_left >= fill)) {
-        noxtls_copy_u8(&ctx->data[ctx->data_len], sizeof(ctx->data) - (size_t)(ctx->data_len), in_ptr, (size_t)fill);
-        rc = noxtls_ripemd160_round(ctx, ctx->data);
+    if ((ctx->u.md32.data_len > 0U) && (in_left >= fill)) {
+        noxtls_copy_u8(&ctx->u.md32.data[ctx->u.md32.data_len], sizeof(ctx->u.md32.data) - (size_t)(ctx->u.md32.data_len), in_ptr, (size_t)fill);
+        rc = noxtls_ripemd160_round(ctx, ctx->u.md32.data);
         if (rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
-        ctx->length += RIPEMD160_BLOCK_SIZE_BYTES;
-        ctx->data_len = 0U;
+        ctx->u.md32.length += RIPEMD160_BLOCK_SIZE_BYTES;
+        ctx->u.md32.data_len = 0U;
         in_ptr = &in_ptr[fill];
         in_left -= fill;
     }
@@ -284,14 +284,14 @@ noxtls_return_t noxtls_ripemd160_update(noxtls_sha_ctx_t * ctx, const uint8_t * 
         if (rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
-        ctx->length += RIPEMD160_BLOCK_SIZE_BYTES;
+        ctx->u.md32.length += RIPEMD160_BLOCK_SIZE_BYTES;
         in_ptr = &in_ptr[RIPEMD160_BLOCK_SIZE_BYTES];
         in_left -= RIPEMD160_BLOCK_SIZE_BYTES;
     }
 
     if (in_left > 0U) {
-        noxtls_copy_u8(&ctx->data[ctx->data_len], sizeof(ctx->data) - (size_t)(ctx->data_len), in_ptr, (size_t)in_left);
-        ctx->data_len += (uint8_t)in_left;
+        noxtls_copy_u8(&ctx->u.md32.data[ctx->u.md32.data_len], sizeof(ctx->u.md32.data) - (size_t)(ctx->u.md32.data_len), in_ptr, (size_t)in_left);
+        ctx->u.md32.data_len += (uint8_t)in_left;
     }
 
     return NOXTLS_RETURN_SUCCESS;
@@ -316,43 +316,43 @@ noxtls_return_t noxtls_ripemd160_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
 
     {
         /* 64-bit bit count: (length + data_len) * 8 overflows 32 bits at 512 MiB. */
-        uint64_t total_bits = ((uint64_t)ctx->length + (uint64_t)ctx->data_len) << 3U;
+        uint64_t total_bits = ((uint64_t)ctx->u.md32.length + (uint64_t)ctx->u.md32.data_len) << 3U;
         total_bits_lo = (uint32_t)(total_bits & 0xFFFFFFFFU);
         total_bits_hi = (uint32_t)(total_bits >> 32U);
     }
 
-    ctx->data[ctx->data_len] = 0x80U;
+    ctx->u.md32.data[ctx->u.md32.data_len] = 0x80U;
 
-    ctx->data_len += 1U;
+    ctx->u.md32.data_len += 1U;
 
-    if (ctx->data_len > (RIPEMD160_BLOCK_SIZE_BYTES - 8U)) {
+    if (ctx->u.md32.data_len > (RIPEMD160_BLOCK_SIZE_BYTES - 8U)) {
         {
-            size_t pad_len = (size_t)(RIPEMD160_BLOCK_SIZE_BYTES - (uint32_t)ctx->data_len);
-            noxtls_secure_zero((&ctx->data[ctx->data_len]), (pad_len));
+            size_t pad_len = (size_t)(RIPEMD160_BLOCK_SIZE_BYTES - (uint32_t)ctx->u.md32.data_len);
+            noxtls_secure_zero((&ctx->u.md32.data[ctx->u.md32.data_len]), (pad_len));
         }
-        rc = noxtls_ripemd160_round(ctx, ctx->data);
+        rc = noxtls_ripemd160_round(ctx, ctx->u.md32.data);
         if (rc != NOXTLS_RETURN_SUCCESS) {
             /* Never release a partial digest: wipe the output and the state. */
             noxtls_secure_zero(hash, (size_t)HASH_RIPEMD160_OUT_LEN);
             noxtls_secure_zero(ctx, sizeof(*ctx));
             return rc;
         }
-        ctx->data_len = 0U;
+        ctx->u.md32.data_len = 0U;
     }
 
     {
-        size_t pad_len = (size_t)((RIPEMD160_BLOCK_SIZE_BYTES - (uint32_t)ctx->data_len) - 8U);
-        noxtls_secure_zero((&ctx->data[ctx->data_len]), (pad_len));
+        size_t pad_len = (size_t)((RIPEMD160_BLOCK_SIZE_BYTES - (uint32_t)ctx->u.md32.data_len) - 8U);
+        noxtls_secure_zero((&ctx->u.md32.data[ctx->u.md32.data_len]), (pad_len));
     }
-    ctx->data[RIPEMD160_BLOCK_SIZE_BYTES - 8U] = (uint8_t)(total_bits_lo & 0xFFU);
-    ctx->data[RIPEMD160_BLOCK_SIZE_BYTES - 7U] = (uint8_t)((total_bits_lo >> 8U) & 0xFFU);
-    ctx->data[RIPEMD160_BLOCK_SIZE_BYTES - 6U] = (uint8_t)((total_bits_lo >> 16U) & 0xFFU);
-    ctx->data[RIPEMD160_BLOCK_SIZE_BYTES - 5U] = (uint8_t)((total_bits_lo >> 24U) & 0xFFU);
-    ctx->data[RIPEMD160_BLOCK_SIZE_BYTES - 4U] = (uint8_t)(total_bits_hi & 0xFFU);
-    ctx->data[RIPEMD160_BLOCK_SIZE_BYTES - 3U] = (uint8_t)((total_bits_hi >>8U) & 0xFFU);
-    ctx->data[RIPEMD160_BLOCK_SIZE_BYTES - 2U] = (uint8_t)((total_bits_hi >>16U) & 0xFFU);
-    ctx->data[RIPEMD160_BLOCK_SIZE_BYTES - 1U] = (uint8_t)((total_bits_hi >>24U) & 0xFFU);
-    rc = noxtls_ripemd160_round(ctx, ctx->data);
+    ctx->u.md32.data[RIPEMD160_BLOCK_SIZE_BYTES - 8U] = (uint8_t)(total_bits_lo & 0xFFU);
+    ctx->u.md32.data[RIPEMD160_BLOCK_SIZE_BYTES - 7U] = (uint8_t)((total_bits_lo >> 8U) & 0xFFU);
+    ctx->u.md32.data[RIPEMD160_BLOCK_SIZE_BYTES - 6U] = (uint8_t)((total_bits_lo >> 16U) & 0xFFU);
+    ctx->u.md32.data[RIPEMD160_BLOCK_SIZE_BYTES - 5U] = (uint8_t)((total_bits_lo >> 24U) & 0xFFU);
+    ctx->u.md32.data[RIPEMD160_BLOCK_SIZE_BYTES - 4U] = (uint8_t)(total_bits_hi & 0xFFU);
+    ctx->u.md32.data[RIPEMD160_BLOCK_SIZE_BYTES - 3U] = (uint8_t)((total_bits_hi >>8U) & 0xFFU);
+    ctx->u.md32.data[RIPEMD160_BLOCK_SIZE_BYTES - 2U] = (uint8_t)((total_bits_hi >>16U) & 0xFFU);
+    ctx->u.md32.data[RIPEMD160_BLOCK_SIZE_BYTES - 1U] = (uint8_t)((total_bits_hi >>24U) & 0xFFU);
+    rc = noxtls_ripemd160_round(ctx, ctx->u.md32.data);
     if (rc != NOXTLS_RETURN_SUCCESS) {
         /* Never release a partial digest: wipe the output and the state. */
         noxtls_secure_zero(hash, (size_t)HASH_RIPEMD160_OUT_LEN);
@@ -361,10 +361,10 @@ noxtls_return_t noxtls_ripemd160_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
     }
 
     for (i = 0U; i < RIPEMD160_STATE_WORDS; i += 1U) {
-        hash[(i * 4U) + 0U] = (uint8_t)(ctx->h[i] & 0xFFU);
-        hash[(i * 4U) + 1U] = (uint8_t)((ctx->h[(uint32_t)i] >> 8U) & 0xFFU);
-        hash[(i * 4U) + 2U] = (uint8_t)((ctx->h[(uint32_t)i] >> 16U) & 0xFFU);
-        hash[(i * 4U) + 3U] = (uint8_t)((ctx->h[(uint32_t)i] >> 24U) & 0xFFU);
+        hash[(i * 4U) + 0U] = (uint8_t)(ctx->u.md32.h[i] & 0xFFU);
+        hash[(i * 4U) + 1U] = (uint8_t)((ctx->u.md32.h[(uint32_t)i] >> 8U) & 0xFFU);
+        hash[(i * 4U) + 2U] = (uint8_t)((ctx->u.md32.h[(uint32_t)i] >> 16U) & 0xFFU);
+        hash[(i * 4U) + 3U] = (uint8_t)((ctx->u.md32.h[(uint32_t)i] >> 24U) & 0xFFU);
     }
 
     return NOXTLS_RETURN_SUCCESS;

@@ -112,6 +112,7 @@ CMAKE_BOOL_CACHE_VARS: frozenset[str] = frozenset(
         "NOXTLS_FEATURE_ECJPAKE",
         "NOXTLS_FEATURE_DTLS_ECJPAKE",
         "NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES",
+        "NOXTLS_TLS12_ENABLE_SHA1_SIGNATURES",
     }
 )
 
@@ -240,6 +241,8 @@ def macro_to_cmake_cache(macro_id: str) -> str | None:
             return "NOXTLS_CFG_HAVE_CERT_WRITE"
         if macro_id == "NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES":
             return "NOXTLS_CFG_TLS12_ENABLE_LEGACY_CIPHER_SUITES"
+        if macro_id == "NOXTLS_TLS12_ENABLE_SHA1_SIGNATURES":
+            return "NOXTLS_CFG_TLS12_ENABLE_SHA1_SIGNATURES"
     return None
 
 

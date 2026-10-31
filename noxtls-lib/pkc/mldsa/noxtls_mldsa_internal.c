@@ -15,7 +15,8 @@
 *
 *
 * File:    noxtls_mldsa_internal.c
-* Summary: ML-DSA parameter definitions and basic arithmetic.
+* Summary: ML-DSA parameter sets (FIPS 204 Tables 1-2), SHAKE256 helper and
+*          secret-key layout offsets.
 *
 *
 *****************************************************************************/
@@ -25,129 +26,139 @@
 
 #include "noxtls_mldsa_internal.h"
 
-static const noxtls_mldsa_param_spec_t g_mldsa_specs[] = {
-    { NOXTLS_MLDSA_44, 1312U, 2560U, 2420U, 4U, 4U, 2U, 80U, 39U, 78U, 131072, 95232 },
-    { NOXTLS_MLDSA_65, 1952U, 4032U, 3309U, 6U, 5U, 4U, 55U, 49U, 196U, 524288, 261888 },
-    { NOXTLS_MLDSA_87, 2592U, 4896U, 4627U, 8U, 7U, 2U, 75U, 60U, 120U, 524288, 261888 }
-};
+#if NOXTLS_FEATURE_ML_DSA
+
+#include "noxtls_ct.h"
 
 /**
- * @brief Get the parameter specification.
+ * @brief Resolve an ML-DSA parameter identifier to its FIPS 204 constants.
  *
- * @param[in] param The param value.
- * @param[out] spec The spec value.
- * @return The return value.
+ * @param[in] param ML-DSA parameter set identifier.
+ * @param[out] spec Output parameter specification.
+ * @return NOXTLS_RETURN_SUCCESS, NOXTLS_RETURN_NULL or NOXTLS_RETURN_INVALID_PARAM.
  */
 noxtls_return_t noxtls_mldsa_internal_get_param_spec(noxtls_mldsa_param_t param,
                                                      noxtls_mldsa_param_spec_t *spec)
 {
-    size_t i;
-
     if(spec == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-
-    for(i = 0U; i < (sizeof(g_mldsa_specs)) / (sizeof(g_mldsa_specs[0])); i += 1U) {
-        if(g_mldsa_specs[i].param == param) {
-            *spec = g_mldsa_specs[i];
-            return NOXTLS_RETURN_SUCCESS;
-        }
+    noxtls_secure_zero(spec, sizeof(*spec));
+    spec->param = param;
+    if(param == NOXTLS_MLDSA_44) {
+        spec->k = 4U;
+        spec->l = 4U;
+        spec->eta = 2U;
+        spec->tau = 39U;
+        spec->beta = 78;
+        spec->gamma1 = (int32_t)1 << 17;
+        spec->gamma2 = (NOXTLS_MLDSA_Q - 1) / 88;
+        spec->omega = 80U;
+        spec->ctilde_len = 32U;
+    } else if(param == NOXTLS_MLDSA_65) {
+        spec->k = 6U;
+        spec->l = 5U;
+        spec->eta = 4U;
+        spec->tau = 49U;
+        spec->beta = 196;
+        spec->gamma1 = (int32_t)1 << 19;
+        spec->gamma2 = (NOXTLS_MLDSA_Q - 1) / 32;
+        spec->omega = 55U;
+        spec->ctilde_len = 48U;
+    } else if(param == NOXTLS_MLDSA_87) {
+        spec->k = 8U;
+        spec->l = 7U;
+        spec->eta = 2U;
+        spec->tau = 60U;
+        spec->beta = 120;
+        spec->gamma1 = (int32_t)1 << 19;
+        spec->gamma2 = (NOXTLS_MLDSA_Q - 1) / 32;
+        spec->omega = 75U;
+        spec->ctilde_len = 64U;
+    } else {
+        return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    return NOXTLS_RETURN_INVALID_PARAM;
+    spec->eta_bits = (spec->eta == 2U) ? 3U : 4U;
+    spec->poly_eta_bytes = (NOXTLS_MLDSA_N * spec->eta_bits) / 8U;
+    spec->gamma1_bits = (spec->gamma1 == ((int32_t)1 << 17)) ? 18U : 20U;
+    spec->poly_z_bytes = (NOXTLS_MLDSA_N * spec->gamma1_bits) / 8U;
+    spec->w1_bits = (spec->gamma2 == ((NOXTLS_MLDSA_Q - 1) / 88)) ? 6U : 4U;
+    spec->poly_w1_bytes = (NOXTLS_MLDSA_N * spec->w1_bits) / 8U;
+    spec->public_key_len = NOXTLS_MLDSA_SEEDBYTES + (spec->k * NOXTLS_MLDSA_POLYT1_BYTES);
+    spec->secret_key_len = (2U * NOXTLS_MLDSA_SEEDBYTES) + NOXTLS_MLDSA_TRBYTES +
+                           ((spec->l + spec->k) * spec->poly_eta_bytes) +
+                           (spec->k * NOXTLS_MLDSA_POLYT0_BYTES);
+    spec->signature_len = spec->ctilde_len + (spec->l * spec->poly_z_bytes) +
+                          spec->omega + spec->k;
+    return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
- * @brief Normalize a coefficient.
+ * @brief One-shot SHAKE256 over the concatenation in1 || in2.
  *
- * @param[in] a The a value.
- * @return The return value.
+ * @param[out] out Output buffer.
+ * @param[in] out_len Number of bytes to squeeze.
+ * @param[in] in1 First input (may be NULL when in1_len is 0).
+ * @param[in] in1_len Length of in1.
+ * @param[in] in2 Second input (may be NULL when in2_len is 0).
+ * @param[in] in2_len Length of in2.
+ * @return NOXTLS_RETURN_SUCCESS or the SHAKE error code.
  */
-int32_t noxtls_mldsa_coeff_normalize(int32_t a)
+noxtls_return_t noxtls_mldsa_shake256(uint8_t *out, uint32_t out_len,
+                                      const uint8_t *in1, uint32_t in1_len,
+                                      const uint8_t *in2, uint32_t in2_len)
 {
-    int32_t r = a % NOXTLS_MLDSA_Q;
-    if(r < 0) {
-        r += NOXTLS_MLDSA_Q;
+    noxtls_sha3_ctx_t ctx;
+    noxtls_return_t rc = noxtls_shake256_init(&ctx);
+
+    if((rc == NOXTLS_RETURN_SUCCESS) && (in1_len > 0U)) {
+        rc = noxtls_shake256_update(&ctx, in1, in1_len);
     }
-    return r;
+    if((rc == NOXTLS_RETURN_SUCCESS) && (in2_len > 0U)) {
+        rc = noxtls_shake256_update(&ctx, in2, in2_len);
+    }
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_shake256_final(&ctx);
+    }
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_shake256_squeeze(&ctx, out, out_len);
+    }
+    noxtls_secure_zero(&ctx, sizeof(ctx));
+    return rc;
 }
 
 /**
- * @brief Zero a polynomial.
- *
- * @param[in] p The p value.
+ * @brief Byte offset of s1[j] inside an encoded secret key.
+ * @param[in] spec Parameter set.
+ * @param[in] j Polynomial index (0..l-1).
+ * @return Offset in bytes.
  */
-void noxtls_mldsa_poly_zero(noxtls_mldsa_poly_t *p)
+uint32_t noxtls_mldsa_sk_s1_offset(const noxtls_mldsa_param_spec_t *spec, uint32_t j)
 {
-    size_t i;
-
-    if(p == NULL) {
-        return;
-    }
-
-    for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
-        p->coeff[i] = 0U;
-    }
+    return (2U * NOXTLS_MLDSA_SEEDBYTES) + NOXTLS_MLDSA_TRBYTES + (j * spec->poly_eta_bytes);
 }
 
 /**
- * @brief Add two polynomials.
- *
- * @param[out] r The r value.
- * @param[in] a The a value.
- * @param[in] b The b value.
+ * @brief Byte offset of s2[i] inside an encoded secret key.
+ * @param[in] spec Parameter set.
+ * @param[in] i Polynomial index (0..k-1).
+ * @return Offset in bytes.
  */
-void noxtls_mldsa_poly_add(noxtls_mldsa_poly_t *r,
-                           const noxtls_mldsa_poly_t *a,
-                           const noxtls_mldsa_poly_t *b)
+uint32_t noxtls_mldsa_sk_s2_offset(const noxtls_mldsa_param_spec_t *spec, uint32_t i)
 {
-    size_t i;
-
-    if(r == NULL || a == NULL || b == NULL) {
-        return;
-    }
-
-    for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
-        r->coeff[i] = a->coeff[i] + b->coeff[i];
-    }
+    return noxtls_mldsa_sk_s1_offset(spec, spec->l) + (i * spec->poly_eta_bytes);
 }
 
 /**
- * @brief Subtract two polynomials.
- *
- * @param[out] r The r value.
- * @param[in] a The a value.
- * @param[in] b The b value.
+ * @brief Byte offset of t0[i] inside an encoded secret key.
+ * @param[in] spec Parameter set.
+ * @param[in] i Polynomial index (0..k-1).
+ * @return Offset in bytes.
  */
-void noxtls_mldsa_poly_sub(noxtls_mldsa_poly_t *r,
-                           const noxtls_mldsa_poly_t *a,
-                           const noxtls_mldsa_poly_t *b)
+uint32_t noxtls_mldsa_sk_t0_offset(const noxtls_mldsa_param_spec_t *spec, uint32_t i)
 {
-    size_t i;
-
-    if(r == NULL || a == NULL || b == NULL) {
-        return;
-    }
-
-    for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
-        r->coeff[i] = a->coeff[i] - b->coeff[i];
-    }
+    return noxtls_mldsa_sk_s2_offset(spec, spec->k) + (i * NOXTLS_MLDSA_POLYT0_BYTES);
 }
 
-/**
- * @brief Reduce a polynomial.
- *
- * @param[in] p The p value.
- */
-void noxtls_mldsa_poly_reduce(noxtls_mldsa_poly_t *p)
-{
-    size_t i;
-
-    if(p == NULL) {
-        return;
-    }
-
-    for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
-        p->coeff[i] = noxtls_mldsa_coeff_normalize(p->coeff[i]);
-    }
-}
+#endif /* NOXTLS_FEATURE_ML_DSA */

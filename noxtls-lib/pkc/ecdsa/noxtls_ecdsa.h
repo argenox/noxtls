@@ -32,8 +32,10 @@
 #include "mdigest/noxtls_hash.h"
 
 /* On-target operation diagnostics. */
+#if NOXTLS_ECC_STATUS_WORDS
 extern volatile int32_t noxtls_ecdsa_sign_last_rc;
 extern volatile uint32_t noxtls_ecdsa_sign_last_stage;
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -63,6 +65,10 @@ typedef struct
 /* ECDSA Signature Operations */
 noxtls_return_t noxtls_ecdsa_sign(const ecc_key_t *key, const uint8_t *noxtls_message, uint32_t message_len, ecdsa_signature_t *signature, noxtls_hash_algos_t hash_algo);
 noxtls_return_t noxtls_ecdsa_verify(const ecc_key_t *key, const uint8_t *noxtls_message, uint32_t message_len, const ecdsa_signature_t *signature, noxtls_hash_algos_t hash_algo);
+/** Sign / verify a precomputed message digest (1..64 bytes) instead of hashing a message
+ *  (e.g. TLS 1.2 CertificateVerify over a running transcript hash). */
+noxtls_return_t noxtls_ecdsa_sign_digest(const ecc_key_t *key, const uint8_t *digest, uint32_t digest_len, ecdsa_signature_t *signature);
+noxtls_return_t noxtls_ecdsa_verify_digest(const ecc_key_t *key, const uint8_t *digest, uint32_t digest_len, const ecdsa_signature_t *signature);
 
 /* ECDSA Signature Format */
 noxtls_return_t noxtls_ecdsa_signature_init(ecdsa_signature_t *sig, uint32_t size);

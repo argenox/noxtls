@@ -1,4 +1,7 @@
-/* Precomputed AES encrypt tables for flash-constrained SRAM targets.
+/* Precomputed AES encrypt T-tables placed in flash/ROM (const), used when
+ * NOXTLS_AES_ROM_TABLES=1 (the default). This trades 4 KB of flash (1 KB with
+ * NOXTLS_AES_COMPACT_TABLES=1) for 4 KB of RAM: the tables need no .bss and
+ * no runtime initialisation, which suits RAM-constrained MCUs.
  * Generated from aes_sub_box using the same GF(2^8) recurrence as
  * aes_software_init_encrypt_tables(). Keep this file in sync with it.
  * Copyright (c) [2019] - [2026], Argenox Technologies LLC.
@@ -43,6 +46,7 @@ static const uint32_t aes_enc_te0[256] =
     0x824141C3U, 0x299999B0U, 0x5A2D2D77U, 0x1E0F0F11U, 0x7BB0B0CBU, 0xA85454FCU, 0x6DBBBBD6U, 0x2C16163AU
 };
 
+#if !NOXTLS_AES_COMPACT_TABLES
 static const uint32_t aes_enc_te1[256] =
 {
     0xA5C66363U, 0x84F87C7CU, 0x99EE7777U, 0x8DF67B7BU, 0x0DFFF2F2U, 0xBDD66B6BU, 0xB1DE6F6FU, 0x5491C5C5U,
@@ -150,5 +154,7 @@ static const uint32_t aes_enc_te3[256] =
     0x8C8C8F03U, 0xA1A1F859U, 0x89898009U, 0x0D0D171AU, 0xBFBFDA65U, 0xE6E631D7U, 0x4242C684U, 0x6868B8D0U,
     0x4141C382U, 0x9999B029U, 0x2D2D775AU, 0x0F0F111EU, 0xB0B0CB7BU, 0x5454FCA8U, 0xBBBBD66DU, 0x16163A2CU
 };
+
+#endif /* !NOXTLS_AES_COMPACT_TABLES */
 
 #endif /* NOXTLS_AES_ROM_TABLES_H */

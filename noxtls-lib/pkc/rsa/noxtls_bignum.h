@@ -29,6 +29,22 @@
 #include <stdint.h>
 #include "noxtls_common.h"
 
+/* NOXTLS_BIGNUM_ENABLED: 1 when the bignum module is compiled in (its sources are wrapped in
+ * #if NOXTLS_BIGNUM_ENABLED). It is needed by RSA, DSA, DH, ECC/ECDSA/ECDH (incl. the PAKEs
+ * built on ECC), X448, Ed448 and Falcon; NOXTLS_FEATURE_BIGNUM=1 (CMake
+ * NOXTLS_CFG_FEATURE_BIGNUM, passed as a -D) forces it on for other users. A build without
+ * CMake, where NOXTLS_FEATURE_BIGNUM is not defined, gets it whenever a consumer is enabled. */
+#ifndef NOXTLS_BIGNUM_ENABLED
+#if (defined(NOXTLS_FEATURE_BIGNUM) && (NOXTLS_FEATURE_BIGNUM != 0)) || \
+    NOXTLS_FEATURE_RSA || NOXTLS_FEATURE_DSA || NOXTLS_FEATURE_DH || \
+    NOXTLS_FEATURE_ECC || NOXTLS_FEATURE_ECDSA || NOXTLS_FEATURE_ECDH || \
+    NOXTLS_FEATURE_X448 || NOXTLS_FEATURE_ED448 || NOXTLS_FEATURE_FALCON
+#define NOXTLS_BIGNUM_ENABLED 1
+#else
+#define NOXTLS_BIGNUM_ENABLED 0
+#endif
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -61,6 +77,10 @@ noxtls_return_t noxtls_bn_mod_exp_service(uint8_t *result, const uint8_t *base,
     const uint8_t *exp, uint32_t exp_len, const uint8_t *mod, uint32_t mod_len,
     noxtls_bn_service_fn service);
 noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const uint8_t *exp, uint32_t exp_len, const uint8_t *mod, uint32_t mod_len);
+/* result = base ^ exp mod mod for a PUBLIC exponent (RSA e, verification exponents):
+ * table-free Montgomery square-and-multiply, (6n + 2) limbs of scratch for an odd modulus.
+ * Variable time in the exponent bits only; never use it with a secret exponent. */
+noxtls_return_t noxtls_bn_mod_exp_public(uint8_t *result, const uint8_t *base, const uint8_t *exp, uint32_t exp_len, const uint8_t *mod, uint32_t mod_len);
 noxtls_return_t noxtls_bn_mod_inv(uint8_t *result, const uint8_t *a, uint32_t a_len, const uint8_t *m, uint32_t m_len);
 
 /* Test-only functions: expose internal shift and 2n-by-n limb functions for unit testing */

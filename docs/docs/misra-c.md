@@ -34,6 +34,24 @@ NoxTLS 0.3.0 is the first release built against **MISRA C:2025**. The MISRA work
 
 ## Analysis status
 
+### 0.3.15 (CodeNox scan)
+
+From 0.3.15 on, MISRA C:2025 analysis is part of the regular checks. `scripts/misra/run_codenox.py` runs the CodeNox analyzer over every library source in an Arm Cortex-M4 build (arm-gnu 14.2, `-std=gnu99`, all post-quantum features enabled, 119 translation units). Each `noxtls-oem` release package includes the resulting report. See `misra/README.md` in the repository.
+
+| Category | Findings | Of which inconclusive |
+|---|---:|---:|
+| Mandatory | 28 | 28 |
+| Required | 940 | 421 |
+| Advisory | 3,177 | 1,665 |
+
+How to read these numbers:
+
+- **Mandatory:** all 28 findings are inconclusive, meaning the analyzer could not prove the code correct either way. Most are Rule 21.18 size checks in Falcon. A few are Rule 22.2 in the allocator implementation. They are under manual review. None is confirmed as a defect yet.
+- **Required:** these are open work. The scan uses CodeNox 0.2.1. CodeNox 0.2.0 reported about 935 more Rule 5.3 findings, false positives caused by treating parameter names inside function-pointer types as file-scope identifiers. 0.2.1 fixes this; 12 genuine Rule 5.3 findings remain.
+- **Not a compliance claim:** the scan is evidence for a MISRA assessment. It does not show that NoxTLS 0.3.15 is MISRA compliant.
+
+### 0.3.0 line
+
 The MISRA history in the 0.3.0 line has three stages:
 
 | Stage | Commit | What was recorded |
@@ -174,6 +192,8 @@ cmake -S . -B build-misra \
 cmake --build build-misra
 # Feed build-misra/compile_commands.json to your MISRA C:2025 checker.
 ```
+
+With CodeNox installed, `python scripts/misra/run_codenox.py --out-dir build/misra` does all of this for the Cortex-M4 reference configuration. Pass `--cmake-arg -D<option>=<value>` to analyze your own feature set.
 
 Add your own feature knobs (see the [Configuration guide](./configuration-guide.md)) and, for static-pool builds, `NOXTLS_USE_STATIC_BUFFERS=1` in your configuration header. Run the analysis on both the private-state default and any shared-state options you enable (`NOXTLS_HMAC_SHA256_SHARED_STATE`, `NOXTLS_ECC_SHARED_SCRATCH`).
 

@@ -35,7 +35,9 @@
 #include "mdigest/sha512/noxtls_sha512.h"
 #include "noxtls_ct.h"
 
+#if TLS13_PSK_TICKET_STORE_MAX > 0U
 static psk_ticket_store_t psk_ticket_store;
+#endif
 
 /**
  * @brief Hash handshake bytes for PSK binder transcript input.
@@ -263,10 +265,12 @@ static noxtls_return_t psk_clienthello_binder_prefix_len(const uint8_t *client_h
 /**
  * @brief Clear the module-global PSK ticket store.
  */
+#if TLS13_PSK_TICKET_STORE_MAX > 0U
 static void psk_ticket_store_init(void)
 {
     noxtls_secure_zero(&psk_ticket_store, sizeof(psk_ticket_store));
 }
+#endif
 
 /**
  * @brief Check whether a PSK key exchange mode appears in the extension payload.
@@ -760,9 +764,11 @@ noxtls_return_t tls13_psk_ticket_store_add(const uint8_t *ticket_id,
                                            uint16_t cipher_suite)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
+#if TLS13_PSK_TICKET_STORE_MAX > 0U
     psk_ticket_entry_t *e;
     if ((ticket_id == NULL) || (id_len > TLS13_PSK_TICKET_ID_LEN) || (resumption_psk == NULL) ||
-        (psk_len > 64U) || (ticket_nonce == NULL) || (nonce_len > TLS13_PSK_TICKET_NONCE_MAX)) {
+        (psk_len > TLS13_PSK_RESUMPTION_PSK_MAX) || (ticket_nonce == NULL) ||
+        (nonce_len > TLS13_PSK_SERVER_NONCE_LEN)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
     if (psk_ticket_store.next_index == 0U) {
@@ -779,6 +785,17 @@ noxtls_return_t tls13_psk_ticket_store_add(const uint8_t *ticket_id,
     e->ticket_age_add = ticket_age_add;
     e->cipher_suite = cipher_suite;
     return NOXTLS_RETURN_SUCCESS;
+#else
+    (void)ticket_id;
+    (void)id_len;
+    (void)resumption_psk;
+    (void)psk_len;
+    (void)ticket_nonce;
+    (void)nonce_len;
+    (void)ticket_age_add;
+    (void)cipher_suite;
+    return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
 }
 
 /**
@@ -790,6 +807,7 @@ noxtls_return_t tls13_psk_ticket_store_add(const uint8_t *ticket_id,
  */
 const void *tls13_psk_ticket_store_lookup(const uint8_t *ticket_id, uint32_t id_len)
 {
+#if TLS13_PSK_TICKET_STORE_MAX > 0U
     uint32_t i = 0U;
     if ((ticket_id == NULL) || (id_len != TLS13_PSK_TICKET_ID_LEN)) {
         return NULL;
@@ -802,6 +820,10 @@ const void *tls13_psk_ticket_store_lookup(const uint8_t *ticket_id, uint32_t id_
             }
         }
     }
+#else
+    (void)ticket_id;
+    (void)id_len;
+#endif
     return NULL;
 }
 
@@ -904,4 +926,26 @@ noxtls_return_t tls13_psk_derive_resumption_psk(noxtls_hash_algos_t hash_algo,
                                  resumption_psk, hash_len);
     noxtls_secure_zero((resumption_master_secret), sizeof(resumption_master_secret));
     return rc;
+}
+
+noxtls_return_t tls13_psk_derive_resumption_psk_from_rms(noxtls_hash_algos_t hash_algo,
+                                                         uint32_t hash_len,
+                                                         const uint8_t *resumption_master_secret,
+                                                         const uint8_t *ticket_nonce,
+                                                         uint32_t ticket_nonce_len,
+                                                         uint8_t *resumption_psk)
+{
+    static const uint8_t psk_label[] = {
+        (uint8_t)'r',(uint8_t)'e',(uint8_t)'s',(uint8_t)'u',(uint8_t)'m',(uint8_t)'p',(uint8_t)'t',(uint8_t)'i',(uint8_t)'o',(uint8_t)'n'
+    };
+
+    if ((resumption_master_secret == NULL) || (ticket_nonce == NULL) || (resumption_psk == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if ((hash_len == 0U) || (hash_len > 64U) || (ticket_nonce_len > 255U)) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    return tls13_hkdf_expand_label(hash_algo, resumption_master_secret, hash_len,
+                                   psk_label, (uint32_t)sizeof(psk_label), ticket_nonce, ticket_nonce_len,
+                                   resumption_psk, hash_len);
 }

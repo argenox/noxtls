@@ -40,9 +40,28 @@ extern "C" {
 #if (NOXTLS_FEATURE_TLS12 || NOXTLS_FEATURE_TLS13)
 
 /**
+ * Storage of the protocol context of a unified connection. Exactly one member is in use:
+ * before the handshake starts only @c pending_session (client resumption state set with
+ * noxtls_tls_connection_set_tls13_session()); afterwards the version context selected by
+ * @c is_tls13 (TLS 1.2 or TLS 1.3). The client downgrade path frees the TLS 1.3 context
+ * before it initializes the TLS 1.2 one in the same storage.
+ */
+/* MISRA C:2025 Rule 19.2 (advisory) deviation: the members are never live at the same time. */
+typedef union
+{
+#if NOXTLS_FEATURE_TLS12
+    tls12_context_t tls12;
+#endif
+#if NOXTLS_FEATURE_TLS13
+    tls13_context_t tls13;
+    noxtls_tls13_session_t pending_session;
+#endif
+} noxtls_tls_version_context_t;
+
+/**
  * Unified TLS connection: one context type for TLS 1.2 or 1.3 with automatic
  * version negotiation. Server uses accept(); client uses connect() (tries 1.3 then 1.2).
- * Only one of tls12 or tls13 is active per connection.
+ * Only one of ver.tls12 or ver.tls13 is active per connection.
  */
 NOXTLS_MSVC_WARNING_PUSH
 NOXTLS_MSVC_DISABLE_PADDING
@@ -86,11 +105,10 @@ typedef struct
     const noxtls_x509_crl_t *verify_crl;
     /** Requested maximum plaintext record payload; 0 keeps protocol default. */
     uint16_t maximum_record_payload;
-    /** Optional caller-owned TLS 1.3 client session copied before connect. */
-    noxtls_tls13_session_t tls13_session;
+    /** 1 when ver.pending_session holds a TLS 1.3 client session to import at connect. */
     uint8_t tls13_session_configured;
-    tls12_context_t tls12;
-    tls13_context_t tls13;
+    /** Protocol context (TLS 1.2 or TLS 1.3, one at a time). */
+    noxtls_tls_version_context_t ver;
 } noxtls_tls_connection_t;
 NOXTLS_MSVC_WARNING_POP
 

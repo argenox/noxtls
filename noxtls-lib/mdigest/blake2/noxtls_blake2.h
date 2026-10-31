@@ -62,8 +62,10 @@ typedef struct {
     uint8_t buf[128];     /* block buffer */
     uint32_t buflen;      /* bytes in buf */
     uint64_t total;       /* total bytes hashed */
-    uint32_t h32[8];  /* BLAKE2s state */
-    uint64_t h64[8];  /* BLAKE2b state */
+    union {
+        uint32_t h32[8];  /* BLAKE2s state */
+        uint64_t h64[8];  /* BLAKE2b state */
+    } h;                  /* selected by is_blake2b */
 } noxtls_blake2_ctx_t;
 NOXTLS_MSVC_WARNING_POP
 

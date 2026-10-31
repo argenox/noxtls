@@ -27,6 +27,8 @@
 #include "noxtls_ecc_accel_port.h"
 #include "noxtls_common.h"
 
+#if NOXTLS_FEATURE_ECC
+
 static uint32_t s_noxtls_ecc_accel_fallback_count;
 
 int noxtls_ecc_accel_is_ready(void)
@@ -90,3 +92,5 @@ noxtls_return_t noxtls_ecc_point_multiply_accel_port(ecc_point_t *result,
     (void)curve;
     return NOXTLS_RETURN_NOT_SUPPORTED;
 }
+
+#endif /* NOXTLS_FEATURE_ECC */

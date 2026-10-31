@@ -31,6 +31,11 @@
 
 #include "noxtls_ed25519_config.h"
 #include "noxtls_ed25519_fe.h"
+#include "noxtls_common.h"
+
+/* Field / group / scalar code is used only by Ed25519 (X25519 has its own field
+ * arithmetic), so the whole unit compiles to nothing when Ed25519 is disabled. */
+#if NOXTLS_FEATURE_ED25519
 
 /* Arithmetic floor shifts used by the radix 2^25/2^26 carry schedule.
  * Secret values use only unsigned shifts and representable signed arithmetic. */
@@ -959,3 +964,5 @@ unsigned int fe25519_native_equal(const fe25519_native_t *a, const fe25519_nativ
     }
     return (unsigned int)(((uint32_t)acc - 1U) >> 31);
 }
+
+#endif /* NOXTLS_FEATURE_ED25519 */

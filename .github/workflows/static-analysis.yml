@@ -35,6 +35,8 @@ jobs:
           --suppress=missingIncludeSystem
           --suppress=unusedFunction
           --check-level=exhaustive
+          -DNOXTLS_FEATURE_TLS_CLIENT=1
+          -DNOXTLS_FEATURE_TLS_SERVER=1
           --error-exitcode=1
 
   clang-tidy:

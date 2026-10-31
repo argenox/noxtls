@@ -44,6 +44,9 @@
 #include "common/noxtls_ct.h"
 #include "common/noxtls_memory.h"
 
+/* Built only with NOXTLS_FEATURE_DTLS_ECJPAKE (sources may be compiled unconditionally). */
+#if NOXTLS_FEATURE_DTLS_ECJPAKE
+
 /** @brief Bits in one byte shift, for big-endian 16-bit fields. */
 #define NOXTLS_TLS12_ECJPAKE_BYTE_SHIFT (8U)
 /** @brief Mask selecting one byte. */
@@ -397,3 +400,4 @@ noxtls_return_t noxtls_tls12_ecjpake_export_key_block(const tls12_context_t *ctx
     *out_len = offset;
     return NOXTLS_RETURN_SUCCESS;
 }
+#endif /* NOXTLS_FEATURE_DTLS_ECJPAKE */

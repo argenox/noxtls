@@ -77,6 +77,46 @@ static const uint8_t aria_s2[256] = {
     0xedU, 0x14U, 0xe0U, 0xa5U, 0x3dU, 0x22U, 0xb3U, 0xf8U, 0x89U, 0xdeU, 0x71U, 0x1aU, 0xafU, 0xbaU, 0xb5U, 0x81U
 };
 
+/* Inverse of aria_s1 (generated offline: aria_inv_s1[aria_s1[x]] = x) */
+static const uint8_t aria_inv_s1[256] = {
+    0x52U, 0x09U, 0x6aU, 0xd5U, 0x30U, 0x36U, 0xa5U, 0x38U, 0xbfU, 0x40U, 0xa3U, 0x9eU, 0x81U, 0xf3U, 0xd7U, 0xfbU,
+    0x7cU, 0xe3U, 0x39U, 0x82U, 0x9bU, 0x2fU, 0xffU, 0x87U, 0x34U, 0x8eU, 0x43U, 0x44U, 0xc4U, 0xdeU, 0xe9U, 0xcbU,
+    0x54U, 0x7bU, 0x94U, 0x32U, 0xa6U, 0xc2U, 0x23U, 0x3dU, 0xeeU, 0x4cU, 0x95U, 0x0bU, 0x42U, 0xfaU, 0xc3U, 0x4eU,
+    0x08U, 0x2eU, 0xa1U, 0x66U, 0x28U, 0xd9U, 0x24U, 0xb2U, 0x76U, 0x5bU, 0xa2U, 0x49U, 0x6dU, 0x8bU, 0xd1U, 0x25U,
+    0x72U, 0xf8U, 0xf6U, 0x64U, 0x86U, 0x68U, 0x98U, 0x16U, 0xd4U, 0xa4U, 0x5cU, 0xccU, 0x5dU, 0x65U, 0xb6U, 0x92U,
+    0x6cU, 0x70U, 0x48U, 0x50U, 0xfdU, 0xedU, 0xb9U, 0xdaU, 0x5eU, 0x15U, 0x46U, 0x57U, 0xa7U, 0x8dU, 0x9dU, 0x84U,
+    0x90U, 0xd8U, 0xabU, 0x00U, 0x8cU, 0xbcU, 0xd3U, 0x0aU, 0xf7U, 0xe4U, 0x58U, 0x05U, 0xb8U, 0xb3U, 0x45U, 0x06U,
+    0xd0U, 0x2cU, 0x1eU, 0x8fU, 0xcaU, 0x3fU, 0x0fU, 0x02U, 0xc1U, 0xafU, 0xbdU, 0x03U, 0x01U, 0x13U, 0x8aU, 0x6bU,
+    0x3aU, 0x91U, 0x11U, 0x41U, 0x4fU, 0x67U, 0xdcU, 0xeaU, 0x97U, 0xf2U, 0xcfU, 0xceU, 0xf0U, 0xb4U, 0xe6U, 0x73U,
+    0x96U, 0xacU, 0x74U, 0x22U, 0xe7U, 0xadU, 0x35U, 0x85U, 0xe2U, 0xf9U, 0x37U, 0xe8U, 0x1cU, 0x75U, 0xdfU, 0x6eU,
+    0x47U, 0xf1U, 0x1aU, 0x71U, 0x1dU, 0x29U, 0xc5U, 0x89U, 0x6fU, 0xb7U, 0x62U, 0x0eU, 0xaaU, 0x18U, 0xbeU, 0x1bU,
+    0xfcU, 0x56U, 0x3eU, 0x4bU, 0xc6U, 0xd2U, 0x79U, 0x20U, 0x9aU, 0xdbU, 0xc0U, 0xfeU, 0x78U, 0xcdU, 0x5aU, 0xf4U,
+    0x1fU, 0xddU, 0xa8U, 0x33U, 0x88U, 0x07U, 0xc7U, 0x31U, 0xb1U, 0x12U, 0x10U, 0x59U, 0x27U, 0x80U, 0xecU, 0x5fU,
+    0x60U, 0x51U, 0x7fU, 0xa9U, 0x19U, 0xb5U, 0x4aU, 0x0dU, 0x2dU, 0xe5U, 0x7aU, 0x9fU, 0x93U, 0xc9U, 0x9cU, 0xefU,
+    0xa0U, 0xe0U, 0x3bU, 0x4dU, 0xaeU, 0x2aU, 0xf5U, 0xb0U, 0xc8U, 0xebU, 0xbbU, 0x3cU, 0x83U, 0x53U, 0x99U, 0x61U,
+    0x17U, 0x2bU, 0x04U, 0x7eU, 0xbaU, 0x77U, 0xd6U, 0x26U, 0xe1U, 0x69U, 0x14U, 0x63U, 0x55U, 0x21U, 0x0cU, 0x7dU
+};
+
+/* Inverse of aria_s2 (generated offline: aria_inv_s2[aria_s2[x]] = x) */
+static const uint8_t aria_inv_s2[256] = {
+    0x30U, 0x68U, 0x99U, 0x1bU, 0x87U, 0xb9U, 0x21U, 0x78U, 0x50U, 0x39U, 0xdbU, 0xe1U, 0x72U, 0x09U, 0x62U, 0x3cU,
+    0x3eU, 0x7eU, 0x5eU, 0x8eU, 0xf1U, 0xa0U, 0xccU, 0xa3U, 0x2aU, 0x1dU, 0xfbU, 0xb6U, 0xd6U, 0x20U, 0xc4U, 0x8dU,
+    0x81U, 0x65U, 0xf5U, 0x89U, 0xcbU, 0x9dU, 0x77U, 0xc6U, 0x57U, 0x43U, 0x56U, 0x17U, 0xd4U, 0x40U, 0x1aU, 0x4dU,
+    0xc0U, 0x63U, 0x6cU, 0xe3U, 0xb7U, 0xc8U, 0x64U, 0x6aU, 0x53U, 0xaaU, 0x38U, 0x98U, 0x0cU, 0xf4U, 0x9bU, 0xedU,
+    0x7fU, 0x22U, 0x76U, 0xafU, 0xddU, 0x3aU, 0x0bU, 0x58U, 0x67U, 0x88U, 0x06U, 0xc3U, 0x35U, 0x0dU, 0x01U, 0x8bU,
+    0x8cU, 0xc2U, 0xe6U, 0x5fU, 0x02U, 0x24U, 0x75U, 0x93U, 0x66U, 0x1eU, 0xe5U, 0xe2U, 0x54U, 0xd8U, 0x10U, 0xceU,
+    0x7aU, 0xe8U, 0x08U, 0x2cU, 0x12U, 0x97U, 0x32U, 0xabU, 0xb4U, 0x27U, 0x0aU, 0x23U, 0xdfU, 0xefU, 0xcaU, 0xd9U,
+    0xb8U, 0xfaU, 0xdcU, 0x31U, 0x6bU, 0xd1U, 0xadU, 0x19U, 0x49U, 0xbdU, 0x51U, 0x96U, 0xeeU, 0xe4U, 0xa8U, 0x41U,
+    0xdaU, 0xffU, 0xcdU, 0x55U, 0x86U, 0x36U, 0xbeU, 0x61U, 0x52U, 0xf8U, 0xbbU, 0x0eU, 0x82U, 0x48U, 0x69U, 0x9aU,
+    0xe0U, 0x47U, 0x9eU, 0x5cU, 0x04U, 0x4bU, 0x34U, 0x15U, 0x79U, 0x26U, 0xa7U, 0xdeU, 0x29U, 0xaeU, 0x92U, 0xd7U,
+    0x84U, 0xe9U, 0xd2U, 0xbaU, 0x5dU, 0xf3U, 0xc5U, 0xb0U, 0xbfU, 0xa4U, 0x3bU, 0x71U, 0x44U, 0x46U, 0x2bU, 0xfcU,
+    0xebU, 0x6fU, 0xd5U, 0xf6U, 0x14U, 0xfeU, 0x7cU, 0x70U, 0x5aU, 0x7dU, 0xfdU, 0x2fU, 0x18U, 0x83U, 0x16U, 0xa5U,
+    0x91U, 0x1fU, 0x05U, 0x95U, 0x74U, 0xa9U, 0xc1U, 0x5bU, 0x4aU, 0x85U, 0x6dU, 0x13U, 0x07U, 0x4fU, 0x4eU, 0x45U,
+    0xb2U, 0x0fU, 0xc9U, 0x1cU, 0xa6U, 0xbcU, 0xecU, 0x73U, 0x90U, 0x7bU, 0xcfU, 0x59U, 0x8fU, 0xa1U, 0xf9U, 0x2dU,
+    0xf2U, 0xb1U, 0x00U, 0x94U, 0x37U, 0x9fU, 0xd0U, 0x2eU, 0x9cU, 0x6eU, 0x28U, 0x3fU, 0x80U, 0xf0U, 0x3dU, 0xd3U,
+    0x25U, 0x8aU, 0xb5U, 0xe7U, 0x42U, 0xb3U, 0xc7U, 0xeaU, 0xf7U, 0x4cU, 0x11U, 0x33U, 0x03U, 0xa2U, 0xacU, 0x60U
+};
+
 /* Diffusion layer (DL) - multiplication by constant matrix */
 /**
  * @brief The diffusion layer.
@@ -117,22 +157,10 @@ static void aria_diffusion_layer(uint8_t *state)
  */
 static void aria_sl1(uint8_t *state)
 {
-    static uint8_t inv_s1[256];
-    static uint8_t inv_s2[256];
-    static int inv_init = 0;
     const uint8_t *sb1 = aria_s1;
     const uint8_t *sb2 = aria_s2;
-    const uint8_t *sb3 = inv_s1;
-    const uint8_t *sb4 = inv_s2;
-
-    if (inv_init == 0) {
-        uint32_t i = 0U;
-        for (i = 0U; i < 256U; i += 1U) {
-            inv_s1[aria_s1[i]] = (uint8_t)i;
-            inv_s2[aria_s2[i]] = (uint8_t)i;
-        }
-        inv_init = 1;
-    }
+    const uint8_t *sb3 = aria_inv_s1;
+    const uint8_t *sb4 = aria_inv_s2;
 
     state[0]  = sb1[state[0]];  state[1]  = sb2[state[1]];  state[2]  = sb3[state[2]];  state[3]  = sb4[state[3]];
     state[4]  = sb1[state[4]];  state[5]  = sb2[state[5]];  state[6]  = sb3[state[6]];  state[7]  = sb4[state[7]];
@@ -148,22 +176,10 @@ static void aria_sl1(uint8_t *state)
  */
 static void aria_sl2(uint8_t *state)
 {
-    static uint8_t inv_s1[256];
-    static uint8_t inv_s2[256];
-    static int inv_init = 0;
     const uint8_t *sb1 = aria_s1;
     const uint8_t *sb2 = aria_s2;
-    const uint8_t *sb3 = inv_s1;
-    const uint8_t *sb4 = inv_s2;
-
-    if (inv_init == 0) {
-        uint32_t i = 0U;
-        for (i = 0U; i < 256U; i += 1U) {
-            inv_s1[aria_s1[i]] = (uint8_t)i;
-            inv_s2[aria_s2[i]] = (uint8_t)i;
-        }
-        inv_init = 1;
-    }
+    const uint8_t *sb3 = aria_inv_s1;
+    const uint8_t *sb4 = aria_inv_s2;
 
     state[0]  = sb3[state[0]];  state[1]  = sb4[state[1]];  state[2]  = sb1[state[2]];  state[3]  = sb2[state[3]];
     state[4]  = sb3[state[4]];  state[5]  = sb4[state[5]];  state[6]  = sb1[state[6]];  state[7]  = sb2[state[7]];
@@ -782,17 +798,17 @@ noxtls_return_t noxtls_aria_init(noxtls_aria_context_t *ctx,
         return NOXTLS_RETURN_INVALID_KEY_SIZE;
     }
 
-    noxtls_copy_u8(ctx->key, sizeof(ctx->key), key, (size_t)(ctx->key_len));
-
     {
-        noxtls_return_t r = noxtls_aria_set_encrypt_key(ctx->key, type, &ctx->enc_key);
-        if (r != NOXTLS_RETURN_SUCCESS) {
-            return r;
+        /* ECB/CBC decryption runs the inverse cipher; every other mode and
+         * direction only needs the forward (encryption) schedule. */
+        noxtls_return_t r = NOXTLS_RETURN_FAILED;
+        if ((op == NOXTLS_ARIA_OP_DECRYPT) && ((mode == NOXTLS_ARIA_ECB) || (mode == NOXTLS_ARIA_CBC))) {
+            r = noxtls_aria_set_decrypt_key(key, type, &ctx->sched);
+        } else {
+            r = noxtls_aria_set_encrypt_key(key, type, &ctx->sched);
         }
-    }
-    {
-        noxtls_return_t r = noxtls_aria_set_decrypt_key(ctx->key, type, &ctx->dec_key);
         if (r != NOXTLS_RETURN_SUCCESS) {
+            noxtls_secure_zero(ctx, sizeof(*ctx));
             return r;
         }
     }
@@ -876,9 +892,9 @@ noxtls_return_t noxtls_aria_update(noxtls_aria_context_t *ctx,
                 if (ctx->partial_len == NOXTLS_ARIA_BLOCK_LENGTH) {
                     if (ctx->mode == NOXTLS_ARIA_ECB) {
                         if (ctx->op == NOXTLS_ARIA_OP_ENCRYPT) {
-                            (void)noxtls_aria_encrypt_block(&ctx->enc_key, ctx->partial, &output[produced]);
+                            (void)noxtls_aria_encrypt_block(&ctx->sched, ctx->partial, &output[produced]);
                         } else {
-                            (void)noxtls_aria_decrypt_block(&ctx->dec_key, ctx->partial, &output[produced]);
+                            (void)noxtls_aria_decrypt_block(&ctx->sched, ctx->partial, &output[produced]);
                         }
                     } else {
                         if (ctx->op == NOXTLS_ARIA_OP_ENCRYPT) {
@@ -886,11 +902,11 @@ noxtls_return_t noxtls_aria_update(noxtls_aria_context_t *ctx,
                             for (i = 0U; i < NOXTLS_ARIA_BLOCK_LENGTH; i += 1U) {
                                 block[i] = (uint8_t)(ctx->partial[i] ^ ctx->feedback[i]);
                             }
-                            (void)noxtls_aria_encrypt_block(&ctx->enc_key, block, &output[produced]);
+                            (void)noxtls_aria_encrypt_block(&ctx->sched, block, &output[produced]);
                             noxtls_copy_u8(ctx->feedback, sizeof(ctx->feedback), &output[produced], (size_t)(NOXTLS_ARIA_BLOCK_LENGTH));
                         } else {
                             uint8_t block[NOXTLS_ARIA_BLOCK_LENGTH];
-                            (void)noxtls_aria_decrypt_block(&ctx->dec_key, ctx->partial, block);
+                            (void)noxtls_aria_decrypt_block(&ctx->sched, ctx->partial, block);
                             for (i = 0U; i < NOXTLS_ARIA_BLOCK_LENGTH; i += 1U) {
                                 output[produced + i] = (uint8_t)(block[i] ^ ctx->feedback[i]);
                             }
@@ -905,12 +921,12 @@ noxtls_return_t noxtls_aria_update(noxtls_aria_context_t *ctx,
             while (in_left > 0U) {
                 if (ctx->partial_len == NOXTLS_ARIA_BLOCK_LENGTH) {
                     if (ctx->mode == NOXTLS_ARIA_CTR) {
-                        (void)noxtls_aria_encrypt_block(&ctx->enc_key, ctx->feedback, ctx->partial);
+                        (void)noxtls_aria_encrypt_block(&ctx->sched, ctx->feedback, ctx->partial);
                         aria_counter_inc(ctx->feedback);
                     } else if (ctx->mode == NOXTLS_ARIA_CFB) {
-                        (void)noxtls_aria_encrypt_block(&ctx->enc_key, ctx->feedback, ctx->partial);
+                        (void)noxtls_aria_encrypt_block(&ctx->sched, ctx->feedback, ctx->partial);
                     } else {
-                        (void)noxtls_aria_encrypt_block(&ctx->enc_key, ctx->feedback, ctx->partial);
+                        (void)noxtls_aria_encrypt_block(&ctx->sched, ctx->feedback, ctx->partial);
                         noxtls_copy_u8(ctx->feedback, sizeof(ctx->feedback), ctx->partial, (size_t)(NOXTLS_ARIA_BLOCK_LENGTH));
                     }
                     ctx->partial_len = 0U;
@@ -920,11 +936,12 @@ noxtls_return_t noxtls_aria_update(noxtls_aria_context_t *ctx,
                     uint32_t available = (uint32_t)NOXTLS_ARIA_BLOCK_LENGTH - ctx->partial_len;
                     uint32_t take = (uint32_t)((in_left < available) ? in_left : available);
                     for (i = 0U; i < take; i += 1U) {
-                        uint8_t out_byte = (uint8_t)(in_ptr[i] ^ ctx->partial[ctx->partial_len + i]);
+                        uint8_t in_byte = in_ptr[i]; /* read before output may overwrite it (in-place) */
+                        uint8_t out_byte = (uint8_t)(in_byte ^ ctx->partial[ctx->partial_len + i]);
                         output[produced + i] = out_byte;
                         if (ctx->mode == NOXTLS_ARIA_CFB) {
                             noxtls_move_u8(ctx->feedback, sizeof(ctx->feedback), &ctx->feedback[1], (size_t)(NOXTLS_ARIA_BLOCK_LENGTH - 1U));
-                            ctx->feedback[NOXTLS_ARIA_BLOCK_LENGTH - 1U] = (ctx->op == NOXTLS_ARIA_OP_ENCRYPT) ? out_byte : in_ptr[i];
+                            ctx->feedback[NOXTLS_ARIA_BLOCK_LENGTH - 1U] = (ctx->op == NOXTLS_ARIA_OP_ENCRYPT) ? out_byte : in_byte;
                         }
                     }
                     in_ptr = &in_ptr[take];
@@ -964,7 +981,7 @@ noxtls_return_t noxtls_aria_final(noxtls_aria_context_t *ctx,
     }
 
     if ((ctx->mode == NOXTLS_ARIA_CTR) || (ctx->mode == NOXTLS_ARIA_CFB) || (ctx->mode == NOXTLS_ARIA_OFB)) {
-        ctx->initialized = 0U;
+        noxtls_secure_zero(ctx, sizeof(*ctx)); /* done: drop key material */
         return NOXTLS_RETURN_SUCCESS;
     }
 
@@ -972,7 +989,7 @@ noxtls_return_t noxtls_aria_final(noxtls_aria_context_t *ctx,
         if (ctx->partial_len != 0U) {
             return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
         }
-        ctx->initialized = 0U;
+        noxtls_secure_zero(ctx, sizeof(*ctx)); /* done: drop key material */
         return NOXTLS_RETURN_SUCCESS;
     }
 
@@ -991,12 +1008,12 @@ noxtls_return_t noxtls_aria_final(noxtls_aria_context_t *ctx,
         }
 
         if (ctx->mode == NOXTLS_ARIA_ECB) {
-            (void)noxtls_aria_encrypt_block(&ctx->enc_key, block, output);
+            (void)noxtls_aria_encrypt_block(&ctx->sched, block, output);
         } else if (ctx->mode == NOXTLS_ARIA_CBC) {
             for (i = 0U; i < NOXTLS_ARIA_BLOCK_LENGTH; i += 1U) {
                 block[i] ^= ctx->feedback[i];
             }
-            (void)noxtls_aria_encrypt_block(&ctx->enc_key, block, output);
+            (void)noxtls_aria_encrypt_block(&ctx->sched, block, output);
         } else {
              /* MISRA 15.7: final else path */
             return NOXTLS_RETURN_INVALID_MODE;
@@ -1004,7 +1021,7 @@ noxtls_return_t noxtls_aria_final(noxtls_aria_context_t *ctx,
         *output_len = NOXTLS_ARIA_BLOCK_LENGTH;
     }
 
-    ctx->initialized = 0U;
+    noxtls_secure_zero(ctx, sizeof(*ctx)); /* done: drop key material */
     return NOXTLS_RETURN_SUCCESS;
 }
 

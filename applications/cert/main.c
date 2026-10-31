@@ -501,9 +501,31 @@ void print_version(void)
  * @param[in] cert The certificate to print the information from
  * @return void
  */
+/* Print one validity bound from its raw ASN.1 time (read from the certificate DER). */
+static void print_certificate_time(const uint8_t *time_raw, uint32_t time_len)
+{
+    uint8_t time_str[64];
+
+    if((time_raw == NULL) || (time_len == 0U)) {
+        printf("(not available)\n");
+        return;
+    }
+    if(noxtls_x509_parse_time(time_raw, time_len, time_str, sizeof(time_str)) == NOXTLS_RETURN_SUCCESS) {
+        printf("%s\n", time_str);
+    } else {
+        /* Fallback: print raw time */
+        printf("%.*s\n", (int)time_len, (const char *)time_raw);
+    }
+}
+
 void print_certificate_info(const x509_certificate_t *cert)
 {
-    
+    uint8_t dn_text[256];
+    const uint8_t *not_before = NULL;
+    const uint8_t *not_after = NULL;
+    uint32_t not_before_len = 0U;
+    uint32_t not_after_len = 0U;
+
     if(cert == NULL || !cert->parsed) {
         printf("Certificate not parsed or invalid\n");
         return;
@@ -516,46 +538,18 @@ void print_certificate_info(const x509_certificate_t *cert)
     printf("Serial Number: ");
     print_hex(cert->serial_number, cert->serial_number_len);
     
-    printf("Issuer: %s\n", cert->issuer_dn);
-    printf("Subject: %s\n", cert->subject_dn);
-    
+    /* Issuer/subject text is rendered on demand from the DER (not stored in the certificate). */
+    (void)noxtls_x509_certificate_get_issuer_dn(cert, dn_text, (uint32_t)sizeof(dn_text));
+    printf("Issuer: %s\n", dn_text);
+    (void)noxtls_x509_certificate_get_subject_dn(cert, dn_text, (uint32_t)sizeof(dn_text));
+    printf("Subject: %s\n", dn_text);
+
+    (void)noxtls_x509_certificate_get_validity_raw(cert, &not_before, &not_before_len, &not_after, &not_after_len);
     printf("Not Before: ");
-    if(cert->not_before[0] != 0) {
-        /* Find actual length by looking for null terminator or end of buffer */
-        uint32_t time_len = 0;
-        while(time_len < 15 && cert->not_before[time_len] != 0) {
-            time_len++;
-        }
-        /* Use the actual length found, not the full buffer size */
-        uint8_t time_str[64];
-        if(noxtls_x509_parse_time(cert->not_before, time_len, time_str, sizeof(time_str)) == NOXTLS_RETURN_SUCCESS) {
-            printf("%s\n", time_str);
-        } else {
-            /* Fallback: print raw time */
-            printf("%.*s\n", (int)time_len, cert->not_before);
-        }
-    } else {
-        printf("(not available)\n");
-    }
-    
+    print_certificate_time(not_before, not_before_len);
+
     printf("Not After: ");
-    if(cert->not_after[0] != 0) {
-        /* Find actual length by looking for null terminator or end of buffer */
-        uint32_t time_len = 0;
-        while(time_len < 15 && cert->not_after[time_len] != 0) {
-            time_len++;
-        }
-        /* Use the actual length found, not the full buffer size */
-        uint8_t time_str[64];
-        if(noxtls_x509_parse_time(cert->not_after, time_len, time_str, sizeof(time_str)) == NOXTLS_RETURN_SUCCESS) {
-            printf("%s\n", time_str);
-        } else {
-            /* Fallback: print raw time */
-            printf("%.*s\n", (int)time_len, cert->not_after);
-        }
-    } else {
-        printf("(not available)\n");
-    }
+    print_certificate_time(not_after, not_after_len);
     
     if(cert->rsa_modulus) {
         printf("Public Key Algorithm: RSA\n");
@@ -734,10 +728,11 @@ noxtls_return_t write_certificate_handler(int argc, uint8_t **argv)
     x509_certificate_t cert;
     FILE *fp;
     uint8_t *output_data = NULL;
+    const uint8_t *write_data = NULL;
     uint32_t output_len = 0;
     noxtls_return_t rc;
     int c;
-    
+
     while((c = noxtls_getopt(argc, APP_GETOPT_ARGV(argv), "i:o:f:I:O:d")) != -1) {
         switch(c) {
             case 'i':
@@ -797,9 +792,10 @@ noxtls_return_t write_certificate_handler(int argc, uint8_t **argv)
             noxtls_x509_certificate_free(&cert);
             return rc;
         }
+        write_data = output_data;
     } else if(output_format == CERT_FORMAT_DER) {
-        /* Write as DER */
-        output_data = cert.raw_data;
+        /* Write as DER (the certificate keeps the DER it was parsed from) */
+        write_data = cert.raw_data;
         output_len = cert.raw_data_len;
     }
     
@@ -812,7 +808,7 @@ noxtls_return_t write_certificate_handler(int argc, uint8_t **argv)
         return NOXTLS_RETURN_FAILED;
     }
     
-    if(fwrite(output_data, 1, output_len, fp) != output_len) {
+    if(fwrite(write_data, 1, output_len, fp) != output_len) {
         fclose(fp);
         if(output_format == CERT_FORMAT_PEM) {
             free(output_data);

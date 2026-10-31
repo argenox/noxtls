@@ -180,9 +180,8 @@ typedef struct
     uint16_t message_seq;
     uint32_t length;
     uint8_t *buffer;
-    uint8_t *received;
+    uint8_t *received;          /* Bitmap of received bytes, (length + 7) / 8 bytes */
     uint32_t capacity;
-    uint32_t received_len;
     uint32_t received_count;
 } dtls_reassembly_slot_t;
 NOXTLS_MSVC_WARNING_POP
@@ -215,7 +214,7 @@ NOXTLS_MSVC_DISABLE_PADDING
 typedef struct dtls_context_s
 {
     tls_context_t base;         /* Base TLS context (reused) */
-
+#if NOXTLS_FEATURE_DTLS
     /* DTLS-specific fields */
     uint16_t epoch;             /* Current (write) epoch; DTLS 1.3 also uses it for reading */
     uint16_t read_epoch;        /* DTLS 1.2: epoch of records accepted for reading (RFC 6347 4.1) */
@@ -250,8 +249,8 @@ typedef struct dtls_context_s
     uint32_t handshake_buffer_capacity;  /* Capacity of handshake buffer */
     uint16_t expected_message_seq;  /* Expected noxtls_message sequence number */
     uint32_t expected_fragment_offset;  /* Expected fragment offset */
-    uint8_t *handshake_received;        /* Byte map of received fragments */
-    uint32_t handshake_received_len;    /* Length of received map */
+    uint8_t *handshake_received;        /* Bitmap of received bytes (1 bit per message byte) */
+    uint32_t handshake_received_len;    /* Bytes allocated for the bitmap */
     uint32_t handshake_received_count;  /* Bytes received so far */
     dtls_reassembly_slot_t reassembly_queue[DTLS_REASSEMBLY_QUEUE_SIZE];
     
@@ -307,12 +306,23 @@ typedef struct dtls_context_s
     uint8_t cookie_secret_valid; /* Cookie secret initialized */
     uint8_t *hrr_cookie;        /* Peer HelloRetryRequest cookie to echo */
     uint32_t hrr_cookie_len;    /* Peer HelloRetryRequest cookie length */
+#endif
 } dtls_context_t;
 NOXTLS_MSVC_WARNING_POP
 
 /* DTLS Functions */
 noxtls_return_t noxtls_dtls_context_init(dtls_context_t *ctx, tls_role_t role, uint16_t version);
 noxtls_return_t noxtls_dtls_context_free(dtls_context_t *ctx);
+
+/* Initialize / free the record-layer base embedded in the TLS 1.2 and 1.3 contexts. Without
+ * DTLS support the base holds only the TLS context, so the DTLS functions are not linked. */
+#if NOXTLS_FEATURE_DTLS
+#define NOXTLS_DTLS_BASE_INIT(ctx, role, version) noxtls_dtls_context_init((ctx), (role), (version))
+#define NOXTLS_DTLS_BASE_FREE(ctx)                noxtls_dtls_context_free(ctx)
+#else
+#define NOXTLS_DTLS_BASE_INIT(ctx, role, version) noxtls_tls_context_init(&(ctx)->base, (role), (version))
+#define NOXTLS_DTLS_BASE_FREE(ctx)                noxtls_tls_context_free(&(ctx)->base)
+#endif
 noxtls_return_t noxtls_dtls_set_mtu(dtls_context_t *ctx, uint16_t mtu);
 noxtls_return_t noxtls_dtls_set_flight_buffer(dtls_context_t *ctx, uint8_t *buffer, uint32_t capacity);
 noxtls_return_t dtls_set_retransmit(dtls_context_t *ctx, uint32_t timeout_ms,

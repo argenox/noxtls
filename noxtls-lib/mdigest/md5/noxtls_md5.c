@@ -65,20 +65,20 @@ noxtls_return_t noxtls_md5_init(noxtls_sha_ctx_t * ctx)
     
     ctx->algo = NOXTLS_HASH_MD5;
     
-    noxtls_secure_zero((ctx->h), sizeof(ctx->h));
+    noxtls_secure_zero((ctx->u.md32.h), sizeof(ctx->u.md32.h));
         
-    ctx->h[0] = 0x67452301U;
-    ctx->h[1] = 0xefcdab89U;
-    ctx->h[2] = 0x98badcfeU;
-    ctx->h[3] = 0x10325476U;
+    ctx->u.md32.h[0] = 0x67452301U;
+    ctx->u.md32.h[1] = 0xefcdab89U;
+    ctx->u.md32.h[2] = 0x98badcfeU;
+    ctx->u.md32.h[3] = 0x10325476U;
 
     if (md5_debug_lvl > 0U) {
-        (void)noxtls_debug_printf((const uint8_t *)"ctx->h[0] = %x", ctx->h[0]);
+        (void)noxtls_debug_printf((const uint8_t *)"ctx->u.md32.h[0] = %x", ctx->u.md32.h[0]);
     }
 
-    noxtls_secure_zero((&ctx->data), (size_t)(MD5_BLOCK_SIZE_BYTES));
-    ctx->data_len = 0U;
-    ctx->length = 0U;
+    noxtls_secure_zero((&ctx->u.md32.data), (size_t)(MD5_BLOCK_SIZE_BYTES));
+    ctx->u.md32.data_len = 0U;
+    ctx->u.md32.length = 0U;
     
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -114,27 +114,27 @@ noxtls_return_t noxtls_md5_update(noxtls_sha_ctx_t * ctx, const uint8_t * data, 
     if (in_ptr == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if ((uint32_t)ctx->data_len >= (uint32_t)MD5_BLOCK_SIZE_BYTES) {
+    if ((uint32_t)ctx->u.md32.data_len >= (uint32_t)MD5_BLOCK_SIZE_BYTES) {
         return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
     }
 
     /* 1. Complete a pending partial block first (preserves byte order). */
-    if (ctx->data_len > 0U) {
-        uint32_t space = (uint32_t)MD5_BLOCK_SIZE_BYTES - (uint32_t)ctx->data_len;
+    if (ctx->u.md32.data_len > 0U) {
+        uint32_t space = (uint32_t)MD5_BLOCK_SIZE_BYTES - (uint32_t)ctx->u.md32.data_len;
         uint32_t to_copy = (in_left < space) ? in_left : space;
 
-        noxtls_copy_u8(&ctx->data[ctx->data_len], sizeof(ctx->data) - (size_t)(ctx->data_len), in_ptr, (size_t)to_copy);
-        ctx->data_len = (uint8_t)((uint32_t)ctx->data_len + to_copy);
+        noxtls_copy_u8(&ctx->u.md32.data[ctx->u.md32.data_len], sizeof(ctx->u.md32.data) - (size_t)(ctx->u.md32.data_len), in_ptr, (size_t)to_copy);
+        ctx->u.md32.data_len = (uint8_t)((uint32_t)ctx->u.md32.data_len + to_copy);
         in_ptr = &in_ptr[to_copy];
         in_left -= to_copy;
 
-        if ((uint32_t)ctx->data_len == (uint32_t)MD5_BLOCK_SIZE_BYTES) {
-            rc = noxtls_md5_round(ctx, ctx->data);
+        if ((uint32_t)ctx->u.md32.data_len == (uint32_t)MD5_BLOCK_SIZE_BYTES) {
+            rc = noxtls_md5_round(ctx, ctx->u.md32.data);
             if (rc != NOXTLS_RETURN_SUCCESS) {
                 return rc;
             }
-            ctx->length += (uint32_t)MD5_BLOCK_SIZE_BYTES;
-            ctx->data_len = 0U;
+            ctx->u.md32.length += (uint32_t)MD5_BLOCK_SIZE_BYTES;
+            ctx->u.md32.data_len = 0U;
         }
     }
 
@@ -144,15 +144,15 @@ noxtls_return_t noxtls_md5_update(noxtls_sha_ctx_t * ctx, const uint8_t * data, 
         if (rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
-        ctx->length += (uint32_t)MD5_BLOCK_SIZE_BYTES;
+        ctx->u.md32.length += (uint32_t)MD5_BLOCK_SIZE_BYTES;
         in_ptr = &in_ptr[MD5_BLOCK_SIZE_BYTES];
         in_left -= (uint32_t)MD5_BLOCK_SIZE_BYTES;
     }
 
     /* 3. Buffer the remainder (data_len is 0 here whenever in_left > 0). */
     if (in_left > 0U) {
-        noxtls_copy_u8(&ctx->data[ctx->data_len], sizeof(ctx->data) - (size_t)(ctx->data_len), in_ptr, (size_t)in_left);
-        ctx->data_len = (uint8_t)((uint32_t)ctx->data_len + in_left);
+        noxtls_copy_u8(&ctx->u.md32.data[ctx->u.md32.data_len], sizeof(ctx->u.md32.data) - (size_t)(ctx->u.md32.data_len), in_ptr, (size_t)in_left);
+        ctx->u.md32.data_len = (uint8_t)((uint32_t)ctx->u.md32.data_len + in_left);
     }
 
     return rc;
@@ -161,7 +161,7 @@ noxtls_return_t noxtls_md5_update(noxtls_sha_ctx_t * ctx, const uint8_t * data, 
 /**
  * @brief Compress one 512-bit (64-byte) MD5 block into the context state (RFC 1321).
  *
- * @param[in,out] ctx MD5 context; chain variables ctx->h[] are updated. Must not be NULL.
+ * @param[in,out] ctx MD5 context; chain variables ctx->u.md32.h[] are updated. Must not be NULL.
  * @param[in] input Exactly one block (MD5_BLOCK_SIZE_BYTES bytes), little-endian word layout.
  *
  * @return NOXTLS_RETURN_SUCCESS on success.
@@ -200,7 +200,7 @@ static uint32_t md5_rotl_amt(uint32_t x, uint32_t amt)
 static noxtls_return_t noxtls_md5_round(noxtls_sha_ctx_t * ctx, const uint8_t * input)
 {
     /* Tables local to this function (Rule 8.9). */
-    static const uint32_t md5_shift[64] =
+    static const uint8_t md5_shift[64] =
     {
          7U, 12U, 17U, 22U, 7U, 12U, 17U, 22U, 7U, 12U, 17U, 22U, 7U, 12U, 17U, 22U,
          5U,  9U, 14U, 20U, 5U,  9U, 14U, 20U, 5U,  9U, 14U, 20U, 5U,  9U, 14U, 20U,
@@ -232,7 +232,7 @@ static noxtls_return_t noxtls_md5_round(noxtls_sha_ctx_t * ctx, const uint8_t * 
 
 	noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
 	uint32_t t = 0U;
-	uint32_t w[MD5_ROUND_COUNT] = {0};
+	uint32_t w[MD5_WORDS_PER_BLOCK] = {0};
 
     uint32_t A;
     uint32_t B;
@@ -249,10 +249,10 @@ static noxtls_return_t noxtls_md5_round(noxtls_sha_ctx_t * ctx, const uint8_t * 
         w[t] = ((uint32_t)input[in_off + 3U] << 24U) | ((uint32_t)input[in_off + 2U] << 16U) | ((uint32_t)input[in_off + 1U] << 8U) | (uint32_t)input[in_off];
     }
 
-    A = ctx->h[0];
-    B = ctx->h[1];
-    C = ctx->h[2];
-    D = ctx->h[3];
+    A = ctx->u.md32.h[0];
+    B = ctx->u.md32.h[1];
+    C = ctx->u.md32.h[2];
+    D = ctx->u.md32.h[3];
     
     if (md5_debug_lvl > 0U) {
         (void)noxtls_debug_printf((const uint8_t *)"A\t\t\tB\t\t\tCc\t\t\tD\t\t\tF\n");
@@ -285,7 +285,7 @@ static noxtls_return_t noxtls_md5_round(noxtls_sha_ctx_t * ctx, const uint8_t * 
         A = D;
         D = C;
         C = B;
-        B = (uint32_t)(B + md5_rotl_amt(F, md5_shift[t]));
+        B = (uint32_t)(B + md5_rotl_amt(F, (uint32_t)md5_shift[t]));
         
         if (md5_debug_lvl > 0U) {
             (void)noxtls_debug_printf((const uint8_t *)"%u\t%u\t%u\t%u\t\n", A,B,C,D);
@@ -293,10 +293,10 @@ static noxtls_return_t noxtls_md5_round(noxtls_sha_ctx_t * ctx, const uint8_t * 
     }
     
     /* Computer the ith intermediate hash value H(i) */
-    ctx->h[0] += A;
-    ctx->h[1] += B;
-    ctx->h[2] += C;
-    ctx->h[3] += D;
+    ctx->u.md32.h[0] += A;
+    ctx->u.md32.h[1] += B;
+    ctx->u.md32.h[2] += C;
+    ctx->u.md32.h[3] += D;
     
     return rc;    
 }
@@ -329,20 +329,20 @@ noxtls_return_t noxtls_md5_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
         return NOXTLS_RETURN_NULL;
     }
     /* Process any pending data or */
-    if (ctx->data_len > 0U)
+    if (ctx->u.md32.data_len > 0U)
     {
-        len = ctx->data_len;
-        data = ctx->data;
+        len = ctx->u.md32.data_len;
+        data = ctx->u.md32.data;
         noxtls_secure_zero((temp), sizeof(temp));
-        noxtls_copy_u8(temp, sizeof(temp), ctx->data, (size_t)(len));
-        total_length = ctx->length + ctx->data_len;
+        noxtls_copy_u8(temp, sizeof(temp), ctx->u.md32.data, (size_t)(len));
+        total_length = ctx->u.md32.length + ctx->u.md32.data_len;
     }
     else
     {
-        noxtls_secure_zero((ctx->data), (size_t)(MD5_BLOCK_SIZE_BYTES));
-        data = ctx->data;
+        noxtls_secure_zero((ctx->u.md32.data), (size_t)(MD5_BLOCK_SIZE_BYTES));
+        data = ctx->u.md32.data;
         noxtls_secure_zero((temp), sizeof(temp));
-        total_length = ctx->length;
+        total_length = ctx->u.md32.length;
     }
     
     uint32_t block_size = (uint32_t)(MD5_BLOCK_SIZE_BYTES);
@@ -414,10 +414,10 @@ noxtls_return_t noxtls_md5_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
     for (i = 0U; i < (uint32_t)alg_sz; i += 1U)
     {
         size_t out_off = (size_t)i * 4U;
-        hash[out_off + 3U] = (uint8_t)((ctx->h[i] & 0xFF000000U) >>24U);
-        hash[out_off + 2U] = (uint8_t)((ctx->h[i] & 0x00FF0000U) >>16U);
-        hash[out_off + 1U] = (uint8_t)((ctx->h[i] & 0x0000FF00U) >>8U);
-        hash[out_off] = (uint8_t)(ctx->h[i] & 0x000000FFU);
+        hash[out_off + 3U] = (uint8_t)((ctx->u.md32.h[i] & 0xFF000000U) >>24U);
+        hash[out_off + 2U] = (uint8_t)((ctx->u.md32.h[i] & 0x00FF0000U) >>16U);
+        hash[out_off + 1U] = (uint8_t)((ctx->u.md32.h[i] & 0x0000FF00U) >>8U);
+        hash[out_off] = (uint8_t)(ctx->u.md32.h[i] & 0x000000FFU);
     }
 
     return rc;

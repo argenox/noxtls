@@ -391,9 +391,16 @@ REGISTER_TEST(test_pke_point_multiply_port)
     p.size = 48U;
     UTNOX_EQUALS(noxtls_ecc_point_multiply_accel_port(&r, k, &p, &curve), NOXTLS_RETURN_NOT_SUPPORTED);
     p.size = 32U;
-    curve.p[0] ^= 1U;
-    UTNOX_EQUALS(noxtls_ecc_point_multiply_accel_port(&r, k, &p, &curve), NOXTLS_RETURN_NOT_SUPPORTED);
-    curve.p[0] ^= 1U;
+    {
+        /* Curve parameters are read-only constants: perturb a private copy. */
+        const uint8_t *orig_p = curve.p;
+        uint8_t bad_p[32];
+        memcpy(bad_p, orig_p, sizeof(bad_p));
+        bad_p[0] ^= 1U;
+        curve.p = bad_p;
+        UTNOX_EQUALS(noxtls_ecc_point_multiply_accel_port(&r, k, &p, &curve), NOXTLS_RETURN_NOT_SUPPORTED);
+        curve.p = orig_p;
+    }
     noxtls_nrf54_cracen_set_enabled(0U);
     UTNOX_EQUALS(noxtls_ecc_point_multiply_accel_port(&r, k, &p, &curve), NOXTLS_RETURN_NOT_SUPPORTED);
     noxtls_nrf54_cracen_set_enabled(1U);

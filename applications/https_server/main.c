@@ -194,7 +194,8 @@ static const uint32_t DEFAULT_ALPN_PROTOCOL_COUNT =
     (uint32_t)(sizeof(DEFAULT_ALPN_PROTOCOLS) / sizeof(DEFAULT_ALPN_PROTOCOLS[0]));
 /*
  * Default TLS 1.2 offer: forward-secret AEAD only (no static RSA key exchange, no 3DES, no CBC/SHA1).
- * Scripts that require legacy CBC suites (e.g. tlsfuzzer test_sig_algs.py) can pass --cipher-suites.
+ * Scripts that require legacy CBC suites (e.g. tlsfuzzer test_sig_algs.py) can pass --cipher-suites;
+ * the library negotiates them only when built with NOXTLS_CFG_TLS12_ENABLE_LEGACY_CIPHER_SUITES=ON.
  */
 static const uint16_t TLS12_FALLBACK_DEFAULT_SUITES[] = {
     TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
@@ -1483,7 +1484,7 @@ static void print_usage(const uint8_t *prog)
            "(prime256v1|secp384r1|secp521r1|brainpoolP256r1|brainpoolP384r1|brainpoolP512r1 .crt/.key); "
            "requires ECDSA primary key\n");
     printf("  --request-client-cert  Request client certificate authentication (mTLS)\n");
-    printf("  --require-client-cert  Require client certificate in TLS 1.3 (sends certificate_required if absent)\n");
+    printf("  --require-client-cert  Require a client certificate (TLS 1.3: certificate_required; TLS 1.2: handshake fails)\n");
     printf("  --expect-client-sni <host>  If set, mismatching ClientHello SNI sends unrecognized_name (warning; use with tlsfuzzer --sni)\n");
     printf("  --expect-client-sni-fatal   With --expect-client-sni, send fatal unrecognized_name on mismatch\n");
     printf("  --debug-log <file>     Append noxtls debug output to log file\n");
@@ -2852,7 +2853,7 @@ int main(int argc, char **argv)
         printf("ERROR: Failed to load certificate '%s' as %s\n", cert_file, format_name(cert_format));
         goto cleanup;
     }
-    server_cert = cert.raw_data;
+    server_cert = cert.raw_data_owned;  /* heap DER copy owned by cert (TLS context field is non-const) */
     server_cert_len = cert.raw_data_len;
     if(server_cert == NULL || server_cert_len == 0U) {
         printf("ERROR: Certificate has no DER raw data after parse\n");
@@ -2996,7 +2997,7 @@ int main(int argc, char **argv)
                    tls12_cert_file, format_name(tls12_cert_format));
             goto cleanup;
         }
-        tls12_server_cert = tls12_cert.raw_data;
+        tls12_server_cert = tls12_cert.raw_data_owned;  /* heap DER copy owned by tls12_cert */
         tls12_server_cert_len = tls12_cert.raw_data_len;
         if(tls12_server_cert == NULL || tls12_server_cert_len == 0U) {
             printf("ERROR: TLS 1.2 fallback certificate has no DER raw data after parse\n");
@@ -3132,7 +3133,7 @@ int main(int argc, char **argv)
     }
     if(request_client_cert) {
         printf("Client certificate authentication: %s\n",
-               require_client_cert ? "required (TLS 1.3)" : "requested");
+               require_client_cert ? "required" : "requested");
     }
     printf("Press Ctrl+C to stop.\n\n");
 
@@ -3226,6 +3227,9 @@ int main(int argc, char **argv)
                     }
                     if(request_client_cert) {
                         noxtls_tls12_request_client_auth(&tls12_ctx, 1);
+                        if(require_client_cert) {
+                            noxtls_tls12_require_client_auth(&tls12_ctx, 1);
+                        }
                     }
                     noxtls_tls12_set_heartbeat(&tls12_ctx, heartbeat_enabled);
 
@@ -3564,10 +3568,10 @@ int main(int argc, char **argv)
                     uint8_t body[HTTP_BODY_BUFFER_SIZE];
                     int body_len;
                     if(ver == TLS_VERSION_1_3) {
-                        suite = uconn.tls13.cipher_suite;
-                        group = uconn.tls13.selected_kex_group;
+                        suite = uconn.ver.tls13.cipher_suite;
+                        group = uconn.ver.tls13.selected_kex_group;
                     } else if(ver == TLS_VERSION_1_2) {
-                        suite = uconn.tls12.cipher_suite;
+                        suite = uconn.ver.tls12.cipher_suite;
                     }
                     printf("TLS handshake complete (unified): version=%s suite=%s (0x%04X)\n",
                            tls_version_name(ver),
@@ -3649,6 +3653,9 @@ int main(int argc, char **argv)
                 }
                 if(request_client_cert) {
                     noxtls_tls12_request_client_auth(&tls12_ctx, 1);
+                    if(require_client_cert) {
+                        noxtls_tls12_require_client_auth(&tls12_ctx, 1);
+                    }
                 }
                 noxtls_tls12_set_heartbeat(&tls12_ctx, heartbeat_enabled);
 

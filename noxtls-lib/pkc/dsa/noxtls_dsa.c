@@ -33,6 +33,8 @@
 #include "drbg/noxtls_drbg.h"
 #include "noxtls_ct.h"
 
+#if NOXTLS_FEATURE_DSA
+
 /**
  * @brief Compute a noxtls_message digest for DSA signing or verification (FIPS 186-4 noxtls_message hashing).
  *
@@ -693,11 +695,13 @@ noxtls_return_t noxtls_dsa_verify(const dsa_key_t *key, const uint8_t *noxtls_me
     if (rc == NOXTLS_RETURN_SUCCESS) {
         rc = dsa_bn_error(noxtls_bn_mod(u2, u2, q_len * 2U, key->q, q_len));
     }
+    /* u1, u2 are derived from the public signature and message digest: the table-free
+     * public exponentiation is used (no 16-entry window table of p_len residues). */
     if (rc == NOXTLS_RETURN_SUCCESS) {
-        rc = dsa_bn_error(noxtls_bn_mod_exp(g_u1, key->g, u1, q_len, key->p, p_len));
+        rc = dsa_bn_error(noxtls_bn_mod_exp_public(g_u1, key->g, u1, q_len, key->p, p_len));
     }
     if (rc == NOXTLS_RETURN_SUCCESS) {
-        rc = dsa_bn_error(noxtls_bn_mod_exp(y_u2, key->y, u2, q_len, key->p, p_len));
+        rc = dsa_bn_error(noxtls_bn_mod_exp_public(y_u2, key->y, u2, q_len, key->p, p_len));
     }
     if (rc == NOXTLS_RETURN_SUCCESS) {
         rc = dsa_bn_error(noxtls_bn_mul(product, g_u1, p_len, y_u2, p_len));
@@ -723,3 +727,5 @@ noxtls_return_t noxtls_dsa_verify(const dsa_key_t *key, const uint8_t *noxtls_me
     NOXTLS_SECURE_FREE(product, (size_t)p_len * 2U);
     return rc;
 }
+
+#endif /* NOXTLS_FEATURE_DSA */

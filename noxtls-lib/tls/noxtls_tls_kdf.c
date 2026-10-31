@@ -54,148 +54,102 @@ static uint32_t get_hash_output_size(noxtls_hash_algos_t hash_algo)
     }
 }
 
-#if NOXTLS_FEATURE_MD5 && NOXTLS_FEATURE_SHA1
-static noxtls_return_t hmac_md5_compute(const uint8_t *key, uint32_t key_len,
-                                        const uint8_t *data, uint32_t data_len,
-                                        uint8_t out[16])
-{
-    uint8_t key_block[64];
-    uint8_t inner_hash[16];
-    uint8_t ipad[64];
-    uint8_t opad[64];
-    uint8_t key_hash[16];
-    noxtls_sha_ctx_t ctx;
-    uint32_t i = 0U;
-
-    if((key == NULL) || (data == NULL) || (out == NULL)) {
-        return NOXTLS_RETURN_NULL;
-    }
-
-    noxtls_secure_zero((key_block), sizeof(key_block));
-    if((size_t)(key_len) > sizeof(key_block)) {
-        if(noxtls_md5_init(&ctx) != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
-        }
-        if(noxtls_md5_update(&ctx, key, key_len) != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
-        }
-        if(noxtls_md5_finish(&ctx, key_hash) != NOXTLS_RETURN_SUCCESS) {
-            return NOXTLS_RETURN_FAILED;
-        }
-        noxtls_copy_u8(key_block, sizeof(key_block), key_hash, sizeof(key_hash));
-    } else {
-        noxtls_copy_u8(key_block, sizeof(key_block), key, (size_t)(key_len));
-    }
-
-    for(i = 0U; i < sizeof(key_block); i += 1U) {
-        ipad[i] = (uint8_t)(key_block[i] ^ 0x36U);
-        opad[i] = (uint8_t)(key_block[i] ^ 0x5CU);
-    }
-
-    if(noxtls_md5_init(&ctx) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
-    }
-    if(noxtls_md5_update(&ctx, ipad, sizeof(ipad)) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
-    }
-    if(noxtls_md5_update(&ctx, data, data_len) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
-    }
-    if(noxtls_md5_finish(&ctx, inner_hash) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
-    }
-
-    if(noxtls_md5_init(&ctx) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
-    }
-    if(noxtls_md5_update(&ctx, opad, sizeof(opad)) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
-    }
-    if(noxtls_md5_update(&ctx, inner_hash, sizeof(inner_hash)) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
-    }
-    if(noxtls_md5_finish(&ctx, out) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
-    }
-
-    return NOXTLS_RETURN_SUCCESS;
-}
-#endif /* NOXTLS_FEATURE_MD5 && NOXTLS_FEATURE_SHA1 */
-
+/*
+ * TLS P_hash (RFC 5246 section 5, RFC 2246 section 5):
+ *   A(0) = label || seed, A(i) = HMAC(secret, A(i-1)),
+ *   P_hash = HMAC(secret, A(1) || label || seed) || HMAC(secret, A(2) || label || seed) || ...
+ * The secret is keyed into one HMAC context once and every HMAC restarts from
+ * its key-pad midstates (noxtls_hmac_reset), label and seed are streamed as
+ * separate parts, so nothing is allocated and nothing is concatenated.
+ * With xor_into != 0 the stream is XORed into output (TLS 1.0/1.1 PRF halves).
+ */
 static noxtls_return_t p_hash(noxtls_hash_algos_t hash_algo,
                               const uint8_t *secret, uint32_t secret_len,
+                              const uint8_t *label, uint32_t label_len,
                               const uint8_t *seed, uint32_t seed_len,
-                              uint8_t *output, uint32_t output_len)
+                              uint8_t *output, uint32_t output_len, uint8_t xor_into)
 {
     uint32_t hash_len = get_hash_output_size(hash_algo);
-    uint8_t *A = NULL;
-    uint8_t *chunk = NULL;
+    noxtls_hmac_context_t hmac;
+    uint8_t A[64];
+    uint8_t chunk[64];
     uint32_t produced = 0U;
+    uint32_t tmp_len = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if((secret == NULL) || (seed == NULL) || (output == NULL)) {
+    if((secret == NULL) || (seed == NULL) || (output == NULL) || ((label == NULL) && (label_len != 0U))) {
         return NOXTLS_RETURN_NULL;
     }
-    if(hash_len == 0U) {
+    if((hash_len == 0U) || ((size_t)hash_len > sizeof(A))) {
         return NOXTLS_RETURN_INVALID_ALGORITHM;
     }
 
-    A = (uint8_t *)NOXTLS_MALLOC(hash_len);
-    chunk = (uint8_t *)NOXTLS_MALLOC(hash_len);
-    if((A == NULL) || (chunk == NULL)) {
-        (void)noxtls_free(A);
-        (void)noxtls_free(chunk);
-        return NOXTLS_RETURN_FAILED;
+    /* A(1) = HMAC(secret, label || seed) */
+    rc = noxtls_hmac_init(&hmac, hash_algo, secret, secret_len);
+    if((rc == NOXTLS_RETURN_SUCCESS) && (label_len > 0U)) {
+        rc = noxtls_hmac_update(&hmac, label, label_len);
+    }
+    if((rc == NOXTLS_RETURN_SUCCESS) && (seed_len > 0U)) {
+        rc = noxtls_hmac_update(&hmac, seed, seed_len);
+    }
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        tmp_len = hash_len;
+        rc = noxtls_hmac_final(&hmac, A, &tmp_len);
     }
 
-    {
-        uint32_t tmp_len = hash_len;
-        rc = noxtls_hmac_compute(hash_algo, secret, secret_len, seed, seed_len, A, &tmp_len);
-        if((rc != NOXTLS_RETURN_SUCCESS) || (tmp_len != hash_len)) {
-            (void)noxtls_free(A);
-            (void)noxtls_free(chunk);
-            return NOXTLS_RETURN_FAILED;
-        }
-    }
-
-    while(produced < output_len) {
-        uint8_t *input = NULL;
-        uint32_t input_len = hash_len + seed_len;
-        uint32_t tmp_len = hash_len;
+    while((rc == NOXTLS_RETURN_SUCCESS) && (produced < output_len)) {
         uint32_t copy_len = 0U;
+        uint32_t i = 0U;
 
-        input = (uint8_t *)NOXTLS_MALLOC(input_len);
-        if(input == NULL) {
-            (void)noxtls_free(A);
-            (void)noxtls_free(chunk);
-            return NOXTLS_RETURN_FAILED;
+        /* HMAC(secret, A(i) || label || seed) */
+        rc = noxtls_hmac_reset(&hmac);
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_hmac_update(&hmac, A, hash_len);
         }
-
-        noxtls_copy_u8(input, (size_t)(hash_len + seed_len), A, (size_t)hash_len);
-        noxtls_copy_u8(&input[hash_len], (size_t)input_len - (size_t)hash_len, seed, (size_t)seed_len);
-
-        rc = noxtls_hmac_compute(hash_algo, secret, secret_len, input, input_len, chunk, &tmp_len);
-        (void)noxtls_free(input);
-        if((rc != NOXTLS_RETURN_SUCCESS) || (tmp_len != hash_len)) {
-            (void)noxtls_free(A);
-            (void)noxtls_free(chunk);
-            return NOXTLS_RETURN_FAILED;
+        if((rc == NOXTLS_RETURN_SUCCESS) && (label_len > 0U)) {
+            rc = noxtls_hmac_update(&hmac, label, label_len);
+        }
+        if((rc == NOXTLS_RETURN_SUCCESS) && (seed_len > 0U)) {
+            rc = noxtls_hmac_update(&hmac, seed, seed_len);
+        }
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            tmp_len = hash_len;
+            rc = noxtls_hmac_final(&hmac, chunk, &tmp_len);
+        }
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            break;
         }
 
         copy_len = ((output_len - produced) < hash_len) ? (output_len - produced) : hash_len;
-        noxtls_copy_u8(&output[produced], (size_t)output_len - (size_t)produced, chunk, (size_t)copy_len);
+        if(xor_into != 0U) {
+            for(i = 0U; i < copy_len; i += 1U) {
+                output[produced + i] = (uint8_t)(output[produced + i] ^ chunk[i]);
+            }
+        } else {
+            noxtls_copy_u8(&output[produced], (size_t)output_len - (size_t)produced, chunk, (size_t)copy_len);
+        }
         produced += copy_len;
 
-        rc = noxtls_hmac_compute(hash_algo, secret, secret_len, A, hash_len, A, &tmp_len);
-        if((rc != NOXTLS_RETURN_SUCCESS) || (tmp_len != hash_len)) {
-            (void)noxtls_free(A);
-            (void)noxtls_free(chunk);
-            return NOXTLS_RETURN_FAILED;
+        if(produced < output_len) {
+            /* A(i+1) = HMAC(secret, A(i)); final reads A before overwriting it. */
+            rc = noxtls_hmac_reset(&hmac);
+            if(rc == NOXTLS_RETURN_SUCCESS) {
+                rc = noxtls_hmac_update(&hmac, A, hash_len);
+            }
+            if(rc == NOXTLS_RETURN_SUCCESS) {
+                tmp_len = hash_len;
+                rc = noxtls_hmac_final(&hmac, A, &tmp_len);
+            }
         }
     }
 
-    (void)noxtls_free(A);
-    (void)noxtls_free(chunk);
+    (void)noxtls_hmac_free(&hmac);
+    noxtls_secure_zero(A, sizeof(A));
+    noxtls_secure_zero(chunk, sizeof(chunk));
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(output, (size_t)output_len);
+        return NOXTLS_RETURN_FAILED;
+    }
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -205,24 +159,12 @@ noxtls_return_t tls12_prf(const uint8_t *secret, uint32_t secret_len,
                           uint8_t *output, uint32_t output_len,
                           noxtls_hash_algos_t hash_algo)
 {
-    uint8_t *label_seed = NULL;
-    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
-
     if((secret == NULL) || (label == NULL) || (seed == NULL) || (output == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
-    label_seed = (uint8_t *)NOXTLS_MALLOC(label_len + seed_len);
-    if(label_seed == NULL) {
-        return NOXTLS_RETURN_FAILED;
-    }
-
-    noxtls_copy_u8(label_seed, (size_t)(label_len + seed_len), label, (size_t)label_len);
-    noxtls_copy_u8(&label_seed[label_len], (size_t)(label_len + seed_len) - (size_t)label_len, seed, (size_t)seed_len);
-
-    rc = p_hash(hash_algo, secret, secret_len, label_seed, label_len + seed_len, output, output_len);
-    (void)noxtls_free(label_seed);
-    return rc;
+    return p_hash(hash_algo, secret, secret_len, label, label_len, seed, seed_len,
+                  output, output_len, 0U);
 }
 
 noxtls_return_t tls10_prf(const uint8_t *secret, uint32_t secret_len,
@@ -234,10 +176,7 @@ noxtls_return_t tls10_prf(const uint8_t *secret, uint32_t secret_len,
     uint32_t half_len = 0U;
     const uint8_t *s1 = NULL;
     const uint8_t *s2 = NULL;
-    uint8_t *label_seed = NULL;
-    uint8_t *md5_out = NULL;
-    uint8_t *sha1_out = NULL;
-    uint32_t i = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if((secret == NULL) || (label == NULL) || (seed == NULL) || (output == NULL)) {
         return NOXTLS_RETURN_NULL;
@@ -246,82 +185,20 @@ noxtls_return_t tls10_prf(const uint8_t *secret, uint32_t secret_len,
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
+    /* PRF = P_MD5(S1, label || seed) XOR P_SHA-1(S2, label || seed); the halves
+     * overlap by one byte for odd secret lengths (RFC 2246 section 5). */
     half_len = (secret_len + 1U) / 2U;
     s1 = secret;
     s2 = &secret[secret_len - half_len];
 
-    label_seed = (uint8_t *)NOXTLS_MALLOC(label_len + seed_len);
-    md5_out = (uint8_t *)NOXTLS_MALLOC(output_len);
-    sha1_out = (uint8_t *)NOXTLS_MALLOC(output_len);
-    if((label_seed == NULL) || (md5_out == NULL) || (sha1_out == NULL)) {
-        (void)noxtls_free(label_seed);
-        (void)noxtls_free(md5_out);
-        (void)noxtls_free(sha1_out);
+    rc = p_hash(NOXTLS_HASH_MD5, s1, half_len, label, label_len, seed, seed_len, output, output_len, 0U);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = p_hash(NOXTLS_HASH_SHA1, s2, half_len, label, label_len, seed, seed_len, output, output_len, 1U);
+    }
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(output, (size_t)output_len);
         return NOXTLS_RETURN_FAILED;
     }
-
-    noxtls_copy_u8(label_seed, (size_t)(label_len + seed_len), label, (size_t)label_len);
-    noxtls_copy_u8(&label_seed[label_len], (size_t)(label_len + seed_len) - (size_t)label_len, seed, (size_t)seed_len);
-
-    {
-        uint8_t A_md5[16];
-        uint32_t produced = 0U;
-
-        if(hmac_md5_compute(s1, half_len, label_seed, label_len + seed_len, A_md5) != NOXTLS_RETURN_SUCCESS) {
-            (void)noxtls_free(label_seed);
-            (void)noxtls_free(md5_out);
-            (void)noxtls_free(sha1_out);
-            return NOXTLS_RETURN_FAILED;
-        }
-
-        while(produced < output_len) {
-            uint8_t chunk[16];
-            uint8_t *input = NULL;
-            uint32_t copy_len = 0U;
-            uint32_t label_seed_len = label_len + seed_len;
-            input = (uint8_t *)NOXTLS_MALLOC(16U + label_seed_len);
-            if(input == NULL) {
-                (void)noxtls_free(label_seed);
-                (void)noxtls_free(md5_out);
-                (void)noxtls_free(sha1_out);
-                return NOXTLS_RETURN_FAILED;
-            }
-            noxtls_copy_u8(input, (size_t)(16U + label_seed_len), A_md5, (size_t)16U);
-            noxtls_copy_u8(&input[16U], (size_t)(16U + label_seed_len) - (size_t)16U, label_seed, (size_t)label_seed_len);
-            if(hmac_md5_compute(s1, half_len, input, 16U + label_seed_len, chunk) != NOXTLS_RETURN_SUCCESS) {
-                (void)noxtls_free(input);
-                (void)noxtls_free(label_seed);
-                (void)noxtls_free(md5_out);
-                (void)noxtls_free(sha1_out);
-                return NOXTLS_RETURN_FAILED;
-            }
-            (void)noxtls_free(input);
-            copy_len = ((output_len - produced) < 16U) ? (output_len - produced) : 16U;
-            noxtls_copy_u8(&md5_out[produced], (size_t)output_len - (size_t)produced, chunk, (size_t)copy_len);
-            produced += copy_len;
-            if(hmac_md5_compute(s1, half_len, A_md5, 16U, A_md5) != NOXTLS_RETURN_SUCCESS) {
-                (void)noxtls_free(label_seed);
-                (void)noxtls_free(md5_out);
-                (void)noxtls_free(sha1_out);
-                return NOXTLS_RETURN_FAILED;
-            }
-        }
-    }
-
-    if(p_hash(NOXTLS_HASH_SHA1, s2, half_len, label_seed, label_len + seed_len, sha1_out, output_len) != NOXTLS_RETURN_SUCCESS) {
-        (void)noxtls_free(label_seed);
-        (void)noxtls_free(md5_out);
-        (void)noxtls_free(sha1_out);
-        return NOXTLS_RETURN_FAILED;
-    }
-
-    for(i = 0U; i < output_len; i += 1U) {
-        output[i] = (uint8_t)(md5_out[i] ^ sha1_out[i]);
-    }
-
-    (void)noxtls_free(label_seed);
-    (void)noxtls_free(md5_out);
-    (void)noxtls_free(sha1_out);
     return NOXTLS_RETURN_SUCCESS;
 #else
     (void)secret;
@@ -336,6 +213,14 @@ noxtls_return_t tls10_prf(const uint8_t *secret, uint32_t secret_len,
 #endif
 }
 
+/*
+ * HKDF-Expand-Label (RFC 8446 section 7.1, RFC 9147 section 5.9):
+ *   info = uint16 length || uint8 len(prefix || label) || prefix || label ||
+ *          uint8 len(context) || context
+ * The HkdfLabel structure is streamed into HKDF-Expand as six parts instead of
+ * being assembled in a stack buffer, so the protocol maximum (255-byte label
+ * and 255-byte context, 514-byte HkdfLabel) is supported without any copy.
+ */
 static noxtls_return_t hkdf_expand_label_with_prefix(noxtls_hash_algos_t hash_algo,
                                                      const uint8_t *prefix,
                                                      const uint8_t *secret, uint32_t secret_len,
@@ -343,42 +228,40 @@ static noxtls_return_t hkdf_expand_label_with_prefix(noxtls_hash_algos_t hash_al
                                                      const uint8_t *context, uint32_t context_len,
                                                      uint8_t *output, uint32_t output_len)
 {
-    uint8_t hkdf_label[512];
+    uint8_t head[3];
+    uint8_t ctx_len_byte;
+    noxtls_hkdf_info_part_t parts[5];
     uint32_t prefix_len = (uint32_t)noxtls_u8_strlen(prefix);
-    uint32_t full_label_len = prefix_len + label_len;
-    uint32_t offset = 0U;
+    uint32_t full_label_len = 0U;
 
-    if((secret == NULL) || (label == NULL) || (output == NULL) || (full_label_len > 255U) || (context_len > 255U)) {
+    /* Bound label_len before adding the prefix so the sum cannot wrap (HkdfLabel.label is
+     * opaque<7..255>, RFC 8446 7.1). */
+    if((secret == NULL) || (label == NULL) || (output == NULL) || (prefix_len > 255U) ||
+       (label_len > (255U - prefix_len)) || (context_len > 255U) || (output_len > 0xFFFFU)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
-    if((2U + 1U + full_label_len + 1U + context_len) > sizeof(hkdf_label)) {
+    full_label_len = prefix_len + label_len;
+    if((context == NULL) && (context_len != 0U)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
 
-    hkdf_label[offset] = (uint8_t)((output_len >> 8U) & 0xFFU);
-    offset += 1U;
-    hkdf_label[offset] = (uint8_t)(output_len & 0xFFU);
-    offset += 1U;
-    hkdf_label[offset] = (uint8_t)full_label_len;
-    offset += 1U;
-    /* Binary HkdfLabel buffer (not a C string); copy char prefix as bytes. */
-    {
-        uint32_t pi = 0U;
-        for (pi = 0U; pi < prefix_len; pi += 1U) {
-            hkdf_label[offset + pi] = (uint8_t)prefix[pi];
-        }
-    }
-    offset += prefix_len;
-    noxtls_copy_u8(&hkdf_label[offset], sizeof(hkdf_label) - (size_t)(offset), label, (size_t)(label_len));
-    offset += label_len;
-    hkdf_label[offset] = (uint8_t)context_len;
-    offset += 1U;
-    if((context_len > 0U) && (context != NULL)) {
-        noxtls_copy_u8(&hkdf_label[offset], sizeof(hkdf_label) - (size_t)(offset), context, (size_t)(context_len));
-        offset += context_len;
-    }
+    head[0] = (uint8_t)((output_len >> 8U) & 0xFFU);
+    head[1] = (uint8_t)(output_len & 0xFFU);
+    head[2] = (uint8_t)full_label_len;
+    ctx_len_byte = (uint8_t)context_len;
 
-    return noxtls_hkdf_expand(hash_algo, secret, secret_len, hkdf_label, offset, output, output_len);
+    parts[0].data = head;
+    parts[0].len = (uint32_t)sizeof(head);
+    parts[1].data = prefix;
+    parts[1].len = prefix_len;
+    parts[2].data = label;
+    parts[2].len = label_len;
+    parts[3].data = &ctx_len_byte;
+    parts[3].len = 1U;
+    parts[4].data = context;
+    parts[4].len = context_len;
+
+    return noxtls_hkdf_expand_parts(hash_algo, secret, secret_len, parts, 5U, output, output_len);
 }
 
 noxtls_return_t tls13_hkdf_expand_label(noxtls_hash_algos_t hash_algo,

@@ -1,6 +1,633 @@
 {
   "releases": [
     {
+      "version": "0.3.15",
+      "date": "2026-10-24",
+      "summary": "NoxTLS 0.3.15 cuts RAM use on embedded targets several-fold without dropping features: a TLS 1.3 client needs about 33 KB of heap during the handshake and 17 KB once connected (4.7 KB with 4 KB records), down from about 102 KB and 71 KB, and the unified connection object shrinks from 25.5 KB to 2.8 KB. The release also makes the CTR_DRBG conform to NIST SP 800-90A, makes ML-KEM, ML-DSA, Falcon and SLH-DSA conform to their standards, adds working LMS/HSS and XMSS/XMSS^MT stateful hash-based signatures, replaces the TLS 1.2 handshake buffer with running hashes, hardens the TLS 1.2 defaults (forward-secret AEAD suites only, no SHA-1 signatures), and adds a PSK-only TLS 1.3 build option. Applications must be rebuilt: public structure layouts changed.",
+      "highlights": [
+        "TLS 1.3 client heap: about 102 KB to 33 KB during the handshake and 71 KB to 17 KB once connected; worst-case stack 17.5 KB to 6.3 KB on Cortex-M4.",
+        "x509_certificate_t is a zero-copy view of the DER (8,216 B to 152 B); P-256 verify needs about 2 KB of heap instead of 20 KB.",
+        "CTR_DRBG conforms to NIST SP 800-90A Rev.1 and passes all 4,320 AES CTR_DRBG vectors of the NIST CAVP files (72 are checked in and run on every build; the full set runs from the CAVP .rsp files).",
+        "ML-KEM (FIPS 203), ML-DSA (FIPS 204), Falcon and SLH-DSA (FIPS 205) pass official vectors; LMS/HSS (RFC 8554) and XMSS/XMSS^MT (RFC 8391) are implemented with fail-closed stateful signing; all run on Cortex-M4 in at most about 4 KB of stack.",
+        "New PSK-only TLS 1.3 option (NOXTLS_TLS13_PEER_CERTIFICATES=0) saves about 25 KB of flash in a TLS 1.3 image.",
+        "TLS 1.2 is hardened by default: forward-secret AEAD suites only and no SHA-1 signatures; legacy suites and SHA-1 are explicit opt-ins."
+      ],
+      "changes": [
+        "Large RAM reduction for embedded TLS: a TLS 1.3 client's steady-state heap falls from about 71 KB to about 17 KB (about 4.7 KB with 4 KB records), the handshake heap peak from about 102 KB to about 33 KB, and the unified connection object from 25.5 KB to 2.8 KB on Cortex-M4.",
+        "TLS records are encrypted and decrypted in place with one lazily allocated, suite-sized transmit buffer; handshake-only state (key shares, ECDHE/FFDHE secrets, ML-KEM keys, handshake workspace, transcript) is freed and wiped when the connection reaches CONNECTED, and TLS 1.3 uses a running transcript hash.",
+        "noxtls_tls_connection_t holds the TLS 1.2 and TLS 1.3 contexts in a union (conn->ver.tls12 / conn->ver.tls13); DTLS-only state is compiled out when DTLS is off.",
+        "New role switches NOXTLS_FEATURE_TLS_CLIENT and NOXTLS_FEATURE_TLS_SERVER compile out the unused role; server session and ticket caches are sized by NOXTLS_TLS12_SESSION_CACHE_SIZE, NOXTLS_TLS12_TICKET_CACHE_SIZE, NOXTLS_TLS12_TICKET_MAX_LEN and NOXTLS_TLS13_PSK_TICKET_STORE_MAX and store SNI/ALPN as digests.",
+        "x509_certificate_t is a zero-copy view of the certificate DER (8,216 B to 152 B on Cortex-M4); new accessors, a SAN iterator, borrow-mode parsing, lazily grown chains, borrowed/moved/DER-backed trust stores, and in-place CRL lookup. Peer certificates are released after the handshake unless NOXTLS_TLS_RETAIN_PEER_CERT=1.",
+        "Certificate and CSR writers encode directly into the output buffer; output is byte-identical for the same inputs.",
+        "noxtls_sha_ctx_t is a tagged union of per-algorithm states (944 B to 216 B, 108 B in the minimal client profile); HMAC keeps precomputed key-pad states inline and never allocates; HKDF, PBKDF2 and the TLS PRFs key HMAC once and stream their inputs.",
+        "AES T-tables, Ed25519 base tables, the RSA prime wheel and ARIA/Camellia S-boxes are constant data in flash instead of RAM tables built at runtime (about 17 KB of static RAM moved to flash). New NOXTLS_AES_ROM_TABLES, NOXTLS_AES_COMPACT_TABLES, NOXTLS_GCM_TABLE_BITS and NOXTLS_AES_CTX_RAW_KEY options.",
+        "ECC defaults to the flash P-256 generator table and low-RAM verification with the global precompute cache off; precompute tables are compact affine, curves are shared const descriptors, ECC_MAX_KEY_SIZE follows the enabled curves (NOXTLS_ECC_ENABLE_<curve>), and P-384 has dedicated field arithmetic. P-256 verify heap falls from about 20 KB to about 2 KB.",
+        "RSA uses a table-free public exponentiation, public-only keys (noxtls_rsa_key_init_public) and blinded, fault-checked CRT for private operations (RSA-2048 signing about 3.6x faster).",
+        "ML-KEM now implements FIPS 203, ML-DSA implements FIPS 204 (it was previously non-functional), Falcon key generation works and signing reproduces the NIST KAT, and SLH-DSA conforms to FIPS 205; all pass official NIST vectors, use at most about 4 KB of stack on Cortex-M, and run under QEMU on Cortex-M4/M33 (scripts/run_arm_tests.sh, .github/workflows/arm-pq.yml). noxtls_slhdsa_sign, like the ML-DSA and Falcon sign functions, now reads *signature_len as the output buffer capacity.",
+        "The AES CTR_DRBG conforms to NIST SP 800-90A Rev.1 and passes all 4,320 AES CTR_DRBG vectors of the NIST CAVP test files: Block_Cipher_df is the default (drbg_instantiate), a no-derivation-function variant and prediction resistance are available through drbg_instantiate_ex (DRBG_FLAG_NO_DF, DRBG_FLAG_PREDICTION_RESISTANCE), drbg_generate reseeds automatically after DRBG_RESEED_INTERVAL (2^48) requests and after fork on POSIX hosts, and the shared PKC DRBG reseeds every NOXTLS_PKC_RNG_RESEED_INTERVAL (1024) requests. DRBG output changes for the same inputs; drbg_state_t stays 64 bytes.",
+        "LMS/HSS (RFC 8554, NIST SP 800-208) is implemented for every parameter set (SHA-256, SHA-256/192, SHAKE256/256, SHAKE256/192; H5 to H25; W1 to W8) and HSS with up to 8 levels: stateless streaming verification with no heap and under 1.3 KB of stack on Cortex-M4, and stateful signing through noxtls_hss_key_load / noxtls_hss_sign that persists the key state through a mandatory callback before every signature, fails closed, verifies each signature before release and supports reservations and a low-RAM traversal cache. Vectors from RFC 8554 Appendix F, draft-fluhrer-lms-more-parm-sets and NIST ACVP pass. noxtls_lms_sign() now always returns NOT_SUPPORTED because a const key cannot record state; new return code NOXTLS_RETURN_KEY_EXHAUSTED.",
+        "XMSS and XMSS^MT (RFC 8391, NIST SP 800-208) are implemented for all parameter sets (SHA-256, SHA-256/192, SHAKE256/256, SHAKE256/192, RFC SHAKE128 and optional n=64): streaming verification with no heap and about 1.8 KB of stack on Cortex-M4 (3.4 KB of flash for a verify-only build), deterministic and DRBG key generation in the xmss-reference private-key format, stateful signing through noxtls_xmss_signer_* with a mandatory persistence callback that persists before release, fails closed, supports reserve-N, wipes the key on exhaustion and verifies every signature before release, and optional BDS traversal in a caller buffer. New knobs NOXTLS_XMSS_ENABLE_SHA2, NOXTLS_XMSS_ENABLE_SHAKE, NOXTLS_XMSS_ENABLE_N64, NOXTLS_XMSS_MAX_HEIGHT, NOXTLS_XMSS_ENABLE_SIGN and NOXTLS_XMSS_SIGN_SELF_CHECK. XMSS^MT parameter constants now encode the RFC 8391 OIDs (NOXTLS_XMSSMT_SHA2_20_2_256 is 0x10001), the secret key length follows the parameter set, and noxtls_xmss_sign() (const key) stays NOT_SUPPORTED.",
+        "New PSK-only TLS 1.3 / DTLS 1.3 profile: NOXTLS_TLS13_PEER_CERTIFICATES=0 (CMake NOXTLS_TLS13_PEER_CERTIFICATES=OFF) removes the peer Certificate and CertificateVerify receive paths; a client aborts with handshake_failure when the server does not select its PSK, and a server never sends CertificateRequest. On Cortex-M4 a TLS 1.3 image shrinks by about 25 KB of flash (16 KB in the minimal client profile) and its worst-case connect stack by 920 B (472 B).",
+        "TLS 1.2 no longer buffers the handshake transcript: Finished, the RFC 7627 session hash and both CertificateVerify directions are computed from running SHA-256/SHA-384 hash states (MD5+SHA-1 for TLS 1.0/1.1) that are freed at CONNECTED, so the certificate chain is no longer held for the whole handshake (handshake heap peak about 1.0 KB lower for the client, 1.2 KB for the server and 1.6 KB for a server with client authentication).",
+        "TLS 1.2 client authentication: the server CertificateRequest lists ECDSA, RSA-PSS (rsae) and RSA PKCS#1 with SHA-256/SHA-384 only, and a CertificateVerify with an unlisted scheme is rejected with illegal_parameter; the client picks its CertificateVerify scheme from the CertificateRequest. The TLS 1.2 client now offers extended_master_secret by default (noxtls_tls12_set_client_extended_master_secret) and enforces the RFC 7627 resumption rules. New digest-input APIs: noxtls_ecdsa_sign_digest, noxtls_ecdsa_verify_digest, noxtls_rsa_sign_digest, noxtls_rsa_verify_pss_digest.",
+        "Profile presets no longer override -D options; NOXTLS_PROFILE_MINIMAL_TLS_CLIENT now enables ECDSA so it can authenticate servers, limits ECC to P-256, and compiles out X448, the server role, stdio and certificate failure-detail strings.",
+        "New regression suites: TLS 1.2/1.3/unified/DTLS loopback (including allocation-failure sweeps), X.509, symmetric and public-key known-answer tests, post-quantum KATs, per-operation heap gates, a RAM budget gate and OpenSSL interoperability tests.",
+        "TLS 1.2 defaults are hardened: only forward-secret AEAD suites and SHA-256 or stronger signatures, in both directions. CBC, static-RSA and 3DES suites (NOXTLS_CFG_TLS12_ENABLE_LEGACY_CIPHER_SUITES) and SHA-1 signatures (new NOXTLS_CFG_TLS12_ENABLE_SHA1_SIGNATURES) are opt-in; TLS 1.0/1.1 keep their legacy suites for those versions only.",
+        "The bare-metal known-answer test images (post-quantum, Ed25519, AES-GCM, CMAC) now run under QEMU on Cortex-M3, M4, M7 and M33 and on RISC-V RV32IMAC and RV64IMAC (scripts/run_arm_tests.sh --cpu, QEMU virt). New toolchain files cmake/toolchains/riscv-none-elf-rv32imac.cmake and riscv-none-elf-rv64imac.cmake, and CI jobs for every target."
+      ],
+      "breaking_changes": [
+        {
+          "change": "x509_certificate_t is a zero-copy view of the certificate DER; fields such as subject_dn, san_dns_names, not_before and not_after were removed.",
+          "migration": "Use the accessor functions and the SAN iterator, and keep the DER buffer alive while a borrowed certificate is in use."
+        },
+        {
+          "change": "TLS 1.3 handshake-only fields moved into a handshake block that is freed when the connection reaches CONNECTED.",
+          "migration": "Do not read handshake internals after CONNECTED; use the public getters."
+        },
+        {
+          "change": "tls12_context_t no longer has handshake_messages or ems_session_transcript_len.",
+          "migration": "handshake_messages_len still reports the number of handshake bytes hashed."
+        },
+        {
+          "change": "noxtls_tls_connection_t holds the TLS 1.2 and TLS 1.3 contexts in a union.",
+          "migration": "Access them as conn->ver.tls12 and conn->ver.tls13."
+        },
+        {
+          "change": "drbg_state_t no longer stores seedlen and keylen; DRBG output differs from earlier versions for the same inputs; caller entropy below the SP 800-90A minimum returns NOXTLS_RETURN_NOT_ENOUGH_ENTROPY.",
+          "migration": "Pass NULL entropy to let the DRBG draw it, and take expected test values from NIST CAVP vectors."
+        },
+        {
+          "change": "ML-KEM shared secrets and SLH-DSA signatures differ from earlier versions, which were not standard-conformant.",
+          "migration": "Regenerate stored test vectors and do not interoperate with keys or ciphertexts produced by 0.3.14 or earlier."
+        },
+        {
+          "change": "noxtls_slhdsa_sign reads *signature_len as the output buffer capacity, like the ML-DSA and Falcon sign functions.",
+          "migration": "Set the length to the buffer size before calling."
+        },
+        {
+          "change": "noxtls_lms_sign() and noxtls_xmss_sign() (const key) return NOT_SUPPORTED; the LMS secret key grew from 128 to 168 bytes; the XMSS secret key length follows the parameter set; XMSS^MT parameter constants encode the RFC 8391 OIDs.",
+          "migration": "Use noxtls_hss_key_load / noxtls_hss_sign or noxtls_xmss_signer_*, and size buffers with the *_len helpers."
+        },
+        {
+          "change": "The TLS 1.2 client offers extended_master_secret by default, and the server's CertificateRequest lists only ECDSA, RSA-PSS (rsae) and RSA PKCS#1 with SHA-256 or SHA-384.",
+          "migration": "Call noxtls_tls12_set_client_extended_master_secret(ctx, 0) to stop offering EMS; peers that sign CertificateVerify with SHA-1, SHA-512 or EdDSA are now rejected."
+        },
+        {
+          "change": "Profile presets in noxtls_config.h no longer override -D options, and NOXTLS_PROFILE_MINIMAL_TLS_CLIENT now enables ECDSA, limits ECC to P-256 and compiles out X448, the server role, stdio and certificate failure strings.",
+          "migration": "Re-check builds that relied on a profile forcing a value."
+        },
+        {
+          "change": "NOXTLS_HMAC_SHA256_SHARED_STATE is deprecated.",
+          "migration": "HMAC no longer allocates; remove the option."
+        },
+        {
+          "change": "TLS 1.2 and DTLS 1.2 now offer and negotiate only forward-secret AEAD suites (ECDHE-ECDSA, ECDHE-RSA and DHE-RSA with AES-GCM, ChaCha20-Poly1305 or AES-CCM) and use no SHA-1 signatures. Peers that support only CBC, static-RSA or 3DES suites, or only SHA-1 signatures, fail to connect; a TLS 1.2 client that sends no signature_algorithms extension is refused; application cipher-suite allowlists can no longer enable legacy suites.",
+          "migration": "Rebuild with -DNOXTLS_CFG_TLS12_ENABLE_LEGACY_CIPHER_SUITES=ON and/or -DNOXTLS_CFG_TLS12_ENABLE_SHA1_SIGNATURES=ON (or set NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES / NOXTLS_TLS12_ENABLE_SHA1_SIGNATURES to 1); with both on, TLS 1.2 behaves as before. TLS 1.0/1.1 builds keep their CBC and MD5/SHA-1 behaviour for those versions only."
+        }
+      ],
+      "deprecations": [
+        {
+          "item": "NOXTLS_HMAC_SHA256_SHARED_STATE",
+          "replacement": "None needed: HMAC keeps its key-pad states inline and never allocates.",
+          "removal": "A future release"
+        },
+        {
+          "item": "noxtls_lms_sign() and noxtls_xmss_sign() (const-key signing)",
+          "replacement": "noxtls_hss_key_load / noxtls_hss_sign and noxtls_xmss_signer_*",
+          "removal": "Kept; they return NOT_SUPPORTED"
+        }
+      ],
+      "fixed": [
+        "noxtls_tls12_context_init and noxtls_tls13_context_init did not initialize every field; reused context memory could disable TLS 1.2 server session resumption.",
+        "noxtls_tls_connection_accept ignored a fixed TLS 1.2 init_version, a repeated handshake call after WANT_WRITE restarted the handshake, and a TLS 1.3 server kept only the last 0-RTT record.",
+        "One-shot CBC and streaming/one-shot CFB decryption gave wrong results from the second block when the output buffer was the input buffer.",
+        "ML-KEM, ML-DSA and Falcon sources did not compile when enabled.",
+        "The ECDSA nonce inverse and X448 were not computed in constant time.",
+        "Ephemeral (EC)DHE private keys, FFDHE secrets and the GCM H table were kept in memory longer than needed; AES round keys and HMAC/ChaCha20 key copies were not always wiped.",
+        "noxtls_rsa_decrypt_crt_only no longer prints decrypted data to the debug log; SSLKEYLOGFILE support is compiled only with NOXTLS_FEATURE_KEYLOG=1.",
+        "NOXTLS_MAX_CERT_SIZE is enforced when parsing DER, certificates with outer-length slack or trailing bytes are rejected, issuer names are compared per RFC 5280 instead of as truncated text, and EC certificates from generate_self_signed_with_extensions carry the namedCurve parameter.",
+        "DTLS reassembly memory is capped by NOXTLS_DTLS_REASSEMBLY_MAX_BYTES and uses bitmaps.",
+        "Application-local configuration headers are generated from noxtls_config.h, so applications and the library always agree on structure layouts.",
+        "The tls12_ocsp_stapling_regression test no longer frees an uninitialized RSA key.",
+        "The CTR_DRBG update and generate steps did not follow SP 800-90A (V was not incremented before each block, and part of the AES-128 seed material had no effect), caller entropy shorter than the seed length was silently replaced and additional input was truncated; entropy that is too short now returns NOXTLS_RETURN_NOT_ENOUGH_ENTROPY, an all-equal entropy block is rejected and /dev/urandom reads retry short reads.",
+        "TLS wipes its throw-away DRBG states after drawing randoms, session IDs, ticket nonces, connection IDs and TLS 1.1 CBC IVs.",
+        "The TLS 1.2 client ECDSA CertificateVerify signature size now follows the key curve instead of a fixed 32 or 48 bytes; TLS 1.0/1.1 client authentication, which sent TLS 1.2-format messages, now fails explicitly; https_server --require-client-cert also requires the certificate for TLS 1.2.",
+        "X.509 parsing accepted non-minimal DER lengths and CRLs followed by trailing bytes, and a truncated distinguished-name rendering could fuse attribute values.",
+        "The TLS 1.3 HkdfLabel length check could wrap for very long labels, allowing an out-of-bounds read; the RFC 8449 record size limit did not count the inner content type; a PSK binder that did not validate did not abort the handshake; the TLS 1.3 exporter omitted the RFC 8446 Derive-Secret step, so exported keying material did not match other implementations.",
+        "TLS 1.2 CBC records used a predictable explicit IV (write_IV XOR sequence number); the client did not signal secure renegotiation (RFC 5746) or check the server's renegotiation_info; a resumption cancelled by an SNI mismatch kept the cached cipher suite and lost the ALPN result; the polled accept path sent no alert when it rejected a client CertificateVerify."
+      ],
+      "resolved": [
+        {
+          "id": "NOXTLS-RI-0.3.15-01",
+          "title": "TLS context init left fields uninitialized",
+          "description": "noxtls_tls12_context_init and noxtls_tls13_context_init did not initialize every field; reused context memory could disable TLS 1.2 server session resumption.",
+          "refs": [
+            "PR #58"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.15-02",
+          "title": "Unified accept ignored init_version; handshake re-entry restarted",
+          "description": "noxtls_tls_connection_accept ignored a fixed TLS 1.2 init_version, a repeated handshake call after WANT_WRITE restarted the handshake, and a TLS 1.3 server kept only the last 0-RTT record.",
+          "refs": [
+            "PR #58"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.15-03",
+          "title": "In-place CBC/CFB decryption gave wrong output",
+          "description": "One-shot CBC and streaming/one-shot CFB decryption gave wrong results from the second block when the output buffer was the input buffer.",
+          "refs": [
+            "PR #58"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.15-04",
+          "title": "ML-KEM, ML-DSA and Falcon did not compile",
+          "description": "ML-KEM, ML-DSA and Falcon sources did not compile when enabled; ML-DSA was non-functional and Falcon key generation never finished.",
+          "refs": [
+            "PR #58"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.15-05",
+          "title": "ECDSA nonce inverse and X448 not constant time",
+          "description": "The ECDSA nonce inversion and X448 scalar multiplication were not computed in constant time.",
+          "refs": [
+            "PR #58"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.15-06",
+          "title": "Secrets kept in memory longer than needed",
+          "description": "Ephemeral (EC)DHE private keys, FFDHE secrets and the GCM H table were kept in memory longer than needed; AES round keys and HMAC/ChaCha20 key copies were not always wiped.",
+          "refs": [
+            "PR #58"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.15-07",
+          "title": "RSA CRT decryption logged plaintext; key log always built",
+          "description": "noxtls_rsa_decrypt_crt_only printed decrypted data to the debug log, and SSLKEYLOGFILE support was always compiled in. It is now built only with NOXTLS_FEATURE_KEYLOG=1.",
+          "refs": [
+            "PR #58"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.15-08",
+          "title": "X.509 parsing accepted malformed input",
+          "description": "NOXTLS_MAX_CERT_SIZE was not enforced when parsing DER, certificates with outer-length slack or trailing bytes were accepted, issuer names were compared as truncated text instead of per RFC 5280, and EC certificates from generate_self_signed_with_extensions lacked the namedCurve parameter.",
+          "refs": [
+            "PR #58"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.15-09",
+          "title": "DTLS reassembly memory unbounded",
+          "description": "DTLS reassembly memory is now capped by NOXTLS_DTLS_REASSEMBLY_MAX_BYTES and uses bitmaps.",
+          "refs": [
+            "PR #58"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.15-10",
+          "title": "Application configs drifted from the library config",
+          "description": "Application-local configuration headers are generated from noxtls_config.h, so applications and the library always agree on structure layouts.",
+          "refs": [
+            "PR #58"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.15-11",
+          "title": "OCSP stapling regression test freed an uninitialized key",
+          "description": "The tls12_ocsp_stapling_regression test no longer frees an uninitialized RSA key.",
+          "refs": [
+            "PR #58"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.15-12",
+          "title": "CTR_DRBG did not conform to SP 800-90A",
+          "description": "V was not incremented before each block, part of the AES-128 seed material had no effect, caller entropy shorter than the seed length was silently replaced and additional input was truncated. Entropy that is too short now returns NOXTLS_RETURN_NOT_ENOUGH_ENTROPY, an all-equal entropy block is rejected and /dev/urandom reads retry short reads.",
+          "refs": [
+            "PR #58"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.15-13",
+          "title": "TLS left temporary DRBG states on the stack",
+          "description": "TLS now wipes its throw-away DRBG states after drawing randoms, session IDs, ticket nonces, connection IDs and TLS 1.1 CBC IVs.",
+          "refs": [
+            "PR #58"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.15-14",
+          "title": "TLS 1.2 client authentication defects",
+          "description": "The TLS 1.2 client ECDSA CertificateVerify signature size was fixed at 32 or 48 bytes instead of following the key curve; TLS 1.0/1.1 client authentication sent TLS 1.2-format messages and now fails explicitly; https_server --require-client-cert did not require the certificate for TLS 1.2.",
+          "refs": [
+            "PR #58"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.15-15",
+          "title": "X.509 accepted non-minimal DER lengths; truncated DN text fused values",
+          "description": "asn1_get_length accepted long-form lengths that are not minimal, so one signed certificate had several valid encodings (different hashes, pins and channel bindings). A truncated distinguished-name rendering could skip a separator but still append the value.",
+          "refs": [
+            "PR #58"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.15-16",
+          "title": "CRL with trailing bytes was accepted",
+          "description": "A CRL whose CertificateList was followed by extra bytes parsed successfully; it is now rejected, as for certificates.",
+          "refs": [
+            "PR #58"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.15-17",
+          "title": "HkdfLabel length check could wrap",
+          "description": "hkdf_expand_label checked prefix_len + label_len after adding them, so a very long label could wrap the sum and cause an out-of-bounds read.",
+          "refs": [
+            "PR #58"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.15-18",
+          "title": "RFC 8449 record size limit off by one",
+          "description": "The TLS 1.3 record_size_limit did not count the inner content type byte.",
+          "refs": [
+            "PR #58"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.15-19",
+          "title": "Invalid PSK binder did not abort the handshake",
+          "description": "RFC 8446 4.2.11 requires the server to abort when the selected PSK's binder does not validate; the server skipped the identity and completed a full certificate handshake instead. It now sends decrypt_error.",
+          "refs": [
+            "PR #58"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.15-20",
+          "title": "SNI mismatch on resumption kept the cached suite",
+          "description": "When the ClientHello server_name did not match the cached session, the cancelled resumption left the cached session's cipher suite selected (possibly outside the server allowlist) and cleared the negotiated ALPN.",
+          "refs": [
+            "PR #58"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.15-21",
+          "title": "No alert when the polled accept path rejected CertificateVerify",
+          "description": "The TLS 1.2 polled accept path closed without sending an alert after rejecting a client CertificateVerify.",
+          "refs": [
+            "PR #58"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.15-22",
+          "title": "TLS 1.3 exporter did not match RFC 8446",
+          "description": "noxtls_tls13_export_keying_material omitted the Derive-Secret step of RFC 8446 7.5, so its output did not match other TLS 1.3 implementations (EAP-TLS, channel bindings).",
+          "refs": [
+            "PR #58"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.15-23",
+          "title": "Predictable explicit CBC IV in TLS 1.2",
+          "description": "TLS 1.2 and DTLS 1.2 CBC records used write_IV XOR sequence number as the explicit IV, which an attacker can predict (RFC 5246 6.2.3.2). The IV now comes from the DRBG.",
+          "refs": [
+            "PR #58"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.15-24",
+          "title": "Secure renegotiation not signalled",
+          "description": "The TLS 1.2 client sent neither the empty renegotiation_info extension nor TLS_EMPTY_RENEGOTIATION_INFO_SCSV on the initial ClientHello (RFC 5746 3.4) and did not check the server's renegotiation_info.",
+          "refs": [
+            "PR #58"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.15-25",
+          "title": "TLS 1.2 offered and accepted SHA-1 signatures by default",
+          "description": "The TLS 1.2 client offered rsa_pkcs1_sha1 and ecdsa_sha1, and the server signed ServerKeyExchange with SHA-1 when the client listed it or sent no signature_algorithms extension. SHA-1 signatures are now neither offered nor accepted by default (resolves NOXTLS-KA-0.3.15-12).",
+          "refs": [
+            "PR #58"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.15-26",
+          "title": "TLS 1.2 offered CBC, static-RSA and 3DES suites by default",
+          "description": "The TLS 1.2 default offer included AES-CBC suites, static-RSA key exchange and DHE_RSA_WITH_3DES_EDE_CBC_SHA, contrary to BUILDING.md. TLS 1.2 and DTLS 1.2 now offer and negotiate only forward-secret AEAD suites by default (resolves NOXTLS-KA-0.3.15-13).",
+          "refs": [
+            "PR #58"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.15-27",
+          "title": "TLS 1.2 client accepted an unoffered suite or signature scheme",
+          "description": "The client failed without an alert when the ServerHello chose a suite it had not offered, and after a TLS 1.3 to 1.2 downgrade it checked the suite and ServerKeyExchange scheme against its TLS 1.2 table rather than the ClientHello it actually sent. It now checks both against the sent ClientHello and sends illegal_parameter.",
+          "refs": [
+            "PR #58"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.15-28",
+          "title": "TLS 1.3 / DTLS 1.3 server wrote its key share past a handshake workspace smaller than 4096 B",
+          "description": "noxtls_tls13_send_server_hello() staged the KeyShareEntry at handshake_workspace[TLS_SERVER_HELLO_DEFAULT_SIZE] (2048 bytes in) and gave noxtls_tls13_key_share_encode() TLS_KEY_SHARE_ENTRY_MAX_LEN (2048) as its capacity, without checking NOXTLS_TLS_HANDSHAKE_WORKSPACE_SIZE. With a 2048-byte workspace every server handshake wrote the 36-byte X25519 entry immediately past the end of the buffer. The ClientHello and ServerHello builders also bounded their writes by the default message sizes (4096 and 2048 bytes) instead of the configured workspace. The hello builders now use the workspace only when it is large enough for the message (TLS13_WORKSPACE_FOR) and allocate otherwise; the key share is staged in the workspace only when it holds both the ServerHello and the entry. Found by the loopback allocator's tail canary in a DTLS 1.3 PSK server test with a 2048-byte workspace and 512-byte records.",
+          "refs": [
+            "PR #58"
+          ]
+        }
+      ],
+      "known_issues": [
+        "Public structure layouts changed (TLS contexts, x509_certificate_t, CRL, hash/HMAC/AES/ChaCha/ARIA/DRBG contexts, ECC curve parameters); applications must be rebuilt against the new headers.",
+        "ML-KEM shared secrets, SLH-DSA signatures and DRBG output differ from earlier NoxTLS versions because those were not standard-conformant.",
+        "The library does not implement SP 800-90B noise-source health tests; ports that supply a raw TRNG through the entropy callback must provide them.",
+        "LMS/HSS and XMSS private keys are stateful: restoring an older copy of a key (backup, cloned flash, VM snapshot) reuses one-time keys. Keep a single, monotonically updated copy and persist through the signer callback."
+      ],
+      "anomalies": [
+        {
+          "id": "NOXTLS-KA-0.3.15-01",
+          "title": "No SP 800-90B entropy health tests",
+          "description": "The library does not implement SP 800-90B noise-source health tests (repetition count, adaptive proportion, start-up tests). It only rejects an entropy block whose bytes are all equal.",
+          "severity": "medium",
+          "workaround": "Ports that feed a raw hardware RNG through the entropy callback must run the health tests themselves, or use an OS CSPRNG or an SP 800-90B validated conditioned source.",
+          "status": "accepted",
+          "introduced_in": "all versions"
+        },
+        {
+          "id": "NOXTLS-KA-0.3.15-02",
+          "title": "Restoring an old LMS/HSS or XMSS private key reuses one-time keys",
+          "description": "LMS/HSS and XMSS keys are stateful. Restoring an older copy of the key state (backup, cloned flash, VM snapshot) causes one-time keys to be reused, which can allow forgeries. LMS detects this only when a newer traversal workspace is reused; XMSS cannot detect it.",
+          "severity": "high",
+          "workaround": "Keep exactly one, monotonically updated copy of each key, persist it through the signer callback with A/B slots and a checksum, and never restore it from backups.",
+          "status": "accepted",
+          "introduced_in": "0.3.15"
+        },
+        {
+          "id": "NOXTLS-KA-0.3.15-03",
+          "title": "XMSS exhaustion: result of the final key write is ignored",
+          "description": "When an XMSS key signs with its last index, the library persists an image with the seeds wiped but ignores whether that write succeeds. No index can be reused, because the stored index is already at the end marker, but a failed write leaves the seeds in the stored copy.",
+          "severity": "low",
+          "workaround": "Have the persistence callback verify each write, and erase an exhausted key's storage explicitly.",
+          "status": "open",
+          "introduced_in": "0.3.15"
+        },
+        {
+          "id": "NOXTLS-KA-0.3.15-04",
+          "title": "LMS and XMSS return different codes for the same errors",
+          "description": "A signature buffer that is too small returns INVALID_PARAM from LMS and INVALID_BLOCK_SIZE from XMSS; a wrong signature length at verification returns FAILED from LMS and BAD_DATA from XMSS.",
+          "severity": "low",
+          "workaround": "Treat any non-SUCCESS result as failure.",
+          "status": "open",
+          "introduced_in": "0.3.15"
+        },
+        {
+          "id": "NOXTLS-KA-0.3.15-05",
+          "title": "TLS 1.2 renegotiation transcript reset not verified end to end",
+          "description": "Server-initiated renegotiation from OpenSSL s_client already failed before this release, so the reset of the TLS 1.2 running transcript on renegotiation is covered by code review and the secure-renegotiation test only.",
+          "severity": "medium",
+          "workaround": "Keep renegotiation disabled; the NoxTLS client declines it.",
+          "status": "monitoring",
+          "introduced_in": "0.3.14 or earlier"
+        },
+        {
+          "id": "NOXTLS-KA-0.3.15-06",
+          "title": "Hash accelerator ports not tested with interleaved transcript states",
+          "description": "TLS 1.2 now copies and interleaves several hash states during the handshake, as TLS 1.3 already did. This is safe for software hashing and for ports that keep state in the context, but hardware hash ports were not tested.",
+          "severity": "medium",
+          "workaround": "Run the TLS loopback suite on the target when a hardware hash backend is enabled.",
+          "status": "monitoring",
+          "introduced_in": "0.3.15"
+        },
+        {
+          "id": "NOXTLS-KA-0.3.15-07",
+          "title": "EC-JPAKE static DRBG has no periodic reseed",
+          "description": "The EC-JPAKE module keeps a static DRBG instance that reseeds only at the SP 800-90A interval limit, not periodically. It does reseed after fork on POSIX hosts.",
+          "severity": "low",
+          "workaround": "None needed for typical use; EC-JPAKE is off by default.",
+          "status": "open",
+          "introduced_in": "0.3.14 or earlier"
+        },
+        {
+          "id": "NOXTLS-KA-0.3.15-08",
+          "title": "DRBG fork detection not exercised on a POSIX host",
+          "description": "Fork detection (reseed in a forked child) compiles on POSIX targets but was not run on a POSIX host during verification.",
+          "severity": "low",
+          "workaround": "Reseed or re-instantiate DRBG instances explicitly after fork.",
+          "status": "monitoring",
+          "introduced_in": "0.3.15"
+        },
+        {
+          "id": "NOXTLS-KA-0.3.15-09",
+          "title": "MISRA C:2025 findings open",
+          "description": "The CodeNox scan of this release reports 28 Mandatory findings (all inconclusive, under review), 940 Required and 3,177 Advisory findings (CodeNox 0.2.1). See the MISRA analysis report.",
+          "severity": "medium",
+          "workaround": "Projects with MISRA obligations should review the report and the analyst notes for the modules they use.",
+          "status": "open",
+          "introduced_in": "0.3.15"
+        },
+        {
+          "id": "NOXTLS-KA-0.3.15-10",
+          "title": "XMSS traversal state is RAM-only; some large parameter sets lack vectors",
+          "description": "The XMSS BDS traversal state is rebuilt on attach at about the cost of one key generation, which is impractical on an MCU for subtrees of height 20. XMSS h=20, XMSS^MT 40/2 and 60/3 and LMS H25 have no known-answer vectors and are covered by shared code paths and negative tests.",
+          "severity": "low",
+          "workaround": "Use XMSS^MT with subtree height 5 or 10, or XMSS h=10, on MCUs; generate large trees off-device.",
+          "status": "accepted",
+          "introduced_in": "0.3.15"
+        },
+        {
+          "id": "NOXTLS-KA-0.3.15-11",
+          "title": "PSK-only build fails the certificate-based TLS 1.3 tests",
+          "description": "With NOXTLS_TLS13_PEER_CERTIFICATES=0 the existing certificate-based TLS 1.3 loopback tests fail because that path is compiled out on purpose; they are not yet skipped in that configuration.",
+          "severity": "low",
+          "workaround": "Run the PSK, DTLS 1.3 recovery and TLS 1.2 tests for PSK-only builds.",
+          "status": "open",
+          "introduced_in": "0.3.15"
+        },
+        {
+          "id": "NOXTLS-KA-0.3.15-14",
+          "title": "constant_time_strict side-channel profile has no extra effect",
+          "description": "NOXTLS_SIDECHANNEL_PROFILE_CONSTANT_TIME_STRICT behaves like the balanced profile: both enable constant-time secret comparison, but the additional strict hardening described in BUILDING.md is not implemented.",
+          "severity": "low",
+          "workaround": "None; balanced and strict give the same protection. Do not rely on strict for additional guarantees.",
+          "status": "open",
+          "introduced_in": "0.3.14 or earlier"
+        },
+        {
+          "id": "NOXTLS-KA-0.3.15-15",
+          "title": "Default configuration enables legacy algorithms",
+          "description": "The default noxtls_config.h enables MD5, SHA-1, RC4, DES/3DES and DSA (the minimal and FIPS-like profiles disable them).",
+          "severity": "low",
+          "workaround": "Disable unused legacy algorithms (NOXTLS_FEATURE_RC4=0, NOXTLS_FEATURE_DES=0, NOXTLS_FEATURE_DSA=0, NOXTLS_FEATURE_MD5=0 where not needed) or start from a profile.",
+          "status": "open",
+          "introduced_in": "0.3.14 or earlier"
+        },
+        {
+          "id": "NOXTLS-KA-0.3.15-16",
+          "title": "Encrypt-then-MAC not negotiated for three legacy CBC suites",
+          "description": "TLS_DHE_RSA_WITH_AES_128_CBC_SHA, TLS_DHE_RSA_WITH_AES_256_CBC_SHA and TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA are missing from the Encrypt-then-MAC (RFC 7366) suite list, so they use MAC-then-encrypt even when both peers offer EtM. Only builds with NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES=1 are affected.",
+          "severity": "low",
+          "workaround": "Keep the legacy suites off (the default), or prefer the other CBC suites.",
+          "status": "open",
+          "introduced_in": "0.3.14 or earlier"
+        },
+        {
+          "id": "NOXTLS-KA-0.3.15-17",
+          "title": "TLS 1.3 CertificateRequest lists SHA-1 signature schemes",
+          "description": "The TLS 1.3 server CertificateRequest signature_algorithms list still includes rsa_pkcs1_sha1 (0x0201) and ecdsa_sha1 (0x0203), and SHA-224 schemes. RFC 8446 does not allow SHA-1 in CertificateVerify.",
+          "severity": "low",
+          "workaround": "None needed for clients that sign CertificateVerify with SHA-256 or stronger, which all current TLS 1.3 implementations do.",
+          "status": "open",
+          "introduced_in": "0.3.14 or earlier"
+        }
+      ],
+      "security": [
+        {
+          "id": "NOXTLS-SA-0.3.15-01",
+          "severity": "medium",
+          "title": "Timing side channels in ECDSA signing and X448",
+          "description": "The ECDSA nonce inversion and X448 scalar multiplication were not constant time, which can leak information about the nonce or private key to an attacker who can measure timing precisely. Fixed: the nonce inversion is blinded and X448 uses constant-time field arithmetic.",
+          "affected_versions": "0.3.14 and earlier",
+          "cve": null
+        },
+        {
+          "id": "NOXTLS-SA-0.3.15-02",
+          "severity": "medium",
+          "title": "CTR_DRBG did not conform to SP 800-90A",
+          "description": "The DRBG update and generate steps deviated from SP 800-90A, part of the AES-128 seed material had no effect, and caller entropy that was too short was silently replaced. No practical attack is known, but the generator did not meet its stated standard. Fixed and validated against all NIST CAVP vectors.",
+          "affected_versions": "0.3.14 and earlier",
+          "cve": null
+        },
+        {
+          "id": "NOXTLS-SA-0.3.15-03",
+          "severity": "medium",
+          "title": "Decrypted data written to the debug log",
+          "description": "noxtls_rsa_decrypt_crt_only printed decrypted data, and private primes were logged on some paths, when debug logging was enabled. Fixed: these values are no longer logged.",
+          "affected_versions": "0.3.14 and earlier, builds with debug logging enabled",
+          "cve": null
+        },
+        {
+          "id": "NOXTLS-SA-0.3.15-04",
+          "severity": "medium",
+          "title": "X.509 parser accepted malformed certificates",
+          "description": "Certificates with outer-length slack or trailing bytes were accepted, NOXTLS_MAX_CERT_SIZE was not enforced during DER parsing, and issuer names were compared as truncated text. Fixed: such input is rejected and names are compared per RFC 5280.",
+          "affected_versions": "0.3.14 and earlier",
+          "cve": null
+        },
+        {
+          "id": "NOXTLS-SA-0.3.15-05",
+          "severity": "low",
+          "title": "Secrets and key material retained in memory",
+          "description": "Ephemeral (EC)DHE private keys, FFDHE secrets, AES round keys, HMAC and ChaCha20 key copies, throw-away DRBG states and the GCM H table were kept or left unwiped longer than needed. Fixed: they are wiped and freed as soon as they are no longer needed.",
+          "affected_versions": "0.3.14 and earlier",
+          "cve": null
+        },
+        {
+          "id": "NOXTLS-SA-0.3.15-06",
+          "severity": "low",
+          "title": "TLS key logging compiled in by default",
+          "description": "SSLKEYLOGFILE support, which writes TLS secrets to a file, was compiled into every build. It is now built only with NOXTLS_FEATURE_KEYLOG=1.",
+          "affected_versions": "0.3.14 and earlier",
+          "cve": null
+        },
+        {
+          "id": "NOXTLS-SA-0.3.15-07",
+          "severity": "low",
+          "title": "DTLS reassembly memory not bounded",
+          "description": "A peer could make DTLS handshake reassembly use more memory than intended. Reassembly is now capped by NOXTLS_DTLS_REASSEMBLY_MAX_BYTES.",
+          "affected_versions": "0.3.14 and earlier",
+          "cve": null
+        },
+        {
+          "id": "NOXTLS-SA-0.3.15-08",
+          "severity": "low",
+          "title": "TLS 1.2 server offered unverified CertificateVerify schemes",
+          "description": "The TLS 1.2 server's CertificateRequest listed SHA-1, SHA-224, SHA-512, EdDSA and rsa_pss_pss schemes it never verified. It now lists only the schemes it verifies and rejects others with illegal_parameter.",
+          "affected_versions": "0.3.14 and earlier",
+          "cve": null
+        },
+        {
+          "id": "NOXTLS-SA-0.3.15-09",
+          "severity": "medium",
+          "title": "Predictable explicit IV in TLS 1.2 CBC records",
+          "description": "TLS 1.2 and DTLS 1.2 CBC-mode records used write_IV XOR sequence number as the explicit IV. An attacker who can inject chosen plaintext could predict the IV (BEAST-style). Fixed: the IV is drawn from the DRBG. CBC suites are also no longer enabled by default.",
+          "affected_versions": "0.3.14 and earlier",
+          "cve": null
+        },
+        {
+          "id": "NOXTLS-SA-0.3.15-10",
+          "severity": "medium",
+          "title": "Out-of-bounds read in the TLS 1.3 HkdfLabel construction",
+          "description": "A label length close to the 32-bit limit could wrap the HkdfLabel length check and cause an out-of-bounds read, for example through an application-supplied exporter label. Fixed: the label length is bounded before the prefix is added.",
+          "affected_versions": "0.3.14 and earlier",
+          "cve": null
+        },
+        {
+          "id": "NOXTLS-SA-0.3.15-11",
+          "severity": "low",
+          "title": "Secure renegotiation (RFC 5746) not signalled by the TLS 1.2 client",
+          "description": "The client did not signal or verify secure renegotiation. The NoxTLS client declines renegotiation, which limits the impact. Fixed: the SCSV is sent and the server's renegotiation_info is checked.",
+          "affected_versions": "0.3.14 and earlier",
+          "cve": null
+        },
+        {
+          "id": "NOXTLS-SA-0.3.15-12",
+          "severity": "low",
+          "title": "TLS 1.3 server continued after an invalid PSK binder",
+          "description": "A ClientHello with a PSK binder that did not validate was handled as a full certificate handshake instead of being rejected as RFC 8446 requires. The PSK was not accepted, so this did not bypass authentication. Fixed: the server aborts with decrypt_error.",
+          "affected_versions": "0.3.14 and earlier",
+          "cve": null
+        },
+        {
+          "id": "NOXTLS-SA-0.3.15-13",
+          "severity": "low",
+          "title": "TLS 1.2 resumption fallback could select a suite outside the server allowlist",
+          "description": "When an SNI mismatch cancelled a resumption, the server kept the cached session's cipher suite for the full handshake. Fixed: the suite is selected again from the ClientHello and the allowlist.",
+          "affected_versions": "0.3.14 and earlier",
+          "cve": null
+        },
+        {
+          "id": "NOXTLS-SA-0.3.15-14",
+          "severity": "low",
+          "title": "Non-canonical DER accepted in X.509 parsing",
+          "description": "Non-minimal DER length encodings and CRLs with trailing bytes were accepted, so one certificate or CRL could have several valid encodings, which affects hash-based pinning and channel bindings. Fixed: they are rejected.",
+          "affected_versions": "0.3.14 and earlier",
+          "cve": null
+        },
+        {
+          "id": "NOXTLS-SA-0.3.15-15",
+          "severity": "medium",
+          "title": "TLS 1.2 defaults allowed SHA-1 signatures and non-forward-secret or CBC suites",
+          "description": "By default the TLS 1.2 client offered SHA-1 signature schemes (deprecated by RFC 9155) and CBC, static-RSA and 3DES suites, and the server negotiated them. The client also accepted a ServerHello suite or ServerKeyExchange scheme it had not offered after a TLS 1.3 to 1.2 downgrade. Fixed: only forward-secret AEAD suites and SHA-256 or stronger signatures by default; legacy behaviour needs NOXTLS_CFG_TLS12_ENABLE_LEGACY_CIPHER_SUITES and NOXTLS_CFG_TLS12_ENABLE_SHA1_SIGNATURES.",
+          "affected_versions": "0.3.14 and earlier",
+          "cve": null
+        },
+        {
+          "id": "NOXTLS-SA-0.3.15-16",
+          "severity": "high",
+          "title": "Out-of-bounds write in the TLS 1.3 / DTLS 1.3 ServerHello when the handshake workspace is below 4096 B",
+          "description": "In builds with NOXTLS_TLS_HANDSHAKE_WORKSPACE_SIZE smaller than 4096 bytes, a TLS 1.3 or DTLS 1.3 server writes its ServerHello KeyShareEntry past the end of the handshake workspace on every handshake (36 bytes for X25519 with a 2048-byte workspace; more for larger groups). Any client can trigger it by connecting. The bytes written are the server's own key share, not attacker-chosen, but they overwrite whatever follows the workspace, for example an application buffer placed after a caller-provided workspace. Builds with the default 8192-byte workspace are not affected. Fixed in 0.3.15 (NOXTLS-RI-0.3.15-28).",
+          "affected_versions": "0.3.14 and earlier, with NOXTLS_TLS_HANDSHAKE_WORKSPACE_SIZE below 4096",
+          "cve": null
+        }
+      ],
+      "security_recommendations": [
+        "Supply a full-entropy source: an OS CSPRNG, an SP 800-90B validated conditioned source, or a raw TRNG that your port conditions and health-tests. Never ship NOXTLS_ENTROPY_SOURCE_DUMMY.",
+        "Keep TLS 1.0 and TLS 1.1 off, and leave NOXTLS_CFG_TLS12_ENABLE_LEGACY_CIPHER_SUITES and NOXTLS_CFG_TLS12_ENABLE_SHA1_SIGNATURES at their default (off) unless an interoperability requirement forces them. Disable RC4, DES, MD4 and MD5-based options where not needed.",
+        "Leave NOXTLS_FEATURE_KEYLOG off in production builds; key logs expose all session secrets.",
+        "Keep the TLS 1.2 extended_master_secret offer enabled (the default) and prefer TLS 1.3.",
+        "Enable certificate validity checking (NOXTLS_HAVE_TIME=1 with a trusted clock) and hostname verification for every client connection.",
+        "For LMS/HSS and XMSS signing keys, keep one monotonically updated copy, persist it with A/B slots and a checksum through the signer callback, and never restore it from a backup or snapshot.",
+        "Use the PSK-only TLS 1.3 option (NOXTLS_TLS13_PEER_CERTIFICATES=0) only when every TLS 1.3 peer authenticates with an external PSK of at least 128 bits of entropy.",
+        "Rebuild applications against the 0.3.15 headers; public structure layouts changed and mixing headers and libraries from different versions is unsafe.",
+        "If you build with NOXTLS_TLS_HANDSHAKE_WORKSPACE_SIZE below 4096 bytes and run a TLS 1.3 or DTLS 1.3 server, update to 0.3.15 (NOXTLS-SA-0.3.15-16). Until then, use a workspace of at least 4096 bytes."
+      ]
+    },
+    {
       "version": "0.3.14",
       "date": "2026-10-22",
       "changes": [

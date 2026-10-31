@@ -42,7 +42,7 @@
 noxtls_return_t noxtls_sha256_round_accel_port(noxtls_sha_ctx_t *ctx, const uint8_t *input)
 {
 #if (NOXTLS_FEATURE_CC13XX_HW_ACCEL || NOXTLS_FEATURE_CC13XX_AES_ACCEL)
-    return ctx != NULL ? noxtls_cc13xx_sha256_blocks(ctx->h, input, 1U) : NOXTLS_RETURN_NULL;
+    return ctx != NULL ? noxtls_cc13xx_sha256_blocks(ctx->u.md32.h, input, 1U) : NOXTLS_RETURN_NULL;
 #elif NOXTLS_FEATURE_HASH_ACCEL_STM32
     return noxtls_sha256_accel_stm32_round(ctx, input);
 #else
@@ -64,7 +64,7 @@ noxtls_return_t noxtls_sha256_round_accel_port(noxtls_sha_ctx_t *ctx, const uint
 noxtls_return_t noxtls_sha256_blocks_accel_port(noxtls_sha_ctx_t *ctx, const uint8_t *input, uint32_t block_count)
 {
 #if (NOXTLS_FEATURE_CC13XX_HW_ACCEL || NOXTLS_FEATURE_CC13XX_AES_ACCEL)
-    return ctx != NULL ? noxtls_cc13xx_sha256_blocks(ctx->h, input, block_count) : NOXTLS_RETURN_NULL;
+    return ctx != NULL ? noxtls_cc13xx_sha256_blocks(ctx->u.md32.h, input, block_count) : NOXTLS_RETURN_NULL;
 #elif NOXTLS_FEATURE_HASH_ACCEL_STM32
     return noxtls_sha256_accel_stm32_blocks(ctx, input, block_count);
 #else

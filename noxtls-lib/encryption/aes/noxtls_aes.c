@@ -49,14 +49,20 @@ extern "C"
 #ifndef NOXTLS_FEATURE_NRF52_HW_AES_ONLY
 #define NOXTLS_FEATURE_NRF52_HW_AES_ONLY 0
 #endif
+/* Table placement knobs are documented in noxtls_config.h. */
 #ifndef NOXTLS_AES_ROM_TABLES
-#define NOXTLS_AES_ROM_TABLES 0
+#define NOXTLS_AES_ROM_TABLES 1
+#endif
+#ifndef NOXTLS_AES_COMPACT_TABLES
+#define NOXTLS_AES_COMPACT_TABLES 0
 #endif
 
-#if NOXTLS_FEATURE_STM32_HW_AES_ONLY || NOXTLS_FEATURE_NRF52_HW_AES_ONLY
-#define NOXTLS_FEATURE_AES_SOFTWARE_FALLBACK 0
-#else
-#define NOXTLS_FEATURE_AES_SOFTWARE_FALLBACK 1
+/* The software fallback needs the expanded schedule kept in the context. */
+#define NOXTLS_FEATURE_AES_SOFTWARE_FALLBACK (NOXTLS_AES_CTX_SOFTWARE_SCHEDULE)
+
+#if !NOXTLS_AES_CTX_RAW_KEY && (NOXTLS_PORT_AES_ACCEL || NOXTLS_FEATURE_AES_ACCEL_NI || NOXTLS_FEATURE_AES_ACCEL_APPLE || \
+                                 !NOXTLS_AES_CTX_SOFTWARE_SCHEDULE)
+#error "AES accelerator backends need NOXTLS_AES_CTX_RAW_KEY=1 (raw key kept in noxtls_aes_context_t)"
 #endif
 
 /** AES Substitution Box */
@@ -84,9 +90,24 @@ static const uint8_t aes_sub_box[16][16] =
 #include "noxtls_aes_rom_tables.h"
 #else
 static uint32_t aes_enc_te0[256];
+#if !NOXTLS_AES_COMPACT_TABLES
 static uint32_t aes_enc_te1[256];
 static uint32_t aes_enc_te2[256];
 static uint32_t aes_enc_te3[256];
+#endif
+#endif
+
+/* Te1..Te3 are byte rotations of Te0; the compact mode derives them on lookup. */
+#if NOXTLS_AES_COMPACT_TABLES
+#define AES_TE0(i) (aes_enc_te0[(i)])
+#define AES_TE1(i) (NOXTLS_AES_ROTR(aes_enc_te0[(i)], 8U))
+#define AES_TE2(i) (NOXTLS_AES_ROTR(aes_enc_te0[(i)], 16U))
+#define AES_TE3(i) (NOXTLS_AES_ROTR(aes_enc_te0[(i)], 24U))
+#else
+#define AES_TE0(i) (aes_enc_te0[(i)])
+#define AES_TE1(i) (aes_enc_te1[(i)])
+#define AES_TE2(i) (aes_enc_te2[(i)])
+#define AES_TE3(i) (aes_enc_te3[(i)])
 #endif
 
 static uint32_t aes_rotword(uint32_t w);;
@@ -114,9 +135,6 @@ static noxtls_return_t noxtls_aes_decrypt_block_software_expanded(const uint32_t
                                                            uint8_t rounds,
                                                            const uint8_t *data,
                                                            uint8_t *output);
-static noxtls_return_t noxtls_aes_decrypt_block_ctx_internal(const noxtls_aes_context_t *ctx,
-                                                            const uint8_t *data,
-                                                            uint8_t *output);
 /**
  * @brief Copy an AES state matrix to a contiguous output block.
  *
@@ -227,9 +245,11 @@ static void aes_software_init_encrypt_tables(void)
                        (uint32_t)s3;
 
         aes_enc_te0[x] = te0;
+#if !NOXTLS_AES_COMPACT_TABLES
         aes_enc_te1[x] = (te0 >>8U) | (te0 <<24U);
         aes_enc_te2[x] = (te0 >>16U) | (te0 <<16U);
         aes_enc_te3[x] = (te0 >>24U) | (te0 <<8U);
+#endif
     }
 
     aes_enc_tables_ready = 1U;
@@ -372,21 +392,27 @@ static noxtls_return_t aes_type_params(noxtls_aes_type_t type, uint8_t *rounds, 
 noxtls_return_t noxtls_aes_prepare_context(noxtls_aes_context_t *ctx, const uint8_t *key, noxtls_aes_type_t type)
 {
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+    uint8_t rounds = 0U;
+    uint8_t key_words = 0U;
+    uint8_t key_len = 0U;
 
     if ((ctx == NULL) || (key == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
-    rc = aes_type_params(type, &ctx->rounds, &ctx->key_words, &ctx->key_len);
+    rc = aes_type_params(type, &rounds, &key_words, &key_len);
     if (rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
 
-    ctx->type = type;
-    noxtls_copy_u8(ctx->key, sizeof(ctx->key), key, (size_t)(ctx->key_len));
+    ctx->rounds = rounds;
+    ctx->type = (uint8_t)type;
+#if NOXTLS_AES_CTX_RAW_KEY
+    noxtls_copy_u8(ctx->key, sizeof(ctx->key), key, (size_t)(key_len));
+#endif
 #if NOXTLS_FEATURE_AES_SOFTWARE_FALLBACK
     (void)aes_software_init_encrypt_tables();
-    rc = noxtls_aes_key_expansion(key, ctx->round_keys, (int)ctx->key_words, (int)ctx->rounds);
+    rc = noxtls_aes_key_expansion(key, ctx->round_keys, (int)key_words, (int)rounds);
     if (rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -456,8 +482,8 @@ noxtls_return_t noxtls_aes_init(noxtls_aes_context_t *ctx,
     }
 
     noxtls_secure_zero((ctx), sizeof(*(ctx)));
-    ctx->mode = mode;
-    ctx->op = op;
+    ctx->mode = (uint8_t)mode;
+    ctx->op = (uint8_t)op;
     rc = noxtls_aes_prepare_context(ctx, key, type);
     if (rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
@@ -576,13 +602,13 @@ noxtls_return_t noxtls_aes_update(noxtls_aes_context_t *ctx,
 
     /* The API permits complete buffered block output in addition to input.
      * Round block modes down before wiping; stream modes produce input_len. */
-    if ((ctx->mode == NOXTLS_AES_ECB) || (ctx->mode == NOXTLS_AES_CBC)) {
+    if (((noxtls_aes_mode_t)ctx->mode == NOXTLS_AES_ECB) || ((noxtls_aes_mode_t)ctx->mode == NOXTLS_AES_CBC)) {
         output_span = ((in_left + (uint32_t)ctx->partial_len) / NOXTLS_AES_BLOCK_LENGTH) * NOXTLS_AES_BLOCK_LENGTH;
     } else {
         output_span = in_left;
     }
 
-    if ((ctx->mode == NOXTLS_AES_ECB) || (ctx->mode == NOXTLS_AES_CBC)) {
+    if (((noxtls_aes_mode_t)ctx->mode == NOXTLS_AES_ECB) || ((noxtls_aes_mode_t)ctx->mode == NOXTLS_AES_CBC)) {
             while (in_left > 0U) {
                 uint32_t need = (uint32_t)NOXTLS_AES_BLOCK_LENGTH - ctx->partial_len;
                 uint32_t take = (uint32_t)((in_left < need) ? in_left : need);
@@ -592,8 +618,8 @@ noxtls_return_t noxtls_aes_update(noxtls_aes_context_t *ctx,
                 in_left -= take;
 
                 if (ctx->partial_len == NOXTLS_AES_BLOCK_LENGTH) {
-                    if (ctx->mode == NOXTLS_AES_ECB) {
-                        if (ctx->op == NOXTLS_AES_OP_ENCRYPT) {
+                    if ((noxtls_aes_mode_t)ctx->mode == NOXTLS_AES_ECB) {
+                        if ((noxtls_aes_operation_t)ctx->op == NOXTLS_AES_OP_ENCRYPT) {
                             noxtls_return_t r = noxtls_aes_encrypt_block_ctx_internal(ctx, ctx->partial, &output[produced]);
                             if (r != NOXTLS_RETURN_SUCCESS) {
                                 noxtls_secure_zero(output, (size_t)output_span);
@@ -610,7 +636,7 @@ noxtls_return_t noxtls_aes_update(noxtls_aes_context_t *ctx,
                             }
                         }
                     } else {
-                        if (ctx->op == NOXTLS_AES_OP_ENCRYPT) {
+                        if ((noxtls_aes_operation_t)ctx->op == NOXTLS_AES_OP_ENCRYPT) {
                             uint8_t block[NOXTLS_AES_BLOCK_LENGTH];
                             for (i = 0U; i < NOXTLS_AES_BLOCK_LENGTH; i += 1U) {
                                 block[i] = (uint8_t)(ctx->partial[i] ^ ctx->feedback[i]);
@@ -642,11 +668,11 @@ noxtls_return_t noxtls_aes_update(noxtls_aes_context_t *ctx,
                     ctx->partial_len = 0U;
                 }
             }
-    } else if ((ctx->mode == NOXTLS_AES_CTR) || (ctx->mode == NOXTLS_AES_CFB) || (ctx->mode == NOXTLS_AES_OFB)) {
+    } else if (((noxtls_aes_mode_t)ctx->mode == NOXTLS_AES_CTR) || ((noxtls_aes_mode_t)ctx->mode == NOXTLS_AES_CFB) || ((noxtls_aes_mode_t)ctx->mode == NOXTLS_AES_OFB)) {
             while (in_left > 0U) {
                 if (ctx->partial_len == NOXTLS_AES_BLOCK_LENGTH) {
                     noxtls_return_t r = NOXTLS_RETURN_FAILED;
-                    if (ctx->mode == NOXTLS_AES_CTR) {
+                    if ((noxtls_aes_mode_t)ctx->mode == NOXTLS_AES_CTR) {
                         r = noxtls_aes_encrypt_block_ctx_internal(ctx, ctx->feedback, ctx->partial);
                         if (r != NOXTLS_RETURN_SUCCESS) {
                                 noxtls_secure_zero(output, (size_t)output_span);
@@ -654,7 +680,7 @@ noxtls_return_t noxtls_aes_update(noxtls_aes_context_t *ctx,
                                 return r;
                             }
                         (void)aes_counter_inc(ctx->feedback);
-                    } else if (ctx->mode == NOXTLS_AES_CFB) {
+                    } else if ((noxtls_aes_mode_t)ctx->mode == NOXTLS_AES_CFB) {
                         r = noxtls_aes_encrypt_block_ctx_internal(ctx, ctx->feedback, ctx->partial);
                         if (r != NOXTLS_RETURN_SUCCESS) {
                                 noxtls_secure_zero(output, (size_t)output_span);
@@ -678,11 +704,12 @@ noxtls_return_t noxtls_aes_update(noxtls_aes_context_t *ctx,
                     uint32_t available = (uint32_t)NOXTLS_AES_BLOCK_LENGTH - ctx->partial_len;
                     uint32_t take = (uint32_t)((in_left < available) ? in_left : available);
                     for (i = 0U; i < take; i += 1U) {
-                        uint8_t out_byte = (uint8_t)(in_ptr[i] ^ ctx->partial[ctx->partial_len + i]);
+                        uint8_t in_byte = in_ptr[i]; /* read before output may overwrite it (in-place) */
+                        uint8_t out_byte = (uint8_t)(in_byte ^ ctx->partial[ctx->partial_len + i]);
                         output[produced + i] = out_byte;
-                        if (ctx->mode == NOXTLS_AES_CFB) {
+                        if ((noxtls_aes_mode_t)ctx->mode == NOXTLS_AES_CFB) {
                             noxtls_move_u8(ctx->feedback, sizeof(ctx->feedback), &ctx->feedback[1], (size_t)(NOXTLS_AES_BLOCK_LENGTH - 1U));
-                            ctx->feedback[NOXTLS_AES_BLOCK_LENGTH - 1U] = (ctx->op == NOXTLS_AES_OP_ENCRYPT) ? out_byte : in_ptr[i];
+                            ctx->feedback[NOXTLS_AES_BLOCK_LENGTH - 1U] = ((noxtls_aes_operation_t)ctx->op == NOXTLS_AES_OP_ENCRYPT) ? out_byte : in_byte;
                         }
                     }
                     in_ptr = &in_ptr[take];
@@ -723,16 +750,16 @@ noxtls_return_t noxtls_aes_final(noxtls_aes_context_t *ctx,
         return NOXTLS_RETURN_NOT_INITIALIZED;
     }
 
-    if ((ctx->mode == NOXTLS_AES_CTR) || (ctx->mode == NOXTLS_AES_CFB) || (ctx->mode == NOXTLS_AES_OFB)) {
-        ctx->initialized = 0U;
+    if (((noxtls_aes_mode_t)ctx->mode == NOXTLS_AES_CTR) || ((noxtls_aes_mode_t)ctx->mode == NOXTLS_AES_CFB) || ((noxtls_aes_mode_t)ctx->mode == NOXTLS_AES_OFB)) {
+        noxtls_secure_zero(ctx, sizeof(*ctx)); /* done: drop key schedule and feedback */
         return NOXTLS_RETURN_SUCCESS;
     }
 
-    if (ctx->op == NOXTLS_AES_OP_DECRYPT) {
+    if ((noxtls_aes_operation_t)ctx->op == NOXTLS_AES_OP_DECRYPT) {
         if (ctx->partial_len != 0U) {
             return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
         }
-        ctx->initialized = 0U;
+        noxtls_secure_zero(ctx, sizeof(*ctx)); /* done: drop key schedule and feedback */
         return NOXTLS_RETURN_SUCCESS;
     }
 
@@ -748,14 +775,14 @@ noxtls_return_t noxtls_aes_final(noxtls_aes_context_t *ctx,
         noxtls_secure_zero((block), sizeof(block));
         noxtls_copy_u8(block, sizeof(block), ctx->partial, (size_t)(ctx->partial_len));
 
-        if (ctx->mode == NOXTLS_AES_ECB) {
+        if ((noxtls_aes_mode_t)ctx->mode == NOXTLS_AES_ECB) {
             r = noxtls_aes_encrypt_block_ctx_internal(ctx, block, output);
             if (r != NOXTLS_RETURN_SUCCESS) {
                 noxtls_secure_zero(output, NOXTLS_AES_BLOCK_LENGTH);
                 noxtls_secure_zero(ctx, sizeof(*ctx));
                 return r;
             }
-        } else if (ctx->mode == NOXTLS_AES_CBC) {
+        } else if ((noxtls_aes_mode_t)ctx->mode == NOXTLS_AES_CBC) {
             for (i = 0U; i < NOXTLS_AES_BLOCK_LENGTH; i += 1U) {
                 block[i] ^= ctx->feedback[i];
             }
@@ -773,7 +800,7 @@ noxtls_return_t noxtls_aes_final(noxtls_aes_context_t *ctx,
         *output_len = NOXTLS_AES_BLOCK_LENGTH;
     }
 
-    ctx->initialized = 0U;
+    noxtls_secure_zero(ctx, sizeof(*ctx)); /* done: drop key schedule and feedback */
     return NOXTLS_RETURN_SUCCESS;
 }
     
@@ -880,7 +907,8 @@ noxtls_return_t noxtls_aes_encrypt_block_ctx_internal(const noxtls_aes_context_t
         return NOXTLS_RETURN_NULL;
     }
 
-    rc = noxtls_aes_accel_port_encrypt_block(ctx->key, data, output, ctx->type);
+#if NOXTLS_AES_CTX_RAW_KEY
+    rc = noxtls_aes_accel_port_encrypt_block(ctx->key, data, output, (noxtls_aes_type_t)ctx->type);
     if (rc == NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -888,10 +916,11 @@ noxtls_return_t noxtls_aes_encrypt_block_ctx_internal(const noxtls_aes_context_t
         noxtls_secure_zero(output, NOXTLS_AES_BLOCK_LENGTH);
         return rc;
     }
+#endif
 #if NOXTLS_FEATURE_AES_ACCEL_NI && \
     (defined(__AES__) || defined(_MSC_VER)) && \
     (defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86))
-    rc = noxtls_aes_accel_ni_encrypt_block(ctx->key, data, output, ctx->type);
+    rc = noxtls_aes_accel_ni_encrypt_block(ctx->key, data, output, (noxtls_aes_type_t)ctx->type);
     if (rc == NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -904,7 +933,7 @@ noxtls_return_t noxtls_aes_encrypt_block_ctx_internal(const noxtls_aes_context_t
     defined(__APPLE__) && \
     (defined(__aarch64__) || defined(__arm64__)) && \
     defined(__ARM_FEATURE_CRYPTO)
-    rc = noxtls_aes_accel_apple_encrypt_block(ctx->key, data, output, ctx->type);
+    rc = noxtls_aes_accel_apple_encrypt_block(ctx->key, data, output, (noxtls_aes_type_t)ctx->type);
     if (rc == NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -995,11 +1024,13 @@ static noxtls_return_t noxtls_aes_encrypt_block_software(const uint8_t * key, co
     }
 
     rc = noxtls_aes_key_expansion(key, w, (int)key_words, (int)rounds);
-    if (rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
+    if (rc == NOXTLS_RETURN_SUCCESS) {
+        (void)aes_software_init_encrypt_tables();
+        rc = noxtls_aes_encrypt_block_software_expanded(w, rounds, data, output);
     }
-    (void)aes_software_init_encrypt_tables();
-    return noxtls_aes_encrypt_block_software_expanded(w, rounds, data, output);
+    /* Key-based entry point: the schedule is rebuilt per call and never kept. */
+    noxtls_secure_zero(w, sizeof(w));
+    return rc;
 }
 
 /**
@@ -1039,25 +1070,25 @@ static noxtls_return_t noxtls_aes_encrypt_block_software_expanded(const uint32_t
     {
         size_t rk = (size_t)cur_round * 4U;
 
-        t0 = aes_enc_te0[(s0 >>24U) & 0xFFU] ^
-             aes_enc_te1[(s1 >>16U) & 0xFFU] ^
-             aes_enc_te2[(s2 >>8U) & 0xFFU] ^
-             aes_enc_te3[s3 & 0xFFU] ^
+        t0 = AES_TE0((s0 >>24U) & 0xFFU) ^
+             AES_TE1((s1 >>16U) & 0xFFU) ^
+             AES_TE2((s2 >>8U) & 0xFFU) ^
+             AES_TE3(s3 & 0xFFU) ^
              round_keys[rk + 0U];
-        t1 = aes_enc_te0[(s1 >>24U) & 0xFFU] ^
-             aes_enc_te1[(s2 >>16U) & 0xFFU] ^
-             aes_enc_te2[(s3 >>8U) & 0xFFU] ^
-             aes_enc_te3[s0 & 0xFFU] ^
+        t1 = AES_TE0((s1 >>24U) & 0xFFU) ^
+             AES_TE1((s2 >>16U) & 0xFFU) ^
+             AES_TE2((s3 >>8U) & 0xFFU) ^
+             AES_TE3(s0 & 0xFFU) ^
              round_keys[rk + 1U];
-        t2 = aes_enc_te0[(s2 >>24U) & 0xFFU] ^
-             aes_enc_te1[(s3 >>16U) & 0xFFU] ^
-             aes_enc_te2[(s0 >>8U) & 0xFFU] ^
-             aes_enc_te3[s1 & 0xFFU] ^
+        t2 = AES_TE0((s2 >>24U) & 0xFFU) ^
+             AES_TE1((s3 >>16U) & 0xFFU) ^
+             AES_TE2((s0 >>8U) & 0xFFU) ^
+             AES_TE3(s1 & 0xFFU) ^
              round_keys[rk + 2U];
-        t3 = aes_enc_te0[(s3 >>24U) & 0xFFU] ^
-             aes_enc_te1[(s0 >>16U) & 0xFFU] ^
-             aes_enc_te2[(s1 >>8U) & 0xFFU] ^
-             aes_enc_te3[s2 & 0xFFU] ^
+        t3 = AES_TE0((s3 >>24U) & 0xFFU) ^
+             AES_TE1((s0 >>16U) & 0xFFU) ^
+             AES_TE2((s1 >>8U) & 0xFFU) ^
+             AES_TE3(s2 & 0xFFU) ^
              round_keys[rk + 3U];
 
         s0 = t0;
@@ -1571,7 +1602,7 @@ noxtls_return_t noxtls_aes_decrypt_block_internal(const uint8_t *key, const uint
  * @param output Output plaintext block of NOXTLS_AES_BLOCK_LENGTH bytes.
  * @return NOXTLS_RETURN_SUCCESS on success or a noxtls_return_t error code.
  */
-static noxtls_return_t noxtls_aes_decrypt_block_ctx_internal(const noxtls_aes_context_t *ctx, const uint8_t *data, uint8_t *output)
+noxtls_return_t noxtls_aes_decrypt_block_ctx_internal(const noxtls_aes_context_t *ctx, const uint8_t *data, uint8_t *output)
 {
     noxtls_return_t rc = NOXTLS_RETURN_NOT_SUPPORTED;
     (void)rc;
@@ -1580,7 +1611,8 @@ static noxtls_return_t noxtls_aes_decrypt_block_ctx_internal(const noxtls_aes_co
         return NOXTLS_RETURN_NULL;
     }
 
-    rc = noxtls_aes_accel_port_decrypt_block(ctx->key, data, output, ctx->type);
+#if NOXTLS_AES_CTX_RAW_KEY
+    rc = noxtls_aes_accel_port_decrypt_block(ctx->key, data, output, (noxtls_aes_type_t)ctx->type);
     if (rc == NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -1588,10 +1620,11 @@ static noxtls_return_t noxtls_aes_decrypt_block_ctx_internal(const noxtls_aes_co
         noxtls_secure_zero(output, NOXTLS_AES_BLOCK_LENGTH);
         return rc;
     }
+#endif
 #if NOXTLS_FEATURE_AES_ACCEL_NI && \
     (defined(__AES__) || defined(_MSC_VER)) && \
     (defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86))
-    rc = noxtls_aes_accel_ni_decrypt_block(ctx->key, data, output, ctx->type);
+    rc = noxtls_aes_accel_ni_decrypt_block(ctx->key, data, output, (noxtls_aes_type_t)ctx->type);
     if (rc == NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -1604,7 +1637,7 @@ static noxtls_return_t noxtls_aes_decrypt_block_ctx_internal(const noxtls_aes_co
     defined(__APPLE__) && \
     (defined(__aarch64__) || defined(__arm64__)) && \
     defined(__ARM_FEATURE_CRYPTO)
-    rc = noxtls_aes_accel_apple_decrypt_block(ctx->key, data, output, ctx->type);
+    rc = noxtls_aes_accel_apple_decrypt_block(ctx->key, data, output, (noxtls_aes_type_t)ctx->type);
     if (rc == NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -1659,10 +1692,11 @@ static noxtls_return_t noxtls_aes_decrypt_block_software(const uint8_t * key, co
     }
 
     rc = noxtls_aes_key_expansion(key, w, (int)key_words, (int)rounds);
-    if (rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
+    if (rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_aes_decrypt_block_software_expanded(w, rounds, data, output);
     }
-    return noxtls_aes_decrypt_block_software_expanded(w, rounds, data, output);
+    noxtls_secure_zero(w, sizeof(w));
+    return rc;
 }
 
 /**

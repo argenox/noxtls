@@ -15,76 +15,109 @@
 *
 *
 * File:    noxtls_mldsa_packing.c
-* Summary: ML-DSA packing helpers for internal seed/state layout.
+* Summary: ML-DSA SimpleBitPack / BitPack and their inverses (FIPS 204
+*          Alg. 16-19), LSB-first, branch-free on coefficient values.
 *
 *
 *****************************************************************************/
 
 #include <stdint.h>
 #include <stddef.h>
-#include <string.h>
 
 #include "noxtls_mldsa_internal.h"
 
+#if NOXTLS_FEATURE_ML_DSA
+
 /**
- * @brief Pack the seeds.
+ * @brief Pack 256 coefficients as `bits`-bit little-endian fields.
  *
- * @param[in] out The out value.
- * @param[in] out_len The out length value.
- * @param[in] rho The rho value.
- * @param[in] k The k value.
- * @param[in] tr The tr value.
- * @return The return value.
+ * Each field holds (base - coeff) when subtract != 0 (BitPack with b = base),
+ * otherwise coeff (SimpleBitPack).
+ *
+ * @param[out] out Output, 32 * bits bytes.
+ * @param[in] p Polynomial.
+ * @param[in] bits Field width (<= 24).
+ * @param[in] base Offset b used in subtract mode.
+ * @param[in] subtract Selects BitPack (non-zero) or SimpleBitPack (zero).
  */
-noxtls_return_t noxtls_mldsa_pack_seeds(uint8_t *out,
-                                        uint32_t out_len,
-                                        const uint8_t rho[NOXTLS_MLDSA_INTERNAL_SEED_BYTES],
-                                        const uint8_t k[NOXTLS_MLDSA_INTERNAL_SEED_BYTES],
-                                        const uint8_t tr[NOXTLS_MLDSA_INTERNAL_SEED_BYTES])
+void noxtls_mldsa_bitpack(uint8_t *out, const noxtls_mldsa_poly_t *p,
+                          uint32_t bits, int32_t base, uint32_t subtract)
 {
-    const uint32_t need = 3U * NOXTLS_MLDSA_INTERNAL_SEED_BYTES;
+    uint32_t acc = 0U;
+    uint32_t nbits = 0U;
+    uint32_t o = 0U;
+    uint32_t i = 0U;
+    uint32_t mask = (1U << bits) - 1U;
 
-    if(out == NULL || rho == NULL || k == 0U || tr == NULL) {
-        return NOXTLS_RETURN_NULL;
-    }
-    if(out_len < need) {
-        return NOXTLS_RETURN_INVALID_PARAM;
-    }
+    for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
+        int32_t v = (subtract != 0U) ? (base - p->coeff[i]) : p->coeff[i];
 
-    (void)memcpy(out, rho, (size_t)NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
-    (void)memcpy(&out[NOXTLS_MLDSA_INTERNAL_SEED_BYTES], k, (size_t)NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
-    (void)memcpy(&out[(2U * NOXTLS_MLDSA_INTERNAL_SEED_BYTES)], tr, (size_t)NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
-    return NOXTLS_RETURN_SUCCESS;
+        acc |= ((uint32_t)v & mask) << nbits;
+        nbits += bits;
+        while(nbits >= 8U) {
+            out[o] = (uint8_t)(acc & 0xFFU);
+            o += 1U;
+            acc >>= 8U;
+            nbits -= 8U;
+        }
+    }
 }
 
 /**
- * @brief Unpack the seeds.
+ * @brief Inverse of noxtls_mldsa_bitpack.
  *
- * @param[in] in The in value.
- * @param[in] in_len The in length value.
- * @param[out] rho The rho value.
- * @param[out] k The k value.
- * @param[out] tr The tr value.
- * @return The return value.
+ * @param[out] p Output polynomial; coeff = base - field (subtract) or field.
+ * @param[in] in Input, 32 * bits bytes.
+ * @param[in] bits Field width (<= 24).
+ * @param[in] base Offset b used in subtract mode.
+ * @param[in] subtract Selects BitUnpack (non-zero) or SimpleBitUnpack (zero).
  */
-noxtls_return_t noxtls_mldsa_unpack_seeds(const uint8_t *in,
-                                          uint32_t in_len,
-                                          uint8_t rho[NOXTLS_MLDSA_INTERNAL_SEED_BYTES],
-                                          uint8_t k[NOXTLS_MLDSA_INTERNAL_SEED_BYTES],
-                                          uint8_t tr[NOXTLS_MLDSA_INTERNAL_SEED_BYTES])
+void noxtls_mldsa_bitunpack(noxtls_mldsa_poly_t *p, const uint8_t *in,
+                            uint32_t bits, int32_t base, uint32_t subtract)
 {
-    const uint32_t need = 3U * NOXTLS_MLDSA_INTERNAL_SEED_BYTES;
+    uint32_t acc = 0U;
+    uint32_t nbits = 0U;
+    uint32_t o = 0U;
+    uint32_t i = 0U;
+    uint32_t mask = (1U << bits) - 1U;
 
-    if(in == NULL || rho == NULL || k == 0U || tr == NULL) {
-        return NOXTLS_RETURN_NULL;
-    }
-    if(in_len < need) {
-        return NOXTLS_RETURN_INVALID_PARAM;
-    }
+    for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
+        uint32_t v = 0U;
 
-    (void)memcpy(rho, in, (size_t)NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
-    (void)memcpy(k, &in[NOXTLS_MLDSA_INTERNAL_SEED_BYTES], (size_t)NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
-    (void)memcpy(tr, &in[(2U * NOXTLS_MLDSA_INTERNAL_SEED_BYTES)], (size_t)NOXTLS_MLDSA_INTERNAL_SEED_BYTES);
-    return NOXTLS_RETURN_SUCCESS;
+        while(nbits < bits) {
+            acc |= (uint32_t)in[o] << nbits;
+            o += 1U;
+            nbits += 8U;
+        }
+        v = acc & mask;
+        acc >>= bits;
+        nbits -= bits;
+        p->coeff[i] = (subtract != 0U) ? (base - (int32_t)v) : (int32_t)v;
+    }
 }
 
+/**
+ * @brief Decode an s1/s2 polynomial (BitUnpack with a = b = eta).
+ * @param[in] spec Parameter set.
+ * @param[out] p Output polynomial.
+ * @param[in] in Encoded polynomial (spec->poly_eta_bytes).
+ */
+void noxtls_mldsa_polyeta_unpack(const noxtls_mldsa_param_spec_t *spec,
+                                 noxtls_mldsa_poly_t *p, const uint8_t *in)
+{
+    noxtls_mldsa_bitunpack(p, in, spec->eta_bits, (int32_t)spec->eta, 1U);
+}
+
+/**
+ * @brief Encode an s1/s2 polynomial (BitPack with a = b = eta).
+ * @param[in] spec Parameter set.
+ * @param[out] out Output (spec->poly_eta_bytes).
+ * @param[in] p Polynomial with coefficients in [-eta, eta].
+ */
+void noxtls_mldsa_polyeta_pack(const noxtls_mldsa_param_spec_t *spec,
+                               uint8_t *out, const noxtls_mldsa_poly_t *p)
+{
+    noxtls_mldsa_bitpack(out, p, spec->eta_bits, (int32_t)spec->eta, 1U);
+}
+
+#endif /* NOXTLS_FEATURE_ML_DSA */

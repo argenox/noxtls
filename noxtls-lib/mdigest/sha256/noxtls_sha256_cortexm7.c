@@ -75,14 +75,14 @@ static uint32_t noxtls_sha256_m7_bswap32(uint32_t x)
 static void noxtls_sha256_m7_compress(noxtls_sha_ctx_t *ctx, const uint8_t *input)
 {
     uint32_t w[SHA256_ROUND_COUNT];
-    uint32_t a = (uint32_t)(ctx->h[0U]);
-    uint32_t b = (uint32_t)(ctx->h[1U]);
-    uint32_t c = (uint32_t)(ctx->h[2U]);
-    uint32_t d = (uint32_t)(ctx->h[3U]);
-    uint32_t e = (uint32_t)(ctx->h[4U]);
-    uint32_t f = (uint32_t)(ctx->h[5U]);
-    uint32_t g = (uint32_t)(ctx->h[6U]);
-    uint32_t h = (uint32_t)(ctx->h[7U]);
+    uint32_t a = (uint32_t)(ctx->u.md32.h[0U]);
+    uint32_t b = (uint32_t)(ctx->u.md32.h[1U]);
+    uint32_t c = (uint32_t)(ctx->u.md32.h[2U]);
+    uint32_t d = (uint32_t)(ctx->u.md32.h[3U]);
+    uint32_t e = (uint32_t)(ctx->u.md32.h[4U]);
+    uint32_t f = (uint32_t)(ctx->u.md32.h[5U]);
+    uint32_t g = (uint32_t)(ctx->u.md32.h[6U]);
+    uint32_t h = (uint32_t)(ctx->u.md32.h[7U]);
     uint32_t t;
 
     if((((uintptr_t)input) & 0x03U) == 0U) {
@@ -112,14 +112,14 @@ static void noxtls_sha256_m7_compress(noxtls_sha_ctx_t *ctx, const uint8_t *inpu
         SHA256_M7_ROUND(b, c, d, e, f, g, h, a, w[t + 7U], s_sha256_m7_k[t + 7U]);
     }
 
-    ctx->h[0] += a;
-    ctx->h[1] += b;
-    ctx->h[2] += c;
-    ctx->h[3] += d;
-    ctx->h[4] += e;
-    ctx->h[5] += f;
-    ctx->h[6] += g;
-    ctx->h[7] += h;
+    ctx->u.md32.h[0] += a;
+    ctx->u.md32.h[1] += b;
+    ctx->u.md32.h[2] += c;
+    ctx->u.md32.h[3] += d;
+    ctx->u.md32.h[4] += e;
+    ctx->u.md32.h[5] += f;
+    ctx->u.md32.h[6] += g;
+    ctx->u.md32.h[7] += h;
 }
 
 noxtls_return_t noxtls_sha256_blocks_cortexm7(noxtls_sha_ctx_t *ctx,

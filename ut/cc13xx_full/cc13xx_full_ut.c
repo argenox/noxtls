@@ -69,9 +69,9 @@ static noxtls_return_t sha(void *context, uint32_t state[8], const uint8_t *inpu
     }
     noxtls_sha_ctx_t temp = {0};
     temp.algo = NOXTLS_HASH_SHA_256;
-    memcpy(temp.h, state, sizeof(temp.h));
+    memcpy(temp.u.md32.h, state, sizeof(temp.u.md32.h));
     const noxtls_return_t rc = noxtls_sha256_update(&temp, input, blocks * 64U);
-    memcpy(state, temp.h, sizeof(temp.h));
+    memcpy(state, temp.u.md32.h, sizeof(temp.u.md32.h));
     return rc;
 }
 
@@ -92,7 +92,7 @@ static noxtls_return_t sha512(void *context, uint64_t state[8], const uint8_t *i
         return sha512_injected;
     }
     noxtls_sha512_ctx_t temp={0};
-    temp.algo=NOXTLS_HASH_SHA_512;
+    temp.algo=(uint8_t)NOXTLS_HASH_SHA_512;
     memcpy(temp.h,state,sizeof(temp.h));
     noxtls_return_t result=noxtls_sha512_update(&temp,input,blocks*128U);
     memcpy(state,temp.h,sizeof(temp.h));
@@ -168,7 +168,7 @@ REGISTER_TEST(test_full_cc13xx_dispatch)
     UTNOX_EQUALS(calls, 1U);
     UTNOX_EQUALS(nested_bind, NOXTLS_RETURN_NOT_INITIALIZED);
     UTNOX_EQUALS(noxtls_cc13xx_crypto_bind(NULL), NOXTLS_RETURN_SUCCESS);
-    UTNOX_EQUALS(noxtls_cc13xx_sha256_blocks(ctx.h, plain, 1U), NOXTLS_RETURN_NOT_SUPPORTED);
+    UTNOX_EQUALS(noxtls_cc13xx_sha256_blocks(ctx.u.md32.h, plain, 1U), NOXTLS_RETURN_NOT_SUPPORTED);
     return 0;
 }
 
@@ -191,9 +191,9 @@ REGISTER_TEST(test_full_cc13xx_errors)
     }
     (void)noxtls_cc13xx_crypto_bind_sha256(sha, &token);
     (void)noxtls_sha256_init(&ctx, NOXTLS_HASH_SHA_256);
-    uint32_t initial = ctx.h[0];
+    uint32_t initial = ctx.u.md32.h[0];
     UTNOX_EQUALS(noxtls_sha256_update(&ctx, plain, 64U), NOXTLS_RETURN_FAILED);
-    UTNOX_EQUALS(ctx.h[0], initial);
+    UTNOX_EQUALS(ctx.u.md32.h[0], initial);
     UTNOX_EQUALS(noxtls_sha256_finish(&ctx, output), NOXTLS_RETURN_FAILED);
     for (uint32_t i = 0U; i < 32U; ++i) {
         UTNOX_EQUALS(output[i], 0U);
@@ -207,7 +207,7 @@ REGISTER_TEST(test_full_cc13xx_errors)
     (void)noxtls_cc13xx_crypto_bind(NULL);
     UTNOX_EQUALS(noxtls_cc13xx_aes_ccm(NULL), NOXTLS_RETURN_NULL);
     UTNOX_EQUALS(noxtls_cc13xx_sha256_blocks(NULL, plain, 1U), NOXTLS_RETURN_NULL);
-    UTNOX_EQUALS(noxtls_cc13xx_sha256_blocks(ctx.h, plain, 0U), NOXTLS_RETURN_INVALID_PARAM);
+    UTNOX_EQUALS(noxtls_cc13xx_sha256_blocks(ctx.u.md32.h, plain, 0U), NOXTLS_RETURN_INVALID_PARAM);
     UTNOX_EQUALS(noxtls_cc13xx_x25519(NULL, key, output), NOXTLS_RETURN_NULL);
     return 0;
 }

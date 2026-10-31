@@ -144,16 +144,14 @@ noxtls_return_t noxtls_camellia_decrypt_cfb(const uint8_t* key,
                 return rc;
             }
         }
-        for (i = 0U; i < block_len; i += 1U) {
-            output[cur_block + i] = (uint8_t)(data[cur_block + i] ^ keystream[i]);
-        }
-
-        if (block_len == block_sz) {
-            noxtls_copy_u8(feedback, (size_t)block_sz, &data[cur_block], (size_t)block_sz);
-        }
-        else {
+        /* Shift the ciphertext into the feedback register first, then derive the
+         * plaintext from the register copy: exact in-place use is safe. */
+        if (block_len < block_sz) {
             noxtls_move_u8(&feedback[0], sizeof(feedback), &feedback[block_len], (size_t)(block_sz - block_len));
-            noxtls_copy_u8(&feedback[block_sz - block_len], (size_t)(block_len), &data[cur_block], (size_t)(block_len));
+        }
+        noxtls_copy_u8(&feedback[block_sz - block_len], (size_t)(block_len), &data[cur_block], (size_t)(block_len));
+        for (i = 0U; i < block_len; i += 1U) {
+            output[cur_block + i] = (uint8_t)(feedback[(block_sz - block_len) + i] ^ keystream[i]);
         }
     }
     return NOXTLS_RETURN_SUCCESS;

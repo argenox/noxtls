@@ -117,9 +117,9 @@ static noxtls_return_t process_blocks(noxtls_sha_ctx_t *ctx,
     }
 
     irq_state = noxtls_noxv_sha256_irq_save();
-    if(words_equal(ctx->h, s_sha256_iv)) {
+    if(words_equal(ctx->u.md32.h, s_sha256_iv)) {
         command = NOXTLS_NOXV_SHA_CTRL_INIT;
-    } else if(s_active_ctx == ctx && words_equal(ctx->h, s_active_digest)) {
+    } else if(s_active_ctx == ctx && words_equal(ctx->u.md32.h, s_active_digest)) {
         command = NOXTLS_NOXV_SHA_CTRL_NEXT;
     } else {
         noxtls_noxv_sha256_irq_restore(irq_state);
@@ -163,7 +163,7 @@ static noxtls_return_t process_blocks(noxtls_sha_ctx_t *ctx,
      * after every block succeeds so a partial hardware batch is never replayed
      * from an already advanced chaining state. */
     for(i = 0u; i < 8u; ++i) {
-        ctx->h[i] = s_active_digest[i];
+        ctx->u.md32.h[i] = s_active_digest[i];
     }
     noxtls_noxv_sha256_irq_restore(irq_state);
     return NOXTLS_RETURN_SUCCESS;

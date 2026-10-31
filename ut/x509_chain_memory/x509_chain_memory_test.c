@@ -90,13 +90,18 @@ static int allocation_failures(void)
     x509_certificate_chain_t chain;
     size_t allocated, used, peak;
     CHECK(noxtls_mem_init((uint8_t *)small_pool, sizeof(small_pool)) == NOXTLS_RETURN_SUCCESS);
+    CHECK(noxtls_x509_certificate_init(&source) == NOXTLS_RETURN_SUCCESS);
+    /* chain_init allocates nothing, so it succeeds even when the heap refuses every request;
+     * the first add then fails cleanly and leaves the chain empty. */
     noxtls_mem_test_fail_after(0U);
-    CHECK(noxtls_x509_certificate_chain_init(&chain) != NOXTLS_RETURN_SUCCESS);
+    CHECK(noxtls_x509_certificate_chain_init(&chain) == NOXTLS_RETURN_SUCCESS);
+    CHECK(chain.certs == NULL && chain.count == 0U && chain.capacity == 0U);
+    CHECK(noxtls_x509_certificate_chain_add(&chain, &source) != NOXTLS_RETURN_SUCCESS);
     CHECK(chain.certs == NULL && chain.count == 0U);
     CHECK(noxtls_x509_certificate_chain_free(&chain) == NOXTLS_RETURN_SUCCESS);
     noxtls_mem_test_fail_reset();
-    CHECK(noxtls_x509_certificate_init(&source) == NOXTLS_RETURN_SUCCESS);
     CHECK(noxtls_x509_certificate_chain_init(&chain) == NOXTLS_RETURN_SUCCESS);
+    CHECK(noxtls_x509_certificate_chain_add(&chain, &source) == NOXTLS_RETURN_SUCCESS);
     while (chain.count < chain.capacity)
         CHECK(noxtls_x509_certificate_chain_add(&chain, &source) == NOXTLS_RETURN_SUCCESS);
 

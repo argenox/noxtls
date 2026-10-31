@@ -15,7 +15,8 @@
 *
 *
 * File:    noxtls_mldsa_ntt.c
-* Summary: ML-DSA NTT helpers over Z_q with q = 8380417.
+* Summary: ML-DSA modular reduction and negacyclic NTT (FIPS 204 Alg. 41-42,
+*          Montgomery domain as in the reference implementation).
 *
 *
 *****************************************************************************/
@@ -25,238 +26,155 @@
 
 #include "noxtls_mldsa_internal.h"
 
-typedef struct
-{
-    uint8_t initialized;
-    int32_t root;
-    int32_t inv_root;
-    int32_t inv_n;
-} noxtls_mldsa_ntt_ctx_t;
+#if NOXTLS_FEATURE_ML_DSA
 
-static noxtls_mldsa_ntt_ctx_t g_ntt_ctx = {0U, 0, 0, 0};
+/** zetas[i] = 2^32 * 1753^brv8(i) mod q, centred (index 0 unused). */
+static const int32_t g_mldsa_zetas[NOXTLS_MLDSA_N] = {
+    0, 25847, -2608894, -518909, 237124, -777960, -876248, 466468,
+    1826347, 2353451, -359251, -2091905, 3119733, -2884855, 3111497, 2680103,
+    2725464, 1024112, -1079900, 3585928, -549488, -1119584, 2619752, -2108549,
+    -2118186, -3859737, -1399561, -3277672, 1757237, -19422, 4010497, 280005,
+    2706023, 95776, 3077325, 3530437, -1661693, -3592148, -2537516, 3915439,
+    -3861115, -3043716, 3574422, -2867647, 3539968, -300467, 2348700, -539299,
+    -1699267, -1643818, 3505694, -3821735, 3507263, -2140649, -1600420, 3699596,
+    811944, 531354, 954230, 3881043, 3900724, -2556880, 2071892, -2797779,
+    -3930395, -1528703, -3677745, -3041255, -1452451, 3475950, 2176455, -1585221,
+    -1257611, 1939314, -4083598, -1000202, -3190144, -3157330, -3632928, 126922,
+    3412210, -983419, 2147896, 2715295, -2967645, -3693493, -411027, -2477047,
+    -671102, -1228525, -22981, -1308169, -381987, 1349076, 1852771, -1430430,
+    -3343383, 264944, 508951, 3097992, 44288, -1100098, 904516, 3958618,
+    -3724342, -8578, 1653064, -3249728, 2389356, -210977, 759969, -1316856,
+    189548, -3553272, 3159746, -1851402, -2409325, -177440, 1315589, 1341330,
+    1285669, -1584928, -812732, -1439742, -3019102, -3881060, -3628969, 3839961,
+    2091667, 3407706, 2316500, 3817976, -3342478, 2244091, -2446433, -3562462,
+    266997, 2434439, -1235728, 3513181, -3520352, -3759364, -1197226, -3193378,
+    900702, 1859098, 909542, 819034, 495491, -1613174, -43260, -522500,
+    -655327, -3122442, 2031748, 3207046, -3556995, -525098, -768622, -3595838,
+    342297, 286988, -2437823, 4108315, 3437287, -3342277, 1735879, 203044,
+    2842341, 2691481, -2590150, 1265009, 4055324, 1247620, 2486353, 1595974,
+    -3767016, 1250494, 2635921, -3548272, -2994039, 1869119, 1903435, -1050970,
+    -1333058, 1237275, -3318210, -1430225, -451100, 1312455, 3306115, -1962642,
+    -1279661, 1917081, -2546312, -1374803, 1500165, 777191, 2235880, 3406031,
+    -542412, -2831860, -1671176, -1846953, -2584293, -3724270, 594136, -3776993,
+    -2013608, 2432395, 2454455, -164721, 1957272, 3369112, 185531, -1207385,
+    -3183426, 162844, 1616392, 3014001, 810149, 1652634, -3694233, -1799107,
+    -3038916, 3523897, 3866901, 269760, 2213111, -975884, 1717735, 472078,
+    -426683, 1723600, -1803090, 1910376, -1667432, -1104333, -260646, -3833893,
+    -2939036, -2235985, -420899, -2286327, 183443, -976891, 1612842, -3545687,
+    -554416, 3919660, -48306, -1362209, 3937738, 1400424, -846154, 1976782,
+};
 
 /**
- * @brief Add two integers modulo q.
- *
- * @param[in] a The a value.
- * @param[in] b The b value.
- * @return The return value.
+ * @brief Interpret the low 32 bits of a value as a two's complement int32 without
+ *        implementation-defined conversions.
+ * @param[in] u Unsigned 32-bit pattern.
+ * @return Signed value with the same bit pattern.
  */
-static int32_t mod_add_q(int32_t a, int32_t b)
+static int64_t mldsa_u32_to_signed(uint32_t u)
 {
-    int32_t r = a + b;
-    if(r >= NOXTLS_MLDSA_Q) {
-        r -= NOXTLS_MLDSA_Q;
-    }
-    return r;
+    return (int64_t)u - (int64_t)((uint64_t)(u >> 31U) << 32U);
 }
 
 /**
- * @brief Subtract two integers modulo q.
- *
- * @param[in] a The a value.
- * @param[in] b The b value.
- * @return The return value.
+ * @brief Montgomery reduction: returns r = a * 2^-32 mod q with |r| < q
+ *        for |a| < 2^31 * q.
+ * @param[in] a Input value.
+ * @return Reduced value.
  */
-static int32_t mod_sub_q(int32_t a, int32_t b)
+int32_t noxtls_mldsa_montgomery_reduce(int64_t a)
 {
-    int32_t r = a - b;
-    if(r < 0) {
-        r += NOXTLS_MLDSA_Q;
-    }
-    return r;
+    uint32_t lo = (uint32_t)((uint64_t)a & 0xFFFFFFFFU);
+    int64_t t = mldsa_u32_to_signed(lo * NOXTLS_MLDSA_QINV);
+
+    return (int32_t)((a - (t * (int64_t)NOXTLS_MLDSA_Q)) >> 32U);
 }
 
 /**
- * @brief Multiply two integers modulo q.
- *
- * @param[in] a The a value.
- * @param[in] b The b value.
- * @return The return value.
+ * @brief Reduce to a representative in [-6283008, 6283008] (a <= 2^31 - 2^22 - 1).
+ * @param[in] a Input value.
+ * @return Value congruent to a modulo q.
  */
-static int32_t mod_mul_q(int32_t a, int32_t b)
+int32_t noxtls_mldsa_reduce32(int32_t a)
 {
-    int64_t p = (int64_t)a * (int64_t)b;
-    return (int32_t)(p % NOXTLS_MLDSA_Q);
+    int32_t t = (a + ((int32_t)1 << 22)) >> 23U;
+
+    return a - (t * NOXTLS_MLDSA_Q);
 }
 
 /**
- * @brief Raise an integer to a power modulo q.
- *
- * @param[in] base The base value.
- * @param[in] exp The exp value.
- * @return The return value.
+ * @brief Add q if the input is negative (constant time).
+ * @param[in] a Input value.
+ * @return a or a + q.
  */
-static int32_t mod_pow_q(int32_t base, int32_t exp)
+int32_t noxtls_mldsa_caddq(int32_t a)
 {
-    int32_t r = 1U;
-    int32_t b = noxtls_mldsa_coeff_normalize(base);
-    int32_t e = exp;
-
-    while(e > 0) {
-        if((e &1U) != 0) {
-            r = mod_mul_q(r, b);
-        }
-        b = mod_mul_q(b, b);
-        e >>= 1;
-    }
-    return r;
+    return a + ((a >> 31U) & NOXTLS_MLDSA_Q);
 }
 
 /**
- * @brief Inverse an integer modulo q.
- *
- * @param[in] x The x value.
- * @return The return value.
+ * @brief Forward NTT in place (bit-reversed output, no reduction).
+ * @param[in,out] p Polynomial; output coefficients bounded by 9q in magnitude.
  */
-static int32_t mod_inv_q(int32_t x) { return mod_pow_q(x, NOXTLS_MLDSA_Q - 2); }
-
-/**
- * @brief Reverse the bits of an 8-bit integer.
- *
- * @param[in] x The x value.
- * @return The return value.
- */
-static uint32_t bit_reverse_u8(uint32_t x)
+void noxtls_mldsa_poly_ntt(noxtls_mldsa_poly_t *p)
 {
-    uint32_t r = 0U;
-    uint32_t i = 0U;
-    for(i = 0U; i < 8U; i += 1U) {
-        r = (r << 1U) | (x & 1U);
-        x >>= 1U;
-    }
-    return r;
-}
+    uint32_t len = 0U;
+    uint32_t start = 0U;
+    uint32_t j = 0U;
+    uint32_t k = 0U;
 
-/**
- * @brief Initialize the NTT context.
- *
- * @return The return value.
- */
-static int ntt_init_once(void)
-{
-    int32_t cand = 0;
-    int32_t root = 0;
+    for(len = 128U; len > 0U; len >>= 1U) {
+        for(start = 0U; start < NOXTLS_MLDSA_N; start = j + len) {
+            int32_t zeta = 0;
 
-    if(g_ntt_ctx.initialized != 0U) {
-        return 0;
-    }
+            k += 1U;
+            zeta = g_mldsa_zetas[k];
+            for(j = start; j < (start + len); j += 1U) {
+                int32_t t = noxtls_mldsa_montgomery_reduce((int64_t)zeta * (int64_t)p->coeff[j + len]);
 
-    /* Find a primitive 256-th root of unity modulo q. */
-    for(cand = 2; cand < NOXTLS_MLDSA_Q; cand += 1U) {
-        if(mod_pow_q(cand, NOXTLS_MLDSA_N) == 1 &&
-           mod_pow_q(cand, NOXTLS_MLDSA_N / 2) != 1) {
-            root = cand;
-            break;
-        }
-    }
-    if(root == 0) {
-        return -1;
-    }
-
-    g_ntt_ctx.root = root;
-    g_ntt_ctx.inv_root = mod_inv_q(root);
-    g_ntt_ctx.inv_n = mod_inv_q(NOXTLS_MLDSA_N);
-    g_ntt_ctx.initialized = 1U;
-    return 0;
-}
-
-/**
- * @brief Bit-reverse permute a polynomial.
- *
- * @param[in] p The p value.
- */
-static void bit_reverse_permute(noxtls_mldsa_poly_t *p)
-{
-    uint32_t i = 0U;
-
-    for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
-        uint32_t j = (uint32_t)(bit_reverse_u8(i));
-        if(j > i) {
-            int32_t tmp = p->coeff[i];
-            p->coeff[i] = p->coeff[j];
-            p->coeff[j] = tmp;
-        }
-    }
-}
-
-/**
- * @brief Core NTT operation.
- *
- * @param[in] p The p value.
- * @param[in] omega The omega value.
- */
-static void ntt_core(noxtls_mldsa_poly_t *p, int32_t omega)
-{
-    uint32_t m = 0U;
-
-    bit_reverse_permute(p);
-
-    for(m = 2U; m <= NOXTLS_MLDSA_N; m <<= 1U) {
-        uint32_t half = (uint32_t)(m >> 1U);
-        int32_t wm = mod_pow_q(omega, (int32_t)(NOXTLS_MLDSA_N / m));
-        uint32_t k = 0U;
-
-        for(k = 0U; k < NOXTLS_MLDSA_N; k += m) {
-            int32_t w = 1U;
-            uint32_t j = 0U;
-            for(j = 0U; j < half; j += 1U) {
-                int32_t t = mod_mul_q(w, p->coeff[k + j + half]);
-                int32_t u = p->coeff[k + j];
-                p->coeff[k + j] = mod_add_q(u, t);
-                p->coeff[k + j + half] = mod_sub_q(u, t);
-                w = mod_mul_q(w, wm);
+                p->coeff[j + len] = p->coeff[j] - t;
+                p->coeff[j] = p->coeff[j] + t;
             }
         }
     }
 }
 
 /**
- * @brief Perform the NTT on a polynomial.
- *
- * @param[in] p The p value.
+ * @brief Inverse NTT, multiplying by the Montgomery factor 2^32.
+ * @param[in,out] p Polynomial with |coeff| < q; output |coeff| < q.
  */
-void noxtls_mldsa_poly_ntt(noxtls_mldsa_poly_t *p)
+void noxtls_mldsa_poly_invntt_tomont(noxtls_mldsa_poly_t *p)
 {
-    if(p == NULL) {
-        return;
-    }
-    if(ntt_init_once() != 0) {
-        return;
-    }
-    (void)noxtls_mldsa_poly_reduce(p);
-    ntt_core(p, g_ntt_ctx.root);
-}
+    const int32_t f = 41978; /* mont^2 / 256 */
+    uint32_t len = 0U;
+    uint32_t start = 0U;
+    uint32_t j = 0U;
+    uint32_t k = NOXTLS_MLDSA_N;
 
-/**
- * @brief Perform the inverse NTT and convert to Montgomery domain.
- *
- * @param[in] p The p value.
- */
-void noxtls_mldsa_poly_invntt_to_mont(noxtls_mldsa_poly_t *p)
-{
-    uint32_t i = 0U;
+    for(len = 1U; len < NOXTLS_MLDSA_N; len <<= 1U) {
+        for(start = 0U; start < NOXTLS_MLDSA_N; start = j + len) {
+            int32_t zeta = 0;
 
-    if(p == NULL) {
-        return;
-    }
-    if(ntt_init_once() != 0) {
-        return;
-    }
+            k -= 1U;
+            zeta = -g_mldsa_zetas[k];
+            for(j = start; j < (start + len); j += 1U) {
+                int32_t t = p->coeff[j];
 
-    (void)noxtls_mldsa_poly_reduce(p);
-    ntt_core(p, g_ntt_ctx.inv_root);
-    for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
-        p->coeff[i] = mod_mul_q(p->coeff[i], g_ntt_ctx.inv_n);
+                p->coeff[j] = t + p->coeff[j + len];
+                p->coeff[j + len] = t - p->coeff[j + len];
+                p->coeff[j + len] = noxtls_mldsa_montgomery_reduce((int64_t)zeta * (int64_t)p->coeff[j + len]);
+            }
+        }
+    }
+    for(j = 0U; j < NOXTLS_MLDSA_N; j += 1U) {
+        p->coeff[j] = noxtls_mldsa_montgomery_reduce((int64_t)f * (int64_t)p->coeff[j]);
     }
 }
 
 /**
- * @brief Perform a pointwise Montgomery multiplication.
- *
- * @param[out] r The r value.
- * @param[in] a The a value.
- * @param[in] b The b value.
+ * @brief r = a * b * 2^-32 (pointwise, NTT domain).
+ * @param[out] r Output polynomial (may alias a or b).
+ * @param[in] a First operand.
+ * @param[in] b Second operand.
  */
 void noxtls_mldsa_poly_pointwise_montgomery(noxtls_mldsa_poly_t *r,
                                             const noxtls_mldsa_poly_t *a,
@@ -264,13 +182,26 @@ void noxtls_mldsa_poly_pointwise_montgomery(noxtls_mldsa_poly_t *r,
 {
     uint32_t i = 0U;
 
-    if(r == NULL || a == NULL || b == NULL) {
-        return;
-    }
-
     for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
-        r->coeff[i] = mod_mul_q(noxtls_mldsa_coeff_normalize(a->coeff[i]),
-                                noxtls_mldsa_coeff_normalize(b->coeff[i]));
+        r->coeff[i] = noxtls_mldsa_montgomery_reduce((int64_t)a->coeff[i] * (int64_t)b->coeff[i]);
     }
 }
 
+/**
+ * @brief r += a * b * 2^-32 (pointwise, NTT domain).
+ * @param[in,out] r Accumulator.
+ * @param[in] a First operand.
+ * @param[in] b Second operand.
+ */
+void noxtls_mldsa_poly_pointwise_acc_montgomery(noxtls_mldsa_poly_t *r,
+                                                const noxtls_mldsa_poly_t *a,
+                                                const noxtls_mldsa_poly_t *b)
+{
+    uint32_t i = 0U;
+
+    for(i = 0U; i < NOXTLS_MLDSA_N; i += 1U) {
+        r->coeff[i] += noxtls_mldsa_montgomery_reduce((int64_t)a->coeff[i] * (int64_t)b->coeff[i]);
+    }
+}
+
+#endif /* NOXTLS_FEATURE_ML_DSA */

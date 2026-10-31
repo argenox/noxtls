@@ -81,6 +81,20 @@ noxtls_return_t noxtls_aes_encrypt_cbc(const uint8_t* key,
         }
     }
 #endif
+    /* Expand the key once for the whole buffer (wiped on every exit). */
+    if (data_len == 0U) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    noxtls_aes_context_t actx;
+    {
+        noxtls_return_t prep_rc = noxtls_aes_prepare_context(&actx, key, type);
+        if (prep_rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_secure_zero(&actx, sizeof(actx));
+            noxtls_secure_zero(output, (size_t)data_len);
+            return prep_rc;
+        }
+    }
+
     for (cur_block = 0U; cur_block < data_len; cur_block += block_sz)
     {
         uint32_t remain = (uint32_t)(data_len - cur_block);
@@ -112,9 +126,11 @@ noxtls_return_t noxtls_aes_encrypt_cbc(const uint8_t* key,
             temp_block[i] = (uint8_t)(temp_block[i] ^ iv_src[i]);
         }
 
-        NOXTLS_AES_CHECK(noxtls_aes_encrypt_block_internal(key, temp_block, &output[cur_block], type), output, output_span, NULL, 0U);
+        NOXTLS_AES_CHECK_CTX(noxtls_aes_encrypt_block_ctx_internal(&actx, temp_block, &output[cur_block]), &actx, output, output_span);
     }
 
+    noxtls_secure_zero(&actx, sizeof(actx));
+    noxtls_secure_zero(temp_block, sizeof(temp_block));
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -150,9 +166,8 @@ noxtls_return_t noxtls_aes_decrypt_cbc(const uint8_t* key,
 
     uint32_t i;
     uint32_t cur_block = 0U;
-    const uint8_t* iv_src = NULL;
     uint8_t temp_block[NOXTLS_AES_BLOCK_LENGTH];
-    uint8_t zero_iv[NOXTLS_AES_BLOCK_LENGTH];
+    uint8_t chain[NOXTLS_AES_BLOCK_LENGTH];
     const uint32_t block_sz = (uint32_t)NOXTLS_AES_BLOCK_LENGTH;
 
 #if NOXTLS_PORT_AES_MODE_ACCEL
@@ -163,28 +178,45 @@ noxtls_return_t noxtls_aes_decrypt_cbc(const uint8_t* key,
         }
     }
 #endif
-    for (cur_block = 0U; cur_block < data_len; cur_block += block_sz)
+    /* Expand the key once for the whole buffer (wiped on every exit). */
+    if (data_len == 0U) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    noxtls_aes_context_t actx;
     {
-        /* Decrypt current ciphertext block into temp */
-        NOXTLS_AES_CHECK(noxtls_aes_decrypt_block_internal(key, &data[cur_block], temp_block, type), output, data_len, NULL, 0U);
-
-        /* XOR with previous ciphertext (or IV for first block) */
-        if (cur_block == 0U) {
-            if (iv == NULL) {
-                noxtls_secure_zero((zero_iv), (size_t)(block_sz));
-                iv_src = zero_iv;
-            } else {
-                iv_src = iv;
-            }
-        } else {
-            iv_src = &data[cur_block - block_sz];
-        }
-
-        for (i = 0U; i < block_sz; i += 1U) {
-            output[cur_block + i] = (uint8_t)(temp_block[i] ^ iv_src[i]);
+        noxtls_return_t prep_rc = noxtls_aes_prepare_context(&actx, key, type);
+        if (prep_rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_secure_zero(&actx, sizeof(actx));
+            noxtls_secure_zero(output, (size_t)data_len);
+            return prep_rc;
         }
     }
 
+    for (cur_block = 0U; cur_block < data_len; cur_block += block_sz)
+    {
+        /* Decrypt current ciphertext block into temp */
+        NOXTLS_AES_CHECK_CTX(noxtls_aes_decrypt_block_ctx_internal(&actx, &data[cur_block], temp_block), &actx, output, data_len);
+
+
+        /* chain holds the previous ciphertext block (the IV for the first one).
+         * Each ciphertext byte is saved before the output byte at the same
+         * position is written, so exact in-place use (output == data) is safe. */
+        if (cur_block == 0U) {
+            if (iv == NULL) {
+                noxtls_secure_zero((chain), (size_t)(block_sz));
+            } else {
+                noxtls_copy_u8(chain, sizeof(chain), iv, (size_t)block_sz);
+            }
+        }
+        for (i = 0U; i < block_sz; i += 1U) {
+            uint8_t ct = data[cur_block + i];
+            output[cur_block + i] = (uint8_t)(temp_block[i] ^ chain[i]);
+            chain[i] = ct;
+        }
+    }
+
+    noxtls_secure_zero(&actx, sizeof(actx));
+    noxtls_secure_zero(temp_block, sizeof(temp_block));
     return NOXTLS_RETURN_SUCCESS;
 }
 
