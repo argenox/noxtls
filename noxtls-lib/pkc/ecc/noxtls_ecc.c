@@ -3734,7 +3734,7 @@ static noxtls_return_t ecc_jpoint_mul_windowed(ecc_jpoint_t *result,
             noxtls_copy_u8((uint8_t *)(void *)(&R), sizeof(R), (const uint8_t *)(const void *)(&T_dbl), sizeof(ecc_jpoint_t));
         }
     }
-    d = 0U;
+    noxtls_secure_zero(&d, sizeof(d));
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
@@ -4084,7 +4084,6 @@ static noxtls_return_t ecc_point_multiply_core(ecc_point_t *result, const uint8_
     }
 
     noxtls_ecc_accel_note_fallback();
-    rc = (noxtls_return_t)NOXTLS_RETURN_SUCCESS;
 
 #if NOXTLS_ECC_POINT_MUL_WINDOW_SIZE >= 2
     /*

@@ -293,24 +293,23 @@ static void gcm_mult_smalltable(uint8_t *x,
 static void gcm_ghash_key_init(gcm_ghash_key_t *key, const uint8_t *h)
 {
 #if NOXTLS_GCM_TABLE_BITS == 4
-    uint64_t (*H)[2] = key->table;
     unsigned int i;
     unsigned int j;
 
-    H[NOXTLS_GCM_HTABLE_H1_INDEX][0] = gcm_load_be64(h);
-    H[NOXTLS_GCM_HTABLE_H1_INDEX][1] = gcm_load_be64(&h[8U]);
+    key->table[NOXTLS_GCM_HTABLE_H1_INDEX][0] = gcm_load_be64(h);
+    key->table[NOXTLS_GCM_HTABLE_H1_INDEX][1] = gcm_load_be64(&h[8U]);
 
-    H[0][0] = 0U;
-    H[0][1] = 0U;
+    key->table[0][0] = 0U;
+    key->table[0][1] = 0U;
 
     for(i = NOXTLS_GCM_HTABLE_SIZE / 4U; i > 0U; i >>= 1) {
-        gcm_gen_table_rightshift(H[i], H[i * 2U]);
+        gcm_gen_table_rightshift(key->table[i], key->table[i * 2U]);
     }
 
     for(i = 2U; i < NOXTLS_GCM_HTABLE_SIZE; i <<= 1) {
         for(j = 1U; j < i; j++) {
-            H[i + j][0] = H[i][0] ^ H[j][0];
-            H[i + j][1] = H[i][1] ^ H[j][1];
+            key->table[i + j][0] = key->table[i][0] ^ key->table[j][0];
+            key->table[i + j][1] = key->table[i][1] ^ key->table[j][1];
         }
     }
 #else

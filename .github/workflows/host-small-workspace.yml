@@ -27,6 +27,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Checkout pinned UTNox test dependency
+        uses: actions/checkout@v4
+        with:
+          repository: argenox/utnox
+          ref: c3923e8068ace438846f9ae6594e827cadec94f4
+          path: .ci-deps/utnox
+          token: ${{ secrets.SUBMODULE_PAT }}
+          persist-credentials: false
 
       - name: Install tools
         run: |
@@ -39,6 +50,7 @@ jobs:
             -DBUILD_TESTS=ON -DBUILD_APPLICATIONS=ON \
             -DNOXTLS_BUILD_REGRESSION_TESTS=ON -DNOXTLS_BUILD_DTLS13_RECOVERY_TESTS=ON \
             -DNOXTLS_BUILD_TLS13_PEER_CERT_TESTS=ON \
+            -DNOXTLS_ERROR_UTNOX="$GITHUB_WORKSPACE/.ci-deps/utnox/utnox" \
             "-DCMAKE_C_FLAGS=-DNOXTLS_TLS_HANDSHAKE_WORKSPACE_SIZE=${{ matrix.workspace }}"
           cmake --build build -j "$(nproc)"
 

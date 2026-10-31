@@ -1031,7 +1031,7 @@ noxtls_return_t noxtls_x509_csr_create_der(
     static const uint8_t version_v1[] = { 0x02U, 0x01U, 0x00U };  /* INTEGER 0 */
     static const uint8_t no_attributes[] = { 0xA0U, 0x00U };     /* [0] IMPLICIT SET OF Attribute */
     static const uint8_t ec_public_key_oid[] = { 0x2AU, 0x86U, 0x48U, 0xCEU, 0x3DU, 0x02U, 0x01U };
-    uint8_t curve_der[40];
+    uint8_t curve_der[40] = {0};
     uint32_t curve_der_len = 0U;
     x509w_t w;
     uint32_t cr = 0U;

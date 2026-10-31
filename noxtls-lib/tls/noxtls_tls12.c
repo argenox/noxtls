@@ -11329,7 +11329,7 @@ noxtls_return_t noxtls_tls12_recv_client_key_exchange(tls12_context_t *ctx)
                 rc = noxtls_tls12_open_record(ctx, TLS_RECORD_HANDSHAKE, record.data, record.length,
                                               (uint32_t)TLS_MAX_RECORD_SIZE, &frag_off, &frag_len);
                 frag = (record.data != NULL) ? &record.data[frag_off] : NULL;
-                if((rc != NOXTLS_RETURN_SUCCESS) || (frag_len == 0U)) {
+                if((rc != NOXTLS_RETURN_SUCCESS) || (frag == NULL) || (frag_len == 0U)) {
                     (void)noxtls_free(record.data);
                     (void)noxtls_free(reasm);
                     return (rc == NOXTLS_RETURN_SUCCESS) ? NOXTLS_RETURN_FAILED : rc;
@@ -13389,7 +13389,10 @@ noxtls_return_t noxtls_tls12_recv(tls12_context_t *ctx, uint8_t *data, uint32_t 
             if(owned_plain != NULL) {
                 plain = &owned_plain[plain_off];
             }
-            if(rc != NOXTLS_RETURN_SUCCESS) {
+            if((rc != NOXTLS_RETURN_SUCCESS) || ((plain_len != 0U) && (plain == NULL))) {
+                if(rc == NOXTLS_RETURN_SUCCESS) {
+                    rc = NOXTLS_RETURN_FAILED;
+                }
                 (void)noxtls_debug_printf((const uint8_t *)"[TLS12_DEBUG] noxtls_tls12_recv: app decrypt failed rc=%d\n", rc);
                 if(owned_plain != NULL) {
                     (void)noxtls_free(owned_plain);

@@ -315,7 +315,8 @@ def case_client_tls12_cbc_only_server(a):
 
 
 def case_client_tls12_sha1_only_server(a):
-    server = ["-tls1_2", "-cipher", "ECDHE-ECDSA-AES128-GCM-SHA256", "-sigalgs", "ECDSA+SHA1"]
+    # The peer must actually offer SHA-1 so rejection exercises NoxTLS policy.
+    server = ["-tls1_2", "-cipher", "ECDHE-ECDSA-AES128-GCM-SHA256:@SECLEVEL=0", "-sigalgs", "ECDSA+SHA1"]
     if a.sha1_sigs:
         noxtls_client(a, server, ["--tls12"], ["TLSv1.2", "ECDHE-ECDSA-AES128-GCM-SHA256"])
     else:
@@ -334,7 +335,7 @@ def case_server_tls12_cbc_only_client(a):
 
 
 def case_server_tls12_sha1_only_client(a):
-    client = ["-tls1_2", "-cipher", "ECDHE-RSA-AES128-GCM-SHA256", "-sigalgs", "RSA+SHA1"]
+    client = ["-tls1_2", "-cipher", "ECDHE-RSA-AES128-GCM-SHA256:@SECLEVEL=0", "-sigalgs", "RSA+SHA1"]
     if a.sha1_sigs:
         noxtls_server(a, RSA_SERVER, client, ["Protocol  : TLSv1.2", "ECDHE-RSA-AES128-GCM-SHA256"],
                       ca="rsa_root.pem")

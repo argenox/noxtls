@@ -291,7 +291,6 @@ noxtls_return_t noxtls_hmac_init(noxtls_hmac_context_t *ctx, noxtls_hash_algos_t
             noxtls_secure_zero(ctx, sizeof(*ctx));
             return rc;
         }
-        klen = hash_size;
     } else {
         noxtls_copy_u8(blk, sizeof(blk), key, (size_t)klen);
     }

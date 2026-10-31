@@ -192,7 +192,7 @@ static noxtls_return_t dtls_flight_reserve(dtls_context_t *ctx, uint32_t needed)
     {
         /* Grow to the bytes needed rounded up to DTLS_FLIGHT_GROW_STEP (not to the next power
          * of two, which wastes up to half the buffer for a large Certificate flight). */
-        uint32_t new_capacity = needed;
+        uint32_t new_capacity;
 
         if(needed > (UINT32_MAX - DTLS_FLIGHT_GROW_STEP)) {
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;

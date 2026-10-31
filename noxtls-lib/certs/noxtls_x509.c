@@ -4314,7 +4314,8 @@ noxtls_return_t noxtls_x509_parse_distinguished_name(const uint8_t *dn_data, uin
                         output_pos += 1U;
                     }
                     room_left = (uint32_t)((output_size - output_pos) - 1U);
-                    for(k = 0U; (k < room_left) && (k < (uint32_t)name_len); k += 1U) {
+                    for(k = 0U; (k < room_left) && (k < (uint32_t)name_len) &&
+                                (attr_name[k] != 0U); k += 1U) {
                         output[output_pos] = attr_name[k];
                         output_pos += 1U;
                     }

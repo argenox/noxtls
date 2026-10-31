@@ -352,7 +352,7 @@ static noxtls_return_t tls12_cbc_crypt_in_place(uint8_t decrypt, uint8_t is_3des
             noxtls_copy_u8(next_chain, sizeof(next_chain), &chunk[n - block_size], (size_t)block_size);
         }
         if(is_3des != 0U) {
-#if NOXTLS_FEATURE_DES
+#if NOXTLS_FEATURE_DES && NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES
             rc = (decrypt != 0U) ? des3_decrypt_cbc(key, 24U, chunk, n, chain, &buf[off])
                                  : des3_encrypt_cbc(key, 24U, chunk, n, chain, &buf[off]);
 #else
@@ -469,6 +469,9 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
     switch(ctx->cipher_suite) {
         case TLS_CIPHER_SUITE_RSA_WITH_3DES_EDE_CBC_SHA:
         case TLS_CIPHER_SUITE_DHE_RSA_WITH_3DES_EDE_CBC_SHA:
+#if !NOXTLS_FEATURE_DES || !NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES
+            return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
             hash_algo = NOXTLS_HASH_SHA1;
             mac_key_len = 20U;
             enc_key_len = 24U;
@@ -951,6 +954,9 @@ noxtls_return_t noxtls_tls12_open_record(tls12_context_t *ctx,
     switch(ctx->cipher_suite) {
         case TLS_CIPHER_SUITE_RSA_WITH_3DES_EDE_CBC_SHA:
         case TLS_CIPHER_SUITE_DHE_RSA_WITH_3DES_EDE_CBC_SHA:
+#if !NOXTLS_FEATURE_DES || !NOXTLS_TLS12_ENABLE_LEGACY_CIPHER_SUITES
+            return NOXTLS_RETURN_NOT_SUPPORTED;
+#endif
             hash_algo = NOXTLS_HASH_SHA1;
             mac_key_len = 20U;
             enc_key_len = 24U;

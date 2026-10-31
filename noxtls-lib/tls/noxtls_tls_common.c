@@ -406,7 +406,7 @@ noxtls_return_t noxtls_tls_send_record(tls_context_t *ctx, uint8_t type, const u
             !((ctx->version == DTLS_VERSION_1_2) && (dctx->epoch != (uint16_t)DTLS_EPOCH_UNENCRYPTED))) {
             uint32_t msg_len = 0U;
             if (len < 4U) {
-                noxtls_return_t rc = noxtls_dtls_send_record(dctx, type, data, len);
+                rc = noxtls_dtls_send_record(dctx, type, data, len);
                 if (rc == NOXTLS_RETURN_SUCCESS) {
                     NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_RECORD, NOXSIGHT_SEVERITY_TRACE,
                                     NOXTLS_EVT_RECORD_TX, type, len);
@@ -419,7 +419,7 @@ noxtls_return_t noxtls_tls_send_record(tls_context_t *ctx, uint8_t type, const u
             if((((msg_len + 4U) == len) &&
                (data[0] >= TLS_HANDSHAKE_CLIENT_HELLO) &&
                ((data[0] <= TLS_HANDSHAKE_FINISHED) || (data[0] == TLS_HANDSHAKE_CERTIFICATE_STATUS)))) {
-                noxtls_return_t rc = dtls_send_handshake_fragment(dctx, data[0], &data[4], msg_len,
+                rc = dtls_send_handshake_fragment(dctx, data[0], &data[4], msg_len,
                                                                  dctx->send_message_seq);
                 if (rc == NOXTLS_RETURN_SUCCESS) {
                     dctx->send_message_seq += 1U;
@@ -429,7 +429,7 @@ noxtls_return_t noxtls_tls_send_record(tls_context_t *ctx, uint8_t type, const u
                 return rc;
             }
             {
-                noxtls_return_t rc = noxtls_dtls_send_record(dctx, type, data, len);
+                rc = noxtls_dtls_send_record(dctx, type, data, len);
                 if (rc == NOXTLS_RETURN_SUCCESS) {
                     NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_RECORD, NOXSIGHT_SEVERITY_TRACE,
                                     NOXTLS_EVT_RECORD_TX, type, len);
@@ -438,7 +438,7 @@ noxtls_return_t noxtls_tls_send_record(tls_context_t *ctx, uint8_t type, const u
             }
         }
         {
-            noxtls_return_t rc = noxtls_dtls_send_record(dctx, type, data, len);
+            rc = noxtls_dtls_send_record(dctx, type, data, len);
             if (rc == NOXTLS_RETURN_SUCCESS) {
                 NOXTLS_NS_EVENT(ctx, NOXTLS_NS_MOD_RECORD, NOXSIGHT_SEVERITY_TRACE,
                                 NOXTLS_EVT_RECORD_TX, type, len);

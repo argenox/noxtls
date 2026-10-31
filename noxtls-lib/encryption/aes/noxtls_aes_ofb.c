@@ -59,7 +59,7 @@ noxtls_return_t noxtls_aes_encrypt_ofb(const uint8_t* key,
 
     uint32_t cur_block = 0U;
     uint8_t keystream[NOXTLS_AES_BLOCK_LENGTH];
-    uint8_t feedback_block[NOXTLS_AES_BLOCK_LENGTH];
+    uint8_t feedback_block[NOXTLS_AES_BLOCK_LENGTH] = {0};
     const uint32_t block_sz = (uint32_t)NOXTLS_AES_BLOCK_LENGTH;
 
     /* OFB Mode requires IV */
