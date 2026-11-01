@@ -1,6 +1,55 @@
 {
   "releases": [
     {
+      "version": "0.3.16",
+      "date": "2026-11-01",
+      "summary": "NoxTLS 0.3.16 fixes a high-severity TLS 1.2 client flaw that let a previously trusted server impersonate another host through session resumption.",
+      "changes": [
+        "TLS 1.2 session tickets are offered and resumed only for the exact server_name the session was verified for. A mismatch costs a full handshake. New function: noxtls_tls12_client_session_matches_name()."
+      ],
+      "fixed": [
+        "The TLS 1.2 client could resume a stored session on a connection to a different host, skipping certificate and hostname checks. Stored sessions are now bound to the server_name they were verified for."
+      ],
+      "resolved": [
+        {
+          "id": "NOXTLS-RI-0.3.16-01",
+          "title": "TLS 1.2 client resumption not bound to the server identity",
+          "description": "The TLS 1.2 client could resume a stored session on a connection to a different host, skipping certificate and hostname checks. Stored sessions are now bound to the server_name they were verified for.",
+          "refs": [
+            "Issue #60",
+            "PR #207"
+          ]
+        }
+      ],
+      "known_issues": [
+        "The security audit of 0.3.15 reported findings that remain open; see issue #59."
+      ],
+      "anomalies": [
+        {
+          "id": "NOXTLS-KA-0.3.16-01",
+          "title": "Open findings from the security audit of 0.3.15",
+          "description": "Issue #59 tracks the audit's open findings on GitHub: 36 medium, 95 low and 15 that need validation. This release fixes only the high-severity finding.",
+          "severity": "medium",
+          "workaround": "Review the conditions and suggested fix in each issue that applies to your deployment.",
+          "status": "open",
+          "introduced_in": "0.3.15 or earlier"
+        }
+      ],
+      "security": [
+        {
+          "id": "NOXTLS-SA-0.3.16-01",
+          "severity": "high",
+          "title": "TLS 1.2 client resumption not bound to the server identity",
+          "description": "A server that once completed a verified TLS 1.2 handshake with a client holds that session's master secret. If it could also answer a later connection from the same process to a different host, it could resume the session and be accepted as that host without certificate or hostname checks. Fixed: sessions are bound to the verified server_name.",
+          "affected_versions": "0.3.15 and earlier",
+          "cve": null
+        }
+      ],
+      "security_recommendations": [
+        "Set server_name on every TLS client connection so that hostname verification and session binding apply."
+      ]
+    },
+    {
       "version": "0.3.15",
       "date": "2026-10-24",
       "summary": "NoxTLS 0.3.15 cuts RAM use on embedded targets several-fold without dropping features: a TLS 1.3 client needs about 33 KB of heap during the handshake and 17 KB once connected (4.7 KB with 4 KB records), down from about 102 KB and 71 KB, and the unified connection object shrinks from 25.5 KB to 2.8 KB. The release also makes the CTR_DRBG conform to NIST SP 800-90A, makes ML-KEM, ML-DSA, Falcon and SLH-DSA conform to their standards, adds working LMS/HSS and XMSS/XMSS^MT stateful hash-based signatures, replaces the TLS 1.2 handshake buffer with running hashes, hardens the TLS 1.2 defaults (forward-secret AEAD suites only, no SHA-1 signatures), and adds a PSK-only TLS 1.3 build option. Applications must be rebuilt: public structure layouts changed.",

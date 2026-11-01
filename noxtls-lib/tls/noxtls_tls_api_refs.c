@@ -106,6 +106,7 @@ static void noxtls_tls_misra_api_refs(void)
     NOXTLS_MISRA_REF_FN(&tls_accept_auto);
     NOXTLS_MISRA_REF_FN(&noxtls_dtls13_send_new_connection_ids);
     NOXTLS_MISRA_REF_FN(&noxtls_tls12_client_session_ticket_len);
+    NOXTLS_MISRA_REF_FN(&noxtls_tls12_client_session_matches_name);
     NOXTLS_MISRA_REF_FN(&noxtls_tls12_recv_certificate);
     NOXTLS_MISRA_REF_FN(&noxtls_tls12_recv_change_cipher_spec);
     NOXTLS_MISRA_REF_FN(&noxtls_tls12_recv_change_cipher_spec_client);

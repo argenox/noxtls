@@ -8825,7 +8825,7 @@ noxtls_return_t noxtls_tls13_send_client_hello(tls13_context_t *ctx)
         uint8_t ticket_buf[TLS12_TICKET_MAX_LEN];
         {
             noxtls_return_t ticket_rc = NOXTLS_RETURN_FAILED;
-            if(noxtls_tls12_client_session_has_ticket() != 0) {
+            if(noxtls_tls12_client_session_matches_name(ctx->server_name, ctx->server_name_len) != 0) {
                 ticket_rc = noxtls_tls12_client_session_copy_ticket(ticket_buf, (uint16_t)sizeof(ticket_buf), &tlen);
             }
             if((ticket_rc == NOXTLS_RETURN_SUCCESS) && (tlen > 0U)) {

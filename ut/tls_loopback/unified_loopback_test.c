@@ -234,6 +234,26 @@ static int t_tls12_resumption(void)
     return lb_expect_no_leak(base, "unified tls12 resumption");
 }
 
+/* The ticket offered by the TLS 1.3 ClientHello of a downgrading client stays bound to its name. */
+static int t_tls12_resumption_bound_to_server_name(void)
+{
+    static const char *const names[] = { "rsa.test", "rsa.test", "server.test" };
+    lb_pair_t pair;
+    lb_cfg_t cfg;
+    uint32_t round;
+
+    LB_RUN(lb_trust_all_roots());
+    for(round = 0U; round < 3U; round++) {
+        cfg_unified(&cfg, 0U, TLS_VERSION_1_2);
+        cfg.sni = names[round];
+        LB_RUN(lb_pair_init(&pair, &cfg));
+        LB_RUN(lb_pair_handshake(&pair));
+        LB_CHECK_EQ(noxtls_tls_connection_is_resumed(pair.client.uni), (round == 1U) ? 1 : 0);
+        lb_pair_free(&pair);
+    }
+    return 0;
+}
+
 static int t_maximum_record_payload(void)
 {
     uint32_t i;
@@ -316,6 +336,7 @@ static const lb_test_case_t k_cases[] = {
     { "unified_mtls_ecdsa_client", t_mtls_ecdsa_client },
     { "unified_tls13_resumption", t_tls13_resumption },
     { "unified_tls12_resumption", t_tls12_resumption },
+    { "unified_tls12_resumption_bound_to_server_name", t_tls12_resumption_bound_to_server_name },
     { "unified_maximum_record_payload", t_maximum_record_payload },
     { "unified_fragmented_transport", t_fragmented_transport },
     { "unified_server_fixed_version", t_server_fixed_version },
