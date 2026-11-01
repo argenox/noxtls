@@ -286,6 +286,50 @@ static int t_ticket_resumption(void)
     return lb_expect_no_leak(base, "ticket resumption");
 }
 
+/* One TLS 1.2 connection expecting `sni`; returns the handshake result and whether it resumed. */
+static int resume_attempt(const char *sni, int *resumed)
+{
+    lb_pair_t pair;
+    lb_cfg_t cfg;
+    int hs;
+
+    lb_cfg_default(&cfg, LB_PROTO_TLS12);
+    cfg.sni = sni;
+    LB_RUN(lb_pair_init(&pair, &cfg));
+    hs = lb_pair_handshake(&pair);
+    *resumed = lb_field_tls12_resumed(pair.client.t12);
+    if(hs == 0) {
+        LB_RUN(small_exchange(&pair));
+        LB_RUN(lb_close_and_observe(&pair, 1));
+    }
+    lb_pair_free(&pair);
+    return hs;
+}
+
+/* A session verified for one name must not authenticate a connection expecting another. */
+static int t_ticket_bound_to_server_name(void)
+{
+    int resumed = 0;
+
+    LB_RUN(lb_trust_ec_root());
+    LB_CHECK_EQ(resume_attempt("server.test", &resumed), 0);
+    LB_CHECK_EQ(resumed, 0);
+    LB_CHECK_EQ(noxtls_tls12_client_session_matches_name((const uint8_t *)"server.test", 11U), 1);
+    LB_CHECK_EQ(noxtls_tls12_client_session_matches_name((const uint8_t *)"bank.example", 12U), 0);
+    LB_CHECK_EQ(noxtls_tls12_client_session_matches_name(NULL, 0U), 0);
+    LB_CHECK_EQ(resume_attempt("server.test", &resumed), 0);
+    LB_CHECK_EQ(resumed, 1);
+    /* The certificate is not valid for this name, so a full handshake must reject it. */
+    LB_CHECK(resume_attempt("bank.example", &resumed) != 0);
+    LB_CHECK_EQ(resumed, 0);
+    /* Valid for both names: a full handshake succeeds, and the ticket is then bound to the new one. */
+    LB_CHECK_EQ(resume_attempt("alt.test", &resumed), 0);
+    LB_CHECK_EQ(resumed, 0);
+    LB_CHECK_EQ(noxtls_tls12_client_session_matches_name((const uint8_t *)"alt.test", 8U), 1);
+    LB_CHECK_EQ(noxtls_tls12_client_session_matches_name((const uint8_t *)"server.test", 11U), 0);
+    return 0;
+}
+
 static int t_secure_renegotiation_info(void)
 {
     lb_pair_t pair;
@@ -1354,6 +1398,7 @@ static const lb_test_case_t k_cases[] = {
     { "tls12_mtls_peer_certificate", t_mtls_peer_certificate },
     { "tls12_mtls_required_missing", t_mtls_required_missing },
     { "tls12_ticket_resumption", t_ticket_resumption },
+    { "tls12_ticket_bound_to_server_name", t_ticket_bound_to_server_name },
     { "tls12_secure_renegotiation_info", t_secure_renegotiation_info },
     { "tls12_ocsp_stapling_handshake", t_ocsp_stapling },
     { "tls12_max_fragment_length", t_max_fragment_length },

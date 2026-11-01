@@ -370,6 +370,8 @@ noxtls_return_t noxtls_tls12_close(tls12_context_t *ctx);
 /** Client-side TLS 1.2 session ticket cache (for BoGo/multi-connection resume). */
 int noxtls_tls12_client_session_has_ticket(void);
 uint16_t noxtls_tls12_client_session_ticket_len(void);
+/** Returns 1 when a ticket is cached for exactly this server_name (NULL/0 matches only an unnamed session). */
+int noxtls_tls12_client_session_matches_name(const uint8_t *server_name, uint16_t server_name_len);
 noxtls_return_t noxtls_tls12_client_session_copy_ticket(uint8_t *out, uint16_t out_cap, uint16_t *out_len);
 
 /** Server: send HelloRequest to ask client to renegotiate (RFC 5746). */

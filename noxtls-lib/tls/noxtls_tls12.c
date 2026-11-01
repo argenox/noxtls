@@ -260,14 +260,43 @@ static const uint16_t tls12_client_sig_schemes[] = {
 #define TLS12_CLIENT_SIG_SCHEME_COUNT \
     ((uint32_t)(sizeof(tls12_client_sig_schemes) / sizeof(tls12_client_sig_schemes[0])))
 
+#if NOXTLS_FEATURE_TLS_CLIENT || NOXTLS_FEATURE_TLS_SERVER
+/**
+ * @brief SHA-256 of a name compared on resumption (SNI host_name, ALPN protocol).
+ *
+ * @param[in] name The name bytes (may be NULL when len is 0).
+ * @param[in] len The name length; 0 means absent.
+ * @param[out] digest 32-byte digest (zero when absent).
+ * @return 1 when the name is present, else 0.
+ */
+static uint8_t tls12_name_digest(const uint8_t *name, uint32_t len, uint8_t *digest)
+{
+    noxtls_sha_ctx_t sha_ctx;
+
+    noxtls_secure_zero(digest, (size_t)32U);
+    if((name == NULL) || (len == 0U)) {
+        return 0U;
+    }
+    if(noxtls_sha256_init(&sha_ctx, NOXTLS_HASH_SHA_256) != NOXTLS_RETURN_SUCCESS) {
+        return 0U;
+    }
+    (void)noxtls_sha256_update(&sha_ctx, name, len);
+    (void)noxtls_sha256_finish(&sha_ctx, digest);
+    return 1U;
+}
+#endif /* NOXTLS_FEATURE_TLS_CLIENT || NOXTLS_FEATURE_TLS_SERVER */
+
 #if NOXTLS_FEATURE_TLS_CLIENT
-/* Client-side ticket from the last TLS 1.2 handshake (opaque ticket + master secret). */
+/* Client-side ticket from the last TLS 1.2 handshake (opaque ticket + master secret), bound to
+ * the server_name whose certificate was verified when the session was established. */
 static struct {
     uint8_t ticket[TLS12_TICKET_MAX_LEN];
     uint16_t ticket_len;
     uint8_t master_secret[48];
     uint16_t cipher_suite;
     uint8_t extended_master_secret;
+    uint8_t server_name_present;
+    uint8_t server_name_digest[32];
     uint8_t in_use;
 } g_tls12_client_session;
 
@@ -288,6 +317,31 @@ uint16_t noxtls_tls12_client_session_ticket_len(void)
     return (g_tls12_client_session.in_use != 0U) ? g_tls12_client_session.ticket_len : 0U;
 #else
     return 0U;
+#endif
+}
+
+int noxtls_tls12_client_session_matches_name(const uint8_t *server_name, uint16_t server_name_len)
+{
+#if NOXTLS_FEATURE_TLS_CLIENT
+    uint8_t digest[32];
+    uint8_t present = 0U;
+
+    if(noxtls_tls12_client_session_has_ticket() == 0) {
+        return 0;
+    }
+    present = tls12_name_digest(server_name, (uint32_t)server_name_len, digest);
+    if((server_name != NULL) && (server_name_len > 0U) && (present == 0U)) {
+        return 0;
+    }
+    if(present != g_tls12_client_session.server_name_present) {
+        return 0;
+    }
+    return ((present == 0U) ||
+            (noxtls_ct_memcmp(digest, g_tls12_client_session.server_name_digest, sizeof(digest)) == 0)) ? 1 : 0;
+#else
+    (void)server_name;
+    (void)server_name_len;
+    return 0;
 #endif
 }
 
@@ -343,22 +397,53 @@ static noxtls_return_t tls12_identity_set(uint8_t **dst, uint16_t *dst_len, cons
 
 static void tls12_client_session_store(const uint8_t *ticket, uint16_t ticket_len,
                                        const uint8_t master_secret[48], uint16_t cipher_suite,
-                                       uint8_t ems)
+                                       uint8_t ems, const uint8_t *server_name, uint16_t server_name_len)
 {
+    uint8_t digest[32];
+    uint8_t name_present = 0U;
+
     if((ticket == NULL) || (ticket_len == 0U) || (ticket_len > TLS12_TICKET_MAX_LEN) || (master_secret == NULL)) {
         return;
+    }
+    name_present = tls12_name_digest(server_name, (uint32_t)server_name_len, digest);
+    if((server_name != NULL) && (server_name_len > 0U) && (name_present == 0U)) {
+        return; /* A named session must never be stored as an unnamed one. */
     }
     (void)noxtls_copy_u8(g_tls12_client_session.ticket, (size_t)((size_t)ticket_len), ticket, (size_t)((size_t)ticket_len));
     g_tls12_client_session.ticket_len = ticket_len;
     (void)noxtls_copy_u8(g_tls12_client_session.master_secret, (size_t)((size_t)48), master_secret, (size_t)((size_t)48));
     g_tls12_client_session.cipher_suite = cipher_suite;
     g_tls12_client_session.extended_master_secret = ems;
+    g_tls12_client_session.server_name_present = name_present;
+    (void)noxtls_copy_u8(g_tls12_client_session.server_name_digest, sizeof(g_tls12_client_session.server_name_digest),
+                         digest, sizeof(digest));
     g_tls12_client_session.in_use = 1U;
+}
+
+/**
+ * @brief Whether this connection offered the stored ticket and may resume its session.
+ *
+ * Abbreviated resumption is the only peer authentication on the connection, so it is allowed
+ * only for the ticket sent in this ClientHello and the server_name the session was verified for.
+ *
+ * @param[in] ctx The client context.
+ * @return 1 when resumption is allowed, else 0.
+ */
+static int tls12_client_session_was_offered(const tls12_context_t *ctx)
+{
+    if((ctx == NULL) || (ctx->client_offered_session_ticket == 0U) ||
+       (ctx->resumption_identity == NULL) ||
+       (ctx->resumption_identity_len != g_tls12_client_session.ticket_len) ||
+       (noxtls_tls12_client_session_matches_name(ctx->server_name, ctx->server_name_len) == 0)) {
+        return 0;
+    }
+    return (noxtls_ct_memcmp(ctx->resumption_identity, g_tls12_client_session.ticket,
+                             (size_t)ctx->resumption_identity_len) == 0) ? 1 : 0;
 }
 
 static int tls12_client_session_load_into_ctx(tls12_context_t *ctx)
 {
-    if((ctx == NULL) || (g_tls12_client_session.in_use == 0U)) {
+    if((ctx == NULL) || (tls12_client_session_was_offered(ctx) == 0)) {
         return 0;
     }
     /* RFC 7627 5.3: the abbreviated ServerHello must carry extended_master_secret exactly when
@@ -406,7 +491,8 @@ static noxtls_return_t tls12_client_parse_new_session_ticket(tls12_context_t *ct
     if((ticket_len > 0U) && (ticket_len <= TLS12_TICKET_MAX_LEN)) {
 #if NOXTLS_FEATURE_TLS_CLIENT
         tls12_client_session_store(&msg[10], ticket_len, ctx->master_secret, ctx->cipher_suite,
-                                   ctx->extended_master_secret_negotiated);
+                                   ctx->extended_master_secret_negotiated,
+                                   ctx->server_name, ctx->server_name_len);
 #endif
         (void)tls12_identity_set(&ctx->next_session_identity, &ctx->next_session_identity_len,
                                  &msg[10], ticket_len);
@@ -928,29 +1014,6 @@ static tls12_session_cache_entry_t *tls12_session_cache_find(const uint8_t *id, 
     return NULL;
 }
 
-/**
- * @brief SHA-256 of a name compared on resumption (SNI host_name, ALPN protocol).
- *
- * @param[in] name The name bytes (may be NULL when len is 0).
- * @param[in] len The name length; 0 means absent.
- * @param[out] digest 32-byte digest (zero when absent).
- * @return 1 when the name is present, else 0.
- */
-static uint8_t tls12_name_digest(const uint8_t *name, uint32_t len, uint8_t *digest)
-{
-    noxtls_sha_ctx_t sha_ctx;
-
-    noxtls_secure_zero(digest, (size_t)32U);
-    if((name == NULL) || (len == 0U)) {
-        return 0U;
-    }
-    if(noxtls_sha256_init(&sha_ctx, NOXTLS_HASH_SHA_256) != NOXTLS_RETURN_SUCCESS) {
-        return 0U;
-    }
-    (void)noxtls_sha256_update(&sha_ctx, name, len);
-    (void)noxtls_sha256_finish(&sha_ctx, digest);
-    return 1U;
-}
 #endif /* NOXTLS_FEATURE_TLS_SERVER */
 
 #if (TLS12_SESSION_CACHE_SIZE > 0U) || (TLS12_TICKET_CACHE_SIZE > 0U)
@@ -4346,7 +4409,8 @@ noxtls_return_t noxtls_tls12_send_client_hello(tls12_context_t *ctx)
             uint8_t ticket_buf[TLS12_TICKET_MAX_LEN];
             {
                 noxtls_return_t ticket_rc = NOXTLS_RETURN_FAILED;
-                if(noxtls_tls12_client_session_has_ticket() != 0) {
+                (void)tls12_identity_set(&ctx->resumption_identity, &ctx->resumption_identity_len, NULL, 0U);
+                if(noxtls_tls12_client_session_matches_name(ctx->server_name, ctx->server_name_len) != 0) {
                     ticket_rc = noxtls_tls12_client_session_copy_ticket(ticket_buf, (uint16_t)sizeof(ticket_buf), &tlen);
                 }
                 if((ticket_rc == NOXTLS_RETURN_SUCCESS) && (tlen > 0U)) {
@@ -4594,6 +4658,7 @@ static noxtls_return_t tls12_client_apply_handshake_client_hello_transcript(tls1
     ctx->client_offered_ocsp_status = 0U;
     ctx->client_request_ocsp_status = 0U;
     ctx->client_offered_session_ticket = 0U;
+    (void)tls12_identity_set(&ctx->resumption_identity, &ctx->resumption_identity_len, NULL, 0U);
     ctx->client_heartbeat_mode = 0U;
     ctx->extended_master_secret_offered = 0U;
     if(o < len) {
@@ -4613,6 +4678,11 @@ static noxtls_return_t tls12_client_apply_handshake_client_hello_transcript(tls1
            NOXTLS_RETURN_SUCCESS) {
             /* Present in TLS 1.3 ClientHello for RFC 5077 after 1.3→1.2 downgrade. */
             ctx->client_offered_session_ticket = 1U;
+            if((ex != NULL) && (ex->data != NULL) && (ex->length > 0U)) {
+                /* Resumption requires the ticket this ClientHello actually offered. */
+                (void)tls12_identity_set(&ctx->resumption_identity, &ctx->resumption_identity_len,
+                                         ex->data, (uint16_t)ex->length);
+            }
         }
         if(noxtls_tls_find_extension(&ctx->client_extensions, TLS_EXTENSION_EXTENDED_MASTER_SECRET, &ex) ==
            NOXTLS_RETURN_SUCCESS) {
@@ -5447,7 +5517,7 @@ static noxtls_return_t tls12_client_maybe_abbreviated_after_sh(tls12_context_t *
         return NOXTLS_RETURN_FAILED; /* EC-JPAKE never resumes: full handshake */
     }
 #endif
-    if((noxtls_tls12_client_session_has_ticket() == 0)) {
+    if(tls12_client_session_was_offered(ctx) == 0) {
         return NOXTLS_RETURN_FAILED; /* signal: do full handshake */
     }
     rc = tls12_client_peek_after_server_hello(ctx);
@@ -7452,7 +7522,7 @@ static noxtls_return_t tls12_connect_poll_steps(tls12_context_t *ctx)
                 break;
 
             case (uint8_t)TLS12_CLIENT_POLL_PEEK_RESUME:
-                if((noxtls_tls12_client_session_has_ticket() == 0) || (tls12_ecjpake_is_active(ctx) != 0)) {
+                if((tls12_client_session_was_offered(ctx) == 0) || (tls12_ecjpake_is_active(ctx) != 0)) {
                     ctx->client_handshake_step = (uint8_t)TLS12_CLIENT_POLL_RECV_CERTIFICATE;
                     break;
                 }

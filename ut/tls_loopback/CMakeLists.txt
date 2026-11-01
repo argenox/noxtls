@@ -88,6 +88,7 @@ if(NOXTLS_CFG_FEATURE_TLS12)
         tls12_mtls_peer_certificate
         tls12_mtls_required_missing
         tls12_ticket_resumption
+        tls12_ticket_bound_to_server_name
         tls12_secure_renegotiation_info
         tls12_ocsp_stapling_handshake
         tls12_max_fragment_length
@@ -136,6 +137,7 @@ if(NOXTLS_CFG_FEATURE_TLS12 AND NOXTLS_CFG_FEATURE_TLS13)
         unified_mtls_ecdsa_client
         unified_tls13_resumption
         unified_tls12_resumption
+        unified_tls12_resumption_bound_to_server_name
         unified_maximum_record_payload
         unified_fragmented_transport
         unified_server_fixed_version
