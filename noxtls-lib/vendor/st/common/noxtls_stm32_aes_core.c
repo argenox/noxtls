@@ -215,6 +215,29 @@ static void noxtls_store_be32(uint8_t *dst, uint32_t val)
     dst[3] = (uint8_t)(val);
 }
 
+/**
+ * @brief Disable the engine and clear its key and IV registers.
+ *
+ * Leaving the last key loaded would let any later user of the peripheral
+ * (another task, or code running after the TLS session ended) run the engine
+ * under that key. Call on every exit after a key was written.
+ *
+ * @param aes_base Peripheral base address.
+ * @return None.
+ */
+static void noxtls_stm32_aes_clear_key_regs(uintptr_t aes_base)
+{
+    uint32_t i;
+
+    NOXTLS_STM32_REG32(aes_base + NOXTLS_STM32_AES_CR_OFF) = 0u;
+    for(i = 0u; i < 8u; i += 1U) {
+        NOXTLS_STM32_REG32(aes_base + NOXTLS_STM32_AES_K0LR_OFF + (i * 4u)) = 0u;
+    }
+    for(i = 0u; i < 4u; i += 1U) {
+        NOXTLS_STM32_REG32(aes_base + NOXTLS_STM32_AES_IV0LR_OFF + (i * 4u)) = 0u;
+    }
+}
+
 static noxtls_return_t noxtls_stm32_aes_process_block(noxtls_stm32_accel_family_t family,
                                                        const uint8_t *key,
                                                        const uint8_t *data,
@@ -300,7 +323,7 @@ static noxtls_return_t noxtls_stm32_aes_process_block(noxtls_stm32_accel_family_
 
     for(i = 0u; i < NOXTLS_STM32_WORDS_PER_BLOCK; i += 1U) {
         if(noxtls_stm32_aes_wait_flag(cfg.aes_base, NOXTLS_STM32_AES_SR_IFNF, NOXTLS_STM32_AES_SR_IFNF) == 0) {
-            NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_CR_OFF) = 0u;
+            noxtls_stm32_aes_clear_key_regs(cfg.aes_base);
             return NOXTLS_RETURN_TIMEOUT;
         }
         NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_DIN_OFF) = noxtls_load_be32(&data[(i * 4u)]);
@@ -308,7 +331,7 @@ static noxtls_return_t noxtls_stm32_aes_process_block(noxtls_stm32_accel_family_
 
     for(i = 0u; i < NOXTLS_STM32_WORDS_PER_BLOCK; i += 1U) {
         if(noxtls_stm32_aes_wait_flag(cfg.aes_base, NOXTLS_STM32_AES_SR_OFNE, NOXTLS_STM32_AES_SR_OFNE) == 0) {
-            NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_CR_OFF) = 0u;
+            noxtls_stm32_aes_clear_key_regs(cfg.aes_base);
             /* SECURITY (NX-17): never leave a partially written block in the caller's
              * buffer on timeout; a half-transformed block must not be used or leaked. */
             (void)memset(output, 0, NOXTLS_STM32_WORDS_PER_BLOCK * 4u);
@@ -320,11 +343,11 @@ static noxtls_return_t noxtls_stm32_aes_process_block(noxtls_stm32_accel_family_
     /* SECURITY (NX-17): a still-BUSY engine means the block may be incomplete; treat the
      * exhausted wait as a hard error instead of returning SUCCESS with suspect data. */
     if(noxtls_stm32_aes_wait_flag(cfg.aes_base, NOXTLS_STM32_AES_SR_BUSY, 0u) == 0) {
-        NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_CR_OFF) = 0u;
+        noxtls_stm32_aes_clear_key_regs(cfg.aes_base);
         (void)memset(output, 0, NOXTLS_STM32_WORDS_PER_BLOCK * 4u);
         return NOXTLS_RETURN_TIMEOUT;
     }
-    NOXTLS_STM32_REG32(cfg.aes_base + NOXTLS_STM32_AES_CR_OFF) = 0u;
+    noxtls_stm32_aes_clear_key_regs(cfg.aes_base);
 
     return NOXTLS_RETURN_SUCCESS;
 }

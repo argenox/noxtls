@@ -16,6 +16,7 @@ static void noxtls_drbg_misra_api_refs(void)
     NOXTLS_MISRA_REF_FN(&noxtls_drbg_set_entropy_callback);
     NOXTLS_MISRA_REF_FN(&noxtls_drbg_set_entropy_source);
     NOXTLS_MISRA_REF_FN(&noxtls_drbg_uninstantiate);
+    NOXTLS_MISRA_REF_FN(&noxtls_drbg_set_lock_callbacks);
 }
 
 /* Keep refs TU live for analyzers without exporting linkage (Rule 8.7). */

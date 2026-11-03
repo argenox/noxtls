@@ -299,6 +299,7 @@ typedef struct
     uint8_t *traversal;
     uint32_t traversal_len;
     uint32_t bds_k;
+    uint32_t busy;   /* non-zero while a sign (and its persist callback) is in progress */
     uint32_t magic;
 } noxtls_xmss_signer_t;
 
@@ -425,7 +426,12 @@ noxtls_return_t noxtls_xmss_sign(noxtls_xmss_param_t param,
  *    noxtls_xmss_max_signatures()); later calls fail with
  *    NOXTLS_RETURN_KEY_EXHAUSTED.
  *  - The caller must not use the same private key from two signers, copy it
- *    back from a backup, or sign while a previous persist is in flight.
+ *    back from a backup, or sign while a previous persist is in flight.  As a
+ *    fail-closed guard, a noxtls_xmss_sign_stateful() or
+ *    noxtls_xmss_signer_attach_traversal() call on a signer whose sign is
+ *    still in progress (for example from inside the persist callback) returns
+ *    NOXTLS_RETURN_FAILED without touching the key.  The guard is a plain
+ *    flag, not a lock: concurrent threads must still be serialized.
  * The secret_key buffer must stay valid for the signer's lifetime.
  */
 noxtls_return_t noxtls_xmss_signer_init(noxtls_xmss_signer_t *signer,
@@ -465,7 +471,8 @@ noxtls_return_t noxtls_xmss_signer_attach_traversal(noxtls_xmss_signer_t *signer
  * touched.
  * @return NOXTLS_RETURN_SUCCESS, NOXTLS_RETURN_KEY_EXHAUSTED, the persistence
  *         callback's error code, NOXTLS_RETURN_INVALID_BLOCK_SIZE (capacity
- *         too small) or another parameter error.
+ *         too small), NOXTLS_RETURN_FAILED (a sign on this signer is already
+ *         in progress) or another parameter error.
  */
 noxtls_return_t noxtls_xmss_sign_stateful(noxtls_xmss_signer_t *signer,
                                           const uint8_t *message,

@@ -422,9 +422,9 @@ noxtls_return_t noxtls_aes_update(noxtls_aes_context_t *ctx,
                uint32_t *output_len);
 
 /**
- * @brief Finalize a streaming AES operation. On success the whole context
- *        (key schedule, raw key, feedback) is wiped; call noxtls_aes_init()
- *        again before reuse.
+ * @brief Finalize a streaming AES operation. The whole context (key schedule,
+ *        raw key, feedback) is wiped on success and on every error except a
+ *        NULL @p ctx or @p output_len; call noxtls_aes_init() again before reuse.
  * @param ctx Initialized AES context.
  * @param output Output buffer for any final bytes.
  * @param output_len Output length in bytes.
@@ -433,6 +433,18 @@ noxtls_return_t noxtls_aes_update(noxtls_aes_context_t *ctx,
 noxtls_return_t noxtls_aes_final(noxtls_aes_context_t *ctx,
               uint8_t *output,
               uint32_t *output_len);
+
+/**
+ * @brief Wipe an AES streaming context without finishing the operation.
+ *
+ * For callers that abandon a context (for example after an error from
+ * noxtls_aes_update()). noxtls_aes_init() failures and noxtls_aes_final()
+ * already wipe the context; calling this afterwards is harmless.
+ *
+ * @param ctx AES context to wipe (NULL is ignored).
+ * @return None.
+ */
+void noxtls_aes_free(noxtls_aes_context_t *ctx);
 
 #ifdef __cplusplus
 }

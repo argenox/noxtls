@@ -109,6 +109,7 @@ void fe25519_limbs_to_u32(uint32_t *out, const fe25519_native_t *in)
     for(i = 0U; i < 8U; i++) {
         out[i] = fe25519_arm_load32_le(&le[4U * i]);
     }
+    noxtls_secure_zero(le, sizeof(le));
 }
 
 void fe25519_u32_to_limbs(fe25519_native_t *out, const uint32_t *in)
@@ -125,6 +126,8 @@ void fe25519_u32_to_limbs(fe25519_native_t *out, const uint32_t *in)
         fe25519_store32_le(&le[4U * i], tmp[i]);
     }
     fe25519_native_from_le(out, le);
+    noxtls_secure_zero(le, sizeof(le));
+    noxtls_secure_zero(tmp, sizeof(tmp));
 }
 
 /**
@@ -215,6 +218,9 @@ void fe25519_u32_mul(uint32_t *out, const uint32_t *a, const uint32_t *b)
     noxtls_copy_u8((uint8_t *)(void *)(bb), (size_t)(sizeof(bb)), (const uint8_t *)(const void *)(b), (size_t)(sizeof(bb)));
     fe25519_u32_mul_schoolbook(t, aa, bb);
     fe25519_u32_reduce_512(out, t);
+    noxtls_secure_zero(t, sizeof(t));
+    noxtls_secure_zero(aa, sizeof(aa));
+    noxtls_secure_zero(bb, sizeof(bb));
 }
 
 void fe25519_u32_sqr(uint32_t *out, const uint32_t *a)
@@ -225,6 +231,8 @@ void fe25519_u32_sqr(uint32_t *out, const uint32_t *a)
     noxtls_copy_u8((uint8_t *)(void *)(aa), (size_t)(sizeof(aa)), (const uint8_t *)(const void *)(a), (size_t)(sizeof(aa)));
     fe25519_u32_mul_schoolbook(t, aa, aa);
     fe25519_u32_reduce_512(out, t);
+    noxtls_secure_zero(t, sizeof(t));
+    noxtls_secure_zero(aa, sizeof(aa));
 }
 
 #if (defined(__ARM_ARCH_7EM__) || defined(__ARM_ARCH_8M_MAIN__)) && \
@@ -279,6 +287,10 @@ void fe25519_native_mul(fe25519_native_t *out,
     fe25519_limbs_to_u32(bb, b);
     fe25519_mul_asm(rr, aa, bb);
     fe25519_u32_to_limbs(out, rr);
+    /* Operands and result may derive from secrets (nonce point, Z^-1). */
+    noxtls_secure_zero(aa, sizeof(aa));
+    noxtls_secure_zero(bb, sizeof(bb));
+    noxtls_secure_zero(rr, sizeof(rr));
 }
 
 void fe25519_native_sq(fe25519_native_t *out, const fe25519_native_t *a)
@@ -289,6 +301,8 @@ void fe25519_native_sq(fe25519_native_t *out, const fe25519_native_t *a)
     fe25519_limbs_to_u32(aa, a);
     fe25519_square_asm(rr, aa);
     fe25519_u32_to_limbs(out, rr);
+    noxtls_secure_zero(aa, sizeof(aa));
+    noxtls_secure_zero(rr, sizeof(rr));
 }
 
 void fe25519_native_sq2(fe25519_native_t *out, const fe25519_native_t *a)
@@ -300,6 +314,8 @@ void fe25519_native_sq2(fe25519_native_t *out, const fe25519_native_t *a)
     fe25519_square_asm(rr, aa);
     fe25519_u32_dbl_reduce(rr);
     fe25519_u32_to_limbs(out, rr);
+    noxtls_secure_zero(aa, sizeof(aa));
+    noxtls_secure_zero(rr, sizeof(rr));
 }
 
 #endif /* ARM + NOXTLS_ED25519_FE_USE_PACKED_ASM */

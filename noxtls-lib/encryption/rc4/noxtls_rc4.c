@@ -39,6 +39,52 @@
 #define RC4_DEBUG_PRINT(fmt, ...) ((void)0)
 #endif
 
+/* Constant-time table access for this legacy cipher (see noxtls_config.h,
+ * NOXTLS_LEGACY_CIPHER_CONSTANT_TIME): every lookup reads the whole table and
+ * keeps the wanted entry with a mask, so no address depends on key or data. */
+#ifndef NOXTLS_LEGACY_CIPHER_CONSTANT_TIME
+#if defined(NOXTLS_SIDECHANNEL_PROFILE_CONSTANT_TIME_STRICT)
+#define NOXTLS_LEGACY_CIPHER_CONSTANT_TIME 1
+#else
+#define NOXTLS_LEGACY_CIPHER_CONSTANT_TIME 0
+#endif
+#endif
+
+#if NOXTLS_LEGACY_CIPHER_CONSTANT_TIME
+/**
+ * @brief Read S[idx] by scanning the whole permutation.
+ */
+static uint8_t rc4_ct_read(const uint8_t S[256], uint8_t idx)
+{
+    uint32_t r = 0U;
+    uint32_t k = 0U;
+    for (k = 0U; k < 256U; k += 1U) {
+        uint32_t d = k ^ (uint32_t)idx;
+        uint32_t m = ((d | (0U - d)) >> 31U) - 1U; /* all-ones when k == idx */
+        r |= (uint32_t)S[k] & m;
+    }
+    return (uint8_t)r;
+}
+
+/**
+ * @brief Write S[idx] = v by rewriting the whole permutation.
+ */
+static void rc4_ct_write(uint8_t S[256], uint8_t idx, uint8_t v)
+{
+    uint32_t k = 0U;
+    for (k = 0U; k < 256U; k += 1U) {
+        uint32_t d = k ^ (uint32_t)idx;
+        uint8_t m = (uint8_t)(((d | (0U - d)) >> 31U) - 1U);
+        S[k] = (uint8_t)((S[k] & (uint8_t)(~m)) | (v & m));
+    }
+}
+#define RC4_READ(S, idx) rc4_ct_read((S), (idx))
+#define RC4_WRITE(S, idx, v) rc4_ct_write((S), (idx), (v))
+#else
+#define RC4_READ(S, idx) ((S)[(idx)])
+#define RC4_WRITE(S, idx, v) ((S)[(idx)] = (v))
+#endif
+
 /**
  * @brief Key-Scheduling Algorithm: initialize S and scramble with key
  */
@@ -55,8 +101,8 @@ static void rc4_ksa(noxtls_rc4_context_t *ctx, const uint8_t *key, uint32_t key_
         uint8_t t = 0U;
         j = (uint8_t)(j + ctx->S[i] + key[i % key_len]);
         t = ctx->S[i];
-        ctx->S[i] = ctx->S[j];
-        ctx->S[j] = t;
+        ctx->S[i] = RC4_READ(ctx->S, j);
+        RC4_WRITE(ctx->S, j, t);
     }
     ctx->i = 0U;
     ctx->j = 0U;
@@ -68,12 +114,14 @@ static void rc4_ksa(noxtls_rc4_context_t *ctx, const uint8_t *key, uint32_t key_
 static uint8_t rc4_prga_byte(noxtls_rc4_context_t *ctx)
 {
     uint8_t t = 0U;
+    uint8_t u = 0U;
     ctx->i = (uint8_t)(ctx->i + 1U);
     ctx->j = (uint8_t)(ctx->j + ctx->S[ctx->i]);
     t = ctx->S[ctx->i];
-    ctx->S[ctx->i] = ctx->S[ctx->j];
-    ctx->S[ctx->j] = t;
-    return ctx->S[(uint8_t)(ctx->S[ctx->i] + ctx->S[ctx->j])];
+    u = RC4_READ(ctx->S, ctx->j);
+    ctx->S[ctx->i] = u;
+    RC4_WRITE(ctx->S, ctx->j, t);
+    return RC4_READ(ctx->S, (uint8_t)(u + t));
 }
 
 /**
@@ -118,14 +166,17 @@ noxtls_return_t noxtls_rc4_encrypt(const uint8_t *key, uint32_t key_len,
                             uint8_t *output)
 {
     noxtls_rc4_context_t ctx;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if ((key == NULL) || (input == NULL) || (output == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
-    if (noxtls_rc4_init(&ctx, key, key_len) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
+    if (noxtls_rc4_init(&ctx, key, key_len) == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_rc4_process(&ctx, input, output, input_len);
     }
-    return noxtls_rc4_process(&ctx, input, output, input_len);
+    /* The final permutation is key-equivalent (this API has no nonce). */
+    noxtls_secure_zero(&ctx, sizeof(ctx));
+    return rc;
 }
 
 /**

@@ -34,6 +34,7 @@
 
 #include "noxtls_aes.h"
 #include "noxtls_aes_accel.h"
+#include "noxtls_ct.h"
 
 /**
  * @brief Resolve AES round count and key-word count for an AES key size.
@@ -116,12 +117,12 @@ static noxtls_return_t noxtls_aes_accel_apple_build_round_keys(const uint8_t *ke
 {
     uint32_t words[NOXTLS_AES_MAX_KEY_SCHEDULE_WORDS];
     uint8_t round_key_bytes[16];
-    int rounds;
-    int nk;
+    int rounds = 0;
+    int nk = 0;
     uint32_t round;
     noxtls_return_t rc;
 
-    if(key == NULL || enc_rks == NULL || dec_rks == NULL || rounds_out == NULL) {
+    if(key == NULL || enc_rks == NULL || rounds_out == NULL) {
         return NOXTLS_RETURN_NULL;
     }
 
@@ -131,26 +132,30 @@ static noxtls_return_t noxtls_aes_accel_apple_build_round_keys(const uint8_t *ke
     }
 
     rc = noxtls_aes_key_expansion(key, words, nk, rounds);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
-    }
-
-    for(round = 0U; round <= rounds; round += 1U) {
-        uint32_t col;
-        for (col = 0U; col < 4U; col += 1U) {
-            (void)noxtls_aes_accel_apple_word_to_bytes_be(words[(round * 4) + col], &round_key_bytes[col * 4]);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        for(round = 0U; round <= (uint32_t)rounds; round += 1U) {
+            uint32_t col;
+            for (col = 0U; col < 4U; col += 1U) {
+                (void)noxtls_aes_accel_apple_word_to_bytes_be(words[(round * 4U) + col], &round_key_bytes[col * 4U]);
+            }
+            enc_rks[round] = vld1q_u8(round_key_bytes);
         }
-        enc_rks[round] = vld1q_u8(round_key_bytes);
+
+        /* Equivalent inverse cipher: reversed keys, InvMixColumns on the middle ones. */
+        if(dec_rks != NULL) {
+            dec_rks[0] = enc_rks[rounds];
+            for(round = 1U; round < (uint32_t)rounds; round += 1U) {
+                dec_rks[round] = vaesimcq_u8(enc_rks[(uint32_t)rounds - round]);
+            }
+            dec_rks[rounds] = enc_rks[0];
+        }
+        *rounds_out = rounds;
     }
 
-    dec_rks[0] = enc_rks[rounds];
-    for(round = 1U; round < rounds; round += 1U) {
-        dec_rks[round] = vaesimcq_u8(enc_rks[rounds - round]);
-    }
-    dec_rks[rounds] = enc_rks[0];
-    *rounds_out = rounds;
-
-    return NOXTLS_RETURN_SUCCESS;
+    /* The schedule words are the key (AES-256: words 0..7 are the raw key). */
+    noxtls_secure_zero(words, sizeof(words));
+    noxtls_secure_zero(round_key_bytes, sizeof(round_key_bytes));
+    return rc;
 }
 
 /**
@@ -170,9 +175,8 @@ noxtls_return_t noxtls_aes_accel_apple_encrypt_block(const uint8_t *key,
 {
 #if NOXTLS_FEATURE_AES_ACCEL_APPLE && defined(__APPLE__) && (defined(__aarch64__) || defined(__arm64__)) && defined(__ARM_FEATURE_CRYPTO)
     uint8x16_t enc_rks[15];
-    uint8x16_t dec_rks[15];
     uint8x16_t state;
-    int rounds;
+    int rounds = 0;
     uint32_t round;
     noxtls_return_t rc;
 
@@ -180,21 +184,23 @@ noxtls_return_t noxtls_aes_accel_apple_encrypt_block(const uint8_t *key,
         return NOXTLS_RETURN_NULL;
     }
 
-    rc = noxtls_aes_accel_apple_build_round_keys(key, type, enc_rks, dec_rks, &rounds);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
+    rc = noxtls_aes_accel_apple_build_round_keys(key, type, enc_rks, NULL, &rounds);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        /* AESE is AddRoundKey, SubBytes, ShiftRows (the key comes first,
+         * unlike x86 AESENC), so the last round key is added after the
+         * final AESE and no separate whitening XOR precedes the loop. */
+        state = vld1q_u8(data);
+        for(round = 0U; round < ((uint32_t)rounds - 1U); round += 1U) {
+            state = vaesmcq_u8(vaeseq_u8(state, enc_rks[round]));
+        }
+        state = vaeseq_u8(state, enc_rks[rounds - 1]);
+        state = veorq_u8(state, enc_rks[rounds]);
+        vst1q_u8(output, state);
+        state = vdupq_n_u8(0U);
     }
 
-    state = vld1q_u8(data);
-    state = veorq_u8(state, enc_rks[0]);
-    for(round = 1U; round < rounds; round += 1U) {
-        state = vaeseq_u8(state, enc_rks[round]);
-        state = vaesmcq_u8(state);
-    }
-    state = vaeseq_u8(state, enc_rks[rounds]);
-    vst1q_u8(output, state);
-
-    return NOXTLS_RETURN_SUCCESS;
+    noxtls_secure_zero(enc_rks, sizeof(enc_rks));
+    return rc;
 #else
     (void)key;
     (void)data;
@@ -223,7 +229,7 @@ noxtls_return_t noxtls_aes_accel_apple_decrypt_block(const uint8_t *key,
     uint8x16_t enc_rks[15];
     uint8x16_t dec_rks[15];
     uint8x16_t state;
-    int rounds;
+    int rounds = 0;
     uint32_t round;
     noxtls_return_t rc;
 
@@ -232,20 +238,22 @@ noxtls_return_t noxtls_aes_accel_apple_decrypt_block(const uint8_t *key,
     }
 
     rc = noxtls_aes_accel_apple_build_round_keys(key, type, enc_rks, dec_rks, &rounds);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        /* AESD is AddRoundKey, InvShiftRows, InvSubBytes; the last key of the
+         * equivalent inverse schedule is added after the final AESD. */
+        state = vld1q_u8(data);
+        for(round = 0U; round < ((uint32_t)rounds - 1U); round += 1U) {
+            state = vaesimcq_u8(vaesdq_u8(state, dec_rks[round]));
+        }
+        state = vaesdq_u8(state, dec_rks[rounds - 1]);
+        state = veorq_u8(state, dec_rks[rounds]);
+        vst1q_u8(output, state);
+        state = vdupq_n_u8(0U);
     }
 
-    state = vld1q_u8(data);
-    state = veorq_u8(state, dec_rks[0]);
-    for(round = 1U; round < rounds; round += 1U) {
-        state = vaesdq_u8(state, dec_rks[round]);
-        state = vaesimcq_u8(state);
-    }
-    state = vaesdq_u8(state, dec_rks[rounds]);
-    vst1q_u8(output, state);
-
-    return NOXTLS_RETURN_SUCCESS;
+    noxtls_secure_zero(enc_rks, sizeof(enc_rks));
+    noxtls_secure_zero(dec_rks, sizeof(dec_rks));
+    return rc;
 #else
     (void)key;
     (void)data;

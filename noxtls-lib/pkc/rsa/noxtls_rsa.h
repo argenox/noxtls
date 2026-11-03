@@ -59,6 +59,16 @@ typedef struct
                           * (0 is treated as key_bytes for keys built without an init call) */
 } rsa_key_t;
 
+/**
+ * Largest accepted RSA public exponent, in significant bytes (default 8, i.e. e < 2^64, the
+ * OpenSSL limit for large moduli). Public-key operations run in time proportional to the
+ * exponent length, so this bounds the cost of verifying with an untrusted key. Exponents in
+ * use are 3 and 65537.
+ */
+#ifndef NOXTLS_RSA_MAX_PUBEXP_BYTES
+#define NOXTLS_RSA_MAX_PUBEXP_BYTES 8U
+#endif
+
 /* RSA Key Management */
 /* Full key: allocates n, e, d (key_bytes each) and p, q, dp, dq, qi (key_bytes / 2 each),
  * all zeroed except e = 65537; the caller fills the components. */
@@ -71,9 +81,15 @@ noxtls_return_t noxtls_rsa_key_init(rsa_key_t *key, rsa_key_size_t key_size);
  * padding); its significant length must not exceed key_size / 8.
  * RSA-2048: 256 + 3 bytes of key buffers instead of 1408 (RSA-4096: 515 instead of 2816).
  *
+ * The key is validated before anything is allocated: n must be odd, and e must be odd,
+ * at least 3 and at most NOXTLS_RSA_MAX_PUBEXP_BYTES significant bytes. The same checks run
+ * before every public-key operation, so an untrusted key (for example from a peer's
+ * certificate chain) can never cost more than a short-exponent exponentiation.
+ *
  * @return NOXTLS_RETURN_SUCCESS; NOXTLS_RETURN_NULL for NULL pointers; NOXTLS_RETURN_FAILED
- *         for an unsupported key_size; NOXTLS_RETURN_INVALID_PARAM for an empty/zero or
- *         oversized n or e; NOXTLS_RETURN_NOT_ENOUGH_MEMORY.
+ *         for an unsupported key_size; NOXTLS_RETURN_INVALID_PARAM for an empty/zero,
+ *         oversized or even n, or an e that is even, below 3 or longer than
+ *         NOXTLS_RSA_MAX_PUBEXP_BYTES; NOXTLS_RETURN_NOT_ENOUGH_MEMORY.
  */
 noxtls_return_t noxtls_rsa_key_init_public(rsa_key_t *key, rsa_key_size_t key_size,
                                            const uint8_t *n, uint32_t n_len,
@@ -83,6 +99,15 @@ noxtls_return_t noxtls_rsa_key_free(rsa_key_t *key);
 
 /* RSA Encryption/Decryption */
 noxtls_return_t noxtls_rsa_encrypt(const rsa_key_t *key, const uint8_t *plaintext, uint32_t plaintext_len, uint8_t *ciphertext, uint32_t *ciphertext_len);
+/**
+ * PKCS#1 v1.5 decryption (blinded, fault-checked; constant-time unpadding). On input
+ * *plaintext_len is the size of @p plaintext. Once the private-key operation has run,
+ * min(*plaintext_len, key_bytes - 11) bytes of @p plaintext are always written (the message followed by zeros, or zeros when the padding
+ * is invalid or the message does not fit), so the work done does not depend on padding
+ * validity; *plaintext_len is the message length on success and 0 on failure. The return
+ * code itself reveals validity: protocol code must not branch on it in a way an attacker can
+ * observe (TLS: RFC 5246 section 7.4.7.1).
+ */
 noxtls_return_t noxtls_rsa_decrypt(const rsa_key_t *key, const uint8_t *ciphertext, uint32_t ciphertext_len, uint8_t *plaintext, uint32_t *plaintext_len);
 
 /**

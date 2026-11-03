@@ -1597,6 +1597,7 @@ int main(int argc, char **argv)
     const uint8_t *ca_use;
     noxtls_x509_crl_t verify_crl;
     int verify_crl_loaded;
+    int transfer_failed = 0;
 
 #ifdef _WIN32
     {
@@ -1987,23 +1988,35 @@ int main(int argc, char **argv)
     for(;;) {
         uint8_t buf[TLSCURL_TLS_RECV_CHUNK];
         uint32_t len;
+        tls_state_t st;
 
         len = (uint32_t)sizeof(buf) - 1U;
         if(active == TLSCURL_ACTIVE_TLS13) {
             rc = noxtls_tls13_recv(&tls13_ctx, buf, &len);
+            st = tls13_ctx.base.base.state;
         } else {
             rc = noxtls_tls12_recv(&tls12_ctx, buf, &len);
+            st = tls12_ctx.base.base.state;
         }
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            if(cfg.verbose >= 1) {
-                printf("\n[tlscurl] recv ended rc=%d (often EOF after close_notify)\n", (int)rc);
-            }
+            /* Transport EOF, bad_record_mac or a fatal alert: the response
+             * may be truncated or forged, so the transfer has failed. */
+            transfer_failed = 1;
+            fprintf(stderr, "\n[tlscurl] ERROR: response not completed by close_notify (recv rc=%d)\n", (int)rc);
+            tlscurl_print_tls_error((const uint8_t *)"recv", rc);
             break;
         }
         if(len == 0U) {
+            if(st == TLS_STATE_CLOSING) {
+                break; /* authenticated close_notify */
+            }
+            continue; /* empty application record, not end of stream */
+        }
+        if(fwrite(buf, 1U, (size_t)len, out_fp) != (size_t)len) {
+            transfer_failed = 1;
+            fprintf(stderr, "[tlscurl] ERROR: cannot write response output\n");
             break;
         }
-        (void)fwrite(buf, 1U, (size_t)len, out_fp);
     }
     if(cfg.verbose >= 1) {
         printf("[tlscurl] ---- end response ----\n");
@@ -2030,5 +2043,5 @@ int main(int argc, char **argv)
 #ifdef _WIN32
     WSACleanup();
 #endif
-    return 0;
+    return (transfer_failed != 0) ? 1 : 0;
 }

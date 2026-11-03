@@ -214,6 +214,10 @@ static noxtls_return_t noxtls_ripemd160_round(noxtls_sha_ctx_t * ctx, const uint
     ctx->u.md32.h[4] = ctx->u.md32.h[0] + bl + cr;
     ctx->u.md32.h[0] = tl;
 
+    /* The schedule words are the input block (an HMAC key pad, a PRK): wipe
+     * them here, per block; a wipe at finish cannot reach this frame. */
+    noxtls_secure_zero(w, sizeof(w));
+    noxtls_secure_zero(h, sizeof(h));
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -381,18 +385,19 @@ noxtls_return_t noxtls_ripemd160_verify(const uint8_t * data, uint32_t len, cons
 {
     uint8_t out[HASH_RIPEMD160_OUT_LEN];
     noxtls_sha_ctx_t ctx;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if (noxtls_ripemd160_init(&ctx) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
+    noxtls_secure_zero(out, sizeof(out));
+    if ((noxtls_ripemd160_init(&ctx) == NOXTLS_RETURN_SUCCESS) &&
+        (noxtls_ripemd160_update(&ctx, data, len) == NOXTLS_RETURN_SUCCESS) &&
+        (noxtls_ripemd160_finish(&ctx, out) == NOXTLS_RETURN_SUCCESS) &&
+        (noxtls_ct_equal(out, expected, (size_t)HASH_RIPEMD160_OUT_LEN) != 0)) {
+        rc = NOXTLS_RETURN_SUCCESS;
     }
-    if (noxtls_ripemd160_update(&ctx, data, len) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
-    }
-    if (noxtls_ripemd160_finish(&ctx, out) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
-    }
-    return (noxtls_ct_equal(out, expected, (size_t)HASH_RIPEMD160_OUT_LEN) != 0) ?
-           NOXTLS_RETURN_SUCCESS : NOXTLS_RETURN_FAILED;
+    /* The context and digest describe the (possibly secret) input. */
+    noxtls_secure_zero(&ctx, sizeof(ctx));
+    noxtls_secure_zero(out, sizeof(out));
+    return rc;
 }
 
 #endif /* NOXTLS_FEATURE_RIPEMD160 */

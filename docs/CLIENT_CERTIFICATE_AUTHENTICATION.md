@@ -25,7 +25,24 @@ Supported for **TLS 1.3** in NoxTLS. Client auth uses **RSA-PSS** (signature sch
    - If the client sent a certificate: `ctx->client_cert` and `ctx->client_cert_len` hold the client certificate (DER). `ctx->client_cert_parsed` is the parsed X.509 structure (e.g. for subject/issuer checks).
    - If the client sent no certificate: `ctx->client_cert` is NULL and `ctx->client_cert_len` is 0.
 
-You can use `ctx->client_cert_parsed` and the existing NoxTLS X.509 APIs to validate the client certificate (e.g. chain, validity, subject) as required by your policy.
+### Chain validation (TLS 1.2 and TLS 1.3)
+
+A presented client certificate must chain to a trust anchor before the handshake
+completes. The server uses, in order:
+
+1. an explicit per-context policy (`noxtls_tls13_set_client_verify_policy()` /
+   `noxtls_tls12_set_client_verify_policy()`), which never falls back to the
+   global store;
+2. otherwise the global trust store (`noxtls_x509_trust_store_set()`).
+
+When neither has an anchor (anchors never configured, cleared, or a failed
+`noxtls_x509_trust_store_set()` whose return value was ignored) the handshake
+**fails**. Earlier releases accepted any key-holding client in that case.
+A TLS 1.3 server that deliberately validates or pins the client certificate
+itself after the handshake can opt out explicitly with
+`noxtls_tls13_set_client_chain_verify_disabled(ctx, 1)`; CertificateVerify
+(proof of key possession) still runs. Subject or name checks remain the
+application's responsibility.
 
 ---
 
@@ -126,7 +143,7 @@ duplicate extensions (RFC 5280 Section 4.2) return `NOXTLS_RETURN_BAD_DATA`.
 
 - **RSA only**: Client CertificateVerify is implemented with RSA-PSS (0x0804). ECDSA/EdDSA client auth is not implemented.
 - **TLS 1.3**: Most of this document applies to TLS 1.3; see the TLS 1.2 section above for explicit per-context policies.
-- **Verification**: The server receives and parses the client certificate and verifies the CertificateVerify signature. Additional checks (e.g. chain to a CA, revocation, subject name) are the application’s responsibility using NoxTLS X.509 APIs.
+- **Verification**: The server verifies the client chain (see "Chain validation" above), the CertificateVerify signature and, when a Key Usage extension is present, that it allows digitalSignature. Subject or name checks are the application’s responsibility using NoxTLS X.509 APIs.
 
 ---
 

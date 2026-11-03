@@ -29,3 +29,7 @@ https_client https://example.com/ 443 tls13
 https_client https://example.com/ tls12
 https_client https://example.com/ 443 tls13 keylog=/tmp/keylog.txt
 
+
+## Exit status
+
+The client exits with status 1 when the response is not ended by an authenticated `close_notify` (transport EOF, a record that fails authentication, or a fatal alert), because the printed response may then be truncated or forged.

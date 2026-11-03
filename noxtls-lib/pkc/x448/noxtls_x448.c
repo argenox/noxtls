@@ -186,6 +186,9 @@ static void fe448_mul(fe448_t *r, const fe448_t *a, const fe448_t *b)
         r->v[0] += (uint32_t)carry;
         r->v[X448_FE_MID_LIMB] += (uint32_t)carry;
     }
+    /* The columns hold the product in unreduced form (for the last ladder
+     * multiply, the shared secret); ladder wipes cannot reach this frame. */
+    noxtls_secure_zero(c, sizeof(c));
     fe448_weak_reduce(r);
 }
 

@@ -19,6 +19,8 @@
 
 #include <string.h>
 
+#include "noxtls_ct.h"
+
 #include "vendor/st/noxtls_target_detect.h"
 
 #if !defined(NOXTLS_STM32_U5_HAS_AES)
@@ -276,6 +278,27 @@ static void noxtls_u5_set_gcmpH(uint32_t phase)
     NOXTLS_U5_REG32(g_aes_base + NOXTLS_U5_AES_CR_OFF) = cr;
 }
 
+/**
+ * @brief Disable the AES IP and clear its key and IV registers.
+ *
+ * Called on every exit after a key was loaded, so the peripheral never keeps
+ * a session key for a later user. The registers are overwritten and the IP is
+ * then reset with CR.IPRST, which returns every register to its reset value.
+ */
+static void noxtls_u5_clear_key_regs(void)
+{
+    uint32_t i;
+
+    NOXTLS_U5_REG32(g_aes_base + NOXTLS_U5_AES_CR_OFF) = 0u;
+    for(i = 0u; i < 4u; i++) {
+        NOXTLS_U5_REG32(g_aes_base + NOXTLS_U5_AES_KEYR0_OFF + (i * 4u)) = 0u;
+        NOXTLS_U5_REG32(g_aes_base + NOXTLS_U5_AES_KEYR4_OFF + (i * 4u)) = 0u;
+        NOXTLS_U5_REG32(g_aes_base + NOXTLS_U5_AES_IVR0_OFF + (i * 4u)) = 0u;
+    }
+    NOXTLS_U5_REG32(g_aes_base + NOXTLS_U5_AES_CR_OFF) = NOXTLS_U5_AES_CR_IPRST;
+    NOXTLS_U5_REG32(g_aes_base + NOXTLS_U5_AES_CR_OFF) = 0u;
+}
+
 static noxtls_return_t noxtls_u5_load_key(const uint8_t *key, uint32_t key_bytes)
 {
     uint32_t cr = NOXTLS_U5_REG32(g_aes_base + NOXTLS_U5_AES_CR_OFF);
@@ -360,6 +383,7 @@ static noxtls_return_t noxtls_u5_aes_process_block(const uint8_t *key,
 
     rc = noxtls_u5_load_key(key, key_bytes);
     if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_u5_clear_key_regs();
         return rc;
     }
 
@@ -369,7 +393,7 @@ static noxtls_return_t noxtls_u5_aes_process_block(const uint8_t *key,
         cr |= NOXTLS_U5_AES_CR_MODE_KEYDERIV;
         NOXTLS_U5_REG32(g_aes_base + NOXTLS_U5_AES_CR_OFF) = cr | NOXTLS_U5_AES_CR_EN;
         if(noxtls_u5_wait_ccf() == 0) {
-            NOXTLS_U5_REG32(g_aes_base + NOXTLS_U5_AES_CR_OFF) = 0u;
+            noxtls_u5_clear_key_regs();
             return NOXTLS_RETURN_TIMEOUT;
         }
         noxtls_u5_clear_ccf();
@@ -386,7 +410,7 @@ static noxtls_return_t noxtls_u5_aes_process_block(const uint8_t *key,
 
     noxtls_u5_write_block_le(data);
     rc = noxtls_u5_read_block_le(output);
-    NOXTLS_U5_REG32(g_aes_base + NOXTLS_U5_AES_CR_OFF) = 0u;
+    noxtls_u5_clear_key_regs();
     if(rc != NOXTLS_RETURN_SUCCESS) {
         memset(output, 0, 16u);
     }
@@ -443,7 +467,7 @@ static noxtls_return_t noxtls_u5_gcm_process(const uint8_t *key,
 
     rc = noxtls_u5_load_key(key, key_bytes);
     if(rc != NOXTLS_RETURN_SUCCESS) {
-        NOXTLS_U5_REG32(g_aes_base + NOXTLS_U5_AES_CR_OFF) = 0u;
+        noxtls_u5_clear_key_regs();
         return rc;
     }
 
@@ -454,7 +478,7 @@ static noxtls_return_t noxtls_u5_gcm_process(const uint8_t *key,
 
     NOXTLS_U5_REG32(g_aes_base + NOXTLS_U5_AES_CR_OFF) |= NOXTLS_U5_AES_CR_EN;
     if(noxtls_u5_wait_ccf() == 0) {
-        NOXTLS_U5_REG32(g_aes_base + NOXTLS_U5_AES_CR_OFF) = 0u;
+        noxtls_u5_clear_key_regs();
         return NOXTLS_RETURN_TIMEOUT;
     }
     noxtls_u5_clear_ccf();
@@ -470,7 +494,7 @@ static noxtls_return_t noxtls_u5_gcm_process(const uint8_t *key,
     for(i = 0u; i < aad_len; i += 16u) {
         noxtls_u5_write_block_le(aad + i);
         if(noxtls_u5_wait_ccf() == 0) {
-            NOXTLS_U5_REG32(g_aes_base + NOXTLS_U5_AES_CR_OFF) = 0u;
+            noxtls_u5_clear_key_regs();
             return NOXTLS_RETURN_TIMEOUT;
         }
         noxtls_u5_clear_ccf();
@@ -481,7 +505,7 @@ static noxtls_return_t noxtls_u5_gcm_process(const uint8_t *key,
         noxtls_u5_write_block_le(input + i);
         rc = noxtls_u5_read_block_le(output + i);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            NOXTLS_U5_REG32(g_aes_base + NOXTLS_U5_AES_CR_OFF) = 0u;
+            noxtls_u5_clear_key_regs();
             return rc;
         }
     }
@@ -500,7 +524,7 @@ static noxtls_return_t noxtls_u5_gcm_process(const uint8_t *key,
     NOXTLS_U5_REG32(g_aes_base + NOXTLS_U5_AES_DINR_OFF) = (uint32_t)bits;
 
     rc = noxtls_u5_read_block_le(out_tag);
-    NOXTLS_U5_REG32(g_aes_base + NOXTLS_U5_AES_CR_OFF) = 0u;
+    noxtls_u5_clear_key_regs();
     return rc;
 }
 
@@ -552,13 +576,17 @@ noxtls_return_t noxtls_stm32_u5_gcm_decrypt(const uint8_t *key,
     }
     rc = noxtls_u5_gcm_process(key, type, nonce, aad, aad_len, ciphertext,
                                ciphertext_len, plaintext, computed_tag, 1);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        /* Constant-time tag check; on mismatch release no plaintext. */
+        if(noxtls_ct_memcmp(tag, computed_tag, sizeof(computed_tag)) != 0) {
+            if((plaintext != NULL) && (ciphertext_len != 0U)) {
+                noxtls_secure_zero(plaintext, (size_t)ciphertext_len);
+            }
+            rc = NOXTLS_RETURN_BAD_DATA;
+        }
     }
-    if(memcmp(tag, computed_tag, sizeof(computed_tag)) != 0) {
-        return NOXTLS_RETURN_BAD_DATA;
-    }
-    return NOXTLS_RETURN_SUCCESS;
+    noxtls_secure_zero(computed_tag, sizeof(computed_tag));
+    return rc;
 }
 
 #endif /* NOXTLS_STM32_U5_HAS_AES */

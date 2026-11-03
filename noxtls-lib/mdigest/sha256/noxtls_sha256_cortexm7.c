@@ -15,6 +15,7 @@
 #include "noxtls_sha.h"
 #include "noxtls_sha256.h"
 #include "noxtls_sha256_backend.h"
+#include "noxtls_ct.h"
 
 #if NOXTLS_FEATURE_SHA256_CORTEXM7 && (defined(__ARM_ARCH_7EM__) || defined(__ARM_ARCH_8M_MAIN__))
 
@@ -120,6 +121,9 @@ static void noxtls_sha256_m7_compress(noxtls_sha_ctx_t *ctx, const uint8_t *inpu
     ctx->u.md32.h[5] += f;
     ctx->u.md32.h[6] += g;
     ctx->u.md32.h[7] += h;
+
+    /* w[0..15] is the input block unchanged (an HMAC key pad, a PRK). */
+    noxtls_secure_zero(w, sizeof(w));
 }
 
 noxtls_return_t noxtls_sha256_blocks_cortexm7(noxtls_sha_ctx_t *ctx,

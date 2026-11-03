@@ -173,17 +173,36 @@ See [MISRA C:2025](./misra-c.md) for the recommended settings for safety-oriente
 
 ### Side-channel profiles
 
-- `performance`: preserves legacy comparison behavior (fastest, least hardened)
-- `balanced`: constant-time secret comparison baseline for protocol verification paths
-- `constant_time_strict`: balanced plus strict hardening guards for higher-assurance builds
+- `performance`: preserves legacy comparison behavior and the T-table software AES (fastest, least hardened)
+- `balanced`: constant-time secret comparisons for protocol verification paths and the table-free constant-time software AES core
+- `constant_time_strict`: balanced plus constant-time GHASH (`NOXTLS_GCM_TABLE_BITS=0`) and constant-time S-box access in ARIA, Camellia and RC4
 
 #### Side-channel profile details
 
 | Profile | Intended use | Security posture | Performance impact |
 | --- | --- | --- | --- |
-| `performance` | Lab/dev benchmarks, compatibility/perf investigations | Lowest hardening; timing behavior may leak more information | Lowest overhead |
-| `balanced` | General production default | Constant-time secret comparisons in core verification/tag-check paths | Moderate overhead |
-| `constant_time_strict` | High-assurance or hostile/shared compute environments | Strongest hardening profile; strict constant-time expectations | Highest overhead |
+| `performance` | Lab/dev benchmarks, compatibility/perf investigations | Lowest hardening; T-table AES and table GHASH leak through data caches | Lowest overhead |
+| `balanced` | General production default | Constant-time comparisons; table-free constant-time software AES | Software AES about 10x slower than T-tables for encryption, about 2x for decryption |
+| `constant_time_strict` | High-assurance or hostile/shared compute environments | `balanced` plus constant-time GHASH and constant-time legacy-cipher S-boxes | GHASH about 8x slower; ARIA/Camellia/RC4 about 100x slower |
+
+#### Software AES core
+
+`NOXTLS_AES_CONSTANT_TIME` selects the software AES block core (hardware
+backends such as ports, AES-NI or ARMv8 are used first when compiled in):
+
+- `1` (default except in the `performance` profile): table-free core. SubBytes
+  is the bitsliced Boyar-Peralta circuit and MixColumns uses masked packed
+  arithmetic, so no memory address or branch depends on the key or the data.
+  It needs no T-tables (about 5 KB less flash). Measured on Apple M-series at
+  -O2: AES-128 encrypt about 390 ns per block (41 MB/s) against 52 ns for the
+  T-table core; decrypt about 515 ns against 264 ns.
+- `0`: T-table core (`NOXTLS_AES_ROM_TABLES` and `NOXTLS_AES_COMPACT_TABLES`
+  apply). Not cache-timing safe.
+
+Key expansion is constant-time in both settings. After every block the dead
+stack frame of the block core is overwritten (`NOXTLS_AES_STACK_BURN`,
+default 1), because compilers spill the round state there and a stale
+pre-final-round state yields the AES-128 key.
 
 Configuration examples:
 
@@ -204,7 +223,8 @@ cmake -S noxtls -B noxtls/build-ct-strict \
 `noxtls_check_config.h` enforces profile constraints at compile time. For example:
 
 - `NOXTLS_SIDECHANNEL_PROFILE_PERFORMANCE` requires `NOXTLS_CT_COMPARE=0`
-- `NOXTLS_SIDECHANNEL_PROFILE_CONSTANT_TIME_STRICT` requires `NOXTLS_CT_COMPARE=1`
+- `NOXTLS_SIDECHANNEL_PROFILE_CONSTANT_TIME_STRICT` requires `NOXTLS_CT_COMPARE=1`,
+  `NOXTLS_AES_CONSTANT_TIME=1` and `NOXTLS_GCM_TABLE_BITS=0`
 
 If these constraints are violated, the build fails with `#error` so invalid combinations do not ship.
 

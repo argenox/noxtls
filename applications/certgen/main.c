@@ -43,6 +43,12 @@ static const uint8_t s_app_cert_end[] = { (uint8_t)'-',(uint8_t)'-',(uint8_t)'-'
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+#endif
 #include <time.h>
 #include "noxtls_ct.h"
 
@@ -206,6 +212,39 @@ static FILE *noxtls_fopen(const uint8_t *filename, const uint8_t *mode)
     return fp;
 #else
     return fopen(filename, mode);
+#endif
+}
+
+/**
+ * @brief Open a private-key output file readable and writable by the owner only.
+ *
+ * On POSIX the file is created with mode 0600 (a pre-existing file is reset
+ * to 0600 before anything is written) and a symbolic link is refused, so the
+ * key never becomes readable by other local users through the umask.
+ *
+ * @param[in] filename The name of the file to create or truncate
+ * @return The file pointer opened for binary writing, or NULL on failure
+ */
+static FILE *noxtls_fopen_private(const uint8_t *filename)
+{
+#ifdef _WIN32
+    return noxtls_fopen(filename, (const uint8_t *)"wb");
+#else
+    FILE *fp = NULL;
+    int fd = open((const char *)filename, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, (mode_t)0600);
+
+    if(fd < 0) {
+        return NULL;
+    }
+    if(fchmod(fd, (mode_t)0600) != 0) {
+        (void)close(fd);
+        return NULL;
+    }
+    fp = fdopen(fd, "wb");
+    if(fp == NULL) {
+        (void)close(fd);
+    }
+    return fp;
 #endif
 }
 
@@ -922,7 +961,7 @@ static int cmd_genec(int argc, uint8_t **argv, const uint8_t *prog)
     uint8_t pub_path[CERTGEN_PATH_MAX];
     build_key_pub_paths(out_file, key_path, pub_path, sizeof(key_path));
 
-    FILE *fp_key = noxtls_fopen(key_path, "wb");
+    FILE *fp_key = noxtls_fopen_private(key_path);
     if (fp_key == NULL) {
         fprintf(stderr, "Error: Cannot open %s for writing\n", key_path);
         return 1;
@@ -1008,7 +1047,7 @@ static int cmd_gened25519(int argc, uint8_t **argv, const uint8_t *prog)
     uint8_t key_path[CERTGEN_PATH_MAX];
     uint8_t pub_path[CERTGEN_PATH_MAX];
     build_key_pub_paths(out_file, key_path, pub_path, sizeof(key_path));
-    FILE *fp_key = noxtls_fopen(key_path, "wb");
+    FILE *fp_key = noxtls_fopen_private(key_path);
     if (fp_key == NULL) {
         fprintf(stderr, "Error: Cannot open %s for writing\n", key_path);
         return 1;
@@ -1091,7 +1130,7 @@ static int cmd_gened448(int argc, uint8_t **argv, const uint8_t *prog)
     uint8_t key_path[CERTGEN_PATH_MAX];
     uint8_t pub_path[CERTGEN_PATH_MAX];
     build_key_pub_paths(out_file, key_path, pub_path, sizeof(key_path));
-    FILE *fp_key = noxtls_fopen(key_path, "wb");
+    FILE *fp_key = noxtls_fopen_private(key_path);
     if (fp_key == NULL) {
         fprintf(stderr, "Error: Cannot open %s for writing\n", key_path);
         return 1;
@@ -1242,7 +1281,7 @@ static int cmd_genmldsa(int argc, uint8_t **argv, const uint8_t *prog)
         FILE *fp_key;
         FILE *fp_pub;
         build_key_pub_paths(out_file, key_path, pub_path, sizeof(key_path));
-        fp_key = noxtls_fopen(key_path, "wb");
+        fp_key = noxtls_fopen_private(key_path);
         if(fp_key == NULL) {
             fprintf(stderr, "Error: Cannot open %s for writing\n", key_path);
             goto done;
@@ -1401,7 +1440,7 @@ static int cmd_genslhdsa(int argc, uint8_t **argv, const uint8_t *prog)
         FILE *fp_key;
         FILE *fp_pub;
         build_key_pub_paths(out_file, key_path, pub_path, sizeof(key_path));
-        fp_key = noxtls_fopen(key_path, "wb");
+        fp_key = noxtls_fopen_private(key_path);
         if(fp_key == NULL) {
             fprintf(stderr, "Error: Cannot open %s for writing\n", key_path);
             goto done;
@@ -1515,7 +1554,7 @@ static int cmd_genrsa(int argc, uint8_t **argv, const uint8_t *prog)
     uint8_t pub_path[CERTGEN_PATH_MAX];
     build_key_pub_paths(out_file, key_path, pub_path, sizeof(key_path));
 
-    FILE *fp_key = noxtls_fopen(key_path, "wb");
+    FILE *fp_key = noxtls_fopen_private(key_path);
     if (fp_key == NULL) {
         fprintf(stderr, "Error: Cannot open %s for writing\n", key_path);
         return 1;

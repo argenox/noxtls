@@ -233,6 +233,24 @@ noxtls_return_t noxtls_ecc_curve_init(ecc_curve_params_t *curve, ecc_curve_t cur
 noxtls_return_t noxtls_ecc_curve_free(ecc_curve_params_t *curve);
 /** Length in bytes of the group order n (curve->n_size, or curve->size when unset). */
 uint32_t noxtls_ecc_curve_order_size(const ecc_curve_params_t *curve);
+/**
+ * @brief Draw a uniformly random scalar in [1, n-1] by rejection sampling.
+ *
+ * FIPS 186-5 A.2.2 / A.3.2: draws bitlen(n) bits from the PKC DRBG and accepts
+ * the draw when 0 < k < n (decided in constant time), so the result carries no
+ * modulo bias on any order (brainpool orders are about 0.66 * 2^bitlen(n)). For
+ * secp224k1, whose 225-bit order exceeds the 28-octet coordinate, the scalar is
+ * drawn from [1, 2^224 - 1]. Used for EC private keys and ECDSA nonces.
+ *
+ * @param[out] out Scalar, noxtls_ecc_curve_order_size(curve) octets big-endian
+ *                 (wiped on failure)
+ * @param[in] curve Curve parameters (n required)
+ * @param[in] rng_slot PKC DRBG slot (NOXTLS_PKC_RNG_SLOT_*, see noxtls_pkc_rng.h)
+ * @return NOXTLS_RETURN_SUCCESS; NOXTLS_RETURN_NULL; NOXTLS_RETURN_INVALID_PARAM;
+ *         the DRBG error; or NOXTLS_RETURN_FAILED after
+ *         NOXTLS_ECC_KEYGEN_MAX_ATTEMPTS rejected draws
+ */
+noxtls_return_t noxtls_ecc_random_scalar(uint8_t *out, const ecc_curve_params_t *curve, uint32_t rng_slot);
 
 /* Point Operations */
 noxtls_return_t noxtls_ecc_point_init(ecc_point_t *point, uint32_t size);

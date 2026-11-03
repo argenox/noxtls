@@ -59,6 +59,14 @@ struct tls12_transcript_s;
 /** Length of the opaque tickets this server issues (random cache lookup keys). */
 #define TLS12_SERVER_TICKET_LEN    48U
 #define TLS12_TICKET_LIFETIME_HINT 86400u
+/**
+ * Lifetime of a server session-ID cache entry in seconds (RFC 5246 F.1.4 recommends at most
+ * 24 hours). An entry older than this is wiped and not resumed. Without a working clock
+ * (noxtls_time_unix_seconds() fails) session-ID resumption is refused.
+ */
+#ifndef TLS12_SESSION_LIFETIME_SECONDS
+#define TLS12_SESSION_LIFETIME_SECONDS TLS12_TICKET_LIFETIME_HINT
+#endif
 #if TLS12_TICKET_MAX_LEN < TLS12_SERVER_TICKET_LEN
 #error "NOXTLS_TLS12_TICKET_MAX_LEN must be >= 48"
 #endif
@@ -316,6 +324,7 @@ typedef struct {
     uint8_t sni_present;
     uint8_t extended_master_secret; /* RFC 7627: session established with EMS */
     uint8_t server_binding[32];     /* SHA-256 of issuing server config (leaf certs, version, cert type) */
+    int64_t issued_at;              /* Unix seconds when cached (TLS12_SESSION_LIFETIME_SECONDS) */
     uint8_t in_use;
 } tls12_session_cache_entry_t;
 
@@ -367,6 +376,14 @@ noxtls_return_t tls12_derive_keys(tls12_context_t *ctx);  /* Derive keys from ma
 noxtls_return_t noxtls_tls12_send(tls12_context_t *ctx, const uint8_t *data, uint32_t len);
 noxtls_return_t noxtls_tls12_recv(tls12_context_t *ctx, uint8_t *data, uint32_t *len);
 noxtls_return_t noxtls_tls12_close(tls12_context_t *ctx);
+/**
+ * @brief Wipe the process-global TLS 1.2 resumption state.
+ *
+ * Clears the server session-ID cache, the server ticket cache and the client session (ticket
+ * and master secret). Master secrets otherwise stay in static memory until their slot is
+ * reused. Not synchronised: call when no TLS 1.2 handshake is in progress.
+ */
+void noxtls_tls12_session_stores_clear(void);
 /** Client-side TLS 1.2 session ticket cache (for BoGo/multi-connection resume). */
 int noxtls_tls12_client_session_has_ticket(void);
 uint16_t noxtls_tls12_client_session_ticket_len(void);

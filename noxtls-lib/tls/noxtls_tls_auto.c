@@ -140,47 +140,17 @@ noxtls_return_t tls_accept_auto(tls_context_t *base_ctx,
         /* TLS 1.1 */
         if (tls11_ctx == NULL) {
             /*
-             * If caller didn't provide a dedicated TLS 1.1 context, spin up
-             * a temporary one and mirror TLS 1.2 server configuration into it.
+             * No TLS 1.1 context: refuse, as for TLS 1.0. A temporary context would not carry
+             * the caller's full server policy (client authentication, downgrade signalling)
+             * and could not hand the connection back to the caller.
              */
-            tls11_context_t tls11_tmp;
-            noxtls_secure_zero(&tls11_tmp, sizeof(tls11_tmp));
-            rc = noxtls_tls11_context_init(&tls11_tmp, TLS_ROLE_SERVER);
-            if (rc != NOXTLS_RETURN_SUCCESS) {
-                if (client_hello_data != NULL) {
-                    (void)noxtls_free(client_hello_data);
-                }
-                return rc;
+            if (base_ctx->send_callback != NULL) {
+                (void)noxtls_tls_send_alert(base_ctx, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_PROTOCOL_VERSION);
             }
-            tls11_tmp.base.base.pending_client_hello = client_hello_data;
-            tls11_tmp.base.base.pending_client_hello_len = client_hello_len;
-            tls11_tmp.base.base.send_callback = base_ctx->send_callback;
-            tls11_tmp.base.base.recv_callback = base_ctx->recv_callback;
-            tls11_tmp.base.base.user_data = base_ctx->user_data;
-            tls11_tmp.base.base.io_mode = base_ctx->io_mode;
-
-            /* Mirror server identity and suite policy from TLS 1.2 context. */
-            tls11_tmp.server_cert = tls12_ctx->server_cert;
-            tls11_tmp.server_cert_len = tls12_ctx->server_cert_len;
-            tls11_tmp.server_cert_chain = tls12_ctx->server_cert_chain;
-            tls11_tmp.server_cert_chain_len = tls12_ctx->server_cert_chain_len;
-            tls11_tmp.server_cert_chain_count = tls12_ctx->server_cert_chain_count;
-            tls11_tmp.server_private_rsa = tls12_ctx->server_private_rsa;
-            tls11_tmp.server_cipher_suites = tls12_ctx->server_cipher_suites;
-            tls11_tmp.server_cipher_suites_count = tls12_ctx->server_cipher_suites_count;
-
-            rc = noxtls_tls11_accept(&tls11_tmp);
-            if (rc == NOXTLS_RETURN_SUCCESS) {
-                *negotiated_version = (uint16_t)TLS_VERSION_1_1;
+            if (client_hello_data != NULL) {
+                (void)noxtls_free(client_hello_data);
             }
-
-            if (tls11_tmp.base.base.pending_client_hello != NULL) {
-                (void)noxtls_free(tls11_tmp.base.base.pending_client_hello);
-                tls11_tmp.base.base.pending_client_hello = NULL;
-                tls11_tmp.base.base.pending_client_hello_len = 0U;
-            }
-            (void)noxtls_tls11_context_free(&tls11_tmp);
-            return rc;
+            return NOXTLS_RETURN_NOT_SUPPORTED;  /* TLS 1.1 context not provided */
         }
         {
             tls11_context_t *tls11 = (tls11_context_t *)tls11_ctx;

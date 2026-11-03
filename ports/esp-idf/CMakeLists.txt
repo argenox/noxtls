@@ -49,6 +49,7 @@ idf_component_register(
         "${NOXTLS_PROJECT_ROOT}/noxtls-lib/certs"
         "${NOXTLS_PROJECT_ROOT}/noxtls-lib/tls"
     PRIV_REQUIRES
+        bootloader_support
         esp_timer
         esp_system
         esp_hw_support

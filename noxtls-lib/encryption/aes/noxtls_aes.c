@@ -56,6 +56,50 @@ extern "C"
 #ifndef NOXTLS_AES_COMPACT_TABLES
 #define NOXTLS_AES_COMPACT_TABLES 0
 #endif
+/* Software core selection is documented in noxtls_config.h. */
+#ifndef NOXTLS_AES_CONSTANT_TIME
+#if defined(NOXTLS_SIDECHANNEL_PROFILE_PERFORMANCE)
+#define NOXTLS_AES_CONSTANT_TIME 0
+#else
+#define NOXTLS_AES_CONSTANT_TIME 1
+#endif
+#endif
+#if (NOXTLS_AES_CONSTANT_TIME != 0) && (NOXTLS_AES_CONSTANT_TIME != 1)
+#error "NOXTLS_AES_CONSTANT_TIME must be 0 or 1"
+#endif
+
+/* Clear the dead frame of the software block core after every block. The
+ * core keeps the round state in automatic variables that compilers spill to
+ * the stack (Cortex-M0+ at -O2, any target at -O0); a stale pre-final-round
+ * state plus the public output gives the last round key. C cannot clear spill
+ * slots from inside the function, so the core runs in its own frame and a
+ * second, larger frame is written over it afterwards. */
+#ifndef NOXTLS_AES_STACK_BURN
+#define NOXTLS_AES_STACK_BURN 1
+#endif
+/* Bytes cleared below the caller; each must exceed the deepest frame chain it
+ * covers (measured with -fstack-usage). Key schedule (aes_subword() and the
+ * bitsliced S-box): about 660 B at -O0 on Cortex-M0+/M4, 740 B on arm64.
+ * Constant-time block core: the same chain plus about 130 B. Table block
+ * core: under 260 B at -O0 (decrypt with InvMixColumns), under 100 B at -O2. */
+#ifndef NOXTLS_AES_STACK_BURN_BYTES
+#define NOXTLS_AES_STACK_BURN_BYTES 1024U
+#endif
+#ifndef NOXTLS_AES_BLOCK_BURN_BYTES
+#if NOXTLS_AES_CONSTANT_TIME
+#define NOXTLS_AES_BLOCK_BURN_BYTES 1024U
+#else
+#define NOXTLS_AES_BLOCK_BURN_BYTES 384U
+#endif
+#endif
+
+#if defined(__GNUC__) || defined(__clang__)
+#define NOXTLS_AES_NOINLINE __attribute__((noinline))
+#elif defined(_MSC_VER)
+#define NOXTLS_AES_NOINLINE __declspec(noinline)
+#else
+#define NOXTLS_AES_NOINLINE
+#endif
 
 /* The software fallback needs the expanded schedule kept in the context. */
 #define NOXTLS_FEATURE_AES_SOFTWARE_FALLBACK (NOXTLS_AES_CTX_SOFTWARE_SCHEDULE)
@@ -65,7 +109,8 @@ extern "C"
 #error "AES accelerator backends need NOXTLS_AES_CTX_RAW_KEY=1 (raw key kept in noxtls_aes_context_t)"
 #endif
 
-/** AES Substitution Box */
+#if !NOXTLS_AES_CONSTANT_TIME
+/** AES Substitution Box (table core only; indexed with secret state bytes) */
 static const uint8_t aes_sub_box[16][16] =
 {
     {0x63U, 0x7cU, 0x77U, 0x7bU, 0xf2U, 0x6bU, 0x6fU, 0xc5U, 0x30U, 0x01U, 0x67U, 0x2bU, 0xfeU, 0xd7U, 0xabU, 0x76U},
@@ -109,15 +154,23 @@ static uint32_t aes_enc_te3[256];
 #define AES_TE2(i) (aes_enc_te2[(i)])
 #define AES_TE3(i) (aes_enc_te3[(i)])
 #endif
+#endif /* !NOXTLS_AES_CONSTANT_TIME */
 
-static uint32_t aes_rotword(uint32_t w);;
+static uint32_t aes_rotword(uint32_t w);
 static uint32_t aes_subword(uint32_t w);
 static uint32_t rcon(uint8_t in);
 static uint8_t aes_xtime_byte(uint8_t x);
+#if !NOXTLS_AES_CONSTANT_TIME
 static uint8_t aes_sbox_lookup(uint8_t x);
 static uint32_t aes_load_be32(const uint8_t *src);
 static void aes_store_be32(uint8_t *dst, uint32_t word);
 static void aes_software_init_encrypt_tables(void);
+#endif
+#if NOXTLS_AES_STACK_BURN
+static NOXTLS_AES_NOINLINE void aes_stack_burn(void);
+static NOXTLS_AES_NOINLINE void aes_stack_burn_block(void);
+#endif
+static void aes_ct_sub_bytes(uint32_t s[4], uint32_t inverse);
 
 static noxtls_return_t noxtls_aes_encrypt_block_software(const uint8_t *key,
                                                   const uint8_t *data,
@@ -135,6 +188,7 @@ static noxtls_return_t noxtls_aes_decrypt_block_software_expanded(const uint32_t
                                                            uint8_t rounds,
                                                            const uint8_t *data,
                                                            uint8_t *output);
+#if !NOXTLS_AES_CONSTANT_TIME
 /**
  * @brief Copy an AES state matrix to a contiguous output block.
  *
@@ -158,6 +212,7 @@ static int copy_state_to_buffer(const uint8_t *state_bytes, uint8_t* output)
 
     return 0;
 }
+#endif
 
 /**
  * @brief Multiply an AES field element by x in GF(2^8).
@@ -167,17 +222,501 @@ static int copy_state_to_buffer(const uint8_t *state_bytes, uint8_t* output)
  */
 static uint8_t aes_xtime_byte(uint8_t x)
 {
-    uint8_t v = x;
-    uint8_t hi = (uint8_t)(v & 0x80U);
-    v = (uint8_t)(v << 1U);
-    if (hi != 0U) {
-        v = (uint8_t)(v ^ 0x1BU);
-    }
-    return v;
+    /* Reduction selected by a mask, not a branch, so state bytes do not
+     * steer control flow (Cortex-M0+ compiles the if-form to a branch). */
+    uint8_t hi_mask = (uint8_t)(0U - (uint32_t)((uint32_t)x >> 7U));
+    return (uint8_t)((uint8_t)(x << 1U) ^ (uint8_t)(hi_mask & 0x1BU));
 }
 
 /**
- * @brief Look up one byte in the AES S-box.
+ * @brief Swap bit groups between two words (one stage of the bit transpose).
+ *
+ * @param x First word, keeps the bits selected by @p cl.
+ * @param y Second word, keeps the bits selected by @p ch.
+ * @param cl Mask of the low bit group.
+ * @param ch Mask of the high bit group.
+ * @param s Distance between the groups.
+ * @return None.
+ */
+static void aes_ct_swapn(uint32_t *x, uint32_t *y, uint32_t cl, uint32_t ch, uint32_t s)
+{
+    uint32_t a = *x;
+    uint32_t b = *y;
+    *x = (a & cl) | ((b & cl) << s);
+    *y = ((a & ch) >> s) | (b & ch);
+}
+
+/**
+ * @brief Transpose eight words so that word i holds bit i of every byte.
+ *
+ * The transform is an involution: applying it twice restores the input.
+ *
+ * @param q Eight words transposed in place.
+ * @return None.
+ */
+static void aes_ct_ortho(uint32_t q[8])
+{
+    aes_ct_swapn(&q[0], &q[1], 0x55555555U, 0xAAAAAAAAU, 1U);
+    aes_ct_swapn(&q[2], &q[3], 0x55555555U, 0xAAAAAAAAU, 1U);
+    aes_ct_swapn(&q[4], &q[5], 0x55555555U, 0xAAAAAAAAU, 1U);
+    aes_ct_swapn(&q[6], &q[7], 0x55555555U, 0xAAAAAAAAU, 1U);
+    aes_ct_swapn(&q[0], &q[2], 0x33333333U, 0xCCCCCCCCU, 2U);
+    aes_ct_swapn(&q[1], &q[3], 0x33333333U, 0xCCCCCCCCU, 2U);
+    aes_ct_swapn(&q[4], &q[6], 0x33333333U, 0xCCCCCCCCU, 2U);
+    aes_ct_swapn(&q[5], &q[7], 0x33333333U, 0xCCCCCCCCU, 2U);
+    aes_ct_swapn(&q[0], &q[4], 0x0F0F0F0FU, 0xF0F0F0F0U, 4U);
+    aes_ct_swapn(&q[1], &q[5], 0x0F0F0F0FU, 0xF0F0F0F0U, 4U);
+    aes_ct_swapn(&q[2], &q[6], 0x0F0F0F0FU, 0xF0F0F0F0U, 4U);
+    aes_ct_swapn(&q[3], &q[7], 0x0F0F0F0FU, 0xF0F0F0F0U, 4U);
+}
+
+/**
+ * @brief Bitsliced AES S-box on 32 bytes at once.
+ *
+ * Boyar-Peralta circuit ("A new combinational logic minimization technique
+ * with applications to cryptology", 2009): 32 XOR/XNOR and 32 AND gates for
+ * GF(2^8) inversion plus the affine map, with no table and no branch. Word i
+ * of @p q holds bit i of every byte (see aes_ct_ortho()).
+ *
+ * @param q Eight bit-plane words, substituted in place.
+ * @return None.
+ */
+static void aes_ct_sbox(uint32_t q[8])
+{
+    uint32_t x0, x1, x2, x3, x4, x5, x6, x7;
+    uint32_t y1, y2, y3, y4, y5, y6, y7, y8, y9;
+    uint32_t y10, y11, y12, y13, y14, y15, y16, y17, y18, y19;
+    uint32_t y20, y21;
+    uint32_t z0, z1, z2, z3, z4, z5, z6, z7, z8, z9;
+    uint32_t z10, z11, z12, z13, z14, z15, z16, z17;
+    uint32_t t0, t1, t2, t3, t4, t5, t6, t7, t8, t9;
+    uint32_t t10, t11, t12, t13, t14, t15, t16, t17, t18, t19;
+    uint32_t t20, t21, t22, t23, t24, t25, t26, t27, t28, t29;
+    uint32_t t30, t31, t32, t33, t34, t35, t36, t37, t38, t39;
+    uint32_t t40, t41, t42, t43, t44, t45, t46, t47, t48, t49;
+    uint32_t t50, t51, t52, t53, t54, t55, t56, t57, t58, t59;
+    uint32_t t60, t61, t62, t63, t64, t65, t66, t67;
+    uint32_t s0, s1, s2, s3, s4, s5, s6, s7;
+
+    /* The circuit numbers bits from the most significant (x0) down. */
+    x0 = q[7];
+    x1 = q[6];
+    x2 = q[5];
+    x3 = q[4];
+    x4 = q[3];
+    x5 = q[2];
+    x6 = q[1];
+    x7 = q[0];
+
+    /* Top linear transformation. */
+    y14 = x3 ^ x5;
+    y13 = x0 ^ x6;
+    y9 = x0 ^ x3;
+    y8 = x0 ^ x5;
+    t0 = x1 ^ x2;
+    y1 = t0 ^ x7;
+    y4 = y1 ^ x3;
+    y12 = y13 ^ y14;
+    y2 = y1 ^ x0;
+    y5 = y1 ^ x6;
+    y3 = y5 ^ y8;
+    t1 = x4 ^ y12;
+    y15 = t1 ^ x5;
+    y20 = t1 ^ x1;
+    y6 = y15 ^ x7;
+    y10 = y15 ^ t0;
+    y11 = y20 ^ y9;
+    y7 = x7 ^ y11;
+    y17 = y10 ^ y11;
+    y19 = y10 ^ y8;
+    y16 = t0 ^ y11;
+    y21 = y13 ^ y16;
+    y18 = x0 ^ y16;
+
+    /* Non-linear section (inversion in GF(2^8) via GF(2^4)). */
+    t2 = y12 & y15;
+    t3 = y3 & y6;
+    t4 = t3 ^ t2;
+    t5 = y4 & x7;
+    t6 = t5 ^ t2;
+    t7 = y13 & y16;
+    t8 = y5 & y1;
+    t9 = t8 ^ t7;
+    t10 = y2 & y7;
+    t11 = t10 ^ t7;
+    t12 = y9 & y11;
+    t13 = y14 & y17;
+    t14 = t13 ^ t12;
+    t15 = y8 & y10;
+    t16 = t15 ^ t12;
+    t17 = t4 ^ t14;
+    t18 = t6 ^ t16;
+    t19 = t9 ^ t14;
+    t20 = t11 ^ t16;
+    t21 = t17 ^ y20;
+    t22 = t18 ^ y19;
+    t23 = t19 ^ y21;
+    t24 = t20 ^ y18;
+
+    t25 = t21 ^ t22;
+    t26 = t21 & t23;
+    t27 = t24 ^ t26;
+    t28 = t25 & t27;
+    t29 = t28 ^ t22;
+    t30 = t23 ^ t24;
+    t31 = t22 ^ t26;
+    t32 = t31 & t30;
+    t33 = t32 ^ t24;
+    t34 = t23 ^ t33;
+    t35 = t27 ^ t33;
+    t36 = t24 & t35;
+    t37 = t36 ^ t34;
+    t38 = t27 ^ t36;
+    t39 = t29 & t38;
+    t40 = t25 ^ t39;
+
+    t41 = t40 ^ t37;
+    t42 = t29 ^ t33;
+    t43 = t29 ^ t40;
+    t44 = t33 ^ t37;
+    t45 = t42 ^ t41;
+    z0 = t44 & y15;
+    z1 = t37 & y6;
+    z2 = t33 & x7;
+    z3 = t43 & y16;
+    z4 = t40 & y1;
+    z5 = t29 & y7;
+    z6 = t42 & y11;
+    z7 = t45 & y17;
+    z8 = t41 & y10;
+    z9 = t44 & y12;
+    z10 = t37 & y3;
+    z11 = t33 & y4;
+    z12 = t43 & y13;
+    z13 = t40 & y5;
+    z14 = t29 & y2;
+    z15 = t42 & y9;
+    z16 = t45 & y14;
+    z17 = t41 & y8;
+
+    /* Bottom linear transformation (includes the affine constant 0x63). */
+    t46 = z15 ^ z16;
+    t47 = z10 ^ z11;
+    t48 = z5 ^ z13;
+    t49 = z9 ^ z10;
+    t50 = z2 ^ z12;
+    t51 = z2 ^ z5;
+    t52 = z7 ^ z8;
+    t53 = z0 ^ z3;
+    t54 = z6 ^ z7;
+    t55 = z16 ^ z17;
+    t56 = z12 ^ t48;
+    t57 = t50 ^ t53;
+    t58 = z4 ^ t46;
+    t59 = z3 ^ t54;
+    t60 = t46 ^ t57;
+    t61 = z14 ^ t57;
+    t62 = t52 ^ t58;
+    t63 = t49 ^ t58;
+    t64 = z4 ^ t59;
+    t65 = t61 ^ t62;
+    t66 = z1 ^ t63;
+    s0 = t59 ^ t63;
+    s6 = t56 ^ ~t62;
+    s7 = t48 ^ ~t60;
+    t67 = t64 ^ t65;
+    s3 = t53 ^ t66;
+    s4 = t51 ^ t66;
+    s5 = t47 ^ t65;
+    s1 = t64 ^ ~s3;
+    s2 = t55 ^ ~t67;
+
+    q[7] = s0;
+    q[6] = s1;
+    q[5] = s2;
+    q[4] = s3;
+    q[3] = s4;
+    q[2] = s5;
+    q[1] = s6;
+    q[0] = s7;
+}
+
+/**
+ * @brief Inverse of the AES affine map on bit planes.
+ *
+ * Byte form: rotl(y,1) ^ rotl(y,3) ^ rotl(y,6) ^ 0x05. Applied before and
+ * after the forward S-box it yields the inverse S-box, because GF(2^8)
+ * inversion is its own inverse.
+ *
+ * @param q Eight bit-plane words, transformed in place.
+ * @return None.
+ */
+static void aes_ct_inv_affine(uint32_t q[8])
+{
+    uint32_t q0 = q[0];
+    uint32_t q1 = q[1];
+    uint32_t q2 = q[2];
+    uint32_t q3 = q[3];
+    uint32_t q4 = q[4];
+    uint32_t q5 = q[5];
+    uint32_t q6 = q[6];
+    uint32_t q7 = q[7];
+
+    q[0] = ~(q7 ^ q5 ^ q2);
+    q[1] = q0 ^ q6 ^ q3;
+    q[2] = ~(q1 ^ q7 ^ q4);
+    q[3] = q2 ^ q0 ^ q5;
+    q[4] = q3 ^ q1 ^ q6;
+    q[5] = q4 ^ q2 ^ q7;
+    q[6] = q5 ^ q3 ^ q0;
+    q[7] = q6 ^ q4 ^ q1;
+}
+
+/**
+ * @brief Constant-time SubBytes or InvSubBytes on 16 packed bytes.
+ *
+ * @param s Four words of packed state bytes (any byte order), in place.
+ * @param inverse 0 for the S-box, 1 for the inverse S-box (public selector).
+ * @return None.
+ */
+static void aes_ct_sub_bytes(uint32_t s[4], uint32_t inverse)
+{
+    uint32_t q[8];
+
+    q[0] = s[0];
+    q[1] = s[1];
+    q[2] = s[2];
+    q[3] = s[3];
+    q[4] = 0U;
+    q[5] = 0U;
+    q[6] = 0U;
+    q[7] = 0U;
+    aes_ct_ortho(q);
+    if (inverse != 0U) {
+        aes_ct_inv_affine(q);
+    }
+    aes_ct_sbox(q);
+    if (inverse != 0U) {
+        aes_ct_inv_affine(q);
+    }
+    aes_ct_ortho(q);
+    s[0] = q[0];
+    s[1] = q[1];
+    s[2] = q[2];
+    s[3] = q[3];
+}
+
+#if NOXTLS_AES_STACK_BURN
+/**
+ * @brief Overwrite the dead stack below the caller.
+ *
+ * Called right after a non-inlined block core returns, from the same frame,
+ * so this frame covers the core's spill slots.
+ *
+ * @return None.
+ */
+static NOXTLS_AES_NOINLINE void aes_stack_burn(void)
+{
+    volatile uint32_t burn[NOXTLS_AES_STACK_BURN_BYTES / 4U];
+    uint32_t i = 0U;
+
+    for (i = 0U; i < (uint32_t)(sizeof(burn) / sizeof(burn[0])); i += 1U) {
+        burn[i] = 0U;
+    }
+}
+
+/**
+ * @brief Overwrite the dead stack below the caller after one block.
+ *
+ * Sized for the selected block core (NOXTLS_AES_BLOCK_BURN_BYTES), so the
+ * per-block cost stays small for the table core.
+ *
+ * @return None.
+ */
+static NOXTLS_AES_NOINLINE void aes_stack_burn_block(void)
+{
+    volatile uint32_t burn[NOXTLS_AES_BLOCK_BURN_BYTES / 4U];
+    uint32_t i = 0U;
+
+    for (i = 0U; i < (uint32_t)(sizeof(burn) / sizeof(burn[0])); i += 1U) {
+        burn[i] = 0U;
+    }
+}
+#endif
+
+#if NOXTLS_AES_CONSTANT_TIME
+/**
+ * @brief Load a little-endian 32-bit word (one state column, row 0 lowest).
+ *
+ * @param src Source buffer containing at least 4 bytes.
+ * @return Decoded word.
+ */
+static uint32_t aes_load_le32(const uint8_t *src)
+{
+    return (uint32_t)src[0] |
+           ((uint32_t)src[1] << 8U) |
+           ((uint32_t)src[2] << 16U) |
+           ((uint32_t)src[3] << 24U);
+}
+
+/**
+ * @brief Store a 32-bit word in little-endian order.
+ *
+ * @param dst Destination buffer that receives 4 bytes.
+ * @param word Word to encode.
+ * @return None.
+ */
+static void aes_store_le32(uint8_t *dst, uint32_t word)
+{
+    dst[0] = (uint8_t)word;
+    dst[1] = (uint8_t)(word >> 8U);
+    dst[2] = (uint8_t)(word >> 16U);
+    dst[3] = (uint8_t)(word >> 24U);
+}
+
+/**
+ * @brief Byte-swap a schedule word (big-endian schedule to packed column).
+ *
+ * @param w Word to swap.
+ * @return Byte-swapped word.
+ */
+static uint32_t aes_bswap32(uint32_t w)
+{
+    return (w >> 24U) | ((w >> 8U) & 0x0000FF00U) | ((w << 8U) & 0x00FF0000U) | (w << 24U);
+}
+
+/**
+ * @brief Multiply each of four packed bytes by x in GF(2^8), without branches.
+ *
+ * @param x Four packed field elements.
+ * @return Four packed products.
+ */
+static uint32_t aes_ct_xtime32(uint32_t x)
+{
+    uint32_t m = (x >> 7U) & 0x01010101U;
+    return ((x & 0x7F7F7F7FU) << 1U) ^ (m << 4U) ^ (m << 3U) ^ (m << 1U) ^ m;
+}
+
+/**
+ * @brief MixColumns on one packed column (row r in byte lane r).
+ *
+ * @param w Column word.
+ * @return Mixed column word.
+ */
+static uint32_t aes_ct_mix_column(uint32_t w)
+{
+    uint32_t r1 = (w >> 8U) | (w << 24U);
+    uint32_t a = w ^ r1;
+    return aes_ct_xtime32(a) ^ r1 ^ ((a >> 16U) | (a << 16U));
+}
+
+/**
+ * @brief InvMixColumns on one packed column.
+ *
+ * Uses the factorisation InvMixColumns = MixColumns o (a_i ^= 4(a_i ^ a_{i+2})).
+ *
+ * @param w Column word.
+ * @return Inverse-mixed column word.
+ */
+static uint32_t aes_ct_inv_mix_column(uint32_t w)
+{
+    uint32_t u = aes_ct_xtime32(aes_ct_xtime32(w ^ ((w >> 16U) | (w << 16U))));
+    return aes_ct_mix_column(w ^ u);
+}
+
+/**
+ * @brief Constant-time AES block encryption with an expanded schedule.
+ *
+ * Table-free: SubBytes uses the bitsliced circuit, MixColumns uses masked
+ * packed arithmetic, so no memory index or branch depends on key or data.
+ *
+ * @param round_keys Expanded round keys (big-endian words).
+ * @param rounds Number of rounds (10, 12 or 14).
+ * @param data Input block.
+ * @param output Output block (may alias @p data).
+ * @return None.
+ */
+static NOXTLS_AES_NOINLINE void aes_block_encrypt_core(const uint32_t *round_keys,
+                                                       uint8_t rounds,
+                                                       const uint8_t *data,
+                                                       uint8_t *output)
+{
+    uint32_t s[4];
+    uint32_t t[4];
+    uint32_t r = 0U;
+    uint32_t c = 0U;
+
+    for (c = 0U; c < 4U; c += 1U) {
+        s[c] = aes_load_le32(&data[c * 4U]) ^ aes_bswap32(round_keys[c]);
+    }
+    for (r = 1U; r <= (uint32_t)rounds; r += 1U) {
+        aes_ct_sub_bytes(s, 0U);
+        /* ShiftRows: row m of column c comes from column c + m. */
+        for (c = 0U; c < 4U; c += 1U) {
+            t[c] = (s[c] & 0x000000FFU) |
+                   (s[(c + 1U) & 3U] & 0x0000FF00U) |
+                   (s[(c + 2U) & 3U] & 0x00FF0000U) |
+                   (s[(c + 3U) & 3U] & 0xFF000000U);
+        }
+        for (c = 0U; c < 4U; c += 1U) {
+            uint32_t col = (r < (uint32_t)rounds) ? aes_ct_mix_column(t[c]) : t[c];
+            s[c] = col ^ aes_bswap32(round_keys[(r * 4U) + c]);
+        }
+    }
+    for (c = 0U; c < 4U; c += 1U) {
+        aes_store_le32(&output[c * 4U], s[c]);
+    }
+    noxtls_secure_zero(s, sizeof(s));
+    noxtls_secure_zero(t, sizeof(t));
+}
+
+/**
+ * @brief Constant-time AES block decryption with an expanded schedule.
+ *
+ * Straight inverse cipher over the encryption schedule.
+ *
+ * @param round_keys Expanded round keys (big-endian words).
+ * @param rounds Number of rounds (10, 12 or 14).
+ * @param data Input block.
+ * @param output Output block (may alias @p data).
+ * @return None.
+ */
+static NOXTLS_AES_NOINLINE void aes_block_decrypt_core(const uint32_t *round_keys,
+                                                       uint8_t rounds,
+                                                       const uint8_t *data,
+                                                       uint8_t *output)
+{
+    uint32_t s[4];
+    uint32_t t[4];
+    uint32_t r = 0U;
+    uint32_t c = 0U;
+
+    for (c = 0U; c < 4U; c += 1U) {
+        s[c] = aes_load_le32(&data[c * 4U]) ^ aes_bswap32(round_keys[((uint32_t)rounds * 4U) + c]);
+    }
+    for (r = (uint32_t)rounds; r >= 1U; r -= 1U) {
+        /* InvShiftRows: row m of column c comes from column c - m. */
+        for (c = 0U; c < 4U; c += 1U) {
+            t[c] = (s[c] & 0x000000FFU) |
+                   (s[(c + 3U) & 3U] & 0x0000FF00U) |
+                   (s[(c + 2U) & 3U] & 0x00FF0000U) |
+                   (s[(c + 1U) & 3U] & 0xFF000000U);
+        }
+        aes_ct_sub_bytes(t, 1U);
+        for (c = 0U; c < 4U; c += 1U) {
+            uint32_t col = t[c] ^ aes_bswap32(round_keys[((r - 1U) * 4U) + c]);
+            s[c] = (r > 1U) ? aes_ct_inv_mix_column(col) : col;
+        }
+    }
+    for (c = 0U; c < 4U; c += 1U) {
+        aes_store_le32(&output[c * 4U], s[c]);
+    }
+    noxtls_secure_zero(s, sizeof(s));
+    noxtls_secure_zero(t, sizeof(t));
+}
+#else
+/**
+ * @brief Look up one byte in the AES S-box (table core only).
  *
  * @param x Input byte value.
  * @return S-box substitution for @p x.
@@ -255,6 +794,140 @@ static void aes_software_init_encrypt_tables(void)
     aes_enc_tables_ready = 1U;
 #endif
 }
+
+/**
+ * @brief T-table AES block encryption with an expanded schedule.
+ *
+ * Indexes Te0..Te3 and the S-box with state bytes: not constant-time on CPUs
+ * with data caches. Selected only with NOXTLS_AES_CONSTANT_TIME=0.
+ *
+ * @param round_keys Expanded AES round keys.
+ * @param rounds Number of AES rounds for the selected key size.
+ * @param data Input plaintext block of NOXTLS_AES_BLOCK_LENGTH bytes.
+ * @param output Output ciphertext block of NOXTLS_AES_BLOCK_LENGTH bytes.
+ * @return None.
+ */
+static NOXTLS_AES_NOINLINE void aes_block_encrypt_core(const uint32_t *round_keys,
+                                                       uint8_t rounds,
+                                                       const uint8_t *data,
+                                                       uint8_t *output)
+{
+    uint32_t s0 = 0U;
+    uint32_t s1 = 0U;
+    uint32_t s2 = 0U;
+    uint32_t s3 = 0U;
+    uint32_t t0 = 0U;
+    uint32_t t1 = 0U;
+    uint32_t t2 = 0U;
+    uint32_t t3 = 0U;
+    uint8_t cur_round = 0U;
+
+    s0 = aes_load_be32(data) ^ round_keys[0];
+    s1 = aes_load_be32(&data[4]) ^ round_keys[1];
+    s2 = aes_load_be32(&data[8]) ^ round_keys[2];
+    s3 = aes_load_be32(&data[12]) ^ round_keys[3];
+
+    for (cur_round = 1U; cur_round <= (uint8_t)(rounds - 1U); cur_round += 1U)
+    {
+        size_t rk = (size_t)cur_round * 4U;
+
+        t0 = AES_TE0((s0 >>24U) & 0xFFU) ^
+             AES_TE1((s1 >>16U) & 0xFFU) ^
+             AES_TE2((s2 >>8U) & 0xFFU) ^
+             AES_TE3(s3 & 0xFFU) ^
+             round_keys[rk + 0U];
+        t1 = AES_TE0((s1 >>24U) & 0xFFU) ^
+             AES_TE1((s2 >>16U) & 0xFFU) ^
+             AES_TE2((s3 >>8U) & 0xFFU) ^
+             AES_TE3(s0 & 0xFFU) ^
+             round_keys[rk + 1U];
+        t2 = AES_TE0((s2 >>24U) & 0xFFU) ^
+             AES_TE1((s3 >>16U) & 0xFFU) ^
+             AES_TE2((s0 >>8U) & 0xFFU) ^
+             AES_TE3(s1 & 0xFFU) ^
+             round_keys[rk + 2U];
+        t3 = AES_TE0((s3 >>24U) & 0xFFU) ^
+             AES_TE1((s0 >>16U) & 0xFFU) ^
+             AES_TE2((s1 >>8U) & 0xFFU) ^
+             AES_TE3(s2 & 0xFFU) ^
+             round_keys[rk + 3U];
+
+        s0 = t0;
+        s1 = t1;
+        s2 = t2;
+        s3 = t3;
+    }
+
+    t0 = ((uint32_t)aes_sbox_lookup((uint8_t)(s0 >>24U)) <<24U) ^
+         ((uint32_t)aes_sbox_lookup((uint8_t)(s1 >>16U)) <<16U) ^
+         ((uint32_t)aes_sbox_lookup((uint8_t)(s2 >>8U)) <<8U) ^
+         (uint32_t)aes_sbox_lookup((uint8_t)s3) ^
+         round_keys[((size_t)rounds * 4U) + 0U];
+    t1 = ((uint32_t)aes_sbox_lookup((uint8_t)(s1 >>24U)) <<24U) ^
+         ((uint32_t)aes_sbox_lookup((uint8_t)(s2 >>16U)) <<16U) ^
+         ((uint32_t)aes_sbox_lookup((uint8_t)(s3 >>8U)) <<8U) ^
+         (uint32_t)aes_sbox_lookup((uint8_t)s0) ^
+         round_keys[((size_t)rounds * 4U) + 1U];
+    t2 = ((uint32_t)aes_sbox_lookup((uint8_t)(s2 >>24U)) <<24U) ^
+         ((uint32_t)aes_sbox_lookup((uint8_t)(s3 >>16U)) <<16U) ^
+         ((uint32_t)aes_sbox_lookup((uint8_t)(s0 >>8U)) <<8U) ^
+         (uint32_t)aes_sbox_lookup((uint8_t)s1) ^
+         round_keys[((size_t)rounds * 4U) + 2U];
+    t3 = ((uint32_t)aes_sbox_lookup((uint8_t)(s3 >>24U)) <<24U) ^
+         ((uint32_t)aes_sbox_lookup((uint8_t)(s0 >>16U)) <<16U) ^
+         ((uint32_t)aes_sbox_lookup((uint8_t)(s1 >>8U)) <<8U) ^
+         (uint32_t)aes_sbox_lookup((uint8_t)s2) ^
+         round_keys[((size_t)rounds * 4U) + 3U];
+
+    (void)aes_store_be32(output, t0);
+    (void)aes_store_be32(&output[4], t1);
+    (void)aes_store_be32(&output[8], t2);
+    (void)aes_store_be32(&output[12], t3);
+}
+
+static void aes_inv_sub_bytes(uint8_t state[4][4]);
+static void aes_inv_shift_rows(uint8_t state[4][4]);
+static void aes_inv_mix_columns(uint8_t state[4][4]);
+
+/**
+ * @brief Table AES block decryption with an expanded schedule.
+ *
+ * Indexes the inverse S-box with state bytes: not constant-time on CPUs with
+ * data caches. Selected only with NOXTLS_AES_CONSTANT_TIME=0.
+ *
+ * @param round_keys Expanded AES round keys.
+ * @param rounds Number of AES rounds for the selected key size.
+ * @param data Input ciphertext block of NOXTLS_AES_BLOCK_LENGTH bytes.
+ * @param output Output plaintext block of NOXTLS_AES_BLOCK_LENGTH bytes.
+ * @return None.
+ */
+static NOXTLS_AES_NOINLINE void aes_block_decrypt_core(const uint32_t *round_keys,
+                                                       uint8_t rounds,
+                                                       const uint8_t *data,
+                                                       uint8_t *output)
+{
+    uint8_t state[4][4];
+    int32_t cur_round = 0;
+
+    (void)noxtls_aes_init_block(state, data);
+    (void)noxtls_aes_add_round_key(state, &round_keys[(size_t)rounds * 4U]);
+
+    for (cur_round = (int)rounds - 1; cur_round >= 1; cur_round -= 1)
+    {
+        (void)aes_inv_shift_rows(state);
+        (void)aes_inv_sub_bytes(state);
+        (void)noxtls_aes_add_round_key(state, &round_keys[(size_t)cur_round * 4U]);
+        (void)aes_inv_mix_columns(state);
+    }
+
+    (void)aes_inv_shift_rows(state);
+    (void)aes_inv_sub_bytes(state);
+    (void)noxtls_aes_add_round_key(state, &round_keys[0]);
+    (void)copy_state_to_buffer(&state[0][0], output);
+    /* The final state is the plaintext block (for key unwrap: A || key bytes). */
+    noxtls_secure_zero(state, sizeof(state));
+}
+#endif /* NOXTLS_AES_CONSTANT_TIME */
 
 /* Mode entry points (ECB/CBC/CTR/CFB/OFB/XTS) are declared in noxtls_aes.h. */
 
@@ -411,9 +1084,15 @@ noxtls_return_t noxtls_aes_prepare_context(noxtls_aes_context_t *ctx, const uint
     noxtls_copy_u8(ctx->key, sizeof(ctx->key), key, (size_t)(key_len));
 #endif
 #if NOXTLS_FEATURE_AES_SOFTWARE_FALLBACK
+#if !NOXTLS_AES_CONSTANT_TIME
     (void)aes_software_init_encrypt_tables();
+#endif
     rc = noxtls_aes_key_expansion(key, ctx->round_keys, (int)key_words, (int)rounds);
+#if NOXTLS_AES_STACK_BURN
+    aes_stack_burn(); /* the expansion frame held schedule words in scalars */
+#endif
     if (rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(ctx, sizeof(*ctx));
         return rc;
     }
     ctx->round_keys_ready = 1U;
@@ -486,6 +1165,7 @@ noxtls_return_t noxtls_aes_init(noxtls_aes_context_t *ctx,
     ctx->op = (uint8_t)op;
     rc = noxtls_aes_prepare_context(ctx, key, type);
     if (rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(ctx, sizeof(*ctx));
         return rc;
     }
 
@@ -496,6 +1176,7 @@ noxtls_return_t noxtls_aes_init(noxtls_aes_context_t *ctx,
 #if NOXTLS_FEATURE_AES_ECB
             break;
 #else
+            noxtls_secure_zero(ctx, sizeof(*ctx));
             return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
         case (uint32_t)NOXTLS_AES_CBC:
@@ -508,6 +1189,7 @@ noxtls_return_t noxtls_aes_init(noxtls_aes_context_t *ctx,
             }
             break;
 #else
+            noxtls_secure_zero(ctx, sizeof(*ctx));
             return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
         case (uint32_t)NOXTLS_AES_CTR:
@@ -515,11 +1197,14 @@ noxtls_return_t noxtls_aes_init(noxtls_aes_context_t *ctx,
         {
             noxtls_return_t ir = aes_init_iv_required(iv, ctx);
             if (ir != NOXTLS_RETURN_SUCCESS) {
+                /* The schedule is already in ctx: do not leave it behind. */
+                noxtls_secure_zero(ctx, sizeof(*ctx));
                 return ir;
             }
         }
             break;
 #else
+            noxtls_secure_zero(ctx, sizeof(*ctx));
             return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
         case (uint32_t)NOXTLS_AES_CFB:
@@ -527,11 +1212,14 @@ noxtls_return_t noxtls_aes_init(noxtls_aes_context_t *ctx,
         {
             noxtls_return_t ir = aes_init_iv_required(iv, ctx);
             if (ir != NOXTLS_RETURN_SUCCESS) {
+                /* The schedule is already in ctx: do not leave it behind. */
+                noxtls_secure_zero(ctx, sizeof(*ctx));
                 return ir;
             }
         }
             break;
 #else
+            noxtls_secure_zero(ctx, sizeof(*ctx));
             return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
         case (uint32_t)NOXTLS_AES_OFB:
@@ -539,14 +1227,18 @@ noxtls_return_t noxtls_aes_init(noxtls_aes_context_t *ctx,
         {
             noxtls_return_t ir = aes_init_iv_required(iv, ctx);
             if (ir != NOXTLS_RETURN_SUCCESS) {
+                /* The schedule is already in ctx: do not leave it behind. */
+                noxtls_secure_zero(ctx, sizeof(*ctx));
                 return ir;
             }
         }
             break;
 #else
+            noxtls_secure_zero(ctx, sizeof(*ctx));
             return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
         default:
+            noxtls_secure_zero(ctx, sizeof(*ctx));
             return NOXTLS_RETURN_INVALID_MODE;
     }
     }
@@ -642,6 +1334,7 @@ noxtls_return_t noxtls_aes_update(noxtls_aes_context_t *ctx,
                                 block[i] = (uint8_t)(ctx->partial[i] ^ ctx->feedback[i]);
                             }
                             { noxtls_return_t r = noxtls_aes_encrypt_block_ctx_internal(ctx, block, &output[produced]);
+                            noxtls_secure_zero(block, sizeof(block)); /* plaintext ^ IV */
                             if (r != NOXTLS_RETURN_SUCCESS) {
                                 noxtls_secure_zero(output, (size_t)output_span);
                                 noxtls_secure_zero(ctx, sizeof(*ctx));
@@ -653,6 +1346,7 @@ noxtls_return_t noxtls_aes_update(noxtls_aes_context_t *ctx,
                             uint8_t block[NOXTLS_AES_BLOCK_LENGTH];
                             { noxtls_return_t r = noxtls_aes_decrypt_block_ctx_internal(ctx, ctx->partial, block);
                             if (r != NOXTLS_RETURN_SUCCESS) {
+                                noxtls_secure_zero(block, sizeof(block));
                                 noxtls_secure_zero(output, (size_t)output_span);
                                 noxtls_secure_zero(ctx, sizeof(*ctx));
                                 return r;
@@ -660,6 +1354,7 @@ noxtls_return_t noxtls_aes_update(noxtls_aes_context_t *ctx,
                             for (i = 0U; i < NOXTLS_AES_BLOCK_LENGTH; i += 1U) {
                                 output[produced + i] = (uint8_t)(block[i] ^ ctx->feedback[i]);
                             }
+                            noxtls_secure_zero(block, sizeof(block)); /* plaintext ^ IV */
                             noxtls_copy_u8(ctx->feedback, sizeof(ctx->feedback), ctx->partial, (size_t)(NOXTLS_AES_BLOCK_LENGTH));
                         }
                     }
@@ -747,6 +1442,8 @@ noxtls_return_t noxtls_aes_final(noxtls_aes_context_t *ctx,
     *output_len = 0U;
 
     if (ctx->initialized == 0U) {
+        /* A context left by a failed init or update may still hold a schedule. */
+        noxtls_secure_zero(ctx, sizeof(*ctx));
         return NOXTLS_RETURN_NOT_INITIALIZED;
     }
 
@@ -757,6 +1454,8 @@ noxtls_return_t noxtls_aes_final(noxtls_aes_context_t *ctx,
 
     if ((noxtls_aes_operation_t)ctx->op == NOXTLS_AES_OP_DECRYPT) {
         if (ctx->partial_len != 0U) {
+            /* Truncated ciphertext ends the operation: drop the schedule. */
+            noxtls_secure_zero(ctx, sizeof(*ctx));
             return NOXTLS_RETURN_INVALID_BLOCK_SIZE;
         }
         noxtls_secure_zero(ctx, sizeof(*ctx)); /* done: drop key schedule and feedback */
@@ -769,6 +1468,7 @@ noxtls_return_t noxtls_aes_final(noxtls_aes_context_t *ctx,
         noxtls_return_t r = NOXTLS_RETURN_FAILED;
 
         if (output == NULL) {
+            noxtls_secure_zero(ctx, sizeof(*ctx));
             return NOXTLS_RETURN_NULL;
         }
 
@@ -778,6 +1478,7 @@ noxtls_return_t noxtls_aes_final(noxtls_aes_context_t *ctx,
         if ((noxtls_aes_mode_t)ctx->mode == NOXTLS_AES_ECB) {
             r = noxtls_aes_encrypt_block_ctx_internal(ctx, block, output);
             if (r != NOXTLS_RETURN_SUCCESS) {
+                noxtls_secure_zero(block, sizeof(block));
                 noxtls_secure_zero(output, NOXTLS_AES_BLOCK_LENGTH);
                 noxtls_secure_zero(ctx, sizeof(*ctx));
                 return r;
@@ -788,14 +1489,18 @@ noxtls_return_t noxtls_aes_final(noxtls_aes_context_t *ctx,
             }
             r = noxtls_aes_encrypt_block_ctx_internal(ctx, block, output);
             if (r != NOXTLS_RETURN_SUCCESS) {
+                noxtls_secure_zero(block, sizeof(block));
                 noxtls_secure_zero(output, NOXTLS_AES_BLOCK_LENGTH);
                 noxtls_secure_zero(ctx, sizeof(*ctx));
                 return r;
             }
         } else {
              /* MISRA 15.7: final else path */
+            noxtls_secure_zero(block, sizeof(block));
+            noxtls_secure_zero(ctx, sizeof(*ctx));
             return NOXTLS_RETURN_INVALID_MODE;
         }
+        noxtls_secure_zero(block, sizeof(block));
 
         *output_len = NOXTLS_AES_BLOCK_LENGTH;
     }
@@ -804,6 +1509,19 @@ noxtls_return_t noxtls_aes_final(noxtls_aes_context_t *ctx,
     return NOXTLS_RETURN_SUCCESS;
 }
     
+/**
+ * @brief Wipe an AES streaming context without finishing the operation.
+ *
+ * @param ctx AES context to wipe (NULL is ignored).
+ * @return None.
+ */
+void noxtls_aes_free(noxtls_aes_context_t *ctx)
+{
+    if (ctx != NULL) {
+        noxtls_secure_zero(ctx, sizeof(*ctx));
+    }
+}
+
 /**
  * @brief Initialize Block
  * @internal
@@ -1024,8 +1742,13 @@ static noxtls_return_t noxtls_aes_encrypt_block_software(const uint8_t * key, co
     }
 
     rc = noxtls_aes_key_expansion(key, w, (int)key_words, (int)rounds);
+#if NOXTLS_AES_STACK_BURN
+    aes_stack_burn(); /* the expansion frame held schedule words in scalars */
+#endif
     if (rc == NOXTLS_RETURN_SUCCESS) {
+#if !NOXTLS_AES_CONSTANT_TIME
         (void)aes_software_init_encrypt_tables();
+#endif
         rc = noxtls_aes_encrypt_block_software_expanded(w, rounds, data, output);
     }
     /* Key-based entry point: the schedule is rebuilt per call and never kept. */
@@ -1047,81 +1770,14 @@ static noxtls_return_t noxtls_aes_encrypt_block_software_expanded(const uint32_t
                                                            const uint8_t *data,
                                                            uint8_t *output)
 {
-    uint32_t s0 = 0U;
-    uint32_t s1 = 0U;
-    uint32_t s2 = 0U;
-    uint32_t s3 = 0U;
-    uint32_t t0 = 0U;
-    uint32_t t1 = 0U;
-    uint32_t t2 = 0U;
-    uint32_t t3 = 0U;
-    uint8_t cur_round = 0U;
-
     if ((round_keys == NULL) || (data == NULL) || (output == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
-    s0 = aes_load_be32(data) ^ round_keys[0];
-    s1 = aes_load_be32(&data[4]) ^ round_keys[1];
-    s2 = aes_load_be32(&data[8]) ^ round_keys[2];
-    s3 = aes_load_be32(&data[12]) ^ round_keys[3];
-
-    for (cur_round = 1U; cur_round <= (uint8_t)(rounds - 1U); cur_round += 1U)
-    {
-        size_t rk = (size_t)cur_round * 4U;
-
-        t0 = AES_TE0((s0 >>24U) & 0xFFU) ^
-             AES_TE1((s1 >>16U) & 0xFFU) ^
-             AES_TE2((s2 >>8U) & 0xFFU) ^
-             AES_TE3(s3 & 0xFFU) ^
-             round_keys[rk + 0U];
-        t1 = AES_TE0((s1 >>24U) & 0xFFU) ^
-             AES_TE1((s2 >>16U) & 0xFFU) ^
-             AES_TE2((s3 >>8U) & 0xFFU) ^
-             AES_TE3(s0 & 0xFFU) ^
-             round_keys[rk + 1U];
-        t2 = AES_TE0((s2 >>24U) & 0xFFU) ^
-             AES_TE1((s3 >>16U) & 0xFFU) ^
-             AES_TE2((s0 >>8U) & 0xFFU) ^
-             AES_TE3(s1 & 0xFFU) ^
-             round_keys[rk + 2U];
-        t3 = AES_TE0((s3 >>24U) & 0xFFU) ^
-             AES_TE1((s0 >>16U) & 0xFFU) ^
-             AES_TE2((s1 >>8U) & 0xFFU) ^
-             AES_TE3(s2 & 0xFFU) ^
-             round_keys[rk + 3U];
-
-        s0 = t0;
-        s1 = t1;
-        s2 = t2;
-        s3 = t3;
-    }
-
-    t0 = ((uint32_t)aes_sbox_lookup((uint8_t)(s0 >>24U)) <<24U) ^
-         ((uint32_t)aes_sbox_lookup((uint8_t)(s1 >>16U)) <<16U) ^
-         ((uint32_t)aes_sbox_lookup((uint8_t)(s2 >>8U)) <<8U) ^
-         (uint32_t)aes_sbox_lookup((uint8_t)s3) ^
-         round_keys[((size_t)rounds * 4U) + 0U];
-    t1 = ((uint32_t)aes_sbox_lookup((uint8_t)(s1 >>24U)) <<24U) ^
-         ((uint32_t)aes_sbox_lookup((uint8_t)(s2 >>16U)) <<16U) ^
-         ((uint32_t)aes_sbox_lookup((uint8_t)(s3 >>8U)) <<8U) ^
-         (uint32_t)aes_sbox_lookup((uint8_t)s0) ^
-         round_keys[((size_t)rounds * 4U) + 1U];
-    t2 = ((uint32_t)aes_sbox_lookup((uint8_t)(s2 >>24U)) <<24U) ^
-         ((uint32_t)aes_sbox_lookup((uint8_t)(s3 >>16U)) <<16U) ^
-         ((uint32_t)aes_sbox_lookup((uint8_t)(s0 >>8U)) <<8U) ^
-         (uint32_t)aes_sbox_lookup((uint8_t)s1) ^
-         round_keys[((size_t)rounds * 4U) + 2U];
-    t3 = ((uint32_t)aes_sbox_lookup((uint8_t)(s3 >>24U)) <<24U) ^
-         ((uint32_t)aes_sbox_lookup((uint8_t)(s0 >>16U)) <<16U) ^
-         ((uint32_t)aes_sbox_lookup((uint8_t)(s1 >>8U)) <<8U) ^
-         (uint32_t)aes_sbox_lookup((uint8_t)s2) ^
-         round_keys[((size_t)rounds * 4U) + 3U];
-
-    (void)aes_store_be32(output, t0);
-    (void)aes_store_be32(&output[4], t1);
-    (void)aes_store_be32(&output[8], t2);
-    (void)aes_store_be32(&output[12], t3);
+    aes_block_encrypt_core(round_keys, rounds, data, output);
+#if NOXTLS_AES_STACK_BURN
+    aes_stack_burn_block();
+#endif
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -1215,6 +1871,10 @@ noxtls_return_t noxtls_aes_key_expansion(const uint8_t * key, uint32_t * w, int 
         }
         w[i] = w[i - nk_u] ^ temp;
     }
+#if NOXTLS_AES_STACK_BURN
+    /* aes_subword() frames held S-box inputs and outputs (key words). */
+    aes_stack_burn();
+#endif
 
     return NOXTLS_RETURN_SUCCESS;
 }
@@ -1274,23 +1934,17 @@ static uint32_t aes_rotword(uint32_t w)
  */
 static uint32_t aes_subword(uint32_t w)
 {
+    /* Constant-time S-box: key expansion indexes no table with key bytes. */
+    uint32_t s[4];
     uint32_t word = 0U;
-    const uint8_t * ptr = (const uint8_t * )&w;
-    uint8_t row = 0U;
-    uint8_t col = 0U;
 
-    row = (uint8_t)((ptr[0] & 0xF0U) >> 4U);
-    col = (uint8_t)(ptr[0] & 0x0FU);
-    word |= (uint32_t)aes_sub_box[row][col];
-    row = (uint8_t)((ptr[1] & 0xF0U) >> 4U);
-    col = (uint8_t)(ptr[1] & 0x0FU);
-    word |= (uint32_t)((uint32_t)aes_sub_box[row][col] << 8U);
-    row = (uint8_t)((ptr[2] & 0xF0U) >> 4U);
-    col = (uint8_t)(ptr[2] & 0x0FU);
-    word |= (uint32_t)((uint32_t)aes_sub_box[row][col] << 16U);
-    row = (uint8_t)((ptr[3] & 0xF0U) >> 4U);
-    col = (uint8_t)(ptr[3] & 0x0FU);
-    word |= (uint32_t)((uint32_t)aes_sub_box[row][col] << 24U);
+    s[0] = w;
+    s[1] = 0U;
+    s[2] = 0U;
+    s[3] = 0U;
+    aes_ct_sub_bytes(s, 0U);
+    word = s[0];
+    noxtls_secure_zero(s, sizeof(s));
     return word;
 }
 
@@ -1304,20 +1958,29 @@ static uint32_t aes_subword(uint32_t w)
  */
 void noxtls_aes_sub_bytes(uint8_t state[4][4])
 {
+    uint32_t s[4];
     uint32_t i = 0U;
     uint32_t j = 0U;
-    uint8_t row = 0U;
-    uint8_t col = 0U;
+
+    if (state == NULL) {
+        return;
+    }
+    for (i = 0U; i < 4U; i += 1U)
+    {
+        s[i] = (uint32_t)state[i][0] |
+               ((uint32_t)state[i][1] << 8U) |
+               ((uint32_t)state[i][2] << 16U) |
+               ((uint32_t)state[i][3] << 24U);
+    }
+    aes_ct_sub_bytes(s, 0U);
     for (i = 0U; i < 4U; i += 1U)
     {
         for (j = 0U; j < 4U; j += 1U)
         {
-            row = (state[i][j] & 0xF0U) >>4U;
-            col = (state[i][j] & 0x0FU);
-            state[i][j] = aes_sub_box[row][col];
+            state[i][j] = (uint8_t)(s[i] >> (j * 8U));
         }
-
     }
+    noxtls_secure_zero(s, sizeof(s));
 }
     
 
@@ -1393,6 +2056,7 @@ void noxtls_aes_mix_columns(uint8_t state[4][4])
     }
 }
 
+#if !NOXTLS_AES_CONSTANT_TIME
 /**
  * @brief Perform AES Inverse Sub bytes
  * @internal
@@ -1494,18 +2158,15 @@ static void aes_inv_shift_rows(uint8_t state[4][4])
 static uint8_t aes_gf_mul(uint8_t a, uint8_t b)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
+    /* Masks instead of branches: a carries secret state bytes, and Cortex-M0+
+     * compiles a conditional reduction to a data-dependent branch. */
     uint8_t aa = a;
     uint8_t bb = b;
     uint8_t p = 0U;
     for (uint32_t i = 0U; i < 8U; i += 1U) {
-        if ((bb & 1U) != 0U) {
-            p ^= aa;
-        }
-        uint8_t hi_bit = (uint8_t)(aa & 0x80U);
-        aa <<= 1U;
-        if (hi_bit != 0U) {
-            aa ^= 0x1BU;
-        }
+        uint8_t take = (uint8_t)(0U - (uint32_t)(bb & 1U));
+        p ^= (uint8_t)(aa & take);
+        aa = aes_xtime_byte(aa);
         bb >>= 1U;
     }
     return p;
@@ -1537,6 +2198,8 @@ static void aes_inv_mix_columns(uint8_t state[4][4])
                                  aes_gf_mul(a2, 0x09U) ^ aes_gf_mul(a3, 0x0EU));
     }
 }
+
+#endif /* !NOXTLS_AES_CONSTANT_TIME */
 
 /**
  * @brief AES Decrypt Block
@@ -1692,6 +2355,9 @@ static noxtls_return_t noxtls_aes_decrypt_block_software(const uint8_t * key, co
     }
 
     rc = noxtls_aes_key_expansion(key, w, (int)key_words, (int)rounds);
+#if NOXTLS_AES_STACK_BURN
+    aes_stack_burn(); /* the expansion frame held schedule words in scalars */
+#endif
     if (rc == NOXTLS_RETURN_SUCCESS) {
         rc = noxtls_aes_decrypt_block_software_expanded(w, rounds, data, output);
     }
@@ -1713,28 +2379,14 @@ static noxtls_return_t noxtls_aes_decrypt_block_software_expanded(const uint32_t
                                                            const uint8_t *data,
                                                            uint8_t *output)
 {
-    uint8_t state[4][4];
-    int32_t cur_round = 0;
-
     if ((round_keys == NULL) || (data == NULL) || (output == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
 
-    (void)noxtls_aes_init_block(state, data);
-    (void)noxtls_aes_add_round_key(state, &round_keys[(size_t)rounds * 4U]);
-
-    for (cur_round = (int)rounds - 1; cur_round >= 1; cur_round -= 1)
-    {
-        (void)aes_inv_shift_rows(state);
-        (void)aes_inv_sub_bytes(state);
-        (void)noxtls_aes_add_round_key(state, &round_keys[(size_t)cur_round * 4U]);
-        (void)aes_inv_mix_columns(state);
-    }
-
-    (void)aes_inv_shift_rows(state);
-    (void)aes_inv_sub_bytes(state);
-    (void)noxtls_aes_add_round_key(state, &round_keys[0]);
-    (void)copy_state_to_buffer(&state[0][0], output);
+    aes_block_decrypt_core(round_keys, rounds, data, output);
+#if NOXTLS_AES_STACK_BURN
+    aes_stack_burn_block();
+#endif
     return NOXTLS_RETURN_SUCCESS;
 }
 

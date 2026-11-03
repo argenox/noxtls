@@ -246,3 +246,64 @@ endif()
 
 # Post-quantum KAT suites (each gated on its NOXTLS_CFG_FEATURE_* option).
 add_subdirectory(pq)
+
+# Constant-time bignum / RSA / DSA regression tests (ut/pkc_ct).
+if(TARGET noxtls_pkc)
+    add_subdirectory(pkc_ct)
+endif()
+
+# Allocator memory hygiene (audit issues 166, 169): static LEGACY and HYBRID
+# pools are scanned after free, realloc moves and cleanup; the host backend is
+# checked for payload integrity across realloc.
+foreach(_wipe_mode IN ITEMS legacy hybrid host)
+    set(_wipe_target memory_wipe_${_wipe_mode}_test)
+    add_executable(${_wipe_target} "${CMAKE_CURRENT_SOURCE_DIR}/memory_wipe/memory_wipe_test.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../noxtls-lib/common/noxtls_memory.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../noxtls-lib/common/noxtls_ct.c")
+    target_include_directories(${_wipe_target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/.."
+        "${CMAKE_CURRENT_SOURCE_DIR}/../noxtls-lib" "${CMAKE_CURRENT_SOURCE_DIR}/../noxtls-lib/common")
+    if(_wipe_mode STREQUAL "legacy")
+        target_compile_definitions(${_wipe_target} PRIVATE NOXTLS_USE_STATIC_BUFFERS=1 NOXTLS_STATIC_ALLOCATOR_MODE=0)
+    elseif(_wipe_mode STREQUAL "hybrid")
+        target_compile_definitions(${_wipe_target} PRIVATE NOXTLS_USE_STATIC_BUFFERS=1 NOXTLS_STATIC_ALLOCATOR_MODE=2)
+    else()
+        target_compile_definitions(${_wipe_target} PRIVATE NOXTLS_USE_STATIC_BUFFERS=0)
+    endif()
+    add_test(NAME ${_wipe_target} COMMAND ${_wipe_target})
+endforeach()
+
+# Debug level 1 must not print secret byte dumps (audit issue 105).
+add_executable(debug_filter_test "${CMAKE_CURRENT_SOURCE_DIR}/debug_filter/debug_filter_test.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../noxtls-lib/common/noxtls_debug_printf_stdio.c")
+target_include_directories(debug_filter_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/.."
+    "${CMAKE_CURRENT_SOURCE_DIR}/../noxtls-lib" "${CMAKE_CURRENT_SOURCE_DIR}/../noxtls-lib/common")
+target_compile_definitions(debug_filter_test PRIVATE NOXTLS_DEBUG_PRINTF_STDIO=1)
+if(MSVC)
+    target_compile_options(debug_filter_test PRIVATE "/UNDEBUG")
+else()
+    target_compile_options(debug_filter_test PRIVATE "-UNDEBUG")
+endif()
+add_test(NAME debug_filter_test COMMAND debug_filter_test WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+
+# Hex parsing rejects non-hex characters (audit issue 106).
+add_executable(hex_parse_test "${CMAKE_CURRENT_SOURCE_DIR}/hex_parse/hex_parse_test.c")
+target_include_directories(hex_parse_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../noxtls-lib/common")
+target_link_libraries(hex_parse_test PRIVATE noxtls_common)
+add_test(NAME hex_parse_test COMMAND hex_parse_test)
+
+# BA414EP microcode identity gate (audit issue 206): the compiled array must
+# match ucode/ba414ep_ucode.bin, and the image must match the pinned SHA-256.
+add_test(
+    NAME ba414ep_ucode_check
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../tools/ba414ep_ucode/gen_ba414ep_ucode.py" --check
+)
+
+# ECC scalar-multiplication / nonce / shared-DRBG lock regression gate (security audit fixes).
+if(TARGET noxtls_pkc AND NOT WIN32)
+    add_subdirectory(ecc_hardening)
+endif()
+
+# Symmetric cipher / digest hardening regressions (constant-time AES, wipes, lengths).
+if(TARGET noxtls_encryption OR TARGET noxtls_hash)
+    add_subdirectory(sym_hardening)
+endif()

@@ -422,44 +422,30 @@ static noxtls_return_t slhdsa_shake256_5(const uint8_t *a,
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     rc = noxtls_shake256_init(&ctx);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
-    }
-    if(a_len != 0U) {
+    if((rc == NOXTLS_RETURN_SUCCESS) && (a_len != 0U)) {
         rc = noxtls_shake256_update(&ctx, a, a_len);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            return rc;
-        }
     }
-    if(b_len != 0U) {
+    if((rc == NOXTLS_RETURN_SUCCESS) && (b_len != 0U)) {
         rc = noxtls_shake256_update(&ctx, b, b_len);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            return rc;
-        }
     }
-    if(c_len != 0U) {
+    if((rc == NOXTLS_RETURN_SUCCESS) && (c_len != 0U)) {
         rc = noxtls_shake256_update(&ctx, c, c_len);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            return rc;
-        }
     }
-    if(d_len != 0U) {
+    if((rc == NOXTLS_RETURN_SUCCESS) && (d_len != 0U)) {
         rc = noxtls_shake256_update(&ctx, d, d_len);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            return rc;
-        }
     }
-    if(e_len != 0U) {
+    if((rc == NOXTLS_RETURN_SUCCESS) && (e_len != 0U)) {
         rc = noxtls_shake256_update(&ctx, e, e_len);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            return rc;
-        }
     }
-    rc = noxtls_shake256_final(&ctx);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_shake256_final(&ctx);
     }
-    return noxtls_shake256_squeeze(&ctx, out, out_len);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_shake256_squeeze(&ctx, out, out_len);
+    }
+    /* The sponge/chaining state absorbed secret seeds; Keccak-f is invertible. */
+    noxtls_secure_zero(&ctx, sizeof(ctx));
+    return rc;
 }
 
 /**
@@ -507,40 +493,27 @@ static noxtls_return_t slhdsa_sha256_5(const uint8_t *a,
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     rc = noxtls_sha256_init(&ctx, NOXTLS_HASH_SHA_256);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
-    }
-    if(a_len != 0U) {
+    if((rc == NOXTLS_RETURN_SUCCESS) && (a_len != 0U)) {
         rc = noxtls_sha256_update(&ctx, a, a_len);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            return rc;
-        }
     }
-    if(b_len != 0U) {
+    if((rc == NOXTLS_RETURN_SUCCESS) && (b_len != 0U)) {
         rc = noxtls_sha256_update(&ctx, b, b_len);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            return rc;
-        }
     }
-    if(c_len != 0U) {
+    if((rc == NOXTLS_RETURN_SUCCESS) && (c_len != 0U)) {
         rc = noxtls_sha256_update(&ctx, c, c_len);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            return rc;
-        }
     }
-    if(d_len != 0U) {
+    if((rc == NOXTLS_RETURN_SUCCESS) && (d_len != 0U)) {
         rc = noxtls_sha256_update(&ctx, d, d_len);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            return rc;
-        }
     }
-    if(e_len != 0U) {
+    if((rc == NOXTLS_RETURN_SUCCESS) && (e_len != 0U)) {
         rc = noxtls_sha256_update(&ctx, e, e_len);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            return rc;
-        }
     }
-    return noxtls_sha256_finish(&ctx, out);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_sha256_finish(&ctx, out);
+    }
+    /* The sponge/chaining state absorbed secret seeds; Keccak-f is invertible. */
+    noxtls_secure_zero(&ctx, sizeof(ctx));
+    return rc;
 }
 
 /**
@@ -574,40 +547,27 @@ static noxtls_return_t slhdsa_sha512_5(const uint8_t *a,
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     rc = noxtls_sha512_init(&ctx, NOXTLS_HASH_SHA_512);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
-    }
-    if(a_len != 0U) {
+    if((rc == NOXTLS_RETURN_SUCCESS) && (a_len != 0U)) {
         rc = noxtls_sha512_update(&ctx, a, a_len);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            return rc;
-        }
     }
-    if(b_len != 0U) {
+    if((rc == NOXTLS_RETURN_SUCCESS) && (b_len != 0U)) {
         rc = noxtls_sha512_update(&ctx, b, b_len);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            return rc;
-        }
     }
-    if(c_len != 0U) {
+    if((rc == NOXTLS_RETURN_SUCCESS) && (c_len != 0U)) {
         rc = noxtls_sha512_update(&ctx, c, c_len);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            return rc;
-        }
     }
-    if(d_len != 0U) {
+    if((rc == NOXTLS_RETURN_SUCCESS) && (d_len != 0U)) {
         rc = noxtls_sha512_update(&ctx, d, d_len);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            return rc;
-        }
     }
-    if(e_len != 0U) {
+    if((rc == NOXTLS_RETURN_SUCCESS) && (e_len != 0U)) {
         rc = noxtls_sha512_update(&ctx, e, e_len);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            return rc;
-        }
     }
-    return noxtls_sha512_finish(&ctx, out);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_sha512_finish(&ctx, out);
+    }
+    /* The sponge/chaining state absorbed secret seeds; Keccak-f is invertible. */
+    noxtls_secure_zero(&ctx, sizeof(ctx));
+    return rc;
 }
 
 /**
@@ -841,6 +801,7 @@ static noxtls_return_t slhdsa_shake_thash(const slhdsa_params_t *p,
         if(rc == NOXTLS_RETURN_SUCCESS) {
             noxtls_copy_u8(out, (size_t)SLHDSA_MAX_N, digest, (size_t)(p->n));
         }
+        noxtls_secure_zero((digest), sizeof(digest));
         return rc;
     }
     return slhdsa_shake256_5(pk_seed, p->n, adrs, SLHDSA_ADRS_LEN, in, in_len, NULL, 0U, NULL, 0U, out, p->n);
@@ -875,6 +836,7 @@ static noxtls_return_t slhdsa_prf_msg(const slhdsa_params_t *p,
         if(rc == NOXTLS_RETURN_SUCCESS) {
             noxtls_copy_u8(r, (size_t)SLHDSA_MAX_N, digest, (size_t)(p->n));
         }
+        noxtls_secure_zero((digest), sizeof(digest));
         return rc;
     }
     return slhdsa_shake256_5(sk_prf, p->n, opt_rand, p->n, m->hdr, m->hdr_len, m->ctx, m->ctx_len,
@@ -1574,6 +1536,7 @@ static noxtls_return_t slhdsa_t_stream_sha256(const slhdsa_params_t *p,
     if(rc == NOXTLS_RETURN_SUCCESS) {
         noxtls_copy_u8(out, (size_t)SLHDSA_MAX_N, block, (size_t)p->n);
     }
+    noxtls_secure_zero(&ctx, sizeof(ctx));
     noxtls_secure_zero((block), sizeof(block));
     return rc;
 }
@@ -1624,6 +1587,7 @@ static noxtls_return_t slhdsa_t_stream_sha512(const slhdsa_params_t *p,
     if(rc == NOXTLS_RETURN_SUCCESS) {
         noxtls_copy_u8(out, (size_t)SLHDSA_MAX_N, block, (size_t)p->n);
     }
+    noxtls_secure_zero(&ctx, sizeof(ctx));
     noxtls_secure_zero((block), sizeof(block));
     return rc;
 }
@@ -1669,6 +1633,7 @@ static noxtls_return_t slhdsa_t_stream_shake(const slhdsa_params_t *p,
     if(rc == NOXTLS_RETURN_SUCCESS) {
         rc = noxtls_shake256_squeeze(&ctx, out, p->n);
     }
+    noxtls_secure_zero(&ctx, sizeof(ctx));
     noxtls_secure_zero((block), sizeof(block));
     return rc;
 }

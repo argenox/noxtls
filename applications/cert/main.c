@@ -68,6 +68,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+#endif
 #include <limits.h>
 
 #include "noxtls-lib/common/getopt_compat.h"
@@ -206,6 +212,39 @@ static FILE *noxtls_fopen(const uint8_t *filename, const uint8_t *mode)
     return fp;
 #else
     return fopen(filename, mode);
+#endif
+}
+
+/**
+ * @brief Open a private-key output file readable and writable by the owner only.
+ *
+ * On POSIX the file is created with mode 0600 (a pre-existing file is reset
+ * to 0600 before anything is written) and a symbolic link is refused, so the
+ * key never becomes readable by other local users through the umask.
+ *
+ * @param[in] filename The name of the file to create or truncate
+ * @return The file pointer opened for binary writing, or NULL on failure
+ */
+static FILE *noxtls_fopen_private(const uint8_t *filename)
+{
+#ifdef _WIN32
+    return noxtls_fopen(filename, (const uint8_t *)"wb");
+#else
+    FILE *fp = NULL;
+    int fd = open((const char *)filename, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, (mode_t)0600);
+
+    if(fd < 0) {
+        return NULL;
+    }
+    if(fchmod(fd, (mode_t)0600) != 0) {
+        (void)close(fd);
+        return NULL;
+    }
+    fp = fdopen(fd, "wb");
+    if(fp == NULL) {
+        (void)close(fd);
+    }
+    return fp;
 #endif
 }
 
@@ -779,14 +818,15 @@ noxtls_return_t write_certificate_handler(int argc, uint8_t **argv)
     
     if(output_format == CERT_FORMAT_PEM) {
         /* Write as PEM */
-        output_len = cert.raw_data_len * 2;  /* PEM is larger than DER */
-        output_data = (uint8_t*)malloc(output_len);
+        /* Exact PEM size (banners make short inputs more than 2x DER); the _ex API enforces it. */
+        uint32_t pem_cap = noxtls_certificate_pem_buffer_size(cert.raw_data_len);
+        output_data = (pem_cap != 0U) ? (uint8_t*)malloc(pem_cap) : NULL;
         if(output_data == NULL) {
             noxtls_x509_certificate_free(&cert);
             return NOXTLS_RETURN_FAILED;
         }
         
-        rc = noxtls_certificate_der_to_pem(cert.raw_data, cert.raw_data_len, output_data, &output_len);
+        rc = noxtls_certificate_der_to_pem_ex(cert.raw_data, cert.raw_data_len, output_data, pem_cap, &output_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             free(output_data);
             noxtls_x509_certificate_free(&cert);
@@ -1438,7 +1478,12 @@ noxtls_return_t keywrite_handler(int argc, uint8_t **argv)
             return NOXTLS_RETURN_FAILED;
         }
         
-        output_len = key.raw_data_len * 2;  /* PEM is larger than DER */
+        if(key.raw_data_len > (UINT32_MAX / 2U)) {
+            noxtls_x509_private_key_free(&key);
+            return NOXTLS_RETURN_FAILED;
+        }
+        /* Banners (at most 64 bytes together) + one base64 line + '\n'; never sized as 2x DER. */
+        output_len = (((key.raw_data_len + 2U) / 3U) * 4U) + 128U;
         output_data = (uint8_t*)malloc(output_len);
         if(output_data == NULL) {
             noxtls_x509_private_key_free(&key);
@@ -1483,7 +1528,12 @@ noxtls_return_t keywrite_handler(int argc, uint8_t **argv)
         memcpy(output_data + offset, begin_marker, begin_len);
         offset += begin_len;
         
-        /* Base64 encode the DER data */
+        /* Base64 encode the DER data: check the capacity before writing, not after. */
+        if((((size_t)key.raw_data_len + 2U) / 3U) * 4U > buffer_size - offset) {
+            free(output_data);
+            noxtls_x509_private_key_free(&key);
+            return NOXTLS_RETURN_FAILED;
+        }
         int b64_len = noxtls_base64_encode(key.raw_data, key.raw_data_len, (uint8_t *)(output_data + offset));
         if(b64_len < 0 || (size_t)b64_len > buffer_size - offset) {
             free(output_data);
@@ -1519,7 +1569,7 @@ noxtls_return_t keywrite_handler(int argc, uint8_t **argv)
         output_len = key.raw_data_len;
     }
     
-    fp = noxtls_fopen(output_file, "wb");
+    fp = noxtls_fopen_private(output_file);
     if(fp == NULL) {
         if(output_format == CERT_FORMAT_PEM) {
             free(output_data);

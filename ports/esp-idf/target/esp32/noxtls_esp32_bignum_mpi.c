@@ -28,6 +28,7 @@
 
 #include "noxtls_bn_platform.h"
 #include "noxtls_common.h"
+#include "noxtls_ct.h"
 
 #include "noxtls_esp_hw_accel.h"
 
@@ -37,57 +38,15 @@
 
 #if defined(CONFIG_MBEDTLS_HARDWARE_MPI) && CONFIG_MBEDTLS_HARDWARE_MPI
 
-#include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
-
 #define NOXTLS_ESP_MPI_P256_LEN 32U
 
-static mbedtls_mpi s_mpi_a;
-static mbedtls_mpi s_mpi_m;
-static mbedtls_mpi s_mpi_r;
-static mbedtls_mpi s_mpi_b;
-static mbedtls_mpi s_mpi_e;
-static SemaphoreHandle_t s_mpi_mutex;
-static int s_mpi_inited;
-
-/**
- * @brief Lock the ESP hardware MPI
- *
- * @return The return code
+/*
+ * Operands and results live in per-call mbedtls_mpi objects that are freed
+ * (mbedtls_mpi_free zeroizes the limbs) on every exit. Nothing is shared
+ * between calls or tasks, so no operand, reduction result or ECDH secret is
+ * retained after the hook returns. ESP-IDF serializes the MPI peripheral
+ * itself inside the mbedtls hardware MPI layer.
  */
-static noxtls_return_t noxtls_esp_mpi_lock(void)
-{
-    if(s_mpi_mutex == NULL) {
-        s_mpi_mutex = xSemaphoreCreateMutex();
-        if(s_mpi_mutex == NULL) {
-            return NOXTLS_RETURN_FAILED;
-        }
-    }
-    if(xSemaphoreTake(s_mpi_mutex, portMAX_DELAY) != pdTRUE) {
-        return NOXTLS_RETURN_FAILED;
-    }
-    if(!s_mpi_inited) {
-        mbedtls_mpi_init(&s_mpi_a);
-        mbedtls_mpi_init(&s_mpi_m);
-        mbedtls_mpi_init(&s_mpi_r);
-        mbedtls_mpi_init(&s_mpi_b);
-        mbedtls_mpi_init(&s_mpi_e);
-        s_mpi_inited = 1;
-    }
-    return NOXTLS_RETURN_SUCCESS;
-}
-
-/**
- * @brief Unlock the ESP hardware MPI
- *
- * @return void
- */
-static void noxtls_esp_mpi_unlock(void)
-{
-    if(s_mpi_mutex != NULL) {
-        (void)xSemaphoreGive(s_mpi_mutex);
-    }
-}
 
 /**
  * @brief Write the fixed value to the ESP hardware MPI
@@ -97,7 +56,7 @@ static void noxtls_esp_mpi_unlock(void)
  * @param[in] out_len The length of the output to write the fixed value to
  * @return The return code
  */
-static noxtls_return_t noxtls_esp_mpi_write_fixed(mbedtls_mpi *mpi,
+static noxtls_return_t noxtls_esp_mpi_write_fixed(const mbedtls_mpi *mpi,
                                                     uint8_t *out,
                                                     uint32_t out_len)
 {
@@ -114,6 +73,7 @@ static noxtls_return_t noxtls_esp_mpi_write_fixed(mbedtls_mpi *mpi,
     memset(out, 0, out_len);
     rc = mbedtls_mpi_write_binary(mpi, out, out_len);
     if(rc != 0) {
+        noxtls_secure_zero(out, out_len);
         return NOXTLS_RETURN_FAILED;
     }
     return NOXTLS_RETURN_SUCCESS;
@@ -135,8 +95,10 @@ static noxtls_return_t noxtls_esp_mpi_mod_p256(uint8_t *result,
                                                const uint8_t *mod,
                                                uint32_t mod_len)
 {
-    int rc_mbed;
-    noxtls_return_t rc;
+    mbedtls_mpi mpi_a;
+    mbedtls_mpi mpi_m;
+    mbedtls_mpi mpi_r;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(result == NULL || a == NULL || mod == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -145,30 +107,19 @@ static noxtls_return_t noxtls_esp_mpi_mod_p256(uint8_t *result,
         return NOXTLS_RETURN_NOT_SUPPORTED;
     }
 
-    rc = noxtls_esp_mpi_lock();
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
+    mbedtls_mpi_init(&mpi_a);
+    mbedtls_mpi_init(&mpi_m);
+    mbedtls_mpi_init(&mpi_r);
+
+    if((mbedtls_mpi_read_binary(&mpi_a, a, a_len) == 0) &&
+       (mbedtls_mpi_read_binary(&mpi_m, mod, mod_len) == 0) &&
+       (mbedtls_mpi_mod_mpi(&mpi_r, &mpi_a, &mpi_m) == 0)) {
+        rc = noxtls_esp_mpi_write_fixed(&mpi_r, result, mod_len);
     }
 
-    rc_mbed = mbedtls_mpi_read_binary(&s_mpi_a, a, a_len);
-    if(rc_mbed != 0) {
-        noxtls_esp_mpi_unlock();
-        return NOXTLS_RETURN_FAILED;
-    }
-    rc_mbed = mbedtls_mpi_read_binary(&s_mpi_m, mod, mod_len);
-    if(rc_mbed != 0) {
-        noxtls_esp_mpi_unlock();
-        return NOXTLS_RETURN_FAILED;
-    }
-
-    rc_mbed = mbedtls_mpi_mod_mpi(&s_mpi_r, &s_mpi_a, &s_mpi_m);
-    if(rc_mbed != 0) {
-        noxtls_esp_mpi_unlock();
-        return NOXTLS_RETURN_FAILED;
-    }
-
-    rc = noxtls_esp_mpi_write_fixed(&s_mpi_r, result, mod_len);
-    noxtls_esp_mpi_unlock();
+    mbedtls_mpi_free(&mpi_a);
+    mbedtls_mpi_free(&mpi_m);
+    mbedtls_mpi_free(&mpi_r);
     return rc;
 }
 
@@ -190,8 +141,11 @@ static noxtls_return_t noxtls_esp_mpi_mod_exp_p256(uint8_t *result,
                                                    const uint8_t *mod,
                                                    uint32_t mod_len)
 {
-    int rc_mbed;
-    noxtls_return_t rc;
+    mbedtls_mpi mpi_b;
+    mbedtls_mpi mpi_e;
+    mbedtls_mpi mpi_m;
+    mbedtls_mpi mpi_r;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if(result == NULL || base == NULL || exp == NULL || mod == NULL) {
         return NOXTLS_RETURN_NULL;
@@ -200,35 +154,22 @@ static noxtls_return_t noxtls_esp_mpi_mod_exp_p256(uint8_t *result,
         return NOXTLS_RETURN_NOT_SUPPORTED;
     }
 
-    rc = noxtls_esp_mpi_lock();
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
+    mbedtls_mpi_init(&mpi_b);
+    mbedtls_mpi_init(&mpi_e);
+    mbedtls_mpi_init(&mpi_m);
+    mbedtls_mpi_init(&mpi_r);
+
+    if((mbedtls_mpi_read_binary(&mpi_b, base, mod_len) == 0) &&
+       (mbedtls_mpi_read_binary(&mpi_e, exp, exp_len) == 0) &&
+       (mbedtls_mpi_read_binary(&mpi_m, mod, mod_len) == 0) &&
+       (mbedtls_mpi_exp_mod(&mpi_r, &mpi_b, &mpi_e, &mpi_m, NULL) == 0)) {
+        rc = noxtls_esp_mpi_write_fixed(&mpi_r, result, mod_len);
     }
 
-    rc_mbed = mbedtls_mpi_read_binary(&s_mpi_b, base, mod_len);
-    if(rc_mbed != 0) {
-        noxtls_esp_mpi_unlock();
-        return NOXTLS_RETURN_FAILED;
-    }
-    rc_mbed = mbedtls_mpi_read_binary(&s_mpi_e, exp, exp_len);
-    if(rc_mbed != 0) {
-        noxtls_esp_mpi_unlock();
-        return NOXTLS_RETURN_FAILED;
-    }
-    rc_mbed = mbedtls_mpi_read_binary(&s_mpi_m, mod, mod_len);
-    if(rc_mbed != 0) {
-        noxtls_esp_mpi_unlock();
-        return NOXTLS_RETURN_FAILED;
-    }
-
-    rc_mbed = mbedtls_mpi_exp_mod(&s_mpi_r, &s_mpi_b, &s_mpi_e, &s_mpi_m, NULL);
-    if(rc_mbed != 0) {
-        noxtls_esp_mpi_unlock();
-        return NOXTLS_RETURN_FAILED;
-    }
-
-    rc = noxtls_esp_mpi_write_fixed(&s_mpi_r, result, mod_len);
-    noxtls_esp_mpi_unlock();
+    mbedtls_mpi_free(&mpi_b);
+    mbedtls_mpi_free(&mpi_e);
+    mbedtls_mpi_free(&mpi_m);
+    mbedtls_mpi_free(&mpi_r);
     return rc;
 }
 

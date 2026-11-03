@@ -65,7 +65,10 @@ static uint32_t get_bit(const uint8_t *buf, uint32_t bit_index)
     };
     uint32_t byte_idx = (uint32_t)(bit_index >> 3U);
     uint32_t bit_in_byte = (uint32_t)(bit_index & 7U);
-    return (((uint32_t)buf[byte_idx] & (uint32_t)s_msb_masks[bit_in_byte]) != 0U) ? 1U : 0U;
+    /* Branch-free: (v + 0xFF) >> 8 is 1 exactly when the 8-bit v is non-zero.
+     * The bit values are key and data bits; only the index is public. */
+    uint32_t v = (uint32_t)buf[byte_idx] & (uint32_t)s_msb_masks[bit_in_byte];
+    return (v + 0xFFU) >> 8U;
 }
 
 /**
@@ -85,11 +88,20 @@ static void set_bit(uint8_t *buf, uint32_t bit_index, uint32_t value)
     uint32_t byte_idx = (uint32_t)(bit_index >> 3U);
     uint32_t bit_in_byte = (uint32_t)(bit_index & 7U);
     uint8_t mask = s_msb_masks[bit_in_byte];
-    if (value != 0U) {
-        buf[byte_idx] = (uint8_t)(buf[byte_idx] | mask);
-    } else {
-        buf[byte_idx] = (uint8_t)(buf[byte_idx] & (uint8_t)(~mask));
-    }
+    /* Mask select instead of a branch on the (secret) bit value. */
+    uint8_t value_mask = (uint8_t)(0U - (value & 1U));
+    buf[byte_idx] = (uint8_t)((buf[byte_idx] & (uint8_t)(~mask)) | (uint8_t)(mask & value_mask));
+}
+
+/**
+ * @brief 1 when a 32-bit word is non-zero, 0 otherwise, without a branch.
+ *
+ * @param v Word to test.
+ * @return 1 or 0.
+ */
+static uint32_t des_nonzero32(uint32_t v)
+{
+    return (v | (0U - v)) >> 31U;
 }
 
 /**
@@ -207,10 +219,10 @@ static void des_key_schedule(const uint8_t *key, uint8_t round_keys[16][6])
         /* Pack C||D into 7 bytes (56 bits): cd bit i = C bit i for i<28, cd bit (28U + i) = D bit i. C/D bit 0 is MSB (at c/d bit 27). */
         uint8_t cd[7] = {0};
         for (i = 0U; i < 28U; i += 1U) {
-            set_bit(cd, i, ((c & s_cbit_masks[i]) != 0U) ? 1U : 0U);
+            set_bit(cd, i, des_nonzero32(c & s_cbit_masks[i]));
         }
         for (i = 0U; i < 28U; i += 1U) {
-            set_bit(cd, 28U + i, ((d & s_cbit_masks[i]) != 0U) ? 1U : 0U);
+            set_bit(cd, 28U + i, des_nonzero32(d & s_cbit_masks[i]));
         }
         {
             uint8_t pk[6] = {0};
@@ -220,7 +232,9 @@ static void des_key_schedule(const uint8_t *key, uint8_t round_keys[16][6])
             for (j = 0U; j < 6U; j += 1U) {
                 round_keys[r][j] = pk[j];
             }
+            noxtls_secure_zero(pk, sizeof(pk));
         }
+        noxtls_secure_zero(cd, sizeof(cd));
 #if NOXTLS_DES_DEBUG
         if ((DES_TRACE() != 0) && (r == 0U)) {
             (void)fprintf(stdout, "[DES KS] after rot C1=%07X D1=%07X\n", (uint32_t)(c & 0x0FFFFFFFU), (uint32_t)(d & 0x0FFFFFFFU));
@@ -232,6 +246,7 @@ static void des_key_schedule(const uint8_t *key, uint8_t round_keys[16][6])
         }
 #endif
     }
+    noxtls_secure_zero(pc1_out, sizeof(pc1_out));
 }
 
 /* E expansion: R (32 bits, bit 0 = MSB) -> 48 bits. Standard rows (1-based): 32,1,2,3,4,5 |4U,5,6,7,8,9 | ... |28U,29,30,31,32,1 */
@@ -269,10 +284,7 @@ static void des_expand_e(uint32_t r32, uint8_t er[6])
     }
     for (i = 0U; i < 48U; i += 1U) {
         uint32_t src = (uint32_t)des_e[i]; /* 0-based R bit index (0=MSB) */
-        uint32_t bit = ((r32 & s_rbit_masks[src]) != 0U) ? 1U : 0U;
-        if (bit != 0U) {
-            set_bit(er, i, 1U);
-        }
+        set_bit(er, i, des_nonzero32(r32 & s_rbit_masks[src]));
     }
 }
 
@@ -384,8 +396,15 @@ static void des_round_feistel(uint32_t *r, const uint8_t round_key[6], uint32_t 
         uint32_t row = (uint32_t)((b0 << 1U) | b5);
         uint32_t col = (uint32_t)((b1 << 3U) | (b2 << 2U) | (b3 << 1U) | b4);
         uint32_t idx = (uint32_t)((row << 4U) | col);
-        uint8_t s = (uint8_t)(des_s[i][idx]);
-        out32 = (out32 << 4U) | (uint32_t)s;
+        uint32_t s = 0U;
+        uint32_t j = 0U;
+        /* Constant-time S-box: read all 64 entries and keep the one whose
+         * index equals idx (idx is key- and data-dependent). */
+        for (j = 0U; j < 64U; j += 1U) {
+            uint32_t sel = des_nonzero32(j ^ idx) - 1U; /* all-ones when j == idx */
+            s |= (uint32_t)des_s[i][j] & sel;
+        }
+        out32 = (out32 << 4U) | s;
     }
     p_in[0] = (uint8_t)(out32 >> 24U);
     p_in[1] = (uint8_t)(out32 >> 16U);
@@ -394,6 +413,9 @@ static void des_round_feistel(uint32_t *r, const uint8_t round_key[6], uint32_t 
     permute(p_in, p_out, des_p, 32U);
     *r = (((uint32_t)p_out[0]) << 24U) | (((uint32_t)p_out[1]) << 16U)
        | (((uint32_t)p_out[2]) << 8U) | ((uint32_t)p_out[3]);
+    noxtls_secure_zero(er, sizeof(er));
+    noxtls_secure_zero(p_in, sizeof(p_in));
+    noxtls_secure_zero(p_out, sizeof(p_out));
 #if NOXTLS_DES_DEBUG
     if ((DES_TRACE() != 0) && (round_index == 0U)) {
         (void)fprintf(stdout, "[DES R1] S-box out: %08X  P(S): %08X  f(R0,K1)= %08X\n",
@@ -506,6 +528,10 @@ static void des_cipher_core(const uint8_t *key, const uint8_t *data, uint8_t *ou
     }
 #endif
     permute(lr, output, des_fp, 64U);
+    /* round_keys inverts to the DES key; ip_out/lr are cipher state. */
+    noxtls_secure_zero(round_keys, sizeof(round_keys));
+    noxtls_secure_zero(ip_out, sizeof(ip_out));
+    noxtls_secure_zero(lr, sizeof(lr));
 
 #if NOXTLS_DES_DEBUG
     if (DES_TRACE() != 0) {
@@ -594,6 +620,7 @@ noxtls_return_t noxtls_des3_encrypt_block(const uint8_t *key, uint32_t key_len, 
     (void)noxtls_des_encrypt_block(k1, data, tmp);
     (void)noxtls_des_decrypt_block(k2, tmp, tmp);
     (void)noxtls_des_encrypt_block(k3, tmp, output);
+    noxtls_secure_zero(tmp, sizeof(tmp)); /* intermediate EDE state */
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -621,6 +648,7 @@ noxtls_return_t noxtls_des3_decrypt_block(const uint8_t *key, uint32_t key_len, 
     (void)noxtls_des_decrypt_block(k3, data, tmp);
     (void)noxtls_des_encrypt_block(k2, tmp, tmp);
     (void)noxtls_des_decrypt_block(k1, tmp, output);
+    noxtls_secure_zero(tmp, sizeof(tmp)); /* intermediate EDE state */
     return NOXTLS_RETURN_SUCCESS;
 }
 

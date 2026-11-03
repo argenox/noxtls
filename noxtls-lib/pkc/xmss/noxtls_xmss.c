@@ -674,6 +674,9 @@ noxtls_return_t noxtls_xmss_signer_attach_traversal(noxtls_xmss_signer_t *signer
     if(rc != NOXTLS_RETURN_SUCCESS) {
         return rc;
     }
+    if(signer->busy != 0U) {
+        return NOXTLS_RETURN_FAILED;
+    }
     if(state == NULL) {
         return NOXTLS_RETURN_NULL;
     }
@@ -794,22 +797,22 @@ static noxtls_return_t xmss_sign_index(const xmss_params_t *p, noxtls_xmss_signe
     return rc;
 }
 
-noxtls_return_t noxtls_xmss_sign_stateful(noxtls_xmss_signer_t *signer,
-                                          const uint8_t *message,
-                                          uint32_t message_len,
-                                          uint8_t *signature,
-                                          uint32_t *signature_len)
+/*
+ * Body of noxtls_xmss_sign_stateful(); runs with signer->busy set so that a
+ * re-entrant sign (e.g. from the persist callback) cannot reuse an index.
+ */
+static noxtls_return_t xmss_sign_stateful_locked(noxtls_xmss_signer_t *signer,
+                                                 const xmss_params_t *p,
+                                                 const uint8_t *message,
+                                                 uint32_t message_len,
+                                                 uint8_t *signature,
+                                                 uint32_t *signature_len)
 {
-    xmss_params_t ps;
-    const xmss_params_t *p = NULL;
     uint64_t idx = 0U;
     uint64_t max = 0U;
     uint8_t *sk = NULL;
-    noxtls_return_t rc = xmss_signer_params(signer, &ps, &p);
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
-    }
     if((signature == NULL) || (signature_len == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
@@ -872,6 +875,33 @@ noxtls_return_t noxtls_xmss_sign_stateful(noxtls_xmss_signer_t *signer,
     }
     *signature_len = p->sig_len;
     return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_xmss_sign_stateful(noxtls_xmss_signer_t *signer,
+                                          const uint8_t *message,
+                                          uint32_t message_len,
+                                          uint8_t *signature,
+                                          uint32_t *signature_len)
+{
+    xmss_params_t ps;
+    const xmss_params_t *p = NULL;
+    noxtls_return_t rc = xmss_signer_params(signer, &ps, &p);
+
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        return rc;
+    }
+    if(signer->busy != 0U) {
+        /* A sign on this key is in flight (re-entered from persist, or an
+         * unserialized second caller): refuse rather than risk index reuse. */
+        if(signature_len != NULL) {
+            *signature_len = 0U;
+        }
+        return NOXTLS_RETURN_FAILED;
+    }
+    signer->busy = 1U;
+    rc = xmss_sign_stateful_locked(signer, p, message, message_len, signature, signature_len);
+    signer->busy = 0U;
+    return rc;
 }
 
 noxtls_return_t noxtls_xmss_signer_remaining(const noxtls_xmss_signer_t *signer, uint64_t *remaining)

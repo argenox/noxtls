@@ -55,6 +55,10 @@ extern "C" {
 #define TLS13_PSK_SERVER_NONCE_LEN 16U
 /** Largest resumption PSK (SHA-384 hash length). */
 #define TLS13_PSK_RESUMPTION_PSK_MAX 48U
+/** Length of the server-configuration binding digest stored with each ticket (SHA-256). */
+#define TLS13_PSK_TICKET_BINDING_LEN 32U
+/** RFC 8446 4.6.1: servers MUST NOT use a ticket lifetime above seven days. */
+#define TLS13_PSK_TICKET_LIFETIME_MAX 604800U
 
 /* Ticket store (server-side session cache for resumption) */
 typedef struct
@@ -66,6 +70,14 @@ typedef struct
     uint8_t ticket_nonce_len;
     uint32_t ticket_age_add;
     uint16_t cipher_suite;
+    /** Server configuration, SNI and ALPN the ticket was issued under (see tls13 binding). */
+    uint8_t binding[TLS13_PSK_TICKET_BINDING_LEN];
+    /** Advertised ticket_lifetime in seconds (capped at TLS13_PSK_TICKET_LIFETIME_MAX). */
+    uint32_t lifetime;
+    /** Unix seconds at issuance, or -1 when no clock was available (ticket is then single-use). */
+    int64_t issued_at;
+    /** Even: entry stable; odd: being rewritten (readers discard what they copied). */
+    volatile uint32_t generation;
 } psk_ticket_entry_t;
 
 #if TLS13_PSK_TICKET_STORE_MAX > 0U
@@ -75,6 +87,19 @@ typedef struct
     uint32_t next_index;
 } psk_ticket_store_t;
 #endif
+
+/** Copy of a validated ticket store entry, owned by the caller (wipe after use). */
+typedef struct
+{
+    uint8_t resumption_psk[TLS13_PSK_RESUMPTION_PSK_MAX];
+    uint8_t resumption_psk_len;
+    uint8_t ticket_nonce[TLS13_PSK_SERVER_NONCE_LEN];
+    uint8_t ticket_nonce_len;
+    uint32_t ticket_age_add;
+    uint16_t cipher_suite;
+    /** Non-zero when the ticket must be removed once used (no clock at issuance or now). */
+    uint8_t single_use;
+} tls13_psk_ticket_t;
 
 /**
  * Check if a PSK key exchange mode is present in the extension data.
@@ -138,6 +163,9 @@ noxtls_return_t tls13_psk_compute_external_binder(noxtls_hash_algos_t hash_algo,
 
 /**
  * Add a session ticket to the server-side store (for lookup when client resumes).
+ * Expired entries are swept first; a free or expired slot is preferred, else the oldest is
+ * overwritten. @p binding is the issuing server's configuration digest
+ * (TLS13_PSK_TICKET_BINDING_LEN bytes) and @p lifetime the advertised ticket_lifetime.
  */
 noxtls_return_t tls13_psk_ticket_store_add(const uint8_t *ticket_id,
                                            uint8_t id_len,
@@ -146,31 +174,24 @@ noxtls_return_t tls13_psk_ticket_store_add(const uint8_t *ticket_id,
                                            const uint8_t *ticket_nonce,
                                            uint8_t nonce_len,
                                            uint32_t ticket_age_add,
-                                           uint16_t cipher_suite);
+                                           uint16_t cipher_suite,
+                                           const uint8_t *binding,
+                                           uint32_t lifetime);
 
 /**
- * Look up a ticket by ID. Returns internal entry pointer or NULL; do not free.
+ * Look up a ticket by ID and copy it out in one step.
+ *
+ * Succeeds only when the entry exists, was not being rewritten while it was copied, carries a
+ * non-empty PSK, was issued under @p binding, and is within its lifetime (expired entries are
+ * wiped). On failure @p out is wiped.
  */
-const void *tls13_psk_ticket_store_lookup(const uint8_t *ticket_id, uint32_t id_len);
+noxtls_return_t tls13_psk_ticket_store_get(const uint8_t *ticket_id,
+                                           uint32_t id_len,
+                                           const uint8_t *binding,
+                                           tls13_psk_ticket_t *out);
 
-/**
- * Get resumption PSK and nonce from a looked-up ticket entry.
- * @param entry    Pointer from tls13_psk_ticket_store_lookup
- * @param psk_out  Buffer for resumption_psk (at least 64 bytes)
- * @param psk_len  Output length
- * @param nonce_out Buffer for ticket_nonce (at least TLS13_PSK_TICKET_NONCE_MAX)
- * @param nonce_len Output length
- */
-noxtls_return_t tls13_psk_ticket_store_entry_psk(const void *entry,
-                                                  uint8_t *psk_out,
-                                                  uint8_t psk_out_size,
-                                                  uint8_t *psk_len,
-                                                  uint8_t *nonce_out,
-                                                  uint8_t nonce_out_size,
-                                                  uint8_t *nonce_len);
-
-/** Return cipher_suite for a ticket entry (for server resumption). */
-uint16_t noxtls_tls13_psk_ticket_store_entry_cipher_suite(const void *entry);
+/** Remove (wipe) a ticket by ID, for example after a single-use ticket has been accepted. */
+void tls13_psk_ticket_store_remove(const uint8_t *ticket_id, uint32_t id_len);
 
 /**
  * Derive resumption_psk from master_secret and ticket_nonce (RFC 8446 4.6.1).

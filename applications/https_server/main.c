@@ -1485,6 +1485,8 @@ static void print_usage(const uint8_t *prog)
            "requires ECDSA primary key\n");
     printf("  --request-client-cert  Request client certificate authentication (mTLS)\n");
     printf("  --require-client-cert  Require a client certificate (TLS 1.3: certificate_required; TLS 1.2: handshake fails)\n");
+    printf("  --client-ca <file>     CA certificate (PEM/DER) that client certificates must chain to;\n"
+           "                         without it client certificates cannot be verified and are refused\n");
     printf("  --expect-client-sni <host>  If set, mismatching ClientHello SNI sends unrecognized_name (warning; use with tlsfuzzer --sni)\n");
     printf("  --expect-client-sni-fatal   With --expect-client-sni, send fatal unrecognized_name on mismatch\n");
     printf("  --debug-log <file>     Append noxtls debug output to log file\n");
@@ -2572,6 +2574,40 @@ static int https_tls13_configure_ecdsa_identities(tls13_context_t *ctx, ecc_key_
  * @param[in] argv The arguments
  * @return The return code
  */
+/**
+ * @brief Load the CA that client certificates must chain to into the global trust store.
+ * @param ca_file Path to DER/PEM certificate file.
+ * @return NOXTLS_RETURN_SUCCESS on success, failure code otherwise.
+ */
+static noxtls_return_t https_server_load_client_ca(const uint8_t *ca_file)
+{
+    noxtls_return_t rc;
+    x509_certificate_t ca_cert;
+    x509_certificate_chain_t trust_chain;
+
+    if((ca_file == NULL) || (ca_file[0] == '\0')) {
+        return NOXTLS_RETURN_NULL;
+    }
+    noxtls_x509_certificate_init(&ca_cert);
+    rc = noxtls_x509_certificate_load_file(&ca_cert, ca_file);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_x509_certificate_free(&ca_cert);
+        return rc;
+    }
+    rc = noxtls_x509_certificate_chain_init(&trust_chain);
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_x509_certificate_free(&ca_cert);
+        return rc;
+    }
+    rc = noxtls_x509_certificate_chain_add(&trust_chain, &ca_cert);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_x509_trust_store_set(&trust_chain);
+    }
+    noxtls_x509_certificate_chain_free(&trust_chain);
+    noxtls_x509_certificate_free(&ca_cert);
+    return rc;
+}
+
 int main(int argc, char **argv)
 {
     uint16_t port = DEFAULT_PORT;
@@ -2609,6 +2645,7 @@ int main(int argc, char **argv)
     int use_unified = 0;
     int request_client_cert = 0;
     int require_client_cert = 0;
+    const uint8_t *client_ca_file = NULL;
     int heartbeat_enabled = 0;
     socket_t listen_sock = INVALID_SOCKET_VALUE;
     x509_certificate_t cert;
@@ -2766,6 +2803,8 @@ int main(int argc, char **argv)
         } else if(noxtls_u8_strcmp(argv[i], "--require-client-cert") == 0) {
             request_client_cert = 1;
             require_client_cert = 1;
+        } else if(noxtls_u8_strcmp(argv[i], "--client-ca") == 0 && i + 1 < argc) {
+            client_ca_file = argv[++i];
         } else if(noxtls_u8_strcmp(argv[i], "--expect-client-sni") == 0 && i + 1 < argc) {
             const uint8_t *v = argv[++i];
             size_t vl = noxtls_u8_strlen(v);
@@ -3134,6 +3173,16 @@ int main(int argc, char **argv)
     if(request_client_cert) {
         printf("Client certificate authentication: %s\n",
                require_client_cert ? "required" : "requested");
+        if(client_ca_file == NULL) {
+            printf("WARNING: no --client-ca given; client certificates cannot be verified and will be refused\n");
+        }
+    }
+    if(client_ca_file != NULL) {
+        noxtls_return_t ca_rc = https_server_load_client_ca(client_ca_file);
+        if(ca_rc != NOXTLS_RETURN_SUCCESS) {
+            printf("ERROR: Failed to load client CA from '%s': %d\n", (const char *)client_ca_file, (int)ca_rc);
+            goto cleanup;
+        }
     }
     printf("Press Ctrl+C to stop.\n\n");
 

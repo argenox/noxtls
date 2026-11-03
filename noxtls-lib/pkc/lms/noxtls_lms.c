@@ -2025,6 +2025,8 @@ static noxtls_return_t lms_persist(noxtls_hss_key_t *key, uint32_t count)
 
 noxtls_return_t noxtls_hss_key_reserve(noxtls_hss_key_t *key, uint32_t count)
 {
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+
     if(key == NULL) {
         return NOXTLS_RETURN_NULL;
     }
@@ -2037,7 +2039,13 @@ noxtls_return_t noxtls_hss_key_reserve(noxtls_hss_key_t *key, uint32_t count)
     if(key->next_index >= key->max_index) {
         return NOXTLS_RETURN_KEY_EXHAUSTED;
     }
-    return lms_persist(key, count);
+    if(key->busy != 0U) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    key->busy = 1U;
+    rc = lms_persist(key, count);
+    key->busy = 0U;
+    return rc;
 }
 
 noxtls_return_t noxtls_hss_key_set_reserve(noxtls_hss_key_t *key, uint32_t count)
@@ -2150,26 +2158,20 @@ static LMS_NOINLINE noxtls_return_t lms_sign_advance(noxtls_hss_key_t *key, cons
     return rc;
 }
 
-noxtls_return_t noxtls_hss_sign(noxtls_hss_key_t *key,
-                                const uint8_t *message, uint32_t message_len,
-                                uint8_t *signature, uint32_t signature_cap,
-                                uint32_t *signature_len)
+/*
+ * Body of noxtls_hss_sign(); runs with key->busy set so that a re-entrant
+ * sign (e.g. from the persist callback) cannot reuse an index.
+ */
+static noxtls_return_t lms_hss_sign_locked(noxtls_hss_key_t *key,
+                                           const uint8_t *message, uint32_t message_len,
+                                           uint8_t *signature, uint32_t signature_cap,
+                                           uint32_t *signature_len)
 {
     lms_ws_layout_t lay;
     uint32_t need = 0U;
     uint64_t g = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
-    if(signature_len != NULL) {
-        *signature_len = 0U;
-    }
-    if((key == NULL) || (signature == NULL) || (signature_len == NULL) ||
-       ((message == NULL) && (message_len != 0U))) {
-        return NOXTLS_RETURN_NULL;
-    }
-    if((key->state != LMS_KEY_STATE_READY) || (key->persist == NULL)) {
-        return NOXTLS_RETURN_NOT_INITIALIZED;
-    }
     need = noxtls_hss_signature_len(&key->params);
     if(signature_cap < need) {
         return NOXTLS_RETURN_INVALID_PARAM;
@@ -2187,6 +2189,10 @@ noxtls_return_t noxtls_hss_sign(noxtls_hss_key_t *key,
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
+    }
+    /* Bind the coverage check to the index actually used below. */
+    if(key->next_index >= key->reserved_index) {
+        return NOXTLS_RETURN_FAILED;
     }
     /* 2. Consume the index before computing anything with it. */
     g = key->next_index;
@@ -2207,6 +2213,34 @@ noxtls_return_t noxtls_hss_sign(noxtls_hss_key_t *key,
     }
     *signature_len = need;
     return NOXTLS_RETURN_SUCCESS;
+}
+
+noxtls_return_t noxtls_hss_sign(noxtls_hss_key_t *key,
+                                const uint8_t *message, uint32_t message_len,
+                                uint8_t *signature, uint32_t signature_cap,
+                                uint32_t *signature_len)
+{
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+
+    if(signature_len != NULL) {
+        *signature_len = 0U;
+    }
+    if((key == NULL) || (signature == NULL) || (signature_len == NULL) ||
+       ((message == NULL) && (message_len != 0U))) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if((key->state != LMS_KEY_STATE_READY) || (key->persist == NULL)) {
+        return NOXTLS_RETURN_NOT_INITIALIZED;
+    }
+    if(key->busy != 0U) {
+        /* A sign or reserve on this key is in flight (re-entered from persist,
+         * or an unserialized second caller): refuse rather than reuse an index. */
+        return NOXTLS_RETURN_FAILED;
+    }
+    key->busy = 1U;
+    rc = lms_hss_sign_locked(key, message, message_len, signature, signature_cap, signature_len);
+    key->busy = 0U;
+    return rc;
 }
 
 /* ======================================================================== */

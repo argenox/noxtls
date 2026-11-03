@@ -110,6 +110,9 @@ static void *noxtls_x509_unknown_ext_user_ctx;
 #if NOXTLS_FEATURE_FALCON
 static int x509_oid_is_falcon(const uint8_t *o, uint32_t l);
 #endif
+#if NOXTLS_FEATURE_ML_DSA
+static int x509_oid_is_mldsa(const uint8_t *o, uint32_t l);
+#endif
 
 static noxtls_return_t noxtls_x509_validate_ecc_public_key_bytes(const uint8_t *pubkey,
                                                                  uint32_t pubkey_len,
@@ -126,6 +129,7 @@ static int s_x509_hostname_wildcard_matching =
     0
 #endif
 ;
+static int s_x509_crl_require_coverage = (NOXTLS_X509_CRL_REQUIRE_COVERAGE != 0) ? 1 : 0;
 
 /**
  * @brief Open a file (host builds with NOXTLS_HAVE_FILE_IO only).
@@ -612,6 +616,76 @@ static noxtls_return_t asn1_get_bounded_length(const uint8_t **data, const uint8
     return NOXTLS_RETURN_SUCCESS;
 }
 
+#if NOXTLS_FEATURE_ECDSA
+/**
+ * @brief Checks that an INTEGER content is the minimal two's-complement encoding of a non-negative value.
+ * @internal
+ *
+ * @param[in] v INTEGER content octets.
+ * @param[in] len Content length.
+ * @return 1 when the encoding is minimal and the value non-negative, 0 otherwise.
+ */
+static int x509_der_uint_is_minimal(const uint8_t *v, uint32_t len)
+{
+    int ok = 1;
+
+    if((v == NULL) || (len == 0U)) {
+        ok = 0;
+    } else if((v[0] & 0x80U) != 0U) {
+        ok = 0; /* negative */
+    } else if((len > 1U) && (v[0] == 0x00U) && ((v[1] & 0x80U) == 0U)) {
+        ok = 0; /* redundant leading zero octet */
+    } else {
+        /* MISRA 15.7: minimal non-negative encoding */
+    }
+    return ok;
+}
+
+/**
+ * @brief Strictly decodes an ECDSA-Sig-Value (RFC 5480 / RFC 3279) DER encoding.
+ * @internal
+ *
+ * Exactly one encoding of (r, s) is accepted: a single SEQUENCE that spans the whole buffer,
+ * holding exactly two minimal, non-negative INTEGERs, with minimal lengths. Any other encoding
+ * of the same values is rejected, so a third party cannot re-encode a valid signature.
+ *
+ * @param[in] sig Signature bytes.
+ * @param[in] sig_len Signature length.
+ * @param[out] r Buffer for r content octets.
+ * @param[in,out] r_len In: capacity of @p r; out: length of r.
+ * @param[out] s Buffer for s content octets.
+ * @param[in,out] s_len In: capacity of @p s; out: length of s.
+ * @return NOXTLS_RETURN_SUCCESS, or NOXTLS_RETURN_BAD_DATA for any non-canonical encoding.
+ */
+static noxtls_return_t x509_ecdsa_sig_parse_strict(const uint8_t *sig, uint32_t sig_len,
+                                                   uint8_t *r, uint32_t *r_len,
+                                                   uint8_t *s, uint32_t *s_len)
+{
+    noxtls_return_t rc = NOXTLS_RETURN_BAD_DATA;
+    const uint8_t *ptr = sig;
+    const uint8_t *end = NULL;
+    const uint8_t *seq_end = NULL;
+    uint32_t seq_len = 0U;
+
+    if((sig != NULL) && (sig_len > 0U) && (r != NULL) && (r_len != NULL) && (s != NULL) && (s_len != NULL)) {
+        end = &sig[sig_len];
+        if((asn1_get_tag(&ptr, end, 0x30U) == NOXTLS_RETURN_SUCCESS) &&
+           (asn1_get_bounded_length(&ptr, end, &seq_len) == NOXTLS_RETURN_SUCCESS) &&
+           (seq_len > 0U) && (x509_bytes_remaining(ptr, end) == (size_t)seq_len)) {
+            seq_end = &ptr[seq_len];
+            if((asn1_get_integer(&ptr, seq_end, r, r_len) == NOXTLS_RETURN_SUCCESS) &&
+               (asn1_get_integer(&ptr, seq_end, s, s_len) == NOXTLS_RETURN_SUCCESS) &&
+               ((uintptr_t)ptr == (uintptr_t)seq_end) &&
+               (x509_der_uint_is_minimal(r, *r_len) != 0) &&
+               (x509_der_uint_is_minimal(s, *s_len) != 0)) {
+                rc = NOXTLS_RETURN_SUCCESS;
+            }
+        }
+    }
+    return rc;
+}
+#endif /* NOXTLS_FEATURE_ECDSA */
+
 /**
  * @brief Check if two OIDs are equal
  * 
@@ -698,6 +772,7 @@ static noxtls_return_t hmac_sha1(const uint8_t *key, uint32_t key_len,
     uint32_t i = 0U;
     const uint8_t *key_ptr = key;
     uint32_t key_bytes = key_len;
+    noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
 
     if((key_ptr == NULL) || (msg == NULL) || (mac == NULL)) {
         return NOXTLS_RETURN_NULL;
@@ -711,27 +786,40 @@ static noxtls_return_t hmac_sha1(const uint8_t *key, uint32_t key_len,
     }
 
     if(key_bytes > 64U) {
-        if(noxtls_sha1_init(&ctx, NOXTLS_HASH_SHA1) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-        if(noxtls_sha1_update(&ctx, key_ptr, key_bytes) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-        if(noxtls_sha1_finish(&ctx, tmp) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-        key_ptr = tmp;
-        key_bytes = SHA1_OUT_LEN;
+        if((noxtls_sha1_init(&ctx, NOXTLS_HASH_SHA1) != NOXTLS_RETURN_SUCCESS) ||
+           (noxtls_sha1_update(&ctx, key_ptr, key_bytes) != NOXTLS_RETURN_SUCCESS) ||
+           (noxtls_sha1_finish(&ctx, tmp) != NOXTLS_RETURN_SUCCESS)) {
+            rc = NOXTLS_RETURN_FAILED;
+        } else {
+            key_ptr = tmp;
+            key_bytes = SHA1_OUT_LEN;
+        }
     }
 
-    for(i = 0U; i < key_bytes; i += 1U) {
-        ipad[i] ^= key_ptr[i];
-        opad[i] ^= key_ptr[i];
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        for(i = 0U; i < key_bytes; i += 1U) {
+            ipad[i] ^= key_ptr[i];
+            opad[i] ^= key_ptr[i];
+        }
+
+        if((noxtls_sha1_init(&ctx, NOXTLS_HASH_SHA1) != NOXTLS_RETURN_SUCCESS) ||
+           (noxtls_sha1_update(&ctx, ipad, 64) != NOXTLS_RETURN_SUCCESS) ||
+           (noxtls_sha1_update(&ctx, msg, msg_len) != NOXTLS_RETURN_SUCCESS) ||
+           (noxtls_sha1_finish(&ctx, mac) != NOXTLS_RETURN_SUCCESS) ||
+           (noxtls_sha1_init(&ctx, NOXTLS_HASH_SHA1) != NOXTLS_RETURN_SUCCESS) ||
+           (noxtls_sha1_update(&ctx, opad, 64) != NOXTLS_RETURN_SUCCESS) ||
+           (noxtls_sha1_update(&ctx, mac, SHA1_OUT_LEN) != NOXTLS_RETURN_SUCCESS) ||
+           (noxtls_sha1_finish(&ctx, mac) != NOXTLS_RETURN_SUCCESS)) {
+            rc = NOXTLS_RETURN_FAILED;
+        }
     }
 
-    if(noxtls_sha1_init(&ctx, NOXTLS_HASH_SHA1) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(noxtls_sha1_update(&ctx, ipad, 64) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(noxtls_sha1_update(&ctx, msg, msg_len) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(noxtls_sha1_finish(&ctx, mac) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(noxtls_sha1_init(&ctx, NOXTLS_HASH_SHA1) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(noxtls_sha1_update(&ctx, opad, 64) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(noxtls_sha1_update(&ctx, mac, SHA1_OUT_LEN) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    if(noxtls_sha1_finish(&ctx, mac) != NOXTLS_RETURN_SUCCESS) { return NOXTLS_RETURN_FAILED; }
-    return NOXTLS_RETURN_SUCCESS;
+    /* ipad/opad hold key XOR constant and tmp may hold the hashed key: wipe on every exit. */
+    noxtls_secure_zero(ipad, sizeof(ipad));
+    noxtls_secure_zero(opad, sizeof(opad));
+    noxtls_secure_zero(tmp, sizeof(tmp));
+    noxtls_secure_zero(&ctx, sizeof(ctx));
+    return rc;
 }
 
 
@@ -761,6 +849,7 @@ static noxtls_return_t pbkdf2_hmac_sha1(const uint8_t *password, uint32_t passwo
     uint32_t k = 0U;
     uint32_t blocks = 0U;
     uint32_t block_index = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
 
     if((password == NULL) || (salt == NULL) || (params == NULL) || (out == NULL) || (params->iterations == 0U)) {
         return NOXTLS_RETURN_NULL;
@@ -779,8 +868,8 @@ static noxtls_return_t pbkdf2_hmac_sha1(const uint8_t *password, uint32_t passwo
         block_input[params->salt_len + 3U] = (uint8_t)block_index;
 
         if(hmac_sha1(password, password_len, block_input, params->salt_len + 4U, u) != NOXTLS_RETURN_SUCCESS) {
-            (void)noxtls_free(block_input);
-            return NOXTLS_RETURN_FAILED;
+            rc = NOXTLS_RETURN_FAILED;
+            break;
         }
 
         for(k = 0U; k < SHA1_OUT_LEN; k += 1U) {
@@ -789,10 +878,13 @@ static noxtls_return_t pbkdf2_hmac_sha1(const uint8_t *password, uint32_t passwo
 
         for(j = 1U; j < params->iterations; j += 1U) {
             if(hmac_sha1(password, password_len, u, SHA1_OUT_LEN, u) != NOXTLS_RETURN_SUCCESS) {
-                (void)noxtls_free(block_input);
-                return NOXTLS_RETURN_FAILED;
+                rc = NOXTLS_RETURN_FAILED;
+                break;
             }
             for(k = 0U; k < SHA1_OUT_LEN; k += 1U) { t[k] ^= u[k]; }
+        }
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            break;
         }
 
         {
@@ -802,8 +894,11 @@ static noxtls_return_t pbkdf2_hmac_sha1(const uint8_t *password, uint32_t passwo
             noxtls_copy_u8((uint8_t *)(void *)(&out[((size_t)(block_index - 1U) * SHA1_OUT_LEN)]), (size_t)copy_len, (const uint8_t *)(const void *)(t), (size_t)copy_len);
         }
     }
+    /* u and t hold password-derived PRF output: wipe on every exit. */
+    noxtls_secure_zero(u, sizeof(u));
+    noxtls_secure_zero(t, sizeof(t));
     (void)noxtls_free(block_input);
-    return NOXTLS_RETURN_SUCCESS;
+    return rc;
 }
 #endif /* !NOXTLS_FEATURE_PBKDF2 && NOXTLS_FEATURE_SHA1 */
 
@@ -886,6 +981,26 @@ void noxtls_x509_set_hostname_wildcard_matching(int enabled)
 int noxtls_x509_get_hostname_wildcard_matching(void)
 {
     return s_x509_hostname_wildcard_matching;
+}
+
+/**
+ * @brief Require (or stop requiring) CRL coverage of every chain level when a CRL list is supplied.
+ *
+ * @param enabled 1 to fail verification for a chain level without an applicable CRL, 0 to soft-fail.
+ */
+void noxtls_x509_set_crl_require_coverage(int enabled)
+{
+    s_x509_crl_require_coverage = (enabled != 0) ? 1 : 0;
+}
+
+/**
+ * @brief Get the process-wide CRL coverage requirement.
+ *
+ * @return 1 when coverage is required, 0 otherwise.
+ */
+int noxtls_x509_get_crl_require_coverage(void)
+{
+    return s_x509_crl_require_coverage;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -994,14 +1109,21 @@ static noxtls_return_t asn1_get_integer_span(const uint8_t **data, const uint8_t
 }
 
 /** Result of x509_ext_list_next(). */
-#define X509_EXT_STEP_END   0U  /**< End of list (or unparsable Extension SEQUENCE): stop. */
-#define X509_EXT_STEP_SKIP  1U  /**< Extension without usable OID or value: ignore it. */
+#define X509_EXT_STEP_END   0U  /**< End of list: stop. */
+#define X509_EXT_STEP_SKIP  1U  /**< Non-critical extension with an empty extnValue: ignore it. */
 #define X509_EXT_STEP_ITEM  2U  /**< Extension decoded into the outputs. */
 
 /**
- * @brief Decode the next Extension of an Extensions SEQUENCE OF (lenient walker shared by the
+ * @brief Decode the next Extension of an Extensions SEQUENCE OF (walker shared by the
  *        extension parser and the SAN iterator).
  * @internal
+ *
+ * Extension ::= SEQUENCE { extnID OBJECT IDENTIFIER, critical BOOLEAN DEFAULT FALSE,
+ * extnValue OCTET STRING } (RFC 5280 4.1). A list element that is not such a SEQUENCE, a
+ * missing extnID or extnValue, trailing octets inside the Extension, or a critical extension
+ * with an empty extnValue is a malformed certificate (RFC 5280 4.2): the walker reports it as
+ * NOXTLS_RETURN_BAD_DATA instead of ending or skipping silently, so no later extension (critical
+ * or restricting) can be hidden behind it.
  *
  * @param[in,out] list_ptr Cursor inside the SEQUENCE OF contents.
  * @param[in] list_end End of the SEQUENCE OF contents.
@@ -1011,7 +1133,7 @@ static noxtls_return_t asn1_get_integer_span(const uint8_t **data, const uint8_t
  * @param[out] value extnValue OCTET STRING contents (NULL when absent).
  * @param[out] value_len Length of @p value.
  * @param[out] step X509_EXT_STEP_*.
- * @return NOXTLS_RETURN_SUCCESS, or NOXTLS_RETURN_BAD_DATA for a malformed critical BOOLEAN.
+ * @return NOXTLS_RETURN_SUCCESS, or NOXTLS_RETURN_BAD_DATA for a malformed Extension.
  */
 static noxtls_return_t x509_ext_list_next(const uint8_t **list_ptr, const uint8_t *list_end,
                                           const uint8_t **oid, uint32_t *oid_len, int *critical,
@@ -1021,48 +1143,164 @@ static noxtls_return_t x509_ext_list_next(const uint8_t **list_ptr, const uint8_
     uint32_t ext_seq_len = 0U;
     const uint8_t *eptr = NULL;
     const uint8_t *eend = NULL;
-    uint8_t eptr_done = 0U;
 
     *step = X509_EXT_STEP_END;
     *critical = 0;
     *value = NULL;
     *value_len = 0U;
-    if(((uintptr_t)(*list_ptr) >= (uintptr_t)list_end) ||
-       (asn1_get_sequence(list_ptr, list_end, &ext_seq, &ext_seq_len) != NOXTLS_RETURN_SUCCESS)) {
+    if((uintptr_t)(*list_ptr) >= (uintptr_t)list_end) {
         return NOXTLS_RETURN_SUCCESS;
     }
-    *step = X509_EXT_STEP_SKIP;
+    if(asn1_get_tlv_span(list_ptr, list_end, 0x30U, &ext_seq, &ext_seq_len) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_BAD_DATA;
+    }
     eptr = ext_seq;
     eend = &ext_seq[ext_seq_len];
-    *list_ptr = eend;
     if(asn1_get_oid_span(&eptr, eend, oid, oid_len) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_SUCCESS;
+        return NOXTLS_RETURN_BAD_DATA;
     }
-    while(((uintptr_t)eptr < (uintptr_t)eend) && (eptr_done == 0U)) {
-        if(*eptr == 0x01U) {
-            /* critical BOOLEAN: DER requires length 1 and value 0x00/0xFF. A malformed
-             * BOOLEAN rejects the certificate; the cursor is never moved past eend. */
-            if(asn1_get_boolean(&eptr, eend, critical) != NOXTLS_RETURN_SUCCESS) {
-                return NOXTLS_RETURN_BAD_DATA;
-            }
-        } else if(*eptr == 0x04U) {
-            if(asn1_get_octet_string(&eptr, eend, value, value_len) != NOXTLS_RETURN_SUCCESS) {
-                *value = NULL;
-                *value_len = 0U;
-            }
-            eptr_done = 1U;
-        } else {
-            eptr_done = 1U;
+    if(((uintptr_t)eptr < (uintptr_t)eend) && (*eptr == 0x01U)) {
+        /* critical BOOLEAN: DER requires length 1 and value 0x00/0xFF. */
+        if(asn1_get_boolean(&eptr, eend, critical) != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_BAD_DATA;
         }
     }
-    if((*value != NULL) && (*value_len > 0U)) {
+    if(asn1_get_tlv_span(&eptr, eend, 0x04U, value, value_len) != NOXTLS_RETURN_SUCCESS) {
+        *value = NULL;
+        *value_len = 0U;
+        return NOXTLS_RETURN_BAD_DATA;
+    }
+    if((uintptr_t)eptr != (uintptr_t)eend) {
+        return NOXTLS_RETURN_BAD_DATA;  /* trailing octets after extnValue */
+    }
+    if(*value_len > 0U) {
         *step = X509_EXT_STEP_ITEM;
+    } else if(*critical != 0) {
+        return NOXTLS_RETURN_BAD_DATA;  /* a critical extension with no value cannot be processed */
+    } else {
+        *step = X509_EXT_STEP_SKIP;
     }
     return NOXTLS_RETURN_SUCCESS;
 }
 
 /* id-ce-subjectAltName = 2.5.29.17 */
 static const uint8_t s_x509_oid_subject_alt_name[] = { 0x55U, 0x1DU, 0x11U };
+/* id-ce-nameConstraints = 2.5.29.30 */
+static const uint8_t s_x509_oid_name_constraints[] = { 0x55U, 0x1DU, 0x1EU };
+
+/**
+ * @brief Walk one GeneralSubtrees list ([0] permitted or [1] excluded contents).
+ * @internal
+ *
+ * GeneralSubtree ::= SEQUENCE { base GeneralName, minimum [0] BaseDistance DEFAULT 0,
+ * maximum [1] BaseDistance OPTIONAL }. RFC 5280 4.2.1.10 requires minimum to be zero and
+ * maximum absent; in DER a present minimum is never zero, so any minimum or maximum field is
+ * rejected (it cannot be processed).
+ *
+ * @param[in,out] p Cursor inside the GeneralSubtrees contents.
+ * @param[in] end End of the GeneralSubtrees contents.
+ * @param[out] base_tag GeneralName tag of the subtree base.
+ * @param[out] base GeneralName contents.
+ * @param[out] base_len Length of @p base.
+ * @return NOXTLS_RETURN_SUCCESS, or NOXTLS_RETURN_BAD_DATA for a malformed or unsupported subtree.
+ */
+static noxtls_return_t x509_nc_next_subtree(const uint8_t **p, const uint8_t *end,
+                                            uint8_t *base_tag, const uint8_t **base, uint32_t *base_len)
+{
+    const uint8_t *st = NULL;
+    uint32_t st_len = 0U;
+    const uint8_t *q = NULL;
+
+    if(asn1_get_tlv_span(p, end, 0x30U, &st, &st_len) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_BAD_DATA;
+    }
+    q = st;
+    if(asn1_get_any_tlv(&q, &st[st_len], base_tag, base, base_len) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_BAD_DATA;
+    }
+    if((uintptr_t)q != (uintptr_t)(&st[st_len])) {
+        return NOXTLS_RETURN_BAD_DATA;  /* minimum / maximum present, or trailing octets */
+    }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
+ * @brief Split a NameConstraints extnValue into its permitted and excluded GeneralSubtrees.
+ * @internal
+ *
+ * @param[in] val extnValue contents (DER NameConstraints).
+ * @param[in] val_len Length of @p val.
+ * @param[out] permitted Permitted subtrees contents, or NULL when absent.
+ * @param[out] permitted_len Length of @p permitted.
+ * @param[out] excluded Excluded subtrees contents, or NULL when absent.
+ * @param[out] excluded_len Length of @p excluded.
+ * @return NOXTLS_RETURN_SUCCESS, or NOXTLS_RETURN_BAD_DATA when the structure is malformed or
+ *         uses a subtree form that cannot be processed.
+ */
+static noxtls_return_t x509_nc_split(const uint8_t *val, uint32_t val_len,
+                                     const uint8_t **permitted, uint32_t *permitted_len,
+                                     const uint8_t **excluded, uint32_t *excluded_len)
+{
+    const uint8_t *p = val;
+    const uint8_t *nc = NULL;
+    uint32_t nc_len = 0U;
+    const uint8_t *q = NULL;
+    const uint8_t *qe = NULL;
+
+    *permitted = NULL;
+    *permitted_len = 0U;
+    *excluded = NULL;
+    *excluded_len = 0U;
+    if((asn1_get_tlv_span(&p, &val[val_len], 0x30U, &nc, &nc_len) != NOXTLS_RETURN_SUCCESS) ||
+       ((uintptr_t)p != (uintptr_t)(&val[val_len]))) {
+        return NOXTLS_RETURN_BAD_DATA;
+    }
+    q = nc;
+    qe = &nc[nc_len];
+    if(((uintptr_t)q < (uintptr_t)qe) && (*q == 0xA0U)) {
+        if((asn1_get_tlv_span(&q, qe, 0xA0U, permitted, permitted_len) != NOXTLS_RETURN_SUCCESS) ||
+           (*permitted_len == 0U)) {
+            return NOXTLS_RETURN_BAD_DATA;
+        }
+    }
+    if(((uintptr_t)q < (uintptr_t)qe) && (*q == 0xA1U)) {
+        if((asn1_get_tlv_span(&q, qe, 0xA1U, excluded, excluded_len) != NOXTLS_RETURN_SUCCESS) ||
+           (*excluded_len == 0U)) {
+            return NOXTLS_RETURN_BAD_DATA;
+        }
+    }
+    if(((uintptr_t)q != (uintptr_t)qe) || ((*permitted == NULL) && (*excluded == NULL))) {
+        return NOXTLS_RETURN_BAD_DATA;  /* trailing octets, or neither field (RFC 5280 4.2.1.10) */
+    }
+    {
+        /* Validate every subtree once at parse so enforcement never meets malformed input. */
+        const uint8_t *lists[2];
+        uint32_t lens[2];
+        uint32_t li = 0U;
+        lists[0] = *permitted;
+        lens[0] = *permitted_len;
+        lists[1] = *excluded;
+        lens[1] = *excluded_len;
+        for(li = 0U; li < 2U; li += 1U) {
+            if(lists[li] != NULL) {
+                const uint8_t *sp = lists[li];
+                const uint8_t *se = &lists[li][lens[li]];
+                while((uintptr_t)sp < (uintptr_t)se) {
+                    uint8_t tag = 0U;
+                    const uint8_t *base = NULL;
+                    uint32_t base_len = 0U;
+                    if(x509_nc_next_subtree(&sp, se, &tag, &base, &base_len) != NOXTLS_RETURN_SUCCESS) {
+                        return NOXTLS_RETURN_BAD_DATA;
+                    }
+                    if((tag == 0x87U) && (base_len != 8U) && (base_len != 32U)) {
+                        return NOXTLS_RETURN_BAD_DATA;  /* iPAddress subtree is address || mask */
+                    }
+                }
+            }
+        }
+    }
+    return NOXTLS_RETURN_SUCCESS;
+}
 
 /**
  * Parse cert->extensions (SEQUENCE OF Extension) and fill Key Usage, EKU, Basic Constraints,
@@ -1090,8 +1328,6 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
     static const uint8_t x509p_oid_certificate_policies[] = { 0x55U, 0x1DU, 0x20U };
     /* id-ce-cRLDistributionPoints = 2.5.29.31 */
     static const uint8_t x509p_oid_crl_distribution_points[] = { 0x55U, 0x1DU, 0x1FU };
-    /* id-ce-nameConstraints = 2.5.29.30 */
-    static const uint8_t x509p_oid_name_constraints[] = { 0x55U, 0x1DU, 0x1EU };
     /* id-ce-policyConstraints = 2.5.29.36 */
     static const uint8_t x509p_oid_policy_constraints[] = { 0x55U, 0x1DU, 0x24U };
     /* id-ce-inhibitAnyPolicy = 2.5.29.54 */
@@ -1117,6 +1353,7 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
     cert->san_dns_count = 0U;
     cert->key_usage_bits = 0U;
     cert->ext_key_usage_bits = 0U;
+    cert->ext_flags = 0U;
     cert->basic_constraints_ca = -1;
     cert->basic_constraints_path_len = X509_BC_PATH_LEN_ABSENT;
     cert->authority_key_id = NULL;
@@ -1126,8 +1363,10 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
     ext_ptr = cert->extensions;
     ext_end = &cert->extensions[cert->extensions_len];
 
-    if(asn1_get_sequence(&ext_ptr, ext_end, &seq_data, &seq_len) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_SUCCESS;
+    /* Extensions ::= SEQUENCE SIZE (1..MAX) OF Extension, filling the whole [3] field. */
+    if((asn1_get_sequence(&ext_ptr, ext_end, &seq_data, &seq_len) != NOXTLS_RETURN_SUCCESS) ||
+       ((uintptr_t)ext_ptr != (uintptr_t)ext_end) || (seq_len == 0U)) {
+        return NOXTLS_RETURN_BAD_DATA;
     }
 
     {
@@ -1177,83 +1416,84 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
             } else if(oid_equal(ext_oid, ext_oid_len, x509p_oid_key_usage, sizeof(x509p_oid_key_usage)) != 0) {
                 const uint8_t *ku_ptr = val_data;
                 const uint8_t *ku_end = &val_data[val_len];
-                if(asn1_get_tag(&ku_ptr, ku_end, 0x03U) == NOXTLS_RETURN_SUCCESS) {
-                    uint32_t bs_len = (uint32_t)(asn1_get_length(&ku_ptr, ku_end));
-                    if((bs_len >= 1U) && (x509_bytes_remaining(ku_ptr, ku_end) >= (size_t)bs_len)) {
-                        uint32_t unused = (uint32_t)ku_ptr[0] & 0x7U;
-                        const uint8_t *bits_data = &ku_ptr[1];
-                        uint32_t bits_bytes = (uint32_t)(bs_len - 1U);
-                        uint32_t num_bits = (uint32_t)(bits_bytes * 8U);
-                        uint16_t bits = 0U;
-                        uint32_t i = 0U;
-                        if((unused <= 7U) && (num_bits >= unused)) {
-                            num_bits -= unused;
-                        }
-                        {
-                            static const uint16_t ku_bit16[9] = {
-                                0x0001U, 0x0002U, 0x0004U, 0x0008U, 0x0010U, 0x0020U, 0x0040U, 0x0080U, 0x0100U
-                            };
-                            static const uint8_t ku_msb8[8] = {
-                                0x80U, 0x40U, 0x20U, 0x10U, 0x08U, 0x04U, 0x02U, 0x01U
-                            };
-                            for(i = 0U; (i < num_bits) && (i < 9U); i += 1U) {
-                                uint32_t byte_off = (uint32_t)(i >> 3U);
-                                uint32_t bit_off = (uint32_t)(i & 7U);
-                                if((byte_off < bits_bytes) &&
-                                   ((bits_data[byte_off] & ku_msb8[bit_off]) != 0U)) {
-                                    bits = (uint16_t)(bits | ku_bit16[i]);
-                                }
+                const uint8_t *bs = NULL;
+                uint32_t bs_len = 0U;
+                /* Presence is recorded whatever the value decodes to; an undecodable value or a
+                 * duplicate extension rejects the certificate (RFC 5280 4.2). */
+                if(((cert->ext_flags & X509_EXT_FLAG_KEY_USAGE) != 0U) ||
+                   (asn1_get_tlv_span(&ku_ptr, ku_end, 0x03U, &bs, &bs_len) != NOXTLS_RETURN_SUCCESS) ||
+                   ((uintptr_t)ku_ptr != (uintptr_t)ku_end) || (bs_len < 1U) || (bs[0] > 7U) ||
+                   ((bs_len == 1U) && (bs[0] != 0U))) {
+                    return NOXTLS_RETURN_BAD_DATA;
+                }
+                cert->ext_flags = (uint8_t)(cert->ext_flags | X509_EXT_FLAG_KEY_USAGE);
+                {
+                    uint32_t unused = (uint32_t)bs[0];
+                    const uint8_t *bits_data = &bs[1];
+                    uint32_t bits_bytes = (uint32_t)(bs_len - 1U);
+                    uint32_t num_bits = (uint32_t)(bits_bytes * 8U) - unused;
+                    uint16_t bits = 0U;
+                    uint32_t i = 0U;
+                    {
+                        static const uint16_t ku_bit16[9] = {
+                            0x0001U, 0x0002U, 0x0004U, 0x0008U, 0x0010U, 0x0020U, 0x0040U, 0x0080U, 0x0100U
+                        };
+                        static const uint8_t ku_msb8[8] = {
+                            0x80U, 0x40U, 0x20U, 0x10U, 0x08U, 0x04U, 0x02U, 0x01U
+                        };
+                        for(i = 0U; (i < num_bits) && (i < 9U); i += 1U) {
+                            uint32_t byte_off = (uint32_t)(i >> 3U);
+                            uint32_t bit_off = (uint32_t)(i & 7U);
+                            if((byte_off < bits_bytes) &&
+                               ((bits_data[byte_off] & ku_msb8[bit_off]) != 0U)) {
+                                bits = (uint16_t)(bits | ku_bit16[i]);
                             }
                         }
-                        cert->key_usage_bits = bits;
                     }
+                    cert->key_usage_bits = bits;
                 }
             } else if(oid_equal(ext_oid, ext_oid_len, x509p_oid_basic_constraints, sizeof(x509p_oid_basic_constraints)) != 0) {
                 const uint8_t *bc_ptr = val_data;
                 const uint8_t *bc_end = &val_data[val_len];
                 const uint8_t *bc_seq = NULL;
                 uint32_t bc_seq_len = 0U;
-                if(asn1_get_sequence(&bc_ptr, bc_end, &bc_seq, &bc_seq_len) == NOXTLS_RETURN_SUCCESS) {
+                /* BasicConstraints ::= SEQUENCE { cA BOOLEAN DEFAULT FALSE, pathLenConstraint INTEGER (0..MAX) OPTIONAL }.
+                 * A duplicate or undecodable extension rejects the certificate. */
+                if((cert->basic_constraints_ca != -1) ||
+                   (asn1_get_tlv_span(&bc_ptr, bc_end, 0x30U, &bc_seq, &bc_seq_len) != NOXTLS_RETURN_SUCCESS) ||
+                   ((uintptr_t)bc_ptr != (uintptr_t)bc_end)) {
+                    return NOXTLS_RETURN_BAD_DATA;
+                }
+                {
                     const uint8_t *p = bc_seq;
                     const uint8_t *pe = &bc_seq[bc_seq_len];
-                    uint8_t pe_done = 0U;
                     cert->basic_constraints_ca = 0;
-                    while(((uintptr_t)p < (uintptr_t)pe) && (pe_done == 0U)) {
-                        if(*p == 0x01U) {
-                            int ca_val = 0;
-                            /* cA BOOLEAN: a malformed BOOLEAN rejects the certificate (DER: length 1, 0x00/0xFF). */
-                            if(asn1_get_boolean(&p, pe, &ca_val) != NOXTLS_RETURN_SUCCESS) {
-                                return NOXTLS_RETURN_BAD_DATA;
-                            }
-                            cert->basic_constraints_ca = (ca_val != 0) ? 1 : 0;
-                        } else if(*p == 0x02U) {
-                            const uint8_t *path_buf = NULL;
-                            uint32_t path_buf_len = 0U;
-                            if((asn1_get_integer_span(&p, pe, &path_buf, &path_buf_len) == NOXTLS_RETURN_SUCCESS) &&
-                               (path_buf_len <= 4U)) {
-                                uint32_t path_len = 0U;
-                                uint32_t j = 0U;
-                                if((path_buf[0] & 0x80U) != 0U) {
-                                    /* pathLenConstraint is INTEGER (0..MAX) (RFC 5280 4.2.1.9): a negative
-                                     * value would otherwise read back as X509_BC_PATH_LEN_ABSENT (-1) or a
-                                     * huge depth and silently lift the constraint. */
-                                    return NOXTLS_RETURN_BAD_DATA;
-                                }
-                                for(j = 0U; j < path_buf_len; j += 1U) { path_len = (path_len << 8U) | (uint32_t)(path_buf[j]); }
-                                /* Saturate: any value >= 32767 is far beyond NOXTLS_MAX_CERT_CHAIN_DEPTH. */
-                                cert->basic_constraints_path_len = (path_len > 0x7FFFU) ? (int16_t)0x7FFF : (int16_t)path_len;
-                            } else {
-                                pe_done = 1U;  /* do not resume scanning from inside a malformed INTEGER */
-                            }
-                        } else {
-                            uint32_t L = 0U;
-                            p = &p[1];
-                            if(asn1_get_bounded_length(&p, pe, &L) == NOXTLS_RETURN_SUCCESS) {
-                                p = &p[L];
-                            } else {
-                                pe_done = 1U;
-                            }
+                    if(((uintptr_t)p < (uintptr_t)pe) && (*p == 0x01U)) {
+                        int ca_val = 0;
+                        /* cA BOOLEAN: a malformed BOOLEAN rejects the certificate (DER: length 1, 0x00/0xFF). */
+                        if(asn1_get_boolean(&p, pe, &ca_val) != NOXTLS_RETURN_SUCCESS) {
+                            return NOXTLS_RETURN_BAD_DATA;
                         }
+                        cert->basic_constraints_ca = (ca_val != 0) ? 1 : 0;
+                    }
+                    if(((uintptr_t)p < (uintptr_t)pe) && (*p == 0x02U)) {
+                        const uint8_t *path_buf = NULL;
+                        uint32_t path_buf_len = 0U;
+                        uint32_t path_len = 0U;
+                        uint32_t j = 0U;
+                        if((asn1_get_integer_span(&p, pe, &path_buf, &path_buf_len) != NOXTLS_RETURN_SUCCESS) ||
+                           (path_buf_len > 4U) || ((path_buf[0] & 0x80U) != 0U)) {
+                            /* pathLenConstraint is INTEGER (0..MAX) (RFC 5280 4.2.1.9): a negative
+                             * value would otherwise read back as X509_BC_PATH_LEN_ABSENT (-1) or a
+                             * huge depth and silently lift the constraint. */
+                            return NOXTLS_RETURN_BAD_DATA;
+                        }
+                        for(j = 0U; j < path_buf_len; j += 1U) { path_len = (path_len << 8U) | (uint32_t)(path_buf[j]); }
+                        /* Saturate: any value >= 32767 is far beyond NOXTLS_MAX_CERT_CHAIN_DEPTH. */
+                        cert->basic_constraints_path_len = (path_len > 0x7FFFU) ? (int16_t)0x7FFF : (int16_t)path_len;
+                    }
+                    if((uintptr_t)p != (uintptr_t)pe) {
+                        return NOXTLS_RETURN_BAD_DATA;  /* unknown or out-of-order element */
                     }
                 }
             } else if(oid_equal(ext_oid, ext_oid_len, x509p_oid_ext_key_usage, sizeof(x509p_oid_ext_key_usage)) != 0) {
@@ -1261,26 +1501,32 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
                 const uint8_t *eku_end = &val_data[val_len];
                 const uint8_t *eku_seq = NULL;
                 uint32_t eku_seq_len = 0U;
-                if(asn1_get_sequence(&eku_ptr, eku_end, &eku_seq, &eku_seq_len) == NOXTLS_RETURN_SUCCESS) {
+                /* Presence is recorded even when no listed purpose is recognized: a present EKU then
+                 * grants none of the X509_EKU_* purposes. Malformed or duplicate EKU rejects. */
+                if(((cert->ext_flags & X509_EXT_FLAG_EXT_KEY_USAGE) != 0U) ||
+                   (asn1_get_tlv_span(&eku_ptr, eku_end, 0x30U, &eku_seq, &eku_seq_len) != NOXTLS_RETURN_SUCCESS) ||
+                   ((uintptr_t)eku_ptr != (uintptr_t)eku_end)) {
+                    return NOXTLS_RETURN_BAD_DATA;
+                }
+                cert->ext_flags = (uint8_t)(cert->ext_flags | X509_EXT_FLAG_EXT_KEY_USAGE);
+                {
                     const uint8_t *q = eku_seq;
                     const uint8_t *qe = &eku_seq[eku_seq_len];
-                    uint8_t q_done = 0U;
-                    while(((uintptr_t)q < (uintptr_t)qe) && (q_done == 0U)) {
+                    while((uintptr_t)q < (uintptr_t)qe) {
                         const uint8_t *ko = NULL;
                         uint32_t ko_len = 0U;
-                        if(asn1_get_oid_span(&q, qe, &ko, &ko_len) == NOXTLS_RETURN_SUCCESS) {
-                            if(oid_equal(ko, ko_len, x509p_oid_kp_server_auth, sizeof(x509p_oid_kp_server_auth)) != 0) { cert->ext_key_usage_bits |= X509_EKU_SERVER_AUTH; }
-                            else if(oid_equal(ko, ko_len, x509p_oid_kp_client_auth, sizeof(x509p_oid_kp_client_auth)) != 0) { cert->ext_key_usage_bits |= X509_EKU_CLIENT_AUTH; }
-                            else if(oid_equal(ko, ko_len, x509p_oid_kp_code_signing, sizeof(x509p_oid_kp_code_signing)) != 0) { cert->ext_key_usage_bits |= X509_EKU_CODE_SIGNING; }
-                            else if(oid_equal(ko, ko_len, x509p_oid_kp_email_protection, sizeof(x509p_oid_kp_email_protection)) != 0) { cert->ext_key_usage_bits |= X509_EKU_EMAIL_PROTECTION; }
-                            else if(oid_equal(ko, ko_len, x509p_oid_kp_time_stamping, sizeof(x509p_oid_kp_time_stamping)) != 0) { cert->ext_key_usage_bits |= X509_EKU_TIME_STAMPING; }
-                            else if(oid_equal(ko, ko_len, x509p_oid_kp_ocsp_signing, sizeof(x509p_oid_kp_ocsp_signing)) != 0) { cert->ext_key_usage_bits |= X509_EKU_OCSP_SIGNING; }
-                            else if(oid_equal(ko, ko_len, x509p_oid_any_eku, sizeof(x509p_oid_any_eku)) != 0) { cert->ext_key_usage_bits |= X509_EKU_ANY; }
-                            else {
-                                /* MISRA 15.7: no remaining alternative */
-                            }
-                        } else {
-                            q_done = 1U;
+                        if(asn1_get_oid_span(&q, qe, &ko, &ko_len) != NOXTLS_RETURN_SUCCESS) {
+                            return NOXTLS_RETURN_BAD_DATA;
+                        }
+                        if(oid_equal(ko, ko_len, x509p_oid_kp_server_auth, sizeof(x509p_oid_kp_server_auth)) != 0) { cert->ext_key_usage_bits |= X509_EKU_SERVER_AUTH; }
+                        else if(oid_equal(ko, ko_len, x509p_oid_kp_client_auth, sizeof(x509p_oid_kp_client_auth)) != 0) { cert->ext_key_usage_bits |= X509_EKU_CLIENT_AUTH; }
+                        else if(oid_equal(ko, ko_len, x509p_oid_kp_code_signing, sizeof(x509p_oid_kp_code_signing)) != 0) { cert->ext_key_usage_bits |= X509_EKU_CODE_SIGNING; }
+                        else if(oid_equal(ko, ko_len, x509p_oid_kp_email_protection, sizeof(x509p_oid_kp_email_protection)) != 0) { cert->ext_key_usage_bits |= X509_EKU_EMAIL_PROTECTION; }
+                        else if(oid_equal(ko, ko_len, x509p_oid_kp_time_stamping, sizeof(x509p_oid_kp_time_stamping)) != 0) { cert->ext_key_usage_bits |= X509_EKU_TIME_STAMPING; }
+                        else if(oid_equal(ko, ko_len, x509p_oid_kp_ocsp_signing, sizeof(x509p_oid_kp_ocsp_signing)) != 0) { cert->ext_key_usage_bits |= X509_EKU_OCSP_SIGNING; }
+                        else if(oid_equal(ko, ko_len, x509p_oid_any_eku, sizeof(x509p_oid_any_eku)) != 0) { cert->ext_key_usage_bits |= X509_EKU_ANY; }
+                        else {
+                            /* MISRA 15.7: unrecognized purpose (grants nothing) */
                         }
                     }
                 }
@@ -1315,7 +1561,19 @@ noxtls_return_t noxtls_x509_parse_extensions(x509_certificate_t *cert)
                     cert->subject_key_id = ski_data;
                     cert->subject_key_id_len = (uint8_t)ski_len;
                 }
-            } else if((oid_equal(ext_oid, ext_oid_len, x509p_oid_certificate_policies, sizeof(x509p_oid_certificate_policies)) != 0) || (oid_equal(ext_oid, ext_oid_len, x509p_oid_crl_distribution_points, sizeof(x509p_oid_crl_distribution_points)) != 0) || (oid_equal(ext_oid, ext_oid_len, x509p_oid_name_constraints, sizeof(x509p_oid_name_constraints)) != 0) || (oid_equal(ext_oid, ext_oid_len, x509p_oid_policy_constraints, sizeof(x509p_oid_policy_constraints)) != 0) || (oid_equal(ext_oid, ext_oid_len, x509p_oid_inhibit_any_policy, sizeof(x509p_oid_inhibit_any_policy)) != 0)) {
+            } else if(oid_equal(ext_oid, ext_oid_len, s_x509_oid_name_constraints, sizeof(s_x509_oid_name_constraints)) != 0) {
+                /* nameConstraints (critical or not) is enforced during path validation for every
+                 * certificate below this one (x509_nc_check_path()); its syntax is checked here. */
+                const uint8_t *nc_perm = NULL;
+                const uint8_t *nc_excl = NULL;
+                uint32_t nc_perm_len = 0U;
+                uint32_t nc_excl_len = 0U;
+                if(((cert->ext_flags & X509_EXT_FLAG_NAME_CONSTRAINTS) != 0U) ||
+                   (x509_nc_split(val_data, val_len, &nc_perm, &nc_perm_len, &nc_excl, &nc_excl_len) != NOXTLS_RETURN_SUCCESS)) {
+                    return NOXTLS_RETURN_BAD_DATA;
+                }
+                cert->ext_flags = (uint8_t)(cert->ext_flags | X509_EXT_FLAG_NAME_CONSTRAINTS);
+            } else if((oid_equal(ext_oid, ext_oid_len, x509p_oid_certificate_policies, sizeof(x509p_oid_certificate_policies)) != 0) || (oid_equal(ext_oid, ext_oid_len, x509p_oid_crl_distribution_points, sizeof(x509p_oid_crl_distribution_points)) != 0) || (oid_equal(ext_oid, ext_oid_len, x509p_oid_policy_constraints, sizeof(x509p_oid_policy_constraints)) != 0) || (oid_equal(ext_oid, ext_oid_len, x509p_oid_inhibit_any_policy, sizeof(x509p_oid_inhibit_any_policy)) != 0)) {
                 /*
                  * These extensions are recognized, but their policy semantics are not
                  * enforced here. Critical instances must fail closed.
@@ -1704,6 +1962,207 @@ static int x509_subject_cn_matches(const x509_certificate_t *cert, const uint8_t
 }
 
 /**
+ * @brief Parse a dotted-quad IPv4 literal (exactly four decimal octets 0..255, no leading zeros).
+ * @internal
+ *
+ * @param[in] s Text (not NUL-terminated).
+ * @param[in] len Length of @p s.
+ * @param[out] out Four address octets.
+ * @return 1 when @p s is an IPv4 literal, 0 otherwise.
+ */
+static int x509_parse_ipv4_literal(const uint8_t *s, uint32_t len, uint8_t out[4])
+{
+    uint32_t i = 0U;
+    uint32_t part = 0U;
+    uint32_t value = 0U;
+    uint32_t digits = 0U;
+    int ok = 1;
+
+    if((len < 7U) || (len > 15U)) {
+        return 0;
+    }
+    for(i = 0U; (i <= len) && (ok != 0); i += 1U) {
+        if((i == len) || (s[i] == (uint8_t)'.')) {
+            if((digits == 0U) || (part >= 4U)) {
+                ok = 0;
+            } else {
+                out[part] = (uint8_t)value;
+                part += 1U;
+                value = 0U;
+                digits = 0U;
+            }
+        } else if((s[i] >= (uint8_t)'0') && (s[i] <= (uint8_t)'9')) {
+            if((digits == 1U) && (value == 0U)) {
+                ok = 0;  /* leading zero (ambiguous octal form) */
+            } else {
+                value = (value * 10U) + (uint32_t)(s[i] - (uint8_t)'0');
+                digits += 1U;
+                if((digits > 3U) || (value > 255U)) {
+                    ok = 0;
+                }
+            }
+        } else {
+            ok = 0;
+        }
+    }
+    return ((ok != 0) && (part == 4U)) ? 1 : 0;
+}
+
+/**
+ * @brief Return the value of a hexadecimal digit, or 16 when @p c is not one.
+ * @internal
+ */
+static uint32_t x509_hex_digit(uint8_t c)
+{
+    uint32_t v = 16U;
+    if((c >= (uint8_t)'0') && (c <= (uint8_t)'9')) {
+        v = (uint32_t)(c - (uint8_t)'0');
+    } else if((c >= (uint8_t)'a') && (c <= (uint8_t)'f')) {
+        v = (uint32_t)(c - (uint8_t)'a') + 10U;
+    } else if((c >= (uint8_t)'A') && (c <= (uint8_t)'F')) {
+        v = (uint32_t)(c - (uint8_t)'A') + 10U;
+    } else {
+        /* MISRA 15.7: not a hex digit */
+    }
+    return v;
+}
+
+/**
+ * @brief Parse an IPv6 literal (RFC 4291 2.2: hex groups, one "::", optional dotted-quad tail).
+ * @internal
+ *
+ * Zone identifiers ("%eth0") are not accepted.
+ *
+ * @param[in] s Text (not NUL-terminated).
+ * @param[in] len Length of @p s.
+ * @param[out] out Sixteen address octets.
+ * @return 1 when @p s is an IPv6 literal, 0 otherwise.
+ */
+static int x509_parse_ipv6_literal(const uint8_t *s, uint32_t len, uint8_t out[16])
+{
+    uint8_t words[16];
+    uint32_t nbytes = 0U;
+    int gap_at = -1;
+    uint32_t i = 0U;
+
+    if((len < 2U) || (len > 45U)) {
+        return 0;
+    }
+    if((s[0] == (uint8_t)':') && (s[1] == (uint8_t)':')) {
+        gap_at = 0;
+        i = 2U;
+    } else if(s[0] == (uint8_t)':') {
+        return 0;
+    } else {
+        /* MISRA 15.7: starts with a group */
+    }
+    while(i < len) {
+        uint32_t start = i;
+        uint32_t value = 0U;
+        uint32_t ndig = 0U;
+        while((i < len) && (ndig <= 4U) && (x509_hex_digit(s[i]) < 16U)) {
+            value = (value << 4U) | x509_hex_digit(s[i]);
+            ndig += 1U;
+            i += 1U;
+        }
+        if((i < len) && (s[i] == (uint8_t)'.')) {
+            /* Embedded IPv4 in the last 32 bits. */
+            uint8_t v4[4];
+            if((nbytes > 12U) || (x509_parse_ipv4_literal(&s[start], len - start, v4) == 0)) {
+                return 0;
+            }
+            words[nbytes] = v4[0];
+            words[nbytes + 1U] = v4[1];
+            words[nbytes + 2U] = v4[2];
+            words[nbytes + 3U] = v4[3];
+            nbytes += 4U;
+            i = len;
+        } else {
+            if((ndig == 0U) || (ndig > 4U) || (nbytes >= 16U)) {
+                return 0;
+            }
+            words[nbytes] = (uint8_t)(value >> 8U);
+            words[nbytes + 1U] = (uint8_t)value;
+            nbytes += 2U;
+            if(i < len) {
+                if(s[i] != (uint8_t)':') {
+                    return 0;
+                }
+                i += 1U;
+                if((i < len) && (s[i] == (uint8_t)':')) {
+                    if(gap_at >= 0) {
+                        return 0;  /* a second "::" */
+                    }
+                    gap_at = (int)nbytes;
+                    i += 1U;
+                } else if(i == len) {
+                    return 0;  /* trailing single ':' */
+                } else {
+                    /* MISRA 15.7: next group follows */
+                }
+            }
+        }
+    }
+    if(gap_at >= 0) {
+        uint32_t tail = nbytes - (uint32_t)gap_at;
+        uint32_t k = 0U;
+        if(nbytes >= 16U) {
+            return 0;  /* "::" must stand for at least one group */
+        }
+        for(k = 0U; k < 16U; k += 1U) {
+            out[k] = 0U;
+        }
+        for(k = 0U; k < (uint32_t)gap_at; k += 1U) {
+            out[k] = words[k];
+        }
+        for(k = 0U; k < tail; k += 1U) {
+            out[(16U - tail) + k] = words[(uint32_t)gap_at + k];
+        }
+    } else {
+        uint32_t k = 0U;
+        if(nbytes != 16U) {
+            return 0;
+        }
+        for(k = 0U; k < 16U; k += 1U) {
+            out[k] = words[k];
+        }
+    }
+    return 1;
+}
+
+/**
+ * @brief Detect an IP address reference identity and convert it to network byte order.
+ * @internal
+ *
+ * @param[in] host Host text (not NUL-terminated); an IPv6 literal may be enclosed in brackets.
+ * @param[in] host_len Length of @p host.
+ * @param[out] addr Address octets (4 for IPv4, 16 for IPv6).
+ * @param[out] addr_len 4 or 16.
+ * @return 1 when @p host is an IP literal, 0 when it is to be treated as a DNS name.
+ */
+static int x509_host_ip_literal(const uint8_t *host, uint32_t host_len, uint8_t addr[16], uint32_t *addr_len)
+{
+    const uint8_t *h = host;
+    uint32_t n = host_len;
+    int is_ip = 0;
+
+    if((n >= 2U) && (h[0] == (uint8_t)'[') && (h[n - 1U] == (uint8_t)']')) {
+        h = &h[1];
+        n -= 2U;
+    }
+    if(x509_parse_ipv4_literal(h, n, addr) != 0) {
+        *addr_len = 4U;
+        is_ip = 1;
+    } else if(x509_parse_ipv6_literal(h, n, addr) != 0) {
+        *addr_len = 16U;
+        is_ip = 1;
+    } else {
+        /* MISRA 15.7: a DNS name */
+    }
+    return is_ip;
+}
+
+/**
  * @brief Check whether the certificate is valid for the given hostname (RFC 6125 style).
  * Prefer SAN dNSName (every dNSName of every subjectAltName extension, read from the DER); if
  * there is none, fall back to the subject commonName attribute(s) of the DER subject Name.
@@ -1730,6 +2189,35 @@ noxtls_return_t noxtls_x509_certificate_matches_hostname(const x509_certificate_
     if(host_len == 0U) {
         cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_HOSTNAME_MISMATCH, cert, hostname, 0, 0);
         return NOXTLS_RETURN_CERT_VERIFY_HOSTNAME_MISMATCH;
+    }
+
+    {
+        /* RFC 6125 6.2.1 / RFC 5280 4.2.1.6: an IP address reference identity matches only an
+         * iPAddress SAN, in binary form; never a dNSName, a wildcard or the subject CN. */
+        uint8_t ip_addr[16];
+        uint32_t ip_len = 0U;
+        if(x509_host_ip_literal(hostname, host_len, ip_addr, &ip_len) != 0) {
+            noxtls_x509_san_iter_t iter;
+            int has_entry = 1;
+            if(noxtls_x509_san_iter_init(&iter, cert) != NOXTLS_RETURN_SUCCESS) {
+                has_entry = 0;
+            }
+            while(has_entry != 0) {
+                uint8_t type = 0U;
+                const uint8_t *name = NULL;
+                uint32_t name_len = 0U;
+                if(noxtls_x509_san_iter_next(&iter, &type, &name, &name_len, &has_entry) != NOXTLS_RETURN_SUCCESS) {
+                    has_entry = 0;
+                } else if((has_entry != 0) && (type == NOXTLS_X509_SAN_IP) && (name_len == ip_len) &&
+                          (noxtls_ct_memcmp(name, ip_addr, (size_t)ip_len) == 0)) {
+                    return NOXTLS_RETURN_SUCCESS;
+                } else {
+                    /* MISRA 15.7: keep scanning */
+                }
+            }
+            cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_HOSTNAME_MISMATCH, cert, hostname, host_len, 0);
+            return NOXTLS_RETURN_CERT_VERIFY_HOSTNAME_MISMATCH;
+        }
     }
 
     /* Prefer SAN dNSName */
@@ -1816,28 +2304,31 @@ noxtls_return_t noxtls_x509_certificate_free(x509_certificate_t *cert)
  *
  * The time is converted once to seconds since the Unix epoch. A malformed time does not fail the
  * parse (as before); it is flagged and reported as NOXTLS_RETURN_BAD_DATA by validity checks. For
- * GeneralizedTime only YYYYMMDDHHMMSS (the first 14 characters) is significant.
+ * GeneralizedTime only YYYYMMDDHHMMSS (the first 14 characters) is significant. A missing value,
+ * a tag other than UTCTime/GeneralizedTime, or an empty or truncated value fails the parse.
  *
  * @param[in,out] cert Certificate being parsed.
  * @param[in,out] vp Cursor inside the Validity SEQUENCE contents.
  * @param[in] ve End of the Validity SEQUENCE contents.
  * @param[in] is_not_before Nonzero for notBefore, zero for notAfter.
+ *
+ * @return NOXTLS_RETURN_SUCCESS, or NOXTLS_RETURN_CERT_PARSE_FAILED for a missing or non-Time element.
  */
-static void x509_parse_validity_time(x509_certificate_t *cert, const uint8_t **vp, const uint8_t *ve, int is_not_before)
+static noxtls_return_t x509_parse_validity_time(x509_certificate_t *cert, const uint8_t **vp, const uint8_t *ve, int is_not_before)
 {
     const uint8_t *p = *vp;
     uint8_t tag = 0U;
     uint32_t time_len = 0U;
 
+    /* Time ::= CHOICE { utcTime UTCTime, generalTime GeneralizedTime } (RFC 5280 4.1.2.5):
+     * any other tag, or a missing value, is a malformed certificate. */
     if(((uintptr_t)p >= (uintptr_t)ve) || ((*p != 0x17U) && (*p != 0x18U))) {
-        return;
+        return NOXTLS_RETURN_CERT_PARSE_FAILED;
     }
     tag = *p;
     p = &p[1];  /* Skip tag */
-    time_len = (uint32_t)(asn1_get_length(&p, ve));
-    if((time_len == 0U) || (x509_bytes_remaining(p, ve) < (size_t)time_len)) {
-        *vp = p;
-        return;
+    if((asn1_get_bounded_length(&p, ve, &time_len) != NOXTLS_RETURN_SUCCESS) || (time_len == 0U)) {
+        return NOXTLS_RETURN_CERT_PARSE_FAILED;
     }
     {
         uint32_t use_len = time_len;
@@ -1860,6 +2351,7 @@ static void x509_parse_validity_time(x509_certificate_t *cert, const uint8_t **v
         }
     }
     *vp = &p[time_len];
+    return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
@@ -2067,6 +2559,12 @@ static noxtls_return_t x509_certificate_parse_der_body(x509_certificate_t *cert)
     uint32_t seq_len = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
 
+    /* Extension-derived fields start as "absent" (also for certificates without extensions):
+     * basicConstraints -1 / X509_BC_PATH_LEN_ABSENT, no Key Usage / EKU / nameConstraints. */
+    cert->basic_constraints_ca = -1;
+    cert->basic_constraints_path_len = X509_BC_PATH_LEN_ABSENT;
+    cert->ext_flags = 0U;
+
     /* Certificate ::= SEQUENCE { tbsCertificate, signatureAlgorithm, signatureValue } */
     if(asn1_get_tlv_span(&ptr, end, 0x30U, &cert_body, &cert_body_len) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_CERT_PARSE_FAILED;
@@ -2150,11 +2648,15 @@ static noxtls_return_t x509_certificate_parse_der_body(x509_certificate_t *cert)
     if(asn1_get_sequence(&tbs_ptr, tbs_end, &seq_data, &seq_len) != NOXTLS_RETURN_SUCCESS) {
         return NOXTLS_RETURN_CERT_PARSE_FAILED;
     }
-    if(seq_len >= 13U) {
+    {
+        /* Validity ::= SEQUENCE { notBefore Time, notAfter Time }: exactly two Time values. */
         const uint8_t *validity_ptr = seq_data;
         const uint8_t *validity_end = &seq_data[seq_len];
-        x509_parse_validity_time(cert, &validity_ptr, validity_end, 1);
-        x509_parse_validity_time(cert, &validity_ptr, validity_end, 0);
+        if((x509_parse_validity_time(cert, &validity_ptr, validity_end, 1) != NOXTLS_RETURN_SUCCESS) ||
+           (x509_parse_validity_time(cert, &validity_ptr, validity_end, 0) != NOXTLS_RETURN_SUCCESS) ||
+           ((uintptr_t)validity_ptr != (uintptr_t)validity_end)) {
+            return NOXTLS_RETURN_CERT_PARSE_FAILED;
+        }
     }
 
     /* subject Name */
@@ -3276,8 +3778,11 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(const x509_certificate_
         return NOXTLS_RETURN_INVALID_ALGORITHM;
     }
 
-    /* Hash the TBSCertificate (digests compiled out of this build are rejected below). */
-    if(hash_algo == NOXTLS_HASH_SHA_256) {
+    /* Hash the TBSCertificate (digests compiled out of this build are rejected below).
+     * ML-DSA, SLH-DSA and Falcon (is_rsa >= 2) sign the TBSCertificate directly and need no digest. */
+    if(is_rsa >= 2) {
+        rc = NOXTLS_RETURN_SUCCESS;
+    } else if(hash_algo == NOXTLS_HASH_SHA_256) {
         noxtls_sha_ctx_t sha_ctx;
         (void)noxtls_sha256_init(&sha_ctx, hash_algo);
         (void)noxtls_sha256_update(&sha_ctx, cert->tbs_certificate, cert->tbs_certificate_len);
@@ -3379,24 +3884,17 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(const x509_certificate_
     }
     if(is_rsa == 2) {
 #if NOXTLS_FEATURE_ML_DSA
-        uint32_t hash_len = 0U;
-        if((issuer->has_mldsa == 0U) || (issuer->public_key_len == 0U) || (issuer->mldsa_param == 0U)) {
+        /* Pure ML-DSA (FIPS 204, RFC 9881): the signature covers the DER TBSCertificate itself,
+         * with an empty context string, and the signature OID must name the issuer key's parameter set. */
+        int sig_param = x509_oid_is_mldsa(cert->signature_algorithm_oid, cert->signature_algorithm_oid_len);
+        if((sig_param == 0) || (issuer->has_mldsa == 0U) || (issuer->public_key_len == 0U) ||
+           (issuer->mldsa_param == 0U) || ((int)issuer->mldsa_param != sig_param)) {
             cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED, cert, NULL, 0, 0);
             return NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED;
         }
-        if(hash_algo == NOXTLS_HASH_SHA_256) {
-            hash_len = 32U;
-        } else if(hash_algo == NOXTLS_HASH_SHA_384) {
-            hash_len = 48U;
-        } else if(hash_algo == NOXTLS_HASH_SHA_512) {
-            hash_len = 64U;
-        } else {
-            /* MISRA 15.7: final else path */
-            return NOXTLS_RETURN_INVALID_ALGORITHM;
-        }
         rc = noxtls_mldsa_verify(issuer->mldsa_param,
                                  issuer->mldsa_public_key,
-                                 hash, hash_len,
+                                 cert->tbs_certificate, cert->tbs_certificate_len,
                                  cert->signature, cert->signature_len);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_SIGNATURE_FAILED, cert, NULL, 0, 0);
@@ -3513,47 +4011,19 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(const x509_certificate_
             return NOXTLS_RETURN_INVALID_PARAM;
         }
 
-        /* Parse ECDSA signature (DER-encoded) */
-        /* ECDSA signature in X.509 is DER-encoded SEQUENCE of two INTEGERs (r, s) */
-        const uint8_t *sig_ptr = cert->signature;
-        const uint8_t *sig_end = &cert->signature[cert->signature_len];
-        const uint8_t *seq_data = NULL;
-        uint32_t seq_len = 0U;
-
-        CERT_DEBUG_PRINT("x509_certificate_verify_signature: signature_len=%u first_byte=0x%02x (expect 0x30 SEQUENCE)\n",
-            (uint32_t)cert->signature_len, cert->signature_len > 0U ? cert->signature[0] : 0);
-        if(asn1_get_tag(&sig_ptr, sig_end, 0x30U) != NOXTLS_RETURN_SUCCESS) {  /* SEQUENCE tag = 0x30U */
-            CERT_DEBUG_PRINT("x509_certificate_verify_signature: invalid ECDSA signature format (not SEQUENCE 0x30)\n");
-            (void)noxtls_ecc_key_free(&ecc_key);
-            return NOXTLS_RETURN_BAD_DATA;
-        }
-
-        seq_len = asn1_get_length(&sig_ptr, sig_end);
-        if((seq_len == 0U) || (x509_bytes_remaining(sig_ptr, sig_end) < (size_t)seq_len)) {
-            CERT_DEBUG_PRINT("x509_certificate_verify_signature: invalid ECDSA signature length\n");
-            (void)noxtls_ecc_key_free(&ecc_key);
-            return NOXTLS_RETURN_BAD_DATA;
-        }
-
-        seq_data = sig_ptr;
-        const uint8_t *seq_end = &seq_data[seq_len];
-        /* Parse r */
+        /* Parse ECDSA signature: DER SEQUENCE of two INTEGERs (r, s), strictly canonical. */
         /* DER INTEGERs carry a 0x00 sign octet when the top bit is set, so r/s can be one octet
          * longer than the field (two for secp224k1, whose order exceeds its field); with
          * ECC_MAX_KEY_SIZE derived from the enabled curves the buffers need that headroom. */
         uint8_t r[ECC_MAX_KEY_SIZE + 2U];
         uint32_t r_len = (uint32_t)sizeof(r);
-        if(asn1_get_integer(&sig_ptr, seq_end, r, &r_len) != NOXTLS_RETURN_SUCCESS) {
-            CERT_DEBUG_PRINT("x509_certificate_verify_signature: failed to parse ECDSA r\n");
-            (void)noxtls_ecc_key_free(&ecc_key);
-            return NOXTLS_RETURN_BAD_DATA;
-        }
-
-        /* Parse s */
         uint8_t s[ECC_MAX_KEY_SIZE + 2U];
         uint32_t s_len = (uint32_t)sizeof(s);
-        if(asn1_get_integer(&sig_ptr, seq_end, s, &s_len) != NOXTLS_RETURN_SUCCESS) {
-            CERT_DEBUG_PRINT("x509_certificate_verify_signature: failed to parse ECDSA s\n");
+
+        CERT_DEBUG_PRINT("x509_certificate_verify_signature: signature_len=%u first_byte=0x%02x (expect 0x30 SEQUENCE)\n",
+            (uint32_t)cert->signature_len, cert->signature_len > 0U ? cert->signature[0] : 0);
+        if(x509_ecdsa_sig_parse_strict(cert->signature, cert->signature_len, r, &r_len, s, &s_len) != NOXTLS_RETURN_SUCCESS) {
+            CERT_DEBUG_PRINT("x509_certificate_verify_signature: invalid or non-canonical ECDSA signature encoding\n");
             (void)noxtls_ecc_key_free(&ecc_key);
             return NOXTLS_RETURN_BAD_DATA;
         }
@@ -3912,7 +4382,9 @@ static noxtls_return_t x509_check_time_bound(const x509_certificate_t *cert,
         *out_bound = 0;
     }
     if((cert->validity_flags & present) == 0U) {
-        return NOXTLS_RETURN_SUCCESS;
+        /* notBefore and notAfter are mandatory (RFC 5280 4.1.2.5): an absent bound never means "no limit". */
+        CERT_DEBUG_PRINT("x509_certificate_check_validity: validity bound missing\n");
+        return NOXTLS_RETURN_BAD_DATA;
     }
 
     /* The time was decoded once at parse time; a malformed or out-of-range value fails here. */
@@ -4845,21 +5317,29 @@ static int x509_cert_identical(const x509_certificate_t *lhs, const x509_certifi
  *
  * This function checks the policy of an issuer.
  *
+ * A presented intermediate must assert cA=TRUE. A trust anchor without a basicConstraints
+ * extension (v1 roots, or v3 roots generated without it) is accepted as an unconstrained legacy
+ * anchor, but constraints an anchor does carry are enforced: cA=FALSE, a Key Usage without
+ * keyCertSign and pathLenConstraint all apply to anchors as to intermediates.
+ *
  * @param[in] issuer The issuer to check the policy of.
  * @param[in] path_depth_below The path depth below the issuer.
+ * @param[in] is_anchor Nonzero when @p issuer is a configured trust anchor.
  *
  * @return The return code of the function.
  */
-static noxtls_return_t x509_issuer_policy_check(const x509_certificate_t *issuer, uint32_t path_depth_below)
+static noxtls_return_t x509_issuer_policy_check(const x509_certificate_t *issuer, uint32_t path_depth_below,
+                                                int is_anchor)
 {
     if(issuer == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-    if(issuer->basic_constraints_ca != 1) {
+    if((issuer->basic_constraints_ca != 1) &&
+       ((is_anchor == 0) || (issuer->basic_constraints_ca != -1))) {
         cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, issuer, NULL, 0, path_depth_below + 1U);
         return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
     }
-    if((issuer->key_usage_bits != 0U) &&
+    if(((issuer->ext_flags & X509_EXT_FLAG_KEY_USAGE) != 0U) &&
        ((issuer->key_usage_bits & X509_KEY_USAGE_KEY_CERT_SIGN) == 0U)) {
         cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, issuer, NULL, 0, path_depth_below + 1U);
         return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
@@ -4893,7 +5373,7 @@ static noxtls_return_t x509_leaf_policy_check(const x509_certificate_t *leaf, ui
         cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, leaf, NULL, 0, 0);
         return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
     }
-    if((leaf->ext_key_usage_bits != 0U) &&
+    if(((leaf->ext_flags & X509_EXT_FLAG_EXT_KEY_USAGE) != 0U) &&
        ((leaf->ext_key_usage_bits & (required_eku | X509_EKU_ANY)) == 0U)) {
         cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, leaf, NULL, 0, 0);
         return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
@@ -4909,7 +5389,7 @@ static noxtls_return_t x509_leaf_policy_check(const x509_certificate_t *leaf, ui
      else {
          /* MISRA 15.7: no remaining alternative */
      }
-    if((leaf->key_usage_bits != 0U) &&
+    if(((leaf->ext_flags & X509_EXT_FLAG_KEY_USAGE) != 0U) &&
        ((leaf->key_usage_bits & required_key_usage) == 0U)) {
         cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, leaf, NULL, 0, 0);
         return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
@@ -5100,6 +5580,441 @@ static int x509_key_id_matches(const x509_certificate_t *subject_cert, const x50
     return match;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Name constraints (RFC 5280 4.2.1.10, 6.1.3 (b)/(c))                         */
+/* -------------------------------------------------------------------------- */
+
+/** Lower-case one ASCII octet. */
+static uint8_t x509_ascii_lower(uint8_t c)
+{
+    return ((c >= (uint8_t)'A') && (c <= (uint8_t)'Z')) ? (uint8_t)(c + 32U) : c;
+}
+
+/** Case-insensitive ASCII comparison of two equal-length spans; 1 when equal. */
+static int x509_ascii_ieq(const uint8_t *a, const uint8_t *b, uint32_t len)
+{
+    uint32_t i = 0U;
+    int eq = 1;
+    for(i = 0U; (i < len) && (eq != 0); i += 1U) {
+        if(x509_ascii_lower(a[i]) != x509_ascii_lower(b[i])) {
+            eq = 0;
+        }
+    }
+    return eq;
+}
+
+/**
+ * @brief dNSName subtree match: @p name equals @p base or is a subdomain of it.
+ * @internal
+ *
+ * A base with a leading '.' matches subdomains only; an empty base matches every name.
+ * Comparison is ASCII case-insensitive.
+ */
+static int x509_nc_dns_match(const uint8_t *base, uint32_t base_len, const uint8_t *name, uint32_t name_len)
+{
+    int match = 0;
+
+    if(base_len == 0U) {
+        match = 1;
+    } else if(base[0] == (uint8_t)'.') {
+        match = ((name_len > base_len) &&
+                 (x509_ascii_ieq(&name[name_len - base_len], base, base_len) != 0)) ? 1 : 0;
+    } else if(name_len == base_len) {
+        match = x509_ascii_ieq(name, base, base_len);
+    } else if(name_len > base_len) {
+        match = ((name[name_len - base_len - 1U] == (uint8_t)'.') &&
+                 (x509_ascii_ieq(&name[name_len - base_len], base, base_len) != 0)) ? 1 : 0;
+    } else {
+        /* MISRA 15.7: name shorter than the constraint */
+    }
+    return match;
+}
+
+/**
+ * @brief rfc822Name subtree match (mailbox, host, or ".domain" constraint).
+ * @internal
+ */
+static int x509_nc_email_match(const uint8_t *base, uint32_t base_len, const uint8_t *name, uint32_t name_len)
+{
+    uint32_t at = name_len;
+    uint32_t i = 0U;
+    uint32_t base_at = base_len;
+    int match = 0;
+
+    for(i = 0U; i < name_len; i += 1U) {
+        if(name[i] == (uint8_t)'@') {
+            at = i;
+        }
+    }
+    for(i = 0U; i < base_len; i += 1U) {
+        if(base[i] == (uint8_t)'@') {
+            base_at = i;
+        }
+    }
+    if(at >= name_len) {
+        return 0;  /* not a mailbox */
+    }
+    if(base_at < base_len) {
+        /* Exact mailbox: local part case-sensitive, domain case-insensitive. */
+        if((name_len == base_len) && (at == base_at) &&
+           (noxtls_ct_memcmp(name, base, (size_t)at) == 0) &&
+           (x509_ascii_ieq(&name[at], &base[at], name_len - at) != 0)) {
+            match = 1;
+        }
+    } else if((base_len > 0U) && (base[0] == (uint8_t)'.')) {
+        uint32_t dom_len = name_len - at - 1U;
+        match = ((dom_len > base_len) &&
+                 (x509_ascii_ieq(&name[name_len - base_len], base, base_len) != 0)) ? 1 : 0;
+    } else {
+        uint32_t dom_len = name_len - at - 1U;
+        match = ((dom_len == base_len) && (x509_ascii_ieq(&name[at + 1U], base, base_len) != 0)) ? 1 : 0;
+    }
+    return match;
+}
+
+/**
+ * @brief iPAddress subtree match: @p base is address || mask (8 or 32 octets).
+ * @internal
+ */
+static int x509_nc_ip_match(const uint8_t *base, uint32_t base_len, const uint8_t *name, uint32_t name_len)
+{
+    uint32_t i = 0U;
+    int match = 0;
+
+    if((name_len == 4U) || (name_len == 16U)) {
+        if(base_len == (2U * name_len)) {
+            match = 1;
+            for(i = 0U; i < name_len; i += 1U) {
+                uint8_t mask = base[name_len + i];
+                if((uint8_t)(name[i] & mask) != (uint8_t)(base[i] & mask)) {
+                    match = 0;
+                }
+            }
+        }
+    }
+    return match;
+}
+
+/**
+ * @brief directoryName subtree match: @p base_name (Name TLV) is an RDN prefix of @p rdns.
+ * @internal
+ *
+ * @param[in] base_name Contents of the [4] GeneralName (a Name SEQUENCE TLV).
+ * @param[in] base_len Length of @p base_name.
+ * @param[in] rdns RDNSequence contents of the name being checked.
+ * @param[in] rdns_len Length of @p rdns.
+ * @return 1 when every RDN of the base matches the leading RDNs of the name (RFC 5280 7.1 rules).
+ */
+static int x509_nc_dn_match(const uint8_t *base_name, uint32_t base_len, const uint8_t *rdns, uint32_t rdns_len)
+{
+    const uint8_t *bp = base_name;
+    const uint8_t *base_rdns = NULL;
+    uint32_t base_rdns_len = 0U;
+    const uint8_t *b = NULL;
+    const uint8_t *be = NULL;
+    const uint8_t *n = rdns;
+    const uint8_t *ne = &rdns[rdns_len];
+
+    if((asn1_get_tlv_span(&bp, &base_name[base_len], 0x30U, &base_rdns, &base_rdns_len) != NOXTLS_RETURN_SUCCESS) ||
+       ((uintptr_t)bp != (uintptr_t)(&base_name[base_len]))) {
+        return 0;
+    }
+    b = base_rdns;
+    be = &base_rdns[base_rdns_len];
+    /* Advance n past as many RDNs as the base holds, then compare the two prefixes. */
+    while((uintptr_t)b < (uintptr_t)be) {
+        const uint8_t *set = NULL;
+        uint32_t set_len = 0U;
+        if((asn1_get_tlv_span(&b, be, 0x31U, &set, &set_len) != NOXTLS_RETURN_SUCCESS) ||
+           (asn1_get_tlv_span(&n, ne, 0x31U, &set, &set_len) != NOXTLS_RETURN_SUCCESS)) {
+            return 0;
+        }
+    }
+    {
+        uintptr_t prefix = (uintptr_t)n - (uintptr_t)rdns;
+        if(base_rdns_len == 0U) {
+            return 1;
+        }
+        if(x509_dn_equal(base_rdns, base_rdns_len, rdns, (uint32_t)prefix) != 0) {
+            return 1;
+        }
+        return x509_name_equal_normalized(base_rdns, base_rdns_len, rdns, (uint32_t)prefix);
+    }
+}
+
+/**
+ * @brief Check one name of form @p tag against a NameConstraints extension.
+ * @internal
+ *
+ * Excluded subtrees of the same form must not match; when permitted subtrees of the same form
+ * exist, at least one must match. Forms this implementation cannot compare (otherName,
+ * x400Address, ediPartyName, URI, registeredID) fail closed when the constraint names them
+ * (RFC 5280 4.2.1.10: process the constraint or reject).
+ *
+ * @param[in] tag GeneralName tag of the name (0x81 rfc822Name, 0x82 dNSName, 0xA4 directoryName,
+ *                0x87 iPAddress, others unsupported). For 0xA4 @p name is RDNSequence contents.
+ * @return NOXTLS_RETURN_SUCCESS or NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED.
+ */
+static noxtls_return_t x509_nc_check_name(uint8_t tag, const uint8_t *name, uint32_t name_len,
+                                          const uint8_t *permitted, uint32_t permitted_len,
+                                          const uint8_t *excluded, uint32_t excluded_len)
+{
+    uint32_t li = 0U;
+    int permitted_has_form = 0;
+    int permitted_matched = 0;
+
+    for(li = 0U; li < 2U; li += 1U) {
+        const uint8_t *sp = (li == 0U) ? excluded : permitted;
+        uint32_t sl = (li == 0U) ? excluded_len : permitted_len;
+        const uint8_t *se = NULL;
+        if(sp == NULL) {
+            continue;
+        }
+        se = &sp[sl];
+        while((uintptr_t)sp < (uintptr_t)se) {
+            uint8_t btag = 0U;
+            const uint8_t *base = NULL;
+            uint32_t base_len = 0U;
+            int match = 0;
+            if(x509_nc_next_subtree(&sp, se, &btag, &base, &base_len) != NOXTLS_RETURN_SUCCESS) {
+                return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+            }
+            if(btag != tag) {
+                continue;
+            }
+            if(tag == 0x82U) {
+                match = x509_nc_dns_match(base, base_len, name, name_len);
+            } else if(tag == 0x81U) {
+                match = x509_nc_email_match(base, base_len, name, name_len);
+            } else if(tag == 0x87U) {
+                match = x509_nc_ip_match(base, base_len, name, name_len);
+            } else if(tag == 0xA4U) {
+                match = x509_nc_dn_match(base, base_len, name, name_len);
+            } else {
+                /* Unsupported name form constrained by the CA: cannot be processed. */
+                return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+            }
+            if(li == 0U) {
+                if(match != 0) {
+                    return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;  /* within an excluded subtree */
+                }
+            } else {
+                permitted_has_form = 1;
+                if(match != 0) {
+                    permitted_matched = 1;
+                }
+            }
+        }
+    }
+    if((permitted_has_form != 0) && (permitted_matched == 0)) {
+        return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+    }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
+ * @brief Return 1 when a commonName value looks like a DNS host name (letters, digits, '-', '.',
+ *        '*', with at least one '.'), so that it is subject to dNSName constraints.
+ * @internal
+ */
+static int x509_nc_cn_is_hostname(const uint8_t *v, uint32_t len)
+{
+    uint32_t i = 0U;
+    int dots = 0;
+    for(i = 0U; i < len; i += 1U) {
+        uint8_t c = x509_ascii_lower(v[i]);
+        if(c == (uint8_t)'.') {
+            dots = 1;
+        } else if(((c >= (uint8_t)'a') && (c <= (uint8_t)'z')) || ((c >= (uint8_t)'0') && (c <= (uint8_t)'9')) ||
+                  (c == (uint8_t)'-') || (c == (uint8_t)'*')) {
+            /* host name character */
+        } else {
+            return 0;
+        }
+    }
+    return dots;
+}
+
+/**
+ * @brief Check the subject attributes of @p cert that carry names subject to constraints:
+ *        emailAddress (as rfc822Name) and, when @p check_cn is set, host-name-like commonName
+ *        values (as dNSName).
+ * @internal
+ */
+static noxtls_return_t x509_nc_check_subject_attrs(const x509_certificate_t *cert, int check_cn,
+                                                   const uint8_t *permitted, uint32_t permitted_len,
+                                                   const uint8_t *excluded, uint32_t excluded_len)
+{
+    static const uint8_t oid_cn[] = { 0x55U, 0x04U, 0x03U };
+    static const uint8_t oid_email[] = { 0x2AU, 0x86U, 0x48U, 0x86U, 0xF7U, 0x0DU, 0x01U, 0x09U, 0x01U };
+    const uint8_t *dn = cert->subject;
+    const uint8_t *dn_end = NULL;
+
+    if((dn == NULL) || (cert->subject_len == 0U)) {
+        return NOXTLS_RETURN_SUCCESS;
+    }
+    dn_end = &dn[cert->subject_len];
+    while((uintptr_t)dn < (uintptr_t)dn_end) {
+        const uint8_t *set = NULL;
+        uint32_t set_len = 0U;
+        const uint8_t *set_end = NULL;
+        if(asn1_get_tlv_span(&dn, dn_end, 0x31U, &set, &set_len) != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+        }
+        set_end = &set[set_len];
+        while((uintptr_t)set < (uintptr_t)set_end) {
+            const uint8_t *atv = NULL;
+            uint32_t atv_len = 0U;
+            const uint8_t *oid = NULL;
+            uint32_t oid_len = 0U;
+            uint8_t vtag = 0U;
+            const uint8_t *val = NULL;
+            uint32_t val_len = 0U;
+            if(asn1_get_tlv_span(&set, set_end, 0x30U, &atv, &atv_len) != NOXTLS_RETURN_SUCCESS) {
+                return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+            }
+            {
+                const uint8_t *atv_end = &atv[atv_len];
+                if((asn1_get_oid_span(&atv, atv_end, &oid, &oid_len) != NOXTLS_RETURN_SUCCESS) ||
+                   (asn1_get_any_tlv(&atv, atv_end, &vtag, &val, &val_len) != NOXTLS_RETURN_SUCCESS)) {
+                    return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+                }
+            }
+            if(oid_equal(oid, oid_len, oid_email, (uint32_t)sizeof(oid_email)) != 0) {
+                if(x509_nc_check_name(0x81U, val, val_len, permitted, permitted_len, excluded, excluded_len) != NOXTLS_RETURN_SUCCESS) {
+                    return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+                }
+            } else if((check_cn != 0) && (oid_equal(oid, oid_len, oid_cn, (uint32_t)sizeof(oid_cn)) != 0) &&
+                      (x509_cn_value_tag_ok(vtag) != 0) && (x509_nc_cn_is_hostname(val, val_len) != 0)) {
+                if(x509_nc_check_name(0x82U, val, val_len, permitted, permitted_len, excluded, excluded_len) != NOXTLS_RETURN_SUCCESS) {
+                    return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+                }
+            } else {
+                /* MISRA 15.7: attribute not subject to name constraints */
+            }
+        }
+    }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
+ * @brief Find the extnValue of the extension @p oid in a parsed certificate.
+ * @internal
+ *
+ * @return 1 when found (value / value_len set), 0 otherwise.
+ */
+static int x509_cert_find_extension(const x509_certificate_t *cert, const uint8_t *oid, uint32_t oid_len,
+                                    const uint8_t **value, uint32_t *value_len)
+{
+    const uint8_t *p = cert->extensions;
+    const uint8_t *list = NULL;
+    uint32_t list_len = 0U;
+    const uint8_t *lp = NULL;
+    const uint8_t *le = NULL;
+    uint8_t step = X509_EXT_STEP_SKIP;
+
+    if((p == NULL) || (cert->extensions_len < 2U) ||
+       (asn1_get_tlv_span(&p, &cert->extensions[cert->extensions_len], 0x30U, &list, &list_len) != NOXTLS_RETURN_SUCCESS)) {
+        return 0;
+    }
+    lp = list;
+    le = &list[list_len];
+    while(step != X509_EXT_STEP_END) {
+        const uint8_t *eoid = NULL;
+        uint32_t eoid_len = 0U;
+        int crit = 0;
+        if(x509_ext_list_next(&lp, le, &eoid, &eoid_len, &crit, value, value_len, &step) != NOXTLS_RETURN_SUCCESS) {
+            return 0;
+        }
+        if((step == X509_EXT_STEP_ITEM) && (oid_equal(eoid, eoid_len, oid, oid_len) != 0)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/**
+ * @brief Check every name of @p cert against the nameConstraints of @p ca.
+ * @internal
+ *
+ * Names checked: every subjectAltName entry, the subject (as directoryName, when non-empty),
+ * subject emailAddress attributes (as rfc822Name) and, for the end-entity certificate without a
+ * dNSName SAN, host-name-like subject commonName values (as dNSName, because hostname matching
+ * falls back to them).
+ *
+ * @param[in] ca Certificate carrying the constraints (X509_EXT_FLAG_NAME_CONSTRAINTS set).
+ * @param[in] cert Certificate below @p ca in the path.
+ * @param[in] is_leaf Nonzero for the end-entity certificate.
+ * @return NOXTLS_RETURN_SUCCESS or NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED.
+ */
+static noxtls_return_t x509_nc_check_cert(const x509_certificate_t *ca, const x509_certificate_t *cert, int is_leaf)
+{
+    const uint8_t *nc_val = NULL;
+    uint32_t nc_len = 0U;
+    const uint8_t *permitted = NULL;
+    const uint8_t *excluded = NULL;
+    uint32_t permitted_len = 0U;
+    uint32_t excluded_len = 0U;
+    noxtls_x509_san_iter_t iter;
+    int has_entry = 1;
+
+    if((x509_cert_find_extension(ca, s_x509_oid_name_constraints, (uint32_t)sizeof(s_x509_oid_name_constraints),
+                                 &nc_val, &nc_len) == 0) ||
+       (x509_nc_split(nc_val, nc_len, &permitted, &permitted_len, &excluded, &excluded_len) != NOXTLS_RETURN_SUCCESS)) {
+        return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;  /* flagged at parse but unreadable now: fail closed */
+    }
+
+    if((cert->subject != NULL) && (cert->subject_len > 0U)) {
+        if(x509_nc_check_name(0xA4U, cert->subject, cert->subject_len,
+                              permitted, permitted_len, excluded, excluded_len) != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+        }
+    }
+    if(x509_nc_check_subject_attrs(cert, ((is_leaf != 0) && (cert->san_dns_count == 0U)) ? 1 : 0,
+                                   permitted, permitted_len, excluded, excluded_len) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+    }
+
+    if(noxtls_x509_san_iter_init(&iter, cert) != NOXTLS_RETURN_SUCCESS) {
+        return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+    }
+    while(has_entry != 0) {
+        uint8_t type = 0U;
+        const uint8_t *v = NULL;
+        uint32_t v_len = 0U;
+        if(noxtls_x509_san_iter_next(&iter, &type, &v, &v_len, &has_entry) != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+        }
+        if(has_entry != 0) {
+            uint8_t gtag = 0U;
+            const uint8_t *nv = v;
+            uint32_t nv_len = v_len;
+            if(type == NOXTLS_X509_SAN_EMAIL) {
+                gtag = 0x81U;
+            } else if(type == NOXTLS_X509_SAN_DNS) {
+                gtag = 0x82U;
+            } else if(type == NOXTLS_X509_SAN_IP) {
+                gtag = 0x87U;
+            } else if(type == NOXTLS_X509_SAN_DIRECTORY) {
+                /* [4] EXPLICIT Name: compare the RDNSequence contents. */
+                const uint8_t *dp = v;
+                gtag = 0xA4U;
+                if(asn1_get_tlv_span(&dp, &v[v_len], 0x30U, &nv, &nv_len) != NOXTLS_RETURN_SUCCESS) {
+                    return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+                }
+            } else {
+                /* otherName [0] A0, x400Address [3] A3, ediPartyName [5] A5 (constructed);
+                 * URI [6] 86, registeredID [8] 88 (primitive). */
+                gtag = ((type == 0U) || (type == 3U) || (type == 5U)) ? (uint8_t)(0xA0U | type) : (uint8_t)(0x80U | type);
+            }
+            if(x509_nc_check_name(gtag, nv, nv_len, permitted, permitted_len, excluded, excluded_len) != NOXTLS_RETURN_SUCCESS) {
+                return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+            }
+        }
+    }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
 /**
  * @brief Find the issuer of a certificate in a chain.
  * @internal
@@ -5110,18 +6025,24 @@ static int x509_key_id_matches(const x509_certificate_t *subject_cert, const x50
  * one of the identifiers) are tried first; others are tried afterwards so that a stale key
  * identifier does not break an otherwise valid, signature-verified path.
  *
+ * Every signature verification consumes one unit of @p sig_budget; when the budget is
+ * exhausted the search stops and NULL is returned, so the work a peer can cause with many
+ * same-name candidates is bounded per path validation.
+ *
  * @param[in] subject_cert The subject certificate to find the issuer of.
  * @param[in] chain The certificate chain to search in.
+ * @param[in,out] sig_budget Remaining signature verifications for this path validation.
  *
  * @return The signature-verified issuer certificate, or NULL when none verifies.
  */
 static const x509_certificate_t *x509_find_issuer_in_chain(const x509_certificate_t *subject_cert,
-                                                            const x509_certificate_chain_t *chain)
+                                                            const x509_certificate_chain_t *chain,
+                                                            uint32_t *sig_budget)
 {
     uint32_t pass = 0U;
     uint32_t i = 0U;
 
-    if((subject_cert == NULL) || (chain == NULL) || (chain->certs == NULL)) {
+    if((subject_cert == NULL) || (chain == NULL) || (chain->certs == NULL) || (sig_budget == NULL)) {
         return NULL;
     }
     for(pass = 0U; pass < 2U; pass += 1U) {
@@ -5137,6 +6058,10 @@ static const x509_certificate_t *x509_find_issuer_in_chain(const x509_certificat
             if(x509_key_id_matches(subject_cert, candidate) != want_key_id_match) {
                 continue;
             }
+            if(*sig_budget == 0U) {
+                return NULL;
+            }
+            *sig_budget -= 1U;
             if(noxtls_x509_certificate_verify_signature(subject_cert, candidate) == NOXTLS_RETURN_SUCCESS) {
                 return candidate;
             }
@@ -5340,6 +6265,173 @@ static noxtls_return_t x509_crl_parse_time(const uint8_t **p, const uint8_t *end
 }
 
 /**
+ * @brief Check the crlEntryExtensions of one revokedCertificates entry.
+ * @internal
+ *
+ * reasonCode, invalidityDate and holdInstructionCode are non-critical and informational here.
+ * Any critical entry extension (certificateIssuer of an indirect CRL, or an unknown one) cannot
+ * be processed, so the CRL must not be used (RFC 5280 5.3): the CRL is refused at parse.
+ *
+ * @param[in] p Start of the Extensions SEQUENCE TLV.
+ * @param[in] end End of the entry contents.
+ * @return NOXTLS_RETURN_SUCCESS or NOXTLS_RETURN_CRL_PARSE_FAILED.
+ */
+static noxtls_return_t x509_crl_check_entry_extensions(const uint8_t *p, const uint8_t *end)
+{
+    const uint8_t *list = NULL;
+    uint32_t list_len = 0U;
+    const uint8_t *lp = NULL;
+    const uint8_t *le = NULL;
+    uint8_t step = X509_EXT_STEP_SKIP;
+
+    if((asn1_get_tlv_span(&p, end, 0x30U, &list, &list_len) != NOXTLS_RETURN_SUCCESS) ||
+       ((uintptr_t)p != (uintptr_t)end) || (list_len == 0U)) {
+        return NOXTLS_RETURN_CRL_PARSE_FAILED;
+    }
+    lp = list;
+    le = &list[list_len];
+    while(step != X509_EXT_STEP_END) {
+        const uint8_t *oid = NULL;
+        uint32_t oid_len = 0U;
+        int critical = 0;
+        const uint8_t *val = NULL;
+        uint32_t val_len = 0U;
+        if((x509_ext_list_next(&lp, le, &oid, &oid_len, &critical, &val, &val_len, &step) != NOXTLS_RETURN_SUCCESS) ||
+           (critical != 0)) {
+            return NOXTLS_RETURN_CRL_PARSE_FAILED;
+        }
+    }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
+ * @brief Decode an issuingDistributionPoint extension value into the CRL scope fields.
+ * @internal
+ *
+ * Supported: distributionPoint fullName, onlyContainsUserCerts, onlyContainsCACerts.
+ * Refused (the CRL is not a complete CRL for the issuer's certificates, or cannot be scoped):
+ * nameRelativeToCRLIssuer, onlySomeReasons, indirectCRL, onlyContainsAttributeCerts.
+ *
+ * @return NOXTLS_RETURN_SUCCESS or NOXTLS_RETURN_CRL_PARSE_FAILED.
+ */
+static noxtls_return_t x509_crl_parse_idp(noxtls_x509_crl_t *crl, const uint8_t *val, uint32_t val_len)
+{
+    const uint8_t *p = val;
+    const uint8_t *seq = NULL;
+    uint32_t seq_len = 0U;
+    const uint8_t *q = NULL;
+    const uint8_t *qe = NULL;
+
+    if((asn1_get_tlv_span(&p, &val[val_len], 0x30U, &seq, &seq_len) != NOXTLS_RETURN_SUCCESS) ||
+       ((uintptr_t)p != (uintptr_t)(&val[val_len]))) {
+        return NOXTLS_RETURN_CRL_PARSE_FAILED;
+    }
+    q = seq;
+    qe = &seq[seq_len];
+    if(((uintptr_t)q < (uintptr_t)qe) && (*q == 0xA0U)) {
+        const uint8_t *dpn = NULL;
+        uint32_t dpn_len = 0U;
+        const uint8_t *r = NULL;
+        const uint8_t *full = NULL;
+        uint32_t full_len = 0U;
+        if(asn1_get_tlv_span(&q, qe, 0xA0U, &dpn, &dpn_len) != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_CRL_PARSE_FAILED;
+        }
+        r = dpn;
+        if((asn1_get_tlv_span(&r, &dpn[dpn_len], 0xA0U, &full, &full_len) != NOXTLS_RETURN_SUCCESS) ||
+           ((uintptr_t)r != (uintptr_t)(&dpn[dpn_len])) || (full_len == 0U)) {
+            return NOXTLS_RETURN_CRL_PARSE_FAILED;  /* nameRelativeToCRLIssuer or malformed */
+        }
+        crl->idp_dist_point = full;
+        crl->idp_dist_point_len = full_len;
+        crl->scope_flags = (uint8_t)(crl->scope_flags | X509_CRL_SCOPE_DIST_POINT);
+    }
+    while((uintptr_t)q < (uintptr_t)qe) {
+        uint8_t tag = 0U;
+        const uint8_t *v = NULL;
+        uint32_t v_len = 0U;
+        if(asn1_get_any_tlv(&q, qe, &tag, &v, &v_len) != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_CRL_PARSE_FAILED;
+        }
+        if((tag == 0x81U) || (tag == 0x82U)) {
+            /* DER: a DEFAULT FALSE BOOLEAN is only ever encoded as TRUE (0xFF). */
+            if((v_len != 1U) || (v[0] != 0xFFU)) {
+                return NOXTLS_RETURN_CRL_PARSE_FAILED;
+            }
+            crl->scope_flags = (uint8_t)(crl->scope_flags |
+                                         ((tag == 0x81U) ? X509_CRL_SCOPE_ONLY_USER_CERTS : X509_CRL_SCOPE_ONLY_CA_CERTS));
+        } else {
+            /* onlySomeReasons [3], indirectCRL [4], onlyContainsAttributeCerts [5], or unknown. */
+            return NOXTLS_RETURN_CRL_PARSE_FAILED;
+        }
+    }
+    if((crl->scope_flags & (X509_CRL_SCOPE_ONLY_USER_CERTS | X509_CRL_SCOPE_ONLY_CA_CERTS)) ==
+       (X509_CRL_SCOPE_ONLY_USER_CERTS | X509_CRL_SCOPE_ONLY_CA_CERTS)) {
+        return NOXTLS_RETURN_CRL_PARSE_FAILED;
+    }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
+ * @brief Walk crlExtensions ([0] EXPLICIT Extensions) and fail closed on what cannot be processed.
+ * @internal
+ *
+ * RFC 5280 5.2: a CRL with a critical extension the application cannot process must not be used.
+ * deltaCRLIndicator (delta CRLs are not supported) and any unknown critical extension refuse the
+ * CRL; issuingDistributionPoint is decoded into the CRL scope (x509_crl_parse_idp()). Known
+ * non-critical extensions (authorityKeyIdentifier, cRLNumber, issuerAltName, freshestCRL,
+ * authorityInfoAccess, ...) are informational.
+ *
+ * @return NOXTLS_RETURN_SUCCESS or NOXTLS_RETURN_CRL_PARSE_FAILED.
+ */
+static noxtls_return_t x509_crl_parse_extensions(noxtls_x509_crl_t *crl, const uint8_t *ext, uint32_t ext_len)
+{
+    /* id-ce-deltaCRLIndicator 2.5.29.27, id-ce-issuingDistributionPoint 2.5.29.28 */
+    static const uint8_t oid_delta_crl[] = { 0x55U, 0x1DU, 0x1BU };
+    static const uint8_t oid_idp[] = { 0x55U, 0x1DU, 0x1CU };
+    const uint8_t *p = ext;
+    const uint8_t *list = NULL;
+    uint32_t list_len = 0U;
+    const uint8_t *lp = NULL;
+    const uint8_t *le = NULL;
+    uint8_t step = X509_EXT_STEP_SKIP;
+    int seen_idp = 0;
+
+    if((asn1_get_tlv_span(&p, &ext[ext_len], 0x30U, &list, &list_len) != NOXTLS_RETURN_SUCCESS) ||
+       ((uintptr_t)p != (uintptr_t)(&ext[ext_len])) || (list_len == 0U)) {
+        return NOXTLS_RETURN_CRL_PARSE_FAILED;
+    }
+    lp = list;
+    le = &list[list_len];
+    while(step != X509_EXT_STEP_END) {
+        const uint8_t *oid = NULL;
+        uint32_t oid_len = 0U;
+        int critical = 0;
+        const uint8_t *val = NULL;
+        uint32_t val_len = 0U;
+        if(x509_ext_list_next(&lp, le, &oid, &oid_len, &critical, &val, &val_len, &step) != NOXTLS_RETURN_SUCCESS) {
+            return NOXTLS_RETURN_CRL_PARSE_FAILED;
+        }
+        if(step != X509_EXT_STEP_ITEM) {
+            continue;
+        }
+        if(oid_equal(oid, oid_len, oid_delta_crl, (uint32_t)sizeof(oid_delta_crl)) != 0) {
+            return NOXTLS_RETURN_CRL_PARSE_FAILED;  /* delta CRL: not a complete CRL */
+        } else if(oid_equal(oid, oid_len, oid_idp, (uint32_t)sizeof(oid_idp)) != 0) {
+            if((seen_idp != 0) || (x509_crl_parse_idp(crl, val, val_len) != NOXTLS_RETURN_SUCCESS)) {
+                return NOXTLS_RETURN_CRL_PARSE_FAILED;
+            }
+            seen_idp = 1;
+        } else if(critical != 0) {
+            return NOXTLS_RETURN_CRL_PARSE_FAILED;  /* unknown critical CRL extension */
+        } else {
+            /* MISRA 15.7: non-critical informational extension */
+        }
+    }
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
  * @brief Parse the CRL DER held in crl->raw_data into spans (no further allocation).
  *
  * revokedCertificates is validated here (every entry is a SEQUENCE starting with an INTEGER
@@ -5482,6 +6574,20 @@ static noxtls_return_t x509_crl_parse_der_body(noxtls_x509_crl_t *crl)
                        (slen > X509_MAX_SERIAL_SIZE) || (count >= NOXTLS_X509_CRL_MAX_REVOKED)) {
                         return NOXTLS_RETURN_CRL_PARSE_FAILED;
                     }
+                    {
+                        /* revocationDate, then optional crlEntryExtensions (no other element). */
+                        uint8_t rd_tag = 0U;
+                        const uint8_t *rd = NULL;
+                        uint32_t rd_len = 0U;
+                        if((asn1_get_any_tlv(&ep, &entry[entry_len], &rd_tag, &rd, &rd_len) != NOXTLS_RETURN_SUCCESS) ||
+                           ((rd_tag != 0x17U) && (rd_tag != 0x18U))) {
+                            return NOXTLS_RETURN_CRL_PARSE_FAILED;
+                        }
+                        if(((uintptr_t)ep < (uintptr_t)(&entry[entry_len])) &&
+                           (x509_crl_check_entry_extensions(ep, &entry[entry_len]) != NOXTLS_RETURN_SUCCESS)) {
+                            return NOXTLS_RETURN_CRL_PARSE_FAILED;
+                        }
+                    }
                     count += 1U;
                 }
                 crl->revoked_list = list_body;
@@ -5495,15 +6601,16 @@ static noxtls_return_t x509_crl_parse_der_body(noxtls_x509_crl_t *crl)
         }
     }
 
+    crl->scope_flags = 0U;
+    crl->idp_dist_point = NULL;
+    crl->idp_dist_point_len = 0U;
     if(((uintptr_t)tbs_ptr < (uintptr_t)tbs_end) && (*tbs_ptr == (uint8_t)0xA0U)) {
-        /* crlExtensions [0] */
-        tbs_ptr = &tbs_ptr[1];
-        {
-            uint32_t ext_len = (uint32_t)(asn1_get_length(&tbs_ptr, tbs_end));
-            if(ext_len > (uint32_t)((uintptr_t)tbs_end - (uintptr_t)tbs_ptr)) {
-                return NOXTLS_RETURN_CRL_PARSE_FAILED;
-            }
-            tbs_ptr = &tbs_ptr[ext_len];
+        /* crlExtensions [0] EXPLICIT Extensions: walked, never skipped unread. */
+        const uint8_t *ext = NULL;
+        uint32_t ext_len = 0U;
+        if((asn1_get_tlv_span(&tbs_ptr, tbs_end, 0xA0U, &ext, &ext_len) != NOXTLS_RETURN_SUCCESS) ||
+           (x509_crl_parse_extensions(crl, ext, ext_len) != NOXTLS_RETURN_SUCCESS)) {
+            return NOXTLS_RETURN_CRL_PARSE_FAILED;
         }
     }
 
@@ -5893,7 +7000,7 @@ static noxtls_return_t noxtls_x509_crl_verify_signature(const noxtls_x509_crl_t 
     if((crl->tbs_crl == NULL) || (crl->tbs_crl_len == 0U) || (crl->signature == NULL) || (crl->signature_len == 0U)) {
         return NOXTLS_RETURN_CRL_VERIFY_FAILED;
     }
-    if((issuer->key_usage_bits != 0U) &&
+    if(((issuer->ext_flags & X509_EXT_FLAG_KEY_USAGE) != 0U) &&
        ((issuer->key_usage_bits & X509_KEY_USAGE_CRL_SIGN) == 0U)) {
         if(flags_out != NULL) {
             *flags_out |= NOXTLS_X509_VERIFY_FLAG_CRL_BAD_SIGNATURE;
@@ -5979,10 +7086,6 @@ static noxtls_return_t noxtls_x509_crl_verify_signature(const noxtls_x509_crl_t 
 #if NOXTLS_FEATURE_ECDSA
         ecc_curve_t curve_type = NOXTLS_ECC_SECP256R1;
         ecc_key_t ecc_key;
-        const uint8_t *sig_ptr = crl->signature;
-        const uint8_t *sig_end = &crl->signature[crl->signature_len];
-        const uint8_t *seq_data = NULL;
-        uint32_t seq_len = 0U;
         /* DER INTEGERs carry a 0x00 sign octet when the top bit is set, so r/s can be one octet
          * longer than the field (two for secp224k1, whose order exceeds its field); with
          * ECC_MAX_KEY_SIZE derived from the enabled curves the buffers need that headroom. */
@@ -6031,26 +7134,9 @@ static noxtls_return_t noxtls_x509_crl_verify_signature(const noxtls_x509_crl_t 
             }
         }
 
-        if(asn1_get_tag(&sig_ptr, sig_end, 0x30U) != NOXTLS_RETURN_SUCCESS) {
+        if(x509_ecdsa_sig_parse_strict(crl->signature, crl->signature_len, r, &r_len, s, &s_len) != NOXTLS_RETURN_SUCCESS) {
             (void)noxtls_ecc_key_free(&ecc_key);
             return NOXTLS_RETURN_BAD_DATA;
-        }
-        seq_len = asn1_get_length(&sig_ptr, sig_end);
-        if((seq_len == 0U) || (x509_bytes_remaining(sig_ptr, sig_end) < (size_t)seq_len)) {
-            (void)noxtls_ecc_key_free(&ecc_key);
-            return NOXTLS_RETURN_BAD_DATA;
-        }
-        seq_data = sig_ptr;
-        {
-            const uint8_t *seq_end = &seq_data[seq_len];
-            if(asn1_get_integer(&sig_ptr, seq_end, r, &r_len) != NOXTLS_RETURN_SUCCESS) {
-                (void)noxtls_ecc_key_free(&ecc_key);
-                return NOXTLS_RETURN_BAD_DATA;
-            }
-            if(asn1_get_integer(&sig_ptr, seq_end, s, &s_len) != NOXTLS_RETURN_SUCCESS) {
-                (void)noxtls_ecc_key_free(&ecc_key);
-                return NOXTLS_RETURN_BAD_DATA;
-            }
         }
 
         ecdsa_sig.size = ecc_key.curve->size;
@@ -6104,25 +7190,155 @@ static noxtls_return_t noxtls_x509_crl_verify_signature(const noxtls_x509_crl_t 
 }
 
 /**
- * @brief Apply a CRL for a certificate
+ * @brief Check whether a CRL issuer name designates @p issuer (same rule as path building).
+ * @internal
  *
- * This function applies a CRL for a certificate.
+ * Uses the RFC 5280 Section 7.1 comparison of x509_issuer_name_matches(); the CRL signature
+ * check that follows decides whether the CRL is trusted.
+ */
+static int x509_crl_issuer_matches(const noxtls_x509_crl_t *crl, const x509_certificate_t *issuer)
+{
+    int match = x509_dn_equal(crl->issuer, crl->issuer_len, issuer->subject, issuer->subject_len);
+    if(match == 0) {
+        match = x509_name_equal_normalized(crl->issuer, crl->issuer_len, issuer->subject, issuer->subject_len);
+    }
+    return match;
+}
+
+/**
+ * @brief Check whether a GeneralNames list contains a GeneralName byte-identical to @p gn.
+ * @internal
+ */
+static int x509_general_names_contain(const uint8_t *names, uint32_t names_len, const uint8_t *gn, uint32_t gn_len)
+{
+    const uint8_t *p = names;
+    const uint8_t *e = &names[names_len];
+    int found = 0;
+
+    while(((uintptr_t)p < (uintptr_t)e) && (found == 0)) {
+        const uint8_t *start = p;
+        uint8_t tag = 0U;
+        const uint8_t *v = NULL;
+        uint32_t v_len = 0U;
+        if(asn1_get_any_tlv(&p, e, &tag, &v, &v_len) != NOXTLS_RETURN_SUCCESS) {
+            break;
+        }
+        {
+            uintptr_t tlv_len = (uintptr_t)p - (uintptr_t)start;
+            if((tlv_len == (uintptr_t)gn_len) && (noxtls_ct_memcmp(start, gn, (size_t)gn_len) == 0)) {
+                found = 1;
+            }
+        }
+    }
+    return found;
+}
+
+/**
+ * @brief Check whether a CRL's issuingDistributionPoint scope covers @p cert (RFC 5280 6.3.3 (b)(2)).
+ * @internal
  *
- * @param[in] cert The certificate to apply the CRL to.
- * @param[in] issuer The issuer of the CRL.
- * @param[in] crl_chain The CRL chain to apply.
- * @param[in] flags_out The flags to apply.
+ * onlyContainsUserCerts / onlyContainsCACerts select end-entity or CA certificates. When the IDP
+ * names a distribution point, the certificate must carry a cRLDistributionPoints fullName that
+ * contains one of the same GeneralNames (compared byte for byte); otherwise the CRL is out of scope.
  *
- * @return The return code of the function.
+ * @return 1 when the CRL applies to @p cert, 0 otherwise.
+ */
+static int x509_crl_in_scope(const noxtls_x509_crl_t *crl, const x509_certificate_t *cert)
+{
+    /* id-ce-cRLDistributionPoints 2.5.29.31 */
+    static const uint8_t oid_crldp[] = { 0x55U, 0x1DU, 0x1FU };
+    int is_ca = (cert->basic_constraints_ca == 1) ? 1 : 0;
+    const uint8_t *dp_val = NULL;
+    uint32_t dp_len = 0U;
+    int in_scope = 0;
+
+    if(((crl->scope_flags & X509_CRL_SCOPE_ONLY_USER_CERTS) != 0U) && (is_ca != 0)) {
+        return 0;
+    }
+    if(((crl->scope_flags & X509_CRL_SCOPE_ONLY_CA_CERTS) != 0U) && (is_ca == 0)) {
+        return 0;
+    }
+    if((crl->scope_flags & X509_CRL_SCOPE_DIST_POINT) == 0U) {
+        return 1;
+    }
+    if(x509_cert_find_extension(cert, oid_crldp, (uint32_t)sizeof(oid_crldp), &dp_val, &dp_len) == 0) {
+        return 0;
+    }
+    {
+        const uint8_t *p = dp_val;
+        const uint8_t *seq = NULL;
+        uint32_t seq_len = 0U;
+        const uint8_t *q = NULL;
+        const uint8_t *qe = NULL;
+        if(asn1_get_tlv_span(&p, &dp_val[dp_len], 0x30U, &seq, &seq_len) != NOXTLS_RETURN_SUCCESS) {
+            return 0;
+        }
+        q = seq;
+        qe = &seq[seq_len];
+        while(((uintptr_t)q < (uintptr_t)qe) && (in_scope == 0)) {
+            const uint8_t *dp = NULL;
+            uint32_t dp_seq_len = 0U;
+            const uint8_t *r = NULL;
+            const uint8_t *dpn = NULL;
+            uint32_t dpn_len = 0U;
+            const uint8_t *full = NULL;
+            uint32_t full_len = 0U;
+            if(asn1_get_tlv_span(&q, qe, 0x30U, &dp, &dp_seq_len) != NOXTLS_RETURN_SUCCESS) {
+                return 0;
+            }
+            r = dp;
+            if((asn1_get_tlv_span(&r, &dp[dp_seq_len], 0xA0U, &dpn, &dpn_len) == NOXTLS_RETURN_SUCCESS) &&
+               (asn1_get_tlv_span(&dpn, &dpn[dpn_len], 0xA0U, &full, &full_len) == NOXTLS_RETURN_SUCCESS)) {
+                /* Any GeneralName of the certificate's DP equal to one of the IDP's. */
+                const uint8_t *g = full;
+                const uint8_t *ge = &full[full_len];
+                while(((uintptr_t)g < (uintptr_t)ge) && (in_scope == 0)) {
+                    const uint8_t *start = g;
+                    uint8_t tag = 0U;
+                    const uint8_t *v = NULL;
+                    uint32_t v_len = 0U;
+                    if(asn1_get_any_tlv(&g, ge, &tag, &v, &v_len) != NOXTLS_RETURN_SUCCESS) {
+                        break;
+                    }
+                    in_scope = x509_general_names_contain(crl->idp_dist_point, crl->idp_dist_point_len,
+                                                          start, (uint32_t)((uintptr_t)g - (uintptr_t)start));
+                }
+            }
+        }
+    }
+    return in_scope;
+}
+
+/**
+ * @brief Apply the CRL list to one certificate of the path.
+ *
+ * Every CRL in the list whose issuer name designates @p issuer (RFC 5280 7.1 comparison) and whose
+ * issuingDistributionPoint scope covers @p cert is considered; list order never hides a later CRL.
+ * The certificate is revoked when any of those CRLs (with a valid signature) lists its serial.
+ * A CRL with a bad signature fails verification. A CRL outside its thisUpdate / nextUpdate window
+ * does not establish status; when no considered CRL is current, NOXTLS_RETURN_CRL_EXPIRED is returned.
+ *
+ * @param[in] cert The certificate whose status is checked.
+ * @param[in] issuer The issuer of @p cert (the CRL signer).
+ * @param[in] crl_chain The CRL list.
+ * @param[in] policy Explicit policy (time source), or NULL.
+ * @param[out] flags_out Optional NOXTLS_X509_VERIFY_FLAG_* bits.
+ * @param[out] covered 1 when at least one current, in-scope CRL from @p issuer was applied.
+ *
+ * @return NOXTLS_RETURN_SUCCESS, NOXTLS_RETURN_CERT_REVOKED, NOXTLS_RETURN_CRL_VERIFY_FAILED or
+ *         NOXTLS_RETURN_CRL_EXPIRED.
  */
 static noxtls_return_t x509_apply_crl_for_cert(const x509_certificate_t *cert, const x509_certificate_t *issuer,
                                                const noxtls_x509_crl_t *crl_chain,
                                                const noxtls_x509_verify_policy_t *policy,
-                                               noxtls_x509_verify_flags_t *flags_out)
+                                               noxtls_x509_verify_flags_t *flags_out,
+                                               int *covered)
 {
     const noxtls_x509_crl_t *c;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+    int stale_seen = 0;
 
+    *covered = 0;
     if((cert == NULL) || (issuer == NULL) || (crl_chain == NULL)) {
         return NOXTLS_RETURN_SUCCESS;
     }
@@ -6131,7 +7347,10 @@ static noxtls_return_t x509_apply_crl_for_cert(const x509_certificate_t *cert, c
         if(c->parsed == 0) {
             continue;
         }
-        if((x509_dn_equal(c->issuer, c->issuer_len, issuer->subject, issuer->subject_len) == 0)) {
+        if(x509_crl_issuer_matches(c, issuer) == 0) {
+            continue;
+        }
+        if(x509_crl_in_scope(c, cert) == 0) {
             continue;
         }
 
@@ -6145,12 +7364,6 @@ static noxtls_return_t x509_apply_crl_for_cert(const x509_certificate_t *cert, c
             return NOXTLS_RETURN_CRL_VERIFY_FAILED;
         }
 
-        rc = noxtls_x509_crl_check_times(c, policy, flags_out);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            cert_fail_set(NOXTLS_RETURN_CRL_EXPIRED, cert, NULL, 0, 0);
-            return NOXTLS_RETURN_CRL_EXPIRED;
-        }
-
         if(noxtls_x509_crl_serial_is_revoked(c, cert) != 0) {
             if(flags_out != NULL) {
                 *flags_out |= NOXTLS_X509_VERIFY_FLAG_CERT_REVOKED;
@@ -6159,9 +7372,18 @@ static noxtls_return_t x509_apply_crl_for_cert(const x509_certificate_t *cert, c
             return NOXTLS_RETURN_CERT_REVOKED;
         }
 
-        return NOXTLS_RETURN_SUCCESS;
+        rc = noxtls_x509_crl_check_times(c, policy, flags_out);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            stale_seen = 1;
+        } else {
+            *covered = 1;
+        }
     }
 
+    if((*covered == 0) && (stale_seen != 0)) {
+        cert_fail_set(NOXTLS_RETURN_CRL_EXPIRED, cert, NULL, 0, 0);
+        return NOXTLS_RETURN_CRL_EXPIRED;
+    }
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -6391,13 +7613,13 @@ static noxtls_return_t x509_leaf_explicit_policy_check(const x509_certificate_t 
         return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
     }
 
-    if((policy->required_eku != 0U) && (leaf->ext_key_usage_bits != 0U) &&
+    if((policy->required_eku != 0U) && ((leaf->ext_flags & X509_EXT_FLAG_EXT_KEY_USAGE) != 0U) &&
        ((leaf->ext_key_usage_bits & (policy->required_eku | X509_EKU_ANY)) == 0U)) {
         cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, leaf, NULL, 0, 0);
         return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
     }
 
-    if(leaf->key_usage_bits == 0U) {
+    if((leaf->ext_flags & X509_EXT_FLAG_KEY_USAGE) == 0U) {
         if(policy->require_key_usage_extension != 0U) {
             cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, leaf, NULL, 0, 0);
             return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
@@ -6455,9 +7677,16 @@ static noxtls_return_t x509_verify_cert_trust_internal(const x509_certificate_t 
     const x509_certificate_t *current = NULL;
     uint32_t depth = 0U;
     const uint32_t max_depth = NOXTLS_MAX_CERT_CHAIN_DEPTH;
+    /* path[k] is the certificate at depth k (path[0] = leaf), for name constraint checks. */
+    const x509_certificate_t *path[NOXTLS_MAX_CERT_CHAIN_DEPTH + 1U];
+    uint32_t sig_budget = NOXTLS_X509_MAX_PATH_SIGNATURE_CHECKS;
+    int require_crl_coverage = s_x509_crl_require_coverage;
 
     if(flags_out != NULL) {
         *flags_out = 0;
+    }
+    if((policy != NULL) && (policy->require_crl_coverage != 0U)) {
+        require_crl_coverage = 1;
     }
 
     if(leaf == NULL) {
@@ -6469,6 +7698,12 @@ static noxtls_return_t x509_verify_cert_trust_internal(const x509_certificate_t 
     }
 
     if((trust_anchors == NULL) || (trust_anchors->count == 0U)) {
+        cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, leaf, NULL, 0, 0);
+        return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+    }
+
+    /* Bound the peer-supplied work before any signature is verified. */
+    if((presented_chain != NULL) && (presented_chain->count > NOXTLS_X509_MAX_PRESENTED_CERTS)) {
         cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, leaf, NULL, 0, 0);
         return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
     }
@@ -6500,17 +7735,18 @@ static noxtls_return_t x509_verify_cert_trust_internal(const x509_certificate_t 
         int issuer_is_anchor = 0;
         noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
+        path[depth] = current;
         if(x509_chain_contains_cert(trust_anchors, current) != 0) {
             x509_verify_crl_note_no_match_if_needed(crl, flags_out);
             return NOXTLS_RETURN_SUCCESS;
         }
 
         /* Prefer an anchor whose key verifies current's signature; else a presented issuer. */
-        issuer = x509_find_issuer_in_chain(current, trust_anchors);
+        issuer = x509_find_issuer_in_chain(current, trust_anchors, &sig_budget);
         if(issuer != NULL) {
             issuer_is_anchor = 1;
         } else if(presented_chain != NULL) {
-            issuer = x509_find_issuer_in_chain(current, presented_chain);
+            issuer = x509_find_issuer_in_chain(current, presented_chain, &sig_budget);
         } else {
             /* MISRA 15.7: no presented chain to search */
         }
@@ -6520,9 +7756,19 @@ static noxtls_return_t x509_verify_cert_trust_internal(const x509_certificate_t 
         }
 
         if(crl != NULL) {
-            rc = x509_apply_crl_for_cert(current, issuer, crl, policy, flags_out);
+            int covered = 0;
+            rc = x509_apply_crl_for_cert(current, issuer, crl, policy, flags_out, &covered);
             if(rc != NOXTLS_RETURN_SUCCESS) {
                 return rc;
+            }
+            if(covered == 0) {
+                if(flags_out != NULL) {
+                    *flags_out |= NOXTLS_X509_VERIFY_FLAG_CRL_LEVEL_UNCOVERED;
+                }
+                if(require_crl_coverage != 0) {
+                    cert_fail_set(NOXTLS_RETURN_CRL_VERIFY_FAILED, current, NULL, 0, depth);
+                    return NOXTLS_RETURN_CRL_VERIFY_FAILED;
+                }
             }
         }
 
@@ -6532,14 +7778,36 @@ static noxtls_return_t x509_verify_cert_trust_internal(const x509_certificate_t 
             return rc;
         }
 
+        /*
+         * Constraints carried in the issuer certificate apply to anchors as well as to presented
+         * intermediates: a pinned end-entity anchor (cA=FALSE), an anchor without keyCertSign or
+         * with a pathLenConstraint must not gain issuing authority because it is trusted. An
+         * anchor without basicConstraints is accepted as a legacy root.
+         */
+        rc = x509_issuer_policy_check(issuer, depth, issuer_is_anchor);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            return rc;
+        }
+
+        if((issuer->ext_flags & X509_EXT_FLAG_NAME_CONSTRAINTS) != 0U) {
+            uint32_t k = 0U;
+            for(k = 0U; k <= depth; k += 1U) {
+                const x509_certificate_t *below = path[k];
+                /* RFC 5280 6.1.3 (b)/(c): self-issued intermediates are exempt, the leaf never is. */
+                if((k > 0U) && (x509_dn_equal(below->issuer, below->issuer_len,
+                                              below->subject, below->subject_len) != 0)) {
+                    continue;
+                }
+                if(x509_nc_check_cert(issuer, below, (k == 0U) ? 1 : 0) != NOXTLS_RETURN_SUCCESS) {
+                    cert_fail_set(NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED, below, NULL, 0, k);
+                    return NOXTLS_RETURN_CERT_VERIFY_CHAIN_FAILED;
+                }
+            }
+        }
+
         if(issuer_is_anchor != 0) {
             x509_verify_crl_note_no_match_if_needed(crl, flags_out);
             return NOXTLS_RETURN_SUCCESS;
-        }
-
-        rc = x509_issuer_policy_check(issuer, depth);
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            return rc;
         }
 
         current = issuer;
@@ -8192,10 +9460,12 @@ noxtls_return_t noxtls_x509_private_key_parse_pem(x509_private_key_t *key, const
     /* Convert PEM to DER */
     decoded_len = noxtls_base64_decode(pem_start, pem_data_len, der_data);
     if(decoded_len <= 0) {
+        noxtls_secure_zero(der_data, (size_t)pem_data_len);
         (void)noxtls_free(der_data);
         return NOXTLS_RETURN_FAILED;
     }
     if((unsigned long)decoded_len > UINT32_MAX) {
+        noxtls_secure_zero(der_data, (size_t)pem_data_len);
         (void)noxtls_free(der_data);
         return NOXTLS_RETURN_FAILED;
     }
@@ -8204,6 +9474,7 @@ noxtls_return_t noxtls_x509_private_key_parse_pem(x509_private_key_t *key, const
     /* Parse DER */
     rc = noxtls_x509_private_key_parse_der(key, der_data, der_len);
 
+    noxtls_secure_zero(der_data, (size_t)pem_data_len);
     (void)noxtls_free(der_data);
 
     return rc;
@@ -8293,10 +9564,12 @@ noxtls_return_t noxtls_x509_private_key_parse_pem_with_password(x509_private_key
     if(der_data == NULL) { return NOXTLS_RETURN_NOT_ENOUGH_MEMORY; }
     decoded_len = noxtls_base64_decode(pem_start, pem_data_len, der_data);
     if(decoded_len <= 0) {
+        noxtls_secure_zero(der_data, (size_t)pem_data_len);
         (void)noxtls_free(der_data);
         return NOXTLS_RETURN_FAILED;
     }
     if((unsigned long)decoded_len > UINT32_MAX) {
+        noxtls_secure_zero(der_data, (size_t)pem_data_len);
         (void)noxtls_free(der_data);
         return NOXTLS_RETURN_FAILED;
     }
@@ -8308,6 +9581,7 @@ noxtls_return_t noxtls_x509_private_key_parse_pem_with_password(x509_private_key
         rc = noxtls_x509_private_key_parse_der_with_password(key, der_data, der_len, NULL, 0U);
     }
 
+    noxtls_secure_zero(der_data, (size_t)pem_data_len);
     (void)noxtls_free(der_data);
     return rc;
 }
@@ -8384,6 +9658,7 @@ noxtls_return_t noxtls_x509_private_key_load_file(x509_private_key_t *key, const
     }
 
     if(fread(data, 1, len, fp) != len) {
+        noxtls_secure_zero(data, (size_t)len);
         (void)noxtls_free(data);
         (void)fclose(fp);
         return NOXTLS_RETURN_FAILED;
@@ -8404,6 +9679,8 @@ noxtls_return_t noxtls_x509_private_key_load_file(x509_private_key_t *key, const
         }
     }
 
+    /* data holds the raw key file (plaintext key for DER and unencrypted PEM). */
+    noxtls_secure_zero(data, (size_t)len);
     (void)noxtls_free(data);
 
     return rc;
@@ -8799,17 +10076,16 @@ noxtls_return_t noxtls_x509_private_key_sign_data(const uint8_t *key, uint32_t k
 
 #if NOXTLS_FEATURE_ED25519
     if(pk.key_type == X509_PRIVATE_KEY_ED25519) {
-        uint8_t seed_buf[32];
         uint32_t slen = 0U;
         const uint8_t *seed = noxtls_x509_private_key_get_eddsa_seed(&pk, &slen);
         (void)hash_algo;
-        if((seed == NULL) || (slen != sizeof(seed_buf)) || (out_max < NOXTLS_ED25519_SIGNATURE_SIZE)) {
+        if((seed == NULL) || (slen != 32U) || (out_max < NOXTLS_ED25519_SIGNATURE_SIZE)) {
             (void)noxtls_x509_private_key_free(&pk);
             return NOXTLS_RETURN_FAILED;
         }
-        noxtls_copy_u8((uint8_t *)(void *)(seed_buf), sizeof(seed_buf), (const uint8_t *)(const void *)(seed), sizeof(seed_buf));
+        /* Sign from the key's own seed before freeing it, so no unwiped local copy is left on the stack. */
+        rc = noxtls_ed25519_sign(seed, data, data_len, out_der);
         (void)noxtls_x509_private_key_free(&pk);
-        rc = noxtls_ed25519_sign(seed_buf, data, data_len, out_der);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }
@@ -8820,17 +10096,16 @@ noxtls_return_t noxtls_x509_private_key_sign_data(const uint8_t *key, uint32_t k
 
 #if NOXTLS_FEATURE_ED448 && NOXTLS_FEATURE_SHA3
     if(pk.key_type == X509_PRIVATE_KEY_ED448) {
-        uint8_t seed_buf[57];
         uint32_t slen = 0U;
         const uint8_t *seed = noxtls_x509_private_key_get_eddsa_seed(&pk, &slen);
         (void)hash_algo;
-        if((seed == NULL) || (slen != sizeof(seed_buf)) || (out_max < NOXTLS_ED448_SIGNATURE_SIZE)) {
+        if((seed == NULL) || (slen != 57U) || (out_max < NOXTLS_ED448_SIGNATURE_SIZE)) {
             (void)noxtls_x509_private_key_free(&pk);
             return NOXTLS_RETURN_FAILED;
         }
-        noxtls_copy_u8((uint8_t *)(void *)(seed_buf), sizeof(seed_buf), (const uint8_t *)(const void *)(seed), sizeof(seed_buf));
+        /* Sign from the key's own seed before freeing it, so no unwiped local copy is left on the stack. */
+        rc = noxtls_ed448_sign(seed, data, data_len, out_der);
         (void)noxtls_x509_private_key_free(&pk);
-        rc = noxtls_ed448_sign(seed_buf, data, data_len, out_der);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             return rc;
         }

@@ -107,6 +107,48 @@ noxtls_return_t noxtls_mlkem_encaps_derand(noxtls_mlkem_param_t param,
                                            const uint8_t *m,
                                            uint8_t *ciphertext,
                                            uint8_t *shared_secret_32);
+/**
+ * @brief Length-checked ML-KEM.Encaps for untrusted peer keys.
+ *
+ * Same as noxtls_mlkem_encaps(), but first requires @p public_key_len to equal
+ * noxtls_mlkem_public_key_len(@p param), so a short peer value is rejected
+ * instead of being over-read. Use this for keys received from the network.
+ *
+ * @param[in] param Parameter set.
+ * @param[in] public_key Peer encapsulation key.
+ * @param[in] public_key_len Length of @p public_key in bytes.
+ * @param[out] ciphertext Ciphertext (noxtls_mlkem_ciphertext_len bytes).
+ * @param[out] shared_secret_32 32-byte shared secret.
+ * @return NOXTLS_RETURN_SUCCESS, NOXTLS_RETURN_NULL, NOXTLS_RETURN_INVALID_PARAM,
+ *         NOXTLS_RETURN_BAD_DATA (wrong length or invalid key) or an entropy/hash error.
+ */
+noxtls_return_t noxtls_mlkem_encaps_ex(noxtls_mlkem_param_t param,
+                                       const uint8_t *public_key,
+                                       uint32_t public_key_len,
+                                       uint8_t *ciphertext,
+                                       uint8_t *shared_secret_32);
+/**
+ * @brief Length-checked ML-KEM.Decaps for untrusted ciphertexts.
+ *
+ * Same as noxtls_mlkem_decaps(), but first requires @p ciphertext_len to equal
+ * noxtls_mlkem_ciphertext_len(@p param), so a short peer ciphertext is
+ * rejected instead of being over-read. Use this for ciphertexts received from
+ * the network.
+ *
+ * @param[in] param Parameter set.
+ * @param[in] public_key Own encapsulation key.
+ * @param[in] secret_key Own decapsulation key.
+ * @param[in] ciphertext Peer ciphertext.
+ * @param[in] ciphertext_len Length of @p ciphertext in bytes.
+ * @param[out] shared_secret_32 32-byte shared secret.
+ * @return As noxtls_mlkem_decaps(), plus NOXTLS_RETURN_BAD_DATA for a wrong length.
+ */
+noxtls_return_t noxtls_mlkem_decaps_ex(noxtls_mlkem_param_t param,
+                                       const uint8_t *public_key,
+                                       const uint8_t *secret_key,
+                                       const uint8_t *ciphertext,
+                                       uint32_t ciphertext_len,
+                                       uint8_t *shared_secret_32);
 /** FIPS 203 §7.2 encapsulation-key modulus check (NOXTLS_RETURN_BAD_DATA if invalid). */
 noxtls_return_t noxtls_mlkem_check_public_key(noxtls_mlkem_param_t param, const uint8_t *public_key);
 /** FIPS 203 §7.3 decapsulation-key hash check (NOXTLS_RETURN_BAD_DATA if invalid). */

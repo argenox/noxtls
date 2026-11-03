@@ -84,27 +84,20 @@ static noxtls_ecjpake_random_cb_t s_ecjpake_random_cb = NULL;
 /** @brief Opaque pointer passed to s_ecjpake_random_cb. */
 static void *s_ecjpake_random_user = NULL;
 
-/** @brief Module DRBG instance for EC-JPAKE secrets. */
-static drbg_state_t s_ecjpake_drbg;
-
-/** @brief Non-zero once s_ecjpake_drbg has been instantiated. */
-static uint32_t s_ecjpake_drbg_ready = 0U;
-
 void noxtls_ecjpake_set_random_source(noxtls_ecjpake_random_cb_t cb, void *user)
 {
     s_ecjpake_random_cb = cb;
     s_ecjpake_random_user = user;
-
-    /* Drop the module DRBG so the next draw re-seeds from the entropy source. */
-    if (s_ecjpake_drbg_ready != 0U) {
-        (void)noxtls_drbg_uninstantiate(&s_ecjpake_drbg);
-        s_ecjpake_drbg_ready = 0U;
-    }
 }
 
 /**
- * @brief Fill out with random octets from the override or from the module DRBG.
+ * @brief Fill out with random octets from the override or from a per-call DRBG.
  * @internal
+ *
+ * EC-JPAKE keeps no shared generator state: every request instantiates a
+ * CTR-DRBG on the stack from fresh entropy, generates and uninstantiates it
+ * (the pattern of mlkem_gen_random32). Concurrent connections on different
+ * threads therefore never share or race on a DRBG state, and no lock is needed.
  *
  * @param[out] out Destination.
  * @param[in] len Number of octets.
@@ -118,27 +111,20 @@ static noxtls_return_t noxtls_ecjpake_random_bytes(uint8_t *out, uint32_t len)
     if (s_ecjpake_random_cb != NULL) {
         rc = s_ecjpake_random_cb(s_ecjpake_random_user, out, len);
     } else {
-        if (s_ecjpake_drbg_ready == 0U) {
-            uint8_t seed[NOXTLS_ECJPAKE_DRBG_SEED_SIZE];
+        drbg_state_t drbg;
+        uint8_t seed[NOXTLS_ECJPAKE_DRBG_SEED_SIZE];
 
-            rc = noxtls_drbg_get_entropy(seed, NOXTLS_ECJPAKE_DRBG_SEED_SIZE);
-            if (rc == NOXTLS_RETURN_SUCCESS) {
-                rc = drbg_instantiate(&s_ecjpake_drbg, NOXTLS_ECJPAKE_DRBG_TYPE,
-                                      seed, NOXTLS_ECJPAKE_DRBG_SEED_SIZE, NULL, 0U, NULL, 0U);
-            }
-
-            noxtls_secure_zero(seed, sizeof(seed));
-            s_ecjpake_drbg_ready = (rc == NOXTLS_RETURN_SUCCESS) ? 1U : 0U;
+        rc = noxtls_drbg_get_entropy(seed, NOXTLS_ECJPAKE_DRBG_SEED_SIZE);
+        if (rc == NOXTLS_RETURN_SUCCESS) {
+            rc = drbg_instantiate(&drbg, NOXTLS_ECJPAKE_DRBG_TYPE,
+                                  seed, NOXTLS_ECJPAKE_DRBG_SEED_SIZE, NULL, 0U, NULL, 0U);
         }
+        noxtls_secure_zero(seed, sizeof(seed));
 
         if (rc == NOXTLS_RETURN_SUCCESS) {
-            rc = drbg_generate(&s_ecjpake_drbg, out, len * NOXTLS_ECJPAKE_BITS_PER_BYTE, NULL, 0U);
-            if (rc != NOXTLS_RETURN_SUCCESS) {
-                /* A failed generate may leave the state unusable: re-seed next time. */
-                (void)noxtls_drbg_uninstantiate(&s_ecjpake_drbg);
-                s_ecjpake_drbg_ready = 0U;
-            }
+            rc = drbg_generate(&drbg, out, len * NOXTLS_ECJPAKE_BITS_PER_BYTE, NULL, 0U);
         }
+        (void)noxtls_drbg_uninstantiate(&drbg);
     }
 
     if (rc != NOXTLS_RETURN_SUCCESS) {

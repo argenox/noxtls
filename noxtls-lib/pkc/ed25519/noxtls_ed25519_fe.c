@@ -788,6 +788,18 @@ void fe25519_native_inv(fe25519_native_t *out, const fe25519_native_t *z)
 
     fe25519_native_sq_times(&t1, &t1, 5U);
     fe25519_native_mul(out, &t1, &z11);
+
+    /* The chain holds powers of a possibly secret-derived Z (signing nonce point). */
+    noxtls_secure_zero(&z2, sizeof(z2));
+    noxtls_secure_zero(&z9, sizeof(z9));
+    noxtls_secure_zero(&z11, sizeof(z11));
+    noxtls_secure_zero(&z2_5_0, sizeof(z2_5_0));
+    noxtls_secure_zero(&z2_10_0, sizeof(z2_10_0));
+    noxtls_secure_zero(&z2_20_0, sizeof(z2_20_0));
+    noxtls_secure_zero(&z2_50_0, sizeof(z2_50_0));
+    noxtls_secure_zero(&z2_100_0, sizeof(z2_100_0));
+    noxtls_secure_zero(&t0, sizeof(t0));
+    noxtls_secure_zero(&t1, sizeof(t1));
 }
 
 void fe25519_native_from_be(fe25519_native_t *out, const uint8_t *be)
@@ -795,6 +807,7 @@ void fe25519_native_from_be(fe25519_native_t *out, const uint8_t *be)
     uint8_t le[NOXTLS_ED25519_FE25519_BYTES];
     fe25519_swap_endian32(le, be);
     fe25519_native_from_le(out, le);
+    noxtls_secure_zero(le, sizeof(le));
 }
 
 void fe25519_native_to_be(uint8_t *be, const fe25519_native_t *in)
@@ -802,6 +815,7 @@ void fe25519_native_to_be(uint8_t *be, const fe25519_native_t *in)
     uint8_t le[NOXTLS_ED25519_FE25519_BYTES];
     fe25519_native_to_le(le, in);
     fe25519_swap_endian32(be, le);
+    noxtls_secure_zero(le, sizeof(le));
 }
 
 
@@ -920,8 +934,11 @@ void fe25519_native_cmov(fe25519_native_t *f, const fe25519_native_t *g, unsigne
 unsigned int fe25519_native_isnegative(const fe25519_native_t *f)
 {
     uint8_t s[NOXTLS_ED25519_FE25519_BYTES];
+    unsigned int bit;
     fe25519_native_to_le(s, f);
-    return (unsigned int)s[0] & 1U;
+    bit = (unsigned int)s[0] & 1U;
+    noxtls_secure_zero(s, sizeof(s));
+    return bit;
 }
 
 /**
@@ -940,6 +957,7 @@ unsigned int fe25519_native_iszero(const fe25519_native_t *f)
     for(i = 0U; i < NOXTLS_ED25519_FE25519_BYTES; i++) {
         acc |= s[i];
     }
+    noxtls_secure_zero(s, sizeof(s));
     return (unsigned int)(((uint32_t)acc - 1U) >> 31);
 }
 
@@ -962,6 +980,8 @@ unsigned int fe25519_native_equal(const fe25519_native_t *a, const fe25519_nativ
     for(i = 0U; i < NOXTLS_ED25519_FE25519_BYTES; i++) {
         acc |= (uint8_t)(sa[i] ^ sb[i]);
     }
+    noxtls_secure_zero(sa, sizeof(sa));
+    noxtls_secure_zero(sb, sizeof(sb));
     return (unsigned int)(((uint32_t)acc - 1U) >> 31);
 }
 

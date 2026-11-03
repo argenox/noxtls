@@ -39,6 +39,7 @@ static void noxtls_tls_misra_api_refs(void)
     NOXTLS_MISRA_REF_FN(&noxtls_dtls_set_anti_amplification_limit);
     NOXTLS_MISRA_REF_FN(&noxtls_dtls_set_flight_buffer);
     NOXTLS_MISRA_REF_FN(&noxtls_dtls_set_mtu);
+    NOXTLS_MISRA_REF_FN(&noxtls_dtls_set_peer_identity);
     NOXTLS_MISRA_REF_FN(&noxtls_dtls_update_replay_window);
 #endif
     NOXTLS_MISRA_REF_FN(&noxtls_tls12_dhe_send_client_key_exchange);
@@ -107,6 +108,7 @@ static void noxtls_tls_misra_api_refs(void)
     NOXTLS_MISRA_REF_FN(&noxtls_dtls13_send_new_connection_ids);
     NOXTLS_MISRA_REF_FN(&noxtls_tls12_client_session_ticket_len);
     NOXTLS_MISRA_REF_FN(&noxtls_tls12_client_session_matches_name);
+    NOXTLS_MISRA_REF_FN(&noxtls_tls12_session_stores_clear);
     NOXTLS_MISRA_REF_FN(&noxtls_tls12_recv_certificate);
     NOXTLS_MISRA_REF_FN(&noxtls_tls12_recv_change_cipher_spec);
     NOXTLS_MISRA_REF_FN(&noxtls_tls12_recv_change_cipher_spec_client);
@@ -189,6 +191,9 @@ static void noxtls_tls_misra_api_refs(void)
     NOXTLS_MISRA_REF_FN(&noxtls_tls13_send_early_data);
     NOXTLS_MISRA_REF_FN(&noxtls_tls13_send_key_update);
     NOXTLS_MISRA_REF_FN(&noxtls_tls13_session_export);
+    NOXTLS_MISRA_REF_FN(&noxtls_tls13_psk_ticket_store_clear);
+    NOXTLS_MISRA_REF_FN(&noxtls_tls13_set_client_verify_policy);
+    NOXTLS_MISRA_REF_FN(&noxtls_tls13_set_client_chain_verify_disabled);
     NOXTLS_MISRA_REF_FN(&noxtls_tls13_set_client_cert_ed25519);
     NOXTLS_MISRA_REF_FN(&noxtls_tls13_set_client_signature_algorithms);
     NOXTLS_MISRA_REF_FN(&noxtls_tls13_set_prefer_chacha20);

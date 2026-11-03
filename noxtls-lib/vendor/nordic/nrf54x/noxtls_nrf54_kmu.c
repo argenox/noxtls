@@ -52,10 +52,59 @@ static const uint32_t s_noxtls_nrf54_kmu_events[] = {
 /** @brief Events of the nRF54LM20. */
 #define NOXTLS_NRF54_KMU_EVENTS_LITE    7U
 
+/** Value of the KMU ownership flag when free. */
+#define NOXTLS_NRF54_KMU_LOCK_FREE      0U
+/** Value of the KMU ownership flag when taken. */
+#define NOXTLS_NRF54_KMU_LOCK_TAKEN     1U
+
+/**
+ * KMU ownership flag. KEYSLOT, SRC, the task registers and the events are one
+ * shared-register transaction: a second caller that wrote KEYSLOT between the
+ * first caller's KEYSLOT write and its trigger would retarget an irreversible
+ * task (REVOKE, PROVISION, PUSHBLOCK) at another slot. Every public operation
+ * holds this flag for its whole register sequence.
+ */
+static volatile uint32_t s_noxtls_nrf54_kmu_lock;
+
 /** RRAM write hook. */
 static noxtls_nrf54_kmu_nvm_fn_t s_noxtls_nrf54_kmu_nvm;
 /** Context of the RRAM write hook. */
 static void *s_noxtls_nrf54_kmu_nvm_ctx;
+
+/**
+ * @brief Try to take the KMU ownership flag (never blocks).
+ * @internal
+ *
+ * @return 1 when taken, 0 when another KMU operation is in progress.
+ */
+static int noxtls_nrf54_kmu_try_acquire(void)
+{
+#if defined(__GNUC__) || defined(__clang__)
+    return (__atomic_exchange_n(&s_noxtls_nrf54_kmu_lock, NOXTLS_NRF54_KMU_LOCK_TAKEN, __ATOMIC_ACQUIRE) ==
+            NOXTLS_NRF54_KMU_LOCK_FREE) ? 1 : 0;
+#else
+    int taken = 0;
+
+    if (s_noxtls_nrf54_kmu_lock == NOXTLS_NRF54_KMU_LOCK_FREE) {
+        s_noxtls_nrf54_kmu_lock = NOXTLS_NRF54_KMU_LOCK_TAKEN;
+        taken = 1;
+    }
+    return taken;
+#endif
+}
+
+/**
+ * @brief Give the KMU ownership flag back.
+ * @internal
+ */
+static void noxtls_nrf54_kmu_release(void)
+{
+#if defined(__GNUC__) || defined(__clang__)
+    __atomic_store_n(&s_noxtls_nrf54_kmu_lock, NOXTLS_NRF54_KMU_LOCK_FREE, __ATOMIC_RELEASE);
+#else
+    s_noxtls_nrf54_kmu_lock = NOXTLS_NRF54_KMU_LOCK_FREE;
+#endif
+}
 
 /**
  * @brief Clear every KMU event.
@@ -93,8 +142,15 @@ static noxtls_nrf54_kmu_res_t noxtls_nrf54_kmu_task(uint32_t slot, uint32_t task
     if (spins != 0U) {
         noxtls_nrf54_kmu_clear_events();
         noxtls_nrf54_kmu_wr(NOXTLS_NRF54_KMU_KEYSLOT, slot & NOXTLS_NRF54_KMU_SLOT_MSK);
-        noxtls_nrf54_kmu_wr(task, NOXTLS_NRF54_KMU_TRIGGER);
-        spins = (uint32_t)NOXTLS_NRF54_CONFIG_KMU_SPINS;
+        /* Cross-check: never trigger a task on a slot other than the one requested. */
+        if ((noxtls_nrf54_kmu_rd(NOXTLS_NRF54_KMU_KEYSLOT) & NOXTLS_NRF54_KMU_SLOT_MSK) !=
+            (slot & NOXTLS_NRF54_KMU_SLOT_MSK)) {
+            res = NOXTLS_NRF54_KMU_ERROR;
+            spins = 0U;
+        } else {
+            noxtls_nrf54_kmu_wr(task, NOXTLS_NRF54_KMU_TRIGGER);
+            spins = (uint32_t)NOXTLS_NRF54_CONFIG_KMU_SPINS;
+        }
         while ((res == NOXTLS_NRF54_KMU_TIMEOUT) && (spins > 0U)) {
             if (noxtls_nrf54_kmu_rd(event) != 0U) {
                 res = NOXTLS_NRF54_KMU_OK;
@@ -190,7 +246,7 @@ void noxtls_nrf54_kmu_set_nvm_hook(noxtls_nrf54_kmu_nvm_fn_t fn, void *ctx)
     s_noxtls_nrf54_kmu_nvm_ctx = ctx;
 }
 
-noxtls_return_t noxtls_nrf54_kmu_read_metadata(uint32_t slot, uint32_t *metadata, noxtls_nrf54_kmu_state_t *state)
+static noxtls_return_t noxtls_nrf54_kmu_read_metadata_locked(uint32_t slot, uint32_t *metadata, noxtls_nrf54_kmu_state_t *state)
 {
     noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
 
@@ -217,17 +273,17 @@ noxtls_return_t noxtls_nrf54_kmu_read_metadata(uint32_t slot, uint32_t *metadata
     return rc;
 }
 
-noxtls_return_t noxtls_nrf54_kmu_push(uint32_t slot, uint32_t count)
+static noxtls_return_t noxtls_nrf54_kmu_push_locked(uint32_t slot, uint32_t count)
 {
     return noxtls_nrf54_kmu_range(slot, count, NOXTLS_NRF54_KMU_TASKS_PUSH, NOXTLS_NRF54_KMU_EVENTS_PUSHED);
 }
 
-noxtls_return_t noxtls_nrf54_kmu_push_block(uint32_t slot, uint32_t count)
+static noxtls_return_t noxtls_nrf54_kmu_push_block_locked(uint32_t slot, uint32_t count)
 {
     return noxtls_nrf54_kmu_range(slot, count, NOXTLS_NRF54_KMU_TASKS_PUSHBLOCK, NOXTLS_NRF54_KMU_EVENTS_PUSHBLOCKED);
 }
 
-noxtls_return_t noxtls_nrf54_kmu_block(uint32_t slot, uint32_t count)
+static noxtls_return_t noxtls_nrf54_kmu_block_locked(uint32_t slot, uint32_t count)
 {
     noxtls_return_t rc = NOXTLS_RETURN_NOT_SUPPORTED;
 
@@ -237,7 +293,7 @@ noxtls_return_t noxtls_nrf54_kmu_block(uint32_t slot, uint32_t count)
     return rc;
 }
 
-noxtls_return_t noxtls_nrf54_kmu_provision(uint32_t slot, const noxtls_nrf54_kmu_slot_data_t *data)
+static noxtls_return_t noxtls_nrf54_kmu_provision_locked(uint32_t slot, const noxtls_nrf54_kmu_slot_data_t *data)
 {
     noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
 
@@ -257,7 +313,7 @@ noxtls_return_t noxtls_nrf54_kmu_provision(uint32_t slot, const noxtls_nrf54_kmu
     return rc;
 }
 
-noxtls_return_t noxtls_nrf54_kmu_revoke(uint32_t slot, uint32_t count)
+static noxtls_return_t noxtls_nrf54_kmu_revoke_locked(uint32_t slot, uint32_t count)
 {
     noxtls_return_t rc = (noxtls_nrf54_kmu_range_ok(slot, count) != 0U) ? NOXTLS_RETURN_SUCCESS :
                          NOXTLS_RETURN_INVALID_PARAM;
@@ -268,6 +324,72 @@ noxtls_return_t noxtls_nrf54_kmu_revoke(uint32_t slot, uint32_t count)
             rc = noxtls_nrf54_kmu_range(slot, count, NOXTLS_NRF54_KMU_TASKS_REVOKE, NOXTLS_NRF54_KMU_EVENTS_REVOKED);
             (void)noxtls_nrf54_kmu_nvm(0U);
         }
+    }
+    return rc;
+}
+
+noxtls_return_t noxtls_nrf54_kmu_read_metadata(uint32_t slot, uint32_t *metadata, noxtls_nrf54_kmu_state_t *state)
+{
+    noxtls_return_t rc = NOXTLS_RETURN_TIMEOUT; /* KMU in use by another operation */
+
+    if (noxtls_nrf54_kmu_try_acquire() != 0) {
+        rc = noxtls_nrf54_kmu_read_metadata_locked(slot, metadata, state);
+        noxtls_nrf54_kmu_release();
+    }
+    return rc;
+}
+
+noxtls_return_t noxtls_nrf54_kmu_push(uint32_t slot, uint32_t count)
+{
+    noxtls_return_t rc = NOXTLS_RETURN_TIMEOUT; /* KMU in use by another operation */
+
+    if (noxtls_nrf54_kmu_try_acquire() != 0) {
+        rc = noxtls_nrf54_kmu_push_locked(slot, count);
+        noxtls_nrf54_kmu_release();
+    }
+    return rc;
+}
+
+noxtls_return_t noxtls_nrf54_kmu_push_block(uint32_t slot, uint32_t count)
+{
+    noxtls_return_t rc = NOXTLS_RETURN_TIMEOUT; /* KMU in use by another operation */
+
+    if (noxtls_nrf54_kmu_try_acquire() != 0) {
+        rc = noxtls_nrf54_kmu_push_block_locked(slot, count);
+        noxtls_nrf54_kmu_release();
+    }
+    return rc;
+}
+
+noxtls_return_t noxtls_nrf54_kmu_block(uint32_t slot, uint32_t count)
+{
+    noxtls_return_t rc = NOXTLS_RETURN_TIMEOUT; /* KMU in use by another operation */
+
+    if (noxtls_nrf54_kmu_try_acquire() != 0) {
+        rc = noxtls_nrf54_kmu_block_locked(slot, count);
+        noxtls_nrf54_kmu_release();
+    }
+    return rc;
+}
+
+noxtls_return_t noxtls_nrf54_kmu_provision(uint32_t slot, const noxtls_nrf54_kmu_slot_data_t *data)
+{
+    noxtls_return_t rc = NOXTLS_RETURN_TIMEOUT; /* KMU in use by another operation */
+
+    if (noxtls_nrf54_kmu_try_acquire() != 0) {
+        rc = noxtls_nrf54_kmu_provision_locked(slot, data);
+        noxtls_nrf54_kmu_release();
+    }
+    return rc;
+}
+
+noxtls_return_t noxtls_nrf54_kmu_revoke(uint32_t slot, uint32_t count)
+{
+    noxtls_return_t rc = NOXTLS_RETURN_TIMEOUT; /* KMU in use by another operation */
+
+    if (noxtls_nrf54_kmu_try_acquire() != 0) {
+        rc = noxtls_nrf54_kmu_revoke_locked(slot, count);
+        noxtls_nrf54_kmu_release();
     }
     return rc;
 }

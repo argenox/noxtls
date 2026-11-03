@@ -263,7 +263,10 @@ static noxtls_return_t noxtls_sha1_round(noxtls_sha_ctx_t * ctx, const uint8_t *
     ctx->u.md32.h[2] += c;
     ctx->u.md32.h[3] += d;
     ctx->u.md32.h[4] += e;    
-    
+
+    /* The schedule words are the input block (an HMAC key pad, a PRK): wipe
+     * them here, per block; a wipe at finish cannot reach this frame. */
+    noxtls_secure_zero(w, sizeof(w));
     return rc;    
 }
 
@@ -342,7 +345,7 @@ noxtls_return_t noxtls_sha1_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
 	noxtls_return_t rc = NOXTLS_RETURN_FAILED;
     uint64_t total_bits = 0U;
     uint32_t len = 0U;
-    uint32_t total_length = 0U;
+    uint64_t total_length = 0U;
     uint32_t length_index = (uint32_t)(SHA1_BLOCK_SIZE_BYTES - SHA1_LENGTH_FIELD_BYTES);
     uint32_t space_for_padding = 0U;
     uint32_t alg_sz = 0U;
@@ -354,14 +357,14 @@ noxtls_return_t noxtls_sha1_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
 
     if (ctx->u.md32.data_len > 0U) {
         len = ctx->u.md32.data_len;
-        total_length = ctx->u.md32.length + ctx->u.md32.data_len;
+        total_length = ctx->u.md32.length + (uint64_t)ctx->u.md32.data_len;
     } else {
         noxtls_secure_zero((ctx->u.md32.data), (size_t)(SHA1_BLOCK_SIZE_BYTES));
         total_length = ctx->u.md32.length;
     }
 
     space_for_padding = SHA1_BLOCK_SIZE_BITS - ((len <<3U) % SHA1_BLOCK_SIZE_BITS);
-    total_bits = (uint64_t)total_length * 8U;
+    total_bits = total_length * 8U;
 
     if (space_for_padding < ((SHA1_LENGTH_FIELD_BYTES + 1U) <<3U)) {
         rc = sha1_finish_two_blocks(ctx, len, space_for_padding, length_index, total_bits);
@@ -421,25 +424,30 @@ noxtls_return_t noxtls_sha1_verify(const uint8_t * data, uint32_t len, const uin
     rc = noxtls_sha1_init(&ctx, NOXTLS_HASH_SHA1);
     if (rc != NOXTLS_RETURN_SUCCESS) {
         (void)noxtls_debug_printf((const uint8_t *)"Failed to initialize SHA1 context\n");
-        return rc;
     }
-    rc = noxtls_sha1_update(&ctx, data, len);
-    if (rc != NOXTLS_RETURN_SUCCESS) {
-        (void)noxtls_debug_printf((const uint8_t *)"Failed to update SHA1 context\n");
-        return rc;
+    if (rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_sha1_update(&ctx, data, len);
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            (void)noxtls_debug_printf((const uint8_t *)"Failed to update SHA1 context\n");
+        }
     }
-    rc = noxtls_sha1_finish(&ctx, hash);
-    if (rc != NOXTLS_RETURN_SUCCESS) {
-        (void)noxtls_debug_printf((const uint8_t *)"Failed to finish SHA1 context\n");
-        return rc;
+    if (rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_sha1_finish(&ctx, hash);
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            (void)noxtls_debug_printf((const uint8_t *)"Failed to finish SHA1 context\n");
+        }
     }
-    
+
     /* Compare exactly the 20-byte SHA-1 digest; mismatch is a failure. */
-    if (noxtls_ct_equal(hash, expected, (size_t)HASH_SHA1_OUT_LEN) != 0) {
-        rc = NOXTLS_RETURN_SUCCESS;
-    } else {
-        rc = NOXTLS_RETURN_FAILED;
+    if (rc == NOXTLS_RETURN_SUCCESS) {
+        if (noxtls_ct_equal(hash, expected, (size_t)HASH_SHA1_OUT_LEN) != 0) {
+            rc = NOXTLS_RETURN_SUCCESS;
+        } else {
+            rc = NOXTLS_RETURN_FAILED;
+        }
     }
+    /* The context and digest describe the (possibly secret) input. */
+    noxtls_secure_zero(&ctx, sizeof(ctx));
     noxtls_secure_zero((hash), sizeof(hash));
 
     return rc;

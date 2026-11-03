@@ -34,6 +34,8 @@
 #include "mdigest/sha256/noxtls_sha256.h"
 #include "mdigest/sha512/noxtls_sha512.h"
 #include "noxtls_ct.h"
+#include "common/noxtls_time.h"
+#include "drbg/noxtls_drbg.h"
 
 #if TLS13_PSK_TICKET_STORE_MAX > 0U
 static psk_ticket_store_t psk_ticket_store;
@@ -263,16 +265,6 @@ static noxtls_return_t psk_clienthello_binder_prefix_len(const uint8_t *client_h
 }
 
 /**
- * @brief Clear the module-global PSK ticket store.
- */
-#if TLS13_PSK_TICKET_STORE_MAX > 0U
-static void psk_ticket_store_init(void)
-{
-    noxtls_secure_zero(&psk_ticket_store, sizeof(psk_ticket_store));
-}
-#endif
-
-/**
  * @brief Check whether a PSK key exchange mode appears in the extension payload.
  * @param[in] data PSK_KEY_EXCHANGE_MODES extension body (leading length byte + mode list).
  * @param[in] len  Length of @p data.
@@ -481,6 +473,91 @@ noxtls_return_t tls13_psk_find_clienthello_binder(const uint8_t *client_hello,
 }
 
 /**
+ * @brief Binder key schedule shared by resumption and external PSK binders (RFC 8446 4.2.11.2).
+ *
+ * early_secret = HKDF-Extract(0, PSK), binder_key = Derive-Secret(early_secret, label, ""),
+ * finished_key = HKDF-Expand-Label(binder_key, "finished"), binder = HMAC(finished_key, hash).
+ * early_secret is PSK-equivalent, so every intermediate is wiped on every exit.
+ *
+ * @param[in] hash_algo        Binder hash.
+ * @param[in] hash_len         Hash length (32 or 48).
+ * @param[in] psk              PSK bytes.
+ * @param[in] psk_len          Length of @p psk.
+ * @param[in] label            Derive-Secret label ("res binder" / "ext binder").
+ * @param[in] label_len        Length of @p label.
+ * @param[in] transcript_hash  Hash of the truncated ClientHello transcript.
+ * @param[in] transcript_len   Length of @p transcript_hash.
+ * @param[out] out_binder      Computed binder (@p hash_len bytes).
+ * @param[out] fail_step_out   Optional failing step name.
+ * @return `NOXTLS_RETURN_SUCCESS` on success; KDF/HMAC error otherwise.
+ */
+static noxtls_return_t psk_binder_from_psk(noxtls_hash_algos_t hash_algo,
+                                           uint32_t hash_len,
+                                           const uint8_t *psk,
+                                           uint32_t psk_len,
+                                           const uint8_t *label,
+                                           uint32_t label_len,
+                                           const uint8_t *transcript_hash,
+                                           uint32_t transcript_len,
+                                           uint8_t *out_binder,
+                                           const uint8_t **fail_step_out)
+{
+    static const uint8_t finished_label[] = {
+        (uint8_t)'f',(uint8_t)'i',(uint8_t)'n',(uint8_t)'i',(uint8_t)'s',(uint8_t)'h',(uint8_t)'e',(uint8_t)'d'
+    };
+    static const uint8_t step_extract[] = "hkdf_extract";
+    static const uint8_t step_derive[] = "derive_secret";
+    static const uint8_t step_expand[] = "expand_finished";
+    static const uint8_t step_hmac[] = "finished_hmac";
+    static const uint8_t step_verify_len[] = "verify_len";
+    uint8_t early_secret[64];
+    uint8_t binder_key[64];
+    uint8_t finished_key[64];
+    uint8_t computed_binder[64];
+    uint32_t prk_len = hash_len;
+    uint32_t verify_len = (uint32_t)sizeof(computed_binder);
+    const uint8_t *step = NULL;
+    noxtls_return_t rc = noxtls_hkdf_extract(hash_algo, NULL, 0, psk, psk_len, early_secret, &prk_len);
+
+    if (rc != NOXTLS_RETURN_SUCCESS) {
+        step = step_extract;
+    } else {
+        rc = tls13_derive_secret(hash_algo, early_secret, hash_len, label, label_len,
+                                 NULL, 0, binder_key, hash_len);
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            step = step_derive;
+        }
+    }
+    if (rc == NOXTLS_RETURN_SUCCESS) {
+        rc = tls13_hkdf_expand_label(hash_algo, binder_key, hash_len, finished_label, 8U,
+                                     NULL, 0U, finished_key, hash_len);
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            step = step_expand;
+        }
+    }
+    if (rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_hmac_compute(hash_algo, finished_key, hash_len, transcript_hash, transcript_len,
+                                 computed_binder, &verify_len);
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            step = step_hmac;
+        } else if (verify_len != hash_len) {
+            rc = NOXTLS_RETURN_FAILED;
+            step = step_verify_len;
+        } else {
+            noxtls_copy_u8(out_binder, (size_t)hash_len, computed_binder, (size_t)hash_len);
+        }
+    }
+    if (fail_step_out != NULL) {
+        *fail_step_out = step;
+    }
+    noxtls_secure_zero(early_secret, sizeof(early_secret));
+    noxtls_secure_zero(binder_key, sizeof(binder_key));
+    noxtls_secure_zero(finished_key, sizeof(finished_key));
+    noxtls_secure_zero(computed_binder, sizeof(computed_binder));
+    return rc;
+}
+
+/**
  * @brief Compute the resumption PSK binder for ticket-based resumption (RFC 8446 §4.2.11.2).
  *
  * Derives `early_secret = HKDF-Extract(0, resumption_psk)`, then `binder_key` with label
@@ -516,13 +593,7 @@ noxtls_return_t tls13_psk_compute_resumption_binder(noxtls_hash_algos_t hash_alg
     uint8_t transcript_hash[64];
     uint32_t transcript_len = (uint32_t)sizeof(transcript_hash);
     uint32_t binder_prefix_len = 0U;
-    uint8_t early_secret[64];
-    uint8_t binder_key[64];
-    uint8_t finished_key[64];
-    uint8_t computed_binder[64];
     uint32_t hash_len = 0U;
-    uint32_t verify_len = 0U;
-    uint32_t prk_len = 0U;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
     static const uint8_t label[] = "res binder";
     const uint32_t label_len = 10U;
@@ -560,34 +631,13 @@ noxtls_return_t tls13_psk_compute_resumption_binder(noxtls_hash_algos_t hash_alg
         return rc;
     }
 
-    prk_len = hash_len;
-    rc = noxtls_hkdf_extract(hash_algo, NULL, 0, resumption_psk, psk_len, early_secret, &prk_len);
-    if (rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
+    (void)ticket_nonce_len;  /* the binder key does not depend on the nonce (RFC 8446 4.2.11.2) */
+    rc = psk_binder_from_psk(hash_algo, hash_len, resumption_psk, (uint32_t)psk_len, label, label_len,
+                             transcript_hash, transcript_len, out_binder, NULL);
+    if ((rc != NOXTLS_RETURN_SUCCESS) && (rc != NOXTLS_RETURN_FAILED)) {
+        rc = NOXTLS_RETURN_FAILED;
     }
-    rc = tls13_derive_secret(hash_algo, early_secret, hash_len, label, label_len,
-                            NULL, 0, binder_key, hash_len);
-    if (rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
-    }
-    {
-        static const uint8_t finished_label[] = {
-            (uint8_t)'f',(uint8_t)'i',(uint8_t)'n',(uint8_t)'i',(uint8_t)'s',(uint8_t)'h',(uint8_t)'e',(uint8_t)'d'
-        };
-        rc = tls13_hkdf_expand_label(hash_algo, binder_key, hash_len, finished_label, 8U,
-                                     NULL, 0U, finished_key, hash_len);
-    }
-    if (rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
-    }
-    verify_len = hash_len;
-    rc = noxtls_hmac_compute(hash_algo, finished_key, hash_len, transcript_hash, transcript_len,
-                     computed_binder, &verify_len);
-    if ((rc != NOXTLS_RETURN_SUCCESS) || (verify_len != hash_len)) {
-        return NOXTLS_RETURN_FAILED;
-    }
-    noxtls_copy_u8(out_binder, (size_t)hash_len, computed_binder, (size_t)hash_len);
-    return NOXTLS_RETURN_SUCCESS;
+    return rc;
 }
 
 /**
@@ -623,13 +673,7 @@ noxtls_return_t tls13_psk_compute_external_binder(noxtls_hash_algos_t hash_algo,
     uint8_t transcript_hash[64];
     uint32_t transcript_len = (uint32_t)sizeof(transcript_hash);
     uint32_t binder_prefix_len = 0U;
-    uint8_t early_secret[64];
-    uint8_t binder_key[64];
-    uint8_t finished_key[64];
-    uint8_t computed_binder[64];
     uint32_t hash_len = 0U;
-    uint32_t verify_len = (uint32_t)sizeof(computed_binder);
-    uint32_t prk_len = 0U;
     uint32_t label_len = 10U;
     noxtls_return_t rc = NOXTLS_RETURN_FAILED;
     static const uint8_t label[] = "ext binder";
@@ -692,65 +736,95 @@ noxtls_return_t tls13_psk_compute_external_binder(noxtls_hash_algos_t hash_algo,
         return rc;
     }
 
-    prk_len = hash_len;
-    rc = noxtls_hkdf_extract(hash_algo, NULL, 0, psk, psk_len, early_secret, &prk_len);
-    if (rc != NOXTLS_RETURN_SUCCESS) {
-        if (fail_step_out != NULL) {
-            *fail_step_out = (const uint8_t[]){ (uint8_t)'h', (uint8_t)'k', (uint8_t)'d', (uint8_t)'f', (uint8_t)'_', (uint8_t)'e', (uint8_t)'x', (uint8_t)'t', (uint8_t)'r', (uint8_t)'a', (uint8_t)'c', (uint8_t)'t', 0 };
+    return psk_binder_from_psk(hash_algo, hash_len, psk, (uint32_t)psk_len, label, label_len,
+                               transcript_hash, transcript_len, out_binder, fail_step_out);
+}
+
+#if TLS13_PSK_TICKET_STORE_MAX > 0U
+/**
+ * @brief Current time for ticket lifetimes.
+ * @return Unix seconds, or -1 when the platform has no clock.
+ */
+static int64_t psk_ticket_now(void)
+{
+    noxtls_unix_time_t now = noxtls_time_unix_seconds();
+    return (now < 0) ? (int64_t)-1 : (int64_t)now;
+}
+
+/**
+ * @brief True when an entry is past its lifetime (or the clock went backwards).
+ *
+ * Without a clock at issuance or now the lifetime cannot be checked; such tickets are
+ * single-use instead (see tls13_psk_ticket_store_get()).
+ */
+static int psk_ticket_expired(int64_t issued_at, uint32_t lifetime, int64_t now)
+{
+    int expired = 0;
+    if((issued_at >= 0) && (now >= 0)) {
+        if((now < issued_at) || ((uint64_t)(now - issued_at) > (uint64_t)lifetime)) {
+            expired = 1;
         }
-        return rc;
     }
-    rc = tls13_derive_secret(hash_algo, early_secret, hash_len, label, label_len, NULL, 0, binder_key, hash_len);
-    if (rc != NOXTLS_RETURN_SUCCESS) {
-        if (fail_step_out != NULL) {
-            *fail_step_out = (const uint8_t[]){ (uint8_t)'d', (uint8_t)'e', (uint8_t)'r', (uint8_t)'i', (uint8_t)'v', (uint8_t)'e', (uint8_t)'_', (uint8_t)'s', (uint8_t)'e', (uint8_t)'c', (uint8_t)'r', (uint8_t)'e', (uint8_t)'t', 0 };
-        }
-        return rc;
+    return expired;
+}
+
+/**
+ * @brief Wipe one entry, marking it as being rewritten while it is cleared.
+ */
+static void psk_ticket_entry_wipe(psk_ticket_entry_t *e)
+{
+    uint32_t gen = e->generation;
+    e->generation = gen + 1U;   /* odd: concurrent readers discard their copy */
+    noxtls_secure_zero(e->ticket_id, sizeof(e->ticket_id));
+    noxtls_secure_zero(e->resumption_psk, sizeof(e->resumption_psk));
+    e->resumption_psk_len = 0U;
+    noxtls_secure_zero(e->ticket_nonce, sizeof(e->ticket_nonce));
+    e->ticket_nonce_len = 0U;
+    e->ticket_age_add = 0U;
+    e->cipher_suite = 0U;
+    noxtls_secure_zero(e->binding, sizeof(e->binding));
+    e->lifetime = 0U;
+    e->issued_at = 0;
+    e->generation = gen + 2U;   /* even again */
+}
+#endif
+
+/**
+ * @brief Wipe every ticket in the process-global TLS 1.3 server ticket store.
+ *
+ * Resumption PSKs otherwise stay in static memory until their slot is reused. The store
+ * is serialised by the integrator lock installed with noxtls_drbg_set_lock_callbacks();
+ * without one, call this only when no server handshake is running.
+ */
+void noxtls_tls13_psk_ticket_store_clear(void)
+{
+#if TLS13_PSK_TICKET_STORE_MAX > 0U
+    uint32_t i = 0U;
+    noxtls_drbg_shared_lock();
+    for (i = 0U; i < TLS13_PSK_TICKET_STORE_MAX; i += 1U) {
+        psk_ticket_entry_wipe(&psk_ticket_store.entries[i]);
     }
-    {
-        static const uint8_t finished_label[] = {
-            (uint8_t)'f',(uint8_t)'i',(uint8_t)'n',(uint8_t)'i',(uint8_t)'s',(uint8_t)'h',(uint8_t)'e',(uint8_t)'d'
-        };
-        rc = tls13_hkdf_expand_label(hash_algo, binder_key, hash_len, finished_label, 8U,
-                                     NULL, 0U, finished_key, hash_len);
-    }
-    if (rc != NOXTLS_RETURN_SUCCESS) {
-        if (fail_step_out != NULL) {
-            *fail_step_out = (const uint8_t[]){ (uint8_t)'e', (uint8_t)'x', (uint8_t)'p', (uint8_t)'a', (uint8_t)'n', (uint8_t)'d', (uint8_t)'_', (uint8_t)'f', (uint8_t)'i', (uint8_t)'n', (uint8_t)'i', (uint8_t)'s', (uint8_t)'h', (uint8_t)'e', (uint8_t)'d', 0 };
-        }
-        return rc;
-    }
-    rc = noxtls_hmac_compute(hash_algo, finished_key, hash_len, transcript_hash, transcript_len,
-                     computed_binder, &verify_len);
-    if (rc != NOXTLS_RETURN_SUCCESS) {
-        if (fail_step_out != NULL) {
-            *fail_step_out = (const uint8_t[]){ (uint8_t)'f', (uint8_t)'i', (uint8_t)'n', (uint8_t)'i', (uint8_t)'s', (uint8_t)'h', (uint8_t)'e', (uint8_t)'d', (uint8_t)'_', (uint8_t)'h', (uint8_t)'m', (uint8_t)'a', (uint8_t)'c', 0 };
-        }
-        return rc;
-    }
-    if (verify_len != hash_len) {
-        if (fail_step_out != NULL) {
-            *fail_step_out = (const uint8_t[]){ (uint8_t)'v', (uint8_t)'e', (uint8_t)'r', (uint8_t)'i', (uint8_t)'f', (uint8_t)'y', (uint8_t)'_', (uint8_t)'l', (uint8_t)'e', (uint8_t)'n', 0 };
-        }
-        return NOXTLS_RETURN_FAILED;
-    }
-    noxtls_copy_u8(out_binder, (size_t)hash_len, computed_binder, (size_t)hash_len);
-    return NOXTLS_RETURN_SUCCESS;
+    psk_ticket_store.next_index = 0U;
+    noxtls_drbg_shared_unlock();
+#endif
 }
 
 /**
  * @brief Insert a session ticket into the server-side resumption store.
  *
- * Overwrites entries in round-robin order when the store is full. Initializes the store on first use.
+ * Expired entries are wiped first. The new ticket takes a free slot when there is one,
+ * otherwise the slot after the most recently written one (the oldest ticket) is overwritten.
  *
  * @param[in] ticket_id       Ticket identity (up to `TLS13_PSK_TICKET_ID_LEN` bytes).
  * @param[in] id_len          Length of @p ticket_id.
  * @param[in] resumption_psk  Resumption PSK derived at ticket issuance.
- * @param[in] psk_len         Length of @p resumption_psk (max 64).
+ * @param[in] psk_len         Length of @p resumption_psk (max 48).
  * @param[in] ticket_nonce    Nonce from NewSessionTicket.
- * @param[in] nonce_len       Length of @p ticket_nonce (max `TLS13_PSK_TICKET_NONCE_MAX`).
+ * @param[in] nonce_len       Length of @p ticket_nonce (max `TLS13_PSK_SERVER_NONCE_LEN`).
  * @param[in] ticket_age_add  Ticket age add value from NewSessionTicket.
  * @param[in] cipher_suite    Cipher suite used for the original connection.
+ * @param[in] binding         Server configuration binding (`TLS13_PSK_TICKET_BINDING_LEN` bytes).
+ * @param[in] lifetime        Advertised ticket_lifetime in seconds (capped at 7 days).
  * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_INVALID_PARAM` on out-of-range lengths.
  */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
@@ -761,29 +835,52 @@ noxtls_return_t tls13_psk_ticket_store_add(const uint8_t *ticket_id,
                                            const uint8_t *ticket_nonce,
                                            uint8_t nonce_len,
                                            uint32_t ticket_age_add,
-                                           uint16_t cipher_suite)
+                                           uint16_t cipher_suite,
+                                           const uint8_t *binding,
+                                           uint32_t lifetime)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
 {
 #if TLS13_PSK_TICKET_STORE_MAX > 0U
-    psk_ticket_entry_t *e;
-    if ((ticket_id == NULL) || (id_len > TLS13_PSK_TICKET_ID_LEN) || (resumption_psk == NULL) ||
-        (psk_len > TLS13_PSK_RESUMPTION_PSK_MAX) || (ticket_nonce == NULL) ||
-        (nonce_len > TLS13_PSK_SERVER_NONCE_LEN)) {
+    psk_ticket_entry_t *e = NULL;
+    uint32_t i = 0U;
+    uint32_t gen = 0U;
+    int64_t now = psk_ticket_now();
+
+    if ((ticket_id == NULL) || (id_len != TLS13_PSK_TICKET_ID_LEN) || (resumption_psk == NULL) ||
+        (psk_len == 0U) || (psk_len > TLS13_PSK_RESUMPTION_PSK_MAX) || (ticket_nonce == NULL) ||
+        (nonce_len > TLS13_PSK_SERVER_NONCE_LEN) || (binding == NULL)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
-    if (psk_ticket_store.next_index == 0U) {
-        (void)psk_ticket_store_init();
+    noxtls_drbg_shared_lock();
+    /* Sweep expired tickets and prefer an empty slot. */
+    for (i = 0U; i < TLS13_PSK_TICKET_STORE_MAX; i += 1U) {
+        psk_ticket_entry_t *c = &psk_ticket_store.entries[i];
+        if ((c->resumption_psk_len != 0U) && (psk_ticket_expired(c->issued_at, c->lifetime, now) != 0)) {
+            psk_ticket_entry_wipe(c);
+        }
+        if ((e == NULL) && (c->resumption_psk_len == 0U)) {
+            e = c;
+        }
     }
-    e = &psk_ticket_store.entries[psk_ticket_store.next_index % TLS13_PSK_TICKET_STORE_MAX];
-    psk_ticket_store.next_index += 1U;
-    noxtls_secure_zero((e), sizeof(*(e)));
+    if (e == NULL) {
+        e = &psk_ticket_store.entries[psk_ticket_store.next_index % TLS13_PSK_TICKET_STORE_MAX];
+        psk_ticket_store.next_index = (psk_ticket_store.next_index + 1U) % TLS13_PSK_TICKET_STORE_MAX;
+    }
+    psk_ticket_entry_wipe(e);
+    gen = e->generation;
+    e->generation = gen + 1U;
     noxtls_copy_u8(e->ticket_id, sizeof(e->ticket_id), ticket_id, (size_t)id_len);
-    e->resumption_psk_len = psk_len;
     noxtls_copy_u8(e->resumption_psk, sizeof(e->resumption_psk), resumption_psk, (size_t)psk_len);
+    e->resumption_psk_len = psk_len;
     e->ticket_nonce_len = nonce_len;
     noxtls_copy_u8(e->ticket_nonce, sizeof(e->ticket_nonce), ticket_nonce, (size_t)nonce_len);
     e->ticket_age_add = ticket_age_add;
     e->cipher_suite = cipher_suite;
+    noxtls_copy_u8(e->binding, sizeof(e->binding), binding, (size_t)TLS13_PSK_TICKET_BINDING_LEN);
+    e->lifetime = (lifetime > TLS13_PSK_TICKET_LIFETIME_MAX) ? TLS13_PSK_TICKET_LIFETIME_MAX : lifetime;
+    e->issued_at = now;
+    e->generation = gen + 2U;
+    noxtls_drbg_shared_unlock();
     return NOXTLS_RETURN_SUCCESS;
 #else
     (void)ticket_id;
@@ -794,82 +891,134 @@ noxtls_return_t tls13_psk_ticket_store_add(const uint8_t *ticket_id,
     (void)nonce_len;
     (void)ticket_age_add;
     (void)cipher_suite;
+    (void)binding;
+    (void)lifetime;
     return NOXTLS_RETURN_NOT_SUPPORTED;
 #endif
 }
 
 /**
- * @brief Look up a stored session ticket by identity.
+ * @brief Look up a stored session ticket by identity and copy it out.
+ *
+ * The copy is taken between two reads of the entry's generation counter; if the entry was
+ * being rewritten (odd counter) or changed during the copy, the lookup fails rather than
+ * returning a torn or zeroed PSK. The copied identity is re-compared, the PSK must be
+ * non-empty, the binding must match the resuming server, and the ticket must be within its
+ * lifetime (expired entries are wiped).
+ *
+ * Store access is serialised by the integrator lock installed with
+ * noxtls_drbg_set_lock_callbacks(). Without a lock the generation check narrows, but on
+ * weakly ordered CPUs does not by itself exclude, races with a concurrent
+ * tls13_psk_ticket_store_add() on another thread.
+ *
  * @param[in] ticket_id Ticket identity from ClientHello pre_shared_key.
  * @param[in] id_len    Must equal `TLS13_PSK_TICKET_ID_LEN`.
- * @return Opaque pointer to an internal `psk_ticket_entry_t`, or NULL if not found or invalid input.
- *         Do not free the returned pointer.
+ * @param[in] binding   Binding of the resuming server (`TLS13_PSK_TICKET_BINDING_LEN` bytes).
+ * @param[out] out      Copy of the ticket; wiped on failure.
+ * @return `NOXTLS_RETURN_SUCCESS` when a usable ticket was copied; `NOXTLS_RETURN_FAILED` otherwise.
  */
-const void *tls13_psk_ticket_store_lookup(const uint8_t *ticket_id, uint32_t id_len)
+noxtls_return_t tls13_psk_ticket_store_get(const uint8_t *ticket_id,
+                                           uint32_t id_len,
+                                           const uint8_t *binding,
+                                           tls13_psk_ticket_t *out)
+{
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+#if TLS13_PSK_TICKET_STORE_MAX > 0U
+    uint32_t i = 0U;
+    int64_t now = psk_ticket_now();
+
+    if (out == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    noxtls_secure_zero(out, sizeof(*out));
+    if ((ticket_id == NULL) || (id_len != TLS13_PSK_TICKET_ID_LEN) || (binding == NULL)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    noxtls_drbg_shared_lock();
+    for (i = 0U; (i < TLS13_PSK_TICKET_STORE_MAX) && (rc != NOXTLS_RETURN_SUCCESS); i += 1U) {
+        psk_ticket_entry_t *e = &psk_ticket_store.entries[i];
+        uint8_t id_copy[TLS13_PSK_TICKET_ID_LEN];
+        uint8_t binding_copy[TLS13_PSK_TICKET_BINDING_LEN];
+        int64_t issued_at = 0;
+        uint32_t lifetime = 0U;
+        uint32_t gen_before = e->generation;
+        uint32_t gen_after = 0U;
+
+        if (((gen_before & 1U) != 0U) || (e->resumption_psk_len == 0U) ||
+            (noxtls_ct_equal(e->ticket_id, ticket_id, (size_t)TLS13_PSK_TICKET_ID_LEN) == 0)) {
+            continue;
+        }
+        noxtls_copy_u8(id_copy, sizeof(id_copy), e->ticket_id, sizeof(id_copy));
+        noxtls_copy_u8(binding_copy, sizeof(binding_copy), e->binding, sizeof(binding_copy));
+        out->resumption_psk_len = e->resumption_psk_len;
+        out->ticket_nonce_len = e->ticket_nonce_len;
+        if ((out->resumption_psk_len <= TLS13_PSK_RESUMPTION_PSK_MAX) &&
+            (out->ticket_nonce_len <= TLS13_PSK_SERVER_NONCE_LEN)) {
+            noxtls_copy_u8(out->resumption_psk, sizeof(out->resumption_psk), e->resumption_psk,
+                           (size_t)out->resumption_psk_len);
+            noxtls_copy_u8(out->ticket_nonce, sizeof(out->ticket_nonce), e->ticket_nonce,
+                           (size_t)out->ticket_nonce_len);
+        }
+        out->ticket_age_add = e->ticket_age_add;
+        out->cipher_suite = e->cipher_suite;
+        issued_at = e->issued_at;
+        lifetime = e->lifetime;
+        gen_after = e->generation;
+
+        if ((gen_after == gen_before) &&
+            (out->resumption_psk_len != 0U) && (out->resumption_psk_len <= TLS13_PSK_RESUMPTION_PSK_MAX) &&
+            (out->ticket_nonce_len <= TLS13_PSK_SERVER_NONCE_LEN) &&
+            (noxtls_ct_equal(id_copy, ticket_id, (size_t)TLS13_PSK_TICKET_ID_LEN) != 0) &&
+            (noxtls_ct_equal(binding_copy, binding, (size_t)TLS13_PSK_TICKET_BINDING_LEN) != 0)) {
+            if (psk_ticket_expired(issued_at, lifetime, now) != 0) {
+                psk_ticket_entry_wipe(e);
+            } else {
+                out->single_use = ((issued_at < 0) || (now < 0)) ? 1U : 0U;
+                rc = NOXTLS_RETURN_SUCCESS;
+            }
+        }
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            noxtls_secure_zero(out, sizeof(*out));
+        }
+        noxtls_secure_zero(binding_copy, sizeof(binding_copy));
+    }
+    noxtls_drbg_shared_unlock();
+#else
+    (void)ticket_id;
+    (void)id_len;
+    (void)binding;
+    if (out != NULL) {
+        noxtls_secure_zero(out, sizeof(*out));
+    }
+#endif
+    return rc;
+}
+
+/**
+ * @brief Remove (wipe) the store entry with this ticket identity, if present.
+ * @param[in] ticket_id Ticket identity.
+ * @param[in] id_len    Must equal `TLS13_PSK_TICKET_ID_LEN`.
+ */
+void tls13_psk_ticket_store_remove(const uint8_t *ticket_id, uint32_t id_len)
 {
 #if TLS13_PSK_TICKET_STORE_MAX > 0U
     uint32_t i = 0U;
     if ((ticket_id == NULL) || (id_len != TLS13_PSK_TICKET_ID_LEN)) {
-        return NULL;
+        return;
     }
+    noxtls_drbg_shared_lock();
     for (i = 0U; i < TLS13_PSK_TICKET_STORE_MAX; i += 1U) {
         psk_ticket_entry_t *e = &psk_ticket_store.entries[i];
-        if (e->resumption_psk_len != 0U) {
-            if (noxtls_ct_equal(e->ticket_id, ticket_id, (size_t)TLS13_PSK_TICKET_ID_LEN) != 0) {
-                return e;
-            }
+        if ((e->resumption_psk_len != 0U) &&
+            (noxtls_ct_equal(e->ticket_id, ticket_id, (size_t)TLS13_PSK_TICKET_ID_LEN) != 0)) {
+            psk_ticket_entry_wipe(e);
         }
     }
+    noxtls_drbg_shared_unlock();
 #else
     (void)ticket_id;
     (void)id_len;
 #endif
-    return NULL;
-}
-
-/**
- * @brief Copy resumption PSK and ticket nonce from a store entry.
- * @param[in] entry           Pointer from `tls13_psk_ticket_store_lookup`.
- * @param[out] psk_out        Buffer for resumption PSK (at least 64 bytes).
- * @param[in] psk_out_size    Size of @p psk_out.
- * @param[out] psk_len        On success, length written to @p psk_out.
- * @param[out] nonce_out      Buffer for ticket nonce (at least `TLS13_PSK_TICKET_NONCE_MAX` bytes).
- * @param[in] nonce_out_size  Size of @p nonce_out.
- * @param[out] nonce_len      On success, length written to @p nonce_out.
- * @return `NOXTLS_RETURN_SUCCESS` on success; `NOXTLS_RETURN_NULL` on invalid pointers;
- *         `NOXTLS_RETURN_INVALID_PARAM` if output buffers are too small.
- */
-noxtls_return_t tls13_psk_ticket_store_entry_psk(const void *entry,
-                                                  uint8_t *psk_out,
-                                                  uint8_t psk_out_size,
-                                                  uint8_t *psk_len,
-                                                  uint8_t *nonce_out,
-                                                  uint8_t nonce_out_size,
-                                                  uint8_t *nonce_len)
-{
-    const psk_ticket_entry_t *e = (const psk_ticket_entry_t *)entry;
-    if ((e == NULL) || (psk_out == NULL) || (psk_len == NULL) || (nonce_out == NULL) || (nonce_len == NULL)) {
-        return NOXTLS_RETURN_NULL;
-    }
-    if ((psk_out_size < e->resumption_psk_len) || (nonce_out_size < e->ticket_nonce_len)) {
-        return NOXTLS_RETURN_INVALID_PARAM;
-    }
-    *psk_len = e->resumption_psk_len;
-    noxtls_copy_u8(psk_out, (size_t)e->resumption_psk_len, e->resumption_psk, (size_t)e->resumption_psk_len);
-    *nonce_len = e->ticket_nonce_len;
-    noxtls_copy_u8(nonce_out, (size_t)e->ticket_nonce_len, e->ticket_nonce, (size_t)e->ticket_nonce_len);
-    return NOXTLS_RETURN_SUCCESS;
-}
-
-/**
- * @brief Return the cipher suite recorded for a ticket store entry.
- * @param[in] entry Pointer from `tls13_psk_ticket_store_lookup`.
- * @return Cipher suite value, or 0 if @p entry is NULL.
- */
-uint16_t noxtls_tls13_psk_ticket_store_entry_cipher_suite(const void *entry)
-{
-    const psk_ticket_entry_t *e = (const psk_ticket_entry_t *)entry;
-    return (e != NULL) ? e->cipher_suite : 0U;
 }
 
 /**
@@ -919,6 +1068,7 @@ noxtls_return_t tls13_psk_derive_resumption_psk(noxtls_hash_algos_t hash_algo,
                              handshake_transcript, handshake_transcript_len,
                              resumption_master_secret, hash_len);
     if (rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero((resumption_master_secret), sizeof(resumption_master_secret));
         return rc;
     }
     rc = tls13_hkdf_expand_label(hash_algo, resumption_master_secret, hash_len,

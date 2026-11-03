@@ -264,6 +264,8 @@ struct tls13_hs_state_s
     uint8_t early_write_key[32];
     uint8_t early_write_iv[12];
     uint64_t early_seq_num;
+    uint8_t client_hrr_seen;          /* Client: a HelloRetryRequest arrived in this handshake (0-RTT is over) */
+    uint8_t client_offered_early_data; /* Client: the ClientHello actually sent carried early_data */
 };
 NOXTLS_MSVC_WARNING_POP
 typedef struct tls13_hs_state_s tls13_hs_state_t;
@@ -346,6 +348,8 @@ struct tls13_context_s
     const noxtls_x509_crl_t *verify_crl; /* Optional CRL list for server cert verification (non-owning). */
     /** Client-only, borrowed explicit server trust/time policy; NULL preserves defaults. */
     const struct noxtls_x509_verify_policy *server_verify_policy;
+    /** Server-only, borrowed explicit client-certificate trust/time policy; NULL uses the global trust store. */
+    const struct noxtls_x509_verify_policy *client_verify_policy;
 
     /* Runtime cipher preference: 0 = prefer AES-GCM (default), 1 = prefer ChaCha20-Poly1305 */
     uint8_t prefer_chacha20;
@@ -399,6 +403,7 @@ struct tls13_context_s
     uint8_t request_client_auth;     /* Server: if set, send CertificateRequest and verify client cert */
     uint8_t require_client_auth;     /* Server: if set, missing client cert triggers certificate_required alert */
     uint8_t force_cert_verify_fail;  /* BoGo: force peer certificate verification to fail */
+    uint8_t client_chain_verify_disabled; /* Server: explicit opt-out of client chain validation (application validates/pins) */
     uint8_t client_auth_requested;   /* Client: set when server sent CertificateRequest */
     uint8_t *client_cert;            /* Client: cert to send (DER). Server: received client cert (owned). */
     uint32_t client_cert_len;
@@ -490,6 +495,7 @@ struct tls13_context_s
     /* Consecutive empty app-data records / warning alerts (BoringSSL-compatible limits). */
     uint8_t empty_record_count;
     uint8_t warning_alert_count;
+    uint8_t post_hs_msg_count;         /* Consecutive post-handshake handshake records without application data */
 };
 #ifndef NOXTLS_TLS13_CONTEXT_T_DEFINED
 #define NOXTLS_TLS13_CONTEXT_T_DEFINED
@@ -543,6 +549,17 @@ noxtls_return_t noxtls_dtls13_context_init_with_workspaces(tls13_context_t *ctx,
                                                            uint8_t *handshake_workspace,
                                                            uint32_t handshake_workspace_len);
 noxtls_return_t noxtls_tls13_context_free(tls13_context_t *ctx);
+/**
+ * @brief Wipe every ticket in the process-global TLS 1.3 server ticket store.
+ *
+ * NewSessionTicket issuance stores each resumption PSK in a process-global table; entries
+ * expire after the advertised ticket lifetime (or, without a clock, after one use) and are
+ * otherwise kept until their slot is reused. Call this to drop all of them, for example
+ * before shutdown, on a key-rotation event or when a server configuration is retired.
+ * Tickets already held by clients then fall back to a full handshake.
+ * Not synchronised: call when no TLS 1.3 server handshake is in progress.
+ */
+void noxtls_tls13_psk_ticket_store_clear(void);
 /**
  * Replace internally allocated TLS 1.3 workspaces with caller-provided buffers.
  * Call after context_init and before connect/accept.
@@ -625,7 +642,12 @@ noxtls_return_t noxtls_tls13_set_server_private_falcon(tls13_context_t *ctx,
                                                        noxtls_falcon_param_t param,
                                                        const uint8_t *private_key);
 #endif /* NOXTLS_FEATURE_FALCON */
-/** Set optional crypto provider and server key handle for server sign (CertificateVerify). Use instead of server_private_rsa when key is in HSM/TPM. */
+/**
+ * Set optional crypto provider and server key handle for server sign (CertificateVerify). Use instead of
+ * server_private_rsa when the RSA key is in an HSM/TPM. With a provider and a non-NULL handle, RSA-PSS
+ * CertificateVerify is signed only through ops->rsa_sign_pss; there is no fallback to a software RSA key,
+ * and a provider without rsa_sign_pss cannot sign RSA. Other provider operations are not used by TLS 1.3.
+ */
 void noxtls_tls13_set_crypto_provider_server(tls13_context_t *ctx, const noxtls_crypto_provider_t *provider, noxtls_crypto_key_handle_t server_key_handle);
 /** Set optional CRL chain for certificate revocation checks during peer cert verification. */
 void noxtls_tls13_set_verify_crl(tls13_context_t *ctx, const noxtls_x509_crl_t *crl);
@@ -644,6 +666,31 @@ void noxtls_tls13_require_client_auth(tls13_context_t *ctx, int require);
 
 /** Force peer certificate verification to fail (BoGo -verify-fail). */
 void noxtls_tls13_set_force_cert_verify_fail(tls13_context_t *ctx, int enable);
+
+/**
+ * @brief Server: verify client certificates against an explicit policy.
+ * @param[in,out] ctx TLS 1.3 server context, or NULL (ignored).
+ * @param[in] policy Borrowed until context free; NULL uses the global trust store.
+ *
+ * With a policy the global trust store is not consulted, and verification fails closed when
+ * the policy has no anchors. The context CRL (noxtls_tls13_set_verify_crl) is used when the
+ * policy carries none.
+ */
+void noxtls_tls13_set_client_verify_policy(tls13_context_t *ctx,
+    const struct noxtls_x509_verify_policy *policy);
+
+/**
+ * @brief Server: explicitly skip chain validation of client certificates.
+ *
+ * By default a presented client certificate must chain to the client verify policy or, without
+ * one, to the global trust store; with neither configured the handshake fails. Enable this only
+ * when the application validates or pins the client certificate itself after the handshake
+ * (the received DER is in ctx->client_cert). CertificateVerify (proof of key possession) still runs.
+ *
+ * @param[in,out] ctx TLS 1.3 server context, or NULL (ignored).
+ * @param[in] disable Non-zero to skip chain validation, 0 to restore the default.
+ */
+void noxtls_tls13_set_client_chain_verify_disabled(tls13_context_t *ctx, int disable);
 
 /** Client: set client certificate and RSA private key for mutual TLS. Call before noxtls_tls13_connect. cert in DER; rsa_key is rsa_key_t*. */
 noxtls_return_t noxtls_tls13_set_client_cert(tls13_context_t *ctx, const uint8_t *cert_der, uint32_t cert_len, void *rsa_key);

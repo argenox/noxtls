@@ -71,9 +71,11 @@ Reduce this risk by using constant-time implementations for secret-dependent ope
 
 NoxTLS supports build-time side-channel profiles through `NOXTLS_SIDECHANNEL_PROFILE`:
 
-- `performance`: legacy behavior (opt-in for speed-focused builds).
-- `balanced`: default profile; uses constant-time secret comparisons in core verification paths.
-- `constant_time_strict`: high-assurance profile with stricter hardening expectations.
+- `performance`: legacy behavior (opt-in for speed-focused builds): T-table software AES and table GHASH, both of which index memory with secret-dependent values.
+- `balanced`: default profile; constant-time secret comparisons in core verification paths and the table-free constant-time software AES core (`NOXTLS_AES_CONSTANT_TIME=1`). AES-GCM still uses the 4-bit GHASH table.
+- `constant_time_strict`: `balanced` plus the constant-time GHASH (`NOXTLS_GCM_TABLE_BITS=0`) and whole-table constant-time S-box access for the legacy ciphers ARIA, Camellia and RC4 (`NOXTLS_LEGACY_CIPHER_CONSTANT_TIME=1`). The build fails if these settings are overridden to table versions.
+
+Not covered by any profile: big-number and elliptic-curve code paths follow their own hardening settings, and hardware accelerator ports inherit the timing behaviour of the hardware. DES/3DES use branch-free bit handling and whole-table S-box scans in every profile.
 
 For production systems exposed to shared or hostile environments, prefer `constant_time_strict` and treat `performance` as an explicit exception.
 

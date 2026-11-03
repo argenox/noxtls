@@ -51,7 +51,8 @@ NOXTLS_MSVC_DISABLE_PADDING
 typedef struct
 {
     uint64_t h[8];      /* holds state */
-    uint32_t length;    /* Full data length */
+    uint64_t length;    /* bytes compressed so far; 64-bit so the padding
+                         * encodes the true length past 4 GiB */
     uint8_t data[HASH_SHA512_BLOCK_SIZE];  /* Used for holding remainder data */
     uint8_t data_len;   /* Counts data in data */
     uint8_t algo;       /* noxtls_hash_algos_t value (SHA-384/512/512-224/512-256) */

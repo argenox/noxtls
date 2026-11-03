@@ -70,3 +70,7 @@ Related docs:
 - Treat PQC deployment as an evolving interoperability program, not a one-time switch.
 - Use strict testing/conformance profiles in CI for PQ-enabled builds.
 - Continue applying classical TLS and PKI best practices (certificate validation, key protection, secure defaults) while rolling out PQC.
+- Falcon signing uses IEEE-754 binary64 arithmetic over the secret key. On cores without a double-precision FPU (for example Cortex-M0, M3, M4 and M33, or RV32 without the D extension), the compiler runtime emulates it, and its instruction count depends on operand values, so signing time can leak key information to a local timing or power observer. Falcon verification is integer-only and unaffected. Define `NOXTLS_FALCON_REQUIRE_HW_DOUBLE=1` to make such a build fail at compile time; prefer ML-DSA or SLH-DSA for signing on those cores.
+- Falcon signing rejects a secret key that decodes but does not satisfy the NTRU equation `f*G - g*F = q` with `NOXTLS_RETURN_BAD_DATA`, instead of looping in the sampler.
+- ML-KEM: use `noxtls_mlkem_encaps_ex()` and `noxtls_mlkem_decaps_ex()` for keys and ciphertexts received from a peer. They take the received length and reject a value of the wrong size instead of reading past it.
+- LMS/HSS and XMSS: a sign or reserve call made while another sign on the same key is still in progress (for example from inside the persistence callback) returns `NOXTLS_RETURN_FAILED` and does not touch the key. This guard is a flag, not a lock; serialize signing across threads.

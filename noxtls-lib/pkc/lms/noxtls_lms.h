@@ -224,6 +224,7 @@ typedef struct
     uint8_t *ws;
     uint32_t ws_len;
     uint32_t ws_owned;
+    uint32_t busy;   /* non-zero while a sign or reserve (and its persist callback) is in progress */
 } noxtls_hss_key_t;
 
 /* ---- legacy preset API (RFC 8554 SHA-256 sets with LMOTS_SHA256_N32_W8) --- */
@@ -354,13 +355,18 @@ noxtls_return_t noxtls_hss_key_load(noxtls_hss_key_t *key,
  * @return NOXTLS_RETURN_KEY_EXHAUSTED when no signatures are left; the
  *         persistence callback's error code if persisting failed (nothing is
  *         signed); NOXTLS_RETURN_FAILED if the self-check failed (the index
- *         is burned and the workspace rebuilt on the next call).
+ *         is burned and the workspace rebuilt on the next call), or if a sign
+ *         or reserve on this key is already in progress (for example when
+ *         called from inside the persist callback; nothing is changed).  The
+ *         in-progress guard is a plain flag, not a lock: concurrent threads
+ *         must still be serialized.
  */
 noxtls_return_t noxtls_hss_sign(noxtls_hss_key_t *key,
                                 const uint8_t *message, uint32_t message_len,
                                 uint8_t *signature, uint32_t signature_cap,
                                 uint32_t *signature_len);
-/** @brief Persist a reservation of count more indices now (count >= 1). */
+/** @brief Persist a reservation of count more indices now (count >= 1).
+ *  Returns NOXTLS_RETURN_FAILED while a sign or reserve on this key is in progress. */
 noxtls_return_t noxtls_hss_key_reserve(noxtls_hss_key_t *key, uint32_t count);
 /** @brief Number of indices noxtls_hss_sign() reserves per persist (default 1). */
 noxtls_return_t noxtls_hss_key_set_reserve(noxtls_hss_key_t *key, uint32_t count);

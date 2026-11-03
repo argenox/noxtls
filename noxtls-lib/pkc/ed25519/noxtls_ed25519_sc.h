@@ -25,7 +25,7 @@
  * @brief Scalar reduction and muladd modulo L for Ed25519.
  * @ingroup noxtls_ed25519
  *
- * Implements SUPERCOP/ref10 `sc_reduce` and `sc_muladd` for the group order
+ * Implements `sc_reduce` and `sc_muladd` (RFC 8032) for the group order
  * L = 2^252 + 27742317777372353535851937790883648493 (RFC 8032).
  * Inputs and outputs use little-endian wire encoding at the API edge.
  */
@@ -42,7 +42,7 @@ extern "C" {
 #endif
 
 /**
- * @brief Reduce a 64-byte little-endian integer modulo L (ref10 sc_reduce).
+ * @brief Reduce a 64-byte little-endian integer modulo L.
  *
  * @param[out] out_le Reduced 32-byte little-endian scalar.
  * @param[in] in_le 64-byte little-endian input.
@@ -51,7 +51,7 @@ void sc25519_reduce(uint8_t *out_le,
                     const uint8_t *in_le);
 
 /**
- * @brief Compute out = (a*b + c) mod L (ref10 sc_muladd).
+ * @brief Compute out = (a*b + c) mod L.
  *
  * @param[out] out_le Resulting 32-byte little-endian scalar.
  * @param[in] a_le First factor (32-byte LE).

@@ -165,6 +165,8 @@ noxtls_return_t noxtls_tls12_send_hello_request(tls12_context_t *ctx);
 
 Send HelloRequest to ask the client to renegotiate (RFC 5746).
 
+Returns `NOXTLS_RETURN_NOT_SUPPORTED` without sending anything when the client did not signal secure renegotiation (TLS_EMPTY_RENEGOTIATION_INFO_SCSV or `renegotiation_info`) in the current handshake (RFC 5746 section 4.4). The renegotiation ClientHello must carry `renegotiation_info` with the previous client `verify_data` and no SCSV; otherwise the server sends a fatal `handshake_failure` alert under the current keys and closes the connection (RFC 5746 section 3.7). On an initial handshake a non-empty `renegotiation_info` is also rejected with `handshake_failure` (section 3.6).
+
 **Returns:** [noxtls_return_t](./return_codes).
 
 ### Server key and certificate
@@ -247,6 +249,19 @@ While a policy is set:
 - A rejected client certificate is not left in the context.
 
 Combine it with [`noxtls_tls12_require_client_auth()`](#noxtls_tls12_require_client_auth) to reject clients that send no certificate.
+
+Without a policy the client chain is verified against the global trust store, and the handshake
+fails when that store has no anchors (earlier releases accepted any key-holding client then).
+
+### `noxtls_tls12_session_stores_clear`
+
+```c
+void noxtls_tls12_session_stores_clear(void);
+```
+
+Wipe the process-global TLS 1.2 resumption state: the server session-ID and ticket caches and
+the client session (ticket and master secret). Not synchronised: call when no TLS 1.2 handshake
+is in progress. Sessions that negotiated EC-JPAKE are never cached (they cannot resume).
 
 ### `noxtls_tls12_get_client_certificate`
 
