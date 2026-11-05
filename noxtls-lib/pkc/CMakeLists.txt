@@ -59,6 +59,18 @@ if(NOT ESP_PLATFORM AND (NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL OR NOXTLS_NRF54_CRACE
     endif()
 endif()
 
+# STM32WB5x PKA: P-256 point multiply (ECDH, key generation), ECDSA P-256 sign / verify and the
+# modular exponentiation platform hook (noxtls_stm32wb_port_ecc.c replaces the default ECC /
+# ECDSA stubs).
+set(_noxtls_pkc_stm32wb OFF)
+if(NOT ESP_PLATFORM AND NOXTLS_CFG_FEATURE_STM32WB_HW_ACCEL)
+    include(${NOXTLS_LIB_ROOT}/vendor/st/stm32wb/noxtls_stm32wb_sources.cmake)
+    set(_noxtls_pkc_stm32wb ON)
+    if(NOXTLS_CFG_FEATURE_BIGNUM)
+        list(APPEND PKC_SOURCES ${NOXTLS_STM32WB_PORT_BN_SOURCES})
+    endif()
+endif()
+
 # Multiprecision backend shared by classic PKC primitives.
 # NOXTLS_CFG_ED25519_FIELD_MATH preserves legacy Ed25519-over-bignum builds.
 if(NOXTLS_CFG_FEATURE_BIGNUM OR NOXTLS_CFG_ED25519_FIELD_MATH)
@@ -100,6 +112,8 @@ if(NOXTLS_CFG_FEATURE_ECC)
         list(APPEND PKC_SOURCES ecc/noxtls_ecc_accel_nordic_cc31x.c)
     elseif(_noxtls_pkc_nrf54)
         # nRF54L CRACEN BA414EP port (added once below).
+    elseif(_noxtls_pkc_stm32wb)
+        list(APPEND PKC_SOURCES ${NOXTLS_STM32WB_PORT_ECC_SOURCES})
     else()
         if(NOXTLS_CFG_FEATURE_NOXV_HW_ACCEL AND NOXTLS_CFG_FEATURE_NOXV_P256_ACCEL)
             list(APPEND PKC_SOURCES ecc/noxtls_ecc_accel_noxv_port.c)
@@ -117,7 +131,7 @@ if(NOXTLS_CFG_FEATURE_ECDSA)
         else()
             list(APPEND PKC_SOURCES ecdsa/noxtls_ecdsa_accel_port.c)
         endif()
-    elseif(NOT _noxtls_pkc_nrf54)
+    elseif(NOT _noxtls_pkc_nrf54 AND NOT _noxtls_pkc_stm32wb)
         list(APPEND PKC_SOURCES ecdsa/noxtls_ecdsa_accel_port.c)
     endif()
 endif()
@@ -262,6 +276,9 @@ target_link_libraries(noxtls_pkc PRIVATE
 )
 if(_noxtls_pkc_nrf54_link)
     target_link_libraries(noxtls_pkc PUBLIC noxtls_nrf54)
+endif()
+if(_noxtls_pkc_stm32wb)
+    target_link_libraries(noxtls_pkc PUBLIC noxtls_stm32wb)
 endif()
 if(NOT WIN32)
     target_link_libraries(noxtls_pkc PRIVATE m)

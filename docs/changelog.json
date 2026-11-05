@@ -1,6 +1,21 @@
 {
   "releases": [
     {
+      "version": "0.3.17",
+      "date": "2026-11-05",
+      "summary": "NoxTLS 0.3.17 adds the STM32WB5x (P-NUCLEO-WB55) hardware crypto backend: AES1, PKA and RNG with HSEM locking and software fallback.",
+      "changes": [
+        "New NOXTLS_CFG_FEATURE_STM32WB_HW_ACCEL / NOXTLS_FEATURE_STM32WB_HW_ACCEL option: AES1 (ECB, CBC, CTR, GCM/GMAC, CCM), PKA (P-256 point multiply, ECDH, ECDSA sign and verify, modular exponentiation) and RNG entropy for the DRBG, locked against the CPU2 wireless stack through the hardware semaphores. SHA stays in software. Not yet verified on hardware.",
+        "STM32WB AES base address in the generic STM32 dispatch corrected to AES1 (0x50060000)."
+      ],
+      "fixed": [],
+      "resolved": [],
+      "known_issues": [],
+      "anomalies": [],
+      "security": [],
+      "security_recommendations": []
+    },
+    {
       "version": "0.3.16",
       "date": "2026-11-01",
       "summary": "NoxTLS 0.3.16 fixes a high-severity TLS 1.2 client flaw that let a previously trusted server impersonate another host through session resumption.",

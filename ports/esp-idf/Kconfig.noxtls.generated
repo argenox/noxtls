@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-24T20:55:02Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-11-05T23:50:57Z)
 
 menu "NoxTLS library options (from noxtls_config.h)"
 
@@ -978,6 +978,13 @@ menu "NoxTLS library options (from noxtls_config.h)"
 			default y
 			help
 			  Includes the standard RFC 9383 SPAKE2+ key schedule (NOXTLS_SPAKE2P_PROFILE_RFC9383). Effective only when NOXTLS_FEATURE_SPAKE2P=1; this is the default profile. Build knob: NOXTLS_CFG_FEATURE_SPAKE2P_RFC9383. Default ON.
+
+		config NOXTLS_FEATURE_STM32WB_HW_ACCEL
+			bool "Stm32Wb Hw Accel"
+			default n
+			depends on NOXTLS_FEATURE_AES
+			help
+			  Enables the STM32WB5x (STM32WB50 / WB55 / WB5M, CPU1) hardware backend: AES1 block, ECB/CBC/CTR, GCM/GMAC and CCM, RNG entropy for the DRBG, PKA P-256 point multiply (also used by ECDH), ECDSA P-256 sign/verify and modular exponentiation, with HSEM locking against the CPU2 wireless stack and software fallback (noxtls-lib/vendor/st/stm32wb). SHA stays in software (no HASH peripheral). Prereq: NOXTLS_FEATURE_AES=1. Build knob: NOXTLS_CFG_FEATURE_STM32WB_HW_ACCEL.
 
 		config NOXTLS_FEATURE_XMSS
 			bool "Xmss"

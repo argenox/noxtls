@@ -45,6 +45,9 @@ if(NOXTLS_CFG_FEATURE_AES)
           ${NOXTLS_LIB_ROOT}/vendor/st/stm32u3/noxtls_stm32u3_accel.c
           ${NOXTLS_LIB_ROOT}/vendor/st/stm32u5/noxtls_stm32u5_accel.c
           ${NOXTLS_LIB_ROOT}/vendor/st/stm32wb/noxtls_stm32wb_accel.c
+          ${NOXTLS_LIB_ROOT}/vendor/st/stm32wb/noxtls_stm32wb_bus.c
+          ${NOXTLS_LIB_ROOT}/vendor/st/stm32wb/noxtls_stm32wb_hsem.c
+          ${NOXTLS_LIB_ROOT}/vendor/st/stm32wb/noxtls_stm32wb_aes.c
       )
       set(NOXTLS_PORT_AES_ACCEL_ENABLED ON)
     elseif(NOXTLS_CFG_FEATURE_NOXV_HW_ACCEL)
@@ -54,6 +57,11 @@ if(NOXTLS_CFG_FEATURE_AES)
       # nRF54L CRACEN: block, ECB / CBC / CTR, GCM and CCM ports.
       include(${NOXTLS_LIB_ROOT}/vendor/nordic/nrf54x/noxtls_nrf54_sources.cmake)
       list(APPEND ENC_SOURCES ${NOXTLS_NRF54_PORT_AES_SOURCES})
+      set(NOXTLS_PORT_AES_ACCEL_ENABLED ON)
+    elseif(NOXTLS_CFG_FEATURE_STM32WB_HW_ACCEL)
+      # STM32WB5x AES1: block, ECB / CBC / CTR, GCM / GMAC and CCM ports (drivers in noxtls_stm32wb).
+      include(${NOXTLS_LIB_ROOT}/vendor/st/stm32wb/noxtls_stm32wb_sources.cmake)
+      list(APPEND ENC_SOURCES ${NOXTLS_STM32WB_PORT_AES_SOURCES})
       set(NOXTLS_PORT_AES_ACCEL_ENABLED ON)
     elseif(NOXTLS_CFG_FEATURE_NRF52_HW_ACCEL)
       list(APPEND ENC_SOURCES aes/noxtls_aes_accel_nrf52_port.c)
@@ -193,4 +201,7 @@ target_link_libraries(noxtls_encryption
 )
 if(NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL AND NOT ESP_PLATFORM)
   target_link_libraries(noxtls_encryption noxtls_nrf54)
+endif()
+if(NOXTLS_CFG_FEATURE_STM32WB_HW_ACCEL AND NOT ESP_PLATFORM)
+  target_link_libraries(noxtls_encryption noxtls_stm32wb)
 endif()

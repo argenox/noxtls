@@ -1333,6 +1333,17 @@
 #define NOXTLS_FEATURE_NRF54_HW_ACCEL 0
 #endif
 
+/* Enables the STM32WB5x (STM32WB50 / WB55 / WB5M, CPU1) hardware backend: AES1 block, ECB/CBC/CTR,
+ * GCM/GMAC and CCM, RNG entropy for the DRBG, PKA P-256 point multiply (also used by ECDH), ECDSA P-256
+ * sign/verify and modular exponentiation, with HSEM locking against the CPU2 wireless stack and software
+ * fallback (noxtls-lib/vendor/st/stm32wb). SHA stays in software (no HASH peripheral).
+ * Prereq: NOXTLS_FEATURE_AES=1.
+ * Build knob: NOXTLS_CFG_FEATURE_STM32WB_HW_ACCEL.
+ */
+#ifndef NOXTLS_FEATURE_STM32WB_HW_ACCEL
+#define NOXTLS_FEATURE_STM32WB_HW_ACCEL 0
+#endif
+
 /* Enables ARIA cipher family.
  * Prereq: NOXTLS_FEATURE_ENCRYPTION=1.
  */

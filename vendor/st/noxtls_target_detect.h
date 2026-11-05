@@ -88,8 +88,16 @@
 #endif
 
 #if defined(STM32WB) || defined(STM32WBxx) || defined(STM32WB10xx) || defined(STM32WB15xx) || \
-    defined(STM32WB30xx) || defined(STM32WB35xx) || defined(STM32WB50xx) || defined(STM32WB55xx)
+    defined(STM32WB30xx) || defined(STM32WB35xx) || defined(STM32WB50xx) || defined(STM32WB55xx) || \
+    defined(STM32WB5Mxx)
 #define NOXTLS_STM32_FAMILY_WB 1
+#endif
+
+/* STM32WB5x (WB50 / WB55 / WB5M): AES1, PKA and RNG for CPU1 (RM0434), no HASH.
+ * WB10/WB15/WB30/WB35 differ in crypto content and are not covered by the
+ * STM32WB hardware backend (noxtls-lib/vendor/st/stm32wb). */
+#if defined(STM32WB50xx) || defined(STM32WB55xx) || defined(STM32WB5Mxx)
+#define NOXTLS_STM32_WB5X 1
 #endif
 
 #if defined(STM32WL) || defined(STM32WLxx) || defined(STM32WLE5xx)
@@ -132,8 +140,16 @@
 #define NOXTLS_STM32_F7_HAS_CRYP 1
 #endif
 
+/* Legacy name: AES1 feeds the generic AES-capable path (it is not a classic CRYP). */
 #if defined(NOXTLS_STM32_FAMILY_WB)
 #define NOXTLS_STM32_WB_HAS_CRYP 1
+#endif
+
+/* STM32WB5x crypto peripherals (RM0434): AES1 (ECB/CBC/CTR/GCM/GMAC/CCM), PKA, RNG. */
+#if defined(NOXTLS_STM32_WB5X)
+#define NOXTLS_STM32_WB_HAS_AES1 1
+#define NOXTLS_STM32_WB_HAS_PKA 1
+#define NOXTLS_STM32_WB_HAS_RNG 1
 #endif
 
 /* STM32H7 crypto is device-dependent. Enable only variants we have explicitly
@@ -192,7 +208,7 @@
 #define NOXTLS_STM32_HAS_HASH_PERIPH 1
 #endif
 
-#if defined(NOXTLS_STM32_FAMILY_H5) || defined(NOXTLS_STM32_FAMILY_U5)
+#if defined(NOXTLS_STM32_FAMILY_H5) || defined(NOXTLS_STM32_FAMILY_U5) || defined(NOXTLS_STM32_WB_HAS_PKA)
 #define NOXTLS_STM32_HAS_PKA_PERIPH 1
 #endif
 
