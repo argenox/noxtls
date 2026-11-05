@@ -2078,8 +2078,8 @@ static int x509_parse_ipv6_literal(const uint8_t *s, uint32_t len, uint8_t out[1
             nbytes += 4U;
             i = len;
         } else {
-            if((ndig == 0U) || (ndig > 4U) || (nbytes >= 16U)) {
-                return 0;
+            if((ndig == 0U) || (ndig > 4U) || ((nbytes + 2U) > 16U)) {
+                return 0;  /* no room for another 16-bit group */
             }
             words[nbytes] = (uint8_t)(value >> 8U);
             words[nbytes + 1U] = (uint8_t)value;
