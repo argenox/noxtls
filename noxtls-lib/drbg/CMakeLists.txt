@@ -8,6 +8,11 @@ if(NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL)
     include(${NOXTLS_LIB_ROOT}/vendor/nordic/nrf54x/noxtls_nrf54_sources.cmake)
     list(APPEND NOXTLS_DRBG_SOURCES ${NOXTLS_NRF54_PORT_DRBG_SOURCES})
 endif()
+if(NOXTLS_CFG_FEATURE_EFR32XG2X_HW_ACCEL)
+    # EFR32xG2x Secure Engine TRNG as the NOXTLS_ENTROPY_SOURCE_AUTO entropy source.
+    include(${NOXTLS_LIB_ROOT}/vendor/silabs/efr32xg2x/noxtls_efr32_sources.cmake)
+    list(APPEND NOXTLS_DRBG_SOURCES ${NOXTLS_EFR32_PORT_DRBG_SOURCES})
+endif()
 add_library(noxtls_drbg STATIC
     ${NOXTLS_DRBG_SOURCES}
     noxtls_drbg_api_refs.c
@@ -31,6 +36,9 @@ target_link_libraries(noxtls_drbg PUBLIC
 )
 if(NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL)
     target_link_libraries(noxtls_drbg PUBLIC noxtls_nrf54)
+endif()
+if(NOXTLS_CFG_FEATURE_EFR32XG2X_HW_ACCEL)
+    target_link_libraries(noxtls_drbg PUBLIC noxtls_efr32)
 endif()
 # Windows Crypto API (CryptGenRandom etc.) used by drbg for entropy
 if(WIN32)

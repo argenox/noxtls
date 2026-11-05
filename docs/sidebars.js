@@ -70,6 +70,7 @@ const sidebars = {
     'spake2p',
     'ecjpake',
     'cc13xx-accelerator',
+    'efr32xg2x-accelerator',
     'tls',
     'dtls13',
     {

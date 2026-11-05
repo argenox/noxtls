@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-24T20:55:02Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-11-05T23:10:30Z)
 
 menu "NoxTLS library options (from noxtls_config.h)"
 
@@ -878,6 +878,13 @@ menu "NoxTLS library options (from noxtls_config.h)"
 			depends on NOXTLS_FEATURE_AES_CCM
 			help
 			  Enables TLS_ECJPAKE_WITH_AES_128_CCM_8 (0xC0FF) and the ecjpake_key_kp_pair extension (256) in the TLS 1.2 / DTLS 1.2 engine (draft-cragie-tls-ecjpake-01; Thread MeshCoP commissioning). Prereq: NOXTLS_FEATURE_ECJPAKE=1 and NOXTLS_FEATURE_TLS=1 and NOXTLS_FEATURE_TLS12=1 and NOXTLS_FEATURE_DTLS=1 and NOXTLS_FEATURE_AES_CCM=1. Build knob: NOXTLS_CFG_FEATURE_DTLS_ECJPAKE. Default OFF.
+
+		config NOXTLS_FEATURE_EFR32XG2X_HW_ACCEL
+			bool "Efr32Xg2X Hw Accel"
+			default n
+			depends on NOXTLS_FEATURE_AES
+			help
+			  Enables the Silicon Labs EFR32xG2x (Series 2; EFR32MG26 and relatives) backend: AES block, ECB/CBC/CTR and CCM on the RADIOAES engine, SHA-224/256/384/512 block compression, TRNG entropy for the DRBG, P-256 / P-384 point multiply, ECDH and ECDSA on the Secure Engine, with software fallback (noxtls-lib/vendor/silabs/efr32xg2x). AES-GCM, X25519 and Ed25519 stay in software. Prereq: NOXTLS_FEATURE_AES=1. Build knob: NOXTLS_CFG_FEATURE_EFR32XG2X_HW_ACCEL.
 
 		config NOXTLS_FEATURE_FALCON
 			bool "Falcon"

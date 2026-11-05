@@ -1385,6 +1385,17 @@
 #define NOXTLS_FEATURE_NRF54_HW_ACCEL 0
 #endif
 
+/* Enables the Silicon Labs EFR32xG2x (Series 2; EFR32MG26 and relatives) backend: AES block, ECB/CBC/CTR
+ * and CCM on the RADIOAES engine, SHA-224/256/384/512 block compression, TRNG entropy for the DRBG,
+ * P-256 / P-384 point multiply, ECDH and ECDSA on the Secure Engine, with software fallback
+ * (noxtls-lib/vendor/silabs/efr32xg2x). AES-GCM, X25519 and Ed25519 stay in software.
+ * Prereq: NOXTLS_FEATURE_AES=1.
+ * Build knob: NOXTLS_CFG_FEATURE_EFR32XG2X_HW_ACCEL.
+ */
+#ifndef NOXTLS_FEATURE_EFR32XG2X_HW_ACCEL
+#define NOXTLS_FEATURE_EFR32XG2X_HW_ACCEL 0
+#endif
+
 /* Enables ARIA cipher family.
  * Prereq: NOXTLS_FEATURE_ENCRYPTION=1.
  */
