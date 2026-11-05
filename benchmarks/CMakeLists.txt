@@ -1,5 +1,5 @@
-set(NOXTLS_BENCH_TARGET "cortex-m4-nrf52840" CACHE STRING "Benchmark target: cortex-m4-nrf52840 or riscv-esp32c6")
-set_property(CACHE NOXTLS_BENCH_TARGET PROPERTY STRINGS cortex-m4-nrf52840 riscv-esp32c6)
+set(NOXTLS_BENCH_TARGET "cortex-m4-nrf52840" CACHE STRING "Benchmark target: cortex-m4-nrf52840, cortex-m33-efr32xg26 or riscv-esp32c6")
+set_property(CACHE NOXTLS_BENCH_TARGET PROPERTY STRINGS cortex-m4-nrf52840 cortex-m33-efr32xg26 riscv-esp32c6)
 
 set(_bench_sources
     common/benchmark_entry.c
@@ -16,6 +16,14 @@ if(NOXTLS_BENCH_TARGET STREQUAL "cortex-m4-nrf52840")
     )
     set(_bench_linker_script "${CMAKE_CURRENT_SOURCE_DIR}/cortex-m4-nrf52840/linker.ld")
     set(_bench_arch_compile_flags -mcpu=cortex-m4 -mthumb -mfloat-abi=soft)
+elseif(NOXTLS_BENCH_TARGET STREQUAL "cortex-m33-efr32xg26")
+    # EFR32MG26B510F3200IM68: 3200 KB flash at 0x08000000, 512 KB SRAM. Configure with
+    # -DNOXTLS_CFG_FEATURE_EFR32XG2X_HW_ACCEL=ON for the hardware-accelerated build (no vendor SDK needed).
+    list(APPEND _bench_sources
+        cortex-m33-efr32xg26/startup.c
+    )
+    set(_bench_linker_script "${CMAKE_CURRENT_SOURCE_DIR}/cortex-m33-efr32xg26/linker.ld")
+    set(_bench_arch_compile_flags -mcpu=cortex-m33 -mthumb -mfpu=fpv5-sp-d16 -mfloat-abi=hard)
 elseif(NOXTLS_BENCH_TARGET STREQUAL "riscv-esp32c6")
     list(APPEND _bench_sources
         riscv-esp32c6/startup.S
@@ -122,6 +130,11 @@ endif()
 
 if(TARGET noxtls_tls)
     list(APPEND NOXTLS_SIZE_BENCH_LIBS noxtls_tls)
+endif()
+
+# Hardware backend drivers (the accelerator ports live in the algorithm libraries).
+if(TARGET noxtls_efr32)
+    list(APPEND NOXTLS_SIZE_BENCH_LIBS noxtls_efr32)
 endif()
 
 # Keep every member of each enabled static archive in the size ELF.

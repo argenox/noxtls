@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-24T20:55:02Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-11-05T23:10:30Z)
 
 if(NOT CONFIG_NOXTLS)
   return()
@@ -229,6 +229,12 @@ if(CONFIG_NOXTLS_ECDSA_SIGN_SELF_VERIFY)
   zephyr_compile_definitions(NOXTLS_ECDSA_SIGN_SELF_VERIFY=1)
 else()
   zephyr_compile_definitions(NOXTLS_ECDSA_SIGN_SELF_VERIFY=0)
+endif()
+
+if(CONFIG_NOXTLS_FEATURE_EFR32XG2X_HW_ACCEL)
+  zephyr_compile_definitions(NOXTLS_FEATURE_EFR32XG2X_HW_ACCEL=1)
+else()
+  zephyr_compile_definitions(NOXTLS_FEATURE_EFR32XG2X_HW_ACCEL=0)
 endif()
 
 if(CONFIG_NOXTLS_FEATURE_FALCON)
