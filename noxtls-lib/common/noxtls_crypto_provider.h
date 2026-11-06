@@ -37,6 +37,14 @@ extern "C" {
 typedef unsigned int noxtls_crypto_hash_algo_t;
 
 /**
+ * Hash algorithm value meaning "the message argument is already a digest".
+ * Used by the ECDSA sign callback when NoxTLS signs a transcript hash it has
+ * computed itself (for example the TLS 1.2 client CertificateVerify). The
+ * digest is signed as-is (an over-long digest is truncated to the curve size).
+ */
+#define NOXTLS_CRYPTO_HASH_PREHASHED 0xFFFFFFFFu
+
+/**
  * Opaque handle for a private key held by the provider (e.g. PKCS#11 object
  * handle, TPM key ref). The provider interprets this when performing ops.
  */
@@ -157,6 +165,36 @@ typedef noxtls_return_t (*noxtls_crypto_mlkem_decaps_t)(
     uint8_t mlkem_decaps_shared_secret[32]);
 
 /**
+ * Optional: generate an ephemeral ECDH key pair inside the provider (TLS ECDHE).
+ * The private key never leaves the provider. On success *ecdh_keygen_key_handle
+ * identifies the new key (valid until the next keygen that reuses its storage;
+ * the provider documents its limits) and ecdh_keygen_public_xy receives the
+ * uncompressed point as X || Y, big endian, ecdh_keygen_public_len bytes in
+ * and out (64 for secp256r1). Return NOXTLS_RETURN_NOT_SUPPORTED for a named
+ * group the provider does not serve: NoxTLS then uses software.
+ * ecdh_keygen_named_group is the TLS NamedGroup value (23 = secp256r1).
+ */
+typedef noxtls_return_t (*noxtls_crypto_ecdh_keygen_t)(
+    noxtls_crypto_provider_ctx_t ecdh_keygen_prov_ctx,
+    uint16_t ecdh_keygen_named_group,
+    noxtls_crypto_key_handle_t *ecdh_keygen_key_handle,
+    uint8_t *ecdh_keygen_public_xy,
+    uint32_t *ecdh_keygen_public_len);
+
+/**
+ * Optional: ECDH shared secret between a provider-held key and a peer point
+ * (X || Y, big endian). The secret is the X coordinate, ecdh_shared_secret_len
+ * bytes in and out.
+ */
+typedef noxtls_return_t (*noxtls_crypto_ecdh_shared_t)(
+    noxtls_crypto_provider_ctx_t ecdh_shared_prov_ctx,
+    noxtls_crypto_key_handle_t ecdh_shared_key,
+    const uint8_t *ecdh_shared_peer_xy,
+    uint32_t ecdh_shared_peer_len,
+    uint8_t *ecdh_shared_secret,
+    uint32_t *ecdh_shared_secret_len);
+
+/**
  * Operations table for a crypto provider. Set unused ops to NULL;
  * NoxTLS will use software for those operations.
  */
@@ -171,6 +209,8 @@ typedef struct
     noxtls_crypto_mldsa_sign_t     mldsa_sign;       /* optional */
     noxtls_crypto_mlkem_encaps_t   mlkem_encaps;     /* optional */
     noxtls_crypto_mlkem_decaps_t   mlkem_decaps;     /* optional */
+    noxtls_crypto_ecdh_keygen_t    ecdh_keygen;      /* optional: opaque ECDHE key generation */
+    noxtls_crypto_ecdh_shared_t    ecdh_shared;      /* optional: opaque ECDH */
 } noxtls_crypto_provider_ops_t;
 
 /**

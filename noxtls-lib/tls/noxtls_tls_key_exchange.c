@@ -40,6 +40,9 @@
 #include "noxtls_tls12.h"
 #include "noxtls_tls13.h"
 #include "pkc/ecdh/noxtls_ecdh.h"
+#if NOXTLS_FEATURE_ATECC608
+#include "pkc/ecc/noxtls_ecc_opaque.h"
+#endif
 #include "pkc/x25519/noxtls_x25519.h"
 #include "pkc/x448/noxtls_x448.h"
 #include "pkc/rsa/noxtls_rsa.h"
@@ -330,6 +333,19 @@ noxtls_return_t noxtls_tls_ecdhe_generate_ephemeral_key(tls_ecdhe_context_t *ctx
      */
     (void)noxtls_ecc_key_free(&ctx->ephemeral_key);
     
+#if NOXTLS_FEATURE_ATECC608
+    /* Secure element ephemeral key (private key stays in the chip); NOT_SUPPORTED falls back to software. */
+    {
+        noxtls_return_t opaque_rc;
+
+        (void)noxtls_ecc_key_init(&ctx->ephemeral_key, ctx->curve_type);
+        opaque_rc = noxtls_ecc_opaque_ecdhe_generate(&ctx->ephemeral_key, ctx->named_group);
+        if (opaque_rc != NOXTLS_RETURN_NOT_SUPPORTED) {
+            return opaque_rc;
+        }
+    }
+    (void)noxtls_ecc_key_free(&ctx->ephemeral_key);
+#endif
     /* Generate ephemeral key pair */
     return noxtls_ecc_key_generate(&ctx->ephemeral_key, ctx->curve_type);
 }

@@ -29,6 +29,9 @@
 #include "common/noxtls_ct.h"
 #include "common/noxtls_memory_compat.h"
 #include "noxtls_ecc.h"
+#if NOXTLS_FEATURE_ATECC608
+#include "noxtls_ecc_opaque.h"
+#endif
 
 #if NOXTLS_FEATURE_ECC
 
@@ -4891,6 +4894,9 @@ noxtls_return_t noxtls_ecc_key_free(ecc_key_t *key)
         return NOXTLS_RETURN_NULL;
     }
 
+#if NOXTLS_FEATURE_ATECC608
+    noxtls_ecc_opaque_unbind(key);
+#endif
     if(key->d != NULL) {
         /* Wipe exactly the allocated length recorded by noxtls_ecc_key_init().
          * The curve may be detached or replaced, so its size is not a safe
