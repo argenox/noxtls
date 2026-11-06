@@ -249,6 +249,29 @@ noxtls_return_t noxtls_tls_connection_get_resumption_identity(
     const noxtls_tls_connection_t *conn, const uint8_t **identity,
     uint16_t *identity_length);
 
+/**
+ * @brief TLS keying material exporter (RFC 5705 for TLS 1.2, RFC 8446 7.5 for TLS 1.3).
+ *
+ * Call after the handshake completed. For TLS 1.2 @p use_context selects RFC 5705
+ * section 4 context mixing; TLS 1.3 always hashes the (possibly empty) context.
+ * Used by the NoxSupplicant EAP-TLS/TTLS/PEAP methods to derive the MSK.
+ *
+ * @param[in] conn Connected unified connection.
+ * @param[in] label Exporter label without NUL.
+ * @param[in] label_len Label length.
+ * @param[in] context Optional context.
+ * @param[in] context_len Context length.
+ * @param[in] use_context Non-zero to use @p context (TLS 1.2 only).
+ * @param[out] output Keying material.
+ * @param[in] output_len Requested length.
+ * @return NOXTLS_RETURN_SUCCESS or an error (NOXTLS_RETURN_FAILED before the handshake completes).
+ */
+noxtls_return_t noxtls_tls_connection_export_keying_material(const noxtls_tls_connection_t *conn,
+                                                             const uint8_t *label, uint32_t label_len,
+                                                             const uint8_t *context, uint32_t context_len,
+                                                             int use_context,
+                                                             uint8_t *output, uint32_t output_len);
+
 #endif /* NOXTLS_FEATURE_TLS12 || NOXTLS_FEATURE_TLS13 */
 
 #ifdef __cplusplus

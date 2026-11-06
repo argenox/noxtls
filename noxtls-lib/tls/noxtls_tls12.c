@@ -1784,6 +1784,51 @@ static noxtls_hash_algos_t tls12_get_prf_hash(uint16_t cipher_suite)
     }
 }
 
+/** Maximum exporter output length accepted by noxtls_tls12_export_keying_material(). */
+#define TLS12_EXPORT_MAX_OUTPUT 1024U
+/** Maximum exporter context length (RFC 5705 4: 16-bit length prefix). */
+#define TLS12_EXPORT_MAX_CONTEXT 65535U
+
+noxtls_return_t noxtls_tls12_export_keying_material(const tls12_context_t *ctx,
+                                                    const uint8_t *label, uint32_t label_len,
+                                                    const uint8_t *context, uint32_t context_len,
+                                                    int use_context,
+                                                    uint8_t *output, uint32_t output_len)
+{
+    uint8_t *seed = NULL;
+    uint32_t seed_len = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+
+    if((ctx == NULL) || (label == NULL) || (output == NULL) || ((use_context != 0) && (context == NULL) && (context_len != 0U))) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if((label_len == 0U) || (output_len == 0U) || (output_len > TLS12_EXPORT_MAX_OUTPUT) ||
+       (context_len > TLS12_EXPORT_MAX_CONTEXT)) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    if((ctx->base.base.state != TLS_STATE_CONNECTED) || (ctx->base.base.version < TLS_VERSION_1_2)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    seed_len = (2U * (uint32_t)TLS_RANDOM_SIZE) + ((use_context != 0) ? (2U + context_len) : 0U);
+    seed = (uint8_t *)NOXTLS_MALLOC(seed_len);
+    if(seed == NULL) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    (void)memcpy(seed, ctx->client_random, TLS_RANDOM_SIZE);
+    (void)memcpy(&seed[TLS_RANDOM_SIZE], ctx->server_random, TLS_RANDOM_SIZE);
+    if(use_context != 0) {
+        seed[2U * TLS_RANDOM_SIZE] = (uint8_t)(context_len >> 8U);
+        seed[(2U * TLS_RANDOM_SIZE) + 1U] = (uint8_t)(context_len & 0xFFU);
+        if(context_len != 0U) {
+            (void)memcpy(&seed[(2U * TLS_RANDOM_SIZE) + 2U], context, context_len);
+        }
+    }
+    rc = tls12_prf(ctx->master_secret, 48U, label, label_len, seed, seed_len, output, output_len,
+                   tls12_get_prf_hash(ctx->cipher_suite));
+    NOXTLS_SECURE_FREE(seed, seed_len);
+    return rc;
+}
+
 /**
  * @brief Get the length of the ECDHE premaster secret
  *

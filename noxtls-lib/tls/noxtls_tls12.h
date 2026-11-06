@@ -489,6 +489,29 @@ noxtls_return_t noxtls_tls12_get_peer_ocsp_response(const tls12_context_t *ctx,
                                                     const uint8_t **ocsp_der,
                                                     uint32_t *ocsp_len);
 
+/**
+ * @brief RFC 5705 keying material exporter for an established TLS 1.0-1.2 context.
+ *
+ * Output = PRF(master_secret, label, client_random || server_random [|| len16 || context]).
+ * Used by EAP-TLS (RFC 5216 2.3) and EAP-TTLS (RFC 5281 8).
+ *
+ * @param[in] ctx Connected TLS 1.2 context.
+ * @param[in] label Exporter label (not NUL-terminated), non-empty.
+ * @param[in] label_len Label length.
+ * @param[in] context Optional exporter context (NULL when @p use_context is 0).
+ * @param[in] context_len Context length (at most 65535).
+ * @param[in] use_context Non-zero to mix the context into the seed (RFC 5705 4).
+ * @param[out] output Keying material buffer.
+ * @param[in] output_len Requested length (1..1024).
+ * @return NOXTLS_RETURN_SUCCESS, NOXTLS_RETURN_NULL, NOXTLS_RETURN_INVALID_PARAM or NOXTLS_RETURN_FAILED
+ *         (handshake not complete).
+ */
+noxtls_return_t noxtls_tls12_export_keying_material(const tls12_context_t *ctx,
+                                                    const uint8_t *label, uint32_t label_len,
+                                                    const uint8_t *context, uint32_t context_len,
+                                                    int use_context,
+                                                    uint8_t *output, uint32_t output_len);
+
 #ifdef __cplusplus
 }
 #endif
