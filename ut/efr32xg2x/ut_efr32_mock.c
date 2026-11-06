@@ -692,7 +692,8 @@ static void ut_se_exec(void)
     } else if ((cmd == NOXTLS_EFR32_SE_CMD_SIGN) || (cmd == NOXTLS_EFR32_SE_CMD_VERIFY)) {
         uint8_t sign = (cmd == NOXTLS_EFR32_SE_CMD_SIGN) ? 1U : 0U;
         uint32_t sz = (np == 2U) ? ((par[0] & NOXTLS_EFR32_KEYSPEC_ECC_SIZE_MSK) + 1U) : 0U;
-        uint32_t flag = (sign != 0U) ? NOXTLS_EFR32_KEYSPEC_ECC_PRIVATE : NOXTLS_EFR32_KEYSPEC_ECC_PUBLIC;
+        uint32_t flag = ((sign != 0U) ? NOXTLS_EFR32_KEYSPEC_ECC_PRIVATE : NOXTLS_EFR32_KEYSPEC_ECC_PUBLIC) |
+                        NOXTLS_EFR32_KEYSPEC_ECC_SIGNING; /* The SE answers invalid parameter without the signing-use bit (silicon). */
         uint32_t klen = (sign != 0U) ? sz : (2U * sz);
         uint8_t shape = (sign != 0U) ? (uint8_t)((ni == 3U) && (no == 1U) && (ol[0] == (2U * sz))) :
                         (uint8_t)((ni == 4U) && (no == 0U) && (il[3] == (2U * sz)));

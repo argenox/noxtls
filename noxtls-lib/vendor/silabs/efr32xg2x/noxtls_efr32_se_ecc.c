@@ -216,7 +216,7 @@ noxtls_return_t noxtls_efr32_se_ecdsa_sign(uint32_t size, const uint8_t *d, cons
         cmd.command = NOXTLS_EFR32_SE_CMD_SIGN | NOXTLS_EFR32_SE_OPT_NONE;
         cmd.in = &s_noxtls_efr32_ecc.auth;
         cmd.out = &s_noxtls_efr32_ecc.out;
-        cmd.params[0] = noxtls_efr32_ecc_keyspec(size, NOXTLS_EFR32_KEYSPEC_ECC_PRIVATE);
+        cmd.params[0] = noxtls_efr32_ecc_keyspec(size, NOXTLS_EFR32_KEYSPEC_ECC_PRIVATE | NOXTLS_EFR32_KEYSPEC_ECC_SIGNING);
         cmd.params[1] = size;
         cmd.nparams = 2U;
         rc = noxtls_efr32_ecc_run(&cmd);
@@ -264,7 +264,7 @@ noxtls_return_t noxtls_efr32_se_ecdsa_verify(uint32_t size, const uint8_t *qx, c
         (void)memset(&cmd, 0, sizeof(cmd));
         cmd.command = NOXTLS_EFR32_SE_CMD_VERIFY | NOXTLS_EFR32_SE_OPT_NONE;
         cmd.in = &s_noxtls_efr32_ecc.auth;
-        cmd.params[0] = noxtls_efr32_ecc_keyspec(size, NOXTLS_EFR32_KEYSPEC_ECC_PUBLIC);
+        cmd.params[0] = noxtls_efr32_ecc_keyspec(size, NOXTLS_EFR32_KEYSPEC_ECC_PUBLIC | NOXTLS_EFR32_KEYSPEC_ECC_SIGNING);
         cmd.params[1] = size;
         cmd.nparams = 2U;
         rc = noxtls_efr32_ecc_run(&cmd);

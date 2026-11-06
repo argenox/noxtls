@@ -833,11 +833,17 @@ REGISTER_TEST(test_aes_ccm_empty_payload_known_answers_and_failures)
     g_ut_ram.aux2[16] = aad;
     g_ut.aes_jobs_fail_after = (uint8_t)(g_ut.aes_jobs + 1U);
     UTNOX_EQUALS(noxtls_efr32_aes_ccm(0U, g_ut_ram.aux, 16U, g_ut_ram.aux2, 13U, NULL, 0U, NULL, NULL, 0U, tag, 4U), NOXTLS_RETURN_FAILED);
-    g_ut.aes_jobs_fail_after = (uint8_t)(g_ut.aes_jobs + 3U);
-    UTNOX_EQUALS(noxtls_efr32_aes_ccm(0U, g_ut_ram.aux, 16U, g_ut_ram.aux2, 13U, &g_ut_ram.aux2[16], 1U, NULL, NULL, 0U, tag, 4U),
-                 NOXTLS_RETURN_FAILED);
+    /* One CBC-MAC job (B0, the AAD length and one AAD byte fit one batch) and the ECB job: the second job fails. */
     g_ut.aes_jobs_fail_after = (uint8_t)(g_ut.aes_jobs + 2U);
     UTNOX_EQUALS(noxtls_efr32_aes_ccm(0U, g_ut_ram.aux, 16U, g_ut_ram.aux2, 13U, &g_ut_ram.aux2[16], 1U, NULL, NULL, 0U, tag, 4U),
+                 NOXTLS_RETURN_FAILED);
+    /* A 100-byte AAD needs two CBC-MAC batches and the ECB job: each of the three jobs can fail. */
+    ut_fill(g_ut_ram.in, 100U, 3U);
+    g_ut.aes_jobs_fail_after = (uint8_t)(g_ut.aes_jobs + 2U);
+    UTNOX_EQUALS(noxtls_efr32_aes_ccm(0U, g_ut_ram.aux, 16U, g_ut_ram.aux2, 13U, g_ut_ram.in, 100U, NULL, NULL, 0U, tag, 4U),
+                 NOXTLS_RETURN_FAILED);
+    g_ut.aes_jobs_fail_after = (uint8_t)(g_ut.aes_jobs + 3U);
+    UTNOX_EQUALS(noxtls_efr32_aes_ccm(0U, g_ut_ram.aux, 16U, g_ut_ram.aux2, 13U, g_ut_ram.in, 100U, NULL, NULL, 0U, tag, 4U),
                  NOXTLS_RETURN_FAILED);
     g_ut.aes_jobs_fail_after = 0U;
     UTNOX_EQUALS(noxtls_efr32_aes_ccm(0U, g_ut_ram.aux, 16U, g_ut_ram.aux2, 13U, NULL, 0U, NULL, NULL, 0U, tag, 4U), NOXTLS_RETURN_SUCCESS);

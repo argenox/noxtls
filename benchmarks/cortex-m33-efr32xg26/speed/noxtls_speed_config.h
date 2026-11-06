@@ -81,10 +81,10 @@
 #define NOXTLS_SPEED_CCM_SIZES              { 0U, 16U, 64U, 251U, 1024U }
 
 /** @brief Number of SHA-256 message sizes. */
-#define NOXTLS_SPEED_SHA_SIZE_COUNT         2U
+#define NOXTLS_SPEED_SHA_SIZE_COUNT         6U
 
 /** @brief Message sizes of the SHA-256 cases in bytes. */
-#define NOXTLS_SPEED_SHA_SIZES              { 64U, 1024U }
+#define NOXTLS_SPEED_SHA_SIZES              { 55U, 64U, 128U, 256U, 512U, 1024U }
 
 /** @brief SHA-256 block bytes. */
 #define NOXTLS_SPEED_SHA_BLOCK_BYTES        64U

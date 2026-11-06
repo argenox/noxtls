@@ -143,6 +143,15 @@ REGISTER_TEST(test_se_run_message_layout_and_waits)
     g_ut.se_force_resp = NOXTLS_EFR32_SE_RESP_INVALID_CMD;
     UTNOX_EQUALS(noxtls_efr32_se_run(&cmd, 100U), NOXTLS_RETURN_NOT_SUPPORTED);
     UTNOX_EQUALS(noxtls_efr32_stats()->se_errors, 1U);
+    /* The failing command word and response are kept for diagnostics. */
+    UTNOX_EQUALS(noxtls_efr32_stats()->se_last_cmd, cmd.command);
+    UTNOX_EQUALS(noxtls_efr32_stats()->se_last_resp, NOXTLS_EFR32_SE_RESP_INVALID_CMD);
+    /* A rejected signature is a valid answer: counted apart from the errors, last error unchanged. */
+    g_ut.se_force_resp = NOXTLS_EFR32_SE_RESP_INVALID_SIG;
+    UTNOX_EQUALS(noxtls_efr32_se_run(&cmd, 100U), NOXTLS_RETURN_BAD_DATA);
+    UTNOX_EQUALS(noxtls_efr32_stats()->se_errors, 1U);
+    UTNOX_EQUALS(noxtls_efr32_stats()->se_rejects, 1U);
+    UTNOX_EQUALS(noxtls_efr32_stats()->se_last_resp, NOXTLS_EFR32_SE_RESP_INVALID_CMD);
     noxtls_efr32_se_release();
     UTNOX_IS_TRUE(ut_clean() != 0U);
     return 0;
@@ -486,7 +495,7 @@ REGISTER_TEST(test_se_ecdsa_rfc6979_verify_and_reject)
     (void)ut_hex(s_s, s);
     UTNOX_EQUALS(noxtls_efr32_se_ecdsa_verify(32U, qx, qy, h, r, s), NOXTLS_RETURN_SUCCESS);
     UTNOX_EQUALS(g_ut.se_last_cmd, NOXTLS_EFR32_SE_CMD_VERIFY);
-    UTNOX_EQUALS(g_ut.se_last_params[0], 0x8000201FU);
+    UTNOX_EQUALS(g_ut.se_last_params[0], 0x8000241FU);
     UTNOX_EQUALS(g_ut.se_last_params[1], 32U);
     s[31] ^= 1U;
     UTNOX_EQUALS(noxtls_efr32_se_ecdsa_verify(32U, qx, qy, h, r, s), NOXTLS_RETURN_BAD_DATA);
@@ -494,6 +503,9 @@ REGISTER_TEST(test_se_ecdsa_rfc6979_verify_and_reject)
     h[0] ^= 0x80U;
     UTNOX_EQUALS(noxtls_efr32_se_ecdsa_verify(32U, qx, qy, h, r, s), NOXTLS_RETURN_BAD_DATA);
     h[0] ^= 0x80U;
+    /* Rejections are answers, not command errors. */
+    UTNOX_EQUALS(noxtls_efr32_stats()->se_rejects, 2U);
+    UTNOX_EQUALS(noxtls_efr32_stats()->se_errors, 0U);
     UTNOX_EQUALS(noxtls_efr32_se_ecdsa_verify(32U, NULL, qy, h, r, s), NOXTLS_RETURN_NULL);
     UTNOX_EQUALS(noxtls_efr32_se_ecdsa_verify(32U, qx, NULL, h, r, s), NOXTLS_RETURN_NULL);
     UTNOX_EQUALS(noxtls_efr32_se_ecdsa_verify(32U, qx, qy, NULL, r, s), NOXTLS_RETURN_NULL);
@@ -528,7 +540,7 @@ REGISTER_TEST(test_se_ecdsa_sign_roundtrip_p256_p384)
     (void)ut_hex(s_h, h);
     UTNOX_EQUALS(noxtls_efr32_se_ecdsa_sign(32U, d, h, r, s), NOXTLS_RETURN_SUCCESS);
     UTNOX_EQUALS(g_ut.se_last_cmd, NOXTLS_EFR32_SE_CMD_SIGN);
-    UTNOX_EQUALS(g_ut.se_last_params[0], 0x8000401FU);
+    UTNOX_EQUALS(g_ut.se_last_params[0], 0x8000441FU);
     UTNOX_EQUALS(noxtls_efr32_se_ecdsa_verify(32U, qx, qy, h, r, s), NOXTLS_RETURN_SUCCESS);
     /* P-384. */
     (void)memset(d4, 0x11, sizeof(d4));
@@ -536,7 +548,7 @@ REGISTER_TEST(test_se_ecdsa_sign_roundtrip_p256_p384)
     (void)memset(h4, 0x22, sizeof(h4));
     UTNOX_EQUALS(noxtls_ecc_key_import_private(&key, NOXTLS_ECC_SECP384R1, d4, 48U), NOXTLS_RETURN_SUCCESS);
     UTNOX_EQUALS(noxtls_efr32_se_ecdsa_sign(48U, d4, h4, r4, s4), NOXTLS_RETURN_SUCCESS);
-    UTNOX_EQUALS(g_ut.se_last_params[0], 0x8000402FU);
+    UTNOX_EQUALS(g_ut.se_last_params[0], 0x8000442FU);
     UTNOX_EQUALS(noxtls_efr32_se_ecdsa_verify(48U, key.Q.x, key.Q.y, h4, r4, s4), NOXTLS_RETURN_SUCCESS);
     (void)noxtls_ecc_key_free(&key);
     /* Argument and state errors. */
