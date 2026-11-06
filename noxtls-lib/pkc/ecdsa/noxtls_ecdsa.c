@@ -41,6 +41,9 @@
 #include "noxtls_ecdsa.h"
 #include "noxtls_ecdsa_accel_port.h"
 #include "pkc/ecc/noxtls_ecc.h"
+#if NOXTLS_FEATURE_ATECC608
+#include "pkc/ecc/noxtls_ecc_opaque.h"
+#endif
 #include "pkc/rsa/noxtls_bignum.h"
 #include "pkc/rsa/noxtls_bn_platform.h"
 #include "mdigest/md5/noxtls_md5.h"
@@ -1526,6 +1529,14 @@ static noxtls_return_t ecdsa_sign_core(const ecc_key_t *key, const uint8_t *noxt
     if ((key == NULL) || (noxtls_message == NULL) || (signature == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
+
+#if NOXTLS_FEATURE_ATECC608
+    /* Key held by a crypto provider (secure element): the private scalar is not in host memory. */
+    if (noxtls_ecc_opaque_is_bound(key) != 0) {
+        return noxtls_ecc_opaque_ecdsa_sign(key, noxtls_message, message_len, signature,
+                                            ((hash_algo & ECDSA_INPUT_IS_DIGEST) != 0U) ? NOXTLS_CRYPTO_HASH_PREHASHED : (uint32_t)hash_algo);
+    }
+#endif
 
     if((key->curve == NULL) || (key->d == NULL) || (key->curve->n == NULL)) {
         return NOXTLS_RETURN_FAILED;

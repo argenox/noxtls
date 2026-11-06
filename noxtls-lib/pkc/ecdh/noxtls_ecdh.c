@@ -22,6 +22,9 @@
 
 #include <stdint.h>
 #include "common/noxtls_ct.h"
+#if NOXTLS_FEATURE_ATECC608
+#include "pkc/ecc/noxtls_ecc_opaque.h"
+#endif
 #include <stdlib.h>
 #include <string.h>
 
@@ -75,6 +78,17 @@ noxtls_return_t noxtls_ecdh_compute_shared_secret_ex(
                                    NOXTLS_RETURN_NULL);
         return NOXTLS_RETURN_NULL;
     }
+
+#if NOXTLS_FEATURE_ATECC608
+    /* Private key held by a crypto provider (secure element). */
+    if(noxtls_ecc_opaque_is_bound(private_key) != 0) {
+        rc = noxtls_ecc_opaque_ecdh(private_key, peer_public_key, shared_secret, shared_secret_len);
+        noxtls_ecdh_set_diagnostic(diagnostic,
+                                   (rc == NOXTLS_RETURN_SUCCESS) ? NOXTLS_ECDH_DIAGNOSTIC_NONE : NOXTLS_ECDH_DIAGNOSTIC_SCALAR_MULTIPLY,
+                                   rc);
+        return rc;
+    }
+#endif
     
     if(private_key->curve == NULL) {
         noxtls_ecdh_set_diagnostic(diagnostic, NOXTLS_ECDH_DIAGNOSTIC_PRIVATE_KEY,

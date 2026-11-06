@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-24T20:55:02Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-11-06T05:00:01Z)
 
 menu "NoxTLS library options (from noxtls_config.h)"
 
@@ -828,11 +828,33 @@ menu "NoxTLS library options (from noxtls_config.h)"
 			help
 			  Placement of the software AES encryption T-tables (Te0..Te3). 1 (default): const tables in flash/ROM (+4 KB .rodata, 0 B RAM, no runtime init). 0: tables built in RAM on first use (4 KB .bss + 1 B flag, ~4 KB less flash). Use 0 only on parts where flash is scarcer than RAM or flash wait states make table lookups slow. See also NOXTLS_AES_COMPACT_TABLES. Prereq: NOXTLS_FEATURE_AES=1 (software AES path).
 
+		config NOXTLS_CONFIG_STATIC_MEMORY
+			bool "Config Static Memory"
+			default n
+			help
+			  NOXTLS_CONFIG_STATIC_MEMORY 1: every byte NoxTLS uses is sized at build time and nothing reaches malloc() or a general-purpose heap. NOXTLS_MALLOC/CALLOC/REALLOC resolve to a region allocator over storage that is either supplied by the caller per connection (noxtls_tls13_context_init_static / noxtls_dtls13_context_init_static) or reserved statically by the library (global pool, connection pool). A full region returns a deterministic NOXTLS_RETURN_NOT_ENOUGH_MEMORY; there is no fallback. Handshake-only storage is wiped and released when the handshake completes. Sizing macros and profiles: noxtls-lib/common/noxtls_static_memory.h and docs/static-memory.md. Mutually exclusive with NOXTLS_USE_STATIC_BUFFERS. Default: 0 (allocation through noxtls_malloc() and the system allocator).
+
 		config NOXTLS_ECDSA_SIGN_SELF_VERIFY
 			bool "Ecdsa Sign Self Verify"
 			default n
 			help
 			  NOXTLS_ECDSA_SIGN_SELF_VERIFY When 1, ECDSA signing immediately verifies the produced signature before returning it. This hardens signing against local fault/glitch attacks but materially reduces signing throughput. Default: 0 (disabled)
+
+		config NOXTLS_FEATURE_ATECC608
+			bool "Atecc608"
+			default n
+			depends on NOXTLS_FEATURE_ECC
+			depends on NOXTLS_FEATURE_ECDSA
+			depends on NOXTLS_FEATURE_ECDH
+			help
+			  Enables the Microchip ATECC608B/ATECC608C secure element provider: ECDSA P-256 signing with keys that never leave the chip (TLS client and server authentication) and TLS ECDHE with chip-generated ephemeral keys, through the crypto provider interface (noxtls-lib/vendor/microchip/atecc608). Software remains the default path. Prereq: NOXTLS_FEATURE_ECC=1, NOXTLS_FEATURE_ECDSA=1, NOXTLS_FEATURE_ECDH=1. Build knob: NOXTLS_CFG_FEATURE_ATECC608.
+
+		config NOXTLS_FEATURE_ATECC608_ENTROPY
+			bool "Atecc608 Entropy"
+			default n
+			depends on NOXTLS_FEATURE_ATECC608
+			help
+			  Uses the ATECC608 random number generator as DRBG entropy input (noxtls_drbg_entropy_accel_port); the CTR-DRBG stays on top. Exclusive with the nRF54 entropy port. Prereq: NOXTLS_FEATURE_ATECC608=1. Build knob: NOXTLS_CFG_FEATURE_ATECC608_ENTROPY.
 
 		config NOXTLS_FEATURE_CC13XX_AES_ACCEL
 			bool "Cc13Xx Aes Accel"

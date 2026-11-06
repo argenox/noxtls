@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-24T20:55:02Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-11-06T05:00:01Z)
 
 function(noxtls_esp_idf_write_config_features_header out_file)
   if(NOT out_file)
@@ -48,6 +48,12 @@ if(CONFIG_NOXTLS_CFG_TLS13_PREFER_SECP256R1_OVER_X25519)
   string(APPEND _noxtls_hdr "#define NOXTLS_CFG_TLS13_PREFER_SECP256R1_OVER_X25519 1\n")
 else()
   string(APPEND _noxtls_hdr "#define NOXTLS_CFG_TLS13_PREFER_SECP256R1_OVER_X25519 0\n")
+endif()
+
+if(CONFIG_NOXTLS_CONFIG_STATIC_MEMORY)
+  string(APPEND _noxtls_hdr "#define NOXTLS_CONFIG_STATIC_MEMORY 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_CONFIG_STATIC_MEMORY 0\n")
 endif()
 
 string(APPEND _noxtls_hdr "#define NOXTLS_DTLS_REASSEMBLY_MAX_BYTES ${CONFIG_NOXTLS_DTLS_REASSEMBLY_MAX_BYTES}\n")
@@ -256,6 +262,18 @@ if(NOXTLS_CFG_FEATURE_ARIA)
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_ARIA 1\n")
 else()
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_ARIA 0\n")
+endif()
+
+if(CONFIG_NOXTLS_FEATURE_ATECC608)
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_ATECC608 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_ATECC608 0\n")
+endif()
+
+if(CONFIG_NOXTLS_FEATURE_ATECC608_ENTROPY)
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_ATECC608_ENTROPY 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_ATECC608_ENTROPY 0\n")
 endif()
 
 if(NOXTLS_CFG_FEATURE_BLAKE2)

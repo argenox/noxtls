@@ -36,7 +36,7 @@
  * | NOXTLS_PORT_SHA256_ACCEL     | noxtls_sha256_round_accel_port(), noxtls_sha256_blocks_accel_port() |
  * | NOXTLS_PORT_SHA512_ACCEL     | noxtls_sha512_blocks_accel_port()                           |
  * | NOXTLS_PORT_ED25519_ACCEL    | noxtls_ed25519_verify_accel_port()                          |
- * | NOXTLS_PORT_ENTROPY_ACCEL    | noxtls_drbg_entropy_accel_port()                            |
+ * | NOXTLS_PORT_ENTROPY_ACCEL    | noxtls_drbg_entropy_accel_port() (nRF54 TRNG or ATECC608 RNG) |
  */
 
 #ifndef NOXTLS_ACCEL_PORT_H
@@ -77,8 +77,12 @@
 #endif
 
 /** @brief Hardware entropy hook (used by NOXTLS_ENTROPY_SOURCE_AUTO before the OS sources). */
+#ifndef NOXTLS_FEATURE_ATECC608_ENTROPY
+#define NOXTLS_FEATURE_ATECC608_ENTROPY 0
+#endif
+
 #ifndef NOXTLS_PORT_ENTROPY_ACCEL
-#define NOXTLS_PORT_ENTROPY_ACCEL    NOXTLS_FEATURE_NRF54_HW_ACCEL
+#define NOXTLS_PORT_ENTROPY_ACCEL    (NOXTLS_FEATURE_NRF54_HW_ACCEL || NOXTLS_FEATURE_ATECC608_ENTROPY)
 #endif
 
 #endif /* NOXTLS_ACCEL_PORT_H */
