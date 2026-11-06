@@ -1,6 +1,20 @@
 {
   "releases": [
     {
+      "version": "0.3.19",
+      "date": "2026-11-05",
+      "summary": "NoxTLS 0.3.19 synchronizes the application configuration headers with the STM32WB5x backend setting.",
+      "changes": [
+        "Application noxtls_config.h copies regenerated for NOXTLS_FEATURE_STM32WB_HW_ACCEL (app_config_sync_check)."
+      ],
+      "fixed": [],
+      "resolved": [],
+      "known_issues": [],
+      "anomalies": [],
+      "security": [],
+      "security_recommendations": []
+    },
+    {
       "version": "0.3.18",
       "date": "2026-11-05",
       "summary": "NoxTLS 0.3.18 adds host tests and documentation for the STM32WB5x hardware backend and tightens it against MISRA C:2025 and cppcheck findings.",

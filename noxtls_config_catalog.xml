@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<noxtls-config-catalog version="0.3.18">
+<noxtls-config-catalog version="0.3.19">
   <metadata>
-    <noxtls-version>0.3.18</noxtls-version>
+    <noxtls-version>0.3.19</noxtls-version>
     <source-header>noxtls/noxtls_config.h</source-header>
     <version-header>noxtls/noxtls_version.h</version-header>
-    <generated-at>2026-11-06T00:33:01Z</generated-at>
+    <generated-at>2026-11-06T00:35:33Z</generated-at>
     <generator>noxtls/tools/config_catalog/generate_config_catalog.py</generator>
   </metadata>
   <profiles>
