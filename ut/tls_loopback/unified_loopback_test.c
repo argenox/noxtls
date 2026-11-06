@@ -114,6 +114,68 @@ static int t_server_fixed_version(void)
     return 0;
 }
 
+/* ---- client allow-lists (cipher suites, groups, signature algorithms) ---- */
+
+static int run_restricted(const uint16_t *suites, uint32_t ns, const uint16_t *groups, uint32_t ng,
+                          const uint16_t *sigs, uint32_t nsig, int expect_ok, uint16_t expect_suite)
+{
+    lb_pair_t pair;
+    lb_cfg_t cfg;
+    size_t base;
+
+    lb_log("restricted case ns=%u ng=%u nsig=%u expect_ok=%d", (unsigned)ns, (unsigned)ng, (unsigned)nsig, expect_ok);
+    LB_RUN(lb_trust_all_roots());
+    base = lb_alloc_live_bytes();
+    lb_cfg_default(&cfg, LB_PROTO_UNIFIED);
+    cfg.server_auth = LB_AUTH_RSA;
+    cfg.sni = "rsa.test";
+    cfg.unified_client_version = TLS_VERSION_1_2;
+    cfg.unified_server_version = TLS_VERSION_1_2;
+    LB_RUN(lb_pair_init(&pair, &cfg));
+    LB_CHECK_OK(noxtls_tls_connection_set_client_cipher_suites(pair.client.uni, suites, ns));
+    LB_CHECK_OK(noxtls_tls_connection_set_client_groups(pair.client.uni, groups, ng));
+    LB_CHECK_OK(noxtls_tls_connection_set_client_signature_algorithms(pair.client.uni, sigs, nsig));
+    if(expect_ok != 0) {
+        LB_RUN(lb_pair_handshake(&pair));
+        LB_CHECK_EQ(lb_end_cipher_suite(&pair.client), expect_suite);
+        LB_RUN(exchange(&pair, 64U, 64U));
+    } else {
+        g_lb_quiet = 1;
+        LB_CHECK(lb_pair_handshake(&pair) != 0);
+        g_lb_quiet = 0;
+    }
+    lb_pair_free(&pair);
+    return lb_expect_no_leak(base, "client allow-lists");
+}
+
+/* Each case runs in its own process: TLS 1.2 session resumption would skip the key exchange. */
+static const uint16_t k_al_suite[] = { TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_GCM_SHA384 };
+static const uint16_t k_al_ecdsa_suite[] = { TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 };
+static const uint16_t k_al_p384[] = { TLS_NAMED_GROUP_SECP384R1 };
+static const uint16_t k_al_p256[] = { TLS_NAMED_GROUP_SECP256R1 };
+static const uint16_t k_al_sigs[] = { 0x0501U, 0x0805U };
+static const uint16_t k_al_sig_ecdsa[] = { 0x0503U };
+
+static int t_allow_ok_p384(void)
+{
+    return run_restricted(k_al_suite, 1U, k_al_p384, 1U, k_al_sigs, 2U, 1, TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_GCM_SHA384);
+}
+
+static int t_allow_ok_p256(void)
+{
+    return run_restricted(k_al_suite, 1U, k_al_p256, 1U, k_al_sigs, 2U, 1, TLS_CIPHER_SUITE_ECDHE_RSA_WITH_AES_256_GCM_SHA384);
+}
+
+static int t_allow_bad_suite(void)
+{
+    return run_restricted(k_al_ecdsa_suite, 1U, k_al_p384, 1U, k_al_sigs, 2U, 0, 0U);
+}
+
+static int t_allow_bad_sig(void)
+{
+    return run_restricted(k_al_suite, 1U, k_al_p384, 1U, k_al_sig_ecdsa, 1U, 0, 0U);
+}
+
 static int t_tls13_negotiation(void)
 {
     lb_cfg_t cfg;
@@ -340,6 +402,10 @@ static const lb_test_case_t k_cases[] = {
     { "unified_maximum_record_payload", t_maximum_record_payload },
     { "unified_fragmented_transport", t_fragmented_transport },
     { "unified_server_fixed_version", t_server_fixed_version },
+    { "unified_allow_ok_p384", t_allow_ok_p384 },
+    { "unified_allow_ok_p256", t_allow_ok_p256 },
+    { "unified_allow_bad_suite", t_allow_bad_suite },
+    { "unified_allow_bad_sig", t_allow_bad_sig },
     { "unified_handshake_reentry_after_want_write", t_handshake_reentry_after_want_write },
 };
 

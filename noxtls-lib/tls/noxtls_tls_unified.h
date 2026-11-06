@@ -82,6 +82,8 @@ typedef struct
     const uint32_t *server_cert_chain_len;
     uint32_t server_cert_chain_count;
     void *server_private_rsa;
+    /** Server: optional ECDSA private key (ecc_key_t*, non-owning) for ECDHE-ECDSA; uses the server certificate. */
+    void *server_private_ecdsa;
     const uint16_t *server_cipher_suites;
     uint32_t server_cipher_suites_count;
     const uint8_t **server_alpn_protocols;
@@ -90,6 +92,13 @@ typedef struct
     uint16_t server_name_len;
     /** Client (RFC 7507): applied to the version context before ClientHello. */
     uint8_t client_send_fallback_scsv;
+    /** Client: optional allow-lists (non-owning), applied to both protocol versions where applicable. */
+    const uint16_t *client_cipher_suites;
+    uint32_t client_cipher_suites_count;
+    const uint16_t *client_groups;
+    uint32_t client_groups_count;
+    const uint16_t *client_sig_algs;
+    uint32_t client_sig_algs_count;
     /** Server: request a client certificate (CertificateRequest). */
     uint8_t request_client_auth;
     /** Server: require a client certificate (implies request). */
@@ -151,6 +160,11 @@ noxtls_return_t noxtls_tls_connection_set_server_cert_chain(noxtls_tls_connectio
 
 /** Server: set RSA private key for Server Key Exchange / CertificateVerify. */
 noxtls_return_t noxtls_tls_connection_set_server_private_key(noxtls_tls_connection_t *conn, void *rsa_key);
+/**
+ * Server: set an ECDSA private key (ecc_key_t*) matching the certificate given with
+ * noxtls_tls_connection_set_server_cert(). Enables ECDHE-ECDSA suites. Call before accept.
+ */
+noxtls_return_t noxtls_tls_connection_set_server_private_key_ecdsa(noxtls_tls_connection_t *conn, void *ecc_key);
 /** Server: set cipher-suite allowlist (wire IDs). */
 noxtls_return_t noxtls_tls_connection_set_server_cipher_suites(noxtls_tls_connection_t *conn,
                                                                const uint16_t *suites,
@@ -163,6 +177,20 @@ noxtls_return_t noxtls_tls_connection_set_server_alpn_protocols(noxtls_tls_conne
 /** Client: set SNI hostname. Applied at connect. */
 noxtls_return_t noxtls_tls_connection_set_sni(noxtls_tls_connection_t *conn, const uint8_t *name, uint16_t name_len);
 noxtls_return_t noxtls_tls_connection_set_client_fallback_scsv(noxtls_tls_connection_t *conn, int enable);
+
+/**
+ * Client: restrict the TLS 1.2 cipher suites offered and accepted (wire IDs, non-owning list kept
+ * until the connection is freed). NULL or a zero count restores the defaults. TLS 1.3 has no
+ * client cipher-suite selection and ignores this list.
+ */
+noxtls_return_t noxtls_tls_connection_set_client_cipher_suites(noxtls_tls_connection_t *conn,
+                                                               const uint16_t *suites, uint32_t count);
+/** Client: restrict supported_groups; the server key-exchange group must be in the list (TLS 1.2 and 1.3). */
+noxtls_return_t noxtls_tls_connection_set_client_groups(noxtls_tls_connection_t *conn,
+                                                        const uint16_t *groups, uint32_t count);
+/** Client: restrict signature_algorithms; the server signature scheme must be in the list (TLS 1.2 and 1.3). */
+noxtls_return_t noxtls_tls_connection_set_client_signature_algorithms(noxtls_tls_connection_t *conn,
+                                                                      const uint16_t *algs, uint32_t count);
 
 /** Server: request any client certificate (mutual TLS). Call before accept. */
 noxtls_return_t noxtls_tls_connection_set_request_client_auth(noxtls_tls_connection_t *conn, int enable);

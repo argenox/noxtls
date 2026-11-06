@@ -214,7 +214,7 @@ static int tls12_cipher_suite_needs_server_key_exchange(uint16_t cs);
 static noxtls_return_t tls12_sig_hash_to_noxtls(uint8_t hash_id, noxtls_hash_algos_t *hash_algo);
 #endif
 #if NOXTLS_FEATURE_TLS_CLIENT
-static int tls12_client_offered_sig_scheme(const tls_signature_algorithms_extension_t *sent, uint16_t sig_scheme);
+static int tls12_client_offered_sig_scheme(const tls12_context_t *ctx, const tls_signature_algorithms_extension_t *sent, uint16_t sig_scheme);
 static noxtls_return_t tls12_client_maybe_abbreviated_after_sh(tls12_context_t *ctx, int *did_abbreviated);
 #endif /* NOXTLS_FEATURE_TLS_CLIENT */
 static int tls12_ecjpake_is_active(const tls12_context_t *ctx);
@@ -2463,6 +2463,30 @@ void noxtls_tls12_set_client_fallback_scsv(tls12_context_t *ctx, int enable)
     }
 }
 
+void noxtls_tls12_set_client_cipher_suites(tls12_context_t *ctx, const uint16_t *suites, uint32_t count)
+{
+    if(ctx != NULL) {
+        ctx->client_cipher_suites = suites;
+        ctx->client_cipher_suites_count = (suites != NULL) ? count : 0U;
+    }
+}
+
+void noxtls_tls12_set_client_groups(tls12_context_t *ctx, const uint16_t *groups, uint32_t count)
+{
+    if(ctx != NULL) {
+        ctx->client_groups = groups;
+        ctx->client_groups_count = (groups != NULL) ? count : 0U;
+    }
+}
+
+void noxtls_tls12_set_client_signature_algorithms(tls12_context_t *ctx, const uint16_t *algs, uint32_t count)
+{
+    if(ctx != NULL) {
+        ctx->client_sig_algs = algs;
+        ctx->client_sig_algs_count = (algs != NULL) ? count : 0U;
+    }
+}
+
 /**
  * @brief Client: offer (default) or omit the RFC 7627 extended_master_secret extension.
  *
@@ -4090,6 +4114,10 @@ noxtls_return_t noxtls_tls12_send_client_hello(tls12_context_t *ctx)
     num_cipher_suites = (ctx->base.base.version <= TLS_VERSION_1_1)
         ? (sizeof(tls12_client_suites_10_11) / sizeof(tls12_client_suites_10_11[0]))
         : (sizeof(tls12_client_suites_12) / sizeof(tls12_client_suites_12[0]));
+    if((ctx->client_cipher_suites != NULL) && (ctx->client_cipher_suites_count > 0U)) {
+        cipher_suites = ctx->client_cipher_suites;
+        num_cipher_suites = ctx->client_cipher_suites_count;
+    }
 #if NOXTLS_FEATURE_DTLS_ECJPAKE
     if(tls12_ecjpake_active(ctx) != 0) {
         /* draft-cragie-tls-ecjpake-01 section 5: offer only TLS_ECJPAKE_WITH_AES_128_CCM_8. */
@@ -4271,6 +4299,28 @@ noxtls_return_t noxtls_tls12_send_client_hello(tls12_context_t *ctx)
             }
         }
 
+        /* Supported Groups from the client allow-list (profiles such as CNSA / WPA3 192-bit). */
+        if((ctx->client_groups != NULL) && (ctx->client_groups_count > 0U)) {
+            uint16_t group_list_len = (uint16_t)(ctx->client_groups_count * 2U);
+            uint16_t ext_data_len = (uint16_t)(2U + group_list_len);
+
+            if((ext_len + 4U + ext_data_len) < 256U) {
+                uint32_t gi = 0U;
+
+                ext_buf[ext_len] = (uint8_t)(((uint32_t)TLS_EXTENSION_SUPPORTED_GROUPS >> 8U));
+                ext_buf[ext_len + 1U] = (uint8_t)(TLS_EXTENSION_SUPPORTED_GROUPS & 0xFFU);
+                ext_buf[ext_len + 2U] = (uint8_t)(((uint32_t)ext_data_len) >> 8U);
+                ext_buf[ext_len + 3U] = (uint8_t)(ext_data_len & 0xFFU);
+                ext_buf[ext_len + 4U] = (uint8_t)(((uint32_t)group_list_len) >> 8U);
+                ext_buf[ext_len + 5U] = (uint8_t)(group_list_len & 0xFFU);
+                ext_len += 6U;
+                for(gi = 0U; gi < ctx->client_groups_count; gi += 1U) {
+                    ext_buf[ext_len] = (uint8_t)(((uint32_t)ctx->client_groups[gi]) >> 8U);
+                    ext_buf[ext_len + 1U] = (uint8_t)(ctx->client_groups[gi] & 0xFFU);
+                    ext_len += 2U;
+                }
+            }
+        } else
         /* Supported Groups: X25519 + NIST P-256/P-384/P-521 (BoGo prefers X25519). */
         {
 #if NOXTLS_FEATURE_X25519
@@ -4334,11 +4384,19 @@ noxtls_return_t noxtls_tls12_send_client_hello(tls12_context_t *ctx)
 
         /* Signature Algorithms */
         {
-            uint16_t sig_list_len = (uint16_t)(TLS12_CLIENT_SIG_SCHEME_COUNT * 2U);
+            const uint16_t *sig_tab = tls12_client_sig_schemes;
+            uint32_t sig_cnt = TLS12_CLIENT_SIG_SCHEME_COUNT;
+            uint16_t sig_list_len;
+
+            if((ctx->client_sig_algs != NULL) && (ctx->client_sig_algs_count > 0U)) {
+                sig_tab = ctx->client_sig_algs;
+                sig_cnt = ctx->client_sig_algs_count;
+            }
+            sig_list_len = (uint16_t)(sig_cnt * 2U);
 #if NOXTLS_TLS_ALGORITHM_FILTER
             sig_list_len = 0U;
-            for(uint32_t sa = 0U; sa < TLS12_CLIENT_SIG_SCHEME_COUNT; sa += 1U) {
-                if(noxtls_tls_signature_scheme_is_available(tls12_client_sig_schemes[sa]) != 0) {
+            for(uint32_t sa = 0U; sa < sig_cnt; sa += 1U) {
+                if(noxtls_tls_signature_scheme_is_available(sig_tab[sa]) != 0) {
                     sig_list_len = (uint16_t)(sig_list_len + 2U);
                 }
             }
@@ -4359,15 +4417,15 @@ noxtls_return_t noxtls_tls12_send_client_hello(tls12_context_t *ctx)
                 ext_buf[ext_len] = (uint8_t)(sig_list_len & 0xFFU);
                 ext_len += 1U;
                 /* Same table gates the ServerKeyExchange scheme (tls12_client_offered_sig_scheme). */
-                for(si = 0U; si < TLS12_CLIENT_SIG_SCHEME_COUNT; si += 1U) {
+                for(si = 0U; si < sig_cnt; si += 1U) {
 #if NOXTLS_TLS_ALGORITHM_FILTER
-                    if(noxtls_tls_signature_scheme_is_available(tls12_client_sig_schemes[si]) == 0) {
+                    if(noxtls_tls_signature_scheme_is_available(sig_tab[si]) == 0) {
                         continue;
                     }
 #endif
-                    ext_buf[ext_len] = (uint8_t)((((uint32_t)tls12_client_sig_schemes[si]) >> 8U) & 0xFFU);
+                    ext_buf[ext_len] = (uint8_t)((((uint32_t)sig_tab[si]) >> 8U) & 0xFFU);
                     ext_len += 1U;
-                    ext_buf[ext_len] = (uint8_t)(((uint32_t)tls12_client_sig_schemes[si]) & 0xFFU);
+                    ext_buf[ext_len] = (uint8_t)(((uint32_t)sig_tab[si]) & 0xFFU);
                     ext_len += 1U;
                 }
             }
@@ -4854,8 +4912,13 @@ noxtls_return_t noxtls_tls12_client_resume_from_tls13_downgrade(tls12_context_t 
     rc = tls12_client_apply_handshake_client_hello_transcript(ctx, client_hello_transcript, client_hello_transcript_len);
     if(rc == NOXTLS_RETURN_SUCCESS) {
         /* The ClientHello already sent starts the transcript; its buffer is not kept. */
-        rc = tls12_transcript_begin(ctx, tls12_client_initial_transcript_mask(ctx, tls12_client_suites_12,
-            (uint32_t)(sizeof(tls12_client_suites_12) / sizeof(tls12_client_suites_12[0]))));
+        if((ctx->client_cipher_suites != NULL) && (ctx->client_cipher_suites_count > 0U)) {
+            rc = tls12_transcript_begin(ctx, tls12_client_initial_transcript_mask(ctx, ctx->client_cipher_suites,
+                ctx->client_cipher_suites_count));
+        } else {
+            rc = tls12_transcript_begin(ctx, tls12_client_initial_transcript_mask(ctx, tls12_client_suites_12,
+                (uint32_t)(sizeof(tls12_client_suites_12) / sizeof(tls12_client_suites_12[0]))));
+        }
     }
     if(rc == NOXTLS_RETURN_SUCCESS) {
         rc = tls12_transcript_update(ctx, client_hello_transcript, client_hello_transcript_len);
@@ -5173,6 +5236,10 @@ noxtls_return_t noxtls_tls12_recv_server_hello(tls12_context_t *ctx)
         uint32_t i = 0U;
         uint8_t found = 0U;
 
+        if((ctx->client_cipher_suites != NULL) && (ctx->client_cipher_suites_count > 0U)) {
+            offered = ctx->client_cipher_suites;
+            offered_count = ctx->client_cipher_suites_count;
+        }
         /* The selected suite must be one this ClientHello offered (same table as send_client_hello). */
         for(i = 0U; i < offered_count; i += 1U) {
             if(ctx->cipher_suite == offered[i]) {
@@ -5812,15 +5879,24 @@ noxtls_return_t noxtls_tls12_recv_certificate(tls12_context_t *ctx)
  * @param[in] sig_scheme SignatureAndHashAlgorithm / SignatureScheme code point.
  * @return 1 if offered, 0 otherwise.
  */
-static int tls12_client_offered_sig_scheme(const tls_signature_algorithms_extension_t *sent, uint16_t sig_scheme)
+static int tls12_client_offered_sig_scheme(const tls12_context_t *ctx, const tls_signature_algorithms_extension_t *sent, uint16_t sig_scheme)
 {
     uint32_t i = 0U;
     int found = 0;
 
-    for(i = 0U; i < TLS12_CLIENT_SIG_SCHEME_COUNT; i += 1U) {
-        if(tls12_client_sig_schemes[i] == sig_scheme) {
-            found = 1;
-            break;
+    if((ctx != NULL) && (ctx->client_sig_algs != NULL) && (ctx->client_sig_algs_count > 0U)) {
+        for(i = 0U; i < ctx->client_sig_algs_count; i += 1U) {
+            if(ctx->client_sig_algs[i] == sig_scheme) {
+                found = 1;
+                break;
+            }
+        }
+    } else {
+        for(i = 0U; i < TLS12_CLIENT_SIG_SCHEME_COUNT; i += 1U) {
+            if(tls12_client_sig_schemes[i] == sig_scheme) {
+                found = 1;
+                break;
+            }
         }
     }
 #if NOXTLS_TLS_ALGORITHM_FILTER
@@ -5876,7 +5952,7 @@ noxtls_return_t noxtls_tls12_client_verify_ske_signature(tls12_context_t *ctx,
     }
     /* RFC 5246 §7.4.1.4.1: the server must use a pair the client offered (SHA-1 pairs are
      * offered only with NOXTLS_TLS12_ENABLE_SHA1_SIGNATURES, MD5 never). */
-    if(tls12_client_offered_sig_scheme(ctx->client_extensions.signature_algorithms, sig_scheme) == 0) {
+    if(tls12_client_offered_sig_scheme(ctx, ctx->client_extensions.signature_algorithms, sig_scheme) == 0) {
         (void)noxtls_tls_send_alert(&ctx->base.base, TLS_ALERT_LEVEL_FATAL, TLS_ALERT_ILLEGAL_PARAMETER);
         return NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER;
     }
@@ -6224,6 +6300,21 @@ noxtls_return_t noxtls_tls12_recv_server_key_exchange(tls12_context_t *ctx)
         if((tls12_is_supported_ec_curve(named_curve) == 0)) {
             (void)noxtls_free(record.data);
             return NOXTLS_RETURN_FAILED;
+        }
+        if((ctx->client_groups != NULL) && (ctx->client_groups_count > 0U)) {
+            /* The server must pick a group the client offered (allow-list profiles). */
+            uint32_t gi = 0U;
+            uint32_t group_ok = 0U;
+
+            for(gi = 0U; gi < ctx->client_groups_count; gi += 1U) {
+                if(ctx->client_groups[gi] == named_curve) {
+                    group_ok = 1U;
+                }
+            }
+            if(group_ok == 0U) {
+                (void)noxtls_free(record.data);
+                return NOXTLS_RETURN_FAILED;
+            }
         }
         
         tls_ecdhe_context_t *ecdhe_ctx = (tls_ecdhe_context_t*)ctx->ecdhe_ctx;

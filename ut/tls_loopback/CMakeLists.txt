@@ -142,6 +142,10 @@ if(NOXTLS_CFG_FEATURE_TLS12 AND NOXTLS_CFG_FEATURE_TLS13)
         unified_maximum_record_payload
         unified_fragmented_transport
         unified_server_fixed_version
+        unified_allow_ok_p384
+        unified_allow_ok_p256
+        unified_allow_bad_suite
+        unified_allow_bad_sig
         unified_handshake_reentry_after_want_write
     )
 endif()

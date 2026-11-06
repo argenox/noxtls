@@ -253,6 +253,15 @@ struct tls12_context_s
     uint8_t tls12_beast_split_first_appdata;
     /** Client (RFC 7507): include TLS_FALLBACK_SCSV in ClientHello cipher suites. */
     uint8_t client_send_fallback_scsv;
+    /** Client: optional allow-list of cipher suites offered (non-owning); NULL offers the defaults. */
+    const uint16_t *client_cipher_suites;
+    uint32_t client_cipher_suites_count;
+    /** Client: optional allow-list of named groups (supported_groups; also enforced on ServerKeyExchange). */
+    const uint16_t *client_groups;
+    uint32_t client_groups_count;
+    /** Client: optional signature_algorithms list (also enforced on ServerKeyExchange). */
+    const uint16_t *client_sig_algs;
+    uint32_t client_sig_algs_count;
 
     /* RFC 8446 §4.1.3: when 1, ServerHello.random last 8 bytes are fixed for TLS-1.3-capable server negotiating TLS 1.2 (unified API sets this). */
     uint8_t rfc8446_tls13_downgrade_sh_random;
@@ -475,6 +484,24 @@ noxtls_return_t noxtls_tls12_set_client_cert_rsa(tls12_context_t *ctx, const uin
 /** Client: set ECDSA certificate + key for CertificateRequest response. Call before connect. */
 noxtls_return_t noxtls_tls12_set_client_cert_ecdsa(tls12_context_t *ctx, const uint8_t *cert_der,
                                                   uint32_t cert_len, void *ecc_key);
+
+/**
+ * @brief Client: restrict the ClientHello (and what the client accepts) to allow-lists.
+ *
+ * The lists are not copied and must stay valid for the life of the context. A NULL list or a
+ * zero count restores the built-in defaults. The ServerHello cipher suite, the ServerKeyExchange
+ * named group and the ServerKeyExchange signature scheme must be in the respective list.
+ * Intended for profiles such as CNSA / WPA3 192-bit (RFC 6460).
+ *
+ * @param[in,out] ctx Client context, before connect.
+ * @param[in] suites Cipher suite wire IDs.
+ * @param[in] count Number of suites.
+ */
+void noxtls_tls12_set_client_cipher_suites(tls12_context_t *ctx, const uint16_t *suites, uint32_t count);
+/** @brief Client: restrict supported_groups (see noxtls_tls12_set_client_cipher_suites()). */
+void noxtls_tls12_set_client_groups(tls12_context_t *ctx, const uint16_t *groups, uint32_t count);
+/** @brief Client: restrict signature_algorithms (see noxtls_tls12_set_client_cipher_suites()). */
+void noxtls_tls12_set_client_signature_algorithms(tls12_context_t *ctx, const uint16_t *algs, uint32_t count);
 
 /** RFC 6066: Set max fragment length (client or server). code: 0 = disabled, 1=512, 2=1024, 3=2048, 4=4096 bytes. Call before handshake. */
 void noxtls_tls12_set_max_fragment_length(tls12_context_t *ctx, uint8_t code);
