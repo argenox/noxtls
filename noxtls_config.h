@@ -1333,6 +1333,15 @@
 #define NOXTLS_FEATURE_NRF54_HW_ACCEL 0
 #endif
 
+/* Enables the ESP32-S31 hardware backend: AES-128/256 ECB/CBC/CTR, SHA-256/384/512 block hooks,
+ * P-192/256/384 point multiply and ECDSA sign/verify, with software fallback
+ * (noxtls-lib/vendor/espressif/esp32s31; drivers come from nox-driver-lib).
+ * Build knob: NOXTLS_CFG_FEATURE_ESP32S31_HW_ACCEL.
+ */
+#ifndef NOXTLS_FEATURE_ESP32S31_HW_ACCEL
+#define NOXTLS_FEATURE_ESP32S31_HW_ACCEL 0
+#endif
+
 /* Enables ARIA cipher family.
  * Prereq: NOXTLS_FEATURE_ENCRYPTION=1.
  */

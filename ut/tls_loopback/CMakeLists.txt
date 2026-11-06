@@ -69,6 +69,7 @@ endif()
 
 if(NOXTLS_CFG_FEATURE_TLS12)
     noxtls_lb_add_suite(tls12_loopback_test tls12_loopback_test.c
+        tls12_exporter_rfc5705
         tls12_ecdhe_ecdsa_aes128gcm
         tls12_ecdhe_ecdsa_aes256gcm
         tls12_ecdhe_ecdsa_chacha20

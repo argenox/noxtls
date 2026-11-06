@@ -125,6 +125,43 @@ static int run_suite(lb_auth_t auth, uint16_t suite, int matrix)
     return run_session(&cfg, suite, matrix);
 }
 
+/* ---- RFC 5705 keying material exporter ----------------------------------- */
+
+static int t_exporter_rfc5705(void)
+{
+    lb_pair_t pair;
+    lb_cfg_t cfg;
+    static const uint8_t label[] = "client EAP encryption";
+    static const uint8_t ctxv[] = { 0x0DU };
+    uint8_t a[128];
+    uint8_t b[128];
+    uint8_t c[128];
+    size_t base = lb_alloc_live_bytes();
+
+    LB_RUN(lb_trust_all_roots());
+    lb_cfg_default(&cfg, LB_PROTO_TLS12);
+    cfg.server_auth = LB_AUTH_ECDSA;
+    LB_RUN(lb_pair_init(&pair, &cfg));
+    LB_CHECK_EQ(noxtls_tls12_export_keying_material(pair.client.t12, label, sizeof(label) - 1U, NULL, 0U, 0, a,
+                                                    sizeof(a)), NOXTLS_RETURN_FAILED);
+    LB_RUN(lb_pair_handshake(&pair));
+    LB_CHECK_OK(noxtls_tls12_export_keying_material(pair.client.t12, label, sizeof(label) - 1U, NULL, 0U, 0, a,
+                                                    sizeof(a)));
+    LB_CHECK_OK(noxtls_tls12_export_keying_material(pair.server.t12, label, sizeof(label) - 1U, NULL, 0U, 0, b,
+                                                    sizeof(b)));
+    LB_CHECK(memcmp(a, b, sizeof(a)) == 0);
+    LB_CHECK_OK(noxtls_tls12_export_keying_material(pair.client.t12, label, sizeof(label) - 1U, ctxv, sizeof(ctxv), 1,
+                                                    c, sizeof(c)));
+    LB_CHECK(memcmp(a, c, sizeof(a)) != 0);
+    LB_CHECK_EQ(noxtls_tls12_export_keying_material(NULL, label, 1U, NULL, 0U, 0, a, 1U), NOXTLS_RETURN_NULL);
+    LB_CHECK_EQ(noxtls_tls12_export_keying_material(pair.client.t12, label, 0U, NULL, 0U, 0, a, 1U),
+                NOXTLS_RETURN_INVALID_PARAM);
+    LB_RUN(lb_close_and_observe(&pair, 0));
+    lb_pair_free(&pair);
+    lb_trust_clear();
+    return lb_expect_no_leak(base, "tls12 exporter");
+}
+
 /* ---- Cipher suites ------------------------------------------------------- */
 
 static int t_ecdsa_aes128gcm(void) { return run_suite(LB_AUTH_ECDSA, TLS_CIPHER_SUITE_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, 1); }
@@ -1379,6 +1416,7 @@ static int t_legacy_static_rsa_cbc(void)
 }
 
 static const lb_test_case_t k_cases[] = {
+    { "tls12_exporter_rfc5705", t_exporter_rfc5705 },
     { "tls12_ecdhe_ecdsa_aes128gcm", t_ecdsa_aes128gcm },
     { "tls12_ecdhe_ecdsa_aes256gcm", t_ecdsa_aes256gcm },
     { "tls12_ecdhe_ecdsa_chacha20", t_ecdsa_chacha20 },

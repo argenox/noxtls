@@ -1298,6 +1298,34 @@ uint16_t noxtls_tls_connection_get_cipher_suite(const noxtls_tls_connection_t *c
 #endif
 }
 
+noxtls_return_t noxtls_tls_connection_export_keying_material(const noxtls_tls_connection_t *conn,
+                                                             const uint8_t *label, uint32_t label_len,
+                                                             const uint8_t *context, uint32_t context_len,
+                                                             int use_context,
+                                                             uint8_t *output, uint32_t output_len)
+{
+    if(conn == NULL) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if((conn->negotiated_version == 0U) || (conn->handshake_started == 0U)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+#if NOXTLS_FEATURE_TLS13
+    if(conn->is_tls13 != 0U) {
+        /* The TLS 1.3 exporter keeps no mutable state but takes a non-const context. */
+        return noxtls_tls13_export_keying_material((tls13_context_t *)(uintptr_t)&conn->ver.tls13, label,
+                                                   label_len, (use_context != 0) ? context : NULL,
+                                                   (use_context != 0) ? context_len : 0U, output, output_len);
+    }
+#endif
+#if NOXTLS_FEATURE_TLS12
+    return noxtls_tls12_export_keying_material(&conn->ver.tls12, label, label_len, context, context_len,
+                                               use_context, output, output_len);
+#else
+    return NOXTLS_RETURN_FAILED;
+#endif
+}
+
 int noxtls_tls_connection_is_resumed(const noxtls_tls_connection_t *conn)
 {
     if((conn == NULL) || (conn->handshake_started == 0U)) {
