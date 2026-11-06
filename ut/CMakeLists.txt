@@ -212,6 +212,7 @@ if(TARGET noxtls_tls AND TARGET noxtls_cert AND TARGET noxtls_pkc AND
    NOXTLS_CFG_FEATURE_TLS12 AND NOXTLS_CFG_FEATURE_TLS13)
     add_subdirectory(tls_loopback)
     add_subdirectory(x509_parse)
+    add_subdirectory(atecc608)
     add_subdirectory(ram_budget)
     add_subdirectory(static_memory)
     add_subdirectory(multi_context)
