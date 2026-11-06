@@ -38,7 +38,8 @@
  *    that persists after clearing fails the request at once;
  *  - a continuous test rejects a word equal to its predecessor and fails the
  *    request after NOXTLS_STM32WB_CONFIG_RNG_MAX_REPEATS consecutive repeats.
- * The peripheral enable bit is restored to its previous value afterwards.
+ * RNG_CR is forced to RNGEN with clock-error detection on and the interrupt off for the
+ * request and restored to its previous value afterwards.
  */
 
 #ifndef NOXTLS_STM32WB_RNG_H

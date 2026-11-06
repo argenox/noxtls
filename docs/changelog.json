@@ -1,6 +1,21 @@
 {
   "releases": [
     {
+      "version": "0.3.18",
+      "date": "2026-11-05",
+      "summary": "NoxTLS 0.3.18 adds host tests and documentation for the STM32WB5x hardware backend and tightens it against MISRA C:2025 and cppcheck findings.",
+      "changes": [
+        "STM32WB5x backend: UTNox host tests with an AES1, PKA, RNG and HSEM register model (78 tests, 100 percent line and branch coverage of the backend) and a documentation page.",
+        "STM32WB5x backend: RNG control register is restored to its previous value after a request; MISRA C:2025 and cppcheck findings in the new code fixed."
+      ],
+      "fixed": [],
+      "resolved": [],
+      "known_issues": [],
+      "anomalies": [],
+      "security": [],
+      "security_recommendations": []
+    },
+    {
       "version": "0.3.17",
       "date": "2026-11-05",
       "summary": "NoxTLS 0.3.17 adds the STM32WB5x (P-NUCLEO-WB55) hardware crypto backend: AES1, PKA and RNG with HSEM locking and software fallback.",

@@ -28,11 +28,11 @@
  * included (for example with a compiler -D option).
  *
  * Specification sources (revisions used for this port):
- *  - RM0434 Rev 13 (STM32WB55 reference manual): the AES1 (AES hardware
+ *  - RM0434 Rev 13 (STM32WB55 reference manual; revision as used for this port, confirm against the PDF): the AES1 (AES hardware
  *    accelerator), PKA (public key accelerator), RNG (true random number
  *    generator) and HSEM (hardware semaphore) chapters, and the memory map
  *    (peripheral boundary addresses).
- *  - AN5289 Rev 10 (building wireless applications with STM32WB): the
+ *  - AN5289 (building wireless applications with STM32WB; revision to confirm): the
  *    hardware-semaphore usage table shared between CPU1 and CPU2.
  *  - STM32CubeWB 1.x hw_conf.h (CFG_HW_RNG_SEMID = 0, CFG_HW_PKA_SEMID = 1,
  *    CFG_HW_CLK48_CONFIG_SEMID = 5), the semaphore numbering used by the
@@ -77,9 +77,9 @@
 /** @{ */
 
 /** @brief Semaphore identifier meaning "do not lock this resource". */
-#define NOXTLS_STM32WB_HSEM_ID_NONE             UINT32_C(0xFF)
+#define NOXTLS_STM32WB_HSEM_ID_NONE             255U
 /** @brief Highest semaphore index of the 32-entry HSEM array. */
-#define NOXTLS_STM32WB_HSEM_ID_MAX              UINT32_C(31)
+#define NOXTLS_STM32WB_HSEM_ID_MAX              31U
 
 /**
  * @brief Semaphore guarding the RNG (and CLK48 while the RNG runs).
@@ -87,11 +87,11 @@
  * Must equal the value used by the CPU2 wireless firmware (CFG_HW_RNG_SEMID).
  */
 #ifndef NOXTLS_STM32WB_CONFIG_HSEM_ID_RNG
-#define NOXTLS_STM32WB_CONFIG_HSEM_ID_RNG       UINT32_C(0)
+#define NOXTLS_STM32WB_CONFIG_HSEM_ID_RNG       0U
 #endif
 /** @brief Semaphore guarding the PKA (CFG_HW_PKA_SEMID of the CPU2 firmware). */
 #ifndef NOXTLS_STM32WB_CONFIG_HSEM_ID_PKA
-#define NOXTLS_STM32WB_CONFIG_HSEM_ID_PKA       UINT32_C(1)
+#define NOXTLS_STM32WB_CONFIG_HSEM_ID_PKA       1U
 #endif
 /**
  * @brief Semaphore guarding AES1.

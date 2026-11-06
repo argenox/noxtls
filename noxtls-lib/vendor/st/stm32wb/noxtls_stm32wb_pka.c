@@ -133,7 +133,7 @@ static void noxtls_stm32wb_pka_put(uint32_t off, const uint8_t *data, uint32_t l
     for (w = 0U; w < words; w++) {
         value = 0U;
         for (b = 0U; b < NOXTLS_STM32WB_PKA_BYTES_WORD; b++) {
-            pos = w * NOXTLS_STM32WB_PKA_BYTES_WORD + b;
+            pos = (w * NOXTLS_STM32WB_PKA_BYTES_WORD) + b;
             if (pos < len) {
                 value |= (uint32_t)data[len - 1U - pos] << (b * NOXTLS_STM32WB_PKA_BYTE_BITS);
             }
@@ -180,7 +180,7 @@ static void noxtls_stm32wb_pka_get(uint32_t off, uint8_t *out, uint32_t len)
     for (w = 0U; w < words; w++) {
         value = noxtls_stm32wb_pka_rd(off + (w * NOXTLS_STM32WB_PKA_BYTES_WORD));
         for (b = 0U; b < NOXTLS_STM32WB_PKA_BYTES_WORD; b++) {
-            pos = w * NOXTLS_STM32WB_PKA_BYTES_WORD + b;
+            pos = (w * NOXTLS_STM32WB_PKA_BYTES_WORD) + b;
             if (pos < len) {
                 out[len - 1U - pos] = (uint8_t)((value >> (b * NOXTLS_STM32WB_PKA_BYTE_BITS)) &
                                                 NOXTLS_STM32WB_PKA_BYTE_MASK);
@@ -202,7 +202,7 @@ static uint32_t noxtls_stm32wb_pka_bitlen(const uint8_t *data, uint32_t len)
 {
     uint32_t i = 0U;
     uint32_t bits = 0U;
-    uint8_t top;
+    uint32_t top;
 
     while ((i < len) && (data[i] == 0U)) {
         i++;
@@ -212,7 +212,7 @@ static uint32_t noxtls_stm32wb_pka_bitlen(const uint8_t *data, uint32_t len)
         bits = (len - i - 1U) * NOXTLS_STM32WB_PKA_BYTE_BITS;
         while (top != 0U) {
             bits++;
-            top = (uint8_t)(top >> 1);
+            top >>= 1;
         }
     }
     return bits;

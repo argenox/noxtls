@@ -78,8 +78,19 @@
 
 /** @brief CR value of the GCM chaining mode. */
 #define NOXTLS_STM32WB_CR_GCM           (NOXTLS_STM32WB_AES_CHMOD_GCM << NOXTLS_STM32WB_AES_CR_CHMOD_SHIFT)
-/** @brief CR phase field value. */
-#define NOXTLS_STM32WB_CR_PHASE(ph)     ((ph) << NOXTLS_STM32WB_AES_CR_GCMPH_SHIFT)
+
+/**
+ * @brief CR value of a GCM / CCM phase.
+ * @internal
+ *
+ * @param[in] phase NOXTLS_STM32WB_AES_PHASE_*.
+ *
+ * @return The GCMPH field.
+ */
+static uint32_t noxtls_stm32wb_cr_phase(uint32_t phase)
+{
+    return phase << NOXTLS_STM32WB_AES_CR_GCMPH_SHIFT;
+}
 
 /**
  * @brief Store a 32-bit value big-endian.
@@ -105,7 +116,7 @@ static void noxtls_stm32wb_aead_put_be32(uint8_t *p, uint32_t v)
 static void noxtls_stm32wb_aead_phase(uint32_t phase)
 {
     noxtls_stm32wb_aes_cr(NOXTLS_STM32WB_AES_CR_GCMPH_MASK | NOXTLS_STM32WB_AES_CR_NPBLB_MASK,
-                          NOXTLS_STM32WB_CR_PHASE(phase) | NOXTLS_STM32WB_AES_CR_EN);
+                          noxtls_stm32wb_cr_phase(phase) | NOXTLS_STM32WB_AES_CR_EN);
 }
 
 /**
@@ -212,7 +223,7 @@ static noxtls_return_t noxtls_stm32wb_aead_final(const uint8_t *block, uint8_t *
     /* The tag is always produced in encryption mode (stm32wbxx_hal_cryp_ex AuthTAG). */
     noxtls_stm32wb_aes_cr(NOXTLS_STM32WB_AES_CR_GCMPH_MASK | NOXTLS_STM32WB_AES_CR_NPBLB_MASK |
                           NOXTLS_STM32WB_AES_CR_MODE_MASK,
-                          NOXTLS_STM32WB_CR_PHASE(NOXTLS_STM32WB_AES_PHASE_FINAL) | NOXTLS_STM32WB_AES_CR_EN);
+                          noxtls_stm32wb_cr_phase(NOXTLS_STM32WB_AES_PHASE_FINAL) | NOXTLS_STM32WB_AES_CR_EN);
     if (block != NULL) {
         noxtls_stm32wb_aes_put(block);
     }
@@ -315,7 +326,7 @@ noxtls_return_t noxtls_stm32wb_aes_gcm(uint8_t decrypt,
         noxtls_stm32wb_aead_put_be32(&iv[NOXTLS_STM32WB_GCM_ICB_OFFSET], NOXTLS_STM32WB_GCM_ICB_COUNTER);
         rc = noxtls_stm32wb_aes_open(key, key_len,
                                      NOXTLS_STM32WB_CR_GCM | (op << NOXTLS_STM32WB_AES_CR_MODE_SHIFT) |
-                                     NOXTLS_STM32WB_CR_PHASE(NOXTLS_STM32WB_AES_PHASE_INIT), iv);
+                                     noxtls_stm32wb_cr_phase(NOXTLS_STM32WB_AES_PHASE_INIT), iv);
         if (rc == NOXTLS_RETURN_SUCCESS) {
             rc = noxtls_stm32wb_gcm_run(decrypt, aad, aad_len, in, out, len, calc);
             noxtls_stm32wb_aes_close();
@@ -343,12 +354,17 @@ static uint32_t noxtls_stm32wb_ccm_params_ok(uint32_t nonce_len, uint32_t tag_le
 {
     uint32_t ok = 0U;
     uint32_t l_size;
+    uint32_t limit;
 
     if ((nonce_len >= NOXTLS_STM32WB_AES_CCM_NONCE_MIN) && (nonce_len <= NOXTLS_STM32WB_AES_CCM_NONCE_MAX) &&
         (tag_len >= NOXTLS_STM32WB_AES_CCM_TAG_MIN) && (tag_len <= NOXTLS_STM32WB_AES_CCM_TAG_MAX) &&
         ((tag_len % 2U) == 0U)) {
         l_size = NOXTLS_STM32WB_CCM_NL_BYTES - nonce_len;
-        if ((l_size >= NOXTLS_STM32WB_CCM_L_FULL) || (len < (UINT32_C(1) << (l_size * NOXTLS_STM32WB_BYTE_BITS)))) {
+        limit = 1U;
+        if (l_size < NOXTLS_STM32WB_CCM_L_FULL) {
+            limit <<= (l_size * NOXTLS_STM32WB_BYTE_BITS);
+        }
+        if ((l_size >= NOXTLS_STM32WB_CCM_L_FULL) || (len < limit)) {
             ok = 1U;
         }
     }
@@ -427,7 +443,7 @@ static noxtls_return_t noxtls_stm32wb_ccm_run(uint8_t decrypt, const uint8_t *aa
                                               const uint8_t *in, uint8_t *out, uint32_t len, uint8_t *calc)
 {
     noxtls_return_t rc;
-    uint8_t prefix[NOXTLS_STM32WB_CCM_ADATA_LONG_LEN];
+    uint8_t prefix[NOXTLS_STM32WB_CCM_ADATA_LONG_LEN] = { 0U };
     uint32_t prefix_len = 0U;
 
     noxtls_stm32wb_aes_cr(0U, NOXTLS_STM32WB_AES_CR_EN);
@@ -474,7 +490,7 @@ noxtls_return_t noxtls_stm32wb_aes_ccm(uint8_t decrypt,
         noxtls_stm32wb_ccm_b0(b0, nonce, nonce_len, aad_len, len, tag_len);
         rc = noxtls_stm32wb_aes_open(key, key_len,
                                      NOXTLS_STM32WB_AES_CR_CHMOD_CCM | (op << NOXTLS_STM32WB_AES_CR_MODE_SHIFT) |
-                                     NOXTLS_STM32WB_CR_PHASE(NOXTLS_STM32WB_AES_PHASE_INIT), b0);
+                                     noxtls_stm32wb_cr_phase(NOXTLS_STM32WB_AES_PHASE_INIT), b0);
         if (rc == NOXTLS_RETURN_SUCCESS) {
             rc = noxtls_stm32wb_ccm_run(decrypt, aad, aad_len, in, out, len, calc);
             noxtls_stm32wb_aes_close();

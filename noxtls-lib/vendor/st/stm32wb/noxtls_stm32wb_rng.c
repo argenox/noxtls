@@ -232,7 +232,9 @@ noxtls_return_t noxtls_stm32wb_rng_fill(uint8_t *buf, uint32_t len)
             /* Enable with clock-error detection on and the interrupt off. */
             want_cr = (saved_cr | NOXTLS_STM32WB_RNG_CR_RNGEN) &
                       ~(NOXTLS_STM32WB_RNG_CR_CED | NOXTLS_STM32WB_RNG_CR_IE);
-            noxtls_stm32wb_rng_wr(NOXTLS_STM32WB_RNG_CR, want_cr);
+            if (want_cr != saved_cr) {
+                noxtls_stm32wb_rng_wr(NOXTLS_STM32WB_RNG_CR, want_cr);
+            }
             while ((off < len) && (rc == NOXTLS_RETURN_SUCCESS)) {
                 rc = noxtls_stm32wb_rng_word(&word);
                 if (rc == NOXTLS_RETURN_SUCCESS) {
@@ -248,7 +250,7 @@ noxtls_return_t noxtls_stm32wb_rng_fill(uint8_t *buf, uint32_t len)
                     s_noxtls_stm32wb_rng_health.words++;
                 }
             }
-            if ((saved_cr & NOXTLS_STM32WB_RNG_CR_RNGEN) == 0U) {
+            if (want_cr != saved_cr) {
                 noxtls_stm32wb_rng_wr(NOXTLS_STM32WB_RNG_CR, saved_cr);
             }
             noxtls_stm32wb_unlock(NOXTLS_STM32WB_RES_RNG);

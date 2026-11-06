@@ -13,8 +13,8 @@ Build-time version constants from `noxtls_version.h`.
 ```c
 #define NOXTLS_VERSION_MAJOR 0
 #define NOXTLS_VERSION_MINOR 3
-#define NOXTLS_VERSION_PATCH 17
-#define NOXTLS_VERSION_STRING "0.3.17"
+#define NOXTLS_VERSION_PATCH 18
+#define NOXTLS_VERSION_STRING "0.3.18"
 ```
 
 Use `NOXTLS_VERSION_STRING` for display and the numeric macros for compile-time checks.

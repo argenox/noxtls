@@ -11,9 +11,9 @@
 /* Format: MAJOR.MINOR.PATCH */
 #define NOXTLS_VERSION_MAJOR 0
 #define NOXTLS_VERSION_MINOR 3
-#define NOXTLS_VERSION_PATCH 17
+#define NOXTLS_VERSION_PATCH 18
 
 /* Version string (e.g., "0.1.0") */
-#define NOXTLS_VERSION_STRING "0.3.17"
+#define NOXTLS_VERSION_STRING "0.3.18"
 
 #endif /* NOXTLS_VERSION_H_ */

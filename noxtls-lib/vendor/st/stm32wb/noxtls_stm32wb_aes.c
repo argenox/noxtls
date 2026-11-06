@@ -321,6 +321,7 @@ static noxtls_return_t noxtls_stm32wb_aes_ctr(const uint8_t *iv, const uint8_t *
     uint8_t ctr[NOXTLS_STM32WB_AES_BLOCK];
     uint64_t to_wrap;
     uint64_t units;
+    uint32_t remaining;
     uint32_t chunk;
     uint32_t off = 0U;
 
@@ -328,11 +329,13 @@ static noxtls_return_t noxtls_stm32wb_aes_ctr(const uint8_t *iv, const uint8_t *
     while ((off < len) && (rc == NOXTLS_RETURN_SUCCESS)) {
         /* Blocks that can still be produced before the low 32 counter bits wrap. */
         to_wrap = NOXTLS_STM32WB_CTR_WRAP - (uint64_t)noxtls_stm32wb_be32(&ctr[NOXTLS_STM32WB_CTR_OFFSET]);
-        units = ((uint64_t)(len - off) + NOXTLS_STM32WB_AES_BLOCK - 1U) / NOXTLS_STM32WB_AES_BLOCK;
+        remaining = len - off;
+        units = remaining;
+        units = (units + NOXTLS_STM32WB_AES_BLOCK - 1U) / NOXTLS_STM32WB_AES_BLOCK;
         if (units > to_wrap) {
             units = to_wrap;
         }
-        chunk = len - off;
+        chunk = remaining;
         if (((uint64_t)chunk) > (units * NOXTLS_STM32WB_AES_BLOCK)) {
             chunk = (uint32_t)(units * NOXTLS_STM32WB_AES_BLOCK);
         }
