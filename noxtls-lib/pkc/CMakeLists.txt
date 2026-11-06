@@ -59,6 +59,14 @@ if(NOT ESP_PLATFORM AND (NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL OR NOXTLS_NRF54_CRACE
     endif()
 endif()
 
+# ESP32-S31 ECC / ECDSA engines: P-192/256/384 point multiply, ECDSA sign + verify ports.
+set(_noxtls_pkc_esp32s31 OFF)
+if(NOT ESP_PLATFORM AND NOXTLS_CFG_FEATURE_ESP32S31_HW_ACCEL AND NOXTLS_CFG_FEATURE_ECC)
+    include(${NOXTLS_LIB_ROOT}/vendor/espressif/esp32s31/noxtls_esp32s31_sources.cmake)
+    set(_noxtls_pkc_esp32s31 ON)
+    list(APPEND PKC_SOURCES ${NOXTLS_ESP32S31_PORT_ECC_SOURCES})
+endif()
+
 # Multiprecision backend shared by classic PKC primitives.
 # NOXTLS_CFG_ED25519_FIELD_MATH preserves legacy Ed25519-over-bignum builds.
 if(NOXTLS_CFG_FEATURE_BIGNUM OR NOXTLS_CFG_ED25519_FIELD_MATH)
@@ -100,6 +108,8 @@ if(NOXTLS_CFG_FEATURE_ECC)
         list(APPEND PKC_SOURCES ecc/noxtls_ecc_accel_nordic_cc31x.c)
     elseif(_noxtls_pkc_nrf54)
         # nRF54L CRACEN BA414EP port (added once below).
+    elseif(_noxtls_pkc_esp32s31)
+        # ESP32-S31 ECC engine port (added once above).
     else()
         if(NOXTLS_CFG_FEATURE_NOXV_HW_ACCEL AND NOXTLS_CFG_FEATURE_NOXV_P256_ACCEL)
             list(APPEND PKC_SOURCES ecc/noxtls_ecc_accel_noxv_port.c)
@@ -117,7 +127,7 @@ if(NOXTLS_CFG_FEATURE_ECDSA)
         else()
             list(APPEND PKC_SOURCES ecdsa/noxtls_ecdsa_accel_port.c)
         endif()
-    elseif(NOT _noxtls_pkc_nrf54)
+    elseif(NOT _noxtls_pkc_nrf54 AND NOT _noxtls_pkc_esp32s31)
         list(APPEND PKC_SOURCES ecdsa/noxtls_ecdsa_accel_port.c)
     endif()
 endif()
@@ -262,6 +272,9 @@ target_link_libraries(noxtls_pkc PRIVATE
 )
 if(_noxtls_pkc_nrf54_link)
     target_link_libraries(noxtls_pkc PUBLIC noxtls_nrf54)
+endif()
+if(_noxtls_pkc_esp32s31)
+    target_include_directories(noxtls_pkc PRIVATE ${NOXTLS_ESP32S31_DRIVER_INCLUDES})
 endif()
 if(NOT WIN32)
     target_link_libraries(noxtls_pkc PRIVATE m)

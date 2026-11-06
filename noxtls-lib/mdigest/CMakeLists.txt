@@ -28,6 +28,8 @@ if(NOXTLS_CFG_FEATURE_SHA224 OR NOXTLS_CFG_FEATURE_SHA256)
         endif()
     elseif(NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL)
         # nRF54L CRACEN: SHA-224/256 and SHA-384/512 block ports (added once below).
+    elseif(NOXTLS_CFG_FEATURE_ESP32S31_HW_ACCEL)
+        # ESP32-S31 SHA engine: SHA-256 and SHA-512 block ports (added once below).
     else()
         if(NOXTLS_CFG_FEATURE_NOXV_HW_ACCEL)
             list(APPEND NOXTLS_HASH_SOURCES sha256/noxtls_sha256_accel_noxv_port.c)
@@ -54,6 +56,12 @@ if(NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL AND NOT ESP_PLATFORM AND
     include(${NOXTLS_LIB_ROOT}/vendor/nordic/nrf54x/noxtls_nrf54_sources.cmake)
     list(APPEND NOXTLS_HASH_SOURCES ${NOXTLS_NRF54_PORT_HASH_SOURCES})
     set(_noxtls_hash_nrf54 ON)
+endif()
+if(NOXTLS_CFG_FEATURE_ESP32S31_HW_ACCEL AND NOT ESP_PLATFORM AND
+   (NOXTLS_CFG_FEATURE_SHA224 OR NOXTLS_CFG_FEATURE_SHA256 OR NOXTLS_CFG_FEATURE_SHA384 OR NOXTLS_CFG_FEATURE_SHA512))
+    include(${NOXTLS_LIB_ROOT}/vendor/espressif/esp32s31/noxtls_esp32s31_sources.cmake)
+    list(APPEND NOXTLS_HASH_SOURCES ${NOXTLS_ESP32S31_PORT_HASH_SOURCES})
+    set(_noxtls_hash_esp32s31 ON)
 endif()
 if(NOXTLS_CFG_FEATURE_SHA3)
     list(APPEND NOXTLS_HASH_SOURCES sha3/noxtls_sha3.c)
@@ -88,6 +96,9 @@ target_link_libraries(noxtls_hash
 )
 if(_noxtls_hash_nrf54)
     target_link_libraries(noxtls_hash noxtls_nrf54)
+endif()
+if(_noxtls_hash_esp32s31)
+    target_include_directories(noxtls_hash PRIVATE ${NOXTLS_ESP32S31_DRIVER_INCLUDES})
 endif()
 
 if(MSVC)
