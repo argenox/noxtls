@@ -127,7 +127,6 @@ typedef struct {
     uint8_t hdr[NOXTLS_EFR32_AES_HDR_BYTES];               /**< CCM B0 and AAD length encoding. */
     uint8_t tag[NOXTLS_EFR32_AES_BLOCK];                   /**< Engine tag output. */
     uint8_t rtag[NOXTLS_EFR32_AES_BLOCK];                  /**< Received tag fed to a CCM decryption. */
-    uint8_t dummy[NOXTLS_EFR32_AES_BLOCK];                 /**< Fully invalid payload block of an empty CCM payload. */
     uint8_t bin[NOXTLS_EFR32_CONFIG_BOUNCE_SIZE];          /**< Input bounce / CTR counter blocks. */
     uint8_t bout[NOXTLS_EFR32_CONFIG_BOUNCE_SIZE];         /**< Output bounce / CTR keystream. */
     uint8_t baad[NOXTLS_EFR32_CONFIG_BOUNCE_SIZE];         /**< AAD bounce. */
@@ -794,18 +793,18 @@ static uint8_t noxtls_efr32_ccm_params_ok(uint32_t nonce_len, uint32_t len, uint
  * @brief Format B0 and the AAD length encoding (SP 800-38C §A.2.1, §A.2.2).
  * @internal
  *
- * @param[in] nonce     Nonce.
- * @param[in] nonce_len Nonce bytes.
- * @param[in] aad_len   AAD bytes.
- * @param[in] len       Payload bytes.
- * @param[in] tag_len   Tag bytes.
+ * @param[out] hdr       NOXTLS_EFR32_AES_HDR_BYTES destination.
+ * @param[in]  nonce     Nonce.
+ * @param[in]  nonce_len Nonce bytes.
+ * @param[in]  aad_len   AAD bytes.
+ * @param[in]  len       Payload bytes.
+ * @param[in]  tag_len   Tag bytes.
  *
  * @return Header bytes written (B0 plus the AAD length encoding).
  */
-static uint32_t noxtls_efr32_ccm_header(const uint8_t *nonce, uint32_t nonce_len, uint32_t aad_len, uint32_t len,
-                                        uint32_t tag_len)
+static uint32_t noxtls_efr32_ccm_header(uint8_t *hdr, const uint8_t *nonce, uint32_t nonce_len, uint32_t aad_len,
+                                        uint32_t len, uint32_t tag_len)
 {
-    uint8_t *hdr = s_noxtls_efr32_aes.hdr;
     uint32_t q = NOXTLS_EFR32_CCM_NQ - nonce_len;
     uint32_t n = NOXTLS_EFR32_AES_BLOCK;
     uint32_t flags = (((tag_len - 2U) / 2U) << NOXTLS_EFR32_CCM_FLAG_T_POS) | (q - 1U);
@@ -917,7 +916,7 @@ static void noxtls_efr32_ccm_build(noxtls_efr32_ccm_chain_t *ch, uint8_t decrypt
 {
     noxtls_efr32_aes_t *st = &s_noxtls_efr32_aes;
     uint32_t hdr_pad = noxtls_efr32_ccm_pad(hdr_len + aad_len);
-    uint32_t data_pad = (len != 0U) ? noxtls_efr32_ccm_pad(len) : NOXTLS_EFR32_AES_BLOCK;
+    uint32_t data_pad = noxtls_efr32_ccm_pad(len);
     uint8_t last_data = ((decrypt == 0U) || (tag_len == 0U)) ? 1U : 0U;
     uint32_t data_tag = NOXTLS_EFR32_AES_TAG_DATA | ((last_data != 0U) ? NOXTLS_EFR32_TAG_LAST : 0U) |
                         (data_pad << NOXTLS_EFR32_TAG_INVALID_POS);
@@ -928,7 +927,7 @@ static void noxtls_efr32_ccm_build(noxtls_efr32_ccm_chain_t *ch, uint8_t decrypt
     if (aad_len != 0U) {
         noxtls_efr32_ccm_fetch(ch, ch->aad, aad_len, NOXTLS_EFR32_AES_TAG_HDR | (hdr_pad << NOXTLS_EFR32_TAG_INVALID_POS), 1U);
     }
-    noxtls_efr32_ccm_fetch(ch, (len != 0U) ? ch->in : st->dummy, (len != 0U) ? len : NOXTLS_EFR32_AES_BLOCK, data_tag, 1U);
+    noxtls_efr32_ccm_fetch(ch, ch->in, len, data_tag, 1U);
     if (last_data == 0U) {
         (void)memcpy(st->rtag, tag, tag_len);
         noxtls_efr32_ccm_fetch(ch, st->rtag, tag_len, NOXTLS_EFR32_AES_TAG_DATA | NOXTLS_EFR32_TAG_LAST |
@@ -936,12 +935,111 @@ static void noxtls_efr32_ccm_build(noxtls_efr32_ccm_chain_t *ch, uint8_t decrypt
     }
     /* Push: header and padding are returned and discarded. */
     noxtls_efr32_ccm_push(ch, NULL, hdr_len + aad_len + hdr_pad);
-    if (len != 0U) {
-        noxtls_efr32_ccm_push(ch, ch->out, len);
-    }
+    noxtls_efr32_ccm_push(ch, ch->out, len);
     if (data_pad != 0U) {
         noxtls_efr32_ccm_push(ch, NULL, data_pad);
     }
+}
+
+/**
+ * @brief Byte @p pos of the stream "AAD length encoding | AAD | zero padding".
+ * @internal
+ *
+ * @param[in] enc     Encoded AAD length bytes.
+ * @param[in] enc_len Bytes of @p enc.
+ * @param[in] aad     AAD.
+ * @param[in] aad_len AAD bytes.
+ * @param[in] pos     Stream position.
+ *
+ * @return The byte, or 0 in the padding.
+ */
+static uint8_t noxtls_efr32_ccm_stream_byte(const uint8_t *enc, uint32_t enc_len, const uint8_t *aad, uint32_t aad_len,
+                                            uint32_t pos)
+{
+    uint8_t b = 0U;
+
+    if (pos < enc_len) {
+        b = enc[pos];
+    } else if ((pos - enc_len) < aad_len) {
+        b = aad[pos - enc_len];
+    } else {
+        /* Padding. */
+    }
+    return b;
+}
+
+/**
+ * @brief CCM with an empty payload from CBC-MAC and one ECB block.
+ * @internal
+ *
+ * The engine's empty-payload chain (one fully invalid payload block) is the
+ * only CCM shape that did not reproduce the NIST / PyCryptodome MIC on silicon
+ * (EFR32MG26 bench, nox-driver-lib RADIOAES), while every other length did. With no payload the tag is
+ * T xor E(A0) where T is the CBC-MAC of B0 | AAD encoding | AAD | padding,
+ * so it is built from the already validated CBC and ECB services. Runs outside
+ * the engine lock; each service takes it for its own call.
+ *
+ * @param[in]     decrypt   Non-zero to verify.
+ * @param[in]     key       Key.
+ * @param[in]     key_len   16, 24 or 32.
+ * @param[in]     nonce     Nonce.
+ * @param[in]     nonce_len 7..13.
+ * @param[in]     aad       AAD.
+ * @param[in]     aad_len   AAD bytes.
+ * @param[in,out] tag       Encrypt: receives the tag. Decrypt: the received tag.
+ * @param[in]     tag_len   Tag bytes.
+ *
+ * @return See noxtls_efr32_aes_ccm().
+ */
+static noxtls_return_t noxtls_efr32_ccm_empty(uint8_t decrypt, const uint8_t *key, uint32_t key_len, const uint8_t *nonce,
+                                              uint32_t nonce_len, const uint8_t *aad, uint32_t aad_len, uint8_t *tag,
+                                              uint32_t tag_len)
+{
+    uint8_t hdr[NOXTLS_EFR32_AES_HDR_BYTES];
+    uint8_t mac[NOXTLS_EFR32_AES_BLOCK] = {0};
+    uint8_t blk[NOXTLS_EFR32_AES_BLOCK];
+    uint8_t sink[NOXTLS_EFR32_AES_BLOCK];
+    uint8_t s0[NOXTLS_EFR32_AES_BLOCK];
+    uint32_t hdr_len = noxtls_efr32_ccm_header(hdr, nonce, nonce_len, aad_len, 0U, tag_len);
+    uint32_t enc_len = hdr_len - NOXTLS_EFR32_AES_BLOCK;
+    uint32_t total = enc_len + aad_len;
+    uint32_t pos = 0U;
+    uint32_t i;
+    uint32_t q = NOXTLS_EFR32_CCM_NQ - nonce_len;
+    uint8_t diff = 0U;
+    noxtls_return_t rc = noxtls_efr32_aes_crypt(NOXTLS_EFR32_AES_CBC, 0U, key, key_len, mac, hdr, sink, NOXTLS_EFR32_AES_BLOCK);
+
+    while ((rc == NOXTLS_RETURN_SUCCESS) && (pos < total)) {
+        for (i = 0U; i < NOXTLS_EFR32_AES_BLOCK; i++) {
+            blk[i] = noxtls_efr32_ccm_stream_byte(&hdr[NOXTLS_EFR32_AES_BLOCK], enc_len, aad, aad_len, pos + i);
+        }
+        rc = noxtls_efr32_aes_crypt(NOXTLS_EFR32_AES_CBC, 0U, key, key_len, mac, blk, sink, NOXTLS_EFR32_AES_BLOCK);
+        pos += NOXTLS_EFR32_AES_BLOCK;
+    }
+    if (rc == NOXTLS_RETURN_SUCCESS) {
+        /* A0: flags = q - 1, nonce, counter 0. */
+        (void)memset(blk, 0, sizeof(blk));
+        blk[0] = (uint8_t)(q - 1U);
+        (void)memcpy(&blk[1], nonce, nonce_len);
+        rc = noxtls_efr32_aes_crypt(NOXTLS_EFR32_AES_ECB, 0U, key, key_len, NULL, blk, s0, NOXTLS_EFR32_AES_BLOCK);
+    }
+    if (rc == NOXTLS_RETURN_SUCCESS) {
+        for (i = 0U; i < tag_len; i++) {
+            uint8_t t = (uint8_t)(mac[i] ^ s0[i]);
+
+            if (decrypt == 0U) {
+                tag[i] = t;
+            } else {
+                diff |= (uint8_t)(t ^ tag[i]);
+            }
+        }
+        if (diff != 0U) {
+            rc = NOXTLS_RETURN_BAD_DATA;
+        }
+    }
+    noxtls_efr32_wipe(mac, (uint32_t)sizeof(mac));
+    noxtls_efr32_wipe(s0, (uint32_t)sizeof(s0));
+    return rc;
 }
 
 noxtls_return_t noxtls_efr32_aes_ccm(uint8_t decrypt, const uint8_t *key, uint32_t key_len, const uint8_t *nonce,
@@ -951,6 +1049,7 @@ noxtls_return_t noxtls_efr32_aes_ccm(uint8_t decrypt, const uint8_t *key, uint32
     noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
     uint32_t cfg_key = 0U;
     uint32_t cap = noxtls_efr32_aes_key_cap(key_len, &cfg_key);
+    uint8_t empty = 0U;
 
     if ((key == NULL) || (nonce == NULL) || (tag == NULL) || ((aad == NULL) && (aad_len != 0U)) ||
         (((in == NULL) || (out == NULL)) && (len != 0U))) {
@@ -962,10 +1061,18 @@ noxtls_return_t noxtls_efr32_aes_ccm(uint8_t decrypt, const uint8_t *key, uint32
     } else if ((len > (uint32_t)NOXTLS_EFR32_CONFIG_AES_MAX_REQUEST) ||
                (aad_len > (uint32_t)NOXTLS_EFR32_CONFIG_AES_MAX_REQUEST)) {
         rc = NOXTLS_RETURN_NOT_SUPPORTED;
+    } else if (len == 0U) {
+        /* Authentication only: composed from CBC-MAC and ECB (see noxtls_efr32_ccm_empty()). */
+        empty = 1U;
+        if ((s_noxtls_efr32_aes_off & (UINT32_C(1) << NOXTLS_EFR32_AES_MODE_CCM)) != 0U) {
+            rc = NOXTLS_RETURN_NOT_SUPPORTED;
+        } else {
+            rc = noxtls_efr32_ccm_empty(decrypt, key, key_len, nonce, nonce_len, aad, aad_len, tag, tag_len);
+        }
     } else {
         rc = noxtls_efr32_aes_begin();
     }
-    if (rc == NOXTLS_RETURN_SUCCESS) {
+    if ((rc == NOXTLS_RETURN_SUCCESS) && (empty == 0U)) {
         noxtls_efr32_aes_t *st = &s_noxtls_efr32_aes;
         const noxtls_efr32_aes_caps_t *caps = &s_noxtls_efr32_aes_caps;
         noxtls_efr32_ccm_chain_t ch;
@@ -979,21 +1086,20 @@ noxtls_return_t noxtls_efr32_aes_ccm(uint8_t decrypt, const uint8_t *key, uint32
             ((s_noxtls_efr32_aes_off & (UINT32_C(1) << NOXTLS_EFR32_AES_MODE_CCM)) != 0U)) {
             rc = NOXTLS_RETURN_NOT_SUPPORTED;
         } else if (((aad_len != 0U) && (noxtls_efr32_ccm_source(aad, aad_len, st->baad, &ch.aad) == 0U)) ||
-                   ((len != 0U) && (noxtls_efr32_ccm_source(in, len, st->bin, &ch.in) == 0U)) ||
-                   ((len != 0U) && (noxtls_efr32_dma_out_ok(out, len) == 0U) &&
+                   (noxtls_efr32_ccm_source(in, len, st->bin, &ch.in) == 0U) ||
+                   ((noxtls_efr32_dma_out_ok(out, len) == 0U) &&
                     (len > (uint32_t)NOXTLS_EFR32_CONFIG_BOUNCE_SIZE))) {
             rc = NOXTLS_RETURN_NOT_SUPPORTED;
         } else {
             uint32_t i;
             uint8_t diff = 0U;
 
-            if ((len != 0U) && (noxtls_efr32_dma_out_ok(out, len) == 0U)) {
+            if (noxtls_efr32_dma_out_ok(out, len) == 0U) {
                 ch.out = st->bout;
                 ch.out_bounced = 1U;
             }
-            hdr_len = noxtls_efr32_ccm_header(nonce, nonce_len, aad_len, len, tag_len);
+            hdr_len = noxtls_efr32_ccm_header(st->hdr, nonce, nonce_len, aad_len, len, tag_len);
             (void)memcpy(st->key, key, key_len);
-            (void)memset(st->dummy, 0, sizeof(st->dummy));
             st->cfg = (UINT32_C(1) << (NOXTLS_EFR32_AES_CFG_MODE_POS + NOXTLS_EFR32_AES_MODE_CCM)) | cfg_key |
                       ((decrypt != 0U) ? NOXTLS_EFR32_AES_CFG_DECRYPT : 0U);
             noxtls_efr32_desc_set(&st->fetch[0], &st->cfg, NOXTLS_EFR32_AES_CFG_BYTES | NOXTLS_EFR32_DESC_REALIGN,
