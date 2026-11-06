@@ -68,17 +68,23 @@ compressed certificate stored in slot 8 as in Microchip's Trust&GO flow).
 * **Static memory configuration.** The binding table is static storage (no allocation); the provider structures are
   caller owned.
 
-## Core changes (all guarded by `NOXTLS_FEATURE_ATECC608`)
+## Core changes (guarded by `NOXTLS_FEATURE_ATECC608`, except the provider header)
 
 | File | Change |
 |---|---|
-| `common/noxtls_crypto_provider.h` | `NOXTLS_CRYPTO_HASH_PREHASHED`, optional `ecdh_keygen` / `ecdh_shared` operations appended to the ops table |
+| `common/noxtls_crypto_provider.h` | **unguarded**: `NOXTLS_CRYPTO_HASH_PREHASHED`, optional `ecdh_keygen` / `ecdh_shared` operations appended to the ops table (see below) |
 | `pkc/ecc/noxtls_ecc_opaque.[ch]` (new) | binding table: key address -> provider + handle |
 | `pkc/ecdsa/noxtls_ecdsa.c` | `ecdsa_sign_core()` delegates bound keys to the provider |
 | `pkc/ecdh/noxtls_ecdh.c` | `noxtls_ecdh_compute_shared_secret_ex()` delegates bound keys to the provider |
 | `pkc/ecc/noxtls_ecc.c` | `noxtls_ecc_key_free()` removes a binding |
 | `tls/noxtls_tls_key_exchange.c` | ephemeral key generation asks the ECDHE provider first (P-256 only) |
 | `common/noxtls_accel_port.h` | `NOXTLS_PORT_ENTROPY_ACCEL` also true for `NOXTLS_FEATURE_ATECC608_ENTROPY` |
+
+The provider header is deliberately not conditional: a struct whose layout depends on a feature option would make the
+same header describe two different tables in two translation units. The new fields are appended, so a provider that uses
+designated or zero initialisers (unset fields are NULL, which keeps the software path) compiles and behaves unchanged. A
+provider built separately against the old header must be rebuilt, because NoxTLS now reads two more pointers from the
+table. No provider other than the ATECC608 one exists in the NoxADK tree.
 
 ## Tests
 
