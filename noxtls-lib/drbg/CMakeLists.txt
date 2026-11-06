@@ -8,6 +8,11 @@ if(NOXTLS_CFG_FEATURE_NRF54_HW_ACCEL)
     include(${NOXTLS_LIB_ROOT}/vendor/nordic/nrf54x/noxtls_nrf54_sources.cmake)
     list(APPEND NOXTLS_DRBG_SOURCES ${NOXTLS_NRF54_PORT_DRBG_SOURCES})
 endif()
+if(NOXTLS_CFG_FEATURE_ATECC608_ENTROPY)
+    # ATECC608B/C RNG as the NOXTLS_ENTROPY_SOURCE_AUTO hardware entropy source.
+    include(${NOXTLS_LIB_ROOT}/vendor/microchip/atecc608/noxtls_atecc608_sources.cmake)
+    list(APPEND NOXTLS_DRBG_SOURCES ${NOXTLS_ATECC608_PORT_DRBG_SOURCES})
+endif()
 add_library(noxtls_drbg STATIC
     ${NOXTLS_DRBG_SOURCES}
     noxtls_drbg_api_refs.c
@@ -19,6 +24,9 @@ if(MSVC)
     target_compile_options(noxtls_drbg PRIVATE /wd5045)
 endif()
 
+if(NOXTLS_CFG_FEATURE_ATECC608_ENTROPY)
+    target_include_directories(noxtls_drbg PRIVATE ${NOXTLS_LIB_ROOT}/vendor/microchip/atecc608)
+endif()
 target_include_directories(noxtls_drbg PUBLIC
     ${NOXTLS_LIB_ROOT}
     ${NOXTLS_LIB_ROOT}/drbg

@@ -1385,6 +1385,25 @@
 #define NOXTLS_FEATURE_NRF54_HW_ACCEL 0
 #endif
 
+/* Enables the Microchip ATECC608B/ATECC608C secure element provider: ECDSA P-256 signing with keys that never leave
+ * the chip (TLS client and server authentication) and TLS ECDHE with chip-generated ephemeral keys, through the
+ * crypto provider interface (noxtls-lib/vendor/microchip/atecc608). Software remains the default path.
+ * Prereq: NOXTLS_FEATURE_ECC=1, NOXTLS_FEATURE_ECDSA=1, NOXTLS_FEATURE_ECDH=1.
+ * Build knob: NOXTLS_CFG_FEATURE_ATECC608.
+ */
+#ifndef NOXTLS_FEATURE_ATECC608
+#define NOXTLS_FEATURE_ATECC608 0
+#endif
+
+/* Uses the ATECC608 random number generator as DRBG entropy input (noxtls_drbg_entropy_accel_port); the CTR-DRBG
+ * stays on top. Exclusive with the nRF54 entropy port.
+ * Prereq: NOXTLS_FEATURE_ATECC608=1.
+ * Build knob: NOXTLS_CFG_FEATURE_ATECC608_ENTROPY.
+ */
+#ifndef NOXTLS_FEATURE_ATECC608_ENTROPY
+#define NOXTLS_FEATURE_ATECC608_ENTROPY 0
+#endif
+
 /* Enables ARIA cipher family.
  * Prereq: NOXTLS_FEATURE_ENCRYPTION=1.
  */

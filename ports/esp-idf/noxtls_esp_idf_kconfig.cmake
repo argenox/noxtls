@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-24T20:55:02Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-11-06T05:00:01Z)
 
 if(NOT CONFIG_NOXTLS)
   return()
@@ -123,6 +123,12 @@ else()
   target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_CFG_TLS13_PREFER_SECP256R1_OVER_X25519=0)
 endif()
 
+if(CONFIG_NOXTLS_CONFIG_STATIC_MEMORY)
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_CONFIG_STATIC_MEMORY=1)
+else()
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_CONFIG_STATIC_MEMORY=0)
+endif()
+
 if(CONFIG_NOXTLS_ECC_ENABLE_BP256R1)
   target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_ECC_ENABLE_BP256R1=1)
 else()
@@ -229,6 +235,18 @@ if(CONFIG_NOXTLS_ECDSA_SIGN_SELF_VERIFY)
   target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_ECDSA_SIGN_SELF_VERIFY=1)
 else()
   target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_ECDSA_SIGN_SELF_VERIFY=0)
+endif()
+
+if(CONFIG_NOXTLS_FEATURE_ATECC608)
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_FEATURE_ATECC608=1)
+else()
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_FEATURE_ATECC608=0)
+endif()
+
+if(CONFIG_NOXTLS_FEATURE_ATECC608_ENTROPY)
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_FEATURE_ATECC608_ENTROPY=1)
+else()
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_FEATURE_ATECC608_ENTROPY=0)
 endif()
 
 if(CONFIG_NOXTLS_FEATURE_FALCON)
