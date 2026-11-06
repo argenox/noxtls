@@ -76,6 +76,12 @@ static void speed_print_stats(void)
     noxtls_speed_putdec(st->se_errors, 0U);
     noxtls_speed_puts(" se_timeouts=");
     noxtls_speed_putdec(st->se_timeouts, 0U);
+    noxtls_speed_puts(" se_rejects=");
+    noxtls_speed_putdec(st->se_rejects, 0U);
+    noxtls_speed_puts(" se_last_cmd=0x");
+    noxtls_speed_puthex(st->se_last_cmd);
+    noxtls_speed_puts(" se_last_resp=0x");
+    noxtls_speed_puthex(st->se_last_resp);
     noxtls_speed_puts("\r\n");
 }
 

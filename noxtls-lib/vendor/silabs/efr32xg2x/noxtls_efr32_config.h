@@ -171,7 +171,7 @@
 
 /** @brief Fewest SHA blocks of one hook call that are worth a mailbox round trip. */
 #ifndef NOXTLS_EFR32_CONFIG_SE_HASH_MIN_BLOCKS
-#define NOXTLS_EFR32_CONFIG_SE_HASH_MIN_BLOCKS 2U
+#define NOXTLS_EFR32_CONFIG_SE_HASH_MIN_BLOCKS 6U
 #endif
 
 /** @brief Most bytes of one Secure Engine hash command (multiple of 128). */

@@ -81,6 +81,8 @@
 #define NOXTLS_EFR32_CCM_Q_FULL         4U
 /** @brief AAD lengths below this use the 2-byte encoding (SP 800-38C §A.2.2). */
 #define NOXTLS_EFR32_CCM_ALEN_SHORT_MAX 0xFF00U
+/** @brief Bytes of one batch of the empty-payload CCM CBC-MAC (whole blocks; holds B0 and a short AAD in one job). */
+#define NOXTLS_EFR32_CCM_EMPTY_BATCH    (4U * NOXTLS_EFR32_AES_BLOCK)
 /** @brief Bytes of the short AAD length encoding. */
 #define NOXTLS_EFR32_CCM_ALEN_SHORT     2U
 /** @brief First marker byte of the 32-bit AAD length encoding. */
@@ -130,6 +132,9 @@ typedef struct {
     uint8_t bin[NOXTLS_EFR32_CONFIG_BOUNCE_SIZE];          /**< Input bounce / CTR counter blocks. */
     uint8_t bout[NOXTLS_EFR32_CONFIG_BOUNCE_SIZE];         /**< Output bounce / CTR keystream. */
     uint8_t baad[NOXTLS_EFR32_CONFIG_BOUNCE_SIZE];         /**< AAD bounce. */
+    uint32_t used_bin;                                     /**< Bytes of bin written since the last wipe. */
+    uint32_t used_bout;                                    /**< Bytes of bout written (by the CPU or the pusher) since the last wipe. */
+    uint32_t used_baad;                                    /**< Bytes of baad written since the last wipe. */
 } noxtls_efr32_aes_t;
 
 /** Module state. */
@@ -224,9 +229,13 @@ static void noxtls_efr32_aes_end(void)
     noxtls_efr32_wipe(st->hdr, (uint32_t)sizeof(st->hdr));
     noxtls_efr32_wipe(st->tag, (uint32_t)sizeof(st->tag));
     noxtls_efr32_wipe(st->rtag, (uint32_t)sizeof(st->rtag));
-    noxtls_efr32_wipe(st->bin, (uint32_t)sizeof(st->bin));
-    noxtls_efr32_wipe(st->bout, (uint32_t)sizeof(st->bout));
-    noxtls_efr32_wipe(st->baad, (uint32_t)sizeof(st->baad));
+    /* Only the bounce bytes a request touched can hold data: most requests use none, so this wipe is short. */
+    noxtls_efr32_wipe(st->bin, st->used_bin);
+    noxtls_efr32_wipe(st->bout, st->used_bout);
+    noxtls_efr32_wipe(st->baad, st->used_baad);
+    st->used_bin = 0U;
+    st->used_bout = 0U;
+    st->used_baad = 0U;
     noxtls_efr32_aes_release();
 }
 
@@ -257,6 +266,20 @@ static uint32_t noxtls_efr32_aes_key_cap(uint32_t key_len, uint32_t *cfg_key)
         /* Invalid size. */
     }
     return cap;
+}
+
+/**
+ * @brief Record that the first @p n bytes of a bounce buffer hold data to wipe.
+ * @internal
+ *
+ * @param[in,out] used High-water mark of the buffer.
+ * @param[in]     n    Bytes written.
+ */
+static void noxtls_efr32_aes_mark(uint32_t *used, uint32_t n)
+{
+    if (n > *used) {
+        *used = n;
+    }
 }
 
 /**
@@ -503,8 +526,12 @@ static noxtls_return_t noxtls_efr32_aes_native(noxtls_efr32_aes_req_t *req, cons
             n = (uint32_t)NOXTLS_EFR32_CONFIG_BOUNCE_SIZE;
         }
         if (bounce_in != 0U) {
+            noxtls_efr32_aes_mark(&st->used_bin, n);
             (void)memcpy(st->bin, src, n);
             src = st->bin;
+        }
+        if (bounce_out != 0U) {
+            noxtls_efr32_aes_mark(&st->used_bout, n);
         }
         /* CBC decrypt: the next chaining value is the last input block (saved before an in-place job). */
         (void)memcpy(next_iv, &src[n - NOXTLS_EFR32_AES_BLOCK], NOXTLS_EFR32_AES_BLOCK);
@@ -558,6 +585,8 @@ static noxtls_return_t noxtls_efr32_aes_cbc_composed(noxtls_efr32_aes_req_t *req
                          (uint32_t)NOXTLS_EFR32_CONFIG_BOUNCE_SIZE : (len - off);
             uint8_t last[NOXTLS_EFR32_AES_BLOCK];
 
+            noxtls_efr32_aes_mark(&st->used_bin, n);
+            noxtls_efr32_aes_mark(&st->used_bout, n);
             (void)memcpy(st->bin, &in[off], n);
             (void)memcpy(last, &in[(off + n) - NOXTLS_EFR32_AES_BLOCK], sizeof(last));
             rc = noxtls_efr32_aes_job(req, NOXTLS_EFR32_AES_MODE_ECB, 1U, 0U, st->bin, st->bout, n);
@@ -571,6 +600,8 @@ static noxtls_return_t noxtls_efr32_aes_cbc_composed(noxtls_efr32_aes_req_t *req
             }
             off += n;
         } else {
+            noxtls_efr32_aes_mark(&st->used_bin, NOXTLS_EFR32_AES_BLOCK);
+            noxtls_efr32_aes_mark(&st->used_bout, NOXTLS_EFR32_AES_BLOCK);
             for (i = 0U; i < NOXTLS_EFR32_AES_BLOCK; i++) {
                 st->bin[i] = (uint8_t)(in[off + i] ^ req->chain[i]);
             }
@@ -609,6 +640,8 @@ static noxtls_return_t noxtls_efr32_aes_ctr_keystream(noxtls_efr32_aes_req_t *re
         uint32_t blocks = (n + NOXTLS_EFR32_AES_BLOCK_MSK) / NOXTLS_EFR32_AES_BLOCK;
         uint32_t i;
 
+        noxtls_efr32_aes_mark(&st->used_bin, blocks * NOXTLS_EFR32_AES_BLOCK);
+        noxtls_efr32_aes_mark(&st->used_bout, blocks * NOXTLS_EFR32_AES_BLOCK);
         for (i = 0U; i < blocks; i++) {
             (void)memcpy(&st->bin[i * NOXTLS_EFR32_AES_BLOCK], req->chain, NOXTLS_EFR32_AES_BLOCK);
             noxtls_efr32_aes_ctr_add(req->chain, 1U);
@@ -673,6 +706,8 @@ static noxtls_return_t noxtls_efr32_aes_execute(noxtls_efr32_aes_req_t *req, uin
                 /* Native CTR partial last block: one zero-padded block through the bounce buffers. */
                 noxtls_efr32_aes_t *st = &s_noxtls_efr32_aes;
 
+                noxtls_efr32_aes_mark(&st->used_bin, NOXTLS_EFR32_AES_BLOCK);
+                noxtls_efr32_aes_mark(&st->used_bout, NOXTLS_EFR32_AES_BLOCK);
                 (void)memset(st->bin, 0, NOXTLS_EFR32_AES_BLOCK);
                 (void)memcpy(st->bin, &in[full], len - full);
                 (void)memcpy(st->iv, req->chain, NOXTLS_EFR32_AES_BLOCK);
@@ -837,17 +872,20 @@ static uint32_t noxtls_efr32_ccm_header(uint8_t *hdr, const uint8_t *nonce, uint
  * @param[in]  src    Caller data.
  * @param[in]  len    Bytes.
  * @param[in]  bounce Bounce buffer (NOXTLS_EFR32_CONFIG_BOUNCE_SIZE bytes).
+ * @param[in,out] used High-water mark of @p bounce (for the end-of-request wipe).
  * @param[out] dma    Receives the address the DMA reads.
  *
  * @return 1 on success, 0 when the data is unreachable and too long to bounce.
  */
-static uint8_t noxtls_efr32_ccm_source(const uint8_t *src, uint32_t len, uint8_t *bounce, const uint8_t **dma)
+static uint8_t noxtls_efr32_ccm_source(const uint8_t *src, uint32_t len, uint8_t *bounce, uint32_t *used,
+                                       const uint8_t **dma)
 {
     uint8_t ok = 1U;
 
     if (noxtls_efr32_dma_in_ok(src, len) != 0U) {
         *dma = src;
     } else if (len <= (uint32_t)NOXTLS_EFR32_CONFIG_BOUNCE_SIZE) {
+        noxtls_efr32_aes_mark(used, len);
         (void)memcpy(bounce, src, len);
         *dma = bounce;
     } else {
@@ -997,31 +1035,40 @@ static noxtls_return_t noxtls_efr32_ccm_empty(uint8_t decrypt, const uint8_t *ke
 {
     uint8_t hdr[NOXTLS_EFR32_AES_HDR_BYTES];
     uint8_t mac[NOXTLS_EFR32_AES_BLOCK] = {0};
-    uint8_t blk[NOXTLS_EFR32_AES_BLOCK];
-    uint8_t sink[NOXTLS_EFR32_AES_BLOCK];
+    uint8_t strm[NOXTLS_EFR32_CCM_EMPTY_BATCH];
+    uint8_t sink[NOXTLS_EFR32_CCM_EMPTY_BATCH];
     uint8_t s0[NOXTLS_EFR32_AES_BLOCK];
     uint32_t hdr_len = noxtls_efr32_ccm_header(hdr, nonce, nonce_len, aad_len, 0U, tag_len);
     uint32_t enc_len = hdr_len - NOXTLS_EFR32_AES_BLOCK;
-    uint32_t total = enc_len + aad_len;
-    uint32_t pos = 0U;
+    /* B0, then the AAD length encoding and the AAD, zero padded to whole blocks. */
+    uint32_t total = NOXTLS_EFR32_AES_BLOCK + enc_len + aad_len;
+    uint32_t total_padded = total + noxtls_efr32_ccm_pad(total);
+    uint32_t off = 0U;
     uint32_t i;
     uint32_t q = NOXTLS_EFR32_CCM_NQ - nonce_len;
     uint8_t diff = 0U;
-    noxtls_return_t rc = noxtls_efr32_aes_crypt(NOXTLS_EFR32_AES_CBC, 0U, key, key_len, mac, hdr, sink, NOXTLS_EFR32_AES_BLOCK);
+    noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
 
-    while ((rc == NOXTLS_RETURN_SUCCESS) && (pos < total)) {
-        for (i = 0U; i < NOXTLS_EFR32_AES_BLOCK; i++) {
-            blk[i] = noxtls_efr32_ccm_stream_byte(&hdr[NOXTLS_EFR32_AES_BLOCK], enc_len, aad, aad_len, pos + i);
+    /* CBC-MAC: one CBC job per batch of blocks; the IV chains the MAC between batches. */
+    while ((rc == NOXTLS_RETURN_SUCCESS) && (off < total_padded)) {
+        uint32_t n = ((total_padded - off) > (uint32_t)sizeof(strm)) ? (uint32_t)sizeof(strm) : (total_padded - off);
+
+        for (i = 0U; i < n; i++) {
+            uint32_t pos = off + i;
+
+            strm[i] = (pos < NOXTLS_EFR32_AES_BLOCK) ? hdr[pos] :
+                      noxtls_efr32_ccm_stream_byte(&hdr[NOXTLS_EFR32_AES_BLOCK], enc_len, aad, aad_len,
+                                                   pos - NOXTLS_EFR32_AES_BLOCK);
         }
-        rc = noxtls_efr32_aes_crypt(NOXTLS_EFR32_AES_CBC, 0U, key, key_len, mac, blk, sink, NOXTLS_EFR32_AES_BLOCK);
-        pos += NOXTLS_EFR32_AES_BLOCK;
+        rc = noxtls_efr32_aes_crypt(NOXTLS_EFR32_AES_CBC, 0U, key, key_len, mac, strm, sink, n);
+        off += n;
     }
     if (rc == NOXTLS_RETURN_SUCCESS) {
         /* A0: flags = q - 1, nonce, counter 0. */
-        (void)memset(blk, 0, sizeof(blk));
-        blk[0] = (uint8_t)(q - 1U);
-        (void)memcpy(&blk[1], nonce, nonce_len);
-        rc = noxtls_efr32_aes_crypt(NOXTLS_EFR32_AES_ECB, 0U, key, key_len, NULL, blk, s0, NOXTLS_EFR32_AES_BLOCK);
+        (void)memset(s0, 0, sizeof(s0));
+        s0[0] = (uint8_t)(q - 1U);
+        (void)memcpy(&s0[1], nonce, nonce_len);
+        rc = noxtls_efr32_aes_crypt(NOXTLS_EFR32_AES_ECB, 0U, key, key_len, NULL, s0, s0, NOXTLS_EFR32_AES_BLOCK);
     }
     if (rc == NOXTLS_RETURN_SUCCESS) {
         for (i = 0U; i < tag_len; i++) {
@@ -1039,6 +1086,8 @@ static noxtls_return_t noxtls_efr32_ccm_empty(uint8_t decrypt, const uint8_t *ke
     }
     noxtls_efr32_wipe(mac, (uint32_t)sizeof(mac));
     noxtls_efr32_wipe(s0, (uint32_t)sizeof(s0));
+    noxtls_efr32_wipe(strm, (uint32_t)sizeof(strm));
+    noxtls_efr32_wipe(sink, (uint32_t)sizeof(sink));
     return rc;
 }
 
@@ -1082,11 +1131,12 @@ noxtls_return_t noxtls_efr32_aes_ccm(uint8_t decrypt, const uint8_t *key, uint32
         ch.aad = aad;
         ch.in = in;
         ch.out = out;
+        /* A source that is not DMA-reachable is bounced; its bytes are wiped when the request ends. */
         if (((caps->keys & cap) == 0U) || ((caps->modes & (UINT32_C(1) << NOXTLS_EFR32_AES_MODE_CCM)) == 0U) ||
             ((s_noxtls_efr32_aes_off & (UINT32_C(1) << NOXTLS_EFR32_AES_MODE_CCM)) != 0U)) {
             rc = NOXTLS_RETURN_NOT_SUPPORTED;
-        } else if (((aad_len != 0U) && (noxtls_efr32_ccm_source(aad, aad_len, st->baad, &ch.aad) == 0U)) ||
-                   (noxtls_efr32_ccm_source(in, len, st->bin, &ch.in) == 0U) ||
+        } else if (((aad_len != 0U) && (noxtls_efr32_ccm_source(aad, aad_len, st->baad, &st->used_baad, &ch.aad) == 0U)) ||
+                   (noxtls_efr32_ccm_source(in, len, st->bin, &st->used_bin, &ch.in) == 0U) ||
                    ((noxtls_efr32_dma_out_ok(out, len) == 0U) &&
                     (len > (uint32_t)NOXTLS_EFR32_CONFIG_BOUNCE_SIZE))) {
             rc = NOXTLS_RETURN_NOT_SUPPORTED;
@@ -1097,6 +1147,7 @@ noxtls_return_t noxtls_efr32_aes_ccm(uint8_t decrypt, const uint8_t *key, uint32
             if (noxtls_efr32_dma_out_ok(out, len) == 0U) {
                 ch.out = st->bout;
                 ch.out_bounced = 1U;
+                noxtls_efr32_aes_mark(&st->used_bout, len);
             }
             hdr_len = noxtls_efr32_ccm_header(st->hdr, nonce, nonce_len, aad_len, len, tag_len);
             (void)memcpy(st->key, key, key_len);

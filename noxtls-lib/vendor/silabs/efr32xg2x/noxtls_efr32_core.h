@@ -81,6 +81,9 @@ typedef struct {
     uint32_t se_commands;    /**< Secure Engine commands issued. */
     uint32_t se_errors;      /**< Secure Engine commands that returned an error response. */
     uint32_t se_timeouts;    /**< Secure Engine commands that timed out. */
+    uint32_t se_rejects;     /**< Secure Engine verify commands that answered "invalid signature" (a valid result, not an error). */
+    uint32_t se_last_cmd;    /**< Command word of the last Secure Engine command that returned an error response. */
+    uint32_t se_last_resp;   /**< Response code of that command (RX_HEADER masked with NOXTLS_EFR32_SE_RESPONSE_MASK). */
 } noxtls_efr32_stats_t;
 
 /**

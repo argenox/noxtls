@@ -250,6 +250,7 @@
 #define NOXTLS_EFR32_KEYSPEC_TYPE_WEIERSTRASS UINT32_C(0x80000000) /**< Type: Weierstrass prime curve. */
 #define NOXTLS_EFR32_KEYSPEC_ECC_PRIVATE      UINT32_C(0x00004000) /**< Buffer holds a private key. */
 #define NOXTLS_EFR32_KEYSPEC_ECC_PUBLIC       UINT32_C(0x00002000) /**< Buffer holds a public key. */
+#define NOXTLS_EFR32_KEYSPEC_ECC_SIGNING      UINT32_C(0x00000400) /**< Key is used for signatures (required by SIGN and VERIFY; found on silicon: without it the SE answers invalid parameter). */
 #define NOXTLS_EFR32_KEYSPEC_ECC_SIZE_MSK     UINT32_C(0x0000007F) /**< Curve size field (bytes - 1). */
 #define NOXTLS_EFR32_KEYSPEC_RAW_SIZE_MSK     UINT32_C(0x00007FFF) /**< Raw key size field (bytes). */
 #define NOXTLS_EFR32_KEYSPEC_DH_RESERVED      UINT32_C(0x00000780) /**< Bits cleared in the DH private keyspec. */

@@ -260,10 +260,20 @@ void noxtls_efr32_barrier(void)
 void noxtls_efr32_wipe(void *buf, uint32_t len)
 {
     volatile uint8_t *p = (volatile uint8_t *)buf;
-    uint32_t i;
+    uint32_t i = 0U;
 
-    for (i = 0U; i < len; i++) {
+    /* Head bytes up to a word boundary, then word stores, then the tail: a byte loop costs 4x the cycles. */
+    while ((i < len) && ((((uintptr_t)&p[i]) & (sizeof(uint32_t) - 1U)) != 0U)) {
         p[i] = 0U;
+        i++;
+    }
+    while ((len - i) >= (uint32_t)sizeof(uint32_t)) {
+        *(volatile uint32_t *)(volatile void *)&p[i] = 0U;
+        i += (uint32_t)sizeof(uint32_t);
+    }
+    while (i < len) {
+        p[i] = 0U;
+        i++;
     }
 }
 

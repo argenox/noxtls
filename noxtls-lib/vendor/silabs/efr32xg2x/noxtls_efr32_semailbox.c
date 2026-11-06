@@ -125,8 +125,15 @@ noxtls_return_t noxtls_efr32_se_run(const noxtls_efr32_se_cmd_t *cmd, uint32_t t
 
             noxtls_efr32_barrier();
             rc = noxtls_efr32_se_map_response(response);
-            if (rc != NOXTLS_RETURN_SUCCESS) {
+            if (response == NOXTLS_EFR32_SE_RESP_INVALID_SIG) {
+                /* A rejected signature is the correct answer for a bad signature, not a command error. */
+                noxtls_efr32_stats_rw()->se_rejects++;
+            } else if (rc != NOXTLS_RETURN_SUCCESS) {
                 noxtls_efr32_stats_rw()->se_errors++;
+                noxtls_efr32_stats_rw()->se_last_cmd = cmd->command;
+                noxtls_efr32_stats_rw()->se_last_resp = response;
+            } else {
+                /* Success. */
             }
         }
     }

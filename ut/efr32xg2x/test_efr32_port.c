@@ -318,16 +318,20 @@ REGISTER_TEST(test_port_sha2_hardware_equals_software)
 
 REGISTER_TEST(test_port_sha2_small_calls_stay_in_software)
 {
-    static uint8_t msg[128];
+    /* Measured on silicon: one SE command costs about 23000 cycles whatever the block count, a software SHA-256
+     * block about 4100, so fewer than NOXTLS_EFR32_CONFIG_SE_HASH_MIN_BLOCKS blocks per hook call stay in software. */
+    static uint8_t msg[(NOXTLS_EFR32_CONFIG_SE_HASH_MIN_BLOCKS + 1U) * 64U];
     uint8_t d[32];
 
     ut_setup();
     (void)memset(msg, 0x61, sizeof(msg));
-    /* One block per hook call is below NOXTLS_EFR32_CONFIG_SE_HASH_MIN_BLOCKS. */
     ut_digest(NOXTLS_HASH_SHA_256, msg, 64U, 0U, d);
     UTNOX_EQUALS(g_ut.se_cmds, 0U);
-    ut_digest(NOXTLS_HASH_SHA_256, msg, 128U, 0U, d);
-    UTNOX_EQUALS(g_ut.se_cmds, 1U);
+    ut_digest(NOXTLS_HASH_SHA_256, msg, (NOXTLS_EFR32_CONFIG_SE_HASH_MIN_BLOCKS - 1U) * 64U, 0U, d);
+    UTNOX_EQUALS(g_ut.se_cmds, 0U);
+    ut_digest(NOXTLS_HASH_SHA_256, msg, NOXTLS_EFR32_CONFIG_SE_HASH_MIN_BLOCKS * 64U, 0U, d);
+    /* At least one command (the test build splits commands at NOXTLS_EFR32_CONFIG_SE_HASH_MAX_BYTES). */
+    UTNOX_IS_TRUE(g_ut.se_cmds >= 1U);
     return 0;
 }
 
@@ -370,23 +374,23 @@ REGISTER_TEST(test_port_sha2_fallbacks)
 
 REGISTER_TEST(test_port_sha_hook_arguments)
 {
-    static uint8_t msg[256];
+    static uint8_t msg[NOXTLS_EFR32_CONFIG_SE_HASH_MIN_BLOCKS * 128U];
     noxtls_sha_ctx_t ctx;
     noxtls_sha512_ctx_t c5;
 
     ut_setup();
     (void)noxtls_sha_init(&ctx, NOXTLS_HASH_SHA_256);
     (void)noxtls_sha512_init(&c5, NOXTLS_HASH_SHA_512);
-    UTNOX_EQUALS(noxtls_sha256_blocks_accel_port(NULL, msg, 4U), NOXTLS_RETURN_NOT_SUPPORTED);
-    UTNOX_EQUALS(noxtls_sha256_blocks_accel_port(&ctx, NULL, 4U), NOXTLS_RETURN_NOT_SUPPORTED);
+    UTNOX_EQUALS(noxtls_sha256_blocks_accel_port(NULL, msg, NOXTLS_EFR32_CONFIG_SE_HASH_MIN_BLOCKS), NOXTLS_RETURN_NOT_SUPPORTED);
+    UTNOX_EQUALS(noxtls_sha256_blocks_accel_port(&ctx, NULL, NOXTLS_EFR32_CONFIG_SE_HASH_MIN_BLOCKS), NOXTLS_RETURN_NOT_SUPPORTED);
     UTNOX_EQUALS(noxtls_sha256_blocks_accel_port(&ctx, msg, 0U), NOXTLS_RETURN_NOT_SUPPORTED);
     UTNOX_EQUALS(noxtls_sha256_round_accel_port(&ctx, msg), NOXTLS_RETURN_NOT_SUPPORTED);
-    UTNOX_EQUALS(noxtls_sha256_blocks_accel_port(&ctx, msg, 4U), NOXTLS_RETURN_SUCCESS);
-    UTNOX_EQUALS(noxtls_sha512_blocks_accel_port(NULL, msg, 2U), NOXTLS_RETURN_NOT_SUPPORTED);
-    UTNOX_EQUALS(noxtls_sha512_blocks_accel_port(&c5, NULL, 2U), NOXTLS_RETURN_NOT_SUPPORTED);
+    UTNOX_EQUALS(noxtls_sha256_blocks_accel_port(&ctx, msg, NOXTLS_EFR32_CONFIG_SE_HASH_MIN_BLOCKS), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(noxtls_sha512_blocks_accel_port(NULL, msg, NOXTLS_EFR32_CONFIG_SE_HASH_MIN_BLOCKS), NOXTLS_RETURN_NOT_SUPPORTED);
+    UTNOX_EQUALS(noxtls_sha512_blocks_accel_port(&c5, NULL, NOXTLS_EFR32_CONFIG_SE_HASH_MIN_BLOCKS), NOXTLS_RETURN_NOT_SUPPORTED);
     UTNOX_EQUALS(noxtls_sha512_blocks_accel_port(&c5, msg, 0U), NOXTLS_RETURN_NOT_SUPPORTED);
-    UTNOX_EQUALS(noxtls_sha512_blocks_accel_port(&c5, msg, 1U), NOXTLS_RETURN_NOT_SUPPORTED);
-    UTNOX_EQUALS(noxtls_sha512_blocks_accel_port(&c5, msg, 2U), NOXTLS_RETURN_SUCCESS);
+    UTNOX_EQUALS(noxtls_sha512_blocks_accel_port(&c5, msg, NOXTLS_EFR32_CONFIG_SE_HASH_MIN_BLOCKS - 1U), NOXTLS_RETURN_NOT_SUPPORTED);
+    UTNOX_EQUALS(noxtls_sha512_blocks_accel_port(&c5, msg, NOXTLS_EFR32_CONFIG_SE_HASH_MIN_BLOCKS), NOXTLS_RETURN_SUCCESS);
     return 0;
 }
 

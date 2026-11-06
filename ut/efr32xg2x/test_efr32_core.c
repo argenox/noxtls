@@ -151,6 +151,29 @@ REGISTER_TEST(test_core_helpers)
     return 0;
 }
 
+REGISTER_TEST(test_core_wipe_alignment_and_tails)
+{
+    static uint32_t words[12];
+    uint8_t *buf = (uint8_t *)words;
+    uint32_t start;
+    uint32_t len;
+    uint32_t i;
+
+    /* Every start offset and length around a word boundary: only [start, start + len) is cleared. */
+    for (start = 0U; start < 5U; start++) {
+        for (len = 0U; len < 20U; len++) {
+            (void)memset(buf, 0xA5, sizeof(words));
+            noxtls_efr32_wipe(&buf[start], len);
+            for (i = 0U; i < sizeof(words); i++) {
+                uint8_t inside = ((i >= start) && (i < (start + len))) ? 1U : 0U;
+
+                UTNOX_EQUALS(buf[i], (inside != 0U) ? 0x00U : 0xA5U);
+            }
+        }
+    }
+    return 0;
+}
+
 REGISTER_TEST(test_lock_internal_aes_nonblocking)
 {
     ut_setup();
