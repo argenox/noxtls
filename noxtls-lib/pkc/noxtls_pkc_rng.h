@@ -69,10 +69,14 @@ typedef uint32_t noxtls_pkc_rng_slot_t;
  * invalidated (AES failure) the next call re-instantiates from fresh entropy,
  * if only the entropy source failed the next call retries the reseed.
  *
- * Not reentrant: like the per-module states it replaces, the state is not
- * locked. With NOXTLS_PKC_SHARED_DRBG=1 callers must serialize ALL PKC random
- * generation (keygen, signing nonces, blinding) across threads; with 0 only
- * calls from the same module must be serialized.
+ * Concurrency: the first-use check, instantiation, reseed and generate run as
+ * one critical section under the integrator lock installed with
+ * noxtls_drbg_set_lock_callbacks(), and a new state is seeded locally and
+ * published only once complete. With no lock installed (the default) the
+ * library does not lock: with NOXTLS_PKC_SHARED_DRBG=1 callers must then
+ * serialize ALL PKC random generation (keygen, signing nonces, blinding, and
+ * therefore concurrent TLS handshakes) across threads; with 0 only calls from
+ * the same module must be serialized.
  *
  * @param slot Requesting module (NOXTLS_PKC_RNG_SLOT_*)
  * @param out Output buffer of at least (requested_bits + 7) / 8 bytes

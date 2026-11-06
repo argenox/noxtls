@@ -83,7 +83,9 @@ Set MTU for fragmentation (e.g. 1500). Call before handshake.
 noxtls_return_t dtls_set_retransmit(dtls_context_t *ctx, uint32_t timeout_ms, uint32_t backoff_ms, uint32_t max_attempts);
 ```
 
-Set retransmission parameters: initial timeout, backoff multiplier, max attempts per receive.
+Set retransmission parameters: initial timeout, backoff multiplier (per mille, 2000 = 2x), and the maximum number of retransmissions of one flight.
+
+The attempt budget (default 4) covers every retransmission of the current flight, both timer driven and those triggered when the peer repeats its previous flight, across receive calls. It restarts when a new flight is sent or the peer's flight advances (the next expected handshake message changes). When it is used up nothing more is sent for that flight and the receive path returns `NOXTLS_RETURN_TIMEOUT`, so a datagram that is lost every time ends the handshake instead of keeping both endpoints retransmitting. (Earlier releases applied the limit per receive call.) A DTLS 1.2 retransmission is triggered by the peer only when it repeats the last message of its previous flight, not when it repeats the flight currently being received.
 
 **Returns:** [noxtls_return_t](./return_codes).
 
@@ -93,7 +95,7 @@ Set retransmission parameters: initial timeout, backoff multiplier, max attempts
 noxtls_return_t noxtls_dtls_set_anti_amplification_limit(dtls_context_t *ctx, uint8_t factor);
 ```
 
-Set anti-amplification limit (RFC 6347). Call before handshake on server.
+Set anti-amplification limit (RFC 6347). Call before handshake on server. Until the client address is validated (cookie), the server sends at most `factor` times the bytes it received; retransmissions count against the same limit. A DTLS 1.2 HelloVerifyRequest is not retransmitted on a timer (RFC 6347 section 4.2.1); it is sent again only when the client repeats its ClientHello.
 
 **Returns:** [noxtls_return_t](./return_codes).
 
@@ -179,7 +181,7 @@ Check if sequence number is within replay window (reject duplicates). Used inter
 noxtls_return_t noxtls_dtls_update_replay_window(dtls_context_t *ctx, uint64_t sequence_number);
 ```
 
-Update replay window after accepting a record. Used internally.
+Update replay window after accepting a record. Used internally. DTLS 1.2 records of a protected epoch enter the window only after their MAC or AEAD tag verified (RFC 6347 section 4.1.2.6); epoch 0 records, which carry no protection, enter it on receipt.
 
 **Returns:** [noxtls_return_t](./return_codes).
 
@@ -191,7 +193,7 @@ Update replay window after accepting a record. Used internally.
 noxtls_return_t noxtls_dtls_generate_cookie(dtls_context_t *ctx, const uint8_t *client_hello, uint32_t client_hello_len, uint8_t *cookie, uint32_t *cookie_len);
 ```
 
-Generate a cookie for Hello Verify Request. Server uses this to validate client address before committing state.
+Generate a cookie for Hello Verify Request. Server uses this to validate client address before committing state. The cookie is an HMAC over the peer identity set with [noxtls_dtls_set_peer_identity](#noxtls_dtls_set_peer_identity) (if any) and the ClientHello. The record layer has no access to the source address, so without a peer identity the cookie only proves that some client could receive the HelloVerifyRequest sent through this context: use one context per peer address (a connected socket, or a context created per source address), or set the peer identity.
 
 **Returns:** [noxtls_return_t](./return_codes).
 
@@ -201,9 +203,19 @@ Generate a cookie for Hello Verify Request. Server uses this to validate client 
 noxtls_return_t noxtls_dtls_verify_cookie(const dtls_context_t *ctx, const uint8_t *cookie, uint32_t cookie_len);
 ```
 
-Verify cookie from client’s second Client Hello. Used internally.
+Verify cookie from client’s second Client Hello. Used internally. The cookie is accepted only while the peer identity equals the one it was issued to.
 
 **Returns:** [noxtls_return_t](./return_codes).
+
+### `noxtls_dtls_set_peer_identity`
+
+```c
+noxtls_return_t noxtls_dtls_set_peer_identity(dtls_context_t *ctx, const uint8_t *identity, uint32_t identity_len);
+```
+
+Bind the server's cookies to the transport address of the current peer (RFC 6347 section 4.2.1, RFC 9147 section 5.1). Pass a fixed encoding of the datagram's source address, for example the 4- or 16-byte IP address followed by the 2-byte UDP port (at most `DTLS_PEER_IDENTITY_MAX_LEN`, 32 bytes), before the context processes that peer's datagrams, and update it whenever the context is fed datagrams from another source. The identity is mixed into each cookie issued, and a cookie verifies only while the identity is unchanged, so a cookie obtained from one address cannot validate a ClientHello spoofed from another address. Call on `&ctx.base` of a DTLS 1.2 or DTLS 1.3 server context; `identity_len` 0 clears it (the default: cookies are not address-bound).
+
+**Returns:** `NOXTLS_RETURN_SUCCESS`; `NOXTLS_RETURN_NULL` for a NULL context or identity; `NOXTLS_RETURN_INVALID_PARAM` when `identity_len` exceeds 32.
 
 ### `noxtls_dtls_mark_validated`
 

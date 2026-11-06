@@ -59,6 +59,7 @@ add_executable(noxtls_nrf54_ut
   test_nrf54_rng.c
   test_nrf54_pke.c
   test_nrf54_kmu.c
+  test_nrf54_kmu_lock.c
 )
 target_include_directories(noxtls_nrf54_ut PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(noxtls_nrf54_ut PRIVATE utnox noxtls_pkc noxtls_drbg noxtls_encryption noxtls_hash noxtls_nrf54

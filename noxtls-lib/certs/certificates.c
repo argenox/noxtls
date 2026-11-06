@@ -196,6 +196,23 @@ static noxtls_return_t cert_der_to_pem_bounded(const uint8_t *begin, uint32_t be
 }
 
 /**
+ * @brief Buffer size (PEM text plus NUL terminator) needed to convert @p length DER bytes to a
+ *        "CERTIFICATE" PEM with noxtls_certificate_der_to_pem_ex().
+ *
+ * @param[in] length DER length in bytes.
+ * @return Required capacity in bytes, or 0 when @p length is 0 or the size does not fit in uint32_t.
+ */
+uint32_t noxtls_certificate_pem_buffer_size(uint32_t length)
+{
+    uint32_t text_len = 0U;
+
+    if(length > 0U) {
+        text_len = cert_pem_text_len(length, (uint32_t)sizeof(CERT_BEGIN_BYTES), (uint32_t)sizeof(CERT_END_BYTES));
+    }
+    return ((text_len == 0U) || (text_len == UINT32_MAX)) ? 0U : (text_len + 1U);
+}
+
+/**
  * @brief Converts a DER certificate to PEM, bounded by the output capacity.
  *
  * @param[in]  data     DER certificate.
@@ -220,8 +237,9 @@ noxtls_return_t noxtls_certificate_der_to_pem_ex(const uint8_t *data, uint32_t l
 /**
  * @brief Converts DER certificate to PEM (legacy, unbounded).
  *
- * @warning @p output must hold the whole PEM text plus a NUL terminator; this function cannot
- *          check it. Use noxtls_certificate_der_to_pem_ex() to pass the buffer capacity.
+ * @warning @p output must hold the whole PEM text plus a NUL terminator, that is
+ *          noxtls_certificate_pem_buffer_size(@p length) bytes; this function cannot check it.
+ *          Deprecated: use noxtls_certificate_der_to_pem_ex() to pass the buffer capacity.
  */
 noxtls_return_t noxtls_certificate_der_to_pem(const uint8_t * data, uint32_t length, uint8_t * output, uint32_t * out_len)
 {

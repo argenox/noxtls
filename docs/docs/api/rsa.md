@@ -60,6 +60,10 @@ noxtls_return_t noxtls_rsa_key_generate(rsa_key_t *key, rsa_key_size_t key_size)
 
 Generate RSA key pair. `key` is [rsa_key_t](#rsa_key_t); `key_size` is [rsa_key_size_t](#rsa_key_size_t).
 
+The top two bits of each prime are set, so the modulus always has exactly `key_size` bits
+(earlier releases set one bit and returned a one-bit-short modulus for about 39% of keys); p and
+q are checked to differ. On failure the key components are wiped.
+
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success.
 
 ### `noxtls_rsa_key_free`
@@ -80,6 +84,14 @@ noxtls_return_t noxtls_rsa_encrypt(const rsa_key_t *key, const uint8_t *plaintex
 
 RSA Encryption. `key` is [rsa_key_t](#rsa_key_t).
 
+**Public-key validation.** Every public-key operation (`noxtls_rsa_encrypt`, `noxtls_rsa_verify`,
+`noxtls_rsa_verify_pss`, `noxtls_rsa_verify_pss_digest`) and `noxtls_rsa_key_init_public` reject,
+with `NOXTLS_RETURN_INVALID_PARAM` and before any exponentiation, an even modulus and a public
+exponent that is even, below 3, or longer than `NOXTLS_RSA_MAX_PUBEXP_BYTES` significant bytes
+(default 8, i.e. e < 2^64). This bounds the cost of verifying with an untrusted key, for example
+a certificate in a peer's chain that has not yet been validated. Override
+`NOXTLS_RSA_MAX_PUBEXP_BYTES` at build time only if you must accept larger exponents.
+
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success.
 
 ### `noxtls_rsa_decrypt`
@@ -88,7 +100,15 @@ RSA Encryption. `key` is [rsa_key_t](#rsa_key_t).
 noxtls_return_t noxtls_rsa_decrypt(const rsa_key_t *key, const uint8_t *ciphertext, uint32_t ciphertext_len, uint8_t *plaintext, uint32_t *plaintext_len);
 ```
 
-RSA Decryption. `key` is [rsa_key_t](#rsa_key_t).
+RSA Decryption (PKCS#1 v1.5). `key` is [rsa_key_t](#rsa_key_t).
+
+The private-key operation is blinded, uses constant-time reductions modulo the secret primes,
+and is fault-checked. Unpadding is constant time: `*plaintext_len` is the size of `plaintext` on
+input, and once the private-key operation has run, `min(*plaintext_len, key_bytes - 11)` bytes of
+`plaintext` are always written (the message followed by zero bytes on success, all zeros when the
+padding is invalid or the message does not fit). On failure `*plaintext_len` is set to 0. The
+return code still reveals padding validity, so protocol code must not branch on it observably; the
+TLS 1.2 RSA key exchange substitutes its random premaster secret by mask (RFC 5246 section 7.4.7.1).
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success.
 

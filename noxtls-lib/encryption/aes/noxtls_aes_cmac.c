@@ -100,18 +100,20 @@ static noxtls_return_t cmac_absorb_block(noxtls_aes_cmac_context_t *ctx,
 {
     uint8_t state_block[NOXTLS_AES_BLOCK_LENGTH];
     uint8_t input_block[NOXTLS_AES_BLOCK_LENGTH];
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+
     noxtls_copy_u8(state_block, sizeof(state_block), ctx->state, (size_t)(NOXTLS_AES_BLOCK_LENGTH));
     noxtls_copy_u8(input_block, sizeof(input_block), block, (size_t)(NOXTLS_AES_BLOCK_LENGTH));
     cmac_xor_block(state_block, state_block, input_block);
-    {
-        noxtls_return_t rc = noxtls_aes_encrypt_block_internal(ctx->key, state_block, state_block,
-                                                              ctx->type);
-        if (rc != NOXTLS_RETURN_SUCCESS) {
-            return rc;
-        }
+    rc = noxtls_aes_encrypt_block_internal(ctx->key, state_block, state_block, ctx->type);
+    if (rc == NOXTLS_RETURN_SUCCESS) {
+        noxtls_copy_u8(ctx->state, sizeof(ctx->state), state_block, (size_t)(NOXTLS_AES_BLOCK_LENGTH));
     }
-    noxtls_copy_u8(ctx->state, sizeof(ctx->state), state_block, (size_t)(NOXTLS_AES_BLOCK_LENGTH));
-    return NOXTLS_RETURN_SUCCESS;
+    /* input_block of the last block is M_last ^ K1/K2: with a known message
+     * block it gives the subkey, which is enough to forge MACs. */
+    noxtls_secure_zero(state_block, sizeof(state_block));
+    noxtls_secure_zero(input_block, sizeof(input_block));
+    return rc;
 }
 
 /**
@@ -205,6 +207,7 @@ noxtls_return_t noxtls_aes_cmac_update(noxtls_aes_cmac_context_t *ctx,
                 uint8_t full_block[NOXTLS_AES_BLOCK_LENGTH];
                 noxtls_copy_u8(full_block, sizeof(full_block), ctx->partial, (size_t)(block_sz));
                 rc = cmac_absorb_block(ctx, full_block);
+                noxtls_secure_zero(full_block, sizeof(full_block));
             }
             if (rc != NOXTLS_RETURN_SUCCESS) {
                 noxtls_secure_zero(ctx, sizeof(*ctx));
@@ -219,6 +222,7 @@ noxtls_return_t noxtls_aes_cmac_update(noxtls_aes_cmac_context_t *ctx,
         uint8_t full_block[NOXTLS_AES_BLOCK_LENGTH];
         noxtls_copy_u8(full_block, sizeof(full_block), &msg[offset], (size_t)(block_sz));
         rc = cmac_absorb_block(ctx, full_block);
+        noxtls_secure_zero(full_block, sizeof(full_block));
         if (rc != NOXTLS_RETURN_SUCCESS) {
             noxtls_secure_zero(ctx, sizeof(*ctx));
             return rc;

@@ -1096,9 +1096,16 @@ noxtls_return_t noxtls_tls_connection_connect(noxtls_tls_connection_t *conn)
             return unified_poll_result(conn, rc);
         }
 #endif
+        /*
+         * The TLS 1.3 ClientHello was sent and the handshake failed. TLS 1.2 is used only when
+         * the server selects it in reply (NEGOTIATED_TLS12 above, which keeps the RFC 8446
+         * 4.1.3 downgrade check). Retrying as TLS 1.2 here would let an on-path attacker force
+         * TLS 1.2 with one forged alert, so the TLS 1.3 error is returned.
+         */
         (void)noxtls_tls13_context_free(&conn->ver.tls13);
         conn->handshake_started = 0U;
         conn->is_tls13 = 0U;
+        return rc;
     }
 #endif
 

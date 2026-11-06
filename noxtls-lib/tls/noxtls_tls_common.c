@@ -625,6 +625,11 @@ static noxtls_return_t tls_nonblocking_recv_record(tls_context_t *ctx,
     payload = ctx->io_rx_payload;
     tls_nonblocking_reset_rx(ctx);
 
+    if ((type == TLS_RECORD_HEARTBEAT) && (length == 0U)) {
+        /* See noxtls_tls_recv_record(): an empty heartbeat record is never valid. */
+        return NOXTLS_RETURN_BAD_DATA;
+    }
+
     noxtls_secure_zero((record), sizeof(*(record)));
     record->type = type;
     record->version = version;
@@ -874,8 +879,13 @@ noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
                      * RFC 6347 4.2.4: the peer retransmitted its previous flight, so our flight
                      * (its answer) was lost. Resend it once per peer flight - on the fragment that
                      * completes the last message of that flight - and drop the duplicate.
+                     * The previous flight ends just before peer_flight_start_seq (the message we
+                     * expected when our flight was sent). A repeat of the peer's current, partly
+                     * received flight is not a request for ours: answering it would make two
+                     * endpoints that keep losing the same datagram resend at each other without
+                     * end. noxtls_dtls_retransmit_flight() also bounds the number of resends.
                      */
-                    if ((((uint32_t)fragment.message_seq + 1U) == (uint32_t)dctx->expected_message_seq) &&
+                    if ((((uint32_t)fragment.message_seq + 1U) == (uint32_t)dctx->peer_flight_start_seq) &&
                         ((fragment.fragment_offset + fragment.fragment_length) == fragment.length)) {
                         (void)noxtls_dtls_retransmit_flight(dctx);
                     }
@@ -979,7 +989,19 @@ noxtls_return_t noxtls_tls_recv_record(tls_context_t *ctx, tls_record_t *record)
         record->data = NULL;
         return NOXTLS_RETURN_SUCCESS;
     }
-    
+
+    /*
+     * A heartbeat message is at least 19 bytes (RFC 6520 4) and a protected record always
+     * carries a MAC or tag, so an empty heartbeat record is never valid. It is rejected here,
+     * before the protocol engine sees it, so it cannot consume a read sequence number without
+     * authentication: an attacker replacing a protected record with these 5 bytes would
+     * otherwise delete that record undetected. The next record then fails authentication.
+     */
+    if ((record->type == TLS_RECORD_HEARTBEAT) && (length == 0U)) {
+        (void)noxtls_debug_printf((const uint8_t *)"[TLS_DEBUG] tls_recv_record: empty heartbeat record rejected\n");
+        return NOXTLS_RETURN_BAD_DATA;
+    }
+
     /* Allocate and receive record data */
     if (length > 0U) {
         (void)noxtls_debug_printf((const uint8_t *)"[TLS_DEBUG] tls_recv_record: Allocating %u bytes for record data...\n", length);

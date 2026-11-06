@@ -32,3 +32,7 @@ cert keyinfo -i key.pem
 cert keywrite -i key.der -o key_out.pem -f pem
 cert -h
 
+
+## Private key files
+
+On POSIX systems `keywrite` creates its output with mode `0600` (owner read/write only), resets an existing file to `0600` before writing, and refuses a symbolic link at the output path.

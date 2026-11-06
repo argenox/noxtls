@@ -53,7 +53,8 @@ NOXTLS_MSVC_DISABLE_PADDING
 typedef struct
 {
     uint32_t h[8];      /* chaining state */
-    uint32_t length;    /* bytes compressed so far (full blocks) */
+    uint64_t length;    /* bytes compressed so far (full blocks); 64-bit so the
+                         * padding encodes the true length past 4 GiB */
     uint8_t data[64];   /* buffered partial block */
     uint8_t data_len;   /* bytes held in data[] */
 } noxtls_sha_md32_ctx_t;

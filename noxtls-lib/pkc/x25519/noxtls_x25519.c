@@ -1234,7 +1234,7 @@ static X25519_NOINLINE void fe25519_inv(fe25519_t *out, const fe25519_t *z)
  * @return The return value
  */
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
-static noxtls_return_t x25519_scalar_mult(const uint8_t *k,
+static X25519_NOINLINE noxtls_return_t x25519_scalar_mult(const uint8_t *k,
                                           const uint8_t *u,
                                           uint8_t *result)
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
@@ -1325,6 +1325,61 @@ static noxtls_return_t x25519_scalar_mult(const uint8_t *k,
 
 #endif
 
+#ifndef X25519_NOINLINE
+#if defined(__GNUC__) || defined(__clang__)
+#define X25519_NOINLINE __attribute__((noinline))
+#else
+#define X25519_NOINLINE
+#endif
+#endif
+
+/**
+ * Bytes of stack overwritten after each ladder. It must cover the peak stack
+ * of x25519_scalar_mult and its callees, whose spilled field-multiply locals
+ * (limbs of X, Z^-1 and the shared secret) no named wipe can reach. Measured
+ * peaks with GCC for Cortex-M0+/M4/M33: about 1.7 KiB optimized and 3.5 KiB
+ * at -O0. Override if a toolchain uses larger frames.
+ */
+#ifndef NOXTLS_X25519_STACK_BURN_BYTES
+#if defined(__OPTIMIZE__)
+#define NOXTLS_X25519_STACK_BURN_BYTES 2048U
+#else
+#define NOXTLS_X25519_STACK_BURN_BYTES 4096U
+#endif
+#endif
+
+/**
+ * @brief Overwrite the stack region the ladder just used.
+ *
+ * Out of line and called from the same frame as the ladder, so its local
+ * buffer overlays the ladder's (dead) callee frames.
+ */
+static X25519_NOINLINE void x25519_stack_burn(void)
+{
+    uint32_t burn[NOXTLS_X25519_STACK_BURN_BYTES / 4U];
+
+    noxtls_secure_zero(burn, sizeof(burn));
+}
+
+/**
+ * @brief Run the ladder out of line, then burn the stack it used.
+ *
+ * @param[in] k Little-endian scalar.
+ * @param[in] u Little-endian u-coordinate.
+ * @param[out] result Little-endian u-coordinate of k*P.
+ * @return Result of x25519_scalar_mult().
+ */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
+static X25519_NOINLINE noxtls_return_t x25519_scalar_mult_wiped(const uint8_t *k,
+                                                                const uint8_t *u,
+                                                                uint8_t *result)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
+{
+    noxtls_return_t rc = x25519_scalar_mult(k, u, result);
+    x25519_stack_burn();
+    return rc;
+}
+
 /**
  * @brief Applies RFC 7748 clamping to a 32-byte X25519 scalar in place.
  * @param[in,out] k Little-endian scalar (`NOXTLS_X25519_KEY_SIZE` bytes); no-op if NULL.
@@ -1358,7 +1413,7 @@ noxtls_return_t noxtls_x25519_public_key(const uint8_t *private_key,
     const noxtls_return_t native = noxtls_cc13xx_x25519(private_key, base_point, public_key);
     if (native != NOXTLS_RETURN_NOT_SUPPORTED) { return native; }
 #endif
-    return x25519_scalar_mult(private_key, base_point, public_key);
+    return x25519_scalar_mult_wiped(private_key, base_point, public_key);
 }
 
 /**
@@ -1377,7 +1432,7 @@ noxtls_return_t noxtls_x25519_shared_secret(const uint8_t *private_key,
     const noxtls_return_t native = noxtls_cc13xx_x25519(private_key, peer_public_key, shared_secret);
     if (native != NOXTLS_RETURN_NOT_SUPPORTED) { return native; }
 #endif
-    return x25519_scalar_mult(private_key, peer_public_key, shared_secret);
+    return x25519_scalar_mult_wiped(private_key, peer_public_key, shared_secret);
 }
 
 /**

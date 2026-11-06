@@ -33,6 +33,21 @@ extern "C" {
 noxtls_return_t noxtls_sha256_round_accel_port(noxtls_sha_ctx_t *ctx, const uint8_t *input);
 noxtls_return_t noxtls_sha256_blocks_accel_port(noxtls_sha_ctx_t *ctx, const uint8_t *input, uint32_t block_count);
 
+#if NOXTLS_FEATURE_NOXV_HW_ACCEL
+/**
+ * @brief Drop the NoxV adapter's continuation state for a finished context.
+ *
+ * The adapter caches the last hardware chaining value (and the owning context)
+ * so that a stream can continue in hardware. noxtls_sha256_finish() calls this
+ * so the cached value (the digest of a plain hash, the inner hash of an HMAC)
+ * and the engine registers do not outlive the hash.
+ *
+ * @param ctx Context that has finished (or is being abandoned).
+ * @return None.
+ */
+void noxtls_noxv_sha256_release(const noxtls_sha_ctx_t *ctx);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

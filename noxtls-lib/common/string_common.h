@@ -44,7 +44,7 @@ extern "C" {
  * @param[in] string Null-terminated string of hex digit pairs (no separators); length must be even.
  * @param[out] out_buf Output buffer for decoded bytes.
  * @param[in] out_length Capacity of @p out_buf in bytes; must be at least `noxtls_u8_strlen(string) / 2`.
- * @return Number of bytes written on success; -1 on NULL input, -2 if @p out_buf is too small, -3 if odd-length string, -4 on overflow guard.
+ * @return Number of bytes written on success; -1 on NULL input, -2 if @p out_buf is too small, -3 if odd-length string, -4 on overflow guard, -5 if any character is not a hex digit (output untouched).
  */
 extern int noxtls_hex_string_to_bytes(const uint8_t * string, uint8_t * out_buf, size_t out_length);
 

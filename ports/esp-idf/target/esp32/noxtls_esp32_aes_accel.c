@@ -24,11 +24,10 @@
 #include <string.h>
 
 #include "noxtls_aes_accel.h"
+#include "noxtls_ct.h"
 
 #if defined(ESP_PLATFORM)
 #include "noxtls_esp_hw_accel.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
 #include "soc/soc_caps.h"
 #if defined(SOC_AES_SUPPORTED) && SOC_AES_SUPPORTED
 #include "aes/esp_aes.h"
@@ -57,93 +56,82 @@ enum {
 
 #if defined(ESP_PLATFORM) && defined(SOC_AES_SUPPORTED) && SOC_AES_SUPPORTED && \
     CONFIG_NOXTLS_ESP_HW_AES
-static SemaphoreHandle_t s_aes_mutex;
-static esp_aes_context s_aes_ctx;
-static uint8_t s_cached_key[32];
-static unsigned s_cached_key_bits;
-static uint8_t s_ctx_ready;
-static uint8_t s_key_ready;
+/*
+ * Every operation uses its own stack context: the key is loaded, used and
+ * wiped within the call. There is no process-lifetime key cache and no shared
+ * context, so concurrent tasks cannot use each other's key, and no key stays
+ * in RAM after the operation. The AES peripheral itself is serialized by
+ * ESP-IDF (esp_aes_acquire_hardware inside esp_aes_crypt_ecb).
+ */
 
 /**
- * @brief Lock the ESP hardware AES
+ * @brief Map a NoxTLS AES key type to its size in bits
  *
- * @return The return code
+ * @param[in] type The AES key type
+ * @return The key size in bits, or 0 if the type is not supported
  */
-static noxtls_return_t noxtls_aes_accel_esp_lock(void)
+static unsigned noxtls_aes_accel_esp_key_bits(noxtls_aes_type_t type)
 {
-    if(s_aes_mutex == NULL) {
-        s_aes_mutex = xSemaphoreCreateMutex();
-        if(s_aes_mutex == NULL) {
-            return NOXTLS_RETURN_FAILED;
-        }
-    }
-    if(xSemaphoreTake(s_aes_mutex, portMAX_DELAY) != pdTRUE) {
-        return NOXTLS_RETURN_FAILED;
-    }
-    return NOXTLS_RETURN_SUCCESS;
-}
-
-/**
- * @brief Unlock the ESP hardware AES
- *
- * @return void
- */
-static void noxtls_aes_accel_esp_unlock(void)
-{
-    if(s_aes_mutex != NULL) {
-        (void)xSemaphoreGive(s_aes_mutex);
-    }
-}
-
-/**
- * @brief Prepare the ESP hardware AES context
- *
- * @param[in] key The key to prepare the ESP hardware AES context with
- * @param[in] type The type of the ESP hardware AES context to prepare
- * @return The return code
- */
-static noxtls_return_t noxtls_aes_accel_esp_prepare_ctx_locked(const uint8_t *key,
-                                                                noxtls_aes_type_t type)
-{
-    unsigned keybits = 0;
-    unsigned keybytes = 0;
-    int rc;
+    unsigned keybits = 0U;
 
     switch(type) {
         case NOXTLS_AES_128_BIT:
-            keybits = 128;
-            keybytes = 16;
+            keybits = 128U;
             break;
         case NOXTLS_AES_192_BIT:
-            keybits = 192;
-            keybytes = 24;
+            keybits = 192U;
             break;
         case NOXTLS_AES_256_BIT:
-            keybits = 256;
-            keybytes = 32;
+            keybits = 256U;
             break;
         default:
-            return NOXTLS_RETURN_INVALID_KEY_SIZE;
+            keybits = 0U;
+            break;
+    }
+    return keybits;
+}
+
+/**
+ * @brief Run ECB over one or more blocks with a per-call key context
+ *
+ * @param[in] key The AES key
+ * @param[in] input The input blocks
+ * @param[out] output The output blocks
+ * @param[in] block_count The number of 16-byte blocks
+ * @param[in] type The AES key type
+ * @param[in] mode ESP_AES_ENCRYPT or ESP_AES_DECRYPT
+ * @return NOXTLS_RETURN_SUCCESS, NOXTLS_RETURN_INVALID_KEY_SIZE or NOXTLS_RETURN_FAILED
+ */
+static noxtls_return_t noxtls_aes_accel_esp_ecb(const uint8_t *key,
+                                                const uint8_t *input,
+                                                uint8_t *output,
+                                                uint32_t block_count,
+                                                noxtls_aes_type_t type,
+                                                int mode)
+{
+    esp_aes_context ctx;
+    unsigned keybits = noxtls_aes_accel_esp_key_bits(type);
+    noxtls_return_t ret = NOXTLS_RETURN_SUCCESS;
+    uint32_t block;
+
+    if(keybits == 0U) {
+        return NOXTLS_RETURN_INVALID_KEY_SIZE;
     }
 
-    if(!s_ctx_ready) {
-        esp_aes_init(&s_aes_ctx);
-        s_ctx_ready = 1U;
+    esp_aes_init(&ctx);
+    if(esp_aes_setkey(&ctx, key, keybits) != 0) {
+        ret = NOXTLS_RETURN_FAILED;
     }
-
-    if(!s_key_ready ||
-       s_cached_key_bits != keybits ||
-       memcmp(s_cached_key, key, keybytes) != 0) {
-        rc = esp_aes_setkey(&s_aes_ctx, key, keybits);
-        if(rc != 0) {
-            return NOXTLS_RETURN_FAILED;
+    for(block = 0U; (ret == NOXTLS_RETURN_SUCCESS) && (block < block_count); block++) {
+        const uint8_t *in_block = input + ((size_t)block * NOXTLS_AES_BLOCK_LENGTH);
+        uint8_t *out_block = output + ((size_t)block * NOXTLS_AES_BLOCK_LENGTH);
+        if(esp_aes_crypt_ecb(&ctx, mode, in_block, out_block) != 0) {
+            ret = NOXTLS_RETURN_FAILED;
         }
-        memcpy(s_cached_key, key, keybytes);
-        s_cached_key_bits = keybits;
-        s_key_ready = 1U;
     }
-
-    return NOXTLS_RETURN_SUCCESS;
+    esp_aes_free(&ctx);
+    noxtls_secure_zero(&ctx, sizeof(ctx));
+    return ret;
 }
 #endif
 
@@ -167,32 +155,10 @@ static noxtls_return_t noxtls_aes_accel_esp_crypt_block(const uint8_t *key,
 {
 #if defined(ESP_PLATFORM) && defined(SOC_AES_SUPPORTED) && SOC_AES_SUPPORTED && \
     CONFIG_NOXTLS_ESP_HW_AES
-    noxtls_return_t prep_rc;
-    int rc;
-
     if(key == NULL || data == NULL || output == NULL) {
         return NOXTLS_RETURN_NULL;
     }
-
-    if(noxtls_aes_accel_esp_lock() != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
-    }
-
-    prep_rc = noxtls_aes_accel_esp_prepare_ctx_locked(key, type);
-    if(prep_rc != NOXTLS_RETURN_SUCCESS) {
-        noxtls_aes_accel_esp_unlock();
-        return prep_rc;
-    }
-
-    rc = esp_aes_crypt_ecb(&s_aes_ctx, mode, data, output);
-    if(rc != 0) {
-        noxtls_aes_accel_esp_unlock();
-        return NOXTLS_RETURN_FAILED;
-    }
-
-    noxtls_aes_accel_esp_unlock();
-
-    return NOXTLS_RETURN_SUCCESS;
+    return noxtls_aes_accel_esp_ecb(key, data, output, 1U, type, mode);
 #else
     (void)key;
     (void)data;
@@ -277,39 +243,13 @@ noxtls_return_t noxtls_aes_accel_port_encrypt_blocks(const uint8_t *key,
 {
 #if defined(ESP_PLATFORM) && defined(SOC_AES_SUPPORTED) && SOC_AES_SUPPORTED && \
     CONFIG_NOXTLS_ESP_HW_AES
-    noxtls_return_t prep_rc;
-    uint32_t block;
-    int rc;
-
     if(key == NULL || input == NULL || output == NULL) {
         return NOXTLS_RETURN_NULL;
     }
     if(block_count == 0U) {
         return NOXTLS_RETURN_SUCCESS;
     }
-
-    if(noxtls_aes_accel_esp_lock() != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
-    }
-
-    prep_rc = noxtls_aes_accel_esp_prepare_ctx_locked(key, type);
-    if(prep_rc != NOXTLS_RETURN_SUCCESS) {
-        noxtls_aes_accel_esp_unlock();
-        return prep_rc;
-    }
-
-    for(block = 0U; block < block_count; block++) {
-        const uint8_t *in_block = input + ((size_t)block * NOXTLS_AES_BLOCK_LENGTH);
-        uint8_t *out_block = output + ((size_t)block * NOXTLS_AES_BLOCK_LENGTH);
-        rc = esp_aes_crypt_ecb(&s_aes_ctx, ESP_AES_ENCRYPT, in_block, out_block);
-        if(rc != 0) {
-            noxtls_aes_accel_esp_unlock();
-            return NOXTLS_RETURN_FAILED;
-        }
-    }
-
-    noxtls_aes_accel_esp_unlock();
-    return NOXTLS_RETURN_SUCCESS;
+    return noxtls_aes_accel_esp_ecb(key, input, output, block_count, type, ESP_AES_ENCRYPT);
 #else
     (void)key;
     (void)input;
@@ -374,6 +314,7 @@ noxtls_return_t noxtls_aes_gcm_encrypt_accel_port(const uint8_t *key,
     rc = esp_aes_gcm_setkey(&ctx, NOXTLS_ESP_MBEDTLS_CIPHER_ID_AES, key, key_bits);
     if(rc != 0) {
         esp_aes_gcm_free(&ctx);
+        noxtls_secure_zero(&ctx, sizeof(ctx));
         return NOXTLS_RETURN_FAILED;
     }
 
@@ -381,6 +322,7 @@ noxtls_return_t noxtls_aes_gcm_encrypt_accel_port(const uint8_t *key,
                                    nonce, 12U, aad, (size_t)aad_len,
                                    plaintext, ciphertext, 16U, tag);
     esp_aes_gcm_free(&ctx);
+    noxtls_secure_zero(&ctx, sizeof(ctx));
     return (rc == 0) ? NOXTLS_RETURN_SUCCESS : NOXTLS_RETURN_FAILED;
 #else
     (void)key;
@@ -451,6 +393,7 @@ noxtls_return_t noxtls_aes_gcm_decrypt_accel_port(const uint8_t *key,
     rc = esp_aes_gcm_setkey(&ctx, NOXTLS_ESP_MBEDTLS_CIPHER_ID_AES, key, key_bits);
     if(rc != 0) {
         esp_aes_gcm_free(&ctx);
+        noxtls_secure_zero(&ctx, sizeof(ctx));
         return NOXTLS_RETURN_FAILED;
     }
 
@@ -458,6 +401,7 @@ noxtls_return_t noxtls_aes_gcm_decrypt_accel_port(const uint8_t *key,
                                   aad, (size_t)aad_len, tag, 16U, ciphertext,
                                   plaintext);
     esp_aes_gcm_free(&ctx);
+    noxtls_secure_zero(&ctx, sizeof(ctx));
     if(rc == 0) {
         return NOXTLS_RETURN_SUCCESS;
     }

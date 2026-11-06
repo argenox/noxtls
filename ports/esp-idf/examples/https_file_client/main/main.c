@@ -22,6 +22,7 @@
 *****************************************************************************/
 
 #include <errno.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -51,6 +52,7 @@
 #define NOXTLS_FILE_WIFI_FAIL_BIT      BIT1
 #define NOXTLS_FILE_WIFI_RETRY_MAX     (5U)
 #define NOXTLS_FILE_RX_CHUNK           (2048U)
+#define NOXTLS_FILE_PART_PATH          CONFIG_NOXTLS_FILE_CLIENT_OUTPUT_PATH ".part"
 
 typedef struct {
     int sock;
@@ -269,6 +271,80 @@ static int file_configure_trust_anchor(void)
     return (rc == NOXTLS_RETURN_SUCCESS) ? 0 : -1;
 }
 
+#define NOXTLS_FILE_HEADER_MAX (2048U)
+
+/**
+ * @brief Case-insensitive prefix match.
+ * @return 1 when @p s starts with @p prefix ignoring ASCII case.
+ */
+static int file_prefix_ieq(const char *s, const char *prefix)
+{
+    while(*prefix != '\0') {
+        char a = *s;
+        char b = *prefix;
+        if(a >= 'A' && a <= 'Z') {
+            a = (char)(a - 'A' + 'a');
+        }
+        if(b >= 'A' && b <= 'Z') {
+            b = (char)(b - 'A' + 'a');
+        }
+        if(a != b) {
+            return 0;
+        }
+        s++;
+        prefix++;
+    }
+    return 1;
+}
+
+/**
+ * @brief Check the status line and read Content-Length from a NUL-terminated header block.
+ * @param[in]  hdr            Header bytes up to and including the blank line.
+ * @param[out] content_length Content-Length value, or -1 when absent.
+ * @return 0 for a 200 response with a well-formed (or absent) Content-Length, -1 otherwise.
+ */
+static int file_parse_http_headers(const char *hdr, long long *content_length)
+{
+    const char *line = hdr;
+
+    *content_length = -1;
+    if(!(file_prefix_ieq(hdr, "HTTP/1.1 200") || file_prefix_ieq(hdr, "HTTP/1.0 200")) ||
+       (hdr[12] != ' ' && hdr[12] != '\r')) {
+        return -1;
+    }
+    while((line = strstr(line, "\r\n")) != NULL) {
+        line += 2;
+        if(file_prefix_ieq(line, "content-length:")) {
+            const char *v = line + 15;
+            long long n = 0;
+            int digits = 0;
+
+            if(*content_length >= 0) {
+                return -1; /* duplicate Content-Length */
+            }
+            while(*v == ' ' || *v == '\t') {
+                v++;
+            }
+            while(*v >= '0' && *v <= '9') {
+                if(n > (LLONG_MAX - 9) / 10) {
+                    return -1;
+                }
+                n = (n * 10) + (long long)(*v - '0');
+                v++;
+                digits++;
+            }
+            while(*v == ' ' || *v == '\t') {
+                v++;
+            }
+            if(digits == 0 || v[0] != '\r') {
+                return -1;
+            }
+            *content_length = n;
+        }
+    }
+    return 0;
+}
+
 /**
  * @brief Download an HTTPS file.
  * @return 0 on success, -1 on failure.
@@ -284,8 +360,10 @@ static int file_download_https(void)
     FILE *fp;
     uint32_t total_body;
     int header_done;
-    uint8_t header_probe[8];
-    uint32_t header_probe_len;
+    char header_buf[NOXTLS_FILE_HEADER_MAX];
+    uint32_t header_len;
+    long long content_length;
+    int download_ok;
 
     conn.sock = file_tcp_connect(CONFIG_NOXTLS_FILE_CLIENT_HOST,
                                  (uint16_t)CONFIG_NOXTLS_FILE_CLIENT_PORT);
@@ -333,9 +411,11 @@ static int file_download_https(void)
         return -1;
     }
 
-    fp = fopen(CONFIG_NOXTLS_FILE_CLIENT_OUTPUT_PATH, "wb");
+    /* Write to a temporary file and only rename it into place once the
+     * response is complete and authenticated (close_notify). */
+    fp = fopen(NOXTLS_FILE_PART_PATH, "wb");
     if(fp == NULL) {
-        ESP_LOGE(NOXTLS_FILE_TAG, "failed to open output path: %s", CONFIG_NOXTLS_FILE_CLIENT_OUTPUT_PATH);
+        ESP_LOGE(NOXTLS_FILE_TAG, "failed to open output path: %s", NOXTLS_FILE_PART_PATH);
         noxtls_tls13_context_free(&tls);
         close(conn.sock);
         return -1;
@@ -343,71 +423,99 @@ static int file_download_https(void)
 
     total_body = 0U;
     header_done = 0;
-    header_probe_len = 0U;
+    header_len = 0U;
+    content_length = -1;
+    download_ok = 0;
 
     while(1) {
+        uint32_t start = 0U;
+
         rx_len = sizeof(rx);
         rc = noxtls_tls13_recv(&tls, rx, &rx_len);
-        if(rc != NOXTLS_RETURN_SUCCESS || rx_len == 0U) {
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            /* TCP close without close_notify, a forged record or a fatal alert. */
+            ESP_LOGE(NOXTLS_FILE_TAG, "download cut or not authenticated (recv rc=%d)", (int)rc);
             break;
+        }
+        if(rx_len == 0U) {
+            if(tls.base.base.state == TLS_STATE_CLOSING) {
+                download_ok = 1; /* authenticated close_notify */
+                break;
+            }
+            continue; /* empty application record */
         }
 
         if(header_done == 0) {
             uint32_t i;
-            uint32_t start;
 
-            start = 0U;
             for(i = 0U; i < rx_len; i++) {
-                if(header_probe_len < sizeof(header_probe)) {
-                    header_probe[header_probe_len++] = rx[i];
-                } else {
-                    memmove(header_probe, header_probe + 1U, sizeof(header_probe) - 1U);
-                    header_probe[sizeof(header_probe) - 1U] = rx[i];
+                if(header_len >= (uint32_t)(sizeof(header_buf) - 1U)) {
+                    break;
                 }
-                if(header_probe_len >= 4U &&
-                   header_probe[header_probe_len - 4U] == '\r' &&
-                   header_probe[header_probe_len - 3U] == '\n' &&
-                   header_probe[header_probe_len - 2U] == '\r' &&
-                   header_probe[header_probe_len - 1U] == '\n') {
+                header_buf[header_len++] = (char)rx[i];
+                if(header_len >= 4U && memcmp(&header_buf[header_len - 4U], "\r\n\r\n", 4U) == 0) {
                     header_done = 1;
                     start = i + 1U;
                     break;
                 }
             }
-
             if(header_done == 0) {
+                if(header_len >= (uint32_t)(sizeof(header_buf) - 1U)) {
+                    ESP_LOGE(NOXTLS_FILE_TAG, "response headers too large");
+                    break;
+                }
                 continue;
+            }
+            header_buf[header_len] = '\0';
+            if(file_parse_http_headers(header_buf, &content_length) != 0) {
+                ESP_LOGE(NOXTLS_FILE_TAG, "unexpected HTTP status or malformed Content-Length");
+                break;
             }
             if(start >= rx_len) {
                 continue;
             }
-
-            if(total_body + (rx_len - start) > (uint32_t)CONFIG_NOXTLS_FILE_CLIENT_MAX_DOWNLOAD_BYTES) {
-                ESP_LOGE(NOXTLS_FILE_TAG, "download exceeds max size");
-                fclose(fp);
-                noxtls_tls13_context_free(&tls);
-                close(conn.sock);
-                return -1;
-            }
-            fwrite(rx + start, 1U, rx_len - start, fp);
-            total_body += (rx_len - start);
-        } else {
-            if(total_body + rx_len > (uint32_t)CONFIG_NOXTLS_FILE_CLIENT_MAX_DOWNLOAD_BYTES) {
-                ESP_LOGE(NOXTLS_FILE_TAG, "download exceeds max size");
-                fclose(fp);
-                noxtls_tls13_context_free(&tls);
-                close(conn.sock);
-                return -1;
-            }
-            fwrite(rx, 1U, rx_len, fp);
-            total_body += rx_len;
         }
+
+        if(total_body + (rx_len - start) > (uint32_t)CONFIG_NOXTLS_FILE_CLIENT_MAX_DOWNLOAD_BYTES) {
+            ESP_LOGE(NOXTLS_FILE_TAG, "download exceeds max size");
+            break;
+        }
+        if(fwrite(rx + start, 1U, rx_len - start, fp) != (size_t)(rx_len - start)) {
+            ESP_LOGE(NOXTLS_FILE_TAG, "write to %s failed", NOXTLS_FILE_PART_PATH);
+            break;
+        }
+        total_body += (rx_len - start);
     }
 
-    fclose(fp);
-    noxtls_tls13_close(&tls);
+    if(download_ok != 0 && header_done == 0) {
+        ESP_LOGE(NOXTLS_FILE_TAG, "no complete HTTP response received");
+        download_ok = 0;
+    }
+    if(download_ok != 0 && content_length >= 0 && (long long)total_body != content_length) {
+        ESP_LOGE(NOXTLS_FILE_TAG, "body length %u does not match Content-Length %lu",
+                 (unsigned)total_body, (unsigned long)content_length);
+        download_ok = 0;
+    }
+    if(fclose(fp) != 0) {
+        download_ok = 0;
+    }
+    if(download_ok != 0) {
+        noxtls_tls13_close(&tls);
+    }
     noxtls_tls13_context_free(&tls);
     close(conn.sock);
+
+    if(download_ok == 0) {
+        (void)remove(NOXTLS_FILE_PART_PATH);
+        ESP_LOGE(NOXTLS_FILE_TAG, "download failed; nothing saved to %s", CONFIG_NOXTLS_FILE_CLIENT_OUTPUT_PATH);
+        return -1;
+    }
+    (void)remove(CONFIG_NOXTLS_FILE_CLIENT_OUTPUT_PATH);
+    if(rename(NOXTLS_FILE_PART_PATH, CONFIG_NOXTLS_FILE_CLIENT_OUTPUT_PATH) != 0) {
+        ESP_LOGE(NOXTLS_FILE_TAG, "rename to %s failed", CONFIG_NOXTLS_FILE_CLIENT_OUTPUT_PATH);
+        (void)remove(NOXTLS_FILE_PART_PATH);
+        return -1;
+    }
 
     ESP_LOGI(NOXTLS_FILE_TAG, "download complete: %u bytes saved to %s",
              (unsigned)total_body, CONFIG_NOXTLS_FILE_CLIENT_OUTPUT_PATH);

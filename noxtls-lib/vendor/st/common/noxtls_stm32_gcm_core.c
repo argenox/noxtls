@@ -11,6 +11,8 @@
 
 #include <string.h>
 
+#include "noxtls_ct.h"
+
 #include "vendor/st/common/noxtls_stm32_aes_core.h"
 #include "vendor/st/noxtls_target_detect.h"
 
@@ -194,6 +196,28 @@ static noxtls_return_t noxtls_cryp_read_block(uintptr_t base, uint8_t *block)
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Disable CRYP and clear its key and IV registers.
+ *
+ * Called on every exit of a GCM operation after the key was loaded, so the
+ * engine never keeps a session key for a later user of the peripheral.
+ *
+ * @param base CRYP base address.
+ * @return None.
+ */
+static void noxtls_cryp_clear_key_regs(uintptr_t base)
+{
+    uint32_t i;
+
+    NOXTLS_STM32_REG32(base + NOXTLS_CRYP_CR_OFF) = 0u;
+    for(i = 0u; i < 8u; i += 1U) {
+        NOXTLS_STM32_REG32(base + NOXTLS_CRYP_K0LR_OFF + (i * 4u)) = 0u;
+    }
+    for(i = 0u; i < 4u; i += 1U) {
+        NOXTLS_STM32_REG32(base + NOXTLS_CRYP_IV0LR_OFF + (i * 4u)) = 0u;
+    }
+}
+
 static noxtls_return_t noxtls_stm32_gcm_load_key(uintptr_t base,
                                                  const uint8_t *key,
                                                  uint32_t key_bytes)
@@ -276,6 +300,7 @@ static noxtls_return_t noxtls_stm32_gcm_process(noxtls_stm32_accel_family_t fami
 
     rc = noxtls_stm32_gcm_load_key(base, key, key_bytes);
     if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_cryp_clear_key_regs(base);
         return rc;
     }
     for(i = 0u; i < 3u; i += 1U) {
@@ -291,7 +316,7 @@ static noxtls_return_t noxtls_stm32_gcm_process(noxtls_stm32_accel_family_t fami
     NOXTLS_STM32_REG32(base + NOXTLS_CRYP_CR_OFF) = cr | NOXTLS_CRYP_CR_CRYPEN;
 
     if(noxtls_wait_cr(base, NOXTLS_CRYP_CR_CRYPEN, 0u) == 0) {
-        NOXTLS_STM32_REG32(base + NOXTLS_CRYP_CR_OFF) = 0u;
+        noxtls_cryp_clear_key_regs(base);
         return NOXTLS_RETURN_TIMEOUT;
     }
 
@@ -301,16 +326,16 @@ static noxtls_return_t noxtls_stm32_gcm_process(noxtls_stm32_accel_family_t fami
         for(i = 0u; i < aad_len; i += 16u) {
             rc = noxtls_cryp_write_block(base, &aad[i]);
             if(rc != NOXTLS_RETURN_SUCCESS) {
-                NOXTLS_STM32_REG32(base + NOXTLS_CRYP_CR_OFF) = 0u;
+                noxtls_cryp_clear_key_regs(base);
                 return rc;
             }
             if(noxtls_wait_sr(base, NOXTLS_CRYP_SR_IFEM, NOXTLS_CRYP_SR_IFEM) == 0) {
-                NOXTLS_STM32_REG32(base + NOXTLS_CRYP_CR_OFF) = 0u;
+                noxtls_cryp_clear_key_regs(base);
                 return NOXTLS_RETURN_TIMEOUT;
             }
         }
         if(noxtls_wait_sr(base, NOXTLS_CRYP_SR_BUSY, 0u) == 0) {
-            NOXTLS_STM32_REG32(base + NOXTLS_CRYP_CR_OFF) = 0u;
+            noxtls_cryp_clear_key_regs(base);
             return NOXTLS_RETURN_TIMEOUT;
         }
     }
@@ -323,18 +348,18 @@ static noxtls_return_t noxtls_stm32_gcm_process(noxtls_stm32_accel_family_t fami
     for(i = 0u; i < input_len; i += 16u) {
         rc = noxtls_cryp_write_block(base, &input[i]);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            NOXTLS_STM32_REG32(base + NOXTLS_CRYP_CR_OFF) = 0u;
+            noxtls_cryp_clear_key_regs(base);
             return rc;
         }
         rc = noxtls_cryp_read_block(base, &output[i]);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            NOXTLS_STM32_REG32(base + NOXTLS_CRYP_CR_OFF) = 0u;
+            noxtls_cryp_clear_key_regs(base);
             return rc;
         }
     }
 
     if(noxtls_wait_sr(base, NOXTLS_CRYP_SR_BUSY, 0u) == 0) {
-        NOXTLS_STM32_REG32(base + NOXTLS_CRYP_CR_OFF) = 0u;
+        noxtls_cryp_clear_key_regs(base);
         return NOXTLS_RETURN_TIMEOUT;
     }
 
@@ -344,7 +369,7 @@ static noxtls_return_t noxtls_stm32_gcm_process(noxtls_stm32_accel_family_t fami
     NOXTLS_STM32_REG32(base + NOXTLS_CRYP_CR_OFF) |= NOXTLS_CRYP_CR_CRYPEN;
 
     if(noxtls_wait_sr(base, NOXTLS_CRYP_SR_IFNF, NOXTLS_CRYP_SR_IFNF) == 0) {
-        NOXTLS_STM32_REG32(base + NOXTLS_CRYP_CR_OFF) = 0u;
+        noxtls_cryp_clear_key_regs(base);
         return NOXTLS_RETURN_TIMEOUT;
     }
     NOXTLS_STM32_REG32(base + NOXTLS_CRYP_DIN_OFF) = 0u;
@@ -353,7 +378,7 @@ static noxtls_return_t noxtls_stm32_gcm_process(noxtls_stm32_accel_family_t fami
     NOXTLS_STM32_REG32(base + NOXTLS_CRYP_DIN_OFF) = input_len * 8u;
 
     rc = noxtls_cryp_read_block(base, out_tag);
-    NOXTLS_STM32_REG32(base + NOXTLS_CRYP_CR_OFF) = 0u;
+    noxtls_cryp_clear_key_regs(base);
     return rc;
 }
 
@@ -417,11 +442,15 @@ noxtls_return_t noxtls_stm32_gcm_decrypt(noxtls_stm32_accel_family_t family,
     rc = noxtls_stm32_gcm_process(family, key, type, nonce, aad, aad_len,
                                                   ciphertext, ciphertext_len, plaintext,
                                                   computed_tag, 1);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        /* Constant-time tag check; on mismatch release no plaintext. */
+        if(noxtls_ct_memcmp(tag, computed_tag, sizeof(computed_tag)) != 0) {
+            if((plaintext != NULL) && (ciphertext_len != 0U)) {
+                noxtls_secure_zero(plaintext, (size_t)ciphertext_len);
+            }
+            rc = NOXTLS_RETURN_BAD_DATA;
+        }
     }
-    if(memcmp(tag, computed_tag, sizeof(computed_tag)) != 0) {
-        return NOXTLS_RETURN_BAD_DATA;
-    }
-    return NOXTLS_RETURN_SUCCESS;
+    noxtls_secure_zero(computed_tag, sizeof(computed_tag));
+    return rc;
 }

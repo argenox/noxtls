@@ -145,6 +145,22 @@ if(NOXTLS_CFG_FEATURE_TLS12 AND NOXTLS_CFG_FEATURE_TLS13)
     )
 endif()
 
+# TLS 1.3 / DTLS 1.3 peer-input limits, ticket binding and client-certificate trust.
+if(NOXTLS_CFG_FEATURE_DTLS AND NOXTLS_CFG_FEATURE_TLS12 AND NOXTLS_CFG_FEATURE_TLS13)
+    noxtls_lb_add_suite(tls13_hardening_test tls13_hardening_test.c
+        tls13_mtls_empty_trust_store
+        tls12_mtls_empty_trust_store
+        tls12_session_stores_clear
+        tls13_record_size_limit_minimum
+        tls13_key_update_flood
+        tls13_ticket_binding
+        tls13_context_free_wipes
+        tls13_provider_certificate_verify
+        tls13_short_client_hello
+        dtls13_unauthenticated_datagrams
+    )
+endif()
+
 # NoxTLS <-> OpenSSL interoperability over localhost TCP (applications/tlscurl as the
 # NoxTLS client, applications/https_server as the NoxTLS server). Registered only when
 # the openssl CLI, Python 3 and both applications are available. The applications are
@@ -214,4 +230,40 @@ if(NOXTLS_OPENSSL_EXECUTABLE AND Python3_Interpreter_FOUND AND BUILD_APPLICATION
    NOT (CMAKE_VERSION VERSION_LESS 3.19))
     # DEFER evaluates its arguments when the call runs: bake the current values in.
     cmake_language(EVAL CODE "cmake_language(DEFER DIRECTORY [[${CMAKE_SOURCE_DIR}]] CALL noxtls_lb_register_interop [[${CMAKE_CURRENT_SOURCE_DIR}]] [[${CMAKE_CURRENT_BINARY_DIR}]] [[${Python3_EXECUTABLE}]] [[${NOXTLS_OPENSSL_EXECUTABLE}]])")
+endif()
+
+# Audit regression tests: TLS 1.2 / DTLS 1.2 record, heartbeat, resumption and renegotiation hardening.
+if(NOXTLS_CFG_FEATURE_TLS12 AND NOXTLS_CFG_FEATURE_TLS13)
+    noxtls_lb_add_suite(tls12_audit_test tls12_audit_test.c
+        tls12_heartbeat_relabel_fatal
+        tls12_heartbeat_shaped_app_data
+        tls12_forged_handshake_record_closes
+        tls12_forged_alert_record_closes
+        tls12_failed_resumption_discards_session
+        tls12_reneg_requires_verify_data
+        tls12_reneg_correct_verify_data_proceeds
+        tls12_dhe_context_free_wipes
+        tls12_ecdhe_recv_skx_empty_record
+        tls_extension_lists_bounded
+        unified_no_tls12_retry_after_tls13_failure
+        dtls12_accept_idle_returns
+    )
+endif()
+
+# Record-layer and DTLS retransmission regressions (security audit, record batch). Tests whose
+# feature is compiled out exit 77 (skipped).
+if(NOXTLS_CFG_FEATURE_TLS12 AND NOXTLS_CFG_FEATURE_TLS13)
+    noxtls_lb_add_suite(record_layer_audit_test record_layer_audit_test.c
+        dtls12_forged_seq_keeps_replay_window
+        dtls12_send_failure_consumes_seq
+        dtls13_send_failure_consumes_seq
+        dtls12_lost_datagram_retransmit_bounded
+        dtls12_hvr_retransmit_amplification
+        dtls13_hrr_retransmit_amplification
+        dtls_cookie_bound_to_peer_identity
+        dtls12_handshake_with_peer_identity
+        tls12_empty_heartbeat_record_rejected
+        tls10_cbc_record_split
+        tls12_cbc_mte_all_padding_lengths
+    )
 endif()

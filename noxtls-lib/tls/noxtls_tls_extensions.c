@@ -37,6 +37,18 @@
  * @return NOXTLS_RETURN_FAILED if the extensions is not a valid extension for a TLS extension
  * @return NOXTLS_RETURN_RECORD_OVERFLOW if the extensions is not a valid extension for a TLS extension
  */
+/*
+ * Upper bounds on attacker-sized lists, so the pairwise duplicate checks stay bounded
+ * (TLS_MAX_EXTENSIONS_PER_BLOCK^2 / 2 comparisons) before any authentication. Real
+ * ClientHellos carry about 20 extensions and one to three key shares.
+ */
+#ifndef TLS_MAX_EXTENSIONS_PER_BLOCK
+#define TLS_MAX_EXTENSIONS_PER_BLOCK 128U
+#endif
+#ifndef TLS_MAX_KEY_SHARE_ENTRIES
+#define TLS_MAX_KEY_SHARE_ENTRIES 64U
+#endif
+
 static noxtls_return_t tls_parse_extensions_for_peer(const uint8_t *data, uint32_t data_len,
     tls_extensions_t *extensions, uint8_t server_response)
 {
@@ -77,6 +89,10 @@ static noxtls_return_t tls_parse_extensions_for_peer(const uint8_t *data, uint32
     
     /* Parse extensions */
     while ((offset < (extensions_len + 2U)) && ((offset + (uint32_t)sizeof(tls_extension_header_t)) <= data_len)) {
+        if (extensions->count >= TLS_MAX_EXTENSIONS_PER_BLOCK) {
+            (void)noxtls_tls_extensions_free(extensions);
+            return NOXTLS_RETURN_TLS_ALERT_ILLEGAL_PARAMETER;
+        }
         if (extensions->count >= max_extensions) {
             uint32_t new_max = (uint32_t)(max_extensions * 2U);
             tls_extension_t *new_exts;
@@ -615,6 +631,9 @@ noxtls_return_t noxtls_tls_parse_extension_key_share(const uint8_t *data, uint32
 
             scan += exchange_len;
             ++max_entries;
+        }
+        if (max_entries > TLS_MAX_KEY_SHARE_ENTRIES) {
+            return NOXTLS_RETURN_BAD_DATA;
         }
     }
 

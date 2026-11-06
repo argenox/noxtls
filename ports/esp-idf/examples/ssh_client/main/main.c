@@ -220,6 +220,19 @@ static int run_noxssh_client(void)
     uint8_t out[1024];
     uint32_t out_len;
 
+#if !defined(CONFIG_NOXTLS_SSH_CLIENT_ALLOW_UNVERIFIED_HOST) || !CONFIG_NOXTLS_SSH_CLIENT_ALLOW_UNVERIFIED_HOST
+    /*
+     * This example does not verify the server host key, so password
+     * authentication would hand the password to any host that answers at the
+     * configured address (for example a spoofed one on the same network).
+     * Refuse unless the integrator explicitly accepts that for testing, or
+     * adds host-key verification and enables the option.
+     */
+    ESP_LOGE(NOXTLS_SSH_TAG, "refusing password auth: server host key is not verified "
+             "(enable NOXTLS_SSH_CLIENT_ALLOW_UNVERIFIED_HOST for testing only)");
+    return -1;
+#endif
+
     sock = ssh_tcp_connect(CONFIG_NOXTLS_SSH_CLIENT_HOST,
                            (uint16_t)CONFIG_NOXTLS_SSH_CLIENT_PORT);
     if(sock < 0) {

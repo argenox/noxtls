@@ -1197,13 +1197,19 @@
 
 /* Software GHASH multiplier for AES-GCM.
  * 4 (default): Shoup 4-bit table, 256 B built on the stack per GCM call and
- *              wiped on return (no static cache; reentrant).
+ *              wiped on return (no static cache; reentrant). The table is
+ *              indexed with secret-dependent nibbles of the GHASH accumulator.
  * 0: constant-time bit-serial multiply, no table (16 B key, ~8x slower GHASH);
  *    for the smallest stacks or when table-lookup timing is a concern.
+ *    Default (and required) with NOXTLS_SIDECHANNEL_PROFILE_CONSTANT_TIME_STRICT.
  * Prereq: NOXTLS_FEATURE_AES_GCM=1.
  */
 #ifndef NOXTLS_GCM_TABLE_BITS
+#if defined(NOXTLS_SIDECHANNEL_PROFILE_CONSTANT_TIME_STRICT)
+#define NOXTLS_GCM_TABLE_BITS 0
+#else
 #define NOXTLS_GCM_TABLE_BITS 4
+#endif
 #endif
 
 /* Enables AES-CCM AEAD mode.
@@ -1218,6 +1224,43 @@
  */
 #ifndef NOXTLS_FEATURE_AES_CMAC
 #define NOXTLS_FEATURE_AES_CMAC 1
+#endif
+
+/* Software AES core.
+ * 1: table-free constant-time core. SubBytes is a bitsliced Boyar-Peralta
+ *    circuit and MixColumns uses masked packed arithmetic, so no memory index
+ *    or branch depends on the key or the data; key expansion is constant-time
+ *    in both settings. Slower than the T-tables (see docs, Side-channel
+ *    profiles) and needs no tables (about 5 KB less flash).
+ * 0: T-table core (Te0..Te3 and S-box lookups indexed by state bytes; leaks
+ *    through data-cache timing on cached CPUs). NOXTLS_AES_ROM_TABLES and
+ *    NOXTLS_AES_COMPACT_TABLES apply only here.
+ * Default: 0 with NOXTLS_SIDECHANNEL_PROFILE_PERFORMANCE, 1 otherwise;
+ * NOXTLS_SIDECHANNEL_PROFILE_CONSTANT_TIME_STRICT requires 1. Hardware block
+ * backends (ports, AES-NI, ARMv8) are used first when they are compiled in.
+ * Prereq: NOXTLS_FEATURE_AES=1.
+ */
+#ifndef NOXTLS_AES_CONSTANT_TIME
+#if defined(NOXTLS_SIDECHANNEL_PROFILE_PERFORMANCE)
+#define NOXTLS_AES_CONSTANT_TIME 0
+#else
+#define NOXTLS_AES_CONSTANT_TIME 1
+#endif
+#endif
+
+/* Constant-time table access for the legacy table ciphers ARIA, Camellia and
+ * RC4: each S-box (or RC4 state) access reads the whole 256-entry table and
+ * keeps the wanted entry with a mask, so no address depends on the key or the
+ * data. Roughly 100x slower for these ciphers. DES/3DES are always table-scan
+ * and branch-free and are not affected by this setting.
+ * Default: 1 with NOXTLS_SIDECHANNEL_PROFILE_CONSTANT_TIME_STRICT, 0 otherwise.
+ */
+#ifndef NOXTLS_LEGACY_CIPHER_CONSTANT_TIME
+#if defined(NOXTLS_SIDECHANNEL_PROFILE_CONSTANT_TIME_STRICT)
+#define NOXTLS_LEGACY_CIPHER_CONSTANT_TIME 1
+#else
+#define NOXTLS_LEGACY_CIPHER_CONSTANT_TIME 0
+#endif
 #endif
 
 /* Placement of the software AES encryption T-tables (Te0..Te3).

@@ -69,3 +69,4 @@ On failure, `tlscurl` prints the NoxTLS return code and, for certificate-related
 
 - **0-RTT**: After a successful TLS 1.3 handshake, negotiated state is printed (`ticket_stored`, `early_data_accepted`, `early_data_sent`, etc.). Sending 0-RTT application data requires a resumed session inside the library’s handshake flow; this tool focuses on **observability** and standard HTTPS without extra library APIs.
 - **TLS record dump** is global to the process (one dump file path at a time), matching `noxtls_tls_set_record_dump_file` behavior.
+- **Exit status**: the response is complete only when the server ends it with an authenticated `close_notify`. A transport EOF, a record that fails authentication or a fatal alert before that prints an error and exits with status 1 (output already written may be truncated).

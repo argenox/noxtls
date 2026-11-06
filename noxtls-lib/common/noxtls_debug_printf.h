@@ -74,8 +74,12 @@ int noxtls_debug_printf(const uint8_t *format, ...);
  *
  * Levels:
  *   0 = disabled
- *   1 = standard debug (suppresses very chatty TLS13 traces)
- *   2 = full debug output
+ *   1 = standard debug: drops [TLS13_DEBUG] lines (including their per-byte
+ *       continuation calls) and every bare hex-byte dump ("%02X" style
+ *       formats)
+ *   2 = full debug output, including public handshake message dumps. The
+ *       library does not print secrets or traffic keys at any level; use the
+ *       SSLKEYLOGFILE support for decrypting captures
  *
  * @param[in] level Debug level.
  */

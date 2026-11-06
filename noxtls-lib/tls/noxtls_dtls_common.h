@@ -120,6 +120,7 @@ extern "C" {
 #define DTLS_MAX_ACK_WIRE_LEN            (4U + 2U + 2U + (12U * DTLS_MAX_ACK_RANGES) + 2U)
 #define DTLS_REASSEMBLY_QUEUE_SIZE      4U       /* Future handshake messages retained for reordering */
 #define DTLS_RETRANSMIT_RECORD_BURST    10U      /* RFC 9147 Section 5.8.3 send burst cap */
+#define DTLS_PEER_IDENTITY_MAX_LEN      32U      /* Max bytes of a peer identity bound into the cookie */
 
 /* DTLS Epochs */
 #define DTLS_EPOCH_UNENCRYPTED          0U      /* Unencrypted handshake */
@@ -260,8 +261,12 @@ typedef struct dtls_context_s
     uint32_t flight_buffer_capacity; /* Capacity of flight buffer */
     uint8_t *flight_buffer_storage; /* Optional caller-managed flight buffer storage */
     uint32_t flight_buffer_storage_capacity; /* Capacity of caller-managed flight buffer storage */
-    uint32_t retransmit_max_attempts; /* Max retransmission attempts per receive */
-    uint64_t bytes_received;    /* Bytes received (for anti-amplification) */
+    uint32_t retransmit_max_attempts; /* Max retransmissions of one flight without peer progress */
+    uint32_t retransmit_count;  /* Retransmissions of the current flight since the last peer progress */
+    uint16_t retransmit_progress_seq; /* expected_message_seq when retransmit_count was last reset */
+    uint16_t peer_flight_start_seq; /* expected_message_seq when our current flight was sent: first
+                                     * message_seq of the peer's answer (DTLS 1.2 retransmit trigger) */
+    uint64_t bytes_received;   /* Bytes received (for anti-amplification) */
     uint64_t bytes_sent;        /* Bytes sent (for anti-amplification) */
     uint8_t validated;          /* Peer address validated */
     uint64_t ack_epoch;         /* Latest epoch to acknowledge */
@@ -304,7 +309,11 @@ typedef struct dtls_context_s
     uint32_t cookie_len;        /* Cookie length */
     uint8_t cookie_secret[32];  /* Per-context secret for DTLS cookie HMAC */
     uint8_t cookie_secret_valid; /* Cookie secret initialized */
-    uint8_t *hrr_cookie;        /* Peer HelloRetryRequest cookie to echo */
+    uint8_t peer_identity[DTLS_PEER_IDENTITY_MAX_LEN]; /* Integrator-supplied peer address (cookie binding) */
+    uint8_t peer_identity_len;  /* Length of peer_identity (0 = not set) */
+    uint8_t cookie_identity[DTLS_PEER_IDENTITY_MAX_LEN]; /* peer_identity the stored cookie was issued to */
+    uint8_t cookie_identity_len; /* Length of cookie_identity */
+    uint8_t *hrr_cookie;       /* Peer HelloRetryRequest cookie to echo */
     uint32_t hrr_cookie_len;    /* Peer HelloRetryRequest cookie length */
 #endif
 } dtls_context_t;
@@ -365,6 +374,9 @@ void noxtls_dtls_flight_peer_progress(dtls_context_t *ctx);
 /* Deliver a complete, previously queued handshake message whose message_seq is next. */
 noxtls_return_t noxtls_dtls_take_queued_handshake(dtls_context_t *ctx, uint8_t *msg_type,
                                                   uint8_t **complete_msg, uint32_t *complete_len);
+/* DTLS 1.3: drop queued and partially reassembled handshake fragments (called when read keys are
+ * first installed, so bytes that arrived unprotected never complete an authenticated message). */
+void noxtls_dtls_reassembly_discard(dtls_context_t *ctx);
 
 /* DTLS Handshake Fragmentation */
 noxtls_return_t dtls_send_handshake_fragment(dtls_context_t *ctx, 
@@ -383,6 +395,28 @@ noxtls_return_t noxtls_dtls_update_replay_window(dtls_context_t *ctx, uint64_t s
 noxtls_return_t noxtls_dtls_generate_cookie(dtls_context_t *ctx, const uint8_t *client_hello, uint32_t client_hello_len, uint8_t *cookie, uint32_t *cookie_len);
 noxtls_return_t noxtls_dtls_verify_cookie(const dtls_context_t *ctx, const uint8_t *cookie, uint32_t cookie_len);
 void noxtls_dtls_mark_validated(dtls_context_t *ctx);
+/**
+ * @brief Bind the server's stateless cookie to the transport address of the current peer.
+ *
+ * RFC 6347 section 4.2.1 / RFC 9147 section 5.1: the cookie must prove that the client can
+ * receive at the address it sends from. The record layer only sees bytes, so the integrator
+ * supplies the peer's transport identity (for example its IP address and UDP port in a fixed
+ * encoding) before the datagrams of that peer are processed, and updates it whenever the
+ * context is fed datagrams from another source. The identity is mixed into each cookie issued,
+ * and a cookie is accepted only while the identity equals the one it was issued to, so a
+ * cookie obtained from one address cannot validate a ClientHello spoofed from another.
+ *
+ * Without an identity (the default, or @p identity_len 0) the cookie is not address-bound and
+ * one context must serve exactly one peer address (a connected socket or a per-peer context).
+ *
+ * @param[in,out] ctx DTLS context (server).
+ * @param[in] identity Peer identity bytes, or NULL with @p identity_len 0 to clear it.
+ * @param[in] identity_len 0 to DTLS_PEER_IDENTITY_MAX_LEN bytes.
+ * @return NOXTLS_RETURN_SUCCESS, NOXTLS_RETURN_NULL, or NOXTLS_RETURN_INVALID_PARAM when
+ *         @p identity_len is too long.
+ */
+noxtls_return_t noxtls_dtls_set_peer_identity(dtls_context_t *ctx, const uint8_t *identity,
+                                              uint32_t identity_len);
 
 #ifdef __cplusplus
 }

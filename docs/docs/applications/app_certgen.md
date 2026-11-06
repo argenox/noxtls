@@ -110,3 +110,7 @@ certgen genrsa -out server -bits 2048
 certgen genec -out client -curve prime256v1
 certgen req -new -x509 -key client.key -out cert.pem -days 365 -subj /CN=localhost
 
+
+## Private key files
+
+On POSIX systems private key files are created with mode `0600` (owner read/write only), an existing file is reset to `0600` before it is written, and a symbolic link at the key path is refused.

@@ -63,7 +63,7 @@ Initialize static buffer memory allocator
 noxtls_return_t noxtls_mem_cleanup(void);
 ```
 
-Cleanup static buffer memory allocator
+Cleanup static buffer memory allocator. The whole pool, including blocks still allocated, is cleared to zero.
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success
 
@@ -87,7 +87,7 @@ Allocate memory
 void noxtls_free(void *ptr);
 ```
 
-Free allocated memory
+Free allocated memory. The static-buffer allocator clears the whole block before reusing it. The host allocator clears the block first when the C library can report its size (macOS, Linux, Android, Windows).
 
 **Parameters:**
 
@@ -114,7 +114,7 @@ Allocate and zero-initialize memory
 void *noxtls_realloc(void *ptr, size_t size);
 ```
 
-Reallocate memory
+Reallocate memory. When the block moves, the old block is cleared before it is released (static-buffer allocator always; host allocator on macOS, Linux, Android and Windows).
 
 **Parameters:**
 
@@ -170,7 +170,7 @@ Converts a hex string to binary bytes.  Parses a null-terminated string of hex d
 - `out_buf` — Buffer to receive the converted bytes.
 - `out_length` — Maximum number of bytes that out_buf can hold.
 
-**Returns:** On success, the number of bytes written. On error: `-1` if string or out_buf is NULL, `-2` if out_buf is too small, `-3` for odd-length input.
+**Returns:** On success, the number of bytes written. On error: `-1` if string or out_buf is NULL, `-2` if out_buf is too small, `-3` for odd-length input, `-5` if any character is not a hex digit. Since this release a non-hex character is an error and nothing is written; earlier versions decoded such pairs as `0x00`.
 
 ### `noxtls_print_data`
 

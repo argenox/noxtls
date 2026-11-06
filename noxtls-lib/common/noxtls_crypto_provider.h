@@ -157,8 +157,12 @@ typedef noxtls_return_t (*noxtls_crypto_mlkem_decaps_t)(
     uint8_t mlkem_decaps_shared_secret[32]);
 
 /**
- * Operations table for a crypto provider. Set unused ops to NULL;
- * NoxTLS will use software for those operations.
+ * Operations table for a crypto provider. Set unused ops to NULL.
+ * Verify and KEM ops left NULL are done in software. RSA signing is never moved
+ * to software while a provider key handle is registered: if the handshake needs
+ * an RSA op the provider does not implement (for example rsa_sign_pss for a
+ * TLS 1.3 RSA CertificateVerify or a TLS 1.2 PSS ServerKeyExchange), the
+ * handshake fails instead of signing with a software key.
  */
 typedef struct
 {

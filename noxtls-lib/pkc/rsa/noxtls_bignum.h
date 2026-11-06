@@ -83,6 +83,45 @@ noxtls_return_t noxtls_bn_mod_exp(uint8_t *result, const uint8_t *base, const ui
 noxtls_return_t noxtls_bn_mod_exp_public(uint8_t *result, const uint8_t *base, const uint8_t *exp, uint32_t exp_len, const uint8_t *mod, uint32_t mod_len);
 noxtls_return_t noxtls_bn_mod_inv(uint8_t *result, const uint8_t *a, uint32_t a_len, const uint8_t *m, uint32_t m_len);
 
+/**
+ * @brief Constant-time modular reduction: result = a mod mod.
+ *
+ * For values derived from private keys or nonces and for a secret modulus (RSA p, q).
+ * Control flow and memory access depend only on @p a_len and @p mod_len and on the parity
+ * of @p mod (odd: Montgomery Horner evaluation, even: bit-serial masked subtraction); leading
+ * zero bytes of @p a are not stripped and no platform accelerator hook is used.
+ * noxtls_bn_mod() stays the faster variable-time reducer for public operands.
+ *
+ * @param[out] result  mod_len bytes, big-endian; may alias @p a (a is read completely first).
+ * @param[in]  a       Dividend, a_len bytes big-endian (a_len may be 0: result is 0).
+ * @param[in]  a_len   Dividend length in bytes.
+ * @param[in]  mod     Modulus, mod_len bytes big-endian, non-zero.
+ * @param[in]  mod_len Modulus length in bytes (> 0).
+ * @return NOXTLS_RETURN_SUCCESS, NOXTLS_RETURN_NULL, NOXTLS_RETURN_INVALID_PARAM (zero modulus or
+ *         length), NOXTLS_RETURN_FAILED (implausible length) or NOXTLS_RETURN_NOT_ENOUGH_MEMORY.
+ *         @p result is zeroed on failure.
+ */
+noxtls_return_t noxtls_bn_mod_ct(uint8_t *result, const uint8_t *a, uint32_t a_len, const uint8_t *mod, uint32_t mod_len);
+
+/**
+ * @brief Constant-time inverse modulo an odd prime p: result = a^(p-2) mod p (Fermat).
+ *
+ * a is reduced with noxtls_bn_mod_ct() and raised to p - 2 with the fixed-window Montgomery
+ * exponentiation; the result is verified (a * result == 1 mod p) before it is returned, so a
+ * zero a or a composite p fails rather than producing a wrong value. Use it for secret
+ * values such as signature nonces; noxtls_bn_mod_inv() is variable time.
+ *
+ * @param[out] result p_len bytes, big-endian; may alias @p a.
+ * @param[in]  a      Value to invert, a_len bytes big-endian.
+ * @param[in]  a_len  Length of @p a in bytes.
+ * @param[in]  p      Odd prime modulus (> 2), p_len bytes big-endian.
+ * @param[in]  p_len  Modulus length in bytes.
+ * @return NOXTLS_RETURN_SUCCESS; NOXTLS_RETURN_FAILED when a is 0 mod p or p is not prime;
+ *         NOXTLS_RETURN_INVALID_PARAM for an even or too small p; NOXTLS_RETURN_NULL or
+ *         NOXTLS_RETURN_NOT_ENOUGH_MEMORY. @p result is zeroed on failure.
+ */
+noxtls_return_t noxtls_bn_mod_inv_prime_ct(uint8_t *result, const uint8_t *a, uint32_t a_len, const uint8_t *p, uint32_t p_len);
+
 /* Test-only functions: expose internal shift and 2n-by-n limb functions for unit testing */
 #ifdef NOXTLS_BIGNUM_TEST_INTERNAL
 /* Shift buf (big-endian, length len) right by k bits (0 <= k <= 8). Test wrapper for static bn_shift_r_bits. */

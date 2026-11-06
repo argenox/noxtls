@@ -1,8 +1,8 @@
-# Build and deploy documentation preview on-demand (does not update production).
-# Production deploy remains deploy-docs.yml (push to main/master only).
-#
-# After the workflow runs, open the "github-pages" deployment URL on the PR checks,
-# or use the comment posted on the PR. Add /docs/intro for the docs home with sidebar.
+# Build a documentation preview on demand. It never deploys: the built site is
+# uploaded as a workflow artifact ("docs-preview") to download and open locally.
+# Production deploy remains deploy-docs.yml (push to main/master only), the only
+# workflow that holds pages: write / id-token: write or uses the github-pages
+# environment, so an arbitrary branch or tag can no longer replace the live site.
 
 name: Docs Preview (Manual)
 
@@ -17,26 +17,23 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+# The previewed tree is unreviewed and runs npm install: read-only token only.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: docs-preview-${{ github.run_id }}
   cancel-in-progress: true
 
 jobs:
-  deploy-preview:
+  build-preview:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref }}
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -66,19 +63,10 @@ jobs:
           npm install
           npm run build
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v4
-
       - name: Upload preview artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
+          name: docs-preview
           path: docs/build
-
-      - name: Deploy preview to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
-
-      - name: Print preview URL
-        run: |
-          echo "Preview URL: ${{ steps.deployment.outputs.page_url }}"
-          echo "Docs intro:  ${{ steps.deployment.outputs.page_url }}docs/intro"
+          if-no-files-found: error
+          retention-days: 7

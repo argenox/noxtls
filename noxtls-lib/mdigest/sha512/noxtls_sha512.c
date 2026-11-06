@@ -328,8 +328,10 @@ static noxtls_return_t noxtls_sha512_round(noxtls_sha512_ctx_t * ctx, const uint
     ctx->h[5] += f;
     ctx->h[6] += g;
     ctx->h[7] += h;
-    
-    
+
+    /* The schedule words are the input block (an HMAC key pad, a PRK): wipe
+     * them here, per block; a wipe at finish cannot reach this frame. */
+    noxtls_secure_zero(w, sizeof(w));
     return rc;    
 }
 
@@ -353,7 +355,7 @@ noxtls_return_t noxtls_sha512_finish(noxtls_sha512_ctx_t * ctx, uint8_t * hash)
     }
 
     uint32_t used = (uint32_t)ctx->data_len;
-    uint32_t total_length = 0U;
+    uint64_t total_length = 0U;
     uint32_t i = 0U;
     uint32_t block_size = (uint32_t)(HASH_SHA512_BLOCK_SIZE);
     uint8_t length_size = (uint8_t)(HASH_SHA512_LENGTH_LEN); /* 128-bit length field */
@@ -363,7 +365,7 @@ noxtls_return_t noxtls_sha512_finish(noxtls_sha512_ctx_t * ctx, uint8_t * hash)
         noxtls_secure_zero(ctx, sizeof(*ctx));
         return NOXTLS_RETURN_FAILED;
     }
-    total_length = ctx->length + used;
+    total_length = ctx->length + (uint64_t)used;
 
     /* Pad in place: 0x80, zeros, then the bit length in the last 16 bytes. */
     ctx->data[used] = SHA512_PAD_BYTE;
@@ -490,6 +492,9 @@ noxtls_return_t noxtls_sha512_verify(const uint8_t * data, uint32_t len, const u
         rc = NOXTLS_RETURN_SUCCESS;
     }
 
+    /* The context and digest describe the (possibly secret) input. */
+    noxtls_secure_zero(&ctx, sizeof(ctx));
+    noxtls_secure_zero(hash, sizeof(hash));
     return rc;
 }
 

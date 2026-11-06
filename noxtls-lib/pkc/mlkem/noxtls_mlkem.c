@@ -54,6 +54,13 @@ static uint32_t g_mlkem_test_random_seq_len = 0U;
 static uint32_t g_mlkem_test_random_seq_off = 0U;
 
 /** Zetas in Montgomery form, bit-reversed order (FIPS 203 Appendix A). */
+/**
+ * Optimisation barrier for secret-derived masks. Always zero; the volatile
+ * read stops the compiler from proving a mask is 0 or all-ones and lowering
+ * the masked select into a secret-dependent branch (seen with clang on x86).
+ */
+static volatile uint32_t g_mlkem_opt_blocker = 0U;
+
 static const int16_t mlkem_zetas[128] = {
     -1044, -758, -359, -1517, 1493, 1422, 287, 202,
     -171, 622, 1577, 182, 962, -1202, -1474, 1468,
@@ -115,7 +122,8 @@ static noxtls_return_t mlkem_get_params(noxtls_mlkem_param_t param, mlkem_params
  */
 static int16_t mlkem_montgomery_reduce(int32_t a)
 {
-    int16_t t = (int16_t)(a * (int32_t)MLKEM_QINV);
+    /* Multiply modulo 2^32 in unsigned arithmetic: the signed product overflows int32. */
+    int16_t t = (int16_t)(uint16_t)((uint32_t)a * (uint32_t)(int32_t)MLKEM_QINV);
     return (int16_t)((a - ((int32_t)t * MLKEM_Q)) >> 16);
 }
 
@@ -443,7 +451,7 @@ static void mlkem_poly_frommsg(mlkem_poly_t *p, const uint8_t *msg)
 {
     uint32_t i = 0U;
     for(i = 0U; i < (uint32_t)MLKEM_N; i += 1U) {
-        uint32_t bit = ((uint32_t)msg[i >> 3U] >> (i & 7U)) & 1U;
+        uint32_t bit = (((uint32_t)msg[i >> 3U] >> (i & 7U)) & 1U) ^ g_mlkem_opt_blocker;
         p->c[i] = (int16_t)((0U - bit) & (((uint32_t)MLKEM_Q + 1U) / 2U));
     }
 }
@@ -1242,7 +1250,7 @@ noxtls_return_t noxtls_mlkem_decaps(noxtls_mlkem_param_t param, const uint8_t *p
     }
     if(rc == NOXTLS_RETURN_SUCCESS) {
         /* mask = 0xFF when the ciphertexts differ, 0x00 otherwise. */
-        mask = (uint8_t)(0U - (((uint32_t)diff + 0xFFU) >> 8U));
+        mask = (uint8_t)(0U - ((((uint32_t)diff + 0xFFU) >> 8U) ^ g_mlkem_opt_blocker));
         for(i = 0U; i < MLKEM_SYM_BYTES; i += 1U) {
             shared_secret_32[i] = (uint8_t)((kr[i] & (uint8_t)~mask) | (k_bar[i] & mask));
         }
@@ -1250,6 +1258,71 @@ noxtls_return_t noxtls_mlkem_decaps(noxtls_mlkem_param_t param, const uint8_t *p
     noxtls_secure_zero(m_h, sizeof(m_h));
     noxtls_secure_zero(kr, sizeof(kr));
     noxtls_secure_zero(k_bar, sizeof(k_bar));
+    return rc;
+}
+
+/**
+ * @brief Length-checked encapsulation (see noxtls_mlkem_encaps()).
+ *
+ * @param[in] param Parameter set.
+ * @param[in] public_key Peer encapsulation key.
+ * @param[in] public_key_len Length of @p public_key in bytes.
+ * @param[out] ciphertext Ciphertext.
+ * @param[out] shared_secret_32 32-byte shared secret.
+ * @return NOXTLS_RETURN_SUCCESS, NOXTLS_RETURN_NULL, NOXTLS_RETURN_INVALID_PARAM,
+ *         NOXTLS_RETURN_BAD_DATA (wrong length or invalid key) or an entropy/hash error.
+ */
+noxtls_return_t noxtls_mlkem_encaps_ex(noxtls_mlkem_param_t param,
+                                       const uint8_t *public_key,
+                                       uint32_t public_key_len,
+                                       uint8_t *ciphertext,
+                                       uint8_t *shared_secret_32)
+{
+    uint32_t expected_len = noxtls_mlkem_public_key_len(param);
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+
+    if((public_key == NULL) || (ciphertext == NULL) || (shared_secret_32 == NULL)) {
+        rc = NOXTLS_RETURN_NULL;
+    } else if(expected_len == 0U) {
+        rc = NOXTLS_RETURN_INVALID_PARAM;
+    } else if(public_key_len != expected_len) {
+        rc = NOXTLS_RETURN_BAD_DATA;
+    } else {
+        rc = noxtls_mlkem_encaps(param, public_key, ciphertext, shared_secret_32);
+    }
+    return rc;
+}
+
+/**
+ * @brief Length-checked decapsulation (see noxtls_mlkem_decaps()).
+ *
+ * @param[in] param Parameter set.
+ * @param[in] public_key Own encapsulation key.
+ * @param[in] secret_key Own decapsulation key.
+ * @param[in] ciphertext Peer ciphertext.
+ * @param[in] ciphertext_len Length of @p ciphertext in bytes.
+ * @param[out] shared_secret_32 32-byte shared secret.
+ * @return As noxtls_mlkem_decaps(), plus NOXTLS_RETURN_BAD_DATA for a wrong length.
+ */
+noxtls_return_t noxtls_mlkem_decaps_ex(noxtls_mlkem_param_t param,
+                                       const uint8_t *public_key,
+                                       const uint8_t *secret_key,
+                                       const uint8_t *ciphertext,
+                                       uint32_t ciphertext_len,
+                                       uint8_t *shared_secret_32)
+{
+    uint32_t expected_len = noxtls_mlkem_ciphertext_len(param);
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+
+    if((public_key == NULL) || (secret_key == NULL) || (ciphertext == NULL) || (shared_secret_32 == NULL)) {
+        rc = NOXTLS_RETURN_NULL;
+    } else if(expected_len == 0U) {
+        rc = NOXTLS_RETURN_INVALID_PARAM;
+    } else if(ciphertext_len != expected_len) {
+        rc = NOXTLS_RETURN_BAD_DATA;
+    } else {
+        rc = noxtls_mlkem_decaps(param, public_key, secret_key, ciphertext, shared_secret_32);
+    }
     return rc;
 }
 

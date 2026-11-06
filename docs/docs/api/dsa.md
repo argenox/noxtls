@@ -119,6 +119,11 @@ noxtls_return_t noxtls_dsa_sign(const dsa_key_t *key, const uint8_t *message, ui
 
 Compute DSA signature **(r, s)** of **message** using **key** (must have private **x**) and **hash_algo**. Supported hashes: MD5, SHA-1, SHA-224, SHA-256, SHA-384, SHA-512. The hash is truncated to **q_len** bytes (leftmost bits) per FIPS 186-4.
 
+Signing is constant time with respect to the private key and the nonce: the nonce is derived as
+k = (c mod (q - 1)) + 1 from N + 64 random bits (FIPS 186-4 B.2.1), k is inverted with a
+constant-time Fermat inverse, and r*x, z + r*x and the final product are reduced with a
+fixed-sequence reduction. q must be odd (`NOXTLS_RETURN_FAILED` otherwise).
+
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success.
 
 ### `noxtls_dsa_verify`

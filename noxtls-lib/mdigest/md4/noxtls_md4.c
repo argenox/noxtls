@@ -290,7 +290,10 @@ noxtls_return_t noxtls_md4_round(noxtls_sha_ctx_t * ctx, const uint8_t * input)
     ctx->u.md32.h[1] += B;
     ctx->u.md32.h[2] += C;
     ctx->u.md32.h[3] += D;
-    
+
+    /* The schedule words are the input block (an HMAC key pad, a PRK): wipe
+     * them here, per block; a wipe at finish cannot reach this frame. */
+    noxtls_secure_zero(w, sizeof(w));
     return rc;    
 }
 
@@ -398,6 +401,9 @@ noxtls_return_t noxtls_md4_verify(const uint8_t * data, uint32_t len, const uint
         rc = NOXTLS_RETURN_SUCCESS;
     }
 
+    /* The context and digest describe the (possibly secret) input. */
+    noxtls_secure_zero(&ctx, sizeof(ctx));
+    noxtls_secure_zero(hash, sizeof(hash));
     return rc;
 }
 

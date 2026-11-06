@@ -69,9 +69,42 @@ static uint8_t camellia_rotl8(uint8_t v, uint32_t n)
     return (uint8_t)(((x << n) | (x >> (8U - n))) & 0xFFU);
 }
 
-static uint8_t camellia_sbox2(uint8_t x) { return camellia_rotl8(camellia_sbox1[x], 1U); }
-static uint8_t camellia_sbox3(uint8_t x) { return camellia_rotl8(camellia_sbox1[x], 7U); }
-static uint8_t camellia_sbox4(uint8_t x) { return camellia_sbox1[camellia_rotl8(x, 1U)]; }
+/* Constant-time table access for this legacy cipher (see noxtls_config.h,
+ * NOXTLS_LEGACY_CIPHER_CONSTANT_TIME): every lookup reads the whole table and
+ * keeps the wanted entry with a mask, so no address depends on key or data. */
+#ifndef NOXTLS_LEGACY_CIPHER_CONSTANT_TIME
+#if defined(NOXTLS_SIDECHANNEL_PROFILE_CONSTANT_TIME_STRICT)
+#define NOXTLS_LEGACY_CIPHER_CONSTANT_TIME 1
+#else
+#define NOXTLS_LEGACY_CIPHER_CONSTANT_TIME 0
+#endif
+#endif
+
+/**
+ * @brief Look up SBOX1 (constant-time when configured).
+ *
+ * @param[in] x Index (secret).
+ * @return SBOX1[x].
+ */
+static uint8_t camellia_s1(uint8_t x)
+{
+#if NOXTLS_LEGACY_CIPHER_CONSTANT_TIME
+    uint32_t r = 0U;
+    uint32_t i = 0U;
+    for (i = 0U; i < 256U; i += 1U) {
+        uint32_t d = i ^ (uint32_t)x;
+        uint32_t m = ((d | (0U - d)) >> 31U) - 1U; /* all-ones when i == x */
+        r |= (uint32_t)camellia_sbox1[i] & m;
+    }
+    return (uint8_t)r;
+#else
+    return camellia_sbox1[x];
+#endif
+}
+
+static uint8_t camellia_sbox2(uint8_t x) { return camellia_rotl8(camellia_s1(x), 1U); }
+static uint8_t camellia_sbox3(uint8_t x) { return camellia_rotl8(camellia_s1(x), 7U); }
+static uint8_t camellia_sbox4(uint8_t x) { return camellia_s1(camellia_rotl8(x, 1U)); }
 
 /* RFC 3713 F-function: 64-bit input, 64-bit subkey, 64-bit output */
 /**
@@ -110,14 +143,14 @@ static uint64_t camellia_f64(uint64_t F_IN, uint64_t KE)
     t7 = (uint8_t)(x >>8U);
     t8 = (uint8_t)x;
 
-    t1 = camellia_sbox1[t1];
+    t1 = camellia_s1(t1);
     t2 = camellia_sbox2(t2);
     t3 = camellia_sbox3(t3);
     t4 = camellia_sbox4(t4);
     t5 = camellia_sbox2(t5);
     t6 = camellia_sbox3(t6);
     t7 = camellia_sbox4(t7);
-    t8 = camellia_sbox1[t8];
+    t8 = camellia_s1(t8);
 
     y1 = t1 ^ t3 ^ t4 ^ t6 ^ t7 ^ t8;
     y2 = t1 ^ t2 ^ t4 ^ t5 ^ t7 ^ t8;
@@ -214,7 +247,35 @@ static void rotl128(uint64_t hi, uint64_t lo, uint32_t r, uint64_t *out_hi, uint
  * @param[in] type The type value.
  * @return The return value. 
  */
-noxtls_return_t noxtls_camellia_key_schedule(const uint8_t* key, uint64_t* kw, uint64_t* ke, uint64_t* k, noxtls_camellia_type_t type)
+#if defined(__GNUC__) || defined(__clang__)
+#define NOXTLS_CAMELLIA_NOINLINE __attribute__((noinline))
+#elif defined(_MSC_VER)
+#define NOXTLS_CAMELLIA_NOINLINE __declspec(noinline)
+#else
+#define NOXTLS_CAMELLIA_NOINLINE
+#endif
+
+/**
+ * @brief Overwrite the dead stack below the caller.
+ *
+ * The key schedule keeps KL, KR, KA and KB in 64-bit locals that compilers
+ * spill (the raw key in native byte order); C cannot clear spill slots from
+ * inside the function, so the schedule runs in its own frame and this larger
+ * frame is written over it afterwards.
+ *
+ * @return void
+ */
+static NOXTLS_CAMELLIA_NOINLINE void camellia_stack_burn(void)
+{
+    volatile uint32_t burn[128];
+    uint32_t i = 0U;
+
+    for (i = 0U; i < (uint32_t)(sizeof(burn) / sizeof(burn[0])); i += 1U) {
+        burn[i] = 0U;
+    }
+}
+
+static NOXTLS_CAMELLIA_NOINLINE noxtls_return_t camellia_key_schedule_impl(const uint8_t* key, uint64_t* kw, uint64_t* ke, uint64_t* k, noxtls_camellia_type_t type)
 {
     /* RFC 3713 Sigma constants (64-bit); block-scope for Rule 8.9. */
     static const uint64_t sigma1 = 0xA09E667F3BCC908BULL;
@@ -328,6 +389,24 @@ noxtls_return_t noxtls_camellia_key_schedule(const uint8_t* key, uint64_t* kw, u
     }
     (void)key_bytes;
     return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
+ * @brief Derive the Camellia subkeys (RFC 3713) and clear the frame that held
+ *        the raw key words.
+ *
+ * @param[in] key Raw key bytes.
+ * @param[out] kw Whitening keys.
+ * @param[out] ke FL/FL^-1 keys.
+ * @param[out] k Round keys.
+ * @param[in] type Key size selector.
+ * @return NOXTLS_RETURN_SUCCESS or an error code.
+ */
+noxtls_return_t noxtls_camellia_key_schedule(const uint8_t* key, uint64_t* kw, uint64_t* ke, uint64_t* k, noxtls_camellia_type_t type)
+{
+    noxtls_return_t rc = camellia_key_schedule_impl(key, kw, ke, k, type);
+    camellia_stack_burn();
+    return rc;
 }
 
 /* FL: 64-bit input, 64-bit key KE */

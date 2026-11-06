@@ -44,6 +44,7 @@
 #include "lwip/sockets.h"
 
 #include "noxtls_common.h"
+#include "noxtls_ct.h"
 #include "noxtls_esp_idf.h"
 #include "noxtls-lib/certs/noxtls_x509.h"
 #include "noxtls-lib/mdigest/sha256/noxtls_sha256.h"
@@ -387,7 +388,18 @@ static int ota_download_and_stage(void)
     while(1) {
         rx_len = sizeof(rx);
         rc = noxtls_tls13_recv(&tls, rx, &rx_len);
-        if(rc != NOXTLS_RETURN_SUCCESS || rx_len == 0U) break;
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            /* TCP close without close_notify, a forged record or a fatal alert. */
+            ESP_LOGE(NOXTLS_OTA_TAG, "image download cut or not authenticated (recv rc=%d)", (int)rc);
+            noxtls_tls13_context_free(&tls);
+            close(conn.sock);
+            esp_ota_end(ota_handle);
+            return -1;
+        }
+        if(rx_len == 0U) {
+            if(tls.base.base.state == TLS_STATE_CLOSING) break; /* close_notify */
+            continue; /* empty application record */
+        }
 
         if(header_done == 0) {
             uint32_t i;
@@ -470,9 +482,18 @@ static int ota_download_and_stage(void)
         return -1;
     }
 
-    has_expected = (strlen(CONFIG_NOXTLS_SECURE_OTA_EXPECTED_SHA256_HEX) == 64U);
-    if(has_expected && parse_hex32(CONFIG_NOXTLS_SECURE_OTA_EXPECTED_SHA256_HEX, expected) == 0) {
-        if(memcmp(expected, digest, sizeof(expected)) != 0) {
+    /* A configured pin is mandatory once set: a value that is not exactly
+     * 64 hex characters is a configuration error, never "no pin". */
+    has_expected = (CONFIG_NOXTLS_SECURE_OTA_EXPECTED_SHA256_HEX[0] != '\0');
+    if(has_expected) {
+        if(parse_hex32(CONFIG_NOXTLS_SECURE_OTA_EXPECTED_SHA256_HEX, expected) != 0) {
+            ESP_LOGE(NOXTLS_OTA_TAG, "CONFIG_NOXTLS_SECURE_OTA_EXPECTED_SHA256_HEX is not 64 hex characters");
+            noxtls_tls13_context_free(&tls);
+            close(conn.sock);
+            esp_ota_end(ota_handle);
+            return -1;
+        }
+        if(noxtls_ct_memcmp(expected, digest, sizeof(expected)) != 0) {
             ESP_LOGE(NOXTLS_OTA_TAG, "firmware SHA-256 mismatch");
             noxtls_tls13_context_free(&tls);
             close(conn.sock);

@@ -38,6 +38,87 @@
 /* Poly1305 modulus: 2^130 - 5 */
 #define POLY1305_P ((uint64_t)0x3FFFFFFFFFFFFFFFULL)
 
+/* 32x32->64 limb products. Cortex-M3 (ARMv7-M) UMULL/UMLAL terminate early
+ * for small operands (Cortex-M3 TRM: 3-5 / 4-7 cycles depending on operand
+ * magnitude), so there the product is built from four 16x16->32 MULs, which
+ * take a fixed single cycle. Cortex-M4/M7/M33 long multiplies are fixed-time. */
+#ifndef NOXTLS_POLY1305_SPLIT_MUL
+#if defined(__ARM_ARCH_7M__)
+#define NOXTLS_POLY1305_SPLIT_MUL 1
+#else
+#define NOXTLS_POLY1305_SPLIT_MUL 0
+#endif
+#endif
+
+#if NOXTLS_POLY1305_SPLIT_MUL
+/**
+ * @brief Fixed-time 32x32->64 multiply from 16-bit halves.
+ *
+ * @param a First factor.
+ * @param b Second factor.
+ * @return a * b.
+ */
+static uint64_t poly1305_mul(uint32_t a, uint32_t b)
+{
+    uint32_t al = a & 0xFFFFU;
+    uint32_t ah = a >> 16U;
+    uint32_t bl = b & 0xFFFFU;
+    uint32_t bh = b >> 16U;
+    uint32_t ll = 0U;
+    uint32_t lh = 0U;
+    uint32_t hl = 0U;
+    uint32_t hh = 0U;
+    uint64_t mid = 0U;
+
+#if defined(__GNUC__) || defined(__clang__)
+    /* Hide the 16-bit operand ranges: otherwise GCC proves each product fits
+     * in 32 bits and folds the pieces back into UMULL/UMLAL. */
+    __asm__ ("" : "+r"(al), "+r"(ah), "+r"(bl), "+r"(bh));
+#endif
+    ll = al * bl;
+    lh = al * bh;
+    hl = ah * bl;
+    hh = ah * bh;
+    mid = (uint64_t)lh + (uint64_t)hl;
+    return ((uint64_t)hh << 32U) + (mid << 16U) + (uint64_t)ll;
+}
+#define POLY1305_MUL(a, b) poly1305_mul((a), (b))
+#else
+#define POLY1305_MUL(a, b) ((uint64_t)(a) * (uint64_t)(b))
+#endif
+
+/* Clear the dead frame of poly1305_blocks()/final after use: r0..r4 and
+ * s1..s4 are spilled there on Cortex-M (all of r on M0+), and r with one
+ * public tag gives s, i.e. the one-time key. The work runs in a non-inlined
+ * frame and a larger frame is written over it from the same caller. */
+/* Must exceed the poly1305_blocks_impl() frame (-fstack-usage: about 970 B on
+ * Cortex-M4 and 640 B on Cortex-M0+ at -O0, under 260 B at -O2/-Os). */
+#ifndef NOXTLS_POLY1305_STACK_BURN_BYTES
+#define NOXTLS_POLY1305_STACK_BURN_BYTES 1280U
+#endif
+#if defined(__GNUC__) || defined(__clang__)
+#define NOXTLS_POLY1305_NOINLINE __attribute__((noinline))
+#elif defined(_MSC_VER)
+#define NOXTLS_POLY1305_NOINLINE __declspec(noinline)
+#else
+#define NOXTLS_POLY1305_NOINLINE
+#endif
+
+/**
+ * @brief Overwrite the dead stack below the caller (see above).
+ *
+ * @return None.
+ */
+static NOXTLS_POLY1305_NOINLINE void poly1305_stack_burn(void)
+{
+    volatile uint32_t burn[NOXTLS_POLY1305_STACK_BURN_BYTES / 4U];
+    uint32_t i = 0U;
+
+    for (i = 0U; i < (uint32_t)(sizeof(burn) / sizeof(burn[0])); i += 1U) {
+        burn[i] = 0U;
+    }
+}
+
 /**
  * @brief Load the 32-bit little-endian value
  * 
@@ -93,7 +174,7 @@ noxtls_return_t noxtls_poly1305_init(noxtls_poly1305_context_t *ctx, const uint8
  * @param block Block data (at least block_len bytes)
  * @param block_len Number of bytes in block (1-16). For full block adds 2^128; for partial adds 2^(8*block_len).
  */
-static void poly1305_blocks(noxtls_poly1305_context_t *ctx, const uint8_t *block, uint32_t bytes)
+static NOXTLS_POLY1305_NOINLINE void poly1305_blocks_impl(noxtls_poly1305_context_t *ctx, const uint8_t *block, uint32_t bytes)
 {
     const uint32_t hibit = (uint32_t)((ctx->finished != 0U) ? 0U : ((uint32_t)1U << 24U));
     uint32_t r0 = (uint32_t)(ctx->r[0U]);
@@ -121,21 +202,21 @@ static void poly1305_blocks(noxtls_poly1305_context_t *ctx, const uint8_t *block
         h4 += ((poly1305_load_le32(&block[offset + 12U]) >> 8U) | hibit);
 
         {
-            uint64_t d0 = ((uint64_t)h0 * (uint64_t)r0) + ((uint64_t)h1 * (uint64_t)s4)
-                        + ((uint64_t)h2 * (uint64_t)s3) + ((uint64_t)h3 * (uint64_t)s2)
-                        + ((uint64_t)h4 * (uint64_t)s1);
-            uint64_t d1 = ((uint64_t)h0 * (uint64_t)r1) + ((uint64_t)h1 * (uint64_t)r0)
-                        + ((uint64_t)h2 * (uint64_t)s4) + ((uint64_t)h3 * (uint64_t)s3)
-                        + ((uint64_t)h4 * (uint64_t)s2);
-            uint64_t d2 = ((uint64_t)h0 * (uint64_t)r2) + ((uint64_t)h1 * (uint64_t)r1)
-                        + ((uint64_t)h2 * (uint64_t)r0) + ((uint64_t)h3 * (uint64_t)s4)
-                        + ((uint64_t)h4 * (uint64_t)s3);
-            uint64_t d3 = ((uint64_t)h0 * (uint64_t)r3) + ((uint64_t)h1 * (uint64_t)r2)
-                        + ((uint64_t)h2 * (uint64_t)r1) + ((uint64_t)h3 * (uint64_t)r0)
-                        + ((uint64_t)h4 * (uint64_t)s4);
-            uint64_t d4 = ((uint64_t)h0 * (uint64_t)r4) + ((uint64_t)h1 * (uint64_t)r3)
-                        + ((uint64_t)h2 * (uint64_t)r2) + ((uint64_t)h3 * (uint64_t)r1)
-                        + ((uint64_t)h4 * (uint64_t)r0);
+            uint64_t d0 = POLY1305_MUL(h0, r0) + POLY1305_MUL(h1, s4)
+                        + POLY1305_MUL(h2, s3) + POLY1305_MUL(h3, s2)
+                        + POLY1305_MUL(h4, s1);
+            uint64_t d1 = POLY1305_MUL(h0, r1) + POLY1305_MUL(h1, r0)
+                        + POLY1305_MUL(h2, s4) + POLY1305_MUL(h3, s3)
+                        + POLY1305_MUL(h4, s2);
+            uint64_t d2 = POLY1305_MUL(h0, r2) + POLY1305_MUL(h1, r1)
+                        + POLY1305_MUL(h2, r0) + POLY1305_MUL(h3, s4)
+                        + POLY1305_MUL(h4, s3);
+            uint64_t d3 = POLY1305_MUL(h0, r3) + POLY1305_MUL(h1, r2)
+                        + POLY1305_MUL(h2, r1) + POLY1305_MUL(h3, r0)
+                        + POLY1305_MUL(h4, s4);
+            uint64_t d4 = POLY1305_MUL(h0, r4) + POLY1305_MUL(h1, r3)
+                        + POLY1305_MUL(h2, r2) + POLY1305_MUL(h3, r1)
+                        + POLY1305_MUL(h4, r0);
             uint32_t c = 0U;
 
             c = (uint32_t)(d0 >> 26U);
@@ -167,6 +248,20 @@ static void poly1305_blocks(noxtls_poly1305_context_t *ctx, const uint8_t *block
     ctx->h[2] = h2;
     ctx->h[3] = h3;
     ctx->h[4] = h4;
+}
+
+/**
+ * @brief Process whole blocks and clear the frame that held r and s1..s4.
+ *
+ * @param ctx Poly1305 context.
+ * @param block Block data.
+ * @param bytes Number of bytes (whole blocks are processed).
+ * @return None.
+ */
+static void poly1305_blocks(noxtls_poly1305_context_t *ctx, const uint8_t *block, uint32_t bytes)
+{
+    poly1305_blocks_impl(ctx, block, bytes);
+    poly1305_stack_burn();
 }
 
 /**
@@ -232,7 +327,7 @@ noxtls_return_t noxtls_poly1305_update(noxtls_poly1305_context_t *ctx, const uin
  * @param[out]    tag Output buffer for `POLY1305_TAG_SIZE` MAC bytes; must not be NULL.
  * @return `NOXTLS_RETURN_SUCCESS` when @p tag is written; `NOXTLS_RETURN_NULL` if @p ctx or @p tag is NULL.
  */
-noxtls_return_t noxtls_poly1305_final(noxtls_poly1305_context_t *ctx, uint8_t *tag)
+static NOXTLS_POLY1305_NOINLINE noxtls_return_t poly1305_final_impl(noxtls_poly1305_context_t *ctx, uint8_t *tag)
 {
     uint32_t h0 = 0U;
     uint32_t h1 = 0U;
@@ -318,6 +413,20 @@ noxtls_return_t noxtls_poly1305_final(noxtls_poly1305_context_t *ctx, uint8_t *t
 }
 
 /**
+ * @brief Finalize Poly1305 after @ref noxtls_poly1305_update: processes any buffered bytes, reduces mod p, and writes the 128-bit tag.
+ * @param[in,out] ctx Initialized and updated context; internal buffer and state are used and modified.
+ * @param[out]    tag Output buffer for `POLY1305_TAG_SIZE` MAC bytes; must not be NULL.
+ * @return `NOXTLS_RETURN_SUCCESS` when @p tag is written; `NOXTLS_RETURN_NULL` if @p ctx or @p tag is NULL.
+ */
+noxtls_return_t noxtls_poly1305_final(noxtls_poly1305_context_t *ctx, uint8_t *tag)
+{
+    /* The final frame holds h + s (s is half of the one-time key). */
+    noxtls_return_t rc = poly1305_final_impl(ctx, tag);
+    poly1305_stack_burn();
+    return rc;
+}
+
+/**
  * @brief One-shot Poly1305 MAC: @ref noxtls_poly1305_init, @ref noxtls_poly1305_update, @ref noxtls_poly1305_final on a stack context.
  * @param[in]  key 32-byte one-time Poly1305 key (`r || s`, same layout as @ref noxtls_poly1305_init).
  * @param[in]  data Message bytes to authenticate; may be NULL only if @p data_len is 0.
@@ -328,20 +437,19 @@ noxtls_return_t noxtls_poly1305_final(noxtls_poly1305_context_t *ctx, uint8_t *t
 noxtls_return_t noxtls_poly1305_mac(const uint8_t *key, const uint8_t *data, uint32_t data_len, uint8_t *tag)
 {
     noxtls_poly1305_context_t ctx;
-    
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+
     if ((key == NULL) || ((data == NULL) && (data_len > 0U)) || (tag == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
-    
-    if (noxtls_poly1305_init(&ctx, key) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
+
+    if ((noxtls_poly1305_init(&ctx, key) == NOXTLS_RETURN_SUCCESS) &&
+        (noxtls_poly1305_update(&ctx, data, data_len) == NOXTLS_RETURN_SUCCESS)) {
+        rc = noxtls_poly1305_final(&ctx, tag);
     }
-    
-    if (noxtls_poly1305_update(&ctx, data, data_len) != NOXTLS_RETURN_SUCCESS) {
-        return NOXTLS_RETURN_FAILED;
-    }
-    
-    return noxtls_poly1305_final(&ctx, tag);
+    /* ctx holds r and s (the one-time key) on every path. */
+    noxtls_secure_zero(&ctx, sizeof(ctx));
+    return rc;
 }
 
 /**

@@ -50,6 +50,7 @@ static int32_t tls13_is_dtls_context(const tls13_context_t *ctx);
 #include "mdigest/sha256/noxtls_sha256.h"
 #include "mdigest/sha512/noxtls_sha512.h"
 #include "mdigest/noxtls_hash.h"
+#include "mdigest/noxtls_sha.h"
 #include "drbg/noxtls_drbg.h"
 #include "noxtls_ct.h"
 #if NOXTLS_FEATURE_DTLS_ECJPAKE
@@ -259,6 +260,172 @@ static noxtls_return_t tls12_compute_mac(const uint8_t *mac_key, uint32_t mac_ke
     rc = noxtls_hmac_final(&hmac_ctx, mac, mac_len);
     (void)noxtls_hmac_free(&hmac_ctx);
     
+    return rc;
+}
+
+/**
+ * @brief All-ones when a < b, else 0, without a data-dependent branch (a, b < 2^31).
+ */
+static uint32_t tls12_ct_lt_mask(uint32_t a, uint32_t b)
+{
+    return (uint32_t)(0U - ((uint32_t)(a - b) >> 31U));
+}
+
+/**
+ * @brief All-ones when a == b, else 0, without a data-dependent branch.
+ */
+static uint32_t tls12_ct_eq_mask(uint32_t a, uint32_t b)
+{
+    uint32_t x = a ^ b;
+    return (uint32_t)(0U - ((((uint32_t)(x | (0U - x))) >> 31U) ^ 1U));
+}
+
+/**
+ * @brief MAC-then-encrypt CBC: check the record MAC in time independent of the padding.
+ *
+ * The plaintext length @p data_len follows from the decrypted (secret) padding byte. Hashing
+ * only data_len bytes makes the number of hash compressions, and copying the received MAC from
+ * offset data_len makes the memory access pattern, depend on the padding: the Lucky Thirteen
+ * timing channel (AlFardan and Paterson, 2013). Here every length the padding can produce for
+ * this record size is processed: the inner HMAC hash absorbs the record one byte at a time up
+ * to the longest possible plaintext, a copy of the hash state is finished at every candidate
+ * length and the inner digest of the true length is kept with a mask; the outer hash runs once
+ * on the selected digest. The received MAC is gathered with the same mask over all candidate
+ * offsets. Work and memory accesses depend only on the public record length (the approach of
+ * mbed TLS mbedtls_ct_hmac(); OpenSSL ssl3_cbc_digest_record() is equivalent).
+ *
+ * @param[in] mac_key     MAC key (at most one hash block).
+ * @param[in] mac_key_len MAC key length.
+ * @param[in] hash_algo   HMAC hash.
+ * @param[in] seq_num     64-bit MAC sequence number.
+ * @param[in] type        Record content type.
+ * @param[in] version     Record version.
+ * @param[in] rec         Decrypted record: plaintext || MAC || padding.
+ * @param[in] rec_len     Decrypted length (public).
+ * @param[in] mac_len     MAC length.
+ * @param[in] data_len    Plaintext length derived from the padding (secret).
+ * @param[out] mac_ok     1 when the MAC matched for @p data_len, else 0.
+ * @return SUCCESS, or a hash error (the record is then rejected).
+ */
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
+static noxtls_return_t tls12_cbc_mte_check_mac(const uint8_t *mac_key, uint32_t mac_key_len,
+                                               noxtls_hash_algos_t hash_algo, uint64_t seq_num,
+                                               uint8_t type, uint16_t version,
+                                               const uint8_t *rec, uint32_t rec_len,
+                                               uint32_t mac_len, uint32_t data_len,
+                                               uint32_t *mac_ok)
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
+{
+    noxtls_sha_ctx_t inner;
+    noxtls_sha_ctx_t aux;
+    uint8_t pad[128];
+    uint8_t header[13];
+    uint8_t digest[64];
+    uint8_t selected[64];
+    uint8_t received[64];
+    uint32_t block_size = (hash_algo == NOXTLS_HASH_SHA_384) ? 128U : 64U;
+    uint32_t min_len = 0U;
+    uint32_t max_len = 0U;
+    uint32_t off = 0U;
+    uint32_t k = 0U;
+    uint32_t found = 0U;
+    uint8_t diff = 0U;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+
+    *mac_ok = 0U;
+    if((mac_len == 0U) || (mac_len > (uint32_t)sizeof(digest)) || (mac_key_len > block_size)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    if(rec_len <= mac_len) {
+        return NOXTLS_RETURN_SUCCESS; /* Too short for MAC and padding: public, always bad. */
+    }
+    /* Candidate plaintext lengths: 1 to 256 padding bytes after the MAC. */
+    max_len = rec_len - mac_len - 1U;
+    min_len = (rec_len > (mac_len + 256U)) ? (rec_len - mac_len - 256U) : 0U;
+
+    header[0] = (uint8_t)((seq_num >> 56U) & 0xFFU);
+    header[1] = (uint8_t)((seq_num >> 48U) & 0xFFU);
+    header[2] = (uint8_t)((seq_num >> 40U) & 0xFFU);
+    header[3] = (uint8_t)((seq_num >> 32U) & 0xFFU);
+    header[4] = (uint8_t)((seq_num >> 24U) & 0xFFU);
+    header[5] = (uint8_t)((seq_num >> 16U) & 0xFFU);
+    header[6] = (uint8_t)((seq_num >> 8U) & 0xFFU);
+    header[7] = (uint8_t)(seq_num & 0xFFU);
+    header[8] = type;
+    header[9] = (uint8_t)(((uint32_t)version >> 8U) & 0xFFU);
+    header[10] = (uint8_t)(version & 0xFFU);
+    header[11] = (uint8_t)((data_len >> 8U) & 0xFFU);
+    header[12] = (uint8_t)(data_len & 0xFFU);
+    noxtls_secure_zero(selected, sizeof(selected));
+    noxtls_secure_zero(received, sizeof(received));
+
+    /* Inner hash: H((K ^ ipad) || header || data). */
+    noxtls_secure_zero(pad, sizeof(pad));
+    noxtls_copy_u8(pad, sizeof(pad), mac_key, (size_t)mac_key_len);
+    for(k = 0U; k < block_size; k += 1U) {
+        pad[k] ^= 0x36U;
+    }
+    rc = noxtls_sha_init(&inner, hash_algo);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_sha_update(&inner, pad, block_size);
+    }
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_sha_update(&inner, header, (uint32_t)sizeof(header));
+    }
+    if((rc == NOXTLS_RETURN_SUCCESS) && (min_len > 0U)) {
+        rc = noxtls_sha_update(&inner, rec, min_len);
+    }
+    off = min_len;
+    while(rc == NOXTLS_RETURN_SUCCESS) {
+        uint8_t sel = 0U;
+        aux = inner;
+        rc = noxtls_sha_finish(&aux, digest);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            break;
+        }
+        sel = (uint8_t)(tls12_ct_eq_mask(off, data_len) & 0xFFU);
+        found |= (uint32_t)sel;
+        for(k = 0U; k < mac_len; k += 1U) {
+            selected[k] |= (uint8_t)(digest[k] & sel);
+            /* off + k <= max_len + mac_len - 1 < rec_len */
+            received[k] |= (uint8_t)(rec[off + k] & sel);
+        }
+        if(off >= max_len) {
+            break;
+        }
+        rc = noxtls_sha_update(&inner, &rec[off], 1U);
+        off += 1U;
+    }
+
+    /* Outer hash, once: H((K ^ opad) || inner digest). */
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        for(k = 0U; k < block_size; k += 1U) {
+            pad[k] ^= (uint8_t)(0x36U ^ 0x5CU);
+        }
+        rc = noxtls_sha_init(&aux, hash_algo);
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_sha_update(&aux, pad, block_size);
+        }
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_sha_update(&aux, selected, mac_len);
+        }
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_sha_finish(&aux, digest);
+        }
+    }
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        for(k = 0U; k < mac_len; k += 1U) {
+            diff |= (uint8_t)(digest[k] ^ received[k]);
+        }
+        /* found: data_len was one of the candidates; diff == 0: the MACs matched. */
+        *mac_ok = (uint32_t)(found & tls12_ct_eq_mask((uint32_t)diff, 0U) & 1U);
+    }
+    noxtls_secure_zero(&inner, sizeof(inner));
+    noxtls_secure_zero(&aux, sizeof(aux));
+    noxtls_secure_zero(pad, sizeof(pad));
+    noxtls_secure_zero(digest, sizeof(digest));
+    noxtls_secure_zero(selected, sizeof(selected));
+    noxtls_secure_zero(received, sizeof(received));
     return rc;
 }
 
@@ -870,6 +1037,31 @@ noxtls_return_t noxtls_tls12_encrypt_record(tls12_context_t *ctx,
 }
 
 /**
+ * @brief Commit the receive state after a TLS 1.0-1.2 / DTLS 1.2 record authenticated.
+ *
+ * TLS: advance the implicit read sequence number. DTLS 1.2: record the record's explicit
+ * sequence number (read_seq_num, set by noxtls_dtls_recv_record) in the replay window. RFC 6347
+ * 4.1.2.6 updates the window only after the MAC check, so an unauthenticated record (a forged
+ * sequence number of 2^48-1, say) cannot push genuine records out of the window.
+ *
+ * @param[in,out] ctx The context.
+ */
+static void tls12_record_opened(tls12_context_t *ctx)
+{
+    if(tls12_is_dtls_context(ctx) == 0) {
+        if(ctx->base.base.role == TLS_ROLE_CLIENT) {
+            ctx->server_seq_num += 1U;
+        } else {
+            ctx->client_seq_num += 1U;
+        }
+    } else {
+#if NOXTLS_FEATURE_DTLS
+        (void)noxtls_dtls_update_replay_window(&ctx->base, ctx->base.read_seq_num);
+#endif
+    }
+}
+
+/**
  * @brief Decrypt TLS 1.2 application data record (AES-CBC with HMAC)
  *
  * @param[in] ctx The context
@@ -1237,14 +1429,7 @@ noxtls_return_t noxtls_tls12_open_record(tls12_context_t *ctx,
         *plaintext_off = (is_tls12_chacha != 0U) ? 0U : 8U;
         *plaintext_len = ciphertext_len;
 
-        if((tls12_is_dtls_context(ctx) == 0)) {
-            if(ctx->base.base.role == TLS_ROLE_CLIENT) {
-                ctx->server_seq_num += 1U;
-            } else {
-                /* MISRA 15.7: final else path */
-                ctx->client_seq_num += 1U;
-            }
-        }
+        tls12_record_opened(ctx);
         return NOXTLS_RETURN_SUCCESS;
     }
 
@@ -1353,13 +1538,16 @@ noxtls_return_t noxtls_tls12_open_record(tls12_context_t *ctx,
         pad_bytes = (uint32_t)padding_len + 1U;
     }
 
-  /* TLS CBC padding may be up to 255 bytes (length byte value 0..255). */
-    if(pad_bytes > decrypted_data_len) {
-        bad_record = 1U;
+    /* TLS CBC padding may be up to 255 bytes (length byte value 0..255). The length byte is
+     * secret before the MAC check: clamp it without a branch (bounds-safe for the scan and the
+     * length math below). */
+    {
+        uint32_t too_long = tls12_ct_lt_mask(decrypted_data_len, pad_bytes);
+        bad_record |= (too_long & 1U);
 #if NOXTLS_DEBUG_PRINTF_ENABLED
-        bad_length = 1U;
+        bad_length |= (uint8_t)(too_long & 1U);
 #endif
-        pad_bytes = 1U; /* keep bounds-safe for scan and length math */
+        pad_bytes = (pad_bytes & ~too_long) | (1U & too_long);
     }
 
     /* TLS requires every padding byte to match the length field. Scanning
@@ -1386,47 +1574,27 @@ noxtls_return_t noxtls_tls12_open_record(tls12_context_t *ctx,
     if(use_encrypt_then_mac != 0) {
         plaintext_data_len = body_len;
     } else {
-        if(body_len < mac_len) {
-            bad_record = 1U;
+        /* MAC-then-encrypt: body_len derives from the secret padding byte. Lengths, the MAC
+         * position and the HMAC work are handled without padding-dependent branches, memory
+         * accesses or compression counts (Lucky Thirteen). */
+        uint32_t short_mask = tls12_ct_lt_mask(body_len, mac_len);
+        uint32_t mac_ok = 0U;
+        bad_record |= (short_mask & 1U);
 #if NOXTLS_DEBUG_PRINTF_ENABLED
-            bad_length = 1U;
+        bad_length |= (uint8_t)(short_mask & 1U);
 #endif
-            plaintext_data_len = 0U;
-        } else {
-            plaintext_data_len = body_len - mac_len;
-        }
-
-        if(body_len >= mac_len) {
-            noxtls_copy_u8(mac, sizeof(mac), &decrypted_data[plaintext_data_len], (size_t)(mac_len));
-        }
-
-        computed_mac_len = mac_len;
-        rc = tls12_compute_mac(mac_key, mac_key_len, hash_algo, seq_num,
-                              type,
-                              ctx->base.base.version, (uint16_t)plaintext_data_len,
-                              decrypted_data, plaintext_data_len,
-                              computed_mac, &computed_mac_len);
+        plaintext_data_len = (uint32_t)((body_len - mac_len) & ~short_mask);
+        rc = tls12_cbc_mte_check_mac(mac_key, mac_key_len, hash_algo, seq_num, type,
+                                     ctx->base.base.version, decrypted_data, decrypted_data_len,
+                                     mac_len, plaintext_data_len, &mac_ok);
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            bad_record = 1U;
-#if NOXTLS_DEBUG_PRINTF_ENABLED
-            bad_inner_mac = 1U;
-#endif
+            mac_ok = 0U;
         }
-
-        if(computed_mac_len != mac_len) {
-            bad_record = 1U;
+        bad_record |= (mac_ok ^ 1U);
 #if NOXTLS_DEBUG_PRINTF_ENABLED
-            bad_inner_mac = 1U;
+        bad_inner_mac = (uint8_t)(mac_ok ^ 1U);
 #endif
-        } else if(noxtls_secret_memcmp(mac, computed_mac, (size_t)(mac_len)) != 0) {
-            bad_record = 1U;
-#if NOXTLS_DEBUG_PRINTF_ENABLED
-            bad_inner_mac = 1U;
-#endif
-        }
-         else {
-             /* MISRA 15.7: no remaining alternative */
-         }
+        (void)computed_mac_len;
     }
     /*
      * Padding, length and MAC failures all end in the same bad_record_mac result
@@ -1472,15 +1640,7 @@ noxtls_return_t noxtls_tls12_open_record(tls12_context_t *ctx,
     noxtls_secure_zero(mac, sizeof(mac));
     noxtls_secure_zero(computed_mac, sizeof(computed_mac));
         
-    /* Update sequence number */
-    if((tls12_is_dtls_context(ctx) == 0)) {
-        if(ctx->base.base.role == TLS_ROLE_CLIENT) {
-            ctx->server_seq_num += 1U;
-        } else {
-            ctx->client_seq_num += 1U;
-        }
-    }
-    
+    tls12_record_opened(ctx);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -1988,6 +2148,7 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
     uint32_t cid_offset = 0U;
     uint8_t *ciphertext = NULL;
     uint8_t *padded_inner = NULL;
+    uint32_t padded_inner_len = 0U;
     const uint8_t *aead_inner = inner_plaintext;
     uint32_t aead_inner_len = (uint32_t)(inner_len);
     uint32_t record_len = 0U;
@@ -2030,6 +2191,7 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
             return NOXTLS_RETURN_FAILED;
         }
         padded_inner = (uint8_t*)NOXTLS_MALLOC(padded_len);
+        padded_inner_len = padded_len;
         if(padded_inner == NULL) {
             return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
         }
@@ -2077,6 +2239,7 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
     if((header_len > (uint32_t)sizeof(header)) ||
        ((uint32_t)ctx->peer_connection_id_len > (uint32_t)sizeof(ctx->peer_connection_id))) {
         if(padded_inner != NULL) {
+            noxtls_secure_zero(padded_inner, (size_t)padded_inner_len);
             (void)noxtls_free(padded_inner);
         }
         return NOXTLS_RETURN_INVALID_PARAM;
@@ -2102,6 +2265,7 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
     ciphertext = (uint8_t*)NOXTLS_MALLOC(record_len);
     if(ciphertext == NULL) {
         if(padded_inner != NULL) {
+            noxtls_secure_zero(padded_inner, (size_t)padded_inner_len);
             (void)noxtls_free(padded_inner);
         }
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
@@ -2132,6 +2296,7 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
 #endif
     } else {
         if(padded_inner != NULL) {
+            noxtls_secure_zero(padded_inner, (size_t)padded_inner_len);
             (void)noxtls_free(padded_inner);
         }
         (void)noxtls_free(ciphertext);
@@ -2139,6 +2304,7 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
     }
     if(rc_aead != NOXTLS_RETURN_SUCCESS) {
         if(padded_inner != NULL) {
+            noxtls_secure_zero(padded_inner, (size_t)padded_inner_len);
             (void)noxtls_free(padded_inner);
         }
         (void)noxtls_free(ciphertext);
@@ -2146,6 +2312,7 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
     }
     noxtls_copy_u8(&ciphertext[aead_inner_len], (size_t)(record_len), tag, (size_t)(tag_len));
     if(padded_inner != NULL) {
+        noxtls_secure_zero(padded_inner, (size_t)padded_inner_len);
         (void)noxtls_free(padded_inner);
         padded_inner = NULL;
     }
@@ -2154,6 +2321,7 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
     if((use_aes_gcm != 0U) || (use_aes_ccm != 0U)) {
         if(noxtls_aes_encrypt_data(sn_key, ciphertext, DTLS13_RECORD_NUMBER_ENC_LEN, NULL, mask, aes_type, NOXTLS_AES_ECB) != NOXTLS_RETURN_SUCCESS) {
             if(padded_inner != NULL) {
+                noxtls_secure_zero(padded_inner, (size_t)padded_inner_len);
                 (void)noxtls_free(padded_inner);
             }
             (void)noxtls_free(ciphertext);
@@ -2209,14 +2377,17 @@ noxtls_return_t noxtls_tls13_send_dtls13_encrypted_record(tls13_context_t *ctx,
 
         int32_t sent = ctx->base.base.send_callback(ctx->base.base.user_data, out, total);
         (void)noxtls_free(out);
+        /* The record number (AEAD nonce) is used up once the sealed record reached the
+         * transport, even when the send failed or was short: some bytes may have left the
+         * device, and sealing new data under the same nonce would expose both plaintexts. */
+        ctx->base.write_seq_num += 1U;
+        ctx->base.bytes_sent += (uint64_t)header_len;
+        ctx->base.bytes_sent += (uint64_t)record_len;
         if(sent != (int32_t)total) {
             return NOXTLS_RETURN_FAILED;
         }
     }
 
-    ctx->base.write_seq_num += 1U;
-    ctx->base.bytes_sent += (uint64_t)header_len;
-    ctx->base.bytes_sent += (uint64_t)record_len;
     if(content_type == TLS_RECORD_HANDSHAKE && ctx->base.base.time_callback != NULL) {
         ctx->base.last_flight_sent_ms = ctx->base.base.time_callback(ctx->base.base.user_data);
     }

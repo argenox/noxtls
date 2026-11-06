@@ -105,17 +105,19 @@ static noxtls_return_t noxtls_nrf54_port_map(noxtls_return_t rc)
  * @param[in]  type    Key size selector.
  * @param[in]  decrypt Non-zero to decrypt.
  *
- * @return NOXTLS_RETURN_SUCCESS or NOXTLS_RETURN_NOT_SUPPORTED (software computes the block).
+ * @return NOXTLS_RETURN_SUCCESS, NOXTLS_RETURN_FAILED (hardware error after the output may have been
+ *         written) or NOXTLS_RETURN_NOT_SUPPORTED (nothing done, software computes the block).
  */
 static noxtls_return_t noxtls_nrf54_port_block(const uint8_t *key, const uint8_t *data, uint8_t *output,
                                                noxtls_aes_type_t type, uint8_t decrypt)
 {
     noxtls_return_t rc = NOXTLS_RETURN_NOT_SUPPORTED;
 
-    if ((key != NULL) && (data != NULL) && (output != NULL) &&
-        (noxtls_nrf54_aes_crypt(NOXTLS_NRF54_AES_ECB, decrypt, key, noxtls_nrf54_port_key_len(type), NULL, data,
-                                output, NOXTLS_NRF54_AES_BLOCK) == NOXTLS_RETURN_SUCCESS)) {
-        rc = NOXTLS_RETURN_SUCCESS;
+    if ((key != NULL) && (data != NULL) && (output != NULL)) {
+        /* A job failure may have overwritten an in-place input: report it, never recompute. */
+        rc = noxtls_nrf54_port_map(noxtls_nrf54_aes_crypt(NOXTLS_NRF54_AES_ECB, decrypt, key,
+                                                          noxtls_nrf54_port_key_len(type), NULL, data, output,
+                                                          NOXTLS_NRF54_AES_BLOCK));
     }
     return rc;
 }
@@ -205,7 +207,9 @@ noxtls_return_t noxtls_aes_gcm_encrypt_accel_port(const uint8_t *key,
     noxtls_return_t rc = noxtls_nrf54_aead_gcm(0U, key, noxtls_nrf54_port_key_len(type), nonce, aad, aad_len,
                                                plaintext, ciphertext, plaintext_len, tag);
 
-    return (rc == NOXTLS_RETURN_SUCCESS) ? NOXTLS_RETURN_SUCCESS : NOXTLS_RETURN_NOT_SUPPORTED;
+    /* A failed job wipes the output, which is the plaintext when the call is in
+     * place (TLS 1.3 records): a software retry would then seal zeros. */
+    return noxtls_nrf54_port_map(rc);
 }
 
 noxtls_return_t noxtls_aes_gcm_decrypt_accel_port(const uint8_t *key,
@@ -227,7 +231,10 @@ noxtls_return_t noxtls_aes_gcm_decrypt_accel_port(const uint8_t *key,
                                    plaintext, ciphertext_len, expected);
         noxtls_nrf54_wipe(expected, (uint32_t)sizeof(expected));
     }
-    return ((rc == NOXTLS_RETURN_SUCCESS) || (rc == NOXTLS_RETURN_BAD_DATA)) ? rc : NOXTLS_RETURN_NOT_SUPPORTED;
+    if (rc != NOXTLS_RETURN_BAD_DATA) {
+        rc = noxtls_nrf54_port_map(rc);
+    }
+    return rc;
 }
 
 noxtls_return_t noxtls_aes_ccm_encrypt_accel_port(const uint8_t *key, noxtls_aes_type_t type,

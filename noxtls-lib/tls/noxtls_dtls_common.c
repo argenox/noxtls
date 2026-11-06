@@ -569,6 +569,44 @@ static int dtls_record_acked_by_last_ack(const dtls_context_t *ctx, uint16_t epo
 static int dtls_parse_record_epoch_seq(const uint8_t *record, uint16_t record_len,
                                        uint16_t *epoch, uint64_t *seq);
 
+/**
+ * @brief Check the anti-amplification limit for @p len more bytes to an unvalidated peer.
+ *
+ * RFC 9147 section 5.1 / RFC 6347 section 4.2.1: until the peer's address is validated a server
+ * sends at most anti_amp_factor times the bytes it received, retransmissions included.
+ *
+ * @param[in] ctx The context value.
+ * @param[in] len Bytes about to be sent.
+ * @return 1 when the bytes may be sent, 0 otherwise.
+ */
+static int dtls_anti_amp_allows(const dtls_context_t *ctx, uint32_t len)
+{
+    if((ctx->base.role != TLS_ROLE_SERVER) || (ctx->validated != 0U) || (ctx->anti_amp_factor == 0U)) {
+        return 1;
+    }
+    if(ctx->bytes_received == 0U) {
+        return 0;
+    }
+    return ((ctx->bytes_sent + (uint64_t)len) <= (ctx->bytes_received * (uint64_t)ctx->anti_amp_factor)) ? 1 : 0;
+}
+
+/**
+ * @brief Restart the retransmission budget when the peer made progress.
+ *
+ * The budget (retransmit_max_attempts) covers all retransmissions of one flight, timer driven
+ * and peer triggered, across receive calls. It restarts when a new flight is buffered or when
+ * the next expected handshake message changed (the peer's flight advanced).
+ *
+ * @param[in,out] ctx The context value.
+ */
+static void dtls_retransmit_note_progress(dtls_context_t *ctx)
+{
+    if(ctx->expected_message_seq != ctx->retransmit_progress_seq) {
+        ctx->retransmit_progress_seq = ctx->expected_message_seq;
+        ctx->retransmit_count = 0U;
+    }
+}
+
 /* Flight buffer entry: [flags:1 bit | length:15 bits][record header:13][record body]. */
 #define DTLS_FLIGHT_ENTRY_HEADER_SIZE   2U
 #define DTLS_FLIGHT_ENTRY_FLAG_BIT      0x8000U
@@ -608,6 +646,13 @@ static noxtls_return_t dtls_flight_append(dtls_context_t *ctx, uint8_t flags,
     if(reserve_rc != NOXTLS_RETURN_SUCCESS) {
         return reserve_rc;
     }
+    if(ctx->flight_buffer_len == 0U) {
+        /* First record of a new flight: fresh retransmission budget. */
+        ctx->retransmit_count = 0U;
+        ctx->retransmit_progress_seq = ctx->expected_message_seq;
+    }
+    /* The peer answers this flight starting with the message we expect next. */
+    ctx->peer_flight_start_seq = ctx->expected_message_seq;
 
     {
         uint32_t word = record_len;
@@ -668,6 +713,10 @@ static noxtls_return_t dtls12_flight_resend_record(dtls_context_t *ctx, uint8_t 
     if(rec_len < DTLS_RECORD_HEADER_SIZE) {
         return NOXTLS_RETURN_NOT_SUPPORTED;
     }
+    /* Retransmissions count against the anti-amplification limit like the first send. */
+    if(dtls_anti_amp_allows(ctx, rec_len) == 0) {
+        return NOXTLS_RETURN_TIMEOUT;
+    }
     rec_epoch = dtls_read_uint16(&rec[DTLS_RECORD_EPOCH_OFFSET]);
     if(((flags & DTLS_FLIGHT_ENTRY_PROTECT) == 0U) && (rec_epoch != (uint16_t)DTLS_EPOCH_UNENCRYPTED)) {
         /* Already protected by the caller: the MAC binds the sequence number, resend verbatim. */
@@ -704,19 +753,22 @@ static noxtls_return_t dtls12_flight_resend_record(dtls_context_t *ctx, uint8_t 
         noxtls_copy_u8(out, (size_t)DTLS_RECORD_HEADER_SIZE, rec, (size_t)DTLS_RECORD_HEADER_SIZE);
         dtls_write_uint48(&out[DTLS_RECORD_SEQUENCE_OFFSET], *seq_counter);
         dtls_write_uint16(&out[DTLS_RECORD_LENGTH_OFFSET], (uint16_t)out_len);
+        /* The sequence number (AEAD nonce) is consumed by the seal, whatever the transport
+         * reports: a failed or short send may still have emitted the record. */
+        *seq_counter += 1U;
         sent = ctx->base.send_callback(ctx->base.user_data, out, DTLS_RECORD_HEADER_SIZE + out_len);
         if(sent < 0) {
             return NOXTLS_RETURN_FAILED;
         }
     } else {
         dtls_write_uint48(&rec[DTLS_RECORD_SEQUENCE_OFFSET], *seq_counter);
+        *seq_counter += 1U;
         sent = ctx->base.send_callback(ctx->base.user_data, rec, rec_len);
         if(sent < 0) {
             return NOXTLS_RETURN_FAILED;
         }
     }
     ctx->bytes_sent += (uint64_t)(uint32_t)sent;
-    *seq_counter += 1U;
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -773,6 +825,9 @@ static noxtls_return_t dtls_flight_retransmit(dtls_context_t *ctx)
             } else {
                 /* Stale epoch: the record cannot be resent any more; skip it. */
             }
+        } else if(dtls_anti_amp_allows(ctx, rec_len) == 0) {
+            /* Unvalidated peer: retransmissions are bounded by the anti-amplification limit. */
+            return NOXTLS_RETURN_TIMEOUT;
         } else if((rec_flags & DTLS_FLIGHT_ENTRY_PROTECT) != 0U) {
             if((rec_len < DTLS_RECORD_HEADER_SIZE) || ctx->retransmit_handshake == NULL) {
                 return NOXTLS_RETURN_FAILED;
@@ -806,6 +861,7 @@ static noxtls_return_t dtls_flight_retransmit(dtls_context_t *ctx)
                                        rec_len) < 0) {
                 return NOXTLS_RETURN_FAILED;
             }
+            ctx->bytes_sent += (uint64_t)rec_len;
             sent_records += 1U;
         } else {
             /* MISRA 15.7: acknowledged record, not resent */
@@ -1045,6 +1101,9 @@ noxtls_return_t noxtls_dtls_context_init(dtls_context_t *ctx, tls_role_t role, u
     ctx->flight_buffer_storage = NULL;
     ctx->flight_buffer_storage_capacity = 0U;
     ctx->retransmit_max_attempts = 4;
+    ctx->retransmit_count = 0U;
+    ctx->retransmit_progress_seq = 0U;
+    ctx->peer_flight_start_seq = 0U;
     ctx->bytes_received = 0U;
     ctx->bytes_sent = 0U;
     ctx->validated = 0U;
@@ -1087,6 +1146,8 @@ noxtls_return_t noxtls_dtls_context_init(dtls_context_t *ctx, tls_role_t role, u
         return NOXTLS_RETURN_FAILED;
     }
     ctx->cookie_secret_valid = 1U;
+    ctx->peer_identity_len = 0U;
+    ctx->cookie_identity_len = 0U;
     ctx->hrr_cookie = NULL;
     ctx->hrr_cookie_len = 0U;
     /* The record TX buffer is allocated on first send (noxtls_tls_record_tx_buffer). */
@@ -1378,13 +1439,8 @@ noxtls_return_t noxtls_dtls_send_record(dtls_context_t *ctx, uint8_t type, const
     }
 
     record_len = DTLS_RECORD_HEADER_SIZE + len;
-    if((ctx->base.role == TLS_ROLE_SERVER) && (ctx->validated == 0U) && (ctx->anti_amp_factor > 0U)) {
-        if(ctx->bytes_received == 0U) {
-            return NOXTLS_RETURN_TIMEOUT;
-        }
-        if((ctx->bytes_sent + record_len) > (ctx->bytes_received * (uint64_t)ctx->anti_amp_factor)) {
-            return NOXTLS_RETURN_TIMEOUT;
-        }
+    if(dtls_anti_amp_allows(ctx, record_len) == 0) {
+        return NOXTLS_RETURN_TIMEOUT;
     }
     record = noxtls_tls_record_tx_buffer(&ctx->base, NULL);
     if((record == NULL) || (record_len > (uint32_t)TLS_RECORD_TX_BUFFER_SIZE)) {
@@ -1423,6 +1479,13 @@ noxtls_return_t noxtls_dtls_send_record(dtls_context_t *ctx, uint8_t type, const
             if(type == TLS_RECORD_HANDSHAKE) {
                 dtls_flight_note_handshake_seq(ctx, ctx->write_seq_num);
             }
+            if((type == TLS_RECORD_HANDSHAKE) && (ctx->base.role == TLS_ROLE_SERVER) &&
+               (dtls_is_v12_record_layer(ctx->base.version) != 0) && (len > 0U) &&
+               (data[DTLS_HANDSHAKE_TYPE_OFFSET] == (uint8_t)DTLS_HANDSHAKE_HELLO_VERIFY_REQUEST)) {
+                /* RFC 6347 4.2.1: HelloVerifyRequest is stateless and not retransmitted on a
+                 * timer; it is resent only when the client repeats its ClientHello. */
+                ctx->flight_final = 1U;
+            }
         } else {
             (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] dtls_send_record: flight_append rc=%d len=%lu need=%lu cap=%lu\n",
                                 (int)append_rc,
@@ -1444,12 +1507,17 @@ noxtls_return_t noxtls_dtls_send_record(dtls_context_t *ctx, uint8_t type, const
     if(record != ctx->base.record_send_buf) {
         (void)noxtls_free(record);
     }
+    /*
+     * The record (sealed by the caller under write_seq_num when protected) was handed to the
+     * transport: its sequence number is used up even when the send failed or was short, since
+     * bytes may have left the device. Reusing it would repeat the AEAD nonce with new data.
+     */
+    ctx->write_seq_num += 1U;
+    ctx->bytes_sent += record_len;
     if((sent < 0) || ((uint32_t)sent != record_len)) {
         return NOXTLS_RETURN_FAILED;
     }
 
-    ctx->bytes_sent += record_len;
-    ctx->write_seq_num += 1U;
     if((type == TLS_RECORD_HANDSHAKE) && (ctx->base.time_callback != NULL)) {
         ctx->last_flight_sent_ms = ctx->base.time_callback(ctx->base.user_data);
     }
@@ -1560,6 +1628,11 @@ static void dtls_flight_begin_if_answered(dtls_context_t *ctx)
  * Used when the peer retransmits its previous flight (RFC 6347 4.2.4), which shows that our
  * flight was lost. Nothing is sent when no flight is buffered.
  *
+ * Peer-triggered retransmissions share the per-flight budget (retransmit_max_attempts) with
+ * the timer: once it is used up without the peer making progress, nothing more is sent and
+ * NOXTLS_RETURN_TIMEOUT is returned, so two endpoints that keep losing the same datagram
+ * cannot drive each other into an endless exchange.
+ *
  * @param[in,out] ctx The context value.
  * @return The return value.
  */
@@ -1573,6 +1646,11 @@ noxtls_return_t noxtls_dtls_retransmit_flight(dtls_context_t *ctx)
     if(ctx->flight_buffer_len == 0U) {
         return NOXTLS_RETURN_SUCCESS;
     }
+    dtls_retransmit_note_progress(ctx);
+    if(ctx->retransmit_count >= ctx->retransmit_max_attempts) {
+        return NOXTLS_RETURN_TIMEOUT;
+    }
+    ctx->retransmit_count += 1U;
     rc = dtls_flight_retransmit(ctx);
     if((rc == NOXTLS_RETURN_SUCCESS) && (ctx->base.time_callback != NULL)) {
         ctx->last_flight_sent_ms = ctx->base.time_callback(ctx->base.user_data);
@@ -1626,9 +1704,8 @@ noxtls_return_t noxtls_dtls_send_protected_record(dtls_context_t *ctx, uint8_t t
         return NOXTLS_RETURN_FAILED;
     }
     record_len = DTLS_RECORD_HEADER_SIZE + out_len;
-    if((ctx->base.role == TLS_ROLE_SERVER) && (ctx->validated == 0U) && (ctx->anti_amp_factor > 0U) &&
-       ((ctx->bytes_received == 0U) ||
-        ((ctx->bytes_sent + record_len) > (ctx->bytes_received * (uint64_t)ctx->anti_amp_factor)))) {
+    if(dtls_anti_amp_allows(ctx, record_len) == 0) {
+        /* Nothing was emitted: the sequence number sealed above is not exposed. */
         return NOXTLS_RETURN_TIMEOUT;
     }
     record[DTLS_RECORD_TYPE_OFFSET] = type;
@@ -1650,11 +1727,13 @@ noxtls_return_t noxtls_dtls_send_protected_record(dtls_context_t *ctx, uint8_t t
     }
 
     sent = ctx->base.send_callback(ctx->base.user_data, record, record_len);
+    /* The sealed sequence number is used up once the record reached the transport (see
+     * noxtls_dtls_send_record): a failed or short send must not lead to nonce reuse. */
+    ctx->write_seq_num += 1U;
+    ctx->bytes_sent += record_len;
     if((sent < 0) || ((uint32_t)sent != record_len)) {
         return NOXTLS_RETURN_FAILED;
     }
-    ctx->bytes_sent += record_len;
-    ctx->write_seq_num += 1U;
     if(ctx->base.time_callback != NULL) {
         ctx->last_flight_sent_ms = ctx->base.time_callback(ctx->base.user_data);
     }
@@ -1705,7 +1784,7 @@ static void dtls_rx_stash_remainder(dtls_context_t *ctx, const uint8_t *rest, ui
 static noxtls_return_t dtls_read_datagram(dtls_context_t *ctx, uint8_t *packet, uint32_t packet_capacity,
                                           int32_t *received, int *from_stash)
 {
-    uint32_t attempts = 0U;
+    uint32_t short_discards = 0U;
 
     *from_stash = 0;
     if(ctx->rx_datagram != NULL) {
@@ -1729,9 +1808,12 @@ static noxtls_return_t dtls_read_datagram(dtls_context_t *ctx, uint8_t *packet, 
             /*
              * The last flight of a DTLS 1.2 handshake is never retransmitted on a timer: it is
              * resent only when the peer retransmits its previous flight (RFC 6347 4.2.4).
+             * The attempt budget is kept in the context: it covers the flight across receive
+             * calls and restarts only when the peer makes progress.
              */
+            dtls_retransmit_note_progress(ctx);
             if((ctx->flight_buffer_len > 0U) && (ctx->flight_final == 0U) &&
-               (attempts < ctx->retransmit_max_attempts)) {
+               (ctx->retransmit_count < ctx->retransmit_max_attempts)) {
                 if(ctx->base.time_callback != NULL) {
                     uint64_t now = (uint64_t)(ctx->base.time_callback(ctx->base.user_data));
                     if(ctx->last_flight_sent_ms == 0U) {
@@ -1741,8 +1823,8 @@ static noxtls_return_t dtls_read_datagram(dtls_context_t *ctx, uint8_t *packet, 
                         return NOXTLS_RETURN_TIMEOUT;
                     }
                 }
+                ctx->retransmit_count += 1U;
                 (void)dtls_flight_retransmit(ctx);
-                attempts += 1U;
                 /* RFC 9147 5.8: timer value SHOULD be backed off after each retransmission. */
                 ctx->retransmit_timeout_ms =
                     (uint32_t)(((uint64_t)ctx->retransmit_timeout_ms * ctx->retransmit_backoff_ms) / 1000U);
@@ -1756,10 +1838,18 @@ static noxtls_return_t dtls_read_datagram(dtls_context_t *ctx, uint8_t *packet, 
             }
             return NOXTLS_RETURN_TIMEOUT;
         }
-        if(*received < (int32_t)DTLS_RECORD_HEADER_SIZE) {
-            (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] dtls_recv_record: short packet len=%ld (<%u)\n",
-                                (long)*received, (uint32_t)DTLS_RECORD_HEADER_SIZE);
+        if(*received < 0) {
             return NOXTLS_RETURN_FAILED;
+        }
+        if(*received < (int32_t)DTLS_RECORD_HEADER_SIZE) {
+            /* RFC 9147 4.5.2 / RFC 6347 4.1.2.7: an invalid datagram is discarded, not fatal. */
+            (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] dtls_recv_record: short packet len=%ld (<%u) discarded\n",
+                                (long)*received, (uint32_t)DTLS_RECORD_HEADER_SIZE);
+            short_discards += 1U;
+            if(short_discards >= DTLS12_MAX_RECORDS_PER_READ) {
+                return NOXTLS_RETURN_TIMEOUT;
+            }
+            continue;
         }
         break;
     }
@@ -1898,17 +1988,9 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
         if((length > TLS_MAX_PROTECTED_RECORD_FRAGMENT) || (need > (uint32_t)received)) {
             (void)noxtls_debug_printf((const uint8_t *)"[TLS12_DEBUG] dtls_recv_record: bad record length %u (datagram %ld)\n",
                                 (uint32_t)length, (long)received);
-            if((from_stash == 0) && (received == (int32_t)DTLS_RECORD_HEADER_SIZE) && (length <= TLS_MAX_RECORD_SIZE)) {
-                /* Stream-style transport that returned only the header: read the body. */
-                int32_t extra = ctx->base.recv_callback(ctx->base.user_data, &packet[payload_offset], length);
-                if((extra < 0) || ((uint16_t)extra != length)) {
-                    (void)noxtls_free(packet);
-                    return NOXTLS_RETURN_FAILED;
-                }
-                received = (int32_t)need;
-            } else {
-                continue;
-            }
+            /* A datagram transport never splits a record: a header-only datagram is
+             * discarded rather than consuming the next datagram as its body. */
+            continue;
         }
         if((uint32_t)received > need) {
             dtls_rx_stash_remainder(ctx, &packet[need], (uint32_t)received - need);
@@ -1936,9 +2018,37 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
             }
             noxtls_copy_u8(record->data, (size_t)length, &packet[payload_offset], (size_t)length);
         }
-        (void)noxtls_dtls_update_replay_window(ctx, record->sequence_number);
+        /*
+         * RFC 6347 4.1.2.6: the window is updated only once the record is authenticated.
+         * Epoch 0 records carry no protection, so they are recorded here; records of a
+         * protected epoch are recorded by noxtls_tls12_open_record() after the MAC / AEAD
+         * check (read_seq_num above names the record), so a forged sequence number cannot
+         * move the window.
+         */
+        if(record->epoch == (uint16_t)DTLS_EPOCH_UNENCRYPTED) {
+            (void)noxtls_dtls_update_replay_window(ctx, record->sequence_number);
+        }
         (void)noxtls_free(packet);
         return NOXTLS_RETURN_SUCCESS;
+    }
+
+    if((ctx->base.version == DTLS_VERSION_1_3) && (ctx->read_connection_epoch != DTLS_EPOCH_UNENCRYPTED) &&
+       ((ctx->base.state != TLS_STATE_HANDSHAKING) ||
+        (record->type == TLS_RECORD_ACK) || (record->type == TLS_RECORD_HANDSHAKE))) {
+        /*
+         * RFC 9147 4.5.2: once protected read keys exist the peer protects its ACKs and
+         * handshake messages, and after the handshake every record. A DTLSPlaintext record
+         * cannot be authenticated and is discarded silently, so it can neither end the
+         * connection, cancel a retransmission, nor inject bytes into the handshake message
+         * stream. (While handshaking, a plaintext alert or CCS from a peer that has no keys
+         * yet is still processed.)
+         */
+        (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] dtls_recv_record: discard plaintext type=0x%02X after read keys\n",
+                            record->type);
+        if((uint32_t)received > need) {
+            dtls_rx_stash_remainder(ctx, &packet[need], (uint32_t)received - need);
+        }
+        continue;
     }
 
     ctx->read_seq_num = record->sequence_number;
@@ -1960,11 +2070,10 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
             (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] dtls_recv_record: accepting DTLS1.3 ACK at epoch %u\n",
                                 (uint32_t)record->epoch);
         } else {
-        /* MISRA 15.7: final else path */
+        /* MISRA 15.7: final else path: an unexpected epoch is discarded, not fatal. */
         (void)noxtls_debug_printf((const uint8_t *)"[TLS13_DEBUG] dtls_recv_record: epoch mismatch record=%u ctx=%u type=0x%02X version=0x%04X\n",
                             record->epoch, ctx->epoch, record->type, record->version);
-        (void)noxtls_free(packet);
-        return NOXTLS_RETURN_FAILED;
+        continue;
         }
     }
 
@@ -1975,19 +2084,9 @@ noxtls_return_t noxtls_dtls_recv_record(dtls_context_t *ctx, dtls_record_t *reco
 
     {
         if(received < (int32_t)need) {
-            if(received == (int32_t)DTLS_RECORD_HEADER_SIZE) {
-                int32_t extra = ctx->base.recv_callback(ctx->base.user_data,
-                                                        &packet[payload_offset],
-                                                        length);
-                if((extra < 0) || ((uint16_t)extra != length)) {
-                    (void)noxtls_free(packet);
-                    return NOXTLS_RETURN_FAILED;
-                }
-            } else {
-                /* MISRA 15.7: final else path */
-                (void)noxtls_free(packet);
-                return NOXTLS_RETURN_FAILED;
-            }
+            /* Truncated record (including a header-only datagram): discard, never read the
+             * next datagram as its body. */
+            continue;
         }
     }
 
@@ -2209,6 +2308,28 @@ noxtls_return_t noxtls_dtls_take_queued_handshake(dtls_context_t *ctx, uint8_t *
     *complete_msg = NULL;
     *complete_len = 0U;
     return dtls_reassembly_slot_take_complete(ctx, msg_type, complete_msg, complete_len);
+}
+
+/**
+ * @brief Drop queued and partially reassembled handshake fragments.
+ *
+ * DTLS 1.3 calls this when it installs its first read keys: fragments that arrived in
+ * plaintext records must not be completed by (or substituted for) protected fragments.
+ *
+ * @param[in,out] ctx The context value.
+ */
+void noxtls_dtls_reassembly_discard(dtls_context_t *ctx)
+{
+    if(ctx == NULL) {
+        return;
+    }
+    dtls_reassembly_queue_clear(ctx);
+    if(ctx->handshake_buffer != NULL) {
+        noxtls_secure_zero(ctx->handshake_buffer, (size_t)ctx->handshake_buffer_capacity);
+    }
+    ctx->handshake_buffer_len = 0U;
+    ctx->handshake_received_count = 0U;
+    ctx->expected_fragment_offset = 0U;
 }
 
 /**
@@ -2479,6 +2600,8 @@ noxtls_return_t noxtls_dtls_generate_cookie(dtls_context_t *ctx,
 {
     uint8_t digest[HASH_SHA256_OUT_LEN];
     uint32_t digest_len = (uint32_t)sizeof(digest);
+    hmac_context_t hmac;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
 
     if((ctx == NULL) || (client_hello == NULL) || (cookie == NULL) || (cookie_len == NULL)) {
         return NOXTLS_RETURN_NULL;
@@ -2492,22 +2615,56 @@ noxtls_return_t noxtls_dtls_generate_cookie(dtls_context_t *ctx,
         return NOXTLS_RETURN_FAILED;
     }
 
-    if((noxtls_hmac_compute(NOXTLS_HASH_SHA_256,
-                           ctx->cookie_secret,
-                           (uint32_t)sizeof(ctx->cookie_secret),
-                           client_hello,
-                           client_hello_len,
-                           digest,
-                           &digest_len) != NOXTLS_RETURN_SUCCESS) ||
-       (digest_len != HASH_SHA256_OUT_LEN)) {
+    /* cookie = HMAC(secret, identity_len || peer identity || ClientHello) (RFC 6347 4.2.1). */
+    rc = noxtls_hmac_init(&hmac, NOXTLS_HASH_SHA_256, ctx->cookie_secret, (uint32_t)sizeof(ctx->cookie_secret));
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_hmac_update(&hmac, &ctx->peer_identity_len, 1U);
+    }
+    if((rc == NOXTLS_RETURN_SUCCESS) && (ctx->peer_identity_len > 0U)) {
+        rc = noxtls_hmac_update(&hmac, ctx->peer_identity, (uint32_t)ctx->peer_identity_len);
+    }
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_hmac_update(&hmac, client_hello, client_hello_len);
+    }
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        rc = noxtls_hmac_final(&hmac, digest, &digest_len);
+    }
+    (void)noxtls_hmac_free(&hmac);
+    if((rc != NOXTLS_RETURN_SUCCESS) || (digest_len != HASH_SHA256_OUT_LEN)) {
+        noxtls_secure_zero(digest, sizeof(digest));
         return NOXTLS_RETURN_FAILED;
     }
 
     noxtls_copy_u8(cookie, (size_t)HASH_SHA256_OUT_LEN, digest, (size_t)HASH_SHA256_OUT_LEN);
     noxtls_copy_u8(ctx->cookie, sizeof(ctx->cookie), digest, (size_t)HASH_SHA256_OUT_LEN);
+    noxtls_secure_zero(digest, sizeof(digest));
     ctx->cookie_len = HASH_SHA256_OUT_LEN;
+    /* Remember whom this cookie was issued to: verification requires the same peer. */
+    if(ctx->peer_identity_len > 0U) {
+        noxtls_copy_u8(ctx->cookie_identity, sizeof(ctx->cookie_identity),
+                       ctx->peer_identity, (size_t)ctx->peer_identity_len);
+    }
+    ctx->cookie_identity_len = ctx->peer_identity_len;
     *cookie_len = HASH_SHA256_OUT_LEN;
 
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/** @copydoc noxtls_dtls_set_peer_identity */
+noxtls_return_t noxtls_dtls_set_peer_identity(dtls_context_t *ctx, const uint8_t *identity,
+                                              uint32_t identity_len)
+{
+    if((ctx == NULL) || ((identity == NULL) && (identity_len > 0U))) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(identity_len > DTLS_PEER_IDENTITY_MAX_LEN) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    noxtls_secure_zero(ctx->peer_identity, sizeof(ctx->peer_identity));
+    if(identity_len > 0U) {
+        noxtls_copy_u8(ctx->peer_identity, sizeof(ctx->peer_identity), identity, (size_t)identity_len);
+    }
+    ctx->peer_identity_len = (uint8_t)identity_len;
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -2528,6 +2685,13 @@ noxtls_return_t noxtls_dtls_verify_cookie(const dtls_context_t *ctx,
     }
 
     if((cookie_len != ctx->cookie_len) || (ctx->cookie_len == 0U)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+
+    /* The cookie proves reachability only of the peer identity it was issued to. */
+    if((ctx->peer_identity_len != ctx->cookie_identity_len) ||
+       ((ctx->peer_identity_len > 0U) &&
+        (noxtls_ct_memcmp(ctx->peer_identity, ctx->cookie_identity, (size_t)ctx->peer_identity_len) != 0))) {
         return NOXTLS_RETURN_FAILED;
     }
 

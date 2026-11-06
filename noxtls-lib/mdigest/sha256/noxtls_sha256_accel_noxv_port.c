@@ -12,6 +12,8 @@
 
 #include "noxtls_sha.h"
 #include "noxtls_common.h"
+#include "noxtls_ct.h"
+#include "noxtls_sha256_accel_port.h"
 
 #ifndef NOXTLS_NOXV_SHA256_BASE_ADDR
 #define NOXTLS_NOXV_SHA256_BASE_ADDR ((uintptr_t)0x20006000u)
@@ -147,6 +149,7 @@ static noxtls_return_t process_blocks(noxtls_sha_ctx_t *ctx,
                       NOXTLS_NOXV_SHA_STATUS_VALID)) !=
            (NOXTLS_NOXV_SHA_STATUS_DONE | NOXTLS_NOXV_SHA_STATUS_VALID)) {
             s_active_ctx = NULL;
+            noxtls_secure_zero(s_active_digest, sizeof(s_active_digest));
             noxtls_noxv_sha256_irq_restore(irq_state);
             return NOXTLS_RETURN_TIMEOUT;
         }
@@ -167,6 +170,25 @@ static noxtls_return_t process_blocks(noxtls_sha_ctx_t *ctx,
     }
     noxtls_noxv_sha256_irq_restore(irq_state);
     return NOXTLS_RETURN_SUCCESS;
+}
+
+void noxtls_noxv_sha256_release(const noxtls_sha_ctx_t *ctx)
+{
+    uintptr_t irq_state;
+
+    if(ctx == NULL) {
+        return;
+    }
+    irq_state = noxtls_noxv_sha256_irq_save();
+    if(s_active_ctx == ctx) {
+        /* The cached chaining value is this hash's digest (or an HMAC inner
+         * hash): clear it and the engine's digest/block registers. */
+        noxtls_noxv_sha256_mmio_write(NOXTLS_NOXV_SHA_CTRL_OFF,
+                                      NOXTLS_NOXV_SHA_CTRL_CLEAR);
+        noxtls_secure_zero(s_active_digest, sizeof(s_active_digest));
+        s_active_ctx = NULL;
+    }
+    noxtls_noxv_sha256_irq_restore(irq_state);
 }
 
 noxtls_return_t noxtls_sha256_round_accel_port(noxtls_sha_ctx_t *ctx,

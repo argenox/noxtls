@@ -790,6 +790,45 @@ noxtls_entropy_cb_t noxtls_drbg_get_entropy_callback(void)
     return g_entropy_cb;
 }
 
+/** Integrator lock for the shared PKC DRBG (NULL: no locking). */
+static noxtls_drbg_lock_cb_t g_drbg_lock_cb = NULL;
+static noxtls_drbg_lock_cb_t g_drbg_unlock_cb = NULL;
+static void *g_drbg_lock_user = NULL;
+
+noxtls_return_t noxtls_drbg_set_lock_callbacks(noxtls_drbg_lock_cb_t lock_cb,
+                                               noxtls_drbg_lock_cb_t unlock_cb,
+                                               void *lock_user)
+{
+    noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
+
+    if ((lock_cb == NULL) != (unlock_cb == NULL)) {
+        rc = NOXTLS_RETURN_INVALID_PARAM;
+    } else {
+        g_drbg_lock_cb = lock_cb;
+        g_drbg_unlock_cb = unlock_cb;
+        g_drbg_lock_user = (lock_cb != NULL) ? lock_user : NULL;
+    }
+    return rc;
+}
+
+void noxtls_drbg_shared_lock(void)
+{
+    noxtls_drbg_lock_cb_t cb = g_drbg_lock_cb;
+
+    if (cb != NULL) {
+        cb(g_drbg_lock_user);
+    }
+}
+
+void noxtls_drbg_shared_unlock(void)
+{
+    noxtls_drbg_lock_cb_t cb = g_drbg_unlock_cb;
+
+    if (cb != NULL) {
+        cb(g_drbg_lock_user);
+    }
+}
+
 /**
  * @brief Deterministic fallback entropy (not cryptographic); used when platform entropy is unavailable.
  *

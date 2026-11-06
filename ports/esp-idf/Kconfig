@@ -75,6 +75,13 @@ config NOXTLS_USE_ESP_ENTROPY
 	help
 	  Registers esp_fill_random() with noxtls_drbg_set_entropy_callback()
 	  during component init (constructor or noxtls_esp_idf_init()).
+	  The constructor also draws a 32-byte boot seed with the SAR ADC
+	  entropy source enabled (bootloader_random_enable(), before app_main
+	  and before RF starts) and mixes SHA-256(seed || counter) into every
+	  output, because the RNG is only pseudo-random while neither RF nor
+	  the SAR ADC source is active. Without the constructor (calling
+	  noxtls_esp_idf_init() by hand), no boot seed is drawn: start Wi-Fi or
+	  Bluetooth before generating keys.
 
 menu "ESP Hardware Crypto Acceleration"
 

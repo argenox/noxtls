@@ -188,7 +188,8 @@ Set `NOXTLS_SIDECHANNEL_PROFILE` to tune timing-side-channel behavior:
 
 - `performance`: keeps legacy comparison behavior (opt-in).
 - `balanced` (default): enables constant-time secret comparisons for protocol verification/tag checks.
-- `constant_time_strict`: currently the same as `balanced`. The additional strict hardening it is meant to add is not implemented yet (known anomaly NOXTLS-KA-0.3.15-14).
+- `balanced` also selects the table-free constant-time software AES core (`NOXTLS_AES_CONSTANT_TIME=1`); `performance` keeps the faster T-table core.
+- `constant_time_strict`: `balanced` plus constant-time GHASH (`NOXTLS_GCM_TABLE_BITS=0`) and constant-time S-box access for ARIA, Camellia and RC4 (`NOXTLS_LEGACY_CIPHER_CONSTANT_TIME=1`).
 
 Example:
 

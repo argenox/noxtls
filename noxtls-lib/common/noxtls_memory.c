@@ -543,7 +543,7 @@ noxtls_return_t noxtls_mem_init(uint8_t *buffer, size_t buffer_size)
 }
 
 /**
- * @brief Releases the static-buffer pool and resets allocator state.
+ * @brief Clears the static-buffer pool and resets allocator state.
  * @return `NOXTLS_RETURN_SUCCESS` after shutdown; `NOXTLS_RETURN_FAILED` if the pool was not initialized.
  */
 noxtls_return_t noxtls_mem_cleanup(void)
@@ -554,6 +554,10 @@ noxtls_return_t noxtls_mem_cleanup(void)
     
     if (g_mem_pool.buffer == g_noxtls_default_pool) {
         g_mem_pool.internal_buffer = 1U;
+    }
+    /* Blocks still allocated at shutdown may hold secrets; clear the whole pool. */
+    if((g_mem_pool.buffer != NULL) && (g_mem_pool.buffer_size != 0U)) {
+        noxtls_secure_zero(g_mem_pool.buffer, g_mem_pool.buffer_size);
     }
     g_mem_pool = (mem_pool_t){0};
     g_mem_initialized = 0U;
@@ -633,7 +637,7 @@ void *noxtls_malloc(size_t size)
 }
 
 /**
- * @brief Returns a static-pool allocation to the free list.
+ * @brief Returns a static-pool allocation to the free list after clearing its whole payload.
  * @param[in,out] ptr Pointer from @ref noxtls_malloc, @ref noxtls_calloc, or @ref noxtls_realloc; no-op if NULL or invalid.
  * @return None.
  */
@@ -657,6 +661,8 @@ void noxtls_free(void *ptr)
         if(bucket_index >= g_mem_pool.bucket_count) {
             return;
         }
+        /* Clear the whole payload so no secret survives into the next allocation. */
+        noxtls_secure_zero(ptr, header->size);
         if(g_mem_pool.total_used >= header->size) {
             g_mem_pool.total_used -= header->size;
         } else {
@@ -671,6 +677,8 @@ void noxtls_free(void *ptr)
 
 #if NOXTLS_STATIC_ALLOCATOR_MODE != NOXTLS_STATIC_ALLOCATOR_MODE_BUCKETS
     if(header->kind == NOXTLS_MEM_KIND_FALLBACK) {
+        /* Clear the whole payload so no secret survives into the next allocation. */
+        noxtls_secure_zero(ptr, header->size);
         if(g_mem_pool.total_used >= header->size) {
             g_mem_pool.total_used -= header->size;
         } else {
@@ -765,7 +773,7 @@ void *noxtls_realloc_at(void *ptr, size_t size,
     /* Copy old data */
     noxtls_copy_u8((uint8_t *)new_ptr, (size_t)size, (const uint8_t *)ptr, (size_t)old_size);
     
-    /* Free old block */
+    /* Free old block; noxtls_free clears its whole payload. */
     (void)noxtls_free(ptr);
     
     return new_ptr;
@@ -831,6 +839,39 @@ noxtls_return_t noxtls_mem_get_bucket_stats(noxtls_mem_bucket_stats_t *stats)
 
 #else /* !NOXTLS_USE_STATIC_BUFFERS */
 #include <stdlib.h>
+/* Host C libraries that can report a block's size, so freed and moved blocks are cleared. */
+#if defined(__ZEPHYR__) || defined(NOXTLS_MEM_NO_HOST_BLOCK_SIZE)
+/* Size not queried: noxtls_free cannot clear and noxtls_realloc uses host realloc. */
+#elif defined(__APPLE__)
+#include <malloc/malloc.h>
+#define NOXTLS_MEM_HOST_BLOCK_SIZE(p) malloc_size(p)
+#elif defined(__linux__) || defined(__ANDROID__) || defined(_WIN32)
+#include <malloc.h>
+#if defined(_WIN32)
+#define NOXTLS_MEM_HOST_BLOCK_SIZE(p) _msize(p)
+#else
+#define NOXTLS_MEM_HOST_BLOCK_SIZE(p) malloc_usable_size(p)
+#endif
+#endif
+
+/**
+ * @brief Usable size of a host heap block, or 0 when the C library cannot report it.
+ * @param[in] ptr Block returned by the host allocator, or NULL.
+ * @return Number of bytes that may hold caller data, or 0.
+ */
+static size_t noxtls_mem_host_block_size(void *ptr)
+{
+    size_t n = 0U;
+
+#if defined(NOXTLS_MEM_HOST_BLOCK_SIZE)
+    if(ptr != NULL) {
+        n = (size_t)NOXTLS_MEM_HOST_BLOCK_SIZE(ptr);
+    }
+#else
+    (void)ptr;
+#endif
+    return n;
+}
 
 /*
  * Host allocator backend (Rule 8.6): keep definitions in this always-analyzed
@@ -869,8 +910,18 @@ void *noxtls_malloc(size_t size)
     return noxtls_malloc_at(size, NULL, 0U, NULL);
 }
 
+/**
+ * @brief Clears the whole host heap block (when its size is known) and frees it.
+ * @param[in,out] ptr Block from @ref noxtls_malloc, @ref noxtls_calloc or @ref noxtls_realloc, or NULL.
+ * @return None.
+ */
 void noxtls_free(void *ptr)
 {
+    size_t n = noxtls_mem_host_block_size(ptr);
+
+    if(n != 0U) {
+        noxtls_secure_zero(ptr, n);
+    }
     free(ptr);
 }
 
@@ -920,18 +971,24 @@ void *noxtls_calloc(size_t nmemb, size_t size)
 }
 
 /**
- * @brief Resizes or frees using the host `realloc` / `free`.
+ * @brief Resizes a host heap block.
+ *
+ * When the C library reports the old block size, the block is moved by hand
+ * (allocate, copy, clear, free) so the released block keeps no caller data;
+ * otherwise host `realloc` is used.
+ *
  * @param[in,out] ptr Existing block or NULL for a fresh allocation.
  * @param[in]     size New size; zero frees @p ptr and returns NULL.
- * @return Pointer from `realloc`, or NULL per C library rules.
+ * @return Pointer to the resized block, or NULL on failure (@p ptr is then unchanged).
  */
 void *noxtls_realloc_at(void *ptr, size_t size,
                         const char *file, uint32_t line, const char *function)
 {
     void *new_ptr;
+    size_t old_size = 0U;
 
     if(size == 0U) {
-        free(ptr);
+        noxtls_free(ptr);
         return NULL;
     }
     noxtls_mem_test_record_attempt(size);
@@ -944,7 +1001,17 @@ void *noxtls_realloc_at(void *ptr, size_t size,
         return NULL;
     }
 #endif
-    new_ptr = realloc(ptr, size);
+    old_size = noxtls_mem_host_block_size(ptr);
+    if(old_size != 0U) {
+        new_ptr = malloc(size);
+        if(new_ptr != NULL) {
+            noxtls_copy_u8((uint8_t *)new_ptr, size, (const uint8_t *)ptr, (old_size < size) ? old_size : size);
+            noxtls_secure_zero(ptr, old_size);
+            free(ptr);
+        }
+    } else {
+        new_ptr = realloc(ptr, size);
+    }
     noxtls_mem_test_record_result(size, new_ptr);
     if(new_ptr == NULL) {
         noxtls_mem_record_system_failure((noxtls_mem_operation_t)NOXTLS_MEM_OPERATION_REALLOC,

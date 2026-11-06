@@ -78,7 +78,23 @@ Initialize for DTLS 1.3 (RFC 9147). Use DTLS options (MTU, retransmit, etc.) as 
 noxtls_return_t noxtls_tls13_context_free(tls13_context_t *ctx);
 ```
 
-Free TLS 1.3 context and owned resources.
+Free TLS 1.3 context and owned resources. The whole `tls13_context_t` is then wiped
+(traffic keys, exporter and resumption secrets included), so it must be initialized again
+before reuse.
+
+### `noxtls_tls13_psk_ticket_store_clear`
+
+```c
+void noxtls_tls13_psk_ticket_store_clear(void);
+```
+
+Wipe every resumption PSK in the process-global server ticket store. Server tickets expire
+after the advertised `ticket_lifetime` (86400 s); on a platform without a clock
+(`noxtls_time_unix_seconds()` returns -1) a ticket can be resumed only once. A ticket is
+resumed only by a server context with the same certificate(s), transport, client SNI and
+negotiated ALPN, and only when its cipher suite is in that server's allowlist and offered by
+the client; otherwise the server runs a full handshake. Not synchronised: call when no server
+handshake is running. See also `noxtls_tls12_session_stores_clear()`.
 
 **Returns:** [noxtls_return_t](./return_codes).
 
@@ -189,6 +205,10 @@ void noxtls_tls13_set_crypto_provider_server(tls13_context_t *ctx, const noxtls_
 ```
 
 Use crypto provider for server CertificateVerify instead of `server_private_rsa`. Call before handshake.
+With a provider and a non-NULL handle, RSA-PSS CertificateVerify is signed only through
+`ops->rsa_sign_pss`: there is no fallback to a software RSA key that may also be loaded, and a
+provider without `rsa_sign_pss` cannot sign RSA (the handshake fails). Other provider
+operations are not used by TLS 1.3.
 
 ### Client authentication (mTLS)
 
@@ -199,6 +219,28 @@ void noxtls_tls13_request_client_auth(tls13_context_t *ctx, int request);
 ```
 
 Server: request client certificate (send CertificateRequest). Call before [noxtls_tls13_accept](#noxtls_tls13_accept).
+A presented client certificate must chain to the client verify policy or the global trust
+store; with no anchors configured the handshake fails.
+
+### `noxtls_tls13_set_client_verify_policy`
+
+```c
+void noxtls_tls13_set_client_verify_policy(tls13_context_t *ctx,
+    const struct noxtls_x509_verify_policy *policy);
+```
+
+Server: verify client certificates against an explicit policy (borrowed until context free)
+instead of the global trust store. Fails closed when the policy has no anchors.
+
+### `noxtls_tls13_set_client_chain_verify_disabled`
+
+```c
+void noxtls_tls13_set_client_chain_verify_disabled(tls13_context_t *ctx, int disable);
+```
+
+Server: explicit opt-out of client chain validation, for applications that validate or pin the
+client certificate (`ctx->client_cert`) themselves after the handshake. CertificateVerify still
+runs.
 
 ### `noxtls_tls13_set_client_cert`
 
@@ -307,6 +349,24 @@ void noxtls_tls13_set_record_size_limit(tls13_context_t *ctx, uint16_t limit);
 ```
 
 Set the record size limit advertised to peer (maximum plaintext record size this side accepts). Call before handshake. Set `0` to use default limit.
+A peer `record_size_limit` below 64, or one the client did not offer, ends the handshake with
+`illegal_parameter` (RFC 8449 section 4).
+
+### Peer input limits
+
+- Handshake messages larger than `NOXTLS_TLS_MAX_HANDSHAKE_SIZE` are rejected as soon as their
+  header arrives, during and after the handshake.
+- More than 32 consecutive post-handshake handshake records (KeyUpdate, NewSessionTicket, ...)
+  without application data end the connection with `unexpected_message`.
+- CertificateVerify must use a signature scheme the receiver offered (client
+  `signature_algorithms`, or the server CertificateRequest list), and an ML-DSA scheme must
+  match the certificate's parameter set.
+- After a HelloRetryRequest the client stops 0-RTT and omits `early_data`; a server rejects a
+  second ClientHello that offers it.
+- DTLS 1.3: once read keys exist, plaintext records (alerts and handshake/ACK records, and after
+  the handshake every plaintext record), records that fail to authenticate, short or truncated
+  datagrams are discarded silently instead of ending the connection. ACKs are sent protected
+  once write keys exist.
 
 ### Client handshake steps (optional)
 

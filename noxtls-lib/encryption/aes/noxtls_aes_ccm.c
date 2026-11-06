@@ -109,6 +109,27 @@ static noxtls_return_t ccm_cbc_mac_block(const noxtls_aes_context_t *actx,
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/** Largest AAD length whose CBC-MAC block count (6-byte length header plus
+ *  rounding up to a block) fits in uint32_t. */
+#define NOXTLS_CCM_MAX_AAD_LEN (UINT32_MAX - 6U - ((uint32_t)NOXTLS_AES_BLOCK - 1U))
+/** Largest payload length whose block count and CTR byte cursor fit in uint32_t. */
+#define NOXTLS_CCM_MAX_PAYLOAD_LEN (UINT32_MAX - ((uint32_t)NOXTLS_AES_BLOCK - 1U))
+
+/**
+ * @brief Check that AAD and payload lengths can be processed without wrap.
+ *
+ * Above these limits the CBC-MAC block counts wrap to 0 or 1 (so the AAD is
+ * not authenticated) and the CTR loops never terminate.
+ *
+ * @param aad_len AAD length in bytes.
+ * @param payload_len Plaintext or ciphertext length in bytes.
+ * @return 1 when both lengths are supported, 0 otherwise.
+ */
+static uint32_t ccm_lengths_valid(uint32_t aad_len, uint32_t payload_len)
+{
+    return ((aad_len <= NOXTLS_CCM_MAX_AAD_LEN) && (payload_len <= NOXTLS_CCM_MAX_PAYLOAD_LEN)) ? 1U : 0U;
+}
+
 /**
  * @brief AES-CCM encrypt
  *
@@ -207,7 +228,8 @@ noxtls_return_t noxtls_aes_ccm_encrypt(const uint8_t *key, noxtls_aes_type_t typ
     if ((aad_len != 0U) && (aad == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
-    if ((nonce_len_valid(nonce_len) == 0U) || (tag_len_valid(tag_len) == 0U)) {
+    if ((nonce_len_valid(nonce_len) == 0U) || (tag_len_valid(tag_len) == 0U) ||
+        (ccm_lengths_valid(aad_len, plaintext_len) == 0U)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
     {
@@ -277,6 +299,9 @@ static noxtls_return_t ccm_compute_mac(const noxtls_aes_context_t *actx,
     uint8_t aad_buf[18];
 
     noxtls_secure_zero((mac_state), (size_t)(NOXTLS_AES_BLOCK));
+    if (ccm_lengths_valid(aad_len, payload_len) == 0U) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
     NOXTLS_AES_CHECK(ccm_cbc_mac_block(actx, B0, mac_state), mac_state, NOXTLS_AES_BLOCK, NULL, 0U);
 
     if (aad_len > 0U) {
@@ -328,7 +353,8 @@ static noxtls_return_t ccm_compute_mac(const noxtls_aes_context_t *actx,
                     noxtls_copy_u8(block, sizeof(block), &aad[aad_off], (size_t)(from_aad));
                 }
             }
-            NOXTLS_AES_CHECK(ccm_cbc_mac_block(actx, block, mac_state), mac_state, NOXTLS_AES_BLOCK, NULL, 0U);
+            NOXTLS_AES_CHECK(ccm_cbc_mac_block(actx, block, mac_state), mac_state, NOXTLS_AES_BLOCK, block, sizeof(block));
+            noxtls_secure_zero(block, sizeof(block));
         }
     }
 
@@ -344,7 +370,9 @@ static noxtls_return_t ccm_compute_mac(const noxtls_aes_context_t *actx,
             copy = (uint32_t)NOXTLS_AES_BLOCK;
         }
         noxtls_copy_u8(block, sizeof(block), &payload[off], (size_t)(copy));
-        NOXTLS_AES_CHECK(ccm_cbc_mac_block(actx, block, mac_state), mac_state, NOXTLS_AES_BLOCK, NULL, 0U);
+        NOXTLS_AES_CHECK(ccm_cbc_mac_block(actx, block, mac_state), mac_state, NOXTLS_AES_BLOCK, block, sizeof(block));
+        /* The payload is the plaintext (TLS CCM records): do not leave it here. */
+        noxtls_secure_zero(block, sizeof(block));
     }
     return NOXTLS_RETURN_SUCCESS;
 
@@ -460,7 +488,8 @@ noxtls_return_t noxtls_aes_ccm_decrypt(const uint8_t *key, noxtls_aes_type_t typ
     if ((aad_len != 0U) && (aad == NULL)) {
         return NOXTLS_RETURN_NULL;
     }
-    if ((nonce_len_valid(nonce_len) == 0U) || (tag_len_valid(tag_len) == 0U)) {
+    if ((nonce_len_valid(nonce_len) == 0U) || (tag_len_valid(tag_len) == 0U) ||
+        (ccm_lengths_valid(aad_len, ciphertext_len) == 0U)) {
         return NOXTLS_RETURN_INVALID_PARAM;
     }
     if (L == 2U) {

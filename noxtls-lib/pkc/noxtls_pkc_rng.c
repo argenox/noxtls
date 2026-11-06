@@ -56,9 +56,41 @@ static const uint8_t k_pkc_rng_pers[] = {
     'N', 'o', 'x', 'T', 'L', 'S', ' ', 'P', 'K', 'C', ' ', 'D', 'R', 'B', 'G', 0U
 };
 
-noxtls_return_t noxtls_pkc_rng_generate(noxtls_pkc_rng_slot_t slot, uint8_t *out, uint32_t requested_bits)
+/**
+ * @brief Instantiate a fresh PKC DRBG state for @p idx and publish it.
+ *
+ * The new state is seeded in a local drbg_state_t and copied into the shared
+ * slot only once seeding has succeeded, so the shared state is never zeroed
+ * or half seeded while it is live. Called with the integrator lock held.
+ *
+ * @param idx State index
+ * @return NOXTLS_RETURN_SUCCESS or the DRBG / entropy error
+ */
+static noxtls_return_t pkc_rng_instantiate(uint32_t idx)
 {
     uint8_t pers[sizeof(k_pkc_rng_pers)];
+    drbg_state_t fresh;
+    noxtls_return_t rc;
+
+    /* Entropy input and nonce (3/2 x security strength) come from
+     * noxtls_drbg_get_entropy() inside drbg_instantiate(). */
+    noxtls_copy_u8(pers, sizeof(pers), k_pkc_rng_pers, sizeof(k_pkc_rng_pers));
+    pers[sizeof(pers) - 1U] = (uint8_t)idx;
+    rc = drbg_instantiate(&fresh, NOXTLS_PKC_RNG_DRBG_TYPE,
+                          NULL, 0U, NULL, 0U, pers, (uint32_t)sizeof(pers));
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        noxtls_copy_u8((uint8_t *)(void *)&s_pkc_rng_state[idx], sizeof(s_pkc_rng_state[idx]),
+                       (const uint8_t *)(const void *)&fresh, sizeof(fresh));
+        s_pkc_rng_ready[idx] = 1U;
+    } else {
+        s_pkc_rng_ready[idx] = 0U;
+    }
+    noxtls_secure_zero(&fresh, sizeof(fresh));
+    return rc;
+}
+
+noxtls_return_t noxtls_pkc_rng_generate(noxtls_pkc_rng_slot_t slot, uint8_t *out, uint32_t requested_bits)
+{
     noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
     uint32_t idx = 0U;
 
@@ -69,19 +101,12 @@ noxtls_return_t noxtls_pkc_rng_generate(noxtls_pkc_rng_slot_t slot, uint8_t *out
     idx = (uint32_t)slot;
 #endif
 
+    /* Check, instantiate, reseed and generate form one critical section under
+     * the integrator lock (noxtls_drbg_set_lock_callbacks()); without a lock the
+     * caller must serialize, as documented above. */
+    noxtls_drbg_shared_lock();
     if((s_pkc_rng_ready[idx] == 0U) || (s_pkc_rng_state[idx].instantiated == 0U)) {
-        /* Entropy input and nonce (3/2 x security strength) come from
-         * noxtls_drbg_get_entropy() inside drbg_instantiate(). */
-        noxtls_copy_u8(pers, sizeof(pers), k_pkc_rng_pers, sizeof(k_pkc_rng_pers));
-        pers[sizeof(pers) - 1U] = (uint8_t)idx;
-        rc = drbg_instantiate(&s_pkc_rng_state[idx], NOXTLS_PKC_RNG_DRBG_TYPE,
-                              NULL, 0U, NULL, 0U, pers, (uint32_t)sizeof(pers));
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            s_pkc_rng_ready[idx] = 0U;
-            noxtls_secure_zero(out, (size_t)((requested_bits + 7U) / 8U));
-            return rc;
-        }
-        s_pkc_rng_ready[idx] = 1U;
+        rc = pkc_rng_instantiate(idx);
     }
 #if NOXTLS_PKC_RNG_RESEED_INTERVAL > 0
     else if(s_pkc_rng_state[idx].reseed_counter > (uint64_t)NOXTLS_PKC_RNG_RESEED_INTERVAL) {
@@ -107,6 +132,7 @@ noxtls_return_t noxtls_pkc_rng_generate(noxtls_pkc_rng_slot_t slot, uint8_t *out
         }
         noxtls_secure_zero(out, (size_t)((requested_bits + 7U) / 8U));
     }
+    noxtls_drbg_shared_unlock();
     return rc;
 }
 
