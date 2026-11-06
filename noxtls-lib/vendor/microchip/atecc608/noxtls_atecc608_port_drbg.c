@@ -26,6 +26,7 @@
  * Used by NOXTLS_ENTROPY_SOURCE_AUTO before the operating system sources when NOXTLS_FEATURE_ATECC608_ENTROPY is
  * set. The DRBG stays on top: the chip output only seeds it (NIST SP 800-90A), it is never used raw.
  */
+#include <stddef.h>
 #include "common/noxtls_accel_port.h"
 
 #if NOXTLS_FEATURE_ATECC608_ENTROPY

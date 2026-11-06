@@ -19,6 +19,7 @@
 *
 *****************************************************************************/
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "noxtls_ecc_opaque.h"

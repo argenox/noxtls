@@ -19,6 +19,7 @@
 *
 *****************************************************************************/
 
+#include <stddef.h>
 #include "noxtls_atecc608_noxsensor.h"
 
 #if NOXTLS_FEATURE_ATECC608 && defined(NOXTLS_ATECC608_NOXSENSOR)

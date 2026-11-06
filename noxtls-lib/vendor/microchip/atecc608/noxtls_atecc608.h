@@ -45,6 +45,7 @@
 #ifndef NOXTLS_ATECC608_H_
 #define NOXTLS_ATECC608_H_
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "noxtls_common.h"
