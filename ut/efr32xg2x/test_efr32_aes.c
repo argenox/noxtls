@@ -778,6 +778,73 @@ REGISTER_TEST(test_aes_ccm_parameter_errors)
     return 0;
 }
 
+REGISTER_TEST(test_aes_ccm_empty_payload_known_answers_and_failures)
+{
+    /* Independent vectors: PyCryptodome AES.MODE_CCM, key 99AD1B52.., nonce 30..3C, 4 octet tag, 1 octet AAD.
+     * The engine's own empty-payload chain did not reproduce them on EFR32MG26 silicon, so len 0 is composed
+     * from CBC-MAC and one ECB block. */
+    static const uint8_t k_key[16] = { 0x99U, 0xADU, 0x1BU, 0x52U, 0x26U, 0xA3U, 0x7EU, 0x3EU,
+                                       0x05U, 0x8EU, 0x3BU, 0x8EU, 0x27U, 0xC2U, 0xC6U, 0x66U };
+    static const uint8_t k_tag2[4] = { 0xCDU, 0x3CU, 0xA0U, 0x5BU };
+    static const uint8_t k_tag3[4] = { 0x57U, 0xDAU, 0x47U, 0xC9U };
+    uint8_t nonce[13];
+    uint8_t aad = 0x02U;
+    uint8_t tag[16];
+    uint32_t i;
+
+    ut_setup();
+    for (i = 0U; i < sizeof(nonce); i++) {
+        nonce[i] = (uint8_t)(0x30U + i);
+    }
+    (void)memcpy(g_ut_ram.aux, k_key, 16U);
+    (void)memcpy(g_ut_ram.aux2, nonce, 13U);
+    g_ut_ram.aux2[16] = aad;
+    UTNOX_EQUALS(noxtls_efr32_aes_ccm(0U, g_ut_ram.aux, 16U, g_ut_ram.aux2, 13U, &g_ut_ram.aux2[16], 1U, NULL, NULL, 0U, tag, 4U),
+                 NOXTLS_RETURN_SUCCESS);
+    UTNOX_MEM_EQUAL(tag, k_tag2, 4U);
+    UTNOX_EQUALS(noxtls_efr32_aes_ccm(1U, g_ut_ram.aux, 16U, g_ut_ram.aux2, 13U, &g_ut_ram.aux2[16], 1U, NULL, NULL, 0U, tag, 4U),
+                 NOXTLS_RETURN_SUCCESS);
+    g_ut_ram.aux2[16] = 0x03U;
+    UTNOX_EQUALS(noxtls_efr32_aes_ccm(0U, g_ut_ram.aux, 16U, g_ut_ram.aux2, 13U, &g_ut_ram.aux2[16], 1U, NULL, NULL, 0U, tag, 4U),
+                 NOXTLS_RETURN_SUCCESS);
+    UTNOX_MEM_EQUAL(tag, k_tag3, 4U);
+    /* No AAD at all: B0 only. */
+    UTNOX_EQUALS(noxtls_efr32_aes_ccm(0U, g_ut_ram.aux, 16U, g_ut_ram.aux2, 13U, NULL, 0U, NULL, NULL, 0U, tag, 16U), NOXTLS_RETURN_SUCCESS);
+    /* The 6 octet AAD length encoding with an empty payload. */
+    ut_fill(g_ut_ram.in, 0xFF00U, 5U);
+    UTNOX_EQUALS(noxtls_efr32_aes_ccm(0U, g_ut_ram.aux, 16U, &g_ut_ram.aux[64], 12U, g_ut_ram.in, 0xFF00U, NULL, NULL, 0U, &g_ut_ram.aux[200], 16U),
+                 NOXTLS_RETURN_SUCCESS);
+    ut_sw_begin();
+    UTNOX_EQUALS(noxtls_aes_ccm_encrypt(g_ut_ram.aux, NOXTLS_AES_128_BIT, &g_ut_ram.aux[64], 12U, g_ut_ram.in, 0xFF00U, g_ut_ram.in, 0U,
+                                        &g_ut_ram.aux2[2048], &g_ut_ram.aux[240], 16U), NOXTLS_RETURN_SUCCESS);
+    ut_sw_end();
+    UTNOX_MEM_EQUAL(&g_ut_ram.aux[200], &g_ut_ram.aux[240], 16U);
+
+    /* CCM disabled at run time. */
+    noxtls_efr32_aes_set_modes_disabled(UINT32_C(1) << NOXTLS_EFR32_AES_MODE_CCM);
+    UTNOX_EQUALS(noxtls_efr32_aes_ccm(0U, g_ut_ram.aux, 16U, g_ut_ram.aux2, 13U, NULL, 0U, NULL, NULL, 0U, tag, 4U), NOXTLS_RETURN_NOT_SUPPORTED);
+    noxtls_efr32_aes_set_modes_disabled(0U);
+
+    /* A failing CBC job and a failing ECB job (the one after the CBC-MAC blocks). The job counter is 8 bit
+     * in the mock knob, so start from a fresh mock. */
+    ut_setup();
+    (void)memcpy(g_ut_ram.aux, k_key, 16U);
+    (void)memcpy(g_ut_ram.aux2, nonce, 13U);
+    g_ut_ram.aux2[16] = aad;
+    g_ut.aes_jobs_fail_after = (uint8_t)(g_ut.aes_jobs + 1U);
+    UTNOX_EQUALS(noxtls_efr32_aes_ccm(0U, g_ut_ram.aux, 16U, g_ut_ram.aux2, 13U, NULL, 0U, NULL, NULL, 0U, tag, 4U), NOXTLS_RETURN_FAILED);
+    g_ut.aes_jobs_fail_after = (uint8_t)(g_ut.aes_jobs + 3U);
+    UTNOX_EQUALS(noxtls_efr32_aes_ccm(0U, g_ut_ram.aux, 16U, g_ut_ram.aux2, 13U, &g_ut_ram.aux2[16], 1U, NULL, NULL, 0U, tag, 4U),
+                 NOXTLS_RETURN_FAILED);
+    g_ut.aes_jobs_fail_after = (uint8_t)(g_ut.aes_jobs + 2U);
+    UTNOX_EQUALS(noxtls_efr32_aes_ccm(0U, g_ut_ram.aux, 16U, g_ut_ram.aux2, 13U, &g_ut_ram.aux2[16], 1U, NULL, NULL, 0U, tag, 4U),
+                 NOXTLS_RETURN_FAILED);
+    g_ut.aes_jobs_fail_after = 0U;
+    UTNOX_EQUALS(noxtls_efr32_aes_ccm(0U, g_ut_ram.aux, 16U, g_ut_ram.aux2, 13U, NULL, 0U, NULL, NULL, 0U, tag, 4U), NOXTLS_RETURN_SUCCESS);
+    UTNOX_IS_TRUE(ut_clean() != 0U);
+    return 0;
+}
+
 REGISTER_TEST(test_aes_ccm_bounce_and_unreachable)
 {
     uint8_t in[200];
