@@ -34,9 +34,11 @@
 
 #include "noxtls_efr32_regs.h"
 
-/** @brief Non-zero: the application runs in the non-secure world (non-secure RADIOAES / CMU aliases). */
+/** @brief Non-zero (default): use the non-secure RADIOAES / CMU aliases. Out of reset the SMU leaves
+ *  every peripheral except SMU and SEMAILBOX non-secure, so a normal (non-TrustZone) image must use
+ *  the non-secure aliases; set 0 only in a TrustZone secure image that marks them secure. */
 #ifndef NOXTLS_EFR32_CONFIG_NONSECURE
-#define NOXTLS_EFR32_CONFIG_NONSECURE       0
+#define NOXTLS_EFR32_CONFIG_NONSECURE       1
 #endif
 
 /** @brief RADIOAES base address. */
