@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-24T20:55:02Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-11-05T23:10:30Z)
 
 function(noxtls_esp_idf_write_config_features_header out_file)
   if(NOT out_file)
@@ -376,6 +376,12 @@ if(NOXTLS_CFG_FEATURE_ED448)
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_ED448 1\n")
 else()
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_ED448 0\n")
+endif()
+
+if(CONFIG_NOXTLS_FEATURE_EFR32XG2X_HW_ACCEL)
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_EFR32XG2X_HW_ACCEL 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_EFR32XG2X_HW_ACCEL 0\n")
 endif()
 
 if(NOXTLS_CFG_FEATURE_ENCRYPTION)
