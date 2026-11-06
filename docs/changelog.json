@@ -1,6 +1,50 @@
 {
   "releases": [
     {
+      "version": "0.3.19",
+      "date": "2026-11-05",
+      "summary": "NoxTLS 0.3.19 synchronizes the application configuration headers with the STM32WB5x backend setting.",
+      "changes": [
+        "Application noxtls_config.h copies regenerated for NOXTLS_FEATURE_STM32WB_HW_ACCEL (app_config_sync_check)."
+      ],
+      "fixed": [],
+      "resolved": [],
+      "known_issues": [],
+      "anomalies": [],
+      "security": [],
+      "security_recommendations": []
+    },
+    {
+      "version": "0.3.18",
+      "date": "2026-11-05",
+      "summary": "NoxTLS 0.3.18 adds host tests and documentation for the STM32WB5x hardware backend and tightens it against MISRA C:2025 and cppcheck findings.",
+      "changes": [
+        "STM32WB5x backend: UTNox host tests with an AES1, PKA, RNG and HSEM register model (78 tests, 100 percent line and branch coverage of the backend) and a documentation page.",
+        "STM32WB5x backend: RNG control register is restored to its previous value after a request; MISRA C:2025 and cppcheck findings in the new code fixed."
+      ],
+      "fixed": [],
+      "resolved": [],
+      "known_issues": [],
+      "anomalies": [],
+      "security": [],
+      "security_recommendations": []
+    },
+    {
+      "version": "0.3.17",
+      "date": "2026-11-05",
+      "summary": "NoxTLS 0.3.17 adds the STM32WB5x (P-NUCLEO-WB55) hardware crypto backend: AES1, PKA and RNG with HSEM locking and software fallback.",
+      "changes": [
+        "New NOXTLS_CFG_FEATURE_STM32WB_HW_ACCEL / NOXTLS_FEATURE_STM32WB_HW_ACCEL option: AES1 (ECB, CBC, CTR, GCM/GMAC, CCM), PKA (P-256 point multiply, ECDH, ECDSA sign and verify, modular exponentiation) and RNG entropy for the DRBG, locked against the CPU2 wireless stack through the hardware semaphores. SHA stays in software. Not yet verified on hardware.",
+        "STM32WB AES base address in the generic STM32 dispatch corrected to AES1 (0x50060000)."
+      ],
+      "fixed": [],
+      "resolved": [],
+      "known_issues": [],
+      "anomalies": [],
+      "security": [],
+      "security_recommendations": []
+    },
+    {
       "version": "0.3.16",
       "date": "2026-11-01",
       "summary": "NoxTLS 0.3.16 fixes a high-severity TLS 1.2 client flaw that let a previously trusted server impersonate another host through session resumption.",

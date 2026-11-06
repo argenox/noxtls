@@ -36,6 +36,7 @@ When building with CMake, common knobs include:
 | `NOXTLS_CFG_FEATURE_CC13XX_AES_ACCEL` | Enable the CC13xx AES engine callback port ([details](./cc13xx-accelerator.md)) | `OFF` |
 | `NOXTLS_CFG_FEATURE_CC13XX_P256_ACCEL` | Enable the CC13xx PKA (P-256) callback port | `OFF` |
 | `NOXTLS_CFG_FEATURE_CC13XX_HW_ACCEL` | Umbrella: enable both CC13xx callback ports | `OFF` |
+| `NOXTLS_CFG_FEATURE_STM32WB_HW_ACCEL` | Enable the STM32WB5x AES1, PKA and RNG backend ([details](./stm32wb-accelerator.md)) | `OFF` |
 
 Run from the build directory:
 

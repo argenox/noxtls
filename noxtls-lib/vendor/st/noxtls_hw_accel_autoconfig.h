@@ -53,6 +53,20 @@
 #undef NOXTLS_FEATURE_ECC_ACCEL_STM32
 #define NOXTLS_FEATURE_ECC_ACCEL_STM32 1
 #endif
+
+/* STM32WB5x has no HASH peripheral (RM0434): SHA stays in software. */
+#if defined(NOXTLS_STM32_WB5X)
+#undef NOXTLS_FEATURE_HASH_ACCEL_STM32
+#define NOXTLS_FEATURE_HASH_ACCEL_STM32 0
+#endif
+#endif
+
+/* The STM32WB hardware backend (AES1 / PKA / RNG) only exists for STM32WB5x parts. */
+#ifndef NOXTLS_FEATURE_STM32WB_HW_ACCEL
+#define NOXTLS_FEATURE_STM32WB_HW_ACCEL 0
+#endif
+#if NOXTLS_FEATURE_STM32WB_HW_ACCEL && NOXTLS_TARGET_STM32 && !defined(NOXTLS_STM32_WB5X)
+#error "NOXTLS_FEATURE_STM32WB_HW_ACCEL is set but the device define is not an STM32WB5x part (STM32WB50xx / STM32WB55xx / STM32WB5Mxx)"
 #endif
 
 #endif /* NOXTLS_HW_ACCEL_AUTOCONFIG_H_ */

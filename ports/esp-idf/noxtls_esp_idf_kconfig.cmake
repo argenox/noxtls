@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-24T20:55:02Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-11-06T00:35:38Z)
 
 if(NOT CONFIG_NOXTLS)
   return()
@@ -277,6 +277,12 @@ if(CONFIG_NOXTLS_FEATURE_SHA256_CORTEXM7)
   target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_FEATURE_SHA256_CORTEXM7=1)
 else()
   target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_FEATURE_SHA256_CORTEXM7=0)
+endif()
+
+if(CONFIG_NOXTLS_FEATURE_STM32WB_HW_ACCEL)
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_FEATURE_STM32WB_HW_ACCEL=1)
+else()
+  target_compile_definitions(${COMPONENT_LIB} PUBLIC NOXTLS_FEATURE_STM32WB_HW_ACCEL=0)
 endif()
 
 if(CONFIG_NOXTLS_FEATURE_TLS_CLIENT)
