@@ -2,7 +2,7 @@
   <img src="docs/static/img/noxtls-logo-50.webp" alt="NoxTLS" width="200" />
 </div>
 
-# NoxTLS
+# NoxTLS™
 
 **A fast, lightweight TLS crypto library designed for embedded and constrained systems by Argenox**
 Built for deterministic performance, clean APIs, and modern cryptography.
