@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-24T20:55:02Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-11-14T04:44:00Z)
 
 menu "NoxTLS library options (from noxtls_config.h)"
 
@@ -67,13 +67,6 @@ menu "NoxTLS library options (from noxtls_config.h)"
 			range 0 8
 			help
 			  NOXTLS_ECC_POINT_MUL_WINDOW_SIZE Log2 of the precomputation table size for windowed scalar multiplication. Table has 2^W Jacobian points; larger W = fewer point ops, more RAM. Uses 4 for P-256 (good tradeoff). Use 0 to disable windowing (Montgomery ladder only). Default: 4 (table of 16 points)
-
-		config NOXTLS_GCM_TABLE_BITS
-			int "Gcm Table Bits"
-			default 4
-			depends on NOXTLS_FEATURE_AES_GCM
-			help
-			  Software GHASH multiplier for AES-GCM. 4 (default): Shoup 4-bit table, 256 B built on the stack per GCM call and wiped on return (no static cache; reentrant). 0: constant-time bit-serial multiply, no table (16 B key, ~8x slower GHASH); for the smallest stacks or when table-lookup timing is a concern. Prereq: NOXTLS_FEATURE_AES_GCM=1.
 
 		config NOXTLS_MEM_BUCKET_ALIGNMENT
 			int "Mem Bucket Alignment"
@@ -814,6 +807,13 @@ menu "NoxTLS library options (from noxtls_config.h)"
 			help
 			  Compact software AES encryption tables: keep only Te0 (1 KB) and derive Te1..Te3 by 8/16/24-bit rotations at lookup time. Cuts the table footprint from 4 KB to 1 KB (flash with NOXTLS_AES_ROM_TABLES=1, RAM otherwise) at a small per-round cost (three extra rotates per column). Prereq: NOXTLS_FEATURE_AES=1.
 
+		config NOXTLS_AES_CONSTANT_TIME
+			bool "Aes Constant Time"
+			default n
+			depends on NOXTLS_FEATURE_AES
+			help
+			  Software AES core. 1: table-free constant-time core. SubBytes is a bitsliced Boyar-Peralta circuit and MixColumns uses masked packed arithmetic, so no memory index or branch depends on the key or the data; key expansion is constant-time in both settings. Slower than the T-tables (see docs, Side-channel profiles) and needs no tables (about 5 KB less flash). 0: T-table core (Te0..Te3 and S-box lookups indexed by state bytes; leaks through data-cache timing on cached CPUs). NOXTLS_AES_ROM_TABLES and NOXTLS_AES_COMPACT_TABLES apply only here. Default: 0 with NOXTLS_SIDECHANNEL_PROFILE_PERFORMANCE, 1 otherwise; NOXTLS_SIDECHANNEL_PROFILE_CONSTANT_TIME_STRICT requires 1. Hardware block backends (ports, AES-NI, ARMv8) are used first when they are compiled in. Prereq: NOXTLS_FEATURE_AES=1.
+
 		config NOXTLS_AES_CTX_RAW_KEY
 			bool "Aes Ctx Raw Key"
 			default y
@@ -878,6 +878,13 @@ menu "NoxTLS library options (from noxtls_config.h)"
 			depends on NOXTLS_FEATURE_AES_CCM
 			help
 			  Enables TLS_ECJPAKE_WITH_AES_128_CCM_8 (0xC0FF) and the ecjpake_key_kp_pair extension (256) in the TLS 1.2 / DTLS 1.2 engine (draft-cragie-tls-ecjpake-01; Thread MeshCoP commissioning). Prereq: NOXTLS_FEATURE_ECJPAKE=1 and NOXTLS_FEATURE_TLS=1 and NOXTLS_FEATURE_TLS12=1 and NOXTLS_FEATURE_DTLS=1 and NOXTLS_FEATURE_AES_CCM=1. Build knob: NOXTLS_CFG_FEATURE_DTLS_ECJPAKE. Default OFF.
+
+		config NOXTLS_FEATURE_EFR32XG2X_HW_ACCEL
+			bool "Efr32Xg2X Hw Accel"
+			default n
+			depends on NOXTLS_FEATURE_AES
+			help
+			  Enables the Silicon Labs EFR32xG2x (Series 2; EFR32MG26 and relatives) backend: AES block, ECB/CBC/CTR and CCM on the RADIOAES engine, SHA-224/256/384/512 block compression, TRNG entropy for the DRBG, P-256 / P-384 point multiply, ECDH and ECDSA on the Secure Engine, with software fallback (noxtls-lib/vendor/silabs/efr32xg2x). AES-GCM, X25519 and Ed25519 stay in software. Prereq: NOXTLS_FEATURE_AES=1. Build knob: NOXTLS_CFG_FEATURE_EFR32XG2X_HW_ACCEL.
 
 		config NOXTLS_FEATURE_FALCON
 			bool "Falcon"
@@ -985,11 +992,25 @@ menu "NoxTLS library options (from noxtls_config.h)"
 			help
 			  Enables XMSS/XMSS^MT hash-based signature APIs (RFC 8391).
 
+		config NOXTLS_GCM_TABLE_BITS
+			bool "Gcm Table Bits"
+			default n
+			depends on NOXTLS_FEATURE_AES_GCM
+			help
+			  Software GHASH multiplier for AES-GCM. 4 (default): Shoup 4-bit table, 256 B built on the stack per GCM call and wiped on return (no static cache; reentrant). The table is indexed with secret-dependent nibbles of the GHASH accumulator. 0: constant-time bit-serial multiply, no table (16 B key, ~8x slower GHASH); for the smallest stacks or when table-lookup timing is a concern. Default (and required) with NOXTLS_SIDECHANNEL_PROFILE_CONSTANT_TIME_STRICT. Prereq: NOXTLS_FEATURE_AES_GCM=1.
+
 		config NOXTLS_HAVE_FILE_IO
 			bool "File Io"
 			default y
 			help
 			  NOXTLS_HAVE_FILE_IO Define to 1 when stdio file helpers (fopen/fread/load_file) are available. Define to 0 for embedded/MISRA scan profiles that must not pull in stdio. File-load APIs return NOXTLS_RETURN_FAILED when disabled.
+
+		config NOXTLS_LEGACY_CIPHER_CONSTANT_TIME
+			bool "Legacy Cipher Constant Time"
+			# legacy algorithm / option
+			default y
+			help
+			  Constant-time table access for the legacy table ciphers ARIA, Camellia and RC4: each S-box (or RC4 state) access reads the whole 256-entry table and keeps the wanted entry with a mask, so no address depends on the key or the data. Roughly 100x slower for these ciphers. DES/3DES are always table-scan and branch-free and are not affected by this setting. Default: 1 with NOXTLS_SIDECHANNEL_PROFILE_CONSTANT_TIME_STRICT, 0 otherwise.
 
 		config NOXTLS_PKC_SHARED_DRBG
 			bool "Pkc Shared Drbg"

@@ -1,6 +1,22 @@
 {
   "releases": [
     {
+      "version": "0.3.51",
+      "date": "2026-11-13",
+      "summary": "NoxTLS 0.3.51 adds a hardware acceleration backend for Silicon Labs EFR32xG2x (Series 2; EFR32MG26 / BRD4120A), with software fallback.",
+      "changes": [
+        "New EFR32xG2x backend (noxtls-lib/vendor/silabs/efr32xg2x), enabled with NOXTLS_FEATURE_EFR32XG2X_HW_ACCEL: AES block, ECB/CBC/CTR and CCM on the RADIOAES engine; SHA-224/256/384/512 block compression, TRNG entropy for the DRBG, P-256/P-384 point multiply, ECDH and ECDSA on the Secure Engine. AES-GCM, X25519 and Ed25519 stay in software.",
+        "Power-on self-test of the backend and an on-target EFR32xG26 speed benchmark (software vs hardware).",
+        "Host unit tests for the backend run against a register and SE mailbox mock (ut/efr32xg2x)."
+      ],
+      "fixed": [],
+      "resolved": [],
+      "known_issues": [],
+      "anomalies": [],
+      "security": [],
+      "security_recommendations": []
+    },
+    {
       "version": "0.3.50",
       "date": "2026-11-03",
       "summary": "NoxTLS 0.3.50 fixes the remaining 146 findings from the security audit of 0.3.15 (issues #61-#206): 36 medium, 95 low and 15 that needed validation.",

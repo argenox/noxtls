@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Generated from noxtls_config_catalog.xml — do not edit by hand.
-# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-10-24T20:55:02Z)
+# Generator: noxtls/tools/kconfig_gen/generate_kconfig.py (2026-11-14T04:44:00Z)
 
 function(noxtls_esp_idf_write_config_features_header out_file)
   if(NOT out_file)
@@ -16,6 +16,12 @@ if(CONFIG_NOXTLS_AES_COMPACT_TABLES)
   string(APPEND _noxtls_hdr "#define NOXTLS_AES_COMPACT_TABLES 1\n")
 else()
   string(APPEND _noxtls_hdr "#define NOXTLS_AES_COMPACT_TABLES 0\n")
+endif()
+
+if(CONFIG_NOXTLS_AES_CONSTANT_TIME)
+  string(APPEND _noxtls_hdr "#define NOXTLS_AES_CONSTANT_TIME 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_AES_CONSTANT_TIME 0\n")
 endif()
 
 if(CONFIG_NOXTLS_AES_CTX_RAW_KEY)
@@ -378,6 +384,12 @@ else()
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_ED448 0\n")
 endif()
 
+if(CONFIG_NOXTLS_FEATURE_EFR32XG2X_HW_ACCEL)
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_EFR32XG2X_HW_ACCEL 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_EFR32XG2X_HW_ACCEL 0\n")
+endif()
+
 if(NOXTLS_CFG_FEATURE_ENCRYPTION)
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_ENCRYPTION 1\n")
 else()
@@ -630,7 +642,11 @@ else()
   string(APPEND _noxtls_hdr "#define NOXTLS_FEATURE_XMSS 0\n")
 endif()
 
-string(APPEND _noxtls_hdr "#define NOXTLS_GCM_TABLE_BITS ${CONFIG_NOXTLS_GCM_TABLE_BITS}\n")
+if(CONFIG_NOXTLS_GCM_TABLE_BITS)
+  string(APPEND _noxtls_hdr "#define NOXTLS_GCM_TABLE_BITS 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_GCM_TABLE_BITS 0\n")
+endif()
 
 if(NOXTLS_CFG_HAVE_CERT_WRITE)
   string(APPEND _noxtls_hdr "#define NOXTLS_HAVE_CERT_WRITE 1\n")
@@ -654,6 +670,12 @@ if(CONFIG_NOXTLS_HMAC_SHA256_SHARED_STATE)
   string(APPEND _noxtls_hdr "#define NOXTLS_HMAC_SHA256_SHARED_STATE 1\n")
 else()
   string(APPEND _noxtls_hdr "#define NOXTLS_HMAC_SHA256_SHARED_STATE 0\n")
+endif()
+
+if(CONFIG_NOXTLS_LEGACY_CIPHER_CONSTANT_TIME)
+  string(APPEND _noxtls_hdr "#define NOXTLS_LEGACY_CIPHER_CONSTANT_TIME 1\n")
+else()
+  string(APPEND _noxtls_hdr "#define NOXTLS_LEGACY_CIPHER_CONSTANT_TIME 0\n")
 endif()
 
 string(APPEND _noxtls_hdr "#define NOXTLS_MAX_CERT_CHAIN_DEPTH ${CONFIG_NOXTLS_MAX_CERT_CHAIN_DEPTH}\n")
