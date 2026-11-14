@@ -36,6 +36,8 @@
 static unsigned char g_noxtls_debug_level = 0U;
 #ifndef NDEBUG
 static FILE *g_noxtls_debug_log_fp = NULL;
+/* Set while a suppressed [TLS13_DEBUG] line is still being printed piecewise. */
+static unsigned char g_noxtls_debug_in_suppressed_line = 0U;
 #endif
 
 #ifdef __cplusplus
@@ -54,6 +56,68 @@ int noxtls_debug_printf(const uint8_t *format, ...)
     return result;
 }
 
+#ifndef NDEBUG
+/**
+ * @brief Report whether @p format only prints bytes as hex ("%02X", "%02x", with optional spaces).
+ *
+ * Library code dumps buffers one byte per call with such formats, and the
+ * bytes can be key material. These calls carry no marker of their own.
+ *
+ * @param[in] format NUL-terminated format string.
+ * @return 1 for a bare hex-byte format, 0 otherwise.
+ */
+static int noxtls_debug_is_hex_byte_format(const char *format)
+{
+    const char *p = format;
+    int conversions = 0;
+
+    while(*p != '\0') {
+        if(*p == ' ') {
+            p++;
+        } else if((p[0] == '%') && (p[1] == '0') && (p[2] == '2') && ((p[3] == 'X') || (p[3] == 'x'))) {
+            conversions += 1;
+            p = &p[4];
+        } else {
+            return 0;
+        }
+    }
+    return (conversions > 0) ? 1 : 0;
+}
+
+/**
+ * @brief Decide whether level 1 must drop this call.
+ *
+ * Level 1 drops [TLS13_DEBUG] lines, including the per-byte calls and the
+ * closing newline that continue such a line, and every bare hex-byte dump,
+ * because those dumps carry secrets (shared secrets, traffic keys, private
+ * scalars) and cannot be told apart from harmless ones by their format.
+ *
+ * @param[in] format NUL-terminated format string.
+ * @return 1 to drop the call, 0 to print it.
+ */
+static int noxtls_debug_level1_suppressed(const char *format)
+{
+    size_t len = strlen(format);
+    int ends_line = ((len > 0U) && (format[len - 1U] == '\n')) ? 1 : 0;
+    int suppress = 0;
+
+    if(strstr(format, "[TLS13_DEBUG]") != NULL) {
+        suppress = 1;
+        g_noxtls_debug_in_suppressed_line = (ends_line != 0) ? 0U : 1U;
+    } else if(g_noxtls_debug_in_suppressed_line != 0U) {
+        suppress = 1;
+        if(ends_line != 0) {
+            g_noxtls_debug_in_suppressed_line = 0U;
+        }
+    } else if(noxtls_debug_is_hex_byte_format(format) != 0) {
+        suppress = 1;
+    } else {
+        suppress = 0;
+    }
+    return suppress;
+}
+#endif
+
 int noxtls_debug_vprintf(const uint8_t *format, va_list args)
 {
 #ifdef NDEBUG
@@ -67,7 +131,7 @@ int noxtls_debug_vprintf(const uint8_t *format, va_list args)
     if(g_noxtls_debug_level == 0U) {
         return 0;
     }
-    if((g_noxtls_debug_level == 1U) && (strstr((const char *)(const void *)format, "[TLS13_DEBUG]") != NULL)) {
+    if((g_noxtls_debug_level == 1U) && (noxtls_debug_level1_suppressed((const char *)(const void *)format) != 0)) {
         return 0;
     }
     {
@@ -87,6 +151,9 @@ int noxtls_debug_vprintf(const uint8_t *format, va_list args)
 void noxtls_debug_set_level(unsigned char level)
 {
     g_noxtls_debug_level = level;
+#ifndef NDEBUG
+    g_noxtls_debug_in_suppressed_line = 0U;
+#endif
 }
 
 unsigned char noxtls_debug_get_level(void)

@@ -117,6 +117,41 @@ typedef uint32_t noxtls_x509_verify_flags_t;
 #define NOXTLS_X509_VERIFY_FLAG_CRL_NO_MATCH       (1U << 3)
 /** At least one supplied CRL matched an issuer DN and was evaluated (signature/time/revocation). */
 #define NOXTLS_X509_VERIFY_FLAG_CRL_USED           (1U << 4)
+/** A CRL list was supplied but at least one chain level had no applicable CRL (status unknown at that level).
+ *  Set per level, unlike NOXTLS_X509_VERIFY_FLAG_CRL_NO_MATCH; fatal only when CRL coverage is required. */
+#define NOXTLS_X509_VERIFY_FLAG_CRL_LEVEL_UNCOVERED (1U << 5)
+
+/**
+ * Upper bound on the number of peer-presented certificates (intermediates, leaf excluded) that path
+ * validation will consider. A larger presented chain is rejected before any signature is verified.
+ */
+#ifndef NOXTLS_X509_MAX_PRESENTED_CERTS
+#define NOXTLS_X509_MAX_PRESENTED_CERTS 16U
+#endif
+
+/**
+ * Upper bound on the number of signature verifications performed while building and validating one
+ * certification path (issuer candidates from the trust anchors and the presented chain). Bounds the
+ * work a peer can cause with many same-name issuer candidates.
+ */
+#ifndef NOXTLS_X509_MAX_PATH_SIGNATURE_CHECKS
+#define NOXTLS_X509_MAX_PATH_SIGNATURE_CHECKS 24U
+#endif
+
+/**
+ * Default for noxtls_x509_set_crl_require_coverage(): when 1 and a CRL list is supplied, every chain
+ * level must be covered by an applicable CRL from its issuer, otherwise verification fails with
+ * NOXTLS_RETURN_CRL_VERIFY_FAILED. 0 (default) keeps the soft-fail behavior: an uncovered level is
+ * treated as not revoked and only reported through NOXTLS_X509_VERIFY_FLAG_CRL_LEVEL_UNCOVERED.
+ */
+#ifndef NOXTLS_X509_CRL_REQUIRE_COVERAGE
+#define NOXTLS_X509_CRL_REQUIRE_COVERAGE 0
+#endif
+
+/** Bits of x509_certificate_t::ext_flags (extensions seen at parse, whatever their decoded value). */
+#define X509_EXT_FLAG_KEY_USAGE          0x01U  /**< Key Usage extension present. */
+#define X509_EXT_FLAG_EXT_KEY_USAGE      0x02U  /**< Extended Key Usage extension present. */
+#define X509_EXT_FLAG_NAME_CONSTRAINTS   0x04U  /**< nameConstraints extension present (enforced in path validation). */
 
 /** Bits of x509_certificate_t::validity_flags. */
 #define X509_VALIDITY_NOT_BEFORE_PRESENT  0x01U  /**< notBefore was found (not_before_time is meaningful unless _BAD). */
@@ -219,7 +254,8 @@ typedef struct
     const uint8_t *signature;
     uint32_t signature_len;
 
-    /* Parsed: Extended Key Usage (X509_EKU_*); 0 = not present */
+    /* Parsed: Extended Key Usage (X509_EKU_*). Presence is X509_EXT_FLAG_EXT_KEY_USAGE in ext_flags:
+     * a present EKU listing only unrecognized purposes has bits 0. */
     uint32_t ext_key_usage_bits;
     /* Parsed: Basic Constraints pathLenConstraint (values above 32767 are stored as 32767, which
      * exceeds any verifiable depth) or X509_BC_PATH_LEN_ABSENT */
@@ -227,7 +263,7 @@ typedef struct
 
     uint16_t issuer_len;
     uint16_t subject_len;
-    /* Parsed: Key Usage (bitmask, X509_KEY_USAGE_*); 0 = not present */
+    /* Parsed: Key Usage (bitmask, X509_KEY_USAGE_*). Presence is X509_EXT_FLAG_KEY_USAGE in ext_flags. */
     uint16_t key_usage_bits;
     uint8_t serial_number_len;
     uint8_t signature_algorithm_oid_len;
@@ -246,6 +282,8 @@ typedef struct
     uint8_t san_dns_count;
     /* X509_VALIDITY_* bits */
     uint8_t validity_flags;
+    /* X509_EXT_FLAG_* bits */
+    uint8_t ext_flags;
     uint8_t has_ed25519;  /* 1 if subject public key is Ed25519 */
     uint8_t has_ed448;    /* 1 if subject public key is Ed448 */
     uint8_t has_mldsa;
@@ -277,6 +315,10 @@ NOXTLS_MSVC_DISABLE_PADDING
 /** Bits of noxtls_x509_crl_t::time_flags. */
 #define X509_CRL_THIS_UPDATE_BAD  0x01U  /**< thisUpdate is not a valid UTCTime/GeneralizedTime. */
 #define X509_CRL_NEXT_UPDATE_BAD  0x02U  /**< nextUpdate is present but not valid. */
+/** Bits of noxtls_x509_crl_t::scope_flags (RFC 5280 5.2.5 issuingDistributionPoint). */
+#define X509_CRL_SCOPE_ONLY_USER_CERTS  0x01U  /**< onlyContainsUserCerts: applies to end-entity certificates only. */
+#define X509_CRL_SCOPE_ONLY_CA_CERTS    0x02U  /**< onlyContainsCACerts: applies to CA certificates only. */
+#define X509_CRL_SCOPE_DIST_POINT       0x04U  /**< distributionPoint fullName present (idp_dist_point). */
 
 /*
  * Zero-copy CRL: every pointer refers into raw_data (owned copy after
@@ -306,8 +348,11 @@ struct noxtls_x509_crl
     const uint8_t *revoked_list;            /**< revokedCertificates SEQUENCE contents, or NULL */
     uint32_t revoked_list_len;
     uint32_t revoked_count;
+    const uint8_t *idp_dist_point;          /**< issuingDistributionPoint distributionPoint fullName contents, or NULL */
+    uint32_t idp_dist_point_len;
     uint8_t has_next_update;
     uint8_t time_flags;                     /**< X509_CRL_*_BAD bits */
+    uint8_t scope_flags;                    /**< X509_CRL_SCOPE_* bits (issuingDistributionPoint) */
     int parsed;
     struct noxtls_x509_crl *next;
 };
@@ -587,6 +632,9 @@ typedef struct noxtls_x509_verify_policy
     noxtls_x509_time_mode_t time_mode;
     /** Seconds since the Unix epoch used when time_mode is NOXTLS_X509_TIME_EXPLICIT. */
     int64_t verify_time;
+    /** 1 = when \p crl is set, every chain level must be covered by an applicable CRL (fails with
+     *  NOXTLS_RETURN_CRL_VERIFY_FAILED otherwise). 0 = the global noxtls_x509_set_crl_require_coverage() setting. */
+    uint8_t require_crl_coverage;
 } noxtls_x509_verify_policy_t;
 
 /**
@@ -755,6 +803,21 @@ void noxtls_x509_set_hostname_wildcard_matching(int enabled);
  * @return 1 if wildcard DNS matching is enabled, 0 otherwise.
  */
 int noxtls_x509_get_hostname_wildcard_matching(void);
+/**
+ * @brief Require CRL coverage of every chain level when a CRL list is supplied (process-wide).
+ *
+ * Applies to every verification that receives a CRL list, including the TLS 1.2 / TLS 1.3 handshake
+ * paths. With coverage required, a chain level whose issuer has no applicable CRL in the list fails
+ * verification with NOXTLS_RETURN_CRL_VERIFY_FAILED instead of being treated as not revoked.
+ * The default is NOXTLS_X509_CRL_REQUIRE_COVERAGE (0, soft-fail).
+ * @param enabled 1 to require coverage, 0 for the soft-fail default.
+ */
+void noxtls_x509_set_crl_require_coverage(int enabled);
+/**
+ * @brief Get the process-wide CRL coverage requirement.
+ * @return 1 when every chain level must be covered by a CRL, 0 otherwise.
+ */
+int noxtls_x509_get_crl_require_coverage(void);
 /** Check whether certificate is valid for hostname (SAN dNSName or subject CN; case-insensitive). hostname_len may be 0 to use noxtls_u8_strlen(hostname). */
 noxtls_return_t noxtls_x509_certificate_matches_hostname(const x509_certificate_t *cert, const uint8_t *hostname, uint32_t hostname_len);
 

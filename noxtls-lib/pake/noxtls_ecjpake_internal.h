@@ -255,9 +255,10 @@ noxtls_return_t noxtls_ecjpake_kp_read(const uint8_t *in, uint32_t in_len,
 /**
  * @brief Override the random source used for secret scalars and nonces.
  *
- * Intended for known-answer tests only. NULL restores the NoxTLS DRBG. Every
- * call also drops the module DRBG instance, so the next DRBG draw re-seeds
- * from the configured entropy source.
+ * Intended for known-answer tests only. NULL restores the NoxTLS DRBG, which
+ * is a per-call instance seeded from the configured entropy source for every
+ * draw (no state is shared between connections or threads). The override
+ * itself is process-global: set it before any EC-JPAKE work starts.
  *
  * @param[in] cb Callback or NULL.
  * @param[in] user Opaque pointer passed to cb.

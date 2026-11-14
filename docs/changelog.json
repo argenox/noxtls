@@ -1,6 +1,362 @@
 {
   "releases": [
     {
+      "version": "0.3.51",
+      "date": "2026-11-13",
+      "summary": "NoxTLS 0.3.51 adds a hardware acceleration backend for Silicon Labs EFR32xG2x (Series 2; EFR32MG26 / BRD4120A), with software fallback.",
+      "changes": [
+        "New EFR32xG2x backend (noxtls-lib/vendor/silabs/efr32xg2x), enabled with NOXTLS_FEATURE_EFR32XG2X_HW_ACCEL: AES block, ECB/CBC/CTR and CCM on the RADIOAES engine; SHA-224/256/384/512 block compression, TRNG entropy for the DRBG, P-256/P-384 point multiply, ECDH and ECDSA on the Secure Engine. AES-GCM, X25519 and Ed25519 stay in software.",
+        "Power-on self-test of the backend and an on-target EFR32xG26 speed benchmark (software vs hardware).",
+        "Host unit tests for the backend run against a register and SE mailbox mock (ut/efr32xg2x)."
+      ],
+      "fixed": [],
+      "resolved": [],
+      "known_issues": [],
+      "anomalies": [],
+      "security": [],
+      "security_recommendations": []
+    },
+    {
+      "version": "0.3.50",
+      "date": "2026-11-03",
+      "summary": "NoxTLS 0.3.50 fixes the remaining 146 findings from the security audit of 0.3.15 (issues #61-#206): 36 medium, 95 low and 15 that needed validation.",
+      "changes": [
+        "Software AES is now a constant-time, table-free core by default (about 10x slower for encryption on a desktop host); the performance profile restores the T-table core. The constant_time_strict profile now also selects constant-time GHASH and legacy-cipher table access.",
+        "TLS 1.2 and 1.3 servers that request client certificates reject a certificate that cannot be chained to a trust anchor, including when the trust store is empty. New: noxtls_tls13_set_client_verify_policy(), noxtls_tls13_set_client_chain_verify_disabled().",
+        "TLS 1.3 tickets resume only on a matching server configuration and expire after their lifetime (single use without a clock). TLS 1.2 session-ID cache entries expire after TLS12_SESSION_LIFETIME_SECONDS. New: noxtls_tls13_psk_ticket_store_clear(), noxtls_tls12_session_stores_clear().",
+        "TLS 1.2 renegotiation requires RFC 5746 secure renegotiation. The unified auto client no longer falls back to TLS 1.2 after a failed TLS 1.3 handshake.",
+        "Blocking DTLS 1.2 noxtls_tls12_accept() returns NOXTLS_RETURN_TIMEOUT while no ClientHello arrives; call it again. DTLS retransmission budgets now apply per flight. New: noxtls_dtls_set_peer_identity().",
+        "X.509 validation enforces name constraints and trust-anchor constraints, requires canonical ECDSA signatures and a Validity field, and checks every applicable CRL. New: noxtls_x509_set_crl_require_coverage().",
+        "New noxtls_drbg_set_lock_callbacks() lets multi-threaded integrators serialise the shared PKC DRBG and the TLS 1.3 ticket store; see the porting guide.",
+        "RSA public keys with an even modulus, an even exponent or an exponent of 2^64 or more are rejected. noxtls_rsa_decrypt() sets *plaintext_len to 0 on failure.",
+        "New noxtls_mlkem_encaps_ex() and noxtls_mlkem_decaps_ex() check input lengths. New noxtls_aes_free(), noxtls_ecc_random_scalar() and noxtls_certificate_pem_buffer_size().",
+        "noxtls_free(), noxtls_realloc() and noxtls_mem_cleanup() wipe memory. noxtls_hex_string_to_bytes() returns -5 on a non-hex character.",
+        "https_server has a --client-ca option. tlscurl and https_client exit 1 when a response is cut without close_notify. certgen and cert keywrite create private keys with mode 0600."
+      ],
+      "fixed": [
+        "Security audit findings #61-#206; see resolved and security for details by area."
+      ],
+      "resolved": [
+        {
+          "id": "NOXTLS-RI-0.3.50-01",
+          "title": "TLS 1.3 and DTLS 1.3 handshake, tickets and key schedule",
+          "description": "TLS 1.3 tickets are bound to the issuing server (certificate, SNI, ALPN, transport, cipher suite) and expire; client certificates must chain to a trust anchor; DTLS 1.3 discards unauthenticated datagrams instead of closing; handshake size, KeyUpdate and record_size_limit are bounded; CertificateVerify checks offered schemes and Key Usage; secrets are wiped on free.",
+          "refs": [
+            "Issue #63",
+            "Issue #65",
+            "Issue #84",
+            "Issue #88",
+            "Issue #89",
+            "Issue #90",
+            "Issue #110",
+            "Issue #111",
+            "Issue #112",
+            "Issue #113",
+            "Issue #131",
+            "Issue #137",
+            "Issue #168",
+            "Issue #170",
+            "Issue #177",
+            "Issue #178",
+            "Issue #179",
+            "Issue #180",
+            "Issue #181",
+            "Issue #182",
+            "Issue #183",
+            "Issue #205"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.50-02",
+          "title": "TLS 1.2 handshake, renegotiation, heartbeat and session caches",
+          "description": "RFC 5746 is enforced on renegotiation; tickets are stored only after Finished verifies; heartbeat records are authenticated under their own content type; authentication failures close the connection; the auto client no longer retries TLS 1.2 after a TLS 1.3 failure; session-ID cache entries expire; DHE secrets are wiped.",
+          "refs": [
+            "Issue #70",
+            "Issue #72",
+            "Issue #85",
+            "Issue #86",
+            "Issue #87",
+            "Issue #92",
+            "Issue #107",
+            "Issue #108",
+            "Issue #109",
+            "Issue #130",
+            "Issue #132",
+            "Issue #133",
+            "Issue #134",
+            "Issue #136",
+            "Issue #167",
+            "Issue #171",
+            "Issue #173",
+            "Issue #174",
+            "Issue #175",
+            "Issue #176"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.50-03",
+          "title": "Record layer and DTLS retransmission",
+          "description": "The DTLS replay window advances only after authentication; a failed send consumes its sequence number; retransmission is capped and respects the anti-amplification limit; empty heartbeat records are fatal; TLS 1.0 CBC uses 1/n-1 record splitting; MAC-then-encrypt CBC is constant time; DTLS cookies can be bound to a peer identity.",
+          "refs": [
+            "Issue #61",
+            "Issue #62",
+            "Issue #71",
+            "Issue #114",
+            "Issue #115",
+            "Issue #135",
+            "Issue #172",
+            "Issue #193"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.50-04",
+          "title": "X.509 path validation and CRLs",
+          "description": "Name constraints and trust-anchor constraints are enforced; EKU and Key Usage presence is tracked; path building is bounded; CRL extensions, scope and issuer matching are checked and every applicable CRL is consulted; IP host names match only iPAddress SANs; ML-DSA certificates are verified over the TBSCertificate; ECDSA signature DER must be canonical; Validity is required.",
+          "refs": [
+            "Issue #80",
+            "Issue #93",
+            "Issue #94",
+            "Issue #95",
+            "Issue #96",
+            "Issue #102",
+            "Issue #116",
+            "Issue #123",
+            "Issue #157",
+            "Issue #184",
+            "Issue #185",
+            "Issue #186",
+            "Issue #187",
+            "Issue #188",
+            "Issue #189",
+            "Issue #190",
+            "Issue #191"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.50-05",
+          "title": "RSA, DSA, bignum, ECC, ECDSA and shared DRBG",
+          "description": "Secret reductions and inversions are constant time; ECC scalar multiplication has no identity early exits; nonces and keys are drawn uniformly; PKCS#1 v1.5 unpadding is constant time; RSA public keys with an even modulus or oversized exponent are rejected; temporaries are wiped; the shared PKC DRBG and the TLS 1.3 ticket store can be serialised with noxtls_drbg_set_lock_callbacks().",
+          "refs": [
+            "Issue #67",
+            "Issue #68",
+            "Issue #69",
+            "Issue #74",
+            "Issue #75",
+            "Issue #76",
+            "Issue #77",
+            "Issue #79",
+            "Issue #81",
+            "Issue #82",
+            "Issue #83",
+            "Issue #126",
+            "Issue #127",
+            "Issue #128",
+            "Issue #129",
+            "Issue #142",
+            "Issue #162",
+            "Issue #165",
+            "Issue #202",
+            "Issue #204"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.50-06",
+          "title": "Symmetric ciphers, MACs and hashes",
+          "description": "Software AES is a table-free constant-time core by default; the constant_time_strict profile now changes code; the Apple Silicon AES backend is correct; AES-CCM rejects wrapping lengths; MD-family digests encode 64-bit lengths; key schedules, message schedules and MAC state are wiped.",
+          "refs": [
+            "Issue #66",
+            "Issue #73",
+            "Issue #97",
+            "Issue #98",
+            "Issue #99",
+            "Issue #100",
+            "Issue #121",
+            "Issue #124",
+            "Issue #125",
+            "Issue #139",
+            "Issue #140",
+            "Issue #141",
+            "Issue #145",
+            "Issue #146",
+            "Issue #150",
+            "Issue #151",
+            "Issue #152",
+            "Issue #153",
+            "Issue #154",
+            "Issue #158",
+            "Issue #159",
+            "Issue #198"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.50-07",
+          "title": "Post-quantum and Edwards/Montgomery curves",
+          "description": "ML-KEM inputs are length-checked (new noxtls_mlkem_encaps_ex/decaps_ex); TLS 1.3 key shares must have exact lengths and an offered group; Falcon sign rejects invalid keys; LMS/XMSS refuse re-entrant signing; X25519, X448, Ed25519 and SLH-DSA secrets are wiped.",
+          "refs": [
+            "Issue #78",
+            "Issue #91",
+            "Issue #122",
+            "Issue #138",
+            "Issue #143",
+            "Issue #144",
+            "Issue #147",
+            "Issue #148",
+            "Issue #149",
+            "Issue #155",
+            "Issue #156",
+            "Issue #200"
+          ]
+        },
+        {
+          "id": "NOXTLS-RI-0.3.50-08",
+          "title": "Platform ports, applications, allocator and release workflows",
+          "description": "The allocator wipes on free and realloc; debug output never prints secrets; hex parsing rejects bad input; CLI tools write private keys 0600 and fail on truncated responses; ESP32, nRF54, STM32 and CC31x ports wipe secrets and fail closed on hardware errors; release workflows no longer run tag text as shell and gate publishing on reviewed source.",
+          "refs": [
+            "Issue #64",
+            "Issue #101",
+            "Issue #103",
+            "Issue #104",
+            "Issue #105",
+            "Issue #106",
+            "Issue #117",
+            "Issue #118",
+            "Issue #119",
+            "Issue #120",
+            "Issue #160",
+            "Issue #161",
+            "Issue #163",
+            "Issue #164",
+            "Issue #166",
+            "Issue #169",
+            "Issue #192",
+            "Issue #194",
+            "Issue #195",
+            "Issue #196",
+            "Issue #197",
+            "Issue #199",
+            "Issue #201",
+            "Issue #203",
+            "Issue #206"
+          ]
+        }
+      ],
+      "known_issues": [
+        "Software GHASH, ARIA, Camellia and RC4 use secret-indexed tables outside the strict profile",
+        "P-256 and generic ECC field reduction is variable time",
+        "Falcon signing uses soft-float on cores without a double-precision FPU",
+        "ESP-IDF SSH client example has no host-key verification"
+      ],
+      "anomalies": [
+        {
+          "id": "NOXTLS-KA-0.3.50-01",
+          "title": "Software GHASH, ARIA, Camellia and RC4 use secret-indexed tables outside the strict profile",
+          "description": "The constant-time GHASH and legacy-cipher paths are selected only by the constant_time_strict profile because they are much slower (issues #66, #125).",
+          "severity": "low",
+          "workaround": "Select the constant_time_strict side-channel profile, or use hardware AES-GCM where available.",
+          "status": "open",
+          "introduced_in": "0.3.15 or earlier"
+        },
+        {
+          "id": "NOXTLS-KA-0.3.50-02",
+          "title": "P-256 and generic ECC field reduction is variable time",
+          "description": "Scalar multiplication no longer leaks the nonce length, but the P-256 and generic field reductions still take data-dependent time (issues #68, #165).",
+          "severity": "low",
+          "workaround": "Prefer a hardware ECC backend on targets exposed to local timing measurement.",
+          "status": "open",
+          "introduced_in": "0.3.15 or earlier"
+        },
+        {
+          "id": "NOXTLS-KA-0.3.50-03",
+          "title": "Falcon signing uses soft-float on cores without a double-precision FPU",
+          "description": "Falcon signing on Cortex-M3/M4 and similar cores is variable time (issue #148).",
+          "severity": "low",
+          "workaround": "Define NOXTLS_FALCON_REQUIRE_HW_DOUBLE=1 to refuse such builds, or use ML-DSA.",
+          "status": "open",
+          "introduced_in": "0.3.15 or earlier"
+        },
+        {
+          "id": "NOXTLS-KA-0.3.50-04",
+          "title": "ESP-IDF SSH client example has no host-key verification",
+          "description": "The example now refuses to authenticate unless NOXTLS_SSH_CLIENT_ALLOW_UNVERIFIED_HOST is set; the SSH library has no host-key API yet (issue #201).",
+          "severity": "low",
+          "workaround": "Do not enable the unverified-host option outside a lab network.",
+          "status": "open",
+          "introduced_in": "0.3.15 or earlier"
+        }
+      ],
+      "security": [
+        {
+          "id": "NOXTLS-SA-0.3.50-01",
+          "severity": "medium",
+          "title": "Security audit findings: TLS 1.3 and DTLS 1.3 handshake, tickets and key schedule",
+          "description": "TLS 1.3 tickets are bound to the issuing server (certificate, SNI, ALPN, transport, cipher suite) and expire; client certificates must chain to a trust anchor; DTLS 1.3 discards unauthenticated datagrams instead of closing; handshake size, KeyUpdate and record_size_limit are bounded; CertificateVerify checks offered schemes and Key Usage; secrets are wiped on free. Issues: #63, #65, #84, #88, #89, #90, #110, #111, #112, #113, #131, #137, #168, #170, #177, #178, #179, #180, #181, #182, #183, #205.",
+          "affected_versions": "0.3.16 and earlier",
+          "cve": null
+        },
+        {
+          "id": "NOXTLS-SA-0.3.50-02",
+          "severity": "medium",
+          "title": "Security audit findings: TLS 1.2 handshake, renegotiation, heartbeat and session caches",
+          "description": "RFC 5746 is enforced on renegotiation; tickets are stored only after Finished verifies; heartbeat records are authenticated under their own content type; authentication failures close the connection; the auto client no longer retries TLS 1.2 after a TLS 1.3 failure; session-ID cache entries expire; DHE secrets are wiped. Issues: #70, #72, #85, #86, #87, #92, #107, #108, #109, #130, #132, #133, #134, #136, #167, #171, #173, #174, #175, #176.",
+          "affected_versions": "0.3.16 and earlier",
+          "cve": null
+        },
+        {
+          "id": "NOXTLS-SA-0.3.50-03",
+          "severity": "medium",
+          "title": "Security audit findings: Record layer and DTLS retransmission",
+          "description": "The DTLS replay window advances only after authentication; a failed send consumes its sequence number; retransmission is capped and respects the anti-amplification limit; empty heartbeat records are fatal; TLS 1.0 CBC uses 1/n-1 record splitting; MAC-then-encrypt CBC is constant time; DTLS cookies can be bound to a peer identity. Issues: #61, #62, #71, #114, #115, #135, #172, #193.",
+          "affected_versions": "0.3.16 and earlier",
+          "cve": null
+        },
+        {
+          "id": "NOXTLS-SA-0.3.50-04",
+          "severity": "medium",
+          "title": "Security audit findings: X.509 path validation and CRLs",
+          "description": "Name constraints and trust-anchor constraints are enforced; EKU and Key Usage presence is tracked; path building is bounded; CRL extensions, scope and issuer matching are checked and every applicable CRL is consulted; IP host names match only iPAddress SANs; ML-DSA certificates are verified over the TBSCertificate; ECDSA signature DER must be canonical; Validity is required. Issues: #80, #93, #94, #95, #96, #102, #116, #123, #157, #184, #185, #186, #187, #188, #189, #190, #191.",
+          "affected_versions": "0.3.16 and earlier",
+          "cve": null
+        },
+        {
+          "id": "NOXTLS-SA-0.3.50-05",
+          "severity": "medium",
+          "title": "Security audit findings: RSA, DSA, bignum, ECC, ECDSA and shared DRBG",
+          "description": "Secret reductions and inversions are constant time; ECC scalar multiplication has no identity early exits; nonces and keys are drawn uniformly; PKCS#1 v1.5 unpadding is constant time; RSA public keys with an even modulus or oversized exponent are rejected; temporaries are wiped; the shared PKC DRBG and the TLS 1.3 ticket store can be serialised with noxtls_drbg_set_lock_callbacks(). Issues: #67, #68, #69, #74, #75, #76, #77, #79, #81, #82, #83, #126, #127, #128, #129, #142, #162, #165, #202, #204.",
+          "affected_versions": "0.3.16 and earlier",
+          "cve": null
+        },
+        {
+          "id": "NOXTLS-SA-0.3.50-06",
+          "severity": "medium",
+          "title": "Security audit findings: Symmetric ciphers, MACs and hashes",
+          "description": "Software AES is a table-free constant-time core by default; the constant_time_strict profile now changes code; the Apple Silicon AES backend is correct; AES-CCM rejects wrapping lengths; MD-family digests encode 64-bit lengths; key schedules, message schedules and MAC state are wiped. Issues: #66, #73, #97, #98, #99, #100, #121, #124, #125, #139, #140, #141, #145, #146, #150, #151, #152, #153, #154, #158, #159, #198.",
+          "affected_versions": "0.3.16 and earlier",
+          "cve": null
+        },
+        {
+          "id": "NOXTLS-SA-0.3.50-07",
+          "severity": "medium",
+          "title": "Security audit findings: Post-quantum and Edwards/Montgomery curves",
+          "description": "ML-KEM inputs are length-checked (new noxtls_mlkem_encaps_ex/decaps_ex); TLS 1.3 key shares must have exact lengths and an offered group; Falcon sign rejects invalid keys; LMS/XMSS refuse re-entrant signing; X25519, X448, Ed25519 and SLH-DSA secrets are wiped. Issues: #78, #91, #122, #138, #143, #144, #147, #148, #149, #155, #156, #200.",
+          "affected_versions": "0.3.16 and earlier",
+          "cve": null
+        },
+        {
+          "id": "NOXTLS-SA-0.3.50-08",
+          "severity": "medium",
+          "title": "Security audit findings: Platform ports, applications, allocator and release workflows",
+          "description": "The allocator wipes on free and realloc; debug output never prints secrets; hex parsing rejects bad input; CLI tools write private keys 0600 and fail on truncated responses; ESP32, nRF54, STM32 and CC31x ports wipe secrets and fail closed on hardware errors; release workflows no longer run tag text as shell and gate publishing on reviewed source. Issues: #64, #101, #103, #104, #105, #106, #117, #118, #119, #120, #160, #161, #163, #164, #166, #169, #192, #194, #195, #196, #197, #199, #201, #203, #206.",
+          "affected_versions": "0.3.16 and earlier",
+          "cve": null
+        }
+      ],
+      "security_recommendations": [
+        "Install noxtls_drbg_set_lock_callbacks() when handshakes or public-key operations run on more than one thread.",
+        "Set server_name on every TLS client connection, and configure a client CA whenever client certificates are requested.",
+        "Use the constant_time_strict side-channel profile on devices exposed to local timing or cache measurement."
+      ]
+    },
+    {
       "version": "0.3.16",
       "date": "2026-11-01",
       "summary": "NoxTLS 0.3.16 fixes a high-severity TLS 1.2 client flaw that let a previously trusted server impersonate another host through session resumption.",

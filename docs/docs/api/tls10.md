@@ -14,6 +14,8 @@ TLS 1.0 is deprecated and should not be used for new deployments. It is consider
 
 ## Usage guidance
 
+TLS 1.0 CBC uses the last ciphertext block of the previous record as the next IV, which an observer knows in advance (the BEAST precondition). NoxTLS therefore sends every application write on a TLS 1.0 connection as two records, in both roles: the first byte, then the rest (1/n-1 record splitting). Peers receive the same byte stream; only the record boundaries differ.
+
 - Use TLS 1.0 only for controlled legacy interoperability where migration is not yet possible.
 - Restrict exposure (segmented networks, allowlisted peers, short-term exception windows).
 - Prefer upgrading peers to TLS 1.2 or TLS 1.3 as the primary remediation path.

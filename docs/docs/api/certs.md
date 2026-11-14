@@ -171,7 +171,17 @@ New in 0.3.0. Converts a DER Certificate Signing Request (PKCS#10) to PEM with `
 noxtls_return_t noxtls_certificate_der_to_pem(const uint8_t * data, uint32_t length, uint8_t * output, uint32_t * out_len);
 ```
 
-Converts a DER certificate to PEM. This legacy form has no capacity parameter: `output` must hold the complete PEM text plus its NUL terminator, about 4/3 × `length` + `length`/48 + 60 bytes. Prefer [`noxtls_certificate_der_to_pem_ex()`](#noxtls_certificate_der_to_pem_ex).
+Converts a DER certificate to PEM. This legacy form has no capacity parameter: `output` must hold the complete PEM text plus its NUL terminator, `noxtls_certificate_pem_buffer_size(length)` bytes. It is deprecated; prefer [`noxtls_certificate_der_to_pem_ex()`](#noxtls_certificate_der_to_pem_ex).
+
+PEM output is not a fixed multiple of the DER size. Because of the banners, a short input needs more than twice its length, so a buffer sized as 2 × `length` overflows for inputs below about 85 bytes.
+
+### `noxtls_certificate_pem_buffer_size`
+
+```c
+uint32_t noxtls_certificate_pem_buffer_size(uint32_t length);
+```
+
+Returns the exact capacity (PEM text plus NUL) that `noxtls_certificate_der_to_pem_ex()` needs for `length` DER bytes, or 0 when `length` is 0 or the size does not fit in `uint32_t`. Header: `certs/certificates.h`.
 
 **Parameters:**
 
@@ -255,6 +265,8 @@ noxtls_return_t noxtls_x509_certificate_matches_hostname(const x509_certificate_
 
 Check whether the certificate is valid for the given hostname (RFC 6125 style). Prefer SAN dNSName; if none, fall back to subject CN. Comparison is case-insensitive for DNS.
 
+When `hostname` is an IPv4 literal (`10.0.0.1`) or an IPv6 literal (`::1`, `2001:db8::1`, optionally in brackets), it matches only an iPAddress SAN with the same address in binary form; dNSName entries, wildcards and the subject CN are never compared with it (RFC 6125 Section 6.2.1). Earlier releases compared IP literals with dNSName entries and the CN as text (so `*.0.0.1` matched `10.0.0.1`) and ignored iPAddress SANs.
+
 **Changed in 0.3.0:**
 
 - A SAN dNSName that contains a NUL byte is stored as an empty entry that never matches. It still counts as a SAN, so the subject-CN fallback stays disabled (RFC 6125 section 6.4.4). Earlier releases matched the part of the name before the NUL.
@@ -324,11 +336,15 @@ noxtls_return_t noxtls_x509_certificate_verify_signature(x509_certificate_t *cer
 
 Verify certificate signature
 
+ECDSA signatures must be the single DER encoding of `ECDSA-Sig-Value`: one SEQUENCE that spans the whole BIT STRING, exactly two minimal, non-negative INTEGERs and minimal lengths. Since the run-1 audit fixes, trailing bytes, extra elements, redundant leading zeros and negative values are rejected (the same check applies to CRL signatures), so a third party can no longer re-encode a valid signature into a certificate with different bytes.
+
 **Returns:** [noxtls_return_t](/docs/api/return_codes): [NOXTLS_RETURN_SUCCESS](/docs/api/return_codes) on success.
 
 ### ML-DSA certificate signatures
 
 When `NOXTLS_FEATURE_ML_DSA` is enabled, parser/verification paths include ML-DSA public keys and signature OIDs (ML-DSA-44/65/87). Certificate verification dispatches to ML-DSA verification where applicable.
+
+Certificates are signed with pure ML-DSA (FIPS 204) over the DER TBSCertificate with an empty context string, as specified for X.509 in RFC 9881, and the signature OID must name the issuer key's parameter set. Earlier releases verified the signature over SHA-512(TBSCertificate), so they rejected standard ML-DSA certificates, including those written by NoxTLS itself, and accepted a non-standard signature over the digest. The certificate writer already signed the TBSCertificate directly and is unchanged.
 
 Related APIs:
 
@@ -343,6 +359,13 @@ NoxTLS supports **offline** CRL loading and optional checks during X.509 trust v
 - For each non-anchor certificate in the chain, if a CRL’s **issuer** DN matches the **subject** DN of the certificate that signed that entity, the CRL **signature** is verified with that issuer’s public key, **thisUpdate** / **nextUpdate** are checked when `NOXTLS_HAVE_TIME` is enabled, and the entity’s **serial** is compared to revoked entries.
 - When **nextUpdate** is present and the current time is past **nextUpdate**, verification fails with [NOXTLS_RETURN_CRL_EXPIRED](/docs/api/return_codes) and flag `NOXTLS_X509_VERIFY_FLAG_CRL_EXPIRED`.
 
+**Changed by the run-1 audit fixes:**
+
+- **Every applicable CRL is considered.** The whole list is walked; list order no longer matters. The certificate is revoked when any applicable CRL with a valid signature lists it. A CRL outside its thisUpdate/nextUpdate window does not establish status; verification fails with `NOXTLS_RETURN_CRL_EXPIRED` only when no applicable CRL for that issuer is current. A CRL with a bad signature still fails verification. Earlier releases stopped at the first CRL whose issuer matched, so an older CRL placed first hid a later one that listed the certificate.
+- **CRL issuer matching uses the RFC 5280 Section 7.1 comparison used for path building** (string type, case and insignificant spaces ignored), followed by the signature check. Earlier releases compared the issuer DER byte for byte and skipped an equivalent CRL.
+- **CRL extensions are processed.** A CRL with an unknown critical extension, a `deltaCRLIndicator` (delta CRLs are not supported), a critical CRL entry extension (for example `certificateIssuer` of an indirect CRL), or an `issuingDistributionPoint` with `indirectCRL`, `onlySomeReasons`, `onlyContainsAttributeCerts` or `nameRelativeToCRLIssuer` is refused at parse with `NOXTLS_RETURN_CRL_PARSE_FAILED`. An `issuingDistributionPoint` with `onlyContainsUserCerts`, `onlyContainsCACerts` or a `fullName` distribution point limits which certificates the CRL applies to: a distribution-point CRL applies only to certificates whose `cRLDistributionPoints` names the same point. A CRL outside its scope is ignored for that certificate.
+- **Coverage.** When a CRL list is supplied and a chain level has no applicable CRL, `NOXTLS_X509_VERIFY_FLAG_CRL_LEVEL_UNCOVERED` is set. By default the level is still treated as not revoked (soft-fail, unchanged). To require a status for every level, call `noxtls_x509_set_crl_require_coverage(1)` (process-wide; applies to the TLS 1.2 and TLS 1.3 handshake paths, which pass no flags) or set `require_crl_coverage = 1` in a [`noxtls_x509_verify_policy_t`](#explicit-verification-policy). An uncovered level then fails with `NOXTLS_RETURN_CRL_VERIFY_FAILED`. The compile-time default is `NOXTLS_X509_CRL_REQUIRE_COVERAGE` (0). The default stays soft-fail so that existing configurations that load CRLs for only some issuers keep working.
+
 ### Verification flags (`noxtls_x509_verify_flags_t`)
 
 When `flags_out` is non-NULL, `_ex` APIs clear it then OR in bits:
@@ -354,6 +377,7 @@ When `flags_out` is non-NULL, `_ex` APIs clear it then OR in bits:
 | `NOXTLS_X509_VERIFY_FLAG_CRL_BAD_SIGNATURE` | CRL signature did not verify against the issuer. |
 | `NOXTLS_X509_VERIFY_FLAG_CRL_NO_MATCH` | CRL(s) were supplied but none matched any issuer in the validated chain (informational on success). |
 | `NOXTLS_X509_VERIFY_FLAG_CRL_USED` | At least one supplied CRL matched an issuer and was evaluated. |
+| `NOXTLS_X509_VERIFY_FLAG_CRL_LEVEL_UNCOVERED` | A CRL list was supplied but at least one chain level had no applicable, current CRL (status unknown at that level). Fatal only when coverage is required. |
 
 ### CRL object and loaders
 
@@ -381,6 +405,29 @@ The library has no internal locking. Verification functions read the global stor
 ### `noxtls_x509_verify_server_cert_trust_ex` / `noxtls_x509_verify_client_cert_trust_ex`
 
 Optional `crl` and `flags_out` parameters; same trust path as `noxtls_x509_verify_server_cert_trust` / `noxtls_x509_verify_client_cert_trust` when `crl` is NULL.
+
+### Path validation hardening (run-1 audit fixes)
+
+These changes apply to `noxtls_x509_verify_server_cert_trust*()`, `noxtls_x509_verify_client_cert_trust*()`, `noxtls_x509_verify_cert_with_policy()` and the TLS handshakes that use them.
+
+- **Trust anchor constraints apply.** When an anchor issues the next certificate, the constraints the anchor certificate carries are enforced as for intermediates: an anchor with `cA=FALSE` (for example a pinned end-entity certificate), an anchor whose Key Usage lacks `keyCertSign`, or an anchor whose `pathLenConstraint` is exceeded can no longer issue. An anchor without a basicConstraints extension (v1 roots, or v3 roots generated without it) is still accepted as an unconstrained legacy root. A pinned certificate still verifies itself by byte identity.
+- **Name constraints are enforced.** `nameConstraints` in an intermediate or anchor, critical or not, is applied to every certificate below it: dNSName, iPAddress, rfc822Name (including subject `emailAddress`) and directoryName (subject and SAN). For the end-entity certificate without a dNSName SAN, host-name-like subject CN values are checked as dNSNames. Self-issued intermediates are exempt as in RFC 5280. A constraint on a name form NoxTLS cannot compare (URI, otherName, x400Address, ediPartyName, registeredID) fails the path only when a certificate below carries a name of that form. A `nameConstraints` with `minimum`/`maximum` fields or malformed syntax is refused at parse. Earlier releases refused critical `nameConstraints` at parse and silently ignored non-critical ones.
+- **Extended Key Usage and Key Usage presence.** A present EKU that lists no recognized purpose (or is empty) now grants none of the `X509_EKU_*` purposes, and a present Key Usage with no bits set grants none of the usages. Earlier releases treated both as if the extension were absent. Presence is in `x509_certificate_t::ext_flags` (`X509_EXT_FLAG_KEY_USAGE`, `X509_EXT_FLAG_EXT_KEY_USAGE`, `X509_EXT_FLAG_NAME_CONSTRAINTS`). `noxtls_x509_verify_policy_t::require_key_usage_extension` now tests presence too.
+- **Bounded path building.** A presented chain with more than `NOXTLS_X509_MAX_PRESENTED_CERTS` (16) certificates is rejected before any signature is verified, and one path validation performs at most `NOXTLS_X509_MAX_PATH_SIGNATURE_CHECKS` (24) signature verifications across all issuer candidates (anchors and presented). Both are compile-time overridable.
+
+Stricter parsing:
+
+- **Extensions.** A list element that is not an Extension SEQUENCE, a missing `extnValue`, trailing octets inside an Extension, a critical extension with an empty value, an Extensions field that is not a SEQUENCE, and duplicate or undecodable basicConstraints, Key Usage, EKU or nameConstraints extensions make `noxtls_x509_certificate_parse_der()` fail. Earlier releases stopped reading the list at a malformed element, which hid every later extension.
+- **Validity.** `Validity` must hold exactly two `UTCTime`/`GeneralizedTime` values; an empty Validity or another tag fails the parse, and a missing bound is reported as `NOXTLS_RETURN_BAD_DATA` by the validity checks. Earlier releases treated such a certificate as never expiring.
+
+### `noxtls_x509_set_crl_require_coverage` / `noxtls_x509_get_crl_require_coverage`
+
+```c
+void noxtls_x509_set_crl_require_coverage(int enabled);
+int noxtls_x509_get_crl_require_coverage(void);
+```
+
+Process-wide switch: with 1, a verification that receives a CRL list fails with `NOXTLS_RETURN_CRL_VERIFY_FAILED` when a chain level has no applicable, current CRL. The default comes from `NOXTLS_X509_CRL_REQUIRE_COVERAGE` (0). Like the trust store, set it at start-up; there is no internal locking.
 
 ### `noxtls_x509_crl_serial_is_revoked`
 
@@ -424,6 +471,7 @@ typedef struct noxtls_x509_verify_policy
     uint8_t require_key_usage_extension;           /* 1 = reject a leaf without Key Usage */
     noxtls_x509_time_mode_t time_mode;
     int64_t verify_time;                           /* seconds since the Unix epoch (EXPLICIT mode) */
+    uint8_t require_crl_coverage;                  /* 1 = every chain level needs an applicable CRL */
 } noxtls_x509_verify_policy_t;
 
 noxtls_return_t noxtls_x509_verify_cert_with_policy(const x509_certificate_t *leaf,

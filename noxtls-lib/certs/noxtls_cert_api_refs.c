@@ -70,6 +70,8 @@ static void noxtls_cert_misra_api_refs(void)
     NOXTLS_MISRA_REF_FN(&noxtls_x509_set_unknown_extension_callback);
     NOXTLS_MISRA_REF_FN(&noxtls_x509_set_hostname_wildcard_matching);
     NOXTLS_MISRA_REF_FN(&noxtls_x509_get_hostname_wildcard_matching);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_set_crl_require_coverage);
+    NOXTLS_MISRA_REF_FN(&noxtls_x509_get_crl_require_coverage);
     NOXTLS_MISRA_REF_FN(&noxtls_x509_private_key_parse_der_with_password);
     NOXTLS_MISRA_REF_FN(&noxtls_x509_private_key_parse_pem_with_password);
     NOXTLS_MISRA_REF_FN(&noxtls_x509_private_key_debug_print);

@@ -421,6 +421,7 @@ int main(int argc, char **argv)
     const uint8_t *ca_file = NULL;
     int trust_store_configured = 0;
     noxtls_return_t rc;
+    int transfer_failed = 0;
 
 #ifdef _WIN32
     WSADATA wsa;
@@ -701,11 +702,19 @@ int main(int argc, char **argv)
             rc = noxtls_tls12_recv(&tls12_ctx, buf, &len);
         }
         if(rc != NOXTLS_RETURN_SUCCESS) {
-            printf("TLS connection closed by peer (EOF).\n");
+            /* Transport EOF, bad_record_mac or a fatal alert: the response
+             * may be truncated or forged. */
+            transfer_failed = 1;
+            fprintf(stderr, "ERROR: response not completed by close_notify (recv rc=%d)\n", (int)rc);
             break;
         }
         if(len == 0) {
-            break;
+            tls_state_t st = (active_mode == TLS_MODE_1_3) ? tls13_ctx.base.base.state : tls12_ctx.base.base.state;
+            if(st == TLS_STATE_CLOSING) {
+                printf("TLS connection closed by peer (close_notify).\n");
+                break;
+            }
+            continue; /* empty application record, not end of stream */
         }
         buf[len] = '\0';
         fwrite(buf, 1, len, stdout);
@@ -728,5 +737,5 @@ int main(int argc, char **argv)
     WSACleanup();
 #endif
 
-    return 0;
+    return (transfer_failed != 0) ? 1 : 0;
 }

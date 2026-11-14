@@ -13,8 +13,8 @@
 #include <stdint.h>
 
 /*
- * Affine points for the width-5, d=ceil(256/5)=52 P-256 comb used by
- * p256_comb_recode_core(). Each entry is X || Y in big-endian form.
+ * Affine points for the width-5, d=52 P-256 comb used by p256_ecc_jpoint_mul_comb()
+ * (d = ceil(257/5) = ceil(256/5): the comb covers the 257-bit recoded scalar). Each entry is X || Y in big-endian form.
  * Entry zero represents the point at infinity. The table depends only on the
  * standard P-256 generator, so const data is placed in flash/ROM by the linker.
  */

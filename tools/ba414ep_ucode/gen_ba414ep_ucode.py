@@ -13,6 +13,9 @@ the nRF54L15: the nRF54LM20 (CRACEN Lite) executes its microcode from ROM.
 Usage:
   python gen_ba414ep_ucode.py            # write the C array
   python gen_ba414ep_ucode.py --check    # fail if the C array does not match the image
+
+Both modes fail unless the image's SHA-256 equals EXPECTED_SHA256 (the pinned,
+reviewed image). The check runs as the ctest "ba414ep_ucode_check".
 """
 
 from __future__ import annotations
@@ -33,6 +36,11 @@ WORDS_PER_LINE = 6
 WORD_BYTES = 4
 # Microcode RAM of the nRF54L15 PKE (bytes).
 CODE_RAM_BYTES = 5120
+# Pinned identity of the reviewed image (Nordic sdk-nrf "microcode_binary.h",
+# 2024 image, see HEADER). Generation and --check refuse any other image, so a
+# replaced .bin cannot reach the compiled array without a reviewed change to
+# this line. Update it only after comparing a new image with the sdk-nrf source.
+EXPECTED_SHA256 = "66248ce26a0304b7db62f0de5f53f9551a1051005aa4a3594aab40459da920d3"
 
 HEADER = """/*****************************************************************************
 * Copyright (c) [2019] - [2026], Argenox Technologies LLC
@@ -112,6 +120,10 @@ def main() -> int:
         print(f"{H_PATH}: NOXTLS_NRF54_BA414EP_UCODE_WORDS must be {len(words)}", file=sys.stderr)
         return 1
     sha256 = hashlib.sha256(BIN_PATH.read_bytes()).hexdigest()
+    if sha256 != EXPECTED_SHA256:
+        print(f"{BIN_PATH}: sha256 {sha256} is not the pinned reviewed image {EXPECTED_SHA256}",
+              file=sys.stderr)
+        return 1
     text = render(words, sha256)
     if args.check:
         current = C_PATH.read_text(encoding="utf-8") if C_PATH.exists() else ""

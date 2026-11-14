@@ -149,6 +149,40 @@ static void aria_diffusion_layer(uint8_t *state)
     noxtls_copy_u8((uint8_t *)(void *)(state), 16U, (const uint8_t *)(const void *)(temp), 16U);
 }
 
+/* Constant-time table access for this legacy cipher (see noxtls_config.h,
+ * NOXTLS_LEGACY_CIPHER_CONSTANT_TIME): every lookup reads the whole table and
+ * keeps the wanted entry with a mask, so no address depends on key or data. */
+#ifndef NOXTLS_LEGACY_CIPHER_CONSTANT_TIME
+#if defined(NOXTLS_SIDECHANNEL_PROFILE_CONSTANT_TIME_STRICT)
+#define NOXTLS_LEGACY_CIPHER_CONSTANT_TIME 1
+#else
+#define NOXTLS_LEGACY_CIPHER_CONSTANT_TIME 0
+#endif
+#endif
+
+/**
+ * @brief Look up one S-box entry (constant-time when configured).
+ *
+ * @param[in] table 256-entry S-box.
+ * @param[in] x Index (secret).
+ * @return table[x].
+ */
+static uint8_t aria_sbox(const uint8_t *table, uint8_t x)
+{
+#if NOXTLS_LEGACY_CIPHER_CONSTANT_TIME
+    uint32_t r = 0U;
+    uint32_t i = 0U;
+    for (i = 0U; i < 256U; i += 1U) {
+        uint32_t d = i ^ (uint32_t)x;
+        uint32_t m = ((d | (0U - d)) >> 31U) - 1U; /* all-ones when i == x */
+        r |= (uint32_t)table[i] & m;
+    }
+    return (uint8_t)r;
+#else
+    return table[x];
+#endif
+}
+
 /**
  * @brief The substitution layer 1.
  *
@@ -162,10 +196,10 @@ static void aria_sl1(uint8_t *state)
     const uint8_t *sb3 = aria_inv_s1;
     const uint8_t *sb4 = aria_inv_s2;
 
-    state[0]  = sb1[state[0]];  state[1]  = sb2[state[1]];  state[2]  = sb3[state[2]];  state[3]  = sb4[state[3]];
-    state[4]  = sb1[state[4]];  state[5]  = sb2[state[5]];  state[6]  = sb3[state[6]];  state[7]  = sb4[state[7]];
-    state[8]  = sb1[state[8]];  state[9]  = sb2[state[9]];  state[10] = sb3[state[10]]; state[11] = sb4[state[11]];
-    state[12] = sb1[state[12]]; state[13] = sb2[state[13]]; state[14] = sb3[state[14]]; state[15] = sb4[state[15]];
+    state[0] = aria_sbox(sb1, state[0]);  state[1] = aria_sbox(sb2, state[1]);  state[2] = aria_sbox(sb3, state[2]);  state[3] = aria_sbox(sb4, state[3]);
+    state[4] = aria_sbox(sb1, state[4]);  state[5] = aria_sbox(sb2, state[5]);  state[6] = aria_sbox(sb3, state[6]);  state[7] = aria_sbox(sb4, state[7]);
+    state[8] = aria_sbox(sb1, state[8]);  state[9] = aria_sbox(sb2, state[9]);  state[10] = aria_sbox(sb3, state[10]); state[11] = aria_sbox(sb4, state[11]);
+    state[12] = aria_sbox(sb1, state[12]); state[13] = aria_sbox(sb2, state[13]); state[14] = aria_sbox(sb3, state[14]); state[15] = aria_sbox(sb4, state[15]);
 }
 
 /**
@@ -181,10 +215,10 @@ static void aria_sl2(uint8_t *state)
     const uint8_t *sb3 = aria_inv_s1;
     const uint8_t *sb4 = aria_inv_s2;
 
-    state[0]  = sb3[state[0]];  state[1]  = sb4[state[1]];  state[2]  = sb1[state[2]];  state[3]  = sb2[state[3]];
-    state[4]  = sb3[state[4]];  state[5]  = sb4[state[5]];  state[6]  = sb1[state[6]];  state[7]  = sb2[state[7]];
-    state[8]  = sb3[state[8]];  state[9]  = sb4[state[9]];  state[10] = sb1[state[10]]; state[11] = sb2[state[11]];
-    state[12] = sb3[state[12]]; state[13] = sb4[state[13]]; state[14] = sb1[state[14]]; state[15] = sb2[state[15]];
+    state[0] = aria_sbox(sb3, state[0]);  state[1] = aria_sbox(sb4, state[1]);  state[2] = aria_sbox(sb1, state[2]);  state[3] = aria_sbox(sb2, state[3]);
+    state[4] = aria_sbox(sb3, state[4]);  state[5] = aria_sbox(sb4, state[5]);  state[6] = aria_sbox(sb1, state[6]);  state[7] = aria_sbox(sb2, state[7]);
+    state[8] = aria_sbox(sb3, state[8]);  state[9] = aria_sbox(sb4, state[9]);  state[10] = aria_sbox(sb1, state[10]); state[11] = aria_sbox(sb2, state[11]);
+    state[12] = aria_sbox(sb3, state[12]); state[13] = aria_sbox(sb4, state[13]); state[14] = aria_sbox(sb1, state[14]); state[15] = aria_sbox(sb2, state[15]);
 }
 
 /**
@@ -490,6 +524,16 @@ static void aria_key_schedule(const uint8_t *user_key, noxtls_aria_type_t key_ty
     for (i = 0U; i <= (uint32_t)key->rounds; i += 1U) {
         noxtls_copy_u8((uint8_t *)(void *)(key->round_key[i]), 16U, (const uint8_t *)(const void *)(ek[i]), 16U);
     }
+
+    /* kl/kr hold the raw key and w0..w3/ek the schedule: wipe before return. */
+    noxtls_secure_zero(kl, sizeof(kl));
+    noxtls_secure_zero(kr, sizeof(kr));
+    noxtls_secure_zero(w0, sizeof(w0));
+    noxtls_secure_zero(w1, sizeof(w1));
+    noxtls_secure_zero(w2, sizeof(w2));
+    noxtls_secure_zero(w3, sizeof(w3));
+    noxtls_secure_zero(rot, sizeof(rot));
+    noxtls_secure_zero(ek, sizeof(ek));
 }
 
 /**
@@ -552,6 +596,7 @@ noxtls_return_t noxtls_aria_set_decrypt_key(const uint8_t *user_key, noxtls_aria
         (void)aria_diffusion_layer(key->round_key[i]);
     }
     noxtls_copy_u8((uint8_t *)(void *)(key->round_key[key->rounds]), 16U, (const uint8_t *)(const void *)(temp_keys[0]), 16U);
+    noxtls_secure_zero(temp_keys, sizeof(temp_keys));
 
     return NOXTLS_RETURN_SUCCESS;
 }

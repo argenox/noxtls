@@ -62,3 +62,9 @@ if(NOXTLS_CFG_FEATURE_XMSS)
         set_tests_properties(pq_xmss_kat_slow PROPERTIES TIMEOUT 14400 LABELS "pq;slow")
     endif()
 endif()
+
+# Audit regression tests: ML-KEM explicit-length encaps/decaps, Falcon non-NTRU
+# key rejection, LMS/HSS and XMSS re-entrant sign guard.
+if(NOXTLS_CFG_FEATURE_ML_KEM OR NOXTLS_CFG_FEATURE_FALCON OR NOXTLS_CFG_FEATURE_LMS_HSS OR NOXTLS_CFG_FEATURE_XMSS)
+    noxtls_add_pq_test(pq_pqcurve_hardening pqcurve_hardening_test.c)
+endif()

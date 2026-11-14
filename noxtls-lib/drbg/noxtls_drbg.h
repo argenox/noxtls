@@ -297,6 +297,60 @@ noxtls_return_t drbg_update(drbg_state_t *state,
  */
 noxtls_return_t noxtls_drbg_uninstantiate(drbg_state_t *state);
 
+/**
+ * @brief Integrator lock callback for the library's shared random-generator state.
+ *
+ * Called with the @p lock_user pointer given to noxtls_drbg_set_lock_callbacks().
+ * The lock callback must block until the lock is held; the unlock callback
+ * releases it. The lock need not be recursive: the library never takes it twice
+ * on one thread. Typical implementations wrap a pthread mutex, a FreeRTOS
+ * mutex/semaphore or a Zephyr k_mutex.
+ */
+typedef void (*noxtls_drbg_lock_cb_t)(void *lock_user);
+
+/**
+ * @brief Install the lock that serializes the process-global PKC CTR-DRBG.
+ *
+ * The PKC DRBG (ECDSA and DSA-style signing nonces, EC / X25519 / X448 / Ed25519
+ * / Ed448 key generation, RSA blinding) is one process-global state shared by
+ * every connection. With a lock installed, first-use instantiation, reseeding
+ * and every generate request run under it, so concurrent handshakes on several
+ * threads or tasks never observe a partially seeded state or receive the same
+ * output. Without a lock (the default) the library performs no locking and the
+ * application must serialize all handshakes and public-key operations that can
+ * draw random bits, as in earlier releases.
+ *
+ * Install the lock once, before the first thread that uses the library starts,
+ * and do not change it while any library call is in progress. Pass NULL for
+ * both callbacks to remove it. The entropy source (noxtls_entropy_cb_t) is
+ * called while the lock is held and must not call back into the PKC layer.
+ *
+ * EC-JPAKE and the per-call DRBGs of ML-KEM, ML-DSA, DH and the TLS layer do not
+ * use shared state and need no lock.
+ *
+ * @param lock_cb Acquire callback, or NULL
+ * @param unlock_cb Release callback, or NULL
+ * @param lock_user Opaque pointer passed to both callbacks
+ * @return NOXTLS_RETURN_SUCCESS; NOXTLS_RETURN_INVALID_PARAM when exactly one
+ *         callback is NULL (the previous lock stays installed)
+ */
+noxtls_return_t noxtls_drbg_set_lock_callbacks(noxtls_drbg_lock_cb_t lock_cb,
+                                               noxtls_drbg_lock_cb_t unlock_cb,
+                                               void *lock_user);
+
+/**
+ * @brief Acquire the integrator lock installed by noxtls_drbg_set_lock_callbacks().
+ *
+ * Internal to the library (used around the shared PKC DRBG); a no-op when no
+ * lock is installed. Every call must be paired with noxtls_drbg_shared_unlock().
+ */
+void noxtls_drbg_shared_lock(void);
+
+/**
+ * @brief Release the integrator lock taken by noxtls_drbg_shared_lock().
+ */
+void noxtls_drbg_shared_unlock(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -259,7 +259,7 @@ setting can be adjusted on top of a profile with `-D`.
 | Setting | Default | Effect |
 |---|---|---|
 | `NOXTLS_FEATURE_TLS_CLIENT` / `NOXTLS_FEATURE_TLS_SERVER` | 1 / 1 | Compile out the unused TLS role, including the server caches. |
-| `NOXTLS_TLS12_SESSION_CACHE_SIZE` | 16 | TLS 1.2 server session-ID cache entries (0 compiles it out). |
+| `NOXTLS_TLS12_SESSION_CACHE_SIZE` | 16 | TLS 1.2 server session-ID cache entries (0 compiles it out). Entries expire after `TLS12_SESSION_LIFETIME_SECONDS` (default 86400); when the cache is full the oldest entry is replaced. Without a working clock (`noxtls_time_unix_seconds()` fails) session-ID resumption is refused and every connection takes a full handshake. |
 | `NOXTLS_TLS12_TICKET_CACHE_SIZE` / `NOXTLS_TLS12_TICKET_MAX_LEN` | 32 / 256 | TLS 1.2 server ticket cache entries and ticket length. |
 | `NOXTLS_TLS13_PSK_TICKET_STORE_MAX` | 64 | TLS 1.3 server ticket store entries (0..64). |
 | `NOXTLS_TLS_MAX_RECORD_SIZE` | 16384 | Record payload limit; sizes the single lazily allocated transmit buffer. |
@@ -269,11 +269,12 @@ setting can be adjusted on top of a profile with `-D`.
 | `NOXTLS_X509_FAIL_INFO` | 1 | Detailed certificate failure strings (556 bytes of static RAM when on). |
 | `NOXTLS_X509_CHAIN_INITIAL_CAPACITY` | 1 | Linear growth step for certificate chains (chains allocate lazily). |
 | `NOXTLS_ECC_ENABLE_<curve>` | 1 | Per-curve switches; `ECC_MAX_KEY_SIZE` follows the largest enabled curve (P-256 only: 32 bytes, halving every ECC point and table). |
-| `NOXTLS_PKC_SHARED_DRBG` | 1 | One CTR-DRBG instance for all public-key modules (serialize PKC randomness across threads). |
+| `NOXTLS_PKC_SHARED_DRBG` | 1 | One CTR-DRBG instance for all public-key modules. For concurrent handshakes install a lock with `noxtls_drbg_set_lock_callbacks()` (see [Porting guide](./porting-guide.md#threads-and-the-shared-random-generator)), or serialize PKC randomness across threads. |
 | `NOXTLS_BN_MONT_WINDOW_BITS` | 4 | Window width of the private-key Montgomery exponentiation (1..6). |
-| `NOXTLS_AES_ROM_TABLES` | 1 | AES T-tables in flash (4 KB); 0 builds them in RAM at first use. |
-| `NOXTLS_AES_COMPACT_TABLES` | 0 | Keep one 1 KB T-table and derive the others by rotation. |
-| `NOXTLS_GCM_TABLE_BITS` | 4 | 0 selects a table-free, constant-time GHASH. |
+| `NOXTLS_AES_CONSTANT_TIME` | 1 (0 in `performance`) | Table-free constant-time software AES; no T-tables or S-box tables are linked. |
+| `NOXTLS_AES_ROM_TABLES` | 1 | AES T-tables in flash (4 KB); 0 builds them in RAM at first use. Only with `NOXTLS_AES_CONSTANT_TIME=0`. |
+| `NOXTLS_AES_COMPACT_TABLES` | 0 | Keep one 1 KB T-table and derive the others by rotation. Only with `NOXTLS_AES_CONSTANT_TIME=0`. |
+| `NOXTLS_GCM_TABLE_BITS` | 4 (0 in `constant_time_strict`) | 0 selects a table-free, constant-time GHASH. |
 | `NOXTLS_AES_CTX_RAW_KEY` | 1 | 0 drops the raw key copy from AES contexts in software-only builds. |
 | `NOXTLS_ED25519_READONLY_COMB` | 1 | Ed25519 base tables as constant data in flash (9.6 KB moved out of RAM). |
 | `NOXTLS_FEATURE_KEYLOG` | 0 | SSLKEYLOGFILE support (debug builds only). |
@@ -315,3 +316,7 @@ For externally serialized builds, the ECC scratch can be shared (default `OFF`):
 The equivalent preprocessor setting is `NOXTLS_ECC_SHARED_SCRATCH=1`; it is also exposed by the generated ESP-IDF and Zephyr configuration.
 
 The ECC option moves the inversion scratch to fixed storage, reducing stack use. All access to the affected ECC and P-256 bignum inversion paths must be externally serialized, including interrupt callers. Shared mode does not support reentrant calls. Keep private mode for concurrent handshakes unless the integration supplies suitable serialization at the crypto-operation boundaries.
+
+### X25519 stack burn
+
+After each software X25519 ladder, `noxtls_x25519_public_key` and `noxtls_x25519_shared_secret` overwrite the stack region the ladder used, because spilled field-multiply locals hold limbs of the shared secret that no named wipe can reach. The burn depth is `NOXTLS_X25519_STACK_BURN_BYTES`: 2048 bytes in optimized builds and 4096 bytes without optimization. It sits at the same depth as the ladder, so peak X25519 stack is about 2.1 KiB optimized (previously about 1.7 KiB on Cortex-M0+ with GCC `-O2`). Define a larger value if a toolchain produces deeper ladder frames.

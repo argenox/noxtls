@@ -704,6 +704,21 @@ int main(int argc, char **argv)
     {
         int j = 0;
         size_t total_str_len = 0;
+        size_t need_len = 0;
+
+        /* Each argument is copied with a trailing separator; refuse input that
+         * does not fit the fixed 4096-byte buffer instead of overrunning it. */
+        for(j = argc_skip; j <= (argc - 1); j++)
+        {
+            size_t arg_len = noxtls_u8_strlen(argv[j]);
+            if(arg_len >= (size_t)(4096U - need_len)) {
+                printf("Error: input too long (max 4095 bytes)\n");
+                if(key_buffer) free(key_buffer);
+                if(iv_buffer) free(iv_buffer);
+                return -1;
+            }
+            need_len += arg_len + 1U;
+        }
 
         data_buffer = malloc(4096 * sizeof(uint8_t));
         if(data_buffer == NULL) {

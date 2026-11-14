@@ -143,29 +143,6 @@ volatile uint32_t noxtls_ecc_keyinit_last_stage = 0U;
 #endif
 
 /**
- * @brief Generate bits using the DRBG
- *
- * @param out The output buffer
- * @param requested_bits The number of bits to generate
- * @return The return value
- */
-static noxtls_return_t ecc_keygen_drbg_generate_bits(uint8_t *out, uint32_t requested_bits)
-{
-    noxtls_return_t rc;
-
-    if(out == NULL) {
-        return NOXTLS_RETURN_NULL;
-    }
-
-    NOXTLS_ECC_STATUS_SET(noxtls_ecc_keygen_last_drbg_type, NOXTLS_ECC_KEYGEN_DRBG_TYPE);
-    rc = noxtls_pkc_rng_generate(NOXTLS_PKC_RNG_SLOT_ECC, out, requested_bits);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        NOXTLS_ECC_STATUS_SET(noxtls_ecc_keygen_last_entropy_rc, (int32_t)rc);
-    }
-    return rc;
-}
-
-/**
  * @brief Point multiply acceleration port
  *
  * @param result The result
@@ -1036,12 +1013,13 @@ noxtls_return_t noxtls_ecc_point_init(ecc_point_t *point, uint32_t size)
 static int ecc_point_is_infinity(const ecc_point_t *point, uint32_t size)
 {
     uint32_t i = 0U;
+    uint32_t acc = 0U;
+
+    /* Scan every byte (no early exit): points may be secret-derived (w0*M, ECDH). */
     for(i = 0U; i < size; i += 1U) {
-        if((point->x[i] != 0U) || (point->y[i] != 0U)) {
-            return 0;
-        }
+        acc |= (uint32_t)point->x[i] | (uint32_t)point->y[i];
     }
-    return 1;
+    return (acc == 0U) ? 1 : 0;
 }
 
 /**
@@ -1066,8 +1044,10 @@ static int ecc_jpoint_is_infinity(const ecc_jpoint_t *J, uint32_t size)
  */
 static int ecc_point_equal(const ecc_point_t *p1, const ecc_point_t *p2, uint32_t size)
 {
-    return ((noxtls_bn_cmp(p1->x, p2->x, size) == 0) &&
-           (noxtls_bn_cmp(p1->y, p2->y, size) == 0)) ? 1 : 0;
+    /* Both coordinates are always compared in full, in constant time. */
+    int x_eq = noxtls_ct_equal(p1->x, p2->x, (size_t)size);
+    int y_eq = noxtls_ct_equal(p1->y, p2->y, (size_t)size);
+    return ((x_eq & y_eq) != 0) ? 1 : 0;
 }
 
 /**
@@ -1147,12 +1127,6 @@ static const uint32_t s_p256_prime_words[8] = {
     0x00000000U, 0x00000000U, 0x00000001U, 0xFFFFFFFFU
 };
 
-#if NOXTLS_ECC_POINT_MUL_WINDOW_SIZE >= 2
-static const uint32_t s_p256_order_words[8] = {
-    0xFC632551U, 0xF3B9CAC2U, 0xA7179E84U, 0xBCE6FAADU,
-    0xFFFFFFFFU, 0xFFFFFFFFU, 0x00000000U, 0xFFFFFFFFU
-};
-#endif
 
 /**
  * @brief Check if the modulus is P-256
@@ -1214,6 +1188,25 @@ static int ecc_curve_is_secp256r1(const ecc_curve_params_t *curve)
     }
     return (noxtls_ct_memcmp(curve->a, s_p256_a_be, (size_t)32U) == 0) ? 1 : 0;
 #endif
+}
+
+/**
+ * @brief Erase @p count 32-bit words (volatile stores the compiler cannot drop).
+ *
+ * Word-wide counterpart of noxtls_secure_zero() for the per-call field and
+ * scalar temporaries, which run thousands of times per scalar multiplication.
+ *
+ * @param w Words to erase
+ * @param count Number of words
+ */
+static void ecc_wipe_u32(uint32_t *w, uint32_t count)
+{
+    volatile uint32_t *vw = w;
+    uint32_t i;
+
+    for(i = 0U; i < count; i += 1U) {
+        vw[i] = 0U;
+    }
 }
 
 /**
@@ -1512,6 +1505,8 @@ static void p256_reduce_words(uint32_t *out, const uint32_t *in)
         acc[i] = (int64_t)in[i];
     }
     p256_reduce_acc_words(out, acc);
+    /* acc[0..7] now hold the reduced result: never leave it in a released frame. */
+    ecc_wipe_u32((uint32_t *)(void *)acc, (uint32_t)(2U * (sizeof(acc) / sizeof(acc[0]))));
 }
 
 /**
@@ -1575,6 +1570,12 @@ static void p256_fe_mul(uint8_t *out, const uint8_t *a, const uint8_t *b)
     p256_mul_words(prod, aw, bw);
     p256_reduce_words(rw, prod);
     p256_words_to_be(out, rw);
+    /* The operands and the result are coordinates of secret or password-derived
+     * points (the last multiply of a scalar multiplication computes y). */
+    ecc_wipe_u32(aw, 8U);
+    ecc_wipe_u32(bw, 8U);
+    ecc_wipe_u32(prod, 16U);
+    ecc_wipe_u32(rw, 8U);
 }
 
 /**
@@ -1700,6 +1701,9 @@ static void ecc_mul_256_to_512(uint8_t *out64, const uint8_t *a32, const uint8_t
         out64[o + 2U] = (uint8_t)(w >> 8U);
         out64[o + 3U] = (uint8_t)w;
     }
+    ecc_wipe_u32(a, 8U);
+    ecc_wipe_u32(b, 8U);
+    ecc_wipe_u32(limbs, 16U);
 }
 
 /* ------------------------------------------------------------------------------------------
@@ -2148,6 +2152,7 @@ static noxtls_return_t ecc_mul_mod(uint8_t *out, const uint8_t *a, const uint8_t
         uint8_t prod64[64];
         ecc_mul_256_to_512(prod64, a, b);
         rc = noxtls_bn_mod(out, prod64, 64U, p, 32U);
+        noxtls_secure_zero(prod64, sizeof(prod64));
     } else {
         rc = noxtls_bn_mul(tmp2n, a, size, b, size);
         if(rc == NOXTLS_RETURN_SUCCESS) {
@@ -2791,18 +2796,19 @@ noxtls_return_t noxtls_ecc_point_add(ecc_point_t *result, const ecc_point_t *p1,
         return rc;
     }
 
-    /* Check if P == -Q (P + (-Q) = infinity) */
-    (void)noxtls_bn_copy(temp1, p2->y, size);
-    (void)noxtls_bn_sub(temp2, curve->p, temp1, size);  /* temp2 = p - y2 */
-    rc = noxtls_bn_mod(temp2, temp2, size, curve->p, size);
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        (void)noxtls_bn_zero(result->x, size);
-        (void)noxtls_bn_zero(result->y, size);
-        result->size = size;
-        return rc;
+    /* Check if P == -Q (P + (-Q) = infinity). -y2 = p - y2 for y2 != 0 and 0 for
+     * y2 == 0, selected without a branch or a value-dependent reduction (an operand
+     * can be secret-derived, e.g. w0*M in SPAKE2+); the compares scan in full. */
+    {
+        uint8_t y2_zero;
+        noxtls_fill_u8(temp1, sizeof(temp1), 0U, sizeof(temp1));
+        (void)noxtls_bn_sub(temp2, curve->p, p2->y, size);  /* temp2 = p - y2 */
+        y2_zero = (uint8_t)((noxtls_ct_equal(p2->y, temp1, (size_t)size) != 0) ? 1U : 0U);
+        ecc_cond_select(temp2, temp1, temp2, size, y2_zero);
     }
 
-    if((noxtls_bn_cmp(p1->x, p2->x, size) == 0) && (noxtls_bn_cmp(p1->y, temp2, size) == 0)) {
+    if((noxtls_ct_equal(p1->x, p2->x, (size_t)size) &
+        noxtls_ct_equal(p1->y, temp2, (size_t)size)) != 0) {
         /* Result is point at infinity */
         (void)noxtls_bn_zero(result->x, size);
         (void)noxtls_bn_zero(result->y, size);
@@ -2921,6 +2927,240 @@ static noxtls_return_t ecc_jpoint_to_affine(uint8_t *x, uint8_t *y, const ecc_jp
         (void)noxtls_bn_zero(y, size);
     }
     noxtls_secure_zero(inv, sizeof(inv));
+    noxtls_secure_zero(z2, sizeof(z2));
+    noxtls_secure_zero(z3, sizeof(z3));
+    noxtls_secure_zero(t1, sizeof(t1));
+    return rc;
+}
+
+/* ------------------------------------------------------------------------------------------
+ * Fixed-length scalar recoding for secret scalars.
+ *
+ * Every scalar multiplication first rewrites k as k' = 2^T + ((k - 2^T) mod n) for a fixed,
+ * public bit position T >= bitlen(n). k' == k (mod n), so k' * P == k * P for every point of
+ * the prime-order group, and k' always has exactly T + 1 bits with bit T set. The ladder,
+ * window and comb loops therefore start from a non-identity accumulator at the same position
+ * for every scalar and run the same number of steps: the nonce length and leading zero bits
+ * (the Minerva / TPM-FAIL input) no longer change the operation sequence. Zero digits are
+ * handled with a dummy addition and a constant-time select instead of an identity early exit.
+ * ------------------------------------------------------------------------------------------ */
+
+/** Bytes of a recoded scalar: bitlen(n) + 1 bits, or up to d * w <= 264 bits for the P-256 comb. */
+#define ECC_SCALAR_EXT_BYTES (ECC_MAX_KEY_SIZE + 2U)
+
+/** Bit @p b (0 = least significant) of an ECC_SCALAR_EXT_BYTES-byte big-endian value. */
+static uint32_t ecc_ext_bit(const uint8_t *k, uint32_t b)
+{
+    return ((uint32_t)k[ECC_SCALAR_EXT_BYTES - 1U - (b >> 3U)] >> (b & 7U)) & 1U;
+}
+
+#if NOXTLS_ECC_POINT_MUL_WINDOW_SIZE >= 2
+/** Digit made of bits [lo, lo + width) of a recoded scalar (bit lo is the digit's LSB). */
+static uint32_t ecc_ext_digit(const uint8_t *k, uint32_t lo, uint32_t width)
+{
+    uint32_t d = 0U;
+    uint32_t j;
+
+    for(j = width; j > 0U; j -= 1U) {
+        d = (d << 1U) | ecc_ext_bit(k, lo + j - 1U);
+    }
+    return d;
+}
+#endif
+
+/** out = a + b over ECC_SCALAR_EXT_BYTES bytes (callers keep the sum below 2^(8*EXT)). */
+static void ecc_ext_add(uint8_t *out, const uint8_t *a, const uint8_t *b)
+{
+    uint32_t carry = 0U;
+    uint32_t i;
+
+    for(i = ECC_SCALAR_EXT_BYTES; i > 0U; i -= 1U) {
+        uint32_t sum = (uint32_t)a[i - 1U] + (uint32_t)b[i - 1U] + carry;
+        out[i - 1U] = (uint8_t)(sum & 0xFFU);
+        carry = sum >> 8U;
+    }
+}
+
+/** out = a - b over ECC_SCALAR_EXT_BYTES bytes; returns 1 when a < b (borrow), else 0. */
+static uint8_t ecc_ext_sub(uint8_t *out, const uint8_t *a, const uint8_t *b)
+{
+    uint32_t borrow = 0U;
+    uint32_t i;
+
+    for(i = ECC_SCALAR_EXT_BYTES; i > 0U; i -= 1U) {
+        uint32_t diff = ((uint32_t)a[i - 1U] - (uint32_t)b[i - 1U]) - borrow;
+        out[i - 1U] = (uint8_t)(diff & 0xFFU);
+        borrow = (diff >> 8U) & 1U;
+    }
+    return (uint8_t)borrow;
+}
+
+/** Bit length of the (public) group order. */
+static uint32_t ecc_order_bit_length(const uint8_t *n, uint32_t nlen)
+{
+    uint32_t i;
+    uint32_t bits = 0U;
+
+    for(i = 0U; (i < nlen) && (bits == 0U); i += 1U) {
+        if(n[i] != 0U) {
+            uint32_t top = (uint32_t)n[i];
+            bits = (nlen - i) * 8U;
+            while((top & 0x80U) == 0U) {
+                top <<= 1U;
+                bits -= 1U;
+            }
+        }
+    }
+    return bits;
+}
+
+/**
+ * @brief Recode @p scalar (curve->size bytes) as k' = 2^top_bit + ((k - 2^top_bit) mod n).
+ *
+ * The result is ECC_SCALAR_EXT_BYTES bytes, big-endian, with bit @p top_bit set and every
+ * higher bit clear. Canonical scalars (k < n: every key, nonce and PAKE scalar the library
+ * generates) are recoded with fixed-sequence arithmetic. A non-canonical k >= n is first
+ * reduced with noxtls_bn_mod_ct(); only that caller-input case takes the extra step.
+ *
+ * @param[out] out Recoded scalar (wiped on failure)
+ * @param[in] scalar The scalar
+ * @param[in] curve The curve (n must be set)
+ * @param[in] top_bit Bit position T, with bitlen(n) <= T < 8 * ECC_SCALAR_EXT_BYTES
+ * @return NOXTLS_RETURN_SUCCESS, NOXTLS_RETURN_INVALID_PARAM for unusable curve
+ *         parameters, or the bignum error
+ */
+static noxtls_return_t ecc_scalar_recode_fixed(uint8_t out[ECC_SCALAR_EXT_BYTES],
+                                               const uint8_t *scalar,
+                                               const ecc_curve_params_t *curve,
+                                               uint32_t top_bit)
+{
+    const uint32_t size = curve->size;
+    const uint32_t nlen = noxtls_ecc_curve_order_size(curve);
+    uint8_t nw[ECC_SCALAR_EXT_BYTES];
+    uint8_t kw[ECC_SCALAR_EXT_BYTES];
+    uint8_t cw[ECC_SCALAR_EXT_BYTES];
+    uint8_t dw[ECC_SCALAR_EXT_BYTES];
+    uint32_t n_bits = 0U;
+    uint32_t i;
+    uint8_t borrow;
+    noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
+
+    noxtls_fill_u8(out, ECC_SCALAR_EXT_BYTES, 0U, ECC_SCALAR_EXT_BYTES);
+    if((curve->n == NULL) || (nlen == 0U) || (nlen >= ECC_SCALAR_EXT_BYTES) ||
+       (size == 0U) || (size >= ECC_SCALAR_EXT_BYTES)) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    n_bits = ecc_order_bit_length(curve->n, nlen);
+    if((n_bits < 2U) || (top_bit < n_bits) || ((top_bit >> 3U) >= ECC_SCALAR_EXT_BYTES)) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+
+    noxtls_fill_u8(nw, sizeof(nw), 0U, sizeof(nw));
+    noxtls_fill_u8(kw, sizeof(kw), 0U, sizeof(kw));
+    noxtls_fill_u8(cw, sizeof(cw), 0U, sizeof(cw));
+    noxtls_copy_u8(&nw[ECC_SCALAR_EXT_BYTES - nlen], (size_t)nlen, curve->n, (size_t)nlen);
+    noxtls_copy_u8(&kw[ECC_SCALAR_EXT_BYTES - size], (size_t)size, scalar, (size_t)size);
+
+    /* k < n for every scalar the library generates; only a caller-supplied k >= n
+     * is reduced here, with the constant-time bignum reduction. */
+    if(ecc_ext_sub(dw, kw, nw) == 0U) {
+        uint8_t red[ECC_SCALAR_EXT_BYTES];
+        rc = noxtls_bn_mod_ct(red, kw, ECC_SCALAR_EXT_BYTES, curve->n, nlen);
+        noxtls_fill_u8(kw, sizeof(kw), 0U, sizeof(kw));
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            noxtls_copy_u8(&kw[ECC_SCALAR_EXT_BYTES - nlen], (size_t)nlen, red, (size_t)nlen);
+        }
+        noxtls_secure_zero(red, sizeof(red));
+    }
+
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        /* cw = 2^top_bit mod n (public): start from 2^(n_bits - 1) < n and double. */
+        cw[ECC_SCALAR_EXT_BYTES - 1U - ((n_bits - 1U) >> 3U)] = (uint8_t)(1U << ((n_bits - 1U) & 7U));
+        for(i = n_bits; i <= top_bit; i += 1U) {
+            ecc_ext_add(cw, cw, cw);
+            borrow = ecc_ext_sub(dw, cw, nw);
+            ecc_cond_select(cw, cw, dw, ECC_SCALAR_EXT_BYTES, borrow);
+        }
+        /* cw = n - (2^top_bit mod n), in [1, n - 1] (n is an odd prime). */
+        (void)ecc_ext_sub(cw, nw, cw);
+        /* u = (k + cw) mod n with one constant-time conditional subtraction. */
+        ecc_ext_add(kw, kw, cw);
+        borrow = ecc_ext_sub(dw, kw, nw);
+        ecc_cond_select(out, kw, dw, ECC_SCALAR_EXT_BYTES, borrow);
+        /* k' = 2^top_bit + u, and u < n <= 2^top_bit. */
+        out[ECC_SCALAR_EXT_BYTES - 1U - (top_bit >> 3U)] |= (uint8_t)(1U << (top_bit & 7U));
+    }
+
+    noxtls_secure_zero(kw, sizeof(kw));
+    noxtls_secure_zero(dw, sizeof(dw));
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(out, ECC_SCALAR_EXT_BYTES);
+    }
+    return rc;
+}
+
+noxtls_return_t noxtls_ecc_random_scalar(uint8_t *out, const ecc_curve_params_t *curve, uint32_t rng_slot)
+{
+    const uint32_t size = (curve != NULL) ? curve->size : 0U;
+    const uint32_t nlen = noxtls_ecc_curve_order_size(curve);
+    uint8_t draw[ECC_MAX_KEY_SIZE];
+    uint32_t draw_len = 0U;
+    uint32_t n_bits = 0U;
+    uint32_t attempts = 0U;
+    uint32_t accepted = 0U;
+    uint8_t top_mask = 0xFFU;
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+
+    if((out == NULL) || (curve == NULL) || (curve->n == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if((size == 0U) || (size > ECC_MAX_KEY_SIZE) || (nlen < size) || (nlen > ECC_MAX_KEY_SIZE)) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    n_bits = ecc_order_bit_length(curve->n, nlen);
+    if(n_bits < 2U) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    if(nlen == size) {
+        /* Draw exactly bitlen(n) bits: each draw is accepted with probability n / 2^bitlen(n)
+         * > 1/2 (about 0.66 for the brainpool orders). */
+        draw_len = nlen;
+        top_mask = (uint8_t)(0xFFU >> ((nlen * 8U) - n_bits));
+    } else {
+        /* secp224k1: n (225 bits) exceeds every coordinate-sized value, and scalars are
+         * passed to the point multiply as coordinate-sized values; draw from [1, 2^224 - 1],
+         * which omits a 2^-111 fraction of [1, n - 1]. */
+        draw_len = size;
+    }
+
+    while((accepted == 0U) && (attempts < NOXTLS_ECC_KEYGEN_MAX_ATTEMPTS)) {
+        uint32_t i;
+        uint32_t nonzero = 0U;
+        uint32_t borrow = 0U;
+
+        attempts += 1U;
+        rc = noxtls_pkc_rng_generate(rng_slot, draw, draw_len * 8U);
+        if(rc != NOXTLS_RETURN_SUCCESS) {
+            break;
+        }
+        draw[0] &= top_mask;
+        noxtls_fill_u8(out, (size_t)nlen, 0U, (size_t)nlen);
+        noxtls_copy_u8(&out[nlen - draw_len], (size_t)draw_len, draw, (size_t)draw_len);
+        /* Accept 0 < k < n, decided without a data-dependent branch or early exit. */
+        for(i = nlen; i > 0U; i -= 1U) {
+            uint32_t diff = ((uint32_t)out[i - 1U] - (uint32_t)curve->n[i - 1U]) - borrow;
+            borrow = (diff >> 8U) & 1U;
+            nonzero |= (uint32_t)out[i - 1U];
+        }
+        accepted = borrow & (uint32_t)((0U - nonzero) >> 31U);
+        rc = NOXTLS_RETURN_FAILED;
+    }
+    if(accepted != 0U) {
+        rc = NOXTLS_RETURN_SUCCESS;
+    } else {
+        noxtls_secure_zero(out, (size_t)nlen);
+    }
+    noxtls_secure_zero(draw, sizeof(draw));
     return rc;
 }
 
@@ -3038,11 +3278,24 @@ static noxtls_return_t ecc_ctable_alloc(ecc_ctable_t *t, uint32_t len, uint32_t 
     return NOXTLS_RETURN_SUCCESS;
 }
 
+/**
+ * @brief Erase and release a precompute buffer of @p len bytes (NULL is ignored).
+ *
+ * Tables, their Z arrays and inversion prefixes hold multiples of the base point,
+ * which is secret or password-derived for ECDH, SPAKE2+ (T, L) and EC-JPAKE, and
+ * are therefore always erased before release.
+ */
+static void ecc_free_wiped(uint8_t *buf, size_t len)
+{
+    if(buf != NULL) {
+        noxtls_secure_zero(buf, len);
+        (void)noxtls_free(buf);
+    }
+}
+
 static void ecc_ctable_free(ecc_ctable_t *t)
 {
-    if(t->xy != NULL) {
-        (void)noxtls_free(t->xy);
-    }
+    ecc_free_wiped(t->xy, (size_t)t->len * 2U * (size_t)t->size);
     noxtls_fill_u8((uint8_t *)(void *)t, sizeof(*t), 0U, sizeof(*t));
 }
 
@@ -3131,7 +3384,9 @@ static noxtls_return_t ecc_ctable_normalize(ecc_ctable_t *t, const uint8_t *z, c
         (void)noxtls_bn_copy(&prefix[(size_t)i * size], acc, size);
     }
     if((rc != NOXTLS_RETURN_SUCCESS) || (have_acc == 0)) {
-        (void)noxtls_free(prefix);
+        noxtls_secure_zero(acc, sizeof(acc));
+        noxtls_secure_zero(tmp2n, sizeof(tmp2n));
+        ecc_free_wiped(prefix, (size_t)len * (size_t)size);
         return rc;
     }
 
@@ -3173,7 +3428,10 @@ static noxtls_return_t ecc_ctable_normalize(ecc_ctable_t *t, const uint8_t *z, c
 
     noxtls_secure_zero(acc, sizeof(acc));
     noxtls_secure_zero(inv_z, sizeof(inv_z));
-    (void)noxtls_free(prefix);
+    noxtls_secure_zero(z2, sizeof(z2));
+    noxtls_secure_zero(z3, sizeof(z3));
+    noxtls_secure_zero(tmp2n, sizeof(tmp2n));
+    ecc_free_wiped(prefix, (size_t)len * (size_t)size);
     return rc;
 }
 
@@ -3229,7 +3487,10 @@ static noxtls_return_t ecc_ctable_build_window(ecc_ctable_t *t, uint32_t len, co
     if(rc == NOXTLS_RETURN_SUCCESS) {
         rc = ecc_ctable_normalize(t, z, curve);
     }
-    (void)noxtls_free(z);
+    ecc_free_wiped(z, (size_t)len * (size_t)size);
+    noxtls_secure_zero(&P1, sizeof(P1));
+    noxtls_secure_zero(&acc, sizeof(acc));
+    noxtls_secure_zero(&next, sizeof(next));
     if(rc != NOXTLS_RETURN_SUCCESS) {
         ecc_ctable_free(t);
     }
@@ -3437,77 +3698,37 @@ static ECC_NOINLINE noxtls_return_t p256_ecc_point_muladd_windowed(ecc_point_t *
 
 #if NOXTLS_ECC_POINT_MUL_WINDOW_SIZE >= 2
 /**
- * @brief Get the bit at the given index
+ * @brief Comb tooth spacing d for width @p w.
  *
- * @param[in] scalar The scalar
- * @param[in] bit_index The index of the bit
- * @return The bit
+ * d * w >= 257 so the comb covers the recoded scalar (bitlen(n) + 1 = 257 bits); for the
+ * read-only generator table (w = 5) this is the d = 52 it was generated with.
+ *
+ * @param[in] w The comb width
+ * @return d = ceil(257 / w)
  */
-static uint8_t p256_scalar_getbit_lsb(const uint8_t *scalar, uint32_t bit_index)
+static uint32_t p256_comb_spacing(uint32_t w)
 {
-    static const uint8_t s_lsb_masks[8] = {
-        0x01U, 0x02U, 0x04U, 0x08U, 0x10U, 0x20U, 0x40U, 0x80U
-    };
-    uint32_t byte_from_end = 0U;
-    uint32_t byte_idx = 0U;
-    uint32_t bit_in_byte = 0U;
-
-    if((scalar == NULL) || (bit_index >= 256U)) {
-        return 0U;
-    }
-
-    byte_from_end = bit_index >> 3U;
-    byte_idx = 31U - byte_from_end;
-    bit_in_byte = bit_index & 7U;
-    return (((uint32_t)scalar[byte_idx] & (uint32_t)s_lsb_masks[bit_in_byte]) != 0U) ? 1U : 0U;
+    return (257U + w - 1U) / w;
 }
 
 /**
- * @brief Recode the scalar
+ * @brief Comb digit of column @p col: bit j is bit (col + d * j) of the recoded scalar.
  *
- * @param[in] digits The digits
- * @param[in] d The number of digits
- * @param[in] w The width
- * @param[in] scalar The scalar
+ * @param[in] ks Recoded scalar (ECC_SCALAR_EXT_BYTES bytes)
+ * @param[in] col Column index (0 .. d - 1)
+ * @param[in] d Tooth spacing
+ * @param[in] w Comb width
+ * @return The digit (0 .. 2^w - 1)
  */
-static void p256_comb_recode_core(uint8_t *digits,
-                                  uint32_t d,
-                                  uint32_t w,
-                                  const uint8_t scalar[32])
+static uint32_t p256_comb_digit(const uint8_t *ks, uint32_t col, uint32_t d, uint32_t w)
 {
-    uint32_t i = 0U;
-    uint32_t j = 0U;
+    uint32_t digit = 0U;
+    uint32_t j;
 
-    noxtls_fill_u8(digits, (size_t)d, 0U, (size_t)d);
-
-    for(i = 0U; i < d; i += 1U) {
-        for(j = 0U; j < w; j += 1U) {
-            uint32_t bit_j = j & 7U;
-            static const uint8_t s_bit_masks[8] = {
-                0x01U, 0x02U, 0x04U, 0x08U, 0x10U, 0x20U, 0x40U, 0x80U
-            };
-            if(p256_scalar_getbit_lsb(scalar, i + (d * j)) != 0U) {
-                digits[i] = (uint8_t)(digits[i] | s_bit_masks[bit_j]);
-            }
-        }
+    for(j = w; j > 0U; j -= 1U) {
+        digit = (digit << 1U) | ecc_ext_bit(ks, col + (d * (j - 1U)));
     }
-}
-
-/**
- * @brief Reduce the scalar modulo the order
- *
- * @param[out] out The output
- * @param[in] in The input
- */
-static void p256_scalar_reduce_mod_order(uint8_t *out, const uint8_t *in)
-{
-    uint32_t words[8];
-
-    p256_words_from_be(words, in);
-    if(p256_words_cmp(words, s_p256_order_words) >= 0) {
-        p256_words_sub_raw(words, words, s_p256_order_words);
-    }
-    p256_words_to_be(out, words);
+    return digit;
 }
 
 /**
@@ -3519,7 +3740,7 @@ static void p256_scalar_reduce_mod_order(uint8_t *out, const uint8_t *in)
  * @param[in] point The point
  * @param[in] curve The curve (P-256)
  * @param[in] w The comb width
- * @param[in] d The number of comb teeth spacing (ceil(256 / w))
+ * @param[in] d The comb tooth spacing (p256_comb_spacing(w))
  * @return The return value
  */
 static noxtls_return_t p256_ctable_build_comb(ecc_ctable_t *t,
@@ -3594,7 +3815,11 @@ static noxtls_return_t p256_ctable_build_comb(ecc_ctable_t *t,
     if(rc == NOXTLS_RETURN_SUCCESS) {
         rc = ecc_ctable_normalize(t, z, curve);
     }
-    (void)noxtls_free(z);
+    ecc_free_wiped(z, (size_t)table_len * 32U);
+    noxtls_secure_zero(&cur, sizeof(cur));
+    noxtls_secure_zero(&tmp, sizeof(tmp));
+    noxtls_secure_zero(&a_pt, sizeof(a_pt));
+    noxtls_secure_zero(&b_pt, sizeof(b_pt));
     if(rc != NOXTLS_RETURN_SUCCESS) {
         ecc_ctable_free(t);
     }
@@ -3604,10 +3829,15 @@ static noxtls_return_t p256_ctable_build_comb(ecc_ctable_t *t,
 /**
  * @brief P-256 comb multiplication R = k * P from a compact affine comb table.
  *
+ * The scalar is recoded to k' = 2^(d*w - 1) + ((k - 2^(d*w - 1)) mod n), so the top column
+ * digit is never zero: R starts as a table point and every later column performs one
+ * doubling and one real addition (a zero digit adds T[1] and the sum is discarded with a
+ * constant-time select). No step takes an identity shortcut that depends on k.
+ *
  * @param[out] result Jacobian result
- * @param[in] scalar The scalar (32 bytes, reduced mod n here)
+ * @param[in] scalar The scalar (32 bytes)
  * @param[in] curve The curve (P-256)
- * @param[in] xy Table entries (X || Y)
+ * @param[in] xy Table entries (X || Y), built with spacing p256_comb_spacing(w)
  * @param[in] id_mask Identity bits of the entries
  * @param[in] w The comb width (table has 2^w entries)
  * @return The return value
@@ -3619,17 +3849,19 @@ static noxtls_return_t p256_ecc_jpoint_mul_comb(ecc_jpoint_t *result,
                                                 const uint32_t *id_mask,
                                                 uint32_t w)
 {
-    const uint32_t d = (uint32_t)((256U + w - 1U) / w);
+    const uint32_t d = p256_comb_spacing(w);
     const uint32_t table_len = ecc_window_table_len(w);
-    uint8_t digits[64];
+    uint8_t ks[ECC_SCALAR_EXT_BYTES];
     ecc_jpoint_t R;
     ecc_jpoint_t Txi;
     ecc_jpoint_t Tdbl;
     noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
     uint32_t i = 0U;
-    uint8_t reduced[32];
+    uint32_t digit = 0U;
+    uint32_t zero_mask = 0U;
+    uint8_t keep = 0U;
 
-    if((d > sizeof(digits)) || (table_len > ECC_CTABLE_MAX_LEN)) {
+    if((w < 2U) || (table_len > ECC_CTABLE_MAX_LEN) || ((((d * w) - 1U) >> 3U) >= ECC_SCALAR_EXT_BYTES)) {
         return NOXTLS_RETURN_FAILED;
     }
     noxtls_fill_u8((uint8_t *)(void *)(&R), sizeof(R), 0U, sizeof(R));
@@ -3639,27 +3871,36 @@ static noxtls_return_t p256_ecc_jpoint_mul_comb(ecc_jpoint_t *result,
     Txi.size = 32U;
     Tdbl.size = 32U;
 
-    p256_scalar_reduce_mod_order(reduced, scalar);
-    p256_comb_recode_core(digits, d, w, reduced);
-
-    for(i = d; (i > 0U) && (rc == NOXTLS_RETURN_SUCCESS); i -= 1U) {
+    rc = ecc_scalar_recode_fixed(ks, scalar, curve, (d * w) - 1U);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        /* Top column: bit d*w - 1 is set, so the digit is non-zero. */
+        digit = p256_comb_digit(ks, d - 1U, d, w);
+        ecc_ctable_select_raw(&R, xy, id_mask, table_len, 32U, digit);
+    }
+    for(i = d - 1U; (i > 0U) && (rc == NOXTLS_RETURN_SUCCESS); i -= 1U) {
         noxtls_ecc_yield();
         (void)p256_jpoint_double(&Tdbl, &R);
         noxtls_copy_u8((uint8_t *)(void *)(&R), sizeof(R), (const uint8_t *)(const void *)(&Tdbl), sizeof(R));
 
-        ecc_ctable_select_raw(&Txi, xy, id_mask, table_len, 32U, digits[i - 1U]);
+        digit = p256_comb_digit(ks, i - 1U, d, w);
+        zero_mask = ecc_ct_eq_mask_u32(digit, 0U);
+        ecc_ctable_select_raw(&Txi, xy, id_mask, table_len, 32U, digit | (zero_mask & 1U));
         rc = ecc_jpoint_add(&Tdbl, &R, &Txi, curve);
-        noxtls_copy_u8((uint8_t *)(void *)(&R), sizeof(R), (const uint8_t *)(const void *)(&Tdbl), sizeof(R));
+        keep = (uint8_t)(zero_mask & 1U);
+        ecc_cond_select(R.X, R.X, Tdbl.X, 32U, keep);
+        ecc_cond_select(R.Y, R.Y, Tdbl.Y, 32U, keep);
+        ecc_cond_select(R.Z, R.Z, Tdbl.Z, 32U, keep);
     }
-    noxtls_secure_zero(digits, sizeof(digits));
-    noxtls_secure_zero(reduced, sizeof(reduced));
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        noxtls_copy_u8((uint8_t *)(void *)(result), sizeof(*result), (const uint8_t *)(const void *)(&R), sizeof(R));
+        result->size = 32U;
     }
-
-    noxtls_copy_u8((uint8_t *)(void *)(result), sizeof(*result), (const uint8_t *)(const void *)(&R), sizeof(R));
-    result->size = 32U;
-    return NOXTLS_RETURN_SUCCESS;
+    noxtls_secure_zero(ks, sizeof(ks));
+    noxtls_secure_zero(&digit, sizeof(digit));
+    noxtls_secure_zero(&R, sizeof(R));
+    noxtls_secure_zero(&Txi, sizeof(Txi));
+    noxtls_secure_zero(&Tdbl, sizeof(Tdbl));
+    return rc;
 }
 
 #if ECC_P256_USE_FLASH_TABLE
@@ -3680,6 +3921,10 @@ static noxtls_return_t p256_ecc_jpoint_mul_comb_flash(
 /**
  * @brief Fixed-window multiplication R = k * P from a compact affine window table T[i] = i * P.
  *
+ * The scalar is recoded to bitlen(n) + 1 bits with the top bit set (ecc_scalar_recode_fixed),
+ * so the first digit is non-zero and every scalar takes the same doublings and additions; a
+ * zero digit adds T[1] and discards the sum with a constant-time select.
+ *
  * @param[out] result Jacobian result
  * @param[in] scalar The scalar (curve->size bytes, big-endian)
  * @param[in] curve The curve
@@ -3693,10 +3938,13 @@ static noxtls_return_t ecc_jpoint_mul_windowed(ecc_jpoint_t *result,
                                                const ecc_ctable_t *table,
                                                uint32_t w)
 {
-    uint32_t size = (uint32_t)(curve->size);
-    uint32_t n_bits = (uint32_t)(size * 8U);
-    uint32_t t = (uint32_t)((n_bits + w - 1U) / w);  /* number of windows */
-    uint32_t first_w = (uint32_t)(n_bits - ((t - 1U) * w));
+    const uint32_t size = (uint32_t)(curve->size);
+    const uint32_t n_bits = (curve->n != NULL) ?
+        ecc_order_bit_length(curve->n, noxtls_ecc_curve_order_size(curve)) : 0U;
+    const uint32_t nb = n_bits + 1U;                      /* recoded length */
+    const uint32_t t = (uint32_t)((nb + w - 1U) / w);     /* number of windows */
+    const uint32_t first_w = (uint32_t)(nb - ((t - 1U) * w));
+    uint8_t ks[ECC_SCALAR_EXT_BYTES];
     ecc_jpoint_t R;
     ecc_jpoint_t T_sel;
     ecc_jpoint_t T_dbl;
@@ -3704,6 +3952,8 @@ static noxtls_return_t ecc_jpoint_mul_windowed(ecc_jpoint_t *result,
     uint32_t i = 0U;
     uint32_t j = 0U;
     uint32_t d = 0U;
+    uint32_t zero_mask = 0U;
+    uint8_t keep = 0U;
 
     noxtls_fill_u8((uint8_t *)(void *)(&R), sizeof(R), 0U, sizeof(R));
     noxtls_fill_u8((uint8_t *)(void *)(&T_sel), sizeof(T_sel), 0U, sizeof(T_sel));
@@ -3711,15 +3961,15 @@ static noxtls_return_t ecc_jpoint_mul_windowed(ecc_jpoint_t *result,
     R.size = size;
     T_sel.size = size;
     T_dbl.size = size;
-    if(first_w == 0U) {
-        first_w = w;
+
+    rc = ecc_scalar_recode_fixed(ks, scalar, curve, n_bits);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        /* First window: R = T[d_top], d_top != 0 (its top bit is bit n_bits). */
+        d = ecc_ext_digit(ks, (t - 1U) * w, first_w);
+        ecc_ctable_select(&R, table, d);
     }
 
-    /* First window: R = T[d_0] (constant-time selection). */
-    d = ecc_scalar_digit_range(scalar, size, 0U, first_w);
-    ecc_ctable_select(&R, table, d);
-
-    for(i = 1U; (i < t) && (rc == NOXTLS_RETURN_SUCCESS); i += 1U) {
+    for(i = t - 1U; (i > 0U) && (rc == NOXTLS_RETURN_SUCCESS); i -= 1U) {
         noxtls_ecc_yield();
         /* R = 2^w * R (w doubles) */
         for(j = 0U; (j < w) && (rc == NOXTLS_RETURN_SUCCESS); j += 1U) {
@@ -3727,21 +3977,27 @@ static noxtls_return_t ecc_jpoint_mul_windowed(ecc_jpoint_t *result,
             noxtls_copy_u8((uint8_t *)(void *)(&R), sizeof(R), (const uint8_t *)(const void *)(&T_dbl), sizeof(ecc_jpoint_t));
         }
         if(rc == NOXTLS_RETURN_SUCCESS) {
-            /* R = R + T[d_i] */
-            d = ecc_scalar_digit_range(scalar, size, first_w + ((i - 1U) * w), w);
-            ecc_ctable_select(&T_sel, table, d);
+            /* R = R + T[d_i]; for d_i == 0 add T[1] and keep R. */
+            d = ecc_ext_digit(ks, (i - 1U) * w, w);
+            zero_mask = ecc_ct_eq_mask_u32(d, 0U);
+            ecc_ctable_select(&T_sel, table, d | (zero_mask & 1U));
             rc = ecc_jpoint_add(&T_dbl, &R, &T_sel, curve);
-            noxtls_copy_u8((uint8_t *)(void *)(&R), sizeof(R), (const uint8_t *)(const void *)(&T_dbl), sizeof(ecc_jpoint_t));
+            keep = (uint8_t)(zero_mask & 1U);
+            ecc_cond_select(R.X, R.X, T_dbl.X, size, keep);
+            ecc_cond_select(R.Y, R.Y, T_dbl.Y, size, keep);
+            ecc_cond_select(R.Z, R.Z, T_dbl.Z, size, keep);
         }
     }
-    noxtls_secure_zero(&d, sizeof(d));
-    if(rc != NOXTLS_RETURN_SUCCESS) {
-        return rc;
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        noxtls_copy_u8((uint8_t *)(void *)(result), sizeof(*result), (const uint8_t *)(const void *)(&R), sizeof(ecc_jpoint_t));
+        result->size = size;
     }
-
-    noxtls_copy_u8((uint8_t *)(void *)(result), sizeof(*result), (const uint8_t *)(const void *)(&R), sizeof(ecc_jpoint_t));
-    result->size = size;
-    return NOXTLS_RETURN_SUCCESS;
+    noxtls_secure_zero(ks, sizeof(ks));
+    noxtls_secure_zero(&d, sizeof(d));
+    noxtls_secure_zero(&R, sizeof(R));
+    noxtls_secure_zero(&T_sel, sizeof(T_sel));
+    noxtls_secure_zero(&T_dbl, sizeof(T_dbl));
+    return rc;
 }
 
 /**
@@ -3789,7 +4045,7 @@ static noxtls_return_t ecc_point_mul_windowed_jpoint(ecc_jpoint_t *result,
 #endif
     if(table == NULL) {
         if(is_p256 != 0) {
-            rc = p256_ctable_build_comb(&owned, point, curve, w, (256U + w - 1U) / w);
+            rc = p256_ctable_build_comb(&owned, point, curve, w, p256_comb_spacing(w));
         } else {
             rc = ecc_ctable_build_window(&owned, table_len, point, curve);
         }
@@ -3923,7 +4179,12 @@ static ECC_NOINLINE noxtls_return_t ecc_point_mul_windowed_affine(ecc_point_t *r
 #endif
 
 /**
- * @brief Constant-time Montgomery ladder R = k * P (fallback and P-521 / brainpoolP512r1 path).
+ * @brief Montgomery ladder R = k * P (fallback and P-521 / brainpoolP512r1 path).
+ *
+ * The scalar is recoded to bitlen(n) + 1 bits with the top bit set, so the ladder starts
+ * from (R0, R1) = (P, 2P) and runs exactly bitlen(n) steps of one addition and one doubling
+ * for every scalar; the operand of the doubling and both results are chosen with
+ * constant-time selects. All Jacobian temporaries are wiped on every exit.
  */
 static ECC_NOINLINE noxtls_return_t ecc_point_mul_ladder(ecc_point_t *result,
                                                          const uint8_t *scalar,
@@ -3931,82 +4192,75 @@ static ECC_NOINLINE noxtls_return_t ecc_point_mul_ladder(ecc_point_t *result,
                                                          const ecc_curve_params_t *curve)
 {
     const uint32_t size = curve->size;
-    noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
+    const uint32_t n_bits = (curve->n != NULL) ?
+        ecc_order_bit_length(curve->n, noxtls_ecc_curve_order_size(curve)) : 0U;
+    uint8_t ks[ECC_SCALAR_EXT_BYTES];
+    ecc_jpoint_t R0;
+    ecc_jpoint_t R1;
+    ecc_jpoint_t T_sum;
+    ecc_jpoint_t T_sel;
+    ecc_jpoint_t T_dbl;
+    uint32_t b = 0U;
+    uint8_t bit = 0U;
+    noxtls_return_t rc;
 
-    /* Montgomery ladder path */
-    {
-        ecc_jpoint_t R0;
-        ecc_jpoint_t R1;
-        ecc_jpoint_t T_sum;
-        ecc_jpoint_t T_dbl0;
-        ecc_jpoint_t T_dbl1;
-        uint32_t i = 0U;
-        uint32_t j = 0U;
-        uint8_t bit = 0U;
+    noxtls_fill_u8((uint8_t *)(void *)(&R0), sizeof(R0), 0U, sizeof(R0));
+    noxtls_fill_u8((uint8_t *)(void *)(&R1), sizeof(R1), 0U, sizeof(R1));
+    noxtls_fill_u8((uint8_t *)(void *)(&T_sum), sizeof(T_sum), 0U, sizeof(T_sum));
+    noxtls_fill_u8((uint8_t *)(void *)(&T_sel), sizeof(T_sel), 0U, sizeof(T_sel));
+    noxtls_fill_u8((uint8_t *)(void *)(&T_dbl), sizeof(T_dbl), 0U, sizeof(T_dbl));
+    R0.size = size;
+    R1.size = size;
+    T_sum.size = size;
+    T_sel.size = size;
+    T_dbl.size = size;
 
-        noxtls_fill_u8((uint8_t *)(void *)(&R0), sizeof(R0), 0U, sizeof(R0));
-        noxtls_fill_u8((uint8_t *)(void *)(&R1), sizeof(R1), 0U, sizeof(R1));
-        noxtls_fill_u8((uint8_t *)(void *)(&T_sum), sizeof(T_sum), 0U, sizeof(T_sum));
-        noxtls_fill_u8((uint8_t *)(void *)(&T_dbl0), sizeof(T_dbl0), 0U, sizeof(T_dbl0));
-        noxtls_fill_u8((uint8_t *)(void *)(&T_dbl1), sizeof(T_dbl1), 0U, sizeof(T_dbl1));
-
-        R0.size = size;
-        R1.size = size;
-        T_sum.size = size;
-        T_dbl0.size = size;
-        T_dbl1.size = size;
-
-        (void)noxtls_bn_zero(R0.X, size);
-        (void)noxtls_bn_zero(R0.Y, size);
-        (void)noxtls_bn_zero(R0.Z, size);
-        (void)noxtls_bn_copy(R1.X, point->x, size);
-        (void)noxtls_bn_copy(R1.Y, point->y, size);
-        (void)noxtls_bn_zero(R1.Z, size);
-        R1.Z[size - 1U] = 0x01U;
-
-        for(i = 0U; (i < size) && (rc == NOXTLS_RETURN_SUCCESS); i += 1U) {
-            for(j = 8U; (j > 0U) && (rc == NOXTLS_RETURN_SUCCESS); j -= 1U) {
-                noxtls_ecc_yield();
-                /* MSB-first bit select without variable shift count (MISRA 12.2). */
-                {
-                    static const uint8_t s_msb_masks[8] = {
-                        0x01U, 0x02U, 0x04U, 0x08U, 0x10U, 0x20U, 0x40U, 0x80U
-                    };
-                    bit = (uint8_t)(((uint32_t)scalar[i] & (uint32_t)s_msb_masks[j - 1U]) != 0U ? 1U : 0U);
-                }
-                rc = ecc_jpoint_add(&T_sum, &R0, &R1, curve);
-                if(rc == NOXTLS_RETURN_SUCCESS) {
-                    rc = ecc_jpoint_double(&T_dbl0, &R0, curve);
-                }
-                if(rc == NOXTLS_RETURN_SUCCESS) {
-                    rc = ecc_jpoint_double(&T_dbl1, &R1, curve);
-                }
-                if(rc == NOXTLS_RETURN_SUCCESS) {
-                    ecc_cond_select(R0.X, T_sum.X, T_dbl0.X, size, bit);
-                    ecc_cond_select(R0.Y, T_sum.Y, T_dbl0.Y, size, bit);
-                    ecc_cond_select(R0.Z, T_sum.Z, T_dbl0.Z, size, bit);
-                    ecc_cond_select(R1.X, T_dbl1.X, T_sum.X, size, bit);
-                    ecc_cond_select(R1.Y, T_dbl1.Y, T_sum.Y, size, bit);
-                    ecc_cond_select(R1.Z, T_dbl1.Z, T_sum.Z, size, bit);
-                }
-            }
+    rc = ecc_scalar_recode_fixed(ks, scalar, curve, n_bits);
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        /* Bit n_bits of the recoded scalar is 1: R0 = P, R1 = 2P. */
+        (void)noxtls_bn_copy(R0.X, point->x, size);
+        (void)noxtls_bn_copy(R0.Y, point->y, size);
+        R0.Z[size - 1U] = 0x01U;
+        rc = ecc_jpoint_double(&R1, &R0, curve);
+    }
+    for(b = n_bits; (b > 0U) && (rc == NOXTLS_RETURN_SUCCESS); b -= 1U) {
+        noxtls_ecc_yield();
+        bit = (uint8_t)ecc_ext_bit(ks, b - 1U);
+        /* Invariant R1 = R0 + P. bit 1: (R0, R1) = (R0 + R1, 2 R1); bit 0: (2 R0, R0 + R1). */
+        rc = ecc_jpoint_add(&T_sum, &R0, &R1, curve);
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            ecc_cond_select(T_sel.X, R1.X, R0.X, size, bit);
+            ecc_cond_select(T_sel.Y, R1.Y, R0.Y, size, bit);
+            ecc_cond_select(T_sel.Z, R1.Z, R0.Z, size, bit);
+            rc = ecc_jpoint_double(&T_dbl, &T_sel, curve);
         }
-
-        if(rc != NOXTLS_RETURN_SUCCESS) {
-            (void)noxtls_bn_zero(result->x, size);
-            (void)noxtls_bn_zero(result->y, size);
-            return rc;
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            ecc_cond_select(R0.X, T_sum.X, T_dbl.X, size, bit);
+            ecc_cond_select(R0.Y, T_sum.Y, T_dbl.Y, size, bit);
+            ecc_cond_select(R0.Z, T_sum.Z, T_dbl.Z, size, bit);
+            ecc_cond_select(R1.X, T_dbl.X, T_sum.X, size, bit);
+            ecc_cond_select(R1.Y, T_dbl.Y, T_sum.Y, size, bit);
+            ecc_cond_select(R1.Z, T_dbl.Z, T_sum.Z, size, bit);
         }
+    }
 
+    if(rc == NOXTLS_RETURN_SUCCESS) {
         rc = ecc_jpoint_to_affine(result->x, result->y, &R0, curve);
     }
-    if(rc != NOXTLS_RETURN_SUCCESS) {
+    if(rc == NOXTLS_RETURN_SUCCESS) {
+        result->size = size;
+    } else {
         (void)noxtls_bn_zero(result->x, size);
         (void)noxtls_bn_zero(result->y, size);
-        return rc;
     }
-    result->size = size;
-    return NOXTLS_RETURN_SUCCESS;
+    noxtls_secure_zero(ks, sizeof(ks));
+    noxtls_secure_zero(&bit, sizeof(bit));
+    noxtls_secure_zero(&R0, sizeof(R0));
+    noxtls_secure_zero(&R1, sizeof(R1));
+    noxtls_secure_zero(&T_sum, sizeof(T_sum));
+    noxtls_secure_zero(&T_sel, sizeof(T_sel));
+    noxtls_secure_zero(&T_dbl, sizeof(T_dbl));
+    return rc;
 }
 
 /**
@@ -4658,7 +4912,6 @@ noxtls_return_t noxtls_ecc_key_generate(ecc_key_t *key, ecc_curve_t curve_type)
 {
     uint8_t random_bytes[ECC_MAX_KEY_SIZE];
     uint32_t size;
-    uint32_t bits;
 #if NOXTLS_ECC_PERFORMANCE_DIAGNOSTICS
     uint64_t total_start_us;
     uint64_t phase_start_us;
@@ -4706,8 +4959,6 @@ noxtls_return_t noxtls_ecc_key_generate(ecc_key_t *key, ecc_curve_t curve_type)
         NOXTLS_ECC_STATUS_SET(noxtls_ecc_keygen_last_stage, 5U);
         goto cleanup_keygen;
     }
-    bits = size * 8U;
-
     noxtls_secure_zero(random_bytes, (size_t)(sizeof(random_bytes)));
     NOXTLS_ECC_STATUS_SET(noxtls_ecc_keygen_last_stage, 6U);
     do {
@@ -4720,25 +4971,17 @@ noxtls_return_t noxtls_ecc_key_generate(ecc_key_t *key, ecc_curve_t curve_type)
 #endif
         while((d_valid == 0) && (attempts < NOXTLS_ECC_KEYGEN_MAX_ATTEMPTS)) {
             attempts += 1U;
-            rc = ecc_keygen_drbg_generate_bits(random_bytes, bits);
+            /* d uniform in [1, n-1] by rejection sampling (FIPS 186-5 A.2.2), not
+             * by a single-width reduction, which biases orders far below 2^(8*size). */
+            NOXTLS_ECC_STATUS_SET(noxtls_ecc_keygen_last_drbg_type, NOXTLS_ECC_KEYGEN_DRBG_TYPE);
+            rc = noxtls_ecc_random_scalar(random_bytes, key->curve, NOXTLS_PKC_RNG_SLOT_ECC);
             if(rc != NOXTLS_RETURN_SUCCESS) {
+                NOXTLS_ECC_STATUS_SET(noxtls_ecc_keygen_last_entropy_rc, (int32_t)rc);
                 NOXTLS_ECC_STATUS_SET(noxtls_ecc_keygen_last_stage, 7U);
                 break;
             }
-
-            if(noxtls_ecc_curve_order_size(key->curve) > size) {
-                /* Order longer than the field (secp224k1): every size-byte value is
-                 * already below n, so no reduction is needed. */
-                noxtls_copy_u8(key->d, (size_t)size, random_bytes, (size_t)size);
-            } else {
-                /* Reduce mod n (gives [0, n-1]); a failed reduction must not
-                 * leave a stale or zero d behind as the "generated" key. */
-                rc = noxtls_bn_mod(key->d, random_bytes, size, key->curve->n, size);
-                if(rc != NOXTLS_RETURN_SUCCESS) {
-                    NOXTLS_ECC_STATUS_SET(noxtls_ecc_keygen_last_stage, 7U);
-                    break;
-                }
-            }
+            noxtls_copy_u8(key->d, (size_t)size,
+                           &random_bytes[noxtls_ecc_curve_order_size(key->curve) - size], (size_t)size);
 
             /* d == 0 (or, defensively, d >= n) is rejected and redrawn. */
             if((noxtls_bn_is_zero(key->d, size) == 0) &&

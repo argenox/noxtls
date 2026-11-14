@@ -1497,6 +1497,10 @@ void ge25519_encode_n(uint8_t *enc, const ge25519_n_t *p)
     fe25519_native_to_le(enc, &y);
     enc[NOXTLS_ED25519_FE25519_BYTES - 1U] |=
         (uint8_t)(fe25519_native_isnegative(&x) << 7);
+    /* Z^-1 with the public encoding reveals the projective point. */
+    noxtls_secure_zero(&zinv, sizeof(zinv));
+    noxtls_secure_zero(&x, sizeof(x));
+    noxtls_secure_zero(&y, sizeof(y));
 }
 
 void ge25519_encode(uint8_t *enc, const ge25519_pt_t *p)

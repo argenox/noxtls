@@ -121,9 +121,21 @@ static noxtls_return_t noxtls_nrf52_ecb_encrypt_128(const uint8_t *key,
     }
 
     if(result == NOXTLS_RETURN_TIMEOUT) {
+        /* STOPECB aborts a running block and raises ERRORECB; wait (bounded)
+         * for the engine to stop so no late DMA write lands in this frame. */
         *task_stop = 1U;
+        for(spins = 0U; spins < NOXTLS_NRF52_ECB_TIMEOUT_SPINS; spins += 1U) {
+            if((*event_error != 0U) || (*event_end != 0U)) {
+                break;
+            }
+        }
+        *event_end = 0U;
+        *event_error = 0U;
     }
+    /* Detach the engine from this stack frame, then drop the key copy. */
+    *ecb_ptr = 0U;
     noxtls_nrf52_ecb_irq_unlock(irq_state);
+    noxtls_secure_zero(&ecb_data, sizeof(ecb_data));
     return result;
 }
 

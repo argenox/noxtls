@@ -414,18 +414,35 @@ static uint32_t p256_scalar_sub_words(uint32_t *out,
     uint64_t borrow = 0U;
     uint32_t i = 0U;
 
+    /* Branch-free: the operands are secret (nonce, key and their products). */
     for (i = 0U; i < len; i += 1U) {
-        uint64_t ai = (uint64_t)a[i];
-        uint64_t bi = (uint64_t)b[i] + borrow;
-        if (ai < bi) {
-            out[i] = (uint32_t)(ai + (1ULL << 32U) - bi);
-            borrow = 1U;
-        } else {
-            out[i] = (uint32_t)(ai - bi);
-            borrow = 0U;
-        }
+        uint64_t diff = ((uint64_t)a[i] - (uint64_t)b[i]) - borrow;
+        out[i] = (uint32_t)diff;
+        borrow = (diff >> 63U) & 1U;
     }
     return (uint32_t)borrow;
+}
+
+/**
+ * @brief a = (a >= m) ? a - m : a over @p len words, in constant time
+ *
+ * @param[in,out] a The value
+ * @param[in] m The modulus
+ * @param[in] len Number of words (at most 9)
+ * @return void
+ */
+static void p256_scalar_csub_words(uint32_t *a, const uint32_t *m, uint32_t len)
+{
+    uint32_t diff[9];
+    uint32_t mask;
+    uint32_t i;
+
+    /* mask = all ones when no borrow (a >= m): take the difference. */
+    mask = p256_scalar_sub_words(diff, a, m, len) - 1U;
+    for (i = 0U; i < len; i += 1U) {
+        a[i] = (diff[i] & mask) | (a[i] & ~mask);
+    }
+    noxtls_secure_zero(diff, sizeof(diff));
 }
 
 /**
@@ -438,12 +455,16 @@ static uint32_t p256_scalar_sub_words(uint32_t *out,
  */
 static void p256_scalar_sub_mod_words(uint32_t *out, const uint32_t *a, const uint32_t *b)
 {
-    if (p256_scalar_cmp_words(a, b, 8U) >= 0) {
-        (void)p256_scalar_sub_words(out, a, b, 8U);
-    } else {
-        uint32_t diff[8];
-        (void)p256_scalar_sub_words(diff, b, a, 8U);
-        (void)p256_scalar_sub_words(out, ecdsa_s_p256_order_words, diff, 8U);
+    uint32_t mask;
+    uint64_t carry = 0U;
+    uint32_t i;
+
+    /* out = a - b, plus n when that borrowed (a, b < n); no data-dependent branch. */
+    mask = 0U - p256_scalar_sub_words(out, a, b, 8U);
+    for (i = 0U; i < 8U; i += 1U) {
+        uint64_t t = (uint64_t)out[i] + (uint64_t)(ecdsa_s_p256_order_words[i] & mask) + carry;
+        out[i] = (uint32_t)t;
+        carry = t >> 32U;
     }
 }
 
@@ -473,6 +494,7 @@ static void p256_scalar_add_order_and_rshift1_words(uint32_t *out, const uint32_
         out[i - 1U] = (w >> 1U) | (carry_word << 31U);
         carry_word = w & 1U;
     }
+    noxtls_secure_zero(sum, sizeof(sum));
 }
 
 /**
@@ -537,12 +559,11 @@ static void p256_scalar_reduce_barrett_words(uint32_t *out, const uint32_t *in)
                 remainder[limb_index] = (remainder[limb_index] << 1) | carry;
                 carry = next_carry;
             }
-            if(p256_scalar_cmp_words(remainder, n9, 9U) >= 0) {
-                (void)p256_scalar_sub_words(remainder, remainder, n9, 9U);
-            }
+            p256_scalar_csub_words(remainder, n9, 9U);
         }
     }
     noxtls_copy_u8((uint8_t *)(void *)(out), (size_t)(8U * sizeof(uint32_t)), (const uint8_t *)(const void *)(remainder), (size_t)(8U * sizeof(uint32_t)));
+    noxtls_secure_zero(remainder, sizeof(remainder));
 }
 
 /**
@@ -557,10 +578,9 @@ static void p256_scalar_reduce32(uint8_t *out, const uint8_t *in)
     uint32_t words[8];
 
     (void)p256_scalar_words_from_be(words, in);
-    if (p256_scalar_cmp_words(words, ecdsa_s_p256_order_words, 8U) >= 0) {
-        (void)p256_scalar_sub_words(words, words, ecdsa_s_p256_order_words, 8U);
-    }
+    p256_scalar_csub_words(words, ecdsa_s_p256_order_words, 8U);
     (void)p256_scalar_words_to_be(out, words);
+    noxtls_secure_zero(words, sizeof(words));
 }
 
 /**
@@ -591,10 +611,12 @@ static void p256_scalar_add_mod(uint8_t *out, const uint8_t *a, const uint8_t *b
         carry = (uint32_t)(t >> 32U);
     }
     sum[8] = (uint32_t)carry;
-    if(p256_scalar_cmp_words(sum, n9, 9U) >= 0) {
-        (void)p256_scalar_sub_words(sum, sum, n9, 9U);
-    }
+    p256_scalar_csub_words(sum, n9, 9U);
     (void)p256_scalar_words_to_be(out, sum);
+    /* sum is h + r*d during signing: one stale copy with the signature gives d. */
+    noxtls_secure_zero(aw, sizeof(aw));
+    noxtls_secure_zero(bw, sizeof(bw));
+    noxtls_secure_zero(sum, sizeof(sum));
 }
 
 /**
@@ -617,6 +639,11 @@ static void p256_scalar_mul_mod(uint8_t *out, const uint8_t *a, const uint8_t *b
     p256_scalar_mul_words(prod, aw, bw);
     p256_scalar_reduce_barrett_words(reduced, prod);
     (void)p256_scalar_words_to_be(out, reduced);
+    /* Operands include k^-1, d and h + r*d: wipe every copy before returning. */
+    noxtls_secure_zero(aw, sizeof(aw));
+    noxtls_secure_zero(bw, sizeof(bw));
+    noxtls_secure_zero(prod, sizeof(prod));
+    noxtls_secure_zero(reduced, sizeof(reduced));
 }
 
 /**
@@ -645,9 +672,7 @@ static noxtls_return_t p256_scalar_inv_mod(uint8_t *out, const uint8_t *a)
     noxtls_secure_zero((one), sizeof(one));
 
     (void)p256_scalar_words_from_be(u, a);
-    if (p256_scalar_cmp_words(u, ecdsa_s_p256_order_words, 8U) >= 0) {
-        (void)p256_scalar_sub_words(u, u, ecdsa_s_p256_order_words, 8U);
-    }
+    p256_scalar_csub_words(u, ecdsa_s_p256_order_words, 8U);
     if (p256_scalar_is_zero_words(u) != 0) {
         return NOXTLS_RETURN_FAILED;
     }
@@ -693,21 +718,32 @@ static noxtls_return_t p256_scalar_inv_mod(uint8_t *out, const uint8_t *a)
         }
     }
 
-    if (p256_scalar_is_one_words(u) != 0) {
-        (void)p256_scalar_words_to_be(out, x1);
-    } else if (p256_scalar_is_one_words(v) != 0) {
-        (void)p256_scalar_words_to_be(out, x2);
-    } else {
-         /* MISRA 15.7: final else path */
-        return NOXTLS_RETURN_FAILED;
-    }
+    {
+        noxtls_return_t rc = NOXTLS_RETURN_SUCCESS;
 
-    (void)p256_scalar_mul_mod(check, a, out);
-    one[31] = 0x01U;
-    if (memcmp(check, one, (size_t)32U) != 0) {
-        return NOXTLS_RETURN_FAILED;
+        if (p256_scalar_is_one_words(u) != 0) {
+            (void)p256_scalar_words_to_be(out, x1);
+        } else if (p256_scalar_is_one_words(v) != 0) {
+            (void)p256_scalar_words_to_be(out, x2);
+        } else {
+            rc = NOXTLS_RETURN_FAILED;
+        }
+
+        if (rc == NOXTLS_RETURN_SUCCESS) {
+            (void)p256_scalar_mul_mod(check, a, out);
+            one[31] = 0x01U;
+            if (noxtls_ct_equal(check, one, (size_t)32U) == 0) {
+                rc = NOXTLS_RETURN_FAILED;
+            }
+        }
+        /* x1 / x2 hold the inverse of the (blinded) nonce. */
+        noxtls_secure_zero(u, sizeof(u));
+        noxtls_secure_zero(v, sizeof(v));
+        noxtls_secure_zero(x1, sizeof(x1));
+        noxtls_secure_zero(x2, sizeof(x2));
+        noxtls_secure_zero(check, sizeof(check));
+        return rc;
     }
-    return NOXTLS_RETURN_SUCCESS;
 }
 
 /**
@@ -1047,13 +1083,18 @@ static uint32_t ecdsa_der_get_length(const uint8_t **p, const uint8_t *e)
     if (((uint32_t)base[idx] & 0x80U) != 0U) {
         uint8_t n = (uint8_t)((uint32_t)base[idx] & 0x7FU);
         idx += 1U;
-        if ((n == 0U) || (n > 4U) || ((idx + (size_t)n) > rem)) {
+        /* DER: the long form needs a non-zero first octet (no leading zero) and is
+         * only allowed for lengths of 128 and above. */
+        if ((n == 0U) || (n > 4U) || ((idx + (size_t)n) > rem) || (base[idx] == 0U)) {
             return 0U;
         }
         while (n > 0U) {
             len = (len << 8U) | (uint32_t)base[idx];
             idx += 1U;
             n -= 1U;
+        }
+        if (len < 0x80U) {
+            return 0U;
         }
     } else {
         len = (uint32_t)base[idx] & 0x7FU;
@@ -1114,6 +1155,14 @@ static int ecdsa_der_get_integer(const uint8_t **p, const uint8_t *e, uint8_t *b
     if ((size_t)len > rem) {
         return -1;
     }
+    /* DER INTEGER for r / s: non-negative (sign bit clear) and minimal (a leading 0x00
+     * only when the next octet has its top bit set). */
+    if ((base[0] & 0x80U) != 0U) {
+        return -1;
+    }
+    if ((len > 1U) && (base[0] == 0x00U) && ((base[1] & 0x80U) == 0U)) {
+        return -1;
+    }
     *out_len = len;
     noxtls_copy_u8(buf, (size_t)buf_size, base, (size_t)(len));
     *p = &base[len];
@@ -1123,10 +1172,12 @@ static int ecdsa_der_get_integer(const uint8_t **p, const uint8_t *e, uint8_t *b
 /**
  * @brief Parse a DER-encoded ECDSA signature into fixed-width r and s (IEEE 1363 / X9.62 style layout).
  *
- * Expects ASN.1 SEQUENCE { r INTEGER, s INTEGER } as used in TLS and PKIX. Integers are normalized to
- * @p coord_size bytes each, big-endian, in @p out->r and @p out->s; @p out->size is set to @p coord_size.
- * Shorter INTEGER values are zero-padded on the left; longer values may be accepted only if leading
- * padding bytes are zero (otherwise BAD_DATA).
+ * Expects ASN.1 SEQUENCE { r INTEGER, s INTEGER } as used in TLS and PKIX, in strict DER: the
+ * SEQUENCE fills @p der_len exactly, holds exactly two INTEGERs, every length uses the minimal form,
+ * and each INTEGER is non-negative and minimal (a single leading 0x00 only before an octet with its
+ * top bit set). Integers are normalized to @p coord_size bytes each, big-endian, in @p out->r and
+ * @p out->s; @p out->size is set to @p coord_size. Shorter values are zero-padded on the left; a
+ * value longer than @p coord_size is accepted only if its leading octets are zero (otherwise BAD_DATA).
  *
  * @param[in] der DER-encoded signature bytes.
  * @param[in] der_len Length of @p der in bytes.
@@ -1167,7 +1218,8 @@ noxtls_return_t noxtls_ecdsa_signature_parse_der(const uint8_t *der, uint32_t de
     if (seq_len == 0U) {
         return NOXTLS_RETURN_BAD_DATA;
     }
-    if (ecdsa_bytes_remaining(ptr, end) < (size_t)seq_len) {
+    /* The SEQUENCE must fill the input exactly (no trailing octets). */
+    if (ecdsa_bytes_remaining(ptr, end) != (size_t)seq_len) {
         return NOXTLS_RETURN_BAD_DATA;
     }
 
@@ -1177,6 +1229,10 @@ noxtls_return_t noxtls_ecdsa_signature_parse_der(const uint8_t *der, uint32_t de
             return NOXTLS_RETURN_BAD_DATA;
         }
         if (ecdsa_der_get_integer(&ptr, seq_end, s, (uint32_t)sizeof(s), &s_len) != 0) {
+            return NOXTLS_RETURN_BAD_DATA;
+        }
+        /* Exactly two INTEGERs: nothing may follow s inside the SEQUENCE. */
+        if (ptr != seq_end) {
             return NOXTLS_RETURN_BAD_DATA;
         }
     }
@@ -1367,7 +1423,7 @@ static ECDSA_NOINLINE noxtls_return_t ecdsa_nonce_inverse_blinded(uint8_t *k_inv
         if (rc != NOXTLS_RETURN_SUCCESS) {
             break;
         }
-        rc = noxtls_bn_mod(b, prod, nlen, n, nlen);
+        rc = noxtls_bn_mod_ct(b, prod, nlen, n, nlen);
         if (rc != NOXTLS_RETURN_SUCCESS) {
             break;
         }
@@ -1381,7 +1437,7 @@ static ECDSA_NOINLINE noxtls_return_t ecdsa_nonce_inverse_blinded(uint8_t *k_inv
         } else {
             rc = noxtls_bn_mul(prod, k, nlen, b, nlen);
             if (rc == NOXTLS_RETURN_SUCCESS) {
-                rc = noxtls_bn_mod(kb, prod, nlen * 2U, n, nlen);
+                rc = noxtls_bn_mod_ct(kb, prod, nlen * 2U, n, nlen);  /* k * b: secret */
             }
             if (rc != NOXTLS_RETURN_SUCCESS) {
                 break;
@@ -1395,7 +1451,7 @@ static ECDSA_NOINLINE noxtls_return_t ecdsa_nonce_inverse_blinded(uint8_t *k_inv
             } else {
                 rc = noxtls_bn_mul(prod, k_inv, nlen, b, nlen);
                 if (rc == NOXTLS_RETURN_SUCCESS) {
-                    rc = noxtls_bn_mod(k_inv, prod, nlen * 2U, n, nlen);
+                    rc = noxtls_bn_mod_ct(k_inv, prod, nlen * 2U, n, nlen);  /* k^-1: secret */
                 }
             }
         }
@@ -1508,12 +1564,10 @@ static noxtls_return_t ecdsa_sign_core(const ecc_key_t *key, const uint8_t *noxt
     uint8_t *h_plus_rd = NULL;
     uint8_t *s_product = NULL;  /* k_inv * h_plus_rd is 2*nlen bytes; must not write into signature->s */
     uint8_t *s_w = NULL;        /* s as an nlen-byte value mod n */
-    uint8_t *random_bytes = NULL;
     ecc_point_t kG;
     uint32_t size = 0U;
     uint32_t nlen = 0U;         /* length of the order n (> size only for secp224k1) */
     uint32_t extra = 0U;        /* nlen - size */
-    uint32_t bits = 0U;
     uint32_t max_attempts = 100U;
     uint32_t attempt = 0U;
     int is_p256 = 0;
@@ -1538,7 +1592,6 @@ static noxtls_return_t ecdsa_sign_core(const ecc_key_t *key, const uint8_t *noxt
         return NOXTLS_RETURN_FAILED;
     }
     extra = nlen - size;
-    bits = size * 8U;
     is_p256 = ecdsa_order_is_p256(key->curve->n, nlen);
     noxtls_secure_zero((hash_fast), sizeof(hash_fast));
     noxtls_secure_zero((h_fast), sizeof(h_fast));
@@ -1598,7 +1651,6 @@ static noxtls_return_t ecdsa_sign_core(const ecc_key_t *key, const uint8_t *noxt
         off += ((size_t)nlen * 2U);
         s_w = &scratch[off];
         off += (size_t)nlen;
-        random_bytes = &scratch[off];
         (void)off;
     }
 
@@ -1612,36 +1664,17 @@ static noxtls_return_t ecdsa_sign_core(const ecc_key_t *key, const uint8_t *noxt
     /* Step 2-5: Generate signature with retry if r or s is zero */
     for (attempt = 0U; attempt < max_attempts; attempt += 1U) {
         ECDSA_TIMING_SET(attempts, attempt + 1U);
-        /* Step 2: Generate random nonce k in [1, n-1] */
-        do {
-            step_t0 = ecdsa_profile_now_us();
-            rc = ecdsa_drbg_generate_bits(random_bytes, bits);
-            if (rc != NOXTLS_RETURN_SUCCESS) {
-                NOXTLS_ECC_STATUS_SET(noxtls_ecdsa_sign_last_stage, 3U);
-                return ecdsa_sign_finish(scratch, scratch_len, signature, rc, sign_t0);
-            }
-
-            /* Reduce mod n */
-            noxtls_secure_zero(k, (size_t)nlen);
-            if (is_p256 != 0) {
-                p256_scalar_reduce32(k, random_bytes);
-            } else if (extra != 0U) {
-                /* n > 2^(8*size) (secp224k1): a size-byte value is already below n.
-                 * k is drawn from [1, 2^(8*size) - 1], which omits a 2^-111 fraction of
-                 * [1, n-1] for secp224k1 (negligible bias), and k always fits the
-                 * coordinate-sized scalar taken by noxtls_ecc_point_multiply(). */
-                noxtls_copy_u8(&k[extra], (size_t)size, random_bytes, (size_t)size);
-            } else {
-                rc = noxtls_bn_mod(k, random_bytes, size, key->curve->n, nlen);
-                if (rc != NOXTLS_RETURN_SUCCESS) {
-                    NOXTLS_ECC_STATUS_SET(noxtls_ecdsa_sign_last_stage, 3U);
-                    return ecdsa_sign_finish(scratch, scratch_len, signature, rc, sign_t0);
-                }
-            }
-            ECDSA_TIMING_ADD(nonce_generate_us, ecdsa_profile_elapsed_us(step_t0));
-
-            /* Ensure k is not zero */
-        } while (noxtls_bn_is_zero(k, nlen) != 0);
+        /* Step 2: Generate random nonce k uniform in [1, n-1] (FIPS 186-5 A.3.2
+         * rejection sampling, no modulo bias on any order). For secp224k1 k is drawn
+         * from [1, 2^(8*size) - 1], which omits a 2^-111 fraction of [1, n-1] and
+         * keeps k within the coordinate-sized scalar of noxtls_ecc_point_multiply(). */
+        step_t0 = ecdsa_profile_now_us();
+        rc = noxtls_ecc_random_scalar(k, key->curve, NOXTLS_PKC_RNG_SLOT_ECDSA);
+        if (rc != NOXTLS_RETURN_SUCCESS) {
+            NOXTLS_ECC_STATUS_SET(noxtls_ecdsa_sign_last_stage, 3U);
+            return ecdsa_sign_finish(scratch, scratch_len, signature, rc, sign_t0);
+        }
+        ECDSA_TIMING_ADD(nonce_generate_us, ecdsa_profile_elapsed_us(step_t0));
 
         /* Step 3: Compute (x, y) = k * G */
         step_t0 = ecdsa_profile_now_us();
@@ -1697,7 +1730,8 @@ static noxtls_return_t ecdsa_sign_core(const ecc_key_t *key, const uint8_t *noxt
              * released, so any failure aborts the signature. */
             rc = noxtls_bn_mul(r_times_d, r_w, nlen, key->d, size);
             if (rc == NOXTLS_RETURN_SUCCESS) {
-                rc = noxtls_bn_mod(r_times_d, r_times_d, nlen + size, key->curve->n, nlen);
+                /* r * d is secret: constant-time reduction (issue 69) */
+                rc = noxtls_bn_mod_ct(r_times_d, r_times_d, nlen + size, key->curve->n, nlen);
             }
 
             /* Compute h + r * d with carry (can be nlen + 1U bytes); then reduce mod n */
@@ -1717,9 +1751,8 @@ static noxtls_return_t ecdsa_sign_core(const ecc_key_t *key, const uint8_t *noxt
                 }
                 sum_tmp[0U] = (uint8_t)carry;
                 if (rc == NOXTLS_RETURN_SUCCESS) {
-                    uint32_t len = (carry != 0U) ? (nlen + 1U) : nlen;
-                    const uint8_t *src = (carry != 0U) ? sum_tmp : (&sum_tmp[1U]);
-                    rc = noxtls_bn_mod(h_plus_rd, src, len, key->curve->n, nlen);
+                    /* Always nlen + 1 bytes: the length must not depend on the secret carry. */
+                    rc = noxtls_bn_mod_ct(h_plus_rd, sum_tmp, nlen + 1U, key->curve->n, nlen);
                 }
             }
 
@@ -1728,7 +1761,7 @@ static noxtls_return_t ecdsa_sign_core(const ecc_key_t *key, const uint8_t *noxt
                 rc = noxtls_bn_mul(s_product, k_inv, nlen, h_plus_rd, nlen);
             }
             if (rc == NOXTLS_RETURN_SUCCESS) {
-                rc = noxtls_bn_mod(s_w, s_product, nlen * 2U, key->curve->n, nlen);
+                rc = noxtls_bn_mod_ct(s_w, s_product, nlen * 2U, key->curve->n, nlen);
             }
             if (rc != NOXTLS_RETURN_SUCCESS) {
                 NOXTLS_ECC_STATUS_SET(noxtls_ecdsa_sign_last_stage, 6U);

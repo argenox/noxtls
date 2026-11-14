@@ -2017,9 +2017,9 @@ static noxtls_return_t bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
     uint8_t *Y = (uint8_t*)NOXTLS_CALLOC(y_cap, 1);
     uint8_t *Y_shifted = (uint8_t*)NOXTLS_CALLOC(x_cap, 1);
     if((X == NULL) || (Y == NULL) || (Y_shifted == NULL)) {
-        if(X != NULL) { (void)noxtls_free(X); }
-        if(Y != NULL) { (void)noxtls_free(Y); }
-        if(Y_shifted != NULL) { (void)noxtls_free(Y_shifted); }
+        NOXTLS_SECURE_FREE(X, (size_t)x_cap);
+        NOXTLS_SECURE_FREE(Y, (size_t)y_cap);
+        NOXTLS_SECURE_FREE(Y_shifted, (size_t)x_cap);
         noxtls_secure_zero((rem_out), (size_t)(mod_len));
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
@@ -2034,18 +2034,18 @@ static noxtls_return_t bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
     bn_strip_leading_zeros_inplace(Y, &y_len);
     if(x_len == 0U) {
         noxtls_secure_zero((rem_out), (size_t)(mod_len));
-        (void)noxtls_free(X);
-        (void)noxtls_free(Y);
-        (void)noxtls_free(Y_shifted);
+        NOXTLS_SECURE_FREE(X, (size_t)x_cap);
+        NOXTLS_SECURE_FREE(Y, (size_t)y_cap);
+        NOXTLS_SECURE_FREE(Y_shifted, (size_t)x_cap);
         return NOXTLS_RETURN_SUCCESS;
     }
     if(x_len < y_len) {
         /* Dividend < divisor: remainder is dividend, aligned to mod_len (x_len > 0U when x_len < y_len and y_len > 0U) */
         noxtls_secure_zero((rem_out), (size_t)(mod_len));
         noxtls_copy_u8(&rem_out[(mod_len - x_len)], (size_t)mod_len, X, (size_t)x_len);
-        (void)noxtls_free(X);
-        (void)noxtls_free(Y);
-        (void)noxtls_free(Y_shifted);
+        NOXTLS_SECURE_FREE(X, (size_t)x_cap);
+        NOXTLS_SECURE_FREE(Y, (size_t)y_cap);
+        NOXTLS_SECURE_FREE(Y_shifted, (size_t)x_cap);
         return NOXTLS_RETURN_SUCCESS;
     }
 
@@ -2078,9 +2078,9 @@ static noxtls_return_t bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
      */
     uint8_t *qY = (uint8_t*)NOXTLS_CALLOC(x_len + 1U, 1U);
     if(qY == NULL) {
-        (void)noxtls_free(X);
-        (void)noxtls_free(Y);
-        (void)noxtls_free(Y_shifted);
+        NOXTLS_SECURE_FREE(X, (size_t)x_cap);
+        NOXTLS_SECURE_FREE(Y, (size_t)y_cap);
+        NOXTLS_SECURE_FREE(Y_shifted, (size_t)x_cap);
         noxtls_secure_zero((rem_out), (size_t)(mod_len));
         return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
     }
@@ -2088,10 +2088,10 @@ static noxtls_return_t bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
     /* One quotient digit is 0..255, so we need at most 256 rounds when subtracting 1*Y_shifted each time */
     uint32_t max_reduce_rounds = 0U;
     if(x_len > (uint32_t)((UINT32_MAX / 32U) - 1U)) {
-        (void)noxtls_free(X);
-        (void)noxtls_free(Y);
-        (void)noxtls_free(Y_shifted);
-        (void)noxtls_free(qY);
+        NOXTLS_SECURE_FREE(X, (size_t)x_cap);
+        NOXTLS_SECURE_FREE(Y, (size_t)y_cap);
+        NOXTLS_SECURE_FREE(Y_shifted, (size_t)x_cap);
+        NOXTLS_SECURE_FREE(qY, (size_t)x_len + 1U);
         noxtls_secure_zero((rem_out), (size_t)(mod_len));
         return NOXTLS_RETURN_INVALID_PARAM;
     }
@@ -2140,7 +2140,7 @@ static noxtls_return_t bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
         (void)bn_sub_inplace(X, &qY[1], x_len);
         reduce_rounds += 1U;
     }
-    (void)noxtls_free(qY);
+    NOXTLS_SECURE_FREE(qY, (size_t)x_len + 1U);
     /* If we hit the round limit before X < Y_shifted, do bounded fallback (single subtracts) so we never return wrong remainder */
     if((reduce_rounds >= max_reduce_rounds) && (bn_ge(X, Y_shifted, x_len) != 0)) {
         uint32_t fallback = 0U;
@@ -2151,9 +2151,9 @@ static noxtls_return_t bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
         }
         if((fallback >= max_fallback) && (bn_ge(X, Y_shifted, x_len) != 0)) {
             (void)noxtls_debug_printf((const uint8_t *)"ERROR: bn_div_remainder: Initial reduction did not converge\n");
-            (void)noxtls_free(X);
-            (void)noxtls_free(Y);
-            (void)noxtls_free(Y_shifted);
+            NOXTLS_SECURE_FREE(X, (size_t)x_cap);
+            NOXTLS_SECURE_FREE(Y, (size_t)y_cap);
+            NOXTLS_SECURE_FREE(Y_shifted, (size_t)x_cap);
             noxtls_secure_zero((rem_out), (size_t)(mod_len));
             return NOXTLS_RETURN_FAILED;
         }
@@ -2194,9 +2194,9 @@ static noxtls_return_t bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
                 }
                 if(refine_iter >= max_refine_iter) {
                     (void)noxtls_debug_printf((const uint8_t *)"ERROR: bn_div_remainder: Refinement loop timeout\n");
-                    (void)noxtls_free(X);
-                    (void)noxtls_free(Y);
-                    (void)noxtls_free(Y_shifted);
+                    NOXTLS_SECURE_FREE(X, (size_t)x_cap);
+                    NOXTLS_SECURE_FREE(Y, (size_t)y_cap);
+                    NOXTLS_SECURE_FREE(Y_shifted, (size_t)x_cap);
                     noxtls_secure_zero((rem_out), (size_t)(mod_len));
                     return NOXTLS_RETURN_FAILED;
                 }
@@ -2209,11 +2209,12 @@ static noxtls_return_t bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
             uint32_t off = (uint32_t)(i - t - 1U);
             uint16_t carry = 0U;
             uint32_t tw = (uint32_t)(y_len + 1U);
+            const uint32_t tmp_cap = tw;   /* tw shrinks when stripped below */
             uint8_t *tmp = (uint8_t*)NOXTLS_CALLOC(tw, 1);
             if(tmp == NULL) {
-                (void)noxtls_free(X);
-                (void)noxtls_free(Y);
-                (void)noxtls_free(Y_shifted);
+                NOXTLS_SECURE_FREE(X, (size_t)x_cap);
+                NOXTLS_SECURE_FREE(Y, (size_t)y_cap);
+                NOXTLS_SECURE_FREE(Y_shifted, (size_t)x_cap);
                 noxtls_secure_zero((rem_out), (size_t)(mod_len));
                 return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
             }
@@ -2233,7 +2234,7 @@ static noxtls_return_t bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
                     bn_add_at(X, x_len, off, Y, y_len);
                 }
             }
-            (void)noxtls_free(tmp);
+            NOXTLS_SECURE_FREE(tmp, (size_t)tmp_cap);
         }
 
     }
@@ -2252,9 +2253,9 @@ static noxtls_return_t bn_div_remainder(uint8_t *rem_out, uint32_t mod_len,
         noxtls_secure_zero((rem_out), (size_t)(mod_len));
     }
 
-    (void)noxtls_free(X);
-    (void)noxtls_free(Y);
-    (void)noxtls_free(Y_shifted);
+    NOXTLS_SECURE_FREE(X, (size_t)x_cap);
+    NOXTLS_SECURE_FREE(Y, (size_t)y_cap);
+    NOXTLS_SECURE_FREE(Y_shifted, (size_t)x_cap);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -2290,6 +2291,7 @@ noxtls_return_t noxtls_bn_mod(uint8_t *result, const uint8_t *a, uint32_t a_len,
     const uint8_t *a_src = a;
     uint32_t a_nbytes = a_len;
     uint8_t *a_copy = NULL;
+    uint32_t a_copy_len = 0U;   /* allocated size of a_copy (a_nbytes changes when stripped) */
 
     if((result == NULL) || (a == NULL) || (mod == NULL)) {
         return NOXTLS_RETURN_NULL;
@@ -2321,6 +2323,7 @@ noxtls_return_t noxtls_bn_mod(uint8_t *result, const uint8_t *a, uint32_t a_len,
                 noxtls_secure_zero((result), (size_t)(mod_len));
                 return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
             }
+            a_copy_len = a_nbytes;
             noxtls_copy_u8(a_copy, (size_t)a_nbytes, a, (size_t)(a_nbytes));
             a_src = a_copy;
         }
@@ -2329,14 +2332,14 @@ noxtls_return_t noxtls_bn_mod(uint8_t *result, const uint8_t *a, uint32_t a_len,
     a_src = bn_strip_leading_zeros(a_src, &a_nbytes);
     if(a_nbytes == 0U) {
         noxtls_secure_zero((result), (size_t)(mod_len));
-        if(a_copy != NULL) { (void)noxtls_free(a_copy); }
+        NOXTLS_SECURE_FREE(a_copy, (size_t)a_copy_len);
         return NOXTLS_RETURN_SUCCESS;
     }
 
     if(a_nbytes < mod_len) {
         if(bn_copy_aligned(result, mod_len, a_src, a_nbytes) != NOXTLS_RETURN_SUCCESS) {
             noxtls_secure_zero((result), (size_t)(mod_len));
-            if(a_copy != NULL) { (void)noxtls_free(a_copy); }
+            NOXTLS_SECURE_FREE(a_copy, (size_t)a_copy_len);
             return NOXTLS_RETURN_FAILED;
         }
         /* Fixup: result may still be >= mod (e.g. 10 mod 10, 20 mod 10) */
@@ -2345,18 +2348,18 @@ noxtls_return_t noxtls_bn_mod(uint8_t *result, const uint8_t *a, uint32_t a_len,
             if(fix_rc != NOXTLS_RETURN_SUCCESS) {
                 /* Never report SUCCESS with an unreduced/zeroed value (e.g. on OOM). */
                 noxtls_secure_zero((result), (size_t)(mod_len));
-                if(a_copy != NULL) { (void)noxtls_free(a_copy); }
+                NOXTLS_SECURE_FREE(a_copy, (size_t)a_copy_len);
                 return fix_rc;
             }
         }
-        if(a_copy != NULL) { (void)noxtls_free(a_copy); }
+        NOXTLS_SECURE_FREE(a_copy, (size_t)a_copy_len);
         return NOXTLS_RETURN_SUCCESS;
     }
 
     if(a_nbytes == mod_len) {
         if(noxtls_bn_cmp(a_src, mod, mod_len) < 0) {
             noxtls_copy_u8(result, (size_t)mod_len, a_src, (size_t)mod_len);
-            if(a_copy != NULL) { (void)noxtls_free(a_copy); }
+            NOXTLS_SECURE_FREE(a_copy, (size_t)a_copy_len);
             return NOXTLS_RETURN_SUCCESS;
         }
     }
@@ -2375,7 +2378,7 @@ noxtls_return_t noxtls_bn_mod(uint8_t *result, const uint8_t *a, uint32_t a_len,
                 va >>= 8;
             }
         }
-        if(a_copy != NULL) { (void)noxtls_free(a_copy); }
+        NOXTLS_SECURE_FREE(a_copy, (size_t)a_copy_len);
         return NOXTLS_RETURN_SUCCESS;
     }
 
@@ -2388,14 +2391,12 @@ noxtls_return_t noxtls_bn_mod(uint8_t *result, const uint8_t *a, uint32_t a_len,
     if((mod_len == 32U) && (a_nbytes == 64U)) {
         noxtls_return_t hw_rc = noxtls_bn_platform_try_mod(result, a_src, a_nbytes, mod, mod_len);
         if(hw_rc == NOXTLS_RETURN_SUCCESS) {
-            if(a_copy != NULL) {
-                (void)noxtls_free(a_copy);
-            }
+            NOXTLS_SECURE_FREE(a_copy, (size_t)a_copy_len);
             return NOXTLS_RETURN_SUCCESS;
         }
         if(bn_platform_declined(hw_rc) == 0U) {
             noxtls_secure_zero((result), (size_t)(mod_len));
-            if(a_copy != NULL) { (void)noxtls_free(a_copy); }
+            NOXTLS_SECURE_FREE(a_copy, (size_t)a_copy_len);
             return hw_rc;
         }
     }
@@ -2408,12 +2409,12 @@ noxtls_return_t noxtls_bn_mod(uint8_t *result, const uint8_t *a, uint32_t a_len,
        a_nbytes == mod_len * 2U) {
         noxtls_return_t fast_rc = bn_mod_2n_by_n_limb(result, mod_len, a_src, a_nbytes, mod);
         if(fast_rc == NOXTLS_RETURN_SUCCESS) {
-            if(a_copy != NULL) { (void)noxtls_free(a_copy); }
+            NOXTLS_SECURE_FREE(a_copy, (size_t)a_copy_len);
             return NOXTLS_RETURN_SUCCESS;
         }
         if(fast_rc != NOXTLS_RETURN_FAILED) {
             noxtls_secure_zero((result), (size_t)(mod_len));
-            if(a_copy != NULL) { (void)noxtls_free(a_copy); }
+            NOXTLS_SECURE_FREE(a_copy, (size_t)a_copy_len);
             return fast_rc;
         }
     }
@@ -2422,14 +2423,12 @@ noxtls_return_t noxtls_bn_mod(uint8_t *result, const uint8_t *a, uint32_t a_len,
     {
         noxtls_return_t hw_rc = noxtls_bn_platform_try_mod(result, a_src, a_nbytes, mod, mod_len);
         if(hw_rc == NOXTLS_RETURN_SUCCESS) {
-            if(a_copy != NULL) {
-                (void)noxtls_free(a_copy);
-            }
+            NOXTLS_SECURE_FREE(a_copy, (size_t)a_copy_len);
             return NOXTLS_RETURN_SUCCESS;
         }
         if(bn_platform_declined(hw_rc) == 0U) {
             noxtls_secure_zero((result), (size_t)(mod_len));
-            if(a_copy != NULL) { (void)noxtls_free(a_copy); }
+            NOXTLS_SECURE_FREE(a_copy, (size_t)a_copy_len);
             return hw_rc;
         }
     }
@@ -2441,12 +2440,12 @@ noxtls_return_t noxtls_bn_mod(uint8_t *result, const uint8_t *a, uint32_t a_len,
         noxtls_return_t limb_rc = bn_div_remainder_limb(result, mod_len, a_src, a_nbytes, mod, mod_len);
         if(limb_rc != NOXTLS_RETURN_SUCCESS) {
             noxtls_secure_zero((result), (size_t)(mod_len));
-            if(a_copy != NULL) { (void)noxtls_free(a_copy); }
+            NOXTLS_SECURE_FREE(a_copy, (size_t)a_copy_len);
             return limb_rc;
         }
     }
 
-    if(a_copy != NULL) { (void)noxtls_free(a_copy); }
+    NOXTLS_SECURE_FREE(a_copy, (size_t)a_copy_len);
     return NOXTLS_RETURN_SUCCESS;
 }
 
@@ -2725,8 +2724,7 @@ static noxtls_return_t bn_mod_exp_mont(uint8_t *result, const uint8_t *base,
     const uint32_t n = (uint32_t)((mod_len + 3U) / 4U);
     const size_t work_bytes = BN_MONT_WORK_LIMBS(n) * sizeof(bn_limb_t);
     const size_t table_bytes = (size_t)BN_MONT_TABLE * (size_t)n * sizeof(bn_limb_t);
-    uint32_t e_skip = 0U;
-    uint32_t nb;          /* significant exponent bits (public, via byte length) */
+    uint32_t nb;          /* exponent bits processed: exp_len * 8 (public) */
     uint32_t nwin = 0U;
     uint32_t win_idx = 0U;
     bn_limb_t n0inv;
@@ -2788,12 +2786,10 @@ static noxtls_return_t bn_mod_exp_mont(uint8_t *result, const uint8_t *base,
     /* acc = Montgomery 1 */
     noxtls_copy_u8((uint8_t *)(void *)acc, (size_t)n * sizeof(bn_limb_t), (const uint8_t *)(const void *)&table[0], (size_t)n * sizeof(bn_limb_t));
 
-    /* Trim leading zero bytes of the exponent (reveals only its public byte length). */
-    e_skip = 0U;
-    while((e_skip < exp_len) && (exp[e_skip] == 0U)) {
-        e_skip += 1U;
-    }
-    nb = (exp_len - e_skip) * 8U;
+    /* SECURITY: the window count comes from the public exp_len only. Leading zero bytes of a
+     * secret exponent are processed like any other byte (skipping them would reveal how many
+     * there are through the number of Montgomery multiplications). */
+    nb = exp_len * 8U;
     nwin = (nb + BN_MONT_WINDOW - 1U) / BN_MONT_WINDOW;
 
     for(win_idx = nwin; win_idx > 0U; win_idx -= 1U) {
@@ -3041,10 +3037,10 @@ noxtls_return_t noxtls_bn_mod_exp_service(uint8_t *result, const uint8_t *base,
     /* Handle zero exponent */
     if(noxtls_bn_is_zero(exp_copy, exp_len) != 0) {
         rc = noxtls_bn_one(result, mod_len);
-        (void)noxtls_free(temp_result);
-        (void)noxtls_free(temp_base);
-        (void)noxtls_free(exp_copy);
-        (void)noxtls_free(temp);
+        NOXTLS_SECURE_FREE(temp_result, mod_len);
+        NOXTLS_SECURE_FREE(temp_base, mod_len);
+        NOXTLS_SECURE_FREE(exp_copy, exp_alloc_len);
+        NOXTLS_SECURE_FREE(temp, (size_t)mod_len * 2U);
         return (rc == NOXTLS_RETURN_SUCCESS) ? NOXTLS_RETURN_SUCCESS : rc;
     }
 
@@ -3059,21 +3055,13 @@ noxtls_return_t noxtls_bn_mod_exp_service(uint8_t *result, const uint8_t *base,
      * of the (secret) exponent value. The loop always runs exp_len*8 iterations.
      */
     /*
-     * Skip leading zero BYTES of the exponent. This reveals only the exponent's
-     * byte-length: public exponents (e) are not secret, and secret exponents
-     * (RSA d, DH x) occupy their full buffer, so no secret-dependent timing is
-     * introduced while public-key operations keep their performance.
+     * SECURITY: the ladder always runs exp_len * 8 iterations. Leading zero bytes of the
+     * exponent are NOT skipped: a secret exponent (RSA d, DH x, DSA k) can have a zero top
+     * byte, and skipping it would reveal that through the iteration count. Callers with a
+     * public exponent use noxtls_bn_mod_exp_public(), which trims before reaching here.
      */
     const uint8_t *exp_ptr = exp;
     uint32_t exp_bytes = exp_len;
-    {
-        uint32_t skip = 0U;
-        while((skip < exp_bytes) && (exp_ptr[skip] == 0U)) {
-            skip += 1U;
-        }
-        exp_ptr = &exp_ptr[skip];
-        exp_bytes -= skip; /* exp_bytes >= 1: the all-zero exponent was handled above */
-    }
     total_bits = exp_bytes * 8U;
     (void)bit_index;
 
@@ -3202,12 +3190,263 @@ noxtls_return_t noxtls_bn_mod_exp_public(uint8_t *result, const uint8_t *base,
     }
     rc = bn_mod_exp_mont_public(result, base, exp, exp_len, mod, mod_len);
     if(rc == NOXTLS_RETURN_NOT_SUPPORTED) {
-        /* even modulus: the generic (ladder) path */
-        return noxtls_bn_mod_exp(result, base, exp, exp_len, mod, mod_len);
+        /* even modulus: the generic (ladder) path. The ladder runs exp_len * 8 steps, so
+         * strip the leading zero bytes of this PUBLIC exponent first. */
+        uint32_t e_skip = 0U;
+        while((e_skip < (exp_len - 1U)) && (exp[e_skip] == 0U)) {
+            e_skip += 1U;
+        }
+        return noxtls_bn_mod_exp(result, base, &exp[e_skip], exp_len - e_skip, mod, mod_len);
     }
     if(rc != NOXTLS_RETURN_SUCCESS) {
         noxtls_secure_zero((result), (size_t)(mod_len));
     }
+    return rc;
+}
+
+/* =====================================================================
+ *  Constant-time reduction and prime-modulus inversion
+ *
+ *  noxtls_bn_mod() is a general, fast, variable-time reducer: it strips
+ *  leading zero bytes, dispatches on operand sizes and runs quotient-
+ *  dependent branches. That is fine for public values but not for values
+ *  derived from private keys or nonces, nor for a secret modulus (RSA p, q).
+ *  The routines below have control flow and memory access that depend only
+ *  on the public lengths a_len and mod_len (and on the parity of the modulus,
+ *  which selects the algorithm and is public for every modulus used here).
+ * ===================================================================== */
+
+/*
+ * Load limbs [limb_off, limb_off + n) of the big-endian value @p be (be_len bytes) into
+ * @p out (n little-endian 32-bit limbs). Bytes above be_len read as zero. The access
+ * pattern depends only on be_len, n and limb_off.
+ */
+static void bn_be_chunk_to_limbs(bn_limb_t *out, uint32_t n, const uint8_t *be, uint32_t be_len,
+                                 uint32_t limb_off)
+{
+    uint32_t j = 0U;
+    uint32_t b = 0U;
+    for(j = 0U; j < n; j += 1U) {
+        bn_limb_t limb = 0U;
+        for(b = 4U; b > 0U; b -= 1U) {
+            uint32_t k = ((limb_off + j) * 4U) + (b - 1U);   /* byte index from the LSB end */
+            uint32_t byte = (k < be_len) ? (uint32_t)be[be_len - 1U - k] : 0U;
+            limb = (bn_limb_t)((limb << 8U) | byte);
+        }
+        out[j] = limb;
+    }
+}
+
+/* x = (x + y) mod m for x, y < m (n limbs), constant time. tmp: n-limb scratch. */
+static void bn_ct_add_mod(bn_limb_t *x, const bn_limb_t *y, const bn_limb_t *m, uint32_t n,
+                          bn_limb_t *tmp)
+{
+    uint32_t j = 0U;
+    uint64_t carry = 0U;
+    bn_limb_t borrow;
+    bn_limb_t mask;
+
+    for(j = 0U; j < n; j += 1U) {
+        uint64_t s = (uint64_t)x[j] + (uint64_t)y[j] + carry;
+        x[j] = (bn_limb_t)s;
+        carry = s >> BN_LIMB_BITS;
+    }
+    borrow = bn_limbs_sub(tmp, x, m, n);
+    mask = (bn_limb_t)(0U - ((bn_limb_t)carry | (1U - borrow)));
+    for(j = 0U; j < n; j += 1U) {
+        x[j] = (tmp[j] & mask) | (x[j] & ~mask);
+    }
+}
+
+/*
+ * rem = a mod m by bit-serial shift and masked conditional subtraction: a_len * 8 fixed
+ * iterations, each a shift, a full-width subtraction and a masked select. Works for any
+ * non-zero m (used for an even modulus, where Montgomery does not apply). tmp: n limbs.
+ */
+static void bn_mod_ct_bitserial(bn_limb_t *rem, const uint8_t *a, uint32_t a_len,
+                                const bn_limb_t *m, uint32_t n, bn_limb_t *tmp)
+{
+    uint32_t i = 0U;
+    uint32_t j = 0U;
+
+    noxtls_secure_zero(rem, (size_t)n * sizeof(bn_limb_t));
+    for(i = a_len * 8U; i > 0U; i -= 1U) {
+        uint32_t bp = i - 1U;
+        bn_limb_t carry = (bn_limb_t)(((uint32_t)a[a_len - 1U - (bp >> 3U)] >> (bp & 7U)) & 1U);
+        bn_limb_t borrow;
+        bn_limb_t mask;
+        /* rem = 2 * rem + bit; rem < m on entry, so the value is < 2m */
+        for(j = 0U; j < n; j += 1U) {
+            bn_limb_t nc = rem[j] >> (BN_LIMB_BITS - 1U);
+            rem[j] = (rem[j] << 1U) | carry;
+            carry = nc;
+        }
+        borrow = bn_limbs_sub(tmp, rem, m, n);
+        mask = (bn_limb_t)(0U - (carry | (1U - borrow)));
+        for(j = 0U; j < n; j += 1U) {
+            rem[j] = (tmp[j] & mask) | (rem[j] & ~mask);
+        }
+    }
+}
+
+/**
+ * @brief Constant-time modular reduction: result = a mod mod.
+ * @internal
+ *
+ * See noxtls_bignum.h. Odd modulus: Montgomery Horner evaluation over n-limb chunks of a
+ * (two Montgomery multiplications and one masked addition per chunk, plus R^2 mod m);
+ * even modulus: bit-serial masked subtraction. No platform hook is used.
+ */
+noxtls_return_t noxtls_bn_mod_ct(uint8_t *result, const uint8_t *a, uint32_t a_len,
+                                 const uint8_t *mod, uint32_t mod_len)
+{
+    uint32_t n = 0U;
+    size_t work_bytes = 0U;
+    bn_limb_t *work = NULL;
+    bn_limb_t *m_l;
+    bn_limb_t *RR;
+    bn_limb_t *chunk;
+    bn_limb_t *acc;
+    bn_limb_t *tmp;
+    bn_limb_t *t;
+    uint32_t m_acc = 0U;
+    uint32_t i = 0U;
+
+    if((result == NULL) || (a == NULL) || (mod == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if(mod_len == 0U) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    if((mod_len > (uint32_t)(UINT32_MAX / 8U)) || (a_len > (uint32_t)(UINT32_MAX / 8U))) {
+        noxtls_secure_zero(result, (size_t)mod_len);
+        return NOXTLS_RETURN_FAILED;
+    }
+    /* A zero modulus is invalid; scan every byte (no early exit on the secret value). */
+    for(i = 0U; i < mod_len; i += 1U) {
+        m_acc |= (uint32_t)mod[i];
+    }
+    if(m_acc == 0U) {
+        noxtls_secure_zero(result, (size_t)mod_len);
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+
+    n = (mod_len + 3U) / 4U;
+    work_bytes = BN_MONT_WORK_LIMBS(n) * sizeof(bn_limb_t);
+    work = (bn_limb_t*)NOXTLS_CALLOC(BN_MONT_WORK_LIMBS(n), sizeof(bn_limb_t));
+    if(work == NULL) {
+        noxtls_secure_zero(result, (size_t)mod_len);
+        return NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+    }
+    m_l = work;
+    RR = &work[n];
+    chunk = &work[2U * n];
+    acc = &work[3U * n];
+    tmp = &work[4U * n];
+    t = &work[5U * n];
+
+    bn_be_to_limbs(m_l, n, mod, mod_len);
+    if((mod[mod_len - 1U] & 1U) != 0U) {
+        /* Odd m. With A_c the n-limb chunks of a (a = sum A_c * R^c, R = 2^(32n)), Horner
+         * keeps acc = (a >> (32 n c)) * R mod m: acc = mont(acc, RR) + mont(A_c, RR). Each
+         * Montgomery product has an operand < R and RR < m, so it is fully reduced. The
+         * final mont(acc, 1) removes the factor R. m == 1 is excluded below (RR needs m > 1). */
+        const uint32_t a_limbs = (a_len + 3U) / 4U;
+        const uint32_t chunks = (a_limbs + n - 1U) / n;
+        bn_limb_t n0inv;
+        uint32_t c = 0U;
+
+        noxtls_secure_zero(acc, (size_t)n * sizeof(bn_limb_t));
+        if(noxtls_bn_is_one(mod, mod_len) == 0) {
+            n0inv = bn_mont_n0inv(m_l[0]);
+            bn_mont_RR(RR, m_l, n, n0inv, t, tmp, NULL);
+            for(c = chunks; c > 0U; c -= 1U) {
+                bn_mont_mul(acc, acc, RR, m_l, n, n0inv, t, tmp);
+                bn_be_chunk_to_limbs(chunk, n, a, a_len, (c - 1U) * n);
+                bn_mont_mul(chunk, chunk, RR, m_l, n, n0inv, t, tmp);
+                bn_ct_add_mod(acc, chunk, m_l, n, tmp);
+            }
+            noxtls_secure_zero(RR, (size_t)n * sizeof(bn_limb_t));
+            RR[0] = 1U;
+            bn_mont_mul(acc, acc, RR, m_l, n, n0inv, t, tmp);
+        }
+    } else {
+        bn_mod_ct_bitserial(acc, a, a_len, m_l, n, tmp);
+    }
+    /* a is fully consumed: result may alias it. */
+    bn_limbs_to_be(result, mod_len, acc, n);
+    NOXTLS_SECURE_FREE(work, work_bytes);
+    return NOXTLS_RETURN_SUCCESS;
+}
+
+/**
+ * @brief Constant-time inverse modulo an odd prime: result = a^(p-2) mod p.
+ * @internal
+ *
+ * See noxtls_bignum.h. a is reduced with noxtls_bn_mod_ct(), raised to the public exponent
+ * p - 2 with the fixed-window Montgomery exponentiation, and the result is checked with
+ * a * result == 1 (mod p), so a zero a or a composite p fails instead of returning a wrong
+ * inverse. Only the final pass/fail outcome selects a branch.
+ */
+noxtls_return_t noxtls_bn_mod_inv_prime_ct(uint8_t *result, const uint8_t *a, uint32_t a_len,
+                                           const uint8_t *p, uint32_t p_len)
+{
+    noxtls_return_t rc = NOXTLS_RETURN_FAILED;
+    uint8_t *a_red = NULL;
+    uint8_t *pm2 = NULL;
+    uint8_t *prod = NULL;
+    uint32_t i = 0U;
+
+    if((result == NULL) || (a == NULL) || (p == NULL)) {
+        return NOXTLS_RETURN_NULL;
+    }
+    if((p_len == 0U) || (p_len > (uint32_t)(UINT32_MAX / 8U))) {
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+    /* p must be odd and > 2 (public properties of a prime modulus). */
+    if(((p[p_len - 1U] & 1U) == 0U) || (noxtls_bn_is_one(p, p_len) != 0)) {
+        noxtls_secure_zero(result, (size_t)p_len);
+        return NOXTLS_RETURN_INVALID_PARAM;
+    }
+
+    a_red = (uint8_t*)NOXTLS_CALLOC(p_len, 1U);
+    pm2 = (uint8_t*)NOXTLS_CALLOC(p_len, 1U);
+    prod = (uint8_t*)NOXTLS_CALLOC((size_t)p_len * 2U, 1U);
+    if((a_red == NULL) || (pm2 == NULL) || (prod == NULL)) {
+        rc = NOXTLS_RETURN_NOT_ENOUGH_MEMORY;
+    } else {
+        /* pm2 = p - 2 (p is odd and > 1, so p >= 3 and no borrow leaves the buffer) */
+        uint32_t borrow = 2U;
+        for(i = p_len; i > 0U; i -= 1U) {
+            uint32_t d = (uint32_t)p[i - 1U] - borrow;
+            pm2[i - 1U] = (uint8_t)(d & 0xFFU);
+            borrow = (d >> 31U) & 1U;
+        }
+        rc = noxtls_bn_mod_ct(a_red, a, a_len, p, p_len);
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_bn_mod_exp(result, a_red, pm2, p_len, p, p_len);
+        }
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_bn_mul(prod, a_red, p_len, result, p_len);
+        }
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            rc = noxtls_bn_mod_ct(prod, prod, p_len * 2U, p, p_len);
+        }
+        if(rc == NOXTLS_RETURN_SUCCESS) {
+            /* prod[0..p_len) must be 1: OR of every byte but the last, plus (last ^ 1). */
+            uint32_t acc = (uint32_t)prod[p_len - 1U] ^ 1U;
+            for(i = 0U; (i + 1U) < p_len; i += 1U) {
+                acc |= (uint32_t)prod[i];
+            }
+            rc = (acc == 0U) ? NOXTLS_RETURN_SUCCESS : NOXTLS_RETURN_FAILED;
+        }
+    }
+    if(rc != NOXTLS_RETURN_SUCCESS) {
+        noxtls_secure_zero(result, (size_t)p_len);
+    }
+    NOXTLS_SECURE_FREE(a_red, (size_t)p_len);
+    NOXTLS_SECURE_FREE(pm2, (size_t)p_len);
+    NOXTLS_SECURE_FREE(prod, (size_t)p_len * 2U);
     return rc;
 }
 

@@ -54,3 +54,31 @@ if(NOXTLS_OPENSSL_EXECUTABLE AND NOXTLS_CFG_HAVE_CERT_WRITE)
                      -P "${CMAKE_CURRENT_SOURCE_DIR}/openssl_crosscheck.cmake")
     set_tests_properties(x509_write_openssl_crosscheck PROPERTIES TIMEOUT 120 LABELS "x509_parse;openssl")
 endif()
+
+# Regression tests for the X.509 hardening of the run-1 security audit (path validation,
+# extensions, name constraints, CRL semantics, strict signature DER, ML-DSA, PEM sizing).
+add_executable(x509_audit_test x509_audit_test.c "${NOXTLS_LB_DIR}/lb_alloc.c")
+target_link_libraries(x509_audit_test PRIVATE noxtls_lb_fixture noxtls_utility)
+if(NOXTLS_CFG_HAVE_CERT_WRITE)
+    target_compile_definitions(x509_audit_test PRIVATE NOXTLS_HAVE_CERT_WRITE=1)
+endif()
+set(_x509_audit_tests
+    x509_audit_eku_ku_presence
+    x509_audit_name_constraints
+    x509_audit_path_budget
+    x509_audit_anchor_constraints
+    x509_audit_ecdsa_sig_strict
+    x509_audit_validity_required
+    x509_audit_ext_walker
+    x509_audit_ip_hostname
+    x509_audit_crl_semantics
+    x509_audit_pem_buffer_size
+)
+if(NOXTLS_CFG_FEATURE_ML_DSA AND NOXTLS_CFG_HAVE_CERT_WRITE)
+    list(APPEND _x509_audit_tests x509_audit_mldsa_cert_signature)
+endif()
+foreach(test_name ${_x509_audit_tests})
+    add_test(NAME ${test_name} COMMAND x509_audit_test ${test_name}
+             WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+    set_tests_properties(${test_name} PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120 LABELS "x509_parse")
+endforeach()

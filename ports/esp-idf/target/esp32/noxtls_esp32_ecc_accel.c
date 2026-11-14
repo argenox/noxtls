@@ -28,6 +28,7 @@
 
 #include "noxtls_ecc.h"
 #include "noxtls_common.h"
+#include "noxtls_ct.h"
 #include "noxtls_esp_hw_accel.h"
 
 #include "esp_log.h"
@@ -219,6 +220,7 @@ noxtls_return_t noxtls_ecc_point_multiply_accel_port(ecc_point_t *result,
     uint8_t scalar_le[32];
     int verify_first = 1;
     int rc;
+    noxtls_return_t ret;
 
     s_noxtls_esp_ecc_last_stage = 1U;
     s_noxtls_esp_ecc_last_status = 0U;
@@ -239,6 +241,8 @@ noxtls_return_t noxtls_ecc_point_multiply_accel_port(ecc_point_t *result,
     noxtls_esp_reverse_copy(in_pt.y, point->y, 32U);
     noxtls_esp_reverse_copy(scalar_le, scalar, 32U);
     in_pt.len = 32U;
+    noxtls_secure_zero(&out_pt, sizeof(out_pt));
+    ret = NOXTLS_RETURN_SUCCESS;
 
     if(point == &curve->G ||
        (memcmp(point->x, curve->G.x, 32U) == 0 &&
@@ -254,36 +258,46 @@ noxtls_return_t noxtls_ecc_point_multiply_accel_port(ecc_point_t *result,
         if(esp_ecc_point_verify(&in_pt) != 1) {
             s_noxtls_esp_ecc_last_rc = NOXTLS_RETURN_FAILED;
             s_noxtls_esp_ecc_last_status = 1U;
-            return NOXTLS_RETURN_FAILED;
+            ret = NOXTLS_RETURN_FAILED;
+        } else {
+            s_verified_point_cache.curve = curve;
+            memcpy(s_verified_point_cache.x, point->x, 32U);
+            memcpy(s_verified_point_cache.y, point->y, 32U);
+            s_verified_point_cache.valid = 1;
+            verify_first = 0;
         }
-        s_verified_point_cache.curve = curve;
-        memcpy(s_verified_point_cache.x, point->x, 32U);
-        memcpy(s_verified_point_cache.y, point->y, 32U);
-        s_verified_point_cache.valid = 1;
-        verify_first = 0;
     }
 
-    s_noxtls_esp_ecc_last_stage = 3U;
-    rc = esp_ecc_point_multiply(&in_pt, scalar_le, &out_pt, verify_first);
-    s_noxtls_esp_ecc_last_status = (uint32_t)rc;
-    if(rc != 0 || out_pt.len != 32U) {
-        static int s_logged;
-        if(!s_logged) {
-            ESP_LOGW("noxtls_esp", "esp_ecc_point_multiply failed rc=%d len=%u (software fallback)",
-                     rc, (unsigned)out_pt.len);
-            s_logged = 1;
+    if(ret == NOXTLS_RETURN_SUCCESS) {
+        s_noxtls_esp_ecc_last_stage = 3U;
+        rc = esp_ecc_point_multiply(&in_pt, scalar_le, &out_pt, verify_first);
+        s_noxtls_esp_ecc_last_status = (uint32_t)rc;
+        if(rc != 0 || out_pt.len != 32U) {
+            static int s_logged;
+            if(!s_logged) {
+                ESP_LOGW("noxtls_esp", "esp_ecc_point_multiply failed rc=%d len=%u (software fallback)",
+                         rc, (unsigned)out_pt.len);
+                s_logged = 1;
+            }
+            s_noxtls_esp_ecc_last_rc = NOXTLS_RETURN_FAILED;
+            ret = NOXTLS_RETURN_FAILED;
         }
-        s_noxtls_esp_ecc_last_rc = NOXTLS_RETURN_FAILED;
-        return NOXTLS_RETURN_FAILED;
     }
 
-    noxtls_esp_reverse_copy(result->x, out_pt.x, 32U);
-    noxtls_esp_reverse_copy(result->y, out_pt.y, 32U);
-    result->size = 32U;
-    ++s_noxtls_esp_ecc_operation_count;
-    s_noxtls_esp_ecc_last_rc = NOXTLS_RETURN_SUCCESS;
-    s_noxtls_esp_ecc_last_stage = 4U;
-    return NOXTLS_RETURN_SUCCESS;
+    if(ret == NOXTLS_RETURN_SUCCESS) {
+        noxtls_esp_reverse_copy(result->x, out_pt.x, 32U);
+        noxtls_esp_reverse_copy(result->y, out_pt.y, 32U);
+        result->size = 32U;
+        ++s_noxtls_esp_ecc_operation_count;
+        s_noxtls_esp_ecc_last_rc = NOXTLS_RETURN_SUCCESS;
+        s_noxtls_esp_ecc_last_stage = 4U;
+    }
+
+    /* The scalar is a private key or nonce, and the result can be a shared secret. */
+    noxtls_secure_zero(scalar_le, sizeof(scalar_le));
+    noxtls_secure_zero(&out_pt, sizeof(out_pt));
+    noxtls_secure_zero(&in_pt, sizeof(in_pt));
+    return ret;
 #else
     (void)result;
     (void)scalar;

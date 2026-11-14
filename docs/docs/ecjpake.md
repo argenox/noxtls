@@ -130,7 +130,10 @@ The rest of the session (`noxtls_tls12_connect_poll`, `noxtls_tls12_accept_poll`
   the curve and not be the identity. The round-two generators must not be
   the identity (RFC 8236 section 3.2).
 - Secret scalars are drawn as 320 random bits reduced modulo n and handled
-  with constant-time scalar code; all point multiplications use
+  with constant-time scalar code. Each draw uses its own CTR-DRBG instance,
+  seeded from the configured entropy source and erased after the call, so
+  concurrent EC-JPAKE connections on different threads share no generator
+  state and need no lock (earlier releases used one unlocked module DRBG); all point multiplications use
   `noxtls_ecc_point_multiply()`, so a bound P-256 accelerator port (for
   example CC13xx PKA) is used automatically.
 - Secrets are erased on completion, on any failure and in `free`.

@@ -13,36 +13,85 @@ on:
 permissions:
   contents: read
 
+# Event text (tag names, dispatch inputs) and step outputs are never expanded
+# into script source: they reach the shell and Python only through env and are
+# validated against a strict version pattern first.
 jobs:
   bump-formula:
     runs-on: ubuntu-latest
+    # Holds HOMEBREW_TAP_TOKEN; configure required reviewers and a tag
+    # deployment rule (v*) for this environment in the repository settings.
+    environment: release
     steps:
       - name: Resolve tag
         id: tag
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            TAG="${{ github.event.inputs.tag }}"
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            TAG="${INPUT_TAG}"
           else
-            TAG="${{ github.event.release.tag_name }}"
+            TAG="${RELEASE_TAG}"
           fi
-          if [[ "${TAG}" != v* ]]; then
-            echo "Tag ${TAG} must start with 'v'."
+          if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag must match vX.Y.Z."
             exit 1
           fi
           VERSION="${TAG#v}"
           echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
           echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
 
+      - name: Checkout noxtls (for the reviewed-source check)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          path: noxtls-src
+
+      - name: Require the tag to be on the protected default branch
+        id: source
+        shell: bash
+        working-directory: noxtls-src
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${DEFAULT_BRANCH}" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+            echo "Unexpected default branch name."
+            exit 1
+          fi
+          git fetch --force --no-tags origin "+refs/tags/${TAG}:refs/tags/${TAG}"
+          git fetch --force --no-tags origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+          TAG_SHA="$(git rev-parse --verify "refs/tags/${TAG}^{commit}")"
+          if ! git merge-base --is-ancestor "${TAG_SHA}" "refs/remotes/origin/${DEFAULT_BRANCH}"; then
+            echo "Tag ${TAG} (${TAG_SHA}) is not reachable from origin/${DEFAULT_BRANCH}."
+            exit 1
+          fi
+          echo "sha=${TAG_SHA}" >> "${GITHUB_OUTPUT}"
+
       - name: Fetch source tarball checksum
         id: tarball
         shell: bash
+        working-directory: noxtls-src
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          TAG_SHA: ${{ steps.source.outputs.sha }}
         run: |
           set -euo pipefail
-          TAG="${{ steps.tag.outputs.tag }}"
           URL="https://github.com/argenox/noxtls/archive/refs/tags/${TAG}.tar.gz"
           curl -fsSL -o /tmp/noxtls-src.tar.gz "${URL}"
+          # The tag must not have moved between the ancestry check and the download.
+          git fetch --force --no-tags origin "+refs/tags/${TAG}:refs/tags/${TAG}"
+          NOW_SHA="$(git rev-parse --verify "refs/tags/${TAG}^{commit}")"
+          if [[ "${NOW_SHA}" != "${TAG_SHA}" ]]; then
+            echo "Tag ${TAG} moved during the run."
+            exit 1
+          fi
           SHA256="$(sha256sum /tmp/noxtls-src.tar.gz | awk '{print $1}')"
           echo "url=${URL}" >> "${GITHUB_OUTPUT}"
           echo "sha256=${SHA256}" >> "${GITHUB_OUTPUT}"
@@ -52,35 +101,44 @@ jobs:
         with:
           repository: argenox/homebrew-noxtls
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          persist-credentials: false
           path: homebrew-noxtls
 
       - name: Update Formula/noxtls.rb
         shell: bash
+        env:
+          FORMULA: homebrew-noxtls/Formula/noxtls.rb
+          VERSION: ${{ steps.tag.outputs.version }}
+          URL: ${{ steps.tarball.outputs.url }}
+          SHA256: ${{ steps.tarball.outputs.sha256 }}
         run: |
           set -euo pipefail
-          FORMULA="homebrew-noxtls/Formula/noxtls.rb"
           if [[ ! -f "${FORMULA}" ]]; then
             echo "Missing ${FORMULA}"
             exit 1
           fi
-          VERSION="${{ steps.tag.outputs.version }}"
-          URL="${{ steps.tarball.outputs.url }}"
-          SHA256="${{ steps.tarball.outputs.sha256 }}"
 
-          python - <<PY
-          from pathlib import Path
+          python3 - <<'PY'
+          import os
           import re
+          from pathlib import Path
 
-          path = Path("${FORMULA}")
+          path = Path(os.environ["FORMULA"])
+          url = os.environ["URL"]
+          sha256 = os.environ["SHA256"]
+          version = os.environ["VERSION"]
+          if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
+              raise SystemExit("bad version")
+          if not re.fullmatch(r"[0-9a-f]{64}", sha256):
+              raise SystemExit("bad sha256")
+          if not re.fullmatch(r"https://github\.com/argenox/noxtls/archive/refs/tags/v[0-9.]+\.tar\.gz", url):
+              raise SystemExit("bad url")
           text = path.read_text(encoding="utf-8")
-          url = "${URL}"
-          sha256 = "${SHA256}"
-          version = "${VERSION}"
-          text = re.sub(r'(\surl\s+")[^"]+(")', rf'\g<1>{url}\g<2>', text, count=1)
-          text = re.sub(r'(\ssha256\s+")[^"]+(")', rf'\g<1>{sha256}\g<2>', text, count=1)
+          text = re.sub(r'(\surl\s+")[^"]+(")', lambda m: m.group(1) + url + m.group(2), text, count=1)
+          text = re.sub(r'(\ssha256\s+")[^"]+(")', lambda m: m.group(1) + sha256 + m.group(2), text, count=1)
           text = re.sub(
               r'(# noxtls formula version:\s*)\S+',
-              rf'\g<1>{version}',
+              lambda m: m.group(1) + version,
               text,
               count=1,
           )
@@ -93,6 +151,9 @@ jobs:
       - name: Commit and push
         working-directory: homebrew-noxtls
         shell: bash
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -102,5 +163,10 @@ jobs:
             echo "Formula already up to date."
             exit 0
           fi
-          git commit -m "noxtls ${{ steps.tag.outputs.version }}"
-          git push
+          git commit -m "noxtls ${VERSION}"
+          # The token is used for this push only; it is not stored in git config.
+          BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+          AUTH="$(printf 'x-access-token:%s' "${TAP_TOKEN}" | base64 -w0)"
+          echo "::add-mask::${AUTH}"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${AUTH}" \
+            push origin "HEAD:refs/heads/${BRANCH}"

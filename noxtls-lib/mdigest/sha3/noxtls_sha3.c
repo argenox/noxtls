@@ -576,6 +576,10 @@ noxtls_return_t noxtls_sha3_verify(const uint8_t * data, uint32_t len, const uin
     if ((hrc == NOXTLS_RETURN_SUCCESS) && (noxtls_ct_equal(hash, expected, (size_t)hash_len) != 0)) {
         rc = NOXTLS_RETURN_SUCCESS;
     }
+
+    /* The context and digest describe the (possibly secret) input. */
+    noxtls_secure_zero(&ctx, sizeof(ctx));
+    noxtls_secure_zero(hash, sizeof(hash));
     
     return rc;
 }

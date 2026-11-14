@@ -287,7 +287,7 @@ noxtls_return_t noxtls_dsa_key_generate(dsa_key_t *key)
             } else {
                 /* Every bignum result is checked: a failed reduction must never leave a zeroed x
                  * that is then "fixed up" to x = 1 (y = g) and reported as SUCCESS. */
-                rc = noxtls_bn_mod(key->x, x_buf, key->q_len, key->q, key->q_len);
+                rc = noxtls_bn_mod_ct(key->x, x_buf, key->q_len, key->q, key->q_len);
             }
             if (rc == NOXTLS_RETURN_SUCCESS) {
                 if (noxtls_bn_is_zero(key->x, key->q_len) != 0) {
@@ -392,6 +392,9 @@ static noxtls_return_t dsa_bn_error(noxtls_return_t rc)
     return mapped;
 }
 
+/** Extra random bytes drawn for a signing nonce (64 bits, FIPS 186-4 B.2.1). */
+#define DSA_NONCE_EXTRA_BYTES 8U
+
 /**
  * @brief Create a DSA signature (r, s) on a noxtls_message using the private key (FIPS 186-4).
  *
@@ -422,6 +425,7 @@ noxtls_return_t noxtls_dsa_sign(const dsa_key_t *key, const uint8_t *noxtls_mess
     uint8_t *z_rx = NULL;
     uint8_t *zr_mod = NULL;
     uint8_t *random_bytes = NULL;
+    uint8_t *q_minus_1 = NULL;
     drbg_state_t drbg;
     uint8_t drbg_ready = 0U;
     uint8_t done = 0U;
@@ -441,7 +445,11 @@ noxtls_return_t noxtls_dsa_sign(const dsa_key_t *key, const uint8_t *noxtls_mess
     if ((q_len > (uint32_t)(UINT32_MAX / 8U)) ||
        (q_len > (uint32_t)(UINT32_MAX / 2U)) ||
        (p_len > (uint32_t)(UINT32_MAX / 2U)) ||
-       (q_len == UINT32_MAX)) {
+       (q_len == UINT32_MAX) || (q_len < 2U)) {
+        return NOXTLS_RETURN_FAILED;
+    }
+    /* q is an odd prime (public domain parameter); the nonce draw and the inversion rely on it. */
+    if ((key->q == NULL) || ((key->q[q_len - 1U] & 1U) == 0U)) {
         return NOXTLS_RETURN_FAILED;
     }
 
@@ -453,9 +461,10 @@ noxtls_return_t noxtls_dsa_sign(const dsa_key_t *key, const uint8_t *noxtls_mess
     rx = (uint8_t *)NOXTLS_CALLOC((size_t)q_len * 2U, 1U);
     z_rx = (uint8_t *)NOXTLS_CALLOC(q_len + 1U, 1U);
     zr_mod = (uint8_t *)NOXTLS_CALLOC(q_len, 1U);
-    random_bytes = (uint8_t *)NOXTLS_CALLOC(q_len, 1U);
+    random_bytes = (uint8_t *)NOXTLS_CALLOC((size_t)q_len + DSA_NONCE_EXTRA_BYTES, 1U);
+    q_minus_1 = (uint8_t *)NOXTLS_CALLOC(q_len, 1U);
     if ((hash == NULL) || (z == NULL) || (k == NULL) || (k_inv == NULL) || (g_k == NULL) || (rx == NULL) ||
-        (z_rx == NULL) || (zr_mod == NULL) || (random_bytes == NULL)) {
+        (z_rx == NULL) || (zr_mod == NULL) || (random_bytes == NULL) || (q_minus_1 == NULL)) {
         rc = NOXTLS_RETURN_FAILED;
     } else {
         rc = dsa_hash_message(hash, &hash_len, noxtls_message, message_len, hash_algo);
@@ -476,6 +485,9 @@ noxtls_return_t noxtls_dsa_sign(const dsa_key_t *key, const uint8_t *noxtls_mess
     }
 
     if (rc == NOXTLS_RETURN_SUCCESS) {
+        /* q - 1 (q is odd: clear the low bit) for the nonce draw k = (c mod (q - 1)) + 1. */
+        noxtls_copy_u8(q_minus_1, (size_t)q_len, key->q, (size_t)q_len);
+        q_minus_1[q_len - 1U] &= 0xFEU;
         rc = drbg_instantiate(&drbg, DRBG_AES256, NULL, 0, NULL, 0, NULL, 0);
         drbg_ready = 1U;
     }
@@ -486,15 +498,26 @@ noxtls_return_t noxtls_dsa_sign(const dsa_key_t *key, const uint8_t *noxtls_mess
             uint8_t retry = 0U;
             noxtls_return_t step = NOXTLS_RETURN_SUCCESS;
 
-            if (drbg_generate(&drbg, random_bytes, q_len * 8U, NULL, 0) != NOXTLS_RETURN_SUCCESS) {
+            /* SECURITY: every value derived from k or x below is reduced with the constant-time
+             * noxtls_bn_mod_ct() (fixed operation sequence for the public lengths) and k is
+             * inverted with the constant-time Fermat inverse: no branch or memory access depends
+             * on k, k^-1, r*x or z + r*x (CVE-2018-0495 class timing). */
+            /* k = (c mod (q - 1)) + 1 with c of N + 64 bits (FIPS 186-4 B.2.1): uniform in
+             * [1, q - 1] up to a 2^-64 bias, and no secret-dependent compare or retry. */
+            if (drbg_generate(&drbg, random_bytes, (q_len + DSA_NONCE_EXTRA_BYTES) * 8U, NULL, 0) != NOXTLS_RETURN_SUCCESS) {
                 step = NOXTLS_RETURN_FAILED;
             }
             if (step == NOXTLS_RETURN_SUCCESS) {
-                step = noxtls_bn_mod(k, random_bytes, q_len, key->q, q_len);
+                step = noxtls_bn_mod_ct(k, random_bytes, q_len + DSA_NONCE_EXTRA_BYTES, q_minus_1, q_len);
             }
             if (step == NOXTLS_RETURN_SUCCESS) {
-                if (noxtls_bn_is_zero(k, q_len) != 0) {
-                    k[q_len - 1U] = 1U;
+                /* k += 1 (k < q - 1, so no carry leaves the buffer) */
+                uint32_t carry = 1U;
+                uint32_t i = 0U;
+                for (i = q_len; i > 0U; i -= 1U) {
+                    uint32_t sum = (uint32_t)k[i - 1U] + carry;
+                    k[i - 1U] = (uint8_t)(sum & 0xFFU);
+                    carry = sum >> 8U;
                 }
                 /* r = (g^k mod p) mod q; exp k is q-sized, modulus is p. */
                 step = noxtls_bn_mod_exp(g_k, key->g, k, q_len, key->p, p_len);
@@ -508,9 +531,9 @@ noxtls_return_t noxtls_dsa_sign(const dsa_key_t *key, const uint8_t *noxtls_mess
 
             /* s = k^(-1) * (z + r*x) mod q */
             if ((step == NOXTLS_RETURN_SUCCESS) && (retry == 0U)) {
-                step = noxtls_bn_mod_inv(k_inv, k, q_len, key->q, q_len);
+                step = noxtls_bn_mod_inv_prime_ct(k_inv, k, q_len, key->q, q_len);
                 if (step == NOXTLS_RETURN_FAILED) {
-                    /* gcd(k, q) != 1 (only possible for a non-prime q): draw a new nonce. */
+                    /* k * k^-1 != 1 (only possible for a non-prime q): draw a new nonce. */
                     retry = 1U;
                     step = NOXTLS_RETURN_SUCCESS;
                 }
@@ -519,10 +542,10 @@ noxtls_return_t noxtls_dsa_sign(const dsa_key_t *key, const uint8_t *noxtls_mess
                 step = noxtls_bn_mul(rx, signature->r, q_len, key->x, q_len);
             }
             if ((step == NOXTLS_RETURN_SUCCESS) && (retry == 0U)) {
-                step = noxtls_bn_mod(rx, rx, q_len * 2U, key->q, q_len);
+                step = noxtls_bn_mod_ct(rx, rx, q_len * 2U, key->q, q_len);
             }
             if ((step == NOXTLS_RETURN_SUCCESS) && (retry == 0U)) {
-                /* z_rx = z + rx (both q_len; sum may need q_len+1 bytes) */
+                /* z_rx = z + rx (both q_len; the sum is always reduced at q_len + 1 bytes) */
                 uint16_t carry = 0U;
                 uint32_t i = 0U;
                 for (i = q_len; i > 0U; i -= 1U) {
@@ -536,18 +559,13 @@ noxtls_return_t noxtls_dsa_sign(const dsa_key_t *key, const uint8_t *noxtls_mess
                     }
                 }
                 z_rx[0] = (uint8_t)carry;
-                {
-                    /* Reduce into a separate buffer: the source may start one byte into z_rx. */
-                    uint32_t len = (z_rx[0U] != 0U) ? (q_len + 1U) : q_len;
-                    const uint8_t *src = (z_rx[0] != 0U) ? z_rx : (&z_rx[1U]);
-                    step = noxtls_bn_mod(zr_mod, src, len, key->q, q_len);
-                }
+                step = noxtls_bn_mod_ct(zr_mod, z_rx, q_len + 1U, key->q, q_len);
             }
             if ((step == NOXTLS_RETURN_SUCCESS) && (retry == 0U)) {
                 step = noxtls_bn_mul(rx, k_inv, q_len, zr_mod, q_len);
             }
             if ((step == NOXTLS_RETURN_SUCCESS) && (retry == 0U)) {
-                step = noxtls_bn_mod(signature->s, rx, q_len * 2U, key->q, q_len);
+                step = noxtls_bn_mod_ct(signature->s, rx, q_len * 2U, key->q, q_len);
             }
             if ((step == NOXTLS_RETURN_SUCCESS) && (retry == 0U) && (noxtls_bn_is_zero(signature->s, q_len) != 0)) {
                 retry = 1U;
@@ -585,7 +603,8 @@ noxtls_return_t noxtls_dsa_sign(const dsa_key_t *key, const uint8_t *noxtls_mess
     NOXTLS_SECURE_FREE(rx, (size_t)q_len * 2U);
     NOXTLS_SECURE_FREE(z_rx, (size_t)q_len + 1U);
     NOXTLS_SECURE_FREE(zr_mod, (size_t)q_len);
-    NOXTLS_SECURE_FREE(random_bytes, (size_t)q_len);
+    NOXTLS_SECURE_FREE(random_bytes, (size_t)q_len + DSA_NONCE_EXTRA_BYTES);
+    NOXTLS_SECURE_FREE(q_minus_1, (size_t)q_len);
     return rc;
 }
 

@@ -29,4 +29,13 @@ config NOXTLS_SSH_CLIENT_COMMAND
     string "Remote command"
     default "uname -a"
 
+config NOXTLS_SSH_CLIENT_ALLOW_UNVERIFIED_HOST
+    bool "Send the password without verifying the server host key (testing only)"
+    default n
+    help
+        The example does not check the server host key. With this off (the
+        default) it refuses to authenticate, so the configured password is
+        never sent to an unverified host. Enable only on a trusted test
+        network, or after adding host-key verification to the example.
+
 endmenu

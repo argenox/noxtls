@@ -49,7 +49,8 @@ extern "C"
  * @note out_length must be at least (noxtls_u8_strlen(string) / 2) to avoid truncation.
  *
  * @return On success, the number of bytes written. On error: -1 if string or
- *         out_buf is NULL, -2 if out_buf is too small.
+ *         out_buf is NULL, -2 if out_buf is too small, -3 if the length is odd,
+ *         -5 if any character is not a hex digit (nothing is written then).
  */
 /* Public helper; arm DB may omit other TU callers. */
 static uint8_t noxtls_hex_nibble(uint8_t c)
@@ -91,17 +92,21 @@ int noxtls_hex_string_to_bytes(const uint8_t * string, uint8_t * out_buf, size_t
         return -2;
     }
 
+    /* Reject any non-hex character before writing output, so a malformed key
+     * or IV can never decode to (partly) zero bytes. */
+    for(i = 0U; i < str_len; i += 1U)
+    {
+        if(noxtls_hex_nibble(string[i]) > 0x0FU) {
+            return -5;
+        }
+    }
+
     /* Parse two hex chars at a time into one byte */
     for(i = 0U; i < str_len; i += (size_t)HEX_STRING_STRIDE)
     {
         uint8_t hi = noxtls_hex_nibble(string[i]);
         uint8_t lo = noxtls_hex_nibble(string[i + 1U]);
-        /* Historical behavior: invalid nibbles yield 0. */
-        if((hi > 0x0FU) || (lo > 0x0FU)) {
-            out_buf[j] = 0U;
-        } else {
-            out_buf[j] = (uint8_t)((hi << 4) | lo);
-        }
+        out_buf[j] = (uint8_t)((hi << 4) | lo);
         j += 1U;
     }
 

@@ -228,7 +228,7 @@ noxtls_return_t tls_accept_auto(tls_context_t *base_ctx,
                                 uint16_t *negotiated_version);
 ```
 
-Accept a connection with automatic version negotiation. The first record (Client Hello) must already be in the base context (e.g. via recv). Optional `tls10_ctx`/`tls11_ctx` may be NULL; `tls12_ctx` and `tls13_ctx` must be initialized and configured. On success, the appropriate context (TLS 1.2 or 1.3) has completed the handshake; `negotiated_version` is set.
+Accept a connection with automatic version negotiation. The first record (Client Hello) must already be in the base context (e.g. via recv). Optional `tls10_ctx`/`tls11_ctx` may be NULL; a client that negotiates TLS 1.0 or 1.1 when the matching slot is NULL gets a `protocol_version` alert and the call returns `NOXTLS_RETURN_NOT_SUPPORTED` (a NULL TLS 1.1 slot no longer runs the handshake on a temporary context). `tls12_ctx` and `tls13_ctx` must be initialized and configured. On success, the appropriate context (TLS 1.2 or 1.3) has completed the handshake; `negotiated_version` is set.
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes).
 

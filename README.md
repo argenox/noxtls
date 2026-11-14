@@ -2,7 +2,7 @@
   <img src="docs/static/img/noxtls-logo-50.webp" alt="NoxTLS" width="200" />
 </div>
 
-# NoxTLS
+# NoxTLS™
 
 **A fast, lightweight TLS crypto library designed for embedded and constrained systems by Argenox**
 Built for deterministic performance, clean APIs, and modern cryptography.
@@ -82,3 +82,6 @@ This installs the static SDK (libraries + headers), CMake/pkg-config metadata, a
 ```bash
 git clone https://github.com/argenox/noxtls.git
 cd noxtls
+
+
+NoxTLS and Argenox are Trademarks of Argenox Technologies LLC. All other trademarks belong to their respective owners.

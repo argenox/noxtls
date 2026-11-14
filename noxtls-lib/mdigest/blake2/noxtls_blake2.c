@@ -130,6 +130,9 @@ static void blake2s_compress(noxtls_blake2_ctx_t * ctx, const uint8_t * block, i
     for (i = 0U; i < BLAKE2_CHAINING_WORDS; i += 1U) {
         ctx->h.h32[i] ^= v[i] ^ v[i + BLAKE2_CHAINING_WORDS];
     }
+    /* m is the input block (a keyed-BLAKE2 key block, a secret). */
+    noxtls_secure_zero(m, sizeof(m));
+    noxtls_secure_zero(v, sizeof(v));
 }
 
 /**
@@ -182,6 +185,8 @@ static void blake2b_compress(noxtls_blake2_ctx_t * ctx, const uint8_t * block, i
     for (i = 0U; i < BLAKE2_CHAINING_WORDS; i += 1U) {
         ctx->h.h64[i] ^= v[i] ^ v[i + BLAKE2_CHAINING_WORDS];
     }
+    noxtls_secure_zero(m, sizeof(m));
+    noxtls_secure_zero(v, sizeof(v));
 }
 
 /**

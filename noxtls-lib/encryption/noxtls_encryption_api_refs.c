@@ -49,6 +49,7 @@ static void noxtls_encryption_misra_api_refs(void)
     NOXTLS_MISRA_REF_FN(&noxtls_aes_sub_bytes);
     NOXTLS_MISRA_REF_FN(&noxtls_aes_update);
     NOXTLS_MISRA_REF_FN(&noxtls_aes_final);
+    NOXTLS_MISRA_REF_FN(&noxtls_aes_free);
     { uint32_t v = (uint32_t)(NOXTLS_AES_DEBUG); (void)v; }
 #endif
 #if NOXTLS_FEATURE_AES_ECB

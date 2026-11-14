@@ -61,6 +61,33 @@
 
 #include "noxtls_falcon_tables.inc"
 
+/*
+ * Signing runs FFT, LDL and SamplerZ over the secret basis in binary64. On a
+ * core without a double-precision FPU (Cortex-M0/M3/M4/M33, RV32 without D)
+ * each operation is a compiler-runtime call whose instruction count depends on
+ * the operand values, so signing time leaks information about the key.
+ * Verification and key decoding are integer-only and unaffected.
+ *
+ * NOXTLS_FALCON_REQUIRE_HW_DOUBLE=1 turns such a build into a compile error,
+ * for products whose threat model includes local timing or power analysis.
+ * It is 0 by default so existing soft-float test builds keep working.
+ */
+#ifndef NOXTLS_FALCON_REQUIRE_HW_DOUBLE
+#define NOXTLS_FALCON_REQUIRE_HW_DOUBLE 0
+#endif
+
+#if (defined(__arm__) && (!defined(__ARM_FP) || ((__ARM_FP & 0x8) == 0))) || \
+    (defined(__riscv) && (!defined(__riscv_flen) || (__riscv_flen < 64))) || \
+    defined(__SOFTFP__)
+#define FALCON_SOFT_DOUBLE 1
+#else
+#define FALCON_SOFT_DOUBLE 0
+#endif
+
+#if (NOXTLS_FALCON_REQUIRE_HW_DOUBLE != 0) && (FALCON_SOFT_DOUBLE != 0)
+#error "Falcon signing on this target uses variable-time software binary64; build for a double-precision FPU or leave NOXTLS_FALCON_REQUIRE_HW_DOUBLE at 0 after assessing the timing risk."
+#endif
+
 /* ------------------------------------------------------------------------- */
 /* Constants                                                                 */
 /* ------------------------------------------------------------------------- */
@@ -111,6 +138,15 @@ static const double falcon_p2_tab[11] = {
 #define FALCON_KEYGEN_NORM_MAX (16822.4121)
 /** Maximum number of in-place signing attempts (fresh PRNG per attempt). */
 #define FALCON_SIGN_DYN_MAX_ATTEMPTS 64U
+/**
+ * Upper bound on SamplerZ rejection iterations. A valid key accepts with
+ * probability well above 1/4 per iteration, so the bound is never reached in
+ * practice (< 2^-400); a malformed key (singular Gram matrix, NaN target)
+ * fails the signature instead of hanging the caller.
+ */
+#define FALCON_SAMPLER_MAX_ITER 1024U
+/** |det(B)(w) - q|^2 must stay below this at every FFT point (exact for integer det). */
+#define FALCON_NTRU_FFT_TOL    (0.25)
 
 /* ------------------------------------------------------------------------- */
 /* Parameter sets                                                            */
@@ -550,9 +586,24 @@ static uint32_t falcon_mq_sub(uint32_t a, uint32_t b)
     return r;
 }
 
+/** floor(2^40 / q): Barrett constant for falcon_mq_mul. */
+#define FALCON_MQ_BARRETT_M UINT64_C(89471204)
+
+/**
+ * (a * b) mod q for a, b < q without a division instruction: compilers emit
+ * UDIV for `%`, whose latency is operand dependent on Cortex-M3/M4. The
+ * Barrett quotient is off by at most one for every 32-bit product (checked
+ * exhaustively), corrected by a branch-free conditional subtraction.
+ */
 static uint32_t falcon_mq_mul(uint32_t a, uint32_t b)
 {
-    return (a * b) % NOXTLS_FALCON_Q;
+    uint32_t x = a * b;
+    uint32_t t = (uint32_t)(((uint64_t)x * FALCON_MQ_BARRETT_M) >> 40U);
+    uint32_t r = x - (t * NOXTLS_FALCON_Q);
+
+    r -= NOXTLS_FALCON_Q;
+    r += NOXTLS_FALCON_Q & (0U - (r >> 31U));
+    return r;
 }
 
 /** x^(q-2) mod q (fixed exponent, so the operation sequence is data independent). */
@@ -1009,6 +1060,9 @@ typedef struct
     uint32_t st[12];
     uint64_t cc;
     uint32_t ptr;
+    /* SamplerZ failure flag (set at FALCON_SAMPLER_MAX_ITER). Kept here, in
+     * the struct's tail padding, so the signing workspace size is unchanged. */
+    uint32_t fail;
 } falcon_prng_t;
 
 typedef struct
@@ -1243,8 +1297,9 @@ static int32_t falcon_sampler(falcon_sampler_ctx_t *spc, double mu, double isigm
     double r = mu - (double)s;
     double dss = (isigma * isigma) * 0.5;
     double ccs = isigma * spc->sigma_min;
+    uint32_t iter = 0U;
 
-    for(;;) {
+    for(iter = 0U; (iter < FALCON_SAMPLER_MAX_ITER) && (spc->p.fail == 0U); iter += 1U) {
         int32_t z0 = falcon_gaussian0(&spc->p);
         int32_t b = (int32_t)(falcon_prng_get_u8(&spc->p) & 1U);
         int32_t z = b + (((2 * b) - 1) * z0);
@@ -1256,6 +1311,9 @@ static int32_t falcon_sampler(falcon_sampler_ctx_t *spc, double mu, double isigm
             return s + z;
         }
     }
+    /* Malformed key (non-finite target or degenerate sigma): fail closed. */
+    spc->p.fail = 1U;
+    return s;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -1328,6 +1386,39 @@ static void falcon_load_basis(double *tmp, const int8_t *f, const int8_t *g,
     falcon_fft(b10, logn);
     falcon_poly_neg(b01, logn);
     falcon_poly_neg(b11, logn);
+}
+
+/**
+ * Check the NTRU equation f*G - g*F = q mod (x^n + 1) on the FFT basis in tmp
+ * (as written by falcon_load_basis: b00 = g, b01 = -f, b10 = G, b11 = -F).
+ *
+ * det = b00*b11 - b01*b10 = f*G - g*F. For a nonzero integer polynomial
+ * D = det - q, Parseval gives max |D(w)| >= 1 over the n/2 stored points, so
+ * requiring |det(w) - q|^2 < 1/4 everywhere is exact (FFT error is far below
+ * that for these small coefficients). NaN values fail the comparison.
+ *
+ * @return 1 when the key satisfies the NTRU equation, 0 otherwise.
+ */
+static uint32_t falcon_basis_is_ntru(const double *tmp, uint32_t logn)
+{
+    uint32_t n = 1U << logn;
+    uint32_t hn = n >> 1U;
+    const double *b00 = tmp;
+    const double *b01 = &tmp[n];
+    const double *b10 = &tmp[2U * n];
+    const double *b11 = &tmp[3U * n];
+    uint32_t ok = 1U;
+    uint32_t u = 0U;
+
+    for(u = 0U; u < hn; u += 1U) {
+        falcon_cpx_t p0 = falcon_cmul(b00[u], b00[u + hn], b11[u], b11[u + hn]);
+        falcon_cpx_t p1 = falcon_cmul(b01[u], b01[u + hn], b10[u], b10[u + hn]);
+        double re = (p0.re - p1.re) - FALCON_Q_DOUBLE;
+        double im = p0.im - p1.im;
+
+        ok &= (uint32_t)(((re * re) + (im * im)) < FALCON_NTRU_FFT_TOL);
+    }
+    return ok;
 }
 
 /** One signing attempt; returns 1 when (s1, s2) is short enough (s2 then written). */
@@ -1474,13 +1565,26 @@ noxtls_return_t noxtls_falcon_internal_sign_dyn(const noxtls_falcon_param_spec_t
     }
     /* The sampler state (ChaCha20 buffer) lives in the workspace tail, not on the stack. */
     spc = (falcon_sampler_ctx_t *)(void *)&((uint8_t *)ws)[80U * (uint32_t)spec->n];
-    for(attempt = 0U; (attempt < FALCON_SIGN_DYN_MAX_ATTEMPTS) && (ok == 0U); attempt += 1U) {
+    /* A decodable key whose G fits is not necessarily an NTRU basis (e.g. all
+     * -1 coefficients give a singular Gram matrix); reject it before sampling. */
+    falcon_load_basis((double *)ws, f, g, F, G, spec->logn);
+    if(falcon_basis_is_ntru((const double *)ws, spec->logn) == 0U) {
+        rc = NOXTLS_RETURN_BAD_DATA;
+    } else {
+        rc = NOXTLS_RETURN_SUCCESS;
+    }
+    for(attempt = 0U; (rc == NOXTLS_RETURN_SUCCESS) && (attempt < FALCON_SIGN_DYN_MAX_ATTEMPTS) && (ok == 0U); attempt += 1U) {
         spc->sigma_min = falcon_sigma_min[spec->logn];
+        spc->p.fail = 0U;
         rc = falcon_prng_init(&spc->p, rng);
         if(rc != NOXTLS_RETURN_SUCCESS) {
             break;
         }
         ok = falcon_do_sign_dyn(spc, s2, f, g, F, G, hm, spec->logn, spec->l2bound, (double *)ws);
+        if(spc->p.fail != 0U) {
+            ok = 0U;
+            rc = NOXTLS_RETURN_BAD_DATA;
+        }
     }
     noxtls_secure_zero(spc, sizeof(*spc));
     noxtls_secure_zero(ws, (size_t)spec->n * 72U);

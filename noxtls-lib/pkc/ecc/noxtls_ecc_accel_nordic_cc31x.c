@@ -607,6 +607,12 @@ noxtls_return_t noxtls_ecc_point_multiply_accel_port(ecc_point_t *result,
 
     cc312_read_be(CC312_REG_AX, result->x);
     cc312_read_be(CC312_REG_AY, result->y);
+    if(s_cc312_fault != 0u) {
+        /* A read timed out: the result is incomplete, never report it. */
+        noxtls_secure_zero(result->x, CC312_P256_BYTES);
+        noxtls_secure_zero(result->y, CC312_P256_BYTES);
+        goto cleanup_hw;
+    }
     result->size = CC312_P256_BYTES;
     ++s_cc312_operations;
     s_cc312_ready = 1u;

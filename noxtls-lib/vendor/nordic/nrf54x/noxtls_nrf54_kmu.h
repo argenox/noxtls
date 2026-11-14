@@ -31,6 +31,14 @@
  * (for READMETADATA: the slot is empty). The KMU has no interrupt line, so
  * tasks are awaited with a bounded poll. PROVISION and REVOKE write RRAM and
  * are permanent: an optional hook enables RRAM writes around them.
+ *
+ * Concurrency: every function below owns the KMU (KEYSLOT, SRC, task and
+ * event registers) for its whole register sequence through a non-blocking
+ * ownership flag. A call made while another KMU operation is in progress
+ * (another task, or an interrupt handler preempting one) does nothing and
+ * returns NOXTLS_RETURN_TIMEOUT; retry it later. KEYSLOT is also read back
+ * before each trigger, and a mismatch fails the call without triggering.
+ * Code outside NoxTLS that drives the KMU directly must not run concurrently.
  */
 
 #ifndef NOXTLS_NRF54_KMU_H

@@ -68,6 +68,33 @@ static uint8_t dh_is_known_ffdhe_prime(const uint8_t *p, uint32_t p_len)
     return 0U;
 }
 
+/**
+ * @brief Public exponent length, in bytes, of RFC 7919 short exponents for a known FFDHE prime.
+ *
+ * noxtls_bn_mod_exp() runs a fixed number of steps for the exponent buffer length it is given
+ * (it never skips leading zero bytes of a secret exponent), so a short FFDHE exponent stored
+ * right-aligned in a p_len buffer is passed at this public length instead.
+ *
+ * @param[in] p Prime modulus bytes.
+ * @param[in] p_len Length of modulus in bytes.
+ * @return Exponent length in bytes, or 0 when @p p is not a built-in FFDHE prime.
+ */
+static uint32_t dh_ffdhe_exp_bytes(const uint8_t *p, uint32_t p_len)
+{
+    uint32_t bits = 0U;
+    if (dh_is_known_ffdhe_prime(p, p_len) != 0U) {
+        switch (p_len) {
+            case NOXTLS_FFDHE2048_P_BYTES: bits = NOXTLS_FFDHE2048_MIN_PRIVATE_BITS; break;
+            case NOXTLS_FFDHE3072_P_BYTES: bits = NOXTLS_FFDHE3072_MIN_PRIVATE_BITS; break;
+            case NOXTLS_FFDHE4096_P_BYTES: bits = NOXTLS_FFDHE4096_MIN_PRIVATE_BITS; break;
+            case NOXTLS_FFDHE6144_P_BYTES: bits = NOXTLS_FFDHE6144_MIN_PRIVATE_BITS; break;
+            case NOXTLS_FFDHE8192_P_BYTES: bits = NOXTLS_FFDHE8192_MIN_PRIVATE_BITS; break;
+            default: bits = 0U; break;
+        }
+    }
+    return (bits + 7U) / 8U;
+}
+
 /** Maximum DRBG draws for private-key rejection sampling (failure probability < 2^-100). */
 #define DH_PRIV_MAX_TRIES 256U
 
@@ -385,8 +412,10 @@ noxtls_return_t noxtls_dh_ffdhe_generate_ephemeral(uint16_t named_group,
     rc = dh_random_exponent(&drbg, private_out, p_len, min_bits, p_minus_2);
     (void)noxtls_drbg_uninstantiate(&drbg);
     if (rc == NOXTLS_RETURN_SUCCESS) {
+        /* The exponent has min_bits bits (public): exponentiate over its public byte length. */
+        const uint32_t exp_bytes = (min_bits + 7U) / 8U;
         noxtls_copy_u8(g_padded, (size_t)p_len, g, (size_t)p_len);
-        rc = noxtls_bn_mod_exp(public_out, g_padded, private_out, p_len, p, p_len);
+        rc = noxtls_bn_mod_exp(public_out, g_padded, &private_out[p_len - exp_bytes], exp_bytes, p, p_len);
     }
     if (rc != NOXTLS_RETURN_SUCCESS) {
         noxtls_secure_zero((private_out), (size_t)(p_len));
@@ -624,7 +653,24 @@ noxtls_return_t noxtls_dh_shared_secret(const uint8_t *private_key,
         rc = dh_validate_peer_public(peer_mod, p, p_len);
     }
     if (rc == NOXTLS_RETURN_SUCCESS) {
-        rc = noxtls_bn_mod_exp(secret_out, peer_mod, private_key, private_len, p, p_len);
+        /* An RFC 7919 short exponent (noxtls_dh_ffdhe_generate_ephemeral) has zero high bytes
+         * by construction: exponentiate over its public length. The high bytes are scanned in
+         * full (no early exit); only the short/full form of the key selects the length. */
+        const uint8_t *exp_ptr = private_key;
+        uint32_t exp_len = private_len;
+        const uint32_t short_bytes = dh_ffdhe_exp_bytes(p, p_len);
+        if ((short_bytes != 0U) && (short_bytes < private_len)) {
+            uint32_t high = 0U;
+            uint32_t i = 0U;
+            for (i = 0U; i < (private_len - short_bytes); i += 1U) {
+                high |= (uint32_t)private_key[i];
+            }
+            if (high == 0U) {
+                exp_ptr = &private_key[private_len - short_bytes];
+                exp_len = short_bytes;
+            }
+        }
+        rc = noxtls_bn_mod_exp(secret_out, peer_mod, exp_ptr, exp_len, p, p_len);
     }
     if (rc != NOXTLS_RETURN_SUCCESS) {
         noxtls_secure_zero(secret_out, (size_t)p_len);

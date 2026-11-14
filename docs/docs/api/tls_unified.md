@@ -193,7 +193,7 @@ Server: receive the first record (Client Hello), detect version, initialize the 
 noxtls_return_t noxtls_tls_connection_connect(noxtls_tls_connection_t *conn);
 ```
 
-Client: run handshake. With auto negotiation, tries TLS 1.3 first, then TLS 1.2. With fixed version (init_version), uses only that version.
+Client: run handshake. With auto negotiation, the client offers TLS 1.3 and TLS 1.2 in one ClientHello and continues as TLS 1.2 only when the server selects it (with the RFC 8446 section 4.1.3 downgrade check). A failed TLS 1.3 handshake returns its error; it is not retried as a separate TLS 1.2 handshake. With fixed version (init_version), uses only that version.
 
 **Returns:** [noxtls_return_t](/docs/api/return_codes).
 

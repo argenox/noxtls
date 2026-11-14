@@ -311,14 +311,24 @@ REGISTER_TEST(test_aead_backend_limits_and_errors)
     g_ut.inject_error = 1U;
     UTNOX_EQUALS(noxtls_aes_ccm_encrypt(key, NOXTLS_AES_128_BIT, iv, 12U, NULL, 0U, g_ut_ram.in, 16U, g_ut_ram.out,
                                         tag, 16U), NOXTLS_RETURN_FAILED);
-    /* GCM decrypt hardware failure: the port falls back to software (still verifies). */
+    /* GCM decrypt hardware failure: reported as a hard error (no software retry), output wiped. */
     UTNOX_EQUALS(noxtls_aes_gcm_encrypt(key, NOXTLS_AES_128_BIT, iv, NULL, 0U, g_ut_ram.in, 16U, g_ut_ram.out, tag),
                  NOXTLS_RETURN_SUCCESS);
     (void)memcpy(&g_ut_ram.in[64], g_ut_ram.out, 16U);
     g_ut.inject_error = 1U;
     UTNOX_EQUALS(noxtls_aes_gcm_decrypt(key, NOXTLS_AES_128_BIT, iv, NULL, 0U, &g_ut_ram.in[64], 16U, tag, g_ut_ram.out),
-                 NOXTLS_RETURN_SUCCESS);
-    UTNOX_EQUALS(memcmp(g_ut_ram.out, g_ut_ram.in, 16U), 0);
+                 NOXTLS_RETURN_FAILED);
+    UTNOX_EQUALS(g_ut_ram.out[0], 0U);
+    /* In-place GCM encrypt hardware failure (TLS 1.3 seal): hard error, never an all-zero record. */
+    (void)memcpy(&g_ut_ram.in[128], g_ut_ram.in, 16U);
+    g_ut.inject_error = 1U;
+    UTNOX_EQUALS(noxtls_aes_gcm_encrypt(key, NOXTLS_AES_128_BIT, iv, NULL, 0U, &g_ut_ram.in[128], 16U,
+                                        &g_ut_ram.in[128], tag), NOXTLS_RETURN_FAILED);
+    /* In-place ECB block hardware failure: hard error, no software recompute of the wiped input. */
+    (void)memcpy(&g_ut_ram.in[128], g_ut_ram.in, 16U);
+    g_ut.inject_error = 1U;
+    UTNOX_EQUALS(noxtls_aes_accel_port_encrypt_block(key, &g_ut_ram.in[128], &g_ut_ram.in[128], NOXTLS_AES_128_BIT),
+                 NOXTLS_RETURN_FAILED);
     /* Segments longer than one DMA descriptor (16 MiB): software. */
     UTNOX_EQUALS(noxtls_nrf54_aead_gcm(0U, key, 16U, iv, NULL, 0U, g_ut_ram.in, g_ut_ram.out, 0x1000000U, tag),
                  NOXTLS_RETURN_NOT_SUPPORTED);

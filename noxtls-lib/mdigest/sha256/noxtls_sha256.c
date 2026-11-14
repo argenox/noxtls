@@ -446,9 +446,11 @@ static noxtls_return_t noxtls_sha256_round_software(noxtls_sha_ctx_t * ctx, cons
     ctx->u.md32.h[5] += f;
     ctx->u.md32.h[6] += g;
     ctx->u.md32.h[7] += h;
-    
-    
-	    return NOXTLS_RETURN_SUCCESS;
+
+    /* The schedule words are the input block (an HMAC key pad, a PRK): wipe
+     * them here, per block; a wipe at finish cannot reach this frame. */
+    noxtls_secure_zero(w, sizeof(w));
+    return NOXTLS_RETURN_SUCCESS;
 }
 
 static noxtls_return_t noxtls_sha256_blocks_software(noxtls_sha_ctx_t * ctx, const uint8_t * input, uint32_t block_count)
@@ -489,6 +491,21 @@ static noxtls_return_t noxtls_sha256_blocks_software(noxtls_sha_ctx_t * ctx, con
  *
  * @return NOXTLS_RETURN_SUCCESS on success, noxtls_return_t otherwise
  */
+/**
+ * @brief Release accelerator state tied to a finished SHA-256 context.
+ *
+ * @param ctx Finished context.
+ * @return None.
+ */
+static void sha256_accel_release(const noxtls_sha_ctx_t * ctx)
+{
+#if NOXTLS_FEATURE_NOXV_HW_ACCEL
+    noxtls_noxv_sha256_release(ctx);
+#else
+    (void)ctx;
+#endif
+}
+
 noxtls_return_t noxtls_sha256_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
 {
 	noxtls_return_t rc = NOXTLS_RETURN_FAILED;
@@ -498,17 +515,18 @@ noxtls_return_t noxtls_sha256_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
     }
 
     uint32_t used = (uint32_t)ctx->u.md32.data_len;
-    uint32_t total_length = 0U;
+    uint64_t total_length = 0U;
     uint32_t i = 0U;
     uint32_t block_size = (uint32_t)(SHA256_BLOCK_SIZE_BYTES);
     uint8_t length_size = (uint8_t)(SHA256_LENGTH_FIELD_BYTES); /* 64-bit length field */
 
     if (used >= block_size) {
         noxtls_secure_zero(hash, (size_t)HASH_SHA256_OUT_LEN);
+        sha256_accel_release(ctx);
         noxtls_secure_zero(ctx, sizeof(*ctx));
         return NOXTLS_RETURN_FAILED;
     }
-    total_length = ctx->u.md32.length + used;
+    total_length = ctx->u.md32.length + (uint64_t)used;
 
     /* Pad in place in the context block buffer (no stack copy): 0x80, zeros,
      * then the big-endian bit length in the last 8 bytes. */
@@ -550,6 +568,7 @@ noxtls_return_t noxtls_sha256_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
     if (rc != NOXTLS_RETURN_SUCCESS) {
         /* Never release a partial digest: wipe the output and the state. */
         noxtls_secure_zero(hash, (size_t)alg_sz * 4U);
+        sha256_accel_release(ctx);
         noxtls_secure_zero(ctx, sizeof(*ctx));
         return rc;
     }
@@ -561,6 +580,7 @@ noxtls_return_t noxtls_sha256_finish(noxtls_sha_ctx_t * ctx, uint8_t * hash)
         hash[(i << 2U) + 3U] = (uint8_t)(ctx->u.md32.h[i] & 0x000000FFU);
     }
 
+    sha256_accel_release(ctx);
 	return rc;
 }
 
@@ -619,6 +639,9 @@ noxtls_return_t noxtls_sha256_verify(const uint8_t * data, uint32_t len, const u
         rc = NOXTLS_RETURN_SUCCESS;
     }
 
+    /* The context and digest describe the (possibly secret) input. */
+    noxtls_secure_zero(&ctx, sizeof(ctx));
+    noxtls_secure_zero(hash, sizeof(hash));
     return rc;
 }
 
@@ -650,6 +673,9 @@ noxtls_return_t noxtls_sha224_verify(const uint8_t * data, uint32_t len, const u
         rc = NOXTLS_RETURN_SUCCESS;
     }
 
+    /* The context and digest describe the (possibly secret) input. */
+    noxtls_secure_zero(&ctx, sizeof(ctx));
+    noxtls_secure_zero(hash, sizeof(hash));
     return rc;
 }
 
