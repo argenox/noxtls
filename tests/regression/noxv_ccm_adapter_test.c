@@ -148,9 +148,36 @@ static void check_admission(void)
     CHECK(rc==NOXTLS_RETURN_NOT_SUPPORTED && mmio==0u && all_byte(out,sizeof(out),0xa5),"unselected port never touches hardware or output");
 #endif
 }
+static void check_single_block(void)
+{
+    const uint8_t *key=aes_vectors[0].key,*in=aes_vectors[0].input;
+    uint8_t out[18];noxtls_return_t rc;
+    /* (a) known vector through the public single-block hook. */
+    reset_model();memset(out,0xa5,sizeof(out));
+    rc=noxtls_aes_accel_port_encrypt_block(key,in,out+1u,NOXTLS_AES_128_BIT);
+    CHECK(rc==NOXTLS_RETURN_SUCCESS && memcmp(out+1u,aes_vectors[0].output,16u)==0,"single block known vector");
+    CHECK(out[0]==0xa5 && out[17]==0xa5 && model_faults==0u && irq_depth==0u && starts==1u,"single block bounds/ownership");
+    /* (b) busy engine: bounded wait, no register written, no START. */
+    reset_model();force_busy=1u;memset(out,0xa5,sizeof(out));
+    rc=noxtls_aes_accel_port_encrypt_block(key,in,out+1u,NOXTLS_AES_128_BIT);
+    CHECK(rc==NOXTLS_RETURN_TIMEOUT,"single block busy engine times out");
+    CHECK(key_writes==0u && starts==0u && regs[0]==0u && regs[6]==0u && status_reads==8u,"busy engine: no key/block/CTRL write, no START");
+    CHECK(irq_depth==0u && irq_entries==1u && model_faults==0u && all_byte(out+1u,16u,0xa5),"busy engine: IRQ balanced, output untouched");
+    /* (c) denied START with stale DONE: prompt FAILED, stale registers unused. */
+    reset_model();reject_at=1u;memset(out,0xa5,sizeof(out));regs[10]=0x11223344u;
+    rc=noxtls_aes_accel_port_encrypt_block(key,in,out+1u,NOXTLS_AES_128_BIT);
+    CHECK(rc==NOXTLS_RETURN_FAILED,"single block denied START fails");
+    CHECK(status_reads<4u,"denied START returns promptly, well below timeout spins");
+    CHECK(all_byte(out+1u,16u,0xa5) && starts==1u && irq_depth==0u && model_faults==0u,"denied START: stale DONE/output not consumed, IRQ balanced");
+    /* (d) DONE never arrives. */
+    reset_model();timeout_at=1u;memset(out,0xa5,sizeof(out));
+    rc=noxtls_aes_accel_port_encrypt_block(key,in,out+1u,NOXTLS_AES_128_BIT);
+    CHECK(rc==NOXTLS_RETURN_TIMEOUT && all_byte(out+1u,16u,0xa5),"single block missing DONE times out");
+    CHECK(irq_depth==0u && model_faults==0u && starts==1u,"timeout: IRQ balanced");
+}
 int main(void)
 {
-    check_vectors();check_admission();
+    check_vectors();check_admission();check_single_block();
     printf("NoxV CCM gate=%d checks=%u failed=%u\n",CCM_TEST_GATE_ON,checks,errors);
     return errors?1:0;
 }

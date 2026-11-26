@@ -37,7 +37,9 @@
 
 #define NOXTLS_NOXV_AES_CTRL_START      (1u << 1U)
 #define NOXTLS_NOXV_AES_CTRL_CLEAR      (1u << 2U)
+#define NOXTLS_NOXV_AES_STATUS_BUSY     (1u << 0U)
 #define NOXTLS_NOXV_AES_STATUS_DONE     (1u << 1U)
+#define NOXTLS_NOXV_AES_STATUS_DENIED   (1u << 4U)
 
 #if defined(__GNUC__) || defined(__clang__)
 #define NOXTLS_NOXV_WEAK __attribute__((weak))
@@ -109,6 +111,21 @@ static noxtls_return_t noxtls_noxv_aes_encrypt_128(const uint8_t *key,
     uint32_t spins;
 
     irq_state = noxtls_noxv_aes_irq_save();
+
+    /* The engine is shared with AAR, which can own it even while CPU IRQs are
+     * masked. Wait for idle before touching any register so an operation in
+     * flight is never overwritten; fail closed if it stays busy. */
+    for(spins = 0U; spins < NOXTLS_NOXV_AES_TIMEOUT_SPINS; spins += 1U) {
+        if((noxtls_noxv_aes_mmio_read(NOXTLS_NOXV_AES_STATUS_OFF) &
+            NOXTLS_NOXV_AES_STATUS_BUSY) == 0U) {
+            break;
+        }
+    }
+    if(spins == NOXTLS_NOXV_AES_TIMEOUT_SPINS) {
+        noxtls_noxv_aes_irq_restore(irq_state);
+        return NOXTLS_RETURN_TIMEOUT;
+    }
+
     noxtls_noxv_aes_mmio_write(NOXTLS_NOXV_AES_CTRL_OFF,
                                NOXTLS_NOXV_AES_CTRL_CLEAR);
 
@@ -122,8 +139,13 @@ static noxtls_return_t noxtls_noxv_aes_encrypt_128(const uint8_t *key,
     noxtls_noxv_aes_mmio_write(NOXTLS_NOXV_AES_CTRL_OFF,
                                NOXTLS_NOXV_AES_CTRL_START);
     for(spins = 0U; spins < NOXTLS_NOXV_AES_TIMEOUT_SPINS; spins += 1U) {
-        if((noxtls_noxv_aes_mmio_read(NOXTLS_NOXV_AES_STATUS_OFF) &
-            NOXTLS_NOXV_AES_STATUS_DONE) != 0U) {
+        uint32_t status = noxtls_noxv_aes_mmio_read(NOXTLS_NOXV_AES_STATUS_OFF);
+        if((status & NOXTLS_NOXV_AES_STATUS_DENIED) != 0U) {
+            /* START denied (AAR owns the engine): never consume a stale DONE. */
+            (void)noxtls_noxv_aes_irq_restore(irq_state);
+            return NOXTLS_RETURN_FAILED;
+        }
+        if((status & NOXTLS_NOXV_AES_STATUS_DONE) != 0U) {
             for(word = 0U; word < 4U; word += 1U) {
                 noxtls_noxv_unpack_be32(
                     noxtls_noxv_aes_mmio_read(NOXTLS_NOXV_AES_BLOCK_OUT_OFF +
